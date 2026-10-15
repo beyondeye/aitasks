@@ -89,6 +89,12 @@ to land this effort".
 | J6 | `/aitask-trail --refresh <handle>` | Existing trail | Unchanged |
 | J7 | Board, By-Trail view → open/inspect/compare versions | Existing trail | n/a (read-only) |
 
+A new trail's owner must be a live (active) task in this repository. When the
+J2/J3 default owner is archived, missing, or another repository's task, the
+owner is chosen as in J4. An existing trail keeps its stored owner after that
+task is archived. Refresh (J5/J6) passes the stored owner verbatim and accepts
+an archived one.
+
 Journey shapes:
 
 - **Create** (J1–J4): resolve scope → read-only analysis → present the proposed

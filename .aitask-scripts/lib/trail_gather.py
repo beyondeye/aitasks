@@ -4,7 +4,8 @@ trails (t1210_2; RFC aidocs/implementation_trail_design.md par.7-8; T2).
 
 Two verbs, both read-only:
 
-  snapshot --scope task|topic|multi_topic [--owner <id>] <ids...>
+  snapshot --scope task|topic|multi_topic [--owner <id> | --no-owner]
+           [--allow-archived-owner] <ids...>
       Resolve scope + owner, build the RFC par.8.1 normalized input records
       over the member tasks, and emit them with their input_digest.
   drift --trail <path>
@@ -65,10 +66,21 @@ whole-output identity: adding a non-volatile line changes the default
 output while leaving every stored digest comparable.
 
 Error vocabulary (ERROR:<kind>:<id>): unknown_task, unresolved_project,
-cross_repo_topic_unsupported, unstable_repository_state, undriftable_input,
-ref_outside_project, invalid_trail, trail_unreadable, artifact_unresolved
-(the last one is emitted by the wrapper). ERROR paths emit ONLY error
-lines -- never a partial snapshot or a partial verdict.
+cross_repo_topic_unsupported, unstable_repository_state, archived_owner,
+foreign_owner, owner_unverifiable, undriftable_input, ref_outside_project,
+invalid_trail, trail_unreadable, artifact_unresolved (the last one is emitted
+by the wrapper). ERROR paths emit ONLY error lines -- never a partial
+snapshot or a partial verdict.
+
+OWNER RULE (t1989). The owner candidate is --owner, else the single scope
+id, else none (OWNER:none; --no-owner forces none). One rule applies to both
+explicit and implicit candidates: another project's task -> foreign_owner (a
+trail is owned by a LOCAL task); an active local task -> valid; archive-only
+(loose or bundled) -> valid under --allow-archived-owner (refresh of a trail
+that outlived its owner), else archived_owner (a new trail must attach to a
+live task); an archive lookup that could not complete -> owner_unverifiable;
+nowhere -> unknown_task. The owner is not a digest input, so --no-owner and
+an owned run over the same scope emit the same DIGEST.
 
 GENERATION INVARIANT: snapshot records only inputs that exist
 (exists=true always at generation); exists=false appears only in the drift
@@ -510,21 +522,29 @@ def build_input_records(
 
 # --- Stable read ------------------------------------------------------------
 
-def stable_records(scan_fn, max_scans: int = STABLE_READ_MAX_SCANS):
+def stable_records(scan_fn, max_scans: int = STABLE_READ_MAX_SCANS,
+                   state_fn=None):
     """Accept a scan only when two consecutive scans digest identically.
 
-    scan_fn() -> (records, payload). Returns (records, payload) of the last
-    scan, or None after max_scans without two consecutive stable digests
-    (churn detection, not isolation -- see module docstring).
+    scan_fn() -> (records, payload). Returns (records, payload) of the earlier
+    scan of the stable pair, or None after max_scans without two consecutive
+    stable scans (churn detection, not isolation -- see module docstring).
+
+    state_fn(payload) -> hashable names state the caller acts on that is NOT
+    in the records (the snapshot owner's presence, t1989): it must be stable
+    across the pair too, yet never enters the digest. Without it, a change to
+    that state between scans leaves the digests equal and the earlier scan's
+    stale view would be returned.
     """
-    prev_digest = None
+    prev_key = None
     prev_result = None
     for _ in range(max_scans):
         records, payload = scan_fn()
-        digest = trail_schema.input_digest(records)
-        if prev_digest is not None and digest == prev_digest:
+        key = (trail_schema.input_digest(records),
+               state_fn(payload) if state_fn is not None else None)
+        if prev_key is not None and key == prev_key:
             return prev_result
-        prev_digest, prev_result = digest, (records, payload)
+        prev_key, prev_result = key, (records, payload)
     return None
 
 
@@ -1035,6 +1055,35 @@ def _resolve_scope_ids(raw_ids: list[str], scope: str, local_name: str,
     return ids
 
 
+def _owner_error(owner: tuple[str, str], fresh: dict[str, ProjectTree],
+                 local_name: str, allow_archived: bool) -> str | None:
+    """The owner rule (t1989): one definition for the explicit --owner and
+    the implicit single-scope-id owner. None = valid; else a staged error.
+
+    A trail is an artifact of a LOCAL task (t1958). Active is always valid.
+    Archive-only is valid only with `allow_archived` -- refresh of a trail that
+    outlived its owner; a NEW trail must not attach to an archived task, so
+    create gets `archived_owner`. An archive lookup that could not complete is
+    `owner_unverifiable`, never `unknown_task`: not-read is not not-found.
+    """
+    proj, bare = owner
+    ref = f"{proj}#{bare}"
+    if proj != local_name:
+        return f"foreign_owner:{ref}"
+    tree = fresh[local_name]
+    if tree.by_own_id.get(bare) is not None:
+        return None
+    lookup_errors: list[str] = []
+    if find_archived_markdown_by_id(bare, tree.archived_dir,
+                                    errors=lookup_errors) is not None:
+        return None if allow_archived else f"archived_owner:{ref}"
+    if lookup_errors:
+        for err in lookup_errors:
+            print(f"trail_gather: owner {ref}: {err}", file=sys.stderr)
+        return f"owner_unverifiable:{ref}"
+    return f"unknown_task:{ref}"
+
+
 def cmd_snapshot(args, out=None) -> int:
     out = out if out is not None else sys.stdout
     local_name = local_project_name()
@@ -1047,14 +1096,29 @@ def cmd_snapshot(args, out=None) -> int:
         owner_parsed = canonical_id(args.owner, local_name)
         if owner_parsed is None:
             errors.append(f"unknown_task:{args.owner}")
+        elif owner_parsed[0] != local_name:
+            # Before project resolution: an unregistered foreign owner is a
+            # foreign owner, not an unresolved project.
+            errors.append(f"foreign_owner:{owner_parsed[0]}#{owner_parsed[1]}")
     if errors:
         emit_errors(out, errors)
         return 0
 
+    # The owner candidate the rule is applied to: --owner, else the single
+    # scope id, else none. --no-owner skips it (owner-recovery candidate run).
+    if getattr(args, "no_owner", False):
+        owner_candidate = None
+    elif owner_parsed is not None:
+        owner_candidate = owner_parsed
+    elif len(ids) == 1:
+        owner_candidate = ids[0]
+    else:
+        owner_candidate = None
+
     # Resolve every involved project root up front (staged, fail-closed).
     projects = {proj for proj, _ in ids}
     if owner_parsed:
-        projects.add(owner_parsed[0])
+        projects.add(owner_parsed[0])  # always local here
     trees: dict[str, ProjectTree] = {}
     for proj in sorted(projects):
         root = roots.resolve(proj)
@@ -1095,31 +1159,41 @@ def cmd_snapshot(args, out=None) -> int:
                     continue
                 members.extend((r, tree) for r in found)
 
-        # Validate --owner against the fresh universe.
-        if owner_parsed is not None:
-            owner_tree = fresh[owner_parsed[0]]
-            if owner_tree.by_own_id.get(owner_parsed[1]) is None:
-                scan_errors.append(
-                    f"unknown_task:{owner_parsed[0]}#{owner_parsed[1]}")
         if scan_errors:
-            return [], (scan_errors, [], {})
+            return [], (scan_errors, [], fresh)
         records, _plan_paths = build_input_records(members)
         return records, ([], members, fresh)
 
-    result = stable_records(scan)
+    def owner_presence(payload):
+        # The owner is outside the input records, so its presence in each
+        # scan's active tree must be part of the stability key: an owner
+        # archived between scans must not be validated against the earlier,
+        # stale tree. Kept out of the digest -- ownership is not an input.
+        if owner_candidate is None or owner_candidate[0] != local_name:
+            return None
+        return owner_candidate[1] in payload[2][local_name].by_own_id
+
+    result = stable_records(scan, state_fn=owner_presence)
     if result is None:
         emit_errors(out, ["unstable_repository_state:snapshot"])
         return 0
     records, (scan_errors, members, fresh) = result
+
+    # The owner rule runs once, against the accepted scan's universe -- whose
+    # owner presence the stable read confirmed (one archive lookup, one
+    # diagnostic) -- and its error is staged WITH the scan errors so every
+    # problem is reported together.
+    if owner_candidate is not None:
+        owner_err = _owner_error(owner_candidate, fresh, local_name,
+                                 getattr(args, "allow_archived_owner", False))
+        if owner_err is not None:
+            scan_errors = scan_errors + [owner_err]
     if scan_errors:
         emit_errors(out, sorted(set(scan_errors)))
         return 0
 
-    # Owner: --owner override, else the single scope id, else none.
-    if owner_parsed is not None:
-        owner = f"{owner_parsed[0]}#{owner_parsed[1]}"
-    elif len(ids) == 1:
-        owner = f"{ids[0][0]}#{ids[0][1]}"
+    if owner_candidate is not None:
+        owner = f"{owner_candidate[0]}#{owner_candidate[1]}"
     else:
         owner = "none"
 
@@ -1648,7 +1722,15 @@ def build_parser() -> argparse.ArgumentParser:
     snap = sub.add_parser("snapshot", help="gather scope input records + digest")
     snap.add_argument("--scope", required=True,
                       choices=("task", "topic", "multi_topic"))
-    snap.add_argument("--owner", help="explicit owner task id (RFC J4)")
+    owner = snap.add_mutually_exclusive_group()
+    owner.add_argument("--owner", help="explicit owner task id (RFC J4)")
+    owner.add_argument("--no-owner", action="store_true",
+                       help="emit OWNER:none without resolving an owner -- "
+                            "the candidate run of owner recovery")
+    snap.add_argument("--allow-archived-owner", action="store_true",
+                      help="accept an owner found only in the archive -- "
+                           "refresh of an existing trail; a new trail must "
+                           "attach to a live task")
     snap.add_argument("--with-inflight", action="store_true",
                       help="probe in-flight tasks + their planned surfaces "
                            "(opt-in: reads the local locks ref and plan files)")

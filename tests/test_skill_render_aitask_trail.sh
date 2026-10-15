@@ -147,6 +147,29 @@ assert_contains "codex stub: reads from .agents/skills/aitask-trail-<profile>-co
 assert_contains "opencode stub: reads from .opencode/skills/aitask-trail-<profile>-" \
     ".opencode/skills/aitask-trail-<profile>-/SKILL.md" "$(cat "$OPENCODE_STUB")"
 
+# === Test 6: owner-handling prose (t1989) ===
+#
+# A golden diff cannot stop a later edit from restoring the refresh step's old
+# prefix-stripping example, under which a stored foreign owner `proj#12` became
+# `--owner 12` and silently named an unrelated local task. Pin the refresh
+# rule (verbatim owner + --allow-archived-owner) and the create-side owner
+# recovery (complete --no-owner candidate run, strict rerun) by section.
+
+echo "=== Test 6: refresh passes the stored owner verbatim; create recovers owners ==="
+fast_render="$($RENDER "$TEMPLATE" "$PROFILES_DIR/fast.yaml" claude 2>&1)"
+refresh_section="$(printf '%s\n' "$fast_render" \
+    | awk '/^### Step 3: Refresh Flow/{f=1; print; next} f && /^##+ /{exit} f')"
+gather_section="$(printf '%s\n' "$fast_render" \
+    | awk '/^#### 2b: Gather/{f=1; print; next} f && /^#+ /{exit} f')"
+assert_contains "refresh section extracted" "### Step 3: Refresh Flow" "$refresh_section"
+assert_contains "refresh: --allow-archived-owner" "--allow-archived-owner" "$refresh_section"
+assert_contains "refresh: owner passed verbatim" '`owner` field verbatim' "$refresh_section"
+assert_not_contains "refresh: no prefix-stripping example" \
+    '`aitasks#1210` → `1210`' "$refresh_section"
+assert_contains "2b section extracted" "#### 2b: Gather" "$gather_section"
+assert_contains "2b: --no-owner candidate run" "--no-owner" "$gather_section"
+assert_contains "2b: strict rerun requires no ERROR line" 'no `ERROR:` line' "$gather_section"
+
 # === Summary ===
 
 echo ""

@@ -30,10 +30,12 @@ import re
 import shutil
 import subprocess
 import sys
+import tarfile
 import tempfile
 import textwrap
 import unittest
 from pathlib import Path
+from unittest import mock
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SCRIPTS_DIR = REPO_ROOT / ".aitask-scripts"
@@ -413,12 +415,16 @@ class TopicScopeTests(TrailGatherCase):
         self.assertEqual(snap["owner"], "mainproj#100")
 
     def test_orphan_child_clusters_under_absent_parent_id(self):
-        snap = self.snapshot("--scope", "topic", "103")
+        # --no-owner: membership only; the absent t103 cannot be the implicit
+        # owner (t1989).
+        snap = self.snapshot("--scope", "topic", "--no-owner", "103")
         self.assertEqual([m[0] for m in snap["members"]], ["mainproj#103_2"])
 
     def test_anchor_to_archived_root_still_keys_by_anchor(self):
         self.repo.write_task("104", "late", anchor=200)  # no t200 anywhere
-        snap = self.snapshot("--scope", "topic", "200")
+        # --no-owner: this pins topic MEMBERSHIP. A root that exists nowhere
+        # can no longer be the implicit owner (t1989; OwnerRuleTests).
+        snap = self.snapshot("--scope", "topic", "--no-owner", "200")
         self.assertEqual([m[0] for m in snap["members"]], ["mainproj#104"])
 
     def test_task_scope_pulls_children_not_anchored_tasks(self):
@@ -460,6 +466,155 @@ class OwnerHandoffTests(TrailGatherCase):
         snap = self.snapshot("--scope", "topic", "--owner", "999", "100")
         self.assertEqual(snap["errors"], ["unknown_task:mainproj#999"])
         self.assertNotIn("SCOPE:", snap["raw"])
+
+
+def _write_zst_bundle(path: Path, files: dict[str, str]) -> None:
+    """A tar.zst archive bundle holding ``files`` (name -> text)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w") as tf:
+        for name, text in files.items():
+            data = text.encode("utf-8")
+            info = tarfile.TarInfo(name=name)
+            info.size = len(data)
+            tf.addfile(info, io.BytesIO(data))
+    subprocess.run(["zstd", "-q", "-f", "-o", str(path)],
+                   input=buf.getvalue(), check=True)
+
+
+class OwnerRuleTests(TrailGatherCase):
+    """The owner rule (t1989), one definition for the explicit --owner and the
+    implicit single-scope-id owner: active -> valid; archive-only -> valid only
+    under --allow-archived-owner (refresh), else archived_owner (create);
+    nowhere -> unknown_task; archive unreadable -> owner_unverifiable."""
+
+    def setUp(self):
+        super().setUp()
+        self.repo.write_task("100", "root")
+        self.repo.archive_task("500", "landed_owner")
+
+    def test_archived_explicit_owner_accepted_with_flag(self):
+        snap = self.snapshot("--scope", "topic", "--owner", "500",
+                             "--allow-archived-owner", "100")
+        self.assertEqual(snap["errors"], [])
+        self.assertEqual(snap["owner"], "mainproj#500")
+
+    def test_archived_explicit_owner_refused_without_flag(self):
+        snap = self.snapshot("--scope", "topic", "--owner", "500", "100")
+        self.assertEqual(snap["errors"], ["archived_owner:mainproj#500"])
+        self.assertNotIn("SCOPE:", snap["raw"])
+        self.assertNotIn("OWNER:", snap["raw"])
+
+    def test_nonexistent_owner_unknown_with_or_without_flag(self):
+        for extra in ((), ("--allow-archived-owner",)):
+            snap = self.snapshot("--scope", "topic", "--owner", "999",
+                                 *extra, "100")
+            self.assertEqual(snap["errors"], ["unknown_task:mainproj#999"],
+                             extra)
+
+    def test_qualified_stored_owner_ref_accepted(self):
+        """The refresh form: the loaded trail's `owner` passed VERBATIM."""
+        snap = self.snapshot("--scope", "topic", "--owner", "mainproj#500",
+                             "--allow-archived-owner", "100")
+        self.assertEqual(snap["errors"], [])
+        self.assertEqual(snap["owner"], "mainproj#500")
+
+    def test_implicit_owner_missing_root_is_an_error(self):
+        self.repo.write_task("104", "late", anchor=200)  # no t200 anywhere
+        snap = self.snapshot("--scope", "topic", "200")
+        self.assertEqual(snap["errors"], ["unknown_task:mainproj#200"])
+        self.assertNotIn("OWNER:", snap["raw"])
+        # The owner-recovery candidate run still yields the membership.
+        cand = self.snapshot("--scope", "topic", "--no-owner", "200")
+        self.assertEqual(cand["errors"], [])
+        self.assertEqual(cand["owner"], "none")
+        self.assertEqual([m[0] for m in cand["members"]], ["mainproj#104"])
+
+    def test_implicit_archived_topic_root(self):
+        """The real shape: topic root archived, members still active."""
+        self.repo.archive_task("200", "archived_root")
+        self.repo.write_task("104", "late", anchor=200)
+        snap = self.snapshot("--scope", "topic", "200")
+        self.assertEqual(snap["errors"], ["archived_owner:mainproj#200"])
+        snap = self.snapshot("--scope", "topic", "--allow-archived-owner",
+                             "200")
+        self.assertEqual(snap["errors"], [])
+        self.assertEqual(snap["owner"], "mainproj#200")
+        self.assertEqual([m[0] for m in snap["members"]], ["mainproj#104"])
+
+    def test_no_owner_still_stops_on_scope_error(self):
+        snap = self.snapshot("--scope", "topic", "--no-owner", "999")
+        self.assertEqual(snap["errors"], ["unknown_task:mainproj#999"])
+        self.assertNotIn("SCOPE:", snap["raw"])
+
+    def test_no_owner_and_owner_are_exclusive(self):
+        _, rc = self.run_cli("snapshot", "--scope", "topic", "--no-owner",
+                             "--owner", "100", "100")
+        self.assertEqual(rc, trail_gather.EXIT_USAGE)
+
+    def test_owner_is_not_a_digest_input(self):
+        """The candidate run and the strict rerun must describe one state."""
+        self.repo.write_task("101", "member", anchor=100)
+        digests = {
+            label: self.snapshot("--scope", "topic", *argv, "100")["digest"]
+            for label, argv in (
+                ("no-owner", ("--no-owner",)),
+                ("active", ("--owner", "101")),
+                ("archived", ("--owner", "500", "--allow-archived-owner")),
+            )}
+        self.assertEqual(len(set(digests.values())), 1, digests)
+
+    @unittest.skipUnless(shutil.which("zstd"), "zstd not installed")
+    def test_owner_only_in_legacy_bundle_accepted(self):
+        archived = self.repo.root / "aitasks" / "archived"
+        _write_zst_bundle(archived / "old.tar.zst", {
+            "t600_bundled.md": "---\nstatus: Done\n---\nbody\n"})
+        snap = self.snapshot("--scope", "topic", "--owner", "600",
+                             "--allow-archived-owner", "100")
+        self.assertEqual(snap["errors"], [])
+        self.assertEqual(snap["owner"], "mainproj#600")
+
+    def test_unreadable_bundle_is_unverifiable_not_unknown(self):
+        archived = self.repo.root / "aitasks" / "archived"
+        (archived / "old.tar.zst").write_bytes(b"not a zstd frame")
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            rc = trail_gather.main(["snapshot", "--scope", "topic", "--owner",
+                                    "600", "--allow-archived-owner", "100"])
+        self.assertEqual(rc, 0)
+        snap = self.parse_snapshot(out.getvalue())
+        self.assertEqual(snap["errors"], ["owner_unverifiable:mainproj#600"])
+        self.assertIn("trail_gather: owner mainproj#600:", err.getvalue())
+
+    def _archive_owner_after_first_scan(self, *argv: str) -> dict:
+        """Snapshot while the (active) owner t700 is archived between the
+        first and second stable-read scans. The owner sits outside the input
+        records, so both scans digest identically -- only the owner's
+        per-scan presence can tell them apart."""
+        active = self.repo.write_task("700", "owner_to_archive")
+        archived = self.repo.root / "aitasks" / "archived" / active.name
+        real_build = trail_gather.build_input_records
+
+        def build_then_archive(members):
+            result = real_build(members)
+            if active.exists():
+                active.rename(archived)
+            return result
+
+        with mock.patch.object(trail_gather, "build_input_records",
+                               side_effect=build_then_archive):
+            return self.snapshot("--scope", "task", "--owner", "700", *argv,
+                                 "100")
+
+    def test_owner_archived_between_scans_is_refused(self):
+        snap = self._archive_owner_after_first_scan()
+        self.assertEqual(snap["errors"], ["archived_owner:mainproj#700"])
+        self.assertNotIn("OWNER:", snap["raw"])
+
+    def test_owner_archived_between_scans_accepted_with_flag(self):
+        snap = self._archive_owner_after_first_scan("--allow-archived-owner")
+        self.assertEqual(snap["errors"], [])
+        self.assertEqual(snap["owner"], "mainproj#700")
 
 
 # --- B. Records + digest ground truth ---------------------------------------
@@ -2439,6 +2594,39 @@ class CrossRepoTests(TrailGatherCase):
         self.assertEqual(snap["errors"],
                          [f"cross_repo_topic_unsupported:{FOREIGN}#12"])
 
+    def test_stored_foreign_owner_refused_on_refresh(self):
+        """A trail is owned by a LOCAL task (t1958). A stored foreign owner --
+        schema-valid, so a pre-fix trail can carry one -- must be refused when
+        refresh passes it verbatim, even with a same-numbered local task."""
+        self.repo.write_task("12", "unrelated_local")
+        snap = self.snapshot("--scope", "task", "--owner", f"{FOREIGN}#12",
+                             "--allow-archived-owner", "100")
+        self.assertEqual(snap["errors"], [f"foreign_owner:{FOREIGN}#12"])
+        self.assertNotIn("OWNER:", snap["raw"])
+        # The hazard the verbatim rule exists for: a stripped `12` is a
+        # perfectly valid LOCAL id and silently names the unrelated task.
+        stripped = self.snapshot("--scope", "task", "--owner", "12", "100")
+        self.assertEqual(stripped["owner"], "mainproj#12")
+
+    def test_foreign_owner_of_unregistered_project(self):
+        snap = self.snapshot("--scope", "task", "--owner", "trailtest-ghost#3",
+                             "100")
+        self.assertEqual(snap["errors"], ["foreign_owner:trailtest-ghost#3"])
+
+    def test_implicit_foreign_single_scope_owner(self):
+        snap = self.snapshot("--scope", "task", f"{FOREIGN}#12")
+        self.assertEqual(snap["errors"], [f"foreign_owner:{FOREIGN}#12"])
+        # Candidate run: complete membership, no local candidate at all.
+        cand = self.snapshot("--scope", "task", "--no-owner", f"{FOREIGN}#12")
+        self.assertEqual(cand["errors"], [])
+        self.assertEqual(cand["owner"], "none")
+        self.assertEqual([m[0] for m in cand["members"]], [f"{FOREIGN}#12"])
+        # An explicit local owner makes the foreign scope ownable.
+        owned = self.snapshot("--scope", "task", "--owner", "100",
+                              f"{FOREIGN}#12")
+        self.assertEqual(owned["errors"], [])
+        self.assertEqual(owned["owner"], "mainproj#100")
+
     def _foreign_member_trail(self, topics) -> tuple[dict, Path]:
         snap = self.snapshot("--scope", "task", "100", f"{FOREIGN}#12")
         entries = [
@@ -2735,10 +2923,26 @@ class StableReadTests(TrailGatherCase):
         it = iter(seq)
         self.assertIsNone(trail_gather.stable_records(lambda: next(it)))
 
+    def test_state_outside_the_digest_must_also_be_stable(self):
+        """t1989: equal digests are not enough when the caller acts on state
+        the records do not carry (the owner's presence). The pair must agree
+        on it too, and the accepted payload carries the stable value."""
+        rec = [self._record("A")]
+        seq = [(rec, "active"), (rec, "archived"), (rec, "archived")]
+        it = iter(seq)
+        result = trail_gather.stable_records(lambda: next(it),
+                                             state_fn=lambda payload: payload)
+        self.assertEqual(result[1], "archived")
+        # Without state_fn the same sequence settles on the stale first scan.
+        it = iter(seq)
+        self.assertEqual(trail_gather.stable_records(lambda: next(it))[1],
+                         "active")
+
     def test_cmd_surface_reports_unstable(self):
         self.repo.write_task("100", "root")
         original = trail_gather.stable_records
-        trail_gather.stable_records = lambda scan_fn, max_scans=3: None
+        trail_gather.stable_records = (
+            lambda scan_fn, max_scans=3, state_fn=None: None)
         try:
             out, rc = self.run_cli("snapshot", "--scope", "task", "100")
         finally:

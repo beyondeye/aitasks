@@ -41,9 +41,10 @@ All repository state comes from the deterministic gatherer — do not
 free-read the board or scan task files to build membership. Both verbs exit
 0 for every validation outcome (including `ERROR:` lines), 2 on usage, 3 on
 infrastructure failure. `ERROR:` outputs are emitted alone (no partial
-snapshot/verdict): surface the error to the user and stop the flow.
+snapshot/verdict): surface the error to the user and stop the flow — the one
+exception is the create flow's owner recovery (Step 2b).
 
-`./.aitask-scripts/aitask_trail_gather.sh snapshot --scope task|topic|multi_topic [--owner <id>] <ids...>`:
+`./.aitask-scripts/aitask_trail_gather.sh snapshot --scope task|topic|multi_topic [--owner <id> | --no-owner] [--allow-archived-owner] <ids...>`:
 
 ```
 SCOPE:<kind>|<topics csv>
@@ -55,6 +56,17 @@ INPUT:plan_file|<exists>|<content_hash>|<ref>
 DIGEST:<hex>
 ERROR:<kind>:<id>
 ```
+
+**Owner rule.** The owner candidate is `--owner`, else the single scope id,
+else none (`OWNER:none`). The same rule validates both, and a failure is an
+`ERROR:` line naming the candidate: another repository's task →
+`foreign_owner` (a trail is owned by a task in this repository); a task only
+in the archive → `archived_owner` (a new trail must attach to a live task);
+an archive that could not be read → `owner_unverifiable`; no such task →
+`unknown_task`. `--allow-archived-owner` accepts an archive-only owner and is
+for the refresh flow (Step 3) only. `--no-owner` skips the owner and prints
+`OWNER:none` with the full membership; it is only for the owner-recovery
+candidate run (Step 2b). The owner is not a digest input.
 
 Adding `--with-inflight` emits four further prefixes:
 
@@ -337,19 +349,48 @@ Run the snapshot:
 ```
 
 - Any `ERROR:` line → report it (e.g. `unknown_task`,
-  `cross_repo_topic_unsupported`, `unstable_repository_state`) and stop.
+  `cross_repo_topic_unsupported`, `unstable_repository_state`) and stop —
+  unless it qualifies for **owner recovery** below.
 - Nonzero exit → infrastructure failure; diagnose, do not proceed.
 - Parse SCOPE / OWNER / MEMBER / INPUT / DIGEST and keep the raw lines —
   the trail's `generation.inputs` and `input_digest` are copied from them.
 
+**Owner recovery.** The single scope id is the default owner, and it can
+fail the owner rule: an archived topic root, a topic root that no longer
+exists, or a single task from another repository. A chosen `--owner` can fail
+it too. An `ERROR:` run carries no MEMBER lines to choose from, so recover in
+this order:
+
+1. **Classify.** Recover only when **every** `ERROR:` line is an owner error
+   (`archived_owner`, `foreign_owner`, `owner_unverifiable` or `unknown_task`)
+   naming the owner candidate: the `--owner` value, or the single scope id
+   when no `--owner` was passed. Anything else stops the flow: a nonzero exit,
+   any other error kind, or an `unknown_task` naming a different id.
+2. **Candidate run.** Re-run the same scope and ids with `--no-owner` (and
+   no `--owner`). If it exits nonzero or prints any `ERROR:` line, stop — the
+   scope itself is invalid (for example, a topic with no members). Otherwise
+   its MEMBER lines are complete; the candidates are the members whose ref is
+   in this repository (members are active by construction). Never analyze or
+   write from this run.
+3. **Choose.** Go to Owner resolution (J4) below with those candidates.
+
 **Owner resolution (J4):** if the output says `OWNER:none` (multi-topic or
-multi-id ad-hoc scope), an explicit owner choice is REQUIRED before any
-create — the artifact substrate only supports task-owned handles. Use
-`AskUserQuestion`: "Which task should own this trail artifact?" with the
-local member/topic-root candidates as options (plus free text), then
-**re-run the snapshot with `--owner <choice>`** so the owner is validated
-(`ERROR:unknown_task` otherwise) and echoed as `OWNER:<ref>`. The owner
-must be a task in this repository.
+multi-id ad-hoc scope), or owner recovery reached this step, an explicit
+owner choice is REQUIRED before any create — the artifact substrate only
+supports task-owned handles. Use `AskUserQuestion`: "Which task should own
+this trail artifact?" with up to three local candidates as options (free text
+via "Other"). With **no** local candidates (e.g. a scope made only of another
+repository's tasks), ask for an explicit local task id instead, with options
+"Enter a local task id" / "Cancel trail creation". The owner must be a live
+(active) task in this repository — never archived, never another
+repository's.
+
+Then **re-run the snapshot with `--owner <choice>`** (never with
+`--allow-archived-owner`). Continue to 2c only if that run exits 0, prints
+no `ERROR:` line, and echoes `OWNER:<this repository>#<choice>`; only this
+run's SCOPE / MEMBER / INPUT / DIGEST lines feed the analysis and the trail
+document. An owner error naming the choice → say why and ask again; any
+other error → stop.
 
 #### 2c: Analyze
 
@@ -475,7 +516,9 @@ this step) / "Discard" (stop; nothing was written).
      re-presenting Step 2d.
    - Any other `ERROR:` → surface and stop.
 4. The single write (owner id = the local task id from the `OWNER:` ref,
-   e.g. `aitasks#1210_3` → `1210_3`):
+   e.g. `aitasks#1210_3` → `1210_3`). Stripping is safe only here: the
+   owner rule guarantees a create-time `OWNER:` names a live task in this
+   repository. Never strip another repository's prefix into a bare id:
 
    ```bash
    ./.aitask-scripts/aitask_artifact.sh create <owner_id> <tmpfile> \
@@ -526,12 +569,21 @@ this step) / "Discard" (stop; nothing was written).
 3. **Targeted re-analysis (only what changed):** re-run the snapshot for
    the stored scope to get fresh records and digest. The re-snapshot MUST
    preserve the loaded trail's membership and ownership:
-   - **Always pass `--owner <id>`** with the loaded trail's `owner` (its
-     local task id, e.g. `aitasks#1210` → `1210`) so the gatherer
-     re-validates it and echoes `OWNER:<ref>` — never let a multi-topic or
-     multi-id re-snapshot fall to `OWNER:none`. The new version's `owner`
-     field is copied unchanged from the loaded trail; refresh never
-     re-opens ownership.
+   - **Always pass `--owner <owner> --allow-archived-owner`**, where
+     `<owner>` is the loaded trail's `owner` field verbatim — the full
+     `<project>#<id>` ref, e.g. `--owner aitasks#1210`. Never strip the
+     prefix: a stripped owner from another repository silently names an
+     unrelated local task. The gatherer re-validates the owner and echoes
+     `OWNER:<ref>`, and a multi-topic or multi-id re-snapshot never falls to
+     `OWNER:none`. A trail outlives its owner (a topic root is usually
+     archived before its topic finishes), which is what
+     `--allow-archived-owner` accepts. Any owner `ERROR:` stops the refresh
+     — refresh never re-opens ownership, so there is no owner recovery
+     here. `foreign_owner` means the stored owner is another repository's
+     task (a trail written before owners were checked): tell the user the
+     trail's owner is invalid and that it must be recreated under a local
+     owner. The new version's `owner` field is copied unchanged from the
+     loaded trail.
    - Id list by `scope.kind`: `task` and `ad_hoc` → the stored
      `generation.inputs` task_file refs with `--scope task` — the complete
      recorded member set, NEVER just the initiating task (create-time

@@ -4,7 +4,8 @@
 # implementation trails (t1210_2; RFC aidocs/implementation_trail_design.md).
 #
 # Verbs (line protocol documented in lib/trail_gather.py):
-#   snapshot --scope task|topic|multi_topic [--owner <id>] <ids...>
+#   snapshot --scope task|topic|multi_topic [--owner <id> | --no-owner]
+#            [--allow-archived-owner] <ids...>
 #   drift --trail <path-or-art:handle>
 #
 # Must be invoked with cwd at the project root (the `ait` dispatcher / skill
