@@ -1,5 +1,116 @@
 # Changelog
 
+## v0.38.0
+
+### Features
+
+- **Test-map registry with scan and check** (t1853_1): Added the test-map registry (the `aitestmap/` files) and the `ait testmap scan` and `ait testmap check` commands. `scan` reconciles the registry with the test units found in the repository; `check` validates it (ownership, duplicate rules, expired waivers, drift) and reports problems by severity, with `--strict` failing on more of them.
+- **Test-map annotations with annotate and verify** (t1853_2): Tests can declare what they cover in `testmap:` comment annotations in bash, Python, Go and Kotlin files. `ait testmap annotate` adds a stamped covers line and `ait testmap verify` re-stamps it after the source changes, touching only lines proven to be comments and keeping the file's mode and line endings.
+- **Test-map dependency scanners** (t1853_3): The test-map engine now works out which files each test depends on, scanning bash, Python, Go, Kotlin, Java and Gradle sources plus external scanner plugins, with results cached by file content. `ait testmap annotate --suggest` proposes missing covers lines, and `--from-body` writes them for one test member (`--dry-run` previews).
+- **Test-map run command and runners** (t1854_1): Added `ait testmap run`, which runs test units through project runners declared in `aitestmap/runners.yaml`, with per-unit timeouts and cleanup of every process a runner starts. Each run records its start and end commit and the files changed; `scan` and `check` now take their unit lists from these runners.
+- **Cross-repo blockers on trail cards** (t1957_1): Trail cards in the board's By-Trail view and in `ait trails` now show when a member is blocked by a task in another registered project. Members from another project show their live status, or UNREACHABLE, from a background check.
+- **Open a trail by handle** (t1957_2): `ait trails --trail <handle>` opens that trail at startup, and a running `ait trails` in tmux can be told to switch to a given trail.
+- **Find linked trails in other projects** (t1957_3): Added the search behind the linked-trail jump: it finds trails in other registered projects that share members or cross-repo dependencies with the current one, and says so when it could not fully search a project instead of reporting no links.
+- **Jump to a linked trail** (t1957_4): Press `L` in the board's By-Trail view or in `ait trails` to list linked trails in other projects. Picking one starts that project's tmux session if needed, opens the trail in its `ait trails`, and switches you there.
+- **Prune dimensions in brainstorm** (t1983): On the Browse tab of `ait brainstorm`, press `A` → **Prune Dimensions** to create a child node that keeps only the dimensions you choose — the top N of a ranked list or a hand-picked set. No agent runs; the new node becomes the subgraph's HEAD and the source node is left unchanged.
+
+### Bug Fixes
+
+- **Worktrees no longer left dirty by `.aitask-data`** (t1711): Linked worktrees no longer show `.aitask-data` as untracked, which blocked worktree removal and task archiving. New installs get the correct ignore rule, and `ait setup` repairs existing ones.
+- **Setup `.gitignore` commits stay scoped** (t1959): The `.gitignore` steps in `ait setup` now commit only `.gitignore`, so work another session has staged no longer rides along. If you had already edited `.gitignore`, the new rule is left on disk uncommitted.
+- **Data-branch setup commits only its own changes** (t1963): When `ait setup` moves task data to a separate branch, its commit on main contains only its own `.gitignore` rules and the removal of `aitasks/` and `aiplans/`. A failed commit now warns instead of aborting setup.
+- **Setup protects pre-existing changes in more cases** (t1972): `ait setup` now records your uncommitted changes whenever it might commit, so task-metadata edits on the data branch and a staged `.gitignore` in a repo with no commits are no longer swept into its commits. A staged rename in framework files is no longer turned into an added file.
+- **Upgrades leave your uncommitted edits alone** (t1964): `ait upgrade` no longer puts your uncommitted edits to framework files or task metadata into its commits; it lists them as left alone. Upgrades now also apply the symlink-safe `.gitignore` repair, so linked task worktrees stop showing `.aitask-data` as untracked.
+- **Sync never auto-stashes or overwrites ignored files** (t1792): `ait sync` now ignores git's auto-stash settings, so it no longer stashes and re-applies files held by live sessions. A behind-only fast-forward refuses with a clear error rather than overwrite local ignored files such as `userconfig.yaml`.
+- **Task-data pulls never autostash** (t1987): With `rebase.autoStash` set, the task-data pull when you pick a task, and the retry after a rejected push, no longer stash and re-apply other sessions' task files. The fast-forward refuses to overwrite an ignored local file and tells you to move it aside and run `./ait sync`.
+- **Crew pulls leave others' files alone** (t2008): `ait crew addwork`, `ait crew setmode` and the crew runner no longer stash and re-apply other agents' uncommitted heartbeat, status and command files when `rebase.autoStash` or `merge.autoStash` is on.
+- **Crew branches published to origin** (t2016): `ait crew init`, `addwork`, `setmode`, the runner and `ait crew status set` now push the crew branch to `origin` with an upstream. A failed push shows git's own error, and a repository with no `origin` skips the push quietly.
+- **Crew runner sees remote stop requests** (t2018): The crew runner now pulls before writing its heartbeat, so a stop request pushed from another machine is merged and honoured. Pulls never leave a half-done merge in the crew worktree, and merging diverged crew histories needs git 2.38 or newer.
+- **Dir artifact store refuses a bad root** (t1283): The `dir` artifact backend now stops with a clear error when its store directory is unset, missing or not marked as a store, instead of writing blobs into an empty, unmounted share. Run `ait artifact init-store dir` once to mark a store — existing dir stores need this step too.
+- **Safer shared-directory artifact store** (t1960): The `dir` store no longer writes into the empty mount point when the share is unmounted mid-operation, and no longer reports a file as deleted when the store itself has vanished.
+- **Artifact rm cleans up moved artifacts' blobs** (t1286): `ait artifact rm` now deletes leftover local blobs even after the artifact was moved to another backend. If a blob it would delete has local edits or unusual git index flags, it refuses with a repair hint and changes nothing.
+- **Artifacts with newlines in file names** (t1967): `ait artifact create` and `ait attach` no longer fail on a file whose name contains a newline.
+- **Artifacts attach only to active tasks** (t2004): `ait artifact create` now refuses an archived owner task and names the archived file or bundle in its error. `ls`, `get` and `rm` still accept archived owners.
+- **Attach refuses archived tasks** (t2011): `ait attach add` now refuses an archived task with a clear error, instead of committing into the archived file or failing with a confusing "outside repository" error. `ls` and `get` still accept archived tasks.
+- **Archived-task lookups clean up temp files** (t2023): Commands that read a task packed into an archive bundle no longer leave a temporary directory behind. `ait attach rm` and `ait artifact rm` on such a task now say plainly that it is packed and cannot be edited.
+- **Truncated archive bundles are skipped** (t1978): The board, stats, codebrowser and trails no longer crash on a truncated `.tar.gz` archive bundle; they skip it and keep reading the others.
+- **Engine check handles unusual file names** (t1970): Verifying the test-map engine binary during install no longer fails when its path contains a newline or backslash.
+- **Folding keeps folded tasks' history separate** (t1962): Folding no longer copies the folded tasks' notes and gate runs into the primary task as if they were its own; they go into a separate `## Folded History` section, and file paths in them no longer count as files the task touches.
+- **Older folded tasks keep their requirements** (t1966): In tasks folded with the older layout, requirements after the notes or gate-run sections are counted again by trails and by overlap and scope checks, and folding such a task again keeps them as requirements.
+- **Board edits and syncs no longer overlap** (t1947): The board refuses to open an editor while a sync is running, and a sync waits until the editor closes. A timed-out sync is stopped along with all its git processes.
+- **Board and syncer wait out running syncs** (t1955): When the board suspends itself to run an agent or an interactive sync, it now refuses with a notice if a sync is running or a timed-out sync may still be changing task data. `ait syncer` blocks new syncs and recovery agents for that repo until such a sync is gone.
+- **Syncer interactive sync refreshes after finishing** (t1961): In `ait syncer`, an interactive sync run from the conflict dialog without a separate terminal no longer errors when it finishes.
+- **Board task operations no longer dropped** (t1994): A sync or agent launch started at the same moment can no longer silently cancel an archive, delete, rename or commit you confirmed on the board, which also left a loading overlay stuck on screen.
+- **Trail jumps and launches no longer stall** (t1988): In the board's trail view and `ait trails`, a background sync or dialog command can no longer cancel a linked-trail jump, an agent launch or a refresh, which used to leave later jumps refused or `R` disabled until restart.
+- **Trail owners checked consistently** (t1989): `/aitask-trail` can now refresh a trail whose owner task was archived, and creating a trail refuses an owner that is archived, in another project (`proj#42`) or nonexistent. After a refusal, the skill asks you to choose a live owner from the trail's own tasks.
+- **Brainstorm focus and switcher stay in your session** (t1951): Opening a brainstorm from the board no longer jumps to another project's brainstorm window with the same task number, and the TUI switcher (`j`) no longer mistakes a session on another tmux server for yours.
+- **Codebrowser focus stays in this project** (t1952): Opening a file reference in the codebrowser from a board task targets only this project's tmux session and warns instead of guessing when there is none. The launch runs in the background, so the board stays responsive.
+- **Switcher agent dialogs use the selected session** (t1953): In the TUI switcher (`j`), the explore (`X`) and agent (`e`) dialogs now preselect the session chosen with Left/Right, and launching into another session moves you there.
+- **Narrow launch dialog shows Run/Cancel** (t2013): In `ait minimonitor`, the narrow agent launch dialog now fits its Run in tmux and Cancel buttons on screen, and scrolls when the content is still too tall.
+- **Wide launch dialog scrolls on short terminals** (t2020): The agent launch dialog in the board, monitor, codebrowser, trails, brainstorm and the TUI switcher now scrolls on short terminals, so Tab or the mouse wheel reaches Run and Cancel.
+- **Window name shown for a new tmux session** (t2025): In the agent launch dialog, choosing "+ Create new session" keeps the window-name field visible, so you can see and edit the new window's name.
+- **Window name shown for a blank window choice** (t2027): Choosing the blank window entry on an existing session now shows the window-name field, and the launch uses the name typed there instead of a hidden default.
+- **Bracketed window names no longer crash monitor** (t2006): `ait monitor` now shows window names and task titles exactly as written in agent cards, the preview header and the kill dialog. A name like `agent-[/]x` no longer crashes the TUI, including on `k` in minimonitor.
+- **Monitor shows all user text literally** (t2017): `ait monitor` and `ait minimonitor` now show session names, task titles and pane commands exactly as written in dialogs, bars, rows and toasts, without square brackets being swallowed as styling.
+- **Closed shadow pane no longer reads as fresh** (t1971): The monitors no longer treat a shadow pane that has just closed as a fresh, never-analysed shadow, which could clear a standing staleness verdict.
+- **Review loop waits out shadow copy-mode** (t2001): In `ait minimonitor`, the auto-recheck loop (`L`) no longer types into a shadow pane in tmux copy-mode, where the keys ran as copy-mode commands and disarmed the loop. It now holds, stays armed, and sends the recheck once you leave the mode.
+- **Auto-recheck hold survives a stale delivery** (t2009): Disarming and re-arming the auto-recheck loop while a recheck is being delivered no longer resets the new loop's hold banner to ARMED, or records its next hold twice.
+- **Brainstorm refreshes after section decompose** (t1995): In `ait brainstorm`, Module Decompose "From section markers" now refreshes the node list, the DAG and the module status as soon as it finishes, including after a partial failure.
+- **Failed section decompose no longer stuck waiting** (t2005): A from-sections Module Decompose now checks every module's section before writing anything, and one message names every missing module. A partial failure marks the operation Error with the step it reached, instead of Waiting forever.
+- **Brainstorm prune names an incomplete node** (t2019): If pruning dimensions fails while the new node is being created, the error and the operation record now call that node incomplete instead of created.
+- **Settings survives mistyped config files** (t1945): Settings no longer crashes when a config file holds a value of the wrong type (such as `"defaults": null`); it names the bad file and keeps its current state. A broken file at startup gives a one-line error instead of a traceback.
+- **Frozen-agent viewer selection and copy fixes** (t2003): In `ait frozenagent`, selected text is readable again, the `/` search box shows what you type, and `ctrl+c` and `y` copy the same way, showing in the footer only while something is selected.
+- **Crew log viewer search box visible** (t2014): Pressing `/` in `ait crew logview` now shows the search box and what you type. Remapping a shortcut onto a key a TUI already uses no longer changes that key for other copies of the same screen.
+- **Test-map annotations respect byte-order marks** (t1969): The test-map engine reads `testmap:` annotations in files that start with a UTF-8 byte-order mark, and never inserts an annotation above the mark, which used to break such Python files.
+- **Gradle scanning reads strings correctly** (t1975): `ait testmap` no longer drops Gradle project dependencies, or marks a build file as dynamic, when a string contains `/*` or `//` such as a glob or URL. A file it cannot read safely is flagged so it widens test selection rather than hiding dependencies.
+- **Kotlin constructor parameters not indexed** (t1976): `ait testmap` no longer records constructor parameters, as in `data class X(val email: String)`, as top-level declarations, which made `annotate --from-body` attach tests to the wrong files.
+- **Delegated Kotlin properties named correctly** (t1977): A delegated property such as `val retrofit by lazy { … }` is now indexed as `retrofit`, not `lazy`, so imports of it resolve and no phantom `lazy` symbol appears.
+- **Kotlin multi-dollar strings fail safely** (t1980): `ait testmap` no longer silently skips Kotlin code after a multi-dollar string such as `$$"…"`; such a file is flagged as one it cannot analyse, so it widens test selection.
+- **Kotlin multi-dollar strings in test annotations** (t1990): `ait testmap` now understands Kotlin 2.2 multi-dollar strings when it reads and writes test annotations, so an annotation edit can no longer land inside a raw string.
+- **Kotlin `fun interface` recorded once** (t1997): The Kotlin dependency scanner records `fun interface X` as one declaration, and no longer reads a backticked name such as `` `fun` `` as a keyword.
+- **Backticked Kotlin string templates read correctly** (t1999): The scanners for `.kt` and `.gradle.kts` files now read a `` $`name` `` template inside a string, so a quote in the name no longer hides later declarations or `project(...)` dependencies.
+- **Backticked Kotlin keywords no longer misread** (t2002): A backticked `` `import` ``, `` `package` `` or modifier name is no longer treated as the keyword, which could record a phantom import, set the wrong package or hide the next declaration.
+- **Kotlin inline checks see past annotations** (t2012): `ait testmap` now flags Kotlin `inline` functions and `const` values even when an annotation or another modifier sits between keyword and declaration (e.g. `inline @JvmSynthetic fun`).
+- **Kotlin scanner ignores brackets in strings** (t2022): The Kotlin scanner no longer reads brackets, dots or `?` inside string literals as code, which had hidden DI annotations, declarations and references. Inline properties and accessors are now flagged like inline functions.
+- **Sync recovery hint pinned by a test** (t1696): Added a regression test confirming that the `./ait sync` hint shown after a partial metadata update really recovers, even while other agents hold edited task files.
+- **Resume-session test survives model refreshes** (t1949): A test that broke whenever the OpenCode model list was refreshed now reads its model from a fixed test registry.
+- **Markup scanner test passes again** (t2021): A test fixture's deliberately broken title was flagged by the repo-wide markup check, failing the Python suite; it is now split so the check passes.
+
+### Improvements
+
+- **Gate lock exit handling unified** (t1692): The gate commands now release their lock through the shared, guarded exit handler, so a later edit cannot make a failed step report success. No behaviour change.
+- **Compact elapsed time on monitor cards** (t1996): The PROMPT/DONE/IDLE badge in `ait monitor` and `ait minimonitor` now shows elapsed time in at most four characters (`IDLE 5h` instead of `IDLE 18734s`), so it no longer wraps a minimonitor card.
+- **Continue prompt names the new task** (t2015): After `/aitask-explore`, `/aitask-pr-import`, `/aitask-revert` or `/aitask-review` creates a task, the "continue or save for later" prompt now names it; when review creates several, it names their parent.
+
+### Documentation
+
+- **Trail skill explains uncommitted-file refusal** (t1709): The `/aitask-trail` skill now says what to do when creating a trail is refused because of uncommitted changes: commit or revert the file the error names.
+- **Cross-repo trail docs** (t1957_5): Documented cross-repo blockers on trail cards, `ait trails --trail` and the `L` linked-trail jump on the cross-project dependencies page, linked from the trails and board pages.
+- **Auto-recheck holds documented** (t2010): The minimonitor how-to now lists every auto-recheck hold banner and what to do about it, the causes that disarm the loop, and how to review past holds with `ait minimonitor --loop-log`.
+
+### Performance
+
+- **Faster agent-window focus** (t1950): Pressing `p` or `g` on the board, or `p` in `ait trails`, now searches only your own tmux session and the default one for an existing agent window, instead of every session on the server.
+- **Repeated `L` presses don't pile up searches** (t1979): Pressing `L` repeatedly in By-Trail or `ait trails` runs one linked-trail search at a time, and only the newest result is shown.
+
+### Tests
+
+- **Directory-guard lint passes again** (t1965): Fixed the nine test-script sites the `cd`-guard lint flagged, so the lint passes again.
+- **Trails live test ignores your tmux config** (t1974): The `ait trails` live test now starts its private tmux server without the developer's tmux configuration.
+- **Hung runner tests fail fast** (t1985): A watchdog makes a hung test-map runner test fail within its own time limit with a clear `HANG:` message, instead of stalling the run for 10 minutes, and cleans up the processes it left behind.
+- **Annotation conformance test suite** (t1991): Added 189 bash, Python, Go and Kotlin cases that run through the real path `ait testmap` uses to read and write annotations, kept identical to the research corpus by a CI check.
+- **Watchdog reads test output in chunks** (t1993): The hang watchdog reads test output in fixed-size chunks instead of loading whole logs into memory twice.
+- **Hang guard enforced for runner tests** (t1998): `ait engine test` and CI now fail when a runner test that starts processes is not protected by the hang watchdog, before the full suite can hang.
+
+### Maintenance
+
+- **Minimonitor rows fit 40 columns** (t1351): Minimonitor agent cards no longer wrap at 40 columns: names are clipped by on-screen width (CJK included), the shared agent prefix is dropped (`agent-pick-1351_12` shows as `pick-1351_12`), and room is kept for the scrollbar.
+- **Parser research harness and baseline** (t1954_1): Added a research harness and a 213-file, 8-language corpus to measure how safely the test-map engine reads and writes `testmap:` annotations, with baselines for the current readers and three native tools.
+- **Tree-sitter parsers evaluated** (t1954_2): Measured three tree-sitter runtimes as annotation readers; all were 1.3–3× over the 300 ms scan budget, and the pure-Go one refused about a quarter of real Kotlin files.
+- **Highlighters, compilers and LSPs evaluated** (t1954_3): Measured syntax highlighters, native parsers, ANTLR lexers, language servers and sidecar files as annotation readers. Highlighters cannot safely authorise writes; compiler front ends are accurate but need a runtime the release does not ship.
+- **Annotation-parser research report** (t1954_4): The test-map engine keeps its own readers for bash, Python, Go and Kotlin, since none of the twelve alternatives tested was safe, runtime-free and within budget. More languages wait for a reader that passes the onboarding contract.
+- **Kotlin lexers pinned to the real lexer** (t1992): Measured `ait testmap`'s three Kotlin readers against the real Kotlin lexer and kept them separate, with a shared test table that fails if any of them drifts from it.
+
 ## v0.37.0
 
 ### Features
