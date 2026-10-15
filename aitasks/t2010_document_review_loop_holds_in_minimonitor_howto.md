@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2001
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-15 22:10
-updated_at: 2026-10-15 22:31
+updated_at: 2026-10-15 22:54
 ---
 
 ## Context
@@ -87,3 +88,8 @@ Keep `diffviewer` out of the page (CLAUDE.md project note).
 - Every banner string quoted in the page matches `LOOP_HOLD_BANNERS` verbatim
   (grep each one in `review_loop.py`), and `ait minimonitor --loop-log` runs as
   described.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-15T19:54:07Z status=pass attempt=1 type=human
