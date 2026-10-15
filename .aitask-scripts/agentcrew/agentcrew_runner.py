@@ -21,6 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 from agentcrew.agentcrew_utils import (
     AGENTCREW_DIR,
     AGENT_STATUSES,
+    PULL_UNSAFE,
     check_agent_alive,
     compute_crew_progress,
     compute_crew_status,
@@ -260,6 +261,16 @@ def update_runner_heartbeat(worktree: str, interval: int) -> None:
     next_check = datetime.fromtimestamp(next_ts, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
     update_yaml_field(alive_path, "last_heartbeat", now)
     update_yaml_field(alive_path, "next_check_at", next_check)
+
+
+def report_unsafe_pull(worktree: str, reason: str, batch: bool, holding: bool = False) -> None:
+    """Report an unfinished merge or rebase in the crew worktree (t2018)."""
+    if batch:
+        print(f"PULL_UNSAFE:{reason}")
+        return
+    what = "holding until it is resolved" if holding else "not reading or writing crew files"
+    log(f"Crew worktree {worktree} has an unfinished merge or rebase ({reason}): "
+        f"{what}. Resolve it with `git -C {worktree} status`.")
 
 
 def check_requested_action(worktree: str) -> str | None:
@@ -709,7 +720,10 @@ def compute_progress_eta(agents: dict[str, dict]) -> tuple[int, str]:
 
 def cmd_check(worktree: str, interval: int, batch: bool) -> int:
     """Diagnostic mode: print runner status and exit."""
-    git_pull(worktree, batch)
+    pull_status, pull_detail = git_pull(worktree, batch)
+    if pull_status == PULL_UNSAFE:
+        report_unsafe_pull(worktree, pull_detail, batch)
+        return 1
 
     alive_path = os.path.join(worktree, RUNNER_ALIVE_FILE)
     if not os.path.isfile(alive_path):
@@ -772,6 +786,14 @@ def _signal_handler(signum: int, frame) -> None:
     """Handle SIGTERM/SIGINT by setting the stop flag."""
     global _should_stop
     _should_stop = True
+
+
+def _sleep_interval(interval: int) -> None:
+    """Sleep for interval seconds, waking early once a stop is requested."""
+    for _ in range(interval):
+        if _should_stop:
+            break
+        time.sleep(1)
 
 
 def graceful_shutdown(worktree: str, crew_id: str, interval: int, batch: bool) -> None:
@@ -865,23 +887,37 @@ def run_loop(worktree: str, crew_id: str, interval: int, max_concurrent: int,
                                        batch)
 
     iteration = 0
+    unsafe_hold = False
     while not _should_stop:
         iteration += 1
         log(f"--- Iteration {iteration} ---", batch)
 
-        # Update heartbeat
+        # Pull BEFORE touching the runner's own file (t2018): a dirty
+        # _runner_alive.yaml makes every merge that touches it refuse
+        # (--no-autostash, t2008), so a remote requested_action: stop would
+        # never land. The previous iteration's commit (or "runner: started")
+        # left the file clean.
         if not dry_run:
-            update_runner_heartbeat(worktree, interval)
-
-        # Pull latest changes
-        if not dry_run:
-            git_pull(worktree, batch)
+            pull_status, pull_detail = git_pull(worktree, batch)
+            unsafe_hold = pull_status == PULL_UNSAFE
+            if unsafe_hold:
+                # Another process's unfinished merge or rebase: read, write and
+                # stage nothing until it is resolved, then resume.
+                report_unsafe_pull(worktree, pull_detail, batch, holding=True)
+                if once:
+                    return 1
+                _sleep_interval(interval)
+                continue
 
         # Check for stop request
         action = check_requested_action(worktree)
         if action == "stop":
             graceful_shutdown(worktree, crew_id, interval, batch)
             break
+
+        # Update heartbeat (committed with this iteration's changes below)
+        if not dry_run:
+            update_runner_heartbeat(worktree, interval)
 
         # Read all agent statuses
         agents = read_all_agent_statuses(worktree)
@@ -967,13 +1003,15 @@ def run_loop(worktree: str, crew_id: str, interval: int, max_concurrent: int,
 
         # Sleep until next iteration
         log(f"Sleeping {interval}s", batch)
-        for _ in range(interval):
-            if _should_stop:
-                break
-            time.sleep(1)
+        _sleep_interval(interval)
 
-    # Final cleanup
+    # Final cleanup — never while holding: graceful_shutdown writes and stages
+    # crew files.
     if _should_stop and not once:
+        if unsafe_hold:
+            log("Stop requested while holding on an unfinished merge or rebase; "
+                "shutdown skipped, no crew file written", batch)
+            return 1
         graceful_shutdown(worktree, crew_id, interval, batch)
 
     return 0
@@ -1026,7 +1064,10 @@ def main() -> int:
 
     # Single-instance enforcement
     if not args.dry_run:
-        git_pull(worktree, args.batch)
+        pull_status, pull_detail = git_pull(worktree, args.batch)
+        if pull_status == PULL_UNSAFE:
+            report_unsafe_pull(worktree, pull_detail, args.batch)
+            return 1
         enforce_single_instance(worktree, interval, args.force, args.batch)
 
     if not args.batch:

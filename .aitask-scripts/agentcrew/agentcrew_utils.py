@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import glob
 import os
+import re
 import subprocess
 import sys
 from collections import deque
@@ -291,17 +292,189 @@ def git_cmd(worktree: str, *args: str, check: bool = True) -> subprocess.Complet
     return subprocess.run(cmd, capture_output=True, text=True, check=check)
 
 
-def git_pull(worktree: str, batch: bool = False) -> None:
-    """Pull latest changes in the worktree (best-effort).
+# git_pull outcomes (t2018).
+PULL_OK = "ok"              # up to date, fast-forwarded, or merged
+PULL_DEFERRED = "deferred"  # nothing merged and no merge state left; retried next time
+PULL_UNSAFE = "unsafe"      # an unfinished merge or rebase sits in the worktree
+
+_OBJECT_ID = re.compile(r"[0-9a-f]{40,64}")
+
+
+def _one_line(text: str) -> str:
+    return " ".join(text.split())
+
+
+def crew_merge_state(worktree: str) -> str | None:
+    """Name the unfinished merge or rebase in the worktree, or None.
+
+    ``merge_in_progress``, ``rebase_in_progress``, ``unmerged_paths``, or
+    ``probe_failed`` when git could not answer: an unknown state is not a
+    clean one.
+    """
+    merge_head = git_cmd(worktree, "rev-parse", "-q", "--verify", "MERGE_HEAD", check=False)
+    if merge_head.returncode == 0:
+        return "merge_in_progress"
+    if merge_head.returncode != 1:
+        return "probe_failed"
+    for name in ("rebase-merge", "rebase-apply"):
+        found = git_cmd(worktree, "rev-parse", "--git-path", name, check=False)
+        if found.returncode != 0:
+            return "probe_failed"
+        path = found.stdout.strip()
+        if os.path.exists(path if os.path.isabs(path) else os.path.join(worktree, path)):
+            return "rebase_in_progress"
+    unmerged = git_cmd(worktree, "ls-files", "-u", check=False)
+    if unmerged.returncode != 0:
+        return "probe_failed"
+    return "unmerged_paths" if unmerged.stdout.strip() else None
+
+
+def _commit_id(worktree: str, rev: str) -> str:
+    found = git_cmd(worktree, "rev-parse", "-q", "--verify", f"{rev}^{{commit}}", check=False)
+    oid = found.stdout.strip()
+    return oid if found.returncode == 0 and _OBJECT_ID.fullmatch(oid) else ""
+
+
+def _is_ancestor(worktree: str, ancestor: str, descendant: str) -> bool | None:
+    """True / False, or None when git could not tell."""
+    rc = git_cmd(worktree, "merge-base", "--is-ancestor", ancestor, descendant,
+                 check=False).returncode
+    return {0: True, 1: False}.get(rc)
+
+
+def _upstream_source(worktree: str) -> tuple[str, str] | None:
+    """The (remote, branch ref) the current branch tracks, or None."""
+    branch = git_cmd(worktree, "symbolic-ref", "-q", "HEAD", check=False)
+    ref = branch.stdout.strip()
+    if branch.returncode != 0 or not ref:
+        return None
+    found = git_cmd(worktree, "for-each-ref",
+                    "--format=%(upstream:remotename)%00%(upstream:remoteref)", ref, check=False)
+    remote, _, merge_ref = found.stdout.strip().partition("\0")
+    if found.returncode != 0 or not remote or not merge_ref:
+        return None
+    return remote, merge_ref
+
+
+def _advance(worktree: str, target: str, outcome: str) -> tuple[str, str]:
+    """Fast-forward the worktree to ``target``: the one step that writes it.
+
+    ``merge --ff-only`` checks before writing and refuses, writing nothing, when
+    a dirty, untracked or ignored path would be overwritten (git overwrites
+    ignored files unless told not to) or when HEAD is no longer an ancestor of
+    ``target``. It never leaves a MERGE_HEAD, so a refusal is a deferral and
+    nothing is ever aborted.
+    """
+    advance = git_cmd(worktree, "merge", "--ff-only", "--no-autostash", "--no-overwrite-ignore",
+                      "--quiet", target, check=False)
+    if advance.returncode != 0:
+        return PULL_DEFERRED, f"merge_refused: {_one_line(advance.stderr)}"
+    return PULL_OK, outcome
+
+
+def _sign_args(worktree: str) -> list[str] | None:
+    """``-S`` when commit.gpgSign is set, as ``git merge`` would sign; None if unreadable."""
+    found = git_cmd(worktree, "config", "--type=bool", "commit.gpgSign", check=False)
+    if found.returncode == 1:
+        return []
+    if found.returncode != 0:
+        return None
+    return ["-S"] if found.stdout.strip() == "true" else []
+
+
+def _merge_diverged(worktree: str, head: str, upstream: str) -> tuple[str, str]:
+    """Merge the pinned commits without ever opening a merge in the worktree.
+
+    aitask_sync.sh's guarded merge (t1731), minus its disjoint-paths policy:
+    the runner must merge same-file edits on different lines (its heartbeat vs
+    a peer's requested_action). merge-tree proves the merge clean in memory,
+    commit-tree builds it, and ``_advance`` fast-forwards to it. commit-tree
+    does not read commit.gpgSign, so the setting is passed on explicitly; a
+    signing failure defers. As in t1731, no commit hooks run for this commit.
+    """
+    proof = git_cmd(worktree, "merge-tree", "--write-tree", "--no-messages", "--name-only",
+                    head, upstream, check=False)
+    lines = proof.stdout.splitlines()
+    if proof.returncode == 1:
+        return PULL_DEFERRED, "merge_conflict: " + ", ".join(p for p in lines[1:] if p)
+    if proof.returncode == 129:
+        # No live-worktree fallback: a plain merge would write conflict markers
+        # into files the agents read and stage.
+        return PULL_DEFERRED, ("merge_proof_unsupported: divergent histories need "
+                               "git >= 2.38 (merge-tree --write-tree)")
+    tree = lines[0].strip() if lines else ""
+    if proof.returncode != 0 or not _OBJECT_ID.fullmatch(tree):
+        return PULL_DEFERRED, f"merge_proof_failed: {_one_line(proof.stderr) or 'no tree id'}"
+    sign = _sign_args(worktree)
+    if sign is None:
+        return PULL_DEFERRED, "merge_commit_failed: commit.gpgSign could not be read"
+    commit = git_cmd(worktree, "commit-tree", *sign, tree, "-p", head, "-p", upstream,
+                     "-m", f"crew: merge {upstream[:12]} into {head[:12]}", check=False)
+    merged = commit.stdout.strip()
+    if commit.returncode != 0 or not _OBJECT_ID.fullmatch(merged):
+        return PULL_DEFERRED, f"merge_commit_failed: {_one_line(commit.stderr)}"
+    return _advance(worktree, merged, f"merged {upstream[:12]}")
+
+
+def _sync_with_upstream(worktree: str) -> tuple[str, str]:
+    source = _upstream_source(worktree)
+    if source is None:
+        return PULL_DEFERRED, "no_upstream: the crew branch tracks no upstream"
+    remote, merge_ref = source
+    # The fetch `git pull` would run, on its own: a transport failure is
+    # reported instead of being read past via stale tracking refs.
+    fetch = git_cmd(worktree, "fetch", "--quiet", "--", remote, merge_ref, check=False)
+    if fetch.returncode != 0:
+        return PULL_DEFERRED, f"fetch_failed: {_one_line(fetch.stderr) or f'exit {fetch.returncode}'}"
+    head = _commit_id(worktree, "HEAD")
+    upstream = _commit_id(worktree, "@{u}")
+    if not head or not upstream:
+        return PULL_DEFERRED, "rev_unresolved: HEAD or @{u} is not a commit"
+    if head == upstream:
+        return PULL_OK, "up to date"
+    upstream_merged = _is_ancestor(worktree, upstream, head)
+    if upstream_merged:
+        return PULL_OK, "ahead of upstream"
+    behind_only = _is_ancestor(worktree, head, upstream)
+    if upstream_merged is None or behind_only is None:
+        return PULL_DEFERRED, "ancestry_unknown"
+    if behind_only:
+        return _advance(worktree, upstream, "fast-forwarded")
+    return _merge_diverged(worktree, head, upstream)
+
+
+def git_pull(worktree: str, batch: bool = False) -> tuple[str, str]:
+    """Bring the crew branch up to date with its upstream (best-effort).
 
     --no-autostash (t2008): agents' uncommitted heartbeat/status/command files
     live in this worktree, and a user's merge.autoStash would stash and
     re-apply them around the merge.
+
+    Never opens a merge in the worktree (t2018): after fetching the upstream it
+    fast-forwards, or for a diverged branch fast-forwards to the merge proven
+    clean in memory (``_merge_diverged``). A failed fetch, a conflict, a
+    missing proof (git < 2.38) or a path that is dirty, untracked or ignored
+    is a deferral that leaves the worktree as it was. Returns
+    ``(status, detail)``:
+
+    - ``PULL_OK`` / ``PULL_DEFERRED`` — no merge state in the worktree; the
+      caller carries on.
+    - ``PULL_UNSAFE`` — an unfinished merge or rebase (detail names it), left
+      by another process before or during this pull. Callers must not read,
+      rewrite or stage crew files until it is resolved; this function never
+      aborts or resets it.
     """
-    result = git_cmd(worktree, "pull", "--rebase=false", "--no-autostash", check=False)
-    if result.returncode != 0 and not batch:
+    state = crew_merge_state(worktree)
+    if state:
+        return PULL_UNSAFE, state
+    status, detail = _sync_with_upstream(worktree)
+    state = crew_merge_state(worktree)
+    if state:
+        return PULL_UNSAFE, state
+    if status == PULL_DEFERRED and not batch:
         ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
-        print(f"[{ts}] git pull warning: {result.stderr.strip()}", file=sys.stderr)
+        print(f"[{ts}] git pull warning: {detail}", file=sys.stderr)
+    return status, detail
 
 
 def git_push(worktree: str, batch: bool = False) -> None:

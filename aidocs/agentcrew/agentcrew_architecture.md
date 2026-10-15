@@ -214,9 +214,10 @@ Performed at agent registration time (`ait crew addwork`) using DFS. If the prop
 The runner (`ait crew runner`) is the central orchestrator. It runs in a loop, each iteration performing:
 
 ```
-1. Update runner heartbeat (_runner_alive.yaml)
-2. Git pull (best-effort, non-blocking)
-3. Check for stop request (requested_action in _runner_alive.yaml)
+1. Git pull (guarded: a fast-forward, or a merge proven clean in memory;
+   never leaves a merge half-done in the worktree)
+2. Check for stop request (requested_action in _runner_alive.yaml)
+3. Update runner heartbeat (_runner_alive.yaml)
 4. Read all agent statuses
 5. Mark stale agents as Error (heartbeat timeout exceeded)
 6. Process pending commands (pause/resume from _commands.yaml)
@@ -230,6 +231,19 @@ The runner (`ait crew runner`) is the central orchestrator. It runs in a loop, e
 14. Git commit + push all changes
 15. Sleep for interval seconds
 ```
+
+The pull runs before the runner rewrites its own heartbeat. Step 14 committed
+`_runner_alive.yaml`, so it is clean at the pull, and an incoming change to it —
+such as a remote `requested_action: stop` — merges instead of being refused. A
+diverged crew branch is merged only when `git merge-tree --write-tree` (git >= 2.38)
+proves the merge clean in memory. The merge commit is signed when `commit.gpgSign`
+is set. The worktree is then advanced with a fast-forward that refuses rather than
+overwrite a dirty, untracked or ignored file. A failed fetch, a conflict, an older
+git (`merge_proof_unsupported`) or such a file defers the pull to the next
+iteration and leaves the worktree as it was. If another process left an
+unfinished merge or rebase in the crew worktree, the runner holds: it reads, writes
+and stages no crew file (`PULL_UNSAFE:<reason>` in `--batch`) until the state is
+resolved, then resumes. Start-up and `--check` refuse in the same state.
 
 ### Runner Configuration
 

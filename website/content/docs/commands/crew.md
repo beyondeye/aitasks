@@ -161,6 +161,18 @@ ait crew runner --crew sprint1 --check          # diagnose runner state
 | `--reset-errors` | Reset `Error` agents back to `Waiting` before starting |
 | `--batch` | Structured output |
 
+Each iteration starts by syncing the crew branch with its upstream. When both sides
+have new commits, the runner merges them only if git can prove the merge clean
+without touching the working files, which needs git 2.38 or newer. On older git, or
+when the merge would conflict, the runner keeps its local state and tries again on
+the next iteration.
+
+If an unfinished merge or rebase is left in the crew worktree
+(`.aitask-crews/crew-<id>/`), the runner does not start and `--check` reports it.
+A runner that is already running pauses, reading and writing no crew files, until
+the merge or rebase is resolved, and then carries on. With `--batch`, each of these
+cases prints `PULL_UNSAFE:<reason>`.
+
 ## ait crew report
 
 Report on crew state, agent details, and aggregated outputs.
