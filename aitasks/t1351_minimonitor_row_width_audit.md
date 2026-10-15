@@ -1,5 +1,7 @@
 ---
 priority: low
+risk_code_health: low
+risk_goal_achievement: medium
 effort: low
 depends: []
 issue_type: chore
@@ -112,6 +114,25 @@ row: fixing one without the other would leave the audit's budget claim untrue.
 > | options is this task's own call.
 
 > **👁 note:read** id=2026-10-15T06:37:32Z.e8369c2f3edce66d9ff43320 by=t1351 at=2026-10-15T06:37:32Z mode=explicit ids=2026-10-15T06:25:01Z.d9f526725902a77e3379566d
+
+> **✉ note:t2001** id=2026-10-15T12:19:20Z.3f95291fb6a945d4e0396100 from=t2001 from_verified=yes at=2026-10-15T12:19:20Z base=cbfc74fed97d56da9204ea726daa43e69323b943 base_branch=main dirty=yes host=omg16
+>
+> | Shared-working-tree overlap with t2001 (advisory; moment-relative, as of this note).
+> | 
+> | t2001 (review loop must not send keys into a shadow pane in tmux copy-mode) is about to edit,
+> | in the SAME working tree, two files that also carry your uncommitted hunks:
+> | 
+> | - .aitask-scripts/monitor/minimonitor_app.py: _fire_shadow_recheck, _submit_shadow_prompt,
+> |   _loop_hold, _loop_auto_disarm, the ACTION_FIRE branch of _service_review_loop, __init__ loop state,
+> |   and the monitor_core import block
+> | - .aitask-scripts/monitor/monitor_core.py: a new query_pane_mode() next to capture_raw_tail
+> |   (+ a re-export line in tmux_monitor.py)
+> | 
+> | Those regions are not the ones you have touched (agent_display_name / match_agent_prefix /
+> | row budgets), but a whole-file `git commit -- <path>` from either session would sweep in the
+> | other's uncommitted work. t2001 will commit ONLY its own hunks (temp-index whitelist,
+> | verified in an isolated snapshot). If you commit those two files before t2001 does, please
+> | stage only your own hunks as well.
 
 ## Gate Runs
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
