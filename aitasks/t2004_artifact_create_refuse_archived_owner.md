@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1989
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-15 10:12
-updated_at: 2026-10-15 10:12
+updated_at: 2026-10-15 12:40
 ---
 
 ## Origin
@@ -54,3 +55,8 @@ archived. First check whether any intentional flow creates artifacts on
 archived tasks (`ait artifact rm` / `ls` / `get` on archived owners must keep
 working; trails outlive their owners). Add a test for both the loose-archived
 and the bundled case.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-15T09:40:51Z status=pass attempt=1 type=human
