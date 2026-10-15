@@ -183,3 +183,57 @@ Post-implementation: Step 9 (Post-Implementation) — commit, archive, push.
 ### Goal-achievement risk: low
 - The same-tick regression test could pass vacuously if the canceller never landed before the victim's first step · severity: low · → mitigation: none (covered in-plan by step 1's red run and the per-method `*_baseline` controls)
 - A baseline and its same-tick control could exercise different operations if they shared fixture state (rename/delete mutate disk) · severity: low · → mitigation: none (covered in-plan: one fresh tree + app per test method, shared `_drive` helper, precondition asserts)
+
+## Final Implementation Notes
+- **Actual work done:** Implemented as planned. `.aitask-scripts/board/aitask_board.py`: `_do_archive` / `_do_delete` / `_do_rename_task` / `_do_git_commit_tasks` now run in their own worker groups (`task_archive` / `task_delete` / `task_rename` / `task_commit`), each docstring carrying one note on why (the rename one also notes it stops the worker's own `_run_sync` call from cancelling it). New `tests/test_board_task_op_worker_groups.py`: `TaskOpSameTickCancelTests` (8 methods — 4 ops × `*_baseline` / `*_survives_same_tick_exclusive_worker`, each on a fresh fixture tree + app, driven through the real caller with only the outermost side effect stubbed, asserting the effect landed once and no `LoadingOverlay` remains) and `BoardWorkerGroupTests` (AST guard over `aitask_board.py`: every non-exclusive `@work` names a non-default group; vacuity guard on the four names).
+- **Deviations from plan:** One plan revision before approval (user review): the baseline and same-tick variants were first planned as `subTest`s sharing one per-test tree; since rename moves and delete removes the task file, they became separate test methods with a fresh tree/app each, a shared `_drive` helper, and precondition asserts (task file exists, no overlay) before the op. No deviations during implementation.
+- **Issues encountered:** None. `wait_for_complete()` re-raises `WorkerCancelled` from a cancelled victim's `wait()` (its `gather` only swallows `CancelledError`), so the drain suppresses it to let the red run fail on the assertions — as planned.
+- **Key decisions:** Per-worker groups (mirroring t1988's `trail_*` naming) rather than one shared `task_ops` group, so a future exclusive worker added to any one group can only cancel its own kind. The new AST guard lives in the new file rather than generalising t1988's `TrailWorkerGroupTests`, keeping that test untouched.
+- **Red/green evidence (closure):**
+  - Red run, unmodified board (`git diff --quiet -- .aitask-scripts/board/aitask_board.py` → unmodified): `FAILED (failures=5)` — exactly the four `*_survives_same_tick_exclusive_worker` methods (effect missing, e.g. `[] != [['./.aitask-scripts/aitask_archive.sh', '--superseded', 't9003']]`) and the AST guard (`['_do_archive', '_do_delete', '_do_rename_task', '_do_git_commit_tasks'] != []`); the four `*_baseline` methods `ok`.
+  - Pre-fix overlay probe (the effect assertion fires first in the red run, so the stranded-overlay half of the claim was proven separately). Script, verbatim:
+    ```python
+    """Pre-fix probe (t1994): which overlays remain after a same-tick cancel."""
+    import sys, unittest
+    sys.path.insert(0, "/home/ddt/Work/aitasks/tests")
+    import test_board_task_op_worker_groups as m
+
+    T = m.TaskOpSameTickCancelTests
+    starts = {
+        "archive": lambda app, task: app._execute_archive(m.TASK_NUM, task),
+        "commit": lambda app, task: app._git_commit_tasks([task], "ait: probe"),
+    }
+    def delete(app, task):
+        app._decref_doomed_attachments = lambda p, f: (True, "")
+        app._execute_delete(m.TASK_NUM, [task.filepath], None)
+    def rename(app, task):
+        app._run_sync = lambda **kw: None
+        app._rename_task(task, "renamed probe")
+    starts["delete"] = delete
+    starts["rename"] = rename
+    for op, start in starts.items():
+        for canceller in (False, True):
+            t = T("test_archive_baseline")
+            t.setUp()
+            try:
+                out = t._drive(start, canceller)
+                print(f"{op:8s} canceller={canceller!s:5s} overlays={out['overlays']} "
+                      f"commits={len(t.commits)} archive_calls={len(t.archive_calls)}")
+            finally:
+                t.doCleanups()
+    ```
+    Output against the unmodified board:
+    ```
+    archive  canceller=False overlays=[] commits=0 archive_calls=1
+    archive  canceller=True  overlays=['LoadingOverlay'] commits=0 archive_calls=0
+    commit   canceller=False overlays=[] commits=1 archive_calls=0
+    commit   canceller=True  overlays=['LoadingOverlay'] commits=0 archive_calls=0
+    delete   canceller=False overlays=[] commits=1 archive_calls=0
+    delete   canceller=True  overlays=['LoadingOverlay'] commits=0 archive_calls=0
+    rename   canceller=False overlays=[] commits=1 archive_calls=0
+    rename   canceller=True  overlays=['LoadingOverlay'] commits=0 archive_calls=0
+    ```
+    This answers the task's "confirm before fixing" question: a pre-start cancel silently drops the user-confirmed operation AND strands the caller's `LoadingOverlay` (no bindings; keeps `_modal_is_active()` True).
+  - Green run after the fix: `tests/test_board_task_op_worker_groups.py` 9/9 OK (unittest and pytest); `tests/test_board_scoped_task_commit.py` 12 OK; `tests/test_board_run_editor.py` 19 OK; `tests/test_board_bytrail_view.py -k "TrailWorkerGroupTests or cannot_strand"` 5 passed.
+- **Upstream defects identified:**
+  - `.aitask-scripts/board/aitask_board.py:5136 — _run_sync(show_overlay=True) (started by action_sync_remote at :5134 and board_trail_screen.py:971) pops its "Syncing with remote..." LoadingOverlay only in its own body; being exclusive in the default group, a later exclusive default-group worker added before it takes its first step cancels it and strands the overlay (same mechanism as t1979/t1988/t1994, among the exclusive workers; not reproduced)`
