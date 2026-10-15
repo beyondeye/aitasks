@@ -4220,7 +4220,7 @@ class MiniMonitorApp(
                     severity="warning")
 
     def _loop_hold(self, reason_code: str, *,
-                   detail: dict | None = None) -> None:
+                   detail: dict | None = None, live: bool = True) -> None:
         """Visible, non-fatal hold: the delivery was vetoed, the loop lives.
 
         t1525 chose a *visible* auto-disarm over a *silent* hold, so the
@@ -4232,16 +4232,23 @@ class MiniMonitorApp(
         clears ``_loop_hold_reason``, so the same reason recurring later is a
         new edge and does surface again — edge-triggering must not permanently
         swallow a reason it has seen once.
+
+        ``live=False`` is a hold from a SUPERSEDED delivery (t2009): the hold
+        state and the banner belong to whatever lifecycle replaced it, so the
+        event is recorded and nothing else is touched. Each superseded
+        delivery returns once, so its record needs no edge-trigger. A failed
+        record is still reported.
         """
-        if self._loop_hold_reason == reason_code:
-            return
-        self._loop_hold_reason = reason_code
+        if live:
+            if self._loop_hold_reason == reason_code:
+                return
+            self._loop_hold_reason = reason_code
 
         recorded = review_loop_log.record_event(
             review_loop_log.KIND_HOLD, reason_code,
             **{**self._loop_event_context(), **(detail or {})})
 
-        banner = review_loop.loop_hold_banner(reason_code)
+        banner = review_loop.loop_hold_banner(reason_code) if live else ""
         message = review_loop.loop_reason_message(reason_code)
         if not recorded:
             # Same rule as `_loop_auto_disarm`, and it matters MORE here: the
@@ -4651,9 +4658,15 @@ class MiniMonitorApp(
                 shadow_pane, snap, shadow_key, raw_tail, tick_text, token)
             detail = self._loop_delivery_detail
             if outcome == "sent":
-                ctrl.confirm_fire(token, time.monotonic())
-                # Recovery: a delivery landed, so any standing hold is over.
-                self._clear_loop_hold()
+                # Recovery: a delivery landed, so any standing hold is over —
+                # but only THIS lifecycle's. A non-BUSY post-Enter read returns
+                # "sent" with no token re-check, so a disarm + re-arm during
+                # that drain/capture makes it stale: `confirm_fire` refuses it,
+                # and the hold reason now belongs to the fresh lifecycle —
+                # clearing it would drop its banner and re-fire its
+                # edge-triggered record (t2009).
+                if ctrl.confirm_fire(token, time.monotonic()):
+                    self._clear_loop_hold()
             elif outcome == "not_ready":
                 # The delivery was vetoed but nothing is broken — abort back
                 # to WAITING and HOLD, visibly. Before t1606 the ambiguous
@@ -4661,8 +4674,14 @@ class MiniMonitorApp(
                 # destroyed the user's armed state on a read the loop's own
                 # contract calls indeterminate ("disarm only on verified
                 # absence; pause on uncertainty").
-                ctrl.abort_fire(token)
-                self._loop_hold(reason, detail=detail)
+                #
+                # A superseded delivery is still RECORDED (t1606: a lifecycle
+                # event, not a fault), but its abort is refused and the hold
+                # state is the fresh lifecycle's — overwriting it with a
+                # banner-less HOLD_DELIVERY_SUPERSEDED would blank that
+                # lifecycle's banner (t2009).
+                live = ctrl.abort_fire(token)
+                self._loop_hold(reason, detail=detail, live=live)
             else:  # transport failure — never leave the loop armed (hardening 1)
                 # Every "failed" lands here and disarms, with no lifecycle
                 # check — which is why the delivery methods re-check the token
@@ -4860,6 +4879,13 @@ class MiniMonitorApp(
         catches that case first), rather than kept as unreachable belt-and-
         braces. A superseded delivery may leave the prompt in the composer;
         the fresh lifecycle then reads ``SHADOW_BUSY`` and holds.
+
+        The one outcome NOT re-checked is ``"sent"`` from a non-BUSY post-Enter
+        read: it is a claim about a key already sent, and the caller's
+        ``confirm_fire`` refuses a stale token and gates the hold clear on that
+        answer (t2009). A BUSY post-Enter read (the Enter was swallowed) still
+        passes a token check — the retry's, or the one before the
+        budget-exhausted return.
         """
         ctrl = self._review_loop
         for _attempt in range(review_loop.SHADOW_SUBMIT_RETRIES + 1):

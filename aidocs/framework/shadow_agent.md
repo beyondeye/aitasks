@@ -938,8 +938,16 @@ latch, the bounded-capture residual), not the full list:
    and ahead of every branch, and again before that final return; in
    `_fire_shadow_recheck`, after each await and before the write. Nothing
    awaits between that check and any keystroke, so a disarm during any
-   suspension point can neither inject a key nor return a fatal code; a
-   superseded delivery always ends as `HOLD_DELIVERY_SUPERSEDED`.
+   suspension point can neither inject a key nor return a fatal code.
+   Supersession is reported as `HOLD_DELIVERY_SUPERSEDED` on every path that
+   reaches a token check — including a swallowed Enter, whose `BUSY`
+   post-Enter read retries through the next attempt's check or reaches the
+   one before the budget-exhausted return. The one exception is a
+   non-`BUSY` post-Enter read, which returns `sent`: a claim about a key
+   already sent. The caller gates on the controller's verdict for both
+   outcomes — `confirm_fire` / `abort_fire` refuse a stale token — so a
+   superseded delivery never changes the live lifecycle's hold state or
+   banner; its superseded hold is still recorded.
    The post-Enter capture is deliberately **not** fed to the settle latch: the
    controller is already FIRED behind the cooldown, and a post-delivery dialog
    or working observation is the expected *consequence* of the fire, not an

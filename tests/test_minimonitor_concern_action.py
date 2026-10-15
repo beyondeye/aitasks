@@ -4646,6 +4646,76 @@ class SupersessionDuringDeliveryAwaitsTests(_LoopEventStoreMixin,
         self.assertEqual(_enters(mon), last_enter, mon.sent)
         self._assert_fresh_arm_survived(app, gen)
 
+    # -- the fresh lifecycle's HOLD state (t2009) -------------------------
+    #
+    # Surviving the stale delivery is not enough: its outcome must not touch
+    # the hold state either, which belongs to the lifecycle that replaced it.
+    # Each hook re-arms and then holds the FRESH lifecycle for a reason that
+    # paints a banner, so a lost or overwritten reason shows on the banner too.
+
+    _FRESH_HOLD = _rl.HOLD_SHADOW_IN_MODE
+
+    def _assert_fresh_hold_intact(self, app):
+        self.assertEqual(app._loop_hold_reason, self._FRESH_HOLD)
+        self.assertEqual(app._loop_banner_text,
+                         _rl.loop_hold_banner(self._FRESH_HOLD))
+        # The edge trigger was not reset: the fresh lifecycle holding again
+        # for the same cause neither re-records nor re-toasts.
+        app._loop_hold(self._FRESH_HOLD)
+        self.assertEqual(
+            self.reasons(mm.review_loop_log.KIND_HOLD).count(self._FRESH_HOLD),
+            1, self.recorded())
+        toast = _rl.loop_reason_message(self._FRESH_HOLD)
+        self.assertEqual(sum(1 for m, _s in app.spy_notify if toast in m), 1,
+                         app.spy_notify)
+
+    def test_a_stale_sent_keeps_the_fresh_lifecycles_hold(self):
+        """A non-BUSY post-Enter read returns "sent" with no token re-check,
+        and the caller cleared the hold whatever `confirm_fire` answered."""
+        app, mon, _ = self._armed()
+
+        def install(m, ctrl, rearm):
+            def hook():
+                # The post-Enter capture; the composer submits, so the read
+                # is non-BUSY and the delivery returns "sent".
+                if _enters(m) == 1 and ctrl.state == _rl.DELIVERING:
+                    rearm()
+                    app._loop_hold(self._FRESH_HOLD)
+            m.on_capture = hook
+        gen = self._run_until_rearmed(app, mon, install)
+        self.assertEqual(_enters(mon), 1, mon.sent)
+        self.assertTrue(mon.submitted, "the \"sent\" route was not taken")
+        ctrl = app._review_loop
+        self.assertTrue(ctrl.armed, "the stale delivery killed the fresh arm")
+        self.assertEqual(ctrl.generation, gen)
+        self.assertEqual(self.reasons(mm.review_loop_log.KIND_DISARM), [])
+        self.assertEqual(ctrl.rounds_fired, 0,
+                         "the stale delivery was confirmed into the fresh "
+                         "lifecycle")
+        self._assert_fresh_hold_intact(app)
+
+    def test_a_stale_not_ready_keeps_the_fresh_lifecycles_hold(self):
+        """The superseded hold is RECORDED (t1606), but it used to overwrite
+        the fresh lifecycle's reason with a banner-less one."""
+        app, mon, _ = self._armed()
+        mon.typed_tail = _rlfx.CLAUDE_TYPED_RAW
+
+        def install(m, ctrl, rearm):
+            def hook():
+                # The first capture after the prompt write.
+                if (_literal_writes(m) == 1 and _enters(m) == 0
+                        and ctrl.state == _rl.DELIVERING):
+                    rearm()
+                    app._loop_hold(self._FRESH_HOLD)
+            m.on_capture = hook
+        gen = self._run_until_rearmed(app, mon, install)
+        self.assertEqual(_enters(mon), 0, mon.sent)
+        self._assert_fresh_arm_survived(app, gen)
+        self._assert_fresh_hold_intact(app)
+        self.assertFalse(
+            any(_rl.loop_reason_message(_rl.HOLD_DELIVERY_SUPERSEDED) in m
+                for m, _s in app.spy_notify), app.spy_notify)
+
 
 class QueryPaneModeTests(unittest.TestCase):
     """`monitor_core.query_pane_mode` — the reply shapes, measured (t2001).
