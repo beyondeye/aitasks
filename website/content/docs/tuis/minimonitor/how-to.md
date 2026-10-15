@@ -270,7 +270,21 @@ Press **L** again to disarm. A status line shows the loop's state the whole time
 | `⟳ auto-recheck: delivering…` | Sending the recheck |
 | `⟳ recheck #2 sent — waiting for shadow` | Sent; waiting for the shadow to re-read before arming the next round |
 
-When the loop disarms itself — the agent or the shadow pane disappeared, or the shadow was swapped for one it cannot read — the banner clears and a warning names the reason. An open picker pauses the loop rather than disarming it.
+**When the loop holds instead of sending.** Sometimes the loop is ready to send but the shadow pane is not safe to type into at that moment. It then **holds**: the delivery is called off, the loop stays armed, and the status line says why. A hold is not a failure. A toast explains it once, when it starts, and the banner stays up until a recheck is delivered or you disarm:
+
+| Banner | Meaning |
+|--------|---------|
+| `⟳ holding: shadow scrolled back — scroll it down or press q there` | The shadow pane is scrolled back (tmux copy-mode — scrolling an inline shadow with the mouse wheel enters it), so anything typed now would go to the scroll-back instead of the shadow agent. Nothing has been typed. Scroll the shadow to the bottom or press **q** in it, and the recheck goes out by itself |
+| `⟳ holding: shadow pane mode unreadable — will retry` | Minimonitor could not tell whether the shadow pane is scrolled back, so it typed nothing. It checks again on every refresh |
+| `⟳ holding: Enter withheld (shadow in tmux mode) — check its composer` | The shadow was scrolled back after the recheck text was typed but before its Enter, so the text is waiting in the shadow's input box. Leave the scroll-back, then either submit the text there — that is this round's recheck, and the loop does not send another — or clear it, and the loop sends a fresh one once the shadow has settled |
+| `⟳ holding: Enter withheld (shadow mode unreadable) — check its composer` | The recheck text was typed, but minimonitor could not tell whether the pane was scrolled back, so it withheld the Enter. Submit or clear the text in the shadow, as above |
+| `⟳ holding: shadow showed a dialog — will retry`<br>`⟳ holding: shadow pane unreadable — will retry` | The recheck text was typed, but just before the Enter the shadow showed a dialog — an Enter would have answered it — or its pane could not be read. No Enter was sent. The loop tries again once the shadow reads as ready; if the recheck text is still in the shadow's input box, submit or clear it there |
+
+Minimonitor never takes the shadow out of scroll-back for you — you are reading it. The two *Enter withheld* banners describe what happened, not what the input box holds now, so they stay accurate after you submit or clear the text. A few routine holds show no banner at all; every hold, shown or not, is recorded in the loop log described below.
+
+When the loop disarms itself, the banner clears and a warning names the reason. It disarms only when something is definitely wrong: the followed agent's pane or the shadow pane has gone, the shadow was swapped for an agent minimonitor cannot read, or a delivery failed outright — for example an Enter that never landed, which leaves the recheck text in the shadow's input box for you to submit or clear there. An uncertain reading holds rather than disarms, and an open picker pauses the loop.
+
+**Finding out why after the warning has gone.** Every disarm and every hold is also written to a log. Run `ait minimonitor --loop-log` from any shell — it works while minimonitor is running — to print the 20 most recent events, newest first; `ait minimonitor --loop-log 100` shows more. Each event gives its time, whether the loop disarmed or held, the same reason the warning gave, and the followed agent / shadow pair it happened to, which matters when several pairs are running. An event that ended a delivery also shows what the shadow pane looked like at that moment (`pre_enter_verdict`, `pane_in_mode`, `pane_mode`) — include those when reporting a problem. A warning that ends in `(not recorded)` means the event could not be written to the log. The log lives in `~/.config/aitasks/review_loop_events/` (override with `AITASKS_REVIEW_LOOP_LOG_DIR`).
 
 **Minimonitor only ever writes into the shadow pane.** The followed agent is never typed into: the loop automates asking the shadow to look again, not answering on your behalf. Forwarding concerns stays a clipboard step you confirm.
 
