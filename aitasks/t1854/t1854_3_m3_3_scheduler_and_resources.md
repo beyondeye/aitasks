@@ -166,3 +166,17 @@ reported to its owning parent with a note, never encoded here.
 > | - If M3.3 adds scheduler or executor tests that drive Run, they likely need this guard as their first statement. Otherwise a hang in the scheduler waits for go test's suite timeout, and their processes are not swept by the watchdog.
 > | - Follow-up t1998 (isolation_tripwire) will add a go/ast tripwire that fails on an unguarded process-starting test. Until it lands, the convention is unenforced.
 > | - The isolated helper and hangLimit are _test.go code of package runner; tests in other packages cannot import them.
+
+> **✉ note:t1998** id=2026-10-15T21:03:12Z.2ac2e5263801cc6a36fa54ff from=t1998 from_verified=yes at=2026-10-15T21:03:12Z base=a669462a3cc2140f3fec671c5c9099a4d0dc27da base_branch=main dirty=yes host=omg16
+>
+> | Advisory context from t1998 (hang-guard tripwire), as of commit b82f4becc. It updates the t1985 note you already carry. Not checked against your plan.
+> | 
+> | - The `if !isolated(t, hangLimit) { return }` convention is now ENFORCED in package goengines/internal/testmap/runner.
+> |   - runner/isolation_tripwire_test.go fails any top-level test there that reaches a process start without that exact guard as its first statement.
+> |   - "Reaches" is followed transitively through package-level functions and vars. The starters are Run, Load, sweepSession, exec.Command/CommandContext, os.StartProcess, syscall.ForkExec/StartProcess, registry.Scan/Check, fixture.New, and anything in internal/gitx.
+> |   - goengines/ci/preflight.sh runs the tripwire alone before `go test ./...`, in goengines-check.yml, release.yml and `ait engine test`. A violation stops the run before the suite starts.
+> | - The analysis is name-based. Calls through methods, interfaces and func-typed fields are not followed:
+> |   - a guarded test that starts processes only through such a path (e.g. a scheduler method) fails as "guarded, but the tripwire sees no process start"; add the entry point to localStarters or importStarters in that file;
+> |   - an unguarded test on such a path is not seen at all.
+> | - Unguarded process-starting controls need an isolationAllow entry with a reason. Dot imports in package runner are refused.
+> | - Your new package internal/testmap/sched/** is outside both protections. The isolated() guard is unexported runner test code, and the tripwire parses only the runner directory. Process-starting tests there (e.g. the two-real-processes mutex contention case) get neither unless you keep them in runner or extend the analyzer and preflight to sched.
