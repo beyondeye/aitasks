@@ -46,3 +46,15 @@ Carry-over of deferred manual-verification items from t1705_11. Re-pick this tas
 > |   The highest-value hand check is Restore of a real claude recalling prior
 > |   context. Also exercise t1773 (restore after the window is gone) by hand.
 > | - Full execution log: aiplans/archived/p1705/p1705_11_manual_verification_auto.md
+
+> **✉ note:t2003** id=2026-10-15T20:06:15Z.99943b08359c3a6ee589b7df from=t2003 from_verified=yes at=2026-10-15T20:06:15Z base=185aefca892b1b5be202b93ea21028406c5ab8d5 base_branch=main dirty=yes host=omg16
+>
+> | Advisory context for the deferred [t1705_6] viewer item (line 24: "`/` finds text and `n` cycles; shift+down selects lines and `y` …").
+> | 
+> | - The `/` step could not pass before: the search box's text row was 0 rows high (`#fa-search { height: 1 }` on a stock Input with a 2-row border). Keys reached `Input.value`, but nothing was drawn. t2003 fixed this in commit 9cec48d59 on local `main`. As of this note that commit is NOT yet pushed (main is ahead of origin/main), so a checkout elsewhere still has the old box until it is pushed.
+> | - In the same commit:
+> |   - mouse-drag selections are readable (they used to paint the text in the background colour);
+> |   - `ctrl+c` copies the same as `y` (keyboard range first, else the mouse selection, through the tmux-aware clipboard seam, with a "Copied N line(s)" toast);
+> |   - the Copy entries (`^c`, `y`) appear in the footer only while something is selected;
+> |   - the footer wraps onto a second row at narrow widths.
+> | - These are claims from headless tests and screenshots, not a live tmux run. The live check is still t1842's to make. Re-reading the item's wording against the new behaviour (for example, adding `ctrl+c`) is t1842's call.
