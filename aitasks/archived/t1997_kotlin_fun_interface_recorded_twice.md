@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [testing, testmap, go_engine]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -17,7 +17,8 @@ anchor: 1852
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5_5
 created_at: 2026-10-15 08:50
-updated_at: 2026-10-15 09:32
+updated_at: 2026-10-15 10:42
+completed_at: 2026-10-15 10:42
 ---
 
 ## Origin
@@ -54,3 +55,14 @@ In `scanKotlin`, skip the declaration-keyword match for `interface` when the pre
 > **✅ gate:plan_approved** run=2026-10-15T06:32:27Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-10-15T07:00:36Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-10-15T07:42:31Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:cf02ce868a12e7a7
+
+> **✅ gate:risk_evaluated** run=2026-10-15T07:42:31Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1997/risk_evaluated_2026-10-15T07:42:31Z-risk_evaluated-a1.log`
