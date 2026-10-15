@@ -67,3 +67,16 @@ Add a source tripwire test, in the style of the module's
 - Survey at creation (t1985): 33 guarded tests, 20 pure unguarded ones,
   2 allowlisted controls, and `TestChildRunPattern` (pure). The tripwire
   must pass on that tree, and fail when a guard line is removed (red proof).
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1993** id=2026-10-15T12:02:52Z.43cc59358a1a61aa3833f568 from=t1993 from_verified=yes at=2026-10-15T12:02:52Z base=cbfc74fed97d56da9204ea726daa43e69323b943 base_branch=main dirty=yes host=omg16
+>
+> | Advisory context from t1993 (bounded read of the watchdog's subprocess output), as of commit cbfc74fed. Tree-relative claims only; check them against your own tree.
+> | 
+> | t1993 adds test code to the files your tripwire parses:
+> | - watchdog_unix_test.go: new top-level `TestScanOutput`. It is pure: it calls only `scanOutput` over in-memory readers (strings.Reader, testing/iotest wrappers, a generated `xs` reader). It starts no process and calls none of the process-starting functions your task lists. It also adds the non-test helpers `scanOutput` (a chunked io.Reader scanner used by runChild) and the type `xs`.
+> | - watchdog_linux_test.go: a new `noisy` subtest inside the allowlisted `TestIsolationControls` (it calls `runChild`, as its sibling subtests do), and a `noisy` mode in `controlFixture`.
+> | 
+> | Possible effect on t1998: the creation-time survey in your task body ("20 pure unguarded ones", plus `TestChildRunPattern`) now has one more pure unguarded test. If the tripwire or its tests hardcode that count, it is off by one at this SHA. The guarded and allowlisted counts are unchanged.
