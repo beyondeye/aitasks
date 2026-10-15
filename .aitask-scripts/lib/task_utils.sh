@@ -1313,7 +1313,10 @@ _task_pull_rebase() {
     # answers about the same repository.
     head_before="$(git --git-dir="$gitdir" rev-parse HEAD 2>/dev/null || true)"
 
-    out="$(_ait_data_git "${AIT_RECONCILE_GIT_OPTS[@]}" pull --rebase --quiet 2>&1)" || rc=$?
+    # --no-autostash (t1792, t1987): a user's rebase.autoStash would stash and
+    # re-apply other live sessions' uncommitted edits in the shared worktree.
+    # Without it the pull refuses on a dirty worktree, as under git's default.
+    out="$(_ait_data_git "${AIT_RECONCILE_GIT_OPTS[@]}" pull --rebase --no-autostash --quiet 2>&1)" || rc=$?
     [[ -n "$out" ]] && printf '%s\n' "$out" >&2
 
     if [[ $rc -ne 0 ]]; then
@@ -1516,6 +1519,8 @@ _task_push_reason_hint() {
         # than the 'ait syncer' TUI the older arms suggest.
         ff_blocked)
             echo "local edits to the same file(s) block the fast-forward; commit them or reconcile with './ait sync'" ;;
+        ff_ignored)
+            echo "an incoming commit would overwrite a local untracked or ignored file (e.g. userconfig.yaml); nothing was changed — move the local file aside, then reconcile with './ait sync'" ;;
         local_diverged)
             echo "local data branch has both unpushed and unpulled commits; reconcile with './ait sync'" ;;
         # Since t1725_1 a conflicted pull ABORTS itself, so this code no longer
@@ -1580,6 +1585,11 @@ _task_push_warn() {
 # would touch OTHER live sessions' uncommitted aitasks/ / aiplans/ edits in the
 # shared worktree. This function never stashes and never commits anything.
 #
+# The fast-forward pins two flags (t1792, t1987): `--no-autostash`, so a user's
+# merge.autoStash cannot stash and rewrite those same uncommitted files, and
+# `--no-overwrite-ignore`, so an incoming commit that writes an ignored local
+# file (userconfig.yaml) is refused instead of silently replacing it.
+#
 # Same contract as task_push(): always returns 0, outcome in globals, one
 # warn() on stderr, silent on success. It calls _ait_data_git / _task_push_once
 # directly rather than task_push(), so it inherits no die() pre-flight.
@@ -1643,7 +1653,8 @@ task_data_converge() {
         fi
 
         if [[ "${behind:-0}" != "0" ]]; then
-            if ff_err="$(_ait_data_git merge --ff-only --quiet "$upstream" 2>&1)"; then
+            if ff_err="$(_ait_data_git merge --ff-only --no-autostash --no-overwrite-ignore \
+                    --quiet "$upstream" 2>&1)"; then
                 TASK_CONVERGE_STATUS="fast-forwarded"
                 TASK_CONVERGE_AHEAD="$(_task_push_unpushed_count)"
                 TASK_CONVERGE_BEHIND="$(_task_sync_unpulled_count)"
@@ -1653,8 +1664,15 @@ task_data_converge() {
             # pass cannot change the answer. The classifier already maps git's
             # "local changes ... would be overwritten by merge" to
             # dirty_worktree; remap it so the hint names a merge, not a rebase.
+            # Git's "untracked working tree files would be overwritten" (an
+            # ignored or untracked local file the incoming commit writes) has
+            # no classifier arm; name it so the hint says to move the file.
             reason="$(_task_push_classify "" "$ff_err")"
-            [[ "$reason" == "dirty_worktree" ]] && reason="ff_blocked"
+            if [[ "$reason" == "dirty_worktree" ]]; then
+                reason="ff_blocked"
+            elif [[ "$ff_err" == *"untracked working tree files would be overwritten"* ]]; then
+                reason="ff_ignored"
+            fi
             TASK_CONVERGE_STATUS="blocked"
             TASK_CONVERGE_REASON="$reason"
             _task_converge_warn "$context"

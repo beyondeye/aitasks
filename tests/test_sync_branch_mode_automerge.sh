@@ -55,6 +55,13 @@ TOTAL=0
 
 . "$PROJECT_DIR/tests/lib/asserts.sh"
 
+# Developer git config never reaches this file (t1987, the leak t1792 closed in
+# sync_fixture.sh); the per-repo user.* the fixtures set still applies. After the
+# counter initialisation above, so a failed probe is not erased.
+. "$PROJECT_DIR/tests/lib/git_config_isolation.sh"
+sync_isolate_git_config
+assert_git_config_isolated
+
 # --- Setup helper ---------------------------------------------------------
 # Build a bare remote + a BRANCH-MODE local clone (real .aitask-data worktree,
 # aitasks/ symlink) + a pc2 clone that has already pushed a conflicting edit.
@@ -663,7 +670,10 @@ assert_defect_present() {
 
 _eq() { [[ "$1" == "$2" ]]; }
 # <tmpdir> <subject> — is a commit with exactly this subject on local's data branch?
-_local_log_has()   { git -C "$1/local/.aitask-data" log --format=%s | grep -qxF -- "$2"; }
+# No `grep -q`: under this file's pipefail, -q exits on the first match and git,
+# which flushes per commit into a pipe, dies of SIGPIPE on its next write — a
+# present commit then reads as absent under load (t1987: 27/400 pinned to one CPU).
+_local_log_has()   { git -C "$1/local/.aitask-data" log --format=%s | grep -xF -- "$2" >/dev/null; }
 _local_log_lacks() { ! _local_log_has "$@"; }
 # <shimbin> <needle> — did the shimmed git see this argv fragment?
 _git_log_has()     { grep -qF -- "$2" "$1/git.log" 2>/dev/null; }

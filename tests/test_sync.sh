@@ -20,6 +20,13 @@ TOTAL=0
 # sensitive); call sites are remapped to assert_eq_trim / assert_contains_re.
 . "$PROJECT_DIR/tests/lib/asserts.sh"
 
+# Developer git config never reaches this file (t1987, the leak t1792 closed in
+# sync_fixture.sh); the per-repo user.* the fixtures set still applies. After the
+# counter initialisation above, so a failed probe is not erased.
+. "$PROJECT_DIR/tests/lib/git_config_isolation.sh"
+sync_isolate_git_config
+assert_git_config_isolated
+
 # --- Setup helpers ---
 
 # Create a bare remote + local clone + second clone ("other PC")

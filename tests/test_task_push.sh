@@ -17,6 +17,14 @@ FAIL=0
 TOTAL=0
 CLEANUP_DIRS=()
 
+# Developer git config never reaches this file (t1987, the leak t1792 closed in
+# sync_fixture.sh); the per-repo user.* the fixtures set still applies. Placed
+# AFTER the counter initialisation (not next to the asserts.sh source above),
+# which would otherwise erase a failed probe and let the file exit 0.
+. "$PROJECT_DIR/tests/lib/git_config_isolation.sh"
+sync_isolate_git_config
+assert_git_config_isolated
+
 # --- Test helpers ---
 
 assert_success() {
@@ -28,6 +36,14 @@ assert_success() {
         FAIL=$((FAIL + 1))
         echo "FAIL: $desc (expected exit 0, got $exit_code)"
     fi
+}
+
+# Byte digest, and inode + ctime: a stash round trip restores the bytes but
+# rewrites the file, so only the identity proves a file was never touched
+# (the same pair test_sync_autostash_ignored.sh pins for sync, t1792).
+file_sha() { { sha256sum < "$1"; } 2>/dev/null | cut -d' ' -f1; }
+file_ident() {
+    python3 -c 'import os,sys; s=os.lstat(sys.argv[1]); print(s.st_ino, s.st_ctime_ns)' "$1" 2>/dev/null
 }
 
 cleanup() {
@@ -594,6 +610,45 @@ assert_eq_trim "Remote unchanged: nothing was pushed" "2" "$remote_count"
 
 popd > /dev/null || exit 1
 
+# --- Test 11b: the push retry's pull never autostashes (t1987) ---
+# Test 11's fixture with the opposite pin. rebase.autoStash=true would make the
+# retry's `pull --rebase` stash another session's in-flight edit, replay, and
+# re-apply it — a rewrite of a file this session does not own. --no-autostash
+# must keep the git-default refusal.
+echo "--- Test 11b: push retry ignores rebase.autoStash=true ---"
+
+setup_remote_and_clone
+setup_branch_mode
+pushd "$TEST_MAIN_DIR" > /dev/null || exit 1
+reload_task_utils
+_AIT_DATA_WORKTREE=".aitask-data"
+
+git -C .aitask-data config rebase.autoStash true
+
+echo "local branch change" > .aitask-data/my_file.txt
+git -C .aitask-data add my_file.txt
+git -C .aitask-data commit -m "branch mode local commit" --quiet
+
+advance_remote "remote_file.txt"
+
+echo "another session's in-flight edit" >> .aitask-data/init.txt
+dirty_sha="$(file_sha .aitask-data/init.txt)"
+dirty_ident="$(file_ident .aitask-data/init.txt)"
+
+task_push 2>"$TEST_TMPDIR/autostash_push_err.txt"
+push_rc=$?
+
+assert_success "11b: task_push still returns 0 (best-effort contract)" "$push_rc"
+assert_eq "11b: the retry pull refused — TASK_PUSH_STATUS is failed" "failed" "$TASK_PUSH_STATUS"
+assert_eq "11b: TASK_PUSH_REASON is dirty_worktree" "dirty_worktree" "$TASK_PUSH_REASON"
+assert_eq "11b: the in-flight edit's bytes are unchanged" "$dirty_sha" "$(file_sha .aitask-data/init.txt)"
+assert_eq "11b: the in-flight edit was never rewritten (inode+ctime)" "$dirty_ident" "$(file_ident .aitask-data/init.txt)"
+assert_eq "11b: nothing was stashed" "" "$(git -C .aitask-data stash list)"
+assert_eq_trim "11b: remote unchanged: nothing was pushed" "2" \
+    "$(git -C "$TEST_REMOTE" rev-list --count HEAD)"
+
+popd > /dev/null || exit 1
+
 # --- Test 12: nothing to push stays silent ---
 echo "--- Test 12: nothing to push -> up-to-date, no warning ---"
 
@@ -814,6 +869,46 @@ if [[ -e .aitask-data/remote_only.txt ]]; then
 else
     TOTAL=$((TOTAL + 1)); PASS=$((PASS + 1))
 fi
+
+popd > /dev/null || exit 1
+
+# --- Test 18b: the pick-time pull never autostashes (t1987) ---
+# Test 18's fixture with the opposite pin: rebase.autoStash=true. Without
+# --no-autostash the pick's pull would stash another session's in-flight edit,
+# rebase, re-apply it and report success.
+echo "--- Test 18b: task_sync ignores rebase.autoStash=true ---"
+
+setup_remote_and_clone
+setup_branch_mode
+pushd "$TEST_MAIN_DIR" > /dev/null || exit 1
+reload_task_utils
+_AIT_DATA_WORKTREE=".aitask-data"
+
+git -C .aitask-data config rebase.autoStash true
+
+echo "local branch change" > .aitask-data/my_file.txt
+git -C .aitask-data add my_file.txt
+git -C .aitask-data commit -m "branch mode local commit" --quiet
+
+advance_remote "remote_only.txt"
+
+echo "another session's in-flight edit" >> .aitask-data/init.txt
+dirty_sha="$(file_sha .aitask-data/init.txt)"
+dirty_ident="$(file_ident .aitask-data/init.txt)"
+head_before="$(git -C .aitask-data rev-parse HEAD)"
+
+task_sync 2>"$TEST_TMPDIR/autostash_sync_err.txt"
+sync_rc=$?
+
+assert_success "18b: task_sync still returns 0 (best-effort contract)" "$sync_rc"
+assert_eq "18b: the pull refused — TASK_SYNC_STATUS is failed" "failed" "$TASK_SYNC_STATUS"
+assert_eq "18b: TASK_SYNC_REASON is dirty_worktree" "dirty_worktree" "$TASK_SYNC_REASON"
+assert_eq "18b: the in-flight edit's bytes are unchanged" "$dirty_sha" "$(file_sha .aitask-data/init.txt)"
+assert_eq "18b: the in-flight edit was never rewritten (inode+ctime)" "$dirty_ident" "$(file_ident .aitask-data/init.txt)"
+assert_eq "18b: nothing was stashed" "" "$(git -C .aitask-data stash list)"
+assert_eq "18b: HEAD did not move" "$head_before" "$(git -C .aitask-data rev-parse HEAD)"
+assert_eq "18b: the remote commit never landed" "absent" \
+    "$([[ -e .aitask-data/remote_only.txt ]] && echo present || echo absent)"
 
 popd > /dev/null || exit 1
 
@@ -1143,6 +1238,33 @@ assert_eq "the dirty file survives the merge byte-for-byte" "$dirty_before" "$(c
 
 popd > /dev/null || exit 1
 
+# --- Test 28b: converge's fast-forward never autostashes (t1987) ---
+# Test 28's fixture plus merge.autoStash=true. Git would then stash the
+# unrelated dirty file around the fast-forward and re-apply it: same bytes,
+# rewritten file — another session's edit touched by a write it never asked for.
+echo "--- Test 28b: converge ignores merge.autoStash=true ---"
+
+setup_remote_and_clone
+pushd "$TEST_LOCAL" > /dev/null || exit 1
+reload_task_utils
+_AIT_DATA_WORKTREE="."
+
+git config merge.autoStash true
+seed_dirty_file "$TEST_LOCAL" "mine.txt" "mine"
+dirty_sha="$(file_sha mine.txt)"
+dirty_ident="$(file_ident mine.txt)"
+advance_remote "theirs.txt"
+
+task_data_converge "test"
+
+assert_eq "28b: dirty non-overlapping + behind is still fast-forwarded" "fast-forwarded" "$TASK_CONVERGE_STATUS"
+assert_eq "28b: the incoming file landed" "present" "$([[ -e theirs.txt ]] && echo present || echo absent)"
+assert_eq "28b: the dirty file's bytes are unchanged" "$dirty_sha" "$(file_sha mine.txt)"
+assert_eq "28b: the dirty file was never rewritten (inode+ctime)" "$dirty_ident" "$(file_ident mine.txt)"
+assert_eq "28b: nothing was stashed" "" "$(git stash list)"
+
+popd > /dev/null || exit 1
+
 # --- Test 29: converge dirty OVERLAPPING + behind -> blocked / ff_blocked ---
 echo "--- Test 29: converge dirty overlapping + behind -> blocked/ff_blocked ---"
 
@@ -1175,6 +1297,48 @@ assert_contains "a warning is emitted" "not converged" "$converge_err"
 assert_contains "the hint names the real recovery" "./ait sync" "$converge_err"
 assert_eq "the local ref did not move" "$head_before" "$(git rev-parse HEAD)"
 assert_eq "the dirty file is untouched" "$dirty_before" "$(cat shared.txt)"
+
+popd > /dev/null || exit 1
+
+# --- Test 29b: converge never overwrites an ignored local file (t1987) ---
+# An incoming commit force-adds a file this clone ignores and holds privately
+# (userconfig.yaml is the real case). Git's default fast-forward overwrites it
+# silently; --no-overwrite-ignore must refuse, and the reason must say to move
+# the file rather than to commit it.
+echo "--- Test 29b: converge refuses to overwrite an ignored file -> blocked/ff_ignored ---"
+
+setup_remote_and_clone
+pushd "$TEST_LOCAL" > /dev/null || exit 1
+reload_task_utils
+_AIT_DATA_WORKTREE="."
+
+echo "userconfig.yaml" >> .git/info/exclude
+echo "email: mine@x.com" > userconfig.yaml
+mine_sha="$(file_sha userconfig.yaml)"
+assert_eq "29b: fixture — the local copy is ignored" "!!" \
+    "$(git status --porcelain --ignored -- userconfig.yaml | cut -c1-2)"
+head_before="$(git rev-parse HEAD)"
+
+other_tmp="$(mktemp -d "${TMPDIR:-/tmp}/ait_push_ignored_XXXXXX")"
+CLEANUP_DIRS+=("$other_tmp")
+git clone --quiet "$TEST_REMOTE" "$other_tmp/other" 2>/dev/null
+git -C "$other_tmp/other" config user.email "other@test.com"
+git -C "$other_tmp/other" config user.name "Other"
+echo "email: theirs@x.com" > "$other_tmp/other/userconfig.yaml"
+git -C "$other_tmp/other" add -f userconfig.yaml
+git -C "$other_tmp/other" commit -m "other force-adds userconfig.yaml" --quiet
+git -C "$other_tmp/other" push --quiet 2>/dev/null
+
+task_data_converge "test" 2>"$converge_err_file"
+converge_err="$(cat "$converge_err_file")"
+
+assert_eq "29b: an ignored-file overwrite is blocked" "blocked" "$TASK_CONVERGE_STATUS"
+assert_eq "29b: and reported as ff_ignored" "ff_ignored" "$TASK_CONVERGE_REASON"
+assert_contains "29b: the hint says to move the file aside" "move the local file aside" "$converge_err"
+assert_eq "29b: the local ref did not move" "$head_before" "$(git rev-parse HEAD)"
+assert_eq "29b: the private copy's bytes are unchanged" "$mine_sha" "$(file_sha userconfig.yaml)"
+assert_eq "29b: and it is still ignored" "!!" \
+    "$(git status --porcelain --ignored -- userconfig.yaml | cut -c1-2)"
 
 popd > /dev/null || exit 1
 

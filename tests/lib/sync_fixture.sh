@@ -166,15 +166,12 @@ set_userconfig_email() {
         > "$tmpdir/local/.aitask-data/aitasks/metadata/userconfig.yaml"
 }
 
-# Developer git config never reaches a sweep (t1792): a merge.autoStash /
-# rebase.autoStash (or a core.hooksPath, an excludesFile, ...) in the global or
-# system config would run under every sync test, and can both hide a defect and
-# invent one. setup_repo's per-repo user.* settings are repository config and
-# still apply. Call it INSIDE the subshell that runs aitask_sync.sh — every
-# wrapper that runs the script directly does, not only run_sync.
-sync_isolate_git_config() {
-    export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
-}
+# sync_isolate_git_config — developer git config never reaches a sweep (t1792).
+# Defined in its own side-effect-free lib so tests that do not use this fixture
+# can isolate too (t1987). Call it INSIDE the subshell that runs aitask_sync.sh —
+# every wrapper that runs the script directly does, not only run_sync.
+# shellcheck source=git_config_isolation.sh
+. "$PROJECT_DIR/tests/lib/git_config_isolation.sh"
 
 # Run the sweep in <tmpdir>'s clone. Echoes stdout; stderr lands in a
 # deterministic file, because callers capture stdout with $( ) and an assignment
