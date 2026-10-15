@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
@@ -15,7 +17,7 @@ anchor: 2013
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5_5
 created_at: 2026-10-15 23:56
-updated_at: 2026-10-16 00:15
+updated_at: 2026-10-16 00:16
 ---
 
 ## Origin
@@ -72,3 +74,5 @@ the fix, and a short-terminal reachability test added (cf. t2013's
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-10-15T21:15:58Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-10-15T21:32:48Z status=pass attempt=1 type=human
