@@ -331,7 +331,7 @@ follow-up rather than edited here.
   into live files; documented · severity: medium · → mitigation: none
 
 ### Planned mitigations
-- timing: after | name: crew_runner_alive_conflict_convergence | type: bug | priority: low | effort: medium | inline_risk: high | added_complexity: medium | addresses: goal-achievement — content conflict on _runner_alive.yaml is deferred, not converged | desc: Converge a conflicted runner pull on _runner_alive.yaml (keep the incoming requested_action, re-write the runner's own heartbeat fields after the merge) instead of deferring it
+- timing: after | name: crew_runner_alive_conflict_convergence | type: bug | priority: low | effort: medium | inline_risk: high | added_complexity: medium | addresses: goal-achievement — content conflict on _runner_alive.yaml is deferred, not converged | desc: Converge a conflicted runner pull on _runner_alive.yaml (keep the incoming requested_action, re-write the runner's own heartbeat fields after the merge) instead of deferring it | created: t2029
 
 ## Step 9 (Post-Implementation)
 
