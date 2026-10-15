@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1983
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-15 23:09
-updated_at: 2026-10-15 23:55
+updated_at: 2026-10-16 00:05
 ---
 
 ## Origin
@@ -35,3 +36,8 @@ From t2005 (commit `7d077e308`; plan archived as `aiplans/archived/p2005_mark_fr
 ## Suggested fix
 
 Mirror t2005 in `apply_prune_dimensions`. When `stage == "counter_bumped"`, add `record["incomplete_node"] = new_node_id`, and keep it out of `nodes_created`. Add a matching proposal-write fault test to `RunPruneFailureBoundaryTests` in `tests/test_brainstorm_prune_dimensions.py`. Then update the failure-boundary paragraph in `aidocs/brainstorming/brainstorm_engine_architecture_v2.md` §7.4a to name the incomplete node.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-15T21:05:07Z status=pass attempt=1 type=human
