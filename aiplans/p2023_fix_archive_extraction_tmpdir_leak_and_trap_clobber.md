@@ -498,3 +498,210 @@ Step 8 review and commit.
 ### Planned mitigations
 - timing: post-phase | name: trap_composition_sweep | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — source-time EXIT-trap chaining changes trap composition in every script that armed a trap before sourcing | desc: Statically list scripts/tests arming EXIT before sourcing task_utils/archive_utils, replicate each composed trap, and run the trap-sensitive suites plus leak re-measures
 - timing: after | name: chain_archive_sweep_through_rearmed_traps | type: bug | priority: medium | effort: medium | inline_risk: high | added_complexity: high | addresses: goal-achievement — scripts that re-arm EXIT after sourcing (gate, note, create, verification_followup, registry_lock acquire/release) drop the archive sweep and still leak on bundled resolves | desc: Make EXIT-trap re-arm sites preserve the archive sweep (chain instead of replace/clear, or a shared EXIT-handler registry) without breaking the ledger lock's first-in-trap contract
+
+## Final Implementation Notes
+- **Actual work done:**
+  - `lib/archive_utils.sh` extraction dirs:
+    - every extraction dir is `ait-archive.<owner>.XXXXXX`, under a TMPDIR
+      base pinned when the lib is first sourced in a shell;
+    - `<owner>` is `<pid>.<nonce>`, so PIDs that collide across PID namespaces
+      cannot share a tag (Change Request 1);
+    - per-shell state (owner, base, stored caller handler) is kept across a
+      re-source in the same shell;
+    - the exit cleanup sweeps the owner's tag, and only real dirs owned by the
+      user;
+    - on bash 3.2 a subshell never sweeps;
+    - if the pinned base has been deleted, extraction falls back to the
+      current TMPDIR, which the exit sweep also scans.
+  - `lib/archive_utils.sh` EXIT trap: the bare `trap … EXIT` is replaced by
+    `_ait_archive_arm_exit_trap`, which wraps the caller's handler in
+    `_ait_archive_exit_chain`. The wrapper:
+    - runs the cleanup first;
+    - re-arms the current trap text with its own token swapped for the
+      caller's handler;
+    - restores `$?` with `(exit rc) && :`;
+    - then evals the caller's handler.
+    - It composes only at top level (`BASH_SUBSHELL == 0`) and is idempotent.
+  - `lib/task_utils.sh`: new `task_archive_bundle <id>`, which lists the
+    bundle without extracting, and new `task_file_is_loose_archived <id>
+    <file>`, which compares the parent directory by identity (Change Request 1).
+  - `aitask_attach.sh` / `aitask_artifact.sh`: `cmd_remove` refuses a bundled
+    owner before the lock with "t<id> is packed into an archive bundle (<path>)
+    — a bundled record cannot be edited; ls and get still accept it".
+    - The guard is "not active and not loose-archived", both checked by
+      identity.
+    - The `cmd_add` / `cmd_create` comments, and the wording choice in their
+      refusal messages, use the same helper.
+  - Tests:
+    - `test_resolve_tar_zst.sh`: 13b–13g, including the 6-cell differential
+      ledger/txn matrix;
+    - `test_archive_utils.sh`: Group J2a–d;
+    - `test_attach_local_backend.sh` / `test_artifact_cli.sh`: dropped t2011's
+      re-arm and TMPDIR workaround; L6 now asserts the bundle message and that
+      the transaction boundary is never reached.
+- **Deviations from plan:**
+  - `tests/test_attach_lock_callback_contract.sh`: two ALLOWLIST entries are
+    re-pinned (`aitask_attach.sh:630→638`, `aitask_artifact.sh:689→697`). The
+    new `rm` guards shifted those exempted sites by 8 lines, and the allowlist
+    pins line numbers on purpose. Both lines were verified byte-identical to
+    their HEAD content.
+  - Not anticipated by the plan; this was the only suite that failed after the
+    change.
+- **Issues encountered:**
+  - The plan went through three review rounds. Rejected designs:
+    - text append: unreachable after a handler that calls `exit`;
+    - an extraction-time TMPDIR base: scoped overrides leak;
+    - a source-time reset of the stored handler: a re-source drops the
+      caller's cleanup;
+    - re-arming only the caller's text: a bare ledger trap plus a txn prepend
+      turned exit 42 into 0.
+  - Each rejected design is now a scratch mutant that a designated test
+    catches:
+
+    | Mutant | Caught by |
+    |---|---|
+    | append | 13d, 13d2 |
+    | caller text only | 13d2 `bare.txn`, J2b ledger |
+    | reset | J2a (2 sources) |
+    | extraction-time base | 13f |
+    | no sweep guard | J2d |
+    | no subshell guard | 13g |
+    | sweep without `-L`/`-O` checks | 13e |
+
+  - Against HEAD's libs: `test_resolve_tar_zst` 27/71 fail and
+    `test_archive_utils` 16/75 fail. 13e and 13g were tightened so they no
+    longer pass vacuously at HEAD.
+- **Key decisions:**
+  - The invariant is "observationally equal to the unwrapped composition,
+    plus cleanup first", pinned differentially rather than by expected values
+    alone.
+  - Arming now costs one subshell fork at source time (`$(trap -p EXIT)`).
+  - A subshell keeps a bare trap, so a trap armed inside `( )` before the
+    first source is still replaced. That case is only reachable in tests.
+- **Post-phase `trap_composition_sweep`:**
+  - The static scan (trap before first `source`/`.` of
+    task_utils/archive_utils, with `;`/`&&` prefixes allowed) found **17
+    hits, all in `tests/`, none in `.aitask-scripts/`**:
+    - test_aitask_update_xdeps, test_artifact_cli, test_artifact_dir_backend
+    - test_artifact_manifest_lib, test_artifact_share_resolution
+    - test_attach_gc_manifest_blocking, test_attach_local_backend
+    - test_attach_lock_callback_contract, test_attach_txn_worktree_isolation
+    - test_issue_import_amend_guard, test_label_vocabulary_lib
+    - test_last_used_labels, test_task_data_writer_guard, test_task_push
+    - test_txn_snapshot, test_userconfig_writer_collision, test_xdeps_parser
+  - Five distinct handler texts, each with an execution replica (handler
+    armed, lib sourced, bundled `$( )` resolve, `exit 5`). All five showed
+    the handler's effect, an empty probe dir and rc 5:
+    - `cleanup`
+    - `teardown_all`
+    - `rm -rf "$TMP"`
+    - `rm -rf "$TMPROOT"`
+    - `rm -f "$AIT_ASSERT_COUNTER_FILE"; _sync_fixture_cleanup`
+  - All 17 files and the five trap-sensitive suites were run with a per-suite
+    probe TMPDIR:
+    - all pass (test_attach_lock_callback_contract after the re-pin);
+    - none leaves an `ait-archive.*` dir;
+    - non-extraction leftovers are equal to or fewer than HEAD's in every
+      comparable case; test_txn_snapshot now leaves one fewer `tmp.*`.
+  - Full Python suite: `PYTHON SUITE: PASSED (runner=pytest, exit=0)`, with
+    9127 passed / 2 skipped in the parallel lane and 11 passed in the serial
+    carve-out. Shellcheck shows only pre-existing findings in the four touched
+    scripts.
+  - Second batch, all passing with no `ait-archive.*` left: archive_scan,
+    live_endpoint_degradation, claim_id, migrate_archives, note_append, query,
+    zip_old, docs_vocabulary_coverage, task_filename_invariant.
+- **Leak re-measure:**
+  - test_attach_local_backend and test_artifact_cli: only `ait-test-cwd-1000`
+    left.
+  - test_label_vocabulary_lib, test_last_used_labels and
+    test_userconfig_writer_collision: nothing left (HEAD: one `tmp.*` fixture
+    dir each).
+  - test_xdeps_parser: only `ait-test-cwd-1000` (HEAD: plus one `tmp.*`).
+  - t2011's probe shape is exercised by L6 in both CLI suites: `ls`/`get`/`rm`
+    on a bundled owner through the real CLIs, which inherit the probe TMPDIR.
+    Nothing was left behind, and `rm` refuses with the bundle message and no
+    mutation.
+- **Upstream defects identified:**
+  - `tests/test_docs_vocabulary_coverage.sh:71` — `make_fixture` appends its
+    dir to `CLEANUP_DIRS` but is always called as `$(make_fixture)` (lines
+    120/137/156). The append dies with the subshell, so the EXIT cleanup never
+    sees the fixtures, and each run leaks about 12 fixture repos into TMPDIR.
+    This is the same `$( )` state-loss class as this task.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-16 01:30)
+- **Requested by user:** two blocking review findings, both reproduced before
+  fixing.
+  1. The owner tag was the PID alone. Sandboxed commands in separate PID
+     namespaces that share a TMPDIR and a uid both get the same namespace-local
+     PID. Reproduced with `unshare -Urpf`: both owners were `1`, and B's exit
+     sweep deleted A's live extraction.
+  2. The `rm` bundled-owner guards classified any descendant of
+     `$ARCHIVED_DIR` as a loose archived file. Reproduced with an absolute
+     `ARCHIVED_DIR` and TMPDIR beneath it: `ait attach rm` reached the
+     transaction layer ("has uncommitted changes") and left the extraction dir
+     behind.
+- **Changes made:**
+  - `lib/archive_utils.sh`:
+    - the tag is now `<pid>.<nonce>`;
+    - the nonce is `${SRANDOM:-$RANDOM}$RANDOM` plus the digits of
+      `EPOCHREALTIME`, which is read through a `:-` default so `set -u` stays
+      safe on bash < 5.0;
+    - it is allocated at the first source in a shell and kept across a
+      same-shell re-source;
+    - `_AIT_ARCHIVE_OWNER_PID` now carries the PID for the
+      first-source-in-this-shell check and for `_ait_archive_may_sweep`;
+    - mktemp names and the sweep glob both use the full tag.
+  - `lib/task_utils.sh`: new `task_file_is_loose_archived <id> <file>`. Its
+    directory must be exactly `$ARCHIVED_DIR`, or `$ARCHIVED_DIR/t<parent>`
+    for a child, compared with `-ef` as `task_file_is_active` does.
+  - `aitask_attach.sh` / `aitask_artifact.sh`:
+    - the `rm` guards use the new helper;
+    - so do the `add` / `create` refusal messages, which used the same prefix
+      test only to pick their wording;
+    - line counts are unchanged, so the contract test's re-pinned allowlist
+      entries still hold.
+  - Tests:
+    - 13e plants same-PID dirs, with another nonce and with a bare PID; both
+      must survive. It also asserts the tag shape.
+    - New 13h runs two live commands in separate PID namespaces (`unshare
+      -Urpf`) over one probe TMPDIR. It asserts B's exit keeps A's extraction
+      and that the PIDs really collided (both 1). It reports SKIP, never a
+      pass, where namespaces are unavailable.
+    - New L6b in both CLI suites uses an absolute `ARCHIVED_DIR` with TMPDIR
+      beneath it. Precondition: the extraction is under the archived tree.
+      Then `rm` must refuse with the bundle message, without "uncommitted
+      changes", with no commit, and with nothing left in that TMPDIR. The
+      attach suite also unit-checks the helper: loose parent and child
+      accepted, also under an absolute trailing-slash `ARCHIVED_DIR`, and the
+      extraction rejected.
+  - Mutant proofs:
+    - tag reverted to PID only → 13e (3 asserts) and 13h fail;
+    - guard reverted to the prefix test → L6b fails in both CLI suites (4
+      asserts each).
+- **Files affected:** `.aitask-scripts/lib/archive_utils.sh`,
+  `.aitask-scripts/lib/task_utils.sh`, `.aitask-scripts/aitask_attach.sh`,
+  `.aitask-scripts/aitask_artifact.sh`, `tests/test_resolve_tar_zst.sh`,
+  `tests/test_attach_local_backend.sh`, `tests/test_artifact_cli.sh`
+
+### Change Request 2 (2026-10-16 01:55)
+- **Requested by user:** two low-severity follow-ups.
+  1. Test 13h's A stopped waiting after its loop without requiring `b_done`,
+     and the parent ignored child exit statuses. A late B therefore passed
+     after A had already exited. The reviewer reproduced it with the PID-only
+     design and B delayed 11 s.
+  2. The cleanup globbed the same TMPDIR twice in the normal case, where the
+     exit-time TMPDIR equals the pinned base.
+- **Changes made:**
+  - 13h:
+    - A prints `A_SYNC:ok` only after it has seen `b_done`, which the parent
+      writes only after B returns; otherwise it exits 3 with `A_SYNC:timeout`;
+    - the parent fails the test if A never signals readiness, and asserts both
+      children exited 0 and that A synced;
+    - re-verified: the PID-only mutant with B delayed 11 s now fails 13h, and
+      a shortened A window fails the sync and exit asserts.
+  - `_ait_archive_cleanup` sweeps the exit-time TMPDIR only when it differs
+    from the pinned base. 13f still covers the fallback base.
+- **Files affected:** `.aitask-scripts/lib/archive_utils.sh`,
+  `tests/test_resolve_tar_zst.sh`
