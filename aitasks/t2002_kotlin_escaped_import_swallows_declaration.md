@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1852
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-15 10:06
-updated_at: 2026-10-15 22:05
+updated_at: 2026-10-15 22:32
 ---
 
 ## Origin
@@ -45,3 +46,8 @@ The `package` case has the same shape. It is gated on `!seenDecl && k.Package ==
 ## Suggested fix
 
 Add `!t.esc` to the `package` and `import` cases in `scanKotlin`. Decide per opaque check whether an escaped token should trigger it. Add exact-equality fixture rows to `kotlin_test.go`, in the same shape as t1997's `TestKotlinFunInterfaceDeclaredOnce`: an escaped `import` / `package` followed by a declaration must keep that declaration and add no import. Add controls for real `import` / `package` directives. Bump the cache `schemaVersion` to HEAD + 1 at commit time.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-15T19:32:47Z status=pass attempt=1 type=human
