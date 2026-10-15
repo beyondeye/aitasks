@@ -3,11 +3,12 @@ priority: medium
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [frozen, tui, textual, clipboard]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-10-15 10:07
-updated_at: 2026-10-15 10:07
+updated_at: 2026-10-15 14:45
 ---
 
 Three usability defects in the `ait frozenagent` viewer, plus a requested change to its copy keys. Reported live on 2026-10-15 while reading a frozen Claude Code agent's stand-in pane in a downstream project (`thinking_backend`, window `agent-pick-153`). Textual 8.2.7, tmux 3.7c with `set-clipboard on`, theme `textual-dark`. The downstream `.aitask-scripts/frozenagent/` is byte-identical to this repo's.
