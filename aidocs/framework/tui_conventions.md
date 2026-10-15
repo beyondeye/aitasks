@@ -955,7 +955,8 @@ yield MultiRowFooter(hint_action="open_shortcuts_editor")
   `shared` scope (e.g. `open_shortcuts_editor`) — `register_app_bindings`
   deliberately does not shadow those into the app scope, so the lookup returns
   `None` and any literal fallback goes stale for exactly the users who rebound it.
-- Adopted on the board (t1418). The other TUIs still mount the stock `Footer`;
+- Adopted on the board (t1418), the stand-alone trails app and the frozenagent
+  viewer. The other TUIs still mount the stock `Footer`;
   `agentcrew_dashboard`, `codebrowser`, `monitor`, `stats` and
   `codebrowser/history_screen` all overflow a 120-column terminal today.
 

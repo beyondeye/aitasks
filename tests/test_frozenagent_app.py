@@ -205,9 +205,11 @@ class CaptureLogSelectionTests(unittest.IsolatedAsyncioTestCase):
     async def test_extraction_and_painting_match_stock_log(self):
         """Parity with the one stock widget that does support selection.
 
-        Comparing against `Log` rather than against hard-coded colours keeps the
-        pin honest when the theme changes: what matters is that `CaptureLog`
-        behaves like the widget Textual itself ships.
+        What `Log` is an oracle FOR: the extracted text and the span's cut
+        positions. It is NOT an oracle for colours — stock `Log` paints its
+        selection with `get_component_rich_style`, whose foreground equals its
+        background, so its selected text is unreadable too (measured, t2003).
+        Readability is pinned by `SelectionPaintTests` instead.
         """
         from textual.app import App, ComposeResult
         from textual.geometry import Offset
@@ -253,11 +255,10 @@ class CaptureLogSelectionTests(unittest.IsolatedAsyncioTestCase):
 
             cl_spans = spans(cl.render_line(0))
             lg_spans = spans(lg.render_line(0))
-            # Same cut positions, and the same background on the selected run.
+            # Same cut positions as the stock widget…
             self.assertEqual([(p, n) for p, n, _ in cl_spans][:3],
                              [(p, n) for p, n, _ in lg_spans][:3])
-            self.assertEqual(cl_spans[1][2], lg_spans[1][2])
-            # …and that background is genuinely different from the unselected run.
+            # …and the selected run's background differs from the unselected run.
             self.assertNotEqual(cl_spans[1][2], cl_spans[0][2])
 
     async def test_render_line_applies_offsets(self):
@@ -282,6 +283,113 @@ class CaptureLogSelectionTests(unittest.IsolatedAsyncioTestCase):
                     for seg in strip),
                 "render_line produced no offset meta",
             )
+
+
+def _cells(strip, n: int) -> list[tuple[str, object, object]]:
+    """The first `n` cells of `strip` as `(char, color, bgcolor)` (ASCII only)."""
+    out = []
+    for seg in strip:
+        style = seg.style
+        for ch in seg.text:
+            out.append((ch, style.color if style else None,
+                        style.bgcolor if style else None))
+    return out[:n]
+
+
+class SelectionPaintTests(unittest.IsolatedAsyncioTestCase):
+    """A mouse selection must be READABLE, not merely present (t2003).
+
+    The shipped defect: the selection style came from
+    `get_component_rich_style`, which blends the theme's transparent selection
+    foreground over the background, so every selected cell was painted
+    `color == bgcolor` — in every theme. A bgcolor-only assertion (the old
+    oracle) passes on exactly that output, so these pin the foreground.
+    """
+
+    PLAIN = "plain red"
+    ANSI = "plain \x1b[31mred\x1b[0m"
+
+    async def _paint(self, ansi: str, plain: str, *, theme: str = "textual-dark",
+                     register=None, ansi_for_bg=None):
+        """Render one line, select all of it, return (before, after, sel_bg).
+
+        `ansi_for_bg`, when given, builds the line from the theme's selection
+        background — so a captured colour can be made to equal it exactly.
+        """
+        from textual.app import App, ComposeResult
+        from textual.geometry import Offset
+        from textual.selection import Selection
+        from rich.text import Text
+        from frozenagent.capture_log import CaptureLog
+
+        class Harness(App):
+            def compose(self) -> ComposeResult:
+                yield CaptureLog(highlight=False, markup=False, wrap=False, id="cl")
+
+        app = Harness()
+        async with app.run_test(size=(40, 6)) as pilot:
+            if register is not None:
+                app.register_theme(register)
+            app.theme = theme
+            await pilot.pause()
+            sel_bg = app.screen.get_component_rich_style("screen--selection").bgcolor
+            if ansi_for_bg is not None:
+                ansi = ansi_for_bg(sel_bg.get_truecolor())
+            cl = app.query_one("#cl", CaptureLog)
+            cl.write(Text.from_ansi(ansi))
+            cl.set_plain([plain])
+            await pilot.pause()
+            before = _cells(cl.render_line(0), len(plain))
+            app.screen.selections = {cl: Selection(Offset(0, 0),
+                                                   Offset(len(plain), 0))}
+            await pilot.pause()
+            after = _cells(cl.render_line(0), len(plain))
+        return before, after, sel_bg
+
+    async def test_selected_cells_keep_their_foreground_and_stay_readable(self):
+        for theme in ("textual-dark", "textual-light"):
+            with self.subTest(theme=theme):
+                before, after, sel_bg = await self._paint(
+                    self.ANSI, self.PLAIN, theme=theme)
+                self.assertEqual([c[0] for c in after], list(self.PLAIN))
+                for (ch, fg0, _bg0), (_ch, fg, bg) in zip(before, after):
+                    self.assertEqual(bg, sel_bg, f"{ch!r}: not the theme's selection bg")
+                    self.assertNotEqual(fg, bg, f"{ch!r}: unreadable (fg == bg)")
+                    # The captured colour (red) and the widget's own foreground
+                    # (the unstyled cells) both survive the selection.
+                    self.assertEqual(fg, fg0, f"{ch!r}: captured foreground lost")
+
+    async def test_a_captured_colour_equal_to_the_selection_is_still_readable(self):
+        import math
+        before, after, sel_bg = await self._paint(
+            "", "same", ansi_for_bg=lambda rgb:
+                "\x1b[38;2;{};{};{}msame\x1b[0m".format(*rgb))
+        for (ch, fg0, _), (_c, fg, bg) in zip(before, after):
+            # The precondition: the capture really carried the selection colour.
+            self.assertEqual(fg0.get_truecolor(), sel_bg.get_truecolor())
+            self.assertEqual(bg, sel_bg)
+            self.assertGreater(
+                math.dist(fg.get_truecolor(), bg.get_truecolor()), 48,
+                f"{ch!r}: the contrast fallback did not fire")
+
+    async def test_an_explicit_theme_foreground_is_honoured_even_when_close(self):
+        """The contrast fallback is for CAPTURED colours, never the theme's.
+
+        `#204060` on `#214161` is 1.7 RGB units apart — well inside the
+        fallback's distance — and must still be painted exactly as chosen.
+        """
+        from textual.theme import Theme
+        theme = Theme(
+            name="t2003-close-selection", primary="#0178D4", dark=True,
+            variables={"screen-selection-foreground": "#204060",
+                       "screen-selection-background": "#214161"},
+        )
+        _before, after, _sel_bg = await self._paint(
+            self.ANSI, self.PLAIN, theme=theme.name, register=theme)
+        for ch, fg, bg in after:
+            self.assertEqual(tuple(fg.get_truecolor()), (0x20, 0x40, 0x60),
+                             f"{ch!r}: the theme's foreground was replaced")
+            self.assertEqual(tuple(bg.get_truecolor()), (0x21, 0x41, 0x61))
 
 
 # ───────────────────────── viewer ─────────────────────────────────────────
@@ -483,6 +591,452 @@ class SelectionAndCopyTests(_AppCase):
             self.assertEqual(screen._text, "boot: ok\nPLAN for t1705_6")
             await pilot.press("escape")
             await pilot.pause()
+
+
+def _screen_text(app) -> str:
+    """Everything currently drawn, as plain text (SVG tags stripped)."""
+    import html
+    import re
+    svg = app.export_screenshot()
+    return html.unescape(re.sub(r"<[^>]+>", "", svg)).replace("\xa0", " ")
+
+
+class SearchBoxTests(_AppCase):
+    """`/` must open a box whose text is DRAWN, not merely received (t2003).
+
+    The shipped CSS gave the stock `Input` `height: 1`, which its 2-row `tall`
+    border filled entirely: a 0-row content area. Keys still reached
+    `Input.value`, so a test that set `_search_term` (as `SearchTests` does)
+    or read `box.value` passed while the user saw nothing.
+    """
+
+    async def test_slash_opens_a_box_whose_placeholder_and_text_are_drawn(self):
+        from frozenagent.capture_log import CaptureLog
+        from textual.widgets import Input
+        app = self.make_app()
+        async with app.run_test(size=(100, 30)) as pilot:
+            await pilot.press("slash")
+            await pilot.pause()
+            box = app.query_one("#fa-search", Input)
+            self.assertIs(app.focused, box)
+            self.assertGreaterEqual(box.content_region.height, 1)
+            self.assertIn("Search (Enter to confirm", _screen_text(app))
+
+            # A term the capture does not contain, so only the box can draw it.
+            for ch in "qzx":
+                await pilot.press(ch)
+            await pilot.pause()
+            self.assertIn("qzx", _screen_text(app))
+
+            header = app.query_one("#fa-header")
+            log = app.query_one("#fa-log", CaptureLog)
+            self.assertGreaterEqual(box.region.y, header.region.bottom)
+            self.assertGreaterEqual(log.region.y, box.region.bottom)
+            self.assertGreaterEqual(log.region.height, 1)
+
+            box.value = ""
+            for ch in "charlie":
+                await pilot.press(ch)
+            await pilot.press("enter")
+            await pilot.pause()
+            self.assertEqual(app._match_line, 4)    # "alpha bravo charlie"
+
+    async def test_escape_closes_the_box_and_a_mouse_selection_but_keeps_a_range(self):
+        """What the reference's `Escape` row states (Textual's Screen clears a
+        mouse selection on every Escape; the viewer's own range waits)."""
+        from frozenagent.capture_log import CaptureLog
+        from textual.geometry import Offset
+        from textual.selection import Selection
+        app = self.make_app()
+        async with app.run_test(size=(100, 20)) as pilot:
+            log = app.query_one("#fa-log", CaptureLog)
+            await pilot.press("g")
+            await pilot.press("shift+down")
+            app.screen.selections = {log: Selection(Offset(0, 1), Offset(4, 1))}
+            await pilot.press("slash")
+            await pilot.pause()
+            self.assertTrue(app.query_one("#fa-search").has_class("visible"))
+            await pilot.press("escape")
+            await pilot.pause()
+            self.assertFalse(app.query_one("#fa-search").has_class("visible"))
+            self.assertIsNone(log.text_selection)
+            self.assertEqual(app._selection_bounds(), (0, 1))
+            await pilot.press("escape")
+            await pilot.pause()
+            self.assertEqual(app._selection_bounds(), (None, None))
+
+
+class _CopyCase(_AppCase):
+    """Seam patched, notifications and any BARE clipboard copy recorded."""
+
+    def instrument(self, app) -> None:
+        self.copied: list[str] = []
+        self.notes: list[str] = []
+        self.bare: list[str] = []
+        seam = patch.object(self.app_mod, "copy_to_system_clipboard",
+                            lambda _app, text: self.copied.append(text))
+        seam.start()
+        self.addCleanup(seam.stop)
+        original = app.notify
+
+        def spy(message, **kwargs):
+            self.notes.append(str(message))
+            return original(message, **kwargs)
+
+        app.notify = spy
+        # Textual's own copy path (Screen `copy_text`, `Input.action_copy`).
+        # With the seam patched, anything landing here bypassed the seam.
+        app.copy_to_clipboard = lambda text: self.bare.append(text)
+
+    def quit_hints(self) -> list[str]:
+        return [n for n in self.notes if "to quit the app" in n]
+
+    @staticmethod
+    def select_plan(app) -> None:
+        """A native mouse selection of "PLAN" — assigned, so watchers fire."""
+        from textual.geometry import Offset
+        from textual.selection import Selection
+        from frozenagent.capture_log import CaptureLog
+        log = app.query_one("#fa-log", CaptureLog)
+        app.screen.selections = {log: Selection(Offset(0, 1), Offset(4, 1))}
+
+
+class CopyKeyTests(_CopyCase):
+    """`ctrl+c` is the same copy as `y`, through the seam, with a toast (t2003)."""
+
+    async def test_ctrl_c_copies_a_keyboard_range(self):
+        app = self.make_app()
+        self.instrument(app)
+        async with app.run_test(size=(80, 20)) as pilot:
+            await pilot.press("g")
+            await pilot.press("shift+down")
+            await pilot.press("ctrl+c")
+            await pilot.pause()
+        self.assertEqual(self.copied, ["boot: ok\nPLAN for t1705_6"])
+        self.assertIn("Copied 2 line(s)", self.notes)
+        self.assertEqual(self.bare, [])
+
+    async def test_ctrl_c_copies_a_mouse_selection_through_the_seam(self):
+        app = self.make_app()
+        self.instrument(app)
+        async with app.run_test(size=(80, 20)) as pilot:
+            self.select_plan(app)
+            await pilot.pause()
+            await pilot.press("ctrl+c")
+            await pilot.pause()
+        self.assertEqual(self.copied, ["PLAN"])
+        self.assertIn("Copied 1 line(s)", self.notes)
+        # Textual's Screen `copy_text` must not ALSO have run.
+        self.assertEqual(self.bare, [])
+
+    async def test_with_nothing_selected_neither_key_is_dead(self):
+        app = self.make_app()
+        self.instrument(app)
+        async with app.run_test(size=(80, 20)) as pilot:
+            await pilot.press("y")
+            await pilot.pause()
+            self.assertIn("Nothing selected", self.notes)
+            self.assertEqual(self.quit_hints(), [])
+            await pilot.press("ctrl+c")
+            await pilot.pause()
+            self.assertEqual(len(self.quit_hints()), 1)
+        self.assertEqual(self.copied, [])
+        self.assertEqual(self.bare, [])
+
+    async def test_ctrl_c_in_the_search_box_never_copies_the_log(self):
+        from textual.widgets import Input
+        app = self.make_app()
+        self.instrument(app)
+        async with app.run_test(size=(80, 20)) as pilot:
+            self.select_plan(app)
+            await pilot.pause()
+            await pilot.press("slash")
+            await pilot.pause()
+            box = app.query_one("#fa-search", Input)
+            self.assertIs(app.focused, box)
+            self.assertIsNotNone(app.query_one("#fa-log").text_selection,
+                                 "precondition: the log still has a selection")
+            await pilot.press("ctrl+c")      # nothing selected IN the box
+            await pilot.pause()
+            self.assertEqual(self.copied, [])
+            self.assertEqual(self.bare, [])
+            self.assertEqual(len(self.quit_hints()), 1)
+
+            for ch in "step":
+                await pilot.press(ch)
+            box.select_all()
+            await pilot.pause()
+            await pilot.press("ctrl+c")      # the box's own copy
+            await pilot.pause()
+        self.assertEqual(self.bare, ["step"])
+        self.assertEqual(self.copied, [])
+
+    async def test_ctrl_c_under_a_modal_is_left_to_the_modal(self):
+        app = self.make_app()
+        self.instrument(app)
+        async with app.run_test(size=(80, 24)) as pilot:
+            await pilot.press("g")
+            await pilot.press("shift+down")
+            await pilot.press("m")
+            await pilot.pause()
+            self.assertIsInstance(app.screen, self.app_mod.MarkdownScreen)
+            await pilot.press("ctrl+c")
+            await pilot.pause()
+            self.assertIsInstance(app.screen, self.app_mod.MarkdownScreen)
+            await pilot.press("escape")
+            await pilot.pause()
+        self.assertEqual(self.copied, [])
+
+    async def test_super_c_is_routed_like_ctrl_c(self):
+        """Textual binds `super+c` beside `ctrl+c` on every screen."""
+        app = self.make_app()
+        self.instrument(app)
+        async with app.run_test(size=(80, 20)) as pilot:
+            self.select_plan(app)
+            await pilot.pause()
+            await pilot.press("super+c")
+            await pilot.pause()
+            self.assertEqual(self.copied, ["PLAN"])
+            app.screen.selections = {}
+            await pilot.pause()
+            await pilot.press("super+c")
+            await pilot.pause()
+            self.assertEqual(len(self.quit_hints()), 1)
+        self.assertEqual(self.copied, ["PLAN"])
+        self.assertEqual(self.bare, [])
+
+
+class CopyRebindTests(_CopyCase):
+    """Rebinding the `ctrl+c` copy elsewhere must not revive the defect (t2003).
+
+    Declaring the viewer's `ctrl+c` removed App's `help_quit` at class-merge
+    time, and `ShortcutsMixin` then moves the binding to the override key — so
+    without `_ViewerScreen` the OLD key falls through to Textual's Screen
+    `copy_text` (a silent, bare copy) or to nothing at all. Both keys are
+    exercised, with a mouse selection, a keyboard range and nothing selected.
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        import keybinding_registry
+        overrides = patch.object(
+            keybinding_registry, "load_user_overrides",
+            return_value={"frozenagent": {"copy_or_quit_hint": "ctrl+y"}})
+        overrides.start()
+        self.addCleanup(overrides.stop)
+
+    async def _matrix(self, key: str) -> None:
+        app = self.make_app()
+        self.instrument(app)
+        async with app.run_test(size=(80, 20)) as pilot:
+            self.select_plan(app)
+            await pilot.pause()
+            await pilot.press(key)
+            await pilot.pause()
+            self.assertEqual(self.copied, ["PLAN"], f"{key}: mouse selection")
+            await pilot.press("escape")
+            await pilot.press("g")
+            await pilot.press("shift+down")
+            await pilot.press(key)
+            await pilot.pause()
+            self.assertEqual(self.copied[-1], "boot: ok\nPLAN for t1705_6",
+                             f"{key}: keyboard range")
+            await pilot.press("escape")
+            await pilot.pause()
+            await pilot.press(key)
+            await pilot.pause()
+            self.assertEqual(len(self.copied), 2, f"{key}: copied with nothing selected")
+            self.assertEqual(len(self.quit_hints()), 1, f"{key}: dead key")
+        self.assertEqual(self.notes.count("Copied 1 line(s)"), 1)
+        self.assertEqual(self.notes.count("Copied 2 line(s)"), 1)
+        self.assertEqual(self.bare, [], f"{key}: bypassed the clipboard seam")
+
+    async def test_the_new_key_copies_or_hints(self):
+        await self._matrix("ctrl+y")
+
+    async def test_the_old_key_still_copies_or_hints(self):
+        await self._matrix("ctrl+c")
+
+    async def test_the_footer_lists_the_rebound_key(self):
+        app = self.make_app()
+        async with app.run_test(size=(120, 20)) as pilot:
+            self.select_plan(app)
+            await pilot.pause()
+            active = app.screen.active_bindings
+            self.assertEqual(active["ctrl+y"].binding.action, "copy_or_quit_hint")
+            self.assertTrue(active["ctrl+y"].binding.show)
+
+    async def test_negative_control_a_stock_screen_revives_the_bare_copy(self):
+        """Proves the matrix can fail: the same press without `_ViewerScreen`."""
+        from textual.screen import Screen
+        with patch.object(self.app_mod.FrozenAgentApp, "get_default_screen",
+                          lambda _self: Screen()):
+            app = self.make_app()
+            self.instrument(app)
+            async with app.run_test(size=(80, 20)) as pilot:
+                self.select_plan(app)
+                await pilot.pause()
+                await pilot.press("ctrl+c")
+                await pilot.pause()
+        self.assertEqual(self.bare, ["PLAN"])
+        self.assertEqual(self.copied, [])
+
+
+class FooterCopyKeysTests(_AppCase):
+    """The copy keys are listed only while something is selected (t2003).
+
+    Every transition asserts the state before it, so a footer that never
+    refreshed — or never hid — fails here rather than passing on a stale frame.
+    """
+
+    COPY = {"copy", "copy_or_quit_hint"}
+
+    def listed(self, app) -> set[str]:
+        from textual.widgets._footer import FooterKey
+        return {k.action for k in app.query(FooterKey)} & self.COPY
+
+    def shown(self, app) -> dict[str, bool]:
+        return {a.binding.action: a.binding.show
+                for a in app.screen.active_bindings.values()
+                if a.binding.action in self.COPY}
+
+    async def settle(self, pilot) -> None:
+        # The Footer recomposes after a refresh, one hop after the signal; a
+        # MultiRowFooter that changes height reflows once more on its resize.
+        for _ in range(3):
+            await pilot.pause()
+
+    async def test_every_key_stays_visible_and_clickable_at_split_pane_widths(self):
+        """The copy keys make the footer WIDER; nothing may fall off it.
+
+        With the stock single-row `Footer`, a selection at 95 columns pushed
+        Re-pick's centre onto the command-palette button and Drop off-screen
+        (measured, t2003). A `FooterKey` existing is not the same as it being
+        visible, so each key's centre is hit-tested — with the selection
+        active, the widest the footer gets. The row cap is pinned to the
+        shipped default so a developer's `footer_max_rows` cannot change it.
+        """
+        import multirow_footer
+        from frozenagent.capture_log import CaptureLog
+        from multirow_footer import OverflowHint
+        from textual.errors import NoWidget
+        from textual.geometry import Offset
+        from textual.selection import Selection
+        from textual.widgets._footer import FooterKey
+        must_show = self.COPY | {"restore", "repick", "drop", "quit"}
+        with patch.object(multirow_footer, "_resolve_max_rows",
+                          return_value=multirow_footer.DEFAULT_MAX_ROWS):
+            for width in (80, 95):
+                with self.subTest(width=width):
+                    app = self.make_app()
+                    async with app.run_test(size=(width, 20)) as pilot:
+                        log = app.query_one("#fa-log", CaptureLog)
+                        app.screen.selections = {
+                            log: Selection(Offset(0, 1), Offset(4, 1))}
+                        await self.settle(pilot)
+                        keys = list(app.query(FooterKey))
+                        self.assertLessEqual(must_show, {k.action for k in keys})
+                        self.assertEqual(len(app.query(OverflowHint)), 0,
+                                         "keys were dropped behind '+N more'")
+                        for key in keys:
+                            r = key.region
+                            self.assertTrue(r.width > 0 and r.right <= width,
+                                            f"{key.action} clipped: {r}")
+                            try:
+                                hit, _ = app.screen.get_widget_at(
+                                    r.x + r.width // 2, r.y)
+                            except NoWidget:
+                                self.fail(f"{key.action}: nothing under its centre")
+                            self.assertEqual(getattr(hit, "action", None),
+                                             key.action,
+                                             f"{key.action}'s centre hits {hit!r}")
+
+    async def test_a_keyboard_range_shows_and_escape_hides(self):
+        app = self.make_app()
+        async with app.run_test(size=(140, 20)) as pilot:
+            await self.settle(pilot)
+            self.assertEqual(self.listed(app), set())
+            self.assertEqual(self.shown(app), dict.fromkeys(self.COPY, False))
+            await pilot.press("shift+up")
+            await self.settle(pilot)
+            self.assertEqual(self.listed(app), self.COPY)
+            self.assertEqual(self.shown(app), dict.fromkeys(self.COPY, True))
+            await pilot.press("escape")
+            await self.settle(pilot)
+            self.assertEqual(self.listed(app), set())
+
+    async def test_a_mouse_selection_shows_and_a_click_or_escape_hides(self):
+        from frozenagent.capture_log import CaptureLog
+        from textual.geometry import Offset
+        from textual.selection import Selection
+        app = self.make_app()
+        async with app.run_test(size=(140, 20)) as pilot:
+            log = app.query_one("#fa-log", CaptureLog)
+            await self.settle(pilot)
+            self.assertEqual(self.listed(app), set())
+            app.screen.selections = {log: Selection(Offset(0, 1), Offset(4, 1))}
+            await self.settle(pilot)
+            self.assertEqual(self.listed(app), self.COPY)
+            await pilot.click("#fa-log")             # a click clears it
+            await self.settle(pilot)
+            self.assertIsNone(log.text_selection)
+            self.assertEqual(self.listed(app), set())
+            app.screen.selections = {log: Selection(Offset(0, 2), Offset(4, 2))}
+            await self.settle(pilot)
+            self.assertEqual(self.listed(app), self.COPY)
+            await pilot.press("escape")
+            await self.settle(pilot)
+            self.assertIsNone(log.text_selection)
+            self.assertEqual(self.listed(app), set())
+
+    async def test_the_flag_never_leaks_into_another_instance(self):
+        """`BindingsMap.copy()` is shallow: an in-place edit would leak."""
+        app = self.make_app()
+        async with app.run_test(size=(140, 20)) as pilot:
+            await pilot.press("shift+up")
+            await self.settle(pilot)
+            self.assertEqual(self.listed(app), self.COPY)
+            merged = self.app_mod.FrozenAgentApp._merged_bindings
+            self.assertTrue(all(
+                b.show for bucket in merged.key_to_bindings.values()
+                for b in bucket if b.action in self.COPY))
+        second = self.make_app()
+        async with second.run_test(size=(140, 20)) as pilot:
+            await self.settle(pilot)
+            self.assertEqual(self.listed(second), set())
+
+
+class CopyKeyRegistrationTests(_AppCase):
+
+    async def test_the_shortcut_editor_lists_the_ctrl_c_copy(self):
+        import keybinding_registry
+        import shortcut_scopes
+        shortcut_scopes.register_scope_bindings("frozenagent")
+        self.assertIn(("frozenagent", "copy_or_quit_hint", "ctrl+c", "Copy"),
+                      keybinding_registry.iter_scope_bindings("frozenagent"))
+
+    async def test_textual_internals_the_copy_keys_depend_on(self):
+        """Upgrade guard: each of these is a reason for a design choice above."""
+        from textual.app import App
+        from textual.screen import Screen
+        from textual.widgets import Input
+        # The quit hint the copy action falls back to.
+        self.assertTrue(callable(getattr(App, "action_help_quit", None)))
+        # The Screen binding `_ViewerScreen` routes (and why priority is needed).
+        screen_copy = [b for b in Screen.BINDINGS
+                       if getattr(b, "action", None) == "screen.copy_text"]
+        self.assertEqual(len(screen_copy), 1)
+        self.assertEqual(set(screen_copy[0].key.split(",")), {"ctrl+c", "super+c"})
+        # The merge clobber: the viewer's `ctrl+c` REPLACES App's `help_quit`.
+        merged = self.app_mod.FrozenAgentApp._merged_bindings
+        self.assertEqual([b.action for b in merged.key_to_bindings["ctrl+c"]],
+                         ["copy_or_quit_hint"])
+        # What the search-box rule reads.
+        self.assertTrue(hasattr(Input, "selected_text"))
+        app = self.make_app()
+        async with app.run_test(size=(80, 20)) as pilot:
+            await pilot.pause()
+            self.assertIs(type(app.screen), self.app_mod._ViewerScreen)
 
 
 # ───────────────────────── actions ────────────────────────────────────────

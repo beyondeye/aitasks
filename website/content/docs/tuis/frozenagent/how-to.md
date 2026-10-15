@@ -32,12 +32,13 @@ you want their numbers.
    example), and press **Enter**. Press **n** to walk through the hits.
 2. With the cursor on the first line you want, hold **shift** and press **↓**
    until the range covers the block.
-3. Press **y**.
+3. Press **y** (or **ctrl+c**). **Copy** appears in the footer once something
+   is selected.
 
 The text goes to your system clipboard, and inside tmux it also lands in a tmux
 paste buffer that is forwarded to every attached client — so the copy works even
-from a pane that is not currently visible. You can also just drag with the mouse
-instead of steps 2–3.
+from a pane that is not currently visible. You can also drag with the mouse
+instead of step 2, then press **y** or **ctrl+c**.
 
 ## Bring an agent back
 

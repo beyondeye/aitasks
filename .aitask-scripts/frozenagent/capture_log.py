@@ -30,7 +30,8 @@ modelled directly on ``textual/widgets/_log.py``:
 
 * :meth:`get_selection` — extraction, from the ANSI-stripped mirror in
   :attr:`_plain`;
-* :meth:`selection_updated` — drop the line cache so a drag repaints;
+* :meth:`selection_updated` — drop the line cache so a drag repaints, and post
+  :class:`CaptureLog.SelectionChanged` so the app can track the selection;
 * :meth:`render_line` / :meth:`_render_line` — ``apply_offsets`` plus span
   painting.
 
@@ -43,15 +44,41 @@ silently breaking selection.
 
 from __future__ import annotations
 
+import math
+
+from rich.color import Color as RichColor
 from rich.segment import Segment
 from rich.style import Style as RichStyle
+from textual.color import Color
+from textual.message import Message
 from textual.selection import Selection
 from textual.strip import Strip
 from textual.widgets import RichLog
 
+#: RGB distance below which a CAPTURED foreground is treated as unreadable on
+#: the selection background and swapped for that background's contrast colour.
+#: Small on purpose: it catches a colour that is (nearly) the selection colour
+#: itself, not merely a low-contrast one — every distinguishable captured colour
+#: is kept, because reproducing the capture faithfully is the viewer's job.
+_MIN_SELECTION_FG_DISTANCE = 48.0
+
+
+def _too_close(fg: RichColor | None, bg: RichColor | None) -> bool:
+    """Whether `fg` would be (nearly) invisible on `bg`."""
+    if fg is None or bg is None:
+        return False
+    return math.dist(fg.get_truecolor(), bg.get_truecolor()) < _MIN_SELECTION_FG_DISTANCE
+
 
 class CaptureLog(RichLog):
     """A `RichLog` whose content can be mouse-selected and copied."""
+
+    class SelectionChanged(Message):
+        """Posted whenever the native (mouse) selection is set, moved or cleared.
+
+        The app listens so it can show its copy keys only while there is
+        something to copy; the widget itself has no opinion about that.
+        """
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -92,23 +119,51 @@ class CaptureLog(RichLog):
         """
         self._line_cache.clear()
         self.refresh()
+        # Built and posted from THIS widget's pump, not inline: this method is
+        # called by `Screen._watch_selections` on the screen's pump, which would
+        # make the screen the message's sender — and Textual stops a bubbling
+        # message at its sender, so the app would never hear of it (measured).
+        self.call_next(self._announce_selection)
+
+    def _announce_selection(self) -> None:
+        self.post_message(self.SelectionChanged())
 
     def _selection_style(self) -> RichStyle:
-        """The theme's selection style — the same accessor `Log` uses.
+        """The theme's selection style, with a transparent foreground KEPT transparent.
 
-        `get_component_rich_style` resolves `screen--selection`'s
-        `$screen-selection-background` / `-foreground` against the live theme.
-        Do **not** substitute `Style.from_styles(get_component_styles(...))`:
-        outside a real render pass that yields a style whose foreground equals
-        its background, i.e. invisible selected text (measured).
+        Textual resolves `screen--selection` two ways, and only one of them
+        keeps the information this needs:
+
+        * `get_component_rich_style` builds a Rich style through
+          `DOMNode.rich_style`, which blends the theme's default
+          `$screen-selection-foreground: transparent` over the background — so
+          the result has `color == bgcolor` and every selected cell is painted
+          in the background colour. Measured on Textual 8.2.7 in textual-dark
+          (#094472 on #094472), textual-light, nord, gruvbox, tokyo-night,
+          catppuccin-latte and solarized-light. Stock `Log` uses this accessor
+          and shows the same unreadable selection.
+        * `get_component_styles` keeps the foreground's alpha. That is how
+          Textual's own Visual path (`Style.from_styles`) knows that a
+          transparent foreground means "keep the cell's own colour".
+
+        So the background comes from the first (already blended over the screen
+        background, which a Rich style needs), and the foreground is taken only
+        when the second says the theme actually chose one — in which case it is
+        honoured verbatim, however close to the background it is.
         """
         try:
-            return self.screen.get_component_rich_style("screen--selection")
+            styles = self.screen.get_component_styles("screen--selection")
+            blended = self.screen.get_component_rich_style("screen--selection")
         except Exception:
             # No screen (unit construction), or a theme without the component
             # class. `reverse` is universally available and is what a terminal
             # selection looks like anyway.
             return RichStyle(reverse=True)
+        if blended.bgcolor is None:
+            return RichStyle(reverse=True)
+        if styles.color.a == 0:
+            return RichStyle(bgcolor=blended.bgcolor)
+        return blended
 
     def _paint_span(self, strip: Strip, start: int, end: int) -> Strip:
         """Restyle cells `[start, end)` of `strip` with the selection style.
@@ -119,9 +174,17 @@ class CaptureLog(RichLog):
         The selection style is applied as an **override** (`segment_style +
         selection`), not as a base. `Strip.apply_style` would do the opposite —
         it passes its argument to `Segment.apply_style` as the base, so every
-        cell that carries a colour from the captured ANSI would keep that colour
-        and the selection would be invisible on exactly the coloured output this
-        viewer exists to show.
+        cell that carries a colour from the captured ANSI would keep its own
+        background and the selection would be invisible on exactly the coloured
+        output this viewer exists to show.
+
+        With the theme's default (transparent) selection foreground the override
+        carries only the background, so each cell keeps its CAPTURED foreground.
+        That leaves one way to lose a cell: a captured colour that is (nearly)
+        the selection background itself. Only in that branch is such a cell
+        given the background's contrast colour. A foreground the THEME chose is
+        never second-guessed — the fallback exists for captured colours, which
+        nobody picked with the selection in mind.
         """
         length = strip.cell_length
         if end == -1 or end > length:
@@ -136,13 +199,25 @@ class CaptureLog(RichLog):
         if len(parts) < 2:
             return strip
         selection = self._selection_style()
+        # Only the transparent-foreground branch carries no colour and has a
+        # background: an explicit theme foreground, and the `reverse` fallback,
+        # both leave `contrast` unset.
+        contrast = None
+        if selection.color is None and selection.bgcolor is not None:
+            contrast = RichStyle(
+                color=Color.from_rich_color(selection.bgcolor)
+                .get_contrast_text(1.0).rich_color
+            )
+
+        def paint(style: RichStyle | None) -> RichStyle:
+            painted = selection if style is None else style + selection
+            if contrast is not None and _too_close(painted.color, painted.bgcolor):
+                painted += contrast
+            return painted
+
         middle = parts[1]
         parts[1] = Strip(
-            [
-                Segment(text, selection if style is None else style + selection,
-                        control)
-                for text, style, control in middle
-            ],
+            [Segment(text, paint(style), control) for text, style, control in middle],
             middle.cell_length,
         )
         return Strip.join(parts)

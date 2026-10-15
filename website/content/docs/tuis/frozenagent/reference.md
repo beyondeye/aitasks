@@ -18,9 +18,10 @@ Every key below can be rebound — press **?** for the in-place editor, or open
 | `m` | Render the capture as Markdown | Selected range if any, else the whole capture |
 | `/` | Open the search box | Viewer mode only |
 | `n` | Jump to the next match | Wraps, and says so |
-| `Escape` | Close the search box, else clear the selection | |
+| `Escape` | Close the search box, else clear the keyboard range | Every Escape also clears a mouse selection |
 | `shift+↑` / `shift+↓` | Extend a line range from the cursor | |
 | `y` | Copy the selection | Keyboard range first, else the mouse selection |
+| `ctrl+c` | Copy the selection | Same as `y`. With nothing selected it shows the quit hint; in the open search box it copies the text selected there. If you rebind it, `ctrl+c` still copies |
 | `g` / `G` | Jump to the top / bottom | |
 | `R` | Restore the agent | No confirmation |
 | `p` | Re-pick the task | No confirmation; needs a task id on the record |
@@ -31,7 +32,8 @@ Every key below can be rebound — press **?** for the in-place editor, or open
 | `q` | Quit | |
 
 The footer advertises only `Keys`, `Quit`, `Plain/ANSI`, `Markdown`, `Search`,
-`Copy`, `Restore`, `Re-pick` and `Drop`; the rest are bound but unlisted.
+`Restore`, `Re-pick` and `Drop`, plus `Copy` (`y` and `ctrl+c`) while something
+is selected; the rest are bound but unlisted.
 
 While an operation is in flight on a record, that record's `R`, `p` and `k` are
 disabled rather than queued.

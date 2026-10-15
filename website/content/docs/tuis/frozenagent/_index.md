@@ -101,13 +101,16 @@ Two ways to select:
 - **Keyboard** — **shift+↑** / **shift+↓** extend a line range from the cursor.
   The range stays visible after you navigate away, and **Escape** clears it
   (when the search box is not open — Escape closes that first).
-- **Mouse** — drag to select, as in any terminal app.
+- **Mouse** — drag to select, as in any terminal app. **Escape** or a click
+  clears it.
 
-**y** copies the keyboard range if you have one, otherwise the mouse selection,
-and reports how many lines it took. The text goes to the system clipboard by two
-routes at once: an OSC 52 escape sequence, and — inside tmux — a tmux paste
-buffer that is forwarded to every attached client. The second route is what makes
-a copy work from a pane you cannot see.
+**y** or **ctrl+c** copies the keyboard range if you have one, otherwise the
+mouse selection, and reports how many lines it took. Both keys appear in the
+footer as **Copy** only while something is selected; with nothing selected,
+**ctrl+c** reminds you how to quit instead. The text goes to the system clipboard
+by two routes at once: an OSC 52 escape sequence, and — inside tmux — a tmux
+paste buffer that is forwarded to every attached client. The second route is what
+makes a copy work from a pane you cannot see.
 
 ## Restore, re-pick and drop
 

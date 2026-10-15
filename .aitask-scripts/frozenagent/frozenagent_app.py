@@ -37,6 +37,7 @@ the channel — and two facts about it shape every poll below:
 
 from __future__ import annotations
 
+import dataclasses
 import os
 import shlex
 import sys
@@ -51,15 +52,15 @@ for _p in (str(_SCRIPTS_DIR), str(_SCRIPTS_DIR / "lib")):
 from rich.cells import cell_len  # noqa: E402
 from rich.markup import escape as markup_escape  # noqa: E402
 from rich.text import Text  # noqa: E402
+from textual.actions import SkipAction  # noqa: E402
 from textual.app import App, ComposeResult  # noqa: E402
 from textual.binding import Binding  # noqa: E402
 from textual.containers import Horizontal, VerticalScroll  # noqa: E402
-from textual.screen import ModalScreen  # noqa: E402
+from textual.screen import ModalScreen, Screen  # noqa: E402
 from textual.strip import Strip  # noqa: E402
 from textual.widgets import (  # noqa: E402
     Button,
     DataTable,
-    Footer,
     Input,
     Markdown,
     Static,
@@ -71,6 +72,7 @@ from agent_launch_utils import compact_root  # noqa: E402
 from frozenagent.capture_log import CaptureLog  # noqa: E402
 from monitor.ansi_utils import strip_ansi  # noqa: E402
 from monitor.monitor_core import STANDIN_READY_OPTION, TaskInfoCache  # noqa: E402
+from multirow_footer import MultiRowFooter  # noqa: E402
 from shortcuts_mixin import ShortcutsMixin  # noqa: E402
 from tui_clipboard import copy_to_system_clipboard  # noqa: E402
 from tmux_exec import TmuxClient  # noqa: E402
@@ -96,6 +98,28 @@ POLL_INTERVAL = 1.0
 #: How long a viewer that mounted on a TRANSITIONAL record keeps refreshing its
 #: header while somebody else's settlement completes.
 SETTLE_GRACE = 30.0
+
+#: The actions behind the copy keys (`y`, `ctrl+c`). Matched by ACTION, never by
+#: key, so a `ShortcutsMixin` rebind is followed (see `_sync_copy_keys`).
+_COPY_ACTIONS = frozenset({"copy", "copy_or_quit_hint"})
+
+
+class _ViewerScreen(Screen):
+    """The viewer's default screen: Textual's own copy key, routed through ours.
+
+    Textual binds ``ctrl+c,super+c → screen.copy_text`` on EVERY screen, and the
+    stock action copies only the mouse selection, silently, through a bare
+    ``app.copy_to_clipboard`` — the path that never reaches the system clipboard
+    from a pane in a background tmux window. The viewer's registered ``ctrl+c``
+    binding is a priority binding, so it normally answers first; this override
+    covers every key it does NOT answer for: ``super+c``, and ``ctrl+c`` itself
+    once the user has rebound the copy shortcut elsewhere. Without it either key
+    would revive the bare copy, or — since declaring ``ctrl+c`` removed App's
+    ``help_quit`` — do nothing at all.
+    """
+
+    def action_copy_text(self) -> None:
+        self.app._copy_or_quit_hint()  # type: ignore[attr-defined]
 
 
 class ConfirmDialog(ModalScreen[bool]):
@@ -181,7 +205,10 @@ class FrozenAgentApp(TuiSwitcherMixin, ShortcutsMixin, App):
 
     CSS = """
     #fa-header { background: $boost; padding: 0 1; height: auto; }
-    #fa-search { height: 1; display: none; }
+    /* `border: none` is what gives the box a text row: the stock Input's 2-row
+       `tall` border filled `height: 1` entirely, leaving a 0-row content area,
+       so typed text was received but never drawn. */
+    #fa-search { height: 1; border: none; display: none; }
     #fa-search.visible { display: block; }
     #fa-log { background: $background; height: 1fr; }
     #fa-log.hidden { display: none; }
@@ -201,6 +228,14 @@ class FrozenAgentApp(TuiSwitcherMixin, ShortcutsMixin, App):
         Binding("shift+up", "select_up", "", show=False),
         Binding("shift+down", "select_down", "", show=False),
         Binding("y", "copy", "Copy"),
+        # The same copy as `y`. `priority` is required twice over: Textual's
+        # Screen-level `ctrl+c → screen.copy_text` precedes the App in the
+        # ordinary chain (so a plain binding would never fire), and only a
+        # priority binding takes over that key's footer slot. Declaring the key
+        # here also REPLACES App's `ctrl+c → help_quit` (`_merge_bindings`
+        # assigns per key), so the action gives that hint itself; `_ViewerScreen`
+        # covers `ctrl+c` again if this binding is rebound away.
+        Binding("ctrl+c", "copy_or_quit_hint", "Copy", priority=True),
         Binding("g", "scroll_top", "", show=False),
         Binding("G", "scroll_bottom", "", show=False),
         Binding("R", "restore", "Restore"),
@@ -266,11 +301,25 @@ class FrozenAgentApp(TuiSwitcherMixin, ShortcutsMixin, App):
                     id="fa-search")
         yield CaptureLog(highlight=False, markup=False, wrap=False, id="fa-log")
         yield DataTable(id="fa-list")
-        yield Footer()
+        # Multi-row, not stock `Footer`: the copy keys join the footer while a
+        # selection exists, and on a split-pane width the extra entries would
+        # otherwise push Re-pick / Drop into stock Footer's clipped,
+        # mouse-wheel-only overflow (`tui_conventions.md`, "TUI footer must
+        # surface every operation"). `hint_action` names an action, so the
+        # `+N more` affordance follows a remap of the shortcuts editor key.
+        footer = MultiRowFooter(hint_action="open_shortcuts_editor")
+        footer.can_focus = False
+        yield footer
+
+    def get_default_screen(self) -> Screen:
+        """`_ViewerScreen`, which routes Textual's own copy key — see it."""
+        return _ViewerScreen()
 
     def on_mount(self) -> None:
         log = self.query_one("#fa-log", CaptureLog)
         table = self.query_one("#fa-list", DataTable)
+        # Nothing is selected yet, in either mode: the copy keys start hidden.
+        self._sync_copy_keys()
         if self._list_mode:
             log.add_class("hidden")
             table.cursor_type = "row"
@@ -618,6 +667,7 @@ class FrozenAgentApp(TuiSwitcherMixin, ShortcutsMixin, App):
         self._refresh_header()
         log.scroll_end(animate=False)
         self._cursor = max(0, len(self._lines) - 1)
+        self._sync_copy_keys()
         # A row can be listed while `frozen` and enter `restoring` / `aborting`
         # through ANOTHER coordinator before it is opened, so this entry path
         # needs the settle watch just as much as `on_mount` does.
@@ -709,6 +759,7 @@ class FrozenAgentApp(TuiSwitcherMixin, ShortcutsMixin, App):
         self._sel_start = self._sel_end = None
         self._sel_active = False
         self._repaint_marks()
+        self._sync_copy_keys()
 
     def _extend_selection(self, direction: int) -> None:
         if self._list_mode or not self._lines:
@@ -727,6 +778,7 @@ class FrozenAgentApp(TuiSwitcherMixin, ShortcutsMixin, App):
         self._cursor = max(0, min(self._cursor + direction, len(self._lines) - 1))
         self._sel_end = self._cursor
         self._repaint_marks()
+        self._sync_copy_keys()
         self.query_one("#fa-log", CaptureLog).scroll_to(y=self._cursor,
                                                         animate=False)
 
@@ -747,8 +799,73 @@ class FrozenAgentApp(TuiSwitcherMixin, ShortcutsMixin, App):
     def action_select_down(self) -> None:
         self._extend_selection(1)
 
-    def action_copy(self) -> None:
-        """Copy the keyboard range, else the native mouse selection.
+    def _has_selection(self) -> bool:
+        """Whether there is a keyboard range or a native mouse selection.
+
+        Deliberately does NOT extract the text: this runs on every drag event,
+        and `CaptureLog.get_selection` joins the whole plain mirror (up to the
+        50000-line capture cap) per call. A selection that turns out to cover
+        no text is answered by the copy action itself ("Nothing selected").
+        """
+        if self._list_mode or self._capture_missing:
+            return False
+        lo, hi = self._selection_bounds()
+        if lo is not None and hi is not None:
+            return True
+        return self.query_one("#fa-log", CaptureLog).text_selection is not None
+
+    def _sync_copy_keys(self) -> None:
+        """List the copy keys in the footer only while something is selected.
+
+        **Not via `check_action`.** Returning `False` there hides a binding but
+        also stops it dispatching (`App.run_action` asks the same question), so
+        `y` with nothing selected would go silent instead of saying "Nothing
+        selected" — and silently swallowing a press is worse than refusing it
+        (see `check_action`). Instead the live `Binding` is swapped for a copy
+        with `show` flipped: hidden from the footer, still bound.
+
+        **A new list, never an in-place edit.** `BindingsMap.copy()` is
+        shallow, so each per-key list in `self._bindings` IS the class-level
+        `_merged_bindings` list; mutating it would leak the flag into every
+        later `FrozenAgentApp` in the process.
+
+        **Matched by action, not key**, so a binding `ShortcutsMixin` moved to
+        a user's override key is found where it now lives.
+        """
+        wanted = self._has_selection()
+        mapping = self._bindings.key_to_bindings
+        changed = False
+        for key, bucket in list(mapping.items()):
+            if any(b.action in _COPY_ACTIONS and b.show != wanted for b in bucket):
+                mapping[key] = [
+                    dataclasses.replace(b, show=wanted)
+                    if b.action in _COPY_ACTIONS else b
+                    for b in bucket
+                ]
+                changed = True
+        if changed:
+            self.refresh_bindings()
+
+    def on_capture_log_selection_changed(
+        self, event: CaptureLog.SelectionChanged
+    ) -> None:
+        """A mouse drag, a click that cleared it, or Escape (Textual's own)."""
+        self._sync_copy_keys()
+
+    def _selected_text(self) -> str:
+        """The keyboard range if there is one, else the native mouse selection."""
+        if self._list_mode:
+            return ""
+        lo, hi = self._selection_bounds()
+        if lo is not None and hi is not None:
+            return "\n".join(self._lines[lo:hi + 1])
+        log = self.query_one("#fa-log", CaptureLog)
+        selection = log.text_selection
+        extracted = log.get_selection(selection) if selection else None
+        return extracted[0] if extracted else ""
+
+    def _copy_selected(self) -> bool:
+        """Copy the selection to the system clipboard; False if there is none.
 
         The copy goes through `lib/tui_clipboard.copy_to_system_clipboard` and
         nothing else — `tests/test_tui_clipboard_seam.sh` fails any direct call
@@ -757,21 +874,51 @@ class FrozenAgentApp(TuiSwitcherMixin, ShortcutsMixin, App):
         the client's visible window; the seam adds the `load-buffer -w`
         gateway forward that works from a background window too.)
         """
-        if self._list_mode:
-            return
-        lo, hi = self._selection_bounds()
-        if lo is not None and hi is not None:
-            text = "\n".join(self._lines[lo:hi + 1])
-        else:
-            log = self.query_one("#fa-log", CaptureLog)
-            selection = log.text_selection
-            extracted = log.get_selection(selection) if selection else None
-            text = extracted[0] if extracted else ""
+        text = self._selected_text()
         if not text:
-            self.notify("Nothing selected", severity="warning")
-            return
+            return False
         copy_to_system_clipboard(self, text)
         self.notify(f"Copied {len(text.splitlines())} line(s)")
+        return True
+
+    def action_copy(self) -> None:
+        """`y`: copy the keyboard range, else the native mouse selection."""
+        if not self._copy_selected():
+            self.notify("Nothing selected", severity="warning")
+
+    def _copy_or_quit_hint(self) -> None:
+        """`ctrl+c` on the viewer screen, by whichever route it arrived.
+
+        The same copy as `y`, with the fallback `ctrl+c` has everywhere in
+        Textual: with nothing to copy, the "press q to quit" hint (users press
+        `ctrl+c` reflexively to quit; that is why Textual binds it). Called
+        directly, because declaring the viewer's `ctrl+c` removed App's own
+        `help_quit` binding.
+
+        While the search box has focus the key belongs to the box and never
+        copies the log: text selected in the box is left to `Input`'s own
+        `ctrl+c` copy, and anything else gets the quit hint.
+        """
+        box = self.query_one("#fa-search", Input)
+        if self.focused is box:
+            if box.selected_text:
+                raise SkipAction()
+            self.action_help_quit()
+            return
+        if not self._copy_selected():
+            self.action_help_quit()
+
+    def action_copy_or_quit_hint(self) -> None:
+        """The registered (rebindable, footer-listed) `ctrl+c` binding.
+
+        A priority binding fires on every screen, modals included, so it steps
+        aside unless the viewer's own screen is the active one — the modal's
+        own `ctrl+c` handling then runs (`tui_conventions.md`, "Priority
+        bindings").
+        """
+        if not isinstance(self.screen, _ViewerScreen):
+            raise SkipAction()
+        self._copy_or_quit_hint()
 
     def _move_cursor(self, line: int) -> None:
         """Move the navigation cursor, ending any active range.

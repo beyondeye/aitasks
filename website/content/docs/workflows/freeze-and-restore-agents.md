@@ -50,9 +50,9 @@ beside it still looks exactly like that.
 **Read it whenever you get to it.** The pane is the viewer, so there is nothing
 to launch — press **G** for the closing summary, **r** for plain text, **m** to
 render the capture as Markdown. Search with **/** and **n**, select with
-**shift+↑** / **shift+↓** or the mouse, and copy with **y**, which reaches your
-system clipboard even from a pane you cannot currently see. The
-[how-to]({{< relref "/docs/tuis/frozenagent/how-to" >}}) walks through pulling a
+**shift+↑** / **shift+↓** or the mouse, and copy with **y** or **ctrl+c**,
+which reaches your system clipboard even from a pane you cannot currently see.
+The [how-to]({{< relref "/docs/tuis/frozenagent/how-to" >}}) walks through pulling a
 spawned-task list out of a transcript.
 
 **Come back by the cheaper route.** Two ways back, and the obvious one is
@@ -73,7 +73,7 @@ whose CLI cannot resume a session — OpenCode today — can only be re-picked.
 **A successful, verified restore or re-pick deletes the capture.** Once the
 resumed agent identifies itself the transcript has served its purpose and the
 record drops it. Choosing restore or re-pick is therefore not a way to keep the
-output: copy what you want with **y** first.
+output: copy what you want with **y** (or **ctrl+c**) first.
 
 **Drop when you are done.** **k** deletes the record and its capture and closes
 the stand-in pane. It confirms first, because that is the one action that leaves

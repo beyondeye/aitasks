@@ -77,7 +77,7 @@ Button and footer labels that highlight a mnemonic — such as `(P)ick` — refl
 
 ### How many footer rows
 
-The board's footer wraps onto more than one row when your terminal is too narrow to show every shortcut on a single line, and collapses back to one row when you widen it. Set `footer_max_rows` in `userconfig.yaml` to change the limit:
+The footers of the board, trails and frozenagent TUIs wrap onto more than one row when your terminal is too narrow to show every shortcut on a single line, and collapse back to one row when you widen it. Set `footer_max_rows` in `userconfig.yaml` to change the limit:
 
 ```yaml
 footer_max_rows: 3
