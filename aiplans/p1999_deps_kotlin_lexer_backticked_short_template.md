@@ -183,3 +183,327 @@ ait engine test     # go vet + go test over goengines/
 - The model comes from Kotlin.flex and t1990's measurement. Edge forms (an
   empty name, a newline, a `$`-run) could still differ from the shipped lexer ·
   severity: low · → mitigation: none (step 6 diffs every row against the 2.3.20 `KotlinLexer`)
+
+## Final Implementation Notes
+- **Actual work done:** Implemented as planned. `deps/kotlinlex.go` `str()` reads
+  `` $`name` `` (one or more chars, no newline, same line) as a short template and
+  emits the unquoted name as an `n` token with `esc: true`. An empty, unclosed or
+  newline-spanning name stays text. `deps/gradlelex.go` `str()` skips the same
+  construct in kts mode only. Each lexer gained an `escapedEnd(i)` helper, which
+  its existing code-path backtick case now also uses (behaviour unchanged).
+  `cache.go` `schemaVersion` 9 → 10. Tests: 6 `TestKotlinLexer` rows, one
+  `TestKotlinLexerMarksEscapedIdentifiers` case, the new
+  `TestKotlinLexerShortTemplateBacktickedName` (the exact task probe plus a
+  `p.Callee()` variant for `Refs`), and 3 `gradleLexCases` kts rows.
+- **Deviations from plan:** The `ktLex` doc comment avoids a double backtick
+  (`` `$`name`` ``), which gofmt rewrites to a curly quote, and says "the
+  backticked name of $`name`" instead. The dump test records an `ERROR:` row
+  instead of failing, so the pre-fix control could run on the same dump source.
+  Rows are named rather than indexed.
+- **Issues encountered:** Plan review (user) rejected an assertion that
+  `Kt.Refs` contains `Callee` for the exact probe. `kotlin.go:192-198` admits only
+  dotted chains with at least 2 segments and a lowercase first segment, so the
+  test asserts tokens and decls for the probe, and `Refs` only for a
+  `p.Callee()` variant.
+- **Key decisions:** The kts blanker gap is fixed in this task, not deferred to
+  t1992. Same construct, same package, one cache bump: fixing only one lexer
+  would have left an interim state in which they disagree.
+- **Red proof** (new tests against the unfixed `str()`, run before the fix in the
+  live tree; no stash or restore was needed because the tests were written
+  first):
+  ```text
+  --- FAIL: TestScanGradleStringAwareComments/kts-short-template-backticks: refs [], want [":lib"]
+  --- FAIL: TestScanGradleStringAwareComments/kts-short-template-raw: refs [], want [":lib"]
+  --- FAIL: TestKotlinLexer: lex "\"$`a\"b`\"": untokenizable
+  --- FAIL: TestKotlinLexerMarksEscapedIdentifiers: ... s:$`fun`:false], want [... n:fun:true S::false]
+  --- FAIL: TestKotlinLexerShortTemplateBacktickedName:
+      names ["package" "p" "val" "q\"\"\"" "val" "s" "\"\"\" + \"\"\""] lack "f" / "Callee" / "t"
+      decls ["q\"\"\"" "s"] lack "f" / "t"
+      refs [] lack p.Callee at line 4
+  ```
+  `kts-short-template-unclosed` passed before the fix too, as intended: it
+  guards against over-matching.
+- **Real-lexer differential (plan step 6).** Lexer: `kotlin-compiler-embeddable-2.3.20.jar`
+  from the Gradle 9.5.1 distribution. The dump test (deleted after use) and the
+  Java probe are reproduced verbatim below. The control ran the identical dump
+  source (`cmp`-verified) against an isolated scratch copy of `goengines/`
+  whose `kotlinlex.go` / `gradlelex.go` were replaced by `git show HEAD:…`.
+
+  Command:
+  ```sh
+  T1999_DUMP=$S/rows.tsv go test ./internal/testmap/deps/ -run TestZZDumpT1999 -count=1          # live (fixed)
+  (cd $S/ctl/goengines && T1999_DUMP=$S/rows_ctl.tsv go test ./internal/testmap/deps/ -run TestZZDumpT1999 -count=1)  # pre-fix control
+  L=$(ls -d ~/.gradle/wrapper/dists/gradle-9.5.1-bin/*/gradle-9.5.1/lib)
+  java -cp "$L/kotlin-compiler-embeddable-2.3.20.jar:$L/kotlin-stdlib-2.3.20.jar" KtProbe.java rows.tsv
+  java -cp "$L/kotlin-compiler-embeddable-2.3.20.jar:$L/kotlin-stdlib-2.3.20.jar" KtProbe.java rows_ctl.tsv
+  ```
+
+  Output, fixed lexers:
+  ```text
+MATCH    kt    templates
+MATCH    kt    lone-dollar
+MATCH    kt    st-plain
+MATCH    kt    st-raw
+MATCH    kt    st-run
+MATCH    kt    st-newline
+MATCH    kt    esc-keywords
+MATCH    kt    probe-qualified
+MATCH    kt    literals
+MATCH    kt    raw-quote-run
+MATCH    kt    comments
+MATCH    kt    dollar-strings
+MATCH    kt    dollar-run
+MATCH    kt    st-unclosed
+MATCH    kt    backticked
+MATCH    kt    class-ref
+MATCH    kt    use-site
+MATCH    kt    st-empty
+MATCH    kt    probe
+MATCH    kts   glob-kts
+MATCH    kts   kts-raw-string-backslash
+MATCH    kts   kts-nested-comment
+MATCH    kts   kts-backticked-name
+MATCH    kts   kts-char-literals
+SKIP     kts   kts-multi-dollar                 (our blanker fails closed)
+SKIP     kts   kts-multi-dollar-single-line     (our blanker fails closed)
+MATCH    kts   kts-short-template-backticks
+MATCH    kts   kts-short-template-raw
+MATCH    kts   kts-short-template-unclosed
+TOTAL match=27 mismatch=0 skipped=2 lexer=2.3.20
+  ```
+
+  Output, pre-fix control (the oracle discriminates: 8 mismatches, all template rows):
+  ```text
+MATCH    kt    backticked
+MATCH    kt    dollar-strings
+MATCH    kt    dollar-run
+MATCH    kt    st-newline
+MATCH    kt    comments
+MATCH    kt    literals
+MATCH    kt    use-site
+MATCH    kt    lone-dollar
+MISMATCH kt    st-plain
+    real: a"b
+    ours: ERROR:untokenizable
+    tokens: OPEN_QUOTE["] SHORT_TEMPLATE_ENTRY_START[$] IDENTIFIER[`a"b`] CLOSING_QUOTE["]
+MISMATCH kt    st-run
+    real: x"
+    ours: ERROR:untokenizable
+    tokens: OPEN_QUOTE["] REGULAR_STRING_PART[$] SHORT_TEMPLATE_ENTRY_START[$] IDENTIFIER[`x"`] CLOSING_QUOTE["]
+MATCH    kt    st-empty
+MATCH    kt    st-unclosed
+MATCH    kt    class-ref
+MISMATCH kt    esc-keywords
+    real: fun | fun | interface | interface | fun
+    ours: fun | fun | interface | interface
+    tokens: IDENTIFIER[`fun`] WHITE_SPACE[ ] fun[fun] WHITE_SPACE[ ] IDENTIFIER[`interface`] WHITE_SPACE[ ] interface[interface] WHITE_SPACE[ ] OPEN_QUOTE["] SHORT_TEMPLATE_ENTRY_START[$] IDENTIFIER[`fun`] CLOSING_QUOTE["]
+MISMATCH kt    probe
+    real: package | p | val | q""" | val | s | q""" | fun | f | Callee | val | t
+    ours: package | p | val | q""" | val | s | """ + """
+    tokens: package[package] WHITE_SPACE[ ] IDENTIFIER[p] WHITE_SPACE[\n] val[val] WHITE_SPACE[ ] IDENTIFIER[`q"""`] WHITE_SPACE[ ] EQ[=] WHITE_SPACE[ ] INTEGER_LITERAL[1] WHITE_SPACE[\n] val[val] WHITE_SPACE[ ] IDENTIFIER[s] WHITE_SPACE[ ] EQ[=] WHITE_SPACE[ ] OPEN_QUOTE["""] SHORT_TEMPLATE_ENTRY_START[$] IDENTIFIER[`q"""`] CLOSING_QUOTE["""] WHITE_SPACE[ ] PLUS[+] WHITE_SPACE[ ] OPEN_QUOTE["""] REGULAR_STRING_PART[`/*] CLOSING_QUOTE["""] WHITE_SPACE[\n] fun[fun] WHITE_SPACE[ ] IDENTIFIER[f] LPAR[(] RPAR[)] WHITE_SPACE[ ] EQ[=] WHITE_SPACE[ ] IDENTIFIER[Callee] LPAR[(] RPAR[)] WHITE_SPACE[\n] val[val] WHITE_SPACE[ ] IDENTIFIER[t] WHITE_SPACE[ ] EQ[=] WHITE_SPACE[ ] INTEGER_LITERAL[1] WHITE_SPACE[ ] EOL_COMMENT[// */] WHITE_SPACE[\n]
+MISMATCH kt    probe-qualified
+    real: package | p | val | q""" | val | s | q""" | fun | f | p | Callee | val | t
+    ours: package | p | val | q""" | val | s | """ + """
+    tokens: package[package] WHITE_SPACE[ ] IDENTIFIER[p] WHITE_SPACE[\n] val[val] WHITE_SPACE[ ] IDENTIFIER[`q"""`] WHITE_SPACE[ ] EQ[=] WHITE_SPACE[ ] INTEGER_LITERAL[1] WHITE_SPACE[\n] val[val] WHITE_SPACE[ ] IDENTIFIER[s] WHITE_SPACE[ ] EQ[=] WHITE_SPACE[ ] OPEN_QUOTE["""] SHORT_TEMPLATE_ENTRY_START[$] IDENTIFIER[`q"""`] CLOSING_QUOTE["""] WHITE_SPACE[ ] PLUS[+] WHITE_SPACE[ ] OPEN_QUOTE["""] REGULAR_STRING_PART[`/*] CLOSING_QUOTE["""] WHITE_SPACE[\n] fun[fun] WHITE_SPACE[ ] IDENTIFIER[f] LPAR[(] RPAR[)] WHITE_SPACE[ ] EQ[=] WHITE_SPACE[ ] IDENTIFIER[p] DOT[.] IDENTIFIER[Callee] LPAR[(] RPAR[)] WHITE_SPACE[\n] val[val] WHITE_SPACE[ ] IDENTIFIER[t] WHITE_SPACE[ ] EQ[=] WHITE_SPACE[ ] INTEGER_LITERAL[1] WHITE_SPACE[ ] EOL_COMMENT[// */] WHITE_SPACE[\n]
+MATCH    kt    raw-quote-run
+MISMATCH kt    st-raw
+    real: q"""
+    ours: ERROR:untokenizable
+    tokens: OPEN_QUOTE["""] SHORT_TEMPLATE_ENTRY_START[$] IDENTIFIER[`q"""`] CLOSING_QUOTE["""]
+MATCH    kt    templates
+MATCH    kts   glob-kts
+MATCH    kts   kts-raw-string-backslash
+MATCH    kts   kts-nested-comment
+MATCH    kts   kts-backticked-name
+MATCH    kts   kts-char-literals
+SKIP     kts   kts-multi-dollar                 (our blanker fails closed)
+SKIP     kts   kts-multi-dollar-single-line     (our blanker fails closed)
+MISMATCH kts   kts-short-template-backticks
+    real: val `q"` = 1\nval s = "$`q"`" + "`/*"\ndependencies { implementation(project(":lib")) }\nval t = 1      \n
+    ours: val `q"` = 1\nval s = "$`q"`" + "`   \n                                                \n               \n
+    tokens: val[val] WHITE_SPACE[ ] IDENTIFIER[`q"`] WHITE_SPACE[ ] EQ[=] WHITE_SPACE[ ] INTEGER_LITERAL[1] WHITE_SPACE[\n] val[val] WHITE_SPACE[ ] IDENTIFIER[s] WHITE_SPACE[ ] EQ[=] WHITE_SPACE[ ] OPEN_QUOTE["] SHORT_TEMPLATE_ENTRY_START[$] IDENTIFIER[`q"`] CLOSING_QUOTE["] WHITE_SPACE[ ] PLUS[+] WHITE_SPACE[ ] OPEN_QUOTE["] REGULAR_STRING_PART[`/*] CLOSING_QUOTE["] WHITE_SPACE[\n] IDENTIFIER[dependencies] WHITE_SPACE[ ] LBRACE[{] WHITE_SPACE[ ] IDENTIFIER[implementation] LPAR[(] IDENTIFIER[project] LPAR[(] OPEN_QUOTE["] REGULAR_STRING_PART[:lib] CLOSING_QUOTE["] RPAR[)] RPAR[)] WHITE_SPACE[ ] RBRACE[}] WHITE_SPACE[\n] val[val] WHITE_SPACE[ ] IDENTIFIER[t] WHITE_SPACE[ ] EQ[=] WHITE_SPACE[ ] INTEGER_LITERAL[1] WHITE_SPACE[ ] EOL_COMMENT[// */] WHITE_SPACE[\n]
+MISMATCH kts   kts-short-template-raw
+    real: val r = """$`x"""`""" + """`/*"""\ndependencies { implementation(project(":lib")) }\nval t = 1      \n
+    ours: val r = """$`x"""`""" + """`     \n                                                \n               \n
+    tokens: val[val] WHITE_SPACE[ ] IDENTIFIER[r] WHITE_SPACE[ ] EQ[=] WHITE_SPACE[ ] OPEN_QUOTE["""] SHORT_TEMPLATE_ENTRY_START[$] IDENTIFIER[`x"""`] CLOSING_QUOTE["""] WHITE_SPACE[ ] PLUS[+] WHITE_SPACE[ ] OPEN_QUOTE["""] REGULAR_STRING_PART[`/*] CLOSING_QUOTE["""] WHITE_SPACE[\n] IDENTIFIER[dependencies] WHITE_SPACE[ ] LBRACE[{] WHITE_SPACE[ ] IDENTIFIER[implementation] LPAR[(] IDENTIFIER[project] LPAR[(] OPEN_QUOTE["] REGULAR_STRING_PART[:lib] CLOSING_QUOTE["] RPAR[)] RPAR[)] WHITE_SPACE[ ] RBRACE[}] WHITE_SPACE[\n] val[val] WHITE_SPACE[ ] IDENTIFIER[t] WHITE_SPACE[ ] EQ[=] WHITE_SPACE[ ] INTEGER_LITERAL[1] WHITE_SPACE[ ] EOL_COMMENT[// */] WHITE_SPACE[\n]
+MATCH    kts   kts-short-template-unclosed
+TOTAL match=19 mismatch=8 skipped=2 lexer=2.3.20
+  ```
+
+  `zz_t1999_dump_test.go` (sha256 `6493c3928faa34f40aba9c2f2e854035110f03068b4615fe2f9343ae1e781dd7`):
+  ````go
+package deps
+
+// zz_t1999_dump_test.go (t1999) - dumps ktLex names and kts blanking for the
+// KotlinLexer differential. Deleted after use.
+
+import (
+	"encoding/base64"
+	"os"
+	"strings"
+	"testing"
+)
+
+func TestZZDumpT1999(t *testing.T) {
+	out := os.Getenv("T1999_DUMP")
+	if out == "" {
+		t.Skip("T1999_DUMP unset")
+	}
+	b64 := func(s string) string { return base64.StdEncoding.EncodeToString([]byte(s)) }
+	var rows []string
+	kt := map[string]string{
+		"comments":       "a /* x /* y */ z */ b // c d\ne",
+		"literals":       `f("com.x.Y", 'c', '\'')`,
+		"templates":      `"$name and ${com.x.util.f()}"`,
+		"raw-quote-run":  `"""a "b" """"`,
+		"backticked":     "`odd name`.call()",
+		"class-ref":      "x::class.java",
+		"use-site":       "@field:Inject lateinit",
+		"dollar-strings": `"a$" + "$$"`,
+		"lone-dollar":    "$ x",
+		"dollar-run":     "$$$ x",
+		"st-plain":       "\"$`a\"b`\"",
+		"st-raw":         "\"\"\"$`q\"\"\"`\"\"\"",
+		"st-run":         "\"$$`x\"`\"",
+		"st-empty":       "\"$``\"",
+		"st-unclosed":    "\"$`x\"",
+		"st-newline":     "\"\"\"$`a\nb`\"\"\"",
+		"esc-keywords":   "`fun` fun `interface` interface \"$`fun`\"",
+		"probe": lines("package p", "val `q\"\"\"` = 1",
+			"val s = \"\"\"$`q\"\"\"`\"\"\" + \"\"\"`/*\"\"\"", "fun f() = Callee()", "val t = 1 // */"),
+		"probe-qualified": lines("package p", "val `q\"\"\"` = 1",
+			"val s = \"\"\"$`q\"\"\"`\"\"\" + \"\"\"`/*\"\"\"", "fun f() = p.Callee()", "val t = 1 // */"),
+	}
+	for name, src := range kt {
+		toks, err := ktLex(src)
+		if err != nil {
+			rows = append(rows, strings.Join([]string{"kt", name, b64(src), b64("ERROR:" + err.Error())}, "\t"))
+			continue
+		}
+		var names []string
+		for _, k := range toks {
+			if k.kind == 'n' {
+				names = append(names, k.text)
+			}
+		}
+		rows = append(rows, strings.Join([]string{"kt", name, b64(src), b64(strings.Join(names, "\x1f"))}, "\t"))
+	}
+	for _, c := range gradleLexCases {
+		if !c.kts {
+			continue
+		}
+		blanked, failAt := blankGradleComments(c.src, true)
+		if failAt >= 0 {
+			rows = append(rows, strings.Join([]string{"skip", c.name, b64(c.src), ""}, "\t"))
+			continue
+		}
+		rows = append(rows, strings.Join([]string{"kts", c.name, b64(c.src), b64(blanked)}, "\t"))
+	}
+	if err := os.WriteFile(out, []byte(strings.Join(rows, "\n")+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+  ````
+
+  `KtProbe.java` (sha256 `88382011758f49eb14f1efec17a561990c7bfd6ecbe7e0383927a9f21c9929ba`):
+  ````java
+// KtProbe.java (t1999) - KotlinLexer differential for deps' ktLex names and
+// the kts comment blanker. Reads the rows dumped by zz_t1999_dump_test.go:
+// mode \t name \t base64(src) \t base64(ours).
+//   kt:  ours = ktLex 'n' texts joined by \x1f; real = IDENTIFIER (backticks
+//        stripped) and keyword tokens, in order.
+//   kts: ours = blankGradleComments(src, true); real = src with every comment
+//        token blanked byte-for-byte (UTF-8), newlines kept.
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Base64;
+import java.util.List;
+import org.jetbrains.kotlin.com.intellij.psi.tree.IElementType;
+import org.jetbrains.kotlin.lexer.KotlinLexer;
+import org.jetbrains.kotlin.lexer.KtKeywordToken;
+import org.jetbrains.kotlin.lexer.KtTokens;
+
+public class KtProbe {
+  record Tok(IElementType type, int start, int end) {}
+
+  static List<Tok> lex(String src) {
+    List<Tok> toks = new ArrayList<>();
+    KotlinLexer lx = new KotlinLexer();
+    lx.start(src);
+    while (lx.getTokenType() != null) {
+      toks.add(new Tok(lx.getTokenType(), lx.getTokenStart(), lx.getTokenEnd()));
+      lx.advance();
+    }
+    return toks;
+  }
+
+  static String names(String src, List<Tok> toks) {
+    List<String> out = new ArrayList<>();
+    for (Tok t : toks) {
+      String text = src.substring(t.start, t.end);
+      if (t.type == KtTokens.IDENTIFIER) {
+        if (text.length() >= 2 && text.startsWith("`") && text.endsWith("`")) text = text.substring(1, text.length() - 1);
+        out.add(text);
+      } else if (t.type instanceof KtKeywordToken) {
+        out.add(text);
+      }
+    }
+    return String.join("\u001f", out);
+  }
+
+  static boolean isComment(IElementType t) {
+    return t == KtTokens.EOL_COMMENT || t == KtTokens.BLOCK_COMMENT || t == KtTokens.DOC_COMMENT
+        || t == KtTokens.SHEBANG_COMMENT;
+  }
+
+  static String blank(String src, List<Tok> toks) {
+    boolean[] in = new boolean[src.length()];
+    for (Tok t : toks) if (isComment(t.type)) for (int i = t.start; i < t.end; i++) in[i] = true;
+    StringBuilder b = new StringBuilder();
+    for (int i = 0; i < src.length(); i++) {
+      char c = src.charAt(i);
+      if (!in[i] || c == '\n') { b.append(c); continue; }
+      int n = String.valueOf(c).getBytes(StandardCharsets.UTF_8).length;
+      if (Character.isSurrogate(c)) n = 2; // a pair is 4 UTF-8 bytes
+      b.append(" ".repeat(n));
+    }
+    return b.toString();
+  }
+
+  static String dump(String src, List<Tok> toks) {
+    StringBuilder d = new StringBuilder("    tokens:");
+    for (Tok t : toks) d.append(' ').append(t.type).append('[').append(src.substring(t.start, t.end).replace("\n", "\\n")).append(']');
+    return d.toString();
+  }
+
+  public static void main(String[] args) throws Exception {
+    int match = 0, mismatch = 0, skipped = 0;
+    Base64.Decoder dec = Base64.getDecoder();
+    for (String row : Files.readAllLines(Path.of(args[0]), StandardCharsets.UTF_8)) {
+      if (row.isEmpty()) continue;
+      String[] f = row.split("\t", -1);
+      String mode = f[0], name = f[1], src = new String(dec.decode(f[2]), StandardCharsets.UTF_8);
+      if (mode.equals("skip")) {
+        System.out.printf("SKIP     %-5s %-32s (our blanker fails closed)%n", "kts", name);
+        skipped++;
+        continue;
+      }
+      String ours = new String(dec.decode(f[3]), StandardCharsets.UTF_8);
+      List<Tok> toks = lex(src);
+      String real = mode.equals("kt") ? names(src, toks) : blank(src, toks);
+      boolean ok = real.equals(ours);
+      System.out.printf("%-8s %-5s %s%n", ok ? "MATCH" : "MISMATCH", mode, name);
+      if (ok) { match++; continue; }
+      mismatch++;
+      System.out.println("    real: " + real.replace("\u001f", " | ").replace("\n", "\\n"));
+      System.out.println("    ours: " + ours.replace("\u001f", " | ").replace("\n", "\\n"));
+      System.out.println(dump(src, toks));
+    }
+    System.out.printf("TOTAL match=%d mismatch=%d skipped=%d lexer=%s%n", match, mismatch, skipped,
+        org.jetbrains.kotlin.config.KotlinCompilerVersion.VERSION);
+  }
+}
+  ````
+- **Upstream defects identified:** None
