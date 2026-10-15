@@ -488,7 +488,7 @@ Step 8 review and commit.
   runs `trap - EXIT`). Those scripts can still leak one dir per bundled resolve
   on the paths where they re-arm, so "every caller" is covered but not
   airtight. · severity: medium · → mitigation:
-  chain_archive_sweep_through_rearmed_traps
+  t2032 (chain_archive_sweep_through_rearmed_traps)
 - One TMPDIR case is still unswept. The pinned base must be deleted after
   sourcing (forcing the fallback), *and* TMPDIR must then change again before
   exit. Every other TMPDIR change (scoped override, export-and-restore) lands
