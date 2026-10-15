@@ -150,17 +150,9 @@ func scanKotlin(data []byte) rawFile {
 			}
 			i = j - 1
 			continue
-		case t.text == "inline" && !t.esc:
-			for j := i + 1; j < len(toks) && j < i+8 && toks[j].kind == 'n' && !toks[j].esc; j++ {
-				if toks[j].text == "fun" {
-					add("inline-fun")
-					break
-				}
-				if !slices.Contains(ktModifiers, toks[j].text) {
-					break
-				}
-			}
-		case t.text == "const" && !t.esc && i+1 < len(toks) && toks[i+1].text == "val" && !toks[i+1].esc:
+		case t.text == "inline" && !t.esc && modifiersReach(toks, i, "fun"):
+			add("inline-fun")
+		case t.text == "const" && !t.esc && modifiersReach(toks, i, "val"):
 			add("const-val")
 		case t.text == "Class" && i+2 < len(toks) && toks[i+1].text == "." && toks[i+2].text == "forName":
 			add("reflection")
@@ -249,6 +241,81 @@ func annotationsAt(toks []ktok, i int) [][]string {
 		}
 	}
 	return out
+}
+
+// ktModifierWalk bounds the modifier list modifiersReach reads, counted in
+// modifiers and annotations — not tokens, so a long annotation argument
+// list never ends it early.
+const ktModifierWalk = 32
+
+// modifiersReach reports whether the modifier list after the modifier
+// toks[i] reaches the keyword kw. It walks over unescaped modifiers and
+// whole annotations (`modifiers: (annotation | modifier)+`), so
+// `inline @JvmName("x") suspend fun` reaches fun. A list that runs past
+// ktModifierWalk entries reports true: fail closed.
+func modifiersReach(toks []ktok, i int, kw string) bool {
+	j := i + 1
+	for n := 0; n < ktModifierWalk; n++ {
+		if j >= len(toks) {
+			return false
+		}
+		t := toks[j]
+		switch {
+		case t.kind == 'o' && t.text == "@":
+			j = skipAnnotation(toks, j)
+		case t.kind != 'n' || t.esc:
+			return false
+		case t.text == kw:
+			return true
+		case slices.Contains(ktModifiers, t.text):
+			j++
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// skipAnnotation returns the index after the annotation at the '@'
+// toks[i]: an optional use-site target, then a multi-annotation `[…]`, or
+// a dotted name with optional type arguments and a balanced `(…)`.
+func skipAnnotation(toks []ktok, i int) int {
+	j := i + 1
+	if j+1 < len(toks) && toks[j].kind == 'n' && toks[j+1].text == ":" && toks[j+1].kind == 'o' {
+		j += 2
+	}
+	if j < len(toks) && toks[j].kind == 'o' && toks[j].text == "[" {
+		return skipBalanced(toks, j)
+	}
+	_, j = chainAt(toks, j)
+	if j < len(toks) && toks[j].kind == 'o' && toks[j].text == "<" {
+		j = skipTypeArgs(toks, j)
+	}
+	if j < len(toks) && toks[j].kind == 'o' && toks[j].text == "(" {
+		j = skipBalanced(toks, j)
+	}
+	return j
+}
+
+// skipBalanced returns the index after the bracket closing the '(' or '['
+// at toks[j] (len(toks) when it never closes). Only operator tokens count:
+// a string literal's content is never a bracket.
+func skipBalanced(toks []ktok, j int) int {
+	d := 0
+	for ; j < len(toks); j++ {
+		if toks[j].kind != 'o' {
+			continue
+		}
+		switch toks[j].text {
+		case "(", "[":
+			d++
+		case ")", "]":
+			if d--; d == 0 {
+				return j + 1
+			}
+		}
+	}
+	return j
 }
 
 // isDIAnnotation reports whether an annotation chain names one of the DI

@@ -2,6 +2,7 @@ package deps
 
 import (
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/beyondeye/aitasks/goengines/internal/testmap/registry"
@@ -240,6 +241,51 @@ func TestKotlinEscapedKeywordsAreIdentifiers(t *testing.T) {
 		if raw.Kt.Package != tc.pkg || !slices.Equal(decls, tc.decls) || !slices.Equal(imports, tc.imports) || !slices.Equal(raw.Opaque, tc.opaque) {
 			t.Errorf("%s: package %q symbols %v imports %v opaque %v, want %q %v %v %v",
 				name, raw.Kt.Package, decls, imports, raw.Opaque, tc.pkg, tc.decls, tc.imports, tc.opaque)
+		}
+	}
+}
+
+// Annotations interleave with modifiers (`modifiers: (annotation |
+// modifier)+`): the inline / const walks step over whole annotations, so
+// `inline @Ann fun` is as opaque as `@Ann inline fun`.
+func TestKotlinAnnotationsBetweenModifiers(t *testing.T) {
+	annots := func(n int) string { return strings.Repeat("@A ", n) }
+	for name, tc := range map[string]struct {
+		src    string
+		decls  []string
+		opaque []string
+	}{
+		"inline-annotation":          {lines(`package x`, `inline @JvmSynthetic fun f() = 1`), []string{"fun:f"}, []string{"inline-fun"}},
+		"inline-annotation-args":     {lines(`package x`, `inline @JvmName("x") fun f() = 1`), []string{"fun:f"}, []string{"inline-fun"}},
+		"inline-annotation-modifier": {lines(`package x`, `public inline @JvmSynthetic suspend fun f() = 1`), []string{"fun:f"}, []string{"inline-fun"}},
+		"inline-dotted-nested-args":  {lines(`package x`, `inline @kotlin.Deprecated("x", ReplaceWith("y")) fun f() = 1`), []string{"fun:f"}, []string{"inline-fun"}},
+		// Longer than a token bound would reach.
+		"inline-long-args":        {lines(`package x`, `inline @Suppress("a", "b", "c", "d") fun f() = 1`), []string{"fun:f"}, []string{"inline-fun"}},
+		"inline-paren-in-string":  {lines(`package x`, `inline @Ann(")") fun f() = 1`), []string{"fun:f"}, []string{"inline-fun"}},
+		"inline-multi-annotation": {lines(`package x`, `inline @[JvmSynthetic Ann("x")] fun f() = 1`), []string{"fun:f"}, []string{"inline-fun"}},
+		"inline-use-site":         {lines(`package x`, `inline @receiver:Ann fun String.f() = 1`), []string{"fun:f"}, []string{"inline-fun"}},
+		"inline-type-args":        {lines(`package x`, `inline @Ann<Int>(1) fun f() = 1`), []string{"fun:f"}, []string{"inline-fun"}},
+		"const-annotation":        {lines(`package x`, `const @Ann val y = 1`), []string{"val:y"}, []string{"const-val"}},
+		"const-annotation-args":   {lines(`package x`, `const @Ann("x") val y = 1`), []string{"val:y"}, []string{"const-val"}},
+		"const-modifier":          {lines(`package x`, `const internal val y = 1`), []string{"val:y"}, []string{"const-val"}},
+		"long-list-reaches-fun":   {lines(`package x`, `inline `+annots(ktModifierWalk-1)+`fun f() = 1`), []string{"fun:f"}, []string{"inline-fun"}},
+		"exhaustion-fails-closed": {lines(`package x`, `inline `+annots(ktModifierWalk)+`class C`), []string{"class:C"}, []string{"inline-fun"}},
+		// Controls.
+		"annotation-first":                   {lines(`package x`, `@JvmSynthetic inline fun f() = 1`), []string{"fun:f"}, []string{"inline-fun"}},
+		"annotation-first-const":             {lines(`package x`, `@Ann const val y = 1`), []string{"val:y"}, []string{"const-val"}},
+		"inline-annotation-class":            {lines(`package x`, `inline @Ann class C`), []string{"class:C"}, nil},
+		"under-bound-not-a-fun":              {lines(`package x`, `inline `+annots(ktModifierWalk-1)+`class C`), []string{"class:C"}, nil},
+		"inline-annotation-escaped-fun":      {lines(`package x`, `fun g() {`, `    val a = inline`, "    @Ann `fun`()", `}`), []string{"fun:g"}, nil},
+		"inline-annotation-escaped-modifier": {lines(`package x`, `fun g() {`, `    val a = inline`, "    @Ann `suspend`", `    fun h() = 1`, `}`), []string{"fun:g"}, nil},
+		"const-annotation-escaped-val":       {lines(`package x`, `fun g() {`, `    val a = const`, "    @Ann `val`()", `}`), []string{"fun:g"}, nil},
+	} {
+		raw := scanKotlin([]byte(tc.src))
+		var decls []string
+		for _, s := range raw.Symbols {
+			decls = append(decls, s.Kind+":"+s.Name)
+		}
+		if !slices.Equal(decls, tc.decls) || !slices.Equal(raw.Opaque, tc.opaque) {
+			t.Errorf("%s: symbols %v opaque %v, want %v %v", name, decls, raw.Opaque, tc.decls, tc.opaque)
 		}
 	}
 }
