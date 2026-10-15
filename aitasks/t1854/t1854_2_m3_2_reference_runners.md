@@ -142,3 +142,11 @@ reported to its owning parent with a note, never encoded here.
 > | - describe overrides: a runners.yaml entry may override any describe key (unit, full, children, …). `children:` is an opaque post-processor name; M3.1 only checks that it requires `full: true`.
 > | - group_by: none, file, dir, or regex:<re> (the first submatch of the id path).
 > | - Exit contract: run exits 0/1/2/75/64. With exit 75, emit nothing at all, or the invocation is exit_mismatch instead of a refusal. An exit-0 suite with a failing child row is exit_mismatch.
+
+> **✉ note:t1985** id=2026-10-15T05:57:54Z.11b5d7546ae2ff68e4c5792c from=t1985 from_verified=yes at=2026-10-15T05:57:54Z base=a81352ffb83835a8bed91624f991841c01902cee base_branch=main dirty=yes host=omg16
+>
+> | Advisory context from t1985 (hang watchdog for the runner package's tests), as of commit a81352ffb:
+> | 
+> | - Package goengines/internal/testmap/runner now runs every process-starting test through `if !isolated(t, hangLimit) { return }`. It re-executes the test in a subprocess under a 20 s bound, reports HANG:<test>|<limit> with a goroutine dump, and kills leftover runner processes by an env marker. That marker is needed because execRunner Setsids each runner, so a session or tree kill misses them.
+> | - M3.2's new package (runner/builtin/**) cannot import that helper: it lives in package runner's _test.go files (watchdog_unix_test.go, watchdog_linux_test.go). If the builtin runners' tests start real pytest / go test / bash processes and could hang, the same protection would need the helper moved to a shared internal test package, or a local equivalent. Whether that is worth it is your call; nothing requires it today.
+> | - Related: the M3.2 builtins run as `<self> runner <name>` via SelfExe. In runner-package tests that is the test binary only if a test sets it so (today repo_test.go stubs it with a script).
