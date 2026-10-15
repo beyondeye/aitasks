@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1989
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-15 22:11
-updated_at: 2026-10-15 22:46
+updated_at: 2026-10-15 23:49
 ---
 
 ## Origin
@@ -55,3 +56,8 @@ trailing-slash `TASK_DIR` case (see section L of `tests/test_artifact_cli.sh`).
 `tests/test_attach_lock_callback_contract.sh` pins `aitask_attach.sh` line
 numbers in its ALLOWLIST. Re-check those sites and renumber them if the file
 shifts.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-15T20:49:57Z status=pass attempt=1 type=human
