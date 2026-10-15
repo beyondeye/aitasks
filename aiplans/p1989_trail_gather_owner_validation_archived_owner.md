@@ -338,3 +338,262 @@ both levels stay **low**.)
 ## Step 9
 Current-branch profile. Commit code as `bug: … (t1989)`, then
 archive t1989 via `aitask_archive.sh 1989`. The archive deletes the folded t1958.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-15 09:28)
+- **Requested by user:** moving owner validation after `stable_records` lost
+  detection of an owner archived between scans. The owner is outside the input
+  records, so both scans digest identically, and `stable_records` returned the
+  earlier scan's stale tree: `OWNER:mainproj#500` without
+  `--allow-archived-owner`. Validate from a current lookup, or keep owner state
+  in the cross-scan comparison while the public digest stays owner-independent;
+  add a transition regression test.
+- **Verified:** `test_owner_archived_between_scans_is_refused` (archives t700
+  right after the first scan's `build_input_records`) failed on the pre-change
+  code with `Lists differ: [] != ['archived_owner:mainproj#700']`.
+- **Changes made:**
+  - `stable_records(scan_fn, max_scans, state_fn=None)` now compares
+    `(digest, state_fn(payload))` across the pair. `state_fn` names state the
+    caller acts on that is not in the records; it never enters the digest.
+    drift passes no `state_fn`, so its behaviour is unchanged.
+  - `cmd_snapshot` passes `owner_presence`: whether a local owner candidate is
+    in that scan's active tree. An owner archived mid-read therefore forces
+    another scan, and the accepted payload carries the settled presence. The
+    archive lookup still runs once afterwards.
+  - Tests: two transition tests (refused without the flag, accepted with it),
+    a direct `stable_records` unit test for `state_fn`, and the
+    `test_cmd_surface_reports_unstable` stub updated to the new signature.
+  - New mutant M7 (stop passing `state_fn`) → caught by
+    `test_owner_archived_between_scans_is_refused`.
+- **Files affected:** `.aitask-scripts/lib/trail_gather.py`, `tests/test_trail_gather.py`
+
+## Final Implementation Notes
+- **Actual work done:**
+  - `lib/trail_gather.py`: `_owner_error()` is the one owner rule for the
+    explicit `--owner` and the implicit single-scope-id owner: foreign →
+    `foreign_owner`; active → valid; archive-only → `archived_owner`, or valid
+    under `--allow-archived-owner`; archive lookup incomplete →
+    `owner_unverifiable` (stderr diagnostic); nowhere → `unknown_task`.
+  - An explicit foreign owner is refused up front, before project
+    resolution.
+  - The new `--no-owner` flag (exclusive with `--owner`) is the owner-recovery
+    candidate run.
+  - Owner validation runs once after the stable read. The owner's per-scan
+    active presence is part of the stability key (Change Request 1).
+  - The docstring carries the rule and the three new error kinds.
+  - `aitask_trail_gather.sh` usage comment.
+  - `aitask-trail/SKILL.md.j2`, with goldens regenerated (their diff equals
+    the template diff for all three profiles):
+    - contract owner-rule paragraph;
+    - 2b owner recovery: classify → `--no-owner` candidate run → J4 (explicit
+      local id when no candidates) → strict rerun with no `ERROR:` line;
+    - 2e.4: stripping is safe only for a create-time `OWNER:`;
+    - 3.3: refresh passes `--owner <stored owner verbatim>
+      --allow-archived-owner`.
+  - `aidocs/implementation_trail_design.md`: one sentence under the §3
+    matrix.
+  - Folded t1958 (foreign owner) into this task.
+- **Deviations from plan:**
+  - The negative control ran **in place, before the fix** (tests written
+    first, then run against the unchanged module), instead of in a scratch
+    worktree at HEAD. Same evidence, no worktree.
+  - Two existing membership tests needed `--no-owner`, not one:
+    `test_anchor_to_archived_root_still_keys_by_anchor` and
+    `test_orphan_child_clusters_under_absent_parent_id`. Both topic roots exist
+    nowhere.
+  - Render Test 6's "verbatim" assertion was tightened to `` `owner` field
+    verbatim ``: the bare word already occurred in the pre-edit refresh section
+    ("surface verbatim"), so the first form passed before the edit.
+  - The Change Request 1 stability-key fix (see Post-Review Changes) was not in
+    the plan.
+- **Issues encountered:**
+  - The first mutant harness copied `lib/` alone, so `aitask_project_resolve.sh`
+    (resolved relative to `lib/`'s parent) was missing. Four CrossRepo tests
+    failed under every mutant. Fixed by symlinking the real siblings and adding
+    an unmutated M0 baseline (0 failures).
+  - The new-flag tests fail pre-fix on argparse usage (rc 2) rather than on the
+    guard, so the flag-free negative-control script below is the guard-specific
+    pre-fix evidence.
+- **Key decisions:**
+  - Create refuses archived owners by default, and refresh opts in. The
+    `OWNER:` line feeds `aitask_artifact.sh create`, which resolves archived
+    files too.
+  - `owner_unverifiable` keeps not-read distinct from not-found.
+  - The owner is not a digest input (pinned by
+    `test_owner_is_not_a_digest_input`), so the candidate run and the strict
+    rerun agree.
+  - Other agent trees need no port task: the Codex and OpenCode stubs render
+    this same `.j2`, which Test 1b (agent invariance) checks.
+- **Upstream defects identified:**
+  - `.aitask-scripts/aitask_artifact.sh:241 — cmd_create resolves the owner
+    with resolve_task_file (lib/task_utils.sh:2324), which also returns archived
+    loose files and bundle-extracted temp files, so 'ait artifact create
+    <archived id>' does not refuse an archived owner and would write an
+    artifacts: entry into an archived task file (by code reading; not
+    reproduced)`
+
+### Verification evidence
+
+- `python3 -m unittest tests.test_trail_gather tests.test_roadmap_drift_contract
+  tests.test_roadmap_integration tests.test_implementation_trail_design
+  tests.test_trail_schema tests.test_board_bytrail_view tests.test_trail_links`
+  → `Ran 579 tests … OK`
+- `bash tests/test_skill_render_aitask_trail.sh` → `Tests: 59, Passed: 59, Failed: 0`.
+  Test 6's five content assertions were run against the pre-edit template and
+  failed there.
+- `./.aitask-scripts/aitask_skill_verify.sh` → `OK (14 template(s) verified across 3 agents, 4 stub surfaces; wrapper parity clean)`
+- `shellcheck .aitask-scripts/aitask_trail_gather.sh` → clean
+
+**Negative-control script** (scratch `negctl_t1989.py`, verbatim):
+
+```python
+"""t1989 negative control: flag-free owner shapes against the CURRENT module."""
+import os, sys, unittest
+from pathlib import Path
+sys.path.insert(0, "/home/ddt/Work/aitasks/tests")
+import test_trail_gather as T
+
+class NegCtl(T.TrailGatherCase):
+    def runTest(self):
+        base = Path(self._tmp.name)
+        foreign = T.SyntheticRepo(base / "foreign", T.FOREIGN)
+        Path(os.environ["AITASKS_PROJECTS_INDEX"]).write_text(
+            f"projects:\n  - name: {T.FOREIGN}\n    path: {foreign.root}\n")
+        foreign.write_task("12", "foreign_task")
+        self.repo.write_task("100", "root")
+        self.repo.write_task("12", "unrelated_local")
+        self.repo.archive_task("500", "landed_owner")
+        self.repo.archive_task("200", "archived_root")
+        self.repo.write_task("104", "late", anchor=200)
+        self.repo.write_task("105", "late2", anchor=300)  # no t300 anywhere
+        cases = [
+            ("explicit archived owner", ["--scope", "topic", "--owner", "500", "100"]),
+            ("implicit archived topic root", ["--scope", "topic", "200"]),
+            ("implicit missing topic root", ["--scope", "topic", "300"]),
+            ("explicit foreign owner", ["--scope", "task", "--owner", f"{T.FOREIGN}#12", "100"]),
+            ("implicit foreign single scope", ["--scope", "task", f"{T.FOREIGN}#12"]),
+        ]
+        for label, argv in cases:
+            out, rc = self.run_cli("snapshot", *argv)
+            head = [l for l in out.splitlines() if l.startswith(("OWNER:", "ERROR:"))]
+            print(f"{label:32} rc={rc} {head}")
+
+unittest.TextTestRunner(verbosity=0).run(NegCtl())
+```
+
+Output against the **pre-fix** module:
+```
+explicit archived owner          rc=0 ['ERROR:unknown_task:mainproj#500']
+implicit archived topic root     rc=0 ['OWNER:mainproj#200']
+implicit missing topic root      rc=0 ['OWNER:mainproj#300']
+explicit foreign owner           rc=0 ['OWNER:trailtest-zz9#12']
+implicit foreign single scope    rc=0 ['OWNER:trailtest-zz9#12']
+```
+Output after the fix:
+```
+explicit archived owner          rc=0 ['ERROR:archived_owner:mainproj#500']
+implicit archived topic root     rc=0 ['ERROR:archived_owner:mainproj#200']
+implicit missing topic root      rc=0 ['ERROR:unknown_task:mainproj#300']
+explicit foreign owner           rc=0 ['ERROR:foreign_owner:trailtest-zz9#12']
+implicit foreign single scope    rc=0 ['ERROR:foreign_owner:trailtest-zz9#12']
+```
+Change Request 1 pre-fix evidence: `test_owner_archived_between_scans_is_refused`
+→ `AssertionError: Lists differ: [] != ['archived_owner:mainproj#700']`.
+
+**Mutant harness** (scratch `mutants_t1989.py`, verbatim):
+
+```python
+"""t1989 mutants: each guard must have a test that fails when it is removed."""
+import shutil, subprocess, sys, tempfile
+from pathlib import Path
+REPO = Path("/home/ddt/Work/aitasks")
+SRC = REPO / ".aitask-scripts/lib/trail_gather.py"
+MUTANTS = {
+    "M0 baseline (no mutation)": ("def _owner_error(", "def _owner_error("),
+    "M1 archive lookup ignored": ("if find_archived_markdown_by_id(bare, tree.archived_dir,",
+                                  "if False and find_archived_markdown_by_id(bare, tree.archived_dir,"),
+    "M2 allow flag ignored": ("return None if allow_archived else f\"archived_owner:{ref}\"",
+                              "return f\"archived_owner:{ref}\""),
+    "M3 implicit owner unvalidated": ("    if owner_candidate is not None:\n        owner_err",
+                                      "    if owner_parsed is not None:\n        owner_err"),
+    "M4 explicit foreign accepted up front": ("        elif owner_parsed[0] != local_name:",
+                                             "        elif False:"),
+    "M6 helper foreign branch removed": ("    if proj != local_name:\n        return f\"foreign_owner:{ref}\"",
+                                         "    if False:\n        return f\"foreign_owner:{ref}\""),
+    "M7 owner presence not in stability key": ("result = stable_records(scan, state_fn=owner_presence)",
+                                               "result = stable_records(scan)"),
+    "M5 lookup errors dropped": ("errors=lookup_errors) is not None:", ") is not None:"),
+}
+RUNNER = """
+import sys, unittest
+sys.path.insert(0, {lib!r})
+import trail_gather
+assert trail_gather.__file__.startswith({lib!r}), trail_gather.__file__
+sys.path.insert(0, {tests!r})
+import test_trail_gather as T
+suite = unittest.TestSuite()
+for cls in (T.OwnerRuleTests, T.CrossRepoTests, T.OwnerHandoffTests, T.TopicScopeTests):
+    suite.addTests(unittest.defaultTestLoader.loadTestsFromTestCase(cls))
+r = unittest.TextTestRunner(stream=open('/dev/null', 'w')).run(suite)
+bad = sorted(t.id().rsplit('.', 1)[1] for t, _ in r.failures + r.errors)
+print(len(bad), bad)
+"""
+text = SRC.read_text()
+for label, (old, new) in MUTANTS.items():
+    assert text.count(old) == 1, (label, text.count(old))
+    with tempfile.TemporaryDirectory() as tmp:
+        # A scripts dir whose siblings (aitask_project_resolve.sh, ...) are the
+        # real ones: trail_gather resolves them relative to its own lib/.
+        scripts = Path(tmp) / "scripts"
+        scripts.mkdir()
+        for entry in SRC.parent.parent.iterdir():
+            if entry.name != "lib":
+                (scripts / entry.name).symlink_to(entry)
+        lib = scripts / "lib"
+        shutil.copytree(SRC.parent, lib)
+        (lib / "trail_gather.py").write_text(text.replace(old, new))
+        out = subprocess.run([sys.executable, "-c", RUNNER.format(lib=str(lib), tests=str(REPO / "tests"))],
+                             capture_output=True, text=True, cwd=REPO)
+        print(f"{label}: {out.stdout.strip() or out.stderr.strip()[-300:]}")
+```
+
+Output (final code):
+```
+M0 baseline (no mutation): 0 []
+M1 archive lookup ignored: 9 ['test_archived_explicit_owner_accepted_with_flag', 'test_archived_explicit_owner_refused_without_flag', 'test_implicit_archived_topic_root', 'test_owner_archived_between_scans_accepted_with_flag', 'test_owner_archived_between_scans_is_refused', 'test_owner_is_not_a_digest_input', 'test_owner_only_in_legacy_bundle_accepted', 'test_qualified_stored_owner_ref_accepted', 'test_unreadable_bundle_is_unverifiable_not_unknown']
+M2 allow flag ignored: 6 ['test_archived_explicit_owner_accepted_with_flag', 'test_implicit_archived_topic_root', 'test_owner_archived_between_scans_accepted_with_flag', 'test_owner_is_not_a_digest_input', 'test_owner_only_in_legacy_bundle_accepted', 'test_qualified_stored_owner_ref_accepted']
+M3 implicit owner unvalidated: 3 ['test_implicit_archived_topic_root', 'test_implicit_foreign_single_scope_owner', 'test_implicit_owner_missing_root_is_an_error']
+M4 explicit foreign accepted up front: 1 ['test_foreign_owner_of_unregistered_project']
+M6 helper foreign branch removed: 1 ['test_implicit_foreign_single_scope_owner']
+M7 owner presence not in stability key: 1 ['test_owner_archived_between_scans_is_refused']
+M5 lookup errors dropped: 1 ['test_unreadable_bundle_is_unverifiable_not_unknown']
+```
+M4 trips only the unregistered-project test. That is expected: the helper's
+own foreign branch still catches a registered foreign owner (M6 removes that
+second layer).
+
+**Post-phase [live_archived_owner_smoke]** (real repo, before Change Request 1):
+```
+$ snapshot --scope topic --owner aitasks#1852 --allow-archived-owner 1852
+SCOPE:topic|aitasks#1852
+OWNER:aitasks#1852
+DIGEST:b74356d6e02f2d9a
+$ snapshot --scope topic --owner aitasks#1852 1852
+ERROR:archived_owner:aitasks#1852
+$ snapshot --scope topic 1852
+ERROR:archived_owner:aitasks#1852
+$ snapshot --scope topic --no-owner 1852
+SCOPE:topic|aitasks#1852
+OWNER:none
+DIGEST:b74356d6e02f2d9a
+MEMBER lines: 29
+$ snapshot --scope topic --owner aitasks#50 --allow-archived-owner 1852   # t50: only in _b0/old0.tar.zst
+OWNER:aitasks#50
+DIGEST:b74356d6e02f2d9a
+$ snapshot --scope topic --owner aitasks#50 1852
+ERROR:archived_owner:aitasks#50
+```
+Re-run after Change Request 1: `OWNER:aitasks#1852` / `ERROR:archived_owner:aitasks#1852`
+unchanged. The digest had moved to `abae5320891e328e` because topic 1852's
+members changed on disk between the runs; the owner is not a digest input.
