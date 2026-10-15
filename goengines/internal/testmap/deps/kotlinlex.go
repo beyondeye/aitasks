@@ -21,8 +21,9 @@ var errUntokenizable = errors.New("untokenizable")
 
 // ktLex tokenizes Kotlin. Comments (nested block comments included) and
 // string contents are skipped; the code inside string templates (`${…}`,
-// `$ident`) is kept as tokens. A construct that never closes, or a Kotlin
-// multi-dollar string, is an error: the file is opaque.
+// `$ident`, and the backticked name of $`name`) is kept as tokens. A construct
+// that never closes, or a Kotlin multi-dollar string, is an error: the file is
+// opaque.
 func ktLex(src string) ([]ktok, error) {
 	l := &ktLexer{src: src, line: 1}
 	if err := l.code(false); err != nil {
@@ -71,11 +72,8 @@ func (l *ktLexer) code(inTemplate bool) error {
 				return err
 			}
 		case c == '`':
-			j := l.i + 1
-			for j < len(l.src) && l.src[j] != '`' && l.src[j] != '\n' {
-				j++
-			}
-			if j >= len(l.src) || l.src[j] != '`' {
+			j := l.escapedEnd(l.i)
+			if j < 0 {
 				return errUntokenizable
 			}
 			l.toks = append(l.toks, ktok{kind: 'n', text: l.src[l.i+1 : j], line: l.line, esc: true})
@@ -157,6 +155,17 @@ func (l *ktLexer) ident(i int) int {
 	return j
 }
 
+// escapedEnd returns the index of the backtick closing the one at i on its
+// line, or -1.
+func (l *ktLexer) escapedEnd(i int) int {
+	for j := i + 1; j < len(l.src) && l.src[j] != '\n'; j++ {
+		if l.src[j] == '`' {
+			return j
+		}
+	}
+	return -1
+}
+
 func (l *ktLexer) blockComment() error {
 	depth := 0
 	for l.i < len(l.src) {
@@ -226,6 +235,17 @@ func (l *ktLexer) str() error {
 			l.i += 2
 			if err := l.code(true); err != nil {
 				return err
+			}
+		case c == '$' && l.peek(1) == '`':
+			// $`name` is a short template (Kotlin.flex SHORT_TEMPLATE_ENTRY):
+			// its escaped name — one or more chars, no newline — may hold
+			// quotes. Anything else after the $ is text.
+			if j := l.escapedEnd(l.i + 1); j > l.i+2 {
+				plain = false
+				l.toks = append(l.toks, ktok{kind: 'n', text: l.src[l.i+2 : j], line: l.line, esc: true})
+				l.i = j + 1
+			} else {
+				l.i++
 			}
 		case c == '$' && (isIdentStart(l.peek(1)) || l.peek(1) >= utf8.RuneSelf):
 			plain = false

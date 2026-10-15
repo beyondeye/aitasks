@@ -37,6 +37,15 @@ func TestKotlinLexer(t *testing.T) {
 		`"a$" + "$$"`: `s:a$ o:+ s:$$`,
 		"$ x":         "o:$ n:x",
 		"$$$ x":       "o:$ o:$ o:$ n:x",
+		// $`name` is a short template whose name may hold quotes; the run's
+		// last $ starts it. An empty or unclosed name, or one spanning a
+		// newline, is text.
+		"\"$`a\"b`\"":            "n:a\"b S:",
+		"\"\"\"$`q\"\"\"`\"\"\"": "n:q\"\"\" S:",
+		"\"$$`x\"`\"":            "n:x\" S:",
+		"\"$``\"":                "s:$``",
+		"\"$`x\"":                "s:$`x",
+		"\"\"\"$`a\nb`\"\"\"":    "s:$`a\nb`",
 	} {
 		if got := lexText(t, src); got != want {
 			t.Errorf("%s\n got %s\nwant %s", src, got, want)
@@ -67,7 +76,7 @@ func TestKotlinLexerMultiDollarFailsClosed(t *testing.T) {
 // A backticked name keeps its unquoted text and kind, and is marked so that
 // `fun` the identifier is never read as `fun` the keyword.
 func TestKotlinLexerMarksEscapedIdentifiers(t *testing.T) {
-	toks, err := ktLex("`fun` fun `interface` interface")
+	toks, err := ktLex("`fun` fun `interface` interface \"$`fun`\"")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,7 +84,54 @@ func TestKotlinLexerMarksEscapedIdentifiers(t *testing.T) {
 	for _, k := range toks {
 		got = append(got, fmt.Sprintf("%c:%s:%t", k.kind, k.text, k.esc))
 	}
-	if want := []string{"n:fun:true", "n:fun:false", "n:interface:true", "n:interface:false"}; !slices.Equal(got, want) {
+	if want := []string{"n:fun:true", "n:fun:false", "n:interface:true", "n:interface:false", "n:fun:true", "S::false"}; !slices.Equal(got, want) {
 		t.Errorf("tokens %v, want %v", got, want)
+	}
+}
+
+// A backticked name in a short template ($`q"""`) may hold quotes. Read as
+// text, its quotes closed the string early; the backtick after them opened a
+// name in code, the /* after that a comment running to the */ two lines down,
+// and fun f(), Callee and val t vanished with no error.
+func TestKotlinLexerShortTemplateBacktickedName(t *testing.T) {
+	probe := func(call string) string {
+		return lines(
+			"package p",
+			"val `q\"\"\"` = 1",
+			"val s = \"\"\"$`q\"\"\"`\"\"\" + \"\"\"`/*\"\"\"",
+			"fun f() = "+call,
+			"val t = 1 // */",
+		)
+	}
+	src := probe("Callee()")
+	toks, err := ktLex(src)
+	if err != nil {
+		t.Fatalf("ktLex: %v", err)
+	}
+	var names []string
+	for _, k := range toks {
+		if k.kind == 'n' {
+			names = append(names, k.text)
+		}
+	}
+	for _, want := range []string{"f", "Callee", "t"} {
+		if !slices.Contains(names, want) {
+			t.Errorf("names %q lack %q", names, want)
+		}
+	}
+	var decls []string
+	for _, d := range scanKotlin([]byte(src)).Kt.Decls {
+		decls = append(decls, d.Name)
+	}
+	for _, want := range []string{"f", "t"} {
+		if !slices.Contains(decls, want) {
+			t.Errorf("decls %q lack %q", decls, want)
+		}
+	}
+	// Refs keep only lowercase-led dotted chains, so the qualified call is
+	// what reaches them.
+	refs := scanKotlin([]byte(probe("p.Callee()"))).Kt.Refs
+	if !slices.Contains(refs, ktRef{Chain: "p.Callee", Line: 4}) {
+		t.Errorf("refs %+v lack p.Callee at line 4", refs)
 	}
 }

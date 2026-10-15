@@ -179,11 +179,8 @@ func (l *gradleLexer) code(inTemplate bool, start int) bool {
 			}
 			l.i = j
 		case l.kts && c == '`':
-			j := l.i + 1
-			for j < len(l.b) && l.b[j] != '`' && l.b[j] != '\n' {
-				j++
-			}
-			if j >= len(l.b) || l.b[j] != '`' {
+			j := l.escapedEnd(l.i)
+			if j < 0 {
 				return l.fail(l.i)
 			}
 			l.i = j + 1
@@ -223,6 +220,17 @@ func (l *gradleLexer) code(inTemplate bool, start int) bool {
 	return true
 }
 
+// escapedEnd returns the index of the backtick closing the one at i on its
+// line, or -1.
+func (l *gradleLexer) escapedEnd(i int) int {
+	for j := i + 1; j < len(l.b) && l.b[j] != '\n'; j++ {
+		if l.b[j] == '`' {
+			return j
+		}
+	}
+	return -1
+}
+
 // blockComment blanks the comment opening at i: nested in Kotlin, not in
 // Groovy.
 func (l *gradleLexer) blockComment() bool {
@@ -249,8 +257,9 @@ func (l *gradleLexer) blockComment() bool {
 // str skips the quoted literal opening at i: '…' or "…" on one line, or a
 // triple-quoted ”'…”' / """…""" (Kotlin has no ”'; its ' is a char
 // literal). Backslash escapes count everywhere except in a Kotlin raw
-// string; the templates of "…" and """…""" are code. A run of more than
-// three quotes closes on its last three.
+// string; the templates of "…" and """…""" are code, and a Kotlin $`name`
+// template's escaped name may hold quotes. A run of more than three quotes
+// closes on its last three.
 func (l *gradleLexer) str(q byte) bool {
 	start := l.i
 	triple := l.at(1) == q && l.at(2) == q && (q == '"' || !l.kts)
@@ -274,6 +283,12 @@ func (l *gradleLexer) str(q byte) bool {
 			l.i += 2
 			if !l.code(true, l.i-2) {
 				return false
+			}
+		case l.kts && q == '"' && c == '$' && l.at(1) == '`':
+			if j := l.escapedEnd(l.i + 1); j > l.i+2 {
+				l.i = j + 1
+			} else {
+				l.i++
 			}
 		case c == q && !triple:
 			l.i++

@@ -14,7 +14,7 @@ import (
 // bash and python scanners read line classes from. Bump it whenever any of
 // them changes; TestClassifyFingerprint fails when M2.2's lexers change
 // without a bump.
-const schemaVersion = 9
+const schemaVersion = 10
 
 // entry is one cache file, `<dir>/<blob>.json`.
 type entry struct {

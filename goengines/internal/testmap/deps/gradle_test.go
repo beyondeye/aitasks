@@ -252,6 +252,22 @@ var gradleLexCases = []gradleLexCase{
 		`val b = """*/}"""`,
 	), refs: []string{":lib"}, dynamic: []string{"untokenizable:1"}},
 	{name: "kts-multi-dollar-single-line", kts: true, src: lines(`val j = $$"{x}"`), dynamic: []string{"untokenizable:1"}},
+	// $`name` is a short template whose name may hold quotes: read as text,
+	// they closed the string, and the /* after it blanked the deps line.
+	{name: "kts-short-template-backticks", kts: true, src: lines(
+		"val `q\"` = 1",
+		"val s = \"$`q\"`\" + \"`/*\"",
+		`dependencies { implementation(project(":lib")) }`,
+		`val t = 1 // */`,
+	), refs: []string{":lib"}},
+	{name: "kts-short-template-raw", kts: true, src: lines(
+		"val r = \"\"\"$`x\"\"\"`\"\"\" + \"\"\"`/*\"\"\"",
+		`dependencies { implementation(project(":lib")) }`,
+		`val t = 1 // */`,
+	), refs: []string{":lib"}},
+	{name: "kts-short-template-unclosed", kts: true, src: lines(
+		"val s = \"$`x\"; val u = \"https://x\"; dependencies { implementation(project(\":lib\")) }",
+	), refs: []string{":lib"}},
 	{name: "unclosed-block-comment", src: lines(
 		`// project(':c')`,
 		`implementation project(':a')`,
