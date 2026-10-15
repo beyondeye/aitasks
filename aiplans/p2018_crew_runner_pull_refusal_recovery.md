@@ -319,7 +319,7 @@ follow-up rather than edited here.
   takeover runner rewriting the file) is deferred on each iteration, not converged; the
   remote stop stays unseen until resolved by hand. Outside "a file the runner
   dirtied", but reachable · severity: low · → mitigation:
-  crew_runner_alive_conflict_convergence
+  t2029
 - Other processes' files that are dirty at the pull still refuse (t2008 rule);
   convergence relies on the runner's end-of-iteration sweep commit · severity: low ·
   → mitigation: none
