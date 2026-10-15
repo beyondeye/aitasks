@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 folded_tasks: [1958]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-14 19:01
-updated_at: 2026-10-15 08:43
+updated_at: 2026-10-15 08:53
 ---
 
 ## Context
@@ -126,3 +127,8 @@ where it was kept out of scope.
 The following existing tasks have been folded into this task. Their requirements are incorporated in the description above. These references exist only for post-implementation cleanup.
 
 - **t1958** (`t1958_trail_snapshot_foreign_scope_owner.md`)
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-15T05:54:00Z status=pass attempt=1 type=human
