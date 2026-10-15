@@ -194,6 +194,79 @@ func TestKotlinFunInterfaceDeclaredOnce(t *testing.T) {
 	}
 }
 
+// A backticked keyword is an identifier: an escaped `import` / `package`
+// opens no directive — so it neither records a phantom path nor swallows the
+// declaration after it — and an escaped `inline` / `const` / `typealias`, or
+// an escaped `fun` / `val` / modifier after the real ones, triggers no opaque
+// rule. A name that is an identifier anyway (`Class`) matches escaped or not.
+// Every field is compared exactly.
+func TestKotlinEscapedKeywordsAreIdentifiers(t *testing.T) {
+	for name, tc := range map[string]struct {
+		src     string
+		pkg     string
+		decls   []string
+		imports []string
+		opaque  []string
+	}{
+		"escaped-import-fun":    {lines(`package x`, "val x = `import`", `fun f() = 1`), "x", []string{"val:x", "fun:f"}, nil, nil},
+		"escaped-import-object": {lines(`package x`, `import a.b.C`, "val x = `import`", `object O`), "x", []string{"val:x", "object:O"}, []string{"a.b.C"}, nil},
+		"escaped-import-infix":  {lines(`package x`, "val p = `import` to 1", `class K`), "x", []string{"val:p", "class:K"}, nil, nil},
+		// File annotations precede the package directive.
+		"escaped-import-file-annotation":  {lines("@file:Ann(`import` to 1)", `package com.x`, `fun f() = 1`), "com.x", []string{"fun:f"}, nil, nil},
+		"escaped-package-file-annotation": {lines("@file:Ann(`package` to 1)", `package com.x`, `fun f() = 1`), "com.x", []string{"fun:f"}, nil, nil},
+		"escaped-inline":                  {lines(`package x`, "val x = `inline`", `fun f() = 1`), "x", []string{"val:x", "fun:f"}, nil, nil},
+		"inline-escaped-fun":              {lines(`package x`, `fun g() {`, `    val a = inline`, "    `fun`()", `}`), "x", []string{"fun:g"}, nil, nil},
+		"inline-escaped-modifier":         {lines(`package x`, `fun g() {`, `    val a = inline`, "    `suspend`", `    fun h() = 1`, `}`), "x", []string{"fun:g"}, nil, nil},
+		"escaped-const":                   {lines(`package x`, "val x = `const`", `val y = 1`), "x", []string{"val:x", "val:y"}, nil, nil},
+		"const-escaped-val":               {lines(`package x`, `fun g() {`, `    val a = const`, "    `val`()", `}`), "x", []string{"fun:g"}, nil, nil},
+		"escaped-typealias":               {lines(`package x`, `fun f() {`, "    val y = `typealias`", `    Wire = javax.inject.Inject`, `}`, `@Wire class C`), "x", []string{"fun:f", "class:C"}, nil, nil},
+		// Controls.
+		"directives":              {lines(`package com.x`, `import a.b.C`, `import a.b.*`, `import a.b.D as E`, `fun f() = 1`), "com.x", []string{"fun:f"}, []string{"a.b.C", "a.b", "a.b.D"}, nil},
+		"escaped-import-segment":  {lines(`package com.x`, "import a.b.`import`", `fun f() = 1`), "com.x", []string{"fun:f"}, []string{"a.b.import"}, nil},
+		"escaped-package-segment": {lines("package `import`.b", `fun f() = 1`), "import.b", []string{"fun:f"}, nil, nil},
+		"inline-fun":              {lines(`package x`, `public inline suspend fun f() = 1`), "x", []string{"fun:f"}, nil, []string{"inline-fun"}},
+		"const-val":               {lines(`package x`, `const val y = 1`), "x", []string{"val:y"}, nil, []string{"const-val"}},
+		"typealias-di":            {lines(`package x`, `typealias Wire = javax.inject.Inject`, `@Wire class C`), "x", []string{"typealias:Wire", "class:C"}, nil, []string{"di"}},
+		"escaped-class-forname":   {lines(`package x`, "val c = `Class`.forName(\"a\")"), "x", []string{"val:c"}, nil, []string{"reflection"}},
+	} {
+		raw := scanKotlin([]byte(tc.src))
+		var decls, imports []string
+		for _, s := range raw.Symbols {
+			decls = append(decls, s.Kind+":"+s.Name)
+		}
+		for _, imp := range raw.Kt.Imports {
+			imports = append(imports, imp.Path)
+		}
+		if raw.Kt.Package != tc.pkg || !slices.Equal(decls, tc.decls) || !slices.Equal(imports, tc.imports) || !slices.Equal(raw.Opaque, tc.opaque) {
+			t.Errorf("%s: package %q symbols %v imports %v opaque %v, want %q %v %v %v",
+				name, raw.Kt.Package, decls, imports, raw.Opaque, tc.pkg, tc.decls, tc.imports, tc.opaque)
+		}
+	}
+}
+
+// End to end: a declaration after an escaped `import` stays in the
+// resolution index, so an import of it resolves to its declaring file as a
+// static import, not a closure-only package fallback.
+func TestKotlinEscapedImportKeepsDeclaration(t *testing.T) {
+	r := repo(t, map[string]string{
+		"src/b/Lib.kt":  "package com.x.b\n\nval tag = `import`\nfun helper() = 1\n",
+		"src/c/User.kt": "package com.x.c\n\nimport com.x.b.helper\n\nfun u() = helper()\n",
+	})
+	g := scanRepo(t, r)
+	f, _ := g.Facts("src/b/Lib.kt")
+	var names []string
+	for _, s := range f.Symbols {
+		names = append(names, s.Kind+":"+s.Name)
+	}
+	if want := []string{"val:tag", "fun:helper"}; !slices.Equal(names, want) {
+		t.Errorf("symbols %v, want %v", names, want)
+	}
+	requireEdge(t, g, "src/c/User.kt", "src/b/Lib.kt", Import, "import")
+	if u, _ := g.Facts("src/c/User.kt"); slices.Contains(u.Unresolved, "com.x.b.helper") {
+		t.Errorf("unresolved: %v", u.Unresolved)
+	}
+}
+
 // End to end: an import of a delegated property resolves to its declaring
 // file as a static import, not a closure-only package fallback.
 func TestKotlinDelegatedPropertyImport(t *testing.T) {

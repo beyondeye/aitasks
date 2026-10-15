@@ -119,13 +119,17 @@ func scanKotlin(data []byte) rawFile {
 			continue
 		}
 		prevDot := i > 0 && (toks[i-1].text == "." || toks[i-1].text == "::" || toks[i-1].text == "?")
+		// A backticked name is an identifier, never a keyword or modifier:
+		// every keyword case below requires !esc. The identifier matches
+		// (Class.forName, getIdentifier, R.string) are escape-neutral —
+		// `Class` and Class name the same identifier.
 		switch {
-		case t.text == "package" && !seenDecl && depth == 0 && k.Package == "" && !prevDot:
+		case t.text == "package" && !t.esc && !seenDecl && depth == 0 && k.Package == "" && !prevDot:
 			segs, j := chainAt(toks, i+1)
 			k.Package = strings.Join(segs, ".")
 			i = j - 1
 			continue
-		case t.text == "import" && depth == 0 && !prevDot:
+		case t.text == "import" && !t.esc && depth == 0 && !prevDot:
 			segs, j := chainAt(toks, i+1)
 			imp := ktImport{Path: strings.Join(segs, "."), Line: t.line}
 			if j+1 < len(toks) && toks[j].text == "." && toks[j+1].text == "*" {
@@ -146,8 +150,8 @@ func scanKotlin(data []byte) rawFile {
 			}
 			i = j - 1
 			continue
-		case t.text == "inline":
-			for j := i + 1; j < len(toks) && j < i+8 && toks[j].kind == 'n'; j++ {
+		case t.text == "inline" && !t.esc:
+			for j := i + 1; j < len(toks) && j < i+8 && toks[j].kind == 'n' && !toks[j].esc; j++ {
 				if toks[j].text == "fun" {
 					add("inline-fun")
 					break
@@ -156,7 +160,7 @@ func scanKotlin(data []byte) rawFile {
 					break
 				}
 			}
-		case t.text == "const" && i+1 < len(toks) && toks[i+1].text == "val":
+		case t.text == "const" && !t.esc && i+1 < len(toks) && toks[i+1].text == "val" && !toks[i+1].esc:
 			add("const-val")
 		case t.text == "Class" && i+2 < len(toks) && toks[i+1].text == "." && toks[i+2].text == "forName":
 			add("reflection")
@@ -185,7 +189,7 @@ func scanKotlin(data []byte) rawFile {
 			}
 		}
 		// typealias A = x.y.Z: A stands for the chain.
-		if t.text == "typealias" && !prevDot && i+3 < len(toks) && toks[i+1].kind == 'n' && toks[i+2].text == "=" {
+		if t.text == "typealias" && !t.esc && !prevDot && i+3 < len(toks) && toks[i+1].kind == 'n' && toks[i+2].text == "=" {
 			segs, _ := chainAt(toks, i+3)
 			aliases[toks[i+1].text] = segs
 		}
