@@ -8,6 +8,8 @@
 #   - Worktree at .aitask-crews/crew-<id>/
 #   - _crew_meta.yaml (static configuration)
 #   - _crew_status.yaml (dynamic state)
+# and publishes crew-<id> to origin with an upstream when an origin remote
+# exists (best-effort; a failed push warns and the next crew push retries).
 #
 # Output: CREATED:<id>
 
@@ -171,6 +173,9 @@ write_yaml_file "$WT_PATH/_crew_status.yaml" "$STATUS_CONTENT"
     git add _crew_meta.yaml _crew_status.yaml
     git commit -m "crew: Initialize agentcrew '$CREW_ID'" --quiet
 )
+
+# --- Publish ---
+crew_push "$WT_PATH" || true
 
 success "Agentcrew '$CREW_ID' initialized at $WT_PATH"
 echo "CREATED:${CREW_ID}"

@@ -22,7 +22,11 @@ the `runner`. The remaining subcommands inspect and control a running crew. Run
 
 Create a new agentcrew with its own git branch and worktree. The crew's
 identifier names an orphan branch `crew-<id>` checked out under
-`.aitask-crews/crew-<id>/`.
+`.aitask-crews/crew-<id>/`. When the repository has an `origin` remote, init
+publishes the branch there with an upstream, and crew commits (agent
+registration, launch-mode changes, runner commits and terminal
+`ait crew status set` transitions) are pushed to it.
+A repository without `origin` keeps the branch local.
 
 ```bash
 ait crew init --id sprint1 \

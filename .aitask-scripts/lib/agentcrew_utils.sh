@@ -81,6 +81,29 @@ agentcrew_worktree_path() {
     echo "${AGENTCREW_DIR}/crew-${crew_id}"
 }
 
+# crew_push <worktree>
+# Publish the crew branch checked out in <worktree> to origin (best-effort).
+# Always `push -u origin HEAD` (t2016): crew init creates the branch with no
+# upstream, so a bare `git push` dies with "has no upstream branch" unless the
+# user sets push.autoSetupRemote; -u gives it one on the first push that
+# succeeds, so an offline init heals later. Naming the destination also keeps
+# a push.default=matching from publishing the repository's other branches.
+# No origin remote -> nothing to publish to: returns 0 silently. On failure
+# warns with git's own stderr and returns 1. Never writes to stdout — callers
+# print machine-parsed CREATED:/ADDED:/UPDATED: lines there, and git prints
+# "branch ... set up to track ..." on stdout unless --quiet.
+crew_push() {
+    local wt="$1" err
+    git -C "$wt" remote get-url origin >/dev/null 2>&1 || return 0
+    if ! err="$(git -C "$wt" push --quiet -u origin HEAD 2>&1)"; then
+        warn "git push of the crew branch to origin failed:"
+        # Raw, not through warn(): warn() is echo -e and would interpret
+        # backslashes in git's message.
+        printf '%s\n' "$err" >&2
+        return 1
+    fi
+}
+
 # validate_crew_id <id>
 # Validates that a crew ID matches [a-z0-9_-]+. Dies on failure.
 validate_crew_id() {

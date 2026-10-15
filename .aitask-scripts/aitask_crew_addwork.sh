@@ -330,7 +330,7 @@ fi
     # rebase.autoStash would stash and re-apply them. Without it the pull
     # refuses on a dirty worktree, as under git's default.
     git pull --rebase --no-autostash --quiet 2>/dev/null || true
-    git push --quiet 2>/dev/null || warn "git push failed (offline?)"
+    crew_push . || true
 )
 
 success "Agent '$AGENT_NAME' added to crew '$CREW_ID'"

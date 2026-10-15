@@ -304,6 +304,25 @@ def git_pull(worktree: str, batch: bool = False) -> None:
         print(f"[{ts}] git pull warning: {result.stderr.strip()}", file=sys.stderr)
 
 
+def git_push(worktree: str, batch: bool = False) -> None:
+    """Publish the crew branch to origin (best-effort).
+
+    Always ``push -u origin HEAD`` (t2016): crew init creates the branch with
+    no upstream, so a bare ``git push`` dies with "has no upstream branch"
+    unless the user sets push.autoSetupRemote; -u gives it one on the first
+    push that succeeds, so an offline init heals later. Naming the destination
+    also keeps a push.default=matching from publishing the repository's other
+    branches. No origin remote means nothing to publish to: skip silently.
+    Mirrors ``crew_push`` in lib/agentcrew_utils.sh.
+    """
+    if git_cmd(worktree, "remote", "get-url", "origin", check=False).returncode != 0:
+        return
+    result = git_cmd(worktree, "push", "--quiet", "-u", "origin", "HEAD", check=False)
+    if result.returncode != 0 and not batch:
+        ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
+        print(f"[{ts}] git push warning: {result.stderr.strip()}", file=sys.stderr)
+
+
 def git_commit_push_if_changes(worktree: str, message: str, batch: bool = False) -> None:
     """Stage all changes in worktree, commit and push if there are changes."""
     git_cmd(worktree, "add", "-A", check=False)
@@ -311,10 +330,7 @@ def git_commit_push_if_changes(worktree: str, message: str, batch: bool = False)
     result = git_cmd(worktree, "diff", "--cached", "--quiet", check=False)
     if result.returncode != 0:
         git_cmd(worktree, "commit", "-m", message, check=False)
-        push_result = git_cmd(worktree, "push", check=False)
-        if push_result.returncode != 0 and not batch:
-            ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
-            print(f"[{ts}] git push warning: {push_result.stderr.strip()}", file=sys.stderr)
+        git_push(worktree, batch)
 
 
 # ---------------------------------------------------------------------------

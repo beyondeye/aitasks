@@ -124,7 +124,7 @@ mv "$tmpfile" "$STATUS_FILE"
         git commit -m "crew: Set launch_mode=${MODE} for agent '${AGENT_NAME}' in crew '${CREW_ID}'" --quiet
         # --no-autostash (t2008): see aitask_crew_addwork.sh's commit block.
         git pull --rebase --no-autostash --quiet 2>/dev/null || true
-        git push --quiet 2>/dev/null || warn "git push failed (offline?)"
+        crew_push . || true
     fi
 )
 
