@@ -185,6 +185,17 @@ def should_default_to_new_window(
     return bool(operation and operation in _FRESH_WINDOW_OPERATIONS)
 
 
+def _is_existing_window(value) -> bool:
+    """True when a window Select value names a live window to split into.
+
+    Every other value — "✦ New window" and the blank entry alike — launches a
+    new window named by #tmux_new_window_input. _on_window_changed (which row
+    shows) and _build_tmux_config (what launches) both branch on this one
+    test, so a visible control always decides the launch (t2027).
+    """
+    return bool(value) and value != Select.NULL and value != _NEW_WINDOW_SENTINEL
+
+
 class AgentCommandScreen(GuardedDismissMixin, ShortcutsMixin, ModalScreen):
     # Shared sub-scope: this dialog is reused across multiple TUIs (board,
     # codebrowser, monitor, syncer), so its shortcuts belong under "shared"
@@ -764,14 +775,13 @@ class AgentCommandScreen(GuardedDismissMixin, ShortcutsMixin, ModalScreen):
         return sess_select.value == _NEW_SESSION_SENTINEL
 
     def _on_window_changed(self, value) -> None:
-        # A new session always launches into a new window (_build_tmux_config),
-        # so its name row stays shown whatever the window Select holds — the
-        # Changed(NULL) that _show_new_session_input's set_options([]) posts
-        # arrives here after that row was shown.
-        if value == _NEW_WINDOW_SENTINEL or self._new_session_pending():
-            self._show_new_window_input()
-            self._selected_window = None
-        elif value and value != Select.NULL:
+        # Mirrors _build_tmux_config: only an existing window on an existing
+        # session splits. Everything else launches a new window named by the
+        # name row, so that row shows — for "✦ New window", for the blank entry
+        # (t2027), and while a new session is pending whatever the window
+        # Select holds, since the Changed(NULL) that _show_new_session_input's
+        # set_options([]) posts arrives after that row was shown (t2025).
+        if _is_existing_window(value) and not self._new_session_pending():
             self._hide_new_window_input()
             self._selected_window = value
             # Show split direction for existing windows
@@ -780,11 +790,8 @@ class AgentCommandScreen(GuardedDismissMixin, ShortcutsMixin, ModalScreen):
             except Exception:
                 pass
         else:
-            self._hide_new_window_input()
-            try:
-                self.query_one("#tmux_split_row").add_class("hidden")
-            except Exception:
-                pass
+            self._show_new_window_input()
+            self._selected_window = None
 
     # --- Event handlers ---
 
@@ -1280,20 +1287,22 @@ class AgentCommandScreen(GuardedDismissMixin, ShortcutsMixin, ModalScreen):
         except Exception:
             win_select = None
 
-        if new_session or (win_select and win_select.value == _NEW_WINDOW_SENTINEL):
+        if (
+            not new_session
+            and win_select is not None
+            and _is_existing_window(win_select.value)
+        ):
+            window = win_select.value
+            new_window = False
+        else:
+            # A new window — "✦ New window", the blank entry or a new session:
+            # the states whose name row _on_window_changed shows (t2027).
             try:
                 window = self.query_one("#tmux_new_window_input", Input).value.strip()
             except Exception:
                 window = ""
             if not window:
                 window = self.default_window_name or "aitask"
-            new_window = True
-        elif win_select and win_select.value and win_select.value != Select.NULL:
-            window = win_select.value
-            new_window = False
-        else:
-            # Default to new window
-            window = self.default_window_name or "aitask"
             new_window = True
 
         split_direction = "horizontal" if self._split_horizontal else "vertical"
