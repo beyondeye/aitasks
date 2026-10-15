@@ -1,9 +1,11 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [testing, testmap, go_engine]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -15,7 +17,8 @@ anchor: 1852
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5_5
 created_at: 2026-10-15 10:06
-updated_at: 2026-10-15 22:32
+updated_at: 2026-10-15 23:01
+completed_at: 2026-10-15 23:01
 ---
 
 ## Origin
@@ -53,3 +56,20 @@ Add `!t.esc` to the `package` and `import` cases in `scanKotlin`. Decide per opa
 > **✅ gate:plan_approved** run=2026-10-15T19:32:47Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-10-15T19:50:00Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-10-15T19:54:41Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:d810b272aa1ecd32
+
+> **❌ gate:risk_evaluated** run=2026-10-15T19:54:41Z-risk_evaluated-a1 status=fail attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluation incomplete: risk_code_health not high|medium|low (got: '<empty>')
+> Log: `.aitask-gates/2002/risk_evaluated_2026-10-15T19:54:41Z-risk_evaluated-a1.log`
+
+> **✅ gate:risk_evaluated** run=2026-10-15T20:01:21Z-risk_evaluated-a2 status=pass attempt=2 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/2002/risk_evaluated_2026-10-15T20:01:21Z-risk_evaluated-a2.log`
