@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [tui]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -17,7 +17,8 @@ anchor: 2013
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5_5
 created_at: 2026-10-16 00:50
-updated_at: 2026-10-16 00:58
+updated_at: 2026-10-16 01:06
+completed_at: 2026-10-16 01:06
 ---
 
 ## Origin
@@ -69,3 +70,14 @@ on an existing session, then assert that the visible rows match the
 > **✅ gate:plan_approved** run=2026-10-15T21:58:34Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-10-15T22:04:34Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-10-15T22:06:00Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:31e7af85d1f42c54
+
+> **✅ gate:risk_evaluated** run=2026-10-15T22:06:00Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/2027/risk_evaluated_2026-10-15T22:06:00Z-risk_evaluated-a1.log`
