@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2013
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-15 23:56
-updated_at: 2026-10-16 00:02
+updated_at: 2026-10-16 00:15
 ---
 
 ## Origin
@@ -66,3 +67,8 @@ the dialog itself can scroll — revisit it. This deliberately changes the wide
 layout, so `test_wide_layout_unchanged`'s golden must be regenerated as part of
 the fix, and a short-terminal reachability test added (cf. t2013's
 `test_tallest_state_buttons_reachable`).
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-15T21:15:58Z status=pass attempt=1 type=human
