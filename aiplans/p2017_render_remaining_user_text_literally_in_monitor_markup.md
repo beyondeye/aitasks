@@ -289,11 +289,27 @@ archive t2017 and its plan.
    new test module and every directly affected module listed under Tests
    (plus `tests/test_multi_session_minimonitor.sh`). Attribute only the delta:
    every module must pass in `wt-new`, and any failure must also fail
-   identically in `wt-old`. Also confirm that
-   `git show <sha>:.aitask-scripts/monitor/minimonitor_app.py` contains none of
-   t2009's identifiers (`live: bool = True` in `_loop_hold`,
-   `if ctrl.confirm_fire(token`). Then remove both worktrees with
-   `git worktree remove`.
+   identically in `wt-old`. Then check the commit's OWN diff against its
+   parent for foreign changes, never the whole blob (t2009 landed as
+   `a8f308a4b`, so its identifiers are legitimately in the baseline):
+   - `git diff --name-only <sha>^ <sha>` lists exactly the seven t2017
+     paths (the three monitor modules, the new test module, and the three
+     updated tests);
+   - for each tracked path, the commit's diff
+     `git -c diff.mnemonicPrefix=false diff --no-color --no-ext-diff <sha>^ <sha> -- <path>`
+     is byte-identical (`cmp`) to the snapshot taken with the same flags,
+     `git -c diff.mnemonicPrefix=false diff --no-color --no-ext-diff HEAD -- <path>`,
+     and saved to the scratchpad immediately before the commit. The flags
+     must be identical on both commands: the user's global config sets
+     `diff.mnemonicPrefix=true`, which writes `c/`/`w/` headers for a
+     worktree diff but `a/`/`b/` for a commit-to-commit one, so a correct
+     commit would compare unequal (reproduced in a temporary repo; with
+     `false` on both commands the comparison holds). For the new, untracked
+     test module, which `git diff HEAD` cannot show, `git show <sha>:<path>`
+     must be identical to a copy of the file saved at the same moment.
+     Identity in both directions proves no foreign hunk rode along and none
+     of mine was dropped.
+   Then remove both worktrees with `git worktree remove`.
 
 ## Risk
 
@@ -310,3 +326,38 @@ archive t2017 and its plan.
 ### Planned mitigations
 - timing: pre-phase | name: characterize_own_panel | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: own panel str→Content restyle | desc: pin the docked panel's rendered plain+spans for benign inputs before the Content switch
 - timing: post-phase | name: isolated_commit_verification | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: selective-staging leak next to t2009's hunks | desc: run affected suites in detached worktrees of the commit and its parent; attribute only the delta
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-16 00:45)
+- **Requested by user:** The post-phase `isolated_commit_verification` required the committed `minimonitor_app.py` to contain none of t2009's identifiers. t2009 has since landed (`a8f308a4b`; `git show HEAD` contains both `live: bool = True` and `if ctrl.confirm_fire(token`), so that whole-blob check would flag a correct commit. Check the commit's diff against its parent instead.
+- **Changes made:** Replaced the identifier check with a parent-diff check. The commit must touch exactly the seven t2017 paths, and each path's `<sha>^..<sha>` diff must be byte-identical to the pre-commit `git diff HEAD` snapshot. t2009 being committed also means the Commit section's first branch applies: a plain path-scoped `git commit -F - -- <paths>`, with no temp index.
+- **Files affected:** `aiplans/p2017_render_remaining_user_text_literally_in_monitor_markup.md` (plan only).
+
+### Change Request 2 (2026-10-16 00:55)
+- **Requested by user:** The amended check compared `git diff HEAD -- <path>` with `git diff <sha>^ <sha> -- <path>` byte for byte. Under this repo's `diff.mnemonicPrefix=true`, the first writes `c/`/`w/` headers and the second `a/`/`b/`, so a correct commit would fail.
+- **Changes made:** Verified the setting (`~/.config/git/config: diff.mnemonicprefix true`) and reproduced the mismatch in a scratch repo: `DEFAULT_DIFFER` with defaults, `FIXED_SAME` with `-c diff.mnemonicPrefix=false` on both commands. Both commands now run as `git -c diff.mnemonicPrefix=false diff --no-color --no-ext-diff`.
+- **Files affected:** `aiplans/p2017_render_remaining_user_text_literally_in_monitor_markup.md` (plan only).
+
+## Final Implementation Notes
+- **Actual work done:** Every sink in `monitor_app.py`, `monitor_shared.py` and `minimonitor_app.py` that carries a tmux window name, session name, task title or frontmatter field, or pane command now renders it literally. The four rules were applied by what follows each value:
+  - Toasts with no styling get `notify(..., markup=False)`. That is 23 sites, including indirect ones: the restore/drop verdict toast (quotes `last_error`), mark-failed, launch-failed, and the auto-recheck disarm (shadow command).
+  - Dialog Statics and Labels use `Content.from_markup(template, **variables)`: Restart, SessionRename, NextSibling, the TaskDetail header and toggle, and the freeze and drop bodies.
+  - Text with no markup is wrapped as `Content(text)`: the TaskDetail meta line and the TaskPickConfirm eligibility, running and kill-detail lines.
+  - Values followed by text use `markup_literal`: the session divider, both session bars, the own header, the minimonitor name, title and other rows, and `_SiblingRow`.
+  - `rich.markup.escape` is no longer imported by `monitor_app.py` or `minimonitor_app.py`.
+  - The minimonitor docked panel (`_own_agent_identity_text` / `_own_card_text`) now builds `Content` rather than markup `str`. The pre-phase characterization test, captured from the old code and never edited, proves benign input renders identically, cell for cell and span for span.
+- **Deviations from plan:**
+  - The minimonitor title row's open `[dim]` also covers the following phase row's two-space indent. That is invisible, because a style on a blank cell draws nothing. The guard test therefore compares the phase row's visible cells, not every cell.
+  - The mounted toast anchor needed `run_test(notifications=True)`, because Textual disables toasts under `run_test` by default.
+  - t2009 landed (`a8f308a4b`) before the commit, so the plain path-scoped commit applied and the temp-index fallback was not needed.
+- **Issues encountered:**
+  - Plan review found two gaps: the restore verdict toast (an indirect path for user text) and hostile fixtures colliding with the repo-wide Rule C scanner. Both were added before implementation.
+  - Post-implementation review found that the post-phase verification check was wrong twice: first it forbade identifiers that were legitimately committed, then it compared diffs whose headers differ under `diff.mnemonicPrefix`. See Post-Review Changes.
+- **Key decisions:**
+  - Fixtures are assembled from `tag()` fragments, so no literal holds a named closing tag. `ScannerSelfCheckTests` scans this module itself, with a negative control. t2021 later settled a compatible convention (split literals with `+`; `d9723ab55`).
+  - The list builders that tests split by line keep returning `str`. Only the docked panel, whose rows each sit before a closing tag, moved to `Content`.
+- **Upstream defects identified:**
+  - `.aitask-scripts/lib/tui_switcher.py:816-841` — session labels are interpolated raw before `[/]` / ` (stale)[/]`, so a session named `[/]` raises MarkupError in every TUI's switcher. The same file also inserts a window name raw at `:387` and in the "Failed to switch to {name}" toast at `:1388`.
+  - `.aitask-scripts/monitor/monitor_shared.py:3686` — `_escape_markup` and the other remaining `escape()` users (concern entry meta `:4955`, block meta `:5259`, stale detail `:5287`/`:5295`, column picker `:3182`, column move `:3333`, draft paths `:1596`) are built on `rich.markup.escape`. That is wrong under Textual: it doubles a backslash before a bracket and a trailing backslash. (Line numbers as of the t2017 commit.)
+  - `.aitask-scripts/monitor/minimonitor_app.py:3377` — the "Not a task number: {raw!r}" toast puts typed input into a markup-parsed toast raw.
