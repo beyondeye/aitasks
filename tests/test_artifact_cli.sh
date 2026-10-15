@@ -56,12 +56,6 @@ source "$PROJECT_DIR/.aitask-scripts/lib/task_utils.sh"
 source "$PROJECT_DIR/.aitask-scripts/lib/yaml_utils.sh"
 # shellcheck source=/dev/null
 source "$PROJECT_DIR/.aitask-scripts/lib/artifact_utils.sh"
-# task_utils.sh (via archive_utils.sh) REPLACES the EXIT trap set above with
-# its own extraction cleanup, so re-arm ours. And route every bundle
-# extraction into the fixture: resolve_task_file inside `$( )` -- in the CLIs
-# and in section L's preconditions -- never cleans up its temp dir.
-trap 'rm -rf "$TMP"' EXIT
-export TMPDIR="$TMP/tmpdir"; mkdir -p "$TMPDIR"
 # outside_repo <path> -- "outside" iff <path> is absolute and not under the
 # fixture repo. A substring test for "aitasks/" would misfire whenever the
 # host's TMPDIR itself contains that segment.
@@ -614,11 +608,11 @@ assert_eq "L5: the two refusals made no commit" "$before" "$(git rev-list --coun
 
 # L6. A BUNDLED owner with a real artifact pins the scope the help and the
 # create refusal state (t2011): ls and get work on it, but rm cannot -- the
-# entry it would remove lives in a temp extraction outside the repo, so the
-# transaction refuses before any mutation. The lookup must SUCCEED first (an
-# rm that died at "no artifact matching" would prove nothing about the
-# transaction). The bundle is rebuilt with t22 still in it, so L3/L5's bundle
-# tier is unchanged.
+# entry it would remove lives in a temp extraction outside the repo, so
+# cmd_remove refuses before the lock and before any mutation, naming the
+# bundle (t2023). The owner really has an entry to remove, so the refusal is
+# the bundle guard, not a failed lookup ("no artifact matching"). The bundle
+# is rebuilt with t22 still in it, so L3/L5's bundle tier is unchanged.
 mk_task t26_packed > aitasks/t26_packed.md
 git add -- aitasks/t26_packed.md
 git commit -q -m "fixture: active owner for L6" -- aitasks/t26_packed.md
@@ -644,12 +638,34 @@ before="$(git rev-list --count HEAD)"
 st_before="$(git status --porcelain -- aitasks artifacts attachments)"
 out="$("$ART" rm 26 art:t26-report 2>&1)"; rc=$?
 assert_exit_nonzero_rc "L6: rm on a bundled owner is refused" "$rc"
-assert_not_contains "L6: rm got past the artifact lookup" "no artifact matching" "$out"
-assert_contains "L6: rm was refused at the transaction boundary" "could not read the git status" "$out"
+assert_not_contains "L6: rm was not refused by a failed lookup" "no artifact matching" "$out"
+assert_contains "L6: rm says the owner is bundled" "t26 is packed into an archive bundle" "$out"
+assert_contains "L6: rm names the bundle" "(aitasks/archived/_b0/old0.tar.zst)" "$out"
+assert_not_contains "L6: rm no longer reaches the transaction boundary" "could not read the git status" "$out"
 assert_eq "L6: refused rm made no commit" "$before" "$(git rev-list --count HEAD)"
 assert_file_exists "L6: refused rm kept the manifest" "artifacts/manifests/t26-report.json"
 assert_eq "L6: refused rm changed no task data" "$st_before" \
     "$(git status --porcelain -- aitasks artifacts attachments)"
+
+# L6b. TMPDIR beneath an ABSOLUTE ARCHIVED_DIR puts the bundle extraction under
+# the archived tree, so only a by-identity parent check tells it from a loose
+# archived file; a "${ARCHIVED_DIR}/*" prefix test let rm through to the
+# transaction (t2023).
+mkdir -p aitasks/archived/tmpx
+l6b_ext="$(ARCHIVED_DIR="$REPO/aitasks/archived" TMPDIR="$REPO/aitasks/archived/tmpx" \
+    bash -c 'source "$1/.aitask-scripts/lib/task_utils.sh"; resolve_task_file 26' _ "$PROJECT_DIR")"
+assert_contains "L6b precondition: the extraction lives under the archived tree" \
+    "$REPO/aitasks/archived/tmpx/ait-archive." "$l6b_ext"
+before="$(git rev-list --count HEAD)"
+out="$(ARCHIVED_DIR="$REPO/aitasks/archived" TMPDIR="$REPO/aitasks/archived/tmpx" "$ART" rm 26 art:t26-report 2>&1)"; rc=$?
+assert_exit_nonzero_rc "L6b: rm on a bundled owner is refused with TMPDIR under ARCHIVED_DIR" "$rc"
+assert_contains "L6b: rm says the owner is bundled" "t26 is packed into an archive bundle" "$out"
+assert_contains "L6b: rm names the bundle" "aitasks/archived/_b0/old0.tar.zst" "$out"
+assert_not_contains "L6b: rm did not reach the transaction layer" "uncommitted changes" "$out"
+assert_eq "L6b: refused rm made no commit" "$before" "$(git rev-list --count HEAD)"
+assert_file_exists "L6b: refused rm kept the manifest" "artifacts/manifests/t26-report.json"
+assert_eq "L6b: no extraction dir left under the archived tree" "" "$(ls -A aitasks/archived/tmpx)"
+rmdir aitasks/archived/tmpx
 
 echo ""
 echo "=========================="

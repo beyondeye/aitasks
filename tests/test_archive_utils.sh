@@ -317,6 +317,137 @@ result=$(_find_archive_for_task 60 "$TMPDIR_K/aitasks/archived")
 assert_eq "gz compat: find prefers zst" "$TMPDIR_K/aitasks/archived/_b0/old0.tar.zst" "$result"
 rm -rf "$TMPDIR_K"
 
+# --- Group J2: EXIT-trap composition survives a re-source (t2023) ---
+# The tests here reset the double-source guard and re-source, so the per-shell
+# state (owner tag, pinned base, the stored caller handler) must survive a
+# re-source in the same shell. Each case is a child bash with its own probe
+# TMPDIR; what matters is what the child's EXIT leaves behind.
+echo "--- Group J2: re-source keeps the composed EXIT trap ---"
+TMPDIR_J2=$(setup_test_env)
+staging=$(mktemp -d)
+echo "j2 content" > "$staging/t91_j2.md"
+create_test_archive "$TMPDIR_J2/aitasks/archived/_b0/old0.tar.zst" "$staging"
+rm -rf "$staging"
+J2_WARN="ran behind another command"
+
+# j2_child <probe> <body-file> -- run a child that defines src (guard-reset
+# source) and xt (one extraction, printing the extracted path); sets J2_OUT/J2_RC.
+j2_child() {
+    local probe="$1" body="$2"
+    {
+        echo "export SCRIPT_DIR='$PROJECT_DIR/.aitask-scripts' TMPDIR='$probe'"
+        echo "A='$TMPDIR_J2/aitasks/archived/_b0/old0.tar.zst'"
+        cat <<'EOF'
+src() { unset _AIT_ARCHIVE_UTILS_LOADED; source "$SCRIPT_DIR/lib/archive_utils.sh"; }
+xt() { _extract_from_archive "$A" "$(_search_archive "$A" 't91_.*\.md$')" && echo "$_AIT_EXTRACT_RESULT"; }
+EOF
+        cat "$body"
+    } > "$TMPDIR_J2/child.sh"
+    J2_RC=0
+    J2_OUT="$(bash "$TMPDIR_J2/child.sh" 2>&1)" || J2_RC=$?
+}
+j2_left() { ls -A "$1" 2>/dev/null | grep -E '^(ait-archive\.|tmp\.)' || true; }
+
+# J2a: one source vs two -- the caller's handler must still RUN after the second.
+for n in 1 2; do
+    probe=$(mktemp -d); mark="$TMPDIR_J2/mark_j2a_$n"
+    cat > "$TMPDIR_J2/body.sh" <<EOF
+trap 'touch "$mark"' EXIT
+src
+f=\$(xt); [[ -s "\$f" ]] && echo "X_OK"
+if [[ $n == 2 ]]; then src; fi
+echo "TRAP:\$(trap -p EXIT)"
+echo "STORED:\$_AIT_ARCHIVE_CALLER_EXIT_TRAP"
+EOF
+    j2_child "$probe" "$TMPDIR_J2/body.sh"
+    assert_eq "J2a ($n source(s)): child exits 0" "0" "$J2_RC"
+    assert_contains "J2a ($n source(s)): extraction made" "X_OK" "$J2_OUT"
+    assert_file_exists "J2a ($n source(s)): the caller's EXIT handler ran" "$mark"
+    assert_contains "J2a ($n source(s)): the trap is the chain, once" \
+        "TRAP:trap -- '_ait_archive_exit_chain' EXIT" "$J2_OUT"
+    assert_contains "J2a ($n source(s)): the stored caller handler is intact" \
+        "STORED:touch \"$mark\"" "$J2_OUT"
+    assert_eq "J2a ($n source(s)): the extraction made before the re-source was swept" "" "$(j2_left "$probe")"
+    rm -rf "$probe"
+done
+
+# J2b: a later prepend (the real txn_chain_exit_trap), then a re-source -- each
+# handler runs exactly once (no recursion through the stored text, no dup).
+probe=$(mktemp -d); count="$TMPDIR_J2/count_j2b"
+cat > "$TMPDIR_J2/body.sh" <<EOF
+source "\$SCRIPT_DIR/lib/terminal_compat.sh"
+source "\$SCRIPT_DIR/lib/txn_snapshot.sh"
+trap 'echo caller >> "$count"' EXIT
+src
+txn_h() { echo txn >> "$count"; }
+txn_chain_exit_trap txn_h
+src
+f=\$(xt); [[ -s "\$f" ]] && echo "X_OK"
+EOF
+j2_child "$probe" "$TMPDIR_J2/body.sh"
+assert_eq "J2b: child exits 0" "0" "$J2_RC"
+assert_contains "J2b: extraction made" "X_OK" "$J2_OUT"
+assert_eq "J2b: prepended and caller handlers each ran exactly once" "$(printf 'txn\ncaller')" "$(cat "$count" 2>/dev/null)"
+assert_eq "J2b: nothing left in TMPDIR" "" "$(j2_left "$probe")"
+rm -rf "$probe"
+
+# J2b (ledger): the bare ledger trap + a real txn prepend + a re-source must
+# NEVER report success for an exit 42 -- it ends 1 with the first-command
+# warning, exactly as the unwrapped composition does.
+probe=$(mktemp -d)
+cat > "$TMPDIR_J2/body.sh" <<'EOF'
+set -euo pipefail
+source "$SCRIPT_DIR/lib/terminal_compat.sh"
+source "$SCRIPT_DIR/lib/ledger_block.sh"
+source "$SCRIPT_DIR/lib/txn_snapshot.sh"
+trap 'ait_ledger_lock_exit_trap' EXIT
+src
+f=$(xt); [[ -s "$f" ]] || exit 99
+txn_chain_exit_trap _txn_exit_trap
+src
+exit 42
+EOF
+j2_child "$probe" "$TMPDIR_J2/body.sh"
+assert_eq "J2b ledger: a lost status is reported as failure, never success" "1" "$J2_RC"
+assert_contains "J2b ledger: the first-command detector still fires" "$J2_WARN" "$J2_OUT"
+assert_eq "J2b ledger: the archive cleanup ran" "" "$(j2_left "$probe")"
+rm -rf "$probe"
+
+# J2c: no prior trap -- a re-source leaves exactly the bare cleanup, once.
+probe=$(mktemp -d)
+cat > "$TMPDIR_J2/body.sh" <<'EOF'
+src
+f=$(xt); [[ -s "$f" ]] && echo "X_OK"
+src
+echo "TRAP:$(trap -p EXIT)"
+EOF
+j2_child "$probe" "$TMPDIR_J2/body.sh"
+assert_contains "J2c: extraction made" "X_OK" "$J2_OUT"
+assert_contains "J2c: the trap is the bare cleanup, once" "TRAP:trap -- '_ait_archive_cleanup' EXIT" "$J2_OUT"
+assert_eq "J2c: nothing left in TMPDIR" "" "$(j2_left "$probe")"
+rm -rf "$probe"
+
+# J2d: the bash 3.2 path (`unset BASHPID` drops its special meaning). A
+# guard-reset re-source inside ( ) carries the PROCESS pid as its tag there, so
+# its exit must not sweep the parent's still-held extraction.
+probe=$(mktemp -d); mark="$TMPDIR_J2/mark_j2d"
+cat > "$TMPDIR_J2/body.sh" <<EOF
+unset BASHPID
+echo "BASHPID=[\${BASHPID:-}]"
+trap 'touch "$mark"' EXIT
+src
+pf=\$(xt)
+( src; sf=\$(xt); [[ -s "\$sf" ]] && echo "SUB_OK" )
+if [[ -s "\$pf" ]]; then echo "PARENT_FILE_KEPT"; else echo "PARENT_FILE_GONE"; fi
+EOF
+j2_child "$probe" "$TMPDIR_J2/body.sh"
+assert_contains "J2d: BASHPID really is unset in the child" "BASHPID=[]" "$J2_OUT"
+assert_contains "J2d: the subshell extracted" "SUB_OK" "$J2_OUT"
+assert_contains "J2d: the subshell's exit kept the parent's extraction" "PARENT_FILE_KEPT" "$J2_OUT"
+assert_file_exists "J2d: the caller's EXIT handler ran" "$mark"
+assert_eq "J2d: both extraction dirs were swept at the parent's exit" "" "$(j2_left "$probe")"
+rm -rf "$probe" "$TMPDIR_J2"
+
 # --- Results ---
 
 echo ""

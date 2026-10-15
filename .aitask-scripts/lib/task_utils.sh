@@ -2440,6 +2440,36 @@ task_file_is_active() {
     [[ "$(dirname "$task_file")" -ef "$active_dir" ]]
 }
 
+# task_file_is_loose_archived <task_id> <task_file> -- true iff the file that
+# resolve_task_file returned is a LOOSE archived file: its directory is exactly
+# $ARCHIVED_DIR (parent) or $ARCHIVED_DIR/t<parent> (child), compared by
+# identity (-ef) for the same spelling reasons as task_file_is_active. Not a
+# "${ARCHIVED_DIR}/*" prefix test: with TMPDIR beneath an absolute
+# $ARCHIVED_DIR, a bundle extraction is a descendant of it too (t2023).
+task_file_is_loose_archived() {
+    local task_id="$1" task_file="$2" archived_dir="$ARCHIVED_DIR"
+    [[ "$task_id" =~ ^([0-9]+)_[0-9]+$ ]] && archived_dir="$ARCHIVED_DIR/t${BASH_REMATCH[1]}"
+    [[ "$(dirname "$task_file")" -ef "$archived_dir" ]]
+}
+
+# task_archive_bundle <task_id> -- the .tar.zst / .tar.gz bundle under
+# $ARCHIVED_DIR that holds <task_id>'s task file, or nothing. Uses the same
+# member patterns as resolve_task_file's bundle tier; it lists the archive but
+# extracts nothing, so it creates no temp dir (t2023, to name the bundle in a
+# refusal).
+task_archive_bundle() {
+    local task_id="$1" num="$1" pattern hit
+    if [[ "$task_id" =~ ^([0-9]+)_([0-9]+)$ ]]; then
+        num="${BASH_REMATCH[1]}"
+        pattern="(^|/)t${num}/t${num}_${BASH_REMATCH[2]}_.*\.md$"
+    else
+        pattern="(^|/)t${task_id}_.*\.md$"
+    fi
+    hit="$(_search_numbered_then_legacy "$num" "$ARCHIVED_DIR" "$pattern")" || true
+    [[ -n "$hit" ]] && echo "${hit%:*}"
+    return 0
+}
+
 # Resolve plan file from task number, checking both active and archived
 # Plan naming convention:
 #   Parent task t53_name.md -> plan p53_name.md

@@ -247,12 +247,12 @@ cmd_create() {
     # of the trail gatherer's archived_owner rule (t1989). resolve_task_file
     # also answers with loose archived files and bundle extractions; writing
     # into either would commit into an archived record or a temp file. Only
-    # create refuses: ls/get still resolve archived owners; rm too, until the
-    # owner is bundled (its extraction is outside the repo, so the transaction
-    # refuses it).
+    # create refuses every archived owner: ls/get still resolve them; rm too,
+    # until the owner is bundled (cmd_remove refuses a bundled owner itself,
+    # naming the bundle).
     if ! task_file_is_active "$task_id" "$task_file"; then
         local where="a .tar.zst archive bundle"
-        [[ "$task_file" == "${ARCHIVED_DIR%/}"/* ]] && where="$task_file"
+        if task_file_is_loose_archived "$task_id" "$task_file"; then where="$task_file"; fi
         die "ait artifact create: t${task_id} is archived (${where}) — a new artifact must attach to an active task; ls and get still accept any archived owner, rm only one not yet packed into a bundle"
     fi
     with_attach_lock _artifact_create_txn "$task_id" "$task_file" "$file" "$kind" "$name" "$handle" "$backend"
@@ -564,6 +564,14 @@ cmd_remove() {
     [[ -n "$task_id" && -n "$ref" ]] || die "Usage: ait artifact rm <task> <handle-or-name>"
     task_id="${task_id#t}"
     local task_file; task_file="$(resolve_task_file "$task_id")"
+    # A BUNDLED owner resolves to a temp extraction outside the repo: there is
+    # no task file to edit, so refuse here, naming the bundle, before the lock
+    # (t2023). A loose archived owner is still a real file and stays editable.
+    if ! task_file_is_active "$task_id" "$task_file" \
+            && ! task_file_is_loose_archived "$task_id" "$task_file"; then
+        local bundle; bundle="$(task_archive_bundle "$task_id")"
+        die "ait artifact rm: t${task_id} is packed into an archive bundle${bundle:+ (${bundle})} — a bundled record cannot be edited; ls and get still accept it"
+    fi
     with_attach_lock _artifact_rm_txn "$task_id" "$task_file" "$ref"
 }
 

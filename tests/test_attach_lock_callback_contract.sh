@@ -436,7 +436,7 @@ ALLOWLIST=(
   # status IS the function's return value, and the sole caller checks it —
   # `blocking="$(_attach_gc_blocking_hashes)" || die` in _attach_gc_txn, whose
   # comment records that the `|| die` is load-bearing for exactly this reason.
-  ".aitask-scripts/aitask_attach.sh:630"
+  ".aitask-scripts/aitask_attach.sh:638"
 
   # `if ! remaining="$(artifact_manifest referenced-hashes)"; then` — the ONE
   # `if !` in the tree. Its branch is genuinely terminating: since t1698 it calls
@@ -446,7 +446,7 @@ ALLOWLIST=(
   # in a bare `warn`, and the bare-warn version is exactly the t1675 bug.
   # Exempted here, by line, so the verification stays a human-checked citation
   # instead of a blanket rule.
-  ".aitask-scripts/aitask_artifact.sh:689"
+  ".aitask-scripts/aitask_artifact.sh:697"
 )
 
 # ACCEPTED status handlers — forms whose failure handling is visible in the line
