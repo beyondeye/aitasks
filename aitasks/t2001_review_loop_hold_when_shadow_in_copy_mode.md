@@ -3,11 +3,12 @@ priority: high
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [shadow, aitask_monitormini, review_loop, tmux]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-10-15 09:36
-updated_at: 2026-10-15 09:36
+updated_at: 2026-10-15 09:40
 ---
 
 The minimonitor auto-recheck loop (`L`) auto-disarms with
