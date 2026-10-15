@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1852
 followup_kind: risk_mitigation
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-15 08:56
-updated_at: 2026-10-15 09:10
+updated_at: 2026-10-15 22:53
 ---
 
 ## Origin
@@ -80,3 +81,8 @@ Add a source tripwire test, in the style of the module's
 > | - watchdog_linux_test.go: a new `noisy` subtest inside the allowlisted `TestIsolationControls` (it calls `runChild`, as its sibling subtests do), and a `noisy` mode in `controlFixture`.
 > | 
 > | Possible effect on t1998: the creation-time survey in your task body ("20 pure unguarded ones", plus `TestChildRunPattern`) now has one more pure unguarded test. If the tripwire or its tests hardcode that count, it is off by one at this SHA. The guarded and allowlisted counts are unchanged.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-15T19:53:28Z status=pass attempt=1 type=human
