@@ -70,6 +70,7 @@ What Rule C reaches, probed rather than assumed (the "missed" rows are pinned by
     f"[bold]{n}[/bold] [dim]("      quiet    (correct: reconstruction)
     ")[/dim]"                       quiet    (correct: a fragment)
     "[bold]" + name + "[/bolt]"     MISSED   (assembled across expressions)
+    "Fix [/] and " + "[dim]x[/dim]" MISSED   (constant + constant)
     "[@click=app.foo]x[/bolt]"      MISSED   (action-link open)
     f"[{a}]x[/{b}]"                 MISSED   (both names dynamic)
     "  [bold yellow][AUTO][/]"      MISSED   (literal-bracket class)
@@ -79,7 +80,11 @@ Not in scope (each for a stated reason, not by oversight):
 - **Markup assembled across expressions or statements** (``"[bold]" + x``, a
   variable holding the open tag). The scanned unit is one expression; joining
   them needs dataflow analysis. Repo instances of a tag pair split that way: 1
-  (``monitor/desync_summary.py``, and it is correct).
+  (``monitor/desync_summary.py``, and it is correct). Constant-only ``+`` is
+  not folded either, although folding alone could join it — and that is relied
+  on: it is how a hostile-input fixture stays scanned
+  (``tests/test_monitor_markup_escape.py``, t2021). Pinned by
+  ``test_gap_constant_only_concatenation_is_not_folded``.
 - **Action-link opening tags** (``[@click=…]``). ``_is_candidate`` rejects
   ``@``-prefixed tokens deliberately — see
   ``test_prose_in_brackets_is_not_a_finding`` — so a bad close paired only with
@@ -223,6 +228,13 @@ STRUCTURE_REMEDIES = textwrap.dedent(
         tui_switcher.py and codebrowser/history_list.py. Note this rule does
         NOT catch that case (see "Not in scope" in the module docstring) —
         it is listed here because it is the other half of the same fix.
+      * Hostile-input fixture -> a test that feeds deliberately broken markup
+        to the parser must keep it broken: do not escape it. Split it with
+        `+` so the offending tag sits in a literal apart from the tags it
+        fails to match (see TITLES in tests/test_monitor_markup_escape.py).
+        That relies on the gap pinned by
+        test_gap_constant_only_concatenation_is_not_folded. Do not add the
+        file to SELF_REFERENTIAL_MODULES: that unscans the whole file.
 
     A finding here is reported against the RECONSTRUCTED expression, with each
     f-string interpolation shown as `{_PLACEHOLDER_STYLE}`, so the text may not
@@ -980,6 +992,20 @@ class StructureScannerDiscriminationTests(unittest.TestCase):
         source = 'x = "[bold]" + name + "[/bolt]"'
         self.assertEqual([], self._scan(source))
         self.assertEqual(0, self._gated(source), "neither half carries both tags")
+
+    def test_gap_constant_only_concatenation_is_not_folded(self):
+        """The hostile-fixture convention depends on this gap (t2021).
+
+        tests/test_monitor_markup_escape.py builds its unparsable title with
+        `+` so the repo scan does not read it as live markup. The
+        variable-separated row above would keep passing under a scanner that
+        folded constant-only `+`; this row would not.
+        """
+        source = 'x = "Fix [/] and " + "[dim]x[/dim]"'
+        self.assertEqual([], self._scan(source))
+        self.assertEqual(1, self._gated(source), "only the intact pair is gated")
+        with self.assertRaises(Exception):
+            Content.from_markup("Fix [/] and [dim]x[/dim]")
 
     def test_gap_action_link_opening_tag(self):
         source = 'x = "[@click=app.foo]x[/bolt]"'

@@ -44,6 +44,7 @@ os.environ.pop("TMUX_PANE", None)
 
 from rich.markup import escape as rich_escape  # noqa: E402
 from textual.content import Content  # noqa: E402
+from textual.markup import MarkupError  # noqa: E402
 
 import agent_marks  # noqa: E402
 import workflow_phase  # noqa: E402
@@ -66,7 +67,8 @@ NAMES = [
     "agent-" + "[/]x[dim]" * 5,
 ]
 TITLES = [
-    "Fix [/] and [dim]x[/dim]",
+    "Fix [/] and " + "[dim]x[/dim]",  # split: one literal trips Rule C
+                                      # (test_textual_markup_colours.py)
     "a \\[bold] b",
     "ends with \\",                  # trailing backslash before the row's end
 ]
@@ -167,6 +169,14 @@ class MarkupLiteralTests(unittest.TestCase):
         value = "agent-\\[bold]y"
         rendered = parse(f"[bold]{rich_escape(value)} (0)[/]")
         self.assertNotEqual(rendered.plain, f"{value} (0)")
+
+    def test_the_split_title_fixture_is_still_hostile(self):
+        """TITLES[0] is built with `+` only so the repo-wide Rule C scan
+        (tests/test_textual_markup_colours.py) does not read it as live
+        markup. It must stay a string Textual refuses unescaped: escaping it
+        to quiet the scan would remove the input this file exists to test."""
+        with self.assertRaises(MarkupError):
+            parse(TITLES[0])
 
 
 class RowShapeTests(unittest.TestCase):
