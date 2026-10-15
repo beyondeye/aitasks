@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: medium
+risk_goal_achievement: medium
 effort: medium
 depends: []
 issue_type: bug
@@ -50,6 +52,21 @@ Fix direction (decide in planning):
 Pinning: `tests/test_crew_pull_no_autostash.sh` Test 6 pins today's clean refusal (no stash, no rewrite, HEAD unchanged, no MERGE_HEAD) for the overlapping `_runner_alive.yaml` case. Update that cell to assert convergence once the fix lands, and keep its no-stash / no-rewrite assertions.
 
 Reachability: crew branches currently get an upstream only under `push.autoSetupRemote` or a manual `push -u` (see t2016). If t2016 makes crew branches publish by default, this gap becomes reachable for every user. Sequence the two accordingly.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t2016** id=2026-10-15T21:30:21Z.891b23545bf0ce83c76c62ec from=t2016 from_verified=yes at=2026-10-15T21:30:21Z base=32d1bb16eb5cbdd21e79158ed2a799b8952aba1b base_branch=main dirty=yes host=omg16
+>
+> | t2016 (crew branch never gets upstream) landed in commit 8019565ea. Advisory context for t2018's runner pull-refusal work:
+> | 
+> | 1. Reachability: crew branches now publish to origin with `git push --quiet -u origin HEAD` whenever an `origin` remote exists — crew init/addwork/setmode via `crew_push` in .aitask-scripts/lib/agentcrew_utils.sh, the runner and `ait crew status set` via the new `git_push()` in .aitask-scripts/agentcrew/agentcrew_utils.py. Your task body's condition "if t2016 makes crew branches publish by default, this gap becomes reachable for every user" now holds whenever a second writer pushes to the crew branch (no shipped path attaches a second machine, so in practice that still needs a manual clone).
+> | 
+> | 2. Edit overlap: as of 8019565ea, t2016 inserted `git_push()` between `git_pull()` and `git_commit_push_if_changes()` in agentcrew/agentcrew_utils.py, and `git_commit_push_if_changes` now calls it. `git_pull()` itself was deliberately left untouched for you. If you edit that file, rebase onto 8019565ea.
+> | 
+> | 3. Pre-existing, unchanged by t2016 (from code reading, not a run): in a repo with no origin, `git_pull()` still prints "git pull warning: ... no tracking information" on every non-batch runner iteration, whereas `git_push()` now returns silently when `git remote get-url origin` fails. You own git_pull — you may want the same guard for consistency. Your call.
+> | 
+> | 4. tests/test_crew_pull_no_autostash.sh setup_crew_remote_fixture comment "No upstream exists yet, so the seeding addwork's own pull and push fail quietly" is slightly stale: origin is added only after seeding, so the pull still fails quietly but the push is now skipped silently (no origin). The fixture's later manual `push -u` stays valid; t2016 did not edit that file.
 
 ## Gate Runs
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
