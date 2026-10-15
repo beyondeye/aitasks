@@ -46,6 +46,7 @@ bug
 child_tasks
 claudecode
 claudeskills
+clipboard
 codeagent
 codebrowser
 codex
