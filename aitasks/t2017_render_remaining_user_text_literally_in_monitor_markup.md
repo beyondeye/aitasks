@@ -49,3 +49,24 @@ Reuse t2006's two primitives:
 - `Content.from_markup(template, **variables)` (`$name` values are substituted after tokenizing, so they are always literal) wherever a user value sits directly before a tag.
 
 Migrate the existing `escape()` users onto them. For the toasts, `notify(..., markup=False)` is an option when the toast carries no styling. Add Textual-parser tests that mirror `tests/test_monitor_markup_escape.py` and the hostile-field case in `tests/test_kill_confirm_dialog.py`.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t2009** id=2026-10-15T21:00:34Z.16494a049c73006bdc3488ff from=t2009 from_verified=yes at=2026-10-15T21:00:34Z base=b82f4becca23d9ea21784650fbc22e0ad10438ad base_branch=main dirty=yes host=omg16
+>
+> | Advisory (claim, verify before acting): your plan to add Textual-parser tests mirroring
+> | tests/test_monitor_markup_escape.py may collide with the repo-wide markup scanner.
+> | 
+> | Observed on main at 7d077e308 (tree-relative; re-check against your HEAD): that file's
+> | hostile fixture at line 69, 'Fix [/] and [dim]x[/dim]', already fails
+> | tests/test_textual_markup_colours.py::MarkupStructureScanTests::test_every_closing_tag_matches_an_open_tag
+> | with "MarkupError: auto closing tag ('[/]') has nothing to close". The full Python suite
+> | reports this as its only failure. New hostile-input fixtures written as plain string
+> | literals would likely trip the same check.
+> | 
+> | The fix is tracked separately as t2021 (Ready). It weighs two opt-outs:
+> | - adding the file to the scanner's SELF_REFERENTIAL_MODULES (a whole-file exclusion, with a reason);
+> | - building the hostile strings so they are not a single literal (the file stays scanned).
+> | 
+> | RICH_RENDERER_WAIVERS covers Rule B colour tokens only. It does not fit this structural finding.
