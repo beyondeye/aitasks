@@ -203,3 +203,40 @@ standard Step 9 flow on the current branch (`fast` profile, no worktree).
 
 ### Goal-achievement risk: low
 None identified.
+
+## Final Implementation Notes
+- **Actual work done:** As planned. `.aitask-scripts/lib/agent_command_screen.py`
+  gained the module-level `_is_existing_window(value)`. `_on_window_changed`
+  now has two branches: an existing window on an existing session shows the
+  split row, and everything else shows the window-name row. `_build_tmux_config`
+  splits only under the same test; every other state launches a new window
+  named by `#tmux_new_window_input`, falling back to the default name when the
+  input is empty. The old hide-both-rows branch and the input-ignoring
+  "Default to new window" branch are gone. In
+  `tests/test_agent_command_dialog_narrow.py`: a t2027 docstring paragraph,
+  an optional `default_tmux_window` on `_DialogHost`,
+  `test_blank_window_choice_shows_window_name_row` (narrow 40x44 and wide
+  120x40 × prior = new-window default / existing window "1"; the blank entry is
+  chosen through the real overlay with `w`, `enter`, `home`, `enter`), and the
+  characterization guard `test_session_switch_keeps_existing_window_default`.
+- **Deviations from plan:** None.
+- **Issues encountered:** None. Red proof, from a scratch runner that patched
+  HEAD's methods into `AgentCommandScreen` without touching the tree:
+  - both methods from HEAD → the blank test failed in all 4 subtests with
+    `#tmux_new_window_row Region(x=0, y=0, width=0, height=0)`;
+  - only HEAD's `_on_window_changed` → the same row failure;
+  - only HEAD's `_build_tmux_config` → `'agent-pick-5_5' != 'my-win'` in all
+    4 subtests;
+  - unpatched → both tests pass.
+
+  The session-switch guard passed in every mode, as intended. After the fix,
+  `test_agent_command_dialog_narrow.py` (15 tests), the neighbouring dialog
+  modules plus `test_textual_markup_colours.py` (123 tests in all), and 13
+  further dialog-consuming modules (332 tests) all pass.
+- **Key decisions:** One shared predicate drives both which row is visible and
+  what launches, so the two cannot drift apart again. I rejected
+  `allow_blank=False`: in Textual 8.2.7 it raises `EmptySelectError` for the
+  new-session path's empty options and `set_options([])`, and
+  `InvalidSelectValueError` for `clear()`. The blank Select still shows its
+  dim "Select" prompt; the visible name row is what states the launch.
+- **Upstream defects identified:** None
