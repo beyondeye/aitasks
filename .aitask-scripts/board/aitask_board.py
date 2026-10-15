@@ -6597,7 +6597,7 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, TrailScreenMixin, App):
         self.push_screen(LoadingOverlay("Archiving task..."))
         self._do_archive(task_num, cascade_ids, cascade_paths)
 
-    @work(thread=True)
+    @work(thread=True, group="task_archive")
     def _do_archive(self, task_num: str,
                     cascade_ids: list[str], cascade_paths: list[str]):
         """Run archive subprocess in a thread worker.
@@ -6605,6 +6605,10 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, TrailScreenMixin, App):
         cascade_ids:   child task IDs (with 't' prefix, e.g. 't475_3') to remove
                        from the parent's children_to_implement before archiving.
         cascade_paths: child task/plan file paths to git-rm before archiving.
+
+        Own worker group (t1994): an exclusive default-group worker started
+        before this one begins would cancel it, so the confirmed archive would
+        never run and the ``finally`` that pops the LoadingOverlay never execute.
         """
         try:
             parent_num_bare = task_num.lstrip("t")
@@ -6753,7 +6757,7 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, TrailScreenMixin, App):
         self.push_screen(LoadingOverlay("Deleting task..."))
         self._do_delete(task_num, paths_str, folded_ids, parent_num, extra_paths)
 
-    @work(thread=True)
+    @work(thread=True, group="task_delete")
     def _do_delete(self, task_num: str, paths: list[str], folded_ids: list[str],
                    parent_num: str | None, extra_paths: list[str] | None = None):
         """Run delete subprocess in a thread worker.
@@ -6765,6 +6769,10 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, TrailScreenMixin, App):
 
         `extra_paths` are files this delete WROTE (the parent, revived folded
         tasks); they join the doomed paths in the scoped commit's pathspec.
+
+        Own worker group (t1994): an exclusive default-group worker started
+        before this one begins would cancel it, so the confirmed delete would
+        never run and the ``finally`` that pops the LoadingOverlay never execute.
         """
         try:
             # Decref the doomed tasks' attachments BEFORE any mutation, so a
@@ -6917,12 +6925,19 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, TrailScreenMixin, App):
             new_task_filename,
         )
 
-    @work(thread=True)
+    @work(thread=True, group="task_rename")
     def _do_rename_task(self, old_task: Path, new_task: Path,
                         old_plan: Path | None, new_plan: Path | None,
                         task_num: str, humanized_name: str,
                         new_filename: str):
-        """Rename task/plan files, commit, and sync in a background thread."""
+        """Rename task/plan files, commit, and sync in a background thread.
+
+        Own worker group (t1994): an exclusive default-group worker started
+        before this one begins would cancel it, so the confirmed rename would
+        never run and the ``finally`` that pops the LoadingOverlay never execute.
+        It also keeps the ``_run_sync`` started below from cancelling this
+        worker itself.
+        """
         try:
             # Rename task file (and the plan file if present). No `git add` here:
             # the scoped commit stages the untracked NEW paths itself, and the
@@ -6968,7 +6983,7 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, TrailScreenMixin, App):
         self.push_screen(LoadingOverlay("Committing..."))
         self._do_git_commit_tasks(filepaths, count, message, refocus)
 
-    @work(thread=True)
+    @work(thread=True, group="task_commit")
     def _do_git_commit_tasks(self, filepaths: list[str], count: int, message: str, refocus: str):
         """Run the scoped task-file commit in a thread worker.
 
@@ -6976,6 +6991,10 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, TrailScreenMixin, App):
         longer rides along — that is the intended bystander exclusion, and the
         message names tasks. No `git add` loop: the seam stages an untracked new
         task file and leaves tracked ones alone. t1702
+
+        Own worker group (t1994): an exclusive default-group worker started
+        before this one begins would cancel it, so the confirmed commit would
+        never run and the ``finally`` that pops the LoadingOverlay never execute.
         """
         try:
             result = commit_task_paths(message, filepaths)
