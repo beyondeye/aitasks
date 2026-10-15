@@ -142,6 +142,7 @@ None identified.
   - `go test ./internal/testmap/deps/` and `./ait engine test` both green.
   - Red proof: overlaying HEAD's `kotlin.go`, every one of the 11 defect rows fails, and so does every assertion of the end-to-end test. All 7 controls pass on HEAD.
   - Mutants: an overlay with any single `!esc` condition removed fails exactly its own row(s).
+- **Workflow slip (gate):** Step 7's post-approval write of `risk_code_health` / `risk_goal_achievement` was missed. The Step 9 orchestrator's only allowed `risk_evaluated` attempt (`max_retries: 0`) therefore failed on empty levels. The levels from the plan's `## Risk` section (low / low) were then written, and the verifier (`aitask_gate_risk.sh 2002 2 <run>`) was re-run as attempt 2, which passed and recorded its own ledger entry. This was confirmed by the user at the archive gate guard.
 - **Key decisions:**
   - Each opaque check was decided separately. Keyword gates (`inline`, `const`, `typealias`, and the `fun` / modifier walk) ignore escaped tokens, because a backticked token is never a Kotlin keyword or modifier. Identifier matches (`Class.forName`, `getIdentifier`, `R.string|plurals`) stay escape-neutral.
   - `::class.java` is unchanged: `` x::`class` `` is still a callable reference, so the over-mark stays fail-closed.
