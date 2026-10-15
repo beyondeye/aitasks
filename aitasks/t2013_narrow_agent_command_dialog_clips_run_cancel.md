@@ -3,11 +3,12 @@ priority: high
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [tui, aitask_monitormini]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-10-15 22:56
-updated_at: 2026-10-15 22:56
+updated_at: 2026-10-15 22:58
 ---
 
 ## Symptom
