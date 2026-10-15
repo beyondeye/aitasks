@@ -278,7 +278,7 @@ target to that width and cannot expose the mismatch.
 - Headless compositing could disagree with a real terminal · severity: low · → mitigation: none (covered in-plan: Verification §2 captures from a real tmux pane both before and after the change, with `◆!` forced in both)
 
 ### Planned mitigations
-- timing: after | name: budget_actual_pane_width | type: bug | priority: medium | effort: medium | inline_risk: medium | added_complexity: medium | addresses: goal-achievement — rows still wrap when the real pane is narrower than the configured target | desc: budget minimonitor row and detail text against the available content width capped by target_width, rebuild row text when the pane width changes, and test configured width 40 with actual pane width 32 (scrolling and non-scrolling)
+- timing: after | name: budget_actual_pane_width | type: bug | priority: medium | effort: medium | inline_risk: medium | added_complexity: medium | addresses: goal-achievement — rows still wrap when the real pane is narrower than the configured target | desc: budget minimonitor row and detail text against the available content width capped by target_width, rebuild row text when the pane width changes, and test configured width 40 with actual pane width 32 (scrolling and non-scrolling) | created: t2007
 
 ## Step 9 reference
 
