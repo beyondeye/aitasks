@@ -3,12 +3,13 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Folded
 labels: [trails, cross_repo]
 gates: [risk_evaluated]
+folded_into: 1989
 anchor: 1957
 created_at: 2026-10-12 21:32
-updated_at: 2026-10-12 21:32
+updated_at: 2026-10-15 08:43
 ---
 
 ## Problem

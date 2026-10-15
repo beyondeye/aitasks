@@ -10,9 +10,10 @@ active_gates: [risk_evaluated]
 active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
+folded_tasks: [1958]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-10-14 19:01
-updated_at: 2026-10-14 19:15
+updated_at: 2026-10-15 08:43
 ---
 
 ## Context
@@ -84,3 +85,44 @@ Add to `tests/test_trail_gather.py`:
 
 Also: `bash tests/test_skill_render_aitask_trail.sh` and
 `./.aitask-scripts/aitask_skill_verify.sh` after the `.j2` edit.
+
+## Merged from t1958: trail snapshot foreign scope owner
+
+
+## Problem
+
+`/aitask-trail proj#42` (a cross-repo task scope) writes the trail onto the
+wrong task.
+
+`.aitask-scripts/lib/trail_gather.py` `cmd_snapshot` (~lines 1118-1124) sets the
+owner to `--owner` if given, else the **single scope id even when it lives in
+another repo**, and prints `OWNER:proj#42` (~1137). The skill's write step then
+strips that to the bare id and runs `aitask_artifact.sh create 42 …`. That
+attaches the trail to **local** t42 (an unrelated task), or fails when no local
+t42 exists.
+
+A trail is an artifact owned by a **local** task, so a foreign owner can never
+be valid.
+
+## Candidate fixes (choose in planning)
+
+1. Make `cmd_snapshot` reject a foreign owner (a new error code) and require a
+   local `--owner` whenever the single scope id is cross-repo.
+2. Have the `/aitask-trail` skill (`.claude/skills/aitask-trail/SKILL.md.j2`)
+   ask the user for a local owner task when the scope id is cross-repo, and pass
+   it as `--owner`.
+
+Either way, the skill must never strip a `proj#` prefix into a bare local id.
+If the skill changes, regenerate its goldens and suggest ports to the other
+agents' skill trees.
+
+## Origin
+
+Found while exploring t1957 (cross-repo trail blockers and linked trails),
+where it was kept out of scope.
+
+## Folded Tasks
+
+The following existing tasks have been folded into this task. Their requirements are incorporated in the description above. These references exist only for post-implementation cleanup.
+
+- **t1958** (`t1958_trail_snapshot_foreign_scope_owner.md`)
