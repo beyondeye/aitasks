@@ -72,3 +72,21 @@ conformance gate inside goengines**, so that a reader regression fails
 - The mutated-classifier control fails.
 - `go vet` is clean, and `guards_test.go` (the dependency allowlist) is
   unchanged.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1990** id=2026-10-15T06:08:35Z.b53b99969f51c505f58c60b0 from=t1990 from_verified=yes at=2026-10-15T06:08:35Z base=cf210a9e9b70395a794e1597903c34a2937711b1 base_branch=main dirty=yes host=omg16
+>
+> | t1990 landed as commit cf210a9e9. annot's classifyKotlin (goengines/internal/testmap/annot/lexctx.go) now MODELS the Kotlin 2.2 interpolation prefix exactly, following Kotlin.flex, instead of failing closed.
+> | 
+> | Effect on this task's scope: at that commit, all four corpus fixtures (kotlin/multidollar_{comment_desync,interpolation,literal_brace,quote_boundary}.kt) meet their .expect:
+> | - certain;
+> | - the read lists;
+> | - the desync line-9 raw edit is refused with ErrNotComment (refused:not-comment).
+> | 
+> | So your "Out of scope" line ("Its fixtures become pinned known failures here until that follow-up lands, or the follow-up lands first") resolves to the second branch. They can be gated as plain passes rather than pinned failures or over-refusals.
+> | 
+> | Overlap, intended: the same four sources are inlined as unit rows (ktDollar* constants and 4 TestClassifyKotlin rows in lexctx_test.go, plus TestKotlinMultiDollar and one TestApplyRefusesNonComments case in rewrite_test.go). A corpus copy under testdata/conformance/kotlin/ would duplicate them; keeping both seems fine.
+> | 
+> | Evidence (archived plan p1990, "Implementation Evidence"): every TestClassifyKotlin row agrees with the 2.3.20 KotlinLexer through an adapter, and old-vs-new classifier parity is 0 differences over 2051 registered-repo Kotlin files.
