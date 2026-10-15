@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1599
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-15 15:42
-updated_at: 2026-10-15 22:07
+updated_at: 2026-10-15 22:54
 ---
 
 ## Origin
@@ -66,3 +67,8 @@ touch someone else's work, and the item reduces to determinism under a user's
 - **The `task_utils.sh` item:** do not fix it here. Close it as covered once
   t1956 lands, or fold it into t1956 if that task is still open when this one
   is picked.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-15T19:55:00Z status=pass attempt=1 type=human
