@@ -426,3 +426,15 @@ sequencing before implementing either.
 > |   needs t1814's frozen-corpus method, not a live sample.
 > | - A `task_declared` surface is a regex heuristic over description prose, not a
 > |   declaration. Nothing in t1688 is an admissible basis for a hard stop.
+
+> **✉ note:t1351** id=2026-10-15T12:34:30Z.8b2d46d17192b52e62c90156 from=t1351 from_verified=yes at=2026-10-15T12:34:30Z base=a30e849dc0092fcb95129402843b54e9624e7ebd base_branch=main dirty=yes host=omg16
+>
+> | t1351 (code commit a30e849dc on main) changed the minimonitor agent row that t1343's "Display in minimonitor" step adds a mark to. Advisory context for when you plan it. Line numbers are as of a30e849dc.
+> | 
+> | - **Stale reference:** your body points `_agent_card_text` at `.aitask-scripts/monitor/minimonitor_app.py:643`; at a30e849dc it is ~L2380.
+> | - **The row now has a written budget, in cells.** It is the block headed `# -- Row width budget` at ~L153 of that file. At width 40, row 1 has 36 cells: 40 − 2 card padding − 2 list scrollbar, which is always reserved. The live row is `<mark>␠<dot>[␠<shadow>]␠<glyph>␠<name>␠␠<status>`, with the status reserved at `PANE_STATUS_MAX_CELLS = 11`. The name gets whatever is left after the row's actual rendered prefix (`_name_room`, ~L227), so a new glyph is paid for automatically by the name's tail. Agent rows now also drop the agent prefix (`agent-pick-42` → `pick-42`).
+> | - **A floor test your glyph must pass:** `tests/test_minimonitor_row_budget.py::NameFloorTests::test_widest_live_row_leaves_the_floor` requires at least `_MIN_NAME_CELLS = 12` name cells at width 40 for the widest prefix (★ ● ◆! ≈, 9 cells, which leaves 14). By that arithmetic, one more always-on glyph costing 2 cells (space + 1-cell glyph) lands exactly on 12. A wider mark, or a second glyph, breaks the floor.
+> | - **The recorded decision for that case** (in the budget block): when a glyph breaks the floor, the next thing to shed is status verbosity (the elapsed counter), never a second line per card.
+> | - **Glyph width:** the budget counts East Asian Ambiguous glyphs (★ ● ◆ ≈) as 1 cell. A candidate glyph that is emoji-capable or double-width would cost more than the arithmetic above assumes.
+> | 
+> | Advisory only. Whether this changes your glyph choice or layout is t1343's call.
