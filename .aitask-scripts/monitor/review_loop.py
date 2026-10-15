@@ -120,6 +120,16 @@ HOLD_PRE_ENTER_DIALOG = "pre_enter_dialog"
 HOLD_PRE_ENTER_UNREADABLE = "pre_enter_unreadable"
 HOLD_DELIVERY_SUPERSEDED = "delivery_superseded"
 HOLD_SHADOW_NOT_SETTLED = "shadow_not_settled"
+# The shadow pane is in a tmux mode (t2001) — in practice copy-mode from a
+# mouse-wheel scroll-back. `send-keys` would go to the MODE, not the agent, and
+# no capture can see it (`capture-pane` reads the underlying screen), so the
+# pane's mode is read immediately before each keystroke. Before the WRITE,
+# nothing has been sent yet; before an ENTER, the prompt is already sitting in
+# the composer.
+HOLD_SHADOW_IN_MODE = "shadow_in_mode"
+HOLD_SHADOW_MODE_UNREADABLE = "shadow_mode_unreadable"
+HOLD_PRE_ENTER_IN_MODE = "pre_enter_in_mode"
+HOLD_PRE_ENTER_MODE_UNREADABLE = "pre_enter_mode_unreadable"
 
 #: The single source of user-facing prose for every reason code.
 #:
@@ -161,15 +171,39 @@ LOOP_REASON_MESSAGES: dict[str, str] = {
         "delivery superseded",
     HOLD_SHADOW_NOT_SETTLED:
         "shadow not settled at delivery time",
+    HOLD_SHADOW_IN_MODE:
+        "the shadow pane is scrolled back (in a tmux mode) — scroll it to the "
+        "bottom or press q in it, and the recheck goes out; nothing written yet",
+    HOLD_SHADOW_MODE_UNREADABLE:
+        "could not read the shadow pane's tmux mode — nothing written",
+    HOLD_PRE_ENTER_IN_MODE:
+        "the shadow pane was scrolled back (in a tmux mode) before the Enter — "
+        "recheck text left in the shadow composer; scroll it to the bottom or "
+        "press q in it, then submit or clear it there",
+    HOLD_PRE_ENTER_MODE_UNREADABLE:
+        "could not read the shadow pane's tmux mode before the Enter — "
+        "recheck text left in the shadow composer; submit or clear it there",
 }
 
-#: Short banner wording for the two holds that get a visible banner, budgeted
+#: Short banner wording for the holds that get a visible banner, budgeted
 #: against `_LOOP_STATUS_ROWS` (2 rows at 38 usable columns => 76 cells).
 #: A hold with no entry here records but paints nothing -- see
 #: `minimonitor_app._loop_hold`.
+#:
+#: A hold banner stands until the next delivery, so the two pre-Enter mode
+#: banners describe the EVENT ("Enter withheld") rather than the composer's
+#: current contents: they must stay true after the user submits the text.
 LOOP_HOLD_BANNERS: dict[str, str] = {
     HOLD_PRE_ENTER_DIALOG: "⟳ holding: shadow showed a dialog — will retry",
     HOLD_PRE_ENTER_UNREADABLE: "⟳ holding: shadow pane unreadable — will retry",
+    HOLD_SHADOW_IN_MODE:
+        "⟳ holding: shadow scrolled back — scroll it down or press q there",
+    HOLD_SHADOW_MODE_UNREADABLE:
+        "⟳ holding: shadow pane mode unreadable — will retry",
+    HOLD_PRE_ENTER_IN_MODE:
+        "⟳ holding: Enter withheld (shadow in tmux mode) — check its composer",
+    HOLD_PRE_ENTER_MODE_UNREADABLE:
+        "⟳ holding: Enter withheld (shadow mode unreadable) — check its composer",
 }
 
 

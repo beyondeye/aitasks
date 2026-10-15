@@ -49,6 +49,35 @@ from fake_agent_binary import (  # noqa: E402
     FakeAgentBinaryUnavailable,
     fake_agent_binary,
 )
+import review_loop_log_isolation as _rll_isolation  # noqa: E402
+
+# The real-path loop tests below can hold or disarm, and both record a durable
+# event: the whole module writes to a private store, never the user's real
+# `~/.config/aitasks/review_loop_events/` (t2001).
+_MODULE_EVENTS_DIR: Path | None = None
+_restore_event_store = None
+
+
+def setUpModule():
+    global _MODULE_EVENTS_DIR, _restore_event_store
+    _MODULE_EVENTS_DIR, _restore_event_store = (
+        _rll_isolation.isolate_event_store(mm.review_loop_log))
+
+
+def tearDownModule():
+    if _restore_event_store is not None:
+        _restore_event_store()
+
+
+class LoopEventStoreIsolationTests(unittest.TestCase):
+    """Pins the module redirect above; no tmux needed (t2001)."""
+
+    def test_the_module_store_is_redirected(self):
+        rll = mm.review_loop_log
+        self.assertIsNotNone(_MODULE_EVENTS_DIR)
+        self.assertEqual(rll.session_path().parent, _MODULE_EVENTS_DIR)
+        self.assertNotEqual(
+            rll.log_dir(), Path(os.path.expanduser(rll.DEFAULT_LOG_DIR)))
 
 OPEN = "===AITASK-CONCERNS==="
 CLOSE = "===END-CONCERNS==="
@@ -423,8 +452,9 @@ class RecheckInjectionSmokeTests(unittest.TestCase):
         else:
             os.environ["AITASKS_TMUX_SOCKET"] = self._prev_socket
 
-    def test_fire_delivers_the_recheck_line_verbatim(self):
-        from monitor.monitor_core import TmuxMonitor, capture_raw_tail
+    def _delivery_app(self):
+        """A hand-assembled app wired to the REAL gateway on the private socket."""
+        from monitor.monitor_core import TmuxMonitor
         from monitor import review_loop as rl
 
         app = mm.MiniMonitorApp.__new__(mm.MiniMonitorApp)
@@ -446,25 +476,81 @@ class RecheckInjectionSmokeTests(unittest.TestCase):
         app.spy_notify: list = []
         app.notify = lambda msg, **kw: app.spy_notify.append(
             (msg, kw.get("severity", "information")))
+        app._review_loop.arm(pending_work=True)
+        return app, monitor
 
-        ctrl = app._review_loop
-        ctrl.arm(pending_work=True)
+    def _reserve(self, ctrl):
+        """Drive the controller to a FIRE reservation; return its token."""
+        from monitor import review_loop as rl
+
         for i in range(rl.DEBOUNCE_TICKS):
             action = ctrl.tick(
                 agent_present=True, shadow_present=True, awaiting_input=True,
                 stale=True, work_signal=rl.NO_CHANGE, shadow_ready=True,
                 modal_open=False, now=float(i))
+            if action == rl.ACTION_FIRE:
+                break
         self.assertEqual(action, rl.ACTION_FIRE)
-        token = ctrl.delivery_token
+        return ctrl.delivery_token
+
+    def _fire(self, app, monitor, token):
+        from monitor.monitor_core import capture_raw_tail
 
         tick_raw = asyncio.run(capture_raw_tail(monitor, self.pane_id))
         self.assertIsNotNone(tick_raw, "raw tail capture failed")
         tick_text = (
             f"{OPEN}\nRound: 1 @ 2026-08-12T10:00:00Z\n"
             f"- [low | smoke] x.\n{CLOSE}\n")
-        outcome, prompt = asyncio.run(app._fire_shadow_recheck(
+        return asyncio.run(app._fire_shadow_recheck(
             self.pane_id, _snap(self.pane_id), "claude", tick_raw,
             tick_text, token))
+
+    def _mode_and_selection(self):
+        return _tmux("display-message", "-p", "-t", self.pane_id,
+                     "#{pane_in_mode} #{selection_present}").stdout.strip()
+
+    def test_a_pane_in_copy_mode_receives_nothing_and_stays_in_mode(self):
+        """t2001 on a REAL pane: the reported failure, end to end.
+
+        vi `mode-keys`, as in the user's setup: there `space` is
+        begin-selection, so a recheck prompt written into copy-mode starts a
+        selection — the pre-fix behaviour this test turns red on. The guard
+        must send nothing at all, leave the user's mode alone (no cancel),
+        and deliver normally once the pane is out of the mode.
+        """
+        from monitor import review_loop as rl
+
+        _tmux("set-option", "-wg", "mode-keys", "vi")
+        self.assertEqual(_tmux("copy-mode", "-t", self.pane_id).returncode, 0)
+        self.addCleanup(_tmux, "send-keys", "-t", self.pane_id, "-X", "cancel")
+        self.assertEqual(self._mode_and_selection(), "1 0")
+        screen = _tmux("capture-pane", "-p", "-t", self.pane_id).stdout
+
+        app, monitor = self._delivery_app()
+        ctrl = app._review_loop
+        token = self._reserve(ctrl)
+        outcome, reason = self._fire(app, monitor, token)
+        # The substantive claims first, so a red names what reached the pane.
+        self.assertEqual(self._mode_and_selection(), "1 0",
+                         "keys reached the mode, or the mode was cancelled")
+        self.assertEqual(
+            _tmux("capture-pane", "-p", "-t", self.pane_id).stdout, screen)
+        self.assertEqual((outcome, reason),
+                         ("not_ready", rl.HOLD_SHADOW_IN_MODE))
+
+        # The USER leaves the mode (production never cancels it), and the
+        # very next reservation delivers.
+        _tmux("send-keys", "-t", self.pane_id, "-X", "cancel")
+        # Outside a mode `#{selection_present}` expands to nothing.
+        self.assertEqual(self._mode_and_selection(), "0")
+        self.assertTrue(ctrl.abort_fire(token))
+        outcome, prompt = self._fire(app, monitor, self._reserve(ctrl))
+        self.assertEqual(outcome, "sent", prompt)
+
+    def test_fire_delivers_the_recheck_line_verbatim(self):
+        app, monitor = self._delivery_app()
+        token = self._reserve(app._review_loop)
+        outcome, prompt = self._fire(app, monitor, token)
         self.assertEqual(outcome, "sent", prompt)
         self.assertTrue(prompt.startswith("refetch and recheck round 2"))
 

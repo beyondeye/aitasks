@@ -474,6 +474,19 @@ class ReaderTests(StoreTempDirMixin, unittest.TestCase):
         self.assertIn(rl.loop_reason_message(rl.DISARM_SHADOW_GONE), line)
         self.assertIn("shadow_pane=%201", line)
 
+    def test_format_event_shows_the_delivery_diagnostics(self):
+        """`--loop-log` must be enough to tell a READY from a WORKING
+        `text_not_in_composer`, and to see a pane that was in a tmux mode
+        (t2001) — the JSONL alone is not what a user reads."""
+        line = rll.format_event({"ts": "T", "kind": "disarm",
+                                 "reason": rl.DISARM_TEXT_NOT_IN_COMPOSER,
+                                 "pre_enter_verdict": "working",
+                                 "pane_in_mode": "1",
+                                 "pane_mode": "copy-mode"})
+        self.assertIn("pre_enter_verdict=working", line)
+        self.assertIn("pane_in_mode=1", line)
+        self.assertIn("pane_mode=copy-mode", line)
+
     def test_format_event_survives_an_unknown_reason(self):
         self.assertIn("nonsense", rll.format_event({"reason": "nonsense"}))
 

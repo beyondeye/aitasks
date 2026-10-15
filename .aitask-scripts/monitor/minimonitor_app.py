@@ -43,6 +43,7 @@ from monitor.tmux_monitor import (  # noqa: E402
     find_shadow_pane_info_async,
     capture_shadow_text,
     capture_raw_tail,
+    query_pane_mode,
     compute_shadow_staleness,
     compute_block_age_staleness,
     combine_staleness,
@@ -350,6 +351,21 @@ async def _composer_drain(seconds: float) -> None:
     write and repaints.
     """
     await asyncio.sleep(seconds)
+
+
+def _pane_mode_detail(in_mode: bool | None, mode_name: str) -> dict:
+    """Durable-record fields for one `query_pane_mode` reading (t2001).
+
+    Carried into the hold/disarm event of the delivery that took the reading,
+    so the log alone says whether a pane was in a mode when an outcome was
+    decided — the question the original `text_not_in_composer` reports could
+    not answer.
+    """
+    return {
+        "pane_in_mode": ("unreadable" if in_mode is None
+                         else "1" if in_mode else "0"),
+        "pane_mode": mode_name or None,
+    }
 
 
 def format_gate_phase_row(phase: str, gates: str, budget: int) -> str:
@@ -1384,6 +1400,11 @@ class MiniMonitorApp(
         # Last-observed followed/shadow identities, attached to every durable
         # loop event (t1606). See `_note_loop_identity`.
         self._loop_identity: dict[str, str] = {}
+        # Diagnostic fields of the CURRENT delivery attempt (t2001): its latest
+        # pane-mode reading and pre-Enter verdict. Reset at the top of every
+        # `_fire_shadow_recheck` and handed to the hold/disarm that delivery
+        # ends in — never to an absence teardown, which it does not describe.
+        self._loop_delivery_detail: dict[str, object] = {}
         # Prioritized-agent marks (t1326): cached reader + purge scheduling.
         self._init_agent_marks()
 
@@ -4151,7 +4172,7 @@ class MiniMonitorApp(
                 self._loop_identity[key] = value
 
     def _loop_auto_disarm(self, reason_code: str | None = None, *,
-                          subject: str = "") -> None:
+                          subject: str = "", detail: dict | None = None) -> None:
         """Visible auto-disarm: banner off, baseline/ring cleared, one toast.
 
         The ONE teardown. Before t1606 two further copies were open-coded in
@@ -4169,10 +4190,14 @@ class MiniMonitorApp(
         but resolving the code into a local FIRST means the order is correct
         even if that ever changes — the failure it guards against is silent,
         and would restore exactly the ambiguity t1606 removes.
+
+        ``detail`` carries a delivery's own diagnostics (t2001: pane-mode
+        reading, pre-Enter verdict) into the record. Only the delivery call
+        site passes it.
         """
         ctrl = self._review_loop
         code = reason_code or ctrl.last_disarm_reason or "unknown"
-        context = self._loop_event_context()
+        context = {**self._loop_event_context(), **(detail or {})}
 
         ctrl.disarm()
         self._loop_baseline = None
@@ -4194,7 +4219,8 @@ class MiniMonitorApp(
         self.notify(f"Auto-recheck loop disarmed: {message}",
                     severity="warning")
 
-    def _loop_hold(self, reason_code: str) -> None:
+    def _loop_hold(self, reason_code: str, *,
+                   detail: dict | None = None) -> None:
         """Visible, non-fatal hold: the delivery was vetoed, the loop lives.
 
         t1525 chose a *visible* auto-disarm over a *silent* hold, so the
@@ -4212,7 +4238,8 @@ class MiniMonitorApp(
         self._loop_hold_reason = reason_code
 
         recorded = review_loop_log.record_event(
-            review_loop_log.KIND_HOLD, reason_code, **self._loop_event_context())
+            review_loop_log.KIND_HOLD, reason_code,
+            **{**self._loop_event_context(), **(detail or {})})
 
         banner = review_loop.loop_hold_banner(reason_code)
         message = review_loop.loop_reason_message(reason_code)
@@ -4622,6 +4649,7 @@ class MiniMonitorApp(
             token = ctrl.delivery_token
             outcome, reason = await self._fire_shadow_recheck(
                 shadow_pane, snap, shadow_key, raw_tail, tick_text, token)
+            detail = self._loop_delivery_detail
             if outcome == "sent":
                 ctrl.confirm_fire(token, time.monotonic())
                 # Recovery: a delivery landed, so any standing hold is over.
@@ -4634,9 +4662,13 @@ class MiniMonitorApp(
                 # contract calls indeterminate ("disarm only on verified
                 # absence; pause on uncertainty").
                 ctrl.abort_fire(token)
-                self._loop_hold(reason)
+                self._loop_hold(reason, detail=detail)
             else:  # transport failure — never leave the loop armed (hardening 1)
-                self._loop_auto_disarm(reason)
+                # Every "failed" lands here and disarms, with no lifecycle
+                # check — which is why the delivery methods re-check the token
+                # after their last await and before deciding ANY outcome
+                # (t2001): a stale fatal code would kill a fresh arm.
+                self._loop_auto_disarm(reason, detail=detail)
                 return
 
         # Banner reflects the post-decision state every tick.
@@ -4676,8 +4708,18 @@ class MiniMonitorApp(
         This method owns everything up to and including the literal prompt
         write; :meth:`_submit_shadow_prompt` owns the Enter, the drain that
         makes it land, and the capture that verifies it went (t1525).
+
+        **The pane must not be in a tmux mode (t2001).** In copy-mode — entered
+        by a mouse-wheel scroll-back over an inline shadow — ``send-keys`` goes
+        to the MODE's key table: the prompt would run as copy-mode commands
+        (cursor motion, ``space`` = begin-selection, ``:`` = a command prompt
+        on the user's client), nothing would reach the agent, and tmux would
+        still return rc 0. ``capture-pane`` reads the underlying screen, so the
+        readiness above cannot see it; the mode is read immediately before the
+        write instead, and an unreadable mode authorises nothing.
         """
         ctrl = self._review_loop
+        self._loop_delivery_detail = {}
         fresh = await capture_raw_tail(self._monitor, shadow_pane)
         if not ctrl.delivery_valid(token):
             return "not_ready", review_loop.HOLD_DELIVERY_SUPERSEDED
@@ -4723,6 +4765,28 @@ class MiniMonitorApp(
         monitor = self._monitor
         if monitor is None:
             return "failed", review_loop.DISARM_NO_MONITOR
+        # Pane-mode precondition, as close to the write as it can sit (t2001).
+        # A new await, so the token is re-checked after it and BEFORE the mode
+        # verdict: supersession always wins. Never cancel the mode — the user
+        # is reading the shadow.
+        #
+        # Release, traced: while the pane is moded the underlying screen is
+        # static and reads READY, so nothing re-arms the settle latch and
+        # `abort_fire` stamps no cooldown. Every tick re-reserves, re-reads the
+        # mode, and holds; the first tick after the user leaves the mode
+        # delivers. The one gate is the mode itself.
+        #
+        # Accepted residual: a mode entered between this read and the
+        # `send_keys` below (one round trip) is not closed. The pre-Enter read
+        # and the Fix-5 record fields make it identifiable from the log.
+        in_mode, mode_name = await query_pane_mode(monitor, shadow_pane)
+        self._loop_delivery_detail = _pane_mode_detail(in_mode, mode_name)
+        if not ctrl.delivery_valid(token):
+            return "not_ready", review_loop.HOLD_DELIVERY_SUPERSEDED
+        if in_mode is None:
+            return "not_ready", review_loop.HOLD_SHADOW_MODE_UNREADABLE
+        if in_mode:
+            return "not_ready", review_loop.HOLD_SHADOW_IN_MODE
         if not monitor.send_keys(shadow_pane, prompt, literal=True):
             return "failed", review_loop.DISARM_PROMPT_WRITE_FAILED
         return await self._submit_shadow_prompt(
@@ -4770,23 +4834,53 @@ class MiniMonitorApp(
         observation is the EXPECTED consequence of this fire, not an
         interaction that should hold the next one.
 
-        The delivery token is re-checked immediately before **every** Enter,
-        including the first. This method suspends four times after the prompt
-        was written and a user disarming with `L` in that window must not still
-        get a key injected — and since the Enter is the only irreversible act
-        here, one check sitting directly in front of it covers every preceding
-        await. An earlier draft also re-checked at the top of the loop; it was
-        removed once its negative control proved unfalsifiable (this check
+        **The pane-mode gate (t2001).** A ``SHADOW_BUSY`` read authorises the
+        Enter only if the pane is also not in a tmux mode: the user can scroll
+        the shadow back during the drain, and an Enter sent into vi copy-mode
+        is copy-pipe-and-cancel — it clobbers their clipboard, exits their mode,
+        and submits nothing. The text IS in the composer then, so the hold says
+        so; it releases when the user submits (the recheck re-stamps
+        staleness, whose True→False edge closes the work latch — no duplicate
+        round) or clears it (READY again: once the settle deadline the BUSY
+        ticks armed has passed, the next tick re-fires). An unreadable mode is
+        treated the same way. The mode is read on every attempt, before the
+        readiness dispatch, so a fatal READY/WORKING record carries it too.
+
+        **Supersession is checked before ANY outcome is decided, not only
+        before the Enter.** The caller disarms on every ``"failed"`` without a
+        lifecycle check, so a stale delivery that returned a fatal code after
+        an await would kill the lifecycle that replaced it — a disarm + re-arm
+        with `L` during a drain did exactly that via a READY read until t2001,
+        because the readiness dispatch ran before the check. The check
+        therefore sits after each attempt's last await (drain, capture, mode
+        read) and ahead of every branch, and again before the budget-exhausted
+        return. No await separates it from the Enter, so it still covers that
+        keystroke. An earlier draft also re-checked at the top of the loop; it
+        was removed once its negative control proved unfalsifiable (this check
         catches that case first), rather than kept as unreachable belt-and-
-        braces. The write itself is deliberately NOT guarded this way:
-        abandoning after it would leave text in the composer, which is the
-        failure this method exists to remove.
+        braces. A superseded delivery may leave the prompt in the composer;
+        the fresh lifecycle then reads ``SHADOW_BUSY`` and holds.
         """
         ctrl = self._review_loop
         for _attempt in range(review_loop.SHADOW_SUBMIT_RETRIES + 1):
             await _composer_drain(review_loop.COMPOSER_DRAIN_SECONDS)
             before = review_loop.shadow_state(
                 await capture_raw_tail(monitor, shadow_pane), shadow_key)
+            in_mode, mode_name = await query_pane_mode(monitor, shadow_pane)
+            self._loop_delivery_detail = {
+                **_pane_mode_detail(in_mode, mode_name),
+                "pre_enter_verdict": before,
+            }
+            if not ctrl.delivery_valid(token):
+                # The user disarmed (or re-armed) during one of the awaits.
+                # This is supersession, not failure — and reporting it as one
+                # was actively harmful: it routed to the auto-disarm, so a
+                # disarm-then-RE-ARM in this window had the stale delivery
+                # kill the FRESH arm. First, ahead of every verdict below, for
+                # the same reason: a fatal READY/WORKING decided here would do
+                # the same thing. Its sibling checks in `_fire_shadow_recheck`
+                # return "not_ready" too.
+                return "not_ready", review_loop.HOLD_DELIVERY_SUPERSEDED
             if before != review_loop.SHADOW_BUSY:
                 # The VETO is unchanged — no key is sent on any verdict here.
                 # Only the CONSEQUENCE differs, and only for the two AMBIGUOUS
@@ -4822,20 +4916,17 @@ class MiniMonitorApp(
                 if before == review_loop.SHADOW_UNKNOWN:
                     return "not_ready", review_loop.HOLD_PRE_ENTER_UNREADABLE
                 return "failed", review_loop.DISARM_TEXT_NOT_IN_COMPOSER
-            if not ctrl.delivery_valid(token):
-                # The user disarmed (or re-armed) during one of the drains.
-                # This is supersession, not failure — and reporting it as one
-                # was actively harmful: it routed to the auto-disarm, so a
-                # disarm-then-RE-ARM in this window had the stale delivery
-                # kill the FRESH arm, while telling the user they had left
-                # text in the composer for a state they caused. Its sibling
-                # check in `_fire_shadow_recheck` already returned
-                # "not_ready"; the two now agree.
-                return "not_ready", review_loop.HOLD_DELIVERY_SUPERSEDED
+            # BUSY authorises the Enter only outside a tmux mode (t2001). The
+            # text IS in the composer here, so both holds say so; neither
+            # cancels the user's mode.
+            if in_mode is None:
+                return "not_ready", review_loop.HOLD_PRE_ENTER_MODE_UNREADABLE
+            if in_mode:
+                return "not_ready", review_loop.HOLD_PRE_ENTER_IN_MODE
             if not monitor.send_keys(shadow_pane, "Enter"):
                 # Genuine transport failure after a successful write: the text
-                # IS sitting in the composer. One of the only two conditions
-                # the leftover-text message is true of.
+                # IS sitting in the composer, so the leftover-text message is
+                # true here.
                 return "failed", review_loop.DISARM_ENTER_SEND_FAILED
             await _composer_drain(review_loop.COMPOSER_DRAIN_SECONDS)
             state = review_loop.shadow_state(
@@ -4847,11 +4938,16 @@ class MiniMonitorApp(
                     f"recheck sent, but submission could not be verified "
                     f"(shadow reads '{state}')", severity="warning")
             return "sent", prompt
+        # The last capture above was an await with no token check after it,
+        # and the return below is fatal: a disarm + re-arm during it would
+        # have this stale delivery kill the fresh arm (t2001).
+        if not ctrl.delivery_valid(token):
+            return "not_ready", review_loop.HOLD_DELIVERY_SUPERSEDED
         # Budget exhausted: every Enter was swallowed and the composer read
-        # positively BUSY each time, so the text IS still sitting there. The
-        # second and last condition the leftover-text message is true of, and
-        # the one t1525 deliberately made a VISIBLE auto-disarm rather than a
-        # silent hold — it stays fatal.
+        # positively BUSY each time, so the text IS still sitting there — the
+        # leftover-text message is true — and this is the case t1525
+        # deliberately made a VISIBLE auto-disarm rather than a silent hold.
+        # It stays fatal.
         return "failed", review_loop.DISARM_SUBMIT_UNCONFIRMED
 
     async def action_pick_concerns(self) -> None:

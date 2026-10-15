@@ -740,6 +740,51 @@ async def capture_raw_tail(
     return out
 
 
+#: ``#{pane_in_mode}`` is a decimal count; anything else is not an answer.
+_PANE_MODE_DEPTH_RE = re.compile(r"[0-9]+")
+
+
+async def query_pane_mode(monitor, pane_id: str) -> tuple[bool | None, str]:
+    """Whether ``pane_id`` is in a tmux mode: ``(in_mode, mode_name)`` (t2001).
+
+    In a mode — copy-mode from a mouse-wheel scroll-back, view, tree, clock,
+    buffer … — ``send-keys`` is dispatched to the MODE's key table, not to the
+    application: a literal write runs copy-mode commands, nothing reaches the
+    agent, and tmux still returns rc 0. ``capture-pane`` reads the pane's
+    underlying screen either way, so no capture-based readiness check can see
+    it. This is the one read that can.
+
+    Measured on tmux 3.7c, and why the parse is shaped as it is:
+
+    * ``#{pane_in_mode}`` is the mode-stack DEPTH, not a flag — copy-mode
+      pushed over clock-mode reads ``2`` — so any count above zero is "in a
+      mode";
+    * a dead or never-existing pane answers **rc 0 with empty fields**, so the
+      ``#{pane_id}`` echo, not the rc, is what makes a missing pane fail.
+
+    ``in_mode`` is ``None`` when it could not be determined: no monitor, a
+    non-zero rc or timeout, or a reply that does not echo ``pane_id`` with a
+    decimal depth. A caller that AUTHORISES a keystroke must read ``None`` as
+    "do not send". ``mode_name`` (``#{pane_mode}``, the top of the stack) is
+    diagnostic only.
+    """
+    if monitor is None:
+        return None, ""
+    rc, out = await monitor.tmux_run_async(
+        ["display-message", "-p", "-t", pane_id,
+         "#{pane_id}\t#{pane_in_mode}\t#{pane_mode}"],
+        timeout=_SHADOW_CAPTURE_TIMEOUT,
+    )
+    if rc != 0:
+        return None, ""
+    lines = out.splitlines()
+    parts = lines[0].split("\t") if lines else []
+    if (len(parts) < 2 or parts[0] != pane_id
+            or not _PANE_MODE_DEPTH_RE.fullmatch(parts[1])):
+        return None, ""
+    return int(parts[1]) > 0, (parts[2] if len(parts) > 2 else "")
+
+
 async def capture_shadow_text(
     shadow_pane: str, *, lines: int | None = None
 ) -> str | None:

@@ -47,6 +47,31 @@ from monitor.monitor_shared import (  # noqa: E402
     build_spinoff_name, SHADOW_STALE_NARROW,
 )
 
+# This module's own directory, for its sibling helper modules — needed HERE,
+# above the later insertion that `review_loop_fixtures` relies on, so that
+# `python3 -m unittest tests.test_minimonitor_concern_action` from the repo
+# root (which puts only the root on sys.path) still imports.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import review_loop_log_isolation as _rll_isolation  # noqa: E402
+
+# Every loop test in this module may record a durable disarm/hold event; the
+# whole module therefore writes to a private store, never the user's real
+# `~/.config/aitasks/review_loop_events/` (t2001 — retention keeps only
+# MAX_SESSION_FILES, so each leaked test session evicted real history).
+_MODULE_EVENTS_DIR: Path | None = None
+_restore_event_store = None
+
+
+def setUpModule():
+    global _MODULE_EVENTS_DIR, _restore_event_store
+    _MODULE_EVENTS_DIR, _restore_event_store = (
+        _rll_isolation.isolate_event_store(mm.review_loop_log))
+
+
+def tearDownModule():
+    if _restore_event_store is not None:
+        _restore_event_store()
+
 # The minimonitor's two banner call sites pass `narrow=True` (t1566), so
 # `_shadow_stale_banner_text` carries the ONE-ROW wording — both stale flavours
 # collapse to the same string there. The cases below therefore assert the
@@ -224,6 +249,8 @@ def _mk_app(monitor=None, task_id="1427_2", rejected_rc=0, rejected_out=""):
     # Visible-hold edge-trigger state + durable-event identities (t1606).
     app._loop_hold_reason = None
     app._loop_identity = {}
+    # Diagnostic fields of the last delivery attempt (t2001).
+    app._loop_delivery_detail = {}
     app._session = "s"
     app._own_window_name = "agent-x"
     app.spy_notify: list = []
@@ -1856,6 +1883,21 @@ class _LoopFakeMon(_FakeMon):
         # Optional tail served AFTER a successful submit, for tests that need
         # the post-Enter verifier to see a specific verdict.
         self.post_submit_tail = None
+        # --- pane-mode model (t2001) ---
+        # `#{pane_in_mode}` is the tmux MODE-STACK DEPTH (measured: "2" with
+        # clock-mode under copy-mode), so it is a count string, not a flag.
+        # While it is non-zero, `send_keys` behaves as real tmux does: the
+        # keys go to the mode, rc is still success, and nothing reaches the
+        # composer — which is what makes pre-fix code reproduce the reported
+        # `text_not_in_composer` disarm rather than an artificial one.
+        self.pane_in_mode = "0"
+        self.mode_name = ""
+        self.mode_rc = 0
+        self.mode_queries = 0
+        self.swallowed_by_mode = 0
+        # Called with the fake BEFORE each mode reply is built, so a test can
+        # flip the mode, or disarm/re-arm, inside that await.
+        self.on_mode_query = None
 
     async def tmux_run_async(self, args, timeout=5.0):
         self.async_calls.append(args)
@@ -1866,7 +1908,17 @@ class _LoopFakeMon(_FakeMon):
             if self.on_capture is not None:
                 self.on_capture()
             return (self.capture_rc, self._capture_tail())
+        if args[0] == "display-message":
+            self.mode_queries += 1
+            if self.on_mode_query is not None:
+                self.on_mode_query(self)
+            pane = args[args.index("-t") + 1]
+            return (self.mode_rc,
+                    f"{pane}\t{self.pane_in_mode}\t{self.mode_name}\n")
         return (0, "")
+
+    def in_mode(self):
+        return self.pane_in_mode not in ("", "0")
 
     def _capture_tail(self):
         if self.composer_text:
@@ -1879,7 +1931,10 @@ class _LoopFakeMon(_FakeMon):
     def send_keys(self, pane_id, keys, literal=False):
         self.sent.append((pane_id, keys, literal))
         ok = self.send_results.pop(0) if self.send_results else True
-        if ok:
+        if ok and self.in_mode():
+            # Swallowed by the mode, exactly as tmux does: rc 0, app untouched.
+            self.swallowed_by_mode += 1
+        elif ok:
             if literal:
                 self.composer_text = keys
             elif keys == "Enter" and not self.swallow_enter:
@@ -3828,6 +3883,13 @@ class TeardownPathCharacterizationTests(unittest.TestCase):
         self.assertIsNone(inline_app._loop_shadow_settle_until)
 
 
+def _restore_env(name, previous):
+    if previous is None:
+        os.environ.pop(name, None)
+    else:
+        os.environ[name] = previous
+
+
 class _LoopEventStoreMixin:
     """Point the durable event store at a temp dir for the duration."""
 
@@ -3835,12 +3897,16 @@ class _LoopEventStoreMixin:
         super().setUp()
         self._events_tmp = tempfile.TemporaryDirectory()
         self.events_dir = Path(self._events_tmp.name) / "events"
-        os.environ[mm.review_loop_log.LOG_DIR_ENV] = str(self.events_dir)
+        env = mm.review_loop_log.LOG_DIR_ENV
+        previous = os.environ.get(env)
+        os.environ[env] = str(self.events_dir)
         mm.review_loop_log.reset_session_for_tests()
         self.addCleanup(self._events_tmp.cleanup)
         self.addCleanup(mm.review_loop_log.reset_session_for_tests)
-        self.addCleanup(
-            lambda: os.environ.pop(mm.review_loop_log.LOG_DIR_ENV, None))
+        # RESTORE, never pop (t2001): the module-level redirect is the value
+        # underneath this one, and popping it would send every later test in
+        # the module back to the user's real store.
+        self.addCleanup(_restore_env, env, previous)
 
     def recorded(self):
         events, _notes = mm.review_loop_log.read_events(
@@ -4241,6 +4307,441 @@ class ReadyPreEnterStaysFatalTests(_LoopEventStoreMixin, unittest.TestCase):
         # The prompt was written ONCE. A spin would show many literal writes.
         self.assertEqual(sum(1 for _p, _k, literal in mon.sent if literal), 1,
                          mon.sent)
+
+
+def _literal_writes(mon):
+    return sum(1 for _p, _k, literal in mon.sent if literal is True)
+
+
+def _enters(mon):
+    return sum(1 for _p, k, literal in mon.sent
+               if k == "Enter" and literal is False)
+
+
+class ShadowPaneModeGuardTests(_LoopEventStoreMixin, unittest.TestCase):
+    """Never send a key into a shadow pane that is in a tmux mode (t2001).
+
+    With `mouse on`, a wheel-up over an inline shadow enters copy-mode.
+    `capture-pane` still reads the UNDERLYING screen, so readiness reads READY
+    and the loop fires — but `send-keys` goes to the mode's key table: the
+    prompt runs as copy-mode commands, nothing reaches the agent, tmux returns
+    rc 0, and the pre-Enter readback then finds an empty composer. Before this
+    task that was a fatal `text_not_in_composer` disarm. Now it is a visible
+    hold that releases on its own once the user leaves the mode.
+
+    The fake models real tmux here (see `_LoopFakeMon`): a key sent while
+    `pane_in_mode` is non-zero is swallowed, rc success. So the pre-fix code
+    reproduces the reported disarm, which is what makes these tests red there.
+    """
+
+    def _armed(self, **kwargs):
+        app, mon, snap = _loop_app(self, **kwargs)
+        app._review_loop.arm(pending_work=True)
+        app._loop_baseline = (snap.content, snap.awaiting_input_kind,
+                              "%1", None, (100, 30))
+        return app, mon, snap
+
+    def _holds(self):
+        return [e for e in self.recorded()
+                if e["kind"] == mm.review_loop_log.KIND_HOLD]
+
+    def test_a_moded_shadow_gets_no_keys_and_the_loop_holds(self):
+        app, mon, _ = self._armed()
+        mon.pane_in_mode, mon.mode_name = "1", "copy-mode"
+        _tick(app, 6)
+        self.assertEqual(mon.sent, [], "a key reached a moded pane")
+        self.assertGreater(mon.mode_queries, 0, "the guard never ran")
+        ctrl = app._review_loop
+        self.assertTrue(ctrl.armed)
+        self.assertEqual(ctrl.state, _rl.WAITING)
+        self.assertEqual(app._loop_banner_text,
+                         _rl.loop_hold_banner(_rl.HOLD_SHADOW_IN_MODE))
+        holds = self._holds()
+        self.assertEqual([e["reason"] for e in holds],
+                         [_rl.HOLD_SHADOW_IN_MODE])
+        self.assertEqual(holds[0]["pane_in_mode"], "1")
+        self.assertEqual(holds[0]["pane_mode"], "copy-mode")
+        self.assertEqual(self.reasons(mm.review_loop_log.KIND_DISARM), [])
+        holding = [m for m, _s in app.spy_notify if "holding" in m]
+        self.assertEqual(len(holding), 1, app.spy_notify)
+        # Actionable, not just descriptive (post-review): the user must learn
+        # what releases the hold, since nothing else will.
+        self.assertIn("scroll it to the bottom or press q", holding[0])
+        self.assertIn("scroll it down or press q", app._loop_banner_text)
+
+    def test_a_stacked_mode_counts_as_in_mode(self):
+        """`#{pane_in_mode}` is the mode-stack DEPTH, not a flag (measured:
+        "2" with copy-mode pushed over clock-mode). Reading only "1" as in-mode
+        would call a stacked mode unreadable — still no key, wrong reason."""
+        app, mon, _ = self._armed()
+        mon.pane_in_mode, mon.mode_name = "2", "copy-mode"
+        _tick(app, 6)
+        self.assertEqual(mon.sent, [])
+        self.assertEqual(self.reasons(mm.review_loop_log.KIND_HOLD),
+                         [_rl.HOLD_SHADOW_IN_MODE])
+
+    def test_the_same_fixture_out_of_mode_delivers(self):
+        """Negative control: without it, a fixture that can never deliver
+        would pass the tests above vacuously."""
+        app, mon, _ = self._armed()
+        _tick(app, 6)
+        self.assertEqual(_literal_writes(mon), 1, mon.sent)
+        self.assertEqual(_enters(mon), 1, mon.sent)
+        self.assertEqual(app._review_loop.rounds_fired, 1)
+        self.assertEqual(mon.swallowed_by_mode, 0)
+        # Last, so the delivery half above stays a pre-fix-green control: the
+        # guard actually ran on this path (2 = pre-write + one pre-Enter).
+        self.assertEqual(mon.mode_queries, 2)
+
+    def test_a_failed_mode_query_holds_and_writes_nothing(self):
+        """The query AUTHORISES a write, so it fails closed."""
+        app, mon, _ = self._armed()
+        mon.mode_rc = 1
+        _tick(app, 6)
+        self.assertEqual(mon.sent, [], "a failed query authorised a write")
+        self.assertGreater(mon.mode_queries, 0)
+        self.assertTrue(app._review_loop.armed)
+        holds = self._holds()
+        self.assertEqual([e["reason"] for e in holds],
+                         [_rl.HOLD_SHADOW_MODE_UNREADABLE])
+        self.assertEqual(holds[0]["pane_in_mode"], "unreadable")
+        self.assertEqual(app._loop_banner_text,
+                         _rl.loop_hold_banner(_rl.HOLD_SHADOW_MODE_UNREADABLE))
+
+    def test_leaving_the_mode_delivers_on_the_next_tick(self):
+        """Recovery end to end — the hold must provably RELEASE.
+
+        Nothing in the stuck state may re-arm anything: the underlying screen
+        is static and reads READY, so the settle latch stays clear and no
+        cooldown is stamped. The only gate is the mode itself, re-read at
+        every fire, so the first tick after the user leaves it delivers.
+        """
+        app, mon, _ = self._armed()
+        mon.pane_in_mode, mon.mode_name = "1", "copy-mode"
+        _tick(app, 4)
+        self.assertEqual(mon.sent, [])
+        self.assertEqual(app._loop_hold_reason, _rl.HOLD_SHADOW_IN_MODE)
+        self.assertIsNone(app._loop_shadow_settle_until,
+                          "the stuck state re-armed the settle latch")
+        self.assertIsNone(app._review_loop.fired_at)
+
+        mon.pane_in_mode, mon.mode_name = "0", ""
+        _tick(app, 1)
+        self.assertEqual(_literal_writes(mon), 1, mon.sent)
+        self.assertEqual(_enters(mon), 1, mon.sent)
+        self.assertEqual(app._review_loop.rounds_fired, 1)
+        self.assertIsNone(app._loop_hold_reason)
+        self.assertTrue(app._loop_banner_text.startswith("⟳ recheck #1 sent"),
+                        app._loop_banner_text)
+
+    def test_a_mode_entered_after_the_write_withholds_the_enter(self):
+        """The user can scroll back during the drain between write and Enter.
+
+        The text IS in the composer then. The Enter must not go into the mode
+        (in vi copy-mode it is copy-pipe-and-cancel: it would clobber the
+        user's clipboard and exit their mode, and not submit).
+        """
+        app, mon, _ = self._armed()
+
+        def _scroll_back_after_the_write(m):
+            if m.mode_queries == 2:          # 1 = pre-write, 2 = pre-Enter
+                m.pane_in_mode, m.mode_name = "1", "copy-mode"
+        mon.on_mode_query = _scroll_back_after_the_write
+        _tick(app, 6)
+        self.assertGreaterEqual(mon.mode_queries, 2, "pre-Enter query missing")
+        self.assertEqual(_literal_writes(mon), 1, mon.sent)
+        self.assertEqual(_enters(mon), 0, mon.sent)
+        self.assertTrue(mon.composer_text.startswith("refetch and recheck"),
+                        mon.composer_text)
+        self.assertTrue(app._review_loop.armed)
+        holds = self._holds()
+        self.assertEqual([e["reason"] for e in holds],
+                         [_rl.HOLD_PRE_ENTER_IN_MODE])
+        self.assertEqual(holds[0]["pre_enter_verdict"], _rl.SHADOW_BUSY)
+        self.assertEqual(holds[0]["pane_in_mode"], "1")
+        self.assertEqual(app._loop_banner_text,
+                         _rl.loop_hold_banner(_rl.HOLD_PRE_ENTER_IN_MODE))
+
+        # BUSY holds the loop: more ticks must not re-write the prompt.
+        _tick(app, 4)
+        self.assertEqual(_literal_writes(mon), 1, mon.sent)
+
+        # Release: the user clears the composer and leaves the mode. The BUSY
+        # ticks armed the settle latch, so its deadline must pass first.
+        mon.on_mode_query = None
+        mon.pane_in_mode, mon.mode_name = "0", ""
+        mon.composer_text = ""
+        _advance_past_settle(app)
+        _tick(app, 3)
+        self.assertEqual(_literal_writes(mon), 2, mon.sent)
+        self.assertEqual(_enters(mon), 1, mon.sent)
+        self.assertEqual(app._review_loop.rounds_fired, 1)
+        self.assertIsNone(app._loop_hold_reason)
+
+    def test_a_failed_pre_enter_mode_query_withholds_the_enter(self):
+        app, mon, _ = self._armed()
+
+        def _query_fails_after_the_write(m):
+            if m.mode_queries == 2:
+                m.mode_rc = 1
+        mon.on_mode_query = _query_fails_after_the_write
+        _tick(app, 6)
+        self.assertEqual(_literal_writes(mon), 1, mon.sent)
+        self.assertEqual(_enters(mon), 0, mon.sent)
+        self.assertTrue(app._review_loop.armed)
+        holds = self._holds()
+        self.assertEqual([e["reason"] for e in holds],
+                         [_rl.HOLD_PRE_ENTER_MODE_UNREADABLE])
+        self.assertEqual(holds[0]["pane_in_mode"], "unreadable")
+        self.assertEqual(holds[0]["pre_enter_verdict"], _rl.SHADOW_BUSY)
+
+    def _fatal_verdict_row(self, tail, verdict):
+        """Fix 5: the record alone must tell READY from WORKING.
+
+        Both stay fatal for a VALID token — WORKING is the new control here;
+        READY is also `ReadyPreEnterStaysFatalTests`.
+        """
+        app, mon, _ = self._armed()
+        mon.typed_tail = tail
+        _tick(app, 6)
+        self.assertEqual(_enters(mon), 0)
+        self.assertFalse(app._review_loop.armed)
+        events = self.recorded()
+        self.assertEqual([e["reason"] for e in events],
+                         [_rl.DISARM_TEXT_NOT_IN_COMPOSER], events)
+        self.assertEqual(events[0]["pre_enter_verdict"], verdict)
+        self.assertEqual(events[0]["pane_in_mode"], "0")
+
+    def test_a_ready_pre_enter_read_records_its_verdict_and_mode(self):
+        self._fatal_verdict_row(_rlfx.CLAUDE_AT_REST_RAW, _rl.SHADOW_READY)
+
+    def test_a_working_pre_enter_read_records_its_verdict_and_mode(self):
+        self._fatal_verdict_row(_rlfx.CLAUDE_STREAMING_RAW, _rl.SHADOW_WORKING)
+
+
+class SupersessionDuringDeliveryAwaitsTests(_LoopEventStoreMixin,
+                                            unittest.TestCase):
+    """A disarm + RE-ARM during any delivery await never decides an outcome.
+
+    `_service_review_loop` routes every "failed" outcome to
+    `_loop_auto_disarm` with no generation check. So a stale delivery that
+    returns a FATAL code after an await kills the lifecycle that replaced it.
+    The token check therefore sits after the last await and before every
+    verdict branch — fatal ones included — and before the budget-exhausted
+    return. (t2001; before it, READY/WORKING were dispatched BEFORE the check,
+    and the exhaustion return had none.)
+
+    Each row asserts its hook actually fired, so no row can pass vacuously.
+    """
+
+    def _armed(self, **kwargs):
+        app, mon, snap = _loop_app(self, **kwargs)
+        app._review_loop.arm(pending_work=True)
+        app._loop_baseline = (snap.content, snap.awaiting_input_kind,
+                              "%1", None, (100, 30))
+        return app, mon, snap
+
+    def _run_until_rearmed(self, app, mon, install):
+        """Tick until the hook has re-armed, then stop: the FRESH lifecycle's
+        own later deliveries are not what is under test."""
+        ctrl = app._review_loop
+        state = {"gen": None}
+
+        def rearm():
+            ctrl.disarm()
+            ctrl.arm(pending_work=True)
+            state["gen"] = ctrl.generation
+        install(mon, ctrl, rearm)
+        for _ in range(8):
+            _tick(app, 1)
+            if state["gen"] is not None:
+                break
+        self.assertIsNotNone(state["gen"], "the hook never fired")
+        return state["gen"]
+
+    def _assert_fresh_arm_survived(self, app, gen):
+        ctrl = app._review_loop
+        self.assertTrue(ctrl.armed, "the stale delivery killed the fresh arm")
+        self.assertEqual(ctrl.generation, gen)
+        self.assertEqual(self.reasons(mm.review_loop_log.KIND_DISARM), [])
+        self.assertFalse(any("disarmed" in m for m, _s in app.spy_notify),
+                         app.spy_notify)
+        self.assertIn(_rl.HOLD_DELIVERY_SUPERSEDED,
+                      self.reasons(mm.review_loop_log.KIND_HOLD))
+
+    def test_rearm_at_the_pre_write_mode_query_writes_nothing(self):
+        app, mon, _ = self._armed()
+
+        def install(m, _ctrl, rearm):
+            def hook(fake):
+                if fake.mode_queries == 1:
+                    rearm()
+            m.on_mode_query = hook
+        gen = self._run_until_rearmed(app, mon, install)
+        self.assertEqual(mon.sent, [])
+        self._assert_fresh_arm_survived(app, gen)
+
+    def _pre_enter_query_row(self, tail):
+        app, mon, _ = self._armed()
+        mon.typed_tail = tail
+
+        def install(m, _ctrl, rearm):
+            def hook(fake):
+                if fake.mode_queries == 2:       # 1 = pre-write, 2 = pre-Enter
+                    rearm()
+            m.on_mode_query = hook
+        gen = self._run_until_rearmed(app, mon, install)
+        self.assertEqual(_literal_writes(mon), 1, mon.sent)
+        self.assertEqual(_enters(mon), 0, mon.sent)
+        self._assert_fresh_arm_survived(app, gen)
+
+    def test_rearm_at_the_pre_enter_mode_query_busy(self):
+        self._pre_enter_query_row(_rlfx.CLAUDE_TYPED_RAW)
+
+    def test_rearm_at_the_pre_enter_mode_query_ready(self):
+        self._pre_enter_query_row(_rlfx.CLAUDE_AT_REST_RAW)
+
+    def test_rearm_at_the_pre_enter_mode_query_working(self):
+        self._pre_enter_query_row(_rlfx.CLAUDE_STREAMING_RAW)
+
+    def _pre_enter_capture_row(self, tail):
+        """The pre-existing gap: the drain and capture awaits preceded the
+        READY/WORKING dispatch, which preceded the token check."""
+        app, mon, _ = self._armed()
+        mon.typed_tail = tail
+
+        def install(m, ctrl, rearm):
+            def hook():
+                # The first capture after the prompt write.
+                if (_literal_writes(m) == 1 and _enters(m) == 0
+                        and ctrl.state == _rl.DELIVERING):
+                    rearm()
+            m.on_capture = hook
+        gen = self._run_until_rearmed(app, mon, install)
+        self.assertEqual(_enters(mon), 0, mon.sent)
+        self._assert_fresh_arm_survived(app, gen)
+
+    def test_rearm_at_the_pre_enter_capture_busy(self):
+        self._pre_enter_capture_row(_rlfx.CLAUDE_TYPED_RAW)
+
+    def test_rearm_at_the_pre_enter_capture_ready(self):
+        self._pre_enter_capture_row(_rlfx.CLAUDE_AT_REST_RAW)
+
+    def test_rearm_at_the_pre_enter_capture_working(self):
+        self._pre_enter_capture_row(_rlfx.CLAUDE_STREAMING_RAW)
+
+    def test_rearm_at_the_final_post_enter_capture_never_disarms(self):
+        """The budget-exhausted return used to follow the last drain + capture
+        with no token check, so it disarmed whatever lifecycle was live."""
+        app, mon, _ = self._armed()
+        mon.swallow_enter = True
+        last_enter = _rl.SHADOW_SUBMIT_RETRIES + 1
+
+        def install(m, ctrl, rearm):
+            def hook():
+                if _enters(m) == last_enter and ctrl.state == _rl.DELIVERING:
+                    rearm()
+            m.on_capture = hook
+        gen = self._run_until_rearmed(app, mon, install)
+        self.assertEqual(_enters(mon), last_enter, mon.sent)
+        self._assert_fresh_arm_survived(app, gen)
+
+
+class QueryPaneModeTests(unittest.TestCase):
+    """`monitor_core.query_pane_mode` — the reply shapes, measured (t2001).
+
+    Measured on tmux 3.7c: a normal pane answers `%N\\t0\\t`, copy-mode
+    `%N\\t1\\tcopy-mode`, copy-mode over clock-mode `%N\\t2\\tcopy-mode` (the
+    field is the mode-stack DEPTH), and a dead or never-existing pane answers
+    rc 0 with EMPTY fields — so the pane-id echo, not the rc, is what makes a
+    missing pane fail closed.
+    """
+
+    class _Stub:
+        def __init__(self, rc, out):
+            self.rc, self.out, self.calls = rc, out, []
+
+        async def tmux_run_async(self, args, timeout=5.0):
+            self.calls.append(args)
+            return (self.rc, self.out)
+
+    def _q(self, rc, out, pane="%5"):
+        stub = self._Stub(rc, out)
+        return asyncio.run(mc.query_pane_mode(stub, pane)), stub
+
+    def test_reply_shapes(self):
+        rows = [
+            ((1, "%5\t0\t\n"), (None, "")),          # tmux error
+            ((-1, ""), (None, "")),                   # timeout / transport
+            ((0, ""), (None, "")),                    # empty stdout
+            ((0, "\t\t\n"), (None, "")),              # dead pane (measured)
+            ((0, "%6\t1\tcopy-mode\n"), (None, "")),  # someone else's pane
+            ((0, "%5\tx\t\n"), (None, "")),
+            ((0, "%5\t-1\t\n"), (None, "")),
+            ((0, "%5\t²\t\n"), (None, "")),      # a non-ASCII "digit"
+            ((0, "%5\n"), (None, "")),                # no flag at all
+            ((0, "%5\t0\t\n"), (False, "")),
+            ((0, "%5\t1\tcopy-mode\n"), (True, "copy-mode")),
+            ((0, "%5\t2\tcopy-mode\n"), (True, "copy-mode")),
+            ((0, "%5\t1"), (True, "")),               # two fields, no newline
+        ]
+        for (rc, out), want in rows:
+            with self.subTest(rc=rc, out=out):
+                got, _stub = self._q(rc, out)
+                self.assertEqual(got, want)
+
+    def test_no_monitor_is_unreadable(self):
+        self.assertEqual(asyncio.run(mc.query_pane_mode(None, "%5")),
+                         (None, ""))
+
+    def test_argv(self):
+        _got, stub = self._q(0, "%5\t0\t\n")
+        self.assertEqual(stub.calls, [[
+            "display-message", "-p", "-t", "%5",
+            "#{pane_id}\t#{pane_in_mode}\t#{pane_mode}"]])
+
+
+class LoopEventStoreIsolationTests(unittest.TestCase):
+    """This module must never write to the user's real event store (t2001).
+
+    Asserting that the real `~/.config/aitasks/review_loop_events/` is
+    unchanged would race the user's live minimonitors, which write there. So
+    these pin the mechanism instead: every write here lands in the module's
+    private directory, and the per-test mixin hands the module redirect back
+    rather than clearing it.
+    """
+
+    def test_the_module_store_is_redirected(self):
+        rll = mm.review_loop_log
+        self.assertIsNotNone(_MODULE_EVENTS_DIR)
+        self.assertEqual(rll.log_dir(), _MODULE_EVENTS_DIR)
+        self.assertEqual(rll.session_path().parent, _MODULE_EVENTS_DIR)
+        self.assertNotEqual(
+            rll.log_dir(), Path(os.path.expanduser(rll.DEFAULT_LOG_DIR)))
+
+    def test_a_disarm_outside_the_mixin_lands_in_the_module_store(self):
+        def count():
+            events, _notes = mm.review_loop_log.read_events(
+                _MODULE_EVENTS_DIR, limit=100000)
+            return len(events)
+        app, _mon, _snap_ = _loop_app(self)
+        app._review_loop.arm(pending_work=True)
+        before = count()
+        app._loop_auto_disarm(_rl.DISARM_AGENT_GONE)
+        self.assertEqual(count(), before + 1)
+
+    def test_the_mixin_restores_the_module_redirect(self):
+        env = mm.review_loop_log.LOG_DIR_ENV
+
+        class _Probe(_LoopEventStoreMixin, unittest.TestCase):
+            def runTest(self):
+                pass
+
+        probe = _Probe()
+        probe.setUp()
+        self.assertEqual(os.environ.get(env), str(probe.events_dir))
+        probe.doCleanups()
+        self.assertEqual(os.environ.get(env), str(_MODULE_EVENTS_DIR))
 
 
 if __name__ == "__main__":

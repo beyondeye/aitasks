@@ -2749,15 +2749,23 @@ class LoopReasonVocabularyTests(unittest.TestCase):
         """t1606 Deliverable 3, stated as an assertion.
 
         The pre-t1606 code told a user whose shadow pane merely could not be
-        READ that recheck text was left in the composer. Exactly two
-        conditions may say that now, and both are a successful write followed
-        by an Enter that provably did not land.
+        READ that recheck text was left in the composer. Only conditions where
+        the text demonstrably IS there may say that:
+
+        * a successful write followed by an Enter that provably did not land
+          (the two fatal codes); and
+        * a successful write whose composer then read positively BUSY, with
+          the Enter WITHHELD because the pane was in a tmux mode — or could
+          not be shown not to be (t2001). Those two are holds: nothing is
+          wrong with the shadow, the user is reading it.
         """
         leftover = [code for code, msg in rl.LOOP_REASON_MESSAGES.items()
                     if "left in the shadow composer" in msg]
         self.assertEqual(sorted(leftover),
                          sorted([rl.DISARM_ENTER_SEND_FAILED,
-                                 rl.DISARM_SUBMIT_UNCONFIRMED]))
+                                 rl.DISARM_SUBMIT_UNCONFIRMED,
+                                 rl.HOLD_PRE_ENTER_IN_MODE,
+                                 rl.HOLD_PRE_ENTER_MODE_UNREADABLE]))
 
     def test_messages_are_single_line_and_non_empty(self):
         for code, message in rl.LOOP_REASON_MESSAGES.items():

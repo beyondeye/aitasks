@@ -62,6 +62,7 @@ from monitor.monitor_core import (  # noqa: F401  (re-export shim)
     find_shadow_pane_info_async,
     capture_shadow_text,
     capture_raw_tail,
+    query_pane_mode,
     compute_shadow_staleness,
     BlockAge,
     compute_block_age_staleness,

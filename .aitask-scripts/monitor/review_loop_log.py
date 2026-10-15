@@ -339,8 +339,11 @@ def format_event(event: dict) -> str:
         message,
     ]
     context = []
+    # The last three are a delivery's own diagnostics (t2001): which pre-Enter
+    # verdict decided the outcome, and whether the pane was in a tmux mode.
     for key in ("agent", "shadow_agent", "shadow_pane", "session", "window",
-                "state", "rounds_fired", "project_root"):
+                "state", "rounds_fired", "project_root",
+                "pre_enter_verdict", "pane_in_mode", "pane_mode"):
         if event.get(key) not in (None, ""):
             context.append(f"{key}={event[key]}")
     line = "  ".join(bits)

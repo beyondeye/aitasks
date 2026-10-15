@@ -780,6 +780,14 @@ latch, the bounded-capture residual), not the full list:
    because t1525 deliberately chose a visible auto-disarm over a **silent**
    hold — the fix restores "pause on uncertainty" without restoring silence.
 
+   **A shadow pane in a tmux mode is a pause condition too, never a disarm
+   (t2001).** Scrolling an inline shadow back with the mouse wheel puts it in
+   copy-mode; nothing is wrong with the shadow, the user is reading it. The
+   loop holds visibly and delivers by itself once the pane leaves the mode.
+   The mode read authorises a keystroke, so it fails **closed**: an unreadable
+   answer holds too. See item 9 for where it is read and why no capture can
+   stand in for it.
+
    Every disarm and hold carries a **machine-readable reason code**
    (`review_loop.DISARM_*` / `HOLD_*`, with prose in `LOOP_REASON_MESSAGES`,
    the single source of that wording) and is written to a durable store — see
@@ -860,15 +868,78 @@ latch, the bounded-capture residual), not the full list:
      claiming "sent" there would silently reproduce the original failure.
 
      This half is **unchanged by t1606, deliberately**. Exhausting the retry
-     budget is one of only two conditions where the leftover-text message is
+     budget is one of the few conditions where the leftover-text message is
      *true* — a write that succeeded followed by an Enter that provably did
-     not land (the other is a `send_keys` failure on the Enter itself) — and
+     not land (the other fatal one is a `send_keys` failure on the Enter
+     itself; the two pre-Enter mode holds below are the non-fatal ones) — and
      it is the case t1525's "visible auto-disarm over silent hold" was written
      about, so it stays fatal. Everything else that used to borrow that
      message now carries its own.
+   - **The pane must not be in a tmux mode — before the write and before
+     each Enter (t2001).** With `mouse on`, a wheel-up over an inline shadow
+     (Claude Code, and every framework-launched Codex pane) enters
+     **copy-mode**. `send-keys` then goes to the *mode's* key table, not the
+     application: the prompt runs as copy-mode commands (cursor motion;
+     `space` = begin-selection under vi `mode-keys`; `:` = a goto-line
+     command prompt on the user's client), nothing reaches the agent, and
+     tmux still returns rc 0. **No capture-based check can see this**:
+     `capture-pane` reads the pane's *underlying* screen, so readiness reads
+     READY, the loop fires, and before t2001 the pre-Enter readback found an
+     empty composer and disarmed with `text_not_in_composer`.
 
-   The delivery token is re-checked immediately before **every** Enter, so a
-   disarm during any of the four suspension points cannot still inject a key.
+     So `monitor_core.query_pane_mode` reads the mode (`display-message`,
+     gateway-routed) immediately before each keystroke. `#{pane_in_mode}` is
+     the mode-stack **depth**, not a flag (copy-mode over clock-mode reads
+     `2`), and a dead pane answers rc 0 with **empty** fields — so the parse
+     requires the `#{pane_id}` echo and a decimal depth, and anything else is
+     unreadable.
+
+     | where | in a mode | mode unreadable |
+     |---|---|---|
+     | before the literal write | `HOLD_SHADOW_IN_MODE` — nothing written; the loop re-reads every tick and the first tick after the user leaves the mode delivers | `HOLD_SHADOW_MODE_UNREADABLE` |
+     | before an Enter (after a `SHADOW_BUSY` read) | `HOLD_PRE_ENTER_IN_MODE` — the prompt *is* in the composer; Enter withheld | `HOLD_PRE_ENTER_MODE_UNREADABLE` |
+
+     Both in-mode holds tell the user what releases them — scroll the shadow
+     back to the bottom (the default `WheelUpPane` binding enters
+     `copy-mode -e`, which exits there) or press `q` in it — once as a toast
+     and for as long as the hold stands in the banner.
+
+     The pre-write hold provably releases: while the pane is moded its
+     underlying screen is static and reads READY, so nothing re-arms the
+     settle latch and `abort_fire` stamps no cooldown — the mode is the only
+     gate, and it is re-read at every fire. The pre-Enter hold leaves the
+     prompt in the composer, so the next tick reads `SHADOW_BUSY` and holds
+     without re-writing; it releases when the user submits the text (the
+     recheck re-stamps staleness, and the True→False edge closes the work
+     latch, so no duplicate round) or clears it (READY again once the settle
+     deadline passes, and the next tick re-fires). Its banner names the event
+     ("Enter withheld"), not the composer's contents, so it stays true after
+     the user acts. An Enter sent into vi copy-mode would have been
+     copy-pipe-and-cancel — clobbering the user's clipboard and exiting their
+     mode without submitting.
+
+     **The loop never cancels the user's mode** (no `send-keys -X cancel`, no
+     `copy-mode -q`): they are reading the shadow. **Accepted residual:** a
+     mode entered in the one round trip between the read and the `send-keys`
+     is not closed — an atomic `if-shell -F` form would need the prompt quoted
+     into a tmux command string and would lose the send rc. It stays
+     identifiable from the event log (see below).
+
+   **Supersession is checked before any outcome is decided, not only before
+   a keystroke.** `_service_review_loop` disarms on every `failed` delivery
+   outcome without a lifecycle check, so a stale delivery returning a fatal
+   code after an await would kill the lifecycle that replaced it. Until t2001
+   `_submit_shadow_prompt` did exactly that: its READY/WORKING dispatch ran
+   after the drain and capture awaits but *before* the token check, so a
+   disarm + re-arm with `L` in that window was disarmed again by the stale
+   delivery — and the budget-exhausted `submit_unconfirmed` return followed
+   the last post-Enter capture with no check at all. The token is now
+   re-checked after each attempt's last await (drain, capture, mode read)
+   and ahead of every branch, and again before that final return; in
+   `_fire_shadow_recheck`, after each await and before the write. Nothing
+   awaits between that check and any keystroke, so a disarm during any
+   suspension point can neither inject a key nor return a fatal code; a
+   superseded delivery always ends as `HOLD_DELIVERY_SUPERSEDED`.
    The post-Enter capture is deliberately **not** fed to the settle latch: the
    controller is already FIRED behind the cooldown, and a post-delivery dialog
    or working observation is the expected *consequence* of the fire, not an
@@ -935,6 +1006,14 @@ record with nothing. That stickiness is scoped to one lifecycle: arming clears
 the cache and re-seeds it from the pair `action_toggle_review_loop` has just
 validated, so an `L`-`L` cycle onto a different pair can never record the new
 agent beside the old shadow.
+
+An event a **delivery** ends in — not an absence teardown — also carries that
+delivery's own diagnostics: `pre_enter_verdict` (the readiness verdict read
+before the Enter), `pane_in_mode` (`1` / `0` / `unreadable`) and `pane_mode`
+(e.g. `copy-mode`). They are what tells a READY `text_not_in_composer` from a
+WORKING one, and a pane that was in a mode from one that was not — the
+distinctions the original reports of t2001 could not make. `--loop-log` prints
+them beside the identities.
 
 Recording never raises: an unwritable store returns `False` and the disarm
 **or hold** toast gains a `(not recorded)` suffix, so a silently broken log
