@@ -497,7 +497,7 @@ Step 8 review and commit.
 
 ### Planned mitigations
 - timing: post-phase | name: trap_composition_sweep | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — source-time EXIT-trap chaining changes trap composition in every script that armed a trap before sourcing | desc: Statically list scripts/tests arming EXIT before sourcing task_utils/archive_utils, replicate each composed trap, and run the trap-sensitive suites plus leak re-measures
-- timing: after | name: chain_archive_sweep_through_rearmed_traps | type: bug | priority: medium | effort: medium | inline_risk: high | added_complexity: high | addresses: goal-achievement — scripts that re-arm EXIT after sourcing (gate, note, create, verification_followup, registry_lock acquire/release) drop the archive sweep and still leak on bundled resolves | desc: Make EXIT-trap re-arm sites preserve the archive sweep (chain instead of replace/clear, or a shared EXIT-handler registry) without breaking the ledger lock's first-in-trap contract
+- timing: after | name: chain_archive_sweep_through_rearmed_traps | type: bug | priority: medium | effort: medium | inline_risk: high | added_complexity: high | addresses: goal-achievement — scripts that re-arm EXIT after sourcing (gate, note, create, verification_followup, registry_lock acquire/release) drop the archive sweep and still leak on bundled resolves | desc: Make EXIT-trap re-arm sites preserve the archive sweep (chain instead of replace/clear, or a shared EXIT-handler registry) without breaking the ledger lock's first-in-trap contract | created: t2032
 
 ## Final Implementation Notes
 - **Actual work done:**
