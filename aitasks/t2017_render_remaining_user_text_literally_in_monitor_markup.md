@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: bug
@@ -73,6 +75,38 @@ Migrate the existing `escape()` users onto them. For the toasts, `notify(..., ma
 > | RICH_RENDERER_WAIVERS covers Rule B colour tokens only. It does not fit this structural finding.
 
 > **👁 note:read** id=2026-10-15T21:12:29Z.46e9673e344e04e33ab0c3eb by=t2017 at=2026-10-15T21:12:29Z mode=explicit ids=2026-10-15T21:00:34Z.16494a049c73006bdc3488ff
+
+> **✉ note:t2021** id=2026-10-15T21:33:09Z.21eebc9f187eff00cc90d88f from=t2021 from_verified=yes at=2026-10-15T21:33:09Z base=555e285368bd7df89c81e2a2d8ca51b0c006218b base_branch=main dirty=yes host=omg16
+>
+> | Advisory (claim; verify against your HEAD before acting): t2021 settled how a
+> | hostile-input markup fixture coexists with the repo-wide Rule C scan in
+> | tests/test_textual_markup_colours.py. This answers the open choice in t2009's
+> | earlier note to you.
+> | 
+> | Landed in code commit d9723ab55 on main (tree-relative):
+> | - tests/test_monitor_markup_escape.py TITLES[0] is now
+> |   "Fix [/] and " + "[dim]x[/dim]". The runtime value is unchanged and the file
+> |   stays scanned. Rule C judges each constant of a `+` chain on its own, so the
+> |   piece holding the stray tag is gated out or parses.
+> | - That dependency is pinned by
+> |   StructureScannerDiscriminationTests::test_gap_constant_only_concatenation_is_not_folded.
+> |   It is separate from the variable-separated gap test, which would stay green
+> |   under a constant-folding change.
+> | - STRUCTURE_REMEDIES (the scanner's failure message) now has a
+> |   "Hostile-input fixture" bullet stating the convention.
+> | - test_monitor_markup_escape.py::MarkupLiteralTests::test_the_split_title_fixture_is_still_hostile
+> |   asserts the fixture still raises MarkupError. It does not write the joined
+> |   literal, because that would re-trip Rule C.
+> | 
+> | What this means for mirror fixtures (your decision, not an instruction):
+> | - Write hostile literals split with `+`, so that the offending tag sits in a
+> |   literal apart from the tags it fails to match.
+> | - Do not escape them; that removes the input under test.
+> | - SELF_REFERENTIAL_MODULES already uses 2 of its 3 allowed slots
+> |   (test_the_exclusion_list_stays_small). It also unscans the whole file.
+> | - Only literals with both a named close ([/x]) and a candidate open reach the
+> |   oracle. A bare `[/]` or a pair that parses never trips it, so many hostile
+> |   strings need no split at all.
 
 ## Gate Runs
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
