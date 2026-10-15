@@ -420,7 +420,7 @@ Runs after Verification 1–4 pass, before the Step 8 review.
 - `childRunPattern` ports `testing.splitRegexp`/`rewrite` (Go 1.27). A future Go change to the `-run` grammar could make the child select differently from the parent. The settings differential runs against whatever `testing` builds the suite, so drift fails a test instead of passing silently, and no-match fails closed · severity: low · → mitigation: none (differential control in design)
 
 ### Goal-achievement risk: low
-- New process-starting tests added later can omit the guard, silently reopening the suite-timeout hang for them. "Every process-starting test" holds only for today's tests · severity: medium · → mitigation: isolation_tripwire
+- New process-starting tests added later can omit the guard, silently reopening the suite-timeout hang for them. "Every process-starting test" holds only for today's tests · severity: medium · → mitigation: t1998
 - The no-leftover guarantee is Linux-only. On other unix the HANG still fails fast but the cleanup is reported unverified. Residual: a process that clears its env or execs setuid escapes the marker scan; no fixture does either · severity: low · → mitigation: none (accepted residual, documented in the file comment)
 - The wall-time increase (~1.5 s expected, mostly the 1 s hang control) must stay "not material" · severity: low · → mitigation: none (measured in Verification 2)
 
