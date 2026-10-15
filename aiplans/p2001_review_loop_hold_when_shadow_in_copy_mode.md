@@ -404,3 +404,101 @@ which today lists none of the hold banners.
 
 ### Planned mitigations
 - timing: pre-phase | name: measure_pane_mode_query | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement — display-message reply shapes unmeasured | desc: Measure display-message pane-mode reply shapes (normal, copy, clock, dead pane, gateway path) on a private socket before writing the parser
+
+## Final Implementation Notes
+
+- **Actual work done:** As planned. `monitor_core.query_pane_mode` (gateway-routed
+  `display-message`) is read immediately before the literal write in
+  `_fire_shadow_recheck` and before each Enter in `_submit_shadow_prompt`; four
+  non-fatal codes (`HOLD_SHADOW_IN_MODE`, `HOLD_SHADOW_MODE_UNREADABLE`,
+  `HOLD_PRE_ENTER_IN_MODE`, `HOLD_PRE_ENTER_MODE_UNREADABLE`) with messages and
+  banners (46–71 cells, budget 76). The delivery token is re-checked after every
+  await and before every outcome branch, including the budget-exhausted return.
+  Delivery events carry `pre_enter_verdict` / `pane_in_mode` / `pane_mode`, and
+  `--loop-log` prints them. Test modules `test_minimonitor_concern_action.py` and
+  `test_minimonitor_concern_smoke.py` redirect the event store module-wide via the new
+  `tests/review_loop_log_isolation.py`; `_LoopEventStoreMixin` restores instead of
+  popping. Docs: `aidocs/framework/shadow_agent.md` items 6 and 9 + event-log section.
+- **Pre-phase measurement (measure_pane_mode_query), tmux 3.7c, private socket
+  `-f /dev/null`, `mode-keys vi`, pane running `cat`:**
+
+  | case | rc | stdout (`%q`) |
+  |---|---|---|
+  | normal pane | 0 | `%0\t0\t\n` |
+  | after `copy-mode` | 0 | `%0\t1\tcopy-mode\n` |
+  | after `send-keys -X cancel` | 0 | `%0\t0\t\n` |
+  | after `clock-mode` | 0 | `%0\t1\tclock-mode\n` |
+  | `copy-mode` pushed over `clock-mode` | 0 | `%0\t2\tcopy-mode\n` |
+  | killed pane id | 0 | `\t\t\n` |
+  | never-existing `%99999` | 0 | `\t\t\n` |
+  | via `TmuxMonitor.tmux_run_async` (gateway) | same shapes, trailing `\n` | |
+
+- **Deviations from plan:** Two parser assumptions in the plan were wrong, both
+  caught by the pre-phase. (1) `#{pane_in_mode}` is the **mode-stack depth**, not a
+  0/1 flag — `2` with copy-mode over clock-mode — so the parser accepts any ASCII
+  decimal and treats `> 0` as in a mode (a `("0","1")` whitelist would have reported
+  a stacked mode as *unreadable*: still no key sent, but the wrong reason). (2) A
+  dead / never-existing pane answers **rc 0 with empty fields**, not rc≠0, so the
+  `#{pane_id}` echo is what makes a missing pane fail closed. `QueryPaneModeTests`
+  pins both (the plan's "flag `2` → unreadable" row became `(True, "copy-mode")`).
+  The record field `pane_in_mode` is `1`/`0`/`unreadable` (in a mode or not), not
+  the raw depth. Plan review (before approval) moved the token check above every
+  pre-Enter verdict and added the exhaustion-route check — incorporated in the
+  approved plan.
+- **Issues encountered:** Concurrent session t1351 (live, same checkout) holds
+  uncommitted hunks in `minimonitor_app.py`, `monitor_core.py` and
+  `monitor_shared.py`. Per the user's decision the commit carries only t2001's hunks
+  (3-line-context hunk whitelist over a frozen snapshot, recomposition verified
+  byte-exact: HEAD + mine + theirs == snapshot), and the commit tree was tested in an
+  isolated `git archive` tree against a HEAD control (identical, purely environmental
+  failure sets; +26 new tests passing). An advisory note was sent to t1351
+  (`2026-10-15T12:19:20Z.3f95291fb6a945d4e0396100`). t1351 then committed its own
+  hunks first (`a30e849dc`, temp-index whitelist on its side); verified independently
+  that it carries none of t2001's symbols and that new HEAD + t2001's unchanged patch
+  reproduces the working tree byte-exact, so t2001's commit became a plain
+  path-scoped one. A first attempt with `-U0`
+  hunks misplaced a pure addition (git apply positions zero-context additions by
+  new-side line numbers, which shift when other hunks are dropped) — caught by the
+  recomposition check.
+- **Late fix:** the top-of-module `import review_loop_log_isolation` broke the
+  documented `python3 -m unittest tests.test_minimonitor_concern_action` repo-root
+  invocation (the module's own sys.path insertion sits ~1800 lines lower); fixed by
+  inserting the module's directory just above the import. Both backends re-run green,
+  and a before/after listing of the real event store showed 0 new files. Two
+  test-shaped files that appeared during the full-suite window carry only pre-t2001
+  reason codes — runs of the HEAD test file (no redirect) in the control tree and,
+  likely, t1351's isolated verification; they cannot recur once this lands.
+- **Red proof:** new tests run against a pristine HEAD export failed for the intended
+  reasons — moded pane: "a key reached a moded pane" (the prompt was written);
+  capture-hooked READY/WORKING re-arm rows and the exhaustion row: "the stale
+  delivery killed the fresh arm" (the pre-existing supersession gap); real tmux
+  smoke: `#{pane_in_mode} #{selection_present}` = `1 1` (a vi selection started).
+- **Key decisions:** Pre-Enter in-mode = immediate hold (no bounded wait), release
+  traced and pinned by `test_a_mode_entered_after_the_write_withholds_the_enter`.
+  The two pre-Enter mode holds join the leftover-text invariant
+  (`test_the_leftover_message_is_used_only_where_text_is_left`). The real
+  `~/.config/aitasks/review_loop_events/` is not asserted unchanged (it races the
+  user's live minimonitors); the module redirect and the mixin restore are pinned
+  instead.
+- **Upstream defects identified:**
+  - `.aitask-scripts/monitor/minimonitor_app.py:4653-4656` — the `"sent"` branch of `_service_review_loop` calls `_clear_loop_hold()` unconditionally, even when `ctrl.confirm_fire(token, …)` returns `False` because the delivery was superseded (a disarm + re-arm during the post-Enter drain/capture, which `_submit_shadow_prompt` does not re-check before returning `"sent"`). A stale delivery can therefore clear a hold reason the fresh lifecycle set. Low impact (no key is sent, no disarm; the next hold re-records), out of scope for t2001.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-15 16:00)
+- **Requested by user:** when the shadow is scrolled up the loop stays armed but sends
+  nothing — show a short notification so the user knows to scroll the shadow down for
+  the loop to actually send.
+- **Changes made:** the hold already toasted once and kept a banner, but its wording was
+  passive ("goes out once it leaves the mode"). Both are now actionable:
+  - toast (`HOLD_SHADOW_IN_MODE`): "the shadow pane is scrolled back (in a tmux mode) —
+    scroll it to the bottom or press q in it, and the recheck goes out; nothing written yet";
+  - banner: "⟳ holding: shadow scrolled back — scroll it down or press q there" (65 cells);
+  - pre-Enter toast (`HOLD_PRE_ENTER_IN_MODE`) gains the same "scroll it to the bottom or
+    press q in it" step before "submit or clear it there".
+  Verified against the user's live tmux config (read-only `list-keys`): `WheelUpPane` enters
+  `copy-mode -e`, which exits at the bottom, and `q` is `cancel` in both `copy-mode` and
+  `copy-mode-vi`. `test_a_moded_shadow_gets_no_keys_and_the_loop_holds` pins both texts;
+  `shadow_agent.md` item 9 states it.
+- **Files affected:** `.aitask-scripts/monitor/review_loop.py`,
+  `tests/test_minimonitor_concern_action.py`, `aidocs/framework/shadow_agent.md`.
