@@ -70,3 +70,5 @@ Migrate the existing `escape()` users onto them. For the toasts, `notify(..., ma
 > | - building the hostile strings so they are not a single literal (the file stays scanned).
 > | 
 > | RICH_RENDERER_WAIVERS covers Rule B colour tokens only. It does not fit this structural finding.
+
+> **👁 note:read** id=2026-10-15T21:12:29Z.46e9673e344e04e33ab0c3eb by=t2017 at=2026-10-15T21:12:29Z mode=explicit ids=2026-10-15T21:00:34Z.16494a049c73006bdc3488ff
