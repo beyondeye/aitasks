@@ -342,3 +342,85 @@ archive per the workflow. A pathspec commit takes whole files: before committing
 check `git diff -- <file>` holds only this task's hunks; if t2016 has uncommitted hunks
 in the same file, stage only ours (`git apply --cached <our.patch>`) and commit the
 index for those paths.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-16 00:00)
+- **Requested by user:** three verified review findings — (1) the initial
+  `git pull --ff-only` lacked `--no-overwrite-ignore`, so an incoming file overwrote
+  a locally ignored one while `git_pull` returned ok; (2) `commit-tree` ignores
+  `commit.gpgSign`, so the synthetic merge commit was silently unsigned where
+  `git merge` would sign or fail; (3) a failed fetch with matching cached refs was
+  reported as "up to date".
+- **Changes made:** `git_pull` no longer calls `git pull`. `_sync_with_upstream`
+  fetches exactly the tracked branch (`git fetch -- <remote> <merge ref>`, resolved
+  via `symbolic-ref` + `for-each-ref %(upstream:remotename)/%(upstream:remoteref)`);
+  a fetch failure defers as `fetch_failed: <git stderr>`. Both the fast-forward and
+  the proven merge go through one `_advance()` =
+  `merge --ff-only --no-autostash --no-overwrite-ignore <pinned sha>`. `_sign_args()`
+  passes `-S` to `commit-tree` when `commit.gpgSign` is true; a signing failure (or
+  an unreadable setting) defers. Harness injection point moved from the `pull`
+  subcommand to `fetch`. New cells 13a/13b (ignored overlap, ff and diverged),
+  14a/14b (failing / working signer stub), 15 (unreachable origin, cached
+  upstream == HEAD, batch and non-batch). Architecture doc mentions signing,
+  ignored files and fetch failure.
+- **Files affected:** `.aitask-scripts/agentcrew/agentcrew_utils.py`,
+  `tests/test_crew_pull_no_autostash.sh`, `aidocs/agentcrew/agentcrew_architecture.md`
+
+### Change Request 2 (2026-10-16 00:00)
+- **Requested by user:** the merge-tree capability probe ran against the source
+  repository and treated every failure as "unsupported git", so a permission error
+  silently skipped the core cells with a passing verdict.
+- **Changes made:** the probe runs in a disposable repository; exit 0 → supported,
+  exit 129 (git's usage exit, i.e. no `--write-tree`) → visible SKIP of the
+  dependent cells, any other exit → a recorded FAIL with git's message.
+- **Files affected:** `tests/test_crew_pull_no_autostash.sh`
+
+## Final Implementation Notes
+- **Actual work done:** `run_loop` now pulls → checks the stop request → writes the
+  heartbeat, so `_runner_alive.yaml` is clean at every pull and a remote
+  `requested_action: stop` merges and is honoured. `git_pull` was rewritten as a
+  guarded sync returning `(status, detail)` with `PULL_OK` / `PULL_DEFERRED` /
+  `PULL_UNSAFE`: pre-check for an unfinished merge/rebase (`crew_merge_state`),
+  separate fetch, fast-forward or (diverged) `merge-tree --write-tree` proof →
+  `commit-tree` (signed per `commit.gpgSign`) → protected `merge --ff-only`, then a
+  post-check. It never opens a merge in the live worktree and never aborts or resets
+  anything. `main()` and `cmd_check()` refuse on `PULL_UNSAFE`; `run_loop` holds
+  (no reads, writes, stages or graceful shutdown) and resumes once the state clears;
+  `--once` returns 1. Batch prints `PULL_UNSAFE:<reason>`. Docs: aidocs runner
+  iteration list + paragraph; website `crew.md` runner section (git >= 2.38 for
+  divergent histories, the hold). Tests: `tests/test_crew_pull_no_autostash.sh`
+  cells 5–15 through a Python harness wrapping `agentcrew_utils.git_cmd`.
+- **Deviations from plan:** (a) the first-draft `git merge --abort` recovery and the
+  git < 2.38 live-merge fallback were both dropped during plan review (see the plan's
+  Revision paragraph); (b) the plan's `git pull --ff-only` step became a separate
+  fetch + protected `merge --ff-only` (Change Request 1); (c) the harness gained a
+  ticking clock (`now_utc` +1s per call): in-process, `write_runner_alive` and the
+  first `update_runner_heartbeat` land in the same second, leave the file
+  byte-equal to its commit, and T6 then passed even on the old code; (d) T11's
+  injection point is after the fetch; (e) 11b asserts the agent file's bytes/ident
+  rather than "still uncommitted", because `run_loop`'s "runner: started"
+  `git add -A` sweeps it before the loop; (f) per t2016's note, the fixture comment
+  about the seeding push was corrected.
+- **Issues encountered:** harness `argparse.REMAINDER` swallowed options after the
+  worktree (fixed by splitting at `--`); a mutant with a non-unique restore anchor
+  (M7) left `_sign_args` mutated — restored by hand, verified, full suite re-run
+  green. With `MERGE_HEAD` present `git pull` refuses before fetching, so the
+  pre-check's signal is the fetch: it shows in 10a once the fetch runs first.
+- **Key decisions:** reuse aitask_sync.sh's t1731 guarded-merge structure without its
+  disjoint-paths policy (the runner must merge same-file, different-line edits);
+  hold instead of exit on `PULL_UNSAFE` in the loop (transient states such as a
+  concurrent `addwork` rebase clear by the next iteration); no live-worktree merge
+  on any git version (git < 2.38 defers divergent pulls as `merge_proof_unsupported`
+  — documented); the synthetic merge commit runs no commit hooks, as in t1731.
+  Verification: red baseline recorded (T5–T12 red on the old code), 208/208 green,
+  mutants M1–M8 each turn their own cells red (M1 pre-check → 10a, M2 merge+abort →
+  8/9/…, M3 no hold → 11/11b, M4 no post-check → 11/11b, M5 live fallback → 12/129,
+  M6 overwrite-ignored → 13a/13b, M7 unsigned → 14a/14b, M8 read past fetch
+  failure → 15); `test_crew_runner`, `test_crew_status`,
+  `test_crew_runner_config_delivery`, `test_crew_groups` green; `check_links.py
+  --build` passed.
+- **Upstream defects identified:**
+  - `.aitask-scripts/aitask_crew_addwork.sh:332` — `git pull --rebase --no-autostash --quiet 2>/dev/null || true` leaves a conflicting rebase in progress (detached HEAD, possibly markers) in the shared crew worktree; the runner now holds on it (`rebase_in_progress`), but the script strands it. Same at `.aitask-scripts/aitask_crew_setmode.sh:126`.
+  - `.aitask-scripts/agentcrew/agentcrew_utils.py:499` — `git_commit_push_if_changes` stages with `git add -A` without checking `crew_merge_state()`, so an unfinished merge/rebase another process creates mid-iteration can be committed by the runner's end-of-iteration commit or an agent's terminal transition.
+  - `aidocs/agentcrew/agentcrew_architecture.md:222` — "Mark stale agents as Error" is stale (the runner only logs stale heartbeats; status is unchanged), and line 300 ("Agents never touch git directly") is stale (`ait crew status set` commits and pushes terminal transitions).
