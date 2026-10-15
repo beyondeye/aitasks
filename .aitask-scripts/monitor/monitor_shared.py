@@ -2143,16 +2143,33 @@ def format_staleness_detail(age: "BlockAge", meta: "BlockMeta | None") -> str:
     return f" — {round_label} was produced {older} before the agent's latest change"
 
 
+def format_elapsed_compact(seconds: float) -> str:
+    """Elapsed time in at most 4 characters, rounded down (t1996).
+
+    ``0s``…``999s``, then whole minutes up to ``240m``, then whole hours,
+    capped at ``999h``. Keeps the PROMPT/DONE/IDLE badge bounded (at most
+    ``PROMPT 999s``, 11 cells). Not :func:`format_stale_duration`, which is
+    the ``2m05s``-style banner formatter.
+    """
+    s = int(max(0.0, seconds))
+    if s <= 999:
+        return f"{s}s"
+    m = s // 60
+    if m <= 240:
+        return f"{m}m"
+    return f"{min(s // 3600, 999)}h"
+
+
 def format_pane_status(snap: PaneSnapshot, completed: bool = False) -> str:
     """Render a pane's status badge with awaiting_input > completed > is_idle >
     active priority (t1322). See :func:`_state_color` for why ``completed`` is
     an explicit parameter rather than something derived from ``snap``."""
     if getattr(snap, "awaiting_input", False):
-        return f"[{STATE_STYLE_PROMPT}]PROMPT {int(snap.idle_seconds)}s[/]"
+        return f"[{STATE_STYLE_PROMPT}]PROMPT {format_elapsed_compact(snap.idle_seconds)}[/]"
     if completed:
-        return f"[{STATE_STYLE_DONE}]DONE {int(snap.idle_seconds)}s[/]"
+        return f"[{STATE_STYLE_DONE}]DONE {format_elapsed_compact(snap.idle_seconds)}[/]"
     if snap.is_idle:
-        return f"[{STATE_STYLE_IDLE}]IDLE {int(snap.idle_seconds)}s[/]"
+        return f"[{STATE_STYLE_IDLE}]IDLE {format_elapsed_compact(snap.idle_seconds)}[/]"
     return f"[{STATE_STYLE_ACTIVE}]Active[/]"
 
 

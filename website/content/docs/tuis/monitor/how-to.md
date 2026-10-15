@@ -44,9 +44,15 @@ Each card shows:
   | Badge | Color | Means |
   |-------|-------|-------|
   | `Active` | green | The pane is producing output |
-  | `PROMPT <n>s` | magenta | The agent is waiting for your input |
-  | `DONE <n>s` | blue | The pane's task is finished |
-  | `IDLE <n>s` | yellow | Quiet for longer than `tmux.monitor.idle_threshold_seconds` (default 5 seconds) |
+  | `PROMPT <t>` | magenta | The agent is waiting for your input |
+  | `DONE <t>` | blue | The pane's task is finished |
+  | `IDLE <t>` | yellow | Quiet for longer than `tmux.monitor.idle_threshold_seconds` (default 5 seconds) |
+
+  `<t>` is the time since the monitor last saw the pane's output change — not
+  how long the pane has been in that state, so a quiet pane whose task has just
+  been archived can already read `DONE 83m`. It is shown in at most four
+  characters: seconds up to `999s`, then whole minutes up to `240m`, then whole
+  hours (`4h` … capped at `999h`), always rounded down.
 
   A pane that is waiting on you always reads `PROMPT`, even when its task is
   already done — that prompt is the thing you can act on now. **DONE** is a

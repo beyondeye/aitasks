@@ -2371,7 +2371,9 @@ class MiniMonitorApp(
         # Truncate long window names for narrow display. 20, not 22: the
         # prioritized-mark pair (t1326) is always-on and costs two columns on
         # every row, and this pane lays out at ~38 usable columns — already
-        # short of the worst-case row (● ◆! ≈ <name>  PROMPT 123s). The name's
+        # short of the worst-case row (● ◆! ≈ <name>  <status>). The status is
+        # bounded since t1996: at most `PROMPT 999s` (11 cells), because
+        # format_elapsed_compact caps the counter at 4 characters. The name's
         # tail is context; the mark is signal, so the tail is what gives way.
         name = snap.pane.window_name
         max_name = 20
