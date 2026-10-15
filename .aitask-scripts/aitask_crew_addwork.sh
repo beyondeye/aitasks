@@ -325,7 +325,11 @@ fi
             "${AGENT_NAME}_instructions.md" "${AGENT_NAME}_commands.yaml" \
             "${AGENT_NAME}_alive.yaml" "_crew_meta.yaml" $GIT_ADD_GROUPS
     git commit -m "crew: Add agent '${AGENT_NAME}' to crew '${CREW_ID}'" --quiet
-    git pull --rebase --quiet 2>/dev/null || true
+    # --no-autostash (t2008): the crew worktree holds other live agents'
+    # uncommitted heartbeats, status and command files; a user's
+    # rebase.autoStash would stash and re-apply them. Without it the pull
+    # refuses on a dirty worktree, as under git's default.
+    git pull --rebase --no-autostash --quiet 2>/dev/null || true
     git push --quiet 2>/dev/null || warn "git push failed (offline?)"
 )
 

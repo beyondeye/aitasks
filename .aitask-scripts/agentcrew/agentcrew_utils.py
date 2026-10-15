@@ -292,8 +292,13 @@ def git_cmd(worktree: str, *args: str, check: bool = True) -> subprocess.Complet
 
 
 def git_pull(worktree: str, batch: bool = False) -> None:
-    """Pull latest changes in the worktree (best-effort)."""
-    result = git_cmd(worktree, "pull", "--rebase=false", check=False)
+    """Pull latest changes in the worktree (best-effort).
+
+    --no-autostash (t2008): agents' uncommitted heartbeat/status/command files
+    live in this worktree, and a user's merge.autoStash would stash and
+    re-apply them around the merge.
+    """
+    result = git_cmd(worktree, "pull", "--rebase=false", "--no-autostash", check=False)
     if result.returncode != 0 and not batch:
         ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
         print(f"[{ts}] git pull warning: {result.stderr.strip()}", file=sys.stderr)
