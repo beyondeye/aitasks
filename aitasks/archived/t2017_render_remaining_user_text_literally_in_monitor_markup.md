@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [aitask_monitormini, tui]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -17,7 +17,8 @@ anchor: 1326
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5_5
 created_at: 2026-10-15 23:07
-updated_at: 2026-10-16 00:13
+updated_at: 2026-10-16 00:47
+completed_at: 2026-10-16 00:47
 ---
 
 ## Origin
@@ -114,3 +115,14 @@ Migrate the existing `escape()` users onto them. For the toasts, `notify(..., ma
 > **✅ gate:plan_approved** run=2026-10-15T21:13:38Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-10-15T21:45:04Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-10-15T21:47:13Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:6ec84f55c5d9f530
+
+> **✅ gate:risk_evaluated** run=2026-10-15T21:47:13Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/2017/risk_evaluated_2026-10-15T21:47:13Z-risk_evaluated-a1.log`
