@@ -190,6 +190,72 @@ I'll record the command and output in Final Implementation Notes.
   `n`/`p`; Run/Cancel should be visible. In a short pane they should come into
   view with Tab or the mouse wheel.
 
+## Final Implementation Notes
+
+- **Actual work done:** Steps 1 and 2 as planned.
+  - Step 1: nine CSS edits in the narrow block of
+    `.aitask-scripts/lib/agent_command_screen.py`, every one under
+    `AgentCommandScreen.narrow`. No compose, DOM, focus-order or key-routing
+    change.
+  - Step 2: `tests/test_agent_command_dialog_narrow.py` rewritten around an
+    `_isolate()` fixture. The three original tests are kept. Six new tests:
+    - `test_action_buttons_fit_vertically_on_open` (pick/shadow × 31/35/40×44 × both tabs);
+    - `test_action_buttons_fit_vertically_without_tmux`;
+    - `test_tab_content_has_no_filler_rows`;
+    - `test_tallest_state_buttons_reachable` (40×30, both tabs);
+    - `test_keys_work_in_scrolled_narrow_dialog` (`r` → `TmuxLaunchConfig`, Escape → None);
+    - `test_wide_layout_unchanged` (golden at 120×40, both tabs).
+- **Deviations from plan:**
+  - The negative control (Step 3) was run **in the live tree before the
+    fix**, not in an isolated copy. The tests were written first. `git diff
+    --quiet HEAD -- .aitask-scripts/lib/agent_command_screen.py` confirmed
+    that module was still the HEAD (pre-fix) content, and the file was run
+    against it. This is equivalent evidence, and nothing had to be restored.
+  - Added a no-tmux subTest family (`test_action_buttons_fit_vertically_without_tmux`)
+    across all three pane sizes rather than only 40×44.
+- **Negative control (red run, pre-fix module):**
+  `~/.aitask/venv/bin/python tests/test_agent_command_dialog_narrow.py` →
+  exit 1, `FAILED (failures=16)`, from 9 tests run:
+  - `test_action_buttons_fit_vertically_on_open`: pick, all 3 sizes × both
+    tabs (6), and shadow tmux tab, all 3 sizes (3). Shadow on the Direct tab
+    already fitted pre-fix. Example: `bottom clipped: pick (31, 44) tab_tmux
+    #btn_run_tmux Region(y=41,h=3) vs dialog content Region(y=1,h=37)`.
+  - `test_action_buttons_fit_vertically_without_tmux`: all 3 sizes.
+  - `test_tab_content_has_no_filler_rows`: both tabs (`61 != 48`, tmux content
+    ending 13 rows below Cancel).
+  - `test_tallest_state_buttons_reachable`: both tabs. A focused
+    `#btn_run_tmux` stayed at y=45 against a content bottom of 26.
+
+  Passing pre-fix: the 3 original tests, the keys test (key routing already
+  worked, so this is a regression pin) and the wide golden. The golden passing
+  confirms it was captured under the final fixture.
+- **Green run:** same command → `Ran 9 tests … OK`, exit 0. Neighbouring
+  suites, 16 files including all AgentCommandScreen / minimonitor pick / shadow
+  / switcher / shortcut-scope tests (`pytest -n 4 --dist loadfile`) → 342 passed.
+- **Rendered check (40×44, pick, tmux tab):** the dialog occupies rows 0–35.
+  Run in tmux sits at rows 29–31 and Cancel at 32–34, both fully inside the
+  border, with 8 rows still free below the dialog.
+- **Issues encountered:**
+  - `max-height: initial` is required on `#agent_cmd_tabs`. Just deleting the
+    narrow `1fr` override would leave the wide `max-height: 20` in force, which
+    clips the stacked tmux tab (21 rows in the tallest state) inside the
+    TabbedContent.
+  - The inflation came from the content `Container`s' default `height: 1fr`,
+    not only from the tabs' `max-height`.
+- **Key decisions:**
+  - Kept bordered (non-compact) buttons, consistent with the other narrow
+    dialogs.
+  - Labels use `height: auto` rather than `1`, so a long agent string or
+    `_skillrun_*` profile name wraps instead of truncating.
+  - `.agent-cmd-buttons` keeps its 1-row top margin as the gap above the
+    actions.
+- **Upstream defects identified:** None
+- **Notes for sibling tasks:** t1296 (dialog key collisions) is unaffected:
+  the DOM, focus order and key routing are unchanged. The new
+  `_isolate()` fixture pins `TMUX`, the tmux helpers, the class-level session /
+  window / agent memories and the shortcut-label caches; reuse it for any
+  future AgentCommandScreen layout test.
+
 ## Step 9 reference
 
 Current-branch mode under profile `fast`: commit the code (`bug: … (t2013)`)
