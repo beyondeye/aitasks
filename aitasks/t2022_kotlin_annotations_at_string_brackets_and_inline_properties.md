@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1852
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-16 00:04
-updated_at: 2026-10-16 00:08
+updated_at: 2026-10-16 00:19
 ---
 
 ## Origin
@@ -55,3 +56,8 @@ val x: Int inline get() = 1        -> opaque []            (fail OPEN)
 - **`annotationsAt`:** count brackets only on `kind == 'o'` tokens, matching `skipBalanced`. Add a `di` row with a bracket inside a string argument, plus the plain control.
 - **Inline properties:** decide whether the closed opaque list should cover them, by the `inline-fun` rationale. If it should, either have the `inline` walk also reach `val` / `var`, or mark an `inline` that precedes `get` / `set` accessors. Possibly use a distinct reason; that is a design choice, because `opaqueReasons` is a closed, ordered list with a red-proof fixture per reason under `testdata/opaque/<reason>/`.
 - Add exact-equality rows to `kotlin_test.go`, and bump the cache `schemaVersion` to HEAD + 1 at commit time.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-15T21:19:28Z status=pass attempt=1 type=human
