@@ -55,7 +55,7 @@ from monitor.monitor_shared import (  # noqa: E402
     format_pane_status,
     format_session_divider, format_shadow_glyph, format_state_dot,
     is_task_completed, uncertified_round_block_msg, unparsed_concerns_msg,
-    format_staleness_detail,
+    format_staleness_detail, markup_literal,
 )
 from monitor.concern_parser import (  # noqa: E402
     _SENTINEL_SAFE_COLS, block_head_truncated, block_region,
@@ -71,6 +71,7 @@ from monitor.desync_summary import (  # noqa: E402
     get_desync_summary_cached as _get_desync_summary_cached,
 )
 from rich.text import Text  # noqa: E402
+from textual.content import Content  # noqa: E402
 from tui_switcher import TuiSwitcherMixin  # noqa: E402
 from shortcuts_mixin import ShortcutsMixin  # noqa: E402
 from tui_clipboard import copy_to_system_clipboard  # noqa: E402
@@ -1760,7 +1761,7 @@ class MonitorApp(
             # pane" rule as the parked branch below.
             return (
                 f" {format_frozen_prefix(self._mark_kind(snap))} "
-                f"{snap.pane.window_index}:{snap.pane.window_name} "
+                f"{snap.pane.window_index}:{markup_literal(snap.pane.window_name)} "
                 f"({snap.pane.pane_index})  [dim]frozen[/]"
             )
         if snap.parked:
@@ -1772,7 +1773,7 @@ class MonitorApp(
             # and an explicit `parked` marker are what is actually true.
             return (
                 f" {format_mark_glyph(agent_marks.KIND_PARKED)} "
-                f"{snap.pane.window_index}:{snap.pane.window_name} "
+                f"{snap.pane.window_index}:{markup_literal(snap.pane.window_name)} "
                 f"({snap.pane.pane_index})  [dim]parked[/]"
             )
         completed = snap.pane.pane_id in self._completed_pane_ids
@@ -1803,9 +1804,11 @@ class MonitorApp(
         # deliberately outside the live state cluster. Always-on ★/☆ pair, so
         # rows never shift when one is toggled.
         mark = format_mark_glyph(self._mark_kind(snap))
+        # The window name is tmux-side user input (t2006): `markup_literal`,
+        # not `escape` — this markup is parsed by Textual, see the helper.
         text = (
             f" {mark} {dot}{shadow_part} {glyph} "
-            f"{snap.pane.window_index}:{snap.pane.window_name} "
+            f"{snap.pane.window_index}:{markup_literal(snap.pane.window_name)} "
             f"({snap.pane.pane_index})  {status}"
         )
         task_id = self._task_cache.get_task_id_for_pane(snap.pane)
@@ -1851,13 +1854,26 @@ class MonitorApp(
                     self.__dict__.setdefault(
                         "_pending_shadow_stamps", []
                     ).append((shadow_snap.pane.pane_id, signal))
-                text += f"\n     [dim italic]t{task_id}: {info.title}[/]"
+                # No closing tag, deliberately (t2006): a title ending in a
+                # backslash would turn a `[/]` here into literal text, and no
+                # escaping can prevent that (see `markup_literal`). Textual
+                # closes the open style at end of input — so this must stay
+                # the LAST thing appended to the card.
+                text += (
+                    f"\n     [dim italic]t{task_id}: {markup_literal(info.title)}"
+                )
         return text
 
     def _format_other_card_text(self, snap: PaneSnapshot) -> str:
+        # Name and command are user-derived (t2006). The command ends the row
+        # with its `[dim]` left open, for the reason the title row in
+        # `_format_agent_card_text` gives: a trailing backslash cannot sit
+        # before a closing tag.
         return (
-            f" [dim]\u25cb[/] {snap.pane.window_index}:{snap.pane.window_name} "
-            f"({snap.pane.pane_index})  [dim]{snap.pane.current_command}[/]"
+            f" [dim]\u25cb[/] "
+            f"{snap.pane.window_index}:{markup_literal(snap.pane.window_name)} "
+            f"({snap.pane.pane_index})  "
+            f"[dim]{markup_literal(snap.pane.current_command)}"
         )
 
     def _rebuild_pane_list(self) -> bool:
@@ -2033,15 +2049,24 @@ class MonitorApp(
         same_pane = (self._focused_pane_id == self._last_preview_pane_id)
 
         # -- Header (always refreshed so PAUSED/LIVE badge stays current) --
-        pane_label = f"({snap.pane.window_index}:{snap.pane.window_name})"
+        # Window name and task title are user-derived (t2006), so they are
+        # `$variables` of a Content template rather than interpolated markup:
+        # Textual substitutes them after tokenizing, which keeps them literal
+        # even when a title ends in a backslash right before its `[/]` — the
+        # one case `markup_literal` cannot express.
+        variables = {
+            "idx": snap.pane.window_index, "name": snap.pane.window_name,
+        }
+        pane_label = "($idx:$name)"
         task_id = self._task_cache.get_task_id_for_pane(snap.pane)
         if task_id:
             info = self._task_cache.get_task_info(task_id, snap.pane.session_name)
             if info:
+                variables.update(task_id=task_id, title=info.title)
                 if self._active_zone == Zone.PREVIEW:
-                    pane_label += f" [bold]t{task_id}: {info.title}[/]"
+                    pane_label += " [bold]t$task_id: $title[/]"
                 else:
-                    pane_label += f" [dim italic]t{task_id}: {info.title}[/]"
+                    pane_label += " [dim italic]t$task_id: $title[/]"
 
         if is_paused:
             tag = " [bold yellow]PAUSED[/]"
@@ -2051,9 +2076,10 @@ class MonitorApp(
             tag = ""
 
         if self._active_zone == Zone.PREVIEW:
-            header.update(f"[bold white]Content Preview[/] {pane_label}{tag}")
+            template = f"[bold white]Content Preview[/] {pane_label}{tag}"
         else:
-            header.update(f"[bold]Content Preview[/] {pane_label}{tag}")
+            template = f"[bold]Content Preview[/] {pane_label}{tag}"
+        header.update(Content.from_markup(template, **variables))
 
         # -- Frozen branch: skip content + scroll updates entirely --
         # Same pane as last tick AND (user detached OR user scroll in flight):

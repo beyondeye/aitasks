@@ -63,6 +63,7 @@ from textual.widgets import (  # noqa: E402
     Button, Checkbox, Input, Label, Markdown, Static, TextArea,
 )
 from textual.app import ComposeResult  # noqa: E402
+from textual.content import Content  # noqa: E402
 from rich.text import Text  # noqa: E402
 from rich.markup import escape  # noqa: E402
 # Both names live in `rich.color` — `rich.errors` does NOT export ColorParseError,
@@ -358,6 +359,33 @@ def format_session_divider(label: str) -> str:
     framework and needs none.
     """
     return f"[{SESSION_DIVIDER_STYLE}]── {escape(label)} ──[/]"
+
+
+def markup_literal(value: str) -> str:
+    """``value`` as Textual markup that renders verbatim (t2006).
+
+    For user-derived text — window names, task titles, a pane's command —
+    interpolated into a markup string that a Textual widget parses. Textual's
+    parser, not Rich's, is the one that matters here, and the two differ:
+
+    * Textual opens a tag at any ``[`` not preceded by a backslash, un-escapes
+      exactly ``\\[`` → ``[`` in text, and keeps every other backslash literal.
+      So prefixing each ``[`` with a backslash, and touching nothing else, is
+      an exact round trip.
+    * ``rich.markup.escape`` (and ``textual.markup.escape``, its copy) also
+      DOUBLE the backslashes before a bracket — right for Rich, which collapses
+      ``\\\\`` back to one, wrong for Textual, which does not: a window named
+      ``agent-\\[bold]y`` would display with two backslashes.
+
+    One case no string escaping can express: a backslash immediately before a
+    real tag (``[dim]…\\`` + ``[/]``) makes Textual read that tag as literal
+    text. A value that may end in ``\\`` must therefore not sit directly before
+    a tag: end the markup with it (Textual closes open styles at end of input),
+    or build the widget content with ``Content.from_markup(template,
+    **variables)``, whose ``$name`` values are substituted after tokenizing
+    and so are always literal.
+    """
+    return value.replace("[", "\\[")
 
 
 # Pane-list section header (t1449): the `── other (N) ──` rule that heads the
@@ -2719,21 +2747,36 @@ class KillConfirmDialog(ModalScreen):
                 id="kill-header",
             )
 
+            # Every user-derived field is a `$variable`, never interpolated
+            # (t2006): Textual substitutes variables after tokenizing, so a
+            # window named `agent-[/]x` neither raises MarkupError nor eats a
+            # tag, and a value ending in a backslash cannot turn the `[/]` after
+            # it into text — which no string escaping can prevent (see
+            # `markup_literal`). Only framework markup stays in the template.
+            variables = {
+                "window": pane.window_name,
+                "cmd": pane.current_command,
+            }
             detail_parts = [
-                f"Window:   [bold]{pane.window_index}:{pane.window_name}[/] (pane {pane.pane_index})",
+                f"Window:   [bold]{pane.window_index}:$window[/] (pane {pane.pane_index})",
             ]
             if self._task_info:
                 info = self._task_info
-                detail_parts.append(
-                    f"Task:     [bold]t{info.task_id}[/]: {info.title}"
+                variables.update(
+                    task_id=info.task_id, title=info.title,
+                    priority=info.priority, task_status=info.status,
                 )
+                detail_parts.append("Task:     [bold]t$task_id[/]: $title")
                 detail_parts.append(
-                    f"          Priority: {info.priority}  Status: {info.status}"
+                    "          Priority: $priority  Status: $task_status"
                 )
             detail_parts.append(f"Status:   {status}")
-            detail_parts.append(f"Process:  {pane.current_command} (PID {pane.pane_pid})")
+            detail_parts.append(f"Process:  $cmd (PID {pane.pane_pid})")
 
-            yield Static("\n".join(detail_parts), id="kill-details")
+            yield Static(
+                Content.from_markup("\n".join(detail_parts), **variables),
+                id="kill-details",
+            )
 
             if self._show_preview:
                 lines = snap.content.rstrip().splitlines()
