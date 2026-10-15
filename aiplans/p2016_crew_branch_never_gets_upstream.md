@@ -183,3 +183,45 @@ and adds its tests in a new file.
 
 ### Planned mitigations
 - timing: after | name: crew_git_network_timeout | type: enhancement | priority: medium | effort: medium | inline_risk: medium | added_complexity: medium | addresses: code-health bullet 1 (crew writes now make real network round-trips with no time limit; brainstorm _run_addwork has no subprocess timeout) | desc: Time-limit the crew git network operations (init/addwork/setmode push+pull, Python git_push/git_pull) and brainstorm's _run_addwork subprocess, portably (no macOS `timeout` binary), so an unreachable origin cannot stall crew init or agent registration
+
+## Final Implementation Notes
+- **Actual work done:** As planned. `crew_push <wt>` in `lib/agentcrew_utils.sh` (`git push --quiet -u origin HEAD`, skip silently with no `origin`, warn with git's raw stderr via `printf` after a `warn` header, never stdout); `aitask_crew_init.sh` publishes after the init commit (`crew_push "$WT_PATH" || true`); `aitask_crew_addwork.sh` / `aitask_crew_setmode.sh` push via `crew_push . || true` (pull lines untouched); `agentcrew_utils.py` gains `git_push()` with the same semantics and `git_commit_push_if_changes` calls it (runner + `ait crew status set`); one sentence in `website/content/docs/commands/crew.md`; new `tests/test_crew_publish_upstream.sh` (8 cells, 68 assertions).
+- **Deviations from plan:** Plan revised before approval on review: each push entry point (addwork, setmode, terminal `ait crew status set`) got its own first-publish cell on an offline-created crew, because a cell running after init has published cannot tell `push -u origin HEAD` from a bare `git push` under push.default=simple. Docs wording made exact: status pushes happen on terminal `ait crew status set` transitions only. `git_pull` and `tests/test_crew_pull_no_autostash.sh` left untouched (t2018 owns them).
+- **Issues encountered:** None. Probe on git 2.55 (global/system config isolated) confirmed `git push -u origin HEAD` WITHOUT `--quiet` prints `branch 'crew-x' set up to track 'origin/crew-x'.` on **stdout** — it would have corrupted the machine-parsed `CREATED:`/`ADDED:`/`UPDATED:` lines; with `--quiet` stdout is empty, and the helper captures both streams anyway. Bad-URL push stderr: `fatal: '<path>' does not appear to be a git repository`; bare push with no origin: `fatal: No configured push destination.`
+- **Key decisions:** User confirmed crew branches are published (documented design: runner commit+push, brainstorm multi-PC). Always pass an explicit destination (`-u origin HEAD`) rather than a bare push once an upstream exists: it self-heals an offline init and keeps `push.default=matching` from publishing the repo's other branches (cell 8 shows the pre-fix bare push moving the remote primary branch). No `origin` → silent skip, matching the framework's local-only convention (`aitask_claim_id.sh has_remote`).
+- **Verification evidence (durable):**
+  - `bash tests/test_crew_publish_upstream.sh` → `PASS: 68 FAIL: 0 TOTAL: 68`.
+  - Red proof — pre-fix tree, shared checkout untouched:
+    ```bash
+    S=<scratchpad>/red; mkdir -p "$S/tree"
+    git archive HEAD .aitask-scripts tests | tar -x -C "$S/tree"   # HEAD = 7d077e308 (pre-fix)
+    cp tests/test_crew_publish_upstream.sh "$S/tree/tests/"
+    bash "$S/tree/tests/test_crew_publish_upstream.sh"
+    ```
+    Result `PASS: 47 FAIL: 21 TOTAL: 68`; every cell fails its discriminating assertion:
+    ```
+    FAIL: 1: the remote crew branch is at the local tip (expected '<sha>', got '')
+    FAIL: 1: the crew branch tracks origin (expected 'origin/crew-c1', got '')
+    FAIL: 2: no push warning (expected output NOT containing 'push', got 'Warning: git push failed (offline?)')
+    FAIL: 2: the remote crew branch is at the local tip (expected '<sha>', got '')
+    FAIL: 2: the crew branch tracks origin (expected 'origin/crew-c1', got '')
+    FAIL: 3: the offline init warning carries git's own text (expected output containing 'does not appear to be a git repository', got '')
+    FAIL: 3: the remote crew branch is at the local tip (expected '<sha>', got '')
+    FAIL: 3: the crew branch tracks origin (expected 'origin/crew-c3', got '')
+    FAIL: 4: the offline addwork warning carries git's own text (... got 'Warning: git push failed (offline?)')
+    FAIL: 4: the offline addwork warning does not guess 'offline?' (... got 'Warning: git push failed (offline?)')
+    FAIL: 4: the remote crew branch is at the local tip (expected '<sha>', got '')
+    FAIL: 4: the crew branch tracks origin (expected 'origin/crew-c4', got '')
+    FAIL: 4: the remote carries the new launch mode (expected output containing 'launch_mode: interactive', got '')
+    FAIL: 5: the remote crew branch is at the local tip (expected '<sha>', got '')
+    FAIL: 5: the crew branch tracks origin (expected 'origin/crew-c5', got '')
+    FAIL: 5: the remote carries the terminal status (expected output containing 'status: Completed', got '')
+    FAIL: 6: addwork prints no push warning (expected output NOT containing 'push', got 'Warning: git push failed (offline?)')
+    FAIL: 7: no push warning without origin (expected output NOT containing 'git push warning', got '[..] git push warning: fatal: No configured push destination. ...')
+    FAIL: 8: the remote crew branch is at the local tip (expected '<sha>', got '')
+    FAIL: 8: the crew branch tracks origin (expected 'origin/crew-c8', got '')
+    FAIL: 8: the remote primary branch is untouched (expected '3a9c4331…', got '2b4fd88c…')
+    ```
+  - Partial-fix mutants (pre-fix export overlaid with this task's fixed files): (A) setmode's push line reverted to `git push --quiet 2>/dev/null || warn "git push failed (offline?)"` → only cell 4 fails (3 FAIL: remote tip, upstream, remote launch_mode), `PASS: 65`; (B) `git_commit_push_if_changes` push reverted to `git_cmd(worktree, "push", check=False)` → only cell 5 fails (3 FAIL: remote tip, upstream, remote status), `PASS: 65`.
+  - Regression, all exit 0: `test_crew_init`, `test_crew_setmode`, `test_crew_groups`, `test_crew_addwork_output_instructions`, `test_crew_status`, `test_agentcrew_terminal_push`, `test_crew_pull_no_autostash`, `test_crew_cleanup`, `test_crew_runner`, `test_crew_report`, `test_agentcrew_error_recovery`, `test_crew_runner_config_delivery`, `test_crew_template_includes`, `test_brainstorm_init_proposal_file`; pytest over `test_agentcrew_rollup`, `test_brainstorm_crew`, `test_brainstorm_cli_python`, `test_brainstorm_dag`, `test_brainstorm_module_sync`, `test_brainstorm_group_recovery`, `test_brainstorm_module_sync_apply_contract`, `test_metadata_writer_inventory`, `test_collection_structure` → 155 passed. `website/check_links.py --build` → SWEEP: PASSED. shellcheck: only SC1091 info + a pre-existing SC2001 at `aitask_crew_addwork.sh:181`.
+- **Upstream defects identified:** None
