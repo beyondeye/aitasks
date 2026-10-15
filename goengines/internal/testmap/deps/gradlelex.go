@@ -16,6 +16,9 @@ import (
 // that never closes, a backslash outside every literal (an unmodelled string
 // form), a Kotlin multi-dollar string — returns failAt >= 0 and the source
 // unblanked: the scanner then over-reads and never hides a dependency.
+// kotlinfamily_test.go pins how the kts mode reads each Kotlin construct
+// against the other two Kotlin-family lexers; a construct change here needs
+// its row there.
 func blankGradleComments(src string, kts bool) (out string, failAt int) {
 	l := &gradleLexer{b: []byte(src), kts: kts, failAt: -1}
 	l.shebang()

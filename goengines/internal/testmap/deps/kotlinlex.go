@@ -23,7 +23,9 @@ var errUntokenizable = errors.New("untokenizable")
 // string contents are skipped; the code inside string templates (`${…}`,
 // `$ident`, and the backticked name of $`name`) is kept as tokens. A construct
 // that never closes, or a Kotlin multi-dollar string, is an error: the file is
-// opaque.
+// opaque. kotlinfamily_test.go pins how it reads each Kotlin construct against
+// the other two Kotlin-family lexers; a construct change here needs its row
+// there.
 func ktLex(src string) ([]ktok, error) {
 	l := &ktLexer{src: src, line: 1}
 	if err := l.code(false); err != nil {

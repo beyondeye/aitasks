@@ -777,7 +777,9 @@ func classifyPython(lines []string) Context {
 // ---------------------------------------------------------------- Kotlin
 
 // A Kotlin frame: 'c' code, 't' a ${…} template (code), 's' "…",
-// 'r' """…""", 'b' a block comment.
+// 'r' """…""", 'b' a block comment. deps/kotlinfamily_test.go pins how
+// classifyKotlin reads each Kotlin construct against the deps package's two
+// Kotlin lexers; a construct change here needs its row there.
 type kframe struct {
 	kind    byte
 	depth   int // braces in 't'; nesting in 'b'
