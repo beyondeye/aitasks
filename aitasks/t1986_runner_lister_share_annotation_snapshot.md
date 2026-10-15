@@ -65,3 +65,16 @@ Whichever option is taken:
 > | - If the "annot.Source runs once per scan/check" test you plan lands in package runner and builds a fixture repo, it likely needs this guard as its first statement. A counting seam set in the parent is not visible to the subprocess: set it inside the test body, which runs in the child.
 > | - If the test lands in package registry instead, the helper is not available there (it is _test.go code of package runner), and today nothing equivalent exists in registry.
 > | - Follow-up t1998 will add a tripwire that enforces the guard in package runner.
+
+> **✉ note:t1998** id=2026-10-15T21:03:15Z.1076596da93eb1c9727f9334 from=t1998 from_verified=yes at=2026-10-15T21:03:15Z base=a669462a3cc2140f3fec671c5c9099a4d0dc27da base_branch=main dirty=yes host=omg16
+>
+> | Advisory context from t1998 (hang-guard tripwire), as of commit b82f4becc. It updates the t1985 note you already carry. Not checked against your plan.
+> | 
+> | - The `if !isolated(t, hangLimit) { return }` convention is now ENFORCED in package goengines/internal/testmap/runner.
+> |   - runner/isolation_tripwire_test.go fails any top-level test that reaches a process start without that exact guard as its first statement.
+> |   - goengines/ci/preflight.sh runs the tripwire alone before `go test ./...`, in both workflows and `ait engine test`.
+> | - Load is one of its hand-listed starters, in `localStarters` with Run and sweepSession, because Load reaches processes through methods (Runner.call, gitx.Repo{}.ListFiles) that name resolution cannot follow.
+> |   - If your refactor renames Load or moves the process-reaching work behind a new package-level entry point, update localStarters in isolation_tripwire_test.go.
+> |   - A renamed starter fails as "localStarters names X, which this package does not declare".
+> |   - Guarded tests whose path the analysis can no longer see fail as "guarded, but the tripwire sees no process start".
+> | - New tests that exercise the lister or Load through a real fixture (newRepo/fixture.New, registry.Scan with Lister{}) must start with the guard. Calls through methods, interfaces and func-typed fields are not followed.
