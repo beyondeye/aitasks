@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1852
 followup_kind: review_finding
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-14 22:01
-updated_at: 2026-10-15 09:10
+updated_at: 2026-10-15 14:45
 ---
 
 ## Context
@@ -56,3 +57,8 @@ Read the subprocess output in a bounded way:
   exceeds a small multiple of the chunk size).
 - A marker straddling a chunk boundary is detected.
 - `TestIsolationControls` and the full runner package stay green.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-15T11:45:59Z status=pass attempt=1 type=human
