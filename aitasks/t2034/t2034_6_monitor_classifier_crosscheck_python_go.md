@@ -1,19 +1,19 @@
 ---
 priority: medium
 effort: medium
-depends: [t2034_5]
+depends: [2038]
 issue_type: test
 status: Ready
 labels: [monitor, tmux]
 anchor: 2034
 created_at: 2026-10-16 08:02
-updated_at: 2026-10-16 08:02
+updated_at: 2026-10-16 08:12
 ---
 
-The gate for making the Go monitor status server (child 5) the default: a
-differential test that runs the Python classifier
-(`monitor_core.classify_content` with the `prompt_patterns` registry) and the Go
-classifier over the same inputs and requires identical results.
+The gate for making the Go monitor status server the default: a differential
+test that runs the Python classifier (`monitor_core.classify_content` with the
+`prompt_patterns` registry) and the Go classifier over the same inputs and
+requires identical results.
 
 ## Why
 
@@ -26,7 +26,7 @@ server instead — can be weighed during planning.)
 ## Do
 
 - Corpus: every fixture in `tests/test_prompt_detection.py`, plus the recorded
-  streams from child 3. Include trailing-blank-row geometries and non-ASCII
+  streams from t2034_3. Include trailing-blank-row geometries and non-ASCII
   whitespace and text, where Go's `\s` and Python's `\s` differ.
 - Harness: a Go entry point (e.g. an `ait-monitord classify` verb, or a
   test-only one) that reads the fixtures and prints results, compared against
