@@ -377,7 +377,7 @@ defect, not this task's).
 
 ### Planned mitigations
 - timing: pre-phase | name: baseline_offer_suites | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: ide_frozen_offer.sh rewrite regressions | desc: run the seven touched suites before editing and record the baseline
-- timing: after | name: manual_verify_live_ide | type: manual_verification | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: companion acceptance only proven indirectly | desc: on the real -L ait server, run ait ide in aitasks; confirm the cross-project groups, Q-style session targeting, and a live minimonitor in every viewer window after V and after R
+- timing: after | name: manual_verify_live_ide | type: manual_verification | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: companion acceptance only proven indirectly | desc: on the real -L ait server, run ait ide in aitasks; confirm the cross-project groups, Q-style session targeting, and a live minimonitor in every viewer window after V and after R | created: t2044
 
 ## Post-Review Changes
 
