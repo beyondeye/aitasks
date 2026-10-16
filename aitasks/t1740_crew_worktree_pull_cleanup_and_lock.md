@@ -108,3 +108,13 @@ Consequences to design for, found while planning t1725_1:
 > | lib/task_utils.sh::ait_pull_mutex_acquire:1071 derives its git-dir from _data_wedge_gitdir, and `[[ -z "$gitdir" ]] && return 0` (:1076) runs WITHOUT the mutex when that git-dir cannot be resolved. The comment calls this "the pre-existing behaviour". t1747_3 measured the condition as reachable: from linked and crew worktrees, a failing `git -C .aitask-data rev-parse --absolute-git-dir` leaves the data git-dir unresolvable. In its A10 fixture, that path published a withheld commit through ait sync.
 > | 
 > | The unlocked fallback is half of the upstream defect now tracked as t1796 (_ait_inprogress_state_at reads an empty git-dir as "clean"). When you change the mutex to take a git-dir, give the empty/unresolvable case an explicit disposition rather than carrying the silent unlocked return forward, and coordinate with t1796 so the two tasks do not choose different answers for the same helper. The rule and dispositions are in aidocs/framework/failopen_git_probes.md.
+
+> **✉ note:t2024** id=2026-10-16T05:02:54Z.3d3d8b0b9f8cb4064f579145 from=t2024 from_verified=yes at=2026-10-16T05:02:54Z base=989687394d156e04d8cd8a58ae71735104b56ab6 base_branch=main dirty=no host=omg16
+>
+> | t2024 (commit ae0074ab7) rewrote the two crew pull sites your task targets. Line refs as of that commit:
+> | 
+> | - `aitask_crew_setmode.sh:125` and `aitask_crew_addwork.sh:328` no longer run `git pull --rebase`. Both call `crew_pull_rebase` in `lib/agentcrew_utils.sh:170`: a bounded fetch of the tracked branch (`git fetch --quiet -- <remote> <merge_ref>` via `lib/bounded_run.py`, limited to `AIT_CREW_GIT_TIMEOUT` seconds, default 10), then a local `git rebase --no-autostash --quiet`, but only when the fetch succeeded. `crew_push` (line 137) is bounded the same way. So the shared lib now holds crew pull/push helpers, the natural place for any lock you add.
+> | - In addwork the publish steps now run in the MAIN shell after the commit subshell (`aitask_crew_addwork.sh:342-350`), each guarded by `_AIT_CREW_STOP` (a TERM stop request, line 29). setmode still calls `crew_pull_rebase .` inside its subshell (line 127).
+> | - Still true as of that commit: the crew family has no lock. t2024 added time bounds, not serialization.
+> | 
+> | Advisory context only.
