@@ -279,3 +279,8 @@ the part this repo's Linux CI cannot do.
 The following existing tasks have been folded into this task. Their requirements are incorporated in the description above. These references exist only for post-implementation cleanup.
 
 - **t1821** (`t1821_codex_session_capture_on_macos.md`)
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-16T09:33:23Z status=pass attempt=1 type=human
