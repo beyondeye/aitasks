@@ -378,3 +378,77 @@ defect, not this task's).
 ### Planned mitigations
 - timing: pre-phase | name: baseline_offer_suites | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: ide_frozen_offer.sh rewrite regressions | desc: run the seven touched suites before editing and record the baseline
 - timing: after | name: manual_verify_live_ide | type: manual_verification | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: companion acceptance only proven indirectly | desc: on the real -L ait server, run ait ide in aitasks; confirm the cross-project groups, Q-style session targeting, and a live minimonitor in every viewer window after V and after R
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-16 12:40)
+- **Requested by user:** three review findings. (1, blocking) `_project_marker` let a
+  `PermissionError` from `Path.is_file()` escape on Python 3.11–3.13, aborting the
+  whole all-roots listing and so `ait ide`'s offer for every healthy project.
+  (2, blocking) the shell parsers read the root with `IFS='|' read`, which drops
+  a trailing `|` from the last variable, so `/p|` became `/p` and lost its
+  session pin. (3, follow-up) `_frozen_records` spawns one `store show`
+  subprocess per record, now twice per `ait ide` start over the global store.
+- **Changes made:** (1) `_project_marker` returns None on `OSError`; `root_states`
+  maps it to a new non-actionable state `inaccessible` ("project directory
+  unreadable — not touched" in the offer); other roots continue. Test injects
+  `PermissionError` for one root next to a healthy one; red proof in-process
+  (the unguarded lookup errors). (2) new `_ide_frozen_tail <n> <line>` takes the
+  root verbatim after the n-th `|` (fails on a short line, which is skipped);
+  used for GONE_ROOT and GONE. Tests: a root ending in `|` for another project
+  and for the current project (keeps `--session S`), a short GONE line, the
+  inaccessible reason; the old `read`-based parser fails exactly the 4
+  trailing-pipe assertions. (3) not changed here — recorded as follow-up task
+  t2041 (`frozen_listing_single_store_read`, review_finding).
+- **Files affected:** `.aitask-scripts/lib/agent_reopen.py`,
+  `.aitask-scripts/lib/ide_frozen_offer.sh`, `tests/test_agent_reopen.py`,
+  `tests/test_ide_frozen_offer.sh`.
+
+## Final Implementation Notes
+- **Actual work done:** All three parts as planned. A — the minimonitor guard
+  lists `-t "$TMUX_PANE"` (untargeted fallback kept when unset); codebrowser's
+  `_detect_tmux_window` targets `$TMUX_PANE`. B — `maybe_spawn_minimonitor`
+  recognises a booting companion by `#{pane_start_command}` and runs its single
+  eligibility read + split under a per-server `flock`
+  (`_companion_spawn_lock`, `<socket_path>.aitask-companion.lock`, fails
+  closed); `restore()` tops up the companion after a successful same-pane
+  restore (`_companion_for_pane`); new `companions --root|--all-roots` verb.
+  C — `gone --all-roots` (`GONE_ROOT:<state>|<name>|<root>` groups, root as the
+  last field; states ok / missing / unregistered / unverified / inaccessible),
+  `ide_frozen_offer.sh` rewritten for grouped, per-project V/R/P/S prompts, own
+  sessions for other projects, one re-classification for R/P, companion top-up
+  on every path. Docs: `ait ide --help`, freeze-and-restore page, terminal-setup
+  page, `aidocs/framework/tui_conventions.md` companion section.
+- **Deviations from plan:** the lock was added after the plan-review finding (two
+  concurrent spawners could both read "no companion"); the helper
+  `_companion_check_and_split` returns `(split_ran, pane, agent_pane)` so a split
+  with empty `-P` output still refocuses as before. Post-review: the
+  `inaccessible` root state and `_ide_frozen_tail` (see Post-Review Changes).
+  The new live test is a separate file (`test_ide_frozen_all_projects_live.sh`)
+  because it needs the bootstrap isolation recipe.
+- **Issues encountered:** a scratch-copy red proof for `agent_reopen` was
+  vacuous — an import re-inserts the real `lib/` ahead of the scratch path — and
+  was redone in-process by swapping the function. Same-pane success tests in
+  `test_agent_restore.py` reached the new `window_facts` read unscripted; fixed by
+  scripting arity 7 in `_TMUX_OURS_AND_FIRES`, and `swap_tmux` now also swaps
+  `agent_launch_utils._TMUX` for a failing gateway so no unit test can reach a
+  real tmux server through the companion spawner.
+- **Key decisions:** per-project prompts, registered+present projects only, and an
+  all-projects companion top-up (user decisions in planning); one lock per tmux
+  server rather than per window (coarser, no window id needed before the lock,
+  bounded file count); the shell guard stays marker-only so two booting
+  companions cannot both exit.
+- **Verification:** offer 97, reopen 67, restore 84, companion-spawn 26, guard
+  live 35, hook-status 51, cross-project live 30, reopen live 148, no-raw-tmux 5,
+  standin-stamp 28, tui-switcher multi-session 52, restore bootstrap live 55, full
+  Python suite PASSED, `check_links.py --build` PASSED. NOT run (they refuse to
+  start inside tmux): `tests/test_frozen_agents_acceptance.sh`,
+  `tests/test_restore_flows_live.sh`. Red proofs: guard (vi)/(vii) fail on the
+  pre-fix guard; the race test fails without the booting rule and its no-lock
+  control shows two splits; the PermissionError test errors with the unguarded
+  lookup; the old `read` parser fails the four trailing-pipe checks.
+- **Follow-ups:** t2041 (single store read for the all-roots listing and
+  top-up, review finding); manual_verify_live_ide (planned "after" mitigation,
+  created at Step 8d).
+- **Upstream defects identified:**
+  - `.aitask-scripts/aitask_shadow_capture.sh:321 — the cross-server guard compares #{socket_path} and the -t "$own_pane" read, both taken from the gateway server, so the comparison is always true and the guard never fires (its sibling shadow_self_target compares against ${TMUX%%,*} correctly)`
