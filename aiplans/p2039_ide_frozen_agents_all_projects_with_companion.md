@@ -373,7 +373,7 @@ defect, not this task's).
   isolation)
 - "Every viewer window has a live minimonitor" is proven by the guard live test and
   unit tests, not by booting a real minimonitor in a reopened window on the user's
-  server · severity: medium · → mitigation: manual_verify_live_ide
+  server · severity: medium · → mitigation: t2044
 
 ### Planned mitigations
 - timing: pre-phase | name: baseline_offer_suites | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: ide_frozen_offer.sh rewrite regressions | desc: run the seven touched suites before editing and record the baseline
