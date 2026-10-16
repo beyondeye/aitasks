@@ -10,7 +10,7 @@ labels: [monitor, tmux, performance]
 children_to_implement: [t2038_1, t2038_2, t2038_3, t2038_4]
 anchor: 2034
 created_at: 2026-10-16 08:11
-updated_at: 2026-10-16 08:11
+updated_at: 2026-10-16 08:12
 ---
 
 Reimplement the shared monitor status server in Go as a goengines binary
@@ -29,7 +29,7 @@ of the producer.
 
 ## Dependencies
 
-- The Python server task (the Go one mirrors its lifecycle and behaviour).
+- t2037, the Python server (the Go one mirrors its lifecycle and behaviour).
 - The Go tmux package aitasks_go#17. Its location follows the ship-path decision
   in aitasks_go#15.
 
