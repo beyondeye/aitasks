@@ -440,6 +440,33 @@ Current-branch mode (profile `fast`): no branch to merge. Archive via
 - **Files affected:** `.aitask-scripts/lib/bounded_run.py`, `tests/test_bounded_run.py`,
   `tests/test_brainstorm_addwork_deadline.sh`
 
+### Change Request 2 (2026-10-16 07:59)
+- **Requested by user:** at the Step 8b upstream-defect offer: "fix it now" (in this
+  task, not as a follow-up task).
+- **Changes made:**
+  - First confirmed the mechanism in a scratch Hugo site: `hugo list future` lists a
+    bare `date:` that is tomorrow in UTC (read as `…T00:00:00Z`). An offset timestamp
+    keeps its instant (`…+03:00`) and is not future. The site's `hugo.toml` sets no
+    `timeZone`.
+  - The defect's pin was refined: the date comes mainly from line 132,
+    `%(creatordate:short)`, which formats in the tag's own +03:00 zone. Line 136
+    (`date +%Y-%m-%d`) is only the fallback.
+  - `website/new_release_post.sh`: `RELEASE_DATE` is now the exact RFC 3339 instant
+    with its offset. The tag path uses `%(creatordate:iso-strict)`; the fallback uses
+    `date +%Y-%m-%dT%H:%M:%S%z` with the colon inserted (one call; BSD date has no
+    `%:z`). This value goes into both front-matter templates. `RELEASE_DAY` (first 10
+    chars, the local day) feeds only the landing page's "Mon DD, YYYY" display.
+  - New `tests/test_release_post_date.sh` runs the real script in a fixture repo:
+    - cell 1 (`--auto`, tag at 2026-10-16T01:49:12+03:00, inside the window): the
+      date is that exact instant, it is not after the release instant, the old bare
+      day is shown to be after it (control), and the landing page shows "Oct 16, 2026";
+    - cell 2 (scaffold, no tag): the fallback is an RFC 3339 timestamp with an offset
+      between the run's start and end.
+  - Red proof: the pre-fix script (HEAD, in a scratch worktree) fails 4 cells, including
+    "not dated after the release". `tests/test_update_landing.sh` passes 29/29, and
+    `shellcheck` is clean.
+- **Files affected:** `website/new_release_post.sh`, `tests/test_release_post_date.sh`
+
 ## Final Implementation Notes
 - **Actual work done:**
   - New stdlib-only `lib/bounded_run.py`. `run_bounded()` runs the command in a new
@@ -536,10 +563,10 @@ Current-branch mode (profile `fast`): no branch to merge. Archive via
   - `shellcheck` reports no new warnings on the changed scripts or the new tests.
     `check_links.py --build` reports only the pre-existing blog link below.
 - **Upstream defects identified:**
-  - `website/new_release_post.sh:136` — `RELEASE_DATE=$(date +%Y-%m-%d)` takes the LOCAL date, and the post's
+  - `website/new_release_post.sh:132,136` — `%(creatordate:short)` / `date +%Y-%m-%d` take the LOCAL date, and the post's
     `date:` is read by Hugo as UTC midnight. A release cut between local midnight and UTC midnight (00:00–03:00 IDT)
     therefore produces a post Hugo treats as future-dated and leaves out of the build, so `check_links.py --build`
     (which CI runs after the release build) reports the home page's link to it as missing-page.
     Observed here: v0.38.0 (`1aa6a5b6e`, committed 22:49 UTC Oct 15, post dated 2026-10-16) failed the sweep, and the
     same check passed hours later with no change. The future-date exclusion is a hypothesis that fits both runs;
-    it is not confirmed with `hugo --buildFuture`.
+    Mechanism since confirmed with `hugo list future`; FIXED in this task (Change Request 2).
