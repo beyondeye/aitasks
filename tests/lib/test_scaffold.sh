@@ -39,6 +39,10 @@ if [[ -z "${_AIT_TEST_SCAFFOLD_LOADED:-}" ]]; then
         # imports it transitively. Both are stdlib-only leaves, so copying them
         # unconditionally costs nothing.
         cp "$PROJECT_DIR/.aitask-scripts/lib/atomic_write.py"    "$repo_dir/.aitask-scripts/lib/"
+        # bounded_run.py runs every crew fetch/push (agentcrew_utils.sh's
+        # _crew_git_bounded, t2024) whenever the repo has an origin; without it a
+        # scaffolded crew test's publish would fail. A stdlib-only leaf.
+        cp "$PROJECT_DIR/.aitask-scripts/lib/bounded_run.py"     "$repo_dir/.aitask-scripts/lib/"
         # cross_repo_reexec.sh is sourced at startup by aitask_ls.sh,
         # aitask_query_files.sh, and aitask_find_by_file.sh; its only dep
         # (terminal_compat.sh) is already copied above.

@@ -245,6 +245,19 @@ unfinished merge or rebase in the crew worktree, the runner holds: it reads, wri
 and stages no crew file (`PULL_UNSAFE:<reason>` in `--batch`) until the state is
 resolved, then resumes. Start-up and `--check` refuse in the same state.
 
+The pull's fetch and step 14's push are the runner's only network operations,
+and each is bounded by `AIT_CREW_GIT_TIMEOUT` seconds (default 10). The same
+bound applies to every other crew fetch and push (init, addwork, setmode,
+`ait crew status set`). They all run through `lib/bounded_run.py`: a new session
+with no controlling terminal, no askpass program and no display, so nothing can
+prompt. When the bound expires, the operation's whole process group is killed
+(TERM, CONT, then KILL). A timeout is a failure like any other: the pull defers
+(`fetch_failed:`) and the push is retried by the next commit. Local steps that
+write the worktree (commit, rebase, merge) are never bounded.
+`brainstorm_crew._run_addwork` bounds `ait crew addwork` with a stop request
+instead of a kill: addwork finishes the step it is in and skips publishing, and
+only a step still hung after a grace period is killed and its state read back.
+
 ### Runner Configuration
 
 Stored in `aitasks/metadata/crew_runner_config.yaml`:

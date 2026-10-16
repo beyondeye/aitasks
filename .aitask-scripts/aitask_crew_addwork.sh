@@ -19,6 +19,15 @@ source "$SCRIPT_DIR/lib/launch_modes_sh.sh"
 # shellcheck source=lib/agentcrew_utils.sh
 source "$SCRIPT_DIR/lib/agentcrew_utils.sh"
 
+# --- Stop request (t2024) ---
+# A SIGTERM sent to this process alone — what brainstorm_crew._run_addwork does
+# when its deadline expires — asks it to finish registering the agent and skip
+# publishing. bash runs this trap only after the current foreground step
+# returns, so writing and committing the agent files and the rebase are never
+# cut half-way; a fetch/push already running ends within its own bound.
+_AIT_CREW_STOP=""
+trap '_AIT_CREW_STOP=1' TERM
+
 # --- Defaults ---
 CREW_ID=""
 AGENT_NAME=""
@@ -325,13 +334,20 @@ fi
             "${AGENT_NAME}_instructions.md" "${AGENT_NAME}_commands.yaml" \
             "${AGENT_NAME}_alive.yaml" "_crew_meta.yaml" $GIT_ADD_GROUPS
     git commit -m "crew: Add agent '${AGENT_NAME}' to crew '${CREW_ID}'" --quiet
-    # --no-autostash (t2008): the crew worktree holds other live agents'
-    # uncommitted heartbeats, status and command files; a user's
-    # rebase.autoStash would stash and re-apply them. Without it the pull
-    # refuses on a dirty worktree, as under git's default.
-    git pull --rebase --no-autostash --quiet 2>/dev/null || true
-    crew_push . || true
 )
+
+# --- Publish (best-effort) ---
+# Outside the commit subshell, so a stop request recorded by this shell's trap
+# is seen between the steps. crew_pull_rebase keeps t2008's --no-autostash.
+if [[ -z "$_AIT_CREW_STOP" ]]; then
+    crew_pull_rebase "$WT_PATH" || true
+fi
+if [[ -z "$_AIT_CREW_STOP" ]]; then
+    crew_push "$WT_PATH" || true
+fi
+if [[ -n "$_AIT_CREW_STOP" ]]; then
+    warn "Publishing agent '$AGENT_NAME' skipped: stop requested (the next crew push publishes it)"
+fi
 
 success "Agent '$AGENT_NAME' added to crew '$CREW_ID'"
 echo "ADDED:${AGENT_NAME}"

@@ -44,6 +44,8 @@ assert_git_config_isolated
 CLEANUP_DIRS=()
 cleanup() {
     for d in "${CLEANUP_DIRS[@]}"; do
+        # A failed hang cell may leave its TERM-ignoring transport stub alive.
+        [[ -f "$d/hang.pids" ]] && xargs kill -KILL < "$d/hang.pids" 2>/dev/null
         rm -rf "$d" 2>/dev/null
     done
 }
@@ -257,6 +259,169 @@ assert_eq "8: addwork exits 0" "0" "$RC"
 assert_published "8" c8
 assert_eq "8: the remote primary branch is untouched" "$primary_remote_before" \
     "$(git -C "$REMOTE" rev-parse "refs/heads/$primary")"
+
+# --- Bounded network operations (t2024) ---
+# An origin that is routable but never answers must not stall any crew write.
+# make_hanging_origin points origin at an ssh URL whose transport (a configured
+# core.sshCommand stub) never answers: it records its pid, ignores SIGTERM and
+# sleeps 30s, so it dies only when the bound kills the operation's whole
+# process group with SIGKILL. AIT_BOUNDED_RUN_GRACE=1 shortens the TERM→KILL
+# grace that stub always waits out; tests/test_bounded_run.py owns the grace
+# itself. Every elapsed bound below sits far under the stub's 30s.
+make_hanging_origin() {
+    HANG_PIDS="$ROOT/hang.pids"
+    : > "$HANG_PIDS"
+    cat > "$ROOT/hang-ssh" <<EOF
+#!/bin/sh
+echo \$\$ >> "$HANG_PIDS"
+trap '' TERM
+exec sleep 30
+EOF
+    chmod +x "$ROOT/hang-ssh"
+    git -C "$REPO" config core.sshCommand "$ROOT/hang-ssh"
+    git -C "$REPO" config ssh.variant ssh
+    if git -C "$REPO" remote get-url origin >/dev/null 2>&1; then
+        git -C "$REPO" remote set-url origin "ssh://crew-hang.invalid/repo.git"
+    else
+        git -C "$REPO" remote add origin "ssh://crew-hang.invalid/repo.git"
+    fi
+}
+
+# assert_hang_reaped <cell> [times] — the transport was reached ([times] times),
+# and every stub process is gone.
+assert_hang_reaped() {
+    local cell="$1" times="${2:-}" pid alive=""
+    sleep 0.3   # let the kernel finish reaping
+    assert_eq "$cell: fixture: the hanging transport was reached" "yes" \
+        "$([[ -s "$HANG_PIDS" ]] && echo yes || echo no)"
+    if [[ -n "$times" ]]; then
+        assert_eq "$cell: the transport was reached $times time(s)" "$times" \
+            "$(wc -l < "$HANG_PIDS" | tr -d ' ')"
+    fi
+    while read -r pid; do
+        kill -0 "$pid" 2>/dev/null && alive="$alive $pid"
+    done < "$HANG_PIDS"
+    assert_eq "$cell: every hanging transport process was killed" "" "$alive"
+}
+
+# within <cell> <what> <max-seconds> <elapsed>
+within() {
+    assert_eq "$1: $2 returns within ${3}s (the stub hangs 30s)" "yes" \
+        "$( (( $4 <= $3 )) && echo yes || echo "no: ${4}s")"
+}
+
+echo "--- Test 9: fixture control: the hanging origin stalls an unbounded call ---"
+new_crew_repo
+make_hanging_origin
+git -C "$REPO" ls-remote origin >/dev/null 2>&1 &
+ctl_pid=$!
+sleep 3
+assert_eq "9: control: a plain git ls-remote is still waiting after 3s" "running" \
+    "$(kill -0 "$ctl_pid" 2>/dev/null && echo running || echo exited)"
+kill -KILL "$ctl_pid" 2>/dev/null
+xargs kill -KILL < "$HANG_PIDS" 2>/dev/null
+wait "$ctl_pid" 2>/dev/null
+
+export AIT_CREW_GIT_TIMEOUT=2 AIT_BOUNDED_RUN_GRACE=1
+
+echo "--- Test 10: init against a hanging origin is bounded ---"
+: > "$HANG_PIDS"
+start=$SECONDS
+crew_init c10
+within "10" "init" 10 $(( SECONDS - start ))
+assert_eq "10: init exits 0" "0" "$RC"
+assert_contains "10: init still reports CREATED" "CREATED:c10" "$OUT"
+assert_contains "10: the warning names the timeout" "timed out after 2s" "$ERR"
+assert_contains "10: the warning names the knob" "AIT_CREW_GIT_TIMEOUT" "$ERR"
+assert_not_contains "10: nothing from git reaches stdout" "track" "$OUT"
+assert_eq "10: a timed-out push sets no upstream" "" "$(upstream c10)"
+assert_hang_reaped "10" 1
+
+echo "--- Test 11: a timed-out init heals through the next publish ---"
+git -C "$REPO" remote set-url origin "$REMOTE"
+crew_addwork c10 w1
+assert_eq "11: addwork exits 0" "0" "$RC"
+assert_contains "11: addwork reports ADDED" "ADDED:w1" "$OUT"
+assert_published "11" c10
+
+echo "--- Test 12: addwork against a hanging origin (fetch and push bounded) ---"
+new_crew_repo
+git -C "$REPO" remote add origin "$REMOTE"
+crew_init c12
+crew_addwork c12 w1
+assert_published "12: fixture" c12
+remote_before="$(remote_tip c12)"
+make_hanging_origin
+start=$SECONDS
+crew_addwork c12 w2
+within "12" "addwork" 16 $(( SECONDS - start ))
+assert_eq "12: addwork exits 0" "0" "$RC"
+assert_contains "12: addwork reports ADDED" "ADDED:w2" "$OUT"
+assert_contains "12: the push warning names the timeout" "timed out after 2s" "$ERR"
+assert_hang_reaped "12" 2
+assert_contains "12: the agent was committed locally" "crew: Add agent 'w2'" \
+    "$(git -C "$(crew_wt c12)" log -1 --format=%s)"
+assert_eq "12: the remote is untouched" "$remote_before" "$(remote_tip c12)"
+assert_eq "12: the upstream survives" "origin/crew-c12" "$(upstream c12)"
+
+echo "--- Test 13: setmode against a hanging origin ---"
+: > "$HANG_PIDS"
+start=$SECONDS
+crew_setmode c12 w1
+within "13" "setmode" 16 $(( SECONDS - start ))
+assert_eq "13: setmode exits 0" "0" "$RC"
+assert_contains "13: setmode reports UPDATED" "UPDATED:w1:interactive" "$OUT"
+assert_hang_reaped "13" 2
+assert_contains "13: the change was committed locally" "Set launch_mode=interactive" \
+    "$(git -C "$(crew_wt c12)" log -1 --format=%s)"
+assert_eq "13: the remote is untouched" "$remote_before" "$(remote_tip c12)"
+
+echo "--- Test 14: a terminal 'ait crew status set' against a hanging origin ---"
+for st in Ready Running; do
+    crew_status_set c12 w1 "$st"
+done
+: > "$HANG_PIDS"
+start=$SECONDS
+crew_status_set c12 w1 Completed
+within "14" "status set" 10 $(( SECONDS - start ))
+assert_eq "14: status set exits 0" "0" "$RC"
+assert_contains "14: status set reports the transition" "STATUS_SET:w1:Running:Completed" "$OUT"
+# status set pushes with batch=True, which never warns: the timeout is silent
+# like any other failed push there, and must not surface as a traceback.
+assert_not_contains "14: the timed-out push is silent (batch push)" "git push warning" "$ERR"
+assert_not_contains "14: no traceback" "Traceback" "$ERR"
+assert_hang_reaped "14" 1
+assert_eq "14: the remote is untouched" "$remote_before" "$(remote_tip c12)"
+
+echo "--- Test 15: the runner's git_pull against a hanging origin ---"
+: > "$HANG_PIDS"
+start=$SECONDS
+pull_out="$("$AITASK_PYTHON" -c '
+import sys
+sys.path.insert(0, sys.argv[1])
+from agentcrew_utils import crew_merge_state, git_pull
+status, detail = git_pull(sys.argv[2], batch=False)
+print(f"PULL_RESULT:{status}|{detail}")
+print(f"MERGE_STATE:{crew_merge_state(sys.argv[2])}")
+' "$PROJECT_DIR/.aitask-scripts/agentcrew" "$(crew_wt c12)" 2>"$ROOT/pull.err")"
+within "15" "git_pull" 10 $(( SECONDS - start ))
+assert_contains "15: the pull defers on the timed-out fetch" \
+    "PULL_RESULT:deferred|fetch_failed: timed out after 2s" "$pull_out"
+assert_contains "15: non-batch warns" "git pull warning: fetch_failed: timed out" \
+    "$(cat "$ROOT/pull.err")"
+assert_contains "15: no merge state is left" "MERGE_STATE:None" "$pull_out"
+assert_hang_reaped "15" 1
+
+unset AIT_CREW_GIT_TIMEOUT AIT_BOUNDED_RUN_GRACE
+
+echo "--- Test 16: AIT_CREW_GIT_TIMEOUT is normalized ---"
+for pair in ":10" "0:10" "-1:10" "abc:10" "08x:10" "1234567:10" "08:8" "3:3"; do
+    raw="${pair%:*}"
+    want="${pair##*:}"
+    got="$(AIT_CREW_GIT_TIMEOUT="$raw" bash -c \
+        '. "$1/.aitask-scripts/lib/agentcrew_utils.sh" && crew_git_timeout' _ "$PROJECT_DIR")"
+    assert_eq "16: AIT_CREW_GIT_TIMEOUT='$raw' → $want" "$want" "$got"
+done
 
 echo ""
 echo "=== Results ==="

@@ -436,7 +436,8 @@ class TestRunAddwork(unittest.TestCase):
 
         captured = {}
 
-        def fake_run(cmd, capture_output=False, text=False, **kwargs):
+        # _run_addwork runs ait crew addwork through run_bounded (t2024).
+        def fake_run(cmd, *args, **kwargs):
             captured["cmd"] = list(cmd)
             class Result:
                 returncode = 0
@@ -445,7 +446,7 @@ class TestRunAddwork(unittest.TestCase):
             return Result()
 
         with patch(
-            "brainstorm.brainstorm_crew.subprocess.run", side_effect=fake_run
+            "brainstorm.brainstorm_crew.run_bounded", side_effect=fake_run
         ):
             _run_addwork(
                 crew_id="brainstorm-999",
@@ -475,6 +476,77 @@ class TestRunAddwork(unittest.TestCase):
         self.assertEqual(cmd[idx + 1], "headless")
 
 
+class TestRunAddworkDeadline(unittest.TestCase):
+    """`_run_addwork` bounds ait crew addwork with a stop request (t2024).
+
+    The real nested behaviour (stop honoured between steps, a hung step killed
+    and read back) is driven end to end by tests/test_brainstorm_addwork_deadline.sh;
+    these pin the wiring.
+    """
+
+    def _call(self, fake):
+        from unittest.mock import patch
+
+        with patch("brainstorm.brainstorm_crew.run_bounded", side_effect=fake):
+            return _run_addwork(
+                crew_id="brainstorm-999",
+                agent_name="agent_under_test",
+                agent_type="initializer",
+                group_name="bootstrap",
+                work2do_path=TEMPLATE_DIR / "initializer.md",
+            )
+
+    def test_bound_and_stop_grace_passed_to_run_bounded(self):
+        import brainstorm.brainstorm_crew as bc
+        from unittest.mock import patch
+
+        seen = {}
+
+        def fake(cmd, timeout, **kwargs):
+            seen["timeout"] = timeout
+            seen.update(kwargs)
+
+            class Result:
+                returncode = 0
+                stdout = "ADDED:agent_under_test\n"
+                stderr = ""
+                stopped = False
+            return Result()
+
+        with patch.dict(os.environ, {"AIT_CREW_GIT_TIMEOUT": "7"}):
+            self.assertEqual(self._call(fake), "agent_under_test")
+        self.assertEqual(seen["timeout"], 2 * 7 + bc._ADDWORK_LOCAL_HEADROOM_S)
+        self.assertEqual(seen["stop_grace"], bc._ADDWORK_STOP_GRACE_S)
+
+    def test_timeout_is_routed_through_the_state_read_back(self):
+        import subprocess
+        from unittest.mock import patch
+
+        def fake(cmd, timeout, **kwargs):
+            raise subprocess.TimeoutExpired(cmd, timeout)
+
+        with patch("brainstorm.brainstorm_crew._addwork_outcome",
+                   return_value="agent_under_test") as outcome:
+            self.assertEqual(self._call(fake), "agent_under_test")
+        crew_id, agent_name, limit = outcome.call_args.args
+        self.assertEqual((crew_id, agent_name), ("brainstorm-999", "agent_under_test"))
+        self.assertGreater(limit, 0)
+
+    def test_failure_after_a_stop_request_names_the_deadline(self):
+        def fake(cmd, timeout, **kwargs):
+            class Result:
+                returncode = 1
+                stdout = ""
+                stderr = "boom"
+                stopped = True
+            return Result()
+
+        with self.assertRaises(RuntimeError) as ctx:
+            self._call(fake)
+        self.assertIn("asked to stop at its", str(ctx.exception))
+        self.assertIn("boom", str(ctx.exception))
+
+
 class TestRegisterParallelExplorers(BrainstormCrewTestBase):
     """Parallel explorers in the same group must get distinct node_ids.
 
@@ -493,15 +565,19 @@ class TestRegisterParallelExplorers(BrainstormCrewTestBase):
         self._init_session()
         self._create_test_node("n000_init")
 
-        def fake_run(cmd, capture_output=False, text=False, **kwargs):
+        def fake_run(cmd, *args, **kwargs):
             class Result:
                 returncode = 0
                 stdout = ""
                 stderr = ""
             return Result()
 
+        # addwork goes through run_bounded (t2024); any other subprocess call
+        # through subprocess.run.
         with patch(
             "brainstorm.brainstorm_crew.subprocess.run", side_effect=fake_run
+        ), patch(
+            "brainstorm.brainstorm_crew.run_bounded", side_effect=fake_run
         ):
             name_a = register_explorer(
                 self.wt_path, "brainstorm-888",

@@ -28,6 +28,12 @@ registration, launch-mode changes, runner commits and terminal
 `ait crew status set` transitions) are pushed to it.
 A repository without `origin` keeps the branch local.
 
+Each fetch and push to `origin` is limited to 10 seconds by default; set
+`AIT_CREW_GIT_TIMEOUT` to a number of seconds to change the limit. These
+operations run without a terminal or askpass program, so they never ask for a
+passphrase or password: credentials must come from ssh-agent or a git credential
+helper. A push that times out or fails is retried by the next crew commit.
+
 ```bash
 ait crew init --id sprint1 \
   --add-type impl:claudecode/opus4_6 \

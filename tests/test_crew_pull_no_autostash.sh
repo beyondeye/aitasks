@@ -106,6 +106,7 @@ import argparse
 import os
 import subprocess
 import sys
+import types
 from datetime import datetime, timedelta, timezone
 
 ap = argparse.ArgumentParser()
@@ -164,7 +165,7 @@ def inject_merge():
     print(f"INJECTED:{side}", flush=True)
 
 
-def wrapped_git_cmd(worktree, *a, check=True):
+def wrapped_git_cmd(worktree, *a, check=True, **kw):
     sub = a[0] if a else ""
     if args.git_log:
         with open(args.git_log, "a") as fh:
@@ -176,7 +177,7 @@ def wrapped_git_cmd(worktree, *a, check=True):
         if check:
             result.check_returncode()
     else:
-        result = real_git_cmd(worktree, *a, check=check)
+        result = real_git_cmd(worktree, *a, check=check, **kw)
     if args.write_after and "write" not in done:
         if args.write_after == "proof":
             hit = sub == "commit-tree"
@@ -272,6 +273,12 @@ def fake_sleep(_seconds):
             subprocess.run(recover, shell=True, check=True)
 
 
+# Only the RUNNER's sleep: `r.time` is the time module itself, and patching its
+# `sleep` would also replace the one subprocess.Popen.wait(timeout) polls with
+# inside bounded_run.run_bounded (git_cmd's bounded fetch/push, t2024), which
+# would then count against the iteration cap.
+r.time = types.SimpleNamespace(
+    **{n: getattr(r.time, n) for n in dir(r.time) if not n.startswith("__")})
 r.time.sleep = fake_sleep
 
 if args.mode == "runner":

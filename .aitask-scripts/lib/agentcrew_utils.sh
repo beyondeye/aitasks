@@ -7,6 +7,8 @@
 _AIT_AGENTCREW_UTILS_LOADED=1
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Captured separately: callers reassign SCRIPT_DIR after sourcing.
+_AIT_AGENTCREW_LIB_DIR="$SCRIPT_DIR"
 # shellcheck source=terminal_compat.sh
 source "$SCRIPT_DIR/terminal_compat.sh"
 # shellcheck source=yaml_utils.sh
@@ -81,6 +83,43 @@ agentcrew_worktree_path() {
     echo "${AGENTCREW_DIR}/crew-${crew_id}"
 }
 
+# --- Bounded crew git network operations (t2024) ---
+# Every crew fetch/push to origin runs through _crew_git_bounded, so an origin
+# that is routable but never answers (a TCP connect waiting out the kernel's SYN
+# retries) cannot stall crew init, agent registration or a launch-mode change.
+# The bound is AIT_CREW_GIT_TIMEOUT seconds; agentcrew_utils.py's
+# crew_git_timeout() reads the same knob for the runner and `ait crew status`.
+_AIT_CREW_GIT_TIMEOUT_DEFAULT=10
+
+# crew_git_timeout — print the per-operation bound in whole seconds. Unset,
+# empty, zero, negative, non-numeric or absurdly long values fall back to the
+# default. `10#` keeps a leading zero from being read as octal.
+crew_git_timeout() {
+    local t="${AIT_CREW_GIT_TIMEOUT:-}"
+    if [[ "$t" =~ ^[0-9]{1,6}$ ]] && (( 10#$t > 0 )); then
+        printf '%s\n' "$(( 10#$t ))"
+    else
+        printf '%s\n' "$_AIT_CREW_GIT_TIMEOUT_DEFAULT"
+    fi
+}
+
+# _crew_git_bounded <worktree> <output-file> <git-args...>
+# Run `git -C <worktree> <git-args>` through lib/bounded_run.py with stdout and
+# stderr in <output-file>. Returns git's status, or 124 when the bound expired
+# and the operation's whole process tree was killed. bounded_run.py runs git in
+# a new session with noninteractive_env(): no controlling terminal, no askpass
+# program and no display, so ssh, plink or a configured transport cannot prompt
+# (a `set -m` job would keep the terminal). Only network operations go through
+# here: killing a local step that writes the worktree (a commit, a rebase)
+# could leave it half-done.
+_crew_git_bounded() {
+    local wt="$1" out="$2"
+    shift 2
+    "${_AIT_RESOLVED_PYTHON:-python3}" "$_AIT_AGENTCREW_LIB_DIR/bounded_run.py" \
+        --timeout "$(crew_git_timeout)" --noninteractive -- \
+        git -C "$wt" "$@" >"$out" 2>&1
+}
+
 # crew_push <worktree>
 # Publish the crew branch checked out in <worktree> to origin (best-effort).
 # Always `push -u origin HEAD` (t2016): crew init creates the branch with no
@@ -88,20 +127,57 @@ agentcrew_worktree_path() {
 # user sets push.autoSetupRemote; -u gives it one on the first push that
 # succeeds, so an offline init heals later. Naming the destination also keeps
 # a push.default=matching from publishing the repository's other branches.
+# A push that timed out leaves the branch exactly as a failed one does: git
+# sets the upstream only after a push succeeds (or finds the remote already up
+# to date), so the next successful push sets it.
 # No origin remote -> nothing to publish to: returns 0 silently. On failure
 # warns with git's own stderr and returns 1. Never writes to stdout — callers
 # print machine-parsed CREATED:/ADDED:/UPDATED: lines there, and git prints
 # "branch ... set up to track ..." on stdout unless --quiet.
 crew_push() {
-    local wt="$1" err
+    local wt="$1" out rc=0
     git -C "$wt" remote get-url origin >/dev/null 2>&1 || return 0
-    if ! err="$(git -C "$wt" push --quiet -u origin HEAD 2>&1)"; then
+    if ! out="$(mktemp "${TMPDIR:-/tmp}/ait_crew_push_XXXXXX")"; then
+        warn "git push of the crew branch to origin skipped: mktemp failed"
+        return 1
+    fi
+    _crew_git_bounded "$wt" "$out" push --quiet -u origin HEAD || rc=$?
+    if [[ "$rc" -eq 124 ]]; then
+        warn "git push of the crew branch to origin timed out after $(crew_git_timeout)s (origin did not answer in time; AIT_CREW_GIT_TIMEOUT sets the bound)"
+    elif [[ "$rc" -ne 0 ]]; then
         warn "git push of the crew branch to origin failed:"
         # Raw, not through warn(): warn() is echo -e and would interpret
         # backslashes in git's message.
-        printf '%s\n' "$err" >&2
-        return 1
+        cat "$out" >&2
     fi
+    rm -f "$out"
+    [[ "$rc" -eq 0 ]] || return 1
+}
+
+# crew_pull_rebase <worktree>
+# Rebase the crew branch onto its freshly fetched upstream (best-effort, quiet).
+# What `git pull --rebase --no-autostash` did, split in two so that only the
+# network step is bounded: the fetch of the tracked branch runs through
+# _crew_git_bounded, and the local rebase runs only after a fetch that
+# succeeded — exactly when `pull --rebase` would have rebased — and is never
+# killed half-way. --no-autostash (t2008): the crew worktree holds other live
+# agents' uncommitted heartbeats, status and command files, and a user's
+# rebase.autoStash would stash and re-apply them; without it the rebase refuses
+# on a dirty worktree, as under git's default. The upstream is read like
+# agentcrew_utils.py's _upstream_source (t2018). Returns 1, quietly, when there
+# is no upstream (the old pull died with "no tracking information"), or when
+# the fetch or the rebase failed.
+crew_pull_rebase() {
+    local wt="$1" branch remote merge_ref out rc=0
+    branch="$(git -C "$wt" symbolic-ref -q HEAD 2>/dev/null)" || return 1
+    remote="$(git -C "$wt" for-each-ref --format='%(upstream:remotename)' "$branch" 2>/dev/null)" || return 1
+    merge_ref="$(git -C "$wt" for-each-ref --format='%(upstream:remoteref)' "$branch" 2>/dev/null)" || return 1
+    [[ -n "$remote" && -n "$merge_ref" ]] || return 1
+    out="$(mktemp "${TMPDIR:-/tmp}/ait_crew_fetch_XXXXXX")" || return 1
+    _crew_git_bounded "$wt" "$out" fetch --quiet -- "$remote" "$merge_ref" || rc=$?
+    rm -f "$out"
+    [[ "$rc" -eq 0 ]] || return 1
+    git -C "$wt" rebase --no-autostash --quiet >/dev/null 2>&1
 }
 
 # validate_crew_id <id>

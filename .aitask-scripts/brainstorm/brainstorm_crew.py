@@ -24,6 +24,13 @@ from pathlib import Path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "lib"))
 
+from agentcrew.agentcrew_utils import (  # noqa: E402
+    crew_git_timeout,
+    crew_merge_state,
+    crew_worktree_path,
+    git_cmd,
+)
+from bounded_run import run_bounded  # noqa: E402
 from config_utils import load_layered_config  # noqa: E402
 from launch_modes import DEFAULT_LAUNCH_MODE, VALID_LAUNCH_MODES  # noqa: E402
 
@@ -122,6 +129,74 @@ def _group_seq(group_name: str) -> str:
     return group_name
 
 
+# Registration deadline (t2024). ait crew addwork makes two network round-trips
+# (fetch + push), each bounded by crew_git_timeout() inside the script; the
+# headroom covers its local work.
+_ADDWORK_LOCAL_HEADROOM_S = 60
+# After the deadline, how long addwork may take to finish the step it is in.
+_ADDWORK_STOP_GRACE_S = 60
+
+_HUNG_STEP = ("a git hook or commit signing in the crew worktree did not finish; "
+              "fix that first")
+_MERGE_STATE_TEXT = {
+    "merge_in_progress": "an unfinished merge",
+    "rebase_in_progress": "an unfinished rebase",
+    "unmerged_paths": "unmerged paths",
+    "probe_failed": "a state git could not report",
+}
+
+
+def _addwork_timeout() -> int:
+    """Seconds _run_addwork waits before asking ait crew addwork to stop."""
+    return 2 * crew_git_timeout() + _ADDWORK_LOCAL_HEADROOM_S
+
+
+def _addwork_outcome(crew_id: str, agent_name: str, limit: int) -> str:
+    """Report what a killed ``ait crew addwork`` left in the crew worktree.
+
+    Reached only when addwork was still running ``_ADDWORK_STOP_GRACE_S`` after
+    the stop request — a local step hung — so its process group was killed. The
+    outcome is read back from the worktree, never guessed. A committed
+    registration counts as success: no command removes an agent, so raising for
+    it would leave an agent brainstorm could have recorded unrecorded.
+
+    Returns:
+        Agent name when the registration commit exists.
+
+    Raises:
+        RuntimeError: naming the state left behind and its remedy.
+    """
+    wt = crew_worktree_path(crew_id)
+    head = (f"ait crew addwork for agent '{agent_name}' was killed after "
+            f"{limit + _ADDWORK_STOP_GRACE_S}s: {_HUNG_STEP}.")
+    state = crew_merge_state(wt)
+    if state:
+        raise RuntimeError(
+            f"{head} It left {_MERGE_STATE_TEXT.get(state, state)} in {wt}, which "
+            f"`git -C {wt} status` shows; an interrupted rebase is undone with "
+            f"`git -C {wt} rebase --abort`, which keeps every commit made before it. "
+            "The crew runner holds until it is resolved. If the branch then holds "
+            f"agent '{agent_name}', it stays registered, but brainstorm did not "
+            "record it or write its input."
+        )
+    committed = git_cmd(wt, "cat-file", "-e", f"HEAD:{agent_name}_status.yaml", check=False)
+    if committed.returncode == 0:
+        return agent_name  # registered; the next crew push publishes it
+    if os.path.exists(os.path.join(wt, f"{agent_name}_status.yaml")):
+        raise RuntimeError(
+            f"{head} Agent '{agent_name}' is written and staged in {wt} but not "
+            "committed. A running crew runner reads agents from these files and "
+            f"commits whatever it finds, so '{agent_name}' may still be launched "
+            "with placeholder input. Complete it with "
+            f"`git -C {wt} commit -m \"crew: Add agent '{agent_name}' to crew "
+            f"'{crew_id}'\"`, or discard it: `git -C {wt} rm -q --cached -- "
+            f"'{agent_name}_*'`, delete {wt}/{agent_name}_*, and revert its entries "
+            f"in _crew_meta.yaml / _groups.yaml (`git -C {wt} diff --cached` "
+            "shows them)."
+        )
+    raise RuntimeError(f"{head} Nothing was registered; retry once it is fixed.")
+
+
 def _run_addwork(
     crew_id: str,
     agent_name: str,
@@ -131,6 +206,13 @@ def _run_addwork(
     launch_mode: str = DEFAULT_LAUNCH_MODE,
 ) -> str:
     """Register agent via subprocess call to ait crew addwork.
+
+    Bounded (t2024): after ``_addwork_timeout()`` seconds addwork is sent a stop
+    request (SIGTERM to it alone). It then finishes the step it is in — writing
+    and committing the registration and the rebase are never cut — and skips
+    publishing; a registration committed that way is a success, like one whose
+    push failed. Only an addwork still running ``_ADDWORK_STOP_GRACE_S`` later
+    is killed, and ``_addwork_outcome`` reports what it left behind.
 
     Returns:
         Agent name on success.
@@ -148,10 +230,16 @@ def _run_addwork(
         "--launch-mode", launch_mode,
         "--batch",
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    limit = _addwork_timeout()
+    try:
+        result = run_bounded(cmd, limit, stop_grace=_ADDWORK_STOP_GRACE_S)
+    except subprocess.TimeoutExpired:
+        return _addwork_outcome(crew_id, agent_name, limit)
     if result.returncode != 0:
+        stopped = (f" (asked to stop at its {limit}s deadline)"
+                   if getattr(result, "stopped", False) else "")
         raise RuntimeError(
-            f"ait crew addwork failed for agent '{agent_name}': {result.stderr}"
+            f"ait crew addwork failed for agent '{agent_name}'{stopped}: {result.stderr}"
         )
     for line in result.stdout.strip().splitlines():
         if line.startswith("ADDED:"):

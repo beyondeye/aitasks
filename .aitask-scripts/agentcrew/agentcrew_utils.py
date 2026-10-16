@@ -12,6 +12,15 @@ from datetime import datetime, timezone
 
 import yaml
 
+# lib/ holds bounded_run.py. Importers put different directories on sys.path
+# (the scripts dir, agentcrew/ itself), so make lib/ reachable from here;
+# appended, so it never shadows a module the importer already resolves.
+_LIB_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "lib")
+if _LIB_DIR not in sys.path:
+    sys.path.append(_LIB_DIR)
+
+from bounded_run import noninteractive_env, run_bounded  # noqa: E402
+
 # ---------------------------------------------------------------------------
 # Status constants (must match .aitask-scripts/lib/agentcrew_utils.sh)
 # ---------------------------------------------------------------------------
@@ -286,10 +295,49 @@ def crew_worktree_path(crew_id: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def git_cmd(worktree: str, *args: str, check: bool = True) -> subprocess.CompletedProcess:
-    """Run a git command in the given worktree directory."""
+# Crew git network operations (t2024): each fetch/push to origin is bounded by
+# AIT_CREW_GIT_TIMEOUT seconds. Mirrors crew_git_timeout in lib/agentcrew_utils.sh.
+CREW_GIT_TIMEOUT_DEFAULT = 10
+GIT_TIMED_OUT = 124
+_CREW_GIT_TIMEOUT = re.compile(r"[0-9]{1,6}")
+
+
+def crew_git_timeout() -> int:
+    """Seconds one crew git network operation may take.
+
+    Unset, empty, zero, negative, non-numeric or absurdly long values fall back
+    to the default.
+    """
+    raw = os.environ.get("AIT_CREW_GIT_TIMEOUT", "")
+    if _CREW_GIT_TIMEOUT.fullmatch(raw) and int(raw) > 0:
+        return int(raw)
+    return CREW_GIT_TIMEOUT_DEFAULT
+
+
+def git_cmd(worktree: str, *args: str, check: bool = True,
+            timeout: float | None = None) -> subprocess.CompletedProcess:
+    """Run a git command in the given worktree directory.
+
+    ``timeout`` is for network operations only: the command then runs through
+    bounded_run.run_bounded under noninteractive_env() — a new session with no
+    controlling terminal, no askpass program and no display, so nothing can
+    prompt — and its whole process tree is killed after ``timeout`` seconds. A
+    timed-out command reports exit status 124 with a message on stderr, like
+    any other failure. Never pass it for a step that writes the worktree.
+    """
     cmd = ["git", "-C", worktree] + list(args)
-    return subprocess.run(cmd, capture_output=True, text=True, check=check)
+    if timeout is None:
+        return subprocess.run(cmd, capture_output=True, text=True, check=check)
+    try:
+        result = run_bounded(cmd, timeout, env=noninteractive_env())
+    except subprocess.TimeoutExpired:
+        result = subprocess.CompletedProcess(
+            cmd, GIT_TIMED_OUT, "",
+            f"timed out after {timeout:g}s (the remote did not answer in time; "
+            "AIT_CREW_GIT_TIMEOUT sets the bound)")
+    if check:
+        result.check_returncode()
+    return result
 
 
 # git_pull outcomes (t2018).
@@ -422,8 +470,10 @@ def _sync_with_upstream(worktree: str) -> tuple[str, str]:
         return PULL_DEFERRED, "no_upstream: the crew branch tracks no upstream"
     remote, merge_ref = source
     # The fetch `git pull` would run, on its own: a transport failure is
-    # reported instead of being read past via stale tracking refs.
-    fetch = git_cmd(worktree, "fetch", "--quiet", "--", remote, merge_ref, check=False)
+    # reported instead of being read past via stale tracking refs. The one
+    # network step, so the only bounded one (t2024); a timeout is a failure.
+    fetch = git_cmd(worktree, "fetch", "--quiet", "--", remote, merge_ref, check=False,
+                    timeout=crew_git_timeout())
     if fetch.returncode != 0:
         return PULL_DEFERRED, f"fetch_failed: {_one_line(fetch.stderr) or f'exit {fetch.returncode}'}"
     head = _commit_id(worktree, "HEAD")
@@ -486,11 +536,14 @@ def git_push(worktree: str, batch: bool = False) -> None:
     push that succeeds, so an offline init heals later. Naming the destination
     also keeps a push.default=matching from publishing the repository's other
     branches. No origin remote means nothing to publish to: skip silently.
-    Mirrors ``crew_push`` in lib/agentcrew_utils.sh.
+    Bounded by crew_git_timeout() (t2024); a timeout is warned like any other
+    failure and leaves the branch as a failed push does. Mirrors ``crew_push``
+    in lib/agentcrew_utils.sh.
     """
     if git_cmd(worktree, "remote", "get-url", "origin", check=False).returncode != 0:
         return
-    result = git_cmd(worktree, "push", "--quiet", "-u", "origin", "HEAD", check=False)
+    result = git_cmd(worktree, "push", "--quiet", "-u", "origin", "HEAD", check=False,
+                     timeout=crew_git_timeout())
     if result.returncode != 0 and not batch:
         ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
         print(f"[{ts}] git push warning: {result.stderr.strip()}", file=sys.stderr)
