@@ -7,6 +7,7 @@ xdeprepo: aitasks_go
 issue_type: feature
 status: Ready
 labels: [monitor, tmux, performance]
+children_to_implement: [t2038_1]
 anchor: 2034
 created_at: 2026-10-16 08:11
 updated_at: 2026-10-16 08:11
