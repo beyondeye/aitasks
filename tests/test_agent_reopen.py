@@ -17,7 +17,9 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 import sys
+import tempfile
 import types
 import unittest
 import unittest.mock
@@ -195,15 +197,19 @@ class Store:
         self.calls: list[tuple] = []
         self.lease_rc = 0
         self.commit_rc = 0
+        self.list_rc = 0
         self.on_lease = None      # callable run just before a lease is granted
 
     def __call__(self, *argv, timeout: float = 20.0):
         self.calls.append(tuple(argv))
         verb = argv[0]
         if verb == "list":
+            if self.list_rc:
+                return self.list_rc, "ERROR:store unreadable"
+            root = argv[argv.index("--root") + 1] if "--root" in argv else None
             rows = []
             for r in self.records.values():
-                if r["state"] != "frozen" or r["root"] != argv[argv.index("--root") + 1]:
+                if r["state"] != "frozen" or (root is not None and r["root"] != root):
                     continue
                 rows.append("SESSION:" + "|".join(
                     [r["id"], r["state"], r["root"], r["window"], r["pane_id"],
@@ -741,6 +747,207 @@ class TestBatchAndCli(_Base):
         self.assertEqual(2, self._main("gone", "--root", ROOT, "--session", "x"))
         self.assertEqual(0, self._main("gone", "--root", ROOT))
         self.assertEqual(0, self._main("reopen", RID, "--session", "-n"))
+
+
+def _main_output(*argv) -> tuple[int, list[str]]:
+    """``agent_reopen.main`` with stdout captured as lines."""
+    import io
+    buf = io.StringIO()
+    with unittest.mock.patch("sys.stdout", buf), unittest.mock.patch("sys.stderr"):
+        rc = agent_reopen.main(list(argv))
+    return rc, buf.getvalue().splitlines()
+
+
+class TestAllRoots(_Base):
+    """`gone --all-roots`: every project's records, grouped, with a root state (t2039)."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        tmp = tempfile.mkdtemp(prefix="t2039_roots_")
+        self.addCleanup(shutil.rmtree, tmp, True)
+        tmp = os.path.realpath(tmp)
+
+        def project(name: str, marker: bool = True) -> str:
+            root = os.path.join(tmp, name)
+            if marker:
+                os.makedirs(os.path.join(root, "aitasks", "metadata"))
+                Path(root, "aitasks", "metadata", "project_config.yaml").write_text("")
+            return root
+
+        self.reg = project("reg_dir")             # registered as "alpha"
+        self.unreg = project("unreg_dir")         # a project, never registered
+        self.gone = project("gone_dir", marker=False)   # registered, directory gone
+        self.index = os.path.join(tmp, "projects.yaml")
+        Path(self.index).write_text(
+            "projects:\n"
+            f"  - name: alpha\n    path: {self.reg}\n"
+            f"  - name: beta\n    path: {self.gone}\n")
+        env = unittest.mock.patch.dict(os.environ, {"AITASKS_PROJECTS_INDEX": self.index})
+        env.start()
+        self.addCleanup(env.stop)
+        self.store.records = {}
+        for rid, root, window in (("aaaaaaaa", self.reg, "agent-a"),
+                                  ("bbbbbbbb", self.unreg, "agent-b"),
+                                  ("cccccccc", self.gone, "agent-c")):
+            self.store.records[rid] = rec(rid, root=root, window=window, pane_id="%9")
+
+    def test_groups_carry_state_name_and_the_root_last(self):
+        lines = agent_reopen.gone_all_roots()
+        self.assertEqual([
+            f"GONE_ROOT:ok|alpha|{self.reg}",
+            f"GONE:aaaaaaaa|gone|agent-a|1847|2026-09-21T22:40:00Z|ok|ok|{self.reg}",
+            f"GONE_ROOT:missing|beta|{self.gone}",
+            f"GONE:cccccccc|gone|agent-c|1847|2026-09-21T22:40:00Z|ok|ok|{self.gone}",
+            f"GONE_ROOT:unregistered|unreg_dir|{self.unreg}",
+            f"GONE:bbbbbbbb|gone|agent-b|1847|2026-09-21T22:40:00Z|ok|ok|{self.unreg}",
+            "GONE_COUNT:3",
+        ], lines)
+
+    def test_the_store_is_listed_without_a_root(self):
+        agent_reopen.gone_all_roots()
+        lists = [c for c in self.store.calls if c[0] == "list"]
+        self.assertEqual([("list", "--state", "frozen")], lists)
+
+    def test_a_tracked_record_and_its_root_are_not_listed(self):
+        self.world.add("alpha_s", "agent-a", frozen="aaaaaaaa", pane_id="%9")
+        lines = agent_reopen.gone_all_roots()
+        self.assertFalse(any(self.reg in ln for ln in lines), lines)
+        self.assertEqual("GONE_COUNT:2", lines[-1])
+
+    def test_an_unreadable_registry_is_unverified_never_unregistered(self):
+        os.unlink(self.index)
+        os.mkdir(self.index)                      # exists, but is not a file
+        headers = [ln for ln in agent_reopen.gone_all_roots() if ln.startswith("GONE_ROOT:")]
+        self.assertIn(f"GONE_ROOT:unverified|reg_dir|{self.reg}", headers)
+        self.assertIn(f"GONE_ROOT:unverified|unreg_dir|{self.unreg}", headers)
+        self.assertIn(f"GONE_ROOT:missing|gone_dir|{self.gone}", headers,
+                      "a missing directory is missing whatever the registry says")
+        self.assertFalse(any(":ok|" in h or ":unregistered|" in h for h in headers),
+                         "a registry that could not be read decides nothing")
+
+    def test_an_unlookable_marker_spoils_only_its_own_root(self):
+        """Before Python 3.14 `Path.is_file()` re-raises a PermissionError (a
+        directory without search permission). It must stay that root's state,
+        never abort the listing of the healthy ones. Injected, because 3.14
+        swallows it and this suite may run there."""
+        real_is_file = Path.is_file
+        locked = self.unreg
+
+        def is_file(path):
+            if str(path).startswith(locked + os.sep):
+                raise PermissionError(13, "Permission denied", str(path))
+            return real_is_file(path)
+
+        with unittest.mock.patch.object(Path, "is_file", is_file):
+            lines = agent_reopen.gone_all_roots()
+            rc, _out = _main_output("gone", "--all-roots")
+        self.assertEqual(0, rc)
+        self.assertIn(f"GONE_ROOT:inaccessible|unreg_dir|{self.unreg}", lines)
+        self.assertIn(f"GONE_ROOT:ok|alpha|{self.reg}", lines,
+                      "the healthy project is still listed, and still actionable")
+        self.assertIn(f"GONE_ROOT:missing|beta|{self.gone}", lines)
+        self.assertEqual("GONE_COUNT:3", lines[-1])
+
+    def test_unreachable_tmux_yields_rooted_errors(self):
+        self.world.unreachable = True
+        lines = agent_reopen.gone_all_roots()
+        self.assertIn(f"GONE_ERROR:aaaaaaaa|tmux_unreachable|{self.reg}", lines)
+        self.assertIn(f"GONE_ROOT:ok|alpha|{self.reg}", lines)
+        self.assertEqual("GONE_COUNT:0", lines[-1])
+
+    def test_a_root_with_a_newline_is_reported_not_printed(self):
+        # Injected below the store: its `show` line protocol would truncate the
+        # value at the newline before this code ever saw it.
+        odd = rec("dddddddd", root="/a\nb", window="agent-d", pane_id="%9")
+        with unittest.mock.patch.object(agent_reopen, "_classified",
+                                        return_value=([(odd, "gone", None)], [])):
+            lines = agent_reopen.gone_all_roots()
+        self.assertIn("GONE_ERROR:dddddddd|root_unprintable", lines)
+        self.assertFalse(any("\n" in ln for ln in lines))
+
+    def test_cli_all_roots_and_root_outputs(self):
+        rc, lines = _main_output("gone", "--all-roots")
+        self.assertEqual(0, rc)
+        self.assertEqual("GONE_COUNT:3", lines[-1])
+        rc, lines = _main_output("gone", "--root", self.reg)
+        self.assertEqual(0, rc)
+        self.assertEqual([
+            "GONE:aaaaaaaa|gone|agent-a|1847|2026-09-21T22:40:00Z|ok|ok",
+            "GONE_COUNT:1"], lines, "`gone --root` keeps its 7-field shape")
+        self.store.list_rc = 1
+        rc, lines = _main_output("gone", "--all-roots")
+        self.assertEqual((1, ["GONE_ERROR:*|store unreadable"]), (rc, lines))
+
+
+class TestCompanions(_Base):
+    """`companions`: every TRACKED viewer gets its companion; nothing else (t2039)."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.spawned: list[tuple] = []
+
+        def spawn(*args):
+            self.spawned.append(args)
+            return "%900"
+
+        p = unittest.mock.patch.object(agent_restore, "_spawn_companion", side_effect=spawn)
+        p.start()
+        self.addCleanup(p.stop)
+
+    def test_a_tracked_live_viewer_gets_one(self):
+        self.world.add("aitasks", "agent-pick-1847", frozen=RID, pane_id="%1")
+        lines, status = agent_reopen.companions(ROOT)
+        self.assertEqual(0, status)
+        self.assertEqual([("aitasks", "agent-pick-1847", "%1", ROOT)], self.spawned)
+        self.assertEqual([f"COMPANION_SPAWNED:{RID}|aitasks:agent-pick-1847|%900",
+                          "COMPANION_COUNT:1"], lines)
+
+    def test_all_roots_reaches_every_project(self):
+        self.store.records[OTHER] = rec(OTHER, root="/elsewhere", window="agent-o",
+                                        pane_id="%2")
+        self.world.add("aitasks", "agent-pick-1847", frozen=RID, pane_id="%1")
+        self.world.add("other", "agent-o", frozen=OTHER, pane_id="%2")
+        lines, _status = agent_reopen.companions(None)
+        self.assertEqual({"%1", "%2"}, {a[2] for a in self.spawned})
+        self.assertEqual("COMPANION_COUNT:2", lines[-1])
+
+    def test_dead_gone_and_stranded_viewers_get_none(self):
+        self.world.add("aitasks", "agent-pick-1847", frozen=RID, pane_id="%1", dead=True)
+        self.store.records[OTHER] = rec(OTHER, window="agent-o", pane_id="%2")
+        self.world.add("aitasks", "x", ready=OTHER)        # stranded, not tracked
+        lines, status = agent_reopen.companions(ROOT)
+        self.assertEqual(0, status)
+        self.assertEqual([], self.spawned)
+        self.assertEqual(["COMPANION_COUNT:0"], lines)
+
+    def test_a_refused_spawn_is_not_reported(self):
+        self.world.add("aitasks", "agent-pick-1847", frozen=RID, pane_id="%1")
+        with unittest.mock.patch.object(agent_restore, "_spawn_companion", return_value=None):
+            lines, status = agent_reopen.companions(ROOT)
+        self.assertEqual((["COMPANION_COUNT:0"], 0), (lines, status))
+
+    def test_unreachable_tmux_and_store_fail(self):
+        self.world.unreachable = True
+        lines, status = agent_reopen.companions(ROOT)
+        self.assertEqual(1, status)
+        self.assertEqual("COMPANION_ERROR:*|tmux unreachable", lines[0])
+        self.world.unreachable = False
+        self.store.list_rc = 1
+        lines, status = agent_reopen.companions(None)
+        self.assertEqual((1, "COMPANION_ERROR:*|store unreadable"), (status, lines[0]))
+        self.assertEqual([], self.spawned)
+
+    def test_cli_grammar(self):
+        main = TestBatchAndCli._main
+        self.assertEqual(2, main(self, "companions"))
+        self.assertEqual(2, main(self, "companions", "--root", ROOT, "--all-roots"))
+        self.assertEqual(2, main(self, "companions", "--all-roots", "--session", "x"))
+        self.assertEqual(2, main(self, "companions", "--all-roots", "extra"))
+        self.assertEqual(2, main(self, "gone", "--root", ROOT, "--all-roots"))
+        self.assertEqual(2, main(self, "gone", "--all-roots", "--session", "x"))
+        self.assertEqual(2, main(self, "reopen", "--all-roots"))
+        self.assertEqual(0, main(self, "companions", "--all-roots"))
+        self.assertEqual(0, main(self, "gone", "--all-roots"))
 
 
 class TestRestoreHelpers(unittest.TestCase):

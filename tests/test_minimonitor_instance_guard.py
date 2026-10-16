@@ -22,6 +22,14 @@ the frozen-agent restore resolves it from the launched pid — passes it as
 ``agent_pane``, and that pane, never whichever one happens to be active, is the
 one the companion is split beside, hooked to and refocused on.
 
+And one concurrency rule (t2039): the eligibility read and the split are a
+check-then-act, so two callers could both read "no companion" and both split. A
+companion that is still BOOTING is recognised by its start command (it has no
+marker yet), and the read + split run under a per-server ``flock``, so a second
+caller always re-reads after the first one's split. The race is pinned with a
+barrier that holds both callers at the lock door, plus a negative control with
+the lock removed that must show two splits.
+
 The tmux gateway is faked wholesale, so no tmux call leaves the test.
 
 Run: python3 tests/test_minimonitor_instance_guard.py
@@ -30,9 +38,16 @@ Run: python3 tests/test_minimonitor_instance_guard.py
 
 from __future__ import annotations
 
+import contextlib
+import fcntl
 import os
+import shutil
 import sys
+import tempfile
+import threading
+import time
 import unittest
+import unittest.mock
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -58,13 +73,23 @@ STALE = f"minimonitor:{_dead_pid()}"
 
 
 class _FakeTmux:
-    """Scripted gateway. `panes` is a list of `(pane_id, marker, shadow_target)`."""
+    """Scripted gateway. `panes` is a list of `(pane_id, marker, shadow_target)`,
+    optionally extended with `(frozen, dead, start_command)` — the trailing
+    fields of the t2039 list-panes format, which a 3-tuple simply leaves empty.
 
-    def __init__(self, panes, *, active_pane="%1", split_rc=0, list_rc=0):
+    ``socket_path`` answers the lock's `#{socket_path}` read (rc ``socket_rc``);
+    every other `display-message` is the active-pane probe.
+    """
+
+    def __init__(self, panes, *, active_pane="%1", split_rc=0, list_rc=0,
+                 socket_path="", socket_rc=0, split_raises=False):
         self._panes = panes
         self._active_pane = active_pane
         self._split_rc = split_rc
         self._list_rc = list_rc
+        self._socket_path = socket_path
+        self._socket_rc = socket_rc
+        self._split_raises = split_raises
         self.ran: list[list[str]] = []
         self.spawned: list[list[str]] = []
 
@@ -78,8 +103,12 @@ class _FakeTmux:
                 return (self._list_rc, "")
             return (0, "\n".join("|".join(p) for p in self._panes))
         if verb == "display-message":
+            if args[-1] == "#{socket_path}":
+                return (self._socket_rc, self._socket_path)
             return (0, self._active_pane) if self._active_pane else (1, "")
         if verb == "split-window":
+            if self._split_raises:
+                raise RuntimeError("split exploded")
             return (self._split_rc, "%77" if self._split_rc == 0 else "")
         if verb == "show-hooks":
             return (0, "")
@@ -111,7 +140,17 @@ class _FakeTmux:
         ]
 
 
-class MaybeSpawnMinimonitorGuardTests(unittest.TestCase):
+class _LockDir:
+    """A per-test directory standing in for tmux's socket dir."""
+
+    def setUp(self):
+        self.sock_dir = tempfile.mkdtemp(prefix="t2039_sock_")
+        self.addCleanup(shutil.rmtree, self.sock_dir, True)
+        self.socket_path = os.path.join(self.sock_dir, "ait")
+        self.lock_path = self.socket_path + agent_launch_utils._COMPANION_LOCK_SUFFIX
+
+
+class MaybeSpawnMinimonitorGuardTests(_LockDir, unittest.TestCase):
 
     def _install(self, tmux):
         saved = agent_launch_utils._TMUX
@@ -131,6 +170,7 @@ class MaybeSpawnMinimonitorGuardTests(unittest.TestCase):
         return tmux
 
     def _spawn(self, panes, *, agent_pane=None, **kwargs):
+        kwargs.setdefault("socket_path", self.socket_path)
         tmux = self._install(_FakeTmux(panes, **kwargs))
         # project_root points at a dir with no project_config.yaml, so the
         # defaults apply (auto_spawn on, width 40).
@@ -258,8 +298,9 @@ class MaybeSpawnMinimonitorGuardTests(unittest.TestCase):
         self.assertEqual("%2", target, "the companion must be split beside the agent")
         self.assertEqual([["select-pane", "-t", "%2"]], tmux.verbs("select-pane"),
                          "focus must return to the agent")
-        self.assertEqual([], tmux.verbs("display-message"),
-                         "a known agent pane must not be re-derived from focus")
+        self.assertEqual(
+            [], [c for c in tmux.verbs("display-message") if c[-1] == "#{pane_id}"],
+            "a known agent pane must not be re-derived from focus")
 
     def test_agent_pane_outside_the_window_spawns_nothing(self):
         tmux, result = self._spawn([("%1", "", "")], agent_pane="%9")
@@ -280,6 +321,196 @@ class MaybeSpawnMinimonitorGuardTests(unittest.TestCase):
         self.assertEqual(result, "%77")
         split = tmux.verbs("split-window")[0]
         self.assertEqual(tmux_window_target("demo", "3"), split[split.index("-t") + 1])
+
+    # -- a companion that is still booting (t2039) ----------------------------
+
+    def test_a_booting_companion_blocks_the_spawn(self):
+        """Split, but not yet mounted: no marker, only its start command."""
+        tmux, result = self._spawn(
+            [("%1", "", ""), ("%2", "", "", "", "0", "ait minimonitor")])
+        self.assertIsNone(result)
+        self.assertEqual([], tmux.verbs("split-window"))
+        self.assertEqual([], self.hooks)
+
+    def test_a_dead_companion_does_not_block_and_is_not_counted(self):
+        tmux, result = self._spawn([
+            ("%1", "", ""), ("%2", "", ""),
+            ("%3", "", "", "", "1", "ait minimonitor"),
+        ])
+        self.assertEqual("%77", result, "two real panes plus a dead helper")
+        self.assertEqual(1, len(tmux.verbs("split-window")))
+
+    def test_another_start_command_is_counted_as_before(self):
+        tmux, result = self._spawn([
+            ("%1", "", ""), ("%2", "", "", "", "0", "claude --resume x"),
+            ("%3", "", "", "", "0", "ait minimonitor --loop-log"),
+        ])
+        self.assertIsNone(result, "three real panes trip the overcrowding limit")
+        self.assertEqual([], tmux.verbs("split-window"))
+
+    def test_the_split_runs_the_companion_command(self):
+        tmux, _result = self._spawn([("%1", "", "")])
+        split = tmux.verbs("split-window")[0]
+        self.assertEqual(["ait", "minimonitor"], split[-2:])
+        self.assertEqual(agent_launch_utils._COMPANION_START_COMMAND, " ".join(split[-2:]),
+                         "the booting check must compare against what the split runs")
+
+    # -- the spawn lock fails closed (t2039) ----------------------------------
+
+    def test_an_unreadable_socket_path_spawns_nothing(self):
+        tmux, result = self._spawn([("%1", "", "")], socket_rc=1)
+        self.assertIsNone(result)
+        self.assertEqual([], tmux.verbs("split-window"))
+        self.assertEqual([], tmux.verbs("list-panes"), "no eligibility read outside the lock")
+
+    def test_a_relative_socket_path_spawns_nothing(self):
+        tmux, result = self._spawn([("%1", "", "")], socket_path="ait")
+        self.assertIsNone(result)
+        self.assertEqual([], tmux.verbs("split-window"))
+        self.assertFalse(os.path.exists("ait" + agent_launch_utils._COMPANION_LOCK_SUFFIX),
+                         "no lock file may land in the cwd")
+
+    def test_an_unopenable_lock_file_spawns_nothing(self):
+        missing_dir = os.path.join(self.sock_dir, "no-such-dir", "ait")
+        tmux, result = self._spawn([("%1", "", "")], socket_path=missing_dir)
+        self.assertIsNone(result)
+        self.assertEqual([], tmux.verbs("split-window"))
+
+    def test_a_lock_held_past_the_deadline_spawns_nothing(self):
+        fd = os.open(self.lock_path, os.O_RDWR | os.O_CREAT, 0o600)
+        self.addCleanup(os.close, fd)
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        with unittest.mock.patch.object(agent_launch_utils, "COMPANION_LOCK_TIMEOUT", 0.2):
+            started = time.monotonic()
+            tmux, result = self._spawn([("%1", "", "")])
+            waited = time.monotonic() - started
+        self.assertIsNone(result)
+        self.assertEqual([], tmux.verbs("split-window"))
+        self.assertGreaterEqual(waited, 0.2, "it waited for the holder")
+        self.assertLess(waited, 2.0, "and gave up at the deadline")
+
+    def test_the_lock_is_released_on_every_path(self):
+        with self.assertRaises(RuntimeError):
+            self._spawn([("%1", "", "")], split_raises=True)
+        self._spawn([("%1", "", "", "", "0", "ait minimonitor")])   # a refusal
+        fd = os.open(self.lock_path, os.O_RDWR)
+        self.addCleanup(os.close, fd)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            self.fail("a raised split or a refusal left the lock held")
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        with unittest.mock.patch.object(agent_launch_utils, "COMPANION_LOCK_TIMEOUT", 0.1):
+            _tmux, result = self._spawn([("%1", "", "")])
+        self.assertEqual("%77", result, "a later call acquires at once")
+
+
+class _SharedWindowTmux:
+    """One window shared by concurrent callers: a split adds a live pane whose
+    start command is the companion's, exactly what tmux shows while the new
+    minimonitor boots. ``list_barrier`` (negative control only) holds every
+    `list-panes` reader until all of them have read."""
+
+    def __init__(self, socket_path, *, list_barrier=None):
+        self._lock = threading.Lock()
+        self.socket_path = socket_path
+        self.list_barrier = list_barrier
+        self.panes = [["%1", "", "", "", "0", "claude"]]
+        self.splits: list[list[str]] = []
+
+    def run(self, args, timeout=5.0):
+        verb = args[0] if args else ""
+        if verb == "list-windows":
+            return 0, "3:agent-demo"
+        if verb == "display-message":
+            if args[-1] == "#{socket_path}":
+                return 0, self.socket_path
+            return 0, "%1"
+        if verb == "list-panes":
+            with self._lock:
+                out = "\n".join("|".join(p) for p in self.panes)
+            if self.list_barrier is not None:
+                self.list_barrier.wait(timeout=5)
+            return 0, out
+        if verb == "split-window":
+            with self._lock:
+                pane = f"%{70 + len(self.splits)}"
+                self.splits.append(list(args))
+                self.panes.append([pane, "", "", "", "0", "ait minimonitor"])
+            return 0, pane
+        return 0, ""
+
+    def spawn(self, args, **kwargs):
+        pass
+
+
+class ConcurrentSpawnTests(_LockDir, unittest.TestCase):
+    """Two callers for one window: both decided to spawn before either split."""
+
+    def setUp(self):
+        super().setUp()
+        saved_hook = agent_launch_utils.attach_companion_cleanup_hook
+        agent_launch_utils.attach_companion_cleanup_hook = lambda *a: "installed"
+        self.addCleanup(setattr, agent_launch_utils, "attach_companion_cleanup_hook",
+                        saved_hook)
+
+    def _race(self, tmux, lock) -> list:
+        saved_tmux, saved_lock = agent_launch_utils._TMUX, agent_launch_utils._companion_spawn_lock
+        agent_launch_utils._TMUX = tmux
+        agent_launch_utils._companion_spawn_lock = lock
+        self.addCleanup(setattr, agent_launch_utils, "_TMUX", saved_tmux)
+        self.addCleanup(setattr, agent_launch_utils, "_companion_spawn_lock", saved_lock)
+        results: list = []
+        errors: list = []
+
+        def caller():
+            try:
+                # No window_index: the name lookup is a real read BEFORE the lock.
+                results.append(maybe_spawn_minimonitor(
+                    "demo", "agent-demo",
+                    project_root=Path("/nonexistent-for-config")))
+            except Exception as exc:          # surfaced below, not swallowed
+                errors.append(exc)
+
+        threads = [threading.Thread(target=caller) for _ in range(2)]
+        for th in threads:
+            th.start()
+        for th in threads:
+            th.join(timeout=10)
+        self.assertFalse(any(th.is_alive() for th in threads), "a caller hung")
+        self.assertEqual([], errors)
+        return results
+
+    def test_two_callers_at_the_lock_door_spawn_exactly_one_companion(self):
+        real_lock = agent_launch_utils._companion_spawn_lock
+        door = threading.Barrier(2)
+
+        @contextlib.contextmanager
+        def lock_after_both_arrive(*args, **kwargs):
+            # Both callers have done every pre-lock read (the window lookup) and
+            # decided to spawn on a window with no companion.
+            door.wait(timeout=5)
+            with real_lock(*args, **kwargs) as held:
+                yield held
+
+        tmux = _SharedWindowTmux(self.socket_path)
+        results = self._race(tmux, lock_after_both_arrive)
+        self.assertEqual(1, len(tmux.splits), "one window, one companion")
+        self.assertEqual(sorted(results, key=str), sorted(["%70", None], key=str))
+
+    def test_negative_control_without_the_lock_both_spawn(self):
+        """Proves the race test can fail: with no lock and both eligibility reads
+        forced to finish before either split, the booting rule sees nothing and
+        two companions are split."""
+
+        @contextlib.contextmanager
+        def no_lock(*_args, **_kwargs):
+            yield True
+
+        tmux = _SharedWindowTmux(self.socket_path, list_barrier=threading.Barrier(2))
+        results = self._race(tmux, no_lock)
+        self.assertEqual(2, len(tmux.splits))
+        self.assertEqual(["%70", "%71"], sorted(results))
 
 
 if __name__ == "__main__":

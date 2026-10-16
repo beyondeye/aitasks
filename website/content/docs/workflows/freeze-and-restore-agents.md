@@ -86,11 +86,12 @@ included, not just the ones in the list you are looking at. The confirmation
 names the real count, which is why that number is usually larger than what is on
 screen. It is the key for shutting the machine down with your work recoverable.
 
-When the machine is back up, run `ait ide` in the project as usual. If any of
-the project's frozen agents lost their viewer — the tmux server died with the
-machine, so every one of them did — `ait ide` lists them before it attaches:
-window name, task, when it was frozen, and whether it can be restored or
-re-picked. Then it asks what to do:
+When the machine is back up, run `ait ide` in any project as usual. Frozen
+agents whose viewer is gone — the tmux server died with the machine, so every
+viewer did — are listed before `ait ide` attaches, for **every** project, one
+group per project with the current one first: window name, task, when it was
+frozen, and whether it can be restored or re-picked. Then `ait ide` asks one
+question per project it can act on:
 
 | Answer | What happens |
 |---|---|
@@ -99,10 +100,40 @@ re-picked. Then it asks what to do:
 | **P** | The same, but each agent that has a task is re-picked instead of resumed. |
 | **S** | Nothing changes. The records stay listed in `ait frozenagent`. |
 
-Everything lands in the session `ait ide` is opening, including one you chose
-with `--session`. Only this project's records are offered; other projects'
-frozen agents are offered by their own `ait ide`, and all of them stay listed in
-`ait frozenagent`. A record marked `viewer open, untracked` has a viewer window
+All the questions come first; then everything runs.
+
+**Where they land.** The current project's agents go into the session `ait ide`
+is opening, including one you chose with `--session`. Every other project's
+agents go into **that project's own tmux session**, never into the one being
+opened: the first session that belongs to the project, or a new one created the
+way `ait ide` would create it, under the project's `tmux.default_session` name.
+When `ait ide` is done it names those sessions; switch to one with `j` from any
+TUI, or run `ait ide` in that project. If a project's session cannot be created
+(its configured name is already taken by another project, for example), that
+project's records are reported as failed and stay frozen; the other projects
+are not affected.
+
+**Which projects are acted on.** The current project, and any other project that
+is registered (see `ait projects list`; `ait ide` registers a project the first
+time it runs there) and whose directory still exists. Any other project's group
+is listed with the reason and not touched. Nothing is created for it, and no
+question is asked:
+
+- *project directory gone*: the records belong to a directory that no longer
+  holds a project. Drop them in `ait frozenagent`.
+- *not a registered project*: run `ait ide` in that project, or register it
+  with `ait projects add <path>`.
+- *project registry unreadable*: the registry file could not be read, so no
+  other project is acted on until it can be.
+
+**Companions.** A viewer brought back this way gets its minimonitor beside it,
+as any agent window does, and so does an agent restored inside its viewer.
+`ait ide` also gives every viewer that is already open but lost its minimonitor
+a new one, across all projects. A window that already has a minimonitor, even
+one that is still starting, does not get a second.
+
+Every frozen record also stays listed in `ait frozenagent`. A record marked
+`viewer open, untracked` has a viewer window
 the framework lost track of (an earlier attempt that did not finish): it is
 picked up rather than duplicated. **R** and **P** skip such a record, and say
 so, if picking it up fails. A record marked `an earlier restore's agent is
@@ -114,14 +145,17 @@ agent on the same session or delete the record while that agent runs. Close
 that window, then try again.
 
 Without a terminal — a script, or `ait ide` piped into something — nothing is
-asked: a one-line note says how many frozen agents are waiting. Pass
-`--no-frozen-check` to skip the check entirely.
+asked: a one-line note says how many frozen agents are waiting in this project
+and in the others. Pass `--no-frozen-check` to skip the check, and the
+minimonitor top-up, entirely.
 
 To do the same without `ait ide`:
 
 ```bash
-./.aitask-scripts/aitask_frozen.sh gone --root "$PWD"     # list them
+./.aitask-scripts/aitask_frozen.sh gone --root "$PWD"     # list this project's
+./.aitask-scripts/aitask_frozen.sh gone --all-roots       # list every project's, grouped
 ./.aitask-scripts/aitask_frozen.sh reopen --root "$PWD"   # bring the viewers back
+./.aitask-scripts/aitask_frozen.sh companions --all-roots # give open viewers their minimonitor
 ```
 
 You can also bring agents back one at a time from `ait frozenagent` list mode —

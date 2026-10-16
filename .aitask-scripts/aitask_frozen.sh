@@ -20,10 +20,15 @@
 #   restore --all [--repick]  relaunch every frozen agent, sequentially
 #   drop <id>                 remove a frozen record, its capture, and its stand-in
 #   reconcile                 settle every non-`live` record from observable facts
-#   gone --root <path>        list <path>'s frozen records whose viewer is not
-#                             tracked (read-only; `ait ide` offers them, t1847)
+#   gone --root <path> | --all-roots
+#                             list the frozen records whose viewer is not
+#                             tracked, for <path> or for every project grouped by
+#                             root (read-only; `ait ide` offers them, t1847/t2039)
 #   reopen <id> | --root <path> [--session NAME]
 #                             bring those viewers back (the agents stay frozen)
+#   companions --root <path> | --all-roots
+#                             give every tracked viewer its minimonitor companion
+#                             (idempotent; `ait ide` runs it at startup, t2039)
 #
 # TUIs MUST invoke `restore` and `drop` through `run-shell -b`, never inline:
 # each replaces or kills the very pane a TUI keybinding would be running in, so a
@@ -32,7 +37,8 @@
 # is a detached tmux server job and outlives the respawn (measured, t1705_1).
 #
 # Three engines, dispatched HERE rather than inside one module: `restore` execs
-# `lib/agent_restore.py`, `gone` / `reopen` exec `lib/agent_reopen.py` (t1847,
+# `lib/agent_restore.py`, `gone` / `reopen` / `companions` exec
+# `lib/agent_reopen.py` (t1847,
 # a coordinator that reuses the restore module's session targeting), everything
 # else execs `lib/agent_freeze.py`. That keeps
 # each module's `main()` owning exactly its own verbs, and — the load-bearing
@@ -53,8 +59,9 @@
 # Exit codes:
 #   0  every result succeeded (an empty batch counts as success)
 #   1  at least one pane failed; its `FREEZE_FAILED:<stage>|…` /
-#      `DROP_FAILED:` / `DROP_REFUSED:` / `DROP_ABORTED:` / `REOPEN_FAILED:`
-#      line says which (`gone` exits 1 only when the store is unreadable)
+#      `DROP_FAILED:` / `DROP_REFUSED:` / `DROP_ABORTED:` / `REOPEN_FAILED:` /
+#      `COMPANION_ERROR:` line says which (`gone` exits 1 only when the store is
+#      unreadable)
 #   2  usage error
 #
 # Wire lines are printed verbatim on stdout, one per pane / per record, so a
@@ -80,9 +87,10 @@ Usage: aitask_frozen.sh freeze <pane_id>
        aitask_frozen.sh restore --all [--repick] [--session NAME]
        aitask_frozen.sh drop <id>
        aitask_frozen.sh reconcile
-       aitask_frozen.sh gone --root <path>
+       aitask_frozen.sh gone --root <path> | --all-roots
        aitask_frozen.sh reopen <id> [--session NAME]
        aitask_frozen.sh reopen --root <path> [--session NAME]
+       aitask_frozen.sh companions --root <path> | --all-roots
 EOF
     exit 2
 }
@@ -123,7 +131,7 @@ case "$1" in
     reconcile)
         [ $# -eq 1 ] || usage
         ;;
-    gone|reopen)
+    gone|reopen|companions)
         # The module owns the grammar (including a verbatim `--session` value
         # that may start with `-`); this gate only rejects the bare verb.
         [ $# -ge 2 ] || usage

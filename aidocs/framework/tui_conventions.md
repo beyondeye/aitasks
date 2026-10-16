@@ -843,8 +843,21 @@ so a minimonitor typed into an existing shell pane would stay invisible.
   not** stamp the pane it creates: a minimonitor booting inside a pre-stamped
   pane would find its own marker and refuse to start unless it could identify
   its own pane from ambient state. Not stamping removes that self-deadlock by
-  construction, at the cost of a ~1 s boot-window race in which a second
-  `maybe_spawn_minimonitor` for the same window sees no marker.
+  construction. The ~1 s boot window in which a companion has no marker yet is
+  covered by the spawner instead (t2039): a live pane whose
+  `#{pane_start_command}` is the companion's own command (`ait minimonitor`,
+  set by tmux atomically with the pane) counts as a companion that is still
+  booting, and the eligibility read and the split run under one per-server
+  `flock` (`_companion_spawn_lock`, a file beside the server's socket), so a
+  second caller always re-reads after the first one's split. Neither half is
+  enough alone: without the lock two callers can both read before either splits,
+  and without the start-command rule the second reader still sees no marker.
+- **The shell guard reads its OWN window.** `aitask_minimonitor.sh` lists
+  `-t "$TMUX_PANE"`: an untargeted `list-panes` from a pane resolves to the
+  session's *current* window, so a companion split into a background window
+  would read the active window's monitor and exit (t2039). It stays
+  marker-only — if it also counted a booting sibling, two companions booting at
+  once would both exit.
 - **Cleared at unmount**; an abnormal exit is covered by the liveness rule.
 - **Liveness lives in exactly one place: `lib/monitor_marker.py`.** Python
   imports it; `aitask_minimonitor.sh` execs its CLI (`state <value>`, verdict in

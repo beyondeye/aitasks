@@ -238,9 +238,27 @@ class _SwapMixin:
         prev = ops._TMUX
         ops._TMUX = fake
         self.addCleanup(setattr, ops, "_TMUX", prev)
+        # A successful same-pane restore tops up its companion (t2039) through
+        # `maybe_spawn_minimonitor`, whose gateway is `agent_launch_utils._TMUX`
+        # — NOT the one swapped above. A test that does not patch the spawner
+        # must still never reach a real tmux server through it.
+        prev_launch = agent_launch_utils._TMUX
+        agent_launch_utils._TMUX = _NoServer()
+        self.addCleanup(setattr, agent_launch_utils, "_TMUX", prev_launch)
         return fake
 
 
+class _NoServer:
+    """`agent_launch_utils`' gateway in unit tests: every call fails."""
+
+    def run(self, args, timeout=None):
+        return 1, ""
+
+    def spawn(self, args, **kwargs):
+        return None
+
+
+import agent_launch_utils  # noqa: E402
 import agent_restore  # noqa: E402  (after the seam helpers, for readability)
 
 
@@ -353,6 +371,8 @@ class _ScriptedTmux:
 _PROBE_OURS = (0, "%104\t7f3a2c1d\t0")
 #: Present, but the `%N` was recycled and now carries somebody else's stamp.
 _PROBE_STRANGER = (0, "%104\tf00dfeed\t0")
+#: `window_facts` (7 fields) of the respawned stand-in pane, after the restore.
+_WINDOW_FACTS_REUSED = (0, "%104\t51000\taitasks\tagent-pick-1705\t@12\t\t")
 #: `pane_facts` (10 fields) for the poll loop, and `pane_location` (2 fields).
 _FACTS_10 = (0, "aitasks\tagent-pick-1705\t%900\t51000\t0\t/tmp\t7f3a2c1d\t7f3a2c1d\t\tsess-abc")
 _LOCATION_NEW = (0, "%900\t51000")
@@ -368,6 +388,7 @@ _TMUX_OURS_AND_FIRES = {
     5: (0, "{token}\t%104\t51000\t9999\t7f3a2c1d"),   # after-read: our token, new pid, our stamp
     10: (0, "aitasks\tagent-pick-1705\t%104\t51000\t0\t/tmp"
             "\t7f3a2c1d\t7f3a2c1d\t\tsess-abc"),  # pane_facts
+    7: _WINDOW_FACTS_REUSED,                     # window_facts: the companion top-up (t2039)
 }
 
 
@@ -660,6 +681,7 @@ class TestRecordedPaneIsOnlyAHint(_SwapMixin, unittest.TestCase):
             2: (0, "%104\t9999"),                 # pre-read: present, server 9999
             5: (0, "{token}\t%104\t51000\t9999\t7f3a2c1d"),
             10: _FACTS_10,
+            7: _WINDOW_FACTS_REUSED,              # the companion top-up (t2039)
         })
         self.assertFalse(launched.called,
                          "our own live stand-in must be reused, not abandoned")
@@ -1072,15 +1094,16 @@ class TestNewWindowRestoreSpawnsCompanion(_LaunchHarness, unittest.TestCase):
         self.assertEqual("", err)
         self.assertTrue(pane.startswith("%"))
 
-    def test_a_same_pane_restore_spawns_no_companion(self):
+    def _same_pane(self, *, confirm=(0, "LIVE:7f3a2c1d|liveness"), spawn_effect=None):
+        """A same-pane restore whose recorded stand-in is ours and fires."""
         self.swap_store(_RecordingStore(answers={
             "restore-begin": (0, "RESTORING:7f3a2c1d|deadbeef"),
             "restore-launched": (0, "LAUNCHED:7f3a2c1d"),
-            "restore-confirm": (0, "LIVE:7f3a2c1d|liveness"),
+            "restore-confirm": confirm,
         }))
         self.swap_tmux(_ScriptedTmux(dict(_TMUX_OURS_AND_FIRES)))
         new_window = unittest.mock.Mock(wraps=agent_restore._launch_into_new_window)
-        spawn = unittest.mock.Mock(return_value="%901")
+        spawn = unittest.mock.Mock(return_value="%901", side_effect=spawn_effect)
         with unittest.mock.patch.object(agent_restore, "_reread", return_value=_rec()), \
              unittest.mock.patch.object(agent_restore, "build_resume_argv",
                                         return_value="claude --resume sess-abc"), \
@@ -1088,10 +1111,33 @@ class TestNewWindowRestoreSpawnsCompanion(_LaunchHarness, unittest.TestCase):
                                         new_window), \
              unittest.mock.patch.object(agent_restore, "maybe_spawn_minimonitor", spawn), \
              unittest.mock.patch.object(ops, "restore_ack_grace", return_value=0):
-            agent_restore.restore("7f3a2c1d")
+            result = agent_restore.restore("7f3a2c1d")
         self.assertFalse(new_window.called, "the stand-in's own pane was reused")
-        self.assertFalse(spawn.called,
-                         "a same-pane restore keeps its companion; a second one is a duplicate")
+        return result, spawn
+
+    def test_a_same_pane_restore_tops_up_the_companion(self):
+        """t2039: the viewer window may have lost its companion (closed by the
+        user, a pre-t1851 viewer, or the pre-t2039 guard that exited at once).
+        `maybe_spawn_minimonitor` refuses a live or booting one, so asking again
+        after success is safe — and it must follow the REUSED pane."""
+        result, spawn = self._same_pane()
+        self.assertTrue(result.ok, result.line)
+        self.assertEqual(1, spawn.call_count)
+        self.assertEqual(("aitasks", "agent-pick-1705"), spawn.call_args.args,
+                         "the reused pane's own session and window, from window_facts")
+        self.assertEqual("%104", spawn.call_args.kwargs.get("agent_pane"))
+        self.assertEqual(Path(_rec()["root"]), spawn.call_args.kwargs.get("project_root"))
+
+    def test_a_failed_same_pane_restore_spawns_no_companion(self):
+        """The rollback put the stand-in back; its viewer keeps what it had."""
+        result, spawn = self._same_pane(confirm=(1, "ERROR:refused"))
+        self.assertFalse(result.ok, result.line)
+        self.assertFalse(spawn.called)
+
+    def test_a_companion_failure_does_not_fail_a_same_pane_restore(self):
+        result, spawn = self._same_pane(spawn_effect=RuntimeError("boom"))
+        self.assertTrue(spawn.called)
+        self.assertTrue(result.ok, result.line)
 
 
 class TestNewWindowAttemptIdentity(_LaunchHarness, unittest.TestCase):

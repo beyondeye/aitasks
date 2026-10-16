@@ -19,6 +19,17 @@
 #         missing file) -> blocks with a DISTINCT message, marker LEFT ALONE.
 #         The `exit 1` variant is the one that would previously have cleared a
 #         live marker, since an uncaught Python exception exits 1.
+#   (vi)  the guard's window is NOT the active one, and only the active window
+#         holds a live monitor            -> proceeds (t2039)
+#   (vii) the guard's background window holds a live-marked sibling while the
+#         active window is clean        -> blocks (t2039)
+#   (viii) $TMUX_PANE unset              -> the untargeted read is kept, so the
+#         active window's live monitor blocks (the documented fallback)
+#
+# Why (vi)-(viii) exist: an untargeted `list-panes` from a pane resolves to the
+# session's CURRENT window, not to the pane's own (tmux 3.8). Cases (i)-(v) use
+# one window, which is also the active one, so they cannot tell the two apart —
+# (vi) and (vii) fail on the pre-t2039 untargeted guard.
 #
 # Fault injection goes through $AIT_PYTHON — `python_resolve.sh` documents it as
 # the explicit interpreter override and tries it first. A $PATH shim would never
@@ -132,6 +143,25 @@ setup_window() {
     export TMUX_PANE="$SELF_PANE"
 }
 
+# Two windows: `bg` holds SELF and a sibling, `fg` holds one pane and is the
+# session's CURRENT window — the shape of a companion split into a viewer window
+# while the user looks at `monitor`. FG_PANE is the active window's pane.
+setup_two_windows() {
+    tmux kill-session -t "=$SESSION" 2>/dev/null || true
+    tmux new-session -d -s "$SESSION" -n bg "sleep 600"
+    tmux split-window -t "=$SESSION:bg" "sleep 600"
+    mapfile -t PANES < <(tmux list-panes -t "=$SESSION:bg" -F '#{pane_id}')
+    SELF_PANE="${PANES[0]}"
+    SIBLING="${PANES[1]}"
+    tmux new-window -t "=$SESSION:" -n fg "sleep 600"
+    FG_PANE="$(tmux list-panes -t "=$SESSION:fg" -F '#{pane_id}')"
+    tmux select-window -t "=$SESSION:fg"
+    SOCKET_PATH="$(tmux display-message -p -t "=$SESSION" '#{socket_path}')"
+    SERVER_PID="$(tmux display-message -p -t "=$SESSION" '#{pid}')"
+    export TMUX="$SOCKET_PATH,$SERVER_PID,0"
+    export TMUX_PANE="$SELF_PANE"
+}
+
 mark() { tmux set-option -p -t "$2" @aitask_monitor_kind "$1"; }
 read_mark() {
     tmux show-options -pqv -t "$1" @aitask_monitor_kind 2>/dev/null || true
@@ -206,6 +236,37 @@ for fault in "exit:1" "exit:2" "exit:127" "missing"; do
     assert_eq "fault '$fault' leaves the marker untouched" \
         "minimonitor:$$" "$(read_mark "$SIBLING")"
 done
+
+# ============================================================
+echo "--- (vi) a live monitor in the ACTIVE window does not block a background one ---"
+setup_two_windows
+mark "monitor:$$" "$FG_PANE"
+# Precondition, so a pass cannot come from the fixture: the active window really
+# is `fg`, and an untargeted read from this pane really lands there.
+assert_eq "fixture: the active window is fg" "fg" \
+    "$(tmux list-panes -F '#{window_name}' | head -1)"
+out="$(run_guard AIT_TEST_NO_LAUNCH=1)"
+assert_not_contains "another window's monitor does not block" "$BLOCK_MSG" "$out"
+assert_eq "background-window run reaches exec" "yes" "$(launched)"
+assert_eq "the other window's marker is left alone" "monitor:$$" "$(read_mark "$FG_PANE")"
+
+# ============================================================
+echo "--- (vii) a live sibling in the guard's own BACKGROUND window still blocks ---"
+setup_two_windows
+mark "minimonitor:$$" "$SIBLING"
+out="$(run_guard AIT_TEST_NO_LAUNCH=1)"
+assert_contains "own-window marker blocks while another window is active" \
+    "$BLOCK_MSG" "$out"
+assert_eq "own-window block never reaches exec" "no" "$(launched)"
+
+# ============================================================
+echo "--- (viii) without \$TMUX_PANE the read stays untargeted (fallback) ---"
+setup_two_windows
+mark "monitor:$$" "$FG_PANE"
+out="$(run_guard -u TMUX_PANE AIT_TEST_NO_LAUNCH=1)"
+assert_contains "no pane identity: the active window's monitor blocks" \
+    "$BLOCK_MSG" "$out"
+assert_eq "fallback block never reaches exec" "no" "$(launched)"
 
 # ============================================================
 echo ""

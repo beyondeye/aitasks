@@ -60,7 +60,20 @@ ait_warn_if_incapable_terminal
 # stale — let the loop continue. Every other status (a crashed interpreter => 1,
 # a missing file / usage error => 2, 126/127, a signal) means the marker was
 # never classified, and an unclassified marker is "present".
+#
+# "THIS WINDOW" MEANS $TMUX_PANE's WINDOW. An untargeted `list-panes` does not
+# list the window this pane is in: tmux resolves it to the session's CURRENT
+# window (measured on tmux 3.8, t2039). A companion split into a background
+# window — `ait ide`'s recreated viewers, a `-d` launch, a cross-session spawn —
+# therefore read the active `monitor` window's live marker and exited at once.
+# A pane target lists that pane's window. Without $TMUX_PANE there is no own
+# window to name, so the read stays untargeted: the pre-t2039 behaviour, which
+# keeps the blocking default rather than skipping the guard. A $TMUX_PANE from a
+# foreign server can name another pane on the gateway's server; that collision
+# predates this target and is not widened by it.
 MARKER_TOOL="$SCRIPT_DIR/lib/monitor_marker.py"
+GUARD_TARGET=()
+[[ -n "${TMUX_PANE:-}" ]] && GUARD_TARGET=(-t "$TMUX_PANE")
 if [[ -n "${TMUX:-}" ]]; then
     while IFS='|' read -r pane_id marker; do
         [[ -z "$marker" ]] && continue
@@ -82,7 +95,7 @@ if [[ -n "${TMUX:-}" ]]; then
         # Outside the case, so a future arm must `continue` explicitly to avoid
         # exiting: no new non-blocking path can be created by omission.
         exit 0
-    done < <(ait_tmux list-panes \
+    done < <(ait_tmux list-panes ${GUARD_TARGET[@]+"${GUARD_TARGET[@]}"} \
         -F "#{pane_id}|#{@aitask_monitor_kind}" 2>/dev/null || true)
 fi
 

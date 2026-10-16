@@ -510,8 +510,8 @@ def _bootstrap_project_session(root: str) -> tuple[str, str]:
     return "", lines[-1] if lines else f"rc={done.returncode}"
 
 
-def _spawn_companion(session: str, window: str, pane_id: str, root: str) -> None:
-    """Give a new-window restore the companion a normal launch gets (t1851).
+def _spawn_companion(session: str, window: str, pane_id: str, root: str) -> str | None:
+    """Give a restored agent (or a recreated viewer) its companion (t1851).
 
     ``agent_pane`` is the replacement's own pane, so the companion follows the
     restored agent by identity rather than whichever pane is active by the time
@@ -521,14 +521,38 @@ def _spawn_companion(session: str, window: str, pane_id: str, root: str) -> None
     Best-effort: the replacement is already running, so no companion failure may
     turn into a failed restore — `restore()` rolls back only on OSError /
     ValueError, and anything else escaping here would abandon a live agent
-    mid-transaction.
+    mid-transaction. Returns the companion pane, or None when none was spawned
+    (a live or booting companion already there, a gate, or a failure).
     """
     try:
-        maybe_spawn_minimonitor(session, window, agent_pane=pane_id,
-                                project_root=Path(root) if root else None)
+        return maybe_spawn_minimonitor(session, window, agent_pane=pane_id,
+                                       project_root=Path(root) if root else None)
     except Exception as exc:
         print(f"WARNING:companion not spawned in {session}:{window} ({exc})",
               file=sys.stderr)
+        return None
+
+
+def _companion_for_pane(pane_id: str, root: str) -> str | None:
+    """Top up the companion of an agent restored into its stand-in's own pane.
+
+    A same-pane restore keeps the viewer's window, and so the companion that
+    window should already have — but it may not: the user closed it, the viewer
+    predates t1851, or (before t2039) the companion's own guard read the
+    session's active window and exited at once. `maybe_spawn_minimonitor`
+    refuses a live or booting companion under its per-server lock, so asking
+    again cannot double one. Best-effort, like `_spawn_companion`: the restore
+    has already succeeded.
+    """
+    try:
+        facts = frozen_ops.window_facts(pane_id)
+    except Exception as exc:
+        print(f"WARNING:companion not checked for {pane_id} ({exc})", file=sys.stderr)
+        return None
+    if not facts:
+        return None
+    return _spawn_companion(facts.get("session", ""), facts.get("window", ""),
+                            pane_id, root)
 
 
 def _named_session_for_root(root_real: str, name: str):
@@ -693,8 +717,10 @@ def _launch_into_new_window(rec: dict, command: str, env: dict,
     identifiable by its attempt name.
 
     A successful launch also gets its minimonitor companion (t1851), as every
-    other launch path does; the same-pane branch in `restore()` never comes
-    here, so the companion its surviving window already has is never doubled.
+    other launch path does. The same-pane branch in `restore()` never comes here;
+    it tops its window's companion up after a SUCCESSFUL restore instead
+    (`_companion_for_pane`, t2039), and `maybe_spawn_minimonitor` refuses a live
+    or booting companion, so neither branch doubles one.
     """
     target, error = _resolve_target_session(rec.get("root", ""), session)
     if target is None:
@@ -771,6 +797,15 @@ def _launch_into_new_window(rec: dict, command: str, env: dict,
     return pane_id, pane_pid, ""
 
 
+@dataclass
+class _Attempt:
+    """What `_restore_attempt` reports beyond its result: the pane a same-pane
+    restore respawned (empty on the new-window branch) and the record's root."""
+
+    reused_pane: str = ""
+    root: str = ""
+
+
 def restore(record_id: str, *, repick: bool = False,
             session: str | None = None) -> RestoreResult:
     """Restore one frozen record. Implements §D 1-5 in order.
@@ -778,7 +813,22 @@ def restore(record_id: str, *, repick: bool = False,
     ``session`` pins a gone-pane restore to that tmux session (see
     `_resolve_target_session`); a same-pane restore never consults it, because
     its pane already sits where the user left it.
+
+    After a SUCCESSFUL same-pane restore the window's companion is topped up
+    (t2039): the new-window branch spawned one already, and a failed restore put
+    the stand-in back, which keeps whatever companion its viewer had.
     """
+    attempt = _Attempt()
+    result = _restore_attempt(record_id, repick=repick, session=session,
+                              attempt=attempt)
+    if result.ok and attempt.reused_pane:
+        _companion_for_pane(attempt.reused_pane, attempt.root)
+    return result
+
+
+def _restore_attempt(record_id: str, *, repick: bool, session: str | None,
+                     attempt: _Attempt) -> RestoreResult:
+    """The body of :func:`restore`; records the reused pane on ``attempt``."""
     mode = "repick" if repick else "resume"
 
     rec = _reread(record_id)
@@ -789,6 +839,7 @@ def restore(record_id: str, *, repick: bool = False,
     pane_id = rec.get("pane_id", "")
     agent_kind = rec.get("agent_kind", "")
     session_id = rec.get("codeagent_session_id", "")
+    attempt.root = rec.get("root", "")
 
     # --- preflight: everything that can fail WITHOUT touching the store -----
     # The rules live in `resume_blocker` / `repick_blocker` so the `ait ide`
@@ -902,6 +953,8 @@ def restore(record_id: str, *, repick: bool = False,
                 print(f"WARNING:{record_id}|recorded pane {pane_id} not reused"
                       f" ({why}); restoring into a new window", file=sys.stderr)
                 pane_id = ""
+            else:
+                attempt.reused_pane = pane_id
         if not pane_id:
             new_pane, new_pid, error = _launch_into_new_window(
                 rec, command, env, session=session)

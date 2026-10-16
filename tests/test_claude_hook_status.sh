@@ -272,17 +272,24 @@ assert_contains "E: upgrade + invalid settings -> invalid hint" "not valid JSON"
 echo ""
 echo "--- Group F: ait ide frozen-agent offer ---"
 STUB="$TESTROOT/frozen_stub.sh"
+# `gone --all-roots` carries each record's root as its last field; @ROOT@ is
+# replaced with the project's `pwd -P`, the form the offer compares against.
 cat >"$STUB" <<'EOF'
 #!/usr/bin/env bash
-[[ "$1" == gone ]] && cat "$GONE_FILE"
+case "$1" in
+    gone) sed "s#@ROOT@#$GONE_ROOT#g" "$GONE_FILE" ;;
+    companions) echo "COMPANION_COUNT:0" ;;
+esac
 exit 0
 EOF
 chmod +x "$STUB"
 GONE_ONE="$TESTROOT/gone_one"
-echo "GONE:cccccccc|gone|agent-c||2026-09-21T22:42:00Z|no_session|no_task_id" >"$GONE_ONE"
+printf '%s\n' "GONE_ROOT:ok|f|@ROOT@" \
+    "GONE:cccccccc|gone|agent-c||2026-09-21T22:42:00Z|no_session|no_task_id|@ROOT@" >"$GONE_ONE"
 GONE_NONE="$TESTROOT/gone_none"; : >"$GONE_NONE"
 offer() {  # offer <dir> <gone_file> <tty:0|1>
-    printf 's\n' | env -u AIT_PYTHON HOME="$EMPTY_HOME" PATH="$CLEAN_PATH" GONE_FILE="$2" AITASKS_TEST_MODE=1 \
+    printf 's\n' | env -u AIT_PYTHON HOME="$EMPTY_HOME" PATH="$CLEAN_PATH" GONE_FILE="$2" \
+        GONE_ROOT="$(cd "$1" && pwd -P)" AITASKS_TEST_MODE=1 \
         AIT_IDE_FROZEN_ASSUME_TTY="$3" bash -c \
         'source "$1"; ide_offer_frozen_agents "$2" S "$3"' _ \
         "$PROJECT_DIR/.aitask-scripts/lib/ide_frozen_offer.sh" "$1" "$STUB" 2>&1

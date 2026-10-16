@@ -42,11 +42,17 @@ Options:
   --no-frozen-check  Do not offer to bring back frozen agents (see below).
   -h, --help         Show this help.
 
-Frozen agents: when this project has frozen agents whose viewer is gone —
-typically after a shutdown killed the tmux server — ait ide lists them before
-attaching and offers to recreate their viewers (the default; the agents stay
-frozen), restore them, re-pick their tasks, or skip. Everything lands in the
-session being opened. Without a terminal it prints a one-line hint instead.
+Frozen agents: when frozen agents have lost their viewer — typically after a
+shutdown killed the tmux server — ait ide lists them before attaching, for
+every project, grouped by project with this one first. For each project it may
+act on it asks once: recreate their viewers (the default; the agents stay
+frozen), restore them, re-pick their tasks, or skip. This project's agents land
+in the session being opened; another project's land in that project's own tmux
+session, which is created if it does not exist. Only registered projects
+('ait projects list') whose directory still exists are acted on; any other
+project is listed with the reason and left alone. Every frozen viewer that has
+lost its minimonitor gets it back. Without a terminal it prints a one-line hint
+instead. --no-frozen-check skips all of this.
 
 Ownership: ait ide stamps the session as belonging to this project. If a
 session with the configured name already belongs to another project (or its
@@ -131,10 +137,11 @@ ensure_syncer_window() {
     _tmux_bootstrap_ensure_syncer_window "$(pwd)" "$SESSION"
 }
 
-# Offer to bring back this project's frozen agents whose viewer is gone (t1847).
-# Runs once the session exists and its registry entry is set — so the frozen
-# agent commands can attribute it to this project — and before the `exec tmux`,
-# while the terminal is still ours. Never fails startup.
+# Offer to bring back the frozen agents whose viewer is gone (t1847) — of every
+# project, each into its own session (t2039) — and top up frozen viewers'
+# companions. Runs once the session exists and its registry entry is set — so the
+# frozen agent commands can attribute it to this project — and before the
+# `exec tmux`, while the terminal is still ours. Never fails startup.
 offer_frozen_agents() {
     [[ "$FROZEN_CHECK" == 1 ]] || return 0
     ide_offer_frozen_agents "$(pwd)" "$SESSION" "$SCRIPT_DIR/aitask_frozen.sh" || true

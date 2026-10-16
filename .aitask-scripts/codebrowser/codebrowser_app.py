@@ -492,12 +492,18 @@ class CodeBrowserApp(TuiSwitcherMixin, ShortcutsMixin, App):
 
     @staticmethod
     def _detect_tmux_window() -> str | None:
-        """Return the current tmux window index, or None if not in tmux."""
+        """Return this pane's tmux window index, or None if not in tmux.
+
+        Targeted at ``$TMUX_PANE``: an untargeted ``display-message`` resolves to
+        the session's CURRENT window, not the one this pane is in (t2039).
+        """
         if not os.environ.get("TMUX"):
             return None
+        pane = os.environ.get("TMUX_PANE", "")
         try:
             result = subprocess.run(
-                ["tmux", "display-message", "-p", "#{window_index}"],
+                ["tmux", "display-message", "-p",
+                 *(["-t", pane] if pane else []), "#{window_index}"],
                 capture_output=True, text=True, timeout=5,
             )
             if result.returncode == 0 and result.stdout.strip():

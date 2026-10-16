@@ -13,12 +13,14 @@ Usage:
 """
 from __future__ import annotations
 
+import contextlib
 import os
 import re
 import shutil
 import stat
 import subprocess
 import sys
+import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
@@ -2341,6 +2343,195 @@ def _lookup_window_name(session: str, window_index: str) -> str | None:
     return None
 
 
+#: The companion's command. The split runs it, and a companion that is still
+#: BOOTING is recognised by it (`#{pane_start_command}`, which tmux records at
+#: creation and renders as this exact string) — before its app has mounted and
+#: stamped `@aitask_monitor_kind` on itself (t2039).
+_COMPANION_ARGV = ("ait", "minimonitor")
+_COMPANION_START_COMMAND = " ".join(_COMPANION_ARGV)
+
+#: How long a spawner waits for another spawner's check-and-split (seconds).
+COMPANION_LOCK_TIMEOUT = 2.0
+_COMPANION_LOCK_SUFFIX = ".aitask-companion.lock"
+
+
+def _flock_until(fd: int, timeout: float) -> bool:
+    """Take an exclusive ``flock`` on ``fd`` within ``timeout``; False if not."""
+    import fcntl
+
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return True
+        except BlockingIOError:
+            if time.monotonic() >= deadline:
+                return False
+            time.sleep(0.05)
+        except OSError:
+            return False
+
+
+@contextlib.contextmanager
+def _companion_spawn_lock(session: str, win_index: str,
+                          timeout: float | None = None):
+    """Serialize companion check-and-split on one tmux server. Yields held: bool.
+
+    The "is there a companion already?" read and the split are a check-then-act,
+    and two callers can both read "none" before either splits — two `ait ide`
+    top-ups, or a top-up racing a frozen agent's same-pane restore — and then
+    both shell guards pass before either app stamps its marker (t2039). Inside
+    this lock a second caller re-reads AFTER the first one's split, and sees its
+    pane by `_COMPANION_START_COMMAND`.
+
+    One lock per SERVER, not per window: strictly coarser, needs no window id
+    before the lock, and keeps the file count at one per socket. The file sits
+    beside the server's own socket (`#{socket_path}` + suffix), in tmux's
+    per-user directory, so a test server's lock lives in its fixture dir. It is
+    never deleted (no unlink race) and a dead holder's ``flock`` is dropped by the
+    kernel, so there is no stale-lock recovery.
+
+    FAILS CLOSED: an unreadable or relative socket path, a lock file that cannot
+    be opened, or the deadline passing yields ``False``, and the caller spawns
+    nothing — the next spawn attempt retries.
+    """
+    rc, out = _TMUX.run(
+        ["display-message", "-p", "-t", tmux_window_target(session, win_index),
+         "#{socket_path}"]
+    )
+    socket_path = out.strip() if rc == 0 else ""
+    if not socket_path or "\n" in socket_path or not os.path.isabs(socket_path):
+        yield False
+        return
+    try:
+        fd = os.open(socket_path + _COMPANION_LOCK_SUFFIX,
+                     os.O_RDWR | os.O_CREAT | getattr(os, "O_CLOEXEC", 0), 0o600)
+    except OSError:
+        yield False
+        return
+    try:
+        held = _flock_until(
+            fd, COMPANION_LOCK_TIMEOUT if timeout is None else timeout)
+        try:
+            yield held
+        finally:
+            if held:
+                import fcntl
+                fcntl.flock(fd, fcntl.LOCK_UN)
+    finally:
+        os.close(fd)
+
+
+def _companion_check_and_split(
+    session: str,
+    win_index: str,
+    agent_pane: str | None,
+    width: int,
+    project_root: Path | None,
+) -> tuple[bool, str | None, str]:
+    """The eligibility read and the split: ``(split_ran, companion_pane, agent_pane)``.
+
+    Runs under `_companion_spawn_lock`; it is the ONLY eligibility read, so the
+    decision always reflects every split a previous lock holder made.
+    ``split_ran`` is False when a gate refused or the split failed;
+    ``companion_pane`` can still be None after a split whose output was empty.
+    """
+    # Check existing panes for monitor/minimonitor and pane count.
+    #
+    # A live monitor is recognised by the @aitask_monitor_kind marker it stamps
+    # on itself, NOT by #{pane_current_command} — that reports `python` for a
+    # running monitor, so the old substring match could never fire (t1451).
+    # Liveness comes from monitor_marker_state, the same implementation the
+    # shell guard in aitask_minimonitor.sh execs.
+    #
+    # A companion that is still BOOTING has no marker yet: it is recognised by
+    # its start command, which tmux sets atomically with the pane (t2039).
+    # Together with the lock this closes the ~1 s boot-window race in which a
+    # second spawn for the same window saw no marker. The shell guard stays
+    # marker-only on purpose: if it also treated a booting sibling as blocking,
+    # two companions booting at once would both exit.
+    #
+    # Shadow helper panes (t986) carry @aitask_shadow_target and must NOT count
+    # toward the overcrowding limit — a shadow following the agent should not
+    # block the companion minimonitor from spawning for that same agent.
+    # A frozen stand-in (t1705_4) carries `@aitask_frozen` and no helper marker,
+    # so without this field it would count as an ordinary occupant. It IS a real
+    # occupant — counted below — but the marker is read explicitly so the
+    # occupancy rule states the case rather than getting it by accident, and so
+    # the field is available if a later change needs to treat it differently.
+    #
+    # `#{pane_start_command}` is LAST: it is free text, and the partition keeps
+    # any `|` inside it in the remainder.
+    rc, out = _TMUX.run(
+        ["list-panes", "-t", tmux_window_target(session, win_index),
+         "-F", f"#{{pane_id}}|#{{{MONITOR_KIND_OPTION}}}|#{{@aitask_shadow_target}}"
+               "|#{@aitask_frozen}|#{pane_dead}|#{pane_start_command}"]
+    )
+    if agent_pane and rc != 0:
+        # Without the pane list there is no proof the agent is in this window.
+        return False, None, ""
+    if rc == 0:
+        real_panes = 0
+        window_panes: set[str] = set()
+        for line in out.strip().splitlines():
+            pane_id, _, rest = line.partition("|")
+            window_panes.add(pane_id)
+            marker, _, rest = rest.partition("|")
+            shadow_target, _, rest = rest.partition("|")
+            frozen, _, rest = rest.partition("|")
+            dead, _, start_command = rest.partition("|")
+            if frozen.strip():
+                # A frozen stand-in occupies the window like any agent would.
+                real_panes += 1
+                continue
+            if marker:
+                if monitor_marker_alive(marker):
+                    return False, None, ""
+                # Stale: the marking process is gone. Self-heal so the residue
+                # cannot block spawns in this window forever.
+                _TMUX.spawn(
+                    ["set-option", "-pu", "-t", pane_id, MONITOR_KIND_OPTION],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                )
+                # A monitor pane is a helper either way — never counted below.
+                continue
+            if start_command.strip() == _COMPANION_START_COMMAND:
+                if dead.strip() != "1":
+                    return False, None, ""   # a companion is already booting
+                continue                     # a dead companion is a helper too
+            if not shadow_target.strip():
+                real_panes += 1
+        # Avoid overcrowding: skip if 3+ non-helper panes already exist
+        if real_panes >= 3:
+            return False, None, ""
+        if agent_pane and agent_pane not in window_panes:
+            # Fail closed: never place a companion for a pane in another window.
+            return False, None, ""
+
+    # Without a caller-supplied pane, capture the currently-active pane (the
+    # just-launched agent) so we can refocus it after the split. Hardcoding `.0`
+    # is wrong once the window holds more than one pane (e.g. a shadow), where
+    # the agent need not be pane 0.
+    split_target = agent_pane or tmux_window_target(session, win_index)
+    if not agent_pane:
+        rc_active, active_pane = _TMUX.run(
+            ["display-message", "-p", "-t",
+             tmux_window_target(session, win_index), "#{pane_id}"]
+        )
+        agent_pane = active_pane.strip() if rc_active == 0 else ""
+
+    # Spawn minimonitor as a right split, capturing the new pane id
+    split_argv = ["split-window", "-h", "-P", "-F", "#{pane_id}",
+                  "-l", str(width)]
+    if project_root is not None:
+        split_argv += ["-c", str(project_root)]
+    split_argv += ["-t", split_target, *_COMPANION_ARGV]
+    rc, out = _TMUX.run(split_argv)
+    if rc != 0:
+        return False, None, agent_pane or ""
+    return True, out.strip() or None, agent_pane or ""
+
+
 def maybe_spawn_minimonitor(
     session: str,
     window_name: str,
@@ -2444,84 +2635,16 @@ def maybe_spawn_minimonitor(
         if win_index is None:
             return None
 
-    # Check existing panes for monitor/minimonitor and pane count.
-    #
-    # A live monitor is recognised by the @aitask_monitor_kind marker it stamps
-    # on itself, NOT by #{pane_current_command} — that reports `python` for a
-    # running monitor, so the old substring match could never fire (t1451).
-    # Liveness comes from monitor_marker_state, the same implementation the
-    # shell guard in aitask_minimonitor.sh execs.
-    #
-    # Shadow helper panes (t986) carry @aitask_shadow_target and must NOT count
-    # toward the overcrowding limit — a shadow following the agent should not
-    # block the companion minimonitor from spawning for that same agent.
-    # A frozen stand-in (t1705_4) carries `@aitask_frozen` and no helper marker,
-    # so without this field it would count as an ordinary occupant. It IS a real
-    # occupant — counted below — but the marker is read explicitly so the
-    # occupancy rule states the case rather than getting it by accident, and so
-    # the field is available if a later change needs to treat it differently.
-    rc, out = _TMUX.run(
-        ["list-panes", "-t", tmux_window_target(session, win_index),
-         "-F", f"#{{pane_id}}|#{{{MONITOR_KIND_OPTION}}}|#{{@aitask_shadow_target}}"
-               "|#{@aitask_frozen}"]
-    )
-    if agent_pane and rc != 0:
-        # Without the pane list there is no proof the agent is in this window.
-        return None
-    if rc == 0:
-        real_panes = 0
-        window_panes: set[str] = set()
-        for line in out.strip().splitlines():
-            pane_id, _, rest = line.partition("|")
-            window_panes.add(pane_id)
-            marker, _, rest2 = rest.partition("|")
-            shadow_target, _, frozen = rest2.partition("|")
-            if frozen.strip():
-                # A frozen stand-in occupies the window like any agent would.
-                real_panes += 1
-                continue
-            if marker:
-                if monitor_marker_alive(marker):
-                    return None
-                # Stale: the marking process is gone. Self-heal so the residue
-                # cannot block spawns in this window forever.
-                _TMUX.spawn(
-                    ["set-option", "-pu", "-t", pane_id, MONITOR_KIND_OPTION],
-                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                )
-                # A monitor pane is a helper either way — never counted below.
-                continue
-            if not shadow_target.strip():
-                real_panes += 1
-        # Avoid overcrowding: skip if 3+ non-helper panes already exist
-        if real_panes >= 3:
+    # The eligibility read and the split run under one per-server lock, so a
+    # second caller always decides on a pane list that includes the first
+    # caller's split (t2039). See `_companion_spawn_lock`.
+    with _companion_spawn_lock(session, win_index) as held:
+        if not held:
             return None
-        if agent_pane and agent_pane not in window_panes:
-            # Fail closed: never place a companion for a pane in another window.
-            return None
-
-    # Without a caller-supplied pane, capture the currently-active pane (the
-    # just-launched agent) so we can refocus it after the split. Hardcoding `.0`
-    # is wrong once the window holds more than one pane (e.g. a shadow), where
-    # the agent need not be pane 0.
-    split_target = agent_pane or tmux_window_target(session, win_index)
-    if not agent_pane:
-        rc_active, active_pane = _TMUX.run(
-            ["display-message", "-p", "-t",
-             tmux_window_target(session, win_index), "#{pane_id}"]
-        )
-        agent_pane = active_pane.strip() if rc_active == 0 else ""
-
-    # Spawn minimonitor as a right split, capturing the new pane id
-    split_argv = ["split-window", "-h", "-P", "-F", "#{pane_id}",
-                  "-l", str(width)]
-    if project_root is not None:
-        split_argv += ["-c", str(project_root)]
-    split_argv += ["-t", split_target, "ait", "minimonitor"]
-    rc, out = _TMUX.run(split_argv)
-    if rc != 0:
+        split_ran, companion_pane, agent_pane = _companion_check_and_split(
+            session, win_index, agent_pane, width, project_root)
+    if not split_ran:
         return None
-    companion_pane = out.strip() or None
     # Arm the pane-died cleanup hook so the companion is despawned when the
     # agent exits. This used to be wired only by spawn_shadow and by
     # tui_switcher's git path, so every board- / codebrowser- / crew-launched

@@ -48,7 +48,7 @@ Here's what happens under the hood:
 - `--no-frozen-check` — skip the frozen-agent check described below.
 - `-h`, `--help` — print usage and the shared-session note.
 
-**Frozen agents after a restart.** When the project has [frozen agents]({{< relref "/docs/workflows/freeze-and-restore-agents" >}}#before-shutting-down) whose viewer is gone — typically because a shutdown killed the tmux server — `ait ide` lists them before attaching and offers to recreate their viewers (the default; the agents stay frozen), restore them, re-pick their tasks, or skip. Everything lands in the session being opened. Without a terminal it prints a one-line note instead of asking.
+**Frozen agents after a restart.** When [frozen agents]({{< relref "/docs/workflows/freeze-and-restore-agents" >}}#before-shutting-down) have lost their viewer — typically because a shutdown killed the tmux server — `ait ide` lists them before attaching, for every project, and asks once per project whether to recreate their viewers (the default; the agents stay frozen), restore them, re-pick their tasks, or skip. This project's agents land in the session being opened; another project's land in that project's own tmux session. Projects that are not registered, or whose directory is gone, are listed but not touched. Without a terminal it prints a one-line note instead of asking.
 
 If you are already inside a tmux session whose name matches the configured one, `ait ide` just selects (or creates) the `monitor` window in your current session. If you are inside a tmux session whose name *differs*, `ait ide` refuses to nest — it prints a warning and exits non-zero rather than silently picking the wrong session.
 

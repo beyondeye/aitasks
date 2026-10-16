@@ -8,12 +8,18 @@ with it. The records survive as `frozen` with a pane that no longer exists, and
 the agent stays frozen — so `ait ide` can offer that instead of a fresh session
 with no sign of them.
 
-Two verbs, reached through `aitask_frozen.sh`:
+Three verbs, reached through `aitask_frozen.sh`:
 
-* ``gone --root <p>``              — read-only listing of this project's records
-  whose viewer is not tracked;
-* ``reopen <id> | --root <p>``     — recreate (or adopt) their viewers; both take
-  ``--session <name>`` to pin the tmux session, exactly as `ait ide` resolved it.
+* ``gone --root <p> | --all-roots`` — read-only listing of the records whose
+  viewer is not tracked, for one project or for every project in the store
+  (grouped by root, each group headed by the root's state — see
+  :func:`root_states`; `ait ide` offers them all, t2039);
+* ``reopen <id> | --root <p>``     — recreate (or adopt) their viewers; takes
+  ``--session <name>`` to pin the tmux session, exactly as `ait ide` resolved it;
+* ``companions --root <p> | --all-roots`` — give every TRACKED viewer the
+  minimonitor companion its window should have (t2039). Idempotent:
+  `maybe_spawn_minimonitor` refuses a live or booting companion under its
+  per-server lock. Never creates, moves or adopts a window.
 
 CLASSIFICATION. One ``list-panes -a`` pass collects every live pane that
 *claims* a record: ``@aitask_frozen == id``, OR ``@aitask_standin_ready == id``
@@ -111,6 +117,7 @@ import agent_sessions  # noqa: E402
 # Re-exported names only — never swapped, so an import alias is safe.
 from agent_frozen_ops import EXIT_LEASE_HELD, TMUX_UNREACHABLE  # noqa: E402
 from agent_launch_utils import (  # noqa: E402
+    _parse_registry_records_strict,
     tmux_session_scope_target,
     tmux_window_target,
     unique_window_name,
@@ -234,9 +241,10 @@ def classify_record(rec: dict, claims: list[Claim]) -> tuple[str, Claim | None]:
     return "gone", None
 
 
-def _frozen_records(root: str) -> list[dict] | None:
-    """Full records of ``root``'s `frozen` records; None if the store failed."""
-    rc, out = frozen_ops.store("list", "--state", "frozen", "--root", root)
+def _frozen_records(root: str | None) -> list[dict] | None:
+    """Full `frozen` records of ``root`` (every root for None); None if the store failed."""
+    scope = ("--root", root) if root is not None else ()
+    rc, out = frozen_ops.store("list", "--state", "frozen", *scope)
     if rc != 0:
         return None
     records = []
@@ -252,11 +260,14 @@ def _frozen_records(root: str) -> list[dict] | None:
     return records
 
 
-def classify(root: str) -> tuple[list[tuple[dict, str, Claim | None]], list[str]] | None:
-    """``(items, errors)`` for ``root``: every gone / stranded record.
+def _classified(root: str | None) -> tuple[
+        list[tuple[dict, str, Claim | None]], list[tuple[dict, str]]] | None:
+    """``(items, errors)``: EVERY `frozen` record of ``root`` (every root for
+    None) with its kind, ``tracked`` included.
 
     None when the store could not be listed. When tmux cannot be listed, no
-    record is classified and each one yields a ``GONE_ERROR`` line instead.
+    record is classified and each one becomes an ``(rec, "tmux_unreachable")``
+    error instead — a listing that could not be read is not evidence of anything.
     """
     records = _frozen_records(root)
     if records is None:
@@ -265,13 +276,177 @@ def classify(root: str) -> tuple[list[tuple[dict, str, Claim | None]], list[str]
         return [], []
     claims = _claimed_panes()
     if claims is None:
-        return [], [f"GONE_ERROR:{r['id']}|tmux_unreachable" for r in records]
+        return [], [(r, "tmux_unreachable") for r in records]
     items = []
     for rec in records:
         kind, claim = classify_record(rec, claims.get(rec["id"], []))
-        if kind != "tracked":
-            items.append((rec, kind, claim))
+        items.append((rec, kind, claim))
     return items, []
+
+
+def classify(root: str) -> tuple[list[tuple[dict, str, Claim | None]], list[str]] | None:
+    """``(items, errors)`` for ``root``: every gone / stranded record.
+
+    None when the store could not be listed. When tmux cannot be listed, no
+    record is classified and each one yields a ``GONE_ERROR`` line instead.
+    """
+    result = _classified(root)
+    if result is None:
+        return None
+    items, errors = result
+    return ([item for item in items if item[1] != "tracked"],
+            [f"GONE_ERROR:{rec['id']}|{reason}" for rec, reason in errors])
+
+
+# --- every project's records (t2039) -----------------------------------------
+
+#: A root `ait ide` may act on: registered in `ait projects`, marker present.
+ROOT_OK = "ok"
+#: The directory no longer holds the aitasks marker (gone, or not a project).
+ROOT_MISSING = "missing"
+#: Still a project, but not in the registry — the user removed or never added it.
+ROOT_UNREGISTERED = "unregistered"
+#: The registry could not be read, so registration cannot be decided.
+ROOT_UNVERIFIED = "unverified"
+#: The root's own marker could not be looked up (e.g. no search permission).
+ROOT_INACCESSIBLE = "inaccessible"
+
+
+def _project_marker(root: str) -> bool | None:
+    """The registry's own OK/STALE rule (`agent_launch_utils._read_registry_index`).
+
+    None when the lookup itself failed. Before Python 3.14 `Path.is_file()`
+    re-raises every error but a missing path, so a directory without search
+    permission raises `PermissionError`; letting it escape would abort the
+    listing — and so `ait ide`'s offer — for every healthy project too.
+    """
+    try:
+        return (Path(root) / "aitasks" / "metadata" / "project_config.yaml").is_file()
+    except OSError:
+        return None
+
+
+def root_states(roots) -> dict[str, tuple[str, str]]:
+    """``{root: (state, name)}`` for each root, against ONE registry read.
+
+    ``name`` is the registry's name for the root, else its basename. The strict
+    reader is used because this decides whether `ait ide` may create a tmux
+    session for the root: a registry that could not be read is ``unverified``,
+    never read as "not registered" and never as "registered".
+    """
+    try:
+        registry: dict[str, str] | None = {}
+        for entry in _parse_registry_records_strict():
+            if entry.name and entry.path:
+                registry.setdefault(os.path.realpath(entry.path), entry.name)
+    except (OSError, ValueError):
+        registry = None
+    states: dict[str, tuple[str, str]] = {}
+    for root in roots:
+        name = os.path.basename(root.rstrip("/")) or root
+        if registry and root in registry:
+            name = registry[root]
+        marker = _project_marker(root)
+        if marker is None:
+            state = ROOT_INACCESSIBLE
+        elif not marker:
+            state = ROOT_MISSING
+        elif registry is None:
+            state = ROOT_UNVERIFIED
+        elif root in registry:
+            state = ROOT_OK
+        else:
+            state = ROOT_UNREGISTERED
+        states[root] = (state, name)
+    return states
+
+
+def gone_all_roots() -> list[str] | None:
+    """The ``gone --all-roots`` wire lines; None when the store failed.
+
+    Per root, sorted by ``(name, root)``: ``GONE_ROOT:<state>|<name>|<root>``,
+    then its ``GONE:`` lines with ``|<root>`` appended, then its ``GONE_ERROR:``
+    lines (``<id>|<reason>|<root>``). The root is always the LAST field and is
+    printed verbatim, so a reader that splits on ``|`` into a fixed number of
+    fields keeps any ``|`` inside it. A root containing a newline cannot be one
+    wire line: its records become ``GONE_ERROR:<id>|root_unprintable`` with no
+    group. Trailing ``GONE_COUNT:<n>`` counts the ``GONE:`` lines.
+    """
+    result = _classified(None)
+    if result is None:
+        return None
+    items, errors = result
+    groups: dict[str, tuple[list, list]] = {}
+    unprintable: list[str] = []
+
+    def group(rec: dict) -> tuple[list, list] | None:
+        root = rec.get("root", "")
+        if "\n" in root or "\r" in root:
+            unprintable.append(rec["id"])
+            return None
+        return groups.setdefault(root, ([], []))
+
+    for rec, kind, _claim in items:
+        if kind == "tracked":
+            continue
+        g = group(rec)
+        if g is not None:
+            g[0].append((rec, kind))
+    for rec, reason in errors:
+        g = group(rec)
+        if g is not None:
+            g[1].append((rec, reason))
+
+    states = root_states(groups)
+    lines: list[str] = []
+    for root in sorted(groups, key=lambda r: (states[r][1], r)):
+        state, name = states[root]
+        lines.append(f"GONE_ROOT:{state}|{_field(name)}|{root}")
+        gones, errs = groups[root]
+        lines.extend(f"{gone_line(rec, kind)}|{root}" for rec, kind in gones)
+        lines.extend(f"GONE_ERROR:{rec['id']}|{reason}|{root}" for rec, reason in errs)
+    lines.extend(f"GONE_ERROR:{rid}|root_unprintable" for rid in unprintable)
+    lines.append(f"GONE_COUNT:{sum(len(g[0]) for g in groups.values())}")
+    return lines
+
+
+def companions(root: str | None) -> tuple[list[str], int]:
+    """Give every tracked viewer of ``root`` (every root for None) its companion.
+
+    ``(lines, exit_status)``. One ``COMPANION_SPAWNED:<id>|<session>:<window>|<pane>``
+    per companion actually split, then ``COMPANION_COUNT:<n>``. A live or booting
+    companion already in the window, a gate (auto-spawn off, overcrowding) or a
+    failure spawns nothing and prints nothing: `maybe_spawn_minimonitor` decides,
+    under its per-server lock, so two concurrent calls cannot both split. A store
+    or tmux that cannot be read is ``COMPANION_ERROR:`` and exit 1.
+    """
+    result = _classified(root)
+    if result is None:
+        return ["COMPANION_ERROR:*|store unreadable", "COMPANION_COUNT:0"], 1
+    items, errors = result
+    if errors:
+        return ["COMPANION_ERROR:*|tmux unreachable", "COMPANION_COUNT:0"], 1
+    lines: list[str] = []
+    status = 0
+    for rec, kind, claim in items:
+        if kind != "tracked" or claim is None or claim.dead:
+            continue
+        facts = frozen_ops.window_facts(claim.pane_id)
+        if facts is None:
+            lines.append(f"COMPANION_ERROR:{rec['id']}|tmux unreachable")
+            status = 1
+            continue
+        if not facts:
+            continue                    # the viewer went away meanwhile
+        session, window = facts.get("session", ""), facts.get("window", "")
+        pane = agent_restore._spawn_companion(session, window, claim.pane_id,
+                                              rec.get("root", ""))
+        if pane:
+            lines.append(f"COMPANION_SPAWNED:{rec['id']}|"
+                         f"{_field(session)}:{_field(window)}|{pane}")
+    spawned = sum(1 for line in lines if line.startswith("COMPANION_SPAWNED:"))
+    lines.append(f"COMPANION_COUNT:{spawned}")
+    return lines, status
 
 
 def _field(value: str) -> str:
@@ -624,9 +799,10 @@ def reopen_all(root: str, *, session: str | None = None) -> list[str]:
 
 # --- CLI ---------------------------------------------------------------------
 
-_USAGE = ("Usage: aitask_frozen.sh gone --root <path>\n"
+_USAGE = ("Usage: aitask_frozen.sh gone --root <path> | --all-roots\n"
           "       aitask_frozen.sh reopen <id> [--session NAME]\n"
-          "       aitask_frozen.sh reopen --root <path> [--session NAME]")
+          "       aitask_frozen.sh reopen --root <path> [--session NAME]\n"
+          "       aitask_frozen.sh companions --root <path> | --all-roots")
 
 
 def _take_root(args: list[str]) -> tuple[list[str], str | None, str]:
@@ -639,9 +815,16 @@ def _take_root(args: list[str]) -> tuple[list[str], str | None, str]:
     return args[:i] + args[i + 2:], os.path.realpath(root), ""
 
 
+def _take_all_roots(args: list[str]) -> tuple[list[str], bool]:
+    if "--all-roots" not in args:
+        return args, False
+    i = args.index("--all-roots")
+    return args[:i] + args[i + 1:], True
+
+
 def main(argv: list[str]) -> int:
     args = list(argv)
-    if not args or args[0] not in ("gone", "reopen"):
+    if not args or args[0] not in ("gone", "reopen", "companions"):
         print(_USAGE, file=sys.stderr)
         return 2
     verb, args = args[0], args[1:]
@@ -652,11 +835,26 @@ def main(argv: list[str]) -> int:
     if err:
         print(f"ERROR:{err}", file=sys.stderr)
         return 2
+    args, all_roots = _take_all_roots(args)
 
-    if verb == "gone":
-        if root is None or args or session is not None:
+    if verb in ("gone", "companions"):
+        # Exactly one scope, and nothing else: neither verb targets a session.
+        if (root is None) == (not all_roots) or args or session is not None:
             print(_USAGE, file=sys.stderr)
             return 2
+        if verb == "companions":
+            lines, status = companions(None if all_roots else root)
+            for line in lines:
+                print(line)
+            return status
+        if all_roots:
+            lines = gone_all_roots()
+            if lines is None:
+                print("GONE_ERROR:*|store unreadable")
+                return 1
+            for line in lines:
+                print(line)
+            return 0
         result = classify(root)
         if result is None:
             print("GONE_ERROR:*|store unreadable")
@@ -669,6 +867,9 @@ def main(argv: list[str]) -> int:
         print(f"GONE_COUNT:{len(items)}")
         return 0
 
+    if all_roots:
+        print(_USAGE, file=sys.stderr)
+        return 2
     if root is not None:
         if args:
             print(_USAGE, file=sys.stderr)
