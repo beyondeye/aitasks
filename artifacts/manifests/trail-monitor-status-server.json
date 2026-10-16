@@ -1,0 +1,10 @@
+{
+  "backend": "local",
+  "created_at": 1792127914,
+  "current": "sha256:74962df13a48b93fdc114be2996c88df643ee0e0d96d9cd483dc61afb76e3893",
+  "handle": "art:trail-monitor-status-server",
+  "updated_at": 1792127914,
+  "versions": [
+    "sha256:74962df13a48b93fdc114be2996c88df643ee0e0d96d9cd483dc61afb76e3893"
+  ]
+}
