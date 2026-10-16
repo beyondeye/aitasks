@@ -125,19 +125,28 @@ fi
 VERSION="${VERSION#v}"
 
 # --- Get release date ---
+# RELEASE_DATE is the post's front-matter date: an exact RFC 3339 timestamp
+# WITH its UTC offset. Hugo reads a bare YYYY-MM-DD as UTC midnight, so a
+# release cut between local midnight and UTC midnight (any zone east of UTC)
+# became a future-dated post that the build left out, and check_links.py then
+# failed the landing page's link to it. RELEASE_DAY, the local calendar day,
+# is only for the landing page's "Mon DD, YYYY" display.
 TAG="v$VERSION"
 RELEASE_DATE=""
 
 if git rev-parse "$TAG" &>/dev/null; then
-    RELEASE_DATE=$(git for-each-ref --format='%(creatordate:short)' "refs/tags/$TAG" 2>/dev/null || true)
+    RELEASE_DATE=$(git for-each-ref --format='%(creatordate:iso-strict)' "refs/tags/$TAG" 2>/dev/null || true)
 fi
 
 if [[ -z "$RELEASE_DATE" ]]; then
-    RELEASE_DATE=$(date +%Y-%m-%d)
+    # One date call, then add the colon RFC 3339 needs: %z prints +0300.
+    RELEASE_DATE=$(date +%Y-%m-%dT%H:%M:%S%z)
+    RELEASE_DATE="${RELEASE_DATE:0:22}:${RELEASE_DATE:22:2}"
     if [[ "$AUTO_MODE" == false ]]; then
-        warn "Could not find tag date for $TAG, using today: $RELEASE_DATE"
+        warn "Could not find tag date for $TAG, using now: $RELEASE_DATE"
     fi
 fi
+RELEASE_DAY="${RELEASE_DATE:0:10}"
 
 # --- Extract changelog section (prefer humanized version) ---
 CHANGELOG_SECTION=""
@@ -326,7 +335,7 @@ PY
     info "Created blog post: $OUTPUT_FILE"
 
     # Update the "Latest Releases" section on the landing page
-    update_landing_page "$TITLE" "$SLUG" "$RELEASE_DATE"
+    update_landing_page "$TITLE" "$SLUG" "$RELEASE_DAY"
 
     echo "$OUTPUT_FILE"
 else
