@@ -362,7 +362,7 @@ only that fetch needs bounding on the Python side. Its test harness wraps
   → mitigation: none
 - `lib/bounded_run.py` is a fifth bounded-run implementation until sync, drift-check
   and github_release move onto it, and two of those still kill only the direct child
-  on macOS · severity: low · → mitigation: consolidate_bounded_git_helpers
+  on macOS · severity: low · → mitigation: t2035
 - Crew fetch/push can no longer prompt at all (no terminal, no askpass, no display). A
   user who answered an ssh passphrase or host-key prompt during `ait crew init` now
   gets a timeout or auth failure and must use ssh-agent or a credential helper
@@ -391,7 +391,7 @@ only that fetch needs bounding on the Python side. Its test harness wraps
   confirm) are outside the policy; only the bound applies · severity: low ·
   → mitigation: none
 - The crew-branch deletion pushes (`ait crew cleanup`, brainstorm delete, brainstorm
-  reopen) stay unbounded · severity: low · → mitigation: crew_branch_delete_push_timeout
+  reopen) stay unbounded · severity: low · → mitigation: t2036
 
 ### Planned mitigations
 - timing: after | name: consolidate_bounded_git_helpers | type: refactor | priority: low | effort: medium | inline_risk: high | added_complexity: high | addresses: code-health — bounded-run implementations duplicated; sync/drift-check macOS fallback kills only the direct child | desc: Move aitask_sync.sh:_git_with_timeout, aitask_remote_drift_check.sh:_git_fetch_with_timeout and github_release.sh's ls-remote watchdog onto lib/bounded_run.py (new session, process-group kill with TERM→CONT→KILL, temp-file output, non-interactive env) | created: t2035
