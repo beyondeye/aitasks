@@ -7,12 +7,12 @@ status: Ready
 labels: [monitor, minimonitor, performance]
 anchor: 2034
 created_at: 2026-10-16 08:01
-updated_at: 2026-10-16 08:01
+updated_at: 2026-10-16 08:12
 ---
 
 Measure how much of a minimonitor's and a monitor's CPU goes to tmux scanning
 (discovery, `capture-pane`, `strip_ansi`, prompt classification) versus Textual
-rendering, before the shared status server is built (see the parent task).
+rendering, before the shared status server is built (see the parent task and t2037).
 
 The 2026-10-16 snapshot (7 minimonitors at 0.8–3.1% CPU each, 4 monitors at
 0.9–3.4%, ps lifetime averages; 69–432 MB RSS) does not separate the two.
@@ -34,4 +34,4 @@ The 2026-10-16 snapshot (7 minimonitors at 0.8–3.1% CPU each, 4 monitors at
 
 Numbers and method recorded in the plan file, so they are archived with the
 task. If scanning turns out to be a small share, say so: that lowers the payoff
-of the Go server (child 5) but not the single-idle-clock gain.
+of the Go server (t2038) but not the single-idle-clock gain.
