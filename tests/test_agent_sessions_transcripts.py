@@ -1,8 +1,9 @@
 """Transcript-store fallback resolver tests (t1705_3).
 
 `newest_transcript_for` is what recovers a codeagent session id when the
-SessionStart hook never fired. For interactive codex that is not a backstop but
-THE mechanism: codex 0.153.4 fires SessionStart under `codex exec` only.
+SessionStart hook never fired. For interactive codex that is a real path, not a
+rare one. Codex 0.153.4 fired SessionStart under `codex exec` only, and 0.163.0
+fires it in the TUI only at a session's first turn.
 
 WHY THIS SUITE IS NOT OPTIONAL
 ------------------------------

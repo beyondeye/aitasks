@@ -320,10 +320,20 @@ class RestoreAckTests(_UpsertTestCase):
         self.assertFalse(d.exists())
         self.assertEqual(self.sf.by_id(rid).capture_ansi, "")
 
-    def test_restore_of_a_non_restoring_record_is_refused(self):
-        rid = self.rid(self.up())
-        with self.assertRaises(agent_sessions.TransitionRefused):
-            self.up(pane="%42", pane_pid=4242, restore_of=rid, nonce="aabbccdd")
+    def test_restore_of_a_frozen_or_transitional_record_is_refused(self):
+        """A `live` record is the one non-restoring state that is NOT refused
+        any more (t2040, `LateRestoreAckTests`). The rest still are."""
+        for state in (agent_sessions.STATE_FROZEN, agent_sessions.STATE_FREEZING,
+                      agent_sessions.STATE_ABORTING):
+            with self.subTest(state=state):
+                self.sf = agent_sessions.SessionsFile()
+                rid = self.rid(self.up())
+                self.sf.by_id(rid).state = state
+                before = vars(self.sf.by_id(rid)).copy()
+                with self.assertRaises(agent_sessions.TransitionRefused):
+                    self.up(pane="%42", pane_pid=4242, restore_of=rid,
+                            nonce="aabbccdd", session_id="sid-1")
+                self.assertEqual(vars(self.sf.by_id(rid)), before)
 
     def test_a_blank_agent_string_on_the_ack_keeps_the_stored_one(self):
         """t1802: a blank ack keeps the stored string — the defensive layer.
@@ -345,6 +355,194 @@ class RestoreAckTests(_UpsertTestCase):
                 self.assertEqual(rec.state, agent_sessions.STATE_LIVE)
                 self.assertEqual(rec.agent_string, "claudecode/opus5")
                 self.assertEqual(rec.agent_kind, "claudecode")
+
+
+class LateRestoreAckTests(_UpsertTestCase):
+    """A restore ack that arrives AFTER the restore settled (t2040).
+
+    Interactive codex fires SessionStart at its first turn, so a resumed codex
+    acks long after the grace, on a record a liveness confirm has already made
+    `live`. That ack used to be refused (TRANSITION_REFUSED), so the pane was
+    never re-stamped and every later SessionStart (`/new`) was refused too.
+
+    NEGATIVE CONTROLS:
+
+      unbound upgrade : drop the `launch_pid` / pane terms in
+                        `_late_restore_ack_ok` ->
+                        `test_a_foreign_pid_or_pane_does_not_upgrade` fails.
+      window left open: drop the `launch_pid = 0` in upsert's ordinary branch ->
+                        `test_a_session_move_closes_the_window_B_then_B` fails
+                        (A's captures are deleted).
+      target dropped  : drop the `id = rec.id` adoption in the late fallthrough
+                        -> `test_a_gone_pane_restore_in_a_suffixed_window_keeps_one_record`
+                        fails (a second record is created).
+      stale window    : drop `_follow_window` from the late upgrade ->
+                        `test_a_late_upgrade_in_a_suffixed_window_follows_it` fails.
+    """
+
+    PANE, PID = "%42", 4242
+
+    def _confirmed(self, mode="resume", session_id="sid-A"):
+        """A record restored and then LIVENESS-confirmed, with a capture."""
+        rid = self.rid(self.up(pane="%1", pane_pid=100, session_id=session_id))
+        rec = self.sf.by_id(rid)
+        rec.state = agent_sessions.STATE_FROZEN
+        d = agent_sessions.ensure_capture_dir(rid)
+        (d / "capture.ansi").write_text("x", encoding="utf-8")
+        rec.capture_ansi = str(d / "capture.ansi")
+        rec.capture_lines = 1
+        self.sf, line = agent_sessions.restore_begin(
+            self.sf, rid, mode=mode, owner_pid=os.getpid())
+        nonce = line.split("|")[1]
+        self.sf, _ = agent_sessions.restore_launched(
+            self.sf, rid, nonce=nonce, pane=self.PANE, pane_pid=self.PID)
+        self.sf, _ = agent_sessions.restore_confirm(
+            self.sf, rid, nonce=nonce, pane=self.PANE, pane_pid=self.PID)
+        self.assertEqual((rec.state, rec.ack), (agent_sessions.STATE_LIVE, "liveness"))
+        return rid, nonce, d
+
+    def late(self, rid, nonce, **kw):
+        kw.setdefault("pane", self.PANE)
+        kw.setdefault("pane_pid", self.PID)
+        return self.up(restore_of=rid, nonce=nonce, **kw)
+
+    def test_a_matching_late_resume_ack_upgrades_to_verified(self):
+        rid, nonce, d = self._confirmed()
+        line = self.late(rid, nonce, session_id="sid-A", id=rid)
+        self.assertEqual(line, f"UPSERTED:{rid}|restored_late")
+        rec = self.sf.by_id(rid)
+        self.assertEqual((rec.state, rec.ack), (agent_sessions.STATE_LIVE, "hook"))
+        self.assertFalse(d.exists(), "a verified ack deletes the captures")
+        self.assertEqual(rec.capture_ansi, "")
+        self.assertEqual(len(self.sf.sessions), 1)
+
+    def test_a_late_repick_ack_adopts_its_session(self):
+        rid, nonce, d = self._confirmed(mode="repick", session_id="sid-old")
+        line = self.late(rid, nonce, session_id="sid-new")
+        self.assertEqual(line, f"UPSERTED:{rid}|restored_late")
+        rec = self.sf.by_id(rid)
+        self.assertEqual((rec.ack, rec.codeagent_session_id), ("hook", "sid-new"))
+        self.assertFalse(d.exists())
+
+    def test_a_foreign_pid_or_pane_does_not_upgrade(self):
+        for label, kw in (("pid", dict(pane_pid=5555)), ("pane", dict(pane="%77"))):
+            with self.subTest(differs=label):
+                self.sf = agent_sessions.SessionsFile()
+                rid, nonce, d = self._confirmed()
+                line = self.late(rid, nonce, session_id="sid-A", id=rid, **kw)
+                self.assertEqual(line, f"UPSERTED:{rid}|updated")
+                rec = self.sf.by_id(rid)
+                self.assertEqual(rec.ack, "liveness")
+                self.assertTrue(d.exists(), "unproven: the only copy is kept")
+
+    def test_a_late_ack_on_another_session_is_an_ordinary_update(self):
+        """`/new` after the restore: the record follows the pane's conversation."""
+        rid, nonce, d = self._confirmed()
+        line = self.late(rid, nonce, session_id="sid-B", id=rid)
+        self.assertEqual(line, f"UPSERTED:{rid}|updated")
+        rec = self.sf.by_id(rid)
+        self.assertEqual(rec.codeagent_session_id, "sid-B")
+        self.assertEqual(rec.ack, "liveness")
+        self.assertEqual(rec.last_error, "", "no mismatch: the restore is settled")
+        self.assertTrue(d.exists())
+
+    def test_a_session_move_closes_the_window_B_then_B(self):
+        """THE REVIEW CASE: target A is never verified, so a hook that reports B
+        twice must not delete A's captures on the second report."""
+        rid, nonce, d = self._confirmed(session_id="sid-A")
+        self.late(rid, nonce, session_id="sid-B", id=rid)
+        self.assertEqual(self.sf.by_id(rid).launch_pid, 0,
+                         "moving to another session closes the late window")
+        line = self.late(rid, nonce, session_id="sid-B", id=rid)
+        self.assertEqual(line, f"UPSERTED:{rid}|updated")
+        rec = self.sf.by_id(rid)
+        self.assertEqual(rec.ack, "liveness")
+        self.assertTrue(d.exists(), "A's capture files survive")
+        self.assertNotEqual(rec.capture_ansi, "", "A's capture fields survive")
+
+    def test_control_A_first_upgrades_even_after_the_same_A_again(self):
+        """CONTROL for the case above: the target session upgrades on its first
+        report, and a repeat is a plain update of an already-verified record."""
+        rid, nonce, d = self._confirmed(session_id="sid-A")
+        self.assertTrue(self.late(rid, nonce, session_id="sid-A", id=rid)
+                        .endswith("|restored_late"))
+        self.assertEqual(self.late(rid, nonce, session_id="sid-A", id=rid),
+                         f"UPSERTED:{rid}|updated")
+        self.assertFalse(d.exists())
+
+    def test_a_clear_also_closes_the_window(self):
+        rid, nonce, d = self._confirmed(session_id="sid-A")
+        self.up(id=rid, pane=self.PANE, pane_pid=self.PID, clear_session_id=True)
+        self.assertEqual(self.sf.by_id(rid).launch_pid, 0)
+
+    def test_an_unchanged_session_keeps_the_window_open(self):
+        """CONTROL. An ordinary update that names the SAME session (or none)
+        must not close the window, or the genuine late ack could never land."""
+        rid, nonce, d = self._confirmed(session_id="sid-A")
+        self.up(id=rid, pane=self.PANE, pane_pid=self.PID, session_id="sid-A")
+        self.up(id=rid, pane=self.PANE, pane_pid=self.PID, session_id="")
+        self.assertEqual(self.sf.by_id(rid).launch_pid, self.PID)
+        self.assertTrue(self.late(rid, nonce, session_id="sid-A", id=rid)
+                        .endswith("|restored_late"))
+
+    def test_an_already_verified_record_takes_a_plain_update(self):
+        for ack in ("hook", "rollout"):
+            with self.subTest(ack=ack):
+                self.sf = agent_sessions.SessionsFile()
+                rid, nonce, d = self._confirmed()
+                self.sf.by_id(rid).ack = ack
+                line = self.late(rid, nonce, session_id="sid-A", id=rid)
+                self.assertEqual(line, f"UPSERTED:{rid}|updated")
+                self.assertEqual(self.sf.by_id(rid).ack, ack)
+
+    def test_a_gone_pane_restore_in_a_suffixed_window_keeps_one_record(self):
+        """THE REVIEW CASE: a gone-pane restore lands in a NEW window, which has
+        no `@aitask_record`, and gets a suffixed name when the original is
+        taken. The late hook then carries `restore_of` but no `id`, and its
+        window is not the record's. Selecting by window would create a second
+        record for the same agent."""
+        for ack in ("rollout", "hook"):
+            with self.subTest(ack=ack):
+                self.sf = agent_sessions.SessionsFile()
+                rid, nonce, d = self._confirmed()
+                self.sf.by_id(rid).ack = ack
+                line = self.late(rid, nonce, session_id="sid-A",
+                                 window="agent-pick-1-2")
+                self.assertEqual(line, f"UPSERTED:{rid}|updated")
+                self.assertEqual(len(self.sf.sessions), 1, "one agent, one record")
+                rec = self.sf.by_id(rid)
+                self.assertEqual(rec.window, "agent-pick-1-2",
+                                 "the record follows the window its pane is in")
+                self.assertEqual(rec.ack, ack)
+
+    def test_a_late_upgrade_in_a_suffixed_window_follows_it(self):
+        rid, nonce, d = self._confirmed()
+        line = self.late(rid, nonce, session_id="sid-A", window="agent-pick-1-2")
+        self.assertEqual(line, f"UPSERTED:{rid}|restored_late")
+        self.assertEqual(len(self.sf.sessions), 1)
+        self.assertEqual(self.sf.by_id(rid).window, "agent-pick-1-2")
+
+    def test_a_late_hook_from_another_pane_does_not_adopt_the_record(self):
+        """CONTROL. The restore target is the caller's identity only from the
+        record's own pane; from anywhere else it says nothing about the caller."""
+        rid, nonce, d = self._confirmed()
+        self.sf.by_id(rid).ack = "rollout"
+        before = vars(self.sf.by_id(rid)).copy()
+        line = self.late(rid, nonce, session_id="sid-A", pane="%77",
+                         window="agent-pick-9")
+        self.assertNotEqual(self.rid(line), rid)
+        self.assertEqual(vars(self.sf.by_id(rid)), before)
+
+    def test_restoring_with_a_wrong_nonce_is_still_a_nonce_mismatch(self):
+        """CONTROL. Only a SETTLED record changes; an in-flight one keeps the
+        nonce check."""
+        rid = self.rid(self.up(session_id="sid-A"))
+        self.sf.by_id(rid).state = agent_sessions.STATE_FROZEN
+        self.sf, _ = agent_sessions.restore_begin(
+            self.sf, rid, mode="resume", owner_pid=os.getpid())
+        with self.assertRaises(agent_sessions.NonceMismatch):
+            self.up(pane="%42", pane_pid=4242, restore_of=rid, nonce="deadbeef",
+                    session_id="sid-A")
 
 
 class BlankAgentStringTests(_UpsertTestCase):

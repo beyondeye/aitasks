@@ -186,17 +186,25 @@ A restore succeeds in one of two ways, and they are not the same outcome:
 
 | Outcome | What happened | The capture |
 |---|---|---|
-| `restored` | the resumed agent's session hook reported the record and the expected session id back to the store | **deleted** |
+| `restored` | the session that came back was confirmed to be the one asked for — by the resumed agent's session hook, or, for a Codex agent on Linux, from the transcript the resumed process holds open | **deleted** |
 | `restored, unverified — capture kept` | the agent is running, nothing confirmed it is the same session, and the framework confirmed it on the process alone | **kept** |
 
 Both are successes. The second is not a fault, and it is the safer of the two:
 precisely because nobody confirmed the session, the transcript is kept rather
 than deleted.
 
-You will see it whenever no [session hook]({{< relref "/docs/commands/setup-install" >}}#session-hooks)
-reports back — the hook was declined at `ait setup`, or the agent is an
-interactive Codex session (Codex fires the hook only under `codex exec`), or the
-CLI reports no session at startup.
+You will see it whenever nothing confirms the session within the grace. The
+[session hook]({{< relref "/docs/commands/setup-install" >}}#session-hooks) was
+declined at `ait setup`, the CLI reports no session at startup, or the agent is
+a Codex resume whose session cannot be read from its process (there is no
+`/proc`, as on macOS).
+
+Codex fires the hook only at a session's first turn, not at launch (measured on
+Codex 0.163.0; Codex 0.153.4 fires it only under `codex exec`). So a resumed
+Codex agent never confirms itself through the hook within the grace, which is
+why the transcript check exists. When its hook does fire later, at your first
+message, an unverified restore is upgraded to `restored` and the capture is
+deleted.
 
 `frozen.restore_ack_grace` sets how long the restore waits for that
 acknowledgement. It is a **waiting period, not an outcome lever**: an agent that

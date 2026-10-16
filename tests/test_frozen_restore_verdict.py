@@ -152,13 +152,21 @@ class StaleNonceTrapTests(unittest.TestCase):
 class SuccessTests(unittest.TestCase):
 
     def test_a_liveness_ack_is_a_success_and_must_not_warn(self):
-        """The only outcome an interactive codex restore can reach. Styling it
-        as an error would make the normal codex path look broken."""
+        """The outcome when nothing proved the session within the grace (no
+        hook ack, and for codex no rollout evidence, e.g. without /proc).
+        Styling it as an error would make a working restore look broken."""
         rec = _rec(state=agent_sessions.STATE_LIVE, restore_attempts=1,
                    ack="liveness")
         self.assertEqual(
             _restore(rec, 0),
             (True, "restored, unverified — capture kept", False))
+
+    def test_a_rollout_ack_is_a_verified_restore(self):
+        """t2040: a codex resume verified from its open rollout deleted the
+        capture, so it reads exactly like a hook-verified restore."""
+        rec = _rec(state=agent_sessions.STATE_LIVE, restore_attempts=1,
+                   ack="rollout")
+        self.assertEqual(_restore(rec, 0), (True, "restored", False))
 
     def test_a_hook_ack_is_a_plain_success(self):
         rec = _rec(state=agent_sessions.STATE_LIVE, restore_attempts=1,

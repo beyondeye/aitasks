@@ -1722,5 +1722,190 @@ class TestSessionTargeting(unittest.TestCase):
             self.assertEqual(2, agent_restore.main(
                 ["restore", "7f3a2c1d", "--session", "a.b"]))
 
+class TestRolloutEvidence(_SwapMixin, unittest.TestCase):
+    """A codex resume is VERIFIED from the process it launched (t2040).
+
+    Interactive codex fires its hook only at the user's first turn, so a
+    resumed codex never acks inside the grace. It does hold its session's
+    rollout open from launch, and `agent_sessions.codex_session_for_pid` reads
+    that off ``launch_pid``. The store makes the comparison
+    (`restore-confirm --rollout-session`), so these tests script its answers
+    and pin what the coordinator does with each.
+
+    NEGATIVE CONTROLS:
+
+      no rollout path : drop the `_rollout_confirm` call from the poll loop ->
+                        `test_a_matching_rollout_verifies_before_the_grace`
+                        polls past its budget and fails.
+      unsettled refuse: return the refused-confirm verdict without `_settle`
+                        -> `test_a_mismatch_found_after_a_refused_confirm_rolls_back`
+                        sees no `restore-abort`.
+    """
+
+    SID = "11111111-2222-3333-4444-555555555555"
+
+    def _codex(self, **overrides):
+        base = dict(agent_string="codex/gpt5_6_terra", agent_kind="codex",
+                    codeagent_session_id=self.SID)
+        base.update(overrides)
+        return _rec(**base)
+
+    def _restoring(self, **overrides):
+        base = dict(state="restoring", restore_mode="resume", op_nonce="deadbeef",
+                    launch_pid="51000", pane_id="%104")
+        base.update(overrides)
+        return self._codex(**base)
+
+    def _run(self, *, reads, store_answers, resolver, grace=30.0, frozen=None,
+             max_restoring_reads=4):
+        """Run one restore. ``reads`` are the records the poll loop sees, in
+        order; past ``max_restoring_reads`` the test FAILS instead of polling on,
+        which is what makes "verified before the grace" checkable without a clock.
+        """
+        store = self.swap_store(_RecordingStore(answers=dict(store_answers)))
+        tmux = self.swap_tmux(_ScriptedTmux({
+            **_TMUX_OURS_AND_FIRES,
+            # pre-read (pane present, server pid), then pane_location reads of
+            # the replacement: our pane, the launched pid.
+            2: [(0, "%104\t9999"), (0, "%104\t51000")],
+        }))
+        queue = [frozen or self._codex()] + list(reads)
+        state = {"restoring": 0}
+
+        def _reread(_rid):
+            if len(queue) > 1:
+                rec = queue.pop(0)
+            else:
+                rec = queue[0]
+            if rec.get("state") == "restoring":
+                state["restoring"] += 1
+                if state["restoring"] > max_restoring_reads:
+                    raise AssertionError("polled past the budget: the rollout "
+                                         "evidence was not used")
+            return rec
+
+        probe = unittest.mock.Mock(side_effect=resolver)
+        with unittest.mock.patch.object(agent_restore, "_reread", side_effect=_reread), \
+             unittest.mock.patch.object(agent_restore, "build_resume_argv",
+                                        return_value=f"codex resume {self.SID}"), \
+             unittest.mock.patch.object(agent_restore, "maybe_spawn_minimonitor",
+                                        return_value=None), \
+             unittest.mock.patch.object(agent_restore.time, "sleep"), \
+             unittest.mock.patch.object(agent_restore.agent_sessions,
+                                        "codex_session_for_pid", probe), \
+             unittest.mock.patch.object(ops, "restore_ack_grace", return_value=grace):
+            result = agent_restore.restore("7f3a2c1d")
+        return result, store, tmux, probe
+
+    _BEGIN = {
+        "restore-begin": (0, "RESTORING:7f3a2c1d|deadbeef"),
+        "restore-launched": (0, "LAUNCHED:7f3a2c1d"),
+    }
+
+    def test_a_matching_rollout_verifies_before_the_grace(self):
+        result, store, _tmux, probe = self._run(
+            reads=[self._restoring()],
+            store_answers={**self._BEGIN,
+                           "restore-confirm": (0, "LIVE:7f3a2c1d|rollout")},
+            resolver=lambda pid, **_kw: (self.SID, "/r.jsonl", ""))
+        self.assertTrue(result.ok)
+        self.assertEqual("rollout", result.outcome)
+        self.assertEqual("RESTORED:7f3a2c1d|rollout", result.line)
+        confirm = [c for c in store.calls if c[0] == "restore-confirm"]
+        self.assertEqual(1, len(confirm))
+        self.assertIn("--rollout-session", confirm[0])
+        self.assertEqual(self.SID, confirm[0][confirm[0].index("--rollout-session") + 1])
+        self.assertEqual("51000", confirm[0][confirm[0].index("--pane-pid") + 1],
+                         "the evidence is the LAUNCHED process's")
+        self.assertEqual([51000], [c.args[0] for c in probe.call_args_list])
+        self.assertNotIn("restore-abort", store.verbs())
+
+    def test_a_mismatching_rollout_rolls_back(self):
+        """The store persists the mismatch and exits 7; the re-read shows it,
+        and `_settle` puts the stand-in back."""
+        mismatched = self._restoring(last_error="deadbeef:session_mismatch")
+        result, store, tmux, _probe = self._run(
+            reads=[self._restoring(), mismatched],
+            store_answers={**self._BEGIN,
+                           "restore-confirm": (ops.EXIT_SESSION_MISMATCH,
+                                               "RESTORE_SESSION_MISMATCH:7f3a2c1d"),
+                           "restore-abort": (0, "ABORTING:7f3a2c1d"),
+                           "standin-respawned": (0, "FROZEN:7f3a2c1d")},
+            resolver=lambda pid, **_kw: ("99999999-2222-3333-4444-555555555555",
+                                         "/r.jsonl", ""))
+        self.assertFalse(result.ok)
+        self.assertEqual("session_mismatch", result.outcome)
+        confirm = [c for c in store.calls if c[0] == "restore-confirm"]
+        self.assertEqual(1, len(confirm),
+                         "the coordinator itself reported the evidence")
+        self.assertEqual("99999999-2222-3333-4444-555555555555",
+                         confirm[0][confirm[0].index("--rollout-session") + 1])
+        self.assertIn("restore-abort", store.verbs())
+        self.assertEqual(2, len(tmux.destructive()),
+                         "the forward respawn, then the rollback respawn")
+
+    def test_no_rollout_yet_falls_back_to_liveness(self):
+        """CONTROL. A miss is never a verdict: the grace runs out and the
+        liveness confirm keeps the captures, as before."""
+        for miss in ("no_match", "no_process", "ambiguous"):
+            with self.subTest(miss=miss):
+                result, store, _tmux, _probe = self._run(
+                    reads=[self._restoring()],
+                    store_answers={**self._BEGIN,
+                                   "restore-confirm": (0, "LIVE:7f3a2c1d|liveness")},
+                    resolver=lambda pid, _m=miss, **_kw: ("", "", _m),
+                    grace=0, max_restoring_reads=10)
+                self.assertTrue(result.ok)
+                self.assertEqual("liveness", result.outcome)
+                confirm = [c for c in store.calls if c[0] == "restore-confirm"]
+                self.assertEqual(1, len(confirm))
+                self.assertNotIn("--rollout-session", confirm[0])
+
+    def test_a_claude_record_or_a_repick_never_reads_a_rollout(self):
+        cases = (
+            ("claude", dict(agent_string="claudecode/opus5", agent_kind="claudecode"),
+             dict(agent_kind="claudecode")),
+            ("repick", {}, dict(restore_mode="repick")),
+        )
+        for label, frozen_over, restoring_over in cases:
+            with self.subTest(case=label):
+                result, _store, _tmux, probe = self._run(
+                    frozen=self._codex(**frozen_over),
+                    reads=[self._restoring(**restoring_over)],
+                    store_answers={**self._BEGIN,
+                                   "restore-confirm": (0, "LIVE:7f3a2c1d|liveness")},
+                    resolver=lambda pid, **_kw: (self.SID, "/r.jsonl", ""),
+                    grace=0, max_restoring_reads=10)
+                self.assertEqual("liveness", result.outcome)
+                probe.assert_not_called()
+
+    def test_a_mismatch_found_after_a_refused_confirm_rolls_back(self):
+        """t2040 D3: the hook persisted a mismatch after the last poll, so the
+        store REFUSES the liveness confirm; the re-read must be settled."""
+        mismatched = self._restoring(last_error="deadbeef:session_mismatch")
+        result, store, _tmux, _probe = self._run(
+            reads=[self._restoring(), mismatched],
+            store_answers={**self._BEGIN,
+                           "restore-confirm": (ops.EXIT_TRANSITION_REFUSED,
+                                               "TRANSITION_REFUSED:7f3a2c1d|restoring|restore-confirm"),
+                           "restore-abort": (0, "ABORTING:7f3a2c1d"),
+                           "standin-respawned": (0, "FROZEN:7f3a2c1d")},
+            resolver=lambda pid, **_kw: ("", "", "no_match"),
+            grace=0, max_restoring_reads=10)
+        self.assertFalse(result.ok)
+        self.assertEqual("session_mismatch", result.outcome)
+        self.assertIn("restore-abort", store.verbs(),
+                      "a refused confirm over a mismatch must roll back")
+
+    def test_decide_reads_a_rollout_ack_as_verified_success(self):
+        self.swap_tmux(_ScriptedTmux({}))
+        decided = agent_restore._decide_from_record(
+            "7f3a2c1d", self._restoring(state="live", ack="rollout"), "deadbeef",
+            "codex")
+        self.assertTrue(decided.ok)
+        self.assertEqual("rollout", decided.outcome)
+        self.assertEqual("RESTORED:7f3a2c1d|rollout", decided.line)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

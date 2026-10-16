@@ -248,6 +248,16 @@ run_hook '{"session_id":"sid-5","transcript_path":"/t/f.jsonl","cwd":"'"$ROOT"'"
 assert_eq "--restore-of from the environment" "1122aabb" "$(arg_value 1 --restore-of)"
 assert_eq "--nonce from the environment" "99887766" "$(arg_value 1 --nonce)"
 
+# A LATE restore ack (t2040): a resumed codex fires SessionStart only at its
+# first turn, after the restore settled. The store upgrades the record and
+# answers `restored_late`; the hook must still stamp the pane on that line.
+export SESSIONS_STUB_OUT="UPSERTED:1122aabb|restored_late"
+run_hook '{"session_id":"sid-5","transcript_path":"/t/f.jsonl","cwd":"'"$ROOT"'","source":"resume"}' \
+    AITASK_RESTORE_RECORD=1122aabb AITASK_RESTORE_NONCE=99887766 AITASK_RESTORE_MODE=resume
+assert_eq "late ack: exit 0" "0" "$HOOK_RC"
+assert_eq "late ack: stamped from the restored_late line" "1122aabb" "$(tmux_option_value @aitask_record)"
+export SESSIONS_STUB_OUT="UPSERTED:aabbccdd|created"
+
 # ---------------------------------------------------------------------------
 echo "--- LOCK_BUSY (rc 3) is retried exactly once ---"
 export SESSIONS_STUB_RC1=3

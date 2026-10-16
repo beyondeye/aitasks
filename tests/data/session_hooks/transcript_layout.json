@@ -68,7 +68,7 @@
         "codex-tui": "interactive TUI",
         "codex_exec": "codex exec"
       },
-      "originator_note": "Interactive (codex-tui) sessions DO write transcripts even though they fire no SessionStart hook. That is precisely what makes this fallback the only session-id source for interactive codex."
+      "originator_note": "Interactive (codex-tui) sessions DO write transcripts. Codex 0.153.4 fired no SessionStart hook for them; codex 0.163.0 fires it, but only at a session's first turn. So for an older codex, or before the first turn, the transcript store (and, since t1804, the rollout the agent's own process holds open) is still the only session-id source for interactive codex."
     }
   },
   "_resolver_design_consequence": "Because the claude encode rule is only PARTIALLY determined ('.' and ' ' unobserved), newest_transcript_for must not trust a computed directory name. Compute it as a fast path, then VERIFY the candidate by reading cwd out of its transcripts; on a miss, scan the whole store and match on cwd. That is correct under every candidate escape rule, so an unobserved character cannot silently produce the empty pair. Store ROOT is resolved the same defensive way: each agent's override (CLAUDE_CONFIG_DIR / CODEX_HOME) is searched in addition to the default under $HOME, because an agent launched with a custom root writes its transcripts there and scanning only the default would report 'no session' for precisely the sessions this fallback exists to find."

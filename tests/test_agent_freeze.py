@@ -266,6 +266,10 @@ class _FakeStore:
             return agent_freeze.EXIT_NONCE_MISMATCH, str(exc)
         except agent_sessions.LeaseHeld as exc:
             return agent_freeze.EXIT_LEASE_HELD, str(exc)
+        except agent_sessions.SessionMismatch as exc:
+            # The real CLI persists the mismatch before exiting 7; here the
+            # in-memory store already holds it, since the verb mutated it first.
+            return agent_freeze.EXIT_SESSION_MISMATCH, str(exc)
         except (ValueError, KeyError) as exc:
             return 4, f"ERROR:{exc}"
 
@@ -346,7 +350,8 @@ class _FakeStore:
             self.sf, line = agent_sessions.restore_confirm(
                 self.sf, argv[0], nonce=self._arg(argv, "--nonce"),
                 pane=self._arg(argv, "--pane"),
-                pane_pid=int(self._arg(argv, "--pane-pid", "0")))
+                pane_pid=int(self._arg(argv, "--pane-pid", "0")),
+                rollout_session=self._arg(argv, "--rollout-session", None))
             return 0, line
         if verb == "restore-abort":
             self.sf, line = agent_sessions.restore_abort(
@@ -705,8 +710,10 @@ class CodexSessionCaptureTests(_FreezeTestCase):
     """t1804: a codex agent's session is captured AT FREEZE, from the rollout
     its own process holds open.
 
-    Interactive codex fires no SessionStart hook, so this is the only moment the
-    correlation exists — stage 5 respawns the pane and the process is gone. Two
+    Codex 0.153.4 fired no SessionStart hook in the interactive TUI, and 0.163.0
+    fires it only at the first turn. So for an older codex, a freeze before the
+    first turn, or an unreported `/new`, this is the last moment the correlation
+    exists — stage 5 respawns the pane and the process is gone. Two
     rules run through every case below:
 
     * an id is recorded only WITH a codex agent string. `build_resume_argv`
@@ -1839,6 +1846,99 @@ class ReconcileRestoringTests(_FreezeTestCase):
         self.assertEqual(self.rec().ack, "liveness")
         self.assertTrue(
             (Path(os.environ[agent_sessions.FROZEN_DIR_ENV]) / self.rid).exists())
+
+    # --- t2040: a resumed codex's open rollout, and the handover race ---------
+
+    CODEX_SID = "11111111-2222-3333-4444-555555555555"
+
+    def _codex_launched(self):
+        """A codex record restoring in `resume` mode, its replacement launched
+        as pid 7777, with a capture on disk. Returns the coordinator's nonce."""
+        self.seed_record(session_id=self.CODEX_SID,
+                         agent_string="codex/gpt5_6_terra")
+        nonce = self._restoring()
+        agent_sessions.ensure_capture_dir(self.rid)
+        self.store.sf, _ = agent_sessions.restore_launched(
+            self.store.sf, self.rid, nonce=nonce, pane=AGENT_PANE, pane_pid=7777)
+        return nonce
+
+    def _capture_exists(self) -> bool:
+        return (Path(os.environ[agent_sessions.FROZEN_DIR_ENV]) / self.rid).exists()
+
+    def _after_grace(self) -> float:
+        return time.time() + agent_frozen_ops.restore_ack_grace() + 1
+
+    def test_a_matching_rollout_is_a_verified_confirm(self):
+        nonce = self._codex_launched()
+        self.observe_codex(self.CODEX_SID)
+        line = agent_freeze._reconcile_restoring(
+            self._rec(), self._observed(pane_pid=7777), _FixedLease(nonce),
+            self._after_grace())
+        self.assertEqual(line, f"LIVE:{self.rid}|rollout")
+        self.assertEqual((self.rec().state, self.rec().ack),
+                         (agent_sessions.STATE_LIVE, "rollout"))
+        self.assertFalse(self._capture_exists(), "verified: captures deleted")
+        self.assertEqual(self.codex_probe_pids, [7777],
+                         "the evidence is read off the LAUNCHED process")
+
+    def test_a_mismatching_rollout_aborts_and_keeps_the_capture(self):
+        nonce = self._codex_launched()
+        self.observe_codex("99999999-2222-3333-4444-555555555555")
+        line = agent_freeze._reconcile_restoring(
+            self._rec(), self._observed(pane_pid=7777), _FixedLease(nonce),
+            self._after_grace())
+        self.assertEqual(line, f"STANDIN:{self.rid}")
+        rec = self.rec()
+        self.assertEqual(rec.state, agent_sessions.STATE_FROZEN)
+        self.assertTrue(rec.last_error.endswith(":session_mismatch"))
+        self.assertTrue(self._capture_exists())
+
+    def test_no_rollout_evidence_still_liveness_confirms(self):
+        """CONTROL. A codex record whose process shows nothing provable (no
+        rollout yet, no /proc) is confirmed on liveness exactly as before."""
+        for miss in (agent_sessions.MISS_NO_MATCH, agent_sessions.MISS_NO_PROCESS):
+            with self.subTest(miss=miss):
+                self.setUp()
+                nonce = self._codex_launched()
+                self.observe_miss(miss)
+                line = agent_freeze._reconcile_restoring(
+                    self._rec(), self._observed(pane_pid=7777),
+                    _FixedLease(nonce), self._after_grace())
+                self.assertEqual(line, f"LIVE:{self.rid}|liveness")
+                self.assertTrue(self._capture_exists())
+
+    def test_a_mismatch_landing_before_the_takeover_still_aborts(self):
+        """THE HANDOVER RACE (t2040). Reconcile's `mismatch` comes from a read
+        taken BEFORE `lease-take`. The replacement's hook persists one under the
+        coordinator's nonce N1 after that read and before the takeover, and the
+        takeover then mints N2. Reconcile must still abort and keep the capture,
+        whether or not the process shows rollout evidence."""
+        for evidence in ("miss", "match"):
+            with self.subTest(evidence=evidence):
+                self.setUp()
+                n1 = self._codex_launched()
+                record = self.rec()
+                # The coordinator died: its lease is stale and its pid is gone.
+                record.op_owner_pid = 2 ** 22 + 12345
+                record.op_started_at = agent_sessions._iso(time.time() - 10_000)
+                snapshot = self._rec()                 # the PRE-lease read: clean
+                self.assertEqual(snapshot["last_error"], "")
+                record.last_error = f"{n1}:session_mismatch"   # the late hook
+                if evidence == "match":
+                    self.observe_codex(self.CODEX_SID)
+                else:
+                    self.observe_miss(agent_sessions.MISS_NO_MATCH)
+                line = agent_freeze._reconcile_restoring(
+                    snapshot, self._observed(pane_pid=7777),
+                    agent_freeze._Lease(self.rid), self._after_grace())
+                self.assertEqual(line, f"STANDIN:{self.rid}")
+                rec = self.rec()
+                self.assertEqual(rec.state, agent_sessions.STATE_FROZEN)
+                self.assertNotEqual(rec.ack, "liveness")
+                self.assertNotEqual(rec.ack, "rollout")
+                self.assertTrue(rec.last_error.endswith(":session_mismatch"))
+                self.assertTrue(self._capture_exists(), "the only copy survives")
+                self.assertIn("lease-take", self.store.verbs())
 
     def test_an_unrecognised_pane_is_indeterminate_until_twice_the_grace(self):
         """`launch_pid == 0`: the respawn may be mid-flight."""

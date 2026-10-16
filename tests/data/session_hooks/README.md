@@ -74,17 +74,27 @@ AITASKS_SPIKE_REAL_AGENTS=1 bash tests/test_frozen_standin_spike.sh --refresh-fi
 Then redact (see below) and update the version/date lines above **in the same
 commit** as the JSON.
 
-## `codex_sessionstart.json` — `provisional` (`no_interactive_capture`)
+## `codex_sessionstart.json` — `captured`
 
-- **Agent version:** codex 0.153.4
-- **Captured:** 2026-09-06
-- **Capture mode:** `exec` — **not** the production launch path, hence
-  `provisional`.
+- **Agent version:** codex 0.163.0
+- **Captured:** 2026-10-16
+- **Capture mode:** `interactive` (authoritative)
+- **Fires at:** the session's **first turn**, not at launch (`_fires_at:
+  first_turn`). Nothing fired in the 12 s after launch; the payload arrived
+  0.37 s after the first prompt was submitted. After `codex resume <id>` the hook
+  fires at the resumed session's first turn, with `source: resume` and the same
+  session id.
+- **Payload keys:** `session_id`, `transcript_path`, `cwd`, `hook_event_name`,
+  `source`, plus `model` and `permission_mode`.
+- **`$TMUX_PANE` and `AITASK_AGENT_STRING` are both visible** to the hook, which
+  runs as a child of the pane's own codex process.
 
-Codex 0.153.4 **does** have a working SessionStart hook, delivering
-`session_id`, `transcript_path`, `cwd`, `hook_event_name`, `source`, plus
-`model` and `permission_mode`. What it does **not** do is fire it in the
-interactive TUI.
+**Version boundary.** Codex 0.153.4 fired SessionStart only under `codex exec`,
+never in the interactive TUI, neither at launch nor after the first turn. The
+first version that fires it interactively lies in (0.153.4, 0.163.0] and was not
+bisected. On an older codex, and before the first turn on any codex, the freeze
+engine captures the session from the rollout the agent's own process holds open
+instead (t1804).
 
 - **Config surface (established empirically):** a project-level
   `.codex/hooks.json` in the Claude-compatible shape is honoured, but only when
@@ -100,23 +110,22 @@ interactive TUI.
   `$CODEX_HOME/config.toml`; `--dangerously-bypass-hook-trust` bypasses the
   hook-trust prompt for one invocation.
 
-- **The trap this fixture exists to prevent:** a snake_case `session_start` key
-  is **silently ignored** — no error, no warning. A guessed schema therefore
+- **The trap that made the probe strict:** a snake_case `session_start` key is
+  **silently ignored** — no error, no warning. A guessed schema therefore
   produces a payload-free run that looks exactly like "the agent has no hooks",
   which is how an untested environment gets recorded as a capability limit.
   That is why the probe requires a positive-control chain before any verdict.
-
-- **The finding:** `SessionStart` fires under `codex exec` and does **not** fire
-  in the interactive TUI — neither at launch nor after the first turn. Since the
-  framework launches agents interactively, no session id is capturable via
-  SessionStart on codex's production path.
+  The same trap exists in time: a probe that waits for a payload without sending
+  a turn sees nothing on codex 0.163.0 either, which is how the interactive hook
+  went unnoticed. Case 6 therefore records the pre-turn wait AND sends a turn.
 
 ### How to refresh
 
-Same command as above. A refresh that obtains an **interactive** codex capture
-must also flip `_fixture_status` to `captured`, set
-`_capture_mode: interactive`, drop `_reason`, and update the findings block in
-`aiplans/p1705_frozen_codeagents_session_store_and_viewer_tui.md`.
+Same command as above. Case 6 waits a bounded interval with no prompt (and
+records whether anything fired), then submits one prompt and waits for the
+payload. Redact per the contract below, then update the version, date and timing
+lines above **in the same commit** as the JSON. A refresh that captures nothing
+after the turn is recorded as a finding, never committed over this baseline.
 
 ## `transcript_layout.json` — the fallback resolver's ground truth
 

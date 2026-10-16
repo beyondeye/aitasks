@@ -1,25 +1,26 @@
 {
-  "_fixture_status": "provisional",
-  "_reason": "no_interactive_capture",
-  "_capture_mode": "exec",
-  "_agent_version": "0.153.4",
-  "_captured_at": "2026-09-06",
-  "session_id": "01a075d6-dc60-7e61-b3db-5dcfcd80f597",
-  "transcript_path": "/REDACTED/sessions/2026/09/06/rollout-2026-09-06T11-30-10-01a075d6-dc60-7e61-b3db-5dcfcd80f597.jsonl",
+  "_fixture_status": "captured",
+  "_capture_mode": "interactive",
+  "_agent_version": "0.163.0",
+  "_captured_at": "2026-10-16",
+  "_fires_at": "first_turn",
+  "session_id": "01a14417-ef66-7e31-bb71-fef899143264",
+  "transcript_path": "/REDACTED/sessions/2026/10/16/rollout-2026-10-16T12-43-01-01a14417-ef66-7e31-bb71-fef899143264.jsonl",
   "cwd": "/REDACTED",
   "hook_event_name": "SessionStart",
+  "model": "gpt-6-astra",
+  "permission_mode": "default",
   "source": "startup",
-  "model": "gpt-5.6-terra",
-  "permission_mode": "bypassPermissions",
   "_env_visible_to_hook": {
-    "TMUX_PANE": "",
-    "AITASK_AGENT_STRING": ""
+    "TMUX_PANE": "%0",
+    "AITASK_AGENT_STRING": "codex/test"
   },
   "_evidence": {
-    "capture_script_works": true,
-    "agent_session_created": true,
-    "config_surface_accepted": "project .codex/hooks.json, Claude-compatible shape, project marked trust_level = \"trusted\"",
-    "interactive_payload_delivered": false,
-    "note": "The payload above is REAL but was captured under `codex exec`, which is NOT the framework's production launch path. Codex delivers no SessionStart payload in the interactive TUI - not at launch and not after the first turn - so this fixture is provisional and children 3/5 must not treat its shape as settled for the interactive path."
+    "config_surface_accepted": "project .codex/hooks.json, Claude-compatible shape, project marked trust_level = \"trusted\", --dangerously-bypass-hook-trust",
+    "fired_before_first_turn": false,
+    "pre_turn_wait_seconds": 12,
+    "fired_after_first_turn_seconds": 0.37,
+    "hook_parent_process": "the pane's own codex process",
+    "note": "Captured from the INTERACTIVE TUI in an isolated tmux server with a throwaway CODEX_HOME. Nothing fired in the 12 s after launch; the payload arrived 0.37 s after the first prompt was submitted. Codex 0.153.4 fired SessionStart only under `codex exec`; the first version that fires it interactively lies in (0.153.4, 0.163.0] and was not bisected. After `codex resume <id>` the same hook fires at the resumed session's first turn with source `resume` and the same session id (t2040 exploration)."
   }
 }

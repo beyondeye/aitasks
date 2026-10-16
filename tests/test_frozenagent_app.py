@@ -1595,7 +1595,8 @@ class RestoreOutcomeTests(_AppCase):
             self.assertNotIn("restored", app._header_note)
 
     async def test_liveness_ack_reads_as_success(self):
-        """A codex record can ONLY ever reach `liveness` (amendment B4)."""
+        """`liveness`: nothing proved the session within the grace. Still a
+        success (amendment B4)."""
         ansi = str(self.fx.frozen / self.RECORD_ID / "capture.ansi")
         txt = str(self.fx.frozen / self.RECORD_ID / "capture.txt")
         app = self.make_app()

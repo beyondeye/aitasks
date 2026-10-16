@@ -1016,7 +1016,22 @@ JSONEOF
             W="agent-pick-codex-i"
             read -r AGENTC _COMPC < <(make_agent_window "$W" "sleep 1000")
             ait_tmux respawn-pane -k -t "$AGENTC" \
-                "cd '$SCRATCH' && env CODEX_HOME='$CODEX_HOME_DIR' AITASK_AGENT_STRING=codexcli/gpt5 codex --dangerously-bypass-hook-trust"
+                "cd '$SCRATCH' && env CODEX_HOME='$CODEX_HOME_DIR' AITASK_AGENT_STRING=codex/gpt5 codex --dangerously-bypass-hook-trust"
+            # TIMING IS PART OF THE FINDING (t2040). Measured on codex 0.163.0:
+            # the TUI fires SessionStart at the session's FIRST TURN, not at
+            # launch. A probe that only waits therefore sees nothing on a codex
+            # that does fire it, which is how 0.153.4's "never fires" verdict
+            # survived unchecked. So: a bounded wait with NO prompt first (does
+            # anything fire at launch?), then one prompt, then the real wait.
+            PRE_TURN_SECS="${PRE_TURN_SECS:-10}"
+            wait_for_payload "$P_INT" "$PRE_TURN_SECS"
+            pre_turn_rc=$?
+            fired_pre_turn=no
+            [ "$pre_turn_rc" -eq 0 ] && fired_pre_turn=yes
+            echo "  interactive: fired before any turn: $fired_pre_turn"
+            ait_tmux send-keys -t "$AGENTC" -l "reply with the single word OK"
+            sleep 0.5
+            ait_tmux send-keys -t "$AGENTC" Enter
             wait_for_payload "$P_INT" "$HOOK_WAIT_SECS"
             int_rc=$?
             ait_tmux kill-window -t "$(ait_tmux_window_target "$SESSION" "$W")" 2>/dev/null || true
@@ -1037,26 +1052,33 @@ JSONEOF
                 else
                     verdict=config_unresolved
                 fi
+            elif [ -s "$P_INT" ] && [ "$fired_pre_turn" = "yes" ]; then
+                verdict=captured_at_launch
             elif [ -s "$P_INT" ]; then
-                verdict=captured
+                verdict=captured_at_first_turn
             else
                 # The surface IS accepted and trusted (the exec lane captured a
                 # real payload through this very file), the positive controls
-                # passed, and the interactive path still delivers nothing. That
-                # is the evidence `unsupported` requires — scoped, precisely, to
-                # the interactive path.
+                # passed, and the interactive path still delivers nothing even
+                # AFTER a turn. That is the evidence `unsupported` requires —
+                # scoped, precisely, to the interactive path of this version.
                 verdict=unsupported
             fi
-            echo "  P2 verdict: $verdict (exec-lane payload: $surface_accepted, interactive payload rc=$int_rc)"
-            finding "codex hooks: $verdict (project .codex/hooks.json accepted when trusted; fires under \`codex exec\`, NOT in the interactive TUI)"
-
-            if [ "$verdict" = "unsupported" ]; then
-                finding "codex = re-pick only: pinned for the INTERACTIVE launch path (SessionStart proven working under \`codex exec\`)"
-            else
-                finding "codex = re-pick only: NOT pinned (inconclusive: $verdict)"
-            fi
-            if [ "$surface_accepted" = "yes" ]; then
-                finding "codex fixture: provisional(no_interactive_capture) — exec-mode payload is real but not the production path"
+            codex_version="$(codex --version 2>/dev/null | head -n1)"
+            echo "  P2 verdict: $verdict (exec-lane payload: $surface_accepted, fired before a turn: $fired_pre_turn, interactive payload rc=$int_rc, ${codex_version:-codex version unknown})"
+            case "$verdict" in
+                captured_at_first_turn)
+                    finding "codex hooks: interactive TUI fires SessionStart at the FIRST TURN, not at launch (${codex_version:-?}; 0.153.4 fired it under \`codex exec\` only)" ;;
+                captured_at_launch)
+                    finding "codex hooks: interactive TUI fires SessionStart AT LAUNCH (${codex_version:-?}) — earlier than the 0.163.0 baseline; review the fixture's _fires_at" ;;
+                unsupported)
+                    finding "codex hooks: unsupported in the interactive TUI even after a turn (${codex_version:-?}); fires under \`codex exec\` only" ;;
+                *)
+                    finding "codex hooks: $verdict (inconclusive)" ;;
+            esac
+            if [ -s "$P_INT" ] && [ "$REFRESH_FIXTURES" = "1" ]; then
+                cp -f "$P_INT" "$FIXTURE_DIR/codex_payload_interactive.txt" 2>/dev/null || true
+                echo "  --refresh-fixtures: raw interactive capture is in $FIXTURE_DIR/codex_payload_interactive.txt; redact and commit it together with README.md provenance"
             fi
 
             # `codex resume` is a capability SEPARATE from the hook and is

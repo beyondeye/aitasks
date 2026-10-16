@@ -24,17 +24,25 @@
 #      ordinary update, but on a restore ack it reads as a session mismatch
 #      (see below).
 #
-# CODEX LIMITATION (established 2026-09-06, codex 0.153.4): SessionStart fires
-# under `codex exec` but NOT in the interactive TUI, which is the framework's
-# production launch path. Interactive codex sessions therefore capture no
-# session id HERE.
+# CODEX TIMING (measured 2026-10-16 on codex 0.163.0): the interactive TUI fires
+# SessionStart at a session's FIRST TURN, not at launch. That is `source=startup`
+# for a new session, and `source=resume` with the same id after `codex resume`.
+# It runs from the pane's own codex process, with the right TMUX_PANE. Codex
+# 0.153.4 fired it only under `codex exec`, never in the TUI. The first version
+# that fires it lies in between and was not bisected.
 #
-# They are captured instead at FREEZE time (t1804): the freeze engine reads the
+# So a codex session id may still be missing here: on an older codex, before the
+# first turn, or after a `/new` the hook did not report. The FREEZE engine
+# covers an older codex and an unreported `/new` (t1804, Linux only): it reads the
 # rollout the agent's own process holds open (`codex_session_for_pid`) while it
-# is still alive, which ties the session to that one agent -- something no
-# transcript-store scan can do. `newest_transcript_for()` remains only for a
-# single-session root; it refuses to guess between two. A codex agent that has
-# taken no turn yet holds no rollout, so it still restores via re-pick.
+# is still alive. Before the first turn there is no rollout either, so an agent
+# frozen then has no session at all and restores via re-pick.
+#
+# A restored codex therefore acks LATE, when the user first types, long after the
+# restore settled (verified by its open rollout, or by liveness). The store never
+# refuses that late ack (t2040). A matching one upgrades a liveness confirm to
+# verified, and anything else is an ordinary upsert, so the pane is stamped
+# either way.
 # ---------------------------------------------------------------------------
 
 set -uo pipefail
@@ -151,7 +159,11 @@ args=(upsert
       --task-id "$task_id")
 [ -n "$existing_record" ] && args+=(--id "$existing_record")
 # A restore launch (see the restore coordinator, t1705_5) exports these; they
-# turn this upsert into the restore ACKNOWLEDGEMENT for the old record.
+# turn this upsert into the restore ACKNOWLEDGEMENT for the old record. They stay
+# in the agent's environment for its whole life, so every later SessionStart
+# (codex's first turn, `/new`) forwards them again. The store answers those on a
+# settled record as described in the CODEX TIMING note above: an upgrade
+# (`UPSERTED:<id>|restored_late`) or an ordinary update, never a refusal.
 if [ -n "${AITASK_RESTORE_RECORD:-}" ]; then
     args+=(--restore-of "$AITASK_RESTORE_RECORD" --nonce "${AITASK_RESTORE_NONCE:-}")
 fi

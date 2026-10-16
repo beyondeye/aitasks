@@ -197,12 +197,19 @@ class RestoreSuccessTests(_PollCase):
         self.assertFinished("restored", warn=False)
 
     def test_live_with_liveness_ack_says_capture_kept_and_does_not_warn(self):
-        """A SUCCESS, and the only outcome a codex record can reach — never
+        """A SUCCESS when nothing proved the session within the grace — never
         styled as an error."""
         self.write([_record(RECORD_ID, state="live", restore_attempts=1,
                             ack="liveness")])
         self.poll_restore(prev_attempts=0)
         self.assertFinished("restored, unverified — capture kept", warn=False)
+
+    def test_live_with_rollout_ack_is_a_verified_restore(self):
+        """t2040: a codex resume verified from its open rollout."""
+        self.write([_record(RECORD_ID, state="live", restore_attempts=1,
+                            ack="rollout")])
+        self.poll_restore(prev_attempts=0)
+        self.assertFinished("restored", warn=False)
 
 
 # ───────────────────────── failure verdicts ───────────────────────────────

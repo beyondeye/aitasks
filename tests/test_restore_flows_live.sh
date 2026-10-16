@@ -39,6 +39,10 @@
 #   12  coordinator SIGSTOPped in `aborting` -> second restore refused, reconcile
 #       finishes, the resumed coordinator gets NONCE_MISMATCH and touches nothing
 #   13  Restore-All keeps going after one failing record
+#   14  a codex-shaped resume is VERIFIED by the rollout its process holds open,
+#       with no hook and without waiting out the grace (t2040)
+#   15  a hook that fires AFTER a liveness confirm upgrades it to verified and
+#       re-stamps the pane, instead of being refused (t2040)
 #
 # TMUX-STRESS. Run from a shell that is NOT inside tmux, with the dedicated
 # `-L ait` server stopped; `require_clean_ait_server` refuses otherwise.
@@ -110,6 +114,12 @@ cat > "$FIXTURE_DIR/bin/claude" <<WRAPPER
 exec "$PROJECT_DIR/tests/lib/fake_agent.sh" "\$@"
 WRAPPER
 chmod +x "$FIXTURE_DIR/bin/claude"
+# A fake `codex`, the same shim under codex's name, so a `codex/<model>` record's
+# resolved argv (`codex resume <sid> -c … --model <id>`) starts the fixture agent
+# too (t2040, Case 14). The agent takes the codex shape (argv0 `codex`, rollout
+# held open) only when a case asks for it through FAKE_AGENT_ROLLOUT_DIR.
+cp "$FIXTURE_DIR/bin/claude" "$FIXTURE_DIR/bin/codex"
+chmod +x "$FIXTURE_DIR/bin/codex"
 export PATH="$FIXTURE_DIR/bin:$PATH"
 export FAKE_AGENT_HOOK_LOG="$FIXTURE_DIR/hook.log"
 # Belt and braces: name the shipped hook explicitly rather than relying on the
@@ -759,6 +769,98 @@ section "Case 13 — Restore-All keeps going after one failing record"
     drop_record "$RID_BAD"
     tm kill-window -t "=$SESSION:agent-pick-1719" 2>/dev/null || true
     tm kill-window -t "=$SESSION:agent-pick-1720" 2>/dev/null || true
+)
+
+# ---------------------------------------------------------------------------
+section "Case 14 — a codex resume is VERIFIED by its open rollout, no hook (t2040)"
+# ---------------------------------------------------------------------------
+# Interactive codex fires SessionStart only at its first turn, so a resumed codex
+# never acks within the grace. What it does do is hold its session's rollout open
+# from launch, and the coordinator reads that off the process it launched. The
+# fixture agent takes exactly that shape (FAKE_AGENT_ROLLOUT_DIR): argv0 `codex`,
+# the rollout on an open fd. No hook runs at all, and the grace is raised, so a
+# `rollout` outcome inside the grace cannot be anything but the new evidence.
+(
+    SID14="aaaaaaaa-1111-2222-3333-444444444444"
+    ROLL14="$FIXTURE_DIR/rollouts_case14"
+    # The ORIGINAL agent has the codex shape too, so the freeze's own t1804
+    # capture observes the seeded session instead of clearing it.
+    FAKE_AGENT="env FAKE_AGENT_ROLLOUT_DIR=$ROLL14 FAKE_AGENT_SESSION=$SID14 $PROJECT_DIR/tests/lib/fake_agent.sh"
+    read -r RID PANE < <(make_frozen "agent-pick-1721" "$SID14" "codex/gpt5_6_terra") || exit 1
+    wait_for_ready "$PANE" "$RID"
+    assert_eq "case 14: the freeze kept the codex session" "$SID14" \
+        "$(record_field "$RID" codeagent_session_id)"
+
+    agent_env FAKE_AGENT_NO_HOOK=1 "FAKE_AGENT_ROLLOUT_DIR=$ROLL14"
+    start="$(date +%s)"
+    out="$(AITASKS_RESTORE_ACK_GRACE=20 "$FROZEN_SH" restore "$RID" 2>&1)"; rc=$?
+    elapsed=$(( $(date +%s) - start ))
+    agent_env_clear
+    assert_eq "case 14: restore exits 0" "0" "$rc"
+    assert_contains "case 14: reports a ROLLOUT-verified restore" \
+        "RESTORED:$RID|rollout" "$out"
+    assert_eq "case 14: record is live" "live" "$(record_field "$RID" state)"
+    assert_eq "case 14: ack is rollout" "rollout" "$(record_field "$RID" ack)"
+    if [ "$elapsed" -lt 15 ]; then assert_record_pass; else
+        assert_record_fail
+        echo "FAIL: case 14: took ${elapsed}s — it waited out the grace instead of reading the rollout"
+    fi
+    if [ ! -d "$AITASKS_FROZEN_DIR/$RID" ]; then assert_record_pass; else
+        assert_record_fail
+        echo "FAIL: case 14: a rollout-verified restore must delete the captures"
+    fi
+    assert_eq "case 14: the frozen stamp is cleared" "" \
+        "$(pane_fmt "$PANE" '#{@aitask_frozen}')"
+    drop_record "$RID"
+    tm kill-window -t "=$SESSION:agent-pick-1721" 2>/dev/null || true
+)
+
+# ---------------------------------------------------------------------------
+section "Case 15 — a LATE hook upgrades a liveness confirm, never refused (t2040)"
+# ---------------------------------------------------------------------------
+# The replacement acks only after the grace (FAKE_AGENT_HOOK_DELAY > grace), as
+# a resumed codex does at its first turn. Before t2040 the store refused that
+# ack (the record was already `live`), so the pane was never re-stamped and the
+# capture was kept for good. The pane's record join is cleared after the confirm,
+# so its return proves the LATE hook stamped it.
+(
+    read -r RID PANE < <(make_frozen "agent-pick-1722" "sess-late") || exit 1
+    wait_for_ready "$PANE" "$RID"
+    hook_lines="$(wc -l < "$FAKE_AGENT_HOOK_LOG" 2>/dev/null || echo 0)"
+
+    agent_env "FAKE_AGENT_HOOK_DELAY=$((GRACE_SLEEP + 3))"
+    out="$("$FROZEN_SH" restore "$RID" 2>&1)"; rc=$?
+    agent_env_clear
+    assert_eq "case 15: restore exits 0" "0" "$rc"
+    assert_contains "case 15: first settles on liveness" "RESTORED:$RID|liveness" "$out"
+    assert_eq "case 15: ack is liveness after the confirm" "liveness" \
+        "$(record_field "$RID" ack)"
+    tm set-option -p -u -t "$PANE" @aitask_record
+
+    i=0
+    while [ "$i" -lt 150 ] && [ "$(record_field "$RID" ack)" != "hook" ]; do
+        sleep 0.1; i=$((i + 1))
+    done
+    assert_eq "case 15: the late hook upgraded the record to verified" "hook" \
+        "$(record_field "$RID" ack)"
+    assert_eq "case 15: record is still live" "live" "$(record_field "$RID" state)"
+    if [ ! -d "$AITASKS_FROZEN_DIR/$RID" ]; then assert_record_pass; else
+        assert_record_fail
+        echo "FAIL: case 15: a verified late ack must delete the captures"
+    fi
+    stamp=""
+    i=0
+    while [ "$i" -lt 30 ]; do
+        stamp="$(record_of_pane "$PANE")"
+        [ -n "$stamp" ] && break
+        sleep 0.1; i=$((i + 1))
+    done
+    assert_eq "case 15: the late hook re-stamped the pane" "$RID" "$stamp"
+    refused="$(tail -n +"$((hook_lines + 1))" "$FAKE_AGENT_HOOK_LOG" 2>/dev/null \
+        | grep -c 'TRANSITION_REFUSED' || true)"
+    assert_eq "case 15: the hook was never refused" "0" "$refused"
+    drop_record "$RID"
+    tm kill-window -t "=$SESSION:agent-pick-1722" 2>/dev/null || true
 )
 
 echo ""

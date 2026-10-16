@@ -21,9 +21,23 @@ THREE PROPERTIES MAKE THIS SAFE, and each one is easy to break:
    and staying in the foreground means a shell user sees the result line.
 2. **tmux accepting the respawn proves nothing.** `respawn-pane` succeeds
    whether the agent starts, exits instantly, or resumes the *wrong* session.
-   Only the replacement's own SessionStart hook — which forwards the record id
-   and nonce and lets the store compare the resumed session id — is evidence.
-   That is why the captures are deleted **only** on ``ack=hook``; a liveness
+   Evidence is the resumed session id, compared by the store against the one
+   asked for, from one of two sources:
+
+   * the replacement's own SessionStart hook, which forwards the record id and
+     nonce (``ack=hook``);
+   * for a codex resume, the rollout the launched process holds open
+     (``ack=rollout``, t2040). Interactive codex fires its hook only at the
+     user's first turn, so it never acks within the grace. But a process
+     started with `codex resume <sid>` holds that session's rollout from
+     launch. `codex_session_for_pid` verifies argv0 is codex, reads only that
+     process's own fds and refuses to choose between two sessions. The pid is
+     the ``launch_pid`` the nonce-bound `restore-launched` recorded, and the
+     store compares the session exactly as it compares a hook's. A resume that
+     silently started another session holds a different id (an abort) or none
+     (no evidence, so liveness as before).
+
+   That is why the captures are deleted **only** on a verified ack; a liveness
    confirm keeps them.
 3. **A REFUSED store verb is not a failure.** Every transitional verb is
    state-guarded, and the replacement agent's hook can legitimately win the race
@@ -1018,6 +1032,8 @@ def _restore_attempt(record_id: str, *, repick: bool, session: str | None,
     while True:
         current = _reread(record_id)
         decided = _decide_from_record(record_id, current, nonce, agent_kind)
+        if decided is None:
+            decided = _rollout_confirm(record_id, current, nonce, agent_kind)
         if decided is not None:
             return _settle(decided, record_id, nonce, pane_id)
         if time.time() >= deadline:
@@ -1025,9 +1041,10 @@ def _restore_attempt(record_id: str, *, repick: bool, session: str | None,
         time.sleep(POLL_INTERVAL)
 
     # --- 5. liveness fallback ----------------------------------------------
-    # Grace elapsed with no hook ack and no error. Confirm ONLY on positive
-    # evidence that the process in the pane is the one we launched: the store
-    # refuses `restore-confirm` unless `launch_pid` is set and matches.
+    # Grace elapsed with no verified ack (no hook, no matching rollout) and no
+    # error. Confirm ONLY on positive evidence that the process in the pane is
+    # the one we launched: the store refuses `restore-confirm` unless
+    # `launch_pid` is set and matches, and refuses past a recorded mismatch.
     # The captures are KEPT — `ack=liveness` never verified the session id, and
     # deleting the only copy on that evidence is what this whole protocol exists
     # to prevent.
@@ -1049,10 +1066,13 @@ def _restore_attempt(record_id: str, *, repick: bool, session: str | None,
         return RestoreResult(record_id, False, "nonce_mismatch",
                              f"RESTORE_FAILED:{record_id}|nonce_mismatch")
     if rc != 0:
+        # Most often a mismatch the hook persisted after the last poll: the
+        # store refuses to confirm past it (t2040). Settle it like any other
+        # verdict, or the record stays `restoring` with no stand-in back.
         current = _reread(record_id)
         decided = _decide_from_record(record_id, current, nonce, agent_kind)
         if decided is not None:
-            return decided
+            return _settle(decided, record_id, nonce, pane_id)
         return RestoreResult(record_id, False, "confirm_refused",
                              f"RESTORE_FAILED:{record_id}|restore-confirm:{out.strip()}")
     _clear_frozen_stamp(pane_id, record_id, nonce)
@@ -1061,16 +1081,54 @@ def _restore_attempt(record_id: str, *, repick: bool, session: str | None,
 
 
 def _liveness_note(agent_kind: str) -> str:
-    """Why a codex restore can only ever reach `liveness`.
+    """Why a `liveness` outcome kept the captures.
 
-    Codex's SessionStart hook does not fire in the interactive TUI (t1705_1
-    PINNED), which is the framework's launch path — so no hook ack can arrive and
-    the captures are always kept. Saying so inline stops that reading as an
-    unexplained downgrade from the `hook` outcome.
+    Nothing proved the session within the grace: no hook ack, and for a codex
+    resume no rollout evidence either (e.g. no `/proc`, as on macOS). The note
+    says so inline, so the outcome does not read as an unexplained downgrade.
+    It is the same for every agent since t2040: codex is no longer
+    liveness-only.
     """
-    if agent_kind == "codex":
-        return " (codex: no interactive hook — captures kept)"
     return " (captures kept: session id unverified)"
+
+
+def _rollout_confirm(record_id: str, rec: dict, nonce: str,
+                     agent_kind: str) -> RestoreResult | None:
+    """Verify a codex resume from the process it launched, or None (t2040).
+
+    ``rec`` is the record as just re-read. The evidence is the session of the
+    rollout that ``launch_pid`` holds open
+    (`agent_sessions.codex_resume_evidence`, which yields nothing for anything
+    but a codex record in `resume` mode). No evidence YET is not a verdict: the
+    poll keeps waiting, and the grace still ends in the liveness fallback.
+
+    With evidence, the STORE decides: `restore-confirm --rollout-session`
+    verifies a match (``ack=rollout``, captures deleted) and persists a mismatch
+    as ``<nonce>:session_mismatch`` (exit 7). Any refusal is re-read through
+    `_decide_from_record`, the single interpreter of the record, so a mismatch
+    reaches `_settle`'s rollback, and a hook ack that won the race reads as
+    success. A refusal it cannot interpret means keep waiting.
+    """
+    launch_pid = frozen_ops.int_or_zero(rec.get("launch_pid"))
+    if not launch_pid:
+        return None
+    session_id = agent_sessions.codex_resume_evidence(rec, launch_pid)
+    if not session_id:
+        return None
+    pane, pane_pid = frozen_ops.pane_location(rec.get("pane_id", ""))
+    if not pane or pane_pid != launch_pid:
+        return None
+    rc, _out = frozen_ops.store("restore-confirm", record_id, "--nonce", nonce,
+                                "--pane", pane, "--pane-pid", str(pane_pid),
+                                "--rollout-session", session_id)
+    if rc == 0:
+        _clear_frozen_stamp(pane, record_id, nonce)
+        return RestoreResult(record_id, True, "rollout",
+                             f"RESTORED:{record_id}|rollout")
+    if rc == EXIT_NONCE_MISMATCH:
+        return RestoreResult(record_id, False, "nonce_mismatch",
+                             f"RESTORE_FAILED:{record_id}|nonce_mismatch")
+    return _decide_from_record(record_id, _reread(record_id), nonce, agent_kind)
 
 
 def _decide_from_record(record_id: str, rec: dict, nonce: str,
@@ -1084,12 +1142,15 @@ def _decide_from_record(record_id: str, rec: dict, nonce: str,
         return RestoreResult(record_id, False, "no_record",
                              f"RESTORE_FAILED:{record_id}|record vanished")
 
-    # The hook acknowledged: state `live` with `ack=hook`. The store already
-    # verified the session id and deleted the captures.
-    if rec.get("state") == "live" and rec.get("ack") == "hook":
+    # VERIFIED: the hook acknowledged (`ack=hook`), or the resumed codex's open
+    # rollout matched (`ack=rollout`, t2040; this coordinator's own confirm, or
+    # reconcile's). The store already verified the session id and deleted the
+    # captures.
+    if rec.get("state") == "live" and rec.get("ack") in ("hook", "rollout"):
+        ack = rec.get("ack")
         _clear_frozen_stamp(rec.get("pane_id", ""), record_id, nonce)
-        return RestoreResult(record_id, True, "hook",
-                             f"RESTORED:{record_id}|hook")
+        return RestoreResult(record_id, True, ack,
+                             f"RESTORED:{record_id}|{ack}")
 
     # A mismatch is persisted on the record because the hook has no return
     # channel to this detached process. It is nonce-scoped so a stale error from

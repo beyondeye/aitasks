@@ -80,6 +80,7 @@ from agent_frozen_ops import (  # noqa: E402,F401
     EXIT_LEASE_HELD,
     EXIT_LOCK_BUSY,
     EXIT_NONCE_MISMATCH,
+    EXIT_SESSION_MISMATCH,
     EXIT_TRANSITION_REFUSED,
     SESSIONS_SH,
     StageFailure as _StageFailure,
@@ -357,9 +358,11 @@ def _backfill_agent_string(
 
     * it fills a blank only, and never overwrites a stored value;
     * it never pairs a codex model with a session id it cannot prove. A
-      blank-kind record holding an id got it from the SessionStart hook, which
-      interactive codex never fires, so filling in `codex/…` would make the
-      restore `codex resume <someone else's id>`.
+      blank-kind record holding an id got it from a SessionStart hook, which
+      can be another agent's. Older codex never fires it interactively, and
+      codex 0.163.0 fires it only at the first turn. This code cannot tell
+      whose hook it was, and filling in `codex/…` for a foreign id would make
+      the restore `codex resume <someone else's id>`.
 
     Model only: no `--session-id` / `--transcript`, so a cleared or unverified
     id is never brought back. Never raises and never fails the freeze.
@@ -608,9 +611,11 @@ def _resolve_record(facts: dict[str, str]) -> tuple[str, str]:
     :func:`_backfill_agent_string`, and a still-blank task id from the window
     name (t1848), see :func:`_backfill_task_ref` — the one step here that can
     fail the freeze, so an unrecorded agent is never frozen un-re-pickable.
-    Interactive codex fires no
-    SessionStart hook, so this is the only moment a codex record can learn which
-    conversation it holds; by restore time the process is gone.
+    Codex 0.153.4 fired no
+    SessionStart hook in the interactive TUI, and codex 0.163.0 fires it only at
+    a session's first turn. For those agents, and for a `/new` the hook did not
+    report, this is the last moment the live process can say which conversation
+    it holds: stage 5 respawns the pane, and the process is gone.
     """
     root = _walk_up_to_project(facts.get("path", ""))
     stamped = facts.get("record", "")
@@ -623,7 +628,8 @@ def _resolve_record(facts: dict[str, str]) -> tuple[str, str]:
             return stamped, f"RECORD:{stamped}|stamped"
 
     # `@aitask_agent_session` is unset until the hook's stamp, which interactive
-    # codex never reaches — so the live observation is usually the only source.
+    # codex reaches only at its first turn (0.163.0) or never (0.153.4). So for
+    # codex the live observation is often the only source.
     session_id = facts.get("agent_session", "")
     transcript = ""
     agent_string = ""
@@ -1240,7 +1246,33 @@ def _reconcile_restoring(
         # let reconcile confirm a record its coordinator is still polling for.
         if _epoch(rec.get("state_at", "")) + frozen_ops.restore_ack_grace() > now:
             return f"INDETERMINATE:{record_id}|restoring_ack_grace"
-        rc, out = frozen_ops.store("restore-confirm", record_id, "--nonce", lease(),
+        # The lease FIRST, then re-read (t2040). `mismatch` above came from the
+        # PRE-lease snapshot, and the replacement's hook can persist one after
+        # that read and before the takeover. `lease-take` carries such an error
+        # over to our nonce in the same locked write, and from then on the
+        # hook's ack is a NONCE_MISMATCH that writes nothing. So this read is
+        # final, and it is the only one that can see that window.
+        nonce = lease()
+        current = frozen_ops.store_show(record_id)
+        if current.get("last_error", "").startswith(f"{nonce}:"):
+            return _abort_back_to_frozen(observed.pane_id)
+        # A resumed codex holds its rollout open from launch, so its session is
+        # provable from the process itself (t2040). The store compares it: a
+        # match is a VERIFIED confirm, a mismatch is persisted and aborts. No
+        # evidence (not codex, re-pick, no /proc, no rollout yet) leaves the
+        # liveness confirm, which keeps the captures.
+        evidence = agent_sessions.codex_resume_evidence(rec, observed.pane_pid)
+        if evidence:
+            rc, out = frozen_ops.store("restore-confirm", record_id, "--nonce", nonce,
+                             "--pane", observed.pane_id,
+                             "--pane-pid", str(observed.pane_pid),
+                             "--rollout-session", evidence)
+            if rc == 0:
+                return f"LIVE:{record_id}|rollout"
+            if rc == EXIT_SESSION_MISMATCH:
+                return _abort_back_to_frozen(observed.pane_id)
+            return f"RECONCILE_FAILED:{record_id}|{out}"
+        rc, out = frozen_ops.store("restore-confirm", record_id, "--nonce", nonce,
                          "--pane", observed.pane_id,
                          "--pane-pid", str(observed.pane_pid))
         return (f"LIVE:{record_id}|liveness" if rc == 0

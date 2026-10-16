@@ -99,6 +99,7 @@ SESSIONS_SH = _SCRIPTS_DIR / "aitask_agent_sessions.sh"
 EXIT_LOCK_BUSY = 3
 EXIT_TRANSITION_REFUSED = 5
 EXIT_NONCE_MISMATCH = 6
+EXIT_SESSION_MISMATCH = 7
 EXIT_LEASE_HELD = 8
 
 
@@ -112,11 +113,14 @@ class StageFailure(Exception):
 
 # --- the restore acknowledgement grace --------------------------------------
 
-#: Seconds a `restoring` record is given to be acknowledged by its replacement
-#: agent's SessionStart hook before it may be liveness-confirmed instead (§C/§D).
-#: The hook ack is strictly better evidence — it verifies the resumed session id,
-#: which is what permits deleting the only copy of the capture — so confirming
-#: early would trade the strong signal for the weak one.
+#: Seconds a `restoring` record is given to be VERIFIED before it may be
+#: liveness-confirmed instead (§C/§D). Two kinds of evidence verify it: the
+#: replacement agent's SessionStart hook ack, or, for a codex resume, the session
+#: of the rollout the resumed process holds open (t2040). Both verify the resumed
+#: session id, which is what permits deleting the only copy of the capture, so
+#: confirming early would trade the strong signal for the weak one. A codex
+#: resume fires its hook only at the user's first turn, so for codex the rollout
+#: is the evidence that normally arrives inside this window.
 RESTORE_ACK_GRACE = 20.0
 
 

@@ -702,6 +702,19 @@ def _set_location(rec: SessionRecord, pane: str, pane_pid: int) -> None:
     rec.pane_pid = int(pane_pid)
 
 
+def _drop_captures(rec: SessionRecord) -> None:
+    """Delete a record's captures and forget their paths.
+
+    Only a VERIFIED restore may call this (a hook ack, a late hook ack, or a
+    rollout confirm). A liveness-only confirm keeps them, which is what stops a
+    malformed resume that starts a fresh session from destroying the only copy.
+    """
+    remove_captures(rec.id)
+    rec.capture_ansi = ""
+    rec.capture_txt = ""
+    rec.capture_lines = 0
+
+
 # --- upsert: identity + conflict policy -------------------------------------
 
 #: Refusal reason per selected state (t1705_2 A4 / plan §C2). A record is
@@ -781,6 +794,60 @@ def _apply_upsert_fields(
         rec.transcript_path = ""
 
 
+def _follow_window(sf: SessionsFile, rec: SessionRecord, croot: str,
+                   window: str) -> None:
+    """Make ``rec``'s ``(root, window)`` follow the window its pane is in now.
+
+    `id` is the PRIMARY KEY and rule 1 says a renamed window keeps its record --
+    but "keeps" only holds if the record's own `(root, window)` follows the
+    rename. Left stale, the very next liveness purge sees a window that no
+    longer exists, drops the record as `dead_window`, and the agent silently
+    becomes unfreezable and unrestorable. The slot is re-allocated when the
+    pair actually changes, since the old slot number means nothing under the
+    new key.
+
+    A gone-pane restore is the same case (t2040): its new window can carry a
+    suffixed name. Only SETTLED-record callers use this. An in-grace restore
+    ack can fire before the coordinator renames the window away from its
+    attempt name.
+    """
+    if (rec.root, rec.window) == (croot, window):
+        return
+    others = [r for r in sf.at(croot, window) if r.id != rec.id]
+    used = {r.window_slot for r in others}
+    slot = 0
+    while slot in used:
+        slot += 1
+    rec.root = croot
+    rec.window = window
+    rec.window_slot = slot
+
+
+def _late_restore_ack_ok(
+    rec: SessionRecord, pane: str, pane_pid: int, session_id: str | None
+) -> bool:
+    """May a late restore ack on a `live` record upgrade it to verified (t2040)?
+
+    Only a liveness confirm has anything to upgrade, and the ack must provably
+    come from the process THIS restore launched. The nonce cannot show that any
+    more: `restore-confirm` cleared it with the lease. ``launch_pid`` can.
+    `restore-launched` recorded it under the nonce, `restore-begin` zeroes it for
+    every attempt, and an ordinary upsert that moves the record to another
+    session zeroes it too (see `upsert`). So a matching pid in the recorded pane
+    is the attempt's own agent, still in the session it was restored into.
+
+    The session must then agree exactly as for an in-grace ack. In `resume` mode
+    it must equal the stored id. In `repick` mode any reported id is adopted.
+    """
+    if rec.ack != "liveness" or not rec.launch_pid:
+        return False
+    if rec.launch_pid != int(pane_pid) or rec.pane_id != pane:
+        return False
+    if rec.restore_mode == "resume":
+        return bool(session_id) and session_id == rec.codeagent_session_id
+    return bool(session_id)
+
+
 def upsert(
     sf: SessionsFile,
     *,
@@ -830,37 +897,70 @@ def upsert(
     # --- the restore acknowledgement ----------------------------------------
     if restore_of is not None:
         rec = _require_record(sf, restore_of)
-        _require_state(rec, "upsert", STATE_RESTORING)
-        _require_nonce(rec, nonce or "")
-        if rec.restore_mode == "resume" and (session_id or "") != rec.codeagent_session_id:
-            # The hook has no return channel to the detached coordinator, so
-            # the RECORD is the channel: persist, then raise. Both the
-            # coordinator and reconcile read `last_error` for the current nonce
-            # and take the abort branch, never the liveness fallback.
-            rec.last_error = f"{rec.op_nonce}:session_mismatch"
-            raise SessionMismatch(f"RESTORE_SESSION_MISMATCH:{rec.id}")
-        _apply_upsert_fields(
-            rec,
-            session=session,
-            session_id=session_id,
-            transcript=transcript,
-            agent_string=agent_string,
-            operation=operation,
-            task_id=task_id,
-        )
-        _set_location(rec, pane, pane_pid)
-        _set_state(rec, STATE_LIVE, now)
-        rec.ack = "hook"
-        rec.last_error = ""
-        # Captures are deleted ONLY on a verified ack. A liveness-only confirm
-        # keeps them, which is what stops a malformed resume that starts a
-        # fresh session from destroying the only copy.
-        remove_captures(rec.id)
-        rec.capture_ansi = ""
-        rec.capture_txt = ""
-        rec.capture_lines = 0
-        _clear_lease(rec)
-        return sf, f"UPSERTED:{rec.id}|restored"
+        if rec.state == STATE_LIVE:
+            # A LATE ack (t2040): the restore this process came from has already
+            # settled. Interactive codex fires SessionStart only at its first
+            # turn, so a resumed codex usually acks long after the grace. It is
+            # never refused: either it upgrades a liveness confirm to verified,
+            # or it is an ordinary upsert, so `/new` and every later
+            # SessionStart in the process keep updating the record.
+            if _late_restore_ack_ok(rec, pane, pane_pid, session_id):
+                _apply_upsert_fields(
+                    rec,
+                    session=session,
+                    session_id=session_id,
+                    transcript=transcript,
+                    agent_string=agent_string,
+                    operation=operation,
+                    task_id=task_id,
+                )
+                _follow_window(sf, rec, croot, window)
+                _set_location(rec, pane, pane_pid)
+                rec.ack = "hook"
+                rec.last_error = ""
+                _drop_captures(rec)
+                return sf, f"UPSERTED:{rec.id}|restored_late"
+            # Otherwise an ORDINARY upsert. When it comes from the restored
+            # record's own pane and the pane carries no stamp, the restore
+            # target IS its identity. A gone-pane restore lands in a NEW window
+            # with no `@aitask_record`, possibly under a suffixed name (the
+            # original was taken). Selecting by that window would find nothing
+            # and create a second record for the same agent. Through the id,
+            # the ordinary rules below update it and follow the new window
+            # name. From any other pane, the target says nothing about the
+            # caller and is dropped.
+            if id is None and pane and rec.pane_id == pane:
+                id = rec.id
+            restore_of = None
+            nonce = None
+        else:
+            _require_state(rec, "upsert", STATE_RESTORING)
+            _require_nonce(rec, nonce or "")
+            if rec.restore_mode == "resume" and (session_id or "") != rec.codeagent_session_id:
+                # The hook has no return channel to the detached coordinator, so
+                # the RECORD is the channel: persist, then raise. Both the
+                # coordinator and reconcile read `last_error` for the current
+                # nonce and take the abort branch, never the liveness fallback.
+                rec.last_error = f"{rec.op_nonce}:session_mismatch"
+                raise SessionMismatch(f"RESTORE_SESSION_MISMATCH:{rec.id}")
+            _apply_upsert_fields(
+                rec,
+                session=session,
+                session_id=session_id,
+                transcript=transcript,
+                agent_string=agent_string,
+                operation=operation,
+                task_id=task_id,
+            )
+            _set_location(rec, pane, pane_pid)
+            _set_state(rec, STATE_LIVE, now)
+            rec.ack = "hook"
+            rec.last_error = ""
+            # Captures are deleted ONLY on a verified ack (this hook ack, a late
+            # one, or a rollout confirm). A liveness-only confirm keeps them.
+            _drop_captures(rec)
+            _clear_lease(rec)
+            return sf, f"UPSERTED:{rec.id}|restored"
 
     # --- selection ----------------------------------------------------------
     selected: SessionRecord | None = None
@@ -890,6 +990,7 @@ def upsert(
         if selected.state != STATE_LIVE:
             reason = _UPSERT_REFUSALS[selected.state]
             return sf, f"UPSERT_REFUSED:{selected.id}|{reason}"
+        stored_session = selected.codeagent_session_id
         _apply_upsert_fields(
             selected,
             session=session,
@@ -900,22 +1001,15 @@ def upsert(
             task_id=task_id,
             clear_session_id=clear_session_id,
         )
-        # Follow a renamed window. `id` is the PRIMARY KEY and rule 1 says a
-        # renamed window keeps its record -- but "keeps" only holds if the
-        # record's own `(root, window)` follows the rename. Left stale, the very
-        # next liveness purge sees a window that no longer exists, drops the
-        # record as `dead_window`, and the agent silently becomes unfreezable
-        # and unrestorable. The slot is re-allocated when the pair actually
-        # changes, since the old slot number means nothing under the new key.
-        if (selected.root, selected.window) != (croot, window):
-            others = [r for r in sf.at(croot, window) if r.id != selected.id]
-            used = {r.window_slot for r in others}
-            slot = 0
-            while slot in used:
-                slot += 1
-            selected.root = croot
-            selected.window = window
-            selected.window_slot = slot
+        if selected.codeagent_session_id != stored_session:
+            # The pane moved to another conversation, so close the late-ack
+            # window (t2040). Without this, a late hook reporting B after a
+            # liveness confirm of A adopts B, and a second B would then match
+            # the MUTATED stored id and delete A's captures. A's session was
+            # never verified. `launch_pid` has no other consumer on a live
+            # record, and `restore-begin` zeroes it again anyway.
+            selected.launch_pid = 0
+        _follow_window(sf, selected, croot, window)
         _set_location(selected, pane, pane_pid)
         return sf, f"UPSERTED:{selected.id}|updated"
 
@@ -1091,28 +1185,63 @@ def restore_confirm(
     nonce: str,
     pane: str,
     pane_pid: int,
+    rollout_session: str | None = None,
     now: float | None = None,
 ) -> tuple[SessionsFile, str]:
-    """restoring -> live by LIVENESS. Captures are KEPT.
+    """restoring -> live, by LIVENESS or by the resumed codex's open ROLLOUT.
 
-    Requires positive evidence that the process in the pane is the one the
-    coordinator launched: ``launch_pid`` must be set and equal to the observed
-    pid. Without that, a stand-in viewer or an unrelated process could be
-    confirmed as a restored agent.
+    Both forms require positive evidence that the process in the pane is the one
+    the coordinator launched: ``launch_pid`` must be set and equal to the
+    observed pid. Without that, a stand-in viewer or an unrelated process could
+    be confirmed as a restored agent.
+
+    Both also refuse a record that already carries a session mismatch for THIS
+    attempt (``last_error`` stamped with the current nonce, t2040). The hook can
+    persist one between the coordinator's last poll and this verb; confirming
+    past it would mark as `live` a pane running a different session than the one
+    asked for.
+
+    **Without** ``rollout_session`` this is the liveness confirm: ``ack =
+    liveness``, and the captures are KEPT, because nothing verified the session.
+
+    **With** it (t2040), the caller reports the session id that
+    `codex_session_for_pid` read off the launched process's open rollout. This is
+    verified evidence, of the same fact the hook reports, so the store compares
+    it exactly as it compares a hook ack: a match is ``ack = rollout`` with the
+    captures DELETED, and a mismatch persists ``<nonce>:session_mismatch`` and
+    raises :class:`SessionMismatch`, so the coordinator's next read takes the
+    abort branch. It is accepted only for a codex record in `resume` mode: a
+    re-pick has no expected session to verify, and no other agent holds a
+    rollout.
     """
     now = _now() if now is None else now
     rec = _require_record(sf, record_id)
     _require_state(rec, "restore-confirm", STATE_RESTORING)
     _require_nonce(rec, nonce)
+    refused = TransitionRefused(
+        f"TRANSITION_REFUSED:{rec.id}|{rec.state}|restore-confirm")
     if rec.launch_pid == 0 or rec.launch_pid != int(pane_pid):
-        raise TransitionRefused(
-            f"TRANSITION_REFUSED:{rec.id}|{rec.state}|restore-confirm"
-        )
+        raise refused
+    if rec.last_error.startswith(f"{nonce}:"):
+        raise refused
+    if rollout_session is not None:
+        if rec.restore_mode != "resume" or rec.agent_kind != "codex":
+            raise refused
+        if rollout_session != rec.codeagent_session_id:
+            # Persisted, then raised: the same channel as the hook's mismatch,
+            # and `main` dumps it before exiting 7.
+            rec.last_error = f"{nonce}:session_mismatch"
+            raise SessionMismatch(f"RESTORE_SESSION_MISMATCH:{rec.id}")
     _set_location(rec, pane, pane_pid)
     _set_state(rec, STATE_LIVE, now)
-    rec.ack = "liveness"
     _clear_lease(rec)
-    return sf, f"LIVE:{rec.id}|liveness"
+    if rollout_session is None:
+        rec.ack = "liveness"
+        return sf, f"LIVE:{rec.id}|liveness"
+    rec.ack = "rollout"
+    rec.last_error = ""
+    _drop_captures(rec)
+    return sf, f"LIVE:{rec.id}|rollout"
 
 
 def restore_abort(
@@ -1188,12 +1317,27 @@ def lease_take(
     now: float | None = None,
     pid_alive=None,
 ) -> tuple[SessionsFile, str]:
-    """Acquire ownership of a record whose lease is absent or stale."""
+    """Acquire ownership of a record whose lease is absent or stale.
+
+    **The attempt's error moves with its ownership (t2040).** ``last_error`` is
+    correlated to an attempt by its ``<nonce>:`` prefix, and taking over the
+    lease changes the nonce. A mismatch the replacement's hook persisted under
+    the OUTGOING nonce is rewritten to the incoming one, inside the same locked
+    write. Otherwise it would stop matching anything. Reconcile judges a
+    mismatch from a read taken BEFORE this verb, so a hook ack landing between
+    that read and the takeover would be missed by its snapshot. It would also be
+    missed by `restore-confirm`'s current-nonce guard, and a known mismatch
+    would be confirmed as `live`. An error from an older attempt (any other
+    prefix), and a record with no lease to take over, are left untouched.
+    """
     now = _now() if now is None else now
     rec = _require_record(sf, record_id)
     if not _lease_stale(rec, now, pid_alive):
         raise LeaseHeld(f"LEASE_HELD:{rec.id}")
+    outgoing = rec.op_nonce
     nonce = _mint_lease(rec, owner_pid, now)
+    if outgoing and rec.last_error.startswith(f"{outgoing}:"):
+        rec.last_error = f"{nonce}:{rec.last_error[len(outgoing) + 1:]}"
     return sf, f"LEASED:{rec.id}|{nonce}"
 
 
@@ -1513,9 +1657,10 @@ def restore_verdict(
 
     if rec.state == STATE_LIVE:
         if rec.ack == "liveness":
-            # A SUCCESS, and the only outcome a codex record can reach (the
-            # interactive TUI fires no SessionStart hook). Never styled as an
-            # error.
+            # A SUCCESS: the agent is running, but nothing proved its session
+            # within the grace (no hook ack, and for codex no rollout evidence,
+            # e.g. on a platform without /proc). Never styled as an error.
+            # `ack == "rollout"` falls through to "restored": it is verified.
             return True, "restored, unverified — capture kept", False
         return True, "restored", False
 
@@ -1562,10 +1707,12 @@ def drop_verdict(
 # --- transcript fallback ----------------------------------------------------
 #
 # When the SessionStart hook never fired, the store has no codeagent session id
-# and the only remaining source is the agent's own transcript store. This is not
-# a rare path: codex 0.153.4 fires SessionStart under `codex exec` but NOT in
-# the interactive TUI, which is how the framework launches agents -- so for
-# interactive codex this IS the mechanism, not a backstop.
+# and the only remaining source is the agent's own transcript store. For codex
+# that is still a real path. Codex 0.153.4 fired SessionStart under `codex exec`
+# but NOT in the interactive TUI, which is how the framework launches agents.
+# Codex 0.163.0 fires it in the TUI, but only at a session's FIRST TURN (the
+# first version that does lies in between and was not bisected). So an older
+# codex, or a freeze before the first turn, still has no hook-recorded id.
 #
 # The layouts below are pinned by tests/data/session_hooks/transcript_layout.json,
 # captured from real stores. Two of them contradicted the original plan:
@@ -1595,7 +1742,11 @@ def drop_verdict(
 #
 # Measured (codex 0.154, t1804): a codex TUI opens its rollout at its FIRST
 # TURN, not at launch -- a never-prompted agent holds no rollout and resolves to
-# `MISS_NO_MATCH`, which correctly degrades to re-pick.
+# `MISS_NO_MATCH`, which correctly degrades to re-pick. A process started with
+# `codex resume <sid>` is different: it holds that session's rollout from launch,
+# before any turn (measured on 0.154 and 0.163.0). That is what lets the restore
+# coordinator verify a resume from the process it launched
+# (:func:`codex_resume_evidence`, t2040).
 
 MISS_NO_STORE_DIR = "no_store_dir"
 MISS_NO_PROJECT_DIR = "no_project_dir"
@@ -1806,8 +1957,11 @@ def codex_session_for_pid(
     This is the correlated answer :func:`newest_transcript_for` cannot give: the
     open file descriptor ties a session to ONE process, so several codex agents
     in one repo stay distinguishable. The freeze engine calls it while the agent
-    is still alive (its `pane_pid` IS the codex process); by restore time the
-    process is gone and only the recorded id remains.
+    is still alive (its `pane_pid` IS the codex process). The restore
+    coordinator and reconcile call it too, through
+    :func:`codex_resume_evidence`, on the RESUMED process the restore launched:
+    a resumed codex holds its rollout from launch, so this is how a codex
+    resume is verified without waiting for a hook (t2040).
 
     **Verifying the process is codex happens HERE, not at the call site**, so no
     caller can bypass it: a recycled pane, or any program holding a
@@ -1817,6 +1971,15 @@ def codex_session_for_pid(
     Linux-only: it reads `/proc/<pid>/fd`. Elsewhere every answer is
     ``MISS_NO_PROCESS``, which leaves callers exactly where they were before
     this existed (no captured id -> restore falls back to re-pick).
+
+    **It assumes the TUI runs in-process** (t2040, measured on 0.163.0). A codex
+    TUI routed through the shared app-server daemon holds no rollout itself:
+    the daemon does, so this returns ``MISS_NO_MATCH``. The framework's
+    launches avoid that through ``tui.alternate_screen=never`` in
+    ``CODEX_TUI_OVERRIDES`` (see `lib/agent_string.sh`); a hand-started
+    `codex` can be daemon-routed. For a restore the miss is harmless (liveness,
+    captures kept). The freeze engine, however, reads ``MISS_NO_MATCH`` as
+    disproving a stored codex id.
 
     Miss reasons are distinct on purpose -- see :data:`MISS_NO_PROCESS` vs
     :data:`MISS_NOT_CODEX`, which the freeze engine treats differently.
@@ -1870,6 +2033,29 @@ def codex_session_for_pid(
         if match and match.group("session_id") == session_id:
             return session_id, str(path), ""
     return session_id, str(sorted(paths)[0]), ""
+
+
+def codex_resume_evidence(rec: dict, pid) -> str:
+    """The session a RESUMED codex process provably holds open, else ``""``.
+
+    ``rec`` is the record as `store show` returns it (string values). Only a
+    codex record being restored in `resume` mode has a session to verify. For
+    any other record, and on every miss of :func:`codex_session_for_pid` (no
+    `/proc`, not codex, no rollout yet, more than one), this returns ``""``, and
+    the caller falls back to waiting for the hook and then liveness. A miss is
+    never a verdict.
+
+    A non-empty answer is EVIDENCE, not a verdict either. The caller hands it to
+    `restore-confirm --rollout-session`, and the store compares it against the
+    session the restore asked for: a match verifies, a mismatch aborts.
+
+    The resolver is looked up by name at call time, so tests can patch
+    ``agent_sessions.codex_session_for_pid``.
+    """
+    if rec.get("restore_mode", "") != "resume" or rec.get("agent_kind", "") != "codex":
+        return ""
+    session_id, _path, miss = codex_session_for_pid(pid)
+    return "" if miss else session_id
 
 
 def _newest(paths: list[Path]) -> list[Path]:
@@ -2261,12 +2447,16 @@ def main(argv: list[str] | None = None) -> int:
                 now=now,
             )
         elif verb == "restore-confirm":
+            rollout_session = _arg(rest, "rollout-session")
+            if rollout_session is not None and not rollout_session:
+                raise ValueError("--rollout-session needs a non-empty session id")
             sf, line = restore_confirm(
                 sf,
                 _id_arg(rest[0], "id"),
                 nonce=_id_arg(_require_arg(rest, "nonce"), "--nonce"),
                 pane=_pane_pair(rest)[0],
                 pane_pid=_pane_pair(rest)[1],
+                rollout_session=rollout_session,
                 now=now,
             )
         elif verb == "restore-abort":

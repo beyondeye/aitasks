@@ -50,12 +50,19 @@
 #   restore-begin     <id> --owner-pid <pid> --mode resume|repick
 #   restore-launched  <id> --nonce <n> --pane <id> --pane-pid <pid>
 #   restore-confirm   <id> --nonce <n> --pane <id> --pane-pid <pid>
+#                          [--rollout-session <sid>]
 #   restore-abort     <id> --nonce <n> [--error <reason>]
 #   standin-respawned <id> --nonce <n> --pane <id> --pane-pid <pid>
 #   lease-take        <id> --owner-pid <pid>
 #   lease-release     <id> --nonce <n>
 #   drop              <id> [--nonce <n>]
 #   fill-task         <id> [--operation <op>] [--task-id <t>]
+#
+#   `restore-confirm` without `--rollout-session` is the LIVENESS confirm (captures
+#   kept). With it, the caller reports the session id the resumed codex process
+#   holds open (t2040): the store verifies it like a hook ack. A match is
+#   `ack=rollout` with the captures deleted; a mismatch is exit 7 with
+#   `last_error` persisted.
 #
 #   `fill-task` writes each field only when the record's stored value is blank
 #   (t1848): the freeze engine's fallback uses it to record the window-derived
@@ -85,7 +92,9 @@
 #   4  ERROR                      - the store is corrupt/unreadable; NOTHING written
 #   5  TRANSITION_REFUSED         - illegal (state, verb); NOTHING written
 #   6  NONCE_MISMATCH             - lost the race to reconcile; NOTHING written
-#   7  RESTORE_SESSION_MISMATCH   - resumed a different session (last_error IS persisted)
+#   7  RESTORE_SESSION_MISMATCH   - resumed a different session, reported by the hook ack
+#                                   or by `restore-confirm --rollout-session`
+#                                   (last_error IS persisted)
 #   8  LEASE_HELD                 - a live coordinator owns this record
 
 set -euo pipefail
@@ -121,6 +130,7 @@ Usage: aitask_agent_sessions.sh upsert --root <r> --window <w> --pane <id> --pan
        aitask_agent_sessions.sh freeze-abort <id> --nonce <n>
        aitask_agent_sessions.sh restore-begin <id> --owner-pid <pid> --mode resume|repick
        aitask_agent_sessions.sh restore-launched|restore-confirm|standin-respawned <id> --nonce <n> --pane <p> --pane-pid <pid>
+       aitask_agent_sessions.sh restore-confirm <id> --nonce <n> --pane <p> --pane-pid <pid> --rollout-session <sid>
        aitask_agent_sessions.sh restore-abort <id> --nonce <n> [--error <reason>]
        aitask_agent_sessions.sh lease-take <id> --owner-pid <pid>
        aitask_agent_sessions.sh lease-release <id> --nonce <n>

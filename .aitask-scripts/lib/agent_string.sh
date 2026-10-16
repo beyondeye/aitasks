@@ -61,6 +61,15 @@ SUPPORTED_AGENTS=(claudecode codex opencode)
 #    flag, because an unknown flag is a hard clap error on older builds, while
 #    0.153.4 / 0.156.1 were measured to launch normally with this override.
 #    `codex resume` carries it too, so a restored pane stays inline.
+#    It ALSO keeps the TUI in-process (measured on 0.163.0, t2040). Without it a
+#    TUI can be routed through the shared app-server daemon
+#    ($CODEX_HOME/packages/app-server-daemon). The daemon then holds the
+#    session's rollout open, and it runs the SessionStart hook with the
+#    environment of the pane that STARTED it. In that mode the freeze-time
+#    capture and the restore's rollout evidence (`codex_session_for_pid` on the
+#    pane's process) find nothing, and the hook can report another pane's
+#    TMUX_PANE. Measured: a bare `codex` launch was daemon-routed, and the same
+#    launch with only this override held its own rollout.
 #
 # Nothing enforces that this is defined: under `set -u` an undeclared array
 # still expands to nothing. The launcher tests (test_codeagent.sh 11e/11f,

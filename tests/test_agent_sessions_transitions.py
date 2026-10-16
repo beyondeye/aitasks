@@ -22,9 +22,18 @@ NEGATIVE CONTROLS:
                        -> `test_from_freezing_keeps_the_lease` fails.
   blind confirm      : drop the `launch_pid` check in `restore_confirm` ->
                        `test_confirm_without_launch_evidence_is_refused` fails.
+  confirm past error : drop the current-nonce `last_error` check in
+                       `restore_confirm` -> both
+                       `ConfirmRefusesARecordedMismatchTests` refusals fail.
+  lost handover      : drop the prefix rewrite in `lease_take` ->
+                       `test_a_takeover_carries_the_attempts_error_to_the_new_nonce`
+                       and `test_after_a_takeover_the_carried_error_still_refuses`
+                       fail.
 """
 from __future__ import annotations
 
+import contextlib
+import io
 import os
 import sys
 import tempfile
@@ -506,6 +515,212 @@ class FillTaskTests(_TransitionTestCase):
     def test_an_unknown_record_is_an_error(self):
         with self.assertRaises(A.MalformedSessionsError):
             A.fill_task(A.SessionsFile(), "0badc0de", task_id="1")
+
+
+def _codex_restoring(case, *, mode="resume", agent_kind="codex", launch_pid=555,
+                     session="11111111-2222-3333-4444-555555555555"):
+    """A `restoring` codex record with a capture on disk, as a rollout confirm
+    meets it. Returns ``(sf, rid, capture_dir)``."""
+    sf, rid = case.store_in(A.STATE_RESTORING, launch_pid=launch_pid)
+    rec = sf.by_id(rid)
+    rec.restore_mode = mode
+    rec.agent_kind = agent_kind
+    rec.agent_string = f"{agent_kind}/gpt5" if agent_kind else ""
+    rec.codeagent_session_id = session
+    d = A.ensure_capture_dir(rid)
+    (d / "capture.ansi").write_text("x", encoding="utf-8")
+    rec.capture_ansi = str(d / "capture.ansi")
+    rec.capture_lines = 1
+    return sf, rid, d
+
+
+class RolloutConfirmTests(_TransitionTestCase):
+    """`restore-confirm --rollout-session` (t2040): verified, like a hook ack."""
+
+    SID = "11111111-2222-3333-4444-555555555555"
+
+    def test_a_matching_rollout_verifies_and_deletes_the_captures(self):
+        sf, rid, d = _codex_restoring(self)
+        sf.by_id(rid).last_error = "deadbeef:an older attempt"
+        sf, line = A.restore_confirm(
+            sf, rid, nonce="aabbccdd", pane="%5", pane_pid=555,
+            rollout_session=self.SID, now=self.now)
+        rec = sf.by_id(rid)
+        self.assertEqual(line, f"LIVE:{rid}|rollout")
+        self.assertEqual((rec.state, rec.ack), (A.STATE_LIVE, "rollout"))
+        self.assertFalse(d.exists(), "a verified confirm deletes the captures")
+        self.assertEqual((rec.capture_ansi, rec.capture_lines), ("", 0))
+        self.assertEqual(rec.last_error, "")
+        self.assertEqual(rec.op_nonce, "", "the lease is cleared")
+        self.assertEqual(rec.pane_id, "%5")
+
+    def test_a_mismatching_rollout_persists_the_error_and_raises(self):
+        sf, rid, d = _codex_restoring(self)
+        with self.assertRaises(A.SessionMismatch):
+            A.restore_confirm(
+                sf, rid, nonce="aabbccdd", pane="%5", pane_pid=555,
+                rollout_session="99999999-2222-3333-4444-555555555555",
+                now=self.now)
+        rec = sf.by_id(rid)
+        self.assertEqual(rec.last_error, "aabbccdd:session_mismatch")
+        self.assertEqual(rec.state, A.STATE_RESTORING)
+        self.assertTrue(d.exists(), "a mismatch keeps the only copy")
+
+    def test_refused_for_a_repick_a_non_codex_record_and_a_foreign_pid(self):
+        cases = (
+            ("repick", dict(mode="repick"), 555),
+            ("claudecode", dict(agent_kind="claudecode"), 555),
+            ("blank kind", dict(agent_kind=""), 555),
+            ("foreign pid", {}, 666),
+        )
+        for label, overrides, pid in cases:
+            with self.subTest(case=label):
+                sf, rid, d = _codex_restoring(self, **overrides)
+                with self.assertRaises(A.TransitionRefused):
+                    A.restore_confirm(
+                        sf, rid, nonce="aabbccdd", pane="%5", pane_pid=pid,
+                        rollout_session=self.SID, now=self.now)
+                rec = sf.by_id(rid)
+                self.assertEqual(rec.state, A.STATE_RESTORING)
+                self.assertEqual(rec.last_error, "", "a refusal writes nothing")
+                self.assertTrue(d.exists())
+
+    def test_without_the_option_it_is_still_the_liveness_confirm(self):
+        """CONTROL. The same record, no evidence: captures kept."""
+        sf, rid, d = _codex_restoring(self)
+        sf, line = A.restore_confirm(
+            sf, rid, nonce="aabbccdd", pane="%5", pane_pid=555, now=self.now)
+        self.assertEqual(line, f"LIVE:{rid}|liveness")
+        self.assertEqual(sf.by_id(rid).ack, "liveness")
+        self.assertTrue(d.exists())
+
+
+class ConfirmRefusesARecordedMismatchTests(_TransitionTestCase):
+    """A mismatch the hook persisted for THIS attempt blocks every confirm
+    (t2040). It can land after the coordinator's last poll."""
+
+    def test_a_current_nonce_mismatch_refuses_the_liveness_confirm(self):
+        sf, rid, d = _codex_restoring(self)
+        sf.by_id(rid).last_error = "aabbccdd:session_mismatch"
+        with self.assertRaises(A.TransitionRefused):
+            A.restore_confirm(
+                sf, rid, nonce="aabbccdd", pane="%5", pane_pid=555, now=self.now)
+        self.assertEqual(sf.by_id(rid).state, A.STATE_RESTORING)
+
+    def test_a_current_nonce_mismatch_refuses_the_rollout_confirm(self):
+        sf, rid, d = _codex_restoring(self)
+        sf.by_id(rid).last_error = "aabbccdd:session_mismatch"
+        with self.assertRaises(A.TransitionRefused):
+            A.restore_confirm(
+                sf, rid, nonce="aabbccdd", pane="%5", pane_pid=555,
+                rollout_session=RolloutConfirmTests.SID, now=self.now)
+        self.assertTrue(d.exists())
+
+    def test_an_older_attempts_error_does_not_block(self):
+        """CONTROL. `restore-begin` clears `last_error`, but a stale prefix must
+        never be read as this attempt's report anyway."""
+        sf, rid, _ = _codex_restoring(self)
+        sf.by_id(rid).last_error = "deadbeef:session_mismatch"
+        sf, line = A.restore_confirm(
+            sf, rid, nonce="aabbccdd", pane="%5", pane_pid=555, now=self.now)
+        self.assertEqual(line, f"LIVE:{rid}|liveness")
+
+
+class LeaseTakeCarriesTheAttemptErrorTests(_TransitionTestCase):
+    """The recovery handover (t2040): reconcile reads the record BEFORE it takes
+    the lease, so a hook mismatch landing in between must follow the lease to
+    the new nonce, or the current-nonce guard above stops seeing it."""
+
+    def _stale(self, sf, rid):
+        sf.by_id(rid).op_started_at = A._iso(self.now - 10_000)
+
+    def test_a_takeover_carries_the_attempts_error_to_the_new_nonce(self):
+        sf, rid, _ = _codex_restoring(self)
+        sf.by_id(rid).last_error = "aabbccdd:session_mismatch"
+        self._stale(sf, rid)
+        sf, line = A.lease_take(sf, rid, owner_pid=os.getpid(), now=self.now,
+                                pid_alive=lambda pid: False)
+        new = line.split("|")[1]
+        self.assertNotEqual(new, "aabbccdd")
+        self.assertEqual(sf.by_id(rid).last_error, f"{new}:session_mismatch")
+
+    def test_an_older_attempts_error_is_left_alone(self):
+        sf, rid, _ = _codex_restoring(self)
+        sf.by_id(rid).last_error = "deadbeef:agent_exited"
+        self._stale(sf, rid)
+        A.lease_take(sf, rid, owner_pid=os.getpid(), now=self.now,
+                     pid_alive=lambda pid: False)
+        self.assertEqual(sf.by_id(rid).last_error, "deadbeef:agent_exited")
+
+    def test_a_record_with_no_lease_is_left_alone(self):
+        """`drop` claims a `frozen` record whose lease `freeze-commit` cleared;
+        an empty outgoing nonce matches every `:`-prefixed string, so it must
+        never be treated as one."""
+        sf, rid = self.store_in(A.STATE_FROZEN, leased=False)
+        sf.by_id(rid).last_error = ":odd"
+        A.lease_take(sf, rid, owner_pid=os.getpid(), now=self.now)
+        self.assertEqual(sf.by_id(rid).last_error, ":odd")
+
+    def test_after_a_takeover_the_carried_error_still_refuses(self):
+        """THE RACE, end to end: snapshot (clean) -> hook persists a mismatch
+        under N1 -> reconcile takes the lease (N2) -> confirm under N2."""
+        for rollout in (None, RolloutConfirmTests.SID):
+            with self.subTest(rollout=rollout):
+                # A fresh record per path, so neither can pass because the
+                # other already moved the record out of `restoring`.
+                sf, rid, d = _codex_restoring(self)
+                sf.by_id(rid).last_error = "aabbccdd:session_mismatch"  # late hook
+                self._stale(sf, rid)
+                sf, line = A.lease_take(sf, rid, owner_pid=os.getpid(),
+                                        now=self.now, pid_alive=lambda pid: False)
+                new = line.split("|")[1]
+                with self.assertRaises(A.TransitionRefused):
+                    A.restore_confirm(sf, rid, nonce=new, pane="%5", pane_pid=555,
+                                      rollout_session=rollout, now=self.now)
+                self.assertEqual(sf.by_id(rid).state, A.STATE_RESTORING)
+                self.assertTrue(d.exists())
+
+
+class RolloutConfirmCliTests(_TransitionTestCase):
+    """The CLI persists a rollout mismatch before exiting 7, as for a hook ack."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        quiet = contextlib.ExitStack()
+        quiet.enter_context(contextlib.redirect_stdout(io.StringIO()))
+        quiet.enter_context(contextlib.redirect_stderr(io.StringIO()))
+        self.addCleanup(quiet.close)
+
+    def test_a_mismatch_through_main_exits_7_and_is_on_disk(self):
+        path = self.tmp / "sessions.json"
+        sf, rid, _ = _codex_restoring(self)
+        A.dump(sf, path)
+        rc = A.main(["--file", str(path), "restore-confirm", rid,
+                     "--nonce", "aabbccdd", "--pane", "%5", "--pane-pid", "555",
+                     "--rollout-session", "99999999-2222-3333-4444-555555555555"])
+        self.assertEqual(rc, 7)
+        self.assertEqual(A.load(path).by_id(rid).last_error,
+                         "aabbccdd:session_mismatch")
+
+    def test_a_match_through_main_is_live_rollout(self):
+        path = self.tmp / "sessions.json"
+        sf, rid, _ = _codex_restoring(self)
+        A.dump(sf, path)
+        rc = A.main(["--file", str(path), "restore-confirm", rid,
+                     "--nonce", "aabbccdd", "--pane", "%5", "--pane-pid", "555",
+                     "--rollout-session", RolloutConfirmTests.SID])
+        self.assertEqual(rc, 0)
+        self.assertEqual(A.load(path).by_id(rid).ack, "rollout")
+
+    def test_an_empty_rollout_session_is_a_usage_error(self):
+        path = self.tmp / "sessions.json"
+        sf, rid, _ = _codex_restoring(self)
+        A.dump(sf, path)
+        rc = A.main(["--file", str(path), "restore-confirm", rid,
+                     "--nonce", "aabbccdd", "--pane", "%5", "--pane-pid", "555",
+                     "--rollout-session", ""])
+        self.assertEqual(rc, 2)
+        self.assertEqual(A.load(path).by_id(rid).state, A.STATE_RESTORING)
 
 
 if __name__ == "__main__":

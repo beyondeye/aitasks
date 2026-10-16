@@ -3479,7 +3479,8 @@ setup_codex_cli() {
     info "Found $count Codex CLI skill wrappers ready for installation."
     info "This also installs a SessionStart hook (.aitask-scripts/aitask_session_hook.sh)"
     info "into .codex/config.toml, which records the session id so a frozen agent can"
-    info "be restored. Note: codex fires it under \`codex exec\` only, not in the TUI."
+    info "be restored. Note: the codex TUI fires it at a session's first turn (codex"
+    info "0.163.0 measured); older codex fires it under \`codex exec\` only."
     echo ""
 
     if [[ -t 0 ]]; then

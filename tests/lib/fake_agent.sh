@@ -30,6 +30,13 @@
 #   AITASKS_FAKE_AGENT_HOOK   override the hook path (defaults to the shipped one)
 #   FAKE_AGENT_HOOK_LOG       append the hook's stderr here for diagnosis
 #
+# Codex-shape knobs (t2040), documented at their use site at the end:
+#   FAKE_AGENT_ROLLOUT_DIR=<dir>    hold a codex rollout open and run as argv0
+#                                   `codex`, the two facts `codex_session_for_pid`
+#                                   reads off a live codex process
+#   FAKE_AGENT_ROLLOUT_SESSION=<id> the rollout's session (default: the session
+#                                   the agent runs as — see the hook section)
+#
 # Acceptance-fixture knob (t1705_8):
 #   FAKE_AGENT_OUTPUT_LINES=<n>  emit <n> numbered lines before settling.
 #     DEFAULT 0 — off. This fixture is shared by several live suites whose
@@ -208,6 +215,35 @@ print(json.dumps({
         echo "fake_agent: session hook invoked for $_session_id"
     else
         echo "fake_agent: no session hook at $_hook" >&2
+    fi
+fi
+
+# --- codex shape (t2040) ----------------------------------------------------
+# A real codex process holds its session's rollout open, and a RESUMED one does
+# so from launch. That open file, plus argv0 `codex`, is all
+# `agent_sessions.codex_session_for_pid` reads, and it is the evidence the
+# restore coordinator now verifies a codex resume with. So: write a rollout whose
+# first line is the `session_meta` record that resolver parses, open it on fd 9,
+# and exec the final sleep under the name `codex`. `exec -a` keeps this pid (the
+# pane's pid, the task-lock anchor) and fd 9 survives the exec.
+#
+# The session is FAKE_AGENT_ROLLOUT_SESSION, else the one the hook would report.
+# It must be a UUID: the resolver only matches `rollout-…-<uuid>.jsonl`.
+if [ -n "${FAKE_AGENT_ROLLOUT_DIR:-}" ]; then
+    _rollout_sid="${FAKE_AGENT_ROLLOUT_SESSION:-${FAKE_AGENT_SESSION:-$resume_id}}"
+    if [ -n "$_rollout_sid" ]; then
+        mkdir -p "$FAKE_AGENT_ROLLOUT_DIR"
+        _rollout="$FAKE_AGENT_ROLLOUT_DIR/rollout-2026-10-16T00-00-00-$_rollout_sid.jsonl"
+        if [ ! -s "$_rollout" ]; then
+            FAKE_SID="$_rollout_sid" FAKE_CWD="$PWD" python3 -c '
+import json, os
+print(json.dumps({"type": "session_meta", "payload": {
+    "id": os.environ["FAKE_SID"], "session_id": os.environ["FAKE_SID"],
+    "cwd": os.environ["FAKE_CWD"], "originator": "codex-tui"}}))' > "$_rollout"
+        fi
+        exec 9<"$_rollout"
+        echo "fake_agent: holding rollout for $_rollout_sid as codex"
+        exec -a codex sleep "$FAKE_AGENT_SLEEP"
     fi
 fi
 

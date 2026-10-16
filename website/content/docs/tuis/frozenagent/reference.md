@@ -98,7 +98,7 @@ unless you add one.
 | Key | Default | Effect |
 |-----|---------|--------|
 | `capture_max_lines` | `50000` | How far back into the pane's scrollback a freeze reaches. The capture is the tail of the scrollback, so a pane with more history than this keeps only its most recent lines |
-| `restore_ack_grace` | `20` (seconds) | How long a restore waits for the resumed agent's SessionStart hook to acknowledge it, before falling back to confirming on liveness alone |
+| `restore_ack_grace` | `20` (seconds) | How long a restore waits to be verified — by the resumed agent's SessionStart hook, or for a Codex resume on Linux by the transcript its process holds open — before falling back to confirming on liveness alone |
 
 `restore_ack_grace` is read from the **record's own project**, not from whichever
 project you happen to be viewing from, because a freeze-all spans projects.
@@ -111,11 +111,11 @@ at the default. All three read it from the record's project, so raising the grac
 never turns a slow but successful restore into a stall report.
 
 It sets a **waiting period, not an outcome.** Raising it only helps an agent
-whose acknowledgement is slow to arrive; one that never acknowledges at all —
-because its CLI reports no session on startup, or because the session hook is not
-installed — reaches `restored, unverified — capture kept` however long the grace
-is. Nothing is lost in that case: the unverified outcome is the one that keeps
-the capture.
+whose acknowledgement is slow to arrive. One that never acknowledges at all
+within it reaches `restored, unverified — capture kept` however long the grace
+is: its CLI reports no session on startup, the session hook is not installed, or
+it is a Codex resume whose session cannot be read from the process. Nothing is
+lost in that case: the unverified outcome is the one that keeps the capture.
 
 ## See also
 

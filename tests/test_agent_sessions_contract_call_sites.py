@@ -102,6 +102,10 @@ CALL_SITES = [
      ["nonce", "pane", "pane_pid"]),
     ("C.rec restoring + replacement here -> confirm", A.STATE_RESTORING,
      "restore-confirm", ["nonce", "pane", "pane_pid"]),
+    # t2040. The same row when the resumed codex process holds its rollout open:
+    # the session read from it is verified evidence, compared by the store.
+    ("C.rec restoring + rollout evidence -> verified confirm", A.STATE_RESTORING,
+     "restore-confirm", ["nonce", "pane", "pane_pid", "rollout_session"]),
     ("C.kill_agent_pane_smart on a frozen pane -> drop", A.STATE_FROZEN, "drop", []),
     # --- §D restore flow ----------------------------------------------------
     ("D.restore.2 begin", A.STATE_FROZEN, "restore-begin", ["mode", "owner_pid"]),
@@ -111,6 +115,14 @@ CALL_SITES = [
      ["root", "window", "pane", "pane_pid", "restore_of", "nonce", "session_id"]),
     ("D.restore.4 liveness confirm", A.STATE_RESTORING, "restore-confirm",
      ["nonce", "pane", "pane_pid"]),
+    # t2040. The coordinator's verified codex confirm, from the launched
+    # process's open rollout.
+    ("D.restore.4 rollout confirm", A.STATE_RESTORING, "restore-confirm",
+     ["nonce", "pane", "pane_pid", "rollout_session"]),
+    # t2040. The resumed agent's hook, firing after the restore settled (codex
+    # acks at its first turn). Upsert rows are argument-shape rows only.
+    ("D.restore.4b late hook ack", A.STATE_LIVE, "upsert",
+     ["root", "window", "pane", "pane_pid", "restore_of", "nonce", "session_id"]),
     ("D.restore.4 agent_exited -> abort", A.STATE_RESTORING, "restore-abort",
      ["nonce"]),
 ]
@@ -205,6 +217,9 @@ class StateLegalityTests(unittest.TestCase):
         rec.state_at = A._iso(self.now)
         rec.launch_pid = 555
         rec.restore_mode = "resume"
+        # A codex record, so the rollout-confirm rows can be exercised: that
+        # evidence is accepted only for codex (t2040). No other verb reads it.
+        rec.agent_kind = "codex"
         if state != A.STATE_LIVE:
             rec.op_nonce = self.NONCE
             rec.op_owner_pid = os.getpid()
@@ -214,6 +229,7 @@ class StateLegalityTests(unittest.TestCase):
             "nonce": self.NONCE, "pane": "%5", "pane_pid": 555,
             "capture_ansi": "/a", "capture_txt": "/b", "lines": 1, "phase": "",
             "owner_pid": os.getpid(), "mode": "resume",
+            "rollout_session": "sid-1",
         }
         return sf, rid, kwargs
 

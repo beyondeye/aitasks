@@ -52,11 +52,13 @@ justification = "Hard reset requires approval"
 # SessionStart hook — records the codeagent session id into the framework
 # session store so a frozen agent can later be restored (`codex resume <id>`).
 #
-# LIMITATION (established 2026-09-06, codex 0.153.4): this fires under
-# `codex exec` but NOT in the interactive TUI, which is the framework's
-# production launch path. Interactive codex sessions therefore capture no
-# session id here — the framework falls back to scanning ~/.codex/sessions,
-# or to re-picking the task.
+# TIMING (measured on codex 0.163.0): the interactive TUI fires this at a
+# session's FIRST TURN, not at launch. That is `startup` for a new session, and
+# `resume` after `codex resume`. Codex 0.153.4 fired it only under
+# `codex exec`, never in the TUI. On an older codex the freeze engine reads the
+# session from the rollout the agent's own process holds open instead (Linux
+# only). Before a session's first turn there is no rollout either, so an agent
+# frozen then has no session to resume, and a restore re-picks its task.
 #
 # The command is REPO-RELATIVE on purpose: .codex/config.toml is a tracked,
 # framework-committed file and codex has no $CLAUDE_PROJECT_DIR equivalent, so
