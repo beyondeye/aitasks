@@ -401,3 +401,139 @@ only that fetch needs bounding on the Python side. Its test harness wraps
 
 Current-branch mode (profile `fast`): no branch to merge. Archive via
 `./.aitask-scripts/aitask_archive.sh 2024` and `./ait git push`.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-16 07:45)
+- **Requested by user:** `_shielded_kill` shielded only SIGINT. A SIGTERM/SIGHUP
+  arriving after the CLI's ordinary timeout cleanup had begun ran `_on_signal`,
+  raised `_Interrupted` out of the TERM→CONT→KILL loop, and the CLI died (-15)
+  before SIGKILLing git's separate process group: a TERM-ignoring child survived
+  (reproduced by the reviewer). This also broke nested ordering when an outer
+  cancellation lands during the inner runner's own timeout cleanup. Defer the
+  forwarded signals throughout cleanup, preserve the eventual signal exit, and add
+  a test that sends TERM/HUP after the cleanup has begun.
+- **Changes made:**
+  - `_shielded_kill` now defers SIGINT, SIGTERM and SIGHUP while the group is being
+    killed: it records the first one and re-delivers it with `signal.raise_signal`
+    through the handler that was in place, so the process still raises or exits
+    the way that signal says, after the SIGKILL. The previous handler is restored,
+    and `None` (installed outside Python) becomes SIG_DFL.
+  - The CLI's handlers only **record** (`_record_signal`). `run_bounded` gained a
+    `cancelled=` callable that its wait polls (`_wait`): when set, it kills the group
+    and raises `Cancelled`. No exception can therefore cut into the CLI's cleanup,
+    even in the instant before the deferral is installed. `main()` ends the CLI by
+    the first recorded signal on every path (cancelled, timed out, or a signal
+    arriving after the command ended), so the shell still sees a signal death.
+  - Tests: `test_bounded_run.py::TestCli::test_term_or_hup_during_the_timeout_cleanup`
+    (SIGTERM and SIGHUP at 1.0s into a 0.3s timeout with a 2s grace: the CLI dies by
+    the signal only after ≥ 2s and the TERM-ignoring child is gone);
+    `TestRunBounded::test_a_signal_during_cleanup_is_deferred_until_the_group_is_dead`
+    (in-process: a SIGHUP handler that raises surfaces only after the SIGKILL);
+    `test_brainstorm_addwork_deadline.sh` D8 (real nesting: the fetch times out at
+    about 1.4s, and the outer KeyboardInterrupt at 3s lands in the nested CLI's
+    cleanup; the transport must still be reaped).
+  - Red proofs (scratch worktree): M12, the original code (SIGINT-only shield plus a
+    raising CLI handler), fails both new `test_bounded_run.py` cells and D8. M12a
+    (SIGINT-only shield with the record-only CLI kept) fails the in-process deferral
+    cell. M1 was re-run against the rewritten CLI: still RED.
+- **Files affected:** `.aitask-scripts/lib/bounded_run.py`, `tests/test_bounded_run.py`,
+  `tests/test_brainstorm_addwork_deadline.sh`
+
+## Final Implementation Notes
+- **Actual work done:**
+  - New stdlib-only `lib/bounded_run.py`. `run_bounded()` runs the command in a new
+    session with stdin `/dev/null` and output in temp files. On expiry it kills the
+    whole process group (TERM → CONT → poll the group → KILL). `stop_grace` turns the
+    expiry into a stop request first. `cancelled=` lets the caller end the wait.
+    Signals are deferred during cleanup. Nested runners get a strictly smaller grace
+    via `AIT_BOUNDED_RUN_GRACE` (own − 2s, floor 1s).
+  - `noninteractive_env()`: `GIT_TERMINAL_PROMPT=0`, `GIT_ASKPASS=""`,
+    `SSH_ASKPASS_REQUIRE=never`, `GCM_INTERACTIVE=never`, and `SSH_ASKPASS` /
+    `DISPLAY` / `WAYLAND_DISPLAY` removed.
+  - The CLI (`--timeout N [--noninteractive] -- cmd`) is used by the shell side.
+  - Shell (`lib/agentcrew_utils.sh`): `crew_git_timeout`, `_crew_git_bounded` (the
+    CLI), `crew_push` through it (124 → a timeout warning naming
+    `AIT_CREW_GIT_TIMEOUT`), and a new `crew_pull_rebase` (bounded fetch of the
+    tracked branch, then a local `rebase --no-autostash` only after a successful
+    fetch). addwork and setmode use it. addwork traps TERM as a stop request, and its
+    network tail moved out of the commit subshell.
+  - Python (`agentcrew_utils.py`): `crew_git_timeout()`, `git_cmd(timeout=)` (runs
+    through `run_bounded` and `noninteractive_env`; a timeout gives rc 124 plus a
+    message), the `_sync_with_upstream` fetch and the `git_push` push. `../lib` is
+    made importable.
+  - `brainstorm_crew._run_addwork`: `run_bounded(cmd, 2×bound + 60s,
+    stop_grace=60)`; TimeoutExpired goes to `_addwork_outcome`, which reads the
+    worktree back (merge state → RuntimeError with remedy; committed → success;
+    staged → RuntimeError with complete/discard remedies; nothing → RuntimeError).
+  - Docs: `website/content/docs/commands/crew.md` (init section) and
+    `aidocs/agentcrew/agentcrew_architecture.md` (Runner Orchestration).
+    `tests/lib/test_scaffold.sh` copies `bounded_run.py`.
+- **Deviations from plan:**
+  - t2018's harness in `tests/test_crew_pull_no_autostash.sh` did
+    `r.time.sleep = fake_sleep`. `r.time` is the global time module, so it also
+    replaced the `time.sleep` that `Popen.wait(timeout)` polls with, and cells 6/11/11b
+    hit the 600-call cap. The fake is now scoped to the runner module (a
+    `types.SimpleNamespace` copy of `time`), and the wrapper forwards `**kw` as
+    planned.
+  - Plan cell 14 expected `ait crew status set` to print a push warning. It pushes
+    with `batch=True`, which never warns, so the cell asserts the silent contract
+    instead (no warning, no traceback).
+  - The CLI's signal handling was changed in review (Change Request 1).
+  - `test_bounded_run.py` gained `test_expiry_terms_the_whole_group_before_any_sigkill`
+    after mutant M2 (leader-only SIGTERM) survived.
+- **Issues encountered:**
+  - M2 surviving showed that no cell checked that the whole group gets SIGTERM before
+    any SIGKILL; the test above covers it.
+  - A second variant (M2b, leader-only everything) showed that
+    `test_expiry_kills_a_term_ignoring_grandchild` was vacuous: `echo $$` nested in the
+    outer `sh -c "…"` was expanded by the outer shell and recorded the leader's pid.
+    It is now escaped (`\$\$`), and M2b turns it red.
+- **Key decisions:**
+  - One Python runner for both languages. A new session (no ctty) needs `setsid`,
+    which macOS lacks as a binary, and one implementation means one tested mechanism.
+  - No `-o BatchMode` injection: it would break plink-variant configured commands.
+    The environment alone removes the prompt channels.
+  - Committed registration counts as success (no remove-agent command exists, and
+    `Waiting→Aborted` is invalid).
+  - The default bound of 10s matches the framework's other network bounds.
+- **Verification (all against the final tree):**
+  - Probes (a)–(f) from step 1 all matched the plan:
+    - `GIT_TERMINAL_PROMPT=0` alone still ran `core.askPass` twice, and `GIT_ASKPASS=""`
+      suppressed it;
+    - `ssh-keygen -y` under `setsid` ran the sentinel with `SSH_ASKPASS` + `DISPLAY`, and
+      not under the policy env;
+    - `push -u` on an up-to-date remote set the upstream;
+    - a leader-only TERM ran its trap only after the subshell returned;
+    - a stub `gpg.program` was called "no-rebase" for the commit and "in-rebase" for the
+      re-sign;
+    - hooks ran in a linked worktree.
+  - Shell suites: `test_crew_publish_upstream.sh` 127/127,
+    `test_crew_git_noninteractive.sh` 22/22, `test_brainstorm_addwork_deadline.sh`
+    61/61, `test_crew_pull_no_autostash.sh` 208/208. Also green: `test_crew_init`,
+    `_setmode`, `_status`, `_runner`, `_groups`, `_cleanup`, `_report`,
+    `_runner_config_delivery`, `_template_includes`, `_addwork_output_instructions`,
+    `test_agentcrew_terminal_push`, `_pythonpath`, `_error_recovery`,
+    `test_brainstorm_cli`, `test_launch_mode_field`.
+  - Python: `test_bounded_run.py` 20/20 and `test_brainstorm_crew.py` pass; the full
+    `run_all_python_tests.sh` gave `PYTHON SUITE: PASSED (runner=pytest, exit=0)`
+    (before Change Request 1, which touched only `bounded_run.py` and its tests;
+    those were re-run).
+  - Red proofs, each in a detached scratch worktree. Every one turned RED:
+    - M1 (CLI ignores `--timeout`; re-run on the rewritten CLI);
+    - M2a (leader-only SIGTERM) and M2b (leader-only kill);
+    - M3 (no SIGKILL escalation);
+    - M4 (`start_new_session=False`);
+    - M5 (no `GIT_ASKPASS=""`);
+    - M6 (no `SSH_ASKPASS_REQUIRE` and no askpass/display strip);
+    - M7 (deadline kills at once);
+    - M8 (network calls back in the subshell);
+    - M9 (committed state raises);
+    - M10 (child grace ≥ parent);
+    - M11 (runner ignores `AIT_BOUNDED_RUN_GRACE`);
+    - M12 (the pre-CR1 signal handling);
+    - M12a (SIGINT-only shield).
+  - `shellcheck` reports no new warnings on the changed scripts or the new tests.
+    `check_links.py --build` reports only the pre-existing blog link below.
+- **Upstream defects identified:**
+  - `website/content/_index.md` — its link to `blog/v0380-the-test-map-takes-shape-trails-that-cross-projects-prune-a-brainstorm-dow/` does not resolve (`check_links.py --build`: missing-page). It arrived with the v0.38.0 release commit `1aa6a5b6e` and is unrelated to this task; observed 2026-10-16 07:4x, and may already be in hand by whoever ran the release.
