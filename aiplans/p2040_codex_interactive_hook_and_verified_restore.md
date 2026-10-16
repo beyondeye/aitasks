@@ -438,3 +438,58 @@ In `upsert`, when `restore_of` names a record that is already **`live`**:
 
 ### Planned mitigations
 - timing: after | name: hook_pane_ancestry_guard | type: enhancement | priority: medium | effort: medium | inline_risk: medium | added_complexity: medium | addresses: goal-achievement — a daemon-routed codex TUI would hand the SessionStart hook the daemon's environment (wrong or missing TMUX_PANE) | desc: aitask_session_hook.sh refuses to record unless the pane's #{pane_pid} is an ancestor of the hook process (bounded ppid walk via ps); the hook tests' tmux stub reports an ancestor pid
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-16 15:45)
+- **Requested by user (review findings):**
+  1. A late hook from a gone-pane restore's NEW window (no `@aitask_record`, possibly a suffixed window name) fell through to an ordinary upsert that selected by window, and created a second record for an `ack=rollout`/`hook` record.
+  2. `setup-install.md` overstated freeze-time capture: there is no rollout before a session's first turn, so an agent frozen then has no session and is re-picked.
+  3. (follow-up) `_reconcile_restoring` leaves `@aitask_frozen` on the running pane after a successful confirm. This is pre-existing, and the new rollout branch inherits it.
+- **Changes made:**
+  1. `agent_sessions.upsert`: on the late fallthrough, a caller in the restored record's own pane with no stamp adopts the restore target as its `id`, and the ordinary rules then update the record and follow the window. A caller in a different pane drops the target. The window-follow logic was extracted into `_follow_window` and is also applied in the late-upgrade branch. It is not applied in the in-grace ack branch, which can fire before the coordinator's rename. Tests: suffixed window × {rollout, hook}, late upgrade in a suffixed window, and a foreign-pane control. Both removal mutants were caught.
+  2. Reworded `setup-install.md`, the hook's CODEX TIMING comment and the seed TOML comment: freeze-time capture applies to an older codex (Linux, once a turn has been taken); before the first turn the agent has no session and is re-picked.
+  3. Spawned as follow-up **t2045** (`reconcile_clears_frozen_stamp_after_confirm`, bug, `followup_kind: upstream_defect`, anchored to t2040). Its scope is guarded marker cleanup after a successful reconcile confirm, plus freezing the recovered agent again.
+- **Files affected:** `.aitask-scripts/lib/agent_sessions.py`, `tests/test_agent_sessions_identity.py`, `website/content/docs/commands/setup-install.md`, `.aitask-scripts/aitask_session_hook.sh`, `seed/codex_config.seed.toml`
+
+### Change Request 2 (2026-10-16 15:55)
+- **Requested by user:** the stale frozen-marker follow-up had no linked task ID.
+- **Changes made:** created t2045 and linked it above (Change Request 1, item 3).
+- **Files affected:** `aitasks/t2045_reconcile_clears_frozen_stamp_after_confirm.md` (new), this plan
+
+## Final Implementation Notes
+- **Actual work done:**
+  - Implemented D1, D2 and D3 as planned:
+    - `restore-confirm --rollout-session` (store, wrapper doc, CLI);
+    - `codex_resume_evidence`;
+    - the coordinator's `_rollout_confirm` in the ack poll loop, with `_settle` on the refused-confirm re-read;
+    - the reconcile evidence row, with a post-lease re-read;
+    - the late-ack handling in `upsert`: `_late_restore_ack_ok`, upgrade to `restored_late`, otherwise an ordinary upsert, with the window-close rule;
+    - the `lease_take` error handover;
+    - the current-nonce `last_error` refusal in `restore_confirm`.
+  - Refreshed every stale "codex has no interactive hook / liveness only" claim: code, seed, setup, website and test docstrings.
+  - Re-captured `codex_sessionstart.json` from the interactive TUI on codex 0.163.0. It is now `captured`, with `_fires_at: first_turn`; the hook fired 0.37 s after the first prompt and nothing fired before it.
+  - Updated spike Case 6 to send a turn and classify `captured_at_first_turn` / `captured_at_launch`.
+  - Added the codex shape (argv0 `codex`, rollout on fd 9) to `fake_agent.sh`, plus live Cases 14 and 15.
+- **Deviations from plan:**
+  - (a) Step 0 coordination with t2039 worked as designed. The three shared-file edits were prepared as scripts and tested in an isolated tree copy, then applied after t2039 committed (302becf93).
+  - (b) The two monitor drop-dialog comment edits (step 6) were reverted before commit. t2042 started editing `monitor_app.py` / `minimonitor_app.py` mid-session, so by the plan's own isolation rule my hunks came out. t2042 then committed (4db8fb0af) with no t2040 content. Those comments still name only the `ack = "hook"` branch: incomplete (a rollout confirm also deletes captures), but not wrong.
+  - (c) Review round 1 added `_follow_window` and own-pane restore-target adoption, and reworded the freeze-capture claims (Post-Review Changes, Change Request 1).
+  - (d) Added a code comment in `lib/agent_string.sh` and a `codex_session_for_pid` docstring note for the daemon finding below.
+- **Issues encountered:**
+  - The live tmux suites refuse to run inside the user's tmux. They were run fully sandboxed with `env -u TMUX -u TMUX_PANE TMUX_TMPDIR=<private>` (their own `require_isolated_tmux` sets the gateway socket); the user's `-L ait` server was verified untouched after each run.
+  - The real-codex live check used a scratch aitasks project (scripts symlinked, metadata copied, the seed hook block), a throwaway `CODEX_HOME` and a private socket. The stand-in viewer exited there (no `ait` dispatcher in the scratch project), so the restore took the gone-pane branch. Even so it returned `RESTORED:…|rollout` in 1.56 s with the default 20 s grace, captures deleted, no prompt sent.
+  - After that, typing a turn in the restored agent fired the late hook (resume, same session). The store did an ordinary update, the record stayed `live` with `ack=rollout`, and the pane was re-stamped after its join had been cleared on purpose.
+- **Key decisions:**
+  - The evidence is caller-reported and store-compared, in the same shape as the hook ack, rather than the store reading `/proc`.
+  - Late-ack upgrade binding is `launch_pid` + pane (the nonce is gone after a confirm), and any session change closes the window.
+  - Reconcile acts on rollout evidence only after the ack grace, as before.
+  - `_liveness_note` is generic now: codex is no longer liveness-only.
+- **Measured finding, codex 0.163.0 (daemon routing):** a codex TUI started WITHOUT `-c tui.alternate_screen=never` can be routed through the shared app-server daemon (`$CODEX_HOME/packages/app-server-daemon`). A bare `codex` was daemon-routed; the same launch with only that override held its own rollout, and so do the user's wrapper-launched agents. When daemon-routed:
+  - the TUI process holds no rollout;
+  - the daemon runs the SessionStart hook with the `TMUX_PANE` of the pane that started it;
+  - the framework's own launches are unaffected, because `CODEX_TUI_OVERRIDES` carries the override.
+- **Upstream defects identified:**
+  - `.aitask-scripts/lib/agent_freeze.py:1266-1281` — after a successful `restore-confirm`, `_reconcile_restoring` never clears the pane's `@aitask_frozen` stamp or attempt mark, so the recovered agent cannot be frozen again (`FREEZE_SKIPPED … already frozen`). Pre-existing; the new rollout branch inherits it. Spawned as t2045.
+  - `.aitask-scripts/lib/agent_freeze.py:524` — `_capture_codex_session` treats `MISS_NO_MATCH` as disproving a stored codex id. For a daemon-routed (hand-started) codex the TUI process never holds a rollout, so every freeze clears a valid hook-recorded session id and the restore degrades to re-pick. Measured live on 0.163.0.
+  - `.aitask-scripts/aitask_session_hook.sh:52` — the hook trusts `$TMUX_PANE` from its environment. A daemon-routed codex runs the hook with the daemon's `TMUX_PANE`, so a second hand-started codex can upsert another pane's record. Measured live: the daemon's environment had `TMUX_PANE=%1`. This is the planned "after" mitigation `hook_pane_ancestry_guard`, now with concrete evidence.
