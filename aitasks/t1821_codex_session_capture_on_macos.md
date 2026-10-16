@@ -3,13 +3,14 @@ priority: medium
 effort: medium
 depends: []
 issue_type: enhancement
-status: Ready
+status: Folded
 labels: [codex]
 gates: [risk_evaluated]
+folded_into: 2040
 anchor: 1797
 followup_kind: carry_over
 created_at: 2026-09-16 18:09
-updated_at: 2026-09-16 18:09
+updated_at: 2026-10-16 11:43
 ---
 
 ## Origin
