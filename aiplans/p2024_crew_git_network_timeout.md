@@ -394,7 +394,7 @@ only that fetch needs bounding on the Python side. Its test harness wraps
   reopen) stay unbounded · severity: low · → mitigation: crew_branch_delete_push_timeout
 
 ### Planned mitigations
-- timing: after | name: consolidate_bounded_git_helpers | type: refactor | priority: low | effort: medium | inline_risk: high | added_complexity: high | addresses: code-health — bounded-run implementations duplicated; sync/drift-check macOS fallback kills only the direct child | desc: Move aitask_sync.sh:_git_with_timeout, aitask_remote_drift_check.sh:_git_fetch_with_timeout and github_release.sh's ls-remote watchdog onto lib/bounded_run.py (new session, process-group kill with TERM→CONT→KILL, temp-file output, non-interactive env)
+- timing: after | name: consolidate_bounded_git_helpers | type: refactor | priority: low | effort: medium | inline_risk: high | added_complexity: high | addresses: code-health — bounded-run implementations duplicated; sync/drift-check macOS fallback kills only the direct child | desc: Move aitask_sync.sh:_git_with_timeout, aitask_remote_drift_check.sh:_git_fetch_with_timeout and github_release.sh's ls-remote watchdog onto lib/bounded_run.py (new session, process-group kill with TERM→CONT→KILL, temp-file output, non-interactive env) | created: t2035
 - timing: after | name: crew_branch_delete_push_timeout | type: enhancement | priority: low | effort: low | inline_risk: low | added_complexity: medium | addresses: goal-achievement — crew-branch deletion pushes stay unbounded | desc: Bound `git push origin --delete crew-<id>` in aitask_crew_cleanup.sh, aitask_brainstorm_delete.sh and brainstorm_app.py's reopen path with the t2024 crew helpers (_crew_git_bounded / git_cmd timeout=)
 
 ## Step 9 (Post-Implementation)
