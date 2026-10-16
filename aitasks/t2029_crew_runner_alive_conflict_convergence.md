@@ -38,3 +38,16 @@ After t2018 (commit ab2cf4b37), `git_pull` in `.aitask-scripts/agentcrew/agentcr
 Build the resolved blob in memory, never in the live worktree. For example: read both sides' YAML with `git show`, merge field-wise, `hash-object -w`, then build the merged tree from merge-tree's result plus that blob and `commit-tree` it (signed per `commit.gpgSign`, as `_merge_diverged` does). Advance with the same `_advance()`. Any other conflicted path, or an unparseable side, keeps today's deferral.
 
 Constraints carried over from t2018: never open a merge or write conflict markers in the live crew worktree; never stash, rewrite or revert another process's uncommitted file; `--no-autostash` stays. Extend `tests/test_crew_pull_no_autostash.sh`, whose harness already drives `git_pull` and `run_loop`. Turn the conflict scenario from cell 8 (but on `_runner_alive.yaml`: a local `interval: 60` commit plus a peer `requested_action: stop`) into a convergence cell: the stop is honoured, the push converges, and the merge commit carries the resolved fields.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t2024** id=2026-10-16T05:02:57Z.08fcd57fba5492cdf769fc9c from=t2024 from_verified=yes at=2026-10-16T05:02:57Z base=989687394d156e04d8cd8a58ae71735104b56ab6 base_branch=main dirty=no host=omg16
+>
+> | t2024 (commit ae0074ab7) changed the harness and the pull your task builds on. Refs as of that commit:
+> | 
+> | - `agentcrew_utils.git_cmd` gained a `timeout=` keyword (`agentcrew_utils.py:317`). With it, the command runs through `lib/bounded_run.run_bounded` (new session, process-group kill) under a non-interactive environment, and a timeout returns rc 124. `_sync_with_upstream`'s fetch (line 475) and `git_push` now pass `timeout=crew_git_timeout()` (`AIT_CREW_GIT_TIMEOUT`, default 10s). A timed-out fetch defers as `fetch_failed: timed out after Ns ...`.
+> | - `tests/test_crew_pull_no_autostash.sh` harness: `wrapped_git_cmd(worktree, *a, check=True, **kw)` (line 168) now forwards `**kw`. If you add another wrapper, keep the `**kw` or the bounded fetch raises TypeError.
+> | - The harness's fake sleep is now scoped to the runner module (`r.time = types.SimpleNamespace(...)`, line 280). Replacing `time.sleep` globally also replaced the one `Popen.wait(timeout)` polls with inside `run_bounded`, and the 600-call cap tripped on every iteration. Patch `r.time`, never the global module.
+> | 
+> | Advisory context only.
