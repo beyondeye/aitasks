@@ -5,9 +5,9 @@ depends: []
 issue_type: feature
 status: Ready
 labels: [monitor, minimonitor, tmux, performance, applink]
-children_to_implement: [t2034_1, t2034_2, t2034_3, t2034_4, t2034_5, t2034_6]
+children_to_implement: [t2034_1, t2034_2, t2034_3, t2034_4, t2034_6]
 created_at: 2026-10-16 08:01
-updated_at: 2026-10-16 08:02
+updated_at: 2026-10-16 08:12
 ---
 
 Replace per-instance tmux scanning in `ait monitor`, `ait minimonitor` and
@@ -59,13 +59,21 @@ version, which those TUIs subscribe to.
 
 ## Children, in order
 
-1. Measure the scanning vs Textual CPU split.
-2. Make the producer client-agnostic (per-client settings semantics).
-3. Protocol spec + codec + stream recorder/replayer.
-4. Python server + Python client; monitor, minimonitor and applink subscribe.
-5. Go server in goengines.
-6. Python↔Go classifier cross-check — the gate for making the Go server the
-   default.
+1. t2034_1 — measure the scanning vs Textual CPU split.
+2. t2034_2 — make the producer client-agnostic (per-client settings semantics).
+3. t2034_3 — protocol spec + codec + stream recorder/replayer.
+4. t2034_6 — Python↔Go classifier cross-check, the gate for making the Go
+   server the default (depends on t2038).
+
+## Split-out parents (anchored to this task)
+
+The server work is too large for single children, and the framework allows only
+one level of children, so it lives in two top-level parents:
+
+- t2037 — Python server + Python client; monitor, minimonitor and applink
+  subscribe (depends on t2034_3).
+- t2038 — Go server in goengines (depends on t2037 and on the Go tmux package
+  aitasks_go#17).
 
 ## Cross-repo
 
