@@ -34,3 +34,16 @@ including the viewers recreated before the fix, which the startup top-up must
 repair. The two live suites that refuse to run inside tmux
 (`tests/test_frozen_agents_acceptance.sh`, `tests/test_restore_flows_live.sh`)
 were not run by t2039 and are part of this check.
+
+## Verification Checklist
+
+- [ ] On the real -L ait server, run `ait ide` in aitasks: the frozen-agent list shows one group per project (aitasks first, then thinking_backend, thinking_app) and asks one V/R/P/S question per project it may act on
+- [ ] Answer V for thinking_backend: its viewers come back in its own session `thinking_back` (not in `aitasks`), and the closing line names that session
+- [ ] thinking_app (view-only records, its session `thinkingapp` gone): V creates its own session through the bootstrap; S leaves the records listed in `ait frozenagent`
+- [ ] Every viewer window recreated by V shows a live minimonitor pane that stays up, even though the `monitor` window is the active one
+- [ ] The viewers recreated before this fix (no minimonitor) get one at the next `ait ide` start, and the startup prints "Companions: N viewer window(s) got their minimonitor back."
+- [ ] Restore one agent with R (and another from its viewer): the restored agent's window has exactly one minimonitor
+- [ ] Start `ait ide` in two terminals at nearly the same moment: no window ends up with two minimonitors
+- [ ] `ait ide --help` describes the cross-project behaviour; `ait ide --no-frozen-check` skips both the offer and the minimonitor top-up
+- [ ] From a terminal NOT inside tmux, run `bash tests/test_frozen_agents_acceptance.sh` and `bash tests/test_restore_flows_live.sh` (they refuse to run inside tmux) and confirm both pass
+- [ ] In codebrowser, open the create-task dialog from a codebrowser window that is not the session's current window: the "split into this window" default names the codebrowser's own window
