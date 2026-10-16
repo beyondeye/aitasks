@@ -5,7 +5,7 @@ depends: [t2034_3]
 issue_type: feature
 status: Ready
 labels: [monitor, minimonitor, tmux, applink]
-children_to_implement: [t2037_1, t2037_2]
+children_to_implement: [t2037_1, t2037_2, t2037_3]
 anchor: 2034
 created_at: 2026-10-16 08:11
 updated_at: 2026-10-16 08:11
