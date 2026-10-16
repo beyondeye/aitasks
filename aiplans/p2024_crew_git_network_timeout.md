@@ -536,4 +536,10 @@ Current-branch mode (profile `fast`): no branch to merge. Archive via
   - `shellcheck` reports no new warnings on the changed scripts or the new tests.
     `check_links.py --build` reports only the pre-existing blog link below.
 - **Upstream defects identified:**
-  - `website/content/_index.md` — its link to `blog/v0380-the-test-map-takes-shape-trails-that-cross-projects-prune-a-brainstorm-dow/` does not resolve (`check_links.py --build`: missing-page). It arrived with the v0.38.0 release commit `1aa6a5b6e` and is unrelated to this task; observed 2026-10-16 07:4x, and may already be in hand by whoever ran the release.
+  - `website/new_release_post.sh:136` — `RELEASE_DATE=$(date +%Y-%m-%d)` takes the LOCAL date, and the post's
+    `date:` is read by Hugo as UTC midnight. A release cut between local midnight and UTC midnight (00:00–03:00 IDT)
+    therefore produces a post Hugo treats as future-dated and leaves out of the build, so `check_links.py --build`
+    (which CI runs after the release build) reports the home page's link to it as missing-page.
+    Observed here: v0.38.0 (`1aa6a5b6e`, committed 22:49 UTC Oct 15, post dated 2026-10-16) failed the sweep, and the
+    same check passed hours later with no change. The future-date exclusion is a hypothesis that fits both runs;
+    it is not confirmed with `hugo --buildFuture`.
