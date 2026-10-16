@@ -3,11 +3,12 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [frozen, minimonitor, monitor, tui]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-10-16 14:52
-updated_at: 2026-10-16 14:52
+updated_at: 2026-10-16 14:53
 ---
 
 ## User report
