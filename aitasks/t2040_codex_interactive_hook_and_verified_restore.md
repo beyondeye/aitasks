@@ -3,12 +3,13 @@ priority: medium
 effort: high
 depends: []
 issue_type: enhancement
-status: Ready
+status: Implementing
 labels: [codex, frozen, session_persistence]
 gates: [risk_evaluated]
 folded_tasks: [1821]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-10-16 11:43
-updated_at: 2026-10-16 11:43
+updated_at: 2026-10-16 11:44
 ---
 
 ## Origin
