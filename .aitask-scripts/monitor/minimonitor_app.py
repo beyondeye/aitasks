@@ -179,7 +179,9 @@ AUTO_CLOSE_CONFIRMATIONS = 2
 #     frozen  <mark>F␠<name>␠␠frozen    name = 36 − 3 − 8      = 25
 #     other   ␠␠○␠<name>␠␠<cmd ≤ 10>    name = 36 − 4 − 2 − 10 = 20
 #     title   ␠␠<title>                 ≤ min(30, detail)      = 30
+#             (under live AND frozen rows — not capture-derived, t2042)
 #     gates   ␠␠<gate+phase>            ≤ detail               = 34
+#             (live rows only — the phase reads the capture)
 #
 # What gives way, in order (t1351 — decided, not reflexive):
 #
@@ -2419,7 +2421,19 @@ class MiniMonitorApp(
             # meaning on this row stays visible.
             prefix = f"{format_frozen_prefix(self._mark_kind(snap))} "
             name = self._row_name(snap, prefix, cell_len("frozen"))
-            return f"{prefix}{name}  [dim]frozen[/]"
+            text = f"{prefix}{name}  [dim]frozen[/]"
+            # The task title IS allowed here (t2042): it is not capture-derived
+            # — the id comes from the window name and the title from the task
+            # file, the same lookup `i` uses. The gate/phase row is not: the
+            # phase reads the capture, and the gate counts alone would cost a
+            # row per agent that is not advancing its task.
+            task_id = self._task_cache.get_task_id_for_pane(snap.pane)
+            if task_id:
+                info = self._task_cache.get_task_info(
+                    task_id, snap.pane.session_name)
+                if info:
+                    text += self._title_row(info)
+            return text
         if snap.parked:
             # The whole row, deliberately (t1685) — see
             # MonitorApp._format_agent_card_text for why nothing capture-derived
@@ -2467,17 +2481,7 @@ class MiniMonitorApp(
         if task_id:
             info = self._task_cache.get_task_info(task_id, snap.pane.session_name)
             if info:
-                title = _clip(info.title, min(
-                    _TITLE_MAX_CELLS, _detail_budget(self._target_width)))
-                # No closing tag, deliberately (t2017): a (clipped) title can
-                # end in a backslash, which would turn a `[/]` here into text,
-                # and no escaping can prevent that (see `markup_literal`). The
-                # open `[dim]` is harmless: the only row that can follow is the
-                # gate/phase row below, which is `[dim]…[/]` in full, so it
-                # renders exactly as before; Textual closes the span at end of
-                # input. A row added after this one must not assume it starts
-                # unstyled.
-                line1 += f"\n  [dim]{markup_literal(title)}"
+                line1 += self._title_row(info)
                 # Gate summary + advisory phase share ONE row (t1479): they
                 # describe one thing between them, and two rows of a four-row
                 # card is too much of this pane to spend on it. Either half may
@@ -2492,6 +2496,20 @@ class MiniMonitorApp(
                 if merged:
                     line1 += f"\n  [dim]{merged}[/]"
         return line1
+
+    def _title_row(self, info) -> str:
+        """The indented task-title row under an agent's name row — live and
+        frozen rows alike (t2042)."""
+        title = _clip(info.title, min(
+            _TITLE_MAX_CELLS, _detail_budget(self._target_width)))
+        # No closing tag, deliberately (t2017): a (clipped) title can end in a
+        # backslash, which would turn a `[/]` here into text, and no escaping
+        # can prevent that (see `markup_literal`). The open `[dim]` is
+        # harmless: the only row that can follow is the live gate/phase row,
+        # which is `[dim]…[/]` in full, so it renders exactly as before; Textual
+        # closes the span at end of input. A row added after this one must not
+        # assume it starts unstyled.
+        return f"\n  [dim]{markup_literal(title)}"
 
     def _display_name(self, snap: PaneSnapshot) -> str:
         """An agent row's name: the window name without the agent prefix that

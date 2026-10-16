@@ -262,6 +262,27 @@ class AgentRowMatrixTests(unittest.TestCase):
         self.assertTrue(title.endswith("…"), repr(title))
 
 
+    def test_frozen_title_fits_the_detail_budget(self):
+        """t2042: a frozen row's title row is held to the same budget as the
+        live one, and no gate/phase row follows it."""
+        app = _row_app()
+        app._task_cache = SimpleNamespace(
+            get_task_id_for_pane=lambda pane: "1351",
+            get_task_info=lambda task_id, session=None: _task_info("漢" * 40),
+        )
+        app._gate_cache = SimpleNamespace(
+            summary_for=lambda info: "1/1 pass",
+            phase_for=lambda info, **kw: workflow_phase.PhaseSignal(
+                phase="IMPLEMENT"),
+            clear=lambda: None)
+        rows = app._agent_card_text(_snap(frozen=True)).split("\n")
+        self.assertEqual(len(rows), 2, rows)
+        title = _plain(rows[1])
+        self.assertLessEqual(cell_len(title),
+                             2 + mm._detail_budget(_TARGET_WIDTH), repr(title))
+        self.assertTrue(title.endswith("…"), repr(title))
+
+
 class NameFloorTests(unittest.TestCase):
     """The budget the NEXT always-on glyph must fit inside."""
 

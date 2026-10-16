@@ -433,6 +433,24 @@ class MiniListRowTests(unittest.TestCase):
                 start = len(lines[0]) + 3
                 self.assertIn("dim", covering(card, start, start + len(title)))
 
+    def test_frozen_title_row_is_exact_and_dim(self):
+        """t2042: a frozen row keeps the task title, under the same literal
+        rendering as the live row — and nothing after it (no gate/phase row)."""
+        budget = min(mm._TITLE_MAX_CELLS, mm._detail_budget(40))
+        for title in TITLES:
+            with self.subTest(title=title):
+                card = parse(mini_app(title, summary="2/2 pass")._agent_card_text(
+                    snapshot("agent-a", frozen=True)))
+                lines = card.plain.split("\n")
+                self.assertEqual(len(lines), 2, repr(card.plain))
+                # The `[dim]frozen[/]` before the title still parsed as a tag.
+                self.assertTrue(lines[0].endswith("agent-a  frozen"),
+                                repr(lines[0]))
+                expected = mm._clip(title, budget)
+                self.assertEqual(lines[1], f"  {expected}")
+                start = len(lines[0]) + 3
+                self.assertIn("dim", covering(card, start, start + len(expected)))
+
     def test_the_open_title_span_changes_nothing_the_phase_row_renders(self):
         """The title row leaves `[dim]` open (a trailing backslash cannot sit
         before its `[/]`). The gate/phase row after it must render exactly as

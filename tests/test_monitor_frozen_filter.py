@@ -9,7 +9,9 @@ mirror images, and each pins a decision rather than a mechanism:
     (exclusion, filter, which keys act), the mark stays visible, and `space`
     still cycles it. Nothing capture-derived may appear, for the reason the
     parked row states: the pane was never captured, so a state dot would be a
-    live-looking verdict that is arbitrarily stale.
+    live-looking verdict that is arbitrarily stale. The task title DOES appear
+    (t2042) — it comes from the window name and the task file, not the capture
+    — while the advisory phase (capture-derived) and the gate counts stay off.
 
 `UnifiedFilterTests`
     ONE key hides both states. `P` is deliberately still the action id
@@ -54,12 +56,14 @@ os.environ.pop("TMUX_PANE", None)
 
 import agent_marks  # noqa: E402
 import agent_sessions  # noqa: E402
+import workflow_phase  # noqa: E402
 from rich.text import Text  # noqa: E402
+from textual.content import Content  # noqa: E402
 
 from monitor.minimonitor_app import MiniMonitorApp  # noqa: E402
 from monitor.monitor_app import MonitorApp  # noqa: E402
 from monitor.monitor_core import (  # noqa: E402
-    PaneCategory, PaneSnapshot, TmuxPaneInfo,
+    PaneCategory, PaneSnapshot, TaskInfo, TmuxPaneInfo,
 )
 from monitor import monitor_shared  # noqa: E402
 from monitor.monitor_shared import (  # noqa: E402
@@ -151,6 +155,42 @@ class _FakeTaskCache:
     def update_session_mapping(self, mapping): pass
 
 
+TITLE = "Show the title on frozen rows"
+
+
+class _TitledTaskCache(_FakeTaskCache):
+    """Every pane resolves to t2042 with ``title`` — what a stand-in window
+    named `agent-pick-2042` resolves to in production."""
+
+    def __init__(self, title: str = TITLE) -> None:
+        self._title = title
+
+    def get_task_id_for_pane(self, pane): return "2042"
+
+    def get_task_info(self, task_id, session=None):
+        return TaskInfo(
+            task_id="2042", task_file="aitasks/t2042_x.md", title=self._title,
+            priority="medium", effort="low", issue_type="bug",
+            status="Implementing", body="", plan_content=None,
+        )
+
+
+class _RecordingGateCache:
+    """A gated task with a resolvable phase, so a row that renders either one
+    shows it — and a record of whether the phase was even asked for."""
+
+    def __init__(self) -> None:
+        self.phase_calls = 0
+
+    def summary_for(self, info): return "1/1 pass"
+
+    def phase_for(self, info, **kw):
+        self.phase_calls += 1
+        return workflow_phase.PhaseSignal(phase="IMPLEMENT")
+
+    def clear(self): pass
+
+
 class _Fixture(unittest.TestCase):
     def setUp(self) -> None:
         self._tmp = tempfile.TemporaryDirectory()
@@ -201,6 +241,23 @@ class _Fixture(unittest.TestCase):
             else app._format_agent_card_text
         )
         return Text.from_markup(builder(snap)).plain
+
+    @staticmethod
+    def textual_row(app, snap) -> str:
+        """``row`` through Textual's parser — what the card's ``Static`` does.
+        Rich treats escapes differently and cannot see a markup defect
+        (``tests/test_monitor_markup_literal_sinks.py``)."""
+        builder = (
+            app._agent_card_text if isinstance(app, MiniMonitorApp)
+            else app._format_agent_card_text
+        )
+        return Content.from_markup(builder(snap)).plain
+
+    def titled_app(self, cls, snap):
+        app = self.app(cls, [snap])
+        app._task_cache = _TitledTaskCache()
+        app._gate_cache = _RecordingGateCache()
+        return app
 
 
 BOTH_APPS = (MonitorApp, MiniMonitorApp)
@@ -266,6 +323,45 @@ class FrozenRowRenderTests(_Fixture):
                 plain = self.row(self.app(cls, [snap]), snap)
                 self.assertIn("frozen", plain)
                 self.assertNotIn("parked", plain)
+
+    def test_frozen_row_shows_the_task_title(self):
+        """t2042: the title is not capture-derived, so the frozen row keeps it
+        — and everything capture-derived or live stays off, the phase included
+        (never even computed) and the gate counts too."""
+        for cls in BOTH_APPS:
+            with self.subTest(app=cls.__name__):
+                snap = snapshot("agent-pick-2042", frozen=True)
+                app = self.titled_app(cls, snap)
+                plain = self.textual_row(app, snap)
+                lines = plain.split("\n")
+                self.assertEqual(len(lines), 2, repr(plain))
+                self.assertTrue(lines[0].endswith("frozen"), repr(plain))
+                self.assertIn(TITLE, lines[1])
+                for forbidden in ("●", "◆", "≈", "=", "IDLE", "PROMPT",
+                                  "Active", "IMPLEMENT", "1/1"):
+                    self.assertNotIn(forbidden, plain, forbidden)
+                self.assertEqual(app._gate_cache.phase_calls, 0)
+
+    def test_live_row_with_the_same_fixture_shows_phase_and_gates(self):
+        """Positive control for the test above: the same caches on a LIVE row
+        render the title, the phase and the gate counts, so their absence on
+        the frozen row discriminates on `frozen`, not on the fixture."""
+        for cls in BOTH_APPS:
+            with self.subTest(app=cls.__name__):
+                snap = snapshot("agent-pick-2042")
+                app = self.titled_app(cls, snap)
+                plain = self.textual_row(app, snap)
+                for expected in (TITLE, "IMPLEMENT", "1/1", "●"):
+                    self.assertIn(expected, plain, expected)
+                self.assertGreater(app._gate_cache.phase_calls, 0)
+
+    def test_frozen_row_without_a_task_stays_one_line(self):
+        for cls in BOTH_APPS:
+            with self.subTest(app=cls.__name__):
+                snap = snapshot("agent-f", frozen=True)
+                plain = self.textual_row(self.app(cls, [snap]), snap)
+                self.assertNotIn("\n", plain)
+                self.assertTrue(plain.endswith("frozen"), repr(plain))
 
 
 class UnifiedFilterTests(_Fixture):

@@ -220,6 +220,19 @@ class RowShapeTests(unittest.TestCase):
                 start = row.plain.index("t42: ")
                 self.assertIn("dim italic", covering_style(row, start))
 
+    def test_frozen_task_title_row_is_exact_and_fully_styled(self):
+        """t2042: the frozen row keeps the title row, rendered literally."""
+        for title in TITLES:
+            with self.subTest(title=title):
+                row = parse(self.app(title)._format_agent_card_text(
+                    snapshot("agent-pick-42", frozen=True)))
+                lines = row.plain.split("\n")
+                self.assertEqual(len(lines), 2, repr(row.plain))
+                self.assertTrue(lines[0].endswith("(0)  frozen"), repr(lines[0]))
+                self.assertEqual(lines[1], f"     t42: {title}")
+                start = row.plain.index("t42: ")
+                self.assertIn("dim italic", covering_style(row, start))
+
     def test_other_row_is_exact_and_the_command_is_styled(self):
         app = self.app()
         for name in NAMES:

@@ -1773,12 +1773,24 @@ class MonitorApp(
             # Checked BEFORE parked, for the reason the capture partition
             # states: the two can both be true of one pane, and frozen is the
             # stronger fact. Same "nothing capture-derived on an uncaptured
-            # pane" rule as the parked branch below.
-            return (
+            # pane" rule as the parked branch below — which still admits the
+            # task title (t2042): the id comes from the window name and the
+            # title from the task file, the same lookup `i` uses. The gate
+            # summary and phase stay off: the phase reads the capture, and the
+            # counts of an agent that is not advancing its task add nothing
+            # `i` does not show.
+            text = (
                 f" {format_frozen_prefix(self._mark_kind(snap))} "
                 f"{snap.pane.window_index}:{markup_literal(snap.pane.window_name)} "
                 f"({snap.pane.pane_index})  [dim]frozen[/]"
             )
+            task_id = self._task_cache.get_task_id_for_pane(snap.pane)
+            if task_id:
+                info = self._task_cache.get_task_info(
+                    task_id, snap.pane.session_name)
+                if info:
+                    text += self._title_row(task_id, info)
+            return text
         if snap.parked:
             # Deliberately the WHOLE row (t1685). Every other element here is
             # either capture-derived (state dot, status badge, compare-mode
@@ -1869,15 +1881,18 @@ class MonitorApp(
                     self.__dict__.setdefault(
                         "_pending_shadow_stamps", []
                     ).append((shadow_snap.pane.pane_id, signal))
-                # No closing tag, deliberately (t2006): a title ending in a
-                # backslash would turn a `[/]` here into literal text, and no
-                # escaping can prevent that (see `markup_literal`). Textual
-                # closes the open style at end of input — so this must stay
-                # the LAST thing appended to the card.
-                text += (
-                    f"\n     [dim italic]t{task_id}: {markup_literal(info.title)}"
-                )
+                text += self._title_row(task_id, info)
         return text
+
+    @staticmethod
+    def _title_row(task_id: str, info) -> str:
+        """The indented ``t<id>: <title>`` row under an agent's status row —
+        live and frozen rows alike (t2042)."""
+        # No closing tag, deliberately (t2006): a title ending in a backslash
+        # would turn a `[/]` here into literal text, and no escaping can
+        # prevent that (see `markup_literal`). Textual closes the open style at
+        # end of input — so this must stay the LAST thing appended to the card.
+        return f"\n     [dim italic]t{task_id}: {markup_literal(info.title)}"
 
     def _format_other_card_text(self, snap: PaneSnapshot) -> str:
         # Name and command are user-derived (t2006). The command ends the row
