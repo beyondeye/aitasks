@@ -1,10 +1,11 @@
 ---
 priority: medium
 effort: high
-depends: [2034_3]
+depends: [t2034_3]
 issue_type: feature
 status: Ready
 labels: [monitor, minimonitor, tmux, applink]
+children_to_implement: [t2037_1]
 anchor: 2034
 created_at: 2026-10-16 08:11
 updated_at: 2026-10-16 08:11
