@@ -132,3 +132,5 @@ owning parents (M6, M7) for automation.
 > | - every edge the hook receives has `Origin = scanner:from-body`
 > | 
 > | Plain `annotate` / `verify` pass an empty `Origin`. The hook could record the provenance so adoption tables can tell scanner-seeded covers from hand-written ones. No human-only step was needed in M2.3.
+
+> **👁 note:read** id=2026-10-18T19:50:15Z.7cb33da91a0081cd6fa42dc9 by=t1853_6 at=2026-10-18T19:50:15Z mode=explicit ids=2026-10-12T08:28:06Z.be97eda202d26ccbdfa49815,2026-10-12T14:30:39Z.0a6ea01ed099fbc0dfd430ae,2026-10-13T12:53:16Z.c584a001b50b8c3bd6cc1dfc
