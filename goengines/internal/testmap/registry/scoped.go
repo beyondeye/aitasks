@@ -1,0 +1,742 @@
+package registry
+
+import (
+	"bytes"
+	"errors"
+	"fmt"
+	"sort"
+	"strings"
+	"time"
+	"unicode"
+
+	"github.com/beyondeye/aitasks/goengines/internal/testmap"
+	"github.com/bmatcuk/doublestar/v4"
+	"gopkg.in/yaml.v3"
+)
+
+// M2.5 — scoped rows and areas. Unit tests are edges in the per-file graph;
+// integration, e2e and device tests are *scoped rows*: they declare areas
+// (named glob sets), scope globs or trigger globs instead of covers, join the
+// selection at distance 1 as sinks, and are never digest-stale. This file
+// registers the areas and scopes tables into M2.1's loader (a named
+// extension) and builds the generated `_scoped.yaml` from the annotations.
+
+// The kind vocabulary, in ranking order: within a distance the selector
+// ranks unit < integration < e2e < device.
+const (
+	KindUnit        = "unit"
+	KindIntegration = "integration"
+	KindE2E         = "e2e"
+	KindDevice      = "device"
+)
+
+// Kinds is the kind vocabulary in ranking order.
+var Kinds = []string{KindUnit, KindIntegration, KindE2E, KindDevice}
+
+// ValidKind reports whether k is in the kind vocabulary.
+func ValidKind(k string) bool { return KindRank(k) >= 0 }
+
+// KindRank is k's position in the ranking (-1 for a word outside the
+// vocabulary).
+func KindRank(k string) int {
+	for i, v := range Kinds {
+		if v == k {
+			return i
+		}
+	}
+	return -1
+}
+
+// IsBroad reports whether k is a broad kind (integration, e2e or device) —
+// the kinds that take the scoped association form.
+func IsBroad(k string) bool { return KindRank(k) > 0 }
+
+// Paths of the two files M2.5 owns.
+const (
+	ScopedPath = RegistryDir + "/_scoped.yaml"
+	AreasPath  = RegistryDir + "/areas.yaml"
+)
+
+// Area is one named glob set; every file that declares the name contributes
+// its globs (the one merge rule: a union).
+type Area struct {
+	Name  string
+	Globs []string
+	From  map[string]string // glob -> the first file declaring it
+}
+
+// ScopedRow is one scoped row as a registry file states it: a generated row
+// of `_scoped.yaml` (File == ScopedPath) or a hand row of a `scopes:` table.
+// Hand rows carry no runner or needs — those are per-test keys of the test's
+// annotations and the runner bindings.
+type ScopedRow struct {
+	Test       ID
+	Kind       string
+	Runner     string
+	Areas      []string
+	Globs      []string // `testmap:scope` globs
+	Triggers   []string // budget-exempt globs
+	Needs      []string
+	ReviewedAt string
+	Line       int
+	File       string
+}
+
+// ReadsRow is a helper's `testmap:reads` globs: every unit whose test-file
+// closure contains the helper inherits them as budget-exempt triggers.
+type ReadsRow struct {
+	Helper string
+	Globs  []string
+	Line   int
+	File   string
+}
+
+// KindDecl is one source's kind for a test.
+type KindDecl struct {
+	Kind string `json:"kind"`
+	File string `json:"file"`
+}
+
+// EffectiveRow is the one row every consumer reads for a test: the merge of
+// every generated and hand row naming it. Areas, globs and triggers are a
+// sorted union; runner, needs and line come from the generated row (hand rows
+// carry none); reviewed_at is the latest date. Rows must agree on the kind;
+// when they do not, Kind is the lowest-ranked declared kind — it ranks first
+// and is budget-cut last, so a conflict fails toward running more — and
+// Conflict lists every declaration (`check` reports SCOPE_CONFLICT).
+type EffectiveRow struct {
+	Test       ID
+	Kind       string
+	Runner     string
+	Areas      []string
+	Globs      []string
+	Triggers   []string
+	Needs      []string
+	ReviewedAt string
+	Line       int
+	Sources    []string
+	Conflict   []KindDecl
+}
+
+// Scoped holds the areas, scoped-row and reads tables of a registry.
+type Scoped struct {
+	Areas map[string]*Area
+	Rows  []ScopedRow // in load order: file-name order, rows in file order
+	Reads []ReadsRow
+
+	eff   []EffectiveRow
+	byID  map[ID]int
+	fresh bool
+}
+
+const extScoped = "scoped"
+
+// ScopedOf returns reg's scoped tables (empty, never nil, for a registry
+// that declares none).
+func ScopedOf(reg *Registry) *Scoped {
+	if s, ok := reg.Ext[extScoped].(*Scoped); ok {
+		return s
+	}
+	s := &Scoped{Areas: map[string]*Area{}}
+	if reg.Ext == nil {
+		reg.Ext = map[string]any{}
+	}
+	reg.Ext[extScoped] = s
+	return s
+}
+
+func (s *Scoped) addRow(r ScopedRow) {
+	s.Rows = append(s.Rows, r)
+	s.fresh = false
+}
+
+func (s *Scoped) addArea(file, name string, globs []string) {
+	a := s.Areas[name]
+	if a == nil {
+		a = &Area{Name: name, From: map[string]string{}}
+		s.Areas[name] = a
+	}
+	for _, g := range globs {
+		if _, ok := a.From[g]; !ok {
+			a.From[g] = file
+			a.Globs = append(a.Globs, g)
+		}
+	}
+	sort.Strings(a.Globs)
+}
+
+// WithGenerated returns a copy of s whose generated rows and reads table are
+// doc's (what `scan --apply` would write now) instead of the persisted ones;
+// hand rows and areas are kept. `check` and `classify` judge this live view.
+func (s *Scoped) WithGenerated(doc ScopedDoc) *Scoped {
+	c := &Scoped{Areas: s.Areas}
+	for _, r := range s.Rows {
+		if r.File != ScopedPath {
+			c.Rows = append(c.Rows, r)
+		}
+	}
+	gen, reads := docRows(doc)
+	c.Rows = append(gen, c.Rows...)
+	c.Reads = reads
+	return c
+}
+
+// Effective returns one EffectiveRow per test, sorted by test id.
+func (s *Scoped) Effective() []EffectiveRow {
+	s.index()
+	return s.eff
+}
+
+func (s *Scoped) index() {
+	if s.fresh {
+		return
+	}
+	s.eff, s.byID = effectiveRows(s.Rows), map[ID]int{}
+	for i, r := range s.eff {
+		s.byID[r.Test] = i
+	}
+	s.fresh = true
+}
+
+// Row returns the effective row whose test is exactly id.
+func (s *Scoped) Row(id ID) (EffectiveRow, bool) {
+	s.index()
+	i, ok := s.byID[id]
+	if !ok {
+		return EffectiveRow{}, false
+	}
+	return s.eff[i], true
+}
+
+// rowFor is the effective row id's kind comes from: its own, else its base
+// (a variant's unit), else its file's file-level row.
+func (s *Scoped) rowFor(id ID) (EffectiveRow, bool) {
+	for _, k := range []ID{id, id.Base(), {Path: id.Path}} {
+		if r, ok := s.Row(k); ok {
+			return r, true
+		}
+	}
+	return EffectiveRow{}, false
+}
+
+// KindOf is the kind of a unit id: its effective row's, else its base's,
+// else its file's file-level row's, else unit. This is the kind data M3.3's
+// wave classifier maps to `unit` | `broad`. The fallback never loses an
+// explicit member kind, because BuildScoped refuses a member kind that
+// differs from a broad file-level kind.
+func (s *Scoped) KindOf(id ID) string {
+	if r, ok := s.rowFor(id); ok {
+		return r.Kind
+	}
+	return KindUnit
+}
+
+// DigestExempt reports whether id is a scoped (broad) unit: scoped rows are
+// exempt from per-edit digest staleness — STALE_AREA is their drift signal.
+// A fixture pin (`covers` on a scoped row) is an ordinary stamped edge in
+// `_scanned.yaml` and is judged like any other.
+func (s *Scoped) DigestExempt(id ID) bool { return IsBroad(s.KindOf(id)) }
+
+// AreaOwner returns the hand file a new hand-declared scoped row naming area
+// must be written to: the one file whose `owns:` lists the area name.
+// Zero or several owners is an error — a writer refuses rather than guessing.
+func (r *Registry) AreaOwner(area string) (string, error) {
+	var owners []string
+	for _, hf := range r.HandFiles {
+		if contains(hf.Owns, area) {
+			owners = append(owners, hf.Path)
+		}
+	}
+	switch len(owners) {
+	case 1:
+		return owners[0], nil
+	case 0:
+		return "", fmt.Errorf("area %s: %w", area, ErrNoOwner)
+	default:
+		return "", fmt.Errorf("area %s: %w (%s)", area, ErrAmbiguousOwner, strings.Join(owners, ", "))
+	}
+}
+
+func effectiveRows(rows []ScopedRow) []EffectiveRow {
+	byID := map[ID]*EffectiveRow{}
+	type kf struct{ kind, file string }
+	decls := map[ID]map[kf]bool{}
+	var order []ID
+	for _, r := range rows {
+		e := byID[r.Test]
+		if e == nil {
+			e = &EffectiveRow{Test: r.Test, Kind: r.Kind}
+			byID[r.Test] = e
+			decls[r.Test] = map[kf]bool{}
+			order = append(order, r.Test)
+		}
+		decls[r.Test][kf{r.Kind, r.File}] = true
+		if KindRank(r.Kind) < KindRank(e.Kind) {
+			e.Kind = r.Kind
+		}
+		e.Areas = append(e.Areas, r.Areas...)
+		e.Globs = append(e.Globs, r.Globs...)
+		e.Triggers = append(e.Triggers, r.Triggers...)
+		if r.File == ScopedPath {
+			e.Runner, e.Needs, e.Line = r.Runner, r.Needs, r.Line
+		}
+		if r.ReviewedAt > e.ReviewedAt {
+			e.ReviewedAt = r.ReviewedAt
+		}
+		e.Sources = append(e.Sources, r.File)
+	}
+	out := make([]EffectiveRow, 0, len(order))
+	for _, id := range order {
+		e := byID[id]
+		e.Areas, e.Globs, e.Triggers, e.Sources = uniq(e.Areas), uniq(e.Globs), uniq(e.Triggers), uniq(e.Sources)
+		kinds := map[string]bool{}
+		for d := range decls[id] {
+			kinds[d.kind] = true
+		}
+		if len(kinds) > 1 {
+			for d := range decls[id] {
+				e.Conflict = append(e.Conflict, KindDecl{Kind: d.kind, File: d.file})
+			}
+			sort.Slice(e.Conflict, func(i, j int) bool {
+				a, b := e.Conflict[i], e.Conflict[j]
+				if a.File != b.File {
+					return a.File < b.File
+				}
+				return a.Kind < b.Kind
+			})
+		}
+		out = append(out, *e)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Test.String() < out[j].Test.String() })
+	return out
+}
+
+func uniq(s []string) []string {
+	if len(s) == 0 {
+		return nil
+	}
+	c := append([]string(nil), s...)
+	sort.Strings(c)
+	out := c[:1]
+	for _, v := range c[1:] {
+		if v != out[len(out)-1] {
+			out = append(out, v)
+		}
+	}
+	return out
+}
+
+// --- validation ------------------------------------------------------------
+
+// checkAreaName validates an area name: an id fragment (no '/', '#', '@', '|',
+// whitespace) with no glob metacharacter, so an `owns:` entry naming an area
+// can never be read as a pattern of the same spelling.
+func checkAreaName(n string) error {
+	if err := checkFragment("area", n); err != nil {
+		return err
+	}
+	if strings.ContainsAny(n, `*?[]{}\!`) {
+		return fmt.Errorf("area %q contains a glob metacharacter", n)
+	}
+	return nil
+}
+
+// checkScopeGlob validates an area, scope, trigger or reads glob.
+func checkScopeGlob(g string) error {
+	if g == "" {
+		return errors.New("empty glob")
+	}
+	for _, r := range g {
+		if r == '|' || unicode.IsSpace(r) || unicode.IsControl(r) {
+			return fmt.Errorf("glob %q contains '|', whitespace or a control character", g)
+		}
+	}
+	if !doublestar.ValidatePattern(g) {
+		return fmt.Errorf("invalid glob %q", g)
+	}
+	return nil
+}
+
+func checkWords(what string, ws []string) error {
+	for _, w := range ws {
+		if err := checkFragment(what, w); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// validateRow checks a scoped row as any registry file states it.
+func validateRow(r ScopedRow) error {
+	if r.Test.Variant != "" {
+		return fmt.Errorf("%s: a scoped row never names a variant (variant-bearing units are unit kind)", r.Test)
+	}
+	if !IsBroad(r.Kind) {
+		return fmt.Errorf("%s: kind %q is not one of integration, e2e, device", r.Test, r.Kind)
+	}
+	if len(r.Areas)+len(r.Globs)+len(r.Triggers) == 0 {
+		return fmt.Errorf("%s: a scoped row needs at least one of areas, globs, triggers", r.Test)
+	}
+	for _, a := range r.Areas {
+		if err := checkAreaName(a); err != nil {
+			return fmt.Errorf("%s: %v", r.Test, err)
+		}
+	}
+	for _, g := range append(append([]string(nil), r.Globs...), r.Triggers...) {
+		if err := checkScopeGlob(g); err != nil {
+			return fmt.Errorf("%s: %v", r.Test, err)
+		}
+	}
+	if r.Runner != "" {
+		if err := checkFragment("runner", r.Runner); err != nil {
+			return fmt.Errorf("%s: %v", r.Test, err)
+		}
+	}
+	if err := checkWords("needs", r.Needs); err != nil {
+		return fmt.Errorf("%s: %v", r.Test, err)
+	}
+	if r.ReviewedAt != "" {
+		if _, err := time.Parse(time.DateOnly, r.ReviewedAt); err != nil {
+			return fmt.Errorf("%s: reviewed_at %q is not YYYY-MM-DD", r.Test, r.ReviewedAt)
+		}
+	}
+	return nil
+}
+
+// --- loaders ---------------------------------------------------------------
+
+func init() {
+	RegisterFile("areas.yaml", loadAreasFile)
+	RegisterFile("_scoped.yaml", loadScopedFile)
+	RegisterHandTable("areas", loadAreasTable)
+	RegisterHandTable("scopes", loadScopesTable)
+}
+
+type areaDecl struct {
+	Paths stringList `yaml:"paths"`
+}
+
+// loadAreasTable decodes an `areas:` block, `{<name>: {paths: [<glob>…]}}`,
+// of areas.yaml or of a hand file.
+func loadAreasTable(reg *Registry, path string, node *yaml.Node) error {
+	var decls map[string]areaDecl
+	if err := node.Decode(&decls); err != nil {
+		return invalidf(path, "areas: %v", err)
+	}
+	names := make([]string, 0, len(decls))
+	for n := range decls {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	s := ScopedOf(reg)
+	for _, n := range names {
+		if err := checkAreaName(n); err != nil {
+			return invalidf(path, "areas: %v", err)
+		}
+		globs := decls[n].Paths
+		if len(globs) == 0 {
+			return invalidf(path, "areas: %s: paths is required", n)
+		}
+		for _, g := range globs {
+			if err := checkScopeGlob(g); err != nil {
+				return invalidf(path, "areas: %s: %v", n, err)
+			}
+		}
+		s.addArea(path, n, globs)
+	}
+	return nil
+}
+
+// loadAreasFile loads `registry/areas.yaml`: `{contract, areas}`.
+func loadAreasFile(reg *Registry, path string, data []byte) error {
+	top, err := documentRoot(path, data)
+	if err != nil {
+		return err
+	}
+	ScopedOf(reg)
+	for i := 0; i+1 < len(top.Content); i += 2 {
+		switch key, val := top.Content[i].Value, top.Content[i+1]; key {
+		case "contract":
+		case "areas":
+			if err := loadAreasTable(reg, path, val); err != nil {
+				return err
+			}
+		default:
+			return invalidf(path, "unknown key %s", key)
+		}
+	}
+	return nil
+}
+
+type handScope struct {
+	Test       string     `yaml:"test"`
+	Kind       string     `yaml:"kind"`
+	Areas      stringList `yaml:"areas"`
+	Globs      stringList `yaml:"globs"`
+	Triggers   stringList `yaml:"triggers"`
+	ReviewedAt string     `yaml:"reviewed_at"`
+}
+
+// loadScopesTable decodes a hand file's `scopes:` rows. Unknown row fields
+// are ignored (the contract is additive) — so a `runner:` or `needs:` there
+// is never read: those keys belong to the test's annotations.
+func loadScopesTable(reg *Registry, path string, node *yaml.Node) error {
+	var rows []handScope
+	if err := node.Decode(&rows); err != nil {
+		return invalidf(path, "scopes: %v", err)
+	}
+	s := ScopedOf(reg)
+	for n, h := range rows {
+		id, err := ParseID(h.Test)
+		if err != nil {
+			return invalidf(path, "scopes[%d]: test: %v", n, err)
+		}
+		r := ScopedRow{Test: id, Kind: h.Kind, Areas: h.Areas, Globs: h.Globs, Triggers: h.Triggers, ReviewedAt: h.ReviewedAt, File: path}
+		if err := validateRow(r); err != nil {
+			return invalidf(path, "scopes[%d]: %v", n, err)
+		}
+		s.addRow(r)
+	}
+	return nil
+}
+
+// ScopedDoc is the generated `aitestmap/registry/_scoped.yaml`.
+type ScopedDoc struct {
+	Contract int            `yaml:"contract"`
+	Scopes   []ScopedDocRow `yaml:"scopes,omitempty"`
+	Reads    []ReadsDocRow  `yaml:"reads,omitempty"`
+}
+
+// ScopedDocRow is one generated scoped row.
+type ScopedDocRow struct {
+	Test       string   `yaml:"test"`
+	Kind       string   `yaml:"kind"`
+	Runner     string   `yaml:"runner,omitempty"`
+	Areas      []string `yaml:"areas,omitempty,flow"`
+	Globs      []string `yaml:"globs,omitempty,flow"`
+	Triggers   []string `yaml:"triggers,omitempty,flow"`
+	Needs      []string `yaml:"needs,omitempty,flow"`
+	ReviewedAt string   `yaml:"reviewed_at,omitempty"`
+	Line       int      `yaml:"line,omitempty"`
+}
+
+// ReadsDocRow is one helper's generated reads row.
+type ReadsDocRow struct {
+	Helper string   `yaml:"helper"`
+	Globs  []string `yaml:"globs,flow"`
+	Line   int      `yaml:"line,omitempty"`
+}
+
+func (d ScopedDoc) empty() bool { return len(d.Scopes)+len(d.Reads) == 0 }
+
+// RenderScoped is the exact bytes `scan --apply` writes for doc.
+func RenderScoped(doc ScopedDoc) ([]byte, error) { return Render(GeneratedHeader, doc) }
+
+func docRows(doc ScopedDoc) ([]ScopedRow, []ReadsRow) {
+	var rows []ScopedRow
+	for _, r := range doc.Scopes {
+		id, _ := ParseID(r.Test) // validated on load / built valid
+		rows = append(rows, ScopedRow{Test: id, Kind: r.Kind, Runner: r.Runner, Areas: r.Areas, Globs: r.Globs,
+			Triggers: r.Triggers, Needs: r.Needs, ReviewedAt: r.ReviewedAt, Line: r.Line, File: ScopedPath})
+	}
+	var reads []ReadsRow
+	for _, r := range doc.Reads {
+		reads = append(reads, ReadsRow{Helper: r.Helper, Globs: r.Globs, Line: r.Line, File: ScopedPath})
+	}
+	return rows, reads
+}
+
+// loadScopedFile loads the generated `_scoped.yaml`.
+func loadScopedFile(reg *Registry, path string, data []byte) error {
+	var doc ScopedDoc
+	if len(bytes.TrimSpace(data)) > 0 {
+		dec := yaml.NewDecoder(bytes.NewReader(data))
+		dec.KnownFields(true) // a generated file with an unknown field was not written by scan
+		if err := dec.Decode(&doc); err != nil {
+			return invalidf(path, "%v", err)
+		}
+	}
+	s := ScopedOf(reg)
+	for n, r := range doc.Scopes {
+		id, err := ParseID(r.Test)
+		if err != nil {
+			return invalidf(path, "scopes[%d]: %v", n, err)
+		}
+		row := ScopedRow{Test: id, Kind: r.Kind, Runner: r.Runner, Areas: r.Areas, Globs: r.Globs, Triggers: r.Triggers,
+			Needs: r.Needs, ReviewedAt: r.ReviewedAt, Line: r.Line, File: ScopedPath}
+		if err := validateRow(row); err != nil {
+			return invalidf(path, "scopes[%d]: %v", n, err)
+		}
+		s.addRow(row)
+	}
+	for n, r := range doc.Reads {
+		if err := checkPath(r.Helper); err != nil {
+			return invalidf(path, "reads[%d]: helper: %v", n, err)
+		}
+		if len(r.Globs) == 0 {
+			return invalidf(path, "reads[%d]: globs is required", n)
+		}
+		for _, g := range r.Globs {
+			if err := checkScopeGlob(g); err != nil {
+				return invalidf(path, "reads[%d]: %v", n, err)
+			}
+		}
+		s.Reads = append(s.Reads, ReadsRow{Helper: r.Helper, Globs: r.Globs, Line: r.Line, File: ScopedPath})
+	}
+	return nil
+}
+
+// --- building _scoped.yaml from the annotations ----------------------------
+
+// annotationRefusal is a scoped-key annotation the grammar accepted but M2.5
+// refuses, reported like a grammar refusal: INPUT_ERROR:annotations, exit 3.
+func annotationRefusal(path string, line int, format string, args ...any) error {
+	return &InputError{Input: InputAnnotations, Err: fmt.Errorf("%s:%d: %s", path, line, fmt.Sprintf(format, args...))}
+}
+
+// ReadsHelper reports whether f is a helper: a file carrying `testmap:reads`
+// lines, which BuildScoped admits only in a file no runner lists. A helper
+// is never a test — never UNREGISTERED, never classified.
+func ReadsHelper(f FileAnnotations) bool {
+	for _, u := range f.Units {
+		if len(u.Reads) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func lineOf(u UnitAnnotation) int {
+	if u.ScopedLine > 0 {
+		return u.ScopedLine
+	}
+	return u.Line
+}
+
+// BuildScoped computes the `_scoped.yaml` document from the two inputs,
+// dropping `exclude:`d paths. A block's effective kind is its own `kind`,
+// else (a member) its file-level block's, else unit; a row is emitted for
+// every broad block carrying area / scope / trigger lines, with the
+// block's runner and needs (file-level values inherited by members). A
+// file's `testmap:reads` globs become one reads row.
+//
+// Refused (INPUT_ERROR:annotations|<path>:<line>: <reason>): a kind outside
+// the vocabulary; a member kind that differs from a broad file-level kind
+// (mixed-kind files — the file row selects the whole file); area / scope /
+// trigger on a unit-kind block; an own broad kind with none of them (unless
+// a member restates its file's kind, whose row covers it); `reads` in a file
+// some runner lists or in a block that declares a kind; a listed variant
+// unit whose effective kind is broad.
+func BuildScoped(cfg Config, anns []FileAnnotations, lists []Listing) (ScopedDoc, error) {
+	doc := ScopedDoc{Contract: testmap.Contract}
+	listed := map[string]bool{}
+	for _, l := range lists {
+		for _, u := range l.Units {
+			if !cfg.Excluded(u.ID.Path) {
+				listed[u.ID.Path] = true
+			}
+		}
+	}
+	kinds := map[ID]string{} // the effective kind of every emitted row
+	lines := map[ID]int{}
+	for _, f := range anns {
+		if cfg.Excluded(f.Path) {
+			continue
+		}
+		var file UnitAnnotation
+		for _, u := range f.Units {
+			if u.Member == "" {
+				file = u
+			}
+		}
+		fileHasScope := len(file.Areas)+len(file.Scopes)+len(file.Triggers) > 0
+		var reads []string
+		readsLine := 0
+		for _, u := range f.Units {
+			if u.Kind != "" && !ValidKind(u.Kind) {
+				return doc, annotationRefusal(f.Path, lineOf(u), "unknown kind %q (one of %s)", u.Kind, strings.Join(Kinds, ", "))
+			}
+			if u.Member != "" && IsBroad(file.Kind) && u.Kind != "" && u.Kind != file.Kind {
+				return doc, annotationRefusal(f.Path, lineOf(u), "member %s declares kind %s but the file is %s (a file has one broad kind)", u.Member, u.Kind, file.Kind)
+			}
+			eff := u.Kind
+			if eff == "" && u.Member != "" {
+				eff = file.Kind
+			}
+			if eff == "" {
+				eff = KindUnit
+			}
+			hasScope := len(u.Areas)+len(u.Scopes)+len(u.Triggers) > 0
+			if !IsBroad(eff) && hasScope {
+				return doc, annotationRefusal(f.Path, lineOf(u), "testmap:area, scope and trigger belong to a broad test (declare testmap:kind integration, e2e or device)")
+			}
+			if IsBroad(u.Kind) && !hasScope && !(u.Member != "" && u.Kind == file.Kind && fileHasScope) {
+				return doc, annotationRefusal(f.Path, lineOf(u), "testmap:kind %s needs at least one testmap:area, testmap:scope or testmap:trigger", u.Kind)
+			}
+			if len(u.Reads) > 0 {
+				if listed[f.Path] {
+					return doc, annotationRefusal(f.Path, u.ReadsLine, "testmap:reads is legal only in a helper (a file no runner lists)")
+				}
+				if u.Kind != "" {
+					return doc, annotationRefusal(f.Path, u.ReadsLine, "testmap:reads marks a helper, which has no kind")
+				}
+				reads = append(reads, u.Reads...)
+				if readsLine == 0 || (u.ReadsLine > 0 && u.ReadsLine < readsLine) {
+					readsLine = u.ReadsLine
+				}
+			}
+			if !IsBroad(eff) || !hasScope {
+				continue
+			}
+			runner := u.Runner
+			if runner == "" {
+				runner = file.Runner
+			}
+			needs := uniq(append(append([]string(nil), file.Needs...), u.Needs...))
+			if u.Member == "" {
+				needs = uniq(u.Needs)
+			}
+			reviewed := u.Reviewed
+			if reviewed == "" && u.Member != "" {
+				reviewed = file.Reviewed
+			}
+			id := ID{Path: f.Path, Member: u.Member}
+			row := ScopedDocRow{
+				Test: id.String(), Kind: eff, Runner: runner, Areas: uniq(u.Areas), Globs: uniq(u.Scopes),
+				Triggers: uniq(u.Triggers), Needs: needs, ReviewedAt: reviewed, Line: lineOf(u),
+			}
+			// The generated file must load: apply the loader's own row
+			// validation before anything is written (the grammar admits
+			// any word, e.g. an area name with '/').
+			if err := validateRow(ScopedRow{Test: id, Kind: row.Kind, Runner: row.Runner, Areas: row.Areas, Globs: row.Globs,
+				Triggers: row.Triggers, Needs: row.Needs, ReviewedAt: row.ReviewedAt}); err != nil {
+				return doc, annotationRefusal(f.Path, lineOf(u), "%s", strings.TrimPrefix(err.Error(), id.String()+": "))
+			}
+			kinds[id], lines[id] = eff, lineOf(u)
+			doc.Scopes = append(doc.Scopes, row)
+		}
+		if len(reads) > 0 {
+			for _, g := range reads {
+				if err := checkScopeGlob(g); err != nil {
+					return doc, annotationRefusal(f.Path, readsLine, "testmap:reads: %v", err)
+				}
+			}
+			doc.Reads = append(doc.Reads, ReadsDocRow{Helper: f.Path, Globs: uniq(reads), Line: readsLine})
+		}
+	}
+	for _, l := range lists {
+		for _, u := range l.Units {
+			if u.ID.Variant == "" || cfg.Excluded(u.ID.Path) {
+				continue
+			}
+			for _, k := range []ID{u.ID.Base(), {Path: u.ID.Path}} {
+				if kind, ok := kinds[k]; ok {
+					return doc, annotationRefusal(k.Path, lines[k], "%s is listed with variants and cannot be %s (variant-bearing units are unit kind)", u.ID.Base(), kind)
+				}
+			}
+		}
+	}
+	sort.Slice(doc.Scopes, func(i, j int) bool { return doc.Scopes[i].Test < doc.Scopes[j].Test })
+	sort.Slice(doc.Reads, func(i, j int) bool { return doc.Reads[i].Helper < doc.Reads[j].Helper })
+	return doc, nil
+}

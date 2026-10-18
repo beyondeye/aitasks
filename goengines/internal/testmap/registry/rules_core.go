@@ -111,8 +111,10 @@ func memberDrift(rule string) func(*CheckContext) ([]Finding, error) {
 }
 
 // UNREGISTERED:<path> — a test file some evidence says is a test (it carries
-// annotations, a runner's bindings match it, or a declared edge names it)
-// that no runner lists. `exclude:`d paths never.
+// annotations, a runner's bindings match it, a declared edge or a hand
+// `scopes:` row names it)
+// that no runner lists. `exclude:`d paths never; nor a helper whose
+// annotations declare `testmap:reads`, which no runner lists by definition.
 func checkUnregistered(c *CheckContext) ([]Finding, error) {
 	listed := map[string]bool{}
 	for _, l := range c.Lists {
@@ -122,7 +124,9 @@ func checkUnregistered(c *CheckContext) ([]Finding, error) {
 	}
 	candidates := map[string]bool{}
 	for _, f := range c.Anns {
-		candidates[f.Path] = true
+		if !ReadsHelper(f) { // a `testmap:reads` helper is not a test (M2.5)
+			candidates[f.Path] = true
+		}
 	}
 	for _, l := range c.Lists {
 		for _, p := range l.Bound {
@@ -133,6 +137,9 @@ func checkUnregistered(c *CheckContext) ([]Finding, error) {
 		if e.From == FromDeclared {
 			candidates[e.Test.Path] = true
 		}
+	}
+	for _, r := range handRows(c.Reg) { // a hand `scopes:` row names a test (M2.5)
+		candidates[r.Test.Path] = true
 	}
 	var out []Finding
 	for p := range candidates {

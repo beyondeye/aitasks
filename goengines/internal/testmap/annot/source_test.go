@@ -51,7 +51,7 @@ func TestSource(t *testing.T) {
 	want := `[{"Path":"tests/a_test.go","Units":[{"Member":"","Line":0,"Covers":[{"Source":"src/a.go","Line":3,"StampedAt":"","StampedBlob":""}]}]},` +
 		`{"Path":"tests/b.sh","Units":[{"Member":"","Line":0,"Covers":[{"Source":"src/b.sh","Line":2,"StampedAt":"2026-01-01","StampedBlob":"0123456789"}]},` +
 		`{"Member":"M","Line":3,"Covers":[{"Source":"src/m.sh","Line":4,"StampedAt":"","StampedBlob":""}]}]},` +
-		`{"Path":"tests/kind.py","Units":[{"Member":"","Line":0,"Covers":null}]},` +
+		`{"Path":"tests/kind.py","Units":[{"Member":"","Line":0,"Covers":null,"Kind":"unit","ScopedLine":1}]},` +
 		`{"Path":"tests/split.py","Units":[{"Member":"","Line":0,"Covers":[{"Source":"src/split.sh","Line":1,"StampedAt":"","StampedBlob":""}]}]},` +
 		`{"Path":"tests/untracked.sh","Units":[{"Member":"","Line":0,"Covers":[{"Source":"src/new.sh","Line":1,"StampedAt":"","StampedBlob":""}]}]}]`
 	if string(out) != want {
@@ -115,6 +115,29 @@ func TestSourceCarriesRunnerBatchNeeds(t *testing.T) {
 		`{"Member":"","Line":0,"Covers":null,"Runner":"shell","Batch":"no","Needs":["repo-git-index","emulator","heavy-run"]},` +
 		`{"Member":"A","Line":6,"Covers":null,"Runner":"other","Batch":"yes","Needs":["gpu"]},` +
 		`{"Member":"B","Line":10,"Covers":[{"Source":"src/b.sh","Line":11,"StampedAt":"","StampedBlob":""}]}]}]`
+	if string(out) != want {
+		t.Errorf("got  %s\nwant %s", out, want)
+	}
+}
+
+// M2.5's named extension of toRegistry: every scoped key reaches the
+// registry with its arguments in file order and the first line of the block's
+// scoped keys (and of its reads lines).
+func TestSourceScopedKeys(t *testing.T) {
+	r := repo(t, map[string]string{
+		"tests/test_live.py": "# testmap:kind integration\n# testmap:area board scripts\n# testmap:reviewed 2026-10-01\n" +
+			"# testmap:unit TestA\n# testmap:scope src/a/** src/b/*.py\n# testmap:trigger lib/x.py\n# testmap:area cli\n",
+		"tests/lib/fixture.py": "# testmap:reads tests/*.sh\n# testmap:reads tests/*.py\n",
+	})
+	r.Commit(t, "1", "test", "fixtures")
+	got, err := Source{}.Annotations(bg, r.Dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, _ := json.Marshal(got)
+	want := `[{"Path":"tests/lib/fixture.py","Units":[{"Member":"","Line":0,"Covers":null,"Reads":["tests/*.sh","tests/*.py"],"ReadsLine":1}]},` +
+		`{"Path":"tests/test_live.py","Units":[{"Member":"","Line":0,"Covers":null,"Kind":"integration","Areas":["board","scripts"],"Reviewed":"2026-10-01","ScopedLine":1},` +
+		`{"Member":"TestA","Line":4,"Covers":null,"Areas":["cli"],"Scopes":["src/a/**","src/b/*.py"],"Triggers":["lib/x.py"],"ScopedLine":5}]}]`
 	if string(out) != want {
 		t.Errorf("got  %s\nwant %s", out, want)
 	}

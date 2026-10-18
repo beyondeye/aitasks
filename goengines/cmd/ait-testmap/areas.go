@@ -1,0 +1,83 @@
+package main
+
+import (
+	"errors"
+	"flag"
+	"fmt"
+	"io"
+	"strconv"
+
+	"github.com/beyondeye/aitasks/goengines/internal/lineproto"
+	"github.com/beyondeye/aitasks/goengines/internal/testmap/registry"
+)
+
+// areasExits is the exit contract of `areas`: 0 done, 2 no `aitestmap/` (or,
+// for --import-codemap, no code-area map), 3 the registry or the map could
+// not be read or written, 64 usage.
+var areasExits = lineproto.ExitContract{
+	lineproto.ExitOK, lineproto.ExitNothingRan, lineproto.ExitFramework, lineproto.ExitUsage,
+}
+
+// runAreas is `areas [--list] [--json]` — `AREA:<name>|<globs>|<files>|<rows>`
+// per area, then `AREAS:<n>` — and `areas --import-codemap [--apply] [--json]`
+// — `AREA_IMPORT:<name>|<glob>|added|kept|differs` per code area, then
+// `WROTE:<path>` when --apply added an area. A missing code-area map is
+// `CODEMAP_ABSENT:<path>`, exit 2.
+func runAreas(e env, args []string) int {
+	const usage = "ait-testmap areas [--list] [--json] | areas --import-codemap [--apply] [--json]"
+	fs := flag.NewFlagSet("areas", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	list := fs.Bool("list", false, "list the areas table (the default)")
+	imp := fs.Bool("import-codemap", false, "seed registry/areas.yaml from the code-area map")
+	apply := fs.Bool("apply", false, "with --import-codemap: write the new areas")
+	asJSON := fs.Bool("json", false, "print one JSON object")
+	if err := fs.Parse(args); err != nil || fs.NArg() > 0 || (*list && *imp) || (*apply && !*imp) {
+		return lineproto.Usage(e.stderr, usage)
+	}
+	root, err := cwd()
+	if err != nil {
+		return reportError(e, err)
+	}
+	if *imp {
+		res, err := registry.ImportCodemap(root, *apply)
+		if errors.Is(err, registry.ErrCodemapAbsent) {
+			fmt.Fprintln(e.stderr, "CODEMAP_ABSENT:"+registry.CodemapPath)
+			return lineproto.ExitNothingRan
+		}
+		if err != nil {
+			return reportError(e, err)
+		}
+		if *asJSON {
+			if err := lineproto.NewWriter(e.stdout, true).Emit(res); err != nil {
+				return reportError(e, err)
+			}
+			return lineproto.ExitOK
+		}
+		var lines [][]string
+		for _, r := range res.Rows {
+			lines = append(lines, []string{"AREA_IMPORT", r.Name, r.Glob, r.State})
+		}
+		for _, w := range res.Wrote {
+			lines = append(lines, []string{"WROTE", w})
+		}
+		return printLines(e, lines)
+	}
+	areas, err := registry.ListAreas(root)
+	if err != nil {
+		return reportError(e, err)
+	}
+	if *asJSON {
+		if err := lineproto.NewWriter(e.stdout, true).Emit(struct {
+			Areas []registry.AreaSummary `json:"areas"`
+		}{areas}); err != nil {
+			return reportError(e, err)
+		}
+		return lineproto.ExitOK
+	}
+	var lines [][]string
+	for _, a := range areas {
+		lines = append(lines, []string{"AREA", a.Name, strconv.Itoa(len(a.Globs)), strconv.Itoa(a.Files), strconv.Itoa(a.Rows)})
+	}
+	lines = append(lines, []string{"AREAS", strconv.Itoa(len(areas))})
+	return printLines(e, lines)
+}

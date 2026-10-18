@@ -100,13 +100,11 @@ func TestLoadAbsentAndEmpty(t *testing.T) {
 func TestLoadRefusals(t *testing.T) {
 	for _, tc := range []struct{ file, body, want string }{
 		{"x.yaml", "contract: 1\nwaiver: []\n", "unknown key waiver"},
-		{"x.yaml", "scopes: []\n", "table scopes not supported"},
-		{"x.yaml", "areas: {}\n", "table areas not supported"},
-		{"_scoped.yaml", "contract: 1\n", "reserved file"},
+		// scopes / areas (hand tables) and _scoped.yaml / areas.yaml are M2.5's,
+		// registered from scoped.go; their refusals are pinned in scoped_test.go.
 		{"_other.yaml", "contract: 1\n", "reserved file"},
 		{"seeded.yaml", "contract: 1\n", "reserved file"},
 		{"adopted.yaml", "contract: 1\n", "reserved file"},
-		{"areas.yaml", "contract: 1\n", "reserved file"},
 		{"observed.yaml", "contract: 1\n", "reserved file"},
 		{"x.yaml", "edges: [{covers: a}]\n", "edges[0]: test"},
 		{"x.yaml", "edges: [{test: t.sh}]\n", "covers is required"},

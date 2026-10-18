@@ -100,6 +100,36 @@ func toRegistry(f *File) registry.FileAnnotations {
 		for _, n := range u.Needs {
 			ua.Needs = append(ua.Needs, n.Args...)
 		}
+		// The scoped keys: M2.5's named extension (the grammar guarantees
+		// one argument for kind and reviewed, at least one for the lists).
+		first := func(kv *KeyVal) {
+			if kv != nil && (ua.ScopedLine == 0 || kv.Line.No < ua.ScopedLine) {
+				ua.ScopedLine = kv.Line.No
+			}
+		}
+		if u.Kind != nil {
+			ua.Kind = u.Kind.Args[0]
+			first(u.Kind)
+		}
+		if u.Reviewed != nil {
+			ua.Reviewed = u.Reviewed.Args[0]
+			first(u.Reviewed)
+		}
+		for _, l := range []struct {
+			kvs []KeyVal
+			dst *[]string
+		}{{u.Areas, &ua.Areas}, {u.Scopes, &ua.Scopes}, {u.Triggers, &ua.Triggers}} {
+			for i := range l.kvs {
+				*l.dst = append(*l.dst, l.kvs[i].Args...)
+				first(&l.kvs[i])
+			}
+		}
+		for _, r := range u.Reads {
+			ua.Reads = append(ua.Reads, r.Args...)
+			if ua.ReadsLine == 0 || r.Line.No < ua.ReadsLine {
+				ua.ReadsLine = r.Line.No
+			}
+		}
 		fa.Units = append(fa.Units, ua)
 	}
 	return fa

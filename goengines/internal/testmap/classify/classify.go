@@ -1,0 +1,384 @@
+// Package classify is the engine of `classify --suggest` (M2.5): it proposes
+// a broad kind for a test from evidence in the tree and prints the evidence
+// as the reason. It only suggests — a kind change is a person's, applied by
+// `onboard classify` (M6.4), which wraps this package and registers the
+// recorded-p95 signal through RegisterSignal.
+package classify
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"regexp"
+	"sort"
+	"strconv"
+	"strings"
+	"sync"
+
+	"github.com/beyondeye/aitasks/goengines/internal/testmap/annot"
+	"github.com/beyondeye/aitasks/goengines/internal/testmap/deps"
+	"github.com/beyondeye/aitasks/goengines/internal/testmap/registry"
+	"github.com/bmatcuk/doublestar/v4"
+)
+
+// Input is what a signal reads about one test file.
+type Input struct {
+	Root    string
+	Config  registry.Config
+	Graph   *deps.Graph
+	Test    string                    // the test file, repository-relative
+	Data    []byte                    // its content
+	Ann     *registry.FileAnnotations // its annotations; nil when it has none
+	Current string                    // its effective kind now (the file-level unit's)
+	Scoped  *registry.Scoped          // the live scoped tables
+}
+
+// Signal is one piece of evidence for a kind. Token is printed in the
+// reason; it must carry no '|' and no ';'.
+type Signal struct {
+	Kind  string
+	Token string
+}
+
+// SignalFunc computes a signal's evidence for one test.
+type SignalFunc func(in Input) ([]Signal, error)
+
+type namedSignal struct {
+	name string
+	fn   SignalFunc
+}
+
+var (
+	signalsMu sync.Mutex
+	signals   []namedSignal
+)
+
+// RegisterSignal adds a signal; signals run, and their tokens print, in
+// registration order. M6.4 registers the recorded-p95 signal here.
+func RegisterSignal(name string, fn SignalFunc) {
+	signalsMu.Lock()
+	defer signalsMu.Unlock()
+	for _, s := range signals {
+		if s.name == name {
+			panic("classify: signal registered twice: " + name)
+		}
+	}
+	signals = append(signals, namedSignal{name, fn})
+}
+
+func registered() []namedSignal {
+	signalsMu.Lock()
+	defer signalsMu.Unlock()
+	return append([]namedSignal(nil), signals...)
+}
+
+func init() {
+	RegisterSignal("convention", conventionSignal)
+	RegisterSignal("resource", resourceSignal)
+	RegisterSignal("fanout", fanoutSignal)
+}
+
+// conventions are source-set and directory conventions of broad tests.
+var conventions = []struct{ glob, kind string }{
+	{"**/androidTest/**", registry.KindDevice},
+	{"**/androidDeviceTest/**", registry.KindDevice},
+	{"**/*_live.py", registry.KindIntegration},
+	{"**/*_integration.*", registry.KindIntegration},
+	{"**/parity/**", registry.KindIntegration},
+}
+
+func conventionSignal(in Input) ([]Signal, error) {
+	var out []Signal
+	for _, c := range conventions {
+		if ok, _ := doublestar.Match(c.glob, in.Test); ok {
+			out = append(out, Signal{Kind: c.kind, Token: "convention:" + c.glob})
+		}
+	}
+	return out, nil
+}
+
+// resources are the resources a broad test names in its text.
+var resources = []struct {
+	name, kind string
+	re         *regexp.Regexp
+}{
+	{"tmux", registry.KindIntegration, regexp.MustCompile(`\btmux\b`)},
+	{"textual-run-test", registry.KindIntegration, regexp.MustCompile(`\bApp\.run_test\b|\.run_test\(`)},
+	{"install-dir", registry.KindIntegration, regexp.MustCompile(`install\.sh\s+--dir\b`)},
+	{"git-repo", registry.KindIntegration, regexp.MustCompile(`\bgit\s+(init|clone|worktree|commit)\b`)},
+	{"emulator", registry.KindDevice, regexp.MustCompile(`\badb\s|\bemulator\b`)},
+	{"docker", registry.KindIntegration, regexp.MustCompile(`\bdocker\b`)},
+	{"network", registry.KindIntegration, regexp.MustCompile(`\bcurl\s|\bwget\s|\brequests\.(get|post|put|delete|head)\(|\burllib\.request\b`)},
+}
+
+// resourceSignal: a resource named in the file, or declared on it with
+// `testmap:needs`.
+func resourceSignal(in Input) ([]Signal, error) {
+	var out []Signal
+	for _, r := range resources {
+		if r.re.Match(in.Data) {
+			out = append(out, Signal{Kind: r.kind, Token: "resource:" + r.name})
+		}
+	}
+	if in.Ann != nil {
+		var needs []string
+		for _, u := range in.Ann.Units {
+			needs = append(needs, u.Needs...)
+		}
+		sort.Strings(needs)
+		for i, n := range needs {
+			if i == 0 || n != needs[i-1] {
+				out = append(out, Signal{Kind: registry.KindIntegration, Token: "resource:needs:" + n})
+			}
+		}
+	}
+	return out, nil
+}
+
+func isHelper(cfg registry.Config, p string) bool {
+	for _, h := range cfg.HelperRoots {
+		if ok, _ := doublestar.Match(h, p); ok {
+			return true
+		}
+	}
+	return false
+}
+
+// Subjects are the test's non-helper subjects: its direct deps, with each
+// helper (`helper_roots:`) walked through to its own direct deps — the rule
+// `annotate --suggest` proposes covers by. Excluded files, helpers and the
+// test itself never count.
+func Subjects(g *deps.Graph, cfg registry.Config, test string) []string {
+	set := map[string]bool{}
+	note := func(p string) {
+		if p != test && !cfg.Excluded(p) && !isHelper(cfg, p) {
+			set[p] = true
+		}
+	}
+	f, ok := g.Facts(test)
+	if !ok {
+		return nil
+	}
+	for _, d := range f.Deps {
+		if isHelper(cfg, d.Target) && d.Target != test {
+			if hf, ok := g.Facts(d.Target); ok {
+				for _, hd := range hf.Deps {
+					note(hd.Target)
+				}
+			}
+			continue
+		}
+		note(d.Target)
+	}
+	out := make([]string, 0, len(set))
+	for p := range set {
+		out = append(out, p)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// fanoutSignal: more subjects than `unit_covers_max`.
+func fanoutSignal(in Input) ([]Signal, error) {
+	if n := len(Subjects(in.Graph, in.Config, in.Test)); n > in.Config.UnitCoversMax {
+		return []Signal{{Kind: registry.KindIntegration, Token: "fanout:" + strconv.Itoa(n)}}, nil
+	}
+	return nil, nil
+}
+
+// Suggestion is one CLASSIFY:<test>|<kind>|<reason> line.
+type Suggestion struct {
+	Test    string `json:"test"`
+	Kind    string `json:"kind"`
+	Reason  string `json:"reason"`
+	Current string `json:"current"`
+}
+
+// InputTests names the test arguments in INPUT_ERROR lines.
+const InputTests = "tests"
+
+// Suggest classifies tests (every annotated or listed test file when none is
+// named): for each, it runs every registered signal and, when the
+// highest-ranked kind among them outranks the test's current kind, returns a
+// suggestion whose reason is the signal tokens joined by ';', plus
+// `areas:<a>,<b>` for the areas whose globs match a file of the test's
+// closure. It writes nothing.
+//
+// Eligibility is one rule for named and default targets: an `exclude:`d file
+// or a `testmap:reads` helper is not a test — left out of the default
+// universe, refused (INPUT_ERROR:tests) when named — and a file a runner
+// lists with variants (its own or a member's) is never suggested a broad
+// kind, since variant-bearing units are unit kind; nor is a file whose
+// member blocks declare a kind other than the one proposed (a file has one
+// broad kind). A target is read without following a symbolic link on any
+// component, exactly as the annotation source reads: a named target that
+// is missing or reached through a link is refused, a default one skipped.
+func Suggest(ctx context.Context, root string, in registry.Inputs, tests []string) ([]Suggestion, error) {
+	reg, err := registry.Load(root)
+	if err != nil {
+		return nil, err
+	}
+	anns, lists, err := registry.ReadInputs(ctx, root, in)
+	if err != nil {
+		return nil, err
+	}
+	doc, err := registry.BuildScoped(reg.Config, anns, lists)
+	if err != nil {
+		return nil, err
+	}
+	scoped := registry.ScopedOf(reg).WithGenerated(doc)
+	byPath := map[string]*registry.FileAnnotations{}
+	for i := range anns {
+		byPath[anns[i].Path] = &anns[i]
+	}
+	variants := map[string]bool{} // files a runner lists with variants
+	for _, l := range lists {
+		for _, u := range l.Units {
+			if u.ID.Variant != "" {
+				variants[u.ID.Path] = true
+			}
+		}
+	}
+	// notATest is why a path can never be classified: an `exclude:`d file or
+	// a `testmap:reads` helper. Every target meets the same rule — skipped
+	// from the default universe, refused when named.
+	notATest := func(p string) string {
+		switch {
+		case reg.Config.Excluded(p):
+			return "excluded"
+		case isReadsHelper(byPath[p]):
+			return "a testmap:reads helper, not a test"
+		}
+		return ""
+	}
+	named := len(tests) > 0
+	if !named {
+		set := map[string]bool{}
+		for _, f := range anns {
+			set[f.Path] = true
+		}
+		for _, l := range lists {
+			for _, u := range l.Units {
+				set[u.ID.Path] = true
+			}
+		}
+		for p := range set {
+			if notATest(p) == "" {
+				tests = append(tests, p)
+			}
+		}
+		sort.Strings(tests)
+	}
+	for _, t := range tests {
+		if err := registry.CheckPath(t); err != nil {
+			return nil, &registry.InputError{Input: InputTests, Err: fmt.Errorf("%s: %v", t, err)}
+		}
+		if why := notATest(t); why != "" {
+			return nil, &registry.InputError{Input: InputTests, Err: fmt.Errorf("%s: %s", t, why)}
+		}
+	}
+	g, err := deps.Scan(ctx, root, deps.Options{Config: reg.Config})
+	if err != nil {
+		return nil, err
+	}
+	out := []Suggestion{}
+	for _, t := range tests {
+		if variants[t] {
+			continue // variant-bearing units are unit kind: a broad kind can never apply
+		}
+		data, err := readRegular(root, t)
+		if err != nil && !named && (errors.Is(err, errMissing) || errors.Is(err, errNotAFile)) {
+			continue // outside the annotation source's universe (gone, or reached through a link)
+		}
+		if err != nil {
+			return nil, &registry.InputError{Input: InputTests, Err: fmt.Errorf("%s: %v", t, err)}
+		}
+		cur := scoped.KindOf(registry.ID{Path: t})
+		in := Input{Root: root, Config: reg.Config, Graph: g, Test: t, Data: data, Ann: byPath[t], Current: cur, Scoped: scoped}
+		best := registry.KindUnit
+		var tokens []string
+		for _, s := range registered() {
+			sigs, err := s.fn(in)
+			if err != nil {
+				return nil, fmt.Errorf("classify: signal %s: %s: %w", s.name, t, err)
+			}
+			for _, sg := range sigs {
+				if !registry.ValidKind(sg.Kind) || strings.ContainsAny(sg.Token, "|;") || sg.Token == "" {
+					return nil, fmt.Errorf("classify: signal %s: invalid signal %+v", s.name, sg)
+				}
+				if registry.KindRank(sg.Kind) > registry.KindRank(best) {
+					best = sg.Kind
+				}
+				tokens = append(tokens, sg.Token)
+			}
+		}
+		if registry.KindRank(best) <= registry.KindRank(cur) || !memberKindsAllow(byPath[t], best) {
+			continue
+		}
+		if a := areasOf(g, scoped, t); len(a) > 0 {
+			tokens = append(tokens, "areas:"+strings.Join(a, ","))
+		}
+		out = append(out, Suggestion{Test: t, Kind: best, Reason: strings.Join(tokens, ";"), Current: cur})
+	}
+	return out, nil
+}
+
+// isReadsHelper reports a helper carrying `testmap:reads`: it is not a test,
+// so it is never classified.
+func isReadsHelper(f *registry.FileAnnotations) bool {
+	return f != nil && registry.ReadsHelper(*f)
+}
+
+// readRegular reads test under root through M2.2's no-follow reader: a
+// path reached through a symbolic link on any component, or one that is not
+// a regular file, is refused — the universe the annotation source reads.
+func readRegular(root, p string) ([]byte, error) {
+	data, err := annot.ReadFileNoFollow(root, p)
+	switch {
+	case errors.Is(err, annot.ErrMissing):
+		return nil, errMissing
+	case errors.Is(err, annot.ErrNotAFile):
+		return nil, errNotAFile
+	}
+	return data, err
+}
+
+var (
+	errMissing  = errors.New("missing")
+	errNotAFile = errors.New("not a regular file reached without a symbolic link")
+)
+
+// memberKindsAllow reports whether proposing kind for the file f is
+// compatible with every kind its member blocks declare themselves: a member
+// kind that differs from a broad file kind is refused by BuildScoped, so
+// such a proposal could never be applied on its own.
+func memberKindsAllow(f *registry.FileAnnotations, kind string) bool {
+	if f == nil {
+		return true
+	}
+	for _, u := range f.Units {
+		if u.Member != "" && u.Kind != "" && u.Kind != kind {
+			return false
+		}
+	}
+	return true
+}
+
+// areasOf are the areas whose globs match a file of test's closure.
+func areasOf(g *deps.Graph, s *registry.Scoped, test string) []string {
+	var out []string
+	reach := g.Closure(test, 0)
+	for name, a := range s.Areas {
+	area:
+		for _, r := range reach {
+			for _, gl := range a.Globs {
+				if ok, _ := doublestar.Match(gl, r.Path); ok {
+					out = append(out, name)
+					break area
+				}
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
+}

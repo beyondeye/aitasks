@@ -171,9 +171,15 @@ func RenderScanned(doc ScannedDoc) ([]byte, error) {
 // scannedDrift reports whether rendered differs from the committed
 // `_scanned.yaml` (an absent file equals an empty document).
 func scannedDrift(root string, doc ScannedDoc, rendered []byte) (bool, error) {
-	old, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(ScannedPath)))
+	return generatedDrift(root, ScannedPath, len(doc.Units) == 0, rendered)
+}
+
+// generatedDrift reports whether rendered differs from the committed
+// generated file at path; an absent file equals an empty document.
+func generatedDrift(root, path string, empty bool, rendered []byte) (bool, error) {
+	old, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(path)))
 	if errors.Is(err, fs.ErrNotExist) {
-		return len(doc.Units) > 0, nil
+		return !empty, nil
 	}
 	if err != nil {
 		return false, err
@@ -186,9 +192,12 @@ type ScanResult struct {
 	Units    int       `json:"units"`
 	Edges    int       `json:"edges"`
 	Variants int       `json:"variants"`
-	Changed  bool      `json:"changed"` // _scanned.yaml differs (dry run) or was rewritten (apply)
+	Changed  bool      `json:"changed"` // a generated file differs (dry run) or was rewritten (apply)
 	Wrote    []string  `json:"wrote"`
 	Findings []Finding `json:"findings"`
+	Scoped   int       `json:"scoped"` // _scoped.yaml rows (M2.5)
+	Reads    int       `json:"reads"`  // _scoped.yaml helper reads rows (M2.5)
+	Drift    []string  `json:"drift"`  // generated files that differ from what is committed
 }
 
 // Scan loads the registry under root, builds `_scanned.yaml` from the two
@@ -204,24 +213,55 @@ func Scan(ctx context.Context, root string, in Inputs, apply bool) (*ScanResult,
 		return nil, err
 	}
 	doc, drift := BuildScanned(reg.Config, anns, lists)
+	// M2.5's named extension: `_scoped.yaml` is built from the same inputs,
+	// before anything is written — a refused scoped annotation writes neither
+	// file.
+	sdoc, err := BuildScoped(reg.Config, anns, lists)
+	if err != nil {
+		return nil, err
+	}
+	type generated struct {
+		path     string
+		empty    bool
+		rendered []byte
+	}
+	var gens []generated
 	rendered, err := RenderScanned(doc)
 	if err != nil {
 		return nil, &CheckError{Rule: "render", Err: err}
 	}
-	changed, err := scannedDrift(root, doc, rendered)
-	if err != nil {
-		return nil, &CheckError{Rule: "read:" + ScannedPath, Err: err}
+	gens = append(gens, generated{ScannedPath, len(doc.Units) == 0, rendered})
+	if rendered, err = RenderScoped(sdoc); err != nil {
+		return nil, &CheckError{Rule: "render", Err: err}
 	}
+	gens = append(gens, generated{ScopedPath, sdoc.empty(), rendered})
 	for i := range drift {
 		drift[i].Fail = true // member drift is fail-closed
 	}
-	res := &ScanResult{Changed: changed, Wrote: []string{}, Findings: drift}
+	res := &ScanResult{Wrote: []string{}, Findings: drift, Drift: []string{}}
 	res.Units, res.Edges, res.Variants = doc.Counts()
-	if apply && changed && len(drift) == 0 {
-		if _, err := WriteFile(filepath.Join(root, filepath.FromSlash(ScannedPath)), rendered); err != nil {
-			return nil, &CheckError{Rule: "write:" + ScannedPath, Err: err}
+	res.Scoped, res.Reads = len(sdoc.Scopes), len(sdoc.Reads)
+	for _, g := range gens {
+		changed, err := generatedDrift(root, g.path, g.empty, g.rendered)
+		if err != nil {
+			return nil, &CheckError{Rule: "read:" + g.path, Err: err}
 		}
-		res.Wrote = append(res.Wrote, ScannedPath)
+		if !changed {
+			continue
+		}
+		res.Changed = true
+		res.Drift = append(res.Drift, g.path)
+	}
+	if apply && len(drift) == 0 {
+		for _, g := range gens {
+			if !contains(res.Drift, g.path) {
+				continue
+			}
+			if _, err := WriteFile(filepath.Join(root, filepath.FromSlash(g.path)), g.rendered); err != nil {
+				return nil, &CheckError{Rule: "write:" + g.path, Err: err}
+			}
+			res.Wrote = append(res.Wrote, g.path)
+		}
 	}
 	return res, nil
 }

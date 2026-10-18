@@ -2,6 +2,7 @@ package registry
 
 import (
 	"context"
+	"errors"
 	"sort"
 	"strings"
 	"time"
@@ -72,6 +73,8 @@ type CheckContext struct {
 	Strict      bool
 	Today       time.Time
 	Match       map[string][]string // MatchFiles over every rule's Patterns
+
+	scoped *liveScopedMemo // M2.5's live scoped view, built once per run
 }
 
 // CheckOptions are the flags of `check`.
@@ -122,6 +125,10 @@ func Check(ctx context.Context, root string, in Inputs, opts CheckOptions) (*Che
 	strict := opts.Strict && reg.Config.PastBootstrap(c.Today)
 	for _, r := range rules {
 		found, err := r.Run(c)
+		var ie *InputError
+		if errors.As(err, &ie) {
+			return nil, ie // an input a rule refuses (M2.5's scoped annotations) reads as INPUT_ERROR, like scan
+		}
 		if err != nil {
 			return nil, &CheckError{Rule: r.Name, Err: err}
 		}

@@ -1,0 +1,271 @@
+package registry
+
+import (
+	"bytes"
+	"errors"
+	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+
+	"gopkg.in/yaml.v3"
+)
+
+// `areas --import-codemap` seeds `registry/areas.yaml` from the project's
+// code-area map: each code area (children flattened) becomes an area of the
+// same name over `<path>/**`. The engine only reads the map — it never runs
+// the script that writes it (Invariant 5) — and never overwrites an area that
+// already exists: a hand edit is reported (`differs`) and kept.
+
+// CodemapPath is the code-area map the import reads.
+const CodemapPath = "aitasks/metadata/code_areas.yaml" // invariant5-ok: read-only input of areas --import-codemap; never written
+
+// InputCodemap names the code-area map in INPUT_ERROR lines.
+const InputCodemap = "code_areas"
+
+// ErrCodemapAbsent is an import from a repository with no code-area map.
+var ErrCodemapAbsent = errors.New(CodemapPath + " is absent")
+
+// AreasHeader opens an areas.yaml the import creates.
+const AreasHeader = "# Areas: named glob sets that broad tests name with testmap:area.\n" +
+	"# Seeded by ait-testmap areas --import-codemap; hand edits are kept on re-import.\n"
+
+// Import states.
+const (
+	ImportAdded   = "added"   // a new area, written by --apply
+	ImportKept    = "kept"    // the area exists and already carries the glob
+	ImportDiffers = "differs" // the area exists with other globs (a hand edit, kept)
+)
+
+// CodemapArea is one flattened code area.
+type CodemapArea struct {
+	Name string `json:"name"`
+	Glob string `json:"glob"`
+}
+
+// ImportRow is one code area and what the import does with it.
+type ImportRow struct {
+	Name  string `json:"name"`
+	Glob  string `json:"glob"`
+	State string `json:"state"`
+}
+
+// ImportResult is what `areas --import-codemap` found and did.
+type ImportResult struct {
+	Rows  []ImportRow `json:"rows"`
+	Wrote []string    `json:"wrote"`
+}
+
+type codemapEntry struct {
+	Name     string         `yaml:"name"`
+	Path     string         `yaml:"path"`
+	Children []codemapEntry `yaml:"children"`
+}
+
+type codemapDoc struct {
+	Version int            `yaml:"version"`
+	Areas   []codemapEntry `yaml:"areas"`
+}
+
+func codemapError(format string, args ...any) error {
+	return &InputError{Input: InputCodemap, Err: fmt.Errorf(format, args...)}
+}
+
+// ReadCodemap reads and flattens the code-area map under root, sorted by
+// name. An absent map is ErrCodemapAbsent; a malformed one, a duplicate or
+// invalid name, or an invalid path is INPUT_ERROR:code_areas.
+func ReadCodemap(root string) ([]CodemapArea, error) {
+	data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(CodemapPath)))
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, ErrCodemapAbsent
+	}
+	if err != nil {
+		return nil, codemapError("%v", err)
+	}
+	var doc codemapDoc
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return nil, codemapError("%v", err)
+	}
+	if doc.Version != 1 {
+		return nil, codemapError("version %d is not 1", doc.Version)
+	}
+	var out []CodemapArea
+	seen := map[string]bool{}
+	var walk func([]codemapEntry) error
+	walk = func(es []codemapEntry) error {
+		for _, e := range es {
+			if err := checkAreaName(e.Name); err != nil {
+				return codemapError("%v", err)
+			}
+			if seen[e.Name] {
+				return codemapError("duplicate area %s", e.Name)
+			}
+			seen[e.Name] = true
+			p := strings.TrimSuffix(e.Path, "/")
+			if err := checkPath(p); err != nil {
+				return codemapError("area %s: path %q: %v", e.Name, e.Path, err)
+			}
+			glob := p + "/**"
+			if err := checkScopeGlob(glob); err != nil {
+				return codemapError("area %s: %v", e.Name, err)
+			}
+			out = append(out, CodemapArea{Name: e.Name, Glob: glob})
+			if err := walk(e.Children); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	if err := walk(doc.Areas); err != nil {
+		return nil, err
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out, nil
+}
+
+// ImportCodemap compares the code-area map with the registry's areas table
+// and, with apply, adds the new areas to `registry/areas.yaml` — a fresh file
+// when it is absent, otherwise appended under its `areas:` mapping so the
+// file's comments survive. Existing areas are never rewritten.
+func ImportCodemap(root string, apply bool) (*ImportResult, error) {
+	reg, err := Load(root)
+	if err != nil {
+		return nil, err
+	}
+	areas, err := ReadCodemap(root)
+	if err != nil {
+		return nil, err
+	}
+	table := ScopedOf(reg).Areas
+	res := &ImportResult{Rows: []ImportRow{}, Wrote: []string{}}
+	var added []CodemapArea
+	for _, a := range areas {
+		state := ImportAdded
+		if t := table[a.Name]; t != nil {
+			state = ImportDiffers
+			if contains(t.Globs, a.Glob) {
+				state = ImportKept
+			}
+		} else {
+			added = append(added, a)
+		}
+		res.Rows = append(res.Rows, ImportRow{Name: a.Name, Glob: a.Glob, State: state})
+	}
+	if !apply || len(added) == 0 {
+		return res, nil
+	}
+	full := filepath.Join(root, filepath.FromSlash(AreasPath))
+	data, err := renderAreasAppend(full, added)
+	if err != nil {
+		return nil, &CheckError{Rule: "write:" + AreasPath, Err: err}
+	}
+	if _, err := WriteFile(full, data); err != nil {
+		return nil, &CheckError{Rule: "write:" + AreasPath, Err: err}
+	}
+	res.Wrote = append(res.Wrote, AreasPath)
+	return res, nil
+}
+
+func areaNode(a CodemapArea) (*yaml.Node, *yaml.Node) {
+	paths := &yaml.Node{Kind: yaml.SequenceNode, Style: yaml.FlowStyle, Content: []*yaml.Node{{Kind: yaml.ScalarNode, Value: a.Glob}}}
+	val := &yaml.Node{Kind: yaml.MappingNode, Content: []*yaml.Node{{Kind: yaml.ScalarNode, Value: "paths"}, paths}}
+	return &yaml.Node{Kind: yaml.ScalarNode, Value: a.Name}, val
+}
+
+// renderAreasAppend returns areas.yaml with added appended under `areas:`.
+func renderAreasAppend(path string, added []CodemapArea) ([]byte, error) {
+	old, err := os.ReadFile(path)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return nil, err
+	}
+	header := ""
+	var doc yaml.Node
+	if len(bytes.TrimSpace(old)) > 0 {
+		if err := yaml.Unmarshal(old, &doc); err != nil {
+			return nil, err
+		}
+	} else {
+		header = AreasHeader
+		doc = yaml.Node{Kind: yaml.DocumentNode, Content: []*yaml.Node{{Kind: yaml.MappingNode, Content: []*yaml.Node{
+			{Kind: yaml.ScalarNode, Value: "contract"}, {Kind: yaml.ScalarNode, Tag: "!!int", Value: "1"},
+		}}}}
+	}
+	top := doc.Content[0]
+	var areas *yaml.Node
+	for i := 0; i+1 < len(top.Content); i += 2 {
+		if top.Content[i].Value == "areas" {
+			areas = top.Content[i+1]
+		}
+	}
+	if areas == nil || (areas.Kind == yaml.ScalarNode && areas.Tag == "!!null") {
+		if areas == nil {
+			areas = &yaml.Node{}
+			top.Content = append(top.Content, &yaml.Node{Kind: yaml.ScalarNode, Value: "areas"}, areas)
+		}
+		*areas = yaml.Node{Kind: yaml.MappingNode}
+	}
+	if areas.Kind != yaml.MappingNode {
+		return nil, errors.New("areas: is not a mapping")
+	}
+	areas.Style = 0 // a flow `areas: {}` becomes a block mapping once it has entries
+	for _, a := range added {
+		k, v := areaNode(a)
+		areas.Content = append(areas.Content, k, v)
+	}
+	var buf bytes.Buffer
+	buf.WriteString(header)
+	enc := yaml.NewEncoder(&buf)
+	enc.SetIndent(2)
+	if err := enc.Encode(&doc); err != nil {
+		return nil, err
+	}
+	if err := enc.Close(); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+// AreaSummary is one area as `areas --list` prints it.
+type AreaSummary struct {
+	Name  string   `json:"name"`
+	Globs []string `json:"globs"`
+	Files int      `json:"files"` // existing files its globs match
+	Rows  int      `json:"rows"`  // effective scoped rows naming it
+}
+
+// ListAreas summarizes the areas table under root.
+func ListAreas(root string) ([]AreaSummary, error) {
+	reg, err := Load(root)
+	if err != nil {
+		return nil, err
+	}
+	s := ScopedOf(reg)
+	var patterns []string
+	for _, a := range s.Areas {
+		patterns = append(patterns, a.Globs...)
+	}
+	match, err := MatchFiles(root, patterns, reg.Config.Exclude)
+	if err != nil {
+		return nil, &CheckError{Rule: "enumerate", Err: err}
+	}
+	rows := map[string]int{}
+	for _, r := range s.Effective() {
+		for _, a := range r.Areas {
+			rows[a]++
+		}
+	}
+	out := []AreaSummary{}
+	for name, a := range s.Areas {
+		files := map[string]bool{}
+		for _, g := range a.Globs {
+			for _, p := range match[g] {
+				files[p] = true
+			}
+		}
+		out = append(out, AreaSummary{Name: name, Globs: a.Globs, Files: len(files), Rows: rows[name]})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out, nil
+}

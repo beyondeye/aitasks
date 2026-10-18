@@ -126,3 +126,19 @@ func readNoFollow(r *os.Root, rel string) ([]byte, fs.FileMode, error) {
 	defer d.Close()
 	return readLeaf(d, path.Base(rel))
 }
+
+// ReadFileNoFollow reads rel (repository-relative) under root with the same
+// guarantees: no symbolic link followed on any component, no window between
+// the check and the read, nothing outside root. A missing path is
+// ErrMissing; a link, a non-regular file or a swap is ErrNotAFile. Other
+// packages that read a test file by path (`classify --suggest`) use it so
+// they read exactly the universe the annotation source reads.
+func ReadFileNoFollow(root, rel string) ([]byte, error) {
+	r, err := openRoot(root)
+	if err != nil {
+		return nil, err
+	}
+	defer r.Close()
+	data, _, err := readNoFollow(r, rel)
+	return data, err
+}

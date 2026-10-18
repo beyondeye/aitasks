@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -92,7 +93,8 @@ func cwd() (string, error) { return os.Getwd() }
 // runScan is `scan [--apply] [--json]`: build `_scanned.yaml` from the two
 // inputs; print the member drift, `SCAN:<units>|<edges>|<variants>`, then
 // `WROTE:<path>` (--apply, changed) or `SCAN_DRIFT:<path>` (dry run, would
-// change). Member drift exits 1 and refuses the write.
+// change), once per generated file (`_scanned.yaml`, then M2.5's
+// `_scoped.yaml`). Member drift exits 1 and refuses every write.
 func runScan(e env, args []string) int {
 	return scanWith(e, args, testmapInputs())
 }
@@ -129,8 +131,10 @@ func scanWith(e env, args []string, in registry.Inputs) int {
 	for _, w := range res.Wrote {
 		lines = append(lines, []string{"WROTE", w})
 	}
-	if res.Changed && len(res.Wrote) == 0 {
-		lines = append(lines, []string{registry.RuleScanDrift, registry.ScannedPath})
+	for _, d := range res.Drift {
+		if !slices.Contains(res.Wrote, d) {
+			lines = append(lines, []string{registry.RuleScanDrift, d})
+		}
 	}
 	if c := printLines(e, lines); c != lineproto.ExitOK {
 		return c

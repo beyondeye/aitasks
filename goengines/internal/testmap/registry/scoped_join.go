@@ -1,0 +1,141 @@
+package registry
+
+import (
+	"errors"
+	"sort"
+
+	"github.com/bmatcuk/doublestar/v4"
+)
+
+// The scoped join: the data and function M4.1's selector calls. A scoped row
+// joins the selection at distance 1 — a sink: it never contributes distance
+// and never appears in `implies` — when a changed path matches one of its
+// area globs, scope globs or triggers. Every unit (scoped or not) whose
+// test-file closure contains a helper with `testmap:reads` globs inherits
+// them as triggers; that helper is the hit's `reads_from`, computed here at
+// join time rather than persisted, because a closure changes with any import
+// edit. Ranking by cost, the suite budget and `DEFERRED` are M4.1's.
+
+// Join reasons (JoinHit.Via).
+const (
+	ViaArea    = "area"
+	ViaScope   = "scope"
+	ViaTrigger = "trigger"
+	ViaReads   = "reads"
+)
+
+// ScopedDistance is the distance every scoped hit joins at.
+const ScopedDistance = 1
+
+// ClosureFunc returns the test-side closure of a test file: every file its
+// imports, sources and helpers reach (M2.3's closure, supplied by the caller).
+type ClosureFunc func(test string) ([]string, error)
+
+// JoinHit is one reason a unit joins the selection through the scoped join.
+type JoinHit struct {
+	Test         ID     `json:"test"`
+	Kind         string `json:"kind"` // KindOf(Test): one kind per test
+	Distance     int    `json:"distance"`
+	Via          string `json:"via"`  // area | scope | trigger | reads
+	Ref          string `json:"ref"`  // the area name, the glob, or the helper (reads_from)
+	Path         string `json:"path"` // the changed path that matched
+	BudgetExempt bool   `json:"budget_exempt"`
+}
+
+// ErrNoClosure is a join over a registry with reads rows and no closure: the
+// reads triggers could not be inherited, and a join that silently dropped
+// them would select less.
+var ErrNoClosure = errors.New("scoped join: helpers declare testmap:reads but no closure was supplied")
+
+// Join matches changed paths against the effective scoped rows, and the
+// reads globs of every helper in the closure of each scoped row's test and
+// of each of units. Hits are deduplicated and sorted by (kind rank, test,
+// via, ref, path).
+func (s *Scoped) Join(changed []string, units []ID, closure ClosureFunc) ([]JoinHit, error) {
+	type key struct {
+		test           ID
+		via, ref, path string
+	}
+	seen := map[key]bool{}
+	var out []JoinHit
+	add := func(id ID, via, ref string, globs []string, exempt bool) {
+		for _, g := range globs {
+			for _, p := range changed {
+				if ok, _ := doublestar.Match(g, p); !ok {
+					continue
+				}
+				k := key{id, via, ref, p}
+				if seen[k] {
+					continue
+				}
+				seen[k] = true
+				out = append(out, JoinHit{Test: id, Kind: s.KindOf(id), Distance: ScopedDistance, Via: via, Ref: ref, Path: p, BudgetExempt: exempt})
+			}
+		}
+	}
+	candidates := map[ID]bool{}
+	for _, r := range s.Effective() {
+		candidates[r.Test] = true
+		for _, a := range r.Areas {
+			if area := s.Areas[a]; area != nil { // an undeclared area is DEAD_SCOPE's
+				add(r.Test, ViaArea, a, area.Globs, false)
+			}
+		}
+		for _, g := range r.Globs {
+			add(r.Test, ViaScope, g, []string{g}, false)
+		}
+		for _, g := range r.Triggers {
+			add(r.Test, ViaTrigger, g, []string{g}, true)
+		}
+	}
+	if len(s.Reads) > 0 {
+		if closure == nil {
+			return nil, ErrNoClosure
+		}
+		reads := map[string][]string{}
+		for _, r := range s.Reads {
+			reads[r.Helper] = append(reads[r.Helper], r.Globs...)
+		}
+		for _, u := range units {
+			candidates[u] = true
+		}
+		ids := make([]ID, 0, len(candidates))
+		for id := range candidates {
+			ids = append(ids, id)
+		}
+		sort.Slice(ids, func(i, j int) bool { return ids[i].String() < ids[j].String() })
+		closures := map[string][]string{}
+		for _, id := range ids {
+			c, ok := closures[id.Path]
+			if !ok {
+				var err error
+				if c, err = closure(id.Path); err != nil {
+					return nil, err
+				}
+				closures[id.Path] = c
+			}
+			for _, h := range c {
+				if globs, ok := reads[h]; ok {
+					add(id, ViaReads, h, globs, true)
+				}
+			}
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		a, b := out[i], out[j]
+		if ra, rb := KindRank(a.Kind), KindRank(b.Kind); ra != rb {
+			return ra < rb
+		}
+		if as, bs := a.Test.String(), b.Test.String(); as != bs {
+			return as < bs
+		}
+		if a.Via != b.Via {
+			return a.Via < b.Via
+		}
+		if a.Ref != b.Ref {
+			return a.Ref < b.Ref
+		}
+		return a.Path < b.Path
+	})
+	return out, nil
+}

@@ -1,0 +1,253 @@
+package registry
+
+import (
+	"strconv"
+	"strings"
+)
+
+// The check rules M2.5 owns, registered after M2.1's.
+const (
+	RuleDeadScope     = "DEAD_SCOPE"
+	RuleKindMismatch  = "KIND_MISMATCH"
+	RuleScopeConflict = "SCOPE_CONFLICT"
+	RuleScopeInvalid  = "SCOPE_INVALID"
+)
+
+// ConvertToSuite is KIND_MISMATCH's advice field.
+const ConvertToSuite = "CONVERT_TO_SUITE"
+
+func init() {
+	RegisterRule(CheckRule{Name: RuleDeadScope, Patterns: scopePatterns, Run: checkDeadScope})
+	RegisterRule(CheckRule{Name: RuleKindMismatch, Run: checkKindMismatch})
+	RegisterRule(CheckRule{Name: RuleOwnsViolation, Patterns: handScopePatterns, Run: checkScopesOwns})
+	RegisterRule(CheckRule{Name: RuleScopeConflict, Run: checkScopeConflict})
+	RegisterRule(CheckRule{Name: RuleScopeInvalid, Run: checkScopeInvalid})
+	RegisterRule(CheckRule{Name: RuleScanDrift, Run: checkScopedDrift})
+}
+
+// liveScopedMemo is the live scoped view of one check run, error included.
+type liveScopedMemo struct {
+	view *Scoped
+	doc  ScopedDoc
+	err  error
+}
+
+// liveScoped is the scoped view check judges: the generated rows as the
+// inputs state them now (not as last persisted — drift is SCAN_DRIFT's job),
+// plus the hand rows and the areas. It is built once per run (the inputs do
+// not change within one), so every rule judges the same view. An annotation
+// BuildScoped refuses is returned as its *InputError, which `check` reports
+// as INPUT_ERROR.
+func (c *CheckContext) liveScoped() (*Scoped, ScopedDoc, error) {
+	if c.scoped == nil {
+		m := &liveScopedMemo{}
+		m.doc, m.err = BuildScoped(c.Reg.Config, c.Anns, c.Lists)
+		if m.err == nil {
+			m.view = ScopedOf(c.Reg).WithGenerated(m.doc)
+		}
+		c.scoped = m
+	}
+	return c.scoped.view, c.scoped.doc, c.scoped.err
+}
+
+func scopePatterns(c *CheckContext) []string {
+	s, _, err := c.liveScoped()
+	if err != nil {
+		return nil // the rule's Run reports the refusal
+	}
+	var p []string
+	for _, a := range s.Areas {
+		p = append(p, a.Globs...)
+	}
+	for _, r := range s.Effective() {
+		p = append(p, r.Globs...)
+	}
+	return p
+}
+
+// DEAD_SCOPE — the rot signal for globs. Three shapes, all failing:
+//
+//	DEAD_SCOPE:<file>|areas|<name>|<glob>   an area glob matching no existing file
+//	DEAD_SCOPE:<test>|area|<name>|undeclared   a scoped row naming an undeclared area
+//	DEAD_SCOPE:<test>|scope|<glob>|empty     a scope glob matching no existing file
+//
+// Triggers are not judged: a trigger may name a file that does not exist yet.
+func checkDeadScope(c *CheckContext) ([]Finding, error) {
+	s, _, err := c.liveScoped()
+	if err != nil {
+		return nil, err
+	}
+	var out []Finding
+	for name, a := range s.Areas {
+		for _, g := range a.Globs {
+			if len(c.Match[g]) == 0 {
+				out = append(out, Finding{Rule: RuleDeadScope, Fields: []string{a.From[g], "areas", name, g}, Severity: Always})
+			}
+		}
+	}
+	for _, r := range s.Effective() {
+		for _, a := range r.Areas {
+			if s.Areas[a] == nil {
+				out = append(out, Finding{Rule: RuleDeadScope, Fields: []string{r.Test.String(), "area", a, "undeclared"}, Severity: Always})
+			}
+		}
+		for _, g := range r.Globs {
+			if len(c.Match[g]) == 0 {
+				out = append(out, Finding{Rule: RuleDeadScope, Fields: []string{r.Test.String(), "scope", g, "empty"}, Severity: Always})
+			}
+		}
+	}
+	return out, nil
+}
+
+// KIND_MISMATCH:<test>|<n>|CONVERT_TO_SUITE — a unit-kind test covering more
+// than `unit_covers_max` distinct sources is really a broad test. A warning;
+// it fails under --strict once `bootstrap_until` has passed. Broad tests
+// never: covers on a scoped row are fixture pins.
+func checkKindMismatch(c *CheckContext) ([]Finding, error) {
+	s, _, err := c.liveScoped()
+	if err != nil {
+		return nil, err
+	}
+	sources := map[ID]map[string]bool{}
+	for _, e := range c.liveEdges() {
+		if sources[e.Test] == nil {
+			sources[e.Test] = map[string]bool{}
+		}
+		sources[e.Test][e.Source] = true
+	}
+	var out []Finding
+	for id, srcs := range sources {
+		if n := len(srcs); n > c.Reg.Config.UnitCoversMax && !IsBroad(s.KindOf(id)) {
+			out = append(out, Finding{Rule: RuleKindMismatch, Fields: []string{id.String(), strconv.Itoa(n), ConvertToSuite}, Severity: StrictPastBootstrap})
+		}
+	}
+	return out, nil
+}
+
+func handRows(reg *Registry) []ScopedRow {
+	var out []ScopedRow
+	for _, r := range ScopedOf(reg).Rows {
+		if r.File != ScopedPath {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+func handScopePatterns(c *CheckContext) []string {
+	var p []string
+	for _, r := range handRows(c.Reg) {
+		p = append(p, r.Globs...)
+		p = append(p, r.Triggers...)
+	}
+	return p
+}
+
+// OWNS_VIOLATION:<file>|scopes|<area or path> — a hand `scopes:` row reaching
+// past its file's `owns:`: an area its `owns:` does not list by name, or an
+// existing file a scope / trigger glob matches that no `owns:` glob matches
+// (judged over concrete paths, as for rules and waivers).
+func checkScopesOwns(c *CheckContext) ([]Finding, error) {
+	owns := map[string][]string{}
+	for _, hf := range c.Reg.HandFiles {
+		owns[hf.Path] = hf.Owns
+	}
+	var out []Finding
+	seen := map[[3]string]bool{}
+	add := func(file, ref string) {
+		key := [3]string{file, "scopes", ref}
+		if !seen[key] {
+			seen[key] = true
+			out = append(out, Finding{Rule: RuleOwnsViolation, Fields: key[:], Severity: Always})
+		}
+	}
+	for _, r := range handRows(c.Reg) {
+		for _, a := range r.Areas {
+			if !contains(owns[r.File], a) {
+				add(r.File, a)
+			}
+		}
+		for _, g := range append(append([]string(nil), r.Globs...), r.Triggers...) {
+			for _, p := range c.Match[g] {
+				if !matchAny(owns[r.File], p) {
+					add(r.File, p)
+				}
+			}
+		}
+	}
+	return out, nil
+}
+
+// SCOPE_CONFLICT:<test>|kind|<kind>@<file>,… — the rows naming a test
+// disagree on its kind. Every consumer reads the lowest-ranked one (it runs
+// more), and the conflict fails until the rows agree.
+func checkScopeConflict(c *CheckContext) ([]Finding, error) {
+	s, _, err := c.liveScoped()
+	if err != nil {
+		return nil, err
+	}
+	var out []Finding
+	for _, r := range s.Effective() {
+		if len(r.Conflict) == 0 {
+			continue
+		}
+		var decls []string
+		for _, d := range r.Conflict {
+			decls = append(decls, d.Kind+"@"+d.File)
+		}
+		out = append(out, Finding{Rule: RuleScopeConflict, Fields: []string{r.Test.String(), "kind", strings.Join(decls, ",")}, Severity: Always})
+	}
+	return out, nil
+}
+
+// SCOPE_INVALID:<test>|<file>|variant-bearing — a hand row makes a unit that
+// a runner lists with variants broad. Variant-bearing units are unit kind
+// and ride the unit wave; the annotation-only case is refused by
+// BuildScoped, so the row here is always a hand row.
+func checkScopeInvalid(c *CheckContext) ([]Finding, error) {
+	s, _, err := c.liveScoped()
+	if err != nil {
+		return nil, err
+	}
+	var out []Finding
+	seen := map[[2]string]bool{}
+	for _, l := range c.Lists {
+		for _, u := range l.Units {
+			if u.ID.Variant == "" || c.Reg.Config.Excluded(u.ID.Path) {
+				continue
+			}
+			r, ok := s.rowFor(u.ID)
+			if !ok || !IsBroad(r.Kind) {
+				continue
+			}
+			for _, f := range r.Sources {
+				key := [2]string{r.Test.String(), f}
+				if f == ScopedPath || seen[key] {
+					continue
+				}
+				seen[key] = true
+				out = append(out, Finding{Rule: RuleScopeInvalid, Fields: []string{key[0], f, "variant-bearing"}, Severity: Always})
+			}
+		}
+	}
+	return out, nil
+}
+
+// SCAN_DRIFT:aitestmap/registry/_scoped.yaml — the committed generated file
+// is not what `scan --apply` would write now.
+func checkScopedDrift(c *CheckContext) ([]Finding, error) {
+	_, doc, err := c.liveScoped()
+	if err != nil {
+		return nil, err
+	}
+	rendered, err := RenderScoped(doc)
+	if err != nil {
+		return nil, err
+	}
+	drift, err := generatedDrift(c.Root, ScopedPath, doc.empty(), rendered)
+	if err != nil || !drift {
+		return nil, err
+	}
+	return []Finding{{Rule: RuleScanDrift, Fields: []string{ScopedPath}, Severity: StrictPastBootstrap}}, nil
+}

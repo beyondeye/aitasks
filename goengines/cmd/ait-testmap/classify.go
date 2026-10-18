@@ -1,0 +1,54 @@
+package main
+
+import (
+	"context"
+	"flag"
+	"io"
+
+	"github.com/beyondeye/aitasks/goengines/internal/lineproto"
+	"github.com/beyondeye/aitasks/goengines/internal/testmap/classify"
+)
+
+// classifyExits is the exit contract of `classify`: 0 suggested (any number
+// of lines, none included), 2 no `aitestmap/`, 3 the registry, an input or a
+// named test could not be read, 64 usage.
+var classifyExits = lineproto.ExitContract{
+	lineproto.ExitOK, lineproto.ExitNothingRan, lineproto.ExitFramework, lineproto.ExitUsage,
+}
+
+// runClassify is `classify --suggest [--json] [<test>…]`: one
+// `CLASSIFY:<test>|<kind>|<reason>` line per test whose evidence suggests a
+// broader kind than it has (every annotated or listed test file when none is
+// named). It only suggests and writes nothing; `onboard classify` (M6.4)
+// records or applies the suggestions.
+func runClassify(e env, args []string) int {
+	const usage = "ait-testmap classify --suggest [--json] [<test>...]"
+	fs := flag.NewFlagSet("classify", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	suggest := fs.Bool("suggest", false, "suggest kinds from the tree's evidence")
+	asJSON := fs.Bool("json", false, "print one JSON object")
+	if err := fs.Parse(args); err != nil || !*suggest {
+		return lineproto.Usage(e.stderr, usage)
+	}
+	root, err := cwd()
+	if err != nil {
+		return reportError(e, err)
+	}
+	res, err := classify.Suggest(context.Background(), root, testmapInputs(), fs.Args())
+	if err != nil {
+		return reportError(e, err)
+	}
+	if *asJSON {
+		if err := lineproto.NewWriter(e.stdout, true).Emit(struct {
+			Suggestions []classify.Suggestion `json:"suggestions"`
+		}{res}); err != nil {
+			return reportError(e, err)
+		}
+		return lineproto.ExitOK
+	}
+	var lines [][]string
+	for _, s := range res {
+		lines = append(lines, []string{"CLASSIFY", s.Test, s.Kind, s.Reason})
+	}
+	return printLines(e, lines)
+}

@@ -40,6 +40,20 @@ type UnitAnnotation struct {
 	Runner string   `json:",omitempty"` // `testmap:runner <name>`; "" = the bindings decide
 	Batch  string   `json:",omitempty"` // `testmap:batch yes|no`; "" = unset
 	Needs  []string `json:",omitempty"` // `testmap:needs <resource>…`, every line's names in file order
+
+	// The scoped keys (a named extension of M2.2, filled by M2.5): the kind,
+	// the area names and the scope / trigger globs of a broad test, its
+	// review date, and a helper's `reads` globs — every line's arguments in
+	// file order. The vocabulary and the placement rules are M2.5's
+	// (BuildScoped), not the parser's.
+	Kind       string   `json:",omitempty"` // `testmap:kind <word>`; "" = unset
+	Areas      []string `json:",omitempty"` // `testmap:area <name>…`
+	Scopes     []string `json:",omitempty"` // `testmap:scope <glob>…`
+	Triggers   []string `json:",omitempty"` // `testmap:trigger <glob>…`
+	Reviewed   string   `json:",omitempty"` // `testmap:reviewed <YYYY-MM-DD>`
+	Reads      []string `json:",omitempty"` // `testmap:reads <glob>…` (helpers only)
+	ScopedLine int      `json:",omitempty"` // first kind / area / scope / trigger / reviewed line
+	ReadsLine  int      `json:",omitempty"` // first reads line
 }
 
 // Cover is one `testmap:covers <source> [@<date>/<blob10>]` line. The stamp
@@ -118,6 +132,12 @@ func (e *InputError) Line() (string, error) {
 
 // ExitCode is the framework-error exit.
 func (e *InputError) ExitCode() int { return lineproto.ExitFramework }
+
+// ReadInputs runs both providers and validates what they return, exactly as
+// `scan` and `check` do (for verbs outside this package, e.g. `classify`).
+func ReadInputs(ctx context.Context, root string, in Inputs) ([]FileAnnotations, []Listing, error) {
+	return readInputs(ctx, root, in)
+}
 
 // readInputs runs both providers and validates what they return.
 func readInputs(ctx context.Context, root string, in Inputs) ([]FileAnnotations, []Listing, error) {

@@ -446,14 +446,15 @@ Every line class is defined once. This table says where.
 | `ADOPT_REFUSED:` `ADOPT_SKIP:` `ADOPT_SUMMARY:` `WROTE:` `REJECT_REFUSED:` `ADOPTED_ORPHAN` | *The Adoption Model* → Placement |
 | `REVIEW_PAIR:` `REVIEW_ANCHOR:` `REVIEW_TEST:` `REVIEW_SOURCE:` `REVIEW_PROSE:` `REVIEW_MEMBER:` `REVIEW_END:` `REVIEW_BATCH:` `REVIEW_MEMO:` `VERDICT:<id>\|…` `VERDICT_INVALID:` `VERDICT_STALE:` `REVIEW_APPLIED:` `REVIEW_PARKED:` `REVIEW_HUMAN:` `UNSURE:` `REVIEW_AGREEMENT:` `REVIEW_ORIGIN_DEMOTED` `CALIBRATION:` | *The Agent Review Pass* |
 | `AUTHOR_STAMPED:` `AUTHOR_REFUSED:` `AUTHOR_UNCORROBORATED:` | *The Agent Review Pass* → The authoring site; component *Author annotation* |
-| `FRAMEWORK:` `UNIVERSE:` `UNLISTED:` `AGGREGATE_RUNNER:` `SERIAL_LIST:` `RESOURCE_HINT:` `SUITE_CANDIDATE:` `RUNNER_SCRIPT_NEEDED:` `DETECT_DIFF:` `DETECT_UNKNOWN` `UNREGISTERED:` `CLASSIFY:` `KIND_PROPOSALS:` `FINISH:` `SCAFFOLD_TODO` | component *Onboarding verbs*; *Onboarding* |
+| `FRAMEWORK:` `UNIVERSE:` `UNLISTED:` `AGGREGATE_RUNNER:` `SERIAL_LIST:` `RESOURCE_HINT:` `SUITE_CANDIDATE:` `RUNNER_SCRIPT_NEEDED:` `DETECT_DIFF:` `DETECT_UNKNOWN` `UNREGISTERED:` `CLASSIFY:` `KIND_PROPOSALS:` `FINISH:` `SCAFFOLD_TODO` | component *Onboarding verbs*; *Onboarding* (`CLASSIFY:` in component *Scoped-row registry and areas*) |
+| `AREA:` `AREAS:` `AREA_IMPORT:` `CODEMAP_ABSENT:` | component *Scoped-row registry and areas* |
 | `run`'s wave lines, per-id result lines and mechanism-failure lines; the `schedule` report and `schedule --check` lines; `costs` lines and `GATE_TIMEOUT_SUGGESTED:` | components *Runner contract*, *Scheduler and resources* (M3.1, M3.3); *Cost ledger* (M3.4) — line names fixed by those submodules |
 | `SURFACE` `EDGES` `STALE_PATH` `STALE` `EVIDENCED` `UNSTAMPED` `STALE_AREA` `REVIEW_DUE` `UNKNOWN` `DISPLAY` `DECISION` `CHECK_STRUCTURAL:` `SEEDED:` `ADOPTED:` | component *Staleness tool* |
 | `PREDICTION_SCORED:` `PREDICTION_FALSE_NEGATIVES:` `PREDICTION_MISSED:` `REJECTION_CONTRADICTED:` `LEVEL:` `NEXT:` `ADOPTED_UNREVIEWED:` `AGENT_ADOPTED:` | component *Feedback tools* |
 | `UNMAPPED_SOURCE:` `ESCALATE:` `DEFERRED:` `edge(…)` `adopted(…)` `axis(…)` `test-dep` `reads(…)` | component *Selector* |
 | `STAMP:` `STAMP_SKIP:` `STAMP_REFUSED:` `STAMPS:` `ANNOT_INVALID:` `REWRITE_CONFLICT:` `RESTAMP_HOOK_ERROR:` (`annotate`, `verify`; `WROTE:` reused) | component *Annotation scanner and rewriter* |
 | `SUGGEST:` `SUGGESTS:` `SUGGEST_REFUSED:` `FROM_BODY:` `FROM_BODY_REFUSED:` `SCANNER_ERROR:` (`annotate --suggest`, `annotate --from-body`, any scan) | component *Dependency scanners* |
-| check rules `STALE_PATH` … `CONTRACT_MISMATCH`, `UNCOVERED_VALUE:` `UNMAPPED_ARTIFACT:` `DEAD_*` `UNKNOWN_VARIANT`, `OWNS_VIOLATION:` `DUPLICATE_RULE:` `WAIVER_EXPIRED:` `SCAN_DRIFT:` `SCAN:` `CHECK:` `REGISTRY_INVALID:` `INPUT_UNAVAILABLE:` `INPUT_ERROR:` `CHECK_ERROR:` | component *Registry loader*; *Enumeration and reconciliation* |
+| check rules `STALE_PATH` … `CONTRACT_MISMATCH`, `UNCOVERED_VALUE:` `UNMAPPED_ARTIFACT:` `DEAD_*` `UNKNOWN_VARIANT`, `KIND_MISMATCH:` `SCOPE_CONFLICT:` `SCOPE_INVALID:` `OWNS_VIOLATION:` `DUPLICATE_RULE:` `WAIVER_EXPIRED:` `SCAN_DRIFT:` `SCAN:` `CHECK:` `REGISTRY_INVALID:` `INPUT_UNAVAILABLE:` `INPUT_ERROR:` `CHECK_ERROR:` | component *Registry loader*; *Enumeration and reconciliation* |
 | `ENGINE:` `CONTRACT_MISMATCH` `TESTMAP_BINARY:skipped` `AITASKS_HOME:` `HOME_*` | components *Engine binary*, *Engine install*, *Framework home* |
 <!-- /section: architecture -->
 
@@ -696,7 +697,7 @@ Everything that reads and writes `aitestmap/` without running a test.
 | **M2.2** Annotation grammar and rewriter | grammar v3 (`testmap:unit` blocks and every key), per-language comment leaders incl. Python docstrings read-only, unknown-key refusal, the line-targeted rewriter with `REWRITE_CONFLICT`, fixed per-language insertion positions, `annotate` (`--suggest` / `--from-body` land from M2.3, `--author` from M7.4), `verify`, a post-re-stamp hook in `annotate` and `verify` that M2.6 fills, the annotation source `scan` reads, `# Covers:` prose never matched | `component_annotation_scanner` | `internal/annot` (all but `--suggest`, `--from-body` and `--author`); verbs `annotate`, `verify`; golden files for placement per language | the only writer of `testmap:` lines; the stamp format | M2.1 |
 | **M2.3** Dependency scanners | bash, python, go (the `go list` result cached under a key that changes with any Go source's import set, not `go.sum` alone), kotlin (opaque contract), Gradle module graph, plugin protocol under `aitestmap/scanners/`, the opt-in `android-res` symbol scanner, the XDG blob cache, the exported facts (`static:invocation` / `static:import` / `static:package`, anchor lines, declared symbols); `annotate --suggest` (from the closure) and `annotate --from-body` (from the Kotlin symbol resolution) as named extensions of M2.2's `internal/annot` | `component_dependency_scanners` | `internal/deps`; the `--suggest` / `--from-body` arms in `internal/annot`; one fixture per opaque branch (red-proved); a red-proved fixture for a changed local Go import under an unchanged `go.sum` | the closure for the selector; the facts for the seeder and the packet writer; `annotate --suggest` / `--from-body` | M1.2, M2.2 |
 | **M2.4** Axes and variants | `axes.yaml` and the axes table in the loader, the runner-side `axis:` / `token_format:` (a named extension of M3.1's `describe` parse), `<unit>@<value>` ids, the facet join and forced-facet resolution (the `--axis` flag is parsed by M4.1's `select`), `axes --list\|--check\|--explain`, the three axis check rules `DEAD_AXIS_SOURCE` / `UNKNOWN_VARIANT` / `UNCOVERED_VALUE` | `component_variant_axes`, `component_axes` | `internal/axes`; verb `axes` | variant expansion for the selector and evidence | M2.1, M3.1 |
-| **M2.5** Scoped rows and areas | `_scoped.yaml`, `registry/areas.yaml` and `areas:` blocks, `areas --import-codemap`, `owns:` by area name, kind ranking data, triggers, `reads`, `DEAD_SCOPE` / `KIND_MISMATCH\|CONVERT_TO_SUITE`, `classify --suggest` with the source-set / directory-convention and resource signals and `fanout:<n>` (the recorded-p95 signal lands from M6.4), the digest-exemption of scoped rows | `component_suite_registry`, `component_broad_test_scopes` (registry half) | the scoped tables in `internal/registry`; verbs `areas`, `classify --suggest` | the scoped join and the kind vocabulary | M2.1 |
+| **M2.5** Scoped rows and areas | `_scoped.yaml`, `registry/areas.yaml` and `areas:` blocks, `areas --import-codemap`, `owns:` by area name, kind ranking data, triggers, `reads`, `DEAD_SCOPE` / `KIND_MISMATCH\|CONVERT_TO_SUITE`, `classify --suggest` with the source-set / directory-convention and resource signals and `fanout:<n>` (the recorded-p95 signal lands from M6.4), the digest-exemption of scoped rows | `component_suite_registry`, `component_broad_test_scopes` (registry half) | the scoped tables in `internal/registry`; `internal/classify` (the `classify --suggest` engine `onboard classify` wraps); verbs `areas`, `classify --suggest` | the scoped join and the kind vocabulary | M2.1 |
 | **M2.6** Adoption tables | the `seeds` and `adopted` tables in the loader, `onboard.yaml`'s `rejections[]` / `reviews[]` / `kind_proposals[]` / `calibration[]` as read tables, the load rules `SEED_SHADOWED` / `ADOPTED_ORPHAN` / absent-`by:`-is-human, the write routing for every verb that touches the three files, `SEEDED:` / `ADOPTED:` counts on `check`, the fill of M2.2's post-re-stamp hook (an automated re-stamp refreshes the matching `adopted.yaml` row and keeps its `by:`; only an explicit human actor deletes it) | `component_registry_loader` (adoption half), `component_adoption_ledger` (data-model half) | the two tables in `internal/registry`; the `onboard.yaml` reader; golden tests for the `by:` merge and the shadow rule | the seeded-edge and adopted-edge rows the selector, `stale`, `readiness` and the `onboard` verbs read and write | M2.1, M2.2 |
 
 #### M3 — Runners, scheduling and cost
@@ -1170,8 +1171,8 @@ source-set or directory convention (`androidTest/`, `androidDeviceTest/`,
 `*_live.py`, `*_integration.sh`, `parity/`), a resource named in the file
 (tmux, `App.run_test`, `install.sh --dir`, real `.git` use, emulator, docker,
 network) — plus `fanout:<n>` above `unit_covers_max`, each printed as the
-reason on `CLASSIFY:<test>|<kind>|<reason>`, with areas from the closure's
-directories intersected with `code_areas.yaml`. `SEED_BATCH_NO` comes from an
+reason on `CLASSIFY:<test>|<kind>|<reason>`, with the areas whose globs
+match the closure (the areas table, seeded from `code_areas.yaml`). `SEED_BATCH_NO` comes from an
 aggregate runner's serial list; `SEED_MEMBER` and `SEED_AXIS` from the grid
 heuristic. Kind changes are confirmed individually, never per class and
 never by an agent, because a wrong kind changes staleness semantics rather
@@ -2675,7 +2676,8 @@ other than absence, or a failing input aborts the run with
 
 `registry/areas.yaml` plus `areas:` blocks in hand files, seedable via `areas
 --import-codemap`; `_scoped.yaml` rows `{test, kind, runner, areas, globs,
-triggers, reads_from, needs, reviewed_at, line}`; `owns:` by area name for
+triggers, needs, reviewed_at, line}` plus a `reads` table `{helper, globs,
+line}`; `owns:` by area name for
 hand-declared rows; the distance-1 join, kind ranking, the suite budget
 (`suite_budget_s` default 600) with `DEFERRED` lines and budget-exempt
 triggers; check rules including `DEAD_SCOPE` and
@@ -2688,6 +2690,98 @@ a resource declaration or use in the file) plus `fanout:<n>` above
 `CLASSIFY:<test>|<kind>|<reason>` line; `onboard classify --apply |
 --propose` (M6.4) is the consumer. The recorded-p95 signal needs the cost
 ledger (M3.4), so it lands with M6.4 as a named extension of this verb.
+
+**The tables, the rules and the verbs (M2.5).**
+
+*Tables.*
+- `registry/areas.yaml` is `{contract, areas: {<name>: {paths: [<glob>…]}}}`;
+  a hand file's `areas:` block has the same shape, and every file's globs for
+  a name are unioned. An area name carries no `/`, `#`, `@`, `|`, whitespace
+  or glob metacharacter, so an `owns:` entry naming an area is never read as a
+  pattern.
+- A hand file's `scopes:` rows are `{test, kind, areas, globs, triggers,
+  reviewed_at}`. A hand row carries no `runner` or `needs`: those are per-test
+  keys of the test's annotations and the runner bindings. A row naming a
+  variant is refused.
+- `_scoped.yaml` is generated by `scan --apply` from the annotations. A
+  block's kind is its own `testmap:kind`, else its file-level block's, else
+  `unit`. Every broad block that carries `testmap:area` / `scope` / `trigger`
+  lines becomes one row, with its `runner` and `needs` (a member inherits the
+  file-level values). A file's `testmap:reads` lines become one `reads` row.
+- `reads_from` is computed at join time, not persisted: a helper's reads globs
+  reach every unit whose test-file closure contains the helper, and a closure
+  changes with any import edit.
+- `scan` and `check` refuse, as `INPUT_ERROR:annotations|<path>:<line>:
+  <reason>` (exit 3), any of these annotations:
+  - a kind outside `unit | integration | e2e | device`;
+  - a member kind that differs from a broad file-level kind (a file has one
+    broad kind);
+  - area / scope / trigger on a unit-kind block;
+  - an own broad kind with none of them, unless it restates its file's kind;
+  - `reads` in a file some runner lists, or in a block with a kind;
+  - a broad unit that a runner lists with variants;
+  - any row the loader would refuse (an area name with `/`, a glob
+    metacharacter or `@`, a `needs` or `runner` name with `#` or `@`), so the
+    generated file always loads.
+- One **effective row** per test is what every consumer reads (the join, the
+  wave classifier's kind data, the digest exemption). Its areas, globs and
+  triggers are the union of every generated and hand row naming the test.
+  Runner, needs and line come from the generated row, and `reviewed_at` is the
+  latest date. Rows that disagree on the kind read as the lowest-ranked kind,
+  which ranks first and is cut last, so a conflict fails toward running more.
+  The conflict is reported. A unit's kind is its effective row's, else its
+  base's, else its file-level row's, else `unit`.
+
+*Rules.*
+- `DEAD_SCOPE` fails in three shapes:
+  - `DEAD_SCOPE:<file>|areas|<name>|<glob>` — an area glob matches no existing
+    file;
+  - `DEAD_SCOPE:<test>|area|<name>|undeclared` — a row names an undeclared
+    area;
+  - `DEAD_SCOPE:<test>|scope|<glob>|empty` — a scope glob matches no existing
+    file.
+  Triggers are not judged.
+- `KIND_MISMATCH:<test>|<n>|CONVERT_TO_SUITE` — a unit-kind test with more than
+  `unit_covers_max` distinct covered sources. It warns, and fails under
+  `--strict` past `bootstrap_until`.
+- `OWNS_VIOLATION:<file>|scopes|<area or path>` — a hand row naming an area
+  its file's `owns:` does not list by name, or reaching an existing file no
+  `owns:` glob matches.
+- `SCOPE_CONFLICT:<test>|kind|<kind>@<file>,…` fails.
+- `SCOPE_INVALID:<test>|<file>|variant-bearing` fails: a hand row makes a
+  variant-bearing unit broad.
+- `SCAN_DRIFT:aitestmap/registry/_scoped.yaml` is reported like the
+  `_scanned.yaml` drift.
+- A `testmap:reads` helper is never `UNREGISTERED`; the test of a hand
+  `scopes:` row is an `UNREGISTERED` candidate, like a declared edge's.
+
+*Verbs.*
+- `areas [--list]` prints `AREA:<name>|<globs>|<files>|<rows>`, then
+  `AREAS:<n>`.
+- `areas --import-codemap [--apply]` reads `aitasks/metadata/code_areas.yaml`
+  (never running its generator), flattens `children`, and maps each area to
+  `<path>/**`. It prints `AREA_IMPORT:<name>|<glob>|added|kept|differs`; an
+  existing area is never rewritten. `--apply` adds the new areas to
+  `registry/areas.yaml`, keeping its comments. A missing map is
+  `CODEMAP_ABSENT:<path>` (exit 2).
+- `classify --suggest [<test>…]` covers every annotated or listed test file
+  when none is named, and writes nothing. An `exclude:`d file or a
+  `testmap:reads` helper is not a test: it is left out of that default and
+  refused when named. A file a runner lists with variants (its own or a
+  member's), or whose member blocks declare a kind other than the proposed
+  one, is never suggested a broad kind. Targets are read without following a
+  symbolic link on any component: a named target reached through one is
+  refused, a default one skipped. A `CLASSIFY:` line is printed when
+  the highest kind among the signals outranks the test's current kind.
+  - The reason is `;`-joined tokens: `convention:<glob>`,
+    `resource:<name>` / `resource:needs:<name>`, `fanout:<n>`, then
+    `areas:<a>,<b>`.
+  - `fanout` counts the non-helper subjects: the direct deps, with helpers
+    walked one level.
+  - The areas are those of the areas table (seeded from `code_areas.yaml`)
+    whose globs match a file of the closure.
+  - `internal/classify` exposes `RegisterSignal`, through which M6.4 adds the
+    recorded-p95 signal.
 <!-- /section: component_suite_registry -->
 
 <!-- section: component_broad_test_scopes [dimensions: component_broad_test_scopes] -->
