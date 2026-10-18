@@ -122,3 +122,40 @@ check rules, the distance-1 scoped join M4.1 will call, and the `areas` and
 ## Step 9 reference
 
 Post-implementation follows the shared task-workflow Step 9 (archival; current branch, no merge).
+
+## Final Implementation Notes
+
+- **Actual work done:** every planned step landed, plus both inline risk phases.
+  - `registry/scoped.go`: the kind vocabulary, the areas / `scopes:` / `_scoped.yaml` / reads tables and their loaders, `BuildScoped`, effective rows, `KindOf`, `DigestExempt`, `AreaOwner`, `ReadsHelper`.
+  - `registry/rules_scoped.go`: DEAD_SCOPE, KIND_MISMATCH, OWNS_VIOLATION (scopes), SCOPE_CONFLICT, SCOPE_INVALID, the `_scoped.yaml` SCAN_DRIFT, and a per-run memo of the live view.
+  - `registry/scoped_join.go`: `Join`, with `reads_from` computed at join time.
+  - `registry/areas_import.go`: `ReadCodemap`, `ImportCodemap` (fresh render, or a `yaml.Node` append that keeps comments) and `ListAreas`.
+  - New package `internal/testmap/classify`: the `Suggest` engine, `Subjects`, `RegisterSignal`, the built-in convention / resource / fanout signals.
+  - Verbs `areas` and `classify` in `verbs.go`.
+  - Named extensions: `Scan` writes `_scoped.yaml` and reports drift per file; `Check` passes an `*InputError` through; `UnitAnnotation` gains the scoped fields; `ReadInputs` is exported; `annot` `toRegistry` fills the fields; `annot.ReadFileNoFollow` is exported; UNREGISTERED exempts reads helpers and includes hand `scopes:` tests.
+  - Docs: the goengines README layout and interfaces rows; the proposal (Module Map owns cell, a component definitions paragraph, the line-protocol index).
+- **Deviations from plan** (each found in review, each with a red-proved regression test):
+  1. `BuildScoped` runs the loader's own row validation on every generated row, so `_scoped.yaml` always loads and a bad annotation is refused before anything is written.
+  2. `classify` eligibility is one rule for default and named targets:
+     - excluded files and reads helpers are left out of the default universe, refused when named;
+     - variant-bearing files are never suggested a broad kind;
+     - a file-kind proposal that contradicts an explicit member kind is suppressed;
+     - targets are read without following links.
+  3. UNREGISTERED: reads helpers are exempt (found while building the e2e fixture), and hand `scopes:` tests are candidates.
+  4. The e2e `_scoped.yaml` comparison is an inline expected string, not a testdata golden.
+- **Issues encountered:**
+  - M2.1's `load_test.go` pinned `_scoped.yaml`, `areas.yaml` and the `scopes` / `areas` keys as refused until registered; those cases were removed, with a comment pointing to `scoped_test.go`.
+  - `annot/source_test.go` pinned that `kind` did not reach the registry; its expected value was updated.
+  - Rule output order follows registration order (DEAD_SCOPE before KIND_MISMATCH).
+- **Key decisions:**
+  - Kind conflicts across rows read as the lowest-ranked kind (fail toward running more) and are reported.
+  - Mixed-kind files are refused, so persisting broad rows only cannot lose an explicit member override.
+  - Hand rows carry no runner / needs.
+  - An area name carries no glob metacharacter, so `owns:` can list it unambiguously.
+  - `areas --check` is dropped (it would duplicate `check`).
+  - M2.5 does not register the wave classifier (M3.3 does; a second registration panics).
+- **Upstream defects identified:** None
+- **Notes for sibling tasks:**
+  - M2.4 (t1853_4): `UnitAnnotation` gained `Kind`, `Areas`, `Scopes`, `Triggers`, `Reviewed`, `Reads`, `ScopedLine` and `ReadsLine`, filled in `annot/source.go` `toRegistry`; add the axis fields alongside. `registry.ReadInputs` is exported for verbs outside the package.
+  - M2.6 (t1853_6): rules register from `init()` in their own files and run in registration order. `Check` passes an `*InputError` from a rule through as INPUT_ERROR. A per-run memo can live on an unexported `CheckContext` field.
+  - The `_scoped.yaml` golden is at `registry/testdata/scoped/`; `-update` rewrites the registry goldens.
