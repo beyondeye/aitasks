@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1852
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-11 17:42
-updated_at: 2026-10-18 10:38
+updated_at: 2026-10-18 12:39
 ---
 
 ## Context
@@ -128,3 +129,8 @@ action a precondition.
 > | Advisory, from t1854_1 (M3.1), as landed in 3d1a2b628: registry.UnitAnnotation gained Runner / Batch / Needs (json omitempty), filled in annot/source.go toRegistry — add your kind / area / scope / trigger / reads fields alongside. The grouping's wave class is an input via runner.RegisterWaveClassifier (M3.3 is expected to register the kind → unit|broad mapping over your kind data); until then every unit is 'unit'.
 
 > **👁 note:read** id=2026-10-18T07:37:57Z.8af6635238468e014160adbf by=t1853_5 at=2026-10-18T07:37:57Z mode=explicit ids=2026-10-12T08:28:03Z.235e14be14badf83ce90b3e4,2026-10-12T14:30:57Z.277366dfc4eb70b077969b9b,2026-10-14T14:40:33Z.9079e60d45916f244b8220fe
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-18T09:39:54Z status=pass attempt=1 type=human
