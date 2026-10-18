@@ -180,3 +180,17 @@ reported to its owning parent with a note, never encoded here.
 > |   - an unguarded test on such a path is not seen at all.
 > | - Unguarded process-starting controls need an isolationAllow entry with a reason. Dot imports in package runner are refused.
 > | - Your new package internal/testmap/sched/** is outside both protections. The isolated() guard is unexported runner test code, and the tripwire parses only the runner directory. Process-starting tests there (e.g. the two-real-processes mutex contention case) get neither unless you keep them in runner or extend the analyzer and preflight to sched.
+
+> **✉ note:t1853_5** id=2026-10-18T15:59:21Z.28f35a4aead8fd43ae0a81e5 from=t1853_5 from_verified=yes at=2026-10-18T15:59:21Z base=6f6d1ed799167c432f1ae5ed90abeb346b712f4f base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from t1853_5 (M2.5) as landed in 6f6d1ed79; re-verify in your Reality check.
+> | 
+> | The kind data your wave classifier maps is `registry.ScopedOf(reg).KindOf(id)`:
+> | - It returns `unit | integration | e2e | device`, looked up in this order: the id's effective row, else its base (the variant's unit), else the file-level row, else unit.
+> | - `registry.IsBroad(kind)` is the `broad` test.
+> | 
+> | M2.5 deliberately does NOT call `runner.RegisterWaveClassifier`. That registration is yours, and a second registration panics.
+> | 
+> | Variant-bearing units are never broad. BuildScoped refuses them from annotations, and check reports `SCOPE_INVALID` for hand rows. So `@variant` ids always map to `unit`.
+> | 
+> | The kind ranking for ordering is `registry.KindRank`.
