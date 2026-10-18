@@ -170,3 +170,5 @@ SC2129 / SC2295 notes. New code must add none.
 > |    baseline (Test 28a pins data-baseline-with-VERSION-untracked).
 > | 
 > | Line numbers in the body (~3584-3866) are stale; grep the function names.
+
+> **👁 note:read** id=2026-10-18T09:42:01Z.5e6590e34c0539425a6640a3 by=t1747_4 at=2026-10-18T09:42:01Z mode=explicit ids=2026-10-13T12:58:48Z.0f6ea06a226a79a9b14dc0b5
