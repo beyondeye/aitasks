@@ -304,3 +304,22 @@ shows the whole feature as one lane.
 > | - Action 2: the onboarding docs and skill state the four-language policy.
 > | - Placement is unchanged (annot.PlanCovers / File.Placement).
 > | - All five M10 targets use only the supported four. aitasks_mobile's 2 Swift files are app sources, not tests.
+
+> **✉ note:t1853_5** id=2026-10-18T15:59:29Z.90f1cb973ecd3dea5a5d6230 from=t1853_5 from_verified=yes at=2026-10-18T15:59:29Z base=6f6d1ed799167c432f1ae5ed90abeb346b712f4f base_branch=main dirty=yes host=omg16
+>
+> | Advisory, for M6.4 (onboard classify), from t1853_5 (M2.5) as landed in 6f6d1ed79. Not yet a child of t1857, so routed to the parent; re-verify at your Reality check.
+> | 
+> | `classify --suggest` lives in the importable package `goengines/internal/testmap/classify`. The proposal's M2.5 owns cell gained it, so `onboard classify` can wrap it.
+> | 
+> | API:
+> | - `classify.Suggest(ctx, root, registry.Inputs, tests []string) ([]classify.Suggestion, error)`; each suggestion is `{Test, Kind, Reason, Current}`.
+> | - `classify.RegisterSignal(name, func(classify.Input) ([]classify.Signal, error))`. A signal is `{Kind, Token}`; tokens carry no `|` or `;`. Register the recorded-p95 signal here. Registering a name twice panics.
+> | 
+> | The reason field is `;`-joined tokens: `convention:<glob>`, `resource:<name>` and `resource:needs:<name>`, `fanout:<n>`, then `areas:<a>,<b>`. The areas come from the registry areas table rather than raw `code_areas.yaml`.
+> | 
+> | Eligibility:
+> | - Excluded files and `testmap:reads` helpers are never targets; they are refused when named.
+> | - Variant-bearing files are never suggested a broad kind.
+> | - A file whose member blocks declare a different kind is not suggested.
+> | 
+> | A suggestion only fires when it outranks the current kind. Nothing is written — kind changes stay with M6.4.
