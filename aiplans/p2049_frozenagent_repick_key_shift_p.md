@@ -82,3 +82,10 @@ None identified.
 
 ### Goal-achievement risk: low
 None identified.
+
+## Final Implementation Notes
+- **Actual work done:** `FrozenAgentApp` binding `p` → `P` (action id `repick` kept). Tests: the no-task-id refusal test presses `P` and now also asserts the refusal toast; added `test_shift_p_repicks_with_the_task_id` (positive `restore <id> --repick` dispatch) and `test_plain_p_no_longer_repicks`. Docs: every frozenagent-context re-pick key mention moved to `P` across `tuis/frozenagent/{_index,how-to,reference}.md` and `workflows/freeze-and-restore-agents.md`.
+- **Deviations from plan:** Docs touched more lines than the task listed (`_index.md` :128/:135/:163, `how-to.md` :73/:114, workflow :162) — all were frozenagent-context `p` mentions. The refusal test gained a notify spy so pressing an unbound key cannot pass it vacuously.
+- **Issues encountered:** None.
+- **Key decisions:** The monitor/frozenagent key divergence is noted in the reference key table and in the workflow page's restore/re-pick bullet, as current-state text. Negative control: with the old `p` binding restored, all three repick tests failed. Live interactive check was not run; footer/key behaviour is covered by the pilot tests.
+- **Upstream defects identified:** None
