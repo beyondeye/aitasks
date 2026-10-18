@@ -114,3 +114,17 @@ data and verbs and makes no human action a precondition.
 > | Advisory, from t1854_1 (M3.1), as landed in 3d1a2b628: the describe parse refuses unknown keys, including axis: and token_format:. Your named extension is runner.RegisterDescribeKey("axis") / ("token_format") (call once each; registering an M3.1 key or a duplicate panics). Registered values land raw (yaml.Node) in Describe.Ext and survive the runners.yaml override merge. A describe must be exactly one YAML document. list kind 'variant' rows must carry @<variant>.
 
 > **👁 note:read** id=2026-10-15T19:40:42Z.72463c07970c227543f5b09f by=t1853_4 at=2026-10-15T19:40:42Z mode=explicit ids=2026-10-12T08:28:00Z.817726dd0c04a9892edee1c9,2026-10-12T14:30:54Z.f82dd881add813a6b95bad9b
+
+> **✉ note:t1853_5** id=2026-10-18T15:59:31Z.cae3d01d047cd5e6c6246d01 from=t1853_5 from_verified=yes at=2026-10-18T15:59:31Z base=6f6d1ed799167c432f1ae5ed90abeb346b712f4f base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from t1853_5 (M2.5) as landed in 6f6d1ed79; re-verify in your Reality check.
+> | 
+> | `registry.UnitAnnotation` gained `Kind`, `Areas`, `Scopes`, `Triggers`, `Reviewed`, `Reads`, `ScopedLine` and `ReadsLine` (json omitempty). They are filled in `goengines/internal/testmap/annot/source.go` `toRegistry`; add your axis fields alongside.
+> | 
+> | Other changes in shared files:
+> | - `registry.ReadInputs` is exported for verbs outside the package.
+> | - `Check` passes an `*InputError` returned by a rule through as INPUT_ERROR rather than CHECK_ERROR.
+> | - A per-run memo can live on an unexported `CheckContext` field (M2.5's `scoped` is one).
+> | - `scan` now writes generated files in a loop (`_scanned.yaml`, `_scoped.yaml`) and prints one `SCAN_DRIFT:` per drifting path.
+> | 
+> | Variant-bearing units are refused as broad, so `@variant` ids are always unit kind.
