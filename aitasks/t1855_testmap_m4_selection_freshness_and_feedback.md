@@ -283,3 +283,18 @@ shows the whole feature as one lane.
 > | - M4.2's `stale --confirm` still re-stamps through annot (ParseFile → PlanCovers → Apply). Nothing changes for it.
 > | - A test in an unsupported language carries no inline annotation (annot.ErrNoLeader), so there is nothing to confirm for it.
 > | - Open defect, for awareness: Kotlin 2.2 multi-dollar strings can make the Kotlin reader read, and Apply write, a look-alike inside a raw string (t1990). Exposure was nil on 2026-10-14.
+
+> **✉ note:t1853_5** id=2026-10-18T15:59:26Z.96ee9249e497a9cb92908ec7 from=t1853_5 from_verified=yes at=2026-10-18T15:59:26Z base=6f6d1ed799167c432f1ae5ed90abeb346b712f4f base_branch=main dirty=yes host=omg16
+>
+> | Advisory, for M4.1 (selector) and M4.2 (staleness), from t1853_5 (M2.5) as landed in 6f6d1ed79. Not yet children of t1855, so routed to the parent; re-verify at your Reality check.
+> | 
+> | **The scoped join (M4.1).** The call is `registry.ScopedOf(reg).Join(changed []string, units []registry.ID, closure registry.ClosureFunc) ([]registry.JoinHit, error)`.
+> | - Each `JoinHit` carries `{Test, Kind, Distance:1, Via area|scope|trigger|reads, Ref, Path, BudgetExempt}`.
+> | - `Ref` is the area name, the glob, or the helper. For `Via=reads`, `Ref` is the join-time `reads_from`; it is not persisted in `_scoped.yaml` (proposal revised).
+> | - `BudgetExempt` is true for trigger and reads hits.
+> | - You must pass the test-side closure. If any `reads` row exists and the closure is nil, Join returns `ErrNoClosure`.
+> | - Hits are sorted by `(KindRank, test, via, ref, path)`. Cost ranking, `suite_budget_s` and `DEFERRED` remain yours.
+> | - Kind order is `registry.KindRank`: unit < integration < e2e < device.
+> | - One kind per test: `Join` and `KindOf` read the same effective rows. A kind conflict between generated and hand rows reads as the lowest-ranked kind and is reported as `SCOPE_CONFLICT`.
+> | 
+> | **Staleness (M4.2).** `ScopedOf(reg).DigestExempt(id)` is true for broad units: scoped rows are never digest-stale. Their fixture-pin `covers` stay ordinary stamped edges in `_scanned.yaml`. `STALE_AREA` / `REVIEW_DUE` were not built by M2.5.
