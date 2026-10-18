@@ -89,6 +89,10 @@ export PYTHONUNBUFFERED=1
 # test_codebrowser_startup_focus_live.py boots the real `ait codebrowser` in a
 # tmux pane under the same wall-clock budget, also against its own synthetic
 # project (a deliberately non-git one). Same budget rationale.
+# test_minimonitor_width_pin_live.py boots the real MiniMonitorApp in a tmux
+# pane TWICE (the fix and its pre-fix negative control), grows each window and
+# polls the companion's width against a deadline, so it needs the same
+# undisturbed boot budget.
 #
 # This list is DOCUMENTED in CLAUDE.md's `### Testing` section, inside the
 # `serial-carve-out:begin`/`:end` marker block, and the two are kept in agreement
@@ -98,7 +102,8 @@ export PYTHONUNBUFFERED=1
 # block shows them `tests/`-prefixed, and the guard normalizes both sides.
 SERIAL_CARVE_OUT=(test_board_header_row_live.py test_board_startup_focus_live.py
                   test_codebrowser_startup_focus_live.py
-                  test_minimonitor_bottom_pin_live.py)
+                  test_minimonitor_bottom_pin_live.py
+                  test_minimonitor_width_pin_live.py)
 
 is_carved() {
     local base="${1##*/}" c

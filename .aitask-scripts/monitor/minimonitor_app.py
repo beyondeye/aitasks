@@ -1482,7 +1482,11 @@ class MiniMonitorApp(
 
     def on_resize(self, event) -> None:
         """Re-pin the companion pane to its configured width on any resize."""
-        self._maybe_pin_width()
+        # `event.size`, never `self.size` (t2050). Textual 8.2.7 dispatches this
+        # subclass handler BEFORE `App._on_resize` stores the new size, so
+        # `self.size` here is still the PREVIOUS one — a 40 -> 135 growth read
+        # as 40 and the pin never fired.
+        self._maybe_pin_width(event.size.width)
         self._schedule_short_mode_refresh()
 
     def _schedule_short_mode_refresh(self) -> None:
@@ -1532,13 +1536,17 @@ class MiniMonitorApp(
                 "short",
             )
 
-    def _maybe_pin_width(self) -> None:
+    def _maybe_pin_width(self, width: int) -> None:
         """Clamp this minimonitor's companion pane back to its target width.
+
+        ``width`` is the pane's NEW width, from the Resize event — see
+        ``on_resize`` for why it cannot be read off ``self.size``.
 
         tmux stores window layout as proportions, so on a window resize (live,
         or detach -> resize terminal -> reattach) it rescales every pane to the
         same fraction of the new width — a pane spawned at ``target_width``
-        columns drifts wider. Re-pin it whenever we exceed the target.
+        columns drifts wider. Re-pin it whenever we exceed the target. A pane
+        NARROWER than the target is left alone.
 
         Self-terminating: after the resize the pane width equals the target, so
         the follow-up Resize event returns early. If the window is too narrow
@@ -1550,7 +1558,7 @@ class MiniMonitorApp(
         own_pane = os.environ.get("TMUX_PANE")
         if not own_pane:
             return
-        if self.size.width <= self._target_width:
+        if width <= self._target_width:
             return
         self._monitor.resize_pane(own_pane, x=self._target_width)
 
