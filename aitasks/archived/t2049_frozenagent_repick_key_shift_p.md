@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: enhancement
-status: Implementing
+status: Done
 labels: [frozen, shortcuts, tui]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -15,7 +15,8 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus5_5
 created_at: 2026-10-18 10:34
-updated_at: 2026-10-18 10:39
+updated_at: 2026-10-18 10:52
+completed_at: 2026-10-18 10:52
 ---
 
 ## Goal
@@ -77,3 +78,14 @@ press less likely and pairs it with `R` (Restore), which is already uppercase.
 > **✅ gate:plan_approved** run=2026-10-18T07:39:03Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-10-18T07:46:42Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-10-18T07:52:54Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:3823c36aeaf8ba90
+
+> **✅ gate:risk_evaluated** run=2026-10-18T07:52:54Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/2049/risk_evaluated_2026-10-18T07:52:54Z-risk_evaluated-a1.log`
