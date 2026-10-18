@@ -134,3 +134,20 @@ again. That covers restored windows, any growth, and drags wider.
   detached session. Both go through tmux's layout resize, and the legacy control
   proves the fixture reproduces the ~135 drift. Shrink restoration is deliberately
   out of scope (deferred to the follow-up) · severity: low · → mitigation: none
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-18 13:05)
+- **Requested by user:** quote the live test's pane command (a temp dir with a space never started the harness), and register the tmux-server cleanup before setup (a failing `split-window` leaked the isolated server).
+- **Changes made:** the pane command is built with `shlex.join` and the stderr redirect target uses `shlex.quote`; `addCleanup(run.__exit__)` now comes before `run.__enter__()`. Verified with `TMPDIR` containing a space, and with an injected `split-window` failure (the server is gone after `doCleanups`).
+- **Files affected:** `tests/test_minimonitor_width_pin_live.py`
+
+## Final Implementation Notes
+- **Actual work done:** `on_resize` passes `event.size.width` to `_maybe_pin_width(width)`, which keeps t978's rule (correct only when wider). New pilot unit tests (`tests/test_minimonitor_width_pin.py`, 6 cases) drive a real `events.Resize` through `Pilot.resize_terminal`, so `self.size` is really stale inside the handler. A new live module (`tests/test_minimonitor_width_pin_live.py` plus `tests/lib/minimonitor_width_pin_harness.py`) splits at 40 into a detached 80x24 window and grows it to 270. The fixed run returns to 40; the pre-fix control (`AIT_T2050_LEGACY_PIN=1`) stays wide. The live module is added to `SERIAL_CARVE_OUT` and to the CLAUDE.md carve-out block, and the manifest-size pins in `tests/test_serial_carveout_doc_drift.sh` go from 4 to 5.
+- **Deviations from plan:** the plan went through three review rounds. Rounds 1 and 2 added shrink restoration: first app-side window-width history, then a window-scoped tmux `window-resized` hook. The user then cut scope to the stale-size fix plus the growth case, and shrink restoration was deferred to a follow-up task. Not in the plan: the drift guard's hardcoded manifest counts (4 → 5) had to move with the new carve-out entry.
+- **Issues encountered:** none in the fix itself. Positive controls: on a scratch copy with `self.size.width` restored, 3 of the 6 unit tests fail (both growth cases, and a resize down to exactly the target, which the stale read misjudges the other way), and the live fixed run fails with exactly the reported `135 != 40`.
+- **Key decisions:**
+  - The harness overrides `_maybe_pin_width`, not `on_resize`, because Textual runs every class's `on_resize` in the MRO.
+  - The harness pops `TMUX`, so the real `on_mount` takes its early return (no marker, no refresh, no auto-close), and installs a real `TmuxMonitor` itself.
+  - `ait ide`'s restore-before-attach path is unchanged: a restored window corrects itself on first view.
+- **Upstream defects identified:** None
