@@ -12,8 +12,9 @@ active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1599
 followup_kind: risk_mitigation
+implemented_with: claudecode/opus5_5
 created_at: 2026-09-08 12:46
-updated_at: 2026-10-18 16:54
+updated_at: 2026-10-18 18:58
 ---
 
 ## Origin
@@ -105,3 +106,8 @@ evidence — either do it here deliberately or state it as an explicit bound.
   hint contains `rebase`. (Asserting only "MERGE_HEAD survived" is insufficient —
   the wrong design also left it in place and merely described it wrongly.)
 - Re-run `tests/test_task_git.sh` Test 16 unchanged.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-18T15:58:51Z status=pass attempt=1 type=human
