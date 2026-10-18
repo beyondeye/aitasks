@@ -431,13 +431,13 @@ In `upsert`, when `restore_of` names a record that is already **`live`**:
   - the **hook would run with the daemon's environment** — no `TMUX_PANE`, or another
     pane's — and could upsert the wrong pane's record. This plan does not guard that.
 
-  severity: medium · → mitigation: hook_pane_ancestry_guard
+  severity: medium · → mitigation: t2047
 - The fixture recapture and the live check need a real codex run with working auth. If
   the live run is unavailable, item 1 cannot be finished as specified · severity: low ·
   → mitigation: none
 
 ### Planned mitigations
-- timing: after | name: hook_pane_ancestry_guard | type: enhancement | priority: medium | effort: medium | inline_risk: medium | added_complexity: medium | addresses: goal-achievement — a daemon-routed codex TUI would hand the SessionStart hook the daemon's environment (wrong or missing TMUX_PANE) | desc: aitask_session_hook.sh refuses to record unless the pane's #{pane_pid} is an ancestor of the hook process (bounded ppid walk via ps); the hook tests' tmux stub reports an ancestor pid
+- timing: after | name: hook_pane_ancestry_guard | type: enhancement | priority: medium | effort: medium | inline_risk: medium | added_complexity: medium | addresses: goal-achievement — a daemon-routed codex TUI would hand the SessionStart hook the daemon's environment (wrong or missing TMUX_PANE) | desc: aitask_session_hook.sh refuses to record unless the pane's #{pane_pid} is an ancestor of the hook process (bounded ppid walk via ps); the hook tests' tmux stub reports an ancestor pid | created: t2047
 
 ## Post-Review Changes
 
