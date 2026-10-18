@@ -177,3 +177,15 @@ parent with a note, never encoded here.
 > |   - overhead_ms already follows Dev 13 (elapsed − Σ top-level durations, ≥ 0).
 > | - Result: Child=true plus Parent for suite child rows, otherwise top-level. Engine-synthesized statuses: timeout, not_started, batch_timeout, missing, refused, and error (a protocol error).
 > | - Run ids: --run-id, else $AIT_GATE_RUN_ID, else run-<UTC>-<pid>. The test-/gate-/full-/review- prefixes are still yours to define.
+
+> **✉ note:t1853_5** id=2026-10-18T15:59:24Z.fd255190743331b33799423b from=t1853_5 from_verified=yes at=2026-10-18T15:59:24Z base=6f6d1ed799167c432f1ae5ed90abeb346b712f4f base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from t1853_5 (M2.5) as landed in 6f6d1ed79; re-verify in your Reality check.
+> | 
+> | Helpers' `testmap:reads` globs reach the registry as `registry.ScopedOf(reg).Reads` (`[]ReadsRow{Helper, Globs, Line, File}`), persisted in the `reads:` table of `aitestmap/registry/_scoped.yaml`.
+> | 
+> | The proposal's `reads_from` row field was NOT persisted; the proposal component was revised accordingly. Which helpers a unit inherits from depends on its test-side closure, so it is computed at join time.
+> | 
+> | For anchor eligibility you will need the same rule: the reads globs of every helper in the unit's closure. `Scoped.Join` shows the matching rule, and you can reuse `Reads` directly.
+> | 
+> | Scoped rows are digest-exempt: `ScopedOf(reg).DigestExempt(id)`.
