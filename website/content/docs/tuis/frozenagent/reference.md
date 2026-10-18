@@ -24,7 +24,7 @@ Every key below can be rebound — press **?** for the in-place editor, or open
 | `ctrl+c` | Copy the selection | Same as `y`. With nothing selected it shows the quit hint; in the open search box it copies the text selected there. If you rebind it, `ctrl+c` still copies |
 | `g` / `G` | Jump to the top / bottom | |
 | `R` | Restore the agent | No confirmation |
-| `p` | Re-pick the task | No confirmation; needs a task id on the record |
+| `P` | Re-pick the task | No confirmation; needs a task id on the record. The monitors use `p`, because `P` is their frozen filter |
 | `k` | Drop the record | Confirms — this deletes the capture |
 | `Enter` | Open the highlighted record | List mode only |
 | `j` | TUI switcher | |
@@ -35,7 +35,7 @@ The footer advertises only `Keys`, `Quit`, `Plain/ANSI`, `Markdown`, `Search`,
 `Restore`, `Re-pick` and `Drop`, plus `Copy` (`y` and `ctrl+c`) while something
 is selected; the rest are bound but unlisted.
 
-While an operation is in flight on a record, that record's `R`, `p` and `k` are
+While an operation is in flight on a record, that record's `R`, `P` and `k` are
 disabled rather than queued.
 
 ## Header fields

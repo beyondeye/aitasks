@@ -61,10 +61,11 @@ usually not the cheaper one:
 - **R — restore** relaunches the agent with its recorded session. Worth it when
   the agent's *context* is what you want back: a long investigation, a
   half-finished conversation.
-- **p — re-pick** starts the task over with a fresh agent, which reads the task
+- **P — re-pick** starts the task over with a fresh agent, which reads the task
   file instead of replaying a long transcript. That is cheaper in tokens and in
   time, and for a task whose file already says everything that matters it loses
-  nothing.
+  nothing. On a frozen card in the monitors the same operation is **p**, because
+  there `P` is the parked/frozen filter.
 
 Each route needs something the other does not, and a record may carry only one:
 re-pick needs a **task id**, restore needs a recorded **session id**. An agent
@@ -159,7 +160,7 @@ To do the same without `ait ide`:
 ```
 
 You can also bring agents back one at a time from `ait frozenagent` list mode —
-it lists every frozen record across all projects, and **R** / **p** act on the
+it lists every frozen record across all projects, and **R** / **P** act on the
 highlighted row — or all at once:
 
 ```bash

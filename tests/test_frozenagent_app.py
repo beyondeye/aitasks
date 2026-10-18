@@ -1432,11 +1432,41 @@ class ActionArgvTests(_AppCase):
             capture_txt=str(self.fx.frozen / self.RECORD_ID / "capture.txt"),
         )])
         app = self.make_app()
+        seen: list[str] = []
+        original = app.notify
+
+        def spy(message, **kwargs):
+            seen.append(str(message))
+            return original(message, **kwargs)
+
+        app.notify = spy
+        async with app.run_test(size=(80, 20)) as pilot:
+            await pilot.press("P")
+            await pilot.pause()
+        self.assertEqual(self.tmux.run_shell_argvs(), [],
+                         "re-pick must issue no coordinator call without a task id")
+        # The refusal itself, so an unbound key cannot pass this vacuously.
+        self.assertTrue(any("no task id" in m for m in seen), seen)
+
+    async def test_shift_p_repicks_with_the_task_id(self):
+        app = self.make_app()
+        async with app.run_test(size=(80, 20)) as pilot:
+            await pilot.press("P")
+            await pilot.pause()
+        argvs = self.tmux.run_shell_argvs()
+        self.assertEqual(len(argvs), 1)
+        self.assertIn(f"aitask_frozen.sh restore {self.RECORD_ID} --repick",
+                      argvs[0][2])
+
+    async def test_plain_p_no_longer_repicks(self):
+        """t2049: re-pick moved to `P`; the default record HAS a task id, so a
+        still-bound `p` would dispatch here."""
+        app = self.make_app()
         async with app.run_test(size=(80, 20)) as pilot:
             await pilot.press("p")
             await pilot.pause()
         self.assertEqual(self.tmux.run_shell_argvs(), [],
-                         "re-pick must issue no coordinator call without a task id")
+                         "plain p must no longer re-pick")
 
     async def test_drop_argv_after_confirmation(self):
         app = self.make_app()

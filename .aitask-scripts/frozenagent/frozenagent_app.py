@@ -239,7 +239,7 @@ class FrozenAgentApp(TuiSwitcherMixin, ShortcutsMixin, App):
         Binding("g", "scroll_top", "", show=False),
         Binding("G", "scroll_bottom", "", show=False),
         Binding("R", "restore", "Restore"),
-        Binding("p", "repick", "Re-pick"),
+        Binding("P", "repick", "Re-pick"),
         Binding("k", "drop", "Drop"),
         Binding("enter", "open", "Open", show=False),
     ]

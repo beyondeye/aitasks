@@ -118,21 +118,21 @@ Three ways out of a frozen record, none of which is reversible in the same way:
 
 - **R — restore.** Relaunches the agent with its recorded session, in the pane
   the viewer is occupying.
-- **p — re-pick.** Starts the task fresh instead of replaying the old session.
+- **P — re-pick.** Starts the task fresh instead of replaying the old session.
   Often the cheaper choice: a new agent reads the task file rather than a long
   transcript. Only available when the record names a task — otherwise the viewer
   says `This record has no task id — restore instead`.
 - **k — drop.** Deletes the record *and* its capture, and closes the stand-in
   pane, leaving nothing running. It confirms first:
   `Drop the frozen record and its capture? This cannot be undone.` with a
-  **Drop** button. **R** and **p** do not confirm, because a failed attempt
+  **Drop** button. **R** and **P** do not confirm, because a failed attempt
   leaves the viewer and the capture where they were.
 
 **The capture is not preserved by choosing restore or re-pick.** Once the resumed
 agent identifies itself, the record deletes the transcript — the `restored`
 outcome below. The capture survives only when the attempt fails, or when it
 succeeds unverified (`restored, unverified — capture kept`). If you want to keep
-part of the output, copy it with **y** before you press **R** or **p**.
+part of the output, copy it with **y** before you press **R** or **P**.
 
 While a restore is in flight the header reads `dispatching…`; a drop reads
 `dropping…`. When it settles you get one of:
@@ -160,7 +160,7 @@ across every project, under the header `frozen records: <n>`:
 |---|---|---|---|---|---|
 
 Fields the record does not carry show `—`. **Enter** opens the highlighted record
-in the viewer; **R**, **p** and **k** act on the highlighted row, and more than
+in the viewer; **R**, **P** and **k** act on the highlighted row, and more than
 one can be in flight at once. Opening a record from the list deliberately does
 *not* make that pane the record's stand-in — it is a reader, not a replacement.
 

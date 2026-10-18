@@ -47,7 +47,7 @@ Two routes, and the cheaper one is usually not the obvious one:
 - **R — restore** relaunches the agent with its recorded session. Use it when the
   agent's context is the thing you want back: a long investigation, a
   half-finished conversation.
-- **p — re-pick** starts the task over with a fresh agent. Use it when the task
+- **P — re-pick** starts the task over with a fresh agent. Use it when the task
   file already says everything that matters. It is usually cheaper than replaying
   a long transcript.
 
@@ -70,7 +70,7 @@ it reads `dispatching…` while the attempt is in flight, then settles.
 **A successful, verified restore or re-pick does delete the capture.** Once the
 resumed agent identifies itself, the transcript has served its purpose and the
 record drops it — that is the `restored` outcome. If you want to keep any of the
-captured output, copy it out with **y** *before* pressing **R** or **p**.
+captured output, copy it out with **y** *before* pressing **R** or **P**.
 
 `restored, unverified — capture kept` is a **success**. It means the new agent is
 running but nothing positively confirmed it resumed the same session, so the
@@ -111,7 +111,7 @@ transcript while leaving you nothing running.
 It is not, however, the only way the capture goes away: a **verified** restore or
 re-pick deletes it too, once the resumed agent has identified itself. The capture
 survives only a failed restore or a liveness-only one. So if the transcript is
-what you want to keep, copy it out with **y** first — choosing **R** or **p** is
+what you want to keep, copy it out with **y** first — choosing **R** or **P** is
 not a way to preserve it.
 
 What the capture retains is the **tail** of the pane's scrollback, not
