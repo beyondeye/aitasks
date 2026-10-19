@@ -73,32 +73,59 @@ done
 
 # Every phase value reaches the reader intact, including a WRONG one: the reader
 # must not "correct" or reject a value that disagrees with the ledger.
-if [[ -n "${TMUX_PANE:-}" ]]; then
-    echo
-    echo "=== Layer 1b: a wrong / corrupt stamp is still served, never refused ==="
-    # shellcheck source=lib/tmux_exec.sh
-    source .aitask-scripts/lib/tmux_exec.sh
-    for phase in PLAN IMPLEMENT POSTIMPL UNKNOWN; do
-        # t1420 is recorded IMPLEMENT, so PLAN/POSTIMPL/UNKNOWN are all "wrong".
-        line="PHASE:$phase|WAITING:WAITING|SOURCE:workflow-prompt|CONSULTED:ledger,screen|RECORDING:on|DETAIL:injected"
-        ait_tmux set-option -p -t "$TMUX_PANE" @aitask_shadow_phase "$line" 2>/dev/null
-        out="$("$CAPTURE" --phase 1420 2>/dev/null)"; rc=$?
-        check "wrong phase $phase: exit 0" "0" "$rc"
-        check "wrong phase $phase: served verbatim" "1" \
-            "$(case "$out" in "PHASE:$phase|"*) echo 1 ;; *) echo 0 ;; esac)"
-    done
-    # A corrupt stamp must degrade to the ledger, not error out.
-    ait_tmux set-option -p -t "$TMUX_PANE" @aitask_shadow_phase 'total garbage' 2>/dev/null
-    out="$("$CAPTURE" --phase 1420 2>/dev/null)"; rc=$?
-    check "corrupt stamp: exit 0" "0" "$rc"
-    check "corrupt stamp: falls back to the ledger CLI" "1" \
-        "$(case "$out" in *"VIA:ledger-cli") echo 1 ;; *) echo 0 ;; esac)"
-    # ...and capture itself still works with a garbage phase stamp present.
-    "$CAPTURE" --phase >/dev/null 2>&1
-    check "capture path unaffected by a garbage phase stamp" "0" "$?"
-    ait_tmux set-option -pu -t "$TMUX_PANE" @aitask_shadow_phase 2>/dev/null
+#
+# Runs on a PRIVATE fixture server, never the invoking pane (t2043). Stamping
+# the ambient $TMUX_PANE through the gateway would overwrite — and then delete —
+# the real stamp on whatever gateway pane shares that id, which from a foreign
+# server is an unrelated pane; and the reader rightly refuses a stamp from a
+# server other than $TMUX's, so those checks would not even test the reader.
+# TMUX, TMUX_PANE and AITASKS_TMUX_SOCKET all name the fixture together.
+echo
+echo "=== Layer 1b: a wrong / corrupt stamp is still served, never refused ==="
+if ! command -v tmux >/dev/null 2>&1; then
+    echo "  SKIP layer 1b: tmux not available"
 else
-    echo "  SKIP layer 1b: not running inside a tmux pane"
+    FSOCK="ait_phasetest_$$"
+    trap 'tmux -L "$FSOCK" kill-server 2>/dev/null || true' EXIT
+    tmux -L "$FSOCK" new-session -d -x 80 -y 10 "sleep 60" 2>/dev/null || true
+    fpane=""
+    for _ in 1 2 3 4 5 6 7 8 9 10; do
+        fpane=$(tmux -L "$FSOCK" list-panes -F '#{pane_id}' 2>/dev/null | head -1 || true)
+        [[ -n "$fpane" ]] && break
+        sleep 0.1
+    done
+    # $TMUX is "<socket-path>,<server-pid>,<session-index>"; derive it from the
+    # fixture so the reader's same-server check sees this server as its own.
+    FTMUX=""
+    [[ -n "$fpane" ]] && FTMUX=$(tmux -L "$FSOCK" display-message -p -t "$fpane" \
+        '#{socket_path},#{pid},0' 2>/dev/null || true)
+    if [[ -z "$fpane" || -z "$FTMUX" ]]; then
+        echo "  SKIP layer 1b: could not start the fixture tmux pane"
+    else
+        f_phase() {
+            TMUX="$FTMUX" TMUX_PANE="$fpane" AITASKS_TMUX_SOCKET="$FSOCK" \
+                "$CAPTURE" --phase "$@" 2>/dev/null
+        }
+        for phase in PLAN IMPLEMENT POSTIMPL UNKNOWN; do
+            # t1420 is recorded IMPLEMENT, so PLAN/POSTIMPL/UNKNOWN are all "wrong".
+            line="PHASE:$phase|WAITING:WAITING|SOURCE:workflow-prompt|CONSULTED:ledger,screen|RECORDING:on|DETAIL:injected"
+            tmux -L "$FSOCK" set-option -p -t "$fpane" @aitask_shadow_phase "$line" 2>/dev/null
+            out="$(f_phase 1420)"; rc=$?
+            check "wrong phase $phase: exit 0" "0" "$rc"
+            check "wrong phase $phase: served verbatim" "1" \
+                "$(case "$out" in "PHASE:$phase|"*) echo 1 ;; *) echo 0 ;; esac)"
+        done
+        # A corrupt stamp must degrade to the ledger, not error out.
+        tmux -L "$FSOCK" set-option -p -t "$fpane" @aitask_shadow_phase 'total garbage' 2>/dev/null
+        out="$(f_phase 1420)"; rc=$?
+        check "corrupt stamp: exit 0" "0" "$rc"
+        check "corrupt stamp: falls back to the ledger CLI" "1" \
+            "$(case "$out" in *"VIA:ledger-cli") echo 1 ;; *) echo 0 ;; esac)"
+        # ...and capture itself still works with a garbage phase stamp present.
+        f_phase >/dev/null
+        check "capture path unaffected by a garbage phase stamp" "0" "$?"
+    fi
+    tmux -L "$FSOCK" kill-server 2>/dev/null || true
 fi
 
 # The plain ledger verb must never exit nonzero either — a shadow that cannot

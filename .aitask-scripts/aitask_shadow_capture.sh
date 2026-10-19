@@ -301,24 +301,20 @@ shadow_wait_self_target() {
     printf '%s' "$state"
 }
 
-# shadow_stamp_analyzed_at - when this process is running *inside a shadow pane*
-# and is capturing its bound followed agent, stamp the current wall-clock epoch
-# onto the shadow's own pane. Best-effort: any failure is swallowed so the
-# capture (the primary job) never breaks. Self-guarding: minimonitor's own
-# captures run from the minimonitor pane (no @aitask_shadow_target) and the stdin
-# path never reaches here, so they cannot mis-stamp. Since t1319 the binding is
-# additionally verified to live on the gateway server, so a same-numbered pane
-# on another tmux server can no longer be mistaken for our own.
-#   $1 = captured pane id
-#   $2 = optional pre-resolved shadow_self_target state (main resolves it once)
 # Read the advisory phase stamped on our own pane. Prints the raw line or
 # nothing. Same single display-message round-trip idiom as shadow_self_target,
 # and the same socket check: a stamp we cannot vouch for is not used.
+#
+# The reference socket MUST come from $TMUX (the server this process lives on),
+# never from an `ait_tmux` query: `ait_tmux` always addresses the gateway, so a
+# gateway-sourced reference equals the queried pane's socket by construction and
+# the check could never fire — a same-numbered gateway pane's stamp would then
+# be served to a shadow running on another server (t2043).
 shadow_self_phase() {
     local own_pane="${TMUX_PANE:-}"
     [[ -n "$own_pane" ]] || return 0
-    local own_sock="" out sock="" value=""
-    own_sock="$(ait_tmux display-message -p "#{socket_path}" 2>/dev/null || true)"
+    local own_sock="${TMUX:-}" out sock="" value=""
+    own_sock="${own_sock%%,*}"
     [[ -n "$own_sock" ]] || return 0
     out="$(ait_tmux display-message -p -t "$own_pane" \
         "#{socket_path}"$'\t'"#{${SHADOW_PHASE_OPTION}}" 2>/dev/null || true)"
@@ -357,6 +353,16 @@ shadow_report_phase() {
     return 0
 }
 
+# shadow_stamp_analyzed_at - when this process is running *inside a shadow pane*
+# and is capturing its bound followed agent, stamp the current wall-clock epoch
+# onto the shadow's own pane. Best-effort: any failure is swallowed so the
+# capture (the primary job) never breaks. Self-guarding: minimonitor's own
+# captures run from the minimonitor pane (no @aitask_shadow_target) and the stdin
+# path never reaches here, so they cannot mis-stamp. Since t1319 the binding is
+# additionally verified to live on the gateway server, so a same-numbered pane
+# on another tmux server can no longer be mistaken for our own.
+#   $1 = captured pane id
+#   $2 = optional pre-resolved shadow_self_target state (main resolves it once)
 shadow_stamp_analyzed_at() {
     local pane="$1"
     local state="${2-}"

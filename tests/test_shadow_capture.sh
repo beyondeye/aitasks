@@ -401,6 +401,30 @@ else
             xr="$(x_run --any-pane "$b_other")"
             assert_contains "cross-server --any-pane captures deliberately" \
                 "$OTHER_SENTINEL" "$xr"
+
+            # 8. --phase applies the same socket check (t2043). Stamp the
+            #    colliding gateway pane; a caller on server B must not be served
+            #    it as its own phase.
+            PHASE_SENTINEL="T2043_PHASE_SENTINEL"
+            tmux -L "$BSOCK" set-option -p -t "$b_shadow" @aitask_shadow_phase \
+                "PHASE:IMPLEMENT|WAITING:WAITING|SOURCE:workflow-prompt|CONSULTED:ledger|RECORDING:on|DETAIL:$PHASE_SENTINEL" \
+                2>/dev/null || true
+            xr="$(x_run --phase)"
+            assert_not_contains "cross-server --phase is not served the collided pane's stamp" \
+                "$PHASE_SENTINEL" "$xr"
+            assert_contains "cross-server --phase falls through to VIA:none" \
+                "VIA:none" "$xr"
+            # NEGATIVE CONTROL: the same stamp IS served to a same-server caller,
+            # so the assertion above discriminates on the socket check alone.
+            assert_contains "same-server --phase is served its own stamp" \
+                "$PHASE_SENTINEL" "$(b_cap "$b_shadow" --phase)"
+            assert_contains "same-server --phase reports VIA:pane-option" \
+                "VIA:pane-option" "$(b_cap "$b_shadow" --phase)"
+            # No $TMUX at all (a stale inherited TMUX_PANE) => cannot vouch.
+            xr="$(TMUX="" TMUX_PANE="$b_shadow" AITASKS_TMUX_SOCKET="$BSOCK" \
+                "$CAPTURE" --phase 2>/dev/null || true)"
+            assert_not_contains "--phase without \$TMUX is not served the stamp" \
+                "$PHASE_SENTINEL" "$xr"
             tmux -L "$XSOCK" kill-server 2>/dev/null || true
         fi
 
