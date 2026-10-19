@@ -298,3 +298,20 @@ shows the whole feature as one lane.
 > | - One kind per test: `Join` and `KindOf` read the same effective rows. A kind conflict between generated and hand rows reads as the lowest-ranked kind and is reported as `SCOPE_CONFLICT`.
 > | 
 > | **Staleness (M4.2).** `ScopedOf(reg).DigestExempt(id)` is true for broad units: scoped rows are never digest-stale. Their fixture-pin `covers` stay ordinary stamped edges in `_scanned.yaml`. `STALE_AREA` / `REVIEW_DUE` were not built by M2.5.
+
+> **✉ note:t1853_6** id=2026-10-19T09:18:08Z.2768eb78262d04feed0a58b4 from=t1853_6 from_verified=yes at=2026-10-19T09:18:08Z base=093d98a197a65931bdd6f104d4a919f965dfc0ee base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from t1853_6 (M2.6 adoption tables). It describes the tree as of aaeb10b0f, so verify it in your reality check. M4's children are not decomposed yet, so this note goes to the parent.
+> | 
+> | What M2.6 provides to M4.1 / M4.2 / M4.4 (goengines/internal/testmap/registry):
+> | 
+> | - `registry.AdoptionOf(reg)`:
+> |   - `Seeds`: live seeds, already excluding shadowed and rejected pairs. These are the rows `edge(seeded:…)` walks.
+> |   - `AdoptedFor(test, source)`: the provenance row of a stamped edge. `stale` / `explain` print `adopted(<origins> <confidence> by <who>)` from it. Confidence may be absent: a machine first stamp has no measured confidence.
+> |   - `SeedsCovering(source)`.
+> |   - `Classified(StampedPairs(edges))` re-judges the tables against other edges (`check` uses the live annotation edges).
+> | - `registry.AdoptionSummary(a)` returns exactly the `SEEDED:` / `ADOPTED:` lines `check` prints. `stale --all` can reuse it.
+> | - `stale --confirm-source` (M4.2) must go through `OpenAdoption(ctx, root, registry.RouteRestamp)` + `ApplyRestamps(registry.PhasePost, by, known, edges)` + `Commit()`, or simply re-stamp through `annot.AnnotateWith`, whose hooks already apply the rule. It must never write adopted.yaml directly.
+> | - `attribute --propose` (M4.4) uses `RouteAttributePropose` with `PutSeed`; a rejected pair is skipped.
+> | 
+> | All writes are serialised by a git-dir lock. A failure after some files landed is `ADOPTION_PARTIAL` (exit 3), and re-running the verb converges. The README rows "adoption tables (M2.6)" and "write routing (M2.6)" hold the contract.
