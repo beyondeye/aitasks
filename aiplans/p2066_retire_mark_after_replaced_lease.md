@@ -183,3 +183,47 @@ standard Step 9 flow (current branch, no merge).
 
 ### Planned mitigations
 - timing: post-phase | name: probe_compound_condition_live | type: test | priority: low | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement — compound tmux condition only checked against the fake | desc: Evaluate the exact compound if-shell condition on a private-socket tmux server (match, pid mismatch, mark mismatch)
+
+## Final Implementation Notes
+- **Actual work done:** All four planned steps implemented as written.
+  - `agent_frozen_ops.clear_restore_attempt_claiming(pane_id, record_id, pane_pid)`
+    reads the pane's mark via `window_facts`. It proceeds only when
+    `restore_attempt_record("", mark) == record_id`. It then dispatches one
+    `if-shell -F` with
+    `#{&&:#{==:#{@aitask_restore_attempt},<mark>},#{==:#{pane_pid},<pid>}}`.
+  - `_reconcile_restoring` gained a `_retire_marks()` closure. It runs the
+    nonce-derived `retire_restore_marks` and then the new fallback (guarded on
+    `launch_pid`). It is used by both the rollout and the liveness confirm
+    branches.
+  - `_FakeTmux._cond_holds` evaluates binary `#{&&:A,B}` with a brace-aware
+    split.
+  - Five new tests (one positive with two subtests, three negative controls).
+- **Deviations from plan:** None.
+- **Issues encountered:** None. The live suites `test_freeze_engine_live.sh`
+  and `test_restore_flows_live.sh` refuse (exit 2) on this box because live
+  tmux sessions are running. They were not forced and were not run.
+- **Key decisions:**
+  - The pid half is enforced only inside the dispatch, never as a Python
+    pre-check. That way the recycled-pid control exercises the dispatch guard.
+  - The fallback runs after the derived retire, so on a normal confirm it is a
+    read plus a no-op.
+- **Verification evidence:**
+  - Red proof: a pre-fix copy fails the positive test (`find_restore_survivors`
+    returns the tracked pane).
+  - Mutants in isolated scratch copies:
+    - drop the pid half → only `test_a_recycled_pane_pid_keeps_the_mark` fails;
+    - drop the claim check → only
+      `test_a_replaced_nonce_keeps_another_records_mark` fails;
+    - drop the mark half → only `test_a_mark_swapped_after_the_read_is_kept`
+      fails.
+  - `test_agent_freeze.py`: 140 passed.
+  - Restore/frozen_ops/reopen tests: 262 passed.
+  - `test_no_raw_tmux.sh`: passed.
+  - Full suite: `PYTHON SUITE: PASSED (runner=pytest, exit=0)`.
+- **probe_compound_condition_live (inline post-phase):** tmux 3.8, private
+  socket `-L t2066probe`, killed afterwards. The condition was built by the real
+  function with a stubbed `run`.
+  - (a) mark and pid match → mark cleared;
+  - (b) pid+1 → mark kept;
+  - (c) mismatching mark value → mark kept.
+- **Upstream defects identified:** None
