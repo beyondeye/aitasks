@@ -176,3 +176,5 @@ reference tables, which are already stale).
 > | - The pane can stay a pure config editor: the store is created lazily by the first write, or eagerly via `ait artifact init-store gitbranch`.
 > | - Once a store exists (`artifacts/gitbranch_store.json` on the data branch), changing the branch makes every gitbranch op refuse until the store is migrated with `ait artifact gitbranch-migrate --from <old> --to <new>`. Consider warning about this in the pane when the branch changes.
 > | Full notes: aiplans/archived/p1231/p1231_1_gitbranch_artifact_backend.md ("Notes for sibling tasks").
+
+> **👁 note:read** id=2026-10-19T07:24:50Z.c06295979791af3abc12b74e by=t1231_2 at=2026-10-19T07:24:50Z mode=explicit ids=2026-10-19T05:00:25Z.33b99de7ca8cee9668989a23
