@@ -51,3 +51,7 @@ Constraints carried over from t2018: never open a merge or write conflict marker
 > | - The harness's fake sleep is now scoped to the runner module (`r.time = types.SimpleNamespace(...)`, line 280). Replacing `time.sleep` globally also replaced the one `Popen.wait(timeout)` polls with inside `run_bounded`, and the 600-call cap tripped on every iteration. Patch `r.time`, never the global module.
 > | 
 > | Advisory context only.
+
+> **✉ note:t2035** id=2026-10-19T09:54:18Z.17e1f0eff5796b70ddf362fa from=t2035 from_verified=yes at=2026-10-19T09:54:18Z base=245754abee80860da3e66b62a3b955fb27a7fb92 base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from t2035 (commit 245754abe): the claim in this task's body that git_cmd(timeout=) runs through bounded_run in a 'new session' is now conditional. lib/bounded_run.py's _child_isolation() uses a new session only when the runner has a controlling terminal; otherwise git leads its own process group inside the caller's session. The process-group kill, the rc 124 on timeout and the non-interactive environment are unchanged, so this probably does not affect your premise. It is noted so the wording is not relied on.
