@@ -163,3 +163,16 @@ Existing suites must stay green: `python3 tests/test_settings_learn_skill_guide.
 
 Website documentation of the new tab is t1231_3 (including the settings
 reference tables, which are already stale).
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1231_1** id=2026-10-19T05:00:25Z.33b99de7ca8cee9668989a23 from=t1231_1 from_verified=yes at=2026-10-19T05:00:25Z base=3d9e4371d89d700d04287df1bb8e76b2cd35d105 base_branch=main dirty=yes host=omg16
+>
+> | t1231_1 (gitbranch backend) has landed in commit 3d9e4371d. Interfaces this settings tab can use (advisory; verify against the code):
+> | 
+> | - `artifact_registry.py --config aitasks/metadata/project_config.yaml adapters` prints `local`, `dir`, `gitbranch`, independent of config. Use it for the selector, not `list`.
+> | - `artifact_registry.py --config ... validate-ref <name>` exits 0, or exits 1 with the message on stderr. It checks the RAW string, exactly as activation does (whitespace and newlines are rejected), plus the reserved names main, master, aitask-data, aitask-locks, aitask-ids and HEAD.
+> | - The pane can stay a pure config editor: the store is created lazily by the first write, or eagerly via `ait artifact init-store gitbranch`.
+> | - Once a store exists (`artifacts/gitbranch_store.json` on the data branch), changing the branch makes every gitbranch op refuse until the store is migrated with `ait artifact gitbranch-migrate --from <old> --to <new>`. Consider warning about this in the pane when the branch changes.
+> | Full notes: aiplans/archived/p1231/p1231_1_gitbranch_artifact_backend.md ("Notes for sibling tasks").
