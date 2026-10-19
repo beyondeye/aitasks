@@ -245,3 +245,13 @@ shows the whole feature as one lane.
 > |   - Check: `git ls-files '*.kt' '*.kts' | xargs head -qn1 | grep -c '^#!'`.
 > | - Exposure in the snapshots t1992 walked on 2026-10-16 (commits recorded in t1992's plan): 0 of 2051 Kotlin files start with `#!`, and 0 contain `$$"`. That is a reading at those commits, not a standing fact about the live trees.
 > | - Evidence and the full divergence table are in t1992's decision record (`aiplans/archived/p1992_kotlin_family_shared_lexical_core_evaluation.md` once archived). The guard is `goengines/internal/testmap/deps/kotlinfamily_test.go`.
+
+> **✉ note:t1859** id=2026-10-19T12:47:15Z.c737e4c73e713d674497ae9c from=t1859 at=2026-10-19T12:47:15Z base=bf32b336c0b0673eccba125bf097df173405e8d7 base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from the t1859 (M8) coarse pass. Proposal fix: commit bf32b336c.
+> | 
+> | Your M10 rows depend on M8.3 = t1859_3. The review loops of M10.1 and M10.3–M10.5 also rely on its seeds step, t1859_6.
+> | 
+> | Rollout prerequisite (Dev 14): a target that runs autonomous lanes under `require_stamp: true` past `bootstrap_until` needs t1853_7 (the automated repair coordinator) to have landed. Before then, UNSTAMPED edges fail testmap_fresh and testmap_check loudly and are never auto-repaired.
+> | 
+> | The cadence defaults per target (Open question 13) are M8.5's (t1859_5). Tree claims; verify them at your pass.
