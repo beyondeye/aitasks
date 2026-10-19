@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1599
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-19 12:51
-updated_at: 2026-10-19 12:56
+updated_at: 2026-10-19 17:21
 ---
 
 ## Origin
@@ -32,3 +33,8 @@ t2035 moved the drift check's fetch onto `lib/bounded_run.py`. The regression sw
 ## Suggested fix
 
 Add an `EXTRACT_FAILED` (exit 3) branch to step 3 of `remote-drift-check.md` (the Claude Code source `.md`/`.md.j2` under `.claude/skills/task-workflow/`). It should display that the overlap scan could not run, with `ait setup` as the repair hint, and then ask the step-4 question rather than silently returning. Regenerate the affected goldens. Then suggest porting the change to the other agent trees.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-19T14:21:29Z status=pass attempt=1 type=human
