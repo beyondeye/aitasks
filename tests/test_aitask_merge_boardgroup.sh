@@ -194,15 +194,69 @@ assert_eq "Resolved file keeps the tombstone as an empty STRING" \
 
 rm -rf "$TMP2"
 
-# --- Test 3: guard - every driver invocation site passes --base-file ---
-echo "--- Test 3: guard - all aitask_sync.sh driver invocations pass a base ---"
+# --- Test 3: guard - every recognized driver invocation passes --base-file ---
+echo "--- Test 3: guard - every recognized merge-driver invocation passes a base ---"
 
-SYNC="$PROJECT_DIR/.aitask-scripts/aitask_sync.sh"
-invocations=$(grep -c '"\$_MERGE_PYTHON" "\$_MERGE_SCRIPT"' "$SYNC")
-with_base=$(grep '"\$_MERGE_PYTHON" "\$_MERGE_SCRIPT"' "$SYNC" | grep -c 'base_args')
-assert_eq "At least one driver invocation exists (guard is not vacuous)" \
+# Supported invocation shape: `"$<..PYTHON..>" "$<var>"`, where <var> is
+# assigned `.../aitask_merge.py` IN THE SAME FILE; the flags may sit on
+# backslash-continuation lines. Discovery keys on the driver's path, not on a
+# variable name, so the call site can move or be renamed (t1727 moved it from
+# aitask_sync.sh into lib/task_automerge.sh) without the guard going vacuous.
+#
+# Coverage boundary - NOT recognized, so silently omitted (t2060):
+#   - a driver-path variable assigned in a different (sourced) file;
+#   - an interpreter variable whose name lacks PYTHON, a literal-path call, or
+#     a call through an array.
+# The floor and the canonical-site assertion below cannot catch those.
+
+# Logical lines of a shell file: backslash continuations joined.
+logical_lines() {
+    awk '{ if (sub(/\\$/, "")) { buf = buf $0; next } print buf $0; buf = "" }
+         END { if (buf != "") print buf }' "$1"
+}
+
+# Every recognized merge-driver invocation in one file, one logical line each.
+driver_invocations() {
+    local f="$1" var
+    while IFS= read -r var; do
+        logical_lines "$f" | grep -E "\"\\\$[A-Za-z_]*PYTHON[A-Za-z_]*\" \"\\\$$var\"" || true
+    done < <(grep -oE '[A-Za-z_][A-Za-z0-9_]*="[^"]*aitask_merge\.py"' "$f" | cut -d= -f1 | sort -u)
+}
+
+# count_driver_sites <file>... -> "<invocations> <with_base>"
+count_driver_sites() {
+    local f line n=0 b=0
+    for f in "$@"; do
+        while IFS= read -r line; do
+            [[ -z "$line" ]] && continue
+            n=$((n + 1))
+            [[ "$line" == *base_args* || "$line" == *--base-file* ]] && b=$((b + 1))
+        done < <(driver_invocations "$f")
+    done
+    echo "$n $b"
+}
+
+# Planted control: proves the matcher joins continuation lines and tells a
+# based call from an unbased one - on the supported shape only.
+TMP3="$(mktemp -d)"
+cat > "$TMP3/planted.sh" <<'EOF'
+_X_SCRIPT="$DIR/../board/aitask_merge.py"
+"$_X_PYTHON" "$_X_SCRIPT" "$f" \
+    --batch --rebase ${base_args[@]+"${base_args[@]}"}
+"$_X_PYTHON" "$_X_SCRIPT" "$f" \
+    --batch --rebase
+EOF
+assert_eq "Planted control: 2 recognized split invocations, 1 with a base" \
+    "2 1" "$(count_driver_sites "$TMP3/planted.sh")"
+rm -rf "$TMP3"
+
+mapfile -t SH_FILES < <(find "$PROJECT_DIR/.aitask-scripts" -type f -name '*.sh' | sort)
+read -r invocations with_base < <(count_driver_sites "${SH_FILES[@]}")
+assert_eq "At least one recognized driver invocation exists (guard is not vacuous)" \
     "1" "$([[ $invocations -ge 1 ]] && echo 1 || echo 0)"
-assert_eq "Every driver invocation passes --base-file" \
+assert_eq "The shared auto-merge library's call site is recognized" \
+    "1" "$(count_driver_sites "$PROJECT_DIR/.aitask-scripts/lib/task_automerge.sh" | awk '{print ($1 >= 1)}')"
+assert_eq "Every recognized driver invocation passes --base-file" \
     "$invocations" "$with_base"
 
 # --- Test 4: an add/add conflict has no stage 1 and must not crash ---
