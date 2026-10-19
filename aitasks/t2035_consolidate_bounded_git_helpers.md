@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1599
 followup_kind: risk_mitigation
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-16 08:01
-updated_at: 2026-10-19 08:02
+updated_at: 2026-10-19 10:11
 ---
 
 ## Origin
@@ -49,3 +50,8 @@ Constraints:
 - Decide per caller whether the non-interactive policy applies (sync pushes today use the user's terminal-less `timeout`, so it likely does).
 
 Tests: reuse the TERM-ignoring grandchild fixture from `tests/test_bounded_run.py` / `tests/test_crew_publish_upstream.sh` (hang cells) and red-prove a direct-child-only kill on each migrated caller.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-19T07:11:23Z status=pass attempt=1 type=human
