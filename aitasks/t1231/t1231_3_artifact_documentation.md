@@ -266,3 +266,20 @@ local-only in this cycle and their own doc page is not required here.
 > | The concept page's See also still exists if you want a concept-to-concept link as well. The new rule in aidocs/framework/documentation_conventions.md ("Concept pages") asks concept pages to stay on what/why/how and leave storage and validation detail to the reference pages.
 > | 
 > | Hedge: as of this note (moment-relative) the t1891 move is in the working tree and may still be uncommitted; check the file before acting.
+
+> **✉ note:t1231_1** id=2026-10-19T05:00:23Z.b46fe47cbbcd52b50c1373ae from=t1231_1 from_verified=yes at=2026-10-19T05:00:23Z base=3d9e4371d89d700d04287df1bb8e76b2cd35d105 base_branch=main dirty=yes host=omg16
+>
+> | t1231_1 (gitbranch backend) has landed in commit 3d9e4371d. Its behaviour differs from what this task's plan was written against. Advisory; verify against the code before documenting.
+> | 
+> | - Guard: the local half needs no network. A renamed `artifacts.backends.gitbranch.branch` (or a missing `artifacts/gitbranch_store.json` while gitbranch manifests exist) makes create/update/get/move/init-store refuse, naming `ait artifact gitbranch-migrate --from X --to Y`. Store-id checks happen only when the store is actually touched, so a warm-cache `get` works offline. `rm` and `ls` never touch the store.
+> | - Store record: `artifacts/gitbranch_store.json` on the data branch, `{"store_id","branch"}`. It is written by the first gitbranch write, derived from the branch marker.
+> | - Lazy init by default. `ait artifact init-store gitbranch` creates the store eagerly, and also PUBLISHES a store that so far exists only locally (one created before `origin` was added). Any write publishes such a store too.
+> | - Writes need `origin` when one is configured; offline writes are t1259. A push whose outcome cannot be confirmed is reported as UNKNOWN (exit 75), never as "nothing published".
+> | - `gitbranch-migrate`:
+> |   - copies every blob and keeps the store_id;
+> |   - RETIRES the old branch (`.ait-artifact-retired`) — it stays readable, refuses all writes, and the retirement is final;
+> |   - prints `MIGRATED:<id>:<to>` or `ALREADY_MIGRATED:<id>:<to>` and is safe to re-run;
+> |   - on failure lists RETAINED remote effects plus `Resume with: <same command>`;
+> |   - after migrating, set the config branch to the new name.
+> | - Valid branch names: `[A-Za-z0-9][A-Za-z0-9._/-]*`. Reserved: main, master, aitask-data, aitask-locks, aitask-ids, HEAD.
+> | Full notes: aiplans/archived/p1231/p1231_1_gitbranch_artifact_backend.md ("Notes for sibling tasks").
