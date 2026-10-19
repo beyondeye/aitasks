@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: []
 issue_type: performance
-status: Ready
+status: Implementing
 labels: [frozen, ait_ide]
+assigned_to: dario-e@beyond-eye.com
 anchor: 2039
 followup_kind: review_finding
 created_at: 2026-10-16 12:51
-updated_at: 2026-10-16 12:51
+updated_at: 2026-10-19 08:03
 ---
 
 ## Context
