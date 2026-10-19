@@ -12,8 +12,9 @@ active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1852
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-16 01:27
-updated_at: 2026-10-19 17:04
+updated_at: 2026-10-19 17:22
 ---
 
 ## Origin
@@ -59,3 +60,8 @@ Model Kotlin.flex's `SHEBANG_COMMENT` in both lexers. Probe the real lexer for t
 - `scanKotlin` regressions for the brace and paren shebangs: `Package` = `p`, `Decls` = `[Actual]`. Also an annot regression: anchors `package=2` and no Uncertain for the `/*` shebang.
 - Negative control: the new tests fail on the current lexers.
 - Optional: rerun t1992's `KtFamily.java` harness (verbatim in its archived plan) over the construct rows.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-19T14:22:39Z status=pass attempt=1 type=human
