@@ -661,12 +661,19 @@ def _app(cls):
 class _FakeMonitor:
     multi_session = False
 
-    def __init__(self, *, switch=True, kill_ok=True) -> None:
+    def __init__(self, *, switch=True, kill_ok=True,
+                 frozen_read=(True, "")) -> None:
         self._switch, self._kill_ok = switch, kill_ok
+        # The pick flows' kill-time `@aitask_frozen` read (t2057); the default
+        # is a verified unset option, i.e. a live agent.
+        self._frozen_read = frozen_read
 
     def switch_to_pane(self, pane_id, **kw): return self._switch
 
     def kill_agent_pane_smart(self, pane_id): return self._kill_ok, False
+
+    def get_pane_option_sync(self, pane_id, option, timeout=2.0):
+        return self._frozen_read
 
 
 def _focused(app, name: str, **kw) -> None:
@@ -754,9 +761,9 @@ def _launch(app, module, run, name):
     return app.notify.calls
 
 
-def toast_monitor_sibling_launch(name):
+def toast_monitor_sibling_launch(name, frozen_read=(True, "")):
     app = _app(MonitorApp)
-    app._monitor = _FakeMonitor()
+    app._monitor = _FakeMonitor(frozen_read=frozen_read)
     _focused(app, name)
     app._task_cache = _TitleCache("t")
     app._root_for_snap = lambda snap: Path(".")
@@ -861,6 +868,11 @@ TOAST_SITES = [
     ("monitor: failed to kill", _kill_toast(MonitorApp, False)),
     ("monitor: sibling pick killed + launch failed",
      toast_monitor_sibling_launch),
+    # The two kill-skipped toasts name the window too (t2057).
+    ("monitor: sibling pick frozen, not killed",
+     lambda name: toast_monitor_sibling_launch(name, (True, "rec-1"))),
+    ("monitor: sibling pick unverified, not killed",
+     lambda name: toast_monitor_sibling_launch(name, (False, ""))),
     ("monitor: restart killed + launch failed", toast_monitor_restart),
     ("both: prioritized (monitor)", _mark_toast(MonitorApp, "MARKED")),
     ("both: prioritized (minimonitor)", _mark_toast(MiniMonitorApp, "MARKED")),

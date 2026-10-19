@@ -3778,9 +3778,21 @@ class MonitorApp(
         is_parent_with_children = "_" not in task_id
         if is_parent_with_children or not current_info or current_info.status == "Done":
             old_name = snap.pane.window_name
-            self._monitor.kill_agent_pane_smart(pane_id)
-            self._focused_pane_id = None
-            self.notify(f"Killed {old_name}", markup=False)
+            # Only a pane proven LIVE right now is killed: a frozen stand-in
+            # would take `kill_agent_pane_smart`'s unleased kill-then-drop path
+            # and silently delete its capture (t2057/t2058). The pick dialog
+            # still opens either way.
+            state = self._kill_target_state(pane_id)
+            if state == "live":
+                self._monitor.kill_agent_pane_smart(pane_id)
+                self._focused_pane_id = None
+                self.notify(f"Killed {old_name}", markup=False)
+            elif state == "frozen":
+                self.notify(f"{old_name} is frozen — not killed; drop it with k",
+                            severity="warning", markup=False)
+            else:
+                self.notify(f"Could not confirm {old_name} is still live — "
+                            "not killed", severity="warning", markup=False)
 
         def on_pick_result(pick_result):
             if isinstance(pick_result, TmuxLaunchConfig):

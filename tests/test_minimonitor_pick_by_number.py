@@ -144,6 +144,8 @@ class _FakeMonitor:
         # Recorded so a test can prove `p` never dispatched a frozen
         # coordinator (`run-shell -b … restore`) — t2054.
         self.tmux_calls: list[list[str]] = []
+        self.pane_option = {}
+        self.option_reads: list[tuple[str, str]] = []
 
     def get_session_to_project_mapping(self):
         return {"s1": _ROOT}
@@ -155,6 +157,17 @@ class _FakeMonitor:
     def tmux_run(self, args, timeout=5.0):
         self.tmux_calls.append(list(args))
         return (0, "")
+
+    #: What the kill-time live `@aitask_frozen` read answers, per pane
+    #: (t2057). Absent ⇒ a VERIFIED unset option: a live agent. The real
+    #: reader's contract is pinned separately, against both a scripted gateway
+    #: (test_shadow_seam.py) and a private tmux server
+    #: (test_monitor_pane_option_live.py) — this stub only scripts answers.
+    pane_option: dict
+
+    def get_pane_option_sync(self, pane_id, option, timeout=2.0):
+        self.option_reads.append((pane_id, option))
+        return self.pane_option.get(pane_id, (True, ""))
 
 
 def _mk_app(infos, snapshots=(), pane_to_task=None, monitor=True):
@@ -532,6 +545,51 @@ class AlreadyRunningScanTests(unittest.TestCase):
         pushed = _enter(app, "1310")
         self.assertIsNone(pushed[0]._already_running)
 
+    def test_frozen_agent_is_not_already_running_but_gets_its_own_note(self):
+        """t2057: a frozen stand-in keeps `category == AGENT` but runs
+        nothing. The `_snap` repro: follow a frozen t77, `p`, enter 77."""
+        own = _snap("%own", window_index="1", session="s1",
+                    window_name="agent-pick-77", frozen=True)
+        app = _mk_app({"77": _task_info("77")}, snapshots=[own],
+                      pane_to_task={"%own": "77"})
+        pushed = _enter(app, "77")
+        line = pushed[0]._already_running
+        self.assertNotIn("already running", line)
+        self.assertIn("t77 frozen", line)
+        self.assertIn("window 1:agent-pick-77", line)
+        self.assertIn("restore/re-pick", line)
+
+    def test_live_agent_of_the_same_task_still_warns(self):
+        """The control for the test above: same task, same window, live."""
+        own = _snap("%own", window_index="1", session="s1",
+                    window_name="agent-pick-77")
+        app = _mk_app({"77": _task_info("77")}, snapshots=[own],
+                      pane_to_task={"%own": "77"})
+        pushed = _enter(app, "77")
+        self.assertIn("already running", pushed[0]._already_running)
+        self.assertIn("window 1:agent-pick-77", pushed[0]._already_running)
+
+    def test_live_match_outranks_a_frozen_one(self):
+        """Frozen pane listed FIRST, so a scan that returned on the first
+        match would surface the weaker note."""
+        frozen = _snap("%frz", window_index="2", session="s1",
+                       window_name="agent-pick-77", frozen=True)
+        live = _snap("%run", window_index="3", session="s1",
+                     window_name="agent-pick-77")
+        app = _mk_app({"77": _task_info("77")}, snapshots=[frozen, live],
+                      pane_to_task={"%frz": "77", "%run": "77"})
+        pushed = _enter(app, "77")
+        self.assertIn("already running", pushed[0]._already_running)
+        self.assertIn("window 3:agent-pick-77", pushed[0]._already_running)
+
+    def test_frozen_agent_in_another_session_is_ignored(self):
+        other = _snap("%frz", window_index="2", session="s2",
+                      window_name="agent-pick-77", frozen=True)
+        app = _mk_app({"77": _task_info("77")}, snapshots=[other],
+                      pane_to_task={"%frz": "77"})
+        pushed = _enter(app, "77")
+        self.assertIsNone(pushed[0]._already_running)
+
 
 # -- Confirm → launch --------------------------------------------------------
 
@@ -639,6 +697,141 @@ class ConfirmAndLaunchTests(unittest.TestCase):
                       pane_to_task={"%own": "77"})  # t77 not in the infos dict
         screen, _cb = _enter(app, "1310")
         self.assertEqual(screen._kill_target_label, "t77 · unknown · agent-pick-77")
+
+
+class KillTimeFrozenRecheckTests(unittest.TestCase):
+    """The outgoing agent is re-checked at KILL time, not when the dialogs
+    opened (t2059), on both routes into `_launch_pick` — `p` and `n` (t2058).
+
+    Drives the REAL `_launch_pick` and `_kill_target_state`; only the dialog
+    construction, `launch_in_tmux` and the companion spawn are faked.
+    """
+
+    def _app(self, followed_status="Done", frozen=False):
+        own = _snap("%own", window_index="1", session="s1",
+                    window_name="agent-pick-77", frozen=frozen)
+        app = _mk_app(
+            {"1310": _task_info("1310"),
+             "77": _task_info("77", status=followed_status)},
+            snapshots=[own], pane_to_task={"%own": "77"},
+        )
+        del app._launch_pick  # the real implementation, not the spy
+        app.call_later = lambda fn, *a: None
+        app._refresh_data = lambda: None
+        self.launched: list[str] = []
+        return app
+
+    def _patched(self):
+        class _FakeScreen:
+            def __init__(self, *a, **k):
+                self.full_command = a[1]
+
+        def _launch(command, config):
+            self.launched.append(command)
+            return (1234, None)
+
+        stack = [
+            patch.object(acs, "pick_launch_argv",
+                         lambda root, task_id, agent_string=None: (
+                             "cmd --go", f"agent-pick-{task_id}")),
+            patch.object(acs, "resolve_agent_string",
+                         return_value="claudecode/x"),
+            patch.object(acs, "resolve_skill_profile", return_value="fast"),
+            patch.object(acs, "AgentCommandScreen", _FakeScreen),
+            patch.object(mm, "launch_in_tmux", _launch),
+            patch.object(mm, "maybe_spawn_minimonitor", lambda s, w: None),
+        ]
+        for p in stack:
+            p.start()
+            self.addCleanup(p.stop)
+
+    @staticmethod
+    def _cfg():
+        return mm.TmuxLaunchConfig(session="s1", window="agent-pick-1310",
+                                   new_session=False, new_window=True)
+
+    def _p_with_kill_ticked(self, app, between=lambda app: None):
+        """`p` → 1310 → tick kill → OK; `between` runs after the confirm
+        dialog closed and before the launch dialog returns."""
+        self._patched()
+        _screen, confirm = _enter(app, "1310")
+        confirm(("pick", True))
+        launch_screen, on_result = app.spy_pushed[-1]
+        between(app)
+        on_result(self._cfg())
+
+    # -- t2059: the race on `p` ------------------------------------------
+
+    def test_live_followed_agent_with_kill_ticked_is_killed(self):
+        """Control: stays live → still killed, after the launch."""
+        app = self._app()
+        self._p_with_kill_ticked(app)
+        self.assertEqual(self.launched, ["cmd --go"])
+        self.assertEqual(app._monitor.killed, ["%own"])
+        self.assertEqual(app._monitor.option_reads,
+                         [("%own", "@aitask_frozen")])
+
+    def test_frozen_meanwhile_snapshot_is_not_killed(self):
+        app = self._app()
+
+        def freeze(app):
+            app._snapshots["%own"].frozen = True
+            app._snapshots["%own"].frozen_record_id = "7f3a2c1d"
+
+        self._p_with_kill_ticked(app, between=freeze)
+        self.assertEqual(self.launched, ["cmd --go"])
+        self.assertEqual(app._monitor.killed, [])
+        self.assertIn(("Followed agent is frozen — launched without kill; "
+                       "drop it with k", "warning"), app.spy_notify)
+
+    def test_frozen_meanwhile_on_the_live_read_is_not_killed(self):
+        """The snapshot is a tick stale: it still says live, the pane option
+        already carries the record id."""
+        app = self._app()
+
+        def freeze_on_server(app):
+            app._monitor.pane_option["%own"] = (True, "7f3a2c1d")
+
+        self._p_with_kill_ticked(app, between=freeze_on_server)
+        self.assertEqual(app._monitor.killed, [])
+        self.assertIn(("Followed agent is frozen — launched without kill; "
+                       "drop it with k", "warning"), app.spy_notify)
+
+    def test_unverified_read_fails_closed(self):
+        app = self._app()
+
+        def unreadable(app):
+            app._monitor.pane_option["%own"] = (False, "")
+
+        self._p_with_kill_ticked(app, between=unreadable)
+        self.assertEqual(self.launched, ["cmd --go"])
+        self.assertEqual(app._monitor.killed, [])
+        self.assertIn(("Could not confirm the followed agent is still live — "
+                       "launched without kill", "warning"), app.spy_notify)
+
+    # -- t2058: `n` on a frozen followed agent -----------------------------
+
+    def _n(self, app):
+        self._patched()
+        app._launch_pick_for_own("1310", "%own", "77", "s1")
+        _screen, on_result = app.spy_pushed[-1]
+        on_result(self._cfg())
+
+    def test_n_on_frozen_done_followed_agent_launches_without_kill(self):
+        """The typical "froze it once it finished" case: a Done task, so
+        `should_kill` is True — yet the stand-in must survive."""
+        app = self._app(followed_status="Done", frozen=True)
+        self._n(app)
+        self.assertEqual(self.launched, ["cmd --go"])
+        self.assertEqual(app._monitor.killed, [])
+        self.assertIn(("Followed agent is frozen — launched without kill; "
+                       "drop it with k", "warning"), app.spy_notify)
+
+    def test_n_on_live_done_followed_agent_still_kills(self):
+        app = self._app(followed_status="Done", frozen=False)
+        self._n(app)
+        self.assertEqual(self.launched, ["cmd --go"])
+        self.assertEqual(app._monitor.killed, ["%own"])
 
 
 class SharedLaunchImplementationTests(unittest.TestCase):
@@ -908,6 +1101,38 @@ class NarrowRenderTests(unittest.TestCase):
                 self.assertIn("blocked by t1200", text)
                 self.assertIn("already running", text)
                 self.assertIn("t77", text)  # kill-target detail line
+        self._run(runner())
+
+    def test_frozen_note_stays_readable_on_a_short_pane(self):
+        """t2057: the docked area does not scroll, so a note that wraps to more
+        lines than the live one pushes its own first lines off the top at
+        40x20 — hiding the word "frozen". Rendered from the REAL scan, not a
+        copied literal, so a later rewording is held to the same budget."""
+        frozen = _snap("%frz", window_index="1", session="s1",
+                       window_name="agent-pick-1310", frozen=True)
+        scan = _mk_app({}, snapshots=[frozen], pane_to_task={"%frz": "1310"})
+        note = scan._find_running_agent_line("1310", "s1")
+
+        async def flat_at(already_running):
+            app = _ConfirmHost(narrow=True, status="Ready", blocking=(),
+                               already_running=already_running)
+            async with app.run_test(size=(40, 20)) as pilot:
+                await pilot.pause()
+                await pilot.pause()
+                return _flat(app)
+
+        async def runner():
+            text = await flat_at(note)
+            for needle in ("t1310 frozen", "1:agent-pick-1310",
+                           "restore/re-pick", "kill followed agent", "OK",
+                           "Cancel"):
+                self.assertIn(needle, text)
+            # Negative control: the first, longer wording overflowed exactly
+            # this way, so the assertions above can fail.
+            long_note = ("⚠ t1310 has a frozen agent in this session, window "
+                         "1:agent-pick-1310 — restore or re-pick it from its "
+                         "viewer (R / P)")
+            self.assertNotIn("has a frozen agent", await flat_at(long_note))
         self._run(runner())
 
     def test_kill_detail_states_the_checkbox_effect_in_words(self):

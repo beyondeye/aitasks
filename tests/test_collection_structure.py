@@ -123,6 +123,23 @@ INHERITED_TEST_DUP_ALLOWLIST: frozenset[str] = frozenset({
     "TestRenderedShadowDocsKeepTheGuarantees(_RenderedShadowDocsContract)",
     "test_concern_parser: "
     "TestRenderedOpencodeShadowDocsKeepTheGuarantees(_RenderedShadowDocsContract)",
+    # t2057 — the t1598 shape again: one pane-option reader contract over the
+    # async `TmuxMonitor.get_pane_option` and its sync twin
+    # `get_pane_option_sync`. The pick flows' kill-time frozen re-check fails
+    # closed on the sync reader's `(False, "")`, and its launch tests stub the
+    # reader, so running every case against each reader IS the mechanism — a
+    # sync body reporting a missing pane as a verified unset would let a frozen
+    # stand-in be killed. Genuinely collected: all four subclasses run.
+    # Genuinely harmless: 7 mock-only assertions per scripted sibling; the live
+    # pair shares one throwaway tmux server per test, ~0.15s for both.
+    "test_shadow_seam: "
+    "GetPaneOptionContractTests(_GetPaneOptionContract)",
+    "test_shadow_seam: "
+    "GetPaneOptionSyncContractTests(_GetPaneOptionContract)",
+    "test_monitor_pane_option_live: "
+    "LivePaneOptionTests(_LivePaneOptionContract)",
+    "test_monitor_pane_option_live: "
+    "LivePaneOptionSyncTests(_LivePaneOptionContract)",
 })
 
 

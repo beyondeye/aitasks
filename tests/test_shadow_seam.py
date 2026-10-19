@@ -427,27 +427,28 @@ class ComputeShadowStalenessTests(unittest.TestCase):
         self.assertIsNot(preserve, clear)
 
 
-class GetPaneOptionContractTests(unittest.TestCase):
-    """Pin the REAL `TmuxMonitor.get_pane_option`, not just the stubs (t1451).
+def _forbidden_gateway(*args, **kwargs):
+    raise AssertionError("reader reached the other gateway")
 
-    The stubs above encode the contract, but only this class proves the
-    production method honours it — a stub-only suite stays green while the
-    method still collapses `rc != 0` into `""`.
+
+class _GetPaneOptionContract:
+    """Pin the REAL pane-option readers, not just the stubs (t1451, t2057).
+
+    The stubs above encode the contract, but only these classes prove the
+    production methods honour it — a stub-only suite stays green while a
+    method still collapses `rc != 0` into `""`. One contract, two siblings:
+    the async `get_pane_option` and its sync twin `get_pane_option_sync`, which
+    the pick flows' kill-time frozen re-check fails closed on. Running the
+    cases once per reader IS the mechanism (allowlisted in
+    `tests/test_collection_structure.py`, same shape as t1598's).
+
+    Subclasses implement `_read(*responses)`: answer the gateway calls in order
+    with ``responses``, keep every call's argv in ``self.calls``, and make the
+    OTHER gateway raise so a reader cannot pass through its sibling's.
     """
 
     def _read(self, *responses: tuple[int, str]) -> tuple[bool, str]:
-        """Answer the gateway calls in order with ``responses``; the argv of
-        every call made is kept in ``self.calls``."""
-        mon = TmuxMonitor.__new__(TmuxMonitor)   # no tmux, no control client
-        script = list(responses)
-        self.calls: list[list[str]] = []
-
-        async def _fake_async(args, timeout=5.0):
-            self.calls.append(list(args))
-            return script.pop(0)
-
-        mon.tmux_run_async = _fake_async
-        return asyncio.run(mon.get_pane_option("%5", "@opt"))
+        raise NotImplementedError
 
     def test_success_returns_ok_and_stripped_value(self):
         """A value proves the pane exists: no confirm round trip (cost gate)."""
@@ -482,6 +483,45 @@ class GetPaneOptionContractTests(unittest.TestCase):
     def test_tmux_command_error_reports_not_ok(self):
         self.assertEqual(self._read((1, "")), (False, ""))
         self.assertEqual(len(self.calls), 1)
+
+
+class GetPaneOptionContractTests(_GetPaneOptionContract, unittest.TestCase):
+    """The async sibling — `TmuxMonitor.get_pane_option`."""
+
+    def _read(self, *responses: tuple[int, str]) -> tuple[bool, str]:
+        mon = TmuxMonitor.__new__(TmuxMonitor)   # no tmux, no control client
+        script = list(responses)
+        self.calls: list[list[str]] = []
+
+        async def _fake_async(args, timeout=5.0):
+            self.calls.append(list(args))
+            return script.pop(0)
+
+        mon.tmux_run_async = _fake_async
+        mon.tmux_run = _forbidden_gateway
+        return asyncio.run(mon.get_pane_option("%5", "@opt"))
+
+
+class GetPaneOptionSyncContractTests(_GetPaneOptionContract, unittest.TestCase):
+    """The sync sibling — `TmuxMonitor.get_pane_option_sync` (t2057).
+
+    The kill-time frozen re-check's launch tests stub this reader, so only
+    this class proves the sync body never reports a missing pane or a failed
+    lookup as a verified unset — which would let a frozen stand-in be killed.
+    """
+
+    def _read(self, *responses: tuple[int, str]) -> tuple[bool, str]:
+        mon = TmuxMonitor.__new__(TmuxMonitor)
+        script = list(responses)
+        self.calls: list[list[str]] = []
+
+        def _fake_sync(args, timeout=5.0):
+            self.calls.append(list(args))
+            return script.pop(0)
+
+        mon.tmux_run = _fake_sync
+        mon.tmux_run_async = _forbidden_gateway
+        return mon.get_pane_option_sync("%5", "@opt")
 
 
 class FormatStaleDurationTests(unittest.TestCase):

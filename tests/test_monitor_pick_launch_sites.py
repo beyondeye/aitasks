@@ -10,8 +10,9 @@ so the dedupe cannot silently change either one:
 - the exact dialog construction (positional args + kwargs dict — no `narrow`);
 - resolve failure → one error notify, no kill, no dialog;
 - sibling path: the outgoing pane is killed BEFORE the dialog opens, by the
-  parent / archived / Done heuristic only, and the tmux result notifies
-  "Launched agent for t<id>";
+  parent / archived / Done heuristic only — and only when the live
+  `@aitask_frozen` read proves it is not a frozen stand-in (t2057) — and the
+  tmux result notifies "Launched agent for t<id>";
 - restart path: the kill runs INSIDE the callback, BEFORE `launch_in_tmux`, and
   notifies "Restarted agent for t<id>";
 - both: a launch error returns before `call_later`; cancel only refreshes; the
@@ -77,10 +78,17 @@ class _Host:
         self.notes: list[tuple[str, str]] = []
         self.pushed: list[tuple] = []
         self._focused_pane_id = "%7"
-        snap = SimpleNamespace(pane=SimpleNamespace(
-            pane_id="%7", session_name="s1", window_name="agent-pick-41"))
+        snap = SimpleNamespace(
+            pane=SimpleNamespace(
+                pane_id="%7", session_name="s1", window_name="agent-pick-41"),
+            # Completed for `_is_frozen`'s strict `snap.frozen` read (t2057).
+            frozen=False, frozen_record_id="")
         self._snapshots = {"%7": snap}
         log = self.log
+        #: What the live `@aitask_frozen` read answers, per pane (t2057). The
+        #: default is a VERIFIED unset option: a live agent.
+        self.pane_option: dict[str, tuple[bool, str]] = {}
+        host = self
 
         class _Cache:
             def get_task_id_for_pane(self, pane):
@@ -94,9 +102,17 @@ class _Host:
                 log.append(("kill", pane_id))
                 return (True, "killed")
 
+            def get_pane_option_sync(self, pane_id, option, timeout=2.0):
+                log.append(("read", pane_id, option))
+                return host.pane_option.get(pane_id, (True, ""))
+
         self._task_cache = _Cache()
         self._monitor = _Monitor()
         self._refresh_data = object()
+
+    # The REAL kill-time check and its frozen predicate, not stubs (t2057).
+    _kill_target_state = ma.MonitorApp._kill_target_state
+    _is_frozen = ma.MonitorApp._is_frozen
 
     def _root_for_snap(self, snap):
         return _ROOT
@@ -233,9 +249,46 @@ class SiblingPickTests(_Base):
                     ma.MonitorApp._launch_pick_for_sibling(host, "42")
                 finally:
                     seams.stop()
+                # The live frozen read runs immediately before the kill (t2057).
                 self.assertEqual(host.log, [
+                    ("read", "%7", "@aitask_frozen"),
                     ("kill", "%7"), ("notify", "Killed agent-pick-41"), ("push",)])
                 self.assertIsNone(host._focused_pane_id)
+
+    def _open_done(self, *, frozen_snapshot=False, read=(True, "")):
+        host = _Host("41_2", _info("41_2", "Done"))
+        host._snapshots["%7"].frozen = frozen_snapshot
+        host.pane_option["%7"] = read
+        seams = self._seams(host)
+        ma.MonitorApp._launch_pick_for_sibling(host, "42")
+        return host, seams
+
+    def test_frozen_snapshot_is_not_killed_but_the_dialog_opens(self):
+        """t2058 on the full monitor: a frozen Done card must not reach
+        `kill_agent_pane_smart`'s unleased kill-then-drop path. The live
+        Done row of the test above is the control."""
+        host, seams = self._open_done(frozen_snapshot=True)
+        self.assertNotIn(("kill", "%7"), host.log)
+        self.assertEqual(host._focused_pane_id, "%7")
+        self.assertEqual(host.notes, [
+            ("agent-pick-41 is frozen — not killed; drop it with k", "warning")])
+        self.assertEqual(len(host.pushed), 1)
+        self._assert_golden(seams)
+
+    def test_frozen_on_the_live_read_is_not_killed(self):
+        """The snapshot is a tick stale; the pane option is the truth."""
+        host, _ = self._open_done(read=(True, "7f3a2c1d"))
+        self.assertNotIn(("kill", "%7"), host.log)
+        self.assertEqual(host.notes[0][1], "warning")
+        self.assertEqual(len(host.pushed), 1)
+
+    def test_unverified_read_fails_closed(self):
+        host, _ = self._open_done(read=(False, ""))
+        self.assertNotIn(("kill", "%7"), host.log)
+        self.assertEqual(host.notes, [
+            ("Could not confirm agent-pick-41 is still live — not killed",
+             "warning")])
+        self.assertEqual(len(host.pushed), 1)
 
     def test_tmux_success_launches_the_edited_command(self):
         host, seams = self._open()

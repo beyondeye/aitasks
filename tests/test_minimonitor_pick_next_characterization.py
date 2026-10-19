@@ -70,7 +70,11 @@ def _snap(pane_id: str, window_index: str = "1", session: str = "s1"):
             window_index=window_index,
             window_name=f"agent-pick-{window_index}",
             category=PaneCategory.AGENT,
-        )
+        ),
+        # Completed for `_is_frozen`'s strict `snap.frozen` read, which the
+        # kill-time check now reaches (t2057).
+        frozen=False,
+        frozen_record_id="",
     )
 
 
@@ -102,6 +106,10 @@ class _FakeMonitor:
         self._log.append("kill")
         self.killed.append(pane_id)
         return (True, False)
+
+    def get_pane_option_sync(self, pane_id, option, timeout=2.0):
+        # A verified unset `@aitask_frozen`: the followed agent is live (t2057).
+        return (True, "")
 
 
 class _FakeScreen:

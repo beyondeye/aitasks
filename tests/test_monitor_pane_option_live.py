@@ -2,7 +2,9 @@
 
 `test_shadow_seam.py::GetPaneOptionContractTests` pins the method's argv and
 branching against a scripted gateway; this file pins the tmux behaviour that
-branching relies on, which a stub can only assume:
+branching relies on, which a stub can only assume. Every read case runs twice:
+against the async ``get_pane_option`` and its sync twin
+``get_pane_option_sync`` (t2057, the pick flows' kill-time frozen re-check):
 
 * a set pane option reads back ``(True, value)`` and an unset one ``(True, "")``;
 * a MISSING pane — which ``show-options -q`` answers with rc 0 and no output,
@@ -45,8 +47,15 @@ OPTION = "@ait_t1971_opt"
 MISSING = "%9999"
 
 
-@unittest.skipUnless(shutil.which("tmux"), "tmux not installed")
-class LivePaneOptionTests(unittest.TestCase):
+class _LivePaneOptionContract:
+    """The private-server cases, shared by one sibling per reader (t2057).
+
+    Subclasses implement `_read(pane)`. Running the cases once per reader IS
+    the mechanism (allowlisted in `tests/test_collection_structure.py`).
+    """
+
+    def _read(self, pane: str) -> tuple[bool, str]:
+        raise NotImplementedError
 
     def setUp(self):
         # Short on purpose: a unix socket path is capped near 108 bytes.
@@ -72,9 +81,6 @@ class LivePaneOptionTests(unittest.TestCase):
         panes = out.split()
         self.assertEqual(len(panes), 1, out)
         self.pane = panes[0]
-
-    def _read(self, pane: str) -> tuple[bool, str]:
-        return asyncio.run(self.mon.get_pane_option(pane, OPTION))
 
     def test_set_option_reads_back(self):
         rc, _ = self.client.run(["set-option", "-p", "-t", self.pane,
@@ -107,6 +113,22 @@ class LivePaneOptionTests(unittest.TestCase):
             asyncio.run(compute_shadow_staleness(self.mon, MISSING, self.pane,
                                                  3.0)),
             (None, None))
+
+
+@unittest.skipUnless(shutil.which("tmux"), "tmux not installed")
+class LivePaneOptionTests(_LivePaneOptionContract, unittest.TestCase):
+    """The async sibling — ``get_pane_option``."""
+
+    def _read(self, pane: str) -> tuple[bool, str]:
+        return asyncio.run(self.mon.get_pane_option(pane, OPTION))
+
+
+@unittest.skipUnless(shutil.which("tmux"), "tmux not installed")
+class LivePaneOptionSyncTests(_LivePaneOptionContract, unittest.TestCase):
+    """The sync sibling — ``get_pane_option_sync`` (t2057)."""
+
+    def _read(self, pane: str) -> tuple[bool, str]:
+        return self.mon.get_pane_option_sync(pane, OPTION)
 
 
 if __name__ == "__main__":

@@ -3319,7 +3319,9 @@ class MiniMonitorApp(
         ``kill_pane_id`` is killed only **after** a successful launch. That
         order is load-bearing: unlike the full monitor, the minimonitor shares
         the followed agent's window, so killing first would tear this app down
-        before the next agent exists.
+        before the next agent exists. It is killed only when
+        :meth:`_kill_target_state` proves it live at that moment; a frozen or
+        unverifiable target is left alone with a warning (t2057).
         """
         if self._monitor is None:
             return
@@ -3346,10 +3348,27 @@ class MiniMonitorApp(
                 if pick_result.new_window:
                     maybe_spawn_minimonitor(pick_result.session, pick_result.window)
                 self.notify(f"Launched agent for t{target_id}")
-                # 2. Only now kill the outgoing agent, if the caller asked.
+                # 2. Only now kill the outgoing agent, if the caller asked —
+                #    and only if it is still a LIVE agent. Re-read here, not
+                #    when the dialogs opened: it may have been frozen since
+                #    (t2059), and `n` never checked at all (t2058).
                 if kill_pane_id and self._monitor is not None:
-                    self._monitor.kill_agent_pane_smart(kill_pane_id)
-                    self._focused_pane_id = None
+                    state = self._kill_target_state(kill_pane_id)
+                    if state == "live":
+                        self._monitor.kill_agent_pane_smart(kill_pane_id)
+                        self._focused_pane_id = None
+                    elif state == "frozen":
+                        self.notify(
+                            "Followed agent is frozen — launched without "
+                            "kill; drop it with k",
+                            severity="warning",
+                        )
+                    else:
+                        self.notify(
+                            "Could not confirm the followed agent is still "
+                            "live — launched without kill",
+                            severity="warning",
+                        )
             self.call_later(self._refresh_data)
 
         self.push_screen(screen, on_pick_result)
@@ -3449,7 +3468,15 @@ class MiniMonitorApp(
         in another project. One tmux session maps to exactly one project root,
         so the session scope IS the project scope — the same rule
         :meth:`_find_own_agent_snapshot` uses.
+
+        A FROZEN stand-in keeps ``category == AGENT`` but runs nothing, so it
+        is not "already running" (t2057). It still gets its own note rather
+        than silence: launching a fresh pick beside a frozen agent of the same
+        task duplicates its work, and restoring or re-picking it from its
+        viewer is usually what the user wants instead. A live match outranks a
+        frozen one — that is the stronger warning.
         """
+        frozen_line = None
         for snap in self._snapshots.values():
             if snap.pane.category != PaneCategory.AGENT:
                 continue
@@ -3457,11 +3484,19 @@ class MiniMonitorApp(
                 continue
             if self._task_cache.get_task_id_for_pane(snap.pane) != target_id:
                 continue
-            return (
-                f"⚠ t{target_id} is already running in this session, "
-                f"window {snap.pane.window_index}:{snap.pane.window_name}"
-            )
-        return None
+            window = f"window {snap.pane.window_index}:{snap.pane.window_name}"
+            if self._is_frozen(snap):
+                if frozen_line is None:
+                    # Kept as short as the live line: the dialog's docked
+                    # area does not scroll, so at 40x20 a longer note pushes
+                    # its own first lines — the word "frozen" — off the top.
+                    frozen_line = (
+                        f"⚠ t{target_id} frozen in {window} — "
+                        "restore/re-pick in its viewer"
+                    )
+                continue
+            return f"⚠ t{target_id} is already running in this session, {window}"
+        return frozen_line
 
     def _on_pick_confirmed(
         self,

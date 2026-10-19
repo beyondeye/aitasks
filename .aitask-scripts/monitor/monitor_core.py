@@ -2351,6 +2351,38 @@ class TmuxMonitor:
             return (False, "")
         return (True, "")
 
+    def get_pane_option_sync(
+        self, pane_id: str, option: str, timeout: float = 2.0
+    ) -> tuple[bool, str]:
+        """Sync twin of :meth:`get_pane_option` — same argv, same contract.
+
+        For sync Textual callbacks that must read a pane option immediately
+        before acting on the pane: the pick flows' kill-time frozen re-check
+        (t2057), which runs in the same synchronous ``push_screen`` callback as
+        the equally blocking ``kill_agent_pane_smart``. Everything in
+        :meth:`get_pane_option`'s docstring applies verbatim — in particular an
+        empty value is ``(True, "")`` only once ``display-message`` echoes
+        ``pane_id`` back, because ``-q`` answers a MISSING pane exactly like an
+        unset option. Keep the two bodies in step; both are pinned by the same
+        contract tests (``tests/test_shadow_seam.py``,
+        ``tests/test_monitor_pane_option_live.py``).
+        """
+        rc, out = self.tmux_run(
+            ["show-options", "-pqv", "-t", pane_id, option], timeout=timeout
+        )
+        if rc != 0:
+            return (False, "")
+        value = out.strip()
+        if value:
+            return (True, value)
+        rc, out = self.tmux_run(
+            ["display-message", "-p", "-t", pane_id, "#{pane_id}"],
+            timeout=timeout,
+        )
+        if rc != 0 or out.strip() != pane_id:
+            return (False, "")
+        return (True, "")
+
     def get_last_change_wall(self, pane_id: str) -> float | None:
         """Wall-clock epoch (approx) when ``pane_id``'s content last changed.
 

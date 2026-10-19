@@ -41,6 +41,7 @@ from monitor.monitor_core import workflow_phase  # noqa: E402,F401
 
 from monitor.monitor_core import (  # noqa: E402,F401
     BlockAge,
+    FROZEN_OPTION,
     PaneCategory,
     PaneSnapshot,
     _TASK_ID_RE,
@@ -696,6 +697,34 @@ class AgentMarksMixin:
         Same rule t1685 recorded for `parked`.
         """
         return snap.frozen
+
+    def _kill_target_state(self, pane_id: str) -> str:
+        """``"live"`` | ``"frozen"`` | ``"unverified"`` — read at KILL time.
+
+        For the pick flows' outgoing-agent kill (t2057, merging t2058/t2059).
+        ``kill_agent_pane_smart``'s frozen path is an UNLEASED kill-then-drop:
+        it can tear down a stand-in whose record a restore coordinator owns,
+        and it deletes the capture — the only copy of the agent's output —
+        without the warning ``k`` shows. So only a target proven live may reach
+        it; a frozen one is retired by ``k`` (the leased ``_drop_frozen``).
+
+        Two reads, cheapest first. The snapshot, because it is what the user
+        saw; then the live ``@aitask_frozen`` pane option, because a snapshot
+        can be a tick stale and the agent may have been frozen while a dialog
+        was open. Anything not proven live is ``"unverified"`` and fails
+        closed: the kill is irreversible, skipping it is not. That includes a
+        pane that no longer exists — there is nothing left to kill anyway.
+
+        Residual: a freeze landing between this read and the kill is not
+        caught. Only the leased ``aitask_frozen.sh drop`` closes that window.
+        """
+        snap = self._snapshots.get(pane_id)
+        if snap is not None and self._is_frozen(snap):
+            return "frozen"
+        ok, value = self._monitor.get_pane_option_sync(pane_id, FROZEN_OPTION)
+        if not ok:
+            return "unverified"
+        return "frozen" if value else "live"
 
     def _is_inactive(self, snap: PaneSnapshot) -> bool:
         """Whether the `P` filter hides this agent — parked OR frozen.
