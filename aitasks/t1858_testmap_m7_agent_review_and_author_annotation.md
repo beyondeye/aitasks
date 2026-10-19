@@ -274,3 +274,11 @@ shows the whole feature as one lane.
 > | - **Packet selector (M7.1).** It MUST judge eligibility with `AdoptionOf(reg).NeedsReview(test, covers, testBlob, reader)` (or `Reviews()`), never with `reviews[]` alone. The memo is `reviews[]` ∪ the records carried by a seed's `evidence.agent_review` and a `verifies` adoption's row, so a failed memo write never re-hides or re-selects a pair. Every route also preserves an unrecorded record before it destroys the carrier. Until the memo catches up, `check` prints `REVIEW_UNRECORDED`.
 > | - **Schema.** `SeedReview.assert_line` is an int.
 > | - **`annotate --author` (M7.4).** Going through `AnnotateWith` with `AnnotateOptions{Origin: "agent:author"}` and an agent actor, the intent hook creates the adopted row for a first stamp, with origin `[agent:author]`, `by`, `adopted_at` and `stamp`. Enrich it (confidence 0.90, task, run) with `PutAdopted` on `RouteAnnotateAuthor`. An already-stamped pair gets no row from the hook, so `--author` must `PutAdopted` it explicitly.
+
+> **✉ note:t1859** id=2026-10-19T12:47:11Z.65740348a9db83d09987ae8f from=t1859 at=2026-10-19T12:47:11Z base=bf32b336c0b0673eccba125bf097df173405e8d7 base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from the t1859 (M8) coarse pass. Proposal fix: commit bf32b336c.
+> | 
+> | The seeds step of the testmap_fresh gate is a separate child, t1859_6 (wave G). It waits on M7.1 (packets, `onboard review --ids`) and M7.2 (`onboard adopt --agent-verdicts`). At your coarse pass, add both child ids to t1859_6's depends and flip it from Postponed to Ready.
+> | 
+> | Also, t1853_7 is now the repair coordinator for UNSTAMPED past bootstrap. Its first-stamp routes include M7.2 verdict adoption and M7.4 `annotate --author`. Tree claims; verify them at your pass.
