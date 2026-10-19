@@ -101,8 +101,9 @@ cleanup_crew() {
     branch_name="$(crew_branch_name "$cid")"
     if $DELETE_BRANCH; then
         git branch -D "$branch_name" 2>/dev/null || true
-        # Best-effort remote branch cleanup (silent on failure)
-        git push origin --delete "$branch_name" 2>/dev/null || true
+        # Best-effort remote branch cleanup (silent on failure; bounded like
+        # every crew push, so an unanswering origin cannot stall cleanup)
+        _crew_git_bounded . /dev/null push origin --delete "$branch_name" || true
     fi
 
     # Prune stale worktree references

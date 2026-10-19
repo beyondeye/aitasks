@@ -124,6 +124,8 @@ from codebrowser.agent_utils import resolve_agent_binary
 from guarded_dismiss import GuardedModalScreen
 from launch_modes import DEFAULT_LAUNCH_MODE, VALID_LAUNCH_MODES
 from agentcrew.agentcrew_utils import (
+    crew_git_timeout,
+    git_cmd,
     list_agent_files,
     format_elapsed,
     read_yaml,
@@ -5955,11 +5957,10 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, RowNavMixin, App):
             )
             if r.returncode != 0 and cmd[1] == "branch":
                 success = False
-        # Best-effort remote prune; never fails the cleanup
-        r = subprocess.run(
-            ["git", "push", "origin", "--delete", crew_branch],
-            capture_output=True, text=True,
-        )
+        # Best-effort remote prune; never fails the cleanup. Bounded like
+        # every crew push, so an unanswering origin cannot stall the retry.
+        r = git_cmd(".", "push", "origin", "--delete", crew_branch,
+                    check=False, timeout=crew_git_timeout())
         outputs.append(
             f"$ git push origin --delete {crew_branch}\nexit={r.returncode}\n"
             f"{r.stdout}{r.stderr}".rstrip()

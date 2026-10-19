@@ -18,6 +18,10 @@ source "$SCRIPT_DIR/lib/aitask_path.sh"
 source "$SCRIPT_DIR/lib/python_resolve.sh"
 # shellcheck source=lib/terminal_compat.sh
 source "$SCRIPT_DIR/lib/terminal_compat.sh"
+# shellcheck source=lib/agentcrew_utils.sh
+source "$SCRIPT_DIR/lib/agentcrew_utils.sh"
+# agentcrew_utils.sh points SCRIPT_DIR at lib/; restore it.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 PYTHON="$(require_ait_python)"
 
@@ -111,8 +115,9 @@ cleanup_output=$(bash "$SCRIPT_DIR/aitask_crew_cleanup.sh" --crew "$CREW_ID" --d
                 fi
             fi
             # Best-effort remote cleanup — silent on failure (no remote, no
-            # perms, branch never pushed, etc. are all acceptable).
-            git push origin --delete "crew-${CREW_ID}" 2>/dev/null || true
+            # perms, branch never pushed, a timed-out origin, etc. are all
+            # acceptable). Bounded like every crew push.
+            _crew_git_bounded . /dev/null push origin --delete "crew-${CREW_ID}" || true
             ;;
         *)
             warn "Crew cleanup note: $cleanup_output"
