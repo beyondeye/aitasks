@@ -233,3 +233,55 @@ no worktree).
 None identified. The leak is measured directly before and after for every suite.
 The per-suite assertion and the repo-wide guard prevent regressions, including in
 suites not yet written.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-19 11:40)
+- **Requested by user:** `assert_fixture_registered`'s membership loop ended in `[[ "$d" == "$FIXTURE_ROOT" ]] && found=1`. When the root was followed by any other cleanup entry, the loop (and so the `eval`) returned 1, and a `set -e` suite exited silently before `assert_eq` ran. Reproduced: `CLEANUP_DIRS=("$FIXTURE_ROOT" "$other")` under `set -e` gave rc=1 with no output. Six migrated suites run under `set -e`.
+- **Changes made:**
+  - The loop body is now `if [[ … ]]; then found=1; fi`, so the loop always succeeds and `found` alone decides membership. A comment records why.
+  - New regression in `tests/test_fixture_root.sh`: an errexit child script runs the assertion with the root followed by another entry, and with the root last. Each must print `reached PASS=1 FAIL=0` with rc 0.
+  - Red proof: against a scratch copy of the lib with the old loop, the root-first case fails (`got '1|'`), 29/30.
+  - The regression's heredoc first wrote the append as `CLEANUP_DIRS+=(`. The live-tree guard flagged that as a registering function called in `$( )`, so it now uses `CLEANUP_DIRS=("${CLEANUP_DIRS[@]}" …)`.
+- **Files affected:** `tests/lib/fixture_root.sh`, `tests/test_fixture_root.sh`
+
+## Final Implementation Notes
+- **Actual work done:**
+  - New `tests/lib/fixture_root.sh`. `fixture_root_init [array]` creates one physical-path root per suite and registers it in the calling shell. `fixture_mktemp_d <prefix>` fails closed when there is no root. `assert_fixture_registered <desc> <dir>` is a single assertion, with the emptiness check first.
+  - **20 suites (21 helpers)** migrated:
+    - Each helper's `mktemp -d` + `CLEANUP_DIRS+=` pair is replaced by `fixture_mktemp_d <prefix> || return 1`. Every `X="$(helper)"` call site is unchanged.
+    - Each suite sources the lib after `asserts.sh`.
+    - Each suite calls `fixture_root_init` at top level just before its first test, then makes one `assert_fixture_registered` call through `$(helper)`. The atomic suite asserts both of its helpers.
+  - New `tests/test_fixture_root.sh` (30 assertions):
+    - library behaviour, including the negative controls and custom array names;
+    - `set -e` membership regressions;
+    - end-to-end probe-TMPDIR leak checks with controls, including a SKIP-path control;
+    - a repo-wide guard: an awk scanner over `tests/*.sh` and `tests/lib/*.sh`, with five scanner controls.
+- **Deviations from plan:**
+  - The count is 20 suites / 21 helpers, not "21 suites". `test_atomic_task_file_writes` has two helpers.
+  - `test_gates_sync_registry.sh` pins its own assertion count (`"92" "$TOTAL"`), which the new assertion moved to 93. No other migrated suite pins a count.
+  - The new test's file-wide `shellcheck disable=SC2030,SC2031,SC2016` must sit before the first command to apply file-wide.
+- **Issues encountered:**
+  - Plan review: initializing the root right after the array init would leak it on `test_skill_errexit_capture.sh`'s minijinja SKIP `exit 0`, since that suite cleans up only in its footer. Init moved to just before the first test.
+  - Code review: the membership loop's `[[ … ]] && found=1` tail killed `set -e` suites when the root was not the last array entry. See Post-Review Changes.
+  - One background probe run of `test_atomic_task_file_writes.sh` hit a 900s timeout inside its `aitask_projects.sh: registry rewrite` section, which this change does not touch. Seven reruns (5 live, 1 live in parallel with a HEAD copy, 1 in the final full probe) all completed in about 2s, 64/64. Unexplained and not reproduced.
+- **Key decisions:**
+  - A per-suite registered root instead of t2031's result-variable pattern. Every `$( )` call site (about 200) stays valid, and a future `$( )` or `( … )` caller cannot reintroduce the leak.
+  - The guard reads function bodies as text, so test fixtures that spell a registration are `|`-prefixed and stripped with `sed`. For the same reason, the `set -e` regression appends with `CLEANUP_DIRS=("${CLEANUP_DIRS[@]}" …)`.
+- **Verification (durable evidence)**, measured with `TMPDIR=<empty dir> bash tests/<suite>.sh`:
+  - **Before, leaked fixture dirs per run:**
+    - gate_verifiers 60, gates_sync_registry 28, skill_errexit_capture 24, gate_orchestrator 18, verification_stale 18 (tmp.*), atomic_task_file_writes 15 (8 probe + 7 sites), gate_active_gates 14
+    - amend_guard 10 (tmp.*), gate_procedure_docs 10, gate_risk_verifier 10, gate_pass 6, web_merge_materialize 6, stale_witness_parity 5, declaration_backfill 4, resolve_config_path_cli 4, effective_gates 3, cli_wiring 3, no_double_record 3, learn_wrappers 3
+    - run_project_command: many `test_runprojcmd_*` dirs, plus build logs.
+  - **After (final probe, post review fix):** all 20 suites, `test_followup_kind_roundtrip` and `test_fixture_root` have rc=0, no FAIL lines, and **0 fixture leftovers**. Only the deliberate `ait-test-cwd-<uid>` / `aitask-locks-*` dirs and run_project_command's `aitask_verify_build_*.log` remain.
+  - **Forced-skip path** (`AIT_PYTHON=/usr/bin/python3`, no minijinja), `test_skill_errexit_capture.sh`:
+    - before: rc 0, SKIP, no root;
+    - after: rc 0, SKIP, no root;
+    - control copy with init right after the array init: leaves 1 `ait_fixture_root_*` dir.
+  - **Red proofs:**
+    - A copy of `test_gate_cli_wiring.sh` with the old helper shape gives rc=1, `FAIL: new_fixture dirs land under the registered FIXTURE_ROOT (… got 'outside FIXTURE_ROOT …')`. The guard flags all 4 `$(new_fixture)` sites in that copy.
+    - The guard over the HEAD versions of all `tests/*.sh` and `tests/lib/*.sh` flags exactly the 21 helpers: no `bcrt`, and no hit on t2031's comment.
+    - The `set -e` regression against the old loop: 29/30, `got '1|'`.
+  - **Other checks:** `test_cd_guard_lint.sh` passes 92/92. `shellcheck`: the new files are clean. Each migrated suite gains only one SC1091 info note for the new `source` line, the same note its `asserts.sh` line already gets.
+- **Upstream defects identified:** None
+- **Not in this class (observations, not defects):** `aitask_run_project_command.sh` writes `aitask_verify_build_*.log` to `$TMPDIR` by design, so `test_run_project_command.sh` leaves those logs behind. The `ait-test-cwd-<uid>` and `aitask-locks-<uid>-<cksum>` dirs are deliberate persistent per-user namespaces. `bcrt` (`test_followup_kind_roundtrip.sh`) was a heuristic false positive.
