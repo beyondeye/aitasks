@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2040
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-16 16:12
-updated_at: 2026-10-19 08:04
+updated_at: 2026-10-19 12:56
 ---
 
 ## Origin
@@ -62,3 +63,8 @@ unset would strip another record's stamp (the t1875 rule).
 - Negative control: a pane whose stamp names ANOTHER record keeps it.
 - Optionally live: kill a coordinator after `restore-launched`, run `reconcile`, then
   freeze the recovered agent again.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-19T09:56:56Z status=pass attempt=1 type=human
