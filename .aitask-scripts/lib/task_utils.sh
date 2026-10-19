@@ -562,16 +562,16 @@ task_git() {
     fi
 }
 
-# task_git_gateway <argv…> — what `./ait git <argv>` runs for everything except
-# `push` (the dispatcher special-cases that one on $1).
+# task_git_gateway <argv…> — what `./ait git <argv>` runs.
 #
-# Two policies on top of task_git, both keyed on the PARSED argv so a global
-# option in front of the subcommand cannot route around them (t1739):
+# Policies on top of task_git, all keyed on the PARSED argv so a global option
+# in front of the subcommand cannot route around them (t1739, t2063):
 #   - repository-redirecting options are refused: they point git away from the
 #     data worktree, which defeats the gateway, and for a pull they would read
 #     the ownership evidence from the wrong git-dir. `-c name=value` redirects
 #     nothing and is kept;
-#   - a `pull` goes through task_git_pull, the workflow pull's cleanup.
+#   - a `pull` goes through task_git_pull, the workflow pull's cleanup;
+#   - a `push` goes through task_git_push, the best-effort task_push.
 task_git_gateway() {
     local redirect idx
     redirect="$(ait_git_redirect_opt "$@")"
@@ -583,7 +583,46 @@ task_git_gateway() {
         task_git_pull "$@"
         return
     fi
+    if (( idx > 0 )) && [[ "${!idx}" == "push" ]]; then
+        task_git_push "$@"
+        return
+    fi
     task_git "$@"
+}
+
+# task_git_push <git argv…> — the `./ait git push` gateway: the best-effort
+# task_push (retries, a pull-rebase between attempts, reason reporting) whatever
+# global options precede `push` (t2063).
+#
+#   - Config the user supplied (`-c`, `--config-env`) reaches every git call of
+#     the cycle: the push attempts and their remote / upstream / unpushed probes
+#     (AIT_PUSH_GIT_OPTS), and the retry pull with its auto-merge continue and
+#     abort (AIT_RECONCILE_GIT_OPTS, framework pins last). A remote reached only
+#     through `-c url.….insteadOf` or `-c core.sshCommand` needs it on both.
+#   - Any OTHER global option is refused: carrying it to some of those calls and
+#     not others would be a half-contract, and none of them is needed to push.
+#   - Arguments after `push` are read as in the bare form: `--batch` adds the
+#     structured status line, everything else is ignored.
+task_git_push() {
+    _ait_git_scan_globals "$@"
+    local idx="$AIT_GIT_SUBCMD_IDX"
+    if (( ${#AIT_GIT_OTHER_OPTS[@]} )); then
+        die "./ait git push: '${AIT_GIT_OTHER_OPTS[0]}' is not supported before 'push' - only -c and --config-env are carried into the best-effort push (every attempt and the pull between attempts). Drop it, or use plain 'git -C .aitask-data ${AIT_GIT_OTHER_OPTS[0]} push'."
+    fi
+    local push_batch=0 arg
+    for arg in "${@:idx+1}"; do
+        if [[ "$arg" == "--batch" ]]; then push_batch=1; fi
+    done
+
+    # Function-local and dynamically scoped, exactly as in task_git_pull: the
+    # callees read both arrays while this frame is live; the globals are untouched.
+    local -a framework_opts=("${AIT_RECONCILE_GIT_OPTS[@]}")
+    local -a AIT_RECONCILE_GIT_OPTS=(${AIT_GIT_CONFIG_OPTS[@]+"${AIT_GIT_CONFIG_OPTS[@]}"} "${framework_opts[@]}")
+    local -a AIT_PUSH_GIT_OPTS=(${AIT_GIT_CONFIG_OPTS[@]+"${AIT_GIT_CONFIG_OPTS[@]}"})
+
+    task_push
+    if [[ "$push_batch" == "1" ]]; then task_push_report; fi
+    return 0
 }
 
 # --- `git pull` argument shape (t1739) ----------------------------------------
@@ -1286,9 +1325,30 @@ task_push() {
     TASK_PUSH_AUTOMERGED=""
     assert_data_worktree_clean push
 
+    # A remote probe that FAILED is not an empty remote list (t2063). Git
+    # refuses every command when it cannot read its configuration — a `-c`
+    # without a section, a `--config-env` naming an unset variable — and
+    # _task_push_has_remote would read that refusal as "no remote" and skip the
+    # pending upload in silence. Report it with git's own line instead.
+    #
+    # ONE query on the normal path: its stdout decides "no remote". Only a
+    # failed query runs again, for its stderr — a configuration error is
+    # deterministic, so the rerun says what the first one hit.
+    local remote_list="" remote_err="" remote_rc=0
+    remote_list="$(_task_push_git remote 2>/dev/null)" || remote_rc=$?
+    if [[ $remote_rc -ne 0 ]]; then
+        remote_err="$(_task_push_git remote 2>&1 >/dev/null || true)"
+        remote_err="$(_task_push_first_line "$remote_err")"
+        TASK_PUSH_STATUS="failed"
+        TASK_PUSH_REASON="unknown"
+        TASK_PUSH_UNPUSHED="$(_task_push_unpushed_count)"
+        _task_push_warn " (git: ${remote_err:-'git remote' exited ${remote_rc}})"
+        return 0
+    fi
+
     # No remote at all (solo / offline-only repo): nothing to push to and
     # nothing at risk — stay silent.
-    if ! _task_push_has_remote; then
+    if [[ -z "$remote_list" ]]; then
         TASK_PUSH_STATUS="no-remote"
         return 0
     fi
@@ -1400,9 +1460,24 @@ task_push_report() {
     esac
 }
 
+# Options every git call of the PUSH CYCLE carries: each push attempt and the
+# remote / upstream / unpushed probes around it, so the preflight and the report
+# describe the same configuration the upload uses (a remote supplied only by
+# `-c remote.origin.url=…` must not read as "no remote"). Empty by default, so
+# task_sync / task_data_converge, which share the probes, run them unchanged.
+#
+# ONE sanctioned override: task_git_push re-declares this array function-locally
+# with the user's -c / --config-env options (t2063). Read it at CALL time.
+AIT_PUSH_GIT_OPTS=()
+
+# Internal: _ait_data_git with the push cycle's options in front.
+_task_push_git() {
+    _ait_data_git ${AIT_PUSH_GIT_OPTS[@]+"${AIT_PUSH_GIT_OPTS[@]}"} "$@"
+}
+
 # Internal: single push attempt
 _task_push_once() {
-    _ait_data_git push --quiet
+    _task_push_git push --quiet
 }
 
 # --- The data-worktree pull mutex (t1725_1) ---------------------------------
@@ -1608,9 +1683,11 @@ AIT_PULL_UNVERIFIED_SENTINEL="pull completed but its result could not be verifie
 # recovery calls still go through _ait_data_git: they run mid-rebase, exactly
 # when the guard refuses mutating verbs.
 #
-# ONE sanctioned override: task_git_pull re-declares this array function-locally
+# ONE sanctioned override, made by the two gateways task_git_pull and
+# task_git_push: each re-declares this array function-locally
 # as (user -c / --config-env options, then these pins), so every callee that
-# reads it while that frame is live — the pull, ait_automerge_advance's
+# reads it while that frame is live — the pull (for task_git_push, the retry
+# pull between push attempts), ait_automerge_advance's
 # continue/skip, ait_rebase_abort_if_ours — carries the user's config, with the
 # pins last so they win. Read the array at CALL time; a copy taken at source time
 # would silently drop that config.
@@ -1874,17 +1951,17 @@ _task_pull_rebase_cleanup() {
 # Internal: commits on HEAD that the upstream does not have. Prints nothing
 # when the branch has no upstream.
 _task_push_unpushed_count() {
-    _ait_data_git rev-list --count '@{upstream}..HEAD' 2>/dev/null || true
+    _task_push_git rev-list --count '@{upstream}..HEAD' 2>/dev/null || true
 }
 
 # Internal: upstream ref name (e.g. origin/aitask-data); empty when unset.
 _task_push_upstream() {
-    _ait_data_git rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null || true
+    _task_push_git rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null || true
 }
 
 # Internal: true when at least one git remote is configured.
 _task_push_has_remote() {
-    [[ -n "$(_ait_data_git remote 2>/dev/null || true)" ]]
+    [[ -n "$(_task_push_git remote 2>/dev/null || true)" ]]
 }
 
 # Internal: first non-blank line of a captured git output blob.

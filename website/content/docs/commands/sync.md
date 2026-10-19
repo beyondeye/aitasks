@@ -225,9 +225,20 @@ options that would point git at a different repository — `-C`, `--git-dir`,
 `--work-tree` and `--namespace` — are refused, since they defeat the routing;
 use plain `git` for those. `-c name=value` and `--config-env` are kept.
 
+In front of `push`, `-c` and `--config-env` are the only global options
+accepted. They apply to every push attempt, to the pull between attempts, and
+to the probes that decide whether there is a remote and how many commits are
+stranded — so a remote reached only through, say, `core.sshCommand` or
+`url.<base>.insteadOf` works for the whole push. A configuration git cannot
+read — a `-c` key without a section, a `--config-env` naming an unset variable —
+is reported as a failed push with git's own message, never as "no remote". Any
+other global option is refused. Arguments after `push` other than `--batch` are
+ignored.
+
 ```bash
 ait git push                  # best-effort push; warns if commits are stranded
 ait git push --batch          # same, plus one structured status line on stdout
+ait git -c core.sshCommand="ssh -i ~/.ssh/other" push   # config for every attempt
 ```
 
 Best-effort does not mean silent. The push is attempted up to three times, with

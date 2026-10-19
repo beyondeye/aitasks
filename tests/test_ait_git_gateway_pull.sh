@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
-# test_ait_git_gateway_pull.sh - `./ait git pull` through the real dispatcher (t1739)
+# test_ait_git_gateway_pull.sh - `./ait git pull` and `./ait git push` through
+# the real dispatcher (t1739, t2063)
 # Run: bash tests/test_ait_git_gateway_pull.sh
 #
 # Every case runs the copied `ait` dispatcher in a branch-mode fixture (a real
 # .aitask-data worktree on the aitask-data branch, upstream origin/aitask-data),
 # so what is tested is the gateway as a user reaches it — routing, guard, owned
-# pull, cleanup and reporting together. The library-level halves live in
+# pull, cleanup and reporting together. The P cases cover `push`: the bare and
+# the option-prefixed forms both reach the best-effort task_push. The library-level halves live in
 # tests/test_task_git.sh (parser, guard) and tests/test_task_push.sh (the
 # shared pull core and its postcondition).
 
@@ -143,6 +145,37 @@ run_ait() {
     (cd "$FX_LOCAL" && ./ait git "$@") >/dev/null 2>"$e"
     RC=$?
     ERR="$(cat "$e")"
+}
+
+# As run_ait, but also keeps stdout in OUT (the `--batch` status line).
+run_ait_out() {
+    local e="$FX/run_err" o="$FX/run_out"
+    (cd "$FX_LOCAL" && ./ait git "$@") >"$o" 2>"$e"
+    RC=$?
+    OUT="$(cat "$o")"
+    ERR="$(cat "$e")"
+}
+
+# A push the remote rejects as non-fast-forward until the retry pull rebases:
+# one local commit, one non-conflicting remote commit. Sets MINE to the local
+# commit's subject, which survives the rebase (its sha does not).
+setup_diverged_push() {
+    remote_commit theirs.txt "theirs"
+    local_commit mine.txt "mine"
+    MINE="local: mine.txt"
+}
+
+# yes when the remote branch carries the commit whose subject is MINE.
+remote_has_mine() {
+    git -C "$FX_REMOTE" log --format=%s refs/heads/aitask-data 2>/dev/null \
+        | grep -qxF "$MINE" && echo yes || echo no
+}
+
+# The observable outcome of a push, as one comparable tuple.
+push_outcome() {
+    printf 'rc=%s|out=%s|remote_has_mine=%s|unpushed=%s' \
+        "$RC" "$OUT" "$(remote_has_mine)" \
+        "$(git -C "$DATA" rev-list --count '@{upstream}..HEAD' 2>/dev/null)"
 }
 
 # The reason code the gateway warned with, or "".
@@ -486,6 +519,120 @@ assert_contains "I: through the auto-merge" "auto-merged task-data conflict(s) d
 assert_eq_trim "I: no wedge" "" "$(probe_wedge)"
 assert_eq "I: the replayed commit carries the supplied committer" "t@t.example" \
     "$(git -C "$DATA" log -1 --format=%ce)"
+
+# --- Test P1: bare and option-prefixed push reach the same best-effort push ---
+# The first push is rejected non-fast-forward; only task_push's retry pull lets
+# the second one through. A raw `git push` has neither the retry nor --batch.
+# The prefixed tuple is compared against the bare one, not a hand-written one.
+echo "--- Test P1: ./ait git -c core.pager=cat push == ./ait git push ---"
+make_fixture
+setup_diverged_push
+run_ait_out push --batch
+outcome_P1="$(push_outcome)"
+assert_eq "P1: bare form — pushed after the retry pull" \
+    "rc=0|out=PUSHED|remote_has_mine=yes|unpushed=0" "$outcome_P1"
+
+make_fixture
+setup_diverged_push
+run_ait_out -c core.pager=cat push --batch
+assert_eq "P1: option-prefixed form — same outcome as the bare form" "$outcome_P1" "$(push_outcome)"
+
+make_fixture
+setup_diverged_push
+run_ait_out -c core.pager=cat push
+assert_eq "P1: prefixed, no --batch — exits 0 after the retry" "0" "$RC"
+assert_eq "P1: ... prints no status line" "" "$OUT"
+assert_eq "P1: ... and the commit reached the remote" "yes" "$(remote_has_mine)"
+
+# --- Test P2: -c reaches every push attempt AND the retry pull ---
+# origin points at a path that does not exist; only the user's insteadOf maps
+# it to the real remote. Config on the push alone leaves the retry pull unable
+# to fetch (still non-fast-forward → FAILED); config on the pull alone never
+# reaches the remote with the push.
+echo "--- Test P2: -c url.….insteadOf carried into push and retry pull ---"
+make_fixture
+setup_diverged_push
+git -C "$DATA" remote set-url origin "$FX/moved.git"
+remote_P2="$(git -C "$FX_REMOTE" rev-parse refs/heads/aitask-data)"
+run_ait_out push --batch
+assert_contains "P2 control: without the config the push fails" "FAILED:" "$OUT"
+assert_eq "P2 control: ... and the remote did not move" "$remote_P2" \
+    "$(git -C "$FX_REMOTE" rev-parse refs/heads/aitask-data)"
+run_ait_out -c "url.$FX_REMOTE.insteadOf=$FX/moved.git" push --batch
+assert_eq "P2: with it, pushed after the retry pull" \
+    "rc=0|out=PUSHED|remote_has_mine=yes" "$(push_outcome | cut -d'|' -f1-3)"
+
+# --- Test P4: a remote supplied only on the command line ---
+# No remote.origin section at all, so `git remote` lists nothing and
+# @{upstream} has no tracking refspec — unless the probes carry the user's
+# config too. Without that, the push reports NO_REMOTE before any attempt.
+echo "--- Test P4: remote only in -c / --config-env -> pushed, not NO_REMOTE ---"
+p4_fixture() {
+    make_fixture
+    setup_diverged_push
+    git -C "$DATA" config --remove-section remote.origin
+}
+p4_check() {   # <label>
+    assert_eq "P4 ($1): pushed after the retry pull" \
+        "rc=0|out=PUSHED|remote_has_mine=yes" "$(push_outcome | cut -d'|' -f1-3)"
+    assert_not_contains "P4 ($1): no stranded-commit warning" "not pushed" "$ERR"
+}
+p4_fixture
+run_ait_out push --batch
+assert_eq "P4 control: the fixture has no configured remote" "NO_REMOTE" "$OUT"
+run_ait_out -c "remote.origin.url=$FX_REMOTE" \
+    -c 'remote.origin.fetch=+refs/heads/*:refs/remotes/origin/*' push --batch
+p4_check "-c"
+p4_fixture
+URL_P4="$FX_REMOTE" run_ait_out --config-env=remote.origin.url=URL_P4 \
+    -c 'remote.origin.fetch=+refs/heads/*:refs/remotes/origin/*' push --batch
+p4_check "--config-env"
+
+# --- Test P5: a config git cannot read is reported, never read as NO_REMOTE ---
+# origin IS configured and a commit is pending. Git refuses every command when
+# the command-line config is unreadable, so the remote probe fails; that must
+# surface as a failed push with git's own line, not as "no remote" in silence.
+echo "--- Test P5: unreadable -c / --config-env -> FAILED with git's diagnostic ---"
+make_fixture
+local_commit mine.txt "mine"
+remote_P5="$(git -C "$FX_REMOTE" rev-parse refs/heads/aitask-data)"
+p5_check() {   # <label> <git's diagnostic fragment>
+    assert_eq "P5 ($1): exits 0 (best-effort)" "0" "$RC"
+    assert_contains "P5 ($1): reported as a failed push" "FAILED:" "$OUT"
+    assert_not_contains "P5 ($1): not reported as NO_REMOTE" "NO_REMOTE" "$OUT"
+    assert_contains "P5 ($1): git's diagnostic is preserved" "$2" "$ERR"
+    assert_eq "P5 ($1): nothing was pushed" "$remote_P5" \
+        "$(git -C "$FX_REMOTE" rev-parse refs/heads/aitask-data)"
+}
+(unset AIT_P5_UNSET; cd "$FX_LOCAL" && ./ait git --config-env=remote.origin.url=AIT_P5_UNSET push --batch) \
+    >"$FX/run_out" 2>"$FX/run_err"
+RC=$?; OUT="$(cat "$FX/run_out")"; ERR="$(cat "$FX/run_err")"
+p5_check "--config-env, unset variable" "AIT_P5_UNSET"
+run_ait_out -c badkey push --batch
+p5_check "-c badkey" "badkey"
+# The non-batch form prints nothing on stdout, so the warning is the report.
+run_ait_out -c badkey push
+assert_eq "P5 (no --batch): exits 0" "0" "$RC"
+assert_contains "P5 (no --batch): warns that the push failed" "push failed" "$ERR"
+assert_contains "P5 (no --batch): ... with git's diagnostic" "badkey" "$ERR"
+
+# --- Test P3: other global options are refused before anything runs ---
+echo "--- Test P3: non-config global options before push are refused ---"
+make_fixture
+local_commit mine.txt "mine"
+remote_P3="$(git -C "$FX_REMOTE" rev-parse refs/heads/aitask-data)"
+for opt_P3 in --no-pager -p; do
+    run_ait_out "$opt_P3" push --batch
+    assert_nonzero "P3 ($opt_P3): refused" "$RC"
+    assert_contains "P3 ($opt_P3): the message names the option" \
+        "'$opt_P3' is not supported before 'push'" "$ERR"
+    assert_eq "P3 ($opt_P3): no status line" "" "$OUT"
+    assert_eq "P3 ($opt_P3): nothing was pushed" "$remote_P3" \
+        "$(git -C "$FX_REMOTE" rev-parse refs/heads/aitask-data)"
+done
+run_ait_out -C /tmp push
+assert_nonzero "P3 (-C): refused" "$RC"
+assert_contains "P3 (-C): by the redirect check" "'-C' points git away" "$ERR"
 
 # --- Summary ---
 echo ""
