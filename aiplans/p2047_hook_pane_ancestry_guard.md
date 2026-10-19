@@ -423,3 +423,160 @@ then archive via the standard Step 9 flow (current branch, no merge).
 
 ### Planned mitigations
 - timing: post-phase | name: hook_guard_real_agent_check | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — a silent false refusal for real Claude Code / codex hook chains | desc: run real claude -p and a wrapper-launched codex in an isolated tmux pane through the guarded hook; assert record + pane stamps and record the real ppid chain
+
+## Final Implementation Notes
+
+- **Actual work done:** Steps 0–5 and the post-phase as planned.
+  - `lib/pid_anchor.sh` gained the generic parent-chain helpers: `_pid_ppid_proc`
+    / `_pid_ppid_ps` / `get_pid_ppid`, `pid_chain_to`, `get_pid_exe` and
+    `pid_argv_match` (which replaced `get_pid_args` in review round 1).
+  - `aitask_session_hook.sh` gained HARD CONTRACT 5, a DAEMON ROUTING header
+    note, and the §5b guard: the ancestry walk plus the always-on daemon-hop
+    refusal with forms a/b/c. The guard runs before the upsert, the
+    `@aitask_record` stamp and the `@aitask_agent_session` write.
+  - Tests: `tests/test_session_hook.sh` grew from 69 to 156 assertions.
+    `tests/test_session_hook_live.sh` now fires the hook from inside the pane
+    through a FIFO fire loop, plus an outside-fire negative.
+  - Docs: `website/content/docs/concepts/framework-session.md`, plus two rows
+    in `aidocs/framework/tmux_gateway.md`.
+- **Step 0 evidence (codex 0.163.0, Linux, isolated tmux, throwaway CODEX_HOME,
+  2026-10-19).** The daemon was observed, and all three forms were kept.
+  - The daemon is **attached**: `2292178 ppid=2291806 (pane A's pane pid)
+    sid=2292178`. It calls setsid but is not reparented while its starter
+    lives. After the starter's tmux server was killed it was reparented to
+    `systemd --user` (1481). So attachment depends on timing, as review
+    predicted.
+  - Hook chains recorded by a dump hook:
+    - fire 1, pane A's own session: `TMUX_PANE=%0`, `PPID=2292178
+      (…/packages/app-server-daemon/releases/0.163.0-x86_64-unknown-linux-musl/bin/codex)`
+      → `2291806 (mise codex, pane A)` → tmux → systemd → init;
+    - fire 2, **pane B's** session: `TMUX_PANE=%0`, the identical chain. This
+      is the bug, and it passes ancestry alone;
+    - fire 3, pane C (with `CODEX_TUI_OVERRIDES`): `TMUX_PANE=%2`, `PPID=2293515`,
+      which is the pane pid itself (hop 0).
+  - Daemon argv: `…/bin/codex app-server --listen unix:// --analytics-default-enabled --managed-daemon`.
+  - `daemon.pid` `processIdentity` matches the live process. `bootId` ==
+    `/proc/sys/kernel/random/boot_id`. `startTicks` == `/proc/<pid>/stat`
+    field 22 on two daemons (9660830 == 9660830; 9666770 == 9666770).
+  - The full unfiltered `ps -eo pid,ppid,sid,lstart,args` snapshots were kept
+    in the session scratchpad.
+- **Post-phase hook_guard_real_agent_check (real agents through the guarded
+  hook, isolated server `-L s1`, scratch store):**
+  - (a) `claude -p` (Claude Code 2.1.302) in pane %0, pane pid = the spawning
+    bash. Hook chain: `PPID=claude` → bash (the pane pid). Record
+    `ce961308|live|…|%0` was created, and both pane options were set.
+    **PASS**.
+  - (b) codex with `CODEX_TUI_OVERRIDES` in pane %1. The hook's PPID is the
+    pane pid (hop 0). Record `e6f21524|live|…|%1` was created, and both pane
+    options were set. **PASS**.
+  - (c) two bare codex panes, %2 (the daemon's starter; daemon 2658056 is a
+    child of %2's pane pid) and %3. Both turns fired the hook from the daemon
+    with `TMUX_PANE=%2`. Both were refused: `hook runs under the codex
+    app-server daemon (pid 2658056, form a); nothing recorded`. The store
+    listing was unchanged (diff empty), and %2 / %3 carry no
+    `@aitask_record` or `@aitask_agent_session`. **PASS**.
+  - Each form also matched the real daemon individually through the hook's own
+    function: form a, then c with a masked, then b with a and c masked. The
+    real non-daemon codex TUIs (bare and overrides) read rc 1.
+- **Verification:** `tests/test_session_hook.sh` 167/167; `test_session_hook_live.sh` 22/22 (isolated);
+  `test_agent_sessions_stamp`, `test_tmux_pane_for_pid`, `test_crash_recovery_pid_anchor`
+  and every other `pid_anchor.sh`-sourcing suite (`test_lock_*`, `test_task_lock`,
+  `test_pick_own_scoped_commit`, `test_archive_*`, `test_live_endpoint_*`, `test_task_push`, …) pass;
+  shellcheck clean on the hook and lib; `check_links.py --build` SWEEP: PASSED.
+  - Red proofs:
+    - M1 (ancestry forced to pass) fails exactly the 10 non-ancestor
+      assertions.
+    - M2 (daemon check disabled) fails exactly the 16 daemon-form assertions.
+    - The live test against HEAD's hook fails the 4 outside-fire assertions.
+  - Real-chain proxy from this session: `pid_chain_to 956020 $$` → rc 0, 2
+    hops.
+- **Deviations from plan:** none in behaviour.
+  - Step 2b was implemented unconditionally, with all three forms, as revised
+    in review.
+  - The shape-1/2 test intermediates became small scripts rather than inline
+    `bash -c` strings, for readability.
+- **Issues encountered:** `fire_hook` is called inside `$( )`, so a shell
+  counter for request ids would not survive the subshell. It uses unique
+  `mktemp -u` names instead.
+  - The hook's rc-2 branch ("could not identify process") is reviewed, not
+    tested: driving it would need a racing exit. The helpers' rc-1-on-reaped-pid
+    is unit-tested.
+- **Key decisions:**
+  - The form check order is a, c, b (cheapest first). Form b needs pid,
+    bootId and startTicks to all match, so a stale pid file (this machine's
+    real one is from a previous boot) can never refuse.
+  - A hand-started bare codex now records nothing, not even in the daemon's
+    starting pane, because hooks run by the daemon cannot be attributed to a
+    pane. It restores by re-pick, as documented.
+- **Upstream defects identified:** None
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-19 13:40)
+- **Requested by user:** three blocking findings from review, all verified
+  valid.
+  1. `get_pid_args` turned argv NULs into newlines, so a multiline prompt
+     argument containing an `app-server` line falsely matched form c. Its `ps`
+     fallback split on spaces in the same way.
+  2. The `/proc` ppid unit assertion was not gated, so it would fail on macOS.
+  3. The live test's `fire_hook` opened the FIFO write-only before its bounded
+     wait, so a dead pane agent blocked it forever.
+- **Changes made:**
+  1. Replaced `get_pid_args` with `pid_argv_match <pid> <argv0-basename>
+     <element>`. It reads `/proc/<pid>/cmdline` NUL-delimited, element by
+     element (`read -d ''`), and answers 0/1, or 2 when element boundaries are
+     unavailable. There is no `ps` fallback: form c is declined, never guessed.
+     The hook's unidentifiable-hop rule is now "exe unreadable AND argv rc 2".
+     New units cover an exact element (0), a multiline element (1), a spaced
+     element (1), the wrong argv0 (1) and a reaped pid (2). There is a new
+     hook-level control: a multiline `WORD` containing an `app-server` line is
+     recorded. Red proof: a newline-split mutant fails exactly those 2
+     assertions. Re-probed against a live daemon: `pid_argv_match` gives the
+     daemon rc 0 and the bare TUI codex rc 1.
+  2. The `/proc` reader assertion is gated on `/proc/self/stat`, with an
+     explicit SKIP. The `ps` reader assertion runs everywhere.
+  3. The live test holds `exec 4<>"$FIFO"`. Sends and cleanup's `quit` go
+     through fd 4, so they never block on open. Proof: a mutant whose pane
+     agent exits immediately fails in 10 s (rc 1, "did not answer within
+     10s"), with no hang.
+- **Files affected:** `.aitask-scripts/lib/pid_anchor.sh`,
+  `.aitask-scripts/aitask_session_hook.sh`, `tests/test_session_hook.sh`,
+  `tests/test_session_hook_live.sh`.
+
+### Change Request 2 (2026-10-19 15:47)
+- **Requested by user:** two findings, both verified valid. (1) The form-c
+  refusal test ran unconditionally and would fail on macOS, where
+  `pid_argv_match` declines (rc 2) by design. (2) The plan's Step 6 note to
+  in-flight t2046 had not been sent.
+- **Changes made:**
+  1. The form-c refusal case is gated on `/proc/self/cmdline`, with an explicit
+     SKIP. Its controls run everywhere, since they are recorded either way.
+  2. The note was sent: `./ait note 2046 --from 2047 --with-live` →
+     `NOTE_APPENDED:2026-10-19T12:46:57Z.d5fc69228fc1f733ddc617ac`, plus
+     `LIVE_NONE:agent_unknown` (durable success, no live lane). It is hedged as
+     uncommitted until the `(t2047)` commit lands.
+- **Files affected:** `tests/test_session_hook.sh`.
+
+### Change Request 3 (2026-10-19 16:05)
+- **Requested by user:** form c accepted `app-server` as ANY later argv
+  element, so an ordinary `codex exec app-server` (the word as a prompt) under a
+  pane shell was falsely refused. Verified valid.
+- **Changes made:** `pid_argv_match <pid> <argv0> <argv1> [<later>]` now checks
+  argv[1] by POSITION, and optionally requires a later exact element. The hook
+  now calls `pid_argv_match "$pid" codex app-server --managed-daemon`, the
+  measured daemon invocation.
+  - The units and hook-level tests build argv with a controllable argv[1] by
+    running `bash <script>` under `exec -a`, with the script's file name as the
+    subcommand word.
+  - New controls, each recorded:
+    - `codex exec app-server`;
+    - `codex exec app-server --managed-daemon`;
+    - `codex app-server --listen unix://` (no `--managed-daemon`);
+    - a multiline prompt with both words as lines;
+    - the daemon argv under argv0 `bash`.
+  - The units also cover a multiline argv[1].
+  - Red proof: an any-position mutant fails exactly the 3 new
+    ordinary-invocation controls (6 assertions). A live daemon still reads
+    rc 0, and the bare TUI codex rc 1.
+- **Files affected:** `.aitask-scripts/lib/pid_anchor.sh`,
+  `.aitask-scripts/aitask_session_hook.sh`, `tests/test_session_hook.sh`.
