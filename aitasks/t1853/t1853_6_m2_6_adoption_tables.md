@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: medium
+risk_goal_achievement: medium
 effort: medium
 depends: [t1853_1, t1853_2]
 issue_type: feature
@@ -89,8 +91,11 @@ post-re-stamp hook's actual shape.
   verbs, on a fixture with two `adopted.yaml` rows (the re-stamped edge and an
   unrelated one): an automated actor refreshes the matching row and keeps its
   `by:`; an explicit human actor deletes it; in both the unrelated row is
-  byte-identical; re-stamping an edge with no provenance row leaves
-  `adopted.yaml` untouched.
+  byte-identical when `adopted.yaml` is block style (the engine's form), and
+  value-identical — unknown fields included — when a hand-written flow-style
+  table is normalised by the edit (user decision, 2026-10-19: in-table
+  formatting and comments of a flow table are not kept); re-stamping an edge
+  with no provenance row leaves `adopted.yaml` untouched.
 
 ## Automation-first (user directive, 2026-10-11)
 
