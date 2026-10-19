@@ -197,3 +197,5 @@ parent with a note, never encoded here.
 > | A new engine verb `policy` (M8.4 adds `decide`; M8.5, t1859_5, adds the auto arm) is the only writer of aitestmap/costs/policy.yaml under `ait test --gate`. It calls your policy.yaml read/write helpers, including the `contract` field and the CONTRACT_MISMATCH refusal. The writer logic stays M8.5's.
 > | 
 > | M8.5 also uses your disjoint full-suite p95 for the selection_ratio_above trigger. A tree claim; verify it when you implement.
+
+> **👁 note:read** id=2026-10-19T14:04:17Z.453ed1c106defb2589ac0f81 by=t1854_4 at=2026-10-19T14:04:17Z mode=explicit ids=2026-10-14T14:40:27Z.350a6da90b33121ac07c4fd2,2026-10-18T15:59:24Z.fd255190743331b33799423b,2026-10-19T12:47:07Z.d8fed4608e79b93601cafd45
