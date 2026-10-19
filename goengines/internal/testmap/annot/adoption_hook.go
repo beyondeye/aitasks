@@ -1,0 +1,97 @@
+package annot
+
+import (
+	"context"
+	"errors"
+	"io/fs"
+	"os"
+	"path/filepath"
+
+	"github.com/beyondeye/aitasks/goengines/internal/testmap/registry"
+)
+
+// M2.6's fill of the stamping hooks (a named extension of M2.2; registry
+// cannot import annot, so the fill lives here). The provenance rule is
+// registry.AdoptionTx.ApplyRestamps on the restamp route:
+//
+//   - intent (before any test file is written): an agent or auto actor's
+//     first stamp of an edge gets its adopted.yaml row first, so a machine
+//     claim never lands without its provenance — a failure here writes no
+//     test file, and one after it leaves an orphan row the retry adopts;
+//   - post (after every file was written): an explicit human deletes the
+//     edge's row; any other actor refreshes its stamp and keeps its `by:`.
+
+func init() {
+	RegisterStampIntentHook(adoptionIntent)
+	RegisterRestampHook(adoptionPost)
+}
+
+// actorBy maps an actor to a `by:` value; known is false when unspecified.
+func actorBy(a Actor) (by registry.By, known bool) {
+	switch a.Kind {
+	case Human:
+		return registry.By{Kind: registry.ByHuman, Value: a.Value}, true
+	case Agent:
+		return registry.By{Kind: registry.ByAgent, Value: a.Value}, true
+	case Auto:
+		return registry.By{Kind: registry.ByAuto}, true
+	}
+	return registry.By{}, false
+}
+
+func stampValue(s Stamp) string {
+	if s.IsZero() {
+		return ""
+	}
+	return s.Date + "/" + s.Blob
+}
+
+func adoptionEdges(edges []Restamp) []registry.RestampEdge {
+	out := make([]registry.RestampEdge, 0, len(edges))
+	for _, e := range edges {
+		out = append(out, registry.RestampEdge{Test: e.Test.String(), Source: e.Source,
+			Before: stampValue(e.Before), After: stampValue(e.After), Origin: e.Origin})
+	}
+	return out
+}
+
+func adoptionIntent(ctx context.Context, root string, a Actor, edges []Restamp) ([]string, error) {
+	by, known := actorBy(a)
+	if !known || by.Kind == registry.ByHuman {
+		return nil, nil
+	}
+	first := false
+	for _, e := range edges {
+		if e.Before.IsZero() {
+			first = true
+			break
+		}
+	}
+	if !first {
+		return nil, nil
+	}
+	return applyAdoption(ctx, root, registry.PhaseIntent, by, known, edges)
+}
+
+func adoptionPost(ctx context.Context, root string, a Actor, edges []Restamp) ([]string, error) {
+	// Only an existing row is refreshed or deleted.
+	if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(registry.AdoptedPath))); errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	} else if err != nil {
+		return nil, err
+	}
+	by, known := actorBy(a)
+	return applyAdoption(ctx, root, registry.PhasePost, by, known, edges)
+}
+
+func applyAdoption(ctx context.Context, root string, phase registry.RestampPhase, by registry.By, known bool, edges []Restamp) ([]string, error) {
+	tx, err := registry.OpenAdoption(ctx, root, registry.RouteRestamp)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Close()
+	if err := tx.ApplyRestamps(phase, by, known, adoptionEdges(edges)); err != nil {
+		return nil, err
+	}
+	return tx.Commit()
+}

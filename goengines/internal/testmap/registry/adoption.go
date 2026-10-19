@@ -1,0 +1,799 @@
+package registry
+
+import (
+	"bytes"
+	"errors"
+	"fmt"
+	"io/fs"
+	"math"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strings"
+	"time"
+)
+
+// M2.6 — the adoption tables. A machine-proposed edge moves through three
+// files: `registry/seeded.yaml` (the queue: a seed selects but claims
+// nothing), `registry/adopted.yaml` (provenance of a stamped edge a machine
+// adopted, with `by:`) and `onboard.yaml`'s `rejections[]` / `reviews[]` /
+// `kind_proposals[]` / `calibration[]` (decisions and memos). This file
+// registers the two registry files, reads the four `onboard.yaml` tables
+// (every other key there is M6.1's) and classifies the rows with the load
+// rules: a seed whose pair is a stamped edge is shadowed, a seed whose pair
+// was rejected is rejected, an adopted row whose edge carries no stamp is an
+// orphan. The writers are in adoption_write.go.
+
+// Paths of the three files M2.6 reads and routes writes for.
+const (
+	SeededPath  = RegistryDir + "/seeded.yaml"
+	AdoptedPath = RegistryDir + "/adopted.yaml"
+	OnboardPath = Dir + "/onboard.yaml"
+)
+
+// ByKind is who took an adoption step.
+type ByKind int
+
+const (
+	ByHuman ByKind = iota + 1
+	ByAgent
+	ByAuto
+)
+
+// By is a `by:` value: `human:<email>`, `agent:<agent-string>` or `auto`.
+// It is recorded data, never a gate.
+type By struct {
+	Kind  ByKind
+	Value string
+}
+
+// ParseBy parses a `by:` value.
+func ParseBy(s string) (By, error) {
+	if s == "auto" {
+		return By{Kind: ByAuto}, nil
+	}
+	kind, val, _ := strings.Cut(s, ":")
+	if (kind == "human" || kind == "agent") && val != "" && !strings.ContainsAny(val, " \t|") && !hasControl(val) {
+		if kind == "human" {
+			return By{Kind: ByHuman, Value: val}, nil
+		}
+		return By{Kind: ByAgent, Value: val}, nil
+	}
+	return By{}, fmt.Errorf("invalid by %q: want human:<email>, agent:<agent-string> or auto", s)
+}
+
+// String is the value as written in a `by:` field.
+func (b By) String() string {
+	switch b.Kind {
+	case ByHuman:
+		return "human:" + b.Value
+	case ByAgent:
+		return "agent:" + b.Value
+	case ByAuto:
+		return "auto"
+	}
+	return ""
+}
+
+func hasControl(s string) bool {
+	for _, r := range s {
+		if r < 0x20 || r == 0x7f {
+			return true
+		}
+	}
+	return false
+}
+
+// SeedReview is a reading's verdict recorded on a seed
+// (`evidence.agent_review`). (AgentReview is the config.yaml block.)
+type SeedReview struct {
+	Verdict    string         `yaml:"verdict" json:"verdict"`
+	AssertLine int            `yaml:"assert_line,omitempty" json:"assert_line,omitempty"`
+	Rationale  string         `yaml:"rationale,omitempty" json:"rationale,omitempty"`
+	By         string         `yaml:"by" json:"by"`
+	Run        string         `yaml:"run" json:"run"`
+	PacketSHA  string         `yaml:"packet_sha" json:"packet_sha"`
+	TestBlob   string         `yaml:"test_blob" json:"test_blob"`
+	Unsure     int            `yaml:"unsure,omitempty" json:"unsure,omitempty"`
+	At         string         `yaml:"at,omitempty" json:"at,omitempty"`
+	Extra      map[string]any `yaml:",inline" json:"extra,omitempty"`
+}
+
+// SeedEvidence is the per-origin evidence of a seed.
+type SeedEvidence struct {
+	Static      string         `yaml:"static,omitempty" json:"static,omitempty"`
+	Convention  string         `yaml:"convention,omitempty" json:"convention,omitempty"`
+	Cochange    []string       `yaml:"cochange,omitempty,flow" json:"cochange,omitempty"`
+	Plan        string         `yaml:"plan,omitempty" json:"plan,omitempty"`
+	Prose       string         `yaml:"prose,omitempty" json:"prose,omitempty"`
+	Coverage    string         `yaml:"coverage,omitempty" json:"coverage,omitempty"`
+	Observed    string         `yaml:"observed,omitempty" json:"observed,omitempty"`
+	AgentReview *SeedReview    `yaml:"agent_review,omitempty" json:"agent_review,omitempty"`
+	Extra       map[string]any `yaml:",inline" json:"extra,omitempty"`
+}
+
+// SeedRow is one row of `registry/seeded.yaml`.
+type SeedRow struct {
+	Test       string         `yaml:"test" json:"test"`
+	Covers     string         `yaml:"covers" json:"covers"`
+	Origin     []string       `yaml:"origin,flow" json:"origin"`
+	Confidence *float64       `yaml:"confidence" json:"confidence"`
+	Evidence   SeedEvidence   `yaml:"evidence,omitempty" json:"evidence"`
+	ProposedAt string         `yaml:"proposed_at" json:"proposed_at"`
+	Verdict    string         `yaml:"verdict,omitempty" json:"verdict,omitempty"`
+	Extra      map[string]any `yaml:",inline" json:"extra,omitempty"`
+}
+
+// Key is the row's (test, covers) pair.
+func (r SeedRow) Key() [2]string { return [2]string{r.Test, r.Covers} }
+
+// AdoptedRow is one row of `registry/adopted.yaml`: the provenance of a
+// stamped edge a machine claim adopted. Confidence is absent when nothing
+// measured it (a first stamp written by an agent or `auto`).
+type AdoptedRow struct {
+	Test       string            `yaml:"test" json:"test"`
+	Source     string            `yaml:"source" json:"source"`
+	Origin     []string          `yaml:"origin,flow" json:"origin"`
+	Confidence *float64          `yaml:"confidence,omitempty" json:"confidence,omitempty"`
+	AdoptedAt  string            `yaml:"adopted_at" json:"adopted_at"`
+	Task       string            `yaml:"task,omitempty" json:"task,omitempty"`
+	By         string            `yaml:"by" json:"by"`
+	Run        string            `yaml:"run,omitempty" json:"run,omitempty"`
+	Rationale  string            `yaml:"rationale,omitempty" json:"rationale,omitempty"`
+	AssertLine int               `yaml:"assert_line,omitempty" json:"assert_line,omitempty"`
+	PacketSHA  string            `yaml:"packet_sha,omitempty" json:"packet_sha,omitempty"`
+	TestBlob   string            `yaml:"test_blob,omitempty" json:"test_blob,omitempty"`
+	SourceBlob string            `yaml:"source_blob,omitempty" json:"source_blob,omitempty"`
+	Stamp      string            `yaml:"stamp,omitempty" json:"stamp,omitempty"`
+	Evidence   map[string]string `yaml:"evidence,omitempty" json:"evidence,omitempty"`
+	Extra      map[string]any    `yaml:",inline" json:"extra,omitempty"`
+}
+
+// Key is the row's (test, source) pair.
+func (r AdoptedRow) Key() [2]string { return [2]string{r.Test, r.Source} }
+
+// carriesReview reports whether the row records an agent reading (a
+// `verifies` adoption): the replay data a review record is derived from.
+func (r AdoptedRow) carriesReview() bool {
+	return r.Run != "" && r.PacketSHA != "" && r.TestBlob != ""
+}
+
+// Rejection is an `onboard.yaml` `rejections[]` row. An absent `by:` reads as
+// a person's (Actor).
+type Rejection struct {
+	Test   string         `yaml:"test" json:"test"`
+	Source string         `yaml:"source" json:"source"`
+	Reason string         `yaml:"reason" json:"reason"`
+	By     string         `yaml:"by,omitempty" json:"by,omitempty"`
+	Run    string         `yaml:"run,omitempty" json:"run,omitempty"`
+	Extra  map[string]any `yaml:",inline" json:"extra,omitempty"`
+}
+
+// Actor is who rejected the pair. A row without `by:` is a person's
+// (recorded == false: the person is not named).
+func (r Rejection) Actor() (b By, recorded bool) {
+	if r.By == "" {
+		return By{Kind: ByHuman}, false
+	}
+	b, _ = ParseBy(r.By) // validated at load
+	return b, true
+}
+
+// Review is an `onboard.yaml` `reviews[]` row: the verdict memo, so a pair is
+// read once per test blob per reader.
+type Review struct {
+	Test      string         `yaml:"test" json:"test"`
+	Source    string         `yaml:"source" json:"source"`
+	Verdict   string         `yaml:"verdict" json:"verdict"`
+	TestBlob  string         `yaml:"test_blob" json:"test_blob"`
+	PacketSHA string         `yaml:"packet_sha" json:"packet_sha"`
+	Run       string         `yaml:"run" json:"run"`
+	By        string         `yaml:"by" json:"by"`
+	Extra     map[string]any `yaml:",inline" json:"extra,omitempty"`
+}
+
+// Key is the memo key: one reading per test blob per reader.
+func (r Review) Key() [4]string { return [4]string{r.Test, r.Source, r.TestBlob, r.By} }
+
+// KindProposal is an `onboard.yaml` `kind_proposals[]` row.
+type KindProposal struct {
+	Test   string         `yaml:"test" json:"test"`
+	Kind   string         `yaml:"kind" json:"kind"`
+	Reason string         `yaml:"reason" json:"reason"`
+	At     string         `yaml:"at,omitempty" json:"at,omitempty"`
+	Extra  map[string]any `yaml:",inline" json:"extra,omitempty"`
+}
+
+// Calibration is an `onboard.yaml` `calibration[]` row.
+type Calibration struct {
+	Run         string         `yaml:"run" json:"run"`
+	Agree       int            `yaml:"agree" json:"agree"`
+	Disagree    int            `yaml:"disagree" json:"disagree"`
+	Ratio       float64        `yaml:"ratio" json:"ratio"`
+	GroundTruth string         `yaml:"ground_truth,omitempty" json:"ground_truth,omitempty"`
+	At          string         `yaml:"at,omitempty" json:"at,omitempty"`
+	Extra       map[string]any `yaml:",inline" json:"extra,omitempty"`
+}
+
+// OnboardTables are the four `onboard.yaml` tables M2.6 reads.
+type OnboardTables struct {
+	Rejections    []Rejection    `yaml:"rejections,omitempty" json:"rejections"`
+	Reviews       []Review       `yaml:"reviews,omitempty" json:"reviews"`
+	KindProposals []KindProposal `yaml:"kind_proposals,omitempty" json:"kind_proposals"`
+	Calibration   []Calibration  `yaml:"calibration,omitempty" json:"calibration"`
+}
+
+// Onboard table keys, in file order of a fresh render.
+const (
+	keyRejections    = "rejections"
+	keyReviews       = "reviews"
+	keyKindProposals = "kind_proposals"
+	keyCalibration   = "calibration"
+)
+
+// AdoptedCounts is the `ADOPTED:<n>|human <h>|agent <a>|auto <m>` split.
+type AdoptedCounts struct {
+	Total int `json:"total"`
+	Human int `json:"human"`
+	Agent int `json:"agent"`
+	Auto  int `json:"auto"`
+}
+
+// Adoption holds the adoption tables of a registry. RawSeeds and RawAdopted
+// are the files' rows in file order; the classified lists are what consumers
+// read.
+type Adoption struct {
+	RawSeeds   []SeedRow     `json:"-"`
+	RawAdopted []AdoptedRow  `json:"-"`
+	Onboard    OnboardTables `json:"onboard"`
+
+	Seeds         []SeedRow    `json:"seeds"`          // live: select at distance 1
+	Shadowed      []SeedRow    `json:"shadowed"`       // SEED_SHADOWED: the pair is a stamped edge
+	RejectedSeeds []SeedRow    `json:"rejected_seeds"` // SEED_REJECTED: the pair is in rejections[]
+	Adopted       []AdoptedRow `json:"adopted"`        // provenance of a stamped edge
+	Orphans       []AdoptedRow `json:"orphans"`        // ADOPTED_ORPHAN: the edge carries no stamp
+}
+
+const extAdoption = "adoption"
+
+// AdoptionOf returns reg's adoption tables (empty, never nil).
+func AdoptionOf(reg *Registry) *Adoption {
+	if a, ok := reg.Ext[extAdoption].(*Adoption); ok {
+		return a
+	}
+	a := &Adoption{}
+	a.classify(nil)
+	if reg.Ext == nil {
+		reg.Ext = map[string]any{}
+	}
+	reg.Ext[extAdoption] = a
+	return a
+}
+
+// StampedSet is the set of (test id, source) pairs that are stamped edges.
+type StampedSet map[[2]string]bool
+
+// StampedPairs returns the stamped edges among edges.
+func StampedPairs(edges []Edge) StampedSet {
+	s := StampedSet{}
+	for _, e := range edges {
+		if e.Stamped() {
+			s[[2]string{e.Test.String(), e.Source}] = true
+		}
+	}
+	return s
+}
+
+// Classified returns a copy of a whose rows are classified against stamped
+// (check judges the live edges, Load the persisted ones).
+func (a *Adoption) Classified(stamped StampedSet) *Adoption {
+	c := &Adoption{RawSeeds: a.RawSeeds, RawAdopted: a.RawAdopted, Onboard: a.Onboard}
+	c.classify(stamped)
+	return c
+}
+
+func (a *Adoption) classify(stamped StampedSet) {
+	rejected := map[[2]string]bool{}
+	for _, r := range a.Onboard.Rejections {
+		rejected[[2]string{r.Test, r.Source}] = true
+	}
+	a.Seeds, a.Shadowed, a.RejectedSeeds = []SeedRow{}, []SeedRow{}, []SeedRow{}
+	for _, s := range a.RawSeeds {
+		switch {
+		case stamped[s.Key()]:
+			a.Shadowed = append(a.Shadowed, s)
+		case rejected[s.Key()]:
+			a.RejectedSeeds = append(a.RejectedSeeds, s)
+		default:
+			a.Seeds = append(a.Seeds, s)
+		}
+	}
+	a.Adopted, a.Orphans = []AdoptedRow{}, []AdoptedRow{}
+	for _, r := range a.RawAdopted {
+		if stamped[r.Key()] {
+			a.Adopted = append(a.Adopted, r)
+		} else {
+			a.Orphans = append(a.Orphans, r)
+		}
+	}
+	if a.Onboard.Rejections == nil {
+		a.Onboard.Rejections = []Rejection{}
+	}
+	if a.Onboard.Reviews == nil {
+		a.Onboard.Reviews = []Review{}
+	}
+	if a.Onboard.KindProposals == nil {
+		a.Onboard.KindProposals = []KindProposal{}
+	}
+	if a.Onboard.Calibration == nil {
+		a.Onboard.Calibration = []Calibration{}
+	}
+}
+
+// Counts is the SEEDED:<n> count and the ADOPTED split: live seeds, and
+// adopted rows whose edge carries a stamp.
+func (a *Adoption) Counts() (seeded int, adopted AdoptedCounts) {
+	for _, r := range a.Adopted {
+		adopted.Total++
+		b, _ := ParseBy(r.By) // validated at load
+		switch b.Kind {
+		case ByHuman:
+			adopted.Human++
+		case ByAgent:
+			adopted.Agent++
+		case ByAuto:
+			adopted.Auto++
+		}
+	}
+	return len(a.Seeds), adopted
+}
+
+// AdoptedFor returns the provenance row of a stamped edge.
+func (a *Adoption) AdoptedFor(test ID, source string) (AdoptedRow, bool) {
+	k := [2]string{test.String(), source}
+	for _, r := range a.Adopted {
+		if r.Key() == k {
+			return r, true
+		}
+	}
+	return AdoptedRow{}, false
+}
+
+// SeedsCovering returns the live seeds whose covers is source.
+func (a *Adoption) SeedsCovering(source string) []SeedRow {
+	var out []SeedRow
+	for _, s := range a.Seeds {
+		if s.Covers == source {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// Rejected returns the rejection of a pair.
+func (a *Adoption) Rejected(test, source string) (Rejection, bool) {
+	for _, r := range a.Onboard.Rejections {
+		if r.Test == test && r.Source == source {
+			return r, true
+		}
+	}
+	return Rejection{}, false
+}
+
+// derivedReviews are the review records the effect rows carry: a seed's
+// `evidence.agent_review`, and a `verifies` adoption's replay data on its
+// adopted row. They survive a failed memo write.
+func derivedReviews(seeds []SeedRow, adopted []AdoptedRow) []Review {
+	var out []Review
+	for _, s := range seeds {
+		if ar := s.Evidence.AgentReview; ar != nil {
+			out = append(out, Review{Test: s.Test, Source: s.Covers, Verdict: ar.Verdict,
+				TestBlob: ar.TestBlob, PacketSHA: ar.PacketSHA, Run: ar.Run, By: ar.By})
+		}
+	}
+	for _, r := range adopted {
+		if r.carriesReview() {
+			out = append(out, Review{Test: r.Test, Source: r.Source, Verdict: VerdictVerifies,
+				TestBlob: r.TestBlob, PacketSHA: r.PacketSHA, Run: r.Run, By: r.By})
+		}
+	}
+	return out
+}
+
+// Reviews is the memo `reviews[]` together with the review records derived
+// from the effect rows, one per (test, source, test_blob, by); a memo row
+// wins over a derived one.
+func (a *Adoption) Reviews() []Review {
+	out := append([]Review{}, a.Onboard.Reviews...)
+	seen := map[[4]string]bool{}
+	for _, r := range out {
+		seen[r.Key()] = true
+	}
+	for _, r := range derivedReviews(a.RawSeeds, a.RawAdopted) {
+		if !seen[r.Key()] {
+			seen[r.Key()] = true
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// Unrecorded are the derived review records with no memo row
+// (REVIEW_UNRECORDED).
+func (a *Adoption) Unrecorded() []Review {
+	return unrecorded(a.Onboard.Reviews, a.RawSeeds, a.RawAdopted)
+}
+
+func unrecorded(memo []Review, seeds []SeedRow, adopted []AdoptedRow) []Review {
+	seen := map[[4]string]bool{}
+	for _, r := range memo {
+		seen[r.Key()] = true
+	}
+	var out []Review
+	for _, r := range derivedReviews(seeds, adopted) {
+		if !seen[r.Key()] {
+			seen[r.Key()] = true
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// Reviewed reports whether reader already read the pair for these test bytes.
+func (a *Adoption) Reviewed(test, source, testBlob, by string) bool {
+	k := [4]string{test, source, testBlob, by}
+	for _, r := range a.Reviews() {
+		if r.Key() == k {
+			return true
+		}
+	}
+	return false
+}
+
+// NeedsReview is the packet selector's eligibility: the pair is a live seed
+// (not shadowed, not rejected) and reader has not read it for these test
+// bytes — in the memo or in the record an effect row carries.
+func (a *Adoption) NeedsReview(test, covers, testBlob, reader string) bool {
+	live := false
+	for _, s := range a.Seeds {
+		if s.Test == test && s.Covers == covers {
+			live = true
+			break
+		}
+	}
+	return live && !a.Reviewed(test, covers, testBlob, reader)
+}
+
+// Verdicts of a reading.
+const (
+	VerdictVerifies = "verifies"
+	VerdictDrives   = "drives"
+	VerdictUnsure   = "unsure"
+)
+
+func validVerdict(v string) bool {
+	return v == VerdictVerifies || v == VerdictDrives || v == VerdictUnsure
+}
+
+var stampRe = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}/[0-9a-f]{10}$`)
+
+// validDate accepts YYYY-MM-DD or an RFC 3339 timestamp.
+func validDate(s string) bool {
+	if _, err := time.Parse(time.DateOnly, s); err == nil {
+		return true
+	}
+	_, err := time.Parse(time.RFC3339, s)
+	return err == nil
+}
+
+func checkTestID(s string) error {
+	id, err := ParseID(s)
+	if err != nil {
+		return fmt.Errorf("test: %v", err)
+	}
+	if id.Variant != "" {
+		return fmt.Errorf("test %s: an adoption row carries no variant fragment", s)
+	}
+	return nil
+}
+
+func checkConfidence(c *float64) error {
+	if c != nil && !(*c >= 0 && *c <= 1) { // NaN fails both comparisons
+		return fmt.Errorf("confidence %v is outside [0,1]", *c)
+	}
+	return nil
+}
+
+func checkOrigin(o []string) error {
+	if len(o) == 0 {
+		return errors.New("origin is required")
+	}
+	for _, v := range o {
+		if strings.TrimSpace(v) == "" || strings.ContainsAny(v, "|\n") {
+			return fmt.Errorf("invalid origin %q", v)
+		}
+	}
+	return nil
+}
+
+func validateReview(ar SeedReview) error {
+	if !validVerdict(ar.Verdict) {
+		return fmt.Errorf("agent_review: invalid verdict %q", ar.Verdict)
+	}
+	if _, err := ParseBy(ar.By); err != nil {
+		return fmt.Errorf("agent_review: %v", err)
+	}
+	if ar.Run == "" || ar.PacketSHA == "" || ar.TestBlob == "" {
+		return errors.New("agent_review: run, packet_sha and test_blob are required")
+	}
+	return nil
+}
+
+func validateSeed(r SeedRow) error {
+	if err := checkTestID(r.Test); err != nil {
+		return err
+	}
+	if err := checkPath(r.Covers); err != nil {
+		return fmt.Errorf("covers %q: %v", r.Covers, err)
+	}
+	if err := checkOrigin(r.Origin); err != nil {
+		return err
+	}
+	if r.Confidence == nil {
+		return errors.New("confidence is required")
+	}
+	if err := checkConfidence(r.Confidence); err != nil {
+		return err
+	}
+	if !validDate(r.ProposedAt) {
+		return fmt.Errorf("proposed_at %q is not a date", r.ProposedAt)
+	}
+	if r.Verdict != "" && !validVerdict(r.Verdict) {
+		return fmt.Errorf("invalid verdict %q", r.Verdict)
+	}
+	if ar := r.Evidence.AgentReview; ar != nil {
+		if err := validateReview(*ar); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateAdopted(r AdoptedRow) error {
+	if err := checkTestID(r.Test); err != nil {
+		return err
+	}
+	if err := checkPath(r.Source); err != nil {
+		return fmt.Errorf("source %q: %v", r.Source, err)
+	}
+	if err := checkOrigin(r.Origin); err != nil {
+		return err
+	}
+	if err := checkConfidence(r.Confidence); err != nil {
+		return err
+	}
+	if !validDate(r.AdoptedAt) {
+		return fmt.Errorf("adopted_at %q is not a date", r.AdoptedAt)
+	}
+	if _, err := ParseBy(r.By); err != nil {
+		return err
+	}
+	if r.Stamp != "" && !stampRe.MatchString(r.Stamp) {
+		return fmt.Errorf("stamp %q: want <YYYY-MM-DD>/<blob10>", r.Stamp)
+	}
+	return nil
+}
+
+func validateRejection(r Rejection) error {
+	if err := checkTestID(r.Test); err != nil {
+		return err
+	}
+	if err := checkPath(r.Source); err != nil {
+		return fmt.Errorf("source %q: %v", r.Source, err)
+	}
+	if r.By != "" {
+		if _, err := ParseBy(r.By); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateMemo(r Review) error {
+	if err := checkTestID(r.Test); err != nil {
+		return err
+	}
+	if err := checkPath(r.Source); err != nil {
+		return fmt.Errorf("source %q: %v", r.Source, err)
+	}
+	if !validVerdict(r.Verdict) {
+		return fmt.Errorf("invalid verdict %q", r.Verdict)
+	}
+	if _, err := ParseBy(r.By); err != nil {
+		return err
+	}
+	if r.TestBlob == "" || r.Run == "" || r.PacketSHA == "" {
+		return errors.New("test_blob, packet_sha and run are required")
+	}
+	return nil
+}
+
+func validateKindProposal(r KindProposal) error {
+	if err := checkTestID(r.Test); err != nil {
+		return err
+	}
+	if !ValidKind(r.Kind) {
+		return fmt.Errorf("invalid kind %q", r.Kind)
+	}
+	return nil
+}
+
+func validateCalibration(r Calibration) error {
+	if strings.TrimSpace(r.Run) == "" {
+		return errors.New("run is required")
+	}
+	if r.Agree < 0 || r.Disagree < 0 {
+		return errors.New("agree and disagree are counts")
+	}
+	if math.IsNaN(r.Ratio) || math.IsInf(r.Ratio, 0) {
+		return fmt.Errorf("ratio %v is not a number", r.Ratio)
+	}
+	return nil
+}
+
+// adoptionDoc is the shape of seeded.yaml and adopted.yaml.
+type seededDoc struct {
+	Contract int       `yaml:"contract"`
+	Seeds    []SeedRow `yaml:"seeds"`
+}
+
+type adoptedDoc struct {
+	Contract int          `yaml:"contract"`
+	Adopted  []AdoptedRow `yaml:"adopted"`
+}
+
+// decodeTable decodes one top-level sequence key of a document, refusing
+// unknown top-level keys when strict.
+func decodeTable(path string, data []byte, key string, strict bool, out any) error {
+	top, err := documentRoot(path, data)
+	if err != nil {
+		return err
+	}
+	for i := 0; i+1 < len(top.Content); i += 2 {
+		k, v := top.Content[i].Value, top.Content[i+1]
+		switch {
+		case k == "contract":
+		case k == key:
+			if err := v.Decode(out); err != nil {
+				return invalidf(path, "%s: %v", key, err)
+			}
+		case strict:
+			return invalidf(path, "unknown key %s", k)
+		}
+	}
+	return nil
+}
+
+func parseSeeds(path string, data []byte) ([]SeedRow, error) {
+	var rows []SeedRow
+	if err := decodeTable(path, data, "seeds", true, &rows); err != nil {
+		return nil, err
+	}
+	seen := map[[2]string]bool{}
+	for n, r := range rows {
+		if err := validateSeed(r); err != nil {
+			return nil, invalidf(path, "seeds[%d]: %v", n, err)
+		}
+		if seen[r.Key()] {
+			return nil, invalidf(path, "seeds[%d]: duplicate pair %s|%s", n, r.Test, r.Covers)
+		}
+		seen[r.Key()] = true
+	}
+	return rows, nil
+}
+
+func parseAdopted(path string, data []byte) ([]AdoptedRow, error) {
+	var rows []AdoptedRow
+	if err := decodeTable(path, data, "adopted", true, &rows); err != nil {
+		return nil, err
+	}
+	seen := map[[2]string]bool{}
+	for n, r := range rows {
+		if err := validateAdopted(r); err != nil {
+			return nil, invalidf(path, "adopted[%d]: %v", n, err)
+		}
+		if seen[r.Key()] {
+			return nil, invalidf(path, "adopted[%d]: duplicate pair %s|%s", n, r.Test, r.Source)
+		}
+		seen[r.Key()] = true
+	}
+	return rows, nil
+}
+
+// parseOnboard reads the four tables of onboard.yaml; every other key is
+// M6.1's and is ignored.
+func parseOnboard(path string, data []byte) (OnboardTables, error) {
+	var t OnboardTables
+	if len(bytes.TrimSpace(data)) == 0 {
+		return t, nil
+	}
+	top, err := documentRoot(path, data) // parsed once; the four tables decoded from it
+	if err != nil {
+		return t, err
+	}
+	targets := map[string]any{keyRejections: &t.Rejections, keyReviews: &t.Reviews,
+		keyKindProposals: &t.KindProposals, keyCalibration: &t.Calibration}
+	for i := 0; i+1 < len(top.Content); i += 2 {
+		if out, ok := targets[top.Content[i].Value]; ok {
+			if err := top.Content[i+1].Decode(out); err != nil {
+				return t, invalidf(path, "%s: %v", top.Content[i].Value, err)
+			}
+		}
+	}
+	for n, r := range t.Rejections {
+		if err := validateRejection(r); err != nil {
+			return t, invalidf(path, "rejections[%d]: %v", n, err)
+		}
+	}
+	for n, r := range t.Reviews {
+		if err := validateMemo(r); err != nil {
+			return t, invalidf(path, "reviews[%d]: %v", n, err)
+		}
+	}
+	for n, r := range t.KindProposals {
+		if err := validateKindProposal(r); err != nil {
+			return t, invalidf(path, "kind_proposals[%d]: %v", n, err)
+		}
+	}
+	for n, r := range t.Calibration {
+		if err := validateCalibration(r); err != nil {
+			return t, invalidf(path, "calibration[%d]: %v", n, err)
+		}
+	}
+	return t, nil
+}
+
+// readOnboard reads onboard.yaml under root; absent is empty.
+func readOnboard(root string) (OnboardTables, []byte, error) {
+	data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(OnboardPath)))
+	if errors.Is(err, fs.ErrNotExist) {
+		return OnboardTables{}, nil, nil
+	}
+	if err != nil {
+		return OnboardTables{}, nil, invalidf(OnboardPath, "read: %v", err)
+	}
+	if err := contractCheck(OnboardPath, data); err != nil {
+		return OnboardTables{}, nil, err
+	}
+	t, err := parseOnboard(OnboardPath, data)
+	return t, data, err
+}
+
+func init() {
+	RegisterFile("seeded.yaml", func(reg *Registry, path string, data []byte) error {
+		rows, err := parseSeeds(path, data)
+		if err != nil {
+			return err
+		}
+		AdoptionOf(reg).RawSeeds = rows
+		return nil
+	})
+	RegisterFile("adopted.yaml", func(reg *Registry, path string, data []byte) error {
+		rows, err := parseAdopted(path, data)
+		if err != nil {
+			return err
+		}
+		AdoptionOf(reg).RawAdopted = rows
+		return nil
+	})
+	RegisterPostLoad(func(reg *Registry, root string) error {
+		a := AdoptionOf(reg)
+		t, _, err := readOnboard(root)
+		if err != nil {
+			return err
+		}
+		a.Onboard = t
+		a.classify(StampedPairs(reg.Edges))
+		return nil
+	})
+}

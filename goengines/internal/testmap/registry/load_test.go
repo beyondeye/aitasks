@@ -102,9 +102,9 @@ func TestLoadRefusals(t *testing.T) {
 		{"x.yaml", "contract: 1\nwaiver: []\n", "unknown key waiver"},
 		// scopes / areas (hand tables) and _scoped.yaml / areas.yaml are M2.5's,
 		// registered from scoped.go; their refusals are pinned in scoped_test.go.
+		// seeded.yaml / adopted.yaml are M2.6's, registered from adoption.go;
+		// their refusals are pinned in adoption_test.go.
 		{"_other.yaml", "contract: 1\n", "reserved file"},
-		{"seeded.yaml", "contract: 1\n", "reserved file"},
-		{"adopted.yaml", "contract: 1\n", "reserved file"},
 		{"observed.yaml", "contract: 1\n", "reserved file"},
 		{"x.yaml", "edges: [{covers: a}]\n", "edges[0]: test"},
 		{"x.yaml", "edges: [{test: t.sh}]\n", "covers is required"},

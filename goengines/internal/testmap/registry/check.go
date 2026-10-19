@@ -54,6 +54,10 @@ type CheckRule struct {
 	Name     string
 	Patterns func(*CheckContext) []string
 	Run      func(*CheckContext) ([]Finding, error)
+	// Summary marks a rule whose lines are counts (M2.6's SEEDED: / ADOPTED:):
+	// they go to CheckResult.Summary, printed after the findings and before
+	// CHECK:, never failing and never counted.
+	Summary bool
 }
 
 var rules []CheckRule
@@ -74,7 +78,8 @@ type CheckContext struct {
 	Today       time.Time
 	Match       map[string][]string // MatchFiles over every rule's Patterns
 
-	scoped *liveScopedMemo // M2.5's live scoped view, built once per run
+	scoped   *liveScopedMemo // M2.5's live scoped view, built once per run
+	adoption *Adoption       // M2.6's tables classified against the live stamped edges, built once per run
 }
 
 // CheckOptions are the flags of `check`.
@@ -87,6 +92,7 @@ type CheckResult struct {
 	Status   string    `json:"status"` // pass | fail
 	Findings []Finding `json:"findings"`
 	Failing  int       `json:"failing"`
+	Summary  []Finding `json:"summary"`
 }
 
 // now is the clock `check` judges dates against; tests replace it.
@@ -121,7 +127,7 @@ func Check(ctx context.Context, root string, in Inputs, opts CheckOptions) (*Che
 	if err != nil {
 		return nil, &CheckError{Rule: "enumerate", Err: err}
 	}
-	res := &CheckResult{Findings: []Finding{}}
+	res := &CheckResult{Findings: []Finding{}, Summary: []Finding{}}
 	strict := opts.Strict && reg.Config.PastBootstrap(c.Today)
 	for _, r := range rules {
 		found, err := r.Run(c)
@@ -131,6 +137,13 @@ func Check(ctx context.Context, root string, in Inputs, opts CheckOptions) (*Che
 		}
 		if err != nil {
 			return nil, &CheckError{Rule: r.Name, Err: err}
+		}
+		if r.Summary {
+			for _, f := range found {
+				f.Severity, f.Fail = Info, false
+				res.Summary = append(res.Summary, f)
+			}
+			continue
 		}
 		sortFindings(found)
 		for _, f := range found {

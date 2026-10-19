@@ -130,9 +130,27 @@ func runVerify(e env, args []string) int {
 // printStamps prints a stamping verb's result — the STAMP_REFUSED /
 // STAMP_SKIP / STAMP lines in order, WROTE:<path> per file, then
 // STAMPS:<added>|<restamped>|<current>|<skipped> — or its error, and returns
-// the exit code.
+// the exit code. A verb that failed after writing files (an incomplete
+// result) still reports what landed: WROTE:<path> per written file on stdout
+// (the --json object with `incomplete: true`), no STAMP or STAMPS line, then
+// the error line on stderr with the error's own exit code.
 func printStamps(e env, res *annot.Result, err error, asJSON bool) int {
 	if err != nil {
+		if res != nil && len(res.Wrote) > 0 {
+			if asJSON {
+				if jerr := lineproto.NewWriter(e.stdout, true).Emit(res); jerr != nil {
+					return reportError(e, jerr)
+				}
+			} else {
+				var lines [][]string
+				for _, w := range res.Wrote {
+					lines = append(lines, []string{"WROTE", w})
+				}
+				if c := printLines(e, lines); c != lineproto.ExitOK {
+					return c
+				}
+			}
+		}
 		return reportStampError(e, err)
 	}
 	code := lineproto.ExitOK

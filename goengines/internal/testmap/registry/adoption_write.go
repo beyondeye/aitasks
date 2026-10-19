@@ -1,0 +1,1181 @@
+package registry
+
+import (
+	"bytes"
+	"context"
+	"errors"
+	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+
+	"github.com/beyondeye/aitasks/goengines/internal/gitx"
+	"github.com/beyondeye/aitasks/goengines/internal/lineproto"
+	"github.com/beyondeye/aitasks/goengines/internal/platform"
+	"gopkg.in/yaml.v3"
+)
+
+// The write routing: every verb that touches seeded.yaml, adopted.yaml or
+// onboard.yaml's four tables does it through an AdoptionTx opened on its
+// Route, never around it. What is promised, and what is not:
+//
+//   - Cooperating writers are serialised: OpenAdoption holds one exclusive
+//     lock (in the git dir, per worktree) from before it reads the files
+//     until Commit or Close, so two engine writers never lose each other's
+//     update.
+//   - Commit prepares the whole write set first — every changed file is
+//     rendered, re-parsed and validated, and every file it will write is
+//     re-read and compared with what Open read — and writes nothing when any
+//     of that fails. A hand edit made since Open is ADOPTION_CONFLICT. One
+//     landing between that re-read and the rename is not detected.
+//   - Files are written one at a time (each atomically) in a per-route order
+//     chosen so every intermediate state is safe: a completion record (the
+//     reviews[] memo) after the effects it certifies, a record replacing a
+//     queue entry (a rejection, a provenance row) before the queue removal.
+//     A failure after a write is ADOPTION_PARTIAL; every op is idempotent by
+//     key, so re-running the verb converges. There is no cross-file
+//     atomicity.
+//   - A review record lives on its carrier row (a seed's agent_review, a
+//     verifies adoption's replay data) until the memo records it. Every
+//     commit that destroys or changes such a carrier first writes the
+//     unrecorded records to onboard.yaml, before any other file, and writes
+//     nothing else when that fails.
+
+// Route is the verb a write comes from.
+type Route string
+
+// The routes: one per verb row of the proposal's write-routing list.
+const (
+	RouteOnboardSeed        Route = "onboard-seed"         // onboard seed --apply
+	RouteAttributePropose   Route = "attribute-propose"    // attribute --propose
+	RouteAdoptAgentVerdicts Route = "adopt-agent-verdicts" // onboard adopt --agent-verdicts
+	RouteCalibrate          Route = "adopt-calibrate"      // onboard adopt --agent-verdicts --calibrate
+	RouteAdoptClass         Route = "adopt-class"          // onboard adopt --class [--auto]
+	RouteAdoptRow           Route = "adopt-row"            // onboard adopt <test> <source> | --area --batch | an in-gate person row
+	RouteAnnotateAuthor     Route = "annotate-author"      // annotate --author
+	RouteOnboardReject      Route = "onboard-reject"       // onboard reject
+	RouteClassifyPropose    Route = "classify-propose"     // onboard classify --propose
+	RouteRestamp            Route = "restamp"              // verify, annotate, annotate --from-body, stale --confirm-source
+)
+
+// Op is one kind of table change.
+type Op string
+
+// The ops. OpRecordVerdict performs the seed, adopted and memo changes of a
+// reading itself; the review-memo op has no route of its own.
+const (
+	OpSeedPut         Op = "seed-put"
+	OpSeedRemove      Op = "seed-remove"
+	OpAdoptedPut      Op = "adopted-put"
+	OpAdoptedRefresh  Op = "adopted-refresh"
+	OpAdoptedDelete   Op = "adopted-delete"
+	OpRejectionAdd    Op = "rejection-add"
+	OpKindProposalAdd Op = "kind-proposal-add"
+	OpCalibrationAdd  Op = "calibration-add"
+	OpRecordVerdict   Op = "record-verdict"
+	OpRestamps        Op = "restamps"
+)
+
+// AllRoutes and AllOps list the routing table's axes (for its tests).
+var (
+	AllRoutes = []Route{RouteOnboardSeed, RouteAttributePropose, RouteAdoptAgentVerdicts, RouteCalibrate,
+		RouteAdoptClass, RouteAdoptRow, RouteAnnotateAuthor, RouteOnboardReject, RouteClassifyPropose, RouteRestamp}
+	AllOps = []Op{OpSeedPut, OpSeedRemove, OpAdoptedPut, OpAdoptedRefresh, OpAdoptedDelete,
+		OpRejectionAdd, OpKindProposalAdd, OpCalibrationAdd, OpRecordVerdict, OpRestamps}
+)
+
+// routeOps is the write routing: which ops each route may perform.
+var routeOps = map[Route][]Op{
+	RouteOnboardSeed:        {OpSeedPut},
+	RouteAttributePropose:   {OpSeedPut},
+	RouteAdoptAgentVerdicts: {OpRecordVerdict},
+	RouteCalibrate:          {OpCalibrationAdd},
+	RouteAdoptClass:         {OpSeedRemove, OpAdoptedPut},
+	RouteAdoptRow:           {OpSeedRemove, OpAdoptedDelete},
+	RouteAnnotateAuthor:     {OpAdoptedPut},
+	RouteOnboardReject:      {OpSeedRemove, OpRejectionAdd},
+	RouteClassifyPropose:    {OpKindProposalAdd},
+	RouteRestamp:            {OpAdoptedPut, OpAdoptedRefresh, OpAdoptedDelete, OpRestamps},
+}
+
+// RouteAllows reports whether r may perform op.
+func RouteAllows(r Route, op Op) bool {
+	for _, o := range routeOps[r] {
+		if o == op {
+			return true
+		}
+	}
+	return false
+}
+
+// routeFileOrder is each route's write order (A13): a completion record
+// after its effects, a replacing record before the queue removal.
+var routeFileOrder = map[Route][]string{
+	RouteOnboardSeed:        {SeededPath},
+	RouteAttributePropose:   {SeededPath},
+	RouteAdoptAgentVerdicts: {AdoptedPath, SeededPath, OnboardPath},
+	RouteCalibrate:          {OnboardPath},
+	RouteAdoptClass:         {AdoptedPath, SeededPath},
+	RouteAdoptRow:           {AdoptedPath, SeededPath},
+	RouteAnnotateAuthor:     {AdoptedPath},
+	RouteOnboardReject:      {OnboardPath, SeededPath},
+	RouteClassifyPropose:    {OnboardPath},
+	RouteRestamp:            {AdoptedPath},
+}
+
+// RouteError is an op outside its route, or a call missing the data its
+// route requires: ADOPTION_ROUTE:<route>|<op>[|<detail>], exit 3. It is a
+// caller's programming error, never a reason to write around the routing.
+type RouteError struct {
+	Route  Route
+	Op     Op
+	Detail string
+}
+
+func (e *RouteError) Error() string {
+	s := fmt.Sprintf("route %s does not allow %s", e.Route, e.Op)
+	if e.Detail != "" {
+		s = fmt.Sprintf("route %s, %s: %s", e.Route, e.Op, e.Detail)
+	}
+	return s
+}
+
+// Line is ADOPTION_ROUTE:<route>|<op>[|<detail>].
+func (e *RouteError) Line() (string, error) {
+	f := []string{string(e.Route), string(e.Op)}
+	if e.Detail != "" {
+		f = append(f, flatten(e.Detail))
+	}
+	return lineproto.Format("ADOPTION_ROUTE", f...)
+}
+
+// ExitCode is the framework-error exit.
+func (e *RouteError) ExitCode() int { return lineproto.ExitFramework }
+
+// AdoptionConflictError is a file that changed since OpenAdoption read it
+// (a writer outside the routing): ADOPTION_CONFLICT:<path>, exit 75. Nothing
+// was written.
+type AdoptionConflictError struct{ Path string }
+
+func (e *AdoptionConflictError) Error() string { return e.Path + ": changed since it was read" }
+
+// Line is ADOPTION_CONFLICT:<path>.
+func (e *AdoptionConflictError) Line() (string, error) {
+	return lineproto.Format("ADOPTION_CONFLICT", e.Path)
+}
+
+// ExitCode is the refused exit.
+func (e *AdoptionConflictError) ExitCode() int { return lineproto.ExitRefused }
+
+// AdoptionPartialError is a write that failed after others landed:
+// ADOPTION_PARTIAL:<failed>|<wrote,…>, exit 3. The state left is one the
+// route's order makes safe; re-running the verb converges.
+type AdoptionPartialError struct {
+	Wrote  []string
+	Failed string
+	Err    error
+}
+
+func (e *AdoptionPartialError) Error() string {
+	return fmt.Sprintf("%s: %v (already written: %s)", e.Failed, e.Err, strings.Join(e.Wrote, ", "))
+}
+func (e *AdoptionPartialError) Unwrap() error { return e.Err }
+
+// Line is ADOPTION_PARTIAL:<failed>|<wrote,…>.
+func (e *AdoptionPartialError) Line() (string, error) {
+	return lineproto.Format("ADOPTION_PARTIAL", e.Failed, strings.Join(e.Wrote, ","))
+}
+
+// ExitCode is the framework-error exit.
+func (e *AdoptionPartialError) ExitCode() int { return lineproto.ExitFramework }
+
+// Test seams.
+var (
+	lockAdoption = defaultLockAdoption
+	afterOpen    = func(Route) {} // after the lock is held and the files are read
+	writeFile    = WriteFile
+)
+
+// defaultLockAdoption takes the exclusive adoption lock of root's worktree:
+// `<git-dir>/ait-testmap/adoption.lock`, never in the work tree.
+func defaultLockAdoption(ctx context.Context, root string) (func() error, error) {
+	out, err := gitx.Repo{Dir: root}.Run(ctx, "rev-parse", "--absolute-git-dir")
+	if err != nil {
+		return nil, fmt.Errorf("adoption lock: %w", err)
+	}
+	dir := filepath.Join(strings.TrimSpace(string(out)), "ait-testmap")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return nil, fmt.Errorf("adoption lock: %w", err)
+	}
+	return platform.Lock(filepath.Join(dir, "adoption.lock"))
+}
+
+// editLog is a table's pending changes, by row key, in first-change order.
+type editLog struct {
+	order []string
+	m     map[string]rowEdit
+}
+
+func (l *editLog) put(k string, row any) {
+	if l.m == nil {
+		l.m = map[string]rowEdit{}
+	}
+	if _, ok := l.m[k]; !ok {
+		l.order = append(l.order, k)
+	}
+	l.m[k] = rowEdit{key: k, row: row}
+}
+
+func (l *editLog) list() []rowEdit {
+	var out []rowEdit
+	for _, k := range l.order {
+		out = append(out, l.m[k])
+	}
+	return out
+}
+
+func (l *editLog) empty() bool { return len(l.order) == 0 }
+
+func joinKey(parts ...string) string { return strings.Join(parts, "\x00") }
+
+// AdoptionTx is an open write on the three files under one route.
+type AdoptionTx struct {
+	root   string
+	route  Route
+	unlock func() error
+	snap   map[string][]byte // bytes as read; nil = absent
+
+	seeds   []SeedRow
+	adopted []AdoptedRow
+	onboard OnboardTables
+
+	// origDerived are the review records the rows carried as read: value
+	// copies, so no edit of a row can rewrite what carrier preservation
+	// compares against.
+	origDerived []Review
+	origOnboard OnboardTables
+
+	seedEdits, adoptedEdits editLog
+	onboardEdits            map[string]*editLog
+}
+
+// OpenAdoption takes the adoption lock and reads the three files for a write
+// on route r. The caller must Commit or Close. A file with a newer contract
+// is *testmap.ContractMismatchError and an unreadable or invalid one
+// *InvalidError: a newer or broken file is never overwritten.
+func OpenAdoption(ctx context.Context, root string, r Route) (*AdoptionTx, error) {
+	if _, ok := routeOps[r]; !ok {
+		return nil, fmt.Errorf("unknown adoption route %q", r)
+	}
+	unlock, err := lockAdoption(ctx, root)
+	if err != nil {
+		return nil, err
+	}
+	tx := &AdoptionTx{root: root, route: r, unlock: unlock, snap: map[string][]byte{},
+		onboardEdits: map[string]*editLog{}}
+	if err := tx.read(); err != nil {
+		tx.Close()
+		return nil, err
+	}
+	afterOpen(r)
+	return tx, nil
+}
+
+func (tx *AdoptionTx) abs(p string) string { return filepath.Join(tx.root, filepath.FromSlash(p)) }
+
+func (tx *AdoptionTx) readFile(p string) ([]byte, error) {
+	data, err := os.ReadFile(tx.abs(p))
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, invalidf(p, "read: %v", err)
+	}
+	if data == nil {
+		data = []byte{}
+	}
+	return data, nil
+}
+
+func (tx *AdoptionTx) read() error {
+	for _, p := range []string{SeededPath, AdoptedPath, OnboardPath} {
+		data, err := tx.readFile(p)
+		if err != nil {
+			return err
+		}
+		tx.snap[p] = data
+		if data == nil {
+			continue
+		}
+		if err := contractCheck(p, data); err != nil {
+			return err
+		}
+		switch p {
+		case SeededPath:
+			tx.seeds, err = parseSeeds(p, data)
+		case AdoptedPath:
+			tx.adopted, err = parseAdopted(p, data)
+		case OnboardPath:
+			tx.onboard, err = parseOnboard(p, data)
+		}
+		if err != nil {
+			return err
+		}
+	}
+	tx.origDerived = derivedReviews(tx.seeds, tx.adopted)
+	tx.origOnboard = OnboardTables{
+		Rejections:    append([]Rejection{}, tx.onboard.Rejections...),
+		Reviews:       append([]Review{}, tx.onboard.Reviews...),
+		KindProposals: append([]KindProposal{}, tx.onboard.KindProposals...),
+		Calibration:   append([]Calibration{}, tx.onboard.Calibration...),
+	}
+	return nil
+}
+
+// Close releases the lock without writing. It is idempotent.
+func (tx *AdoptionTx) Close() error {
+	if tx.unlock == nil {
+		return nil
+	}
+	u := tx.unlock
+	tx.unlock = nil
+	return u()
+}
+
+func (tx *AdoptionTx) allow(op Op) error {
+	if tx.unlock == nil {
+		return errors.New("adoption write already committed or closed")
+	}
+	if !RouteAllows(tx.route, op) {
+		return &RouteError{Route: tx.route, Op: op}
+	}
+	return nil
+}
+
+// Seeds and Adopted are deep copies of the tables as they stand in the open
+// write: editing a returned row changes nothing until it is put back.
+func (tx *AdoptionTx) Seeds() []SeedRow {
+	out := make([]SeedRow, len(tx.seeds))
+	for i, r := range tx.seeds {
+		out[i] = cloneSeed(r)
+	}
+	return out
+}
+
+func (tx *AdoptionTx) Adopted() []AdoptedRow {
+	out := make([]AdoptedRow, len(tx.adopted))
+	for i, r := range tx.adopted {
+		out[i] = cloneAdopted(r)
+	}
+	return out
+}
+
+// Onboard is a deep copy of the four onboard.yaml tables in the open write.
+func (tx *AdoptionTx) Onboard() OnboardTables { return cloneOnboard(tx.onboard) }
+
+func cloneOnboard(t OnboardTables) OnboardTables {
+	c := OnboardTables{
+		Rejections:    append([]Rejection{}, t.Rejections...),
+		Reviews:       append([]Review{}, t.Reviews...),
+		KindProposals: append([]KindProposal{}, t.KindProposals...),
+		Calibration:   append([]Calibration{}, t.Calibration...),
+	}
+	for i := range c.Rejections {
+		c.Rejections[i].Extra = cloneExtra(c.Rejections[i].Extra)
+	}
+	for i := range c.Reviews {
+		c.Reviews[i].Extra = cloneExtra(c.Reviews[i].Extra)
+	}
+	for i := range c.KindProposals {
+		c.KindProposals[i].Extra = cloneExtra(c.KindProposals[i].Extra)
+	}
+	for i := range c.Calibration {
+		c.Calibration[i].Extra = cloneExtra(c.Calibration[i].Extra)
+	}
+	return c
+}
+
+// cloneValue deep-copies a decoded YAML value (unknown fields can nest maps
+// and lists).
+func cloneValue(v any) any {
+	switch x := v.(type) {
+	case map[string]any:
+		c := make(map[string]any, len(x))
+		for k, e := range x {
+			c[k] = cloneValue(e)
+		}
+		return c
+	case map[any]any:
+		c := make(map[any]any, len(x))
+		for k, e := range x {
+			c[k] = cloneValue(e)
+		}
+		return c
+	case []any:
+		c := make([]any, len(x))
+		for i, e := range x {
+			c[i] = cloneValue(e)
+		}
+		return c
+	}
+	return v
+}
+
+// normalizeExtra turns caller-supplied unknown fields into the shapes a YAML
+// decode produces (map[string]any, []any, scalars) by a round trip: a fully
+// detached copy whatever container types the caller used, which cloneValue
+// then covers, and exactly what a reload reads back. A value YAML cannot
+// encode is refused before anything is stored.
+func normalizeExtra(m map[string]any) (out map[string]any, err error) {
+	if m == nil {
+		return nil, nil
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("unknown fields: %v", r)
+		}
+	}()
+	b, err := yaml.Marshal(m)
+	if err != nil {
+		return nil, fmt.Errorf("unknown fields: %w", err)
+	}
+	if err := yaml.Unmarshal(b, &out); err != nil {
+		return nil, fmt.Errorf("unknown fields: %w", err)
+	}
+	return out, nil
+}
+
+func normalizeSeed(r SeedRow) (SeedRow, error) {
+	var err error
+	if r.Extra, err = normalizeExtra(r.Extra); err != nil {
+		return r, err
+	}
+	if r.Evidence.Extra, err = normalizeExtra(r.Evidence.Extra); err != nil {
+		return r, err
+	}
+	if ar := r.Evidence.AgentReview; ar != nil {
+		c := *ar
+		if c.Extra, err = normalizeExtra(c.Extra); err != nil {
+			return r, err
+		}
+		r.Evidence.AgentReview = &c
+	}
+	return r, nil // the setters' storage-boundary clone detaches the rest
+}
+
+func normalizeAdopted(r AdoptedRow) (AdoptedRow, error) {
+	var err error
+	if r.Extra, err = normalizeExtra(r.Extra); err != nil {
+		return r, err
+	}
+	return r, nil // the setters' storage-boundary clone detaches the rest
+}
+
+func cloneExtra(m map[string]any) map[string]any {
+	if m == nil {
+		return nil
+	}
+	return cloneValue(m).(map[string]any)
+}
+
+func cloneMap[V any](m map[string]V) map[string]V {
+	if m == nil {
+		return nil
+	}
+	c := make(map[string]V, len(m))
+	for k, v := range m {
+		c[k] = v
+	}
+	return c
+}
+
+func cloneSeed(r SeedRow) SeedRow {
+	r.Origin = append([]string(nil), r.Origin...)
+	if r.Confidence != nil {
+		c := *r.Confidence
+		r.Confidence = &c
+	}
+	r.Evidence.Cochange = append([]string(nil), r.Evidence.Cochange...)
+	if ar := r.Evidence.AgentReview; ar != nil {
+		c := *ar
+		c.Extra = cloneExtra(ar.Extra)
+		r.Evidence.AgentReview = &c
+	}
+	r.Evidence.Extra = cloneExtra(r.Evidence.Extra)
+	r.Extra = cloneExtra(r.Extra)
+	return r
+}
+
+func cloneAdopted(r AdoptedRow) AdoptedRow {
+	r.Origin = append([]string(nil), r.Origin...)
+	if r.Confidence != nil {
+		c := *r.Confidence
+		r.Confidence = &c
+	}
+	r.Evidence = cloneMap(r.Evidence)
+	r.Extra = cloneExtra(r.Extra)
+	return r
+}
+
+func (tx *AdoptionTx) seedIndex(test, covers string) int {
+	for i, s := range tx.seeds {
+		if s.Test == test && s.Covers == covers {
+			return i
+		}
+	}
+	return -1
+}
+
+func (tx *AdoptionTx) adoptedIndex(test, source string) int {
+	for i, r := range tx.adopted {
+		if r.Test == test && r.Source == source {
+			return i
+		}
+	}
+	return -1
+}
+
+func (tx *AdoptionTx) setSeed(row SeedRow) {
+	row = cloneSeed(row)
+	if i := tx.seedIndex(row.Test, row.Covers); i >= 0 {
+		tx.seeds[i] = row
+	} else {
+		tx.seeds = append(tx.seeds, row)
+	}
+	tx.seedEdits.put(joinKey(row.Test, row.Covers), row)
+}
+
+func (tx *AdoptionTx) dropSeed(test, covers string) bool {
+	i := tx.seedIndex(test, covers)
+	if i < 0 {
+		return false
+	}
+	tx.seeds = append(tx.seeds[:i], tx.seeds[i+1:]...)
+	tx.seedEdits.put(joinKey(test, covers), nil)
+	return true
+}
+
+func (tx *AdoptionTx) setAdopted(row AdoptedRow) {
+	row = cloneAdopted(row)
+	if i := tx.adoptedIndex(row.Test, row.Source); i >= 0 {
+		tx.adopted[i] = row
+	} else {
+		tx.adopted = append(tx.adopted, row)
+	}
+	tx.adoptedEdits.put(joinKey(row.Test, row.Source), row)
+}
+
+func (tx *AdoptionTx) dropAdopted(test, source string) bool {
+	i := tx.adoptedIndex(test, source)
+	if i < 0 {
+		return false
+	}
+	tx.adopted = append(tx.adopted[:i], tx.adopted[i+1:]...)
+	tx.adoptedEdits.put(joinKey(test, source), nil)
+	return true
+}
+
+func (tx *AdoptionTx) onboardLog(key string) *editLog {
+	l := tx.onboardEdits[key]
+	if l == nil {
+		l = &editLog{}
+		tx.onboardEdits[key] = l
+	}
+	return l
+}
+
+func (tx *AdoptionTx) putMemo(r Review) {
+	r.Extra = cloneExtra(r.Extra)
+	k := r.Key()
+	for i, m := range tx.onboard.Reviews {
+		if m.Key() == k {
+			tx.onboard.Reviews[i] = r
+			tx.onboardLog(keyReviews).put(joinKey(k[:]...), r)
+			return
+		}
+	}
+	tx.onboard.Reviews = append(tx.onboard.Reviews, r)
+	tx.onboardLog(keyReviews).put(joinKey(k[:]...), r)
+}
+
+// PutSeed adds or replaces the seed of a pair. A pair in rejections[] is
+// never re-proposed: put is false and nothing changes.
+func (tx *AdoptionTx) PutSeed(row SeedRow) (put bool, err error) {
+	if err := tx.allow(OpSeedPut); err != nil {
+		return false, err
+	}
+	if err := validateSeed(row); err != nil {
+		return false, err
+	}
+	row, err = normalizeSeed(row)
+	if err != nil {
+		return false, err
+	}
+	for _, r := range tx.onboard.Rejections {
+		if r.Test == row.Test && r.Source == row.Covers {
+			return false, nil
+		}
+	}
+	tx.setSeed(row)
+	return true, nil
+}
+
+// RemoveSeed removes the seed of a pair (absent: a no-op).
+func (tx *AdoptionTx) RemoveSeed(test, covers string) (bool, error) {
+	if err := tx.allow(OpSeedRemove); err != nil {
+		return false, err
+	}
+	return tx.dropSeed(test, covers), nil
+}
+
+// PutAdopted adds or replaces the provenance row of a pair.
+func (tx *AdoptionTx) PutAdopted(row AdoptedRow) error {
+	if err := tx.allow(OpAdoptedPut); err != nil {
+		return err
+	}
+	if err := validateAdopted(row); err != nil {
+		return err
+	}
+	row, err := normalizeAdopted(row)
+	if err != nil {
+		return err
+	}
+	tx.setAdopted(row)
+	return nil
+}
+
+// RefreshAdopted sets the stamp of a pair's provenance row; by, origin and
+// adopted_at are kept. ok is false when the pair has no row.
+func (tx *AdoptionTx) RefreshAdopted(test, source, stamp string) (ok bool, err error) {
+	if err := tx.allow(OpAdoptedRefresh); err != nil {
+		return false, err
+	}
+	return tx.refresh(test, source, stamp)
+}
+
+func (tx *AdoptionTx) refresh(test, source, stamp string) (bool, error) {
+	i := tx.adoptedIndex(test, source)
+	if i < 0 {
+		return false, nil
+	}
+	if !stampRe.MatchString(stamp) {
+		return false, fmt.Errorf("stamp %q: want <YYYY-MM-DD>/<blob10>", stamp)
+	}
+	if tx.adopted[i].Stamp == stamp {
+		return true, nil
+	}
+	row := tx.adopted[i]
+	row.Stamp = stamp
+	tx.setAdopted(row)
+	return true, nil
+}
+
+// DeleteAdopted removes the provenance row of a pair (absent: a no-op).
+func (tx *AdoptionTx) DeleteAdopted(test, source string) (bool, error) {
+	if err := tx.allow(OpAdoptedDelete); err != nil {
+		return false, err
+	}
+	return tx.dropAdopted(test, source), nil
+}
+
+// AddRejection records a rejection (replacing the pair's earlier one).
+func (tx *AdoptionTx) AddRejection(r Rejection) error {
+	if err := tx.allow(OpRejectionAdd); err != nil {
+		return err
+	}
+	if err := validateRejection(r); err != nil {
+		return err
+	}
+	var err error
+	if r.Extra, err = normalizeExtra(r.Extra); err != nil {
+		return err
+	}
+	for i, x := range tx.onboard.Rejections {
+		if x.Test == r.Test && x.Source == r.Source {
+			tx.onboard.Rejections[i] = r
+			tx.onboardLog(keyRejections).put(joinKey(r.Test, r.Source), r)
+			return nil
+		}
+	}
+	tx.onboard.Rejections = append(tx.onboard.Rejections, r)
+	tx.onboardLog(keyRejections).put(joinKey(r.Test, r.Source), r)
+	return nil
+}
+
+// AddKindProposal records a kind proposal (replacing the test's earlier one).
+func (tx *AdoptionTx) AddKindProposal(r KindProposal) error {
+	if err := tx.allow(OpKindProposalAdd); err != nil {
+		return err
+	}
+	if err := validateKindProposal(r); err != nil {
+		return err
+	}
+	var err error
+	if r.Extra, err = normalizeExtra(r.Extra); err != nil {
+		return err
+	}
+	for i, x := range tx.onboard.KindProposals {
+		if x.Test == r.Test {
+			tx.onboard.KindProposals[i] = r
+			tx.onboardLog(keyKindProposals).put(r.Test, r)
+			return nil
+		}
+	}
+	tx.onboard.KindProposals = append(tx.onboard.KindProposals, r)
+	tx.onboardLog(keyKindProposals).put(r.Test, r)
+	return nil
+}
+
+// AddCalibration records a calibration run (replacing the run's earlier row).
+func (tx *AdoptionTx) AddCalibration(r Calibration) error {
+	if err := tx.allow(OpCalibrationAdd); err != nil {
+		return err
+	}
+	if err := validateCalibration(r); err != nil {
+		return err
+	}
+	var err error
+	if r.Extra, err = normalizeExtra(r.Extra); err != nil {
+		return err
+	}
+	for i, x := range tx.onboard.Calibration {
+		if x.Run == r.Run {
+			tx.onboard.Calibration[i] = r
+			tx.onboardLog(keyCalibration).put(r.Run, r)
+			return nil
+		}
+	}
+	tx.onboard.Calibration = append(tx.onboard.Calibration, r)
+	tx.onboardLog(keyCalibration).put(r.Run, r)
+	return nil
+}
+
+// VerdictRecord is one reading's outcome for RecordVerdict. Review carries
+// the verdict and its replay data (by, run, packet_sha, test_blob — all
+// required); Adopt is the provenance row when a verifies verdict adopts the
+// pair (the caller stamped the test file through AnnotateWith first).
+type VerdictRecord struct {
+	Test, Covers string
+	Review       SeedReview
+	Adopt        *AdoptedRow
+}
+
+// RecordVerdict applies a reading: an adoption puts the provenance row
+// (carrying the replay data) and removes the seed; any other verdict
+// records the review on the seed (parking it for drives / unsure); in every
+// case the reviews[] memo gains the record. Missing replay data is refused
+// before anything changes (ADOPTION_ROUTE:…|replay-data).
+func (tx *AdoptionTx) RecordVerdict(v VerdictRecord) error {
+	if err := tx.allow(OpRecordVerdict); err != nil {
+		return err
+	}
+	replay := func() error { return &RouteError{Route: tx.route, Op: OpRecordVerdict, Detail: "replay-data"} }
+	ar := v.Review
+	if ar.By == "" || ar.Run == "" || ar.PacketSHA == "" || ar.TestBlob == "" {
+		return replay()
+	}
+	if err := validateReview(ar); err != nil {
+		return err
+	}
+	var err error
+	if ar.Extra, err = normalizeExtra(ar.Extra); err != nil {
+		return err
+	}
+	if v.Adopt != nil {
+		if ar.Verdict != VerdictVerifies {
+			return fmt.Errorf("only a verifies verdict adopts (got %s)", ar.Verdict)
+		}
+		row := *v.Adopt
+		if row.Test != v.Test || row.Source != v.Covers {
+			return fmt.Errorf("adopted row %s|%s does not match the pair %s|%s", row.Test, row.Source, v.Test, v.Covers)
+		}
+		if row.By != ar.By || row.Run != ar.Run || row.PacketSHA != ar.PacketSHA || row.TestBlob != ar.TestBlob {
+			return replay()
+		}
+		if err := validateAdopted(row); err != nil {
+			return err
+		}
+		if row, err = normalizeAdopted(row); err != nil {
+			return err
+		}
+		tx.setAdopted(row)
+		tx.dropSeed(v.Test, v.Covers)
+	} else {
+		i := tx.seedIndex(v.Test, v.Covers)
+		if i < 0 {
+			return fmt.Errorf("no seed %s|%s to record a %s verdict on", v.Test, v.Covers, ar.Verdict)
+		}
+		s := tx.seeds[i]
+		s.Verdict = ar.Verdict
+		review := ar
+		s.Evidence.AgentReview = &review
+		if ar.Verdict == VerdictVerifies && !contains(s.Origin, "agent:review") {
+			s.Origin = append(append([]string{}, s.Origin...), "agent:review")
+		}
+		tx.setSeed(s)
+	}
+	tx.putMemo(Review{Test: v.Test, Source: v.Covers, Verdict: ar.Verdict, TestBlob: ar.TestBlob,
+		PacketSHA: ar.PacketSHA, Run: ar.Run, By: ar.By})
+	return nil
+}
+
+// RestampPhase is when a stamping verb reports its edges.
+type RestampPhase int
+
+const (
+	// PhaseIntent: after planning, before any test file is written.
+	PhaseIntent RestampPhase = iota
+	// PhasePost: after every test file was written.
+	PhasePost
+)
+
+// RestampEdge is one edge a stamping verb wrote or confirmed. Before and
+// After are stamps as `<date>/<blob10>` ("" = unstamped).
+type RestampEdge struct {
+	Test, Source  string
+	Before, After string
+	Origin        string
+}
+
+// ApplyRestamps is the provenance rule of the stamping verbs (known is false
+// for an unspecified actor):
+//
+//   - intent phase: an agent or auto actor's first stamp (Before "") puts a
+//     provenance row {origin: [Origin|annotate], adopted_at, by, stamp}; an
+//     existing row keeps its by, origin and adopted_at and gets the stamp;
+//   - post phase: an explicit human deletes the pair's row; any other actor
+//     refreshes the stamp of an existing row;
+//   - an edge that already carried a stamp never gains a row.
+func (tx *AdoptionTx) ApplyRestamps(phase RestampPhase, by By, known bool, edges []RestampEdge) error {
+	if err := tx.allow(OpRestamps); err != nil {
+		return err
+	}
+	machine := known && (by.Kind == ByAgent || by.Kind == ByAuto)
+	for _, e := range edges {
+		switch phase {
+		case PhaseIntent:
+			if !machine || e.Before != "" || e.After == "" {
+				continue
+			}
+			if tx.adoptedIndex(e.Test, e.Source) >= 0 {
+				if _, err := tx.refresh(e.Test, e.Source, e.After); err != nil {
+					return err
+				}
+				continue
+			}
+			origin := e.Origin
+			if origin == "" {
+				origin = "annotate"
+			}
+			date, _, _ := strings.Cut(e.After, "/")
+			row := AdoptedRow{Test: e.Test, Source: e.Source, Origin: []string{origin}, AdoptedAt: date,
+				By: by.String(), Stamp: e.After}
+			if err := validateAdopted(row); err != nil {
+				return err
+			}
+			tx.setAdopted(row)
+		case PhasePost:
+			if known && by.Kind == ByHuman {
+				tx.dropAdopted(e.Test, e.Source)
+				continue
+			}
+			if e.After != "" {
+				if _, err := tx.refresh(e.Test, e.Source, e.After); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// plannedWrite is one file write of a commit.
+type plannedWrite struct {
+	path string
+	data []byte
+}
+
+// Commit writes every changed file in the route's order and releases the
+// lock. wrote lists the files actually changed, in write order.
+func (tx *AdoptionTx) Commit() (wrote []string, err error) {
+	if tx.unlock == nil {
+		return nil, errors.New("adoption write already committed or closed")
+	}
+	defer tx.Close()
+	// Carrier preservation: review records derivable from the state as
+	// read, recorded nowhere else once this commit lands.
+	finalDerived := map[[4]string]bool{}
+	for _, r := range derivedReviews(tx.seeds, tx.adopted) {
+		finalDerived[r.Key()] = true
+	}
+	var preserve []Review
+	memo := map[[4]string]bool{}
+	for _, r := range tx.onboard.Reviews {
+		memo[r.Key()] = true
+	}
+	for _, r := range tx.origDerived {
+		if !memo[r.Key()] && !finalDerived[r.Key()] {
+			memo[r.Key()] = true
+			preserve = append(preserve, r)
+		}
+	}
+	// v1: the onboard file as read plus the preserved records only.
+	var preserveLog editLog
+	for _, r := range preserve {
+		k := r.Key()
+		preserveLog.put(joinKey(k[:]...), r)
+	}
+	for _, r := range preserve {
+		tx.putMemo(r)
+	}
+	if tx.route == RouteAdoptAgentVerdicts {
+		for _, r := range unrecorded(tx.onboard.Reviews, tx.seeds, tx.adopted) {
+			tx.putMemo(r) // reconcile memo rows a failed earlier commit left out
+		}
+	}
+	order := routeFileOrder[tx.route]
+	var writes []plannedWrite
+	if len(preserve) > 0 && order[0] != OnboardPath {
+		data, err := tx.renderOnboard(map[string]*editLog{keyReviews: &preserveLog},
+			OnboardTables{Rejections: tx.origOnboard.Rejections, Reviews: append(append([]Review{}, tx.origOnboard.Reviews...), preserve...),
+				KindProposals: tx.origOnboard.KindProposals, Calibration: tx.origOnboard.Calibration})
+		if err != nil {
+			return nil, err
+		}
+		writes = append(writes, plannedWrite{OnboardPath, data})
+	}
+	for _, p := range order {
+		var data []byte
+		var err error
+		switch p {
+		case SeededPath:
+			if tx.seedEdits.empty() {
+				continue
+			}
+			data, err = tx.renderSeeds()
+		case AdoptedPath:
+			if tx.adoptedEdits.empty() {
+				continue
+			}
+			data, err = tx.renderAdopted()
+		case OnboardPath:
+			if len(tx.onboardEdits) == 0 {
+				continue
+			}
+			data, err = tx.renderOnboard(tx.onboardEdits, tx.onboard)
+		}
+		if err != nil {
+			return nil, err
+		}
+		if data != nil {
+			writes = append(writes, plannedWrite{p, data})
+		}
+	}
+	// Prepare: nothing is written unless every file is unchanged since Open.
+	for _, w := range writes {
+		now, err := tx.readFile(w.path)
+		if err != nil {
+			return nil, err
+		}
+		if !sameSnapshot(now, tx.snap[w.path]) {
+			return nil, &AdoptionConflictError{Path: w.path}
+		}
+	}
+	seen := map[string]bool{}
+	for _, w := range writes {
+		changed, err := writeFile(tx.abs(w.path), w.data)
+		if err != nil {
+			if len(wrote) == 0 {
+				return nil, fmt.Errorf("%s: %w", w.path, err)
+			}
+			return wrote, &AdoptionPartialError{Wrote: wrote, Failed: w.path, Err: err}
+		}
+		if changed && !seen[w.path] {
+			seen[w.path] = true
+			wrote = append(wrote, w.path)
+		}
+	}
+	return wrote, nil
+}
+
+func sameSnapshot(a, b []byte) bool {
+	if (a == nil) != (b == nil) {
+		return false
+	}
+	return bytes.Equal(a, b)
+}
+
+// writeHeader opens seeded.yaml and adopted.yaml when the engine creates them.
+const writeHeader = "# Written by ait-testmap. Change it through the onboard / annotate verbs.\n"
+
+func (tx *AdoptionTx) renderSeeds() ([]byte, error) {
+	old := tx.snap[SeededPath]
+	var data []byte
+	var err error
+	if old == nil {
+		if len(tx.seeds) == 0 {
+			return nil, nil // never create a file for an empty table
+		}
+		rows := append([]SeedRow{}, tx.seeds...)
+		sort.Slice(rows, func(i, j int) bool {
+			return joinKey(rows[i].Test, rows[i].Covers) < joinKey(rows[j].Test, rows[j].Covers)
+		})
+		data, err = Render(writeHeader, seededDoc{Contract: 1, Seeds: rows})
+	} else {
+		data, err = spliceTable(old, "seeds", nodeKey(func(r SeedRow) string { return joinKey(r.Test, r.Covers) }), tx.seedEdits.list(), true)
+	}
+	if err != nil {
+		return nil, invalidf(SeededPath, "render: %v", err)
+	}
+	if old != nil {
+		if err := otherKeysUnchanged(old, data, "seeds"); err != nil {
+			return nil, invalidf(SeededPath, "render: %v", err)
+		}
+	}
+	rows, err := parseSeeds(SeededPath, data)
+	if err != nil {
+		return nil, invalidf(SeededPath, "render does not load: %v", err)
+	}
+	if err := sameRows(rows, tx.seeds, func(r SeedRow) string { return joinKey(r.Test, r.Covers) }); err != nil {
+		return nil, invalidf(SeededPath, "render does not round-trip: %v", err)
+	}
+	return data, nil
+}
+
+func (tx *AdoptionTx) renderAdopted() ([]byte, error) {
+	old := tx.snap[AdoptedPath]
+	var data []byte
+	var err error
+	if old == nil {
+		if len(tx.adopted) == 0 {
+			return nil, nil
+		}
+		rows := append([]AdoptedRow{}, tx.adopted...)
+		sort.Slice(rows, func(i, j int) bool {
+			return joinKey(rows[i].Test, rows[i].Source) < joinKey(rows[j].Test, rows[j].Source)
+		})
+		data, err = Render(writeHeader, adoptedDoc{Contract: 1, Adopted: rows})
+	} else {
+		data, err = spliceTable(old, "adopted", nodeKey(func(r AdoptedRow) string { return joinKey(r.Test, r.Source) }), tx.adoptedEdits.list(), true)
+	}
+	if err != nil {
+		return nil, invalidf(AdoptedPath, "render: %v", err)
+	}
+	if old != nil {
+		if err := otherKeysUnchanged(old, data, "adopted"); err != nil {
+			return nil, invalidf(AdoptedPath, "render: %v", err)
+		}
+	}
+	rows, err := parseAdopted(AdoptedPath, data)
+	if err != nil {
+		return nil, invalidf(AdoptedPath, "render does not load: %v", err)
+	}
+	if err := sameRows(rows, tx.adopted, func(r AdoptedRow) string { return joinKey(r.Test, r.Source) }); err != nil {
+		return nil, invalidf(AdoptedPath, "render does not round-trip: %v", err)
+	}
+	return data, nil
+}
+
+// onboardDoc is a fresh onboard.yaml (the engine never writes M6.1's keys).
+type onboardDoc struct {
+	Contract      int `yaml:"contract"`
+	OnboardTables `yaml:",inline"`
+}
+
+// renderOnboard applies edits to onboard.yaml and checks the result holds
+// want's four tables.
+func (tx *AdoptionTx) renderOnboard(edits map[string]*editLog, want OnboardTables) ([]byte, error) {
+	old := tx.snap[OnboardPath]
+	var data []byte
+	if old == nil {
+		var err error
+		data, err = Render("", onboardDoc{Contract: 1, OnboardTables: want})
+		if err != nil {
+			return nil, invalidf(OnboardPath, "render: %v", err)
+		}
+	} else {
+		data = old
+		keys := map[string]keyFunc{
+			keyRejections:    nodeKey(func(r Rejection) string { return joinKey(r.Test, r.Source) }),
+			keyReviews:       nodeKey(func(r Review) string { k := r.Key(); return joinKey(k[:]...) }),
+			keyKindProposals: nodeKey(func(r KindProposal) string { return r.Test }),
+			keyCalibration:   nodeKey(func(r Calibration) string { return r.Run }),
+		}
+		for _, k := range []string{keyRejections, keyReviews, keyKindProposals, keyCalibration} {
+			l := edits[k]
+			if l == nil || l.empty() {
+				continue
+			}
+			var err error
+			data, err = spliceTable(data, k, keys[k], l.list(), false)
+			if err != nil {
+				return nil, invalidf(OnboardPath, "render %s: %v", k, err)
+			}
+		}
+	}
+	if old != nil {
+		if err := otherKeysUnchanged(old, data, keyRejections, keyReviews, keyKindProposals, keyCalibration); err != nil {
+			return nil, invalidf(OnboardPath, "render: %v", err)
+		}
+	}
+	got, err := parseOnboard(OnboardPath, data)
+	if err != nil {
+		return nil, invalidf(OnboardPath, "render does not load: %v", err)
+	}
+	for _, c := range []error{
+		sameRows(got.Rejections, want.Rejections, func(r Rejection) string { return joinKey(r.Test, r.Source) }),
+		sameRows(got.Reviews, want.Reviews, func(r Review) string { k := r.Key(); return joinKey(k[:]...) }),
+		sameRows(got.KindProposals, want.KindProposals, func(r KindProposal) string { return r.Test }),
+		sameRows(got.Calibration, want.Calibration, func(r Calibration) string { return r.Run }),
+	} {
+		if c != nil {
+			return nil, invalidf(OnboardPath, "render does not round-trip: %v", c)
+		}
+	}
+	return data, nil
+}
+
+// nodeKey derives a row key by decoding the row's node.
+func nodeKey[T any](key func(T) string) keyFunc {
+	return func(n *yaml.Node) (string, error) {
+		var v T
+		if err := n.Decode(&v); err != nil {
+			return "", err
+		}
+		return key(v), nil
+	}
+}
+
+// sameRows checks that got holds exactly want's rows, value for value.
+func sameRows[T any](got, want []T, key func(T) string) error {
+	enc := func(rows []T) (map[string]string, error) {
+		m := map[string]string{}
+		for _, r := range rows {
+			b, err := yaml.Marshal(r)
+			if err != nil {
+				return nil, err
+			}
+			m[key(r)] = string(b)
+		}
+		return m, nil
+	}
+	g, err := enc(got)
+	if err != nil {
+		return err
+	}
+	w, err := enc(want)
+	if err != nil {
+		return err
+	}
+	if len(g) != len(w) {
+		return fmt.Errorf("%d rows, want %d", len(g), len(w))
+	}
+	for k, v := range w {
+		if g[k] != v {
+			return fmt.Errorf("row %q differs", strings.ReplaceAll(k, "\x00", "|"))
+		}
+	}
+	return nil
+}

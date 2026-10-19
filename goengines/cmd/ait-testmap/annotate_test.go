@@ -30,9 +30,9 @@ type hookCall struct {
 }
 
 func init() {
-	annot.RegisterRestampHook(func(_ context.Context, _ string, a annot.Actor, e []annot.Restamp) error {
+	annot.RegisterRestampHook(func(_ context.Context, _ string, a annot.Actor, e []annot.Restamp) ([]string, error) {
 		hookCalls = append(hookCalls, hookCall{a.String(), e})
-		return hookFail
+		return nil, hookFail
 	})
 }
 

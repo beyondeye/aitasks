@@ -1,0 +1,380 @@
+package registry
+
+import (
+	"bytes"
+	"fmt"
+	"reflect"
+	"strings"
+
+	"gopkg.in/yaml.v3"
+)
+
+// The adoption writers edit an existing file by splicing text, never by
+// re-rendering it, so what a writer did not touch keeps its bytes:
+//
+//   - block-style table: every untouched row keeps its exact bytes (quoting,
+//     field order, comments), and so does every byte outside the touched rows
+//     — other top-level keys (M6.1's `phases` in onboard.yaml), the header,
+//     blank lines;
+//   - flow-style or empty table: that key's region is normalised to a
+//     canonical block sequence when it is edited. Every unrelated row keeps
+//     all its values, unknown fields included, in their key order; its
+//     quoting, flow layout and the comments inside that region are lost.
+//     Other top-level keys stay byte-identical;
+//   - a touched row is rendered canonically (its values, unknown fields
+//     included, are kept by the caller).
+//
+// spliceTable returns the new bytes; the caller re-parses and validates them
+// before anything is written.
+
+// rowEdit puts row under key (row == nil deletes the key's row).
+type rowEdit struct {
+	key string
+	row any
+}
+
+// keyFunc derives a row's key from its node.
+type keyFunc func(*yaml.Node) (string, error)
+
+func lineSplit(data []byte) []string {
+	if len(data) == 0 {
+		return nil
+	}
+	lines := strings.SplitAfter(string(data), "\n")
+	if lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
+	return lines
+}
+
+func isCommentOrBlank(l string) bool {
+	t := strings.TrimSpace(l)
+	return t == "" || strings.HasPrefix(t, "#")
+}
+
+func isComment(l string) bool { return strings.HasPrefix(strings.TrimSpace(l), "#") }
+
+// renderRows renders rows as a block sequence whose dashes sit at column
+// indent (0-based).
+func renderRows(rows []any, indent int) (string, error) {
+	if len(rows) == 0 {
+		return "", nil
+	}
+	var buf bytes.Buffer
+	enc := yaml.NewEncoder(&buf)
+	enc.SetIndent(2)
+	if err := enc.Encode(rows); err != nil {
+		return "", err
+	}
+	if err := enc.Close(); err != nil {
+		return "", err
+	}
+	pad := strings.Repeat(" ", indent)
+	var out strings.Builder
+	for _, l := range lineSplit(buf.Bytes()) {
+		out.WriteString(pad + l)
+	}
+	return out.String(), nil
+}
+
+// renderKeyBlock renders `key:` followed by rows as a canonical block
+// sequence (two-space indentation).
+func renderKeyBlock(key string, rows []any) (string, error) {
+	if len(rows) == 0 {
+		return key + ": []\n", nil
+	}
+	body, err := renderRows(rows, 2)
+	if err != nil {
+		return "", err
+	}
+	return key + ":\n" + body, nil
+}
+
+// blockStyle clears the flow style of every collection under n (scalar
+// styles — the quoting of values — are kept).
+func blockStyle(n *yaml.Node) {
+	if n.Kind == yaml.MappingNode || n.Kind == yaml.SequenceNode {
+		n.Style &^= yaml.FlowStyle
+	}
+	for _, c := range n.Content {
+		blockStyle(c)
+	}
+}
+
+// spliceTable applies edits to the top-level sequence key of data. sorted
+// inserts a new row before the first existing row whose key sorts after it
+// (else after the last row); otherwise new rows are appended.
+func spliceTable(data []byte, key string, keyOf keyFunc, edits []rowEdit, sorted bool) ([]byte, error) {
+	var doc yaml.Node
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return nil, err
+	}
+	if len(doc.Content) == 0 || doc.Content[0].Kind != yaml.MappingNode {
+		return nil, fmt.Errorf("top level is not a mapping")
+	}
+	top := doc.Content[0]
+	if top.Style&yaml.FlowStyle != 0 {
+		// Line boundaries mean nothing inside a flow mapping: refuse rather
+		// than cut the other keys out with the table.
+		return nil, fmt.Errorf("the top-level mapping is in flow style; write the file in block style")
+	}
+	lines := lineSplit(data)
+	pending := map[string]rowEdit{}
+	var order []string
+	for _, e := range edits {
+		if _, ok := pending[e.key]; !ok {
+			order = append(order, e.key)
+		}
+		pending[e.key] = e
+	}
+	ki := -1
+	for i := 0; i+1 < len(top.Content); i += 2 {
+		if top.Content[i].Value == key {
+			ki = i
+			break
+		}
+	}
+	// regionEnd is the 0-based line index where the key's region stops: the
+	// next top-level key, moved up over the comment and blank lines that
+	// precede it (they belong to that key), else the end of the file.
+	regionEnd := func(i int) int {
+		end := len(lines)
+		if i+2 < len(top.Content) {
+			end = top.Content[i+2].Line - 1
+			for end > top.Content[i].Line && isCommentOrBlank(lines[end-1]) {
+				end--
+			}
+		}
+		return end
+	}
+	if ki < 0 {
+		// An absent key: append it as a new block.
+		var rows []any
+		for _, k := range order {
+			if pending[k].row != nil {
+				rows = append(rows, pending[k].row)
+			}
+		}
+		if len(rows) == 0 {
+			return data, nil
+		}
+		block, err := renderKeyBlock(key, rows)
+		if err != nil {
+			return nil, err
+		}
+		out := string(data)
+		if out != "" && !strings.HasSuffix(out, "\n") {
+			out += "\n"
+		}
+		return []byte(out + block), nil
+	}
+	keyNode, val := top.Content[ki], top.Content[ki+1]
+	if val.Kind == yaml.SequenceNode && val.Style&yaml.FlowStyle == 0 && len(val.Content) > 0 {
+		return spliceBlock(lines, val, keyNode, regionEnd(ki), keyOf, pending, order, sorted)
+	}
+	// Flow style, empty or null: normalise this key's region.
+	if val.Kind != yaml.SequenceNode && !(val.Kind == yaml.ScalarNode && val.Tag == "!!null") {
+		return nil, fmt.Errorf("%s is not a sequence", key)
+	}
+	var rows []any
+	for _, item := range val.Content {
+		k, err := keyOf(item)
+		if err != nil {
+			return nil, err
+		}
+		if e, ok := pending[k]; ok {
+			delete(pending, k)
+			if e.row != nil {
+				rows = append(rows, e.row)
+			}
+			continue
+		}
+		blockStyle(item)
+		rows = append(rows, item)
+	}
+	for _, k := range order {
+		if e, ok := pending[k]; ok && e.row != nil {
+			rows = append(rows, e.row)
+		}
+	}
+	block, err := renderKeyBlock(key, rows)
+	if err != nil {
+		return nil, err
+	}
+	start := keyNode.Line - 1
+	end := regionEnd(ki)
+	for end > start+1 && isCommentOrBlank(lines[end-1]) {
+		end-- // trailing comments after the table stay where they are
+	}
+	var out strings.Builder
+	out.WriteString(strings.Join(lines[:start], ""))
+	out.WriteString(block)
+	out.WriteString(strings.Join(lines[end:], ""))
+	return []byte(out.String()), nil
+}
+
+// spliceBlock edits a block sequence row by row.
+func spliceBlock(lines []string, seq, keyNode *yaml.Node, seqEnd int, keyOf keyFunc,
+	pending map[string]rowEdit, order []string, sorted bool) ([]byte, error) {
+	type item struct {
+		key        string
+		start      int // first line of the row, its head comments included (0-based)
+		first      int // the row's `- ` line
+		contentEnd int // one past its last content line
+		next       int // where the next row (or the sequence end) starts
+	}
+	items := make([]item, len(seq.Content))
+	for i, n := range seq.Content {
+		k, err := keyOf(n)
+		if err != nil {
+			return nil, err
+		}
+		first := n.Line - 1
+		// the `- ` sits on the row's first line for a block mapping item
+		start := first
+		floor := keyNode.Line // never above the line after `key:`
+		if i > 0 {
+			floor = seq.Content[i-1].Line // never into the previous row's first line
+		}
+		for start > floor && isComment(lines[start-1]) {
+			start--
+		}
+		items[i] = item{key: k, start: start, first: first}
+	}
+	for i := range items {
+		next := seqEnd
+		if i+1 < len(items) {
+			next = items[i+1].start
+		}
+		end := next
+		for end > items[i].first+1 && isCommentOrBlank(lines[end-1]) {
+			end--
+		}
+		items[i].next, items[i].contentEnd = next, end
+	}
+	// The dash column of the sequence, read from its first row.
+	firstLine := lines[items[0].first]
+	indent := len(firstLine) - len(strings.TrimLeft(firstLine, " "))
+	if !strings.HasPrefix(strings.TrimLeft(firstLine, " "), "-") {
+		return nil, fmt.Errorf("line %d: a block sequence row does not start with '-'", items[0].first+1)
+	}
+	var newRows []rowEdit
+	byKey := map[string]int{}
+	for i, it := range items {
+		byKey[it.key] = i
+	}
+	for _, k := range order {
+		if _, ok := byKey[k]; !ok && pending[k].row != nil {
+			newRows = append(newRows, pending[k])
+		}
+	}
+	// insertBefore[i] are new rows placed before row i; insertBefore[len] after the last.
+	insertBefore := map[int][]rowEdit{}
+	for _, nr := range newRows {
+		pos := len(items)
+		if sorted {
+			// the first row whose key sorts after the new one (a hand-ordered
+			// file still gets a deterministic position)
+			for i, it := range items {
+				if it.key > nr.key {
+					pos = i
+					break
+				}
+			}
+		}
+		insertBefore[pos] = append(insertBefore[pos], nr)
+	}
+	renderNew := func(rs []rowEdit) (string, error) {
+		var rows []any
+		for _, r := range rs {
+			rows = append(rows, r.row)
+		}
+		return renderRows(rows, indent)
+	}
+	join := func(from, to int) string { return strings.Join(lines[from:to], "") }
+	var out strings.Builder
+	out.WriteString(join(0, items[0].start))
+	for i, it := range items {
+		if rs := insertBefore[i]; len(rs) > 0 {
+			s, err := renderNew(rs)
+			if err != nil {
+				return nil, err
+			}
+			out.WriteString(s)
+		}
+		last := i+1 == len(items)
+		var body, tail string
+		e, touched := pending[it.key]
+		switch {
+		case !touched:
+			body, tail = join(it.start, it.contentEnd), join(it.contentEnd, it.next)
+		case e.row == nil:
+			// deleted with its head comments and trailing blank lines; what
+			// trails the last row (before the sequence end) stays
+			if last {
+				tail = join(it.contentEnd, it.next)
+			}
+		default:
+			s, err := renderRows([]any{e.row}, indent)
+			if err != nil {
+				return nil, err
+			}
+			body, tail = join(it.start, it.first)+s, join(it.contentEnd, it.next)
+		}
+		out.WriteString(body)
+		if last {
+			if rs := insertBefore[len(items)]; len(rs) > 0 {
+				s, err := renderNew(rs)
+				if err != nil {
+					return nil, err
+				}
+				if cur := out.String(); cur != "" && !strings.HasSuffix(cur, "\n") {
+					out.WriteString("\n") // a last row without a final newline
+				}
+				out.WriteString(s)
+			}
+		}
+		out.WriteString(tail)
+	}
+	out.WriteString(strings.Join(lines[seqEnd:], ""))
+	return []byte(out.String()), nil
+}
+
+// otherKeysUnchanged checks that every top-level key of old other than the
+// touched tables decodes to the same value in new, and that no key appeared:
+// the prepare step's guard that a splice cut nothing it did not mean to.
+func otherKeysUnchanged(old, new []byte, touched ...string) error {
+	decode := func(b []byte) (map[string]any, error) {
+		var m map[string]any
+		err := yaml.Unmarshal(b, &m)
+		return m, err
+	}
+	o, err := decode(old)
+	if err != nil {
+		return err
+	}
+	n, err := decode(new)
+	if err != nil {
+		return err
+	}
+	skip := map[string]bool{}
+	for _, k := range touched {
+		skip[k] = true
+	}
+	for k, v := range o {
+		if skip[k] {
+			continue
+		}
+		if nv, ok := n[k]; !ok || !reflect.DeepEqual(v, nv) {
+			return fmt.Errorf("key %s would change", k)
+		}
+	}
+	for k := range n {
+		if !skip[k] {
+			if _, ok := o[k]; !ok {
+				return fmt.Errorf("key %s would appear", k)
+			}
+		}
+	}
+	return nil
+}

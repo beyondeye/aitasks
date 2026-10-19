@@ -49,9 +49,9 @@ func recordHooks(t *testing.T) *[]recorded {
 	t.Helper()
 	var calls []recorded
 	old := restampHooks
-	restampHooks = append(restampHooks[:len(restampHooks):len(restampHooks)], func(_ context.Context, _ string, a Actor, e []Restamp) error {
+	restampHooks = append(restampHooks[:len(restampHooks):len(restampHooks)], func(_ context.Context, _ string, a Actor, e []Restamp) ([]string, error) {
 		calls = append(calls, recorded{a, e})
-		return nil
+		return nil, nil
 	})
 	t.Cleanup(func() { restampHooks = old })
 	return &calls
@@ -221,7 +221,9 @@ func TestStampingNeedsRegistryAndHookErrors(t *testing.T) {
 	}
 	r2 := repo(t, map[string]string{"src/a.sh": "a\n", "tests/t.sh": "#!/bin/sh\n"})
 	old := restampHooks
-	restampHooks = []RestampHook{func(context.Context, string, Actor, []Restamp) error { return errors.New("ledger|down") }}
+	restampHooks = []RestampHook{func(context.Context, string, Actor, []Restamp) ([]string, error) {
+		return nil, errors.New("ledger|down")
+	}}
 	t.Cleanup(func() { restampHooks = old })
 	_, err := Annotate(bg, r2.Dir, registry.ID{Path: "tests/t.sh"}, []string{"src/a.sh"}, Actor{})
 	var he *HookError

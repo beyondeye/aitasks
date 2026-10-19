@@ -39,7 +39,10 @@ type Result struct {
 	Skips   []SkipLine   `json:"skipped"`
 	Refused []RefuseLine `json:"refused"`
 	Wrote   []string     `json:"wrote"`
-	Lines   [][]string   `json:"-"` // the protocol lines, in output order (WROTE and STAMPS excluded)
+	// Incomplete marks the result of a verb that failed after writing files:
+	// Wrote lists only what landed and no stamp is reported.
+	Incomplete bool       `json:"incomplete,omitempty"`
+	Lines      [][]string `json:"-"` // the protocol lines, in output order (WROTE and STAMPS excluded)
 }
 
 // Failed reports whether an edge was skipped or a target refused (exit 1).
@@ -267,19 +270,32 @@ func AnnotateWith(ctx context.Context, root string, test registry.ID, sources []
 	if res.Failed() {
 		return res, nil // all or nothing
 	}
+	var intent []Restamp
+	for _, p := range plan {
+		if p.state != Current {
+			intent = append(intent, Restamp{Test: test, Source: p.source, File: test.Path,
+				Before: p.before, After: p.after, State: p.state, Origin: opts.Origin})
+		}
+	}
+	var wrote []string
+	paths, err := runHooks(ctx, intentHooks, root, actor, intent)
+	wrote = append(wrote, paths...)
+	if err != nil {
+		return incomplete(wrote), err
+	}
 	if len(edits) > 0 {
 		beforeApply(test.Path)
 		changed, err := Apply(root, EditSet{Path: test.Path, Snapshot: snap, Edits: edits})
 		if err != nil {
-			return nil, err
+			return incomplete(wrote), err
 		}
 		if changed {
-			res.Wrote = append(res.Wrote, test.Path)
+			wrote = append(wrote, test.Path)
 		}
 	}
 	lines, err := s.coverLines(test.Path, test.Member)
 	if err != nil {
-		return nil, err
+		return incomplete(wrote), err
 	}
 	var edges []Restamp
 	for _, p := range plan {
@@ -287,7 +303,26 @@ func AnnotateWith(ctx context.Context, root string, test registry.ID, sources []
 		edges = append(edges, Restamp{Test: test, Source: p.source, File: test.Path,
 			Line: lines[p.source], Before: p.before, After: p.after, State: p.state, Origin: opts.Origin})
 	}
-	return res, runRestampHooks(ctx, root, actor, edges)
+	paths, err = runHooks(ctx, restampHooks, root, actor, edges)
+	wrote = append(wrote, paths...)
+	if err != nil {
+		return incomplete(wrote), err
+	}
+	res.Wrote = append(res.Wrote, wrote...)
+	return res, nil
+}
+
+// incomplete is the result of a stamping verb that failed after it wrote
+// files: only the files actually written (WROTE:), never a stamp line, since
+// a stamp that did not land must not read as done. Nothing written is nil.
+func incomplete(wrote []string) *Result {
+	if len(wrote) == 0 {
+		return nil
+	}
+	r := newResult()
+	r.Wrote = append(r.Wrote, wrote...)
+	r.Incomplete = true
+	return r
 }
 
 // coverLines re-reads a written file: source → covers line, in member's block.
@@ -391,6 +426,19 @@ func Verify(ctx context.Context, root string, targets []registry.ID, actor Actor
 			}
 		}
 	}
+	var intent []Restamp
+	for _, e := range edges {
+		if e.State != Current {
+			e.Line = 0 // not written yet
+			intent = append(intent, e)
+		}
+	}
+	var wrote []string
+	paths, err := runHooks(ctx, intentHooks, root, actor, intent)
+	wrote = append(wrote, paths...)
+	if err != nil {
+		return incomplete(wrote), err
+	}
 	for _, path := range order {
 		p := files[path]
 		if len(p.edits) == 0 {
@@ -398,11 +446,17 @@ func Verify(ctx context.Context, root string, targets []registry.ID, actor Actor
 		}
 		changed, err := Apply(root, EditSet{Path: path, Snapshot: p.f.Snapshot(), Edits: p.edits})
 		if err != nil {
-			return nil, err
+			return incomplete(wrote), err
 		}
 		if changed {
-			res.Wrote = append(res.Wrote, path)
+			wrote = append(wrote, path)
 		}
 	}
-	return res, runRestampHooks(ctx, root, actor, edges)
+	paths, err = runHooks(ctx, restampHooks, root, actor, edges)
+	wrote = append(wrote, paths...)
+	if err != nil {
+		return incomplete(wrote), err
+	}
+	res.Wrote = append(res.Wrote, wrote...)
+	return res, nil
 }

@@ -115,6 +115,27 @@ func RegisterFile(name string, l FileLoader) { fileLoaders[name] = l }
 // RegisterHandTable installs the decoder of an extra hand-file table.
 func RegisterHandTable(key string, l TableLoader) { handTables[key] = l }
 
+// A PostLoader runs once after every registry file was loaded, with the whole
+// registry in hand: the place for rules that judge one table against another
+// (M2.6's shadow and orphan rules) whatever the file-name order, and for
+// files outside `registry/` (M2.6's `onboard.yaml` reader).
+type PostLoader func(reg *Registry, root string) error
+
+var postLoaders []PostLoader
+
+// RegisterPostLoad adds a post-loader. Post-loaders run in registration order;
+// an error fails Load as a file loader's would.
+func RegisterPostLoad(l PostLoader) { postLoaders = append(postLoaders, l) }
+
+func runPostLoaders(reg *Registry, root string) (*Registry, error) {
+	for _, l := range postLoaders {
+		if err := l(reg, root); err != nil {
+			return nil, err
+		}
+	}
+	return reg, nil
+}
+
 // Load reads `aitestmap/config.yaml` and every `aitestmap/registry/*.yaml`
 // under root. A newer contract in any file is a
 // *testmap.ContractMismatchError; any other unreadable or malformed content
@@ -133,7 +154,7 @@ func Load(root string) (*Registry, error) {
 	reg := &Registry{Config: cfg, Ext: map[string]any{}}
 	entries, err := os.ReadDir(filepath.Join(root, filepath.FromSlash(RegistryDir)))
 	if errors.Is(err, fs.ErrNotExist) {
-		return reg, nil
+		return runPostLoaders(reg, root)
 	}
 	if err != nil {
 		return nil, invalidf(RegistryDir, "read: %v", err)
@@ -167,7 +188,7 @@ func Load(root string) (*Registry, error) {
 			return nil, err
 		}
 	}
-	return reg, nil
+	return runPostLoaders(reg, root)
 }
 
 // stringList decodes a scalar or a sequence of scalars.

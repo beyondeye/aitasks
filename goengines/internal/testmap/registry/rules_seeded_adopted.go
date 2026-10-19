@@ -1,0 +1,85 @@
+package registry
+
+import "strconv"
+
+// The check rules M2.6 owns. They judge the adoption tables against the
+// stamped edges as the inputs state them now (liveEdges), so a stamp an
+// annotation gained since the last scan already shadows its seed.
+const (
+	RuleSeedShadowed     = "SEED_SHADOWED"
+	RuleSeedRejected     = "SEED_REJECTED"
+	RuleAdoptedOrphan    = "ADOPTED_ORPHAN"
+	RuleReviewUnrecorded = "REVIEW_UNRECORDED"
+	SummarySeeded        = "SEEDED"
+	SummaryAdopted       = "ADOPTED"
+)
+
+func init() {
+	RegisterRule(CheckRule{Name: RuleSeedShadowed, Run: seedRows(RuleSeedShadowed, func(a *Adoption) []SeedRow { return a.Shadowed })})
+	RegisterRule(CheckRule{Name: RuleSeedRejected, Run: seedRows(RuleSeedRejected, func(a *Adoption) []SeedRow { return a.RejectedSeeds })})
+	RegisterRule(CheckRule{Name: RuleAdoptedOrphan, Run: checkAdoptedOrphan})
+	RegisterRule(CheckRule{Name: RuleReviewUnrecorded, Run: checkReviewUnrecorded})
+	RegisterRule(CheckRule{Name: SummarySeeded, Summary: true, Run: adoptionSummary})
+}
+
+// liveAdoption is the adoption tables classified against the live stamped
+// edges, built once per run.
+func (c *CheckContext) liveAdoption() *Adoption {
+	if c.adoption == nil {
+		c.adoption = AdoptionOf(c.Reg).Classified(StampedPairs(c.liveEdges()))
+	}
+	return c.adoption
+}
+
+// SEED_SHADOWED:<test>|<covers> / SEED_REJECTED:<test>|<covers> (Info): a
+// seed the load rules drop — its pair is a stamped edge, or was rejected.
+func seedRows(rule string, pick func(*Adoption) []SeedRow) func(*CheckContext) ([]Finding, error) {
+	return func(c *CheckContext) ([]Finding, error) {
+		var out []Finding
+		for _, s := range pick(c.liveAdoption()) {
+			out = append(out, Finding{Rule: rule, Fields: []string{s.Test, s.Covers}, Severity: Info})
+		}
+		return out, nil
+	}
+}
+
+// ADOPTED_ORPHAN:<test>|<source> (Info): a provenance row whose edge carries
+// no stamp.
+func checkAdoptedOrphan(c *CheckContext) ([]Finding, error) {
+	var out []Finding
+	for _, r := range c.liveAdoption().Orphans {
+		out = append(out, Finding{Rule: RuleAdoptedOrphan, Fields: []string{r.Test, r.Source}, Severity: Info})
+	}
+	return out, nil
+}
+
+// REVIEW_UNRECORDED:<test>|<source>|<test_blob>|<by> (Info): a review record
+// an effect row carries that the reviews[] memo does not hold yet.
+func checkReviewUnrecorded(c *CheckContext) ([]Finding, error) {
+	var out []Finding
+	for _, r := range c.liveAdoption().Unrecorded() {
+		out = append(out, Finding{Rule: RuleReviewUnrecorded, Fields: []string{r.Test, r.Source, r.TestBlob, r.By}, Severity: Info})
+	}
+	return out, nil
+}
+
+// adoptionSummary is SEEDED:<n> and ADOPTED:<n>|human <h>|agent <a>|auto <m>.
+func adoptionSummary(c *CheckContext) ([]Finding, error) {
+	var out []Finding
+	for _, l := range AdoptionSummary(c.liveAdoption()) {
+		out = append(out, Finding{Rule: l[0], Fields: l[1:], Severity: Info})
+	}
+	return out, nil
+}
+
+// AdoptionSummary is the two summary lines `check` and `stale --all` print:
+// SEEDED:<n> (live seeds) and ADOPTED:<n>|human <h>|agent <a>|auto <m>
+// (provenance rows of stamped edges), each as {class, fields…}.
+func AdoptionSummary(a *Adoption) [][]string {
+	seeded, ad := a.Counts()
+	return [][]string{
+		{SummarySeeded, strconv.Itoa(seeded)},
+		{SummaryAdopted, strconv.Itoa(ad.Total), "human " + strconv.Itoa(ad.Human),
+			"agent " + strconv.Itoa(ad.Agent), "auto " + strconv.Itoa(ad.Auto)},
+	}
+}

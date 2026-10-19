@@ -74,7 +74,7 @@ func TestScopedEndToEndRealInputs(t *testing.T) {
 	if string(data) != wantScoped {
 		t.Fatalf("_scoped.yaml:\n%s\nwant\n%s", data, wantScoped)
 	}
-	expect("check", 0, "KIND_MISMATCH:tests/test_wide.sh|9|CONVERT_TO_SUITE\nCHECK:pass|1|0\n", "", "check")
+	expect("check", 0, "KIND_MISMATCH:tests/test_wide.sh|9|CONVERT_TO_SUITE\n"+emptyAdoption+"CHECK:pass|1|0\n", "", "check")
 	expect("classify", 0, "CLASSIFY:tests/test_wide.sh|integration|fanout:9\n", "", "classify", "--suggest")
 
 	// The child area's directory goes away: its glob is dead.
@@ -82,7 +82,7 @@ func TestScopedEndToEndRealInputs(t *testing.T) {
 		t.Fatal(err)
 	}
 	expect("dead area", 1, "DEAD_SCOPE:"+registry.AreasPath+"|areas|board_ui|src/board/ui/**\n"+
-		"KIND_MISMATCH:tests/test_wide.sh|9|CONVERT_TO_SUITE\nCHECK:fail|2|1\n", "", "check")
+		"KIND_MISMATCH:tests/test_wide.sh|9|CONVERT_TO_SUITE\n"+emptyAdoption+"CHECK:fail|2|1\n", "", "check")
 
 	// A reads line moved into a listed test is refused by both verbs.
 	r.Write(t, "tests/test_flow.sh", "#!/usr/bin/env bash\n# testmap:reads x/*\n# testmap:unit flow_a\n# testmap:kind e2e\n# testmap:scope src/board/**\nflow_a() { :; }\n")

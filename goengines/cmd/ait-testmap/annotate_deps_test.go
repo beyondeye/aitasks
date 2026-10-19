@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/beyondeye/aitasks/goengines/internal/testmap/fixture"
+	"github.com/beyondeye/aitasks/goengines/internal/testmap/registry"
 )
 
 // depsRepo is a stamping repository whose scans use a private cache.
@@ -110,7 +111,12 @@ func TestFromBodyThroughRun(t *testing.T) {
 	matchOut(t, "from-body", out, regexp.QuoteMeta(wantRefs)+
 		`STAMP:tests/ScreenFixtures.kt#Welcome\|src/ui/WelcomeScreen.kt\|`+stampRe+`\|added\n`+
 		`STAMP:tests/ScreenFixtures.kt#Welcome\|src/vm/WelcomeViewModel.kt\|`+stampRe+`\|added\n`+
-		`WROTE:tests/ScreenFixtures.kt\nSTAMPS:2\|0\|0\|0\n`)
+		// M2.6: the automated first stamps' provenance lands first.
+		`WROTE:aitestmap/registry/adopted.yaml\nWROTE:tests/ScreenFixtures.kt\nSTAMPS:2\|0\|0\|0\n`)
+	if adopted, _ := os.ReadFile(filepath.Join(r.Dir, registry.AdoptedPath)); strings.Count(string(adopted), "origin: ['"+fromBodyOrigin+"']") != 2 ||
+		strings.Count(string(adopted), "by: auto") != 2 {
+		t.Fatalf("adopted.yaml:\n%s", adopted)
+	}
 	// Only covers lines were added, right after the Welcome opener.
 	diff := r.Run(t, "diff", "-U0", "--", "tests/ScreenFixtures.kt")
 	var plus []string

@@ -17,7 +17,8 @@ import (
 // it, before M2.5 extended both verbs. A repository without broad tests must
 // see exactly what it saw before: the same lines, exit codes and
 // `_scanned.yaml`, and no `_scoped.yaml`. Only the `--json` objects may grow,
-// and only by the keys named in jsonAdditions.
+// and only by the keys named in jsonAdditions. (M2.6 deliberately adds its two
+// summary lines, emptyAdoption, to every `check` and `summary` to its JSON.)
 
 // jsonAdditions are the keys M2.5 adds to `scan --json`.
 var jsonAdditions = map[string]bool{"scoped": true, "reads": true, "drift": true}
@@ -39,12 +40,12 @@ func TestCharacterizeScanCheckWithoutScoped(t *testing.T) {
 	}{
 		{args: []string{"scan"}, out: "SCAN:2|2|2\nSCAN_DRIFT:aitestmap/registry/_scanned.yaml\n"},
 		{args: []string{"scan", "--json"}, jsonKeys: map[string]any{"units": 2.0, "edges": 2.0, "variants": 2.0, "changed": true, "wrote": []any{}, "findings": nil}},
-		{args: []string{"check"}, out: "SCAN_DRIFT:aitestmap/registry/_scanned.yaml\nCHECK:pass|1|0\n"},
+		{args: []string{"check"}, out: "SCAN_DRIFT:aitestmap/registry/_scanned.yaml\n" + emptyAdoption + "CHECK:pass|1|0\n"},
 		{args: []string{"scan", "--apply"}, out: "SCAN:2|2|2\nWROTE:aitestmap/registry/_scanned.yaml\n"},
 		{args: []string{"scan"}, out: "SCAN:2|2|2\n"},
-		{args: []string{"check"}, out: "CHECK:pass|0|0\n"},
-		{args: []string{"check", "--strict"}, out: "CHECK:pass|0|0\n"},
-		{args: []string{"check", "--json"}, out: "{\"status\":\"pass\",\"findings\":[],\"failing\":0}\n"},
+		{args: []string{"check"}, out: emptyAdoption + "CHECK:pass|0|0\n"},
+		{args: []string{"check", "--strict"}, out: emptyAdoption + "CHECK:pass|0|0\n"},
+		{args: []string{"check", "--json"}, out: "{\"status\":\"pass\",\"findings\":[],\"failing\":0,\"summary\":" + emptyAdoptionJSON + "}\n"},
 	}
 	for _, s := range steps {
 		code, out, errs := call(s.args...)

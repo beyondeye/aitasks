@@ -30,6 +30,13 @@ func (failingLister) List(context.Context, string) ([]registry.Listing, error) {
 }
 
 // withInputs swaps the production wiring point, exactly as M2.2 / M3.1 fill it.
+// emptyAdoption is what `check` prints for a registry with no adoption
+// tables: M2.6's two summary lines, always present, never counted.
+const emptyAdoption = "SEEDED:0\nADOPTED:0|human 0|agent 0|auto 0\n"
+
+// emptyAdoptionJSON is the same summary in `check --json`.
+const emptyAdoptionJSON = `[{"rule":"SEEDED","fields":["0"],"fail":false},{"rule":"ADOPTED","fields":["0","human 0","agent 0","auto 0"],"fail":false}]`
+
 func withInputs(t *testing.T, in registry.Inputs) {
 	t.Helper()
 	old := testmapInputs
@@ -135,7 +142,7 @@ func TestInjectionProofThroughRun(t *testing.T) {
 		t.Fatal("re-apply is not byte-identical")
 	}
 	code, out, errs = call("check")
-	if code != 0 || out != "CHECK:pass|0|0\n" || errs != "" {
+	if code != 0 || out != emptyAdoption+"CHECK:pass|0|0\n" || errs != "" {
 		t.Fatalf("check: %d %q %q", code, out, errs)
 	}
 	for _, in := range []registry.Inputs{{Lister: fakes().Lister}, {Annotations: fakes().Annotations}} {
@@ -161,11 +168,11 @@ func TestCheckFailAndStrict(t *testing.T) {
 		registry.RegistryDir + "/x.yaml": "owns: [\"src/**\"]\nedges: [{test: tests/test_unlisted.sh, covers: src/a.sh}]\n",
 	})
 	code, out, _ := call("check")
-	if code != 0 || out != "UNREGISTERED:tests/test_unlisted.sh\nCHECK:pass|1|0\n" {
+	if code != 0 || out != "UNREGISTERED:tests/test_unlisted.sh\n"+emptyAdoption+"CHECK:pass|1|0\n" {
 		t.Fatalf("non-strict: %d %q", code, out)
 	}
 	code, out, _ = call("check", "--strict")
-	if code != 1 || out != "UNREGISTERED:tests/test_unlisted.sh\nCHECK:fail|1|1\n" {
+	if code != 1 || out != "UNREGISTERED:tests/test_unlisted.sh\n"+emptyAdoption+"CHECK:fail|1|1\n" {
 		t.Fatalf("strict: %d %q", code, out)
 	}
 	if err := os.Remove(filepath.Join(root, "src/a.sh")); err != nil {

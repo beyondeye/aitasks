@@ -80,16 +80,31 @@ type Restamp struct {
 }
 
 // RestampHook runs once after `annotate` or `verify` wrote every file, with
-// every edge it confirmed (Current ones included) and the actor. M2.6 fills
-// it from an init in its own file in this package: an automated actor
-// refreshes the matching adopted.yaml row and keeps its `by:`; only an
-// explicit human actor deletes it.
-type RestampHook func(ctx context.Context, root string, actor Actor, edges []Restamp) error
+// every edge it confirmed (Current ones included) and the actor, and returns
+// the files it wrote (they are reported as WROTE: after the test files, even
+// when it then fails). M2.6 fills it from an init in its own file in this
+// package: an automated actor refreshes the matching adopted.yaml row and
+// keeps its `by:`; only an explicit human actor deletes it.
+type RestampHook func(ctx context.Context, root string, actor Actor, edges []Restamp) ([]string, error)
 
-var restampHooks []RestampHook
+// IntentHook runs once after `annotate` or `verify` planned every edit and
+// before the first test file is written, with the edges about to be written
+// (added / restamped; Line is 0 for a line not written yet). It returns the
+// files it wrote. An error there writes no test file. M2.6 records an
+// automated first stamp's provenance here, so a stamp never lands without
+// it.
+type IntentHook = RestampHook
+
+var (
+	restampHooks []RestampHook
+	intentHooks  []IntentHook
+)
 
 // RegisterRestampHook adds a post-re-stamp hook.
 func RegisterRestampHook(h RestampHook) { restampHooks = append(restampHooks, h) }
+
+// RegisterStampIntentHook adds a pre-write (intent) hook.
+func RegisterStampIntentHook(h IntentHook) { intentHooks = append(intentHooks, h) }
 
 // HookError is a hook that failed after the files were written:
 // RESTAMP_HOOK_ERROR:<detail>, exit 3.
@@ -106,16 +121,21 @@ func (e *HookError) Line() (string, error) {
 // ExitCode is the framework-error exit.
 func (e *HookError) ExitCode() int { return lineproto.ExitFramework }
 
-func runRestampHooks(ctx context.Context, root string, a Actor, edges []Restamp) error {
+// runHooks runs hooks in registration order and returns every file they
+// wrote, also when one fails (a *HookError).
+func runHooks(ctx context.Context, hooks []RestampHook, root string, a Actor, edges []Restamp) ([]string, error) {
 	if len(edges) == 0 {
-		return nil
+		return nil, nil
 	}
-	for _, h := range restampHooks {
-		if err := h(ctx, root, a, edges); err != nil {
-			return &HookError{Err: err}
+	var wrote []string
+	for _, h := range hooks {
+		paths, err := h(ctx, root, a, edges)
+		wrote = append(wrote, paths...)
+		if err != nil {
+			return wrote, &HookError{Err: err}
 		}
 	}
-	return nil
+	return wrote, nil
 }
 
 func oneLine(s string) string {

@@ -143,7 +143,9 @@ func scanWith(e env, args []string, in registry.Inputs) int {
 }
 
 // runCheck is `check [--strict] [--json]`: every registered rule's findings
-// in registration order, then `CHECK:<pass|fail>|<findings>|<failing>`;
+// in registration order, then the summary lines (M2.6's `SEEDED:<n>` and
+// `ADOPTED:<n>|human <h>|agent <a>|auto <m>`: never failing, never counted),
+// then `CHECK:<pass|fail>|<findings>|<failing>`;
 // exit 1 when a finding fails. A registry, input or inspection failure
 // prints its line on stderr, exits 3 and prints no CHECK: line.
 func runCheck(e env, args []string) int {
@@ -178,6 +180,7 @@ func checkWith(e env, args []string, in registry.Inputs) int {
 		return code
 	}
 	lines := findingLines(res.Findings)
+	lines = append(lines, findingLines(res.Summary)...)
 	lines = append(lines, []string{"CHECK", res.Status, strconv.Itoa(len(res.Findings)), strconv.Itoa(res.Failing)})
 	if c := printLines(e, lines); c != lineproto.ExitOK {
 		return c

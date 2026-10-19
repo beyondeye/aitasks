@@ -103,7 +103,7 @@ func TestScanCheckRealLister(t *testing.T) {
 		t.Fatalf("_scanned.yaml:\n%s", data)
 	}
 	code, out, errs = call("check")
-	if code != 0 || errs != "" || out != "CHECK:pass|0|0\n" {
+	if code != 0 || errs != "" || out != emptyAdoption+"CHECK:pass|0|0\n" {
 		t.Fatalf("check: %d %q %q", code, out, errs)
 	}
 	// An unlisted bound file is UNREGISTERED through the real lister.
