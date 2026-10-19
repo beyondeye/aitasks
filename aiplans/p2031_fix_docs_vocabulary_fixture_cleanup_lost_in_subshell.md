@@ -97,3 +97,24 @@ contents and the scanner it drives are unchanged.
 ### Goal-achievement risk: low
 None identified. The TMPDIR probe measures the leak directly (12 before, 0
 expected after), and the new in-suite assertion guards against a regression.
+
+## Final Implementation Notes
+- **Actual work done:** In `tests/test_docs_vocabulary_coverage.sh`, `make_fixture` now sets the global `_FIXTURE_DIR` and registers it in `CLEANUP_DIRS` in the caller's shell. It no longer echoes the path. All three callers (Test 2, `assert_control`, `assert_positive_control`) call it directly and then read `_FIXTURE_DIR`. The header comment forbids `$(make_fixture)` and cites t2031. Test 2 gains two regression assertions: `assert_dir_exists` on the fixture, then `assert_contains` checking that it is in `" ${CLEANUP_DIRS[*]} "`.
+- **Deviations from plan:** One extra assertion beyond the plan, `assert_dir_exists` before the membership check. The first red proof (`( make_fixture )` in a scratch copy) still passed: `FIXTURE` was empty, and the needle `"  "` is a substring of an empty padded list. The non-empty check closes that vacuous case. The suite now has 32 assertions, not the 31 the plan expected.
+- **Issues encountered:** The planned red proof was not faithful to the old bug. It was replaced by two scratch-copy proofs, kept out of the live file and never via stash or restore:
+  - Red A, the exact pre-fix shape `FIXTURE="$( make_fixture; printf "%s" "$_FIXTURE_DIR" )"`: rc=1, `FAIL: fixture is registered for EXIT cleanup in the parent shell (… got '  ')`, 31/32.
+  - Red B, `( make_fixture )` with an empty FIXTURE: rc=1, `FAIL: make_fixture set _FIXTURE_DIR in the parent shell (dir not found: )`.
+- **Verification (durable evidence):**
+  - Before the fix: `TMPDIR=<probe> bash tests/test_docs_vocabulary_coverage.sh` gave 30/30, rc=0, and **12** leftover `tmp.*` dirs.
+  - After the fix: 32/32, rc=0, **0** leftovers.
+  - `shellcheck`: identical findings before and after (2× SC1091, 5× SC2016, all info-level and pre-existing).
+- **Key decisions:** Used a result variable rather than re-registering after each call, so the registration lives in one place and a future caller cannot forget it.
+- **Upstream defects identified:**
+  - `tests/test_gate_verifiers.sh` — `new_fixture` does `CLEANUP_DIRS+=` but is called as `$(new_fixture)` (41 sites), so its fixtures leak, the same `$( )` state-loss class as t2031.
+  - Same shape in 19 more suites. The list is heuristic: helper bodies containing `CLEANUP_DIRS+=` that are called inside `$( )`. Each needs reading to confirm:
+    - `new_fixture`: test_gate_active_gates, test_gate_cli_wiring, test_gate_declaration_backfill, test_gate_effective_gates, test_gate_no_double_record, test_gate_orchestrator, test_gate_pass, test_gate_procedure_docs, test_gate_risk_verifier, test_gates_sync_registry, test_gate_stale_witness_parity, test_run_project_command, test_web_merge_materialize
+    - `fresh_tmpdir` / `make_repo`: test_atomic_task_file_writes
+    - `bcrt`: test_followup_kind_roundtrip
+    - `setup_repo`: test_issue_import_amend_guard
+    - `new_dir`: test_skill_errexit_capture
+    - `new_repo`: test_verification_stale
