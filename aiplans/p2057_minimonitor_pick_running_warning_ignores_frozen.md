@@ -239,3 +239,34 @@ confirmations rather than the pick flows:
 
 ### Goal-achievement risk: low
 None identified.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-19 13:05)
+- **Requested by user:** The frozen-agent note overflowed the confirm dialog's docked area at 40x20 (composited screen started mid-message, hiding "t1310 has a frozen agent"); shorten it or fix the layout, and add a composited-screen regression at a short supported size.
+- **Changes made:** Verified the overflow, which was 5 wrapped lines against the live note's 3. The note is now `⚠ t<id> frozen in window <i>:<name> — restore/re-pick in its viewer`, which wraps to the live note's 3 lines at 40 cols. Added `NarrowRenderTests.test_frozen_note_stays_readable_on_a_short_pane`. It renders the note produced by the real `_find_running_agent_line` at 40x20 and asserts that "t1310 frozen", the window, "restore/re-pick", the kill checkbox, OK and Cancel are all on screen. It also runs a negative control: the original long wording at the same size loses its first line. Separately observed: at 40x16 even the pre-existing "already running" note is clipped the same way. That predates this task (the docked area does not scroll).
+- **Files affected:** `.aitask-scripts/monitor/minimonitor_app.py`, `tests/test_minimonitor_pick_by_number.py`
+
+## Final Implementation Notes
+- **Actual work done:**
+  - `TmuxMonitor.get_pane_option_sync` is the sync twin of `get_pane_option`, with the same argv and the same fail-closed contract.
+  - `_kill_target_state` lives on the shared mixin (`monitor_shared.py`) and returns `live|frozen|unverified`. It reads the snapshot first, then the live `@aitask_frozen` pane option.
+  - The minimonitor `_launch_pick` kill site is guarded by it, which covers both `n` and `p` (t2058, t2059). The full monitor `_launch_pick_for_sibling` kill site is guarded the same way.
+  - `_find_running_agent_line` no longer reports a frozen stand-in as running. A frozen agent of the target task gets its own short note, and a live match outranks it (t2057).
+- **Deviations from plan:**
+  - The reader-contract reuse tripped `test_collection_structure`'s no-inherited-tests rule, so it follows t1598's precedent. Each module has a plain `_GetPaneOptionContract` / `_LivePaneOptionContract` base and two concrete `(base, unittest.TestCase)` siblings, and the four edges are allowlisted in `tests/test_collection_structure.py` with a written justification.
+  - The frozen note was shortened after review (Change Request 1).
+  - `test_monitor_markup_literal_sinks.py` gained two toast sites (frozen / unverified, not killed), and its fake monitor gained the reader.
+- **Issues encountered:**
+  - The strict `snap.frozen` doubles in `test_minimonitor_pick_next_characterization.py` and `test_monitor_pick_launch_sites.py` were incomplete, and the fake monitors lacked the reader. They were completed. The launch-sites `_Host` now borrows the REAL `MonitorApp._kill_target_state` / `_is_frozen`.
+  - The sibling-pick characterization pin now includes the read before the kill.
+- **Key decisions:**
+  - Unverified fails closed: no kill, with a warning. A missing pane reads as unverified, which is harmless because there is nothing left to kill.
+  - The check is sync because both kill sites are sync push_screen callbacks next to the equally blocking `kill_agent_pane_smart`.
+  - The residual window between the read and the kill is accepted and documented. Only the leased `aitask_frozen.sh drop` closes it.
+  - Verification: in-process mutants (kill site always live; snapshot-only check; scan ignoring frozen; sync reader without the confirm step) are each caught. Full suite: `PYTHON SUITE: PASSED (runner=pytest, exit=0)`, 9311 passed.
+- **Upstream defects identified:**
+  - `.aitask-scripts/monitor/minimonitor_app.py:3197` — `_on_own_kill_confirmed` passes a pane to `kill_agent_pane_smart` without re-checking frozen state; an agent frozen while the `k` confirm dialog is open gets the unleased kill-then-drop that deletes its capture (guard with `_kill_target_state`)
+  - `.aitask-scripts/monitor/monitor_app.py:3674` — `_on_kill_confirmed`: same frozen-while-confirm-open race into `kill_agent_pane_smart`
+  - `.aitask-scripts/monitor/monitor_app.py:3881` — `_on_restart_confirmed`: same race (frozen guard only at action entry, kill runs in the dialog callback)
+  - `.aitask-scripts/applink/router.py:541` — remote kill reaches `kill_agent_pane_smart` with no frozen check at all
