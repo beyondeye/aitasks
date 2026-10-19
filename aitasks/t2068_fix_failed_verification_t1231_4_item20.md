@@ -1,14 +1,15 @@
 ---
 priority: medium
 effort: low
-depends: [1231_3]
+depends: [t1231_3]
 issue_type: documentation
-status: Ready
+status: Implementing
 labels: [verification, ait_settings]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1065
 followup_kind: verification_failure
 created_at: 2026-10-19 16:37
-updated_at: 2026-10-19 16:37
+updated_at: 2026-10-19 16:42
 ---
 
 ## Failed verification item from t1231_3
