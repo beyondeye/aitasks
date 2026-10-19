@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: [t1231_2]
 issue_type: documentation
-status: Ready
+status: Implementing
 labels: [task_attachments]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1065
 created_at: 2026-07-26 22:58
-updated_at: 2026-07-26 22:58
+updated_at: 2026-10-19 13:33
 ---
 
 Write the **baseline user-facing documentation for the artifact feature** — which
