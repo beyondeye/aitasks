@@ -260,11 +260,22 @@ def cmd_referenced_hashes(manifest_dir):
         print(h)
 
 
+def cmd_backends(manifest_dir):
+    """Distinct `backend` values across every manifest, sorted. A malformed
+    member dies (named), as in referenced-hashes: a shrunken answer would read
+    as "no artifact lives on that backend" to the gitbranch store guard."""
+    backends = set()
+    for path in iter_manifest_files(manifest_dir):
+        backends.add(load(path)["backend"])
+    for b in sorted(backends):
+        print(b)
+
+
 def main(argv):
     if len(argv) < 3 or argv[0] != "--manifest-dir":
         die("usage: artifact_manifest.py --manifest-dir <dir> "
             "<create|get|current|versions|set-current|set-backend|list|"
-            "referenced-hashes> ...")
+            "referenced-hashes|backends> ...")
     manifest_dir = argv[1]
     cmd = argv[2]
     rest = argv[3:]
@@ -300,6 +311,10 @@ def main(argv):
         if rest:
             die("referenced-hashes takes no arguments")
         cmd_referenced_hashes(manifest_dir)
+    elif cmd == "backends":
+        if rest:
+            die("backends takes no arguments")
+        cmd_backends(manifest_dir)
     else:
         die("unknown subcommand: " + cmd)
 

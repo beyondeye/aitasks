@@ -96,6 +96,12 @@ art:t6-report" "$(artifact_manifest list)"
 assert_eq "referenced-hashes = union of ALL versions, deduped, sorted" "$H1
 $H2
 $H3" "$(artifact_manifest referenced-hashes)"
+# backends (t1231_1): distinct backend values, sorted, one per line.
+assert_eq "backends prints each distinct backend once" "local" "$(artifact_manifest backends)"
+artifact_manifest set-backend art:t6-report gitbranch now=502
+assert_eq "backends is distinct + sorted across manifests" "gitbranch
+local" "$(artifact_manifest backends)"
+artifact_manifest set-backend art:t6-report local now=503   # restore
 
 # ── F. atomicity / cleanliness ────────────────────────────────────────────────
 leftover="$(find artifacts/manifests -name '.manifest.*' | wc -l | xargs)"
@@ -133,6 +139,9 @@ assert_contains "error names the offending file" "broken.json" "$bad_out"
 bad_out="$( artifact_manifest referenced-hashes 2>&1 )"; bad_rc=$?
 assert_exit_nonzero_rc "referenced-hashes dies on a malformed manifest" "$bad_rc"
 assert_contains "referenced-hashes error names the file" "broken.json" "$bad_out"
+bad_out="$( artifact_manifest backends 2>&1 )"; bad_rc=$?
+assert_exit_nonzero_rc "backends dies on a malformed manifest" "$bad_rc"
+assert_contains "backends error names the file" "broken.json" "$bad_out"
 rm -f artifacts/manifests/broken.json
 
 # Invariant violation (current not in versions) is equally fatal and named.

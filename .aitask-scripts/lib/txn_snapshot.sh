@@ -43,6 +43,16 @@
 # `attachments/…` and `artifacts/…` do NOT resolve from the repo root. Git
 # commands take the relpath; filesystem operations go through _txn_fs_path.
 #
+# ─── RETAINED EFFECTS ────────────────────────────────────────────────────────
+#
+# Some transactions make effects OUTSIDE the data branch that are deliberately
+# not undone (gitbranch-migrate's published commits and its migration fence:
+# reverting either would re-open the race it closes). They register each such
+# effect with txn_retain and a resume command with txn_set_resume_hint, so an
+# abort reports what the snapshot restored AND what was kept — never "nothing
+# was committed". With nothing retained every report is byte-identical to the
+# plain one.
+#
 # Source this file; do not execute. Requires task_utils.sh (task_git,
 # _ait_detect_data_worktree) and terminal_compat.sh (die/warn) to have been
 # sourced by the caller.
@@ -57,6 +67,8 @@ _TXN_LABEL="transaction"
 _TXN_ROLLBACK_HOOK=""            # verb-specific extra restore (blobs)
 _TXN_RESTORE_FAILED=()           # every un-restored item, both halves
 _TXN_SNAP_RESTORE_INCOMPLETE=false   # snapshot half specifically (drives cleanup)
+_TXN_RETAINED=()                 # effects deliberately kept on abort (txn_retain)
+_TXN_RESUME_HINT=""              # command that resumes a retained-effects abort
 declare -A _TXN_CLEAN_CHECKED=()
 declare -A _TXN_SNAPSHOTTED=()
 
@@ -74,6 +86,23 @@ _txn_fs_path() {
 # failure. Hooks call it instead of `|| true`; txn_snap_restore uses it too.
 # ALWAYS returns 0: recording a failure must never abort the rest of the restore.
 txn_rollback_failed() { _TXN_RESTORE_FAILED+=( "$1" ); return 0; }
+
+# txn_retain <description> -- record an effect this transaction made outside
+# the data branch and deliberately keeps on abort (see RETAINED EFFECTS).
+txn_retain() { _TXN_RETAINED+=( "$1" ); return 0; }
+
+# txn_set_resume_hint <command> -- what an aborted run should re-run.
+txn_set_resume_hint() { _TXN_RESUME_HINT="$1"; return 0; }
+
+# _txn_report_retained -- the retained-effects tail of a report (stderr).
+_txn_report_retained() {
+    {
+        echo "These effects were RETAINED (not rolled back, by design):"
+        printf '  - %s\n' "${_TXN_RETAINED[@]}"
+        [[ -z "$_TXN_RESUME_HINT" ]] || echo "Resume with: ${_TXN_RESUME_HINT}"
+    } >&2
+    return 0
+}
 
 # txn_rollback_ok -- the ONE verdict, DERIVED from what was recorded.
 txn_rollback_ok() { (( ${#_TXN_RESTORE_FAILED[@]} == 0 )); }
@@ -230,17 +259,27 @@ txn_chain_exit_trap() {
 txn_rollback_report() {
     local ok="$1" ctx="$2"
     if (( ok == 1 )); then
-        warn "${ctx} — rolled back every mutation; nothing was committed"
+        if (( ${#_TXN_RETAINED[@]} == 0 )); then
+            warn "${ctx} — rolled back every mutation; nothing was committed"
+            return 0
+        fi
+        warn "${ctx} — local changes rolled back; nothing was committed on the data branch"
+        _txn_report_retained
         return 0
     fi
     {
         echo -e "${RED:-}Error: ${ctx} and the rollback did NOT fully restore:${NC:-}"
         printf '  - %s\n' "${_TXN_RESTORE_FAILED[@]}"
-        echo "Nothing was committed, but the items above are left mid-transaction and need manual repair."
+        if (( ${#_TXN_RETAINED[@]} == 0 )); then
+            echo "Nothing was committed, but the items above are left mid-transaction and need manual repair."
+        else
+            echo "Nothing was committed on the data branch, but the items above are left mid-transaction and need manual repair."
+        fi
         if [[ "$_TXN_SNAP_RESTORE_INCOMPLETE" == true ]]; then
             echo "Their pre-transaction contents are preserved in ${_TXN_SNAP_DIR} (<i>.blob = bytes, <i>.idx = index entry); remove that directory once repaired."
         fi
     } >&2
+    (( ${#_TXN_RETAINED[@]} == 0 )) || _txn_report_retained
     # Explicit, LOAD-BEARING: _txn_exit_trap calls this from the EXIT trap, where
     # the script's errexit is live. A non-zero status here (formerly the trailing
     # `[[ incomplete ]] && echo` when only a HOOK recorded the failure) aborted
@@ -260,7 +299,12 @@ txn_rollback_report() {
 txn_abort() {
     local msg="$1"
     if txn_rollback; then
-        die "$msg"
+        # A complete local rollback with nothing retained stays a bare die. With
+        # retained effects the report IS the message: txn_rollback has already
+        # disarmed the EXIT trap, so nothing else would ever print it.
+        (( ${#_TXN_RETAINED[@]} == 0 )) && die "$msg"
+        txn_rollback_report 1 "${_TXN_LABEL}: aborted"
+        die "$msg — remote effects retained, see above"
     fi
     txn_rollback_report 0 "${_TXN_LABEL}: aborted"
     die "$msg — INCOMPLETE ROLLBACK, see the report above"
@@ -283,6 +327,8 @@ _txn_exit_trap() {
 txn_begin() {
     _TXN_LABEL="$1"
     _TXN_ROLLBACK_HOOK=""
+    _TXN_RETAINED=()
+    _TXN_RESUME_HINT=""
     txn_snap_init
     txn_chain_exit_trap '_txn_exit_trap'
     _TXN_ACTIVE=true

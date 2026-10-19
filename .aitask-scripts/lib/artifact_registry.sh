@@ -9,7 +9,7 @@
 # artifact_backend_* / artifact_resolve / artifact_store call: it exports
 # ARTIFACT_BACKEND plus the adapter params (e.g. ARTIFACT_DIR_ROOT for `dir`),
 # dying actionably when the name is unregistered, has no shipped adapter, or
-# is misconfigured. `local` is always implicitly registered (zero-config).
+# is misconfigured (ARTIFACT_GITBRANCH_BRANCH for `gitbranch`). `local` is always implicitly registered (zero-config).
 #
 # Source this file; do not execute. Requires terminal_compat.sh (die) to be
 # sourced by the caller; sources python_resolve.sh itself (same pattern as
@@ -29,8 +29,11 @@ _AIT_ARTIFACT_REGISTRY_CONFIG="aitasks/metadata/project_config.yaml"
 # BACKEND-EXTENSION-POINT (params): list EVERY adapter param env var here, so
 # activation always clears the previous backend's params first (no
 # cross-activation leakage — load-bearing for `move`, which activates the
-# source and then the target backend in one process).
-_AIT_ARTIFACT_REGISTRY_PARAM_VARS=( ARTIFACT_DIR_ROOT )
+# source and then the target backend in one process). ARTIFACT_GITBRANCH_STORE_ID
+# is not a config param — aitask_artifact.sh's store guard exports it after
+# activation — but it is cleared here for the same reason: an expected store id
+# must never survive into the next backend's activation.
+_AIT_ARTIFACT_REGISTRY_PARAM_VARS=( ARTIFACT_DIR_ROOT ARTIFACT_GITBRANCH_BRANCH ARTIFACT_GITBRANCH_STORE_ID )
 
 # artifact_registry_activate <name> -- validate <name> against the registry
 # and export ARTIFACT_BACKEND + its adapter params. Dies on unregistered /
