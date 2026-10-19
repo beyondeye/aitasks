@@ -375,3 +375,48 @@ t1231_4 (manual verification) is still pending, so the parent stays active.
 ### Planned mitigations
 - timing: post-phase | name: claim_audit | type: documentation | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: misstated CLI/gitbranch behaviour | desc: claim → code-anchor table for every behavioural statement on the new/edited pages
 - timing: post-phase | name: next_chain_walk | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: concurrent list edits / broken Next chain | desc: scripted Next-chain walk vs _index order + pre-commit diff of shared list files
+
+## Final Implementation Notes
+- **Actual work done:** Implemented as planned (steps 1-6 plus both inline post-phases).
+  - NEW `website/content/docs/concepts/artifacts.md` (weight 57, concept-page contract: What / Why / How / See also / Next) with the `local` / `dir` / `gitbranch` table and the three gitbranch rules (origin qualified for no-origin mode).
+  - NEW `website/content/docs/commands/artifact.md` (weight 33): verb table from `show_help`, one section per verb, "The gitbranch backend", "Uncommitted changes", Configuration (keys + settings tab + `ait attach` cross-ref).
+  - Lists: Tools row + usage line in `commands/_index.md`; Data-model bullet in `concepts/_index.md`; `attachments.md` Next → Artifacts; `aitask-artifacts` (optional) row + See-also in `git-branching-model.md`.
+  - Cross-refs linked: `development/task-format.md` and `skills/aitask-trail.md` (`ait artifact` → commands/artifact), `workflows/implementation-trails.md` ("versioned artifact" → concepts/artifacts), See-also bullet in `concepts/implementation-trails.md`.
+  - Settings docs rebuilt from `settings_app.py`: `reference.md` Global (adds t-order, k, s, j, ?), Within Tabs (Artifacts rows), `## Tabs` (nine rows), Configuration Files (`project_config.yaml` → Project Config/Tmux/Artifacts; new `userconfig.yaml` row); `how-to.md` mouse line + new "Configure Artifact Storage"; `_index.md` new "Artifacts (k)" section + Navigating gains t/k.
+  - `tests/test_website_doc_lists.sh` Test 3: bash-regex parse of both dispatch-arm forms, cross-checked (`assert_eq`) against `lib/artifact_backends/*.sh`, plus `| \`<name>\` |` containment in concepts/artifacts.md. 58/58 pass.
+  - `seed/project_config.yaml`: gitbranch comment paragraph + commented example (YAML still parses; `test_data_branch_setup.sh` 291/291, `test_tmux_default_session_resolvers.py` 31 pass). Live config untouched.
+  - `aidocs/unified_artifact_design.md` §3 (verb list), §5 (implemented backend set, `init` op, drift guard), §6 (adapter names, two configurable backends, gitbranch paragraph).
+- **Deviations from plan:** The "Configure Artifact Storage" how-to and the `_index.md` Artifacts section both landed (plan named the how-to; the `_index.md` section was in the settings bullet). `--version` rule and the migrate step order (copy → retire → catch-up copy + verify → record) were taken from code during writing; the plan's one-line migrate summary was coarser.
+- **Issues encountered:** None blocking. `shellcheck` without `-x` reports the pre-existing SC1091 info on the `asserts.sh` source line; `shellcheck -x` is clean.
+- **Key decisions:**
+  - Concept page keeps rules to one sentence each; all messages / exit codes / retirement live on the command page (documentation_conventions "Concept pages").
+  - "A cached version can be fetched offline, on every backend" verified: `artifact_resolve` (artifact_cache.sh:35-38) returns on a cache hit before any backend call, and activation only validates config.
+  - Red proof (isolated scratch copies, shared worktree never mutated): control rc=0; gitbranch row removed rc=1; quoted `s3` arm + module rc=1; unquoted `s3` arm + module rc=1; `s3.sh` module without arm rc=1 (cross-check).
+  - next_chain_walk: scripted walk from `tasks.md` equals the `_index.md` order (24 pages, Attachments → Artifacts → Execution profiles, ends at agent-memory). Pre-commit diff of shared list files: only this task's hunks.
+  - claim_audit (claim → backing line; no unbacked claim remained):
+
+    | Claim | Code anchor |
+    |---|---|
+    | create prints `HANDLE:<handle>` | aitask_artifact.sh:462 |
+    | derived handle `art:t<task>-<kind w/o _>`, child `_`→`.` | aitask_artifact.sh cmd_create (handle derivation) |
+    | `--name` optional, absent → no name; `--backend` → default_backend else local | cmd_create; `_artifact_create_txn` `[[ -n "$name" ]]`; artifact_registry.py:179 |
+    | create refuses existing handle / archived task / over cap | aitask_artifact.sh:407, :368, :386 |
+    | update no-op on identical bytes; never touches task file; cap | :512, `_artifact_update_txn` commit paths, :527 |
+    | move same-backend no-op; source blobs kept | :610, :691 |
+    | rm keeps manifest when referenced elsewhere; sweeps only local; warns otherwise; stale ref removable | :793, :806-880, :895, :774 |
+    | ls `No artifacts.`, columns, 12-hex CURRENT | cmd_list :907-950 |
+    | get `--version` must be a listed version; hash-verified | :975, artifact_cache.sh artifact_resolve |
+    | versions `*` = current | :1006 |
+    | init-store outputs (dir required, gitbranch eager+publish, local nothing) | :1028, gitbranch.sh:528-540, local.sh:66-67 |
+    | migrate MIGRATED/ALREADY_MIGRATED, Resume hint, config warning | :1224-1230, :1106 (txn_set_resume_hint) |
+    | rename refusal / record-missing refusal | aitask_artifact.sh:242, :249 |
+    | OCCUPIED refusal, retired refusal | gitbranch.sh:193, :202 |
+    | exit 75 UNKNOWN; no-origin = local authoritative | gitbranch.sh:78, :20-22 |
+    | branch-name grammar + reserved names | artifact_registry.py:56-57, check_ref_name |
+    | dirty-path preflight per verb | aitask_artifact.sh:419-420, :540, :626, :765/:807, :1104 |
+    | settings tab keys/order, `?`, `j` | settings_app.py:2069-2117, :2207-2226, :2563 |
+    | tab prefill `aitask-artifacts`; local saved as key absent; migrate command toast | settings_app.py:358, save_artifacts_settings, :4185 |
+- **Upstream defects identified:** None
+- **Notes for sibling tasks:**
+  - t1231_4 (manual verification): the docs to check against are `concepts/artifacts.md`, `commands/artifact.md` and `tuis/settings/{_index,how-to,reference}.md`; rendered locally via `cd website && ./serve.sh`.
+  - Future backends (t1089 `s3`, t1090 `gdrive`): adding a module + dispatch arm without a `| \`<name>\` |` row in `concepts/artifacts.md` now fails `tests/test_website_doc_lists.sh`; an arm without a module (or vice versa) fails its cross-check.
