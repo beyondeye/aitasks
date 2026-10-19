@@ -1,14 +1,14 @@
 ---
 priority: high
 effort: high
-depends: [t1853_1, t1853_2, t1853_3, t1853_4, t1853_5, t1853_6, t1854_1]
+depends: [t1853_1, t1853_2, t1853_3, t1853_4, t1853_5, t1853_6, t1854_1, t1859_2, t1859_3]
 issue_type: feature
 status: Postponed
 labels: [testing, testmap, go_engine]
 gates: [risk_evaluated]
 anchor: 1852
 created_at: 2026-10-11 23:43
-updated_at: 2026-10-13 19:18
+updated_at: 2026-10-19 15:44
 ---
 
 ## Goal
