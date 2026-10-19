@@ -1,16 +1,15 @@
 ---
 priority: medium
 effort: medium
-depends: [1859_1]
+depends: [t1859_1]
 issue_type: feature
 status: Postponed
 labels: [testing, testmap, gates]
 gates: [risk_evaluated]
 anchor: 1852
 created_at: 2026-10-19 15:43
-updated_at: 2026-10-19 15:43
+updated_at: 2026-10-19 15:44
 ---
-
 
 Child of t1859 (test-map **M8 — Completion policy and gates**), submodule
 **M8.2 — `testmap_check` gate**, wave **E** (moved from D by Dev 11). This is
