@@ -46,6 +46,9 @@ import agent_frozen_ops as ops  # noqa: E402
 #: read back from the module — a list derived from `dir(ops)` would pin nothing.
 PROMISED_CALLABLES = (
     "store", "store_show", "nonce_from", "run",
+    # t2041: the batch read the reopen listing pass uses instead of a `show` each,
+    # and the one `show` parser it reads those records through.
+    "store_records", "parse_show",
     "pane_facts", "pane_location", "set_option", "unset_option", "respawn",
     "int_or_zero", "test_mode", "make_fail_at", "pause_at",
     # t1773: the tri-state resolver promoted out of `agent_freeze` (the restore
@@ -166,6 +169,35 @@ class StoreLateBindingTests(_SwapMixin, unittest.TestCase):
     def test_store_show_returns_empty_on_a_refusal(self):
         self.swap_store(_RecordingStore(ops.EXIT_TRANSITION_REFUSED, "REFUSED:x"))
         self.assertEqual(ops.store_show("abc123"), {})
+
+    def test_store_records_reaches_the_swapped_store(self):
+        fake = self.swap_store(_RecordingStore(0, (
+            'RECORD:{"id": "abc12345", "pane_pid": 0, "root": "/a\\nb"}\n'
+            "a stray stderr line\n"
+            'RECORD:{"id": "def67890", "state": "frozen"}\n')))
+        records = ops.store_records("--state", "frozen")
+        self.assertEqual(fake.calls, [("list", "--state", "frozen", "--full")],
+                         "store_records must call `store` by module-global lookup")
+        self.assertEqual(records, [
+            {"id": "abc12345", "pane_pid": "0", "root": "/a\nb"},
+            {"id": "def67890", "state": "frozen"}],
+            "store_show's shape (every value a str), values kept whole, noise skipped")
+
+    def test_store_records_is_none_on_a_refusal(self):
+        self.swap_store(_RecordingStore(4, "ERROR:corrupt"))
+        self.assertIsNone(ops.store_records())
+
+    def test_store_records_is_none_on_an_unparseable_batch(self):
+        """A batch that cannot be read whole is never a partial listing."""
+        for bad in ('RECORD:{"id": "abc12345"}\nRECORD:{not json',
+                    'RECORD:["not", "a", "record"]'):
+            with self.subTest(bad=bad):
+                self.swap_store(_RecordingStore(0, bad))
+                self.assertIsNone(ops.store_records())
+
+    def test_store_records_of_an_empty_store_is_empty_not_none(self):
+        self.swap_store(_RecordingStore(0, ""))
+        self.assertEqual(ops.store_records(), [])
 
     def test_nonce_from_reads_the_pipe_tail(self):
         self.assertEqual(ops.nonce_from("FREEZING:abc123|deadbeef"), "deadbeef")

@@ -15,6 +15,7 @@ Run: python3 tests/test_agent_reopen.py
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
@@ -198,6 +199,7 @@ class Store:
         self.lease_rc = 0
         self.commit_rc = 0
         self.list_rc = 0
+        self.list_garbage = False  # `list --full` answers a RECORD: line that is not JSON
         self.on_lease = None      # callable run just before a lease is granted
 
     def __call__(self, *argv, timeout: float = 20.0):
@@ -208,8 +210,13 @@ class Store:
                 return self.list_rc, "ERROR:store unreadable"
             root = argv[argv.index("--root") + 1] if "--root" in argv else None
             rows = []
+            if "--full" in argv and self.list_garbage:
+                return 0, "RECORD:{not json"
             for r in self.records.values():
                 if r["state"] != "frozen" or (root is not None and r["root"] != root):
+                    continue
+                if "--full" in argv:           # field order as `show` prints it
+                    rows.append("RECORD:" + json.dumps(r))
                     continue
                 rows.append("SESSION:" + "|".join(
                     [r["id"], r["state"], r["root"], r["window"], r["pane_id"],
@@ -351,7 +358,8 @@ class TestClassification(_Base):
 
     def test_classify_scopes_the_store_list_to_the_root(self):
         agent_reopen.classify(ROOT)
-        self.assertIn(("list", "--state", "frozen", "--root", ROOT), self.store.calls)
+        self.assertIn(("list", "--state", "frozen", "--root", ROOT, "--full"),
+                      self.store.calls)
 
     def test_gone_line_carries_both_blockers(self):
         r = rec(codeagent_session_id="", task_id="")
@@ -806,7 +814,7 @@ class TestAllRoots(_Base):
     def test_the_store_is_listed_without_a_root(self):
         agent_reopen.gone_all_roots()
         lists = [c for c in self.store.calls if c[0] == "list"]
-        self.assertEqual([("list", "--state", "frozen")], lists)
+        self.assertEqual([("list", "--state", "frozen", "--full")], lists)
 
     def test_a_tracked_record_and_its_root_are_not_listed(self):
         self.world.add("alpha_s", "agent-a", frozen="aaaaaaaa", pane_id="%9")
@@ -948,6 +956,137 @@ class TestCompanions(_Base):
         self.assertEqual(2, main(self, "reopen", "--all-roots"))
         self.assertEqual(0, main(self, "companions", "--all-roots"))
         self.assertEqual(0, main(self, "gone", "--all-roots"))
+
+
+class TestSingleStoreRead(_Base):
+    """One store read per listing pass, not a `show` per record (t2041).
+
+    `ait ide` runs `gone --all-roots` and `companions --all-roots` on every
+    start, over every project; a `show` per record was a subprocess and a
+    whole-store reload each.
+    """
+
+    N = 5
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.ids = [f"0000000{i}" for i in range(1, self.N + 1)]
+        self.store.records = {
+            rid: rec(rid, window=f"agent-{rid}", pane_id=f"%{i}")
+            for i, rid in enumerate(self.ids, start=1)}
+
+    def calls(self, verb: str) -> list[tuple]:
+        return [c for c in self.store.calls if c[0] == verb]
+
+    def test_gone_all_roots_reads_the_store_once(self):
+        lines = agent_reopen.gone_all_roots()
+        self.assertEqual(f"GONE_COUNT:{self.N}", lines[-1], "anti-vacuity: all listed")
+        self.assertEqual([("list", "--state", "frozen", "--full")], self.calls("list"))
+        self.assertEqual([], self.calls("show"))
+
+    def test_companions_all_roots_reads_the_store_once(self):
+        for i, rid in enumerate(self.ids, start=1):
+            self.world.add("aitasks", f"agent-{rid}", frozen=rid, pane_id=f"%{i}")
+        lines, status = agent_reopen.companions(None)
+        self.assertEqual((0, self.N), (status, len(self.companions)),
+                         "anti-vacuity: every tracked viewer was offered a companion")
+        self.assertEqual("COMPANION_COUNT:0", lines[-1])   # the stub spawns nothing
+        self.assertEqual(1, len(self.calls("list")))
+        self.assertEqual([], self.calls("show"))
+
+    def test_gone_root_reads_the_store_once(self):
+        rc, lines = _main_output("gone", "--root", ROOT)
+        self.assertEqual((0, f"GONE_COUNT:{self.N}"), (rc, lines[-1]))
+        self.assertEqual(1, len(self.calls("list")))
+        self.assertEqual([], self.calls("show"))
+
+    def test_reopen_all_batches_only_the_listing(self):
+        """The listing is one read; each `reopen_one` still reads its own record,
+        before the lease and again under it."""
+        lines = agent_reopen.reopen_all(ROOT, session="aitasks")
+        self.assertEqual(f"REOPEN_ALL:{self.N}/{self.N}", lines[-1])
+        self.assertEqual(1, len(self.calls("list")))
+        verbs = self.store.verbs()
+        self.assertEqual(["list", "show", "lease-take", "show"], verbs[:4],
+                         "the listing pass issues no `show`; reopen_one's reads remain")
+        self.assertEqual([("show", rid) for rid in self.ids for _ in (0, 1)],
+                         self.calls("show"))
+
+    def assert_unreadable_everywhere(self):
+        rc, lines = _main_output("gone", "--all-roots")
+        self.assertEqual((1, ["GONE_ERROR:*|store unreadable"]), (rc, lines))
+        rc, lines = _main_output("gone", "--root", ROOT)
+        self.assertEqual((1, ["GONE_ERROR:*|store unreadable"]), (rc, lines))
+        lines, status = agent_reopen.companions(None)
+        self.assertEqual((1, "COMPANION_ERROR:*|store unreadable"), (status, lines[0]))
+        self.assertEqual(["REOPEN_FAILED:*|store unreadable", "REOPEN_ALL:0/0"],
+                         agent_reopen.reopen_all(ROOT))
+        self.assertEqual([], self.calls("show"))
+        self.assertNotIn("new-window", self.world.verbs())
+
+    def test_an_unreadable_store_is_never_an_empty_listing(self):
+        self.store.list_rc = 4
+        self.assert_unreadable_everywhere()
+
+    def test_an_unparseable_batch_is_never_an_empty_listing(self):
+        self.store.list_garbage = True
+        self.assert_unreadable_everywhere()
+
+    #: Stored values `show`'s line protocol reads differently from the stored
+    #: string: surrounding whitespace is stripped, only the text before the first
+    #: line break counts (`str.splitlines` breaks — `\r`, `\x0b`, `\u2028`, … —
+    #: not just `\n`), and a later `key:value` line overrides that key.
+    HOSTILE = {
+        "spaces": dict(codeagent_session_id=" ", task_id=" \t"),
+        "leading_newline": dict(codeagent_session_id="\nsession-1", task_id="\n2041"),
+        "carriage_return": dict(codeagent_session_id="\rsession-1", task_id="\x0b2041"),
+        "unicode_break": dict(codeagent_session_id="\u2028session-1", task_id="\x852041"),
+        "later_field_overrides": dict(transcript_path="/t.jsonl\ncodeagent_session_id:",
+                                      last_error="x\ntask_id: "),
+    }
+
+    def test_the_offer_lists_the_eligibility_restore_applies(self):
+        """The offer must advertise what restore accepts. Restore and
+        `reopen_one` read through `store_show`; the batch listing must read
+        every stored value the way that parser does, whatever the value holds."""
+        rid = "0000beef"
+        for name, fields in self.HOSTILE.items():
+            with self.subTest(name):
+                self.store.records = {rid: rec(rid, window="agent-ws", **fields)}
+                rc, lines = _main_output("gone", "--root", ROOT)
+                gone = [ln for ln in lines if ln.startswith("GONE:")]
+                self.assertEqual((0, 1), (rc, len(gone)), lines)
+                listed = gone[0].split("|")[-2:]
+                resume = agent_restore.restore(rid, session="aitasks").line
+                repick = agent_restore.restore(rid, repick=True, session="aitasks").line
+                self.assertEqual(["no_session", "no_task_id"], listed,
+                                 "anti-vacuity: every case is ineligible for both")
+                self.assertEqual([f"RESTORE_FAILED:{rid}|no_session",
+                                  f"RESTORE_FAILED:{rid}|no_task_id"], [resume, repick])
+
+    def test_listing_reads_like_show_except_paths(self):
+        """Every non-path field reads as `show` (and so `reopen_one`) reads it;
+        path fields keep their stored value whole."""
+        rid = "0000beef"
+        self.store.records = {rid: rec(
+            rid, root="/proj ", window=" agent-ws \nrest", pane_id=" %4",
+            transcript_path="/t/x.jsonl ", capture_ansi="/c/a ", capture_txt="/c/t ")}
+        [listed] = agent_reopen._frozen_records(None)
+        self.assertEqual(ops.store_show(rid), {**listed, **{
+            k: ops.store_show(rid)[k] for k in agent_reopen._VERBATIM_FIELDS
+            if k in listed}}, "outside the path fields, the listing IS a `show` read")
+        self.assertEqual(("agent-ws", "%4"), (listed["window"], listed["pane_id"]))
+        self.assertEqual(("/proj ", "/t/x.jsonl ", "/c/a ", "/c/t "),
+                         (listed["root"], listed["transcript_path"],
+                          listed["capture_ansi"], listed["capture_txt"]))
+
+    def test_a_root_with_a_newline_reaches_the_unprintable_branch(self):
+        """The batch carries the stored value whole; `show`'s line protocol cut
+        it at the newline, so this case used to need injecting below the store."""
+        self.store.records = {"dddddddd": rec("dddddddd", root="/a\nb", window="agent-d")}
+        lines = agent_reopen.gone_all_roots()
+        self.assertIn("GONE_ERROR:dddddddd|root_unprintable", lines)
+        self.assertFalse(any("\n" in ln for ln in lines))
 
 
 class TestRestoreHelpers(unittest.TestCase):

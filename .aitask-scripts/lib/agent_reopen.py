@@ -243,21 +243,38 @@ def classify_record(rec: dict, claims: list[Claim]) -> tuple[str, Claim | None]:
 
 def _frozen_records(root: str | None) -> list[dict] | None:
     """Full `frozen` records of ``root`` (every root for None); None if the store failed."""
+    # ONE store read for the whole listing (t2041): `ait ide` runs this over
+    # every project twice per start, and a `show` per record was a subprocess
+    # and a full store reload each. `reopen_one` still re-reads its own record.
     scope = ("--root", root) if root is not None else ()
-    rc, out = frozen_ops.store("list", "--state", "frozen", *scope)
-    if rc != 0:
+    records = frozen_ops.store_records("--state", "frozen", *scope)
+    if records is None:
         return None
-    records = []
-    for line in out.splitlines():
-        if not line.startswith("SESSION:"):
-            continue
-        record_id = line[len("SESSION:"):].split("|", 1)[0].strip()
-        if not agent_sessions.valid_id(record_id):
-            continue
-        rec = frozen_ops.store_show(record_id)
-        if rec.get("state") == agent_sessions.STATE_FROZEN:
-            records.append(rec)
-    return records
+    records = [_as_shown(rec) for rec in records]
+    return [rec for rec in records
+            if agent_sessions.valid_id(rec.get("id", ""))
+            and rec.get("state") == agent_sessions.STATE_FROZEN]
+
+
+#: Fields the listing keeps exactly as stored: paths, where a stripped value
+#: names a different file or project.
+_VERBATIM_FIELDS = frozenset(("root", "transcript_path", "capture_ansi", "capture_txt"))
+
+
+def _as_shown(rec: dict[str, str]) -> dict[str, str]:
+    """A batch-read record read exactly as `store_show` reads it, paths aside.
+
+    Restore and `reopen_one` read through `store_show`, and its line protocol is
+    not the stored string: a value is stripped, cut at its first line break, and
+    a later `key:value` line overrides that key. So a session id of " " or
+    "\nsess" is NO session there. The offer has to advertise exactly that
+    eligibility and classify against the `pane_id` / `window` `reopen_one` acts
+    on — so the record is rendered as `show` prints it and parsed by the same
+    parser, never approximated. Paths then get their stored value back.
+    """
+    shown = frozen_ops.parse_show("\n".join(f"{k}:{v}" for k, v in rec.items()))
+    shown.update((k, rec[k]) for k in _VERBATIM_FIELDS if k in rec)
+    return shown
 
 
 def _classified(root: str | None) -> tuple[

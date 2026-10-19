@@ -30,8 +30,8 @@ THE SEAM RULE — state and behaviour through the module; pure names by import.
 (`tests/test_agent_frozen_ops.py`, `tests/test_agent_freeze.py`) so the engines
 can run with no tmux and no store file. Both are looked up as *this* module's
 globals at call time, so one swap redirects every consumer — including
-:func:`store_show`, which calls `store(...)`, and every helper that calls
-:func:`run`.
+:func:`store_show` and :func:`store_records`, which call `store(...)`, and every
+helper that calls :func:`run`.
 
 Consequently an engine must call these functions **through the module**::
 
@@ -62,6 +62,7 @@ Test seams, honoured **only** under ``AITASKS_TEST_MODE=1``:
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import secrets
@@ -282,12 +283,50 @@ def store_show(record_id: str) -> dict[str, str]:
     rc, out = store("show", record_id)
     if rc != 0:
         return {}
+    return parse_show(out)
+
+
+def parse_show(out: str) -> dict[str, str]:
+    """``show``'s ``key:value`` lines as a dict: THE reading every action applies.
+
+    Each value is stripped, only its text before the first line break counts,
+    and a later ``key:value`` line overrides that key. A reader that gets a
+    record another way and must agree with an action (the reopen offer, t2041)
+    renders it as ``show`` prints it and parses it here.
+    """
     fields: dict[str, str] = {}
     for line in out.splitlines():
         key, sep, value = line.partition(":")
         if sep:
             fields[key.strip()] = value.strip()
     return fields
+
+
+def store_records(*filters: str) -> list[dict[str, str]] | None:
+    """``list <filters> --full`` as full records: :func:`store_show`'s shape for
+    every matching record, from ONE store read (t2041).
+
+    None when the store could not be read, and None when the batch did not
+    parse: a listing that cannot be read whole is never a partial one. Values
+    are the stored ones verbatim, in ``show``'s field order — NOT as
+    :func:`parse_show` reads them; a caller that must agree with an action reads
+    through that parser.
+    """
+    rc, out = store("list", *filters, "--full")
+    if rc != 0:
+        return None
+    records: list[dict[str, str]] = []
+    for line in out.splitlines():
+        if not line.startswith("RECORD:"):
+            continue                    # folded stderr noise, never a record
+        try:
+            raw = json.loads(line[len("RECORD:"):])
+        except ValueError:
+            return None
+        if not isinstance(raw, dict):
+            return None
+        records.append({str(k): str(v) for k, v in raw.items()})
+    return records
 
 
 def nonce_from(line: str) -> str:

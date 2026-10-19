@@ -69,7 +69,11 @@
 #   task of an agent the SessionStart hook never saw, without overwriting what
 #   the hook stored. It touches no state, lease or location, so it needs no
 #   nonce.
-#   list  [--state <s>] [--root <r>]
+#   list  [--state <s>] [--root <r>] [--full]
+#
+#   `--full` prints one `RECORD:<json>` line per record (every field, as `show`
+#   would) instead of the `SESSION:` summary: a batch `show` in one read, used
+#   by the frozen-agent listing pass (t2041).
 #   show  <id>
 #   purge --observed <file>
 #
@@ -136,7 +140,7 @@ Usage: aitask_agent_sessions.sh upsert --root <r> --window <w> --pane <id> --pan
        aitask_agent_sessions.sh lease-release <id> --nonce <n>
        aitask_agent_sessions.sh drop <id> [--nonce <n>]
        aitask_agent_sessions.sh fill-task <id> [--operation <op>] [--task-id <t>]
-       aitask_agent_sessions.sh list [--state <s>] [--root <r>]
+       aitask_agent_sessions.sh list [--state <s>] [--root <r>] [--full]
        aitask_agent_sessions.sh show <id>
        aitask_agent_sessions.sh purge --observed <file>
 EOF

@@ -378,6 +378,46 @@ class CliPersistenceTests(_StoreTestCase):
         agent_sessions.dump(sf, self.store)
         return rid
 
+    def cli_lines(self, *argv) -> list[str]:
+        import contextlib
+        import io
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            self.assertEqual(self.run_cli(*argv), 0)
+        return buf.getvalue().splitlines()
+
+    def test_list_full_is_a_batch_show(self):
+        """`list --full` (t2041) is what the reopen listing reads instead of a
+        `show` per record: the same records under the same filters, every field
+        `show` prints, one line each."""
+        rid = self._frozen_record()
+        other = self.tmp / "other"
+        other.mkdir()
+        self.assertEqual(self.run_cli(
+            "upsert", "--root", str(other), "--window", "w2",
+            "--pane", "%2", "--pane-pid", "2"), 0)
+
+        def records(*argv):
+            lines = self.cli_lines("list", *argv, "--full")
+            self.assertTrue(all(ln.startswith("RECORD:") for ln in lines), lines)
+            return [json.loads(ln[len("RECORD:"):]) for ln in lines]
+
+        self.assertEqual(2, len(records()))
+        frozen = records("--state", "frozen")
+        self.assertEqual([rid], [r["id"] for r in frozen])
+        shown = {}
+        for line in self.cli_lines("show", rid):
+            key, _, value = line.partition(":")
+            shown[key.strip()] = value.strip()
+        self.assertEqual(shown, {k: str(v) for k, v in frozen[0].items()},
+                         "parity with `show`, field for field")
+        self.assertEqual(list(shown), list(frozen[0]),
+                         "and in `show`'s order: a later `key:value` line overrides")
+        self.assertEqual([str(other.resolve())],
+                         [r["root"] for r in records("--root", str(other))])
+        self.assertTrue(all(ln.startswith("SESSION:") for ln in self.cli_lines("list")),
+                        "plain `list` keeps its summary lines")
+
     def test_a_session_mismatch_PERSISTS_last_error(self):
         """§A/§D: the record is the coordinator's only channel from the hook.
 

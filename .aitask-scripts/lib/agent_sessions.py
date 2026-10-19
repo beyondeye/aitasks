@@ -2360,10 +2360,18 @@ def main(argv: list[str] | None = None) -> int:
             state = _arg(rest, "state")
             root = _arg(rest, "root")
             croot = os.path.realpath(root) if root else None
+            # `--full` is a batch `show` (t2041): one whole record per line, as
+            # JSON so a value holding a newline cannot split it, in `show`'s
+            # field order (a later `key:value` line overrides an earlier one, so
+            # a reader re-rendering `show` needs the same order).
+            full = "--full" in rest
             for rec in sorted(sf.sessions, key=lambda r: r.key):
                 if state and rec.state != state:
                     continue
                 if croot and rec.root != croot:
+                    continue
+                if full:
+                    print("RECORD:" + json.dumps(vars(rec)))
                     continue
                 values = [str(getattr(rec, f)) for f in _LIST_FIELDS]
                 print("SESSION:" + "|".join(values))
