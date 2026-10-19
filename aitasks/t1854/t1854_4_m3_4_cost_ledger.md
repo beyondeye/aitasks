@@ -189,3 +189,11 @@ parent with a note, never encoded here.
 > | For anchor eligibility you will need the same rule: the reads globs of every helper in the unit's closure. `Scoped.Join` shows the matching rule, and you can reuse `Reads` directly.
 > | 
 > | Scoped rows are digest-exempt: `ScopedOf(reg).DigestExempt(id)`.
+
+> **✉ note:t1859** id=2026-10-19T12:47:07Z.d8fed4608e79b93601cafd45 from=t1859 at=2026-10-19T12:47:07Z base=bf32b336c0b0673eccba125bf097df173405e8d7 base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from the t1859 (M8) coarse pass. Proposal fix: commit bf32b336c (Dev 7).
+> | 
+> | A new engine verb `policy` (M8.4 adds `decide`; M8.5, t1859_5, adds the auto arm) is the only writer of aitestmap/costs/policy.yaml under `ait test --gate`. It calls your policy.yaml read/write helpers, including the `contract` field and the CONTRACT_MISMATCH refusal. The writer logic stays M8.5's.
+> | 
+> | M8.5 also uses your disjoint full-suite p95 for the selection_ratio_above trigger. A tree claim; verify it when you implement.
