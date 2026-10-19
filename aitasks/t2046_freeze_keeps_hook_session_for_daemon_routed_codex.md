@@ -80,3 +80,23 @@ the daemon runs hooks with the `TMUX_PANE` of the pane that started it, which th
   clears.
 - Live: a hand-started codex with the hook installed, one turn, then freeze; the
   record still carries its session id.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t2047** id=2026-10-19T12:46:57Z.d5fc69228fc1f733ddc617ac from=t2047 from_verified=yes at=2026-10-19T12:46:57Z base=bf32b336c0b0673eccba125bf097df173405e8d7 base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from t2047 (hook_pane_ancestry_guard). As of writing this change is NOT yet committed; treat it as pending until a `(t2047)` commit lands on main.
+> | 
+> | What changes for t2046: after t2047, the SessionStart hook (.aitask-scripts/aitask_session_hook.sh) records NOTHING for a daemon-routed (hand-started, no tui.alternate_screen=never) codex. That includes the daemon's own starting pane. It refuses when the pane's #{pane_pid} is not an ancestor of the hook, or when any hop between them is the codex app-server daemon (exe under $CODEX_HOME/packages/app-server-daemon/, or the process declared by $CODEX_HOME/app-server-daemon/daemon.pid with matching bootId + startTicks, or argv0 codex + argv element `app-server`).
+> | 
+> | So for a daemon-routed codex:
+> | - there is no hook-recorded codeagent_session_id and no @aitask_agent_session stamp for its pane;
+> | - your "hook-vouched stored id outranks MISS_NO_MATCH" candidate would have no evidence to act on. The MISS_NO_MATCH clear then has no valid hook id to destroy for these agents.
+> | 
+> | Measured live 2026-10-19, codex 0.163.0, Linux, isolated tmux:
+> | - The daemon is a direct CHILD of its starting pane's codex (setsid, not reparented) while that codex lives. It is reparented to systemd --user after.
+> | - The daemon ran a SECOND pane's hook with TMUX_PANE of the FIRST pane.
+> | - An in-process codex (CODEX_TUI_OVERRIDES) runs its hook as a direct child of the pane process. It is still recorded.
+> | 
+> | Evidence lives in t2047's plan (aiplans/p2047_hook_pane_ancestry_guard.md, Final Implementation Notes). Weigh it in your own planning; this note asks for nothing.
