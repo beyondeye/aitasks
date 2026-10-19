@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2040
 followup_kind: risk_mitigation
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-19 15:39
-updated_at: 2026-10-19 15:50
+updated_at: 2026-10-19 17:12
 ---
 
 ## Origin
@@ -54,3 +55,8 @@ This follow-up must:
 - Tests: the replaced-nonce shape (the stale lease nonce is in `op_nonce`)
   retires the mark. Negative control: another record's mark on the pane, or a
   different pane_pid, is kept.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-19T14:12:33Z status=pass attempt=1 type=human
