@@ -1,5 +1,7 @@
 ---
 priority: low
+risk_code_health: medium
+risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: refactor
@@ -55,3 +57,5 @@ Tests: reuse the TERM-ignoring grandchild fixture from `tests/test_bounded_run.p
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-10-19T07:11:23Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-10-19T09:45:12Z status=pass attempt=1 type=human
