@@ -152,3 +152,48 @@ only, and each file's PASS/FAIL totals are checked against its baseline.
 Every named site is covered, and the sweep classification (status consumed vs
 discarded, live vs latent pipefail) is recorded with the reason for each
 exclusion.
+
+## Completion Ledger (step 5)
+
+All target files were clean in the shared worktree at edit time, so no site was skipped. Every site is **fixed**: after the edits, the survey regex `\| *grep\b[^|]*( -[a-zA-Z]*q|--quiet)` returns zero non-comment hits across all 18 edited files.
+
+| Site | State |
+|---|---|
+| test_change_surface.sh:90,100 (assert_line / assert_no_line) | fixed (here-string; latent, no pipefail) |
+| test_setup_git.sh:857, :894 (has_line) | fixed (here-string; latent, pipefail off) |
+| test_setup_git.sh:830 (`git show … \| grep -qxF`) | fixed (dropped `-q`, `>/dev/null`; found by the step 5 re-scan, latent) |
+| test_restore_flows_live.sh:237 | fixed (here-string) |
+| test_attach_task_delete_decref.sh:175 | fixed (here-string) |
+| test_runner_python_isolation.sh:60,65 (check_runner) | fixed (here-string; live race, $body ≈12 KB) |
+| test_apply_initializer_output.sh:112 | fixed |
+| test_brainstorm_group_progress_aggregate.sh ×7 | fixed |
+| test_explain_context.sh:388 (both halves) | fixed |
+| test_no_sed_hex_escape.sh:91 | fixed |
+| test_session_hook_live.sh:127 | fixed |
+| test_session_hook_install.sh ×10 | fixed |
+| test_task_git.sh:613 | fixed |
+| test_update_check.sh:27,41 | fixed |
+| test_task_filename_invariant.sh:56 | fixed |
+| test_chatlink_relay.sh:674,679 (generated fake_agent.sh) | fixed |
+| test_stats_data.sh:106 | fixed (command writer: dropped `-q`, `>/dev/null`) |
+| test_sync_holder_pane_live.sh:174 | fixed (command writer) |
+| test_frozen_standin_spike.sh:284 (window_exists) | fixed (command writer) |
+
+## Final Implementation Notes
+- **Actual work done:** Replaced every `printf/echo "$var" | grep -q…` whose exit status is consumed with a here-string (`grep -q… <<<"$var"`). Command-fed early-exit greps (`cmd | grep -q`) became `cmd | grep … >/dev/null`, so grep drains its input and the writer is never SIGPIPE'd. That covers 18 test files: the 5 named in the task plus 13 from the sweep. A t2056 comment sits only on the shared helpers (assert_line, has_line, check_runner, assert_match/assert_no_match).
+- **Deviations from plan:** One extra site, `test_setup_git.sh:830`. The step 5 re-scan found it because the original sweep only scanned files that turn pipefail *on*. It is latent but was converted to match the rest of the file.
+- **Issues encountered:** `test_restore_flows_live.sh` and `test_frozen_standin_spike.sh` refuse to run inside tmux (live-tmux guard, exit 2), both before and after the edits. They were not forced. Their edits were checked with `bash -n` plus a review of the rewritten expressions.
+- **Verification:**
+  - Red proof (scratchpad, under pipefail, needle first followed by 106 KB of padding): `printf | grep -qxF` → 141 in 20/20 runs; here-string → 0 in 20/20; `cmd | grep >/dev/null` → 0 in 20/20.
+  - Before/after totals are identical for all 16 runnable files (e.g. setup_git 156/156, task_git 191/191, session_hook_install 45/45, sync_holder_pane_live 51/51).
+  - shellcheck findings across the 18 files are unchanged.
+- **Key decisions:**
+  - Sites left unchanged:
+    - `test_yaml_utils.sh:787,807,861`: deliberate tests of the emitter against an early reader.
+    - `test_freeze_engine_live.sh:592`: a shim without pipefail.
+    - `test_artifact_gitbranch_backend.sh:470,654`: `sh` hooks without pipefail.
+    - All `| head`, `| grep -m1` and `| awk exit` value extractions whose status is discarded.
+    - errexit `| head` sites over single-match small inputs (`test_brainstorm_apply_created_by_group.sh:89`, `test_codex_model_detect.sh:171,313,314`) and `test_attribution_verdict_log.sh:61`, which is in argument position.
+    - `test_skill_errexit_capture.sh`: dirty in the shared worktree, and its status is discarded.
+  - The task assumed every listed site was in a pipefail file. For `test_change_surface.sh` and `test_setup_git.sh` that is not true, so those fixes are hardening rather than live-bug fixes.
+- **Upstream defects identified:** None
