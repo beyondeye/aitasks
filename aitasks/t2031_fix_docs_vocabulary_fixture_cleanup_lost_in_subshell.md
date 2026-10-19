@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1989
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-16 01:29
-updated_at: 2026-10-19 08:02
+updated_at: 2026-10-19 09:29
 ---
 
 ## Origin
@@ -37,3 +38,8 @@ From t2023's Final Implementation Notes:
 ## Suggested fix
 
 Have `make_fixture` set a result variable instead of echoing (e.g. `make_fixture; FIXTURE="$_FIXTURE_DIR"`), or register the dir in the parent after the call (`dir="$(make_fixture)"; CLEANUP_DIRS+=("$dir")`). Then re-run the test with a probe `TMPDIR` and confirm nothing is left.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-19T06:29:22Z status=pass attempt=1 type=human
