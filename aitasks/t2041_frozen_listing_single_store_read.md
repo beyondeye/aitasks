@@ -12,8 +12,9 @@ active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2039
 followup_kind: review_finding
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-16 12:51
-updated_at: 2026-10-19 08:03
+updated_at: 2026-10-19 13:16
 ---
 
 ## Context
@@ -63,3 +64,8 @@ top-up when no action changed anything in between (only if it stays simple).
   `bash tests/test_ide_frozen_all_projects_live.sh`.
 - Measure `aitask_frozen.sh gone --all-roots` wall time on a fixture store with
   ~100 frozen records before and after.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-19T10:16:29Z status=pass attempt=1 type=human
