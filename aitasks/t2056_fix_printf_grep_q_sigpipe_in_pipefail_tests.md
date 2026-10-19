@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1065
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-19 10:54
-updated_at: 2026-10-19 11:14
+updated_at: 2026-10-19 12:22
 ---
 
 ## Origin
@@ -40,3 +41,8 @@ The sites above all live in files that set pipefail (found by `grep -nE "printf 
 ## Suggested fix
 
 Per site, decide by input size: replace with a here-string (`grep -qxF -- "$line" <<<"$output"` — no writer process, no SIGPIPE) or a bash loop/`[[ ]]` match. Also sweep the other pipefail tests for `| grep -q` / `| head` over multi-arg printf or command output beyond this pattern.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-19T09:22:33Z status=pass attempt=1 type=human
