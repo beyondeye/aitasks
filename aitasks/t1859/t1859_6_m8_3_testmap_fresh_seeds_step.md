@@ -1,14 +1,14 @@
 ---
 priority: medium
 effort: medium
-depends: [1859_3]
+depends: [t1859_3]
 issue_type: feature
 status: Postponed
 labels: [testing, testmap, gates]
 gates: [risk_evaluated]
 anchor: 1852
 created_at: 2026-10-19 15:43
-updated_at: 2026-10-19 15:43
+updated_at: 2026-10-19 15:44
 ---
 
 ## Context
