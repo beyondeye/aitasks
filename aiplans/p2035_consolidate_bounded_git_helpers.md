@@ -294,3 +294,168 @@ Then Step 9 (Post-Implementation): commit, archive, merge per the task workflow.
 Post-inline reassessment: code-health rises to **medium** because the
 outer-runner coordination touches two more modules. Goal-achievement stays
 **low**.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-19)
+- **Requested by user:** `_stop_sync_session` sent SIGTERM only to its first
+  membership snapshot; a bounded runner the sync started after that snapshot was
+  never asked to stop, was SIGKILLed after the 3s window mid-cleanup, and left its
+  separate git session running while `stray_session=None` was reported.
+  Reproduced by the reviewer by holding the first listing. Add the
+  snapshot-versus-spawn interleaving as a regression test.
+- **Changes made:** new `_term_session(sid, members)` in
+  `lib/sync_action_runner.py` replaces the single-snapshot SIGTERM +
+  passive wait. Every poll re-lists the session and SIGTERMs members not yet
+  signalled. Escalation to the existing SIGKILL rounds waits until every live
+  member has had `_TERM_GRACE_SECONDS` since its OWN SIGTERM, capped at
+  2 × `_TERM_GRACE_SECONDS`, so a session that keeps spawning still escalates.
+  Unknown membership still returns at once, which is fail-closed. Tests:
+  `test_a_runner_started_after_the_first_listing_is_still_stopped` holds the
+  first listing until the stand-in has launched the real bounded_run CLI and
+  both transport processes. It fails on a single-snapshot mutant ("a
+  late-started runner's transport outlived the result") and passes on the fix.
+  `test_term_window_is_capped_for_a_session_that_keeps_spawning` covers the
+  cap.
+- **Files affected:** `.aitask-scripts/lib/sync_action_runner.py`,
+  `tests/test_sync_action_runner.py`
+
+### Change Request 2 (2026-10-19)
+- **Requested by user:** (a) the 6s TERM cap could SIGKILL a late bounded runner
+  mid-cleanup, leaving its separately-sessioned transport running while
+  `stray_session=None` was reported (reviewer's real-process probe: marker
+  written after 6.56s); (b) the outer TERM pass sent no SIGCONT, so a stopped
+  runner could not run its cleanup before the SIGKILL rounds (marker written
+  after 3.57s). Both need real-process regressions.
+- **Root cause and changes made:** both hazards came from bounded_run always
+  moving git into a NEW SESSION that the session-scoped outer stop cannot see.
+  - `lib/bounded_run.py` `_child_isolation()`: a new session only when this
+    runner HAS a controlling terminal, because that is the only way to drop
+    one. Otherwise the child leads its own process group inside the caller's
+    session: `process_group=0` on Python 3.11+, or `preexec_fn=os.setpgrp`
+    while single-threaded (the CLI always is), else a new session as a last
+    resort. There is still no prompt channel, because a non-leader can never
+    acquire a terminal. Under `sync_action_runner` (a terminal-less session)
+    every transport is now a member, so the SIGKILL rounds reach it and an
+    empty session proves it gone. That holds even when the runner itself was
+    cut down, which also makes the recovery probe sound.
+  - `lib/bounded_run.py` `run_bounded`: when a stop was requested, the group
+    is reaped even if the leader ended first. A session-scoped stop SIGTERMs
+    the leader directly, which bounded_run used to read as a normal exit,
+    leaving a TERM-ignoring member behind.
+  - `lib/sync_action_runner.py` `_term_session`: SIGCONT follows each SIGTERM.
+  - Comments updated in the sync, drift-check, github_release, and both crew
+    helpers ("a new session" → "its own process group, no controlling
+    terminal").
+- **Tests:**
+  - `test_sync_action_runner.py`: the stopped-runner case (SIGSTOP the real
+    runner and expect an orderly stop within the TERM window), the cap case
+    (a TERM-resistant spawner keeps the window open while its runner carries
+    a 30s grace, so the cap's kill rounds cut it down mid-cleanup, and the
+    transport must still die), and the main nested test now also asserts an
+    orderly stop. The former "uncoordinated grace leaks" control became
+    "uncoordinated grace falls to the kill rounds yet nothing escapes".
+  - `test_bounded_run.py`: `TestChildIsolation`, covering the isolation
+    policy, the actual sid/pgid in both modes, and a deterministic post-exit
+    reap.
+- **Red proofs (mutants in scratch, the shared worktree untouched):**
+  - M1 (always a new session) fails the cap test with a surviving transport.
+  - M2 (no SIGCONT) fails the stopped-runner test: 4.60s, not < 4.5s.
+  - M3 (no post-exit reap) fails the main nested test (3.59s, not < 3.5s) and
+    `test_a_stop_reaps_the_group_even_after_the_leader_ended`
+    ("Cancelled not raised").
+- **Files affected:** `.aitask-scripts/lib/bounded_run.py`,
+  `.aitask-scripts/lib/sync_action_runner.py`, `.aitask-scripts/aitask_sync.sh`,
+  `.aitask-scripts/aitask_remote_drift_check.sh`,
+  `.aitask-scripts/lib/github_release.sh`,
+  `.aitask-scripts/lib/agentcrew_utils.sh`,
+  `.aitask-scripts/agentcrew/agentcrew_utils.py`,
+  `tests/test_sync_action_runner.py`, `tests/test_bounded_run.py`
+
+### Change Request 3 (2026-10-19)
+- **Requested by user:** (a) in `test_a_stop_reaps_the_group_even_after_the_leader_ended`
+  the stubborn child's `$$` sat inside a double-quoted `sh -c` string, so the
+  leader shell expanded it. `child.pid` was the leader's pid, and the liveness
+  check passed even with `_shielded_kill` as a no-op. (b) The
+  `framework_version.resolve_latest_version` docstring still described
+  unconditional separate sessions.
+- **Changes made:** (a) the stubborn child is now its own script file, so its
+  `$$` is its own pid. The test asserts that the child started and that its pid
+  differs from the leader's, and it registers temp-dir and child-kill cleanup
+  through `addCleanup`. Red-proved: the no-op-cleanup mutant fails on "the stop
+  left the leader's child running", and the no-post-exit mutant fails with
+  "Cancelled not raised". (b) The docstring now states the `_child_isolation`
+  policy (own group; new session only with a controlling terminal) and keeps
+  the ordered-grace explanation.
+- **Files affected:** `tests/test_bounded_run.py`,
+  `.aitask-scripts/lib/framework_version.py`
+
+## Final Implementation Notes
+- **Actual work done:**
+  - `aitask_sync.sh:_git_with_timeout`, `aitask_remote_drift_check.sh:_git_fetch_with_timeout`
+    and `lib/github_release.sh:_github_ls_remote_tags` run git through
+    `lib/bounded_run.py --noninteractive`. Each keeps its 124 contract and its
+    own knob. The sync's four call sites are byte-identical.
+  - `github_release.sh` keeps the in-shell `set -m` job only as a fallback, used
+    when `git` is a shell function (the test seam) or no Python ≥ 3.8 is
+    available (bootstrap).
+  - `AIT_SYNC_ALLOW_PROMPT=1` (exactly `1`) drops `--noninteractive` for
+    `ait sync`. The bound, the missing terminal and the group kill are
+    unchanged. It is documented in `show_help`, the script header and
+    `sync.md` "Network Handling → Authentication prompts". The stale
+    coreutils/watchdog paragraph there was rewritten.
+  - The outer runners are coordinated. `sync_action_runner` exports
+    `AIT_BOUNDED_RUN_GRACE = min(effective, child_grace(3s))`, and
+    `framework_version` uses `run_bounded`.
+- **Deviations from plan:**
+  - Driven by three review rounds (Post-Review Changes 1–3). `bounded_run`
+    now creates a new session only when it has a controlling terminal;
+    otherwise git leads its own process group inside the caller's session.
+    That makes every transport visible to `sync_action_runner`'s
+    session-scoped stop and recovery probe.
+  - A stop request reaps the group even after the leader exited.
+  - `_term_session` signals late joiners, sends SIGCONT, waits a per-member
+    grace and caps the window at 2× the grace.
+  - Fail-closed preflights were added when the sweep caught a regression:
+    with an unusable Python, the drift check printed `FETCH_FAILED` and sync
+    would have printed `NO_NETWORK`, which hides a broken install behind
+    "offline". The drift check now emits `EXTRACT_FAILED` (exit 3), as
+    before, and sync emits `ERROR:no_python`. Both are checked before
+    fetching.
+  - `website/content/docs/commands/sync.md` passed the two-sided gate. It was
+    clean both staged and unstaged after t1739 committed its hunks, and it
+    was re-checked immediately before the edit.
+  - Stale "new session" comments in `lib/agentcrew_utils.sh` and
+    `agentcrew/agentcrew_utils.py` were corrected as well.
+- **Issues encountered:**
+  - `set -e` in `test_remote_drift_check.sh` turned the control's
+    `wait <SIGKILLed pid>` (status 137) into a script exit, so the calls are
+    now guarded with `|| true`.
+  - With in-session groups, the outer SIGTERM reaches the transport leader
+    directly. bounded_run read that as a normal exit, which led to the
+    post-exit reap.
+  - Timing-fragile cap fixture: a runner launched mid-stop was SIGTERMed
+    during Python startup. It was replaced by a runner whose 30s cleanup
+    grace outlasts the cap.
+  - A `$$` expanded in the wrong shell in a test fixture (CR 3).
+- **Key decisions:** the session/group policy is decided by bounded_run from a
+  runtime fact (whether it has a controlling terminal), not by a caller flag,
+  so every caller gets the right isolation without new plumbing. The non-interactive
+  policy is on by default for all three callers.
+- **Red proofs (old code = `git archive HEAD` snapshot plus the new test files,
+  run in scratch):**
+  - Drift `18e: every hanging transport process was killed (expected '', got '<pid>')`.
+  - github_release `12: parent and stubborn child were both killed` and
+    `13: GIT_ASKPASS empty, ssh askpass never, no display` (got
+    `GIT_ASKPASS=unset|SSH_ASKPASS_REQUIRE=unset|DISPLAY=:99`).
+  - Sync `17/17b/18: every hanging transport process was killed`.
+  - `test_timeout_stops_a_nested_bounded_runner` (survivor) and
+    `test_timeout_reaps_a_nested_bounded_runner` (2 survivors).
+  - The controls (16, 12c, 18a) pass in both trees.
+  - Mutants: M1/M2/M3 and the no-op-cleanup mutant, as recorded under CR 2/3.
+- **Upstream defects identified:**
+  - `.claude/skills/task-workflow/remote-drift-check.md:47` — the output-parsing
+    list has no `EXTRACT_FAILED` branch, although `aitask_remote_drift_check.sh`
+    emits it (exit 3) for an unreadable plan, an unreachable `plan_paths.py`
+    and, now, an unusable Python. An agent following the procedure gets no
+    instruction for the infra-failure token.
