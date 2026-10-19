@@ -49,6 +49,7 @@ export TMUX_TMPDIR
 SOCK="hl$$"
 
 cleanup() {
+    { printf 'quit\n' >&4; exec 4>&-; } 2>/dev/null
     tmux -L "$SOCK" kill-server 2>/dev/null || true
     rm -rf "$TMP" "$TMUX_TMPDIR"
 }
@@ -70,11 +71,34 @@ cp "$PROJECT_DIR/.aitask-scripts/aitask_agent_sessions.sh" "$ROOT/.aitask-script
 # The REAL store, in a scratch file.
 export AITASKS_AGENT_SESSIONS_FILE="$TMP/agent_sessions.json"
 
-HOOK="$PROJECT_DIR/.aitask-scripts/aitask_session_hook.sh"
 FIXTURE="$PROJECT_DIR/tests/data/session_hooks/claude_sessionstart.json"
 
-# --- a real pane -----------------------------------------------------------
-tmux -L "$SOCK" new-session -d -s hooktest -n "agent-pick-4242" "sleep 300" 2>/dev/null
+# --- a real pane whose own process fires the hook -------------------------
+# HARD CONTRACT 5 (t2047): the hook records only when the pane's process is its
+# ancestor. So the pane runs a small fire loop, the "agent", that reads payload
+# paths from a FIFO and runs the REAL hook as its own child: the pane pid is the
+# agent, the framework's launch shape. TMUX / TMUX_PANE come from tmux itself.
+FIFO="$TMP/fire.fifo"
+mkfifo "$FIFO"
+# Hold our own read-write descriptor on the FIFO: opening it write-only would
+# BLOCK until a reader appears, so a dead pane agent would hang a send before
+# fire_hook's bounded wait even starts. Through fd 4 a send never blocks on open,
+# and a dead agent surfaces as the 10 s no-answer failure instead.
+exec 4<>"$FIFO"
+cat >"$TMP/pane_agent.sh" <<'AGENT'
+#!/usr/bin/env bash
+# Opened read-write so the loop never sees EOF between fires.
+exec 3<>"$FIFO"
+while IFS= read -r req <&3; do
+    [ "$req" = "quit" ] && exit 0
+    bash "$HOOK" <"$req.json" >"$req.out" 2>"$req.err"
+    echo "$?" >"$req.rc.tmp" && mv "$req.rc.tmp" "$req.rc"
+done
+AGENT
+chmod +x "$TMP/pane_agent.sh"
+HOOK="$PROJECT_DIR/.aitask-scripts/aitask_session_hook.sh"
+tmux -L "$SOCK" new-session -d -s hooktest -n "agent-pick-4242" \
+    "env FIFO='$FIFO' HOOK='$HOOK' AITASKS_TMUX_SOCKET='$SOCK' AITASKS_AGENT_SESSIONS_FILE='$AITASKS_AGENT_SESSIONS_FILE' AITASK_AGENT_STRING=claudecode/opus5 bash '$TMP/pane_agent.sh'" 2>/dev/null
 if ! tmux -L "$SOCK" has-session -t hooktest 2>/dev/null; then
     echo "SKIP: could not start an isolated tmux server on $TMUX_TMPDIR" >&2
     tmux -L "$SOCK" new-session -d -s probe "sleep 1" 2>&1 | head -2 >&2
@@ -91,9 +115,27 @@ d=json.load(open(sys.argv[1])); d['cwd']=sys.argv[2]
 print(json.dumps(d))" "$FIXTURE" "$1"
 }
 
+# fire_hook [payload-json] — fire the hook from INSIDE the pane (the pane's own
+# process is its parent). Prints the hook's stdout; returns its exit status.
+# Bounded: no answer within 10 s is a failure, never a hang.
+# Callers run it inside $( ), so the request id cannot be a shell counter
+# (the increment would die with the subshell): each fire gets a unique name.
 fire_hook() {
-    payload_for_root "$ROOT" | env TMUX_PANE="$PANE" TMUX= \
-        AITASK_AGENT_STRING="claudecode/opus5" bash "$HOOK" 2>"$TMP/err"
+    local req
+    req="$(mktemp -u "$TMP/fire.XXXXXX")"
+    if [ -n "${1:-}" ]; then printf '%s' "$1"; else payload_for_root "$ROOT"; fi >"$req.json"
+    printf '%s\n' "$req" >&4
+    for _ in $(seq 1 100); do
+        [ -f "$req.rc" ] && break
+        sleep 0.1
+    done
+    if [ ! -f "$req.rc" ]; then
+        echo "fire ${req##*/}: the pane agent did not answer within 10s" >&2
+        return 99
+    fi
+    cp "$req.err" "$TMP/err"
+    cat "$req.out"
+    return "$(cat "$req.rc")"
 }
 
 pane_opt() {
@@ -103,6 +145,19 @@ pane_opt() {
 echo "=== A8 observing test: a real pane, a real store (t1705_3) ==="
 
 # ---------------------------------------------------------------------------
+echo "--- t2047: a hook from OUTSIDE the pane's process tree records nothing ---"
+# The daemon-routing shape: the right TMUX_PANE, but fired by a process the pane
+# did not start (this test shell). Runs FIRST, while no record exists.
+out0="$(payload_for_root "$ROOT" | env TMUX_PANE="$PANE" TMUX= \
+    AITASK_AGENT_STRING="claudecode/opus5" bash "$HOOK" 2>"$TMP/err0")"; rc0=$?
+assert_eq "outside fire: exit 0" "0" "$rc0"
+assert_eq "outside fire: stdout empty" "" "$out0"
+assert_eq "outside fire: the store has NO record" "0" \
+    "$("$ROOT/.aitask-scripts/aitask_agent_sessions.sh" list 2>/dev/null | grep -c '^SESSION:' | tr -d ' ')"
+assert_eq "outside fire: @aitask_record NOT set" "" "$(pane_opt @aitask_record)"
+assert_eq "outside fire: @aitask_agent_session NOT set" "" "$(pane_opt @aitask_agent_session)"
+assert_contains "outside fire: stderr names the refusal" "not an ancestor" "$(cat "$TMP/err0")"
+
 echo "--- first fire ---"
 out="$(fire_hook)"; rc=$?
 assert_eq "hook exits 0" "0" "$rc"
@@ -148,11 +203,10 @@ assert_eq "the pane still points at the same record" "$stored_id" "$(pane_opt @a
 
 # ---------------------------------------------------------------------------
 echo "--- a blank session id leaves the stored id intact (C3, live) ---"
-python3 -c "
+fire_hook "$(python3 -c "
 import json,sys
 d=json.load(open(sys.argv[1])); d['cwd']=sys.argv[2]; d['session_id']=''
-print(json.dumps(d))" "$FIXTURE" "$ROOT" \
-    | env TMUX_PANE="$PANE" TMUX= bash "$HOOK" 2>/dev/null
+print(json.dumps(d))" "$FIXTURE" "$ROOT")" >/dev/null
 show2="$("$ROOT/.aitask-scripts/aitask_agent_sessions.sh" show "$stored_id" 2>/dev/null)"
 assert_contains "C3 live: stored session id was NOT blanked" "codeagent_session_id:$SID" "$show2"
 assert_eq "C3 live: pane option was NOT blanked" "$SID" "$(pane_opt @aitask_agent_session)"

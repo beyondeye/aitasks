@@ -89,6 +89,15 @@ that runs when a code agent starts. It records the agent's session id into the
 record, which is what makes a later restore possible at all. It writes nothing
 into the agent's session and always exits successfully.
 
+The hook records only when it runs inside the agent's own pane: the pane's
+process must be one of its ancestors, and no Codex app-server daemon may sit
+between them. This matters for a Codex agent started by hand, without the
+framework's launch overrides. Codex can run such an agent through its shared
+app-server daemon, and the daemon then runs the hook on that agent's behalf,
+reporting the pane that started the daemon, which is not necessarily this
+agent's pane. Those reports are ignored, so a hand-started Codex agent like this
+is restored by re-picking its task.
+
 The hook is also the acknowledgement channel for a restore. The replacement
 agent is launched with the record id and the attempt's nonce in its environment;
 the hook hands them back, and the store checks that the session that came up is

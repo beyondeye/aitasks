@@ -40,7 +40,8 @@ mkdir -p "$ROOT/aitasks/metadata" "$ROOT/.aitask-scripts/lib" "$TMP/bin"
 # Real gateway + constants: the hook must work against the shipped helpers.
 cp "$PROJECT_DIR/.aitask-scripts/lib/tmux_exec.sh" \
    "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh" \
-   "$PROJECT_DIR/.aitask-scripts/lib/agent_sessions.sh" "$ROOT/.aitask-scripts/lib/"
+   "$PROJECT_DIR/.aitask-scripts/lib/agent_sessions.sh" \
+   "$PROJECT_DIR/.aitask-scripts/lib/pid_anchor.sh" "$ROOT/.aitask-scripts/lib/"
 
 # Recording tmux stub. Answers display-message from TMUX_STUB_DISPLAY.
 cat >"$TMP/bin/tmux" <<'STUB'
@@ -82,8 +83,15 @@ export SESSIONS_STUB_COUNT="$TMP/sessions.count"
 # Pin the gateway to the no-flag escape hatch so the stub argv is stable and
 # the hook's $TMUX-derived socket logic does not vary the recorded arguments.
 export AITASKS_TMUX_SOCKET=""
+# Hermetic codex home: the hook's daemon-hop check reads
+# $CODEX_HOME/app-server-daemon/*.pid, and the developer's real one must not
+# leak in. Cases that need a pid file write one here.
+export CODEX_HOME="$TMP/codexhome"
+mkdir -p "$CODEX_HOME"
 
-DISPLAY_LINE=$'aitasks\tagent-pick-1705_3\t%7\t4242\t'
+# The pane pid is THIS shell: it is an ancestor of every hook run_hook starts,
+# which HARD CONTRACT 5 (t2047) requires before anything is recorded.
+DISPLAY_LINE="aitasks"$'\t'"agent-pick-1705_3"$'\t'"%7"$'\t'"$$"$'\t'
 
 # run_hook <payload-json> [env assignments...]
 # Resets the logs, runs the hook, captures stdout/stderr/exit separately.
@@ -156,7 +164,7 @@ assert_eq "verb is upsert" "upsert" "$(argv_of 1 | head -1)"
 assert_eq "--root is the resolved project root" "$ROOT" "$(arg_value 1 --root)"
 assert_eq "--window from display-message" "agent-pick-1705_3" "$(arg_value 1 --window)"
 assert_eq "--pane from display-message" "%7" "$(arg_value 1 --pane)"
-assert_eq "--pane-pid from display-message" "4242" "$(arg_value 1 --pane-pid)"
+assert_eq "--pane-pid from display-message" "$$" "$(arg_value 1 --pane-pid)"
 assert_eq "--session-id from the payload" "sid-1" "$(arg_value 1 --session-id)"
 assert_eq "--transcript from the payload" "/t/a.jsonl" "$(arg_value 1 --transcript)"
 assert_eq "--agent-string from the environment" "claudecode/opus5" "$(arg_value 1 --agent-string)"
@@ -236,7 +244,7 @@ done
 
 # ---------------------------------------------------------------------------
 echo "--- @aitask_record present => --id ---"
-export TMUX_STUB_DISPLAY=$'aitasks\tagent-pick-1705_3\t%7\t4242\tdeadbeef'
+export TMUX_STUB_DISPLAY="${DISPLAY_LINE}deadbeef"
 run_hook '{"session_id":"sid-4","transcript_path":"/t/e.jsonl","cwd":"'"$ROOT"'","source":"resume"}'
 assert_eq "--id forwarded from @aitask_record" "deadbeef" "$(arg_value 1 --id)"
 export TMUX_STUB_DISPLAY="$DISPLAY_LINE"
@@ -336,6 +344,262 @@ print(json.dumps(d))" "$fx" "$ROOT")"
             ;;
     esac
 done
+
+# ===========================================================================
+# t2047: HARD CONTRACT 5 — record only from inside the pane's process tree.
+# ===========================================================================
+PID_LIB="$PROJECT_DIR/.aitask-scripts/lib/pid_anchor.sh"
+PL="$TMP/payload.json"
+printf '%s' '{"session_id":"sid-anc","transcript_path":"/t/anc.jsonl","cwd":"'"$ROOT"'","source":"startup"}' >"$PL"
+export DISPLAY_LINE HOOK PID_LIB
+
+# run_cmd <cmd...> — run <cmd> with the payload on stdin and the hook env. The
+# command is an intermediate process between this shell (the pane pid of
+# DISPLAY_LINE) and the hook, so it is one hop of the chain the guard walks.
+run_cmd() {
+    : >"$TMUX_STUB_LOG"; : >"$SESSIONS_STUB_LOG"; rm -f "$SESSIONS_STUB_COUNT"
+    HOOK_OUT="$(env TMUX_PANE="%7" TMUX= AITASK_AGENT_STRING="claudecode/opus5" \
+        "$@" <"$PL" 2>"$TMP/stderr")"
+    HOOK_RC=$?
+    HOOK_ERR="$(cat "$TMP/stderr")"
+}
+
+# expect_recorded / expect_refused <label> — the two outcomes, asserted whole.
+expect_recorded() {
+    assert_eq "$1: exit 0" "0" "$HOOK_RC"
+    assert_eq "$1: one upsert" "1" "$(call_count)"
+    assert_eq "$1: pane stamped" "aabbccdd" "$(tmux_option_value @aitask_record)"
+}
+expect_refused() {
+    assert_eq "$1: exit 0" "0" "$HOOK_RC"
+    assert_eq "$1: stdout empty" "" "$HOOK_OUT"
+    assert_eq "$1: NO upsert" "0" "$(call_count)"
+    if tmux_option_set @aitask_record; then
+        assert_eq "$1: NO @aitask_record stamp" "unset" "written"
+    else
+        assert_eq "$1: NO @aitask_record stamp" "unset" "unset"
+    fi
+    if tmux_option_set @aitask_agent_session; then
+        assert_eq "$1: NO @aitask_agent_session write" "unset" "written"
+    else
+        assert_eq "$1: NO @aitask_agent_session write" "unset" "unset"
+    fi
+}
+
+echo "--- t2047: helper units (lib/pid_anchor.sh) ---"
+(
+    # shellcheck source=../.aitask-scripts/lib/pid_anchor.sh
+    . "$PID_LIB"
+    printf '%s|%s|%s\n' "$(_pid_ppid_proc $$)" "$(_pid_ppid_ps $$)" "$PPID"
+) >"$TMP/ppid.out"
+# Inside ( ), $$ is still this shell and $PPID its parent: all three must agree,
+# which exercises the macOS `ps` reader on Linux too.
+IFS='|' read -r _pp_proc _pp_ps _pp_real <"$TMP/ppid.out"
+if [ -r /proc/self/stat ]; then
+    assert_eq "units: /proc ppid reader == real \$PPID" "$_pp_real" "$_pp_proc"
+else
+    echo "  SKIP: no /proc — the /proc ppid reader is Linux-only"
+fi
+assert_eq "units: ps ppid reader == real \$PPID" "$_pp_real" "$_pp_ps"
+
+_unit() { bash -c '. "$PID_LIB"; "$@"; echo "rc=$?"' _ "$@"; }
+_out="$(bash -c '. "$PID_LIB"; pid_chain_to "$1" $$; echo "rc=$?"' _ $$)"
+# The child's own pid is its chain's first line; the walk then meets $$.
+assert_contains "units: chain to an ancestor -> rc 0" "rc=0" "$_out"
+assert_eq "units: the chain stops BEFORE the ancestor" "0" \
+    "$(printf '%s\n' "$_out" | grep -cx "$$" | tr -d ' ')"
+sleep 30 & _sib=$!
+assert_contains "units: a live sibling is not an ancestor -> rc 1" "rc=1" "$(_unit pid_chain_to "$_sib" $$)"
+assert_contains "units: pid 1 is rejected as vacuous -> rc 2" "rc=2" "$(_unit pid_chain_to 1 $$)"
+assert_contains "units: a non-numeric ancestor -> rc 2" "rc=2" "$(_unit pid_chain_to abc $$)"
+
+# pid_argv_match reads argv NUL-delimited and checks argv[1] by POSITION.
+# To control argv[1] the test processes are `bash <script>` with the script's
+# FILE NAME as the subcommand word, run under `exec -a <argv0>` from the
+# directory holding those scripts. _argv_proc <argv0> <args...> starts one and
+# waits until it has exec'd. Called directly (never inside $( ), which would wait
+# for the background child): the pid comes back in $_p.
+ARGV_DIR="$TMP/argvbin"
+mkdir -p "$ARGV_DIR"
+for _name in app-server exec "$(printf 'app-server\nx')"; do
+    printf 'sleep 30; :\n' >"$ARGV_DIR/$_name"
+done
+_argv_procs=()
+_argv_proc() {
+    (cd "$ARGV_DIR" && exec -a "$1" bash "${@:2}") >/dev/null 2>&1 &
+    _p=$!
+    _argv_procs+=("$_p")
+    for _ in $(seq 1 40); do
+        [ "$(head -c "${#1}" "/proc/$_p/cmdline" 2>/dev/null)" = "$1" ] && break
+        sleep 0.05
+    done
+}
+if [ -r /proc/self/cmdline ]; then
+    _argv_proc /x/bin/codex app-server --listen unix:// --managed-daemon
+    assert_contains "units: argv match: the daemon invocation -> rc 0" "rc=0" \
+        "$(_unit pid_argv_match "$_p" codex app-server --managed-daemon)"
+    _argv_proc /x/bin/codex app-server --listen unix://
+    assert_contains "units: argv match: no --managed-daemon -> rc 1" "rc=1" \
+        "$(_unit pid_argv_match "$_p" codex app-server --managed-daemon)"
+    _argv_proc /x/bin/codex exec app-server --managed-daemon
+    assert_contains "units: argv match: app-server as a later argument (a prompt) -> rc 1" "rc=1" \
+        "$(_unit pid_argv_match "$_p" codex app-server --managed-daemon)"
+    _argv_proc /x/bin/codex "$(printf 'app-server\nx')" --managed-daemon
+    assert_contains "units: argv match: a multiline argv[1] is ONE element -> rc 1" "rc=1" \
+        "$(_unit pid_argv_match "$_p" codex app-server --managed-daemon)"
+    _argv_proc /x/bin/codex exec "$(printf 'please\napp-server\n--managed-daemon')"
+    assert_contains "units: argv match: a multiline prompt carrying both words -> rc 1" "rc=1" \
+        "$(_unit pid_argv_match "$_p" codex app-server --managed-daemon)"
+    _argv_proc /x/bin/bash app-server --managed-daemon
+    assert_contains "units: argv match: wrong argv0 -> rc 1" "rc=1" \
+        "$(_unit pid_argv_match "$_p" codex app-server --managed-daemon)"
+    kill "${_argv_procs[@]}" 2>/dev/null; wait "${_argv_procs[@]}" 2>/dev/null
+else
+    echo "  SKIP: no /proc — pid_argv_match declines (rc 2) without element boundaries"
+fi
+
+echo "--- t2047: both framework shapes record ---"
+# Shape 1: the pane pid IS the agent, and the hook is its direct child
+# (pane_pid == $PPID, the hop-0 boundary; measured for an in-process codex).
+# Every intermediate ends `; exit $?` so bash cannot exec its last command away.
+cat >"$TMP/shape1.sh" <<'SHAPE1'
+#!/usr/bin/env bash
+export TMUX_STUB_DISPLAY="aitasks"$'\t'"agent-pick-1705_3"$'\t'"%7"$'\t'"$$"$'\t'
+bash "$HOOK"; exit $?
+SHAPE1
+cat >"$TMP/shape2.sh" <<'SHAPE2'
+#!/usr/bin/env bash
+bash -c 'bash "$HOOK"; exit $?'; exit $?
+SHAPE2
+chmod +x "$TMP/shape1.sh" "$TMP/shape2.sh"
+run_cmd "$TMP/shape1.sh"
+expect_recorded "shape 1 (pane pid is the hook's parent)"
+assert_eq "shape 1: --pane-pid is that parent, not this shell" "1" \
+    "$([ "$(arg_value 1 --pane-pid)" != "$$" ] && echo 1 || echo 0)"
+# Shape 2: the pane pid is a shell that spawned the agent, two levels up.
+run_cmd "$TMP/shape2.sh"
+expect_recorded "shape 2 (pane pid is a grandparent shell)"
+
+echo "--- t2047: a pane pid that is NOT an ancestor records nothing ---"
+export TMUX_STUB_DISPLAY="aitasks"$'\t'"agent-pick-1705_3"$'\t'"%7"$'\t'"$_sib"$'\t'
+run_hook '{"session_id":"sid-n1","transcript_path":"/t/n1.jsonl","cwd":"'"$ROOT"'","source":"startup"}'
+expect_refused "live sibling pane pid"
+assert_contains "live sibling: stderr names the refusal" "not an ancestor" "$HOOK_ERR"
+
+export TMUX_STUB_DISPLAY="aitasks"$'\t'"agent-pick-1705_3"$'\t'"%7"$'\t'"1"$'\t'
+run_hook '{"session_id":"sid-n2","transcript_path":"/t/n2.jsonl","cwd":"'"$ROOT"'","source":"startup"}'
+expect_refused "pane pid 1 (vacuous ancestry)"
+
+kill "$_sib" 2>/dev/null; wait "$_sib" 2>/dev/null
+export TMUX_STUB_DISPLAY="aitasks"$'\t'"agent-pick-1705_3"$'\t'"%7"$'\t'"$_sib"$'\t'
+run_hook '{"session_id":"sid-n3","transcript_path":"/t/n3.jsonl","cwd":"'"$ROOT"'","source":"startup"}'
+expect_refused "a dead pane pid"
+
+# NEGATIVE CONTROL: the same payload and env, differing only in the pane pid,
+# records again — so every refusal above is attributable to the pane pid.
+export TMUX_STUB_DISPLAY="$DISPLAY_LINE"
+run_hook '{"session_id":"sid-n3","transcript_path":"/t/n3.jsonl","cwd":"'"$ROOT"'","source":"startup"}'
+expect_recorded "control: the same fire with this shell as the pane pid"
+
+echo "--- t2047: a codex app-server daemon hop refuses (every form) ---"
+# The pane pid is this shell throughout, so ancestry PASSES and only the
+# daemon-hop check can refuse. Each form is paired with a control that differs
+# only in the marker.
+
+# (b) the daemon's declared identity: pid + processIdentity.
+cat >"$TMP/hop_b.sh" <<'HOPB'
+#!/usr/bin/env bash
+. "$PID_LIB"
+p=$$; t="$(_pid_starttime_proc $$)"; b="$(cat /proc/sys/kernel/random/boot_id)"
+case "$MODE" in
+    unrelated)  p=$((p + 100000)) ;;
+    staleboot)  b="2d058e96-4c27-44f6-8a1b-0a0c6bf2c32a" ;;
+    wrongticks) t=$((t + 1)) ;;
+esac
+mkdir -p "$CODEX_HOME/app-server-daemon"
+case "$MODE" in
+    noident)   printf '{"pid":%s,"processStartTime":"Mon Oct 19 12:57:04 2026"}' "$p" ;;
+    malformed) printf '{"pid":' ;;
+    *) printf '{"pid":%s,"processStartTime":"Mon Oct 19 12:57:04 2026","processIdentity":{"bootId":"%s","startTicks":%s},"executableIdentity":{"digest":[1,2]}}' "$p" "$b" "$t" ;;
+esac >"$CODEX_HOME/app-server-daemon/$FILE"
+bash "$HOOK"; exit $?
+HOPB
+chmod +x "$TMP/hop_b.sh"
+if [ -r /proc/self/stat ] && [ -r /proc/sys/kernel/random/boot_id ]; then
+    for _file in daemon.pid daemon-updater.pid; do
+        rm -rf "$CODEX_HOME/app-server-daemon"
+        run_cmd env MODE=match FILE="$_file" "$TMP/hop_b.sh"
+        expect_refused "form b ($_file): the declared daemon identity"
+        assert_contains "form b ($_file): stderr names the form" "form b" "$HOOK_ERR"
+    done
+    for _mode in unrelated staleboot wrongticks noident malformed; do
+        rm -rf "$CODEX_HOME/app-server-daemon"
+        run_cmd env MODE="$_mode" FILE=daemon.pid "$TMP/hop_b.sh"
+        expect_recorded "form b control ($_mode): uncorroborated -> recorded"
+    done
+    rm -rf "$CODEX_HOME/app-server-daemon"
+else
+    echo "  SKIP: no /proc — form b is Linux-only"
+fi
+
+# (a) the daemon package's executable path. A COPY, not a symlink:
+# /proc/<pid>/exe resolves symlinks.
+_dbin="$CODEX_HOME/packages/app-server-daemon/releases/t/bin/codex"
+_obin="$TMP/elsewhere/bin/codex"
+mkdir -p "$(dirname "$_dbin")" "$(dirname "$_obin")"
+cp "$(command -v bash)" "$_dbin"; cp "$(command -v bash)" "$_obin"
+if [ -r /proc/self/exe ]; then
+    run_cmd "$_dbin" -c 'bash "$HOOK"; exit $?'
+    expect_refused "form a: a hop running the daemon package binary"
+    assert_contains "form a: stderr names the form" "form a" "$HOOK_ERR"
+    run_cmd "$_obin" -c 'bash "$HOOK"; exit $?'
+    expect_recorded "form a control: the same binary elsewhere"
+else
+    echo "  SKIP: no /proc — form a's exe path is read from ps on this platform"
+fi
+
+# (c) the daemon's own invocation: argv0 codex, argv[1] app-server, a later
+# --managed-daemon. Same file-name trick as the units above, with scripts that
+# run the hook.
+HOPC_DIR="$TMP/hopc"
+mkdir -p "$HOPC_DIR"
+for _name in app-server exec; do
+    printf 'bash "$HOOK"; exit $?\n' >"$HOPC_DIR/$_name"
+done
+cat >"$TMP/hop_c.sh" <<'HOPC'
+#!/usr/bin/env bash
+cd "$HOPC_DIR" && exec -a "$ARGV0" bash "$@"
+HOPC
+chmod +x "$TMP/hop_c.sh"
+export HOPC_DIR
+# Form c needs /proc's NUL-delimited argv; without it the form is declined by
+# design (pid_argv_match answers 2), so only its controls run there.
+if [ -r /proc/self/cmdline ]; then
+    run_cmd env ARGV0=codex "$TMP/hop_c.sh" app-server --listen unix:// --managed-daemon
+    expect_refused "form c: the daemon invocation"
+    assert_contains "form c: stderr names the form" "form c" "$HOOK_ERR"
+else
+    echo "  SKIP: no /proc — form c is declined without argv element boundaries"
+fi
+# Ordinary codex invocations that merely carry the words are NOT the daemon.
+run_cmd env ARGV0=codex "$TMP/hop_c.sh" exec app-server
+expect_recorded "form c control: codex exec app-server (a prompt)"
+run_cmd env ARGV0=codex "$TMP/hop_c.sh" exec app-server --managed-daemon
+expect_recorded "form c control: both words, but argv[1] is exec"
+run_cmd env ARGV0=codex "$TMP/hop_c.sh" app-server --listen unix://
+expect_recorded "form c control: app-server without --managed-daemon"
+# A multiline prompt passed as argv (aitask_codeagent.sh does this) carrying
+# both words on their own lines must not read as the daemon.
+run_cmd env ARGV0=codex "$TMP/hop_c.sh" exec "$(printf 'please check\napp-server\n--managed-daemon')"
+expect_recorded "form c control: a multiline prompt with both words as lines"
+run_cmd env ARGV0=bash "$TMP/hop_c.sh" app-server --managed-daemon
+expect_recorded "form c control: the daemon argv under a non-codex argv0"
+
+echo "--- t2047: an unreadable process reads as unidentifiable ---"
+sleep 30 & _gone=$!
+kill "$_gone" 2>/dev/null; wait "$_gone" 2>/dev/null
+assert_contains "units: get_pid_exe on a reaped pid -> rc 1" "rc=1" "$(_unit get_pid_exe "$_gone")"
+assert_contains "units: pid_argv_match on a reaped pid -> rc 2 (no boundaries)" "rc=2" "$(_unit pid_argv_match "$_gone" codex app-server --managed-daemon)"
 
 echo ""
 echo "========================================="

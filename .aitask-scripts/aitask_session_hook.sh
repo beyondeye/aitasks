@@ -23,13 +23,44 @@
 #   4. A blank session id is a NO-OP. The store ignores a blank id on an
 #      ordinary update, but on a restore ack it reads as a session mismatch
 #      (see below).
+#   5. Record ONLY from inside the pane's own process tree (t2047). $TMUX_PANE
+#      is inherited, not proven, so nothing is upserted or stamped unless the
+#      pane's #{pane_pid} is an ancestor of this hook AND no process between
+#      them is the codex app-server daemon (see DAEMON ROUTING below). Refusing
+#      is the fail-safe direction: the freeze engine's fallback upsert covers an
+#      unrecorded agent. An agent in a different PID namespace from the tmux
+#      server (a container started from the pane) is refused too; accepted.
 #
 # CODEX TIMING (measured 2026-10-16 on codex 0.163.0): the interactive TUI fires
 # SessionStart at a session's FIRST TURN, not at launch. That is `source=startup`
 # for a new session, and `source=resume` with the same id after `codex resume`.
-# It runs from the pane's own codex process, with the right TMUX_PANE. Codex
-# 0.153.4 fired it only under `codex exec`, never in the TUI. The first version
-# that fires it lies in between and was not bisected.
+# An in-process TUI (every framework launch: CODEX_TUI_OVERRIDES carries
+# tui.alternate_screen=never) runs it as a direct child of the pane's own codex
+# process, with the right TMUX_PANE. Codex 0.153.4 fired it only under `codex
+# exec`, never in the TUI. The first version that fires it lies in between and
+# was not bisected.
+#
+# DAEMON ROUTING (measured 2026-10-19 on codex 0.163.0, t2047): a codex started
+# by hand without that override is routed through the shared app-server daemon,
+# and the DAEMON runs every routed session's hook, with the TMUX_PANE of the pane
+# that started it. While that pane's codex lives, the daemon is its direct CHILD
+# (own session, not reparented), so a second pane's session passes the ancestry
+# walk attributed to the first pane. Once the starter exits the daemon is
+# reparented to init/systemd and fails the walk instead. Either way such a hook
+# must not record. Three identifier forms, each matched against the live daemon
+# and against no hop of an in-process codex:
+#   (a) its executable lies under $CODEX_HOME/packages/app-server-daemon/;
+#   (b) it is the process $CODEX_HOME/app-server-daemon/daemon.pid (or
+#       daemon-updater.pid) declares, by pid AND processIdentity (bootId ==
+#       /proc/sys/kernel/random/boot_id, startTicks == /proc/<pid>/stat field
+#       22). A bare pid is never enough: the file outlives its process;
+#   (c) the daemon's own invocation: argv0 `codex`, argv[1] exactly
+#       `app-server` (the subcommand position, so `codex exec app-server`, a
+#       prompt, does not count) and a later `--managed-daemon` element
+#       (measured: `.../bin/codex app-server --listen unix://
+#       --analytics-default-enabled --managed-daemon`). Read NUL-delimited from
+#       /proc, so a multiline argument cannot fake it; declined where the
+#       element boundaries are unavailable (no /proc).
 #
 # So a codex session id may still be missing here: on an older codex, before the
 # first turn, or after a `/new` the hook did not report. The FREEZE engine
@@ -126,12 +157,78 @@ done
 # --- 5. gateway ------------------------------------------------------------
 # shellcheck source=lib/agent_sessions.sh disable=SC1091
 source "$root/.aitask-scripts/lib/agent_sessions.sh" 2>/dev/null || exit 0
+# shellcheck source=lib/pid_anchor.sh disable=SC1091
+source "$root/.aitask-scripts/lib/pid_anchor.sh" 2>/dev/null || exit 0
 
 # One tmux round trip for everything the store needs about this pane.
 _info="$(ait_tmux display-message -p -t "$TMUX_PANE" \
     "#{session_name}	#{window_name}	#{pane_id}	#{pane_pid}	#{$AIT_RECORD_OPTION}" 2>/dev/null)" || exit 0
 IFS=$'\t' read -r tmux_session window pane_id pane_pid existing_record <<<"$_info"
 [ -n "$pane_id" ] && [ -n "$pane_pid" ] || exit 0
+
+# --- 5b. process-tree guard (HARD CONTRACT 5) -------------------------------
+# Runs before anything is recorded: the upsert, the @aitask_record stamp and the
+# @aitask_agent_session write below are all behind it.
+
+# _json_field <json> <key> — the value of a scalar "key" in a one-line JSON
+# record (number or string, unquoted). Empty when absent.
+_json_field() {
+    printf '%s' "$1" | sed -n 's/.*"'"$2"'":"\{0,1\}\([0-9A-Za-z-]*\).*/\1/p' | head -n1
+}
+
+# _codex_daemon_hop <pid> — is <pid> the codex app-server daemon?
+# 0 = yes (form in $_hop_form), 1 = no, 2 = its identity could not be read.
+_hop_form=""
+_codex_daemon_hop() {
+    local pid="$1" exe argv_rc home f rec boot ticks
+    exe="$(get_pid_exe "$pid")" || exe=""
+    pid_argv_match "$pid" codex app-server --managed-daemon; argv_rc=$?
+    # Neither the executable nor the argv can be read: unidentifiable.
+    [ -n "$exe" ] || [ "$argv_rc" -ne 2 ] || return 2
+    case "$exe" in
+        */packages/app-server-daemon/*) _hop_form=a; return 0 ;;
+    esac
+    # Form c needs exact argv element boundaries; without them (no /proc) it is
+    # declined, never guessed (pid_argv_match answers 2, not 0).
+    if [ "$argv_rc" -eq 0 ]; then
+        _hop_form=c; return 0
+    fi
+    home="${CODEX_HOME:-${HOME:+$HOME/.codex}}"
+    [ -n "$home" ] || return 1
+    boot="$(cat /proc/sys/kernel/random/boot_id 2>/dev/null)" || boot=""
+    ticks="$(_pid_starttime_proc "$pid" 2>/dev/null)" || ticks=""
+    [ -n "$boot" ] && [ -n "$ticks" ] || return 1
+    for f in "$home/app-server-daemon/daemon.pid" "$home/app-server-daemon/daemon-updater.pid"; do
+        rec="$(cat "$f" 2>/dev/null)" || continue
+        [ "$(_json_field "$rec" pid)" = "$pid" ] || continue
+        [ "$(_json_field "$rec" bootId)" = "$boot" ] || continue
+        [ "$(_json_field "$rec" startTicks)" = "$ticks" ] || continue
+        _hop_form=b; return 0
+    done
+    return 1
+}
+
+_chain="$(pid_chain_to "$pane_pid" "$PPID")"; _anc=$?
+_chain_txt="$(printf '%s' "$_chain" | tr '\n' ' ')"
+if [ "$_anc" -ne 0 ]; then
+    if [ "$_anc" -eq 1 ]; then
+        echo "aitask_session_hook: pane $pane_id (pid $pane_pid) is not an ancestor of this hook (chain: ${_chain_txt:-none}); nothing recorded" >&2
+    else
+        echo "aitask_session_hook: could not establish this hook's process ancestry (chain: ${_chain_txt:-none}); nothing recorded" >&2
+    fi
+    exit 0
+fi
+while IFS= read -r _hop; do
+    [ -n "$_hop" ] || continue
+    _codex_daemon_hop "$_hop"; _rc=$?
+    if [ "$_rc" -eq 0 ]; then
+        echo "aitask_session_hook: hook runs under the codex app-server daemon (pid $_hop, form $_hop_form); nothing recorded" >&2
+        exit 0
+    elif [ "$_rc" -ne 1 ]; then
+        echo "aitask_session_hook: could not identify process $_hop between this hook and its pane; nothing recorded" >&2
+        exit 0
+    fi
+done <<<"$_chain"
 
 # --- 6. operation / task id from the window name ---------------------------
 # Same shape as monitor_core._TASK_ID_RE.

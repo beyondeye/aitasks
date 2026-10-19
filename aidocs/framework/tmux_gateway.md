@@ -190,10 +190,10 @@ to get wrong:
 |---|---|---|---|---|
 | `@aitask_shadow_target` | the shadow launcher, to the followed agent's `pane_id` | pane death | agent-list filters, companion cleanup | this pane is an advisory shadow, not an agent |
 | `@aitask_monitor_kind` | the monitor / minimonitor app, on its own pane | pane death | pane classification, companion cleanup | this pane is a monitor companion |
-| `@aitask_record` | the SessionStart hook, or the freeze engine as fallback | `drop`; pane death | freeze engine, restore coordinator, the hook itself | the pane-visible join to its session-store record |
+| `@aitask_record` | the SessionStart hook (only when the hook descends from that pane's process, with no codex app-server daemon in between), or the freeze engine as fallback | `drop`; pane death | freeze engine, restore coordinator, the hook itself | the pane-visible join to its session-store record |
 | `@aitask_frozen` | the freeze engine, immediately before `respawn-pane` | the restore-confirm path; `drop` | pane enumeration, `kill_agent_pane_smart`, companion cleanup, minimonitor auto-spawn occupancy | **authoritative**: this pane is a frozen stand-in |
 | `@aitask_standin_ready` | **the viewer itself**, after mount | freeze engine and restore coordinator, before *every* `respawn-pane`; `drop` | `reconcile` | positive proof the stand-in is up — the one signal that separates "stamped, viewer running" from "stamped, agent still running" |
-| `@aitask_agent_session` | the SessionStart hook, on `$TMUX_PANE` | pane death | freeze engine, when the store has no session id | the code agent's own session id |
+| `@aitask_agent_session` | the SessionStart hook, on `$TMUX_PANE` (same process-tree condition) | pane death | freeze engine, when the store has no session id | the code agent's own session id |
 
 Two of these are self-stamped by the app that owns the pane
 (`@aitask_monitor_kind`, `@aitask_standin_ready`) and must stay that way — see
