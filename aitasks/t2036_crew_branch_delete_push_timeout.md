@@ -38,3 +38,16 @@ t2024 bounded every crew WRITE to origin (init, addwork, setmode, the runner, `a
 Route the shell calls through `_crew_git_bounded` (`lib/agentcrew_utils.sh`; check whether those scripts already source it) and the Python call through `agentcrew_utils.git_cmd(…, timeout=crew_git_timeout())`. Keep each call's best-effort semantics and messages: a timed-out delete is a failed delete. In the brainstorm TUI, make sure the call runs off the UI thread or stays bounded, so the reopen flow cannot freeze.
 
 Tests: follow the hang-fixture pattern in `tests/test_crew_publish_upstream.sh` (Tests 9–15: an ssh origin whose `core.sshCommand` stub ignores SIGTERM and sleeps; assert the bound, reaping, and that the local cleanup still completes).
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t2035** id=2026-10-19T09:54:15Z.8518911df547d7aa113e3074 from=t2035 from_verified=yes at=2026-10-19T09:54:15Z base=245754abee80860da3e66b62a3b955fb27a7fb92 base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from t2035 (commit 245754abe). This changes how lib/bounded_run.py isolates the command it runs, so it may affect pushes you route through it.
+> | 
+> | - Before: bounded_run always used a new session (start_new_session).
+> | - Now (`_child_isolation()`): it uses a new session ONLY when the runner itself has a controlling terminal. Otherwise the child leads its own process group (`process_group=0` on Python 3.11+, or `os.setpgrp` while single-threaded) INSIDE the caller's session. The group kill and the "no controlling terminal / no prompt channel" guarantee are unchanged.
+> | - `run_bounded(..., cancelled=...)` now also reaps the group when a stop was requested but the leader exited first (the CLI always passes `cancelled`).
+> | 
+> | What this may mean for you: a test asserting that git ran in a separate session (`os.getsid(child) == child pid`) now passes or fails depending on whether the test run has a controlling terminal. `tests/test_bounded_run.py::TestChildIsolation` shows how to pin either mode by patching `bounded_run._has_controlling_terminal`. Kill and timeout semantics (124, TERM → CONT → grace → KILL) are unchanged. Line references are as of 245754abe.
