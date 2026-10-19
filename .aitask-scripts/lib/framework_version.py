@@ -20,10 +20,11 @@ import json
 import os
 import re
 import shlex
-import signal
 import subprocess
 import tempfile
 from pathlib import Path
+
+from bounded_run import run_bounded
 
 # Version shape accepted by `ait upgrade` (aitask_upgrade.sh:83-89): the
 # literal `latest` or a bare X.Y[.Z]. A leading `v` is deliberately NOT
@@ -72,9 +73,15 @@ def resolve_latest_version(
     reimplementing release resolution. Returns ``(version, None)`` on
     success, ``(None, reason)`` on any failure — never raises.
 
-    The subprocess runs in its own session (process group); on timeout the
-    whole group is killed, covering the unbounded ``git ls-remote`` fallback
-    the helper may have spawned (a plain child kill would orphan it).
+    The helper runs under ``bounded_run.run_bounded``, as the leader of its own
+    process group (in a new session when this process has a controlling
+    terminal, in this session otherwise — ``bounded_run._child_isolation``), and
+    on timeout that whole group is stopped (SIGTERM + SIGCONT, then SIGKILL
+    after the grace) before this returns. The helper's ``git ls-remote`` runs
+    under a NESTED bounded_run in a process group of its own, which that group
+    stop does not reach; run_bounded exports a strictly shorter grace to it, so
+    the SIGTERM lets the inner runner reap its own group before the outer
+    SIGKILL lands (a SIGKILL-first stop would orphan it).
 
     ``helper`` / ``repo`` are explicit test seams; production callers use the
     defaults (the module-adjacent script and the framework repo).
@@ -86,21 +93,12 @@ def resolve_latest_version(
         "bash", helper_path, repo,
     ]
     try:
-        proc = subprocess.Popen(
-            cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-            text=True, start_new_session=True,
-        )
-    except (FileNotFoundError, OSError) as exc:
-        return None, str(exc)
-    try:
-        out, err = proc.communicate(timeout=timeout)
+        proc = run_bounded(cmd, timeout)
     except subprocess.TimeoutExpired:
-        try:
-            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-        except (ProcessLookupError, PermissionError, OSError):
-            proc.kill()
-        proc.communicate()
         return None, "timeout after %gs" % timeout
+    except OSError as exc:  # FileNotFoundError included
+        return None, str(exc)
+    out, err = proc.stdout, proc.stderr
     if proc.returncode != 0:
         err_lines = [ln.strip() for ln in (err or "").splitlines() if ln.strip()]
         reason = err_lines[-1] if err_lines else (

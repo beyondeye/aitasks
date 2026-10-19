@@ -154,6 +154,42 @@ class ResolveLatestVersionTests(TempDirTestCase):
             os.kill(pid, 9)
             self.fail("grandchild sleep survived the timeout kill")
 
+    def test_timeout_reaps_a_nested_bounded_runner(self):
+        # The real helper's ls-remote runs under lib/bounded_run.py, in a
+        # session of its own that the timeout's group stop cannot reach. Here
+        # the stub runs the real CLI around a transport parent and a distinct
+        # child, both ignoring SIGTERM: only the INNER runner's SIGKILL ends
+        # them, so the outer stop must give it the time to send it (t2035).
+        pidfile = self.tmp / "nested.pids"
+        runner = PROJECT_DIR / ".aitask-scripts" / "lib" / "bounded_run.py"
+        transport = (
+            "trap '' TERM; sleep 60 & echo \"$$ $!\" > %s; wait"
+            % shlex.quote(str(pidfile))
+        )
+        stub = self.write_stub(
+            "    %s %s --timeout 30 --noninteractive -- sh -c %s"
+            % (shlex.quote(sys.executable), shlex.quote(str(runner)),
+               shlex.quote(transport))
+        )
+        with mock.patch.dict(os.environ):
+            os.environ.pop("AIT_BOUNDED_RUN_GRACE", None)
+            version, reason = fv.resolve_latest_version(timeout=0.5,
+                                                        helper=stub)
+        self.assertIsNone(version)
+        self.assertIn("timeout", reason)
+        pids = [int(p) for p in pidfile.read_text().split()]
+        self.assertEqual(len(pids), 2, "fixture: parent and child both started")
+        time.sleep(0.3)
+        alive = []
+        for pid in pids:
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                continue
+            alive.append(pid)
+            os.kill(pid, 9)
+        self.assertEqual(alive, [], "a nested transport survived the timeout")
+
 
 class IsSelfTargetTests(TempDirTestCase):
     def test_same_path(self):

@@ -604,6 +604,156 @@ assert_contains_re "Derived status lists docs_updated" "docs_updated" "$status_o
 
 rm -rf "$TMPDIR_15"
 
+# --- Test 16-19: bounded fetch/push and the prompt policy (t2035) ---
+# _git_with_timeout runs fetch/push through lib/bounded_run.py. The hanging
+# origin is an ssh URL whose core.sshCommand stub records its pid, ignores
+# SIGTERM and sleeps: git (the parent) -> the stub (a DISTINCT child only a
+# process-group SIGKILL reaches). The old `timeout 10 git` sent SIGTERM alone
+# and left it running. NETWORK_TIMEOUT is a fixed 10s, so each hang cell takes
+# ~11s; AIT_BOUNDED_RUN_GRACE=1 keeps the TERM->KILL grace short.
+SYNC_HANG_PIDS="$(mktemp)"
+
+# make_sync_hang_stub <repo>: install the stub; prints its URL.
+make_sync_hang_stub() {
+    cat > "$1/hang-ssh" <<EOF
+#!/bin/sh
+echo \$\$ >> "$SYNC_HANG_PIDS"
+trap '' TERM
+exec sleep 30
+EOF
+    chmod +x "$1/hang-ssh"
+    git -C "$1" config core.sshCommand "$1/hang-ssh"
+    git -C "$1" config ssh.variant ssh
+    echo "ssh://sync-hang.invalid/repo.git"
+}
+sync_hang_alive() {
+    local pid alive=""
+    while read -r pid; do
+        [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null && alive="$alive $pid"
+    done < "$SYNC_HANG_PIDS"
+    printf '%s' "${alive# }"
+}
+sync_hang_reset() {
+    xargs kill -KILL < "$SYNC_HANG_PIDS" 2>/dev/null || true
+    : > "$SYNC_HANG_PIDS"
+}
+# assert_sync_hang_bounded <cell> <elapsed>: reached, bounded, all reaped.
+assert_sync_hang_bounded() {
+    sleep 0.3
+    assert_eq "$1: fixture: the hanging transport was reached" "yes" \
+        "$( [[ -s "$SYNC_HANG_PIDS" ]] && echo yes || echo no )"
+    assert_eq "$1: returns within 20s (the stub hangs 30s)" "yes" \
+        "$( (( $2 <= 20 )) && echo yes || echo "no: ${2}s" )"
+    assert_eq "$1: every hanging transport process was killed" "" "$(sync_hang_alive)"
+    sync_hang_reset
+}
+
+echo "--- Test 16: control: a direct-child kill leaves the transport running ---"
+TMPDIR_16="$(setup_sync_repos)"
+git -C "$TMPDIR_16/local" remote set-url origin "$(make_sync_hang_stub "$TMPDIR_16/local")"
+git -C "$TMPDIR_16/local" fetch --quiet origin >/dev/null 2>&1 &
+ctl_pid=$!
+for _ in $(seq 100); do [[ -s "$SYNC_HANG_PIDS" ]] && break; sleep 0.05; done
+kill -KILL "$ctl_pid" 2>/dev/null || true
+wait "$ctl_pid" 2>/dev/null || true
+sleep 0.2
+assert_eq "16: control: the stub outlives a direct-child kill" "yes" \
+    "$( [[ -n "$(sync_hang_alive)" ]] && echo yes || echo no )"
+sync_hang_reset
+
+echo "--- Test 17: a hanging fetch is bounded and fully reaped ---"
+start=$SECONDS
+output=$(cd "$TMPDIR_16/local" && AIT_BOUNDED_RUN_GRACE=1 ./ait sync --batch 2>/dev/null)
+elapsed=$(( SECONDS - start ))
+assert_eq_trim "17: a hanging fetch reports NO_NETWORK" "NO_NETWORK" "$output"
+assert_sync_hang_bounded "17" "$elapsed"
+
+echo "--- Test 17b: AIT_SYNC_ALLOW_PROMPT=1 keeps the bound and the cleanup ---"
+start=$SECONDS
+output=$(cd "$TMPDIR_16/local" && AIT_SYNC_ALLOW_PROMPT=1 AIT_BOUNDED_RUN_GRACE=1 \
+    ./ait sync --batch 2>/dev/null)
+elapsed=$(( SECONDS - start ))
+assert_eq_trim "17b: a hanging fetch still reports NO_NETWORK" "NO_NETWORK" "$output"
+assert_sync_hang_bounded "17b" "$elapsed"
+rm -rf "$TMPDIR_16"
+
+echo "--- Test 18: a hanging push is bounded and fully reaped ---"
+TMPDIR_18="$(setup_sync_repos)"
+git -C "$TMPDIR_18/local" config remote.origin.pushurl "$(make_sync_hang_stub "$TMPDIR_18/local")"
+echo "unpushed" >> "$TMPDIR_18/local/aitasks/t1_sample.md"
+start=$SECONDS
+output=$(cd "$TMPDIR_18/local" && AIT_BOUNDED_RUN_GRACE=1 ./ait sync --batch 2>/dev/null)
+elapsed=$(( SECONDS - start ))
+assert_eq_trim "18: a hanging push reports NO_NETWORK" "NO_NETWORK" "$output"
+assert_sync_hang_bounded "18" "$elapsed"
+rm -rf "$TMPDIR_18"
+rm -f "$SYNC_HANG_PIDS"
+
+echo "--- Test 19: prompts off by default; AIT_SYNC_ALLOW_PROMPT=1 (only) restores them ---"
+# A PATH git wrapper logs the prompt environment of every git that
+# bounded_run.py started (it alone sets AIT_BOUNDED_RUN_GRACE in the child, so
+# this file must not export it here), then execs the real git.
+SYNC_ENV_DIR="$(mktemp -d)"
+SYNC_ENV_LOG="$SYNC_ENV_DIR/env.log"
+SYNC_REAL_GIT="$(type -P git)"
+export SYNC_ENV_LOG SYNC_REAL_GIT
+cat > "$SYNC_ENV_DIR/git" <<'EOF'
+#!/bin/sh
+if [ -n "${AIT_BOUNDED_RUN_GRACE+set}" ]; then
+    for a in "$@"; do
+        case "$a" in fetch|push)
+            printf '%s GIT_ASKPASS=%s|SSH_ASKPASS=%s|SSH_ASKPASS_REQUIRE=%s|DISPLAY=%s\n' \
+                "$a" "${GIT_ASKPASS-unset}" "${SSH_ASKPASS-unset}" \
+                "${SSH_ASKPASS_REQUIRE-unset}" "${DISPLAY-unset}" >> "$SYNC_ENV_LOG"
+            break ;;
+        esac
+    done
+fi
+exec "$SYNC_REAL_GIT" "$@"
+EOF
+chmod +x "$SYNC_ENV_DIR/git"
+PROMPT_OFF="GIT_ASKPASS=|SSH_ASKPASS=unset|SSH_ASKPASS_REQUIRE=never|DISPLAY=unset"
+PROMPT_ON="GIT_ASKPASS=unset|SSH_ASKPASS=/fake/askpass|SSH_ASKPASS_REQUIRE=unset|DISPLAY=:99"
+
+# sync_prompt_env <cell> <AIT_SYNC_ALLOW_PROMPT value or "-" for unset> <expected>
+sync_prompt_env() {
+    local cell="$1" allow="$2" expected="$3" tmp out distinct
+    tmp="$(setup_sync_repos)"
+    echo "change-$cell" >> "$tmp/local/aitasks/t1_sample.md"
+    : > "$SYNC_ENV_LOG"
+    out=$(
+        cd "$tmp/local" || exit 1
+        unset GIT_ASKPASS SSH_ASKPASS_REQUIRE AIT_BOUNDED_RUN_GRACE AIT_SYNC_ALLOW_PROMPT
+        export DISPLAY=:99 SSH_ASKPASS=/fake/askpass
+        [[ "$allow" == "-" ]] || export AIT_SYNC_ALLOW_PROMPT="$allow"
+        PATH="$SYNC_ENV_DIR:$PATH" ./ait sync --batch 2>/dev/null
+    )
+    assert_eq_trim "$cell: a local change is PUSHED" "PUSHED" "$out"
+    assert_eq "$cell: fixture: the bounded fetch was logged" "yes" \
+        "$(grep -q '^fetch ' "$SYNC_ENV_LOG" && echo yes || echo no)"
+    assert_eq "$cell: fixture: the bounded push was logged" "yes" \
+        "$(grep -q '^push ' "$SYNC_ENV_LOG" && echo yes || echo no)"
+    distinct="$(sed 's/^[a-z]* //' "$SYNC_ENV_LOG" | sort -u)"
+    assert_eq "$cell: every bounded fetch/push saw the expected prompt env" \
+        "$expected" "$distinct"
+    rm -rf "$tmp"
+}
+sync_prompt_env "19a (default)" "-" "$PROMPT_OFF"
+sync_prompt_env "19b (=1)" "1" "$PROMPT_ON"
+sync_prompt_env "19c (=yes is not 1)" "yes" "$PROMPT_OFF"
+rm -rf "$SYNC_ENV_DIR"
+
+echo "--- Test 20: no usable python is a named error, never NO_NETWORK ---"
+# The bounded runner cannot start without an interpreter. Reporting that as
+# NO_NETWORK would read as "offline, retry later" for a broken install.
+TMPDIR_20="$(setup_sync_repos)"
+output=$(cd "$TMPDIR_20/local" && _AIT_RESOLVED_PYTHON=/nonexistent/python \
+    ./ait sync --batch 2>/dev/null) || true
+assert_eq_trim "20: a missing interpreter reports ERROR:no_python" "ERROR:no_python" "$output"
+output=$(cd "$TMPDIR_20/local" && ./ait sync --batch 2>/dev/null)
+assert_eq_trim "20: control: the same repo syncs with the real interpreter" "NOTHING" "$output"
+rm -rf "$TMPDIR_20"
+
 # --- Summary ---
 echo ""
 echo "==============================="

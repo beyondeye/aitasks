@@ -868,6 +868,68 @@ assert_eq "17c: diff failure exits 0" "0" "$rc17"
 assert_not_contains "17d: diff failure is not EXTRACT_FAILED" "EXTRACT_FAILED" "$out17"
 
 # ============================================================
+# Test 18: a stubborn transport is bounded and fully reaped (t2035)
+# ============================================================
+# origin is an ssh URL whose core.sshCommand stub records its pid, ignores
+# SIGTERM and sleeps: git (the parent) -> the stub (a DISTINCT child only a
+# process-group SIGKILL reaches). Killing the direct child alone, or the group
+# with SIGTERM alone (coreutils timeout without -k), leaves the stub running.
+
+echo "--- Test 18: a hanging transport is bounded and fully reaped ---"
+hang=$(make_legacy_mode_repo)
+register_cleanup "$hang"
+mark_branch_mode "$hang"
+HANG_PIDS="$hang/hang.pids"
+: > "$HANG_PIDS"
+cat > "$hang/hang-ssh" <<EOF
+#!/bin/sh
+echo \$\$ >> "$HANG_PIDS"
+trap '' TERM
+exec sleep 30
+EOF
+chmod +x "$hang/hang-ssh"
+git -C "$hang" config core.sshCommand "$hang/hang-ssh"
+git -C "$hang" config ssh.variant ssh
+git -C "$hang" remote add origin "ssh://drift-hang.invalid/repo.git"
+plan_path="$hang/plan.md"
+write_plan_file "$plan_path"
+hang_branch=$(repo_default_branch "$hang")
+
+# hang_alive: the recorded stub pids still running ("" when all are gone).
+hang_alive() {
+    local pid alive=""
+    while read -r pid; do
+        [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null && alive="$alive $pid"
+    done < "$HANG_PIDS"
+    printf '%s' "${alive# }"
+}
+
+# Control first: a plain fetch, its direct child (git) SIGKILLed alone, leaves
+# the stub running -- the fixture can see a direct-child-only cleanup.
+git -C "$hang" fetch --quiet origin >/dev/null 2>&1 &
+ctl_pid=$!
+for _ in $(seq 100); do [[ -s "$HANG_PIDS" ]] && break; sleep 0.05; done
+kill -KILL "$ctl_pid" 2>/dev/null || true
+wait "$ctl_pid" 2>/dev/null || true
+sleep 0.2
+assert_eq "18a: control: the stub outlives a direct-child kill" "yes" \
+    "$( [[ -n "$(hang_alive)" ]] && echo yes || echo no )"
+xargs kill -KILL < "$HANG_PIDS" 2>/dev/null || true
+: > "$HANG_PIDS"
+
+start=$SECONDS
+result=$(cd "$hang" && AIT_BOUNDED_RUN_GRACE=1 "$HELPER" --timeout 2 "$hang_branch" "$plan_path" 2>&1)
+elapsed=$(( SECONDS - start ))
+sleep 0.3
+assert_eq "18b: a hanging fetch emits FETCH_FAILED" "FETCH_FAILED" "$result"
+assert_eq "18c: returns within 8s (the stub hangs 30s)" "yes" \
+    "$( (( elapsed <= 8 )) && echo yes || echo "no: ${elapsed}s" )"
+assert_eq "18d: fixture: the hanging transport was reached" "yes" \
+    "$( [[ -s "$HANG_PIDS" ]] && echo yes || echo no )"
+assert_eq "18e: every hanging transport process was killed" "" "$(hang_alive)"
+xargs kill -KILL < "$HANG_PIDS" 2>/dev/null || true
+
+# ============================================================
 # Summary
 # ============================================================
 

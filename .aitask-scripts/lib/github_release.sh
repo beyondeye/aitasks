@@ -44,6 +44,9 @@ _AIT_GITHUB_RELEASE_SH=1
 # AIT_GIT_LSREMOTE_TIMEOUT override is normalized.
 _AIT_GIT_LSREMOTE_TIMEOUT_DEFAULT=10
 
+# This lib's own directory: bounded_run.py sits next to it.
+_AIT_GITHUB_RELEASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 # github_latest_release_version <repo>
 github_latest_release_version() {
     local repo="$1"
@@ -135,21 +138,46 @@ _github_kill_process_tree() {
     kill "$pid" 2>/dev/null || true
 }
 
+# _github_bounded_python
+# Print the interpreter to run lib/bounded_run.py with, or return 1 when the
+# ls-remote must use the in-shell fallback instead. Fallback cases:
+#   - `git` is a shell FUNCTION: the callers' test doubles stub it that way, and
+#     an exec'd helper would bypass the function and make a live network call.
+#   - no Python >= 3.8 (bounded_run.py needs signal.raise_signal): this lib is
+#     sourced by aitask_setup.sh before the framework venv exists, possibly on a
+#     machine with no python3 at all yet.
+_github_bounded_python() {
+    local py
+    declare -F git >/dev/null && return 1
+    [[ -f "$_AIT_GITHUB_RELEASE_DIR/bounded_run.py" ]] || return 1
+    py="${_AIT_RESOLVED_PYTHON:-}"
+    [[ -n "$py" ]] || py="$(command -v python3 2>/dev/null)" || return 1
+    "$py" -c 'import sys; sys.exit(sys.version_info < (3, 8))' >/dev/null 2>&1 \
+        || return 1
+    printf '%s\n' "$py"
+}
+
 # _github_ls_remote_tags <url>
 # Run `git ls-remote --tags --refs <url> 'v*'` under a hard time bound and print
 # its raw output. Prints nothing when it times out; always returns 0.
 #
-# Deliberately NOT `timeout(1)`: macOS ships none, and the callers' test doubles
-# stub `git` as a shell FUNCTION, which an exec'd `timeout` would bypass and turn
-# into a live network call. So the bound is a background job plus a polling
-# watchdog — the same shape as aitask_sync.sh:_git_with_timeout.
+# Normally through lib/bounded_run.py: git runs with no controlling terminal, as
+# the leader of its own process group, with no prompt channel (--noninteractive -- an `insteadOf` rewrite to
+# ssh cannot ask for a passphrase), and on expiry its whole process group is
+# killed, SIGTERM then SIGKILL after the grace, so a descendant that ignores
+# SIGTERM is reaped too. Not `timeout(1)`: macOS ships none.
+#
+# When _github_bounded_python says no (a shell-function `git`, or no usable
+# Python), the in-shell fallback below runs instead: a background job plus a
+# polling watchdog. It keeps the terminal and kills the job's group with SIGTERM
+# only -- the bootstrap-time best effort.
 #
 # Output goes to a temp file rather than a pipe: a surviving `git-remote-https`
 # grandchild holding the write end of a pipe keeps the reader blocked for the
 # full hang (measured in t1223_2). A file has no such reader.
 _github_ls_remote_tags() {
     local url="$1"
-    local timeout_s tmp pid deadline timed_out=0
+    local timeout_s tmp pid deadline timed_out=0 py rc=0
 
     # The knob is externally set, so normalize it before it reaches arithmetic or
     # git. Unguarded, `abc` aborts the function under `set -u` ("unbound
@@ -168,34 +196,44 @@ _github_ls_remote_tags() {
     tmp="$(mktemp "${TMPDIR:-/tmp}/ait_lsremote.XXXXXX" 2>/dev/null)" || return 0
 
     # GIT_HTTP_LOW_SPEED_* asks git to give up on its own first, which tears the
-    # transport helper down cleanly; the watchdog below is the hard backstop for
-    # the phases that timer does not cover (DNS, TCP connect).
-    #
-    # Job control is enabled for the launch ONLY: it is what puts the background
-    # job in a process group of its own, which is how the whole descendant tree
-    # can later be killed with one signal and no external binary. Restored
-    # immediately, and only when this shell did not already have it.
-    local had_monitor=0
-    case "$-" in *m*) had_monitor=1 ;; esac
-    set -m
-    GIT_TERMINAL_PROMPT=0 \
-    GIT_HTTP_LOW_SPEED_LIMIT=1 \
-    GIT_HTTP_LOW_SPEED_TIME="$timeout_s" \
-    git ls-remote --tags --refs "$url" 'v*' >"$tmp" 2>/dev/null &
-    pid=$!
-    [[ "$had_monitor" -eq 1 ]] || set +m
+    # transport helper down cleanly; the bound is the hard backstop for the
+    # phases that timer does not cover (DNS, TCP connect).
+    if py="$(_github_bounded_python)"; then
+        GIT_HTTP_LOW_SPEED_LIMIT=1 \
+        GIT_HTTP_LOW_SPEED_TIME="$timeout_s" \
+        "$py" "$_AIT_GITHUB_RELEASE_DIR/bounded_run.py" --timeout "$timeout_s" \
+            --noninteractive -- git ls-remote --tags --refs "$url" 'v*' \
+            >"$tmp" 2>/dev/null || rc=$?
+        if [[ "$rc" -eq 124 ]]; then timed_out=1; fi
+    else
+        # Job control is enabled for the launch ONLY: it is what puts the
+        # background job in a process group of its own, which is how the whole
+        # descendant tree can later be killed with one signal and no external
+        # binary. Restored immediately, and only when this shell did not already
+        # have it.
+        local had_monitor=0
+        case "$-" in *m*) had_monitor=1 ;; esac
+        set -m
+        GIT_TERMINAL_PROMPT=0 \
+        GIT_HTTP_LOW_SPEED_LIMIT=1 \
+        GIT_HTTP_LOW_SPEED_TIME="$timeout_s" \
+        git ls-remote --tags --refs "$url" 'v*' >"$tmp" 2>/dev/null &
+        pid=$!
+        [[ "$had_monitor" -eq 1 ]] || set +m
 
-    # $SECONDS keeps the bound honest whichever sleep granularity the platform
-    # accepts (BSD and GNU sleep both take fractions; a stricter one would not).
-    deadline=$(( SECONDS + timeout_s ))
-    while kill -0 "$pid" 2>/dev/null && (( SECONDS < deadline )); do
-        sleep 0.2 2>/dev/null || sleep 1
-    done
-    if kill -0 "$pid" 2>/dev/null; then
-        timed_out=1
-        _github_kill_process_tree "$pid"
+        # $SECONDS keeps the bound honest whichever sleep granularity the
+        # platform accepts (BSD and GNU sleep both take fractions; a stricter
+        # one would not).
+        deadline=$(( SECONDS + timeout_s ))
+        while kill -0 "$pid" 2>/dev/null && (( SECONDS < deadline )); do
+            sleep 0.2 2>/dev/null || sleep 1
+        done
+        if kill -0 "$pid" 2>/dev/null; then
+            timed_out=1
+            _github_kill_process_tree "$pid"
+        fi
+        wait "$pid" 2>/dev/null || true
     fi
-    wait "$pid" 2>/dev/null || true
 
     if [[ "$timed_out" -eq 0 ]]; then
         cat "$tmp" 2>/dev/null || true

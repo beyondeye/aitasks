@@ -537,10 +537,13 @@ class NonUtf8PathTests(unittest.TestCase):
 
 
 # A delayed descendant: records its pid, optionally leaves the process group
-# (what coreutils `timeout` does to the git it runs), sleeps, writes a marker.
+# (what coreutils `timeout` does to the git it runs), optionally ignores
+# SIGTERM (a stubborn transport), sleeps, writes a marker.
 _WRITER = """\
-import os, sys, time
+import os, signal, sys, time
 pidfile, marker, delay, own_group = sys.argv[1:5]
+if len(sys.argv) > 5 and sys.argv[5] == "1":
+    signal.signal(signal.SIGTERM, signal.SIG_IGN)
 if own_group == "1":
     os.setpgid(0, 0)
 with open(pidfile, "a") as fh:
@@ -559,6 +562,28 @@ writer, pidfile, marker, delay = sys.argv[1:5]
 subprocess.Popen([sys.executable, writer, pidfile, marker, delay, "0"],
                  stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                  stderr=subprocess.DEVNULL, close_fds=True)
+"""
+
+
+# A sync that will not stop. It starts the given command at once with
+# AIT_BOUNDED_RUN_GRACE=<grace>, records SIGTERM instead of dying, and then keeps
+# spawning short-lived SIGTERM-ignoring children: some member was always
+# signalled under a second ago, so no member's grace ever completes and the
+# stop runs to its cap.
+_TERM_RESISTANT_SPAWNER = """\
+import os, signal, subprocess, sys, time
+grace = sys.argv[1]
+cmd = sys.argv[2:]
+got = []
+signal.signal(signal.SIGTERM, lambda *_: got.append(time.monotonic()))
+quiet = dict(stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+             stderr=subprocess.DEVNULL)
+subprocess.Popen(cmd, env=dict(os.environ, AIT_BOUNDED_RUN_GRACE=grace), **quiet)
+while not got:
+    time.sleep(0.02)
+while True:
+    subprocess.Popen(["sh", "-c", "trap '' TERM; sleep 0.6"], **quiet)
+    time.sleep(0.25)
 """
 
 
@@ -654,6 +679,253 @@ class TimeoutContainmentTests(unittest.TestCase):
             str(self.pidfile), str(self.marker), "1.0"))
         self._write_script(launch + " >/dev/null 2>&1\nsleep 5")
         self._assert_stopped(self._sync())
+
+    # --- A nested bounded runner (t2035) ---------------------------------
+    # aitask_sync.sh runs fetch/push through lib/bounded_run.py, which puts git
+    # in a session of its own that this runner can neither see nor signal. The
+    # stand-in below runs the REAL bounded_run CLI around a transport parent
+    # (sh) whose distinct child ignores SIGTERM and writes the marker 4s in:
+    # only the inner runner's own SIGKILL can stop it, and only if the inner
+    # runner is still alive to send it.
+
+    NESTED_DELAY = 4.0
+
+    def _nested_runner_argv(self, delay: float) -> list[str]:
+        """The real bounded_run CLI around a transport parent (sh) and its
+        distinct SIGTERM-ignoring writer, which writes the marker ``delay`` s in."""
+        import shlex
+        writer = " ".join(shlex.quote(a) for a in (
+            sys.executable, str(self.writer), str(self.pidfile),
+            str(self.marker), str(delay), "0", "1"))
+        transport = f'{writer} & echo $$ >> {shlex.quote(str(self.pidfile))}; wait'
+        return [sys.executable, str(LIB_SRC / "bounded_run.py"), "--timeout",
+                "30", "--noninteractive", "--", "sh", "-c", transport]
+
+    def _write_nested_script(self) -> None:
+        import shlex
+        runner = " ".join(shlex.quote(a)
+                          for a in self._nested_runner_argv(self.NESTED_DELAY))
+        self._write_script(runner + " >/dev/null 2>&1")
+
+    def _nested_survivors(self) -> list[int]:
+        import os
+        alive = []
+        for pid in (self.pidfile.read_text().split()
+                    if self.pidfile.exists() else []):
+            try:
+                os.kill(int(pid), 0)
+            except ProcessLookupError:
+                continue
+            except PermissionError:
+                pass
+            alive.append(int(pid))
+        return alive
+
+    def _wait_for_both_pids(self) -> None:
+        # Fixture guard: the transport parent AND its stubborn child started.
+        import time
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            if (self.pidfile.exists()
+                    and len(self.pidfile.read_text().split()) >= 2):
+                return
+            time.sleep(0.02)
+        self.fail("the nested transport never started both processes")
+
+    def _run_nested(self):
+        import threading
+        result = {}
+        worker = threading.Thread(
+            target=lambda: result.setdefault("r", self._sync()))
+        worker.start()
+        self._wait_for_both_pids()
+        worker.join(30)
+        self.assertFalse(worker.is_alive(), "run_sync_batch never returned")
+        return result["r"]
+
+    def test_timeout_stops_a_nested_bounded_runner(self):
+        import time
+        self._write_nested_script()
+        with mock.patch.dict(os.environ):
+            os.environ.pop("AIT_BOUNDED_RUN_GRACE", None)
+            started = time.monotonic()
+            result = self._run_nested()
+        returned = time.monotonic() - started
+        self.assertEqual(result.status, sync_action_runner.STATUS_TIMEOUT)
+        self.assertIsNone(result.stray_session)
+        self.assertEqual(self._nested_survivors(), [],
+                         "a transport process outlived the timeout result")
+        # Orderly: the runner reaped its own group inside the TERM window, so
+        # the stop never needed its SIGKILL rounds.
+        self.assertLess(returned, self.TIMEOUT
+                        + sync_action_runner._TERM_GRACE_SECONDS)
+        time.sleep(max(0.0, started + self.NESTED_DELAY + 1.0 - time.monotonic()))
+        self.assertFalse(self.marker.exists(),
+                         "the nested transport wrote after the timeout result")
+
+    def test_control_an_uncoordinated_grace_falls_to_the_kill_rounds(self):
+        # Without the exported grace the runner keeps bounded_run's 5s default
+        # and outlives the 3s TERM window, so the cleanup is the SIGKILL rounds'
+        # rather than its own -- proving the grace ordering is what makes it
+        # orderly. Nothing escapes even so: bounded_run kept the transport in
+        # the sync's session (no controlling terminal), where the rounds reach it.
+        import time
+        self._write_nested_script()
+        with mock.patch.dict(os.environ), \
+                mock.patch.object(sync_action_runner, "_sync_child_env",
+                                  lambda: dict(os.environ)):
+            os.environ.pop("AIT_BOUNDED_RUN_GRACE", None)
+            started = time.monotonic()
+            result = self._run_nested()
+        returned = time.monotonic() - started
+        self.assertEqual(result.status, sync_action_runner.STATUS_TIMEOUT)
+        self.assertGreaterEqual(returned, sync_action_runner._TERM_GRACE_SECONDS)
+        self.assertIsNone(result.stray_session)
+        self.assertEqual(self._nested_survivors(), [])
+        time.sleep(max(0.0, started + self.NESTED_DELAY + 1.0 - time.monotonic()))
+        self.assertFalse(self.marker.exists())
+
+    def test_a_stopped_runner_is_resumed_to_clean_up(self):
+        # A SIGSTOPped runner cannot run its SIGTERM handler: without SIGCONT
+        # it sits out the whole TERM window and only the kill rounds end it.
+        # With SIGCONT it reaps its own group inside the window.
+        import shlex
+        import signal as sig
+        import threading
+        import time
+        runner_pid_file = self.root / "runner.pid"
+        runner = " ".join(shlex.quote(a)
+                          for a in self._nested_runner_argv(self.NESTED_DELAY))
+        self._write_script(
+            f"{runner} >/dev/null 2>&1 &\n"
+            f"echo $! > {shlex.quote(str(runner_pid_file))}\nwait")
+        timeout = 1.5
+        result = {}
+        with mock.patch.dict(os.environ):
+            os.environ.pop("AIT_BOUNDED_RUN_GRACE", None)
+            worker = threading.Thread(target=lambda: result.setdefault(
+                "r", sync_action_runner.run_sync_batch(timeout=timeout,
+                                                       repo_root=self.root)))
+            started = time.monotonic()
+            worker.start()
+            self._wait_for_both_pids()
+            os.kill(int(runner_pid_file.read_text()), sig.SIGSTOP)
+            worker.join(30)
+        returned = time.monotonic() - started
+        self.assertFalse(worker.is_alive())
+        r = result["r"]
+        self.assertEqual(r.status, sync_action_runner.STATUS_TIMEOUT)
+        self.assertIsNone(r.stray_session)
+        self.assertEqual(self._nested_survivors(), [])
+        self.assertLess(returned, timeout + sync_action_runner._TERM_GRACE_SECONDS,
+                        "the stopped runner was not resumed to clean up")
+        time.sleep(max(0.0, started + self.NESTED_DELAY + 1.0 - time.monotonic()))
+        self.assertFalse(self.marker.exists())
+
+    def test_a_runner_cut_down_by_the_term_cap_leaves_no_transport(self):
+        # Real processes. A SIGTERM-resistant sync keeps the TERM window open
+        # until its cap, and its bounded runner carries a 30s cleanup grace, so
+        # the cap's SIGKILL rounds cut that runner down MID-CLEANUP, before it
+        # ever SIGKILLs its own TERM-ignoring transport. The transport must die
+        # anyway -- possible only because it is a member of the sync's session
+        # rather than of a session of its own the stop cannot see.
+        import shlex
+        import time
+        spawner = self.root / "spawner.py"
+        spawner.write_text(_TERM_RESISTANT_SPAWNER)
+        writer_delay = 8.0
+        argv = [sys.executable, str(spawner), "30"] + \
+            self._nested_runner_argv(writer_delay)
+        self._write_script("exec " + " ".join(shlex.quote(a) for a in argv))
+        with mock.patch.dict(os.environ):
+            os.environ.pop("AIT_BOUNDED_RUN_GRACE", None)
+            started = time.monotonic()
+            result = self._sync()
+        returned = time.monotonic() - started
+        self.assertEqual(result.status, sync_action_runner.STATUS_TIMEOUT)
+        self.assertTrue(self.pidfile.exists()
+                        and len(self.pidfile.read_text().split()) >= 2,
+                        "fixture: the runner never started its transport")
+        self.assertGreaterEqual(returned, self.TIMEOUT
+                                + 2 * sync_action_runner._TERM_GRACE_SECONDS,
+                                "fixture: the stop did not reach the cap")
+        self.assertIsNone(result.stray_session)
+        self.assertEqual(self._nested_survivors(), [],
+                         "the capped runner's transport outlived the result")
+        time.sleep(max(0.0, started + writer_delay + 1.5 - time.monotonic()))
+        self.assertFalse(self.marker.exists(),
+                         "the capped runner's transport wrote after the result")
+
+    def test_a_runner_started_after_the_first_listing_is_still_stopped(self):
+        # The snapshot-versus-spawn interleaving: the sync launches its bounded
+        # runner AFTER the stop took its first membership listing, so a stop
+        # that signals only that listing never asks the runner to stop and
+        # SIGKILLs it mid-cleanup later. Deterministic: the first listing is
+        # held (and returned stale) until the runner and both transport
+        # processes exist; the stand-in only launches once released.
+        import shlex
+        import time
+        go = self.root / "go"
+        self._write_nested_script()
+        runner = self.script.read_text().split("\n", 1)[1]
+        self._write_script(
+            f"while [ ! -e {shlex.quote(str(go))} ]; do sleep 0.02; done\n"
+            + runner)
+        real_members = sync_action_runner._session_members
+        calls = {"n": 0}
+
+        def held_first_listing(sid):
+            calls["n"] += 1
+            members = real_members(sid)
+            if calls["n"] == 1:
+                go.touch()
+                self._wait_for_both_pids()
+            return members
+
+        with mock.patch.dict(os.environ), \
+                mock.patch.object(sync_action_runner, "_session_members",
+                                  held_first_listing):
+            os.environ.pop("AIT_BOUNDED_RUN_GRACE", None)
+            started = time.monotonic()
+            result = self._sync()
+        self.assertGreater(calls["n"], 1)
+        self.assertEqual(result.status, sync_action_runner.STATUS_TIMEOUT)
+        self.assertIsNone(result.stray_session)
+        self.assertEqual(self._nested_survivors(), [],
+                         "a late-started runner's transport outlived the result")
+        time.sleep(max(0.0, started + self.NESTED_DELAY + 1.0 - time.monotonic()))
+        self.assertFalse(self.marker.exists(),
+                         "the late runner's transport wrote after the result")
+
+    def test_term_window_is_capped_for_a_session_that_keeps_spawning(self):
+        # Escalation waits for each member's own grace, but never forever: a
+        # stream of new members still reaches the SIGKILL rounds.
+        import itertools
+        import time
+        pids = itertools.count(10_000_000)
+        with mock.patch.object(sync_action_runner, "_session_members",
+                               lambda sid: [next(pids)]), \
+                mock.patch.object(sync_action_runner, "_signal_members",
+                                  lambda members, sig: None), \
+                mock.patch.object(sync_action_runner, "_TERM_GRACE_SECONDS", 0.2):
+            started = time.monotonic()
+            emptied = sync_action_runner._term_session(1, [9_999_999])
+        self.assertFalse(emptied)
+        self.assertLess(time.monotonic() - started, 1.0)
+
+    def test_child_grace_fits_inside_the_outer_term_window(self):
+        from bounded_run import GRACE_ENV, NESTING_MARGIN_SECONDS
+        with mock.patch.dict(os.environ):
+            os.environ.pop(GRACE_ENV, None)
+            grace = float(sync_action_runner._sync_child_env()[GRACE_ENV])
+        self.assertLessEqual(grace + NESTING_MARGIN_SECONDS,
+                             sync_action_runner._TERM_GRACE_SECONDS)
+
+    def test_a_smaller_inherited_grace_is_kept(self):
+        from bounded_run import GRACE_ENV
+        with mock.patch.dict(os.environ, {GRACE_ENV: "0.5"}):
+            self.assertEqual(sync_action_runner._sync_child_env()[GRACE_ENV],
+                             "0.5")
 
     def test_unprovable_stop_reports_the_session(self):
         import os

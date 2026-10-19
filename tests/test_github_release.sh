@@ -231,6 +231,138 @@ out="$(
 assert_eq "no tags yields an empty version" "" "$out"
 assert_eq "no tags survives set -euo pipefail" "0" "$rc"
 
+# --- Test 12-15: the bounded_run path (t2035) -------------------------------
+# With `git` NOT a shell function and a usable python, the ls-remote runs under
+# lib/bounded_run.py. These cells use PATH stubs instead of functions, so the
+# exec'd runner reaches them. The hang stub is a transport PARENT (its own sh,
+# which dies on SIGTERM) and a DISTINCT CHILD that ignores SIGTERM: only a
+# process-group SIGKILL reaches it, so a cleanup that kills the direct child
+# alone -- or the group with SIGTERM alone, as the in-shell fallback does --
+# leaves it running.
+unset -f git
+REAL_GIT="$(type -P git)"
+STUB_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/ait_ghr_stubs.XXXXXX")"
+HANG_PIDS="$STUB_ROOT/hang.pids"
+ENV_LOG="$STUB_ROOT/env.log"
+PATH_LOG="$STUB_ROOT/path.log"
+export REAL_GIT HANG_PIDS ENV_LOG PATH_LOG
+trap 'rm -f "$STUB_PIDS"; rm -rf "$STUB_ROOT"' EXIT
+export AIT_BOUNDED_RUN_GRACE=1   # the TERM->KILL grace the stubborn child waits out
+
+# make_git_stub <dir> <ls-remote body>: a PATH `git` running <body> for
+# ls-remote and the real git for everything else.
+make_git_stub() {
+    mkdir -p "$1"
+    cat > "$1/git" <<EOF
+#!/bin/sh
+if [ "\${1:-}" = "ls-remote" ]; then
+$2
+fi
+exec "\$REAL_GIT" "\$@"
+EOF
+    chmod +x "$1/git"
+}
+make_git_stub "$STUB_ROOT/stubborn" \
+    '    sh -c '\''trap "" TERM; exec sleep 30'\'' &
+    echo "$$ $!" >> "$HANG_PIDS"
+    wait
+    exit 0'
+make_git_stub "$STUB_ROOT/yielding" \
+    '    sh -c '\''exec sleep 30'\'' &
+    echo "$$ $!" >> "$HANG_PIDS"
+    wait
+    exit 0'
+make_git_stub "$STUB_ROOT/envrec" \
+    '    printf "GIT_ASKPASS=%s|SSH_ASKPASS_REQUIRE=%s|DISPLAY=%s\n" \
+        "${GIT_ASKPASS-unset}" "${SSH_ASKPASS_REQUIRE-unset}" "${DISPLAY-unset}" > "$ENV_LOG"
+    printf "%s\t%s\n" abc refs/tags/v0.9.0 def refs/tags/v0.10.0
+    exit 0'
+make_git_stub "$STUB_ROOT/logging" \
+    '    echo called >> "$PATH_LOG"
+    exit 0'
+
+# hang_pids_alive: every recorded pid still running ("" when all are gone).
+hang_pids_alive() {
+    local pid alive=""
+    for pid in $(cat "$HANG_PIDS" 2>/dev/null); do
+        kill -0 "$pid" 2>/dev/null && alive="$alive $pid"
+    done
+    printf '%s' "${alive# }"
+}
+hang_pids_kill() {
+    local pid
+    for pid in $(cat "$HANG_PIDS" 2>/dev/null); do kill -KILL "$pid" 2>/dev/null; done
+    : > "$HANG_PIDS"
+}
+
+echo "--- Test 12: a stubborn ls-remote transport is bounded and fully reaped ---"
+: > "$HANG_PIDS"
+start=$SECONDS
+out="$(PATH="$STUB_ROOT/stubborn:$PATH" AIT_GIT_LSREMOTE_TIMEOUT=3 \
+    github_latest_tag_version beyondeye/aitasks)"; rc=$?
+elapsed=$(( SECONDS - start ))
+sleep 0.3
+assert_eq "12: hanging ls-remote yields no version" "" "$out"
+assert_eq "12: hanging ls-remote still exits 0" "0" "$rc"
+assert_eq "12: bounded well inside the 30s stub hang" "yes" \
+    "$( [[ $elapsed -le 8 ]] && echo yes || echo "no: ${elapsed}s" )"
+assert_eq "12: fixture: the parent and its distinct child both started" "2" \
+    "$(wc -w < "$HANG_PIDS" | tr -d ' ')"
+assert_eq "12: parent and stubborn child were both killed" "" "$(hang_pids_alive)"
+hang_pids_kill
+
+echo "--- Test 12c: control: killing the direct child alone leaves the transport ---"
+PATH="$STUB_ROOT/stubborn:$PATH" git ls-remote control >/dev/null 2>&1 &
+ctl_pid=$!
+for _ in $(seq 50); do [[ -s "$HANG_PIDS" ]] && break; sleep 0.05; done
+kill -KILL "$ctl_pid" 2>/dev/null
+wait "$ctl_pid" 2>/dev/null
+sleep 0.2
+assert_eq "12c: control: the stubborn child outlives a direct-child kill" "yes" \
+    "$( [[ -n "$(hang_pids_alive)" ]] && echo yes || echo no )"
+hang_pids_kill
+
+echo "--- Test 13: the bounded ls-remote runs with no prompt channel ---"
+out="$(
+    unset GIT_ASKPASS SSH_ASKPASS_REQUIRE
+    export DISPLAY=:99
+    PATH="$STUB_ROOT/envrec:$PATH" github_latest_tag_version beyondeye/aitasks
+)"
+assert_eq "13: resolves the version" "0.10.0" "$out"
+assert_eq "13: GIT_ASKPASS empty, ssh askpass never, no display" \
+    "GIT_ASKPASS=|SSH_ASKPASS_REQUIRE=never|DISPLAY=unset" "$(cat "$ENV_LOG" 2>/dev/null)"
+
+echo "--- Test 14: a shell-function git still wins over the exec'd runner ---"
+git() {
+    if [[ "$1" == "ls-remote" ]]; then
+        printf '%s\t%s\n' 'abc123' 'refs/tags/v0.9.0' 'def456' 'refs/tags/v0.10.0'
+        return 0
+    fi
+    command git "$@"
+}
+: > "$PATH_LOG"
+out="$(PATH="$STUB_ROOT/logging:$PATH" github_latest_tag_version beyondeye/aitasks)"
+assert_eq "14: the function stub answered" "0.10.0" "$out"
+assert_eq "14: the PATH git was never exec'd" "" "$(cat "$PATH_LOG")"
+unset -f git
+
+echo "--- Test 15: without a usable python the in-shell fallback still bounds it ---"
+: > "$HANG_PIDS"
+start=$SECONDS
+out="$(PATH="$STUB_ROOT/yielding:$PATH" _AIT_RESOLVED_PYTHON="$(type -P false)" \
+    AIT_GIT_LSREMOTE_TIMEOUT=3 github_latest_tag_version beyondeye/aitasks)"; rc=$?
+elapsed=$(( SECONDS - start ))
+sleep 0.3
+assert_eq "15: fallback yields no version" "" "$out"
+assert_eq "15: fallback exits 0" "0" "$rc"
+assert_eq "15: fallback is bounded" "yes" \
+    "$( [[ $elapsed -le 8 ]] && echo yes || echo "no: ${elapsed}s" )"
+assert_eq "15: fixture: both stub processes started" "2" \
+    "$(wc -w < "$HANG_PIDS" | tr -d ' ')"
+assert_eq "15: the fallback's group SIGTERM reaped them" "" "$(hang_pids_alive)"
+hang_pids_kill
+unset AIT_BOUNDED_RUN_GRACE
+
 # --- Summary ---
 echo ""
 echo "==============================="

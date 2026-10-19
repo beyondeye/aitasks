@@ -319,8 +319,8 @@ def git_cmd(worktree: str, *args: str, check: bool = True,
     """Run a git command in the given worktree directory.
 
     ``timeout`` is for network operations only: the command then runs through
-    bounded_run.run_bounded under noninteractive_env() — a new session with no
-    controlling terminal, no askpass program and no display, so nothing can
+    bounded_run.run_bounded under noninteractive_env() — its own process group
+    with no controlling terminal, no askpass program and no display, so nothing can
     prompt — and its whole process tree is killed after ``timeout`` seconds. A
     timed-out command reports exit status 124 with a message on stderr, like
     any other failure. Never pass it for a step that writes the worktree.

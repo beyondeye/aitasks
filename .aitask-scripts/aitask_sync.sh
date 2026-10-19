@@ -8,6 +8,7 @@
 # Usage:
 #   ./.aitask-scripts/aitask_sync.sh            # Interactive mode (colored output)
 #   ./.aitask-scripts/aitask_sync.sh --batch    # Structured output for scripting
+#   AIT_SYNC_ALLOW_PROMPT=1 ...                 # allow graphical auth prompts
 #
 # Batch output protocol (single line on stdout):
 #   SYNCED                     Both push and pull completed
@@ -131,6 +132,14 @@ Options:
                         cannot be probed the group is skipped.
   --help, -h            Show this help
 
+Environment:
+  AIT_SYNC_ALLOW_PROMPT=1  Let fetch/push show a GRAPHICAL authentication
+                        prompt (SSH_ASKPASS on a display, a GIT_ASKPASS /
+                        core.askPass helper, Git Credential Manager's UI).
+                        Prompts are off by default. Fetch and push stay bounded
+                        to 10 seconds with their whole process tree killed on
+                        expiry, and a terminal prompt is never possible.
+
 Interactive mode:
   Shows colored progress messages. On merge conflicts, opens $EDITOR
   (default: nano) for each conflicted file, then continues the rebase.
@@ -245,37 +254,41 @@ if [[ "$REQUIRE_WAITING" == true ]] && (( ${#COMMIT_FOR_TASKS[@]} == 0 )); then
     die "--require-waiting is only meaningful with --commit-for-task."
 fi
 
-# --- Portable timeout wrapper ---
-# Uses coreutils timeout if available, falls back to background process watchdog.
-# Returns 124 on timeout (same as coreutils timeout).
-# Note: Cannot use `timeout task_git` because task_git is a shell function.
-# Instead, we build the raw git command args respecting the data worktree.
+# --- Bounded network wrapper ---
+# Runs one fetch/push through lib/bounded_run.py: git runs with no controlling
+# terminal and stdin /dev/null, as the leader of its own process group (in a new
+# session only when this sync has a terminal to drop), and on expiry its whole process
+# group is killed -- SIGTERM, then SIGKILL after the grace -- so a transport
+# that ignores SIGTERM (an ssh, a configured core.sshCommand) cannot outlive
+# the sync. Returns git's status, or 124 when NETWORK_TIMEOUT expired.
+#
+# Prompts are off by default (--noninteractive: no askpass, no display, no GCM
+# UI). AIT_SYNC_ALLOW_PROMPT=1 -- exactly "1" -- keeps the caller's askpass /
+# display environment so a GRAPHICAL prompt can authenticate; the bound, the
+# missing terminal and the group kill are unchanged, so a terminal prompt is never
+# possible and a graphical one must finish inside NETWORK_TIMEOUT.
+#
+# lib/sync_action_runner.py runs this script in a terminal-less session, so git
+# stays a member of that session and its session-scoped stop reaches every
+# transport; it also exports AIT_BOUNDED_RUN_GRACE short enough for this
+# runner's own, orderly cleanup to finish inside its TERM window.
+#
+# Not `bounded_run.py -- task_git`: task_git is a shell function, so the raw git
+# args are built here, respecting the data worktree.
 _git_with_timeout() {
     _ait_detect_data_worktree
-    local git_args=()
+    local git_args=() runner_args=(--timeout "$NETWORK_TIMEOUT") py
     if [[ "$_AIT_DATA_WORKTREE" != "." ]]; then
         git_args=(-C "$_AIT_DATA_WORKTREE")
     fi
     git_args+=("$@")
-
-    if command -v timeout &>/dev/null; then
-        timeout "$NETWORK_TIMEOUT" git "${git_args[@]}"
-    else
-        # macOS fallback: background process with watchdog
-        git "${git_args[@]}" &
-        local pid=$!
-        local i=0
-        while kill -0 "$pid" 2>/dev/null && [[ $i -lt $NETWORK_TIMEOUT ]]; do
-            sleep 1
-            i=$((i + 1))
-        done
-        if kill -0 "$pid" 2>/dev/null; then
-            kill "$pid" 2>/dev/null || true
-            wait "$pid" 2>/dev/null || true
-            return 124
-        fi
-        wait "$pid"
+    if [[ "${AIT_SYNC_ALLOW_PROMPT:-}" != 1 ]]; then
+        runner_args+=(--noninteractive)
     fi
+
+    py="$(resolve_python)"
+    "${py:-python3}" "$SCRIPT_DIR/lib/bounded_run.py" \
+        "${runner_args[@]}" -- git "${git_args[@]}"
 }
 
 # --- Output helpers ---
@@ -1904,6 +1917,17 @@ report_skipped() {
 do_fetch() {
     iinfo "Fetching from remote..."
     local fetch_exit=0
+    # Every fetch/push runs under lib/bounded_run.py. With no usable Python it
+    # cannot start, and the failure must not pass as NO_NETWORK -- that is the
+    # "offline, try later" outcome, and a broken install never heals by waiting.
+    local py
+    py="$(resolve_python)"
+    if [[ -z "$py" ]] \
+        || ! "$py" -c 'import sys; sys.exit(sys.version_info < (3, 8))' >/dev/null 2>&1; then
+        batch_out "ERROR:no_python"
+        iwarn "No usable Python (>= 3.8) to run the bounded fetch/push; 'ait setup' repairs the framework venv."
+        exit 1
+    fi
     # Pinned (AIT_RECONCILE_GIT_OPTS, lib/task_utils.sh — t1789): this fetch
     # feeds the rebase, so it must not leave a detached maintenance run behind.
     _git_with_timeout "${AIT_RECONCILE_GIT_OPTS[@]}" fetch origin 2>/dev/null || fetch_exit=$?

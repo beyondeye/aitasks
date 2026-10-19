@@ -9,8 +9,14 @@ CLI (used by the shell crew helpers in lib/agentcrew_utils.sh)::
 
     python3 bounded_run.py --timeout <seconds> [--noninteractive] -- <cmd> [args...]
 
-The command runs in a NEW SESSION, so it has no controlling terminal: nothing it
-starts (ssh, plink, a configured transport script) can open /dev/tty to prompt.
+The command never has a controlling terminal: nothing it starts (ssh, plink, a
+configured transport script) can open /dev/tty to prompt. When this runner HAS
+one, the command runs in a NEW SESSION, which is the only way to drop it. When
+this runner has none, the command runs in its OWN PROCESS GROUP inside the
+caller's session instead (_child_isolation): there is no terminal to drop, a
+non-leader can never acquire one, and the command stays visible to a caller
+that stops and audits its work by session (lib/sync_action_runner.py), so a
+caller that kills this runner mid-cleanup still reaches the transport.
 Its stdin is /dev/null and its stdout/stderr go to temporary files rather than
 pipes, so a descendant that outlives it (an ssh ControlPersist master) cannot
 block the reader.
@@ -102,7 +108,7 @@ def noninteractive_env(base=None) -> dict:
 
     Configured SSH commands (core.sshCommand, GIT_SSH_COMMAND, GIT_SSH) are left
     alone: injecting ``-o BatchMode=yes`` would break plink-variant commands.
-    With no controlling terminal (run_bounded's new session), no askpass program
+    With no controlling terminal (_child_isolation), no askpass program
     and no display, no transport has a channel to prompt through. Credentials
     must come from ssh-agent or a credential helper.
     """
@@ -136,7 +142,7 @@ def kill_process_group(proc: subprocess.Popen, grace: float) -> None:
     Polls the GROUP, not the leader: a member that ignores SIGTERM outlives a
     leader that died at once. Reaps the leader.
     """
-    pgid = proc.pid  # start_new_session: the leader's pid is the group id
+    pgid = proc.pid  # _child_isolation: the child leads its own group
     _signal_group(pgid, signal.SIGTERM)
     _signal_group(pgid, signal.SIGCONT)
     deadline = time.monotonic() + grace
@@ -184,6 +190,34 @@ def _shielded_kill(proc: subprocess.Popen, grace: float) -> None:
         signal.raise_signal(received[0])
 
 
+def _has_controlling_terminal() -> bool:
+    """True when this process has a controlling terminal (/dev/tty opens)."""
+    try:
+        fd = os.open("/dev/tty", os.O_RDWR | os.O_NOCTTY)
+    except OSError:
+        return False
+    os.close(fd)
+    return True
+
+
+def _child_isolation() -> dict:
+    """Popen kwargs that make the child the leader of its own process group.
+
+    A controlling terminal can only be dropped by a new session. Without one,
+    the child gets its own group in the caller's session: ``process_group``
+    (Python 3.11+), else ``preexec_fn=os.setpgrp`` while this process is
+    single-threaded (the CLI always is; preexec_fn is unsafe with threads),
+    else a new session as the last resort.
+    """
+    if _has_controlling_terminal():
+        return {"start_new_session": True}
+    if sys.version_info >= (3, 11):
+        return {"process_group": 0}
+    if threading.active_count() == 1:
+        return {"preexec_fn": os.setpgrp}
+    return {"start_new_session": True}
+
+
 class Cancelled(Exception):
     """run_bounded's ``cancelled()`` asked it to stop; the group is already dead."""
 
@@ -217,7 +251,9 @@ def run_bounded(cmd, timeout, *, env=None, stop_grace=0.0, cwd=None,
     the expiry a STOP REQUEST first: SIGTERM to the leader alone, which it may
     honour at a safe point, and up to ``stop_grace`` more seconds to exit; that
     result is returned with ``stopped=True``. Only a child still running after it
-    is killed. ``cancelled`` (a callable, polled while waiting) ends the wait
+    is killed. ``cancelled`` (a callable, polled while waiting, and once more
+    when the command ends, so a leader killed by the same stop still gets its
+    group reaped) ends the wait
     early: the group is killed and ``Cancelled`` raised. Any other exception
     (KeyboardInterrupt, a signal turned into an exception) also kills the group
     before propagating, and signals arriving during that cleanup are deferred
@@ -228,7 +264,7 @@ def run_bounded(cmd, timeout, *, env=None, stop_grace=0.0, cwd=None,
     child_env[GRACE_ENV] = f"{child_grace(grace):g}"
     with tempfile.TemporaryFile() as out, tempfile.TemporaryFile() as err:
         proc = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=out, stderr=err,
-                                env=child_env, cwd=cwd, start_new_session=True)
+                                env=child_env, cwd=cwd, **_child_isolation())
         stopped = False
         try:
             try:
@@ -239,6 +275,13 @@ def run_bounded(cmd, timeout, *, env=None, stop_grace=0.0, cwd=None,
                 stopped = True
                 proc.send_signal(signal.SIGTERM)  # the leader alone: a stop request
                 _wait(proc, stop_grace, cancelled)
+            # A stop was requested, but the leader ended first -- typically
+            # because the same stop reached it directly (a caller signalling a
+            # whole session SIGTERMs the leader too). Its group may still hold
+            # a member that ignores SIGTERM, so a stop still reaps the group;
+            # only a genuinely normal exit leaves it alone.
+            if cancelled is not None and cancelled():
+                raise Cancelled
         except BaseException as exc:
             _shielded_kill(proc, grace)
             if isinstance(exc, subprocess.TimeoutExpired):

@@ -61,6 +61,7 @@ if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
 
 from agent_launch_utils import find_terminal, spawn_in_terminal  # noqa: E402
+from bounded_run import GRACE_ENV, child_grace, effective_grace  # noqa: E402
 from guarded_dismiss import GuardedModalScreen  # noqa: E402
 
 
@@ -229,6 +230,17 @@ DEFAULT_SYNC_TIMEOUT_SECONDS = 30
 # files on TERM, and aitask_sync.sh has no traps of its own. Then SIGKILL
 # rounds until the session is empty — repeated, so a member that forks between
 # one membership listing and the kill is caught by the next round.
+#
+# The sync's fetch/push run under lib/bounded_run.py. The sync has no
+# controlling terminal (start_new_session below), so bounded_run keeps git in
+# its own process GROUP inside the sync's session rather than a session of its
+# own: every transport stays a member here, so the SIGKILL rounds reach it and
+# an empty session proves it gone even when the runner itself was killed
+# mid-cleanup. The budgets are still ordered so that cleanup is normally the
+# runner's own, orderly one (git removes its *.lock files on SIGTERM): the sync
+# gets AIT_BOUNDED_RUN_GRACE = child_grace(_TERM_GRACE_SECONDS)
+# (_sync_child_env), so on our SIGTERM + SIGCONT the runner kills its group —
+# SIGTERM, that grace, SIGKILL — and exits inside this TERM window.
 _TERM_GRACE_SECONDS = 3.0
 _KILL_DEADLINE_SECONDS = 5.0
 _POLL_SECONDS = 0.05
@@ -388,10 +400,9 @@ def sync_batch_command(repo_root: Path | None = None) -> tuple[list[str], str | 
 def _session_members(sid: int) -> list[int] | None:
     """Live (non-zombie) pids in session ``sid``; ``None`` = cannot tell.
 
-    Session, not process group: coreutils ``timeout`` (``_git_with_timeout``
-    in aitask_sync.sh) moves itself and git into their own group, and a
-    descendant may close every inherited fd — but both keep the session. Only
-    an explicit ``setsid()`` leaves it.
+    Session, not process group: a descendant may move itself into its own
+    group (bounded_run.py does, for every fetch/push) and close every inherited
+    fd, but it keeps the session. Only an explicit ``setsid()`` leaves it.
     """
     if os.path.exists("/proc/self/stat"):
         members = []
@@ -475,6 +486,43 @@ def _wait_session_empty(sid: int, seconds: float, kill: bool = False) -> bool:
         time.sleep(_POLL_SECONDS)
 
 
+def _term_session(sid: int, members: list[int]) -> bool:
+    """SIGTERM session ``sid`` — late joiners included; True once it is empty.
+
+    One snapshot is not enough: a member started after it (the sync launching
+    bounded_run.py for a fetch the instant before our signal) would never be
+    asked to stop, and would meet only the SIGKILL rounds — no orderly cleanup.
+    So every poll re-lists the session and signals whoever has not been yet,
+    and escalation waits until each member still alive has had
+    ``_TERM_GRACE_SECONDS`` since ITS own SIGTERM. Each SIGTERM is followed by
+    SIGCONT: a stopped member cannot run its handler otherwise. The window is
+    capped at twice the grace, so a session that keeps spawning still reaches
+    the SIGKILL rounds — which is safe, because every transport is a session
+    member (see ``_TERM_GRACE_SECONDS``). Unknown membership returns False.
+    """
+    termed: dict[int, float] = {}
+    started = time.monotonic()
+    cap = 2 * _TERM_GRACE_SECONDS
+    while True:
+        now = time.monotonic()
+        fresh = [pid for pid in members if pid not in termed]
+        if fresh:
+            _signal_members(fresh, signal.SIGTERM)
+            _signal_members(fresh, signal.SIGCONT)
+            for pid in fresh:
+                termed[pid] = now
+        time.sleep(_POLL_SECONDS)
+        members = _session_members(sid)
+        if members is None:
+            return False
+        if not members:
+            return True
+        now = time.monotonic()
+        newest = max(termed.get(pid, now) for pid in members)
+        if now - newest >= _TERM_GRACE_SECONDS or now - started >= cap:
+            return False
+
+
 def _stop_sync_session(proc: subprocess.Popen) -> int | None:
     """Stop every process of a timed-out sync; return its sid if unproven.
 
@@ -484,8 +532,7 @@ def _stop_sync_session(proc: subprocess.Popen) -> int | None:
     sid = proc.pid
     members = _session_members(sid)
     if members:
-        _signal_members(members, signal.SIGTERM)
-        if not _wait_session_empty(sid, _TERM_GRACE_SECONDS):
+        if not _term_session(sid, members):
             _wait_session_empty(sid, _KILL_DEADLINE_SECONDS, kill=True)
     # Reap the direct child. proc.kill() is a no-op on a reaped pid; it only
     # matters when membership could not be listed at all.
@@ -509,6 +556,16 @@ class SyncProcessTimeout(subprocess.TimeoutExpired):
         self.stray_session = stray_session
 
 
+def _sync_child_env() -> dict:
+    """The sync's environment: os.environ plus a nested-runner grace that fits
+    inside ``_TERM_GRACE_SECONDS`` (see the comment there). A smaller grace
+    already in the environment is kept."""
+    env = dict(os.environ)
+    grace = min(effective_grace(), child_grace(_TERM_GRACE_SECONDS))
+    env[GRACE_ENV] = f"{grace:g}"
+    return env
+
+
 def _run_sync_process(argv, *, cwd, timeout, encoding, errors):
     """``subprocess.run`` for the sync that contains its whole session.
 
@@ -528,6 +585,7 @@ def _run_sync_process(argv, *, cwd, timeout, encoding, errors):
         encoding=encoding,
         errors=errors,
         cwd=cwd,
+        env=_sync_child_env(),
         start_new_session=True,
     )
     try:

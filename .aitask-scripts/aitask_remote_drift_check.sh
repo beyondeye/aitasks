@@ -32,8 +32,10 @@
 #                               line (WEAK_OVERLAP lines do not suppress it, so a
 #                               parser that ignores them sees the same verdict).
 #   EXTRACT_FAILED              The plan reference scan could not run
-#                               (lib/plan_paths.py unreachable, or the plan file
-#                               unreadable). Emitted INSTEAD of any
+#                               (lib/plan_paths.py unreachable, the plan file
+#                               unreadable, or no usable Python for the scan and
+#                               the bounded fetch -- checked BEFORE fetching, so
+#                               it is never reported as FETCH_FAILED). Emitted INSTEAD of any
 #                               OVERLAP/NO_OVERLAP verdict, with a non-zero exit,
 #                               because "references nothing" and "could not scan"
 #                               are the same shape -- an empty set -- and
@@ -55,6 +57,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib/terminal_compat.sh"
 # shellcheck source=lib/task_utils.sh
 source "$SCRIPT_DIR/lib/task_utils.sh"
+# shellcheck source=lib/python_resolve.sh
+source "$SCRIPT_DIR/lib/python_resolve.sh"     # resolve_python (bounded_run.py)
 # shellcheck source=lib/plan_paths_sh.sh
 source "$SCRIPT_DIR/lib/plan_paths_sh.sh"
 
@@ -102,7 +106,8 @@ Output (always exit 0; structured stdout):
   WEAK_OVERLAP:<file>  (zero or more, after OVERLAP) bare-name or
                        module-relative plan reference; evidence only
   NO_OVERLAP           (after AHEAD, when no OVERLAP lines)
-  EXTRACT_FAILED       (exit 3) the plan reference scan could not run
+  EXTRACT_FAILED       (exit 3) the plan reference scan could not run, or
+                       no usable Python for it and the bounded fetch
 EOF
 }
 
@@ -167,29 +172,30 @@ if ! git remote get-url origin &>/dev/null; then
     exit 0
 fi
 
-# --- Portable timeout wrapper for git fetch ---
-# Uses coreutils `timeout` if available; falls back to a background watchdog
-# (macOS BSD does not ship timeout). Returns 124 on timeout, mirroring
-# aitask_sync.sh:_git_with_timeout.
+# --- Bounded git fetch ---
+# Runs the fetch through lib/bounded_run.py, the shape aitask_sync.sh's
+# _git_with_timeout uses: no controlling terminal, its own process group, no
+# prompt channel (--noninteractive -- this always runs inside an agent session,
+# with no human at a tty), and on expiry the whole process group is killed, so
+# a transport that ignores SIGTERM cannot outlive the check. Returns git's
+# status, or 124 when NETWORK_TIMEOUT expired.
 _git_fetch_with_timeout() {
-    if command -v timeout &>/dev/null; then
-        timeout "$NETWORK_TIMEOUT" git fetch --quiet origin "$BASE_BRANCH"
-    else
-        git fetch --quiet origin "$BASE_BRANCH" &
-        local pid=$!
-        local i=0
-        while kill -0 "$pid" 2>/dev/null && [[ $i -lt $NETWORK_TIMEOUT ]]; do
-            sleep 1
-            i=$((i + 1))
-        done
-        if kill -0 "$pid" 2>/dev/null; then
-            kill "$pid" 2>/dev/null || true
-            wait "$pid" 2>/dev/null || true
-            return 124
-        fi
-        wait "$pid"
-    fi
+    "$BOUNDED_PY" "$SCRIPT_DIR/lib/bounded_run.py" --timeout "$NETWORK_TIMEOUT" \
+        --noninteractive -- git fetch --quiet origin "$BASE_BRANCH"
 }
+
+# The bounded fetch and the plan reference scan need the same interpreter. If it
+# is unusable, nothing below can be trusted, so fail CLOSED with the infra error
+# (exit 3) rather than letting the fetch fail first: FETCH_FAILED is the
+# deliberately silent "network is flaky" outcome, and a broken install must not
+# pass as one.
+BOUNDED_PY="$(resolve_python)"
+if [[ -z "$BOUNDED_PY" ]] \
+    || ! "$BOUNDED_PY" -c 'import sys; sys.exit(sys.version_info < (3, 8))' >/dev/null 2>&1; then
+    debug "no usable python for the bounded fetch (resolved: '${BOUNDED_PY}')"
+    echo "EXTRACT_FAILED"
+    exit 3
+fi
 
 debug "fetching origin/$BASE_BRANCH (timeout ${NETWORK_TIMEOUT}s)"
 fetch_exit=0

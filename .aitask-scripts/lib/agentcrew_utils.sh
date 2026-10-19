@@ -107,7 +107,7 @@ crew_git_timeout() {
 # Run `git -C <worktree> <git-args>` through lib/bounded_run.py with stdout and
 # stderr in <output-file>. Returns git's status, or 124 when the bound expired
 # and the operation's whole process tree was killed. bounded_run.py runs git in
-# a new session with noninteractive_env(): no controlling terminal, no askpass
+# its own process group with noninteractive_env(): no controlling terminal, no askpass
 # program and no display, so ssh, plink or a configured transport cannot prompt
 # (a `set -m` job would keep the terminal). Only network operations go through
 # here: killing a local step that writes the worktree (a commit, a rebase)

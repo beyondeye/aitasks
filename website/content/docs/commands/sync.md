@@ -187,9 +187,21 @@ The merge script (`aitask_merge.py`) uses these exit codes:
 
 ### Network Handling
 
-All network operations use a 10-second timeout to prevent the script from hanging when there is no connectivity. On systems with the `timeout` command (standard on Linux), it is used directly. On systems without it (e.g., macOS without coreutils), a portable bash-based watchdog fallback is used.
+The fetch and the push each have a 10-second limit, so the script never hangs when there is no connectivity. When the limit expires, the whole git process tree is killed, including a transport such as `ssh` that ignores the polite stop signal, so nothing keeps running in the background. The behaviour is the same on Linux and macOS.
 
 If any network operation times out, the script outputs `NO_NETWORK` and exits cleanly — no partial state is left behind.
+
+#### Authentication prompts
+
+By default, the fetch and the push cannot ask for credentials. No terminal prompt, no `SSH_ASKPASS` dialog, and no Git Credential Manager window appears, so a background sync from the [syncer]({{< relref "/docs/tuis/syncer" >}}) never pops up a dialog. Credentials must come from `ssh-agent` or a git credential helper that answers without asking. When they are missing, the sync reports `NO_NETWORK`.
+
+If your setup authenticates through a graphical prompt, for example an `SSH_ASKPASS` program for a passphrase-protected key or Git Credential Manager's sign-in window, allow it for a run:
+
+```bash
+AIT_SYNC_ALLOW_PROMPT=1 ait sync
+```
+
+Only the exact value `1` enables prompts. This setting changes nothing else: the 10-second limit and the process-tree kill still apply, so the prompt has to be answered within that time. Terminal (typed) prompts stay impossible even then, because git runs without a controlling terminal.
 
 ### Data Branch Mode
 

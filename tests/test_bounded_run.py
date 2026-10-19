@@ -328,6 +328,98 @@ class TestNoninteractivePolicy(unittest.TestCase):
         self.assertEqual(env["KEEP"], "1")
 
 
+class TestChildIsolation(unittest.TestCase):
+    """The child never has a controlling terminal, and leads its own group
+    (t2035). A new session only when this runner has a terminal to drop;
+    otherwise the caller's session, so a session-scoped stop still reaches it."""
+
+    def test_a_controlling_terminal_forces_a_new_session(self):
+        with patch.object(br, "_has_controlling_terminal", lambda: True):
+            self.assertEqual(br._child_isolation(), {"start_new_session": True})
+
+    def test_no_terminal_keeps_the_callers_session(self):
+        with patch.object(br, "_has_controlling_terminal", lambda: False):
+            kw = br._child_isolation()
+        if sys.version_info >= (3, 11):
+            self.assertEqual(kw, {"process_group": 0})
+        else:
+            self.assertNotIn("start_new_session", kw)  # single-threaded test run
+
+    def test_threaded_pre_311_falls_back_to_a_new_session(self):
+        with patch.object(br, "_has_controlling_terminal", lambda: False), \
+                patch.object(br.sys, "version_info", (3, 10)), \
+                patch.object(br.threading, "active_count", lambda: 2):
+            self.assertEqual(br._child_isolation(), {"start_new_session": True})
+
+    def test_without_a_terminal_the_child_shares_our_session_in_its_own_group(self):
+        script = "import os; print(os.getsid(0), os.getpgid(0), os.getpid())"
+        with patch.object(br, "_has_controlling_terminal", lambda: False):
+            result = br.run_bounded([sys.executable, "-c", script], 10)
+        sid, pgid, pid = (int(v) for v in result.stdout.split())
+        self.assertEqual(sid, os.getsid(0))
+        self.assertEqual(pgid, pid)
+
+    def test_with_a_terminal_the_child_gets_a_session_of_its_own(self):
+        script = "import os; print(os.getsid(0), os.getpid())"
+        with patch.object(br, "_has_controlling_terminal", lambda: True):
+            result = br.run_bounded([sys.executable, "-c", script], 10)
+        sid, pid = (int(v) for v in result.stdout.split())
+        self.assertEqual(sid, pid)
+
+    @unittest.skipUnless(Path("/proc/self/stat").exists(), "/proc backend")
+    def test_a_stop_reaps_the_group_even_after_the_leader_ended(self):
+        # A session-scoped stop SIGTERMs the leader directly, so it can be gone
+        # before the runner notices the stop; its TERM-ignoring child must still
+        # be reaped. Deterministic: the stop reads true only once the leader has
+        # exited, so the only path that can reap the child is the post-exit one.
+        import shutil
+        tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, tmp, True)
+        pidfile, leaderfile = tmp / "child.pid", tmp / "leader.pid"
+        # The stubborn child is its own script, so its `$$` is its own pid and
+        # no shell quoting can hand it the leader's.
+        child_script = tmp / "child.sh"
+        child_script.write_text(TERM_IGNORING.format(pidfile=pidfile) + "\n")
+        leader = (f"echo $$ > {leaderfile}; sh {child_script} & "
+                  f"while [ ! -s {pidfile} ]; do sleep 0.02; done; exit 0")
+
+        def read_pid(path: Path) -> int | None:
+            try:
+                text = path.read_text().strip()
+            except FileNotFoundError:
+                return None
+            return int(text) if text else None
+
+        def kill_child():
+            pid = read_pid(pidfile)
+            if pid is not None:
+                try:
+                    os.kill(pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+        self.addCleanup(kill_child)
+
+        def leader_gone() -> bool:
+            pid = read_pid(leaderfile)
+            if pid is None:
+                return False
+            try:
+                stat = Path(f"/proc/{pid}/stat").read_text()
+            except FileNotFoundError:
+                return True
+            return stat[stat.rfind(")") + 2:].split()[0] == "Z"
+
+        with patch.dict(os.environ, {br.GRACE_ENV: "1"}):
+            with self.assertRaises(br.Cancelled):
+                br.run_bounded(["sh", "-c", leader], 10, cancelled=leader_gone)
+        leader_pid, child = read_pid(leaderfile), read_pid(pidfile)
+        self.assertIsNotNone(child, "fixture: the stubborn child never started")
+        self.assertNotEqual(child, leader_pid,
+                            "fixture: child.pid must be the child's own pid")
+        time.sleep(0.2)
+        self.assertFalse(_alive(child), "the stop left the leader's child running")
+
+
 class TestCrewGitTimeout(_TmpDirCase):
     def test_normalization(self):
         cases = {"": 10, "0": 10, "-1": 10, "abc": 10, "08x": 10, "1234567": 10,
