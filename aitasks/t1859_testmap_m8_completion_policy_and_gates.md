@@ -3,11 +3,12 @@ priority: medium
 effort: high
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [testing, testmap, gates]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1852
 created_at: 2026-09-22 09:19
-updated_at: 2026-09-22 09:19
+updated_at: 2026-10-19 12:41
 ---
 
 ## Goal
