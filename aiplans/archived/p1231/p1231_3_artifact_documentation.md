@@ -420,3 +420,4 @@ t1231_4 (manual verification) is still pending, so the parent stays active.
 - **Notes for sibling tasks:**
   - t1231_4 (manual verification): the docs to check against are `concepts/artifacts.md`, `commands/artifact.md` and `tuis/settings/{_index,how-to,reference}.md`; rendered locally via `cd website && ./serve.sh`.
   - Future backends (t1089 `s3`, t1090 `gdrive`): adding a module + dispatch arm without a `| \`<name>\` |` row in `concepts/artifacts.md` now fails `tests/test_website_doc_lists.sh`; an arm without a module (or vice versa) fails its cross-check.
+- **Manual-verification failure:** item "[t1231_3] Confirm the settings reference tables now match the live TUI — every tab, every key, including the previously-missing Shortcuts row." failed; follow-up task t2068.
