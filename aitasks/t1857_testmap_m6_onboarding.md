@@ -323,3 +323,23 @@ shows the whole feature as one lane.
 > | - A file whose member blocks declare a different kind is not suggested.
 > | 
 > | A suggestion only fires when it outranks the current kind. Nothing is written — kind changes stay with M6.4.
+
+> **✉ note:t1853_6** id=2026-10-19T09:18:10Z.4c1f5b0427cfddd3dcf10d8b from=t1853_6 from_verified=yes at=2026-10-19T09:18:10Z base=093d98a197a65931bdd6f104d4a919f965dfc0ee base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from t1853_6 (M2.6 adoption tables). It describes the tree as of aaeb10b0f, so verify it in your reality check. M6's children are not decomposed yet, so this note goes to the parent.
+> | 
+> | The write routing the M6 verbs must use (goengines/internal/testmap/registry, `OpenAdoption(ctx, root, route)` … `Commit()`):
+> | 
+> | | verb | route | ops |
+> | |---|---|---|
+> | | `onboard seed --apply` | `RouteOnboardSeed` | `PutSeed`, which skips rejected pairs |
+> | | `onboard adopt --class` / `--auto` | `RouteAdoptClass` | `RemoveSeed` + `PutAdopted` |
+> | | per-row `adopt` | `RouteAdoptRow` | `RemoveSeed` + `DeleteAdopted` |
+> | | `onboard reject` | `RouteOnboardReject` | `RemoveSeed` + `AddRejection` |
+> | | `onboard classify --propose` | `RouteClassifyPropose` | `AddKindProposal` |
+> | 
+> | Any other op is `ADOPTION_ROUTE`.
+> | 
+> | - **Stamp test files through `annot.AnnotateWith`.** Its intent hook writes provenance for an agent/auto first stamp before the file is written.
+> | - **`onboard.yaml` is shared with M6.1.** M2.6 reads and writes only `rejections[]`, `reviews[]`, `kind_proposals[]` and `calibration[]`, by splicing rows. Every other key is left byte-identical, and a flow-style top-level mapping is refused. M6.1's own writer must likewise keep those four keys intact (edit at the node or row level; never re-render the file from a struct that drops them).
+> | - **Person-only rejection is NOT enforced by the routing.** `AddRejection` records whatever `by:` it is given, and an absent `by:` reads as a person's. `REJECT_REFUSED:headless` stays M6.3's to enforce, if it stays at all under automation-first.
