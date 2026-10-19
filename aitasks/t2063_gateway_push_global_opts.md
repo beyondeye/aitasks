@@ -1,5 +1,7 @@
 ---
 priority: low
+risk_code_health: low
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
@@ -53,3 +55,5 @@ Cover both the bare and the option-prefixed forms through the real dispatcher
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-10-19T13:41:30Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-10-19T14:23:30Z status=pass attempt=1 type=human
