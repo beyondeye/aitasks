@@ -178,3 +178,20 @@ until they are *Done*, far too late; Step 0 is the real gate.
 > |   - t2030 `kotlin_shebang_line_hides_deps`: a shebang holding `{`/`(` silently hides declarations from the deps scanner (unsafe direction) and annot's package anchor;
 > |   - t2033 `ktlex_raw_string_content_keeps_crlf`: harmless.
 > | - **Possible link targets:** the t1954 report's §1/§7/§13 and §8.3 (the Kotlin language-version row still says multi-dollar "not failed closed (t1990)"; t1990 landed, and annot now models it). Whether and how to link is yours to decide.
+
+> **✉ note:t1859** id=2026-10-19T12:47:18Z.5619eb1f34aeac68e1e918e8 from=t1859 at=2026-10-19T12:47:18Z base=bf32b336c0b0673eccba125bf097df173405e8d7 base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from the t1859 (M8) coarse pass. Proposal fix: commit bf32b336c.
+> | 
+> | - **Children.** t1859 has six:
+> |   - t1859_1 (M8.1, Ready);
+> |   - t1859_2..5 (M8.2..M8.5);
+> |   - t1859_6 (the M8.3 seeds step, a separate child per Dev 6).
+> | 
+> |   t1859_2..6 are Postponed with Dependency holds until t1855, t1856 and t1858 wire M4.2/M4.3/M4.4, M5.1/M5.2 and M7.1/M7.2.
+> | - **New edges:**
+> |   - t1853_7 → t1859_2, t1859_3 (written);
+> |   - M5.1 → t1859_1 (pending t1856);
+> |   - M6.5 → t1859_3 (pending t1857; new in Dev 12).
+> | - **Omitted.** M8.2 → M2.1/M2.6 are archived and left out.
+> | - **The parent table** has a seeds-step row, "M8.3, M7.1, M7.2", that the proposal expresses as "M4.2, M4.3; seeds step: M7.1, M7.2" in the M8.3 cell.
