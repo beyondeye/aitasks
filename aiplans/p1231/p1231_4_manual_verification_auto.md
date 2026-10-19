@@ -170,6 +170,31 @@ scratchpad (`av1231_4/`), never in this repository:
 - Output (trimmed): exit 0.
 - Verdict: pass
 
+## Final Implementation Notes
+
+- **Actual work done:** All 22 checklist items driven autonomously against
+  throwaway branch-mode projects (bare remote + clones, isolated caches, an
+  isolated tmux server for the settings TUI, a `git archive` copy for the
+  drift-guard red proof). 21 pass, 1 fail.
+- **Deviations from plan:** Items 18/22 rendered with `hugo build
+  --destination <scratch>` instead of `serve.sh` / the default `public/`, and
+  item 21 edited a HEAD copy instead of the shared worktree — same checks, no
+  side effects on the shared tree.
+- **Issues encountered:** Item 1's first `get` on clone B found no manifest
+  until A ran `ait git push` — intended (blob branch push-gated, manifest rides
+  the data branch), but undocumented on the artifact pages.
+- **Upstream defects identified:** None that block. Follow-up t2068 (docs:
+  settings reference Within Tabs table misses Profiles `w`/`v`/`x`/`Tab` and
+  Shortcuts `d`/`l`).
+- **Minor observations, no task created:** (a) the unreachable-origin error
+  embeds a clipped git stderr fragment `(and the repository exists.)`;
+  (b) long Artifacts-tab hint lines and the branch-dialog error clip instead of
+  wrapping; (c) Save with no edits still rewrites + commits
+  `project_config.yaml` (drops comments — t1260 — and normalises `yes`→`true`);
+  (d) the docs could state that a new artifact is resolvable from another clone
+  only after the data branch is pushed.
+- **Notes for sibling tasks:** none remain (last child).
+
 ## Cleanup
 
 - `tmux -L av1231 kill-server` (isolated server; the user's `ait` server is untouched).
