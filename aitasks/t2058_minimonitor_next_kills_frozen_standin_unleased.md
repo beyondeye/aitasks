@@ -3,12 +3,13 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Folded
 labels: [minimonitor, monitor, frozen_agents]
+folded_into: 2057
 anchor: 2049
 followup_kind: upstream_defect
 created_at: 2026-10-19 12:00
-updated_at: 2026-10-19 12:00
+updated_at: 2026-10-19 12:16
 ---
 
 ## Origin
