@@ -12,6 +12,8 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 
@@ -190,7 +192,7 @@ _SHORTCUTS_EXPORT_SENTINEL = "__shortcuts__"
 # keybinding registry (default declared in SettingsApp.BINDINGS), so users can
 # rebind tab switching in the Shortcuts editor and the footer hint follows
 # automatically (see _tab_switch_hint). Insertion order drives the hint order
-# (a/b/c/m/p/s/t by default).
+# (a/b/c/g/k/m/p/s/t by default).
 # Agent Defaults row-id prefix -> supersession layer name (model_supersession
 # LAYERS), and that layer's label as the tab shows it.
 _AGENT_ROW_LAYERS = {"agent_proj_": "project", "agent_user_": "local"}
@@ -201,6 +203,7 @@ _TAB_SWITCH_ACTIONS = {
     "switch_tab_board": "tab_board",
     "switch_tab_project": "tab_project",
     "switch_tab_project_groups": "tab_project_groups",
+    "switch_tab_artifacts": "tab_artifacts",
     "switch_tab_models": "tab_models",
     "switch_tab_profiles": "tab_profiles",
     "switch_tab_shortcuts": "tab_shortcuts",
@@ -350,6 +353,42 @@ TMUX_CONFIG_SCHEMA: dict[str, dict[str, str]] = {
     },
 }
 
+#: Branch the Artifacts tab offers when gitbranch is selected with no branch
+#: configured yet (matches the seeded project_config.yaml example).
+ARTIFACTS_GITBRANCH_DEFAULT_BRANCH = "aitask-artifacts"
+
+# Keys of the `artifacts:` block the Artifacts tab edits. Every validation rule
+# (adapter names, branch names, required backend settings) lives in
+# lib/artifact_registry.py and is reached through SettingsApp._run_artifact_registry;
+# nothing here re-encodes it.
+ARTIFACTS_CONFIG_SCHEMA: dict[str, dict[str, str]] = {
+    "default_backend": {
+        "summary": "Backend new artifacts are stored in",
+        "detail": (
+            "artifacts.default_backend in project_config.yaml. 'local' (the "
+            "default when unset) stores blobs on the task-data branch; "
+            "'gitbranch' stores them on a dedicated branch of their own. A "
+            "non-local default must be configured under artifacts.backends — "
+            "Save refuses one the artifact registry would reject."
+        ),
+        "type": "enum",
+        "default": "local",
+    },
+    "backends.gitbranch.branch": {
+        "summary": "Branch the gitbranch backend stores blobs on",
+        "detail": (
+            "artifacts.backends.gitbranch.branch. Must be a plain branch name "
+            "and never a code or framework branch (main, master, aitask-data, "
+            "aitask-locks, aitask-ids). The branch is created by the first "
+            "artifact write, or by 'ait artifact init-store gitbranch'. "
+            "Changing it once a store exists needs 'ait artifact "
+            "gitbranch-migrate --from <old> --to <new>'."
+        ),
+        "type": "string",
+        "default": ARTIFACTS_GITBRANCH_DEFAULT_BRANCH,
+    },
+}
+
 
 def _format_yaml_value(value) -> str:
     """Render a YAML value into a compact single-line editor string."""
@@ -444,6 +483,7 @@ def _safe_id(name: str) -> str:
 
 
 _SETTINGS_DIR = Path(__file__).resolve().parent
+ARTIFACT_REGISTRY = _SETTINGS_DIR.parent / "lib" / "artifact_registry.py"
 _BUILD_VERIFY_DOCS = "https://aitasks.io/docs/skills/aitask-pick/build-verification/"
 
 
@@ -1635,6 +1675,60 @@ class RenameGroupScreen(ModalScreen):
         self.dismiss(None)
 
 
+class EditArtifactBranchScreen(GuardedModalScreen):
+    """Edit the gitbranch artifact branch. A non-empty name is validated before
+    the screen dismisses, so a rejected branch never reaches the pane; an empty
+    value dismisses (clearing is legal — the save path decides whether the
+    resulting config is acceptable)."""
+
+    BINDINGS = [Binding("escape", "cancel", "Cancel", show=False)]
+
+    def __init__(self, key: str, current_value: str,
+                 validate: Callable[[str], str | None]):
+        super().__init__()
+        self.key = key
+        self.current_value = current_value
+        self._validate = validate
+
+    def compose(self) -> ComposeResult:
+        with Container(id="edit_dialog"):
+            yield Label(f"Edit: [bold]{self.key}[/bold]", id="edit_title")
+            yield Label(
+                "Branch name (empty clears it; main, master and the aitask-* "
+                "framework branches are refused):",
+                classes="edit-label",
+            )
+            yield Input(value=self.current_value, id="edit_branch_input")
+            yield Label("", id="edit_branch_error", classes="section-hint")
+            with Horizontal(id="edit_buttons"):
+                yield Button("Save", variant="success", id="btn_edit_branch_save")
+                yield Button("Cancel", variant="default", id="btn_edit_branch_cancel")
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        self._do_save()
+
+    @on(Button.Pressed, "#btn_edit_branch_save")
+    def _on_save(self) -> None:
+        self._do_save()
+
+    def _do_save(self) -> None:
+        value = self.query_one("#edit_branch_input", Input).value
+        if value:
+            why = self._validate(value)
+            if why:
+                self.query_one("#edit_branch_error", Label).update(
+                    f"[red]{escape(why)}[/red]")
+                return
+        self.dismiss({"key": self.key, "value": value})
+
+    @on(Button.Pressed, "#btn_edit_branch_cancel")
+    def _on_cancel(self) -> None:
+        self.dismiss(None)
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+
 class DeleteProfileConfirmScreen(ModalScreen):
     """Confirmation dialog to delete a profile."""
 
@@ -2015,6 +2109,7 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
         Binding("b", "switch_tab_board", "Board tab", show=False),
         Binding("c", "switch_tab_project", "Project tab", show=False),
         Binding("g", "switch_tab_project_groups", "Project Groups tab", show=False),
+        Binding("k", "switch_tab_artifacts", "Artifacts tab", show=False),
         Binding("m", "switch_tab_models", "Models tab", show=False),
         Binding("p", "switch_tab_profiles", "Profiles tab", show=False),
         Binding("s", "switch_tab_shortcuts", "Shortcuts tab", show=False),
@@ -2090,6 +2185,7 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
         self._editing_project_key: str | None = None
         self._repop_counter: int = 0  # ensures unique widget IDs across repopulations
         self._tmux_tab_rc: int = 0  # counter snapshot for tmux tab widgets
+        self._artifacts_tab_rc: int = 0  # counter snapshot for artifacts tab widgets
         self._profiles_tab_rc: int = 0  # counter snapshot for profiles tab widgets
         self._shortcuts_swept: bool = False  # global scope sweep runs once
         self._shortcuts_query: str = ""  # fuzzy filter for the Shortcuts tab
@@ -2119,6 +2215,8 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
                 yield Vertical(id="project_groups_content")
             with TabPane(self.label("switch_tab_tmux", "Tmux"), id="tab_tmux"):
                 yield VerticalScroll(id="tmux_content")
+            with TabPane(self.label("switch_tab_artifacts", "Artifacts"), id="tab_artifacts"):
+                yield VerticalScroll(id="artifacts_content")
             with TabPane(self.label("switch_tab_models", "Models"), id="tab_models"):
                 yield VerticalScroll(id="models_content")
             with TabPane(self.label("switch_tab_profiles", "Execution Profiles"), id="tab_profiles"):
@@ -2137,6 +2235,7 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
         self._populate_project_tab()
         self._populate_project_groups_tab()
         self._populate_tmux_tab()
+        self._populate_artifacts_tab()
         self._populate_models_tab()
         self._populate_profiles_tab()
         self._populate_shortcuts_tab()
@@ -2255,6 +2354,9 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
 
     def action_switch_tab_tmux(self) -> None:
         self._switch_to_tab("tab_tmux")
+
+    def action_switch_tab_artifacts(self) -> None:
+        self._switch_to_tab("tab_artifacts")
 
     def _tab_switch_hint(self) -> str:
         """Footer hint listing the live tab-switch keys (registry-derived).
@@ -2394,6 +2496,20 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
                 self.push_screen(
                     EditStringScreen(focused.row_key, focused.raw_value),
                     callback=self._handle_tmux_config_edit,
+                )
+                event.prevent_default()
+                event.stop()
+                return
+
+            # Artifacts config editing (branch validated before dismiss)
+            if fid.startswith("artifacts_cfg_"):
+                self._editing_artifacts_row_id = focused.id
+                self.push_screen(
+                    EditArtifactBranchScreen(
+                        focused.row_key, focused.raw_value,
+                        self._artifact_ref_error,
+                    ),
+                    callback=self._handle_artifacts_config_edit,
                 )
                 event.prevent_default()
                 event.stop()
@@ -3784,6 +3900,317 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
             self.notify(f"Could not update {key}: {exc}", severity="error")
 
     # -------------------------------------------------------------------
+    # Artifacts tab (editable — writes to project_config.yaml artifacts: section)
+    # Every rule about what the section may contain is asked of
+    # lib/artifact_registry.py through _run_artifact_registry; the pane only
+    # assembles the candidate config and refuses to save one the registry
+    # rejects.
+    # -------------------------------------------------------------------
+    def _run_artifact_registry(self, *args: str,
+                               config: str | None = None) -> tuple[int, str, str]:
+        """Run `artifact_registry.py --config <config> <args>`.
+
+        Returns (rc, stdout, stderr) and never raises — a launch/timeout
+        failure is reported as a non-zero rc. `config` defaults to the
+        project config; the save path passes a temporary candidate instead.
+        """
+        try:
+            proc = subprocess.run(
+                [sys.executable, str(ARTIFACT_REGISTRY), "--config",
+                 config or str(PROJECT_CONFIG), *args],
+                capture_output=True, text=True, timeout=30,
+            )
+            return proc.returncode, proc.stdout, proc.stderr
+        except (OSError, ValueError, subprocess.TimeoutExpired) as exc:
+            # ValueError: an argument the OS cannot carry (an embedded NUL in
+            # a value read from YAML) — refused like any other failure.
+            return 1, "", f"cannot run the artifact registry: {exc}"
+
+    @staticmethod
+    def _registry_message(stderr: str, fallback: str) -> str:
+        msg = stderr.strip().removeprefix("artifact_registry.py: ").strip()
+        return msg or fallback
+
+    @staticmethod
+    def _artifacts_sections(config: dict) -> tuple[dict, dict, dict, str | None]:
+        """Return (artifacts, backends, gitbranch, error) from a project config.
+
+        An absent (or null) level reads as {}. A level that is present but not a
+        mapping is never coerced: `error` names its dotted path, and all three
+        sections come back empty so the pane can still render defaults.
+        """
+        sections: list[dict] = []
+        node = config
+        for path in ("artifacts", "artifacts.backends",
+                     "artifacts.backends.gitbranch"):
+            value = node.get(path.rsplit(".", 1)[-1])
+            if value is None:
+                value = {}
+            elif not isinstance(value, dict):
+                return {}, {}, {}, (
+                    f"{path} is a {type(value).__name__}, not a mapping — fix "
+                    f"{PROJECT_CONFIG.name} by hand, then press r to reload")
+            sections.append(value)
+            node = value
+        return sections[0], sections[1], sections[2], None
+
+    def _artifact_adapters(self) -> list[str]:
+        """Every available adapter (`adapters`, not `list`: on a fresh project
+        `list` names only `local`, so gitbranch could never be selected to
+        create its own first configuration)."""
+        rc, out, err = self._run_artifact_registry("adapters")
+        names = [line.strip() for line in out.splitlines() if line.strip()]
+        if rc != 0 or not names:
+            self.notify(
+                "Could not list artifact backends — "
+                f"{escape(self._registry_message(err, 'no output'))}",
+                severity="error", timeout=10)
+            return ["local"]
+        return names
+
+    def _artifact_ref_error(self, branch: str) -> str | None:
+        """Why the registry rejects `branch` as the gitbranch branch, or None."""
+        rc, _out, err = self._run_artifact_registry("validate-ref", branch)
+        if rc == 0:
+            return None
+        return self._registry_message(err, f"branch {branch!r} was rejected")
+
+    def _artifacts_candidate_error(self, data: dict, default: str) -> str | None:
+        """Ask the registry whether the config about to be saved is usable.
+
+        `default-backend` checks the default is registered and has an adapter;
+        it does not check the backend's required settings (a `dir` entry with
+        no path, or a relative one, passes it), so a non-local default is also
+        run through `backend-env`, which does.
+        """
+        try:
+            fd, tmp = tempfile.mkstemp(prefix="ait_artifacts_", suffix=".yaml")
+        except OSError as exc:
+            return f"could not stage the config for checking: {exc}"
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                yaml.safe_dump(data, f, sort_keys=False, allow_unicode=True)
+            checks = [("default-backend",)]
+            if default != "local":
+                checks.append(("backend-env", default))
+            for args in checks:
+                rc, _out, err = self._run_artifact_registry(*args, config=tmp)
+                if rc != 0:
+                    msg = self._registry_message(
+                        err, f"the artifact registry rejected {' '.join(args)}")
+                    return msg.replace(tmp, PROJECT_CONFIG.name)
+            return None
+        except (OSError, yaml.YAMLError) as exc:
+            return f"could not stage the config for checking: {exc}"
+        finally:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+
+    def _artifacts_widgets(self) -> tuple[CycleField, ConfigRow] | None:
+        rc = self._artifacts_tab_rc
+        try:
+            return (
+                self.query_one(f"#artifacts_cycle_default_backend_{rc}", CycleField),
+                self.query_one(f"#artifacts_cfg_gitbranch_branch_{rc}", ConfigRow),
+            )
+        except Exception:
+            return None
+
+    def _populate_artifacts_tab(self):
+        container = self.query_one("#artifacts_content", VerticalScroll)
+        container.remove_children()
+
+        self._repop_counter += 1
+        rc = self._repop_counter
+        self._artifacts_tab_rc = rc
+
+        container.mount(Label("Artifact Storage", classes="section-header"))
+        container.mount(Label(
+            "[dim]Where `ait artifact` stores blobs. Stored in "
+            "aitasks/metadata/project_config.yaml under the artifacts: section. "
+            "The gitbranch store is created by the first artifact write, or by "
+            "'ait artifact init-store gitbranch'.[/dim]",
+            classes="section-hint",
+        ))
+        container.mount(Label(
+            "[dim]Saving rewrites project_config.yaml without its comments — "
+            "including the seeded artifacts: documentation block — as the "
+            "Project Config and Tmux tabs already do.[/dim]",
+            classes="section-hint",
+        ))
+
+        artifacts, _backends, gitbranch, error = self._artifacts_sections(
+            self.config_mgr.project_config)
+        if error:
+            container.mount(Label(
+                f"[red]{escape(error)}. Save is refused until then.[/red]",
+                classes="section-hint",
+            ))
+
+        info = ARTIFACTS_CONFIG_SCHEMA["default_backend"]
+        current = artifacts.get("default_backend")
+        current = str(current) if current is not None else info["default"]
+        options = self._artifact_adapters()
+        if current not in options:
+            # Show what the file says; Save lets the registry judge it.
+            options = [current] + options
+        container.mount(CycleField(
+            "default_backend", options, current, field_key="default_backend",
+            id=f"artifacts_cycle_default_backend_{rc}",
+        ))
+        container.mount(Label(
+            f"      [dim]{info['summary']}[/dim]", classes="section-hint",
+        ))
+
+        info = ARTIFACTS_CONFIG_SCHEMA["backends.gitbranch.branch"]
+        branch = gitbranch.get("branch")
+        branch = "" if branch is None else str(branch)
+        container.mount(ConfigRow(
+            "gitbranch branch", escape(branch) or "(not set)",
+            config_layer="project", row_key="backends.gitbranch.branch",
+            id=f"artifacts_cfg_gitbranch_branch_{rc}", raw_value=branch,
+        ))
+        container.mount(Label(
+            f"      [dim]{info['summary']}. Changing it once a store exists "
+            "needs 'ait artifact gitbranch-migrate --from <old> --to "
+            "<new>'.[/dim]",
+            classes="section-hint",
+        ))
+
+        hbox = Horizontal(classes="tab-buttons")
+        container.mount(hbox)
+        hbox.mount(Button("Save Artifact Settings", variant="success",
+                          id=f"btn_artifacts_save_{rc}"))
+        hbox.mount(Button("Revert Artifact Settings", variant="warning",
+                          id=f"btn_artifacts_revert_{rc}"))
+
+        container.mount(Label(
+            f"[dim]Enter: edit  |  ←→: cycle  |  ↑↓: navigate  |  {self._tab_switch_hint()}[/dim]",
+            classes="section-hint",
+        ))
+
+    def _on_artifacts_backend_changed(self, value: str) -> None:
+        """Selecting gitbranch with no branch fills in the default branch (in
+        the pane only), so a Save writes both the default and its backend."""
+        if value != "gitbranch":
+            return
+        widgets = self._artifacts_widgets()
+        if widgets is None or widgets[1].raw_value:
+            return
+        row = widgets[1]
+        row.raw_value = ARTIFACTS_GITBRANCH_DEFAULT_BRANCH
+        row.value = ARTIFACTS_GITBRANCH_DEFAULT_BRANCH
+        row.refresh()
+        self.notify(
+            f"gitbranch needs a branch — set to {ARTIFACTS_GITBRANCH_DEFAULT_BRANCH}; "
+            "press Save to persist")
+
+    def save_artifacts_settings(self):
+        if not self._may_save("project"):
+            return
+        widgets = self._artifacts_widgets()
+        if widgets is None:
+            self.notify("Not saved — the Artifacts tab is not rendered.",
+                        severity="error")
+            return
+        default = widgets[0].current_value
+        # The raw value: validate-ref judges it exactly as activation does.
+        branch = widgets[1].raw_value or ""
+
+        artifacts, backends, gitbranch, error = self._artifacts_sections(
+            self.config_mgr.project_config)
+        # Every interpolated message below is escaped: registry messages quote
+        # the rejected value, which comes straight from the YAML file.
+        if error:
+            self.notify(f"Not saved — {escape(error)}.", severity="error",
+                        timeout=10)
+            return
+        if branch:
+            why = self._artifact_ref_error(branch)
+            if why:
+                self.notify(f"Not saved — {escape(why)}", severity="error",
+                            timeout=10)
+                return
+        elif default == "gitbranch":
+            self.notify("Not saved — the gitbranch backend needs a branch: set "
+                        "one, or pick another default backend.",
+                        severity="error", timeout=10)
+            return
+
+        # Copies of the existing sections, so keys the pane does not render
+        # (other backends, unknown siblings) survive the save.
+        data = dict(self.config_mgr.project_config)
+        artifacts = dict(artifacts)
+        backends = dict(backends)
+        gitbranch = dict(gitbranch)
+        old_branch = gitbranch.get("branch")
+        if branch:
+            gitbranch["branch"] = branch
+        else:
+            gitbranch.pop("branch", None)
+        if gitbranch:
+            backends["gitbranch"] = gitbranch
+        else:
+            backends.pop("gitbranch", None)
+        if backends:
+            artifacts["backends"] = backends
+        else:
+            artifacts.pop("backends", None)
+        if default != ARTIFACTS_CONFIG_SCHEMA["default_backend"]["default"]:
+            artifacts["default_backend"] = default
+        else:
+            artifacts.pop("default_backend", None)
+        if artifacts:
+            data["artifacts"] = artifacts
+        else:
+            data.pop("artifacts", None)
+
+        why = self._artifacts_candidate_error(data, default)
+        if why:
+            self.notify(f"Not saved — {escape(why)}", severity="error",
+                        timeout=10)
+            return
+
+        self.config_mgr.save_project_settings(data)
+        if self._refresh_after_save("project", "Artifact settings saved"):
+            self._populate_artifacts_tab()
+            self.notify("Artifact settings saved")
+        if old_branch not in (None, "") and branch and str(old_branch) != branch:
+            old, new = escape(str(old_branch)), escape(branch)
+            self.notify(
+                f"gitbranch branch changed from {old} to {new}. If a store "
+                "already exists, artifact operations refuse until it is "
+                f"migrated: ait artifact gitbranch-migrate --from {old} "
+                f"--to {new}",
+                severity="warning", timeout=15)
+
+    def _revert_artifacts_settings(self):
+        if self._refresh_for_revert(self.config_mgr.reload_project_config):
+            self._populate_artifacts_tab()
+            self.notify("Artifact settings reverted")
+
+    def _handle_artifacts_config_edit(self, result):
+        if result is None:
+            return
+        key = result["key"]
+        value = result["value"]
+
+        row_id = getattr(self, "_editing_artifacts_row_id", None)
+        if not row_id:
+            row_id = f"artifacts_cfg_gitbranch_branch_{self._artifacts_tab_rc}"
+        try:
+            row = self.query_one(f"#{row_id}", ConfigRow)
+            row.raw_value = value
+            row.value = escape(value) or "(not set)"
+            row.refresh()
+            self.notify(f"Updated {key} — press Save to persist")
+        except Exception as exc:
+            self.notify(f"Could not update {key}: {escape(str(exc))}",
+                        severity="error")
+
+    # -------------------------------------------------------------------
     # Models tab (read-only)
     # -------------------------------------------------------------------
     def _populate_models_tab(self):
@@ -4219,6 +4646,9 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
 
     @on(CycleField.Changed)
     def on_cycle_field_changed(self, event: CycleField.Changed):
+        if (event.field.id or "").startswith("artifacts_cycle_"):
+            self._on_artifacts_backend_changed(event.value)
+            return
         if event.field.field_key != "profile_selector":
             # A profile parameter field changed — refresh Save/Revert gating.
             if (event.field.id or "").startswith("profile_"):
@@ -4278,6 +4708,10 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
             self.save_tmux_settings()
         elif btn_id.startswith("btn_tmux_revert"):
             self._revert_tmux_settings()
+        elif btn_id.startswith("btn_artifacts_save"):
+            self.save_artifacts_settings()
+        elif btn_id.startswith("btn_artifacts_revert"):
+            self._revert_artifacts_settings()
         elif btn_id.startswith("btn_profile_add_new"):
             existing = sorted(self.config_mgr.profiles.keys())
             self.push_screen(
@@ -4702,6 +5136,7 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
         self._populate_project_tab()
         self._populate_project_groups_tab()
         self._populate_tmux_tab()
+        self._populate_artifacts_tab()
         self._populate_models_tab()
         self._populate_profiles_tab()
         keybinding_registry.refresh_all()

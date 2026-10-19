@@ -30,6 +30,7 @@ _LIB_DIR = str(Path(__file__).resolve().parent)
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
 
+from rich.markup import escape  # noqa: E402
 from textual import on  # noqa: E402
 from textual.app import ComposeResult  # noqa: E402
 from textual.binding import Binding  # noqa: E402
@@ -460,14 +461,19 @@ class CycleField(Static):
         return self.options[self.current_index]
 
     def render(self) -> str:
+        # Label and options are text, never markup: callers pass values read
+        # from config files (e.g. an unrecognised enum value shown as-is), and
+        # one containing "[/bold]" would otherwise raise MarkupError on render.
+        # Escaping keeps the rendered width equal to len(opt), which
+        # _option_index_at relies on.
         parts = []
         for i, opt in enumerate(self.options):
             if i == self.current_index:
-                parts.append(f"[bold reverse] {opt} [/]")
+                parts.append(f"[bold reverse] {escape(opt)} [/]")
             else:
-                parts.append(f" {opt} ")
+                parts.append(f" {escape(opt)} ")
         options_str = " | ".join(parts)
-        return f"  {self.label}:  [dim]◀[/] {options_str} [dim]▶[/]"
+        return f"  {escape(self.label)}:  [dim]◀[/] {options_str} [dim]▶[/]"
 
     def cycle_prev(self):
         self.current_index = (self.current_index - 1) % len(self.options)

@@ -390,6 +390,7 @@ class TabSwitchMigrationTests(_Fixture):
         "switch_tab_board": ("b", "tab_board"),
         "switch_tab_project": ("c", "tab_project"),
         "switch_tab_project_groups": ("g", "tab_project_groups"),
+        "switch_tab_artifacts": ("k", "tab_artifacts"),
         "switch_tab_models": ("m", "tab_models"),
         "switch_tab_profiles": ("p", "tab_profiles"),
         "switch_tab_shortcuts": ("s", "tab_shortcuts"),
@@ -422,16 +423,17 @@ class TabSwitchMigrationTests(_Fixture):
                 await pilot.pause()
                 # Default: every tab key present, INCLUDING `s` (the item #6
                 # regression the hardcoded `a/b/c/m/p/t` literals had dropped)
-                # and `g` (the Project Groups tab, t1025_3).
+                # `g` (the Project Groups tab, t1025_3) and `k` (the Artifacts
+                # tab, t1231_2).
                 self.assertEqual(
-                    app._tab_switch_hint(), "a/b/c/g/m/p/s/t: switch tabs")
+                    app._tab_switch_hint(), "a/b/c/g/k/m/p/s/t: switch tabs")
                 # Rebinding a tab key flows into the hint — proving derivation,
                 # not a hardcoded literal. Use a key not otherwise bound to a tab.
                 shortcut_persist.save_override(
                     "settings", "switch_tab_agent", "1")
                 keybinding_registry.refresh_all()
                 self.assertEqual(
-                    app._tab_switch_hint(), "1/b/c/g/m/p/s/t: switch tabs")
+                    app._tab_switch_hint(), "1/b/c/g/k/m/p/s/t: switch tabs")
         self._run(runner())
 
     def test_tab_switch_inert_while_modal_active(self):
@@ -502,6 +504,7 @@ class TabSwitchMigrationTests(_Fixture):
                     "tab_project": "Proje(C)t Config",
                     "tab_project_groups": "Project (G)roups",
                     "tab_tmux": "(T)mux",
+                    "tab_artifacts": "(K) Artifacts",
                     "tab_models": "(M)odels",
                     "tab_profiles": "Execution (P)rofiles",
                     "tab_shortcuts": "(S)hortcuts",
