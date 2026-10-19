@@ -3,12 +3,13 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [frozen, ait_ide]
+assigned_to: dario-e@beyond-eye.com
 anchor: 2039
 followup_kind: upstream_defect
 created_at: 2026-10-19 15:41
-updated_at: 2026-10-19 15:41
+updated_at: 2026-10-19 15:49
 ---
 
 ## Origin
