@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2040
 followup_kind: risk_mitigation
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-18 09:38
-updated_at: 2026-10-19 08:04
+updated_at: 2026-10-19 12:56
 ---
 
 ## Origin
@@ -70,3 +71,8 @@ pane's `#{pane_pid}` is an ANCESTOR of the hook process:
 Interactions: t2046 (the freeze clears a valid hook-recorded id for daemon-routed
 codex) is the freeze-side half of the same daemon-routing finding. The two should agree
 on how a daemon-routed codex is treated.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-19T09:56:49Z status=pass attempt=1 type=human
