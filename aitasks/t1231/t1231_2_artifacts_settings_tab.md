@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: [t1231_1]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [ait_settings, task_attachments]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1065
 created_at: 2026-07-26 22:58
-updated_at: 2026-07-26 22:58
+updated_at: 2026-10-19 10:25
 ---
 
 Add an **Artifacts** tab to the settings TUI so the artifact backend registry
