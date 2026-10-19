@@ -780,3 +780,79 @@ No sibling is in flight on these files (t1853_4 is Ready; t1853_7 is a later rep
 
 Post-implementation follows the shared task-workflow Step 9 (archival; current
 branch, no merge).
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-19 10:40)
+- **Requested by user:** three review findings, all reproduced before fixing:
+  1. A flow-style top-level mapping (`{contract: 1, task: …, rejections: []}`) was spliced on line boundaries, so the whole document was replaced by the edited table and M6.1's keys were deleted without any error.
+  2. `Seeds()` and the original-state snapshot shared `Evidence.AgentReview` pointers, so a read-edit-put of a seed rewrote the record that carrier preservation compares against, and an unmemoized review was lost.
+  3. Appending after a last row with no final newline glued the new `- ` onto it, so a valid update was refused.
+- **Changes made:**
+  1. `spliceTable` refuses a flow-style top-level mapping (`REGISTRY_INVALID`, nothing written). Every render of an existing file also passes `otherKeysUnchanged`: each non-table top-level key must decode to the same value, and no key may appear.
+  2. The original review records are captured as values at open (`origDerived`). `Seeds()` / `Adopted()` / `Onboard()` return deep copies, and `setSeed` / `setAdopted` store clones.
+  3. The append after the last row inserts the missing newline.
+  4. Regression tests were added for all three: `TestSpliceRefusesFlowTopLevel`, `TestOtherKeysUnchangedGuard`, `TestSpliceWithoutFinalNewline`, and `TestCarrierPreservation/read-edit-put`. Each was red-checked by removing its fix.
+- **Files affected:** `goengines/internal/testmap/registry/adoption_splice.go`, `adoption_write.go`, `adoption_splice_test.go`, `adoption_write_test.go`; `goengines/README.md`; the proposal.
+
+### Change Request 2 (2026-10-19 11:05)
+- **Requested by user:** three findings, all reproduced:
+  1. `cloneMap` copied `Extra` shallowly, so nested unknown fields still aliased across the getter and setter boundaries.
+  2. `checkConfidence` accepted NaN, which then broke JSON marshaling.
+  3. Follow-up disposition: `parseOnboard` parsed the document four times.
+- **Changes made:**
+  1. A recursive `cloneValue` / `cloneExtra` now deep-copies every `Extra` (row, evidence, `agent_review`, the four onboard row types) at the getters (`Seeds`, `Adopted`, `Onboard`) and the setters (`setSeed`, `setAdopted`, `AddRejection`, `AddKindProposal`, `AddCalibration`, `putMemo`).
+  2. Confidence must satisfy `0 <= c <= 1`, which NaN fails; a calibration `ratio` that is NaN or Inf is refused.
+  3. `parseOnboard` parses once and decodes the four owned nodes, so no follow-up task is needed.
+  4. Tests added: `TestRowCopiesAreDeep` (red against a shallow clone) and three NaN refusal cases in `TestAdoptionLoadRefusals`.
+- **Files affected:** `goengines/internal/testmap/registry/adoption.go`, `adoption_write.go`, `adoption_test.go`, `adoption_write_test.go`.
+
+### Change Request 3 (2026-10-19 11:25)
+- **Requested by user:** caller-built typed containers in `Extra` (`map[string]string`, `[]string`) bypassed `cloneValue` and stayed aliased through the setters and getters.
+- **Changes made:**
+  1. Caller-supplied unknown fields are normalised at every public setter (`PutSeed`, `PutAdopted`, `AddRejection`, `AddKindProposal`, `AddCalibration`, and `RecordVerdict` for both the review and the adopted row) by a YAML round trip (`normalizeExtra`). The stored values then have exactly the decoded shapes a reload produces (`map[string]any`, `[]any`, scalars), so they are detached and `cloneValue` covers them.
+  2. A value YAML cannot encode is refused before anything is stored.
+  3. `TestRowCopiesAreDeep` was extended with typed map and typed list cases (mutations after the put and via the getter) and an unencodable value; it was red-checked against the un-normalised setter.
+- **Files affected:** `goengines/internal/testmap/registry/adoption_write.go`, `adoption_write_test.go`.
+- **Change Request 4 (2026-10-19 11:35):** optional cleanup applied — `normalizeSeed` / `normalizeAdopted` return the normalised row without a second deep copy (the setters' storage-boundary clone still detaches it).
+
+## Final Implementation Notes
+
+- **Actual work done:** every planned step landed, plus both inline risk phases.
+  - **Pre-phase:** `cmd/ait-testmap/stampverbs_characterize_test.go` pinned the human / unspecified `annotate` / `verify` behaviour before the hook changes. It stayed green, unchanged.
+  - **New in `registry/`:**
+    - `adoption.go`: schemas, validators, the `seeded.yaml` / `adopted.yaml` loaders, the `onboard.yaml` reader, and the post-load classification (shadowed / rejected / orphan). It also holds `AdoptionOf`, the lookups, `Reviews` (memo ∪ derived), `NeedsReview` and `Counts`.
+    - `adoption_write.go`: the routes × ops table, `OpenAdoption` with the git-dir lock, the ops, `RecordVerdict`, `ApplyRestamps`, and `Commit`. `Commit` handles carrier preservation, the per-route order, prepare-then-write, `ADOPTION_CONFLICT` / `ADOPTION_PARTIAL`, and deep-copy and normalisation boundaries.
+    - `adoption_splice.go`: the row splicer, the flow-table normalisation, and the `otherKeysUnchanged` backstop.
+    - `rules_seeded_adopted.go`: `SEED_SHADOWED`, `SEED_REJECTED`, `ADOPTED_ORPHAN` and `REVIEW_UNRECORDED` (Info), plus the `SEEDED:` / `ADOPTED:` summary.
+  - **New in `annot/`:** `adoption_hook.go` fills the intent and post hooks.
+  - **Named extensions:**
+    - M2.1's `load.go` (`RegisterPostLoad`), `check.go` (`CheckRule.Summary`, `CheckResult.Summary`) and `scancheck.go` (summary printing).
+    - M2.2's `hook.go` (intent hook; hooks return their written paths), `stampverbs.go` (the intent phase before `Apply`; an incomplete result reports completed writes) and `annotate.go` `printStamps` (`WROTE:` and `--json` `incomplete` on error).
+  - **Post-phase:** `cmd/ait-testmap/adoption_e2e_test.go`.
+  - **Docs:** `goengines/README.md` (package rows and three new interface rows) and the proposal (*Where state lives*, the line-protocol index, the Adoption Model surfaces, an "as built" paragraph in *Registry loader and writer*, and the M2.2 hook bullet). The task's Verification text was aligned with the flow-style decision.
+- **Deviations from plan:**
+  1. The lock test's no-lock control: the second writer fails with `ADOPTION_CONFLICT`, because the re-read before writing catches that interleaving. It does not silently lose the first writer's update. So the test proves that the lock is what lets both writers succeed.
+  2. The intent phase in `Verify` passes only the written edges, with `Line` 0.
+  3. A retry after an `Apply` failure rewrites nothing in `adopted.yaml` when the orphan row already names the landed stamp (same day, same source bytes).
+- **Issues encountered:**
+  - `registry.AgentReview` already existed (a `config.yaml` block), so the seed review type is `SeedReview`.
+  - About 11 byte-exact `check` pins gained the two summary lines (`emptyAdoption`, `emptyAdoptionJSON` in `scancheck_test.go`). The `--from-body` pin gained `WROTE:aitestmap/registry/adopted.yaml`.
+  - Four Step-8 review rounds found real defects, each now reproduced, fixed and red-checked:
+    - a flow-style top-level mapping wiped by the line splicer;
+    - shared `AgentReview` pointers defeating carrier preservation;
+    - an append after a last row without a final newline;
+    - nested and typed unknown-field aliasing;
+    - NaN confidence.
+  - A pre-existing M2.2 gap is fixed as part of A7: on `RESTAMP_HOOK_ERROR` (or an `Apply` failure after earlier files) the written test files used to go unreported.
+- **Key decisions (all user-confirmed during planning):**
+  - Machine first stamps get provenance rows, written before the test file.
+  - `SEEDED:` / `ADOPTED:` are summary lines, always printed and never counted.
+  - All four load-rule reports are Info.
+  - Flow-style tables are normalised when edited: values kept, in-table formatting lost. A flow-style top-level mapping is refused.
+  - Review records are derivable from their effect rows, and every route preserves an unrecorded record before destroying its carrier.
+- **Upstream defects identified:** None
+- **Notes for sibling tasks:**
+  - **M2.4 (t1853_4):** rules register in Go file-name init order (`rules_seeded_adopted.go` sorts after `rules_scoped.go`). A counts line uses `CheckRule{Summary: true}`. Cross-table rules use `RegisterPostLoad`. Every `check` pin must include `emptyAdoption` before `CHECK:`.
+  - **t1853_7 (repair automation):** `ADOPTED_ORPHAN` has no repair verb yet. A repair would need a route that may `DeleteAdopted` (e.g. a new `repair` route), never a direct write.
+  - **Consumers (M4 / M6 / M7 / M8):** notes were sent at commit time (see the step 7 list).
