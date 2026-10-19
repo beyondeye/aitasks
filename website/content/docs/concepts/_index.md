@@ -19,6 +19,7 @@ The files and structures that make up the framework's primary state.
 - **[Task notes]({{< relref "/docs/concepts/task-notes" >}})** — A short message left on an existing task, so whoever works on it next learns something it needs.
 - **[Review guides]({{< relref "/docs/concepts/review-guides" >}})** — Structured prompts that drive batched code review.
 - **[Attachments]({{< relref "/docs/concepts/attachments" >}})** — Content-addressed files attached to a task, identified by their hash rather than a path.
+- **[Artifacts]({{< relref "/docs/concepts/artifacts" >}})** — Versioned task outputs behind a stable handle; new versions and backend moves never rewrite the task file.
 
 ## Workflow primitives
 

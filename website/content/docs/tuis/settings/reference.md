@@ -18,11 +18,15 @@ depth: [advanced]
 | **c** | Switch to Project Config tab |
 | **g** | Switch to Project Groups tab |
 | **t** | Switch to Tmux tab |
+| **k** | Switch to Artifacts tab |
 | **m** | Switch to Models tab |
 | **p** | Switch to Profiles tab |
+| **s** | Switch to Shortcuts tab |
 | **e** | Export all configs |
 | **i** | Import configs |
 | **r** | Reload all configs from disk |
+| **j** | Open the TUI switcher |
+| **?** | Open the shortcut editor (on a Profiles field it toggles the field description instead — see below) |
 | **q** | Quit |
 
 ### Within Tabs
@@ -30,6 +34,8 @@ depth: [advanced]
 | Key | Action | Context |
 |-----|--------|---------|
 | **Enter** / **Space** | Edit field or cycle value | Agent Defaults, Board, Profiles |
+| **Enter** | Edit the gitbranch branch (validated before the dialog closes) | Artifacts |
+| **←** / **→** | Cycle the default backend | Artifacts |
 | **Enter** | Assign or change selected project's group | Project Groups |
 | **d** / **Delete** | Remove user override | Agent Defaults |
 | **o** | Switch the selected superseded model to its newer model (on a `⚠ superseded by …` entry; **Enter** offers the same switch) | Agent Defaults |
@@ -59,8 +65,10 @@ depth: [advanced]
 | Project Config | **c** | Yes | Shared values from `project_config.yaml` such as coauthor domain and build verification |
 | Project Groups | **g** | Yes | Per-user registered-project group membership, backed by `ait projects group` |
 | Tmux | **t** | Yes | Tmux integration settings (session name, split direction, monitor options, git TUI) |
+| Artifacts | **k** | Yes | The `artifacts:` block of `project_config.yaml` — the default artifact backend and the `gitbranch` branch |
 | Models | **m** | No | Available models per agent with verified scores |
 | Profiles | **p** | Yes | Execution profiles that pre-answer workflow questions |
+| Shortcuts | **s** | Yes | Keyboard shortcuts of every TUI, with per-user overrides |
 
 ## Agent Defaults Operations
 
@@ -79,7 +87,8 @@ depth: [advanced]
 | `aitasks/metadata/codeagent_config.local.json` | User | Yes (Agent Defaults) | Per-user overrides (gitignored) |
 | `aitasks/metadata/board_config.json` | Project | No | Board column definitions |
 | `aitasks/metadata/board_config.local.json` | User | Yes (Board) | User board settings (gitignored) |
-| `aitasks/metadata/project_config.yaml` | Project | Yes (Project Config) | Shared workflow settings such as coauthor domain and build verification |
+| `aitasks/metadata/project_config.yaml` | Project | Yes (Project Config, Tmux, Artifacts) | Shared workflow settings such as coauthor domain and build verification, tmux integration, and the `artifacts:` backend registry |
+| `aitasks/metadata/userconfig.yaml` | User | Yes (Shortcuts) | Per-user settings, including the `shortcuts:` key overrides (gitignored) |
 | `~/.config/aitasks/projects.yaml` | User | Yes (Project Groups) | Registered project paths and per-user `project_group` membership |
 | `aitasks/metadata/models_claudecode.json` | Project | No | Claude Code model definitions |
 | `aitasks/metadata/models_codex.json` | Project | No | Codex CLI model definitions |

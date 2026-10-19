@@ -84,6 +84,15 @@ The table lists each registered project, its effective group, and its registry s
 - **y** — sync missing registry groups from each repo's `project.project_group`.
 - **f** — refresh the table from the registry.
 
+### Artifacts (k)
+
+Choose where [`ait artifact`]({{< relref "/docs/concepts/artifacts" >}}) stores blobs. The tab edits the `artifacts:` block of `aitasks/metadata/project_config.yaml`:
+
+- **default_backend** — cycle through the available backends (`local`, `dir`, `gitbranch`) with **←** / **→**. Selecting `gitbranch` while no branch is set fills in `aitask-artifacts`.
+- **gitbranch branch** — press **Enter** to edit the branch the `gitbranch` backend uses. The name is checked before the dialog closes, so a reserved or malformed name is refused there.
+
+Press **Save Artifact Settings** to validate the whole block with the artifact registry and commit it; nothing is written if the registry refuses it. `local` as the default is saved by removing the key. A `dir` backend has no row here — write its absolute `path` in the YAML first, and then `dir` can be saved as the default. Changing the branch once a store exists also needs `ait artifact gitbranch-migrate --from <old> --to <new>`; the tab shows that command when the branch changes. Saving rewrites `project_config.yaml` without its comments.
+
 ### Models (m)
 
 {{< static-img src="imgs/aitasks_settings_llmmodels_tab.svg" alt="Models tab showing available models per agent" caption="The Models tab is a read-only display of all configured models" >}}
@@ -147,6 +156,8 @@ Two buttons act on the table:
 | **b** | Switch to Board tab |
 | **c** | Switch to Project Config tab |
 | **g** | Switch to Project Groups tab |
+| **t** | Switch to Tmux tab |
+| **k** | Switch to Artifacts tab |
 | **m** | Switch to Models tab |
 | **p** | Switch to Profiles tab |
 | **s** | Switch to Shortcuts tab |

@@ -2,15 +2,17 @@
 # test_website_doc_lists.sh - Drift guard for hand-maintained documentation
 # lists (t1162_5).
 #
-# Two user-facing lists on the website duplicate information whose source of
-# truth lives in code or on disk, and both had silently drifted before this
+# Three user-facing lists on the website duplicate information whose source of
+# truth lives in code or on disk. The first two had silently drifted before this
 # guard existed (4 of 10 code-agent operations and one skill page were
-# missing):
+# missing); the third shipped with no documentation at all (t1231_3):
 #
 #   1. website/content/docs/commands/codeagent.md `### Operations` table
 #      vs SUPPORTED_OPERATIONS in .aitask-scripts/aitask_codeagent.sh
 #   2. website/content/docs/skills/_index.md links
 #      vs the aitask-* pages present in website/content/docs/skills/
+#   3. website/content/docs/concepts/artifacts.md backend table
+#      vs the dispatch arms of .aitask-scripts/lib/artifact_backend.sh
 #
 # The lists are prose tables that cannot be generated at build time, so the
 # guard asserts containment instead: every canonical entry must be documented.
@@ -37,6 +39,9 @@ CODEAGENT_SH="$PROJECT_DIR/.aitask-scripts/aitask_codeagent.sh"
 CODEAGENT_DOC="$PROJECT_DIR/website/content/docs/commands/codeagent.md"
 SKILLS_DIR="$PROJECT_DIR/website/content/docs/skills"
 SKILLS_INDEX="$SKILLS_DIR/_index.md"
+ARTIFACT_BACKEND_SH="$PROJECT_DIR/.aitask-scripts/lib/artifact_backend.sh"
+ARTIFACT_BACKENDS_DIR="$PROJECT_DIR/.aitask-scripts/lib/artifact_backends"
+ARTIFACTS_DOC="$PROJECT_DIR/website/content/docs/concepts/artifacts.md"
 
 echo "=== Doc-list drift guard ==="
 
@@ -46,6 +51,8 @@ echo "=== Doc-list drift guard ==="
 assert_file_exists "aitask_codeagent.sh present" "$CODEAGENT_SH"
 assert_file_exists "codeagent.md present" "$CODEAGENT_DOC"
 assert_file_exists "skills/_index.md present" "$SKILLS_INDEX"
+assert_file_exists "artifact_backend.sh present" "$ARTIFACT_BACKEND_SH"
+assert_file_exists "concepts/artifacts.md present" "$ARTIFACTS_DOC"
 
 # --- Test 1: every supported code-agent operation is documented ------------
 #
@@ -97,6 +104,48 @@ done
 # Tripwire: the glob must actually have matched skill pages.
 assert_exit_zero_rc "skill pages discovered in skills/ ($page_count found)" \
     "$([[ $page_count -gt 0 ]] && echo 0 || echo 1)"
+
+# --- Test 3: every artifact backend is documented --------------------------
+#
+# Source of truth: the `case "$backend"` arms of _artifact_backend_call in
+# artifact_backend.sh. Accept both arm forms — the quoted one in use today
+# (`dir)   "artifact_dir_${op}" "$@" ;;`) and the unquoted one the file's own
+# BACKEND-EXTENSION-POINT comment tells contributors to write
+# (`name) artifact_name_${op} "$@" ;;`). The comment line (leading `#`) and the
+# `*)` catch-all both fail the leading [a-z] anchor.
+
+arm_re='^[[:space:]]*([a-z][a-z0-9_]*)\)[[:space:]]+"?artifact_[a-z0-9_]+_\$\{op\}'
+backends=""
+while IFS= read -r line; do
+    [[ "$line" =~ $arm_re ]] && backends+="${BASH_REMATCH[1]}"$'\n'
+done < "$ARTIFACT_BACKEND_SH"
+backends="$(printf '%s' "$backends" | sort)"
+backend_count="$(printf '%s' "$backends" | grep -c . || true)"
+
+# Tripwires: a non-empty parse is not enough — an arm in a shape the regex
+# cannot read would simply be missing. Every backend is a module file in
+# artifact_backends/ plus a dispatch arm, so the two lists must agree exactly.
+assert_contains_re "backend arms parsed from artifact_backend.sh" \
+    "[a-z]" "$backends"
+assert_exit_zero_rc "backend arms discovered ($backend_count found)" \
+    "$([[ $backend_count -gt 0 ]] && echo 0 || echo 1)"
+modules=""
+for path in "$ARTIFACT_BACKENDS_DIR"/*.sh; do
+    [[ -e "$path" ]] || continue
+    base="$(basename "$path")"
+    modules+="${base%.sh}"$'\n'
+done
+modules="$(printf '%s' "$modules" | sort)"
+assert_eq "dispatch arms match the artifact_backends/ modules" \
+    "$modules" "$backends"
+
+doc_body="$(cat "$ARTIFACTS_DOC")"
+
+for backend in $backends; do
+    # Match the backend as a backticked id in the table's first cell.
+    assert_contains "concepts/artifacts.md documents backend '$backend'" \
+        "| \`$backend\` |" "$doc_body"
+done
 
 # --- Summary ---
 

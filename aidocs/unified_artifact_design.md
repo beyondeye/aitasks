@@ -81,7 +81,8 @@ An **artifact** is a stable logical thing with an evolving content body.
 
 Operations map cleanly onto this split — **implemented (t1076_2) as the
 `ait artifact` CLI** (`.aitask-scripts/aitask_artifact.sh`:
-create/update/rm/ls/get/versions):
+create/update/rm/ls/get/versions; `move` and `init-store` followed with
+t1076_3/t1283, and `gitbranch-migrate` with t1231_1):
 
 | Operation | Effect | Touches |
 |---|---|---|
@@ -225,10 +226,14 @@ artifact_backend_delete <hash>            # remove a blob
 artifact_backend_list                     # enumerate hashes
 ```
 
-Same content-addressed naming and the same backend table as t1030 (local /
-S3-compatible / GCS native / GitHub release assets / GDrive). Dispatch follows
-the platform-extensible dispatcher pattern
-([`gitremoteproviderintegration.md`](gitremoteproviderintegration.md)).
+Same content-addressed naming as t1030. The implemented backends are `local`,
+`dir` (§6) and `gitbranch` (§6); t1030's remaining candidates (S3-compatible,
+GDrive — t1089/t1090; GCS native, GitHub release assets) are not implemented.
+The contract also gained a sixth op, `artifact_backend_init` (`ait artifact
+init-store`, t1283). Dispatch follows the platform-extensible dispatcher
+pattern ([`gitremoteproviderintegration.md`](gitremoteproviderintegration.md)),
+and `tests/test_website_doc_lists.sh` fails when a dispatch arm has no row in
+the website's backend table (`website/content/docs/concepts/artifacts.md`).
 
 **Universal local cache + write-back (done, t1076_1 + t1076_3).** Independent
 of the chosen backend, every machine keeps a local cache
@@ -282,11 +287,11 @@ against this block at **activation time** (`artifact_registry_activate`,
 called before every backend operation) and exports the adapter's params —
 fail-closed: unregistered names, adapterless names, missing/relative paths,
 and malformed config (including a non-mapping YAML root) all die actionably.
-Backend **names are adapter names** (`local`, `dir`, later `s3`/`gdrive`) —
-one instance per adapter; `local` is always implicitly registered,
-zero-config. The first configured backend is **`dir`**
-(`lib/artifact_backends/dir.sh`): a mounted directory root (NAS / network
-share / USB). Note its extra assumption: the git-tracked `path` is one
+Backend **names are adapter names** (`local`, `dir`, `gitbranch`, later
+`s3`/`gdrive`) — one instance per adapter; `local` is always implicitly
+registered, zero-config. Two backends are configurable: `dir` and `gitbranch`
+(below). **`dir`** (`lib/artifact_backends/dir.sh`) is a mounted directory
+root (NAS / network share / USB). Note its extra assumption: the git-tracked `path` is one
 absolute path for the whole team, so every participating machine must mount
 the share there (true remote backends — t1089/t1090 — carry no such
 assumption). The store is initialized once, with the share mounted, by
@@ -301,6 +306,24 @@ and a negative answer (blob absent, delete done) is given only while the held
 directory is still the store. `ait artifact move <handle> --to <backend>` performs the safe
 backend move: copy every version blob to the registered target, verify, then
 repoint the manifest — non-destructive and resumable.
+
+**`gitbranch`** (t1231_1, `lib/artifact_backends/gitbranch.sh`; config
+`artifacts.backends.gitbranch.branch`, default `aitask-artifacts`) keeps blobs
+in git without growing the data branch: an orphan branch of the same
+repository, written with plumbing only (no worktree), carrying
+`blobs/<2>/<62>` plus a `.ait-artifact-store` marker with a random
+`store_id`. With an `origin`, origin is the store of record and every write is
+push-gated (a lease-checked push; an unconfirmable push is reported as
+UNKNOWN, exit 75); without one, the local branch is authoritative. The
+project-level identity is `artifacts/gitbranch_store.json` on the data branch
+(`store_id` + `branch`), derived from the branch after the first write; every
+gitbranch activation checks it against the configured branch, so a renamed
+branch refuses until `ait artifact gitbranch-migrate --from <old> --to <new>`
+copies the store, retires the old branch (readable, write-refusing, final)
+and moves the record — `move` cannot do this, since manifests carry no branch
+coordinate. An existing non-store branch and the framework's own branch names
+are refused. Correctness model (R1–R4) and its tests:
+`aiplans/archived/p1231/p1231_1_gitbranch_artifact_backend.md`.
 
 Because references are **hash-first underneath**, a backend swap
 touches only the manifest, never task files. **Any machine with the project

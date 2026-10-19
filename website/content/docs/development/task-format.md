@@ -95,7 +95,7 @@ attachments:
 ```
 
 Neither is hand-edited. `artifacts` entries are written by
-`ait artifact` and
+[`ait artifact`]({{< relref "/docs/commands/artifact" >}}) and
 `attachments` entries by [`ait attach`]({{< relref "/docs/commands/attach" >}}); both commands manage the blob, the
 manifest and the task file as one commit, so editing the block by hand
 desynchronises it from the store.

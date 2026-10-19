@@ -58,6 +58,7 @@ several topics — not for a handful of tasks with obvious dependencies.
 - [Trails TUI]({{< relref "/docs/tuis/trails" >}}) — the stand-alone reader
 - [Board reference]({{< relref "/docs/tuis/board/reference" >}}#by-trail) — the By-Trail view and its keys
 - [Topic anchoring]({{< relref "/docs/concepts/topic-anchoring" >}}) — a task belongs to one topic, but can appear in several trails
+- [Artifacts]({{< relref "/docs/concepts/artifacts" >}}) — the versioned, handle-addressed storage a trail is kept in
 
 ---
 

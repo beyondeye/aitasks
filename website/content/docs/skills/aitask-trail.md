@@ -82,7 +82,7 @@ Create and refresh end by printing a compact account of the trail that was just 
 
 ## Storage
 
-Trails are stored through the artifact substrate, owned by a task (see [Where a trail is stored]({{< relref "/docs/workflows/implementation-trails" >}}#where-a-trail-is-stored)) and versioned immutably — every earlier version stays retrievable. Manage them with `ait artifact` (`ls`, `get`, `versions`, `rm`). Creating a trail writes the owner task's file, so `ait artifact create` refuses while that file has uncommitted changes — commit or revert them first. Refreshing one only rewrites the manifest, so it is unaffected.
+Trails are stored through the artifact substrate, owned by a task (see [Where a trail is stored]({{< relref "/docs/workflows/implementation-trails" >}}#where-a-trail-is-stored)) and versioned immutably — every earlier version stays retrievable. Manage them with [`ait artifact`]({{< relref "/docs/commands/artifact" >}}) (`ls`, `get`, `versions`, `rm`). Creating a trail writes the owner task's file, so `ait artifact create` refuses while that file has uncommitted changes — commit or revert them first. Refreshing one only rewrites the manifest, so it is unaffected.
 
 Trails are authored and refreshed through this skill, and read in [`ait trails`]({{< relref "/docs/tuis/trails" >}}) or in the board's By-Trail view (`z`).
 

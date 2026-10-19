@@ -344,6 +344,26 @@ gate_command_exit_contract:
 #     backends:
 #       dir:
 #         path: /mnt/share/ait-artifacts
+#
+# `gitbranch` backend: blobs on a dedicated git branch of THIS repository
+# (default name aitask-artifacts), so they stay in git without growing the
+# task-data branch. No mount and no secret. When the repository has an
+# `origin`, every write is pushed there and succeeds only once origin accepts
+# it, so origin must be reachable; without an `origin`, the local branch is
+# the store. The branch is created by the first artifact write, or eagerly by:
+#   ait artifact init-store gitbranch
+# It must be a branch that does not exist yet (or is already this store) —
+# an existing ordinary branch is refused, and main, master, aitask-data,
+# aitask-locks, aitask-ids and HEAD are reserved. To rename it once the store
+# exists, run `ait artifact gitbranch-migrate --from <old> --to <new>`, then
+# change `branch:` here. `ait settings` (Artifacts tab, `k`) edits this block.
+#
+# Example:
+#   artifacts:
+#     default_backend: gitbranch
+#     backends:
+#       gitbranch:
+#         branch: aitask-artifacts
 # ──────────────────────────────────────────────────────────────────────
 
 # artifacts:
@@ -351,6 +371,12 @@ gate_command_exit_contract:
 #   backends:
 #     dir:
 #       path: /mnt/share/ait-artifacts
+
+# artifacts:
+#   default_backend: gitbranch
+#   backends:
+#     gitbranch:
+#       branch: aitask-artifacts
 
 # ──────────────────────────────────────────────────────────────────────
 # doc_update — Spec for the `docs_updated` procedure gate (a gate a task can

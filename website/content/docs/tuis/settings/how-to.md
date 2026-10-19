@@ -11,7 +11,7 @@ depth: [intermediate]
 
 The Settings TUI supports full mouse interaction in addition to the keyboard shortcuts:
 
-- **Click a tab name** in the tab bar — switch to that tab (alternative to `a` / `b` / `c` / `t` / `m` / `p`).
+- **Click a tab name** in the tab bar — switch to that tab (alternative to `a` / `b` / `c` / `g` / `t` / `k` / `m` / `p` / `s`).
 - **Click a field row** — focus it; press **Enter** / **Space** to edit or cycle the value.
 - **Click on-screen action buttons** — **Save Profile**, **Commit**, **Save Board Settings**, **Save Project Config**, **New Profile**, and dialog buttons are all clickable, no keyboard equivalent required.
 - **Scroll wheel** — scroll long tab content (Profiles, Models, Project Config).
@@ -89,6 +89,17 @@ The Models tab is read-only. To update model definitions, edit the `aitasks/meta
 5. Click **Save Project Config** to persist the YAML file
 
 > **Note:** Project config values are shared and git-tracked. Changing them affects the whole team.
+
+## Configure Artifact Storage
+
+1. Press **k** to go to the **Artifacts** tab
+2. On **default_backend**, press **←** / **→** to choose `local`, `dir` or `gitbranch`. Choosing `gitbranch` with no branch set fills in `aitask-artifacts`
+3. To use a different branch, focus **gitbranch branch**, press **Enter** and type the name. A reserved name (`main`, `aitask-data`, …) or one git would refuse is rejected before the dialog closes
+4. Click **Save Artifact Settings** — the block is checked by the artifact registry before anything is written, then committed
+
+The `gitbranch` store itself is created by the first `ait artifact` write, or straight away with `ait artifact init-store gitbranch`. If a store already exists on the old branch, run `ait artifact gitbranch-migrate --from <old> --to <new>` as well; the tab shows that command when you change the branch. See [`ait artifact`]({{< relref "/docs/commands/artifact" >}}) for the backend rules.
+
+> **Note:** Saving rewrites `project_config.yaml` without its comments.
 
 ## Set Default Execution Profiles
 

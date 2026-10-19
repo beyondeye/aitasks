@@ -161,4 +161,4 @@ The full verb reference — flags, refusals and the gc rules — is on the
 
 ---
 
-**Next:** [Execution profiles]({{< relref "/docs/concepts/execution-profiles" >}})
+**Next:** [Artifacts]({{< relref "/docs/concepts/artifacts" >}})
