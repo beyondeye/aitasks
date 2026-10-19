@@ -300,7 +300,7 @@ Each line carries the module that owns it (see *Module Map*).
       │         auto → costs/policy.yaml + cadence (full_run_every.tasks / selection_ratio_above / days) → full | selected   [M8.5]
       │         a POLICY_WRITE: line from the engine is committed by the front under `ait: testmap policy <flip|full-run> (t<id>)`
       └─ .aitask-scripts/aitask_testmap.sh   [M1.4]  the shim: resolves $AIT_TESTMAP_BIN > AIT_ENGINE=dev > $AITASKS_HOME/engine/v<V>/
-           └─ ait-testmap test … | select | schedule | run | brief | onboard … | readiness | costs … | annotate --author
+           └─ ait-testmap test … | select | schedule | run | brief | onboard … | readiness | policy … | costs … | annotate --author
                 internal/registry     [M2.1, M2.6]  eight tables: six core + seeds (registry/seeded.yaml) + adopted (registry/adopted.yaml)
                 internal/annot        [M2.2, M7.4]  grammar v3 + line-targeted rewriter; adopt, --agent-verdicts and --author are callers
                 internal/deps         [M2.3]        scanners; invocation / import / package facts, anchor lines and declared symbols
@@ -310,7 +310,7 @@ Each line carries the module that owns it (see *Module Map*).
                 internal/cost         [M3.4]        ledger + costs --gate-timeout; run_id prefixes test- / gate- / full- / review-; costs/policy.yaml
                 internal/selectr      [M4.1, M4.5]  graded walk + seeded edges at d1 · explain --sources · the `test` composite
                 internal/stale        [M4.2, M4.3]  stale line classes, --confirm*, the evidence join
-                internal/feedback     [M4.4, M8.5]  score (window scoring; REJECTION_CONTRADICTED) · attribute (+ --propose) · readiness · cadence.go
+                internal/feedback     [M4.4, M8.4, M8.5]  score (window scoring; REJECTION_CONTRADICTED) · attribute (+ --propose) · readiness · policy (verb `policy`) · cadence.go
                 internal/seed         [M6.2]        origins static:{package,invocation,import} · coverage · observed · convention · plan · prose · cochange; class per origin; noisy-OR
                 internal/onboard      [M6.1, M6.3, M6.4, M7.x]  detect · inventory · seed · review (packets) · classify (--apply | --propose) · adopt (--class [--auto] | --agent-verdicts | per row) · reject · scaffold · status · finish; onboard.yaml
                 internal/brief        [M5.2]        the generated run brief (`brief`, rendered by `ait test --howto [--md]`)
@@ -322,8 +322,10 @@ Each line carries the module that owns it (see *Module Map*).
 .aitask-scripts/aitask_engine.sh                   [M1.5, M1.6]  ait engine build|test|cross|prune|home [--migrate]
 .aitask-scripts/aitask_setup.sh                    [M1.5, M6.1]  install_engine_binary() + report_testmap_state() → TESTMAP:<state>
 .aitask-scripts/lib/gate_verifier_lib.sh           [M8.1]  run_project_command_key(): + 75 → error (command_refused), 3 → error (command_errored) for opted-in keys;
-                                                           exports AIT_GATE_TASK_ID / AIT_GATE_RUN_ID around the command
-.aitask-scripts/gates_reference.yaml               [M8.2]  + testmap_fresh (procedure), testmap_check (unlocks: [tests_pass]); no separate selection gate
+                                                           exports AIT_GATE_TASK_ID / AIT_GATE_RUN_ID around the command;
+                                                           run_command_gate also exports the result carrier AIT_GATE_RESULT_FILE (→ result=)
+.aitask-scripts/gates_reference.yaml               [M8.2, M8.3]  + testmap_check (M8.2; no unlocks — before tests_pass by list position),
+                                                           + testmap_fresh (procedure, M8.3); no separate selection gate
 .aitask-scripts/aitask_gate_testmap_check.sh       [M8.2]  machine verifier; reports SEEDED:<n>, ADOPTED:<n>|human <h>|agent <a>|auto <m>, UNMAPPED_SOURCE:<path>
 .aitask-scripts/aitask_gate_tests_pass.sh          [M8.4]  unchanged; runs test_command = ./ait test under the opt-in
 .aitask-scripts/aitask_codeagent.sh                [M7.5]  + operation testmap-review (interactive by default; --print only under --headless)
@@ -421,7 +423,7 @@ name these rows; they do not restate them.
 | completion policy, cadence, review knobs, readiness thresholds, conventions, helper roots, docs, notes, excludes | `aitestmap/config.yaml` — the committed, human-authored declaration | `onboard detect --write` (level 0: `completion.mode auto`, `full_run_every`, `agent_review`, `readiness`); the skill's `enable` phase (`docs:`, `notes:`); the `--policy selected` re-entry (`completion.mode`, `run_gate_admission.approved_by {who, at, statement}`); calibration (`agent_review.measured_confidence`) |
 | the engine's policy ledger | `aitestmap/costs/policy.yaml` `{contract, last_full_run {run_id, at, task, sha}, selected_since_full, approved_by {who: engine:readiness@<run>, at, mode: auto, statement}}` — committed | `ait test --gate` under `auto`: the engine writes it and prints `POLICY_WRITE:<path>`; the bash front commits it under `ait: testmap policy <flip\|full-run> (t<id>)` with the path named |
 | test entry and exit-contract opt-in | `aitasks/metadata/project_config.yaml`: `test_command: ./ait test`, `gate_command_exit_contract: [test_command]` | the skill's `enable` phase, confirmed once as a table |
-| gate declarations | profiles' `default_gates` (`tests_pass`, `testmap_check`, `testmap_fresh`; `rendered_gates` where present); `gates.yaml` `tests_pass.timeout_seconds` | the skill's `enable` phase; the timeout from `costs --gate-timeout` after the first full run |
+| gate declarations | profiles' `default_gates` (`testmap_fresh`, `testmap_check`, `tests_pass` in that list order, no `unlocks:`; `rendered_gates` where present); `gates.yaml` `tests_pass.timeout_seconds` | the skill's `enable` phase; the timeout from `costs --gate-timeout` after the first full run |
 | agent instructions | `CLAUDE.md` `>>>aitasks` block, `AGENTS.md`, `.codex/instructions.md`, the OpenCode mirror | `ait setup` from the seed; a hand-maintained `CLAUDE.md` by the level-0 task |
 | model score table | `aitasks/metadata/models_<agent>.json` `verified.testmap-review` per model | the seeds; `aitask-add-model` |
 | runs, ledger, predictions | `.aitask-testmap/runs/<run-id>/` (the runner's `results.jsonl` / `runner.json` and the engine's own per-invocation record `{group, cause, head_start, head_end, modified[]}`), `.aitask-testmap/ledger.jsonl` (gitignored) rows `{run_id, id, parent?, status, duration_ms, head_sha, anchor, anchor_reason?}` per result and `{run_id, group, overhead_ms, units_reported, cause}` per invocation; `aitestmap/costs/<hostclass>.yaml` (per id: Welford / P² p95 / last, `last_pass {sha, at, run_id}` from anchor-eligible passes only, flake rate; per group: overhead — never a path list), `aitestmap/costs/predictions.yaml` (committed) | every run, through `run`'s post-run hook (M3.4's subscriber); `costs --update`; `score` |
@@ -447,7 +449,7 @@ Every line class is defined once. This table says where.
 | `ADOPTION_ROUTE:` `ADOPTION_CONFLICT:` `ADOPTION_PARTIAL:` | component *Registry loader and writer* (M2.6 write routing) |
 | `REVIEW_PAIR:` `REVIEW_ANCHOR:` `REVIEW_TEST:` `REVIEW_SOURCE:` `REVIEW_PROSE:` `REVIEW_MEMBER:` `REVIEW_END:` `REVIEW_BATCH:` `REVIEW_MEMO:` `VERDICT:<id>\|…` `VERDICT_INVALID:` `VERDICT_STALE:` `REVIEW_APPLIED:` `REVIEW_PARKED:` `REVIEW_HUMAN:` `UNSURE:` `REVIEW_AGREEMENT:` `REVIEW_ORIGIN_DEMOTED` `CALIBRATION:` | *The Agent Review Pass* |
 | `AUTHOR_STAMPED:` `AUTHOR_REFUSED:` `AUTHOR_UNCORROBORATED:` | *The Agent Review Pass* → The authoring site; component *Author annotation* |
-| `FRAMEWORK:` `UNIVERSE:` `UNLISTED:` `AGGREGATE_RUNNER:` `SERIAL_LIST:` `RESOURCE_HINT:` `SUITE_CANDIDATE:` `RUNNER_SCRIPT_NEEDED:` `DETECT_DIFF:` `DETECT_UNKNOWN` `UNREGISTERED:` `CLASSIFY:` `KIND_PROPOSALS:` `FINISH:` `SCAFFOLD_TODO` | component *Onboarding verbs*; *Onboarding* (`CLASSIFY:` in component *Scoped-row registry and areas*) |
+| `FRAMEWORK:` `UNIVERSE:` `UNLISTED:` `AGGREGATE_RUNNER:` `SERIAL_LIST:` `RESOURCE_HINT:` `SUITE_CANDIDATE:` `RUNNER_SCRIPT_NEEDED:` `DETECT_DIFF:` `DETECT_UNKNOWN` `UNREGISTERED:` `CLASSIFY:` `KIND_PROPOSALS:` `FINISH:` `SCAFFOLD_TODO` `ENABLE_REFUSED:` | component *Onboarding verbs*; *Onboarding* (`CLASSIFY:` in component *Scoped-row registry and areas*; `ENABLE_REFUSED:` in *Onboarding* → the `enable` phase) |
 | `AREA:` `AREAS:` `AREA_IMPORT:` `CODEMAP_ABSENT:` | component *Scoped-row registry and areas* |
 | `run`'s wave lines, per-id result lines and mechanism-failure lines; the `schedule` report and `schedule --check` lines; `costs` lines and `GATE_TIMEOUT_SUGGESTED:` | components *Runner contract*, *Scheduler and resources* (M3.1, M3.3); *Cost ledger* (M3.4) — line names fixed by those submodules |
 | `SURFACE` `EDGES` `STALE_PATH` `STALE` `EVIDENCED` `UNSTAMPED` `STALE_AREA` `REVIEW_DUE` `UNKNOWN` `DISPLAY` `DECISION` `CHECK_STRUCTURAL:` `SEEDED:` `ADOPTED:` | component *Staleness tool* |
@@ -731,7 +733,7 @@ How an agent or a person runs tests, in any repository state.
 
 | submodule | scope | components | owns | provides | depends on |
 |---|---|---|---|---|---|
-| **M5.1** `ait test` bash front | modes, task resolution (incl. the new `aitask_lock.sh --list-mine` verb), intake, `TESTMAP_ABSENT` delegation to `aitask_run_project_command.sh test_command`, `ENGINE_MISSING`, the advisory verdict and log, the exit contract, run-id prefixes, `UNANNOTATED_TEST` / `HINT`, the `POLICY` hook (M8.4 / M8.5 fill it; until then completion runs `--all`), the `ait` dispatcher arm, the five permission touchpoints | `component_test_entrypoint` | `.aitask-scripts/aitask_test.sh`; `ait` `test)` arm; `--list-mine` in `aitask_lock.sh`; `tests/test_ait_test_entrypoint.sh` with the fake engine; `tests/test_touchpoint_count_contract.sh` re-pin | the verb every agent, gate and procedure calls | M1.4, M4.1, M4.5 |
+| **M5.1** `ait test` bash front | modes, task resolution (incl. the new `aitask_lock.sh --list-mine` verb), intake, `TESTMAP_ABSENT` delegation to `aitask_run_project_command.sh test_command`, `ENGINE_MISSING`, the advisory verdict and log, the exit contract, run-id prefixes, `UNANNOTATED_TEST` / `HINT`, the `POLICY` hook (M8.4 / M8.5 fill it; until then completion runs `--all`), the `ait` dispatcher arm, the five permission touchpoints | `component_test_entrypoint` | `.aitask-scripts/aitask_test.sh`; `ait` `test)` arm; `--list-mine` in `aitask_lock.sh`; `tests/test_ait_test_entrypoint.sh` with the fake engine; `tests/test_touchpoint_count_contract.sh` re-pin | the verb every agent, gate and procedure calls | M1.4, M4.1, M4.5, M8.1 |
 | **M5.2** Brief | `brief [--md]`, `ait test --howto [--md]`, `ait testmap brief`; the `TESTMAP:` / `RUNNER:` / `FULL_GATE:` / `GATE:` / `VERBS:` / `AXES:` / `RESOURCE:` / `NEW_TEST:` / `DOCS:` / `NOTES:` lines (the `AGENT_REVIEW:`, `ONBOARD_NEXT:`, `KIND_PROPOSALS:`, `REVIEW_HUMAN:`, policy and cadence fields are added by M6.1, M7.3 and M8.5) | `component_agent_brief` | `internal/brief`; verb `brief` | the computed project brief | M2.1, M2.4, M3.4, M5.1 |
 | **M5.3** Agent instructions seed | the fourteen-line `## Running Tests` section; the `tests/test_agent_instructions.sh` case | `component_agent_instructions` | `seed/aitasks_agent_instructions.seed.md` section; the test case | the sentence every agent reads at session start | M5.1 |
 
@@ -745,7 +747,7 @@ Bringing an existing test tree onto the map, in levels, as tasks.
 | **M6.2** Seeder and origin table | `onboard seed`, the origins `static:*` / `convention` / `cochange` / `plan` / `prose` / `coverage`, the class column, noisy-OR, `helper_roots` / `helper_fanin` separation, the `SEED_*` lines, `--apply`, `--json --out` | `component_seeder` | `internal/seed`; one fixture repo per origin | `registry/seeded.yaml` | M2.3, M2.6, M3.2, M6.1 |
 | **M6.3** Adoption verbs | `onboard adopt --class [--accept-min] [--scope] [--dry-run]`, `--class --auto` with the autonomous floor enforced (`ADOPT_REFUSED:not-autonomous`), per-row `<test> [<source>]` / `--area --batch` / `--files-from -`, `onboard reject`, `ADOPT_REFUSED:dirty-foreign`, the `ADOPT_SKIP` cases, `WROTE:`, `ADOPT_SUMMARY:`, provenance rows, the reviewed-stamp path deleting provenance rows | `component_adoption_ledger` (transitions half), `component_onboarding_engine_verbs` (the `adopt` / `reject` arms) | `internal/onboard/{adopt,reject}.go` | every non-agent adoption path; the rewriter calls the verdict intake reuses | M2.2, M2.6, M6.2 |
 | **M6.4** Classify and scaffold | `onboard classify [--apply\|--propose]` with `kind_proposals[]`, the level-2 writes (kind / area / scope / reads / batch lines, `needs:` bindings, `resources.yaml` entries), `onboard scaffold --axes \| --runner <builtin> --as <name> \| --members` with `SCAFFOLD_TODO` and its `check` report (a named extension of M3.1's lister and M2.1's `check`; until then the lister refuses the row as `INPUT_ERROR:lister`), the recorded-p95 signal in `classify --suggest` (a named extension of M2.5) | `component_onboarding_engine_verbs` (the `classify` / `scaffold` arms), `component_suite_registry` (the signal consumers) | `internal/onboard/{classify,scaffold}.go` | levels 2 and 3 | M2.4, M2.5, M3.4, M6.1 |
-| **M6.5** Onboarding skill | `aitask-testmap-onboard` stub + `SKILL.md.j2` + one procedure file per phase; the survey and level proposal; task creation and claim; the `enable` phase's edits to `project_config.yaml`, profiles, `gates.yaml`, `docs:` / `notes:`, hand-maintained `CLAUDE.md`; the `full_run` phase (`costs --gate-timeout`, next level's task with `depends:`); `--policy selected` re-entry; `--no-task`; refresh mode; the headless flow; goldens; `tests/test_testmap_onboard_ledger.sh` | `component_onboarding_skill` | `.claude/skills/aitask-testmap-onboard/**`; `tests/golden/skills/aitask-testmap-onboard/`; the ledger test | levels 0 and 1 attended; level 0 and 1 headless once M7.2 and M7.5 exist (the `review.md` sub-phase is M7.5's) | M4.4, M5.1, M6.1, M6.2, M6.3, M8.2, M8.4 |
+| **M6.5** Onboarding skill | `aitask-testmap-onboard` stub + `SKILL.md.j2` + one procedure file per phase; the survey and level proposal; task creation and claim; the `enable` phase's edits to `project_config.yaml`, profiles, `gates.yaml`, `docs:` / `notes:`, hand-maintained `CLAUDE.md`; the `enable` phase's gate order (`testmap_fresh, testmap_check` inserted immediately before `tests_pass`, or all three appended in that order; never an `unlocks:`, never a reorder) and its compatibility check against the orchestrator's own DAG-mode predicate (`ENABLE_REFUSED:gate_dag_mode\|<profile>\|<gates declaring unlocks>`, nothing written; acceptance: a pre-existing DAG `build_verified` → `tests_pass` → `lint` is refused, a linear control is written in order); the `full_run` phase (`costs --gate-timeout`, next level's task with `depends:`); `--policy selected` re-entry; `--no-task`; refresh mode; the headless flow; goldens; `tests/test_testmap_onboard_ledger.sh` | `component_onboarding_skill` | `.claude/skills/aitask-testmap-onboard/**`; `tests/golden/skills/aitask-testmap-onboard/`; the ledger test | levels 0 and 1 attended; level 0 and 1 headless once M7.2 and M7.5 exist (the `review.md` sub-phase is M7.5's) | M4.4, M5.1, M6.1, M6.2, M6.3, M8.2, M8.3, M8.4 |
 
 #### M7 — Agent review and author annotation
 
@@ -768,11 +770,11 @@ honest.
 
 | submodule | scope | components | owns | provides | depends on |
 |---|---|---|---|---|---|
-| **M8.1** Verifier exit contract and environment | `run_project_command_key()` rows 75 → error (`command_refused`) and 3 → error (`command_errored`) for opted-in keys, `AIT_GATE_TASK_ID` / `AIT_GATE_RUN_ID` exported around the command, `aitask_run_project_command.sh --task-id` exporting the former, the docblock table | `component_gates` (the contract) | the two rows and exports in `lib/gate_verifier_lib.sh`; the export in `aitask_run_project_command.sh`; `tests/test_gate_verifiers.sh` cases | the contract `./ait test --gate` speaks | — |
-| **M8.2** `testmap_check` gate | `aitask_gate_testmap_check.sh` (`SEEDED:`, `ADOPTED:…`, `UNMAPPED_SOURCE:`, `--strict` past `bootstrap_until`), the `testmap_check` and `testmap_fresh` entries in `gates_reference.yaml` synced to `gates.yaml` (`unlocks: [tests_pass]`) | `component_gates` | the verifier script; the two reference entries; `tests/test_gates_reference_drift.sh` update | the consistency gate that unlocks `tests_pass` | M2.1, M2.6, M4.2, M8.1 |
-| **M8.3** `testmap_fresh` procedure gate | the skill `aitask-gate-testmap-fresh` (the stale workflow: `stale --task`, diffs per `STALE` row, retarget, re-stamp `EVIDENCED`, structural rows, `UNSTAMPED` prompts, never guess `UNKNOWN`, never confirm `STALE` autonomously, `adopted(… by <who>)` context); **its seeds step** (`onboard review --ids` for touched test files; attended pre-fill / confirm / override / trust-batch; autonomous `--agent-verdicts`) lands when M7.2 exists | `component_gates` (the procedure gate), `component_freshness` (the gate's role), `component_skill` (the gate skill) | `.claude/skills/aitask-gate-testmap-fresh/**`; goldens | the before-commit freshness step and the in-gate reading site | M4.2, M4.3; seeds step: M7.1, M7.2 |
-| **M8.4** Completion policy `full` / `selected` | the `completion:` block (`mode`, `deferred`, `on_empty_selection`, `engine_absent`), the `POLICY` arm of `aitask_test.sh` for `full` and `selected` (readiness re-check, `POLICY_DEMOTED:selected->full`), `fallback_command` under `engine_absent`, the `result=` field on the gate-run ledger block, `readiness`'s `POLICY:` line, the data the `--policy selected` re-entry writes | `component_completion_policy` | the `POLICY` arm in `aitask_test.sh`; the `policy` package in `internal/feedback`; cases in `tests/test_ait_test_entrypoint.sh` | one gate whose meaning is a committed policy | M3.2, M4.4, M5.1, M8.1 |
-| **M8.5** Auto policy and cadence | `internal/feedback/cadence.go`, the `auto` arm of the `POLICY` step, `costs/policy.yaml` writes and `POLICY_WRITE:`, the front's `ait: testmap policy <flip\|full-run> (t<id>)` commit, `POLICY_FLIPPED:`, the three triggers, `POLICY:auto\|…` line shapes, `cadence_declared`, the `CADENCE:` readiness line, `approved_by\|engine`, the window-score trigger in M4.4, the `next full in` and `FULL_GATE:` cadence fields on the brief | `component_auto_policy` | `cadence.go`; the `auto` arm; the additive lines in `readiness` and `brief`; the `auto` matrix in `tests/test_ait_test_entrypoint.sh` | the self-approving policy behind the scheduled full run | M3.4, M4.4, M5.2, M8.4 |
+| **M8.1** Verifier exit contract and environment | `run_project_command_key()` rows 75 → error (`command_refused`) and 3 → error (`command_errored`) for opted-in keys (64 and every other non-zero code stay `fail`), `AIT_GATE_TASK_ID` / `AIT_GATE_RUN_ID` exported around the command, the result carrier `AIT_GATE_RESULT_FILE=.aitask-gates/<task>/<gate>_<run>.result` exported by `run_command_gate` only (truncated before each command; the value written by the command that decided the verdict becomes `result=` behind the status reason, first line only, CR/LF stripped, length-capped; an absent or empty file keeps the fixed text), `aitask_run_project_command.sh --task-id` exporting `AIT_GATE_TASK_ID`, the docblock table | `component_gates` (the contract) | the two rows, the exports and the carrier in `lib/gate_verifier_lib.sh`; the export in `aitask_run_project_command.sh`; `tests/test_gate_verifiers.sh` cases | the contract `./ait test --gate` speaks | — |
+| **M8.2** `testmap_check` gate | `aitask_gate_testmap_check.sh`, which takes no flags and always runs `check --strict`: engine exits 0/1/2/3/64 and a missing engine map to 0/1/3 (`registry_absent`)/3/3/3; `bootstrap_until` is the strict flip (an absent value is strict at once); `SEEDED:` / `ADOPTED:…` passed through; `UNMAPPED_SOURCE:` from the selector (M4.1) over the task's change surface, failing past `bootstrap_until`; an `UNSTAMPED` failure names the repair handoff in `result=`. The `testmap_check` entry in `gates_reference.yaml` synced to `gates.yaml` (`max_retries 0`, `timeout 120`, no `unlocks:` — it runs before `tests_pass` by list position). The verifier's allowlist entries in the five permission touchpoint files | `component_gates` | the verifier script; the reference entry; `tests/test_gates_reference_drift.sh` update; the five allowlist entries; acceptance cases for a hand-written map with no `bootstrap_until` (strict from the start) and for the mixed declared set `[build_verified, testmap_fresh, testmap_check, tests_pass, lint]` staying ordered through the real orchestrator | the consistency gate that runs before `tests_pass` | M2.1, M2.6, M4.2, M8.1 |
+| **M8.3** `testmap_fresh` procedure gate (two child tasks: base; seeds step) | the skill `aitask-gate-testmap-fresh` (the stale workflow: `stale --task`, diffs per `STALE` row, retarget, re-stamp `EVIDENCED` with `--confirm-evidenced`, structural rows, attended `UNSTAMPED` prompts, never guess `UNKNOWN`, `adopted(… by <who>)` context); the autonomous lane never confirms `STALE`, never first-stamps and never pends: `STALE` rows are left and counted with a `pass`, `UNSTAMPED` rows are left and counted with `check`'s own severity (`pass` during bootstrap or without `require_stamp`, otherwise `fail` with a machine-readable handoff to the automated repair coordinator); the `testmap_fresh` entry in `gates_reference.yaml` synced to `gates.yaml`; the five allowlist entries for `ait testmap` (the first skill that calls the shim); **its seeds step** (`onboard review --ids` for touched test files; attended pre-fill / confirm / override / trust-batch; autonomous `--agent-verdicts`) lands when M7.2 exists | `component_gates` (the procedure gate), `component_freshness` (the gate's role), `component_skill` (the gate skill) | `.claude/skills/aitask-gate-testmap-fresh/**`; the reference entry; the five allowlist entries; goldens | the before-commit freshness step and the in-gate reading site | M4.2, M4.3; seeds step: M7.1, M7.2 |
+| **M8.4** Completion policy `full` / `selected` | the `completion:` block (`mode`, `deferred`, `on_empty_selection`, `engine_absent`), the `POLICY` arm of `aitask_test.sh` for `full` and `selected` (readiness re-check, `POLICY_DEMOTED:selected->full\|<criterion>`), `fallback_command` under `engine_absent`, the `result=` field on the gate-run ledger block written through M8.1's carrier, `readiness`'s `POLICY:` line, the data the `--policy selected` re-entry writes, the engine verb `policy` (`decide`, read-only for `full` / `selected`) | `component_completion_policy` | the `POLICY` arm in `aitask_test.sh`; the `policy` package in `internal/feedback`; the verb `policy`; cases in `tests/test_ait_test_entrypoint.sh` | one gate whose meaning is a committed policy | M3.2, M4.4, M5.1, M8.1 |
+| **M8.5** Auto policy and cadence | `internal/feedback/cadence.go`, the `auto` arm of the `POLICY` step and of the verb `policy`, the verb's two write points through M3.4's `policy.yaml` helpers (the pre-run flip or demotion; the post-run full-run reset or selected increment), each printing `POLICY_WRITE:`, the front's `ait: testmap policy <flip\|full-run> (t<id>)` commit, `POLICY_FLIPPED:`, the three triggers, `POLICY:auto\|…` line shapes, `cadence_declared`, the `CADENCE:` readiness line, `approved_by\|engine`, the window-score trigger in M4.4, the `next full in` and `FULL_GATE:` cadence fields on the brief | `component_auto_policy` | `cadence.go`; the `auto` arm; the additive lines in `readiness` and `brief`; the `auto` matrix in `tests/test_ait_test_entrypoint.sh` | the self-approving policy behind the scheduled full run | M3.4, M4.4, M5.2, M8.4 |
 
 #### M9 — Workflow integration, skills and documentation
 
@@ -819,7 +821,7 @@ meet on. Each is defined once, in the section named, and consumed as data.
 | `resources.yaml` and the wave plan | M3.3 | M4.5, M6.1 (`RESOURCE_HINT` → entries), M6.4 (`needs:` bindings) |
 | cost rows, `last_pass` (anchor-eligible passes only), the per-group estimate (top-level ids) and the full-suite p95, `predictions.yaml`, `costs/policy.yaml` format | M3.4 | M4.1 (ranking, budget), M4.3 (anchors), M4.4 (score, readiness), M6.5 (`--gate-timeout`), M8.5 (cadence state) |
 | the change-surface line intake `COMMITTED:` / `TASK:` / `OTHER:` / `UNKNOWN:` | `aitask_change_surface.sh` (exists); parsed by M4.1 | M4.2 (`stale --task`), M5.1 (intake), M7.4 (refusal check) |
-| the ranked list, `SELECTED:`, `UNMAPPED_SOURCE:`, the prediction record | M4.1 | M4.5, M5.1 (verdict), M9.1 (procedure), M9.2 (QA) |
+| the ranked list, `SELECTED:`, `UNMAPPED_SOURCE:`, the prediction record | M4.1 | M4.5, M5.1 (verdict), M8.2 (`UNMAPPED_SOURCE:` over the task's change surface), M9.1 (procedure), M9.2 (QA) |
 | the `stale` report and `adopted(…)` DISPLAY | M4.2 | M8.2, M8.3 |
 | `readiness` lines and `LEVEL` / `NEXT` | M4.4 (+ M7.3, M8.5 additive lines) | M5.2, M6.1 (`status`), M6.5, M8.4, M8.5 |
 | the `test` composite's output | M4.5 | M5.1 |
@@ -829,8 +831,8 @@ meet on. Each is defined once, in the section named, and consumed as data.
 | the adoption transitions and `ADOPT_*` lines | M6.3 | M7.2 (reuses the rewriter path and provenance row), M6.5, M8.3 |
 | review packets and the verdict grammar | M7.1, M7.2 | M6.5 (`review.md`), M7.5, M7.6, M8.3 (seeds step) |
 | `annotate --author` and `AUTHOR_*` | M7.4 | M9.1 (the autonomous branch), M9.3 |
-| the verifier exit contract and the two environment variables | M8.1 | M5.1 (mode), M8.4, M9.1 (`build-verification.md` branch), M9.2 |
-| the `completion:` block and `POLICY:` lines | M8.4, M8.5 | M5.2 (brief), M6.1 (`detect --write`), M6.5 (`--policy selected`), M9.1 |
+| the verifier exit contract, the two environment variables and the result carrier `AIT_GATE_RESULT_FILE` | M8.1 | M5.1 (mode), M8.4 / M8.5 (`result=` through the carrier), M9.1 (`build-verification.md` branch), M9.2 |
+| the `completion:` block, the engine verb `policy` and `POLICY:` lines | M8.4, M8.5 | M5.2 (brief), M6.1 (`detect --write`), M6.5 (`--policy selected`), M9.1 |
 | the four skills' stub + `.j2` surfaces and goldens | M6.5, M7.5, M8.3, M9.3 | M9.5 |
 
 ### Suggested implementation order
@@ -844,8 +846,8 @@ its own.
 | **A** foundation | M1.1, M1.2, M8.1, M2.1, M2.2 | `ait-testmap version` builds and installs by hand; a registry parses and `check`s; annotations are read and rewritten; the verifier lib already speaks 75 / 3 |
 | **B** map and runners | M1.3, M1.4, M2.3, M2.5, M2.6, M3.1, M3.2 | release assets exist; `ait testmap` resolves the binary; closures, scoped rows and the seeded / adopted tables load; the builtins list and run units on every target repository |
 | **C** select and run | M1.5, M2.4, M3.3, M3.4, M4.1, M4.5 | `ait setup` installs the engine; `ait testmap test --changes -` selects, schedules, runs and records cost on a hand-annotated registry |
-| **D** freshness and the front | M4.2, M4.3, M4.4, M5.1, M5.2, M5.3, M8.2 | `./ait test` works in three modes on a hand-annotated registry; `stale`, `score`, `readiness` and `--howto` answer; `testmap_check` can be declared; every agent's instructions name the verb |
-| **E** adoption data and onboarding engine | M6.1, M6.2, M6.3, M8.3 (without the seeds step), M8.4 | seeds select; a person adopts by class or row; `onboard detect --write` produces level 0 on every target; `tests_pass` runs `./ait test --gate` under `full` and `selected`; the freshness gate confirms stamps |
+| **D** freshness and the front | M4.2, M4.3, M4.4, M5.1, M5.2, M5.3 | `./ait test` works in three modes on a hand-annotated registry; `stale`, `score`, `readiness` and `--howto` answer; every agent's instructions name the verb |
+| **E** adoption data and onboarding engine | M6.1, M6.2, M6.3, M8.2, M8.3 (without the seeds step), M8.4 | seeds select; a person adopts by class or row; `onboard detect --write` produces level 0 on every target; `testmap_check` can be declared; `tests_pass` runs `./ait test --gate` under `full` and `selected`; the freshness gate confirms stamps |
 | **F** reading and the onboarding skill | M6.5, M7.1, M7.2, M7.4, M9.1 | attended onboarding reaches level 1 with the skill's agent reading packets; the authoring agent stamps its own pairs; the pre-review procedure runs in every profile |
 | **G** loop closure | M6.4, M7.3, M7.5, M8.3 (seeds step), M8.5, M9.2, M9.3 | headless level 1; `auto` flips itself behind the cadence; calibration measures the reading; bulk review through the wrappers; the in-gate reading site; QA and the maintenance skill read the map |
 | **H** breadth | M1.6, M7.6, M9.4, M9.5 | the crew form; the home migration verb; docs and extension points; Codex and OpenCode ports |
@@ -867,7 +869,9 @@ a versioned scanner-plugin contract beyond the one-JSON-line-per-file form
 attribution inside a member file (M2.3 / M4.1); a second-model cross-check
 of verdicts through `ait codeagent testmap-review --agent-string <other>`
 (M7.3); `agent_review.min_verified` as a floor on which models may write
-`--by` (M7.5); `--source-lines <n>` in the packet (M7.1).
+`--by` (M7.5); `--source-lines <n>` in the packet (M7.1); integrating the
+map gates into an existing explicit gate DAG, which M6.5's `enable` phase
+refuses in v1 (M6.5 / M8.2).
 <!-- /section: module_map -->
 
 <!-- section: data_flow [dimensions: component_test_entrypoint, component_test_front_verb, component_onboarding_engine_verbs, component_onboarding_skill, component_seeder, component_completion_policy, component_auto_policy, component_workflow_integration, component_workflow_seam, component_selector, component_annotation_scanner, component_author_annotation, component_freshness, component_feedback_tools, component_cost_ledger, component_registry_loader, component_staleness_tool, component_engine_packaging, component_agent_review, component_agent_review_pass] -->
@@ -904,8 +908,8 @@ is why a scored prediction exists for every task that reaches completion.
 ### A completion run under policy
 
 ```
-ait gates run 1234 → testmap_check → pass → unlocks tests_pass
-   → aitask_gate_tests_pass.sh → run_command_gate → export AIT_GATE_TASK_ID=1234 AIT_GATE_RUN_ID=<run> → `./ait test`
+ait gates run 1234 → testmap_check → pass → tests_pass (next by list position)
+   → aitask_gate_tests_pass.sh → run_command_gate → export AIT_GATE_TASK_ID=1234 AIT_GATE_RUN_ID=<run> AIT_GATE_RESULT_FILE=<result file> → `./ait test`
       MODE:completion  POLICY:full                       → run --all (subsumed_by honoured) → exit 0/1/2/3/75
       MODE:completion  POLICY:selected                   → readiness: all met → task selection, deferred rows RUN
       MODE:completion  POLICY:selected → POLICY_DEMOTED:selected->full|max_false_negatives → run --all
@@ -917,7 +921,7 @@ ait gates run 1234 → testmap_check → pass → unlocks tests_pass
                                                            → run --all → window score → last_full_run, selected_since_full := 0 → POLICY_WRITE: → `ait: testmap policy full-run (t1234)`
       MODE:completion  POLICY:auto, otherwise             → POLICY:auto|selected|next_full_in:<n> → task selection, deferred rows RUN, selected_since_full += 1
    → run_project_command_key: 0 pass · 1 fail · 2 skip · 3 error(command_errored) · 75 error(command_refused)   [opted-in key]
-   → ledger block result="MODE:full|720 units|policy:full" or result="MODE:selected|14|policy:auto|next_full_in:3" → orchestrator: pass / fail / skip / error (retry within max_retries)
+   → ledger block result="MODE:full|720 units|policy:full" or result="MODE:selected|14|policy:auto|next_full_in:3" (the front's line in AIT_GATE_RESULT_FILE) → orchestrator: pass / fail / skip / error (retry within max_retries)
    → after any full run: PREDICTION_SCORED:<r1..rk>|<run> PREDICTION_FALSE_NEGATIVES:<n> → costs/predictions.yaml (every prediction since the last full run scored,
      each miss attributed to the earliest task in the window whose change surface reaches the failing unit, culprit ids from `git log -M` when history is reachable) → readiness input
 ```
@@ -935,7 +939,7 @@ repository (tests, scripts, build files, project_config.yaml, code_areas.yaml, g
    │                                  --apply → registry/seeded.yaml ;  --json --out → .aitask-testmap/onboard/<run>/seed.json (attached to the task)
    ▼  check / explain --sources       UNMAPPED_SOURCE clusters → rules for hot directories · expiring waivers (+90d) · leave unmapped   (waivers phase)
    ▼  enable (skill)                  test_command: ./ait test (previous value → full: true suite runner with fallback_command:) · gate_command_exit_contract += test_command
-   │                                  profiles default_gates += tests_pass, testmap_check, testmap_fresh · docs: · notes: · hand-maintained CLAUDE.md paragraph
+   │                                  profiles default_gates: testmap_fresh, testmap_check before tests_pass (refused on a DAG-mode set) · docs: · notes: · hand-maintained CLAUDE.md paragraph
    ▼  task-workflow Step 8            annotation diff reviewed (none at level 0); testmap_fresh: nothing STALE
    ▼  task-workflow Step 9            ./ait gates run → testmap_check (non-strict) → tests_pass → ./ait test --gate
    │                                  MODE:completion POLICY:auto → readiness NOT_YET → run --all → ledger rows → last_pass per unit · costs --update · PREDICTION_SCORED:none
@@ -1499,11 +1503,26 @@ config under one `(t<id>)`.
 profiles: `test_command: ./ait test` with the previous value moved to the
 `full: true` suite runner's `fallback_command:` (`verify_build` left alone
 unless the user names it as the suite); `gate_command_exit_contract +=
-test_command`; profiles `default_gates += tests_pass, testmap_check,
-testmap_fresh` (and `rendered_gates` where present); `bootstrap_until`;
-`completion.mode auto` with its cadence; `docs:` and `notes:` for the brief;
-a hand-maintained `CLAUDE.md` Testing paragraph where the file has no
-`>>>aitasks` markers.
+test_command`; profiles' `default_gates` (and `rendered_gates` where
+present) gain `testmap_fresh, testmap_check` immediately before `tests_pass`,
+or all three appended in that order when `tests_pass` is absent;
+`bootstrap_until`; `completion.mode auto` with its cadence; `docs:` and
+`notes:` for the brief; a hand-maintained `CLAUDE.md` Testing paragraph where
+the file has no `>>>aitasks` markers.
+
+**The gate order is list position.** `enable` never adds an `unlocks:` and
+never reorders existing entries: any explicit `unlocks:` in a declared set
+switches the whole set to DAG mode, where every gate without `unlocks:`
+becomes terminal and loses its ordering. Before it writes anything, `enable`
+checks the resulting declared set (the profile's `default_gates` /
+`rendered_gates`, read against the project's `gates.yaml`) with the
+orchestrator's own DAG-mode predicate (`gate_orchestrator._dag_mode` /
+`predecessors_map`, never a copy). When that set is in DAG mode it writes
+nothing and refuses with
+`ENABLE_REFUSED:gate_dag_mode|<profile>|<gates declaring unlocks>` and a
+one-line remedy. The acceptance fixtures: a pre-existing DAG
+(`build_verified` → `tests_pass` → `lint`) is refused with nothing written,
+and a linear control is written in the required order.
 
 **Variants.** `--no-task` writes without committing and prints the commit
 lines, for a repository that forbids tasks on the code branch. The
@@ -1676,7 +1695,7 @@ gate ledger, and is the one deliberate exception to "a missing engine is an
 error": an *advisory* run must never block a task the way a declared gate
 legitimately does; the skip is printed, never silent.
 
-### The two environment variables
+### The two environment variables and the result carrier
 
 `run_command_gate` exports `AIT_GATE_TASK_ID=<task-id>` and
 `AIT_GATE_RUN_ID=<run-id>` around the command; `aitask_run_project_command.sh
@@ -1686,6 +1705,21 @@ verifier, the legacy Step-9 helper, `aitask-qa`) with no argument in
 `test_command`; the run id names the gate run in
 `.aitask-testmap/runs/<run-id>/` so a ledger row and a gate log share an
 identifier, and it is the run the policy ledger's `approved_by` names.
+
+`run_command_gate` — and only it — also exports the result carrier
+`AIT_GATE_RESULT_FILE=.aitask-gates/<task>/<gate>_<run>.result`. When the
+command leaves a one-line file there, its sanitized content becomes the
+gate-run ledger block's `result=` field, with the status reason kept as a
+prefix; an absent or empty file keeps the fixed text. The file is truncated
+before each command of a command list, and the value used is the one written
+by the command that decided the verdict (the failing command, else the last
+one that wrote). Sanitization keeps the first line, strips CR/LF and caps the
+length, because the ledger shows the value as a `> Result:` line. The writer
+is the bash front `aitask_test.sh` (the `MODE:…|policy:…` line of M8.4 /
+M8.5), never the engine. The carrier is an exported path rather than one
+derived from `AIT_GATE_TASK_ID` + `AIT_GATE_RUN_ID`, which would couple
+`./ait test` to the `.aitask-gates/` layout, and rather than a marker line
+scraped from the log, which would turn ordinary test output into a protocol.
 
 ### `ait test --howto` (engine verb `brief`)
 
@@ -1768,7 +1802,7 @@ Modules: M8.1 (the contract), M8.2 (`testmap_check`), M8.3
 The change-aware run is reached from the existing workflows without a new
 workflow and without a new gate. The seam is data — project config,
 profiles, gate declarations, the completion policy, two environment
-variables, one `codeagent` operation and three model-table keys — plus one
+variables and a result carrier, one `codeagent` operation and three model-table keys — plus one
 paragraph for the implementation loop, one procedure for the pre-review run,
 and one new skill for bulk review. The two autonomous branches that would
 otherwise only *propose* now *act* through engine verbs. Every seam
@@ -1786,12 +1820,12 @@ degrades to a printed skip where the engine or the registry is absent.
 | Step 9 verify block (`./ait gates run`) | none — the orchestrator runs `testmap_check` → `tests_pass` (= `./ait test --gate`) | none | — |
 | Step 9 no-gates branch (`build-verification.md`, `verify_build`) | none in prose; a project reaches the test lane by declaring `tests_pass`, which onboarding writes into `default_gates` | data | M6.5 |
 | `build-verification.md` | one branch: verdict `error` with reason `command_refused` / `command_errored` → host refused resources or the framework could not run; do not fix code, do not record a pass, report and re-run later | prose | M9.1 |
-| `lib/gate_verifier_lib.sh` `run_project_command_key()` | opted-in keys: 75 → `error`/3/`command_refused`, 3 → `error`/3/`command_errored`; exports `AIT_GATE_TASK_ID`, `AIT_GATE_RUN_ID` around the command; docblock table updated — the single canonical statement | code; `tests/test_gate_verifiers.sh` extended | M8.1 |
+| `lib/gate_verifier_lib.sh` `run_project_command_key()` | opted-in keys: 75 → `error`/3/`command_refused`, 3 → `error`/3/`command_errored`, 64 and any other non-zero code stay `fail`; exports `AIT_GATE_TASK_ID`, `AIT_GATE_RUN_ID` around the command; `run_command_gate` only also exports the result carrier `AIT_GATE_RESULT_FILE` (truncated per command; the verdict-deciding command's value, first line, CR/LF stripped, length-capped, becomes `result=`; written by the bash front `aitask_test.sh`, never the engine); docblock table updated — the single canonical statement | code; `tests/test_gate_verifiers.sh` extended | M8.1 |
 | `aitask_run_project_command.sh` | `--task-id` also exports `AIT_GATE_TASK_ID`; inherits the new rows | code | M8.1 |
-| `gates_reference.yaml` → `gates.yaml` sync | + `testmap_fresh` (procedure, verifier `aitask-gate-testmap-fresh`), + `testmap_check` (`unlocks: [tests_pass]`, `max_retries: 0`, `timeout_seconds: 120`); `tests_pass` unchanged in the reference, `timeout_seconds` tuned per project from the ledger | data | M8.2 |
-| project profiles | `default_gates` += `tests_pass`, `testmap_check`, `testmap_fresh` (the onboarding `enable` phase, confirmed; `rendered_gates` when present) | data | M6.5 |
-| `aitask_gate_testmap_check.sh` | the machine verifier; rows `SEEDED:<n>`, `ADOPTED:<n>\|human <h>\|agent <a>\|auto <m>` (informational), `UNMAPPED_SOURCE:<path>` (reported during bootstrap, fails under `--strict` past `bootstrap_until`) | code | M8.2 |
-| `ait test --gate` (`aitask_test.sh` + `test` composite) | the `full` / `selected` resolution with the readiness re-check; the `auto` resolution: `readiness` + `costs/policy.yaml` + the three cadence triggers → the `POLICY:` line; the engine's `POLICY_WRITE:` committed under `ait: testmap policy <flip\|full-run> (t<id>)` | code | M8.4, M8.5 |
+| `gates_reference.yaml` → `gates.yaml` sync | + `testmap_check` (`max_retries: 0`, `timeout_seconds: 120`, no `unlocks:` — it runs before `tests_pass` by list position), + `testmap_fresh` (procedure, verifier `aitask-gate-testmap-fresh`); `tests_pass` unchanged in the reference, `timeout_seconds` tuned per project from the ledger | data | M8.2 (`testmap_check`), M8.3 (`testmap_fresh`) |
+| project profiles | `default_gates` gain `testmap_fresh`, `testmap_check` immediately before `tests_pass` (or all three appended in that order; never an `unlocks:`, never a reorder; `ENABLE_REFUSED:gate_dag_mode\|<profile>\|<gates declaring unlocks>` and nothing written when the resulting set is in DAG mode) (the onboarding `enable` phase, confirmed; `rendered_gates` when present) | data | M6.5 |
+| `aitask_gate_testmap_check.sh` | the machine verifier; takes no flags and always runs `check --strict`, with `bootstrap_until` as the strict flip (`detect --write` sets it 90 days ahead, `finish` shortens it, an absent value is strict at once); engine exits 0/1/2/3/64 and a missing engine → 0/1/3 (`registry_absent`)/3/3/3; rows `SEEDED:<n>`, `ADOPTED:<n>\|human <h>\|agent <a>\|auto <m>` (informational), `UNMAPPED_SOURCE:<path>` from the selector over the task's change surface (reported during bootstrap, fails past `bootstrap_until`); an `UNSTAMPED` failure names the repair handoff in `result=`; its allowlist entries in the five permission touchpoint files | code | M8.2 |
+| `ait test --gate` (`aitask_test.sh` + `test` composite) | the engine verb `policy` decides: the `full` / `selected` resolution with the readiness re-check; the `auto` resolution: `readiness` + `costs/policy.yaml` + the three cadence triggers → the `POLICY:` line; the front writes `result=` through `AIT_GATE_RESULT_FILE`; the verb's `POLICY_WRITE:` committed under `ait: testmap policy <flip\|full-run> (t<id>)` | code | M8.4, M8.5 |
 | `aitask_codeagent.sh` | operation `testmap-review` (`/aitask-testmap-review`), interactive by default, `--print` only under `--headless`; `list-models` shows `verified.testmap-review` | code | M7.5 |
 | `seed/models_{claudecode,codex,opencode}.json` | `verified.testmap-review` key per model (0 until measured); `aitask-add-model` seeds it | data | M7.5 |
 | `aitask-testmap-review/` | **new** profile-aware skill; `review-batch.md`; goldens; Codex / OpenCode ports in M9.5 | skill | M7.5 |
@@ -1855,12 +1889,12 @@ guard needed.
     verifier: aitask-gate-testmap-fresh
   testmap_check:
     type: machine
-    description: "Test map consistent: rotted paths fail; structural rot and unmapped sources fail under --strict past bootstrap"
+    description: "Test map consistent: rotted paths fail; structural rot and unmapped sources fail past bootstrap_until"
     blocks_dependents: false
     verifier: aitask-gate-testmap-check
     max_retries: 0
     timeout_seconds: 120
-    unlocks: [tests_pass]
+  # No unlocks: — testmap_fresh, testmap_check, tests_pass run in declared list order.
   # tests_pass: unchanged in the reference (blocks_dependents: true, max_retries: 1, timeout_seconds: 600).
   # In an onboarded project test_command is `./ait test`, gate_command_exit_contract lists test_command,
   # and the project's gates.yaml carries timeout_seconds from `costs --gate-timeout`.
@@ -1869,13 +1903,19 @@ guard needed.
 There is no separate selection gate. Everything such a gate would own has a
 home: its verifier logic is `ait test --gate`; `blocks_dependents` and
 `max_retries: 1` are `tests_pass`'s own; its timeout is the per-project
-`tests_pass.timeout_seconds` from the ledger; its exit mapping (0/1/2/75/64
-→ 0/1/2/3/3) is the shared lib's new rows; `testmap_check` unlocks
-`tests_pass`; `--include-stale` is applied by the composite; deferred rows
-run under `completion.deferred: run`. An `unlocks:` target absent from a
-task's active set is ignored, so `testmap_check` declared alone is linear as
-before, and a project whose completion invariant is a full suite keeps
-`tests_pass` exactly as today with `completion.mode: full`.
+`tests_pass.timeout_seconds` from the ledger; its exit mapping (0/1/2/3/75
+→ pass/fail/skip/error/error; 64 and any other code stay a fail) is the
+shared lib's new rows; `testmap_check` runs before `tests_pass` by list
+position; `--include-stale` is applied by the composite; deferred rows run
+under `completion.deferred: run`. None of the three declares `unlocks:`: any
+explicit `unlocks:` in a declared set switches the whole set to DAG mode,
+where every gate without `unlocks:` becomes terminal and loses its ordering
+(a `build_verified` or `lint` beside it would no longer be ordered). The
+order is therefore the declared list order, which onboarding's `enable`
+phase writes and which it refuses to write into a set already in DAG mode
+(`ENABLE_REFUSED:gate_dag_mode|…`). A project whose completion invariant is
+a full suite keeps `tests_pass` exactly as today with `completion.mode:
+full`.
 `run_gate_admission` and `readiness` gate the **policy flip** rather than a
 second gate's declaration: recorded by a human in `config.yaml` under
 `selected`, or by the engine in `costs/policy.yaml` under `auto`, so the
@@ -1981,9 +2021,11 @@ same way; the contract stays 1 — `by:`, `verdict:` and the review fields are
 additive fields an older engine ignores). Pools are capped at 8. The verb
 table is `test`, `select`, `schedule`, `run`, `scan`, `check`, `stale`,
 `annotate` (+ `--author`), `verify`, `explain`, `axes`, `areas`, `classify`,
-`costs` (+ `--gate-timeout`), `score`, `attribute`, `readiness`, `brief`,
-`onboard {detect, inventory, seed, review, classify, adopt, reject, scaffold,
-status, finish}`, `runner <name>`, `version`. Budgets pinned by `go test
+`costs` (+ `--gate-timeout`), `score`, `attribute`, `readiness`, `policy`
+(M8.4's named extension of the table: `decide`, read-only for `full` /
+`selected`; M8.5 adds the `auto` arm and its `POLICY_WRITE:` write points),
+`brief`, `onboard {detect, inventory, seed, review, classify, adopt, reject,
+scaffold, status, finish}`, `runner <name>`, `version`. Budgets pinned by `go test
 -bench` fixtures with a 2× regression rule: `select` < 200 ms warm on the
 aitasks shape and < 250 ms with axis expansion on the thinking_app shape,
 `scan` / `check` / `stale --task` < 300 ms, `stale --all` < 2 s, cold
@@ -3063,8 +3105,8 @@ p95 on this host class)` (this package homes the line), which the onboarding
 `full_run` phase writes into the project's `gates.yaml` after the first
 measured full run. `aitestmap/costs/policy.yaml` (schema under *Where state
 lives*) is the engine's policy ledger under `auto`: this package owns the
-file format and its read / write helpers; `ait test --gate` (M8.5) is its
-only writer, and it is committed beside the other engine-written cost files
+file format and its read / write helpers; the engine verb `policy` (M8.5),
+invoked by `ait test --gate`, is its only writer, and it is committed beside the other engine-written cost files
 so `config.yaml` stays human-authored.
 <!-- /section: component_cost_ledger -->
 
@@ -3122,6 +3164,28 @@ the same commit as the test edit, which is the moment the reader has the
 file open and the claim is cheapest to check. An adopted stamp is a stamp
 like any other; the gate handles it identically, with the `adopted(... by
 <who>)` display as context.
+
+In the autonomous lane the gate never confirms a `STALE` row, never writes a
+first stamp and never pends for a person. Per row class:
+
+- **`STALE`** — left as it is and counted in `result=`; the gate passes. The
+  row keeps selecting, and it leaves through `--confirm-evidenced`, which
+  re-stamps an existing claim once an anchored run evidences it.
+- **`UNSTAMPED`** — left and counted, with the outcome following `check`'s
+  own severity, read from the engine and never re-derived: during bootstrap
+  or without `require_stamp`, the gate passes; under `require_stamp` past
+  `bootstrap_until`, it fails, and its `result=` and log carry the
+  `UNSTAMPED` pairs and a machine-readable handoff to the automated repair
+  coordinator. `testmap_check` fails with the same reason. Neither
+  gate invents a stamp, extends `bootstrap_until` or flips `require_stamp`.
+
+A first stamp comes only from a legitimate adoption route — `annotate
+--author` for pairs on the change surface (M7.4), verdict adoption from
+packets (M7.2), class `--auto` over a rule or measurement class (M6.3) —
+never from `--confirm-evidenced`. Rollout prerequisite: unattended
+completion under `require_stamp: true` past `bootstrap_until` requires the
+automated repair coordinator (t1853_7); until it lands, an autonomous lane
+in that configuration fails loudly and never passes silently.
 <!-- /section: component_freshness -->
 
 <!-- section: component_staleness_tool [dimensions: component_staleness_tool] -->
@@ -3458,7 +3522,8 @@ phase).
   land)*
 - `finish` requires status green (no pending phase, `check` clean, every
   remaining seed either under the user-set threshold or parked with a
-  verdict), flips `require_stamp` and `--strict`, records the phase;
+  verdict), flips `require_stamp` and shortens `bootstrap_until` (the
+  strict flip `testmap_check` reads), records the phase;
   `--auto` is the same test with `FINISH:auto|parked <n>|review_human <m>`
   printed, so a headless level-1 task can close enforcement. *(M6.1)*
 
@@ -3648,23 +3713,32 @@ an unmet criterion prints `POLICY_DEMOTED:selected->full|<criterion>` and
 runs full; under `auto` the arm under *Auto completion policy* applies. The
 human flip and the engine flip are both bounded by the same automatic
 demotion, and the engine flip additionally by the cadence, so the policy
-can only fail toward running more. `readiness` prints
-`POLICY:<mode>|<what --gate would run now>[|next_full_in:<n>]`; the gate-run
+can only fail toward running more. The decision is the engine verb `policy`
+(`decide`, read-only for `full` / `selected`; code in `internal/feedback`'s
+`policy` package), and `readiness` prints its
+`POLICY:<mode>|<what --gate would run now>[|next_full_in:<n>]` line through
+the same `feedback/policy` code, so the two cannot disagree. The gate-run
 ledger block carries `result="MODE:<full|selected>|<n
-units>|policy:<mode>[|next_full_in:<n>|cadence:<trigger>]"`. M8.4 ships the
-block, the `full` and `selected` arms of the front's `POLICY` step, the
-`result=` field and the readiness `POLICY:` line; `tests/test_ait_test_entrypoint.sh`
-covers `full`, `selected` and the demotion.
+units>|policy:<mode>[|next_full_in:<n>|cadence:<trigger>]"`, written by the
+bash front `aitask_test.sh` through M8.1's result carrier
+`AIT_GATE_RESULT_FILE`, never by the engine. M8.4 ships the block, the
+`full` and `selected` arms of the front's `POLICY` step and of the verb
+`policy`, the `result=` field and the readiness `POLICY:` line;
+`tests/test_ait_test_entrypoint.sh` covers `full`, `selected` and the
+demotion.
 <!-- /section: component_completion_policy -->
 
 <!-- section: component_auto_policy [dimensions: component_auto_policy] -->
 ### Auto completion policy and cadence *(M8.5)*
 
 `internal/feedback/cadence.go` and the `auto` arm of `aitask_test.sh`'s
-policy step. State: `config.yaml completion.full_run_every {tasks,
-selection_ratio_above, days}` (the declaration) and `aitestmap/costs/policy.yaml`
-(the engine's ledger, committed; schema under *Where state lives*) — the
-engine writes the ledger and prints `POLICY_WRITE:aitestmap/costs/policy.yaml`;
+policy step and of the engine verb `policy`. State: `config.yaml
+completion.full_run_every {tasks, selection_ratio_above, days}` (the
+declaration) and `aitestmap/costs/policy.yaml` (the engine's ledger,
+committed; schema under *Where state lives*) — the verb `policy` writes the
+ledger through M3.4's `policy.yaml` helpers at two points, the pre-run flip
+or demotion and the post-run full-run reset or selected increment, and each
+write prints `POLICY_WRITE:aitestmap/costs/policy.yaml`;
 the bash front commits it under `ait: testmap policy <flip|full-run>
 (t<id>)` with the path named, the same commit path the human flip uses for
 `config.yaml`. Decision order inside `ait test --gate` under `auto`:
@@ -3685,7 +3759,8 @@ the window score (*component_feedback_tools*); every full run, whatever
 triggered it, resets the counter. `readiness` adds `cadence_declared`, the
 `CADENCE:` line and `approved_by|met|engine`; `--howto` prints the cadence
 on `FULL_GATE:` and `next full in <n>` on `TESTMAP:`; the ledger block
-`result=` carries `policy:auto|next_full_in:<n>` or `cadence:<trigger>`.
+`result=`, written by the front through `AIT_GATE_RESULT_FILE`, carries
+`policy:auto|next_full_in:<n>` or `cadence:<trigger>`.
 The cadence is the knob that sets how long a miss can survive (`tasks − 1`
 completions, `days` days). Budget: the cadence check < 50 ms. Tests:
 `tests/test_ait_test_entrypoint.sh` with the fake engine replaying
@@ -3699,38 +3774,58 @@ score attributing a miss to the right task.
 
 `testmap_fresh` (kind procedure, verifier `aitask-gate-testmap-fresh`, no
 unlocks; its seeds step reads packets for the task's touched test files and
-adopts or parks on verdicts) and `testmap_check` (machine, `max_retries 0`,
-`timeout 120`, `unlocks: [tests_pass]`) in `gates_reference.yaml` synced to
-`gates.yaml` (the YAML under *The Workflow Seam* → Gates). The completion
+adopts or parks on verdicts; M8.3's entry) and `testmap_check` (machine,
+`max_retries 0`, `timeout 120`, no unlocks; M8.2's entry) in
+`gates_reference.yaml` synced to `gates.yaml` (the YAML under *The Workflow
+Seam* → Gates). Neither declares `unlocks:`, because any explicit `unlocks:`
+in a declared set switches the whole set to DAG mode, where every gate
+without `unlocks:` becomes terminal; `testmap_check` runs before
+`tests_pass` by list position. The completion
 test gate is the existing `tests_pass` with `test_command: ./ait test` and
 `gate_command_exit_contract: [test_command]`, so `ait gates run` needs no
 new verifier for running tests and the legacy no-gates path needs no new
 prose — a project reaches the selective lane by declaring `tests_pass`,
 which onboarding's `enable` phase writes into the profiles' `default_gates`
-with `testmap_check` and `testmap_fresh`, with confirmation; never by hand,
-never by `ait setup`. There is no selection-only gate and no
+with `testmap_fresh, testmap_check` immediately before it, with
+confirmation, refusing a set already in DAG mode
+(`ENABLE_REFUSED:gate_dag_mode|…`); never by hand, never by `ait setup`. There is no selection-only gate and no
 `aitask_gate_testmap_run.sh`. **M8.1** — `run_project_command_key()` gains
 75 → `error` (`PROJECT_CMD_STATUS=error`, `CODE=3`, `REASON=command_refused`)
 and 3 → `error` (`command_errored`) for opted-in keys, so an admission
 refusal that survived the in-engine deferral or a missing engine is a
 verifier error the orchestrator retries within budget, never a code failure
-and never a skip; 2 stays the opt-in skip; the verifier exports
-`AIT_GATE_TASK_ID` / `AIT_GATE_RUN_ID` and `aitask_run_project_command.sh
---task-id` exports the former; one shell plus two rows in the shared lib,
-not two dedicated verifier shells. **M8.2** — `aitask_gate_testmap_check.sh`
-reports `SEEDED:<n>` and `ADOPTED:<n>|human <h>|agent <a>|auto <m>`
-(informational, never fail) and `UNMAPPED_SOURCE:<path>` (a changed source
-with no edge, seed, rule or waiver — reported during bootstrap, failing under
-`--strict` past `bootstrap_until`; the strict flip is onboarding's `finish`
-phase); it maps engine exits 0/1/2/64 and a missing engine to 0/1/2/3/3. An
-`unlocks:` target absent from a task's active set is ignored, so
-`testmap_check` declared alone is linear as before. **M8.3** — the
-procedure gate skill is under *component_skill*. `run_gate_admission` and
+and never a skip; 2 stays the opt-in skip; 64 and any other non-zero code
+stay a fail; the verifier exports `AIT_GATE_TASK_ID` / `AIT_GATE_RUN_ID` and
+`aitask_run_project_command.sh --task-id` exports the former;
+`run_command_gate` alone also exports the result carrier
+`AIT_GATE_RESULT_FILE`, whose one-line content (written by the bash front
+`aitask_test.sh`, never the engine; truncated before each command; the value
+from the command that decided the verdict; first line, CR/LF stripped,
+length-capped) becomes the ledger block's `result=`; one shell plus two rows
+in the shared lib, not two dedicated verifier shells. **M8.2** —
+`aitask_gate_testmap_check.sh` takes no flags (the orchestrator runs
+`<verifier> <task> <attempt> <run>`) and always runs `check --strict`;
+`bootstrap_until` is the strict flip (`detect --write` sets it 90 days
+ahead, onboarding's `finish` phase shortens it, and an absent value is strict
+at once, so a hand-written map is strict from the start). It reports
+`SEEDED:<n>` and `ADOPTED:<n>|human <h>|agent <a>|auto <m>` (informational,
+never fail) and `UNMAPPED_SOURCE:<path>` — the selector's line (M4.1) over
+the task's change surface: a changed source with no edge, seed, rule or
+waiver, reported during bootstrap and failing past `bootstrap_until`. It
+maps engine exits 0/1/2/3/64 and a missing engine to 0/1/3/3/3/3 (2,
+`TESTMAP_ABSENT`, errors as `registry_absent`: a declared gate never skips).
+An `UNSTAMPED` failure under `require_stamp` past `bootstrap_until` names
+the repair handoff in `result=`. M8.2 adds only the `testmap_check` registry
+entry and its verifier's allowlist entries in the five permission
+touchpoint files. **M8.3** — the procedure gate skill is under
+*component_skill*; M8.3 adds the `testmap_fresh` registry entry and the five
+allowlist entries for `ait testmap`, being the first skill that calls the
+shim. `run_gate_admission` and
 `ait testmap readiness` gate the completion policy flip rather than a second
 gate's declaration: under `selected` the approval is a human's in
 `config.yaml`; under `auto` the verifier's `./ait test --gate` performs the
-flip, the engine records it in `costs/policy.yaml`, the bash front commits
-the write, and the `tests_pass` ledger block's `result=` field names
+flip, the engine verb `policy` records it in `costs/policy.yaml`, the bash
+front commits the write, and the `tests_pass` ledger block's `result=` field names
 `policy:auto` with `next_full_in:<n>` or `cadence:<trigger>`, so a ledger
 reader sees whether the whole suite ran and why. The engine never enables a
 gate and never writes a profile.
@@ -3753,11 +3848,12 @@ could not run: do not fix code, do not record pass, re-run later — the
 entrypoint already deferred to its deadline); `lib/gate_verifier_lib.sh
 run_project_command_key()` gains the 75 → error and 3 → error rows for
 opted-in keys and exports `AIT_GATE_TASK_ID` / `AIT_GATE_RUN_ID` around the
-command; `aitask_run_project_command.sh --task-id` exports the former;
-`gates_reference.yaml` adds `testmap_fresh` and `testmap_check` (`unlocks:
-[tests_pass]`) and no selection-only gate; the project's profiles gain
-`tests_pass`, `testmap_check` and `testmap_fresh` in `default_gates` via
-onboarding; no profile key is added for agent review (`agent_review.enabled`
+command, and `run_command_gate` exports the result carrier
+`AIT_GATE_RESULT_FILE`; `aitask_run_project_command.sh --task-id` exports
+`AIT_GATE_TASK_ID`; `gates_reference.yaml` adds `testmap_check` (M8.2) and
+`testmap_fresh` (M8.3), neither with `unlocks:`, and no selection-only gate;
+the project's profiles gain `testmap_fresh` and `testmap_check` immediately
+before `tests_pass` in `default_gates` via onboarding; no profile key is added for agent review (`agent_review.enabled`
 and `agent_review.author` live in `aitestmap/config.yaml`); the `ait`
 dispatcher gains `test)`; `aitask_codeagent.sh` gains the `testmap-review`
 operation and `list-models` shows `verified.testmap-review`;
@@ -3829,15 +3925,28 @@ pairs — declare axis sources, `reads` on helpers, `axes --explain`,
 and hands a repository without `aitestmap/` to `aitask-testmap-onboard`.
 **`aitask-gate-testmap-fresh`** (M8.3; the procedure gate: `stale --task`,
 `git diff` per `STALE` row with unevidenced variants, retarget `STALE_PATH`,
-re-stamp `EVIDENCED`, resolve `check`'s structural rows, prompt on
-`UNSTAMPED` past bootstrap, never guess `UNKNOWN`, never confirm `STALE`
-autonomously; an `adopted(... by <who>)` row is confirmed knowing what
-accepted it) whose seeds step runs `onboard review --ids <rows>` for each
+re-stamp `EVIDENCED` with `--confirm-evidenced`, resolve `check`'s
+structural rows, prompt on `UNSTAMPED` past bootstrap in attended profiles,
+never guess `UNKNOWN`; an `adopted(... by <who>)` row is confirmed knowing
+what accepted it) whose seeds step runs `onboard review --ids <rows>` for each
 `COMMITTED:` / `TASK:` test file with seeds and reads the packets —
 attended: the agent's verdict is pre-filled per row and the person confirms
 (`by: human`), overrides, or trusts the batch (`by: agent`); autonomous:
 `onboard adopt --agent-verdicts - --by <agent-string> --run <gate-run>` — so
-a map migrates a few files per task through ordinary work.
+a map migrates a few files per task through ordinary work. In the
+autonomous lane the gate never confirms `STALE`, never writes a first stamp
+and never pends for a person: `STALE` rows are left, counted in `result=`,
+and the gate passes — they leave through `--confirm-evidenced`, which
+re-stamps an existing claim once an anchored run evidences it; `UNSTAMPED`
+rows are left and counted, the gate passing during bootstrap or without
+`require_stamp` and failing under `require_stamp` past `bootstrap_until`
+with a machine-readable handoff to the automated repair coordinator. A
+first stamp comes only from a legitimate adoption route — `annotate
+--author` (M7.4), verdict adoption (M7.2), class `--auto` (M6.3) — never
+from `--confirm-evidenced`. Rollout prerequisite: unattended completion
+under `require_stamp: true` past `bootstrap_until` requires the automated
+repair coordinator (t1853_7); until it lands, that configuration fails
+loudly and never passes silently.
 **`aitask-testmap-onboard`** (M6.5) is the profile-aware onboarding skill,
 whose `review.md` sub-phase is where its agent reads seeds.
 **`aitask-testmap-review`** (M7.5; *component_agent_review_pass*) is the
