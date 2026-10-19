@@ -13,8 +13,9 @@ folded_tasks: [2058, 2059]
 assigned_to: dario-e@beyond-eye.com
 anchor: 2049
 followup_kind: review_finding
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-19 11:16
-updated_at: 2026-10-19 12:18
+updated_at: 2026-10-19 13:33
 ---
 
 ## Symptom
@@ -134,3 +135,8 @@ The following existing tasks have been folded into this task. Their requirements
 
 - **t2058** (`t2058_minimonitor_next_kills_frozen_standin_unleased.md`)
 - **t2059** (`t2059_recheck_frozen_before_pick_kill.md`)
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-19T10:33:33Z status=pass attempt=1 type=human
