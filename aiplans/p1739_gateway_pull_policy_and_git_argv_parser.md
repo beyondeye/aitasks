@@ -461,7 +461,7 @@ and the other `tests/test_sync*.sh` that source `task_utils.sh`, plus
 
 ### Planned mitigations
 - timing: pre-phase | name: characterize_guard_global_opts | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: guard retrofit reclassifies option-prefixed task_git calls | desc: Test 17 pins the guard's classification of aitask_sync.sh's option-prefixed merge/pull plus push/status/rebase --abort, green before and after the retrofit
-- timing: after | name: gateway_push_global_opts | type: bug | priority: low | effort: low | inline_risk: low | added_complexity: medium | addresses: option-prefixed push left as a bound | desc: Decide and implement what `./ait git <global-opts> push` does — route through task_push (best-effort contract) or refuse — instead of a raw git push
+- timing: after | name: gateway_push_global_opts | type: bug | priority: low | effort: low | inline_risk: low | added_complexity: medium | addresses: option-prefixed push left as a bound | desc: Decide and implement what `./ait git <global-opts> push` does — route through task_push (best-effort contract) or refuse — instead of a raw git push | created: t2063
 - timing: after | name: gateway_merge_pull_cleanup | type: bug | priority: low | effort: medium | inline_risk: high | added_complexity: medium | addresses: merge-mode gateway pull left as a bound | desc: ORIG_HEAD-based ownership evidence so a conflicted merge-mode `./ait git pull` aborts its own merge instead of leaving MERGE_HEAD
 
 ## Step 9 (Post-Implementation)
