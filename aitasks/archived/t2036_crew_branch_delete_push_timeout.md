@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: enhancement
-status: Implementing
+status: Done
 labels: [git, bash_scripts, robustness]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -17,7 +17,8 @@ anchor: 1599
 followup_kind: risk_mitigation
 implemented_with: claudecode/opus5_5
 created_at: 2026-10-16 08:01
-updated_at: 2026-10-19 16:26
+updated_at: 2026-10-19 16:38
+completed_at: 2026-10-19 16:38
 ---
 
 ## Origin
@@ -61,3 +62,14 @@ Tests: follow the hang-fixture pattern in `tests/test_crew_publish_upstream.sh` 
 > **✅ gate:plan_approved** run=2026-10-19T13:26:54Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-10-19T13:37:43Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-10-19T13:38:18Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:d16a0fb1658d028f
+
+> **✅ gate:risk_evaluated** run=2026-10-19T13:38:18Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/2036/risk_evaluated_2026-10-19T13:38:18Z-risk_evaluated-a1.log`
