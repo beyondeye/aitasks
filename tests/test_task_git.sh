@@ -877,6 +877,211 @@ _AIT_DATA_WORKTREE=""
 unset -f probe_16
 rm -rf "$TMPDIR_16"
 
+# --- Test 17: option-prefixed calls keep their guard classification (t1739) ---
+# Characterization, written and run green BEFORE assert_data_worktree_clean was
+# moved onto ait_git_subcmd_index. aitask_sync.sh already routes
+# `task_git "${AIT_RECONCILE_GIT_OPTS[@]}" merge --ff-only` and `... pull --rebase`
+# through the guard: keyed on $1 they were neither recovery nor readonly, and
+# parsed past the `-c` pairs they still must not be — so a wedged worktree keeps
+# refusing them. The before/after pair is what proves the retrofit changed only
+# the case it was meant to change (Test 19).
+echo "--- Test 17: option-prefixed guard classification is preserved ---"
+
+TMPDIR_17="$(setup_repo_with_remote)"
+SCRIPT_DIR="$TMPDIR_17/local/.aitask-scripts"
+mkdir -p "$SCRIPT_DIR"
+(cd "$TMPDIR_17/local" && setup_data_branch </dev/null >/dev/null 2>&1)
+ROOT_17="$TMPDIR_17/local"
+GITDIR_17="$ROOT_17/.git/worktrees/-aitask-data"
+
+# Same shape as probe_16: die() exits, so the verdict comes out of a subshell.
+probe_17() {
+    (
+        cd "$ROOT_17" || exit 99
+        _AIT_DATA_WORKTREE=""
+        assert_data_worktree_clean "$@" >/dev/null 2>&1
+    ) && echo "allowed" || echo "refused"
+}
+
+for spec_17 in \
+    "refused|-c a=b -c c=d merge --ff-only" \
+    "refused|-c a=b pull --rebase" \
+    "refused|push" \
+    "allowed|status" \
+    "allowed|rebase --abort"
+do
+    want_17="${spec_17%%|*}"
+    read -r -a argv_17 <<< "${spec_17#*|}"
+    # Negative control: a clean worktree allows every one of them, so a
+    # "refused" below is owed to the planted state and nothing else.
+    assert_eq_trim "17 (${argv_17[*]}): control — clean worktree allows it" \
+        "allowed" "$(probe_17 "${argv_17[@]}")"
+    mkdir -p "$GITDIR_17/rebase-merge"
+    assert_eq_trim "17 (${argv_17[*]}): wedged mid-rebase -> $want_17" \
+        "$want_17" "$(probe_17 "${argv_17[@]}")"
+    rm -rf "${GITDIR_17:?}/rebase-merge"
+done
+
+# --- Test 18: the git argv parser (t1739) ---
+# Pure functions, so a table. The value-taking global options are the closed set
+# probed against git 2.56; the `--opt=value` spelling consumes nothing extra, and
+# bare `--exec-path` consumes nothing at all (git prints the path and exits).
+echo "--- Test 18: ait_git_subcmd_index / ait_git_redirect_opt / scan tables ---"
+
+for spec_18 in \
+    "1|pull" \
+    "3|-c a=b pull" \
+    "2|--no-pager pull" \
+    "5|-C dir -c a=b rebase --abort" \
+    "2|--exec-path=/x status" \
+    "2|--exec-path status" \
+    "3|--git-dir x status" \
+    "3|--config-env x=Y status" \
+    "3|--attr-source HEAD log" \
+    "0|-c a=b" \
+    "0|-c" \
+    "0|"
+do
+    want_18="${spec_18%%|*}"
+    read -r -a argv_18 <<< "${spec_18#*|}"
+    assert_eq "18: index of '${argv_18[*]:-<empty>}'" "$want_18" \
+        "$(ait_git_subcmd_index ${argv_18[@]+"${argv_18[@]}"})"
+done
+
+for spec_18 in \
+    "-C|-C d status" \
+    "--git-dir|--git-dir=x pull" \
+    "--git-dir|--git-dir x pull" \
+    "--work-tree|--work-tree x pull" \
+    "--namespace|--namespace=n log" \
+    "|-c -C=x status" \
+    "|-c a=b status" \
+    "|status -C x" \
+    "|"
+do
+    want_18="${spec_18%%|*}"
+    read -r -a argv_18 <<< "${spec_18#*|}"
+    assert_eq "18: redirect option of '${argv_18[*]:-<empty>}'" "$want_18" \
+        "$(ait_git_redirect_opt ${argv_18[@]+"${argv_18[@]}"})"
+done
+
+# The config / other split task_git_pull carries into the continue and abort.
+_ait_git_scan_globals -c a=b --no-pager --config-env=x=Y -c c=d pull --rebase
+assert_eq "18: scan idx (-c¹ a=b² --no-pager³ --config-env=x=Y⁴ -c⁵ c=d⁶ pull⁷)" \
+    "7" "$AIT_GIT_SUBCMD_IDX"
+assert_eq "18: scan config opts, verbatim and in order" \
+    "-c|a=b|--config-env=x=Y|-c|c=d" "$(IFS='|'; echo "${AIT_GIT_CONFIG_OPTS[*]}")"
+assert_eq "18: scan other opts" "--no-pager" "$(IFS='|'; echo "${AIT_GIT_OTHER_OPTS[*]}")"
+_ait_git_scan_globals --config-env x=Y status
+assert_eq "18: scan separated --config-env" "--config-env|x=Y" \
+    "$(IFS='|'; echo "${AIT_GIT_CONFIG_OPTS[*]}")"
+# A value is never re-read as an option: `-c --git-dir` sets a config named
+# "--git-dir" (git rejects it later) and redirects nothing.
+_ait_git_scan_globals -c --git-dir status
+assert_eq "18: a -c value is not an option" "" "$AIT_GIT_REDIRECT_OPT"
+assert_eq "18: ... and the subcommand is still found" "3" "$AIT_GIT_SUBCMD_IDX"
+
+# The rebase mode a pull's own arguments select — the input to task_git_pull's
+# interactive refusal. Rows mirror git 2.56 behaviour probed with a logging
+# sequence editor: last option wins, bare --rebase/-r is `true`, a short -r
+# takes the rest of its cluster, long options abbreviate, `--` ends options.
+for spec_18 in \
+    "|" \
+    "true|--rebase" \
+    "true|-r" \
+    "true|--rebase=" \
+    "i|--rebase=i" \
+    "interactive|--reb=interactive" \
+    "i|-qri" \
+    "true|-qr" \
+    "q|-rq" \
+    "interactive|-rinteractive" \
+    "true|--rebase=i --rebase" \
+    "false|--rebase=i --no-rebase" \
+    "false|--rebase=i --no-reb" \
+    "merges|--rebase=merges" \
+    "|-Xours" \
+    "|-sresolve" \
+    "true|-X ours -r" \
+    "|-X -ri" \
+    "|-- --rebase=i" \
+    "|origin aitask-data" \
+    "i|--rebase=i --server-option --rebase" \
+    "i|--rebase=i --strategy-option --rebase" \
+    "i|--rebase=i --server --rebase" \
+    "i|--rebase=i --strategy --no-rebase" \
+    "i|--rebase=i -o --rebase" \
+    "true|--rebase=i --server-option=x --rebase" \
+    "i|--rebase=i --upload-pack --rebase" \
+    "i|--rebase=i --r=false" \
+    "true|origin --rebase"
+do
+    want_18="${spec_18%%|*}"
+    read -r -a argv_18 <<< "${spec_18#*|}"
+    assert_eq "18: cli rebase mode of '${argv_18[*]:-<empty>}'" "$want_18" \
+        "$(_ait_git_pull_cli_rebase_mode ${argv_18[@]+"${argv_18[@]}"})"
+done
+
+# --edit / --autostash resolution: last one wins, abbreviations count, and a
+# token consumed as another option's value sets nothing.
+for spec_18 in \
+    "edit|--edit" \
+    "edit|--ed" \
+    "edit|--no-edit --edit" \
+    "no-edit|--edit --no-edit" \
+    "|--strategy-option --edit" \
+    "|--cleanup --edit" \
+    "edit|--e"
+do
+    want_18="${spec_18%%|*}"
+    read -r -a argv_18 <<< "${spec_18#*|}"
+    _ait_git_pull_scan_args "${argv_18[@]}"
+    assert_eq "18: edit option of '${argv_18[*]}'" "$want_18" "$AIT_PULL_EDIT"
+done
+for spec_18 in \
+    "autostash|--autostash" \
+    "autostash|--au" \
+    "no-autostash|--autostash --no-autostash" \
+    "|--server-option --autostash"
+do
+    want_18="${spec_18%%|*}"
+    read -r -a argv_18 <<< "${spec_18#*|}"
+    _ait_git_pull_scan_args "${argv_18[@]}"
+    assert_eq "18: autostash option of '${argv_18[*]}'" "$want_18" "$AIT_PULL_AUTOSTASH"
+done
+assert_eq "18: an unknown long option resolves to nothing" "" "$(_ait_git_pull_resolve_long bogus)"
+assert_eq "18: an ambiguous prefix resolves to nothing (rebase/recurse-submodules/refmap)" \
+    "" "$(_ait_git_pull_resolve_long re)"
+assert_eq "18: an exact name beats a longer option it prefixes" "strategy" \
+    "$(_ait_git_pull_resolve_long strategy)"
+# `--strat` is ambiguous (strategy / strategy-option): git refuses the whole
+# pull for it ("ambiguous option"), so resolving it to nothing is harmless.
+assert_eq "18: an ambiguous value-option prefix resolves to nothing" "" \
+    "$(_ait_git_pull_resolve_long strat)"
+assert_eq "18: refmap has no --no- form" "" "$(_ait_git_pull_resolve_long no-refmap)"
+
+# --- Test 19: the recovery the die message advertises, behind a global option ---
+# The latent defect t1739 fixes: `-c core.pager=cat rebase --abort` keyed on $1
+# was classified as neither recovery nor readonly, so the guard refused the very
+# recovery its own message names. Paired with `-c core.pager=cat commit`, which
+# must stay refused — so widening the parser cannot quietly open the guard.
+echo "--- Test 19: option-prefixed recovery is allowed, option-prefixed commit is not ---"
+
+assert_eq_trim "19: control — clean worktree allows -c ... rebase --abort" \
+    "allowed" "$(probe_17 -c core.pager=cat rebase --abort)"
+assert_eq_trim "19: control — clean worktree allows -c ... commit" \
+    "allowed" "$(probe_17 -c core.pager=cat commit)"
+mkdir -p "$GITDIR_17/rebase-merge"
+assert_eq_trim "19: wedged — -c core.pager=cat rebase --abort is ALLOWED" \
+    "allowed" "$(probe_17 -c core.pager=cat rebase --abort)"
+assert_eq_trim "19: wedged — -c core.pager=cat commit is still refused" \
+    "refused" "$(probe_17 -c core.pager=cat commit)"
+rm -rf "${GITDIR_17:?}/rebase-merge"
+
+_AIT_DATA_WORKTREE=""
+unset -f probe_17
+rm -rf "$TMPDIR_17"
+
 # --- Summary ---
 echo ""
 echo "==============================="

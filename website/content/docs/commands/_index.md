@@ -15,6 +15,7 @@ description: "Complete CLI reference for all ait subcommands"
 | [`ait sync`](sync/) | Sync task data with remote (push/pull) |
 | [`ait git`](sync/) | Run git commands against task data (worktree-aware) |
 | [`ait git push`](sync/#ait-git-push) | Best-effort push of task data; warns when commits are stranded |
+| [`ait git pull`](sync/#ait-git-pull) | Pull task data without ever leaving the worktree stuck mid-rebase |
 | [`ait git-health`](sync/#ait-git-health) | Diagnose the `.aitask-data` worktree state (detached HEAD, stuck rebase/merge) |
 | [`ait lock`](lock/) | Lock/unlock tasks to prevent concurrent work |
 | [`ait note`](note/) | Send durable advisory context to a task that already exists |

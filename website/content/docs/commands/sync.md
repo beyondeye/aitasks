@@ -204,7 +204,14 @@ When the repository uses a separate `aitask-data` branch for task files (set up 
 `ait git` runs git commands against task data, routing them to the data branch
 worktree in [data-branch mode](#data-branch-mode) and to the current branch in
 legacy mode. `push` is special-cased: it is **best-effort**, so a network
-outage or a diverged remote never aborts a task workflow mid-flight.
+outage or a diverged remote never aborts a task workflow mid-flight. `pull` is
+special-cased too — see [`ait git pull`](#ait-git-pull).
+
+Global git options in front of the subcommand are understood: `ait git -c
+core.pager=cat rebase --abort` is recognised as the recovery command it is. The
+options that would point git at a different repository — `-C`, `--git-dir`,
+`--work-tree` and `--namespace` — are refused, since they defeat the routing;
+use plain `git` for those. `-c name=value` and `--config-env` are kept.
 
 ```bash
 ait git push                  # best-effort push; warns if commits are stranded
@@ -292,6 +299,62 @@ stuck mid-rebase, merge, cherry-pick, revert, or bisect. That is a broken
 worktree rather than a push outcome, so the command stops with the recovery
 hints described under [`ait git-health`](#ait-git-health) (bypass with
 `AIT_GIT_SKIP_STATE_CHECK=1`).
+
+## ait git pull
+
+```bash
+ait git pull --rebase
+ait git -c core.pager=cat pull --rebase    # global options are fine
+```
+
+`ait git pull` runs your pull with the same clean-up guarantee as the
+[pull that runs when you pick a task](#task-data-pull-before-task-selection): it
+never leaves the data worktree stuck mid-rebase. A frontmatter-only conflict is
+auto-merged and the rebase completes. Anything it cannot merge is aborted, so
+nothing is left in progress and later `ait git` commands keep working. A rebase
+that some other session started is never touched. It fails with git's own exit
+status and, for a recognised failure, prints one warning naming the reason
+(`rebase_conflict`, `dirty_worktree`, `pull_locked`, `data_midop`, …) with its
+recovery hint. git's output, including the conflict details, goes to stderr.
+
+- **No automatic stashing.** The data worktree is shared by every session on
+  the machine, so the pull never stashes: a dirty data worktree makes it refuse
+  with `dirty_worktree`, whatever `rebase.autoStash` / `merge.autoStash` say.
+  An explicit `--autostash` is refused. Commit or set aside the local changes
+  first, or use plain `git -C .aitask-data pull --autostash` if you really mean
+  it.
+- **No interactive rebase.** `--rebase=interactive` (or `-ri`) is refused
+  before anything is fetched, and so is an interactive mode chosen by config
+  (`branch.<name>.rebase` or `pull.rebase`, including one passed with `-c`):
+  the editor needs your terminal, and an `edit` stop would leave the shared data
+  worktree paused mid-rebase. An explicit `--rebase` still overrides an
+  interactive config, as in plain git. For an interactive pull use plain
+  `git -C .aitask-data pull --rebase=interactive`.
+- **No editor opens.** A merge-mode pull commits with git's default merge
+  message, even where plain git would open your editor (an interactive terminal,
+  or `GIT_MERGE_AUTOEDIT=yes`). An explicit `--edit` is refused before anything
+  is fetched; use plain `git -C .aitask-data pull --edit` to write the message
+  yourself.
+- **Your `-c` settings apply throughout.** Options such as `-c user.email=…`
+  reach the rebase's continue and abort steps as well as the pull. The one
+  exception is the framework's own pins (`rerere.enabled=false`,
+  `maintenance.auto=false`), which keep the rebase safe from background git
+  work.
+- **One pull at a time.** If another session is reconciling the task data right
+  now, the pull is skipped with `pull_locked` and nothing changes. Retry in a
+  moment.
+- **A completed pull is still checked.** If git reports success but unmerged
+  files remain, or the check itself cannot run, the pull fails with a message
+  saying it completed but could not be verified. It names the next step and
+  leaves the files as they are.
+- **A stopped merge is left to you.** With `pull.rebase=false` (or
+  `--no-rebase`), a merge that stops — on a conflict, or because a hook such as
+  `pre-merge-commit` refused the merge commit — is left in progress, reported
+  as `data_midop` with the merge recovery hint, and never aborted
+  automatically. Finish it, or run `./ait git merge --abort`.
+- **Resolving a rebase conflict by hand** is not possible through `ait git
+  pull`, because a conflict it cannot merge is always aborted. Use plain
+  `git -C .aitask-data pull --rebase` for that.
 
 ## ait git-health
 

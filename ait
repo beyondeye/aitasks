@@ -354,7 +354,7 @@ case "${1:-help}" in
                       task_push
                       if [[ "$push_batch" == "1" ]]; then task_push_report; fi
                   else
-                      task_git "$@"
+                      task_git_gateway "$@"
                   fi
                   ;;
     git-health)   shift; source "$SCRIPTS_DIR/lib/task_utils.sh"

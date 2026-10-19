@@ -304,7 +304,95 @@ _ait_data_git() {
     fi
 }
 
+# --- git argv shape (t1739) ---------------------------------------------------
+#
+# git accepts global options BEFORE the subcommand (`git -c a=b pull`,
+# `git --no-pager rebase --abort`), so anything that routes on `$1` misreads
+# those calls. ONE walker classifies the global-option region; the readers below
+# only consume its results, so the value-skip rule exists exactly once.
+
+# Git global options whose value is the NEXT token. The `--opt=value` spelling
+# consumes nothing extra and so is not listed. Probed against git 2.56: `-C` and
+# `-c` match exactly (`-cfoo=bar` is "unknown option"), and bare `--exec-path`
+# takes no value — it prints the exec path and exits.
+_ait_git_global_opt_takes_value() {
+    case "${1:-}" in
+        -C|-c|--git-dir|--work-tree|--namespace|--config-env|--attr-source) return 0 ;;
+    esac
+    return 1
+}
+
+# _ait_git_scan_globals <argv…> — walk git's global-option region once.
+#
+# Results are globals, so call it directly and NEVER inside $( ): a command
+# substitution's assignments die with the subshell.
+#   AIT_GIT_SUBCMD_IDX    1-based index of the first non-option token (the
+#                         subcommand); 0 when there is none — the fail-closed
+#                         answer, which classifies as neither readonly nor
+#                         recovery
+#   AIT_GIT_REDIRECT_OPT  the first option that retargets git away from the
+#                         repository it runs in (-C, --git-dir, --work-tree,
+#                         --namespace — either spelling, reported without its
+#                         `=value`), or ""
+#   AIT_GIT_CONFIG_OPTS   the config-bearing options, verbatim and in order:
+#                         `-c X`, `--config-env X`, `--config-env=X`
+#   AIT_GIT_OTHER_OPTS    every other global option, with its value, in order
+#
+# A value is never inspected as an option, so `-c -C=x status` redirects nothing.
+_ait_git_scan_globals() {
+    AIT_GIT_SUBCMD_IDX=0
+    AIT_GIT_REDIRECT_OPT=""
+    AIT_GIT_CONFIG_OPTS=()
+    AIT_GIT_OTHER_OPTS=()
+    local i=1 tok val
+    while (( i <= $# )); do
+        tok="${!i}"
+        case "$tok" in
+            -*) ;;
+            *)  AIT_GIT_SUBCMD_IDX=$i; return 0 ;;
+        esac
+        case "$tok" in
+            -C|--git-dir|--git-dir=*|--work-tree|--work-tree=*|--namespace|--namespace=*)
+                [[ -z "$AIT_GIT_REDIRECT_OPT" ]] && AIT_GIT_REDIRECT_OPT="${tok%%=*}" ;;
+        esac
+        if _ait_git_global_opt_takes_value "$tok"; then
+            i=$((i + 1))
+            # A trailing value-taking option has no value; git rejects it, and
+            # the walk simply ends with no subcommand found.
+            (( i <= $# )) || return 0
+            val="${!i}"
+            case "$tok" in
+                -c|--config-env) AIT_GIT_CONFIG_OPTS+=("$tok" "$val") ;;
+                *)               AIT_GIT_OTHER_OPTS+=("$tok" "$val") ;;
+            esac
+        else
+            case "$tok" in
+                --config-env=*) AIT_GIT_CONFIG_OPTS+=("$tok") ;;
+                *)              AIT_GIT_OTHER_OPTS+=("$tok") ;;
+            esac
+        fi
+        i=$((i + 1))
+    done
+    return 0
+}
+
+# ait_git_subcmd_index <argv…> — print the 1-based index of the git subcommand,
+# 0 when there is none. ALWAYS returns 0.
+ait_git_subcmd_index() {
+    _ait_git_scan_globals "$@"
+    printf '%s' "$AIT_GIT_SUBCMD_IDX"
+}
+
+# ait_git_redirect_opt <argv…> — print the first repository-redirecting global
+# option (see _ait_git_scan_globals), or nothing. ALWAYS returns 0.
+ait_git_redirect_opt() {
+    _ait_git_scan_globals "$@"
+    printf '%s' "$AIT_GIT_REDIRECT_OPT"
+}
+
 # Read-only git subcommands — the guard treats them as safe.
+# Both classifiers take the argv FROM the subcommand on; callers holding a full
+# git argv slice it at ait_git_subcmd_index first (assert_data_worktree_clean).
 _ait_git_subcmd_is_readonly() {
     case "${1:-}" in
         status|log|show|diff|rev-parse|ls-files|blame|grep|reflog) return 0 ;;
@@ -345,6 +433,13 @@ _ait_git_subcmd_is_recovery() {
 # No-op in legacy mode and when the data worktree git-dir is missing.
 assert_data_worktree_clean() {
     [[ "${AIT_GIT_SKIP_STATE_CHECK:-}" == "1" ]] && return 0
+    # Classify from the SUBCOMMAND, not from $1: `-c core.pager=cat rebase
+    # --abort` is the advertised recovery behind a global option (t1739).
+    local idx
+    idx="$(ait_git_subcmd_index "$@")"
+    # Never an unguarded "${@:idx}": with idx=0 that expands to $0 plus argv.
+    # `set --` rather than an array, so an empty argv never meets `set -u`.
+    if (( idx > 0 )); then set -- "${@:idx}"; else set --; fi
     _ait_git_subcmd_is_recovery "$@" && return 0
     _ait_git_subcmd_is_readonly "$@" && return 0
 
@@ -465,6 +560,250 @@ task_git() {
     else
         git "$@"
     fi
+}
+
+# task_git_gateway <argv…> — what `./ait git <argv>` runs for everything except
+# `push` (the dispatcher special-cases that one on $1).
+#
+# Two policies on top of task_git, both keyed on the PARSED argv so a global
+# option in front of the subcommand cannot route around them (t1739):
+#   - repository-redirecting options are refused: they point git away from the
+#     data worktree, which defeats the gateway, and for a pull they would read
+#     the ownership evidence from the wrong git-dir. `-c name=value` redirects
+#     nothing and is kept;
+#   - a `pull` goes through task_git_pull, the workflow pull's cleanup.
+task_git_gateway() {
+    local redirect idx
+    redirect="$(ait_git_redirect_opt "$@")"
+    if [[ -n "$redirect" ]]; then
+        die "./ait git: '$redirect' points git away from the task-data worktree, which is what this gateway exists to target. Use plain 'git $redirect ...' instead."
+    fi
+    idx="$(ait_git_subcmd_index "$@")"
+    if (( idx > 0 )) && [[ "${!idx}" == "pull" ]]; then
+        task_git_pull "$@"
+        return
+    fi
+    task_git "$@"
+}
+
+# --- `git pull` argument shape (t1739) ----------------------------------------
+#
+# task_git_pull must know three things the pull's own arguments decide — the
+# rebase mode, and whether --autostash or --edit is in force — and git decides
+# them with parse-options rules: the LAST occurrence wins, long options
+# abbreviate to any unique prefix, and an option that takes a value CONSUMES the
+# next token (`--server-option --rebase` passes "--rebase" as a server option;
+# it selects nothing). A scanner that ignored any of those rules would let a
+# value pose as a mode override. So the scan resolves every token exactly as
+# git 2.56 does, against git pull's own option table (from `git pull -h`).
+
+# Every long option of `git pull`. Abbreviations resolve against this list, so
+# it must be complete: a missing name could make a token look unique here while
+# git finds it ambiguous (git then refuses the whole pull — harmless), but never
+# the reverse.
+_AIT_GIT_PULL_LONG_OPTS="all allow-unrelated-histories append autostash cleanup \
+commit compact-summary deepen depth dry-run edit ff ff-only force gpg-sign ipv4 \
+ipv6 jobs keep log negotiation-include negotiation-restrict negotiation-tip \
+progress prune quiet rebase recurse-submodules refmap server-option set-upstream \
+shallow-exclude shallow-since show-forced-updates signoff squash stat strategy \
+strategy-option tags unshallow update-shallow upload-pack verbose verify \
+verify-signatures"
+# The ones taking a REQUIRED value, which may be the next token. (Optional-value
+# options — rebase, jobs, gpg-sign, log, recurse-submodules, signoff — only ever
+# take an attached `=value`.)
+_AIT_GIT_PULL_VALUE_OPTS=" cleanup deepen depth negotiation-include \
+negotiation-restrict negotiation-tip refmap server-option shallow-exclude \
+shallow-since strategy strategy-option upload-pack "
+# The three without a `--no-` form.
+_AIT_GIT_PULL_NO_NEGATION=" ff-only refmap unshallow "
+
+# _ait_git_pull_resolve_long <name> — the option a `--<name>` token means to git
+# (`no-<opt>` for a negation), or nothing when it is unknown or ambiguous: git
+# refuses the pull outright in both cases. An exact name beats any prefix match.
+_ait_git_pull_resolve_long() {
+    local name="$1" o cand hit="" count=0
+    for o in $_AIT_GIT_PULL_LONG_OPTS; do
+        for cand in "$o" "no-$o"; do
+            [[ "$cand" == "no-$o" && "$_AIT_GIT_PULL_NO_NEGATION" == *" $o "* ]] && continue
+            if [[ "$cand" == "$name" ]]; then
+                printf '%s' "$cand"
+                return 0
+            fi
+            if [[ "$cand" == "$name"* ]]; then
+                hit="$cand"
+                count=$((count + 1))
+            fi
+        done
+    done
+    (( count == 1 )) && printf '%s' "$hit"
+    return 0
+}
+
+# _ait_git_pull_scan_args <pull args…> — resolve the pull's own arguments once.
+# Results in globals (call it directly, NEVER inside $( )):
+#   AIT_PULL_REBASE_MODE   `true`, `false`, the given value (`i`, `interactive`,
+#                          `merges`, …), or "" when the arguments select none
+#                          (config then decides)
+#   AIT_PULL_AUTOSTASH     `autostash` / `no-autostash` / "" — the last one given
+#   AIT_PULL_AUTOSTASH_TOK the token that set it, verbatim
+#   AIT_PULL_EDIT          `edit` / `no-edit` / "" — the last one given
+#   AIT_PULL_EDIT_TOK      the token that set it, verbatim
+#
+# Probed against git 2.56 with logging editors: bare `--rebase`/`-r` mean `true`
+# (and override an interactive config); a short `-r` takes the REST of its
+# cluster as its value (`-qri` is interactive, `-rq` the invalid value `q`);
+# short -s/-X/-o take a required value (attached, or the next token), -S/-j an
+# optional attached one; `--` ends the options. An unrecognized short letter is
+# treated as a flag, and an unknown or ambiguous long option as a flag with no
+# value: git refuses the whole pull for either before running anything.
+_ait_git_pull_scan_args() {
+    AIT_PULL_REBASE_MODE=""
+    AIT_PULL_AUTOSTASH=""
+    AIT_PULL_AUTOSTASH_TOK=""
+    AIT_PULL_EDIT=""
+    AIT_PULL_EDIT_TOK=""
+    local tok name opt cluster c i=1
+    while (( i <= $# )); do
+        tok="${!i}"
+        case "$tok" in
+            --) break ;;
+            --?*)
+                name="${tok#--}"
+                name="${name%%=*}"
+                opt="$(_ait_git_pull_resolve_long "$name")"
+                case "$opt" in
+                    rebase)
+                        AIT_PULL_REBASE_MODE="true"
+                        [[ "$tok" == *=?* ]] && AIT_PULL_REBASE_MODE="${tok#*=}" ;;
+                    no-rebase)
+                        AIT_PULL_REBASE_MODE="false" ;;
+                    autostash|no-autostash)
+                        AIT_PULL_AUTOSTASH="$opt"; AIT_PULL_AUTOSTASH_TOK="$tok" ;;
+                    edit|no-edit)
+                        AIT_PULL_EDIT="$opt"; AIT_PULL_EDIT_TOK="$tok" ;;
+                    ?*)
+                        # A required-value option given without `=` consumes
+                        # the next token, whatever that token looks like.
+                        if [[ "$tok" != *=* && "$_AIT_GIT_PULL_VALUE_OPTS" == *" $opt "* ]]; then
+                            i=$((i + 1))
+                        fi ;;
+                esac ;;
+            -?*)
+                cluster="${tok#-}"
+                while [[ -n "$cluster" ]]; do
+                    c="${cluster:0:1}"; cluster="${cluster:1}"
+                    case "$c" in
+                        r) AIT_PULL_REBASE_MODE="${cluster:-true}"; break ;;
+                        s|X|o) [[ -z "$cluster" ]] && i=$((i + 1)); break ;;
+                        S|j) break ;;
+                    esac
+                done ;;
+        esac
+        i=$((i + 1))
+    done
+    return 0
+}
+
+# _ait_git_pull_cli_rebase_mode <pull args…> — print AIT_PULL_REBASE_MODE alone.
+# ALWAYS returns 0.
+_ait_git_pull_cli_rebase_mode() {
+    _ait_git_pull_scan_args "$@"
+    printf '%s' "$AIT_PULL_REBASE_MODE"
+}
+
+# task_git_pull <git argv…> — the `./ait git pull` gateway: the user's pull,
+# through _ait_owned_pull, so a conflicted rebase it started is auto-merged or
+# aborted exactly as the workflow pull's is, and nothing else is ever touched.
+#
+#   - Automatic stashing is always OFF. An autostash pull returns 0 even when
+#     re-applying the stash conflicts — leaving an unmerged index the cleanup
+#     never sees — and it would stash other sessions' uncommitted edits in the
+#     shared worktree; task_automerge.sh also relies on the pull refusing a dirty
+#     worktree. `--no-autostash` goes right after `pull` (the command line beats
+#     rebase.autoStash / merge.autoStash however they were set), and a user
+#     `--autostash` is refused because, coming later, it would win.
+#   - Config the user supplied (`-c`, `--config-env`) must reach the continue and
+#     the abort as well as the pull: a rebase begun with `-c user.email=…` cannot
+#     be continued without it. The user's config is prepended to
+#     AIT_RECONCILE_GIT_OPTS for this call only, framework pins LAST so they win.
+#     Other global options apply to the pull alone.
+#   - The git output is forwarded on stderr, as the workflow pull's is: the
+#     classifier needs both streams in one blob.
+#   - No editor ever opens. Its output is captured, so it would get no terminal:
+#     `--no-edit` goes right after `pull` (beating GIT_MERGE_AUTOEDIT=yes) and a
+#     user `--edit`, which would win as the later option, is refused; a merge
+#     commit takes git's default message.
+#   - Interactive rebase is refused BEFORE anything runs, whether the arguments
+#     or the config (`branch.<current>.rebase`, else `pull.rebase`, including the
+#     user's own -c) select it. The captured output takes the terminal away from
+#     the sequence editor, and an `edit` stop ends the pull with rc 0 and a rebase
+#     deliberately left in progress — which the gateway must neither abort nor
+#     report as a completed pull.
+#
+# BOUNDS, deliberately not closed here:
+#   - a merge-mode pull that conflicts leaves MERGE_HEAD. It is reported as
+#     `mid-MERGE_HEAD` / data_midop and never aborted: proving a merge ours would
+#     need its own ORIG_HEAD evidence;
+#   - a conflict the auto-merge cannot resolve is aborted, so it cannot be
+#     resolved in place through the gateway. That is the invariant; plain
+#     `git -C .aitask-data pull` is the escape hatch.
+task_git_pull() {
+    _ait_detect_data_worktree
+    # A pre-existing wedge dies here, before any pull: pull is mutating.
+    assert_data_worktree_clean "$@"
+
+    _ait_git_scan_globals "$@"
+    local idx="$AIT_GIT_SUBCMD_IDX"
+    local -a pull_args=("${@:idx+1}")
+    _ait_git_pull_scan_args ${pull_args[@]+"${pull_args[@]}"}
+    if [[ "$AIT_PULL_AUTOSTASH" == "autostash" ]]; then
+        die "./ait git pull: '$AIT_PULL_AUTOSTASH_TOK' is not supported - automatic stashing would re-apply other sessions' uncommitted edits in the shared data worktree and can leave unmerged files behind a successful exit. Commit or set aside local changes first, or use plain 'git -C .aitask-data pull --autostash'."
+    fi
+    if [[ "$AIT_PULL_EDIT" == "edit" ]]; then
+        die "./ait git pull: '$AIT_PULL_EDIT_TOK' is not supported - the merge-message editor needs the terminal, which this gateway does not give it. The merge commit takes git's default message; use plain 'git -C .aitask-data pull --edit' to edit it."
+    fi
+
+    # Resolve the rebase mode exactly as git will: the arguments' last rebase
+    # option, else branch.<current>.rebase, else pull.rebase — the config read
+    # WITH the user's own -c / --config-env. A config read that fails for any
+    # reason other than "not set" (exit 1) refuses: the mode is then unknown.
+    local mode branch key cfg_rc mode_src="the pull arguments"
+    mode="$AIT_PULL_REBASE_MODE"
+    if [[ -z "$mode" ]]; then
+        branch="$(_ait_data_git symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
+        for key in ${branch:+"branch.$branch.rebase"} pull.rebase; do
+            cfg_rc=0
+            mode="$(_ait_data_git ${AIT_GIT_CONFIG_OPTS[@]+"${AIT_GIT_CONFIG_OPTS[@]}"} \
+                        config --get "$key" 2>/dev/null)" || cfg_rc=$?
+            if [[ $cfg_rc -eq 0 ]]; then mode_src="config $key"; break; fi
+            mode=""
+            [[ $cfg_rc -eq 1 ]] || die "./ait git pull: could not read '$key' (git config exited $cfg_rc), so the rebase mode is unknown - refusing to pull."
+        done
+    fi
+    case "$mode" in
+        i|interactive)
+            die "./ait git pull: interactive rebase is not supported here (rebase mode '$mode' from $mode_src) - its editor needs the terminal, and an 'edit' stop would leave the shared data worktree mid-rebase. Use plain 'git -C .aitask-data pull --rebase=interactive', or pass --rebase to pull non-interactively." ;;
+    esac
+
+    # Function-local and dynamically scoped: ait_automerge_advance and
+    # ait_rebase_abort_if_ours read AIT_RECONCILE_GIT_OPTS while this frame is
+    # live, so the continue and the abort carry the user's config too. The global
+    # itself is untouched.
+    local -a framework_opts=("${AIT_RECONCILE_GIT_OPTS[@]}")
+    # ${a[@]+"${a[@]}"}: empty arrays stay safe under `set -u` on bash 3.2 too.
+    local -a AIT_RECONCILE_GIT_OPTS=(${AIT_GIT_CONFIG_OPTS[@]+"${AIT_GIT_CONFIG_OPTS[@]}"} "${framework_opts[@]}")
+
+    local blob rc=0 reason
+    blob="$(_ait_owned_pull "${AIT_RECONCILE_GIT_OPTS[@]}" ${AIT_GIT_OTHER_OPTS[@]+"${AIT_GIT_OTHER_OPTS[@]}"} \
+                pull --no-autostash --no-edit ${pull_args[@]+"${pull_args[@]}"} 2>&1)" || rc=$?
+    [[ -n "$blob" ]] && printf '%s\n' "$blob" >&2
+    if [[ $rc -ne 0 ]]; then
+        reason="$(_task_push_classify "" "$blob")"
+        if [[ "$reason" != "unknown" ]]; then
+            warn "./ait git pull did not complete (${reason}) — $(_task_push_reason_hint "$reason" "./ait git pull")"
+        fi
+    fi
+    return $rc
 }
 
 # --- Path-scoped commit (shared) ---
@@ -838,13 +1177,19 @@ task_sync() {
     TASK_SYNC_REASON="$(_task_push_classify "" "$pull_err")"
     TASK_SYNC_UNPUSHED="$(_task_push_unpushed_count)"
     TASK_SYNC_UNPULLED="$(_task_sync_unpulled_count)"
-    if [[ "$TASK_SYNC_REASON" == "unknown" ]]; then
+    local unverified
+    unverified="$(_task_pull_unverified_line "$pull_err")"
+    if [[ -n "$unverified" ]]; then
+        # The pull completed; only its verification failed. git's first line
+        # would describe the (successful) pull, not the problem.
+        detail=" (${unverified})"
+    elif [[ "$TASK_SYNC_REASON" == "unknown" ]]; then
         detail="$(_task_push_first_line "$pull_err")"
         if [[ -n "$detail" ]]; then
             detail=" (git: ${detail})"
         fi
     fi
-    _task_sync_warn "$detail"
+    _task_sync_warn "$detail" "$unverified"
     return 0
 }
 
@@ -863,8 +1208,17 @@ _task_sync_unpulled_count() {
 # Internal: emit the user-facing warning for a failed sync cycle. Mirrors
 # _task_push_warn's policy — warn only when something is actually at risk, so
 # an offline or single-machine user does not get a warning on every pick.
+#   $1 = detail suffix
+#   $2 = the AIT_PULL_UNVERIFIED_SENTINEL line, if the pull carried one
+# An unverified pull warns REGARDLESS of the pending counts: it typically
+# follows a successful pull (0/0), and an unmerged or uninspectable worktree is
+# a local-state blocker exactly like the reasons in the zero-pending list below.
 _task_sync_warn() {
-    local detail="${1:-}" upstream hint
+    local detail="${1:-}" unverified="${2:-}" upstream hint
+    if [[ -n "$unverified" ]]; then
+        warn "task data sync: ${unverified}"
+        return 0
+    fi
     upstream="$(_task_push_upstream)"
     if [[ -n "$upstream" ]]; then
         upstream=" with ${upstream}"
@@ -962,6 +1316,11 @@ task_push() {
     local max_attempts=3
     local grants_left=$_AIT_PUSH_PROGRESS_GRANTS
     local attempt
+    # Set when any retry pull in this cycle completed but could not be verified
+    # (t1739). Reported on BOTH exits and independent of the unpushed count: a
+    # later push can still succeed, and the uninspected worktree is a local
+    # concern either way — while a successful push otherwise prints nothing.
+    local unverified=""
     for (( attempt=1; attempt<=max_attempts; attempt++ )); do
         if push_err="$(_task_push_once 2>&1)"; then
             if [[ "$before_count" == "0" ]]; then
@@ -970,6 +1329,7 @@ task_push() {
                 TASK_PUSH_STATUS="pushed"
             fi
             TASK_PUSH_UNPUSHED="$(_task_push_unpushed_count)"
+            [[ -n "$unverified" ]] && warn "task data push: ${unverified}"
             return 0
         fi
         # Pull with rebase to incorporate remote changes, then retry.
@@ -982,6 +1342,7 @@ task_push() {
             # Only a FAILED pull contributes to the blocker classification; see
             # the two-accumulator note above.
             [[ $pull_rc -ne 0 ]] && rebase_block+="${out}"$'\n'
+            [[ -z "$unverified" ]] && unverified="$(_task_pull_unverified_line "$out")"
             _task_pull_report_automerge "$out"
             case "$out" in
                 *"$AIT_PULL_AUTOMERGED_SENTINEL"*)
@@ -1005,6 +1366,16 @@ task_push() {
     TASK_PUSH_STATUS="failed"
     TASK_PUSH_REASON="$(_task_push_classify "$push_err" "$rebase_block")"
     TASK_PUSH_UNPUSHED="$(_task_push_unpushed_count)"
+    if [[ -n "$unverified" ]]; then
+        # git's first line would describe the (completed) pull, not the problem.
+        # _task_push_warn is silent at 0 unpushed, so that case gets its own line.
+        if [[ "$TASK_PUSH_UNPUSHED" == "0" ]]; then
+            warn "task data push: ${unverified}"
+        else
+            _task_push_warn " (${unverified})"
+        fi
+        return 0
+    fi
     if [[ "$TASK_PUSH_REASON" == "unknown" ]]; then
         detail="$(_task_push_first_line "${push_err}"$'\n'"${rebase_err}")"
         if [[ -n "$detail" ]]; then
@@ -1053,12 +1424,12 @@ _task_push_once() {
 # the slot and lose that lock's release. This lib keeps its own private slot and
 # installs no trap.
 #
-# SCOPE — what this does and does NOT guarantee. It serializes _task_pull_rebase
-# against other _task_pull_rebase calls: the pick-time sync and the push retry,
-# which are by far the most frequent pulls. It does NOT cover aitask_sync.sh,
-# the `./ait git` gateway, or a raw `git` run by hand; for those the ownership
-# gate below still fails closed, and the remaining exposure is documented on
-# _task_pull_rebase itself.
+# SCOPE — what this does and does NOT guarantee. It serializes every managed pull
+# against every other: _task_pull_rebase (the pick-time sync and the push retry,
+# by far the most frequent) and the `./ait git pull` gateway (task_git_pull),
+# which share _ait_owned_pull. It does NOT cover aitask_sync.sh or a raw `git`
+# run by hand; for those the ownership gate below still fails closed, and the
+# remaining exposure is documented on _task_pull_rebase itself.
 _AIT_PULL_MUTEX_DIR=""
 _AIT_PULL_MUTEX_TOKEN=""
 
@@ -1188,6 +1559,14 @@ AIT_PULL_AUTOMERGED_SENTINEL="auto-merged task-data conflict(s) during pull"
 # matcher against an unset variable would match every string.
 AIT_AUTOMERGE_GAVE_UP_SENTINEL="auto-merge gave up after"
 
+# The completion-postcondition sentinel (t1739): emitted by _ait_owned_pull when
+# a pull that ended in rc 0 left unmerged paths, or when that check itself could
+# not run; matched by _task_push_classify (which gives it precedence over any
+# conflict text the same blob carries), task_sync and task_push. Same
+# one-spelling rule as the two above. Lower-case and free of every classifier
+# substring, so it can only ever be matched by its own arm.
+AIT_PULL_UNVERIFIED_SENTINEL="pull completed but its result could not be verified"
+
 # Git config pinned onto the task-data reconciliation window (t1789).
 #
 # SCOPE: every PORCELAIN git command that feeds, starts, advances or aborts a
@@ -1224,9 +1603,17 @@ AIT_AUTOMERGE_GAVE_UP_SENTINEL="auto-merge gave up after"
 # the concurrency note on _task_pull_rebase. The MERGE_RR.lock failure is closed
 # for every source by the rerere half.
 #
-# The options go BEFORE the subcommand. task_git's guard reads $1 to recognise
-# a recovery verb, so only a non-recovery verb (pull) may carry them through
-# task_git; a `rebase --abort` carries them through _ait_data_git.
+# The options go BEFORE the subcommand. task_git's guard classifies the
+# subcommand past them (ait_git_subcmd_index, t1739), but the framework's own
+# recovery calls still go through _ait_data_git: they run mid-rebase, exactly
+# when the guard refuses mutating verbs.
+#
+# ONE sanctioned override: task_git_pull re-declares this array function-locally
+# as (user -c / --config-env options, then these pins), so every callee that
+# reads it while that frame is live — the pull, ait_automerge_advance's
+# continue/skip, ait_rebase_abort_if_ours — carries the user's config, with the
+# pins last so they win. Read the array at CALL time; a copy taken at source time
+# would silently drop that config.
 AIT_RECONCILE_GIT_OPTS=(-c rerere.enabled=false -c maintenance.auto=false)
 
 # Internal: re-emit the pull's auto-merge notices on the CALLER's stderr.
@@ -1290,17 +1677,37 @@ _ait_load_automerge() {
 #      not be described as a rebase nor handed `rebase --abort`;
 #   5. its recorded orig-head is the HEAD we read just before pulling.
 #
-# RESIDUAL: the mutex covers this function only. A concurrent `ait sync`, a
-# `./ait git pull`, or a raw `git` can still start a rebase inside our window,
-# and if it started from an identical HEAD signals 1-5 cannot tell it from ours.
-# Even then `rebase --abort` restores orig-head, so no COMMITTED work is lost —
-# the exposure is conflict-resolution progress. Closing it needs the sync-side
-# and gateway changes tracked as t1725_1 follow-ups.
+# RESIDUAL: the mutex covers the two managed pulls — this one and the
+# `./ait git pull` gateway (task_git_pull), which share _ait_owned_pull. A
+# concurrent `ait sync` or a raw `git` can still start a rebase inside our
+# window, and if it started from an identical HEAD signals 1-5 cannot tell it
+# from ours. Even then `rebase --abort` restores orig-head, so no COMMITTED work
+# is lost — the exposure is conflict-resolution progress. Closing it needs the
+# sync-side change tracked as a t1725_1 follow-up.
 #
 # The pull's exit status is returned unchanged whenever a pull ran; the sentinels
 # go to stderr, which every caller captures with 2>&1 for _task_push_classify.
+#
+# --no-autostash (t1792, t1987): a user's rebase.autoStash would stash and
+# re-apply other live sessions' uncommitted edits in the shared worktree.
+# Without it the pull refuses on a dirty worktree, as under git's default.
 _task_pull_rebase() {
-    local before after out rc=0 head_before gitdir verdict
+    _ait_owned_pull "${AIT_RECONCILE_GIT_OPTS[@]}" pull --rebase --no-autostash --quiet
+}
+
+# _ait_owned_pull <git argv…> — the ONE implementation of the five-signal pull
+# above, for any pull argv. Callers: _task_pull_rebase (the workflow pull) and
+# task_git_pull (the `./ait git pull` gateway, t1739). Never a second copy of the
+# ownership pipeline.
+#
+# After a pull that ends in rc 0 it also checks, STILL HOLDING THE MUTEX, that no
+# rebase/merge is still in progress (an interactive `edit` stop returns 0) and
+# that no unmerged path was left behind (a failed autostash pop returns 0 too). Holding the mutex means no other MANAGED pull ran in
+# between; an unmanaged writer still could, which is why that check reports and
+# never cleans: the state is not proven ours. Both of its outcomes carry
+# AIT_PULL_UNVERIFIED_SENTINEL, which every caller recognizes explicitly.
+_ait_owned_pull() {
+    local before out rc=0 head_before gitdir
 
     if ! ait_pull_mutex_acquire; then
         printf 'aitask: another session is reconciling the task data right now; pull skipped\n' >&2
@@ -1313,10 +1720,7 @@ _task_pull_rebase() {
     # answers about the same repository.
     head_before="$(git --git-dir="$gitdir" rev-parse HEAD 2>/dev/null || true)"
 
-    # --no-autostash (t1792, t1987): a user's rebase.autoStash would stash and
-    # re-apply other live sessions' uncommitted edits in the shared worktree.
-    # Without it the pull refuses on a dirty worktree, as under git's default.
-    out="$(_ait_data_git "${AIT_RECONCILE_GIT_OPTS[@]}" pull --rebase --no-autostash --quiet 2>&1)" || rc=$?
+    out="$(_ait_data_git "$@" 2>&1)" || rc=$?
     [[ -n "$out" ]] && printf '%s\n' "$out" >&2
 
     if [[ $rc -ne 0 ]]; then
@@ -1331,8 +1735,48 @@ _task_pull_rebase() {
         [[ $recover_rc -eq 10 ]] && rc=0
     fi
 
+    # Completion postcondition. The probe's own status is captured, never
+    # swallowed: an inspection that failed is not a verified success. Each line
+    # says what is actually there — HEAD and files may already have moved — and
+    # nothing is cleaned up. A state still in progress after rc 0 is checked
+    # first: an interactive `edit` stop ends the pull with rc 0 and the rebase
+    # deliberately paused, and that pause is reported, never aborted.
+    if [[ $rc -eq 0 ]]; then
+        local unmerged probe_rc=0 after_state
+        after_state="$(_ait_inprogress_state_at "$gitdir")"
+        if [[ -z "$after_state" ]]; then
+            unmerged="$(_ait_data_git diff --name-only --diff-filter=U 2>/dev/null)" || probe_rc=$?
+        fi
+        if [[ -n "$after_state" ]]; then
+            printf "aitask: %s: the data worktree is still mid-%s - left untouched; finish or abort it, or run './ait git-health'\n" \
+                "$AIT_PULL_UNVERIFIED_SENTINEL" "$after_state" >&2
+            rc=1
+        elif [[ $probe_rc -ne 0 ]]; then
+            printf "aitask: %s: 'git diff' exited %s while checking for unmerged paths - the pulled commits are in place; check './ait git status'\n" \
+                "$AIT_PULL_UNVERIFIED_SENTINEL" "$probe_rc" >&2
+            rc=1
+        elif [[ -n "$unmerged" ]]; then
+            printf "aitask: %s: unmerged paths remain in the data worktree - left untouched; resolve them or run './ait git-health'\n" \
+                "$AIT_PULL_UNVERIFIED_SENTINEL" >&2
+            rc=1
+        fi
+    fi
+
     ait_pull_mutex_release
     return $rc
+}
+
+# Internal: the first AIT_PULL_UNVERIFIED_SENTINEL line in a captured pull blob,
+# without its `aitask: ` prefix, or nothing. Same extraction as
+# _task_pull_report_automerge.
+_task_pull_unverified_line() {
+    local line
+    case "$1" in
+        *"$AIT_PULL_UNVERIFIED_SENTINEL"*)
+            line="$(printf '%s\n' "$1" | grep -F -m1 -- "$AIT_PULL_UNVERIFIED_SENTINEL" || true)"
+            printf '%s' "${line#aitask: }" ;;
+    esac
+    return 0
 }
 
 # Internal: the decide-and-clean half of _task_pull_rebase, split out only so
@@ -1361,11 +1805,21 @@ _task_pull_rebase_cleanup() {
     [[ -z "$after" ]] && return 0
 
     # Signal 3: our pull must actually have hit a conflict. Anything else means
-    # the state appeared from elsewhere while we were failing for another reason.
+    # the state appeared from elsewhere while we were failing for another reason
+    # — or, for a merge-mode gateway pull, that the merge stopped on something
+    # other than a conflict (a refusing pre-merge-commit hook leaves MERGE_HEAD).
+    # Either way it is left untouched, and the wording names the ACTUAL state:
+    # a merge described as a rebase would be handed a recovery that does not
+    # apply (t1739).
     case "$out" in
         *CONFLICT*|*"could not apply"*|*"Resolve all conflicts"*) ;;
         *)
-            printf 'aitask: a rebase appeared in the data worktree during a pull that failed for another reason - leaving it untouched\n' >&2
+            case "$after" in
+                rebase-merge|rebase-apply)
+                    printf 'aitask: a rebase appeared in the data worktree during a pull that failed for another reason - leaving it untouched\n' >&2 ;;
+                *)
+                    printf 'aitask: the data worktree is mid-%s; leaving it untouched\n' "$after" >&2 ;;
+            esac
             return 0 ;;
     esac
 
@@ -1461,6 +1915,17 @@ _task_push_classify() {
     case "$rebase_err" in
         *"reconciling the task data right now"*)
             echo "pull_locked"; return 0 ;;
+    esac
+    # A pull that completed but could not be verified (t1739). Disjoint from
+    # pull_locked (that one means no pull ran) and AHEAD of every state and
+    # conflict arm: after an auto-merged conflict the blob still carries git's
+    # "CONFLICT (content)" text, and classifying that as rebase_conflict would
+    # hand the user a hint claiming the rebase "was aborted". The reason
+    # vocabulary is unchanged — `unknown` — and callers surface the sentinel
+    # line itself as the detail.
+    case "$rebase_err" in
+        *"$AIT_PULL_UNVERIFIED_SENTINEL"*)
+            echo "unknown"; return 0 ;;
     esac
     case "$rebase_err" in
         *"in progress in the data worktree"*|*"appeared in the data worktree during a pull that failed"*)

@@ -1993,6 +1993,21 @@ assert_eq_trim "46: control — conflict-shaped output makes it ours" "aborted" 
     "$(ait_rebase_abort_if_ours ctrl_runner "$GD_46" "$OURS_46" rebase-merge)"
 unset -f ctrl_runner
 
+# The same signal for a NON-rebase state (t1739): a merge-mode pull whose merge
+# stopped on something other than a conflict (a refusing pre-merge-commit hook)
+# leaves MERGE_HEAD. It must be named as what it is — data_midop, with the
+# merge recovery hint — never as a rebase.
+: > "$GD_46/MERGE_HEAD"
+sig3m_out="$(_task_pull_rebase_cleanup "$GD_46" "" "$OURS_46" \
+    "Not committing merge; use 'git commit' to complete the merge." 2>&1)"
+assert_eq_trim "46m: MERGE_HEAD is left untouched" "MERGE_HEAD" "$(probe_wedge "$GD_46")"
+assert_contains "46m: the message names the actual state" "mid-MERGE_HEAD" "$sig3m_out"
+assert_not_contains "46m: no rebase wording" "rebase" "$sig3m_out"
+assert_eq "46m: classified as data_midop" "data_midop" "$(_task_push_classify "" "$sig3m_out")"
+assert_not_contains "46m: its hint hands out no rebase recovery" "rebase" \
+    "$(_task_push_reason_hint data_midop)"
+rm -f "$GD_46/MERGE_HEAD"
+
 # --- Test 47: signal 5 at the integration level (t1725_1) ---
 # Test 39's foreign rebase is caught by signal 1 (it was there BEFORE the pull),
 # so it never reaches the ownership check. The case that does is a rebase that
@@ -2739,6 +2754,223 @@ assert_not_contains "63: no command in the window spawned maintenance" \
     "$MAINT_SPAWN" "$(cat "$TEST_TMPDIR/trace63" 2>/dev/null)"
 
 popd > /dev/null || exit 1
+
+# =====================================================================
+# t1739 — the completion postcondition of _ait_owned_pull
+#
+# A pull that ends in rc 0 is checked, still under the pull mutex, for unmerged
+# paths. Both of its outcomes — unmerged paths found, or the probe itself
+# failing — carry AIT_PULL_UNVERIFIED_SENTINEL, and every caller must surface
+# that rather than lose it in an `unknown` or misread it as a conflict.
+#
+# The seam is _ait_data_git, the single runner (as in Test 41). The stub fakes
+# ONLY `diff --name-only --diff-filter=U` and ONLY while no rebase is in
+# progress: task_automerge.sh runs its own --diff-filter=U probes mid-rebase,
+# and those must reach real git. Every call is logged, so "nothing was cleaned
+# up" is checked against what actually ran.
+# =====================================================================
+
+J_MODE=""          # unmerged | fail | pullfail
+J_LOG=""
+J_LOCKLOG=""
+
+j_stub_runner() {
+    _ait_data_git() {
+        local -a _a=("$@")
+        while [[ "${_a[0]:-}" == "-c" ]]; do _a=("${_a[@]:2}"); done
+        printf '%s\n' "${_a[*]}" >> "$J_LOG"
+        local gd
+        gd="$(git rev-parse --git-dir 2>/dev/null || echo .git)"
+        if [[ "${_a[0]:-}" == "diff" && " ${_a[*]} " == *" --diff-filter=U "* \
+              && ! -d "$gd/rebase-merge" && ! -d "$gd/rebase-apply" ]]; then
+            [[ -d "$gd/aitask-pull.lock" ]] && echo "held" >> "$J_LOCKLOG" \
+                || echo "free" >> "$J_LOCKLOG"
+            case "$J_MODE" in
+                unmerged) echo "fake_unmerged.txt"; return 0 ;;
+                fail)     return 128 ;;
+            esac
+        fi
+        if [[ "$J_MODE" == "pullfail" && "${_a[0]:-}" == "pull" ]]; then
+            echo "fatal: something unrecognisable happened"
+            return 1
+        fi
+        LC_ALL=C git "$@"
+    }
+}
+
+# The calls the stub logged AFTER the postcondition probe — any cleanup verb
+# there would be acting on state this call never proved it owned.
+j_cleanup_after_probe() {
+    awk 'found { print } / --diff-filter=U/ { found = 1 }' "$J_LOG" \
+        | grep -E '^(rebase --abort|reset|checkout|stash)' || true
+}
+
+j_setup() {   # fresh legacy fixture, remote one non-conflicting commit ahead
+    setup_remote_and_clone
+    pushd "$TEST_LOCAL" > /dev/null || exit 1
+    reload_task_utils
+    _AIT_DATA_WORKTREE="."
+    advance_remote "j_remote_file.txt"
+    J_LOG="$TEST_TMPDIR/j_calls.log"; : > "$J_LOG"
+    J_LOCKLOG="$TEST_TMPDIR/j_lock.log"; : > "$J_LOCKLOG"
+}
+
+# --- Test 64: the postcondition, its placement, and every caller's surface ---
+echo "--- Test 64: rc-0 pull with unmerged paths / failed probe is reported, never cleaned ---"
+
+# J0 control: the real runner on the same fixture shape passes the postcondition.
+j_setup
+j0_out="$(_task_pull_rebase 2>&1)"; j0_rc=$?
+assert_success "64 J0: control — a clean pull still returns 0" "$j0_rc"
+assert_not_contains "64 J0: control — no postcondition line on a clean pull" \
+    "$AIT_PULL_UNVERIFIED_SENTINEL" "$j0_out"
+popd > /dev/null || exit 1
+
+# J1: unmerged paths after an rc-0 pull.
+j_setup
+J_MODE=unmerged; j_stub_runner
+j1_out="$(_task_pull_rebase 2>&1)"; j1_rc=$?
+TOTAL=$((TOTAL + 1))
+if [[ $j1_rc -ne 0 ]]; then PASS=$((PASS + 1)); else FAIL=$((FAIL + 1)); echo "FAIL: 64 J1: an rc-0 pull with unmerged paths still returned 0"; fi
+assert_contains "64 J1: the unmerged-paths line is emitted" \
+    "unmerged paths remain in the data worktree" "$j1_out"
+assert_contains "64 J1: ... carrying the sentinel" "$AIT_PULL_UNVERIFIED_SENTINEL" "$j1_out"
+assert_eq "64 J1: nothing was cleaned up after the probe" "" "$(j_cleanup_after_probe)"
+# J3 placement: the probe ran while this call still held the pull mutex, and the
+# mutex was released afterwards.
+assert_eq_trim "64 J3: the probe ran under the pull mutex" "held" "$(cat "$J_LOCKLOG")"
+assert_eq_trim "64 J3: the mutex is released after the call" "absent" \
+    "$([[ -e .git/aitask-pull.lock ]] && echo present || echo absent)"
+popd > /dev/null || exit 1
+
+# J2: the probe itself fails — an inspection failure is not a verified success.
+j_setup
+J_MODE=fail; j_stub_runner
+j2_out="$(_task_pull_rebase 2>&1)"; j2_rc=$?
+TOTAL=$((TOTAL + 1))
+if [[ $j2_rc -ne 0 ]]; then PASS=$((PASS + 1)); else FAIL=$((FAIL + 1)); echo "FAIL: 64 J2: a failed probe was reported as success"; fi
+assert_contains "64 J2: the failed probe is named with its status" \
+    "'git diff' exited 128" "$j2_out"
+assert_contains "64 J2: ... and the completed pull is described as such" \
+    "the pulled commits are in place" "$j2_out"
+assert_not_contains "64 J2: it never claims nothing changed" "nothing was changed" "$j2_out"
+assert_eq "64 J2: classified as unknown, not as a state reason" "unknown" \
+    "$(_task_push_classify "" "$j2_out")"
+assert_eq "64 J2: nothing was cleaned up after the probe" "" "$(j_cleanup_after_probe)"
+assert_eq_trim "64 J2: the probe ran under the pull mutex" "held" "$(cat "$J_LOCKLOG")"
+popd > /dev/null || exit 1
+
+# J4: task_sync after a SUCCESSFUL pull (0 unpushed, 0 unpulled) whose probe
+# failed. _task_sync_warn stays silent for `unknown` at 0/0, so without explicit
+# recognition this would vanish.
+j_setup
+J_MODE=fail; j_stub_runner
+task_sync 2>"$TEST_TMPDIR/j4_err.txt"
+j4_err="$(cat "$TEST_TMPDIR/j4_err.txt")"
+assert_eq "64 J4: TASK_SYNC_STATUS is failed" "failed" "$TASK_SYNC_STATUS"
+assert_eq "64 J4: TASK_SYNC_REASON stays in the vocabulary (unknown)" "unknown" "$TASK_SYNC_REASON"
+assert_eq_trim "64 J4: precondition — nothing unpushed" "0" "$TASK_SYNC_UNPUSHED"
+assert_eq_trim "64 J4: precondition — nothing unpulled" "0" "$TASK_SYNC_UNPULLED"
+assert_contains "64 J4: the sentinel line is warned despite 0/0" \
+    "task data sync: $AIT_PULL_UNVERIFIED_SENTINEL" "$j4_err"
+assert_eq_trim "64 J4: the pull really completed (HEAD is at the remote tip)" \
+    "$(git rev-parse '@{upstream}')" "$(git rev-parse HEAD)"
+assert_not_contains "64 J4: it never claims nothing changed" "nothing was changed" "$j4_err"
+popd > /dev/null || exit 1
+
+# J4 control: an `unknown` failure WITHOUT the sentinel stays silent at 0/0, so
+# only the sentinel widened the warning policy.
+setup_remote_and_clone
+pushd "$TEST_LOCAL" > /dev/null || exit 1
+reload_task_utils
+_AIT_DATA_WORKTREE="."
+J_LOG="$TEST_TMPDIR/j_calls.log"; : > "$J_LOG"; J_LOCKLOG="$TEST_TMPDIR/j_lock.log"; : > "$J_LOCKLOG"
+J_MODE=pullfail; j_stub_runner
+task_sync 2>"$TEST_TMPDIR/j4c_err.txt"
+assert_eq "64 J4 control: an unrecognised failure is unknown" "unknown" "$TASK_SYNC_REASON"
+assert_eq "64 J4 control: ... and stays silent at 0/0" "" "$(cat "$TEST_TMPDIR/j4c_err.txt")"
+popd > /dev/null || exit 1
+
+# J5: the conflict auto-merged, THEN the probe failed. The blob still carries
+# git's CONFLICT text; the sentinel arm must win, or the hint would claim the
+# rebase "was aborted". Test 48 is the control: identical fixture, real runner,
+# synced + TASK_SYNC_AUTOMERGED=1.
+setup_remote_and_clone
+pushd "$TEST_LOCAL" > /dev/null || exit 1
+reload_task_utils
+_AIT_DATA_WORKTREE="."
+seed_sample_task
+advance_remote_task now "[ui]" "2026-01-01 10:00"
+write_sample_task aitasks/t1_sample.md backlog "[api, ui]" "2026-01-01 10:00"
+git add -A
+git commit -m "local: change labels" --quiet
+J_LOG="$TEST_TMPDIR/j_calls.log"; : > "$J_LOG"; J_LOCKLOG="$TEST_TMPDIR/j_lock.log"; : > "$J_LOCKLOG"
+J_MODE=fail; j_stub_runner
+task_sync 2>"$TEST_TMPDIR/j5_err.txt"
+j5_err="$(cat "$TEST_TMPDIR/j5_err.txt")"
+assert_contains "64 J5: precondition — the conflict really was auto-merged" \
+    "auto-merged task-data conflict(s) during pull" "$j5_err"
+assert_eq "64 J5: classified unknown, NOT rebase_conflict" "unknown" "$TASK_SYNC_REASON"
+assert_not_contains "64 J5: no text claims the rebase was aborted" "was aborted" "$j5_err"
+assert_contains "64 J5: the sentinel line is the warning" \
+    "task data sync: $AIT_PULL_UNVERIFIED_SENTINEL" "$j5_err"
+assert_eq_trim "64 J5: no rebase left behind" "" "$(probe_wedge)"
+popd > /dev/null || exit 1
+
+# J6: task_push — the retry pull's probe fails, the next push still succeeds.
+# A successful push prints nothing, so the sentinel must be warned on that exit.
+setup_remote_and_clone
+pushd "$TEST_LOCAL" > /dev/null || exit 1
+reload_task_utils
+_AIT_DATA_WORKTREE="."
+echo "local change" > j6_local.txt
+git add j6_local.txt
+git commit -m "local commit" --quiet
+advance_remote "j6_remote.txt"
+J_LOG="$TEST_TMPDIR/j_calls.log"; : > "$J_LOG"; J_LOCKLOG="$TEST_TMPDIR/j_lock.log"; : > "$J_LOCKLOG"
+J_MODE=fail; j_stub_runner
+task_push 2>"$TEST_TMPDIR/j6_err.txt"
+j6_err="$(cat "$TEST_TMPDIR/j6_err.txt")"
+assert_eq "64 J6: the next push attempt went through" "pushed" "$TASK_PUSH_STATUS"
+assert_contains "64 J6: the sentinel line is still warned" \
+    "task data push: $AIT_PULL_UNVERIFIED_SENTINEL" "$j6_err"
+popd > /dev/null || exit 1
+reload_task_utils
+
+# J7: a pull that ends in rc 0 with a rebase deliberately PAUSED. A real
+# interactive rebase whose sequence editor turns the first pick into `edit`
+# stops with rc 0 and rebase-merge in place. The core must report it through the
+# sentinel and leave it exactly where the user paused it — never abort it. (The
+# gateway refuses interactive mode outright; this pins the core's own guarantee
+# for any caller that reaches this state.)
+setup_remote_and_clone
+pushd "$TEST_LOCAL" > /dev/null || exit 1
+reload_task_utils
+_AIT_DATA_WORKTREE="."
+echo "local change" > j7_local.txt
+git add j7_local.txt
+git commit -m "local commit" --quiet
+advance_remote "j7_remote.txt"
+j7_rc=0
+j7_out="$(GIT_SEQUENCE_EDITOR="sed -i -e 1s/^pick/edit/" \
+    _ait_owned_pull -c pull.rebase=interactive pull --no-autostash 2>&1)" || j7_rc=$?
+assert_eq_trim "64 J7: precondition — git really paused at an edit stop" "rebase-merge" "$(probe_wedge)"
+TOTAL=$((TOTAL + 1))
+if [[ $j7_rc -ne 0 ]]; then PASS=$((PASS + 1)); else FAIL=$((FAIL + 1)); echo "FAIL: 64 J7: a paused rebase was reported as a completed pull"; fi
+assert_contains "64 J7: reported as still mid-rebase" \
+    "$AIT_PULL_UNVERIFIED_SENTINEL: the data worktree is still mid-rebase-merge" "$j7_out"
+assert_not_contains "64 J7: the pause was not aborted" "rebase aborted" "$j7_out"
+assert_eq_trim "64 J7: the mutex is released" "absent" \
+    "$([[ -e .git/aitask-pull.lock ]] && echo present || echo absent)"
+git rebase --abort >/dev/null 2>&1
+popd > /dev/null || exit 1
+
+# Classifier unit: precedence over the conflict text an auto-merged blob carries.
+blob64=$'CONFLICT (content): Merge conflict in aitasks/t1_sample.md\naitask: '"$AIT_PULL_UNVERIFIED_SENTINEL"": 'git diff' exited 128 while checking for unmerged paths"
+assert_eq "64: sentinel beats CONFLICT text in the classifier" "unknown" \
+    "$(_task_push_classify "" "$blob64")"
+assert_eq "64: control — CONFLICT text alone is still rebase_conflict" "rebase_conflict" \
+    "$(_task_push_classify "" "CONFLICT (content): Merge conflict in aitasks/t1_sample.md")"
 
 # --- Summary ---
 echo ""
