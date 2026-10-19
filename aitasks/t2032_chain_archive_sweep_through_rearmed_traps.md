@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1989
 followup_kind: risk_mitigation
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-16 01:30
-updated_at: 2026-10-19 08:02
+updated_at: 2026-10-19 16:48
 ---
 
 ## Origin
@@ -41,3 +42,8 @@ Context from t2023 (`lib/archive_utils.sh`):
 Also record, as part of the same composition family: `txn_chain_exit_trap` (lib/txn_snapshot.sh:214) *prepends*. Placed in front of a status-reading handler, it hands that handler the prepended handler's 0, so the explicit ledger spelling `rc=$?; …; ait_ledger_lock_exit_trap "$rc"` exits 0 for an `exit 42`. That happens with or without t2023's wrapper; t2023's test 13d2 pins the unwrapped value.
 
 Verify with a per-test probe TMPDIR. A bundled `$( )` resolve in each re-arming script path should leave no `ait-archive.*` dir, and the ledger first-command detector must still fire on the misuse spelling.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-19T13:48:51Z status=pass attempt=1 type=human
