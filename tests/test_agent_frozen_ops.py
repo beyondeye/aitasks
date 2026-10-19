@@ -791,6 +791,23 @@ class GuardedClearTests(unittest.TestCase):
         ops.clear_stamp_if("%5", "7f3a2c1d")
         self.assertEqual("#{==:#{@aitask_frozen},7f3a2c1d}", self.calls[0][4])
 
+    def test_retire_restore_marks_issues_both_guarded_clears(self):
+        """The stamp on the record, the mark on the attempt nonce (t2045)."""
+        ops.retire_restore_marks("%5", "7f3a2c1d", "deadbeef" + "0" * 24)
+        self.assertEqual(["#{==:#{@aitask_frozen},7f3a2c1d}",
+                          "#{==:#{@aitask_restore_attempt},7f3a2c1d:deadbeef}"],
+                         [c[4] for c in self.calls])
+
+    def test_retire_restore_marks_without_a_pane_dispatches_nothing(self):
+        ops.retire_restore_marks("", "7f3a2c1d", "deadbeef" + "0" * 24)
+        self.assertEqual([], self.calls)
+
+    def test_retire_restore_marks_without_a_nonce_still_clears_the_stamp(self):
+        """No nonce derives no mark value; the stamp is still retired."""
+        ops.retire_restore_marks("%5", "7f3a2c1d", "")
+        self.assertEqual(["#{==:#{@aitask_frozen},7f3a2c1d}"],
+                         [c[4] for c in self.calls])
+
     def test_malformed_values_dispatch_nothing(self):
         ops.clear_restore_attempt("%5", "x,}")
         ops.clear_stamp_if("%5", "")

@@ -598,6 +598,26 @@ def clear_stamp_if(pane_id: str, record_id: str) -> None:
          f"set-option -pu -t {pane_id} {FROZEN_OPTION}"])
 
 
+def retire_restore_marks(pane_id: str, record_id: str, nonce: str) -> None:
+    """Retire a restored pane's marks: the stamp, and this attempt's mark.
+
+    Both are GUARDED single dispatches (t1875). A bare unset is a separate call
+    a server restart can land on a recycled `%N` — another record's pane — and
+    strip its stamp, or its attempt mark, which after the rename is the only
+    claim a gone-pane attempt has. The mark's value is derived from the nonce
+    `restore-begin` minted for the attempt, so it matches nothing else; on a
+    same-pane restore no pane carries it and the dispatch is a no-op.
+
+    Shared by every engine that settles a restore as `live`: the coordinator
+    (`agent_restore`) and reconcile's recovery of an abandoned one
+    (`agent_freeze`, t2045). A `live` record whose pane keeps its stamp can
+    never be frozen again, and no later pass revisits `live` records.
+    """
+    if pane_id:
+        clear_stamp_if(pane_id, record_id)
+        clear_restore_attempt(pane_id, restore_attempt_value(record_id, nonce))
+
+
 # --- window-name primitives (t1883) ------------------------------------------
 #
 # The tmux half of the attempt-identity protocol that `agent_restore` (a gone-pane

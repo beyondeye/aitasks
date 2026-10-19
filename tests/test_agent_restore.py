@@ -1497,6 +1497,22 @@ class TestNewWindowRollback(_SwapMixin, unittest.TestCase):
         self.assertEqual((None, None),
                          (p.get("@aitask_frozen"), p.get("@aitask_restore_attempt")))
 
+    def test_the_coordinator_and_reconcile_retire_marks_identically(self):
+        """Reconcile's recovery of an abandoned restore calls the shared helper
+        directly (t2045); the coordinator's wrapper must dispatch exactly the
+        same guarded clears, in the same order, or the two engines drift."""
+        dispatched = []
+        for clear in (agent_restore._clear_frozen_stamp,
+                      agent_restore.frozen_ops.retire_restore_marks):
+            server = _Server()
+            pane = server.add("aitasks", "agent-x", **{
+                "@aitask_frozen": _RID, "@aitask_restore_attempt": _MARK})
+            self.swap_tmux(server)
+            clear(pane, _RID, _NONCE)
+            dispatched.append([c for c in server.calls if c[0] == "if-shell"])
+        self.assertEqual(2, len(dispatched[0]))
+        self.assertEqual(dispatched[0], dispatched[1])
+
 
 def agent_sessions_mod():
     return agent_restore.agent_sessions

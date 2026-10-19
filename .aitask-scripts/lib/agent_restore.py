@@ -349,17 +349,10 @@ def _reread(record_id: str) -> dict:
 def _clear_frozen_stamp(pane_id: str, record_id: str, nonce: str) -> None:
     """Retire a restored pane's marks: the stamp, and this attempt's mark.
 
-    Both are GUARDED single dispatches (t1875). A bare unset is a separate call
-    a server restart can land on a recycled `%N` — another record's pane — and
-    strip its stamp, or its attempt mark, which after the rename is the only
-    claim a gone-pane attempt has. The mark's value is derived from THIS
-    attempt's nonce, so it matches nothing else; on a same-pane restore no pane
-    carries it and the dispatch is a no-op.
+    The rule lives in `frozen_ops.retire_restore_marks`, shared with
+    reconcile's recovery of an abandoned restore (t2045).
     """
-    if pane_id:
-        frozen_ops.clear_stamp_if(pane_id, record_id)
-        frozen_ops.clear_restore_attempt(
-            pane_id, frozen_ops.restore_attempt_value(record_id, nonce))
+    frozen_ops.retire_restore_marks(pane_id, record_id, nonce)
 
 
 def _rollback(record_id: str, nonce: str, pane_id: str, reason: str = "") -> str:

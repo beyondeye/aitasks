@@ -1940,6 +1940,90 @@ class ReconcileRestoringTests(_FreezeTestCase):
                 self.assertTrue(self._capture_exists(), "the only copy survives")
                 self.assertIn("lease-take", self.store.verbs())
 
+    # --- t2045: a recovered restore retires the stamp and the attempt mark ---
+
+    def _abandoned_and_marked(self, *, stamp=None, mark=None):
+        """A codex restore whose coordinator died after `restore-launched`.
+
+        The pane carries what the coordinator left on it: the frozen stamp and
+        a gone-pane attempt's mark, both derived from the coordinator's nonce
+        N1 unless overridden. Returns ``(N1, pre-lease snapshot)``. The lease
+        reconcile takes is a REAL `lease-take`, so its nonce N2 differs from
+        N1 — a fix that derived the mark from the lease would miss it.
+        """
+        n1 = self._codex_launched()
+        record = self.rec()
+        record.op_owner_pid = 2 ** 22 + 12345
+        record.op_started_at = agent_sessions._iso(time.time() - 10_000)
+        pane = self.panes[AGENT_PANE]
+        pane[agent_freeze.FROZEN_OPTION] = self.rid if stamp is None else stamp
+        pane[agent_frozen_ops.RESTORE_ATTEMPT_OPTION] = (
+            agent_frozen_ops.restore_attempt_value(self.rid, n1)
+            if mark is None else mark)
+        return n1, self._rec()
+
+    def _recover(self, snapshot, observed):
+        return agent_freeze._reconcile_restoring(
+            snapshot, observed, agent_freeze._Lease(self.rid), self._after_grace())
+
+    def _assert_marks_retired_and_refreezable(self, n1):
+        pane = self.panes[AGENT_PANE]
+        self.assertEqual(pane[agent_freeze.FROZEN_OPTION], "",
+                         "a live record's pane must not keep its frozen stamp")
+        self.assertEqual(pane[agent_frozen_ops.RESTORE_ATTEMPT_OPTION], "",
+                         "the coordinator's attempt mark must be retired")
+        self.assertNotEqual(self.rec().op_nonce, n1,
+                            "precondition: the lease minted its own nonce")
+        result = agent_freeze.freeze_pane(AGENT_PANE)
+        self.assertNotIn("FREEZE_SKIPPED", result.line)
+        self.assertTrue(result.ok, result.line)
+        self.assertEqual(result.line, f"FROZEN:{self.rid}")
+
+    def test_a_liveness_confirm_retires_the_stamp_and_attempt_mark(self):
+        n1, snapshot = self._abandoned_and_marked()
+        self.observe_miss(agent_sessions.MISS_NO_MATCH)
+        line = self._recover(snapshot, self._observed(pane_pid=7777))
+        self.assertEqual(line, f"LIVE:{self.rid}|liveness")
+        self._assert_marks_retired_and_refreezable(n1)
+
+    def test_a_rollout_confirm_retires_the_stamp_and_attempt_mark(self):
+        n1, snapshot = self._abandoned_and_marked()
+        self.observe_codex(self.CODEX_SID)
+        line = self._recover(snapshot, self._observed(pane_pid=7777))
+        self.assertEqual(line, f"LIVE:{self.rid}|rollout")
+        self._assert_marks_retired_and_refreezable(n1)
+
+    def test_a_confirm_keeps_another_records_stamp_and_mark(self):
+        """NEGATIVE CONTROL. The clears are guarded, never unconditional: a pane
+        whose marks name ANOTHER record (a recycled `%N`) keeps both."""
+        other = "0badf00d"
+        for evidence in ("miss", "match"):
+            with self.subTest(evidence=evidence):
+                self.setUp()
+                _n1, snapshot = self._abandoned_and_marked(
+                    stamp=other, mark=f"{other}:12345678")
+                if evidence == "match":
+                    self.observe_codex(self.CODEX_SID)
+                else:
+                    self.observe_miss(agent_sessions.MISS_NO_MATCH)
+                observed = self._observed(pane_pid=7777, frozen=other)
+                line = self._recover(snapshot, observed)
+                self.assertTrue(line.startswith(f"LIVE:{self.rid}|"), line)
+                pane = self.panes[AGENT_PANE]
+                self.assertEqual(pane[agent_freeze.FROZEN_OPTION], other)
+                self.assertEqual(pane[agent_frozen_ops.RESTORE_ATTEMPT_OPTION],
+                                 f"{other}:12345678")
+
+    def test_an_abort_keeps_the_stamp_for_the_standin(self):
+        """CONTROL. Only a confirm retires the marks: an aborted restore goes
+        back to `frozen`, and its stand-in pane must stay stamped."""
+        n1, snapshot = self._abandoned_and_marked()
+        self.observe_codex("99999999-2222-3333-4444-555555555555")
+        line = self._recover(snapshot, self._observed(pane_pid=7777))
+        self.assertEqual(line, f"STANDIN:{self.rid}")
+        self.assertEqual(self.panes[AGENT_PANE][agent_freeze.FROZEN_OPTION],
+                         self.rid)
+
     def test_an_unrecognised_pane_is_indeterminate_until_twice_the_grace(self):
         """`launch_pid == 0`: the respawn may be mid-flight."""
         nonce = self._restoring()

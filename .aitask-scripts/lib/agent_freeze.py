@@ -1204,6 +1204,12 @@ def _reconcile_restoring(
     # `op_nonce` is ours and the prefix would never match.
     mismatch = bool(last_error) and last_error.startswith(
         f"{rec.get('op_nonce', '')}:")
+    # The same PRE-lease read is the only place the coordinator's nonce
+    # survives, and the attempt mark a gone-pane restore set was derived from
+    # it — the lease's own nonce matches no mark. Residual (t2045): if an
+    # earlier reconcile pass leased this record and failed to settle it, this
+    # is that pass's nonce and the mark stays; the stamp is still retired.
+    coordinator_nonce = rec.get("op_nonce", "")
 
     def _abort_back_to_frozen(pane_id: str | None) -> str:
         nonce = lease()
@@ -1268,6 +1274,8 @@ def _reconcile_restoring(
                              "--pane-pid", str(observed.pane_pid),
                              "--rollout-session", evidence)
             if rc == 0:
+                frozen_ops.retire_restore_marks(observed.pane_id, record_id,
+                                                coordinator_nonce)
                 return f"LIVE:{record_id}|rollout"
             if rc == EXIT_SESSION_MISMATCH:
                 return _abort_back_to_frozen(observed.pane_id)
@@ -1275,8 +1283,14 @@ def _reconcile_restoring(
         rc, out = frozen_ops.store("restore-confirm", record_id, "--nonce", nonce,
                          "--pane", observed.pane_id,
                          "--pane-pid", str(observed.pane_pid))
-        return (f"LIVE:{record_id}|liveness" if rc == 0
-                else f"RECONCILE_FAILED:{record_id}|{out}")
+        if rc != 0:
+            return f"RECONCILE_FAILED:{record_id}|{out}"
+        # A confirmed record is `live`, and no later pass revisits it: retire
+        # the marks NOW, as the coordinator would have (t2045), or the agent
+        # can never be frozen again (`FREEZE_SKIPPED … already frozen`).
+        frozen_ops.retire_restore_marks(observed.pane_id, record_id,
+                                        coordinator_nonce)
+        return f"LIVE:{record_id}|liveness"
 
     if not launch_pid and observed.pane_pid not in (standin_pid, agent_pid):
         # Nothing was recorded as launched and the pane holds something we do
