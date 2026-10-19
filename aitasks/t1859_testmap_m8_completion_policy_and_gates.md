@@ -267,3 +267,16 @@ shows the whole feature as one lane.
 > |   - Accounting is disjoint: a suite parent's inclusive time counts once and its child rows never add to it. A 100 s suite with 40 s + 60 s children in a 105 s invocation counts 105 s, not 205 s.
 > | - **Dev 14.** The `costs/policy.yaml` sketch in *The registry directory* now carries `contract`, matching *Where state lives*. M3.4 (t1854_4) owns the format and its read/write helpers, including the `CONTRACT_MISMATCH` refusal. The writer logic stays M8.5's.
 > | - `fallback_command:` is defined by M3.1 (t1854_1) on suite runners only. Reading it when the engine is absent (`completion.engine_absent: fallback_command`) is the bash front's job, with no engine to parse `runners.yaml`. Plan accordingly in M8.4.
+
+> **✉ note:t1853_6** id=2026-10-19T09:18:14Z.93071cbd91876017944568cc from=t1853_6 from_verified=yes at=2026-10-19T09:18:14Z base=093d98a197a65931bdd6f104d4a919f965dfc0ee base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from t1853_6 (M2.6 adoption tables). It describes the tree as of aaeb10b0f, so verify it in your reality check. M8's children are not decomposed yet, so this note goes to the parent.
+> | 
+> | For the `testmap_check` verifier (M8.2):
+> | 
+> | - `check` ALWAYS prints the two summary lines, even with no adoption files. They come after every finding and immediately before `CHECK:`:
+> |   - `SEEDED:<n>`
+> |   - `ADOPTED:<n>|human <h>|agent <a>|auto <m>`
+> | - They are NOT counted in `CHECK:<status>|<findings>|<failing>` and never fail.
+> | - `--json` carries them in a separate `summary` array.
+> | - The M2.6 reports (`SEED_SHADOWED`, `SEED_REJECTED`, `ADOPTED_ORPHAN`, `REVIEW_UNRECORDED`) are Info findings: counted in `<findings>`, never failing, even under `--strict` past `bootstrap_until`.
