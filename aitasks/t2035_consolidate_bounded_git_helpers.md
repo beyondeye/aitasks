@@ -3,13 +3,14 @@ priority: low
 effort: medium
 depends: []
 issue_type: refactor
-status: Ready
+status: Implementing
 labels: [git, bash_scripts, robustness, syncer]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1599
 followup_kind: risk_mitigation
 created_at: 2026-10-16 08:01
-updated_at: 2026-10-16 08:01
+updated_at: 2026-10-19 08:02
 ---
 
 ## Origin
