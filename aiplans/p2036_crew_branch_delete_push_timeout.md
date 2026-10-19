@@ -125,3 +125,28 @@ existing `test_brainstorm_cli.sh` Tests 9/9b plus new cells 4–5.)
 ### Goal-achievement risk: low
 None identified. All three sites are covered by a bounded-and-reaped cell and
 a reachable-origin control proving the delete still happens.
+
+## Final Implementation Notes
+- **Actual work done:** All three deletion pushes now run bounded and non-interactive.
+  `aitask_crew_cleanup.sh` and `aitask_brainstorm_delete.sh` call
+  `_crew_git_bounded . /dev/null push origin --delete …`. `brainstorm_app.py`'s
+  `_cleanup_stale_crew_branch_and_retry` calls
+  `git_cmd(".", "push", "origin", "--delete", …, check=False, timeout=crew_git_timeout())`.
+  The new `tests/test_crew_branch_delete_bounded.sh` has 7 cells and 42 assertions:
+  a fixture control, a reachable-origin control per site proving the remote branch
+  is really deleted, and a hanging-origin cell per site checking the bound,
+  that local cleanup completes, and that the transport is reaped.
+- **Deviations from plan:** None in the code. The tests are ordered with the three
+  reachable-origin controls first and the three hang cells after, so
+  `AIT_CREW_GIT_TIMEOUT` is exported once. The TUI cell checks success by the first
+  `call_from_thread` target being `notify`.
+- **Issues encountered:** None. The red proof ran the new test against
+  `git show HEAD:` copies of the three files in a scratch tree, without touching the
+  shared worktree. Cells 5/6/7 failed with `no: 30s`. The controls and reap checks
+  still passed there, which shows they are valid baselines.
+- **Key decisions:** The TUI worker was already `@work(thread=True)`, so it only
+  needed the bound and was not moved. `aitask_brainstorm_delete.sh` sources
+  `agentcrew_utils.sh` and then re-derives `SCRIPT_DIR`, which that library
+  overwrites. `aitask_brainstorm_archive.sh` is covered through
+  `aitask_crew_cleanup.sh`.
+- **Upstream defects identified:** None
