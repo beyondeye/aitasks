@@ -177,3 +177,40 @@ stand-in, the unleased frozen path) as an upstream-defect candidate.
 
 ### Planned mitigations
 - timing: after | name: recheck_frozen_before_pick_kill | type: bug | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health race (agent frozen while the pick dialogs are open) | desc: In the minimonitor pick flow (`_on_pick_confirmed` / `_launch_pick`), re-read the kill target's current frozen state right before killing; if it is frozen now, launch without killing and say so; add a live-to-frozen transition regression test
+
+## Final Implementation Notes
+- **Actual work done:** Implemented as planned. The minimonitor `p` always opens
+  the number prompt. The minimonitor `R` binding and its `R:restore` hint are
+  removed. On a frozen followed agent the pick confirmation offers no kill
+  checkbox, and `pane_id` is tied to that offer, so a payload that claims a kill
+  reaches no target. The monitor's `p` binding is removed. The monitor's `R` on a
+  frozen card shows a hint (`s` → viewer → `R`/`P`) and dispatches nothing. The
+  preview text and the freeze toast point at the viewer.
+  `_frozen_target` / `_start_frozen_restore` / `action_restore_frozen` /
+  `action_repick_frozen` are deleted. `_poll_frozen_outcome(record_id)` handles
+  drop only, and the unused `agent_frozen_ops` import and `_FROZEN_DISPATCH_GRACE`
+  constant are removed. Persisted key overrides for the removed action ids are now
+  inert (`register_app_bindings` only consults registered bindings): no migration
+  needed.
+- **Deviations from plan:** (1) Plan review: `RestorePollDeadlineTests` in
+  `tests/test_monitor_frozen_filter.py` was also removed, together with its
+  `_FakeRecord` / `_FakeTimer` helpers. It drove the deleted restore branch of the
+  poll. `tests/test_frozenagent_app.py`'s `RestorePollDeadlineTests` covers the
+  viewer's deadline. (2) Removed one more stale doc row: the minimonitor how-to
+  key table had an `R` row ("Restore the followed agent when it is frozen") that
+  the task did not list. (3) Also dropped the now-unused `agent_sessions` import
+  from `tests/test_monitor_markup_literal_sinks.py`.
+- **Issues encountered:** None. Negative control in an isolated scratchpad copy:
+  every new test fails against the pre-change monitor modules. Separate
+  single-guard mutants (kill guard without the frozen check, monitor `R` frozen
+  branch disabled) each fail exactly their own test.
+- **Key decisions:** User-confirmed during planning: hide the pick dialog's kill
+  checkbox on a frozen followed agent rather than routing it to the leased drop.
+  Retiring a frozen agent stays on `k`. Hint texts name the default keys
+  literally, the same as the existing texts.
+- **Upstream defects identified:**
+  - `.aitask-scripts/monitor/minimonitor_app.py:3211-3301` — `n` (`action_pick_next_for_own` → `_launch_pick_for_own` → `_launch_pick`) has no frozen guard; when the followed task is a parent / archived / Done it kills the frozen stand-in via `kill_agent_pane_smart`, whose frozen path is an unleased kill-then-drop that deletes the capture without warning (the hazard `_drop_frozen`'s docstring describes).
+- **Follow-ups created:** t2057 (review finding:
+  `_find_running_agent_line` counts frozen snapshots as running, so the pick
+  dialog warns "already running" for a frozen stand-in). The planned "after" risk
+  mitigation `recheck_frozen_before_pick_kill` is created at Step 8d.
