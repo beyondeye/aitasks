@@ -169,14 +169,14 @@ stand-in, the unleased frozen path) as an upstream-defect candidate.
 - Removed shared methods (`action_restore_frozen` etc.) could still have a caller somewhere (another TUI, applink, a test double), which would raise `AttributeError` on a keypress · severity: low · → mitigation: none (the plan's grep verification plus full-suite run)
 - Narrowing `_poll_frozen_outcome` to drop-only removes the monitors' restore-verdict markup-sink coverage. The toast it covered is deleted with it, and the viewer keeps its own · severity: low · → mitigation: none
 
-- Existing race, kept by this plan: the frozen guard in `_on_pick_number_entered` reads the snapshot taken when the prompt opened. `_on_pick_confirmed` checks only that the pane still exists, and `_launch_pick` kills only after another dialog. If another monitor freezes a live followed agent while these dialogs are open, a ticked kill still reaches `kill_agent_pane_smart`'s unleased frozen path and deletes the capture · severity: medium · → mitigation: recheck_frozen_before_pick_kill
+- Existing race, kept by this plan: the frozen guard in `_on_pick_number_entered` reads the snapshot taken when the prompt opened. `_on_pick_confirmed` checks only that the pane still exists, and `_launch_pick` kills only after another dialog. If another monitor freezes a live followed agent while these dialogs are open, a ticked kill still reaches `kill_agent_pane_smart`'s unleased frozen path and deletes the capture · severity: medium · → mitigation: t2059
 
 ### Goal-achievement risk: low
 - Stand-ins started before t2049 still bind `p` = re-pick inside the viewer, so Tab-ing into one and pressing `p` still re-picks. This is out of scope per the task and goes away once the stand-ins are restarted · severity: low · → mitigation: none
 - The hint and preview texts name default keys (`s`, `R`, `P`) literally and go stale if a user rebinds them. Existing texts already work this way · severity: low · → mitigation: none
 
 ### Planned mitigations
-- timing: after | name: recheck_frozen_before_pick_kill | type: bug | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health race (agent frozen while the pick dialogs are open) | desc: In the minimonitor pick flow (`_on_pick_confirmed` / `_launch_pick`), re-read the kill target's current frozen state right before killing; if it is frozen now, launch without killing and say so; add a live-to-frozen transition regression test
+- timing: after | name: recheck_frozen_before_pick_kill | type: bug | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health race (agent frozen while the pick dialogs are open) | desc: In the minimonitor pick flow (`_on_pick_confirmed` / `_launch_pick`), re-read the kill target's current frozen state right before killing; if it is frozen now, launch without killing and say so; add a live-to-frozen transition regression test | created: t2059
 
 ## Final Implementation Notes
 - **Actual work done:** Implemented as planned. The minimonitor `p` always opens
@@ -213,4 +213,5 @@ stand-in, the unleased frozen path) as an upstream-defect candidate.
 - **Follow-ups created:** t2057 (review finding:
   `_find_running_agent_line` counts frozen snapshots as running, so the pick
   dialog warns "already running" for a frozen stand-in). The planned "after" risk
-  mitigation `recheck_frozen_before_pick_kill` is created at Step 8d.
+  mitigation `recheck_frozen_before_pick_kill` → t2059 (Step 8d); upstream defect
+  (`n` path) → t2058 (Step 8b).
