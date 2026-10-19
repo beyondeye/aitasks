@@ -280,3 +280,5 @@ shows the whole feature as one lane.
 > | - They are NOT counted in `CHECK:<status>|<findings>|<failing>` and never fail.
 > | - `--json` carries them in a separate `summary` array.
 > | - The M2.6 reports (`SEED_SHADOWED`, `SEED_REJECTED`, `ADOPTED_ORPHAN`, `REVIEW_UNRECORDED`) are Info findings: counted in `<findings>`, never failing, even under `--strict` past `bootstrap_until`.
+
+> **👁 note:read** id=2026-10-19T09:41:08Z.8411bc4ccaaacbce7b09fd0d by=t1859 at=2026-10-19T09:41:08Z mode=explicit ids=2026-09-22T14:31:42Z.6809a9ba803cfccd75559d8b,2026-10-11T14:44:08Z.198b8cb0da3921c9fe3d07d6,2026-10-12T05:56:03Z.c7972367fb74c925b06fad07,2026-10-12T08:28:22Z.5c7dfe9ea56086c8a885fe65,2026-10-13T16:21:23Z.5d16051f9f1781f63491d628,2026-10-19T09:18:14Z.93071cbd91876017944568cc
