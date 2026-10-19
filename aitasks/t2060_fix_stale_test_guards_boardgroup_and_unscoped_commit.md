@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1599
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-19 12:49
-updated_at: 2026-10-19 16:23
+updated_at: 2026-10-19 17:00
 ---
 
 ## Origin
@@ -37,3 +38,8 @@ t1739's regression sweep ran the 52 test files that touch the task-data git path
 
 - Point Test 3 at every current driver call site (`lib/task_automerge.sh`, plus `aitask_sync.sh` if any remain), keeping its "not vacuous" floor.
 - Inspect `md_sources_real` in `test_no_unscoped_task_commit.sh` against the current `.claude/skills/ait-git/` layout, and fix whichever side drifted.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-19T14:00:01Z status=pass attempt=1 type=human
