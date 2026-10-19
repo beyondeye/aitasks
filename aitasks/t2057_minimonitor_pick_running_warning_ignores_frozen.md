@@ -3,13 +3,14 @@ priority: low
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [minimonitor, monitor, frozen_agents]
 folded_tasks: [2058, 2059]
+assigned_to: dario-e@beyond-eye.com
 anchor: 2049
 followup_kind: review_finding
 created_at: 2026-10-19 11:16
-updated_at: 2026-10-19 12:16
+updated_at: 2026-10-19 12:18
 ---
 
 ## Symptom
