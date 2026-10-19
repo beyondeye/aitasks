@@ -168,7 +168,8 @@ None identified.
 - **Key decisions:**
   - JSON per line rather than a `key:value` block, so stored values containing a newline or `|` cannot split a record.
   - An unparseable batch fails closed as "store unreadable", never as a partial listing.
-- **Upstream defects identified:** None
+- **Upstream defects identified:**
+  - `.aitask-scripts/lib/agent_sessions.py:2380` (`show` verb) with `.aitask-scripts/lib/agent_frozen_ops.py:289` (`parse_show`, the parser `store_show` uses) — `show`'s `key:value` line protocol does not round-trip stored values. Each value is stripped and cut at its first `str.splitlines` break, and a later `key:value` line inside another field overrides that key. Restore, reopen and drop all act on that mangled view. For example, a `root` with surrounding whitespace resolves to a different project, and a field holding `\nstate:live` changes the state those actions read. Pre-existing, found during the t2041 review rounds. t2041 only makes the listing agree with that view; it does not fix the protocol.
 
 ## Post-Review Changes
 
