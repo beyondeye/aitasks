@@ -125,10 +125,10 @@ Post-implementation: commit code + plan, archive via `aitask_archive.sh 2045`.
 ### Goal-achievement risk: low
 - The attempt mark is not retired when an earlier failed reconcile lease replaced
   `op_nonce` (documented residual; stamp is still cleared, so the
-  freeze-again goal holds) · severity: low · → mitigation: retire_mark_after_replaced_lease
+  freeze-again goal holds) · severity: low · → mitigation: t2066
 
 ### Planned mitigations
-- timing: after | name: retire_mark_after_replaced_lease | type: bug | priority: low | effort: medium | inline_risk: medium | added_complexity: medium | addresses: goal-achievement: attempt mark not retired after a replaced op_nonce | desc: In reconcile's restoring confirm, recover the attempt mark from the pane itself when the pre-lease op_nonce is not the coordinator's, clearing it under a compound guard (mark value AND pane_pid == launch_pid); extend the fake tmux for compound if-shell conditions
+- timing: after | name: retire_mark_after_replaced_lease | type: bug | priority: low | effort: medium | inline_risk: medium | added_complexity: medium | addresses: goal-achievement: attempt mark not retired after a replaced op_nonce | desc: In reconcile's restoring confirm, recover the attempt mark from the pane itself when the pre-lease op_nonce is not the coordinator's, clearing it under a compound guard (mark value AND pane_pid == launch_pid); extend the fake tmux for compound if-shell conditions | created: t2066
 - timing: post-phase | name: pin_delegate_parity | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health: delegate drift between coordinator and shared helper | desc: Assert _clear_frozen_stamp and retire_restore_marks issue identical tmux dispatches
 
 ## Post-Review Changes
