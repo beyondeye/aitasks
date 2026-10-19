@@ -143,3 +143,57 @@ classification between `ait ide`'s offer and its top-up.
 
 ### Goal-achievement risk: low
 None identified.
+
+## Final Implementation Notes
+- **Actual work done:** Implemented as planned.
+  - `agent_sessions.py` `list` takes `--full` and prints one `RECORD:<json>` per record, with the same filters and sort.
+  - The wrapper documents the flag; its `cmd_list` already forwards args, so no logic changed there.
+  - `agent_frozen_ops.store_records(*filters)` parses the batch into `store_show`'s shape (str values). It returns None on a non-zero rc or on any unparseable / non-object `RECORD:` line, and skips noise lines.
+  - `agent_reopen._frozen_records` builds the listing from that single read. `reopen_one` keeps both of its per-record `store_show` reads (pre-lease and under-lease).
+- **Measurement:** 100 frozen records across 5 roots, fixture store via `AITASKS_AGENT_SESSIONS_FILE`, isolated `TMUX_TMPDIR` with no server.
+  - Before: `aitask_frozen.sh gone --all-roots` 5.94s / 6.02s, `companions --all-roots` 5.91s / 6.00s.
+  - After: 0.17s / 0.16s and 0.17s / 0.15s.
+  - Output line counts are identical (106 / 2).
+- **Tests:**
+  - New `TestSingleStoreRead` in `tests/test_agent_reopen.py`:
+    - `gone --all-roots`, `gone --root` and `companions --all-roots` make 1 `list` call and 0 `show` calls over N=5 records.
+    - `reopen_all` makes 1 `list`; its call order starts list, show, lease-take, show, and it makes 2 shows per record.
+    - An unreadable store and an unparseable batch are both `*|store unreadable` on every verb.
+    - A root containing a newline now reaches `root_unprintable` through the store.
+  - Red proof: with the old `_frozen_records` patched back in-process, 6 of the 7 new tests fail. The unreadable-store test passes on both, as intended, because it pins a preserved contract.
+  - `tests/test_agent_frozen_ops.py` adds `store_records` to the promised surface, plus late-binding, refusal, bad-batch and empty-store tests.
+  - `tests/test_agent_sessions.py` adds a CLI round trip: `list --full` matches `show` field for field, and the filters apply.
+- **Deviations from plan:** None. The optional item (one classification shared by `ait ide`'s offer and its top-up) is deferred, as the plan stated.
+- **Issues encountered:** A concurrent session (t2045, Implementing) holds uncommitted hunks in two files this task also edits: `agent_frozen_ops.py` (`retire_restore_marks`) and `tests/test_agent_frozen_ops.py` (`GuardedClearTests`). This task's commit must carry only its own hunks of those two files.
+- **Key decisions:**
+  - JSON per line rather than a `key:value` block, so stored values containing a newline or `|` cannot split a record.
+  - An unparseable batch fails closed as "store unreadable", never as a partial listing.
+- **Upstream defects identified:** None
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-19 10:45)
+- **Requested by user:** The batch listing kept whitespace in eligibility fields, while restore reads through `store_show`, which strips them. A frozen record with `codeagent_session_id: " "` and `task_id: " "` was listed `ok|ok`, yet restore refused it with `no_session` / `no_task_id`. Asked to normalize eligibility inputs consistently, keep path values verbatim, and cover whitespace-only identifiers.
+- **Verified:** Reproduced against a real fixture store. The listing (in-process, tmux claims stubbed to none) printed `…|ok|ok`, while `aitask_frozen.sh restore` returned `RESTORE_FAILED:<id>|no_session` and `restore --repick` returned `|no_task_id`.
+- **Changes made:**
+  - `agent_reopen._frozen_records` passes each batch record through `_as_shown()`. That strips every value as `store_show` does, except `_VERBATIM_FIELDS` (`root`, `transcript_path`, `capture_ansi`, `capture_txt`), which stay as stored.
+  - The listing therefore applies the eligibility restore applies, and classifies against the `pane_id` / `window` that `reopen_one` re-reads.
+  - Placed in `agent_reopen.py` (owned by this task only), not in `agent_restore`'s blockers. `agent_restore.py` holds uncommitted t2045 hunks, so per the gate-before-edit rule this task does not edit it.
+  - `store_records` stays a faithful verbatim reader.
+- **Tests:** `test_whitespace_only_identifiers_list_the_eligibility_restore_applies` and `test_listing_normalizes_like_show_except_paths`. The first runs `gone --root` and `agent_restore.restore` (resume and repick) on the same record and checks they agree. Both tests failed before the fix and pass after.
+- **Files affected:** `.aitask-scripts/lib/agent_reopen.py`, `tests/test_agent_reopen.py`
+
+### Change Request 2 (2026-10-19 11:10)
+- **Requested by user:** `_as_shown` only applied `.strip()`, but `store_show` also splits on line breaks. A record with `codeagent_session_id="\nsession-1"` and `task_id="\n2041"` was listed `ok|ok`, while restore and repick returned `no_session` / `no_task_id`. Asked to align eligibility for values containing line breaks, keep paths verbatim, and extend the coverage.
+- **Verified:** Reproduced through the real wrapper. Wider than reported: `store_show` keeps only the text before the first `str.splitlines` break (`\r`, `\x0b`, `\x85`, ` `, … as well as `\n`), and a later `key:value` line in another field overrides that key. For example, `transcript_path="/t\ncodeagent_session_id:"` blanks the session id for restore.
+- **Changes made:** Parity now holds by construction rather than by approximation.
+  - `agent_frozen_ops.parse_show(out)` is factored out of `store_show` as the one `show` parser.
+  - `_as_shown` renders a batch record as `show` prints it (`key:value` per field) and parses it with `parse_show`, then restores `_VERBATIM_FIELDS` to their stored values.
+  - `list --full` emits fields in dataclass order (no `sort_keys`), which is `show`'s order, so overrides resolve the same way.
+- **Tests:**
+  - `test_the_offer_lists_the_eligibility_restore_applies` is subtested over spaces/tab, leading `\n`, `\r`/`\x0b`, ` `/`\x85`, and later-field override. Each case runs `gone --root` and both restore modes and checks they agree. Four of the five subtests failed before this change (the spaces case was fixed in CR1).
+  - `test_listing_reads_like_show_except_paths` asserts the listing equals a `store_show` read outside the path fields.
+  - `parse_show` is added to the promised surface.
+  - The sessions CLI test asserts `--full` key order equals `show`'s.
+  - A real-wrapper sweep over the same five cases plus an eligible control: ALL_AGREE.
+- **Files affected:** `.aitask-scripts/lib/agent_frozen_ops.py`, `.aitask-scripts/lib/agent_sessions.py`, `.aitask-scripts/lib/agent_reopen.py`, `tests/test_agent_reopen.py`, `tests/test_agent_frozen_ops.py`, `tests/test_agent_sessions.py`
