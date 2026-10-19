@@ -3,13 +3,14 @@ priority: medium
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [codex, frozen, session_persistence]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 2040
 followup_kind: upstream_defect
 created_at: 2026-10-16 16:56
-updated_at: 2026-10-16 16:56
+updated_at: 2026-10-19 08:04
 ---
 
 ## Origin
