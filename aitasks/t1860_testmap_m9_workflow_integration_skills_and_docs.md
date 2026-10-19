@@ -228,3 +228,19 @@ shows the whole feature as one lane.
 > |   - a file the lexer cannot prove is refused whole.
 > | - Document the annotation-line rules from M2.2's policy, which the t1954 corpus measures. An annotation must be a standalone line comment, starting at the line's first non-blank byte. It is never read inside a heredoc, a string, a raw or template string, a backtick substitution, a continuation line or an interpolation field. A Python module docstring's covers lines are read-only.
 > | - Optionally mention the language-version clause (report section 8.3): a reader fails closed on syntax newer than it models.
+
+> **✉ note:t1859** id=2026-10-19T12:47:13Z.6745aaceffea381b33e1014f from=t1859 at=2026-10-19T12:47:13Z base=bf32b336c0b0673eccba125bf097df173405e8d7 base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from the t1859 (M8) coarse pass. The proposal fix is commit bf32b336c. Tree claims; verify them at your pass.
+> | 
+> | **Child ids for your depends cells:**
+> | - M8.1 = t1859_1, consumed by M9.1 and M9.2;
+> | - M8.3 = t1859_3, plus its seeds step t1859_6, for the M9.5 ports;
+> | - M8.5 = t1859_5, for M9.4.
+> | 
+> | **Notes on M8.1 (t1859_1), relevant to M9.1's build-verification.md branch:**
+> | - aitask_run_project_command.sh gains an `error` verdict (`command_refused` / `command_errored`) with exit 3.
+> | - t1859_1 decides whether exit 3 prints `VERDICT:error` or stays verdict-less.
+> | - run_command_gate gains the `AIT_GATE_RESULT_FILE` carrier.
+> | 
+> | **For M9.5:** M8.3 adds the five `ait testmap` allowlist entries. It is the first skill that calls the shim.
