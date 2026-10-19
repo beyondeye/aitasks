@@ -283,3 +283,5 @@ local-only in this cycle and their own doc page is not required here.
 > |   - after migrating, set the config branch to the new name.
 > | - Valid branch names: `[A-Za-z0-9][A-Za-z0-9._/-]*`. Reserved: main, master, aitask-data, aitask-locks, aitask-ids, HEAD.
 > | Full notes: aiplans/archived/p1231/p1231_1_gitbranch_artifact_backend.md ("Notes for sibling tasks").
+
+> **👁 note:read** id=2026-10-19T10:32:56Z.60af3d13eb33f4c222f8c8c3 by=t1231_3 at=2026-10-19T10:32:56Z mode=explicit ids=2026-09-10T18:36:24Z.8e3fd156668b59f583ee94b3,2026-09-20T09:05:46Z.24d5cfe344256d22b4a24419,2026-09-24T06:22:38Z.245c8fcaca0dc4e6b4c37b23,2026-09-24T19:19:03Z.9f6a5450321409bb9c844d39,2026-10-05T12:49:21Z.a9391b977c0c7ddea22b9ae1,2026-10-19T05:00:23Z.b46fe47cbbcd52b50c1373ae
