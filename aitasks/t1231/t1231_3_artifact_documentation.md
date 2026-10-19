@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1065
+implemented_with: claudecode/opus5_5
 created_at: 2026-07-26 22:58
-updated_at: 2026-10-19 13:33
+updated_at: 2026-10-19 15:54
 ---
 
 Write the **baseline user-facing documentation for the artifact feature** — which
@@ -290,3 +291,8 @@ local-only in this cycle and their own doc page is not required here.
 > | Full notes: aiplans/archived/p1231/p1231_1_gitbranch_artifact_backend.md ("Notes for sibling tasks").
 
 > **👁 note:read** id=2026-10-19T10:32:56Z.60af3d13eb33f4c222f8c8c3 by=t1231_3 at=2026-10-19T10:32:56Z mode=explicit ids=2026-09-10T18:36:24Z.8e3fd156668b59f583ee94b3,2026-09-20T09:05:46Z.24d5cfe344256d22b4a24419,2026-09-24T06:22:38Z.245c8fcaca0dc4e6b4c37b23,2026-09-24T19:19:03Z.9f6a5450321409bb9c844d39,2026-10-05T12:49:21Z.a9391b977c0c7ddea22b9ae1,2026-10-19T05:00:23Z.b46fe47cbbcd52b50c1373ae
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-19T12:54:10Z status=pass attempt=1 type=human
