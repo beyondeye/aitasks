@@ -468,3 +468,58 @@ and the other `tests/test_sync*.sh` that source `task_utils.sh`, plus
 
 Current-branch mode: commit code (`bug: … (t1739)`) and plan separately via
 `./ait git`, then archive per task-workflow Step 9.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-18 18:40)
+- **Requested by user:** interactive pulls need an explicit support policy. The captured gateway took the terminal from the sequence editor, and an `edit` stop returned 0 with `rebase-merge` left (the postcondition checked only unmerged paths), after which `task_git commit` was refused. Decide and enforce the semantics, including config-selected modes, without blindly aborting an intentional edit stop, and add regression coverage.
+- **Changes made:**
+  - Chosen policy: **refuse** interactive rebase in the gateway before anything runs. New `_ait_git_pull_cli_rebase_mode` mirrors git 2.56's parsing, probed with a logging sequence editor: the last rebase option wins; bare `--rebase`/`-r` mean `true` and override an interactive config; a short `-r` takes the rest of its cluster (`-qri` is interactive, `-rq` is the value `q`); `-s`/`-X`/`-o` take a required value and `-S`/`-j` an optional attached one; long options abbreviate (`--reb=`); `--` ends options. With no CLI mode, `task_git_pull` reads `branch.<current>.rebase`, then `pull.rebase`, **with the user's `-c`/`--config-env`**. A config read failing other than "not set" refuses (unknown mode). `i`/`interactive` → die naming the source and pointing at plain git.
+  - The `_ait_owned_pull` postcondition is widened: after rc 0, any in-progress state (`rebase-merge`, `MERGE_HEAD`, …) is checked **first** and reported via the sentinel ("still mid-<state> - left untouched"), never aborted. This keeps a single mutex exit point.
+  - Docs: a "No interactive rebase" bullet in `sync.md`.
+- **Tests:** Test 18 gained a 20-row CLI-mode table. Test 64 J7 runs a real interactive `edit` stop through `_ait_owned_pull`: non-zero, sentinel "still mid-rebase-merge", not aborted, mutex released. Gateway Test H covers refusals for `--rebase=interactive`, `-qri`, `-c pull.rebase=interactive`, `--config-env`, `branch.aitask-data.rebase=i`, and branch-over-pull precedence; for each, the editor never ran and nothing was fetched. Its control is `--rebase` over an interactive config, which pulls. Mutants M7 (refusal removed) and M8 (state check removed) are both caught.
+- **Files affected:** `.aitask-scripts/lib/task_utils.sh`, `tests/test_task_git.sh`, `tests/test_task_push.sh`, `tests/test_ait_git_gateway_pull.sh`, `website/content/docs/commands/sync.md`
+
+### Change Request 2 (2026-10-19 09:10)
+- **Requested by user:** (1) merge-message editors were not covered: under a real PTY, raw `pull --no-rebase --edit` succeeded, while the gateway's capture left the editor with no terminal, the pull failed and `MERGE_HEAD` was left. (2) `_ait_git_pull_cli_rebase_mode` did not consume the separate values of long options: in `pull --rebase=interactive --server-option --rebase`, git takes the second `--rebase` as the server-option value, but the scanner read it as an override, so the gateway fetched and opened the sequence editor (`--strategy-option --rebase` likewise).
+- **Changes made:**
+  - The scanner is rewritten as one walker, `_ait_git_pull_scan_args`, which resolves every token as git 2.56 does against git pull's own option table (`git pull -h`). Via `_ait_git_pull_resolve_long`, an exact name beats a prefix, a unique prefix resolves, and an ambiguous or unknown token resolves to nothing (git refuses the pull then; probed that `--strat` is "ambiguous option" and `--e` means `--edit`). Required-value long options (cleanup, deepen, depth, negotiation-*, refmap, server-option, shallow-*, strategy, strategy-option, upload-pack) consume the next token unless given as `=value`. Short clusters work as before. The walker also returns the last `--[no-]autostash` and `--[no-]edit` with their tokens, so the autostash check no longer has its own loop. `_ait_git_pull_cli_rebase_mode` is now a thin reader.
+  - Editor policy: **no editor ever opens.** `--no-edit` is inserted after `pull` next to `--no-autostash` (probed: it beats `GIT_MERGE_AUTOEDIT=yes` and the tty default), and a user `--edit` (last-wins, any accepted abbreviation) is refused before anything runs. A merge commit takes git's default message.
+  - Docs: a "No editor opens" bullet in `sync.md`.
+- **Tests:** Test 18 gained value-consumption rows (`--server-option`/`--strategy-option`/`--server`/`-o`/`--upload-pack` before `--rebase`, plus an attached `--server-option=x` that does not consume), edit/autostash last-wins rows, and resolver rows. Gateway Test H adds three refusals where a value-consumed `--rebase` must not override (the editor never ran, nothing was fetched). New Test K runs under a real PTY: the control is plain git opening the editor; `--edit`, `--ed` and `--no-edit --edit` are refused before any fetch; and an accepted `--no-rebase` pull with `GIT_MERGE_AUTOEDIT=yes` completes as a 2-parent merge with no editor and no MERGE_HEAD. Mutants M9 (no value consumption), M10 (no `--no-edit`) and M11 (no `--edit` refusal) are all caught.
+- **Files affected:** `.aitask-scripts/lib/task_utils.sh`, `tests/test_task_git.sh`, `tests/test_ait_git_gateway_pull.sh`, `website/content/docs/commands/sync.md`
+
+### Change Request 3 (2026-10-19 10:05)
+- **Requested by user:** (1) A merge-mode gateway pull stopped by a refusing `pre-merge-commit` hook leaves `MERGE_HEAD`, but `_task_pull_rebase_cleanup`'s Signal 3 (a non-conflict failure) printed rebase wording before Signal 4 identified the operation, so the gateway reported `rebase_in_progress` and gave rebase advice. (2) Test K's plain-git control had already fetched, so its "nothing was fetched" assertion could not detect a fetch-then-refuse. The reviewer showed this with a fixture-only mutation that passed all 149 assertions.
+- **Changes made:** Signal 3 now words its message from the actual state: `rebase-*` keeps the "a rebase appeared … failed for another reason" line, and any other state gets "the data worktree is mid-<state>; leaving it untouched" (→ `data_midop`). Ownership protections are unchanged, and the state is still never touched. Test K advances the remote again after the control, before it records the tracking ref. The docs bullet now covers merges stopped by a hook as well as by a conflict.
+- **Tests:** Test 46m (unit; MERGE_HEAD plus non-conflict output → `mid-MERGE_HEAD`, `data_midop`, no "rebase", and a hint with no rebase recovery). Gateway Test L (a real refusing `pre-merge-commit` hook → MERGE_HEAD left, `data_midop`, `--abort` merge hint, no rebase wording in our lines). Mutant M12 (Signal 3 reverted) fails 46m and L. Mutant M13 (the reviewer's fetch-before-refusing-`--edit`) now fails Test K's three "nothing was fetched" assertions.
+- **Files affected:** `.aitask-scripts/lib/task_utils.sh`, `tests/test_task_push.sh`, `tests/test_ait_git_gateway_pull.sh`, `website/content/docs/commands/sync.md`
+
+## Final Implementation Notes
+- **Actual work done:**
+  - `lib/task_utils.sh`:
+    - One global-option walker, `_ait_git_scan_globals`, with the readers `ait_git_subcmd_index` / `ait_git_redirect_opt`.
+    - `assert_data_worktree_clean` classifies from the parsed subcommand (guarded `set --` slice; `${@:0}` avoided).
+    - `_task_pull_rebase` is a thin wrapper over the new `_ait_owned_pull`, the single copy of the five-signal ownership pipeline. While still holding the pull mutex, the core checks that a pull ending in rc 0 left no in-progress state and no unmerged path, and that the check itself ran. Each failure carries `AIT_PULL_UNVERIFIED_SENTINEL`, which `_task_push_classify` (second arm, ahead of conflict text → `unknown`), `task_sync` (warned regardless of counts) and `task_push` (warned on both exits) recognize.
+    - The new `task_git_gateway` refuses `-C`/`--git-dir`/`--work-tree`/`--namespace` and routes `pull` to `task_git_pull`. `task_git_pull` forces `--no-autostash --no-edit`; refuses user `--autostash` and `--edit`, and interactive rebase from arguments or config (`branch.<cur>.rebase` > `pull.rebase`, read with the user's `-c`); and prepends the user's `-c`/`--config-env` to a function-local `AIT_RECONCILE_GIT_OPTS`, framework pins last, so the continue and the abort carry it.
+    - `_ait_git_pull_scan_args` resolves the pull's own arguments against git pull's option table: last wins, unique-prefix abbreviations, required-value options consume the next token, short clusters.
+    - Signal 3 of `_task_pull_rebase_cleanup` names the actual state.
+  - `ait`: the git arm calls `task_git_gateway`.
+  - Docs: `## ait git pull` in `commands/sync.md`, a global-options note, and a row in the commands index.
+  - Tests: `test_task_git.sh` Tests 17 (pre-phase characterization), 18 (parser/scan/mode/resolver tables) and 19 (the paired recovery regression); `test_task_push.sh` Test 46m and Test 64 (J0–J7 plus a classifier unit); new `test_ait_git_gateway_pull.sh` (A, A2, B–L incl. H, K, I) through the real dispatcher in branch mode.
+- **Deviations from plan:**
+  - Bare `--exec-path` takes no value (it follows git, probed), not the task's list.
+  - The gateway pull's output moved to stderr.
+  - Review rounds added: the autostash refusal and the user-config carry (plan revisions before approval); the completion postcondition under the mutex, with explicit caller recognition (plan revisions); then CR1 (interactive refusal and paused-state postcondition), CR2 (editor policy and the option-table scanner) and CR3 (Signal 3 state wording, Test K fetch proof).
+- **Issues encountered:**
+  - Every reviewer finding reproduced and was fixed.
+  - Pre-phase evidence: on the unmodified library, Test 17 was green and Test 19 failed only on `-c core.pager=cat rebase --abort is ALLOWED (got 'refused')`.
+  - Mutation checks M1–M13 (config carry, `--no-autostash`, gateway routing, classifier precedence, sync zero-pending warn, check-under-mutex, interactive refusal, paused-state check, long-option value consumption, `--no-edit`, `--edit` refusal, Signal 3 wording, fetch-before-refuse) were each caught by their targeted assertions.
+- **Key decisions:**
+  - Refuse rather than emulate: interactive rebase, `--edit` and `--autostash` all need a terminal, or the shared worktree, in ways a captured, cleanup-owning gateway cannot honour.
+  - The reason vocabulary is unchanged (the sentinel maps to `unknown` with its line as the detail).
+  - Merge-mode cleanup is left as an explicit bound (the after-mitigation `gateway_merge_pull_cleanup`).
+  - `push` still keys on `$1` (the after-mitigation `gateway_push_global_opts`).
+- **Upstream defects identified:**
+  - `tests/test_aitask_merge_boardgroup.sh:200-205` — Test 3 greps `aitask_sync.sh` for `"$_MERGE_PYTHON" "$_MERGE_SCRIPT"` driver invocations, but the driver call moved to `lib/task_automerge.sh`, so "At least one driver invocation exists" fails on main independent of this task.
+  - `tests/test_no_unscoped_task_commit.sh:679-680` — the scope assertion "markdown: the canonical teaching skill is in scope" (`.claude/skills/ait-git/SKILL.md` in the enumerated markdown sources) fails independent of this task; the root cause was not investigated.
