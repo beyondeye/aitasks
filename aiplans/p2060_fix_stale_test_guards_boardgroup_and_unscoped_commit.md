@@ -98,13 +98,13 @@ archive via `aitask_archive.sh 2060`.
 ## Risk
 
 ### Code-health risk: low
-- Guard coverage is shape-limited (per-file variable discovery, `PYTHON`-named interpreter); an unrecognized future call site would be silently omitted · severity: low (boundary documented + assertion labels qualified in this plan) · → mitigation: exhaustive_merge_driver_guard_discovery
+- Guard coverage is shape-limited (per-file variable discovery, `PYTHON`-named interpreter); an unrecognized future call site would be silently omitted · severity: low (boundary documented + assertion labels qualified in this plan) · → mitigation: t2069
 
 ### Goal-achievement risk: low
 None identified.
 
 ### Planned mitigations
-- timing: after | name: exhaustive_merge_driver_guard_discovery | type: test | priority: low | effort: low | inline_risk: low | added_complexity: medium | addresses: guard coverage is shape-limited (code-health) | desc: Make the boardgroup merge-driver guard exhaustive: discover driver-path variables across sourced files and fail on any aitask_merge.py reference the guard cannot classify (non-PYTHON interpreter var, literal path, array call)
+- timing: after | name: exhaustive_merge_driver_guard_discovery | type: test | priority: low | effort: low | inline_risk: low | added_complexity: medium | addresses: guard coverage is shape-limited (code-health) | desc: Make the boardgroup merge-driver guard exhaustive: discover driver-path variables across sourced files and fail on any aitask_merge.py reference the guard cannot classify (non-PYTHON interpreter var, literal path, array call) | created: t2069
 
 ## Final Implementation Notes
 - **Actual work done:** Rewrote Test 3 of `tests/test_aitask_merge_boardgroup.sh`. It now discovers merge-driver call sites in every `*.sh` under `.aitask-scripts/` by keying on variables assigned `.../aitask_merge.py`. Backslash continuations are joined before matching (`logical_lines` / `driver_invocations` / `count_driver_sites`). Added a planted control (2 split invocations, 1 with a base → `2 1`), a not-vacuous floor, a canonical-site assertion for `lib/task_automerge.sh`, and the every-recognized-invocation-has-a-base check. The supported invocation shape and coverage boundary are documented in a comment above the helpers. Result: 20/20 pass (was 17/18).
