@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [frozen, session_persistence]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -17,7 +17,8 @@ anchor: 2040
 followup_kind: risk_mitigation
 implemented_with: claudecode/opus5_5
 created_at: 2026-10-19 15:39
-updated_at: 2026-10-19 17:12
+updated_at: 2026-10-19 17:28
+completed_at: 2026-10-19 17:28
 ---
 
 ## Origin
@@ -64,3 +65,14 @@ This follow-up must:
 > **✅ gate:plan_approved** run=2026-10-19T14:12:33Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-10-19T14:26:54Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-10-19T14:28:21Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:bb1ba853361840c2
+
+> **✅ gate:risk_evaluated** run=2026-10-19T14:28:21Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/2066/risk_evaluated_2026-10-19T14:28:21Z-risk_evaluated-a1.log`
