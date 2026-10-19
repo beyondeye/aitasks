@@ -117,11 +117,34 @@ class _FakeTmux:
 
     # -- helpers ------------------------------------------------------------
     _COND = re.compile(r"^#\{==:#\{([^}]+)\},(.*)\}$")
+    _AND = re.compile(r"^#\{&&:(.*)\}$")
+
+    def _cond_holds(self, cond, pane):
+        """`#{==:#{opt},val}`, or a binary `#{&&:A,B}` of such conditions."""
+        both = self._AND.match(cond)
+        if both:
+            operands, depth, start = [], 0, 0
+            body = both.group(1)
+            for i, ch in enumerate(body):
+                if ch == "{":
+                    depth += 1
+                elif ch == "}":
+                    depth -= 1
+                elif ch == "," and depth == 0:
+                    operands.append(body[start:i])
+                    start = i + 1
+            operands.append(body[start:])
+            assert len(operands) == 2, f"`&&` is binary: {cond!r}"
+            return all(self._cond_holds(c, pane) for c in operands)
+        match = self._COND.match(cond)
+        assert match, f"unrecognised if-shell condition: {cond!r}"
+        return str(pane.get(match.group(1), "")) == match.group(2)
 
     def _if_shell(self, args):
         """`if-shell -F -t <pane> <condition> <branch>`, as the server runs it.
 
-        The condition is evaluated against the pane model and, on a match, the
+        The condition — an equality, or a compound `&&` of two (t2066) — is
+        evaluated against the pane model and, on a match, the
         branch's ` ; `-joined commands are run IN ORDER THROUGH `run` — so each
         nested `set-option` / `respawn-pane` / `kill-*` is recorded in `calls`
         exactly as a bare one would be, and a rejected branch records nothing.
@@ -133,10 +156,7 @@ class _FakeTmux:
         pane = self.panes.get(self._target(args))
         if pane is None:
             return 1, ""
-        match = self._COND.match(args[-2])
-        assert match, f"unrecognised if-shell condition: {args[-2]!r}"
-        option, expect = match.group(1), match.group(2)
-        if str(pane.get(option, "")) != expect:
+        if not self._cond_holds(args[-2], pane):
             return 0, ""
         for piece in args[-1].split(" ; "):
             rc, _ = self.run(shlex.split(piece))
@@ -2023,6 +2043,108 @@ class ReconcileRestoringTests(_FreezeTestCase):
         self.assertEqual(line, f"STANDIN:{self.rid}")
         self.assertEqual(self.panes[AGENT_PANE][agent_freeze.FROZEN_OPTION],
                          self.rid)
+
+    # --- t2066: an earlier failed pass replaced the coordinator's nonce -------
+
+    OTHER_MARK = "0badf00d:12345678"
+
+    def _replaced_by_a_failed_pass(self, *, mark=None):
+        """The t2045 shape, then a reconcile pass that leased and failed.
+
+        Built with the real machinery rather than by writing `op_nonce`: the
+        failed pass takes a REAL `lease-take` (minting N_dead), its
+        `restore-confirm` is refused by the store, and its owner then dies.
+        Returns ``(N1, N_dead, pre-lease snapshot)`` of the NEXT pass.
+        """
+        n1, snapshot = self._abandoned_and_marked(mark=mark)
+        self.store.fail_verbs["restore-confirm"] = 1
+        line = self._recover(snapshot, self._observed(pane_pid=7777))
+        self.assertTrue(line.startswith(f"RECONCILE_FAILED:{self.rid}|"), line)
+        del self.store.fail_verbs["restore-confirm"]
+        record = self.rec()
+        record.op_owner_pid = 2 ** 22 + 12345
+        record.op_started_at = agent_sessions._iso(time.time() - 10_000)
+        snapshot = self._rec()
+        n_dead = snapshot["op_nonce"]
+        self.assertTrue(n_dead and n_dead != n1,
+                        "precondition: the failed pass replaced the nonce")
+        self.assertEqual(
+            self.panes[AGENT_PANE][agent_frozen_ops.RESTORE_ATTEMPT_OPTION],
+            agent_frozen_ops.restore_attempt_value(self.rid, n1)
+            if mark is None else mark,
+            "precondition: the failed pass left the mark in place")
+        return n1, n_dead, snapshot
+
+    def _observe_evidence(self, evidence):
+        if evidence == "match":
+            self.observe_codex(self.CODEX_SID)
+        else:
+            self.observe_miss(agent_sessions.MISS_NO_MATCH)
+
+    def _after_the_read(self, mutate):
+        """Run ``mutate(pane)`` right after the first `window_facts` read —
+        a server restart landing between the recovery's read and its unset."""
+        real = agent_frozen_ops.window_facts
+        fired = []
+
+        def wrapped(pane_id):
+            facts = real(pane_id)
+            if not fired:
+                fired.append(pane_id)
+                mutate(self.panes[AGENT_PANE])
+            return facts
+        self._patch(agent_frozen_ops, "window_facts", wrapped)
+        return fired
+
+    def test_a_replaced_nonce_still_retires_the_attempt_mark(self):
+        for evidence, ack in (("miss", "liveness"), ("match", "rollout")):
+            with self.subTest(evidence=evidence):
+                self.setUp()
+                n1, _n_dead, snapshot = self._replaced_by_a_failed_pass()
+                self._observe_evidence(evidence)
+                line = self._recover(snapshot, self._observed(pane_pid=7777))
+                self.assertEqual(line, f"LIVE:{self.rid}|{ack}")
+                self.assertEqual(agent_frozen_ops.find_restore_survivors(self.rid),
+                                 [], "the tracked pane is not its own survivor")
+                self._assert_marks_retired_and_refreezable(n1)
+
+    def test_a_replaced_nonce_keeps_another_records_mark(self):
+        """NEGATIVE CONTROL. The recovery clears only a mark that claims THIS
+        record — another record's mark on the pane is that record's claim."""
+        _n1, _n_dead, snapshot = self._replaced_by_a_failed_pass(
+            mark=self.OTHER_MARK)
+        self._observe_evidence("miss")
+        line = self._recover(snapshot, self._observed(pane_pid=7777))
+        self.assertEqual(line, f"LIVE:{self.rid}|liveness")
+        self.assertEqual(
+            self.panes[AGENT_PANE][agent_frozen_ops.RESTORE_ATTEMPT_OPTION],
+            self.OTHER_MARK)
+
+    def test_a_recycled_pane_pid_keeps_the_mark(self):
+        """NEGATIVE CONTROL for the dispatch's pid half: the pane stops running
+        `launch_pid` between the read and the unset, so its mark is kept."""
+        n1, _n_dead, snapshot = self._replaced_by_a_failed_pass()
+        self._observe_evidence("miss")
+        fired = self._after_the_read(lambda pane: pane.update(pane_pid="31337"))
+        line = self._recover(snapshot, self._observed(pane_pid=7777))
+        self.assertEqual(line, f"LIVE:{self.rid}|liveness")
+        self.assertEqual(fired, [AGENT_PANE], "precondition: the read happened")
+        self.assertEqual(
+            self.panes[AGENT_PANE][agent_frozen_ops.RESTORE_ATTEMPT_OPTION],
+            agent_frozen_ops.restore_attempt_value(self.rid, n1))
+
+    def test_a_mark_swapped_after_the_read_is_kept(self):
+        """NEGATIVE CONTROL for the dispatch's mark half: a different mark
+        arrives between the read and the unset, and survives it."""
+        _n1, _n_dead, snapshot = self._replaced_by_a_failed_pass()
+        self._observe_evidence("miss")
+        option = agent_frozen_ops.RESTORE_ATTEMPT_OPTION
+        fired = self._after_the_read(
+            lambda pane: pane.update({option: self.OTHER_MARK}))
+        line = self._recover(snapshot, self._observed(pane_pid=7777))
+        self.assertEqual(line, f"LIVE:{self.rid}|liveness")
+        self.assertEqual(fired, [AGENT_PANE], "precondition: the read happened")
+        self.assertEqual(self.panes[AGENT_PANE][option], self.OTHER_MARK)
 
     def test_an_unrecognised_pane_is_indeterminate_until_twice_the_grace(self):
         """`launch_pid == 0`: the respawn may be mid-flight."""

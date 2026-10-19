@@ -1206,10 +1206,16 @@ def _reconcile_restoring(
         f"{rec.get('op_nonce', '')}:")
     # The same PRE-lease read is the only place the coordinator's nonce
     # survives, and the attempt mark a gone-pane restore set was derived from
-    # it — the lease's own nonce matches no mark. Residual (t2045): if an
-    # earlier reconcile pass leased this record and failed to settle it, this
-    # is that pass's nonce and the mark stays; the stamp is still retired.
+    # it — the lease's own nonce matches no mark. If an earlier reconcile pass
+    # leased this record and failed to settle it, this is that pass's nonce
+    # instead; `_retire_marks` then recovers the mark from the pane (t2066).
     coordinator_nonce = rec.get("op_nonce", "")
+
+    def _retire_marks(pane_id: str) -> None:
+        frozen_ops.retire_restore_marks(pane_id, record_id, coordinator_nonce)
+        # Guarded on `launch_pid` in the same dispatch: only the pane this
+        # record now tracks gives its mark up, never a recycled `%N` (t1875).
+        frozen_ops.clear_restore_attempt_claiming(pane_id, record_id, launch_pid)
 
     def _abort_back_to_frozen(pane_id: str | None) -> str:
         nonce = lease()
@@ -1274,8 +1280,7 @@ def _reconcile_restoring(
                              "--pane-pid", str(observed.pane_pid),
                              "--rollout-session", evidence)
             if rc == 0:
-                frozen_ops.retire_restore_marks(observed.pane_id, record_id,
-                                                coordinator_nonce)
+                _retire_marks(observed.pane_id)
                 return f"LIVE:{record_id}|rollout"
             if rc == EXIT_SESSION_MISMATCH:
                 return _abort_back_to_frozen(observed.pane_id)
@@ -1288,8 +1293,7 @@ def _reconcile_restoring(
         # A confirmed record is `live`, and no later pass revisits it: retire
         # the marks NOW, as the coordinator would have (t2045), or the agent
         # can never be frozen again (`FREEZE_SKIPPED … already frozen`).
-        frozen_ops.retire_restore_marks(observed.pane_id, record_id,
-                                        coordinator_nonce)
+        _retire_marks(observed.pane_id)
         return f"LIVE:{record_id}|liveness"
 
     if not launch_pid and observed.pane_pid not in (standin_pid, agent_pid):

@@ -624,6 +624,39 @@ def clear_restore_attempt(pane_id: str, value: str) -> None:
          f"set-option -pu -t {pane_id} {RESTORE_ATTEMPT_OPTION}"])
 
 
+def clear_restore_attempt_claiming(pane_id: str, record_id: str,
+                                   pane_pid: int) -> None:
+    """Unset whatever attempt mark on ``pane_id`` claims ``record_id``.
+
+    The recovery half of :func:`retire_restore_marks` (t2066). That one derives
+    the mark's value from a nonce, and a reconcile pass that leased the record
+    and failed to settle it replaced `op_nonce` with its own: the next pass's
+    derived value then matches no mark. So the value is read off the pane.
+
+    The read is only a proposal. The unset is ONE `if-shell -F` dispatch whose
+    condition re-checks the mark value AND ``pane_pid``, because a server
+    restart between the read and the unset can land on a recycled `%N`. The pid
+    half is what confines this to the pane the record now tracks — a mark naming
+    this record on any other process is a survivor, and stays. Neither half is
+    pre-checked here: the dispatch is the guard.
+    """
+    if not pane_id or pane_pid <= 0 or not re.fullmatch(r"[0-9a-f]{8}",
+                                                         record_id or ""):
+        return
+    facts = window_facts(pane_id)
+    if not facts:
+        return
+    mark = facts.get("mark", "")
+    # The empty name is deliberate: only a MARK is recovered, and a value
+    # `restore_attempt_record` accepts is hex and `:` only — safe in a `#{==:…}`.
+    if restore_attempt_record("", mark) != record_id:
+        return
+    run(["if-shell", "-F", "-t", pane_id,
+         f"#{{&&:#{{==:#{{{RESTORE_ATTEMPT_OPTION}}},{mark}}},"
+         f"#{{==:#{{pane_pid}},{pane_pid}}}}}",
+         f"set-option -pu -t {pane_id} {RESTORE_ATTEMPT_OPTION}"])
+
+
 def clear_stamp_if(pane_id: str, record_id: str) -> None:
     """Unset ``@aitask_frozen`` on ``pane_id`` ONLY if it is ``record_id``'s.
 
