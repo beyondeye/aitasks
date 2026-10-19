@@ -550,12 +550,12 @@ class MonitorApp(
         Binding("P", "toggle_parked_visibility", "Parked/frozen"),
         # Frozen agents (t1705_7). `f`/`Z` are free in BOTH apps, so the two
         # TUIs read identically; `z` is Zoom here and `R` is Restart, which is
-        # why neither could take the task's originally-proposed keys.
+        # why neither could take the task's originally-proposed keys. Restore
+        # and re-pick are the frozen-agent viewer's own `R` / `P`, reached with
+        # `s` (t2054); `k` keeps its live-card meaning and branches INSIDE the
+        # action.
         Binding("f", "freeze_current", "Freeze"),
         Binding("Z", "freeze_all", "Freeze all"),
-        # `p` is frozen-only here (the monitor has no pick-by-number); `R` and
-        # `k` keep their live-card meaning and branch INSIDE the action.
-        Binding("p", "repick_frozen", "Re-pick frozen", show=False),
     ]
 
     def __init__(
@@ -2052,8 +2052,8 @@ class MonitorApp(
             header.update("[bold]Content Preview[/]")
             preview.styles.min_width = 0
             preview.update(
-                "[dim]This agent is frozen — press R to restore or p to "
-                "re-pick.[/]"
+                "[dim]This agent is frozen — press s to switch to its viewer, "
+                "then R to restore or P to re-pick.[/]"
             )
             self._preview_rendered_lines = []
             self._last_preview_pane_id = self._focused_pane_id
@@ -3809,13 +3809,16 @@ class MonitorApp(
         if not snap:
             return
         if self._is_frozen(snap):
-            # On a FROZEN card, "restart this agent" IS "restore it" — the
-            # process already ended and its session is on disk. Guarded here
-            # rather than in the binding so `R` keeps its ordinary restart
-            # meaning on a live card (t1705_7). Note this runs BEFORE the idle
-            # check below: a frozen pane is never "idle", it has no verdict at
-            # all, so that check would reject it with a misleading reason.
-            self.action_restore_frozen()
+            # A FROZEN card has no process to restart. Restore and re-pick are
+            # the frozen-agent viewer's own keys (t2054), so say where they are
+            # instead of acting. This runs BEFORE the idle check below: a
+            # frozen pane is never "idle", it has no verdict at all, so that
+            # check would reject it with a misleading reason.
+            self.notify(
+                "That agent is frozen — press s to switch to its viewer, "
+                "then R to restore or P to re-pick",
+                severity="warning",
+            )
             return
         if not snap.is_idle:
             self.notify(

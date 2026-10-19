@@ -64,8 +64,12 @@ usually not the cheaper one:
 - **P — re-pick** starts the task over with a fresh agent, which reads the task
   file instead of replaying a long transcript. That is cheaper in tokens and in
   time, and for a task whose file already says everything that matters it loses
-  nothing. On a frozen card in the monitors the same operation is **p**, because
-  there `P` is the parked/frozen filter.
+  nothing.
+
+Both keys belong to the viewer. From a monitor, move into the frozen agent's
+pane first — **s** in `ait monitor` switches to its window, **Tab** in
+`ait minimonitor` moves to the pane beside it — and press them there. The
+monitors' own keys keep their usual meaning on a frozen agent.
 
 Each route needs something the other does not, and a record may carry only one:
 re-pick needs a **task id**, restore needs a recorded **session id**. An agent

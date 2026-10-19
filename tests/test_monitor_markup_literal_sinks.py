@@ -59,9 +59,7 @@ from textual.app import App  # noqa: E402
 from textual.content import Content  # noqa: E402
 from textual.widgets import Static  # noqa: E402
 
-import agent_frozen_ops  # noqa: E402
 import agent_marks  # noqa: E402
-import agent_sessions  # noqa: E402
 import workflow_phase  # noqa: E402
 from agent_launch_utils import TmuxLaunchConfig  # noqa: E402
 from monitor import minimonitor_app as mm  # noqa: E402
@@ -800,25 +798,19 @@ def _mark_toast(cls, out: str, *, hide: bool = False):
     return driver
 
 
-def _verdict_toast(kind: str):
+def _verdict_toast():
+    """The detached-drop poll's toast — the only verdict these apps watch."""
     def driver(name):
         app = _app(MonitorApp)
         ticks = []
         app.set_interval = lambda interval, fn: ticks.append(fn)
-        last_error = "n1:" + agent_frozen_ops.survivor_detail(
-            {"session": "s1", "window": name, "pane_id": "%3"})
-        rec = (None if kind == "drop" else SimpleNamespace(
-            root="", restore_attempts=1, state=agent_sessions.STATE_FROZEN,
-            ack="", last_error=last_error))
 
         class View:
-            def by_id(self, record_id): return rec
+            def by_id(self, record_id): return None
             def invalidate(self): pass
 
-        with patch.object(ms.agent_sessions, "SessionsView", View), \
-                patch.object(ms.agent_frozen_ops, "restore_settle_timeout",
-                             lambda *a, **k: 40.0):
-            app._poll_frozen_outcome("rec-1", kind, prev_attempts=0)
+        with patch.object(ms.agent_sessions, "SessionsView", View):
+            app._poll_frozen_outcome("rec-1")
             ticks[0]()
         return app.notify.calls
     return driver
@@ -876,7 +868,6 @@ TOAST_SITES = [
     ("both: parked and hidden", _mark_toast(MonitorApp, "PARKED", hide=True)),
     ("both: unmarked", _mark_toast(MiniMonitorApp, "UNMARKED")),
     ("both: mark failed", _mark_toast(MonitorApp, "ERROR")),
-    ("both: restore failed (survivor)", _verdict_toast("restore")),
     ("minimonitor: switched to", _switch_to(MiniMonitorApp)),
     ("minimonitor: killed", _kill_toast(MiniMonitorApp, True)),
     ("minimonitor: failed to kill", _kill_toast(MiniMonitorApp, False)),
@@ -900,18 +891,10 @@ class ToastTests(unittest.TestCase):
                     self.assertIs(markup, False, message)
 
     def test_the_drop_verdict_toast_is_unparsed_too(self):
-        """The same boundary as the restore verdict; its notes carry no user
-        text today, so this pins the boundary, not a value."""
-        calls = _verdict_toast("drop")(TOAST_NAME)
+        """Its notes carry no user text today, so this pins the boundary,
+        not a value."""
+        calls = _verdict_toast()(TOAST_NAME)
         self.assertEqual(calls, [("dropped — capture removed", False)])
-
-    def test_a_restore_failure_quotes_the_survivor_window_verbatim(self):
-        """The indirect path: `last_error` → `restore_verdict` → the toast."""
-        calls = _verdict_toast("restore")(TOAST_NAME)
-        self.assertEqual(len(calls), 1, calls)
-        message, markup = calls[0]
-        self.assertIn(f"restore_survivor:s1:{TOAST_NAME}|pane:%3", message)
-        self.assertIs(markup, False)
 
     def test_a_mounted_toast_shows_the_name_verbatim(self):
         """End to end through Textual's own `Toast`, so the spy table is not

@@ -24,7 +24,7 @@ Every key below can be rebound — press **?** for the in-place editor, or open
 | `ctrl+c` | Copy the selection | Same as `y`. With nothing selected it shows the quit hint; in the open search box it copies the text selected there. If you rebind it, `ctrl+c` still copies |
 | `g` / `G` | Jump to the top / bottom | |
 | `R` | Restore the agent | No confirmation |
-| `P` | Re-pick the task | No confirmation; needs a task id on the record. The monitors use `p`, because `P` is their frozen filter |
+| `P` | Re-pick the task | No confirmation; needs a task id on the record |
 | `k` | Drop the record | Confirms — this deletes the capture |
 | `Enter` | Open the highlighted record | List mode only |
 | `j` | TUI switcher | |
@@ -103,12 +103,11 @@ unless you add one.
 `restore_ack_grace` is read from the **record's own project**, not from whichever
 project you happen to be viewing from, because a freeze-all spans projects.
 
-The same grace sets how long the viewer, `ait monitor` and `ait minimonitor`
-watch a restore before reporting
+The same grace sets how long the viewer watches a restore before reporting
 `restore still <state> after the grace — run reconcile; capture kept`: 10 seconds
 for the dispatch, plus `restore_ack_grace`, plus 10 seconds of slack — 40 seconds
-at the default. All three read it from the record's project, so raising the grace
-never turns a slow but successful restore into a stall report.
+at the default. The viewer reads it from the record's project, so raising the
+grace never turns a slow but successful restore into a stall report.
 
 It sets a **waiting period, not an outcome.** Raising it only helps an agent
 whose acknowledgement is slow to arrive. One that never acknowledges at all
@@ -121,4 +120,4 @@ lost in that case: the unverified outcome is the one that keeps the capture.
 
 - [Monitor]({{< relref "/docs/tuis/monitor" >}}) and
   [Minimonitor]({{< relref "/docs/tuis/minimonitor" >}}) — where agents are
-  frozen (**f**, **Z**) and frozen rows are listed, filtered and revived.
+  frozen (**f**, **Z**) and frozen rows are listed, filtered and dropped.

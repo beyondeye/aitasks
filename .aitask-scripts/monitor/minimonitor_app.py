@@ -880,7 +880,8 @@ KEY_HINTS_TEXT = (
     # test_minimonitor_top_chrome_render pins.
     #
     # t1705_7 added three keys (`f`, `Z`, `R`) and widened `P`'s label, still
-    # within TEN rows.
+    # within TEN rows. t2054 removed `R` again: restore and re-pick are the
+    # frozen-agent viewer's own keys, reached with `tab`.
     #
     # The budget is not only the row COUNT — it is the WRAPPED height. This band
     # is docked bottom, so at narrow widths a longer line costs a whole extra
@@ -906,7 +907,7 @@ KEY_HINTS_TEXT = (
     # Footer), so a user hunting for "how do I show parked agents again?" has
     # nowhere else to look.
     "c:concerns  p:pick  P:parked/frozen\n"
-    "f:freeze  Z:all  R:restore\n"
+    "f:freeze  Z:all\n"
     "L:loop ?:keys M:multi\n"
     "space:mark ★ (followed agent)"
 )
@@ -1241,9 +1242,9 @@ class MiniMonitorApp(
         # binds it to Zoom.
         Binding("f", "freeze_current", "Freeze followed agent", show=False),
         Binding("Z", "freeze_all", "Freeze all agents", show=False),
-        # `R` restores; `p` and `k` keep their live-row meaning and branch on
-        # the frozen state INSIDE the action, never in the binding.
-        Binding("R", "restore_frozen", "Restore frozen agent", show=False),
+        # `k` keeps its live-row meaning and branches on the frozen state
+        # INSIDE the action. Restore and re-pick are the frozen-agent viewer's
+        # own `R` / `P`, reached with Tab into the stand-in pane (t2054).
     ]
 
     def __init__(
@@ -3370,14 +3371,6 @@ class MiniMonitorApp(
             self.notify("Monitor not ready", severity="warning")
             return
         snap = self._find_own_agent_snapshot()
-        if snap is not None and self._is_frozen(snap):
-            # On a FROZEN followed agent, `p` means "re-pick this task into the
-            # stand-in's pane" — the frozen record already knows the task, so
-            # the number prompt below would be asking for something it has.
-            # Guarded here rather than in the binding so `p` keeps its ordinary
-            # pick-by-number meaning on a live agent (t1705_7).
-            self.action_repick_frozen()
-            return
         target_root = self._root_for_snap(snap) if snap else self._project_root
         sess = snap.pane.session_name if snap else self._session
 
@@ -3412,7 +3405,12 @@ class MiniMonitorApp(
         already = self._find_running_agent_line(target_id, sess)
 
         kill_label = None
-        if snap is not None:
+        # No kill offer on a FROZEN followed agent: its pane holds the stand-in
+        # viewer, and `kill_agent_pane_smart`'s frozen path is unleased and
+        # deletes the capture without a word. Retiring it is `k`'s job — the
+        # leased drop, behind a warning that names what is lost (t2054).
+        kill_offered = snap is not None and not self._is_frozen(snap)
+        if kill_offered:
             own_id = self._task_cache.get_task_id_for_pane(snap.pane)
             own_info = None
             if own_id:
@@ -3426,7 +3424,9 @@ class MiniMonitorApp(
             kill_label = (
                 f"t{own_id or '?'} · {own_status} · {snap.pane.window_name}"
             )
-        pane_id = snap.pane.pane_id if snap is not None else None
+        # Tied to the offer, not to `snap`: with no checkbox there is nothing
+        # to kill, whatever the dialog's payload says.
+        pane_id = snap.pane.pane_id if kill_offered else None
 
         self.push_screen(
             TaskPickConfirmDialog(

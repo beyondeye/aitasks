@@ -22,13 +22,9 @@ sys.path.insert(0, str(_SCRIPT_DIR / "lib"))
 
 import agent_marks  # noqa: E402
 # The session store (t1705_7): `SessionsView` for reading a frozen
-# record, and the shared restore/drop outcome interpreters. READ side
+# record, and the shared drop outcome interpreter. READ side
 # only — every write goes through `_SESSIONS_SH` / `_FROZEN_SH`.
 import agent_sessions  # noqa: E402
-# The frozen vocabulary shared with BOTH coordinators — read here for the
-# restore deadline, so a watcher can never give up before the coordinator
-# it is watching does (t1705_7).
-import agent_frozen_ops  # noqa: E402
 # The ONE authority for follow-up glyphs and colours (t1468_1), shared with the
 # board's card marker — imported, never mirrored (t1468_5).
 from followup_kinds import marker_for  # noqa: E402
@@ -484,12 +480,11 @@ _SESSIONS_SH = _SCRIPT_DIR / "aitask_agent_sessions.sh"
 #: timeout as PARTIAL rather than failed.
 _FREEZE_ONE_TIMEOUT = 90.0
 
-#: Poll cadence and grace windows for a DETACHED coordinator's outcome
-#: (`restore` / `drop` via `run-shell -b`). Mirrors the `frozenagent` viewer's
-#: own constants — the two watch the same records through the same interpreter,
-#: so a user switching between them must not see different verdicts.
+#: Poll cadence and grace window for a DETACHED drop's outcome (`drop` via
+#: `run-shell -b`). Mirrors the `frozenagent` viewer's own constants — the two
+#: watch the same records through the same interpreter, so a user switching
+#: between them must not see different verdicts.
 _FROZEN_POLL_INTERVAL = 1.0
-_FROZEN_DISPATCH_GRACE = 10.0
 _FROZEN_DROP_GRACE = 10.0
 
 #: The shadow concern-rejection store's single writer/reader (t1427_1).
@@ -982,7 +977,11 @@ class AgentMarksMixin:
         )
         self.call_later(self._refresh_data)
 
-    # --- frozen agents: freeze / restore / re-pick / drop (t1705_7) --------
+    # --- frozen agents: freeze / drop (t1705_7) ------------------------------
+    #
+    # Restore and re-pick are NOT here: they belong to the `frozenagent` viewer
+    # alone (`R` / `P`), so the monitors' keys keep the meaning they have on a
+    # live agent (t2054).
     #
     # WHICH AGENT AN ACTION TARGETS is per-app and is the ONLY thing that
     # differs: the minimonitor acts on the agent it follows (its docked panel),
@@ -993,17 +992,16 @@ class AgentMarksMixin:
     #
     #   * `freeze` respawns the AGENT's pane, never the TUI's, so it runs as a
     #     subprocess through `_run_frozen_cmd` and its result lines are read.
-    #   * `restore` / `re-pick` / `drop` replace or kill the pane — and possibly
-    #     the whole window — that the TUI itself is in. A subprocess would be a
-    #     child of that pane and would be killed mid-transaction, leaving a
-    #     `restoring` record for reconcile and a dead pane for the user. They go
-    #     through `run-shell -b`, a DETACHED tmux server job that outlives the
-    #     respawn, exactly as the `frozenagent` viewer does.
+    #   * `drop` kills the pane — and possibly the whole window — that the TUI
+    #     itself is in. A subprocess would be a child of that pane and would be
+    #     killed mid-transaction. It goes through `run-shell -b`, a DETACHED
+    #     tmux server job that outlives the kill, exactly as the `frozenagent`
+    #     viewer does.
     #
     # A detached job's stdout is unreadable, so the outcome is observed by
     # polling the store record and interpreting it with
-    # `agent_sessions.restore_verdict` / `drop_verdict` — the same interpreter
-    # the viewer uses, rather than a fourth copy of it.
+    # `agent_sessions.drop_verdict` — the same interpreter the viewer uses,
+    # rather than another copy of it.
 
     def _current_agent_snapshot(self) -> "PaneSnapshot | None":
         """The agent this app's frozen actions target. Overridden by both apps.
@@ -1012,23 +1010,6 @@ class AgentMarksMixin:
         not-implemented marker — an app with no agent in view is a normal state.
         """
         return None
-
-    def _frozen_target(self, what: str) -> "PaneSnapshot | None":
-        """The current agent, but only when it is frozen.
-
-        The guard is in the ACTION, never in the binding: `R` is the monitor's
-        Restart and `p` is the minimonitor's Pick, and both must keep their
-        live-row meaning. `check_action` would hide them entirely.
-        """
-        snap = self._current_agent_snapshot()
-        if snap is None:
-            self.notify("No agent selected", severity="warning")
-            return None
-        if not self._is_frozen(snap):
-            self.notify(f"That agent is not frozen — nothing to {what}",
-                        severity="warning")
-            return None
-        return snap
 
     def _run_frozen_detached(self, argv: list[str]) -> bool:
         """Dispatch a frozen coordinator as a detached tmux server job.
@@ -1044,41 +1025,23 @@ class AgentMarksMixin:
         )
         return rc == 0
 
-    def _poll_frozen_outcome(self, record_id: str, kind: str,
-                             prev_attempts: int = 0) -> None:
-        """Watch the store for a dispatched coordinator's outcome and notify.
+    def _poll_frozen_outcome(self, record_id: str) -> None:
+        """Watch the store for a dispatched drop's outcome and notify.
 
-        `kind` is ``restore`` or ``drop``; each has its own interpreter, because
-        a dropped record disappears rather than reaching `live`.
+        Drop is the only coordinator these apps dispatch detached, and it has
+        its own interpreter because a dropped record disappears rather than
+        reaching `live`.
         """
         view = agent_sessions.SessionsView()
         elapsed = {"t": 0.0}
         timers: dict[str, object] = {}
 
-        # The deadline is the COORDINATOR's, not ours: `agent_restore` waits up
-        # to the project's `frozen.restore_ack_grace` for the hook ack before it
-        # may liveness-confirm instead. A fixed 40s here would warn and stop the
-        # timer mid-restore on any project that raised that grace — turning
-        # every successful restore into a spurious stall report. Read from the
-        # TARGET record's root, which need not be this app's project.
-        rec0 = view.by_id(record_id)
-        settle_timeout = agent_frozen_ops.restore_settle_timeout(
-            (rec0.root if rec0 is not None else "") or None,
-            dispatch_grace=_FROZEN_DISPATCH_GRACE,
-        )
-
         def tick() -> None:
             elapsed["t"] += _FROZEN_POLL_INTERVAL
             view.invalidate()
             rec = view.by_id(record_id)
-            if kind == "drop":
-                done, note, warn = agent_sessions.drop_verdict(
-                    rec, elapsed["t"], drop_grace=_FROZEN_DROP_GRACE)
-            else:
-                done, note, warn = agent_sessions.restore_verdict(
-                    rec, prev_attempts, elapsed["t"],
-                    dispatch_grace=_FROZEN_DISPATCH_GRACE,
-                    settle_timeout=settle_timeout)
+            done, note, warn = agent_sessions.drop_verdict(
+                rec, elapsed["t"], drop_grace=_FROZEN_DROP_GRACE)
             if not done:
                 return
             timer = timers.pop("t", None)
@@ -1087,10 +1050,8 @@ class AgentMarksMixin:
                     timer.stop()      # type: ignore[attr-defined]
                 except Exception:     # noqa: BLE001 - already stopped
                     pass
-            # Plain text in every branch, but not framework-only: a failed
-            # restore's note carries the record's `last_error`, and a survivor
-            # refusal stores `restore_survivor:<session>:<window>|pane:<id>`
-            # there — tmux-side names (t2017).
+            # Plain text: a verdict note is a sink for store-derived text, and
+            # an unparsed toast cannot be broken by one (t2017).
             self.notify(note, severity="warning" if warn else "information",
                         markup=False)
             self.call_later(self._refresh_data)
@@ -1142,7 +1103,8 @@ class AgentMarksMixin:
         elif skipped:
             self.notify("That agent is already frozen")
         elif ok:
-            self.notify("Frozen — press R to restore, p to re-pick")
+            self.notify(
+                "Frozen — restore (R) or re-pick (P) from its frozen-agent viewer")
         else:
             self.notify(f"Freeze produced no result (exit {rc})",
                         severity="warning")
@@ -1246,44 +1208,6 @@ class AgentMarksMixin:
             confirmed,
         )
 
-    def _start_frozen_restore(self, *, repick: bool) -> None:
-        snap = self._frozen_target("re-pick" if repick else "restore")
-        if snap is None:
-            return
-        record_id = snap.frozen_record_id
-        if not record_id:
-            self.notify("That frozen pane carries no record id",
-                        severity="warning")
-            return
-        # Snapshot `restore_attempts` BEFORE dispatch: it is the only field
-        # `restore-begin` bumps monotonically, and it is what tells a poll that
-        # the detached coordinator actually started (see `restore_verdict`).
-        rec = agent_sessions.SessionsView().by_id(record_id)
-        prev_attempts = rec.restore_attempts if rec is not None else 0
-        argv = ["restore", record_id] + (["--repick"] if repick else [])
-        if not self._run_frozen_detached(argv):
-            self.notify("Could not dispatch the restore", severity="error")
-            return
-        # The model warning goes here, at dispatch: the monitor never sees the
-        # restored agent's model, and the record's agent string is what the
-        # coordinator resolves the launch from.
-        note = agent_sessions.unknown_model_note(
-            rec.agent_string if rec is not None else "")
-        verb = "Re-picking…" if repick else "Restoring…"
-        if note:
-            self.notify(f"{verb} {note}", severity="warning")
-        else:
-            self.notify(verb)
-        self._poll_frozen_outcome(record_id, "restore", prev_attempts)
-
-    def action_restore_frozen(self) -> None:
-        """``R`` — resume the current agent's own session in its stand-in pane."""
-        self._start_frozen_restore(repick=False)
-
-    def action_repick_frozen(self) -> None:
-        """``p`` — relaunch the current agent's task as a fresh pick."""
-        self._start_frozen_restore(repick=True)
-
     def _drop_frozen(self, snap: "PaneSnapshot") -> None:
         """``k`` on a frozen agent: retire the record, capture and stand-in.
 
@@ -1304,7 +1228,7 @@ class AgentMarksMixin:
             self.notify("Could not dispatch the drop", severity="error")
             return
         self.notify("Dropping…")
-        self._poll_frozen_outcome(record_id, "drop")
+        self._poll_frozen_outcome(record_id)
 
     def _hand_off_focus_before_hiding(self) -> None:
         """Hook: move focus off a card that the parked filter is about to hide.

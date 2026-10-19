@@ -350,14 +350,17 @@ answer to show. Frozen **coexists** with the priority/parked mark rather than
 replacing it: the mark cell stays where it was, so rows never shift, and
 **Space** still cycles the mark on the followed agent even while it is frozen.
 
-Three keys act on the followed agent once it is frozen:
+Restore and re-pick are the viewer's own keys, not minimonitor's. Press **Tab**
+to move into the viewer's pane, then **R** restores the agent there and **P**
+re-picks its task with a fresh agent (often cheaper). Every other minimonitor
+key keeps its usual meaning, so **p** still picks a task by number while the
+followed agent is frozen — the confirmation then offers no "kill followed
+agent" checkbox, because the frozen agent is retired with **k** instead.
 
-- **R** — restore it into the viewer's pane.
-- **p** — re-pick its task with a fresh agent (often cheaper).
-- **k** — drop it. This one confirms with a red **Drop** button, because it
-  deletes the captured output along with the record: `Its captured output is
-  deleted along with the record, and the stand-in pane is closed. This cannot be
-  undone. A verified restore or re-pick deletes it too — copy it first.`
+**k** drops the frozen agent. It confirms with a red **Drop** button, because
+it deletes the captured output along with the record: `Its captured output is
+deleted along with the record, and the stand-in pane is closed. This cannot be
+undone. A verified restore or re-pick deletes it too — copy it first.`
 
 **Z freezes everything, and it reaches further than this list.** Freeze-All
 covers every aitasks session on the machine — other projects included, and parked
@@ -439,7 +442,7 @@ All actions below are also available via mouse — see [Mouse Support](#mouse-su
 | `I` | Show task info for the followed agent (the one pinned at the top) |
 | `k` | Kill the followed agent (with a confirmation dialog) — or, when it is frozen, drop its record and capture |
 | `n` | Launch the followed agent's next ready sibling task |
-| `p` | Pick any task by typing its number, then launch it or move it to a board column — or, when the followed agent is frozen, re-pick its task |
+| `p` | Pick any task by typing its number, then launch it or move it to a board column. When the followed agent is frozen, the confirmation offers no kill checkbox |
 | `e` | Launch an advisory [shadow agent]({{< relref "/docs/workflows/shadow-agent" >}}) beside the followed agent |
 | `E` | Launch a shadow agent, choosing the code agent and model first |
 | `c` | Pick the shadow's concerns and copy the selected ones to the clipboard (inside the picker: `r` rejects a concern, `t` spins one off as its own draft task, `e` edits the outgoing payload before it is copied, `R` reviews the rejected list, `u` shows any lines that could not be parsed) |
@@ -448,7 +451,6 @@ All actions below are also available via mouse — see [Mouse Support](#mouse-su
 | `P` | Hide or show parked **and frozen** agents in the scrollable list |
 | `f` | Freeze the **followed** agent — its process ends, its output is captured (confirms first) |
 | `Z` | Freeze every agent on this machine, across all projects (confirms, naming the count) |
-| `R` | Restore the followed agent when it is frozen |
 | `d` | Cycle the idle-detection compare mode (`≈` ANSI-stripped, `=` strict) |
 | `j` | Open the TUI switcher |
 | `m` | Switch to the full [monitor]({{< relref "/docs/tuis/monitor" >}}) with this agent focused |

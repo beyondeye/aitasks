@@ -26,12 +26,16 @@ mirror images, and each pins a decision rather than a mechanism:
     rows.
 
 `FrozenActionTests`
-    Which agent an action targets, and how it is dispatched. `R`/`p`/`k` act
-    only on the window's CURRENT agent and only when it is frozen — guarded in
-    the action, never the binding, so the monitor's `R` keeps meaning Restart
-    and the minimonitor's `p` keeps meaning pick-by-number. Freeze goes through
-    a subprocess (it respawns the agent's pane); restore / re-pick / drop go
-    through `run-shell -b`, because they replace or kill the pane the TUI is in.
+    Which agent an action targets, and how it is dispatched. `k` acts only on
+    the window's CURRENT agent and branches on the frozen state inside the
+    action, never the binding. Freeze goes through a subprocess (it respawns the
+    agent's pane); drop goes through `run-shell -b`, because it kills the pane
+    the TUI is in.
+
+`FrozenKeysBelongToTheViewerTests`
+    Restore and re-pick are the frozen-agent viewer's keys alone (t2054). The
+    monitors bind neither, the monitor's `R` on a frozen card only points at the
+    viewer, and the minimonitor's `p` stays pick-by-number on a frozen agent.
 
 Run: python3 tests/test_monitor_frozen_filter.py
 """
@@ -68,7 +72,8 @@ from monitor.monitor_core import (  # noqa: E402
 from monitor import monitor_shared  # noqa: E402
 from monitor.monitor_shared import (  # noqa: E402
     FROZEN_GLYPH, MARK_EMPTY_GLYPH, MARK_GLYPH, PARK_GLYPH,
-    FreezeConfirmDialog, _FREEZE_ONE_TIMEOUT, _MARKS_CMD_TIMEOUT,
+    FreezeConfirmDialog, TaskNumberInputModal, _FREEZE_ONE_TIMEOUT,
+    _MARKS_CMD_TIMEOUT,
 )
 from monitor.tmux_control import TmuxControlState  # noqa: E402
 
@@ -604,63 +609,6 @@ class FrozenActionTests(_Fixture):
                 app = self._armed(cls, snap)
                 self.assertIs(app._current_agent_snapshot(), snap)
 
-    def test_restore_produces_the_exact_detached_argv(self):
-        """`run-shell -b`, never a subprocess: the coordinator replaces the very
-        pane the TUI is in, so a child of that pane dies mid-transaction."""
-        for cls in BOTH_APPS:
-            with self.subTest(app=cls.__name__):
-                self.setUp()
-                snap = snapshot("agent-f", frozen=True)
-                app = self._armed(cls, snap)
-                app._poll_frozen_outcome = lambda *a, **k: None
-                app.action_restore_frozen()
-                argv = app._monitor.tmux_calls[-1]
-                self.assertEqual(argv[:2], ["run-shell", "-b"])
-                self.assertIn("aitask_frozen.sh", argv[2])
-                self.assertTrue(argv[2].endswith(f"restore {RECORD}"))
-
-    def test_restore_warns_at_dispatch_when_the_model_is_unknown(self):
-        """t1850: a record with no agent string restores on the default model;
-        dispatch is the only moment the monitor can say so."""
-        class _View:
-            def __init__(self, agent_string):
-                self.agent_string = agent_string
-
-            def __call__(self):
-                return self
-
-            def by_id(self, _rid):
-                return type("R", (), {"restore_attempts": 0,
-                                      "agent_string": self.agent_string})()
-
-        for agent_string, warned in (("", True), ("claudecode/opus5", False)):
-            for cls in BOTH_APPS:
-                with self.subTest(app=cls.__name__, agent_string=agent_string):
-                    self.setUp()
-                    snap = snapshot("agent-f", frozen=True)
-                    app = self._armed(cls, snap)
-                    app._poll_frozen_outcome = lambda *a, **k: None
-                    with patch.object(agent_sessions, "SessionsView",
-                                      _View(agent_string)):
-                        app.action_restore_frozen()
-                    self.assertEqual(
-                        any(agent_sessions.UNKNOWN_MODEL_NOTE in n
-                            for n in self.notes), warned, self.notes)
-                    self.assertTrue(app._monitor.tmux_calls[-1][2].endswith(
-                        f"restore {RECORD}"), "the warning must not stop it")
-
-    def test_repick_adds_the_repick_flag(self):
-        for cls in BOTH_APPS:
-            with self.subTest(app=cls.__name__):
-                self.setUp()
-                snap = snapshot("agent-f", frozen=True)
-                app = self._armed(cls, snap)
-                app._poll_frozen_outcome = lambda *a, **k: None
-                app.action_repick_frozen()
-                self.assertTrue(
-                    app._monitor.tmux_calls[-1][2].endswith(
-                        f"restore {RECORD} --repick"))
-
     def test_drop_uses_the_leased_frozen_verb_not_kill_agent_pane_smart(self):
         """`kill_agent_pane_smart`'s store write is UNLEASED, so it would delete
         the record out from under an in-flight restore. `aitask_frozen.sh drop`
@@ -675,21 +623,6 @@ class FrozenActionTests(_Fixture):
                 argv = app._monitor.tmux_calls[-1]
                 self.assertEqual(argv[:2], ["run-shell", "-b"])
                 self.assertTrue(argv[2].endswith(f"drop {RECORD}"))
-
-    def test_restore_and_repick_are_refused_on_a_live_agent(self):
-        """Guarded in the ACTION, not the binding — the monitor's `R` must keep
-        meaning Restart and the minimonitor's `p` pick-by-number."""
-        for cls in BOTH_APPS:
-            for action in ("action_restore_frozen", "action_repick_frozen"):
-                with self.subTest(app=cls.__name__, action=action):
-                    self.setUp()
-                    snap = snapshot("agent-live")
-                    app = self._armed(cls, snap)
-                    getattr(app, action)()
-                    self.assertEqual(
-                        app._monitor.tmux_calls, [],
-                        "a live agent was dispatched to the frozen coordinator")
-                    self.assertTrue(any("not frozen" in n for n in self.notes))
 
     def test_the_live_row_keeps_its_own_binding_meaning(self):
         """The monitor's `R` is still Restart and its `z` still Zoom; the
@@ -736,6 +669,84 @@ class FrozenActionTests(_Fixture):
                 app.action_freeze_current()
                 self.assertEqual(len(shown), 1)
                 self.assertEqual(app._monitor.tmux_calls, [])
+
+
+class FrozenKeysBelongToTheViewerTests(_Fixture):
+    """Restore / re-pick are `ait frozenagent`'s `R` / `P` only (t2054).
+
+    The defect: in a frozen agent's window the minimonitor's `p` re-picked the
+    frozen task with no confirmation, instead of prompting for a number — the
+    very end-of-run case `p` exists for.
+    """
+
+    REMOVED_ACTIONS = ("restore_frozen", "repick_frozen")
+
+    def _armed(self, cls, snap):
+        return FrozenActionTests._armed(self, cls, snap)
+
+    @staticmethod
+    def _effective_bindings(cls):
+        """Every binding the class can see, mixins included — the MRO, not
+        just the class body, so a mixin re-adding the key is caught too."""
+        return [b for klass in cls.__mro__
+                for b in getattr(klass, "BINDINGS", [])]
+
+    def test_neither_app_binds_or_implements_restore_or_repick(self):
+        for cls in BOTH_APPS:
+            with self.subTest(app=cls.__name__):
+                actions = {b.action for b in self._effective_bindings(cls)}
+                for action in self.REMOVED_ACTIONS:
+                    self.assertNotIn(action, actions)
+                    self.assertFalse(hasattr(cls, f"action_{action}"),
+                                     f"{cls.__name__}.action_{action} survives")
+
+    def test_the_monitor_binds_no_p_and_the_minimonitor_no_R(self):
+        mon = {b.key for b in self._effective_bindings(MonitorApp)}
+        self.assertNotIn("p", mon)
+        mini = {b.key for b in self._effective_bindings(MiniMonitorApp)}
+        self.assertNotIn("R", mini)
+
+    def test_the_minimonitor_hints_no_longer_offer_R(self):
+        from monitor import minimonitor_app as mm
+        self.assertNotIn("R:", mm.KEY_HINTS_TEXT)
+
+    def test_monitor_R_on_a_frozen_card_points_at_the_viewer(self):
+        snap = snapshot("agent-f", frozen=True)
+        app = self._armed(MonitorApp, snap)
+        app.push_screen = lambda *a, **k: self.fail(
+            "a restart confirmation was offered for a frozen card")
+        app.action_restart_task()
+        self.assertEqual(app._monitor.tmux_calls, [],
+                         "a frozen card was dispatched to the coordinator")
+        self.assertEqual(len(self.notes), 1, self.notes)
+        self.assertIn("viewer", self.notes[0])
+        self.assertIn("R to restore", self.notes[0])
+        self.assertIn("P to re-pick", self.notes[0])
+
+    def test_monitor_R_on_a_live_busy_card_keeps_its_restart_refusal(self):
+        """Control: the hint above comes from the frozen branch, not from the
+        idle check every non-idle card already hits."""
+        snap = snapshot("agent-live", is_idle=False)
+        app = self._armed(MonitorApp, snap)
+        app.action_restart_task()
+        self.assertEqual(len(self.notes), 1, self.notes)
+        self.assertIn("only available when the terminal is idle",
+                      self.notes[0])
+
+    def test_minimonitor_p_on_a_frozen_agent_prompts_for_a_number(self):
+        snap = snapshot("agent-f", frozen=True)
+        app = self._armed(MiniMonitorApp, snap)
+        pushed: list = []
+        app.push_screen = lambda screen, callback=None: pushed.append(screen)
+        app._poll_frozen_outcome = lambda *a, **k: None
+        with patch.object(agent_sessions, "SessionsView",
+                          lambda *a, **k: self.fail(
+                              "the pick read a frozen record")):
+            app.action_pick_task_by_number()
+        self.assertEqual(len(pushed), 1, pushed)
+        self.assertIsInstance(pushed[0], TaskNumberInputModal)
+        self.assertEqual(app._monitor.tmux_calls, [],
+                         "`p` dispatched the frozen coordinator")
 
 
 class FreezeAllOfferTests(_Fixture):
@@ -1369,103 +1380,6 @@ class _FakeButton:
 
 class _ButtonPressed:
     def __init__(self, button): self.button = button
-
-
-class RestorePollDeadlineTests(_Fixture):
-    """How long the monitor watches a dispatched restore before crying stall.
-
-    The deadline belongs to the COORDINATOR, not to the watcher:
-    `agent_restore` gives a `restoring` record up to the project's
-    `frozen.restore_ack_grace` to be acknowledged by its replacement agent's
-    SessionStart hook before it may be liveness-confirmed instead. A watcher
-    with a shorter fixed deadline warns and stops its timer while the restore is
-    still legitimately in flight — so a project that raised the grace would see
-    a spurious "still restoring" on every successful restore, and never the
-    success.
-    """
-
-    def _timeouts(self, cls, record):
-        """Every `settle_timeout` the poll hands the verdict, driving the real
-        `_poll_frozen_outcome` with a captured timer."""
-        seen: list[float] = []
-        app = self.app(cls, [])
-        app.notify = lambda msg, **kw: None
-        app.call_later = lambda fn, *a: None
-        app._refresh_data = lambda: None
-        ticks: list = []
-        app.set_interval = lambda interval, fn: ticks.append(fn) or _FakeTimer()
-
-        class _View:
-            def invalidate(self): pass
-            def by_id(self, rid): return record
-
-        def spy(rec, prev, elapsed, *, dispatch_grace, settle_timeout):
-            seen.append(settle_timeout)
-            return False, "", False
-
-        # `monitor_shared.agent_sessions` IS the shared module object, so these
-        # must be scoped patches rather than assignments — a raw assignment
-        # leaks into every other module in the same suite process.
-        sessions = monitor_shared.agent_sessions
-        with patch.object(sessions, "SessionsView", lambda *a, **k: _View()), \
-                patch.object(sessions, "restore_verdict", spy):
-            app._poll_frozen_outcome(RECORD, "restore", 0)
-            ticks[0]()
-        return seen
-
-    def test_the_deadline_follows_the_projects_configured_grace(self):
-        """THE defect: a 60s grace with a 40s watcher means every successful
-        restore is reported as a stall."""
-        cfg = self.root / "aitasks" / "metadata"
-        cfg.mkdir(parents=True)
-        (cfg / "project_config.yaml").write_text(
-            "frozen:\n  restore_ack_grace: 60\n")
-        rec = _FakeRecord(str(self.root))
-        for cls in BOTH_APPS:
-            with self.subTest(app=cls.__name__):
-                seen = self._timeouts(cls, rec)
-                self.assertTrue(seen)
-                self.assertGreater(
-                    seen[0], 60.0,
-                    "the watcher gives up before the coordinator does")
-
-    def test_the_default_grace_keeps_the_value_the_viewer_shipped(self):
-        """Negative control, and a compatibility pin: at the default grace this
-        is still 10 dispatch + 20 ack + 10 slack. The old constant was right for
-        the default and wrong as a constant."""
-        rec = _FakeRecord(str(self.root))
-        for cls in BOTH_APPS:
-            with self.subTest(app=cls.__name__):
-                self.assertEqual(self._timeouts(cls, rec)[0], 40.0)
-
-    def test_the_grace_is_read_from_the_records_root_not_the_apps(self):
-        """`freeze --all` spans projects, so a monitor can be watching a record
-        that belongs to another repo with another config."""
-        other = self.tmp / "other-repo"
-        (other / "aitasks" / "metadata").mkdir(parents=True)
-        (other / "aitasks" / "metadata" / "project_config.yaml").write_text(
-            "frozen:\n  restore_ack_grace: 90\n")
-        rec = _FakeRecord(str(other))
-        for cls in BOTH_APPS:
-            with self.subTest(app=cls.__name__):
-                self.assertGreater(self._timeouts(cls, rec)[0], 90.0)
-
-    def test_a_missing_record_still_produces_a_finite_deadline(self):
-        """Pre-begin the record does not exist yet; the poll must still arm a
-        deadline rather than raising on the keypress."""
-        for cls in BOTH_APPS:
-            with self.subTest(app=cls.__name__):
-                seen = self._timeouts(cls, None)
-                self.assertEqual(seen[0], 40.0)
-
-
-class _FakeRecord:
-    def __init__(self, root): self.root = root
-    restore_attempts = 0
-
-
-class _FakeTimer:
-    def stop(self): pass
 
 
 class MinimonitorOwnPanelTests(_Fixture):

@@ -280,16 +280,17 @@ replays the capture in place, so the window keeps its name. In the pane list the
 card shows its mark plus a cyan `F`, the window name and a dim `frozen`, with no
 state dot and no status, for the same reason a parked card has none.
 
-Three keys act on the focused card once it is frozen, and they reuse keys that
-keep their live meaning everywhere else:
+Restore and re-pick are the viewer's own keys, not monitor's. Press **s** on
+the frozen card to switch to its window, then **R** restores the agent in the
+viewer's pane and **P** re-picks its task with a fresh agent. Monitor's keys keep
+the meaning they have on a live card: **R** is still Restart, and on a frozen
+card it only reminds you where restore and re-pick are.
 
-- **R** — restore it (on a live card, `R` is still Restart).
-- **p** — re-pick its task with a fresh agent. This key is frozen-only in
-  monitor; on a live card it simply says there is nothing to re-pick.
-- **k** — drop it (on a live card, `k` is still Kill). This confirms with a red
-  **Drop** button, because it deletes the captured output along with the record.
-  Restore and re-pick are not a way to keep that output either: a *verified* one
-  deletes the capture too, so copy it from the viewer first if you want it.
+**k** drops a frozen agent (on a live card, `k` is still Kill). This confirms
+with a red **Drop** button, because it deletes the captured output along with
+the record. Restore and re-pick are not a way to keep that output either: a
+*verified* one deletes the capture too, so copy it from the viewer first if you
+want it.
 
 `P` hides frozen agents together with parked ones — one filter over both — while
 the `N frozen` counter keeps reporting them either way.

@@ -93,7 +93,8 @@ def _task_info(task_id: str, status: str = "Ready", depends=None,
 
 
 def _snap(pane_id: str, window_index: str = "1", session: str = "s1",
-          window_name: str | None = None):
+          window_name: str | None = None, frozen: bool = False):
+    record = "7f3a2c1d" if frozen else ""
     return SimpleNamespace(
         pane=SimpleNamespace(
             pane_id=pane_id,
@@ -101,14 +102,14 @@ def _snap(pane_id: str, window_index: str = "1", session: str = "s1",
             window_index=window_index,
             window_name=window_name or f"agent-pick-{window_index}",
             category=PaneCategory.AGENT,
-            frozen_record="",
+            frozen_record=record,
         ),
         # Completed rather than defaulted (t1705_7): `_is_frozen` reads
         # `snap.frozen` strictly, so an incomplete double RAISES here — which is
         # how this module was found. A `getattr` default would also have masked
         # a real snapshot missing the field.
-        frozen=False,
-        frozen_record_id="",
+        frozen=frozen,
+        frozen_record_id=record,
     )
 
 
@@ -140,6 +141,9 @@ class _FakeTaskCache:
 class _FakeMonitor:
     def __init__(self) -> None:
         self.killed: list[str] = []
+        # Recorded so a test can prove `p` never dispatched a frozen
+        # coordinator (`run-shell -b … restore`) — t2054.
+        self.tmux_calls: list[list[str]] = []
 
     def get_session_to_project_mapping(self):
         return {"s1": _ROOT}
@@ -147,6 +151,10 @@ class _FakeMonitor:
     def kill_agent_pane_smart(self, pane_id):
         self.killed.append(pane_id)
         return (True, False)
+
+    def tmux_run(self, args, timeout=5.0):
+        self.tmux_calls.append(list(args))
+        return (0, "")
 
 
 def _mk_app(infos, snapshots=(), pane_to_task=None, monitor=True):
@@ -588,6 +596,41 @@ class ConfirmAndLaunchTests(unittest.TestCase):
         app = self._app_with_followed()
         _enter(app, "1310")
         self.assertIn("77", app._task_cache.invalidated)
+
+    def _app_with_frozen_followed(self):
+        own = _snap("%own", window_index="1", session="s1",
+                    window_name="agent-pick-77", frozen=True)
+        app = _mk_app(
+            {"1310": _task_info("1310"), "77": _task_info("77", status="Done")},
+            snapshots=[own],
+            pane_to_task={"%own": "77"},
+        )
+        # The pre-t2054 branch polled the store after dispatching; stub it so
+        # a regression fails on the assertions below, not on a missing timer.
+        app._poll_frozen_outcome = lambda *a, **k: None
+        return app
+
+    def test_frozen_followed_agent_still_gets_the_number_prompt(self):
+        """t2054: `p` is pick-by-number on a frozen agent too — it never
+        re-picks the frozen task in its place."""
+        app = self._app_with_frozen_followed()
+        app.action_pick_task_by_number()
+        self.assertEqual(len(app.spy_pushed), 1, app.spy_pushed)
+        self.assertIsInstance(app.spy_pushed[0][0], TaskNumberInputModal)
+        self.assertEqual(app._monitor.tmux_calls, [])
+
+    def test_frozen_followed_agent_is_offered_no_kill(self):
+        """The stand-in is retired by `k` (leased drop); the checkbox would
+        route it through `kill_agent_pane_smart`'s unleased frozen path."""
+        app = self._app_with_frozen_followed()
+        screen, callback = _enter(app, "1310")
+        self.assertIsInstance(screen, TaskPickConfirmDialog)
+        self.assertIsNone(screen._kill_target_label)
+        # Even a payload claiming a kill reaches no kill target.
+        callback(("pick", True))
+        self.assertEqual(app.spy_launch, [("1310", _ROOT, None)])
+        self.assertEqual(app._monitor.killed, [])
+        self.assertEqual(app._monitor.tmux_calls, [])
 
     def test_unresolvable_followed_task_reports_unknown_status(self):
         own = _snap("%own", window_index="1", session="s1",
