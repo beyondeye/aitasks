@@ -105,3 +105,10 @@ None identified.
 
 ### Planned mitigations
 - timing: after | name: exhaustive_merge_driver_guard_discovery | type: test | priority: low | effort: low | inline_risk: low | added_complexity: medium | addresses: guard coverage is shape-limited (code-health) | desc: Make the boardgroup merge-driver guard exhaustive: discover driver-path variables across sourced files and fail on any aitask_merge.py reference the guard cannot classify (non-PYTHON interpreter var, literal path, array call)
+
+## Final Implementation Notes
+- **Actual work done:** Rewrote Test 3 of `tests/test_aitask_merge_boardgroup.sh`. It now discovers merge-driver call sites in every `*.sh` under `.aitask-scripts/` by keying on variables assigned `.../aitask_merge.py`. Backslash continuations are joined before matching (`logical_lines` / `driver_invocations` / `count_driver_sites`). Added a planted control (2 split invocations, 1 with a base → `2 1`), a not-vacuous floor, a canonical-site assertion for `lib/task_automerge.sh`, and the every-recognized-invocation-has-a-base check. The supported invocation shape and coverage boundary are documented in a comment above the helpers. Result: 20/20 pass (was 17/18).
+- **Deviations from plan:** None. The review finding about discovery coverage was folded into the plan before approval (documented boundary, "recognized" wording, and an `after` mitigation for exhaustive discovery).
+- **Issues encountered:** Defect 2 (`test_no_unscoped_task_commit.sh`, "canonical teaching skill is in scope") was already fixed on main by t2053 (b6d1e4118). `md_has` used `printf | grep -q`, which hit SIGPIPE under `pipefail` and returned 141 for a name that was present. Re-run: 103/103 pass. No change made.
+- **Key decisions:** Discovery keys on the driver's path rather than on a variable name, so the call site can move or be renamed without the guard going vacuous. Mutant check on a scratch copy of `task_automerge.sh` with `base_args` removed gives `1 0` (caught), against `1 1` for the real file.
+- **Upstream defects identified:** None
