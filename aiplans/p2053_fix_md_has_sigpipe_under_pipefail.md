@@ -105,3 +105,10 @@ None identified.
 
 ### Goal-achievement risk: low
 None identified.
+
+## Final Implementation Notes
+- **Actual work done:** `md_has` in `tests/test_no_unscoped_task_commit.sh` now loops over `MD_SOURCES` in bash (exact `==` match, same semantics as `grep -xF`) instead of `printf | grep -qxF`. Added a deterministic pin in the negative-controls section: needle first + 4000 padding entries (>64 KiB), assert found; plus an absent-name negative. MD_SOURCES is saved/restored around it.
+- **Deviations from plan:** None.
+- **Issues encountered:** None. Red proof (old one-liner against the pin fixture, standalone harness under `set -uo pipefail`): 20/20 runs returned 141. Green: full file 103/103 passed in 10 consecutive runs. shellcheck: only pre-existing info-level notes (SC1091/SC2016), none on changed lines.
+- **Key decisions:** Kept `md_has` reading the global (minimal change); the pin swaps the global using the same save/swap/restore idiom as the `ACTIVE_*_ALLOWLIST` controls. Audit of the file: line 672 was the only early-exit reader in a pipe; 701/731 `grep -q` read a file argument, and `md_out_of_scope` uses `grep -E` without `-q` plus `|| true`.
+- **Upstream defects identified:** None
