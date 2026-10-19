@@ -12,8 +12,9 @@ active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2039
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-16 14:55
-updated_at: 2026-10-19 08:03
+updated_at: 2026-10-19 12:02
 ---
 
 ## Origin
@@ -54,3 +55,8 @@ Take `own_sock` from `${TMUX%%,*}` (return 0 when `$TMUX` is empty), exactly as
 `shadow_self_target` does. Add a test in the shadow capture suite: a pane id that
 exists on the gateway server but `$TMUX` names another socket → `--phase` prints
 nothing from that pane; the matching-socket control still prints the stamp.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-19T09:02:23Z status=pass attempt=1 type=human
