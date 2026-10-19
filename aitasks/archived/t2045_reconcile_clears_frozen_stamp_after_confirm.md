@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [frozen, session_persistence]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -19,6 +19,7 @@ followup_kind: upstream_defect
 implemented_with: claudecode/opus5_5
 created_at: 2026-10-16 16:12
 updated_at: 2026-10-19 15:40
+completed_at: 2026-10-19 15:40
 ---
 
 ## Origin
@@ -73,3 +74,14 @@ unset would strip another record's stamp (the t1875 rule).
 > **✅ gate:plan_approved** run=2026-10-19T09:56:56Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-10-19T12:34:08Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-10-19T12:40:12Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:92934fa0da78cd69
+
+> **✅ gate:risk_evaluated** run=2026-10-19T12:40:12Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/2045/risk_evaluated_2026-10-19T12:40:12Z-risk_evaluated-a1.log`
