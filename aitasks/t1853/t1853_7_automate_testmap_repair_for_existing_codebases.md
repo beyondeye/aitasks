@@ -42,12 +42,42 @@ The following provider parents have not yet supplied their child IDs at creation
 | M5.1 | [t1856](../t1856_testmap_m5_run_surface.md) | `ait test`, unannotated-test diagnostics and test execution handoff |
 | M6.5 | [t1857](../t1857_testmap_m6_onboarding.md) | Onboarding skill integration after its inventory, seeding and adoption providers |
 | M7.2, M7.4, M7.5 | [t1858](../t1858_testmap_m7_agent_review_and_author_annotation.md) | Agent verdict intake, author annotation boundary and legacy review workflow |
-| M8.2, M8.3 | [t1859](../t1859_testmap_m8_completion_policy_and_gates.md) | Check/freshness verifiers, failure handoff and revalidation |
+| M8.2, M8.3 | [t1859](../t1859_testmap_m8_completion_policy_and_gates.md) → **`t1859_2`**, **`t1859_3`** (pending; in `depends:` since t1859's coarse pass; the seeds step `t1859_6` is not consumed) | Check/freshness verifiers, failure handoff and revalidation |
 | M9.1, M9.3 | [t1860](../t1860_testmap_m9_workflow_integration_skills_and_docs.md) | Task-workflow integration and maintenance skill extension |
 
 **Dependency hold:** Postponed only because the provider child graph above cannot yet be fully encoded. During provider decomposition, fill the relevant child edges. Set Ready after every row is resolved to an explicit pending dependency or evidenced landed provider; Ready does not bypass those dependencies. Do not depend on whole module parents: their graph is cyclic and parent completion is too coarse. Base provider tasks must not depend back on this consumer; this task lands the later named integration extensions.
 
 [t1863](../t1863_testmap_cross_linking_pass.md) must audit this supplementary sibling and its table as well as the original module rows. t1863 is a cross-reference, not an implementation dependency. [t1861](../t1861_testmap_m10_rollout_to_target_repositories.md) is the downstream rollout context; assess delivery requirements without rewriting foreign task dependencies.
+
+## Assigned case: `UNSTAMPED` past bootstrap (from t1859, Dev 14)
+
+`check` treats an annotation edge without a stamp as an always-failing
+`UNSTAMPED` finding under `require_stamp` once `bootstrap_until` has passed,
+even without `--strict` (`goengines/internal/testmap/registry/rules_core.go`
+`checkUnstamped`). The two gates report it and hand it here; neither repairs
+it:
+
+- The autonomous lane of `testmap_fresh` (`t1859_3`) never invents a first
+  stamp. It records `fail` with the `UNSTAMPED` pairs and a machine-readable
+  handoff reason.
+- `testmap_check` (`t1859_2`) fails with the same reason.
+
+No policy demotion or further test run can supply the missing adoption, so
+this task owns the repair. **Legitimate first-stamp adoption routes**, each
+writing the stamp together with its `adopted.yaml` provenance:
+- `annotate --author` for pairs on the task's change surface (M7.4);
+- verdict adoption from engine-cut packets (M7.2);
+- class `--auto` over a rule or measurement class (M6.3).
+
+`--confirm-evidenced` is **not** a first-stamp route: it only re-stamps an
+existing claim. Forbidden:
+- inventing a stamp;
+- extending `bootstrap_until` or flipping `require_stamp`;
+- weakening or skipping the check.
+
+**Rollout prerequisite:** unattended completion under `require_stamp: true`
+past `bootstrap_until` requires this task to have landed. Until then, that
+configuration fails loudly at the gates and never passes silently.
 
 ## Planning and ownership
 
@@ -62,6 +92,19 @@ The implementation plan must begin with `Step 0 — Reality check`: inspect land
 - A second invocation on the clean fixture makes no changes. An interrupted run resumes without duplicate annotations, adoption rows or false gate success.
 - Conflicting rewrites, no-progress cycles, unreadable inputs and incompatible contracts terminate within the configured budget and retain actionable failing diagnostics.
 - Onboarding, maintenance and task-completion integration tests verify the same convergence semantics, legacy-file handling, change-surface boundaries and correct gate/test outcomes.
+- **`UNSTAMPED` handoff integration scenario.** The fixture runs an autonomous
+  profile with `require_stamp: true` past `bootstrap_until`:
+  1. A task leaves an unstamped edge on its change surface.
+  2. `testmap_fresh` records `fail` with the handoff.
+  3. The coordinator adopts the edge through a legitimate first-stamp route.
+  4. The **real** `testmap_check` verifier passes.
+  5. `tests_pass` runs.
+
+  Negative controls:
+  - an edge with no legitimate route stays failing, with a precise residual
+    diagnostic;
+  - no run invents a stamp, extends `bootstrap_until`, flips `require_stamp`
+    or skips a gate.
 - User documentation explains adoption of an existing codebase, automatic repair behavior, configuration and residual failure reports. The dependency table and reciprocal references are reconciled with the final module ownership.
 
 ## Inbox
