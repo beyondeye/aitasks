@@ -12,8 +12,9 @@ active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1065
 followup_kind: verification_failure
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-19 16:37
-updated_at: 2026-10-19 16:42
+updated_at: 2026-10-19 16:52
 ---
 
 ## Failed verification item from t1231_3
@@ -72,3 +73,8 @@ Run `python3 check_links.py --build` in `website/` after the edit.
 ### Next steps
 
 Reproduce the failure locally (see the commits and files above, and the origin archived plan for implementation context), identify the offending change, and fix. This task was auto-generated from a manual-verification failure in t1231_4 item #20.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-19T13:52:31Z status=pass attempt=1 type=human
