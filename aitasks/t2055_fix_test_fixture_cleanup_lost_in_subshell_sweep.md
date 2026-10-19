@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1989
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-19 09:40
-updated_at: 2026-10-19 10:15
+updated_at: 2026-10-19 11:11
 ---
 
 ## Origin
@@ -45,3 +46,8 @@ From t2031's Final Implementation Notes:
 Apply t2031's pattern to each confirmed suite: the helper sets a result variable (e.g. `_FIXTURE_DIR`) and callers invoke it directly, or callers register in the parent after the call. Confirm each suite with a probe TMPDIR (`TMPDIR=<empty dir> bash tests/<suite>.sh`, then count leftovers) before and after the fix.
 
 Also add an in-suite membership assertion. Guard it with a non-empty/dir-exists check first: t2031 found that `" $X " in " ${ARR[*]} "` passes vacuously when `X` is empty. Consider a shared helper in `tests/lib/` so suites stop hand-rolling this.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-19T08:11:42Z status=pass attempt=1 type=human
