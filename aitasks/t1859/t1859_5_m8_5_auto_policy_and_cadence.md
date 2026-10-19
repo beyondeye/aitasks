@@ -1,16 +1,15 @@
 ---
 priority: medium
 effort: high
-depends: [1859_4, 1854_4]
+depends: [t1859_4, t1854_4]
 issue_type: feature
 status: Postponed
 labels: [testing, testmap, gates]
 gates: [risk_evaluated]
 anchor: 1852
 created_at: 2026-10-19 15:43
-updated_at: 2026-10-19 15:43
+updated_at: 2026-10-19 15:44
 ---
-
 
 Child of t1859 (test-map **M8 — Completion policy and gates**), submodule
 **M8.5 — Auto policy and cadence**, wave **G**. This is the self-approving
