@@ -64,18 +64,20 @@ scan_rc() {
 }
 
 # Build a throwaway fixture root holding exactly the files the scanner reads,
-# plus a two-file task corpus for check E.
+# plus a two-file task corpus for check E. Sets _FIXTURE_DIR and registers it
+# for EXIT cleanup. Call it directly, never as `$(make_fixture)`: the
+# CLEANUP_DIRS append would die with the subshell and leak the fixture (t2031).
 make_fixture() {
-    local dir rel
-    dir="$(mktemp -d)"
-    CLEANUP_DIRS+=("$dir")
+    local rel
+    _FIXTURE_DIR="$(mktemp -d)"
+    CLEANUP_DIRS+=("$_FIXTURE_DIR")
     while IFS= read -r rel; do
         [[ -n "$rel" ]] || continue
-        mkdir -p "$dir/$(dirname "$rel")"
-        cp "$PROJECT_DIR/$rel" "$dir/$rel"
+        mkdir -p "$_FIXTURE_DIR/$(dirname "$rel")"
+        cp "$PROJECT_DIR/$rel" "$_FIXTURE_DIR/$rel"
     done < <(python3 "$SCAN" --root "$PROJECT_DIR" --list-inputs)
-    mkdir -p "$dir/aitasks"
-    cat > "$dir/aitasks/t1_sample.md" <<'EOF'
+    mkdir -p "$_FIXTURE_DIR/aitasks"
+    cat > "$_FIXTURE_DIR/aitasks/t1_sample.md" <<'EOF'
 ---
 priority: medium
 effort: low
@@ -88,7 +90,6 @@ updated_at: 2026-01-01 00:00
 
 Sample task.
 EOF
-    printf '%s\n' "$dir"
 }
 
 # --------------------------------------------------------------------------
@@ -117,7 +118,13 @@ test_live_repo_is_clean() {
 FIXTURE=""
 test_fixture_baseline_is_clean() {
     echo "=== Test 2: unmutated fixture passes (negative-control baseline) ==="
-    FIXTURE="$(make_fixture)"
+    make_fixture
+    FIXTURE="$_FIXTURE_DIR"
+    # Non-empty first: an empty FIXTURE would pass the membership check below
+    # vacuously (" " is a substring of any padded list, even an empty one).
+    assert_dir_exists "make_fixture set _FIXTURE_DIR in the parent shell" "$FIXTURE"
+    assert_contains "fixture is registered for EXIT cleanup in the parent shell" \
+        " $FIXTURE " " ${CLEANUP_DIRS[*]} "
     local out
     out="$(run_scan "$FIXTURE")"
     if scan_rc "$FIXTURE"; then
@@ -134,7 +141,8 @@ test_fixture_baseline_is_clean() {
 assert_control() {
     local desc="$1" expect_tag="$2" mutate_fn="$3"
     local dir out
-    dir="$(make_fixture)"
+    make_fixture
+    dir="$_FIXTURE_DIR"
     "$mutate_fn" "$dir"
     out="$(run_scan "$dir")"
     if scan_rc "$dir"; then
@@ -153,7 +161,8 @@ assert_control() {
 assert_positive_control() {
     local desc="$1" mutate_fn="$2"
     local dir out
-    dir="$(make_fixture)"
+    make_fixture
+    dir="$_FIXTURE_DIR"
     "$mutate_fn" "$dir"
     out="$(run_scan "$dir")"
     if scan_rc "$dir"; then
