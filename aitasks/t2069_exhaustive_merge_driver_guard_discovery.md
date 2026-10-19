@@ -3,13 +3,14 @@ priority: low
 effort: low
 depends: []
 issue_type: test
-status: Ready
+status: Implementing
 labels: [git, bash_scripts, robustness]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1599
 followup_kind: risk_mitigation
 created_at: 2026-10-19 17:14
-updated_at: 2026-10-19 17:14
+updated_at: 2026-10-19 17:16
 ---
 
 ## Origin
