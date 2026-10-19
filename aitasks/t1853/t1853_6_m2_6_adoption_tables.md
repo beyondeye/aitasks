@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1852
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-11 17:42
-updated_at: 2026-10-18 22:50
+updated_at: 2026-10-19 10:12
 ---
 
 ## Context
@@ -139,3 +140,8 @@ owning parents (M6, M7) for automation.
 > | Plain `annotate` / `verify` pass an empty `Origin`. The hook could record the provenance so adoption tables can tell scanner-seeded covers from hand-written ones. No human-only step was needed in M2.3.
 
 > **👁 note:read** id=2026-10-18T19:50:15Z.7cb33da91a0081cd6fa42dc9 by=t1853_6 at=2026-10-18T19:50:15Z mode=explicit ids=2026-10-12T08:28:06Z.be97eda202d26ccbdfa49815,2026-10-12T14:30:39Z.0a6ea01ed099fbc0dfd430ae,2026-10-13T12:53:16Z.c584a001b50b8c3bd6cc1dfc
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-19T07:12:39Z status=pass attempt=1 type=human
