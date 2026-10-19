@@ -70,6 +70,7 @@ fold
 framework
 frontmatter
 frozen
+frozen_agents
 gates
 geminicli
 git
@@ -80,6 +81,7 @@ html_plans
 install
 install_scripts
 installation
+keybindings
 layout
 legal
 license
