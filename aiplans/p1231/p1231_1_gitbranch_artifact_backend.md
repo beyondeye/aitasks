@@ -616,3 +616,197 @@ gitbranch blobs on `rm` stays with the existing t1135 warning.
 
 ### Planned mitigations
 - timing: pre-phase | name: baseline_artifact_suites | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: Code-health — regression on local/dir defaults | desc: Run the artifact/attach regression suites on the untouched tree and record the baseline counts before editing
+
+## Final Implementation Notes
+- **Actual work done:** Implemented as planned.
+  - `lib/artifact_backends/gitbranch.sh` (new): one probe seam
+    (ABSENT / STORE / UNPUBLISHED / RETIRED / OCCUPIED), a push-gated CAS loop
+    (`_artifact_gitbranch_cas`, ops put / delete / init / migrate / retire) that
+    builds every tree in a throwaway `GIT_INDEX_FILE`, a lease-rejection
+    classifier that re-reads origin instead of parsing stderr, and the contract
+    ops plus `store_id` / `probe_state` / `migrate_from` / `retire` helpers.
+  - `artifact_registry.py`: `ref_name` validator via a single `check_ref_name`
+    (reserved: main, master, aitask-data, aitask-locks, aitask-ids; also HEAD),
+    the `gitbranch` entry in `KNOWN_ADAPTERS`, and the `adapters` and
+    `validate-ref` verbs.
+  - `artifact_registry.sh`: the param list now also clears
+    `ARTIFACT_GITBRANCH_BRANCH` and `ARTIFACT_GITBRANCH_STORE_ID`.
+  - `artifact_backend.sh`: the source line and dispatch arm.
+  - `artifact_manifest.py`: the `backends` verb.
+  - `txn_snapshot.sh`: `txn_retain` / `txn_set_resume_hint`. The retained-effects
+    report wording applies only when something is retained, and `txn_abort`
+    prints that report before dying.
+  - `aitask_artifact.sh`: the record helpers, `_artifact_activate` (registry
+    activation + local store guard) at every activation that can touch a
+    gitbranch store, record boundary + record sync in create, update and
+    move→gitbranch, the `gitbranch-migrate` verb, and help/header text.
+  - Tests: new `tests/test_artifact_gitbranch_backend.sh` (228 assertions,
+    sections 1–17); `test_artifact_manifest_lib.sh` gains `backends` cases.
+- **Deviations from plan:**
+  - `artifact_gitbranch_retire` prints the *fenced tip* rather than its parent.
+    The fence commit adds only `.ait-artifact-retired`, so its `blobs/` tree is
+    the pre-fence tree, and the catch-up copies from it directly (simpler, same
+    guarantee). `migrate_from` with an ABSENT target also strips the fence file,
+    so it never propagates.
+  - Verification tests are numbered by section (1–17) in the test file rather
+    than the plan's 1–22. Every plan case is covered (the mapping is in the
+    section headers).
+  - The plan's misplaced bullet ("file header and help text", listed under 5b)
+    was implemented in `aitask_artifact.sh` as intended.
+- **Issues encountered:**
+  - The first green run failed one case. The test hand-edited the record to
+    fake a stale clone, and the new record preflight correctly refused the
+    dirty path. The test now uses a real stale second clone.
+  - The pre-phase baseline (baseline_artifact_suites) was all green before any
+    edit: dir 152, cli 251, share 98, local 112, manifest 46, callback contract
+    + txn isolation pass, fold_transfer 10, fold_rebind 20, inventory 6.
+- **Key decisions:**
+  - Mutation checks run on isolated copies under the scratchpad. Each mutant is
+    caught by the test aimed at it:
+    - CAS refresh memoized → tests 3/4 fail (10 assertions);
+    - NOOP-publish rule dropped → test 10 fails (6 assertions);
+    - retire replaced by a no-op → tests 12/14 fail (14 assertions).
+  - Network git runs with `GIT_TERMINAL_PROMPT=0`.
+  - The local mirror `refs/heads/<branch>` is updated only when absent or still
+    at the built-on tip.
+- **Upstream defects identified:**
+  - `tests/test_no_unscoped_task_commit.sh:672` — `md_has` pipes the whole markdown list into `grep -qxF` under `set -o pipefail`. grep exits on the first match, the `printf` writer gets SIGPIPE, and the pipeline returns 141. So "the canonical teaching skill is in scope" (and intermittently the CLAUDE.md check) fails although the file IS enumerated. Reproduced: 141 with pipefail, 0 without. It is load/timing dependent (it passed on a re-run once, then failed three times in a row).
+- **Notes for sibling tasks:**
+  - t1231_2 (settings tab): use
+    `artifact_registry.py --config aitasks/metadata/project_config.yaml adapters`
+    for the selector (prints `local`, `dir`, `gitbranch`). Use `validate-ref <name>`
+    (exit 0, or exit 1 with the message on stderr) before writing a branch. The
+    pane stays a pure config editor: the store is created lazily by the first
+    write, or eagerly by `ait artifact init-store gitbranch`, which also
+    *publishes* a store that so far exists only locally.
+  - Changing the configured branch once a store exists makes every gitbranch op
+    refuse with the migrate message. The settings pane should warn that the
+    remedy is `ait artifact gitbranch-migrate --from <old> --to <new>`.
+  - t1231_3 (docs) — behaviour to document:
+    - The guard has no network half on a cache hit (an offline warm `get`
+      works).
+    - `rm` / `ls` never touch the store.
+    - The record lives at `artifacts/gitbranch_store.json` on the data branch.
+    - `gitbranch-migrate` retires the old branch (readable, refuses writes,
+      final), is idempotent (`MIGRATED` / `ALREADY_MIGRATED`), and on failure
+      prints RETAINED effects plus `Resume with:`.
+    - A store created before `origin` existed is published by the next write or
+      by `init-store`.
+    - Writes need origin when one is configured (offline writes: t1259).
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-18)
+- **Requested by user:** five verified defects:
+  1. migrate passed the destination file list through an awk environment
+     variable, which fails with "Argument list too long" above about 1,900
+     blobs, after the source was already retired;
+  2. a confirmed-absent remote let a stale tracking ref (one a failed prune
+     left behind) authorize publication;
+  3. the put no-op paths checked presence, not bytes;
+  4. a failed push followed by an unreadable origin claimed "nothing was
+     published", and the migration report omitted a fence that may have landed;
+  5. migrate verification swallowed `comm`/`sort` failures (`grep . || true`)
+     and could commit the record anyway.
+- **Changes made:**
+  1. `_artifact_gitbranch_missing_entries` compares both listings through temp
+     files (awk `FILENAME == ARGV[1]`). The CLI's `_artifact_gitbranch_missing_hashes`
+     does the same, and no list ever goes through argv or the environment.
+  2. Origin's tip is now the sha `ls-remote` reports, memoized in-process
+     (`_ARTIFACT_GITBRANCH_MEMO_TIP`; empty = confirmed absent). After a
+     publish it becomes the published commit. `refs/remotes/origin/<b>` is
+     best-effort bookkeeping and never read as authority, so a failed prune or
+     update cannot resurrect or fake a tip. The fetch only brings the objects,
+     and the sha's presence is verified after it.
+  3. put's early return and the CAS put op compare the tip entry's object id
+     with the verified blob's oid (byte-exact). A different object is
+     corruption and is repaired through the CAS, with a warning.
+  4. Failed push + unreadable origin → `die_code 75` "outcome is UNKNOWN —
+     origin may have applied it". Failed push + origin now at our commit → it
+     was applied (lost ack) and is treated as published. In the migrate verb,
+     `_artifact_gitbranch_migrate_step_failed` registers a "MAY have advanced" /
+     "MAY have been RETIRED" retained effect on exit 75 before dying.
+  5. `_artifact_gitbranch_missing_hashes` checks `sort` and `comm` separately
+     (subshell `|| exit 1`). A failed comparison dies "could not verify … the
+     record was NOT moved" before the record is written.
+- **Tests added** (`test_artifact_gitbranch_backend.sh`, now 262 assertions):
+  - 18 — a 2,501-blob store whose name list exceeds 128 KiB migrates, and its
+    rerun is `ALREADY_MIGRATED`;
+  - 19 — absent remote + a locked, stale tracking ref → create dies with no
+    manifest; the mirror-kept variant re-publishes;
+  - 20 — a wrong-bytes entry is repaired by a write of the correct bytes;
+  - 21 — a `reference-transaction` hook on origin applies the fence, then kills
+    receive-pack and moves the repo away. The run reports UNKNOWN + "MAY have
+    been RETIRED" + the resume command, the record is restored, and the rerun
+    converges;
+  - 22 — a fake failing `comm` → no MIGRATED, record unchanged, no commit.
+  - **Red proof:** each fix was reverted in its own isolated copy, and each
+    copy fails its own test (env 4, stale 3, bytes 2, unknown 2, verify 5
+    failing assertions).
+  - `test_attach_lock_callback_contract.sh`: line-keyed allowlist citations
+    updated for the shifted lines (366→486, 473→600, 180→190, 697→831).
+- **Files affected:** `.aitask-scripts/lib/artifact_backends/gitbranch.sh`,
+  `.aitask-scripts/aitask_artifact.sh`, `tests/test_artifact_gitbranch_backend.sh`,
+  `tests/test_attach_lock_callback_contract.sh`
+
+### Change Request 2 (2026-10-18)
+- **Requested by user:** three verified defects:
+  1. Lost-ack recognition covered only origin sitting exactly at our commit.
+     When another writer appended on top, the retry saw a NOOP, so an applied
+     bulk copy went unreported when the fence then failed (the report said
+     "rolled back every mutation").
+  2. `validate-ref` accepted `main\n`: under `re.match`, `$` allows a trailing
+     newline, and activation stripped the value, so the two checks disagreed.
+  3. The adapter header still described the superseded "tip re-read from the
+     ref" memo (follow-up severity).
+- **Changes made:**
+  1. `_artifact_gitbranch_cas` keeps `pending` — commits whose push failed
+     while origin moved. After every fresh refresh, a pending commit that is an
+     ancestor of the tip is recorded as `applied`. `_artifact_gitbranch_cas_noop`
+     then reports the current tip, not NOOP, so `migrate_from` / `retire` print
+     `changed=1` and the verb registers the retained effect. Exhausting the
+     budget with pending/applied commits is now `die_code 75` (UNKNOWN), never
+     "nothing was published".
+  2. `check_ref_name` uses `REF_RE.fullmatch`. `validate_value` checks the RAW
+     value for `ref_name` before any stripping, so activation and
+     `validate-ref` judge the identical string.
+  3. The header now documents the ls-remote-sha memo, the non-authoritative
+     tracking ref, and descendant lost-ack recognition.
+- **Tests added** (now 278 assertions):
+  - section 1 — `validate-ref` rejects `main\n`, `aitask-artifacts\n`, ` pad`
+    and `pad `; activation rejects `" pad"` and `"main\n"` configs;
+  - section 23 — origin's `reference-transaction` hook applies A's bulk copy,
+    has clone B append on top, then kills receive-pack, and the fence push is
+    rejected. The report lists "branch 'new-art' advanced" plus Resume, and
+    never "rolled back every mutation"; the rerun converges and the third run
+    is `ALREADY_MIGRATED`.
+  - **Red proof** (isolated copies): ancestry tracking removed → section 23
+    fails (3 assertions); old validator → section 1 fails (3 assertions).
+- **Files affected:** `.aitask-scripts/lib/artifact_backends/gitbranch.sh`,
+  `.aitask-scripts/lib/artifact_registry.py`, `tests/test_artifact_gitbranch_backend.sh`
+
+### Change Request 3 (2026-10-19)
+- **Requested by user:** a pending (possibly-applied) push was lost on two
+  retry exits. (1) The retry's refresh failing (origin unreachable / fetch
+  error) exited 1. (2) `git merge-base --is-ancestor` exit 128 was read as
+  "not landed", so the retry returned NOOP and a later fence failure claimed a
+  clean rollback.
+- **Changes made:**
+  1. New `_agb_die`. While a CAS holds a push of unknown outcome
+     (`_AGB_UNCERTAIN`, set when a failed push is queued in `pending`, cleared
+     on a clean CAS return), every die in `_artifact_gitbranch_refresh`,
+     `_check`, `_publish` and `_cas` becomes `die_code 75` (UNKNOWN). The
+     migrate verb then registers "MAY have advanced / MAY have been RETIRED".
+  2. The ancestry probe is a tri-state: 0 = landed, 1 = did not, anything else
+     → `_agb_die` (UNKNOWN).
+- **Tests added** (now 294 assertions), sharing helpers `write_lost_ack_hook` /
+  `mk_lost_ack_world` (section 23's fault):
+  - section 24 — a client-side `reference-transaction` hook makes the retry's
+    fetch fail → UNKNOWN + "MAY have advanced" + Resume, no clean-rollback
+    claim; the rerun converges;
+  - section 25 — a `git` shim makes `merge-base` exit 128 → the same report;
+    the rerun converges.
+  - **Red proof** (isolated copies): `_agb_die` as a plain die → 7 assertions
+    fail across 24/25; error read as "not landed" → section 25 fails (3).
+- **Files affected:** `.aitask-scripts/lib/artifact_backends/gitbranch.sh`,
+  `tests/test_artifact_gitbranch_backend.sh`
