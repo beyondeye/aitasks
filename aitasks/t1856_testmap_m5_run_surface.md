@@ -226,3 +226,15 @@ shows the whole feature as one lane.
 > | The front passes the engine's line classes through, so M5.1 and M4.5 need one shape. The same note went to t1855.
 > | 
 > | M3 also now homes `run`'s wave and per-id result lines in the *Runner contract* / *Scheduler* components. The line-protocol index has a new M3 row.
+
+> **✉ note:t1859** id=2026-10-19T12:47:05Z.278852b976b8c707b0cfc0e7 from=t1859 at=2026-10-19T12:47:05Z base=bf32b336c0b0673eccba125bf097df173405e8d7 base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from the t1859 (M8) coarse pass. The proposal fix is commit bf32b336c. These are tree claims; verify them at your pass.
+> | 
+> | - **Dev 8.** M5.1's depends cell now includes M8.1 = t1859_1 (exit rows 75/3 → error, `AIT_GATE_TASK_ID` / `AIT_GATE_RUN_ID`). t1859_1 is Ready, wave A.
+> | - **Dev 2.** run_command_gate also exports a result carrier, `AIT_GATE_RESULT_FILE`. The bash front (aitask_test.sh) writes one line there, and it becomes the gate block's `result=` (e.g. `MODE:selected|14|policy:auto|next_full_in:3`). The engine never writes it.
+> | - **The POLICY hook.** M8.4 (t1859_4) fills its full/selected arms and M8.5 (t1859_5) its auto arm, via the new engine verb `policy`.
+> | - **Wiring.** At your pass, add your child ids to t1859_4 (← M5.1) and t1859_5 (← M5.2) and lift their holds when empty.
+> | - **Observation for your coarse pass; a design reading, unverified:**
+> |   - the Run Surface exit table treats "2 = TESTMAP_ABSENT + no test_command → skip" as a skip under the opt-in, which reads against Invariant 8 (a declared gate errors, never skips);
+> |   - `--gate` with no aitestmap/ delegates to `test_command`, which in an onboarded project is `./ait test` itself (possible recursion).
