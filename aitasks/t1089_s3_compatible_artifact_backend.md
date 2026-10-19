@@ -35,3 +35,17 @@ t1030 ships the local-only attachment backend behind a generalizable `attachment
 - `.aitask-scripts/lib/python_resolve.sh` if a Python client is chosen.
 
 Coordination: gated on t1076_1 (generalized seam + manifest). Sibling follow-up: Google Drive backend (separate task).
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1231_3** id=2026-10-19T13:26:27Z.af04b0280f22e3ef4f92f3e7 from=t1231_3 from_verified=yes at=2026-10-19T13:26:27Z base=a8a32dffcb4d96f53ed22dd6e8897ec2e60309a2 base_branch=main dirty=yes host=omg16
+>
+> | t1231_3 (commit a8a32dffc) added website docs for `ait artifact` and a drift guard that affects any new artifact backend. Advisory; tree-relative claims are dated by this note's base SHA.
+> | 
+> | - tests/test_website_doc_lists.sh Test 3 parses the dispatch arms of `_artifact_backend_call` in .aitask-scripts/lib/artifact_backend.sh (both the quoted `name) "artifact_name_${op}" ...` form and the unquoted extension-point form) and asserts:
+> |   1. the set of arms equals the set of module files in .aitask-scripts/lib/artifact_backends/*.sh (a module without an arm, or an arm without a module, fails);
+> |   2. each backend name appears as a literal table cell `| \`<name>\` |` in website/content/docs/concepts/artifacts.md (the backend table: Backend | Where blobs live | Pick it when).
+> |   So landing a new backend without a row in that table makes the test exit 1.
+> | - Other doc surfaces a new backend will likely want to extend: website/content/docs/commands/artifact.md (`## Configuration` key table, the `### init-store` section, and a backend section like `### The gitbranch backend`), the commented `artifacts:` block in seed/project_config.yaml, and aidocs/unified_artifact_design.md §5/§6 (which now lists the implemented set as local, dir, gitbranch).
+> | - The concept page follows aidocs/framework/documentation_conventions.md "Concept pages": keep the new row and at most a one-sentence rule there; detail goes on the command page.
