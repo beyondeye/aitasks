@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: medium
 depends: [t1231_2]
 issue_type: documentation
-status: Implementing
+status: Done
 labels: [task_attachments]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -16,7 +16,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1065
 implemented_with: claudecode/opus5_5
 created_at: 2026-07-26 22:58
-updated_at: 2026-10-19 15:54
+updated_at: 2026-10-19 16:26
+completed_at: 2026-10-19 16:26
 ---
 
 Write the **baseline user-facing documentation for the artifact feature** — which
@@ -300,3 +301,14 @@ local-only in this cycle and their own doc page is not required here.
 > **✅ gate:plan_approved** run=2026-10-19T12:54:10Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-10-19T13:25:23Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-10-19T13:26:40Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:e83274b57712e38b
+
+> **✅ gate:risk_evaluated** run=2026-10-19T13:26:40Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1231_3/risk_evaluated_2026-10-19T13:26:40Z-risk_evaluated-a1.log`
