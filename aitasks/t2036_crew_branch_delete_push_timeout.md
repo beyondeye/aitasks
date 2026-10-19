@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1599
 followup_kind: risk_mitigation
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-16 08:01
-updated_at: 2026-10-19 08:02
+updated_at: 2026-10-19 16:26
 ---
 
 ## Origin
@@ -51,3 +52,8 @@ Tests: follow the hang-fixture pattern in `tests/test_crew_publish_upstream.sh` 
 > | - `run_bounded(..., cancelled=...)` now also reaps the group when a stop was requested but the leader exited first (the CLI always passes `cancelled`).
 > | 
 > | What this may mean for you: a test asserting that git ran in a separate session (`os.getsid(child) == child pid`) now passes or fails depending on whether the test run has a controlling terminal. `tests/test_bounded_run.py::TestChildIsolation` shows how to pin either mode by patching `bounded_run._has_controlling_terminal`. Kill and timeout semantics (124, TERM → CONT → grace → KILL) are unchanged. Line references are as of 245754abe.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-19T13:26:54Z status=pass attempt=1 type=human
