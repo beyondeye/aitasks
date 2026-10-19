@@ -669,7 +669,15 @@ fi
 # --- Test 2: the instruction layer (markdown / Jinja) ------------------------
 mapfile -t MD_SOURCES < <(md_sources_real)
 
-md_has() { printf '%s\n' ${MD_SOURCES[@]+"${MD_SOURCES[@]}"} | grep -qxF "$1"; }
+# A loop, not `printf | grep -q`: grep -q exits on the first match, the printf
+# writer takes SIGPIPE, and under pipefail a present name returns 141 (t2053).
+md_has() {
+    local f
+    for f in ${MD_SOURCES[@]+"${MD_SOURCES[@]}"}; do
+        [[ "$f" == "$1" ]] && return 0
+    done
+    return 1
+}
 
 # Scope assertions, BOTH directions. A count floor alone can be satisfied while
 # the interesting root silently drops out, and it cannot detect the enumeration
@@ -1505,6 +1513,18 @@ neg_md_cross2="$(cd "$MDT" && scan_md ${MD_FIXTURES[@]+"${MD_FIXTURES[@]}"})"
 assert_contains "an ait-git-allowlisted name does NOT suppress the markdown seam" \
     "md_fence_unscoped.md" "$neg_md_cross2"
 ACTIVE_AIT_GIT_ALLOWLIST=(${AIT_GIT_ALLOWLIST[@]+"${AIT_GIT_ALLOWLIST[@]}"})
+
+# md_has under pipefail (t2053): the needle FIRST, then >64 KiB of padding, so an
+# early-exiting reader would leave the writer blocked on a full pipe and SIGPIPE
+# it every time -- the real corpus only races.
+SAVED_MD_SOURCES=(${MD_SOURCES[@]+"${MD_SOURCES[@]}"})
+MD_SOURCES=("needle/first.md")
+for _i in $(seq 1 4000); do MD_SOURCES+=("padding/entry_${_i}_xxxxxxxx.md"); done
+assert_exit_zero "md_has finds an early name under pipefail despite a large list" \
+    md_has "needle/first.md"
+assert_exit_nonzero "md_has rejects a name not in the list" \
+    md_has "needle/absent.md"
+MD_SOURCES=(${SAVED_MD_SOURCES[@]+"${SAVED_MD_SOURCES[@]}"})
 
 echo
 echo "Results: $PASS passed, $FAIL failed, $TOTAL total"
