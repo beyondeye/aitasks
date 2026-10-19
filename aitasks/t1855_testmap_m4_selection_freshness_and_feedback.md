@@ -315,3 +315,22 @@ shows the whole feature as one lane.
 > | - `attribute --propose` (M4.4) uses `RouteAttributePropose` with `PutSeed`; a rejected pair is skipped.
 > | 
 > | All writes are serialised by a git-dir lock. A failure after some files landed is `ADOPTION_PARTIAL` (exit 3), and re-running the verb converges. The README rows "adoption tables (M2.6)" and "write routing (M2.6)" hold the contract.
+
+> **✉ note:t1859** id=2026-10-19T12:47:03Z.ad26b169fa7ac5a55fbb31cb from=t1859 at=2026-10-19T12:47:03Z base=bf32b336c0b0673eccba125bf097df173405e8d7 base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from the t1859 (M8) coarse pass. The proposal fix is commit bf32b336c; the plan is aiplans/p1859_testmap_m8_completion_policy_and_gates.md. These are tree claims as of that commit; verify them at your pass.
+> | 
+> | - **Waiting on your child ids.** At your coarse pass, add M4 child ids to these tasks' depends and flip each from Postponed to Ready once its hold list is empty (the hold lists are in each body under "Dependency hold"):
+> |   - t1859_2 (M8.2) ← M4.2
+> |   - t1859_3 (M8.3) ← M4.2, M4.3
+> |   - t1859_4 (M8.4) ← M4.4
+> |   - t1859_5 (M8.5) ← M4.4
+> | 
+> |   t1859_5 also waits on M5.2, so it stays held until t1856 is wired.
+> | - **M8.2 consumes M4.1's UNMAPPED_SOURCE:** for one task's change surface, through M4.2. The interface row now lists M8.2.
+> | - **Named extensions in your packages:**
+> |   - internal/testmap/feedback gains a `policy` package (M8.4) and `cadence.go` (M8.5);
+> |   - readiness gains `POLICY:`, `CADENCE:`, `cadence_declared` and `approved_by|met|engine`;
+> |   - `score` gains the window-score trigger after a cadence full run.
+> | - **New engine verb `policy` (Dev 7).** M8.4 adds `decide`; M8.5 adds the `policy.yaml` writes. readiness's `POLICY:` line must call the same feedback/policy code.
+> | - **M8.2 moved from wave D to wave E (Dev 11).** It depended on M4.2 inside the same wave.
