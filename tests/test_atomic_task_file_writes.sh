@@ -52,6 +52,8 @@ enter_scratch_cwd
 . "$PROJECT_DIR/tests/lib/test_scaffold.sh"
 # shellcheck source=lib/asserts.sh
 . "$PROJECT_DIR/tests/lib/asserts.sh"
+# shellcheck source=lib/fixture_root.sh
+. "$PROJECT_DIR/tests/lib/fixture_root.sh"
 
 PASS=0
 FAIL=0
@@ -86,9 +88,9 @@ residue_count() {
 # A fake repo with the task-writing scripts and their libs.
 make_repo() {
     local tmpdir
-    tmpdir="$(mktemp -d "${TMPDIR:-/tmp}/ait_atomic_sites_XXXXXX")"
+    # Under FIXTURE_ROOT, so a `$( )` call cannot leak it (t2055).
+    tmpdir="$(fixture_mktemp_d ait_atomic_sites)" || return 1
     tmpdir="$(cd "$tmpdir" && pwd -P)"
-    CLEANUP_DIRS+=("$tmpdir")
     (
         cd "$tmpdir" || exit 1
         git init --quiet
@@ -132,8 +134,8 @@ TASK
 # A TMPDIR we own, so "did the writer stage here?" is answerable.
 fresh_tmpdir() {
     local d
-    d="$(mktemp -d "${TMPDIR:-/tmp}/ait_atomic_probe_XXXXXX")"
-    CLEANUP_DIRS+=("$d")
+    # Under FIXTURE_ROOT, so a `$( )` call cannot leak it (t2055).
+    d="$(fixture_mktemp_d ait_atomic_probe)" || return 1
     printf '%s' "$d"
 }
 tmpdir_entries() {
@@ -147,6 +149,12 @@ tmpdir_entries() {
 }
 
 echo "=== atomic task/plan file writes (t1379) ==="
+
+# Fixture root: created here, after any SKIP exit and before the first
+# fixture, so the cleanup below removes every `$( )`-made fixture (t2055).
+fixture_root_init
+assert_fixture_registered "fresh_tmpdir dirs land under the registered FIXTURE_ROOT" "$(fresh_tmpdir)"
+assert_fixture_registered "make_repo dirs land under the registered FIXTURE_ROOT" "$(make_repo)"
 
 # --------------------------------------------------------------------------
 echo "--- aitask_update.sh: write_task_file ---"

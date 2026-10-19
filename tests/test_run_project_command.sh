@@ -31,6 +31,7 @@ PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 . "$PROJECT_DIR/tests/lib/scratch_cwd.sh"
 enter_scratch_cwd
 . "$PROJECT_DIR/tests/lib/asserts.sh"
+. "$PROJECT_DIR/tests/lib/fixture_root.sh"
 
 PASS=0
 FAIL=0
@@ -45,8 +46,8 @@ PROC="$PROJECT_DIR/.claude/skills/task-workflow/build-verification.md"
 
 new_fixture() {  # [config body]
     local tmp
-    tmp="$(mktemp -d "${TMPDIR:-/tmp}/test_runprojcmd_XXXXXX")"
-    CLEANUP_DIRS+=("$tmp")
+    # Under FIXTURE_ROOT, so a `$( )` call cannot leak it (t2055).
+    tmp="$(fixture_mktemp_d test_runprojcmd)" || return 1
     mkdir -p "$tmp/aitasks/metadata"
     [[ $# -eq 0 ]] || printf '%b' "$1" > "$tmp/aitasks/metadata/project_config.yaml"
     echo "$tmp"
@@ -455,6 +456,11 @@ test_single_canonical_place() {
 # --- Run ---
 echo "=== test_run_project_command.sh ==="
 echo ""
+
+# Fixture root: created here, after any SKIP exit and before the first
+# fixture, so the cleanup below removes every `$( )`-made fixture (t2055).
+fixture_root_init
+assert_fixture_registered "new_fixture dirs land under the registered FIXTURE_ROOT" "$(new_fixture)"
 
 test_exit_table
 test_aggregation

@@ -20,6 +20,7 @@ PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 . "$PROJECT_DIR/tests/lib/scratch_cwd.sh"
 enter_scratch_cwd
 . "$PROJECT_DIR/tests/lib/asserts.sh"
+. "$PROJECT_DIR/tests/lib/fixture_root.sh"
 
 PASS=0; FAIL=0; TOTAL=0
 CLEANUP_DIRS=()
@@ -30,8 +31,8 @@ PY="$( . "$PROJECT_DIR/.aitask-scripts/lib/python_resolve.sh" 2>/dev/null; resol
 
 new_fixture() {
     local tmp
-    tmp="$(mktemp -d "${TMPDIR:-/tmp}/test_procgate_XXXXXX")"
-    CLEANUP_DIRS+=("$tmp")
+    # Under FIXTURE_ROOT, so a `$( )` call cannot leak it (t2055).
+    tmp="$(fixture_mktemp_d test_procgate)" || return 1
     mkdir -p "$tmp/aitasks/metadata"
     cp "$REG" "$tmp/aitasks/metadata/gates.yaml"
     echo "$tmp"
@@ -59,6 +60,11 @@ print(r['docs_updated']['kind'], '|', r['docs_updated']['type'], '|', r['build_v
 ")"
 assert_eq "read_registry kind: procedure gate, command gate empty" \
     "procedure | machine | EMPTY" "$out"
+
+# Fixture root: created here, after any SKIP exit and before the first
+# fixture, so the cleanup below removes every `$( )`-made fixture (t2055).
+fixture_root_init
+assert_fixture_registered "new_fixture dirs land under the registered FIXTURE_ROOT" "$(new_fixture)"
 
 # --- 2. orchestrator defers procedure gate as needs-agent -------------------
 fx="$(new_fixture)"; write_task "$fx" 10 docs_updated

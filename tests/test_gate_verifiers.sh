@@ -25,6 +25,7 @@ PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 . "$PROJECT_DIR/tests/lib/scratch_cwd.sh"
 enter_scratch_cwd
 . "$PROJECT_DIR/tests/lib/asserts.sh"
+. "$PROJECT_DIR/tests/lib/fixture_root.sh"
 
 PASS=0
 FAIL=0
@@ -42,8 +43,8 @@ PY="$( . "$PROJECT_DIR/.aitask-scripts/lib/python_resolve.sh" 2>/dev/null; resol
 
 new_fixture() {
     local tmp
-    tmp="$(mktemp -d "${TMPDIR:-/tmp}/test_gatever_XXXXXX")"
-    CLEANUP_DIRS+=("$tmp")
+    # Under FIXTURE_ROOT, so a `$( )` call cannot leak it (t2055).
+    tmp="$(fixture_mktemp_d test_gatever)" || return 1
     mkdir -p "$tmp/aitasks/metadata"
     echo "$tmp"
 }
@@ -736,6 +737,11 @@ test_status_exitcode_agreement() {
     printf 'verify_build: "exit 2"\ngate_command_exit_contract: [verify_build]\n' | write_config "$d"
     run_verifier "$d" "$BUILD" 123 1 "ra4"; _agree "agree skip(command-driven)" 123
 }
+
+# Fixture root: created here, after any SKIP exit and before the first
+# fixture, so the cleanup below removes every `$( )`-made fixture (t2055).
+fixture_root_init
+assert_fixture_registered "new_fixture dirs land under the registered FIXTURE_ROOT" "$(new_fixture)"
 
 # --- Run ---
 test_each_verifier

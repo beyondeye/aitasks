@@ -32,6 +32,8 @@ enter_scratch_cwd
 . "$PROJECT_DIR/tests/lib/test_scaffold.sh"
 # shellcheck source=lib/asserts.sh
 . "$PROJECT_DIR/tests/lib/asserts.sh"
+# shellcheck source=lib/fixture_root.sh
+. "$PROJECT_DIR/tests/lib/fixture_root.sh"
 
 PASS=0
 FAIL=0
@@ -64,8 +66,8 @@ extract_funcs() {
 # --- Fixture ------------------------------------------------------------------
 setup_repo() {
     local tmpdir
-    tmpdir="$(mktemp -d)"
-    CLEANUP_DIRS+=("$tmpdir")
+    # Under FIXTURE_ROOT, so a `$( )` call cannot leak it (t2055).
+    tmpdir="$(fixture_mktemp_d test_amend_guard)" || return 1
 
     git init --bare --quiet "$tmpdir/remote.git"
     git clone --quiet "$tmpdir/remote.git" "$tmpdir/local" 2>/dev/null
@@ -419,6 +421,11 @@ test_neg_always_refuse_breaks_the_permit_path() {
 
     popd >/dev/null || return
 }
+
+# Fixture root: created here, after any SKIP exit and before the first
+# fixture, so the cleanup below removes every `$( )`-made fixture (t2055).
+fixture_root_init
+assert_fixture_registered "setup_repo dirs land under the registered FIXTURE_ROOT" "$(setup_repo)"
 
 # --- Run ----------------------------------------------------------------------
 test_a1_expected_head_amends

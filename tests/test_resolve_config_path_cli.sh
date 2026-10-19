@@ -27,6 +27,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 # shellcheck source=tests/lib/asserts.sh disable=SC1091
 . "$PROJECT_DIR/tests/lib/asserts.sh"
+# shellcheck source=tests/lib/fixture_root.sh disable=SC1091
+. "$PROJECT_DIR/tests/lib/fixture_root.sh"
 
 PASS=0
 FAIL=0
@@ -49,8 +51,8 @@ trap cleanup EXIT
 # make_repo -> echoes a fresh temp repo skeleton path (script + lib copied in).
 make_repo() {
     local d
-    d="$(mktemp -d)"
-    TMPDIRS+=("$d")
+    # Under FIXTURE_ROOT, so a `$( )` call cannot leak it (t2055).
+    d="$(fixture_mktemp_d test_resolvecfg)" || return 1
     mkdir -p "$d/.aitask-scripts/lib" "$d/aitasks/metadata"
     cp "$REAL_HELPER" "$d/.aitask-scripts/aitask_resolve_config_path.sh"
     cp "$REAL_LIB" "$d/.aitask-scripts/lib/config_utils.py"
@@ -59,6 +61,11 @@ make_repo() {
 }
 
 DEFAULT_REL="aireviewguides/aiagents/skill_authoring_best_practices.md"
+
+# Fixture root: created here, after any SKIP exit and before the first
+# fixture, so the cleanup below removes every `$( )`-made fixture (t2055).
+fixture_root_init TMPDIRS
+assert_fixture_registered "make_repo dirs land under the registered FIXTURE_ROOT" "$(make_repo)"
 
 # ============================================================
 # Case 1 - documented invocation (relative from repo root): SET key + default

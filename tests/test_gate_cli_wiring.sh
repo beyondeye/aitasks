@@ -12,6 +12,7 @@ PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 . "$PROJECT_DIR/tests/lib/scratch_cwd.sh"
 enter_scratch_cwd
 . "$PROJECT_DIR/tests/lib/asserts.sh"
+. "$PROJECT_DIR/tests/lib/fixture_root.sh"
 
 PASS=0
 FAIL=0
@@ -21,13 +22,18 @@ CLEANUP_DIRS=()
 AIT="$PROJECT_DIR/ait"
 
 new_fixture() {
-    local tmp; tmp="$(mktemp -d "${TMPDIR:-/tmp}/test_gatecli_XXXXXX")"
-    CLEANUP_DIRS+=("$tmp")
+    # Under FIXTURE_ROOT, so a `$( )` call cannot leak it (t2055).
+    local tmp; tmp="$(fixture_mktemp_d test_gatecli)" || return 1
     mkdir -p "$tmp/aitasks/metadata"
     cp "$PROJECT_DIR/ait" "$tmp/ait"
     ln -s "$PROJECT_DIR/.aitask-scripts" "$tmp/.aitask-scripts"
     echo "$tmp"
 }
+
+# Fixture root: created here, after any SKIP exit and before the first
+# fixture, so the cleanup below removes every `$( )`-made fixture (t2055).
+fixture_root_init
+assert_fixture_registered "new_fixture dirs land under the registered FIXTURE_ROOT" "$(new_fixture)"
 
 echo "=== Test 1: ait gates / ait gate help ==="
 out="$("$AIT" gates --help 2>&1)"

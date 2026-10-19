@@ -23,6 +23,7 @@ PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 . "$PROJECT_DIR/tests/lib/scratch_cwd.sh"
 enter_scratch_cwd
 . "$PROJECT_DIR/tests/lib/asserts.sh"
+. "$PROJECT_DIR/tests/lib/fixture_root.sh"
 # shellcheck source=lib/test_scaffold.sh
 . "$PROJECT_DIR/tests/lib/test_scaffold.sh"
 
@@ -43,8 +44,8 @@ TS="2026-01-01 10:00"
 new_repo() {
     # new_repo -> echoes a fresh git repo path with an initial commit
     local d
-    d="$(mktemp -d)"
-    CLEANUP_DIRS+=("$d")
+    # Under FIXTURE_ROOT, so a `$( )` call cannot leak it (t2055).
+    d="$(fixture_mktemp_d test_verstale)" || return 1
     git init --quiet "$d"
     git -C "$d" config user.email "test@test.com"
     git -C "$d" config user.name "Test"
@@ -884,6 +885,11 @@ echo "=== test_verification_stale.sh ==="
 echo ""
 
 cd "$PROJECT_DIR" || exit 1
+
+# Fixture root: created here, after any SKIP exit and before the first
+# fixture, so the cleanup below removes every `$( )`-made fixture (t2055).
+fixture_root_init
+assert_fixture_registered "new_repo dirs land under the registered FIXTURE_ROOT" "$(new_repo)"
 
 test_modified_file_is_ask_stale
 test_deleted_file_is_detected_by_probe_not_history

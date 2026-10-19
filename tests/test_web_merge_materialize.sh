@@ -19,6 +19,7 @@ PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 . "$PROJECT_DIR/tests/lib/scratch_cwd.sh"
 enter_scratch_cwd
 . "$PROJECT_DIR/tests/lib/asserts.sh"
+. "$PROJECT_DIR/tests/lib/fixture_root.sh"
 
 PASS=0
 FAIL=0
@@ -32,8 +33,8 @@ GATE="$PROJECT_DIR/.aitask-scripts/aitask_gate.sh"
 
 new_fixture() {
     local tmp
-    tmp="$(mktemp -d "${TMPDIR:-/tmp}/test_webmat_XXXXXX")"
-    CLEANUP_DIRS+=("$tmp")
+    # Under FIXTURE_ROOT, so a `$( )` call cannot leak it (t2055).
+    tmp="$(fixture_mktemp_d test_webmat)" || return 1
     mkdir -p "$tmp/aitasks/metadata/profiles/local" "$tmp/aiplans" "$tmp/markers"
     # Mirrors the shipped remote profile's gate posture: explicit
     # render-nothing ceiling.
@@ -281,6 +282,11 @@ test_materialize_failure() {
 }
 
 # --- run -------------------------------------------------------------------
+
+# Fixture root: created here, after any SKIP exit and before the first
+# fixture, so the cleanup below removes every `$( )`-made fixture (t2055).
+fixture_root_init
+assert_fixture_registered "new_fixture dirs land under the registered FIXTURE_ROOT" "$(new_fixture)"
 
 test_valid_marker
 test_supersedes_prior_tuple

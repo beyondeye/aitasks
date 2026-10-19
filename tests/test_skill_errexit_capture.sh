@@ -34,6 +34,7 @@ PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 . "$PROJECT_DIR/tests/lib/scratch_cwd.sh"
 enter_scratch_cwd
 . "$PROJECT_DIR/tests/lib/asserts.sh"
+. "$PROJECT_DIR/tests/lib/fixture_root.sh"
 
 PASS=0
 FAIL=0
@@ -83,8 +84,8 @@ inb && /^[[:space:]]*```[[:space:]]*$/ { inb=0; next }
 
 new_dir() {
     local tmp
-    tmp="$(mktemp -d "${TMPDIR:-/tmp}/test_errexit_capture_XXXXXX")"
-    CLEANUP_DIRS+=("$tmp")
+    # Under FIXTURE_ROOT, so a `$( )` call cannot leak it (t2055).
+    tmp="$(fixture_mktemp_d test_errexit_capture)" || return 1
     printf '%s' "$tmp"
 }
 
@@ -449,6 +450,11 @@ CTL
 # --- Run ---
 echo "=== test_skill_errexit_capture.sh ==="
 echo ""
+
+# Fixture root: created here, after any SKIP exit and before the first
+# fixture, so the cleanup below removes every `$( )`-made fixture (t2055).
+fixture_root_init
+assert_fixture_registered "new_dir dirs land under the registered FIXTURE_ROOT" "$(new_dir)"
 
 test_rendered_block_survives
 test_branch_wiring

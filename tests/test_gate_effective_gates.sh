@@ -21,6 +21,7 @@ PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 . "$PROJECT_DIR/tests/lib/scratch_cwd.sh"
 enter_scratch_cwd
 . "$PROJECT_DIR/tests/lib/asserts.sh"
+. "$PROJECT_DIR/tests/lib/fixture_root.sh"
 
 PASS=0
 FAIL=0
@@ -33,8 +34,8 @@ GATE="$PROJECT_DIR/.aitask-scripts/aitask_gate.sh"
 
 new_fixture() {
     local tmp
-    tmp="$(mktemp -d "${TMPDIR:-/tmp}/test_gateeff_XXXXXX")"
-    CLEANUP_DIRS+=("$tmp")
+    # Under FIXTURE_ROOT, so a `$( )` call cannot leak it (t2055).
+    tmp="$(fixture_mktemp_d test_gateeff)" || return 1
     mkdir -p "$tmp/aitasks/metadata/profiles" "$tmp/aiplans"
     printf 'name: fast\ndefault_gates: [risk_evaluated]\n' \
         > "$tmp/aitasks/metadata/profiles/fast.yaml"
@@ -112,6 +113,11 @@ test_should_self_record() {
     run_gate "$d" should-self-record 3 risk_evaluated; rc=$?
     assert_eq "self-record: absent => record (exit 0)" "0" "$rc"
 }
+
+# Fixture root: created here, after any SKIP exit and before the first
+# fixture, so the cleanup below removes every `$( )`-made fixture (t2055).
+fixture_root_init
+assert_fixture_registered "new_fixture dirs land under the registered FIXTURE_ROOT" "$(new_fixture)"
 
 # --- Run ---
 test_effective_gates
