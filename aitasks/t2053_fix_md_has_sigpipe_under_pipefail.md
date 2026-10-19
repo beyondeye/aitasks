@@ -43,3 +43,8 @@ Make `md_has` immune to early reader exit, e.g. loop over the array in bash
 (`local f; for f in ...; do [[ "$f" == "$1" ]] && return 0; done; return 1`) or
 use `grep -xF` without `-q` with output to `/dev/null` (grep then reads all input).
 Audit the file for other `| grep -q` pipelines under pipefail.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-19T06:32:53Z status=pass attempt=1 type=human
