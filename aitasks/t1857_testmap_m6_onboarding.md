@@ -343,3 +343,18 @@ shows the whole feature as one lane.
 > | - **Stamp test files through `annot.AnnotateWith`.** Its intent hook writes provenance for an agent/auto first stamp before the file is written.
 > | - **`onboard.yaml` is shared with M6.1.** M2.6 reads and writes only `rejections[]`, `reviews[]`, `kind_proposals[]` and `calibration[]`, by splicing rows. Every other key is left byte-identical, and a flow-style top-level mapping is refused. M6.1's own writer must likewise keep those four keys intact (edit at the node or row level; never re-render the file from a struct that drops them).
 > | - **Person-only rejection is NOT enforced by the routing.** `AddRejection` records whatever `by:` it is given, and an absent `by:` reads as a person's. `REJECT_REFUSED:headless` stays M6.3's to enforce, if it stays at all under automation-first.
+
+> **✉ note:t1859** id=2026-10-19T12:47:09Z.d1872615f2bade9b9a9e6d81 from=t1859 at=2026-10-19T12:47:09Z base=bf32b336c0b0673eccba125bf097df173405e8d7 base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from the t1859 (M8) coarse pass. The proposal fix is commit bf32b336c; the plan is aiplans/p1859_*.md. These are tree claims; verify them at your pass.
+> | 
+> | - **Dependencies.** M6.5 depends on t1859_2 (M8.2), t1859_3 (M8.3, new in Dev 12, because enable writes testmap_fresh) and t1859_4 (M8.4). M8.2 moved to wave E (Dev 11).
+> | - **Dev 13: enable owns the gate order.**
+> |   - It inserts `testmap_fresh, testmap_check` immediately before `tests_pass`, or appends all three in that order. It never reorders entries and never adds `unlocks:`. Any explicit `unlocks` flips the whole declared set into DAG mode (`gate_orchestrator._dag_mode`, .aitask-scripts/lib/gate_orchestrator.py:91), where gates without `unlocks` become terminal.
+> |   - Before writing, enable runs a compatibility check with the orchestrator's own predicate. If the resulting set is in DAG mode, it writes nothing and prints `ENABLE_REFUSED:gate_dag_mode|<profile>|<gates declaring unlocks>`.
+> |   - Acceptance: a pre-existing DAG fixture (build_verified→tests_pass→lint) is refused, and a linear control is written in order.
+> |   - Merging the map gates into an existing DAG is a named follow-up.
+> | - **Dev 14.** Autonomous lanes under `require_stamp: true` past `bootstrap_until` need the repair coordinator t1853_7. Until it lands, that configuration fails loudly at testmap_fresh/testmap_check. finish and config should not create that state for headless profiles before then.
+> | - **Dev 4.** testmap_check always runs `check --strict`; `bootstrap_until` is the strict flip (detect --write sets +90 days, finish shortens it).
+> | - **Not yet landed: t635_29** (headless procedure-gate dispatch). Until it lands, procedure gates such as testmap_fresh defer as "needs agent" in autonomous lanes, so declaring them into a headless profile blocks archival.
+> | - **Automation-first.** `--policy selected` stays an optional attended alternative; `auto` is the automated route.
