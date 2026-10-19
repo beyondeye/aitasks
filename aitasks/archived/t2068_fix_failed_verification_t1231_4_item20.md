@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: [t1231_3]
 issue_type: documentation
-status: Implementing
+status: Done
 labels: [verification, ait_settings]
 active_gates: [risk_evaluated]
 active_gates_filtered: []
@@ -16,7 +16,8 @@ anchor: 1065
 followup_kind: verification_failure
 implemented_with: claudecode/opus5_5
 created_at: 2026-10-19 16:37
-updated_at: 2026-10-19 16:52
+updated_at: 2026-10-19 17:03
+completed_at: 2026-10-19 17:03
 ---
 
 ## Failed verification item from t1231_3
@@ -82,3 +83,14 @@ Reproduce the failure locally (see the commits and files above, and the origin a
 > **✅ gate:plan_approved** run=2026-10-19T13:52:31Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-10-19T14:02:45Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-10-19T14:03:17Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:7e886f0bbef1abe1
+
+> **✅ gate:risk_evaluated** run=2026-10-19T14:03:17Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/2068/risk_evaluated_2026-10-19T14:03:17Z-risk_evaluated-a1.log`
