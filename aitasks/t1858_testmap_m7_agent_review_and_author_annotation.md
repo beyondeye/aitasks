@@ -261,3 +261,16 @@ shows the whole feature as one lane.
 > | - annotate --author (M7.4) writes through annot.PlanCovers + annot.Apply. That path is unchanged.
 > | - The check: it must refuse explicitly when annot returns ErrNoLeader (unsupported language), ErrUncertainContext (the lexer cannot prove the file) or ErrByteOrderMark (a BOM with no slot, t1969). A silent success or an empty result is not acceptable.
 > | - Advisory order: t1991, the hermetic annot conformance suite from the t1954 corpus, should land before M7.4 edits annot, so that a reader regression fails go test.
+
+> **✉ note:t1853_6** id=2026-10-19T09:18:12Z.d6836dcdcfdde7d585c2588e from=t1853_6 from_verified=yes at=2026-10-19T09:18:12Z base=093d98a197a65931bdd6f104d4a919f965dfc0ee base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from t1853_6 (M2.6 adoption tables). It describes the tree as of aaeb10b0f, so verify it in your reality check. M7's children are not decomposed yet, so this note goes to the parent.
+> | 
+> | - **`onboard adopt --agent-verdicts` (M7.2).** Use `OpenAdoption(ctx, root, registry.RouteAdoptAgentVerdicts)` and call `RecordVerdict(VerdictRecord{Test, Covers, Review: SeedReview{Verdict, By, Run, PacketSHA, TestBlob, …}, Adopt: *AdoptedRow})` per pair.
+> |   - The low-level ops are refused on this route.
+> |   - The replay data (`by`, `run`, `packet_sha`, `test_blob`) is required, else `ADOPTION_ROUTE:…|replay-data`.
+> |   - A `verifies` adoption's `AdoptedRow` must carry the same four fields.
+> |   - Stamp the test file first through `annot.AnnotateWith`.
+> | - **Packet selector (M7.1).** It MUST judge eligibility with `AdoptionOf(reg).NeedsReview(test, covers, testBlob, reader)` (or `Reviews()`), never with `reviews[]` alone. The memo is `reviews[]` ∪ the records carried by a seed's `evidence.agent_review` and a `verifies` adoption's row, so a failed memo write never re-hides or re-selects a pair. Every route also preserves an unrecorded record before it destroys the carrier. Until the memo catches up, `check` prints `REVIEW_UNRECORDED`.
+> | - **Schema.** `SeedReview.assert_line` is an int.
+> | - **`annotate --author` (M7.4).** Going through `AnnotateWith` with `AnnotateOptions{Origin: "agent:author"}` and an agent actor, the intent hook creates the adopted row for a first stamp, with origin `[agent:author]`, `by`, `adopted_at` and `stamp`. Enrich it (confidence 0.90, task, run) with `PutAdopted` on `RouteAnnotateAuthor`. An already-stamped pair gets no row from the hook, so `--author` must `PutAdopted` it explicitly.
