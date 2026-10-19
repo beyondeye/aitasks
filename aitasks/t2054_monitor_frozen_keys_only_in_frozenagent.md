@@ -3,12 +3,13 @@ priority: high
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [minimonitor, monitor, frozen_agents, keybindings]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 2049
 created_at: 2026-10-19 08:32
-updated_at: 2026-10-19 08:32
+updated_at: 2026-10-19 09:18
 ---
 
 ## Symptom
