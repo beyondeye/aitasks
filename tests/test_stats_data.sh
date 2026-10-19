@@ -103,7 +103,7 @@ else
     assert_fail "ait stats --csv writes a non-empty file" "csv missing or empty"
 fi
 
-if ./.aitask-scripts/aitask_stats.sh --help 2>&1 | grep -q -- "--plot"; then
+if ./.aitask-scripts/aitask_stats.sh --help 2>&1 | grep -- "--plot" >/dev/null; then
     assert_fail "ait stats --help no longer advertises --plot" "flag still present"
 else
     assert_pass "ait stats --help no longer advertises --plot"

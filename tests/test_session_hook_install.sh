@@ -290,16 +290,16 @@ pty_run_enter() {  # pty_run_enter <fixture-dir>
 E0="$(make_fixture e0_tty)"
 out_e0="$(pty_run 'Y' "$E0")"
 assert_eq "E0: the prompt is actually shown (a TTY was allocated)" "yes" \
-    "$(printf '%s' "$out_e0" | grep -q 'Install the session hook?' && echo yes || echo no)"
+    "$(grep -q 'Install the session hook?' <<<"$out_e0" && echo yes || echo no)"
 assert_eq "E0: 'auto-accepting default' did NOT fire under a TTY" "no" \
-    "$(printf '%s' "$out_e0" | grep -q 'auto-accepting default' && echo yes || echo no)"
+    "$(grep -q 'auto-accepting default' <<<"$out_e0" && echo yes || echo no)"
 assert_eq "E0: accepting installs the hook" "1" "$(count_hook "$E0/.claude/settings.json")"
 
 # E1: declining installs nothing, and setup still completes.
 E1="$(make_fixture e1_decline)"
 out_e1="$(pty_run 'n' "$E1")"
 assert_eq "E1: the decline is acknowledged" "yes" \
-    "$(printf '%s' "$out_e1" | grep -q 'Skipped Claude Code session hook' && echo yes || echo no)"
+    "$(grep -q 'Skipped Claude Code session hook' <<<"$out_e1" && echo yes || echo no)"
 assert_eq "E1: no .claude/settings.json was created" "no" \
     "$([ -f "$E1/.claude/settings.json" ] && echo yes || echo no)"
 
@@ -320,7 +320,7 @@ E2="$(make_fixture e2_reoffer)"
 pty_run 'n' "$E2" >/dev/null
 out_e2b="$(pty_run 'n' "$E2")"
 assert_eq "E2: the prompt is offered AGAIN after a previous decline" "yes" \
-    "$(printf '%s' "$out_e2b" | grep -q 'Install the session hook?' && echo yes || echo no)"
+    "$(grep -q 'Install the session hook?' <<<"$out_e2b" && echo yes || echo no)"
 assert_eq "E2: and still installs nothing" "no" \
     "$([ -f "$E2/.claude/settings.json" ] && echo yes || echo no)"
 # ...and a later YES still works.
@@ -350,9 +350,9 @@ EOF
 chmod +x "$DRIVER2"
 out_e4="$(python3 "$PROJECT_DIR/tests/lib/pty_drive.py" --answers 'n,Y' -- bash "$DRIVER2" "$E4" 2>&1)"
 assert_eq "E4: permissions were declined" "yes" \
-    "$(printf '%s' "$out_e4" | grep -q 'Skipped Claude Code permission settings' && echo yes || echo no)"
+    "$(grep -q 'Skipped Claude Code permission settings' <<<"$out_e4" && echo yes || echo no)"
 assert_eq "E4: the hook was STILL offered after that decline" "yes" \
-    "$(printf '%s' "$out_e4" | grep -q 'Install the session hook?' && echo yes || echo no)"
+    "$(grep -q 'Install the session hook?' <<<"$out_e4" && echo yes || echo no)"
 assert_eq "E4: and installing it works" "1" "$(count_hook "$E4/.claude/settings.json")"
 assert_eq "E4: settings.local.json was NOT written (permissions declined)" "no" \
     "$([ -f "$E4/.claude/settings.local.json" ] && echo yes || echo no)"
@@ -366,9 +366,9 @@ cp "$SEED_HOOKS" "$F1/.claude/settings.json"
 before_f1="$(cksum <"$F1/.claude/settings.json")"
 out_f1="$(pty_run 'Y' "$F1")"
 assert_eq "F: 'already installed' is reported" "yes" \
-    "$(printf '%s' "$out_f1" | grep -q 'session hook already installed' && echo yes || echo no)"
+    "$(grep -q 'session hook already installed' <<<"$out_f1" && echo yes || echo no)"
 assert_eq "F: and the consent prompt is NOT shown" "no" \
-    "$(printf '%s' "$out_f1" | grep -q 'Install the session hook?' && echo yes || echo no)"
+    "$(grep -q 'Install the session hook?' <<<"$out_f1" && echo yes || echo no)"
 assert_eq "F: settings.json untouched" "$before_f1" "$(cksum <"$F1/.claude/settings.json")"
 
 # ---------------------------------------------------------------------------
@@ -390,9 +390,9 @@ echo "rc=$rc"
 setup_claude_hooks </dev/null >/dev/null 2>&1 || true
 echo CONTINUED' _ "$PROJECT_DIR/.aitask-scripts/aitask_setup.sh" "$G1" 2>&1)"
 assert_eq "G: invalid settings.json -> setup_claude_hooks returns 1" "yes" \
-    "$(printf '%s' "$out_g1" | grep -qx 'rc=1' && echo yes || echo no)"
+    "$(grep -qx 'rc=1' <<<"$out_g1" && echo yes || echo no)"
 assert_eq "G: and an errexit caller using '|| true' continues" "yes" \
-    "$(printf '%s' "$out_g1" | grep -qx 'CONTINUED' && echo yes || echo no)"
+    "$(grep -qx 'CONTINUED' <<<"$out_g1" && echo yes || echo no)"
 
 assert_counters_load
 echo ""

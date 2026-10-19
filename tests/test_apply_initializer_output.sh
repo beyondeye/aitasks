@@ -109,7 +109,7 @@ if run_py "$TMP_CREW_BAD" "fixture_bad" 2>/tmp/initializer_err; then
     echo "FAIL: truncated output should have raised ValueError but run_py exited zero"
 else
     err_out="$(cat /tmp/initializer_err)"
-    if echo "$err_out" | grep -q "PROPOSAL_START/PROPOSAL_END"; then
+    if grep -q "PROPOSAL_START/PROPOSAL_END" <<<"$err_out"; then
         PASS=$((PASS + 1))
     else
         FAIL=$((FAIL + 1))

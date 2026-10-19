@@ -610,7 +610,7 @@ a_rc_14=$?
 
 # The load-bearing pair: it must NOT answer, and it must fail.
 assert_eq_trim "14: (A) never silently answers legacy" "no-answer" \
-    "$(printf '%s' "$a_out_14" | grep -q '^ANSWER:' && echo "ANSWERED:$a_out_14" || echo "no-answer")"
+    "$(grep -q '^ANSWER:' <<<"$a_out_14" && echo "ANSWERED:$a_out_14" || echo "no-answer")"
 assert_eq_trim "14: (A) refuses with a non-zero status" "nonzero" \
     "$([[ "$a_rc_14" -ne 0 ]] && echo nonzero || echo "zero")"
 assert_contains_ci "14: (A) the refusal names the cause" "could not be resolved" "$a_out_14"

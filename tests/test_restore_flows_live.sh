@@ -234,7 +234,7 @@ make_frozen() {
         make_frozen_fail "$window" "the freeze failed (${frozen_out:-no output})" "$hook_rid"
         return 1
     fi
-    if ! printf '%s\n' "$frozen_out" | grep -qxF "FROZEN:$hook_rid"; then
+    if ! grep -qxF "FROZEN:$hook_rid" <<<"$frozen_out"; then
         make_frozen_fail "$window" "the freeze did not report FROZEN:$hook_rid (got '$frozen_out')" \
             "$hook_rid"
         return 1

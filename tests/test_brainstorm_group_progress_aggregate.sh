@@ -70,9 +70,9 @@ print(f"FORMAT_FAILS:{fails}")
 PY
 )
 
-if echo "$format_test_out" | grep -q "^SKIP_FORMAT:"; then
+if grep -q "^SKIP_FORMAT:" <<<"$format_test_out"; then
     echo "SKIP: _format_progress_bar (textual unavailable in this env)"
-elif echo "$format_test_out" | grep -q "^FORMAT_FAILS:0$"; then
+elif grep -q "^FORMAT_FAILS:0$" <<<"$format_test_out"; then
     echo "PASS: _format_progress_bar produces expected bars across the input range"
     PASS=$((PASS + 1))
 else
@@ -112,7 +112,7 @@ print(f"AGG_FAILS:{fails}")
 PY
 )
 
-if echo "$agg_test_out" | grep -q "^AGG_FAILS:0$"; then
+if grep -q "^AGG_FAILS:0$" <<<"$agg_test_out"; then
     echo "PASS: aggregation arithmetic (mean → round → int) matches expected values"
     PASS=$((PASS + 1))
 else
@@ -172,9 +172,9 @@ print(f"INTEG:got={got}:expected={expected}")
 PY
 )
 
-if echo "$integ_test_out" | grep -q "^SKIP_INTEG:"; then
+if grep -q "^SKIP_INTEG:" <<<"$integ_test_out"; then
     echo "SKIP: _compute_group_progress (textual unavailable)"
-elif echo "$integ_test_out" | grep -q "^INTEG:got=38:expected=38$"; then
+elif grep -q "^INTEG:got=38:expected=38$" <<<"$integ_test_out"; then
     echo "PASS: _compute_group_progress reads agent YAMLs and averages correctly"
     PASS=$((PASS + 1))
 else
@@ -238,9 +238,9 @@ print(f"RESOLVE_FAILS:{fails}")
 PY
 )
 
-if echo "$resolve_test_out" | grep -q "^SKIP_RESOLVE:"; then
+if grep -q "^SKIP_RESOLVE:" <<<"$resolve_test_out"; then
     echo "SKIP: resolve_node_group (textual unavailable)"
-elif echo "$resolve_test_out" | grep -q "^RESOLVE_FAILS:0$"; then
+elif grep -q "^RESOLVE_FAILS:0$" <<<"$resolve_test_out"; then
     echo "PASS: resolve_node_group resolves direct + nodes_created + suffix drift"
     PASS=$((PASS + 1))
 else

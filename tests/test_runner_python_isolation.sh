@@ -57,12 +57,14 @@ check_runner() {
   # "PYTHONPATH") cannot trip the assignment check.
   body="$(grep -vE '^[[:space:]]*#' -- "$file")"
 
-  if printf '%s\n' "$body" | grep -qE '(^|[^A-Za-z_])PYTHONPATH='; then
+  # Here-strings, not `printf | grep -q`: $body is the whole runner (>4 KiB),
+  # so an early-exiting grep can SIGPIPE the writer under pipefail (t2056).
+  if grep -qE '(^|[^A-Za-z_])PYTHONPATH=' <<<"$body"; then
     echo "VIOLATION:seeds-pythonpath"
     rc=1
   fi
 
-  if ! printf '%s\n' "$body" | grep -qE '^[[:space:]]*unset[[:space:]]+PYTHONPATH[[:space:]]*$'; then
+  if ! grep -qE '^[[:space:]]*unset[[:space:]]+PYTHONPATH[[:space:]]*$' <<<"$body"; then
     echo "VIOLATION:missing-unset"
     rc=1
   fi

@@ -281,7 +281,7 @@ print(alu.attach_companion_cleanup_hook(
 }
 
 pane_exists() { ait_tmux display-message -p -t "$1" '#{pane_id}' >/dev/null 2>&1; }
-window_exists() { ait_tmux list-windows -t "$(ait_tmux_session_target "$SESSION")" -F '#{window_name}' 2>/dev/null | grep -qxF "$1"; }
+window_exists() { ait_tmux list-windows -t "$(ait_tmux_session_target "$SESSION")" -F '#{window_name}' 2>/dev/null | grep -xF "$1" >/dev/null; }
 pane_fmt() { ait_tmux display-message -p -t "$1" "$2" 2>/dev/null; }
 
 cp "$PROJECT_DIR/tests/lib/observe_pane_died.sh" "$FIXTURE_DIR/observe_pane_died.sh"

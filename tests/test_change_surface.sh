@@ -87,7 +87,9 @@ cs() { local d="$1"; shift; ( cd "$d" && "$CS" "$@" ); }
 # any occurrence (`TASK:` anywhere, `aitasks/` anywhere).
 assert_line() {
     local desc="$1" line="$2" output="$3"
-    if printf '%s\n' "$output" | grep -qxF -- "$line"; then
+    # A here-string, not `printf | grep -q`: under pipefail an early-exiting
+    # grep SIGPIPEs the writer and a present line reads as absent (t2056).
+    if grep -qxF -- "$line" <<<"$output"; then
         assert_record_pass
     else
         assert_record_fail
@@ -97,7 +99,7 @@ assert_line() {
 
 assert_no_line() {
     local desc="$1" line="$2" output="$3"
-    if printf '%s\n' "$output" | grep -qxF -- "$line"; then
+    if grep -qxF -- "$line" <<<"$output"; then
         assert_record_fail
         echo "FAIL: $desc (expected NO line exactly '$line', got '$output')"
     else

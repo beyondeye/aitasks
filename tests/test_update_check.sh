@@ -21,10 +21,12 @@ PASS=0
 FAIL=0
 TOTAL=0
 
+# Here-strings, not `echo | grep -q`: under pipefail an early-exiting grep
+# SIGPIPEs the writer and a present match reads as absent (t2056).
 assert_no_match() {
     local desc="$1" pattern="$2" haystack="$3"
     TOTAL=$((TOTAL + 1))
-    if echo "$haystack" | grep -qE -- "$pattern"; then
+    if grep -qE -- "$pattern" <<<"$haystack"; then
         FAIL=$((FAIL + 1))
         echo "FAIL: $desc"
         echo "  expected NOT to contain: $pattern"
@@ -38,7 +40,7 @@ assert_no_match() {
 assert_match() {
     local desc="$1" pattern="$2" haystack="$3"
     TOTAL=$((TOTAL + 1))
-    if echo "$haystack" | grep -qE -- "$pattern"; then
+    if grep -qE -- "$pattern" <<<"$haystack"; then
         PASS=$((PASS + 1))
     else
         FAIL=$((FAIL + 1))

@@ -172,7 +172,7 @@ assert_eq "defensive-case blob ref is the folded task pre-delete" "61" "$(meta_r
 out_h="$("$ATT" decref-deleted --protect-task 61 60 2>&1)"; h_rc=$?
 assert_eq "defensive no-op exits 0" "0" "$h_rc"
 TOTAL=$((TOTAL+1))
-if printf '%s\n' "$out_h" | grep -q ":${HND}"; then FAIL=$((FAIL+1)); echo "FAIL: HND should not appear in decref-deleted output"; else PASS=$((PASS+1)); fi
+if grep -q ":${HND}" <<<"$out_h"; then FAIL=$((FAIL+1)); echo "FAIL: HND should not appear in decref-deleted output"; else PASS=$((PASS+1)); fi
 assert_eq "unrelated revived-task blob ref untouched" "61" "$(meta_refs "$HND")"
 
 # ── B'. Unresolved --protect-task id is FATAL (fail-closed, Rule B) ────────────

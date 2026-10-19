@@ -827,7 +827,7 @@ while IFS='|' read -r helper rule; do
     assert_eq "27b $helper: the commit names only .gitignore" ".gitignore" \
         "$(git -C "$d" show --name-only --format='' HEAD)"
     assert_eq "27b $helper: rule committed" "yes" \
-        "$(git -C "$d" show HEAD:.gitignore | grep -qxF "$rule" && echo yes)"
+        "$(git -C "$d" show HEAD:.gitignore | grep -xF "$rule" >/dev/null && echo yes)"
     assert_eq "27b $helper: foreign file still staged" "foreign.txt" \
         "$(git -C "$d" diff --cached --name-only)"
     rm -rf "$d"
@@ -854,7 +854,7 @@ for mode in unstaged staged; do
     before="$(commit_count "$d")"
     snapshot_pre_setup_dirty
     assert_eq "27 $mode deletion: .gitignore in the baseline" "yes" \
-        "$(printf '%s\n' "$AIT_SETUP_DIRTY_BASELINE" | grep -qxF ".gitignore" && echo yes)"
+        "$(grep -qxF ".gitignore" <<<"$AIT_SETUP_DIRTY_BASELINE" && echo yes)"
     setup_python_cache_gitignore </dev/null >/dev/null 2>&1
     assert_eq "27 $mode deletion: no commit over the deletion" "$before" "$(commit_count "$d")"
     assert_eq "27 $mode deletion: HEAD .gitignore unchanged" "base-rule" \
@@ -891,7 +891,8 @@ rm -rf "$d"
 # staged rename must be baselined on both sides.
 echo "--- Test 28: baseline gates match the committers; staged renames (t1972) ---"
 
-has_line() { printf '%s\n' "$1" | grep -qxF -- "$2" && echo yes || echo no; }
+# A here-string, not `printf | grep -q`: no writer to SIGPIPE under pipefail (t2056).
+has_line() { grep -qxF -- "$2" <<<"$1" && echo yes || echo no; }
 
 # A standalone data worktree stand-in (same shape as Test 23).
 new_data_repo() {

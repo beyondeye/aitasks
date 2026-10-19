@@ -88,7 +88,7 @@ scan_files() {
         while IFS=: read -r n line; do
             trimmed="${line#"${line%%[![:space:]]*}"}"
             [[ "$trimmed" == '#'* ]] && continue
-            if printf '%s' "$(scrub_ansic "$line")" | grep -qE "$PATTERN"; then
+            if grep -qE "$PATTERN" <<<"$(scrub_ansic "$line")"; then
                 printf '%s:%s:%s\n' "$f" "$n" "$line"
             fi
         done < <(grep -nE "$PATTERN" "$f" 2>/dev/null)

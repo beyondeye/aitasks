@@ -171,7 +171,7 @@ read_record() {
 
 assert_sock_has_pane() {
     local listed=no
-    tmux -L "$SOCK" list-panes -a -F '#{pane_pid}' 2>/dev/null | grep -qx "$PANE_PID" && listed=yes
+    tmux -L "$SOCK" list-panes -a -F '#{pane_pid}' 2>/dev/null | grep -x "$PANE_PID" >/dev/null && listed=yes
     assert_eq "$1: precondition - \$SOCK serves the holder's pane" "yes" "$listed"
 }
 assert_nosrv_empty() {

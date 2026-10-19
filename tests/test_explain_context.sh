@@ -385,7 +385,7 @@ fi
 # Test 20: Shellcheck passes (info-level SC1091 is acceptable)
 TOTAL=$((TOTAL + 1))
 sc_output=$(shellcheck "$SCRIPT" 2>&1 || true)
-if echo "$sc_output" | grep -q "SC[0-9]" && ! echo "$sc_output" | grep -q "SC1091"; then
+if grep -q "SC[0-9]" <<<"$sc_output" && ! grep -q "SC1091" <<<"$sc_output"; then
     FAIL=$((FAIL + 1))
     echo "FAIL: shellcheck reported issues other than SC1091: $sc_output"
 else

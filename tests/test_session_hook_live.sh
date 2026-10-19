@@ -124,7 +124,7 @@ fi
 # THE assertion this module exists for.
 assert_eq "A8: @aitask_record is really set on the pane" "$stored_id" "$(pane_opt @aitask_record)"
 assert_eq "A8: the stamp is a canonical 8-hex record id" "yes" \
-    "$(printf '%s' "$(pane_opt @aitask_record)" | grep -Eq '^[0-9a-f]{8}$' && echo yes || echo no)"
+    "$(grep -Eq '^[0-9a-f]{8}$' <<<"$(pane_opt @aitask_record)" && echo yes || echo no)"
 assert_eq "@aitask_agent_session carries the payload session id" "$SID" "$(pane_opt @aitask_agent_session)"
 
 echo "--- the record carries what the payload and pane said ---"

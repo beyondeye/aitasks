@@ -671,12 +671,12 @@ PAY="$PAYLOAD_WRAPPER"
 OUT1="\$("\$ASK" --relay-dir "\$RELAY" --text "Which module?" \
     --header "Module" --option "parser::p" --option "renderer::r" \
     --timeout 30)"
-echo "\$OUT1" | grep -q "STATUS:answered" || exit 10
+grep -q "STATUS:answered" <<<"\$OUT1" || exit 10
 CHOSEN="\$(echo "\$OUT1" | sed -n 's/^VALUE://p')"
 # Q2: nobody answers — must proceed on timeout (fail-safe), not die
 OUT2="\$("\$ASK" --relay-dir "\$RELAY" --text "Repro steps?" \
     --free-text --timeout 1)"
-echo "\$OUT2" | grep -q "STATUS:timeout" || exit 11
+grep -q "STATUS:timeout" <<<"\$OUT2" || exit 11
 # Final act: write the payload via the real helper
 printf 'Chosen: %s (Q2 timed out; default taken)\n' "\$CHOSEN" \
     | "\$PAY" --relay-dir "\$RELAY" --name fake_fix --title "Fake fix" \

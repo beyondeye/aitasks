@@ -52,8 +52,7 @@ scan_unnumbered() {
             t[0-9]*_*.md)
                 # Has a leading number and at least one underscore — now insist
                 # on the full shape, so `t12x_foo.md` or `t12_.md` still fail.
-                printf '%s\n' "$p" \
-                    | grep -qE '/t[0-9]+(_[0-9]+)?_[^/]+\.md$' \
+                grep -qE '/t[0-9]+(_[0-9]+)?_[^/]+\.md$' <<<"$p" \
                     || printf '%s\n' "$p"
                 ;;
             *)
