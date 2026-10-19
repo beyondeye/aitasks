@@ -45,6 +45,13 @@ depth: [advanced]
 | **y** | Sync missing groups from repo configs | Project Groups |
 | **f** | Refresh groups from the registry | Project Groups |
 | **?** | Toggle field description (summary/expanded) | Profiles |
+| **Tab** / **Shift+Tab** | Move focus between the profile selector, search box, fields and buttons | Profiles |
+| **w** | Save the selected profile (after a confirmation; only when it has unsaved changes) | Profiles |
+| **v** | Revert the selected profile's unsaved changes | Profiles |
+| **x** | Delete the selected profile (after a confirmation) | Profiles |
+| **Enter** | Open the shortcut editor for the selected row's scope | Shortcuts |
+| **d** | Reset scope — clear every override for the selected row's scope (after a confirmation) | Shortcuts |
+| **l** | Lint coherence — report actions that should share a key across TUIs but have drifted apart | Shortcuts |
 | **Escape** | Close dialog or cancel | Modals |
 
 ### Mouse Interactions
