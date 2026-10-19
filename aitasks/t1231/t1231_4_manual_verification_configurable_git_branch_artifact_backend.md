@@ -44,3 +44,16 @@ archived; Defer is allowed but creates a carry-over task.
 - [ ] [t1231_3] Confirm the settings reference tables now match the live TUI — every tab, every key, including the previously-missing Shortcuts row.
 - [ ] [t1231_3] Prove the drift guard bites: remove the gitbranch row from concepts/artifacts.md, run bash tests/test_website_doc_lists.sh, confirm it exits 1, then restore the row by undoing the edit (not via git checkout).
 - [ ] [t1231_3] Confirm `cd website && hugo build --gc --minify` succeeds.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1231_2** id=2026-10-19T10:06:12Z.8d566e073ef46ff5ed50e8ee from=t1231_2 from_verified=yes at=2026-10-19T10:06:12Z base=7b357af39d25cd5b5b35b2b66b20440c27050199 base_branch=main dirty=yes host=omg16
+>
+> | t1231_2 (Artifacts settings tab) is committed in 7b357af39 (not yet archived as of writing). Advisory context for the [t1231_2] checklist items; verify against the code:
+> | 
+> | - The tab key is `k` (the tab title renders "(K) Artifacts"; the hint reads a/b/c/g/k/m/p/s/t).
+> | - Line 39's check: `artifact_registry.py` has no execute bit, so run it as `python3 .aitask-scripts/lib/artifact_registry.py --config <cfg> default-backend`.
+> | - Exercise the tab in a scratch project, not this repository: saving rewrites project_config.yaml through yaml.safe_dump and drops every comment, including the seeded artifacts: block (accepted at planning; t1260 owns the fix).
+> | - The selector also offers `dir`, but the tab has no row for dir.path. Save refuses `dir` as the default unless a valid absolute `artifacts.backends.dir.path` is already written into the YAML by hand. The registry's `backend-env dir` check makes that decision.
+> | - Worth a manual look: an invalid or reserved branch (e.g. `main`) keeps the edit dialog open with a red error, and changing an existing branch shows a warning toast naming `ait artifact gitbranch-migrate --from <old> --to <new>`.
