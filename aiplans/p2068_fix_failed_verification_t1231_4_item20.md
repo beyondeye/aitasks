@@ -73,3 +73,10 @@ None identified.
 
 ### Goal-achievement risk: low
 None identified.
+
+## Final Implementation Notes
+- **Actual work done:** Added seven rows to the **Within Tabs** table in `website/content/docs/tuis/settings/reference.md` — Profiles `Tab`/`Shift+Tab`, `w`, `v`, `x`; Shortcuts `Enter`, `d`, `l` — placed after the existing Profiles `?` row and before the `Escape` / Modals row.
+- **Deviations from plan:** None. The separate `hugo build` sanity check was not run on its own, because `check_links.py --build` already renders the site with Hugo (`SWEEP: PASSED`).
+- **Issues encountered:** None. The working tree held unrelated uncommitted edits from concurrent sessions; only `reference.md` was committed.
+- **Key decisions:** Also added the Shortcuts-tab `Enter` row (it opens `ShortcutEditorModal`; `settings_app.py` `on_data_table_row_selected`), even though the verifier did not list it. It is a tab key that was equally missing, and the verification criterion was "every key". The ←/→ option cycling shown in the Board / Profiles hint lines is still listed only under Artifacts. That gap was not flagged by the verifier and was left out of scope.
+- **Upstream defects identified:** None
