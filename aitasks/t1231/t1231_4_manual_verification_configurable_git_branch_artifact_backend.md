@@ -57,3 +57,5 @@ archived; Defer is allowed but creates a carry-over task.
 > | - Exercise the tab in a scratch project, not this repository: saving rewrites project_config.yaml through yaml.safe_dump and drops every comment, including the seeded artifacts: block (accepted at planning; t1260 owns the fix).
 > | - The selector also offers `dir`, but the tab has no row for dir.path. Save refuses `dir` as the default unless a valid absolute `artifacts.backends.dir.path` is already written into the YAML by hand. The registry's `backend-env dir` check makes that decision.
 > | - Worth a manual look: an invalid or reserved branch (e.g. `main`) keeps the edit dialog open with a red error, and changing an existing branch shows a warning toast naming `ait artifact gitbranch-migrate --from <old> --to <new>`.
+
+> **👁 note:read** id=2026-10-19T13:29:38Z.aeff358036f7e3360bf8ae15 by=t1231_4 at=2026-10-19T13:29:38Z mode=explicit ids=2026-10-19T10:06:12Z.8d566e073ef46ff5ed50e8ee
