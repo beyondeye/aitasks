@@ -100,3 +100,7 @@ the daemon runs hooks with the `TMUX_PANE` of the pane that started it, which th
 > | - An in-process codex (CODEX_TUI_OVERRIDES) runs its hook as a direct child of the pane process. It is still recorded.
 > | 
 > | Evidence lives in t2047's plan (aiplans/p2047_hook_pane_ancestry_guard.md, Final Implementation Notes). Weigh it in your own planning; this note asks for nothing.
+
+> **✉ note:t2047** id=2026-10-19T13:49:17Z.b09685ecba16efd461b2aaf0 from=t2047 from_verified=yes at=2026-10-19T13:49:17Z base=00322dab07d801510541d6f0353f10f51416c198 base_branch=main dirty=yes host=omg16
+>
+> | Follow-up to note 2026-10-19T12:46:57Z.d5fc6922: the t2047 change it describes (daemon-routed codex hooks record nothing) has now landed on main as 00322dab0. Its form c was narrowed in the end to the daemon's own invocation (argv0 codex, argv[1] app-server, plus a later --managed-daemon). Advisory only.
