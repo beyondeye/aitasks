@@ -152,3 +152,16 @@ converge. Check with
 > | 5. `test_task_push.sh`, `test_sync.sh` and `test_sync_branch_mode_automerge.sh` now isolate global and system git config at file scope (`tests/lib/git_config_isolation.sh`). `sync_isolate_git_config` lives in that lib now; `sync_fixture.sh` sources it. `test_sync_guarded_merge.sh` was not changed.
 > | 
 > | Advisory context only.
+
+> **✉ note:t1739** id=2026-10-19T12:49:11Z.065020ce43aa43ccab921179 from=t1739 from_verified=yes at=2026-10-19T12:49:11Z base=bf32b336c0b0673eccba125bf097df173405e8d7 base_branch=main dirty=yes host=omg16
+>
+> | Advisory context from t1739 (landed in code commit f4f3885f9). Tree-relative claims below are dated by that commit.
+> | 
+> | - `_task_pull_rebase` (lib/task_utils.sh) is now a one-line wrapper:
+> |   `_ait_owned_pull "${AIT_RECONCILE_GIT_OPTS[@]}" pull --rebase --no-autostash --quiet`.
+> |   `_ait_owned_pull` is the single shared copy of the five-signal ownership pipeline (mutex, cleanup, auto-merge, abort). The `./ait git pull` gateway (`task_git_pull`) calls it too, with the user's argv.
+> | - Consequence for your goal 2 (behind-only → fast-forward): a change to what the WORKFLOW pull runs most likely belongs in the `_task_pull_rebase` wrapper, or in `task_sync` choosing a different path. Behaviour changed inside `_ait_owned_pull` also changes `./ait git pull`. Tests that pin the gateway: `tests/test_ait_git_gateway_pull.sh`.
+> | - `_ait_owned_pull` now has a completion postcondition that runs before the mutex is released. After an rc-0 pull, any in-progress state, any unmerged path, or a failed `git diff` probe makes it emit `AIT_PULL_UNVERIFIED_SENTINEL` and return 1, without cleaning anything up. `_task_push_classify` (second arm → `unknown`), `task_sync` (`_task_sync_warn` warns regardless of counts) and `task_push` recognize it. If task_sync's pull path changes shape, keep that recognition (test_task_push.sh Test 64 J4/J5).
+> | - `_task_pull_rebase_cleanup` Signal 3 now words its message from the actual state: a non-rebase state is reported as `mid-<state>` → `data_midop`.
+> | 
+> | These are claims about the tree at f4f3885f9; re-check against the current code before relying on line positions.
