@@ -327,3 +327,96 @@ Per task-workflow Step 9: review, commit, `risk_evaluated` gate, archival.
 
 ### Goal-achievement risk: low
 - Changing the branch after a store exists breaks gitbranch ops until migrated; the pane warns but cannot detect a store · severity: low · → mitigation: none — the ops fail closed with the migrate message (t1231_1), and the warning names the command
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-19 12:40)
+- **Requested by user:** two verified defects:
+  1. `default_backend: "[/bold]"` crashed the tab with `MarkupError` —
+     `CycleField.render` interpolated options (and the label) into markup, and
+     the pane deliberately shows an unrecognised configured value as-is;
+  2. a YAML branch containing a NUL byte crashed Save — `subprocess.run`
+     raises `ValueError: embedded null byte`, which `_run_artifact_registry`
+     (documented as never-raises) did not catch.
+- **Changes made:**
+  1. `lib/profile_editor.py` `CycleField.render` now `escape()`s the label and
+     every option (raw values unchanged for selection/registry; rendered width
+     still `len(opt)`, which `_option_index_at` relies on). Fixed at the shared
+     widget rather than per caller: no caller passes markup there, and
+     `compose_profile_fields` has the same inserted-config-value shape.
+  2. `_run_artifact_registry` also catches `ValueError` → `rc=1` with
+     "cannot run the artifact registry: …"; no registry rule is re-encoded.
+  3. Traced the same untrusted text into the toasts: refusal notifications
+     quote the rejected value (registry `%r`) and old branch names come from
+     the YAML, so every interpolated notify text in the tab is now escaped.
+     Probed Textual 8.2.7: a toast tolerates broken markup (no crash), so this
+     is about literal display — unescaped, `[b]x[/b]` renders as a bold "x".
+- **Tests added** (`tests/test_settings_artifacts_tab.py`, now 17): the
+  notify spy now passes through to the real `notify`;
+  `HostileValueTests` — `[/bold]` default renders (raw value kept) and is
+  refused via the real Save button with zero writes; the refusal toast shows
+  `[b]x[/b]` literally (checked through `Content.from_markup(...).plain`); a
+  YAML `"bad\0branch"` is refused through the Save button without crashing.
+  **Red proof** (isolated copies): un-escaping `CycleField` → MarkupError;
+  un-escaping the notify → literal-toast test fails; dropping `ValueError` →
+  `ValueError: embedded null byte`.
+- **Regression:** every suite touching `CycleField` / `profile_editor` /
+  `agent_command_screen` / the chatlink wizard / `settings_app` (43 files,
+  1067 tests, pytest `-n 4 --dist loadfile`) passes.
+- **Files affected:** `.aitask-scripts/lib/profile_editor.py`,
+  `.aitask-scripts/settings/settings_app.py`,
+  `tests/test_settings_artifacts_tab.py`
+
+## Final Implementation Notes
+- **Actual work done:** An **Artifacts** tab in `ait settings` (key `k`,
+  between Project Groups and Models in the hint order `a/b/c/g/k/m/p/s/t`)
+  editing `artifacts.default_backend` (a `CycleField` fed by
+  `artifact_registry.py adapters`) and `artifacts.backends.gitbranch.branch`
+  (a `ConfigRow` edited through the new `EditArtifactBranchScreen`, which runs
+  `validate-ref` before it dismisses). Save (`save_artifacts_settings`) guards
+  the three nesting levels, validates a non-empty branch, refuses a gitbranch
+  default with no branch, builds the candidate from copies of the existing
+  sections (unknown keys survive, emptied sections are dropped), then asks the
+  registry about a temp copy of the candidate — `default-backend`, plus
+  `backend-env <default>` for a non-local default — and only then calls
+  `ConfigManager.save_project_settings` (which commits). Selecting gitbranch
+  with an empty branch prefills `aitask-artifacts` in the pane. A branch change
+  notifies the exact `ait artifact gitbranch-migrate --from … --to …` command.
+  The section hint states that saving drops the file's comments.
+- **Deviations from plan:** none beyond the plan's own verification findings
+  (key `k` because `o` is taken; `dir` handled through the registry check) and
+  the two plan-review rounds (`backend-env <default>`; shape guards; no check on
+  a registered-but-inactive gitbranch entry, which would break
+  clear-and-preserve). Post-review: `CycleField.render` escapes label/options
+  (shared fix in `lib/profile_editor.py`), `_run_artifact_registry` catches
+  `ValueError`, notify text is escaped — see Change Request 1.
+- **Issues encountered:** the registry script has no +x bit, so the seam runs
+  it with `sys.executable`; the test fixture is not a git repo, so every save
+  in the tests also raises the expected "saved but NOT committed" toast (tests
+  assert on "Not saved" refusals, not on the absence of any error). Textual
+  8.2.7 toasts tolerate broken markup, so the toast escape is pinned by a
+  literal-display test (`Content.from_markup(...).plain`), not a crash test.
+- **Key decisions:** every rule stays in `artifact_registry.py` (ref shape,
+  reserved names, registration, required backend keys, absolute dir path); the
+  pane re-encodes none of it and validates the whole candidate through the
+  registry against a temp file. No `dir.path` row — a `dir` default saves only
+  when a valid `backends.dir.path` already exists in the YAML. No store
+  detection for the branch-change warning (advisory, always shown on change).
+  `local` as default is written as "key absent" (unset ⇒ default).
+- **Upstream defects identified:** None
+- **Notes for sibling tasks:**
+  - t1231_3 (docs): the tab is **Artifacts**, key `k`; it edits
+    `artifacts.default_backend` (options = `ait`'s available adapters: `local`,
+    `dir`, `gitbranch`) and `artifacts.backends.gitbranch.branch`. A `dir`
+    backend is not configurable in the tab — its `path` must be hand-written
+    (absolute) before `dir` can be saved as the default. Save rewrites
+    `project_config.yaml` without comments (t1260 owns comment preservation).
+    The settings reference tables must now list nine tabs, incl. the
+    already-missing Shortcuts tab.
+  - t1231_4 (manual verification): exercise in a scratch project, not this
+    repo — a save strips the real `project_config.yaml`'s comments.
+  - Pattern: to validate a config edit against a CLI authority before
+    persisting, dump the candidate to a temp file and run the authority's own
+    verbs on it (`_artifacts_candidate_error`), rather than re-encoding rules.
+  - `CycleField` (lib/profile_editor.py) now renders label/options literally;
+    a caller that wanted markup there would need a different widget.
