@@ -92,3 +92,15 @@ The implementation plan must begin with `Step 0 — Reality check`: inspect land
 > |   - BOM files with no slot (annot.ErrByteOrderMark).
 > | - Sidecar-only annotations were evaluated and NOT adopted (report section 4.8). annot.Apply stays the sole writer, and no second writer is needed.
 > | - Known Kotlin defect (t1990): Kotlin 2.2 multi-dollar strings can make the reader accept a write inside a raw string. Until t1990 lands, treat such files as a risk in any automated Kotlin repair.
+
+> **✉ note:t1853_6** id=2026-10-19T09:18:17Z.91b4a10ad83982c004345234 from=t1853_6 from_verified=yes at=2026-10-19T09:18:16Z base=093d98a197a65931bdd6f104d4a919f965dfc0ee base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from t1853_6 (M2.6 adoption tables). It describes the tree as of aaeb10b0f, so verify it against the code.
+> | 
+> | `ADOPTED_ORPHAN:<test>|<source>` (Info) reports an adopted.yaml provenance row whose edge carries no stamp, for example after someone removes a covers line by hand. No verb repairs it yet.
+> | 
+> | A repair must go through M2.6's write routing:
+> | - add a dedicated route (e.g. `RouteRepair`) allowing `DeleteAdopted` / `RemoveSeed` in `registry/adoption_write.go` (`routeOps` + `routeFileOrder`);
+> | - never write the file directly.
+> | 
+> | Note that the routing preserves an unrecorded review record (a `verifies` adoption's replay data) into onboard.yaml `reviews[]` before deleting its carrier. A repair that deletes such a row will therefore also write onboard.yaml.
