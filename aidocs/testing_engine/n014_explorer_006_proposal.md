@@ -414,7 +414,7 @@ name these rows; they do not restate them.
 | data | location and schema | written by |
 |---|---|---|
 | seed queue | `aitestmap/registry/seeded.yaml` rows `{test[#member], covers, origin[], confidence, evidence{static: file:line, convention: pair, cochange: [task ids], plan: path, prose: line, coverage: run id, observed: run id, agent_review?}, proposed_at, verdict?}` — `evidence.agent_review {verdict, assert_line?, rationale, by, run, packet_sha, test_blob, unsure: n, at}` once reviewed | `onboard seed --apply`; `attribute --propose`; `onboard adopt --agent-verdicts` (adds the origin and the verdict; parks; removes a row only when it adopts it); rows removed by `onboard adopt` / `onboard reject` |
-| adopted-edge provenance | `aitestmap/registry/adopted.yaml` rows `{test, source, origin[], confidence, adopted_at, task, by, run?, rationale?, assert_line?, packet_sha?, test_blob?, source_blob?, evidence{static: <relation or none>}?}` — `by` is `human:<email>`, `agent:<agent-string>` or `auto` | `onboard adopt --class` (a person, or `--auto` over a rule or measurement class); `onboard adopt --agent-verdicts` (a `verifies` verdict); `annotate --author`; rows deleted when `verify`, `annotate`, `stale --confirm-source` or a per-row `adopt` re-stamps that edge |
+| adopted-edge provenance | `aitestmap/registry/adopted.yaml` rows `{test, source, origin[], confidence?, adopted_at, task?, by, run?, rationale?, assert_line?, packet_sha?, test_blob?, source_blob?, stamp?, evidence{static: <relation or none>}?}` — `by` is `human:<email>`, `agent:<agent-string>` or `auto`; `confidence` is absent when nothing measured it (a machine first stamp); `stamp` is the `<date>/<blob10>` the row vouches for, refreshed by an automated re-stamp; a `verifies` adoption's `by` / `run` / `packet_sha` / `test_blob` are its review record's replay data | `onboard adopt --class` (a person, or `--auto` over a rule or measurement class); `onboard adopt --agent-verdicts` (a `verifies` verdict); `annotate --author`; `annotate` / `verify` / `annotate --from-body` by an `agent:` or `auto` actor for an edge's first stamp (written before the test file); rows deleted when a human `verify`, `annotate`, `stale --confirm-source` or a per-row `adopt` re-stamps that edge |
 | phase ledger | `aitestmap/onboard.yaml` `{contract, task, level, phases{detect, inventory, seed, waivers, enable, full_run, adopt, review: {status, at, by, counts{reviewed, adopted, parked, unsure}, partial}, classify, scaffold, finish: {status, at, by, counts}}, rejections[] {test, source, reason, by, run?}, reviews[] {test, source, verdict, test_blob, packet_sha, run, by}, kind_proposals[] {test, kind, reason, at}, calibration[] {run, agree, disagree, ratio, ground_truth, at}}` — `reviews[]` is the verdict memo so a pair is read once per test blob per reader; a `rejections[]` row without `by:` reads as a person's | the engine's `onboard` verbs; read by `onboard status`, `readiness`, `report_testmap_state()`, the skill's re-entry |
 | seed dump for review | `.aitask-testmap/onboard/<run-id>/seed.json` (gitignored), attached to the level task with `ait attach` | `onboard seed --json --out` |
 | review packets as files | `.aitask-testmap/onboard/<run-id>/review/<n>.txt` (gitignored): the same line-protocol packet `onboard review` prints, ≤ `agent_review.batch` pairs each, grouped by test file, one file per crew agent | `onboard review --out <dir>`; read by crew agents; their `_output.md` fed back by `onboard review --collect <crew-id>` |
@@ -442,8 +442,9 @@ Every line class is defined once. This table says where.
 | `MODE:` `TASK:` `INTAKE:` `POLICY:` `SELECTED:` `RUN:` `RESULT:` `VERDICT:` `REASON:` `DETAIL:` `LOG:` `TESTMAP_ABSENT:` `ENGINE_MISSING:` `NO_TASK:` `AMBIGUOUS_TASK:` `UNANNOTATED_TEST:` `HINT:` and the exit table | *The Run Surface* |
 | `TESTMAP:` `RUNNER:` `FULL_GATE:` `GATE:` `AGENT_REVIEW:` `VERBS:` `AXES:` `RESOURCE:` `NEW_TEST:` `DOCS:` `NOTES:` `ONBOARD_NEXT:` | *The Run Surface* → `--howto` |
 | `POLICY_FLIPPED:` `POLICY_DEMOTED:` `POLICY_WRITE:` `POLICY:auto\|…` `CADENCE:` `READINESS:` `READINESS_DECISION:` | *The Workflow Seam* → Completion policy; components *Completion policy*, *Auto completion policy* |
-| `SEED:` `SEED_HELPER:` `SEED_READS:` `SEED_KIND:` `SEED_BATCH_NO:` `SEED_MEMBER:` `SEED_AXIS:` `SEED_HISTORY:` `SEED_SHADOWED` | component *Seeder*; *The Adoption Model* |
-| `ADOPT_REFUSED:` `ADOPT_SKIP:` `ADOPT_SUMMARY:` `WROTE:` `REJECT_REFUSED:` `ADOPTED_ORPHAN` | *The Adoption Model* → Placement |
+| `SEED:` `SEED_HELPER:` `SEED_READS:` `SEED_KIND:` `SEED_BATCH_NO:` `SEED_MEMBER:` `SEED_AXIS:` `SEED_HISTORY:` `SEED_SHADOWED` `SEED_REJECTED` | component *Seeder*; *The Adoption Model* |
+| `ADOPT_REFUSED:` `ADOPT_SKIP:` `ADOPT_SUMMARY:` `WROTE:` `REJECT_REFUSED:` `ADOPTED_ORPHAN` `REVIEW_UNRECORDED` | *The Adoption Model* → Placement |
+| `ADOPTION_ROUTE:` `ADOPTION_CONFLICT:` `ADOPTION_PARTIAL:` | component *Registry loader and writer* (M2.6 write routing) |
 | `REVIEW_PAIR:` `REVIEW_ANCHOR:` `REVIEW_TEST:` `REVIEW_SOURCE:` `REVIEW_PROSE:` `REVIEW_MEMBER:` `REVIEW_END:` `REVIEW_BATCH:` `REVIEW_MEMO:` `VERDICT:<id>\|…` `VERDICT_INVALID:` `VERDICT_STALE:` `REVIEW_APPLIED:` `REVIEW_PARKED:` `REVIEW_HUMAN:` `UNSURE:` `REVIEW_AGREEMENT:` `REVIEW_ORIGIN_DEMOTED` `CALIBRATION:` | *The Agent Review Pass* |
 | `AUTHOR_STAMPED:` `AUTHOR_REFUSED:` `AUTHOR_UNCORROBORATED:` | *The Agent Review Pass* → The authoring site; component *Author annotation* |
 | `FRAMEWORK:` `UNIVERSE:` `UNLISTED:` `AGGREGATE_RUNNER:` `SERIAL_LIST:` `RESOURCE_HINT:` `SUITE_CANDIDATE:` `RUNNER_SCRIPT_NEEDED:` `DETECT_DIFF:` `DETECT_UNKNOWN` `UNREGISTERED:` `CLASSIFY:` `KIND_PROPOSALS:` `FINISH:` `SCAFFOLD_TODO` | component *Onboarding verbs*; *Onboarding* (`CLASSIFY:` in component *Scoped-row registry and areas*) |
@@ -1070,7 +1071,10 @@ prints the same two summary lines; `readiness` prints `ADOPTED_UNREVIEWED`,
 status` is the one place every ratio lives. Two load rules keep the states
 disjoint: a seed with the same `(test, covers)` as any stamped edge is
 dropped at load with `SEED_SHADOWED`; an adopted row whose edge no longer
-carries a stamp is `ADOPTED_ORPHAN`.
+carries a stamp is `ADOPTED_ORPHAN`. A third keeps a rejection final: a seed
+whose pair is in `rejections[]` neither selects nor counts
+(`SEED_REJECTED`). All three are informational on `check`, which also
+prints the two counts as summary lines outside its finding totals.
 
 ### The autonomous floor
 
@@ -2163,6 +2167,54 @@ automated re-stamp through the same verbs refreshes the row and keeps its
 `by:` — a machine claim is never turned into a reviewed edge; `verify` and
 `annotate` reach this through a post-re-stamp hook M2.2 leaves and M2.6
 fills.
+
+**The adoption tables as built (M2.6).** The decisions the component above
+leaves open, as implemented:
+
+- *Load rules.* They run after every registry file loaded (a post-load
+  phase, so file-name order does not matter) against the persisted stamped
+  edges; `check` re-judges them against the live annotation edges. A seed
+  whose pair is a stamped edge is `SEED_SHADOWED`, one whose pair is in
+  `rejections[]` is `SEED_REJECTED`, an adopted row with no stamped edge is
+  `ADOPTED_ORPHAN`; all three are Info. `SEEDED:` / `ADOPTED:` are summary
+  lines: always printed, after the findings and before `CHECK:`, never
+  failing and never counted in `CHECK:`.
+- *Machine first stamps.* A machine claim is never turned into a reviewed
+  edge, also when it is new: when `annotate`, `verify` or `annotate
+  --from-body` gives an edge its first stamp (an inserted covers line or an
+  existing unstamped one) for an `agent:` or `auto` actor, the edge gets an
+  `adopted.yaml` row `{origin: [<origin> or annotate], adopted_at, by,
+  stamp}` — written before the test file, so a failure never leaves the stamp
+  without it. An edge that already carried a stamp never gains a row; an
+  unspecified actor's first stamp gets none.
+- *Write routing.* Every writer of the three files opens a write on its
+  route and may perform only that route's ops (`ADOPTION_ROUTE:<route>|<op>`
+  otherwise). One exclusive lock, in the git directory, serialises
+  cooperating writers. The whole write set is rendered, re-parsed and
+  validated, and every target re-read, before the first write
+  (`ADOPTION_CONFLICT:<path>`, exit 75, for a file changed since it was
+  read). Files are written one at a time in a per-route order — a record
+  that replaces a queue entry (a rejection, a provenance row) before the
+  queue removal, the `reviews[]` memo after the effects it records — and a
+  failure after a write is `ADOPTION_PARTIAL:<failed>|<wrote>`; every op is
+  idempotent by key, so re-running the verb converges. There is no
+  cross-file atomicity.
+- *Review records.* A reading's replay data (`by`, `run`, `packet_sha`,
+  `test_blob`) is required on the rows it changes (a seed's
+  `evidence.agent_review`, a `verifies` adoption's row), so the memo is
+  derivable from them: readers take `reviews[]` together with those records
+  (the packet selector's eligibility is a live seed with no record for its
+  test bytes and reader), a review-route commit back-fills missing memo rows
+  (`REVIEW_UNRECORDED` until then), and any commit that would destroy or
+  change a record's last carrier first writes the record to `reviews[]`,
+  writing nothing else when that fails.
+- *Preservation.* Writers edit an existing file by splicing rows: untouched
+  block-style rows and every other key keep their bytes. A flow-style or
+  empty table is normalised to block style when it is edited — unrelated row
+  values and unknown fields are kept, formatting and comments inside that
+  table are not. A file whose top-level mapping is itself in flow style is
+  refused with nothing written, and every write checks that each other
+  top-level key still decodes to the same value.
 `costs/policy.yaml` is read by the front and written by the engine (M8.5).
 Golden tests pin the core merges and the id grammar (M2.1) and the two
 adoption-table merges, the `by:` merge, the absent-`by:` rule and the shadow
@@ -2350,11 +2402,17 @@ never written. A Python module docstring is read, never written:
 - `--by` takes `human:<email>`, `agent:<agent-string>` or `auto`. It defaults
   to `agent:$AIT_AGENT_STRING`, else unspecified. Only an explicit `human:` is
   a person.
-- Once every file is written, the post-re-stamp hook
-  (`annot.RegisterRestampHook`, which M2.6 fills) receives every edge
+- Once every edit is planned and before the first file is written, the
+  intent hook (`annot.RegisterStampIntentHook`) receives the edges about to
+  be written; an error there writes no test file. Once every file is written,
+  the post-re-stamp hook (`annot.RegisterRestampHook`) receives every edge
   (`added` / `restamped` / `current`, with the stamps before and after) and
   the actor. After an error it does not run, which keeps provenance — the safe
-  direction.
+  direction. M2.6 fills both: provenance for an automated first stamp in the
+  intent phase, refresh or deletion after. Both return the files they wrote,
+  reported as `WROTE:` in write order; a verb that fails after writing still
+  prints `WROTE:` for what landed (no `STAMP` / `STAMPS` line; `--json`
+  carries `"incomplete": true`) before its error.
 - The arms of `annotate` register in M2.2's `annotateArms` table
   (`cmd/ait-testmap/annotate.go`). An arm that has not landed is
   `NOT_IMPLEMENTED:annotate --<arm>`, exit 64 (`--author`, M7.4).
