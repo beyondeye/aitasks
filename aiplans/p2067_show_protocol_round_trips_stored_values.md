@@ -159,3 +159,57 @@ record prints one RECORD line; `show <id> --bogus` exits 2.
 
 ### Goal-achievement risk: low
 None identified.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-20 12:20)
+- **Requested by user:** `cmd_show` dispatched on `"${2:-}"`, so an explicit empty
+  second argument read as an absent one: `show <id> "" --bogus` exited 0 and
+  printed the record, and `show <id> "" --json` silently printed the plain form.
+  Reject anything beyond the optional trailing `--json` and cover the empty
+  argument.
+- **Changes made:** `cmd_show` now dispatches on the argument count — exactly one
+  argument → plain `show`; exactly two with `$2 = --json` → JSON; anything else →
+  `die_usage` (exit 2) before anything is printed. New Test 11 in
+  `tests/test_agent_sessions_concurrency.sh`: `show --json` is one RECORD line;
+  `--bogus`, `""`, `--json extra`, `-- --json`, `--json --json` and `"" --json`
+  each exit 2 and print nothing. Red proof: against the previous `case` form the
+  four empty-argument assertions fail (38/42); fixed form passes 42/42.
+- **Files affected:** `.aitask-scripts/aitask_agent_sessions.sh`,
+  `tests/test_agent_sessions_concurrency.sh`
+
+## Final Implementation Notes
+- **Actual work done:** `agent_sessions.py show <id> --json` prints one
+  `RECORD:<json>` line through a shared `_record_line` (also used by
+  `list --full`); the wrapper accepts exactly `show <id> [--json]`.
+  `frozen_ops.store_show` reads `show --json` (`{}` unless exactly one record
+  decodes) through `_decode_record`, shared with `store_records`; `parse_show` is
+  gone. `agent_reopen._as_shown` / `_VERBATIM_FIELDS` are gone — the listing and
+  every action read the same verbatim record. New `frozen_ops.usable_identifier`
+  (non-empty, printable, no whitespace) is the launchability rule in
+  `resume_blocker` / `repick_blocker` / `build_resume_argv` / `build_repick_argv`
+  and in `agent_freeze._backfill_task_ref`'s two task-id checks.
+  `window_facts` / `pane_facts` keep the `window` field verbatim (shared `_facts`
+  helper); restore's gone-pane collision set splits on lines; `agent_reopen._field`
+  drops every `str.splitlines` break.
+- **Deviations from plan:** Change Request 1 (wrapper argument-count dispatch).
+  The window-name verbatim fix was added to the plan during plan review, before
+  approval.
+- **Issues encountered:** t2046 (`6871c73c2`) landed on main mid-session and
+  touched `agent_freeze.py` (one new `store_show` call through
+  `_capture_codex_session`); no conflict. `tests/test_frozen_agents_acceptance.sh`
+  refuses to run outside a dedicated live-tmux box and was NOT run.
+- **Key decisions:** Write-time rejection of unusable ids — decided NO (an
+  `upsert` refusal would lose the whole hook record; legacy / hand-edited stores
+  need the reader rule anyway). `_capture_codex_session`'s session-id truthiness
+  left as is (best-effort, hook-owned ids). Behaviour change: a window name with
+  surrounding spaces no longer matches `task_ref_from_window_name` in the freeze
+  backfill, which now matches the shell hook's own (unstripped) derivation.
+- **Upstream defects identified:** None
+- **Verification:** five unit modules pass; `test_frozenagent_standin_stamp.sh`
+  28/28, `test_agent_sessions_concurrency.sh` 42/42, `test_ide_frozen_offer.sh`
+  97/97; full suite `PYTHON SUITE: PASSED (runner=pytest, exit=0)` (run before
+  Change Request 1, which touched only the shell wrapper and its shell test).
+  Red proofs: spaced-window reopen ×3 fail with stripped fact reads; freeze
+  backfill case fails with a truthiness rule; wrapper Test 11 fails 4/42 against
+  the old `case` dispatch.
