@@ -35,6 +35,7 @@ TUI:
   ide            Start tmux session and launch ait monitor (one-shot IDE startup)
   minimonitor    Compact monitor for tmux agent panes
   monitor        Monitor tmux panes running code agents
+  scratchpad     Launch the scratchpad notes editor
   settings       Launch the settings TUI
   stats-tui      Launch the statistics TUI
   syncer         Launch the remote-desync syncer TUI
@@ -195,7 +196,7 @@ check_for_updates() {
 # notice would corrupt it) and a gate run must never perform a network fetch;
 # `engine` because its stdout is line protocol too.
 case "${1:-help}" in
-    help|--help|-h|--version|-v|upgrade|setup|git|sync|lock|codeagent|crew|brainstorm|settings|monitor|minimonitor|ide|syncer|skillrun|projects|frozenagent|testmap|engine) ;;
+    help|--help|-h|--version|-v|upgrade|setup|git|sync|lock|codeagent|crew|brainstorm|settings|monitor|minimonitor|ide|syncer|skillrun|projects|frozenagent|scratchpad|testmap|engine) ;;
     *) check_for_updates ;;
 esac
 
@@ -216,6 +217,7 @@ case "${1:-help}" in
     codebrowser)  shift; exec "$SCRIPTS_DIR/aitask_codebrowser.sh" "$@" ;;
     diffviewer)   shift; exec "$SCRIPTS_DIR/aitask_diffviewer.sh" "$@" ;;
     frozenagent)  shift; exec "$SCRIPTS_DIR/aitask_frozenagent.sh" "$@" ;;
+    scratchpad)   shift; exec "$SCRIPTS_DIR/aitask_scratchpad.sh" "$@" ;;
     minimonitor)  shift; exec "$SCRIPTS_DIR/aitask_minimonitor.sh" "$@" ;;
     monitor)      shift; exec "$SCRIPTS_DIR/aitask_monitor.sh" "$@" ;;
     ide)          shift; exec "$SCRIPTS_DIR/aitask_ide.sh" "$@" ;;

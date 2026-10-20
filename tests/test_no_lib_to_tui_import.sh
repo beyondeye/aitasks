@@ -45,7 +45,7 @@ TOTAL=0
 # reviewed edit here.
 TUI_PACKAGES=(
   agentcrew applink board brainstorm chat chatlink codebrowser
-  diffviewer frozenagent logview monitor settings stats syncer
+  diffviewer frozenagent logview monitor scratchpad settings stats syncer
 )
 
 # --- Allowlist -------------------------------------------------------------

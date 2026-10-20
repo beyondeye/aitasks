@@ -28,6 +28,7 @@ TUI_REGISTRY: list[tuple[str, str | None, str | None, bool]] = [
     ("syncer",      "Syncer",        "ait syncer",      True),
     ("brainstorm",  None,            None,              False),
     ("minimonitor", None,            None,              False),
+    ("scratchpad",  None,            None,              False),
 ]
 
 # Window-name prefix also classified as TUI (per-task brainstorm windows).
