@@ -255,3 +255,24 @@ Never stash, restore or commit them. Implement on top of t2080's committed state
 ### Planned mitigations
 - timing: post-phase | name: measure_unresolved_rate_after_dynamic_refs | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement — dirty-tree anchors rarer after the bash <dynamic> marker; code-health — lifted-exclude scan cost | desc: Measure the share of this repo's bash tests with Unresolved refs in {test} ∪ closure before/after the bash dynamic-ref change, and the hook input cost with exclude lifted; report both in Final Notes
 - timing: after | name: align_implicit_inputs_with_reference_runners | type: enhancement | priority: medium | effort: low | inline_risk: low | added_complexity: medium | addresses: goal-achievement — implicit-input rules keyed on language because M3.2 reference runners are not implemented | desc: Once M3.2 (t1854_2) lands the pytest/go-test/gradle-class/bash-file runners, cross-check cost/implicit.go against their real command lines, cwd, unit kind and config flags (pytest -c/rootdir, go-test per-package units, gradle filter_scope) and add red-proved rows for any input they read that the rules miss
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-20 15:10)
+- **Requested by user:** three review findings:
+  - (1, high) The Go module-file rule considered only ancestors of the test dir. A reached local dependency module (`replace => ../lib`) has its `go.mod` language version ignored, so editing only `lib/go.mod` anchored.
+  - (2, high) A deleted Go `testdata` case disappears from the graph and no rule caught it, so a deletion that turned a failing test green anchored.
+  - (3, medium, follow-up) `implicitFiles` / `implicitHit` / `extend` redo repo-wide `g.Files()` scans and Gradle-script closure walks per result.
+- **Changes made:**
+  - (1)+(2) The Go rules now derive their directories from every Go file in the checked set (test, closure, implicit inputs and theirs) via `goDirs`:
+    - `go.mod` / `go.sum` / `go.work` / `go.work.sum` and `<d>/vendor/**` count for any ancestor `d` of a reached package;
+    - any **deleted** path (`os.Root.Lstat` fails) under a reached package's directory tree is `implicit:<path>`. This covers a removed member, testdata case or embedded asset.
+
+    The old test-dir-only `.go` sibling rule was dropped; the deletion rule subsumes it. `implicitHit` now takes `root` and the checked set and returns an error, which becomes `eligibility-error:implicit:`.
+  - New fixtures, each with an exact reason:
+    - `TestEligibilityGoDependencyModule`: control, `closure:lib/l.go`, `implicit:lib/go.mod`, `implicit:app/go.mod`;
+    - `go-deleted-testdata`;
+    - `go-deleted-dep-member`.
+  - New and updated mutants are all red: M3 (module files), M3b (module scope = test-only), M4 (deletion), M4b (package scope = test-only), M5 (vendor), M19 (call).
+  - (3) is deferred to a follow-up task (performance), per its disposition.
+- **Files affected:** `goengines/internal/testmap/cost/implicit.go`, `cost/eligibility.go`, `cost/implicit_test.go`, `goengines/README.md`
