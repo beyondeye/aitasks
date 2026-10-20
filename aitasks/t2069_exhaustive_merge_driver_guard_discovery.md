@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1599
 followup_kind: risk_mitigation
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-19 17:14
-updated_at: 2026-10-19 17:16
+updated_at: 2026-10-20 11:02
 ---
 
 ## Origin
@@ -47,3 +48,8 @@ Acceptance: both omission classes become either recognized (and base-checked)
 or a hard failure ("unclassified aitask_merge.py reference — update the
 guard"). Each class needs a planted fixture proving it is caught. Keep the
 existing planted control and the base-removal mutant behaviour.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-20T08:02:39Z status=pass attempt=1 type=human
