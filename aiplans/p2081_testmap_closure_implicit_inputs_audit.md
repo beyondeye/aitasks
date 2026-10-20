@@ -248,7 +248,7 @@ Never stash, restore or commit them. Implement on top of t2080's committed state
 - **In-flight overlap with t2080** on `cost/eligibility*.go`. · severity: medium (gated before the first edit; never stash or restore) · → mitigation: none
 
 ### Goal-achievement risk: medium
-- **The reference runners (M3.2) are not implemented.** Rules key on the test language, not on the runner's real command line, cwd or unit kind. An implemented runner may read inputs these rules miss. · severity: medium · → mitigation: align_implicit_inputs_with_reference_runners
+- **The reference runners (M3.2) are not implemented.** Rules key on the test language, not on the runner's real command line, cwd or unit kind. An implemented runner may read inputs these rules miss. · severity: medium · → mitigation: t2082
 - **Dirty-tree anchors become rarer still.** The bash `<dynamic>` marker adds to the 400/448 (89 %) unresolved bash tests from t1854_4. This is the fail-safe direction, but it erodes self-healing. · severity: medium (residual) · → mitigation: inline post-phase measure_unresolved_rate_after_dynamic_refs
 - **Path-rule residuals are documented, not closed:** gitignored non-executable inputs, environment, Gradle scripts' file reads, and suffix-match guesses. · severity: low · → mitigation: none
 
