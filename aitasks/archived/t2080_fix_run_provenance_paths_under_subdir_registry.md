@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [testing, testmap, go_engine]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -17,7 +17,8 @@ anchor: 1852
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5_5
 created_at: 2026-10-20 12:35
-updated_at: 2026-10-20 14:00
+updated_at: 2026-10-20 14:19
+completed_at: 2026-10-20 14:19
 ---
 
 ## Origin
@@ -39,3 +40,14 @@ In `provenance()`, use `Prefix` either to keep only the paths under the prefix a
 > **✅ gate:plan_approved** run=2026-10-20T11:00:34Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-10-20T11:18:10Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-10-20T11:19:43Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:6c294e71ca72c04d
+
+> **✅ gate:risk_evaluated** run=2026-10-20T11:19:43Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/2080/risk_evaluated_2026-10-20T11:19:43Z-risk_evaluated-a1.log`
