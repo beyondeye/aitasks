@@ -1,14 +1,14 @@
 ---
 priority: medium
 effort: high
-depends: []
+depends: [t2073_1]
 issue_type: feature
 status: Ready
 labels: [scratchpad]
 gates: [risk_evaluated]
 anchor: 2073
 created_at: 2026-10-20 10:31
-updated_at: 2026-10-20 10:31
+updated_at: 2026-10-20 10:32
 ---
 
 ## Context

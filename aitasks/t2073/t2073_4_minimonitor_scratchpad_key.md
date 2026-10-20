@@ -1,7 +1,7 @@
 ---
 priority: medium
 effort: medium
-depends: []
+depends: [t2073_2, t2073_3]
 issue_type: feature
 status: Ready
 labels: [aitask_monitormini, tmux, scratchpad]
