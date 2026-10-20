@@ -681,7 +681,7 @@ current branch, with no merge.
   Gradle build files, Go package siblings outside the facts) are not in the
   disjointness set, so a dirty one can still anchor. This sits alongside the
   stated edit-and-revert residual. · severity: medium · → mitigation:
-  testmap_closure_implicit_inputs_audit
+  t2081 (testmap_closure_implicit_inputs_audit)
 - **D12's unresolved-ref rule may make dirty-tree anchors rare**, which means
   fewer `EVIDENCED` rows and less self-healing (the fail-safe direction, but
   it erodes the feature's value). · severity: medium (residual — quantified by
@@ -689,7 +689,7 @@ current branch, with no merge.
   inline post-phase measure_hook_cost_and_unresolved_rate
 
 ### Planned mitigations
-- timing: after | name: testmap_closure_implicit_inputs_audit | type: enhancement | priority: medium | effort: medium | inline_risk: medium | added_complexity: medium | addresses: goal-achievement — implicit runner inputs missing from the eligibility closure | desc: Audit pytest/go-test/gradle-class/bash-file implicit inputs (conftest.py ancestors, build files, package siblings) and add them to M3.4 anchor eligibility (or mark opaque) with red-proved fixtures
+- timing: after | name: testmap_closure_implicit_inputs_audit | type: enhancement | priority: medium | effort: medium | inline_risk: medium | added_complexity: medium | addresses: goal-achievement — implicit runner inputs missing from the eligibility closure | desc: Audit pytest/go-test/gradle-class/bash-file implicit inputs (conftest.py ancestors, build files, package siblings) and add them to M3.4 anchor eligibility (or mark opaque) with red-proved fixtures | created: t2081
 - timing: post-phase | name: measure_hook_cost_and_unresolved_rate | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health hook latency; goal-achievement unresolved-ref anchor rarity | desc: Measure the ledger hook's wall time on a dirty tree and the share of bash tests with Unresolved closure refs; report both in Final Notes
 
 ## Post-Review Changes
