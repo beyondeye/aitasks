@@ -218,3 +218,17 @@ None identified.
 
 ### Goal-achievement risk: low
 None identified.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-19 13:40)
+- **Requested by user:** The `LOCAL_BRANCH_MISSING` closing-message override ("say instead …") replaced the whole message, so with `EXTRACT_FAILED` (exit 3) on the base pass plus `LOCAL_BRANCH_MISSING` on the output pass the base-check repair guidance was dropped; preserve it and the re-pick instruction, with a focused guard.
+- **Changes made:** The override now replaces only the output branch's wording ("created or fetched … rather than pulled") and explicitly keeps any failed-check repair guidance from the other pass and the re-pick command. New guard `drift-procedure-missing-branch-keeps-repair` + negative control in `tests/test_task_workflow_reentry_drift.sh`; golden and committed remote renders regenerated.
+- **Files affected:** `.claude/skills/task-workflow/remote-drift-check.md`, `tests/test_task_workflow_reentry_drift.sh`, `tests/golden/procs/task-workflow/remote-drift-check-default.md`, the three committed `task-workflow-remote-*/remote-drift-check.md` renders.
+
+## Final Implementation Notes
+- **Actual work done:** `remote-drift-check.md` now reads each run's exit status (`; echo "DRIFT_RC:$?"` on both passes), classifies a run as a complete outcome (shape + exit) or an incomplete run, handles `EXTRACT_FAILED` (exit 3, alone or after `AHEAD:<n>`) and incomplete runs with a display + the single step-4 prompt, separates **proven drift** from **check failure** for the option descriptions and the step-5 stop (`stop_reason=drift` vs the new `drift_check_failed`, with matching revert subject and closing message), and keeps repair guidance when the output pass is `LOCAL_BRANCH_MISSING`. `plan-approved-stop.md` handles `drift_check_failed` at every dispatch point (call-site list, input table, marker table → **clear**, clearing command bullet, exhaustiveness sentence, banner reason). Helper `--help` no longer claims "always exit 0". `aidocs/gates/ledger-driven-reentry.md` lifecycle table gained the `drift_check_failed` and missing `parallel_admission` rows, and its stale "closed at exactly those three" now points to the stop sequence's exhaustiveness sentence.
+- **Deviations from plan:** The step-4 case descriptions use the `(description: "…")` form: the banner-contract scanner (`tests/test_workflow_end_banner_contract.sh`) strips that form as option text, and a bare-quoted "… end the workflow …" read as an exit branch with no banner. Post-review change 1 (see above).
+- **Issues encountered:** A concurrent session has an uncommitted `ait_archive_rearm_exit_trap` hunk in `aitask_remote_drift_check.sh`; only this task's help-text hunk was staged (`git apply --cached`), leaving theirs in the worktree.
+- **Key decisions:** `drift_check_failed` **clears** the deferred-plan marker — the plan was never verified against the remote, so advertising it as implementation-ready would be the same false signal `drift` avoids. The token-coverage guard derives the vocabulary from the helper's header protocol (shallow-indent entries only), so a new helper token without a parsing rule fails. The `drift_check_failed` dispatch is guarded by the existing derived loop in `test_plan_approved_marker_contract.sh` plus a side pin and a banner pin; a manual negative control (dropping it from the clearing bullet in the rendered copy) failed both as expected.
+- **Upstream defects identified:** None
