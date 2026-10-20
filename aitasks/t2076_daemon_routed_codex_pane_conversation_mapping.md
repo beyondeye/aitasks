@@ -1,5 +1,7 @@
 ---
 priority: low
+risk_code_health: medium
+risk_goal_achievement: high
 effort: high
 depends: []
 issue_type: enhancement
@@ -75,3 +77,5 @@ Evidence: t2040's and t2047's archived plans, Final Implementation Notes (codex
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-10-20T12:42:05Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-10-20T12:48:36Z status=pass attempt=1 type=human
