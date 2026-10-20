@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2049
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-20 10:27
-updated_at: 2026-10-20 10:43
+updated_at: 2026-10-20 11:15
 ---
 
 ## Origin
@@ -44,3 +45,8 @@ This pre-dates t2065: the committed baseline before t2065 has the same shape. A 
 ## Suggested fix
 
 On `ok=False`, notify a warning naming the window (`markup=False`; add the toast to `tests/test_monitor_markup_literal_sinks.py` `TOAST_SITES`), call `self.call_later(self._refresh_data)` and return without launching. Add a regression in `tests/test_monitor_pick_launch_sites.py::RestartPickTests`: with a kill that fails, the log has no `("launch", …)` entry and no "Restarted agent" notify.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-20T08:15:30Z status=pass attempt=1 type=human
