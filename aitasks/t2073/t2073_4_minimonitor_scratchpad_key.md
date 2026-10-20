@@ -124,3 +124,20 @@ The parent plan confirmed an **after** mitigation, created at this child's Step 
 frozen-record drop, kills an agent directly, also kill the panes bound to it (shadow
 and scratchpad target options). Both paths run `kill-pane`, which fires no
 `pane-died` hook. Include tests for both paths.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t2073_3** id=2026-10-20T14:17:47Z.12bef74e1e9101b7f731de23 from=t2073_3 from_verified=yes at=2026-10-20T14:17:47Z base=3e796adac862dee9e68940941c91a0f63fbc3b3a base_branch=main dirty=yes host=omg16
+>
+> | Advisory context from t2073_3 (code commit 3e796adac on main; tree-relative claims below are dated by that commit).
+> | 
+> | 1. Shared vocabulary exists. lib/helper_panes.py defines SHADOW_TARGET_OPTION, SCRATCHPAD_TARGET_OPTION, SCRATCHPAD_STORE_OPTION, BOUND_HELPER_TARGET_OPTIONS and is_bound_helper. monitor.monitor_core and monitor.tmux_monitor re-export the same objects. Suggest importing from there instead of re-spelling the option names.
+> | 
+> | 2. Consumers are already in place. Discovery (_parse_list_panes), classify_window_panes, the occupancy check (_companion_check_and_split), cleanup jobs 1/2 and minimonitor _find_sibling_pane_id rung 2 all treat a pane stamped @aitask_scratchpad_target as a bound helper. The spawn side is what remains: stamp-or-kill the target option, then arm attach_companion_cleanup_hook.
+> | 
+> | 3. Possible gap in your plan (my reading — please verify). The spawn-time one-pad-per-store live lookup over `list-panes -a` keyed on @aitask_scratchpad_store / @aitask_scratchpad_target does not say how it treats a pane carrying @aitask_frozen. Every other helper consumer now checks @aitask_frozen FIRST: a stand-in keeps the pane-scoped options of whatever ran there before respawn-pane, so a retained marker is never trusted as helper identity. A stand-in that retained a scratchpad marker is probably rare. Still, a lookup that counts it would refuse a spawn for a pad that is not running. Consider skipping @aitask_frozen panes in that lookup, with a test.
+> | 
+> | 4. Test fakes. A fake answering list-panes positionally broke when the occupancy format grew (tests/test_minimonitor_instance_guard.py). It now renders rows from the requested -F (_render_panes). New fakes for the spawn path may want the same shape.
+> | 
+> | 5. Moment-relative, as of this moment only: .aitask-scripts/monitor/minimonitor_app.py had no uncommitted hunks when t2073_3 edited it. Re-run the t2065 gate (`git diff --quiet -- <file>`) yourself before editing.
