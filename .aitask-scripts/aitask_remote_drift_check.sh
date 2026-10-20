@@ -93,7 +93,7 @@ Options:
   --debug           Print debug info to stderr.
   --help, -h        Show this help.
 
-Output (always exit 0; structured stdout):
+Output (structured stdout; exit 0 except EXTRACT_FAILED, which exits 3):
   LEGACY_MODE_SKIP
   LOCAL_BRANCH_MISSING   refs/heads/<branch> absent; checked before any network
                          access, so it never conflates with a fetch failure

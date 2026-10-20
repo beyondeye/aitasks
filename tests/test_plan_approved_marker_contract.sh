@@ -172,6 +172,19 @@ assert_eq_trim "every branch clause's reason is named in the exhaustiveness sent
 assert_eq_trim "'resource_admission' is on the stamping side" \
     "yes" "$(printf '%s\n' "$stamping_reasons" | grep -qxF resource_admission && echo yes || echo no)"
 
+# `drift_check_failed` (t2061) stops because the drift check could not run, so
+# the plan was never verified against the remote: advertising it as
+# implementation-ready would be the false signal the `drift` row avoids. It must
+# share the CLEARING command -- and it must be a member of the exhaustiveness
+# sentence, or the sequence's "stop and report" fallback would refuse it after
+# the lock was already released.
+assert_eq_trim "'drift_check_failed' is named in the exhaustiveness sentence" \
+    "yes" "$(printf '%s\n' "$sentence_reasons" | grep -qxF drift_check_failed && echo yes || echo no)"
+assert_eq_trim "'drift_check_failed' is on the clearing side" \
+    "yes" "$(printf '%s\n' "$clearing_reasons" | grep -qxF drift_check_failed && echo yes || echo no)"
+assert_hits "the Stopped banner maps 'drift_check_failed' to a reason" \
+    "1" "$STOP" '`drift_check_failed` → "remote'
+
 echo "--- The clear sites ---"
 
 assert_hits "SKILL.md consumes the marker when implementation starts" \

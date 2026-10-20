@@ -5,7 +5,9 @@ session on an **approved plan that will not be implemented now**. Four call
 sites share it:
 
 - `planning.md` Checkpoint → **"Approve and stop here"** (`stop_reason=deferred`)
-- `remote-drift-check.md` step 5 → **"Stop and re-verify plan"** (`stop_reason=drift`)
+- `remote-drift-check.md` step 5 → **"Stop and re-verify plan"** (`stop_reason=drift`,
+  or `stop_reason=drift_check_failed` when the check could not run and no drift
+  was proven)
 - `resource-admission.md` step 4 → **the hook refused, or could not decide**
   (`stop_reason=resource_admission`)
 - `parallel-admission.md` step 7 → **the user chose "Stop and re-plan"**
@@ -31,7 +33,7 @@ here — see the Notes. For a rejected plan see `task-abort.md`.
 | `task_id` | The task being stopped (`16` or `16_2`). |
 | `task_num` | Numeric id for `aitask_update.sh` — the task's **own** id; for a child that is the child id (`16_2`), never the parent's. |
 | `plan_file` | Path to the externalized plan (e.g. `aiplans/p16_add_auth.md`). |
-| `stop_reason` | `deferred` (implementation postponed), `drift` (remote drifted), `resource_admission` (the host could not afford the phase), or `parallel_admission` (the user stopped on an in-flight collision). Recorded as the gate's `note=`, so the ledger says *why* the session stopped. |
+| `stop_reason` | `deferred` (implementation postponed), `drift` (remote drifted), `drift_check_failed` (the remote drift check could not run — the plan was neither verified nor shown stale), `resource_admission` (the host could not afford the phase), or `parallel_admission` (the user stopped on an in-flight collision). Recorded as the gate's `note=`, so the ledger says *why* the session stopped. |
 | `revert_commit_message` | Commit subject for the status revert, e.g. `ait: Revert t<task_num> to Ready after plan approval`. |
 | `closing_message` | The message shown to the user, naming the re-pick command. |
 
@@ -93,8 +95,9 @@ here — see the Notes. For a rejected plan see `task-abort.md`.
   | `resource_admission` | approved, implementation postponed by the host's capacity | **stamp** |
   | `drift` | must be re-verified before it can be implemented | **clear** |
   | `parallel_admission` | must be re-checked against in-flight work before it can be implemented | **clear** |
+  | `drift_check_failed` | must pass a drift check that actually runs before it can be implemented | **clear** |
 
-  The two **clear** rows mean the opposite of the two **stamp** rows — those
+  The **clear** rows mean the opposite of the two **stamp** rows — those
   flows stopped *because* the plan must be re-checked before it may be
   implemented — so they **clear** the marker rather than refreshing it; leaving
   (or renewing) it there would advertise a plan as
@@ -112,7 +115,8 @@ here — see the Notes. For a rejected plan see `task-abort.md`.
     ./.aitask-scripts/aitask_update.sh --batch <task_num> --status Ready --assigned-to "" --plan-approved-at now
     ```
 
-  - **If `stop_reason` is `drift`** (the drift check's "Stop and re-verify plan")
+  - **If `stop_reason` is `drift`** (the drift check's "Stop and re-verify plan"),
+    **`drift_check_failed`** (the same stop when the check could not run)
     **or `parallel_admission`** (the preflight's user-elected "Stop and re-plan"),
     run **only** this:
 
@@ -120,8 +124,8 @@ here — see the Notes. For a rejected plan see `task-abort.md`.
     ./.aitask-scripts/aitask_update.sh --batch <task_num> --status Ready --assigned-to "" --plan-approved-at ""
     ```
 
-  There is no fifth case: `stop_reason` is documented in the Input context table
-  as exactly `deferred`, `drift`, `resource_admission` or `parallel_admission`. If it is anything else,
+  There is no sixth case: `stop_reason` is documented in the Input context table
+  as exactly `deferred`, `drift`, `drift_check_failed`, `resource_admission` or `parallel_admission`. If it is anything else,
   stop and report it rather than guessing a marker disposition — a new stop path
   must state which side of the table above it belongs on before it may use this
   sequence.
@@ -143,7 +147,8 @@ here — see the Notes. For a rejected plan see `task-abort.md`.
   `workflow-end.md`) with `outcome=ready`. The reason follows `stop_reason`:
   `deferred` → "plan approved, implementation deferred — approved plan kept";
   `resource_admission` → "parked by the resource-admission hook — approved plan
-  kept"; `drift` → "remote drift — re-plan required"; `parallel_admission` →
+  kept"; `drift` → "remote drift — re-plan required"; `drift_check_failed` → "remote
+  drift check could not run — repair it, then re-plan"; `parallel_admission` →
   "overlap with in-flight work — re-plan required". `next` is the re-pick command
   the closing message names. Then **end the workflow** — do NOT proceed to
   Step 7.

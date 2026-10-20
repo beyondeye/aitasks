@@ -219,13 +219,16 @@ true:
 | "Approve and stop here" (`stop_reason=deferred`) | set |
 | Resource-admission park (`stop_reason=resource_admission`) | set — the plan is approved and awaiting implementation; only the *host* said not now |
 | "Stop and re-verify plan" (`stop_reason=drift`) | **cleared**, never refreshed — the flow stopped *because* re-verification is required |
+| "Stop and re-verify plan" after the drift check could not run (`stop_reason=drift_check_failed`) | **cleared** — the plan was never verified against the remote |
+| Parallel-admission "Stop and re-plan" (`stop_reason=parallel_admission`) | **cleared** — the plan must be re-checked against in-flight work |
 | Step 7 implementation body entered | cleared (consumed) |
 | Decomposition into children (single-repo or cross-repo) | cleared (no single-task plan any more) |
 | Risk-mitigation "before" stop | **retained** — approved and awaiting implementation, merely blocked |
 | Replan (§6.0 "create from scratch") / abort | cleared |
 
-All three branches share one implementation, `plan-approved-stop.md`, and its
-`stop_reason` vocabulary is closed at exactly those three. That extraction is the
+All the stop branches share one implementation, `plan-approved-stop.md`, and its
+`stop_reason` vocabulary is closed — the exhaustiveness sentence in that file
+owns the list, and a reason it does not name is refused. That extraction is the
 structural fix for the original defect: the sequence lived inline in
 `planning.md` with the gate recording *above* its numbered list, and
 `remote-drift-check.md` copied only the numbered steps — silently dropping the

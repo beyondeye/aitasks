@@ -19,6 +19,10 @@
 #   5.   merge-target-sync.md is fast-forward-only and never reverts the task.
 #   6.   Rendered zero-footprint: plan-approved-stop.md emits no gate-recording
 #        machinery under a non-recording profile.
+#   7.   remote-drift-check.md has a parsing rule for every token in the
+#        helper's header protocol, captures each run's exit status, treats an
+#        incomplete run (incl. `AHEAD:<n>` with no verdict) as a prompting
+#        failure, and stops a check failure with `drift_check_failed` (t2061).
 #
 # NEGATIVE CONTROLS: every guard is proven to discriminate by mutating the real
 # source file, re-running THIS script as a child (AIT_NEGCTRL_CHILD=1 so it
@@ -290,7 +294,72 @@ guards_parallel_admission_order() {
         'Execute the **Parallel-Admission Preflight Procedure**' "$postimpl_block"
 }
 
+# ---------------------------------------------------------------------------
+# remote-drift-check.md handles EVERY outcome the helper can produce, and a run
+# that ended without a verdict is never read as a silent one (t2061).
+#
+# The token list is derived from the helper's own header protocol, so a token
+# added there without a parsing rule here fails. Token presence alone cannot
+# prove the fallback, though: `AHEAD:<n>` from a helper killed mid-scan is a
+# recognised token with no verdict behind it. Hence the focused guards on the
+# exit-status capture and the incomplete-run rule.
+# ---------------------------------------------------------------------------
+guards_drift_protocol_coverage() {
+    local helper="$PROJECT_DIR/.aitask-scripts/aitask_remote_drift_check.sh"
+    local proc="$WF/remote-drift-check.md"
+    local tokens step2 step3 step4 step5 extract_rule incomplete_rule tok
+
+    # Header protocol entries sit at shallow indentation; continuation lines are
+    # indented far deeper (and can start with an uppercase word like "NOT").
+    tokens="$(awk '/^# Output protocol/ { f = 1; next } /^# Exit code:/ { f = 0 } f' "$helper" \
+        | grep -oE '^#[[:space:]]{1,6}[A-Z][A-Z_]+' | awk '{ print $2 }' | sort -u)"
+    assert_eq_trim "drift-protocol-tokens-extracted" "yes" \
+        "$([[ "$(printf '%s\n' "$tokens" | grep -c .)" -ge 10 ]] && echo yes || echo no)"
+
+    step2="$(slice_between "$proc" '2. **Run the helper' '3. **Parse each run')"
+    step3="$(slice_between "$proc" '3. **Parse each run' '4. **AskUserQuestion')"
+    step4="$(slice_between "$proc" '4. **AskUserQuestion' '5. **Branches:**')"
+    step5="$(slice_between "$proc" '5. **Branches:**' '## Notes')"
+
+    # Backtick-prefixed so `OVERLAP` is not satisfied by `NO_OVERLAP`.
+    while IFS= read -r tok; do
+        [[ -z "$tok" ]] && continue
+        assert_contains "drift-procedure-handles-$tok" "\`$tok" "$step3"
+    done <<< "$tokens"
+
+    # Both passes capture the exit status, so a complete outcome can be told
+    # apart from one whose shape merely looks complete.
+    assert_eq_trim "drift-procedure-captures-exit-status" "2" \
+        "$(printf '%s\n' "$step2" | grep -cF 'echo "DRIFT_RC:$?"')"
+    assert_contains "drift-procedure-ahead-without-verdict-is-incomplete" \
+        '`AHEAD:<n>` with no verdict after it' "$step3"
+
+    extract_rule="$(slice_between "$proc" '- `EXTRACT_FAILED` (exit 3), **on either pass**' '- **Incomplete run')"
+    incomplete_rule="$(slice_between "$proc" '- **Incomplete run, on either pass**' '`OVERLAP` means')"
+    assert_contains "drift-procedure-extract-failed-prompts" \
+        'Proceed to AskUserQuestion below.' "$extract_rule"
+    assert_contains "drift-procedure-extract-failed-names-repair" \
+        '`ait setup`' "$extract_rule"
+    assert_contains "drift-procedure-incomplete-run-prompts" \
+        'Proceed to AskUserQuestion below.' "$incomplete_rule"
+
+    # A failed check is not drift: neither its option text nor its stop may
+    # tell the user to pull, and the ledger must not record `drift`.
+    assert_contains "drift-procedure-failure-option-repairs" \
+        'repair the failed check (see above), then re-pick the task' "$step4"
+    assert_contains "drift-procedure-failure-stop-reason" \
+        'stop_reason=drift_check_failed' "$step5"
+    # A missing output branch alongside a failed check on the base pass: the
+    # branch's wording must not REPLACE the whole message, or the repair hint
+    # for the failed check is lost and the re-pick hits the same failure.
+    local missing_rule
+    missing_rule="$(slice_between "$proc" 'If the output pass reported `LOCAL_BRANCH_MISSING`, the `closing_message`' '- **"Continue anyway":**')"
+    assert_contains "drift-procedure-missing-branch-keeps-repair" \
+        'keep any failed-check repair guidance from the other pass, and the re-pick command' "$missing_rule"
+}
+
 run_all_guards() {
+    guards_drift_protocol_coverage
     guards_stop_sequence_shared
     guards_reentry_routing
     guards_merge_target_sync
@@ -367,6 +436,26 @@ negctrl() {
 }
 
 echo "=== Negative controls (each must fail the suite, for the right reason) ==="
+
+negctrl "drift-procedure-handles-EXTRACT_FAILED" "$WF/remote-drift-check.md" \
+    's|`EXTRACT_FAILED|`EXTRACT_BROKEN|g' \
+    's|`EXTRACT_BROKEN|`EXTRACT_FAILED|g'
+
+negctrl "drift-procedure-captures-exit-status" "$WF/remote-drift-check.md" \
+    's|; echo "DRIFT_RC:\$?"|; echo "DRIFT_BROKEN"|' \
+    's|; echo "DRIFT_BROKEN"|; echo "DRIFT_RC:$?"|'
+
+negctrl "drift-procedure-ahead-without-verdict-is-incomplete" "$WF/remote-drift-check.md" \
+    's|`AHEAD:<n>` with no verdict after it|`AHEAD:<n>` BROKEN-NEGCTRL|' \
+    's|`AHEAD:<n>` BROKEN-NEGCTRL|`AHEAD:<n>` with no verdict after it|'
+
+negctrl "drift-procedure-failure-stop-reason" "$WF/remote-drift-check.md" \
+    's|stop_reason=drift_check_failed|stop_reason=drift_BROKEN|g' \
+    's|stop_reason=drift_BROKEN|stop_reason=drift_check_failed|g'
+
+negctrl "drift-procedure-missing-branch-keeps-repair" "$WF/remote-drift-check.md" \
+    's|keep any failed-check repair guidance from the other pass|say only that|' \
+    's|say only that|keep any failed-check repair guidance from the other pass|'
 
 negctrl "planning-references-stop-sequence" "$WF/planning.md" \
     's|plan-approved-stop\.md|plan-approved-stop-BROKEN.md|g' \
