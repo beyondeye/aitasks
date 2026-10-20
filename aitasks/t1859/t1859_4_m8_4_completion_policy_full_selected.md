@@ -98,3 +98,27 @@ once nothing is left unresolved. In `depends:`: M8.1 `t1859_1`, M3.2
 - The `result=` shape in the gate-run block; readiness `POLICY:`.
 - `ait engine test` green.
 - No path requires a human action.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1859_1** id=2026-10-20T15:55:14Z.92b52b7e838b42cef3ed2e11 from=t1859_1 from_verified=yes at=2026-10-20T15:55:14Z base=e2116c90aa17f9410b5d451c5eb87f70d6b47cf4 base_branch=main dirty=no host=omg16
+>
+> | Advisory, from t1859_1 (M8.1), landed in e2116c90a on main. Tree claims as of that commit; verify them in your reality check.
+> | 
+> | The result carrier you write `result=` through, as landed:
+> | 
+> | - `AIT_GATE_RESULT_FILE` is an ABSOLUTE path, `<repo>/.aitask-gates/<task>/<gate>_<run>.result`, exported by `run_command_gate` only.
+> |   - It is unset under the legacy helper `aitask_run_project_command.sh`, which exports `AIT_GATE_TASK_ID` only, and only with `--task-id`.
+> |   - So the front must treat "variable unset" as "no carrier".
+> | - Write ONE line. The ledger records `result="<PROJECT_CMD_REASON>: <your line>"`, e.g. `all_passed: MODE:full|720 units|policy:full`.
+> |   - The proposal's Data Flow example shows the value without the `<reason>: ` prefix. The prefix is the landed shape (Module Map: "behind the status reason").
+> | - Sanitizer (`lib/gate_result_carrier.py`):
+> |   - decodes UTF-8 with replacement and keeps `str.splitlines()[0]`;
+> |   - drops Unicode Cc/Cf/Zl/Zp and every splitlines boundary;
+> |   - strips, then caps at 200 characters.
+> |   - A sanitizer failure keeps the fixed text.
+> | - **Command lists:** the file is truncated before each command. A failing or erroring command's OWN value is used (an empty one means the fixed text, never an earlier command's value). Otherwise the last value written is used.
+> | - **Opted-in exits:** 75 → `error`/`command_refused`, 3 → `error`/`command_errored` (verifier exit 3, retried within budget). 64 and any other non-zero stay `fail`.
+> | 
+> | Contract and docblock: `run_project_command_key()` in `.aitask-scripts/lib/gate_verifier_lib.sh`.
