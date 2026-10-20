@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1599
 followup_kind: risk_mitigation
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-19 15:28
-updated_at: 2026-10-19 16:24
+updated_at: 2026-10-20 10:18
 ---
 
 ## Origin
@@ -49,3 +50,8 @@ Keep `ait_rebase_is_ours` / `ait_rebase_abort_if_ours` as the single evidence
 rule per operation (one implementation, several consumers). Update Tests C and L
 in `tests/test_ait_git_gateway_pull.sh`, which currently pin the bound, plus the
 `sync.md` "A stopped merge is left to you" bullet.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-20T07:18:16Z status=pass attempt=1 type=human
