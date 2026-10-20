@@ -50,6 +50,11 @@ from monitor.monitor_core import (  # noqa: F401  (re-export shim)
     count_other_real_agents,
     is_shadow_target,
     SHADOW_TARGET_OPTION,
+    # The bound-helper rule (t2073_3, defined in lib/helper_panes.py).
+    BOUND_HELPER_TARGET_OPTIONS,
+    SCRATCHPAD_TARGET_OPTION,
+    SCRATCHPAD_STORE_OPTION,
+    is_bound_helper,
     SHADOW_ANALYZED_AT_OPTION,
     # Shared shadow seam (t1216_1) — lifted out of minimonitor_app so both apps
     # import one implementation. All take a duck-typed `monitor` (the gateway

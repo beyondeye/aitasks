@@ -119,6 +119,9 @@ window_index_of() { "$REAL_TMUX" display-message -p -t "$1" '#{window_index}'; }
 #   frozen     `@aitask_frozen` stamped                    -> real agent (t1705_4)
 #   companion  `@aitask_monitor_kind=minimonitor:<pid>`    -> helper
 #   shadow     `@aitask_shadow_target=<first pane>`        -> helper
+#   scratchpad `@aitask_scratchpad_target=<first pane>`    -> helper (t2073_3)
+#   frozen_scratch  `@aitask_frozen` + `@aitask_scratchpad_target=<first pane>`
+#              -> REAL agent: frozen first beats the retained helper target
 #   dead       process exited under `remain-on-exit`
 build_window() {
     local window="$1"; shift
@@ -150,6 +153,13 @@ build_window() {
                 stamp "$pane" @aitask_monitor_kind "minimonitor:$pid" ;;
             shadow)
                 stamp "$pane" @aitask_shadow_target "$first" ;;
+            scratchpad)
+                stamp "$pane" @aitask_scratchpad_target "$first" ;;
+            frozen_scratch)
+                # A stand-in that retained a scratchpad binding — the frozen
+                # rung must win in job 2 AND job 1 must not kill it (t2073_3).
+                stamp "$pane" @aitask_frozen 7f3a2c1d
+                stamp "$pane" @aitask_scratchpad_target "$first" ;;
             dead)
                 "$REAL_TMUX" set-option -p -t "$pane" remain-on-exit on
                 "$REAL_TMUX" respawn-pane -k -t "$pane" "true"
@@ -337,6 +347,13 @@ row "frozen + agent + companion, last agent dies" pane 1 frozen agent companion
 
 # Helpers are not siblings.
 row "agent + shadow + companion"           window 0 agent shadow companion
+row "agent + scratchpad + companion"       window 0 agent scratchpad companion
+row "agent + agent + scratchpad + companion, unbound agent dies" \
+                                           pane   1 agent agent scratchpad companion
+
+# t2073_3: a frozen stand-in that retained a scratchpad target is still a REAL
+# sibling — the frozen rung comes first in both implementations.
+row "agent + frozen(scratch) + companion"  pane   0 agent frozen_scratch companion
 row "agent + companion + companion"        window 0 agent companion companion
 
 # Two stand-ins beside a live agent: killing the agent leaves them, so the
@@ -395,6 +412,51 @@ echo "=== negative control: the parity comparison is not vacuous ==="
         else
             assert_record_pass
         fi
+    fi
+)
+
+# --- job 1: bound helpers die with their target, and only with it -----------
+#
+# The table above observes job 2's verdict only. Job 1 is bash-only (Python's
+# `kill_agent_pane_smart` is a user kill with no bound-helper reap), so these
+# rows read the kill log directly.
+echo "=== job 1: a scratchpad dies with its target, never with a sibling ==="
+(
+    ids=()
+    while IFS= read -r line; do ids+=("$line"); done \
+        < <(build_window "parity_job1" agent agent scratchpad companion)
+    sleep 0.2
+    pad="${ids[2]}"
+
+    bash_verdict "${ids[1]}" "${ids[3]}" >/dev/null
+    if grep -qF -- "$pad" "$KILL_LOG"; then
+        assert_record_fail
+        echo "FAIL: a sibling's death killed the scratchpad bound to the survivor"
+    else
+        assert_record_pass
+    fi
+
+    bash_verdict "${ids[0]}" "${ids[3]}" >/dev/null
+    if grep -qF -- "kill-pane -t $pad" "$KILL_LOG"; then
+        assert_record_pass
+    else
+        assert_record_fail
+        echo "FAIL: job 1 did not kill the scratchpad bound to the dying agent"
+    fi
+)
+
+echo "=== job 1: a frozen stand-in with a retained target is never reaped ==="
+(
+    ids=()
+    while IFS= read -r line; do ids+=("$line"); done \
+        < <(build_window "parity_job1_frozen" agent frozen_scratch companion)
+    sleep 0.2
+    bash_verdict "${ids[0]}" "${ids[2]}" >/dev/null
+    if grep -qF -- "${ids[1]}" "$KILL_LOG"; then
+        assert_record_fail
+        echo "FAIL: job 1 killed a frozen stand-in for its retained scratchpad target"
+    else
+        assert_record_pass
     fi
 )
 

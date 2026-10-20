@@ -2,14 +2,18 @@
 # Pane-death cleanup for companion panes. Called via a tmux `pane-died` hook
 # attached to a primary pane (e.g. lazygit or a coding agent). Two jobs:
 #
-#   1. Kill any *shadow* companion panes (t986) bound to the dying agent. A
-#      shadow records the followed agent's pane id in the `@aitask_shadow_target`
-#      pane user option, so when that agent ends its shadow must end too — even
-#      if other agents still live in the window. Session-scoped, so a shadow
-#      placed in a separate window (the configurable placement) is also cleaned.
+#   1. Kill any *bound helper* panes bound to the dying agent: shadows (t986,
+#      `@aitask_shadow_target`) and scratchpads (t2073, `@aitask_scratchpad_target`).
+#      A bound helper records the agent's pane id in its target option, so when
+#      that agent ends its helpers must end too — even if other agents still
+#      live in the window. Session-scoped, so a helper placed in a separate
+#      window (the shadow's configurable placement) is also cleaned. The
+#      helper-target set is `BOUND_HELPER_TARGET_OPTIONS` in
+#      `lib/helper_panes.py`; a tripwire in `tests/test_helper_panes.py` fails
+#      if an option there is missing from either of this script's `-F` formats.
 #   2. Keep the minimonitor companion alive if any *real* agent sibling still
 #      exists in the window (a user-added shell, another codeagent sharing the
-#      companion, etc.). Shadow helper panes do NOT count as siblings.
+#      companion, etc.). Bound helper panes do NOT count as siblings.
 #      Otherwise kill both primary and companion, letting tmux close the window
 #      naturally.
 #
@@ -46,7 +50,7 @@ companion="${2:?companion pane id required}"
 
 # One round trip for all three primary facts. `@aitask_frozen` is read HERE, and
 # not from the window-scoped pass further down, because rule (a) above must
-# abstain before job 1's shadow kills — not merely before job 2's.
+# abstain before job 1's helper kills — not merely before job 2's.
 primary_facts="$(tmux display-message -p -t "$primary" \
     '#{window_id}|#{session_id}|#{@aitask_frozen}' 2>/dev/null || true)"
 IFS='|' read -r window session primary_frozen <<EOF
@@ -57,28 +61,37 @@ if [ -z "$window" ]; then
 fi
 
 # Rule (a): the dying pane is a frozen stand-in — it is being respawned, not
-# departing. Abstain entirely: no shadow kills, no companion kills, and above
+# departing. Abstain entirely: no helper kills, no companion kills, and above
 # all no `kill-pane -t "$primary"` at the bottom, which would take the pane the
 # freeze is in the middle of reusing.
 if [ -n "$primary_frozen" ]; then
     exit 0
 fi
 
-# 1. Kill shadow panes bound to the dying agent. A shadow's
-#    @aitask_shadow_target holds the pane id of the agent it follows; match it
-#    against the dying primary. Scoped to the whole session so a separate-window
-#    shadow is reached too (falls back to the window if the session is unknown).
+# 1. Kill bound helper panes (shadow, scratchpad) bound to the dying agent. A
+#    bound helper's target option — @aitask_shadow_target or
+#    @aitask_scratchpad_target (`BOUND_HELPER_TARGET_OPTIONS` in
+#    lib/helper_panes.py, the Python side of this rule) — holds the pane id of
+#    the agent it serves; match it against the dying primary. Scoped to the whole
+#    session so a separate-window helper is reached too (falls back to the window
+#    if the session is unknown).
+#
+#    Frozen first (t2073_3): a `@aitask_frozen` stand-in is never a helper, so a
+#    helper target retained on it from before the respawn must not get it killed.
 shadow_scope="${session:-$window}"
-while IFS='|' read -r pane target; do
-    if [ -n "$pane" ] && [ "$target" = "$primary" ]; then
+while IFS='|' read -r pane pfrozen target scratch; do
+    [ -n "$pane" ] || continue
+    [ -n "$pfrozen" ] && continue       # frozen stand-in: never a helper
+    if [ "$target" = "$primary" ] || [ "$scratch" = "$primary" ]; then
         tmux kill-pane -t "$pane" 2>/dev/null || true
     fi
 done < <(tmux list-panes -s -t "$shadow_scope" \
-    -F '#{pane_id}|#{@aitask_shadow_target}' 2>/dev/null)
+    -F '#{pane_id}|#{@aitask_frozen}|#{@aitask_shadow_target}|#{@aitask_scratchpad_target}' \
+    2>/dev/null)
 
 # 2. Count real-agent siblings in the window. A pane keeps companions alive only
-#    if it is neither the dying primary, nor a companion pane, nor a shadow
-#    helper.
+#    if it is neither the dying primary, nor a companion pane, nor a bound helper
+#    (shadow or scratchpad).
 #
 #    Companion panes are DISCOVERED from @aitask_monitor_kind (t1451), not
 #    trusted from "$companion". One pane-died hook carries one companion id and
@@ -102,7 +115,7 @@ done < <(tmux list-panes -s -t "$shadow_scope" \
 #    parity test drives both.
 others=0
 companions=""
-while IFS='|' read -r pane target kind frozen; do
+while IFS='|' read -r pane target kind frozen scratch; do
     [ -n "$pane" ] || continue
     [ "$pane" = "$primary" ] && continue
     if [ -n "$frozen" ]; then           # frozen stand-in: a real agent sibling
@@ -113,10 +126,10 @@ while IFS='|' read -r pane target kind frozen; do
         companions="$companions $pane"
         continue
     fi
-    [ -n "$target" ] && continue        # shadow helper
+    { [ -n "$target" ] || [ -n "$scratch" ]; } && continue   # bound helper
     others=$((others + 1))
 done < <(tmux list-panes -t "$window" \
-    -F '#{pane_id}|#{@aitask_shadow_target}|#{@aitask_monitor_kind}|#{@aitask_frozen}' \
+    -F '#{pane_id}|#{@aitask_shadow_target}|#{@aitask_monitor_kind}|#{@aitask_frozen}|#{@aitask_scratchpad_target}' \
     2>/dev/null)
 
 if [ "$others" -eq 0 ]; then

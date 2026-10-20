@@ -55,6 +55,13 @@ from monitor.tmux_monitor import (  # noqa: E402
 # Shares `classify_pane`'s prefix matcher (t1351), so a row is never stripped by
 # a rule the classifier did not use.
 from monitor.monitor_core import agent_display_name  # noqa: E402
+# The one "does this pane keep the window alive?" classifier (bound helpers,
+# companions, frozen-first) — rung 2 of `_find_sibling_pane_id` is a call site
+# of it rather than a local copy of the rule (t1388, t2073_3).
+from monitor.monitor_core import (  # noqa: E402
+    FROZEN_AWARE_PANE_FORMAT,
+    classify_window_panes,
+)
 from monitor import review_loop  # noqa: E402  (auto-recheck decision core, t1159_2)
 from monitor import review_loop_log  # noqa: E402  (durable disarm/hold record, t1606)
 from monitor.tmux_control import TmuxControlState  # noqa: E402
@@ -3008,19 +3015,30 @@ class MiniMonitorApp(
     def _find_sibling_pane_id(self) -> str | None:
         """Return the pane_id of the agent this minimonitor follows.
 
-        Prefers the resolved followed-pane snapshot (pane-id exact) so that a
-        shadow or other helper pane sharing the window is never mistaken for the
-        agent (t986). Falls back to the first non-minimonitor pane in the window
-        when no snapshot is available. Notifies and returns None on
-        failure (not in tmux, tmux error, no sibling). Shared by the Tab focus
-        handler and the Enter send handler.
+        Guarantee (t986), held by BOTH rungs: a shadow, scratchpad or other
+        helper pane sharing the window is never mistaken for the agent. Shared by
+        the Tab focus handler and the Enter send handler; notifies and returns
+        None on failure (not in tmux, tmux error, no agent pane).
 
-        Resolves through ``_find_own_window_snapshot`` (t1382), not the
-        AGENT-only lookup: in a window renamed off the ``agent-`` prefix the
-        strict resolver returns ``None`` and control fell through to the raw
-        ``list-panes`` fallback, whose "first pane that is not me" rule can
-        select the **shadow** pane — the exact hazard this docstring warns about.
-        The snapshot path excludes shadows by construction.
+        **Rung 1 — the followed-pane snapshot** (pane-id exact), through
+        ``_find_own_window_snapshot`` (t1382), not the AGENT-only lookup, so a
+        window renamed off the ``agent-`` prefix still resolves here. Helpers
+        never reach ``_snapshots`` (discovery drops them), so this rung is
+        helper-blind by construction — and a frozen stand-in, which discovery
+        keeps, is selectable.
+
+        **Rung 2 — a raw ``list-panes`` of the own window** when no snapshot
+        resolves (e.g. the window id is known before the first refresh lands).
+        It used to take the first pane that was not this minimonitor, so a
+        shadow could receive the Enter keystroke (t1388). It now classifies the
+        window with :func:`classify_window_panes` — the ONE definition shared
+        with ``kill_agent_pane_smart``, ``agent_freeze`` and (by the parity
+        test) the cleanup hook — and returns the first non-self pane that is not
+        a helper. That inherits the bound-helper rule (shadow + scratchpad), the
+        companion identity (marker, then cmdline) and the frozen-first
+        precedence: a frozen stand-in carrying a retained helper marker is still
+        the agent, never skipped. **Decision (t1388): companions ARE filtered**,
+        so a second minimonitor in the window is never chosen.
         """
         own_snap = self._find_own_window_snapshot()
         if own_snap is not None:
@@ -3038,19 +3056,19 @@ class MiniMonitorApp(
             self.notify("Own window not detected yet", severity="warning")
             return None
         rc, stdout = self._monitor.tmux_run([
-            "list-panes", "-t", self._own_window_id, "-F", "#{pane_id}",
+            "list-panes", "-t", self._own_window_id,
+            "-F", FROZEN_AWARE_PANE_FORMAT,
         ])
         if rc != 0:
             self.notify("tmux list-panes failed", severity="error")
             return None
-        other_panes = [
-            line.strip() for line in stdout.strip().splitlines()
-            if line.strip() and line.strip() != own_pane
-        ]
-        if not other_panes:
-            self.notify("No other pane in this window", severity="warning")
-            return None
-        return other_panes[0]
+        # Unstripped on purpose: `classify_window_panes` must see the final
+        # record's empty trailing field (see its docstring).
+        for pane in classify_window_panes(stdout):
+            if pane.pane_id != own_pane and not pane.is_helper:
+                return pane.pane_id
+        self.notify("No agent pane in this window", severity="warning")
+        return None
 
     def _focus_sibling_pane(self) -> None:
         """Move tmux focus to the sibling pane in the minimonitor's window."""

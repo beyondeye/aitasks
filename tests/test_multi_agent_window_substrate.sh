@@ -49,6 +49,7 @@ import monitor.monitor_core as mc
 from monitor.monitor_core import (
     TmuxMonitor, TaskInfoCache, TmuxPaneInfo, PaneCategory,
     task_id_from_window_name, is_shadow_target, count_other_real_agents,
+    is_bound_helper,
 )
 
 failures = []
@@ -82,6 +83,13 @@ check("shadow-named window not a pick/qa task",
 check("empty target not shadow", is_shadow_target("") is False)
 check("whitespace target not shadow", is_shadow_target("   ") is False)
 check("pane-id target is shadow", is_shadow_target("%7") is True)
+
+# -- is_bound_helper (t2073_3: shadow + scratchpad targets, one rule) ---------
+check("no targets -> not a bound helper", is_bound_helper() is False)
+check("all-empty targets -> not a bound helper", is_bound_helper("", "") is False)
+check("whitespace targets -> not a bound helper", is_bound_helper("  ", "\t") is False)
+check("shadow target set -> bound helper", is_bound_helper("%7", "") is True)
+check("scratchpad target set -> bound helper", is_bound_helper("", "%7") is True)
 
 # -- count_other_real_agents --------------------------------------------------
 check("counts real siblings excluding self",

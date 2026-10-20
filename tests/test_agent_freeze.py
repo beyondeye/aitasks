@@ -3205,6 +3205,41 @@ class DropVerbTests(_FreezeTestCase):
                          f"DROPPED:{self.rid}")
         self.assertEqual(len(self.tmux.calls_of("kill-window")), 1)
 
+    def _scratchpad_sibling(self, target: str) -> None:
+        self.tmux.panes["%2"] = {
+            "session_name": "aitasks", "window_name": "agent-pick-1705",
+            "pane_id": "%2", "pane_pid": "5555", "pane_dead": "0",
+            "pane_current_path": str(self.root),
+            agent_freeze.RECORD_OPTION: "", agent_freeze.FROZEN_OPTION: "",
+            agent_freeze.STANDIN_READY_OPTION: "",
+            agent_freeze.AGENT_SESSION_OPTION: "",
+            "@aitask_shadow_target": "", "@aitask_monitor_kind": "",
+            "@aitask_scratchpad_target": target,
+        }
+
+    def test_a_bound_scratchpad_is_not_a_real_sibling(self):
+        """A scratchpad bound to the stand-in is a helper (t2073_3).
+
+        It must not hold the window open the way a real sibling agent does, so
+        dropping the last agent still collapses the window.
+        """
+        self._freeze()
+        self._scratchpad_sibling(AGENT_PANE)
+        self.tmux.calls.clear()
+        self.assertEqual(agent_freeze.drop_record(self.rid),
+                         f"DROPPED:{self.rid}")
+        self.assertEqual(len(self.tmux.calls_of("kill-window")), 1)
+
+    def test_negative_control_an_unbound_pad_twin_is_a_real_sibling(self):
+        """The same pane with no target keeps the window — the field is what decides."""
+        self._freeze()
+        self._scratchpad_sibling("")
+        self.tmux.calls.clear()
+        self.assertEqual(agent_freeze.drop_record(self.rid),
+                         f"DROPPED:{self.rid}")
+        self.assertEqual(self.tmux.calls_of("kill-window"), [])
+        self.assertEqual(len(self.tmux.calls_of("kill-pane")), 1)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

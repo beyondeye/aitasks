@@ -787,8 +787,10 @@ hook *first*. With a shadow-first ordering that argument is the *shadow's* pane,
 and a minimonitor sharing the window then reads as a real agent sibling, sparing
 both. So the `companion_pane` argument is a best-effort hint for panes predating
 the markers, and the authority is the pane options: `@aitask_monitor_kind`
-(monitor/minimonitor companions) and `@aitask_shadow_target` (shadows). Both
-orderings are pinned by `tests/test_companion_cleanup_ordering.sh`.
+(monitor/minimonitor companions) and the bound-helper targets
+`@aitask_shadow_target` / `@aitask_scratchpad_target` (see "The bound-helper
+rule" below). Both orderings are pinned by
+`tests/test_companion_cleanup_ordering.sh`.
 
 Canonical helper lives at `.aitask-scripts/aitask_companion_cleanup.sh` (shell
 script, called via `tmux run-shell`, not from a code-agent skill — no
@@ -816,6 +818,50 @@ in an agent window must account for it on two fronts:
   the window; killing a *different* agent leaves an unrelated shadow alive. A
   shadow pane never keeps the minimonitor companion alive once the last real
   agent in the window is gone.
+
+Both rules are the **bound-helper rule** below; the shadow was its first case.
+
+### The bound-helper rule
+
+A *bound helper* is a pane that serves one agent pane and records that agent's
+`pane_id` in a target option. The target options are a closed set defined once
+in `lib/helper_panes.py` — `BOUND_HELPER_TARGET_OPTIONS =
+(@aitask_shadow_target, @aitask_scratchpad_target)` — with one predicate,
+`is_bound_helper(*targets)`. Every bound helper, whatever its kind:
+
+- is excluded from agent lists and snapshots;
+- never counts as a real agent when deciding whether a window still holds one;
+- is killed when its target pane dies;
+- is never killed when a *sibling* dies while its target lives.
+
+The consumers, all reading the same set:
+
+| Consumer | Where |
+|---|---|
+| discovery (agent lists, snapshots) | `TmuxMonitor._parse_list_panes` — a scratchpad is dropped from both returned lists; a shadow goes to the separate `shadows` list |
+| "does this window still hold a real agent?" | `classify_window_panes` — called by `kill_agent_pane_smart`, `agent_freeze._other_real_agents` and rung 2 of minimonitor's `_find_sibling_pane_id` |
+| minimonitor auto-spawn occupancy | `agent_launch_utils._companion_check_and_split` — helpers do not count toward the 3-real-pane limit |
+| pane-death cleanup | `aitask_companion_cleanup.sh` job 1 (reap helpers bound to the dying pane) and job 2 (sibling count) |
+
+**Frozen precedence is part of the rule, at every consumer.** A
+`@aitask_frozen` stand-in is never a helper — not even when it retained a helper
+target or a live `@aitask_monitor_kind` from whatever ran in the pane before the
+respawn. Each consumer checks the frozen marker first: discovery keeps the
+stand-in listed, `classify_window_panes` counts it as real, the occupancy check
+counts it as an occupant, and cleanup job 1 never reaps it. A new helper filter
+that omits the frozen field silently hides the frozen session, or sends a
+minimonitor `tab` / `enter` to a later agent instead.
+
+Adding a helper kind means adding its option to the tuple. The Python formats
+are pinned to carry every option by `tests/test_helper_panes.py`, which also
+fails while either of the cleanup script's `-F` formats lacks one;
+`tests/test_cleanup_rule_parity.sh` drives the verdicts through bash and Python
+together.
+
+**Known gap, documented not fixed:** the direct `kill-pane` paths fire no
+`pane-died` (`kill_agent_pane_smart`'s pane branch, `agent_freeze.drop_record`),
+so bound helpers survive those kills. Freeze and restore use `respawn-pane -k` on
+the same pane id, so a binding survives them.
 
 ### `@aitask_monitor_kind` — the monitor's own pane marker
 
@@ -908,8 +954,8 @@ map, not a proposal:
   killing agent B must not collapse the window and destroy frozen A's viewer. The
   Python half of the same rule lives in `classify_window_panes`
   (`monitor/monitor_core.py`), and `tests/test_cleanup_rule_parity.sh` pins the
-  two copies together. Same two-marker shape as `@aitask_monitor_kind` and
-  `@aitask_shadow_target` above.
+  two copies together. The stamp outranks every helper marker — see "Frozen
+  precedence" in the bound-helper rule above.
 - **When the *dying* pane is the stamped one, cleanup abstains entirely.** That
   pane is being respawned, not departing, so every kill the script would
   otherwise do is wrong. (Belt-and-braces: `respawn-pane -k` fires no `pane-died`
@@ -921,6 +967,22 @@ operation lease, and the reconcile table that repairs a half-finished
 transaction — is specified in the parent plan
 `aiplans/p1705_frozen_codeagents_session_store_and_viewer_tui.md` §A–§D (it moves
 under `aiplans/archived/` when t1705 is archived).
+
+### The scratchpad is a fourth companion-pane case
+
+A **scratchpad** pane (`ait scratchpad`) is a notes editor opened beside an agent,
+in a split of that agent's pane. It is a bound helper: the spawn stamps
+`@aitask_scratchpad_target` with the agent's `pane_id`, so it obeys the
+bound-helper rule above exactly as a shadow does — never listed, never a real
+agent, reaped with its agent, untouched by a sibling's death. It differs from a
+shadow in one place: discovery drops it entirely rather than returning it in
+the `shadows` list, because a scratchpad is not a coding agent and must never
+compete with the real shadow for the agent's shadow slot.
+
+`@aitask_scratchpad_store` (the pad's canonical store directory) rides on the
+same pane but is **not** a helper marker — it keys the one-pad-per-store
+duplicate lookup only, and is deliberately absent from
+`BOUND_HELPER_TARGET_OPTIONS`.
 
 ## TUI footer must surface every operation on the affected tab/screen
 

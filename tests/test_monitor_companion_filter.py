@@ -54,6 +54,7 @@ from monitor.monitor_core import (  # noqa: E402
     FROZEN_OPTION,
     MONITOR_KIND_OPTION,
     PaneCategory,
+    SCRATCHPAD_TARGET_OPTION,
     SHADOW_TARGET_OPTION,
     TmuxPaneInfo,
     TmuxMonitor,
@@ -649,7 +650,8 @@ class KillAgentPaneSmartTests(unittest.TestCase):
     #: `#{pane_id}\t#{pane_pid}\t#{@aitask_shadow_target}\t#{@aitask_monitor_kind}\t#{@aitask_frozen}`
     @staticmethod
     def _line(pane_id: str, pid: int, shadow: str = "",
-              monitor_kind: str = "", frozen: str = "", dead: str = "0") -> str:
+              monitor_kind: str = "", frozen: str = "", dead: str = "0",
+              scratch: str = "") -> str:
         """One `FROZEN_AWARE_PANE_FORMAT` row, BUILT FROM that format.
 
         Deriving the row instead of hard-coding a tab count is what stops this
@@ -667,6 +669,7 @@ class KillAgentPaneSmartTests(unittest.TestCase):
             f"#{{{MONITOR_KIND_OPTION}}}": monitor_kind,
             f"#{{{FROZEN_OPTION}}}": frozen,
             "#{pane_dead}": dead,
+            f"#{{{SCRATCHPAD_TARGET_OPTION}}}": scratch,
         }
         return "\t".join(values[spec]
                          for spec in FROZEN_AWARE_PANE_FORMAT.split("\t"))
@@ -698,6 +701,29 @@ class KillAgentPaneSmartTests(unittest.TestCase):
         self.assertEqual(killed, ["window"])
         self.assertTrue(ok)
         self.assertTrue(killed_window)
+
+    def test_scratchpad_bound_pane_is_a_helper(self):
+        """A scratchpad (t2073_3) is a bound helper, exactly like a shadow.
+
+        Its only sibling is a pad bound to the target, so no real agent remains
+        and the window collapses; the unbound twin below keeps it alive.
+        """
+        stdout = "\n".join([
+            self._line("%1", _AGENT_PID),
+            self._line("%2", _SHELL_PID, scratch="%1"),
+        ]) + "\n"
+        killed, _ok, killed_window = self._kill(stdout, set())
+        self.assertEqual(killed, ["window"])
+        self.assertTrue(killed_window)
+
+    def test_negative_control_unbound_pad_twin_downgrades_to_pane(self):
+        """The same pane without `@aitask_scratchpad_target` is a real sibling."""
+        stdout = "\n".join([
+            self._line("%1", _AGENT_PID),
+            self._line("%2", _SHELL_PID),
+        ]) + "\n"
+        killed, _ok, _killed_window = self._kill(stdout, set())
+        self.assertEqual(killed, ["pane"])
 
     def test_negative_control_unmarked_sibling_downgrades_to_pane(self):
         """The same fixture WITHOUT the marker keeps the window alive.
@@ -832,6 +858,15 @@ class FrozenPaneKillRuleTests(unittest.TestCase):
         stdout = "\n".join([
             self._line("%1", _AGENT_PID),
             self._line("%2", _SHELL_PID, shadow="%1", frozen="7f3a2c1d"),
+        ]) + "\n"
+        killed, _dropped = self._kill(stdout)
+        self.assertEqual(killed, ["pane"])
+
+    def test_frozen_stamp_beats_a_scratchpad_target(self):
+        """Frozen first applies to the scratchpad target too (t2073_3)."""
+        stdout = "\n".join([
+            self._line("%1", _AGENT_PID),
+            self._line("%2", _SHELL_PID, scratch="%1", frozen="7f3a2c1d"),
         ]) + "\n"
         killed, _dropped = self._kill(stdout)
         self.assertEqual(killed, ["pane"])

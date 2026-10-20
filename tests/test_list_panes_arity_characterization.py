@@ -57,12 +57,18 @@ os.environ.pop("TMUX_PANE", None)
 
 from monitor.monitor_core import TmuxMonitor  # noqa: E402
 
-#: The arity `_LIST_PANES_FORMAT` currently emits. 15 since t1705_4 appended
+#: The arity `_LIST_PANES_FORMAT` currently emits. 16 since t2073_3 appended
+#: `@aitask_scratchpad_target` to t1705_4's 15 (which had appended
 #: `@aitask_frozen`, `@aitask_record`, `@aitask_standin_ready` and
-#: `#{pane_dead}` to t1686's 11. THE one literal in this file — every other
+#: `#{pane_dead}` to t1686's 11). THE one literal in this file — every other
 #: expectation is derived from the format at runtime, so this is the single
 #: line to update when the format grows.
-CURRENT_ARITY = 15
+CURRENT_ARITY = 16
+
+#: Indices the helper/frozen cases below write. Looked up from the format
+#: rather than hard-coded, so a reordering fails here by name.
+def _index_of(spec: str) -> int:
+    return TmuxMonitor._LIST_PANES_FORMAT.split("\t").index(spec)
 
 #: Index of `#{history_size}` in the format. The insert-shift control targets
 #: it because it is the first *numerically parsed* field after the block of
@@ -107,6 +113,13 @@ def _row_parts(
     ]
     tail = [""] * (len(_format_fields()) - len(head))
     return head + tail
+
+
+def _parse_both(stdout: str) -> tuple[list, list]:
+    """``(agent_facing, shadows)`` with the cmdline companion rung neutralised."""
+    mon = _make_monitor()
+    with patch("monitor.monitor_core._is_companion_process", lambda pid: False):
+        return mon._parse_list_panes(stdout, "demo")
 
 
 def _parse(stdout: str, *, ignore_markers: bool = False) -> list:
@@ -208,6 +221,75 @@ class FormatArityTests(unittest.TestCase):
         parts = _row_parts(pane_id="%10")
         parts[14] = "0"
         self.assertIs(_parse("\t".join(parts))[0].pane_dead, False)
+
+
+class BoundHelperDiscoveryTests(unittest.TestCase):
+    """Discovery's helper branches and their frozen-first precedence (t2073_3).
+
+    A scratchpad is dropped from BOTH lists; a shadow goes to `shadows`. A
+    `@aitask_frozen` stand-in is never a helper, whatever marker it retained,
+    so it stays in the agent-facing list — the same rule
+    `classify_window_panes` applies.
+    """
+
+    FROZEN = "7f3a2c1d"
+
+    def _row(self, pane_id: str, **fields: str) -> str:
+        parts = _row_parts(pane_id=pane_id)
+        for spec, value in fields.items():
+            parts[_index_of(spec)] = value
+        return "\t".join(parts)
+
+    def _ids(self, panes) -> list[str]:
+        return [p.pane_id for p in panes]
+
+    def test_scratchpad_is_dropped_from_both_lists(self):
+        stdout = "\n".join([
+            self._row("%1"),
+            self._row("%2", **{"#{@aitask_scratchpad_target}": "%1"}),
+        ]) + "\n"
+        panes, shadows = _parse_both(stdout)
+        self.assertEqual(self._ids(panes), ["%1"])
+        self.assertEqual(self._ids(shadows), [],
+                         "a scratchpad must never be routed into `shadows`")
+
+    def test_negative_control_unbound_twin_is_listed(self):
+        """The same row with an empty target is an ordinary agent pane."""
+        panes, _shadows = _parse_both(self._row("%2") + "\n")
+        self.assertEqual(self._ids(panes), ["%2"])
+
+    def test_unfrozen_shadow_still_goes_to_shadows(self):
+        stdout = self._row("%2", **{"#{@aitask_shadow_target}": "%1"}) + "\n"
+        panes, shadows = _parse_both(stdout)
+        self.assertEqual(self._ids(panes), [])
+        self.assertEqual(self._ids(shadows), ["%2"])
+
+    def test_frozen_standin_with_any_retained_helper_marker_is_an_agent(self):
+        marker = f"minimonitor:{os.getpid()}"   # a LIVE companion marker
+        cases = {
+            "scratchpad": {"#{@aitask_scratchpad_target}": "%1"},
+            "shadow": {"#{@aitask_shadow_target}": "%1"},
+            "companion": {"#{@aitask_monitor_kind}": marker},
+        }
+        for name, fields in cases.items():
+            with self.subTest(retained=name):
+                row = self._row("%2", **{"#{@aitask_frozen}": self.FROZEN},
+                                **fields)
+                panes, shadows = _parse_both(row + "\n")
+                self.assertEqual(self._ids(panes), ["%2"],
+                                 "a frozen stand-in must stay listed")
+                self.assertEqual(panes[0].frozen_record, self.FROZEN)
+                self.assertEqual(self._ids(shadows), [])
+
+    def test_negative_control_unfrozen_twins_are_helpers(self):
+        """Without the stamp each of those rows is a helper — the fixture discriminates."""
+        marker = f"minimonitor:{os.getpid()}"
+        for fields in ({"#{@aitask_scratchpad_target}": "%1"},
+                       {"#{@aitask_shadow_target}": "%1"},
+                       {"#{@aitask_monitor_kind}": marker}):
+            with self.subTest(fields=fields):
+                panes, _shadows = _parse_both(self._row("%2", **fields) + "\n")
+                self.assertEqual(self._ids(panes), [])
 
 
 class AppendIsNotFreeTests(unittest.TestCase):

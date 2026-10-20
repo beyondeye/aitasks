@@ -39,6 +39,9 @@ from monitor_marker import (  # noqa: F401
     monitor_marker_alive,
     monitor_marker_state,
 )
+# The bound-helper rule (t2073_3): shadow and scratchpad panes are helpers, never
+# occupants. One definition, shared with monitor_core.
+from helper_panes import BOUND_HELPER_TARGET_OPTIONS, is_bound_helper
 
 # Known git management TUIs in preference order
 KNOWN_GIT_TUIS = ["lazygit", "gitui", "tig"]
@@ -2451,9 +2454,10 @@ def _companion_check_and_split(
     # marker-only on purpose: if it also treated a booting sibling as blocking,
     # two companions booting at once would both exit.
     #
-    # Shadow helper panes (t986) carry @aitask_shadow_target and must NOT count
-    # toward the overcrowding limit — a shadow following the agent should not
-    # block the companion minimonitor from spawning for that same agent.
+    # Bound helper panes — shadows (t986) and scratchpads (t2073) — carry a
+    # helper target (`BOUND_HELPER_TARGET_OPTIONS`) and must NOT count toward
+    # the overcrowding limit: a helper following the agent should not block the
+    # companion minimonitor from spawning for that same agent.
     # A frozen stand-in (t1705_4) carries `@aitask_frozen` and no helper marker,
     # so without this field it would count as an ordinary occupant. It IS a real
     # occupant — counted below — but the marker is read explicitly so the
@@ -2462,9 +2466,10 @@ def _companion_check_and_split(
     #
     # `#{pane_start_command}` is LAST: it is free text, and the partition keeps
     # any `|` inside it in the remainder.
+    helper_fields = "|".join(f"#{{{opt}}}" for opt in BOUND_HELPER_TARGET_OPTIONS)
     rc, out = _TMUX.run(
         ["list-panes", "-t", tmux_window_target(session, win_index),
-         "-F", f"#{{pane_id}}|#{{{MONITOR_KIND_OPTION}}}|#{{@aitask_shadow_target}}"
+         "-F", f"#{{pane_id}}|#{{{MONITOR_KIND_OPTION}}}|{helper_fields}"
                "|#{@aitask_frozen}|#{pane_dead}|#{pane_start_command}"]
     )
     if agent_pane and rc != 0:
@@ -2477,7 +2482,10 @@ def _companion_check_and_split(
             pane_id, _, rest = line.partition("|")
             window_panes.add(pane_id)
             marker, _, rest = rest.partition("|")
-            shadow_target, _, rest = rest.partition("|")
+            helper_targets = []
+            for _opt in BOUND_HELPER_TARGET_OPTIONS:
+                helper_target, _, rest = rest.partition("|")
+                helper_targets.append(helper_target)
             frozen, _, rest = rest.partition("|")
             dead, _, start_command = rest.partition("|")
             if frozen.strip():
@@ -2499,7 +2507,7 @@ def _companion_check_and_split(
                 if dead.strip() != "1":
                     return False, None, ""   # a companion is already booting
                 continue                     # a dead companion is a helper too
-            if not shadow_target.strip():
+            if not is_bound_helper(*helper_targets):
                 real_panes += 1
         # Avoid overcrowding: skip if 3+ non-helper panes already exist
         if real_panes >= 3:

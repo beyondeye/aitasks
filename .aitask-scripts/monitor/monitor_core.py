@@ -57,6 +57,16 @@ from followup_kinds import normalize_followup_kind  # noqa: E402
 # stdlib-only, and discovery must consult the same single implementation the
 # single-instance guards and aitask_companion_cleanup.sh already use (t1686).
 from monitor_marker import MONITOR_KIND_OPTION, monitor_marker_alive  # noqa: E402
+# The bound-helper rule (t2073_3): the helper-target options and the one
+# predicate over them. Re-exported from here so existing
+# `from monitor.monitor_core import SHADOW_TARGET_OPTION` sites keep working.
+from helper_panes import (  # noqa: E402,F401  (re-export)
+    BOUND_HELPER_TARGET_OPTIONS,
+    SCRATCHPAD_STORE_OPTION,
+    SCRATCHPAD_TARGET_OPTION,
+    SHADOW_TARGET_OPTION,
+    is_bound_helper,
+)
 from task_yaml import parse_frontmatter  # noqa: E402
 import gate_ledger  # noqa: E402  (shared gate-ledger parser; single derivation path)
 import dep_resolution  # noqa: E402  (shared local-`depends:` decision core, t1527)
@@ -445,7 +455,11 @@ def _is_companion_process(pid: int) -> bool:
 # the minimonitor/monitor companion panes, and never resolved to a task. The
 # value also drives lifecycle cleanup — when the shadowed agent's pane dies,
 # `aitask_companion_cleanup.sh` kills the bound shadow.
-SHADOW_TARGET_OPTION = "@aitask_shadow_target"
+#
+# `SHADOW_TARGET_OPTION` itself is defined in `lib/helper_panes.py` (t2073_3),
+# beside the scratchpad's `SCRATCHPAD_TARGET_OPTION`: both are bound helpers and
+# follow one rule (`BOUND_HELPER_TARGET_OPTIONS` / `is_bound_helper`), imported
+# at the top of this module and re-exported.
 
 # Pane-scoped user-option a shadow stamps with the wall-clock epoch at which it
 # last read its followed agent (t1104). minimonitor compares it against when the
@@ -1065,11 +1079,15 @@ def combine_staleness(read: bool | None, block: BlockAge) -> bool | None:
 #: This format is its own — it does NOT share `_LIST_PANES_FORMAT` or
 #: `_LIST_PANES_ARITIES`, so its field count is pinned by the arity guard in
 #: `classify_window_panes` and nowhere else. Keep the two in step.
+#:
+#: The scratchpad target (t2073_3) is APPENDED, so the shadow field keeps its
+#: index. Both are bound-helper targets (`lib/helper_panes.py`).
 FROZEN_AWARE_PANE_FORMAT = "\t".join([
     "#{pane_id}", "#{pane_pid}", f"#{{{SHADOW_TARGET_OPTION}}}",
     f"#{{{MONITOR_KIND_OPTION}}}", f"#{{{FROZEN_OPTION}}}", "#{pane_dead}",
+    f"#{{{SCRATCHPAD_TARGET_OPTION}}}",
 ])
-_FROZEN_AWARE_ARITY = 6
+_FROZEN_AWARE_ARITY = 7
 
 
 @dataclass
@@ -1080,7 +1098,8 @@ class WindowPane:
     pane_pid: int
     frozen_record: str
     dead: bool
-    #: True when this pane does NOT keep the window alive (companion / shadow).
+    #: True when this pane does NOT keep the window alive (companion, or a bound
+    #: helper: shadow / scratchpad).
     is_helper: bool
 
 
@@ -1088,18 +1107,21 @@ def classify_window_panes(stdout: str) -> list[WindowPane]:
     """Parse + classify :data:`FROZEN_AWARE_PANE_FORMAT` rows.
 
     The `is_helper` rule is the one `kill_agent_pane_smart` has always applied,
-    moved here verbatim so its two callers cannot drift:
+    moved here verbatim so its callers cannot drift (`kill_agent_pane_smart`,
+    `agent_freeze._other_real_agents`, and rung 2 of minimonitor's
+    `_find_sibling_pane_id`, t1388):
 
     A pane is a helper when it is a companion (marker first, cmdline second —
-    t1686) OR a shadow bound to an agent. A `@aitask_frozen`-stamped pane is
+    t1686) OR a bound helper — a shadow or scratchpad bound to an agent
+    (`is_bound_helper`, t2073_3). A `@aitask_frozen`-stamped pane is
     **never** a helper (t1705_4): the window exists to hold that frozen agent's
     stand-in viewer, so killing a live sibling beside it must not collapse the
     window and destroy the only way back to a frozen session. The frozen check
     comes FIRST so a stale companion marker — left on the pane by whatever ran
     there before the respawn — cannot override it.
 
-    Today that also holds incidentally (a stand-in carries neither
-    `@aitask_shadow_target` nor a live `@aitask_monitor_kind`), but incidental is
+    Today that also holds incidentally (a stand-in carries no helper target and
+    no live `@aitask_monitor_kind`), but incidental is
     not pinned; `tests/test_cleanup_rule_parity.sh` is what keeps this rule and
     `aitask_companion_cleanup.sh`'s copy of it in agreement. Change one and you
     must change the other.
@@ -1116,13 +1138,14 @@ def classify_window_panes(stdout: str) -> list[WindowPane]:
         parts = line.split("\t")
         if len(parts) != _FROZEN_AWARE_ARITY:
             continue
-        pane_id, pid_str, shadow_target, monitor_kind, frozen, dead = parts
+        (pane_id, pid_str, shadow_target, monitor_kind, frozen, dead,
+         scratch_target) = parts
         try:
             pid = int(pid_str)
         except ValueError:
             continue
         is_helper = not frozen.strip() and (
-            is_shadow_target(shadow_target)
+            is_bound_helper(shadow_target, scratch_target)
             or is_live_companion_marker(monitor_kind)
             or _is_companion_process(pid)
         )
@@ -2544,11 +2567,15 @@ class TmuxMonitor:
         f"#{{{RECORD_OPTION}}}",          # store record id; "" when unrecorded
         f"#{{{STANDIN_READY_OPTION}}}",   # viewer-mounted proof; "" until mount
         "#{pane_dead}",   # "1" under remain-on-exit after the process exited
+        # Scratchpad bound-helper target (t2073_3); "" when unset. APPENDED for
+        # the same reason as every field above it.
+        f"#{{{SCRATCHPAD_TARGET_OPTION}}}",
     ])
 
-    #: Accepted `list-panes` record arities. 15 = current (t1705_4's four frozen
-    #: fields); 11 = pre-frozen (t1686 marker); 10 = pre-marker; 9 =
-    #: pre-`history_size` (t1159_2). The set is CLOSED on purpose: an unexpected
+    #: Accepted `list-panes` record arities. 16 = current (t2073_3 scratchpad
+    #: target); 15 = pre-scratchpad (t1705_4's four frozen fields); 11 =
+    #: pre-frozen (t1686 marker); 10 = pre-marker; 9 = pre-`history_size`
+    #: (t1159_2). The set is CLOSED on purpose: an unexpected
     #: arity is dropped whole, so a stub that drifts out of the set fails
     #: loudly-by-absence instead of being reinterpreted field-by-field.
     #:
@@ -2557,7 +2584,7 @@ class TmuxMonitor:
     #: one: every record parses to a rejected arity, discovery returns nothing,
     #: and monitor / minimonitor / board show no agents at all rather than
     #: erroring. Pinned by `test_list_panes_arity_characterization.py`.
-    _LIST_PANES_ARITIES = (9, 10, 11, 15)
+    _LIST_PANES_ARITIES = (9, 10, 11, 15, 16)
 
     def _parse_list_panes(
         self, stdout: str, session_name: str
@@ -2574,6 +2601,20 @@ class TmuxMonitor:
         ``_pane_cache`` — shadows never do, so every cache-backed consumer
         (``get_pane``, ``capture_pane``, compare-mode state, applink) stays
         shadow-blind by construction.
+
+        Scratchpad panes (t2073_3) are the other bound helper and are dropped
+        ENTIRELY — returned in neither list. Routing them into ``shadows`` would
+        make ``commit_snapshots`` treat them as the bound agent's shadow, where
+        they would compete with the real one.
+
+        **Frozen precedence (t2073_3).** None of the helper branches — the
+        scratchpad drop, the shadow routing, the companion filter — fires on a
+        ``@aitask_frozen`` stand-in. That is the same frozen-first rule
+        :func:`classify_window_panes` applies: a stand-in is never a helper,
+        even when a marker retained from whatever ran in the pane before the
+        respawn says otherwise. Dropping it here would hide the frozen session
+        from every agent list and let the minimonitor's own-window resolution
+        pick a LATER agent in the window as the one it follows.
         """
         panes: list[TmuxPaneInfo] = []
         shadows: list[TmuxPaneInfo] = []
@@ -2612,9 +2653,15 @@ class TmuxMonitor:
             # record with no such field) reads as alive. Compared as a string on
             # purpose — `bool("0")` is True.
             pane_dead = (parts[14].strip() == "1") if len(parts) > 14 else False
+            # "" on a pre-t2073_3 record, and on every pane that is not a pad.
+            scratch_target = parts[15].strip() if len(parts) > 15 else ""
             window_name = parts[1]
             seen.add(pane_id)
-            if is_shadow_target(parts[8]):
+            # Frozen first: a stand-in is never a helper (see the docstring).
+            is_frozen = bool(frozen_record)
+            if not is_frozen and scratch_target:
+                continue    # scratchpad helper: dropped, NEVER routed to `shadows`
+            if not is_frozen and is_shadow_target(parts[8]):
                 # Category forced to AGENT: a shadow IS a coding-agent CLI, so
                 # the prompt scan + idle bookkeeping must apply regardless of
                 # its window name (a same-window shadow shares the agent's).
@@ -2653,7 +2700,10 @@ class TmuxMonitor:
             # (t1686) — a companion restarted from an interactive shell inside
             # the pane has `-bash` as its `#{pane_pid}`, so cmdline matching
             # alone left it listed as a duplicate agent card.
-            if self._is_companion_pane(
+            #
+            # Not consulted for a frozen stand-in (t2073_3), whose retained
+            # marker would otherwise hide it — the frozen-first rule above.
+            if not is_frozen and self._is_companion_pane(
                 pane_id, pane_pid, session_name, monitor_kind
             ):
                 continue

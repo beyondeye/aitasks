@@ -72,10 +72,32 @@ def _dead_pid() -> int:
 STALE = f"minimonitor:{_dead_pid()}"
 
 
+#: The positional fields of a fixture pane tuple, mapped to the `#{...}` spec
+#: each one answers. Rows are RENDERED from the `-F` format the code under test
+#: requests (`_render_panes`), so adding a field to that format — t2073_3
+#: appended the scratchpad target — cannot shift `pane_start_command` into a
+#: neighbour's slot and silently reclassify a booting companion.
+_PANE_TUPLE_SPECS = (
+    "#{pane_id}", "#{@aitask_monitor_kind}", "#{@aitask_shadow_target}",
+    "#{@aitask_frozen}", "#{pane_dead}", "#{pane_start_command}",
+)
+
+
+def _render_panes(args, panes) -> str:
+    """Answer `list-panes -F <fmt>` from positional pane tuples (missing → "")."""
+    fmt = args[args.index("-F") + 1]
+    rows = []
+    for pane in panes:
+        values = dict(zip(_PANE_TUPLE_SPECS, pane))
+        rows.append("|".join(values.get(spec, "") for spec in fmt.split("|")))
+    return "\n".join(rows)
+
+
 class _FakeTmux:
     """Scripted gateway. `panes` is a list of `(pane_id, marker, shadow_target)`,
     optionally extended with `(frozen, dead, start_command)` — the trailing
     fields of the t2039 list-panes format, which a 3-tuple simply leaves empty.
+    Rows are rendered from the requested format (`_render_panes`).
 
     ``socket_path`` answers the lock's `#{socket_path}` read (rc ``socket_rc``);
     every other `display-message` is the active-pane probe.
@@ -101,7 +123,7 @@ class _FakeTmux:
         if verb == "list-panes":
             if self._list_rc:
                 return (self._list_rc, "")
-            return (0, "\n".join("|".join(p) for p in self._panes))
+            return (0, _render_panes(args, self._panes))
         if verb == "display-message":
             if args[-1] == "#{socket_path}":
                 return (self._socket_rc, self._socket_path)
@@ -428,7 +450,7 @@ class _SharedWindowTmux:
             return 0, "%1"
         if verb == "list-panes":
             with self._lock:
-                out = "\n".join("|".join(p) for p in self.panes)
+                out = _render_panes(args, self.panes)
             if self.list_barrier is not None:
                 self.list_barrier.wait(timeout=5)
             return 0, out
