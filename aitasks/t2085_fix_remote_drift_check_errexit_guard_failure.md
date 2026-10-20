@@ -12,8 +12,9 @@ active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1852
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-20 18:40
-updated_at: 2026-10-20 18:57
+updated_at: 2026-10-20 19:09
 ---
 
 ## Origin
@@ -42,3 +43,8 @@ Two options:
 - Or, if `; echo "DRIFT_RC:$?"` is deliberately safe here (the agent runs it as a non-errexit one-liner), add a narrowly scoped, justified allowlist entry to the guard. Do not weaken the guard globally.
 
 Re-render the task-workflow goldens and prerenders after the edit.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-20T16:09:28Z status=pass attempt=1 type=human
