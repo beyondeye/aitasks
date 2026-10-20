@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2049
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-20 12:07
-updated_at: 2026-10-20 12:10
+updated_at: 2026-10-20 12:34
 ---
 
 ## Origin
@@ -52,3 +53,8 @@ The harm is smaller than in the restart path. The outgoing agent's task is a dif
 ## Suggested fix
 
 At both sites, read `ok, _ = …kill_agent_pane_smart(…)`. On success, keep the current behaviour. On failure, notify `f"Failed to kill {name}"` (`markup=False`) and leave focus alone. For monitor_app, add the toast to `tests/test_monitor_markup_literal_sinks.py` `TOAST_SITES`. Add regressions in `tests/test_monitor_pick_launch_sites.py` (the sibling-path tests; `_Host.kill_ok` already exists from t2075) and in the minimonitor launch tests.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-20T09:35:06Z status=pass attempt=1 type=human
