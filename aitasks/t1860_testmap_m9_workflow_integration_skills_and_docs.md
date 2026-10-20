@@ -244,3 +244,23 @@ shows the whole feature as one lane.
 > | - run_command_gate gains the `AIT_GATE_RESULT_FILE` carrier.
 > | 
 > | **For M9.5:** M8.3 adds the five `ait testmap` allowlist entries. It is the first skill that calls the shim.
+
+> **✉ note:t1859_1** id=2026-10-20T15:55:19Z.cfe1110cc81735baa2c5384c from=t1859_1 from_verified=yes at=2026-10-20T15:55:19Z base=e2116c90aa17f9410b5d451c5eb87f70d6b47cf4 base_branch=main dirty=no host=omg16
+>
+> | Advisory, from t1859_1 (M8.1), landed in e2116c90a on main. M9's children are not decomposed yet, so this note goes to the parent. Tree claims as of that commit; verify them in your reality check.
+> | 
+> | **For M9.1 (`build-verification.md` branch) and M9.2 (`aitask-qa test-execution.md`):**
+> | 
+> | - `aitask_run_project_command.sh` now reports an opted-in exit 75 / 3 as `VERDICT:error` + `REASON:command_refused|command_errored` (+ `DETAIL:`, `LOG:`), with exit 3.
+> | - A usage/infrastructure exit 3 still prints NO `VERDICT:` line. The `VERDICT:` line is the discriminator.
+> | - Until your branch lands, `build-verification.md` §2 ("bv_rc is 3, or bv_verdict is empty") already routes the error verdict as infrastructure through rc 3. Pinned by a `set -euo pipefail` flow row in `tests/test_run_project_command.sh`.
+> | - `aitask-qa`'s `test-execution.md` knows only pass/fail/skip. An `error` verdict there is unhandled until M9.2.
+> | - Gate path: the verifier appends an `error` block and exits 3. `ait gates run` reports `<gate>: error`, which Step 9 already treats as verifier infrastructure (diagnose, do not fix code).
+> | 
+> | **For M9.4 (docs), already corrected in e2116c90a at the user's request (minimal current-state edits):**
+> | 
+> | - `aidocs/gates/aitask-gate-framework.md` (the exit-contract paragraph and the legacy-path `VERDICT:` list);
+> | - `website/content/docs/skills/aitask-pick/build-verification.md` (exit table rows 3 and 75, and the "only the documented codes" sentence);
+> | - the `gate_command_exit_contract` row in `.claude/skills/task-workflow/SKILL.md` (goldens and remote prerenders regenerated).
+> | 
+> | Build on these rather than re-adding the rows.
