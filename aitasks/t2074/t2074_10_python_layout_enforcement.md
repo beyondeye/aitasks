@@ -8,68 +8,82 @@ labels: [python, board, syncer, data_integrity]
 gates: [risk_evaluated]
 anchor: 2074
 created_at: 2026-10-20 12:33
-updated_at: 2026-10-20 12:34
+updated_at: 2026-10-20 16:58
 ---
 
 ## Context
 
-This child is part of t2074, which removes legacy repository mode. It brings the
-Python consumers into line with the shell enforcement from t2074_9. The binding
-contract is sections C0 and C1 of
-`aiplans/p2074_remove_legacy_repository_mode_support.md`. Python must read the
-layout state through `.aitask-scripts/lib/data_layout.py` (from t2074_1), which
-calls the shell classifier once per process. It must never re-implement the
-checks.
+This task is part of t2074, rescoped to branch-mode layout hardening. **Legacy
+mode stays supported.** It brings the board into line with the layout
+enforcement table, and it is merged into t2074_9 as that child's **Step C**.
+The binding contract is in `aiplans/p2074_branch_mode_layout_hardening.md`.
 
-This child depends on t2074_7 (Python fixtures converted) and t2074_9 (shell
-enforcement landed).
+The bug: `board/board_task_manager.py:66` `_task_git_cmd` probes the
+cwd-relative `./.aitask-data/.git` and otherwise falls back to `["git"]`. When
+the board runs in branch mode from a cwd other than the repo root, it targets
+the code repo. It also never re-validates during its long life.
 
-## Current state
+## Scope (Step C)
 
-- `board/board_task_manager.py:66` `_task_git_cmd` returns `["git"]` whenever
-  `./.aitask-data/.git` is missing. In branch mode that also fires from a
-  non-root cwd, which silently targets the wrong repo. It is re-exported by
-  `aitask_board.py:176` and used at `aitask_board.py:6629` (`git rm -f`) and
-  `board_detail_screen.py:59,1970` (`git checkout --`).
-- `board/aitask_board.py:236` and `:2851` only run `sync_on_refresh` when
-  `DATA_WORKTREE.exists()`, so legacy repos never sync.
-- `lib/desync_state.py:150-159,246` reports `missing_worktree` for the
-  `aitask-data` ref, and `syncer/syncer_app.py:700-705` consumes it.
-- `lib/cross_repo_settings.py:84,488-489,545-552` uses
-  `REASON_DEST_LEGACY_LAYOUT`, consumed by `syncer_app.py:77,245`. It refuses a
-  destination repo whose `MODE:` is not `branch`. Keep it: the destination may
-  be an older, unconverted install.
-- `lib/parallel_admission_collect.py:68-80` falls back to code-branch-only
-  classification when the data ref is missing. This is low priority: add a
-  reason, or record why the fallback is content-only and safe.
+**Repo-root resolution, validated fresh.** `_task_git_cmd` resolves from the
+repo root, not the cwd. It **validates fresh on every call** through
+`lib/data_layout.py` (from t2074_1) and never uses the cached `snapshot()`. A
+worktree that was valid at startup can switch branches or break later, and the
+same `git -C` prefix would then silently target the new branch.
 
-## Implementation
+**Two named operation classes**, following the enforcement table:
+- **Git inspection of the data worktree (C1a only)**, via
+  `require_repo_branch()`. This covers read-only status/dirty indicators, log,
+  diff and show. These still run while C1b is `misdirected`, `dangling`,
+  `mixed` or `unlinked`.
+- **Mutations (C1a and C1b)**, via `require_branch_ready()`, checked
+  immediately before each operation. This covers task-file edits,
+  column/board-index moves, revert (`git checkout --`,
+  `board_detail_screen.py:59,1970`), delete (`git rm -f`,
+  `aitask_board.py:6629`) and any board-initiated commit.
 
-1. `_task_git_cmd` resolves the data worktree through `lib/data_layout.py`,
-   starting from the repo root rather than the cwd. It raises a clear error
-   naming the state, the reason and the recovery when C1a is not `branch`.
-   Every caller surfaces that error, for example as a toast, and never runs
-   plain `git`.
-2. The board checks C0 (reader class: C1a and C1b) at startup. On a non-ready
-   layout it shows an explicit refusal with the recovery text. The
-   existence-gated sync becomes an explicit refusal toast.
-3. Reword `desync_state.py` `missing_worktree` and its `syncer_app.py` row as a
-   broken or unconverted layout, with the recovery.
-4. `REASON_DEST_LEGACY_LAYOUT` stays a refusal. Reword it to "destination not
-   converted — run `ait setup` there". Read
-   `aidocs/framework/tui_conventions.md:476` for the documented refusal row; the
-   doc text itself is updated in t2074_12.
+`_task_git_cmd` takes an explicit class argument. A test enumerates every
+caller and asserts its class.
+
+Behaviour by state:
+- In `legacy` or `uninitialized`, return `["git"]` explicitly, as today.
+- A broken state raises with its recovery.
+- Callers surface the error and never fall back to plain git.
+
+**Board startup** applies the reader-class check and refuses, with the recovery
+text, on a branch layout that is not ready. The sync gate at
+`aitask_board.py:236` and `:2851` becomes an explicit refusal toast for broken
+branch layouts. Legacy behaviour is unchanged.
+
+**Not touched:** `desync_state`, `cross_repo_settings` and
+`REASON_DEST_LEGACY_LAYOUT`.
 
 ## Tests
 
-- Update `tests/test_desync_state.py`, `tests/test_syncer_rows.py`,
-  `tests/test_cross_repo_push_commit.py` (keep
-  `test_legacy_layout_target_is_refused`) and
-  `tests/test_cross_repo_settings.py`.
-- New: a board test on a broken-layout fixture built with `board_fixture`.
-  Assert the refusal and that no git command ran against the code repo.
-- New: `_task_git_cmd` from a non-root cwd in a valid layout resolves to the
-  data worktree.
+- From a non-root cwd, a valid layout resolves to the data worktree.
+- A broken `board_fixture` is refused, and no git command runs against the
+  code repo.
+- The legacy board fixture still works.
+
+**Same-process transitions.** Each transition gets its own test, and the
+expected outcomes come from the enforcement table. Every test runs in one
+process (`App.run_test` or the `board_task_manager` API). It starts from a valid
+layout, where one inspection and one mutation both succeed, then applies the
+transition:
+- **(a) Branch switch** (`broken:wrong_branch`): inspection and every mutation
+  refuse.
+- **(b) `.aitask-data` deleted** (`broken:missing_storage`): inspection and
+  every mutation refuse, with no plain-git fallback.
+- **(c) `aitasks` repointed to another existing dir** (`branch`/`misdirected`):
+  inspection succeeds; edit, revert and delete each refuse.
+
+Every refusal must prove nothing changed:
+- the content manifest is unchanged, including the redirected-to dir in (c);
+- the HEAD, refs and index snapshots of both the data repo and the code repo
+  are unchanged.
+
+Planted control: a variant that reads the cached `snapshot()` must fail
+case (a).
 
 ## Verification
 
