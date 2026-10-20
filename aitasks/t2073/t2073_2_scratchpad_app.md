@@ -3,12 +3,13 @@ priority: medium
 effort: high
 depends: [t2073_1]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [scratchpad]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 2073
 created_at: 2026-10-20 10:31
-updated_at: 2026-10-20 10:32
+updated_at: 2026-10-20 12:32
 ---
 
 ## Context
