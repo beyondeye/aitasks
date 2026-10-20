@@ -691,3 +691,98 @@ current branch, with no merge.
 ### Planned mitigations
 - timing: after | name: testmap_closure_implicit_inputs_audit | type: enhancement | priority: medium | effort: medium | inline_risk: medium | added_complexity: medium | addresses: goal-achievement — implicit runner inputs missing from the eligibility closure | desc: Audit pytest/go-test/gradle-class/bash-file implicit inputs (conftest.py ancestors, build files, package siblings) and add them to M3.4 anchor eligibility (or mark opaque) with red-proved fixtures
 - timing: post-phase | name: measure_hook_cost_and_unresolved_rate | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health hook latency; goal-achievement unresolved-ref anchor rarity | desc: Measure the ledger hook's wall time on a dirty tree and the share of bash tests with Unresolved closure refs; report both in Final Notes
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-20 08:10)
+- **Requested by user:** three confirmed defects:
+  - (1) `Load` read the host table before taking the ledger lock, so a concurrent `Update` could hide a folded run from both views. `LoadAll` discovery had the same race.
+  - (2) `AppendPrediction` did an unlocked read-modify-write, so a concurrent scorer's run could be lost.
+  - (3) The unmeasured-id fallback median included child-only ids, contradicting D6 ("median top-level p95").
+- **Changes made:**
+  - (1) `withLedger` holds the ledger lock across the table read(s) and the ledger read. `Load` → `loadFrom`; `LoadAll` discovers and reads under the same hold. With no ledger file it takes no lock and creates nothing.
+  - (2) `lockStores` (`<git-dir>/ait-testmap/costs.lock`, the adoption tables' convention) covers the whole read/replace/cap/write. The store tests now use a git fixture root.
+  - (3) `IDRow.TopN` counts timed top-level observations, and `medians()` uses only ids with `TopN > 0`.
+- **New tests:**
+  - `TestLoadConsistentWithConcurrentUpdate` (Load and LoadAll; the reader is proved blocked through /proc/locks);
+  - `TestAppendPredictionInterleaving` (barrier at the seam after the read; the second writer is proved blocked);
+  - `TestFallbackMedianIgnoresChildOnlyIDs` (100000 ms parent, 1 ms children, unmeasured skip → 200000; estimate fallback 100000).
+- **Red proofs (isolated, restored byte-identical):** each fails its own test:
+  - Load pre-reading the table;
+  - `withLedger` without the lock;
+  - `AppendPrediction` without the stores lock;
+  - the median over `Stat.N` instead of `TopN`.
+- **Files affected:** `goengines/internal/testmap/cost/{table.go,stores.go,estimate.go,concurrency_test.go,fold_test.go}`, `goengines/README.md`, `aidocs/testing_engine/n014_explorer_006_proposal.md`
+
+### Change Request 2 (2026-10-20 08:25)
+- **Requested by user:** `parseTable` seeded `HostClass` from the file name before decoding, so an existing table with no `host_class:` passed the identity check (`LoadAll` accepted `rogue.yaml` = `contract: 1` + an unrelated key).
+- **Changes made:**
+  - An existing file is now decoded into a table with an empty identity. It must state a `host_class` equal to its file stem.
+  - An absent file is still an empty table.
+  - Coverage added to `TestLoadAllDiscriminates`: missing identity is refused by both `LoadAll` and `Load`, and an absent table loads empty.
+  - Red proof: accepting an empty `host_class` fails the test ("identity-less table accepted by LoadAll"). The mutant was isolated and restored byte-identical.
+- **Files affected:** `goengines/internal/testmap/cost/{table.go,fold_test.go}`, `goengines/README.md`
+
+## Final Implementation Notes
+
+- **Actual work done:**
+  - **New package `goengines/internal/testmap/cost/`:**
+    - `stats.go`: Welford, plus P² p95 with desired positions derived from Count;
+    - `surface.go`: run-id surfaces, `ValidHostClass` with the reserved `policy`/`predictions`, `cost.Error` → `COSTS_ERROR`;
+    - `ledger.go`: row types, `Batch`, the locked `Append` with `O_APPEND` after the lock and a torn-line heal, and `parseLedger` with `run_end` complete-run framing;
+    - `eligibility.go`: the run-time judge with lazy inputs;
+    - `hook.go`: `Hook`/`Rows`;
+    - `table.go`: host tables, the fold, `ledger_fold`, `Load`/`LoadAll` under one lock hold, `Update`;
+    - `estimate.go`: `Estimate`, `FullSuiteP95`, `GateTimeoutS`;
+    - `stores.go`: predictions under `<git-dir>/ait-testmap/costs.lock`, and policy.
+  - **Verb `costs`** (`cmd/ait-testmap/costs.go`, the `verbs.go` row). The hook is registered in one ordered `init` there.
+  - **Named extensions:**
+    - `runner.RunReport.Repo`/`All`;
+    - `gitx.Repo.Prefix`, plus a corrected `ModifiedPaths` doc comment.
+  - **Docs:** README Interfaces rows; the proposal's *Where state lives* row and *Cost ledger* component.
+- **Deviations from plan:**
+  - Plan D2–D13 were applied as approved, and the four plan-review concerns (reserved names, run framing, skipped members, persisted `refused`) were folded in before implementation.
+  - **Eligibility order:** kind-opaque checks (child/suite/whole-run) run before the lazy input load, so suite-only runs never trigger `deps.Scan`.
+  - **`refused`** is an explicit early rejection reason.
+  - **`top_n`** was added to id rows (post-review change 1).
+  - **Host-table identity** must be explicit (post-review change 2).
+  - **Store tests** need a git fixture root, because the stores lock lives in the git directory.
+- **Issues encountered:**
+  - The fixture `chmod` after commit dirtied the tree. The fixture now sets the mode before committing.
+  - Run-id reuse across `judged()` calls (`run-exists`) was fixed with a counter.
+  - Three first-round mutants were invalid (compile errors from unused loop variables) and were re-run as valid ones.
+  - One test literal was mis-escaped by a scripted edit; it was caught by vet before any mutant was counted.
+- **Key decisions:**
+  - **D7:** an eligibility input that cannot be read becomes `eligibility-error:` in the rows and never changes the run's exit; only a failed ledger write is a hook error.
+  - **D12 kept strict, by user decision:** a narrowing to "only when a modified path is outside the scan universe" was proposed and rejected. Counterexample: an unchanged excluded helper reached through an unresolved ref can itself read a dirty in-universe file.
+  - **D6:** the fallback median is over top-level-timed ids only.
+- **Measurement (post-phase `measure_hook_cost_and_unresolved_rate`):** taken on this repo with a throwaway test, since the repo has no `aitestmap/` yet so `run` cannot execute here.
+  - **Hook inputs (dirty tree only):** git snapshot ≈ 9 ms; `deps.Scan` ≈ 737 ms cold / 112 ms warm; annotations ≈ 145 ms. Total ≈ 0.9 s cold / 0.27 s warm.
+  - **Unresolved rate:** 400 / 448 bash tests (89 %) have an unresolved `source`/`exec` ref in {test} ∪ closure, mostly fixture paths created at test time (e.g. `aitasks/t10_alpha.md`, `.codex/`, `.opencode/skills/...`). 0 are closure-opaque, 0 lack facts.
+  - **Consequence:** on this repo dirty-tree anchors are **effectively disabled**: only a clean tree anchors. This is input for `testmap_closure_implicit_inputs_audit`, which must also carry the excluded-helper counterexample as a test before any relaxing.
+- **Red proofs:** every mutant was isolated and restored byte-identical (`cmp`), and each failed its own test.
+  - **Eligibility checks (15):** test-file, closure, covers, annotation-union, registry-union, helper-reads, plugin-reads, runner-config, opaque/unresolved, cause, head, suite, child, tree-changed, root.
+  - **Fold:**
+    - framing count, incomplete run, refused overhead;
+    - full-run membership, fold mark, child-only qualification. The last needed the new `child-only-timed` case: its first mutant was green.
+  - **Review fixes:**
+    - Load pre-reading the table;
+    - unlocked `withLedger`;
+    - unlocked predictions;
+    - child-inclusive median;
+    - identity-less table.
+  - **Concurrency:** `TestConcurrentAppendDuringUpdate` carries its own unlocked red control.
+- **Upstream defects identified:**
+  - `goengines/internal/testmap/runner/invoke.go:200` — `provenance()` filters `.aitask-testmap/` from `git status` paths, which are top-level-relative. With `aitestmap/` in a subdirectory (root ≠ git top level) the filter misses `sub/.aitask-testmap/...`, and the record's `modified` set is top-level-relative while every other path is root-relative. M3.4 fails closed on it (`eligibility-error:root-not-toplevel`).
+- **Notes for sibling tasks:**
+  - **Hook wiring:** subscribers register in the single ordered `init` in `cmd/ait-testmap/costs.go`. M4.4's `score` goes after `cost-ledger`.
+  - **For M4.x readers:**
+    - `cost.Load(root, hc)` / `LoadAll(root)` fold pending ledger runs in memory;
+    - `LastPass(id)` is per host class (merge across `LoadAll`);
+    - `Flaky(id, cfg.FlakeThreshold)` excludes flaky ids;
+    - `last_pass.at` is RFC 3339 UTC;
+    - `Estimate(t, runner.Group(...), kindOf)` reports `Unknown`/`UnknownGroups`.
+  - **For M4.5:** a full run must use `--run-id full-…` **and** `--all`, or it never becomes the baseline.
+  - **For M8.5:** `ReadPolicy`/`WritePolicy`, plus `FullSuiteP95(t).MS`/`.OK`.
+  - **For M6.5:** `costs --gate-timeout <gate>` exits 2 with `COSTS_NO_FULL_RUN:<hc>` until a full run qualifies.
+  - **Test fixtures:** `eligibility_test.go`'s `eligRepo` is a full real-input fixture (helper reads, scanner plugin, hand edge, runner script). Commit file modes before any run, or the tree is dirty.
