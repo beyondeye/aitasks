@@ -413,6 +413,28 @@ assert_contains "J2b ledger: the first-command detector still fires" "$J2_WARN" 
 assert_eq "J2b ledger: the archive cleanup ran" "" "$(j2_left "$probe")"
 rm -rf "$probe"
 
+# J2b (ledger, explicit): the explicit spelling behind the same prepend +
+# re-source receives the dying status the txn prepend restores (t2071).
+probe=$(mktemp -d)
+cat > "$TMPDIR_J2/body.sh" <<'EOF'
+set -euo pipefail
+source "$SCRIPT_DIR/lib/terminal_compat.sh"
+source "$SCRIPT_DIR/lib/ledger_block.sh"
+source "$SCRIPT_DIR/lib/txn_snapshot.sh"
+my_cleanup() { :; }
+trap 'rc=$?; my_cleanup; ait_ledger_lock_exit_trap "$rc"' EXIT
+src
+f=$(xt); [[ -s "$f" ]] || exit 99
+txn_chain_exit_trap _txn_exit_trap
+src
+exit 42
+EOF
+j2_child "$probe" "$TMPDIR_J2/body.sh"
+assert_eq "J2b ledger (explicit): the dying status survives the prepend" "42" "$J2_RC"
+assert_not_contains "J2b ledger (explicit): no first-command warning" "$J2_WARN" "$J2_OUT"
+assert_eq "J2b ledger (explicit): the archive cleanup ran" "" "$(j2_left "$probe")"
+rm -rf "$probe"
+
 # J2c: no prior trap -- a re-source leaves exactly the bare cleanup, once.
 probe=$(mktemp -d)
 cat > "$TMPDIR_J2/body.sh" <<'EOF'

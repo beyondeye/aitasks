@@ -200,8 +200,9 @@ _ait_archive_cleanup() {
 # dying one and trips ledger_block.sh's first-command detector. So this runs
 # our cleanup first, then the caller's handler exactly as the UNWRAPPED
 # composition would run it:
-#   * `$?` is the status this function received -- the dying one, or whatever
-#     a handler that a later composer prepended ahead of us returned;
+#   * `$?` is the status this function received -- the dying one, also when a
+#     later txn_chain_exit_trap prepended a handler ahead of us (it restores
+#     the status around that handler);
 #   * `trap -p EXIT` shows the CURRENT trap text with our token replaced by the
 #     caller's handler. Not the caller's text alone: after a
 #     txn_chain_exit_trap prepend that would tell the ledger detector it ran

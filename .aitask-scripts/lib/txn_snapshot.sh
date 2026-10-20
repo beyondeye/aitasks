@@ -241,17 +241,28 @@ txn_snap_cleanup() {
 # Chaining puts the rollback first (it runs while the lock is still held) and
 # the release second.
 #
-# Known limit of PREPENDING (recorded by t2032): whatever follows <handler> sees
-# <handler>'s status as `$?`, not the dying one. In front of a status-reading
-# handler -- the explicit ledger spelling `rc=$?; …; ait_ledger_lock_exit_trap
-# "$rc"` -- an `exit 42` therefore ends 0 (with or without archive_utils'
-# _ait_archive_exit_chain in the trap; tests/test_archive_utils.sh 13d2 pins
-# it). Shipped prepends sit only in front of registry_lock_release and the
-# archive chain, neither of which reads `$?` for the final status.
+# STATUS-PRESERVING (t2071): the dying status is captured first and restored
+# TWICE -- before <handler>, because the capturing assignment itself sets `$?`
+# to 0 (and <handler> may read it: _txn_exit_trap reports "exit N"), and after
+# it, so the rest of the trap sees the dying status rather than <handler>'s.
+# `(exit N) && :` sets `$?` without tripping errexit (a failing non-final
+# command of an && list is exempt). Each prepend owns its capture/restore pair,
+# so nested prepends compose; `__txn_chain_rc` is a global because trap text
+# runs at the top level, where `local` is unavailable.
+#
+# What this does NOT change:
+#   * a <handler> that FAILS under errexit still aborts the trap before
+#     whatever follows -- shipped handlers end in `return 0` by contract;
+#   * the bare `ait_ledger_lock_exit_trap` behind a prepend is no longer FIRST,
+#     so its first-command detector (lib/ledger_block.sh) still reports a
+#     generic failure. `$?` is right, but the detector reads trap position.
+#     Behind a prepend, use the explicit `rc=$?; …; ait_ledger_lock_exit_trap
+#     "$rc"` spelling, which now receives the dying status
+#     (tests/test_resolve_tar_zst.sh 13d2 pins both).
 txn_chain_exit_trap() {
     local cur
     cur="$(trap -p EXIT)"; cur="${cur#trap -- }"; cur="${cur% EXIT}"
-    eval "trap '$1; '$cur EXIT"
+    eval "trap '__txn_chain_rc=\$?; (exit \"\$__txn_chain_rc\") && :; $1; (exit \"\$__txn_chain_rc\") && :; '$cur EXIT"
 }
 
 # _txn_exit_trap -- the EXIT handler installed by txn_begin. `die` calls `exit`,
@@ -259,8 +270,8 @@ txn_chain_exit_trap() {
 # abort path.
 #
 # It captures $? as its FIRST command and never calls exit, so the script's own
-# status survives it. It is first in the chain, so it destroys no status a later
-# handler needs (registry_lock_release does not read $?).
+# status survives it. txn_chain_exit_trap restores the dying status around it,
+# so it destroys no status a later handler needs either.
 # txn_rollback_report <ok:0|1> <context> -- the ONE place a rollback's outcome
 # is worded, so the EXIT trap, the verbs' explicit failure arms and `ait fold`
 # cannot drift into claiming different things about the same event.

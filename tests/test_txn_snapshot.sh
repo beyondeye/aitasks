@@ -3,7 +3,7 @@
 # promoted from aitask_fold_mark.sh's private facility (t1698 / t1668).
 #
 # Drives the lib DIRECTLY, so each property is pinned once at its own level
-# rather than only through a verb. Four groups:
+# rather than only through a verb. Five groups:
 #
 #   A — txn_snap_add / txn_snap_restore round-trip, including the fail-closed
 #       index read and the "second add after mutation is a no-op" rule.
@@ -14,6 +14,8 @@
 #       flips the verdict, and the partial message never claims a full rollback.
 #   D — branch mode: a path under attachments/ (NOT one of the two symlinked
 #       names) round-trips through the data worktree.
+#   E — txn_chain_exit_trap restores the dying status around the prepended
+#       handler, for that handler and for everything after it (t2071).
 #
 # Run: bash tests/test_txn_snapshot.sh
 set -uo pipefail
@@ -317,6 +319,112 @@ txn_snap_restore
 assert_eq "D1: a non-symlinked data path round-trips through the data worktree" \
     "pre-transaction meta" "$(cat .aitask-data/attachments/meta/ab/cdef.json)"
 txn_snap_cleanup
+
+echo "=== E — txn_chain_exit_trap restores the dying status ======================"
+
+# e_run <chain-fn> <body> -- run <body> in a child bash with the real lib loaded
+# and CHAIN=<chain-fn>. Two inline composers serve as the controls: the pre-fix
+# bare prepend, and a capture-only spelling that skips the restore before the
+# handler (the assignment that captures `$?` resets it to 0). Sets E_OUT / E_RC.
+e_run() {
+    {
+        echo "source '$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh'"
+        echo "source '$PROJECT_DIR/.aitask-scripts/lib/txn_snapshot.sh'"
+        cat <<'EOF'
+chain_bare() { local cur; cur="$(trap -p EXIT)"; cur="${cur#trap -- }"; cur="${cur% EXIT}"; eval "trap '$1; '$cur EXIT"; }
+chain_capture_only() { local cur; cur="$(trap -p EXIT)"; cur="${cur#trap -- }"; cur="${cur% EXIT}"; eval "trap '__txn_chain_rc=\$?; $1; (exit \"\$__txn_chain_rc\") && :; '$cur EXIT"; }
+EOF
+        echo "CHAIN=$1"
+        printf '%s\n' "$2"
+    } > "$TMP/e_child.sh"
+    E_RC=0
+    E_OUT="$(bash "$TMP/e_child.sh" 2>&1)" || E_RC=$?
+}
+
+# One prepended handler (ending in a 0 status) in front of a status-reading one.
+E_ONE=$(cat <<'EOF'
+set -euo pipefail
+h1() { echo "h1=$?"; false || true; }
+trap 'rc=$?; echo "caller=$rc"' EXIT
+$CHAIN h1
+exit 42
+EOF
+)
+
+# E1/E2. The handler after the prepend, and the prepended handler itself, both
+# see the dying status; the script still ends with it.
+e_run txn_chain_exit_trap "$E_ONE"
+assert_contains "E1: the handler after the prepend sees the dying status" "caller=42" "$E_OUT"
+assert_contains "E2: the prepended handler sees the dying status" "h1=42" "$E_OUT"
+assert_eq "E1: the script ends with the dying status" "42" "$E_RC"
+
+# E0 (control). The pre-fix bare prepend hands the caller h1's status -- the
+# fixture detects the defect.
+e_run chain_bare "$E_ONE"
+assert_contains "E0 control: the bare prepend loses the dying status" "caller=0" "$E_OUT"
+
+# E0b (control). Capturing without restoring before the handler hands the
+# handler 0 -- E2 detects a lost entry status.
+e_run chain_capture_only "$E_ONE"
+assert_contains "E0b control: capture-only hands the handler 0" "h1=0" "$E_OUT"
+
+# E2b. The real _txn_exit_trap reports the dying status (its side effects
+# stubbed), and the handler after it -- the lock release in production -- sees
+# it too.
+e_run txn_chain_exit_trap "$(cat <<'EOF'
+set -euo pipefail
+txn_rollback() { return 0; }
+txn_rollback_report() { echo "report=$1|$2"; }
+txn_snap_cleanup() { :; }
+_TXN_ACTIVE=true; _TXN_LABEL=lbl
+trap 'echo "release=$?"' EXIT
+$CHAIN _txn_exit_trap
+exit 42
+EOF
+)"
+assert_contains "E2b: _txn_exit_trap reports the dying status" \
+    "report=1|lbl: aborted before the commit (exit 42)" "$E_OUT"
+assert_contains "E2b: the handler after it sees the dying status" "release=42" "$E_OUT"
+assert_eq "E2b: the script ends with the dying status" "42" "$E_RC"
+
+# E3. Nested prepends: run order is newest first, and every handler -- not only
+# the caller -- enters with the dying status, though the outer one ends in 0.
+e_run txn_chain_exit_trap "$(cat <<'EOF'
+set -euo pipefail
+h1() { echo "h1=$?"; }
+h2() { echo "h2=$?"; false || true; }
+trap 'rc=$?; echo "caller=$rc"' EXIT
+$CHAIN h1
+$CHAIN h2
+exit 42
+EOF
+)"
+assert_eq "E3: each handler, in order, sees the dying status" \
+    "$(printf 'h2=42\nh1=42\ncaller=42')" "$E_OUT"
+assert_eq "E3: the script ends with the dying status" "42" "$E_RC"
+
+# E4. Without errexit a handler returning non-zero does not leak its status.
+e_run txn_chain_exit_trap "$(cat <<'EOF'
+set +e
+h1() { return 3; }
+trap 'rc=$?; echo "caller=$rc"' EXIT
+$CHAIN h1
+exit 42
+EOF
+)"
+assert_contains "E4: a handler's own non-zero status does not leak" "caller=42" "$E_OUT"
+assert_eq "E4: the script ends with the dying status" "42" "$E_RC"
+
+# E5. No prior trap: the handler alone, and the status survives.
+e_run txn_chain_exit_trap "$(cat <<'EOF'
+set -euo pipefail
+h1() { echo "h1=$?"; }
+$CHAIN h1
+exit 42
+EOF
+)"
+assert_eq "E5: with no prior trap the handler runs with the dying status" "h1=42" "$E_OUT"
+assert_eq "E5: the script ends with the dying status" "42" "$E_RC"
 
 echo "Results: $PASS passed, $FAIL failed, $TOTAL total"
 if [[ $FAIL -eq 0 ]]; then

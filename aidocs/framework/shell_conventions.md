@@ -120,9 +120,11 @@ portability quirks (BSD vs GNU tooling) live in
   as `lib/registry_lock.sh` does). A trap local to a `( … )` subshell that
   resolves nothing carries `# archive-sweep: subshell-local` on its line
   instead. `tests/test_archive_rearm_tripwire.py` enforces the pairing. One
-  composition caveat: `txn_chain_exit_trap` *prepends*, so the handler after
-  it receives the prepended handler's status, not the dying one. Never prepend
-  in front of a status-reading handler.
+  composition caveat: `txn_chain_exit_trap` *prepends*. It restores the dying
+  status around the prepended handler, so a status-reading handler after it
+  sees the real `$?`, but the bare `ait_ledger_lock_exit_trap` is then no longer
+  *first* and still reports a generic failure. Where a prepend may follow, use
+  the explicit `rc=$?; …; ait_ledger_lock_exit_trap "$rc"` spelling.
 
   `tests/test_no_unscoped_task_commit.sh` enforces both seams. Its limits are
   stated in its header and worth repeating: it reassembles `\`-continued lines

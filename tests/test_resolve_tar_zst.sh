@@ -345,7 +345,9 @@ rm -rf "$PROBE"
 # wrapped child (task_utils.sh sourced between the spelling and the composer)
 # must end exactly like the unwrapped one -- same status, same first-command
 # warning -- plus clean up. Restoring only the caller's text after a txn
-# prepend once turned the bare spelling's exit 42 into a silent 0.
+# prepend once turned the bare spelling's exit 42 into a silent 0. The txn
+# prepend restores the dying status (t2071), so the explicit spelling ends 42
+# behind it; the bare one is no longer first and still reports 1 + warning.
 echo "--- Test 13d2: real ledger trap, wrapped vs unwrapped ---"
 WARN_13D2="ran behind another command"
 cat > "$ENV_X/child_13d2.sh" <<'EOF'
@@ -374,7 +376,7 @@ EOF
 declare -A EXPECT_13D2=(
     [bare.none]="42 0"     [bare.txn]="1 1"
     [misuse.none]="1 1"    [misuse.txn]="1 1"
-    [explicit.none]="42 0" [explicit.txn]="0 0"
+    [explicit.none]="42 0" [explicit.txn]="42 0"
 )
 for sp in bare misuse explicit; do
     for comp in none txn; do
@@ -391,6 +393,7 @@ for sp in bare misuse explicit; do
         assert_eq "13d2 $cell: wrapped warning presence equals unwrapped" "$u_warn" "$w_warn"
         assert_eq "13d2 $cell: wrapped child cleaned up" "" "$(leftovers "$PROBE")"
         if [[ "$cell" == bare.txn ]]; then BARE_TXN_RC=$w_rc; fi
+        if [[ "$cell" == explicit.txn ]]; then EXPLICIT_TXN_RC=$w_rc; fi
         rm -rf "$PROBE"
     done
 done
@@ -401,6 +404,7 @@ else
     FAIL=$((FAIL + 1))
     echo "FAIL: 13d2: bare ledger trap + txn prepend reported success for exit 42 (status ${BARE_TXN_RC:-unset})"
 fi
+assert_eq "13d2: explicit ledger trap + txn prepend ends with the dying status" "42" "${EXPLICIT_TXN_RC:-unset}"
 
 # 13e: the sweep removes only this shell's tagged real directories. The tag is
 # `<pid>.<nonce>`: a dir carrying the SAME pid with another nonce is what a
