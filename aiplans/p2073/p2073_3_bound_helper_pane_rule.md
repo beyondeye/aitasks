@@ -270,3 +270,101 @@ Standard child archival via task-workflow Step 9.
 
 ### Goal-achievement risk: low
 None identified.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-20 15:55)
+- **Requested by user:** record the deferred cleanup-parity verification as a
+  follow-up (no server stop, no guard bypass) and describe the verification state
+  accurately.
+- **Changes made:** created **t2084** (`test`, `followup_kind: carry_over`,
+  anchored to t2073) listing the four clean-server tmux-stress tests to run in an
+  environment without access to the host tmux sockets, with the new t2073_3 parity
+  rows spelled out as acceptance.
+- **Verification state, stated exactly:**
+  - Aggregate `bash tests/run_all_python_tests.sh`: **FAILED** — parallel lane
+    `3 failed, 9485 passed, 2 skipped`, then the 13 serial carve-out tests passed;
+    banner `PYTHON SUITE: FAILED (runner=pytest, exit=1)`. All 3 failures were in
+    `tests/test_minimonitor_instance_guard.py` (positional fixture shifted by the new
+    occupancy field). After the fixture was made format-driven, that module passed
+    26/26 on its own. **No passing aggregate run has been taken since.**
+  - Not run (user choice, preserving the live `-L ait` server):
+    `test_cleanup_rule_parity.sh`, `test_frozenagent_standin_stamp.sh`,
+    `test_monitor_shadow_spawn_live.sh`, `test_frozen_standin_spike.sh` → t2084.
+    Bash/Python cleanup parity for scratchpad panes is **unverified**.
+- **Files affected:** none in code (task t2084 created on the data branch).
+
+## Final Implementation Notes
+- **Actual work done:** All eight plan steps landed.
+  - New `lib/helper_panes.py` (`SHADOW_TARGET_OPTION` moved here,
+    `SCRATCHPAD_TARGET_OPTION`, `SCRATCHPAD_STORE_OPTION`,
+    `BOUND_HELPER_TARGET_OPTIONS`, `is_bound_helper`), re-exported by
+    `monitor_core` and the `tmux_monitor` shim.
+  - `FROZEN_AWARE_PANE_FORMAT` gains the scratchpad target (arity 7).
+    `classify_window_panes` uses `is_bound_helper(shadow, scratch)` inside the
+    unchanged frozen-first clause.
+  - `_LIST_PANES_FORMAT` gains field 15, and `_LIST_PANES_ARITIES` gains 16.
+    `_parse_list_panes` drops scratchpads from both lists, and gates the
+    scratchpad drop, the shadow routing and the companion filter on
+    `not frozen_record`.
+  - `_companion_check_and_split` builds its helper fields from the tuple
+    (`pane_start_command` stays last).
+  - Cleanup job 1 reaps shadow OR scratchpad bound to the dying pane and skips any
+    `@aitask_frozen` pane first. Job 2 skips both helper kinds. The literal
+    `if [ -n "$frozen" ]; then` is kept.
+  - minimonitor `_find_sibling_pane_id` rung 2 lists `FROZEN_AWARE_PANE_FORMAT` and
+    returns the first non-self `classify_window_panes` pane with
+    `not is_helper`. The notify text is now "No agent pane in this window".
+  - aidocs: `tmux_gateway.md` gets inventory rows plus a helper-rule paragraph.
+    `tui_conventions.md` gets "The bound-helper rule" (consumer table,
+    frozen-precedence, known gap) and "The scratchpad is a fourth companion-pane
+    case".
+- **Deviations from plan:**
+  - The bash/Python option tripwire lives in the new `tests/test_helper_panes.py`,
+    not in `test_cleanup_rule_parity.sh`. It needs no tmux server, so it runs in the
+    normal suite. The cleanup script and `helper_panes.py` comments point at it.
+  - The occupancy unit is in `test_helper_panes.py`, including a frozen + retained
+    target case.
+  - `tests/test_minimonitor_instance_guard.py` (not in the plan) had to change. Its
+    two fakes emitted positional `|` tuples regardless of the requested `-F`, so
+    the new occupancy field shifted `pane_start_command` and a booting companion
+    read as a scratchpad target (3 failures). Both fakes now render rows from the
+    requested format (`_render_panes`).
+- **Issues encountered:** none in production code. Mutation checks were run in a
+  scratch copy of the tree, never the shared worktree. Eight guard mutants were
+  all killed: classify ignoring scratch, scratch drop not frozen-gated / absent,
+  shadow / companion discovery branches not frozen-gated, rung 2 ignoring
+  `is_helper`, occupancy ignoring helpers, cleanup job-2 format missing the field.
+- **Key decisions:**
+  - Rung 2 reuses `classify_window_panes` instead of a local filter, so frozen
+    precedence, companion identity and the no-strip rule are inherited, not copied.
+  - Frozen-first was extended to the pre-existing shadow and companion branches of
+    discovery, not only the new scratchpad drop. One rule must not be frozen-aware
+    for some markers and not others.
+  - Cleanup job 1 also gained frozen-first, for the same reason.
+  - t1388 decision: companions ARE filtered at rung 2.
+  - Dead panes are not filtered at rung 2 (unchanged from the pre-fix behaviour).
+- **Upstream defects identified:** None
+- **Verification:** see Post-Review Changes / Change Request 1 for the exact
+  record. Aggregate suite FAILED (3 failed / 9485 passed / 2 skipped + 13 serial
+  passed). The 3 failures were all in the instance-guard fixture, which then passed
+  26/26 alone, and no aggregate re-run was taken. Four clean-server tmux-stress
+  tests are deferred to t2084. Cleanup parity for scratchpad panes is unverified.
+- **Notes for sibling tasks:**
+  - t2073_4 (minimonitor key): import `SCRATCHPAD_TARGET_OPTION`,
+    `SCRATCHPAD_STORE_OPTION` and `is_bound_helper` from `monitor.tmux_monitor`
+    (re-exported) or `monitor.monitor_core`. Stamp `@aitask_scratchpad_target` on
+    the new pane with the followed agent's pane id (stamp-or-kill, like the
+    shadow), then call `attach_companion_cleanup_hook` so job 1 reaps it.
+    Discovery, occupancy, `classify_window_panes` and rung 2 already treat a
+    stamped pad as a helper.
+  - The `minimonitor_app.py` gate (t2065) was clean when t2073_3 edited rung 2.
+    t2073_4 should re-check `git diff --quiet` itself.
+  - Any new helper filter must check `@aitask_frozen` FIRST, or better, call
+    `classify_window_panes`. The reviewer rejected two drafts for missing that.
+  - Fixtures that answer `list-panes` must render rows from the requested `-F`
+    (see `_render_panes` in `test_minimonitor_instance_guard.py`, and the
+    format-driven stubs in `test_minimonitor_sibling_fallback.py` /
+    `test_helper_panes.py`). Positional tuples silently break on every append.
+  - Website docs (t2073_5) can now say: a scratchpad never appears in agent
+    lists, closes with its agent, and survives a sibling agent's death.
