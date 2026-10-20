@@ -1081,7 +1081,7 @@ _artifact_gitbranch_missing_hashes() {
     (
         tmpd="$(mktemp -d "${TMPDIR:-/tmp}/ait-gitbranch-verify.XXXXXX")" || exit 1
         # shellcheck disable=SC2064  # expand now: tmpd is this subshell's
-        trap "rm -rf '$tmpd'" EXIT
+        trap "rm -rf '$tmpd'" EXIT   # archive-sweep: subshell-local
         printf '%s\n' "$1" | sed '/^$/d' | sort -u > "$tmpd/src" || exit 1
         printf '%s\n' "$2" | sed '/^$/d' | sort -u > "$tmpd/dst" || exit 1
         comm -23 "$tmpd/src" "$tmpd/dst" || exit 1

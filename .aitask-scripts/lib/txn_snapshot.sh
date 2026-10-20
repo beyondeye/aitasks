@@ -240,6 +240,14 @@ txn_snap_cleanup() {
 # `trap ... EXIT` inside the callback would LEAK THE GLOBAL ATTACH LOCK.
 # Chaining puts the rollback first (it runs while the lock is still held) and
 # the release second.
+#
+# Known limit of PREPENDING (recorded by t2032): whatever follows <handler> sees
+# <handler>'s status as `$?`, not the dying one. In front of a status-reading
+# handler -- the explicit ledger spelling `rc=$?; …; ait_ledger_lock_exit_trap
+# "$rc"` -- an `exit 42` therefore ends 0 (with or without archive_utils'
+# _ait_archive_exit_chain in the trap; tests/test_archive_utils.sh 13d2 pins
+# it). Shipped prepends sit only in front of registry_lock_release and the
+# archive chain, neither of which reads `$?` for the final status.
 txn_chain_exit_trap() {
     local cur
     cur="$(trap -p EXIT)"; cur="${cur#trap -- }"; cur="${cur% EXIT}"

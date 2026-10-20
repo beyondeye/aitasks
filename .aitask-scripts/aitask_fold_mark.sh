@@ -516,6 +516,7 @@ _fold_abort_cleanup() {
 txn_snap_init
 for _p in "${fold_paths[@]}"; do txn_snap_add "$_p"; done
 trap '_fold_abort_cleanup' EXIT
+ait_archive_rearm_exit_trap
 _fold_txn_active=true
 # --- end fold transaction ----------------------------------------------------
 
@@ -818,6 +819,7 @@ if [[ "$_fold_any_attach_or_artifacts" == true ]]; then
     _fold_attach_rc=0
     with_attach_lock _fold_attach_txn || _fold_attach_rc=$?
     trap '_fold_abort_cleanup' EXIT   # registry_lock_release did `trap - EXIT`
+    ait_archive_rearm_exit_trap
     (( _fold_attach_rc == 0 )) \
         || die "fold: attachment transfer failed (exit ${_fold_attach_rc})"
 fi

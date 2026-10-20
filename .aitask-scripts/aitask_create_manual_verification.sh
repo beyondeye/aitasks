@@ -106,6 +106,7 @@ main() {
     # `trap 'ait_unstage_staged_by_us' EXIT` here would clobber the temp-file
     # cleanup instead. One function, both jobs.
     trap 'mv_create_cleanup' EXIT
+    ait_archive_rearm_exit_trap
 
     # Build description body.
     {

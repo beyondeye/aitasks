@@ -141,8 +141,15 @@ if [[ "${_AIT_ARCHIVE_OWNER_PID:-}" != "${BASHPID:-$$}" ]]; then
     _AIT_ARCHIVE_TMPBASE="${TMPDIR:-/tmp}"
     [[ "$_AIT_ARCHIVE_TMPBASE" == /* ]] || _AIT_ARCHIVE_TMPBASE="$PWD/$_AIT_ARCHIVE_TMPBASE"
 fi
-: "${_AIT_ARCHIVE_CALLER_EXIT_TRAP:=}"   # written ONLY by _ait_archive_arm_exit_trap
+: "${_AIT_ARCHIVE_CALLER_EXIT_TRAP:=}"   # written ONLY by _ait_archive_wrap_exit_trap
 _AIT_ARCHIVE_TMPDIR=""
+# The shell that CREATED _AIT_ARCHIVE_TMPDIR (t2032). A `( )` child inherits
+# the variable but not the dir: its cleanup must leave a parent's live direct
+# extraction alone. `<pid>:<subshell depth>` -- the depth tells a `( )` child
+# from its parent on bash 3.2, where `$$` is the same in both.
+# Expanded inline, never via `$( )`: a command substitution is itself a
+# subshell, so it would report its own pid and depth.
+_AIT_ARCHIVE_TMPDIR_SHELL=""
 
 # _ait_archive_may_sweep -- true iff this shell owns the tag. Always true where
 # the trap fires on bash >= 4. On bash 3.2 (no BASHPID) a guard-reset re-source
@@ -164,7 +171,11 @@ _ait_archive_may_sweep() {
 # another user's.
 _ait_archive_cleanup() {
     local base d bases=("$_AIT_ARCHIVE_TMPBASE")
-    if [[ -n "$_AIT_ARCHIVE_TMPDIR" && -d "$_AIT_ARCHIVE_TMPDIR" ]]; then
+    # Only the creating shell removes the direct-extraction dir: a `( )` child
+    # that re-armed its own trap (ait_archive_rearm_exit_trap) inherits the
+    # variable and would otherwise delete the parent's live file at child exit.
+    if [[ -n "$_AIT_ARCHIVE_TMPDIR" && -d "$_AIT_ARCHIVE_TMPDIR" \
+          && "$_AIT_ARCHIVE_TMPDIR_SHELL" == "${BASHPID:-$$}:${BASH_SUBSHELL:-0}" ]]; then
         rm -rf "$_AIT_ARCHIVE_TMPDIR" 2>/dev/null || true
     fi
     _ait_archive_may_sweep || return 0
@@ -225,11 +236,19 @@ _ait_archive_exit_chain() {
 # substring match also keeps a re-source from storing a composition that
 # already contains our chain (which would then eval itself).
 _ait_archive_arm_exit_trap() {
-    local cur
     if (( ${BASH_SUBSHELL:-0} > 0 )); then
         trap _ait_archive_cleanup EXIT
         return 0
     fi
+    _ait_archive_wrap_exit_trap
+}
+
+# _ait_archive_wrap_exit_trap -- wrap the EXIT trap armed NOW so the sweep runs
+# first: none -> the bare cleanup; someone else's -> store its text and install
+# the chain; already ours -> no-op (that also keeps a re-source from storing a
+# composition that contains our chain, which would then eval itself).
+_ait_archive_wrap_exit_trap() {
+    local cur
     cur="$(trap -p EXIT)"
     case "$cur" in *_ait_archive_cleanup*|*_ait_archive_exit_chain*) return 0 ;; esac
     if [[ -z "$cur" ]]; then
@@ -240,6 +259,30 @@ _ait_archive_arm_exit_trap() {
     eval "_AIT_ARCHIVE_CALLER_EXIT_TRAP=$cur"   # unquote bash's own rendering
     trap _ait_archive_exit_chain EXIT
 }
+
+# ait_archive_rearm_exit_trap -- put the sweep back after a script REPLACED or
+# CLEARED the EXIT trap (t2032). bash keeps one EXIT trap, so a later
+# `trap X EXIT` / `trap - EXIT` silently drops the sweep, and every bundled
+# `$( resolve_task_file … )` made in that process leaks one dir. Call it on the
+# line right after every such `trap` in a script with this file loaded:
+#
+#     trap 'ait_ledger_lock_exit_trap' EXIT
+#     ait_archive_rearm_exit_trap
+#
+# A lib that may load without this file guards the call:
+#     if declare -F ait_archive_rearm_exit_trap >/dev/null; then ait_archive_rearm_exit_trap; fi
+# tests/test_archive_rearm_tripwire.py enforces the pairing.
+#
+# Unlike the source-time arm it composes inside `( )` as well: right after the
+# subshell's OWN `trap`, `trap -p` shows the trap that is active there. The
+# chain keeps the ledger lock's first-command contract: at exit it re-arms the
+# caller's text in place of its own token before evaluating it, so
+# ait_ledger_lock_exit_trap reads exactly the trap the script wrote.
+ait_archive_rearm_exit_trap() {
+    _ait_archive_wrap_exit_trap
+    return 0
+}
+
 _ait_archive_arm_exit_trap
 
 # ============================================================================
@@ -273,6 +316,7 @@ _extract_from_archive() {
         _AIT_ARCHIVE_TMPDIR=$(mktemp -d "${_AIT_ARCHIVE_TMPBASE}/ait-archive.${_AIT_ARCHIVE_OWNER}.XXXXXX" 2>/dev/null) \
             || _AIT_ARCHIVE_TMPDIR=$(mktemp -d "${TMPDIR:-/tmp}/ait-archive.${_AIT_ARCHIVE_OWNER}.XXXXXX" 2>/dev/null) \
             || { _AIT_ARCHIVE_TMPDIR=""; _AIT_EXTRACT_RESULT=""; return 1; }
+        _AIT_ARCHIVE_TMPDIR_SHELL="${BASHPID:-$$}:${BASH_SUBSHELL:-0}"
     fi
     _AIT_EXTRACT_RESULT="$_AIT_ARCHIVE_TMPDIR/$(basename "$filename")"
     _archive_extract_file "$archive" "$filename" > "$_AIT_EXTRACT_RESULT" 2>/dev/null

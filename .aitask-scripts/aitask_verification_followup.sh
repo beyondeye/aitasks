@@ -109,6 +109,7 @@ main() {
     # caller's own handler -- but a bare `trap 'ait_unstage_staged_by_us' EXIT`
     # here would clobber the temp-file cleanup instead. One function, both jobs.
     trap 'followup_cleanup' EXIT
+    ait_archive_rearm_exit_trap
 
     # Step 2: resolve source task file
     local from_file

@@ -296,6 +296,7 @@ existing_ids_file=$(mktemp)
 # so the default never applies. `rm -f ""` is a silent no-op.
 output_file=""
 trap 'rm -f "$existing_ids_file" "$output_file"' EXIT
+ait_archive_rearm_exit_trap
 
 # Add parent-level task IDs
 ls "$TASK_DIR" 2>/dev/null | grep -E '^t[0-9]+_.*\.md$' | awk -F'_' '{print substr($1,2)}' > "$existing_ids_file"

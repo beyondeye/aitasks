@@ -128,6 +128,8 @@ registry_lock_acquire() {
             _registry_lock_token="$STALE_LOCK_TOKEN"
             # shellcheck disable=SC2064  # expand $dir now, on purpose
             trap "registry_lock_release '$dir'" EXIT
+            # Keep the archive sweep when lib/archive_utils.sh is loaded (t2032).
+            if declare -F ait_archive_rearm_exit_trap >/dev/null; then ait_archive_rearm_exit_trap; fi
             return 0
         fi
         # Re-arm until the deadline actually passes. stale_lock's budget is a
@@ -151,6 +153,8 @@ registry_lock_release() {
     _registry_lock_dir=""
     _registry_lock_token=""
     trap - EXIT
+    # Keep the archive sweep when lib/archive_utils.sh is loaded (t2032).
+    if declare -F ait_archive_rearm_exit_trap >/dev/null; then ait_archive_rearm_exit_trap; fi
     return 0
 }
 

@@ -344,6 +344,7 @@ main() {
     # measured: bash runs an EXIT trap on a fatal SIGTERM too, so EXIT alone
     # covers a killed run and no INT/TERM handler is needed).
     trap 'ait_unstage_staged_by_us' EXIT
+    ait_archive_rearm_exit_trap
 
     local rc=0
     ait_commit_paths_staging_untracked "$msg" "${paths[@]}" || rc=$?

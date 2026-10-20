@@ -317,6 +317,7 @@ main() {
     # library cannot clobber a caller's own EXIT handler -- this script has none
     # of its own, so a bare arm is correct here (t1728).
     trap 'ait_unstage_staged_by_us' EXIT
+    ait_archive_rearm_exit_trap
 
 
     local new_runs

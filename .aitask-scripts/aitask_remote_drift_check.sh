@@ -249,6 +249,7 @@ remote_tmp=$(mktemp "${TMPDIR:-/tmp}/aitask_drift_remote_XXXXXX") || {
     exit 0
 }
 trap 'rm -f "$remote_tmp"' EXIT
+ait_archive_rearm_exit_trap
 diff_rc=0
 git diff --name-only -z "${BASE_BRANCH}...origin/${BASE_BRANCH}" > "$remote_tmp" 2>/dev/null || diff_rc=$?
 if [[ $diff_rc -ne 0 ]]; then

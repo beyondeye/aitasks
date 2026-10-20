@@ -150,6 +150,7 @@ main() {
     # still unwinds. Adding INT/TERM handlers here changed nothing observable,
     # so they are deliberately absent rather than shipped unfalsifiable.
     trap 'ait_unstage_staged_by_us' EXIT
+    ait_archive_rearm_exit_trap
 
     local rc=0
     ait_commit_paths_staging_untracked "$msg" "${paths[@]}" || rc=$?

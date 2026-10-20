@@ -107,6 +107,23 @@ portability quirks (BSD vs GNU tooling) live in
   `trap 'ait_unstage_staged_by_us' EXIT` — and **compose** it with any EXIT trap
   the script already has, or you will silently drop that one.
 
+  **Re-arm the archive sweep after every EXIT-trap change (t2032).** Sourcing
+  `lib/task_utils.sh` loads `lib/archive_utils.sh`, which sweeps the process's
+  `ait-archive.<owner>.*` extraction dirs from the EXIT trap. bash keeps one
+  EXIT trap, so a later `trap X EXIT` or `trap - EXIT` drops the sweep, and
+  every bundled `$( resolve_task_file … )` in that process leaks a dir. Put
+  `ait_archive_rearm_exit_trap` on the line right after each such `trap`. It
+  wraps whatever is armed now, and at exit it runs the sweep, then the trap
+  text you wrote, so the ledger lock's first-command contract is unaffected.
+  A lib that may load without `archive_utils.sh` guards the call
+  (`if declare -F ait_archive_rearm_exit_trap >/dev/null; then ait_archive_rearm_exit_trap; fi`,
+  as `lib/registry_lock.sh` does). A trap local to a `( … )` subshell that
+  resolves nothing carries `# archive-sweep: subshell-local` on its line
+  instead. `tests/test_archive_rearm_tripwire.py` enforces the pairing. One
+  composition caveat: `txn_chain_exit_trap` *prepends*, so the handler after
+  it receives the prepended handler's status, not the dying one. Never prepend
+  in front of a status-reading handler.
+
   `tests/test_no_unscoped_task_commit.sh` enforces both seams. Its limits are
   stated in its header and worth repeating: it reassembles `\`-continued lines
   and greps them, so it will **not** see a commit built through a variable; the

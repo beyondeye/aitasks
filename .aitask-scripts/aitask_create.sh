@@ -863,6 +863,7 @@ finalize_draft() {
         # Child task: lock to prevent parallel races on child number assignment
         acquire_child_lock "$parent_num"
         trap '_child_lock_exit_trap' EXIT
+        ait_archive_rearm_exit_trap
 
         local child_num
         child_num=$(get_next_child_number "$parent_num")
@@ -922,6 +923,7 @@ finalize_draft() {
 
         release_child_lock_checked "$parent_num"
         trap - EXIT
+        ait_archive_rearm_exit_trap
     else
         # Parent task: claim from atomic counter.
         # Absorb the status: claim_unique_parent_id runs inside $( ), where a die()
@@ -2320,6 +2322,7 @@ run_batch_mode() {
             # Lock to prevent parallel races on child number assignment
             acquire_child_lock "$BATCH_PARENT"
             trap '_child_lock_exit_trap' EXIT
+            ait_archive_rearm_exit_trap
 
             local parent_file
             parent_file=$(get_parent_task_file "$BATCH_PARENT")
@@ -2328,6 +2331,7 @@ run_batch_mode() {
                 # status must carry THIS message.
                 release_child_lock "$BATCH_PARENT" || true
                 trap - EXIT
+                ait_archive_rearm_exit_trap
                 die "Parent task t$BATCH_PARENT not found"
             fi
 
@@ -2380,6 +2384,7 @@ run_batch_mode() {
 
             release_child_lock_checked "$BATCH_PARENT"
             trap - EXIT
+            ait_archive_rearm_exit_trap
         else
             # Parent task: $claimed_id was claimed above, before the label
             # registration, so a failed claim leaves the vocabulary untouched.

@@ -213,7 +213,7 @@ _artifact_gitbranch_build() {
     (
         tmpd="$(mktemp -d "${TMPDIR:-/tmp}/ait-gitbranch.XXXXXX")" || exit 1
         # shellcheck disable=SC2064  # expand now: tmpd is this subshell's
-        trap "rm -rf '$tmpd'" EXIT
+        trap "rm -rf '$tmpd'" EXIT   # archive-sweep: subshell-local
         # A NONEXISTENT path: git rejects a zero-byte index file.
         export GIT_INDEX_FILE="$tmpd/index"
         if [[ -n "$seed" ]]; then git read-tree "$seed" || exit 1
@@ -303,7 +303,7 @@ _artifact_gitbranch_missing_entries() {
     (
         tmpd="$(mktemp -d "${TMPDIR:-/tmp}/ait-gitbranch-diff.XXXXXX")" || exit 1
         # shellcheck disable=SC2064  # expand now: tmpd is this subshell's
-        trap "rm -rf '$tmpd'" EXIT
+        trap "rm -rf '$tmpd'" EXIT   # archive-sweep: subshell-local
         git ls-tree -r --name-only "$2" -- blobs/ > "$tmpd/have" || exit 1
         git ls-tree -r "$1" -- blobs/ > "$tmpd/src" || exit 1
         awk -F'\t' 'FILENAME == ARGV[1] { have[$0] = 1; next } NF >= 2 && !($2 in have)' \

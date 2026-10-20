@@ -496,6 +496,7 @@ cmd_batch_map() {
     # variable it is meant to clean up.
     BATCH_TMPDIR="$(mktemp -d "${TMPDIR:-/tmp}/aitask_batchmap_XXXXXX")"
     trap 'rm -rf "${BATCH_TMPDIR:-}"' EXIT
+    ait_archive_rearm_exit_trap
     local tmpdir="$BATCH_TMPDIR"
 
     # Read the queried-id list BEFORE the walk: '-' consumes stdin, and stdin

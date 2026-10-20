@@ -145,7 +145,7 @@ Every result is one line on **stdout**, prefixed with a code. Advisories and rec
 | `NOTE_APPENDED_UNCOMMITTED:<note-id>\|<path>\|<reason>` | writer | Appended, but the commit failed. The note exists — **do not retry**, or it is appended twice. The recovery command is printed on stderr. Exit 1 |
 | `NOTE_TARGET_MISSING:<id>` | writer | No task with that id. Nothing written. Exit 1 |
 | `NOTE_SELF:<id>` | writer | The sender is the target. Nothing written. Exit 1 |
-| `NOTE_ERROR:<reason>` | writer | Refused before anything was appended — a bad argument, an oversized body, the inbox lock unavailable. Nothing written. Exit 1 |
+| `NOTE_ERROR:<reason>` | writer | Refused before anything was appended — a bad argument, an oversized body, the inbox lock unavailable, or `target-bundled` when the target is an archived task packed into an archive bundle (a bundled record cannot be edited; a loose archived task is still accepted). Nothing written. Exit 1 |
 
 The first two carry a note id; the other three mean no note exists. The two groups never overlap, so "was a note created?" can always be answered from stdout alone.
 
@@ -178,7 +178,7 @@ When [`/aitask-note`]({{< relref "/docs/skills/aitask-note" >}}) gets `LIVE_PANE
 | `READ_RECORDED_UNPUSHED:<receipt-id>\|<path>\|<n-ids>` | writer | Receipt committed but not pushed. Other checkouts may show these notes again until the task data syncs. Exit 0 |
 | `READ_NOOP:<task-id>` | writer | Every listed note was already acknowledged. Nothing written. Exit 0 |
 | `READ_TARGET_MISSING:<id>` | writer | No task with that id. Exit 1 |
-| `READ_ERROR:<reason>` | writer | No receipt was written. The notes are still unread and will surface again. Exit 1 |
+| `READ_ERROR:<reason>` | writer | No receipt was written. The notes are still unread and will surface again. `target-bundled` means the task is packed into an archive bundle, where no receipt can be recorded. Exit 1 |
 | `READ_ERROR:rollback-failed:<receipt-id>` | writer | A failed commit could not be rolled back — the one outcome that needs a person to look at the task file. stderr names the block: remove it, or commit it. Exit 1 |
 
 ### Provenance

@@ -138,6 +138,9 @@ is_terminal_status() {
 # needs its own cleanup uses the seam's chained spelling instead —
 # `trap 'rc=$?; cleanup; ait_ledger_lock_exit_trap "$rc"' EXIT` (see
 # aitask_note.sh). tests/test_gate_lock_characterization.sh Test 8 pins both.
+# The line after that trap is `ait_archive_rearm_exit_trap` (t2032): it keeps
+# the archive sweep and, at exit, restores exactly this trap text before
+# running it, so the guard still sees its own name first.
 acquire_gate_lock() {
     ait_ledger_lock_acquire "gate" "$1" "gate lock" "gate append lock"
 }
@@ -150,6 +153,20 @@ release_gate_lock_checked() {
     if ! release_gate_lock; then
         die "gate lock not released — the key stays wedged (see warning above)"
     fi
+}
+
+# refuse_bundled_gate_target <verb> <task-id> <resolved-file> -- die when the
+# task only exists packed in an archive bundle (t2032). resolve_task_file then
+# returns a temp extraction outside the repo: a ledger block written there is
+# never committed and is swept at exit, so the verb would report a write that
+# no longer exists. Called after the resolve and before the lock. A loose
+# archived task is a real repo file and stays writable, as for `ait attach rm`.
+refuse_bundled_gate_target() {
+    local verb="$1" id="${2#t}" file="$3" bundle
+    task_file_is_active "$id" "$file" && return 0
+    task_file_is_loose_archived "$id" "$file" && return 0
+    bundle="$(task_archive_bundle "$id")"
+    die "ait gate ${verb}: t${id} is packed into an archive bundle${bundle:+ (${bundle})} — a bundled record cannot be edited"
 }
 
 delegate_python() {
@@ -284,6 +301,7 @@ cmd_append() {
 
     local file
     file="$(resolve_task_file "$task_id")"
+    refuse_bundled_gate_target append "$task_id" "$file"
 
     # Before the lock, not inside _gate_append_locked: a refusal must not first
     # take a mutex it is about to abandon (t1725_2).
@@ -292,12 +310,13 @@ cmd_append() {
     local key="${task_id//\//_}"
     acquire_gate_lock "$key"
     trap 'ait_ledger_lock_exit_trap' EXIT
+    ait_archive_rearm_exit_trap
 
     # `--only-if-running` guard (atomic under the lock): if a terminal block was
     # already written for this run id, do nothing. Checked ONCE here, for both
     # backends — it used to be written twice, once per branch.
     if [[ -n "$only_if_running" ]] && ! _gate_run_is_running "$file" "$only_if_running"; then
-        release_gate_lock_checked; trap - EXIT
+        release_gate_lock_checked; trap - EXIT; ait_archive_rearm_exit_trap
         return 0
     fi
 
@@ -306,6 +325,7 @@ cmd_append() {
 
     release_gate_lock_checked
     trap - EXIT
+    ait_archive_rearm_exit_trap
     return "$rc"
 }
 
@@ -962,6 +982,7 @@ cmd_materialize_active() {
     [[ -z "$task_id" ]] && die "Usage: aitask_gate.sh materialize-active <task-id> --profile <file>"
     local file
     file="$(resolve_task_file "$task_id")"
+    refuse_bundled_gate_target materialize-active "$task_id" "$file"
     [[ -z "$profile" ]] && \
         die "materialize-active: no profile given — nothing written (raw gates: fallback governs)"
 
@@ -971,6 +992,7 @@ cmd_materialize_active() {
     local key="${task_id//\//_}"
     acquire_gate_lock "$key"
     trap 'ait_ledger_lock_exit_trap' EXIT
+    ait_archive_rearm_exit_trap
 
     # Hard-fail helper for the profiled path: a re-derivation that cannot
     # complete must not leave a stale snapshot governing — drop the tuple
@@ -996,6 +1018,7 @@ cmd_materialize_active() {
         # status must carry THIS message, so don't let set -e cut in early.
         release_gate_lock || true
         trap - EXIT
+        ait_archive_rearm_exit_trap
         die "materialize-active: $1 — $state"
     }
 
@@ -1057,6 +1080,7 @@ cmd_materialize_active() {
         && [[ "$(read_yaml_field "$file" active_gates_digest)" == "$digest" ]]; then
         release_gate_lock_checked
         trap - EXIT
+        ait_archive_rearm_exit_trap
         # Also warn on the unchanged path: re-picking an in-flight task is the
         # COMMON case, and a warning that only fired on the first
         # materialization would be invisible for exactly the tasks that have
@@ -1082,6 +1106,7 @@ cmd_materialize_active() {
 
     release_gate_lock_checked
     trap - EXIT
+    ait_archive_rearm_exit_trap
 
     _warn_unverifiable_active "$active"
 
@@ -1176,6 +1201,7 @@ cmd_sync_registry() {
     registry_lock_acquire "/tmp/aitask_gate_registry_sync" 10 || \
         die "sync-registry: another sync holds the registry lock — nothing written"
     trap 'registry_lock_release "/tmp/aitask_gate_registry_sync"' EXIT
+    ait_archive_rearm_exit_trap
 
     local rc=0 out
     out="$("$py" "$GATE_LEDGER_PY" sync-registry "$registry" "$reference" "$dry_run" \
@@ -1183,6 +1209,7 @@ cmd_sync_registry() {
 
     registry_lock_release "/tmp/aitask_gate_registry_sync"
     trap - EXIT
+    ait_archive_rearm_exit_trap
 
     [[ -n "$out" ]] && printf '%s\n' "$out"
     if [[ "$rc" -ne 0 ]]; then
@@ -1213,6 +1240,7 @@ cmd_begin_procedure() {
         die "Usage: aitask_gate.sh begin-procedure <task-id> <gate>"
     local file
     file="$(resolve_task_file "$task_id")"
+    refuse_bundled_gate_target begin-procedure "$task_id" "$file"
 
     # Its own guard: cmd_begin_procedure appends via _gate_append_locked without
     # going through cmd_append, so the guard there does not cover it (t1725_2).
@@ -1225,6 +1253,7 @@ cmd_begin_procedure() {
     local key="${task_id//\//_}"
     acquire_gate_lock "$key"
     trap 'ait_ledger_lock_exit_trap' EXIT
+    ait_archive_rearm_exit_trap
 
     local state open_field attempt run_id terminal
     state="$(_gate_run_state "$file" "$gate")"
@@ -1255,6 +1284,7 @@ cmd_begin_procedure() {
 
     release_gate_lock_checked
     trap - EXIT
+    ait_archive_rearm_exit_trap
 
     printf 'RUN_ID:%s\nATTEMPT:%s\n' "$run_id" "$attempt"
 }

@@ -87,6 +87,7 @@ note_cleanup() {
           "$READ_OUT_FILE"
 }
 trap note_cleanup EXIT
+ait_archive_rearm_exit_trap
 
 # --- Section constants ------------------------------------------------------
 #
@@ -196,6 +197,17 @@ note_sanitize_field() {
 note_die() {
     printf 'NOTE_ERROR:%s\n' "$(note_sanitize_field "$1")"
     exit 1
+}
+
+# note_target_is_bundled <bare-id> <resolved-file> -- true iff the target only
+# exists packed in an archive bundle, so resolve_task_file handed back a temp
+# extraction outside the repo (t2032). A note or receipt written there can never
+# be committed, and the extraction is swept at exit: an id-bearing
+# NOTE_APPENDED_UNCOMMITTED would name a file that is already gone. Both verbs
+# refuse it before the lock. A loose archived task is a real repo file and
+# stays writable (the same split `ait attach rm` makes).
+note_target_is_bundled() {
+    ! task_file_is_active "$1" "$2" && ! task_file_is_loose_archived "$1" "$2"
 }
 
 show_help() {
@@ -502,6 +514,7 @@ _note_append_inner() {
     # the seam detects that spelling and refuses to report success, so this is
     # the correct form rather than merely the working one.
     trap 'ait_note_rc=$?; note_cleanup_body; ait_ledger_lock_exit_trap "$ait_note_rc"' EXIT
+    ait_archive_rearm_exit_trap
 
     local attempt=0 candidate
     NOTE_ID=""
@@ -519,6 +532,7 @@ _note_append_inner() {
         # id-less NOTE_ERROR half of the contract is the correct one.
         ait_ledger_lock_release || true
         trap note_cleanup_body EXIT
+        ait_archive_rearm_exit_trap
         note_die "id-collision-retries-exhausted"
     fi
 
@@ -537,6 +551,7 @@ _note_append_inner() {
         # file once got committed as a success.
         ait_ledger_lock_release || true
         trap note_cleanup_body EXIT
+        ait_archive_rearm_exit_trap
         note_die "append-write-failed"
     fi
 
@@ -556,6 +571,7 @@ _note_append_inner() {
 
     ait_ledger_lock_release_checked
     trap note_cleanup_body EXIT
+    ait_archive_rearm_exit_trap
 }
 
 # Wrapper: run the locked append in a subshell and translate any death into a
@@ -655,6 +671,7 @@ _note_read_inner() {
     # front of ait_ledger_lock_exit_trap resets $?, and since t1681 the seam
     # detects that spelling and refuses to report success anyway.
     trap 'ait_note_rc=$?; note_cleanup_body; ait_ledger_lock_exit_trap "$ait_note_rc"' EXIT
+    ait_archive_rearm_exit_trap
 
     # --- The subtraction, decided in-lock -----------------------------------
     #
@@ -689,6 +706,7 @@ _note_read_inner() {
         # Nothing left to acknowledge. Typed no-op: no receipt, nothing to retry.
         ait_ledger_lock_release_checked
         trap note_cleanup_body EXIT
+        ait_archive_rearm_exit_trap
         printf 'READ_NOOP:%s\n' "$(note_sanitize_field "$target_bare")"
         return 0
     fi
@@ -754,6 +772,7 @@ _note_read_inner() {
   ./ait git add -- $file && ./ait git commit -m \"ait: Record note read receipt for t${target_bare}\" -- $file"
             ait_ledger_lock_release_checked
             trap note_cleanup_body EXIT
+            ait_archive_rearm_exit_trap
             printf 'READ_ERROR:rollback-failed:%s\n' "$NOTE_ID"
             return 0
         fi
@@ -762,6 +781,7 @@ _note_read_inner() {
         task_git reset -q -- "$file" 2>/dev/null || true
         ait_ledger_lock_release_checked
         trap note_cleanup_body EXIT
+        ait_archive_rearm_exit_trap
         warn "receipt could not be committed ($reason) — rolled back; the note stays unread."
         printf 'READ_ERROR:%s\n' "$(note_sanitize_field "$reason")"
         return 0
@@ -769,6 +789,7 @@ _note_read_inner() {
 
     ait_ledger_lock_release_checked
     trap note_cleanup_body EXIT
+    ait_archive_rearm_exit_trap
 
     # Push is best-effort, but its failure is NOT silent here: an unpushed
     # receipt means other checkouts still show these notes as unread. That is
@@ -826,6 +847,9 @@ note_read_main() {
     if ! file="$(resolve_task_file "$target_bare" 2>/dev/null)"; then
         printf 'READ_TARGET_MISSING:%s\n' "$(note_sanitize_field "$target_bare")"
         return 1
+    fi
+    if note_target_is_bundled "$target_bare" "$file"; then
+        note_read_die "target-bundled"
     fi
 
     # A read receipt is a task-file mutation too. Guarded HERE, at the outer
@@ -1318,6 +1342,9 @@ main() {
     if ! file="$(resolve_task_file "$target_bare" 2>/dev/null)"; then
         printf 'NOTE_TARGET_MISSING:%s\n' "$(note_sanitize_field "$target_bare")"
         return 1
+    fi
+    if note_target_is_bundled "$target_bare" "$file"; then
+        note_die "target-bundled"
     fi
 
     # Outer level, for the same reason as the read path above: _note_append_inner
