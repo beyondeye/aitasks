@@ -74,9 +74,11 @@ sections below are copied verbatim so this plan stands alone.
   postponed by continuous typing, the 3 s max dirty age cannot. Saves are serialized
   (a change during an in-flight save keeps the dirty flag and its original
   `first_unsaved_change`, and re-arms after the save returns). Save on `ctrl+s`, on exit
-  and on SIGHUP (best-effort). **Stated loss window on a hard kill: at most the last
-  3 s of edits, plus the edits carried by one in-flight save (bounded by the helper's
-  5 s timeout); everything older is on disk.**
+  and on SIGHUP (best-effort). **On a hard kill, changes not included in the latest
+  successfully saved buffer may be lost, including edits queued during a pending
+  save.** Autosave targets starting within roughly three seconds when no save is
+  pending; this is not a maximum loss window. The helper's 5 s figure bounds only
+  its lock wait; no save duration is bounded (t2073_1).
 - **Store lifecycle is serialized by one per-task lock that lives OUTSIDE the store
   dir** (`$SCRATCHPAD_DIR/.locks/<id>.lockd`, `registry_lock`), so no verb needs to
   `mkdir` the store just to lock it (the shadow helper's `lock_or_busy` does
@@ -139,7 +141,8 @@ Depends on t2073_1. No shared dirty file.
    `TUI_PACKAGES`; `tests/test_shortcuts_registry_coverage.sh` `TUIS`.
 4. Tests: `tests/test_scratchpad_app.py` (run_test, `AITASK_SCRATCHPAD_DIR` tmp: loads
    existing notes; typing saves after the debounce; **continuous typing at 0.2 s
-   intervals for 5 s produces a save within 3 s of the first edit** (and a control
+   intervals for 5 s produces a save within 3 s of the first edit** while no save
+   is pending (a start target, not a maximum loss window) (and a control
    with the deadline disabled shows none — proves the deadline, not the debounce,
    saved); serialized saves; unsaved mode writes nothing; holder-lock busy →
    read-only and never saves; **ownership-before-read handoff:** patch the flock
@@ -164,5 +167,5 @@ Standard child archival via task-workflow Step 9.
 - New isolated TUI package; registry/dispatcher edits are additive · severity: low · → mitigation: none
 
 ### Goal-achievement risk: medium
-- Autosave must survive a hard pane kill within the stated window (last 3 s of edits + one in-flight save); timer behaviour under continuous typing is the failure mode · severity: medium · → mitigation: none (max-dirty-age deadline + continuous-typing unit and live hard-kill tests)
+- Autosave must survive a hard pane kill within the stated window (a hard kill may lose changes not included in the latest successfully saved buffer, including edits queued during a pending save; the ~3 s autosave start target (no save pending) is not a maximum loss window); timer behaviour under continuous typing is the failure mode · severity: medium · → mitigation: none (max-dirty-age deadline + continuous-typing unit and live hard-kill tests)
 - Writer ownership must precede the first read, or a successor can overwrite newer notes · severity: medium · → mitigation: none (flock-before-read order, pass_fds on saves, handoff test with negative control)
