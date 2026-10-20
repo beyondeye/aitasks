@@ -680,20 +680,58 @@ def clear_restore_attempt_claiming(pane_id: str, record_id: str,
          f"set-option -pu -t {pane_id} {RESTORE_ATTEMPT_OPTION}"])
 
 
-def clear_stamp_if(pane_id: str, record_id: str) -> None:
+def clear_stamp_if(pane_id: str, record_id: str, pane_pid: int = 0) -> None:
     """Unset ``@aitask_frozen`` on ``pane_id`` ONLY if it is ``record_id``'s.
 
     Same single-dispatch shape as :func:`clear_restore_attempt`, for the same
     recycled-`%N` reason: an unguarded unset could strip another record's stamp.
+
+    With ``pane_pid`` the condition also requires the pane to still run that
+    process (t2062). A record id is reused across freeze cycles, so the stamp
+    alone cannot tell a stale stamp on the agent a restore brought back from the
+    legitimate stamp of a stand-in the SAME record got when it was frozen again
+    — and a clear issued late would strip the latter. Every caller retiring a
+    stamp after the record went `live` knows that agent's pid and passes it.
     """
     if not pane_id or not re.fullmatch(r"[0-9a-f]{8}", record_id or ""):
         return
-    run(["if-shell", "-F", "-t", pane_id,
-         f"#{{==:#{{{FROZEN_OPTION}}},{record_id}}}",
+    condition = f"#{{==:#{{{FROZEN_OPTION}}},{record_id}}}"
+    if pane_pid > 0:
+        condition = f"#{{&&:{condition},#{{==:#{{pane_pid}},{pane_pid}}}}}"
+    run(["if-shell", "-F", "-t", pane_id, condition,
          f"set-option -pu -t {pane_id} {FROZEN_OPTION}"])
 
 
-def retire_restore_marks(pane_id: str, record_id: str, nonce: str) -> None:
+def restore_marks_left(pane_id: str, record_id: str, pane_pid: int) -> str:
+    """What of ``record_id``'s is still on its `live` agent's pane, read back.
+
+    Run AFTER a caller's whole retirement sequence (t2062): `if-shell` answers 0
+    even when its branch fails, so only a re-read proves a clear took. Returns
+    ``""`` when nothing is left (or the pane is gone, or no longer runs
+    ``pane_pid`` — whatever is on it then is not this agent's),
+    ``marks_retained:<stamp|mark|stamp,mark>`` when something is, and
+    ``marks_unverified`` when tmux could not be read. The mark counts whatever
+    its nonce: a mark from an earlier attempt that the t2066 recovery did not
+    clear is just as left behind.
+    """
+    if not pane_id:
+        return ""
+    facts = window_facts(pane_id)
+    if facts is None:
+        return "marks_unverified"
+    if not facts or (pane_pid > 0
+                     and int_or_zero(facts.get("pane_pid")) != pane_pid):
+        return ""
+    left = []
+    if facts.get("frozen") == record_id:
+        left.append("stamp")
+    if restore_attempt_record("", facts.get("mark", "")) == record_id:
+        left.append("mark")
+    return f"marks_retained:{','.join(left)}" if left else ""
+
+
+def retire_restore_marks(pane_id: str, record_id: str, nonce: str,
+                         pane_pid: int = 0) -> None:
     """Retire a restored pane's marks: the stamp, and this attempt's mark.
 
     Both are GUARDED single dispatches (t1875). A bare unset is a separate call
@@ -705,11 +743,16 @@ def retire_restore_marks(pane_id: str, record_id: str, nonce: str) -> None:
 
     Shared by every engine that settles a restore as `live`: the coordinator
     (`agent_restore`) and reconcile's recovery of an abandoned one
-    (`agent_freeze`, t2045). A `live` record whose pane keeps its stamp can
-    never be frozen again, and no later pass revisits `live` records.
+    (`agent_freeze`, t2045). A `live` record whose pane keeps its stamp cannot
+    be frozen again until reconcile repairs it (t2062).
+
+    ``pane_pid`` is the restored agent's: it confines the stamp clear to that
+    process (see :func:`clear_stamp_if`). This only dispatches; whether the
+    clears took is :func:`restore_marks_left`'s question, asked once the caller
+    has finished every clear of its own.
     """
     if pane_id:
-        clear_stamp_if(pane_id, record_id)
+        clear_stamp_if(pane_id, record_id, pane_pid)
         clear_restore_attempt(pane_id, restore_attempt_value(record_id, nonce))
 
 

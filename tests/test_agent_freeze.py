@@ -82,6 +82,9 @@ class _FakeTmux:
         self.capture_text = "line one\nline two\n"
         self.respawn_ok = True
         self.set_option_ok = True
+        # Options whose `set-option -pu` fails — inside an `if-shell` branch
+        # too, which still answers 0, exactly as tmux does (t2062).
+        self.unset_fail: set[str] = set()
         self.capture_rc = 0
         # `list_panes_ok` fails the TARGETED listings (the sibling count, a
         # session enumeration); `list_panes_all_ok` fails the whole-server
@@ -184,6 +187,8 @@ class _FakeTmux:
 
     def _set_option(self, args):
         if not self.set_option_ok:
+            return 1, ""
+        if "-pu" in args and args[-1] in self.unset_fail:
             return 1, ""
         pane = self.panes.get(self._target(args))
         if pane is None:
@@ -553,6 +558,18 @@ class _FreezeTestCase(unittest.TestCase):
 
     def rec(self):
         return self.store.sf.by_id(self.rid)
+
+    def _reconcile_all(self) -> list[str]:
+        """The REAL `reconcile()` over the fake server's one session."""
+        root = self.root
+
+        class _Session:
+            session = "aitasks"
+            project_root = root
+
+        self._patch(agent_freeze, "discover_aitasks_sessions",
+                    lambda **kw: [_Session()])
+        return agent_freeze.reconcile()
 
     def _mirror(self, observed):
         """Make the fake SERVER agree with what reconcile is told it observed.
@@ -2256,6 +2273,70 @@ class ReconcileRestoringTests(_FreezeTestCase):
         self.assertEqual(fired, [AGENT_PANE], "precondition: the read happened")
         self.assertEqual(self.panes[AGENT_PANE][option], self.OTHER_MARK)
 
+    # --- t2062: a retirement that did not take is reported, never clean ------
+
+    def test_a_failed_clear_is_reported_not_clean(self):
+        """`if-shell` answers 0 whatever its branch did; only the read-back
+        tells. Each clear failing alone, and both, for both confirm kinds."""
+        stamp = agent_freeze.FROZEN_OPTION
+        mark = agent_frozen_ops.RESTORE_ATTEMPT_OPTION
+        for evidence, ack in (("miss", "liveness"), ("match", "rollout")):
+            for failing, left in (({stamp}, "stamp"), ({mark}, "mark"),
+                                  ({stamp, mark}, "stamp,mark")):
+                with self.subTest(evidence=evidence, left=left):
+                    self.setUp()
+                    _n1, snapshot = self._abandoned_and_marked()
+                    self._observe_evidence(evidence)
+                    self.tmux.unset_fail = set(failing)
+                    line = self._recover(snapshot, self._observed(pane_pid=7777))
+                    self.assertEqual(
+                        line, f"LIVE:{self.rid}|{ack}|marks_retained:{left}")
+                    self.assertEqual(self.rec().state, agent_sessions.STATE_LIVE,
+                                     "the restore itself succeeded")
+
+    def test_the_tasks_repro_reports_both_marks(self):
+        """`set_option_ok = False` fails every write: both marks stay."""
+        _n1, snapshot = self._abandoned_and_marked()
+        self.observe_miss(agent_sessions.MISS_NO_MATCH)
+        self.tmux.set_option_ok = False
+        line = self._recover(snapshot, self._observed(pane_pid=7777))
+        self.assertEqual(line,
+                         f"LIVE:{self.rid}|liveness|marks_retained:stamp,mark")
+
+    def test_a_failed_recovery_of_an_older_nonces_mark_is_reported(self):
+        """The verdict is read AFTER the t2066 recovery, and counts ANY mark of
+        this record: one the recovery failed to clear cannot read as clean."""
+        for evidence, ack in (("miss", "liveness"), ("match", "rollout")):
+            with self.subTest(evidence=evidence):
+                self.setUp()
+                _n1, _n_dead, snapshot = self._replaced_by_a_failed_pass()
+                self._observe_evidence(evidence)
+                self.tmux.unset_fail = {agent_frozen_ops.RESTORE_ATTEMPT_OPTION}
+                line = self._recover(snapshot, self._observed(pane_pid=7777))
+                self.assertEqual(line,
+                                 f"LIVE:{self.rid}|{ack}|marks_retained:mark")
+                self.assertEqual(
+                    self.panes[AGENT_PANE][agent_freeze.FROZEN_OPTION], "",
+                    "the stamp clear took; only the mark is reported")
+
+    def test_reconcile_repairs_the_stamp_a_failed_retirement_left(self):
+        """The task's repro, healed end to end by the REAL `reconcile()`."""
+        _n1, snapshot = self._abandoned_and_marked()
+        self.observe_miss(agent_sessions.MISS_NO_MATCH)
+        self.tmux.set_option_ok = False
+        self._recover(snapshot, self._observed(pane_pid=7777))
+        self.tmux.set_option_ok = True
+        self.assertEqual(agent_freeze.freeze_pane(AGENT_PANE).line,
+                         f"FREEZE_SKIPPED:{self.rid}|already frozen",
+                         "precondition: the stale stamp blocks a freeze")
+
+        lines = self._reconcile_all()
+
+        self.assertIn(f"REPAIRED:{self.rid}|stale_stamp", lines)
+        self.assertEqual(self.panes[AGENT_PANE][agent_freeze.FROZEN_OPTION], "")
+        self.assertEqual(agent_freeze.freeze_pane(AGENT_PANE).line,
+                         f"FROZEN:{self.rid}")
+
     def test_an_unrecognised_pane_is_indeterminate_until_twice_the_grace(self):
         """`launch_pid == 0`: the respawn may be mid-flight."""
         nonce = self._restoring()
@@ -2272,6 +2353,182 @@ class ReconcileRestoringTests(_FreezeTestCase):
         line = agent_freeze._reconcile_restoring(rec, observed, _FixedLease(nonce), later)
         self.assertEqual(line, f"STANDIN:{self.rid}")
         self.assertEqual(self.rec().state, agent_sessions.STATE_FROZEN)
+
+
+class LiveStampRepairTests(_FreezeTestCase):
+    """Reconcile's one `live` row: the agent's own pane kept its stamp (t2062).
+
+    The fixture's record is `live` with its agent (`AGENT_PID`) in `AGENT_PANE`;
+    `_stale()` puts the record's stamp on that pane, the shape a retirement
+    that did not take leaves behind.
+    """
+
+    def _stale(self):
+        self.panes[AGENT_PANE][agent_freeze.FROZEN_OPTION] = self.rid
+
+    def _stamp(self):
+        return self.panes[AGENT_PANE][agent_freeze.FROZEN_OPTION]
+
+    def test_a_stale_stamp_is_repaired(self):
+        self._stale()
+        lines = self._reconcile_all()
+        self.assertEqual(lines, [f"REPAIRED:{self.rid}|stale_stamp", "PURGED:0"])
+        self.assertEqual(self._stamp(), "")
+        self.assertEqual(agent_freeze.freeze_pane(AGENT_PANE).line,
+                         f"FROZEN:{self.rid}")
+
+    def test_a_clear_that_did_not_take_is_reported(self):
+        self._stale()
+        self.tmux.unset_fail = {agent_freeze.FROZEN_OPTION}
+        self.assertIn(f"RECONCILE_FAILED:{self.rid}|stale_stamp:retained",
+                      self._reconcile_all())
+        self.assertEqual(self._stamp(), self.rid)
+
+    def test_an_unreadable_after_state_is_unverified_never_repaired(self):
+        self._stale()
+        self._patch(agent_frozen_ops, "window_facts", lambda pane_id: None)
+        self.assertEqual(agent_freeze._repair_live_stamp(self.rid),
+                         f"RECONCILE_FAILED:{self.rid}|stale_stamp:unverified")
+
+    def _assert_untouched(self, expected_stamp):
+        lines = self._reconcile_all()
+        self.assertFalse([ln for ln in lines if ln.startswith("REPAIRED:")], lines)
+        self.assertEqual([], self.tmux.calls_of("if-shell"),
+                         "not even a guarded clear may be dispatched")
+        self.assertEqual(self._stamp(), expected_stamp)
+
+    # --- negative controls ---------------------------------------------------
+
+    def test_a_mounted_standin_of_a_frozen_record_is_never_repaired(self):
+        self.assertEqual(agent_freeze.freeze_pane(AGENT_PANE).line,
+                         f"FROZEN:{self.rid}")
+        self.assertEqual(self.panes[AGENT_PANE]["pane_pid"], str(STANDIN_PID))
+        self.tmux.calls.clear()
+        lines = self._reconcile_all()
+        self.assertIn(f"KEEP:{self.rid}|frozen", lines)
+        self.assertFalse([ln for ln in lines if ln.startswith("REPAIRED:")])
+        self.assertEqual(self._stamp(), self.rid)
+
+    def test_another_process_in_the_pane_is_never_repaired(self):
+        """A viewer or stand-in runs another pid than the record's agent."""
+        self._stale()
+        self.panes[AGENT_PANE]["pane_pid"] = "9191"
+        self._assert_untouched(self.rid)
+
+    def test_a_dead_pane_is_never_repaired(self):
+        self._stale()
+        self.panes[AGENT_PANE]["pane_dead"] = "1"
+        self._assert_untouched(self.rid)
+
+    def test_another_records_stamp_is_never_repaired(self):
+        self.panes[AGENT_PANE][agent_freeze.FROZEN_OPTION] = "0badf00d"
+        self._assert_untouched("0badf00d")
+
+    def test_a_healthy_live_record_costs_no_store_read(self):
+        """t2041: only a record some pane is stamped with is ever shown."""
+        lines = self._reconcile_all()
+        self.assertEqual(lines, ["PURGED:0"])
+        self.assertNotIn("show", self.store.verbs())
+
+    # --- post-phase mitigation: transitional_states_never_repaired ----------
+
+    def _assert_not_repaired_directly(self):
+        self.assertEqual(agent_freeze._repair_live_stamp(self.rid), "")
+        self.assertEqual([], self.tmux.calls_of("if-shell"))
+        self.assertEqual(self._stamp(), self.rid)
+
+    def test_an_in_flight_freeze_is_never_repaired(self):
+        """`freezing` with its stamp on the agent's own pane and pid — the stale
+        shape in every respect but the state."""
+        self.store.sf, _ = agent_sessions.freeze_begin(
+            self.store.sf, self.rid, capture_ansi="/a", capture_txt="/b",
+            lines=1, owner_pid=os.getpid())
+        self._stale()
+        self._assert_not_repaired_directly()
+        lines = self._reconcile_all()
+        self.assertFalse([ln for ln in lines if ln.startswith("REPAIRED:")], lines)
+
+    def test_an_in_flight_restore_is_never_repaired(self):
+        self.store.sf, line = agent_sessions.freeze_begin(
+            self.store.sf, self.rid, capture_ansi="/a", capture_txt="/b",
+            lines=1, owner_pid=os.getpid())
+        nonce = line.split("|")[1]
+        self.store.sf, _ = agent_sessions.freeze_commit(
+            self.store.sf, self.rid, nonce=nonce, pane=AGENT_PANE,
+            pane_pid=STANDIN_PID)
+        self.store.sf, line = agent_sessions.restore_begin(
+            self.store.sf, self.rid, mode="resume", owner_pid=os.getpid())
+        self.store.sf, _ = agent_sessions.restore_launched(
+            self.store.sf, self.rid, nonce=line.split("|")[1], pane=AGENT_PANE,
+            pane_pid=7777)
+        self._stale()
+        self.panes[AGENT_PANE]["pane_pid"] = "7777"
+        self._assert_not_repaired_directly()
+
+    def test_the_deciding_read_is_the_second_one(self):
+        """A record that leaves `live` between the two reads — a freeze began
+        — is not repaired: the read AFTER the stamp is the one that decides."""
+        self._stale()
+        real = agent_frozen_ops.store_show
+        reads = []
+
+        def show(record_id):
+            rec = real(record_id)
+            reads.append(record_id)
+            if len(reads) == 2:
+                rec = dict(rec, state=agent_sessions.STATE_FREEZING)
+            return rec
+        self._patch(agent_frozen_ops, "store_show", show)
+        self._assert_not_repaired_directly()
+        self.assertEqual(len(reads), 2, "precondition: both reads happened")
+
+    # --- the race the pid guard closes ----------------------------------------
+
+    def _overlap(self):
+        """Repair A reads the stale shape; at its deciding read, repair B runs
+        to completion and the agent is frozen again (stand-in up, stamp back,
+        record `frozen`); A then carries on with the `live` read it took.
+        Returns ``(A's line, B's line)``."""
+        self._stale()
+        real = agent_frozen_ops.store_show
+        state = {"inside": False, "reads": 0, "b": None}
+
+        def show(record_id):
+            if state["inside"]:
+                return real(record_id)
+            state["reads"] += 1
+            rec = real(record_id)
+            if state["reads"] == 2:
+                state["inside"] = True
+                state["b"] = agent_freeze._repair_live_stamp(record_id)
+                frozen = agent_freeze.freeze_pane(AGENT_PANE)
+                self.assertEqual(frozen.line, f"FROZEN:{self.rid}",
+                                 "precondition: the new freeze completed")
+                state["inside"] = False
+            return rec
+        self._patch(agent_frozen_ops, "store_show", show)
+        line_a = agent_freeze._repair_live_stamp(self.rid)
+        return line_a, state["b"]
+
+    def test_two_repairs_overlapping_a_completed_freeze_keep_the_new_stamp(self):
+        line_a, line_b = self._overlap()
+        self.assertEqual(line_b, f"REPAIRED:{self.rid}|stale_stamp")
+        self.assertEqual(line_a, "", "the pane is not this agent's any more")
+        self.assertEqual(self.panes[AGENT_PANE]["pane_pid"], str(STANDIN_PID))
+        self.assertEqual(self._stamp(), self.rid,
+                         "the re-frozen stand-in must keep its stamp")
+        self.assertEqual(self.rec().state, agent_sessions.STATE_FROZEN)
+
+    def test_mutant_control_an_id_only_clear_strips_the_new_stamp(self):
+        """The same interleaving with the pid guard dropped reproduces the bug:
+        proof the test above would catch its removal."""
+        real = agent_frozen_ops.clear_stamp_if
+        self._patch(agent_frozen_ops, "clear_stamp_if",
+                    lambda pane_id, record_id, pane_pid=0: real(pane_id, record_id))
+        self._overlap()
+        self.assertEqual(self.rec().state, agent_sessions.STATE_FROZEN)
+        self.assertEqual(self._stamp(), "",
+                         "an id-only clear strips the re-frozen stand-in's stamp")
 
 
 class ReconcileEnumerationTests(_FreezeTestCase):

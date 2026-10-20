@@ -902,6 +902,80 @@ class GuardedClearTests(unittest.TestCase):
         ops.clear_restore_attempt("", "7f3a2c1d:deadbeef")
         self.assertEqual([], self.calls)
 
+    def test_clear_stamp_if_with_a_pid_guards_on_both_in_one_dispatch(self):
+        """A record id is reused across freeze cycles: only the pid tells the
+        restored agent's stale stamp from a re-frozen stand-in's (t2062)."""
+        ops.clear_stamp_if("%5", "7f3a2c1d", 4242)
+        self.assertEqual([["if-shell", "-F", "-t", "%5",
+                           "#{&&:#{==:#{@aitask_frozen},7f3a2c1d},"
+                           "#{==:#{pane_pid},4242}}",
+                           "set-option -pu -t %5 @aitask_frozen"]], self.calls)
+
+    def test_retire_restore_marks_passes_the_pid_to_the_stamp_clear(self):
+        ops.retire_restore_marks("%5", "7f3a2c1d", "deadbeef" + "0" * 24, 4242)
+        self.assertEqual(
+            ["#{&&:#{==:#{@aitask_frozen},7f3a2c1d},#{==:#{pane_pid},4242}}",
+             "#{==:#{@aitask_restore_attempt},7f3a2c1d:deadbeef}"],
+            [c[4] for c in self.calls])
+
+
+class MarksLeftTests(unittest.TestCase):
+    """`restore_marks_left`: the read-back that proves a retirement (t2062).
+
+    `if-shell` answers 0 even when its branch fails, so this read — not any
+    dispatch's rc — is what a caller reports from.
+    """
+
+    RID = "7f3a2c1d"
+
+    def _answer(self, rc, *, pid="4242", frozen="", mark=""):
+        test = self
+        test.calls = []
+        out = "\t".join(["%5", pid, "aitasks", "agent-x", "@3", frozen, mark])
+
+        class _T:
+            def run(self, args, timeout=None):
+                test.calls.append(list(args))
+                return rc, out + "\n"
+        prev = ops._TMUX
+        ops._TMUX = _T()
+        self.addCleanup(setattr, ops, "_TMUX", prev)
+
+    def test_nothing_left_is_empty(self):
+        self._answer(0)
+        self.assertEqual("", ops.restore_marks_left("%5", self.RID, 4242))
+        self.assertEqual(["display-message"], [c[0] for c in self.calls],
+                         "a read, never a write")
+
+    def test_a_kept_stamp_and_mark_are_both_reported(self):
+        self._answer(0, frozen=self.RID, mark=f"{self.RID}:deadbeef")
+        self.assertEqual("marks_retained:stamp,mark",
+                         ops.restore_marks_left("%5", self.RID, 4242))
+
+    def test_a_mark_under_another_nonce_of_this_record_still_counts(self):
+        """What the t2066 recovery failed to clear is as left as any other."""
+        self._answer(0, mark=f"{self.RID}:0000beef")
+        self.assertEqual("marks_retained:mark",
+                         ops.restore_marks_left("%5", self.RID, 4242))
+
+    def test_another_records_marks_are_not_ours(self):
+        self._answer(0, frozen="0badf00d", mark="0badf00d:12345678")
+        self.assertEqual("", ops.restore_marks_left("%5", self.RID, 4242))
+
+    def test_a_pane_no_longer_running_the_agent_is_not_reported(self):
+        """Re-frozen since: the stand-in's stamp is legitimate, not left over."""
+        self._answer(0, pid="8888", frozen=self.RID)
+        self.assertEqual("", ops.restore_marks_left("%5", self.RID, 4242))
+
+    def test_a_gone_pane_leaves_nothing(self):
+        self._answer(1)
+        self.assertEqual("", ops.restore_marks_left("%5", self.RID, 4242))
+
+    def test_an_unreachable_tmux_is_unverified_never_clean(self):
+        self._answer(ops.TMUX_UNREACHABLE)
+        self.assertEqual("marks_unverified",
+                         ops.restore_marks_left("%5", self.RID, 4242))
+
 
 class _PaneWorld:
     """A pane-state fake for the window-name primitives (t1883).

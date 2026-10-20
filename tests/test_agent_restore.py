@@ -373,6 +373,9 @@ _PROBE_OURS = (0, "%104\t7f3a2c1d\t0")
 _PROBE_STRANGER = (0, "%104\tf00dfeed\t0")
 #: `window_facts` (7 fields) of the respawned stand-in pane, after the restore.
 _WINDOW_FACTS_REUSED = (0, "%104\t51000\taitasks\tagent-pick-1705\t@12\t\t")
+#: `window_facts` of the NEW window's pane after a gone-pane restore: the
+#: read-back the success clear ends with (t2062) finds nothing of the record.
+_WINDOW_FACTS_NEW = (0, "%900\t51000\taitasks\tagent-pick-1705\t@13\t\t")
 #: `pane_facts` (10 fields) for the poll loop, and `pane_location` (2 fields).
 _FACTS_10 = (0, "aitasks\tagent-pick-1705\t%900\t51000\t0\t/tmp\t7f3a2c1d\t7f3a2c1d\t\tsess-abc")
 _LOCATION_NEW = (0, "%900\t51000")
@@ -571,7 +574,7 @@ class TestRestoreEnvDelivery(_SwapMixin, unittest.TestCase):
 
     def test_a_new_window_launch_carries_the_agent_string(self):
         """The gone-pane branch has no `-e`: the env rides `_env_prefixed`."""
-        gone = {3: (1, ""), 10: _FACTS_10, 2: _LOCATION_NEW}
+        gone = {3: (1, ""), 10: _FACTS_10, 2: _LOCATION_NEW, 7: _WINDOW_FACTS_NEW}
         for repick, mode in self._MODES:
             with self.subTest(mode=mode):
                 _, launched = self._restore(_rec(), gone, repick=repick)
@@ -689,7 +692,7 @@ class TestRecordedPaneIsOnlyAHint(_SwapMixin, unittest.TestCase):
     def test_a_gone_pane_routes_to_a_new_window(self):
         _, _, tmux, launched = self._run({
             3: (1, ""),                    # probe: the pane is gone
-            10: _FACTS_10, 2: _LOCATION_NEW,
+            10: _FACTS_10, 2: _LOCATION_NEW, 7: _WINDOW_FACTS_NEW,
         })
         self.assertTrue(launched.called,
                         "a record whose pane is gone must restore into a NEW window "
@@ -718,7 +721,7 @@ class TestRecordedPaneIsOnlyAHint(_SwapMixin, unittest.TestCase):
     def test_a_recycled_pane_is_never_touched(self):
         _, _, tmux, launched = self._run({
             3: _PROBE_STRANGER,
-            10: _FACTS_10, 2: _LOCATION_NEW,
+            10: _FACTS_10, 2: _LOCATION_NEW, 7: _WINDOW_FACTS_NEW,
         })
         self.assertTrue(launched.called,
                         "a `%N` carrying somebody else's stamp is not ours")
@@ -749,7 +752,7 @@ class TestRecordedPaneIsOnlyAHint(_SwapMixin, unittest.TestCase):
             # pre-read: present on server 9999; then pane_location in the new window
             2: [(0, "%104\t9999"), _LOCATION_NEW],
             5: (0, "\t%104\t77777\t12345\tf00dfeed"),   # no token; new pid; NEW server; stranger's stamp
-            10: _FACTS_10,
+            10: _FACTS_10, 7: _WINDOW_FACTS_NEW,
         })
         self.assertTrue(launched.called,
                         "the recorded pane is no longer ours — go to a new window")
@@ -765,7 +768,7 @@ class TestRecordedPaneIsOnlyAHint(_SwapMixin, unittest.TestCase):
             3: _PROBE_OURS,
             2: [(0, "%104\t9999"), _LOCATION_NEW],   # same server generation as the after-read
             5: (0, "\t%104\t77777\t9999\tf00dfeed"),    # no token; same server generation; stranger's stamp
-            10: _FACTS_10,
+            10: _FACTS_10, 7: _WINDOW_FACTS_NEW,
         })
         self.assertTrue(launched.called)
         flat = " ".join(" ".join(c) for c in store.calls if c and c[0] == "restore-launched")
@@ -802,8 +805,10 @@ class _Server:
     Knobs: ``unreachable`` (every call is rc -1), ``new_window_answer`` (replace
     `new-window`'s answer AFTER it created the window — the lost-`-P` and
     rc -1 shapes), ``new_window_creates`` (False: tmux created nothing),
-    ``respawn_fails`` (a `respawn-pane` inside a branch fails), ``after`` (a
-    callback run after each call, for races).
+    ``respawn_fails`` (a `respawn-pane` inside a branch fails), ``unset_fails``
+    (a `set-option -pu` of a listed option fails — the branch fails while
+    `if-shell` still answers 0, t2062), ``after`` (a callback run after each
+    call, for races).
     """
 
     SERVER_PID = "9999"
@@ -817,6 +822,7 @@ class _Server:
         self.new_window_answer = None
         self.new_window_creates = True
         self.respawn_fails = False
+        self.unset_fails: set[str] = set()
         self.after = None
 
     # -- construction --------------------------------------------------------
@@ -851,6 +857,11 @@ class _Server:
         m = re.fullmatch(r"#\{&&:#\{pane_dead\},(.*)\}", cond)
         if m:
             return pane.get("pane_dead") == "1" and self._cond(m.group(1), pane)
+        # A binary `&&` of two equalities: the pid-guarded stamp clear (t2062).
+        eq = r"#\{==:#\{[@a-z_]+\},[^{}]*\}"
+        m = re.fullmatch(rf"#\{{&&:({eq}),({eq})\}}", cond)
+        if m:
+            return self._cond(m.group(1), pane) and self._cond(m.group(2), pane)
         m = re.fullmatch(r"#\{==:#\{([@a-z_]+)\},(.*)\}", cond)
         assert m, f"unsupported condition {cond!r}"
         return pane.get(m.group(1), "") == m.group(2)
@@ -874,6 +885,8 @@ class _Server:
             if pane is None:
                 return False
             if parts[0] == "-pu":
+                if parts[3] in self.unset_fails:
+                    return False
                 pane.pop(parts[3], None)
             else:
                 pane[parts[3]] = parts[4]
@@ -1504,7 +1517,9 @@ class TestNewWindowRollback(_SwapMixin, unittest.TestCase):
         pane = server.add("aitasks", "agent-x", **{
             "@aitask_frozen": "0badf00d", "@aitask_restore_attempt": "0badf00d:12345678"})
         self.swap_tmux(server)
-        agent_restore._clear_frozen_stamp(pane, _RID, _NONCE)
+        self.assertEqual("", agent_restore._clear_frozen_stamp(
+            pane, _RID, _NONCE, int(server.panes[pane]["pane_pid"])),
+            "another record's marks are not ours to report")
         p = server.panes[pane]
         self.assertEqual(("0badf00d", "0badf00d:12345678"),
                          (p.get("@aitask_frozen"), p.get("@aitask_restore_attempt")))
@@ -1514,7 +1529,8 @@ class TestNewWindowRollback(_SwapMixin, unittest.TestCase):
         pane = server.add("aitasks", "agent-x", **{
             "@aitask_frozen": _RID, "@aitask_restore_attempt": _MARK})
         self.swap_tmux(server)
-        agent_restore._clear_frozen_stamp(pane, _RID, _NONCE)
+        self.assertEqual("", agent_restore._clear_frozen_stamp(
+            pane, _RID, _NONCE, int(server.panes[pane]["pane_pid"])))
         p = server.panes[pane]
         self.assertEqual((None, None),
                          (p.get("@aitask_frozen"), p.get("@aitask_restore_attempt")))
@@ -1530,10 +1546,76 @@ class TestNewWindowRollback(_SwapMixin, unittest.TestCase):
             pane = server.add("aitasks", "agent-x", **{
                 "@aitask_frozen": _RID, "@aitask_restore_attempt": _MARK})
             self.swap_tmux(server)
-            clear(pane, _RID, _NONCE)
+            clear(pane, _RID, _NONCE, int(server.panes[pane]["pane_pid"]))
             dispatched.append([c for c in server.calls if c[0] == "if-shell"])
         self.assertEqual(2, len(dispatched[0]))
         self.assertEqual(dispatched[0], dispatched[1])
+
+    # --- t2062: a clear that did not take is reported; a late one is pid-bound
+
+    def _marked(self, server):
+        pane = server.add("aitasks", "agent-x", **{
+            "@aitask_frozen": _RID, "@aitask_restore_attempt": _MARK})
+        self.swap_tmux(server)
+        return pane, int(server.panes[pane]["pane_pid"])
+
+    def test_a_clear_that_did_not_take_is_the_success_lines_suffix(self):
+        """The branch fails while `if-shell` answers 0: only the read-back says."""
+        for failing, left in ((("@aitask_frozen",), "stamp"),
+                              (("@aitask_restore_attempt",), "mark"),
+                              (("@aitask_frozen", "@aitask_restore_attempt"),
+                               "stamp,mark")):
+            with self.subTest(left=left):
+                server = _Server()
+                server.unset_fails = set(failing)
+                pane, pid = self._marked(server)
+                self.assertEqual(f"|marks_retained:{left}",
+                                 agent_restore._clear_frozen_stamp(
+                                     pane, _RID, _NONCE, pid))
+
+    def test_a_late_clear_spares_the_stamp_of_a_refrozen_standin(self):
+        """The record id comes back on the pane's next freeze: a clear issued
+        after that must not strip the stand-in's stamp — the pid tells them
+        apart (t2062)."""
+        server = _Server()
+        pane, agent_pid = self._marked(server)
+        server.panes[pane]["pane_pid"] = str(agent_pid + 100)   # the stand-in
+        self.assertEqual("", agent_restore._clear_frozen_stamp(
+            pane, _RID, _NONCE, agent_pid),
+            "the pane no longer runs the agent: nothing of its to report")
+        self.assertEqual(_RID, server.panes[pane].get("@aitask_frozen"))
+
+
+class TestRetainedStampIsNotACleanRestore(_SwapMixin, unittest.TestCase):
+    """A restore that worked but left its stamp says so on its line (t2062)."""
+
+    def test_a_hook_ack_whose_stamp_stayed_carries_the_suffix(self):
+        self.swap_store(_RecordingStore(answers={
+            "restore-begin": (0, "RESTORING:7f3a2c1d|deadbeef"),
+            "restore-launched": (ops.EXIT_TRANSITION_REFUSED,
+                                 "TRANSITION_REFUSED:7f3a2c1d|live|restore-launched"),
+        }))
+        # The read-back finds the agent (51000, the record's pane_pid) still
+        # stamped: the guarded clear's branch did not take.
+        answers = dict(_TMUX_OURS_AND_FIRES)
+        answers[7] = (0, "%104\t51000\taitasks\tagent-pick-1705\t@12\t7f3a2c1d\t")
+        tmux = self.swap_tmux(_ScriptedTmux(answers))
+
+        before = _rec()
+        after = _rec(state="live", ack="hook", pane_pid="51000")
+        reads = iter([before, after, after, after])
+        with unittest.mock.patch.object(agent_restore, "_reread",
+                                        side_effect=lambda _id: next(reads)), \
+             unittest.mock.patch.object(agent_restore, "build_resume_argv",
+                                        return_value="claude --resume sess-abc"), \
+             unittest.mock.patch.object(agent_restore, "maybe_spawn_minimonitor",
+                                        return_value=None):
+            result = agent_restore.restore("7f3a2c1d")
+
+        self.assertTrue(result.ok, "the agent runs and the record is live")
+        self.assertEqual("hook", result.outcome)
+        self.assertEqual("RESTORED:7f3a2c1d|hook|marks_retained:stamp", result.line)
+        self.assertEqual(1, len(tmux.destructive()), "no rollback")
 
 
 def agent_sessions_mod():

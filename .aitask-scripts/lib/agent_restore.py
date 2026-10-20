@@ -349,13 +349,21 @@ def _reread(record_id: str) -> dict:
     return frozen_ops.store_show(record_id)
 
 
-def _clear_frozen_stamp(pane_id: str, record_id: str, nonce: str) -> None:
+def _clear_frozen_stamp(pane_id: str, record_id: str, nonce: str,
+                        pane_pid: int) -> str:
     """Retire a restored pane's marks: the stamp, and this attempt's mark.
 
     The rule lives in `frozen_ops.retire_restore_marks`, shared with
-    reconcile's recovery of an abandoned restore (t2045).
+    reconcile's recovery of an abandoned restore (t2045). ``pane_pid`` is the
+    restored agent's, which confines the stamp clear to it (t2062).
+
+    Returns the success line's suffix: ``""`` when the re-read finds nothing of
+    the record left on the pane, ``|marks_retained:…`` / ``|marks_unverified``
+    otherwise — a stamp that stayed must never read as a clean `RESTORED:`.
     """
-    frozen_ops.retire_restore_marks(pane_id, record_id, nonce)
+    frozen_ops.retire_restore_marks(pane_id, record_id, nonce, pane_pid)
+    detail = frozen_ops.restore_marks_left(pane_id, record_id, pane_pid)
+    return f"|{detail}" if detail else ""
 
 
 def _rollback(record_id: str, nonce: str, pane_id: str, reason: str = "") -> str:
@@ -1072,9 +1080,10 @@ def _restore_attempt(record_id: str, *, repick: bool, session: str | None,
             return _settle(decided, record_id, nonce, pane_id)
         return RestoreResult(record_id, False, "confirm_refused",
                              f"RESTORE_FAILED:{record_id}|restore-confirm:{out.strip()}")
-    _clear_frozen_stamp(pane_id, record_id, nonce)
-    return RestoreResult(record_id, True, "liveness",
-                         f"RESTORED:{record_id}|liveness{_liveness_note(agent_kind)}")
+    retained = _clear_frozen_stamp(pane_id, record_id, nonce, observed_pid)
+    return RestoreResult(
+        record_id, True, "liveness",
+        f"RESTORED:{record_id}|liveness{_liveness_note(agent_kind)}{retained}")
 
 
 def _liveness_note(agent_kind: str) -> str:
@@ -1119,9 +1128,9 @@ def _rollout_confirm(record_id: str, rec: dict, nonce: str,
                                 "--pane", pane, "--pane-pid", str(pane_pid),
                                 "--rollout-session", session_id)
     if rc == 0:
-        _clear_frozen_stamp(pane, record_id, nonce)
+        retained = _clear_frozen_stamp(pane, record_id, nonce, pane_pid)
         return RestoreResult(record_id, True, "rollout",
-                             f"RESTORED:{record_id}|rollout")
+                             f"RESTORED:{record_id}|rollout{retained}")
     if rc == EXIT_NONCE_MISMATCH:
         return RestoreResult(record_id, False, "nonce_mismatch",
                              f"RESTORE_FAILED:{record_id}|nonce_mismatch")
@@ -1145,9 +1154,12 @@ def _decide_from_record(record_id: str, rec: dict, nonce: str,
     # captures.
     if rec.get("state") == "live" and rec.get("ack") in ("hook", "rollout"):
         ack = rec.get("ack")
-        _clear_frozen_stamp(rec.get("pane_id", ""), record_id, nonce)
+        # The record's `pane_pid` is the agent's: the hook ack and
+        # `restore-confirm` both record the location they verified.
+        retained = _clear_frozen_stamp(rec.get("pane_id", ""), record_id, nonce,
+                                       frozen_ops.int_or_zero(rec.get("pane_pid")))
         return RestoreResult(record_id, True, ack,
-                             f"RESTORED:{record_id}|{ack}")
+                             f"RESTORED:{record_id}|{ack}{retained}")
 
     # A mismatch is persisted on the record because the hook has no return
     # channel to this detached process. It is nonce-scoped so a stale error from
@@ -1160,9 +1172,11 @@ def _decide_from_record(record_id: str, rec: dict, nonce: str,
 
     # Someone else finished the transaction (reconcile, or a liveness confirm).
     if rec.get("state") == "live" and rec.get("ack") == "liveness":
-        _clear_frozen_stamp(rec.get("pane_id", ""), record_id, nonce)
-        return RestoreResult(record_id, True, "liveness",
-                             f"RESTORED:{record_id}|liveness{_liveness_note(agent_kind)}")
+        retained = _clear_frozen_stamp(rec.get("pane_id", ""), record_id, nonce,
+                                       frozen_ops.int_or_zero(rec.get("pane_pid")))
+        return RestoreResult(
+            record_id, True, "liveness",
+            f"RESTORED:{record_id}|liveness{_liveness_note(agent_kind)}{retained}")
 
     pane_id = rec.get("pane_id", "")
     if pane_id:

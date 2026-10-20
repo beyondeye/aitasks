@@ -234,7 +234,9 @@ Re-pick is the way forward for the first two.
 
 **A stand-in that died is respawned.** So is a freeze or a restore whose
 coordinator was killed part-way: records in a transitional state are settled from
-what tmux can actually be seen to hold. That settling — **reconcile** — runs
+what tmux can actually be seen to hold. An agent that came back but still shows
+as frozen, because its frozen marker could not be removed, is unmarked the same
+way, and can then be frozen again. That settling — **reconcile** — runs
 after every freeze and restore, and on the maintenance tick of any open
 `ait monitor` or `ait minimonitor`. To run it yourself:
 

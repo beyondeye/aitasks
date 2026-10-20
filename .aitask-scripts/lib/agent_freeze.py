@@ -1257,11 +1257,17 @@ def _reconcile_restoring(
     # instead; `_retire_marks` then recovers the mark from the pane (t2066).
     coordinator_nonce = rec.get("op_nonce", "")
 
-    def _retire_marks(pane_id: str) -> None:
-        frozen_ops.retire_restore_marks(pane_id, record_id, coordinator_nonce)
+    def _retire_marks(pane_id: str, pane_pid: int) -> str:
+        """Every clear, then ONE read-back; the success line's suffix (t2062)."""
+        frozen_ops.retire_restore_marks(pane_id, record_id, coordinator_nonce,
+                                        pane_pid)
         # Guarded on `launch_pid` in the same dispatch: only the pane this
         # record now tracks gives its mark up, never a recycled `%N` (t1875).
         frozen_ops.clear_restore_attempt_claiming(pane_id, record_id, launch_pid)
+        # LAST, after the recovery above: a mark it failed to clear is as left
+        # behind as one the nonce-derived clear missed.
+        detail = frozen_ops.restore_marks_left(pane_id, record_id, pane_pid)
+        return f"|{detail}" if detail else ""
 
     def _abort_back_to_frozen(pane_id: str | None) -> str:
         nonce = lease()
@@ -1326,8 +1332,8 @@ def _reconcile_restoring(
                              "--pane-pid", str(observed.pane_pid),
                              "--rollout-session", evidence)
             if rc == 0:
-                _retire_marks(observed.pane_id)
-                return f"LIVE:{record_id}|rollout"
+                retained = _retire_marks(observed.pane_id, observed.pane_pid)
+                return f"LIVE:{record_id}|rollout{retained}"
             if rc == EXIT_SESSION_MISMATCH:
                 return _abort_back_to_frozen(observed.pane_id)
             return f"RECONCILE_FAILED:{record_id}|{out}"
@@ -1336,11 +1342,11 @@ def _reconcile_restoring(
                          "--pane-pid", str(observed.pane_pid))
         if rc != 0:
             return f"RECONCILE_FAILED:{record_id}|{out}"
-        # A confirmed record is `live`, and no later pass revisits it: retire
-        # the marks NOW, as the coordinator would have (t2045), or the agent
-        # can never be frozen again (`FREEZE_SKIPPED … already frozen`).
-        _retire_marks(observed.pane_id)
-        return f"LIVE:{record_id}|liveness"
+        # A confirmed record is `live`: retire the marks NOW, as the
+        # coordinator would have (t2045), or the agent cannot be frozen again
+        # (`FREEZE_SKIPPED … already frozen`) until `_repair_live_stamp` runs.
+        retained = _retire_marks(observed.pane_id, observed.pane_pid)
+        return f"LIVE:{record_id}|liveness{retained}"
 
     if not launch_pid and observed.pane_pid not in (standin_pid, agent_pid):
         # Nothing was recorded as launched and the pane holds something we do
@@ -1368,6 +1374,57 @@ def _reconcile_aborting(rec: dict, observed: _Observed | None, lease: _Lease) ->
         return (f"STANDIN:{record_id}|pane_gone" if rc == 0
                 else f"RECONCILE_FAILED:{record_id}|{out}")
     return _respawn_standin(observed.pane_id, record_id, lease)
+
+
+def _repair_live_stamp(record_id: str) -> str:
+    """The one `live` shape reconcile repairs: the agent's OWN pane still stamped.
+
+    A restore that went `live` but whose stamp clear did not take (t2062) leaves
+    a running agent that every consumer reads as a frozen stand-in: `freeze`
+    skips it as already frozen, `freeze --all` and the monitors pass it over.
+    Nothing else revisits a `live` record, so this pass is the way back.
+
+    Repairs only when the pane runs the very process the record says is its
+    agent (`pane_pid`), alive, and stamped with THIS record. A stand-in or a
+    reopened viewer runs another process, so a `frozen` record's mounted
+    viewer is never touched — nor is any record that is not `live`.
+
+    **Order is the guard.** The stamp is read BEFORE the deciding store read:
+    `freeze-begin` moves a record off `live` before its freeze stamps the pane,
+    so a stamp seen first and a `live` read after it cannot be an in-flight
+    freeze's. The clear is ONE dispatch on the stamp AND that pid: the record id
+    is reused across freeze cycles, and a late clear — another pass already
+    repaired the pane and the agent was frozen again — must leave the new
+    stand-in's stamp alone. Residual (safe direction): a freeze that stamps the
+    pane between the store read and the clear, before its respawn, loses the
+    stamp; its stamp-guarded respawn then misses, it reports
+    `FREEZE_FAILED:respawn`, and the agent is untouched.
+
+    No lease: nothing here writes the store. Returns ``""`` when there is
+    nothing to repair (or the pane stopped being this agent's after the clear).
+    """
+    pane_id = frozen_ops.store_show(record_id).get("pane_id", "")
+    if not pane_id:
+        return ""
+    facts = frozen_ops.pane_facts(pane_id)
+    if (facts.get("frozen") != record_id
+            or frozen_ops.int_or_zero(facts.get("pane_dead"))):
+        return ""
+    rec = frozen_ops.store_show(record_id)
+    pane_pid = frozen_ops.int_or_zero(rec.get("pane_pid"))
+    if (rec.get("state") != agent_sessions.STATE_LIVE
+            or rec.get("pane_id", "") != pane_id or not pane_pid
+            or frozen_ops.int_or_zero(facts.get("pane_pid")) != pane_pid):
+        return ""
+    frozen_ops.clear_stamp_if(pane_id, record_id, pane_pid)
+    after = frozen_ops.window_facts(pane_id)
+    if after is None:
+        return f"RECONCILE_FAILED:{record_id}|stale_stamp:unverified"
+    if not after or frozen_ops.int_or_zero(after.get("pane_pid")) != pane_pid:
+        return ""
+    if after.get("frozen") == record_id:
+        return f"RECONCILE_FAILED:{record_id}|stale_stamp:retained"
+    return f"REPAIRED:{record_id}|stale_stamp"
 
 
 def _epoch(iso: str) -> float:
@@ -1564,6 +1621,9 @@ def drop_record(record_id: str) -> str:
 def reconcile() -> list[str]:
     """Resolve every non-`live` record from server-observable facts (§C).
 
+    Plus ONE `live` shape: a record whose own agent pane still carries its
+    frozen stamp, which only this pass can repair (`_repair_live_stamp`, t2062).
+
     Idempotent and safe to call every 600 s (t1705_7 dispatches it from the
     monitor maintenance tick). Returns the wire lines it produced.
 
@@ -1592,8 +1652,10 @@ def reconcile() -> list[str]:
         panes_by_root.setdefault(root, []).extend(panes)
         for pane in panes:
             observed_by_pane[pane.pane_id] = pane
+    stamped_ids = {p.frozen for p in observed_by_pane.values() if p.frozen}
 
-    # 2. Apply the §C table to every non-`live` record whose lease is takeable.
+    # 2. Apply the §C table to every non-`live` record whose lease is takeable,
+    #    and repair a `live` record whose own pane kept its stamp.
     rc, out = frozen_ops.store("list")
     if rc != 0:
         lines.append(f"RECONCILE_FAILED:list|{out}")
@@ -1606,6 +1668,12 @@ def reconcile() -> list[str]:
                 continue
             record_id, state = fields[0], fields[1]
             if state == agent_sessions.STATE_LIVE:
+                # Only a record some observed pane is stamped with can be the
+                # stale-stamp shape: every other `live` record costs no read.
+                if record_id in stamped_ids:
+                    repaired = _repair_live_stamp(record_id)
+                    if repaired:
+                        lines.append(repaired)
                 continue
             # READ BEFORE LEASING. `lease-take` overwrites `op_nonce`, and the
             # `restoring` mismatch row matches `last_error` against the ORIGINAL
