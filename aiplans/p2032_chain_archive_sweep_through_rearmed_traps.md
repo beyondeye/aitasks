@@ -282,14 +282,14 @@ as a second real entry point.
 - `txn_chain_exit_trap`'s prepend hands a status-reading handler the
   prepended handler's status. This is only recorded here, not fixed. No shipped
   prepend sits in front of a status-reading handler today. · severity: low · →
-  mitigation: txn_chain_status_preserving_prepend
+  mitigation: t2071 (txn_chain_status_preserving_prepend)
 - Scripts that load archive_utils only through an indented (lazy) source of an
   intermediate lib are outside the scanner's scope. None exist today.
   · severity: low · → mitigation: none
 
 ### Planned mitigations
 - timing: post-phase | name: real_entry_leak_probes | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement — only ait note is probed through its real entry point | desc: Red-then-green real-CLI leak probes for aitask_gate.sh (ledger section) and aitask_create.sh child-lock path under a probe TMPDIR
-- timing: after | name: txn_chain_status_preserving_prepend | type: bug | priority: low | effort: low | inline_risk: medium | added_complexity: low | addresses: goal-achievement — txn_chain_exit_trap prepend hands a status-reading handler the prepended handler's status | desc: Make txn_chain_exit_trap capture $? before the prepended handler and restore it for the rest of the trap; update t2023 test 13d2's pinned value
+- timing: after | name: txn_chain_status_preserving_prepend | type: bug | priority: low | effort: low | inline_risk: medium | added_complexity: low | addresses: goal-achievement — txn_chain_exit_trap prepend hands a status-reading handler the prepended handler's status | desc: Make txn_chain_exit_trap capture $? before the prepended handler and restore it for the rest of the trap; update t2023 test 13d2's pinned value | created: t2071
 
 ## Step 9 (Post-Implementation)
 
