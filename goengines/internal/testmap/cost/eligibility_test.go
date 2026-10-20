@@ -262,12 +262,48 @@ func TestEligibilityTreeChanged(t *testing.T) {
 	}
 }
 
-// aitestmap/ below the git top level: the modified paths are top-level
-// relative and cannot be compared; nothing anchors on a dirty tree.
-func TestEligibilityRootNotTopLevel(t *testing.T) {
-	r := eligRepo(t, "sub/", nil)
-	dirty(t, r, "sub/docs/readme.md")
-	if row := reasonOf(t, judged(t, filepath.Join(r.Dir, "sub"), false), "tests/test_a.sh"); row.Anchor || row.AnchorReason != "eligibility-error:root-not-toplevel" {
+// aitestmap/ below the git top level: the modified set is root-relative, so
+// in-root dirt is judged like a top-level one. Unrelated dirt anchors; the
+// test file and a closure file, dirtied by their top-level-relative paths,
+// are each caught under their root-relative ids; any dirt outside the root
+// fails closed.
+func TestEligibilitySubdirectoryRoot(t *testing.T) {
+	for _, c := range []struct {
+		name, dirty, want string
+	}{
+		{"unrelated", "", ""},
+		{"weakened-test", "sub/tests/test_a.sh", "test-file"},
+		{"dirty-helper", "sub/tests/lib/helper.sh", "closure:tests/lib/helper.sh"},
+		{"outside-root", "outside.txt", "outside-root:../outside.txt"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			r := eligRepo(t, "sub/", nil)
+			dirty(t, r, "sub/docs/readme.md")
+			if c.dirty != "" {
+				dirty(t, r, c.dirty)
+			}
+			row := reasonOf(t, judged(t, filepath.Join(r.Dir, "sub"), false), "tests/test_a.sh")
+			eligible := c.want == ""
+			if row.Clean != eligible || row.Anchor != eligible || row.AnchorReason != c.want {
+				t.Fatalf("clean %v anchor %v reason %q, want reason %q", row.Clean, row.Anchor, row.AnchorReason, c.want)
+			}
+		})
+	}
+}
+
+// A reference that leaves a subdirectory root resolves to an unchanged
+// in-root namesake (tests/../outside.sh), so the closure is clean while the
+// file the test really sources (the top-level outside.sh) is modified. The
+// outside-root rule, not the closure, is what refuses the anchor.
+func TestEligibilityOutsideRootNamesake(t *testing.T) {
+	r := eligRepo(t, "sub/", map[string]string{
+		"tests/test_a.sh": testA + "source ../outside.sh\n",
+		"outside.sh":      "#!/bin/sh\n",
+	})
+	r.Write(t, "outside.sh", "#!/bin/sh\n")
+	r.Commit(t, "2", "test", "outside input")
+	dirty(t, r, "outside.sh")
+	if row := reasonOf(t, judged(t, filepath.Join(r.Dir, "sub"), false), "tests/test_a.sh"); row.Anchor || row.AnchorReason != "outside-root:../outside.sh" {
 		t.Fatalf("%+v", row)
 	}
 }

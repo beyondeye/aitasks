@@ -65,7 +65,7 @@ type Record struct {
 	CauseDetail    string   `json:"cause_detail"`
 	HeadStart      string   `json:"head_start"`
 	HeadEnd        string   `json:"head_end"`
-	Modified       []string `json:"modified"` // start ∪ end, sorted
+	Modified       []string `json:"modified"` // start ∪ end, root-relative (../ outside the root), sorted
 }
 
 // invoker runs invocations for one run.
@@ -184,16 +184,26 @@ func (iv *invoker) finish(inv *Invocation, rec Record, vd verdict, idir *string)
 	return Outcome{Record: rec, Results: vd.Results}
 }
 
-// provenance is HEAD and the modified-path set (minus the engine's own state
-// directory) at one moment.
+// provenance is HEAD and the modified-path set at one moment.
 func provenance(ctx context.Context, git gitx.Repo) (string, []string, error) {
 	head, err := git.Head(ctx)
 	if err != nil {
 		return "", nil, err
 	}
-	mod, err := git.ModifiedPaths(ctx)
+	mod, err := ModifiedPaths(ctx, git)
 	if err != nil {
 		return head, nil, err
+	}
+	return head, mod, nil
+}
+
+// ModifiedPaths is the modified-path set of the root git.Dir names, in the
+// engine's path space: relative to the root (gitx.DirModifiedPaths — a path
+// outside it climbs with ../), minus the engine's own state directory.
+func ModifiedPaths(ctx context.Context, git gitx.Repo) ([]string, error) {
+	mod, err := git.DirModifiedPaths(ctx)
+	if err != nil {
+		return nil, err
 	}
 	kept := mod[:0]
 	for _, p := range mod {
@@ -201,7 +211,7 @@ func provenance(ctx context.Context, git gitx.Repo) (string, []string, error) {
 			kept = append(kept, p)
 		}
 	}
-	return head, kept, nil
+	return kept, nil
 }
 
 func union(a, b []string) []string {

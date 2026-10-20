@@ -7,6 +7,7 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/beyondeye/aitasks/goengines/internal/gitx"
 	"github.com/beyondeye/aitasks/goengines/internal/testmap/fixture"
 )
 
@@ -66,6 +67,26 @@ func TestRecordProvenance(t *testing.T) {
 	want := []string{"src/del_staged", "src/del_unstaged", "src/mod", "src/untracked"}
 	if !slices.Equal(rec.Modified, want) || rec.Cause != "" {
 		t.Fatalf("modified %v want %v (%+v)", rec.Modified, want, rec)
+	}
+}
+
+// A root below the git top level: the modified set is root-relative, the
+// root's own state directory is filtered, and a path outside the root is
+// kept, climbing with ../ (a test can read it).
+func TestProvenanceSubdirectoryRoot(t *testing.T) {
+	if !isolated(t, hangLimit) {
+		return
+	}
+	r := fixture.New(t)
+	r.Write(t, "sub/src/mod", "1\n")
+	r.Write(t, "outside", "1\n")
+	r.Commit(t, "1", "test", "fixture")
+	r.Write(t, "sub/src/mod", "2\n")
+	r.Write(t, "outside", "2\n")
+	r.Write(t, "sub/"+StateDir+"/r/x", "state\n")
+	_, mod, err := provenance(bg, gitx.Repo{Dir: filepath.Join(r.Dir, "sub")})
+	if want := []string{"../outside", "src/mod"}; err != nil || !slices.Equal(mod, want) {
+		t.Fatalf("modified %v, %v; want %v", mod, err, want)
 	}
 }
 

@@ -31,7 +31,6 @@ import (
 // and only when some result needs them.
 type inputs struct {
 	err      string // "<input>:<detail>" when an input failed
-	prefix   string
 	head     string
 	modified map[string]bool
 	graph    *deps.Graph
@@ -75,24 +74,18 @@ func (j *judge) load() *inputs {
 	root := j.rep.Root
 	git := gitx.Repo{Dir: root}
 	var err error
-	if in.prefix, err = git.Prefix(j.ctx); err != nil {
-		in.err = "git:" + oneLine(err.Error())
-		return in
-	}
 	if in.head, err = git.Head(j.ctx); err != nil {
 		in.err = "git:" + oneLine(err.Error())
 		return in
 	}
-	mod, err := git.ModifiedPaths(j.ctx)
+	mod, err := runner.ModifiedPaths(j.ctx, git)
 	if err != nil {
 		in.err = "git:" + oneLine(err.Error())
 		return in
 	}
 	in.modified = map[string]bool{}
 	for _, p := range mod {
-		if p != runner.StateDir && !strings.HasPrefix(p, runner.StateDir+"/") {
-			in.modified[p] = true
-		}
+		in.modified[p] = true
 	}
 	cfg, err := registry.LoadConfig(root)
 	if err != nil {
@@ -169,13 +162,18 @@ func (j *judge) decide(res runner.Result, rec runner.Record) (bool, string) {
 	switch {
 	case in.err != "":
 		return false, "eligibility-error:" + in.err
-	case in.prefix != "":
-		return false, "eligibility-error:root-not-toplevel"
 	case in.head != rec.HeadEnd || !subset(in.modified, rec.Modified):
 		return false, "tree-changed"
 	}
 	mod := map[string]bool{}
 	for _, p := range rec.Modified {
+		// A root below the git top level sees modifications outside it
+		// (../…), which the scan cannot follow: it resolves within the root
+		// only, so a reference that leaves it can land on an in-root
+		// namesake. No closure proves such a path unread.
+		if strings.HasPrefix(p, "../") {
+			return false, "outside-root:" + p
+		}
 		mod[p] = true
 	}
 	test := res.ID.Path

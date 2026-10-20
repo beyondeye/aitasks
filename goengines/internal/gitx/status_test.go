@@ -97,6 +97,27 @@ func TestHeadOutsideRepositoryIsAnError(t *testing.T) {
 	}
 }
 
+// DirModifiedPaths rebases the top-level set onto Dir: below Dir the prefix
+// is stripped, a sibling sharing a leading segment climbs only past the
+// unshared ones, and a top-level file climbs all the way. At the top level it
+// is ModifiedPaths.
+func TestDirModifiedPaths(t *testing.T) {
+	r := fixture.New(t)
+	r.History(t, []fixture.Commit{{Task: "1", Desc: "base", Files: map[string]string{"sub/x/a": "1\n", "sub/y": "1\n", "top": "1\n"}}})
+	for _, p := range []string{"sub/x/a", "sub/y", "top"} {
+		r.Write(t, p, "2\n")
+	}
+	sub := r.Git
+	sub.Dir = filepath.Join(r.Dir, "sub", "x")
+	if got, err := sub.DirModifiedPaths(ctx); err != nil || !slices.Equal(got, []string{"../../top", "../y", "a"}) {
+		t.Fatalf("DirModifiedPaths from sub/x = %v, %v", got, err)
+	}
+	want, _ := r.Git.ModifiedPaths(ctx)
+	if got, err := r.Git.DirModifiedPaths(ctx); err != nil || !slices.Equal(got, want) {
+		t.Fatalf("DirModifiedPaths at the top level = %v, %v; want %v", got, err, want)
+	}
+}
+
 // Prefix is "" at the top level and "<dir>/" below it, and ModifiedPaths
 // stays top-level-relative from a subdirectory — the mismatch Prefix lets a
 // caller detect.

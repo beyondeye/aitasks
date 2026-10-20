@@ -72,6 +72,40 @@ func parsePorcelainZ(data []byte) ([]string, error) {
 	return slices.Compact(paths), nil
 }
 
+// DirModifiedPaths is ModifiedPaths relative to Dir instead of the top
+// level: a path below Dir loses the Prefix, and a path outside Dir climbs
+// with ../ (sub/x as Dir: sub/x/a → a, sub/y → ../y, top → ../../top). It
+// is the top-level set rebased, never filtered — a path outside Dir is
+// still a modification — and sorted.
+func (r Repo) DirModifiedPaths(ctx context.Context) ([]string, error) {
+	prefix, err := r.Prefix(ctx)
+	if err != nil {
+		return nil, err
+	}
+	paths, err := r.ModifiedPaths(ctx)
+	if err != nil || prefix == "" {
+		return paths, err
+	}
+	for i, p := range paths {
+		paths[i] = rebase(prefix, p)
+	}
+	slices.Sort(paths)
+	return paths, nil
+}
+
+// rebase turns top-level-relative p into a path relative to the directory
+// prefix names ("<dir>/"). The shared leading segments never include p's
+// last one, so the result always names p.
+func rebase(prefix, p string) string {
+	base := strings.Split(strings.TrimSuffix(prefix, "/"), "/")
+	segs := strings.Split(p, "/")
+	i := 0
+	for i < len(base) && i < len(segs)-1 && base[i] == segs[i] {
+		i++
+	}
+	return strings.Repeat("../", len(base)-i) + strings.Join(segs[i:], "/")
+}
+
 // Head returns the object id HEAD points to, or "" when HEAD is unborn (a
 // repository with no commit yet on the current branch). Any other failure —
 // a detached HEAD that names nothing, a broken repository — is an error,
