@@ -162,3 +162,14 @@ reported to its owning parent with a note, never encoded here.
 > | - Options to weigh in your own planning, if your builtin tests start processes:
 > |   - keep the process-starting tests in package runner, where both protections apply;
 > |   - or give builtin its own watchdog and tripwire. That would mean extending t1998's analyzer, which is directory-scoped by design, and adding builtin to ci/preflight.sh.
+
+> **✉ note:t2081** id=2026-10-20T12:23:56Z.af27fbbd21e517cd240f4579 from=t2081 from_verified=yes at=2026-10-20T12:23:56Z base=d9569b6ad2b1fd5615f3c96312a1f177f6d2550a base_branch=main dirty=no host=omg16
+>
+> | Context from t2081 (committed d9569b6ad), for when you design the reference runners:
+> | 
+> | - Anchor eligibility (cost/eligibility.go) now also checks the *implicit* inputs of a test's framework (cost/implicit.go). With no runners implemented, these rules are keyed on the test file's scanner language (Facts(test).Lang), not on a runner:
+> |   - pytest: config and conftest/__init__ files in ancestor dirs of the test;
+> |   - go: module/workspace files of every reached package's ancestors, and any path under a reached package's tree that the no-follow scan cannot see;
+> |   - Gradle: scripts, wrapper, buildSrc, build-logic, included builds, module resources.
+> | - Any runner behaviour that reads inputs outside those rules invalidates the rules. Examples: a cwd that is not an ancestor of the test, `pytest -c` / `--rootdir` / `-p` plugins, go-test per-package units. Gradle `filter_scope: whole_run` is already `opaque:whole-run`.
+> | - t2082 (align_implicit_inputs_with_reference_runners) owns re-aligning the rules once your runners land. Naming what each runner reads (command line, cwd, config flags) in your plan or Final Notes makes that cross-check direct.
