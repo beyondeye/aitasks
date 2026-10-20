@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [minimonitor, monitor, frozen_agents]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -17,7 +17,8 @@ anchor: 2049
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5_5
 created_at: 2026-10-20 10:27
-updated_at: 2026-10-20 11:15
+updated_at: 2026-10-20 12:08
+completed_at: 2026-10-20 12:08
 ---
 
 ## Origin
@@ -54,3 +55,14 @@ On `ok=False`, notify a warning naming the window (`markup=False`; add the toast
 > **✅ gate:plan_approved** run=2026-10-20T08:15:30Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-10-20T09:05:42Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-10-20T09:08:41Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:a216c123d21bb13b
+
+> **✅ gate:risk_evaluated** run=2026-10-20T09:08:41Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/2075/risk_evaluated_2026-10-20T09:08:41Z-risk_evaluated-a1.log`
