@@ -1,0 +1,31 @@
+---
+priority: medium
+effort: medium
+depends: []
+issue_type: enhancement
+status: Ready
+labels: [testing, testmap, go_engine]
+gates: [risk_evaluated]
+anchor: 1852
+followup_kind: risk_mitigation
+created_at: 2026-10-20 12:35
+updated_at: 2026-10-20 12:35
+---
+
+## Origin
+Risk-mitigation ("after") follow-up for t1854_4, created at Step 8d after implementation landed.
+
+## Risk addressed
+goal-achievement — implicit runner inputs missing from the eligibility closure.
+
+- Anchor eligibility can only be as sound as M2.3's closure. Implicit runner inputs that no scanner models (pytest `conftest.py` ancestors, Gradle build files, Go package siblings outside the facts) are not in the disjointness set, so a dirty one can still anchor. This sits alongside the stated edit-and-revert residual. · severity: medium · → mitigation: testmap_closure_implicit_inputs_audit
+- D12's unresolved-ref rule may make dirty-tree anchors rare, which means fewer `EVIDENCED` rows and less self-healing (the fail-safe direction, but it erodes the feature's value). · severity: medium (residual — quantified by the inline post-phase; any remedy is fed to this audit task)
+
+## Goal
+Audit, per reference runner (pytest, go-test, gradle-class, bash-file), the implicit inputs a run reads that M2.3's test-side closure does not model. Examples: `conftest.py` ancestors and `pytest.ini`/`pyproject.toml` for pytest; `go.mod`, `go.sum` and same-package siblings for go-test; Gradle build files and version catalogs for gradle-class. Add them to M3.4's anchor-eligibility disjointness set (`goengines/internal/testmap/cost/eligibility.go`), or mark the unit opaque, each with a red-proved fixture test asserting the exact `anchor_reason`.
+
+Measured input from t1854_4 (2026-10-20, this repo):
+- **89 % of bash tests are opaque:** 400 / 448 have an unresolved `source`/`exec` ref in {test} ∪ closure, mostly fixture paths created at test time (`aitasks/t10_alpha.md`, `.codex/`, `.opencode/skills/...`). Under the strict D12 rule, dirty-tree anchors are therefore effectively disabled on this repo.
+- **Hook cost:** the eligibility inputs cost ≈ 0.9 s cold / 0.27 s warm, on dirty trees only.
+
+**Required before relaxing D12 (user decision in t1854_4):** a narrowing to "unresolved refs matter only when a modified path is outside the scan universe" was rejected as unproven. Counterexample: an **unchanged excluded helper**, reached through an unresolved ref, can itself read a **modified file inside the scan universe**. Add exactly that case as a red test, and keep it failing-closed, before proposing any relaxation of the unresolved-ref rule (e.g. classifying runtime-created fixture refs).
