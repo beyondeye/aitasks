@@ -276,3 +276,14 @@ Never stash, restore or commit them. Implement on top of t2080's committed state
   - New and updated mutants are all red: M3 (module files), M3b (module scope = test-only), M4 (deletion), M4b (package scope = test-only), M5 (vendor), M19 (call).
   - (3) is deferred to a follow-up task (performance), per its disposition.
 - **Files affected:** `goengines/internal/testmap/cost/implicit.go`, `cost/eligibility.go`, `cost/implicit_test.go`, `goengines/README.md`
+
+### Change Request 2 (2026-10-20 15:40)
+- **Requested by user:** (high) The Go fallback rejected a path under a reached package only when `Lstat` failed. A tracked testdata file replaced by a symlink (or reached through a symlinked directory) still exists, yet the scan's no-follow universe drops it, so it anchored.
+- **Changes made:**
+  - The fallback now applies the universe's own criterion, `regularNoFollow` in `cost/implicit.go`: every ancestor must be a real directory and the final component a regular file, each checked by its own `Lstat` through `os.Root`. Anything failing it under a reached package is `implicit:<path>`.
+  - New `TestEligibilityGoSymlinkedInput` has three variants:
+    - **final-component link** → `implicit:pkg/testdata/bad.txt`;
+    - **linked ancestor dir** → `implicit:pkg/testdata` (the link itself is listed);
+    - **linked ancestor dir with the link gitignored** → `implicit:pkg/testdata/bad.txt`. Only the tracked paths under it are modified, and each resolves through the link.
+  - Mutants M4 (fallback off), M4c (existence-only check) and M4d (no ancestor walk) are all red. M4d was green until the hidden-link variant was added.
+- **Files affected:** `goengines/internal/testmap/cost/implicit.go`, `cost/implicit_test.go`, `goengines/README.md`
