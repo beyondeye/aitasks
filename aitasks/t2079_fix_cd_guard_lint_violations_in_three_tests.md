@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2073
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-20 12:26
-updated_at: 2026-10-20 12:32
+updated_at: 2026-10-20 12:43
 ---
 
 ## Origin
@@ -51,3 +52,8 @@ Per `aidocs/framework/testing_conventions.md` / `tests/lib/scratch_cwd.sh`: sour
 two files; confine or exit-guard the `cd` at the gateway-pull site (the scanner's rule in
 `tests/lib/cd_guard_scan.py`). Then `bash tests/test_cd_guard_lint.sh` must report 0 failed,
 and each of the three suites must still pass.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-20T09:43:58Z status=pass attempt=1 type=human
