@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1852
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-19 15:42
-updated_at: 2026-10-20 15:49
+updated_at: 2026-10-20 17:09
 ---
 
 Child of t1859 (test-map **M8 — Completion policy and gates**), submodule
@@ -86,3 +87,8 @@ pickable now.
 - The carrier: present, absent, multi-line, a list of commands.
 - `bash tests/test_gate_verifiers.sh` and `shellcheck` are green.
 - No path requires a human action.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-20T14:09:17Z status=pass attempt=1 type=human
