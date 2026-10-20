@@ -3,13 +3,14 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [minimonitor, monitor, frozen_agents]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 2049
 followup_kind: upstream_defect
 created_at: 2026-10-20 12:07
-updated_at: 2026-10-20 12:07
+updated_at: 2026-10-20 12:10
 ---
 
 ## Origin
