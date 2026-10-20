@@ -6,6 +6,10 @@ issue_type: feature
 status: Implementing
 labels: [aitask_monitormini, tmux, website, scratchpad]
 gates: [risk_evaluated]
+active_gates: [risk_evaluated]
+active_gates_filtered: []
+active_gates_profile: fast
+active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 folded_tasks: [1388]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-10-20 09:46
