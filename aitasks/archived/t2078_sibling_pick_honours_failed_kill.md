@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [minimonitor, monitor, frozen_agents]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -17,7 +17,8 @@ anchor: 2049
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5_5
 created_at: 2026-10-20 12:07
-updated_at: 2026-10-20 12:35
+updated_at: 2026-10-20 12:43
+completed_at: 2026-10-20 12:43
 ---
 
 ## Origin
@@ -62,3 +63,14 @@ At both sites, read `ok, _ = …kill_agent_pane_smart(…)`. On success, keep th
 > **✅ gate:plan_approved** run=2026-10-20T09:35:06Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-10-20T09:42:29Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-10-20T09:43:36Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:ba408abd65364899
+
+> **✅ gate:risk_evaluated** run=2026-10-20T09:43:36Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/2078/risk_evaluated_2026-10-20T09:43:36Z-risk_evaluated-a1.log`
