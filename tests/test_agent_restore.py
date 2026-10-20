@@ -427,6 +427,28 @@ class TestPreflightsWriteNothing(_SwapMixin, unittest.TestCase):
         self.assertEqual([], store.calls, "no_session must write NOTHING to the store")
         self.assertEqual([], tmux.calls, "no_session must issue no tmux command")
 
+    def test_an_unusable_stored_id_is_no_session_or_task(self):
+        """Records are read verbatim (t2067): a stored id of whitespace or with
+        a line break in it arrives as such and is refused like a blank — never
+        launched as `--resume-session " "` or `/aitask-pick \\n1705`."""
+        for value in (" ", "\nsess-abc", "sess-abc\u2028", " sess-abc"):
+            with self.subTest(value=value):
+                store = self.swap_store(_RecordingStore())
+                tmux = self.swap_tmux(_FakeTmux())
+                rec = _rec(codeagent_session_id=value, task_id=value)
+                self.assertEqual(("no_session", "no_task_id"),
+                                 (agent_restore.resume_blocker(rec),
+                                  agent_restore.repick_blocker(rec)))
+                self.assertEqual((None, None), (agent_restore.build_resume_argv(rec),
+                                                agent_restore.build_repick_argv(rec)))
+                with unittest.mock.patch.object(agent_restore, "_reread",
+                                                return_value=rec):
+                    lines = [agent_restore.restore("7f3a2c1d").line,
+                             agent_restore.restore("7f3a2c1d", repick=True).line]
+                self.assertEqual(["RESTORE_FAILED:7f3a2c1d|no_session",
+                                  "RESTORE_FAILED:7f3a2c1d|no_task_id"], lines)
+                self.assertEqual(([], []), (store.calls, tmux.calls))
+
     def test_unresolvable_binary_writes_nothing(self):
         """A failed `--dry-run` probe IS the binary check — there is no second
         `shutil.which` path to keep in sync with the wrapper."""

@@ -71,10 +71,15 @@
 #   nonce.
 #   list  [--state <s>] [--root <r>] [--full]
 #
-#   `--full` prints one `RECORD:<json>` line per record (every field, as `show`
-#   would) instead of the `SESSION:` summary: a batch `show` in one read, used
-#   by the frozen-agent listing pass (t2041).
-#   show  <id>
+#   `--full` prints one `RECORD:<json>` line per record (every field, as
+#   `show --json` would) instead of the `SESSION:` summary: a batch `show` in one
+#   read, used by the frozen-agent listing pass (t2041).
+#   show  <id> [--json]
+#
+#   Plain `show` prints `key:value` lines for people and shell greps; they strip
+#   nothing but cannot carry a value with a line break in it. `--json` prints the
+#   one `RECORD:<json>` line `list --full` uses — the lossless form every
+#   frozen-agent action reads its record through (t2067).
 #   purge --observed <file>
 #
 # `--owner-pid` is REQUIRED on exactly the three lease-minting verbs and is the
@@ -141,7 +146,7 @@ Usage: aitask_agent_sessions.sh upsert --root <r> --window <w> --pane <id> --pan
        aitask_agent_sessions.sh drop <id> [--nonce <n>]
        aitask_agent_sessions.sh fill-task <id> [--operation <op>] [--task-id <t>]
        aitask_agent_sessions.sh list [--state <s>] [--root <r>] [--full]
-       aitask_agent_sessions.sh show <id>
+       aitask_agent_sessions.sh show <id> [--json]
        aitask_agent_sessions.sh purge --observed <file>
 EOF
     exit 2
@@ -331,7 +336,15 @@ cmd_list() { run_sessions_py list "$@"; }
 cmd_show() {
     local id="${1:-}"
     require_hex_id "$id" "id"
-    run_sessions_py show "$id"
+    # By argument COUNT, not by "${2:-}": an explicit empty second argument is
+    # an argument, and must not pass for the plain form.
+    if [ "$#" -eq 1 ]; then
+        run_sessions_py show "$id"
+    elif [ "$#" -eq 2 ] && [ "$2" = "--json" ]; then
+        run_sessions_py show "$id" --json
+    else
+        die_usage "show takes <id> [--json]"
+    fi
 }
 
 main() {

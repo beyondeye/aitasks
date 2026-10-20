@@ -279,27 +279,33 @@ def store(*argv: str, timeout: float = 20.0) -> tuple[int, str]:
 
 
 def store_show(record_id: str) -> dict[str, str]:
-    """``show <id>`` as a dict; ``{}`` when the record is gone or unreadable."""
-    rc, out = store("show", record_id)
+    """``show <id> --json`` as a dict; ``{}`` when the record is gone or unreadable.
+
+    Every value is the stored one, verbatim (t2067): the ``--json`` form is one
+    ``RECORD:<json>`` line, so a value with surrounding whitespace or a line
+    break in it reaches the action as stored. Anything but exactly one decodable
+    record is ``{}`` — the same answer as a refusal, never a partial record.
+    """
+    rc, out = store("show", record_id, "--json")
     if rc != 0:
         return {}
-    return parse_show(out)
+    records = [_decode_record(line) for line in out.splitlines()
+               if line.startswith("RECORD:")]    # folded stderr noise is skipped
+    if len(records) != 1 or records[0] is None:
+        return {}
+    return records[0]
 
 
-def parse_show(out: str) -> dict[str, str]:
-    """``show``'s ``key:value`` lines as a dict: THE reading every action applies.
-
-    Each value is stripped, only its text before the first line break counts,
-    and a later ``key:value`` line overrides that key. A reader that gets a
-    record another way and must agree with an action (the reopen offer, t2041)
-    renders it as ``show`` prints it and parses it here.
-    """
-    fields: dict[str, str] = {}
-    for line in out.splitlines():
-        key, sep, value = line.partition(":")
-        if sep:
-            fields[key.strip()] = value.strip()
-    return fields
+def _decode_record(line: str) -> dict[str, str] | None:
+    """One ``RECORD:<json>`` line as :func:`store_show`'s shape (every value a
+    str); None when it is not a JSON object."""
+    try:
+        raw = json.loads(line[len("RECORD:"):])
+    except ValueError:
+        return None
+    if not isinstance(raw, dict):
+        return None
+    return {str(k): str(v) for k, v in raw.items()}
 
 
 def store_records(*filters: str) -> list[dict[str, str]] | None:
@@ -308,9 +314,7 @@ def store_records(*filters: str) -> list[dict[str, str]] | None:
 
     None when the store could not be read, and None when the batch did not
     parse: a listing that cannot be read whole is never a partial one. Values
-    are the stored ones verbatim, in ``show``'s field order — NOT as
-    :func:`parse_show` reads them; a caller that must agree with an action reads
-    through that parser.
+    are the stored ones verbatim, exactly as :func:`store_show` reads them.
     """
     rc, out = store("list", *filters, "--full")
     if rc != 0:
@@ -319,14 +323,23 @@ def store_records(*filters: str) -> list[dict[str, str]] | None:
     for line in out.splitlines():
         if not line.startswith("RECORD:"):
             continue                    # folded stderr noise, never a record
-        try:
-            raw = json.loads(line[len("RECORD:"):])
-        except ValueError:
+        record = _decode_record(line)
+        if record is None:
             return None
-        if not isinstance(raw, dict):
-            return None
-        records.append({str(k): str(v) for k, v in raw.items()})
+        records.append(record)
     return records
+
+
+def usable_identifier(value: str) -> bool:
+    """Whether a stored ``codeagent_session_id`` / ``task_id`` can be launched with.
+
+    THE rule the `ait ide` offer and the restore / freeze actions share (t2067):
+    non-empty, every character printable, no whitespace. Reads are verbatim, so
+    a stored ``" "`` or ``"\nsess"`` arrives as such; it names no session and no
+    task, and is treated exactly like a blank — refused, never launched.
+    """
+    return (bool(value) and value.isprintable()
+            and not any(c.isspace() for c in value))
 
 
 def nonce_from(line: str) -> str:
@@ -364,7 +377,17 @@ def pane_facts(pane_id: str) -> dict[str, str]:
     parts = line.split("\t")
     if len(parts) != len(PANE_FACT_KEYS):
         return {}
-    return {k: v.strip() for k, v in zip(PANE_FACT_KEYS, parts)}
+    return _facts(PANE_FACT_KEYS, parts)
+
+
+def _facts(keys: tuple[str, ...], parts: list[str]) -> dict[str, str]:
+    """A tab-split tmux read as a dict: every field stripped but ``window``.
+
+    A window NAME may legally begin or end with spaces, and it is compared
+    against the record's stored name, which is read verbatim (t2067). Stripping
+    it here would make a renamed window fail its own verification.
+    """
+    return {k: v if k == "window" else v.strip() for k, v in zip(keys, parts)}
 
 
 def pane_location(pane_id: str) -> tuple[str, int]:
@@ -719,7 +742,7 @@ def window_facts(pane_id: str) -> dict[str, str] | None:
     parts = (out.splitlines() or [""])[0].split("\t")
     if len(parts) != len(WINDOW_FACT_KEYS) or not parts[0].strip():
         return {}
-    return {k: v.strip() for k, v in zip(WINDOW_FACT_KEYS, parts)}
+    return _facts(WINDOW_FACT_KEYS, parts)
 
 
 def find_pane_by_window_name(session: str, name: str) -> tuple[str, str, int]:

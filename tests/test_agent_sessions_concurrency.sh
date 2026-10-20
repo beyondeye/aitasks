@@ -199,6 +199,29 @@ assert_contains "the state was untouched" "state:frozen" "$shown"
 "$SESSIONS_SH" fill-task ../../etc --task-id 1 >/dev/null 2>&1
 assert_eq "a non-hex id is a usage error" "2" "$?"
 
+echo "=== Test 11: show takes <id> and nothing but an optional --json (t2067) ==="
+out="$("$SESSIONS_SH" show "$pair_id" --json 2>/dev/null)"
+assert_eq "show --json exits 0" "0" "$?"
+assert_eq "show --json is exactly one line" "1" "$(printf '%s\n' "$out" | wc -l | tr -d ' ')"
+assert_contains "show --json prints the RECORD form" "RECORD:{\"id\": \"$pair_id\"" "$out"
+# Each of these must be refused BEFORE anything is printed. An explicit empty
+# argument is an argument: it must not pass for the plain form.
+for args in "--bogus" "" "--json extra" "-- --json" "--json --json"; do
+    if [ -z "$args" ]; then
+        out="$("$SESSIONS_SH" show "$pair_id" "" 2>/dev/null)"; rc=$?
+        label="an empty second argument"
+    else
+        # shellcheck disable=SC2086  # deliberate word split into separate args
+        out="$("$SESSIONS_SH" show "$pair_id" $args 2>/dev/null)"; rc=$?
+        label="'$args'"
+    fi
+    assert_eq "show <id> $label is a usage error" "2" "$rc"
+    assert_eq "show <id> $label prints no record" "" "$out"
+done
+out="$("$SESSIONS_SH" show "$pair_id" "" --json 2>/dev/null)"; rc=$?
+assert_eq "show <id> '' --json is a usage error, not a plain show" "2" "$rc"
+assert_eq "show <id> '' --json prints no record" "" "$out"
+
 echo ""
 echo "=== Summary ==="
 echo "Passed: $PASS / $TOTAL"

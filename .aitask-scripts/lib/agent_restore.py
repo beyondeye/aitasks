@@ -220,7 +220,7 @@ def build_resume_argv(rec: dict) -> str | None:
     that into a failure *before* touching the store.
     """
     session_id = rec.get("codeagent_session_id", "")
-    if not session_id:
+    if not frozen_ops.usable_identifier(session_id):
         return None
     return resolve_dry_run_command(
         Path(rec["root"]), "raw",
@@ -237,7 +237,7 @@ def build_repick_argv(rec: dict) -> str | None:
     agent it was, which is exactly the case the helper's parameter exists for.
     """
     task_id = rec.get("task_id", "")
-    if not task_id:
+    if not frozen_ops.usable_identifier(task_id):
         return None
     cmd, _window = pick_launch_argv(
         Path(rec["root"]), task_id, agent_string=rec.get("agent_string") or None)
@@ -257,9 +257,12 @@ def resume_blocker(rec: dict) -> str:
     running codex directly, the agent had taken no turn yet (codex opens its
     rollout at the FIRST turn), its model is not in `models_codex.json`, or the
     freeze could not prove which of several rollouts was its own. The reason
-    `--repick` exists; nothing changes and the record stays frozen.
+    `--repick` exists; nothing changes and the record stays frozen. A stored id
+    that is not a usable identifier (`frozen_ops.usable_identifier`: blank,
+    whitespace, a line break) is no session either — the record is read
+    verbatim (t2067), so that rule lives here, not in a parser.
     """
-    if not rec.get("codeagent_session_id", ""):
+    if not frozen_ops.usable_identifier(rec.get("codeagent_session_id", "")):
         return "no_session"
     if rec.get("agent_kind", "") == "opencode":
         return "resume_unsupported:opencode"
@@ -268,7 +271,7 @@ def resume_blocker(rec: dict) -> str:
 
 def repick_blocker(rec: dict) -> str:
     """Why `restore --repick` would refuse ``rec``; ``""`` when it can run."""
-    return "" if rec.get("task_id", "") else "no_task_id"
+    return "" if frozen_ops.usable_identifier(rec.get("task_id", "")) else "no_task_id"
 
 
 def session_name_ok(name: str) -> bool:
@@ -743,7 +746,8 @@ def _launch_into_new_window(rec: dict, command: str, env: dict,
 
     rc, out = frozen_ops.run(["list-windows", "-t", tmux_window_target(target.session, ""),
                               "-F", "#{window_name}"])
-    existing = set(out.split()) if rc == 0 else set()
+    # Lines, not `split()`: a window name may contain spaces (t2067).
+    existing = set(out.splitlines()) if rc == 0 else set()
     final = unique_window_name(existing, rec.get("window") or "agent-restore")
 
     # --- 1. create, under the attempt name ---------------------------------

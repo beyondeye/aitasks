@@ -2260,6 +2260,15 @@ _LIST_FIELDS = (
     "id", "state", "root", "window", "pane_id", "task_id", "agent_string", "state_at",
 )
 
+
+def _record_line(rec: SessionRecord) -> str:
+    """One whole record as ``RECORD:<json>`` — the lossless wire form (t2067).
+
+    JSON, so a value holding a line break or surrounding whitespace survives
+    the trip, which `show`'s ``key:value`` lines do not.
+    """
+    return "RECORD:" + json.dumps(vars(rec))
+
 #: Exception -> wrapper exit code. The wrapper maps these 1:1.
 _EXIT_CODES = {
     MalformedSessionsError: 4,
@@ -2364,10 +2373,8 @@ def main(argv: list[str] | None = None) -> int:
             state = _arg(rest, "state")
             root = _arg(rest, "root")
             croot = os.path.realpath(root) if root else None
-            # `--full` is a batch `show` (t2041): one whole record per line, as
-            # JSON so a value holding a newline cannot split it, in `show`'s
-            # field order (a later `key:value` line overrides an earlier one, so
-            # a reader re-rendering `show` needs the same order).
+            # `--full` is a batch `show --json` (t2041): one whole record per
+            # line, as JSON so a value holding a newline cannot split it.
             full = "--full" in rest
             for rec in sorted(sf.sessions, key=lambda r: r.key):
                 if state and rec.state != state:
@@ -2375,15 +2382,23 @@ def main(argv: list[str] | None = None) -> int:
                 if croot and rec.root != croot:
                     continue
                 if full:
-                    print("RECORD:" + json.dumps(vars(rec)))
+                    print(_record_line(rec))
                     continue
                 values = [str(getattr(rec, f)) for f in _LIST_FIELDS]
                 print("SESSION:" + "|".join(values))
             return 0
 
         if verb == "show":
+            # `--json` is the form every action reads (t2067): the `key:value`
+            # lines are for people and shell greps, and they do not round-trip
+            # a value with surrounding whitespace or a line break in it.
+            as_json = "--json" in rest
+            ids = [a for a in rest if a != "--json"]
             sf = load(path)
-            rec = _require_record(sf, _id_arg(rest[0], "id"))
+            rec = _require_record(sf, _id_arg(ids[0] if ids else "", "id"))
+            if as_json:
+                print(_record_line(rec))
+                return 0
             for key, value in vars(rec).items():
                 print(f"{key}:{value}")
             return 0

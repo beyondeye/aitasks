@@ -250,31 +250,9 @@ def _frozen_records(root: str | None) -> list[dict] | None:
     records = frozen_ops.store_records("--state", "frozen", *scope)
     if records is None:
         return None
-    records = [_as_shown(rec) for rec in records]
     return [rec for rec in records
             if agent_sessions.valid_id(rec.get("id", ""))
             and rec.get("state") == agent_sessions.STATE_FROZEN]
-
-
-#: Fields the listing keeps exactly as stored: paths, where a stripped value
-#: names a different file or project.
-_VERBATIM_FIELDS = frozenset(("root", "transcript_path", "capture_ansi", "capture_txt"))
-
-
-def _as_shown(rec: dict[str, str]) -> dict[str, str]:
-    """A batch-read record read exactly as `store_show` reads it, paths aside.
-
-    Restore and `reopen_one` read through `store_show`, and its line protocol is
-    not the stored string: a value is stripped, cut at its first line break, and
-    a later `key:value` line overrides that key. So a session id of " " or
-    "\nsess" is NO session there. The offer has to advertise exactly that
-    eligibility and classify against the `pane_id` / `window` `reopen_one` acts
-    on — so the record is rendered as `show` prints it and parsed by the same
-    parser, never approximated. Paths then get their stored value back.
-    """
-    shown = frozen_ops.parse_show("\n".join(f"{k}:{v}" for k, v in rec.items()))
-    shown.update((k, rec[k]) for k in _VERBATIM_FIELDS if k in rec)
-    return shown
 
 
 def _classified(root: str | None) -> tuple[
@@ -467,8 +445,13 @@ def companions(root: str | None) -> tuple[list[str], int]:
 
 
 def _field(value: str) -> str:
-    """A wire field: no `|`, no newline."""
-    return (value or "").replace("|", "/").replace("\n", " ")
+    """A wire field: no `|`, no line break of any kind.
+
+    Every `str.splitlines` break, not just `\n`: record values reach these lines
+    verbatim (t2067), and a reader that splits on `\r` or `\u2028` would
+    otherwise see one record as two lines.
+    """
+    return " ".join((value or "").replace("|", "/").splitlines())
 
 
 def gone_line(rec: dict, kind: str) -> str:

@@ -34,6 +34,7 @@ from __future__ import annotations
 import contextlib
 import copy
 import io
+import json
 import os
 import re
 import shlex
@@ -301,6 +302,8 @@ class _FakeStore:
             rec = self.sf.by_id(argv[0])
             if rec is None:
                 return 4, f"ERROR:no such record: {argv[0]}"
+            if "--json" in argv:
+                return 0, "RECORD:" + json.dumps(vars(rec))
             return 0, "\n".join(f"{k}:{v}" for k, v in vars(rec).items())
         if verb == "list":
             out = []
@@ -1207,6 +1210,19 @@ class TaskRefBackfillTests(_FreezeTestCase):
         self._unstamped()
         result = agent_freeze.freeze_pane(AGENT_PANE)
         self._assert_failed_at_resolve_with_the_agent_live(result)
+
+    def test_a_stored_task_id_no_restore_can_launch_is_not_holding_one(self):
+        """t2067: the record is read verbatim, so a whitespace task id arrives
+        as stored. `fill-task` will not overwrite it (it is not blank), and the
+        freeze must still refuse — the record would be frozen un-re-pickable,
+        exactly as with a blank one."""
+        for task_id in (" ", "\n1705", "1705\u2028"):
+            with self.subTest(task_id=task_id):
+                self.seed_record(operation="pick", task_id=task_id)
+                self._unstamped()
+                result = agent_freeze.freeze_pane(AGENT_PANE)
+                self._assert_failed_at_resolve_with_the_agent_live(result)
+                self.assertEqual(self.rec().task_id, task_id)
 
     def test_a_failed_freeze_can_simply_be_retried(self):
         self.store.fail_verbs["fill-task"] = agent_freeze.EXIT_LOCK_BUSY

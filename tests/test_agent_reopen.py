@@ -215,7 +215,7 @@ class Store:
             for r in self.records.values():
                 if r["state"] != "frozen" or (root is not None and r["root"] != root):
                     continue
-                if "--full" in argv:           # field order as `show` prints it
+                if "--full" in argv:
                     rows.append("RECORD:" + json.dumps(r))
                     continue
                 rows.append("SESSION:" + "|".join(
@@ -226,6 +226,8 @@ class Store:
             r = self.records.get(argv[1])
             if r is None:
                 return 3, "ERROR:no record"
+            if "--json" in argv:
+                return 0, "RECORD:" + json.dumps(r)
             return 0, "\n".join(f"{k}:{v}" for k, v in r.items())
         if verb == "lease-take":
             if self.lease_rc:
@@ -677,6 +679,42 @@ class TestFresh(_Base):
         self.assertEqual("=-n:", nw[nw.index("-t") + 1])
 
 
+class TestSpacedRecordedName(_Base):
+    """A recorded window name with surrounding spaces survives a reopen (t2067).
+
+    The record is read verbatim, so the final name keeps its spaces; the tmux
+    read that verifies the rename must keep them too, or a rename that took is
+    judged failed and the viewer is torn down.
+    """
+
+    SPACED = " agent-pick-1847 "
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.record()["window"] = self.SPACED
+
+    def test_a_fresh_viewer_takes_the_spaced_name(self):
+        line = agent_reopen.reopen_one(RID, session="aitasks")
+        self.assertTrue(
+            line.startswith(f"REOPENED:{RID}|fresh|aitasks:{self.SPACED}|%"), line)
+        pane = self.record()["pane_id"]
+        self.assertEqual(self.SPACED, self.world.panes[pane]["window_name"])
+        self.assertEqual("", self.record()["op_nonce"])
+
+    def test_a_stranded_viewer_is_adopted_under_the_spaced_name(self):
+        pane = self.world.add("aitasks", "odd-name", frozen=RID)
+        line = agent_reopen.reopen_one(RID, session="aitasks")
+        self.assertEqual(f"REOPENED:{RID}|adopted|aitasks:{self.SPACED}|{pane}", line)
+        self.assertEqual(self.SPACED, self.world.panes[pane]["window_name"])
+        self.assertEqual(pane, self.record()["pane_id"])
+
+    def test_a_viewer_already_carrying_the_spaced_name_is_not_renamed(self):
+        pane = self.world.add("aitasks", self.SPACED, frozen=RID)
+        line = agent_reopen.reopen_one(RID, session="aitasks")
+        self.assertEqual(f"REOPENED:{RID}|adopted|aitasks:{self.SPACED}|{pane}", line)
+        self.assertFalse([b for b in self.world.branches() if "rename-window" in b])
+
+
 # --- adoption ----------------------------------------------------------------
 
 
@@ -1009,7 +1047,7 @@ class TestSingleStoreRead(_Base):
         verbs = self.store.verbs()
         self.assertEqual(["list", "show", "lease-take", "show"], verbs[:4],
                          "the listing pass issues no `show`; reopen_one's reads remain")
-        self.assertEqual([("show", rid) for rid in self.ids for _ in (0, 1)],
+        self.assertEqual([("show", rid, "--json") for rid in self.ids for _ in (0, 1)],
                          self.calls("show"))
 
     def assert_unreadable_everywhere(self):
@@ -1032,53 +1070,78 @@ class TestSingleStoreRead(_Base):
         self.store.list_garbage = True
         self.assert_unreadable_everywhere()
 
-    #: Stored values `show`'s line protocol reads differently from the stored
-    #: string: surrounding whitespace is stripped, only the text before the first
-    #: line break counts (`str.splitlines` breaks — `\r`, `\x0b`, `\u2028`, … —
-    #: not just `\n`), and a later `key:value` line overrides that key.
-    HOSTILE = {
+    #: Stored identifiers no restore can launch with. Reads are verbatim
+    #: (t2067), so each arrives as stored and `usable_identifier` refuses it:
+    #: whitespace, and every `str.splitlines` break — `\r`, `\x0b`, `\u2028`, …
+    #: — not just `\n`.
+    UNUSABLE = {
         "spaces": dict(codeagent_session_id=" ", task_id=" \t"),
         "leading_newline": dict(codeagent_session_id="\nsession-1", task_id="\n2041"),
         "carriage_return": dict(codeagent_session_id="\rsession-1", task_id="\x0b2041"),
         "unicode_break": dict(codeagent_session_id="\u2028session-1", task_id="\x852041"),
-        "later_field_overrides": dict(transcript_path="/t.jsonl\ncodeagent_session_id:",
-                                      last_error="x\ntask_id: "),
+        "surrounding_space": dict(codeagent_session_id=" session-1", task_id="2041 "),
     }
 
+    def offer_and_restore(self, rid: str) -> tuple[list[str], list[str]]:
+        """``(listed resume|repick, restore's lines for both modes)``."""
+        rc, lines = _main_output("gone", "--root", ROOT)
+        gone = [ln for ln in lines if ln.startswith("GONE:")]
+        self.assertEqual((0, 1), (rc, len(gone)), lines)
+        return gone[0].split("|")[-2:], [
+            agent_restore.restore(rid, session="aitasks").line,
+            agent_restore.restore(rid, repick=True, session="aitasks").line]
+
     def test_the_offer_lists_the_eligibility_restore_applies(self):
-        """The offer must advertise what restore accepts. Restore and
-        `reopen_one` read through `store_show`; the batch listing must read
-        every stored value the way that parser does, whatever the value holds."""
+        """The offer must advertise what restore accepts: both read the record
+        verbatim and judge it with the same `usable_identifier` rule."""
         rid = "0000beef"
-        for name, fields in self.HOSTILE.items():
+        for name, fields in self.UNUSABLE.items():
             with self.subTest(name):
                 self.store.records = {rid: rec(rid, window="agent-ws", **fields)}
-                rc, lines = _main_output("gone", "--root", ROOT)
-                gone = [ln for ln in lines if ln.startswith("GONE:")]
-                self.assertEqual((0, 1), (rc, len(gone)), lines)
-                listed = gone[0].split("|")[-2:]
-                resume = agent_restore.restore(rid, session="aitasks").line
-                repick = agent_restore.restore(rid, repick=True, session="aitasks").line
+                listed, restored = self.offer_and_restore(rid)
                 self.assertEqual(["no_session", "no_task_id"], listed,
                                  "anti-vacuity: every case is ineligible for both")
                 self.assertEqual([f"RESTORE_FAILED:{rid}|no_session",
-                                  f"RESTORE_FAILED:{rid}|no_task_id"], [resume, repick])
+                                  f"RESTORE_FAILED:{rid}|no_task_id"], restored)
 
-    def test_listing_reads_like_show_except_paths(self):
-        """Every non-path field reads as `show` (and so `reopen_one`) reads it;
-        path fields keep their stored value whole."""
+    def test_text_in_another_field_overrides_nothing(self):
+        """Under `show`'s old line protocol a later `key:value` line inside
+        another field overrode the real one. A JSON read keeps fields apart: the
+        stored `sess-1` / `1847` stand, and offer and action agree they do."""
+        rid = "0000beef"
+        self.store.records = {rid: rec(
+            rid, window="agent-ws", transcript_path="/t.jsonl\ncodeagent_session_id:",
+            last_error="x\ntask_id: \nstate:live")}
+        rc, lines = _main_output("gone", "--root", ROOT)
+        gone = [ln for ln in lines if ln.startswith("GONE:")]
+        self.assertEqual((0, ["ok", "ok"]), (rc, gone[0].split("|")[-2:]), lines)
+        shown = ops.store_show(rid)
+        self.assertEqual(("sess-1", "1847", "frozen"),
+                         (shown["codeagent_session_id"], shown["task_id"], shown["state"]))
+        self.assertEqual(("", ""), (agent_restore.resume_blocker(shown),
+                                    agent_restore.repick_blocker(shown)))
+
+    def test_listing_reads_exactly_what_show_reads(self):
+        """The listing and every action read the same verbatim record: no field,
+        path or otherwise, is stripped or cut on either side."""
         rid = "0000beef"
         self.store.records = {rid: rec(
             rid, root="/proj ", window=" agent-ws \nrest", pane_id=" %4",
             transcript_path="/t/x.jsonl ", capture_ansi="/c/a ", capture_txt="/c/t ")}
         [listed] = agent_reopen._frozen_records(None)
-        self.assertEqual(ops.store_show(rid), {**listed, **{
-            k: ops.store_show(rid)[k] for k in agent_reopen._VERBATIM_FIELDS
-            if k in listed}}, "outside the path fields, the listing IS a `show` read")
-        self.assertEqual(("agent-ws", "%4"), (listed["window"], listed["pane_id"]))
-        self.assertEqual(("/proj ", "/t/x.jsonl ", "/c/a ", "/c/t "),
-                         (listed["root"], listed["transcript_path"],
-                          listed["capture_ansi"], listed["capture_txt"]))
+        self.assertEqual(ops.store_show(rid), listed)
+        self.assertEqual(
+            ("/proj ", " agent-ws \nrest", " %4", "/t/x.jsonl ", "/c/a ", "/c/t "),
+            (listed["root"], listed["window"], listed["pane_id"],
+             listed["transcript_path"], listed["capture_ansi"], listed["capture_txt"]))
+
+    def test_a_line_break_in_a_listed_value_never_splits_the_wire_line(self):
+        rid = "0000beef"
+        for window in ("a\nb", "a\rb", "a\x0bb", "a\u2028b", "a\x85b", "a|b"):
+            with self.subTest(window=window):
+                line = agent_reopen.gone_line(rec(rid, window=window, frozen_at="t\r1"), "gone")
+                self.assertEqual([line], line.splitlines())
+                self.assertEqual(7, len(line.split("|")), line)
 
     def test_a_root_with_a_newline_reaches_the_unprintable_branch(self):
         """The batch carries the stored value whole; `show`'s line protocol cut

@@ -386,6 +386,25 @@ class CliPersistenceTests(_StoreTestCase):
             self.assertEqual(self.run_cli(*argv), 0)
         return buf.getvalue().splitlines()
 
+    def test_show_json_is_the_lossless_single_record_read(self):
+        """`show --json` (t2067) is what every frozen-agent action reads: one
+        `RECORD:` line equal to the record's `list --full` line, every value as
+        stored — the `key:value` form cannot carry a line break or keep
+        surrounding whitespace through its reader."""
+        rid = self._frozen_record(session_id=" sid\nstate:live ")
+        [line] = self.cli_lines("show", rid, "--json")
+        self.assertTrue(line.startswith("RECORD:"), line)
+        shown = json.loads(line[len("RECORD:"):])
+        self.assertEqual(" sid\nstate:live ", shown["codeagent_session_id"])
+        self.assertEqual("frozen", shown["state"])
+        [full] = [ln for ln in self.cli_lines("list", "--full")
+                  if json.loads(ln[len("RECORD:"):])["id"] == rid]
+        self.assertEqual(full, line, "the same encoding as `list --full`")
+        self.assertEqual(self.cli_lines("show", "--json", rid), [line],
+                         "the flag's position does not matter")
+        self.assertIn("codeagent_session_id: sid", self.cli_lines("show", rid),
+                      "plain `show` keeps its key:value lines")
+
     def test_list_full_is_a_batch_show(self):
         """`list --full` (t2041) is what the reopen listing reads instead of a
         `show` per record: the same records under the same filters, every field

@@ -434,14 +434,17 @@ def _backfill_task_ref(record_id: str, facts: dict[str, str]) -> None:
     carrying on would freeze exactly the record this exists to prevent: a store
     lock timeout on the fill leaves it blank, and the freeze is the last moment
     its task is still readable from a live window. A window naming no task has
-    nothing to recover and is left alone.
+    nothing to recover and is left alone. "Holding a task id" means one restore
+    can re-pick: :func:`agent_frozen_ops.usable_identifier`, the rule restore's
+    `repick_blocker` applies.
     """
     stored = frozen_ops.store_show(record_id)
     ref = task_ref_from_window_name(
         stored.get("window") or facts.get("window", ""))
     if ref is None:
         return
-    if stored.get("operation", "") and stored.get("task_id", ""):
+    if stored.get("operation", "") and frozen_ops.usable_identifier(
+            stored.get("task_id", "")):
         return
     operation, task_id = ref
     rc, out = frozen_ops.store("fill-task", record_id,
@@ -453,7 +456,8 @@ def _backfill_task_ref(record_id: str, facts: dict[str, str]) -> None:
         raise OSError(f"task id recovery failed: {last or rc}")
     # The line says what the verb did; the RECORD says whether the freeze can
     # proceed. `FILL_NOOP` on a record that is still blank is not success.
-    if not frozen_ops.store_show(record_id).get("task_id", ""):
+    if not frozen_ops.usable_identifier(
+            frozen_ops.store_show(record_id).get("task_id", "")):
         raise OSError(f"task id recovery failed: t{task_id} not recorded")
 
 

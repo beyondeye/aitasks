@@ -27,6 +27,7 @@ Run: python3 tests/test_agent_frozen_ops.py
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 import unittest
@@ -46,9 +47,10 @@ import agent_frozen_ops as ops  # noqa: E402
 #: read back from the module — a list derived from `dir(ops)` would pin nothing.
 PROMISED_CALLABLES = (
     "store", "store_show", "nonce_from", "run",
-    # t2041: the batch read the reopen listing pass uses instead of a `show` each,
-    # and the one `show` parser it reads those records through.
-    "store_records", "parse_show",
+    # t2041: the batch read the reopen listing pass uses instead of a `show` each.
+    # t2067: the identifier rule offer and actions share, now that reads are
+    # verbatim (it replaced `parse_show`, whose lossy reading was the rule).
+    "store_records", "usable_identifier",
     "pane_facts", "pane_location", "set_option", "unset_option", "respawn",
     "int_or_zero", "test_mode", "make_fail_at", "pause_at",
     # t1773: the tri-state resolver promoted out of `agent_freeze` (the restore
@@ -159,12 +161,31 @@ class StoreLateBindingTests(_SwapMixin, unittest.TestCase):
     """Case 2 — swapping `ops.store` redirects everything built on it."""
 
     def test_store_show_reaches_the_swapped_store(self):
-        fake = self.swap_store(_RecordingStore(0, "state:frozen\npane_id:%3\n"))
+        fake = self.swap_store(_RecordingStore(
+            0, 'RECORD:{"state": "frozen", "pane_id": "%3", "pane_pid": 7}\n'))
         fields = ops.store_show("abc123")
-        self.assertEqual(fake.calls, [("show", "abc123")],
+        self.assertEqual(fake.calls, [("show", "abc123", "--json")],
                          "store_show must call `store` by module-global lookup; a "
                          "`from … import store` alias would bypass the swap")
-        self.assertEqual(fields, {"state": "frozen", "pane_id": "%3"})
+        self.assertEqual(fields, {"state": "frozen", "pane_id": "%3", "pane_pid": "7"})
+
+    def test_store_show_keeps_every_value_as_stored(self):
+        """The JSON read is lossless (t2067): surrounding whitespace and line
+        breaks survive, and text inside one field never overrides another."""
+        stored = {"id": "abc12345", "root": "/proj ", "window": " agent \r1",
+                  "codeagent_session_id": "\u2028sess", "state": "frozen",
+                  "last_error": "x\nstate:live\ntask_id: "}
+        self.swap_store(_RecordingStore(
+            0, "a stray stderr line\nRECORD:" + json.dumps(stored)))
+        self.assertEqual(ops.store_show("abc12345"), stored)
+
+    def test_store_show_is_empty_unless_exactly_one_record_decodes(self):
+        two = 'RECORD:{"id": "a"}\nRECORD:{"id": "b"}'
+        for out in ("", "state:frozen\npane_id:%3", "RECORD:{not json",
+                    'RECORD:["not", "a", "record"]', two):
+            with self.subTest(out=out):
+                self.swap_store(_RecordingStore(0, out))
+                self.assertEqual(ops.store_show("abc123"), {})
 
     def test_store_show_returns_empty_on_a_refusal(self):
         self.swap_store(_RecordingStore(ops.EXIT_TRANSITION_REFUSED, "REFUSED:x"))
@@ -230,6 +251,28 @@ class TmuxLateBindingTests(_SwapMixin, unittest.TestCase):
         self.assertEqual(fake.calls,
                          [["display-message", "-p", "-t", "%1", ops.PANE_FACT_FORMAT]])
         self.assertEqual(facts, dict(zip(ops.PANE_FACT_KEYS, values)))
+
+    def test_fact_reads_keep_the_window_name_verbatim(self):
+        """A window name may begin or end with spaces, and it is compared with
+        the stored name, which is read verbatim (t2067); every other field is
+        still stripped."""
+        pane = ["aitasks", " agent-pick-1705 ", " %1", "4242", "0", "/tmp/proj",
+                "rec1 ", "", "", "sess-abc"]
+        self.swap_tmux(_FakeTmux(0, "\t".join(pane) + "\n"))
+        facts = ops.pane_facts("%1")
+        self.assertEqual((" agent-pick-1705 ", "%1", "rec1"),
+                         (facts["window"], facts["pane_id"], facts["record"]))
+        window = [" %1", "4242", "aitasks", " agent-pick-1705 ", "@3", "rec1 ", ""]
+        self.swap_tmux(_FakeTmux(0, "\t".join(window) + "\n"))
+        facts = ops.window_facts("%1")
+        self.assertEqual((" agent-pick-1705 ", "%1", "rec1"),
+                         (facts["window"], facts["pane_id"], facts["frozen"]))
+
+    def test_a_rename_to_a_spaced_name_verifies(self):
+        window = ["%1", "4242", "aitasks", " agent-pick-1705 ", "@3", "rec1", ""]
+        self.swap_tmux(_FakeTmux(0, "\t".join(window) + "\n"))
+        self.assertTrue(ops.rename_window_if_stamped(
+            "%1", "rec1", " agent-pick-1705 ", dispatch=False))
 
     def test_pane_facts_returns_empty_on_a_short_read(self):
         self.swap_tmux(_FakeTmux(0, "only\ttwo\n"))
@@ -318,6 +361,19 @@ class ProbePaneTests(_SwapMixin, unittest.TestCase):
     def test_the_format_and_keys_stay_in_step(self):
         self.assertEqual(len(ops.PROBE_PANE_FORMAT.split("\t")),
                          len(ops.PROBE_PANE_KEYS))
+
+
+class UsableIdentifierTests(unittest.TestCase):
+    """The launchability rule for a stored session / task id (t2067)."""
+
+    def test_the_rule(self):
+        for value in ("sess-1", "1847", "16_2", "019a5f3e-7c1d-7b2e-9f00-1a2b3c4d5e6f"):
+            with self.subTest(value=value):
+                self.assertTrue(ops.usable_identifier(value))
+        for value in ("", " ", " \t", "\nsess", "sess\n", "\rsess", "\x0bsess",
+                      "\x85sess", "\u2028sess", " sess", "se ss", "sess\x00"):
+            with self.subTest(value=value):
+                self.assertFalse(ops.usable_identifier(value))
 
 
 class TmuxQuoteTests(unittest.TestCase):
