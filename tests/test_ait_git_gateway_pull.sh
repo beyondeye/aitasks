@@ -766,7 +766,7 @@ p5_check() {   # <label> <git's diagnostic fragment>
     assert_eq "P5 ($1): nothing was pushed" "$remote_P5" \
         "$(git -C "$FX_REMOTE" rev-parse refs/heads/aitask-data)"
 }
-(unset AIT_P5_UNSET; cd "$FX_LOCAL" && ./ait git --config-env=remote.origin.url=AIT_P5_UNSET push --batch) \
+(cd "$FX_LOCAL" && unset AIT_P5_UNSET && ./ait git --config-env=remote.origin.url=AIT_P5_UNSET push --batch) \
     >"$FX/run_out" 2>"$FX/run_err"
 RC=$?; OUT="$(cat "$FX/run_out")"; ERR="$(cat "$FX/run_err")"
 p5_check "--config-env, unset variable" "AIT_P5_UNSET"
