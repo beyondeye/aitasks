@@ -286,3 +286,59 @@ covered by the planted fixtures.
 
 ### Goal-achievement risk: low
 - Residual static-scan boundary: a driver path built without the literal `aitask_merge.py` in any scanned `.sh` file stays invisible · severity: low (inherent to a static guard; documented in the Test 3 comment) · → mitigation: none (accepted)
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-20 10:30)
+- **Requested by user:** `logical_lines` joined every physical line ending in a backslash before comments were stripped, so a full-line or inline comment ending in `\` absorbed the next line's driver call. Bash runs that call, since a comment always ends at the newline. The reviewer reproduced it against the real tree plus an extra unbased call: the result was still only the existing based invocation and zero unclassified rows.
+- **Changes made:**
+  - `logical_lines` now joins only on an **odd** number of trailing backslashes (`\\` is an escaped backslash) **and** only when `strip_comment(buffer + line)` finds no comment. A line that cannot be decided is never joined; it is classified on its own.
+  - Added three multi-line regression fixtures, each expecting the next line's unbased call to be seen (`1 0`): a full-line comment ending in `\`, an inline comment ending in `\`, and a line ending in `\\`.
+  - Added five multi-line probes (`@NL@`) to the bash differential, including a genuine continuation (`echo x \` / `&& call`) and a call followed by a comment ending in `\`.
+  - Mutants: the old joiner, a joiner that ignores comments, and a joiner that ignores backslash parity each turn the test red.
+  - The reviewer's real-tree reproduction now yields two unbased INVOKE rows, which fails "Every recognized driver invocation passes --base-file".
+- **Files affected:** `tests/test_aitask_merge_boardgroup.sh` (51/51 pass)
+
+## Final Implementation Notes
+- **Actual work done:** Rewrote Test 3 of `tests/test_aitask_merge_boardgroup.sh` around an embedded Python scanner, `DRIVER_SCAN_PY`.
+  - It joins continuations comment- and parity-aware, then strips comments with Bash's word-start rule (including `$(`/`<(`/backtick nesting).
+  - It discovers driver-path variables across every scanned file.
+  - It tokenizes each line with `shlex` (`punctuation_chars=True`, `commenters=''`) and classifies every driver mention one simple command at a time:
+    - **INVOKE** with a per-command base flag;
+    - **allowed:** a pure path assignment, or a file-test operand inside `[[ ]]` / `[ ]` / `test`;
+    - **UNCLASSIFIED** otherwise.
+  - Shell wrappers on top: `scan_driver_refs` (a scanner crash becomes an UNCLASSIFIED row), `count_driver_sites` (same interface as before) and `unclassified_count`.
+  - Assertions:
+    - the original planted control (`2 1`) is kept, plus a benign negative control;
+    - fixtures for cross-file variables, a non-PYTHON interpreter, and ten hard-failure cases;
+    - compound-line, comment-boundary and continuation fixtures;
+    - a 36-probe differential against real bash ("reported ⇔ executed", with a both-directions floor);
+    - an automated base-removal mutant of the real `lib/task_automerge.sh`;
+    - real-tree floor, canonical site, every-invocation-based, and zero-unclassified checks.
+  - Result: 51/51 pass (was 20/20).
+- **Deviations from plan:**
+  - Change Request 1 (comment-aware, parity-aware continuation joining) was added after review.
+  - The canonical-site assertion filters the whole-tree rows rather than rescanning the single file, as the plan stated.
+  - `scan_driver_refs` fails closed on a scanner crash; this was not in the plan.
+  - Otherwise as planned.
+- **Issues encountered:**
+  - Four review rounds during planning, all verified by reproduction before folding in: the file-test exemption context, per-command classification, shlex comment semantics (twice: mid-word `#`, then escaped breaks), and substitutions in assignments. Then one round at Step 8, on comments ending in a backslash.
+  - The bash differential also surfaced `$(…)#c`, which nobody had reported.
+  - Mutant runs need a real copy of `.aitask-scripts/`: `find` does not follow a symlinked root, which otherwise reads as a vacuous real-tree scan.
+  - One shellcheck SC2124 false positive (a literal single-quoted pattern) is suppressed with a reason. The remaining SC2016 notes are info-level, from intentionally single-quoted planted lines.
+- **Key decisions:**
+  - The interpreter-name-agnostic invocation shape recognises a non-PYTHON interpreter rather than rejecting it.
+  - Ambiguity always fails closed as UNCLASSIFIED, rather than being guessed: `$'…'`, an unterminated quote, a `#` inside `$( )` or backticks, a substitution on a driver-mentioning line, a lexer error, a missing `]]`.
+  - The accepted consequence: a call wrapped in `$( … )` is a hard failure, pinned by a fixture.
+  - Mutants on scratch copies, each red:
+    - shlex's default `commenters`
+    - an escaped break that ends the word
+    - no `$(` nesting
+    - no substitution rule
+    - no test-command context
+    - a line-level base flag
+    - the old joiner
+    - a joiner that ignores comments
+    - a joiner that ignores backslash parity
+  - Red proof: the pre-change HEAD helpers give `0 0` on the cross-file and non-PYTHON fixtures.
+- **Upstream defects identified:** None
