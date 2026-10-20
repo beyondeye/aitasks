@@ -1,7 +1,7 @@
 ---
 priority: medium
 effort: medium
-depends: [t2074_7, t2074_9]
+depends: []
 issue_type: refactor
 status: Folded
 labels: [python, board, syncer, data_integrity]
@@ -9,7 +9,7 @@ gates: [risk_evaluated]
 folded_into: 2074_9
 anchor: 2074
 created_at: 2026-10-20 12:33
-updated_at: 2026-10-20 16:59
+updated_at: 2026-10-20 17:01
 ---
 
 ## Context

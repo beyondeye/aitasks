@@ -8,117 +8,125 @@ labels: [framework, git, data_integrity, bash_scripts]
 gates: [risk_evaluated]
 anchor: 2074
 created_at: 2026-10-20 12:31
-updated_at: 2026-10-20 12:31
+updated_at: 2026-10-20 17:01
 ---
 
 ## Context
 
-This is the first child of t2074, which removes legacy repository mode (task data
-kept on the code branch with no `aitask-data` branch). It also sets the
-**foundation** that every later child builds on. The binding contract is
-**C0, C1a and C1b** in `aiplans/p2074_remove_legacy_repository_mode_support.md`
-(section "Target contract"). Read that section first; this task implements C1a
-and C1b exactly as written there.
+This is the first child of t2074 (rescoped: **branch-mode layout hardening**;
+legacy mode stays supported and unchanged). It provides the classifiers that
+t2074_3 (setup repair) and t2074_9 (enforcement) build on. The binding contract
+is **C1a, C1b and the no-marker precedence table** in
+`aiplans/p2074_branch_mode_layout_hardening.md`. Read it first.
 
-The problem today: detection in `_ait_detect_data_worktree`
-(`.aitask-scripts/lib/task_utils.sh:77-147`) accepts a layout as soon as
-`.aitask-data/.git` exists. It does not check ownership, branch or links. When
-it finds no marker, rung 4 falls through to `"."`, which is legacy. Before
-enforcement can replace rung 4 (t2074_9), the framework needs classifiers that
-report states and **never die**.
-
-**This task is additive only.** No existing caller changes behaviour.
+**Additive only.** No existing caller changes behaviour in this child.
 
 ## Deliverables
 
-1. In `.aitask-scripts/lib/data_symlinks.sh` (sourced by `task_utils.sh:26`, and
-   with no in-flight edits), add `ait_data_repo_state` (C1a) and
-   `ait_data_paths_state` (C1b).
-   - Both print `<state>[:<reason>]` and always return 0, including under
-     `set -euo pipefail`, inside `$( )` and inside `local x="$( )"`.
-   - **Neither ever terminates.** That includes indeterminate topology, which
-     returns `indeterminate:topology`.
-   - C1a resolution order:
-     1. The cwd is inside the data worktree itself (preserves T13c of
-        `tests/test_task_git.sh`).
-     2. A local `./.aitask-data`, then `<toplevel>/.aitask-data`. A usable
-        separate-git-dir primary resolves here **without**
-        `ait_main_worktree_root`.
-     3. The main checkout's marker via `ait_main_worktree_root` (preserves the
-        T13d unlinked crew worktree case). When that returns 2, use the
-        `ait_linked_worktree_roots` proof as in today's rung 3: if this
-        checkout is provably not linked, fall through to step 4; otherwise
-        answer `indeterminate:topology`.
-     4. No marker: `legacy` (a real `aitasks/` at the toplevel), otherwise
-        `uninitialized`. Outside any work tree: `not_a_repo`.
-   - Validation of a resolved `<data>`, in order: `broken:stale_marker` (not a
-     live worktree toplevel), `broken:foreign_repo` (the canonical
-     `git-common-dir` differs), `broken:wrong_branch` (HEAD is not
-     `refs/heads/aitask-data`; during a rebase, read `rebase-*/head-name`
-     instead, because a rebase in progress is valid and wedged, not broken).
-   - C1b: precondition C1a = `branch`. The states are:
-     - `ready`: `canon($PWD/$TASK_DIR)` == `canon(<data>/aitasks)` and the same
-       for `PLAN_DIR`.
-     - `unlinked`: the paths are absent in a linked worktree.
-     - `misdirected`: a path resolves elsewhere. This includes a `TASK_DIR`
-       override outside `<data>`.
-     - `dangling`
-     - `mixed`: a real dir next to a valid data worktree.
-   - Run filesystem-first checks (gitdir file, `commondir`, `HEAD`, `readlink`)
-     with a git fallback. Cache once per process.
-2. A new CLI, `.aitask-scripts/aitask_data_layout.sh`, that prints both states
-   (one line per classifier) for the cwd. Follow
-   `aidocs/framework/aitasks_extension_points.md` for adding a helper script:
-   permission whitelists and every listed touchpoint.
-3. A new `.aitask-scripts/lib/data_layout.py`. Python consumes the CLI **once
-   per process** and never re-implements the checks.
-4. `./ait git-health` (`task_git_health`, `task_utils.sh:513`) additionally
-   prints the C1a/C1b state and reason. Leave the existing legacy line in place
-   for t2074_9 to remove. **Shared-file gate:** `task_utils.sh` carries
-   uncommitted t2064 hunks. If they are still there, skip this item and
-   hand it to t2074_9 with `./ait note`. Do not edit the file.
+1. **C1a `ait_data_repo_state`** in `.aitask-scripts/lib/data_symlinks.sh`
+   (sourced by `task_utils.sh:26`). It prints `<state>[:<reason>]` and
+   **always returns 0, never dies**, including under `set -euo pipefail`,
+   inside `$( )` and inside `local x="$( )"`.
+
+   **Resolution order:**
+   1. The cwd is inside the data worktree (T13c).
+   2. A local marker: `./.aitask-data`, then `<toplevel>/.aitask-data`. A
+      separate-git-dir primary resolves here without calling
+      `ait_main_worktree_root`.
+   3. The main checkout's marker, only if local resolution fails (T13d). If
+      that lookup returns 2: fall through when `ait_linked_worktree_roots`
+      proves the checkout is not linked, otherwise return
+      `indeterminate:topology`.
+   4. Otherwise, the no-marker table. Outside a work tree: `not_a_repo`.
+
+   **Validation, first failure wins:**
+   1. `broken:stale_marker`: a stale gitdir, an empty `.git`, a pruned admin
+      dir, or `.aitask-data` without `.git`.
+   2. `broken:foreign_repo`: the canonical common-dir differs.
+   3. `broken:wrong_branch`. A detached HEAD during an in-progress operation
+      is valid but wedged when the operation's own record names `aitask-data`:
+      `rebase-merge/head-name`, `rebase-apply/head-name`, or `BISECT_START`.
+      Any other detached HEAD, or any other branch, is `wrong_branch`.
+
+   **No-marker precedence.** Each of `aitasks`/`aiplans` is a `data_link`
+   (raw target equal to the `ait_data_link_target` literal), a `real_dir`, an
+   `other_link` or `absent`. Rows are checked in order:
+   1. Either path is a `data_link` → `broken:missing_storage`. This includes a
+      real `aitasks/` alongside a dangling `aiplans` link.
+   2. Otherwise, any `real_dir` → `legacy`. A stale registration or a leftover
+      ref is ignored.
+   3. Otherwise, a registered or prunable worktree record at
+      `<root>/.aitask-data` → `broken:missing_storage`.
+   4. Otherwise, unchanged from today: `legacy` if `aitasks` resolves to a
+      dir, else `uninitialized`.
+
+   A leftover `aitask-data` ref is never evidence.
+2. **C1b `ait_data_paths_state`.** This applies in branch mode only, and
+   compares canonical `$PWD/$TASK_DIR` and `$PWD/$PLAN_DIR` with
+   `<data>/aitasks` and `<data>/aiplans`. States: `ready`, `unlinked`,
+   `misdirected` (which includes a `TASK_DIR` override outside `<data>`),
+   `dangling` and `mixed`. In legacy mode it reports `legacy`.
+3. Checks run filesystem-first (gitdir file, `commondir`, `HEAD`,
+   `BISECT_START`, `readlink`), with a git fallback. Results are cached per
+   process. A code comment must say that this is valid **only** because shell
+   commands are short-lived, and that long-running loops must re-validate
+   before each mutation.
+4. **CLI `.aitask-scripts/aitask_data_layout.sh`** prints `REPO:<state>` and
+   `PATHS:<state>`. Follow `aidocs/framework/aitasks_extension_points.md` for
+   the helper whitelists.
+5. **`.aitask-scripts/lib/data_layout.py`** never re-implements the checks. It
+   exposes:
+   - `snapshot()`, which is cached and for **display only**;
+   - `require_repo_branch()` and `require_branch_ready()`, which are **fresh on
+     every call**. They run the CLI and raise on a refusing state. Long-lived
+     processes must call them before each git operation and each write.
+6. **`git-health` state reporting** (`task_git_health`, `task_utils.sh:513`).
+   This is behind the shared-file gate: if `task_utils.sh` still carries
+   uncommitted t2064 hunks, skip it and hand it to t2074_9 with
+   `./ait note 2074_9 --from 2074_1`.
 
 ## Tests
 
-Add a new `tests/test_data_layout_classifier.sh`, using the file-backed counters
-from CLAUDE.md if any case runs in a subshell.
+`tests/test_data_layout_classifier.sh` and `tests/test_data_layout.py`.
 
-**Fixtures.** One fixture per state and reason:
-- stale gitdir file;
-- empty `.git`;
-- pruned admin dir;
-- unrelated repo at `.aitask-data`;
-- a clone at `.aitask-data`;
-- a worktree of another repo;
-- wrong branch;
-- mixed layout;
-- dangling, misdirected (resolving to an existing other dir) and missing links;
-- a `TASK_DIR` override outside `<data>`.
+**One fixture per state and reason:**
+- **`stale_marker`:** a stale gitdir, an empty `.git`, a pruned admin dir, and
+  `.aitask-data` without `.git`.
+- **`foreign_repo`:** an unrelated repo, a clone, and another repo's worktree.
+- **`wrong_branch`:** `checkout <sha>`, and a bisect started from another
+  branch.
+- **Links:** dangling, misdirected (to an existing other dir), missing in a
+  linked worktree, and a `TASK_DIR` override.
+- **`mixed`.**
+- **`missing_storage`**, one fixture per row: links dangle after `.aitask-data`
+  is deleted (row 1); a real `aitasks/` plus a dangling `aiplans` link (row 1,
+  refused, not legacy); a prunable record with neither path (row 3); an
+  `other_link` with no marker (row 4, unchanged).
 
 **Positive cases:**
-- mid-rebase;
-- T13c (cwd inside `.aitask-data`): `branch` / `ready`;
-- T13d (unlinked crew worktree): `branch` / `unlinked`;
-- a `--link-worktree`'d worktree: `branch` / `ready`;
-- a usable separate-git-dir primary: `branch`, with no main-root call;
+- mid-rebase, and mid-bisect with `BISECT_START`=`aitask-data`: `branch`
+- T13c: `branch` / `ready`
+- T13d: `branch` / `unlinked`
+- a `--link-worktree`'d worktree: `branch` / `ready`
+- a separate-git-dir primary: `branch`, with no main-root call
 - its unresolved linked checkout: `indeterminate:topology`, returned rather
-  than died;
-- a submodule or nested repo: its own repository's state.
+  than dying
+- a nested repo or submodule: its own state
 
-**Also add:**
-- a never-dies test under errexit for every fixture;
+**Legacy controls, all of which stay `legacy`:**
+- a legacy repo root, and a subdirectory of it
+- a legacy repo with a leftover `aitask-data` ref
+- a legacy repo with a stale `.aitask-data` record plus a real `aitasks/`
+
+**Also:**
+- never-dies checks under errexit, for every fixture;
 - a filesystem-vs-git differential;
-- a Python/shell parity test, as `tests/test_data_layout.py`.
+- Python/shell parity;
+- a test that `require_*()` re-evaluates after a branch switch in the same
+  process.
 
 ## Verification
 
-- `bash tests/test_data_layout_classifier.sh`
-- `bash tests/run_all_python_tests.sh --test-dir` for the new Python test
-- `shellcheck` on the new script
-- the existing `tests/test_task_git.sh` and `tests/test_init_data.sh` stay green
-  (no behaviour change)
-
-## Notes
-
-Retire nothing here. The enforcers (`ait_require_data_repo` /
-`ait_require_data_paths`) belong to t2074_9.
+- The new tests pass.
+- `bash tests/test_task_git.sh` and `bash tests/test_init_data.sh` stay green.
+- `shellcheck` is clean.
