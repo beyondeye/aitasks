@@ -298,3 +298,35 @@ The feature may prove undeliverable. Step 0 stops on no current-thread evidence 
 ### Planned mitigations
 - timing: pre-phase | name: daemon_title_feasibility_probe | type: test | priority: medium | effort: medium | inline_risk: low | added_complexity: low | addresses: missing current-thread evidence, forged/stale/historical/subagent claims, incarnation reuse, resume, old codex | desc: Go/no-go spike over M0–M17 on real bare codex, with a probe prototype and pre-registered stop rules
 - timing: post-phase | name: live_two_pane_freeze_restore_check | type: test | priority: medium | effort: medium | inline_risk: low | added_complexity: low | addresses: end-to-end acceptance plus forgery/history/subagent controls | desc: Two bare, unrecorded, daemon-routed panes go through freeze, a per-record session and model check, and a verified restore; the B/X/subagent/launch-before-setup controls run through the real freeze path, and any wrong attribution stops the work
+
+## Final Implementation Notes
+
+- **Actual work done:** Only Step 0 (`daemon_title_feasibility_probe`) ran. It hit a pre-registered **stop**, and the user chose "Record findings and close". No code, seed, setup, test or doc change was made. Daemon-routed codex stays re-pick only, which the website docs already state.
+- **Step 0 evidence** (codex 0.163.0, Linux, isolated tmux `-L t2076probe`, throwaway `CODEX_HOME`, bare `codex`, model `gpt-6-luna`, 2026-10-20):
+  - **Daemon routing confirmed.**
+    - The daemon `…/ch/packages/app-server-daemon/releases/0.163.0-x86_64-unknown-linux-musl/bin/codex app-server --listen … --managed-daemon` holds the rollout `rollout-2026-10-20T15-42-50-01a15955-fea3-71f1-99f7-2690d3ac65d3.jsonl` and `thread-writer-locks/01a15955-….lock`, plus `/tmp/codex-daemon-1000/<hash>.lock`.
+    - The TUI process holds neither.
+    - `app-server-daemon/loaded-threads.json` did not exist.
+  - **M1: pass.**
+    - The default title is `[spinner] <thread-title> | <project-name>`, with separator ` | `; the spinner is joined by a space.
+    - Before the first turn the title is just `<project-name>`.
+    - During the first turn the spinner appears, followed by a placeholder thread title (the spinner glyph) until the title is generated, then e.g. `Remember ALPHA | proj`.
+    - The `[tui] terminal_title` item vocabulary (including `thread-id`) is in the 0.160.0, 0.162.1 and 0.163.0 binaries.
+  - **M0: negative.**
+    - The daemon-routed TUI holds only sqlite stores (`goals`, `logs_2`, `memories`, `queue`, `state_5`, with their `-shm`/`-wal` files), `/dev/pts`, 10 sockets and anon inodes.
+    - No fd target or environ entry contains the thread id.
+  - **M12: fail (the deciding result).**
+    - The TUI process (`process_uuid pid:4032768:c3b20105-…`) wrote 18 rows to `logs_2.sqlite`. All have `thread_id IS NULL`, and no `feedback_log_body` contains the thread id.
+    - All 45 thread-bearing rows belong to the daemon pid.
+    - Daemon rows identify clients only by an ordinal `connection_id=N` and `client_name="codex-tui"`, with no peer pid or socket.
+    - The TUI's `rpc.request_id=startup-thread-start-<uuid>` is not its `process_uuid`.
+    - So nothing in codex's log store ties a TUI process to its conversation.
+  - **Not run:** M2–M11 and M13–M18. Each depends on a per-process current-thread tie, and M12 showed none exists, so the rules said stop rather than continue.
+  - Raw outputs were captured in the session scratchpad (`m0_fds.txt`, `m12_logs_all.txt`, `daemon.pid.json`). The probe tmux server and daemon were stopped, and the copied credentials deleted.
+- **Deviations from plan:** None. The pre-registered rule "M12 fails → stop, report, offer closure or re-scope" was applied as written.
+- **Issues encountered:** The throwaway config's first model, `gpt-5.4-mini`, is retired. Codex showed a blocking "no longer available" prompt, so the probe used `gpt-6-luna`.
+- **Key decisions:**
+  - Title attribution was rejected as unsafe without a per-process tie. A pane title is only a claim: three review rounds showed it can be stale, forged, out of date with the config, or name a previously visited or subagent thread. Daemon membership is not attribution.
+  - The only remaining paths need a codex-side change: the daemon recording each client connection's peer (pid or socket inode), the TUI exposing its own current thread id to its process (fd, environ or a file), or the daemon running the hook with the client's environment.
+  - A future task should start from a codex release that offers one of these, and should re-measure M0 and M12 first.
+- **Upstream defects identified:** None
