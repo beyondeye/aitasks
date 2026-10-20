@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1852
 followup_kind: risk_mitigation
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-20 12:35
-updated_at: 2026-10-20 12:49
+updated_at: 2026-10-20 14:33
 ---
 
 ## Origin
@@ -34,3 +35,8 @@ Measured input from t1854_4 (2026-10-20, this repo):
 - **Hook cost:** the eligibility inputs cost ≈ 0.9 s cold / 0.27 s warm, on dirty trees only.
 
 **Required before relaxing D12 (user decision in t1854_4):** a narrowing to "unresolved refs matter only when a modified path is outside the scan universe" was rejected as unproven. Counterexample: an **unchanged excluded helper**, reached through an unresolved ref, can itself read a **modified file inside the scan universe**. Add exactly that case as a red test, and keep it failing-closed, before proposing any relaxation of the unresolved-ref rule (e.g. classifying runtime-created fixture refs).
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-20T11:33:24Z status=pass attempt=1 type=human
