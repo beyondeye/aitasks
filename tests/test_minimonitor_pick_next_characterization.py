@@ -111,6 +111,10 @@ class _FakeMonitor:
         # A verified unset `@aitask_frozen`: the followed agent is live (t2057).
         return (True, "")
 
+    def get_pane(self, pane_id):
+        # Unknown to the discovery cache: no cached frozen record (t2065).
+        return None
+
 
 class _FakeScreen:
     """Stands in for AgentCommandScreen; only `full_command` is read back."""

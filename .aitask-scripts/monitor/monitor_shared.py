@@ -708,18 +708,25 @@ class AgentMarksMixin:
         without the warning ``k`` shows. So only a target proven live may reach
         it; a frozen one is retired by ``k`` (the leased ``_drop_frozen``).
 
-        Two reads, cheapest first. The snapshot, because it is what the user
-        saw; then the live ``@aitask_frozen`` pane option, because a snapshot
-        can be a tick stale and the agent may have been frozen while a dialog
-        was open. Anything not proven live is ``"unverified"`` and fails
-        closed: the kill is irreversible, skipping it is not. That includes a
-        pane that no longer exists — there is nothing left to kill anyway.
+        Three reads, cheapest first. The snapshot, because it is what the user
+        saw; then the monitor's discovery cache, because that — not the
+        snapshot, not the live option — is where ``kill_agent_pane_smart``
+        reads the record id it drops, and a restore can clear the live stamp
+        before discovery refreshes the cache (t2065); then the live
+        ``@aitask_frozen`` pane option, because a snapshot can be a tick stale
+        and the agent may have been frozen while a dialog was open. Anything
+        not proven live is ``"unverified"`` and fails closed: the kill is
+        irreversible, skipping it is not. That includes a pane that no longer
+        exists — there is nothing left to kill anyway.
 
         Residual: a freeze landing between this read and the kill is not
         caught. Only the leased ``aitask_frozen.sh drop`` closes that window.
         """
         snap = self._snapshots.get(pane_id)
         if snap is not None and self._is_frozen(snap):
+            return "frozen"
+        cached = self._monitor.get_pane(pane_id)
+        if cached is not None and cached.frozen_record:
             return "frozen"
         ok, value = self._monitor.get_pane_option_sync(pane_id, FROZEN_OPTION)
         if not ok:

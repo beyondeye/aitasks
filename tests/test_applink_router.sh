@@ -60,6 +60,12 @@ class StubMonitor:
         self.panes = {}   # pane_id -> (window_name, session_name)
         self.idle = {}    # pane_id -> (is_idle, idle_seconds)
         self.discoverable = []   # pane_ids returned by discover_panes()
+        # The kill guard's two reads (t2065): the live `@aitask_frozen` option
+        # (absent => a VERIFIED unset option, i.e. live) and the discovery
+        # cache's `frozen_record` (absent => "").
+        self.frozen = {}         # pane_id -> (ok, value)
+        self.cached_frozen = {}  # pane_id -> frozen_record
+        self.option_reads = []
     def discover_panes(self):
         # Mirrors TmuxMonitor.discover_panes(): returns pane objects with .pane_id.
         self.calls.append(("discover_panes",))
@@ -85,7 +91,11 @@ class StubMonitor:
         if meta is None:
             return None
         window_name, session_name = meta
-        return SimpleNamespace(pane_id=p, window_name=window_name, session_name=session_name)
+        return SimpleNamespace(pane_id=p, window_name=window_name, session_name=session_name,
+                               frozen_record=self.cached_frozen.get(p, ""))
+    def get_pane_option_sync(self, p, option, timeout=2.0):
+        self.option_reads.append((p, option))
+        return self.frozen.get(p, (True, ""))
     def capture_pane(self, p):
         meta = self.panes.get(p)
         if meta is None:
@@ -205,6 +215,81 @@ check("kill_pane unconfirmed -> confirm_required", r["payload"].get("confirm_req
 check("kill_pane unconfirmed does NOT execute", not any(c[0] == "kill_pane" for c in mon.calls))
 r = router.handle(req("kill_pane", {"pane_id": "%2", "confirmed": True}, auth=full.bearer), ConnState())
 check("kill_pane confirmed -> executes", ("kill_pane", "%2") in mon.calls and r["payload"]["ok"] is True)
+check("kill_pane guard reads @aitask_frozen", ("%2", "@aitask_frozen") in mon.option_reads)
+
+# --- kill_pane refuses a pane not proven live (t2065) ------------------------
+def kill_reason(r):
+    p = r["payload"]
+    return p.get("code"), (p.get("detail") or {}).get("reason")
+
+mon.calls.clear()
+mon.frozen = {"%2": (True, "rec-1")}
+r = router.handle(req("kill_pane", {"pane_id": "%2"}, auth=full.bearer), ConnState())
+check("kill_pane frozen (unconfirmed) -> BAD_PAYLOAD frozen",
+      kill_reason(r) == ("BAD_PAYLOAD", "frozen"))
+r = router.handle(req("kill_pane", {"pane_id": "%2", "confirmed": True}, auth=full.bearer), ConnState())
+check("kill_pane frozen (confirmed) -> BAD_PAYLOAD frozen, no kill",
+      kill_reason(r) == ("BAD_PAYLOAD", "frozen")
+      and not any(c[0] == "kill_pane" for c in mon.calls))
+
+# Phase 1 saw a live pane; it was frozen before the confirmation arrived.
+mon.frozen = {}
+r = router.handle(req("kill_pane", {"pane_id": "%2"}, auth=full.bearer), ConnState())
+check("kill_pane live phase 1 -> confirm_required", r["payload"].get("confirm_required") is True)
+mon.frozen = {"%2": (True, "rec-1")}
+r = router.handle(req("kill_pane", {"pane_id": "%2", "confirmed": True}, auth=full.bearer), ConnState())
+check("kill_pane frozen between phases -> refused at execution, no kill",
+      kill_reason(r) == ("BAD_PAYLOAD", "frozen")
+      and not any(c[0] == "kill_pane" for c in mon.calls))
+
+mon.frozen = {"%2": (False, "")}
+r = router.handle(req("kill_pane", {"pane_id": "%2", "confirmed": True}, auth=full.bearer), ConnState())
+check("kill_pane unreadable option -> BAD_PAYLOAD unverified, no kill",
+      kill_reason(r) == ("BAD_PAYLOAD", "unverified")
+      and not any(c[0] == "kill_pane" for c in mon.calls))
+
+# A restore cleared the live stamp; discovery still caches the record — which
+# is what the smart kill would drop.
+mon.frozen = {}
+mon.panes["%2"] = ("agent-t1-x", "projA")
+mon.cached_frozen = {"%2": "rec-1"}
+r = router.handle(req("kill_pane", {"pane_id": "%2", "confirmed": True}, auth=full.bearer), ConnState())
+check("kill_pane cached frozen record + empty live stamp -> refused, no kill",
+      kill_reason(r) == ("BAD_PAYLOAD", "frozen")
+      and not any(c[0] == "kill_pane" for c in mon.calls))
+mon.cached_frozen = {}
+del mon.panes["%2"]
+
+# The same disagreement against the REAL TmuxMonitor: its own get_pane,
+# get_pane_option_sync and kill_agent_pane_smart over a scripted tmux_run.
+from monitor import monitor_core as mc
+real = mc.TmuxMonitor.__new__(mc.TmuxMonitor)
+real.session = "s1"
+real._pane_cache = {"%2": mc.TmuxPaneInfo(
+    window_index="1", window_name="agent-t1-x", pane_index="0", pane_id="%2",
+    pane_pid=1, current_command="claude", width=80, height=24,
+    category=mc.PaneCategory.AGENT, session_name="s1", frozen_record="rec-1")}
+real._last_content, real._last_change_time = {}, {}
+real_calls, real_dropped = [], []
+def _real_tmux(args, timeout=5.0):
+    real_calls.append(list(args))
+    if args[0] == "display-message":
+        return (0, "%2")
+    return (0, "")   # empty option; list-panes => no other agent
+real.tmux_run = _real_tmux
+real._drop_session_record = lambda rid: real_dropped.append(rid) or True
+real_router = FrameRouter(st, gate, real, pair_profile="monitor_control")
+r = real_router.handle(req("kill_pane", {"pane_id": "%2", "confirmed": True}, auth=full.bearer), ConnState())
+check("real monitor: cached record + empty live stamp -> refused",
+      kill_reason(r) == ("BAD_PAYLOAD", "frozen"))
+check("real monitor: no record drop and no kill reached tmux",
+      real_dropped == [] and not any(c[0] in ("kill-pane", "kill-window") for c in real_calls))
+real._pane_cache["%2"].frozen_record = ""
+r = real_router.handle(req("kill_pane", {"pane_id": "%2", "confirmed": True}, auth=full.bearer), ConnState())
+check("real monitor control: live pane is killed, nothing dropped",
+      r["payload"].get("ok") is True and real_dropped == []
+      and ["kill-window", "-t", "%2"] in real_calls)
+mon.frozen = {}
 
 # --- deferred + unknown verbs ----------------------------------------------
 r = router.handle(req("snapshot", {}, auth=full.bearer), ConnState())

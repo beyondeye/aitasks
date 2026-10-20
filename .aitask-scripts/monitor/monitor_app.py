@@ -3657,23 +3657,40 @@ class MonitorApp(
         task_id = self._task_cache.get_task_id_for_pane(snap.pane)
         if task_id:
             task_info = self._task_cache.get_task_info(task_id, snap.pane.session_name)
+        pane_id = snap.pane.pane_id
         self.push_screen(
             KillConfirmDialog(snap, task_info),
-            callback=self._on_kill_confirmed,
+            callback=lambda ok: self._on_kill_confirmed(ok, pane_id),
         )
 
-    def _on_kill_confirmed(self, confirmed: bool | None) -> None:
-        """Callback after kill confirmation dialog."""
-        if not confirmed:
-            return
-        pane_id = self._focused_pane_id
-        if pane_id is None or self._monitor is None:
+    def _on_kill_confirmed(self, confirmed: bool | None, pane_id: str) -> None:
+        """Callback after kill confirmation dialog.
+
+        ``pane_id`` is the pane the dialog described, bound when it opened —
+        never re-read from ``_focused_pane_id``, which refresh moves while the
+        dialog is up (focus requests, auto-switch, focus restoration), so a
+        confirmation for one agent could otherwise kill another (t2065).
+        """
+        if not confirmed or self._monitor is None:
             return
         snap = self._snapshots.get(pane_id)
         name = snap.pane.window_name if snap else pane_id
+        # Re-read at kill time, not when `k` opened the dialog: the agent may
+        # have been frozen since, and a frozen pane would take the smart kill's
+        # unleased kill-then-drop (t2065, as t2057 did for `n`).
+        state = self._kill_target_state(pane_id)
+        if state == "frozen":
+            self.notify(f"{name} is frozen — not killed; press k again to "
+                        "drop it", severity="warning", markup=False)
+            return
+        if state != "live":
+            self.notify(f"Could not confirm {name} is still live — not killed",
+                        severity="warning", markup=False)
+            return
         ok, _ = self._monitor.kill_agent_pane_smart(pane_id)
         if ok:
-            self._focused_pane_id = None
+            if self._focused_pane_id == pane_id:
+                self._focused_pane_id = None
             self.notify(f"Killed {name}", markup=False)
             self.call_later(self._refresh_data)
         else:
@@ -3890,6 +3907,26 @@ class MonitorApp(
                 # the new companion attached to the correct window even if
                 # two windows share a name transiently.
                 if self._monitor:
+                    # Re-read at kill time (t2065): the agent may have been
+                    # frozen since `r` opened the dialogs. Without a live kill
+                    # there is no restart — launching anyway would duplicate
+                    # the task beside the frozen stand-in.
+                    state = self._kill_target_state(pane_id)
+                    if state == "frozen":
+                        self.notify(
+                            f"{old_window_name} is frozen — not restarted; "
+                            "press s to switch to its viewer, then R to "
+                            "restore or P to re-pick",
+                            severity="warning", markup=False)
+                        self.call_later(self._refresh_data)
+                        return
+                    if state != "live":
+                        self.notify(
+                            f"Could not confirm {old_window_name} is still "
+                            "live — not restarted",
+                            severity="warning", markup=False)
+                        self.call_later(self._refresh_data)
+                        return
                     ok, _ = self._monitor.kill_agent_pane_smart(pane_id)
                     if ok:
                         if self._focused_pane_id == pane_id:

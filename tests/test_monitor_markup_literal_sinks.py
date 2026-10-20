@@ -675,6 +675,10 @@ class _FakeMonitor:
     def get_pane_option_sync(self, pane_id, option, timeout=2.0):
         return self._frozen_read
 
+    def get_pane(self, pane_id):
+        # Unknown to the discovery cache: no cached frozen record (t2065).
+        return None
+
 
 def _focused(app, name: str, **kw) -> None:
     snap = snapshot(name, **kw)
@@ -732,13 +736,13 @@ def _log_toast(with_log: bool):
     return driver
 
 
-def _kill_toast(cls, ok: bool):
+def _kill_toast(cls, ok: bool, frozen_read=(True, "")):
     def driver(name):
         app = _app(cls)
-        app._monitor = _FakeMonitor(kill_ok=ok)
+        app._monitor = _FakeMonitor(kill_ok=ok, frozen_read=frozen_read)
         _focused(app, name)
         if cls is MonitorApp:
-            app._on_kill_confirmed(True)
+            app._on_kill_confirmed(True, "%1")
         else:
             app._on_own_kill_confirmed(True, "%1")
         return app.notify.calls
@@ -770,9 +774,9 @@ def toast_monitor_sibling_launch(name, frozen_read=(True, "")):
     return _launch(app, ma, lambda: app._launch_pick_for_sibling("43"), name)
 
 
-def toast_monitor_restart(name):
+def toast_monitor_restart(name, frozen_read=(True, "")):
     app = _app(MonitorApp)
-    app._monitor = _FakeMonitor()
+    app._monitor = _FakeMonitor(frozen_read=frozen_read)
     _focused(app, name)
     app._root_for_snap = lambda snap: Path(".")
     return _launch(app, ma, lambda: app._on_restart_confirmed(True, "%1", "42"),
@@ -874,6 +878,15 @@ TOAST_SITES = [
     ("monitor: sibling pick unverified, not killed",
      lambda name: toast_monitor_sibling_launch(name, (False, ""))),
     ("monitor: restart killed + launch failed", toast_monitor_restart),
+    # The kill/restart confirm callbacks' kill-skipped toasts (t2065).
+    ("monitor: kill frozen, not killed",
+     _kill_toast(MonitorApp, True, (True, "rec-1"))),
+    ("monitor: kill unverified, not killed",
+     _kill_toast(MonitorApp, True, (False, ""))),
+    ("monitor: restart frozen, not restarted",
+     lambda name: toast_monitor_restart(name, (True, "rec-1"))),
+    ("monitor: restart unverified, not restarted",
+     lambda name: toast_monitor_restart(name, (False, ""))),
     ("both: prioritized (monitor)", _mark_toast(MonitorApp, "MARKED")),
     ("both: prioritized (minimonitor)", _mark_toast(MiniMonitorApp, "MARKED")),
     ("both: parked", _mark_toast(MonitorApp, "PARKED")),
@@ -883,6 +896,10 @@ TOAST_SITES = [
     ("minimonitor: switched to", _switch_to(MiniMonitorApp)),
     ("minimonitor: killed", _kill_toast(MiniMonitorApp, True)),
     ("minimonitor: failed to kill", _kill_toast(MiniMonitorApp, False)),
+    ("minimonitor: kill frozen, not killed",
+     _kill_toast(MiniMonitorApp, True, (True, "rec-1"))),
+    ("minimonitor: kill unverified, not killed",
+     _kill_toast(MiniMonitorApp, True, (False, ""))),
     ("minimonitor: launch failed", toast_mini_launch),
     ("minimonitor: loop disarmed (shadow command)", toast_mini_disarm),
     ("minimonitor: recheck unavailable (followed command)",

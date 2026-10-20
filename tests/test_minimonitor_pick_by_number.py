@@ -146,6 +146,9 @@ class _FakeMonitor:
         self.tmux_calls: list[list[str]] = []
         self.pane_option = {}
         self.option_reads: list[tuple[str, str]] = []
+        #: Discovery-cache rows `get_pane` answers, per pane (t2065). Absent ⇒
+        #: unknown to the cache, so no cached frozen record.
+        self.cached: dict = {}
 
     def get_session_to_project_mapping(self):
         return {"s1": _ROOT}
@@ -168,6 +171,9 @@ class _FakeMonitor:
     def get_pane_option_sync(self, pane_id, option, timeout=2.0):
         self.option_reads.append((pane_id, option))
         return self.pane_option.get(pane_id, (True, ""))
+
+    def get_pane(self, pane_id):
+        return self.cached.get(pane_id)
 
 
 def _mk_app(infos, snapshots=(), pane_to_task=None, monitor=True):
@@ -697,6 +703,73 @@ class ConfirmAndLaunchTests(unittest.TestCase):
                       pane_to_task={"%own": "77"})  # t77 not in the infos dict
         screen, _cb = _enter(app, "1310")
         self.assertEqual(screen._kill_target_label, "t77 · unknown · agent-pick-77")
+
+
+class OwnKillConfirmRecheckTests(unittest.TestCase):
+    """`k` on the followed agent re-checks frozen state when the confirm
+    dialog closes, not only when it opened (t2065).
+
+    Drives the REAL `action_kill_own_agent` → dialog callback →
+    `_on_own_kill_confirmed` → `_kill_target_state`; only the dialog class is
+    stubbed.
+    """
+
+    _FROZEN = ("agent-pick-77 is frozen — not killed; press k again to drop "
+               "it", "warning")
+
+    def setUp(self):
+        stub = patch.object(mm, "KillConfirmDialog",
+                            lambda snap, info, show_preview=True: "dialog")
+        stub.start()
+        self.addCleanup(stub.stop)
+
+    def _open(self):
+        own = _snap("%own", window_index="1", session="s1",
+                    window_name="agent-pick-77")
+        app = _mk_app({"77": _task_info("77")}, snapshots=[own],
+                      pane_to_task={"%own": "77"})
+        app.call_later = lambda fn, *a: None
+        app._refresh_data = lambda: None
+        app.action_kill_own_agent()
+        (screen, callback), = app.spy_pushed
+        self.assertEqual(screen, "dialog")
+        return app, callback
+
+    def test_live_control_is_killed(self):
+        app, callback = self._open()
+        callback(True)
+        self.assertEqual(app._monitor.killed, ["%own"])
+        self.assertEqual(app._monitor.option_reads,
+                         [("%own", "@aitask_frozen")])
+
+    def test_frozen_meanwhile_snapshot_is_not_killed(self):
+        app, callback = self._open()
+        app._snapshots["%own"].frozen = True
+        callback(True)
+        self.assertEqual(app._monitor.killed, [])
+        self.assertIn(self._FROZEN, app.spy_notify)
+
+    def test_frozen_meanwhile_on_the_live_read_is_not_killed(self):
+        app, callback = self._open()
+        app._monitor.pane_option["%own"] = (True, "7f3a2c1d")
+        callback(True)
+        self.assertEqual(app._monitor.killed, [])
+        self.assertIn(self._FROZEN, app.spy_notify)
+
+    def test_cached_record_with_a_cleared_live_stamp_is_not_killed(self):
+        app, callback = self._open()
+        app._monitor.cached["%own"] = SimpleNamespace(frozen_record="7f3a2c1d")
+        callback(True)
+        self.assertEqual(app._monitor.killed, [])
+        self.assertIn(self._FROZEN, app.spy_notify)
+
+    def test_unverified_read_fails_closed(self):
+        app, callback = self._open()
+        app._monitor.pane_option["%own"] = (False, "")
+        callback(True)
+        self.assertEqual(app._monitor.killed, [])
+        self.assertIn(("Could not confirm agent-pick-77 is still live — not "
+                       "killed", "warning"), app.spy_notify)
 
 
 class KillTimeFrozenRecheckTests(unittest.TestCase):

@@ -3194,6 +3194,18 @@ class MiniMonitorApp(
             return
         snap = self._snapshots.get(pane_id)
         name = snap.pane.window_name if snap else pane_id
+        # Re-read at kill time, not when `k` opened the dialog: the agent may
+        # have been frozen since, and a frozen pane would take the smart kill's
+        # unleased kill-then-drop (t2065, as t2057 did for `n`/`p`).
+        state = self._kill_target_state(pane_id)
+        if state == "frozen":
+            self.notify(f"{name} is frozen — not killed; press k again to "
+                        "drop it", severity="warning", markup=False)
+            return
+        if state != "live":
+            self.notify(f"Could not confirm {name} is still live — not killed",
+                        severity="warning", markup=False)
+            return
         ok, killed_window = self._monitor.kill_agent_pane_smart(pane_id)
         if ok:
             self._focused_pane_id = None

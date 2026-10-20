@@ -14,7 +14,9 @@ so the dedupe cannot silently change either one:
   `@aitask_frozen` read proves it is not a frozen stand-in (t2057) — and the
   tmux result notifies "Launched agent for t<id>";
 - restart path: the kill runs INSIDE the callback, BEFORE `launch_in_tmux`, and
-  notifies "Restarted agent for t<id>";
+  notifies "Restarted agent for t<id>" — and only when `_kill_target_state`
+  proves the pane live at that moment; otherwise nothing is killed OR launched
+  (t2065);
 - both: a launch error returns before `call_later`; cancel only refreshes; the
   launch reads `screen.full_command` (the user may edit it in the dialog).
 
@@ -27,6 +29,7 @@ from __future__ import annotations
 
 import os
 import sys
+import types
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -42,6 +45,7 @@ os.environ.pop("TMUX_PANE", None)
 
 import agent_command_screen as acs  # noqa: E402
 from monitor import monitor_app as ma  # noqa: E402
+from monitor import monitor_core as mc  # noqa: E402
 from monitor.monitor_core import TaskInfo  # noqa: E402
 
 #: Where the pick dialog is constructed — the module whose names the four
@@ -88,6 +92,9 @@ class _Host:
         #: What the live `@aitask_frozen` read answers, per pane (t2057). The
         #: default is a VERIFIED unset option: a live agent.
         self.pane_option: dict[str, tuple[bool, str]] = {}
+        #: The monitor's discovery-cache row per pane (t2065) — where the smart
+        #: kill reads the record it drops. Absent ⇒ unknown to the cache.
+        self.cached: dict[str, SimpleNamespace] = {}
         host = self
 
         class _Cache:
@@ -105,6 +112,9 @@ class _Host:
             def get_pane_option_sync(self, pane_id, option, timeout=2.0):
                 log.append(("read", pane_id, option))
                 return host.pane_option.get(pane_id, (True, ""))
+
+            def get_pane(self, pane_id):
+                return host.cached.get(pane_id)
 
         self._task_cache = _Cache()
         self._monitor = _Monitor()
@@ -367,6 +377,7 @@ class RestartPickTests(_Base):
         host.log.clear()
         callback(_cfg(new_window=True))
         self.assertEqual(host.log, [
+            ("read", "%7", "@aitask_frozen"),
             ("kill", "%7"), ("notify", "Killed agent-pick-41"),
             ("launch", _EDITED), ("spawn", "s1", "agent-pick-42"),
             ("notify", "Restarted agent for t42"), ("call_later",)])
@@ -379,6 +390,7 @@ class RestartPickTests(_Base):
         host.log.clear()
         callback(_cfg())
         self.assertEqual(host.log, [
+            ("read", "%7", "@aitask_frozen"),
             ("kill", "%7"), ("notify", "Killed agent-pick-41"),
             ("launch", "cmd --go"), ("notify", "Launch failed: boom")])
 
@@ -388,6 +400,225 @@ class RestartPickTests(_Base):
         host.log.clear()
         callback(None)
         self.assertEqual(host.log, [("call_later",)])
+
+    # -- t2065: the agent may be frozen while the dialogs are open ----------
+
+    def _confirm_after(self, between):
+        host, _ = self._open()
+        _, callback = host.pushed[0]
+        between(host)
+        host.log.clear()
+        callback(_cfg())
+        return host
+
+    def _assert_not_restarted(self, host, message):
+        kinds = [entry[0] for entry in host.log]
+        self.assertNotIn("kill", kinds)
+        self.assertNotIn("launch", kinds)
+        self.assertIn((message, "warning"), host.notes)
+        self.assertEqual(host.log[-1], ("call_later",))
+        self.assertEqual(host._focused_pane_id, "%7")
+
+    _FROZEN = ("agent-pick-41 is frozen — not restarted; press s to switch to "
+               "its viewer, then R to restore or P to re-pick")
+
+    def test_frozen_meanwhile_snapshot_is_neither_killed_nor_relaunched(self):
+        def freeze(host):
+            host._snapshots["%7"].frozen = True
+        self._assert_not_restarted(self._confirm_after(freeze), self._FROZEN)
+
+    def test_frozen_meanwhile_on_the_live_read(self):
+        def freeze(host):
+            host.pane_option["%7"] = (True, "rec-1")
+        self._assert_not_restarted(self._confirm_after(freeze), self._FROZEN)
+
+    def test_cached_record_with_a_cleared_live_stamp(self):
+        """A restore cleared the live stamp; discovery has not caught up."""
+        def stale(host):
+            host.cached["%7"] = SimpleNamespace(frozen_record="rec-1")
+        self._assert_not_restarted(self._confirm_after(stale), self._FROZEN)
+
+    def test_unverified_read_fails_closed(self):
+        def unreadable(host):
+            host.pane_option["%7"] = (False, "")
+        self._assert_not_restarted(
+            self._confirm_after(unreadable),
+            "Could not confirm agent-pick-41 is still live — not restarted")
+
+
+class KillConfirmRecheckTests(unittest.TestCase):
+    """`k` in the full monitor: the target is BOUND when the dialog opens and
+    re-checked when it closes (t2065).
+
+    Drives the real `action_kill_pane` → dialog callback → `_on_kill_confirmed`
+    → `_kill_target_state`; only the dialog class is stubbed.
+    """
+
+    def setUp(self):
+        stub = patch.object(ma, "KillConfirmDialog",
+                            lambda snap, info: ("dialog", snap.pane.pane_id))
+        stub.start()
+        self.addCleanup(stub.stop)
+
+    def _host(self):
+        host = _Host("41", _info("41", "Implementing"))
+        host._get_focused_pane_id = lambda: host._focused_pane_id
+        host._confirm_drop_frozen = lambda snap: host.log.append(
+            ("drop-confirm", snap.pane.pane_id))
+        host._on_kill_confirmed = types.MethodType(
+            ma.MonitorApp._on_kill_confirmed, host)
+        return host
+
+    def _open(self, host):
+        ma.MonitorApp.action_kill_pane(host)
+        (screen, callback), = host.pushed
+        self.assertEqual(screen, ("dialog", "%7"))
+        host.log.clear()
+        return callback
+
+    def _add_live_b(self, host):
+        host._snapshots["%8"] = SimpleNamespace(
+            pane=SimpleNamespace(pane_id="%8", session_name="s1",
+                                 window_name="agent-pick-99"),
+            frozen=False, frozen_record_id="")
+
+    def test_live_control_is_killed(self):
+        host = self._host()
+        self._open(host)(True)
+        self.assertEqual(host.log, [
+            ("read", "%7", "@aitask_frozen"), ("kill", "%7"),
+            ("notify", "Killed agent-pick-41"), ("call_later",)])
+        self.assertIsNone(host._focused_pane_id)
+
+    def _assert_not_killed(self, host, message):
+        self.assertNotIn("kill", [entry[0] for entry in host.log])
+        self.assertIn((message, "warning"), host.notes)
+
+    _FROZEN = "agent-pick-41 is frozen — not killed; press k again to drop it"
+
+    def test_frozen_meanwhile_snapshot(self):
+        host = self._host()
+        callback = self._open(host)
+        host._snapshots["%7"].frozen = True
+        callback(True)
+        self._assert_not_killed(host, self._FROZEN)
+
+    def test_frozen_meanwhile_on_the_live_read(self):
+        host = self._host()
+        callback = self._open(host)
+        host.pane_option["%7"] = (True, "rec-1")
+        callback(True)
+        self._assert_not_killed(host, self._FROZEN)
+
+    def test_cached_record_with_a_cleared_live_stamp(self):
+        host = self._host()
+        callback = self._open(host)
+        host.cached["%7"] = SimpleNamespace(frozen_record="rec-1")
+        callback(True)
+        self._assert_not_killed(host, self._FROZEN)
+        # The cache answered; the live read never had to.
+        self.assertNotIn(("read", "%7", "@aitask_frozen"), host.log)
+
+    def test_unverified_read_fails_closed(self):
+        host = self._host()
+        callback = self._open(host)
+        host.pane_option["%7"] = (False, "")
+        callback(True)
+        self._assert_not_killed(
+            host, "Could not confirm agent-pick-41 is still live — not killed")
+
+    def test_focus_moving_to_a_live_agent_never_redirects_the_kill(self):
+        """The dialog described A; A froze and refresh moved focus to live B.
+        Neither is killed, and B is never even read."""
+        host = self._host()
+        callback = self._open(host)
+        host._snapshots["%7"].frozen = True
+        self._add_live_b(host)
+        host._focused_pane_id = "%8"
+        callback(True)
+        self._assert_not_killed(host, self._FROZEN)
+        self.assertNotIn("%8", [entry[1] for entry in host.log
+                                if len(entry) > 1])
+        self.assertEqual(host._focused_pane_id, "%8")
+
+    def test_focus_move_control_kills_the_described_pane_and_keeps_focus(self):
+        host = self._host()
+        callback = self._open(host)
+        self._add_live_b(host)
+        host._focused_pane_id = "%8"
+        callback(True)
+        self.assertEqual([e for e in host.log if e[0] == "kill"],
+                         [("kill", "%7")])
+        self.assertEqual(host._focused_pane_id, "%8")
+
+    def test_frozen_at_open_still_routes_to_the_leased_drop(self):
+        host = self._host()
+        host._snapshots["%7"].frozen = True
+        ma.MonitorApp.action_kill_pane(host)
+        self.assertEqual(host.log, [("drop-confirm", "%7")])
+        self.assertEqual(host.pushed, [])
+
+
+def _real_core_monitor(frozen_record: str):
+    """A real `TmuxMonitor` — real `get_pane`, `get_pane_option_sync` and
+    `kill_agent_pane_smart` — over a scripted `tmux_run`. Its discovery cache
+    names ``frozen_record`` while the live option reads a VERIFIED empty value:
+    the state a liveness-only restore leaves until discovery refreshes."""
+    mon = mc.TmuxMonitor.__new__(mc.TmuxMonitor)
+    mon.session = "s1"
+    mon._pane_cache = {"%7": mc.TmuxPaneInfo(
+        window_index="1", window_name="agent-pick-41", pane_index="0",
+        pane_id="%7", pane_pid=1, current_command="claude", width=80,
+        height=24, category=mc.PaneCategory.AGENT, session_name="s1",
+        frozen_record=frozen_record)}
+    mon._last_content, mon._last_change_time = {}, {}
+    mon.tmux_calls, mon.dropped = [], []
+
+    def tmux_run(args, timeout=5.0):
+        mon.tmux_calls.append(list(args))
+        if args[0] == "show-options":
+            return (0, "")
+        if args[0] == "display-message":
+            return (0, "%7")
+        # `list-panes` answers no other agent in the window, so the smart kill
+        # takes its whole-window branch — the one that retires the record.
+        return (0, "")
+
+    mon.tmux_run = tmux_run
+    mon._drop_session_record = lambda rid: mon.dropped.append(rid) or True
+    return mon
+
+
+class RealSmartKillCacheTests(unittest.TestCase):
+    """Pins the guard against the REAL consumer of the cached record (t2065)."""
+
+    def _confirm(self, mon):
+        host = _Host("41", _info("41", "Implementing"))
+        host._monitor = mon
+        ma.MonitorApp._on_kill_confirmed(host, True, "%7")
+        return host
+
+    def test_cached_record_with_empty_live_stamp_drops_nothing(self):
+        mon = _real_core_monitor("rec-1")
+        self._confirm(mon)
+        self.assertEqual(mon.dropped, [])
+        self.assertNotIn(["kill-pane", "-t", "%7"], mon.tmux_calls)
+        self.assertNotIn(["kill-window", "-t", "%7"], mon.tmux_calls)
+
+    def test_control_live_pane_is_killed_with_no_drop(self):
+        mon = _real_core_monitor("")
+        self._confirm(mon)
+        self.assertIn(["kill-window", "-t", "%7"], mon.tmux_calls)
+        self.assertEqual(mon.dropped, [])
+
+    def test_the_smart_kill_itself_would_drop_the_cached_record(self):
+        """Why the guard reads the cache: unguarded, the real smart kill
+        drops the stale record even though the live stamp is empty."""
+        mon = _real_core_monitor("rec-1")
+        self.assertEqual(mon.get_pane_option_sync("%7", mc.FROZEN_OPTION),
+                         (True, ""))
+        mon.kill_agent_pane_smart("%7")
+        self.assertEqual(mon.dropped, ["rec-1"])
 
 
 if __name__ == "__main__":

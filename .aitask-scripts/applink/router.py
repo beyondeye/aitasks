@@ -31,6 +31,12 @@ if str(_LIB_DIR) not in sys.path:
     sys.path.insert(0, str(_LIB_DIR))
 from tui_registry import TUI_NAMES  # noqa: E402
 
+# ``monitor.monitor_core`` (for ``FROZEN_OPTION``) is imported lazily by the
+# kill guard; its package root must be importable whoever imports the router.
+_SCRIPTS_DIR = _LIB_DIR.parent
+if str(_SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPTS_DIR))
+
 PROTOCOL_VERSION = 1
 
 # Input-validation bounds (t985). tmux pane/window ids have a fixed shape;
@@ -535,6 +541,12 @@ class FrameRouter:
             return self._bad_field(msg_id, "kill_pane", "pane_id")
 
         def build_details():
+            # `_two_phase` runs this in BOTH phases — in the confirmed one
+            # immediately before `execute` — so this one call refuses up front
+            # AND re-checks at execution time (t2065).
+            refusal = self._kill_refusal(msg_id, "kill_pane", pane_id)
+            if refusal is not None:
+                return refusal
             return {"target": self._pane_target(pane_id)}
 
         def execute():
@@ -544,6 +556,39 @@ class FrameRouter:
 
         return self._two_phase(msg_id, "kill_pane", payload,
                                build_details=build_details, execute=execute)
+
+    def _kill_refusal(self, msg_id, verb, pane_id):
+        """err frame when ``pane_id`` is not proven live, else ``None`` (t2065).
+
+        ``kill_agent_pane_smart``'s frozen path is an unleased kill-then-drop
+        that deletes the capture — the only copy of the agent's output. A
+        remote client never sees the desktop's capture-loss warning, so a
+        frozen pane is refused here rather than routed to the drop; it is
+        retired from a desktop monitor's ``k`` (the leased, warned drop).
+
+        Two reads. The discovery cache first, because that is where the smart
+        kill reads the record id it drops, and a restore can clear the live
+        stamp before discovery refreshes it. Then the live ``@aitask_frozen``
+        option, because the cache can be a tick stale the other way. An
+        unreadable option — including a pane that is gone — fails closed.
+        """
+        from monitor.monitor_core import FROZEN_OPTION
+
+        frozen = self._err(
+            msg_id, verb, ERR_BAD_PAYLOAD,
+            "pane holds a frozen agent; drop it from a desktop monitor (k)",
+            detail={"reason": "frozen"})
+        cached = self._monitor.get_pane(pane_id)
+        if cached is not None and cached.frozen_record:
+            return frozen
+        ok, value = self._monitor.get_pane_option_sync(pane_id, FROZEN_OPTION)
+        if not ok:
+            return self._err(msg_id, verb, ERR_BAD_PAYLOAD,
+                             "could not confirm pane is live",
+                             detail={"reason": "unverified"})
+        if value:
+            return frozen
+        return None
 
     def _kill_window(self, msg_id, payload):
         window_id = self._req_window_id(payload)
