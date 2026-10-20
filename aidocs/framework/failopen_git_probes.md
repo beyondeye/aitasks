@@ -37,7 +37,7 @@ bill of health".
 
 ## The canonical fix shape
 
-Four sites in the tree already follow it. Copy whichever is closest in shape:
+These sites in the tree already follow it. Copy whichever is closest in shape:
 
 | site | probe | on failure |
 |---|---|---|
@@ -45,6 +45,8 @@ Four sites in the tree already follow it. Copy whichever is closest in shape:
 | `aitask_metadata_commit.sh::run_preflight:175` | `status --porcelain` | `FAILED:cannot inspect status of <p>` |
 | `aitask_issue_import.sh::_import_amend_guard:657` | `show --name-only` | refuse the amend |
 | `aitask_fold_mark.sh::_fold_amend_guard:916` | `show --name-only` | refuse the amend |
+| `lib/task_utils.sh::_task_remote_probe` | `remote` | `task_push` / `task_sync` / `task_data_converge` report `failed` / `unknown` with git's line, never `no-remote` |
+| `aitask_sync.sh::check_remote` | `remote get-url origin`, then `remote` | `ERROR:remote_probe_failed`, never `NO_REMOTE` |
 
 ## Disposition is site-specific — the rule is *not* "always refuse"
 
@@ -142,7 +144,7 @@ risk, and this table is what stops the next author "finishing the job".
 | `aitask_remote_drift_check.sh` | pure reporter, exits 0; `:199` / `:211` already fail **closed** to `FETCH_FAILED`. `:247` is a soft spot (a failed diff reads as `NO_OVERLAP`) but advisory only — kept deliberately as an explicit errexit-safe branch, pinned by `tests/test_remote_drift_check.sh` Test 17; only the plan reference scan fails closed (`EXTRACT_FAILED`) |
 | `aitask_change_surface.sh` | display-only; written best-effort by `aitask_pick_own.sh::main:681`, read by the docs-updated gate skill |
 | `aitask_revert_analyze.sh::_collect_hashes_for_id:172` | read-only analyzer; its failure direction is *under*-destructive ("no commits found" ⇒ nothing reverted) |
-| `lib/task_utils.sh::_task_sync_head:854`, `::_task_sync_unpulled_count:860`, `::_task_push_unpushed_count:1378`, `::_task_push_upstream:1383`, `::_task_push_has_remote:1388` | documented always-return-0 reporting probes; empty is a *declared* "undeterminable" value the warning text handles (`TASK_SYNC_UNPUSHED=""` / `TASK_PUSH_UNPUSHED=""`) |
+| `lib/task_utils.sh::_task_sync_head:854`, `::_task_sync_unpulled_count:860`, `::_task_push_unpushed_count:1378`, `::_task_push_upstream:1383` | documented always-return-0 reporting probes; empty is a *declared* "undeterminable" value the warning text handles (`TASK_SYNC_UNPUSHED=""` / `TASK_PUSH_UNPUSHED=""`) |
 | `lib/data_symlinks.sh::ait_main_worktree_root:105`, `lib/txn_snapshot.sh::txn_require_clean:112` | already exemplary — see below |
 | `aitask_merge_task.sh::_head_branch:84` | empty reads as detached ⇒ `RECOVERY_FAILED`. Already fail-closed |
 

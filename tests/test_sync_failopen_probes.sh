@@ -519,6 +519,29 @@ assert_eq "S: _data_wedge_gitdir is defined once in lib/task_utils.sh" "1" \
 assert_eq "S: every call site carries its own unverified: tag" "" \
     "$(printf '%s\n' "$rowsS" | grep -F "$(printf '\tuntagged')" || true)"
 
+# --- R: an unreadable repo config is not "no remote" (check_remote, t2070) ---
+# git refuses every command when it cannot parse the repository config, so
+# `remote get-url origin` fails exactly as it does for a missing origin.
+echo "--- R-1: unparseable repo config -> ERROR:remote_probe_failed, nothing synced ---"
+TMPR="$(setup_repo)"
+shaR="$(remote_data_sha "$TMPR")"
+echo '[core' >> "$TMPR/local/.git/config"
+rcR=0
+git -C "$TMPR/local" remote >/dev/null 2>&1 || rcR=$?
+assert_eq "R-1: precondition — 'git remote' fails in the fixture" "1" "$([[ $rcR -ne 0 ]] && echo 1 || echo 0)"
+outR="$(run_sync "$TMPR")"; rcR=$?
+assert_eq "R-1: status is ERROR:remote_probe_failed" "ERROR:remote_probe_failed" "$outR"
+assert_eq "R-1: exits 1" "1" "$rcR"
+assert_contains "R-1: git's diagnostic on stderr" "bad config line" "$(sync_err "$TMPR")"
+assert_eq "R-1: nothing was pushed" "$shaR" "$(remote_data_sha "$TMPR")"
+
+echo "--- R-2: control - no origin at all -> NO_REMOTE, exit 0 ---"
+TMPR="$(setup_repo)"
+git -C "$TMPR/local" remote remove origin
+outR="$(run_sync "$TMPR")"; rcR=$?
+assert_eq "R-2: status is NO_REMOTE" "NO_REMOTE" "$outR"
+assert_eq "R-2: exits 0" "0" "$rcR"
+
 # --- Summary ---
 echo ""
 echo "=== Results: $PASS passed, $FAIL failed (of $TOTAL) ==="

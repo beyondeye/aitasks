@@ -350,6 +350,18 @@ isuccess() {
 # --- Check for remote ---
 check_remote() {
     if ! task_git remote get-url origin &>/dev/null; then
+        # A failed lookup means "no origin" only when git could read its
+        # configuration (t2070): an unreadable config fails every command, and
+        # reading that as NO_REMOTE skipped the sync in silence. Only this
+        # failure path asks again, with the plain remote list, whose exit
+        # status separates the two.
+        local err="" rc=0
+        err="$(task_git remote 2>&1 >/dev/null)" || rc=$?
+        if [[ $rc -ne 0 ]]; then
+            batch_out "ERROR:remote_probe_failed"
+            warn "Could not read the git configuration; nothing was synced (git: ${err%%$'\n'*})"
+            exit 1
+        fi
         batch_out "NO_REMOTE"
         if [[ "$BATCH_MODE" == false ]]; then
             warn "No remote configured"

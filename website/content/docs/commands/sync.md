@@ -146,7 +146,7 @@ mv aitasks/metadata/userconfig.yaml.mine aitasks/metadata/userconfig.yaml
 The sync flow follows these steps:
 
 1. **Mode detection** — Determines whether task data lives on a separate `aitask-data` branch (via `.aitask-data/` worktree) or on the current branch (legacy mode)
-2. **Remote check** — Verifies a git remote exists; outputs `NO_REMOTE` if not
+2. **Remote check** — Verifies a git remote exists; outputs `NO_REMOTE` if not. If git cannot read the repository's configuration when this check runs, it cannot tell whether a remote exists: sync outputs `ERROR:remote_probe_failed`, prints git's message on stderr, and syncs nothing. The check is reached with an unreadable configuration only from the primary checkout of a project that keeps task data on the `aitask-data` branch. From a linked checkout, or when task data lives on the current branch, sync stops before this step, while locating the data worktree's git directory: it outputs `ERROR:data_gitdir_unresolved` and syncs nothing. Its stderr does not carry git's message; run any git command in the checkout, such as `git status`, to see it
 3. **Auto-commit** — If there are uncommitted changes to `aitasks/` or `aiplans/`, commits them **grouped by owning task** (see [Auto-commit policy](#auto-commit-policy))
 4. **Fetch** — Fetches from the remote with a 10-second network timeout; outputs `NO_NETWORK` on failure
 5. **Pull** — If the remote has new commits and the local branch has none of its own, fast-forwards to exactly the commit the fetch brought in. It does not fetch again and does not fall back to a rebase. Otherwise it pulls with `git pull --rebase` to maintain linear history. If conflicts occur in task files, the auto-merge system attempts to resolve them automatically (see below). Neither path stashes, and the fast-forward never overwrites an ignored file (see [Stashing and ignored files](#stashing-and-ignored-files))
@@ -258,7 +258,8 @@ still warns and quotes git's own first line.
 
 Two cases stay deliberately quiet, because nothing is at risk: the repository
 has no git remote configured, or the push failed while there were no local
-commits to send.
+commits to send. A repository whose git configuration cannot be read does not
+count as having no remote: the push is reported as failed, with git's message.
 
 ### Batch Output Protocol
 
@@ -300,7 +301,8 @@ rather than implying otherwise. The local count carries no such caveat.
 Two cases stay quiet here as well: no remote configured, or a failed pull with
 nothing unreconciled in either direction. A blocked local worktree (a dirty data
 worktree or a stopped rebase) always warns, because it keeps every later sync
-and push failing until it is cleared.
+and push failing until it is cleared. A git configuration that cannot be read
+is reported as a failed pull with git's message, never as "no remote".
 
 That pull resolves conflicts, not just reports them. When it stops on a
 frontmatter-only collision — the common two-machine case, such as one PC moving

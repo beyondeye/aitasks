@@ -2972,6 +2972,76 @@ assert_eq "64: sentinel beats CONFLICT text in the classifier" "unknown" \
 assert_eq "64: control — CONFLICT text alone is still rebase_conflict" "rebase_conflict" \
     "$(_task_push_classify "" "CONFLICT (content): Merge conflict in aitasks/t1_sample.md")"
 
+# --- Test 65: a repo config git cannot read is reported, never read as no-remote ---
+# origin IS configured and a commit is pending. With the repository config
+# unparseable, git refuses every command, so the remote probe fails. task_sync,
+# task_data_converge and task_push must each report a failure with git's own
+# line — not "no-remote" in silence (t2070; task_push was fixed in t2063).
+echo "--- Test 65: unreadable repo config -> failed/unknown, never no-remote ---"
+
+setup_remote_and_clone
+pushd "$TEST_LOCAL" > /dev/null || exit 1
+setup_pick_own_cli
+echo "pending" > t65_pending.txt
+git add t65_pending.txt .aitask-scripts/
+git commit -m "commit that cannot be reconciled" --quiet
+reload_task_utils
+_AIT_DATA_WORKTREE="."
+echo '[core' >> .git/config
+
+rc65=0
+git remote >/dev/null 2>&1 || rc65=$?
+TOTAL=$((TOTAL + 1))
+if [[ $rc65 -ne 0 ]]; then PASS=$((PASS + 1)); else FAIL=$((FAIL + 1)); echo "FAIL: 65: precondition — 'git remote' fails in the fixture"; fi
+
+task_sync 2>"$TEST_TMPDIR/t65_sync_err.txt"
+sync_rc=$?
+sync_err="$(cat "$TEST_TMPDIR/t65_sync_err.txt")"
+assert_success "65 sync: returns 0 (best-effort)" "$sync_rc"
+assert_eq "65 sync: TASK_SYNC_STATUS is failed" "failed" "$TASK_SYNC_STATUS"
+assert_eq "65 sync: TASK_SYNC_REASON is unknown" "unknown" "$TASK_SYNC_REASON"
+assert_contains "65 sync: warns that the sync failed" "sync failed" "$sync_err"
+assert_contains "65 sync: ... with git's diagnostic" "bad config line" "$sync_err"
+
+task_data_converge "test" 2>"$TEST_TMPDIR/t65_conv_err.txt"
+conv_rc=$?
+conv_err="$(cat "$TEST_TMPDIR/t65_conv_err.txt")"
+assert_success "65 converge: returns 0 (best-effort)" "$conv_rc"
+assert_eq "65 converge: TASK_CONVERGE_STATUS is failed" "failed" "$TASK_CONVERGE_STATUS"
+assert_eq "65 converge: TASK_CONVERGE_REASON is unknown" "unknown" "$TASK_CONVERGE_REASON"
+assert_contains "65 converge: warns that it did not converge" "not converged [failed]" "$conv_err"
+assert_contains "65 converge: ... with git's diagnostic" "bad config line" "$conv_err"
+assert_contains "65 converge: ... and the caller context" "(test)" "$conv_err"
+
+task_push 2>"$TEST_TMPDIR/t65_push_err.txt"
+push_rc=$?
+push_err="$(cat "$TEST_TMPDIR/t65_push_err.txt")"
+assert_success "65 push: returns 0 (best-effort)" "$push_rc"
+assert_eq "65 push: TASK_PUSH_STATUS is failed" "failed" "$TASK_PUSH_STATUS"
+assert_eq "65 push: TASK_PUSH_REASON is unknown" "unknown" "$TASK_PUSH_REASON"
+assert_contains "65 push: ... with git's diagnostic" "bad config line" "$push_err"
+
+sync_out="$(./.aitask-scripts/aitask_pick_own.sh --sync 2>"$TEST_TMPDIR/t65_pickown_err.txt")"
+sync_rc=$?
+assert_success "65 pick_own --sync: returns 0" "$sync_rc"
+assert_eq "65 pick_own --sync: prints SYNC_FAILED:unknown" "SYNC_FAILED:unknown" "$sync_out"
+assert_contains "65 pick_own --sync: git's diagnostic on stderr" "bad config line" \
+    "$(cat "$TEST_TMPDIR/t65_pickown_err.txt")"
+
+popd > /dev/null || exit 1
+
+# Control: a genuinely remote-less repo still reads as no-remote, in silence
+# (Test 33 is the same control for task_data_converge).
+setup_remote_and_clone
+pushd "$TEST_LOCAL" > /dev/null || exit 1
+reload_task_utils
+_AIT_DATA_WORKTREE="."
+git remote remove origin
+task_sync 2>"$TEST_TMPDIR/t65_ctl_err.txt"
+assert_eq "65 control: no remote is no-remote" "no-remote" "$TASK_SYNC_STATUS"
+assert_eq "65 control: no remote is silent" "" "$(cat "$TEST_TMPDIR/t65_ctl_err.txt")"
+popd > /dev/null || exit 1
+
 # --- Summary ---
 echo ""
 echo "=== Results: $PASS passed, $FAIL failed, $TOTAL total ==="

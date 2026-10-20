@@ -1183,8 +1183,19 @@ task_sync() {
     TASK_SYNC_UNPULLED=""
     TASK_SYNC_AUTOMERGED=""
 
+    # A remote probe that FAILED is not "no remote" (t2070): report it with
+    # git's own line, the same way task_push does.
+    if ! _task_remote_probe; then
+        TASK_SYNC_STATUS="failed"
+        TASK_SYNC_REASON="unknown"
+        TASK_SYNC_UNPUSHED="$(_task_push_unpushed_count)"
+        TASK_SYNC_UNPULLED="$(_task_sync_unpulled_count)"
+        _task_sync_warn "$_TASK_REMOTE_DETAIL" ""
+        return 0
+    fi
+
     # No remote at all (solo / offline-only repo): nothing to reconcile.
-    if ! _task_push_has_remote; then
+    if [[ -z "$_TASK_REMOTE_LIST" ]]; then
         TASK_SYNC_STATUS="no-remote"
         return 0
     fi
@@ -1325,30 +1336,20 @@ task_push() {
     TASK_PUSH_AUTOMERGED=""
     assert_data_worktree_clean push
 
-    # A remote probe that FAILED is not an empty remote list (t2063). Git
-    # refuses every command when it cannot read its configuration — a `-c`
-    # without a section, a `--config-env` naming an unset variable — and
-    # _task_push_has_remote would read that refusal as "no remote" and skip the
-    # pending upload in silence. Report it with git's own line instead.
-    #
-    # ONE query on the normal path: its stdout decides "no remote". Only a
-    # failed query runs again, for its stderr — a configuration error is
-    # deterministic, so the rerun says what the first one hit.
-    local remote_list="" remote_err="" remote_rc=0
-    remote_list="$(_task_push_git remote 2>/dev/null)" || remote_rc=$?
-    if [[ $remote_rc -ne 0 ]]; then
-        remote_err="$(_task_push_git remote 2>&1 >/dev/null || true)"
-        remote_err="$(_task_push_first_line "$remote_err")"
+    # A remote probe that FAILED is not an empty remote list (t2063): a `-c`
+    # without a section or a `--config-env` naming an unset variable makes git
+    # refuse every command. Report it with git's own line instead.
+    if ! _task_remote_probe; then
         TASK_PUSH_STATUS="failed"
         TASK_PUSH_REASON="unknown"
         TASK_PUSH_UNPUSHED="$(_task_push_unpushed_count)"
-        _task_push_warn " (git: ${remote_err:-'git remote' exited ${remote_rc}})"
+        _task_push_warn "$_TASK_REMOTE_DETAIL"
         return 0
     fi
 
     # No remote at all (solo / offline-only repo): nothing to push to and
     # nothing at risk — stay silent.
-    if [[ -z "$remote_list" ]]; then
+    if [[ -z "$_TASK_REMOTE_LIST" ]]; then
         TASK_PUSH_STATUS="no-remote"
         return 0
     fi
@@ -1959,9 +1960,28 @@ _task_push_upstream() {
     _task_push_git rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null || true
 }
 
-# Internal: true when at least one git remote is configured.
-_task_push_has_remote() {
-    [[ -n "$(_task_push_git remote 2>/dev/null || true)" ]]
+# Internal: query the configured remotes ONCE (t2063, t2070). Unlike the probes
+# above this one returns non-zero, because its answer gates a skip: a query that
+# FAILED is not an empty remote list. Git refuses every command when it cannot
+# read its configuration, and reading that refusal as "no remote" skipped the
+# pending push / sync / converge in silence. Call it as `if ! _task_remote_probe`.
+#   _TASK_REMOTE_LIST   — `git remote`'s stdout; empty means "no remote" only
+#                         when the probe returned 0
+#   _TASK_REMOTE_DETAIL — on failure, " (git: <git's first line>)"
+# Only a failed query runs again, for its stderr — a configuration error is
+# deterministic, so the rerun says what the first one hit.
+_TASK_REMOTE_LIST=""
+_TASK_REMOTE_DETAIL=""
+_task_remote_probe() {
+    local rc=0 err=""
+    _TASK_REMOTE_LIST=""
+    _TASK_REMOTE_DETAIL=""
+    _TASK_REMOTE_LIST="$(_task_push_git remote 2>/dev/null)" || rc=$?
+    [[ $rc -eq 0 ]] && return 0
+    err="$(_task_push_git remote 2>&1 >/dev/null || true)"
+    err="$(_task_push_first_line "$err")"
+    _TASK_REMOTE_DETAIL=" (git: ${err:-'git remote' exited ${rc}})"
+    return 1
 }
 
 # Internal: first non-blank line of a captured git output blob.
@@ -2152,8 +2172,18 @@ task_data_converge() {
     TASK_CONVERGE_AHEAD=""
     TASK_CONVERGE_BEHIND=""
 
+    # A remote probe that FAILED is not "no remote" (t2070).
+    if ! _task_remote_probe; then
+        TASK_CONVERGE_STATUS="failed"
+        TASK_CONVERGE_REASON="unknown"
+        TASK_CONVERGE_AHEAD="$(_task_push_unpushed_count)"
+        TASK_CONVERGE_BEHIND="$(_task_sync_unpulled_count)"
+        _task_converge_warn "$context" "$_TASK_REMOTE_DETAIL"
+        return 0
+    fi
+
     # No remote at all (solo / offline-only repo): nothing to reconcile.
-    if ! _task_push_has_remote; then
+    if [[ -z "$_TASK_REMOTE_LIST" ]]; then
         TASK_CONVERGE_STATUS="no-remote"
         return 0
     fi
@@ -2268,8 +2298,9 @@ task_data_converge() {
 
 # Internal: emit the user-facing warning for a non-success converge cycle.
 # Mirrors _task_sync_warn (:354). Success statuses emit nothing.
+#   $1 = caller context, $2 = detail suffix (e.g. " (git: <line>)"), optional
 _task_converge_warn() {
-    local context="${1:-}" upstream hint
+    local context="${1:-}" detail="${2:-}" upstream hint
     upstream="$(_task_push_upstream)"
     if [[ -n "$upstream" ]]; then
         upstream=" with ${upstream}"
@@ -2284,14 +2315,14 @@ _task_converge_warn() {
     # about a state where the counts are simply UNKNOWN. Say so instead, exactly
     # as _task_sync_warn does.
     if [[ -z "$TASK_CONVERGE_AHEAD" && -z "$TASK_CONVERGE_BEHIND" ]]; then
-        warn "task data not converged [${TASK_CONVERGE_STATUS}]${upstream} (unreconciled commit counts unavailable) — ${hint}${context}"
+        warn "task data not converged [${TASK_CONVERGE_STATUS}]${upstream} (unreconciled commit counts unavailable) — ${hint}${detail}${context}"
         return 0
     fi
 
     # Name the status: unlike _task_sync_warn, which only ever reports "failed",
     # this one line carries three distinct non-success outcomes (blocked /
     # diverged / failed) and the hint alone does not separate them.
-    warn "task data not converged [${TASK_CONVERGE_STATUS}]${upstream}: ${TASK_CONVERGE_AHEAD:-0} local unpushed, ${TASK_CONVERGE_BEHIND:-0} remote unpulled — ${hint}${context}"
+    warn "task data not converged [${TASK_CONVERGE_STATUS}]${upstream}: ${TASK_CONVERGE_AHEAD:-0} local unpushed, ${TASK_CONVERGE_BEHIND:-0} remote unpulled — ${hint}${detail}${context}"
 }
 
 # --- YAML List Parsing ---
