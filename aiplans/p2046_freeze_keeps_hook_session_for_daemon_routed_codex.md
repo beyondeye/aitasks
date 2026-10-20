@@ -183,3 +183,65 @@ behaviour to check live.
   track the real capability as a separate follow-up. Residual: daemon-routed
   codex restores only by re-pick until that follow-up lands · severity: low ·
   → mitigation: follow-up task from step 5
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-20 10:45)
+- **Requested by user (review finding):**
+  - The fallback's `_capture_codex_session` call re-probed `/proc`.
+  - Sequence: the first read was `MISS_NO_MATCH`, so the upsert omitted the id.
+    The second read was `MISS_NO_PROCESS` (the process exited or turned
+    unreadable in between). Capture then returned without clearing, so the
+    legacy id and transcript survived.
+  - Requested fix: keep the first disproof through the invalidation, and add a
+    sequential-observation test.
+- **Changes made:**
+  - `_capture_codex_session` gained an optional `observation` parameter (an
+    `_observe_codex_session` result the caller already holds). `_resolve_record`
+    passes its own observation through, so there is no re-probe.
+  - This is exact: a disproving miss carries no session, so the stored-record
+    argument cannot change the decision.
+  - New test `test_an_unstamped_pane_keeps_its_first_disproof_through_the_clear`
+    returns `MISS_NO_MATCH`, then `MISS_NO_PROCESS`. It is red before the change
+    and kills the "drop `observation=`" mutant. The earlier three mutants are
+    still killed.
+- **Files affected:** `.aitask-scripts/lib/agent_freeze.py`, `tests/test_agent_freeze.py`
+
+## Final Implementation Notes
+- **Actual work done:**
+  - Re-scoped in planning. t2047 (00322dab0) landed mid-planning and makes the
+    hook record nothing for daemon-routed codex, so the task's "keep the id" goal
+    became moot and unsafe; the user chose to close it by documenting the
+    limitation.
+  - Implemented: the stale comments in `agent_sessions.py` / `agent_freeze.py`,
+    the unstamped-fallback fix in `_resolve_record` (found in plan review), the
+    no-re-probe capture (found in code review), 5 tests, one doc sentence in
+    `freeze-and-restore-agents.md`, and follow-up **t2076** (reliable
+    pane-to-conversation mapping for daemon-routed codex).
+- **Deviations from plan:**
+  - Plan review added the unstamped-fallback fix (step 3).
+  - Code review added the `observation=` pass-through, so the clear acts on the
+    first disproof (Change Request 1).
+  - The planned "after" live-check mitigation was dropped with the re-scope:
+    there is no new keep-behaviour to check live.
+  - Launching a live codex for measurement was refused by the permission
+    classifier, so no live run was made in this session.
+- **Issues encountered:**
+  - Two t2047 notes arrived after the pick and changed the premise. They were
+    verified against main (`aitask_session_hook.sh` §5b) and acknowledged.
+- **Key decisions:**
+  - Rejected both candidate fixes from the task:
+    - "hook vouch": after t2047 there is no hook evidence, and a pre-t2047
+      stamp may name the wrong pane;
+    - "the daemon holds the rollout": the daemon holds every routed pane's
+      rollout, so membership is not attribution.
+  - Split the disproving misses:
+    - `_CODEX_FD_DISPROOFS` (`no_match`, `ambiguous`) also drop the pane stamp
+      on the unstamped path;
+    - `not_codex` keeps it, because another agent's hook id is valid there.
+  - The capture accepts an existing observation instead of re-probing.
+  - Static facts (from the 0.163.0 binary and the local `daemon.pid`) are
+    recorded in t2076 for the real capability: the control socket path, and
+    `processIdentity` = (boot_id, `/proc/<pid>/stat` field 22).
+- **Upstream defects identified:**
+  - `.aitask-scripts/lib/agent_sessions.py:1951 (codex_session_for_pid, depth-0 only)` + `.aitask-scripts/lib/agent_freeze.py:_CODEX_DISPROVING_MISSES` — a codex typed at a shell prompt in an aitasks pane has the SHELL as its pane pid. The observation therefore returns `MISS_NOT_CODEX`, and the freeze clears a codex id that the hook validly recorded (an in-process TUI passes t2047's ancestry walk). The restore then degrades to re-pick. Found by code reading, not measured live.
