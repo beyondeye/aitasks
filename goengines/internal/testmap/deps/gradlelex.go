@@ -1,6 +1,7 @@
 package deps
 
 import (
+	"bytes"
 	"strings"
 	"unicode/utf8"
 )
@@ -18,8 +19,14 @@ import (
 // unblanked: the scanner then over-reads and never hides a dependency.
 // kotlinfamily_test.go pins how the kts mode reads each Kotlin construct
 // against the other two Kotlin-family lexers; a construct change here needs
-// its row there.
+// its row there. A Kotlin script with a lone CR fails too, as in ktLex:
+// kotlinc reads it as a newline, a // comment here ends only at \n.
 func blankGradleComments(src string, kts bool) (out string, failAt int) {
+	if kts {
+		if at := loneCR(src); at >= 0 {
+			return src, at
+		}
+	}
 	l := &gradleLexer{b: []byte(src), kts: kts, failAt: -1}
 	l.shebang()
 	if !l.code(false, 0) {
@@ -90,15 +97,26 @@ func isGradleIdent(c byte, kts bool) bool {
 }
 
 // shebang blanks the script header: Groovy's SH_COMMENT is every leading #!
-// line, a Kotlin script has one.
+// line, a Kotlin script has one — after the byte-order mark kotlinc strips,
+// and only when a newline ends it, as in ktLex.
 func (l *gradleLexer) shebang() {
+	if l.kts {
+		i := len(l.b) - len(bytes.TrimPrefix(l.b, []byte("\ufeff")))
+		if bytes.HasPrefix(l.b[i:], []byte("#!")) {
+			if j := bytes.IndexByte(l.b[i:], '\n'); j >= 0 {
+				l.i = i
+				l.blank(i + j)
+			}
+		}
+		return
+	}
 	for l.at(0) == '#' && l.at(1) == '!' {
 		j := l.i
 		for j < len(l.b) && l.b[j] != '\n' {
 			j++
 		}
 		l.blank(j)
-		if l.kts || l.at(1) != '#' || l.at(2) != '!' {
+		if l.at(1) != '#' || l.at(2) != '!' {
 			return
 		}
 		l.i++

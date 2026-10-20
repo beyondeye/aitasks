@@ -340,12 +340,30 @@ var kotlinFamilyCases = []familyCase{
 		want:     [3]familyOutcome{modelled, modelled, modelled},
 	},
 	{
+		// kotlinc strips the byte-order mark before lexing, so the header
+		// still starts at offset 0 (t2030: K2JVMCompiler compiles it).
+		name: "shebang_bom", rule: "SHEBANG_COMMENT after a byte-order mark",
+		src:  "\ufeff#!/usr/bin/env -S kotlin -J-Dtag={\npackage p\nclass Actual\n// probe: a real comment\nval probe = 1\n",
+		open: ".....", classes: "ccc#c", anchors: "package=2 import=0",
+		tokens:   "n@2:package n@2:p n@3:class n@3:Actual n@5:val n@5:probe o@5:= d@5:1",
+		comments: "3-37,61-85",
+		want:     [3]familyOutcome{modelled, modelled, modelled},
+	},
+	{
 		name: "shebang_brace", rule: "SHEBANG_COMMENT holding {",
 		src:  "#!/usr/bin/env -S kotlin -J-Dtag={\npackage p\nclass Actual\n// probe: a real comment\nval probe = 1\n",
 		open: ".....", classes: "ccc#c", anchors: "package=2 import=0",
 		tokens:   "n@2:package n@2:p n@3:class n@3:Actual n@5:val n@5:probe o@5:= d@5:1",
 		comments: "0-34,58-82",
-		want:     [3]familyOutcome{differs(".....", "ccc#c package=0 import=0", "shebang not modelled: its { hides the package line from the anchors (t2030)"), differs(".....", "o@1:# o@1:! o@1:/ n@1:usr o@1:/ n@1:bin o@1:/ n@1:env o@1:- n@1:S n@1:kotlin o@1:- n@1:J o@1:- n@1:Dtag o@1:= o@1:{ n@2:package n@2:p n@3:class n@3:Actual n@5:val n@5:probe o@5:= d@5:1", "shebang not modelled: its { hides the package clause and every declaration from scanKotlin (t2030)"), modelled},
+		want:     [3]familyOutcome{modelled, modelled, modelled},
+	},
+	{
+		name: "shebang_indented", rule: "SHEBANG_COMMENT only at offset 0",
+		src:  " #!/usr/bin/env kotlin\n// probe: a real comment\nval probe = 1\n",
+		open: "...", classes: "c#c", anchors: "package=0 import=0",
+		tokens:   "o@1:# o@1:! o@1:/ n@1:usr o@1:/ n@1:bin o@1:/ n@1:env n@1:kotlin n@3:val n@3:probe o@3:= d@3:1",
+		comments: "23-47",
+		want:     [3]familyOutcome{modelled, modelled, modelled},
 	},
 	{
 		name: "shebang_paren", rule: "SHEBANG_COMMENT holding (",
@@ -353,7 +371,7 @@ var kotlinFamilyCases = []familyCase{
 		open: ".....", classes: "ccc#c", anchors: "package=2 import=0",
 		tokens:   "n@2:package n@2:p n@3:class n@3:Actual n@5:val n@5:probe o@5:= d@5:1",
 		comments: "0-34,58-82",
-		want:     [3]familyOutcome{modelled, differs(".....", "o@1:# o@1:! o@1:/ n@1:usr o@1:/ n@1:bin o@1:/ n@1:env o@1:- n@1:S n@1:kotlin o@1:- n@1:J o@1:- n@1:Dtag o@1:= o@1:( n@2:package n@2:p n@3:class n@3:Actual n@5:val n@5:probe o@5:= d@5:1", "shebang not modelled: its ( hides every declaration from scanKotlin (t2030)"), modelled},
+		want:     [3]familyOutcome{modelled, modelled, modelled},
 	},
 	{
 		name: "shebang_plain", rule: "SHEBANG_COMMENT",
@@ -361,7 +379,15 @@ var kotlinFamilyCases = []familyCase{
 		open: "...", classes: "c#c", anchors: "package=0 import=0",
 		tokens:   "n@3:val n@3:probe o@3:= d@3:1",
 		comments: "0-21,22-46",
-		want:     [3]familyOutcome{modelled, differs("...", "o@1:# o@1:! o@1:/ n@1:usr o@1:/ n@1:bin o@1:/ n@1:env n@1:kotlin n@3:val n@3:probe o@3:= d@3:1", "shebang not modelled: its line is read as code tokens (t2030)"), modelled},
+		want:     [3]familyOutcome{modelled, modelled, modelled},
+	},
+	{
+		name: "shebang_second_line", rule: "one SHEBANG_COMMENT line only",
+		src:  "#!/usr/bin/env kotlin\n#!x {\npackage p\nclass Actual\n// probe: a real comment\nval probe = 1\n",
+		open: "......", classes: "cccc#c", anchors: "package=0 import=0",
+		tokens:   "o@2:# o@2:! n@2:x o@2:{ n@3:package n@3:p n@4:class n@4:Actual n@6:val n@6:probe o@6:= d@6:1",
+		comments: "0-21,51-75",
+		want:     [3]familyOutcome{modelled, modelled, modelled},
 	},
 	{
 		name: "shebang_slash_star", rule: "SHEBANG_COMMENT holding /*",
@@ -369,7 +395,16 @@ var kotlinFamilyCases = []familyCase{
 		open: "...", classes: "c#c", anchors: "package=0 import=0",
 		tokens:   "n@3:val n@3:probe o@3:= d@3:1",
 		comments: "0-34,35-59",
-		want:     [3]familyOutcome{refuses("shebang not modelled: its /* opens a comment that never closes (t2030)"), refuses("shebang not modelled: its /* opens a comment that never closes (t2030)"), modelled},
+		want:     [3]familyOutcome{modelled, modelled, modelled},
+	},
+	{
+		// SHEBANG_COMMENT needs the newline that ends its line.
+		name: "shebang_unterminated", rule: "#! with no newline is code",
+		src:  "#!/usr/bin/env kotlin",
+		open: ".", classes: "c", anchors: "package=0 import=0",
+		tokens:   "o@1:# o@1:! o@1:/ n@1:usr o@1:/ n@1:bin o@1:/ n@1:env n@1:kotlin",
+		comments: "",
+		want:     [3]familyOutcome{modelled, modelled, modelled},
 	},
 	{
 		name: "short_template_backticked", rule: "SHORT_TEMPLATE_ENTRY + ESCAPED_IDENTIFIER in STRING",

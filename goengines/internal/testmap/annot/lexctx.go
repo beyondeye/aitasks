@@ -1,6 +1,7 @@
 package annot
 
 import (
+	"bytes"
 	"go/scanner"
 	"go/token"
 	"strings"
@@ -56,7 +57,7 @@ func Classify(l Lang, data []byte) Context {
 	case Python.Name:
 		return classifyPython(lines)
 	case Kotlin.Name:
-		return classifyKotlin(lines)
+		return classifyKotlin(data, lines)
 	default:
 		return classifyBash(lines)
 	}
@@ -780,6 +781,11 @@ func classifyPython(lines []string) Context {
 // 'r' """…""", 'b' a block comment. deps/kotlinfamily_test.go pins how
 // classifyKotlin reads each Kotlin construct against the deps package's two
 // Kotlin lexers; a construct change here needs its row there.
+//
+// A script header (Kotlin.flex SHEBANG_COMMENT: a #! line 1, after the
+// byte-order mark kotlinc strips, that a newline ends) is code that opens
+// nothing — never an annotation line. A lone CR makes the file uncertain:
+// kotlinc reads it as a newline, but lines here split at \n only.
 type kframe struct {
 	kind    byte
 	depth   int // braces in 't'; nesting in 'b'
@@ -787,15 +793,27 @@ type kframe struct {
 	line    int
 }
 
-func classifyKotlin(lines []string) Context {
+func classifyKotlin(data []byte, lines []string) Context {
 	ctx := Context{Class: make([]LineClass, len(lines))}
+	for i := range data {
+		if data[i] == '\r' && (i+1 == len(data) || data[i+1] != '\n') {
+			ctx.Uncertain = &Unclosed{Line: bytes.Count(data[:i], []byte("\n")) + 1, Construct: "lone carriage return"}
+			markRest(&ctx, 0)
+			return ctx
+		}
+	}
 	stack := []kframe{{kind: 'c'}}
 	skip := bomLen(Kotlin, lines)
+	shebang := len(lines) > 0 && strings.HasPrefix(lines[0][skip:], "#!") &&
+		(len(lines) > 1 || bytes.HasSuffix(data, []byte("\n")))
 	for i, ln := range lines {
 		no := i + 1
 		from := 0 // where the line's text starts: after line 1's byte-order mark
 		if i == 0 {
 			from = skip
+			if shebang {
+				from = len(ln) // the header: nothing in it is lexed
+			}
 		}
 		top := stack[len(stack)-1]
 		switch {

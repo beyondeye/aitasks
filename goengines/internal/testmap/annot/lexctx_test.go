@@ -219,7 +219,33 @@ func TestClassifyKotlin(t *testing.T) {
 		{"short-template-backticks-dollar", "val s = $$\"$$`x\"/*`\"\n// real\n", "c#", 0},
 		{"short-template-below-prefix", "val s = $$\"$`x\" + 1 + '`'\n// real\n", "c#", 0},
 		{"short-template-unclosed-backtick", "val s = \"$`x\"\n// real\n", "c#", 0},
+		// A script header is a comment (SHEBANG_COMMENT), never an annotation
+		// line: its { and /* open nothing, after a byte-order mark too.
+		{"shebang-brace", "#!/x {\npackage a\nimport b.C\n// real\nclass T\n", "ccc#c", 0},
+		{"shebang-slash-star", "#!/x -cp lib/*\n// real\n", "c#", 0},
+		{"shebang-bom", "\ufeff#!/x {\n// real\n", "c#", 0},
+		{"shebang-crlf", "#!/x {\r\n// note\r\npackage p\r\nclass T\r\n", "c#cc", 0},
+		// A #! line no newline ends is code: its /* opens a comment.
+		{"shebang-unterminated", "#!/x /*", "", 1},
+		// kotlinc reads a lone CR as a newline; the lines here split at \n
+		// only, so the file is uncertain rather than misread.
+		{"lone-cr", "#!/x {\r// note\rpackage p\r", "", 1},
+		{"lone-cr-final", "package p\n// note\r", "", 2},
 	})
+	for src, want := range map[string][2]int{
+		"#!/x {\npackage a\nimport b.C\nclass T\n":      {2, 3},
+		"#!/x -cp lib/*\npackage a\nclass T\n":          {2, 0},
+		"\ufeff#!/x {\npackage a\nclass T\n":            {2, 0},
+		"#!/x {\r\n// note\r\npackage p\r\nclass T\r\n": {3, 0},
+	} {
+		c := Classify(Kotlin, []byte(src))
+		if c.Uncertain != nil || c.Package != want[0] || c.Import != want[1] {
+			t.Errorf("%q: package %d import %d uncertain %+v, want %v", src, c.Package, c.Import, c.Uncertain, want)
+		}
+	}
+	if c := Classify(Kotlin, []byte("package p\n// note\r")); c.Uncertain == nil || c.Uncertain.Construct != "lone carriage return" {
+		t.Errorf("lone CR: uncertain %+v", c.Uncertain)
+	}
 	c := Classify(Kotlin, []byte("package a\n\nimport b.C\nimport d.E\n\nclass T {\n  import x\n}\n"))
 	if c.Package != 1 || c.Import != 4 {
 		t.Errorf("package %d import %d", c.Package, c.Import)

@@ -466,8 +466,8 @@ func (f *File) fixedPosition() int {
 		case f.Ctx.Package > 0:
 			return f.Ctx.Package
 		}
-		i := 0
-		if n > 0 && strings.HasPrefix(f.Lines[0], "#!") {
+		i := 0 // the script header, after the byte-order mark kotlinc strips
+		if n > 0 && strings.HasPrefix(f.Lines[0][bomLen(f.Lang, f.Lines):], "#!") {
 			i = 1
 		}
 		for i < n {

@@ -53,7 +53,9 @@ func TestKotlinLexer(t *testing.T) {
 	}
 	for _, bad := range []string{`"open`, "/* never", "\"a\nb\"", "`x", `"${a`,
 		// Multi-dollar strings: the interpolation threshold is not modelled.
-		`$$"""${/*}"""`, `$$"a"`, `"${ $$"x" }"`} {
+		`$$"""${/*}"""`, `$$"a"`, `"${ $$"x" }"`,
+		// A lone CR: kotlinc reads it as a newline, the line rules here do not.
+		"// a\rclass B", "val a = 1\r", "#!/x {\rpackage p\r"} {
 		if _, err := ktLex(bad); err == nil {
 			t.Errorf("%q tokenized", bad)
 		}

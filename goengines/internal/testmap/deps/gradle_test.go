@@ -230,6 +230,21 @@ var gradleLexCases = []gradleLexCase{
 	{name: "line-continuation", src: lines(`def a = 1 + \`, `2`)},
 	{name: "stray-backslash", src: lines(`def a = foo \ bar`), dynamic: []string{"untokenizable:1"}},
 	{name: "shebang", src: lines(`#!/usr/bin/env groovy`, `implementation project(':lib')`), refs: []string{":lib"}},
+	// Groovy's SH_COMMENT is every leading #! line; a Kotlin script has one.
+	{name: "shebang-groovy-run", src: lines(`#!/usr/bin/env groovy`, `#! project(':gone')`, `implementation project(':lib')`), refs: []string{":lib"}},
+	{name: "kts-shebang-second-line", kts: true, src: lines(`#!/usr/bin/env kotlin`, `#! project(":kept")`), refs: []string{":kept"}},
+	// kotlinc strips the byte-order mark, so the header after it is still one.
+	{name: "kts-shebang-bom", kts: true, src: "\ufeff" + lines(`#!/usr/bin/env -S kotlin -cp lib/*`,
+		`dependencies { implementation(project(":a")) }`), refs: []string{":a"}},
+	{name: "kts-shebang-crlf", kts: true, src: "#!/x {\r\n// project(\":c\")\r\ndependencies { implementation(project(\":a\")) }\r\n", refs: []string{":a"}},
+	// kotlinc reads a lone CR as a newline; the // rule here ends only at
+	// \n, so the script fails closed and is read whole.
+	{name: "kts-lone-cr", kts: true, src: "// project(\":c\")\rdependencies { implementation(project(\":a\")) }\r",
+		refs: []string{":c", ":a"}, dynamic: []string{"untokenizable:1"}},
+	{name: "kts-lone-cr-shebang", kts: true, src: "#!/x {\r// project(\":c\")\rdependencies { implementation(project(\":a\")) }\r",
+		refs: []string{":c", ":a"}, dynamic: []string{"untokenizable:1"}},
+	{name: "kts-lone-cr-final", kts: true, src: "dependencies { implementation(project(\":a\")) }\n// c\r",
+		refs: []string{":a"}, dynamic: []string{"untokenizable:2"}},
 	{name: "kts-raw-string-backslash", kts: true, src: lines(
 		`val p = """C:\"""`,
 		`val g = """**/*.kt"""`,

@@ -2,6 +2,7 @@ package deps
 
 import (
 	"errors"
+	"strings"
 	"unicode"
 	"unicode/utf8"
 )
@@ -26,8 +27,16 @@ var errUntokenizable = errors.New("untokenizable")
 // opaque. kotlinfamily_test.go pins how it reads each Kotlin construct against
 // the other two Kotlin-family lexers; a construct change here needs its row
 // there.
+//
+// A leading script header (Kotlin.flex SHEBANG_COMMENT) is skipped. A lone CR
+// is an error: kotlinc reads it as a newline, but a // comment here ends only
+// at \n and would swallow the code after it.
 func ktLex(src string) ([]ktok, error) {
+	if loneCR(src) >= 0 {
+		return nil, errUntokenizable
+	}
 	l := &ktLexer{src: src, line: 1}
+	l.shebang()
 	if err := l.code(false); err != nil {
 		return l.toks, err
 	}
@@ -39,6 +48,30 @@ type ktLexer struct {
 	i    int
 	line int
 	toks []ktok
+}
+
+// shebang skips the script header: Kotlin.flex's SHEBANG_COMMENT is a #!
+// line at offset 0 — after the byte-order mark kotlinc strips — that a
+// newline ends (one without a newline is code). The newline stays for code
+// to count.
+func (l *ktLexer) shebang() {
+	i := len(l.src) - len(strings.TrimPrefix(l.src, "\ufeff"))
+	if !strings.HasPrefix(l.src[i:], "#!") {
+		return
+	}
+	if j := strings.IndexByte(l.src[i:], '\n'); j >= 0 {
+		l.i = i + j
+	}
+}
+
+// loneCR returns the index of the first \r that no \n follows, or -1.
+func loneCR(s string) int {
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\r' && (i+1 == len(s) || s[i+1] != '\n') {
+			return i
+		}
+	}
+	return -1
 }
 
 func (l *ktLexer) emit(kind byte, text string, line int) {

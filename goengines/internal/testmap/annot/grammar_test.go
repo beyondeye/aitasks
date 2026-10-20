@@ -91,6 +91,27 @@ func TestLookalikesAreNeverRead(t *testing.T) {
 	}
 }
 
+// A Kotlin script header is a comment: a /* in it no longer makes the file
+// uncertain, so its annotations are read, under CRLF too. A lone CR is a
+// line break to kotlinc but not here: the file is refused, never misread.
+func TestKotlinShebangAnnotations(t *testing.T) {
+	const lf = "#!/usr/bin/env -S kotlin -cp lib/*\npackage p\nimport q.R\n// testmap:covers src/a.kt\nclass T\n"
+	for name, src := range map[string]string{"lf": lf, "crlf": strings.ReplaceAll(lf, "\n", "\r\n")} {
+		f, err := ParseFile("tests/S.kts", []byte(src))
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if got := strings.Join(coverSources(f), ","); got != ":src/a.kt" {
+			t.Errorf("%s: read %s", name, got)
+		}
+	}
+	f, err := ParseFile("tests/S.kts", []byte(strings.ReplaceAll(lf, "\n", "\r")))
+	var se *SyntaxError
+	if !errors.As(err, &se) || !strings.Contains(se.Reason, "lone carriage return") {
+		t.Errorf("lone CR: file %v error %v, want a lone carriage return SyntaxError", f, err)
+	}
+}
+
 func TestParseDocstringAndBlocks(t *testing.T) {
 	data, _ := os.ReadFile("testdata/parse/python_docstring.py.in")
 	f, err := ParseFile("tests/test_x.py", data)

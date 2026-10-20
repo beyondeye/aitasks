@@ -2,6 +2,7 @@ package deps
 
 import (
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -434,6 +435,51 @@ func TestKotlinDelegatedPropertyImport(t *testing.T) {
 	requireEdge(t, g, "src/c/User.kt", "src/b/Net.kt", Import, "import")
 	if u, _ := g.Facts("src/c/User.kt"); slices.Contains(u.Unresolved, "com.x.b.retrofit") {
 		t.Errorf("unresolved: %v", u.Unresolved)
+	}
+}
+
+// A script header is a comment (Kotlin.flex SHEBANG_COMMENT): a { or ( in it
+// must not hide the package or the declarations. A lone CR, which kotlinc
+// reads as a newline and ktLex's line rules do not, fails closed instead of
+// letting a // comment swallow what follows it.
+func TestKotlinShebang(t *testing.T) {
+	const decls = "package p\nclass Actual\n"
+	for name, tc := range map[string]struct {
+		src     string
+		pkg     string
+		symbols []string
+		opaque  []string
+	}{
+		"brace":      {"#!/usr/bin/env -S kotlin -J-Dtag={\n" + decls, "p", []string{"class:Actual"}, nil},
+		"paren":      {"#!/usr/bin/env -S kotlin -J-Dtag=(\n" + decls, "p", []string{"class:Actual"}, nil},
+		"slash-star": {"#!/usr/bin/env -S kotlin -cp lib/*\n" + decls, "p", []string{"class:Actual"}, nil},
+		"bom":        {"\ufeff#!/usr/bin/env -S kotlin -J-Dtag={\n" + decls, "p", []string{"class:Actual"}, nil},
+		"crlf":       {"#!/x {\r\n// note\r\npackage p\r\nclass Actual\r\n", "p", []string{"class:Actual"}, nil},
+		"lone-cr":    {"#!/x {\r// note\rpackage p\rclass Actual\r", "", nil, []string{"untokenizable"}},
+		// Without a header too: the // comment ran to the end of the file.
+		"lone-cr-no-shebang": {"// note\rpackage p\rclass Actual\r", "", nil, []string{"untokenizable"}},
+		"lone-cr-final":      {"package p\nclass Actual\r", "", nil, []string{"untokenizable"}},
+		// Controls: no header, and a #! line no newline ends, which is code.
+		"none":         {decls, "p", []string{"class:Actual"}, nil},
+		"unterminated": {"#!a {", "", nil, nil},
+	} {
+		raw := scanKotlin([]byte(tc.src))
+		var symbols []string
+		for _, s := range raw.Symbols {
+			symbols = append(symbols, s.Kind+":"+s.Name)
+		}
+		if raw.Kt.Package != tc.pkg || !slices.Equal(symbols, tc.symbols) || !slices.Equal(raw.Opaque, tc.opaque) {
+			t.Errorf("%s: package %q symbols %v opaque %v, want %q %v %v", name, raw.Kt.Package, symbols, raw.Opaque, tc.pkg, tc.symbols, tc.opaque)
+		}
+	}
+	// CRLF keeps every line number.
+	toks, err := ktLex("#!/x {\r\n// note\r\npackage p\r\nclass Actual\r\n")
+	var got []string
+	for _, k := range toks {
+		got = append(got, k.text+"@"+strconv.Itoa(k.line))
+	}
+	if want := []string{"package@3", "p@3", "class@4", "Actual@4"}; err != nil || !slices.Equal(got, want) {
+		t.Errorf("crlf tokens %v %v, want %v", got, err, want)
 	}
 }
 
