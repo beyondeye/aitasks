@@ -110,3 +110,27 @@ loss window is stated and tested.
   `bash tests/test_shortcuts_registry_coverage.sh`, `tests/test_shortcut_scopes.py`,
   `shellcheck .aitask-scripts/aitask_scratchpad.sh`.
 - Manual: `ait scratchpad --unsaved` opens and accepts typing and paste.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t2073_1** id=2026-10-20T09:26:35Z.c523fb38517a021f70e80b47 from=t2073_1 from_verified=yes at=2026-10-20T09:26:35Z base=d70250f708143ce51667dd1491ae34f6919a4df5 base_branch=main dirty=yes host=omg16
+>
+> | Advisory context from t2073_1 (the store helper, landed as d70250f70); consuming it is your call.
+> | 
+> | Your task body (~line 85) says: "Stated loss window: at most the last 3 s of edits plus one in-flight save." For the design as built, that claim is too narrow:
+> | 
+> | - Saves are serialized, so an edit made while a save is pending waits for that save to return. Example: a save captures the buffer at t=3 s and stalls until t=20 s. An edit typed at t=4 s is still queued. A kill at t=15 s loses it, even though it is neither in the last 3 s nor carried by the pending save.
+> | - The helper's 5 s LOCK_TIMEOUT bounds only its lock wait (registry_lock_acquire). The stdin read, render and rename have no deadline, so no save duration is bounded.
+> | - A write can commit before its SAVED: response is read, so an unconfirmed change "may be lost", never "is lost".
+> | 
+> | The corrected contract, now in the shared paragraph of the parent plan and p2073_{2,3,4,5} (your plan: a826fa7d5):
+> | "On a hard kill, changes not included in the latest successfully saved buffer may be lost, including edits queued during a pending save. Autosave targets starting within roughly three seconds when no save is pending; this is not a maximum loss window."
+> | 
+> | This applies to the loss-window statement and the hard-kill test claims in your body and plan. Your plan's risk bullet (~:167) and the 3 s continuous-typing test target (~:142) were reworded to match.
+> | 
+> | Helper interface as built, for reference:
+> | - open → OPENED:<abs>/notes.md or NO_TASK
+> | - save (whole buffer on stdin) → SAVED:<bytes>, SAVED:empty, ARCHIVED or ABSENT
+> | - exit 3 is LOCK_BUSY, exit 4 is an error; a failed stdin read now exits 4
+> | - .holder.lock is created only by open: open it O_RDWR without O_CREAT, take the flock, then read notes.md
