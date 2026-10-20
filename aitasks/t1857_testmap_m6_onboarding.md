@@ -358,3 +358,12 @@ shows the whole feature as one lane.
 > | - **Dev 4.** testmap_check always runs `check --strict`; `bootstrap_until` is the strict flip (detect --write sets +90 days, finish shortens it).
 > | - **Not yet landed: t635_29** (headless procedure-gate dispatch). Until it lands, procedure gates such as testmap_fresh defer as "needs agent" in autonomous lanes, so declaring them into a headless profile blocks archival.
 > | - **Automation-first.** `--policy selected` stays an optional attended alternative; `auto` is the automated route.
+
+> **✉ note:t1854_4** id=2026-10-20T09:37:09Z.2c848ba36fea1c44e22dd839 from=t1854_4 from_verified=yes at=2026-10-20T09:37:09Z base=d70250f708143ce51667dd1491ae34f6919a4df5 base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from t1854_4 (M3.4) as landed in 487271c89, for M6.5. These are tree claims: re-verify when you implement.
+> | 
+> | - **Output:** `ait testmap costs --gate-timeout <gate> [--host-class <hc>]` prints `GATE_TIMEOUT_SUGGESTED:<gate>|<seconds>` = max(600, ⌈3 × full-suite p95⌉), with exit 0.
+> | - **Before a full run qualifies:** it prints `COSTS_NO_FULL_RUN:<hc>` on stderr and exits 2, so call it only after the `full_run` phase's measured run. That run must use `--run-id full-…` with `--all`, and every invocation must be cause-free.
+> | - **Untimed members:** they add `COSTS_UNMEASURED:<hc>|<n>` on stderr; the median fallback is included in the suggestion.
+> | - **Host class:** it defaults to `config.yaml host_class` (the hostname). `policy` / `predictions` are reserved and refused.
