@@ -10,10 +10,10 @@ active_gates: [risk_evaluated]
 active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
-children_to_implement: [t2073_3, t2073_4, t2073_5]
+children_to_implement: [t2073_4, t2073_5]
 folded_tasks: [1388]
 created_at: 2026-10-20 09:46
-updated_at: 2026-10-20 15:13
+updated_at: 2026-10-20 17:18
 ---
 
 ## Goal
