@@ -468,13 +468,17 @@ test_command_exit_contract() {
         assert_eq "$label d: exit 1 under opt-in -> exit 1" "1" "$RC"
         assert_contains "$label d: ledger fail" "status=fail" "$(cat "$d/aitasks/t73_x.md")"
 
-        # (e) an unexpected non-zero is NOT laundered into a skip
+        # (e) exit 3 under opt-in is the contract's framework ERROR (t1859_1),
+        #     never laundered into a skip -- and no longer a fail either
         d="$(new_fixture)"; write_task "$d" 74
         printf '%s: "exit 3"\ngate_command_exit_contract: [%s]\n' "$key" "$key" | write_config "$d"
         run_verifier "$d" "$v" 74 1 "rthree"
-        assert_eq "$label e: exit 3 under opt-in -> exit 1" "1" "$RC"
-        assert_contains "$label e: ledger fail" "status=fail" "$(cat "$d/aitasks/t74_x.md")"
+        assert_eq "$label e: exit 3 under opt-in -> exit 3" "3" "$RC"
+        assert_contains "$label e: ledger error" "status=error" "$(cat "$d/aitasks/t74_x.md")"
+        assert_contains "$label e: result names the reason" \
+            "Result: command_errored (exit 3): exit 3" "$(cat "$d/aitasks/t74_x.md")"
         assert_eq "$label e: no skip recorded" "0" "$(count_status "$d" 74 skip)"
+        assert_eq "$label e: no fail recorded" "0" "$(count_status "$d" 74 fail)"
     done
 }
 
@@ -717,6 +721,7 @@ test_status_exitcode_agreement() {
             0) expected=pass ;;
             1) expected=fail ;;
             2) expected=skip ;;
+            3) expected=error ;;
             *) expected="<unmapped:$RC>" ;;
         esac
         assert_eq "$1: map_exit($RC) == recorded status" "$expected" "$recorded"
@@ -736,6 +741,408 @@ test_status_exitcode_agreement() {
     d="$(new_fixture)"; write_task "$d" 123
     printf 'verify_build: "exit 2"\ngate_command_exit_contract: [verify_build]\n' | write_config "$d"
     run_verifier "$d" "$BUILD" 123 1 "ra4"; _agree "agree skip(command-driven)" 123
+
+    # t1859_1: the two error rows append a block, so they must agree too
+    d="$(new_fixture)"; write_task "$d" 124
+    printf 'verify_build: "exit 75"\ngate_command_exit_contract: [verify_build]\n' | write_config "$d"
+    run_verifier "$d" "$BUILD" 124 1 "ra5"; _agree "agree error(refused)" 124
+
+    d="$(new_fixture)"; write_task "$d" 125
+    printf 'verify_build: "exit 3"\ngate_command_exit_contract: [verify_build]\n' | write_config "$d"
+    run_verifier "$d" "$BUILD" 125 1 "ra6"; _agree "agree error(errored)" 125
+}
+
+# ============================================================
+# Test 13: the error rows -- 75 and 3, opted-in keys only (t1859_1)
+# ============================================================
+# Per verifier, with its OWN key. The neighbour codes (74, 76, 4) and 64 are the
+# negative controls: they prove each row is an exact match on its own code, so
+# the row that fires is the one under test and not a range or a fallthrough.
+test_error_rows() {
+    echo "=== Test 13: exit 75 / 3 -> error under the opt-in ==="
+    local rows=(
+        "build|$BUILD|verify_build|test_command"
+        "tests|$TESTS|test_command|lint_command"
+        "lint|$LINT|lint_command|verify_build"
+    )
+    local row label v key other d code
+    for row in "${rows[@]}"; do
+        IFS='|' read -r label v key other <<<"$row"
+
+        # opted-in 75 -> error / command_refused
+        d="$(new_fixture)"; write_task "$d" 130
+        printf '%s: "exit 75"\ngate_command_exit_contract: [%s]\n' "$key" "$key" | write_config "$d"
+        run_verifier "$d" "$v" 130 1 "r75"
+        assert_eq "$label: opted-in 75 -> exit 3" "3" "$RC"
+        assert_contains "$label: opted-in 75 -> ledger error" "status=error" "$(cat "$d/aitasks/t130_x.md")"
+        assert_contains "$label: opted-in 75 -> command_refused" \
+            "Result: command_refused (exit 75): exit 75" "$(cat "$d/aitasks/t130_x.md")"
+        assert_contains "$label: opted-in 75 -> log says refused" "refused resources" \
+            "$(cat "$d"/.aitask-gates/130/*_r75.log)"
+
+        # not opted in: 75 and 3 stay ordinary failures
+        for code in 75 3; do
+            d="$(new_fixture)"; write_task "$d" 131
+            printf '%s: "exit %s"\n' "$key" "$code" | write_config "$d"
+            run_verifier "$d" "$v" 131 1 "rno$code"
+            assert_eq "$label: $code without opt-in -> exit 1" "1" "$RC"
+            assert_eq "$label: $code without opt-in -> no error" "0" "$(count_status "$d" 131 error)"
+        done
+
+        # opted in under a DIFFERENT key -> no opt-in for this one
+        d="$(new_fixture)"; write_task "$d" 132
+        printf '%s: "exit 75"\ngate_command_exit_contract: [%s]\n' "$key" "$other" | write_config "$d"
+        run_verifier "$d" "$v" 132 1 "rother75"
+        assert_eq "$label: 75 opted in for another key -> exit 1" "1" "$RC"
+
+        # 64 (usage) and the neighbour codes stay fails under the opt-in
+        for code in 64 74 76 4; do
+            d="$(new_fixture)"; write_task "$d" 133
+            printf '%s: "exit %s"\ngate_command_exit_contract: [%s]\n' "$key" "$code" "$key" | write_config "$d"
+            run_verifier "$d" "$v" 133 1 "rn$code"
+            assert_eq "$label: opted-in $code -> exit 1 (fail)" "1" "$RC"
+            assert_eq "$label: opted-in $code -> no error" "0" "$(count_status "$d" 133 error)"
+        done
+
+        # 2 is untouched: still the opt-in skip
+        d="$(new_fixture)"; write_task "$d" 134
+        printf '%s: "exit 2"\ngate_command_exit_contract: [%s]\n' "$key" "$key" | write_config "$d"
+        run_verifier "$d" "$v" 134 1 "rtwo"
+        assert_eq "$label: opted-in 2 -> still skip" "2" "$RC"
+    done
+}
+
+# ============================================================
+# Test 14: an error short-circuits a command list, and beats a skip
+# ============================================================
+test_error_aggregation() {
+    echo "=== Test 14: error aggregation over a command list ==="
+    local d ran
+
+    d="$(new_fixture)"; write_task "$d" 140
+    cat > "$d/aitasks/metadata/project_config.yaml" <<'EOF'
+verify_build:
+  - "exit 2"
+  - "exit 75"
+  - "touch RAN_THIRD"
+gate_command_exit_contract: [verify_build]
+EOF
+    run_verifier "$d" "$BUILD" 140 1 "re1"
+    assert_eq "skip then 75 -> exit 3" "3" "$RC"
+    assert_eq "skip then 75 -> no skip recorded" "0" "$(count_status "$d" 140 skip)"
+    ran="$([[ -f "$d/RAN_THIRD" ]] && echo ran || echo stopped)"
+    assert_eq "an error short-circuits the list" "stopped" "$ran"
+
+    d="$(new_fixture)"; write_task "$d" 141
+    cat > "$d/aitasks/metadata/project_config.yaml" <<'EOF'
+verify_build:
+  - "true"
+  - "exit 3"
+gate_command_exit_contract: [verify_build]
+EOF
+    run_verifier "$d" "$BUILD" 141 1 "re2"
+    assert_eq "pass then 3 -> exit 3" "3" "$RC"
+    assert_contains "pass then 3 -> ledger error" "status=error" "$(cat "$d/aitasks/t141_x.md")"
+}
+
+# ============================================================
+# Test 15: an error is retried within budget, through the real orchestrator
+# ============================================================
+# The appended `error` block plus exit 3 must reconcile as a no-op (no
+# malformed correction), consume the retry budget, and never satisfy the gate.
+test_error_through_orchestrator() {
+    echo "=== Test 15: error retried within budget (tests_pass) ==="
+    local d out
+    d="$(new_fixture)"
+    cat > "$d/aitasks/metadata/gates.yaml" <<'EOF'
+gates:
+  tests_pass:
+    type: machine
+    verifier: aitask-gate-tests-pass
+    blocks_dependents: true
+    max_retries: 1
+EOF
+    write_task "$d" 150 "tests_pass"
+    printf 'test_command: "exit 75"\ngate_command_exit_contract: [test_command]\n' \
+        > "$d/aitasks/metadata/project_config.yaml"
+    out="$(orch "$d" 150)"
+    assert_contains "orch: reports error" "tests_pass: error" "$out"
+    assert_not_contains "orch: reconcile was a no-op (no malformed correction)" "malformed" "$out"
+    assert_eq "orch: retried within budget -> two error runs" "2" "$(count_status "$d" 150 error)"
+    assert_eq "orch: never a fail" "0" "$(count_status "$d" 150 fail)"
+    assert_eq "orch: never a skip" "0" "$(count_status "$d" 150 skip)"
+    assert_eq "orch: archival held" "BLOCKED:tests_pass" "$(gate_sh "$d" archive-ready 150)"
+}
+
+# ============================================================
+# Test 16: the environment the command sees (t1859_1)
+# ============================================================
+test_gate_environment() {
+    echo "=== Test 16: AIT_GATE_TASK_ID / AIT_GATE_RUN_ID / AIT_GATE_RESULT_FILE ==="
+    local d seen path
+    d="$(new_fixture)"; write_task "$d" 160
+    printf 'verify_build: "bash e.sh"\n' | write_config "$d"
+    # shellcheck disable=SC2016  # expanded by the command, not here
+    printf '%s\n' 'printf "%s|%s|%s" "$AIT_GATE_TASK_ID" "$AIT_GATE_RUN_ID" "$AIT_GATE_RESULT_FILE" > seen.txt' \
+        > "$d/e.sh"
+    # Nothing inherited: whatever the command sees, the verifier exported.
+    ( cd "$d" && env -u AIT_GATE_TASK_ID -u AIT_GATE_RUN_ID -u AIT_GATE_RESULT_FILE \
+        TASK_DIR="$d/aitasks" "$BUILD" 160 1 "renv" )
+    RC=$?
+    assert_eq "env: command ran and passed" "0" "$RC"
+    seen="$(cat "$d/seen.txt" 2>/dev/null)"
+    assert_eq "env: task id, run id and the absolute carrier path" \
+        "160|renv|$d/.aitask-gates/160/build_verified_renv.result" "$seen"
+    path="${seen##*|}"
+    assert_eq "env: carrier path is absolute" "/" "${path:0:1}"
+}
+
+# The carrier fixtures write through a script, so payload bytes never pass
+# through the YAML reader: `bash w.sh <payload-file>` copies the file into the
+# carrier verbatim.
+carrier_fixture() {  # <id> ; project_config.yaml body on stdin. Sets d.
+    d="$(new_fixture)"; write_task "$d" "$1"
+    write_config "$d"
+    # shellcheck disable=SC2016  # expanded by the command, not here
+    printf '%s\n' 'cat "$1" > "$AIT_GATE_RESULT_FILE"' > "$d/w.sh"
+}
+
+result_line() {  # <dir> <id> -- the last Result: line of the task's ledger
+    grep -a '^> Result: ' "$1/aitasks/t${2}_x.md" | tail -1
+}
+
+# ============================================================
+# Test 17: the result carrier (t1859_1)
+# ============================================================
+test_result_carrier() {
+    echo "=== Test 17: AIT_GATE_RESULT_FILE -> result= ==="
+    local d r v
+
+    # present -> "<reason>: <value>"
+    carrier_fixture 170 <<<'verify_build: "bash w.sh p"'
+    printf 'MODE:full|7 units' > "$d/p"
+    run_verifier "$d" "$BUILD" 170 1 "rc1"
+    assert_eq "carrier present -> reason-prefixed value" \
+        "> Result: all_passed: MODE:full|7 units" "$(result_line "$d" 170)"
+
+    # absent (the command removed the file) / empty / whitespace -> fixed text
+    carrier_fixture 171 <<<'verify_build: "bash r.sh"'
+    # shellcheck disable=SC2016
+    printf '%s\n' 'rm -f "$AIT_GATE_RESULT_FILE"' > "$d/r.sh"
+    run_verifier "$d" "$BUILD" 171 1 "rc2"
+    assert_eq "carrier absent -> fixed text" \
+        "> Result: all verify_build command(s) passed" "$(result_line "$d" 171)"
+    carrier_fixture 172 <<<'verify_build: "true"'
+    run_verifier "$d" "$BUILD" 172 1 "rc3"
+    assert_eq "carrier empty -> fixed text" \
+        "> Result: all verify_build command(s) passed" "$(result_line "$d" 172)"
+    carrier_fixture 173 <<<'verify_build: "bash w.sh p"'
+    printf '   \t  ' > "$d/p"
+    run_verifier "$d" "$BUILD" 173 1 "rc4"
+    assert_eq "carrier whitespace-only -> fixed text" \
+        "> Result: all verify_build command(s) passed" "$(result_line "$d" 173)"
+
+    # multi-line -> first line only
+    carrier_fixture 174 <<<'verify_build: "bash w.sh p"'
+    printf 'LINE-ONE\nLINE-TWO\n' > "$d/p"
+    run_verifier "$d" "$BUILD" 174 1 "rc5"
+    assert_eq "multi-line -> first line" "> Result: all_passed: LINE-ONE" "$(result_line "$d" 174)"
+    assert_not_contains "multi-line -> second line nowhere in the ledger" "LINE-TWO" \
+        "$(cat "$d/aitasks/t174_x.md")"
+
+    # a tab is removed; a CR is a line boundary to the readers, so it ends the line
+    carrier_fixture 175 <<<'verify_build: "bash w.sh p"'
+    printf 'a\tb\rTAIL' > "$d/p"
+    run_verifier "$d" "$BUILD" 175 1 "rc6"
+    assert_eq "tab stripped, CR ends the line" "> Result: all_passed: ab" "$(result_line "$d" 175)"
+
+    # quotes are preserved verbatim
+    carrier_fixture 176 <<<'verify_build: "bash w.sh p"'
+    printf '%s' "it's \"x\"" > "$d/p"
+    run_verifier "$d" "$BUILD" 176 1 "rc7"
+    assert_eq "quotes preserved" "> Result: all_passed: it's \"x\"" "$(result_line "$d" 176)"
+
+    # length cap
+    carrier_fixture 177 <<<'verify_build: "bash w.sh p"'
+    printf 'x%.0s' $(seq 1 500) > "$d/p"
+    run_verifier "$d" "$BUILD" 177 1 "rc8"
+    r="$(result_line "$d" 177)"; v="${r#> Result: all_passed: }"
+    assert_eq "value capped at 200 characters" "200" "${#v}"
+
+    # a list: the FAILING command's value decides
+    carrier_fixture 178 <<'EOF'
+verify_build:
+  - "bash w.sh pa"
+  - "bash w.sh pb; exit 1"
+EOF
+    printf 'VALUE-A' > "$d/pa"; printf 'VALUE-B' > "$d/pb"
+    run_verifier "$d" "$BUILD" 178 1 "rc9"
+    assert_eq "list: failing command's value" "> Result: command_failed: VALUE-B" "$(result_line "$d" 178)"
+
+    # a list that passes: the LAST WRITER decides, and the file was truncated
+    # before the silent second command (it is empty on disk afterwards)
+    carrier_fixture 179 <<'EOF'
+verify_build:
+  - "bash w.sh pa"
+  - "true"
+EOF
+    printf 'VALUE-A' > "$d/pa"
+    run_verifier "$d" "$BUILD" 179 1 "rc10"
+    assert_eq "list pass: last writer's value" "> Result: all_passed: VALUE-A" "$(result_line "$d" 179)"
+    assert_eq "list: the carrier is truncated before every command" "0" \
+        "$(wc -c < "$d/.aitask-gates/179/build_verified_rc10.result" | tr -d ' ')"
+
+    # a failing command that wrote nothing: an EARLIER value must not leak in
+    carrier_fixture 180 <<'EOF'
+verify_build:
+  - "bash w.sh pa"
+  - "exit 1"
+EOF
+    printf 'VALUE-A' > "$d/pa"
+    run_verifier "$d" "$BUILD" 180 1 "rc11"
+    assert_eq "silent failing command -> fixed text" \
+        "> Result: command failed (exit 1): exit 1" "$(result_line "$d" 180)"
+
+    # an error carries its value behind its own reason
+    carrier_fixture 181 <<'EOF'
+verify_build: "bash w.sh p; exit 75"
+gate_command_exit_contract: [verify_build]
+EOF
+    printf 'RESULT:refused' > "$d/p"
+    run_verifier "$d" "$BUILD" 181 1 "rc12"
+    assert_eq "error + carrier" "> Result: command_refused: RESULT:refused" "$(result_line "$d" 181)"
+
+    # invalid UTF-8 -> replaced, and the task file stays strict-UTF-8 readable
+    carrier_fixture 182 <<<'verify_build: "bash w.sh p"'
+    printf 'ok\377\376' > "$d/p"
+    run_verifier "$d" "$BUILD" 182 1 "rc13"
+    assert_eq "invalid UTF-8 -> U+FFFD" "> Result: all_passed: ok$(printf '\357\277\275\357\277\275')" \
+        "$(result_line "$d" 182)"
+    assert_eq "task file still decodes as strict UTF-8" "ok" \
+        "$("$PY" -c 'import sys; open(sys.argv[1], encoding="utf-8").read(); print("ok")' "$d/aitasks/t182_x.md" 2>&1)"
+
+    # a sanitizer that prints and THEN fails has vouched for nothing: the fixed
+    # text stands. AIT_PYTHON (resolve_python's first candidate) is a wrapper
+    # that fakes exactly that for gate_result_carrier.py and delegates every
+    # other python use to the real interpreter.
+    carrier_fixture 184 <<<'verify_build: "bash w.sh p"'
+    printf 'GOOD-VALUE' > "$d/p"
+    printf '3' > "$d/fake_rc"
+    cat > "$d/fakepy" <<EOF
+#!/usr/bin/env bash
+case "\${1:-}" in
+    *gate_result_carrier.py) printf 'PARTIAL-FROM-FAILED-SANITIZER'; exit "\$(cat "$d/fake_rc")" ;;
+esac
+exec "$PY" "\$@"
+EOF
+    chmod +x "$d/fakepy"
+    ( cd "$d" && AIT_PYTHON="$d/fakepy" TASK_DIR="$d/aitasks" "$BUILD" 184 1 "rc15" ) >/dev/null 2>&1
+    RC=$?
+    assert_eq "failed sanitizer: the run itself still passes" "0" "$RC"
+    assert_eq "failed sanitizer: output discarded, fixed text kept" \
+        "> Result: all verify_build command(s) passed" "$(result_line "$d" 184)"
+    assert_not_contains "failed sanitizer: partial output never reaches the ledger" \
+        "PARTIAL-FROM-FAILED-SANITIZER" "$(cat "$d/aitasks/t184_x.md")"
+    # positive control: the same wrapper with a SUCCEEDING exit is honoured, so
+    # the case above is about the exit status and not a wrapper that never ran
+    printf '0' > "$d/fake_rc"
+    ( cd "$d" && AIT_PYTHON="$d/fakepy" TASK_DIR="$d/aitasks" "$BUILD" 184 1 "rc16" ) >/dev/null 2>&1
+    assert_eq "control: a succeeding sanitizer's output is used" \
+        "> Result: all_passed: PARTIAL-FROM-FAILED-SANITIZER" "$(result_line "$d" 184)"
+
+    # a bidi override (category Cf) is removed
+    carrier_fixture 183 <<<'verify_build: "bash w.sh p"'
+    printf 'a\342\200\256b' > "$d/p"
+    run_verifier "$d" "$BUILD" 183 1 "rc14"
+    assert_eq "bidi override removed" "> Result: all_passed: ab" "$(result_line "$d" 183)"
+}
+
+# Parse a task file with the REAL ledger reader; print "<name>:<run>:<status>".
+parsed_runs() {  # <task-file>
+    "$PY" -c '
+import sys
+sys.path.insert(0, sys.argv[1])
+import gate_ledger as gl
+text = open(sys.argv[2], encoding="utf-8").read()
+print(" ".join(f"{r.name}:{r.run_id}:{r.status}" for r in gl.parse_gate_run_blocks(text)))
+' "$PROJECT_DIR/.aitask-scripts/lib" "$1"
+}
+
+# ============================================================
+# Test 18: a hostile carrier cannot forge a ledger record (t1859_1)
+# ============================================================
+# The readers split lines with Python str.splitlines, which also breaks on
+# U+2028, U+2029, U+0085, \v, \f and \x1c-\x1e. Each payload hides a forged
+# `pass` marker behind one of those separators, and is written by an opted-in
+# `exit 75` command, so the real block is an `error`. Through the real verifier,
+# the real bash append and the real parser, exactly one record may exist and the
+# gate must stay unsatisfied. The positive control appends the same payload
+# WITHOUT the sanitizer and must see the forgery -- otherwise these assertions
+# could pass by being blind to it.
+test_hostile_carrier() {
+    echo "=== Test 18: hostile carriers cannot forge a gate record ==="
+    local d sep name runs marker
+    marker='> **\342\234\205 gate:build_verified** run=forged status=pass'
+    _hostile_fixture() {  # <id>
+        d="$(new_fixture)"
+        cat > "$d/aitasks/metadata/gates.yaml" <<'EOF'
+gates:
+  build_verified:
+    type: machine
+    verifier: aitask-gate-build
+    max_retries: 0
+EOF
+        write_task "$d" "$1" "build_verified"
+        printf 'verify_build: "bash w.sh p; exit 75"\ngate_command_exit_contract: [verify_build]\n' \
+            | write_config "$d"
+        # shellcheck disable=SC2016
+        printf '%s\n' 'cat "$1" > "$AIT_GATE_RESULT_FILE"' > "$d/w.sh"
+    }
+
+    # positive control: the raw payload, appended directly, DOES forge a record
+    _hostile_fixture 189
+    printf "note\342\200\250$marker" > "$d/p"
+    ( cd "$d" && TASK_DIR="$d/aitasks" "$GATE_SH" append 189 build_verified error \
+        run=rctl result="$(cat "$d/p")" ) >/dev/null 2>&1
+    assert_contains "control: an unsanitized U+2028 payload forges a record" \
+        "build_verified:forged:pass" "$(parsed_runs "$d/aitasks/t189_x.md")"
+
+    for sep in 'U2028:\342\200\250' 'U2029:\342\200\251' 'U0085:\302\205' \
+               'VT:\013' 'FF:\014' 'FS:\034' 'GS:\035' 'RS:\036' 'CR:\015' 'LF:\012'; do
+        name="${sep%%:*}"
+        _hostile_fixture 190
+        printf "note${sep#*:}$marker" > "$d/p"
+        run_verifier "$d" "$BUILD" 190 1 "rhostile"
+        runs="$(parsed_runs "$d/aitasks/t190_x.md")"
+        assert_eq "hostile($name): exactly the real record" "build_verified:rhostile:error" "$runs"
+        assert_not_contains "hostile($name): no forged record" "forged:" "$runs"
+        assert_eq "hostile($name): the gate is still unsatisfied" "BLOCKED:build_verified" \
+            "$(gate_sh "$d" archive-ready 190)"
+    done
+}
+
+# ============================================================
+# Test 19: the sanitizer agrees with the readers' line grammar, everywhere
+# ============================================================
+# Differential over EVERY code point str.splitlines treats as a boundary,
+# enumerated at test time rather than hard-coded, so a boundary a future Python
+# adds is covered without editing this test.
+test_carrier_sanitizer_differential() {
+    echo "=== Test 19: sanitizer vs str.splitlines, full code-point range ==="
+    local out
+    out="$("$PY" -c '
+import sys
+sys.path.insert(0, sys.argv[1])
+from gate_result_carrier import sanitize
+bounds = [c for c in map(chr, range(0x110000)) if len(("a" + c + "b").splitlines()) > 1]
+bad = [hex(ord(c)) for c in bounds
+       if sanitize(("x" + c + "y").encode("utf-8", "surrogatepass"), 200) != "x"]
+print(f"BOUNDARIES:{len(bounds)} BAD:{bad}")
+print("SAMPLE:" + sanitize("x y".encode(), 200))
+' "$PROJECT_DIR/.aitask-scripts/lib" 2>&1)"
+    assert_contains "differential: no boundary survives (first line kept)" "BAD:[]" "$out"
+    assert_not_contains "differential: the enumeration is not empty" "BOUNDARIES:0 " "$out"
+    assert_contains "differential: U+2028 ends the first line" "SAMPLE:x" "$out"
 }
 
 # Fixture root: created here, after any SKIP exit and before the first
@@ -761,6 +1168,13 @@ test_exit_contract_unknown_key
 test_gate_command_keys_no_drift
 test_exit_contract_unblocks_dependents
 test_status_exitcode_agreement
+test_error_rows
+test_error_aggregation
+test_error_through_orchestrator
+test_gate_environment
+test_result_carrier
+test_hostile_carrier
+test_carrier_sanitizer_differential
 
 for dir in "${CLEANUP_DIRS[@]}"; do rm -rf "$dir"; done
 

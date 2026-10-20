@@ -118,11 +118,27 @@ test_exit_table() {
     assert_eq "F: exit 2 without opt-in -> rc 1" "1" "$RC"
     assert_eq "F: exit 2 without opt-in -> VERDICT fail" "fail" "$(field VERDICT)"
 
-    # (G) an unexpected non-zero is never laundered into a skip
+    # (G) exit 3 under the opt-in is the framework ERROR (t1859_1): a verdict,
+    # with a reason and a log -- never laundered into a skip, no longer a fail
     d="$(new_fixture 'verify_build: "exit 3"\ngate_command_exit_contract: [verify_build]\n')"
     run_helper "$d" verify_build
-    assert_eq "G: exit 3 under opt-in -> rc 1" "1" "$RC"
-    assert_eq "G: exit 3 under opt-in -> VERDICT fail" "fail" "$(field VERDICT)"
+    assert_eq "G: exit 3 under opt-in -> rc 3" "3" "$RC"
+    assert_eq "G: exit 3 under opt-in -> VERDICT error" "error" "$(field VERDICT)"
+    assert_eq "G: exit 3 under opt-in -> REASON command_errored" "command_errored" "$(field REASON)"
+    assert_eq "G: an error verdict still reports its LOG" "set" "$(field LOG | sed 's/.\+/set/')"
+
+    # (G3) exit 75 under the opt-in: the host refused resources
+    d="$(new_fixture 'verify_build: "exit 75"\ngate_command_exit_contract: [verify_build]\n')"
+    run_helper "$d" verify_build
+    assert_eq "G3: exit 75 under opt-in -> rc 3" "3" "$RC"
+    assert_eq "G3: exit 75 under opt-in -> VERDICT error" "error" "$(field VERDICT)"
+    assert_eq "G3: exit 75 under opt-in -> REASON command_refused" "command_refused" "$(field REASON)"
+
+    # (G4) without the opt-in, 75 is an ordinary failure
+    d="$(new_fixture 'verify_build: "exit 75"\n')"
+    run_helper "$d" verify_build
+    assert_eq "G4: exit 75 without opt-in -> rc 1" "1" "$RC"
+    assert_eq "G4: exit 75 without opt-in -> VERDICT fail" "fail" "$(field VERDICT)"
 
     # (G2) a command that cannot be PARSED never ran, so it must never reach a
     # skip -- bash exits 2 on a syntax error, which collides with the skip code
@@ -295,6 +311,10 @@ test_cross_path_parity() {
         'verify_build: "true"\ngate_command_exit_contract: [verify_build]\n' pass 0
     _parity "exit 2 without opt-in" \
         'verify_build: "exit 2"\n' fail 1
+    _parity "opted-in exit 75" \
+        'verify_build: "exit 75"\ngate_command_exit_contract: [verify_build]\n' error 3
+    _parity "opted-in exit 3" \
+        'verify_build: "exit 3"\ngate_command_exit_contract: [verify_build]\n' error 3
 }
 
 # ============================================================
@@ -356,6 +376,9 @@ DRIVER
     _flow "absent"          ''                                                                2 skip none_configured
     _flow "opted-in exit 2" 'verify_build: "exit 2"\ngate_command_exit_contract: [verify_build]\n' 2 skip command_skipped
     _flow "exit 1"          'verify_build: "exit 1"\ngate_command_exit_contract: [verify_build]\n' 1 fail command_failed
+    # t1859_1: an error verdict survives the documented capture and is still
+    # rc 3 -- which build-verification.md's step 2 reads as infrastructure
+    _flow "opted-in exit 75" 'verify_build: "exit 75"\ngate_command_exit_contract: [verify_build]\n' 3 error command_refused
 
     # skip-then-fail through the documented block: the aggregation rule survives
     # the wiring, not just the helper's unit test.
@@ -453,6 +476,33 @@ test_single_canonical_place() {
     done
 }
 
+# ============================================================
+# Test 7: --task-id exports AIT_GATE_TASK_ID, and nothing else (t1859_1)
+# ============================================================
+# The command learns which task a legacy run serves from AIT_GATE_TASK_ID. The
+# run id and the result carrier belong to the gate path (run_command_gate), so
+# this helper must never export them. The fixture's command records what it
+# sees; the helper runs under `env -u`, so anything seen was exported by it.
+test_task_id_environment() {
+    echo "=== Test 7: --task-id exports AIT_GATE_TASK_ID only ==="
+    local d
+    d="$(new_fixture 'verify_build: "bash e.sh"\n')"
+    # shellcheck disable=SC2016  # expanded by the command, not here
+    printf '%s\n' 'printf "%s|%s|%s" "$AIT_GATE_TASK_ID" "$AIT_GATE_RUN_ID" "$AIT_GATE_RESULT_FILE" > seen.txt' \
+        > "$d/e.sh"
+
+    ( cd "$d" && env -u AIT_GATE_TASK_ID -u AIT_GATE_RUN_ID -u AIT_GATE_RESULT_FILE \
+        "$HELPER" verify_build --task-id 42 ) >/dev/null 2>&1
+    assert_eq "env: --task-id exports the task id, no run id, no carrier" \
+        "42||" "$(cat "$d/seen.txt" 2>/dev/null)"
+
+    rm -f "$d/seen.txt"
+    ( cd "$d" && env -u AIT_GATE_TASK_ID -u AIT_GATE_RUN_ID -u AIT_GATE_RESULT_FILE \
+        "$HELPER" verify_build ) >/dev/null 2>&1
+    assert_eq "env: without --task-id nothing is exported" \
+        "||" "$(cat "$d/seen.txt" 2>/dev/null)"
+}
+
 # --- Run ---
 echo "=== test_run_project_command.sh ==="
 echo ""
@@ -468,6 +518,7 @@ test_note_usage_and_log
 test_cross_path_parity
 test_documented_flow
 test_single_canonical_place
+test_task_id_environment
 
 for dir in "${CLEANUP_DIRS[@]}"; do rm -rf "$dir"; done
 

@@ -127,10 +127,14 @@ gate_command_exit_contract: [test_command]
 | `0` | pass | pass |
 | `1` | fail | fail |
 | `2` | **skip** — "evaluated, not applicable" | fail |
+| `3` | **error** — the command's framework could not run | fail |
+| `75` | **error** — the host refused resources | fail |
 | anything else | fail | fail |
 
-Only the documented code `2` qualifies — any other non-zero exit is a failure, so
-an unexpected status can never become a skip.
+Only the documented codes qualify — any other non-zero exit, `64` (usage)
+included, is a failure, so an unexpected status can never become a skip or an
+error. An error is neither a code failure nor a pass: a gate retries it within
+its retry budget, and the task does not archive until the command really runs.
 
 ### Where the rule applies
 

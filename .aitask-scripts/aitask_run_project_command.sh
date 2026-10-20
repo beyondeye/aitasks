@@ -16,14 +16,19 @@
 #   <config_key>   one of verify_build | test_command | lint_command
 #                  (validated against GATE_COMMAND_KEYS -- anything else exits 3)
 #   --task-id <id> write the log under .aitask-gates/<id>/ so it sits beside the
-#                  gate-path logs for the same task. Without it, a mktemp file.
+#                  gate-path logs for the same task, and export
+#                  AIT_GATE_TASK_ID=<id> to the command(s) -- how `./ait test`
+#                  knows which task a legacy run serves (t1859_1). Without it, a
+#                  mktemp log and no export. This helper never exports
+#                  AIT_GATE_RUN_ID or AIT_GATE_RESULT_FILE: there is no gate run
+#                  here, and the result carrier belongs to run_command_gate.
 #   --log <path>   explicit log path; overrides --task-id placement.
 #
 # STDOUT is a pure data channel -- KEY:value lines, one per line, in this order.
 # The command's own output goes to the LOG, never here:
 #
-#   VERDICT:pass|fail|skip
-#   REASON:none_configured|all_passed|command_failed|command_malformed|command_skipped
+#   VERDICT:pass|fail|skip|error
+#   REASON:none_configured|all_passed|command_failed|command_malformed|command_skipped|command_refused|command_errored
 #   DETAIL:<one-line human text>
 #   LOG:<path>
 #   NOTE:<text>     -- only when an unrecognized gate_command_exit_contract entry
@@ -32,9 +37,15 @@
 # STDERR carries human-facing warnings only. Callers must NOT merge it into
 # stdout (`2>&1`), which would corrupt the KEY:value parse.
 #
-# EXIT: 0=pass 1=fail 2=skip 3=usage/infrastructure error (bad argument, or a log
-#       that cannot be created or written -- the LOG: path is part of the
-#       contract, so a log this script cannot write is never a verdict).
+# EXIT: 0=pass 1=fail 2=skip 3=error, which has TWO shapes:
+#   * NO VERDICT: line -- a usage/infrastructure error (bad argument, or a log
+#     that cannot be created or written -- the LOG: path is part of the
+#     contract, so a log this script cannot write is never a verdict);
+#   * VERDICT:error with REASON:command_refused|command_errored (and DETAIL:,
+#     LOG:) -- an opted-in command ran and reported that the host refused
+#     resources (exit 75) or that its framework could not run (exit 3).
+#   Both are infrastructure, never a build failure and never a pass; the
+#   VERDICT: line is what tells them apart.
 #   1 and 2 are ORDINARY outcomes, not failures of this script. A caller under
 #   `set -e` must not write `out="$(...)"; rc=$?` -- errexit fires on the
 #   assignment and the shell dies before rc is captured. Use:
@@ -43,8 +54,8 @@
 #       else
 #         rc=$?
 #       fi
-#   On exit 3 NO VERDICT: line is printed, which is how a caller tells "could
-#   not evaluate" apart from any verdict.
+#   On a usage/infrastructure exit 3 NO VERDICT: line is printed, which is how a
+#   caller tells "could not evaluate" apart from a VERDICT:error.
 
 set -euo pipefail
 
@@ -137,6 +148,10 @@ fi
 # or a skip with a LOG: path that holds nothing, would send the caller to
 # diagnostics that do not exist.
 : > "$log_path" || infra_error "log file is not writable: $log_path"
+
+# Only now, after every check that can refuse the invocation: the command(s) are
+# about to run.
+[[ -z "$task_id" ]] || export AIT_GATE_TASK_ID="$task_id"
 
 if ! run_project_command_key "$config_key" "$log_path"; then
     echo "aitask_run_project_command.sh: could not evaluate '$config_key'" >&2

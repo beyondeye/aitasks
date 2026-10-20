@@ -39,6 +39,16 @@ GATE_COMMAND_EXIT_CONTRACT_KEY="gate_command_exit_contract"
 # The one command exit code that means "I did not run".
 GATE_COMMAND_SKIP_EXIT=2
 
+# The two command exit codes that mean "I could not run, and it is not the
+# code's fault" (t1859_1): the host refused resources (75, EX_TEMPFAIL) and the
+# framework itself failed (3). Opted-in keys only -- see the exit table in
+# run_project_command_key's docblock.
+GATE_COMMAND_REFUSED_EXIT=75
+GATE_COMMAND_ERRORED_EXIT=3
+
+# Character cap on the result carrier's value (AIT_GATE_RESULT_FILE -> result=).
+GATE_RESULT_CARRIER_MAX=200
+
 # Every project_config.yaml command key this lib can be invoked for -- one entry
 # per aitask_gate_*.sh wrapper's <config_key> argument, and the only keys
 # aitask_run_project_command.sh accepts. Canonical set: a
@@ -88,13 +98,53 @@ project_config_values() {
     return 0
 }
 
-# run_project_command_key <config_key> <log_path>
+# _gate_read_carrier <file>
+# Print the sanitized one-line value a command left in the result carrier, or
+# nothing. The sanitizing is lib/gate_result_carrier.py's job, not bash's: the
+# ledger READERS split lines with Python str.splitlines (U+2028, U+0085, ...),
+# so only that rule can say what "one line" means -- see its docstring. Any
+# failure (no python, a read error) prints nothing, which keeps the fixed
+# result text: the carrier can only ever be dropped, never half-applied.
+#
+# python_resolve.sh is sourced HERE, lazily, not at file scope: most callers
+# never pass a carrier, and test fixtures that hand-copy a subset of lib/ must
+# not need it to source this file.
+_gate_read_carrier() {
+    local file="$1" py value
+    [[ -s "$file" ]] || return 0
+    if ! declare -F resolve_python >/dev/null; then
+        # shellcheck source=lib/python_resolve.sh
+        source "$SCRIPT_DIR/lib/python_resolve.sh" 2>/dev/null || return 0
+    fi
+    py="$(resolve_python)"
+    [[ -n "$py" ]] || return 0
+    # Buffered, and printed ONLY on success: a sanitizer that wrote something
+    # and then failed has not vouched for what it wrote, so a partial value must
+    # never reach the ledger -- the fixed text stands instead.
+    if value="$("$py" "$SCRIPT_DIR/lib/gate_result_carrier.py" "$file" "$GATE_RESULT_CARRIER_MAX" 2>/dev/null)"; then
+        printf '%s' "$value"
+    fi
+    return 0
+}
+
+# run_project_command_key <config_key> <log_path> [result_file]
 #
 # THE canonical implementation of the project-command exit contract. Resolves
 # project_config.yaml <config_key> (scalar OR list), runs the command(s)
 # sequentially, tees their combined output to <log_path>, and reports a verdict
 # through globals. It appends NOTHING to any ledger and prints nothing to
-# stdout -- that is what lets both consumers share it:
+# stdout -- that is what lets both consumers share it.
+#
+# [result_file] is the optional RESULT CARRIER (t1859_1), passed only by
+# run_command_gate, which also exports it to the commands as
+# AIT_GATE_RESULT_FILE. It is truncated before EACH command; the value used is
+# the one written by the command that decided the verdict -- the failing or
+# erroring command (even if it wrote nothing), else the last command that wrote
+# one. It is read through _gate_read_carrier (first line, reader-safe, capped at
+# GATE_RESULT_CARRIER_MAX) into PROJECT_CMD_CARRIER. A carrier that cannot be
+# truncated is abandoned for the rest of the run rather than risk a stale value.
+#
+# The two consumers:
 #
 #   1. run_command_gate() below   -- the machine-gate verifiers, which turn the
 #                                    verdict into an appended gate-run block.
@@ -108,18 +158,25 @@ project_config_values() {
 # 3 when it could not evaluate at all -- today only a missing yaml_utils.sh.
 # A caller MUST branch on the return before reading the globals: on 3 they are
 # not set, and treating that as a verdict is the "empty parse is not a result"
-# mistake this contract exists to prevent.
+# mistake this contract exists to prevent. Do not confuse that RETURN 3 with
+# PROJECT_CMD_CODE=3: the latter is a real `error` verdict (a command ran and
+# reported it could not), with every global set.
 #
-# OUTPUT (globals, all five set whenever it returns 0; none are printed):
-#   PROJECT_CMD_STATUS  pass | fail | skip
-#   PROJECT_CMD_CODE    0=pass 1=fail 2=skip  (the VERIFIER contract's codes,
-#                       NOT the project command's own exit status)
+# OUTPUT (globals, all six set whenever it returns 0; none are printed):
+#   PROJECT_CMD_STATUS  pass | fail | skip | error
+#   PROJECT_CMD_CODE    0=pass 1=fail 2=skip 3=error  (the VERIFIER contract's
+#                       codes, NOT the project command's own exit status)
 #   PROJECT_CMD_REASON  none_configured | all_passed | command_failed |
-#                       command_malformed | command_skipped -- machine-readable,
-#                       and the ONLY thing that separates the two kinds of skip.
-#                       command_malformed is a fail (t1609): a command that will
-#                       not parse never ran, so it must never reach a skip.
-#   PROJECT_CMD_RESULT  one-line human text (the gate-run block's `result=`)
+#                       command_malformed | command_skipped | command_refused |
+#                       command_errored -- machine-readable, and the ONLY thing
+#                       that separates the two kinds of skip and the two kinds
+#                       of error. command_malformed is a fail (t1609): a command
+#                       that will not parse never ran, so it must never reach a
+#                       skip.
+#   PROJECT_CMD_RESULT  one-line human text (the gate-run block's `result=`
+#                       when there is no carrier value)
+#   PROJECT_CMD_CARRIER the sanitized result-carrier value, "" when there is
+#                       none (always "" without a [result_file])
 #   PROJECT_CMD_NOTE    unrecognized-opt-in-key note, "" when there is none
 #
 # HOW A PROJECT COMMAND'S OWN EXIT CODE IS READ -- opt-in, per config key:
@@ -127,18 +184,23 @@ project_config_values() {
 #   "I did not run" only when <config_key> is listed in project_config.yaml's
 #   `gate_command_exit_contract`. Reserving 2 universally would be unsafe: GNU
 #   make exits 2 on a build error and pytest exits 2 on interrupt, so a real
-#   failure would silently satisfy a blocks_dependents gate.
+#   failure would silently satisfy a blocks_dependents gate. The same opt-in
+#   gives 75 and 3 their meaning (t1859_1): the host refused resources, or the
+#   framework could not run -- an `error` the orchestrator retries within the
+#   gate's budget, never a code failure and never a skip.
 #
-#     command exit | key opted in       | key not opted in
-#     -------------+--------------------+------------------
-#          0       | pass               | pass
-#          1       | fail               | fail
-#          2       | skip (did not run) | fail
-#      anything    | fail               | fail
-#      else
+#     command exit | key opted in                     | key not opted in
+#     -------------+----------------------------------+------------------
+#          0       | pass                             | pass
+#          1       | fail                             | fail
+#          2       | skip (did not run)               | fail
+#          3       | error (command_errored)          | fail
+#         75       | error (command_refused)          | fail
+#      anything    | fail (64 -- usage -- included:   | fail
+#      else        |  a misconfigured command)        |
 #
-#   Only the documented skip code is a skip; any other non-zero is a failure, so
-#   an unexpected status can never be laundered into a skip.
+#   Only the documented codes have a meaning; any other non-zero is a failure,
+#   so an unexpected status can never be laundered into a skip or an error.
 #
 #   `gate_command_exit_contract` accepts only the keys in GATE_COMMAND_KEYS.
 #   Anything else is a typo: it is IGNORED (never fatal, never changes a
@@ -147,19 +209,15 @@ project_config_values() {
 #   state to diagnose.
 #
 # AGGREGATION over a command list:
-#   A fail short-circuits (later commands do NOT run). A skip does NOT: it is
-#   remembered and the list continues, so a fail after a skip still wins.
-#   any fail -> fail; else any skip -> skip; else pass.
+#   A fail or an error short-circuits (later commands do NOT run), and the one
+#   that stopped the list is the verdict. A skip does NOT short-circuit: it is
+#   remembered and the list continues, so a fail or error after a skip still
+#   wins. first fail/error -> it; else any skip -> skip; else pass.
 #
 # Paths are repo-root-relative: every caller runs from the repo root, so
 # aitasks/metadata/... resolves correctly.
-#
-# shellcheck disable=SC2034  # PROJECT_CMD_REASON is read by the OTHER consumer
-# (aitask_run_project_command.sh, which turns it into the REASON: output line);
-# run_command_gate below has no use for it, so shellcheck cannot see a reader
-# in this file. Removing the assignments would silently blank that line.
 run_project_command_key() {
-    local config_key="$1" log="$2"
+    local config_key="$1" log="$2" result_file="${3:-}"
 
     local config="aitasks/metadata/project_config.yaml"
 
@@ -178,6 +236,7 @@ run_project_command_key() {
     PROJECT_CMD_CODE=""
     PROJECT_CMD_REASON=""
     PROJECT_CMD_RESULT=""
+    PROJECT_CMD_CARRIER=""
     PROJECT_CMD_NOTE=""
 
     # Resolve command(s) through the shared reader (list form first, scalar
@@ -219,9 +278,15 @@ run_project_command_key() {
         PROJECT_CMD_REASON=all_passed
         PROJECT_CMD_RESULT="all ${config_key} command(s) passed"
         : > "$log"
-        local c rc skipped_cmd=""
+        local c rc skipped_cmd="" carrier="" last_written=""
         for c in "${cmds[@]}"; do
             printf '$ %s\n' "$c" >> "$log"
+            # Truncate the carrier before EVERY command, so the value read back
+            # below is this command's own. A carrier that cannot be truncated
+            # might still hold an earlier command's value: abandon it.
+            if [[ -n "$result_file" ]] && ! : > "$result_file" 2>/dev/null; then
+                result_file=""
+            fi
             # A command that cannot be PARSED never ran, so it must never be
             # able to satisfy this gate (t1609). bash exits 2 on a syntax
             # error, and 2 is GATE_COMMAND_SKIP_EXIT -- so under an opted-in
@@ -243,6 +308,9 @@ run_project_command_key() {
             fi
             rc=0
             bash -c "$c" >> "$log" 2>&1 || rc=$?
+            carrier=""
+            [[ -z "$result_file" ]] || carrier="$(_gate_read_carrier "$result_file")"
+            [[ -z "$carrier" ]] || last_written="$carrier"
             if [[ $rc -eq 0 ]]; then
                 continue
             fi
@@ -254,12 +322,38 @@ run_project_command_key() {
                 [[ -n "$skipped_cmd" ]] || skipped_cmd="$c"
                 continue
             fi
+            # The deciding command's own value -- possibly empty. An earlier
+            # command's value never stands in for a failure's.
+            PROJECT_CMD_CARRIER="$carrier"
+            if [[ $exit_contract -eq 1 && $rc -eq $GATE_COMMAND_REFUSED_EXIT ]]; then
+                # The host refused resources after any in-command deferral.
+                # Not the code's fault, so not a fail; not "nothing to do", so
+                # not a skip. Short-circuits: there is no host to run the rest.
+                printf '(exit %s: command reported refused resources - did not run)\n' "$rc" >> "$log"
+                PROJECT_CMD_STATUS=error
+                PROJECT_CMD_CODE=3
+                PROJECT_CMD_REASON=command_refused
+                PROJECT_CMD_RESULT="command_refused (exit ${rc}): ${c}"
+                break
+            fi
+            if [[ $exit_contract -eq 1 && $rc -eq $GATE_COMMAND_ERRORED_EXIT ]]; then
+                printf '(exit %s: command reported a framework error - could not run)\n' "$rc" >> "$log"
+                PROJECT_CMD_STATUS=error
+                PROJECT_CMD_CODE=3
+                PROJECT_CMD_REASON=command_errored
+                PROJECT_CMD_RESULT="command_errored (exit ${rc}): ${c}"
+                break
+            fi
             PROJECT_CMD_STATUS=fail
             PROJECT_CMD_CODE=1
             PROJECT_CMD_REASON=command_failed
             PROJECT_CMD_RESULT="command failed (exit ${rc}): ${c}"
             break
         done
+        # No command decided by failing: the last value written stands.
+        if [[ "$PROJECT_CMD_STATUS" == pass ]]; then
+            PROJECT_CMD_CARRIER="$last_written"
+        fi
         if [[ "$PROJECT_CMD_STATUS" == pass && -n "$skipped_cmd" ]]; then
             PROJECT_CMD_STATUS=skip
             PROJECT_CMD_CODE=2
@@ -291,8 +385,22 @@ run_project_command_key() {
 #   2 = skip   "evaluated, not applicable". EITHER no command is configured for
 #              <config_key>, OR a command declared it did not run. The two are
 #              distinguished in the appended `result=` line, never by the code.
-#   3 = error  the runner could not evaluate at all (missing yaml_utils.sh);
-#              nothing is appended -- an infrastructure failure, not a result
+#   3 = error  EITHER an opted-in command exited 75 / 3 (refused resources /
+#              framework error) -- an `error` block IS appended, and the
+#              orchestrator's reconcile reads it as agreeing with the exit code
+#              (a no-op) -- OR the runner could not evaluate at all (missing
+#              yaml_utils.sh), in which case nothing is appended.
+#
+# ENVIRONMENT the command(s) see (t1859_1), exported for the duration of the run
+# only -- they do not leak into the append below:
+#   AIT_GATE_TASK_ID      <task-id>
+#   AIT_GATE_RUN_ID       <run-id>
+#   AIT_GATE_RESULT_FILE  ABSOLUTE path of .aitask-gates/<task>/<gate>_<run>.result
+#                         (absolute so a command that changes directory still
+#                         reaches it). One line left there becomes `result=`,
+#                         prefixed by the status reason: "<reason>: <value>".
+#                         No value keeps the fixed text. run_command_gate is the
+#                         ONLY exporter of this one.
 run_command_gate() {
     local gate="$1" config_key="$2" verifier_name="$3"
     local task_id="$4" attempt="$5" run_id="$6"
@@ -300,11 +408,21 @@ run_command_gate() {
     local logdir=".aitask-gates/${task_id}"
     mkdir -p "$logdir"
     local log="${logdir}/${gate}_${run_id}.log"
+    local result_file="${PWD}/${logdir}/${gate}_${run_id}.result"
 
     # Return 3 (could not evaluate) is the verifier contract's `error`, not a
     # gate result: append nothing rather than a block with an empty status.
-    if ! run_project_command_key "$config_key" "$log"; then
+    # The prefix assignments are exported to the commands and scoped to this
+    # one call.
+    if ! AIT_GATE_TASK_ID="$task_id" AIT_GATE_RUN_ID="$run_id" \
+            AIT_GATE_RESULT_FILE="$result_file" \
+            run_project_command_key "$config_key" "$log" "$result_file"; then
         return 3
+    fi
+
+    local result="$PROJECT_CMD_RESULT"
+    if [[ -n "$PROJECT_CMD_CARRIER" ]]; then
+        result="${PROJECT_CMD_REASON}: ${PROJECT_CMD_CARRIER}"
     fi
 
     # Surface a bad opt-in entry where it is durable (the ledger block) as well
@@ -316,7 +434,7 @@ run_command_gate() {
 
     "$SCRIPT_DIR/aitask_gate.sh" append "$task_id" "$gate" "$PROJECT_CMD_STATUS" \
         run="$run_id" attempt="$attempt" type=machine \
-        verifier="$verifier_name" result="$PROJECT_CMD_RESULT" log="$log" \
+        verifier="$verifier_name" result="$result" log="$log" \
         ${note_arg[@]+"${note_arg[@]}"} >/dev/null
 
     return "$PROJECT_CMD_CODE"
