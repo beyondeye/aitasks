@@ -82,9 +82,11 @@ monitor untouched).
   postponed by continuous typing, the 3 s max dirty age cannot. Saves are serialized
   (a change during an in-flight save keeps the dirty flag and its original
   `first_unsaved_change`, and re-arms after the save returns). Save on `ctrl+s`, on exit
-  and on SIGHUP (best-effort). **Stated loss window on a hard kill: at most the last
-  3 s of edits, plus the edits carried by one in-flight save (bounded by the helper's
-  5 s timeout); everything older is on disk.**
+  and on SIGHUP (best-effort). **On a hard kill, changes not included in the latest
+  successfully saved buffer may be lost, including edits queued during a pending
+  save.** Autosave targets starting within roughly three seconds when no save is
+  pending; this is not a maximum loss window. The helper's 5 s figure bounds only
+  its lock wait; no save duration is bounded (t2073_1).
 - **Store lifecycle is serialized by one per-task lock that lives OUTSIDE the store
   dir** (`$SCRATCHPAD_DIR/.locks/<id>.lockd`, `registry_lock`), so no verb needs to
   `mkdir` the store just to lock it (the shadow helper's `lock_or_busy` does
@@ -251,7 +253,8 @@ Depends on t2073_1. No shared dirty file.
    `TUI_PACKAGES`; `tests/test_shortcuts_registry_coverage.sh` `TUIS`.
 4. Tests: `tests/test_scratchpad_app.py` (run_test, `AITASK_SCRATCHPAD_DIR` tmp: loads
    existing notes; typing saves after the debounce; **continuous typing at 0.2 s
-   intervals for 5 s produces a save within 3 s of the first edit** (and a control
+   intervals for 5 s produces a save within 3 s of the first edit** while no save
+   is pending (a start target, not a maximum loss window) (and a control
    with the deadline disabled shows none — proves the deadline, not the debounce,
    saved); serialized saves; unsaved mode writes nothing; holder-lock busy →
    read-only and never saves; **ownership-before-read handoff:** patch the flock
@@ -338,7 +341,7 @@ website `check_links.py --build`.
 
 ### Goal-achievement risk: medium
 - Bound helpers (shadow and scratchpad) survive direct `kill-pane` paths (`kill_agent_pane_smart`'s pane branch, frozen-record drop) because no `pane-died` fires; "closed when its agent dies" holds only for agent exit and the hook path · severity: medium · → mitigation: kill_bound_helpers_on_direct_kill
-- The autosave loss window relies on the save timer firing inside a live Textual loop; a hard kill loses at most the last 3 s of edits (max dirty age) plus one in-flight save · severity: low · → mitigation: none (stated window + continuous-typing and hard-kill tests in t2073_2)
+- The autosave loss window relies on the save timer firing inside a live Textual loop; a hard kill may lose changes not included in the latest successfully saved buffer, including edits queued during a pending save; the ~3 s autosave start target (no save pending) is not a maximum loss window · severity: low · → mitigation: none (stated window + continuous-typing and hard-kill tests in t2073_2)
 - Store lifecycle races (open/save/app-holder vs archival prune) could resurrect an archived task's store · severity: low (residual — addressed by the external per-task lifecycle lock, all prune checks under it, open-only holder creation, save's active-task check and the move-before-prune order, with pause-fifo interleaving tests in t2073_1) · → mitigation: none
 
 ### Planned mitigations
