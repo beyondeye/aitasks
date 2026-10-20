@@ -254,3 +254,29 @@ control is unchanged.
 ### Goal-achievement risk: low
 - New-row truths derived from our own lexers would make the table circular · severity: low · → mitigation: none (in-plan: Step 2 takes every truth from a real-lexer dump, and the goldens are hand-written)
 - BOM and lone-CR behaviour rests on compiler-level facts the lexer probe cannot show · severity: low · → mitigation: none (in-plan: Step 1 re-measures them and stops on a contradiction)
+
+## Final Implementation Notes
+
+- **Actual work done:**
+  - `deps/kotlinlex.go`: `ktLex` refuses a lone CR (`loneCR`) and skips a leading shebang via `ktLexer.shebang()`. The shebang is recognised at offset 0, after an optional BOM, only when a `\n` ends it.
+  - `deps/gradlelex.go`: kts mode refuses a lone CR and uses the same shebang rule. Groovy mode keeps its leading-`#!`-run behaviour; the now-dead `l.kts ||` condition was dropped from its loop.
+  - `annot/lexctx.go`: `classifyKotlin(data, lines)` makes a lone-CR file Uncertain ("lone carriage return", all lines Literal). It does not lex a terminated shebang line 1, whose class stays Code.
+  - `annot/rewrite.go`: `fixedPosition` (Kotlin) recognises the header after the BOM.
+  - `deps/cache.go`: `schemaVersion` 13 → 14.
+- **Deviations from plan:** None in substance. In `gradleLexer.shebang`, the kts branch sets `l.i` to the header start before blanking, and leaves `l.i` at the newline afterwards. The BOM bytes are skipped rather than re-read; kts code() does not care about them.
+- **Issues encountered:** The Edit tool wrote a literal U+FEFF where `﻿` was typed inside Go string literals (gofmt: "illegal byte order mark"). Fixed by rewriting them as escapes.
+- **Key decisions:** Lone CR fails closed in all three Kotlin-family lexers rather than being modelled. Modelling it would change annot's `\n`-only line model and writer. Exposure: 0 of 2051 tracked `.kt`/`.kts` files in the 8 registered repos. CRLF stays fully supported.
+- **Evidence (Step 1, K2JVMCompiler 2.3.20, gradle-9.5.1 lib jars):**
+  - Command: `java -cp "$L/kotlin-compiler-embeddable-2.3.20.jar:$L/kotlin-stdlib-2.3.20.jar:$L/kotlin-script-runtime-2.3.20.jar:$L/kotlin-reflect-2.3.20.jar:$L/kotlinx-coroutines-core-jvm-1.10.2.jar:$L/annotations-24.0.1.jar:$L/kotlin-daemon-embeddable-2.3.20.jar" org.jetbrains.kotlin.cli.jvm.K2JVMCompiler -no-stdlib -no-reflect -cp "$L/kotlin-stdlib-2.3.20.jar" -d out_<n> <n>.kt`
+  - `bom.kt` (`EF BB BF` + `#!/x {\npackage p\nclass A\n`, sha256 9547eebf…e3c5): rc=0, `p/A.class`.
+  - `cr.kt` (`#!/x {\rpackage p\rclass B\r`, sha256 792253bd…f214): rc=0, `p/B.class`.
+  - `ok.kt` (`#!/x {\npackage p\nclass C\n`, sha256 47029f90…2386): rc=0, `p/C.class`.
+  - Negative control `bomspace.kt` (`EF BB BF` + ` #!/x {…`, sha256 de199aac…e3c5): rc=1, `syntax error: Expecting a top level declaration`.
+- **Real-lexer row truths** (jshell over KotlinLexer 2.3.20; BOM stripped, offsets +3):
+  - unterminated: `HASH EXCL DIV usr DIV bin DIV env kotlin`, no comments;
+  - indented: code line 1, comment `23-47`;
+  - second_line: comments `0-21,51-75`, line 2 `HASH EXCL x LBRACE`;
+  - bom: comments `3-37,61-85`.
+- **Negative control:** Before the fix, every new behaviour test failed: family rows, `TestKotlinShebang`, the `TestKotlinLexer` lone-CR inputs, the gradle kts cases, `TestClassifyKotlin`, `TestKotlinShebangAnnotations` and the placement goldens. The controls (Groovy shebang run, kts second line, unterminated, no-shebang) passed. A mutant reverting only the `fixedPosition` change fails `TestPlacementGoldens` / `TestPlacementDiffIsCommentsOnly` with `byte-order-mark`.
+- **Verification:** `ait engine test` (go vet + go test over goengines/) passes.
+- **Upstream defects identified:** None
