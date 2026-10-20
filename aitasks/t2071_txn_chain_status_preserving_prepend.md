@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1989
 followup_kind: risk_mitigation
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-20 09:16
-updated_at: 2026-10-20 09:39
+updated_at: 2026-10-20 10:16
 ---
 
 ## Origin
@@ -37,3 +38,8 @@ Context from t2032:
 - `tests/test_archive_utils.sh` Group 13d2 / J2b pin today's value (a bare ledger trap + txn prepend → exit 1 with the first-command warning; the explicit spelling → 0). Decide the intended values, update those pins, and keep the differential (wrapped vs unwrapped composition must agree).
 - The ledger first-command detector (`_ait_ledger_exit_trap_is_first`, `lib/ledger_block.sh`) reads `trap -p EXIT`: after a prepend, the bare spelling is no longer first, so it must still fire — preserving `$?` must not silence it.
 - Shipped prepends today: `with_attach_lock` callers (rollback before `registry_lock_release`) — verify none regress (`tests/test_txn*.sh`, `tests/test_attach*.sh`, `tests/test_fold_mark*.sh`).
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-20T07:16:07Z status=pass attempt=1 type=human
