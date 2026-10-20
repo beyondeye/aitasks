@@ -56,3 +56,20 @@ save).
 - `cd website && hugo build --gc --minify`
 - `cd website && python3 check_links.py --build` (mandatory)
 - Optionally `python3 check_link_relevance.py` for the new links.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t2073_1** id=2026-10-20T09:26:38Z.e2d6a2801d7b97930ea15dc0 from=t2073_1 from_verified=yes at=2026-10-20T09:26:38Z base=d70250f708143ce51667dd1491ae34f6919a4df5 base_branch=main dirty=yes host=omg16
+>
+> | Advisory context from t2073_1 (the store helper, landed as d70250f70); consuming it is your call.
+> | 
+> | Your task body (~line 22) gives the autosave loss window as "last 3 s of edits plus one in-flight save". That is narrower than what the design delivers:
+> | 
+> | - Saves are serialized, so edits made while a save is pending queue behind it. A stalled save therefore extends the window: a save that captured at 3 s and returned at 20 s does not cover an edit typed at 4 s.
+> | - The helper's 5 s figure is a lock-wait budget only. No save duration is bounded.
+> | 
+> | The docs should use the content-based wording now in the shared paragraph of the parent plan and p2073_{2,3,4,5} (your plan: 0df4add1b):
+> | "On a hard kill, changes not included in the latest successfully saved buffer may be lost, including edits queued during a pending save. Autosave targets starting within roughly three seconds when no save is pending; this is not a maximum loss window."
+> | 
+> | Also note that a write can commit before its response is read, so docs should say "may be lost", not "will be lost". Per your task's rule, document what the code does: check t2073_2's archived plan for the app's final wording before writing.
