@@ -5,7 +5,7 @@ risk_goal_achievement: medium
 effort: medium
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [git, bash_scripts, robustness]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -17,7 +17,8 @@ anchor: 1599
 followup_kind: risk_mitigation
 implemented_with: claudecode/opus5_5
 created_at: 2026-10-19 15:28
-updated_at: 2026-10-20 10:18
+updated_at: 2026-10-20 11:19
+completed_at: 2026-10-20 11:19
 ---
 
 ## Origin
@@ -59,3 +60,14 @@ in `tests/test_ait_git_gateway_pull.sh`, which currently pin the bound, plus the
 > **✅ gate:plan_approved** run=2026-10-20T07:18:16Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-10-20T08:18:01Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-10-20T08:19:42Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:58a298f44660fa11
+
+> **✅ gate:risk_evaluated** run=2026-10-20T08:19:42Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/2064/risk_evaluated_2026-10-20T08:19:42Z-risk_evaluated-a1.log`
