@@ -348,6 +348,35 @@ statement and t2073_5's docs. Both notes are advisory context, not instructions.
   `bash tests/test_archive_shadow_prune.sh` (and any other `tests/test_archive*.sh`)
 - `shellcheck .aitask-scripts/aitask_scratchpad_store.sh .aitask-scripts/aitask_archive.sh .aitask-scripts/aitask_setup.sh`
 
+## Implementation progress (2026-10-20)
+
+- [x] Step 1 — `.aitask-scripts/aitask_scratchpad_store.sh` (open/save/path/prune,
+  `validate_root`, `capture_key`, `_canonical_key`, pause seam).
+- [x] Step 2 — `prune_scratchpad` + four call sites in `aitask_archive.sh`
+  (parent, child, auto-parent, folded live + dry-run).
+- [x] Step 3 — `setup_scratchpad_gitignore` + `main()` registration; repo `.gitignore`.
+- [x] Step 4 — `tests/test_scratchpad_store.sh` (110 assertions, cases 1–17 incl. the
+  three mutant controls), `tests/test_archive_scratchpad_prune.sh` (42 assertions),
+  `tests/test_setup_git.sh` row + "all seven".
+- [x] Post-phase `archive_stall_bound` — Case 6 of the archive test.
+- [x] Step 5 — plan wording aligned in the parent plan and `p2073_{2,3,4,5}`
+  (shared paragraph ×5, risk bullets ×2, 3 s test target ×2); notes to t2073_2 /
+  t2073_5 sent after the plan commit (Step 8).
+
+### Deviations
+
+- `prune`: a failed final `rmdir` (the store still holds a non-regular entry such
+  as a subdirectory or symlink, which the `-type f` sweep never deletes) exits 4
+  with an error instead of being silently tolerated. The lock lives outside the
+  store, so there is no concurrent-waiter case that would make a leftover dir
+  benign; reporting `PRUNED:<id>` for a store that still exists would be a false
+  success. Archival is unaffected (the hook is `|| true`).
+- The dry-run case of the archive test also covers the folded-task dry-run branch
+  (`Would prune scratchpad for t31`), so folded coverage spans both branches.
+- Extra probe (not committed): a mutant with `validate_root` as a no-op lets
+  `save`/`prune` write and delete through `pad/../other`, which Test 16's exit-code,
+  stdout and snapshot assertions all catch.
+
 ## Step 9 (Post-Implementation)
 
 Standard child archival via task-workflow Step 9.
@@ -366,3 +395,57 @@ Standard child archival via task-workflow Step 9.
 
 ### Planned mitigations
 - timing: post-phase | name: archive_stall_bound | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — contended scratchpad lock delays archival | desc: Archive with a held scratchpad lock completes within the prune timeout, keeps the store, and a later prune removes it
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-20)
+- **Requested by user:** (1) `save` masked a failed stdin read — `buf="$(cat; printf x)"`
+  took printf's status, so a directory on stdin returned `SAVED:empty`, exit 0, and
+  deleted `notes.md` (reproduced). (2) `tests/test_scratchpad_store.sh` changes cwd
+  without `enter_scratch_cwd` (`cd_guard_scan.py --helper-order` exit 1).
+- **Changes made:** `cat && printf x`, so the substitution carries cat's status and a
+  failed or partial read exits 4 before the lock. New Test 2b: directory as stdin →
+  exit 4, no `SAVED`, existing notes unchanged; control mutant restoring `;` shows the
+  masked `0:SAVED:empty` + deleted notes. The store test now sources
+  `tests/lib/scratch_cwd.sh` and calls `enter_scratch_cwd` right after `PROJECT_DIR`.
+  Store suite 116/116; `cd_guard_scan.py --helper-order` on both new tests exits 0.
+- **Files affected:** `.aitask-scripts/aitask_scratchpad_store.sh`,
+  `tests/test_scratchpad_store.sh`
+
+## Final Implementation Notes
+- **Actual work done:** New `.aitask-scripts/aitask_scratchpad_store.sh` (open/save/path/prune
+  under one per-task lifecycle lock at `<root>/.locks/<id>.lockd`, `validate_root` first in every
+  verb, `capture_key` with an explicit failure branch, `_canonical_key` segment-normalizing walk,
+  `AITASK_SCRATCHPAD_PAUSE_FIFO` test seam with a `<fifo>.reached` signal). `aitask_archive.sh`
+  `prune_scratchpad` at parent / child / auto-parent / folded (live after `task_git rm`, dry-run
+  logs). `setup_scratchpad_gitignore` + repo `.gitignore`. Tests: `test_scratchpad_store.sh`
+  (116 assertions, 4 mutant controls), `test_archive_scratchpad_prune.sh` (42, incl. the inline
+  post-phase `archive_stall_bound` as Case 6), `test_setup_git.sh` row. Loss-window wording aligned
+  in the parent plan and `p2073_{2,3,4,5}` (content-based boundary; 5 s = lock wait only).
+- **Deviations from plan:** `prune` exits 4 (not "tolerated") when the final `rmdir` fails because a
+  non-regular entry remains — a leftover store would otherwise be reported as `PRUNED:<id>`.
+  Folded dry-run coverage was added to the dry-run case.
+- **Issues encountered:** plan review (3 rounds) caught: `..` refused too late / not in save+prune,
+  a command substitution in the success print, the 5 s lock timeout cited as a save deadline, and a
+  time-based loss window. Code review caught a masked stdin read (`cat; printf x`) that returned
+  `SAVED:empty` and deleted notes on a failed read, and the missing `enter_scratch_cwd` in the
+  store test. All fixed with regressions (Tests 16, 17, 2b).
+- **Key decisions:** the lock lives outside the store so prune can delete the whole dir under it and
+  save never needs to mkdir; the identity key is computed before any mutation (stable across
+  creation, asserted); one `LOCK_TIMEOUT=5` for every verb, documented as a lock-wait budget only;
+  no permission-whitelist entries (the helper is not called from any skill).
+- **Upstream defects identified:**
+  - `tests/test_ait_git_gateway_pull.sh:769 — unconfined-andchain cd (`(unset …; cd "$FX_LOCAL" && ./ait git …)`) fails test_cd_guard_lint.sh section 1`
+  - `tests/test_archive_rearm_exit_trap.sh:262 — changes cwd with no enter_scratch_cwd call; fails test_cd_guard_lint.sh (landed with t2032)`
+  - `tests/test_session_hook.sh:429 — changes cwd with no enter_scratch_cwd call; fails test_cd_guard_lint.sh (landed with t2047)`
+- **Notes for sibling tasks:**
+  - **t2073_2 (app):** call the helper from the repo root; `open` → `OPENED:<abs>/notes.md` |
+    `NO_TASK`; `save` reads the whole buffer on stdin → `SAVED:<bytes>` | `SAVED:empty` |
+    `ARCHIVED` | `ABSENT`, exit 3 `LOCK_BUSY`, exit 4 error; the holder file is
+    `<store>/.holder.lock`, created only by `open` — open it `O_RDWR` without `O_CREAT`, take the
+    flock, then read `notes.md`. `LOCK_TIMEOUT` bounds only the lock wait; state the loss window
+    with the content-based wording now in the shared paragraph.
+  - **t2073_4 (key):** `path <id>` is the value to stamp into `@aitask_scratchpad_store`; it is
+    identical before and after the store exists, so the duplicate lookup can compare it pre-spawn.
+  - Test seam: set `AITASK_SCRATCHPAD_PAUSE_FIFO` only on the verb that should park; hold the fifo
+    open read-write on a spare fd so the release write never blocks.
