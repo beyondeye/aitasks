@@ -3,11 +3,12 @@ priority: medium
 effort: high
 depends: []
 issue_type: refactor
-status: Ready
+status: Implementing
 labels: [framework, remove_support, git, setup, test_infrastructure, website, docs]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-10-20 10:15
-updated_at: 2026-10-20 10:15
+updated_at: 2026-10-20 10:22
 ---
 
 ## Objective
