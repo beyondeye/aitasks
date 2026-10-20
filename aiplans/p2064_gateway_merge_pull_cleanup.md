@@ -378,3 +378,76 @@ Step 9 (Post-Implementation): current-branch mode, no merge. Archive via
 - A merge-mode frontmatter-only conflict is aborted rather than auto-merged,
   unlike the rebase path. The task allows abort-only, and the docs state it ·
   severity: low · → mitigation: None
+
+## Final Implementation Notes
+- **Actual work done:**
+  - `task_utils.sh`:
+    - `task_git_pull` passes `--own-merge` to `_ait_owned_pull` when the
+      resolved mode is merge (`""|false|no|off|0`, case-folded).
+    - New `ait_merge_is_ours` / `ait_merge_abort_if_ours`. The merge's single
+      evidence rule is `ORIG_HEAD` == `head_before`, plus the `MERGE_HEAD` list
+      == the `FETCH_HEAD` for-merge list, in order. These read files from the
+      per-worktree git-dir and fail closed.
+    - New `_ait_merge_stop_shaped`, holding the four merge-specific families:
+      conflict, `Not committing merge`, `failed to write commit object`, and
+      `Merge made by`.
+    - `_task_pull_rebase_cleanup` takes a 5th `own_merge` argument. Signal 3
+      is widened only for an owned `MERGE_HEAD`, and signal 4 gets a
+      `MERGE_HEAD` arm that aborts and then verifies.
+    - New `AIT_PULL_MERGE_ABORTED_SENTINEL`, a `merge_aborted` classifier arm
+      (ahead of the `CONFLICT` arm), and a hint for it.
+    - The BOUNDS docblock and the five-signal comment are rewritten, and the
+      `AIT_RECONCILE_GIT_OPTS` scope comment is extended.
+  - Gateway tests:
+    - C, L, N and O assert the abort through the shared `assert_merge_aborted`:
+      the local commit and an unrelated unstaged edit survive, and the next
+      commit works.
+    - M (the `--no-commit` pause), Oq (`-q`) and R (a fetch-time foreign
+      merge) assert preservation through `assert_merge_left`, with the
+      ownership evidence asserted to match.
+  - Unit tests: Test 10 classifier and hint rows, Test 66 (the
+    `ait_merge_abort_if_ours` verdict table, including octopus ordering), and
+    Test 67 (the `_ait_merge_stop_shaped` table plus the cleanup seam).
+  - `sync.md`: rewrote the `## ait git pull` section. Recognised stops are
+    aborted, an unrecognised stop is left for a manual
+    `./ait git merge --abort`, a `--no-commit` pause is left paused, and the
+    unconditional "never leaves stuck" claim is gone.
+- **Deviations from plan:**
+  - The new unit tests are numbered 66 and 67, not 48 and 49, which were already
+    taken. The gateway fetch-time case is "Test R", not "Test P", because the
+    P1–P5 push tests exist.
+  - The unstaged-edit fixture was split into `seed_keep_file` (before the
+    divergence) and `dirty_keep_file` (after it), because `local_commit` stages
+    with `-A` and had swallowed the edit. That is why the first green run
+    showed four failures.
+  - An SC2016 directive annotates Test R's single-quoted hook action.
+- **Issues encountered:**
+  - t2070 held uncommitted hunks in `task_utils.sh`, `test_task_push.sh` and
+    `sync.md`. The shared-file gate was respected: only the untouched gateway
+    test was edited until t2070 committed (02459e5a5).
+  - Three review rounds during planning changed the design:
+    - signing failure (`failed to write commit object`, rc 128);
+    - a branch update rejected after the merge commit (`Merge made by` +
+      ref-transaction fatal);
+    - the ref-transaction fatal alone, which is not merge evidence because
+      fetch prints it too.
+
+    The user chose to keep the message-family approach (option 2) with a
+    documented manual-recovery bound, and kept trace2 out of scope.
+- **Key decisions:**
+  - Merge-mode stops are never auto-merged, only aborted.
+  - A merge-mode stop is recognised only by merge-specific markers, never by a
+    generic fatal.
+  - `-q` branch-update stops are deliberately left unrecognised.
+  - Deliberate-pause protection rests on rc 0 never reaching the cleanup.
+- **Verification:**
+  - In an isolated worktree at HEAD with only the new tests, the red proof
+    failed exactly the abort assertions for gateway C, L, N and O, plus Tests
+    66 and 67 and the new classifier and hint rows. M, Oq and R passed.
+  - The green run with the patch in isolation passed everywhere: gateway
+    274/274, `test_task_push` 532/532, `test_task_git` 191/191.
+  - The mutant that re-adds the ref-transaction fatal to
+    `_ait_merge_stop_shaped` is killed by Tests R and Oq.
+  - Shellcheck: no new findings in `task_utils.sh` against HEAD.
+    `check_links.py --build` passed.
+- **Upstream defects identified:** None
