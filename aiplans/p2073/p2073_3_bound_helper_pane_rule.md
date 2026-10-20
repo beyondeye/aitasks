@@ -74,9 +74,11 @@ sections below are copied verbatim so this plan stands alone.
   postponed by continuous typing, the 3 s max dirty age cannot. Saves are serialized
   (a change during an in-flight save keeps the dirty flag and its original
   `first_unsaved_change`, and re-arms after the save returns). Save on `ctrl+s`, on exit
-  and on SIGHUP (best-effort). **Stated loss window on a hard kill: at most the last
-  3 s of edits, plus the edits carried by one in-flight save (bounded by the helper's
-  5 s timeout); everything older is on disk.**
+  and on SIGHUP (best-effort). **On a hard kill, changes not included in the latest
+  successfully saved buffer may be lost, including edits queued during a pending
+  save.** Autosave targets starting within roughly three seconds when no save is
+  pending; this is not a maximum loss window. The helper's 5 s figure bounds only
+  its lock wait; no save duration is bounded (t2073_1).
 - **Store lifecycle is serialized by one per-task lock that lives OUTSIDE the store
   dir** (`$SCRATCHPAD_DIR/.locks/<id>.lockd`, `registry_lock`), so no verb needs to
   `mkdir` the store just to lock it (the shadow helper's `lock_or_busy` does
