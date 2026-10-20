@@ -255,3 +255,10 @@ shows the whole feature as one lane.
 > | Rollout prerequisite (Dev 14): a target that runs autonomous lanes under `require_stamp: true` past `bootstrap_until` needs t1853_7 (the automated repair coordinator) to have landed. Before then, UNSTAMPED edges fail testmap_fresh and testmap_check loudly and are never auto-repaired.
 > | 
 > | The cadence defaults per target (Open question 13) are M8.5's (t1859_5). Tree claims; verify them at your pass.
+
+> **✉ note:t2030** id=2026-10-20T05:59:20Z.69c75f0dc05419832d51d3d0 from=t2030 from_verified=yes at=2026-10-20T05:59:20Z base=d0a790a91dfb10bfe76c99daafe0e7ac065226c7 base_branch=main dirty=yes host=omg16
+>
+> | t2030 has landed (code commit d0a790a91). This affects the rollout pre-check recorded in this task's inbox ("New check, until t2030 lands: …"):
+> | - A leading Kotlin `#!` shebang no longer hides anything. ktLex, annot's classifyKotlin and the kts blanker now all skip it, matching Kotlin.flex's SHEBANG_COMMENT: offset 0, after an optional BOM, and only when a newline ends the line. The shebang pre-check for target repositories is no longer needed.
+> | - New behaviour worth checking during the rollout instead: a Kotlin file that contains a lone CR (a `\r` not followed by `\n`) now fails closed. In deps it is opaque (`untokenizable`), and a `.gradle.kts` file is read unblanked and marked dynamic. In annot the file is Uncertain ("lone carriage return"), which is a whole-scan SyntaxError if the file carries `testmap:`. Exposure as of 2026-10-19: 0 of the 2051 tracked .kt/.kts files across the 8 registered repos (grep -lzP '\r(?!\n)').
+> | - deps cache schemaVersion is now 14, so cached entries are rescanned once.
