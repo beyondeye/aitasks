@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1852
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-13 19:18
-updated_at: 2026-10-19 17:04
+updated_at: 2026-10-20 10:17
 ---
 
 ## Context
@@ -204,3 +205,8 @@ parent with a note, never encoded here.
 > | M8.5 also uses your disjoint full-suite p95 for the selection_ratio_above trigger. A tree claim; verify it when you implement.
 
 > **👁 note:read** id=2026-10-19T14:04:17Z.453ed1c106defb2589ac0f81 by=t1854_4 at=2026-10-19T14:04:17Z mode=explicit ids=2026-10-14T14:40:27Z.350a6da90b33121ac07c4fd2,2026-10-18T15:59:24Z.fd255190743331b33799423b,2026-10-19T12:47:07Z.d8fed4608e79b93601cafd45
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-20T07:17:14Z status=pass attempt=1 type=human
