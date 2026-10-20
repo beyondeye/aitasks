@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2073
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-20 10:31
-updated_at: 2026-10-20 12:32
+updated_at: 2026-10-20 14:25
 ---
 
 ## Context
@@ -141,3 +142,8 @@ loss window is stated and tested.
 > | - .holder.lock is created only by open: open it O_RDWR without O_CREAT, take the flock, then read notes.md
 
 > **👁 note:read** id=2026-10-20T09:32:37Z.02d2eaf04a89f66df1dfba3c by=t2073_2 at=2026-10-20T09:32:37Z mode=explicit ids=2026-10-20T09:26:35Z.c523fb38517a021f70e80b47
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-20T11:25:44Z status=pass attempt=1 type=human
