@@ -52,3 +52,8 @@ Add `-- .gitignore` (the one path the helper wrote) to each commit, and add a
 regression case modeled on G1 in `tests/test_install_engine_binary.sh`:
 pre-stage an unrelated file, run the helper, assert the commit names only
 `.gitignore` and the foreign file is still staged.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-20T16:08:30Z status=pass attempt=1 type=human
