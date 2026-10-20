@@ -296,3 +296,90 @@ as a second real entry point.
 Current-branch profile: commit code (`bug: … (t2032)`) and the plan via
 `aitask_task_commit.sh`. Archival is held by the `risk_evaluated` gate per the
 workflow.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-19 17:40)
+- **Requested by user:** (1, blocking) the re-arm deletes the only recovery copy
+  of a note sent to a bundled archived task — `NOTE_APPENDED_UNCOMMITTED` named an
+  extracted temp file that the now-working sweep removes at exit; persist or
+  reject bundled-target writes before appending and assert the reported outcome
+  survives exit. (2, follow-up) the tripwire missed `trap : EXIT` and accepted a
+  comment that merely names the helper.
+- **Changes made:**
+  - `aitask_note.sh`: `note_target_is_bundled` (active / loose-archived
+    predicates from `task_utils.sh`, the `ait attach rm` split); append refuses
+    with `NOTE_ERROR:target-bundled`, read with `READ_ERROR:target-bundled`,
+    both after the resolve and before `assert_task_data_writable` / the lock.
+  - `aitask_gate.sh`: `refuse_bundled_gate_target` in `append`,
+    `materialize-active` and `begin-procedure` (same defect: a ledger block in a
+    swept temp copy reported as success). Loose archived tasks stay writable.
+  - Test R section rewritten: R1/R2/R2b assert the refusal, an untouched bundle
+    (cksum) and no leak; R1b/R2c are loose-archived controls asserting the
+    reported file still holds the write after exit. Against HEAD code R1/R2/R2b
+    fail (gate rc 0 with a block, `NOTE_APPENDED_UNCOMMITTED`, 1 leaked dir each).
+  - Tripwire: handler accepts any bare word (`:`), comments stripped before
+    matching, the re-arm must be a statement (`REARM_CALL_RE`), marker must be in
+    the comment part; 4 new negative self-tests. Tree: 54 scripts, 42 sites;
+    HEAD still flags all 42.
+  - `website/content/docs/commands/note.md`: `target-bundled` in the
+    `NOTE_ERROR` / `READ_ERROR` rows.
+- **Files affected:** `.aitask-scripts/aitask_note.sh`,
+  `.aitask-scripts/aitask_gate.sh`, `tests/test_archive_rearm_exit_trap.sh`,
+  `tests/test_archive_rearm_tripwire.py`, `website/content/docs/commands/note.md`
+
+## Final Implementation Notes
+- **Actual work done:**
+  - `lib/archive_utils.sh`: `_ait_archive_wrap_exit_trap` core (shared with the
+    unchanged source-time `_ait_archive_arm_exit_trap`) and the public
+    `ait_archive_rearm_exit_trap`, which composes even inside `( )`.
+    `_AIT_ARCHIVE_TMPDIR_SHELL` (`${BASHPID:-$$}:${BASH_SUBSHELL:-0}`, expanded
+    inline because a `$( )` would report its own pid/depth) is recorded when
+    `_extract_from_archive` creates the dir; `_ait_archive_cleanup` removes
+    `_AIT_ARCHIVE_TMPDIR` only in that shell.
+  - The re-arm call follows all 39 sites: gate ×11, note ×10, create ×5,
+    fold_mark ×2, one each in ls, task_commit, metadata_commit, verified_update,
+    usage_update, verification_followup, create_manual_verification,
+    remote_drift_check and revert_analyze, plus `lib/registry_lock.sh` ×2 with
+    the `declare -F` guard. The 3 subshell-local `rm -rf "$tmpd"` traps
+    (gitbranch.sh ×2, aitask_artifact.sh ×1) carry
+    `# archive-sweep: subshell-local`.
+  - `lib/txn_snapshot.sh` gets a comment recording the prepend status caveat.
+    `aidocs/framework/shell_conventions.md` gets the re-arm convention bullet.
+  - Post-review: note/gate refuse bundled-only targets (see Post-Review
+    Changes).
+  - Tests: `tests/test_archive_rearm_exit_trap.sh` (66 asserts) and
+    `tests/test_archive_rearm_tripwire.py` (15 tests).
+- **Deviations from plan:**
+  - There are 39 sites, not 37: gate.sh has 11.
+  - The plan's helper sketch assumed creator-scoping would come later. It was
+    added in the same change, after the review proved the inherited-dir
+    deletion.
+  - Post-phase `real_entry_leak_probes`, part (b) `aitask_create.sh --parent`:
+    the child-lock path never resolves a bundled task inside `$( )`. Its only
+    resolve is the ACTIVE parent, and `--followup-of` is mutually exclusive
+    with `--parent`. So there is no real-entry red for it. Measured
+    `create_child_deps` left=0 on pre-fix code. Its sites are covered by the
+    tripwire and by the spelling-level case 1/3 tests.
+  - Part (a), gate: after the post-review refusal, a bundled resolve can no
+    longer reach a gate ledger section. R1 now asserts the refusal plus no
+    leak; the ledger spellings are covered by cases 4–6 with a real lock dir.
+- **Issues encountered:**
+  - Red runs on pre-fix code: `ait gate append 5` (bundled) left=1, and
+    `ait note 5` left=1. The 8a inherited-dir case showed
+    `parent_file=DELETED` on bash 5 and on the bash 3.2 path (helper without
+    creator-scoping), and `KEPT` after.
+  - Running the final test file against a `git archive HEAD` export (with the
+    re-arm stubbed) gives 23/66 failures, including R1/R2/R2b.
+  - First attempt at the shell id used `$(…)`, which reports the
+    comsub's own pid — caught before testing, switched to inline expansion.
+- **Key decisions:**
+  - Explicit re-arm plus a static tripwire instead of shadowing the `trap`
+    builtin.
+  - Bundled targets are refused, not persisted. Rewriting a `.tar.zst` bundle
+    to land a note is out of proportion, and `ait attach rm` already set the
+    precedent.
+  - The `txn_chain_exit_trap` status caveat is recorded only; the spawned
+    "after" follow-up `txn_chain_status_preserving_prepend` covers the fix.
+- **Upstream defects identified:** None. The bundled-target write defect in
+  `aitask_note.sh` / `aitask_gate.sh` was fixed in this task.
