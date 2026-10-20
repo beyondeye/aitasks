@@ -10,7 +10,7 @@ active_gates: [risk_evaluated]
 active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
-children_to_implement: [t2074_1, t2074_3, t2074_4, t2074_5, t2074_6, t2074_7, t2074_8, t2074_9, t2074_11, t2074_12, t2074_13, t2074_14]
+children_to_implement: [t2074_1, t2074_3, t2074_9, t2074_12, t2074_14]
 created_at: 2026-10-20 10:15
 updated_at: 2026-10-20 16:59
 ---
