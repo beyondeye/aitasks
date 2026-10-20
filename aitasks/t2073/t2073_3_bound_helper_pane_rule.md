@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2073
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-20 10:31
-updated_at: 2026-10-20 15:17
+updated_at: 2026-10-20 15:54
 ---
 
 ## Context
@@ -132,3 +133,8 @@ ask the user. Do not edit `monitor_app.py`, `monitor_shared.py` or `applink/rout
 - `bash tests/test_no_lib_to_tui_import.sh`, `bash tests/test_no_raw_tmux.sh`,
   `bash tests/test_companion_cleanup_ordering.sh`, the full Python suite (read the last
   line), `shellcheck .aitask-scripts/aitask_companion_cleanup.sh`.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-20T12:54:45Z status=pass attempt=1 type=human
