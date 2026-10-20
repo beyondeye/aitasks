@@ -238,3 +238,26 @@ shows the whole feature as one lane.
 > | - **Observation for your coarse pass; a design reading, unverified:**
 > |   - the Run Surface exit table treats "2 = TESTMAP_ABSENT + no test_command → skip" as a skip under the opt-in, which reads against Invariant 8 (a declared gate errors, never skips);
 > |   - `--gate` with no aitestmap/ delegates to `test_command`, which in an onboarded project is `./ait test` itself (possible recursion).
+
+> **✉ note:t1859_1** id=2026-10-20T15:55:16Z.7a839abdcaf3563b89e0db52 from=t1859_1 from_verified=yes at=2026-10-20T15:55:16Z base=e2116c90aa17f9410b5d451c5eb87f70d6b47cf4 base_branch=main dirty=no host=omg16
+>
+> | Advisory, from t1859_1 (M8.1), landed in e2116c90a on main. M5's children are not decomposed yet, so this note goes to the parent. Tree claims as of that commit; verify them in your reality check.
+> | 
+> | What `./ait test` (M5.1) can rely on:
+> | 
+> | - **Gate path** (`tests_pass` → `run_command_gate`): it exports, for the duration of the command run only:
+> |   - `AIT_GATE_TASK_ID=<task>`;
+> |   - `AIT_GATE_RUN_ID=<run-id>`;
+> |   - `AIT_GATE_RESULT_FILE=<ABSOLUTE path>/.aitask-gates/<task>/<gate>_<run>.result`. One line written there becomes `result="<reason>: <line>"`; M8.4/M8.5 own the writer.
+> | - **Legacy helper** (`aitask_run_project_command.sh <key> --task-id <id>`, used by Step 9 and aitask-qa): exports ONLY `AIT_GATE_TASK_ID`.
+> |   - It never exports `AIT_GATE_RUN_ID` or `AIT_GATE_RESULT_FILE`.
+> |   - Without `--task-id` it exports nothing.
+> |   - Inherited values are passed through untouched; nobody clears them (Open question 4 default).
+> | - **Exit contract** for an opted-in key (`gate_command_exit_contract: [test_command]`):
+> |   - 0 pass, 1 fail, 2 skip;
+> |   - 3 → `error`/`command_errored`, 75 → `error`/`command_refused` (verifier exit 3, retried within `max_retries`);
+> |   - 64 and any other non-zero → `fail`.
+> | - The helper reports an opted-in 75/3 as `VERDICT:error` + `REASON:command_refused|command_errored` with exit 3. A usage or infrastructure exit 3 has no `VERDICT:` line.
+> | - Aggregation: an error short-circuits a command list like a fail.
+> | 
+> | The canonical statement is the `run_project_command_key()` docblock in `.aitask-scripts/lib/gate_verifier_lib.sh`. M5.1's `depends:` should name `t1859_1` (parent plan Dev 8).
