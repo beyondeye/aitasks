@@ -194,51 +194,237 @@ assert_eq "Resolved file keeps the tombstone as an empty STRING" \
 
 rm -rf "$TMP2"
 
-# --- Test 3: guard - every recognized driver invocation passes --base-file ---
-echo "--- Test 3: guard - every recognized merge-driver invocation passes a base ---"
+# --- Test 3: guard - every merge-driver reference is a based invocation or fails ---
+echo "--- Test 3: guard - every merge-driver reference is classified, every invocation passes a base ---"
 
-# Supported invocation shape: `"$<..PYTHON..>" "$<var>"`, where <var> is
-# assigned `.../aitask_merge.py` IN THE SAME FILE; the flags may sit on
-# backslash-continuation lines. Discovery keys on the driver's path, not on a
-# variable name, so the call site can move or be renamed (t1727 moved it from
-# aitask_sync.sh into lib/task_automerge.sh) without the guard going vacuous.
+# Discovery is exhaustive over the scanned files (t2069). Every logical line
+# (backslash continuations joined) that mentions the driver - the literal
+# `aitask_merge.py`, or a `$VAR`/`${VAR}` reference to a variable assigned
+# `.../aitask_merge.py` in ANY scanned file - is classified per simple command:
+#   - INVOKE: `"$<any var>" "$<driver var>" ...`; it is based when a later word
+#     of the SAME simple command carries `base_args` or `--base-file`;
+#   - allowed: a pure driver-path assignment, and a driver ref that is the
+#     operand of -e/-f/-r/-s/-x inside a `[[ ]]`, `[ ]` or `test` command;
+#   - UNCLASSIFIED (a hard failure - update this guard): everything else, e.g. a
+#     literal-path call, an array call, an alias, `"$PY" -s "$X"`, a driver
+#     mention on a line with a command/process substitution, or a line whose
+#     quoting/comment boundary cannot be decided safely.
+# Comments are stripped with Bash's rule (a `#` opens one only at the START of
+# a word), never shlex's, which treats `release#candidate` as a comment and
+# would silently drop the rest of the line; the differential below pins this
+# against real bash.
 #
-# Coverage boundary - NOT recognized, so silently omitted (t2060):
-#   - a driver-path variable assigned in a different (sourced) file;
-#   - an interpreter variable whose name lacks PYTHON, a literal-path call, or
-#     a call through an array.
-# The floor and the canonical-site assertion below cannot catch those.
+# Remaining boundary: only `*.sh` under .aitask-scripts/ is scanned (no Python
+# file invokes the driver), and a driver path assembled without the literal
+# `aitask_merge.py` in any scanned file is invisible to a static scan.
+DRIVER_SCAN_PY=$(cat <<'PY'
+import re, shlex, sys
 
-# Logical lines of a shell file: backslash continuations joined.
-logical_lines() {
-    awk '{ if (sub(/\\$/, "")) { buf = buf $0; next } print buf $0; buf = "" }
-         END { if (buf != "") print buf }' "$1"
-}
+CTRL = {';', '&&', '||', '|', '&', '(', ')', ';;', '|&', '&;'}
+LEAD = {'!', 'if', 'then', 'do', 'else', 'elif', 'while', 'until', 'time', '{'}
+FILE_TESTS = {'-e', '-f', '-r', '-s', '-x'}
+WORD_BREAK = set(' \t;&|()<>')
+SUBST = re.compile(r'\$\(|`|[<>]\(')
+NAME_ASSIGN = re.compile(r'^([A-Za-z_][A-Za-z0-9_]*)\+?=(.*)$', re.S)
+VAR_WORD = re.compile(r'^\$\{?[A-Za-z_][A-Za-z0-9_]*\}?$')
+LITERAL = 'aitask_merge.py'
 
-# Every recognized merge-driver invocation in one file, one logical line each.
-driver_invocations() {
-    local f="$1" var
-    while IFS= read -r var; do
-        logical_lines "$f" | grep -E "\"\\\$[A-Za-z_]*PYTHON[A-Za-z_]*\" \"\\\$$var\"" || true
-    done < <(grep -oE '[A-Za-z_][A-Za-z0-9_]*="[^"]*aitask_merge\.py"' "$f" | cut -d= -f1 | sort -u)
+
+def logical_lines(path):
+    """Join backslash continuations the way Bash does: only an UNESCAPED
+    trailing backslash in CODE continues a line. One inside a comment does not
+    (a comment always ends at the newline), and `\\\\` is an escaped backslash.
+    An undecidable line is never joined; it is classified on its own."""
+    buf, start = '', 0
+    with open(path, errors='replace') as fh:
+        for no, line in enumerate(fh, 1):
+            line = line.rstrip('\n')
+            if not buf:
+                start = no
+            text = buf + line
+            trailing = len(line) - len(line.rstrip('\\'))
+            if trailing % 2 == 1 and strip_comment(text) == text:
+                buf = text[:-1]
+                continue
+            yield start, text
+            buf = ''
+    if buf:
+        yield start, buf
+
+
+def strip_comment(s):
+    """Bash's rule: an unquoted '#' opens a comment only at the START of a
+    word. None = undecidable (unterminated quote, $'...', or a '#' inside
+    $( ) / `...`), which the caller treats as unclassified."""
+    if "$'" in s:
+        return None
+    q, brace, paren, tick, at_word_start = None, 0, 0, False, True
+    i, n = 0, len(s)
+    while i < n:
+        ch = s[i]
+        if q == "'":
+            if ch == "'":
+                q = None
+        elif q == '"':
+            if ch == '\\':
+                i += 1
+            elif ch == '"':
+                q = None
+        elif ch == '\\':
+            i += 1
+            at_word_start = False
+        elif ch in "'\"":
+            q, at_word_start = ch, False
+        elif ch == '`':
+            tick = not tick
+            at_word_start = tick
+        elif ch in '$<>' and i + 1 < n and s[i + 1] == '(':
+            paren += 1
+            i += 1
+            at_word_start = True
+        elif ch == '$' and i + 1 < n and s[i + 1] == '{':
+            brace += 1
+            i += 1
+            at_word_start = False
+        elif ch == '}' and brace:
+            brace -= 1
+            at_word_start = False
+        elif ch == '(' and paren:
+            paren += 1
+            at_word_start = True
+        elif ch == ')' and paren:
+            paren -= 1
+            at_word_start = False
+        elif ch == '#' and not brace and at_word_start:
+            return None if (paren or tick) else s[:i]
+        else:
+            at_word_start = ch in WORD_BREAK
+        i += 1
+    return None if q else s
+
+
+def tokens(code):
+    lx = shlex.shlex(code, posix=True, punctuation_chars=True)
+    lx.whitespace_split = True
+    lx.commenters = ''
+    return list(lx)
+
+
+lines = [(p, s, t, strip_comment(t)) for p in sys.argv[1:] for s, t in logical_lines(p)]
+
+# Pass 1 - driver-path variables across EVERY scanned file.
+drv = set()
+for path, start, text, code in lines:
+    if not code or LITERAL not in code:
+        continue
+    try:
+        toks = tokens(code)
+    except ValueError:
+        continue
+    for t in toks:
+        m = NAME_ASSIGN.match(t)
+        if m and m.group(2).endswith(LITERAL):
+            drv.add(m.group(1))
+alt = '|'.join(map(re.escape, sorted(drv)))
+REF = re.compile(r'\$\{?(?:%s)(?![A-Za-z0-9_])' % alt) if drv else None
+EXACT = re.compile(r'^\$\{?(?:%s)\}?$' % alt) if drv else None
+
+
+def mentions(t):
+    return LITERAL in t or bool(REF and REF.search(t))
+
+
+def unclassified(path, start, text):
+    print('UNCLASSIFIED\t%s:%d\t%s' % (path, start, text))
+
+
+# Pass 2 - classify every mention, one simple command at a time.
+for path, start, text, code in lines:
+    if not mentions(text):
+        continue
+    if code is None or (mentions(code) and SUBST.search(code)):
+        unclassified(path, start, text)
+        continue
+    if not mentions(code):
+        continue                                    # only inside a comment
+    try:
+        toks = tokens(code)
+    except ValueError:
+        unclassified(path, start, text)
+        continue
+    bad = False
+    i, n = 0, len(toks)
+    while i < n:
+        c = i
+        while c < n and (toks[c] in LEAD or NAME_ASSIGN.match(toks[c])):
+            m = NAME_ASSIGN.match(toks[c])
+            if m:
+                val = m.group(2)
+                if (REF and REF.search(val)) or (LITERAL in val and not val.endswith(LITERAL)):
+                    bad = True                      # alias / non-path value
+                if c + 1 < n and toks[c + 1] == '(' and toks[c].endswith('='):
+                    k = c + 2                       # NAME=( ... ) array
+                    while k < n and toks[k] != ')':
+                        k += 1
+                    if any(mentions(t) for t in toks[c + 2:k]):
+                        bad = True
+                    c = k
+            c += 1
+        if c < n and toks[c] in ('[[', '[', 'test'):
+            close = {'[[': ']]', '[': ']', 'test': None}[toks[c]]
+            k = c + 1
+            while k < n and (toks[k] != close if close else toks[k] not in CTRL):
+                k += 1
+            if close and k >= n:
+                bad = True
+            for p in range(c + 1, k):
+                if mentions(toks[p]) and not (EXACT and EXACT.match(toks[p])
+                                              and toks[p - 1] in FILE_TESTS):
+                    bad = True
+            i = k + 1
+            continue
+        j = c
+        while j < n and toks[j] not in CTRL:
+            j += 1
+        body = toks[c:j]
+        if len(body) >= 2 and VAR_WORD.match(body[0]) and EXACT and EXACT.match(body[1]):
+            based = any('base_args' in t or '--base-file' in t for t in body[2:])
+            print('INVOKE\t%d\t%s:%d' % (based, path, start))
+            body = body[2:]
+        if any(mentions(t) for t in body):
+            bad = True
+        i = j + 1
+    if bad:
+        unclassified(path, start, text)
+PY
+)
+
+# scan_driver_refs <file>... -> INVOKE / UNCLASSIFIED rows. A scanner crash is
+# itself an unclassified row, so it can never read as "nothing found".
+scan_driver_refs() {
+    python3 -c "$DRIVER_SCAN_PY" "$@" \
+        || printf 'UNCLASSIFIED\tscanner\tSCANNER_FAILED rc=%s\n' "$?"
 }
 
 # count_driver_sites <file>... -> "<invocations> <with_base>"
 count_driver_sites() {
-    local f line n=0 b=0
-    for f in "$@"; do
-        while IFS= read -r line; do
-            [[ -z "$line" ]] && continue
-            n=$((n + 1))
-            [[ "$line" == *base_args* || "$line" == *--base-file* ]] && b=$((b + 1))
-        done < <(driver_invocations "$f")
-    done
-    echo "$n $b"
+    scan_driver_refs "$@" | awk -F'\t' '$1 == "INVOKE" { n++; b += $2 } END { print n + 0, b + 0 }'
+}
+
+# unclassified_count <file>... -> number of UNCLASSIFIED rows
+unclassified_count() {
+    scan_driver_refs "$@" | awk -F'\t' '$1 == "UNCLASSIFIED" { n++ } END { print n + 0 }'
+}
+
+TMP3="$(mktemp -d)"
+
+# plant_case <file> <line>: a driver-path assignment, then <line>.
+plant_case() {
+    printf '%s\n' '_X_SCRIPT="$DIR/../board/aitask_merge.py"' "$2" > "$1"
 }
 
 # Planted control: proves the matcher joins continuation lines and tells a
-# based call from an unbased one - on the supported shape only.
-TMP3="$(mktemp -d)"
+# based call from an unbased one.
 cat > "$TMP3/planted.sh" <<'EOF'
 _X_SCRIPT="$DIR/../board/aitask_merge.py"
 "$_X_PYTHON" "$_X_SCRIPT" "$f" \
@@ -248,16 +434,188 @@ _X_SCRIPT="$DIR/../board/aitask_merge.py"
 EOF
 assert_eq "Planted control: 2 recognized split invocations, 1 with a base" \
     "2 1" "$(count_driver_sites "$TMP3/planted.sh")"
+assert_eq "Planted control: nothing unclassified" \
+    "0" "$(unclassified_count "$TMP3/planted.sh")"
+
+# Benign negative control: legitimate non-invocation references stay silent.
+cat > "$TMP3/benign.sh" <<'EOF'
+# the driver lives at board/aitask_merge.py
+_X_SCRIPT=""
+_X_SCRIPT="$DIR/../board/aitask_merge.py"  # aitask_merge.py, resolved lazily
+[[ -n "$_X_PYTHON" && -f "$_X_SCRIPT" ]]
+[ -r "${_X_SCRIPT}" ] || exit 1
+echo "$_X_SCRIPT_DIR"
+EOF
+assert_eq "Benign references: no invocation" "0 0" "$(count_driver_sites "$TMP3/benign.sh")"
+assert_eq "Benign references: nothing unclassified" "0" "$(unclassified_count "$TMP3/benign.sh")"
+
+# Class 1: the driver-path variable is assigned in a DIFFERENT (sourced) file.
+cat > "$TMP3/defs.sh" <<'EOF'
+_X_SCRIPT="$DIR/../board/aitask_merge.py"
+EOF
+cat > "$TMP3/caller.sh" <<'EOF'
+"$_X_PYTHON" "$_X_SCRIPT" "$f" \
+    --batch --rebase
+EOF
+assert_eq "Cross-file driver variable: the unbased call is recognized" \
+    "1 0" "$(count_driver_sites "$TMP3/defs.sh" "$TMP3/caller.sh")"
+
+# Class 2a: an interpreter variable whose name lacks PYTHON.
+plant_case "$TMP3/interp.sh" '"$INTERP" "$_X_SCRIPT" "$f" --batch --rebase'
+assert_eq "Non-PYTHON interpreter: the unbased call is recognized" \
+    "1 0" "$(count_driver_sites "$TMP3/interp.sh")"
+
+# One planted line per case that must be a hard failure (exactly one row).
+while IFS='|' read -r label line; do
+    plant_case "$TMP3/case.sh" "$line"
+    assert_eq "Unclassified: $label" "1" "$(unclassified_count "$TMP3/case.sh")"
+done <<'EOF'
+literal-path call|python3 "$DIR/../board/aitask_merge.py" "$f" --batch --rebase --base-file x
+array call|cmd=("$_X_PYTHON" "$_X_SCRIPT" "$f" --batch --rebase --base-file "$b")
+alias of the driver path|S="$_X_SCRIPT"
+interpreter option before the driver|"$INTERP" -s "$_X_SCRIPT" "$f" --batch --rebase
+file-test exemption ends at the test command|[[ -f "$_X_SCRIPT" ]] && "$INTERP" -s "$_X_SCRIPT" "$f"
+non-file test of the driver path|[[ -n "$_X_SCRIPT" ]]
+ambiguous ANSI-C quoting|echo $'a\'b'; "$INTERP" "$_X_SCRIPT" "$g"
+command substitution in a driver-path assignment|NEXT="$("$INTERP" /tmp/aitask_merge.py "$g" --batch --rebase)/aitask_merge.py"
+backtick substitution in a driver-path assignment|NEXT=`"$INTERP" /tmp/aitask_merge.py "$g"`/aitask_merge.py
+driver call wrapped in a substitution|out=$("$_X_PYTHON" "$_X_SCRIPT" "$f" --base-file "$b")
+EOF
+
+# A recognized call on a line must not mask a second call on the same line.
+plant_case "$TMP3/compound.sh" \
+    '"$I" "$_X_SCRIPT" "$f" --base-file "$b"; "$I" "$_X_SCRIPT" "$g" --batch --rebase'
+assert_eq "Compound line: each call is counted, the unbased one is seen" \
+    "2 1" "$(count_driver_sites "$TMP3/compound.sh")"
+plant_case "$TMP3/compound.sh" \
+    '"$I" "$_X_SCRIPT" "$f" --base-file "$b"; "$I" -u "$_X_SCRIPT" "$g"'
+assert_eq "Compound line with an unsupported call: the based call is counted" \
+    "1 1" "$(count_driver_sites "$TMP3/compound.sh")"
+assert_eq "Compound line with an unsupported call: it is unclassified" \
+    "1" "$(unclassified_count "$TMP3/compound.sh")"
+
+# Comment boundaries: a mid-word `#` is not a comment, a genuine one is.
+plant_case "$TMP3/c.sh" 'echo release#candidate; "$INTERP" "$_X_SCRIPT" "$g" --batch --rebase'
+assert_eq "Mid-word # does not hide the call after it" "1 0" "$(count_driver_sites "$TMP3/c.sh")"
+plant_case "$TMP3/c.sh" 'n=${f##*/}; "$INTERP" "$_X_SCRIPT" "$g" --batch --rebase'
+assert_eq "\${f##*/} does not hide the call after it" "1 0" "$(count_driver_sites "$TMP3/c.sh")"
+plant_case "$TMP3/c.sh" '"$I" "$_X_SCRIPT" "$f" --base-file "$b"  # aitask_merge.py call'
+assert_eq "Genuine trailing comment: the based call is counted" "1 1" "$(count_driver_sites "$TMP3/c.sh")"
+assert_eq "Genuine trailing comment: nothing unclassified" "0" "$(unclassified_count "$TMP3/c.sh")"
+plant_case "$TMP3/c.sh" 'echo x # "$INTERP" "$_X_SCRIPT" "$g"'
+assert_eq "Commented-out call: no row at all" \
+    "0 0 0" "$(count_driver_sites "$TMP3/c.sh") $(unclassified_count "$TMP3/c.sh")"
+
+# A backslash ending a COMMENT does not continue the line, and `\\` is an
+# escaped backslash: the next line is a separate command bash executes.
+while IFS='|' read -r label first; do
+    printf '%s\n' '_X_SCRIPT="$DIR/../board/aitask_merge.py"' "$first" \
+        '"$INTERP" "$_X_SCRIPT" "$g" --batch --rebase' > "$TMP3/c.sh"
+    assert_eq "Not a continuation ($label): the next line's unbased call is seen" \
+        "1 0" "$(count_driver_sites "$TMP3/c.sh")"
+done <<'EOF'
+full-line comment ending in a backslash|# note \
+inline comment ending in a backslash|echo x # note \
+escaped backslash at end of line|echo x\\
+EOF
+
+# Differential against REAL bash: the scanner reports a row for a probe iff bash
+# actually executes the probe's call. `@CALL@` becomes a call whose stand-in
+# interpreter prints `CALLED p<N>`; `@TAB@` becomes a literal tab and `@NL@` a
+# newline (multi-line probes exercise continuation joining).
+mkdir -p "$TMP3/diff"
+cp "$TMP3/defs.sh" "$TMP3/diff/defs.sh"
+{
+    echo '_standin() { echo "CALLED $2"; }'
+    echo 'INTERP=_standin; _X_SCRIPT=drv; f=a/b; x=; a=; b=c'
+} > "$TMP3/diff/run.sh"
+probe_ids=()
+probe_n=0
+while IFS= read -r probe; do
+    probe_n=$((probe_n + 1))
+    probe="${probe//@TAB@/$'\t'}"
+    probe="${probe//@NL@/$'\n'}"
+    probe="${probe//@CALL@/\"\$INTERP\" \"\$_X_SCRIPT\" p$probe_n --batch --rebase}"
+    printf '%s\n' "$probe" > "$TMP3/diff/p$probe_n.sh"
+    printf '%s\n' "$probe" >> "$TMP3/diff/run.sh"
+    probe_ids+=("p$probe_n")
+done <<'EOF'
+echo x\ #candidate; @CALL@
+echo x\;#candidate; @CALL@
+echo x\|#c; @CALL@
+echo x\\ #c; @CALL@
+echo release#candidate; @CALL@
+n=${f##*/}; @CALL@
+echo $#; @CALL@
+echo ${x:- #}; @CALL@
+echo ${x:-"}" #}; @CALL@
+echo "a # b" ; @CALL@
+echo 'it''s #x'; @CALL@
+a=1;# c; @CALL@
+echo x #; @CALL@
+echo "q"#c; @CALL@
+echo 'q'#c; @CALL@
+echo x&#c; @CALL@
+echo $(echo a)#c; @CALL@
+echo $(echo ")")#c; @CALL@
+echo $((1+2))#c; @CALL@
+echo $((2#101)); @CALL@
+cat <(echo a)#c; @CALL@
+(echo a)#c; @CALL@
+(echo a) #c; @CALL@
+echo `echo a`#c; @CALL@
+echo `echo a` #c; @CALL@
+echo a@TAB@#c; @CALL@
+echo "x\"#"; @CALL@
+echo $'a\'b'; @CALL@
+#@CALL@
+  # @CALL@
+@CALL@ # trailing
+# note \@NL@@CALL@
+echo x # note \@NL@@CALL@
+echo x\\@NL@@CALL@
+echo x \@NL@&& @CALL@
+@CALL@ # note \@NL@echo next
+EOF
+executed="$(cd "$TMP3/diff" && bash ./run.sh 2>/dev/null </dev/null | sed -n 's/^CALLED //p')"
+reported="$(scan_driver_refs "$TMP3/diff"/defs.sh "$TMP3/diff"/p*.sh \
+    | grep -oE '/p[0-9]+\.sh:' | sed 's|^/||; s|\.sh:$||' | sort -u)"
+ran=0 skipped=0 diverged=""
+for id in "${probe_ids[@]}"; do
+    in_bash=no; in_scan=no
+    grep -qx "$id" <<<"$executed" && in_bash=yes
+    grep -qx "$id" <<<"$reported" && in_scan=yes
+    if [[ $in_bash == yes ]]; then ran=$((ran + 1)); else skipped=$((skipped + 1)); fi
+    [[ $in_bash == "$in_scan" ]] || diverged+="$id(bash=$in_bash scan=$in_scan $(head -n1 "$TMP3/diff/$id.sh")) "
+done
+assert_eq "Differential exercises both directions (>=15 executed, >=8 commented out)" \
+    "1" "$([[ $ran -ge 15 && $skipped -ge 8 ]] && echo 1 || echo 0)"
+assert_eq "Scanner reports a probe iff real bash executes its call" "" "$diverged"
+
+# Base-removal mutant of the real call site must be caught.
+automerge_src="$(cat "$PROJECT_DIR/.aitask-scripts/lib/task_automerge.sh")"
+# shellcheck disable=SC2124  # the single-quoted pattern is literal text, not an array
+automerge_mut="${automerge_src//' ${base_args[@]+"${base_args[@]}"}'/}"
+assert_eq "Mutant precondition: removing base_args changed the copy" \
+    "1" "$([[ "$automerge_mut" != "$automerge_src" ]] && echo 1 || echo 0)"
+printf '%s\n' "$automerge_mut" > "$TMP3/task_automerge_mutant.sh"
+assert_eq "Base-removal mutant of the real call site is caught" \
+    "1 0" "$(count_driver_sites "$TMP3/task_automerge_mutant.sh")"
+
 rm -rf "$TMP3"
 
+# Real tree.
 mapfile -t SH_FILES < <(find "$PROJECT_DIR/.aitask-scripts" -type f -name '*.sh' | sort)
-read -r invocations with_base < <(count_driver_sites "${SH_FILES[@]}")
+tree_rows="$(scan_driver_refs "${SH_FILES[@]}")"
+read -r invocations with_base < <(awk -F'\t' '$1 == "INVOKE" { n++; b += $2 } END { print n + 0, b + 0 }' <<<"$tree_rows")
 assert_eq "At least one recognized driver invocation exists (guard is not vacuous)" \
     "1" "$([[ $invocations -ge 1 ]] && echo 1 || echo 0)"
 assert_eq "The shared auto-merge library's call site is recognized" \
-    "1" "$(count_driver_sites "$PROJECT_DIR/.aitask-scripts/lib/task_automerge.sh" | awk '{print ($1 >= 1)}')"
+    "1" "$(grep -c $'^INVOKE\t.*/lib/task_automerge\\.sh:' <<<"$tree_rows" | awk '{ print ($1 >= 1) }')"
 assert_eq "Every recognized driver invocation passes --base-file" \
     "$invocations" "$with_base"
+assert_eq "No unclassified aitask_merge.py reference (update the guard)" \
+    "" "$(grep '^UNCLASSIFIED' <<<"$tree_rows")"
 
 # --- Test 4: an add/add conflict has no stage 1 and must not crash ---
 echo "--- Test 4: missing/unreadable base degrades, never crashes ---"
