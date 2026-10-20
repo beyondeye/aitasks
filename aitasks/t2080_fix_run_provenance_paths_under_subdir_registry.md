@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1852
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-20 12:35
-updated_at: 2026-10-20 12:49
+updated_at: 2026-10-20 14:00
 ---
 
 ## Origin
@@ -29,3 +30,8 @@ Spawned from t1854_4 (M3.4 cost ledger) during Step 8b review.
 
 ## Suggested fix
 In `provenance()`, use `Prefix` either to keep only the paths under the prefix and strip the prefix (making `modified` root-relative), or to record the prefix and filter `<prefix>.aitask-testmap/`. Then decide whether M3.4's `root-not-toplevel` guard can be relaxed, with a red-proved test for a subdirectory registry. Paths outside the prefix still matter (a test can read them), so dropping them is not sound on its own.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-20T11:00:34Z status=pass attempt=1 type=human
