@@ -27,6 +27,9 @@ aiwork/
 # Shadow concern-rejection store (per-task, local-only; pruned at archive)
 .aitask-shadow/
 
+# Scratchpad notes (per-task, local-only; pruned at archive)
+.aitask-scratchpad/
+
 # followup_kind backfill run state (manifest, preimages, journal). Local-only
 # recovery material for a one-shot maintenance script; the reviewed
 # classification table is committed into the task's plan file instead.

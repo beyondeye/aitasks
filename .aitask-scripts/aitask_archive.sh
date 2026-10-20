@@ -216,6 +216,23 @@ prune_shadow_rejections() {
     "$SCRIPT_DIR/aitask_shadow_rejected.sh" prune "$task_id" >/dev/null 2>&1 || true
 }
 
+# --- Helper: prune scratchpad notes store (best-effort, idempotent) ---
+# Scratchpad notes are scoped to the task and dropped when it archives. Every
+# call site runs after the task file has left aitasks/, and the store's lifecycle
+# lock makes a racing open/save either finish before that move (so this prune
+# removes its store) or refuse after it. A LOCK_BUSY prune leaves the store for
+# any later prune of the same id.
+prune_scratchpad() {
+    local task_id="$1"
+
+    if [[ "$DRY_RUN" == true ]]; then
+        info "[dry-run] Would prune scratchpad for t$task_id"
+        return
+    fi
+
+    "$SCRIPT_DIR/aitask_scratchpad_store.sh" prune "$task_id" >/dev/null 2>&1 || true
+}
+
 # --- Archive a parent task ---
 archive_parent() {
     local task_num="$1"
@@ -272,6 +289,7 @@ archive_parent() {
     # Release lock
     release_lock "$task_num"
     prune_shadow_rejections "$task_num"
+    prune_scratchpad "$task_num"
 
     # Git staging and commit
     if [[ "$DRY_RUN" != true ]]; then
@@ -387,6 +405,7 @@ handle_folded_tasks() {
 
         if [[ "$DRY_RUN" == true ]]; then
             info "[dry-run] Would delete folded task: $folded_file"
+            prune_scratchpad "$folded_id"
             continue
         fi
 
@@ -421,6 +440,9 @@ handle_folded_tasks() {
             done
         fi
         echo "FOLDED_DELETED:$folded_id:$folded_file"
+        # The folded task file is deleted above, so its scratchpad goes with it.
+        # (Shadow rejection stores are not pruned for folded tasks.)
+        prune_scratchpad "$folded_id"
 
         # Release lock for folded task
         release_lock "$folded_num"
@@ -514,6 +536,7 @@ archive_child() {
     # Release child lock
     release_lock "$task_id"
     prune_shadow_rejections "$task_id"
+    prune_scratchpad "$task_id"
 
     # Check if all children are complete
     local remaining_children
@@ -567,6 +590,7 @@ archive_child() {
         # Release parent lock
         release_lock "$parent_num"
         prune_shadow_rejections "$parent_num"
+        prune_scratchpad "$parent_num"
         parent_archived=true
     fi
 

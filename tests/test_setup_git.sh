@@ -837,12 +837,13 @@ setup_python_cache_gitignore|__pycache__/
 setup_gate_logs_gitignore|.aitask-gates/
 setup_testmap_gitignore|.aitask-testmap/
 setup_shadow_store_gitignore|.aitask-shadow/
+setup_scratchpad_gitignore|.aitask-scratchpad/
 setup_worktree_dirs_gitignore|aiwork/
 HELPERS
 
 # (c)/(d) a deleted .gitignore is a pre-existing change too. The gap was in the
 # shared baseline capture (absent paths were never scanned), so one helper
-# stands for all six.
+# stands for all seven.
 for mode in unstaged staged; do
     d="$(new_gitignore_repo)"
     SCRIPT_DIR="$d/.aitask-scripts"

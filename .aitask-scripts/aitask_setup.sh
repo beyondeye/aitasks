@@ -2927,6 +2927,37 @@ setup_shadow_store_gitignore() {
     success "Shadow rejection-store rule added to .gitignore"
 }
 
+# --- Scratchpad notes-store gitignore rule (t2073_1) ---
+# The scratchpad pane's notes live under .aitask-scratchpad/<task-id>/. They are
+# per-task, local-only working state, pruned when the task is archived —
+# nothing here belongs in git.
+setup_scratchpad_gitignore() {
+    local project_dir="$SCRIPT_DIR/.."
+    local gitignore="$project_dir/.gitignore"
+
+    if [[ -f "$gitignore" ]] && grep -qxF ".aitask-scratchpad/" "$gitignore"; then
+        success "Scratchpad notes rule already in .gitignore"
+        return
+    fi
+
+    info "Adding .aitask-scratchpad/ to .gitignore (scratchpad notes store)..."
+
+    if [[ -f "$gitignore" ]]; then
+        echo "" >> "$gitignore"
+        echo "# Scratchpad notes (per-task, local-only; pruned at archive)" >> "$gitignore"
+        echo ".aitask-scratchpad/" >> "$gitignore"
+    else
+        {
+            echo "# Scratchpad notes (per-task, local-only; pruned at archive)"
+            echo ".aitask-scratchpad/"
+        } > "$gitignore"
+    fi
+
+    _ait_commit_gitignore_rule "$project_dir" "ait: Add .aitask-scratchpad/ to .gitignore (scratchpad notes)"
+
+    success "Scratchpad notes rule added to .gitignore"
+}
+
 # --- Version check ---
 check_latest_version() {
     local local_version=""
@@ -5109,6 +5140,9 @@ main() {
     echo ""
 
     setup_shadow_store_gitignore
+    echo ""
+
+    setup_scratchpad_gitignore
     echo ""
 
     setup_worktree_dirs_gitignore
