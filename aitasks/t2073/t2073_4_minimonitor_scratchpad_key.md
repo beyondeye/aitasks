@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: [t2073_2, t2073_3]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [aitask_monitormini, tmux, scratchpad]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 2073
 created_at: 2026-10-20 10:32
-updated_at: 2026-10-20 10:32
+updated_at: 2026-10-20 17:21
 ---
 
 ## Context
