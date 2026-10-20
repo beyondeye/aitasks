@@ -98,3 +98,10 @@ outputs regenerated and diff-reviewed; tests pin the contract.)
 ### Goal-achievement risk: low
 None identified. (The failing guard and the pinning test both run in
 verification; the output contract `DRIFT_RC:<rc>` is unchanged.)
+
+## Final Implementation Notes
+- **Actual work done:** Rewrote both `DRIFT_RC` capture blocks in `.claude/skills/task-workflow/remote-drift-check.md` step 2 (base pass and `--unsynced` output pass) into the errexit-safe `if …; then drift_rc=0; else drift_rc=$?; fi; echo "DRIFT_RC:$drift_rc"` form, and extended the explanatory sentence with why the `if` form is used. Updated `tests/test_task_workflow_reentry_drift.sh`'s `drift-procedure-captures-exit-status` guard and its negative control to the new spelling. Re-rendered the tracked remote variants (`.claude/skills/task-workflow-remote-/`, `.agents/skills/task-workflow-remote-codex-/`, `.opencode/skills/task-workflow-remote-/`) and the `remote-drift-check-default.md` golden.
+- **Deviations from plan:** `aitask_skill_render.sh task-workflow` fails ("template not found: task-workflow/SKILL.md.j2") because task-workflow is a closure-only skill; rendering went through `aitask_skill_render.sh aitask-pick --profile <p> --agent <a>` instead, which re-renders the task-workflow closure. The diff was confined to the four `remote-drift-check.md` copies and the golden.
+- **Issues encountered:** The task body named only line 27; the guard also flagged the identical output-pass line 42, and both were fixed.
+- **Key decisions:** Took the task's option 1 (rewrite) over an allowlist entry, because the defect is real. A probe under `bash -e` with a stub that exits 3 showed the old one-liner exits before printing `DRIFT_RC`, while the new form prints `DRIFT_RC:3`. The `DRIFT_RC:<rc>` output contract is unchanged.
+- **Upstream defects identified:** None
