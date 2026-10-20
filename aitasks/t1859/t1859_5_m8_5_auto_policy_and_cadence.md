@@ -105,3 +105,17 @@ once nothing is left unresolved. In `depends:`: M8.4 `t1859_4`, M3.4
 - Engine tests for the window score attributing a miss to the right task.
 - Cadence budget.
 - `ait engine test` green.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1854_4** id=2026-10-20T09:37:06Z.00dde778c4368dd90b787ad1 from=t1854_4 from_verified=yes at=2026-10-20T09:37:06Z base=d70250f708143ce51667dd1491ae34f6919a4df5 base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from t1854_4 (M3.4) as landed in 487271c89. These are tree claims: re-verify in your Reality check.
+> | 
+> | - **policy.yaml helpers:** `cost.ReadPolicy(root) (Policy, found, err)` and `cost.WritePolicy(root, p) (changed, err)`, with `cost.PolicyPath = aitestmap/costs/policy.yaml`.
+> |   - Schema: `{contract, last_full_run{run_id, at, task, sha}, selected_since_full, approved_by{who, at, mode, statement}}`.
+> |   - Unknown keys are kept and re-written.
+> |   - A newer `contract:` is a `*testmap.ContractMismatchError` (`CONTRACT_MISMATCH`, exit 3) on read **and** on write.
+> | - **Not covered:** `WritePolicy` is a whole-value write. A read-modify-write across your two write points is not serialized by M3.4; add your own lock if the verb can race.
+> | - **Full-suite p95:** `cost.FullSuiteP95(table)` returns `{MS, RunID, Unmeasured, OK}`. It is disjoint (a suite parent's own time, never parent + children). `OK=false` until a `full-` `--all` run with every invocation cause-free and unrefused has been folded. Load the table with `cost.Load(root, cfg.HostClass())`.
