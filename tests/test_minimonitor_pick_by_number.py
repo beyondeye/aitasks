@@ -149,13 +149,16 @@ class _FakeMonitor:
         #: Discovery-cache rows `get_pane` answers, per pane (t2065). Absent ⇒
         #: unknown to the cache, so no cached frozen record.
         self.cached: dict = {}
+        #: What the smart kill reports (t2078). The default is a kill that
+        #: succeeded.
+        self.kill_ok = True
 
     def get_session_to_project_mapping(self):
         return {"s1": _ROOT}
 
     def kill_agent_pane_smart(self, pane_id):
         self.killed.append(pane_id)
-        return (True, False)
+        return (self.kill_ok, False)
 
     def tmux_run(self, args, timeout=5.0):
         self.tmux_calls.append(list(args))
@@ -838,11 +841,38 @@ class KillTimeFrozenRecheckTests(unittest.TestCase):
     def test_live_followed_agent_with_kill_ticked_is_killed(self):
         """Control: stays live → still killed, after the launch."""
         app = self._app()
+        app._focused_pane_id = "%own"
         self._p_with_kill_ticked(app)
         self.assertEqual(self.launched, ["cmd --go"])
         self.assertEqual(app._monitor.killed, ["%own"])
         self.assertEqual(app._monitor.option_reads,
                          [("%own", "@aitask_frozen")])
+        self.assertIsNone(app._focused_pane_id)
+
+    # -- t2078: a kill that fails ------------------------------------------
+
+    def _assert_failed_kill_reported(self, app):
+        self.assertEqual(self.launched, ["cmd --go"])
+        self.assertEqual(app._monitor.killed, ["%own"])
+        failed = [i for i, n in enumerate(app.spy_notify)
+                  if n == ("Failed to kill agent-pick-77", "error")]
+        self.assertEqual(len(failed), 1, app.spy_notify)
+        self.assertIs(app.spy_notify_kwargs[failed[0]].get("markup"), False)
+        self.assertEqual(app._focused_pane_id, "%own")
+
+    def test_failed_kill_after_launch_is_reported_and_keeps_focus(self):
+        app = self._app()
+        app._focused_pane_id = "%own"
+        app._monitor.kill_ok = False
+        self._p_with_kill_ticked(app)
+        self._assert_failed_kill_reported(app)
+
+    def test_n_failed_kill_is_reported_and_keeps_focus(self):
+        app = self._app(followed_status="Done")
+        app._focused_pane_id = "%own"
+        app._monitor.kill_ok = False
+        self._n(app)
+        self._assert_failed_kill_reported(app)
 
     def test_frozen_meanwhile_snapshot_is_not_killed(self):
         app = self._app()

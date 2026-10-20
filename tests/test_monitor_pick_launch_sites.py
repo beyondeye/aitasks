@@ -11,8 +11,9 @@ so the dedupe cannot silently change either one:
 - resolve failure → one error notify, no kill, no dialog;
 - sibling path: the outgoing pane is killed BEFORE the dialog opens, by the
   parent / archived / Done heuristic only — and only when the live
-  `@aitask_frozen` read proves it is not a frozen stand-in (t2057) — and the
-  tmux result notifies "Launched agent for t<id>";
+  `@aitask_frozen` read proves it is not a frozen stand-in (t2057); a failed
+  kill is reported and keeps focus (t2078) — and the tmux result notifies
+  "Launched agent for t<id>";
 - restart path: the kill runs INSIDE the callback, BEFORE `launch_in_tmux`, and
   notifies "Restarted agent for t<id>" — and only when `_kill_target_state`
   proves the pane live at that moment; otherwise nothing is killed OR launched
@@ -267,6 +268,22 @@ class SiblingPickTests(_Base):
                     ("read", "%7", "@aitask_frozen"),
                     ("kill", "%7"), ("notify", "Killed agent-pick-41"), ("push",)])
                 self.assertIsNone(host._focused_pane_id)
+
+    def test_failed_kill_is_reported_keeps_focus_and_still_opens_the_dialog(self):
+        """t2078: the pane is still running, so no "Killed" toast and no focus
+        loss. The live Done row of the test above is the control."""
+        host = _Host("41_2", _info("41_2", "Done"))
+        host.kill_ok = False
+        seams = self._seams(host)
+        ma.MonitorApp._launch_pick_for_sibling(host, "42")
+        self.assertEqual(host.log, [
+            ("read", "%7", "@aitask_frozen"),
+            ("kill", "%7"), ("notify", "Failed to kill agent-pick-41"),
+            ("push",)])
+        self.assertEqual(host.notes,
+                         [("Failed to kill agent-pick-41", "error")])
+        self.assertEqual(host._focused_pane_id, "%7")
+        self._assert_golden(seams)
 
     def _open_done(self, *, frozen_snapshot=False, read=(True, "")):
         host = _Host("41_2", _info("41_2", "Done"))

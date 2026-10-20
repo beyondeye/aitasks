@@ -765,9 +765,9 @@ def _launch(app, module, run, name):
     return app.notify.calls
 
 
-def toast_monitor_sibling_launch(name, frozen_read=(True, "")):
+def toast_monitor_sibling_launch(name, frozen_read=(True, ""), kill_ok=True):
     app = _app(MonitorApp)
-    app._monitor = _FakeMonitor(frozen_read=frozen_read)
+    app._monitor = _FakeMonitor(kill_ok=kill_ok, frozen_read=frozen_read)
     _focused(app, name)
     app._task_cache = _TitleCache("t")
     app._root_for_snap = lambda snap: Path(".")
@@ -787,6 +787,24 @@ def toast_mini_launch(name):
     app = _app(MiniMonitorApp)
     app._monitor = _FakeMonitor()
     return _launch(app, mm, lambda: app._launch_pick("42", Path("."), None), name)
+
+
+def toast_mini_launch_kill_failed(name):
+    """The post-launch kill of the followed agent fails (t2078). The launch
+    must succeed to reach the kill, so this does not reuse `_launch`."""
+    app = _app(MiniMonitorApp)
+    app._monitor = _FakeMonitor(kill_ok=False)
+    _focused(app, name)
+    callbacks = []
+    app.push_screen = lambda screen, callback=None: callbacks.append(callback)
+    config = TmuxLaunchConfig(session="s", window="w", new_session=False,
+                              new_window=False)
+    with patch.object(mm, "build_pick_screen",
+                      lambda *a, **k: SimpleNamespace(full_command="cmd")), \
+            patch.object(mm, "launch_in_tmux", lambda *a, **k: (1, None)):
+        app._launch_pick("42", Path("."), "%1")
+        callbacks[0](config)
+    return app.notify.calls
 
 
 def _mark_toast(cls, out: str, *, hide: bool = False):
@@ -877,6 +895,9 @@ TOAST_SITES = [
      lambda name: toast_monitor_sibling_launch(name, (True, "rec-1"))),
     ("monitor: sibling pick unverified, not killed",
      lambda name: toast_monitor_sibling_launch(name, (False, ""))),
+    # A failed sibling-pick kill is reported, not claimed (t2078).
+    ("monitor: sibling pick kill failed",
+     lambda name: toast_monitor_sibling_launch(name, kill_ok=False)),
     ("monitor: restart killed + launch failed", toast_monitor_restart),
     # The kill/restart confirm callbacks' kill-skipped toasts (t2065).
     ("monitor: kill frozen, not killed",
@@ -904,6 +925,7 @@ TOAST_SITES = [
     ("minimonitor: kill unverified, not killed",
      _kill_toast(MiniMonitorApp, True, (False, ""))),
     ("minimonitor: launch failed", toast_mini_launch),
+    ("minimonitor: launched, kill failed", toast_mini_launch_kill_failed),
     ("minimonitor: loop disarmed (shadow command)", toast_mini_disarm),
     ("minimonitor: recheck unavailable (followed command)",
      _recheck_toast(False)),

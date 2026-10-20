@@ -3770,7 +3770,8 @@ class MonitorApp(
 
         Kills the current pane first if the current task is a parent split
         into children, was archived, or is Done — matching the heuristic
-        used by the immediate "Pick t<N>" path.
+        used by the immediate "Pick t<N>" path. A failed kill is reported as
+        an error and keeps the pane focused; the dialog opens either way.
         """
         pane_id = self._focused_pane_id
         if pane_id is None or self._monitor is None:
@@ -3801,9 +3802,15 @@ class MonitorApp(
             # still opens either way.
             state = self._kill_target_state(pane_id)
             if state == "live":
-                self._monitor.kill_agent_pane_smart(pane_id)
-                self._focused_pane_id = None
-                self.notify(f"Killed {old_name}", markup=False)
+                # A failed kill leaves the pane running: say so and keep its
+                # focus rather than reporting a kill that never happened (t2078).
+                ok, _ = self._monitor.kill_agent_pane_smart(pane_id)
+                if ok:
+                    self._focused_pane_id = None
+                    self.notify(f"Killed {old_name}", markup=False)
+                else:
+                    self.notify(f"Failed to kill {old_name}", severity="error",
+                                markup=False)
             elif state == "frozen":
                 self.notify(f"{old_name} is frozen — not killed; drop it with k",
                             severity="warning", markup=False)

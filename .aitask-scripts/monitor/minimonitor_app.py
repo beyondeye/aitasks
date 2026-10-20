@@ -3333,7 +3333,8 @@ class MiniMonitorApp(
         the followed agent's window, so killing first would tear this app down
         before the next agent exists. It is killed only when
         :meth:`_kill_target_state` proves it live at that moment; a frozen or
-        unverifiable target is left alone with a warning (t2057).
+        unverifiable target is left alone with a warning (t2057). A kill that
+        fails is reported as an error and leaves focus where it was (t2078).
         """
         if self._monitor is None:
             return
@@ -3367,8 +3368,19 @@ class MiniMonitorApp(
                 if kill_pane_id and self._monitor is not None:
                     state = self._kill_target_state(kill_pane_id)
                     if state == "live":
-                        self._monitor.kill_agent_pane_smart(kill_pane_id)
-                        self._focused_pane_id = None
+                        ok, _ = self._monitor.kill_agent_pane_smart(
+                            kill_pane_id)
+                        if ok:
+                            self._focused_pane_id = None
+                        else:
+                            # The outgoing agent is still running: report it
+                            # and keep focus (t2078). Window names are
+                            # tmux-side input; unstyled (t2017).
+                            snap = self._snapshots.get(kill_pane_id)
+                            name = (snap.pane.window_name if snap
+                                    else kill_pane_id)
+                            self.notify(f"Failed to kill {name}",
+                                        severity="error", markup=False)
                     elif state == "frozen":
                         self.notify(
                             "Followed agent is frozen — launched without "
