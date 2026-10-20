@@ -52,3 +52,5 @@ Have addwork/setmode refuse cleanly when their rebase stops: abort only the reba
 > | - Related: the brainstorm deadline path (`brainstorm_crew._addwork_outcome`) reads `crew_merge_state()` back after a last-resort kill and reports an unfinished rebase with a `rebase --abort` remedy. It never aborts on its own.
 > | 
 > | Advisory context only; the design choice of abort vs report stays yours.
+
+> **👁 note:read** id=2026-10-20T16:14:37Z.67bd9fa84dd8502ea4697aab by=t2028 at=2026-10-20T16:14:37Z mode=explicit ids=2026-10-16T05:02:51Z.793c22e73a93f02ec5c1b5f3
