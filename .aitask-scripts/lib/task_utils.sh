@@ -778,11 +778,19 @@ _ait_git_pull_cli_rebase_mode() {
 #     the sequence editor, and an `edit` stop ends the pull with rc 0 and a rebase
 #     deliberately left in progress — which the gateway must neither abort nor
 #     report as a completed pull.
+#   - A merge-mode pull (t2064) is passed --own-merge, so a merge it provably
+#     started and that stopped in a RECOGNISED way (_ait_merge_stop_shaped) is
+#     aborted — never auto-merged — and reported as merge_aborted. A merge
+#     paused on purpose (`--no-commit`, rc 0) never reaches the cleanup; the
+#     completion postcondition reports it and leaves it alone.
 #
 # BOUNDS, deliberately not closed here:
-#   - a merge-mode pull that conflicts leaves MERGE_HEAD. It is reported as
-#     `mid-MERGE_HEAD` / data_midop and never aborted: proving a merge ours would
-#     need its own ORIG_HEAD evidence;
+#   - a merge-mode stop whose output matches no recognised family is left in
+#     progress and reported as `mid-MERGE_HEAD` / data_midop, for a manual
+#     `./ait git merge --abort`. The family list is not exhaustive by design:
+#     an unrecognised stop fails closed. (One known case: under -q, a branch
+#     update rejected after the merge commit prints only a fatal that fetch also
+#     prints, so nothing marks it as this pull's merge.)
 #   - a conflict the auto-merge cannot resolve is aborted, so it cannot be
 #     resolved in place through the gateway. That is the invariant; plain
 #     `git -C .aitask-data pull` is the escape hatch.
@@ -824,16 +832,24 @@ task_git_pull() {
             die "./ait git pull: interactive rebase is not supported here (rebase mode '$mode' from $mode_src) - its editor needs the terminal, and an 'edit' stop would leave the shared data worktree mid-rebase. Use plain 'git -C .aitask-data pull --rebase=interactive', or pass --rebase to pull non-interactively." ;;
     esac
 
-    # Function-local and dynamically scoped: ait_automerge_advance and
-    # ait_rebase_abort_if_ours read AIT_RECONCILE_GIT_OPTS while this frame is
-    # live, so the continue and the abort carry the user's config too. The global
-    # itself is untouched.
+    # Merge mode — git's false spellings, or no setting at all — lets the
+    # cleanup claim a merge this pull started (t2064). Every other value,
+    # including one this list does not know, passes nothing: fail closed.
+    local -a own=()
+    case "$(printf '%s' "$mode" | tr '[:upper:]' '[:lower:]')" in
+        ""|false|no|off|0) own=(--own-merge) ;;
+    esac
+
+    # Function-local and dynamically scoped: ait_automerge_advance,
+    # ait_rebase_abort_if_ours and ait_merge_abort_if_ours read
+    # AIT_RECONCILE_GIT_OPTS while this frame is live, so the continue and the
+    # abort carry the user's config too. The global itself is untouched.
     local -a framework_opts=("${AIT_RECONCILE_GIT_OPTS[@]}")
     # ${a[@]+"${a[@]}"}: empty arrays stay safe under `set -u` on bash 3.2 too.
     local -a AIT_RECONCILE_GIT_OPTS=(${AIT_GIT_CONFIG_OPTS[@]+"${AIT_GIT_CONFIG_OPTS[@]}"} "${framework_opts[@]}")
 
     local blob rc=0 reason
-    blob="$(_ait_owned_pull "${AIT_RECONCILE_GIT_OPTS[@]}" ${AIT_GIT_OTHER_OPTS[@]+"${AIT_GIT_OTHER_OPTS[@]}"} \
+    blob="$(_ait_owned_pull ${own[@]+"${own[@]}"} "${AIT_RECONCILE_GIT_OPTS[@]}" ${AIT_GIT_OTHER_OPTS[@]+"${AIT_GIT_OTHER_OPTS[@]}"} \
                 pull --no-autostash --no-edit ${pull_args[@]+"${pull_args[@]}"} 2>&1)" || rc=$?
     [[ -n "$blob" ]] && printf '%s\n' "$blob" >&2
     if [[ $rc -ne 0 ]]; then
@@ -1615,6 +1631,65 @@ ait_rebase_abort_if_ours() {
     return 0
 }
 
+# ait_merge_is_ours <gitdir> <head_before> <state>
+#
+# The merge operation's ownership PROOF (t2064) — the counterpart of
+# ait_rebase_is_ours, with no side effect. 0 = the in-progress merge is the one
+# this pull's own merge started; 1 = no proof. Both must hold:
+#
+#   - ORIG_HEAD == the HEAD read just before the pull (git merge writes it when
+#     it starts);
+#   - the MERGE_HEAD SHA list == FETCH_HEAD's for-merge SHA list, in order and
+#     non-empty: the merge merged exactly what this pull fetched.
+#
+# All three live in the per-worktree git-dir. They are read as files, like the
+# rebase rule's orig-head: a ref backend that does not keep ORIG_HEAD as a file
+# (reftable) fails closed, leaving the merge in place.
+#
+# This proves WHAT the merge is, not that our pull's merge step created it — a
+# foreign merge of the same fetched tip from the same HEAD matches too. The
+# caller must first establish that our merge ran and stopped
+# (_ait_merge_stop_shaped). One implementation, one evidence rule.
+ait_merge_is_ours() {
+    local gitdir="$1" head_before="$2" state="$3" orig merge_heads fetch_heads="" line rest
+    [[ "$state" == "MERGE_HEAD" && -n "$head_before" ]] || return 1
+    orig="$(head -n1 "$gitdir/ORIG_HEAD" 2>/dev/null || true)"
+    [[ -n "$orig" && "$orig" == "$head_before" ]] || return 1
+    [[ -r "$gitdir/FETCH_HEAD" ]] || return 1
+    merge_heads="$(cat "$gitdir/MERGE_HEAD" 2>/dev/null || true)"
+    # FETCH_HEAD: "<sha>\t<''|not-for-merge>\t<desc>". Split by expansion, not
+    # IFS=$'\t' read — tab is IFS whitespace, so consecutive tabs would collapse.
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        rest="${line#*$'\t'}"
+        [[ "${rest%%$'\t'*}" == "not-for-merge" ]] && continue
+        fetch_heads+="${line%%$'\t'*}"$'\n'
+    done < "$gitdir/FETCH_HEAD"
+    fetch_heads="${fetch_heads%$'\n'}"
+    [[ -n "$merge_heads" && "$merge_heads" == "$fetch_heads" ]]
+}
+
+# ait_merge_abort_if_ours <runner> <gitdir> <head_before> <state>
+#
+# ait_rebase_abort_if_ours for a merge: the same verdict tokens (aborted /
+# abort_failed / not_ours), always rc 0, and the runner is never run without
+# proof. Runs `"$runner" <AIT_RECONCILE_GIT_OPTS> merge --abort` — the rerere
+# pin matters here too, because `merge --abort` runs `rerere clear`.
+ait_merge_abort_if_ours() {
+    local runner="$1" gitdir="$2" head_before="$3" state="$4"
+    if ! ait_merge_is_ours "$gitdir" "$head_before" "$state"; then
+        printf 'not_ours'
+        return 0
+    fi
+    "$runner" "${AIT_RECONCILE_GIT_OPTS[@]}" merge --abort >/dev/null 2>&1 || true
+    # Verify the mutation landed, exactly as the rebase variant does.
+    if [[ -n "$(_ait_inprogress_state_at "$gitdir")" ]]; then
+        printf 'abort_failed'
+    else
+        printf 'aborted'
+    fi
+    return 0
+}
+
 # --- Auto-merge during the workflow pull (t1727) -----------------------------
 #
 # THE one spelling of the "this pull auto-merged" sentinel. The emitter in
@@ -1643,13 +1718,22 @@ AIT_AUTOMERGE_GAVE_UP_SENTINEL="auto-merge gave up after"
 # substring, so it can only ever be matched by its own arm.
 AIT_PULL_UNVERIFIED_SENTINEL="pull completed but its result could not be verified"
 
+# The merge-abort sentinel (t2064): emitted by _task_pull_rebase_cleanup when it
+# aborted a merge-mode gateway pull's own stopped merge; matched by
+# _task_push_classify -> merge_aborted. Same one-spelling rule. Free of
+# "rebase", "CONFLICT" and "the data worktree is mid-", so it can only ever be
+# matched by its own arm.
+AIT_PULL_MERGE_ABORTED_SENTINEL="merge aborted after it stopped"
+
 # Git config pinned onto the task-data reconciliation window (t1789).
 #
 # SCOPE: every PORCELAIN git command that feeds, starts, advances or aborts a
 # framework-owned rebase of the task data — the fetch the rebase replays
 # against, `pull --rebase`, `rebase --continue` / `--skip`, and every
-# `rebase --abort`. Call sites: _task_pull_rebase and ait_rebase_abort_if_ours
-# in this file, lib/task_automerge.sh::ait_automerge_advance, and
+# `rebase --abort` — and the gateway's `merge --abort` (t2064), whose
+# `rerere clear` takes the same lock. Call sites: _task_pull_rebase,
+# ait_rebase_abort_if_ours and ait_merge_abort_if_ours in this file,
+# lib/task_automerge.sh::ait_automerge_advance, and
 # aitask_sync.sh's do_fetch, do_push refetch and do_pull_rebase.
 #
 # WHY — a multi-step rebase must not share the repository with background git
@@ -1689,7 +1773,8 @@ AIT_PULL_UNVERIFIED_SENTINEL="pull completed but its result could not be verifie
 # as (user -c / --config-env options, then these pins), so every callee that
 # reads it while that frame is live — the pull (for task_git_push, the retry
 # pull between push attempts), ait_automerge_advance's
-# continue/skip, ait_rebase_abort_if_ours — carries the user's config, with the
+# continue/skip, ait_rebase_abort_if_ours, ait_merge_abort_if_ours — carries
+# the user's config, with the
 # pins last so they win. Read the array at CALL time; a copy taken at source time
 # would silently drop that config.
 AIT_RECONCILE_GIT_OPTS=(-c rerere.enabled=false -c maintenance.auto=false)
@@ -1750,10 +1835,17 @@ _ait_load_automerge() {
 #   2. something is in progress after it;
 #   3. the pull's OWN output is conflict-shaped — a pull that refused before
 #      fetching (dirty worktree, no upstream) cannot have created what we see,
-#      so it belongs to somebody else;
-#   4. that state is a rebase — a merge-mode conflict leaving MERGE_HEAD must
-#      not be described as a rebase nor handed `rebase --abort`;
-#   5. its recorded orig-head is the HEAD we read just before pulling.
+#      so it belongs to somebody else. For a merge-mode gateway pull
+#      (--own-merge, t2064) a merge-specific stop marker counts too
+#      (_ait_merge_stop_shaped);
+#   4. that state is the pull's own kind — a rebase, or MERGE_HEAD for a
+#      --own-merge pull. Any other state (a merge after a rebase pull, a
+#      cherry-pick, …) must not be described as a rebase nor handed
+#      `rebase --abort`;
+#   5. the operation's own evidence rule proves it ours: ait_rebase_is_ours (the
+#      recorded orig-head is the HEAD we read just before pulling) or
+#      ait_merge_is_ours (ORIG_HEAD is that HEAD, and MERGE_HEAD is what the pull
+#      fetched).
 #
 # RESIDUAL: the mutex covers the two managed pulls — this one and the
 # `./ait git pull` gateway (task_git_pull), which share _ait_owned_pull. A
@@ -1773,10 +1865,15 @@ _task_pull_rebase() {
     _ait_owned_pull "${AIT_RECONCILE_GIT_OPTS[@]}" pull --rebase --no-autostash --quiet
 }
 
-# _ait_owned_pull <git argv…> — the ONE implementation of the five-signal pull
-# above, for any pull argv. Callers: _task_pull_rebase (the workflow pull) and
-# task_git_pull (the `./ait git pull` gateway, t1739). Never a second copy of the
-# ownership pipeline.
+# _ait_owned_pull [--own-merge] <git argv…> — the ONE implementation of the
+# five-signal pull above, for any pull argv. Callers: _task_pull_rebase (the
+# workflow pull) and task_git_pull (the `./ait git pull` gateway, t1739). Never a
+# second copy of the ownership pipeline.
+#
+# --own-merge (t2064): the argv is a merge-mode pull, so a MERGE_HEAD it leaves
+# may be claimed by the merge evidence rule. Only task_git_pull passes it; the
+# workflow pull always rebases, so a merge seen there is never its own. Every
+# caller's argv starts with `-c`, so the flag cannot be mistaken for git argv.
 #
 # After a pull that ends in rc 0 it also checks, STILL HOLDING THE MUTEX, that no
 # rebase/merge is still in progress (an interactive `edit` stop returns 0) and
@@ -1785,7 +1882,11 @@ _task_pull_rebase() {
 # never cleans: the state is not proven ours. Both of its outcomes carry
 # AIT_PULL_UNVERIFIED_SENTINEL, which every caller recognizes explicitly.
 _ait_owned_pull() {
-    local before out rc=0 head_before gitdir
+    local before out rc=0 head_before gitdir own_merge=0
+    if [[ "${1:-}" == "--own-merge" ]]; then
+        own_merge=1
+        shift
+    fi
 
     if ! ait_pull_mutex_acquire; then
         printf 'aitask: another session is reconciling the task data right now; pull skipped\n' >&2
@@ -1807,7 +1908,7 @@ _ait_owned_pull() {
         # pull effectively succeeded"). A bare call would abort the caller on
         # exactly the successful path.
         local recover_rc=0
-        _task_pull_rebase_cleanup "$gitdir" "$before" "$head_before" "$out" || recover_rc=$?
+        _task_pull_rebase_cleanup "$gitdir" "$before" "$head_before" "$out" "$own_merge" || recover_rc=$?
         # 10 is the resolve-verdict, not a failure: the conflict was merged and
         # the rebase ran to completion, so the pull is a success to both callers.
         [[ $recover_rc -eq 10 ]] && rc=0
@@ -1857,15 +1958,50 @@ _task_pull_unverified_line() {
     return 0
 }
 
+# _ait_merge_stop_shaped <pull output> — 0 when the output carries a marker only
+# git's MERGE step prints as it stops, 1 otherwise (t2064). Signal 3 for a
+# --own-merge pull: it establishes that this pull's own merge ran and stopped,
+# which the evidence rule (ait_merge_is_ours) cannot — a foreign merge of the
+# same fetched tip from the same HEAD carries identical ORIG_HEAD/MERGE_HEAD.
+#
+# The families, each probed against git 2.56 under LC_ALL=C (which _ait_data_git
+# sets), every one leaving MERGE_HEAD:
+#
+#   conflict           rc 1    CONFLICT (…) / Automatic merge failed
+#   commit refused     rc 1    Not committing merge — every pre-merge-commit,
+#                              commit-msg and prepare-commit-msg refusal, and an
+#                              emptied message
+#   commit not written rc 128  failed to write commit object — signing failure,
+#                              object write failure
+#   branch not updated rc 128  Merge made by … then a fatal from the ref update
+#                              (e.g. a rejecting reference-transaction hook)
+#
+# NOT EXHAUSTIVE, by design: output that matches no family fails closed — the
+# merge is left in place for manual recovery. A generic fatal is never a marker
+# on its own: `update aborted by the reference-transaction hook` is printed by
+# fetch as well, and a fetch-time hook can start a merge of the fetched tip that
+# every evidence gate attributes to us. So under -q, which suppresses `Merge
+# made by`, a rejected branch update stays unrecognised.
+_ait_merge_stop_shaped() {
+    case "$1" in
+        *CONFLICT*|*"Automatic merge failed"*) return 0 ;;
+        *"Not committing merge"*) return 0 ;;
+        *"failed to write commit object"*) return 0 ;;
+        *"Merge made by"*) return 0 ;;
+    esac
+    return 1
+}
+
 # Internal: the decide-and-clean half of _task_pull_rebase, split out only so
 # that function keeps a single exit point around the mutex.
 #   $1 gitdir  $2 state before the pull  $3 HEAD before the pull  $4 pull output
+#   $5 own_merge — 1 for a merge-mode gateway pull (--own-merge), else 0
 #
 # Returns 0 in every case EXCEPT one: 10 means the conflict was auto-merged and
 # the rebase completed, so the caller must treat the pull as successful. Callers
 # must absorb the status — see _task_pull_rebase above.
 _task_pull_rebase_cleanup() {
-    local gitdir="$1" before="$2" head_before="$3" out="$4" after verdict
+    local gitdir="$1" before="$2" head_before="$3" out="$4" own_merge="${5:-0}" after verdict
 
     # Signal 1: something was already in progress — not ours, whatever it is.
     if [[ -n "$before" ]]; then
@@ -1882,28 +2018,54 @@ _task_pull_rebase_cleanup() {
     after="$(_ait_inprogress_state_at "$gitdir")"
     [[ -z "$after" ]] && return 0
 
-    # Signal 3: our pull must actually have hit a conflict. Anything else means
-    # the state appeared from elsewhere while we were failing for another reason
-    # — or, for a merge-mode gateway pull, that the merge stopped on something
-    # other than a conflict (a refusing pre-merge-commit hook leaves MERGE_HEAD).
-    # Either way it is left untouched, and the wording names the ACTUAL state:
-    # a merge described as a rebase would be handed a recovery that does not
-    # apply (t1739).
+    # Signal 3: our pull must actually have hit a conflict — or, for a
+    # merge-mode gateway pull, its merge must have stopped in a recognised way
+    # (_ait_merge_stop_shaped, t2064). Anything else means the state appeared
+    # from elsewhere while we were failing for another reason, or that the merge
+    # stopped in a way this code does not recognise. Either way it is left
+    # untouched, and the wording names the ACTUAL state: a merge described as a
+    # rebase would be handed a recovery that does not apply (t1739).
+    local stopped=0
     case "$out" in
-        *CONFLICT*|*"could not apply"*|*"Resolve all conflicts"*) ;;
-        *)
-            case "$after" in
-                rebase-merge|rebase-apply)
-                    printf 'aitask: a rebase appeared in the data worktree during a pull that failed for another reason - leaving it untouched\n' >&2 ;;
-                *)
-                    printf 'aitask: the data worktree is mid-%s; leaving it untouched\n' "$after" >&2 ;;
-            esac
-            return 0 ;;
+        *CONFLICT*|*"could not apply"*|*"Resolve all conflicts"*) stopped=1 ;;
     esac
+    if [[ $stopped -eq 0 && "$own_merge" == "1" && "$after" == "MERGE_HEAD" ]] \
+        && _ait_merge_stop_shaped "$out"; then
+        stopped=1
+    fi
+    if [[ $stopped -eq 0 ]]; then
+        case "$after" in
+            rebase-merge|rebase-apply)
+                printf 'aitask: a rebase appeared in the data worktree during a pull that failed for another reason - leaving it untouched\n' >&2 ;;
+            *)
+                printf 'aitask: the data worktree is mid-%s; leaving it untouched\n' "$after" >&2 ;;
+        esac
+        return 0
+    fi
 
-    # Signal 4: only a rebase gets rebase wording and a rebase remedy.
+    # Signal 4: only a rebase gets rebase wording and a rebase remedy; only a
+    # merge-mode gateway pull's MERGE_HEAD gets the merge evidence rule.
     case "$after" in
         rebase-merge|rebase-apply) ;;
+        MERGE_HEAD)
+            if [[ "$own_merge" == "1" ]]; then
+                # Signal 5 for a merge, then abort and verify. Never auto-merged:
+                # the auto-merge engine replays a rebase.
+                verdict="$(ait_merge_abort_if_ours _ait_data_git "$gitdir" "$head_before" "$after")"
+                case "$verdict" in
+                    aborted)
+                        printf 'aitask: %s - worktree restored, local commits kept\n' \
+                            "$AIT_PULL_MERGE_ABORTED_SENTINEL" >&2 ;;
+                    abort_failed)
+                        printf "aitask: merge --abort failed - the data worktree is mid-%s; finish or abort it, or run './ait git-health'\n" \
+                            "$after" >&2 ;;
+                    *)
+                        printf 'aitask: the data worktree is mid-%s; leaving it untouched\n' "$after" >&2 ;;
+                esac
+                return 0
+            fi
+            printf 'aitask: the data worktree is mid-%s; leaving it untouched\n' "$after" >&2
+            return 0 ;;
         *)
             printf 'aitask: the data worktree is mid-%s; leaving it untouched\n' "$after" >&2
             return 0 ;;
@@ -2032,6 +2194,13 @@ _task_push_classify() {
         *"the data worktree is mid-"*)
             echo "data_midop"; return 0 ;;
     esac
+    # A merge-mode gateway pull aborted its own stopped merge (t2064). AHEAD of
+    # the conflict arm: the blob still carries git's CONFLICT text, and
+    # rebase_conflict would describe a merge as a rebase.
+    case "$rebase_err" in
+        *"$AIT_PULL_MERGE_ABORTED_SENTINEL"*)
+            echo "merge_aborted"; return 0 ;;
+    esac
     case "$rebase_err" in
         *"cannot pull with rebase"*|*"unstaged changes"*|*"uncommitted changes"*|*"local changes"*"would be overwritten"*)
             echo "dirty_worktree"; return 0 ;;
@@ -2095,6 +2264,10 @@ _task_push_reason_hint() {
             echo "a rebase is in progress in the data worktree; './ait git rebase --abort' discards only the partially replayed remote commits (your committed work stays on the branch), or resolve and './ait git rebase --continue'" ;;
         data_midop)
             echo "the data worktree is mid-operation (merge, cherry-pick, revert or bisect); run './ait git-health' for the exact state, then finish it or abort it with the matching './ait git <op> --abort'" ;;
+        # Only the gateway reaches this (t2064). Like rebase_conflict it means the
+        # operation is GONE. Free of the word "rebase": the state was a merge.
+        merge_aborted)
+            echo "the merge stopped before completing (a conflict, a refused merge commit, or a failed commit or branch update) and was aborted (nothing left in progress); local and remote diverge — reconcile with './ait sync', or merge by hand with plain 'git -C .aitask-data merge @{upstream}'" ;;
         pull_locked)
             echo "another session is reconciling the task data right now; nothing was changed — retry in a moment, or run './ait git-health' if it persists" ;;
         no_upstream)

@@ -332,14 +332,18 @@ ait git pull --rebase
 ait git -c core.pager=cat pull --rebase    # global options are fine
 ```
 
-`ait git pull` runs your pull with the same clean-up guarantee as the
-[pull that runs when you pick a task](#task-data-pull-before-task-selection): it
-never leaves the data worktree stuck mid-rebase. A frontmatter-only conflict is
-auto-merged and the rebase completes. Anything it cannot merge is aborted, so
-nothing is left in progress and later `ait git` commands keep working. A rebase
-that some other session started is never touched. It fails with git's own exit
-status and, for a recognised failure, prints one warning naming the reason
-(`rebase_conflict`, `dirty_worktree`, `pull_locked`, `data_midop`, …) with its
+`ait git pull` runs your pull with the same clean-up as the
+[pull that runs when you pick a task](#task-data-pull-before-task-selection).
+When a rebase it started stops on a conflict, a frontmatter-only conflict is
+auto-merged and the rebase completes; anything it cannot merge is aborted, so
+nothing is left in progress and later `ait git` commands keep working. A
+merge-mode pull's stopped merge is aborted the same way when the stop is one it
+recognises (see below). A rebase or merge that some other session started is
+never touched, and anything the pull cannot attribute to itself is left in
+place and reported. If an abort itself fails, the pull says so and the
+operation stays in progress. It fails with git's own exit status and, for a
+recognised failure, prints one warning naming the reason (`rebase_conflict`,
+`merge_aborted`, `dirty_worktree`, `pull_locked`, `data_midop`, …) with its
 recovery hint. git's output, including the conflict details, goes to stderr.
 
 - **No automatic stashing.** The data worktree is shared by every session on
@@ -361,7 +365,8 @@ recovery hint. git's output, including the conflict details, goes to stderr.
   is fetched; use plain `git -C .aitask-data pull --edit` to write the message
   yourself.
 - **Your `-c` settings apply throughout.** Options such as `-c user.email=…`
-  reach the rebase's continue and abort steps as well as the pull. The one
+  reach the rebase's continue and abort steps, and a stopped merge's abort, as
+  well as the pull. The one
   exception is the framework's own pins (`rerere.enabled=false`,
   `maintenance.auto=false`), which keep the rebase safe from background git
   work.
@@ -372,14 +377,27 @@ recovery hint. git's output, including the conflict details, goes to stderr.
   files remain, or the check itself cannot run, the pull fails with a message
   saying it completed but could not be verified. It names the next step and
   leaves the files as they are.
-- **A stopped merge is left to you.** With `pull.rebase=false` (or
-  `--no-rebase`), a merge that stops — on a conflict, or because a hook such as
-  `pre-merge-commit` refused the merge commit — is left in progress, reported
-  as `data_midop` with the merge recovery hint, and never aborted
-  automatically. Finish it, or run `./ait git merge --abort`.
-- **Resolving a rebase conflict by hand** is not possible through `ait git
-  pull`, because a conflict it cannot merge is always aborted. Use plain
-  `git -C .aitask-data pull --rebase` for that.
+- **A stopped merge is aborted when the stop is recognised.** With
+  `pull.rebase=false` (or `--no-rebase`), a merge this pull started is aborted,
+  leaving nothing in progress and reporting `merge_aborted`, when it stops
+  because it hit a conflict, a hook (such as `pre-merge-commit` or
+  `commit-msg`) refused the merge commit, the merge commit could not be written
+  (for example, signing failed), or the branch could not be updated after the
+  merge commit was made. A merge-mode conflict is never auto-merged.
+- **An unrecognised stop is left to you.** The pull recognises a stopped merge
+  only from git's own messages. If git reports the stop in a way it does not
+  recognise, the merge is left in progress and reported as `data_midop` with
+  the merge recovery hint: finish it, or run `./ait git merge --abort`. One
+  example is `-q`: a branch update that fails after the merge commit was made
+  then prints nothing that identifies the merge as this pull's own, so it is
+  left in place.
+- **A merge you pause is left paused.** A merge stopped on purpose with
+  `--no-commit` stays in progress; the pull reports that it completed but could
+  not be verified.
+- **Resolving a conflict by hand** is not possible through `ait git pull`,
+  because a conflict it starts is aborted (a rebase conflict once the
+  auto-merge has done what it can). Use plain `git -C .aitask-data pull
+  --rebase`, or `git -C .aitask-data pull --no-rebase` for a merge, for that.
 
 ## ait git-health
 

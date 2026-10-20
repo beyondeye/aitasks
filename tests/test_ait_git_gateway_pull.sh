@@ -203,6 +203,87 @@ pull_outcome() {
         "$(next_commit_rc)"
 }
 
+# --- merge-mode stop helpers (t2064) ---
+
+# A tracked file that will carry an unstaged edit: a merge-mode pull runs on a
+# dirty worktree (only a rebase refuses one), so the abort must keep it.
+# seed_keep_file BEFORE the divergence (it pulls, while nothing can conflict);
+# dirty_keep_file AFTER it, because local_commit stages everything with -A.
+seed_keep_file() {
+    remote_commit keep.txt "base"
+    git -C "$DATA" pull --quiet --rebase 2>/dev/null
+}
+dirty_keep_file() {
+    printf 'local edit\n' > "$DATA/keep.txt"
+}
+
+# Install a one-shot reference-transaction hook: in the `prepared` phase it
+# runs <action> once for the first transaction that updates <ref>, then exits 1
+# (rejecting it); every later transaction passes. <action> is shell text run
+# with $new set to that ref's new value.
+install_reftx_once() {   # <ref> <action>
+    local hook mark="$FX/reftx_once"
+    hook="$(git -C "$DATA" rev-parse --git-path hooks/reference-transaction)"
+    case "$hook" in /*) ;; *) hook="$DATA/$hook" ;; esac
+    mkdir -p "$(dirname "$hook")"
+    cat > "$hook" <<EOF
+#!/bin/sh
+[ "\$1" = prepared ] || exit 0
+[ -e "$mark" ] && exit 0
+upd="\$(cat)"
+new="\$(printf '%s\n' "\$upd" | awk '\$3 == "$1" { print \$2 }')"
+[ -n "\$new" ] || exit 0
+: > "$mark"
+$2
+exit 1
+EOF
+    chmod +x "$hook"
+    REFTX_HOOK="$hook"
+}
+
+# The FETCH_HEAD for-merge SHAs, one per line (the merge's ownership evidence).
+fetch_for_merge() {
+    awk -F'\t' '$2 != "not-for-merge" { print $1 }' "$GD/FETCH_HEAD" 2>/dev/null
+}
+
+# The gateway aborted its own stopped merge, and nothing else was lost.
+assert_merge_aborted() {   # <label> <HEAD before the pull>
+    local l="$1" ours
+    assert_nonzero "$l: the stopped merge exits non-zero" "$RC"
+    assert_eq_trim "$l: no wedge — the merge was aborted" "" "$(probe_wedge)"
+    assert_eq "$l: reported as merge_aborted" "merge_aborted" "$(gateway_reason)"
+    # OUR lines (sentinels and the warning) must not describe a merge as a
+    # rebase nor hand it a rebase remedy. git's own lines are git's.
+    ours="$(printf '%s\n' "$ERR" | grep -E '^aitask:|did not complete' || true)"
+    assert_contains "$l: our sentinel says the merge was aborted" "merge aborted after it stopped" "$ours"
+    assert_not_contains "$l: no line of ours says 'rebase'" "rebase" "$ours"
+    assert_eq "$l: HEAD is back where it was — the local commit is kept" "$2" \
+        "$(git -C "$DATA" rev-parse HEAD)"
+    assert_eq "$l: the unrelated unstaged edit survives" "local edit" "$(cat "$DATA/keep.txt")"
+    assert_eq "$l: ... and is the only change in the worktree" " M keep.txt" \
+        "$(git -C "$DATA" status --porcelain)"
+    assert_eq "$l: the next ./ait git commit succeeds" "0" "$(next_commit_rc)"
+}
+
+# The gateway left a MERGE_HEAD in place that the ownership EVIDENCE alone would
+# have attributed to this pull — only the missing merge-specific stop marker
+# kept it untouched. Leaves the merge for the caller to clean up.
+assert_merge_left() {   # <label> <HEAD before the pull>
+    local l="$1" ours
+    assert_nonzero "$l: exits non-zero" "$RC"
+    assert_eq_trim "$l: MERGE_HEAD is left in place" "MERGE_HEAD" "$(probe_wedge)"
+    assert_eq "$l: reported as data_midop" "data_midop" "$(gateway_reason)"
+    ours="$(printf '%s\n' "$ERR" | grep -E '^aitask:|did not complete' || true)"
+    assert_contains "$l: named as left untouched" "mid-MERGE_HEAD; leaving it untouched" "$ours"
+    assert_not_contains "$l: no abort is claimed" "merge aborted after it stopped" "$ERR"
+    # The discriminator: both evidence gates match, so this case is decided by
+    # the stop marker alone.
+    assert_eq "$l: precondition — ORIG_HEAD is the HEAD before the pull" "$2" \
+        "$(head -n1 "$GD/ORIG_HEAD" 2>/dev/null)"
+    assert_eq "$l: precondition — MERGE_HEAD is the fetched for-merge tip" \
+        "$(fetch_for_merge)" "$(cat "$GD/MERGE_HEAD" 2>/dev/null)"
+}
+
 echo "=== ./ait git pull gateway Tests ==="
 echo ""
 
@@ -243,20 +324,16 @@ force_conflict
 run_ait -c core.pager=cat pull --rebase
 assert_eq "B: same outcome as the bare form" "$outcome_A" "$(pull_outcome)"
 
-# --- Test C: merge mode — bounded, reported truthfully ---
-echo "--- Test C: ./ait git -c pull.rebase=false pull -> MERGE_HEAD, data_midop ---"
+# --- Test C: merge mode — a conflict this pull started is aborted (t2064) ---
+echo "--- Test C: ./ait git -c pull.rebase=false pull under a conflict -> merge aborted ---"
 make_fixture
+seed_keep_file
 force_conflict
+dirty_keep_file
+head_C="$(git -C "$DATA" rev-parse HEAD)"
 run_ait -c pull.rebase=false pull
-assert_nonzero "C: the conflicted merge-mode pull exits non-zero" "$RC"
-assert_eq_trim "C: MERGE_HEAD is left in place (the documented bound)" "MERGE_HEAD" "$(probe_wedge)"
-assert_eq "C: reported as data_midop" "data_midop" "$(gateway_reason)"
-# The discriminator: OUR lines (sentinels and the warning) must not describe a
-# merge as a rebase nor hand it `rebase --abort`. git's own lines are git's.
-ours_C="$(printf '%s\n' "$ERR" | grep -E '^aitask:|did not complete' || true)"
-assert_contains "C: our sentinel names the actual state" "mid-MERGE_HEAD" "$ours_C"
-assert_not_contains "C: no line of ours says 'rebase'" "rebase" "$ours_C"
-rm -f "$GD/MERGE_HEAD" "$GD/MERGE_MSG" "$GD/MERGE_MODE"
+assert_contains "C: precondition — the merge really conflicted" "CONFLICT" "$ERR"
+assert_merge_aborted "C" "$head_C"
 
 # --- Test D: a pre-existing wedge is refused by the guard, never touched ---
 echo "--- Test D: pre-existing foreign rebase -> guard refuses, wedge survives ---"
@@ -456,13 +533,14 @@ assert_eq "K: ... as a real merge commit" "2" \
     "$(git -C "$DATA" log -1 --format=%p | wc -w | tr -d ' ')"
 unset GIT_EDITOR
 
-# --- Test L: a merge that stops for a NON-conflict reason ---
+# --- Test L: a merge that stops for a NON-conflict reason (t2064) ---
 # A refusing pre-merge-commit hook stops a non-conflicting merge-mode pull with
-# MERGE_HEAD in place and no conflict text. The cleanup must leave it alone and
-# name it as the merge it is: data_midop with the merge recovery hint — never
-# rebase wording, never `rebase --abort` / `--continue` advice.
-echo "--- Test L: non-conflict merge failure -> data_midop, no rebase wording ---"
+# MERGE_HEAD in place and no conflict text — git's `Not committing merge` line,
+# shared by every hook refusal. The merge is this pull's own, so it is aborted
+# and named as the merge it is — never with rebase wording.
+echo "--- Test L: pre-merge-commit refusal -> merge aborted, no rebase wording ---"
 make_fixture
+seed_keep_file
 remote_commit other.txt "other"
 local_commit mine.txt "mine"
 HOOK_L="$(git -C "$DATA" rev-parse --git-path hooks/pre-merge-commit)"
@@ -470,16 +548,100 @@ case "$HOOK_L" in /*) ;; *) HOOK_L="$DATA/$HOOK_L" ;; esac
 mkdir -p "$(dirname "$HOOK_L")"
 printf '#!/bin/sh\necho "pre-merge-commit: refused by test hook" >&2\nexit 1\n' > "$HOOK_L"
 chmod +x "$HOOK_L"
+dirty_keep_file
+head_L="$(git -C "$DATA" rev-parse HEAD)"
 run_ait pull --no-rebase
-assert_nonzero "L: the stopped merge exits non-zero" "$RC"
 assert_contains "L: precondition — the hook really refused" "refused by test hook" "$ERR"
-assert_eq_trim "L: MERGE_HEAD is left in place" "MERGE_HEAD" "$(probe_wedge)"
-assert_eq "L: reported as data_midop" "data_midop" "$(gateway_reason)"
-ours_L="$(printf '%s\n' "$ERR" | grep -E '^aitask:|did not complete' || true)"
-assert_contains "L: our sentinel names the actual state" "mid-MERGE_HEAD" "$ours_L"
-assert_contains "L: the hint gives merge recovery" "--abort" "$ours_L"
-assert_not_contains "L: no line of ours says 'rebase'" "rebase" "$ours_L"
+assert_merge_aborted "L" "$head_L"
 rm -f "$HOOK_L"
+
+# --- Test M: a merge paused on purpose is never touched (t2064) ---
+# `--no-commit` stops a clean merge with rc 0 and MERGE_HEAD in place. rc 0
+# never reaches the cleanup; the completion postcondition reports it and leaves
+# it alone.
+echo "--- Test M: pull --no-rebase --no-commit -> paused merge left in place ---"
+make_fixture
+remote_commit other.txt "other"
+local_commit mine.txt "mine"
+run_ait pull --no-rebase --no-commit
+assert_nonzero "M: reported as not verified (non-zero)" "$RC"
+assert_eq_trim "M: the paused merge is left in place" "MERGE_HEAD" "$(probe_wedge)"
+assert_contains "M: ... and reported as still in progress" "still mid-MERGE_HEAD" "$ERR"
+assert_not_contains "M: no abort is claimed" "merge aborted after it stopped" "$ERR"
+git -C "$DATA" merge --abort 2>/dev/null
+
+# --- Test N: the merge commit could not be written (t2064 review) ---
+# Signing fails, so git dies with `failed to write commit object` (exit 128)
+# and leaves MERGE_HEAD — neither conflict text nor `Not committing merge`.
+echo "--- Test N: signing failure -> merge aborted ---"
+make_fixture
+seed_keep_file
+remote_commit other.txt "other"
+local_commit mine.txt "mine"
+dirty_keep_file
+head_N="$(git -C "$DATA" rev-parse HEAD)"
+run_ait -c commit.gpgSign=true -c "gpg.program=$(command -v false)" pull --no-rebase
+assert_contains "N: precondition — the commit really was not written" \
+    "failed to write commit object" "$ERR"
+assert_merge_aborted "N" "$head_N"
+
+# --- Test O: the branch update fails AFTER the merge commit (t2064 review) ---
+# A one-shot reference-transaction hook rejects the merge's update of the
+# branch. git prints `Merge made by …` (the merge step's own line) and dies,
+# leaving MERGE_HEAD. Every later ref update passes, so the next commit works.
+echo "--- Test O: branch update rejected after the merge commit -> merge aborted ---"
+make_fixture
+seed_keep_file
+remote_commit other.txt "other"
+local_commit mine.txt "mine"
+install_reftx_once refs/heads/aitask-data ":"
+dirty_keep_file
+head_O="$(git -C "$DATA" rev-parse HEAD)"
+run_ait pull --no-rebase
+assert_contains "O: precondition — the commit was made" "Merge made by" "$ERR"
+assert_contains "O: precondition — the branch update was rejected" \
+    "update aborted by the reference-transaction hook" "$ERR"
+assert_merge_aborted "O" "$head_O"
+rm -f "$REFTX_HOOK"
+
+# --- Test Oq: the same stop under -q is NOT recognised (t2064 review) ---
+# -q suppresses `Merge made by`, and the remaining fatal is not merge evidence
+# (fetch prints it too — Test R). The merge is left for manual recovery: the
+# documented bound, even though the ownership evidence matches.
+echo "--- Test Oq: the same stop under -q -> left in place for manual recovery ---"
+make_fixture
+remote_commit other.txt "other"
+local_commit mine.txt "mine"
+install_reftx_once refs/heads/aitask-data ":"
+head_Oq="$(git -C "$DATA" rev-parse HEAD)"
+run_ait pull -q --no-rebase
+assert_contains "Oq: precondition — the branch update was rejected" \
+    "update aborted by the reference-transaction hook" "$ERR"
+assert_not_contains "Oq: precondition — the quiet shape (no 'Merge made by')" "Merge made by" "$ERR"
+assert_merge_left "Oq" "$head_Oq"
+rm -f "$REFTX_HOOK"
+git -C "$DATA" merge --abort 2>/dev/null
+
+# --- Test R: a FOREIGN merge started while the fetch failed (t2064 review) ---
+# A one-shot hook on the fetch's own ref update starts a raw merge of the fetched
+# tip (hooks off, output discarded), then rejects the fetch. The pull never
+# reaches its merge step and prints only the ref-transaction fatal — yet
+# ORIG_HEAD and MERGE_HEAD match the evidence exactly. That merge is not ours.
+echo "--- Test R: fetch-time rejection + foreign merge -> left untouched ---"
+make_fixture
+remote_commit other.txt "other"
+local_commit mine.txt "mine"
+# shellcheck disable=SC2016  # $new is expanded by the hook, not here
+install_reftx_once refs/remotes/origin/aitask-data \
+    'git -c core.hooksPath=/dev/null merge --no-ff --no-commit "$new" >/dev/null 2>&1'
+head_R="$(git -C "$DATA" rev-parse HEAD)"
+run_ait pull --no-rebase
+assert_contains "R: precondition — the fetch's update was rejected" \
+    "update aborted by the reference-transaction hook" "$ERR"
+assert_not_contains "R: precondition — the pull's merge step never ran" "Merge made by" "$ERR"
+assert_merge_left "R" "$head_R"
+rm -f "$REFTX_HOOK"
+git -C "$DATA" merge --abort 2>/dev/null
 
 # --- Test I: the user's -c config reaches the continuation ---
 # A frontmatter-only task conflict the auto-merge resolves, in a repo with no

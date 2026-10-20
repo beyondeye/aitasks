@@ -454,6 +454,18 @@ assert_eq "classify: a non-rebase mid-operation" "data_midop" \
 assert_eq "classify: an aborted conflict is still rebase_conflict" "rebase_conflict" \
     "$(_task_push_classify "" "${conflict_text}
 ${sent_aborted}")"
+# t2064: a merge-mode gateway pull that aborted its own merge. The blob still
+# carries git's CONFLICT text, so the sentinel must win — a merge is never
+# called a rebase_conflict. A failed merge abort leaves the state: data_midop.
+sent_merge_aborted="aitask: merge aborted after it stopped - worktree restored, local commits kept"
+sent_merge_stillin="aitask: merge --abort failed - the data worktree is mid-MERGE_HEAD; finish or abort it, or run './ait git-health'"
+assert_eq "classify: an aborted merge is merge_aborted, not rebase_conflict" "merge_aborted" \
+    "$(_task_push_classify "" "CONFLICT (add/add): Merge conflict in t42.md
+Automatic merge failed; fix conflicts and then commit the result.
+${sent_merge_aborted}")"
+assert_eq "classify: a merge abort that did not land is data_midop" "data_midop" \
+    "$(_task_push_classify "" "CONFLICT (add/add): Merge conflict in t42.md
+${sent_merge_stillin}")"
 
 # Ordering. task_push accumulates every attempt's output, so these blobs are the
 # real shape: attempt 1 conflicts, attempt 2 finds what it left behind.
@@ -517,6 +529,17 @@ else
 fi
 assert_contains "hint: pull_locked says nothing was changed" \
     "nothing was changed" "$(_task_push_reason_hint pull_locked)"
+# t2064: merge_aborted means the merge is GONE, like rebase_conflict — and it
+# was a merge, so no rebase remedy.
+assert_contains "hint: merge_aborted says the merge was aborted" \
+    "was aborted (nothing left in progress)" "$(_task_push_reason_hint merge_aborted)"
+TOTAL=$((TOTAL + 1))
+if [[ "$(_task_push_reason_hint merge_aborted)" == *"rebase"* ]]; then
+    FAIL=$((FAIL + 1))
+    echo "FAIL: merge_aborted hint mentions a rebase, but the state was a merge"
+else
+    PASS=$((PASS + 1))
+fi
 
 assert_contains "hint: unreachable remote mentions connectivity" "connectivity" \
     "$(_task_push_reason_hint remote_unreachable)"
@@ -3041,6 +3064,172 @@ task_sync 2>"$TEST_TMPDIR/t65_ctl_err.txt"
 assert_eq "65 control: no remote is no-remote" "no-remote" "$TASK_SYNC_STATUS"
 assert_eq "65 control: no remote is silent" "" "$(cat "$TEST_TMPDIR/t65_ctl_err.txt")"
 popd > /dev/null || exit 1
+
+# --- Test 66: ait_merge_abort_if_ours verdict table (t2064) ---
+# The merge counterpart of Test 42, at unit level against a fabricated git-dir
+# and stub runners, so every branch is deterministic. The evidence: ORIG_HEAD is
+# the HEAD before the pull, and MERGE_HEAD is FETCH_HEAD's for-merge list.
+echo "--- Test 66: ait_merge_abort_if_ours verdicts ---"
+
+reload_task_utils
+GD_66="$(mktemp -d "${TMPDIR:-/tmp}/ait_mown_XXXXXX")"
+CLEANUP_DIRS+=("$GD_66")
+OURS_66="1111111111111111111111111111111111111111"
+THEIRS_66="2222222222222222222222222222222222222222"
+TIP_66="3333333333333333333333333333333333333333"
+TIP2_66="4444444444444444444444444444444444444444"
+FH_66="${TIP_66}"$'\t\t'"branch 'aitask-data' of /tmp/remote.git"
+
+stub66_removes() { : > "$GD_66/ran"; rm -f "${GD_66:?}/MERGE_HEAD"; return 0; }
+stub66_fails()   { : > "$GD_66/ran"; return 1; }
+plant_66() {   # <ORIG_HEAD|none> <MERGE_HEAD body|none> <FETCH_HEAD body|none>
+    rm -f "${GD_66:?}/ORIG_HEAD" "$GD_66/MERGE_HEAD" "$GD_66/FETCH_HEAD" "$GD_66/ran"
+    [[ "$1" != "none" ]] && printf '%s\n' "$1" > "$GD_66/ORIG_HEAD"
+    [[ "$2" != "none" ]] && printf '%s\n' "$2" > "$GD_66/MERGE_HEAD"
+    [[ "$3" != "none" ]] && printf '%s\n' "$3" > "$GD_66/FETCH_HEAD"
+    return 0
+}
+ran_66() { [[ -e "$GD_66/ran" ]] && echo yes || echo no; }
+not_ours_66() {   # <label> [<head_before>] [<state>]
+    assert_eq_trim "66: $1 -> not_ours" "not_ours" \
+        "$(ait_merge_abort_if_ours stub66_removes "$GD_66" "${2-$OURS_66}" "${3:-MERGE_HEAD}")"
+    assert_eq_trim "66: $1 never invokes the runner" "no" "$(ran_66)"
+}
+
+plant_66 "$OURS_66" "$TIP_66" "$FH_66"
+assert_eq_trim "66: ours + abort lands -> aborted" "aborted" \
+    "$(ait_merge_abort_if_ours stub66_removes "$GD_66" "$OURS_66" MERGE_HEAD)"
+
+plant_66 "$OURS_66" "$TIP_66" "$FH_66"
+assert_eq_trim "66: ours + abort fails -> abort_failed" "abort_failed" \
+    "$(ait_merge_abort_if_ours stub66_fails "$GD_66" "$OURS_66" MERGE_HEAD)"
+
+plant_66 "$THEIRS_66" "$TIP_66" "$FH_66";   not_ours_66 "a foreign ORIG_HEAD"
+plant_66 none "$TIP_66" "$FH_66";           not_ours_66 "a missing ORIG_HEAD"
+plant_66 "$OURS_66" "$TIP2_66" "$FH_66";    not_ours_66 "MERGE_HEAD is not the fetched tip"
+plant_66 "$OURS_66" "$TIP_66" \
+    "${TIP_66}"$'\t'"not-for-merge"$'\t'"branch 'x' of /tmp/remote.git"
+not_ours_66 "FETCH_HEAD with only not-for-merge lines"
+plant_66 "$OURS_66" "$TIP_66" none;         not_ours_66 "a missing FETCH_HEAD"
+plant_66 "$OURS_66" "$TIP_66" "$FH_66";     not_ours_66 "an empty head_before" ""
+plant_66 "$OURS_66" "$TIP_66" "$FH_66";     not_ours_66 "a non-merge state" "$OURS_66" rebase-merge
+
+# Octopus: several for-merge lines (a not-for-merge one between them is skipped)
+# must match MERGE_HEAD line for line, in order.
+FH2_66="${FH_66}"$'\n'"${THEIRS_66}"$'\t'"not-for-merge"$'\t'"branch 'x' of /tmp/remote.git"$'\n'"${TIP2_66}"$'\t\t'"branch 'y' of /tmp/remote.git"
+plant_66 "$OURS_66" "${TIP_66}"$'\n'"${TIP2_66}" "$FH2_66"
+assert_eq_trim "66: an octopus matching the for-merge list -> aborted" "aborted" \
+    "$(ait_merge_abort_if_ours stub66_removes "$GD_66" "$OURS_66" MERGE_HEAD)"
+plant_66 "$OURS_66" "${TIP2_66}"$'\n'"${TIP_66}" "$FH2_66"
+not_ours_66 "the same heads in another order"
+
+unset -f stub66_removes stub66_fails plant_66 ran_66 not_ours_66
+
+# --- Test 67: the merge stop predicate and the cleanup seam (t2064) ---
+# _ait_merge_stop_shaped decides signal 3 for a merge-mode gateway pull. The
+# texts are verbatim git 2.56 output (LC_ALL=C). The ref-transaction fatal is
+# deliberately NOT a marker: fetch prints it too (gateway Test R).
+echo "--- Test 67: _ait_merge_stop_shaped and the --own-merge cleanup ---"
+
+reload_task_utils
+OUT67_CONFLICT="Auto-merging qc.txt
+CONFLICT (add/add): Merge conflict in qc.txt
+Automatic merge failed; fix conflicts and then commit the result."
+OUT67_REFUSED="pre-merge-commit: refused by test hook
+Not committing merge; use 'git commit' to complete the merge."
+OUT67_UNWRITTEN="error: gpg failed to sign the data:
+(no gpg output)
+fatal: failed to write commit object"
+OUT67_NOREF="Merge made by the 'ort' strategy.
+fatal: in 'prepared' phase, update aborted by the reference-transaction hook"
+OUT67_REFTX="fatal: in 'prepared' phase, update aborted by the reference-transaction hook"
+OUT67_UNLISTED="fatal: cannot lock ref 'HEAD': is at 1111111111111111111111111111111111111111 but expected 2222222222222222222222222222222222222222"
+
+shaped_67() { _ait_merge_stop_shaped "$1" && echo yes || echo no; }
+assert_eq "67: a conflict is a merge stop" "yes" "$(shaped_67 "$OUT67_CONFLICT")"
+assert_eq "67: a refused merge commit is a merge stop" "yes" "$(shaped_67 "$OUT67_REFUSED")"
+assert_eq "67: an unwritten merge commit is a merge stop" "yes" "$(shaped_67 "$OUT67_UNWRITTEN")"
+assert_eq "67: a branch update failing after the commit is a merge stop" "yes" "$(shaped_67 "$OUT67_NOREF")"
+assert_eq "67: the ref-transaction fatal alone is NOT (fetch prints it too)" "no" "$(shaped_67 "$OUT67_REFTX")"
+assert_eq "67: index.lock contention is not" "no" "$(shaped_67 "fatal: Unable to create '/x/index.lock': File exists.
+
+Another git process seems to be running in this repository")"
+assert_eq "67: a network failure is not" "no" \
+    "$(shaped_67 "fatal: unable to access 'https://x/': Could not resolve host: x")"
+assert_eq "67: a merge refused before it started is not" "no" \
+    "$(shaped_67 "error: Your local changes to the following files would be overwritten by merge:
+  f.txt
+Merge with strategy ort failed.")"
+assert_eq "67: an unlisted fatal is not" "no" "$(shaped_67 "$OUT67_UNLISTED")"
+assert_eq "67: empty output is not" "no" "$(shaped_67 "")"
+
+# The seam: _task_pull_rebase_cleanup with a fabricated git-dir and a stubbed
+# runner that records the abort and removes MERGE_HEAD.
+GD_67="$(mktemp -d "${TMPDIR:-/tmp}/ait_mseam_XXXXXX")"
+CLEANUP_DIRS+=("$GD_67")
+OURS_67="1111111111111111111111111111111111111111"
+TIP_67="3333333333333333333333333333333333333333"
+STUB67_LANDS=1
+_ait_data_git() {
+    local -a _a=("$@")
+    while [[ "${_a[0]:-}" == "-c" ]]; do _a=("${_a[@]:2}"); done
+    if [[ "${_a[0]:-}" == "merge" && "${_a[1]:-}" == "--abort" ]]; then
+        : > "$GD_67/ran"
+        [[ $STUB67_LANDS -eq 1 ]] && rm -f "${GD_67:?}/MERGE_HEAD"
+        return 0
+    fi
+    return 99
+}
+plant_67() {   # <ORIG_HEAD>
+    rm -f "${GD_67:?}/ran"
+    printf '%s\n' "$1" > "$GD_67/ORIG_HEAD"
+    printf '%s\n' "$TIP_67" > "$GD_67/MERGE_HEAD"
+    printf '%s\t\t%s\n' "$TIP_67" "branch 'aitask-data' of /tmp/remote.git" > "$GD_67/FETCH_HEAD"
+}
+ran_67() { [[ -e "$GD_67/ran" ]] && echo yes || echo no; }
+cleanup_67() {   # <before> <ORIG_HEAD> <out> <own_merge>
+    plant_67 "$2"
+    SEAM_67="$(_task_pull_rebase_cleanup "$GD_67" "$1" "$OURS_67" "$3" "$4" 2>&1)"
+}
+aborted_67() {   # <label>
+    assert_eq_trim "67: $1 -> aborted" "" "$(probe_wedge "$GD_67")"
+    assert_contains "67: $1 -> the sentinel" "merge aborted after it stopped" "$SEAM_67"
+    assert_eq "67: $1 -> classified merge_aborted" "merge_aborted" "$(_task_push_classify "" "$SEAM_67")"
+    assert_eq "67: $1 -> the abort ran" "yes" "$(ran_67)"
+}
+left_67() {   # <label>
+    assert_eq_trim "67: $1 -> left in place" "MERGE_HEAD" "$(probe_wedge "$GD_67")"
+    assert_contains "67: $1 -> named as left untouched" "mid-MERGE_HEAD; leaving it untouched" "$SEAM_67"
+    assert_eq "67: $1 -> classified data_midop" "data_midop" "$(_task_push_classify "" "$SEAM_67")"
+    assert_eq "67: $1 -> the runner never ran" "no" "$(ran_67)"
+}
+
+cleanup_67 "" "$OURS_67" "$OUT67_CONFLICT" 1;   aborted_67 "own merge, conflict"
+cleanup_67 "" "$OURS_67" "$OUT67_REFUSED" 1;    aborted_67 "own merge, commit refused"
+cleanup_67 "" "$OURS_67" "$OUT67_UNWRITTEN" 1;  aborted_67 "own merge, commit not written"
+cleanup_67 "" "$OURS_67" "$OUT67_NOREF" 1;      aborted_67 "own merge, branch not updated"
+
+# The documented manual-recovery bound: the evidence matches, the stop does not.
+cleanup_67 "" "$OURS_67" "$OUT67_UNLISTED" 1;   left_67 "own merge, unrecognised stop"
+cleanup_67 "" "$OURS_67" "$OUT67_REFTX" 1;      left_67 "own merge, ref-transaction fatal alone"
+# Each other gate on its own keeps it untouched.
+cleanup_67 "" "$OURS_67" "$OUT67_CONFLICT" 0;   left_67 "no --own-merge (the workflow pull)"
+cleanup_67 "" "2222222222222222222222222222222222222222" "$OUT67_CONFLICT" 1
+left_67 "own merge, foreign ORIG_HEAD"
+cleanup_67 "MERGE_HEAD" "$OURS_67" "$OUT67_CONFLICT" 1
+assert_eq_trim "67: a pre-existing MERGE_HEAD -> left in place" "MERGE_HEAD" "$(probe_wedge "$GD_67")"
+assert_eq "67: a pre-existing MERGE_HEAD -> the runner never ran" "no" "$(ran_67)"
+
+# A failed abort is reported as such — never as restored.
+STUB67_LANDS=0
+cleanup_67 "" "$OURS_67" "$OUT67_CONFLICT" 1
+assert_eq_trim "67: abort fails -> the merge is still there" "MERGE_HEAD" "$(probe_wedge "$GD_67")"
+assert_contains "67: abort fails -> named" "merge --abort failed" "$SEAM_67"
+assert_not_contains "67: abort fails -> no restore claimed" "worktree restored" "$SEAM_67"
+assert_eq "67: abort fails -> classified data_midop" "data_midop" "$(_task_push_classify "" "$SEAM_67")"
+
+unset -f _ait_data_git shaped_67 plant_67 ran_67 cleanup_67 aborted_67 left_67
+reload_task_utils
 
 # --- Summary ---
 echo ""
