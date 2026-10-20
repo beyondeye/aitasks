@@ -1,14 +1,14 @@
 ---
 priority: medium
 effort: high
-depends: []
+depends: [t2074_1, t2074_2]
 issue_type: test
 status: Ready
 labels: [tests, test_infrastructure, gates]
 gates: [risk_evaluated]
 anchor: 2074
 created_at: 2026-10-20 12:32
-updated_at: 2026-10-20 12:32
+updated_at: 2026-10-20 12:34
 ---
 
 ## Context

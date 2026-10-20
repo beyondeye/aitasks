@@ -1,14 +1,14 @@
 ---
 priority: medium
 effort: medium
-depends: []
+depends: [t2074_1, t2074_2, t2074_3, t2074_4, t2074_5, t2074_6, t2074_7, t2074_8, t2074_9, t2074_10, t2074_11, t2074_12]
 issue_type: chore
 status: Ready
 labels: [framework, remove_support, tests]
 gates: [risk_evaluated]
 anchor: 2074
 created_at: 2026-10-20 12:33
-updated_at: 2026-10-20 12:33
+updated_at: 2026-10-20 12:34
 ---
 
 ## Context

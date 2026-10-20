@@ -1,14 +1,14 @@
 ---
 priority: high
 effort: high
-depends: []
+depends: [t2074_1]
 issue_type: refactor
 status: Ready
 labels: [ait_setup, install, setup, git, data_integrity]
 gates: [risk_evaluated]
 anchor: 2074
 created_at: 2026-10-20 12:31
-updated_at: 2026-10-20 12:31
+updated_at: 2026-10-20 12:34
 ---
 
 ## Context

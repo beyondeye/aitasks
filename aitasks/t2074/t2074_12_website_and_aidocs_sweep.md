@@ -1,14 +1,14 @@
 ---
 priority: medium
 effort: high
-depends: []
+depends: [t2074_3, t2074_9]
 issue_type: documentation
 status: Ready
 labels: [website, docs, documentation]
 gates: [risk_evaluated]
 anchor: 2074
 created_at: 2026-10-20 12:33
-updated_at: 2026-10-20 12:33
+updated_at: 2026-10-20 12:34
 ---
 
 ## Context

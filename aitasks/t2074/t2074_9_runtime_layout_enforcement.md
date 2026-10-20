@@ -1,14 +1,14 @@
 ---
 priority: high
 effort: high
-depends: []
+depends: [t2074_3, t2074_4, t2074_5, t2074_6, t2074_7, t2074_8, 2064]
 issue_type: refactor
 status: Ready
 labels: [framework, git, data_integrity, bash_scripts, task-workflow]
 gates: [risk_evaluated]
 anchor: 2074
 created_at: 2026-10-20 12:33
-updated_at: 2026-10-20 12:33
+updated_at: 2026-10-20 12:34
 ---
 
 ## Context

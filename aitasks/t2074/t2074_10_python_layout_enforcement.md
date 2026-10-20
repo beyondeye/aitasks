@@ -1,14 +1,14 @@
 ---
 priority: medium
 effort: medium
-depends: []
+depends: [t2074_7, t2074_9]
 issue_type: refactor
 status: Ready
 labels: [python, board, syncer, data_integrity]
 gates: [risk_evaluated]
 anchor: 2074
 created_at: 2026-10-20 12:33
-updated_at: 2026-10-20 12:33
+updated_at: 2026-10-20 12:34
 ---
 
 ## Context
