@@ -3,12 +3,13 @@ priority: medium
 effort: low
 depends: []
 issue_type: manual_verification
-status: Ready
+status: Implementing
 labels: [testmap, install, ait_setup, bash_scripts]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1852
 followup_kind: risk_mitigation
 created_at: 2026-10-09 15:29
-updated_at: 2026-10-09 15:29
+updated_at: 2026-10-20 19:15
 ---
 
 ## Origin
