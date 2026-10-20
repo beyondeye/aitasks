@@ -3115,6 +3115,170 @@ class TestProducerPlainWordsRule(unittest.TestCase):
         self.assertIn("leak.md", str(leaked.exception))
 
 
+#: The bolded directive for the review-label rule, verbatim (t2072).
+_REVIEW_LABEL_DIRECTIVE = (
+    "**Emit a review label on the line directly above the opening fence.**"
+)
+
+#: The fixed label line each producer writes directly above its opening fence
+#: (t2072). One phrase per producer, so a user reading the newest block can
+#: tell a plan review from an implementation review.
+_PRODUCER_REVIEW_LABELS = {
+    "impl-challenge.md": "Review: implementation",
+    "plan-assumptions.md": "Review: plan assumptions",
+    "plan-challenge.md": "Review: plan challenge",
+    "plan-diagnose-errors.md": "Review: error diagnosis",
+}
+
+
+def _states_review_label_rule(text: str, label: str) -> bool:
+    """True when a producer states the review-label rule in BOTH placements,
+    naming its own label and no other producer's.
+
+    Same shape as :func:`_states_plain_words_rule`: whitespace is collapsed and
+    the label count (bolded directive + rules-list bullet) tells the two
+    placements apart. A foreign label is the copy-paste failure — a producer
+    carrying another's phrase would mislabel every block it emits.
+    """
+    flat = " ".join(text.split())
+    foreign = [lab for lab in _PRODUCER_REVIEW_LABELS.values() if lab != label]
+    return (_REVIEW_LABEL_DIRECTIVE in flat
+            and flat.count(label) >= 2
+            and not any(lab in flat for lab in foreign))
+
+
+class TestReviewLabelLineIsInert(unittest.TestCase):
+    """A review label above the opening fence changes no parser result (t2072).
+
+    Every consumer locates the block by a substring search for the opening
+    fence, so the label must be invisible to all of them — on its own line, and
+    reflowed onto the fence's row as a markdown renderer joining a paragraph's
+    soft breaks would leave it.
+    """
+
+    ITEMS = (
+        "Round: 2 @ 2026-08-11T14:03:27Z",
+        "- [high | Step 7] A body. Improves: correctness(high). "
+        "Worsens: nothing. Effort: low. Disposition: blocking.",
+        "- [low | verification] Another body. Improves: verification(low). "
+        "Worsens: nothing. Effort: low. Disposition: follow-up.",
+    )
+    CLEAN = ("Round: 3 @ 2026-08-11T15:00:00Z",)
+    PROSE = "1. A finding in prose.\n   In plain words: it is broken.\n\n"
+
+    CONSUMERS = {
+        "parse_concerns": parse_concerns,
+        "parse_block_meta": parse_block_meta,
+        "has_concern_block": has_concern_block,
+        "is_metadata_only_block": is_metadata_only_block,
+        "concern_block_signature": concern_block_signature,
+        "block_region": block_region,
+        "unrecovered_markers": unrecovered_markers,
+        "has_invalid_round_header": has_invalid_round_header,
+    }
+
+    def test_label_changes_no_consumer_result(self):
+        for label in _PRODUCER_REVIEW_LABELS.values():
+            for shape_name, lines in (("items", self.ITEMS), ("clean", self.CLEAN)):
+                bare = self.PROSE + block(*lines)
+                own_line = self.PROSE + label + "\n" + block(*lines)
+                reflowed = self.PROSE + label + " " + block(*lines)
+                for placement, labelled in (("own line", own_line),
+                                            ("reflowed", reflowed)):
+                    for name, fn in self.CONSUMERS.items():
+                        with self.subTest(label=label, shape=shape_name,
+                                          placement=placement, consumer=name):
+                            self.assertEqual(fn(labelled), fn(bare))
+
+    def test_fixture_is_not_vacuous(self):
+        """The equality above means something only if the fixtures parse."""
+        self.assertEqual(len(parse_concerns(block(*self.ITEMS))), 2)
+        self.assertTrue(has_concern_block(block(*self.ITEMS)))
+        self.assertTrue(is_metadata_only_block(block(*self.CLEAN)))
+        self.assertEqual(parse_block_meta(block(*self.CLEAN)).round, 3)
+
+
+class TestProducerReviewLabelRule(unittest.TestCase):
+    """Every producer must state its review-label rule (t2072).
+
+    With many agents running, the user reading the newest concern block could
+    not tell whether a plan review or an implementation review produced it. The
+    fixed label line above the opening fence answers that where the block is
+    read. Like the round header it is stated twice per producer (bolded
+    directive + rules-list bullet) and guarded the same way; unlike it, the
+    phrase differs per producer, so the guard also rejects a foreign label.
+    """
+
+    SHADOW_DIR = TestProducerShortRegionRule.SHADOW_DIR
+    PRODUCER_MARKER = TestProducerShortRegionRule.PRODUCER_MARKER
+    KNOWN_PRODUCERS = TestProducerShortRegionRule.KNOWN_PRODUCERS
+
+    _producers = TestProducerShortRegionRule._producers
+
+    def test_label_table_covers_exactly_the_producers(self):
+        self.assertEqual(sorted(_PRODUCER_REVIEW_LABELS), self.KNOWN_PRODUCERS)
+        self.assertEqual(sorted(self._producers()), self.KNOWN_PRODUCERS)
+        labels = list(_PRODUCER_REVIEW_LABELS.values())
+        self.assertEqual(len(set(labels)), len(labels), "labels must be distinct")
+        for a in labels:
+            for b in labels:
+                if a != b:
+                    self.assertNotIn(a, b, "a label must not contain another")
+
+    def test_every_producer_states_its_review_label_rule(self):
+        offenders = [
+            name
+            for name, text in self._producers().items()
+            if not _states_review_label_rule(
+                text, _PRODUCER_REVIEW_LABELS.get(name, "")
+            )
+        ]
+        self.assertEqual(
+            offenders,
+            [],
+            "producer doc(s) do not state their review-label rule in both "
+            "placements (bolded directive AND rules-list entry) with their own "
+            "label only: " + ", ".join(offenders),
+        )
+
+    def test_no_example_block_carries_a_label(self):
+        """The label sits above the fence; an example showing it among the
+        items would teach the agent to put it inside the block."""
+        offenders = [
+            f"{name}: {line.strip()}"
+            for name, text in self._producers().items()
+            for body in _fence_bodies(text)
+            for line in body
+            if any(lab in line for lab in _PRODUCER_REVIEW_LABELS.values())
+        ]
+        self.assertEqual(offenders, [])
+
+    def test_concern_format_names_every_label(self):
+        with open(os.path.join(self.SHADOW_DIR, "concern-format.md"),
+                  encoding="utf-8") as fh:
+            flat = " ".join(fh.read().split())
+        missing = [lab for lab in _PRODUCER_REVIEW_LABELS.values()
+                   if lab not in flat]
+        self.assertEqual(missing, [])
+
+    def test_guard_flags_missing_or_foreign_label(self):
+        """Negative control on synthetic text — placement-aware, plus the
+        copy-paste case."""
+        label = "Review: plan challenge"
+        directive = (_REVIEW_LABEL_DIRECTIVE + " Emit one line that reads\n"
+                     "exactly `" + label + "`.\n")
+        bullet = "- **Review label.** The line above the fence is `" + label + "`.\n"
+        foreign = "- Also `Review: implementation`.\n"
+        self.assertFalse(_states_review_label_rule("", label))
+        self.assertFalse(_states_review_label_rule(bullet, label))
+        self.assertFalse(_states_review_label_rule(directive, label))
+        self.assertFalse(_states_review_label_rule(
+            directive + bullet + foreign, label))
+        self.assertFalse(_states_review_label_rule(
+            directive + bullet, "Review: implementation"))
+        self.assertTrue(_states_review_label_rule(directive + bullet, label))
+
+
 class TestProducerRoundPreambleRule(unittest.TestCase):
     """Every producer must state the round-preamble rule (t1734).
 
@@ -3552,6 +3716,14 @@ class _RenderedShadowDocsContract:
                      if not _states_round_preamble_rule(t)]
         self.assertEqual(offenders, [], "rendered producer(s) lost the "
                                         "round-preamble rule: " + ", ".join(offenders))
+
+    def test_every_rendered_producer_states_the_review_label_rule(self):
+        """Same rationale (t2072): the rendered tree is what the agent reads."""
+        offenders = [n for n, t in self._rendered_producers().items()
+                     if not _states_review_label_rule(
+                         t, _PRODUCER_REVIEW_LABELS.get(n, ""))]
+        self.assertEqual(offenders, [], "rendered producer(s) lost the "
+                                        "review-label rule: " + ", ".join(offenders))
 
     def test_every_rendered_plan_producer_states_the_snapshot_step(self):
         offenders = [n for n, t in self._rendered_producers().items()

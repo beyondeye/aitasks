@@ -208,7 +208,12 @@ free-form ask once it is running decides which capability applies:
   `plan-challenge.md`, `plan-assumptions.md`, `plan-diagnose-errors.md` and
   `impl-challenge.md` — first consults the per-task rejection store and drops
   concerns the user already rejected, reporting how many it suppressed (see
-  "Concern rejection store").
+  "Concern rejection store"). Each also writes a fixed review label —
+  `Review: plan challenge`, `Review: plan assumptions`,
+  `Review: error diagnosis` or `Review: implementation` — on the line directly
+  above the block's opening fence, so the block's origin is visible where it is
+  read; the label is unparsed prose (rules in `concern-format.md`, "Prose around
+  the block that is not parsed").
 
   A broad ask ("review this plan") runs several sub-procedures in sequence.
 

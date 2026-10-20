@@ -182,6 +182,19 @@ timestamp by running `date -u +%Y-%m-%dT%H:%M:%SZ` — never estimate it. A
 still emits the block: the two fences with only this header between them,
 which is the machine-readable record that the round completed clean.
 
+**Emit a review label on the line directly above the opening fence.**
+Immediately before the opening `===AITASK-CONCERNS===` line, with nothing
+between them, emit one line that reads exactly `Review: plan assumptions`
+(written plain — the backticks here are only this doc's formatting). It tells
+a user who has scrolled to the block which review produced it. Emit it on
+**every** block this review produces: a clean round's metadata-only block and
+a recheck round (`>r`, `>r<code>`, minimonitor's
+`refetch and recheck round N`) included. The phrase is fixed — no task number,
+no round number (the round lives in the `Round:` header inside the block), and
+no markdown (no bold, backticks or brackets: Codex and OpenCode rewrite
+markdown before tmux captures the pane). It sits outside the fences, so the
+parser never sees it.
+
 Rules — all load-bearing for minimonitor's parser; match them exactly:
 - One concern per line, in the form `- [priority | region] body`.
 {% if agent == "opencode" -%}
@@ -269,6 +282,12 @@ Rules — all load-bearing for minimonitor's parser; match them exactly:
   Minimonitor reads the header to show the round, to re-offer the picker
   when a later round repeats the same concerns, and to judge concern
   freshness.
+- **Review label.** The line directly above the opening fence is
+  `Review: plan assumptions` — that fixed phrase, plain text, alone on its
+  line, on every block including a clean round's metadata-only block and a
+  recheck round. Prose-only: never inside the fences, never a `- [` line,
+  never carrying a task or round number. Spec in `concern-format.md` ("Prose
+  around the block that is not parsed").
 - **Plain-words line.** Prose-only, and therefore **not** in this block: each
   item of the human-readable list above ends with `In plain words: …`, a
   non-expert restatement derived from the block body after the body is

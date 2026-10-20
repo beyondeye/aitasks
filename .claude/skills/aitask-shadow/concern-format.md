@@ -97,6 +97,27 @@ block body stays byte-identical to what the picker forwards. Owning spec:
 preamble headings and their fixed verdict rule, and the per-round snapshot
 protocol behind the preamble's comparisons).
 
+A third piece of unparsed prose is the **review label**: one fixed line each
+producer writes **directly above** the opening fence, with nothing between
+them, so a user who scrolls to the block can tell which review produced it
+without hunting for the round's opening line. The phrase is fixed per producer:
+
+| producer | label line |
+|---|---|
+| `plan-challenge.md` | `Review: plan challenge` |
+| `plan-assumptions.md` | `Review: plan assumptions` |
+| `plan-diagnose-errors.md` | `Review: error diagnosis` |
+| `impl-challenge.md` | `Review: implementation` |
+
+It goes on **every** block — a clean round's metadata-only block and a recheck
+round included — and carries no task or round number (the round is the
+`Round:` header's job). It is plain text with no markdown — no bold, backticks
+or brackets — because the Codex and OpenCode renderers rewrite markdown before
+tmux captures the pane, and it is never a `- [` line. Nothing parses it: every
+consumer locates the block by a substring search for the opening fence and
+reads only what follows it, so the label stays outside the region even when a
+renderer reflows it onto the fence's own row. No consumer displays it today.
+
 ### Concern markers
 
 - One concern per line of the form `- [priority | region] body`.
