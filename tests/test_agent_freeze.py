@@ -944,6 +944,100 @@ class CodexSessionCaptureTests(_FreezeTestCase):
         self.assertEqual(rec.codeagent_session_id, "sess-stale")
         self.assertEqual(rec.transcript_path, "/t/old.jsonl")
 
+    def test_a_daemon_routed_miss_still_clears_a_stored_id(self):
+        """t2046: `MISS_NO_MATCH` stays disproving for a daemon-routed codex.
+
+        Such a TUI holds no rollout (the app-server daemon does), but since
+        t2047 the hook records nothing for it, so a stored id on its pane is
+        stale or was written by the pre-t2047 hook, which reported the
+        DAEMON'S STARTING pane for every routed session. A matching pane stamp
+        is therefore no vouch, and the daemon's fds cannot attribute a
+        conversation to one pane: the id is cleared and the agent re-picked.
+        """
+        self.panes[AGENT_PANE][agent_freeze.AGENT_SESSION_OPTION] = "sess-stale"
+        rec, _ = self._stale_record_then(agent_sessions.MISS_NO_MATCH)
+        self.assertEqual(rec.codeagent_session_id, "")
+        self.assertEqual(rec.transcript_path, "")
+        self.assertEqual(rec.agent_string, "codex/gpt5_6_terra")
+
+    def _unstamped_pane_with_option(self, option):
+        self.panes[AGENT_PANE][agent_freeze.RECORD_OPTION] = ""
+        self.panes[AGENT_PANE][agent_freeze.AGENT_SESSION_OPTION] = option
+
+    def _session_id_values(self):
+        return [call[call.index("--session-id") + 1]
+                for call in self.upserts() if "--session-id" in call]
+
+    def test_an_unstamped_pane_clears_a_legacy_id_on_a_codex_miss(self):
+        """REGRESSION (t2046 plan review): the unstamped fallback selects the
+        existing record by pane identity but never ran the capture rules, and
+        re-sent the pane's stamp — so a legacy id the live fds disprove
+        survived a freeze."""
+        self.seed_record(session_id="sess-stale", transcript="/t/old.jsonl",
+                         agent_string="codex/gpt5_6_terra")
+        self._unstamped_pane_with_option("sess-stale")
+        self.observe_miss(agent_sessions.MISS_NO_MATCH)
+        result, _ = self._freeze_capturing_stderr()
+        self.assertTrue(result.ok, result.line)
+        self.assertEqual(result.record_id, self.rid,
+                         "the fallback must select the existing record")
+        rec = self.rec()
+        self.assertEqual(rec.codeagent_session_id, "")
+        self.assertEqual(rec.transcript_path, "")
+        self.assertEqual(rec.agent_string, "codex/gpt5_6_terra")
+        self.assertTrue(any("--clear-session-id" in call
+                            for call in self.upserts()))
+        self.assertNotIn("sess-stale", self._session_id_values())
+
+    def test_an_unstamped_pane_keeps_its_first_disproof_through_the_clear(self):
+        """REGRESSION (t2046 review): the clear must act on the observation the
+        fallback already made. A second probe can come back inconclusive — the
+        process exits or turns unreadable in between — and `MISS_NO_PROCESS`
+        must not undo a disproof already obtained."""
+        self.seed_record(session_id="sess-stale", transcript="/t/old.jsonl",
+                         agent_string="codex/gpt5_6_terra")
+        self._unstamped_pane_with_option("sess-stale")
+        self.codex_model = (True, "gpt-5.6-terra")
+        answers = [("", "", agent_sessions.MISS_NO_MATCH)]
+
+        def _sequential(pid, **_kw):
+            self.codex_probe_pids.append(pid)
+            return (answers.pop(0) if answers
+                    else ("", "", agent_sessions.MISS_NO_PROCESS))
+
+        self._patch(agent_sessions, "codex_session_for_pid", _sequential)
+        result, _ = self._freeze_capturing_stderr()
+        self.assertTrue(result.ok, result.line)
+        rec = self.rec()
+        self.assertEqual(rec.codeagent_session_id, "")
+        self.assertEqual(rec.transcript_path, "")
+        self.assertTrue(any("--clear-session-id" in call
+                            for call in self.upserts()))
+
+    def test_an_unstamped_pane_does_not_resurrect_a_pane_option_id_on_a_codex_miss(self):
+        """The pane stamp is the hook's word, and a verified codex process whose
+        fds hold no rollout disproves it — it must not travel into the record."""
+        self._unstamped_pane_with_option("sess-legacy")
+        self.observe_miss(agent_sessions.MISS_NO_MATCH)
+        result, _ = self._freeze_capturing_stderr()
+        self.assertTrue(result.ok, result.line)
+        self.assertEqual(self._session_id_values(), [])
+        self.assertEqual(
+            self.store.sf.by_id(result.record_id).codeagent_session_id, "")
+
+    def test_an_unstamped_non_codex_pane_still_records_its_hook_id(self):
+        """The legitimate fallback is preserved: a pane running another agent
+        (claude, say) has nothing a codex observation can disprove, and its
+        hook-stamped id is exactly what this path exists to carry."""
+        self._unstamped_pane_with_option("sess-abc")
+        self.observe_miss(agent_sessions.MISS_NOT_CODEX, is_codex=False)
+        result, _ = self._freeze_capturing_stderr()
+        self.assertTrue(result.ok, result.line)
+        self.assertEqual(self._session_id_values()[:1], ["sess-abc"])
+        self.assertEqual(
+            self.store.sf.by_id(result.record_id).codeagent_session_id,
+            "sess-abc")
+
     def test_a_record_with_no_session_id_is_left_alone_on_a_miss(self):
         self.observe_miss(agent_sessions.MISS_NO_MATCH)
         result, _ = self._freeze_capturing_stderr()

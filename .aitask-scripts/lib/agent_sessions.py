@@ -1978,8 +1978,12 @@ def codex_session_for_pid(
     launches avoid that through ``tui.alternate_screen=never`` in
     ``CODEX_TUI_OVERRIDES`` (see `lib/agent_string.sh`); a hand-started
     `codex` can be daemon-routed. For a restore the miss is harmless (liveness,
-    captures kept). The freeze engine, however, reads ``MISS_NO_MATCH`` as
-    disproving a stored codex id.
+    captures kept). The freeze engine reads it as disproving a stored codex id,
+    and that is correct for a daemon-routed TUI too (t2046): since t2047 the
+    hook records nothing for one, so an id on its record is stale or came from
+    the pre-t2047 hook, which reported the daemon's STARTING pane. The daemon
+    holds every routed pane's rollout, so its fds cannot attribute a
+    conversation to one pane. Such an agent is re-picked, not resumed.
 
     Miss reasons are distinct on purpose -- see :data:`MISS_NO_PROCESS` vs
     :data:`MISS_NOT_CODEX`, which the freeze engine treats differently.

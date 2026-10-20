@@ -259,10 +259,26 @@ _RESOLVE_AGENT_SH = _SCRIPTS_DIR / "aitask_resolve_detected_agent.sh"
 #: launch, before any turn (measured, codex 0.154 -- t1804). So "codex process,
 #: no rollout open" cannot be a restored agent still holding the recorded
 #: conversation; a never-turned FRESH agent has no recorded id to lose either.
+#:
+#: It stays here for a codex TUI routed through the shared app-server daemon,
+#: which holds no rollout itself (t2046). Since t2047 the hook records nothing
+#: for such an agent, so an id on its record is stale or came from the
+#: pre-t2047 hook, which reported the daemon's STARTING pane for every routed
+#: session. The daemon holds every routed pane's rollout, so its fds cannot
+#: attribute a conversation to one pane either. Such an agent is re-picked.
 _CODEX_DISPROVING_MISSES = (
     agent_sessions.MISS_NO_MATCH,
     agent_sessions.MISS_AMBIGUOUS,
     agent_sessions.MISS_NOT_CODEX,
+)
+
+#: The subset that also proves the process IS codex, so its open fds disprove
+#: any session id for the pane, the hook's pane stamp included. `MISS_NOT_CODEX`
+#: is absent: it disproves only a stored CODEX id, and the pane may be running
+#: another agent whose hook-stamped id is valid.
+_CODEX_FD_DISPROOFS = (
+    agent_sessions.MISS_NO_MATCH,
+    agent_sessions.MISS_AMBIGUOUS,
 )
 
 
@@ -486,9 +502,15 @@ def _observe_codex_session(
 
 
 def _capture_codex_session(
-    record_id: str, stored: dict[str, str], facts: dict[str, str], root: str
+    record_id: str, stored: dict[str, str], facts: dict[str, str], root: str,
+    observation: tuple[str, str, str, str, bool] | None = None,
 ) -> None:
     """Best-effort: keep a known record's codex session id true to its process.
+
+    ``observation`` is an :func:`_observe_codex_session` result the caller
+    already holds. Pass it rather than letting this probe again: a second read
+    can come back inconclusive (the process exited or turned unreadable in
+    between), and `MISS_NO_PROCESS` must not undo a disproof already obtained.
 
     Four outcomes, and the difference between them is the whole point (t1804):
 
@@ -496,8 +518,9 @@ def _capture_codex_session(
       restore resumes the conversation this agent is actually in;
     * a DISPROVING miss on a record that holds a codex id -> CLEAR it. The
       observation ran and could not prove the stored id belongs to this process
-      (a `/new` in the TUI, a recycled pane), and an id-less record degrades to
-      re-pick -- recoverable, unlike resuming a stranger's session;
+      (a `/new` in the TUI, a recycled pane, a daemon-routed TUI whose id no
+      evidence can attribute to this pane -- t2046), and an id-less record
+      degrades to re-pick -- recoverable, unlike resuming a stranger's session;
     * a VERIFIED session this code cannot record safely -> CLEAR it too, both
       when the conversation differs and when argv names an unmapped model (the
       session id survives a resume, so a matching id proves nothing about the
@@ -519,7 +542,8 @@ def _capture_codex_session(
             return
 
         session_id, transcript, agent_string, miss, unnameable_model = (
-            _observe_codex_session(facts.get("pane_pid", "0"), root, stored))
+            observation if observation is not None
+            else _observe_codex_session(facts.get("pane_pid", "0"), root, stored))
 
         if miss in _CODEX_DISPROVING_MISSES:
             if not (stored_id and stored_is_codex):
@@ -633,11 +657,19 @@ def _resolve_record(facts: dict[str, str]) -> tuple[str, str]:
     session_id = facts.get("agent_session", "")
     transcript = ""
     agent_string = ""
-    observed_id, observed_path, observed_agent, _miss, _unnameable = (
-        _observe_codex_session(facts.get("pane_pid", "0"), root, {}))
+    observation = _observe_codex_session(facts.get("pane_pid", "0"), root, {})
+    observed_id, observed_path, observed_agent, miss, _unnameable = observation
     if observed_id and observed_agent:
         session_id, transcript, agent_string = (
             observed_id, observed_path, observed_agent)
+    elif miss in _CODEX_FD_DISPROOFS:
+        # The process is verified codex and its open fds disprove any id, so
+        # the pane stamp must not travel into the record (t2046). That covers
+        # a daemon-routed TUI too: since t2047 its hook records nothing, so a
+        # stamp on its pane is stale or came from the pre-t2047 hook, which
+        # reported the daemon's STARTING pane. `MISS_NOT_CODEX` keeps the
+        # stamp: the pane runs another agent, whose hook id this path carries.
+        session_id = ""
 
     args = [
         "upsert",
@@ -680,6 +712,16 @@ def _resolve_record(facts: dict[str, str]) -> tuple[str, str]:
     # caller's obligation — and only after a success line, which is why this
     # sits below the rc check rather than beside the upsert.
     frozen_ops.set_option(facts.get("pane_id", ""), RECORD_OPTION, record_id)
+    # The upsert can SELECT an existing record by pane identity, and that
+    # record may still hold an id this observation disproves (t2046). Apply
+    # the stamped path's capture rules to it, in the stamped path's order, on
+    # THIS observation: a re-probe could read inconclusive and undo the
+    # disproof. A disproving miss carries no session, so the observation made
+    # with no stored record decides exactly as one made with it would.
+    if miss in _CODEX_DISPROVING_MISSES:
+        _capture_codex_session(
+            record_id, frozen_ops.store_show(record_id), facts, root,
+            observation=observation)
     # Against the record the upsert actually SELECTED, not what it was sent:
     # see `_backfill_agent_string` for why the guard has to read the store.
     _backfill_agent_string(record_id, facts, root)

@@ -74,6 +74,10 @@ monitors' own keys keep their usual meaning on a frozen agent.
 Each route needs something the other does not, and a record may carry only one:
 re-pick needs a **task id**, restore needs a recorded **session id**. An agent
 whose CLI cannot resume a session — OpenCode today — can only be re-picked.
+So can a Codex agent started by hand that Codex runs through its shared
+app-server daemon: nothing can yet tell which conversation belongs to its pane,
+so no session id is recorded for it (see
+[the session hook]({{< relref "/docs/concepts/framework-session" >}}#the-session-hook)).
 
 **A successful, verified restore or re-pick deletes the capture.** Once the
 resumed agent identifies itself the transcript has served its purpose and the
