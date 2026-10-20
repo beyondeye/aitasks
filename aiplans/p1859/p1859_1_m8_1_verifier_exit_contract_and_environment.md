@@ -231,3 +231,60 @@ Bodies run in the main shell. Only the verifier runs inside `( )`, so no file-ba
 Current branch (profile `fast`, no worktree), no merge. Archival through the
 task-workflow Step 9 (`aitask_archive.sh 1859_1`); the `risk_evaluated` gate is
 recorded by the orchestrator.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-20 17:40)
+- **Requested by user:** `_gate_read_carrier` streamed the sanitizer's stdout and swallowed a non-zero exit with `|| true`, so output from a sanitizer that printed and then failed reached `result=` (reproduced with an `AIT_PYTHON` wrapper printing `PARTIAL-FROM-FAILED-SANITIZER` and exiting 3) — contradicting the plan's "any sanitizer failure → carrier absent" rule.
+- **Changes made:** the sanitizer's stdout is captured into a local and printed only when the sanitizer exits 0. Regression in Test 17: a fake `AIT_PYTHON` wrapper (delegating every other python use to the real interpreter) prints then exits 3 → the fixed text stands and the partial value is nowhere in the ledger; positive control: the same wrapper exiting 0 is honoured. Mutant check: restoring the streaming form fails exactly those two assertions (279/281).
+- **Files affected:** `.aitask-scripts/lib/gate_verifier_lib.sh`, `tests/test_gate_verifiers.sh`
+
+## Final Implementation Notes
+- **Actual work done:**
+  - `lib/gate_verifier_lib.sh`:
+    - constants `GATE_COMMAND_REFUSED_EXIT=75`, `GATE_COMMAND_ERRORED_EXIT=3`, `GATE_RESULT_CARRIER_MAX=200`;
+    - `run_project_command_key <key> <log> [result_file]` gains the two opted-in error rows (`error`/3/`command_refused|command_errored`, fixed text `command_refused (exit 75): <cmd>` / `command_errored (exit 3): <cmd>`), error short-circuit, per-command carrier truncation (a failed truncate abandons the carrier), and the new global `PROJECT_CMD_CARRIER` (deciding command's own value for fail/error, else the last writer);
+    - `_gate_read_carrier` lazily sources `python_resolve.sh` and prints the sanitizer's output **only on success**;
+    - `run_command_gate` exports `AIT_GATE_TASK_ID` / `AIT_GATE_RUN_ID` / `AIT_GATE_RESULT_FILE` (absolute) as prefix assignments scoped to the one call, and writes `result="<reason>: <value>"` when a value exists;
+    - the docblock exit table and aggregation rule are restated; the stale `SC2034` disable is removed (`run_command_gate` now reads `PROJECT_CMD_REASON`, so shellcheck sees a reader).
+  - New `lib/gate_result_carrier.py`: the sanitizer. It decodes with `errors="replace"`, keeps `str.splitlines()[0]`, drops categories Cc/Cf/Zl/Zp and any character `splitlines` treats as a boundary, strips, caps at 200 characters, and asserts the one-line post-condition. The CLI writes UTF-8 bytes to stdout, so it works under `LC_ALL=C`.
+  - `aitask_run_project_command.sh`: `--task-id` exports `AIT_GATE_TASK_ID` (after all refusal checks). The header is restated: `VERDICT:error` + `REASON:command_refused|command_errored` with exit 3, versus a verdict-less exit 3 for usage or infrastructure errors.
+  - Docs (user decision): `aidocs/gates/aitask-gate-framework.md`, the website `skills/aitask-pick/build-verification.md` exit table, the task-workflow `SKILL.md` config row, plus regenerated `tests/golden/procs/task-workflow/SKILL-{default,fast,remote}.md` and the committed `remote` prerenders (`aitask_skill_rerender.sh remote`; 3 files, one row each).
+  - Tests:
+    - `test_gate_verifiers.sh`: 7(e) flipped; Test 12 extended; new Tests 13–19 (error rows with exact-match negative controls 64/74/76/4, aggregation, the real orchestrator, environment, the carrier, hostile carriers through the real bash append and parser with a positive control, and a full-code-point differential);
+    - `test_run_project_command.sh`: G flipped, G3/G4, two parity rows, a flow row, and Test 7 for the environment.
+- **Deviations from plan:**
+  - Difference 2 was revised during planning after review: the sanitizer moved from bash to Python, because the bash/C0 cleanup let U+2028/U+2029/U+0085 forge a `pass` record. The carrier's CR case is asserted as "CR ends the line" (`a\tb\rTAIL` → `ab`), because CR is a reader line boundary, not a stripped character.
+  - A hostile-carrier Test 18 and a differential Test 19 were added beyond the original Test 17 list.
+- **Issues encountered:**
+  - `printf … | carrier_fixture` ran the fixture function in a pipeline subshell, so `d` was unbound in the caller (`set -u` abort). Switched to here-strings and heredocs.
+  - The skill verify reported stale committed `remote` prerenders after the `SKILL.md` edit; fixed by running the rerender.
+- **Key decisions:**
+  - The helper reports `VERDICT:error` (not verdict-less) with exit 3. `build-verification.md` §2 still routes it as infrastructure via rc 3.
+  - The carrier path is absolute.
+  - An error short-circuits a list.
+  - A fail or error whose deciding command wrote nothing keeps the fixed text.
+  - Sanitizer failure → fixed text, never partial output.
+- **Baselines (pre-phase `baseline_verifier_suites`):**
+  - Unchanged tree: `test_gate_verifiers.sh` 150/150, `test_run_project_command.sh` 85/85.
+  - After the code edits, before the test edits: 144/150 (only 7(e) ×3 verifiers × 2 assertions) and 83/85 (only G ×2). This is exactly the deliberately flipped pins.
+  - Final: 281/281 and 104/104.
+- **Mutant checks:**
+  - A weakened sanitizer (split on `\n`, drop only `Cc`) fails 9 assertions: forged `pass` record, `ALL_PASS`, and the differential lists 9 boundaries.
+  - Restoring the streaming `|| true` reader fails exactly the 2 new failed-sanitizer assertions.
+- **Other verification:**
+  - `test_skill_render_task_workflow.sh` 361/361, `test_skill_render_aitask_qa.sh` 219/219, `aitask_skill_verify.sh` OK;
+  - `test_shell_startup_closure.py` 9 passed, `test_scaffold_py_closure.sh` 38/38;
+  - `check_links.py --build` PASSED, shellcheck `-S warning` clean.
+- **Upstream defects identified:**
+  - `.claude/skills/task-workflow/remote-drift-check.md:27` — `tests/test_skill_errexit_capture.sh`'s errexit-unsafe `$?` guard fails on the `…; echo "DRIFT_RC:$?"` capture added by t2061 (`c643a8390`). This is unrelated to this task and was already failing at HEAD.
+- **Notes for sibling tasks:**
+  - **M8.4 / M8.5 (`aitask_test.sh`, the writer):**
+    - write ONE line to `"$AIT_GATE_RESULT_FILE"` (an absolute path; it exists only under `run_command_gate`);
+    - the ledger shows `<PROJECT_CMD_REASON>: <your line>`, capped at 200 characters;
+    - every Unicode control, format or line-separator character is removed;
+    - the file is truncated before each command of a list;
+    - a failing or erroring command's own value (or none) is used, never an earlier one.
+  - **M5.1:** `AIT_GATE_TASK_ID` is set by the gate verifier and by `aitask_run_project_command.sh --task-id`. `AIT_GATE_RUN_ID` is set by the gate verifier only. Inherited values pass through untouched.
+  - **M9.1 / M9.2:** the helper's `VERDICT:error` carries a REASON to branch on. Until those branches land, rc 3 routes it to infrastructure.
+  - Sanitizing anything that reaches a ledger body must follow `str.splitlines`, not bash line rules.
