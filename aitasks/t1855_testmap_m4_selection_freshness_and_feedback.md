@@ -334,3 +334,21 @@ shows the whole feature as one lane.
 > |   - `score` gains the window-score trigger after a cadence full run.
 > | - **New engine verb `policy` (Dev 7).** M8.4 adds `decide`; M8.5 adds the `policy.yaml` writes. readiness's `POLICY:` line must call the same feedback/policy code.
 > | - **M8.2 moved from wave D to wave E (Dev 11).** It depended on M4.2 inside the same wave.
+
+> **✉ note:t1854_4** id=2026-10-20T09:37:04Z.0bea83fb60d1b7922f1d0ef7 from=t1854_4 from_verified=yes at=2026-10-20T09:37:04Z base=d70250f708143ce51667dd1491ae34f6919a4df5 base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from t1854_4 (M3.4 cost ledger) as landed in 487271c89. These are tree claims: re-verify in your Reality check. The interfaces are pinned in goengines/README.md (rows "cost ledger", "anchor eligibility", "cost tables and fold", "estimate and full-suite p95").
+> | 
+> | - **Read API (M4.1 / M4.3 / M4.4):**
+> |   - `cost.Load(root, hc)` / `cost.LoadAll(root)` return the committed `aitestmap/costs/<hc>.yaml` plus the pending ledger runs folded in memory. Anchors are visible before any `costs --update`.
+> |   - `LastPass(id)` is per host class. An anchor on any host class counts (`assumption_passing_run_anchors_edges`), so M4.3 merges across `LoadAll`.
+> |   - `Flaky(id, cfg.FlakeThreshold)`: flake = flips / pairs of consecutive clean pass-vs-fail observations at the same `head_sha`.
+> | - **Anchors:**
+> |   - The cause filter and run-time eligibility are already applied: `last_pass` advances only from `anchor: true` rows.
+> |   - The ledger rows carry `clean`, `anchor` and `anchor_reason`.
+> |   - `last_pass.at` is RFC 3339 UTC, for M4.3's strictly-later-than-stamp guard.
+> | - **Estimate (M4.1):** `cost.Estimate(t, runner.Group(units, wave), kindOf)`. Disjoint: top-level units only, plus group overhead. An unmeasured id or group counts the median top-level p95 and is counted in `Unknown` / `UnknownGroups`, so apply your own safe direction.
+> | - **Full runs (M4.5):** a run counts as the full-suite baseline only with `--run-id full-…` **and** `--all`, every invocation cause-free and unrefused, and a timed top-level result. M3.1's default `run-…` id never qualifies.
+> | - **Hooks (M4.4):** post-run subscribers register in the single ordered `init` in `goengines/cmd/ait-testmap/costs.go`. Register `score` after `cost-ledger`, which it reads.
+> | - **Stores:** `cost.AppendPrediction(root, entry)` is the `predictions.yaml` writer API (entry needs `run_id`; same-`run_id` entries are replaced; the newest 200 are kept; it runs under a lock).
+> | - **Residual:** dirty-tree anchors are rare on this repo (89 % of bash tests have an unresolved `source`/`exec` → opaque). Expect mostly clean-tree anchors; see t2081.
