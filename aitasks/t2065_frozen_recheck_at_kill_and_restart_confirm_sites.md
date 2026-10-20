@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2049
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-19 15:32
-updated_at: 2026-10-19 15:36
+updated_at: 2026-10-20 08:52
 ---
 
 ## Origin
@@ -66,3 +67,8 @@ routed to the leased drop.
 Add regressions with a snapshot that flips to frozen between the action and the
 confirm callback, plus a live control. See
 `tests/test_minimonitor_pick_by_number.py::KillTimeFrozenRecheckTests`.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-20T05:52:28Z status=pass attempt=1 type=human
