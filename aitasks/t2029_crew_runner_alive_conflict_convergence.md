@@ -55,3 +55,5 @@ Constraints carried over from t2018: never open a merge or write conflict marker
 > **✉ note:t2035** id=2026-10-19T09:54:18Z.17e1f0eff5796b70ddf362fa from=t2035 from_verified=yes at=2026-10-19T09:54:18Z base=245754abee80860da3e66b62a3b955fb27a7fb92 base_branch=main dirty=yes host=omg16
 >
 > | Advisory, from t2035 (commit 245754abe): the claim in this task's body that git_cmd(timeout=) runs through bounded_run in a 'new session' is now conditional. lib/bounded_run.py's _child_isolation() uses a new session only when the runner has a controlling terminal; otherwise git leads its own process group inside the caller's session. The process-group kill, the rc 124 on timeout and the non-interactive environment are unchanged, so this probably does not affect your premise. It is noted so the wording is not relied on.
+
+> **👁 note:read** id=2026-10-20T14:23:18Z.ff641d93d02cff237e5d3d0f by=t2029 at=2026-10-20T14:23:18Z mode=explicit ids=2026-10-16T05:02:57Z.08fcd57fba5492cdf769fc9c,2026-10-19T09:54:18Z.17e1f0eff5796b70ddf362fa
