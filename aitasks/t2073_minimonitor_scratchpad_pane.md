@@ -3,12 +3,13 @@ priority: medium
 effort: high
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [aitask_monitormini, tmux, website, scratchpad]
 gates: [risk_evaluated]
 folded_tasks: [1388]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-10-20 09:46
-updated_at: 2026-10-20 09:47
+updated_at: 2026-10-20 09:49
 ---
 
 ## Goal
