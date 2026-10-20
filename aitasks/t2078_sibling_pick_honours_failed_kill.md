@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
@@ -15,7 +17,7 @@ anchor: 2049
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5_5
 created_at: 2026-10-20 12:07
-updated_at: 2026-10-20 12:34
+updated_at: 2026-10-20 12:35
 ---
 
 ## Origin
@@ -58,3 +60,5 @@ At both sites, read `ok, _ = …kill_agent_pane_smart(…)`. On success, keep th
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-10-20T09:35:06Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-10-20T09:42:29Z status=pass attempt=1 type=human
