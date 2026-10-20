@@ -96,3 +96,23 @@ func TestHeadOutsideRepositoryIsAnError(t *testing.T) {
 		t.Fatalf("Head outside a repository = %q, nil", head)
 	}
 }
+
+// Prefix is "" at the top level and "<dir>/" below it, and ModifiedPaths
+// stays top-level-relative from a subdirectory — the mismatch Prefix lets a
+// caller detect.
+func TestPrefixAndTopLevelRelativeStatus(t *testing.T) {
+	r := fixture.New(t)
+	r.History(t, []fixture.Commit{{Task: "1", Desc: "base", Files: map[string]string{"sub/a": "1\n"}}})
+	if p, err := r.Git.Prefix(ctx); err != nil || p != "" {
+		t.Fatalf("top-level Prefix = %q, %v", p, err)
+	}
+	r.Write(t, "sub/a", "2\n")
+	sub := r.Git
+	sub.Dir = filepath.Join(r.Dir, "sub")
+	if p, err := sub.Prefix(ctx); err != nil || p != "sub/" {
+		t.Fatalf("subdirectory Prefix = %q, %v", p, err)
+	}
+	if got, err := sub.ModifiedPaths(ctx); err != nil || !slices.Equal(got, []string{"sub/a"}) {
+		t.Fatalf("ModifiedPaths from a subdirectory = %v, %v", got, err)
+	}
+}

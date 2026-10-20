@@ -109,6 +109,18 @@ func (r Repo) ObjectFormat(ctx context.Context) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
+// Prefix returns Dir's path below the working tree's top level, with a
+// trailing slash ("" when Dir is the top level), via `git rev-parse
+// --show-prefix`. Paths git reports from the top level (status, diff) differ
+// from Dir-relative ones exactly when this is non-empty.
+func (r Repo) Prefix(ctx context.Context) (string, error) {
+	out, err := r.Run(ctx, "rev-parse", "--show-prefix")
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSuffix(string(out), "\n"), nil
+}
+
 // IsAncestor reports whether a is an ancestor of (or equal to) b, via
 // `git merge-base --is-ancestor`. Exit 1 is "no"; any other failure (an
 // unknown revision included) is an error, never a "no".

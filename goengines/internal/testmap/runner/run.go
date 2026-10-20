@@ -32,6 +32,11 @@ type RunReport struct {
 	Results     []Result `json:"results"` // invocation order; per invocation, manifest order then child rows
 	// HookErrors are the subscribers that failed (each ran once regardless).
 	HookErrors []HookError `json:"-"`
+	// Repo is the repository the run loaded (units, runners, describe), and
+	// All whether it was `run --all`: what a subscriber judging the run (M3.4's
+	// ledger) needs without loading every runner again.
+	Repo *Repository `json:"-"`
+	All  bool        `json:"-"`
 }
 
 var runIDRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
@@ -74,7 +79,7 @@ func Run(ctx context.Context, root string, opts Options) (*RunReport, error) {
 		return nil, err
 	}
 	rel := StateDir + "/runs/" + runID
-	report := &RunReport{RunID: runID, Root: root, Dir: rel, Selected: len(units), Invocations: []Record{}, Results: []Result{}}
+	report := &RunReport{RunID: runID, Root: root, Dir: rel, Selected: len(units), Invocations: []Record{}, Results: []Result{}, Repo: repo, All: opts.All}
 	if len(units) == 0 {
 		report.HookErrors = runHooks(ctx, report)
 		return report, nil

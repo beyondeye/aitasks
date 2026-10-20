@@ -1,0 +1,216 @@
+package cost
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"strings"
+
+	"gopkg.in/yaml.v3"
+
+	"github.com/beyondeye/aitasks/goengines/internal/gitx"
+	"github.com/beyondeye/aitasks/goengines/internal/platform"
+	"github.com/beyondeye/aitasks/goengines/internal/testmap"
+	"github.com/beyondeye/aitasks/goengines/internal/testmap/registry"
+)
+
+// The two committed stores beside the host tables. Their basenames are
+// reserved: no host class may take them.
+const (
+	PredictionsPath = CostsDir + "/predictions.yaml"
+	PolicyPath      = CostsDir + "/policy.yaml"
+)
+
+// MaxPredictions is how many scored full runs predictions.yaml keeps.
+const MaxPredictions = 200
+
+const storeHeader = "# Written by ait-testmap. Do not edit by hand.\n"
+
+// Predictions is the predictions.yaml store. Its entries are M4.4's `score`
+// records, opaque here except for their required run_id.
+type Predictions struct {
+	Contract int              `yaml:"contract"`
+	Scored   []map[string]any `yaml:"scored"`
+	Extra    map[string]any   `yaml:",inline"`
+}
+
+// readStore reads a store into v after the contract check; found is false
+// when the file is absent.
+func readStore(root, rel string, v any) (found bool, err error) {
+	data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
+	if errors.Is(err, fs.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, &Error{What: "store", Detail: rel + ": " + err.Error()}
+	}
+	if err := testmap.CheckContract(rel, data); err != nil {
+		var cm *testmap.ContractMismatchError
+		if errors.As(err, &cm) {
+			return true, err
+		}
+		return true, &Error{What: "store", Detail: err.Error()}
+	}
+	if err := yaml.Unmarshal(data, v); err != nil {
+		return true, &Error{What: "store", Detail: rel + ": " + err.Error()}
+	}
+	return true, nil
+}
+
+func writeStore(root, rel string, v any) (bool, error) {
+	data, err := registry.Render(storeHeader, v)
+	if err != nil {
+		return false, &Error{What: "store", Detail: rel + ": " + err.Error()}
+	}
+	changed, err := writeFile(filepath.Join(root, filepath.FromSlash(rel)), data)
+	if err != nil {
+		return false, &Error{What: "store", Detail: rel + ": " + err.Error()}
+	}
+	return changed, nil
+}
+
+// ReadPredictions reads predictions.yaml (empty when absent). A newer
+// contract is a *testmap.ContractMismatchError.
+func ReadPredictions(root string) (*Predictions, error) {
+	p := &Predictions{Contract: testmap.Contract, Scored: []map[string]any{}}
+	if _, err := readStore(root, PredictionsPath, p); err != nil {
+		return nil, err
+	}
+	for i, e := range p.Scored {
+		if id, _ := e["run_id"].(string); id == "" {
+			return nil, &Error{What: "store", Detail: fmt.Sprintf("%s: scored[%d] has no run_id", PredictionsPath, i)}
+		}
+	}
+	return p, nil
+}
+
+// lockStores takes the exclusive lock of the committed cost stores:
+// `<git-dir>/ait-testmap/costs.lock`, never in the work tree (the adoption
+// tables' convention).
+func lockStores(root string) (func() error, error) {
+	out, err := gitx.Repo{Dir: root}.Run(context.Background(), "rev-parse", "--absolute-git-dir")
+	if err != nil {
+		return nil, &Error{What: "store", Detail: "lock: " + err.Error()}
+	}
+	dir := filepath.Join(strings.TrimSpace(string(out)), "ait-testmap")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return nil, &Error{What: "store", Detail: "lock: " + err.Error()}
+	}
+	unlock, err := platform.Lock(filepath.Join(dir, "costs.lock"))
+	if err != nil {
+		return nil, &Error{What: "store", Detail: "lock: " + err.Error()}
+	}
+	return unlock, nil
+}
+
+// testPredictionsRead runs inside AppendPrediction's critical section, after
+// the read (the interleaving test pauses there).
+var testPredictionsRead func()
+
+// AppendPrediction records one scored full run (M4.4's `score` is the
+// writer): an entry with the same run_id is replaced and moved to the end,
+// then only the newest MaxPredictions are kept. The read, the replacement,
+// the cap and the write are one transaction under the stores lock, so two
+// concurrent writers of distinct runs both land. It reports whether the
+// file changed.
+func AppendPrediction(root string, entry map[string]any) (bool, error) {
+	id, _ := entry["run_id"].(string)
+	if id == "" {
+		return false, &Error{What: "store", Detail: "prediction without run_id"}
+	}
+	unlock, err := lockStores(root)
+	if err != nil {
+		return false, err
+	}
+	defer unlock()
+	p, err := ReadPredictions(root)
+	if err != nil {
+		return false, err
+	}
+	if testPredictionsRead != nil {
+		testPredictionsRead()
+	}
+	kept := p.Scored[:0]
+	for _, e := range p.Scored {
+		if e["run_id"] != id {
+			kept = append(kept, e)
+		}
+	}
+	kept = append(kept, entry)
+	if n := len(kept); n > MaxPredictions {
+		kept = kept[n-MaxPredictions:]
+	}
+	p.Contract, p.Scored = testmap.Contract, kept
+	return writeStore(root, PredictionsPath, p)
+}
+
+// Policy is the engine's policy ledger, aitestmap/costs/policy.yaml. This
+// package owns the format; the `policy` verb (M8.5) is its only writer.
+// Unknown keys are kept and re-written (fields are additive within a
+// contract).
+type Policy struct {
+	Contract          int            `yaml:"contract"`
+	LastFullRun       *FullRunRef    `yaml:"last_full_run,omitempty"`
+	SelectedSinceFull int            `yaml:"selected_since_full"`
+	ApprovedBy        *Approval      `yaml:"approved_by,omitempty"`
+	Extra             map[string]any `yaml:",inline"`
+}
+
+// FullRunRef is the policy's newest full run.
+type FullRunRef struct {
+	RunID string         `yaml:"run_id"`
+	At    string         `yaml:"at"`
+	Task  string         `yaml:"task,omitempty"`
+	SHA   string         `yaml:"sha,omitempty"`
+	Extra map[string]any `yaml:",inline"`
+}
+
+// Approval is who flipped the policy (under auto, the engine:
+// `engine:readiness@<run>`), when, how, and the statement it rests on.
+type Approval struct {
+	Who       string         `yaml:"who"`
+	At        string         `yaml:"at"`
+	Mode      string         `yaml:"mode"`
+	Statement string         `yaml:"statement,omitempty"`
+	Extra     map[string]any `yaml:",inline"`
+}
+
+// ReadPolicy reads policy.yaml; found is false when it is absent. A newer
+// contract is a *testmap.ContractMismatchError (CONTRACT_MISMATCH).
+func ReadPolicy(root string) (Policy, bool, error) {
+	var p Policy
+	found, err := readStore(root, PolicyPath, &p)
+	if err != nil {
+		return Policy{}, found, err
+	}
+	if p.SelectedSinceFull < 0 {
+		return Policy{}, true, &Error{What: "store", Detail: PolicyPath + ": selected_since_full < 0"}
+	}
+	return p, found, nil
+}
+
+// WritePolicy writes p with this engine's contract, only when the content
+// changes. A file on disk with a newer contract is refused
+// (CONTRACT_MISMATCH) rather than overwritten by an older engine.
+func WritePolicy(root string, p Policy) (bool, error) {
+	if p.SelectedSinceFull < 0 {
+		return false, &Error{What: "store", Detail: "selected_since_full < 0"}
+	}
+	data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(PolicyPath)))
+	switch {
+	case err == nil:
+		if cerr := testmap.CheckContract(PolicyPath, data); cerr != nil {
+			var cm *testmap.ContractMismatchError
+			if errors.As(cerr, &cm) {
+				return false, cerr
+			}
+		}
+	case !errors.Is(err, fs.ErrNotExist):
+		return false, &Error{What: "store", Detail: PolicyPath + ": " + err.Error()}
+	}
+	p.Contract = testmap.Contract
+	return writeStore(root, PolicyPath, p)
+}

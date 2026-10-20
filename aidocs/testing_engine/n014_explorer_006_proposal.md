@@ -426,7 +426,7 @@ name these rows; they do not restate them.
 | gate declarations | profiles' `default_gates` (`testmap_fresh`, `testmap_check`, `tests_pass` in that list order, no `unlocks:`; `rendered_gates` where present); `gates.yaml` `tests_pass.timeout_seconds` | the skill's `enable` phase; the timeout from `costs --gate-timeout` after the first full run |
 | agent instructions | `CLAUDE.md` `>>>aitasks` block, `AGENTS.md`, `.codex/instructions.md`, the OpenCode mirror | `ait setup` from the seed; a hand-maintained `CLAUDE.md` by the level-0 task |
 | model score table | `aitasks/metadata/models_<agent>.json` `verified.testmap-review` per model | the seeds; `aitask-add-model` |
-| runs, ledger, predictions | `.aitask-testmap/runs/<run-id>/` (the runner's `results.jsonl` / `runner.json` and the engine's own per-invocation record `{group, cause, head_start, head_end, modified[]}`), `.aitask-testmap/ledger.jsonl` (gitignored) rows `{run_id, id, parent?, status, duration_ms, head_sha, anchor, anchor_reason?}` per result and `{run_id, group, overhead_ms, units_reported, cause}` per invocation; `aitestmap/costs/<hostclass>.yaml` (per id: Welford / P² p95 / last, `last_pass {sha, at, run_id}` from anchor-eligible passes only, flake rate; per group: overhead — never a path list), `aitestmap/costs/predictions.yaml` (committed) | every run, through `run`'s post-run hook (M3.4's subscriber); `costs --update`; `score` |
+| runs, ledger, predictions | `.aitask-testmap/runs/<run-id>/` (the runner's `results.jsonl` / `runner.json` and the engine's own per-invocation record `{group, cause, head_start, head_end, modified[]}`), `.aitask-testmap/ledger.jsonl` (gitignored), one batch per run: rows `{row: invocation, run_id, surface, host_class, at, invocation, group, runner, elapsed_ms, overhead_ms, units_reported, cause, refused, all}` per invocation, then `{row: result, run_id, surface, host_class, at, invocation, group, id, parent?, status, duration_ms, head_sha, clean, anchor, anchor_reason?}` per result, then one `{row: run_end, run_id, host_class, at, invocations, results}` that frames the run (a run whose batch is incomplete or miscounted is never folded); `aitestmap/costs/<hostclass>.yaml` (`ledger_fold {bytes, sha256}`, `full_run {run_id, at}`; per id: Welford / P² p95 / last, `last_pass {sha, at, run_id}` from anchor-eligible passes only, flake pairs and flips, `full_top`; per group: overhead, `full_run` — never a path list; a host class is never `policy` or `predictions`, in any case), `aitestmap/costs/predictions.yaml` `{contract, scored: [...]}` (committed) | every run, through `run`'s post-run hook (M3.4's subscriber); `costs --update`; `score` |
 | dependency cache | `${XDG_CACHE_HOME:-~/.cache}/aitasks/testmap/deps/<blob-sha1>.json`; the co-change matrix keyed by HEAD sha | the scanners; the seeder |
 
 Every registry file that this feature adds (`seeded.yaml`, `adopted.yaml`,
@@ -3063,7 +3063,13 @@ lives*), written by this package as a subscriber of M3.1's post-run hook —
 one row per result and one per invocation; `costs --update` folds both into
 `aitestmap/costs/<hostclass>.yaml` and truncates, under a lock that a
 concurrent append also takes, so no row is lost; a flake rate against
-`flake_threshold`.
+`flake_threshold`. The flake rate of an id is flips / pairs over consecutive
+*clean* observations of it at the same `head_sha` (pass against
+fail-like), so a test that fails steadily is broken, not flaky. Each
+host table records in `ledger_fold` the ledger prefix it already
+contains, so an update interrupted between writing a table and
+truncating folds nothing twice on its retry; that marker is per clone,
+so two clones sharing a host class conflict on it.
 
 **Anchor eligibility** is decided here, at run time, where the registry is
 loaded. A passing result is *anchor-eligible* only when its invocation had
@@ -3080,17 +3086,35 @@ decision and its reason; `last_pass {sha, at, run_id}` per id advances only
 from eligible passes; no path list is ever written to a committed file.
 Every rejection leaves the edge `STALE`, so it fails toward running more. A
 file edited and reverted within one invocation is invisible to the start and
-end snapshots — the residual this rule accepts.
+end snapshots — the residual this rule accepts. The inputs are read once
+per run, after it: the covers union the current annotations with the
+registry's edges (a repository whose `scan --apply` lags still blocks a
+dirty covered source); the closure includes the test file itself, and an
+opaque file or a `source`/`exec` the scan could not resolve (an excluded,
+linked or deleted target) makes it opaque; a project runner script is
+judged with its own closure; HEAD and the modified set are re-read and
+must match each invocation's end state (`tree-changed` otherwise); and the
+repository root must be the git top level, because the modified set is
+top-level-relative. An input that cannot be read fails closed —
+`eligibility-error:<input>:<detail>` on the row, never an anchor — and
+never changes the run's exit.
 
 **The estimate** for a set of invocation groups — formed by M3.1's grouping
 function with the caller's wave inputs — is the sum over groups of
 `overhead.p95` plus the p95 of each **top-level** id in it, reported per kind
-the caller supplies. Accounting is disjoint: a child row of a suite parent
+the caller supplies; an id or group with no measurement counts the median
+p95 of the ids measured as top-level units (never a suite's child rows) or
+of the measured groups, and is reported in an unknown count, so a consumer
+whose safe direction differs (the budget against `selection_ratio_above`)
+can apply its own. Accounting is disjoint: a child row of a suite parent
 never adds to an estimate that includes its parent, and an invocation's
 `overhead_ms` is its elapsed time minus the durations of its top-level
 results, clamped at 0. Child rows keep their own cost statistics and their
 evidence. **The full-suite p95** on a host class is that estimate applied to
-the invocation groups and top-level ids of the newest `full-` run on it (a
+the invocation groups and top-level ids of the newest complete `full-`
+`--all` run on it whose every invocation is cause-free and unrefused —
+every top-level id of that run a member, a skipped one keeping its earlier
+p95 (a
 100 s suite with 40 s and 60 s children in a 105 s invocation counts 105 s,
 never 205 s). `costs/predictions.yaml` holds the last 200 scored full runs.
 **Run-id prefixes**, stated here once: `test-` for interactive and advisory
@@ -3101,13 +3125,25 @@ surface produced a row. The `SELECTED:` estimate is the same per-group sum
 the budget uses and the number `selection_ratio_above` compares to the
 full-suite p95 on this host class. `costs --gate-timeout tests_pass` prints
 `GATE_TIMEOUT_SUGGESTED:<gate>|<seconds>` = `max(600, 3 × the full-suite
-p95 on this host class)` (this package homes the line), which the onboarding
+p95 on this host class)` (this package homes the line; with no qualifying
+full run it prints `COSTS_NO_FULL_RUN:<hostclass>` and exits 2), which the onboarding
 `full_run` phase writes into the project's `gates.yaml` after the first
 measured full run. `aitestmap/costs/policy.yaml` (schema under *Where state
 lives*) is the engine's policy ledger under `auto`: this package owns the
 file format and its read / write helpers; the engine verb `policy` (M8.5),
 invoked by `ait test --gate`, is its only writer, and it is committed beside the other engine-written cost files
 so `config.yaml` stays human-authored.
+
+The verb's lines: `costs` prints `COST:<id>|<n>|<mean_ms>|<p95_ms>|<last_ms>|<flake_rate>|<pairs>|<last_pass_sha>|<last_pass_at>|<last_pass_run>`,
+`GROUP:<key>|<n>|<p95_ms>`, `FULL_SUITE:<hostclass>|<run_id>|<p95_ms>|<unmeasured>`
+and `COSTS:<hostclass>|<ids>|<groups>|<pending runs>`; `costs --update`
+prints `LEDGER_SKIPPED:<line>|<reason>`, `LEDGER_RUN_SKIPPED:<run_id>|<reason>`,
+`COSTS_FOLDED:<hostclass>|<runs>`, `WROTE:<path>` and `LEDGER_TRUNCATED:<lines>`;
+errors are `COSTS_ERROR:<what>|<detail>` (exit 3). Readers see a run's
+anchors before any update: the read API folds the pending ledger in
+memory, reading the table and the ledger under one hold of the ledger
+lock. `predictions.yaml` is appended under a lock in the git directory,
+so concurrent scorers never drop each other's run.
 <!-- /section: component_cost_ledger -->
 
 **M4 — Selection, freshness and feedback**

@@ -1,0 +1,78 @@
+package cost
+
+import (
+	"context"
+	"time"
+
+	"github.com/beyondeye/aitasks/goengines/internal/testmap/registry"
+	"github.com/beyondeye/aitasks/goengines/internal/testmap/runner"
+)
+
+// HookName is the ledger's post-run subscriber name.
+const HookName = "cost-ledger"
+
+// Hook is the post-run subscriber (registered by the engine's command, M3.1's
+// RegisterPostRunHook): it judges every result's anchor eligibility and
+// appends the run's rows to the ledger. A `review-` run writes nothing. An
+// eligibility input that cannot be read marks the affected rows
+// `eligibility-error:…` (never an anchor) and does not fail the run; only a
+// ledger that cannot be written is an error.
+func Hook(ctx context.Context, rep *runner.RunReport) error {
+	batch, err := Rows(ctx, rep)
+	if err != nil || batch == nil {
+		return err
+	}
+	return Append(rep.Root, batch)
+}
+
+// Rows renders a run's ledger batch (nil for a run that writes none).
+func Rows(ctx context.Context, rep *runner.RunReport) ([]byte, error) {
+	surface := Surface(rep.RunID)
+	if surface == SurfaceReview || len(rep.Invocations) == 0 {
+		return nil, nil
+	}
+	cfg, err := registry.LoadConfig(rep.Root)
+	if err != nil {
+		return nil, &Error{What: "config", Detail: err.Error()}
+	}
+	hc := cfg.HostClass()
+	if err := ValidHostClass(hc); err != nil {
+		return nil, err
+	}
+	at := now().UTC().Format(time.RFC3339)
+	recs := map[int]runner.Record{}
+	var invs []InvocationRow
+	for _, rec := range rep.Invocations {
+		recs[rec.Invocation] = rec
+		invs = append(invs, InvocationRow{
+			Row: RowInvocation, RunID: rep.RunID, Surface: surface, HostClass: hc, At: at,
+			Invocation: rec.Invocation, Group: rec.Group, Runner: rec.Runner,
+			ElapsedMS: rec.ElapsedMS, OverheadMS: rec.OverheadMS, UnitsReported: rec.UnitsReported,
+			Cause: rec.Cause, Refused: rec.Refused, All: rep.All,
+		})
+	}
+	j := newJudge(ctx, rep)
+	var results []ResultRow
+	for _, res := range rep.Results {
+		rec := recs[res.Invocation]
+		clean, why := j.decide(res, rec)
+		row := ResultRow{
+			Row: RowResult, RunID: rep.RunID, Surface: surface, HostClass: hc, At: at,
+			Invocation: res.Invocation, Group: rec.Group, ID: res.ID.String(),
+			Status: res.Status, DurationMS: res.DurationMS, HeadSHA: rec.HeadStart, Clean: clean,
+		}
+		if res.Child {
+			row.Parent = res.Parent.String()
+		}
+		row.Anchor = clean && res.Status == runner.StatusPass
+		switch {
+		case !clean:
+			row.AnchorReason = why
+		case !row.Anchor:
+			row.AnchorReason = "status:" + res.Status
+		}
+		results = append(results, row)
+	}
+	end := RunEndRow{Row: RowRunEnd, RunID: rep.RunID, HostClass: hc, At: at, Invocations: len(invs), Results: len(results)}
+	return Batch(invs, results, end)
+}

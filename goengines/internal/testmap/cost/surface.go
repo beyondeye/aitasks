@@ -1,0 +1,70 @@
+package cost
+
+import (
+	"fmt"
+	"regexp"
+	"strings"
+
+	"github.com/beyondeye/aitasks/goengines/internal/lineproto"
+)
+
+// Surfaces: the run-id prefix says which surface produced a run. `test-` is
+// an interactive or advisory run, `gate-` a completion run, `full-` a
+// `run --all` full run, `review-` a bulk review run (which writes no ledger
+// rows at all). Any other id (M3.1's generated `run-…` included) is `other`
+// and is recorded like `test-`.
+const (
+	SurfaceTest   = "test"
+	SurfaceGate   = "gate"
+	SurfaceFull   = "full"
+	SurfaceReview = "review"
+	SurfaceOther  = "other"
+)
+
+// Surface is the surface of a run id.
+func Surface(runID string) string {
+	for _, s := range []string{SurfaceTest, SurfaceGate, SurfaceFull, SurfaceReview} {
+		if strings.HasPrefix(runID, s+"-") {
+			return s
+		}
+	}
+	return SurfaceOther
+}
+
+// reservedStores are the costs/ basenames that are not host tables. A host
+// class may never take one of them, compared case-insensitively because a
+// case-insensitive file system would alias `Policy.yaml` onto `policy.yaml`.
+var reservedStores = []string{"policy", "predictions"}
+
+var hostClassRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
+
+// ValidHostClass refuses a host class that cannot name its own table file:
+// an unsafe file name, or a reserved store name.
+func ValidHostClass(hc string) error {
+	if !hostClassRe.MatchString(hc) {
+		return &Error{What: "host-class", Detail: "invalid " + hc}
+	}
+	for _, r := range reservedStores {
+		if strings.EqualFold(hc, r) {
+			return &Error{What: "host-class", Detail: "reserved " + hc}
+		}
+	}
+	return nil
+}
+
+// Error is a cost-ledger framework error, rendered COSTS_ERROR:<what>|<detail>.
+type Error struct {
+	What   string
+	Detail string
+}
+
+func (e *Error) Error() string { return fmt.Sprintf("cost: %s: %s", e.What, e.Detail) }
+
+// Line is the protocol line; free text is made safe for one field.
+func (e *Error) Line() (string, error) {
+	return lineproto.Format("COSTS_ERROR", e.What, oneLine(e.Detail))
+}
+
+func oneLine(s string) string {
+	return strings.NewReplacer("|", "/", "\n", " ", "\r", " ").Replace(s)
+}

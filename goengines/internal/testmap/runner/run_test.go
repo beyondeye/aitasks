@@ -324,6 +324,10 @@ func TestPostRunHookOrder(t *testing.T) {
 	})
 	RegisterPostRunHook("second", func(_ context.Context, rep *RunReport) error {
 		calls = append(calls, "second:"+rep.RunID)
+		// The subscriber sees the loaded repository and the --all flag.
+		if rep.Repo == nil || len(rep.Repo.Units) != 2 || !rep.All {
+			t.Errorf("hook report: repo %v all %v", rep.Repo, rep.All)
+		}
 		return nil
 	})
 	rep := runAll(t, batchRepo(t, "row tests/a.sh pass; row tests/b.sh pass"))

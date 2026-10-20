@@ -1,0 +1,135 @@
+package cost
+
+import (
+	"slices"
+
+	"github.com/beyondeye/aitasks/goengines/internal/testmap/registry"
+	"github.com/beyondeye/aitasks/goengines/internal/testmap/runner"
+)
+
+// EstimateResult is the estimated p95 cost of a set of invocation groups.
+// Accounting is disjoint: only the invocations' own (top-level) units
+// count, never child rows, plus each group's overhead p95.
+type EstimateResult struct {
+	TotalMS    int64            `json:"total_ms"`
+	OverheadMS int64            `json:"overhead_ms"`
+	ByKind     map[string]int64 `json:"by_kind"` // unit p95s per caller-supplied kind
+	// Unknown / UnknownGroups count the ids and groups with no measurement;
+	// each contributed the table's median top-level p95 (0 when none). A consumer
+	// whose safe direction differs (a budget vs a ratio trigger) reads them.
+	Unknown       int `json:"unknown"`
+	UnknownGroups int `json:"unknown_groups"`
+}
+
+// Estimate sums, over invs (formed by runner.Group with the caller's wave
+// input), each group's overhead p95 plus the p95 of each of its units,
+// reported per the kind kindOf gives each unit (nil: one kind, "").
+func Estimate(t *Table, invs []*runner.Invocation, kindOf func(registry.ID) string) EstimateResult {
+	out := EstimateResult{ByKind: map[string]int64{}}
+	idMed, groupMed := t.medians()
+	for _, inv := range invs {
+		if g, ok := t.Group(inv.Key.String()); ok && g.Stat.N > 0 {
+			out.OverheadMS += g.Stat.P95MS
+		} else {
+			out.OverheadMS += groupMed
+			out.UnknownGroups++
+		}
+		for _, u := range inv.Units {
+			kind := ""
+			if kindOf != nil {
+				kind = kindOf(u.ID)
+			}
+			if r, ok := t.ID(u.ID.String()); ok && r.Stat.N > 0 {
+				out.ByKind[kind] += r.Stat.P95MS
+			} else {
+				out.ByKind[kind] += idMed
+				out.Unknown++
+			}
+		}
+	}
+	out.TotalMS = out.OverheadMS
+	for _, v := range out.ByKind {
+		out.TotalMS += v
+	}
+	return out
+}
+
+// medians are the median p95 over the ids timed as top-level units (a
+// child-only id — a suite's inner row — is not a unit's cost) and over the
+// measured groups (0 when none): the fallback for something never measured.
+func (t *Table) medians() (int64, int64) {
+	var ids, groups []int64
+	for _, r := range t.IDs {
+		if r.TopN > 0 {
+			ids = append(ids, r.Stat.P95MS)
+		}
+	}
+	for _, g := range t.Groups {
+		if g.Stat.N > 0 {
+			groups = append(groups, g.Stat.P95MS)
+		}
+	}
+	return median(ids), median(groups)
+}
+
+func median(v []int64) int64 {
+	if len(v) == 0 {
+		return 0
+	}
+	slices.Sort(v)
+	return v[len(v)/2]
+}
+
+// FullSuite is the full-suite p95 on a host class: the estimate applied to
+// the groups and top-level ids of the newest qualifying full run.
+type FullSuite struct {
+	MS    int64  `json:"ms"`
+	RunID string `json:"run_id"`
+	// Unmeasured counts member ids never timed (only ever skipped, say); each
+	// contributed the median fallback.
+	Unmeasured int  `json:"unmeasured"`
+	OK         bool `json:"ok"` // false: no full run has qualified yet
+}
+
+// FullSuiteP95 is the disjoint full-suite p95: Σ group overhead p95 + Σ
+// top-level id p95 over the members of t.FullRun. A suite parent counts its
+// own (inclusive) time; its child rows never add to it.
+func FullSuiteP95(t *Table) FullSuite {
+	if t.FullRun == nil {
+		return FullSuite{}
+	}
+	fs := FullSuite{RunID: t.FullRun.RunID, OK: true}
+	idMed, groupMed := t.medians()
+	for _, g := range t.Groups {
+		if g.FullRun != fs.RunID {
+			continue
+		}
+		if g.Stat.N > 0 {
+			fs.MS += g.Stat.P95MS
+		} else {
+			fs.MS += groupMed
+		}
+	}
+	for _, r := range t.IDs {
+		if r.FullTop != fs.RunID {
+			continue
+		}
+		if r.Stat.N > 0 {
+			fs.MS += r.Stat.P95MS
+		} else {
+			fs.MS += idMed
+			fs.Unmeasured++
+		}
+	}
+	return fs
+}
+
+// MinGateTimeoutS is the floor of the suggested gate timeout.
+const MinGateTimeoutS = 600
+
+// GateTimeoutS is the suggested gate timeout for a full-suite p95:
+// max(600, 3 × p95) in whole seconds, rounded up.
+func GateTimeoutS(p95ms int64) int64 {
+	s := (3*p95ms + 999) / 1000
+	return max(MinGateTimeoutS, s)
+}

@@ -1,0 +1,177 @@
+package main
+
+import (
+	"flag"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"slices"
+	"strconv"
+
+	"github.com/beyondeye/aitasks/goengines/internal/lineproto"
+	"github.com/beyondeye/aitasks/goengines/internal/testmap/cost"
+	"github.com/beyondeye/aitasks/goengines/internal/testmap/registry"
+	"github.com/beyondeye/aitasks/goengines/internal/testmap/runner"
+)
+
+// The production wiring of `run`'s post-run subscribers, in order. Every
+// subscriber registers here, in this one init, so the order is explicit and
+// never depends on file names: M4.4's automatic `score` registers after the
+// ledger, which it reads.
+func init() {
+	runner.RegisterPostRunHook(cost.HookName, cost.Hook)
+}
+
+// costsExits is the exit contract of `costs`: 0 done, 2 no `aitestmap/` or
+// (--gate-timeout) no measured full run yet, 3 a table, the ledger or a host
+// class could not be used, 64 usage.
+var costsExits = lineproto.ExitContract{
+	lineproto.ExitOK, lineproto.ExitNothingRan, lineproto.ExitFramework, lineproto.ExitUsage,
+}
+
+// runCosts is the cost ledger's verb:
+//
+//	costs [--host-class <hc>] [--json] [<id>...]
+//	  COST:<id>|<n>|<mean_ms>|<p95_ms>|<last_ms>|<flake_rate>|<pairs>|<last_pass_sha>|<last_pass_at>|<last_pass_run>
+//	  GROUP:<key>|<n>|<p95_ms>                       (without ids: every group)
+//	  FULL_SUITE:<hc>|<run_id>|<p95_ms>|<unmeasured>  (once a full run qualified)
+//	  COSTS:<hc>|<ids>|<groups>|<pending runs>
+//	costs --update [--json]
+//	  LEDGER_SKIPPED:<line>|<reason> · LEDGER_RUN_SKIPPED:<run_id>|<reason>
+//	  COSTS_FOLDED:<hc>|<runs> · WROTE:<path> · LEDGER_TRUNCATED:<lines>
+//	costs --gate-timeout <gate> [--host-class <hc>]
+//	  GATE_TIMEOUT_SUGGESTED:<gate>|<seconds>   = max(600, 3 × full-suite p95)
+//
+// The host class defaults to config.yaml's host_class (the hostname). With no
+// qualifying full run, --gate-timeout prints COSTS_NO_FULL_RUN:<hc> on stderr
+// and exits 2; member ids never timed add COSTS_UNMEASURED:<hc>|<n> on stderr.
+func runCosts(e env, args []string) int {
+	const usage = "ait-testmap costs [--host-class <hc>] [--json] [<id>...] | costs --update [--json] | costs --gate-timeout <gate> [--host-class <hc>]"
+	fs := flag.NewFlagSet("costs", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	hostClass := fs.String("host-class", "", "the host class (default: config.yaml's host_class)")
+	update := fs.Bool("update", false, "fold the ledger into the host tables and truncate it")
+	gate := fs.String("gate-timeout", "", "suggest a timeout for this gate from the full-suite p95")
+	asJSON := fs.Bool("json", false, "print one JSON object")
+	if err := fs.Parse(args); err != nil {
+		return lineproto.Usage(e.stderr, usage)
+	}
+	switch {
+	case *update && (*hostClass != "" || *gate != "" || fs.NArg() > 0),
+		*gate != "" && (*asJSON || fs.NArg() > 0):
+		return lineproto.Usage(e.stderr, usage)
+	}
+	root, err := cwd()
+	if err != nil {
+		return reportError(e, err)
+	}
+	if fi, err := os.Stat(filepath.Join(root, registry.Dir)); err != nil || !fi.IsDir() {
+		return reportError(e, registry.ErrAbsent)
+	}
+	if *update {
+		return costsUpdate(e, root, *asJSON)
+	}
+	hc := *hostClass
+	if hc == "" {
+		cfg, err := registry.LoadConfig(root)
+		if err != nil {
+			return reportError(e, err)
+		}
+		hc = cfg.HostClass()
+	}
+	t, err := cost.Load(root, hc)
+	if err != nil {
+		return reportError(e, err)
+	}
+	full := cost.FullSuiteP95(t)
+	if *gate != "" {
+		if !full.OK {
+			fmt.Fprintln(e.stderr, "COSTS_NO_FULL_RUN:"+hc)
+			return lineproto.ExitNothingRan
+		}
+		if full.Unmeasured > 0 {
+			fmt.Fprintf(e.stderr, "COSTS_UNMEASURED:%s|%d\n", hc, full.Unmeasured)
+		}
+		return printLines(e, [][]string{{"GATE_TIMEOUT_SUGGESTED", *gate, strconv.FormatInt(cost.GateTimeoutS(full.MS), 10)}})
+	}
+	ids := t.IDs
+	if fs.NArg() > 0 {
+		ids = nil
+		for _, id := range fs.Args() {
+			if r, ok := t.ID(id); ok {
+				ids = append(ids, r)
+			}
+		}
+	}
+	if *asJSON {
+		if err := lineproto.NewWriter(e.stdout, true).Emit(struct {
+			HostClass string          `json:"host_class"`
+			IDs       []cost.IDRow    `json:"ids"`
+			Groups    []cost.GroupRow `json:"groups"`
+			FullSuite cost.FullSuite  `json:"full_suite"`
+			Pending   int             `json:"pending_runs"`
+		}{hc, ids, t.Groups, full, t.Pending}); err != nil {
+			return reportError(e, err)
+		}
+		return lineproto.ExitOK
+	}
+	var lines [][]string
+	for _, r := range ids {
+		rate, pairs := t.FlakeRate(r.ID)
+		lp := cost.LastPass{}
+		if r.LastPass != nil {
+			lp = *r.LastPass
+		}
+		lines = append(lines, []string{"COST", r.ID, strconv.FormatInt(r.Stat.N, 10),
+			strconv.FormatFloat(r.Stat.Mean, 'f', 1, 64), strconv.FormatInt(r.Stat.P95MS, 10),
+			strconv.FormatInt(r.Stat.LastMS, 10), strconv.FormatFloat(rate, 'f', 3, 64),
+			strconv.FormatInt(pairs, 10), lp.SHA, lp.At, lp.RunID})
+	}
+	if fs.NArg() == 0 {
+		for _, g := range t.Groups {
+			lines = append(lines, []string{"GROUP", g.Group, strconv.FormatInt(g.Stat.N, 10), strconv.FormatInt(g.Stat.P95MS, 10)})
+		}
+	}
+	if full.OK {
+		lines = append(lines, []string{"FULL_SUITE", hc, full.RunID, strconv.FormatInt(full.MS, 10), strconv.Itoa(full.Unmeasured)})
+	}
+	lines = append(lines, []string{"COSTS", hc, strconv.Itoa(len(t.IDs)), strconv.Itoa(len(t.Groups)), strconv.Itoa(t.Pending)})
+	return printLines(e, lines)
+}
+
+func costsUpdate(e env, root string, asJSON bool) int {
+	res, err := cost.Update(root)
+	if err != nil {
+		return reportError(e, err)
+	}
+	if asJSON {
+		if err := lineproto.NewWriter(e.stdout, true).Emit(res); err != nil {
+			return reportError(e, err)
+		}
+		return lineproto.ExitOK
+	}
+	var lines [][]string
+	for _, s := range res.Skipped {
+		if s.Run != "" {
+			lines = append(lines, []string{"LEDGER_RUN_SKIPPED", s.Run, s.Reason})
+		} else {
+			lines = append(lines, []string{"LEDGER_SKIPPED", strconv.Itoa(s.Line), s.Reason})
+		}
+	}
+	var hcs []string
+	for hc := range res.Folded {
+		hcs = append(hcs, hc)
+	}
+	slices.Sort(hcs)
+	for _, hc := range hcs {
+		lines = append(lines, []string{"COSTS_FOLDED", hc, strconv.Itoa(res.Folded[hc])})
+	}
+	for _, w := range res.Wrote {
+		lines = append(lines, []string{"WROTE", w})
+	}
+	if res.Truncated > 0 {
+		lines = append(lines, []string{"LEDGER_TRUNCATED", strconv.Itoa(res.Truncated)})
+	}
+	return printLines(e, lines)
+}

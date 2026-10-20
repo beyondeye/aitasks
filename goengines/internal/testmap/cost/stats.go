@@ -1,0 +1,138 @@
+// Package cost is the test map's cost ledger (M3.4): per-(id, host class)
+// timing statistics, run-time anchor eligibility, the ledger the `run` verb's
+// post-run hook appends to and `costs --update` folds into
+// aitestmap/costs/<hostclass>.yaml, the per-group estimate and the disjoint
+// full-suite p95, and the predictions.yaml / policy.yaml stores.
+package cost
+
+import (
+	"math"
+	"slices"
+)
+
+// Welford is a running mean and variance (Welford's online algorithm).
+type Welford struct {
+	N    int64   `yaml:"n"`
+	Mean float64 `yaml:"mean_ms"`
+	M2   float64 `yaml:"m2"`
+}
+
+// Add folds one observation.
+func (w *Welford) Add(x float64) {
+	w.N++
+	d := x - w.Mean
+	w.Mean += d / float64(w.N)
+	w.M2 += d * (x - w.Mean)
+}
+
+// Var is the sample variance (0 below two observations).
+func (w Welford) Var() float64 {
+	if w.N < 2 {
+		return 0
+	}
+	return w.M2 / float64(w.N-1)
+}
+
+// quantile is the p of the P² estimator: the 95th percentile.
+const quantile = 0.95
+
+// p2Init and p2Step are the P² desired marker positions after the fifth
+// observation and their per-observation increments.
+var (
+	p2Init = [5]float64{1, 1 + 2*quantile, 1 + 4*quantile, 3 + 2*quantile, 5}
+	p2Step = [5]float64{0, quantile / 2, quantile, (1 + quantile) / 2, 1}
+)
+
+// P2 is the P² streaming quantile estimator (Jain & Chlamtac, 1985) for the
+// 95th percentile. Below five observations Q holds the samples, sorted, and
+// the value is exact; from five on, Q holds the five marker heights and Pos
+// their (1-based) positions. The desired positions are always computed from
+// Count, never accumulated, so a persisted state resumes exactly.
+type P2 struct {
+	Count int64     `yaml:"count"`
+	Q     []float64 `yaml:"q,flow"`
+	Pos   []int64   `yaml:"pos,flow,omitempty"`
+}
+
+// Add folds one observation.
+func (p *P2) Add(x float64) {
+	p.Count++
+	if p.Count <= 5 {
+		i, _ := slices.BinarySearch(p.Q, x)
+		p.Q = slices.Insert(p.Q, i, x)
+		if p.Count == 5 {
+			p.Pos = []int64{1, 2, 3, 4, 5}
+		}
+		return
+	}
+	q, n := p.Q, p.Pos
+	var k int
+	switch {
+	case x < q[0]:
+		q[0], k = x, 0
+	case x < q[1]:
+		k = 0
+	case x < q[2]:
+		k = 1
+	case x < q[3]:
+		k = 2
+	case x <= q[4]:
+		k = 3
+	default:
+		q[4], k = x, 3
+	}
+	for i := k + 1; i < 5; i++ {
+		n[i]++
+	}
+	for i := 1; i <= 3; i++ {
+		desired := p2Init[i] + float64(p.Count-5)*p2Step[i]
+		d := desired - float64(n[i])
+		if (d >= 1 && n[i+1]-n[i] > 1) || (d <= -1 && n[i-1]-n[i] < -1) {
+			s := int64(1)
+			if d < 0 {
+				s = -1
+			}
+			qp := parabolic(q, n, i, float64(s))
+			if q[i-1] < qp && qp < q[i+1] {
+				q[i] = qp
+			} else {
+				q[i] += float64(s) * (q[int64(i)+s] - q[i]) / float64(n[int64(i)+s]-n[i])
+			}
+			n[i] += s
+		}
+	}
+}
+
+func parabolic(q []float64, n []int64, i int, d float64) float64 {
+	ni, nl, nr := float64(n[i]), float64(n[i-1]), float64(n[i+1])
+	return q[i] + d/(nr-nl)*((ni-nl+d)*(q[i+1]-q[i])/(nr-ni)+(nr-ni-d)*(q[i]-q[i-1])/(ni-nl))
+}
+
+// Value is the current estimate: the nearest-rank quantile of the samples
+// below five observations, the middle marker after; 0 with none.
+func (p P2) Value() float64 {
+	switch {
+	case p.Count == 0:
+		return 0
+	case p.Count < 5:
+		r := int(math.Ceil(quantile*float64(p.Count))) - 1
+		return p.Q[r]
+	}
+	return p.Q[2]
+}
+
+// Stat is one id's (or one group's overhead's) timing statistics.
+type Stat struct {
+	Welford `yaml:",inline"`
+	P2      P2    `yaml:"p2"`
+	P95MS   int64 `yaml:"p95_ms"`
+	LastMS  int64 `yaml:"last_ms"`
+}
+
+// Add folds one duration.
+func (s *Stat) Add(ms int64) {
+	s.Welford.Add(float64(ms))
+	s.P2.Add(float64(ms))
+	s.P95MS = int64(math.Round(s.P2.Value()))
+	s.LastMS = ms
+}

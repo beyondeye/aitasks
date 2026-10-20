@@ -14,8 +14,9 @@ import (
 // working tree or the index: staged and unstaged modifications, additions,
 // deletions (staged or not), both sides of a rename or copy, unmerged paths,
 // and untracked files that no ignore rule excludes — `git status
-// --porcelain=v1 -z --untracked-files=all`. Paths are relative to Dir,
-// deduplicated and sorted. On an unborn HEAD every staged or untracked path
+// --porcelain=v1 -z --untracked-files=all`. Paths are relative to the
+// working tree's top level (porcelain output always is) — Dir only when
+// Prefix is "" — deduplicated and sorted. On an unborn HEAD every staged or untracked path
 // is reported.
 //
 // It runs with `--no-optional-locks`, so it never takes `index.lock` or

@@ -48,7 +48,7 @@ var verbs = []verb{
 	stub("axes"),
 	{Name: "areas", Run: runAreas, Exits: areasExits},
 	{Name: "classify", Run: runClassify, Exits: classifyExits},
-	stub("costs"),
+	{Name: "costs", Run: runCosts, Exits: costsExits},
 	stub("score"),
 	stub("attribute"),
 	stub("readiness"),

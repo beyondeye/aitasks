@@ -1,0 +1,375 @@
+package cost
+
+import (
+	"bytes"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"time"
+
+	"github.com/beyondeye/aitasks/goengines/internal/platform"
+	"github.com/beyondeye/aitasks/goengines/internal/testmap/registry"
+	"github.com/beyondeye/aitasks/goengines/internal/testmap/runner"
+)
+
+// The ledger: one JSON object per line in the gitignored state directory.
+// Every run appends its rows in one write under LockPath — all invocation
+// rows, then all result rows, then one run_end row carrying the counts — and
+// `costs --update` folds complete runs into the committed tables and
+// truncates, under the same lock.
+const (
+	LedgerPath = runner.StateDir + "/ledger.jsonl"
+	LockPath   = runner.StateDir + "/ledger.lock"
+)
+
+// Row kinds.
+const (
+	RowInvocation = "invocation"
+	RowResult     = "result"
+	RowRunEnd     = "run_end"
+)
+
+// InvocationRow is one invocation of a run.
+type InvocationRow struct {
+	Row           string `json:"row"`
+	RunID         string `json:"run_id"`
+	Surface       string `json:"surface"`
+	HostClass     string `json:"host_class"`
+	At            string `json:"at"`
+	Invocation    int    `json:"invocation"`
+	Group         string `json:"group"`
+	Runner        string `json:"runner"`
+	ElapsedMS     int64  `json:"elapsed_ms"`
+	OverheadMS    int64  `json:"overhead_ms"`
+	UnitsReported int    `json:"units_reported"`
+	Cause         string `json:"cause"`
+	Refused       bool   `json:"refused"`
+	All           bool   `json:"all"`
+}
+
+// ResultRow is one result of a run, with its anchor decision.
+type ResultRow struct {
+	Row          string `json:"row"`
+	RunID        string `json:"run_id"`
+	Surface      string `json:"surface"`
+	HostClass    string `json:"host_class"`
+	At           string `json:"at"`
+	Invocation   int    `json:"invocation"`
+	Group        string `json:"group"`
+	ID           string `json:"id"`
+	Parent       string `json:"parent,omitempty"`
+	Status       string `json:"status"`
+	DurationMS   int64  `json:"duration_ms"`
+	HeadSHA      string `json:"head_sha"`
+	Clean        bool   `json:"clean"`
+	Anchor       bool   `json:"anchor"`
+	AnchorReason string `json:"anchor_reason,omitempty"`
+}
+
+// RunEndRow closes a run's batch: the fold accepts the run only when exactly
+// this many invocation and result rows precede it.
+type RunEndRow struct {
+	Row         string `json:"row"`
+	RunID       string `json:"run_id"`
+	HostClass   string `json:"host_class"`
+	At          string `json:"at"`
+	Invocations int    `json:"invocations"`
+	Results     int    `json:"results"`
+}
+
+// Run is one complete run read back from the ledger.
+type Run struct {
+	RunID       string
+	HostClass   string
+	At          string
+	Invocations []InvocationRow
+	Results     []ResultRow
+}
+
+// Skipped is a ledger line, or a whole run, the fold did not accept.
+type Skipped struct {
+	Line   int    `json:"line,omitempty"`
+	Run    string `json:"run,omitempty"`
+	Reason string `json:"reason"`
+}
+
+// Skip reasons for a run.
+const (
+	SkipIncomplete    = "incomplete"
+	SkipCountMismatch = "count-mismatch"
+	SkipMalformed     = "malformed"
+)
+
+// now is the clock rows are stamped with (tests replace it).
+var now = time.Now
+
+// appendLocks is false only in the test that proves the lock is what keeps
+// a concurrent append from being truncated away.
+var appendLocks = true
+
+// Batch renders one run's rows: invocations, results, then run_end.
+func Batch(invs []InvocationRow, results []ResultRow, end RunEndRow) ([]byte, error) {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	for _, r := range invs {
+		if err := enc.Encode(r); err != nil {
+			return nil, err
+		}
+	}
+	for _, r := range results {
+		if err := enc.Encode(r); err != nil {
+			return nil, err
+		}
+	}
+	if err := enc.Encode(end); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+// Append adds one run's batch to the ledger under the lock. The file is
+// opened only once the lock is held (O_APPEND), so a truncation in between
+// leaves no stale offset; a torn last line from an interrupted append is
+// terminated first so the batch starts on a line of its own.
+func Append(root string, batch []byte) error {
+	if err := os.MkdirAll(filepath.Join(root, runner.StateDir), 0o755); err != nil {
+		return &Error{What: "ledger", Detail: err.Error()}
+	}
+	if appendLocks {
+		unlock, err := platform.Lock(filepath.Join(root, LockPath))
+		if err != nil {
+			return &Error{What: "ledger", Detail: "lock: " + err.Error()}
+		}
+		defer unlock()
+	}
+	f, err := os.OpenFile(filepath.Join(root, LedgerPath), os.O_RDWR|os.O_APPEND|os.O_CREATE, 0o644)
+	if err != nil {
+		return &Error{What: "ledger", Detail: err.Error()}
+	}
+	defer f.Close()
+	fi, err := f.Stat()
+	if err != nil {
+		return &Error{What: "ledger", Detail: err.Error()}
+	}
+	if fi.Size() > 0 {
+		last := make([]byte, 1)
+		if _, err := f.ReadAt(last, fi.Size()-1); err != nil {
+			return &Error{What: "ledger", Detail: err.Error()}
+		}
+		if last[0] != '\n' {
+			batch = append([]byte{'\n'}, batch...)
+		}
+	}
+	if _, err := f.Write(batch); err != nil {
+		return &Error{What: "ledger", Detail: err.Error()}
+	}
+	return f.Close()
+}
+
+// readLedger returns the ledger's bytes ("" when absent). The caller holds
+// the lock.
+func readLedger(root string) ([]byte, error) {
+	data, err := os.ReadFile(filepath.Join(root, LedgerPath))
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, &Error{What: "ledger", Detail: err.Error()}
+	}
+	return data, nil
+}
+
+// parsed is a ledger region split into complete runs and skips.
+type parsed struct {
+	Runs    []Run
+	Skipped []Skipped
+}
+
+// parseLedger reads data from byte offset start (line numbers count from the
+// start of data) and frames the rows into runs. A run is accepted only when
+// its run_end row is present and exactly its counted invocation and result
+// rows precede it, every one well-formed and of the same host class; a line
+// that does not parse is skipped by number, and the run it belonged to then
+// fails its count. Rows left without a run_end at the end are incomplete.
+func parseLedger(data []byte, start int) parsed {
+	var out parsed
+	type pending struct {
+		run Run
+		bad bool
+	}
+	open := map[string]*pending{}
+	var order []string
+	lineNo := bytes.Count(data[:start], []byte{'\n'})
+	rest := data[start:]
+	for len(rest) > 0 {
+		lineNo++
+		line := rest
+		i := bytes.IndexByte(rest, '\n')
+		terminated := i >= 0
+		if terminated {
+			line, rest = rest[:i], rest[i+1:]
+		} else {
+			rest = nil
+		}
+		if len(bytes.TrimSpace(line)) == 0 {
+			continue
+		}
+		if !terminated {
+			out.Skipped = append(out.Skipped, Skipped{Line: lineNo, Reason: "unterminated"})
+			continue
+		}
+		kind, runID, err := rowHead(line)
+		if err != nil {
+			out.Skipped = append(out.Skipped, Skipped{Line: lineNo, Reason: oneLine(err.Error())})
+			continue
+		}
+		p := open[runID]
+		if p == nil {
+			p = &pending{run: Run{RunID: runID}}
+			open[runID] = p
+			order = append(order, runID)
+		}
+		switch kind {
+		case RowInvocation:
+			var r InvocationRow
+			if err := decodeRow(line, &r); err != nil || r.validate() != nil {
+				p.bad = true
+				out.Skipped = append(out.Skipped, Skipped{Line: lineNo, Reason: rowReason(err, r.validate)})
+				continue
+			}
+			p.run.Invocations = append(p.run.Invocations, r)
+		case RowResult:
+			var r ResultRow
+			if err := decodeRow(line, &r); err != nil || r.validate() != nil {
+				p.bad = true
+				out.Skipped = append(out.Skipped, Skipped{Line: lineNo, Reason: rowReason(err, r.validate)})
+				continue
+			}
+			p.run.Results = append(p.run.Results, r)
+		case RowRunEnd:
+			var e RunEndRow
+			delete(open, runID)
+			if err := decodeRow(line, &e); err != nil || e.validate() != nil {
+				out.Skipped = append(out.Skipped, Skipped{Line: lineNo, Reason: rowReason(err, e.validate)})
+				out.Skipped = append(out.Skipped, Skipped{Run: runID, Reason: SkipMalformed})
+				continue
+			}
+			p.run.HostClass, p.run.At = e.HostClass, e.At
+			switch {
+			case p.bad || !sameHost(p.run, e.HostClass):
+				out.Skipped = append(out.Skipped, Skipped{Run: runID, Reason: SkipMalformed})
+			case len(p.run.Invocations) != e.Invocations || len(p.run.Results) != e.Results:
+				out.Skipped = append(out.Skipped, Skipped{Run: runID, Reason: SkipCountMismatch})
+			default:
+				out.Runs = append(out.Runs, p.run)
+			}
+		}
+	}
+	for _, id := range order {
+		if open[id] != nil {
+			out.Skipped = append(out.Skipped, Skipped{Run: id, Reason: SkipIncomplete})
+		}
+	}
+	return out
+}
+
+func sameHost(r Run, hc string) bool {
+	for _, i := range r.Invocations {
+		if i.HostClass != hc || i.RunID != r.RunID {
+			return false
+		}
+	}
+	for _, x := range r.Results {
+		if x.HostClass != hc || x.RunID != r.RunID {
+			return false
+		}
+	}
+	return true
+}
+
+func rowReason(err error, validate func() error) string {
+	if err == nil {
+		err = validate()
+	}
+	return oneLine(err.Error())
+}
+
+func rowHead(line []byte) (kind, runID string, err error) {
+	var h struct {
+		Row   string `json:"row"`
+		RunID string `json:"run_id"`
+	}
+	if err := json.Unmarshal(line, &h); err != nil {
+		return "", "", fmt.Errorf("malformed: %v", err)
+	}
+	switch h.Row {
+	case RowInvocation, RowResult, RowRunEnd:
+	default:
+		return "", "", fmt.Errorf("unknown row %q", h.Row)
+	}
+	if h.RunID == "" {
+		return "", "", errors.New("missing run_id")
+	}
+	return h.Row, h.RunID, nil
+}
+
+func decodeRow(line []byte, v any) error {
+	if err := json.Unmarshal(line, v); err != nil {
+		return fmt.Errorf("malformed: %v", err)
+	}
+	return nil
+}
+
+func validAt(at string) error {
+	if _, err := time.Parse(time.RFC3339, at); err != nil {
+		return fmt.Errorf("at %q: %v", at, err)
+	}
+	return nil
+}
+
+func (r InvocationRow) validate() error {
+	switch {
+	case ValidHostClass(r.HostClass) != nil:
+		return fmt.Errorf("host_class %q", r.HostClass)
+	case validAt(r.At) != nil:
+		return validAt(r.At)
+	case r.Invocation < 1 || r.Group == "":
+		return errors.New("invocation row without invocation/group")
+	case r.ElapsedMS < 0 || r.OverheadMS < 0:
+		return errors.New("negative duration")
+	}
+	return nil
+}
+
+func (r ResultRow) validate() error {
+	switch {
+	case ValidHostClass(r.HostClass) != nil:
+		return fmt.Errorf("host_class %q", r.HostClass)
+	case validAt(r.At) != nil:
+		return validAt(r.At)
+	case r.Invocation < 1 || r.Status == "":
+		return errors.New("result row without invocation/status")
+	case r.DurationMS < 0:
+		return errors.New("negative duration")
+	}
+	if _, err := registry.ParseID(r.ID); err != nil {
+		return fmt.Errorf("id %q: %v", r.ID, err)
+	}
+	return nil
+}
+
+func (r RunEndRow) validate() error {
+	switch {
+	case ValidHostClass(r.HostClass) != nil:
+		return fmt.Errorf("host_class %q", r.HostClass)
+	case validAt(r.At) != nil:
+		return validAt(r.At)
+	case r.Invocations < 0 || r.Results < 0:
+		return errors.New("negative counts")
+	}
+	return nil
+}
