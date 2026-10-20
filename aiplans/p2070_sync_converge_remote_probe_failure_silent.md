@@ -180,3 +180,56 @@ P5 and by the in-process Test 65 assertion, both part of this plan.)
 
 ### Goal-achievement risk: low
 None identified.
+
+## Post-review changes
+
+### Change request 1 (2026-10-20)
+- **Requested by user:** the new `sync.md` step-2 sentence promised
+  `ERROR:remote_probe_failed` + git's diagnostic whenever the repo config is
+  unreadable, which is false from a linked checkout (reviewer reproduced
+  `ERROR:data_gitdir_unresolved` there). Qualify the doc; keep the earlier guard;
+  no runtime change.
+- **Verified:** reproduced primary + linked checkout sharing a broken config,
+  plus a legacy-mode repo. Primary → `ERROR:remote_probe_failed` (git line on
+  stderr). Linked → `ERROR:data_gitdir_unresolved` (`_ait_data_gitdir`'s
+  `git rev-parse --absolute-git-dir` fallback fails first; stderr carries no git
+  line). Legacy → also `ERROR:data_gitdir_unresolved` (`_data_wedge_gitdir` runs
+  `git rev-parse --git-dir`). `aitask_pick_own.sh --sync` and
+  `./ait git push --batch` report `SYNC_FAILED:unknown` / `FAILED:unknown:unknown`
+  with git's line from BOTH checkouts, so those two doc sentences stand.
+- **Changes made:** `sync.md` step 2 now scopes the token to "when this check
+  runs", names the only layout that reaches it with an unreadable config
+  (primary checkout, `aitask-data` branch mode), and documents the earlier
+  `ERROR:data_gitdir_unresolved` stop for linked checkouts and legacy layouts,
+  telling the user to run any git command (e.g. `git status`) to see git's
+  message, since that refusal's stderr does not carry it.
+- **Files affected:** `website/content/docs/commands/sync.md`
+
+## Final Implementation Notes
+- **Actual work done:** as planned. `_task_remote_probe` (lib/task_utils.sh)
+  replaces `_task_push_has_remote`; `task_push` (refactored, labels unchanged),
+  `task_sync` and `task_data_converge` report `failed` / `unknown` with
+  " (git: <first line>)" on a failed probe. `_task_converge_warn` gained an
+  optional `$2` detail slot. `aitask_sync.sh::check_remote` re-asks with
+  `git remote` only when `get-url origin` fails; a failed list →
+  `ERROR:remote_probe_failed`, exit 1, `warn` with git's line. Docs: `sync.md`
+  (step 2 + the push/pull "stays quiet" paragraphs), `failopen_git_probes.md`
+  (dropped the deleted helper from the left-alone row; added the two fixed sites
+  to the fix-shape table, "Four sites" → "These sites"). Tests: Test 65 in
+  `tests/test_task_push.sh`, section R in `tests/test_sync_failopen_probes.sh`.
+- **Deviations from plan:** `failopen_git_probes.md` also gained the two
+  fix-shape rows (plan only said drop the row entry). Doc wording for step 2
+  qualified after review (see Post-review changes).
+- **Issues encountered:** none in code. Mutants (applied to an isolated scratch
+  copy of the tree, never the shared worktree): ignoring the probe failure in
+  task_sync/converge → 11 Test 65 assertions red (old `no-remote` / `SYNCED`);
+  `if false` in check_remote → 3 R-1 assertions red (`NO_REMOTE`, exit 0).
+- **Key decisions:** reuse reason `unknown` (no new classifier code) so
+  `SYNC_FAILED:unknown` / `FAILED:unknown:…` stay in the existing vocabulary;
+  `ERROR:remote_probe_failed` + exit 1 mirrors `ERROR:data_gitdir_unresolved`.
+  `_task_sync_warn`'s "counts unavailable" branch always warns, so a broken
+  config is never silent even with the zero-pending quiet policy.
+- **Upstream defects identified:** None
+- **Verification:** test_task_push 461/461, test_sync_failopen_probes 58/58,
+  test_ait_git_gateway_pull 209/209 (P5), test_metadata_partial_sync_recovery
+  38/38, `check_links.py --build` PASSED; shellcheck: pre-existing findings only.
