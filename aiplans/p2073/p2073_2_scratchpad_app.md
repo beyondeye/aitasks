@@ -801,3 +801,106 @@ Standard child archival via task-workflow Step 9.
 
 ### Planned mitigations
 - timing: post-phase | name: orphan_save_handoff | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement — orphaned in-flight save truncating notes or releasing ownership early | desc: Live cases (e)/(f): SIGKILL or kill-pane the app while its save is parked by the helper's pause fifo; the inherited flock stays busy, the released save lands byte-identical, and a fresh instance becomes owner
+
+## Implementation progress (2026-10-20)
+
+- [x] Step 1/2 — `.aitask-scripts/scratchpad/{__init__,scratchpad_app}.py`: single save-driver
+  task, `Popen` + poll-loop store seam, process-group termination with bounded drain,
+  `STUCK` pending state, unknown-disk baseline, `_sp_` prefix rule, tracked startup task.
+- [x] Step 3 — `aitask_scratchpad.sh`, `./ait` (help, skip list, case), `tui_registry`,
+  `shortcut_scopes`, `test_no_lib_to_tui_import.sh`, `test_shortcuts_registry_coverage.sh`.
+- [x] Step 4 — `tests/test_scratchpad_app.py` (39 tests incl. negative controls 9, 14e, 14h).
+- [x] Live test `tests/test_scratchpad_autosave_live.sh` (a–d + post-phase e/f): 20/20.
+- [x] Post-phase `orphan_save_handoff` — live cases (e) SIGKILL and (f) kill-pane.
+- Verification: full python suite — the only failure was this module's 14h
+  certain-failure control, timing out under the parallel lane (fixed: see below);
+  9451 others passed. Module re-run: 39/39 serially, at `-n 4` and `-n 6`. Guard
+  tests (clipboard seam, lib→TUI import, shortcuts registry, raw tmux,
+  test_shortcut_scopes.py) pass; shellcheck -x clean (SC1091/SC2329 infos only).
+
+### Deviations
+
+- The quit-path failure/STUCK reports are passed as `App.exit(message=…)` rather than
+  `notify`: a toast is never seen by an app that exits in the same tick, while the exit
+  message is printed to the terminal after the TUI closes. Tests capture it by wrapping
+  `app.exit`.
+- `_sp_spawn_store` catches `Exception` (not only `OSError`/`ValueError`), so
+  `subprocess.SubprocessError` is covered by the same total contract.
+- Save stdout+stderr are read only from the helper's LAST output line for the protocol
+  token, so a stderr warning line cannot make a `SAVED:` unparsable.
+- `UnresolvedWriteTests` uses `STORE_CMD_TIMEOUT = 2.0` (plan: 1.0): at 1.0 an ordinary
+  real-helper save on a loaded box can itself time out. The certain-failure control
+  restores the 30 s default, since its fake sleeps 1 s before answering `LOCK_BUSY`.
+- Live test: the private server runs with `-f /dev/null` and targets `=c<N>:` (session
+  name + colon). A user's tmux config (base-index) broke `c<N>:0.0`, and a bare `=c<N>`
+  is not a valid pane target.
+- **(review)** The inherited `App.action_quit`, which the command palette's "Quit" system
+  command calls, exited without flushing. `ScratchpadApp.action_quit` now routes through
+  `action_flush_quit`. Regression: `test_12_palette_quit_flushes_like_ctrl_q`, with a
+  negative control that restores the stock quit and loses the dirty notes.
+
+## Final Implementation Notes
+- **Actual work done:**
+  - The `ait scratchpad` Textual app (`.aitask-scripts/scratchpad/scratchpad_app.py`),
+    built as planned:
+    - flock-before-read ownership, with a read-only path when the lock is busy;
+    - a single save-driver task (no Textual timers) running the one scheduling formula
+      for debounce, max dirty age and the fixed retry delay;
+    - `Popen` with temp-file stdin/stdout, `start_new_session` and `pass_fds`;
+    - process-group termination and a bounded async drain on timeout, with a `STUCK`
+      pending state;
+    - an unknown-disk baseline after any uncertain outcome;
+    - one `_sp_write_unresolved` guard on every save entry point;
+    - a tracked startup task, a loop-registered SIGHUP detached flush, and `_sp_`
+      prefixed private state.
+  - Launcher `aitask_scratchpad.sh`; `./ait` help line, update-check skip list and case
+    entry; `tui_registry` and `shortcut_scopes` entries; the two test-list edits.
+  - Tests: `tests/test_scratchpad_app.py` (41) and `tests/test_scratchpad_autosave_live.sh`
+    (20, including post-phase `orphan_save_handoff` cases e/f).
+- **Deviations from plan:** listed under "Deviations" above:
+  - exit message instead of a toast on the quit-path reports;
+  - `_sp_spawn_store` catches `Exception`;
+  - the protocol token is read from the last output line;
+  - a 2.0 s test timeout for the unresolved-write tests;
+  - the live test uses `-f /dev/null` and targets `=c<N>:`;
+  - the review fix: `action_quit` routes through the flush.
+- **Issues encountered:**
+  - Plan review rounds 1–6 found framework and process hazards. Each was probed against
+    the installed Textual 8.2.7 / CPython and folded in (refinements 8–20).
+  - During implementation:
+    - a test fixture's `ends[0]` caught the `open` call instead of the save;
+    - Textual prints and clears `_exit_renderables`, so tests wrap `app.exit`;
+    - the user's tmux config and a target-syntax error broke the first live runs;
+    - one case timed out under the parallel lane.
+  - Final review found the palette Quit bypass (fixed, with a regression test and a
+    negative control).
+- **Key decisions:**
+  - Saves never run inside the message pump.
+  - No path kills an in-flight save except a timeout, and that one kills the whole group.
+  - Only a spawn error or `LOCK_BUSY` counts as a certain no-write.
+  - Quit attempts exactly one final save, reports a failure, then exits.
+- **Upstream defects identified:** None
+- **Notes for sibling tasks:**
+  - **t2073_4 (minimonitor key):** spawn `ait scratchpad --task <id> --target <pane>`
+    (`--unsaved` for non-aitask agents).
+    - The app shows `t<id> · saved` once it owns the store; the live test's `is_saved`
+      grep (`t42 .{1,3} saved( |$)`) is a reusable readiness probe.
+    - `kill-pane` (SIGHUP) triggers a detached best-effort flush; hard kills fall under
+      the content-based loss contract.
+    - Duplicate prevention at spawn time is t2073_4's job. The app's own read-only mode
+      is only the backstop.
+  - **t2073_3 (bound-helper pane rule):** the app spawns no tmux and stamps no pane
+    options. Stamping `@aitask_scratchpad_target` / `@aitask_scratchpad_store` is the
+    spawner's job.
+  - **t2073_5 (docs):**
+    - keys are ctrl+s save, ctrl+q save-and-quit, ctrl+c copy (whole buffer when nothing
+      is selected), ctrl+x cut, ctrl+z undo;
+    - header states are the `ST_*` constants in the module;
+    - quote the loss contract verbatim from the module docstring.
+  - **Testing gotchas:**
+    - a private tmux server needs `-f /dev/null`, and a session target needs the trailing
+      colon (`=name:`);
+    - `App.run_test` loops are the test's own, so `loop.add_signal_handler` works and
+      `os.kill(getpid(), SIGHUP)` is safe once the handler is installed;
+    - the command palette's Quit calls `App.action_quit`. Any TUI that must flush on exit
+      has to override it.
