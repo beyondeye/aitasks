@@ -372,3 +372,43 @@ None identified. Every site the task lists is covered. The applink choice
 (refuse rather than route to the drop) is the one the task left open; the
 reason is in step 4. The mobile companion does not issue `kill_pane` today, so
 the new `err` reasons break no client.
+
+## Final Implementation Notes
+
+- **Actual work done:**
+  - **Shared guard.** `_kill_target_state` (`monitor_shared.py`) now reads three sources: the snapshot, then the monitor's discovery cache (`get_pane(...).frozen_record`, the record `kill_agent_pane_smart` drops), then the live `@aitask_frozen` option.
+  - **Minimonitor `k`.** `_on_own_kill_confirmed` re-checks at kill time.
+  - **Full monitor `k`.** `action_kill_pane` binds the pane id into the callback; `_on_kill_confirmed(confirmed, pane_id)` re-checks and clears focus only if focus is still on the killed pane.
+  - **Restart.** `_on_restart_confirmed` re-checks before the kill and neither kills nor launches unless the pane is live.
+  - **Applink.** `_kill_pane` refuses through `_kill_refusal` (cache record, then live option) with `BAD_PAYLOAD` `frozen`/`unverified`. It runs in both `_two_phase` phases, so the confirmed request re-checks right before the kill.
+  - **Docs.** Added the refusal bullet to `aidocs/applink/monitor_port_design.md`.
+- **Deviations from plan:**
+  - The router imports `FROZEN_OPTION` lazily inside `_kill_refusal`, with `.aitask-scripts` added to `sys.path` at module load. `aitask_applink_validate_profile.sh` also imports the router, and that path should not pull in `monitor_core`.
+  - The real-`TmuxMonitor` regression went into both `test_monitor_pick_launch_sites.py` (`RealSmartKillCacheTests`, which also pins that the unguarded smart kill *does* drop the cached record) and `test_applink_router.sh`.
+- **Issues encountered:** with `list-panes` failing, `kill_agent_pane_smart` falls back to a raw `kill_pane` that never drops a record. The real-monitor fixture therefore answers `list-panes` with rc 0 and empty output, which takes the whole-window branch, the one that retires the record.
+- **Key decisions:**
+  - Restart on a non-live pane aborts entirely: launching beside a frozen stand-in would duplicate the task.
+  - Applink refuses rather than routing to the drop, because a remote client gets no capture-loss warning.
+  - `_kill_window` was left out of scope: it drops no record.
+- **Negative controls** (isolated scratch copy, deleted afterwards). Removing each of these turned the matching new tests red:
+  - the cache read in `_kill_target_state` (4 red);
+  - the monitor `k` re-check (6 red);
+  - the bound pane id (2 red);
+  - the restart re-check (6 red);
+  - the minimonitor `k` re-check (5 red);
+  - the applink guard (red);
+  - the applink cache read (red).
+- **Upstream defects identified:**
+  - `.aitask-scripts/monitor/monitor_app.py:3930-3935` — `_on_restart_confirmed` still calls `launch_in_tmux` (and reports "Restarted agent for t<id>") when `kill_agent_pane_smart` returns `ok=False`. A failed kill leaves the original agent alive while a replacement starts on the same task. This was pre-existing at HEAD (line 3893) and is separate from the frozen guard. The fix: return with a warning on kill failure, plus a regression asserting no launch and no success toast. → follow-up **t2075** (created during Step 8 review).
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-20)
+- **Requested by user:** verify a concern that restart launches after a failed kill, and address it if valid.
+- **Changes made:** none to code. Verified: HEAD has the same behaviour, so it is pre-existing and separable. Per the concern's stated disposition ("follow-up"), it was recorded under Upstream defects identified for Step 8b to offer as a follow-up task.
+- **Files affected:** this plan file only.
+
+### Change Request 2 (2026-10-20)
+- **Requested by user:** the same concern; noted that the plan documented the defect but supplied no follow-up task ID.
+- **Changes made:** created follow-up task t2075 (`restart_aborts_launch_on_failed_kill`, `bug`, `followup_kind: upstream_defect`, `followup_of: 2065`) and linked it from the upstream-defect bullet. No code change in t2065; the disposition stays follow-up.
+- **Files affected:** this plan file; `aitasks/t2075_restart_aborts_launch_on_failed_kill.md` (new).
