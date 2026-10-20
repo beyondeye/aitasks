@@ -3,12 +3,13 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Folded
 labels: [aitask_monitormini, tmux]
 gates: [risk_evaluated]
+folded_into: 2073
 anchor: 1382
 created_at: 2026-08-03 16:18
-updated_at: 2026-08-03 16:18
+updated_at: 2026-10-20 09:47
 boardidx: 22528
 ---
 

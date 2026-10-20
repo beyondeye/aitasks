@@ -117,6 +117,7 @@ risk_evaluation
 robustness
 sanboxing
 scheduling
+scratchpad
 script-performance
 scroll
 seed
