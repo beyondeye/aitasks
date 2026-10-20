@@ -330,7 +330,7 @@ guards_drift_protocol_coverage() {
     # Both passes capture the exit status, so a complete outcome can be told
     # apart from one whose shape merely looks complete.
     assert_eq_trim "drift-procedure-captures-exit-status" "2" \
-        "$(printf '%s\n' "$step2" | grep -cF 'echo "DRIFT_RC:$?"')"
+        "$(printf '%s\n' "$step2" | grep -cF 'echo "DRIFT_RC:$drift_rc"')"
     assert_contains "drift-procedure-ahead-without-verdict-is-incomplete" \
         '`AHEAD:<n>` with no verdict after it' "$step3"
 
@@ -442,8 +442,8 @@ negctrl "drift-procedure-handles-EXTRACT_FAILED" "$WF/remote-drift-check.md" \
     's|`EXTRACT_BROKEN|`EXTRACT_FAILED|g'
 
 negctrl "drift-procedure-captures-exit-status" "$WF/remote-drift-check.md" \
-    's|; echo "DRIFT_RC:\$?"|; echo "DRIFT_BROKEN"|' \
-    's|; echo "DRIFT_BROKEN"|; echo "DRIFT_RC:$?"|'
+    's|echo "DRIFT_RC:\$drift_rc"|echo "DRIFT_BROKEN"|' \
+    's|echo "DRIFT_BROKEN"|echo "DRIFT_RC:$drift_rc"|'
 
 negctrl "drift-procedure-ahead-without-verdict-is-incomplete" "$WF/remote-drift-check.md" \
     's|`AHEAD:<n>` with no verdict after it|`AHEAD:<n>` BROKEN-NEGCTRL|' \

@@ -24,10 +24,15 @@ Detects whether `origin/<branch>` has commits the local `<branch>` is missing, w
 2. **Run the helper — the base pass, then conditionally the output pass:**
 
    ```bash
-   ./.aitask-scripts/aitask_remote_drift_check.sh "<base_branch>" "<plan_file>"; echo "DRIFT_RC:$?"
+   if ./.aitask-scripts/aitask_remote_drift_check.sh "<base_branch>" "<plan_file>"; then
+     drift_rc=0
+   else
+     drift_rc=$?
+   fi
+   echo "DRIFT_RC:$drift_rc"
    ```
 
-   The trailing `DRIFT_RC:<rc>` line is the run's exit status, printed so step 3 can read it alongside the output — it is not a protocol token.
+   The trailing `DRIFT_RC:<rc>` line is the run's exit status, printed so step 3 can read it alongside the output — it is not a protocol token. It is captured in the `if` form because errexit is suspended inside an `if` condition: under `set -e`, `helper; echo "DRIFT_RC:$?"` would exit on a non-zero status (e.g. `EXTRACT_FAILED`'s 3) before the line is printed.
 
    Then bind the merge target from the plan header — the value there was validated when the externalize helper wrote it, and binding a variable (rather than pasting the literal) keeps a ref name containing shell metacharacters inert:
 
@@ -39,7 +44,12 @@ Detects whether `origin/<branch>` has commits the local `<branch>` is missing, w
    Then, **only if `"$output_branch"` differs from `<base_branch>`**, run the helper a second time for the merge target, with `--unsynced`:
 
    ```bash
-   ./.aitask-scripts/aitask_remote_drift_check.sh --unsynced "$output_branch" "<plan_file>"; echo "DRIFT_RC:$?"
+   if ./.aitask-scripts/aitask_remote_drift_check.sh --unsynced "$output_branch" "<plan_file>"; then
+     drift_rc=0
+   else
+     drift_rc=$?
+   fi
+   echo "DRIFT_RC:$drift_rc"
    ```
 
    `--unsynced` suppresses the legacy-mode short-circuit. In legacy mode `task_sync()` runs a bare `git pull --rebase`, refreshing only the *current* branch — the output branch is never checked out during implementation, so it is never pulled and the shortcut's "already pulled" premise does not hold for it. Without the flag this pass would return `LEGACY_MODE_SKIP` and the coverage would be inert on every legacy-mode project. **Never pass `--unsynced` on the base pass.**
