@@ -3,12 +3,13 @@ priority: medium
 effort: high
 depends: []
 issue_type: refactor
-status: Ready
+status: Implementing
 labels: [aitask_monitormini, tmux, scratchpad]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 2073
 created_at: 2026-10-20 10:31
-updated_at: 2026-10-20 10:31
+updated_at: 2026-10-20 15:17
 ---
 
 ## Context
