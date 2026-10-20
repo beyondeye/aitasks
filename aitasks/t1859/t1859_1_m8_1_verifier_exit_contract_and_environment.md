@@ -3,14 +3,14 @@ priority: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [testing, testmap, gates]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1852
 created_at: 2026-10-19 15:42
-updated_at: 2026-10-19 15:42
+updated_at: 2026-10-20 15:49
 ---
-
 
 Child of t1859 (test-map **M8 — Completion policy and gates**), submodule
 **M8.1 — Verifier exit contract and environment**, wave **A**. This sets the
