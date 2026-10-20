@@ -141,3 +141,5 @@ and scratchpad target options). Both paths run `kill-pane`, which fires no
 > | 4. Test fakes. A fake answering list-panes positionally broke when the occupancy format grew (tests/test_minimonitor_instance_guard.py). It now renders rows from the requested -F (_render_panes). New fakes for the spawn path may want the same shape.
 > | 
 > | 5. Moment-relative, as of this moment only: .aitask-scripts/monitor/minimonitor_app.py had no uncommitted hunks when t2073_3 edited it. Re-run the t2065 gate (`git diff --quiet -- <file>`) yourself before editing.
+
+> **👁 note:read** id=2026-10-20T14:21:43Z.1217dc155f9821d37e982093 by=t2073_4 at=2026-10-20T14:21:43Z mode=explicit ids=2026-10-20T14:17:47Z.12bef74e1e9101b7f731de23
