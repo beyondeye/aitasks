@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1599
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-19 17:28
-updated_at: 2026-10-19 17:32
+updated_at: 2026-10-20 10:14
 ---
 
 ## Origin
@@ -32,3 +33,8 @@ t2063 routed option-prefixed `./ait git push` through `task_push` and carried th
 ## Suggested fix
 
 Apply the `task_push` pattern from t2063 to both callers: one `git remote` query with its status captured, and a failure reported as `failed` with git's diagnostic rather than `no-remote`. Check what the `ait sync --batch` token vocabulary should print for it. Test with a fixture whose repo config is unparseable, and keep a control showing a genuinely remote-less repo still reports `no-remote` silently.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-20T07:14:55Z status=pass attempt=1 type=human
