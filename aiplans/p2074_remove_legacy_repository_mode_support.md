@@ -5,7 +5,7 @@ Output branch: main
 ---
 
 ### Pre-phase (risk mitigations)
-1. [measure_flip_breakage] (carried by t2074_1, before any wave-2 batch
+1. [measure_flip_breakage] (carried by t2074_2, before any wave-2 batch
    starts) Run the full bash and Python suite once in an isolated
    `git worktree` with the **enforcement probe** applied (see "Probe
    definition"). Never commit the patch. Record the failing set **per test
@@ -388,9 +388,9 @@ verbatim, into a quarantine file**: `tests/test_legacy_retired_<area>.sh`, or
 `tests/test_legacy_retired_<area>.py` for the few Python cases. Each moved case
 keeps its body, and the quarantine file's header names t2074_9 as its deleter.
 The probe excludes the quarantine files **by name**. That list, file-level,
-lives in t2074_1's committed plan.
+lives in t2074_2's committed plan.
 
-**Completion evidence is mandatory, separate from pass/fail.** t2074_1
+**Completion evidence is mandatory, separate from pass/fail.** t2074_2
 records, on the current tree and before conversion, a per-file baseline:
 - for bash files: the summary line and its `TOTAL` count;
 - for Python: the collected test ids.
@@ -425,7 +425,7 @@ step:
 Those children also get a `depends:` on t2064.
 
 **Wave 1** (parallel):
-- **t2074_1 `branch_mode_test_fixtures`** (test). New shared helpers in
+- **t2074_2 `branch_mode_test_fixtures`** (test). New shared helpers in
   `tests/lib/data_branch_fixture.sh`:
   - `ait_fixture_to_branch_mode <repo> [--remote <bare>]` converts a fixture
     with a real `aitasks/` and `aiplans/` into a **registered** orphan
@@ -449,9 +449,9 @@ Those children also get a `depends:` on t2064.
   `aidocs/framework/testing_conventions.md`.
 
   Also carries the pre-phase `measure_flip_breakage` and the retired-case
-  allowlist. This child depends on t2074_2, because the probe uses the
+  allowlist. This child depends on t2074_1, because the probe uses the
   classifier.
-- **t2074_2 `data_layout_classifier`** (feature). Additive only: no existing
+- **t2074_1 `data_layout_classifier`** (feature). Additive only: no existing
   caller changes behaviour.
   - C1a and C1b in `lib/data_symlinks.sh`.
   - `aitask_data_layout.sh` (state CLI) and `lib/data_layout.py`.
@@ -487,7 +487,7 @@ Those children also get a `depends:` on t2064.
   Also:
   - a filesystem-vs-git differential;
   - a Python/shell parity test.
-- **t2074_3 `setup_install_transition`** (refactor; depends on t2074_2).
+- **t2074_3 `setup_install_transition`** (refactor; depends on t2074_1).
   Applies to `aitask_setup.sh`, `install.sh`, `aitask_upgrade.sh`, and the
   setup role of `aitask_init_data.sh`.
   - C4 replaces the :1571 shortcut.
@@ -525,9 +525,9 @@ Those children also get a `depends:` on t2064.
     data), `test_setup_hooks_only.sh`, and `test_agent_instructions.sh` T43.
   - Send a note to t1619.
 
-**Wave 2** (depends on t2074_1 and t2074_2; the batches are independent of each
+**Wave 2** (depends on t2074_2 and t2074_1; the batches are independent of each
 other).
-- Convert every fixture with the t2074_1 helpers.
+- Convert every fixture with the t2074_2 helpers.
 - Rewrite code-branch commit assertions to use `fixture_data_git`, keeping
   every original behavioural assertion.
 - Never delete suites and never weaken unrelated assertions.
