@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2040
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-20 10:33
-updated_at: 2026-10-20 11:05
+updated_at: 2026-10-20 15:42
 ---
 
 ## Origin
@@ -69,3 +70,8 @@ Evidence: t2040's and t2047's archived plans, Final Implementation Notes (codex
 - Live check: two hand-started (daemon-routed) codex panes, one turn each, then
   freeze both. Each record carries its own pane's session, and a restore resumes
   the right conversation in each.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-20T12:42:05Z status=pass attempt=1 type=human
