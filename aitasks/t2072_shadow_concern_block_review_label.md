@@ -3,11 +3,12 @@ priority: medium
 effort: low
 depends: []
 issue_type: enhancement
-status: Ready
+status: Implementing
 labels: [shadow, concern_format, skills]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-10-20 09:21
-updated_at: 2026-10-20 09:21
+updated_at: 2026-10-20 09:22
 ---
 
 ## Problem
