@@ -101,3 +101,12 @@ None identified.
 
 ### Goal-achievement risk: low
 None identified.
+
+## Final Implementation Notes
+- **Actual work done:** In `_on_restart_confirmed`'s `on_pick_result`, an `ok=False` result from `kill_agent_pane_smart` now shows a warning toast ("Failed to kill <window> — not restarted", `markup=False`), queues `_refresh_data` and returns before `launch_in_tmux`. Focus stays on the surviving pane. The success path is unchanged. New regression: `RestartPickTests.test_failed_kill_neither_launches_nor_reports_restart` (`_Host` gained a `kill_ok` knob that defaults to True). The new toast is pinned in `TOAST_SITES` (`toast_monitor_restart` gained `kill_ok`).
+- **Deviations from plan:** None.
+- **Issues encountered:** None. Red proof: in a scratch tree using HEAD's `monitor_app.py`, the new restart test fails (launch + "Restarted agent" logged), and it passes with the fix. The `TOAST_SITES` entry is a markup pin, not a red proof: pre-fix, the launch-error toast also names the window with `markup=False`.
+- **Key decisions:** Severity is `warning`, matching the callback's two other "not restarted" branches (frozen / unverified) rather than `_on_kill_confirmed`'s `error`. In every case the restart is refused and the old agent is left untouched.
+- **Upstream defects identified:**
+  - `.aitask-scripts/monitor/monitor_app.py:3804 — _launch_pick_for_sibling ignores kill_agent_pane_smart's ok result: it clears focus and notifies "Killed <window>" even when the kill failed`
+  - `.aitask-scripts/monitor/minimonitor_app.py:3370 — the minimonitor sibling-pick kill likewise ignores kill_agent_pane_smart's result and clears focus unconditionally (no failure toast)`
