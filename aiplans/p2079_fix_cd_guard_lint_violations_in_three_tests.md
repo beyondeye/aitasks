@@ -80,3 +80,11 @@ None identified.
 
 ### Goal-achievement risk: low
 None identified.
+
+## Final Implementation Notes
+- **Actual work done:** Exactly as planned. `tests/test_ait_git_gateway_pull.sh:769` now reads `(cd "$FX_LOCAL" && unset AIT_P5_UNSET && ./ait git … push --batch)`. The cd is the first command of the group with an `&&`-only chain, so the scanner classifies it `subshell-andchain`. `tests/test_archive_rearm_exit_trap.sh` and `tests/test_session_hook.sh` source `tests/lib/scratch_cwd.sh` and call `enter_scratch_cwd` right after `PROJECT_DIR=`, copying the comment and lines from `test_ait_git_gateway_pull.sh:14-19`.
+- **Deviations from plan:** None.
+- **Issues encountered:** None. Bare `shellcheck` exits 1 on all three files, but only on info-level findings (SC1091 "not following" for sourced libs, plus SC2016 in test_session_hook.sh). The same SC1091 appears on the reference file's existing source lines. `shellcheck --severity=warning` is clean.
+- **Key decisions:** `unset` went into the `&&` chain rather than using `env -u` or a `# cd-guard:` exemption. `unset` of a named variable always returns 0, so the push still runs, and the variable is still scoped to the subshell.
+- **Verification:** `test_cd_guard_lint.sh` 92 passed / 0 failed (was 90/2). `cd_guard_scan.py --check` and `--helper-order` exit 0 on the touched files. test_ait_git_gateway_pull 274/0, test_archive_rearm_exit_trap 66/0, test_session_hook 167/0.
+- **Upstream defects identified:** None
