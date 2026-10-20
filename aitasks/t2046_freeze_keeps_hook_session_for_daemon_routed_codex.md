@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2040
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-16 16:56
-updated_at: 2026-10-19 08:04
+updated_at: 2026-10-20 10:31
 ---
 
 ## Origin
@@ -106,3 +107,8 @@ the daemon runs hooks with the `TMUX_PANE` of the pane that started it, which th
 > | Follow-up to note 2026-10-19T12:46:57Z.d5fc6922: the t2047 change it describes (daemon-routed codex hooks record nothing) has now landed on main as 00322dab0. Its form c was narrowed in the end to the daemon's own invocation (argv0 codex, argv[1] app-server, plus a later --managed-daemon). Advisory only.
 
 > **👁 note:read** id=2026-10-20T07:31:07Z.c3acc6216d7fba4d8644abdc by=t2046 at=2026-10-20T07:31:07Z mode=explicit ids=2026-10-19T12:46:57Z.d5fc69228fc1f733ddc617ac,2026-10-19T13:49:17Z.b09685ecba16efd461b2aaf0
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-20T07:31:33Z status=pass attempt=1 type=human
