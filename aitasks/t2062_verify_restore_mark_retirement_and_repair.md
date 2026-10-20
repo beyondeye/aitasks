@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2040
 followup_kind: review_finding
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-19 15:04
-updated_at: 2026-10-19 15:50
+updated_at: 2026-10-20 12:23
 ---
 
 ## Origin
@@ -59,3 +60,8 @@ real tmux).
 - Tests: failure injection on both clears for both engines (coordinator and
   reconcile), plus a negative control where the stamp is legitimately live
   (a mounted stand-in of a `frozen` record is never "repaired").
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-20T09:23:35Z status=pass attempt=1 type=human
