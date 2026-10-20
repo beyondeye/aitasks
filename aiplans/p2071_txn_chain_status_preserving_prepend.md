@@ -134,3 +134,10 @@ Step 9 of the task workflow (commit `bug: … (t2071)`, archival).
 
 ### Goal-achievement risk: low
 None identified.
+
+## Final Implementation Notes
+- **Actual work done:** `txn_chain_exit_trap` now emits `__txn_chain_rc=$?; (exit "$__txn_chain_rc") && :; <handler>; (exit "$__txn_chain_rc") && :; <old trap>`, so the prepended handler and everything after it see the dying status. Comments updated in `lib/txn_snapshot.sh` (function header, `_txn_exit_trap`) and `lib/archive_utils.sh` (`_ait_archive_exit_chain`); the caveat in `aidocs/framework/shell_conventions.md` now says the bare ledger trap behind a prepend still reports a generic failure, so use the explicit spelling. Tests: 13d2 `explicit.txn` → `"42 0"` plus a direct `EXPLICIT_TXN_RC == 42` assertion; new J2b ledger (explicit) case; new Group E (E1, E2, E2b, E3, E4, E5 and controls E0/E0b) in `tests/test_txn_snapshot.sh`.
+- **Deviations from plan:** A user plan review, before approval, caught that the capture-only draft (`__txn_chain_rc=$?; $1; …`) hands the prepended handler 0: the assignment resets `$?`. A restore before the handler was added and verified inline, and E2/E2b/E3 now assert each handler's entry status. E0b is the capture-only control.
+- **Issues encountered:** None during implementation. Shellcheck's SC1091 info on `archive_utils.sh:23` is pre-existing (present at HEAD).
+- **Key decisions:** The ledger first-command detector was left alone. The bare spelling behind a prepend stays a reported failure (`1` + warning), because the detector reads trap position, not `$?`. Mutant checks ran in scratch copies of the lib: revert → E1/E2b/E3/E4 + 13d2/J2b explicit red; dropping only the entry restore → E2/E2b/E3/E5 red.
+- **Upstream defects identified:** None
