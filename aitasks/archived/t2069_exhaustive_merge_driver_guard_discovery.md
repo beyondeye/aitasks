@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: test
-status: Implementing
+status: Done
 labels: [git, bash_scripts, robustness]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -17,7 +17,8 @@ anchor: 1599
 followup_kind: risk_mitigation
 implemented_with: claudecode/opus5_5
 created_at: 2026-10-19 17:14
-updated_at: 2026-10-20 11:02
+updated_at: 2026-10-20 12:06
+completed_at: 2026-10-20 12:06
 ---
 
 ## Origin
@@ -57,3 +58,14 @@ existing planted control and the base-removal mutant behaviour.
 > **✅ gate:plan_approved** run=2026-10-20T08:02:39Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-10-20T08:20:13Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-10-20T09:06:16Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:a216c123d21bb13b
+
+> **✅ gate:risk_evaluated** run=2026-10-20T09:06:16Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/2069/risk_evaluated_2026-10-20T09:06:16Z-risk_evaluated-a1.log`
