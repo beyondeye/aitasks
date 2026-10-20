@@ -116,3 +116,12 @@ None identified.
 
 ### Goal-achievement risk: low
 None identified.
+
+## Final Implementation Notes
+- **Actual work done:** Both sibling-pick kill sites now read `ok, _ = kill_agent_pane_smart(...)`. `MonitorApp._launch_pick_for_sibling`: on success it keeps the old behaviour (clear focus, `Killed <window>`); on failure it shows `Failed to kill <window>` (error, `markup=False`), keeps focus and still opens the pick dialog. `MiniMonitorApp._launch_pick`'s post-launch kill: on success it clears focus as before; on failure it shows `Failed to kill <window>` (error, `markup=False`, window name from the snapshot, falling back to the pane id) and keeps focus. Docstrings updated at both sites.
+- **Tests:** `tests/test_monitor_pick_launch_sites.py` — `test_failed_kill_is_reported_keeps_focus_and_still_opens_the_dialog` (exact log order, error severity, focus kept, golden dialog). `tests/test_minimonitor_pick_by_number.py` — `_FakeMonitor.kill_ok`, plus failed-kill tests for both the `p` route and the `n` route (asserting `markup=False` too). The live control now also asserts that focus is cleared. `tests/test_monitor_markup_literal_sinks.py` — `toast_monitor_sibling_launch(kill_ok=)` and a new `toast_mini_launch_kill_failed` driver (a successful launch is needed to reach the kill, so it does not reuse `_launch`). Two new `TOAST_SITES` rows.
+- **Red proof:** the HEAD versions of both monitor modules were run against the new tests in a scratch copy of `.aitask-scripts/` + `tests/`, without touching the shared worktree. Four failures: the sibling test, both minimonitor tests and the minimonitor toast-sink row. All pass with the fix. The monitor sibling toast-sink row passes on old code too, as expected: it pins plain-text rendering, not behaviour.
+- **Deviations from plan:** none of substance. The minimonitor toast row is labelled `minimonitor: launched, kill failed`.
+- **Issues encountered:** `aitask_pick_own.sh` warned that the task-data sync failed: the data worktree has unstaged changes from other sessions blocking the rebase. Ownership was still claimed.
+- **Key decisions:** the monitor pick dialog still opens after a failed kill, matching the frozen/unverified branches. The outgoing task is a different, normally finished one, so nothing is duplicated (unlike the t2075 restart path).
+- **Upstream defects identified:** None
