@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2073
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-20 10:31
-updated_at: 2026-10-20 10:35
+updated_at: 2026-10-20 11:15
 ---
 
 ## Context
@@ -108,3 +109,8 @@ start immediately.
 - `bash tests/test_setup_git.sh`, `bash tests/test_shadow_rejected.sh`,
   `bash tests/test_archive_shadow_prune.sh`.
 - `shellcheck .aitask-scripts/aitask_scratchpad_store.sh .aitask-scripts/aitask_archive.sh`.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-20T08:15:35Z status=pass attempt=1 type=human
