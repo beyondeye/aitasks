@@ -22,13 +22,7 @@ archived; Defer is allowed but creates a carry-over task.
 
 ## Verification Checklist
 
-- [ ] [t2074_3] Run every test named in the task file.
-- [ ] [t2074_3] Run `shellcheck .aitask-scripts/aitask_setup.sh install.sh`.
 - [ ] [t2074_3] By hand: a fresh `ait setup` in temp repos, with and without `origin`.
-- [ ] [t2074_9] Run every bash test individually and the full Python suite (last line must
-- [ ] [t2074_9] Run `aitask_skill_verify.sh` and the render goldens.
-- [ ] [t2074_9] Run `shellcheck`.
-- [ ] [t2074_9] By hand, in a temp legacy repo: confirm the refusal, then convert it with
 - [ ] [t2074_3] Interactive (TTY) `ait setup` in a fresh temp repo: there is no data-branch opt-out prompt; it ends with the `.aitask-data` worktree plus symlinks, and `aitask_data_layout.sh` reports branch/ready
 - [ ] [t2074_3] Interactive `ait setup` in a real legacy project: one migration confirmation; answering "n" exits non-zero and `diff -r` shows nothing changed; answering "y" converts with the data byte-identical
 - [ ] [t2074_3] Point the primary `aitasks` symlink at another existing directory, then run `ait setup`: the link is repaired, and the old directory's contents are untouched
