@@ -3928,10 +3928,19 @@ class MonitorApp(
                         self.call_later(self._refresh_data)
                         return
                     ok, _ = self._monitor.kill_agent_pane_smart(pane_id)
-                    if ok:
-                        if self._focused_pane_id == pane_id:
-                            self._focused_pane_id = None
-                        self.notify(f"Killed {old_window_name}", markup=False)
+                    if not ok:
+                        # A failed kill leaves the old agent running;
+                        # launching anyway would put two agents on one
+                        # task (t2075).
+                        self.notify(
+                            f"Failed to kill {old_window_name} — not "
+                            "restarted",
+                            severity="warning", markup=False)
+                        self.call_later(self._refresh_data)
+                        return
+                    if self._focused_pane_id == pane_id:
+                        self._focused_pane_id = None
+                    self.notify(f"Killed {old_window_name}", markup=False)
                 _, err = launch_in_tmux(screen.full_command, pick_result)
                 if err:
                     # tmux's stderr names the session (t2017).

@@ -774,9 +774,9 @@ def toast_monitor_sibling_launch(name, frozen_read=(True, "")):
     return _launch(app, ma, lambda: app._launch_pick_for_sibling("43"), name)
 
 
-def toast_monitor_restart(name, frozen_read=(True, "")):
+def toast_monitor_restart(name, frozen_read=(True, ""), kill_ok=True):
     app = _app(MonitorApp)
-    app._monitor = _FakeMonitor(frozen_read=frozen_read)
+    app._monitor = _FakeMonitor(kill_ok=kill_ok, frozen_read=frozen_read)
     _focused(app, name)
     app._root_for_snap = lambda snap: Path(".")
     return _launch(app, ma, lambda: app._on_restart_confirmed(True, "%1", "42"),
@@ -887,6 +887,9 @@ TOAST_SITES = [
      lambda name: toast_monitor_restart(name, (True, "rec-1"))),
     ("monitor: restart unverified, not restarted",
      lambda name: toast_monitor_restart(name, (False, ""))),
+    # A failed restart kill launches nothing (t2075).
+    ("monitor: restart kill failed, not restarted",
+     lambda name: toast_monitor_restart(name, kill_ok=False)),
     ("both: prioritized (monitor)", _mark_toast(MonitorApp, "MARKED")),
     ("both: prioritized (minimonitor)", _mark_toast(MiniMonitorApp, "MARKED")),
     ("both: parked", _mark_toast(MonitorApp, "PARKED")),

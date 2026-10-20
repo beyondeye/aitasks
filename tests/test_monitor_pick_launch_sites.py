@@ -16,7 +16,7 @@ so the dedupe cannot silently change either one:
 - restart path: the kill runs INSIDE the callback, BEFORE `launch_in_tmux`, and
   notifies "Restarted agent for t<id>" — and only when `_kill_target_state`
   proves the pane live at that moment; otherwise nothing is killed OR launched
-  (t2065);
+  (t2065); a failed kill launches nothing either (t2075);
 - both: a launch error returns before `call_later`; cancel only refreshes; the
   launch reads `screen.full_command` (the user may edit it in the dialog).
 
@@ -95,6 +95,9 @@ class _Host:
         #: The monitor's discovery-cache row per pane (t2065) — where the smart
         #: kill reads the record it drops. Absent ⇒ unknown to the cache.
         self.cached: dict[str, SimpleNamespace] = {}
+        #: What the smart kill reports (t2075). The default is a kill that
+        #: succeeded.
+        self.kill_ok = True
         host = self
 
         class _Cache:
@@ -107,7 +110,7 @@ class _Host:
         class _Monitor:
             def kill_agent_pane_smart(self, pane_id):
                 log.append(("kill", pane_id))
-                return (True, "killed")
+                return (host.kill_ok, "killed")
 
             def get_pane_option_sync(self, pane_id, option, timeout=2.0):
                 log.append(("read", pane_id, option))
@@ -400,6 +403,21 @@ class RestartPickTests(_Base):
         host.log.clear()
         callback(None)
         self.assertEqual(host.log, [("call_later",)])
+
+    def test_failed_kill_neither_launches_nor_reports_restart(self):
+        """The old agent is still alive: a launch would duplicate the task
+        (t2075)."""
+        host, _ = self._open()
+        _, callback = host.pushed[0]
+        host.kill_ok = False
+        host.log.clear()
+        callback(_cfg(new_window=True))
+        failed = "Failed to kill agent-pick-41 — not restarted"
+        self.assertEqual(host.log, [
+            ("read", "%7", "@aitask_frozen"),
+            ("kill", "%7"), ("notify", failed), ("call_later",)])
+        self.assertEqual(host.notes, [(failed, "warning")])
+        self.assertEqual(host._focused_pane_id, "%7")
 
     # -- t2065: the agent may be frozen while the dialogs are open ----------
 
