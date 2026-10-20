@@ -134,3 +134,5 @@ loss window is stated and tested.
 > | - save (whole buffer on stdin) → SAVED:<bytes>, SAVED:empty, ARCHIVED or ABSENT
 > | - exit 3 is LOCK_BUSY, exit 4 is an error; a failed stdin read now exits 4
 > | - .holder.lock is created only by open: open it O_RDWR without O_CREAT, take the flock, then read notes.md
+
+> **👁 note:read** id=2026-10-20T09:32:37Z.02d2eaf04a89f66df1dfba3c by=t2073_2 at=2026-10-20T09:32:37Z mode=explicit ids=2026-10-20T09:26:35Z.c523fb38517a021f70e80b47
