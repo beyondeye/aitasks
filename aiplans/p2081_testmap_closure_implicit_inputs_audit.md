@@ -287,3 +287,144 @@ Never stash, restore or commit them. Implement on top of t2080's committed state
     - **linked ancestor dir with the link gitignored** → `implicit:pkg/testdata/bad.txt`. Only the tracked paths under it are modified, and each resolves through the link.
   - Mutants M4 (fallback off), M4c (existence-only check) and M4d (no ancestor walk) are all red. M4d was green until the hidden-link variant was added.
 - **Files affected:** `goengines/internal/testmap/cost/implicit.go`, `cost/implicit_test.go`, `goengines/README.md`
+
+## Final Implementation Notes
+- **Actual work done:**
+  - **`deps/bash.go`:** an unmatched `source`/`exec` with no static target (empty literal tail on any base, or an unknown-base suffix miss) is `Unresolved` as `<dynamic>[/<tail>]`.
+  - **`deps/golist.go`:**
+    - go-list-named files outside the universe (members, tests, xtests, cgo/asm/syso, embeds) are `Unresolved` on every file that would have linked them; `pkgOutside`/`appendOutside` hold the logic;
+    - importers carry an imported local package's outside inputs (byPath branch) or the import path itself (fallback branch finds no universe file).
+  - **`deps/deps.go`:** `FileFacts` doc updated (`Unresolved` = what the closure cannot follow).
+  - **`annot/source.go`:** `ExcludedReads` (the `exclude:`d complement: reads globs plus a path→reason map of unreadable ones); the per-file body is factored into `readAnnotations`, and `Annotations` is unchanged.
+  - **`cost/eligibility.go`:**
+    - the scan lifts `exclude:`; excluded reads are merged, and `badAnnot` → `opaque:annotations:`;
+    - implicit inputs and their closures (`extend`) join the checked set;
+    - `annotIn`/`readsIn` are shared between the test side and `runnerConfig`, giving `runner-config:annotations|reads|plugin-reads:`;
+    - `implicitHit` errors become `eligibility-error:implicit:`.
+  - **`cost/implicit.go` (new):** the audit as code. `implicitFiles` (python `__init__` chain, Go same-dir `.go`, every Gradle script), `unscannedImplicit` (python conftest/`__init__` existing but factless → `opaque:implicit-unscanned:`), `implicitHit` path rules, `goDirs` (reached packages and their ancestors), `regularNoFollow`.
+  - **Tests:**
+    - deps: `TestBashDynamicRefIsUnresolved`, `TestGoOutsideUniverseIsUnresolved`;
+    - annot: `TestExcludedReads`;
+    - cost (`implicit_test.go`): `TestEligibilityImplicitInputs` (33 rows), `TestEligibilityGoDependencyModule`, `TestEligibilityGoSymlinkedInput`, `TestEligibilityExcludedConftestHelper`, `TestEligibilityExcludedEmbed`, `TestEligibilityGitignoredGoPackage`, `TestEligibilityExcludedHelperReadsDeclaration`, `TestEligibilityScriptRunnerHelperReads`, `TestEligibilityDynamicSourceIsOpaque`, `TestEligibilityUnscannedHelperReadsDirtyFile`;
+    - `judgedIDs` helper; `TestEligibilityUnresolvedSourceIsOpaque` renamed to `TestEligibilityExcludedSourceIsFollowed` (now `closure:vendor/lib.sh`).
+  - **README:** the deps, annotation-source and eligibility rows.
+- **Deviations from plan:**
+  - The Go rules were widened in review (CR1/CR2). Module/workspace files and vendor now count for ancestors of **every reached Go package**, not only the test's. The planned same-dir `.go` path rule was replaced by "any path under a reached package's tree failing the universe's no-follow criterion" (deleted, symlink, or via a linked directory).
+  - Kotlin-row fixture isolation: a `buildSrc` source pulls the root build script into every Kotlin closure (it lives in module `:`), so that row has its own file map (`ktBuildSrc`).
+  - The fallback-branch fixture uses a `_gen/` package imported only by a tag-ignored file. `./...` skips `_` directories, so go list never reports it; a gitignored but listed package goes through the byPath branch instead.
+  - The gitignored-embed variant reports `opaque:unresolved:pkg/a_test.go`, not `pkg/a.go`. The test file carries the package's outside inputs too, and it is checked first.
+- **Issues encountered:**
+  - Three mutants first failed to compile (`if false` leaving a loop or `fi` variable unused; a deleted `case` leaving `p` unused). They were rewritten as `&& false` and rerun; none was counted before that.
+  - M4d (no ancestor walk) was green until the hidden-link fixture was added: a listed symlink is caught by its own final-component check.
+- **Key decisions:**
+  - Rules key on the test file's scanner language, because the M3.2 reference runners do not exist yet. The spawned after-mitigation aligns the rules with them once they land.
+  - **D12 not relaxed.** The counterexample (`TestEligibilityUnscannedHelperReadsDirtyFile/gitignored`: an unchanged gitignored helper sourcing dirty `src/c.sh`) stays `opaque:unresolved:`, and the D12 narrowing mutant (M21) turns it green → red-proved.
+  - `exclude:` is a registry rule only; registration (`Annotations`, covers, units) still never sees excluded files.
+- **Red proofs:** 33 isolated mutants, each restored byte-identical (`filecmp`), and each failed its own expected tests:
+  - **implicit rules:**
+    - M1–M2 (python predicate, ancestry);
+    - M3, M3b (Go module files; module scope = test only);
+    - M4, M4b, M4c, M4d (unseen-under-package; package scope; existence-only check; no ancestor walk);
+    - M5 (vendor);
+    - M6a–c (gradle.properties / script rule / gradlew);
+    - M7a–d (`gradle/`, `buildSrc`, `build-logic`, included builds);
+    - M8 (module resources);
+  - **implicit files and closures:**
+    - M9–M11 (`implicitFiles` per language);
+    - M12 (`unscannedImplicit`);
+    - M13 (`extend` closure);
+  - **eligibility guards:**
+    - M14 (lifted exclude);
+    - M15 (ExcludedReads merge);
+    - M16–M18 (`annotIn` test side; runner `annotIn` / `readsIn`);
+    - M19 (`implicitHit` call);
+    - M20 (implicit vs closure naming);
+    - M21 (D12 narrowing);
+  - **scanners:**
+    - M22–M23 (bash `<dynamic>`);
+    - M24–M26 (golist package side; importer byPath; fallback);
+    - M27–M28 (ExcludedReads reads / bad).
+- **Measurement (post-phase `measure_unresolved_rate_after_dynamic_refs`),** on this repo with a real `deps.Scan`:
+  - **Bash tests (`tests/*.sh`):** 451. Unresolved in {test} ∪ closure: **444 now** vs **402 without `<dynamic>` entries**; the baseline reproduces t1854_4's 400/448. That means 42 tests (9 %) are newly opaque, all from dynamic `source`/`exec`. On a dirty tree, 98 % of this repo's bash tests cannot anchor (the fail-safe direction).
+  - **Scan cost:** `deps.Scan` 718 ms cold / 142 ms warm with `exclude:` as configured, and 605 ms / 122 ms lifted. They are equal within noise: this repo has no `aitestmap/config.yaml`, so `exclude:` is `[]`. `annot.ExcludedReads` took 7 ms.
+  - The measurement code is a throwaway `cost/zz_measure_test.go` (created, run, deleted; never committed), verbatim:
+```go
+package cost
+
+import (
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/beyondeye/aitasks/goengines/internal/testmap/annot"
+	"github.com/beyondeye/aitasks/goengines/internal/testmap/deps"
+	"github.com/beyondeye/aitasks/goengines/internal/testmap/registry"
+)
+
+// Throwaway (t2081 post-phase): bash tests with any Unresolved in
+// {test} ∪ closure, with and without the <dynamic> entries; scan cost.
+func TestZZMeasure(t *testing.T) {
+	root := "/home/ddt/Work/aitasks"
+	cfg, err := registry.LoadConfig(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lifted := cfg
+	lifted.Exclude = nil
+	for _, c := range []struct {
+		name string
+		cfg  registry.Config
+	}{{"exclude-as-configured", cfg}, {"exclude-lifted", lifted}} {
+		cache := t.TempDir()
+		for _, pass := range []string{"cold", "warm"} {
+			start := time.Now()
+			if _, err := deps.Scan(bg, root, deps.Options{Config: c.cfg, CacheDir: cache}); err != nil {
+				t.Fatal(err)
+			}
+			t.Logf("deps.Scan %s %s: %v", c.name, pass, time.Since(start))
+		}
+	}
+	start := time.Now()
+	if _, _, err := annot.ExcludedReads(bg, root); err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("annot.ExcludedReads: %v (exclude list: %q)", time.Since(start), cfg.Exclude)
+	g, err := deps.Scan(bg, root, deps.Options{Config: lifted, Uncached: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	total, any, literal, dynOnly := 0, 0, 0, 0
+	for _, f := range g.Files() {
+		if !strings.HasPrefix(f, "tests/") || strings.Count(f, "/") != 1 || !strings.HasSuffix(f, ".sh") {
+			continue
+		}
+		total++
+		files := []string{f}
+		for _, r := range g.Closure(f, 0) {
+			files = append(files, r.Path)
+		}
+		hasLit, hasDyn := false, false
+		for _, p := range files {
+			ff, _ := g.Facts(p)
+			for _, u := range ff.Unresolved {
+				if strings.HasPrefix(u, "<dynamic>") {
+					hasDyn = true
+				} else {
+					hasLit = true
+				}
+			}
+		}
+		if hasLit || hasDyn {
+			any++
+		}
+		if hasLit {
+			literal++
+		}
+		if hasDyn && !hasLit {
+			dynOnly++
+		}
+	}
+	t.Logf("bash tests: %d; unresolved now: %d; without <dynamic> (baseline): %d; newly unresolved by <dynamic> only: %d", total, any, literal, dynOnly)
+}
+```
+- **Upstream defects identified:** None
