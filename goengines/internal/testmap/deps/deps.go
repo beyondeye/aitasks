@@ -50,7 +50,11 @@ type Symbol struct {
 	Line int    `json:"line"`
 }
 
-// FileFacts is everything the scanners know about one file.
+// FileFacts is everything the scanners know about one file. Unresolved
+// holds the references the closure cannot follow: literal refs / imports that
+// matched no repository file, a bash `source` / `exec` whose target is not
+// statically known (`<dynamic>[/<tail>]`), and Go inputs outside the scan
+// universe (a file path, or a local import path).
 type FileFacts struct {
 	Path       string   `json:"path"`
 	Lang       string   `json:"lang"`
@@ -59,7 +63,7 @@ type FileFacts struct {
 	Reads      []string `json:"reads,omitempty"`  // globs (scanner plugins)
 	Symbols    []Symbol `json:"symbols,omitempty"`
 	Keys       []string `json:"keys,omitempty"`       // android-res string keys; "*" = every key
-	Unresolved []string `json:"unresolved,omitempty"` // literal refs / imports that matched no repository file
+	Unresolved []string `json:"unresolved,omitempty"` // references the closure cannot follow
 }
 
 // GradleModule is one Gradle project of the build.

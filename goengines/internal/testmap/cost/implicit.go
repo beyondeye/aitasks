@@ -1,0 +1,254 @@
+package cost
+
+import (
+	"errors"
+	"io/fs"
+	"os"
+	"path"
+	"slices"
+	"strings"
+
+	"github.com/bmatcuk/doublestar/v4"
+
+	"github.com/beyondeye/aitasks/goengines/internal/testmap/deps"
+)
+
+// Implicit runner inputs: what a test's framework reads that no scanner edge
+// records. The reference runners decide nothing here — the rules key on the
+// test file's scanner language, the one thing every runner of a framework
+// shares. Executable inputs join the checked set with their own closure
+// (implicitFiles); one that exists but cannot be scanned fails closed
+// (unscannedImplicit); everything else is a path rule over the modified set
+// (implicitHit), so a deleted or excluded input still hits.
+//
+//   - python (pytest): the test's own __init__.py package chain (executable;
+//     ancestor conftest.py are already closure edges, python.go); pytest.ini,
+//     .pytest.ini, pyproject.toml, tox.ini, setup.cfg, conftest.py and
+//     __init__.py in any ancestor-or-self directory.
+//   - go (go test): every .go file of the test's directory (executable: an
+//     in-package test shares its binary with the package's xtests, which
+//     golist.go does not link to it). For every package the checked set
+//     reaches — the test's own and each local dependency, which may live in
+//     another module (a `replace` to a sibling directory) — go.mod, go.sum,
+//     go.work, go.work.sum in any ancestor-or-self directory (the module's
+//     language version decides semantics) and <ancestor>/vendor/**; and any
+//     path under the package's directory tree that the scan cannot see —
+//     deleted, a symbolic link, or reached through one (a removed or relinked
+//     member, testdata case or embedded asset leaves no trace in the graph).
+//   - kotlin (Gradle): every Gradle script (executable; gradle.go links only
+//     a module's own and its project deps' build files); gradle.properties,
+//     *.gradle(.kts) anywhere; gradle/**, gradlew(.bat), buildSrc/**,
+//     build-logic/** and the directory of any non-root settings script (an
+//     included build); the test's module src/*/{resources,res,assets}/** and
+//     src/*/AndroidManifest.xml.
+//   - bash: none — a script reads no framework file; its dynamic source /
+//     exec refs are unresolved (bash.go).
+//
+// Residuals no path rule closes: gitignored inputs (invisible to git status
+// itself), the environment (BASH_ENV, PYTHONPATH, pytest -p / pytest_plugins
+// string plugins, sitecustomize), a Gradle script's own file reads, a bash
+// suffix-match guess, and an edit reverted within one invocation.
+
+var (
+	pyNames     = []string{"pytest.ini", ".pytest.ini", "pyproject.toml", "tox.ini", "setup.cfg", "conftest.py", "__init__.py"}
+	goNames     = []string{"go.mod", "go.sum", "go.work", "go.work.sum"}
+	moduleGlobs = []string{"src/*/resources/**", "src/*/res/**", "src/*/assets/**", "src/*/AndroidManifest.xml"}
+)
+
+// implicitFiles returns the executable implicit inputs of test present in the
+// graph, sorted.
+func implicitFiles(g *deps.Graph, test, lang string) []string {
+	dir := dirOf(test)
+	var out []string
+	switch lang {
+	case "python":
+		for _, d := range ancestors(dir) {
+			if c := joinDir(d, "__init__.py"); c != test {
+				if _, ok := g.Facts(c); ok {
+					out = append(out, c)
+				}
+			}
+		}
+	case "go":
+		for _, f := range g.Files() {
+			if f != test && path.Ext(f) == ".go" && dirOf(f) == dir {
+				out = append(out, f)
+			}
+		}
+	case "kotlin":
+		for _, f := range g.Files() {
+			if gradleScript(f) {
+				out = append(out, f)
+			}
+		}
+	}
+	slices.Sort(out)
+	return out
+}
+
+// unscannedImplicit returns the first executable implicit input of test that
+// exists under root but has no facts (gitignored, linked, not a regular
+// file): code the closure cannot follow.
+func unscannedImplicit(root string, g *deps.Graph, test, lang string) (string, error) {
+	if lang != "python" {
+		return "", nil
+	}
+	r, err := os.OpenRoot(root)
+	if err != nil {
+		return "", err
+	}
+	defer r.Close()
+	for _, d := range ancestors(dirOf(test)) {
+		for _, name := range []string{"conftest.py", "__init__.py"} {
+			c := joinDir(d, name)
+			if _, ok := g.Facts(c); ok {
+				continue
+			}
+			if _, err := r.Lstat(c); err == nil || !errors.Is(err, fs.ErrNotExist) {
+				return c, nil
+			}
+		}
+	}
+	return "", nil
+}
+
+// implicitHit returns the first modified path test's framework reads by
+// convention, "" when none. checked is the file set the closure checks
+// covered (test, closure, implicit inputs and theirs).
+func implicitHit(root string, g *deps.Graph, test, lang string, checked, modified []string) (string, error) {
+	dir := dirOf(test)
+	var match func(p string) bool
+	switch lang {
+	case "python":
+		match = func(p string) bool {
+			return slices.Contains(pyNames, path.Base(p)) && within(dirOf(p), dir)
+		}
+	case "go":
+		pkgs, mods := goDirs(checked)
+		r, err := os.OpenRoot(root)
+		if err != nil {
+			return "", err
+		}
+		defer r.Close()
+		match = func(p string) bool {
+			if slices.Contains(goNames, path.Base(p)) && mods[dirOf(p)] {
+				return true
+			}
+			for d := range mods {
+				if within(joinDir(d, "vendor"), p) {
+					return true
+				}
+			}
+			for d := range pkgs {
+				if within(d, p) && !regularNoFollow(r, p) {
+					return true
+				}
+			}
+			return false
+		}
+	case "kotlin":
+		var included []string
+		for _, f := range g.Files() {
+			if b := path.Base(f); (b == "settings.gradle" || b == "settings.gradle.kts") && dirOf(f) != "" {
+				included = append(included, dirOf(f))
+			}
+		}
+		var globs []string
+		if m, ok := g.ModuleOf(test); ok {
+			for _, gl := range moduleGlobs {
+				globs = append(globs, joinDir(m.Dir, gl))
+			}
+		}
+		match = func(p string) bool {
+			if path.Base(p) == "gradle.properties" || gradleScript(p) || p == "gradlew" || p == "gradlew.bat" {
+				return true
+			}
+			for _, d := range append([]string{"gradle", "buildSrc", "build-logic"}, included...) {
+				if within(d, p) {
+					return true
+				}
+			}
+			for _, gl := range globs {
+				if ok, _ := doublestar.Match(gl, p); ok {
+					return true
+				}
+			}
+			return false
+		}
+	default:
+		return "", nil
+	}
+	for _, p := range slices.Sorted(slices.Values(modified)) {
+		if match(p) {
+			return p, nil
+		}
+	}
+	return "", nil
+}
+
+// regularNoFollow reports whether p is a regular file reached through real
+// directories only — the scan universe's criterion (deps' buildUniverse). A
+// path failing it (deleted, a link, under a linked directory, unreadable)
+// is outside the graph whatever it now points at.
+func regularNoFollow(r *os.Root, p string) bool {
+	parts := strings.Split(p, "/")
+	for i := 1; i < len(parts); i++ {
+		fi, err := r.Lstat(strings.Join(parts[:i], "/"))
+		if err != nil || !fi.IsDir() {
+			return false
+		}
+	}
+	fi, err := r.Lstat(p)
+	return err == nil && fi.Mode().IsRegular()
+}
+
+// goDirs returns the directories of the Go files in checked (their
+// packages) and every ancestor of those (where their module and workspace
+// files live).
+func goDirs(checked []string) (pkgs, mods map[string]bool) {
+	pkgs, mods = map[string]bool{}, map[string]bool{}
+	for _, f := range checked {
+		if path.Ext(f) != ".go" {
+			continue
+		}
+		pkgs[dirOf(f)] = true
+		for _, d := range ancestors(dirOf(f)) {
+			mods[d] = true
+		}
+	}
+	return pkgs, mods
+}
+
+func gradleScript(p string) bool {
+	return strings.HasSuffix(p, ".gradle") || strings.HasSuffix(p, ".gradle.kts")
+}
+
+// dirOf is p's directory, "" for the repository root.
+func dirOf(p string) string {
+	if d := path.Dir(p); d != "." {
+		return d
+	}
+	return ""
+}
+
+// ancestors is dir and every directory above it, the root ("") last.
+func ancestors(dir string) []string {
+	out := []string{dir}
+	for dir != "" {
+		dir = dirOf(dir)
+		out = append(out, dir)
+	}
+	return out
+}
+
+func joinDir(dir, name string) string {
+	if dir == "" {
+		return name
+	}
+	return dir + "/" + name
+}
+
+// within reports whether p is dir or lies under it ("" is the root).
+func within(dir, p string) bool {
+	return dir == "" || p == dir || strings.HasPrefix(p, dir+"/")
+}

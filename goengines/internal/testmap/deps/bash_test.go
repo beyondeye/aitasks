@@ -120,3 +120,26 @@ func TestBashSymbols(t *testing.T) {
 		}
 	}
 }
+
+// A source / exec whose target is not statically known is unresolved
+// (`<dynamic>[/<tail>]`); a suffix hit stays resolved, and a plain argument
+// never counts.
+func TestBashDynamicRefIsUnresolved(t *testing.T) {
+	r := repo(t, map[string]string{
+		"tests/t.sh": lines(
+			`#!/bin/bash`,
+			`source "$X"`,
+			`"$CMD" --flag`,
+			`bash "${A}${B}/gen.sh"`,
+			`source "${A}${B}/lib/x.sh"`,
+			`cat "${A}${B}/f.txt"`,
+		),
+		"tests/lib/x.sh": "#!/bin/sh\n",
+	})
+	g := scanRepo(t, r)
+	requireEdge(t, g, "tests/t.sh", "tests/lib/x.sh", "", "suffix")
+	f, _ := g.Facts("tests/t.sh")
+	if want := []string{"<dynamic>", "<dynamic>/gen.sh"}; !slices.Equal(f.Unresolved, want) {
+		t.Errorf("unresolved: %q, want %q", f.Unresolved, want)
+	}
+}

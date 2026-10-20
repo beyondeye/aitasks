@@ -792,7 +792,9 @@ func bashDirs(env map[string][]string, u *universe) []string {
 // is a static:invocation fact (a closure-only edge for heredoc / string
 // content); a miss, or an unknown base, is retried against every source root
 // (closure-only `fallback`); a non-literal word's tail is suffix-matched
-// (closure-only `suffix`).
+// (closure-only `suffix`). A `source` / `exec` that hits nothing is
+// unresolved: its literal path, or `<dynamic>[/<tail>]` when its target is
+// not statically known.
 func bashFacts(p string, b *bashRaw, env map[string][]string, lk *lookups) ([]Dep, []string) {
 	u := lk.u
 	dir := path.Dir(p)
@@ -815,7 +817,16 @@ func bashFacts(p string, b *bashRaw, env map[string][]string, lk *lookups) ([]De
 				}
 			}
 		}
-		if hit || r.Expr.Rel == "" {
+		if hit {
+			continue
+		}
+		// A source / exec whose target is not statically known runs a file
+		// no closure can follow: unresolved, marked <dynamic>.
+		runs := r.Via == "source" || r.Via == "exec"
+		if r.Expr.Rel == "" {
+			if runs {
+				unresolved = append(unresolved, "<dynamic>")
+			}
 			continue
 		}
 		if r.Expr.Base == "unknown" {
@@ -824,6 +835,9 @@ func bashFacts(p string, b *bashRaw, env map[string][]string, lk *lookups) ([]De
 					deps = append(deps, Dep{Target: c, Line: r.Line, Via: "suffix"})
 					hit = true
 				}
+			}
+			if !hit && runs {
+				unresolved = append(unresolved, "<dynamic>/"+r.Expr.Rel)
 			}
 			continue
 		}
@@ -839,7 +853,7 @@ func bashFacts(p string, b *bashRaw, env map[string][]string, lk *lookups) ([]De
 				hit = true
 			}
 		}
-		if !hit && (r.Via == "source" || r.Via == "exec") {
+		if !hit && runs {
 			unresolved = append(unresolved, r.Expr.Rel)
 		}
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 
 	"github.com/beyondeye/aitasks/goengines/internal/gitx"
 	"github.com/beyondeye/aitasks/goengines/internal/testmap/registry"
@@ -38,31 +39,88 @@ func (Source) Annotations(ctx context.Context, root string) ([]registry.FileAnno
 	defer r.Close()
 	var out []registry.FileAnnotations
 	for _, p := range files {
-		if cfg.Excluded(p) || !knownExt(p) {
+		if cfg.Excluded(p) {
 			continue
 		}
-		data, _, err := readNoFollow(r, p)
-		switch {
-		case errors.Is(err, ErrMissing), errors.Is(err, ErrNotAFile):
-			continue // deleted since the index, or reached through a link
-		case err != nil:
-			return nil, fmt.Errorf("%s: %w", p, err)
-		}
-		if l, ok := LangOf(p, data); !ok || !mayCarry(l, data) {
-			continue
-		}
-		f, err := ParseFile(p, data)
-		if errors.Is(err, ErrNoLeader) {
-			continue
-		}
+		f, ok, err := readAnnotations(r, p)
 		if err != nil {
 			return nil, err
 		}
-		if f.Annotated() {
-			out = append(out, toRegistry(f))
+		if ok {
+			out = append(out, f)
 		}
 	}
 	return out, nil
+}
+
+// ExcludedReads returns the `testmap:reads` globs of the files Annotations
+// leaves out because they are `exclude:`d — same universe otherwise. An
+// excluded file is never registered, but code may still run it, and what it
+// reads is part of what a unit reading it reads (anchor eligibility). A file
+// whose annotations cannot be read is reported in bad (path → reason) rather
+// than failing: its declarations are unknown, which the caller fails closed on.
+func ExcludedReads(ctx context.Context, root string) (map[string][]string, map[string]string, error) {
+	cfg, err := registry.LoadConfig(root)
+	if err != nil {
+		return nil, nil, err
+	}
+	files, err := gitx.Repo{Dir: root}.ListFiles(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	r, err := openRoot(root)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer r.Close()
+	reads, bad := map[string][]string{}, map[string]string{}
+	for _, p := range files {
+		if !cfg.Excluded(p) {
+			continue
+		}
+		f, ok, err := readAnnotations(r, p)
+		if err != nil {
+			bad[p] = err.Error()
+			continue
+		}
+		if !ok {
+			continue
+		}
+		for _, u := range f.Units {
+			reads[p] = append(reads[p], u.Reads...)
+		}
+	}
+	return reads, bad, nil
+}
+
+// readAnnotations reads one git-visible file's annotations: ok is false for a
+// file of no known language, one deleted since the index or reached through a
+// link, or one carrying none.
+func readAnnotations(r *os.Root, p string) (registry.FileAnnotations, bool, error) {
+	if !knownExt(p) {
+		return registry.FileAnnotations{}, false, nil
+	}
+	data, _, err := readNoFollow(r, p)
+	switch {
+	case errors.Is(err, ErrMissing), errors.Is(err, ErrNotAFile):
+		return registry.FileAnnotations{}, false, nil // deleted since the index, or reached through a link
+	case err != nil:
+		return registry.FileAnnotations{}, false, fmt.Errorf("%s: %w", p, err)
+	}
+	if l, ok := LangOf(p, data); !ok || !mayCarry(l, data) {
+		return registry.FileAnnotations{}, false, nil
+	}
+	f, err := ParseFile(p, data)
+	if errors.Is(err, ErrNoLeader) {
+		return registry.FileAnnotations{}, false, nil
+	}
+	if err != nil {
+		return registry.FileAnnotations{}, false, err
+	}
+	if !f.Annotated() {
+		return registry.FileAnnotations{}, false, nil
+	}
+	return toRegistry(f), true, nil
 }
 
 // knownExt is a cheap pre-read filter: a path whose extension no language

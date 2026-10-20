@@ -18,11 +18,14 @@ import (
 // Anchor eligibility, decided at run time. A result is *clean* when the tree
 // its invocation ran on differs from head_start in nothing the unit can
 // read: no cause, HEAD unmoved, and the modified-path set either empty or
-// disjoint from the unit's test file, its whole test-side closure, its
+// disjoint from the unit's test file, its whole test-side closure, the
+// implicit inputs its framework reads and their closures (implicit.go), its
 // covers sources, the reads globs (helper `testmap:reads` and scanner
-// plugin) of every file in that closure, and the runner's own files. A unit
-// whose closure is opaque or not computable is clean only on an unmodified
-// tree. A clean pass anchors; every rejection carries its reason, which fails
+// plugin) of every file in those closures, and the runner's own files. The
+// closure is scanned with `exclude:` lifted, so an excluded file a unit runs
+// is followed, not dropped. A unit whose closure is opaque or not computable
+// — an unresolved reference, an unreadable read declaration, an implicit
+// input that cannot be scanned — is clean only on an unmodified tree. A clean pass anchors; every rejection carries its reason, which fails
 // toward running more (the edge stays STALE). A file edited and reverted
 // within one invocation is invisible to the start and end snapshots — the
 // residual this rule accepts.
@@ -36,6 +39,7 @@ type inputs struct {
 	graph    *deps.Graph
 	covers   map[registry.ID][]string // unit block (file-level: Member "") → covered sources
 	reads    map[string][]string      // helper path → testmap:reads globs
+	badAnnot map[string]string        // excluded path → why its annotations are unreadable
 }
 
 // judge decides each result of one run.
@@ -92,7 +96,13 @@ func (j *judge) load() *inputs {
 		in.err = "config:" + oneLine(err.Error())
 		return in
 	}
-	if in.graph, err = deps.Scan(j.ctx, root, deps.Options{Config: cfg}); err != nil {
+	// exclude: is a registry rule (never listed, never UNREGISTERED), not a
+	// statement about what code reads: the closure scan lifts it, so an
+	// excluded file a unit runs or reads is an ordinary edge, never a dropped
+	// one.
+	scanCfg := cfg
+	scanCfg.Exclude = nil
+	if in.graph, err = deps.Scan(j.ctx, root, deps.Options{Config: scanCfg}); err != nil {
 		in.err = "deps:" + oneLine(err.Error())
 		return in
 	}
@@ -124,6 +134,17 @@ func (j *judge) load() *inputs {
 	for _, r := range registry.ScopedOf(reg).Reads {
 		in.reads[r.Helper] = append(in.reads[r.Helper], r.Globs...)
 	}
+	// The lifted scan reaches excluded files, so their read declarations
+	// count too.
+	xreads, bad, err := annot.ExcludedReads(j.ctx, root)
+	if err != nil {
+		in.err = "annotations:" + oneLine(err.Error())
+		return in
+	}
+	for p, globs := range xreads {
+		in.reads[p] = append(in.reads[p], globs...)
+	}
+	in.badAnnot = bad
 	return in
 }
 
@@ -177,12 +198,25 @@ func (j *judge) decide(res runner.Result, rec runner.Record) (bool, string) {
 		mod[p] = true
 	}
 	test := res.ID.Path
-	if _, ok := in.graph.Facts(test); !ok {
+	facts, ok := in.graph.Facts(test)
+	if !ok {
 		return false, "opaque:no-facts"
 	}
 	files := j.closure(test)
-	if why := opaqueIn(in.graph, files); why != "" {
+	imp := implicitFiles(in.graph, test, facts.Lang)
+	ext := j.extend(files, imp)
+	all := slices.Concat(files, ext)
+	if why := opaqueIn(in.graph, all); why != "" {
 		return false, "opaque:" + why
+	}
+	if f := annotIn(in, all); f != "" {
+		return false, "opaque:annotations:" + f
+	}
+	switch p, err := unscannedImplicit(j.rep.Root, in.graph, test, facts.Lang); {
+	case err != nil:
+		return false, "eligibility-error:implicit:" + oneLine(err.Error())
+	case p != "":
+		return false, "opaque:implicit-unscanned:" + p
 	}
 	if mod[test] {
 		return false, "test-file"
@@ -192,23 +226,30 @@ func (j *judge) decide(res runner.Result, rec runner.Record) (bool, string) {
 			return false, "closure:" + f
 		}
 	}
+	for _, f := range ext {
+		switch {
+		case !mod[f]:
+		case slices.Contains(imp, f):
+			return false, "implicit:" + f
+		default:
+			return false, "closure:" + f
+		}
+	}
 	for _, src := range j.coversOf(res.ID) {
 		if mod[src] {
 			return false, "covers:" + src
 		}
 	}
-	for _, f := range files {
-		if g := globHit(in.reads[f], rec.Modified); g != "" {
-			return false, "reads:" + g
-		}
+	if why := readsIn(in, all, rec.Modified); why != "" {
+		return false, why
 	}
-	for _, f := range files {
-		facts, _ := in.graph.Facts(f)
-		if g := globHit(facts.Reads, rec.Modified); g != "" {
-			return false, "plugin-reads:" + g
-		}
+	switch p, err := implicitHit(j.rep.Root, in.graph, test, facts.Lang, all, rec.Modified); {
+	case err != nil:
+		return false, "eligibility-error:implicit:" + oneLine(err.Error())
+	case p != "":
+		return false, "implicit:" + p
 	}
-	if why := j.runnerConfig(r, mod); why != "" {
+	if why := j.runnerConfig(r, mod, rec.Modified); why != "" {
 		return false, "runner-config:" + why
 	}
 	return true, ""
@@ -221,6 +262,59 @@ func (j *judge) closure(test string) []string {
 		files = append(files, r.Path)
 	}
 	return files
+}
+
+// extend returns the implicit inputs and their closures that files lacks,
+// the inputs first.
+func (j *judge) extend(files, imp []string) []string {
+	seen := map[string]bool{}
+	for _, f := range files {
+		seen[f] = true
+	}
+	var out []string
+	add := func(f string) {
+		if !seen[f] {
+			seen[f] = true
+			out = append(out, f)
+		}
+	}
+	for _, f := range imp {
+		add(f)
+	}
+	for _, f := range imp {
+		for _, r := range j.in.graph.Closure(f, 0) {
+			add(r.Path)
+		}
+	}
+	return out
+}
+
+// annotIn names the first file of files whose read declarations could not
+// be read: what it reads is unknown.
+func annotIn(in *inputs, files []string) string {
+	for _, f := range files {
+		if _, bad := in.badAnnot[f]; bad {
+			return f
+		}
+	}
+	return ""
+}
+
+// readsIn returns the first read declaration of files that a modified path
+// matches: `reads:<glob>` (testmap:reads), then `plugin-reads:<glob>`.
+func readsIn(in *inputs, files, modified []string) string {
+	for _, f := range files {
+		if g := globHit(in.reads[f], modified); g != "" {
+			return "reads:" + g
+		}
+	}
+	for _, f := range files {
+		facts, _ := in.graph.Facts(f)
+		if g := globHit(facts.Reads, modified); g != "" {
+			return "plugin-reads:" + g
+		}
+	}
+	return ""
 }
 
 // opaqueIn names the first file of files whose closure cannot be trusted: an
@@ -252,8 +346,9 @@ func (j *judge) coversOf(id registry.ID) []string {
 
 // runnerConfig names the first runner file the modified set touches: the
 // runners table, anything under aitestmap/runners/, a project script and
-// its own closure, or a path the builtin command line names.
-func (j *judge) runnerConfig(r *runner.Runner, mod map[string]bool) string {
+// its own closure — with the closure's read declarations and readability,
+// exactly as on the test side — or a path the builtin command line names.
+func (j *judge) runnerConfig(r *runner.Runner, mod map[string]bool, modified []string) string {
 	if mod[runner.RunnersPath] {
 		return runner.RunnersPath
 	}
@@ -273,6 +368,12 @@ func (j *judge) runnerConfig(r *runner.Runner, mod map[string]bool) string {
 		files := j.closure(script)
 		if why := opaqueIn(j.in.graph, files); why != "" {
 			return "opaque:" + strings.TrimPrefix(strings.TrimPrefix(why, "closure-opaque:"), "unresolved:")
+		}
+		if f := annotIn(j.in, files); f != "" {
+			return "annotations:" + f
+		}
+		if why := readsIn(j.in, files, modified); why != "" {
+			return why
 		}
 		for _, f := range files {
 			if mod[f] {

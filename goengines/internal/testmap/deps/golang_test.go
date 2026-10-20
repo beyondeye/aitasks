@@ -365,3 +365,52 @@ func TestGoTestOnlyImports(t *testing.T) {
 		t.Errorf("the package's non-test file: opaque %q", got)
 	}
 }
+
+// A file go list names outside the universe (here gitignored) is unresolved
+// on every file that would have reached it; an importer of an entirely
+// outside package — reported by go list, or (imported only by a tag-ignored
+// file, under a directory ./... skips) found only by the fallback over the
+// walk — carries the mark itself, since no facts exist inside it.
+func TestGoOutsideUniverseIsUnresolved(t *testing.T) {
+	goEnvFixture(t)
+	r := repo(t, map[string]string{
+		".gitignore":        "/p/assets/gone.txt\n/p/gen.go\n/hidden/\n/_gen/\n",
+		"go.mod":            goMod,
+		"p/p.go":            "package p\n\nimport _ \"embed\"\n\n//go:embed assets/gone.txt\nvar Gone string\n\n//go:embed assets/kept.txt\nvar Kept string\n",
+		"p/assets/gone.txt": "x\n",
+		"p/assets/kept.txt": "y\n",
+		"p/gen.go":          "package p\n\nvar G = 1\n",
+		"p/p_test.go":       "package p\n\nimport \"testing\"\n\nfunc TestP(t *testing.T) {}\n",
+		"a/a_test.go":       "package a\n\nimport (\n\t\"testing\"\n\n\t_ \"m/hidden\"\n)\n\nfunc TestA(t *testing.T) {}\n",
+		"hidden/hidden.go":  "package hidden\n\nimport _ \"m/c\"\n",
+		"c/c.go":            "package c\n",
+		"t/t.go":            "package t\n",
+		"t/zz_tag.go":       "//go:build ignore\n\npackage t\n\nimport _ \"m/_gen\"\n",
+		"_gen/h.go":         "package gen\n",
+	})
+	g := scanRepo(t, r)
+	unres := func(p string) []string {
+		f, ok := g.Facts(p)
+		if !ok {
+			t.Fatalf("no facts for %s", p)
+		}
+		return f.Unresolved
+	}
+	for _, f := range []string{"p/p.go", "p/p_test.go"} {
+		if want := []string{"p/assets/gone.txt", "p/gen.go"}; !slices.Equal(unres(f), want) {
+			t.Errorf("%s: %q, want %q", f, unres(f), want)
+		}
+	}
+	requireEdge(t, g, "p/p.go", "p/assets/kept.txt", "", "embed")
+	if got := unres("a/a_test.go"); !slices.Equal(got, []string{"hidden/hidden.go"}) {
+		t.Errorf("importer of an outside package: %q", got)
+	}
+	if got := unres("t/zz_tag.go"); !slices.Equal(got, []string{"m/_gen"}) {
+		t.Errorf("fallback importer: %q", got)
+	}
+	for _, f := range []string{"c/c.go", "t/t.go"} {
+		if got := unres(f); len(got) != 0 {
+			t.Errorf("%s: %q", f, got)
+		}
+	}
+}

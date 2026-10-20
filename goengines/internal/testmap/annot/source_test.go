@@ -142,3 +142,25 @@ func TestSourceScopedKeys(t *testing.T) {
 		t.Errorf("got  %s\nwant %s", out, want)
 	}
 }
+
+// ExcludedReads reads exactly the files Annotations leaves out for `exclude:`
+// and reports an unreadable one instead of failing.
+func TestExcludedReads(t *testing.T) {
+	r := repo(t, map[string]string{
+		"tests/golden/lib.sh":  "#!/bin/sh\n# testmap:reads fixtures/*.json\ncat \"$1\"\n",
+		"tests/golden/bad.sh":  "#!/bin/sh\n\n# testmap:frobnicate x\n",
+		"tests/golden/none.sh": "#!/bin/sh\necho\n",
+		"tests/lib.sh":         "#!/bin/sh\n# testmap:reads data/*.txt\n",
+	})
+	r.Commit(t, "1", "test", "fixtures")
+	reads, bad, err := ExcludedReads(bg, r.Dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := json.Marshal(reads); string(got) != `{"tests/golden/lib.sh":["fixtures/*.json"]}` {
+		t.Errorf("reads: %s", got)
+	}
+	if len(bad) != 1 || !strings.Contains(bad["tests/golden/bad.sh"], "unknown key") {
+		t.Errorf("bad: %v", bad)
+	}
+}

@@ -21,7 +21,11 @@ import (
 // The go scanner's graph comes from `go list -e -deps -test -json` per module,
 // cached under a key over every input that list reads (goKey). Package
 // granularity: a file depends on its package's files and on the files of
-// every local package it imports.
+// every local package it imports. A file go list names that lies outside the
+// scan universe (excluded, gitignored, linked) has no edge: it is recorded in
+// Unresolved on every file that would have reached it, and an importer of a
+// local package with such an input — or of one it cannot locate — records it
+// too, since an entirely outside package has no facts to carry the mark.
 
 // goPkg is the part of a `go list -json` package the graph uses. Dir is
 // repository-relative once loaded.
@@ -564,11 +568,12 @@ func goFacts(res *goResult, facts map[string]*fileB, u *universe) {
 		byPath[res.Pkgs[i].Run+"\x00"+res.Pkgs[i].ImportPath] = &res.Pkgs[i]
 	}
 	// importFiles returns the non-test files of a local package, by import
-	// path; a local path go list did not report falls back to the module
-	// path arithmetic over the walk.
-	importFiles := func(run, ip string) []string {
+	// path, and its inputs the closure cannot follow; a local path go list
+	// did not report falls back to the module path arithmetic over the walk,
+	// and is itself unresolved when no universe file is found there.
+	importFiles := func(run, ip string) ([]string, []string) {
 		if q, ok := byPath[run+"\x00"+ip]; ok {
-			return pkgMembers(q, u)
+			return pkgMembers(q, u), pkgOutside(q, u)
 		}
 		for _, m := range res.Modules {
 			if m.Path == "" || !(ip == m.Path || strings.HasPrefix(ip, m.Path+"/")) {
@@ -581,9 +586,12 @@ func goFacts(res *goResult, facts map[string]*fileB, u *universe) {
 					out = append(out, f)
 				}
 			}
-			return out
+			if len(out) == 0 {
+				return nil, []string{ip}
+			}
+			return out, nil
 		}
-		return nil
+		return nil, nil
 	}
 	missingImporter := func(run string, imports []string) bool {
 		for _, ip := range imports {
@@ -625,6 +633,20 @@ func goFacts(res *goResult, facts map[string]*fileB, u *universe) {
 			}
 			return out
 		}
+		// The inputs outside the universe: the package's own (every file
+		// of the package reads them) and, for its tests, the test files
+		// and test embeds too — tests and xtests build into one binary.
+		pkgOut := pkgOutside(p, u)
+		var testOut []string
+		for _, f := range slices.Concat(p.TestGoFiles, p.XTestGoFiles, p.TestEmbedFiles, p.XTestEmbedFiles) {
+			testOut = appendOutside(testOut, u, joinRel(p.Dir, f))
+		}
+		for _, f := range p.IgnoredGoFiles {
+			if strings.HasSuffix(f, "_test.go") {
+				testOut = appendOutside(testOut, u, joinRel(p.Dir, f))
+			}
+		}
+		testOut = slices.Concat(pkgOut, testOut)
 		var testdata []string
 		for _, f := range u.list {
 			if strings.HasPrefix(f, joinRel(p.Dir, "testdata")+"/") {
@@ -639,11 +661,12 @@ func goFacts(res *goResult, facts map[string]*fileB, u *universe) {
 		if p.Error != nil {
 			opaque = "go-list-failed"
 		}
-		link := func(f string, imports []string, extra ...viaList) {
+		link := func(f string, imports, outside []string, extra ...viaList) {
 			ff, ok := facts[f]
 			if !ok {
 				return
 			}
+			ff.Unresolved = append(ff.Unresolved, outside...)
 			if opaque != "" || missingImporter(p.Run, imports) {
 				ff.addOpaque("go-list-failed")
 			}
@@ -654,9 +677,11 @@ func goFacts(res *goResult, facts map[string]*fileB, u *universe) {
 				imports = slices.Concat(imports, ff.goImports)
 			}
 			for _, ip := range imports {
-				for _, t := range importFiles(p.Run, ip) {
+				files, unres := importFiles(p.Run, ip)
+				for _, t := range files {
 					ff.add(Dep{Target: t, Via: "import"})
 				}
+				ff.Unresolved = append(ff.Unresolved, unres...)
 			}
 			for _, l := range extra {
 				for _, t := range l.files {
@@ -665,7 +690,7 @@ func goFacts(res *goResult, facts map[string]*fileB, u *universe) {
 			}
 		}
 		for _, f := range members {
-			link(f, p.Imports, viaList{"same-package", members}, viaList{"cgo", aux}, viaList{"embed", embeds(p.EmbedFiles)})
+			link(f, p.Imports, pkgOut, viaList{"same-package", members}, viaList{"cgo", aux}, viaList{"embed", embeds(p.EmbedFiles)})
 		}
 		for _, f := range tests {
 			ff, ok := facts[f]
@@ -675,7 +700,7 @@ func goFacts(res *goResult, facts map[string]*fileB, u *universe) {
 			for _, t := range members {
 				ff.add(Dep{Target: t, Line: ff.goPkgLine, Origin: Package, Via: "package"})
 			}
-			link(f, slices.Concat(p.Imports, p.TestImports), viaList{"same-package", tests},
+			link(f, slices.Concat(p.Imports, p.TestImports), testOut, viaList{"same-package", tests},
 				viaList{"embed", embeds(p.TestEmbedFiles)}, viaList{"testdata", testdata})
 		}
 		for _, f := range xtests {
@@ -686,7 +711,7 @@ func goFacts(res *goResult, facts map[string]*fileB, u *universe) {
 			for _, t := range members {
 				ff.add(Dep{Target: t, Line: ff.goPkgLine, Origin: Package, Via: "package"})
 			}
-			link(f, p.XTestImports, viaList{"xtest", tests}, viaList{"same-package", xtests},
+			link(f, p.XTestImports, testOut, viaList{"xtest", tests}, viaList{"same-package", xtests},
 				viaList{"embed", embeds(p.XTestEmbedFiles)}, viaList{"testdata", testdata})
 		}
 	}
@@ -718,4 +743,28 @@ func appendUniverse(list []string, u *universe, p string) []string {
 		return append(list, p)
 	}
 	return list
+}
+
+// appendOutside is appendUniverse's complement: p when it is outside the
+// universe, so the closure cannot follow it.
+func appendOutside(list []string, u *universe, p string) []string {
+	if !u.has(p) && !slices.Contains(list, p) {
+		return append(list, p)
+	}
+	return list
+}
+
+// pkgOutside is a package's non-test inputs outside the universe: its non-test
+// Go files (tag-ignored ones too), cgo / assembly / syso files and embeds.
+func pkgOutside(p *goPkg, u *universe) []string {
+	var out []string
+	for _, f := range slices.Concat(p.GoFiles, p.CgoFiles, p.CFiles, p.CXXFiles, p.HFiles, p.SFiles, p.SysoFiles, p.EmbedFiles) {
+		out = appendOutside(out, u, joinRel(p.Dir, f))
+	}
+	for _, f := range p.IgnoredGoFiles {
+		if !strings.HasSuffix(f, "_test.go") {
+			out = appendOutside(out, u, joinRel(p.Dir, f))
+		}
+	}
+	return out
 }

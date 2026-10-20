@@ -88,12 +88,18 @@ func eligRepo(t *testing.T, prefix string, extra map[string]string) *fixture.Rep
 	return r
 }
 
-// judged runs every unit through the real runner and returns the ledger
-// result rows the hook would append.
+// judged runs every unit (all) or tests/test_a.sh through the real runner
+// and returns the ledger result rows the hook would append.
 func judged(t *testing.T, root string, all bool) []ResultRow {
 	t.Helper()
+	return judgedIDs(t, root, all, idsIf(!all))
+}
+
+// judgedIDs is judged over explicit unit ids.
+func judgedIDs(t *testing.T, root string, all bool, ids []string) []ResultRow {
+	t.Helper()
 	runSeq++
-	rep, err := runner.Run(bg, root, runner.Options{All: all, IDs: idsIf(!all), RunID: fmt.Sprintf("test-%d", runSeq)})
+	rep, err := runner.Run(bg, root, runner.Options{All: all, IDs: ids, RunID: fmt.Sprintf("test-%d", runSeq)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -187,12 +193,12 @@ func TestEligibilityCauseAndHead(t *testing.T) {
 	}
 }
 
-// A test that sources a file the scan cannot follow (an excluded vendor
-// script) is opaque on a dirty tree, even when the dirty file is that one.
-func TestEligibilityUnresolvedSourceIsOpaque(t *testing.T) {
+// A test that sources an excluded vendor script: the eligibility scan lifts
+// `exclude:`, so the script is an ordinary closure file and its edit is named.
+func TestEligibilityExcludedSourceIsFollowed(t *testing.T) {
 	r := eligRepo(t, "", map[string]string{"tests/test_a.sh": testA + "source \"$SCRIPT_DIR/../vendor/lib.sh\"\n"})
 	dirty(t, r, "vendor/lib.sh")
-	if row := reasonOf(t, judged(t, r.Dir, false), "tests/test_a.sh"); row.Anchor || row.AnchorReason != "opaque:unresolved:tests/test_a.sh" {
+	if row := reasonOf(t, judged(t, r.Dir, false), "tests/test_a.sh"); row.Anchor || row.AnchorReason != "closure:vendor/lib.sh" {
 		t.Fatalf("%+v", row)
 	}
 }
