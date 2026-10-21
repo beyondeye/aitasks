@@ -44,7 +44,8 @@ reaper), whose orphan sweep this task reuses for local blobs.
    - a pinned version;
    - a hash referenced by any other manifest version or any attachment meta
      (shared blob);
-   - versions of artifacts whose only owners are archived, unless
+   - any version of an artifact with **at least one** archived owner (a loose
+     or bundled archived task), even one shared with active tasks, unless
      `--include-archived` is given.
 4. **On `--apply`:**
    - move the hash from `versions` to `expired` with a tombstone;
@@ -53,7 +54,18 @@ reaper), whose orphan sweep this task reuses for local blobs.
    - leave non-local orphans for store compaction (t2104) or
      backend-specific reaping.
    - One commit, under `with_attach_lock`, with rollback.
-5. `ait artifact get --version <expired hash>` reports *expired* (at, by)
+5. **A pin outlives owner removal** (design doc D3, §5). Nothing removes a
+   pinned version or deletes its manifest while it is pinned. Extend every
+   path that can drop a manifest:
+   - `ait artifact rm` of the **last** reference (`aitask_artifact.sh`
+     ~L785-903) refuses when any version is pinned, naming `ait artifact
+     unpin`. An explicit `--unpin` flag unpins and removes in one step.
+   - t1135's hard-delete decref refuses in the same way, so the hard delete
+     needs an explicit choice.
+   - t1135's orphaned-manifest reaper skips pinned manifests and lists them
+     in its report.
+   - Store compaction (t2104) already counts pinned hashes as live.
+6. `ait artifact get --version <expired hash>` reports *expired* (at, by)
    instead of *not found*. `versions` lists expired entries distinctly.
 
 ## Verification (tests)
@@ -67,6 +79,13 @@ reaper), whose orphan sweep this task reuses for local blobs.
   a dry run changes nothing.
 - **Concurrent prune vs. update** of the same artifact under the lock: no lost
   version, no half-written manifest.
+- **Mixed active/archived ownership**: one manifest is owned by an active
+  task and an archived task, and has an unpinned historical hash used by no
+  other manifest. `prune --all --apply` keeps the hash; with
+  `--include-archived` it expires.
+- **Pin outlives owner removal**: with a version pinned, `rm` of the last
+  reference refuses and the manifest and blob remain; hard-delete refuses;
+  the reaper skips and reports the manifest. `rm --unpin` removes it.
 - Old manifests without the new fields still load.
 
 ## Docs

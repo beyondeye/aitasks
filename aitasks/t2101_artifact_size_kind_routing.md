@@ -29,11 +29,18 @@ and `update` resolves that backend (~L520-565). `move` copies every version
    default; must name a registered backend) and `artifacts.large_threshold_mb`
    (default `1`), validated in `lib/artifact_registry.py`. Add commented
    examples to `seed/project_config.yaml`.
-2. **Routing happens at creation only.** `create` sends content to
-   `large_backend` when it is over the threshold or binary (a NUL byte in the
-   first 8 KiB, git's heuristic). An explicit `--backend` always wins. With
-   `large_backend` unset, it warns once per command and stores on the default
-   backend.
+2. **Routing happens at creation only**, with one precedence contract (design
+   doc §4), highest first:
+   1. an explicit `--backend`;
+   2. `large_backend`, when it is set and the content is over the threshold or
+      binary (a NUL byte in the first 8 KiB, git's heuristic);
+   3. `default_backend` (unset means `local`, the data branch) for everything
+      else. Large content also goes there when `large_backend` is unset, with a
+      warning once per command.
+
+   "Small text stays on the data branch" is the outcome under the shipped
+   default, not a separate rule. A configured non-local `default_backend` keeps
+   receiving small content; routing never overrides it.
 3. **`update` always keeps the artifact's existing backend.** A manifest has one
    backend for all versions, so routing only the new bytes would break the model.
    When the update's content crosses the threshold, or is binary, on a non-large
@@ -56,6 +63,10 @@ and `update` resolves that backend (~L520-565). `move` copies every version
      `get`.
   4. Run `move --to <large_backend>` and assert both versions are still
      retrievable, now from the new backend.
+- **Non-local default**: with `default_backend: dir` and `large_backend:
+  gitbranch`, small text goes to `dir` and large or binary content to
+  `gitbranch`. With `large_backend` unset, large content goes to `dir` with the
+  warning.
 - An invalid `large_backend` (unregistered) is refused at activation.
 
 ## Docs
