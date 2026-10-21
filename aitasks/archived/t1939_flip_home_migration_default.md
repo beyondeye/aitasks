@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: medium
 depends: [1931]
 issue_type: enhancement
-status: Implementing
+status: Done
 labels: [testmap, install, ait_setup, bash_scripts]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -18,6 +18,7 @@ anchor: 1852
 implemented_with: claudecode/opus5_5
 created_at: 2026-10-09 15:58
 updated_at: 2026-10-21 15:10
+completed_at: 2026-10-21 15:10
 ---
 
 ## Context
@@ -94,3 +95,14 @@ t1852_6 covers most of these with direct-verb cases (H5, H7, H8, H11–H13) plus
 > **✅ gate:plan_approved** run=2026-10-21T09:16:12Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-10-21T11:52:09Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-10-21T12:10:40Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:726a426c6a1a74d4
+
+> **✅ gate:risk_evaluated** run=2026-10-21T12:10:40Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1939/risk_evaluated_2026-10-21T12:10:40Z-risk_evaluated-a1.log`
