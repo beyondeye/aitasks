@@ -9,7 +9,11 @@ gates: [risk_evaluated]
 anchor: 1599
 followup_kind: risk_mitigation
 created_at: 2026-10-21 17:32
-updated_at: 2026-10-21 17:32
+updated_at: 2026-10-21 17:41
+artifacts:
+  - handle: art:trail-crew-runner
+    kind: implementation_trail
+    name: Agent crew runner — fixes and improvements
 ---
 
 ## Origin

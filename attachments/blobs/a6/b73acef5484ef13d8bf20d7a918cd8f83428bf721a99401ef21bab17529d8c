@@ -1,0 +1,155 @@
+{
+  "schema_version": "1.1.0",
+  "trail_id": "trail-crew-runner",
+  "title": "Agent crew runner — fixes and improvements",
+  "owner": "aitasks#2115",
+  "scope": {
+    "kind": "ad_hoc",
+    "topics": [],
+    "selection_note": "User-approved ad-hoc set of 7 active crew-runner tasks, drawn from a keyword search of active task files (agentcrew, crew runner, _runner_alive, crew-) after t2029 landed, then filtered to the runner, its git paths, its liveness/dashboard surface and crew agent launch. It is not a full label or topic sweep. The members' topic roots (t1599 crew git, t1046 crew dashboard) are archived, so the owner is a member: t2115, chosen by the user. scope.topics is deliberately empty, as in trail-parallel-git-and-sync, so that siblings anchored in those topics that are not members do not register as drift."
+  },
+  "generation": {
+    "generated_at": "2026-10-21T14:40:58Z",
+    "generator": {
+      "agent_string": "claudecode/opus5_5",
+      "skill": "aitask-trail"
+    },
+    "input_digest": "d1b4fe719907842e",
+    "inputs": [
+      {"kind": "task_file", "ref": "aitasks#1412"},
+      {"kind": "task_file", "ref": "aitasks#1413"},
+      {"kind": "task_file", "ref": "aitasks#1740"},
+      {"kind": "task_file", "ref": "aitasks#2028"},
+      {"kind": "task_file", "ref": "aitasks#2114"},
+      {"kind": "task_file", "ref": "aitasks#2115"},
+      {"kind": "task_file", "ref": "aitasks#456"}
+    ]
+  },
+  "freshness": {
+    "state": "current",
+    "checked_at": "2026-10-21T14:40:58Z"
+  },
+  "rendering_hints": {
+    "depth": "lite"
+  },
+  "narrative": {
+    "problem_statement": "The agent crew runner and its git, liveness and dashboard surfaces have seven open fixes spread over two archived topics (t1599 crew git, t1046 crew dashboard) and one stray user report. In what order should they land so that they do not collide on the same files or build on premises that are about to change?",
+    "recommendation_summary": "Let t2028 (in flight) finish first: it reworks the crew git writers that t2114 and t1740 also touch. Meanwhile, pick the dashboard fixes t1413 and t1412, which sit on separate files. After t2028, land t2114 (small) and then re-scope t1740. t2115 builds on t2114 and t1413, so it comes next. t456 needs triage before it can be ordered.",
+    "overview": "Pick next: t1413 or t1412. Both are dashboard fixes on files t2028 does not touch, so they can run while t2028 is in flight; do them one after the other, not in parallel, because both edit the crew dashboard. Prefer t1413 first: it unifies the two divergent definitions of a live runner, and t2115 needs that single definition.\n\nWait for t2028: t2114 and t1740 edit the same crew git surface (agentcrew_utils.py, lib/agentcrew_utils.sh, the crew scripts). t2114 is a small crash fix and goes first. t1740's original premise has moved (t2024 replaced the pulls it targets with crew_pull_rebase, which t2028 is reworking), so it should be re-scoped against whatever t2028 lands. It also follows t1678, outside this trail, in trail-parallel-git-and-sync.\n\nThen t2115 (takeover-duel detection and a safe yield), which builds on t2029's competing-identity guard, t2114's bytes-mode merge proof and t1413's liveness predicate.\n\nt456 is an older user report about an agent stuck on a permission prompt and then marked stale/Error. It sits on a different surface and its premise needs re-checking, so it is last and optional.",
+    "method_note": "Lite depth. Membership is a user-approved keyword-search set, not a full label or topic sweep, so crew tasks worded differently may be missing. No in-flight probe was run (no --with-inflight); t2028's in-flight status is its task-file status (Implementing) in the gatherer snapshot. No member has a plan file, so file-overlap claims come from the task descriptions (partially read), not from plans. No member records a hard depends edge to another member, so every ordering here is advisory. The t1740 premise shift is taken from the trail-parallel-git-and-sync trail's own record (refreshed 2026-10-21) and the t2024 note on t2028, not re-verified against the code. t456's premise was not checked against the current runner."
+  },
+  "waves": [
+    {
+      "wave_id": "w1-inflight-and-independent",
+      "ordinal": 1,
+      "title": "In flight, and the parts that are independent now",
+      "purpose": "t2028 is already being implemented and reworks the crew git writers the later git fixes touch. The two dashboard fixes sit on separate files and can be picked while it lands.",
+      "entries": [
+        {
+          "entry_id": "e-2028",
+          "task": "aitasks#2028",
+          "topic": "aitasks#1599",
+          "position": 1,
+          "classification": "preferred_predecessor",
+          "confidence": "high",
+          "snapshot": {"status": "Implementing", "priority": "medium", "effort": "low", "gates_pending": ["risk_evaluated"], "followup_kind": "upstream_defect"},
+          "rationale": "Stops the other writers in a shared crew worktree from stranding a rebase (addwork/setmode via crew_pull_rebase) or committing an unfinished merge (git_commit_push_if_changes without a crew_merge_state check). t2114 and t1740 edit the same files, so they wait for it."
+        },
+        {
+          "entry_id": "e-1413",
+          "task": "aitasks#1413",
+          "topic": "aitasks#1046",
+          "position": 2,
+          "classification": "preferred_predecessor",
+          "confidence": "medium",
+          "snapshot": {"status": "Ready", "priority": "medium", "effort": "low"},
+          "rationale": "The dashboard shows 'Runner active' for a runner that wrote status: stopped, because get_runner_info reads heartbeat age only, while runner_is_live also requires status: running and uses a different threshold. Unifying the predicate gives t2115 one definition of 'another live runner'. It does not touch t2028's files."
+        },
+        {
+          "entry_id": "e-1412",
+          "task": "aitasks#1412",
+          "topic": "aitasks#1046",
+          "position": 3,
+          "classification": "core",
+          "confidence": "high",
+          "snapshot": {"status": "Ready", "priority": "medium", "effort": "low"},
+          "rationale": "The crew dashboard rebuilds its card list every 5 seconds and drops focus, so r/k/d/Enter silently stop working a few seconds after arrival. It is independent of the git work. It edits the same TUI as t1413, so it should follow t1413 rather than run alongside it."
+        }
+      ]
+    },
+    {
+      "wave_id": "w2-runner-git-robustness",
+      "ordinal": 2,
+      "title": "Runner git robustness, after t2028",
+      "purpose": "The remaining crew git fixes. They share agentcrew_utils.py and the crew pull helpers with t2028, so they land on top of it rather than racing it.",
+      "why_now": "t2114 is a crash in the runner's pull that any user with core.quotePath=false can hit on a conflicted non-UTF-8 path.",
+      "entries": [
+        {
+          "entry_id": "e-2114",
+          "task": "aitasks#2114",
+          "topic": "aitasks#1599",
+          "position": 1,
+          "classification": "core",
+          "confidence": "high",
+          "snapshot": {"status": "Ready", "priority": "medium", "effort": "low", "gates_pending": ["risk_evaluated"], "followup_kind": "upstream_defect"},
+          "rationale": "Reads merge-tree's conflict listing as bytes (git_cmd text=False, -z), so a non-UTF-8 conflicted name under core.quotePath=false defers instead of raising UnicodeDecodeError and ending the runner. Small, and in the function t2028 is likely to edit."
+        },
+        {
+          "entry_id": "e-1740",
+          "task": "aitasks#1740",
+          "topic": "aitasks#1599",
+          "position": 2,
+          "classification": "core",
+          "confidence": "medium",
+          "snapshot": {"status": "Ready", "priority": "medium", "effort": "medium", "followup_kind": "risk_mitigation"},
+          "rationale": "Serializing crew worktree pulls is still needed: there is no lock anywhere in the crew family, and brainstorm drives addwork/setmode programmatically. Its cleanup half targets pull sites t2024 replaced with crew_pull_rebase, which t2028 is reworking, so it needs re-scoping after t2028. It also follows t1678 (outside this trail)."
+        }
+      ]
+    },
+    {
+      "wave_id": "w3-runner-ownership",
+      "ordinal": 3,
+      "title": "Runner ownership",
+      "purpose": "Make a runner notice when another live runner owns the crew, and yield instead of overwriting it.",
+      "entries": [
+        {
+          "entry_id": "e-2115",
+          "task": "aitasks#2115",
+          "topic": "aitasks#1599",
+          "position": 1,
+          "classification": "core",
+          "confidence": "medium",
+          "snapshot": {"status": "Ready", "priority": "low", "effort": "medium", "gates_pending": ["risk_evaluated"], "followup_kind": "risk_mitigation"},
+          "rationale": "Takeover-duel detection after every pull, clean or conflicted, with a safe yield and operator reporting. It builds on t2029's competing-identity guard, t2114's bytes-mode merge proof and t1413's single liveness predicate, so it comes after all three."
+        }
+      ]
+    },
+    {
+      "wave_id": "w4-agent-launch-permissions",
+      "ordinal": 4,
+      "title": "Agent launch permissions",
+      "purpose": "A separate surface: how crew agents get the tool permissions they need. It is not ordered by the runner git work and needs triage first.",
+      "entries": [
+        {
+          "entry_id": "e-456",
+          "task": "aitasks#456",
+          "topic": "aitasks#456",
+          "position": 1,
+          "classification": "optional",
+          "confidence": "low",
+          "snapshot": {"status": "Ready", "priority": "medium", "effort": "medium", "boardcol": "unordered"},
+          "rationale": "User report from 2026-03: a brainstorm explorer got stuck on a missing-permission prompt and was later marked stale/Error. Its premise needs re-checking: the runner no longer changes an agent's status on a stale heartbeat. Decide whether it is still a defect or a configuration question before ordering it."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    {
+      "evidence_id": "gather-snapshot",
+      "source_type": "command_output",
+      "ref": "./.aitask-scripts/aitask_trail_gather.sh snapshot --scope task --owner 2115 2028 1740 2114 2115 1413 1412 456",
+      "observed_at": "2026-10-21T14:40:58Z",
+      "summary": "7 members; owner aitasks#2115; digest d1b4fe719907842e; 7 task_file inputs, no plan files. t2028 Implementing, the rest Ready. No member depends on another member. risk_evaluated pending on t2028, t2114, t2115."
+    }
+  ]
+}

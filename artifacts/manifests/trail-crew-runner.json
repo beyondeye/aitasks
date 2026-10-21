@@ -1,0 +1,10 @@
+{
+  "backend": "local",
+  "created_at": 1792593696,
+  "current": "sha256:a6b73acef5484ef13d8bf20d7a918cd8f83428bf721a99401ef21bab17529d8c",
+  "handle": "art:trail-crew-runner",
+  "updated_at": 1792593696,
+  "versions": [
+    "sha256:a6b73acef5484ef13d8bf20d7a918cd8f83428bf721a99401ef21bab17529d8c"
+  ]
+}
