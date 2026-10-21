@@ -443,3 +443,42 @@ changes no code.
 
 ### Planned mitigations
 - timing: pre-phase | name: probe_negative_refspec | type: chore | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: unverified negative-refspec assumption behind task A | desc: probe fetch/fetch --all/explicit-refspec behaviour with a negative refspec in a scratch repo and record results in the design doc
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-21 12:10)
+- **Requested by user:** four verified findings. (1) t2102 protected archived evidence only when every owner was archived, contradicting D3. (2) Pins did not survive `rm` of the last reference, t1135's hard-delete or its reaper. (3) D2's "small text stays on the data branch" conflicted with t2101's routing to `default_backend`. (4) The promised per-backend comparison was missing.
+- **Changes made:**
+  - D3 now protects any artifact with at least one archived owner, and states that a pin outlives owner removal. The lifecycle table rows say the same.
+  - The D2 / §4 precedence is `--backend` > `large_backend` (large or binary) > `default_backend`. Data-branch storage is the outcome under the shipped default, and a configured non-local default keeps its choice.
+  - Added a §3 "Backend comparison" table (download, disk, on-demand, offline, version recovery, credentials, burden), with future backends marked as assumptions.
+  - t2102 gained the any-archived-owner rule, pin enforcement in rm / hard-delete / reaper (refuse unless explicitly unpinned; the reaper skips and reports), and tests for mixed active/archived ownership and pins outliving owner removal.
+  - t2101 gained the precedence contract and a non-local-default test.
+- **Files affected:** `aidocs/artifact_storage_lifecycle.md`, `aitasks/t2101_artifact_size_kind_routing.md`, `aitasks/t2102_artifact_pin_and_prune.md`
+
+### Change Request 2 (2026-10-21 12:25)
+- **Requested by user:** the `dir` row's offline cell excluded cached reads, but `artifact_cache.sh:35-39` returns a verified cache hit before touching the backend.
+- **Changes made:** the cell now reads "cached reads work without the mount; uncached reads and writes need it".
+- **Files affected:** `aidocs/artifact_storage_lifecycle.md`
+
+## Final Implementation Notes
+- **Actual work done:**
+  - **Pre-phase probe** `probe_negative_refspec` ran in scratch repos over `file://` (git 2.56.0) and confirmed every assumption. Results are recorded verbatim in `aidocs/artifact_storage_lifecycle.md` §3.
+  - **New design record** `aidocs/artifact_storage_lifecycle.md`: decisions D1–D4 with rejected alternatives, a fresh-download table, a backend comparison, the partial/shallow-fetch analysis, the routing contract, lifecycle states, cleanup vs. purge, the five-rule compaction safety contract, migration / purge scope, the screen-recording policy, and the task map with its verification scenarios.
+  - **Cross-references** in `unified_artifact_design.md` §9/§14 and `task_attachments_design.md` §8/§12.
+  - **Website:** a "What gets downloaded" paragraph in `commands/artifact.md`, describing current behaviour.
+  - **Tasks created** (anchor 1065): t2099 fetch exclusion, t2100 separate remote (→t2099), t2101 routing, t2102 pin/prune (→t1135), t2103 cleanup reporting, t2104 compaction (→t2102), t2105 website page (→t2099–t2102, t2104).
+- **Deviations from plan:**
+  - The task letters map to IDs as A=t2099, B=t2100, C=t2101, D=t2102, F=t2103, E=t2104, G=t2105. Creation order put F before E.
+  - The advisory notes (step 5) are sent after the code commit, so they cite a design doc that is in the tree at their recorded base SHA.
+- **Issues encountered:**
+  - A plain-path `git clone` hard-links every object and made a `--single-branch` clone look as if it contained the store. Re-running over `file://` gave the real result. This is recorded in the doc and in t2099's test guidance.
+  - The first drift-check stop resolved itself, because another session had already pulled `main`.
+- **Key decisions:** Reviewer findings folded into the design:
+  - shared vs. dedicated remote exclusion;
+  - compaction contract rules (fresh references, grace, non-destructive fallback, late-reference sweep, one retirement at a time);
+  - routing at creation only, with the `--backend` > `large_backend` > `default_backend` precedence;
+  - the any-archived-owner protection;
+  - pins outliving owner removal;
+  - cached `dir` reads working offline.
+- **Upstream defects identified:** None
