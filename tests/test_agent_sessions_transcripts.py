@@ -123,18 +123,44 @@ class _TranscriptTestCase(unittest.TestCase):
         return path
 
     def write_proc(self, pid: int, *, argv=("/usr/bin/codex", "-m", "gpt-5.6-terra"),
-                   fds=()) -> Path:
-        """A fake `/proc/<pid>`: a cmdline plus one symlink per open file."""
+                   fds=(), children=None, job=None, ppid=1) -> Path:
+        """A fake `/proc/<pid>`: a cmdline plus one symlink per open file.
+
+        ``argv=None`` writes no cmdline (unreadable). ``children`` writes
+        ``task/<pid>/children``; None writes no ``task/`` dir. ``job`` is
+        ``(pgrp, tty_nr, tpgid)`` for a ``stat`` line; None writes no stat.
+        """
         d = self.home / "proc" / str(pid)
         (d / "fd").mkdir(parents=True, exist_ok=True)
-        (d / "cmdline").write_bytes(
-            b"\0".join(a.encode() for a in argv) + b"\0")
+        if argv is not None:
+            (d / "cmdline").write_bytes(
+                b"\0".join(a.encode() for a in argv) + b"\0")
+        elif (d / "cmdline").exists():
+            (d / "cmdline").unlink()
         for index, target in enumerate(fds):
             link = d / "fd" / str(index)
             if link.is_symlink() or link.exists():
                 link.unlink()
             link.symlink_to(str(target))
+        if children is not None:
+            task = d / "task" / str(pid)
+            task.mkdir(parents=True, exist_ok=True)
+            (task / "children").write_text(
+                "".join(f"{child} " for child in children))
+        if job is not None:
+            self.write_job(pid, job, ppid=ppid)
         return d
+
+    def write_job(self, pid: int, job, *, ppid=1) -> None:
+        """``/proc/<pid>/stat`` with ``job = (pgrp, tty_nr, tpgid)``.
+
+        `comm` carries a space and a `)` on purpose: the reader must count the
+        fields from after the LAST `)`.
+        """
+        pgrp, tty_nr, tpgid = job
+        (self.home / "proc" / str(pid) / "stat").write_text(
+            f"{pid} (odd ) comm) S {ppid} {pgrp} {ppid} {tty_nr} {tpgid} "
+            "4194304 0 0 0 0 0 0 0 0 20 0 1 0 100 0 0\n")
 
     def resolve_pid(self, pid):
         return agent_sessions.codex_session_for_pid(
@@ -445,6 +471,404 @@ class CodexPidCorrelationTests(_TranscriptTestCase):
         (self.home / "proc" / "110" / "fd").mkdir(parents=True)
         self.assertEqual(self.resolve_pid(110)[2],
                          agent_sessions.MISS_NO_PROCESS)
+
+
+class CodexShellPaneTests(_TranscriptTestCase):
+    """`codex_observe_pid` through a pane SHELL (t2077).
+
+    A codex typed at a shell prompt is the shell's direct child, so the pane
+    pid is the shell (measured on codex 0.163.0: `-bash` -> codex, codex leads
+    its own job, the terminal's tpgid is codex's pgrp, and a Ctrl-Z'd codex
+    keeps its rollout open while tpgid flips back to the shell). Exactly one
+    level, only through a known shell, and only the FOREGROUND job counts.
+    """
+
+    SHELL = 500
+    TTY = 34860
+    A = "01a00000-0000-7000-8000-00000000a001"
+    B = "01a00000-0000-7000-8000-00000000b002"
+
+    def setUp(self):
+        super().setUp()
+        self.root = os.path.realpath(str(self.home / "proj"))
+
+    # --- fixture builders ----------------------------------------------------
+
+    def shell(self, children, *, tpgid, argv=("-bash",), job=None):
+        self.write_proc(self.SHELL, argv=argv, children=children,
+                        job=job or (self.SHELL, self.TTY, tpgid))
+
+    def codex(self, pid, session_id, *, tpgid, model="gpt-5.6-terra",
+              pgrp=None, tty=None):
+        rollout = self.write_codex(session_id, self.root)
+        self.write_proc(pid, argv=("/usr/bin/codex", "-m", model),
+                        fds=[rollout], ppid=self.SHELL,
+                        job=(pgrp or pid, tty or self.TTY, tpgid))
+        return rollout
+
+    def other(self, pid, argv, *, tpgid, pgrp=None):
+        self.write_proc(pid, argv=argv, ppid=self.SHELL,
+                        job=(pgrp or pid, self.TTY, tpgid))
+
+    def suspend_all(self, *pids):
+        """Ctrl-Z of the foreground job: tpgid flips back to the shell."""
+        for pid in (self.SHELL, *pids):
+            stat = (self.home / "proc" / str(pid) / "stat").read_text()
+            fields = stat.rpartition(")")[2].split()
+            self.write_job(pid, (int(fields[2]), self.TTY, self.SHELL),
+                           ppid=int(fields[1]))
+
+    def observe(self, pid=None):
+        return agent_sessions.codex_observe_pid(
+            self.SHELL if pid is None else pid,
+            proc_root=str(self.home / "proc"))
+
+    def foreground_codex_pane(self):
+        """The measured shape: a foreground codex at depth 1, holding A."""
+        rollout = self.codex(501, self.A, tpgid=501)
+        self.shell([501], tpgid=501)
+        return rollout
+
+    # --- the measured case ---------------------------------------------------
+
+    def test_a_foreground_codex_resolves_through_its_shell(self):
+        """THE RED PROOF: before t2077 the shell pid answered `not_codex`."""
+        rollout = self.foreground_codex_pane()
+        self.assertEqual(self.observe(),
+                         (self.A, str(rollout), "gpt-5.6-terra", ""))
+        self.assertEqual(self.resolve_pid(self.SHELL),
+                         (self.A, str(rollout), ""),
+                         "the 3-tuple wrapper sees the same descent")
+
+    def test_every_listed_shell_spelling_is_accepted(self):
+        for argv in (("bash",), ("-zsh",), ("/usr/bin/fish", "-l"), ("sh",)):
+            with self.subTest(argv=argv):
+                self.codex(501, self.A, tpgid=501)
+                self.shell([501], tpgid=501, argv=argv)
+                self.assertEqual(self.observe()[0], self.A)
+
+    def test_a_non_codex_job_mate_does_not_block_resolution(self):
+        """`codex | tee` -- one foreground job, one codex in it."""
+        self.codex(501, self.A, tpgid=501)
+        self.other(502, ("tee", "log"), tpgid=501, pgrp=501)
+        self.shell([501, 502], tpgid=501)
+        self.assertEqual(self.observe()[0], self.A)
+
+    def test_a_background_codex_is_not_a_candidate(self):
+        self.codex(501, self.A, tpgid=501)
+        self.codex(502, self.B, tpgid=501, model="gpt-5.4")
+        self.shell([501, 502], tpgid=501)
+        sid, _path, cli_id, miss = self.observe()
+        self.assertEqual((sid, cli_id, miss), (self.A, "gpt-5.6-terra", ""),
+                         "the foreground one's session AND model")
+
+    # --- not the pane's agent -> today's answer, `not_codex` -----------------
+
+    def test_a_suspended_codex_under_a_foreground_claude_is_not_the_agent(self):
+        """THE OVERWRITE GUARD. A Ctrl-Z'd codex still holds its rollout, and a
+        claude now runs in the foreground. A child-only rule returns codex's
+        session here, and the freeze would file it over claude's record."""
+        self.codex(501, self.A, tpgid=503)
+        self.other(503, ("claude",), tpgid=503)
+        self.shell([501, 503], tpgid=503)
+        self.assertEqual(self.observe(),
+                         ("", "", "", agent_sessions.MISS_NOT_CODEX))
+
+    def test_a_suspended_codex_at_a_shell_prompt_is_not_the_agent(self):
+        self.codex(501, self.A, tpgid=self.SHELL)
+        self.shell([501], tpgid=self.SHELL)
+        self.assertEqual(self.observe()[3], agent_sessions.MISS_NOT_CODEX)
+
+    def test_two_foreground_codex_children_are_not_one_agent(self):
+        self.codex(501, self.A, tpgid=501)
+        self.codex(502, self.B, tpgid=501, pgrp=501)
+        self.shell([501, 502], tpgid=501)
+        self.assertEqual(self.observe()[3], agent_sessions.MISS_NOT_CODEX)
+
+    def test_a_shell_with_no_children_is_not_codex(self):
+        self.shell([], tpgid=self.SHELL)
+        self.assertEqual(self.observe()[3], agent_sessions.MISS_NOT_CODEX)
+
+    def test_a_codex_child_of_another_agent_never_counts(self):
+        """The claude Bash-tool exclusion: only a SHELL is descended."""
+        rollout = self.write_codex(self.A, self.root)
+        self.write_proc(501, argv=("/usr/bin/codex",), fds=[rollout],
+                        ppid=self.SHELL, job=(501, self.TTY, 501))
+        self.write_proc(self.SHELL, argv=("claude", "--resume", "x"),
+                        children=[501], job=(self.SHELL, self.TTY, 501))
+        self.assertEqual(self.observe(),
+                         ("", "", "", agent_sessions.MISS_NOT_CODEX))
+
+    def test_a_grandchild_codex_never_counts(self):
+        """shell -> claude -> codex: depth 1 only."""
+        rollout = self.write_codex(self.A, self.root)
+        self.write_proc(502, argv=("/usr/bin/codex",), fds=[rollout], ppid=501,
+                        job=(501, self.TTY, 501))
+        self.write_proc(501, argv=("claude",), children=[502], ppid=self.SHELL,
+                        job=(501, self.TTY, 501))
+        self.shell([501], tpgid=501)
+        self.assertEqual(self.observe()[3], agent_sessions.MISS_NOT_CODEX)
+
+    # --- could not look -> `no_process`, never a disproof --------------------
+
+    def test_an_unreadable_children_list_is_not_evidence(self):
+        self.codex(501, self.A, tpgid=501)
+        self.write_proc(self.SHELL, argv=("-bash",), children=None,
+                        job=(self.SHELL, self.TTY, 501))
+        self.assertEqual(self.observe()[3], agent_sessions.MISS_NO_PROCESS)
+
+    def test_an_unreadable_child_cmdline_is_not_absence(self):
+        self.write_proc(501, argv=None, job=(501, self.TTY, 501))
+        self.shell([501], tpgid=501)
+        self.assertEqual(self.observe()[3], agent_sessions.MISS_NO_PROCESS,
+                         "an unread child could be the codex: not `not_codex`")
+
+    def test_an_unreadable_child_cmdline_is_not_uniqueness(self):
+        self.codex(501, self.A, tpgid=501)
+        self.write_proc(502, argv=None, job=(501, self.TTY, 501))
+        self.shell([501, 502], tpgid=501)
+        self.assertEqual(self.observe(),
+                         ("", "", "", agent_sessions.MISS_NO_PROCESS),
+                         "uniqueness unproven: never the codex child's session")
+        # Control: the same layout with that child readable resolves, so the
+        # unreadable cmdline is what flipped it.
+        self.other(502, ("sleep", "300"), tpgid=501, pgrp=501)
+        self.assertEqual(self.observe()[0], self.A)
+
+    def test_an_unreadable_child_stat_is_not_evidence(self):
+        self.codex(501, self.A, tpgid=501)
+        self.write_proc(502, argv=("sleep", "1"))
+        self.shell([501, 502], tpgid=501)
+        self.assertEqual(self.observe()[3], agent_sessions.MISS_NO_PROCESS)
+
+    def test_conflicting_foreground_evidence_is_not_evidence(self):
+        cases = {
+            "the child reports another tpgid":
+                dict(child=dict(tpgid=777), shell_tpgid=501),
+            "the child is on another terminal":
+                dict(child=dict(tpgid=501, tty=999), shell_tpgid=501),
+            "no job control: the child shares the shell's group":
+                dict(child=dict(tpgid=self.SHELL, pgrp=self.SHELL),
+                     shell_tpgid=self.SHELL),
+            "the shell has no controlling terminal":
+                dict(child=dict(tpgid=-1), shell_tpgid=-1),
+        }
+        for label, case in cases.items():
+            with self.subTest(label):
+                self.codex(501, self.A, **case["child"])
+                self.shell([501], tpgid=case["shell_tpgid"])
+                self.assertEqual(self.observe()[3],
+                                 agent_sessions.MISS_NO_PROCESS)
+
+    def test_an_unreadable_shell_stat_is_not_evidence(self):
+        self.codex(501, self.A, tpgid=501)
+        self.write_proc(self.SHELL, argv=("-bash",), children=[501])
+        self.assertEqual(self.observe()[3], agent_sessions.MISS_NO_PROCESS)
+
+    def test_an_unreadable_child_fd_dir_is_not_evidence(self):
+        import shutil
+        self.foreground_codex_pane()
+        fd_dir = self.home / "proc" / "501" / "fd"
+        shutil.rmtree(fd_dir)
+        fd_dir.write_text("")  # listing it raises, as for another user's pid
+        self.assertEqual(self.observe()[3], agent_sessions.MISS_NO_PROCESS)
+
+    # --- a disproof needs a consistent, complete snapshot ----------------------
+
+    def _move_codex_to_foreground(self):
+        for pid in (self.SHELL, 501):
+            self.write_job(pid, (pid, self.TTY, 501),
+                           ppid=1 if pid == self.SHELL else self.SHELL)
+
+    def test_a_job_moved_to_the_foreground_mid_look_is_not_a_disproof(self):
+        """The shell is read while its own group is foreground; the codex is
+        brought to the foreground (`fg`) before the child is read. Against the
+        stale tpgid it is not a candidate -- and `not_codex` would clear its
+        valid id."""
+        self.codex(501, self.A, tpgid=self.SHELL)
+        self.shell([501], tpgid=self.SHELL)
+        fired = self._wrap("_proc_job", after=self._move_codex_to_foreground,
+                           when=lambda pid, _root: int(pid) == self.SHELL)
+        self.assertEqual(self.observe()[3], agent_sessions.MISS_NO_PROCESS)
+        self.assertTrue(fired)
+
+    def test_control_a_stable_shell_prompt_is_still_not_codex(self):
+        """Same fixture, nothing moves: the snapshot is consistent and the
+        suspended codex is not the pane's agent."""
+        self.codex(501, self.A, tpgid=self.SHELL)
+        self.shell([501], tpgid=self.SHELL)
+        self.assertEqual(self.observe()[3], agent_sessions.MISS_NOT_CODEX)
+
+    def test_an_unlisted_foreground_job_is_not_a_disproof(self):
+        """`task/*/children` can skip a child under concurrent changes. A
+        foreground group neither the shell's nor any listed child's means the
+        look missed the very job that matters."""
+        self.codex(501, self.A, tpgid=501)
+        self.shell([], tpgid=501)
+        self.assertEqual(self.observe()[3], agent_sessions.MISS_NO_PROCESS)
+        self.other(502, ("sleep", "300"), tpgid=501)  # a background job only
+        self.shell([502], tpgid=501)
+        self.assertEqual(self.observe()[3], agent_sessions.MISS_NO_PROCESS)
+
+    def test_a_child_listed_twice_is_one_child(self):
+        """The children list is a union over threads; a duplicate must not
+        make one codex look like two (`not_codex`)."""
+        rollout = self.codex(501, self.A, tpgid=501)
+        self.shell([501, 501], tpgid=501)
+        self.assertEqual(self.observe(),
+                         (self.A, str(rollout), "gpt-5.6-terra", ""))
+
+    def test_a_child_reporting_another_foreground_is_not_a_disproof(self):
+        self.other(502, ("sleep", "300"), tpgid=999)
+        self.shell([502], tpgid=self.SHELL)
+        self.assertEqual(self.observe()[3], agent_sessions.MISS_NO_PROCESS)
+
+    def _launcher(self):
+        """A foreground `env` launcher that has not exec'd into codex yet."""
+        self.write_proc(501, argv=("env", "X=1", "codex", "resume", self.A),
+                        ppid=self.SHELL, job=(501, self.TTY, 501))
+        self.shell([501], tpgid=501)
+
+    def _exec_into_codex(self):
+        """Same pid, group, tty and list place -- only argv and fds change."""
+        rollout = self.write_codex(self.A, self.root)
+        self.write_proc(501, argv=("/usr/bin/codex", "resume", self.A),
+                        fds=[rollout])
+
+    def test_a_launcher_that_execs_into_codex_mid_look_is_not_a_disproof(self):
+        self._launcher()
+        fired = self._wrap("_codex_cmdline_argv", after=self._exec_into_codex,
+                           when=lambda pid, _root: int(pid) == 501)
+        self.assertEqual(self.observe()[3], agent_sessions.MISS_NO_PROCESS,
+                         "the disproof rested on an argv that is now codex")
+        self.assertTrue(fired)
+
+    def test_control_a_launcher_that_stays_a_launcher_is_not_codex(self):
+        self._launcher()
+        self.assertEqual(self.observe()[3], agent_sessions.MISS_NOT_CODEX)
+
+    def test_control_a_launcher_that_already_exec_d_resolves(self):
+        self._launcher()
+        self._exec_into_codex()
+        self.assertEqual(self.observe()[0], self.A)
+
+    def test_children_changing_during_the_look_is_not_a_disproof(self):
+        self.other(502, ("sleep", "300"), tpgid=self.SHELL)
+        self.shell([502], tpgid=self.SHELL)
+        self.other(503, ("sleep", "5"), tpgid=self.SHELL)
+
+        def relist():
+            (self.home / "proc" / str(self.SHELL) / "task" / str(self.SHELL)
+             / "children").write_text("502 503 ")
+
+        self._wrap("_direct_children", after=relist)
+        self.assertEqual(self.observe()[3], agent_sessions.MISS_NO_PROCESS)
+
+    # --- one observation, one process -----------------------------------------
+
+    def _wrap(self, name, before=None, after=None, *, when=lambda *a: True):
+        """Patch ``agent_sessions.<name>`` with a one-shot mutating wrapper."""
+        target = agent_sessions.os if name == "readlink" else agent_sessions
+        real = getattr(target, name)
+        fired = []
+
+        def wrapper(*args, **kwargs):
+            once = not fired and when(*args)
+            if once:
+                fired.append(True)
+                if before:
+                    before()
+            result = real(*args, **kwargs)
+            if once and after:
+                after()
+            return result
+
+        setattr(target, name, wrapper)
+        self.addCleanup(setattr, target, name, real)
+        return fired
+
+    def _replace_child_with_b(self):
+        import shutil
+        shutil.rmtree(self.home / "proc" / "501")
+        self.codex(502, self.B, tpgid=502, model="gpt-5.4")
+        self.shell([502], tpgid=502)
+
+    def _reuse_pid_501_for_b(self):
+        import shutil
+        shutil.rmtree(self.home / "proc" / "501")
+        self.codex(501, self.B, tpgid=501, model="gpt-5.4")
+
+    def test_a_child_replaced_after_selection_yields_no_process(self):
+        """Red against a two-call implementation, which would pair A's
+        session with B's model (or B's session with A's model)."""
+        self.foreground_codex_pane()
+        self._wrap("_codex_cmdline_argv", after=self._replace_child_with_b,
+                   when=lambda pid, _root: int(pid) == 501)
+        result = self.observe()
+        self.assertEqual(result, ("", "", "", agent_sessions.MISS_NO_PROCESS))
+        self.assertNotIn(self.B, result)
+        self.assertNotIn("gpt-5.4", result)
+
+    def test_a_reused_pid_fails_the_identity_recheck(self):
+        self.foreground_codex_pane()
+        self._wrap("_codex_cmdline_argv", after=self._reuse_pid_501_for_b,
+                   when=lambda pid, _root: int(pid) == 501)
+        result = self.observe()
+        self.assertEqual(result, ("", "", "", agent_sessions.MISS_NO_PROCESS),
+                         "B's fds were read under A's argv -- must not pair")
+
+    def test_a_suspend_after_selection_yields_no_process(self):
+        self.foreground_codex_pane()
+        self._wrap("_codex_cmdline_argv", after=lambda: self.suspend_all(501),
+                   when=lambda pid, _root: int(pid) == 501)
+        self.assertEqual(self.observe()[3], agent_sessions.MISS_NO_PROCESS)
+
+    # --- mutation DURING the evidence loop (after `fd/` is listed) -----------
+    #
+    # Each is red against a design that validates before the loop: listing
+    # `fd/` reads names only; targets and rollout headers come later.
+
+    def test_a_suspend_during_rollout_inspection_yields_no_process(self):
+        self.foreground_codex_pane()
+        fired = self._wrap("_codex_rollout_identity",
+                           after=lambda: self.suspend_all(501))
+        self.assertEqual(self.observe()[3], agent_sessions.MISS_NO_PROCESS)
+        self.assertTrue(fired, "the mutation must actually have happened")
+
+    def test_a_suspend_during_readlink_yields_no_process(self):
+        self.foreground_codex_pane()
+        fired = self._wrap("readlink", before=lambda: self.suspend_all(501))
+        self.assertEqual(self.observe()[3], agent_sessions.MISS_NO_PROCESS)
+        self.assertTrue(fired)
+
+    def test_a_child_gone_during_readlink_is_not_a_disproof(self):
+        """Its links all fail, the candidate set is empty -- and that must not
+        become `MISS_NO_MATCH`, which clears a stored id."""
+        import shutil
+        self.foreground_codex_pane()
+        fired = self._wrap(
+            "readlink",
+            before=lambda: shutil.rmtree(self.home / "proc" / "501"))
+        self.assertEqual(self.observe()[3], agent_sessions.MISS_NO_PROCESS)
+        self.assertTrue(fired)
+
+    def test_a_depth0_codex_gone_during_readlink_is_not_a_disproof(self):
+        """The same gap existed for a framework launch (pane pid IS codex)."""
+        import shutil
+        rollout = self.write_codex(self.A, self.root)
+        self.write_proc(600, fds=[rollout])
+        fired = self._wrap(
+            "readlink", before=lambda: shutil.rmtree(self.home / "proc" / "600"))
+        self.assertEqual(self.observe(600)[3], agent_sessions.MISS_NO_PROCESS)
+        self.assertTrue(fired)
+
+    def test_the_loop_wrappers_alone_change_nothing(self):
+        """Control for the four tests above: delegate without mutating."""
+        rollout = self.foreground_codex_pane()
+        self._wrap("readlink")
+        self._wrap("_codex_rollout_identity")
+        self.assertEqual(self.observe(),
+                         (self.A, str(rollout), "gpt-5.6-terra", ""))
 
 
 class CodexProcessModelTests(_TranscriptTestCase):

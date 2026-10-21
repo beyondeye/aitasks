@@ -480,14 +480,18 @@ def _observe_codex_session(
     process is gone for good, so this is the only moment the correlation exists.
 
     A stored `agent_string` may supply the MODEL LABEL only when the cmdline
-    names NO model, and never the identity: `codex_session_for_pid` proved that
+    names NO model, and never the identity: `codex_observe_pid` proved that
     from the live process before we get here.
+
+    ONE call reads the session and the model, so both come from the same
+    process -- for a codex typed at a shell prompt, the shell's foreground
+    child (t2077). Two separate probes could each pick a different child and
+    pair one process's session with another's model.
     """
     pid = frozen_ops.int_or_zero(pane_pid)
-    session_id, transcript, miss = agent_sessions.codex_session_for_pid(pid)
+    session_id, transcript, cli_id, miss = agent_sessions.codex_observe_pid(pid)
     if miss or not session_id:
         return "", "", "", miss, False
-    _is_codex, cli_id = agent_sessions.codex_process_model(pid)
     if cli_id:
         # The live model is stated, so it DECIDES. When it resolves to nothing
         # -- a model absent from `models_codex.json` -- the honest answer is no
@@ -497,13 +501,27 @@ def _observe_codex_session(
         # recoverable re-pick path instead.
         agent_string = _codex_agent_string(cli_id, root)
         return session_id, transcript, agent_string, "", not agent_string
-    # Only an argv that names no model at all may fall back to the record's own
-    # label: it describes the same agent and nothing contradicts it.
+    return _with_remembered_label(
+        (session_id, transcript, "", "", False), stored)
+
+
+def _with_remembered_label(
+    observation: tuple[str, str, str, str, bool], stored: dict[str, str]
+) -> tuple[str, str, str, str, bool]:
+    """``observation`` with ``stored``'s codex label filled in, when allowed.
+
+    Only an argv that names no model at all may fall back to the record's own
+    label: it describes the same agent and nothing contradicts it. An argv that
+    named an unmapped model (``unnameable_model``) is a contradiction, and a
+    miss has no session to label.
+    """
+    session_id, transcript, agent_string, miss, unnameable_model = observation
+    if not session_id or agent_string or unnameable_model:
+        return observation
     remembered = stored.get("agent_string", "")
-    agent_string = (
-        remembered if agent_sessions.agent_kind_of(remembered) == "codex"
-        else "")
-    return session_id, transcript, agent_string, "", False
+    if agent_sessions.agent_kind_of(remembered) != "codex":
+        return observation
+    return session_id, transcript, remembered, miss, False
 
 
 def _capture_codex_session(
@@ -534,14 +552,26 @@ def _capture_codex_session(
     * anything else (including `MISS_NO_PROCESS`, i.e. "could not look") ->
       change nothing.
 
+    A record holding an id under NO agent kind is in scope too (t2077). Its id
+    came from a SessionStart hook run outside the wrapper -- a codex typed at a
+    shell prompt carries no `AITASK_AGENT_STRING` -- so it may be codex's or
+    another agent's. Only a POSITIVE observation settles it: a live codex
+    holding a session records it with its agent string, or, when no model can
+    be named, clears the id, because an id with a blank agent string restores
+    under the project's `raw` default (`claude --resume <codex-uuid>`). A miss
+    proves nothing about whose id it is, so it leaves such a record alone.
+
     Never raises and never fails the freeze: the agent is live and its pane is
     untouched at this stage, so a capture problem must not cost the user a
     freeze. Failures are reported on stderr instead.
     """
     try:
         stored_id = stored.get("codeagent_session_id", "")
-        stored_is_codex = stored.get("agent_kind", "") == "codex"
-        if stored_id and not stored_is_codex:
+        stored_kind = stored.get("agent_kind", "")
+        stored_is_codex = stored_kind == "codex"
+        # An id under no agent kind: whose it is, only a live codex can say.
+        stored_unlabelled = bool(stored_id) and not stored_kind
+        if stored_id and stored_kind and not stored_is_codex:
             # A hook-owned record for another agent. Not ours to touch -- and
             # not even to look at, so a claude pane costs nothing here.
             return
@@ -572,25 +602,32 @@ def _capture_codex_session(
             fields = ["--session-id", session_id, "--transcript", transcript,
                       "--agent-string", agent_string]
             action = f"recorded codex session {session_id}"
-        elif session_id and (unnameable_model or session_id != stored_id):
-            # A VERIFIED session this code cannot record safely, for one of two
-            # reasons — and BOTH disprove what the record says:
+        elif session_id and (unnameable_model or session_id != stored_id
+                             or stored_unlabelled):
+            # A VERIFIED session this code cannot record safely, for one of
+            # three reasons — and each disproves what the record says:
             #
             # * the process is in a different conversation from the stored one;
             # * argv names a model absent from `models_codex.json`, so the
             #   stored label describes a model the agent is demonstrably NOT
             #   running. A resume keeps the session id, so the ids matching
             #   proves nothing about the model — restoring would relaunch this
-            #   conversation under the old label.
+            #   conversation under the old label;
+            # * the record has no agent kind at all (t2077): the live codex
+            #   proves the id is codex's, and with no model to record, the
+            #   blank label would restore it under the `raw` default.
             #
             # Being unable to record the replacement does not make the stored
             # pair true again. Forget it and let the restore re-pick.
-            if not (stored_id and stored_is_codex):
+            if not (stored_id and (stored_is_codex or stored_unlabelled)):
                 return
             fields = ["--clear-session-id"]
-            action = ("cleared session id contradicted by an unnameable model"
-                      if unnameable_model
-                      else "cleared session id superseded by an unnameable session")
+            if stored_unlabelled and session_id == stored_id:
+                action = "cleared codex session id the record cannot name a model for"
+            elif unnameable_model:
+                action = "cleared session id contradicted by an unnameable model"
+            else:
+                action = "cleared session id superseded by an unnameable session"
         else:
             # `MISS_NO_PROCESS` (could not look), or an argv that names no model
             # at all against a record that already agrees. Nothing is disproved.
@@ -675,6 +712,14 @@ def _resolve_record(facts: dict[str, str]) -> tuple[str, str]:
         # reported the daemon's STARTING pane. `MISS_NOT_CODEX` keeps the
         # stamp: the pane runs another agent, whose hook id this path carries.
         session_id = ""
+    elif observed_id:
+        # A live codex holds a session this observation cannot label: its
+        # argv names no model (or an unmapped one) and there is no record to
+        # borrow one from yet. The pane stamp must not travel either -- an id
+        # with a blank agent string restores under the project's `raw`
+        # default (t2077). The capture below re-decides against whatever
+        # record the upsert selects, which may carry a codex label.
+        session_id = ""
 
     args = [
         "upsert",
@@ -722,11 +767,15 @@ def _resolve_record(facts: dict[str, str]) -> tuple[str, str]:
     # the stamped path's capture rules to it, in the stamped path's order, on
     # THIS observation: a re-probe could read inconclusive and undo the
     # disproof. A disproving miss carries no session, so the observation made
-    # with no stored record decides exactly as one made with it would.
-    if miss in _CODEX_DISPROVING_MISSES:
+    # with no stored record decides exactly as one made with it would. An
+    # unlabelled session is the one thing the selected record can change: its
+    # own codex label may name the model (t2077), so it is applied here --
+    # still without re-probing.
+    if miss in _CODEX_DISPROVING_MISSES or (observed_id and not observed_agent):
+        selected = frozen_ops.store_show(record_id)
         _capture_codex_session(
-            record_id, frozen_ops.store_show(record_id), facts, root,
-            observation=observation)
+            record_id, selected, facts, root,
+            observation=_with_remembered_label(observation, selected))
     # Against the record the upsert actually SELECTED, not what it was sent:
     # see `_backfill_agent_string` for why the guard has to read the store.
     _backfill_agent_string(record_id, facts, root)

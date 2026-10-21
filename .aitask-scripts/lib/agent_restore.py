@@ -253,9 +253,12 @@ def resume_blocker(rec: dict) -> str:
 
     ``no_session``: no captured session. Since t1804 a codex agent's id is
     captured at freeze time from the rollout its process held open, so this now
-    means that correlation was unavailable: no `/proc` (macOS), the pane was not
-    running codex directly, the agent had taken no turn yet (codex opens its
-    rollout at the FIRST turn), its model is not in `models_codex.json`, or the
+    means that correlation was unavailable: no `/proc` (macOS), the pane was
+    running neither codex directly nor a codex as its shell's foreground job,
+    the agent had taken no turn yet (codex opens its rollout at the FIRST
+    turn), its model is not in `models_codex.json` (or, for a codex started by
+    hand, neither its launch nor an existing codex label on its record names
+    a model), or the
     freeze could not prove which of several rollouts was its own. The reason
     `--repick` exists; nothing changes and the record stays frozen. A stored id
     that is not a usable identifier (`frozen_ops.usable_identifier`: blank,

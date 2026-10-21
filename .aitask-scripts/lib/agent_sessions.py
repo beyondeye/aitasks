@@ -1876,6 +1876,171 @@ def _codex_cmdline_argv(pid: int, proc_root: str) -> list[str] | None:
     return [arg for arg in raw.decode("utf-8", errors="replace").split("\0") if arg]
 
 
+def _is_codex_argv(argv: list[str] | None) -> bool:
+    """True when argv0's basename is ``codex`` (see :func:`codex_process_model`)."""
+    return bool(argv) and os.path.basename(argv[0]) == "codex"
+
+
+#: Interactive shells a pane runs when the user types an agent at its prompt,
+#: by argv0 basename. A login shell's argv0 carries a leading ``-`` (measured:
+#: tmux starts ``-bash``), which is stripped before the lookup.
+_PANE_SHELLS = frozenset(
+    ("bash", "zsh", "fish", "sh", "dash", "ksh", "mksh", "tcsh", "csh", "nu"))
+
+
+def _direct_children(pid: int, proc_root: str) -> list[int] | None:
+    """``pid``'s direct children, from ``/proc/<pid>/task/*/children``.
+
+    None when that could not be read -- including a kernel built without
+    CONFIG_PROC_CHILDREN, which has no ``children`` file at all. "Could not
+    look" must never read as "has no children".
+    """
+    try:
+        tasks = sorted(Path(proc_root, str(int(pid)), "task").iterdir())
+    except (OSError, ValueError, TypeError):
+        return None
+    if not tasks:
+        return None
+    children: list[int] = []
+    for task in tasks:
+        try:
+            text = (task / "children").read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            return None
+        children.extend(int(tok) for tok in text.split() if tok.isdigit())
+    # A union over the threads: one child listed twice is still one child.
+    return list(dict.fromkeys(children))
+
+
+def _proc_job(pid: int, proc_root: str) -> tuple[int, int, int] | None:
+    """``(pgrp, tty_nr, tpgid)`` from ``/proc/<pid>/stat``; None when unreadable.
+
+    ``comm`` (field 2) is parenthesised and may itself contain spaces and
+    ``)``, so the fields are counted from after the LAST ``)``.
+    """
+    try:
+        with open(f"{proc_root}/{int(pid)}/stat", encoding="utf-8",
+                  errors="replace") as fh:
+            raw = fh.read()
+    except (OSError, ValueError, TypeError):
+        return None
+    _head, sep, rest = raw.rpartition(")")
+    fields = rest.split()
+    # state ppid pgrp session tty_nr tpgid ...
+    if not sep or len(fields) < 6:
+        return None
+    try:
+        return int(fields[2]), int(fields[4]), int(fields[5])
+    except ValueError:
+        return None
+
+
+def _codex_child_of_shell(
+    pid: int, argv: list[str], proc_root: str
+) -> tuple[int, list[str], tuple[int, int, int] | None, str]:
+    """``(child_pid, child_argv, child_job, miss)``: the codex a pane SHELL runs.
+
+    For a pane process that is not codex itself. A codex typed at a shell
+    prompt is the shell's direct child, so the pane pid is the shell (measured,
+    codex 0.163.0, t2077). Exactly one level is inspected, and only through a
+    known shell: a codex child of any other process (a claude pane whose Bash
+    tool ran codex) must never count as the pane's agent.
+
+    **Only the terminal's foreground job counts.** A shell's children include
+    suspended (Ctrl-Z) and background jobs, and a suspended codex still holds
+    its rollout open (measured), so being a child says nothing about which
+    agent the pane is running. The foreground job is the one whose process
+    group is the terminal's ``tpgid``.
+
+    Every answer that could clear a stored id needs a complete look: an
+    unreadable shell stat, children list, or any listed child's cmdline or stat
+    is ``MISS_NO_PROCESS``, because the unread process could be the foreground
+    codex. So is foreground evidence that does not hang together -- the
+    candidate on another terminal, or sharing the shell's process group (no job
+    control, so a ``codex &`` would look exactly the same).
+
+    ``MISS_NOT_CODEX`` (no foreground codex, or several) is a disproof, so it
+    is issued only from a consistent, complete snapshot: every child on the
+    shell's terminal reports the shell's ``tpgid``, the foreground job is one
+    the look actually saw (the shell's own group, or a listed child's), and the
+    shell's job, its children list, and every child's argv and job read the
+    same again afterwards. Anything else -- a job moved to the foreground
+    mid-look, a children list that skipped one (the kernel documents that it
+    can, under concurrent changes), a launcher that exec'd into codex -- is
+    ``MISS_NO_PROCESS``.
+    """
+    if not argv or os.path.basename(argv[0]).lstrip("-") not in _PANE_SHELLS:
+        return 0, [], None, MISS_NOT_CODEX
+    shell_job = _proc_job(pid, proc_root)
+    if shell_job is None or shell_job[2] <= 0:
+        return 0, [], None, MISS_NO_PROCESS
+    children = _direct_children(pid, proc_root)
+    if children is None:
+        return 0, [], None, MISS_NO_PROCESS
+    shell_pgrp, shell_tty, tpgid = shell_job
+
+    foreground_codex = []
+    foreground_seen = shell_pgrp == tpgid
+    observed = []
+    for child in children:
+        child_argv = _codex_cmdline_argv(child, proc_root)
+        child_job = _proc_job(child, proc_root)
+        if child_argv is None or child_job is None:
+            return 0, [], None, MISS_NO_PROCESS
+        observed.append((child, child_argv, child_job))
+        if child_job[1] == shell_tty and child_job[2] != tpgid:
+            # Same terminal, different foreground: the terminal changed hands
+            # between the two reads. Neither snapshot can be trusted.
+            return 0, [], None, MISS_NO_PROCESS
+        if child_job[0] == tpgid:
+            foreground_seen = True
+            if _is_codex_argv(child_argv):
+                foreground_codex.append((child, child_argv, child_job))
+    if len(foreground_codex) != 1:
+        # Every piece of evidence the disproof rests on is read again. A child
+        # keeps its pid, group and place in the list when it execs, so a
+        # launcher (`env … codex resume …`) that turned into codex after its
+        # argv was read is caught only by re-reading that argv.
+        if (not foreground_seen
+                or _proc_job(pid, proc_root) != shell_job
+                or _direct_children(pid, proc_root) != children
+                or any(_codex_cmdline_argv(child, proc_root) != child_argv
+                       or _proc_job(child, proc_root) != child_job
+                       for child, child_argv, child_job in observed)):
+            return 0, [], None, MISS_NO_PROCESS
+        return 0, [], None, MISS_NOT_CODEX
+
+    child, child_argv, child_job = foreground_codex[0]
+    pgrp, tty, child_tpgid = child_job
+    if tty != shell_tty or child_tpgid != tpgid or pgrp == shell_pgrp:
+        return 0, [], None, MISS_NO_PROCESS
+    return child, child_argv, child_job, ""
+
+
+def _observed_process_unchanged(
+    pane_pid: int, agent_pid: int, argv: list[str],
+    child_job: tuple[int, int, int] | None, proc_root: str,
+) -> bool:
+    """Is ``agent_pid`` still the process the observation started from?
+
+    Called AFTER the fd evidence is read (link targets and rollout metadata
+    included), so a process that exited, was replaced, or -- on the shell
+    route -- left the foreground during the read turns the observation into
+    "could not look" instead of a session or an fd-based disproof.
+    """
+    if _codex_cmdline_argv(agent_pid, proc_root) != argv:
+        return False
+    if child_job is None:
+        return True
+    shell_now = _proc_job(pane_pid, proc_root)
+    child_now = _proc_job(agent_pid, proc_root)
+    if shell_now is None or child_now is None:
+        return False
+    pgrp, tty, _tpgid = child_job
+    return (child_now[0] == pgrp and child_now[1] == tty
+            and child_now[2] == pgrp and shell_now[2] == pgrp)
+
+
 def codex_process_model(pid: int, *, proc_root: str = "/proc") -> tuple[bool, str]:
     """``(is_codex, cli_id)`` for a running process. Never raises.
 
@@ -1889,7 +2054,7 @@ def codex_process_model(pid: int, *, proc_root: str = "/proc") -> tuple[bool, st
     when the launch named no model.
     """
     argv = _codex_cmdline_argv(pid, proc_root)
-    if not argv or os.path.basename(argv[0]) != "codex":
+    if not _is_codex_argv(argv):
         return False, ""
     return True, _argv_model(argv)
 
@@ -1951,17 +2116,41 @@ def process_environ_value(
 def codex_session_for_pid(
     pid: int, *, proc_root: str = "/proc"
 ) -> tuple[str, str, str]:
-    """Resolve ``(session_id, transcript_path, miss_reason)`` from the rollout
-    the codex process ``pid`` currently holds OPEN.
+    """``(session_id, transcript_path, miss_reason)``: :func:`codex_observe_pid`
+    without the model.
+
+    The restore coordinator and reconcile call it, through
+    :func:`codex_resume_evidence`, on the RESUMED process the restore launched:
+    a resumed codex holds its rollout from launch, so this is how a codex
+    resume is verified without waiting for a hook (t2040).
+    """
+    session_id, transcript, _cli_id, miss = codex_observe_pid(
+        pid, proc_root=proc_root)
+    return session_id, transcript, miss
+
+
+def codex_observe_pid(
+    pid: int, *, proc_root: str = "/proc"
+) -> tuple[str, str, str, str]:
+    """Resolve ``(session_id, transcript_path, cli_id, miss_reason)`` from the
+    rollout the codex process behind pane process ``pid`` holds OPEN.
 
     This is the correlated answer :func:`newest_transcript_for` cannot give: the
     open file descriptor ties a session to ONE process, so several codex agents
     in one repo stay distinguishable. The freeze engine calls it while the agent
-    is still alive (its `pane_pid` IS the codex process). The restore
-    coordinator and reconcile call it too, through
-    :func:`codex_resume_evidence`, on the RESUMED process the restore launched:
-    a resumed codex holds its rollout from launch, so this is how a codex
-    resume is verified without waiting for a hook (t2040).
+    is still alive.
+
+    **Which process.** The pane process itself when it is codex (every
+    framework launch execs through). Otherwise, when the pane process is a
+    known shell, its one FOREGROUND codex child -- a codex the user typed at
+    the prompt (t2077); see :func:`_codex_child_of_shell`. Nothing deeper.
+
+    **One observation, one process.** The session and ``cli_id`` (the
+    ``--model`` value, "" when the launch named none) come from the same
+    process, resolved once: its argv proves it is codex and names the model,
+    and its fds name the session. The process is re-checked AFTER every fd has
+    been read, so one that exited, was replaced, or left the foreground during
+    the read yields ``MISS_NO_PROCESS`` -- never a session, never a disproof.
 
     **Verifying the process is codex happens HERE, not at the call site**, so no
     caller can bypass it: a recycled pane, or any program holding a
@@ -1991,26 +2180,38 @@ def codex_session_for_pid(
     try:
         pid_int = int(pid)
     except (TypeError, ValueError):
-        return "", "", MISS_NO_PROCESS
+        return "", "", "", MISS_NO_PROCESS
     if pid_int <= 0:
-        return "", "", MISS_NO_PROCESS
+        return "", "", "", MISS_NO_PROCESS
 
     try:
         entries = sorted(Path(proc_root, str(pid_int), "fd").iterdir())
     except OSError:
-        return "", "", MISS_NO_PROCESS
+        return "", "", "", MISS_NO_PROCESS
 
     # Read the cmdline only after the fd directory proved readable, so an
     # unreadable /proc reports "could not look", never "not codex".
     argv = _codex_cmdline_argv(pid_int, proc_root)
     if argv is None:
-        return "", "", MISS_NO_PROCESS
-    if not argv or os.path.basename(argv[0]) != "codex":
-        return "", "", MISS_NOT_CODEX
+        return "", "", "", MISS_NO_PROCESS
 
-    # Depth 0 only. The pane's process IS the agent (launches exec through), and
-    # descending would let a claude pane whose Bash tool ran codex capture that
-    # child tool's rollout as if it were the pane's own session.
+    # Depth 0, or exactly one level through a known shell -- never deeper, and
+    # never through another agent: descending from a claude pane whose Bash
+    # tool ran codex would capture that child tool's rollout as if it were the
+    # pane's own session.
+    agent_pid = pid_int
+    child_job = None
+    if not _is_codex_argv(argv):
+        agent_pid, argv, child_job, miss = _codex_child_of_shell(
+            pid_int, argv, proc_root)
+        if miss:
+            return "", "", "", miss
+        try:
+            entries = sorted(Path(proc_root, str(agent_pid), "fd").iterdir())
+        except OSError:
+            # The child exited. Never fall back to a replacement child.
+            return "", "", "", MISS_NO_PROCESS
+
     candidates: dict[str, list[Path]] = {}
     for entry in entries:
         try:
@@ -2026,17 +2227,26 @@ def codex_session_for_pid(
         if session_id:
             candidates.setdefault(session_id, []).append(path)
 
-    if not candidates:
-        return "", "", MISS_NO_MATCH
-    if len(candidates) > 1:
-        return "", "", MISS_AMBIGUOUS
+    # Only now -- every link target and rollout header has been read -- is it
+    # known whether the process stayed itself for the whole read. One that
+    # exited mid-loop fails every readlink, and its empty candidate set must
+    # not become `MISS_NO_MATCH`, which clears a stored id.
+    if not _observed_process_unchanged(
+            pid_int, agent_pid, argv, child_job, proc_root):
+        return "", "", "", MISS_NO_PROCESS
 
+    if not candidates:
+        return "", "", "", MISS_NO_MATCH
+    if len(candidates) > 1:
+        return "", "", "", MISS_AMBIGUOUS
+
+    cli_id = _argv_model(argv)
     session_id, paths = next(iter(candidates.items()))
     for path in sorted(paths):
         match = _CODEX_ROLLOUT_RE.match(path.name)
         if match and match.group("session_id") == session_id:
-            return session_id, str(path), ""
-    return session_id, str(sorted(paths)[0]), ""
+            return session_id, str(path), cli_id, ""
+    return session_id, str(sorted(paths)[0]), cli_id, ""
 
 
 def codex_resume_evidence(rec: dict, pid) -> str:

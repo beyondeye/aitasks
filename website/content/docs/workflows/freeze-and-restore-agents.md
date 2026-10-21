@@ -78,6 +78,13 @@ So can a Codex agent started by hand that Codex runs through its shared
 app-server daemon: nothing can yet tell which conversation belongs to its pane,
 so no session id is recorded for it (see
 [the session hook]({{< relref "/docs/concepts/framework-session" >}}#the-session-hook)).
+A Codex agent you type at a shell prompt that runs in its own process (started
+with `-c tui.alternate_screen=never`) is read through that shell, but only while
+it is the shell's foreground job; a suspended or background Codex is never taken
+for the pane's agent. Its conversation is restorable only when the framework can
+name its model: from the launch's `-m`, when that is a model the framework
+knows, or else from a Codex model already on the agent's record. Without
+either, the agent is re-picked.
 
 **A successful, verified restore or re-pick deletes the capture.** Once the
 resumed agent identifies itself the transcript has served its purpose and the

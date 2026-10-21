@@ -58,6 +58,9 @@ import agent_frozen_ops  # noqa: E402
 
 AGENT_PANE = "%1"
 AGENT_PID = 4242
+# The real paired observer, captured before any test stubs it: the shell-pane
+# freeze tests (t2077) run it against a fake `/proc`.
+_REAL_CODEX_OBSERVE = agent_sessions.codex_observe_pid
 STANDIN_PID = 8888
 
 
@@ -513,7 +516,16 @@ class _FreezeTestCase(unittest.TestCase):
             self.codex_probe_pids.append(pid)
             return self.codex_session
 
+        def _observe_pid(pid, **_kw):
+            # The freeze's one paired read (t2077): session AND model from one
+            # process. Composed from the same two knobs the tests already set.
+            self.codex_probe_pids.append(pid)
+            session_id, transcript, miss = self.codex_session
+            cli_id = "" if miss else self.codex_model[1]
+            return session_id, transcript, cli_id, miss
+
         self._patch(agent_sessions, "codex_session_for_pid", _session_for_pid)
+        self._patch(agent_sessions, "codex_observe_pid", _observe_pid)
         self._patch(agent_sessions, "codex_process_model",
                     lambda pid, **_kw: self.codex_model)
         self._patch(agent_freeze, "_codex_agent_string",
@@ -1024,14 +1036,14 @@ class CodexSessionCaptureTests(_FreezeTestCase):
                          agent_string="codex/gpt5_6_terra")
         self._unstamped_pane_with_option("sess-stale")
         self.codex_model = (True, "gpt-5.6-terra")
-        answers = [("", "", agent_sessions.MISS_NO_MATCH)]
+        answers = [("", "", "", agent_sessions.MISS_NO_MATCH)]
 
         def _sequential(pid, **_kw):
             self.codex_probe_pids.append(pid)
             return (answers.pop(0) if answers
-                    else ("", "", agent_sessions.MISS_NO_PROCESS))
+                    else ("", "", "", agent_sessions.MISS_NO_PROCESS))
 
-        self._patch(agent_sessions, "codex_session_for_pid", _sequential)
+        self._patch(agent_sessions, "codex_observe_pid", _sequential)
         result, _ = self._freeze_capturing_stderr()
         self.assertTrue(result.ok, result.line)
         rec = self.rec()
@@ -1100,6 +1112,353 @@ class CodexSessionCaptureTests(_FreezeTestCase):
         agent_freeze.freeze_pane(AGENT_PANE)
         call = self.upserts()[0]
         self.assertEqual(call[call.index("--session-id") + 1], "sess-abc")
+
+
+class UnlabelledHookRecordTests(_FreezeTestCase):
+    """t2077: a hook record holding an id under NO agent kind.
+
+    A codex typed at a shell prompt carries no `AITASK_AGENT_STRING`, so its
+    SessionStart hook records the id with a blank agent string -- and a blank
+    one restores under the project's `raw` default, i.e. `claude --resume
+    <codex-uuid>`. Only a POSITIVE codex observation may settle such a record;
+    a miss says nothing about whose id it is.
+    """
+
+    HOOK_ID = "01a00000-0000-7000-8000-0000000000a1"
+
+    def upserts(self):
+        return [call for call in self.store.calls if call[0] == "upsert"]
+
+    def test_a_live_codex_with_a_mapped_model_labels_the_hook_id(self):
+        """Red before t2077: the capture returned early on any non-codex-kind
+        id, so the record kept a blank label."""
+        self.seed_record(session_id=self.HOOK_ID)
+        self.observe_codex(self.HOOK_ID)
+        result = agent_freeze.freeze_pane(AGENT_PANE)
+        self.assertTrue(result.ok, result.line)
+        self.assertEqual(self.rec().codeagent_session_id, self.HOOK_ID)
+        self.assertEqual(self.rec().agent_string, "codex/gpt5_6_terra")
+        self.assertEqual(self.rec().agent_kind, "codex")
+
+    def test_a_live_codex_naming_no_model_clears_the_hook_id(self):
+        """Red before t2077: the id survived with a blank label and would have
+        restored as `claude --resume <codex-uuid>`."""
+        self.seed_record(session_id=self.HOOK_ID)
+        self.observe_codex(self.HOOK_ID, cli_id="", agent_string="")
+        result = agent_freeze.freeze_pane(AGENT_PANE)
+        self.assertTrue(result.ok, result.line)
+        self.assertEqual(self.rec().codeagent_session_id, "")
+        self.assertTrue(any("--clear-session-id" in call
+                            for call in self.upserts()))
+
+    def test_a_live_codex_in_another_conversation_clears_the_hook_id(self):
+        self.seed_record(session_id=self.HOOK_ID)
+        self.observe_codex("01a00000-0000-7000-8000-0000000000b2",
+                           cli_id="", agent_string="")
+        agent_freeze.freeze_pane(AGENT_PANE)
+        self.assertEqual(self.rec().codeagent_session_id, "")
+
+    def test_a_non_codex_pane_leaves_the_hook_id_alone(self):
+        """The claude-pane guard, preserved: `not_codex` disproves only a
+        CODEX-kind id."""
+        self.seed_record(session_id="sess-claude")
+        self.observe_miss(agent_sessions.MISS_NOT_CODEX, is_codex=False)
+        result = agent_freeze.freeze_pane(AGENT_PANE)
+        self.assertTrue(result.ok, result.line)
+        self.assertEqual(self.rec().codeagent_session_id, "sess-claude")
+        self.assertEqual(
+            [c for c in self.upserts() if "--clear-session-id" in c], [])
+
+    def _unstamped(self, **fields):
+        self.seed_record(session_id=self.HOOK_ID, **fields)
+        self.panes[AGENT_PANE][agent_freeze.RECORD_OPTION] = ""
+        self.panes[AGENT_PANE][agent_freeze.AGENT_SESSION_OPTION] = self.HOOK_ID
+
+    def test_unstamped_an_unlabelled_live_session_does_not_travel(self):
+        self._unstamped()
+        self.observe_codex(self.HOOK_ID, cli_id="", agent_string="")
+        result = agent_freeze.freeze_pane(AGENT_PANE)
+        self.assertTrue(result.ok, result.line)
+        self.assertEqual(result.record_id, self.rid)
+        sent = [c[c.index("--session-id") + 1]
+                for c in self.upserts() if "--session-id" in c]
+        self.assertNotIn(self.HOOK_ID, sent,
+                         "the pane stamp must not travel without a label")
+        self.assertEqual(self.rec().codeagent_session_id, "",
+                         "the selected record's id is cleared by the same rule")
+
+    def test_unstamped_the_selected_records_codex_label_names_the_model(self):
+        """The fallback observes with no record in hand; the record the upsert
+        SELECTS may carry the codex label that names the model."""
+        self._unstamped(agent_string="codex/gpt5_6_terra")
+        self.observe_codex(self.HOOK_ID, cli_id="", agent_string="")
+        result = agent_freeze.freeze_pane(AGENT_PANE)
+        self.assertTrue(result.ok, result.line)
+        self.assertEqual(self.rec().codeagent_session_id, self.HOOK_ID)
+        self.assertEqual(self.rec().agent_string, "codex/gpt5_6_terra")
+        self.assertEqual(
+            [c for c in self.upserts() if "--clear-session-id" in c], [])
+
+
+class ShellPaneFreezeTests(_FreezeTestCase):
+    """t2077 end to end: the REAL `codex_observe_pid` over a fake `/proc`, in
+    which the pane pid is a `-bash` and codex (if any) is its child.
+
+    The other freeze tests stub the observer; these prove the freeze decides
+    correctly from what the descent actually returns.
+    """
+
+    SHELL = AGENT_PID
+    CODEX = AGENT_PID + 1
+    OTHER = AGENT_PID + 2
+    TTY = 34860
+    SID = "01a00000-0000-7000-8000-0000000000c1"
+    OTHER_SID = "01a00000-0000-7000-8000-0000000000d2"
+
+    def setUp(self):
+        super().setUp()
+        self.proc = self.tmp / "proc"
+        self._patch(agent_sessions, "codex_observe_pid",
+                    lambda pid, **_kw: _REAL_CODEX_OBSERVE(
+                        pid, proc_root=str(self.proc)))
+        self.codex_agent_strings["gpt-5.6-terra"] = "codex/gpt5_6_terra"
+
+    def upserts(self):
+        return [call for call in self.store.calls if call[0] == "upsert"]
+
+    def clears(self):
+        return [c for c in self.upserts() if "--clear-session-id" in c]
+
+    def rollout(self, sid):
+        d = self.tmp / "sessions"
+        d.mkdir(exist_ok=True)
+        path = d / f"rollout-2026-10-21T12-52-13-{sid}.jsonl"
+        path.write_text(json.dumps({"type": "session_meta", "payload": {
+            "session_id": sid, "cwd": str(self.root)}}) + "\n")
+        return path
+
+    def proc_entry(self, pid, *, argv, job, fds=(), children=None):
+        d = self.proc / str(pid)
+        (d / "fd").mkdir(parents=True, exist_ok=True)
+        if argv is not None:
+            (d / "cmdline").write_bytes(b"\0".join(a.encode() for a in argv) + b"\0")
+        for index, target in enumerate(fds):
+            (d / "fd" / str(index)).symlink_to(str(target))
+        if children is not None:
+            (d / "task" / str(pid)).mkdir(parents=True, exist_ok=True)
+            (d / "task" / str(pid) / "children").write_text(
+                "".join(f"{c} " for c in children))
+        pgrp, tty, tpgid = job
+        (d / "stat").write_text(
+            f"{pid} (x) S 1 {pgrp} 1 {tty} {tpgid} 0 0 0\n")
+
+    def shell(self, children, *, tpgid):
+        self.proc_entry(self.SHELL, argv=("-bash",), children=children,
+                        job=(self.SHELL, self.TTY, tpgid))
+
+    def codex(self, sid, *, tpgid):
+        self.proc_entry(self.CODEX, argv=("/usr/bin/codex", "-m", "gpt-5.6-terra"),
+                        fds=[self.rollout(sid)],
+                        job=(self.CODEX, self.TTY, tpgid))
+
+    def seed_codex_record(self):
+        self.seed_record(session_id=self.SID, transcript="/t/old.jsonl",
+                         agent_string="codex/gpt5_6_terra")
+
+    # --- the common case, fixed ------------------------------------------------
+
+    def test_a_hand_started_codex_labels_its_hook_record(self):
+        """THE END-TO-END RED PROOF: before t2077 the shell answered
+        `not_codex`, the record kept a blank label, and a restore would have
+        run `claude --resume <codex-uuid>`."""
+        self.seed_record(session_id=self.SID)
+        self.codex(self.SID, tpgid=self.CODEX)
+        self.shell([self.CODEX], tpgid=self.CODEX)
+        result = agent_freeze.freeze_pane(AGENT_PANE)
+        self.assertTrue(result.ok, result.line)
+        self.assertEqual(self.rec().codeagent_session_id, self.SID)
+        self.assertEqual(self.rec().agent_string, "codex/gpt5_6_terra")
+
+    def test_a_suspended_codex_never_overwrites_a_foreground_claudes_record(self):
+        """THE OVERWRITE GUARD. A Ctrl-Z'd codex still holds its rollout under
+        a mapped model; claude runs in the foreground with its own hook id."""
+        self.seed_record(session_id="sess-claude")
+        self.codex(self.OTHER_SID, tpgid=self.OTHER)
+        self.proc_entry(self.OTHER, argv=("claude",),
+                        job=(self.OTHER, self.TTY, self.OTHER))
+        self.shell([self.CODEX, self.OTHER], tpgid=self.OTHER)
+        result = agent_freeze.freeze_pane(AGENT_PANE)
+        self.assertTrue(result.ok, result.line)
+        self.assertEqual(self.rec().codeagent_session_id, "sess-claude")
+        self.assertEqual(self.rec().agent_string, "")
+        for call in self.upserts():
+            self.assertNotIn(self.OTHER_SID, call)
+            self.assertNotIn("codex/gpt5_6_terra", call)
+            self.assertNotIn("--clear-session-id", call)
+
+    # --- "could not look" keeps the id; a completed look may clear it ----------
+
+    def test_an_unreadable_child_keeps_a_codex_id(self):
+        self.seed_codex_record()
+        self.proc_entry(self.CODEX, argv=None,
+                        job=(self.CODEX, self.TTY, self.CODEX))
+        self.shell([self.CODEX], tpgid=self.CODEX)
+        result = agent_freeze.freeze_pane(AGENT_PANE)
+        self.assertTrue(result.ok, result.line)
+        self.assertEqual(self.rec().codeagent_session_id, self.SID)
+        self.assertEqual(self.clears(), [])
+
+    def test_control_a_readable_non_codex_child_clears_it(self):
+        """Proves the kept id above comes from the unknown answer."""
+        self.seed_codex_record()
+        self.proc_entry(self.CODEX, argv=("sleep", "300"),
+                        job=(self.CODEX, self.TTY, self.CODEX))
+        self.shell([self.CODEX], tpgid=self.CODEX)
+        agent_freeze.freeze_pane(AGENT_PANE)
+        self.assertEqual(self.rec().codeagent_session_id, "")
+        self.assertNotEqual(self.clears(), [])
+
+    def test_a_codex_brought_to_the_foreground_mid_look_keeps_the_id(self):
+        """The shell is read with its own group in the foreground; `fg` moves
+        the codex there before the child is read. A disproof from that stale
+        snapshot would clear a valid id."""
+        self.seed_codex_record()
+        self.codex(self.SID, tpgid=self.SHELL)
+        self.shell([self.CODEX], tpgid=self.SHELL)
+        real = agent_sessions._proc_job
+        fired = []
+
+        def proc_job(pid, proc_root):
+            result = real(pid, proc_root)
+            if not fired and int(pid) == self.SHELL:
+                fired.append(True)
+                for p in (self.SHELL, self.CODEX):
+                    stat = self.proc / str(p) / "stat"
+                    stat.write_text(stat.read_text().replace(
+                        f" {self.TTY} {self.SHELL} ", f" {self.TTY} {self.CODEX} "))
+            return result
+
+        self._patch(agent_sessions, "_proc_job", proc_job)
+        result = agent_freeze.freeze_pane(AGENT_PANE)
+        self.assertTrue(result.ok, result.line)
+        self.assertTrue(fired)
+        self.assertEqual(self.rec().codeagent_session_id, self.SID)
+        self.assertEqual(self.clears(), [])
+
+    def test_control_a_stable_shell_prompt_clears_a_suspended_codexs_id(self):
+        """The same fixture with nothing moving: a consistent snapshot of a
+        shell prompt over a suspended codex is a disproof, as before."""
+        self.seed_codex_record()
+        self.codex(self.SID, tpgid=self.SHELL)
+        self.shell([self.CODEX], tpgid=self.SHELL)
+        agent_freeze.freeze_pane(AGENT_PANE)
+        self.assertEqual(self.rec().codeagent_session_id, "")
+
+    def _foreground_launcher(self):
+        self.proc_entry(self.CODEX, argv=("env", "X=1", "codex", "resume", self.SID),
+                        job=(self.CODEX, self.TTY, self.CODEX))
+        self.shell([self.CODEX], tpgid=self.CODEX)
+
+    def _exec_launcher_into_codex(self):
+        argv = ("/usr/bin/codex", "resume", self.SID)
+        d = self.proc / str(self.CODEX)
+        (d / "cmdline").write_bytes(b"\0".join(a.encode() for a in argv) + b"\0")
+        (d / "fd" / "0").symlink_to(str(self.rollout(self.SID)))
+
+    def test_a_launcher_execing_into_codex_mid_look_keeps_the_id(self):
+        """The launcher's argv is read, then it execs into codex and opens the
+        stored session's rollout -- same pid, group and list place. A disproof
+        from the stale argv would clear the id of the codex now running."""
+        self.seed_codex_record()
+        self._foreground_launcher()
+        real = agent_sessions._codex_cmdline_argv
+        fired = []
+
+        def argv_of(pid, proc_root):
+            result = real(pid, proc_root)
+            if not fired and int(pid) == self.CODEX:
+                fired.append(True)
+                self._exec_launcher_into_codex()
+            return result
+
+        self._patch(agent_sessions, "_codex_cmdline_argv", argv_of)
+        result = agent_freeze.freeze_pane(AGENT_PANE)
+        self.assertTrue(result.ok, result.line)
+        self.assertTrue(fired)
+        self.assertEqual(self.rec().codeagent_session_id, self.SID)
+        self.assertEqual(self.clears(), [])
+
+    def test_control_a_stable_launcher_clears_the_codex_id(self):
+        """Nothing execs: a consistent look at a non-codex foreground job is a
+        disproof, as before."""
+        self.seed_codex_record()
+        self._foreground_launcher()
+        agent_freeze.freeze_pane(AGENT_PANE)
+        self.assertEqual(self.rec().codeagent_session_id, "")
+        self.assertNotEqual(self.clears(), [])
+
+    def test_control_an_already_execd_launcher_keeps_and_refreshes_the_id(self):
+        self.seed_codex_record()
+        self._foreground_launcher()
+        self._exec_launcher_into_codex()
+        agent_freeze.freeze_pane(AGENT_PANE)
+        self.assertEqual(self.rec().codeagent_session_id, self.SID)
+        self.assertEqual(self.rec().transcript_path, str(self.rollout(self.SID)))
+        self.assertEqual(self.clears(), [])
+
+    def test_an_unlisted_foreground_codex_keeps_the_id(self):
+        self.seed_codex_record()
+        self.codex(self.SID, tpgid=self.CODEX)
+        self.shell([], tpgid=self.CODEX)
+        result = agent_freeze.freeze_pane(AGENT_PANE)
+        self.assertTrue(result.ok, result.line)
+        self.assertEqual(self.rec().codeagent_session_id, self.SID)
+        self.assertEqual(self.clears(), [])
+
+    def test_a_codex_listed_twice_keeps_and_refreshes_the_id(self):
+        self.seed_codex_record()
+        self.codex(self.SID, tpgid=self.CODEX)
+        self.shell([self.CODEX, self.CODEX], tpgid=self.CODEX)
+        agent_freeze.freeze_pane(AGENT_PANE)
+        self.assertEqual(self.rec().codeagent_session_id, self.SID)
+        self.assertEqual(self.rec().transcript_path,
+                         str(self.rollout(self.SID)))
+        self.assertEqual(self.clears(), [])
+
+    def _gone_during_readlink(self):
+        import shutil
+        real = agent_sessions.os.readlink
+        fired = []
+
+        def readlink(path, *args, **kwargs):
+            if not fired and str(path).startswith(str(self.proc / str(self.CODEX))):
+                fired.append(True)
+                shutil.rmtree(self.proc / str(self.CODEX))
+            return real(path, *args, **kwargs)
+
+        self._patch(agent_sessions.os, "readlink", readlink)
+        return fired
+
+    def test_a_codex_gone_during_the_evidence_read_keeps_the_id(self):
+        self.seed_codex_record()
+        self.codex(self.SID, tpgid=self.CODEX)
+        self.shell([self.CODEX], tpgid=self.CODEX)
+        fired = self._gone_during_readlink()
+        result = agent_freeze.freeze_pane(AGENT_PANE)
+        self.assertTrue(result.ok, result.line)
+        self.assertTrue(fired, "the mutation must actually have happened")
+        self.assertEqual(self.rec().codeagent_session_id, self.SID)
+        self.assertEqual(self.rec().transcript_path, "/t/old.jsonl")
+        self.assertEqual(self.clears(), [])
+
+    def test_control_the_same_freeze_without_the_exit_records_the_session(self):
+        self.seed_codex_record()
+        self.codex(self.SID, tpgid=self.CODEX)
+        self.shell([self.CODEX], tpgid=self.CODEX)
+        agent_freeze.freeze_pane(AGENT_PANE)
+        self.assertEqual(self.rec().codeagent_session_id, self.SID)
+        self.assertEqual(self.rec().transcript_path,
+                         str(self.rollout(self.SID)))
 
 
 class TaskRefBackfillTests(_FreezeTestCase):
