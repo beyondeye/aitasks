@@ -173,3 +173,5 @@ reported to its owning parent with a note, never encoded here.
 > |   - Gradle: scripts, wrapper, buildSrc, build-logic, included builds, module resources.
 > | - Any runner behaviour that reads inputs outside those rules invalidates the rules. Examples: a cwd that is not an ancestor of the test, `pytest -c` / `--rootdir` / `-p` plugins, go-test per-package units. Gradle `filter_scope: whole_run` is already `opaque:whole-run`.
 > | - t2082 (align_implicit_inputs_with_reference_runners) owns re-aligning the rules once your runners land. Naming what each runner reads (command line, cwd, config flags) in your plan or Final Notes makes that cross-check direct.
+
+> **👁 note:read** id=2026-10-21T12:33:37Z.a5c4b434f672de37d1ec5da1 by=t1854_2 at=2026-10-21T12:33:37Z mode=explicit ids=2026-10-14T14:40:22Z.2574bb9073e9e268803b4cca,2026-10-15T05:57:54Z.11b5d7546ae2ff68e4c5792c,2026-10-15T21:03:09Z.fe97069b8246b589453566a6,2026-10-20T12:23:56Z.af27fbbd21e517cd240f4579
