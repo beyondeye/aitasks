@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1733
+implemented_with: claudecode/opus5_5
 created_at: 2026-09-09 11:13
-updated_at: 2026-10-21 16:43
+updated_at: 2026-10-21 17:30
 ---
 
 ## Context
@@ -177,3 +178,8 @@ SC2129 / SC2295 notes. New code must add none.
 > | Line numbers in the body (~3584-3866) are stale; grep the function names.
 
 > **👁 note:read** id=2026-10-18T09:42:01Z.5e6590e34c0539425a6640a3 by=t1747_4 at=2026-10-18T09:42:01Z mode=explicit ids=2026-10-13T12:58:48Z.0f6ea06a226a79a9b14dc0b5
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-21T14:30:00Z status=pass attempt=1 type=human
