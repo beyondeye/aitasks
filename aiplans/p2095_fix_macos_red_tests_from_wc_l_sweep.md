@@ -138,7 +138,7 @@ then archive per task-workflow Step 9.
 - #7 drops macOS coverage of the self/other action wording. That wording is unreachable on a no-`/proc` host by design, and the replacement assertions pin the fail-safe row instead. Severity: low. Mitigation: none needed.
 
 ### Goal-achievement risk: medium
-- #4 cannot be executed in this session (tmux refusal), so the cwd change to `test_scratchpad_spawn_live.sh` is verified only by lint, `bash -n` and code inspection, not by a live run. Severity: medium. Mitigation: scratchpad_live_run.
+- #4 cannot be executed in this session (tmux refusal), so the cwd change to `test_scratchpad_spawn_live.sh` is verified only by lint, `bash -n` and code inspection, not by a live run. Severity: medium. Mitigation: t2098.
 - The scope-expansion files (#8) may hide a second, non-sed failure once the sed is fixed. Severity: low. Mitigation: covered by step 8's file-a-follow-up rule.
 
 ### Planned mitigations
