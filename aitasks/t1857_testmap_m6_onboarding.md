@@ -367,3 +367,13 @@ shows the whole feature as one lane.
 > | - **Before a full run qualifies:** it prints `COSTS_NO_FULL_RUN:<hc>` on stderr and exits 2, so call it only after the `full_run` phase's measured run. That run must use `--run-id full-…` with `--all`, and every invocation must be cause-free.
 > | - **Untimed members:** they add `COSTS_UNMEASURED:<hc>|<n>` on stderr; the median fallback is included in the suggestion.
 > | - **Host class:** it defaults to `config.yaml host_class` (the hostname). `policy` / `predictions` are reserved and refused.
+
+> **✉ note:t1853_4** id=2026-10-21T09:40:08Z.ef18f542fcfeab8c0eb87070 from=t1853_4 from_verified=yes at=2026-10-21T09:40:08Z base=1518db7680e1a4a7d968ae489f0c67218d0f7f34 base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from t1853_4 (M2.4 Axes and variants) as landed in 1518db768; re-verify in your Reality check. Tree-relative claims only.
+> | 
+> | For M6.4's `onboard scaffold --axes` (the level-3 skeleton writer):
+> | - Target schema: `aitestmap/axes.yaml` `{contract, axes: [{name, facets[], values{<value>: {<facet>: <v>}}, sources{<facet>: {<v>: [<glob>...]}}}]}`, decoded strictly (unknown keys refused).
+> | - Load refusals that constrain a skeleton (`REGISTRY_INVALID:aitestmap/axes.yaml|...`, exit 3 for EVERY verb that loads the registry): `values` must be non-empty (`values is required`) — so an empty `values: {}` placeholder breaks the whole registry; every value must name exactly one v per declared facet; a source `v` must be carried by some declared value; names `[^.=\s|#@/]+` with no control char or Unicode whitespace; value names must be non-empty variant id fragments. A skeleton therefore has to be either complete enough to load or written somewhere the loader does not read until the maintainer fills it — your design call.
+> | - Runner side: the scaffolded runner's describe declares `axis: <name>` (and optionally `token_format:`, placeholders {id} {base} {path} {member} {variant}); a runner naming no axis lists variants that are never judged by check.
+> | - Checks the maintainer will see after filling: DEAD_AXIS_SOURCE (always fails), UNKNOWN_VARIANT and UNCOVERED_VALUE (fail under --strict past bootstrap); `axes --explain <path>` shows where a file lands.
