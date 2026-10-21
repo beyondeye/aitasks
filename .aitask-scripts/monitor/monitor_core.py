@@ -21,6 +21,7 @@ import contextlib
 import enum
 import os
 import re
+import shlex
 import subprocess
 import sys
 import threading
@@ -46,6 +47,7 @@ from agent_launch_utils import (  # noqa: E402
     discover_aitasks_sessions,
     discover_aitasks_sessions_async,
     launch_in_tmux,
+    launch_split_pane,
     resolve_pane_id_by_pid,
     switch_to_pane_anywhere,
     tmux_session_scope_target,
@@ -4162,6 +4164,345 @@ async def refresh_shadow_phase_stamp_async(monitor, shadow_pane: str, signal) ->
     except Exception:
         return False
     return rc == 0
+
+
+# -- Scratchpad spawn (t2073_4) -------------------------------------------------
+#
+# minimonitor `o` opens `ait scratchpad` in a vertical split of the followed
+# agent's pane. The pad is a bound helper (`lib/helper_panes.py`): once stamped
+# with SCRATCHPAD_TARGET_OPTION, discovery, the occupancy check, the cleanup
+# hook and freeze all treat it as one. This section is only the spawn side.
+
+SCRATCHPAD_POSITIONS = ("top", "bottom")
+SCRATCHPAD_DEFAULT_POSITION = "bottom"
+SCRATCHPAD_DEFAULT_HEIGHT = 12
+# THIS framework's store helper, run with cwd=<project root> — the same shape as
+# minimonitor's `_BOARD_COLUMN_SH`. Its `path` verb creates nothing.
+_SCRATCHPAD_STORE_SH = _SCRIPTS_DIR / "aitask_scratchpad_store.sh"
+_SCRATCHPAD_PATH_TIMEOUT = 5.0
+# Bounded recovery when the launch printed no usable pane id: tries x spacing.
+_SCRATCHPAD_RECOVER_TRIES = 3
+_SCRATCHPAD_RECOVER_SPACING = 0.05
+
+
+def scratchpad_query_args() -> list[str]:
+    """tmux argv listing every pane's id, scratchpad target, store key, frozen mark."""
+    return ["list-panes", "-a", "-F",
+            f"#{{pane_id}}\t#{{{SCRATCHPAD_TARGET_OPTION}}}\t"
+            f"#{{{SCRATCHPAD_STORE_OPTION}}}\t#{{{FROZEN_OPTION}}}"]
+
+
+def match_scratchpad_pane(out: str, followed_pane: str,
+                          store_key: str) -> str | None:
+    """The first pad that blocks opening another, or ``None``. Pure.
+
+    A pad blocks when its store key equals ``store_key`` (task pads — one per
+    project and task, so the key is the canonical store dir, never the bare id)
+    or when it is bound to ``followed_pane`` (one pad per agent, saved or not).
+
+    **Frozen first** (`lib/helper_panes.py`): a pane carrying ``@aitask_frozen``
+    is a stand-in that may retain the options of whatever ran there before the
+    respawn, so its markers are never read as a running pad.
+    """
+    for line in out.splitlines():
+        if not line.strip():
+            continue
+        parts = (line.split("\t") + ["", "", "", ""])[:4]
+        pane_id, target, store, frozen = (p.strip() for p in parts)
+        if not pane_id or frozen:
+            continue
+        if (store_key and store == store_key) or (
+                followed_pane and target == followed_pane):
+            return pane_id
+    return None
+
+
+def find_scratchpad_pane_status(
+    monitor, followed_pane: str, store_key: str
+) -> tuple[bool, str | None]:
+    """Live duplicate lookup for a spawn: ``(ok, pane)``.
+
+    ``ok`` is False when the query could not be answered — a create decision
+    must refuse then, never read it as "no pad" (the
+    :func:`find_shadow_pane_status` rule). Duck-typed on ``tmux_run`` only.
+    """
+    if monitor is None:
+        return False, None
+    rc, out = monitor.tmux_run(scratchpad_query_args(), timeout=2)
+    if rc != 0:
+        return False, None
+    return True, match_scratchpad_pane(out, followed_pane, store_key)
+
+
+def scratchpad_store_key(target_root: Path, task_id: str) -> str | None:
+    """Canonical absolute store dir of ``task_id`` in ``target_root``, or None.
+
+    Asks the store helper's ``path`` verb, which creates nothing and returns the
+    same key before and after the store exists. ``None`` on any failure (exit
+    status, timeout, unrunnable helper, or output that is not exactly one
+    absolute path) — the caller refuses the spawn rather than guessing a key.
+    """
+    try:
+        proc = subprocess.run(
+            [str(_SCRATCHPAD_STORE_SH), "path", task_id],
+            cwd=str(target_root), capture_output=True, text=True,
+            timeout=_SCRATCHPAD_PATH_TIMEOUT,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if proc.returncode != 0:
+        return None
+    lines = proc.stdout.splitlines()
+    if len(lines) != 1 or not lines[0].startswith("/"):
+        return None
+    return lines[0]
+
+
+def scratchpad_command(task_id: str | None, target_pane: str,
+                       store_root: str | None = None) -> str:
+    """The pad's command line: ``ait scratchpad --task|--unsaved … --target …``.
+
+    A task pad PINS ``AITASK_SCRATCHPAD_DIR`` to ``store_root`` — the canonical
+    root the duplicate lookup resolved. ``split-window`` starts the pad in the
+    tmux server's environment, not the caller's, and ``ait`` runs the project's
+    own copy of the helper from the project root; without the pin a root set
+    (or unset) only in the minimonitor would make the stamped key and the store
+    the editor really opens diverge. ``env`` execs, so the pane's pid is still
+    the launched process (the :func:`launch_in_tmux` contract).
+    """
+    if task_id is None:
+        return f"ait scratchpad --unsaved --target {shlex.quote(target_pane)}"
+    if not store_root or not store_root.startswith("/"):
+        raise ValueError(
+            f"a task scratchpad needs an absolute store root, got {store_root!r}")
+    return (f"env AITASK_SCRATCHPAD_DIR={shlex.quote(store_root)} "
+            f"ait scratchpad --task {shlex.quote(task_id)} "
+            f"--target {shlex.quote(target_pane)}")
+
+
+def scratchpad_placement(tmux_cfg: dict) -> tuple[str, int]:
+    """``(position, height)`` from ``tmux.scratchpad_position`` / ``_height``.
+
+    An invalid value falls back to its default: a position outside
+    :data:`SCRATCHPAD_POSITIONS`, or a height that is not a whole number >= 1.
+    Only an ``int`` or a string of decimal digits is accepted — validated BEFORE
+    any conversion, because ``yaml.safe_load`` also yields floats (``1.5`` would
+    truncate to 1; ``.inf`` would raise ``OverflowError``) and bools
+    (``int(True)`` is 1).
+    """
+    position = str(tmux_cfg.get("scratchpad_position",
+                                SCRATCHPAD_DEFAULT_POSITION)).strip().lower()
+    if position not in SCRATCHPAD_POSITIONS:
+        position = SCRATCHPAD_DEFAULT_POSITION
+    raw = tmux_cfg.get("scratchpad_height", SCRATCHPAD_DEFAULT_HEIGHT)
+    height = SCRATCHPAD_DEFAULT_HEIGHT
+    if isinstance(raw, int) and not isinstance(raw, bool):
+        height = raw
+    elif isinstance(raw, str) and re.fullmatch(r"[0-9]+", raw.strip()):
+        height = int(raw.strip())
+    if height < 1:
+        height = SCRATCHPAD_DEFAULT_HEIGHT
+    return position, height
+
+
+def _probe_pane(monitor, pane: str) -> str:
+    """``"live"`` / ``"gone"`` / ``"unknown"`` for ``pane``.
+
+    ``display-message -p -t <gone pane>`` exits ZERO with EMPTY output, so the
+    output is the signal — but only when the query itself succeeded: the gateway
+    answers ``(-1, "")`` on a timeout or transport failure, and that empty
+    string proves nothing. Anything not plainly live or gone is unknown.
+    """
+    rc, out = monitor.tmux_run(["display-message", "-p", "-t", pane, "#{pane_id}"])
+    if rc != 0:
+        return "unknown"
+    seen = out.strip()
+    if seen == pane:
+        return "live"
+    if not seen:
+        return "gone"
+    return "unknown"
+
+
+def _recover_pad_pane(monitor, pid: int | None) -> tuple[str, str | None]:
+    """Find the pane of a launch that printed no usable pane id.
+
+    ``("found", id)``, ``("exited", None)`` or ``("unknown", None)``. Absence is
+    reported only from a valid pid AND a successful, INTERPRETABLE query:
+    without a pid there is nothing to look for, and a failed query — or one
+    whose listing has any row that is not ``%<n> <positive pid>`` — is missing
+    evidence, not a gone pane, so it is retried and then reported unknown.
+    Bounded — at most :data:`_SCRATCHPAD_RECOVER_TRIES` queries.
+    """
+    if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 0:
+        return "unknown", None
+    for attempt in range(_SCRATCHPAD_RECOVER_TRIES):
+        if attempt:
+            time.sleep(_SCRATCHPAD_RECOVER_SPACING)
+        rc, out = monitor.tmux_run(
+            ["list-panes", "-a", "-F", "#{pane_id} #{pane_pid}"])
+        if rc != 0:
+            continue
+        rows = [_RECOVER_ROW_RE.fullmatch(line.strip())
+                for line in out.splitlines() if line.strip()]
+        if not all(rows) or any(int(r.group(2)) <= 0 for r in rows):
+            continue
+        for row in rows:
+            if int(row.group(2)) == pid:
+                return "found", row.group(1)
+        return "exited", None
+    return "unknown", None
+
+
+_RECOVER_ROW_RE = re.compile(r"(%\d+) (\d+)")
+
+
+def _stamp_or_remove(monitor, pane: str, option: str, value: str) -> str:
+    """Stamp ``option`` on the new pad, or take the pad away.
+
+    ``"ok"`` on a write (one retry). Otherwise the pane must not stay behind
+    unclassified — an unstamped pad lists as an agent and evades both the
+    duplicate lookup and the cleanup hook — so: ``"exited"`` when a probe proves
+    it is already gone (nothing to kill); else a best-effort ``kill-pane`` —
+    also on an UNKNOWN probe, since we hold the id of a pane we created
+    milliseconds ago — and ``"removed"`` only when a second probe proves it gone,
+    ``"stuck"`` when that cannot be confirmed.
+    """
+    args = ["set-option", "-p", "-t", pane, option, value]
+    rc, _ = monitor.tmux_run(args)
+    if rc != 0:
+        rc, _ = monitor.tmux_run(args)
+    if rc == 0:
+        return "ok"
+    if _probe_pane(monitor, pane) == "gone":
+        return "exited"
+    monitor.tmux_run(["kill-pane", "-t", pane])
+    return "removed" if _probe_pane(monitor, pane) == "gone" else "stuck"
+
+
+_PAD_REMOVAL_MESSAGES = {
+    "exited": ("Scratchpad pane {pane} exited before it could be classified "
+               "— nothing was opened", "warning"),
+    "removed": ("Scratchpad pane {pane} could not be classified — removed it. "
+                "No scratchpad is open.", "error"),
+    "stuck": ("Scratchpad pane {pane} could not be classified, and its removal "
+              "could not be confirmed — close it by hand", "error"),
+}
+
+
+def spawn_scratchpad(
+    monitor,
+    *,
+    followed_pane: str,
+    followed_window: str,
+    session: str,
+    task_id: str | None,
+    target_root: Path,
+    companion_pane: str | None,
+    select_window: bool,
+    notify: Callable[..., None],
+    schedule_refresh: Callable[[], None],
+) -> str | None:
+    """Place, launch, stamp and lifecycle-wire a scratchpad pane (t2073_4).
+
+    Mirrors :func:`spawn_shadow`. ``task_id`` None opens an UNSAVED pad. The pad
+    goes in a vertical split of the followed AGENT pane, above or below it per
+    ``tmux.scratchpad_position`` / ``tmux.scratchpad_height``. Returns the pad's
+    pane id, or ``None`` when no usable pad was created.
+
+    **This function never reads ``TMUX_PANE``** — ``companion_pane`` follows the
+    :func:`spawn_shadow` contract: the pane the cleanup hook despawns once the
+    agent's window holds no real agent; ``None`` binds to the new pad.
+
+    The live lookup refuses on an unverifiable query and on a pad already open
+    for the same store or the same agent; it skips frozen panes. It is a guard
+    against the obvious duplicate, not the authority: between the launch and the
+    stamp a concurrent press cannot see the new pad, and there the app's
+    ``flock`` on the store keeps a second editor read-only.
+
+    A pad that cannot be stamped is removed (see :func:`_stamp_or_remove`); a
+    pad whose pane cannot be identified at all is reported, never claimed gone.
+    """
+    if monitor is None:
+        return None
+    store_key = ""
+    if task_id:
+        key = scratchpad_store_key(target_root, task_id)
+        if key is None:
+            notify(f"Could not resolve the scratchpad store for t{task_id} "
+                   "— not opening", severity="error")
+            return None
+        store_key = key
+
+    ok, existing = find_scratchpad_pane_status(monitor, followed_pane, store_key)
+    if not ok:
+        notify("Could not verify whether a scratchpad is already open "
+               "— not opening", severity="warning")
+        return None
+    if existing:
+        where = f"t{task_id}" if task_id else "this agent"
+        notify(f"A scratchpad is already open for {where}", severity="warning")
+        return None
+
+    position, height = scratchpad_placement(load_project_tmux_config(target_root))
+    cfg = TmuxLaunchConfig(
+        session=session,
+        window=followed_window,
+        new_session=False,
+        new_window=False,
+        split_direction="vertical",
+        split_before=(position == "top"),
+        split_size=height,
+        split_target_pane=followed_pane,
+        cwd=str(target_root),
+        select_window=select_window,
+    )
+    command = scratchpad_command(task_id, followed_pane,
+                                 os.path.dirname(store_key) or None)
+    pad, pid, err = launch_split_pane(command, cfg)
+    if err:
+        notify(f"Scratchpad launch failed: {err}", severity="error")
+        return None
+
+    if not pad:
+        state, pad = _recover_pad_pane(monitor, pid)
+        if state == "exited":
+            notify("Scratchpad exited immediately — nothing was opened",
+                   severity="warning")
+            schedule_refresh()
+            return None
+        if state != "found" or not pad:
+            ident = f" (pid {pid})" if pid else ""
+            notify(f"Scratchpad launched{ident}, but tmux returned no usable "
+                   "pane id — check the agent's window and close any stray "
+                   "pane by hand", severity="error")
+            schedule_refresh()
+            return None
+
+    stamps = [(SCRATCHPAD_TARGET_OPTION, followed_pane)]
+    if store_key:
+        stamps.append((SCRATCHPAD_STORE_OPTION, store_key))
+    for option, value in stamps:
+        outcome = _stamp_or_remove(monitor, pad, option, value)
+        if outcome != "ok":
+            text, severity = _PAD_REMOVAL_MESSAGES[outcome]
+            notify(text.format(pane=pad), severity=severity)
+            schedule_refresh()
+            return None
+
+    hook_status = attach_companion_cleanup_hook(
+        followed_pane, companion_pane or pad
+    )
+    if hook_status == "unverified":
+        notify("Scratchpad opened; auto-cleanup on agent exit could not be "
+               "wired — close the scratchpad by hand when the agent exits",
+               severity="warning")
+    elif task_id:
+        notify(f"Opened scratchpad for t{task_id}")
+    else:
+        notify("Opened scratchpad (not saved)")
+    schedule_refresh()
+    return pad
 
 
 # -- Task context --------------------------------------------------------------

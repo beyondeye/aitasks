@@ -351,6 +351,28 @@ TMUX_CONFIG_SCHEMA: dict[str, dict[str, str]] = {
         "type": "int",
         "default": "60",
     },
+    "scratchpad_position": {
+        "summary": "Scratchpad pane above or below the agent",
+        "detail": (
+            "Where minimonitor 'o' places the scratchpad notes pane: in a "
+            "vertical split of the followed agent's pane, above (top) or below "
+            "(bottom) it. An invalid value falls back to bottom "
+            "(default: bottom)"
+        ),
+        "type": "enum",
+        "options": "top,bottom",
+        "default": "bottom",
+    },
+    "scratchpad_height": {
+        "summary": "Height (rows) of the scratchpad pane",
+        "detail": (
+            "Row height of the scratchpad notes pane minimonitor 'o' opens "
+            "next to the followed agent. A value that is not a whole number "
+            ">= 1 falls back to the default (default: 12)"
+        ),
+        "type": "int",
+        "default": "12",
+    },
 }
 
 #: Branch the Artifacts tab offers when gitbranch is selected with no branch

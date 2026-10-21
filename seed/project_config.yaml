@@ -533,6 +533,33 @@ tmux:
   # shadow_pane_width: 60
 
   # ──────────────────────────────────────────────────────────────────
+  # scratchpad_position — where the scratchpad notes pane goes.
+  #
+  # `ait minimonitor` ('o') opens the scratchpad in a vertical split of
+  # the followed agent's pane: above it (top) or below it (bottom). Any
+  # other value falls back to bottom.
+  #
+  # Default: bottom.
+  #
+  # Example:
+  #   scratchpad_position: top
+  # ──────────────────────────────────────────────────────────────────
+  # scratchpad_position: bottom
+
+  # ──────────────────────────────────────────────────────────────────
+  # scratchpad_height — height (rows) of the scratchpad notes pane.
+  #
+  # tmux applies it as the pane's initial height. A value that is not a
+  # whole number >= 1 falls back to the default.
+  #
+  # Default: 12.
+  #
+  # Example:
+  #   scratchpad_height: 16
+  # ──────────────────────────────────────────────────────────────────
+  # scratchpad_height: 12
+
+  # ──────────────────────────────────────────────────────────────────
   # syncer — `ait syncer` TUI for remote desync tracking.
   #
   # The syncer TUI tracks ahead/behind state for the project's tracked

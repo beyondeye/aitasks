@@ -2111,25 +2111,85 @@ def launch_in_tmux(command: str, config: TmuxLaunchConfig) -> tuple[int | None, 
         return _parse_pane_pid(out), None
     else:
         # Split existing window into a new pane
-        split_flag = "-h" if config.split_direction == "horizontal" else "-v"
-        window_target = tmux_window_target(config.session, config.window)
-        # Split a specific pane when requested (so split_size sizes against that
-        # pane), else the window's active pane.
-        split_target = config.split_target_pane or window_target
-        split_args = ["split-window", "-P", "-F", "#{pane_pid}", split_flag]
-        if config.split_before:
-            split_args.append("-b")
-        if config.split_size is not None:
-            split_args += ["-l", str(config.split_size)]
-        split_args += ["-t", split_target, *cwd_args, command]
-        rc, out = _TMUX.run(split_args)
+        rc, out = _TMUX.run(_split_window_argv(command, config, "#{pane_pid}"))
         if rc != 0:
             return None, f"tmux split-window failed (rc={rc})"
-        # Switch to the target window so the user sees the new pane, unless the
-        # caller wants the launch to stay out of sight (select_window=False).
-        if config.select_window:
-            _TMUX.spawn(["select-window", "-t", window_target])
+        _select_split_window(config)
         return _parse_pane_pid(out), None
+
+
+def _split_window_argv(command: str, config: TmuxLaunchConfig,
+                       fmt: str) -> list[str]:
+    """The ``split-window -P -F <fmt>`` argv for ``config``'s split placement.
+
+    Shared by :func:`launch_in_tmux` (``#{pane_pid}``) and
+    :func:`launch_split_pane` (``#{pane_id}`` + ``#{pane_pid}``) so the two
+    split launches cannot drift apart in anything but what they print back.
+    """
+    split_flag = "-h" if config.split_direction == "horizontal" else "-v"
+    # Split a specific pane when requested (so split_size sizes against that
+    # pane), else the window's active pane.
+    split_target = (config.split_target_pane
+                    or tmux_window_target(config.session, config.window))
+    split_args = ["split-window", "-P", "-F", fmt, split_flag]
+    if config.split_before:
+        split_args.append("-b")
+    if config.split_size is not None:
+        split_args += ["-l", str(config.split_size)]
+    cwd_args = ["-c", config.cwd] if config.cwd else []
+    split_args += ["-t", split_target, *cwd_args, command]
+    return split_args
+
+
+def _select_split_window(config: TmuxLaunchConfig) -> None:
+    # Switch to the target window so the user sees the new pane, unless the
+    # caller wants the launch to stay out of sight (select_window=False).
+    if config.select_window:
+        _TMUX.spawn(["select-window", "-t",
+                     tmux_window_target(config.session, config.window)])
+
+
+_PANE_ID_RE = re.compile(r"%\d+")
+
+
+def launch_split_pane(
+    command: str, config: TmuxLaunchConfig,
+) -> tuple[str | None, int | None, str | None]:
+    """Split a pane like :func:`launch_in_tmux`, returning its id as well.
+
+    Returns ``(pane_id, pane_pid, error)``. The id comes from the launch's own
+    ``-P`` output, so a caller that must stamp the new pane never has to look it
+    up again by pid — a second query that can fail, and whose ``None`` cannot
+    say whether the query failed or the pane is already gone.
+
+    Each field is validated on its own: an id must look like ``%<n>`` and a pid
+    must be a positive int, else that field is ``None``. ``(None, None, None)``
+    therefore means tmux reported success but printed nothing usable — a pane
+    may exist that the caller cannot identify. ``error`` is set only when
+    ``split-window`` itself failed.
+
+    Only the split placement is supported (``new_session`` / ``new_window`` are
+    ignored). The same unwrapped-command contract as :func:`launch_in_tmux`
+    applies: the pane's pid must be the launched process itself.
+    """
+    rc, out = _TMUX.run(
+        _split_window_argv(command, config, "#{pane_id}\t#{pane_pid}"))
+    if rc != 0:
+        return None, None, f"tmux split-window failed (rc={rc})"
+    _select_split_window(config)
+    # Split BEFORE trimming: stripping the whole output first would eat a
+    # leading tab, shifting a valid pid into the id field when the id is empty.
+    lines = [line for line in out.splitlines() if line.strip()]
+    raw_id, _, raw_pid = (lines[0] if lines else "").partition("\t")
+    raw_id = raw_id.strip()
+    pane_id = raw_id if _PANE_ID_RE.fullmatch(raw_id) else None
+    try:
+        pane_pid = int(raw_pid.strip())
+    except ValueError:
+        pane_pid = None
+    if pane_pid is not None and pane_pid <= 0:
+        pane_pid = None
+    return pane_id, pane_pid, None
 
 
 def resolve_pane_id_by_pid(session: str, pid: int) -> str | None:

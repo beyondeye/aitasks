@@ -55,6 +55,7 @@ from monitor.tmux_monitor import (  # noqa: E402
 # Shares `classify_pane`'s prefix matcher (t1351), so a row is never stripped by
 # a rule the classifier did not use.
 from monitor.monitor_core import agent_display_name  # noqa: E402
+from monitor.monitor_core import spawn_scratchpad  # noqa: E402  (t2073_4)
 # The one "does this pane keep the window alive?" classifier (bound helpers,
 # companions, frozen-first) — rung 2 of `_find_sibling_pane_id` is a call site
 # of it rather than a local copy of the rule (t1388, t2073_3).
@@ -879,7 +880,10 @@ KEY_HINTS_TEXT = (
     # this was the most expensive line in the band — four wrapped rows — so
     # trimming it buys back more than the new keys cost.
     "j:switcher  m:monitor\n"
-    "k:kill  n:next  e/E:shadow\n"
+    # `o` (t2073_4) sits beside `e/E`: both open a helper bound to the followed
+    # agent. Measured at (15, 30): every line it could join costs one wrapped
+    # row there (28 -> 29, the budget); none was free.
+    "k:kill  n:next  e/E:shadow  o:notes\n"
     # `P` shares this line with `p` deliberately (t1685): they are unrelated
     # actions that differ only in case, and putting them side by side is what
     # makes that legible. It also keeps the hints at TEN rows — an eleventh
@@ -1224,6 +1228,7 @@ class MiniMonitorApp(
         Binding("p", "pick_task_by_number", "Pick task", show=False),
         Binding("e", "launch_shadow", "Shadow", show=False),
         Binding("E", "launch_shadow_pick", "Shadow (pick agent)", show=False),
+        Binding("o", "open_scratchpad", "Notes", show=False),
         Binding("c", "pick_concerns", "Concerns", show=False),
         Binding("j", "tui_switcher", "TUI switcher", show=False),
         Binding("q", "quit", "Quit", show=False),
@@ -3940,6 +3945,63 @@ class MiniMonitorApp(
             # `--phase` before the first refresh tick still sees the checkpoint
             # it was launched for (t1420).
             phase_signal=self._phase_signal_for_pane(snap),
+        )
+
+    def action_open_scratchpad(self) -> None:
+        """Open the scratchpad notes editor beside the followed agent (t2073_4).
+
+        A vertical split of the followed agent's pane (``monitor_core.
+        spawn_scratchpad``), bound to that agent like a shadow. A task agent
+        (`agent-pick|qa|resume-<id>`) gets the task's persistent pad; any other
+        agent an UNSAVED pad, said here because it is this press's surprise.
+        No pre-check: there is no dialog to wait through, so the live duplicate
+        lookup inside ``spawn_scratchpad`` runs right before the launch.
+        """
+        if self._monitor is None:
+            return
+        snap = self._find_own_agent_snapshot()
+        if snap is None:
+            self.notify("No followed agent for a scratchpad", severity="warning")
+            return
+        followed_pane = snap.pane.pane_id
+        if not followed_pane:
+            self.notify("Followed agent pane id unavailable", severity="warning")
+            return
+        task_id = self._task_cache.get_task_id_for_pane(snap.pane)
+        if task_id is None:
+            self.notify("Not a task agent — notes will not be saved",
+                        severity="warning")
+        self._spawn_scratchpad(
+            followed_pane, task_id, self._root_for_snap(snap), snap)
+
+    def _spawn_scratchpad(
+        self,
+        followed_pane: str,
+        task_id: str | None,
+        target_root: Path,
+        snap: PaneSnapshot,
+    ) -> str | None:
+        """Apply **this app's** spawn policy, then delegate the mechanics.
+
+        The same two per-app decisions as ``_spawn_shadow``, for the same
+        reasons: the cleanup hook despawns THIS minimonitor (the agent's
+        companion) once the window holds no real agent — the pad itself is
+        killed by its @aitask_scratchpad_target binding — and the client is
+        already on the agent's window, so selecting it is a no-op.
+        """
+        if self._monitor is None:
+            return None
+        return spawn_scratchpad(
+            self._monitor,
+            followed_pane=followed_pane,
+            followed_window=snap.pane.window_name,
+            session=snap.pane.session_name or self._session,
+            task_id=task_id,
+            target_root=target_root,
+            companion_pane=os.environ.get("TMUX_PANE") or None,
+            select_window=True,
+            notify=self.notify,
+            schedule_refresh=lambda: self.call_later(self._refresh_data),
         )
 
     def _phase_signal_for_pane(self, snap: PaneSnapshot):
