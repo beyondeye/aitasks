@@ -293,7 +293,7 @@ Commit the code (`enhancement: … (t1939)`), then archive per the workflow.
   that every project on the host uses, on the next `ait setup` for every user. A
   verb defect would hit real homes without anyone opting in. This is bounded by the
   verb's preflight, inode checks and rollback, by its passes on real Linux and macOS
-  homes (t1931/t2086), and by setup's handling of each exit class. · severity: medium · → mitigation: setup_default_real_home_check
+  homes (t1931/t2086), and by setup's handling of each exit class. · severity: medium · → mitigation: t2107
 - A test that runs full setup with a scratch HOME but an inherited `AITASKS_HOME`
   could migrate scratch tenants into a developer's real root. Closed in-plan (R6),
   and install.sh stays non-migrating so the real-HOME install tests cannot move
@@ -307,10 +307,10 @@ Commit the code (`enhancement: … (t1939)`), then archive per the workflow.
 - The I matrix runs the installed `main()` under production options, but the steps
   that do not touch the home are stubbed. An interaction with a real heavy step, for
   example a networked venv build changing the tenant shapes, is caught only by the
-  gated full-setup tests and the real-home check. · severity: low · → mitigation: setup_default_real_home_check
+  gated full-setup tests and the real-home check. · severity: low · → mitigation: t2107
 
 ### Planned mitigations
-- timing: after | name: setup_default_real_home_check | type: manual_verification | priority: medium | effort: low | inline_risk: medium | added_complexity: low | addresses: code-health — default migration of real shared per-user roots | desc: On a real unmigrated home (Linux and macOS), run the released `ait setup`; confirm HOME_MIGRATED:<n>, board (PyPy) and monitor boot, and a re-run prints no hint and does not re-migrate
+- timing: after | name: setup_default_real_home_check | type: manual_verification | priority: medium | effort: low | inline_risk: medium | added_complexity: low | addresses: code-health — default migration of real shared per-user roots | desc: On a real unmigrated home (Linux and macOS), run the released `ait setup`; confirm HOME_MIGRATED:<n>, board (PyPy) and monitor boot, and a re-run prints no hint and does not re-migrate | created: t2107
 
 ## Post-Review Changes
 
