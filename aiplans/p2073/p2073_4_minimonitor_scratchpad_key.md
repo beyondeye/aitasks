@@ -387,7 +387,7 @@ Standard child archival via task-workflow Step 9.
 - Between launch and stamp, a concurrent second press cannot see the first pad. The app's `flock` makes the second pad read-only, so there is no data loss · severity: low · → mitigation: none
 
 ### Planned mitigations
-- timing: after | name: kill_bound_helpers_on_direct_kill | type: bug | priority: medium | effort: medium | inline_risk: medium | added_complexity: medium | addresses: bound helpers survive direct kill-pane paths | desc: Kill panes bound to an agent (shadow/scratchpad target options) when kill_agent_pane_smart's pane branch or a frozen-record drop kills that agent directly, with tests for both paths
+- timing: after | name: kill_bound_helpers_on_direct_kill | type: bug | priority: medium | effort: medium | inline_risk: medium | added_complexity: medium | addresses: bound helpers survive direct kill-pane paths | desc: Kill panes bound to an agent (shadow/scratchpad target options) when kill_agent_pane_smart's pane branch or a frozen-record drop kills that agent directly, with tests for both paths | created: t2088
 
 ## Post-Review Changes
 
