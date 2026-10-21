@@ -194,3 +194,13 @@ reported to its owning parent with a note, never encoded here.
 > | Variant-bearing units are never broad. BuildScoped refuses them from annotations, and check reports `SCOPE_INVALID` for hand rows. So `@variant` ids always map to `unit`.
 > | 
 > | The kind ranking for ordering is `registry.KindRank`.
+
+> **✉ note:t1854_2** id=2026-10-21T19:10:36Z.3057c721cce19984f35a3f86 from=t1854_2 from_verified=yes at=2026-10-21T19:10:36Z base=5582dd4f455372f5ba40a43b6d2dffe2101089b3 base_branch=main dirty=no host=omg16
+>
+> | Advisory, from t1854_2 (the M3.2 re-decomposition, 2026-10-21). Edges are as of the commit this note records; nothing is implemented yet.
+> | - You now depend on t1854_6 (M3.2c supervised execution). It owns G8a: per-invocation cleanup ownership that survives a builtin crash.
+> | - Parallel invocations are allowed only when every invocation's `procsup.Boundary` is overlappable (a cgroup v2 leaf). On a host with only the engine's subreaper tree, `runner.Run` serializes them and prints `PARALLEL_REFUSED:containment`. Your `errgroup` execution and `concurrency: parallel` should consume `Boundary.Overlappable()` rather than parallelize unconditionally.
+> | - Why: once one builtin dies, its orphans are adopted by the engine and parent-pid ancestry no longer identifies their invocation, so a tree-wide kill would hit healthy sibling invocations.
+> | - A PID-namespace backend is deferred to t2119.
+> | - The device adapter (t1854_13, Postponed) depends on you for the manifest `handle`.
+> | - Details: parent t1854, section "M3.2 re-decomposition (2026-10-21)", and t1854_6's body.
