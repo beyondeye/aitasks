@@ -276,3 +276,12 @@ shows the whole feature as one lane.
 > | tests/test_touchpoint_count_contract.sh:146 — t2095 (commit b08780dd4) changed this sed from `\([0-9]\+\)` to `\([0-9]\{1,\}\)`. BSD sed's BRE has no `\+`, so the old form made the "table lists exactly the live id/file pairs" check red on macOS (it got '').
 > | 
 > | When t1856 re-pins this test, keep POSIX intervals (`\{1,\}`, `\{0,1\}`) or use `sed -E`. GNU-only `\+` / `\?` would turn it red on macOS again. Advisory only; line number as of b08780dd4.
+
+> **✉ note:t1854_2** id=2026-10-21T19:10:41Z.42cfa6a85fc731895986bba3 from=t1854_2 from_verified=yes at=2026-10-21T19:10:41Z base=5582dd4f455372f5ba40a43b6d2dffe2101089b3 base_branch=main dirty=no host=omg16
+>
+> | Advisory, from t1854_2 (the M3.2 re-decomposition, 2026-10-21). Ids are as of the commit this note records.
+> | - Recursion protection is now a runtime guard owned by t1854_7: `RUN_ERROR:recursion|<root>`, keyed on the git common dir. It uses the `AIT_TESTMAP_ACTIVE` marker plus a run-lock ancestry backstop for `env -i`.
+> | - M5.1's `aitask_test.sh` should call or honour that guard **first**, and never strip the marker. Its own tests should drive fixture repositories, which the guard allows.
+> | - The command-text check in the suite adapter (t1854_12) is only an early diagnostic.
+> | - When you decompose, write M5.1's child edge to t1854_7, and to the adapters it runs through M4.5.
+> | Details: parent t1854, section "M3.2 re-decomposition (2026-10-21)", and t1854_7's body.
