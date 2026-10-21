@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: medium
+risk_goal_achievement: low
 effort: medium
 depends: [1931]
 issue_type: enhancement
@@ -89,3 +91,5 @@ t1852_6 covers most of these with direct-verb cases (H5, H7, H8, H11–H13) plus
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-10-21T09:16:12Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-10-21T11:52:09Z status=pass attempt=1 type=human
