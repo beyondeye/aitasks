@@ -265,3 +265,61 @@ fails the axes post-loader as `REGISTRY_INVALID`.
 
 Post-implementation follows the shared task-workflow Step 9 (current branch,
 archival, no merge).
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-21 11:40)
+- **Requested by user:** (1) `checkVariant` accepted an empty value name, because `registry.ID{Path:"x",Variant:""}.Valid()` validates a plain unit, so `values: {'': …}` loaded an impossible variant. (2) Every `Admits` call rebuilt and sorted the whole scanned-row index for one candidate (~6.2 ms / 9.7 MB per call at 10 000 rows).
+- **Changes made:** (1) `checkVariant` refuses `""` explicitly. The new cases in `TestParseRefusals` and `TestLoad` (through `Load`) were red-proved: they fail with the guard removed, applied via a scratch `-overlay` mutant. (2) Added the exported prepared index `IndexRows(rows) (*Rows, error)` (built once, unsorted; `Select` sorts its own output). The signature is now `(*Table).Admits(forces, ix *Rows, id) bool`. A scratch-only benchmark (overlay, not committed) measured ~194 ns and 256 B per call at 10 000 rows. README row updated.
+- **Files affected:** `goengines/internal/testmap/axes/axes.go`, `join.go`, `axes_test.go`, `goengines/README.md`
+
+### Change Request 2 (2026-10-21 12:05)
+- **Requested by user:** names and facet values used Go regex `\s` (ASCII only) plus a control check. A value such as `ru alt` loaded and passed `ParseClaim`, but `annot.ParseFile` splits a `testmap:axis` line with `strings.Fields` (Unicode whitespace), so it could never be claimed. The copied-regex differential test could not see this.
+- **Changes made:**
+  - `CheckName`, `checkFacetValue` and `ParseClaim` refuse any `unicode.IsSpace` rune (`hasSpace`).
+  - The copied-regex differential is replaced by `TestParseClaimMatchesAnnotParser`, which runs the real `annot.ParseFile` and requires annot to record the argument verbatim.
+  - Added `TestDeclaredValuesAreClaimable`: every axis name, facet name and facet value the loader accepts must be claimable through the real parser, and anything else must be refused at load.
+  - Red-proved: a scratch `-overlay` mutant without the `hasSpace` guards fails both tests on the U+00A0 / U+2003 cases.
+  - README updated.
+- **Files affected:** `goengines/internal/testmap/axes/axes.go`, `axes_test.go`, `goengines/README.md`
+
+## Final Implementation Notes
+- **Actual work done:**
+  - New package `goengines/internal/testmap/axes`:
+    - `axes.go`: the strict `axes.yaml` loader, the name and claim grammar, and the registry post-loader.
+    - `join.go`: `Join`, `Explain`, `IndexRows` / `Rows`, `(*Table).Select`, `Expand`, `Counts`, `ParseForce` / `ResolveForce` / `Admits`, `Widen`.
+    - `token.go`: the token format and `ParseRunnerDecl`.
+    - `rules.go`: `DEAD_AXIS_SOURCE`, `UNKNOWN_VARIANT`, `UNCOVERED_VALUE`.
+  - Named extensions:
+    - registry: `Listing.Axis`, `UnitAnnotation.Axes`, readInputs validation, `ScannedRow.Axis` / `Facets` and BuildScanned, `CheckOptions.Rules`.
+    - annot: `toRegistry` fills the claims.
+    - runner: `runner/axis.go` registers `axis` / `token_format`; `Validate` calls `axes.ParseRunnerDecl`; `Listings` sets `Axis`.
+  - The `axes` verb (`cmd/ait-testmap/axes.go`) replaces the stub row.
+  - Docs: the proposal (`_scanned` schema, the Variant axes / Axis resolver verbs text, severity table rows, line-protocol index row) and the `goengines/README.md` interface rows.
+- **Deviations from plan:**
+  - `(*Table).Select` returns `([]Placed, error)`, and the index constructor `IndexRows` returns an error: a malformed scanned row fails closed instead of being skipped (a skipped row would be an unselectable unit).
+  - `Admits` takes a prepared `*Rows` index (review round 1).
+  - The property generator uses 1–6 values per axis instead of 3–6, so that the last-value refusal branch of part B is exercised; the test asserts both refusal branches occur.
+  - `--explain` prefixes an observed source's glob with `observed:` (provenance).
+  - Forces on the same (axis, facet) are alternatives (OR), forces on different facets must all hold (AND).
+- **Issues encountered:**
+  - The runner package's isolation tripwire (`TestIsolationTripwire`) caught a new process-starting test without the `isolated(t, hangLimit)` guard; the guard was added.
+  - Registering the two describe keys in the runner package made M3.1's two "until M2.4" tests obsolete: `TestDescribeRefusesUnknown` now pins `bogus`, and `TestDescribeExtensionKey` uses a test-only key and also checks that re-registering `axis` panics.
+  - `selectRules` first dropped the second of two same-named rules (`OWNS_VIOLATION` / `SCAN_DRIFT`); this was fixed and is pinned in `TestCheckRulesFilter`.
+- **Key decisions:**
+  - The import graph is `axes → registry`, `runner → axes`, so every binary linking the runner repository has the axis loader and rules (the `init` registration).
+  - A runner naming no `axis:` is never judged, so existing registries see no new finding and `_scanned.yaml` stays byte-identical (the characterization test is unchanged).
+  - The `observed.yaml` loader stays with M4.4; only the widen-only `Widen` API ships here.
+  - Deferred to M4.1's design: whether a source may name a facet value that only plain-unit claims carry. The strict rule holds until then.
+- **Verification evidence (durable):**
+  - **baseline_engine_suite (pre-phase).** `./ait engine test` on the clean HEAD `c108f7b4e` exited 0, 16/16 packages ok, so there were no pre-existing failures. Final: `./ait engine test` exited 0, 17 packages ok (the new `axes` package included), after each review round.
+  - **undeclared_never_underselects (post-phase).** `TestPropertySynthetic` (part A) and `TestPropertyLoaderRoundTrip` (part B) run 300 seeds each. Red proof: `go test -overlay` with `join.go`'s `case !declared:` branch replaced by a no-op fails both, with `seed 0: deleting a0@v0 lost [t/a0_0.kt#M@v0 t/a0_1.kt#M@v0]` (A) and `seed 0: deleting a0@v2 lost [...@v2]` (B). The tree was untouched (the overlay lived in the scratchpad).
+  - **Review red proofs.** The empty value name (overlay without the `s == ""` guard) fails `TestParseRefusals` / `TestLoad`. The Unicode whitespace guards (overlay without `hasSpace`) fail `TestParseClaimMatchesAnnotParser` / `TestDeclaredValuesAreClaimable` on U+00A0 / U+2003. An indexed `Admits` call costs about 194 ns and 256 B at 10 000 rows (scratch-only benchmark via overlay, not committed).
+- **Upstream defects identified:** None
+- **Notes for sibling tasks:**
+  - **Wiring rule.** Variant-bearing `_scanned` rows carry `axis:`, and claims carry `facets:`. Read them through `axes.Of(reg)` + `reg.Units`, never re-run runners.
+  - **Selector composition (M4.1).** The axis channel is additive: union `(*Table).Select(rows, t.Join(changed))` with `axes.Expand` of every edge-reached unit; never intersect them.
+  - **`--axis` (M4.1).** Use `ParseForce` → `ResolveForce` (`*ForceError` reason `axis` / `facet` / `value`), then `ix, _ := axes.IndexRows(rows)` once and `t.Admits(forces, ix, id)` per candidate.
+  - **`--format tokens` (M4.1).** `runner.Describe.TokenFormat().Render(id)`.
+  - **Observed sources (M4.4).** Feed them through `(*Table).Widen`, which never narrows; it owns `registry/observed.yaml`.
+  - **Check subsets.** `registry.CheckOptions.Rules` runs a named subset of check rules (the pattern `axes --check` uses).
