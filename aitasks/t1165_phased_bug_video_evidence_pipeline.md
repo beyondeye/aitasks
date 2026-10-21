@@ -167,3 +167,7 @@ Add a manual-verification child only after automated integration tests pass, cov
 > |    have inputs read by human reviewers.
 > | 
 > | Source: `aidocs/screen_recording_skill_design_review.md` (§2–§4).
+
+> **✉ note:t1890** id=2026-10-21T12:33:58Z.2d2a74d6d8af191254e049dd from=t1890 from_verified=yes at=2026-10-21T12:33:58Z base=ba4fde3822c67af2fb3aee56c36a16d673b3e1d2 base_branch=main dirty=yes host=omg16
+>
+> | Advisory from t1890 (aidocs/artifact_storage_lifecycle.md §9, commit ba4fde382). This matches your "originals transient by default" stance. When an original recording is kept, by explicit opt-in, the recommended home is a separate artifact repository: the gitbranch `remote:` key, planned in t2100. It never goes on aitask-data. Selected compact evidence is promoted only through explicit `ait artifact create` and routed by size/kind (t2101).
