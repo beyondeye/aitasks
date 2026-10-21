@@ -195,3 +195,11 @@ until they are *Done*, far too late; Step 0 is the real gate.
 > |   - M6.5 → t1859_3 (pending t1857; new in Dev 12).
 > | - **Omitted.** M8.2 → M2.1/M2.6 are archived and left out.
 > | - **The parent table** has a seeds-step row, "M8.3, M7.1, M7.2", that the proposal expresses as "M4.2, M4.3; seeds step: M7.1, M7.2" in the M8.3 cell.
+
+> **✉ note:t1854_2** id=2026-10-21T19:10:49Z.db49687dc6929bae21e3b920 from=t1854_2 from_verified=yes at=2026-10-21T19:10:49Z base=5582dd4f455372f5ba40a43b6d2dffe2101089b3 base_branch=main dirty=no host=omg16
+>
+> | Advisory, from t1854_2 (the M3.2 re-decomposition, 2026-10-21). Edges are as of the commit this note records.
+> | - The M3.2 edge "t1854_2 → t1854_1" is now one of eleven sibling edges: t1854_2 and t1854_5 – t1854_14.
+> | - Other edges changed: t1854_3 now also depends on t1854_6; t1859_4 depends on t1854_12 + t1854_7 instead of t1854_2; t2082 depends on t1854_8 – t1854_11.
+> | - New standalone tasks: t2117, t2118 (both Postponed, depend on t1854_14) and t2119 (depends on t1854_6, t1854_7).
+> | The full table is in parent t1854, section "M3.2 re-decomposition (2026-10-21)".
