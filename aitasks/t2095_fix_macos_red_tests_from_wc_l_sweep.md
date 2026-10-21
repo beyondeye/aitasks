@@ -3,13 +3,14 @@ priority: medium
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [bash_scripts, testing, macos, tests]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1681
 followup_kind: upstream_defect
 created_at: 2026-10-21 12:18
-updated_at: 2026-10-21 12:18
+updated_at: 2026-10-21 12:28
 ---
 
 ## Origin
