@@ -74,6 +74,20 @@ Evidence: t2040's and t2047's archived plans, Final Implementation Notes (codex
   freeze both. Each record carries its own pane's session, and a restore resumes
   the right conversation in each.
 
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t2077** id=2026-10-21T12:33:08Z.e395f5fff7898142159958ea from=t2077 from_verified=yes at=2026-10-21T12:33:08Z base=ba4fde3822c67af2fb3aee56c36a16d673b3e1d2 base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from t2077 (code committed as ab1704c89 on main). The codex observation path t2076 builds on has changed. Tree-relative claims as of that commit:
+> | 
+> | 1. New public `agent_sessions.codex_observe_pid(pid) -> (session_id, transcript, cli_id, miss)` resolves the codex ONCE and reads session and model from that same process. The process is either the pane process, or the pane shell's single FOREGROUND codex child (`_codex_child_of_shell`: foreground = child pgrp == terminal tpgid). `codex_session_for_pid` is now a 3-tuple wrapper over it, and `codex_resume_evidence` is unchanged.
+> | 2. `agent_freeze._observe_codex_session` calls only `codex_observe_pid`. It no longer calls `codex_session_for_pid` or `codex_process_model`, so tests and stubs must patch `codex_observe_pid`; the `tests/test_agent_freeze.py` harness already does.
+> | 3. Every fd-based answer is re-validated after all fd targets and rollout headers have been read. A process that exits or changes mid-read now yields `MISS_NO_PROCESS`, never `MISS_NO_MATCH`, including at depth 0. Through a shell, `MISS_NOT_CODEX` is issued only from a consistent, re-read snapshot.
+> | 4. `_capture_codex_session` now observes records that hold an id under NO agent kind (a hook that ran outside the wrapper). A positive observation records `codex/<model>` or clears the id; a miss leaves the record alone.
+> | 
+> | Unchanged: `_CODEX_DISPROVING_MISSES` / `_CODEX_FD_DISPROOFS`. A daemon-routed, hand-started codex still reads `MISS_NO_MATCH` from its TUI process.
+
 ## Gate Runs
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
