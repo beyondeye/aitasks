@@ -186,6 +186,12 @@ Like minimonitor itself, the shadow pane is a companion: it never appears in the
 
 For what the shadow can do and how to drive it once it is running, see the [Shadow Agent]({{< relref "/docs/workflows/shadow-agent" >}}) workflow guide; for what a shadow is and why you would use one, see the [Shadow agent]({{< relref "/docs/concepts/shadow-agent" >}}) concept page.
 
+### How to Open a Scratchpad
+
+Press **o** to open a [scratchpad]({{< relref "/docs/tuis/scratchpad" >}}) — a small notes editor — in a split of the **followed** agent's pane, below it by default (`tmux.scratchpad_position` and `tmux.scratchpad_height` change that). If the agent is working on a task (its window is `agent-pick-<id>`, `agent-qa-<id>` or `agent-resume-<id>`), the scratchpad holds that task's notes: they are saved as you type, come back when you press **o** again after re-picking the task, and are deleted when the task is archived. Any other agent gets an unsaved pad, and minimonitor warns `Not a task agent — notes will not be saved` first.
+
+Like the shadow, the scratchpad is a companion: it never appears in the agent list, and it closes when the agent it belongs to exits or is killed. It stays open while that agent is frozen and restored. Only one scratchpad opens per task and per agent — a second **o** reports `A scratchpad is already open for t<id>`. See the [scratchpad how-to guides]({{< relref "/docs/tuis/scratchpad/how-to" >}}) for copying notes into the agent and for what to do when a pad opens read-only.
+
 ### How to Pick Shadow Concerns
 
 When the shadow agent interrogates a plan, reviews an implementation, or diagnoses errors, it emits a structured **concern block** alongside its prose. You can forward a subset of those concerns to the followed agent without retyping them:
@@ -445,6 +451,7 @@ All actions below are also available via mouse — see [Mouse Support](#mouse-su
 | `p` | Pick any task by typing its number, then launch it or move it to a board column. When the followed agent is frozen, the confirmation offers no kill checkbox |
 | `e` | Launch an advisory [shadow agent]({{< relref "/docs/workflows/shadow-agent" >}}) beside the followed agent |
 | `E` | Launch a shadow agent, choosing the code agent and model first |
+| `o` | Open a [scratchpad]({{< relref "/docs/tuis/scratchpad" >}}) notes pane beside the followed agent — saved per task for a task agent, unsaved otherwise |
 | `c` | Pick the shadow's concerns and copy the selected ones to the clipboard (inside the picker: `r` rejects a concern, `t` spins one off as its own draft task, `e` edits the outgoing payload before it is copied, `R` reviews the rejected list, `u` shows any lines that could not be parsed) |
 | `L` | Arm or disarm the [auto-recheck loop](#how-to-run-the-auto-recheck-loop) — minimonitor asks the shadow for a fresh review round once the followed agent settles |
 | `Space` | Cycle the mark on the **followed** agent (the one pinned at the top): unmarked → `★` prioritized → `P` parked → unmarked. Shared across all your projects |

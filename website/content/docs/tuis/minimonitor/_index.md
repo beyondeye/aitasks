@@ -36,7 +36,7 @@ Minimonitor is the persistent sidebar companion of a code agent pane. It gives y
 | Intended placement | Its own tmux window | A side split inside an agent window |
 | TUI switcher (`j`) | Yes | Yes |
 
-Windows classified as TUIs (board, codebrowser, settings, brainstorm, and the monitors themselves) are listed by neither TUI, and companion panes — a minimonitor sidebar or a shadow agent — never appear in either list.
+Windows classified as TUIs (board, codebrowser, settings, brainstorm, and the monitors themselves) are listed by neither TUI, and companion panes — a minimonitor sidebar, a shadow agent or a scratchpad — never appear in either list.
 
 The two can coexist in the same tmux session — a typical layout has monitor in its own window as a dashboard, and minimonitor split alongside each agent pane. See [Pairing minimonitor with monitor](how-to/#pairing-minimonitor-with-monitor) in the how-to for details.
 
@@ -81,6 +81,10 @@ Minimonitor is also where you launch a [shadow agent]({{< relref "/docs/workflow
 Once a shadow is running and it has interrogated a plan, press **c** to pick from the concerns it raised: minimonitor reads the shadow's structured concern block, opens a checklist, and copies the ones you tick — with a preamble — to your clipboard so you can paste them into the followed agent. A concern that priced itself shows a compact trade profile on its row, so what it would improve, what that would cost and the effort are visible before you decide ([How to Pick Shadow Concerns](how-to/#how-to-pick-shadow-concerns)). Each concern can instead be *rejected* with **r**, which stops the shadow raising it again for that task ([Reject a concern so it does not come back]({{< relref "/docs/workflows/shadow-agent" >}}#reject-a-concern-so-it-does-not-come-back)), or *spun off* with **t** into its own draft task, which keeps a secondary concern without growing the plan you are reviewing ([How to Spin a Concern Off as Its Own Task](how-to/#how-to-spin-a-concern-off-as-its-own-task)). When a fresh concern block appears, minimonitor also proactively surfaces a `Shadow raised concerns — press 'c' to pick` toast (once per block). See [How to Pick Shadow Concerns](how-to/#how-to-pick-shadow-concerns).
 
 Reviewing is a loop — the shadow raises concerns, the agent revises, and the shadow has to look again. Press **L** to arm the [auto-recheck loop](how-to/#how-to-run-the-auto-recheck-loop) and let minimonitor ask the shadow for the next review round once the followed agent has settled. Minimonitor types only into the shadow pane; what reaches the followed agent stays yours to confirm.
+
+## Opening a scratchpad
+
+Press **o** to open a [scratchpad]({{< relref "/docs/tuis/scratchpad" >}}) beside the followed agent: a small notes editor in a split of the agent's pane. For an agent working on a task, the notes belong to that task — saved as you type, back again when you re-pick the task, and deleted when it is archived. Any other agent gets an unsaved pad. Like the shadow, it never shows up in the agent list and closes with its agent. See [How to Open a Scratchpad](how-to/#how-to-open-a-scratchpad).
 
 ---
 

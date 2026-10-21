@@ -203,6 +203,8 @@ tmux:
 | `tmux.prefer_tmux` | bool | `true` | Whether tmux-based workflows are the default for related commands. |
 | `tmux.git_tui` | string | `lazygit` | Which git TUI the switcher targets for git windows. |
 | `tmux.syncer.autostart` | bool | `false` | When `true`, [`ait ide`]({{< relref "/docs/installation/terminal-setup" >}}) opens a singleton [`syncer`]({{< relref "/docs/tuis/syncer" >}}) window inside the project session. |
+| `tmux.scratchpad_position` | string | `bottom` | Where minimonitor's `o` opens the [scratchpad]({{< relref "/docs/tuis/scratchpad/reference" >}}#configuration): `top` or `bottom` of the followed agent's pane. Any other value means `bottom`. |
+| `tmux.scratchpad_height` | int | `12` | Initial height of the scratchpad pane, in rows. A value that is not a whole number of at least 1 means `12`. |
 | `tmux.monitor.refresh_seconds` | int | `3` | Pane list refresh cadence in seconds. |
 | `tmux.monitor.idle_threshold_seconds` | int | `5` | Threshold for marking a pane as idle in the card view. |
 | `tmux.monitor.capture_lines` | int | `200` (in the shipped config; `30` if the key is absent) | Number of lines of pane output the preview captures per refresh. |

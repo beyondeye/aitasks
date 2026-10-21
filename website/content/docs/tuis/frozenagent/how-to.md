@@ -81,6 +81,12 @@ reach this outcome every time.
 If the attempt fails, the viewer comes back and the capture is intact —
 `restore failed: <reason> — capture kept`.
 
+**Your scratchpad stays where it was.** A
+[scratchpad]({{< relref "/docs/tuis/scratchpad" >}}) opened beside the agent
+stays open beside the viewer while the agent is frozen, and is still beside it
+after a restore that reuses the pane. Its notes belong to the task, so wherever
+the agent comes back, pressing **o** in its minimonitor opens the same notes.
+
 **Where the agent comes back.** While the stand-in viewer is still in its pane,
 a restore reuses that pane. When the pane is gone — its window was closed, or
 tmux itself restarted — the agent comes back in a new window of the project's
@@ -105,7 +111,8 @@ Press **k**, then confirm at
 `Drop the frozen record and its capture? This cannot be undone.`
 
 Dropping deletes the retained capture along with the record, and closes the
-stand-in pane. It is the only action that discards the record *and* its
+stand-in pane — and any scratchpad bound to it, whose task notes stay on disk
+until the task is archived. It is the only action that discards the record *and* its
 transcript while leaving you nothing running.
 
 It is not, however, the only way the capture goes away: a **verified** restore or

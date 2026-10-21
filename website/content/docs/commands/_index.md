@@ -31,6 +31,7 @@ description: "Complete CLI reference for all ait subcommands"
 | [`ait minimonitor`](../tuis/minimonitor/) | Narrow sidebar variant of monitor for tmux agent panes |
 | [`ait applink`](../tuis/applink/) | Pair the mobile companion app to your workspace over LAN (QR bootstrap) |
 | [`ait frozenagent`](../tuis/frozenagent/) | View a frozen code agent's captured output and restore, re-pick or drop it |
+| [`ait scratchpad`](../tuis/scratchpad/) | Notes editor bound to a code agent pane — usually opened with minimonitor `o` |
 | [`ait stats-tui`](../tuis/stats/) | Pane-based viewer for archived task completion statistics |
 | [`ait ide`](../installation/terminal-setup/) | Start (or attach to) the configured tmux session and launch `ait monitor` — one view of a shared session; see `ait ide --help` |
 | [`ait settings`](../tuis/settings/) | Open the settings TUI for configuration management |
@@ -105,6 +106,7 @@ ait update --batch 42 --status Done     # Mark task done
 ait board                               # Open TUI board
 ait codebrowser                         # Open code browser TUI
 ait monitor                             # Dashboard of all agent/TUI panes
+ait scratchpad --task 42                # Open task 42's notes editor
 ait projects list                       # List registered linked projects
 ait skillrun pick --profile fast 42     # Launch a code agent on task 42
 ait crew init --id sprint1 --batch      # Initialize a multi-agent crew
