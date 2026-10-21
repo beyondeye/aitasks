@@ -73,3 +73,13 @@ Scope to work through:
   `bash tests/test_attach_gc_manifest_blocking.sh` all still pass unchanged.
 - gc on a non-local backend deletes the backend blob and the meta file together,
   with the existing commit-failure rollback intact.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1890** id=2026-10-21T12:33:45Z.e578c919d15c234d243b0743 from=t1890 from_verified=yes at=2026-10-21T12:33:45Z base=ba4fde3822c67af2fb3aee56c36a16d673b3e1d2 base_branch=main dirty=yes host=omg16
+>
+> | Advisory from t1890 (aidocs/artifact_storage_lifecycle.md, commit ba4fde382). The lifecycle policy covers attachments too, since they share the blob store:
+> | - Size/kind routing at creation (§4, t2101) uses the precedence --backend > large_backend (binary or over large_threshold_mb) > default_backend. Consider applying it to `ait attach add` once non-local backends are supported.
+> | - Retention (D3): nothing expires automatically, and archived evidence is kept.
+> | - Reclaim on gitbranch happens only through compaction (t2104). Real backend delete applies only to dir/S3/Drive.
