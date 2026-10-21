@@ -2018,7 +2018,7 @@ setup_data_branch() {
     local commit_gitignore=false commit_rc=0 commit_msg
     if [[ "$gitignore_changed" == true ]]; then
         if _ait_gitignore_predates_setup; then
-            info "  .gitignore had uncommitted changes before setup — data-branch rules added but not committed."
+            info "  .gitignore may hold uncommitted changes from before setup — data-branch rules added but not committed."
         else
             commit_gitignore=true
         fi
@@ -2345,7 +2345,10 @@ ensure_agent_config_seeds() {
 # True when .gitignore was already dirty (edited, or deleted — staged or not)
 # at snapshot_pre_setup_dirty, so no setup commit may carry it (t1959). Shared
 # by _ait_commit_gitignore_rule and setup_data_branch's Step 9 (t1963).
+# An unverified main baseline counts as "may predate": its emptiness is
+# unknown, not clean (t1747_4).
 _ait_gitignore_predates_setup() {
+    [[ "${AIT_SETUP_BASELINE_UNVERIFIED:-0}" == "1" ]] && return 0
     [[ -n "$(printf '%s\n' .gitignore | _ait_intersect "$AIT_SETUP_DIRTY_BASELINE")" ]]
 }
 
@@ -2362,7 +2365,7 @@ _ait_commit_gitignore_rule() {
     local project_dir="$1" msg="$2"
     git -C "$project_dir" rev-parse --is-inside-work-tree &>/dev/null || return 0
     if _ait_gitignore_predates_setup; then
-        info "  .gitignore had uncommitted changes before setup — rule added but not committed."
+        info "  .gitignore may hold uncommitted changes from before setup — rule added but not committed."
         return 0
     fi
     (cd "$project_dir" && git add -- .gitignore && git commit -m "$msg" -- .gitignore 2>/dev/null) || true
@@ -4239,6 +4242,12 @@ setup_contribution_check() {
 AIT_SETUP_DIRTY_BASELINE=""
 AIT_SETUP_DATA_DIRTY_BASELINE=""
 AIT_SETUP_BASELINE_ARMED=0
+# ARMED means "a snapshot ran"; UNVERIFIED means "it ran but could not read the
+# dirty state", so its empty baseline is unknown rather than clean and the
+# matching committer refuses. One flag per baseline, each read only by that
+# baseline's committer (t1747_4). Keep these separate from ARMED.
+AIT_SETUP_BASELINE_UNVERIFIED=0
+AIT_SETUP_DATA_BASELINE_UNVERIFIED=0
 
 # Print the framework pathspecs that exist in <project_dir>, one per line.
 # With <include_absent>=1, print every pathspec whether or not it exists: the
@@ -4308,20 +4317,43 @@ _ait_data_framework_paths() {
 # `ls-files --modified` too — would miss the baseline; a setup step that
 # recreates it would then commit it, turning the user's pending rename into an
 # addition. Mirrored by _install_list_changes in install.sh.
+# Returns 0 when the list is verified; 2 when any probe failed, with stdout
+# empty — an unreadable worktree is not a clean one (t1747_4).
 _ait_list_framework_changes() {
     local workdir="$1" extra_exclude_re="$2"
     shift 2
     local cache_artifacts_re='(^|/)__pycache__/|\.py[co]$|\.pyd$'
     local exclude_re="$cache_artifacts_re"
     [[ -n "$extra_exclude_re" ]] && exclude_re="$cache_artifacts_re|$extra_exclude_re"
-    local untracked modified staged
+    local untracked modified staged probe_rc=0
     untracked="$(git -C "$workdir" ls-files --others --exclude-standard \
-        -- "$@" 2>/dev/null)" || true
-    modified="$(git -C "$workdir" ls-files --modified -- "$@" 2>/dev/null)" || true
+        -- "$@" 2>/dev/null)" || probe_rc=1
+    modified="$(git -C "$workdir" ls-files --modified -- "$@" 2>/dev/null)" || probe_rc=1
     staged="$(git -C "$workdir" diff --cached --name-only --no-renames \
-        -- "$@" 2>/dev/null)" || true
+        -- "$@" 2>/dev/null)" || probe_rc=1
+    # A partial list is not a smaller dirty set: print nothing on failure.
+    (( probe_rc == 0 )) || return 2
     printf '%s\n%s\n%s\n' "$untracked" "$modified" "$staged" \
         | sed '/^$/d' | sort -u | grep -Ev "$exclude_re" || true
+}
+
+# Is .aitask-scripts/VERSION in <dir>'s index? 0 = tracked, 1 = genuinely
+# untracked (bootstrap), 2 = unverified. `--error-unmatch` exits 1 for an
+# untracked path and 128 for a git error, so the two are separable (t1747_4).
+_ait_framework_version_tracked() {
+    local rc=0
+    git -C "$1" ls-files --error-unmatch -- .aitask-scripts/VERSION >/dev/null 2>&1 || rc=$?
+    case $rc in 0) return 0 ;; 1) return 1 ;; *) return 2 ;; esac
+}
+
+# Refuse a framework commit whose pre-setup dirty state could not be read:
+# setup's own files left uncommitted are recoverable by re-running setup,
+# someone else's work committed under a setup message is not (t1747_4).
+_ait_refuse_unverified_commit() {
+    local what="$1" recovery="$2"
+    warn "Could not read the uncommitted state of $what — framework files were NOT committed."
+    warn "Committing without it could sweep someone else's uncommitted work into the setup commit."
+    info "Re-run 'ait setup' once git works again, or commit the intended files yourself with $recovery."
 }
 
 # Print stdin lines NOT present in the newline-joined set $1 (exact match).
@@ -4368,38 +4400,66 @@ _ait_data_branch_exclude_re() {
 # installs, hand-copied files); it only means no baseline COULD separate
 # installer output from anything else. The non-interactive commit path
 # announces this blast radius explicitly.
+#
+# Unverified: a failed git probe yields no list, and an empty baseline would
+# read as "nothing was dirty" — the commit-all sweep. Instead it sets that
+# baseline's UNVERIFIED flag and its committer refuses (t1747_4). The data and
+# main flags are independent, like the baselines themselves.
 snapshot_pre_setup_dirty() {
     local project_dir="$SCRIPT_DIR/.."
     local data_dir="$project_dir/.aitask-data"
     local p
     AIT_SETUP_BASELINE_ARMED=1
+    AIT_SETUP_BASELINE_UNVERIFIED=0
+    AIT_SETUP_DATA_BASELINE_UNVERIFIED=0
     AIT_SETUP_DIRTY_BASELINE=""
     AIT_SETUP_DATA_DIRTY_BASELINE=""
 
     # Data-worktree baseline — only if the worktree already exists at snapshot
     # time. On a first-ever data-branch setup it does not, and an empty data
     # baseline correctly means "commit all" there too. include_absent=1: a
-    # deleted data framework dir is a pre-existing change.
-    if [[ -d "$data_dir/.git" || -f "$data_dir/.git" ]] && \
-       git -C "$data_dir" rev-parse --is-inside-work-tree &>/dev/null; then
-        local data_paths=()
-        while IFS= read -r p; do data_paths+=("$p"); done < <(_ait_data_framework_paths "$data_dir" 1)
-        AIT_SETUP_DATA_DIRTY_BASELINE="$(_ait_list_framework_changes "$data_dir" "" \
-            "${data_paths[@]}")" || true
+    # deleted data framework dir is a pre-existing change. A present .git that
+    # git cannot read is an unverified baseline, not a missing one.
+    if [[ -d "$data_dir/.git" || -f "$data_dir/.git" ]]; then
+        if ! git -C "$data_dir" rev-parse --is-inside-work-tree &>/dev/null; then
+            AIT_SETUP_DATA_BASELINE_UNVERIFIED=1
+        else
+            local data_paths=() data_rc=0
+            while IFS= read -r p; do data_paths+=("$p"); done < <(_ait_data_framework_paths "$data_dir" 1)
+            # unverified: flag the data baseline; commit_framework_data_files refuses.
+            AIT_SETUP_DATA_DIRTY_BASELINE="$(_ait_list_framework_changes "$data_dir" "" \
+                "${data_paths[@]}")" || data_rc=$?
+            (( data_rc == 0 )) || AIT_SETUP_DATA_BASELINE_UNVERIFIED=1
+        fi
     fi
 
-    # Bootstrap: framework not yet tracked → empty main baseline (commit-all).
-    if ! git -C "$project_dir" rev-parse --is-inside-work-tree &>/dev/null || \
-       ! git -C "$project_dir" ls-files --error-unmatch -- .aitask-scripts/VERSION &>/dev/null; then
+    # A failed rev-parse is unverified whether or not $project_dir/.git exists:
+    # ensure_git_repo accepts an install in a subdirectory of an ancestor repo,
+    # which has no local .git. With truly no repository the flag is inert —
+    # every committer bails on its own repo check before reading it.
+    if ! git -C "$project_dir" rev-parse --is-inside-work-tree &>/dev/null; then
+        AIT_SETUP_BASELINE_UNVERIFIED=1
         return 0
     fi
 
+    # Bootstrap: framework not yet tracked → empty main baseline (commit-all).
+    local vrc=0
+    # unverified: flag the main baseline; commit_framework_files refuses.
+    _ait_framework_version_tracked "$project_dir" || vrc=$?
+    case $vrc in
+        0) ;;
+        1) return 0 ;;
+        *) AIT_SETUP_BASELINE_UNVERIFIED=1; return 0 ;;
+    esac
+
     # include_absent=1: a deleted tracked framework file is a pre-existing change.
-    local fw_paths=()
+    local fw_paths=() main_rc=0
     while IFS= read -r p; do fw_paths+=("$p"); done < <(_ait_framework_paths "$project_dir" 1)
     if [[ ${#fw_paths[@]} -gt 0 ]]; then
+        # unverified: flag the main baseline; commit_framework_files refuses.
         AIT_SETUP_DIRTY_BASELINE="$(_ait_list_framework_changes "$project_dir" \
-            "$(_ait_data_branch_exclude_re "$project_dir")" "${fw_paths[@]}")" || true
+            "$(_ait_data_branch_exclude_re "$project_dir")" "${fw_paths[@]}")" || main_rc=$?
+        (( main_rc == 0 )) || AIT_SETUP_BASELINE_UNVERIFIED=1
     fi
     return 0
 }
@@ -4423,6 +4483,10 @@ commit_framework_files() {
     if [[ "${AIT_SETUP_BASELINE_ARMED:-0}" != "1" ]]; then
         warn "commit_framework_files: baseline not armed — committing without pre-setup dirty protection" >&2
     fi
+    if [[ "${AIT_SETUP_BASELINE_UNVERIFIED:-0}" == "1" ]]; then
+        _ait_refuse_unverified_commit "the framework paths" "'git add' / 'git commit'"
+        return
+    fi
 
     local paths_to_add=() p
     while IFS= read -r p; do paths_to_add+=("$p"); done < <(_ait_framework_paths "$project_dir")
@@ -4436,10 +4500,15 @@ commit_framework_files() {
     # incomplete. In branch mode (`aitasks/`, `aiplans/` are symlinks into a
     # `.aitask-data` worktree), additionally exclude those paths — they are
     # committed by commit_framework_data_files(). In legacy mode, leave them in.
-    local data_branch_re all_changes
+    local data_branch_re all_changes list_rc=0
     data_branch_re="$(_ait_data_branch_exclude_re "$project_dir")"
+    # unverified: refuse — an empty list would report a false "already committed".
     all_changes="$(_ait_list_framework_changes "$project_dir" "$data_branch_re" \
-        "${paths_to_add[@]}")" || true
+        "${paths_to_add[@]}")" || list_rc=$?
+    if (( list_rc != 0 )); then
+        _ait_refuse_unverified_commit "the framework paths" "'git add' / 'git commit'"
+        return
+    fi
 
     # Baseline diff: commit only files that were NOT already dirty before
     # setup ran; report the rest and leave them alone (never sweep foreign
@@ -4494,7 +4563,14 @@ commit_framework_files() {
         read -r answer
     else
         info "(non-interactive: auto-accepting default)"
-        if ! git -C "$project_dir" ls-files --error-unmatch -- .aitask-scripts/VERSION &>/dev/null; then
+        local vrc=0
+        # unverified: warn as for bootstrap — this is a display; the commit
+        # itself was gated by the verified snapshot.
+        _ait_framework_version_tracked "$project_dir" || vrc=$?
+        if (( vrc == 2 )); then
+            warn "Could not verify whether the framework is already tracked in git."
+        fi
+        if (( vrc != 0 )); then
             warn "First-time framework tracking: committing ALL $total_count listed framework-path files automatically."
             warn "If that is not desired, rerun 'ait setup' interactively or commit the intended files manually first."
         fi
@@ -4585,6 +4661,10 @@ commit_framework_data_files() {
     if [[ "${AIT_SETUP_BASELINE_ARMED:-0}" != "1" ]]; then
         warn "commit_framework_data_files: baseline not armed — committing without pre-setup dirty protection" >&2
     fi
+    if [[ "${AIT_SETUP_DATA_BASELINE_UNVERIFIED:-0}" == "1" ]]; then
+        _ait_refuse_unverified_commit "the aitask-data framework paths" "'./ait git add' / './ait git commit'"
+        return
+    fi
 
     # Framework-owned config dirs that may live on the data branch. Never
     # commit task or plan content here — those are user data.
@@ -4595,8 +4675,13 @@ commit_framework_data_files() {
         return
     fi
 
-    local all_changes
-    all_changes="$(_ait_list_framework_changes "$data_dir" "" "${data_paths[@]}")" || true
+    local all_changes list_rc=0
+    # unverified: refuse — an empty list would report a false "already committed".
+    all_changes="$(_ait_list_framework_changes "$data_dir" "" "${data_paths[@]}")" || list_rc=$?
+    if (( list_rc != 0 )); then
+        _ait_refuse_unverified_commit "the aitask-data framework paths" "'./ait git add' / './ait git commit'"
+        return
+    fi
 
     # Baseline diff: commit only files that were NOT already dirty before
     # setup ran (concurrent sessions routinely have in-progress work in the
