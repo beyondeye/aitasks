@@ -726,3 +726,126 @@ Child header per `planning.md`: `Task:`, `Parent Task:`, `Sibling Tasks:`,
 - timing: post-phase | name: verify_child_plans_carry_reality_check | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement — child plan lacking the mandatory Reality check | desc: grep every child plan for the Step 0 heading and the no-internals sentence before committing them
 - timing: post-phase | name: verify_child_dependency_graph | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — a wrong depends cell mis-blocking a child | desc: read the four child depends lines plus t1853_4 / t1853_7 back and compare with the decomposition table before reverting the parent
 - timing: post-phase | name: verify_parent_table_matches_graph | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement — t1863 auditing children against a stale parent submodule table | desc: diff the proposal's and t1854's M3 depends cells against the expected strings, map them onto the child graph, and grep out the removed list --invocations / drift-pin mentions
+
+## Addendum — M3.2 re-decomposition (2026-10-21)
+
+M3.2 ("Reference runners") was **re-decomposed around trustworthy test
+evidence**, at the user's direction, during the t1854_2 planning session. The
+single seven-builtin child was rejected: it inferred per-test results through
+injected `BASH_ENV` traps and pytest plugins, listed tests by source scan,
+verified Gradle / device against fakes only, guarded hangs with a panic timer,
+and refused recursion lexically. The M3.2 Submodules row above now resolves to
+the eleven siblings below. Every child body carries the full guarantee table
+(G1–G10, incl. G1a / G1b / G8a), the carried reality-check facts and its
+acceptance criteria.
+
+### Guarantees (summary — the full table is in every M3.2 child body)
+
+- **G1 / G1a / G1b.** "The command succeeded" is never "every test was accounted for". The accounting classes are `cases | unit | aggregate`. Case reconciliation is identity-based and owned by the engine: each expected identity has exactly one terminal result, and a duplicate, unexpected or missing identity is an error whatever the totals. The engine derives statuses and counters.
+- **G2 / G3 / G4.** Missing, ambiguous, stale or incomplete evidence is never a pass and never an unexplained skip. Zero tests is an explicit policy (`zero_tests: error|skip`, default `error`). A skip comes only from the tool's own verdicts.
+- **G5 / G6.** Discovery is declared (`native | inventory | candidates`) and kept separate from execution. Native discovery shares the execution configuration and is bounded. Reports are read only from a fresh per-invocation directory.
+- **G7.** Child rows come only through a registered reporting contract (t1854_14), through the same shared reconciler. Until then `children:` is refused.
+- **G8 / G8a.** Supervised execution inside a containment a descendant cannot leave by `setsid()` (Linux subreaper tree; a cgroup v2 leaf when delegated). Per-invocation cleanup ownership survives a builtin crash. Without a crash-surviving boundary, invocations run serially. On a platform without containment, production adapters refuse.
+- **G9.** Runtime recursion refusal for the same repository, in `Run` and `Load`, including `env -i`. Calls against fixture repositories are allowed. It is a prerequisite of every adapter.
+- **G10.** An adapter is "supported" only for what real-tool integration tests cover. Otherwise it is pending.
+
+### Siblings (dependency order)
+
+| id | scope | depends | wave |
+|---|---|---|---|
+| t1854_2 (rescoped) | M3.2a evidence contract: G1–G7, G10 in the runner contract; the shared reconciler; no runner enabled | t1854_1, t1985 | 1 |
+| t1854_5 | M3.2b shared hang watchdog (refactor of t1985 / t1998) | — | 1 |
+| t1854_7 | M3.2d recursion guard (G9) | — | 1 |
+| t1854_6 | M3.2c supervised execution foundation (G8 / G8a), the `runner <name>` verb, the scaffold, no production adapter | t1854_2, t1854_5, t1854_7 | 2 |
+| t1854_8 | M3.2e `bash-file` (`unit`, `inventory`) | t1854_6 | 3 |
+| t1854_9 | M3.2f `pytest` (`cases`, `native`) | t1854_6 | 3 |
+| t1854_10 | M3.2g `go-test` + `engine-test` (`cases`, `native`) | t1854_6 | 3 |
+| t1854_11 | M3.2h `gradle-class` (`cases`, native via `--test-dry-run` if Step 0 confirms; pending without a real Gradle environment) | t1854_6 | 3 |
+| t1854_12 | M3.2i `suite` aggregate (no children) | t1854_6, t1854_7 | 3 |
+| t1854_13 | M3.2j `device` — **Postponed** (no emulator environment; needs M3.3's allocator) | t1854_11, t1854_3 | 4 |
+| t1854_14 | M3.2k suite reporting contract (explicit reports, verified attribution) | t1854_12, t1854_8, t1854_9, t1854_10 | 4 |
+
+Also re-pointed:
+
+- t1854_3 (M3.3) now depends on t1854_6: parallel invocations need overlappable boundaries.
+- t1859_4 (M8.4) depends on t1854_12 + t1854_7, where it used to depend on t1854_2.
+- t2082 depends on t1854_8 / t1854_9 / t1854_10 / t1854_11.
+
+### Deferred (standalone, anchor 1852 — tracked, not v1)
+
+- **t2117** `testmap_auto_bash_exit_integration` — Postponed, depends t1854_14.
+- **t2118** `testmap_auto_pytest_report_integration` — Postponed, depends t1854_14.
+- **t2119** `testmap_pidns_invocation_boundary` — Ready, depends t1854_6, t1854_7. Until it lands, hosts without a delegated cgroup run invocations serially.
+
+### Closure rule
+
+M3 closes only when every M3.2 sibling above is archived. The Postponed device
+adapter (t1854_13) therefore keeps M3 open until an emulator environment
+exists; that is the honest state. t2117 / t2118 / t2119 do not hold M3 open.
+
+### Requirement coverage audit (2026-10-21)
+
+Each requirement of the original M3.2 scope, of the user's directive and of
+the plan review is mapped to the task whose body owns it. Every row was
+checked by grepping that body for its acceptance text. A dependency walk over
+every edge above found no dangling id and no cycle.
+
+| source | requirement | owner |
+|---|---|---|
+| original | `ait-testmap runner <name>` verb + builtin registration | t1854_6 |
+| original | `bash-file` builtin | t1854_8 |
+| original | `pytest` junitxml | t1854_9 |
+| original | `testmap:batch no` honoured | t1854_9 |
+| original | `go-test` per-file `-run`, `-json` | t1854_10 |
+| original | `gradle-class` `--tests` batch, one invocation per `group_by` group | t1854_11 |
+| original | JUnit XML inverted to ids through the list table | t1854_11 |
+| original | zero-match trap (now: a listed case with no result is `error:incomplete`, never pass) | t1854_11 |
+| original | `suite`: any command as one unit | t1854_12 |
+| original | `device` reads the manifest handle, refuses without one | t1854_13 |
+| original | `engine-test` over `goengines/` (lists its packages) | t1854_10 |
+| original | `full` suite child rows (pytest junitxml, bash per-file exit, `go test -json`) | t1854_14 |
+| original | recursion: a `full` suite reaching `./ait test` is refused | t1854_7 |
+| original | `command:` / `cwd:` overrides | t1854_6 |
+| original | each builtin declares and proves its timeout mode | t1854_8 |
+| original | hang guard for builtin tests (t1985 / t1998 notes) | t1854_5 |
+| original | what each runner reads (t2081 note → t2082) | t1854_9 |
+| directive | guarantees defined first; what each result proves | t1854_2 |
+| directive | command success ≠ all tests accounted for | t1854_2 |
+| directive | missing / ambiguous / stale / incomplete never pass or unexplained skip | t1854_2 |
+| directive | explicit zero-test policy | t1854_2 |
+| directive | discovery separated from execution; native / inventory / candidates | t1854_2 |
+| directive | native discovery bounded like execution | t1854_6 |
+| directive | discovery and execution share configuration | t1854_9 |
+| directive | arbitrary suites start aggregate only | t1854_12 |
+| directive | automatic shell exit hooks deferred | t2117 |
+| directive | injected pytest plugins deferred | t2118 |
+| directive | individual results need a documented reporting contract and verified attribution | t1854_14 |
+| directive | supervision complete before runners; watchdog reused | t1854_6 |
+| directive | timeout / cancellation / crash / descendant cleanup specified and tested | t1854_6 |
+| directive | runtime recursion protection, fixture repos allowed | t1854_7 |
+| directive | recursion coordinated with owning tasks | t1854_7 |
+| directive | real tools, versions, pending without an environment | t1854_11 |
+| directive | deferred prerequisites block the feature (children:) | t1854_2 |
+| review | identity-based case reconciliation, equal-count substitutions tested | t1854_2 |
+| review | containment survives `setsid()` | t1854_6 |
+| review | guard before every adapter; recursion from discovery and execution | t1854_7 |
+| review | guard before every adapter (edge) | t1854_6 |
+| review | per-invocation cleanup ownership surviving a builtin crash; overlap test | t1854_6 |
+| review | t1854_3 coordination for parallel execution | t1854_6 |
+| review | suite child evidence through the shared reconciler | t1854_14 |
+| review | pidns deferred with forced-backend, `env -i` recursion and cleanup acceptance | t2119 |
+| original | no `bash-file list --invocations` (Dev 5) | dropped, unchanged |
+| original | serial carve-out drift pin | M10.1 (t1861), unchanged (Dev 6) |
+
+### Planning record (t1854_2 session, 2026-10-21)
+
+- **Round 0.** A single-task M3.2 plan was rejected in favour of a guarantees-first, dependency-ordered split: evidence contract and execution foundation first, adapters next, rich suite reporting separately; real-tool verification; deferred items tracked.
+- **Review round 1.**
+  - Count-equality case accounting → identity-based, engine-owned reconciliation (G1a / G1b).
+  - Session-sweep cleanup misses `setsid()` → subreaper / cgroup containment, plus a refusal on platforms without one (G8).
+  - Only the suite adapter was gated on the recursion guard → every adapter, through t1854_6, with recursion tested from discovery and from execution.
+- **Review round 2.**
+  - Engine-scope tree cleanup could kill sibling invocations after one builtin crashes → per-invocation boundaries, serial-only without an overlappable one; the overlap test; the t1854_3 edge (G8a).
+  - Suite child evidence bypassed the reconciler → the shared G1a / G1b route (G7, t1854_14).
+- **Review round 3.** The PID-namespace backend broke the `env -i` recursion backstop's ancestry check → deferred to t2119 with gating acceptance; initially cgroup leaves only.
+- The approved session plan is reflected in full by the child bodies and their coarse plans (`aiplans/p1854/p1854_{2,5..14}_*.md`) and by this addendum.
