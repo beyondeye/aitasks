@@ -383,7 +383,7 @@ Standard child archival via task-workflow Step 9.
 - The hint band can grow by one wrapped row at narrow widths. It is measured, not eyeballed, and pinned by existing tests · severity: low · → mitigation: none
 
 ### Goal-achievement risk: medium
-- Bound helpers survive the direct `kill-pane` paths (the pane branch of `kill_agent_pane_smart`, and a frozen-record drop) because no `pane-died` fires. Live case D asserts this · severity: medium · → mitigation: kill_bound_helpers_on_direct_kill
+- Bound helpers survive the direct `kill-pane` paths (the pane branch of `kill_agent_pane_smart`, and a frozen-record drop) because no `pane-died` fires. Live case D asserts this · severity: medium · → mitigation: t2088
 - Between launch and stamp, a concurrent second press cannot see the first pad. The app's `flock` makes the second pad read-only, so there is no data loss · severity: low · → mitigation: none
 
 ### Planned mitigations
