@@ -555,7 +555,7 @@ assert_eq "Test 4b: emails.txt is clean after the retry" \
 assert_contains "Test 4b: the address is committed at HEAD" \
     "mallory@test.com" "$(git -C "$T4B/local" show "HEAD:$EMAILS_PATH")"
 count4b=$(git -C "$T4B/local" log --format=%H --grep='^ait: Record contributor email' | wc -l)
-assert_eq "Test 4b: exactly one contributor-email commit" "1" "$count4b"
+assert_eq_trim "Test 4b: exactly one contributor-email commit" "1" "$count4b"
 assert_eq "Test 4b: no claim commit touches emails.txt" \
     "" "$(claim_commits_touching "$T4B" "$EMAILS_PATH")"
 

@@ -467,7 +467,7 @@ assert_exit_zero_rc "opted-in: an ancient recordless guard is reclaimed" "$rc"
 assert_contains "recordless reclaim warns with the age" "no holder record after" "$err"
 assert_eq "the reclaimed lock now records this shell" "$$" "$(cat "$L/pid")"
 stale_lock_release "$L" "$STALE_LOCK_TOKEN"
-assert_eq "no .reap residue is left behind" "0" \
+assert_eq_trim "no .reap residue is left behind" "0" \
     "$(find "$(dirname "$L")" -maxdepth 1 -name "$(basename "$L").gc.reap.*" | wc -l)"
 
 # NEGATIVE CONTROL 1 — a FRESH recordless guard is respected even when opted in.
@@ -668,7 +668,7 @@ a_pub_mark="$(cut -d: -f2 "$T/a_pub.result")"
 assert_exit_nonzero_rc "A's resumed publish fails closed inside B's instance" \
     "$a_pub_rc"
 assert_eq "A reports no guard record when it loses the race" "" "$a_pub_mark"
-assert_eq "exactly ONE record remains in the guard" "1" \
+assert_eq_trim "exactly ONE record remains in the guard" "1" \
     "$(find "$GC" -mindepth 1 -maxdepth 1 | wc -l)"
 assert_dir_exists "and the survivor is B's record" "$GC/$b_pub_mark"
 _stale_lock_gc_release "$GC" "$b_pub_mark"

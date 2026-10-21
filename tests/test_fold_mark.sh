@@ -788,7 +788,7 @@ ALL_RECORDS=$'PRIMARY_UPDATED:10\nFOLDED:20\nFOLDED:30_1\nCHILD_REMOVED:30:1\nTR
 # record last and nothing else in between.
 assert_records_then() {
     local desc="$1" terminal="$2"
-    assert_eq "$desc: 6 records + terminal" "7" "$(printf '%s\n' "$FOLD_OUT" | wc -l)"
+    assert_eq_trim "$desc: 6 records + terminal" "7" "$(printf '%s\n' "$FOLD_OUT" | wc -l)"
     assert_eq "$desc: records in emission order" "$ALL_RECORDS" \
         "$(printf '%s\n' "$FOLD_OUT" | head -n 6)"
     assert_contains "$desc: terminal record last" "$terminal" \
@@ -1103,7 +1103,7 @@ test_abort_preserves_unmerged_index_stages() {
     printf '100644 %s 1\taitasks/t10_primary.md\n100644 %s 2\taitasks/t10_primary.md\n100644 %s 3\taitasks/t10_primary.md\n' \
         "$sha" "$sha" "$sha" | git update-index --index-info
     before="$(git ls-files --stage -- aitasks/t10_primary.md)"
-    assert_eq "fixture really is unmerged (3 stages)" "3" \
+    assert_eq_trim "fixture really is unmerged (3 stages)" "3" \
         "$(printf '%s\n' "$before" | wc -l)"
 
     _run_fold_split --commit-mode fresh 10 9999

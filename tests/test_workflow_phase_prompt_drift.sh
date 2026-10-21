@@ -80,7 +80,7 @@ echo
 echo "=== Guard A-neg: the guard detects a reworded anchor ==="
 # Positive control for guard A: a fabricated anchor must NOT be found, proving
 # the grep discriminates rather than matching everything.
-bogus=$(grep -rF -- "Plan preserved to a file somewhere" "$WORKFLOW_DIR" 2>/dev/null | wc -l)
+bogus=$(grep -rF -- "Plan preserved to a file somewhere" "$WORKFLOW_DIR" 2>/dev/null | wc -l | tr -d ' ')
 check "fabricated anchor absent" "0" "$bogus"
 
 echo

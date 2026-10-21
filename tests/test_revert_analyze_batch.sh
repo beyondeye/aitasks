@@ -221,7 +221,7 @@ assert_eq "commit-map-only enumeration omits the no-history id" "0" "$(grep -cx 
 
 # And the NUL form of source (b) really does empty out -- the reason %x00 was dropped.
 nul_b="$( cd "$fx" && git log --all --format='%B%x00' | grep -oE '\(t[0-9]+(_[0-9]+)?\)' 2>/dev/null | wc -l )"
-assert_eq "a NUL in the commit stream silently empties source (b)" "0" "$nul_b"
+assert_eq_trim "a NUL in the commit stream silently empties source (b)" "0" "$nul_b"
 
 # --------------------------------------------------------------------------
 # 9. Byte-equality over that enumeration, on the fixture.
