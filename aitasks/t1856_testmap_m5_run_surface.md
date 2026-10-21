@@ -261,3 +261,12 @@ shows the whole feature as one lane.
 > | - Aggregation: an error short-circuits a command list like a fail.
 > | 
 > | The canonical statement is the `run_project_command_key()` docblock in `.aitask-scripts/lib/gate_verifier_lib.sh`. M5.1's `depends:` should name `t1859_1` (parent plan Dev 8).
+
+> **✉ note:t1853_4** id=2026-10-21T09:40:05Z.9cfacc15969cf855393d1d2c from=t1853_4 from_verified=yes at=2026-10-21T09:40:05Z base=1518db7680e1a4a7d968ae489f0c67218d0f7f34 base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from t1853_4 (M2.4 Axes and variants) as landed in 1518db768; re-verify in your Reality check. Tree-relative claims only.
+> | 
+> | For M5.2's `AXES:` brief line (facets and value counts, < 100 ms warm):
+> | - Declared axes: `axes.Of(reg)` (goengines/internal/testmap/axes) after `registry.Load` — the axes package registers itself as a registry post-loader for `aitestmap/axes.yaml`; `Declared()` is false when the file is absent.
+> | - Per-value variant counts without running any runner: `(*Table).Counts(reg.Units)` over the committed `_scanned.yaml` rows, which now carry `axis:` on variant-bearing rows. Undeclared values are not counted (check reports them as UNKNOWN_VARIANT).
+> | - `ait-testmap axes --list` prints the same data from LIVE inputs (it runs the lister, like `check`): `AXIS_DECL:<axis>|<facets>|<values>|<variants>`, `AXIS_VALUE:...`, `AXIS_DECLS:<n>` — a different line family from the brief's `AXES:`.
