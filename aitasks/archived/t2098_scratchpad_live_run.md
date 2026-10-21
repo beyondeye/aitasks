@@ -3,7 +3,7 @@ priority: medium
 effort: low
 depends: []
 issue_type: manual_verification
-status: Implementing
+status: Done
 labels: [bash_scripts, testing, macos, tests]
 active_gates: []
 active_gates_filtered: []
@@ -13,7 +13,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1681
 followup_kind: risk_mitigation
 created_at: 2026-10-21 14:44
-updated_at: 2026-10-21 14:52
+updated_at: 2026-10-21 15:13
+completed_at: 2026-10-21 15:13
 ---
 
 ## Origin
