@@ -143,3 +143,37 @@ then archive per task-workflow Step 9.
 
 ### Planned mitigations
 - timing: after | name: scratchpad_live_run | type: manual_verification | priority: medium | effort: low | inline_risk: medium | added_complexity: low | addresses: #4's cwd change unverified by a live run (tmux refusal in-session) | desc: Run bash tests/test_scratchpad_spawn_live.sh from a plain terminal (not inside tmux, -L ait stopped) and confirm it passes after enter_scratch_cwd was added
+
+## Final Implementation Notes
+
+- **Actual work done:** All 8 plan steps implemented as written, except the
+  deviation below. Every one of the nine files now passes serially on macOS 15
+  (exit 0, no `FAIL:` lines): `test_revert_analyze_batch`, `test_task_git`,
+  `test_task_worktree_helper`, `test_cd_guard_lint` (92/92),
+  `test_fixture_root`, `test_run_project_command`,
+  `test_sync_deferral_and_quarantine`, `test_skill_errexit_capture` and
+  `test_touchpoint_count_contract`.
+- **Deviations from plan:** #4 had a second cause that the plan missed. The
+  lint's "no violations" check failed on `key_for`'s
+  `(cd "$1" && if …; then …; fi)`, a group that continues past `;`, so it is
+  `unconfined-andchain`. The plan had attributed both lint FAILs to the missing
+  `enter_scratch_cwd`. Fixed by switching to the guarded form
+  `(cd "$1" || exit 1` and putting the `if` on the next line), which behaves
+  the same way: a failed cd gives exit 1 and no output. I also added a
+  `# shellcheck source=lib/scratch_cwd.sh` directive to match the file's other
+  sources.
+- **Issues encountered:** The session's `grep` is a ugrep shim, so probes used
+  `/usr/bin/grep`. The tests themselves run under bash with the real grep.
+- **Key decisions:** The realpath fixes canonicalize only the expected side.
+  `test_task_git` reuses the existing `DATA_15` (`canon_15`) for 15b and adds
+  `ROOT_13_P`, and the fixture factories are untouched. On no-`/proc` hosts,
+  #7 asserts the fail-safe row (`unknown_liveness`, no commit-on-behalf)
+  instead of skipping.
+- **Verification:** The pre-fix failures captured during planning are the
+  controls. #5 is also confirmed: the real macOS TMPDIR count of `tmp.*` dirs
+  stayed at 43 across a run, where the old control added 3 per run.
+  Shellcheck is unchanged apart from an info-level SC1091 that every sourced lib
+  in that file shares. `test_scratchpad_spawn_live.sh` was **not** run, because
+  this session is inside tmux; that run is the `scratchpad_live_run` after
+  mitigation.
+- **Upstream defects identified:** None
