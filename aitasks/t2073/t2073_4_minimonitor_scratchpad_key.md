@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: medium
 effort: medium
 depends: [t2073_2, t2073_3]
 issue_type: feature
@@ -154,3 +156,5 @@ and scratchpad target options). Both paths run `kill-pane`, which fires no
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-10-20T15:59:44Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-10-21T05:23:32Z status=pass attempt=1 type=human
