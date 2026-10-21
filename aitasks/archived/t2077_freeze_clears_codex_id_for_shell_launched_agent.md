@@ -5,7 +5,7 @@ risk_goal_achievement: medium
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [codex, frozen, session_persistence]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -18,7 +18,8 @@ anchor: 2040
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5_5
 created_at: 2026-10-20 11:01
-updated_at: 2026-10-21 15:32
+updated_at: 2026-10-21 15:33
+completed_at: 2026-10-21 15:33
 ---
 
 ## Origin
@@ -64,3 +65,14 @@ For example:
 > **✅ gate:plan_approved** run=2026-10-21T09:51:55Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-10-21T12:26:40Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-10-21T12:33:17Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:f3ec89d287047552
+
+> **✅ gate:risk_evaluated** run=2026-10-21T12:33:17Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/2077/risk_evaluated_2026-10-21T12:33:17Z-risk_evaluated-a1.log`
