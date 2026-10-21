@@ -5,7 +5,7 @@ risk_goal_achievement: medium
 effort: medium
 depends: [t1853_1, t1854_1]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [testing, testmap, go_engine]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -16,7 +16,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1852
 implemented_with: claudecode/opus5_5
 created_at: 2026-10-11 17:42
-updated_at: 2026-10-21 11:43
+updated_at: 2026-10-21 12:40
+completed_at: 2026-10-21 12:40
 ---
 
 ## Context
@@ -145,3 +146,14 @@ data and verbs and makes no human action a precondition.
 > **✅ gate:plan_approved** run=2026-10-21T08:43:18Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-10-21T09:38:36Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-10-21T09:40:26Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:082767fcc91717af
+
+> **✅ gate:risk_evaluated** run=2026-10-21T09:40:26Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1853_4/risk_evaluated_2026-10-21T09:40:26Z-risk_evaluated-a1.log`
