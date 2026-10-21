@@ -50,7 +50,7 @@ reaper), whose orphan sweep this task reuses for local blobs.
    - move the hash from `versions` to `expired` with a tombstone;
    - sweep newly orphaned **local** blobs through t1135's sweep (same HEAD-clean
      preflight as `rm`);
-   - leave non-local orphans for store compaction (t2107-equivalent task) or
+   - leave non-local orphans for store compaction (t2104) or
      backend-specific reaping.
    - One commit, under `with_attach_lock`, with rollback.
 5. `ait artifact get --version <expired hash>` reports *expired* (at, by)
