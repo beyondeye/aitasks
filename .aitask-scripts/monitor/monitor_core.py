@@ -46,9 +46,8 @@ from agent_launch_utils import (  # noqa: E402
     attach_companion_cleanup_hook,
     discover_aitasks_sessions,
     discover_aitasks_sessions_async,
-    launch_in_tmux,
     launch_split_pane,
-    resolve_pane_id_by_pid,
+    launch_window_pane,
     switch_to_pane_anywhere,
     tmux_session_scope_target,
     tmux_window_target,
@@ -3974,6 +3973,102 @@ def load_project_tmux_config(project_root: Path) -> dict:
     return {}
 
 
+# -- Launched helper panes (shadow, scratchpad) ---------------------------------
+# Both spawns take the new pane's id from the launch's own `-P` output; these
+# cover the two ways that can still go wrong — no usable id printed, and a stamp
+# that will not write — without ever reading an unproven answer as "gone".
+
+# Bounded recovery when the launch printed no usable pane id: tries x spacing.
+_LAUNCH_RECOVER_TRIES = 3
+_LAUNCH_RECOVER_SPACING = 0.05
+
+
+def _probe_pane(monitor, pane: str) -> str:
+    """``"live"`` / ``"gone"`` / ``"unknown"`` for ``pane``.
+
+    ``display-message -p -t <gone pane>`` exits ZERO with EMPTY output, so the
+    output is the signal — but only when the query itself succeeded: the gateway
+    answers ``(-1, "")`` on a timeout or transport failure, and that empty
+    string proves nothing. Anything not plainly live or gone is unknown.
+    """
+    rc, out = monitor.tmux_run(["display-message", "-p", "-t", pane, "#{pane_id}"])
+    if rc != 0:
+        return "unknown"
+    seen = out.strip()
+    if seen == pane:
+        return "live"
+    if not seen:
+        return "gone"
+    return "unknown"
+
+
+def _recover_launched_pane(monitor, pid: int | None) -> tuple[str, str | None]:
+    """Find the pane of a helper launch that printed no usable pane id.
+
+    ``("found", id)``, ``("exited", None)`` or ``("unknown", None)``. Absence is
+    reported only from a valid pid AND a successful, INTERPRETABLE query:
+    without a pid there is nothing to look for, and a failed query — or one
+    whose listing has any row that is not ``%<n> <positive pid>`` — is missing
+    evidence, not a gone pane, so it is retried and then reported unknown.
+    Bounded — at most :data:`_LAUNCH_RECOVER_TRIES` queries.
+    """
+    if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 0:
+        return "unknown", None
+    for attempt in range(_LAUNCH_RECOVER_TRIES):
+        if attempt:
+            time.sleep(_LAUNCH_RECOVER_SPACING)
+        rc, out = monitor.tmux_run(
+            ["list-panes", "-a", "-F", "#{pane_id} #{pane_pid}"])
+        if rc != 0:
+            continue
+        rows = [_RECOVER_ROW_RE.fullmatch(line.strip())
+                for line in out.splitlines() if line.strip()]
+        if not all(rows) or any(int(r.group(2)) <= 0 for r in rows):
+            continue
+        for row in rows:
+            if int(row.group(2)) == pid:
+                return "found", row.group(1)
+        return "exited", None
+    return "unknown", None
+
+
+_RECOVER_ROW_RE = re.compile(r"(%\d+) (\d+)")
+
+
+def _stamp_or_remove(monitor, pane: str, option: str, value: str) -> str:
+    """Stamp ``option`` on a newly launched helper pane, or take the pane away.
+
+    ``"ok"`` on a write (one retry). Otherwise the pane must not stay behind
+    unclassified — an unstamped helper (shadow or scratchpad) lists as an agent
+    and evades both the duplicate lookup and the cleanup hook — so:
+    ``"exited"`` when a probe proves it is already gone (nothing to kill); else
+    a best-effort ``kill-pane`` —
+    also on an UNKNOWN probe, since we hold the id of a pane we created
+    milliseconds ago — and ``"removed"`` only when a second probe proves it gone,
+    ``"stuck"`` when that cannot be confirmed.
+    """
+    args = ["set-option", "-p", "-t", pane, option, value]
+    rc, _ = monitor.tmux_run(args)
+    if rc != 0:
+        rc, _ = monitor.tmux_run(args)
+    if rc == 0:
+        return "ok"
+    if _probe_pane(monitor, pane) == "gone":
+        return "exited"
+    monitor.tmux_run(["kill-pane", "-t", pane])
+    return "removed" if _probe_pane(monitor, pane) == "gone" else "stuck"
+
+
+_SHADOW_REMOVAL_MESSAGES = {
+    "exited": ("Shadow pane {pane} exited before it could be classified "
+               "— no shadow is running", "warning"),
+    "removed": ("Shadow pane {pane} could not be classified — removed it. "
+                "No shadow is running.", "error"),
+    "stuck": ("Shadow pane {pane} could not be classified, and its removal "
+              "could not be confirmed — close it by hand", "error"),
+}
+
+
 def spawn_shadow(
     monitor,
     *,
@@ -4013,11 +4108,16 @@ def spawn_shadow(
     ``schedule_refresh`` is **not** called when the launch itself fails, so a
     failed spawn does not trigger a redundant refresh.
 
-    If the ``@aitask_shadow_target`` stamp cannot be written the new pane is
-    killed rather than left behind: an unstamped shadow is indistinguishable from
-    a real agent forever (it lists as an agent, is targeted by kill/next-agent
-    actions, counts as a real sibling, evades the duplicate guard, and — because
-    the cleanup script matches on the marker — is never cleaned up).
+    The new pane's id comes from the launch's own ``-P`` output on BOTH
+    placement branches (:func:`launch_split_pane` / :func:`launch_window_pane`);
+    when none is printed it is recovered by pid (:func:`_recover_launched_pane`),
+    and a pane that cannot be identified is reported, never claimed gone. If the
+    ``@aitask_shadow_target`` stamp cannot be written the new pane is removed
+    rather than left behind (:func:`_stamp_or_remove`): an unstamped shadow is
+    indistinguishable from a real agent forever (it lists as an agent, is
+    targeted by kill/next-agent actions, counts as a real sibling, evades the
+    duplicate guard, and — because the cleanup script matches on the marker — is
+    never cleaned up).
     """
     if monitor is None:
         return None
@@ -4071,38 +4171,38 @@ def spawn_shadow(
         notify("A shadow is already running for this agent", severity="warning")
         return None
 
-    pane_pid, err = launch_in_tmux(full_cmd, cfg)
+    # The new pane's id comes from the launch itself (t2087): a by-pid lookup
+    # afterwards answers None both for "query failed" and for "no such pane",
+    # and acting on that None left a live, UNSTAMPED shadow behind.
+    launch = launch_split_pane if same_window else launch_window_pane
+    shadow_pane, pid, err = launch(full_cmd, cfg)
     if err:
         notify(f"Shadow launch failed: {err}", severity="error")
         return None
 
-    # Resolve the new shadow pane id from its pid and stamp the authoritative
-    # @aitask_shadow_target option. Without it a same-window shadow (sharing the
-    # agent's window name) would be listed as an agent and never auto-killed.
-    shadow_pane = resolve_pane_id_by_pid(session, pane_pid) if pane_pid else None
     if not shadow_pane:
-        notify(
-            "Shadow launched, but its pane could not be classified "
-            "— it may appear in the agent list",
-            severity="warning",
-        )
-        schedule_refresh()
-        return None
+        state, shadow_pane = _recover_launched_pane(monitor, pid)
+        if state == "exited":
+            notify("Shadow exited immediately — nothing was launched",
+                   severity="warning")
+            schedule_refresh()
+            return None
+        if state != "found" or not shadow_pane:
+            ident = f" (pid {pid})" if pid else ""
+            notify(f"Shadow launched{ident}, but its pane could not be "
+                   "classified — it may appear in the agent list; close any "
+                   "stray pane by hand", severity="error")
+            schedule_refresh()
+            return None
 
-    stamp_args = ["set-option", "-p", "-t", shadow_pane,
-                  SHADOW_TARGET_OPTION, followed_pane]
-    rc, _ = monitor.tmux_run(stamp_args)
-    if rc != 0:
-        rc, _ = monitor.tmux_run(stamp_args)
-    if rc != 0:
-        # We own this pane and it is milliseconds old; leaving it unstamped is
-        # strictly worse than removing it.
-        monitor.tmux_run(["kill-pane", "-t", shadow_pane])
-        notify(
-            f"Shadow pane {shadow_pane} could not be classified — removed it. "
-            "No shadow is running.",
-            severity="error",
-        )
+    # Stamp the authoritative @aitask_shadow_target option. Without it a
+    # same-window shadow (sharing the agent's window name) would be listed as an
+    # agent and never auto-killed.
+    outcome = _stamp_or_remove(monitor, shadow_pane, SHADOW_TARGET_OPTION,
+                               followed_pane)
+    if outcome != "ok":
+        text, severity = _SHADOW_REMOVAL_MESSAGES[outcome]
+        notify(text.format(pane=shadow_pane), severity=severity)
         schedule_refresh()
         return None
 
@@ -4206,9 +4306,6 @@ SCRATCHPAD_DEFAULT_HEIGHT = 12
 # minimonitor's `_BOARD_COLUMN_SH`. Its `path` verb creates nothing.
 _SCRATCHPAD_STORE_SH = _SCRIPTS_DIR / "aitask_scratchpad_store.sh"
 _SCRATCHPAD_PATH_TIMEOUT = 5.0
-# Bounded recovery when the launch printed no usable pane id: tries x spacing.
-_SCRATCHPAD_RECOVER_TRIES = 3
-_SCRATCHPAD_RECOVER_SPACING = 0.05
 
 
 def scratchpad_query_args() -> list[str]:
@@ -4331,81 +4428,6 @@ def scratchpad_placement(tmux_cfg: dict) -> tuple[str, int]:
     return position, height
 
 
-def _probe_pane(monitor, pane: str) -> str:
-    """``"live"`` / ``"gone"`` / ``"unknown"`` for ``pane``.
-
-    ``display-message -p -t <gone pane>`` exits ZERO with EMPTY output, so the
-    output is the signal — but only when the query itself succeeded: the gateway
-    answers ``(-1, "")`` on a timeout or transport failure, and that empty
-    string proves nothing. Anything not plainly live or gone is unknown.
-    """
-    rc, out = monitor.tmux_run(["display-message", "-p", "-t", pane, "#{pane_id}"])
-    if rc != 0:
-        return "unknown"
-    seen = out.strip()
-    if seen == pane:
-        return "live"
-    if not seen:
-        return "gone"
-    return "unknown"
-
-
-def _recover_pad_pane(monitor, pid: int | None) -> tuple[str, str | None]:
-    """Find the pane of a launch that printed no usable pane id.
-
-    ``("found", id)``, ``("exited", None)`` or ``("unknown", None)``. Absence is
-    reported only from a valid pid AND a successful, INTERPRETABLE query:
-    without a pid there is nothing to look for, and a failed query — or one
-    whose listing has any row that is not ``%<n> <positive pid>`` — is missing
-    evidence, not a gone pane, so it is retried and then reported unknown.
-    Bounded — at most :data:`_SCRATCHPAD_RECOVER_TRIES` queries.
-    """
-    if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 0:
-        return "unknown", None
-    for attempt in range(_SCRATCHPAD_RECOVER_TRIES):
-        if attempt:
-            time.sleep(_SCRATCHPAD_RECOVER_SPACING)
-        rc, out = monitor.tmux_run(
-            ["list-panes", "-a", "-F", "#{pane_id} #{pane_pid}"])
-        if rc != 0:
-            continue
-        rows = [_RECOVER_ROW_RE.fullmatch(line.strip())
-                for line in out.splitlines() if line.strip()]
-        if not all(rows) or any(int(r.group(2)) <= 0 for r in rows):
-            continue
-        for row in rows:
-            if int(row.group(2)) == pid:
-                return "found", row.group(1)
-        return "exited", None
-    return "unknown", None
-
-
-_RECOVER_ROW_RE = re.compile(r"(%\d+) (\d+)")
-
-
-def _stamp_or_remove(monitor, pane: str, option: str, value: str) -> str:
-    """Stamp ``option`` on the new pad, or take the pad away.
-
-    ``"ok"`` on a write (one retry). Otherwise the pane must not stay behind
-    unclassified — an unstamped pad lists as an agent and evades both the
-    duplicate lookup and the cleanup hook — so: ``"exited"`` when a probe proves
-    it is already gone (nothing to kill); else a best-effort ``kill-pane`` —
-    also on an UNKNOWN probe, since we hold the id of a pane we created
-    milliseconds ago — and ``"removed"`` only when a second probe proves it gone,
-    ``"stuck"`` when that cannot be confirmed.
-    """
-    args = ["set-option", "-p", "-t", pane, option, value]
-    rc, _ = monitor.tmux_run(args)
-    if rc != 0:
-        rc, _ = monitor.tmux_run(args)
-    if rc == 0:
-        return "ok"
-    if _probe_pane(monitor, pane) == "gone":
-        return "exited"
-    monitor.tmux_run(["kill-pane", "-t", pane])
-    return "removed" if _probe_pane(monitor, pane) == "gone" else "stuck"
-
-
 _PAD_REMOVAL_MESSAGES = {
     "exited": ("Scratchpad pane {pane} exited before it could be classified "
                "— nothing was opened", "warning"),
@@ -4491,7 +4513,7 @@ def spawn_scratchpad(
         return None
 
     if not pad:
-        state, pad = _recover_pad_pane(monitor, pid)
+        state, pad = _recover_launched_pane(monitor, pid)
         if state == "exited":
             notify("Scratchpad exited immediately — nothing was opened",
                    severity="warning")

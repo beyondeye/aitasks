@@ -876,12 +876,16 @@ class LaunchShadowGuardTests(unittest.TestCase):
         calls: list = []
         # Rebind on monitor_core: the spawn body was lifted there (t1216_4), so a
         # rebind on `mm` would intercept nothing and reach real tmux.
-        orig = mc.launch_in_tmux
-        mc.launch_in_tmux = lambda *a, **k: (calls.append((a, k)), (None, None))[1]
+        launchers = ("launch_split_pane", "launch_window_pane")
+        orig = {name: getattr(mc, name) for name in launchers}
+        for name in launchers:
+            setattr(mc, name, lambda *a, **k: (calls.append((a, k)),
+                                               (None, None, None))[1])
         try:
             app.action_launch_shadow()
         finally:
-            mc.launch_in_tmux = orig
+            for name, fn in orig.items():
+                setattr(mc, name, fn)
 
         self.assertEqual(calls, [])  # never spawned a shadow
         self.assertTrue(

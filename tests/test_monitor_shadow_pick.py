@@ -79,6 +79,10 @@ def _pane(
     )
 
 
+# The by-pid recovery query's format (`monitor_core._recover_launched_pane`).
+RECOVER_FMT = "#{pane_id} #{pane_pid}"
+
+
 def _snap(pane: TmuxPaneInfo) -> PaneSnapshot:
     return PaneSnapshot(
         pane=pane, content="idle output", timestamp=0.0, idle_seconds=0.0,
@@ -92,28 +96,50 @@ class _FakeMon:
     `sync_list` is the `list-panes` payload the duplicate guard reads.
     `stamp_rc` drives the `@aitask_shadow_target` write (C4). `rc` applies to the
     `list-panes` query so the fail-closed path can be driven.
+
+    `recover` answers the by-pid recovery query (`list-panes -a -F "#{pane_id}
+    #{pane_pid}"`, t2087) — `None` routes it like any other `list-panes`.
+    `display-message` probes answer from `probes` (consumed in order) when
+    given, else from liveness: every pane is live until a `kill-pane` names it.
     """
 
     multi_session = False
 
     def __init__(self, sync_list="", rc=0, stamp_rc=0,
-                 shadow_by_followed=None, list_panes_hook=None):
+                 shadow_by_followed=None, list_panes_hook=None, recover=None,
+                 probes=None):
         self._sync_list = sync_list
         self._rc = rc
         self._stamp_rc = stamp_rc
         self._shadow_by_followed = dict(shadow_by_followed or {})
         self._list_panes_hook = list_panes_hook
+        self._recover = recover
+        self._probes = list(probes or [])
+        self.killed: set = set()
         self.sync_calls: list = []
 
     def tmux_run(self, args, timeout=5.0):
         self.sync_calls.append(args)
         if args and args[0] == "list-panes":
+            if self._recover is not None and RECOVER_FMT in args:
+                return self._recover
             if self._list_panes_hook is not None:
                 return self._list_panes_hook(len(self.sync_calls))
             return (self._rc, self._sync_list)
         if args and args[0] == "set-option":
             return (self._stamp_rc, "")
+        if args and args[0] == "display-message":
+            if self._probes:
+                return self._probes.pop(0)
+            pane = args[3]
+            return (0, "" if pane in self.killed else pane)
+        if args and args[0] == "kill-pane":
+            self.killed.add(args[2])
         return (0, "")
+
+    def count(self, verb, needle=None):
+        return sum(1 for c in self.sync_calls
+                   if c and c[0] == verb and (needle is None or needle in c))
 
     def get_shadow_snapshot(self, followed_pane_id):
         return self._shadow_by_followed.get(followed_pane_id)
@@ -168,21 +194,22 @@ class _SpawnMocks:
     """Context manager installing the monitor_core-level spawn mocks.
 
     Patch targets are on `mc` on purpose: the body was lifted there, so patching
-    `ma` would intercept nothing and reach real tmux.
+    `ma` would intercept nothing and reach real tmux. Both identity launchers are
+    patched (t2087): `launch_split_pane` for the same-window branch and
+    `launch_window_pane` for the separate-window one; `launch` is whichever ran.
+    `launch` is the `(pane_id, pane_pid, error)` both return.
     """
 
-    def __init__(self, tmux_cfg=None, pane_id="%9", launch=(999, None),
+    def __init__(self, tmux_cfg=None, launch=("%9", 999, None),
                  hook_status="installed"):
         self._tmux_cfg = {} if tmux_cfg is None else tmux_cfg
-        self._pane_id = pane_id
         self._launch = launch
         self._hook_status = hook_status
 
     def __enter__(self):
         self._patches = [
-            patch.object(mc, "launch_in_tmux", return_value=self._launch),
-            patch.object(mc, "resolve_pane_id_by_pid",
-                         return_value=self._pane_id),
+            patch.object(mc, "launch_split_pane", return_value=self._launch),
+            patch.object(mc, "launch_window_pane", return_value=self._launch),
             patch.object(mc, "attach_companion_cleanup_hook",
                          return_value=self._hook_status),
             patch.object(mc, "load_project_tmux_config",
@@ -191,11 +218,15 @@ class _SpawnMocks:
                          return_value="claude /aitask-shadow %1 42"),
             patch.object(ma, "resolve_agent_string",
                          return_value="claudecode/opus4_8"),
+            patch.object(mc.time, "sleep"),
         ]
-        self.launch, self.resolve, self.hook, self.cfg, self.dry, self.agent = (
-            p.start() for p in self._patches
-        )
+        (self.split, self.window, self.hook, self.cfg, self.dry, self.agent,
+         self.sleep) = (p.start() for p in self._patches)
         return self
+
+    @property
+    def launch(self):
+        return self.window if self.window.called else self.split
 
     def __exit__(self, *exc):
         for p in reversed(self._patches):
@@ -507,7 +538,7 @@ class LaunchOutcomeTests(unittest.TestCase):
     def test_launch_error_notifies_and_skips_refresh(self):
         mon = _FakeMon()
         app = _mk_app(mon)
-        with _SpawnMocks(launch=(None, "boom")) as m:
+        with _SpawnMocks(launch=(None, None, "boom")) as m:
             app.action_launch_shadow()
         self.assertFalse(m.hook.called)
         self.assertEqual(app.spy_later, [], "no refresh on launch error")
@@ -522,9 +553,9 @@ class LaunchOutcomeTests(unittest.TestCase):
         self.assertEqual(len(app.spy_later), 1)
 
     def test_unclassifiable_pane_warns_and_skips_stamp_and_hook(self):
-        mon = _FakeMon()
+        mon = _FakeMon(recover=(-1, ""))
         app = _mk_app(mon)
-        with _SpawnMocks(pane_id=None) as m:
+        with _SpawnMocks(launch=(None, 999, None)) as m:
             app.action_launch_shadow()
         self.assertFalse(m.hook.called)
         self.assertEqual(
@@ -539,6 +570,121 @@ class LaunchOutcomeTests(unittest.TestCase):
             app.action_launch_shadow()
         self.assertTrue(_notified(app, "auto-cleanup"))
         self.assertFalse(_notified(app, "launched shadow agent"))
+
+
+# -- Launch-returned identity (t2087) ------------------------------------------
+
+
+class ShadowIdentityTests(unittest.TestCase):
+    """The shadow's pane id comes from the launch; unknown is never gone.
+
+    Before t2087 the id came from a by-pid lookup whose `None` merged "the query
+    failed" with "no pane has this pid", and a failure there left a live,
+    UNSTAMPED shadow that listed as an agent.
+    """
+
+    def _spawn(self, mon, launch=("%9", 999, None), tmux_cfg=None):
+        app = _mk_app(mon)
+        with _SpawnMocks(launch=launch, tmux_cfg=tmux_cfg) as m:
+            app.action_launch_shadow()
+        return app, m
+
+    def _stamps(self, mon):
+        return [c for c in mon.sync_calls
+                if c and c[0] == "set-option" and mc.SHADOW_TARGET_OPTION in c]
+
+    def test_split_branch_stamps_the_launch_id_without_a_lookup(self):
+        mon = _FakeMon(recover=(-1, ""))
+        _app, m = self._spawn(mon, launch=("%9", 999, None))
+        self.assertEqual(m.split.call_count, 1)
+        self.assertFalse(m.window.called)
+        self.assertEqual(mon.count("list-panes", RECOVER_FMT), 0)
+        self.assertEqual(self._stamps(mon), [
+            ["set-option", "-p", "-t", "%9", mc.SHADOW_TARGET_OPTION, "%1"]])
+        m.hook.assert_called_once_with("%1", "%9")
+
+    def test_window_branch_uses_the_window_launcher_and_its_id(self):
+        mon = _FakeMon(recover=(-1, ""))
+        _app, m = self._spawn(mon, launch=("%12", 999, None),
+                              tmux_cfg={"shadow_same_window": False})
+        self.assertEqual(m.window.call_count, 1)
+        self.assertFalse(m.split.called)
+        self.assertTrue(m.window.call_args.args[1].new_window)
+        self.assertEqual(mon.count("list-panes", RECOVER_FMT), 0)
+        self.assertEqual(self._stamps(mon), [
+            ["set-option", "-p", "-t", "%12", mc.SHADOW_TARGET_OPTION, "%1"]])
+        m.hook.assert_called_once_with("%1", "%12")
+
+    def test_no_id_recovers_by_pid(self):
+        for tmux_cfg in ({}, {"shadow_same_window": False}):
+            with self.subTest(cfg=tmux_cfg):
+                mon = _FakeMon(recover=(0, "%8 111\n%9 999"))
+                app, m = self._spawn(mon, launch=(None, 999, None),
+                                     tmux_cfg=tmux_cfg)
+                self.assertEqual(len(self._stamps(mon)), 1)
+                self.assertIn("%9", self._stamps(mon)[0])
+                m.hook.assert_called_once_with("%1", "%9")
+                self.assertTrue(_notified(app, "launched shadow agent"))
+
+    def test_no_id_and_a_wellformed_listing_without_the_pid_is_exited(self):
+        mon = _FakeMon(recover=(0, "%8 111"))
+        app, m = self._spawn(mon, launch=(None, 999, None))
+        self.assertEqual(self._stamps(mon), [])
+        self.assertEqual(mon.count("kill-pane"), 0)
+        self.assertFalse(m.hook.called)
+        self.assertTrue(_notified(app, "exited immediately"))
+        self.assertEqual(len(app.spy_later), 1)
+
+    def test_no_id_and_failed_recovery_is_unknown_and_bounded(self):
+        """The t2087 defect: a failed query must not read as a gone pane."""
+        for recover in ((-1, ""), (0, "bogus 999")):
+            with self.subTest(recover=recover):
+                mon = _FakeMon(recover=recover)
+                app, m = self._spawn(mon, launch=(None, 999, None))
+                self.assertEqual(mon.count("list-panes", RECOVER_FMT), 3)
+                self.assertEqual(self._stamps(mon), [])
+                self.assertEqual(mon.count("kill-pane"), 0)
+                self.assertFalse(m.hook.called)
+                self.assertTrue(any(sev == "error" and "pid 999" in msg
+                                    for msg, sev in app.spy_notify),
+                                app.spy_notify)
+                self.assertTrue(_notified(app, "close any stray pane by hand"))
+                self.assertFalse(_notified(app, "exited")
+                                 or _notified(app, "removed"))
+                self.assertEqual(len(app.spy_later), 1)
+
+    def test_no_id_and_no_pid_queries_nothing(self):
+        mon = _FakeMon(recover=(0, "%9 999"))
+        app, m = self._spawn(mon, launch=(None, None, None))
+        self.assertEqual(mon.count("list-panes", RECOVER_FMT), 0)
+        self.assertEqual(self._stamps(mon), [])
+        self.assertFalse(m.hook.called)
+        self.assertTrue(_notified(app, "could not be classified"))
+        self.assertFalse(_notified(app, "pid"))
+
+    def test_stamp_failure_on_an_already_gone_pane_kills_nothing(self):
+        mon = _FakeMon(stamp_rc=1, probes=[(0, "")])
+        app, m = self._spawn(mon)
+        self.assertEqual(len(self._stamps(mon)), 2, "one retry")
+        self.assertEqual(mon.count("kill-pane"), 0)
+        self.assertFalse(m.hook.called)
+        self.assertTrue(_notified(app, "exited before it could be classified"))
+
+    def test_stamp_failure_with_unconfirmed_removal_says_so(self):
+        mon = _FakeMon(stamp_rc=1, probes=[(0, "%9"), (-1, "")])
+        app, m = self._spawn(mon)
+        self.assertEqual(mon.count("kill-pane", "%9"), 1)
+        self.assertFalse(m.hook.called)
+        self.assertTrue(_notified(app, "close it by hand"))
+        self.assertFalse(_notified(app, "removed it"))
+        self.assertTrue(any(sev == "error" and "%9" in msg
+                            for msg, sev in app.spy_notify))
+
+    def test_monitor_core_no_longer_resolves_by_pid(self):
+        """Structural: the by-pid lookup is gone from the shadow spawn."""
+        self.assertNotIn("resolve_pane_id_by_pid",
+                         mc.spawn_shadow.__code__.co_names)
+        self.assertFalse(hasattr(mc, "resolve_pane_id_by_pid"))
 
 
 # -- Hook idempotence (C5 + S3), at the agent_launch_utils level ---------------

@@ -19,6 +19,7 @@ from agent_launch_utils import (  # noqa: E402
     TmuxLaunchConfig,
     _parse_pane_pid,
     launch_in_tmux,
+    launch_window_pane,
     tmux_session_target,
     tmux_window_target,
 )
@@ -98,6 +99,59 @@ class TestLaunchInTmuxNewWindow(unittest.TestCase):
         self.assertIn("-P", argv)
         idx = argv.index("-F")
         self.assertEqual(argv[idx + 1], "#{pane_pid}")
+
+
+class TestLaunchWindowPane(unittest.TestCase):
+    """`launch_window_pane` (t2087): the new-window launch that also returns
+    the pane id, so the shadow's separate-window branch never looks it up."""
+
+    def _config(self, select_window=True):
+        return TmuxLaunchConfig(
+            session="testsess", window="agent-shadow-42",
+            new_session=False, new_window=True, cwd="/p1",
+            select_window=select_window,
+        )
+
+    def _run(self, out="%9\t999\n", rc=0, select_window=True,
+             launcher=launch_window_pane):
+        captured = {}
+
+        def fake_run(argv, **kwargs):
+            captured["argv"] = argv
+            return _FakeRunResult(rc, out, "")
+
+        with patch.object(subprocess, "run", side_effect=fake_run):
+            res = launcher("echo hi", self._config(select_window))
+        return res, captured["argv"]
+
+    def test_parsing_validates_each_field(self):
+        cases = (("%9\t999\n", ("%9", 999)), ("x\t999", (None, 999)),
+                 ("%9\tabc", ("%9", None)), ("", (None, None)),
+                 ("%9\t0", ("%9", None)), ("\t999\n", (None, 999)))
+        for out, want in cases:
+            with self.subTest(out=out):
+                (pane, pid, err), _argv = self._run(out)
+                self.assertEqual((pane, pid), want)
+                self.assertIsNone(err)
+
+    def test_failure_returns_error(self):
+        (pane, pid, err), _argv = self._run("", rc=1)
+        self.assertEqual((pane, pid), (None, None))
+        self.assertIn("tmux new-window failed (rc=1)", err or "")
+
+    def test_argv_matches_launch_in_tmux_but_for_the_format(self):
+        for select_window in (True, False):
+            with self.subTest(select_window=select_window):
+                _res, argv = self._run(select_window=select_window)
+                _res, legacy = self._run("999\n", select_window=select_window,
+                                         launcher=launch_in_tmux)
+                fmt = argv.index("-F") + 1
+                self.assertEqual(argv[fmt], "#{pane_id}\t#{pane_pid}")
+                self.assertEqual(legacy[fmt], "#{pane_pid}")
+                self.assertEqual(argv[:fmt] + argv[fmt + 1:],
+                                 legacy[:fmt] + legacy[fmt + 1:])
+                self.assertIn("new-window", argv)
+                self.assertIs("-d" in argv, not select_window)
 
 
 class TestLaunchInTmuxSplitWindow(unittest.TestCase):

@@ -2094,18 +2094,7 @@ def launch_in_tmux(command: str, config: TmuxLaunchConfig) -> tuple[int | None, 
             )
         return pane_pid, None
     elif config.new_window:
-        # ``new-window`` creates *and selects* unless ``-d`` is passed, so the
-        # -d is what honors select_window=False on this branch.
-        detach_args = [] if config.select_window else ["-d"]
-        rc, out = _TMUX.run([
-            "new-window",
-            "-P", "-F", "#{pane_pid}",
-            *detach_args,
-            "-t", tmux_window_target(config.session, ""),
-            "-n", config.window,
-            *cwd_args,
-            command,
-        ])
+        rc, out = _TMUX.run(_new_window_argv(command, config, "#{pane_pid}"))
         if rc != 0:
             return None, f"tmux new-window failed (rc={rc})"
         return _parse_pane_pid(out), None
@@ -2116,6 +2105,29 @@ def launch_in_tmux(command: str, config: TmuxLaunchConfig) -> tuple[int | None, 
             return None, f"tmux split-window failed (rc={rc})"
         _select_split_window(config)
         return _parse_pane_pid(out), None
+
+
+def _new_window_argv(command: str, config: TmuxLaunchConfig,
+                     fmt: str) -> list[str]:
+    """The ``new-window -P -F <fmt>`` argv for ``config``'s window placement.
+
+    Shared by :func:`launch_in_tmux` (``#{pane_pid}``) and
+    :func:`launch_window_pane` (``#{pane_id}`` + ``#{pane_pid}``), the same way
+    :func:`_split_window_argv` is shared by the two split launches.
+    """
+    # ``new-window`` creates *and selects* unless ``-d`` is passed, so the
+    # -d is what honors select_window=False on this branch.
+    detach_args = [] if config.select_window else ["-d"]
+    cwd_args = ["-c", config.cwd] if config.cwd else []
+    return [
+        "new-window",
+        "-P", "-F", fmt,
+        *detach_args,
+        "-t", tmux_window_target(config.session, ""),
+        "-n", config.window,
+        *cwd_args,
+        command,
+    ]
 
 
 def _split_window_argv(command: str, config: TmuxLaunchConfig,
@@ -2173,10 +2185,35 @@ def launch_split_pane(
     applies: the pane's pid must be the launched process itself.
     """
     rc, out = _TMUX.run(
-        _split_window_argv(command, config, "#{pane_id}\t#{pane_pid}"))
+        _split_window_argv(command, config, _PANE_ID_PID_FORMAT))
     if rc != 0:
         return None, None, f"tmux split-window failed (rc={rc})"
     _select_split_window(config)
+    return (*_parse_pane_id_pid(out), None)
+
+
+def launch_window_pane(
+    command: str, config: TmuxLaunchConfig,
+) -> tuple[str | None, int | None, str | None]:
+    """Open a new window like :func:`launch_in_tmux`, returning its pane id too.
+
+    The ``new-window`` sibling of :func:`launch_split_pane`, with the same
+    ``(pane_id, pane_pid, error)`` contract: each field validated on its own,
+    ``error`` set only when ``new-window`` itself failed. ``new_session`` and
+    the split fields are ignored. The same unwrapped-command contract as
+    :func:`launch_in_tmux` applies: the pane's pid must be the launched process.
+    """
+    rc, out = _TMUX.run(_new_window_argv(command, config, _PANE_ID_PID_FORMAT))
+    if rc != 0:
+        return None, None, f"tmux new-window failed (rc={rc})"
+    return (*_parse_pane_id_pid(out), None)
+
+
+_PANE_ID_PID_FORMAT = "#{pane_id}\t#{pane_pid}"
+
+
+def _parse_pane_id_pid(out: str) -> tuple[str | None, int | None]:
+    """Parse a ``#{pane_id}\\t#{pane_pid}`` launch reply, each field on its own."""
     # Split BEFORE trimming: stripping the whole output first would eat a
     # leading tab, shifting a valid pid into the id field when the id is empty.
     lines = [line for line in out.splitlines() if line.strip()]
@@ -2189,7 +2226,7 @@ def launch_split_pane(
         pane_pid = None
     if pane_pid is not None and pane_pid <= 0:
         pane_pid = None
-    return pane_id, pane_pid, None
+    return pane_id, pane_pid
 
 
 def resolve_pane_id_by_pid(session: str, pid: int) -> str | None:

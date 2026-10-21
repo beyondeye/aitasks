@@ -83,7 +83,7 @@ class SpawnTimeStampTest(unittest.TestCase):
     def _run_spawn(self, phase_signal):
         """Drive the REAL spawn_shadow, stubbing only what leaves the process.
 
-        `launch_in_tmux` is the seam that actually creates the pane (it does not
+        `launch_split_pane` is the seam that actually creates the pane (it does not
         go through `tmux_run`), so it is patched to report success; everything
         else — placement, the duplicate guard, both stamps, the cleanup hook —
         runs for real and lands in `events` in execution order.
@@ -102,13 +102,11 @@ class SpawnTimeStampTest(unittest.TestCase):
                 return 0, ""
 
         orig = {
-            "launch_in_tmux": monitor_core.launch_in_tmux,
+            "launch_split_pane": monitor_core.launch_split_pane,
             "attach_companion_cleanup_hook": monitor_core.attach_companion_cleanup_hook,
-            "resolve_pane_id_by_pid": monitor_core.resolve_pane_id_by_pid,
         }
-        monitor_core.launch_in_tmux = lambda cmd, cfg: (4242, "")
+        monitor_core.launch_split_pane = lambda cmd, cfg: ("%77", 4242, None)
         monitor_core.attach_companion_cleanup_hook = lambda *a, **k: "ok"
-        monitor_core.resolve_pane_id_by_pid = lambda session, pid: "%77"
         try:
             return self._invoke(Mon(), events, phase_signal)
         finally:

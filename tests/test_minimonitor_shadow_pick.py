@@ -46,14 +46,21 @@ from tmux_socket_containment import TmuxSocketContainmentMixin  # noqa: E402
 
 
 class _FakeMon:
-    """Stub TmuxMonitor exposing only the sync gateway the lookups/stamp use."""
+    """Stub TmuxMonitor exposing only the sync gateway the lookups/stamp use.
 
-    def __init__(self, sync_list: str = "") -> None:
+    ``recover`` answers the by-pid recovery query (t2087); ``None`` routes it
+    like every other call.
+    """
+
+    def __init__(self, sync_list: str = "", recover=None) -> None:
         self._sync_list = sync_list
+        self._recover = recover
         self.sync_calls: list = []
 
     def tmux_run(self, args, timeout=5.0):
         self.sync_calls.append(args)
+        if self._recover is not None and "#{pane_id} #{pane_pid}" in args:
+            return self._recover
         return (0, self._sync_list)
 
 
@@ -186,10 +193,8 @@ class ConfirmPathTests(TmuxSocketContainmentMixin, unittest.TestCase):
         app = _mk_app(mon)
         screen, callback = self._push_and_get_cb(app)
 
-        with patch.object(mc, "launch_in_tmux",
-                          return_value=(999, None)) as mock_launch, \
-             patch.object(mc, "resolve_pane_id_by_pid",
-                          return_value="%9") as mock_resolve, \
+        with patch.object(mc, "launch_split_pane",
+                          return_value=("%9", 999, None)) as mock_launch, \
              patch.object(mc, "attach_companion_cleanup_hook",
                           return_value="installed") as mock_hook, \
              patch.object(mc, "load_project_tmux_config", return_value={}):
@@ -199,8 +204,10 @@ class ConfirmPathTests(TmuxSocketContainmentMixin, unittest.TestCase):
         self.assertEqual(mock_launch.call_count, 1)
         self.assertEqual(mock_launch.call_args.args[0], screen.full_command)
 
-        # New pane resolved from its pid, then stamped @aitask_shadow_target -> %1.
-        mock_resolve.assert_called_once()
+        # The id the launch printed is stamped @aitask_shadow_target -> %1, with
+        # no by-pid lookup in between (t2087).
+        self.assertEqual(
+            [c for c in mon.sync_calls if "#{pane_id} #{pane_pid}" in c], [])
         stamp_calls = [
             c for c in mon.sync_calls
             if len(c) >= 2 and c[0] == "set-option"
@@ -229,9 +236,8 @@ class ConfirmPathTests(TmuxSocketContainmentMixin, unittest.TestCase):
         _screen, callback = self._push_and_get_cb(app)
 
         with patch.dict(os.environ, {"TMUX_PANE": "%77"}), \
-             patch.object(mc, "launch_in_tmux",
-                          return_value=(999, None)) as mock_launch, \
-             patch.object(mc, "resolve_pane_id_by_pid", return_value="%9"), \
+             patch.object(mc, "launch_split_pane",
+                          return_value=("%9", 999, None)) as mock_launch, \
              patch.object(mc, "attach_companion_cleanup_hook",
                           return_value="installed") as mock_hook, \
              patch.object(mc, "load_project_tmux_config", return_value={}):
@@ -246,10 +252,35 @@ class ConfirmPathTests(TmuxSocketContainmentMixin, unittest.TestCase):
     def test_cancel_and_run_launch_nothing(self):
         app = _mk_app(_FakeMon(sync_list=""))
         _screen, callback = self._push_and_get_cb(app)
-        with patch.object(mc, "launch_in_tmux") as mock_launch:
+        with patch.object(mc, "launch_split_pane") as mock_split, \
+             patch.object(mc, "launch_window_pane") as mock_window:
             callback(None)   # dialog cancelled
             callback("run")  # "open in terminal" is not a shadow placement
-        self.assertFalse(mock_launch.called)
+        self.assertFalse(mock_split.called)
+        self.assertFalse(mock_window.called)
+
+    def test_unidentified_pane_is_reported_never_stamped(self):
+        """t2087: no id from the launch + a failed recovery query is UNKNOWN.
+
+        The pre-fix spawn read the by-pid lookup's None as final; this pins that
+        a failed query neither stamps nor claims the pane gone.
+        """
+        mon = _FakeMon(sync_list="", recover=(-1, ""))
+        app = _mk_app(mon)
+        _screen, callback = self._push_and_get_cb(app)
+        with patch.object(mc, "launch_split_pane",
+                          return_value=(None, 999, None)), \
+             patch.object(mc, "attach_companion_cleanup_hook") as mock_hook, \
+             patch.object(mc, "load_project_tmux_config", return_value={}), \
+             patch.object(mc.time, "sleep"):
+            callback(TmuxLaunchConfig("s1", "w", new_session=False, new_window=False))
+        self.assertEqual(
+            [c for c in mon.sync_calls if c and c[0] == "set-option"], [])
+        self.assertEqual(
+            len([c for c in mon.sync_calls if "#{pane_id} #{pane_pid}" in c]), 3)
+        mock_hook.assert_not_called()
+        self.assertTrue(any("could not be classified" in m and "pid 999" in m
+                            for m, _ in app.spy_notify), app.spy_notify)
 
 
 if __name__ == "__main__":

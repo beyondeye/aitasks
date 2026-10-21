@@ -3,7 +3,7 @@
 # shadow spawn (t1353; the automated counterpart to t1216_5's human walkthrough).
 #
 # `tests/test_monitor_shadow_pick.py` pins the same contracts through MOCKS: it
-# patches `launch_in_tmux`, `resolve_pane_id_by_pid` and
+# patches `launch_split_pane`, `launch_window_pane` and
 # `attach_companion_cleanup_hook` on `monitor_core` and never issues a tmux call.
 # That can prove the ARGUMENTS the monitor passes; it cannot prove the EFFECT.
 # This test drives `MonitorApp.action_launch_shadow()` against a real throwaway
@@ -32,9 +32,9 @@
 # Only ONE seam is replaced: `monitor_app.resolve_dry_run_command` returns a
 # harmless `tail -f /dev/null` instead of a real code-agent command line.
 # Everything below the action is real — `_resolve_shadow_target` ->
-# `monitor_core.spawn_shadow` -> `agent_launch_utils.launch_in_tmux` -> tmux ->
-# `resolve_pane_id_by_pid` -> the `@aitask_shadow_target` stamp ->
-# `attach_companion_cleanup_hook`. Binding->action wiring (`e`/`E`) is already
+# `monitor_core.spawn_shadow` -> `agent_launch_utils.launch_split_pane` /
+# `launch_window_pane` (the pane id from tmux's own `-P` reply) -> tmux ->
+# the `@aitask_shadow_target` stamp -> `attach_companion_cleanup_hook`. Binding->action wiring (`e`/`E`) is already
 # pinned by the mocked suite, so the live leg starts at the action.
 #
 # THIS TEST IS tmux-DESTRUCTIVE. It arms real `pane-died` hooks, and

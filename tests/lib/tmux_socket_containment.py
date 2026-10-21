@@ -1,6 +1,6 @@
 """Socket containment for mocked tmux tests (t1216_4).
 
-The shadow-spawn tests are mock-based: `launch_in_tmux`, `resolve_pane_id_by_pid`
+The shadow-spawn tests are mock-based: `launch_split_pane`, `launch_window_pane`
 and `attach_companion_cleanup_hook` are patched, so no tmux call should ever leave
 the process. The mocks are the primary protection. This mixin is the **belt**: if
 a patch target is ever missed — the silent failure mode of the t1216_4 lift, since

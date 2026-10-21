@@ -479,19 +479,19 @@ class IdentityAndRemovalTests(_RootsMixin, TmuxSocketContainmentMixin,
         for out in malformed:
             with self.subTest(out=out), patch.object(mc.time, "sleep"):
                 mon = _Scripted([out])
-                self.assertEqual(mc._recover_pad_pane(mon, 999), ("unknown", None))
+                self.assertEqual(mc._recover_launched_pane(mon, 999), ("unknown", None))
                 self.assertEqual(mon.calls, 3, "retried, bounded")
         with patch.object(mc.time, "sleep"):
             # A malformed answer, then a good one: recovered on the retry.
             mon = _Scripted(["garbage", "%8 111\n%9 999"])
-            self.assertEqual(mc._recover_pad_pane(mon, 999), ("found", "%9"))
+            self.assertEqual(mc._recover_launched_pane(mon, 999), ("found", "%9"))
             # Well-formed and the pid is absent: that, and only that, is exited.
-            self.assertEqual(mc._recover_pad_pane(_Scripted(["%8 111"]), 999),
+            self.assertEqual(mc._recover_launched_pane(_Scripted(["%8 111"]), 999),
                              ("exited", None))
             for bad_pid in (None, 0, -1, True, "999"):
                 with self.subTest(pid=bad_pid):
                     mon = _Scripted(["%9 999"])
-                    self.assertEqual(mc._recover_pad_pane(mon, bad_pid),
+                    self.assertEqual(mc._recover_launched_pane(mon, bad_pid),
                                      ("unknown", None))
                     self.assertEqual(mon.calls, 0)
 
