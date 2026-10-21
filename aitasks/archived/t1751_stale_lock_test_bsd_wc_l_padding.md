@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [bash_scripts, testing, macos, tests]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -17,7 +17,8 @@ anchor: 1681
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5_5
 created_at: 2026-09-08 22:28
-updated_at: 2026-10-21 11:58
+updated_at: 2026-10-21 12:19
+completed_at: 2026-10-21 12:19
 ---
 
 ## Origin
@@ -77,3 +78,14 @@ rule says arithmetic uses are fine, so scope the sweep to string comparisons.
 > **✅ gate:plan_approved** run=2026-10-21T08:58:16Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-10-21T09:17:11Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-10-21T09:19:43Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:d06a13e3341126ec
+
+> **✅ gate:risk_evaluated** run=2026-10-21T09:19:43Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1751/risk_evaluated_2026-10-21T09:19:43Z-risk_evaluated-a1.log`
