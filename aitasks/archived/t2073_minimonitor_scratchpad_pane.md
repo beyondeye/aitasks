@@ -3,17 +3,17 @@ priority: medium
 effort: high
 depends: []
 issue_type: feature
-status: Ready
+status: Done
 labels: [aitask_monitormini, tmux, website, scratchpad]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
 active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
-children_to_implement: [t2073_5]
 folded_tasks: [1388]
 created_at: 2026-10-20 09:46
-updated_at: 2026-10-21 08:44
+updated_at: 2026-10-21 12:02
+completed_at: 2026-10-21 12:02
 ---
 
 ## Goal
