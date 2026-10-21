@@ -79,7 +79,8 @@ from board_trail_view import (
     TrailDetailScreen, TrailJumpConfirmScreen, TrailSelectScreen,
     TrailSummaryScreen,
     build_trail_lanes, load_local_project_name, run_trail_drift,
-    trail_drift_by_ref, trail_summary_text, trail_xdep_refs,
+    trail_drift_by_ref, trail_generated_label, trail_summary_text,
+    trail_xdep_refs,
 )
 from board_widgets import LoadingOverlay
 from cross_repo_deps import probe_xdep_status
@@ -721,8 +722,23 @@ class TrailScreenMixin:
             return f" · {depth.strip().lower()}"
         return ""
 
+    def _trail_generated_note(self) -> str:
+        """`" · gen 07-10 17:00"` — when the trail was generated, in local time
+        (t2112), else `""`.
+
+        An absent, non-string or unparseable ``generation.generated_at``
+        renders NOTHING — no `?`, no raw value: the header is a fixed-width
+        budget, not a place to render arbitrary artifact strings. Only an
+        agent refresh rewrites the value, and both trail-doc seams funnel into
+        ``_refresh_subtitle``, so a new timestamp shows with no extra wiring."""
+        generation = (self._trail_doc or {}).get("generation")
+        if not isinstance(generation, dict):
+            return ""
+        label = trail_generated_label(generation.get("generated_at"))
+        return f" · gen {label}" if label else ""
+
     def _trail_banner(self, title: str, suffix: str, owner_note: str,
-                      depth_note: str = "") -> str:
+                      depth_note: str = "", gen_note: str = "") -> str:
         """Compose the By-Trail banner so the freshness marker always survives.
 
         HeaderTitle ellipsis-truncates the TAIL, and the marker is the tail —
@@ -745,10 +761,26 @@ class TrailScreenMixin:
         # that drops the title). Kept out of the ladder, the rungs below stay
         # byte-identical to their pre-t1505_1 behaviour for every trail, and the
         # volatile freshness marker is still the last survivor.
-        if depth_note:
-            full_with_depth = f'By-Trail: "{title}"{suffix}{owner_note}{depth_note}'
-            if not budget or cell_len(full_with_depth) <= budget:
-                return full_with_depth
+        #
+        # The generation note (t2112) follows the same rule for the same
+        # reasons: it is dropped whole before the title is ever elided, so the
+        # rungs below stay byte-identical for trails with and without it. It
+        # sits right after the title it describes — safe, since it only appears
+        # when the whole string fits. Between the two additive notes,
+        # generation is tried FIRST and depth is added only if it still fits:
+        # the age is what a reader cannot get elsewhere on screen, while depth
+        # is an advisory rendering hint.
+        def fits(text: str) -> bool:
+            return not budget or cell_len(text) <= budget
+
+        def compose(gen: str, depth: str) -> str:
+            return f'By-Trail: "{title}"{gen}{suffix}{owner_note}{depth}'
+
+        shown_gen = gen_note if gen_note and fits(compose(gen_note, "")) else ""
+        shown_depth = (depth_note if depth_note
+                       and fits(compose(shown_gen, depth_note)) else "")
+        if shown_gen or shown_depth:
+            return compose(shown_gen, shown_depth)
         full = f'By-Trail: "{title}"{suffix}{owner_note}'
         if not budget or cell_len(full) <= budget:
             return full
@@ -839,7 +871,8 @@ class TrailScreenMixin:
                              if self._trail_owner_id else "task")
                     owner_note = f" · owner {owner} archived"
                 self.sub_title = self._trail_banner(
-                    title, suffix, owner_note, self._trail_depth_note())
+                    title, suffix, owner_note, self._trail_depth_note(),
+                    self._trail_generated_note())
             else:
                 self.sub_title = f"By-Trail: {self.active_trail_handle}"
             return

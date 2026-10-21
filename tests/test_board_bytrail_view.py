@@ -32,9 +32,13 @@ import subprocess
 import sys
 import textwrap
 import threading
+import time
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
+
+from rich.cells import cell_len
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / "tests" / "lib"))
@@ -4443,6 +4447,10 @@ class TrailDepthLabelTests(ByTrailTestBase):
     def _doc(depth=None):
         doc = copy.deepcopy(_load_fixture())
         doc["title"] = "Depth trail"
+        # The fixture carries a generated_at; these tests isolate the depth
+        # note, and the depth/generation interaction is pinned in
+        # TrailGeneratedBannerTests (t2112).
+        doc.pop("generation", None)
         if depth is not None:
             doc["rendering_hints"] = {"depth": depth}
         else:
@@ -4534,6 +4542,244 @@ class TrailDepthLabelTests(ByTrailTestBase):
 
                 self._run(go())
                 self.assertEqual(captured["live"], captured["ref"])
+
+
+@contextlib.contextmanager
+def _forced_local_tz(spec: str):
+    """Run with the process-local zone set to POSIX ``spec`` ("UTC-3" is
+    three hours EAST of UTC), restoring the previous zone afterwards."""
+    try:
+        with patch.dict(os.environ, {"TZ": spec}):
+            time.tzset()
+            yield
+    finally:
+        time.tzset()
+
+
+class TrailGeneratedLabelTests(ByTrailTestBase):
+    """t2112: the local-time label for ``generation.generated_at``.
+
+    Pure helper, explicit zone and clock — no app boot."""
+
+    UTC3 = timezone(timedelta(hours=3))
+    NOW = datetime(2026, 10, 21, 12, 0, tzinfo=timezone.utc)
+
+    def _label(self, value):
+        return self.ab.trail_generated_label(value, tz=self.UTC3, now=self.NOW)
+
+    def test_second_precision_converts_to_local_time(self):
+        self.assertEqual(self._label("2026-07-10T14:00:00Z"), "07-10 17:00")
+
+    def test_minute_precision_is_schema_valid_and_converts(self):
+        self.assertEqual(self._label("2026-07-10T14:00Z"), "07-10 17:00")
+
+    def test_conversion_rolls_the_date_over(self):
+        self.assertEqual(self._label("2026-07-10T23:30Z"), "07-11 02:30")
+
+    def test_other_year_shows_the_year_not_a_recent_looking_time(self):
+        self.assertEqual(self._label("2025-07-10T14:00:00Z"), "2025-07-10")
+
+    def test_now_uses_the_current_offset_not_the_generation_offset(self):
+        """Summer generation, New Year's Eve now, system zone with DST: local
+        now is 12-31 23:30 (+01:00), but in July's +02:00 it would be 2027 and
+        flip a same-year trail to the dated form. POSIX rule string (Berlin's)
+        so no tzdata is needed."""
+        now = datetime(2026, 12, 31, 22, 30, tzinfo=timezone.utc)
+        with _forced_local_tz("CET-1CEST,M3.5.0,M10.5.0/3"):
+            got = self.ab.trail_generated_label("2026-07-10T14:00:00Z", now=now)
+        self.assertEqual(got, "07-10 16:00")
+
+    def test_conversion_overflow_renders_nothing(self):
+        """Schema-valid, parses, and overflows only on conversion east of UTC
+        — it must return "" rather than raise out of banner rendering."""
+        self.assertEqual(self._label("9999-12-31T23:59:59Z"), "")
+
+    def test_invalid_values_render_nothing(self):
+        for value in (None, 42, "", "?", "2026-08-01",
+                      "2026-07-10T14:00:00",          # naive
+                      "2026-07-10T14:00:00+02:00",    # offset: not schema-valid
+                      "2026-13-40T99:00:00Z",         # out of range
+                      "2026-07-10T14:00:00Z\n",       # `$` would accept this
+                      "[bold]x[/]", ["2026-07-10T14:00:00Z"]):
+            with self.subTest(value=value):
+                self.assertEqual(self._label(value), "")
+
+    def test_pattern_is_the_schema_timestamp_pattern(self):
+        """One grammar: the helper accepts exactly what the schema calls a
+        timestamp, so a schema-valid value can never render nothing."""
+        schema = json.loads(
+            (REPO_ROOT / ".aitask-scripts" / "lib"
+             / "implementation_trail.schema.json").read_text())
+        self.assertEqual(self.ab._GENERATED_AT_RE.pattern,
+                         schema["$defs"]["timestamp"]["pattern"])
+
+
+class TrailGeneratedBannerTests(ByTrailTestBase):
+    """t2112: the banner's generation-time note, in local time.
+
+    Expected strings are written out literally — never produced by a second
+    `_trail_banner` call (the weakness t1514 records for the depth-note test).
+    The zone is forced to UTC+3 so the conversion is visible; the generation
+    year tracks the clock so the same-year form is not a time bomb."""
+
+    TITLE = "Gen trail"
+    WITH_GEN = 'By-Trail: "Gen trail" · gen 07-10 17:00 (⚠ stale: 1)'
+    PLAIN = 'By-Trail: "Gen trail" (⚠ stale: 1)'
+    RUNG2 = 'By-Trail: "Gen tra…" (⚠ stale: 1)'
+    RUNG3 = "By-Trail: (⚠ stale: 1)"
+    RUNG4 = "⚠ stale: 1"
+
+    def _doc(self, generated_at=..., depth=None):
+        doc = copy.deepcopy(_load_fixture())
+        doc["title"] = self.TITLE
+        doc.pop("rendering_hints", None)
+        if depth is not None:
+            doc["rendering_hints"] = {"depth": depth}
+        if generated_at is ...:
+            generated_at = f"{datetime.now().year}-07-10T14:00:00Z"
+        if generated_at is None:
+            doc.pop("generation", None)
+        else:
+            doc["generation"] = {"generated_at": generated_at}
+        return doc
+
+    def _banners(self, doc, budgets, size=(160, 30)):
+        """sub_title at each patched budget (0 = unbudgeted), plus the real
+        wide-terminal sub_title and header row."""
+        ab = self.ab
+        got = {}
+
+        async def go():
+            app = ab.KanbanApp()
+            async with app.run_test(size=size) as pilot:
+                await pilot.pause()
+                await self._enter_synthetic_bytrail(app, pilot, doc)
+                app._trail_drift = ("STALE", [("stale_status", "aitasks#1", "d")])
+                app._refresh_subtitle()
+                await pilot.pause()
+                got["live"] = str(app.sub_title)
+                got["row0"] = self._screen_rows(app)[0]
+                for budget in budgets:
+                    with patch.object(app, "_banner_budget",
+                                      return_value=budget):
+                        app._refresh_subtitle()
+                        got[budget] = str(app.sub_title)
+
+        with _forced_local_tz("UTC-3"):
+            self._run(go())
+        return got
+
+    def test_note_present_at_a_wide_terminal(self):
+        got = self._banners(self._doc(), [0])
+        self.assertEqual(got["live"], self.WITH_GEN)
+        self.assertEqual(got[0], self.WITH_GEN)
+        self.assertIn("gen 07-10 17:00", got["row0"],
+                      "the note never reached the screen")
+
+    def test_note_shed_before_every_rung_and_marker_kept(self):
+        widths = {
+            "with_gen": cell_len(self.WITH_GEN),
+            "plain": cell_len(self.WITH_GEN) - 1,
+            "rung2": cell_len(self.PLAIN) - 1,
+            "rung3": cell_len(self.RUNG3),
+            "rung4": cell_len(self.RUNG3) - 1,
+        }
+        got = self._banners(self._doc(), list(widths.values()))
+        self.assertEqual(got[widths["with_gen"]], self.WITH_GEN)
+        # Gen dropped whole; the title is still intact.
+        self.assertEqual(got[widths["plain"]], self.PLAIN)
+        self.assertEqual(got[widths["rung2"]], self.RUNG2)
+        self.assertEqual(got[widths["rung3"]], self.RUNG3)
+        self.assertEqual(got[widths["rung4"]], self.RUNG4)
+
+    def test_generation_has_priority_over_depth(self):
+        both = self.WITH_GEN + " · lite"
+        depth_only = self.PLAIN + " · lite"
+        budgets = [0, cell_len(self.WITH_GEN), cell_len(depth_only)]
+        got = self._banners(self._doc(depth="lite"), budgets)
+        self.assertEqual(got[0], both)
+        # Room for gen but not gen + depth: gen kept, depth dropped.
+        self.assertEqual(got[cell_len(self.WITH_GEN)], self.WITH_GEN)
+        # Room for depth but not gen: depth alone, still additive.
+        self.assertEqual(got[cell_len(depth_only)], depth_only)
+
+    def test_absent_or_malformed_value_leaves_the_banner_unchanged(self):
+        rung2 = cell_len(self.PLAIN) - 1
+        for value in (None, "?", "2026-08-01", "2026-07-10T14:00:00+02:00"):
+            with self.subTest(value=value):
+                got = self._banners(self._doc(value), [0, rung2])
+                self.assertEqual(got["live"], self.PLAIN)
+                self.assertEqual(got[0], self.PLAIN)
+                self.assertEqual(got[rung2], self.RUNG2)
+
+    def test_reload_seam_shows_the_new_generation_time(self):
+        """An agent refresh rewrites generated_at; the real reload path (the
+        `d` key → worker → `_on_trail_reload`) must reach the banner with no
+        extra wiring."""
+        ab = self.ab
+        year = datetime.now().year
+        fresh = self._doc(f"{year}-08-01T09:30Z")
+        got = {}
+
+        def fake_load(handle):
+            return (copy.deepcopy(fresh), "", ["v2"])
+
+        def fake_drift(handle):
+            return ("CURRENT", [])
+
+        async def go():
+            with patch.object(ab.board_trail_screen, "load_trail_blob",
+                              fake_load), \
+                    patch.object(ab.board_trail_screen, "run_trail_drift",
+                                 fake_drift):
+                app = ab.KanbanApp()
+                async with app.run_test(size=(160, 30)) as pilot:
+                    await pilot.pause()
+                    app.active_trail_handle = "art:trail-test"
+                    app._trail_infos = []
+                    app._trail_doc = self._doc()
+                    app._trail_error = ""
+                    app._set_base_filter("bytrail")
+                    await pilot.pause()
+                    await app.workers.wait_for_complete()
+                    await pilot.pause()
+                    got["before"] = str(app.sub_title)
+                    await pilot.press("d")
+                    await pilot.pause()
+                    await app.workers.wait_for_complete()
+                    await pilot.pause()
+                    await app.workers.wait_for_complete()
+                    await pilot.pause()
+                    got["after"] = str(app.sub_title)
+
+        with _forced_local_tz("UTC-3"):
+            self._run(go())
+        self.assertEqual(got["before"], 'By-Trail: "Gen trail" · gen 07-10 17:00')
+        self.assertEqual(got["after"], 'By-Trail: "Gen trail" · gen 08-01 12:30')
+
+    def test_selection_modal_uses_the_same_local_label(self):
+        ab = self.ab
+        rows = {}
+        year = datetime.now().year
+
+        async def go():
+            app = ab.KanbanApp()
+            async with app.run_test(size=(160, 30)) as pilot:
+                await pilot.pause()
+                good = self._mk_trail_info("art:good", "Good trail")
+                good.doc["generation"] = {
+                    "generated_at": f"{year}-07-10T14:00:00Z"}
+                legacy = self._mk_trail_info("art:legacy", "Legacy trail")
+                app.push_screen(ab.TrailSelectScreen([good, legacy], {}))
+                await self._settle(pilot)
+                rows["text"] = "\n".join(self._screen_rows(app))
+
+        with _forced_local_tz("UTC-3"):
+            self._run(go())
+        self.assertIn("· 07-10 17:00", rows["text"])
+        self.assertNotIn("T14:00:00Z", rows["text"])
+        # Unparseable values keep the pre-t2112 raw rendering.
+        self.assertIn("· 2026-08-01", rows["text"])
 
 
 class TrailDetailSectionTests(ByTrailTestBase):

@@ -129,6 +129,7 @@ from board_trail_view import (
     trail_ref_to_local_id, trail_summary_text,
     XDEP_CHECKING, XDEP_RESOLVED, XDEP_UNCHECKED, _remote_status_text,
     _xdep_member_display, trail_xdep_refs, xdep_ref_state,
+    _GENERATED_AT_RE, trail_generated_label,
 )
 
 # The By-Trail view's App half — session state, workers, trail actions, the

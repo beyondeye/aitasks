@@ -42,6 +42,7 @@ from __future__ import annotations
 import re
 import subprocess
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 
 import yaml
@@ -368,6 +369,44 @@ def trail_summary_text(doc) -> str:
     return ""
 
 
+# The trail schema's `$defs.timestamp` pattern, verbatim
+# (implementation_trail.schema.json; a test pins the two together).
+_GENERATED_AT_RE = re.compile(
+    r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?Z$", re.ASCII)
+
+
+def trail_generated_label(value, *, tz=None, now=None) -> str:
+    """Local-time label for a trail's ``generation.generated_at`` (t2112).
+
+    ``"07-10 17:00"`` when the generation falls in the current local year,
+    ``"2025-07-10"`` otherwise — an old trail must never read as recent, and
+    telling its age is the whole point of the label.
+
+    Accepts exactly the schema's UTC timestamp grammar (seconds optional, ``Z``
+    only); anything else — absent, non-string, date-only, an offset, an
+    out-of-range field — returns ``""``. ``fullmatch`` rather than ``match``:
+    Python's ``$`` also matches before a trailing newline. Parsing AND the
+    local conversion are guarded together, because a schema-valid boundary
+    date overflows on conversion (``9999-12-31T23:59:59Z`` east of UTC) and
+    this runs inside banner and modal rendering.
+
+    ``tz=None`` converts to the system local zone; ``tz`` / ``now`` are seams
+    for tests."""
+    if not isinstance(value, str) or not _GENERATED_AT_RE.fullmatch(value):
+        return ""
+    try:
+        local = datetime.fromisoformat(value[:-1] + "+00:00").astimezone(tz)
+        # Converted on its own, never in `local.tzinfo`: with tz=None that is
+        # the fixed offset AT GENERATION, which differs from today's across a
+        # DST change and can put "now" in the wrong year on New Year's Eve.
+        today = (now or datetime.now(timezone.utc)).astimezone(tz)
+    except (ValueError, OverflowError, OSError):
+        return ""
+    if local.year == today.year:
+        return local.strftime("%m-%d %H:%M")
+    return local.strftime("%Y-%m-%d")
+
+
 def run_trail_drift(handle: str):
     """Run the read-only drift verb; returns ``(verdict, reasons)``.
 
@@ -669,7 +708,10 @@ class TrailSelectItem(PickerItem):
         if info.owner_archived:
             owner += " (archived)"
         scope = str((doc.get("scope") or {}).get("kind") or "?")
-        updated = str((doc.get("generation") or {}).get("generated_at") or "?")
+        raw = (doc.get("generation") or {}).get("generated_at")
+        # Same local-time label as the banner (t2112), so the two agree;
+        # an unparseable value keeps the pre-t2112 raw / "?" rendering.
+        updated = trail_generated_label(raw) or str(raw or "?")
         text = Text()
         text.append(title)
         if is_open:
