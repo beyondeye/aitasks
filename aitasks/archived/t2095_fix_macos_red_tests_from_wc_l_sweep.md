@@ -5,7 +5,7 @@ risk_goal_achievement: medium
 effort: medium
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [bash_scripts, testing, macos, tests]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -18,7 +18,8 @@ anchor: 1681
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5_5
 created_at: 2026-10-21 12:18
-updated_at: 2026-10-21 14:44
+updated_at: 2026-10-21 14:45
+completed_at: 2026-10-21 14:45
 ---
 
 ## Origin
@@ -79,3 +80,14 @@ assert per platform. The cd-guard case needs one `enter_scratch_cwd` call.
 > **✅ gate:plan_approved** run=2026-10-21T09:51:33Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-10-21T11:29:50Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-10-21T11:45:09Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:0e345fb9c7f702c5
+
+> **✅ gate:risk_evaluated** run=2026-10-21T11:45:09Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/2095/risk_evaluated_2026-10-21T11:45:09Z-risk_evaluated-a1.log`
