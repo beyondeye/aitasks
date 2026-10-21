@@ -3,16 +3,17 @@ priority: high
 effort: medium
 depends: [t1747_3]
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [git, bash_scripts, robustness]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
 active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
+assigned_to: dario-e@beyond-eye.com
 anchor: 1733
 created_at: 2026-09-09 11:13
-updated_at: 2026-10-18 16:50
+updated_at: 2026-10-21 16:43
 ---
 
 ## Context
