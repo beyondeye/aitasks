@@ -125,7 +125,7 @@ test_exit_table() {
     assert_eq "G: exit 3 under opt-in -> rc 3" "3" "$RC"
     assert_eq "G: exit 3 under opt-in -> VERDICT error" "error" "$(field VERDICT)"
     assert_eq "G: exit 3 under opt-in -> REASON command_errored" "command_errored" "$(field REASON)"
-    assert_eq "G: an error verdict still reports its LOG" "set" "$(field LOG | sed 's/.\+/set/')"
+    assert_eq "G: an error verdict still reports its LOG" "set" "$(field LOG | sed 's/..*/set/')"
 
     # (G3) exit 75 under the opt-in: the host refused resources
     d="$(new_fixture 'verify_build: "exit 75"\ngate_command_exit_contract: [verify_build]\n')"

@@ -220,7 +220,9 @@ assert_eq "commit-map-only enumeration omits the class-A parent" "0" "$(grep -cx
 assert_eq "commit-map-only enumeration omits the no-history id" "0" "$(grep -cx '70' <<<"$src_b")"
 
 # And the NUL form of source (b) really does empty out -- the reason %x00 was dropped.
-nul_b="$( cd "$fx" && git log --all --format='%B%x00' | grep -oE '\(t[0-9]+(_[0-9]+)?\)' 2>/dev/null | wc -l )"
+# Count only ID-shaped lines: BSD grep writes its binary-match notice to stdout
+# (GNU grep to stderr), so a plain line count reads 1 on macOS with no ID found.
+nul_b="$( cd "$fx" && git log --all --format='%B%x00' | grep -oE '\(t[0-9]+(_[0-9]+)?\)' 2>/dev/null | grep -cE '^\(t[0-9]+(_[0-9]+)?\)$' )"
 assert_eq_trim "a NUL in the commit stream silently empties source (b)" "0" "$nul_b"
 
 # --------------------------------------------------------------------------

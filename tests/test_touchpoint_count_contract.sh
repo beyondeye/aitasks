@@ -143,7 +143,7 @@ assert_eq "$NEW_AGENT §13 lists exactly the live id/file pairs" \
 
 # SC2016: the sed script's \1 \2 backrefs and backticks are literal - single quotes are required.
 # shellcheck disable=SC2016
-skill_pairs="$(sed -n 's/^| \([0-9]\+\) | `\([^`]*\)` |.*/\1 \2/p' "$AUDIT_SKILL" | sort | tr '\n' ' ')"
+skill_pairs="$(sed -n 's/^| \([0-9]\{1,\}\) | `\([^`]*\)` |.*/\1 \2/p' "$AUDIT_SKILL" | sort | tr '\n' ' ')"
 skill_pairs="${skill_pairs% }"
 assert_eq "$AUDIT_SKILL table lists exactly the live id/file pairs" \
     "$live_pairs" "$skill_pairs"

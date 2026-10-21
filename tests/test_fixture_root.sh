@@ -142,7 +142,7 @@ gen_suite() {
         new) body='|mk() { local d; d="$(fixture_mktemp_d e2e)" || return 1; printf "%s" "$d"; }
 |fixture_root_init' ;;
         old) body='|mk() {
-|    local d; d="$(mktemp -d)"
+|    local d; d="$(mktemp -d "${TMPDIR:-/tmp}/old_XXXXXX")"
 |    CLEANUP_DIRS+=("$d")
 |    printf "%s" "$d"
 |}' ;;

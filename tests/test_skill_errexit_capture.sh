@@ -206,7 +206,7 @@ test_branch_wiring() {
 
         # Identifiers the block BINDS -- both `if var=...` and bare `var=...`.
         ids="$(printf '%s\n' "$block" |
-            sed -n 's/^[[:space:]]*\(if[[:space:]]\+\)\?\([A-Za-z_][A-Za-z0-9_]*\)=.*/\2/p' |
+            sed -n 's/^[[:space:]]*\(if[[:space:]]\{1,\}\)\{0,1\}\([A-Za-z_][A-Za-z0-9_]*\)=.*/\2/p' |
             sort -u)"
         assert_contains "$label: block binds an output variable" "gates_out" "$ids"
         assert_contains "$label: block binds a status variable" "gates_rc" "$ids"

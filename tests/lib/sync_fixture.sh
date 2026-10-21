@@ -126,6 +126,8 @@ plant_lock() {
 }
 
 # A lock YAML anchored to a LIVE process on this host (this test's own shell).
+# Without /proc it records a `ps` token, which reads as `unknown`, never `alive`
+# (lock_holder_liveness in pid_anchor.sh) -- by design, not a fixture defect.
 lock_yaml_live() {
     local tid="$1" host="${2:-testhost}" pid="${3:-$$}"
     local start kind

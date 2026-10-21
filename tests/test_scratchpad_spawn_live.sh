@@ -41,6 +41,10 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+# Start from an empty read-only dir, never the invoking one (t1826).
+# shellcheck source=lib/scratch_cwd.sh
+. "$PROJECT_DIR/tests/lib/scratch_cwd.sh"
+enter_scratch_cwd
 
 command -v tmux >/dev/null 2>&1 || { echo "SKIP: tmux not available"; exit 0; }
 
@@ -215,8 +219,9 @@ side_helpers() {
 }
 
 key_for() {  # key_for <root> <task> [<AITASK_SCRATCHPAD_DIR>|""]
-    (cd "$1" && if [ -n "${3:-}" ]; then AITASK_SCRATCHPAD_DIR="$3" "$STORE_SH" path "$2"
-              else env -u AITASK_SCRATCHPAD_DIR "$STORE_SH" path "$2"; fi)
+    (cd "$1" || exit 1
+     if [ -n "${3:-}" ]; then AITASK_SCRATCHPAD_DIR="$3" "$STORE_SH" path "$2"
+     else env -u AITASK_SCRATCHPAD_DIR "$STORE_SH" path "$2"; fi)
 }
 
 tm new-session -d -s "$SESSION" -n scratch -c "$ROOT" "sleep 1000"

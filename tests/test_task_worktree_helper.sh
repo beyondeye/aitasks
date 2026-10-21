@@ -43,6 +43,9 @@ trap cleanup EXIT
 fresh_repo() {
     local root
     root="$(mktemp -d "${TMPDIR:-/tmp}/t1548test.XXXXXX")"
+    # Physical spelling: git records worktree paths canonicalized, and macOS
+    # TMPDIR is a /var -> /private/var symlink with a trailing slash.
+    root="$(cd "$root" && pwd -P)"
     ROOTS+=("$root")
     OUTSIDE="$root"
     REPO="$root/repo"

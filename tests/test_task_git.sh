@@ -395,6 +395,9 @@ SCRIPT_DIR="$TMPDIR_13/local/.aitask-scripts"
 mkdir -p "$SCRIPT_DIR"
 (cd "$TMPDIR_13/local" && setup_data_branch </dev/null >/dev/null 2>&1)
 ROOT_13="$TMPDIR_13/local"
+# The resolver answers with the physical path (macOS mktemp gives /var/folders,
+# a symlink to /private/var/folders), so absolute expectations use this spelling.
+ROOT_13_P="$(cd "$ROOT_13" && pwd -P)"
 
 # Probe helper: resolve with a cold cache from <dir>, echo the answer.
 detect_from() {
@@ -418,12 +421,12 @@ assert_eq_trim "13a: repo root resolves to the relative .aitask-data" \
 # branch while reporting success.
 mkdir -p "$ROOT_13/website"
 assert_eq_trim "13b: a subdirectory resolves to the data worktree, not '.'" \
-    "$ROOT_13/.aitask-data" "$(detect_from "$ROOT_13/website")"
+    "$ROOT_13_P/.aitask-data" "$(detect_from "$ROOT_13/website")"
 
 # Rung 3 — inside the data worktree itself. Its own toplevel is .aitask-data,
 # which has no .aitask-data of its own, so rung 2 misses and rung 3 answers.
 assert_eq_trim "13c: inside .aitask-data resolves to itself by absolute path" \
-    "$ROOT_13/.aitask-data" "$(detect_from "$ROOT_13/.aitask-data")"
+    "$ROOT_13_P/.aitask-data" "$(detect_from "$ROOT_13/.aitask-data")"
 
 # Rung 3 — the crew-worktree case: a linked worktree that was deliberately NOT
 # given the data layout (no --link-worktree), so it has no .aitask-data of its
@@ -433,7 +436,7 @@ git -C "$ROOT_13" worktree add -q -b crew/t1658_2 \
 assert_eq_trim "13d: unlinked linked worktree has no .aitask-data of its own" "absent" \
     "$([[ -e "$ROOT_13/.aitask-crews/crew-x/.aitask-data" ]] && echo present || echo absent)"
 assert_eq_trim "13d: unlinked linked worktree resolves to the MAIN checkout's data worktree" \
-    "$ROOT_13/.aitask-data" "$(detect_from "$ROOT_13/.aitask-crews/crew-x")"
+    "$ROOT_13_P/.aitask-data" "$(detect_from "$ROOT_13/.aitask-crews/crew-x")"
 
 # Rung 4 — a genuine legacy project, from its root and from a subdirectory.
 # This answer is correct today and must not change.
@@ -751,7 +754,7 @@ assert_eq_trim "15a: the branch-mode parent root still resolves to .aitask-data"
 
 # --- 15b: adjacent control — same depth, no boundary, opposite answer.
 assert_eq_trim "15b: vendor/ (a plain subdirectory, no boundary) resolves to the parent's data worktree" \
-    "$ROOT_15/.aitask-data" "$(detect_from_15 "$ROOT_15/vendor")"
+    "$DATA_15" "$(detect_from_15 "$ROOT_15/vendor")"
 
 # --- 15c: the boundary contract itself.
 for pair_15 in "$INNER_15|$INNER_15" "$INNER_15/sub|$INNER_15" "$SUB_15|$SUB_15"; do
