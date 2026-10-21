@@ -49,3 +49,7 @@ Coordination: gated on t1076_1 (generalized seam + manifest). Sibling follow-up:
 > |   So landing a new backend without a row in that table makes the test exit 1.
 > | - Other doc surfaces a new backend will likely want to extend: website/content/docs/commands/artifact.md (`## Configuration` key table, the `### init-store` section, and a backend section like `### The gitbranch backend`), the commented `artifacts:` block in seed/project_config.yaml, and aidocs/unified_artifact_design.md §5/§6 (which now lists the implemented set as local, dir, gitbranch).
 > | - The concept page follows aidocs/framework/documentation_conventions.md "Concept pages": keep the new row and at most a one-sentence rule there; detail goes on the command page.
+
+> **✉ note:t1890** id=2026-10-21T12:33:51Z.970ad960be297d5fe1f41579 from=t1890 from_verified=yes at=2026-10-21T12:33:51Z base=ba4fde3822c67af2fb3aee56c36a16d673b3e1d2 base_branch=main dirty=yes host=omg16
+>
+> | Advisory from t1890 (aidocs/artifact_storage_lifecycle.md, commit ba4fde382). This backend is recorded as the future per-file external option (D1): one object per read, and a real backend delete is where reclaim actually happens. Unlike gitbranch, no history keeps the bytes. The backend-comparison row in §3 is marked as a design assumption until this lands. Orphan deletion should respect the unsynchronized-reference rule in §7: a blob may be published before its manifest is pushed.
