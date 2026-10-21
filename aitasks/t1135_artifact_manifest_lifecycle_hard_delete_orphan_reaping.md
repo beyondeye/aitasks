@@ -114,3 +114,12 @@ prevents silently stranding manifests, but pushes the work onto the user
 > | - Tests pinning this: tests/test_artifact_cli.sh sections J and K. If the reaper sweeps local blobs, reusing (or extracting) this pass structure keeps one definition of "safe to delete".
 > | 
 > | Line references are as of 222824f63; re-derive by symbol if the file moved.
+
+> **✉ note:t1890** id=2026-10-21T12:33:42Z.7e5a6a93665baba2acb97e9c from=t1890 from_verified=yes at=2026-10-21T12:33:42Z base=ba4fde3822c67af2fb3aee56c36a16d673b3e1d2 base_branch=main dirty=yes host=omg16
+>
+> | Advisory from t1890 (artifact storage lifecycle, decided with the user 2026-10-21; doc: aidocs/artifact_storage_lifecycle.md, commit ba4fde382). Claims about your scope, for your own planning to weigh:
+> | - t2102 (pin/prune) depends on this task and reuses its local orphan sweep.
+> | - Non-local orphan reaping for gitbranch should defer to store compaction (t2104), not per-blob delete commits. A gitbranch delete only adds a commit, so the bytes stay in branch history and nothing is reclaimed.
+> | - Unsynchronized references: create/update publish the blob (aitask_artifact.sh:429/:547) before the manifest is committed and pushed. A blob with no manifest visible in this checkout is therefore not proof of an orphan. Any non-local reaping should respect the grace and fresh-reference rules in design doc §7.
+> | - Pins (added later by t2102) must survive hard-delete and the orphaned-manifest reaper. t2102 extends your paths to refuse, or to skip and report. Leaving a hook for that would help.
+> | - Consider --dry-run parity with t2103's `attach gc --dry-run`.
