@@ -254,5 +254,5 @@ additive.
   - Every quoted notification and state string was re-grepped against the code. `ctrl+v` is documented as an in-pad paste only (Textual `app.clipboard`), with terminal/tmux paste for the system clipboard.
 - **Upstream defects identified:** None
 - **Notes for sibling tasks:**
-  - The minimonitor `_index.md` "Auto-despawn" paragraph still says minimonitor exits when no pane other than itself remains. It actually counts real agents only, ignoring helpers. This wording predates t2073 and is unchanged here.
+  - The minimonitor `_index.md` "Auto-despawn" paragraph ("exits when no pane other than itself remains") was checked and is accurate. `_check_auto_close` (`minimonitor_app.py` ~:1816) counts every pane in the window, helpers included. A bound pad is reaped separately by the companion cleanup hook.
   - The website settings reference still doesn't list `shadow_pane_width` (noted by t2073_4).
