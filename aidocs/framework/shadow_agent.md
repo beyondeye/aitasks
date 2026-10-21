@@ -110,7 +110,8 @@ free-form ask once it is running decides which capability applies:
 - **Step 1 — capture, with a proactive suggestion.** After *every* capture (the
   first and each refetch) the shadow takes a lightweight look at what is
   *visibly* on screen and, if a capability is obviously useful, offers it
-  unprompted (e.g. an `AskUserQuestion` is up → offer to help decide; a plan
+  unprompted (e.g. an `AskUserQuestion` is up, or the agent has stopped and is
+  waiting on the user → offer `>q` to help decide; a plan
   awaits approval → offer to explain / challenge / surface assumptions). This is
   explicitly **not** a workflow-phase classifier and never gates what the user
   can ask — it is one advisory suggestion they can take or ignore.
@@ -119,9 +120,14 @@ free-form ask once it is running decides which capability applies:
   not carry one — the id the rejection store is keyed by (see "Concern rejection
   store").
 - **Step 3 — serve.** Simple, free-form-expressible asks are handled **inline**
-  (explain the output / "what is the agent doing?"; help answer an
-  `AskUserQuestion` by laying out the options and *suggesting* an answer the user
-  types themselves). Several **structured analyses** each live in a
+  (`>e` explains the output / "what is the agent doing?" and gives no
+  recommendation; `>q` helps the user decide what to do now — it re-captures
+  first, gathers whatever context the decision needs without being limited to
+  the captured output, explains the situation in simple words, then either
+  lays out an `AskUserQuestion`'s options and *suggests* an answer, or, in any
+  other state, lists the realistic next moves and recommends one, offering
+  deeper capabilities by shortcode without starting them; the user types any
+  answer themselves). Several **structured analyses** each live in a
   read-and-follow sub-procedure with a defined methodology (one summarises the
   task; one explains the plan's design decisions; four review a plan; one
   reviews the implementation; one diagnoses the followed agent's errors):
@@ -181,8 +187,8 @@ free-form ask once it is running decides which capability applies:
     the sub-procedure, not here.)
 
   **Shortcodes (t1771).** Every Step 3 capability opens with a `>`-prefixed
-  code — `>e` explain the screen, `>q` help with the prompt, `>t` the task in
-  plain words, `>pd` the plan's design decisions with their pros and cons,
+  code — `>e` explain the screen, `>q` help decide what to do now, `>t` the
+  task in plain words, `>pd` the plan's design decisions with their pros and cons,
   `>px` / `>pc` / `>ps` / `>pa` explain / challenge / socratic /
   assumptions on the plan, `>i` review the implementation, `>r` recheck, `>d`
   diagnose, `>l` learn a skill — plus `>f` (refetch, Step 1) and `>?` (reprint

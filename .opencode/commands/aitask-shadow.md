@@ -1,5 +1,5 @@
 ---
-description: Shadow companion for a followed coding agent — reads its captured terminal output and, in one instruction-driven flow, explains it, helps answer an AskUserQuestion, or critically interrogates a plan. Advisory-only. Spawned by minimonitor; not a task-implementation command.
+description: Shadow companion for a followed coding agent — reads its captured terminal output and, in one instruction-driven flow, explains it, helps the user decide what to do next (including answering an AskUserQuestion), or critically interrogates a plan. Advisory-only. Spawned by minimonitor; not a task-implementation command.
 ---
 
 @.opencode/skills/opencode_planmode_prereqs.md

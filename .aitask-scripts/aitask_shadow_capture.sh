@@ -83,7 +83,7 @@ SHADOW_CAPTURE_LINES="${SHADOW_CAPTURE_LINES:-200}"
 # SHADOW pane for the concern picker opts in too: the shadow's concern block is
 # plan-review-sized output, and at the narrow width a shadow pane runs at, the
 # 200-line window can start inside the block and clip its opening fence (t1187). Ordinary shadow reads
-# (explain-output, help-answer-prompt, diagnose-errors) stay at
+# (explain-output, help-decide, diagnose-errors) stay at
 # SHADOW_CAPTURE_LINES to stay cheap. Env-overridable, mirroring
 # SHADOW_CAPTURE_LINES.
 SHADOW_PLAN_CAPTURE_LINES="${SHADOW_PLAN_CAPTURE_LINES:-400}"

@@ -1,6 +1,6 @@
 ---
 name: aitask-shadow-{{ profile.name }}
-description: Shadow companion for a followed coding agent — reads its captured terminal output and, in one instruction-driven flow, explains it, helps answer an AskUserQuestion, or critically interrogates a plan. Advisory-only. Spawned by minimonitor; not a task-implementation command.
+description: Shadow companion for a followed coding agent — reads its captured terminal output and, in one instruction-driven flow, explains it, helps the user decide what to do next (including answering an AskUserQuestion), or critically interrogates a plan. Advisory-only. Spawned by minimonitor; not a task-implementation command.
 user-invocable: true
 ---
 
@@ -15,7 +15,7 @@ acts.
 
 There is **no mode selector**. You run one flow; which capability applies is
 decided by what the user asks once you are running (explain something, help
-answer a prompt, or pressure-test a plan).
+decide what to do next, or pressure-test a plan).
 
 ## Arguments
 
@@ -143,7 +143,8 @@ the default depth.
 you read the followed agent's screen — the first capture *and every later
 refetch* — glance at the new state and, if it makes one of your capabilities
 obviously useful, offer it without waiting to be asked — e.g. the screen now
-shows an `AskUserQuestion` → offer to help the user decide; a plan is on screen
+shows an `AskUserQuestion`, or the agent has stopped and is waiting on the user
+→ offer `>q` to help the user decide what to do; a plan is on screen
 awaiting approval → offer to explain it, challenge it, or surface its
 assumptions. Because the followed agent moves through different states as it
 works, what is relevant changes between refetches — re-evaluate on each one. This
@@ -275,11 +276,28 @@ costs one short sentence, never a refusal.
 - `>e` — **Explain the output / "what is the agent doing?"** — read the captured
   screen (Step 1) and explain, in plain terms, what the followed agent is
   currently doing, what it is waiting on, or what an error/message means.
-- `>q` — **Help answer an `AskUserQuestion`** — when the screen shows the followed agent
-  prompting the user with options and the user asks for help deciding: fetch the
-  source context (Step 2) if it isn't on screen, lay out what each option means
-  and its trade-offs, and **suggest** an answer with your reasoning. Remind the
-  user they type the answer into the followed agent themselves — you do not.
+  Explanation only: give no recommendation; when the user wants to know what
+  to *do*, that is `>q`.
+- `>q` — **Help me decide what to do now** ("help me decide", "what should I
+  do?", "what do I answer?", "explain it simply and help me decide") — in
+  **every** state the followed agent can be in, not only when it is asking a
+  question:
+  1. **Capture the screen again first.** Run Step 1 and re-read `--phase`, even
+     if you captured recently.
+  2. **Gather whatever context the decision needs** — you are not limited to
+     the followed agent's captured output.
+  3. **Explain the situation in simple words.**
+  4. **Then the decision.**
+     - **An `AskUserQuestion` is on screen:** explain each option and its
+       trade-offs and **suggest** an answer with your reasoning.
+     - **Any other state** (still working, stuck or erroring, a plan waiting
+       for approval, finished): list the realistic next moves — wait, approve
+       the plan, answer, interrupt or redirect the agent, or ask for a deeper
+       shadow capability such as `>d`, `>pc` or `>i` — and recommend one with a
+       short reason. A deeper capability is **offered by its shortcode,
+       never started on your own**; the user asks for it.
+  5. Remind the user that whatever they decide, they type it into the followed
+     agent themselves — you do not.
 
 **Structured analyses (read and follow the sub-procedure file):**
 

@@ -293,6 +293,39 @@ for profile in "${PROFILES[@]}"; do
         "bare code" "$sk"
 done
 
+# === Test 2q: >q is "help me decide what to do now" in every state (t2094) ===
+#
+# >q re-captures first, is not limited to the captured output, explains in
+# simple words, and has a defined decision for a non-AskUserQuestion screen in
+# which deeper capabilities are only offered. >e stays explain-only so the two
+# codes do not overlap. The old AskUserQuestion-only title must not come back.
+
+echo "=== Test 2q: >q decide-now contract, >e explain-only, stub descriptions ==="
+DECIDE_LINES=(
+    '`>q` — **Help me decide what to do now**'
+    '**Capture the screen again first.**'
+    're-read `--phase`'
+    'you are not limited to'
+    '**Explain the situation in simple words.**'
+    '**An `AskUserQuestion` is on screen:**'
+    '**Any other state**'
+    'never started on your own'
+    'Explanation only: give no recommendation'
+)
+for profile in "${PROFILES[@]}"; do
+    sk="$($RENDER "$TEMPLATE" "$PROFILES_DIR/$profile.yaml" claude 2>&1)"
+    for line in "${DECIDE_LINES[@]}"; do
+        assert_contains "$profile: >q contract — '$line'" "$line" "$sk"
+    done
+    assert_not_contains "$profile: old AskUserQuestion-only >q title gone" \
+        'Help answer an `AskUserQuestion`' "$sk"
+done
+for stub in .claude/skills/aitask-shadow/SKILL.md .agents/skills/aitask-shadow/SKILL.md \
+            .opencode/skills/aitask-shadow/SKILL.md .opencode/commands/aitask-shadow.md; do
+    assert_contains "$stub: description names deciding what to do next" \
+        "helps the user decide what to do next" "$(cat "$stub")"
+done
+
 # === Test 2g: the gate is gone, the review-state assessment is in ===
 
 echo "=== Test 2g: review-state assessment replaced the 'too early' gate ==="

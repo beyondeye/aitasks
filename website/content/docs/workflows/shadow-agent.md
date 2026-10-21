@@ -32,7 +32,7 @@ When the shadow starts, it greets you with a short summary of what it can do, th
 A few things are worth knowing:
 
 - **It reads a copy of the followed agent's screen, and can re-read it any time.** It never joins that agent's session, so what it knows is only as current as its last read. The agent keeps working after you launch the shadow, so its state changes. Ask the shadow to refetch whenever you want it to look at the latest output — or, in minimonitor, arm the [auto-recheck loop](../../tuis/minimonitor/how-to/#how-to-run-the-auto-recheck-loop) with **L** and let it ask for the next review round each time the agent settles.
-- **It offers help proactively.** Each time it reads the screen, the shadow glances at what is visibly there and, if something obviously useful applies, it offers it without being asked — for example, if the agent is paused on a question, it offers to help you decide; if a plan is on screen awaiting approval, it offers to explain or pressure-test it. These are suggestions you can take or ignore; they never restrict what you can ask for.
+- **It offers help proactively.** Each time it reads the screen, the shadow glances at what is visibly there and, if something obviously useful applies, it offers it without being asked — for example, if the agent is paused on a question or otherwise waiting on you, it offers `>q` to help you decide what to do; if a plan is on screen awaiting approval, it offers to explain or pressure-test it. These are suggestions you can take or ignore; they never restrict what you can ask for.
 - **Some actions are on request only.** The shadow does not proactively diagnose errors, spawn learner agents, summarise the task, or explain the plan's design decisions. Ask for those actions explicitly when you want them.
 - **Every capability has a shortcode** — see [Shortcodes](#shortcodes) below.
 
@@ -43,7 +43,7 @@ Instead of describing what you want, you can type its shortcode. The greeting li
 | Code | What it does |
 |---|---|
 | `>e` | Explain what the agent is doing, or what a message on screen means |
-| `>q` | Help you answer the question the agent is waiting on |
+| `>q` | Explain the situation simply and help you decide what to do now |
 | `>t` | The task in plain words |
 | `>pd` | The plan's real design trade-offs, with their pros and cons |
 | `>px` | Explain the plan to a non-expert, subject by subject |
@@ -71,11 +71,16 @@ All of the following are served in a single flow — you reach them just by aski
 
 ### Explain what the agent is doing
 
-Ask `>e` — or "what is this agent doing right now?", or about a specific error or message — and the shadow reads the current screen and explains, in plain terms, what is happening, what the agent is waiting on, or what a message means.
+Ask `>e` — or "what is this agent doing right now?", or about a specific error or message — and the shadow reads the current screen and explains, in plain terms, what is happening, what the agent is waiting on, or what a message means. It explains without recommending anything — for advice on what to do, use `>q`.
 
-### Help you answer a prompt
+### Help you decide what to do
 
-When the followed agent is paused on a question — including one shown without the underlying task or plan visible — ask `>q` and the shadow can fetch the relevant task and plan in the background, lay out what each option means and its trade-offs, and **suggest** an answer with its reasoning. You type the answer into the agent yourself; the shadow never does.
+Ask `>q` — or "help me decide what to do" — whatever state the followed agent is in. The shadow first reads the screen again so its advice is about what is there now, gathers whatever context it needs (it is not limited to what the agent's screen shows), and explains the situation in simple words. Then it helps you decide:
+
+- **If the agent is asking you a question,** it lays out what each option means and its trade-offs, and **suggests** an answer with its reasoning.
+- **Otherwise** — the agent is still working, stuck on an error, waiting for plan approval, or finished — it lists the realistic next moves (wait, approve, answer, interrupt or redirect the agent, or ask for a deeper review such as `>d`, `>pc` or `>i`) and recommends one. It offers a deeper review by its shortcode but never starts one on its own.
+
+You type any answer into the agent yourself; the shadow never does.
 
 ### The task in plain words
 
