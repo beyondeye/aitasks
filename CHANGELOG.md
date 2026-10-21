@@ -1,5 +1,80 @@
 # Changelog
 
+## v0.39.0
+
+### Features
+
+- **Git-branch artifact backend** (t1231_1): `ait artifact` can now keep artifact blobs on a dedicated branch of your repository (the `gitbranch` backend), shared through `origin`. `ait artifact gitbranch-migrate --from <old> --to <new>` moves a store to a new branch and leaves the old one readable but closed to writes. If it fails partway, it prints a command to resume.
+- **Artifacts tab in Settings** (t1231_2): `ait settings` has a new **Artifacts** tab (`k`) where you choose the default artifact backend and the `gitbranch` branch name. Branch names are checked before saving, and changing one shows the exact migrate command to run.
+- **Test-map variant axes** (t1853_4): Runners can now declare a variant axis, so one test unit runs once per value (such as a platform or flavor). The new `ait testmap axes` command lists, explains and checks the declared axes. A change to a value that is not declared never selects fewer tests.
+- **Test-map scopes, areas and classify** (t1853_5): Test annotations can now give a test a kind and scope it to named areas. `ait testmap areas` lists areas and imports them from a codemap, and `ait testmap classify --suggest` proposes kinds. `scan` records the scoped rows, and `check` reports dead, conflicting or invalid scopes.
+- **Test-map adoption tables** (t1853_6): Covers lines written by `annotate` and `verify` now get provenance rows, written before the test file. `ait testmap check` prints `SEEDED:` / `ADOPTED:` summaries and reports shadowed, rejected or orphaned rows.
+- **Test-map cost ledger** (t1854_4): `ait testmap run` now records how long each test unit takes. The new `ait testmap costs` command reports per-unit estimates, the full-suite p95 and a suggested gate timeout. Only runs on a tree that can be trusted count toward these numbers.
+- **Gate verifier errors and environment** (t1859_1): A build or test command run by a gate can now report an error, which is distinct from a failure: exit 75 means refused, exit 3 means errored. Commands also receive `AIT_GATE_TASK_ID`, `AIT_GATE_RUN_ID` and `AIT_GATE_RESULT_FILE`. A one-line result written to that file appears in the gate ledger, cleaned and capped at 200 characters.
+- **Scratchpad notes store** (t2073_1): Each task can now have a private notes store, kept out of git and deleted automatically when the task is archived.
+- **`ait scratchpad` notes editor** (t2073_2): Added `ait scratchpad`, a small notes editor for a task. It autosaves shortly after you stop typing, saves when you quit (`ctrl+q`) or close the pane, and opens read-only if another pad already holds the notes.
+- **Notes pane from minimonitor** (t2073_4): Press `o` in `ait minimonitor` to open a notes pane bound to the agent you're following. It closes with its agent and never appears in agent lists. Its position and height are set with `tmux.scratchpad_position` and `tmux.scratchpad_height`.
+
+### Bug Fixes
+
+- **`./ait git pull` cleans up after itself** (t1739): `./ait git pull` now always runs without autostash. It carries your `-c` options through every step and warns when it cannot confirm that the pull finished cleanly. It refuses options it cannot handle safely: interactive rebase, `--edit`, `--autostash`, and `-C` / `--git-dir` / `--work-tree`.
+- **`./ait git -c … push` works** (t2063): Pushes with options in front, such as `./ait git -c http.proxy=… push`, now go through the normal best-effort push with your config applied. A repository config that git cannot read is reported as a failure, not as "no remote".
+- **Merge-mode pulls abort their own stopped merge** (t2064): With `pull.rebase=false`, a `./ait git pull` whose merge stops (on a conflict or a signing failure, for example) is now aborted, so the data worktree is not left mid-merge. A deliberate `--no-commit` pause is left as it is.
+- **Sync reports a failed remote check** (t2070): When `git remote` itself fails, for example on a config git cannot read, `ait sync` and task-data convergence now report a failure with git's error. Before, they silently treated the repository as having no remote.
+- **Archive temp dirs always cleaned up** (t2032): Commands that read a task from an archive bundle no longer leave temporary directories behind when they set up their own exit handlers. `ait note` and `ait gate` now refuse a task that exists only inside an archive bundle.
+- **Exit handlers see the real exit status** (t2071): Cleanup steps added in front of a transaction's exit handler now receive the command's real exit status instead of a reset one.
+- **Remote drift check reports its own failures** (t2061): When the remote drift check before implementation cannot run (`EXTRACT_FAILED` or an incomplete run), the workflow now says so and asks how to proceed. It no longer reads that as drift or as no drift, and the deferred-plan marker is cleared.
+- **Drift check status survives errexit** (t2085): The remote drift check step now records its exit status even under `set -e`, so a failing check reports its result instead of stopping early.
+- **`ait ide` restores every project's frozen agents** (t2039): `ait ide` now offers frozen agents from every registered project, grouped by project with a prompt for each, and every restored agent gets its minimonitor. Two minimonitors are no longer spawned for the same window.
+- **Task title on frozen agent rows** (t2042): Frozen agents in `ait monitor` and `ait minimonitor` now show their task title, just like live ones.
+- **Restored agents can be frozen again** (t2045): An agent whose restore was confirmed during reconcile no longer refuses a new freeze with "already frozen".
+- **Restore checks that frozen marks were cleared** (t2062): A restore now confirms that the pane's frozen stamp and attempt mark were actually removed, and reports any that remain. Reconcile repairs a stale stamp on a live agent, so the agent can be frozen again.
+- **Attempt mark cleared after a retried reconcile** (t2066): A restore confirmed after an earlier failed reconcile attempt now also clears the pane's restore-attempt mark.
+- **Frozen-agent records read exactly** (t2067): Restore, reopen and drop now read stored agent records exactly as written. Values with spaces, newlines or `|` (such as a window name padded with spaces) are no longer changed.
+- **Codex freeze for daemon-routed agents** (t2046): Freezing a hand-started Codex agent that runs through Codex's shared app-server daemon no longer keeps a session id it cannot verify. Such agents come back by re-picking the task, as the freeze docs now explain.
+- **Frozen restore keys only in the viewer** (t2054): You now restore or re-pick a frozen agent only from `ait frozenagent`. The minimonitor's `R` and the monitor's `p` are gone, and the monitors point you to the viewer instead. Picking a task while following a frozen agent no longer offers to kill it.
+- **Monitors stop treating frozen agents as running** (t2057): The pick dialog no longer warns that a frozen task is "already running", and picking the next task never kills a frozen stand-in. If the frozen state cannot be checked, nothing is killed.
+- **Frozen agents protected at kill and restart** (t2065): An agent that gets frozen while a kill or restart confirmation is open is no longer killed, which would have lost its capture. Applink refuses remote kills of frozen panes.
+- **Restart never starts a duplicate** (t2075): In `ait monitor`, if the old agent cannot be killed during a restart, you get a warning and nothing new is launched.
+- **Failed sibling-pick kill reported** (t2078): When picking a sibling task cannot kill the old agent, `ait monitor` and `ait minimonitor` now say so and keep focus on that agent.
+- **Helper panes close with their agent** (t2088): Killing an agent directly from the monitors, or dropping a frozen agent, now also closes its shadow and scratchpad panes. Each kill re-checks the pane first, so a pane that was re-bound or reused in the meantime is left alone.
+- **Shadow phase stays on its own tmux server** (t2043): A shadow's phase lookup no longer picks up a value from a pane on another tmux server that happens to have the same pane id.
+- **Minimonitor returns to its width** (t2050): When its window grows, the minimonitor pane now goes back to its configured width instead of staying wide.
+- **Trail card double-click crash fixed** (t2089): Double-clicking a parent card in `ait trails` or the board's By-Trail view no longer crashes with an `expanded_tasks` error.
+- **Kotlin shebang scripts scanned correctly** (t2030): `ait testmap` now skips a leading `#!` line in `.kt` and `.kts` files instead of letting it hide the file's dependencies. A file with lone carriage-return line endings is flagged as one the scanner cannot analyse.
+- **Test-map runs from a subdirectory registry** (t2080): When `aitestmap/` lives in a subdirectory, `ait testmap run` now records modified files relative to that directory, so such repositories get cost estimates. Changes outside the registry root still keep a run out of the estimates.
+- **Count checks pass on macOS** (t1751): Several tests no longer fail on macOS because BSD `wc -l` pads its counts with spaces.
+- **Test suites no longer leak temp dirs** (t2031, t2055): The docs-vocabulary test and 20 more test suites no longer leave fixture directories in the temp folder after each run. A repo-wide check stops new leaks.
+- **Pipefail test checks no longer flaky** (t2053, t2056): Test checks in 19 files no longer fail at random because `grep -q` exits early and the writer feeding it dies of SIGPIPE under `pipefail`.
+- **Stale test guards fixed** (t2060, t2079): The merge-driver guard now finds the driver wherever it is called. Three tests now pass the cd-guard lint.
+
+### Improvements
+
+- **Crew git can't hang or prompt** (t2024): Every crew fetch and push now has a timeout (`AIT_CREW_GIT_TIMEOUT`, 10s by default) and can no longer stop on a password or SSH prompt. On a timeout, brainstorm's add-work reports the state it left behind. Release blog posts are now dated by the exact release time, so a late-night release no longer gets a post dated in the future.
+- **Crew branch deletion can't hang** (t2036): Deleting crew branches on `origin` (crew cleanup, brainstorm delete, and the brainstorm TUI) now times out instead of hanging on a remote it cannot reach.
+- **Sync and drift check use the shared git timeout** (t2035): `ait sync`, the remote drift check and release lookups now run git through the shared time-limited runner. It kills hung transports and blocks credential prompts. Set `AIT_SYNC_ALLOW_PROMPT=1` to allow prompts for `ait sync`.
+- **Codex restores confirmed from the open session** (t2040): A restored frozen Codex agent is now confirmed by the session it opens, so the restore finishes quickly without sending a prompt. A late hook acknowledgement is never refused.
+- **Session hook records only its own pane** (t2047): The SessionStart hook now records a session only when it fires from inside its pane's own process tree. Codex agents routed through the shared app-server daemon are no longer recorded against the wrong pane.
+- **Frozen-agent viewer re-pick key is now `P`** (t2049): In `ait frozenagent`, re-pick moved from `p` to `P`.
+- **Shadow `>q` helps you decide** (t2094): The shadow's `>q` is now "Help me decide what to do now". It explains the situation in simple words, then gives options and a suggestion when a question is on screen, or next moves and a recommendation otherwise. `>e` now only explains.
+- **Shadow concern blocks labelled** (t2072): Each shadow concern block now has a line above it naming the kind of review: plan challenge, plan assumptions, error diagnosis or implementation.
+- **One rule for helper panes** (t2073_3): Shadow and scratchpad panes are now recognised by one shared rule, so they never show up as agents. The minimonitor's sibling fallback skips them too.
+- **Test-map eligibility covers implicit inputs** (t2081): Cost tracking now accounts for files a test reads without naming them, such as Python `__init__` / `conftest` files, Go module and package files and Gradle scripts, and for dynamic `source` / `exec`. A run is never counted toward estimates when such an input has changed.
+
+### Documentation
+
+- **Artifact docs** (t1231_3): New concept and command pages cover `ait artifact` and its `local`, `dir` and `gitbranch` backends. The settings docs now describe the Artifacts tab and list all nine tabs.
+- **Settings key reference completed** (t2068): The settings reference now lists the Profiles and Shortcuts tab keys.
+- **Scratchpad docs** (t2073_5): New pages document the scratchpad notes pane, how to open it from the minimonitor, its keys and how autosave works.
+
+### Performance
+
+- **Faster frozen-agent listing** (t2041): Listing frozen agents across projects now reads the session store once instead of once per agent. With 100 agents, this takes about 0.2s instead of 6s.
+
+### Tests
+
+- **Exhaustive merge-driver guard** (t2069): The merge-driver guard test now catches every call to the driver in the framework's shell scripts. Any call it cannot classify fails the test.
+
 ## v0.38.0
 
 ### Features
