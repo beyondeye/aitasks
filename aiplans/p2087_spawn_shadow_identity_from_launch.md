@@ -152,3 +152,39 @@ exercised against real tmux by the existing live test.
 ### Goal-achievement risk: low
 None identified. Both branches get launch-returned identity, and the
 unknown ≠ gone rule is pinned by mocked regressions with a negative control.
+
+## Final Implementation Notes
+- **Actual work done:** As planned. `agent_launch_utils.py`: `_new_window_argv`
+  (shared by `launch_in_tmux`'s new-window branch, argv byte-identical) and
+  `_parse_pane_id_pid` (shared by `launch_split_pane`); new `launch_window_pane`.
+  `monitor_core.py`: `spawn_shadow` launches via `launch_split_pane` (same window)
+  or `launch_window_pane` (separate window) and stamps the returned id; no id →
+  `_recover_launched_pane` (exited → warning, unknown → error naming the pid,
+  never stamped); stamp via `_stamp_or_remove` + `_SHADOW_REMOVAL_MESSAGES`.
+  The t2073_4 helpers moved above `spawn_shadow` under a "Launched helper panes"
+  section: `_recover_pad_pane` → `_recover_launched_pane`,
+  `_SCRATCHPAD_RECOVER_*` → `_LAUNCH_RECOVER_*`. `launch_in_tmux` and
+  `resolve_pane_id_by_pid` are no longer imported by monitor_core, so a stale
+  `patch.object(mc, ...)` now raises instead of passing vacuously.
+- **Deviations from plan:** None in the code. Verification: the two live tmux
+  tests (`test_monitor_shadow_spawn_live.sh`, `test_scratchpad_spawn_live.sh`)
+  refused to run (rc=2, `require_clean_ait_server`) because the user's `ait`
+  server carries live agents; they were not forced. In their place, an isolated
+  real-tmux smoke on a private server (`TMUX_TMPDIR=$(mktemp -d /tmp/t2087.XXXX)`,
+  `AITASKS_TMUX_SOCKET=t2087probe`, cleanup hook stubbed so no real hook is
+  armed) checked: both launchers return the real pane id + pid
+  (`display-message #{pane_pid}` matches), `launch_window_pane` with
+  `select_window=False` leaves the active window unchanged, and `spawn_shadow`
+  stamps `@aitask_shadow_target` correctly on both branches (window
+  `agent-shadow-77`; split in the agent's own window). Result: `SMOKE_OK`.
+- **Issues encountered:** The scratchpad path is too long for a unix socket
+  (sun_path 108 bytes), hence the short `/tmp/t2087.XXXX` dir for the smoke
+  server (removed afterwards).
+- **Key decisions:** A separate `launch_window_pane` rather than widening
+  `launch_split_pane` (keeps that name truthful). Mutants (isolated copies):
+  ignoring the launch id → 12 failures; window branch on the split launcher →
+  `test_window_branch_uses_the_window_launcher_and_its_id` fails; unknown read
+  as exited → 5 failures. Full Python suite: `PYTHON SUITE: PASSED
+  (runner=pytest, exit=0)`.
+- **Upstream defects identified:**
+  - `.aitask-scripts/lib/tmux_exec.py:254` — `TmuxClient.run` maps a launch timeout to `(-1, "")` like a definite failure, so the identity launchers report "launch failed" and both spawns skip refresh/recovery while a live unstamped helper may exist. Already spawned as t2097 (plan-review follow-up).
