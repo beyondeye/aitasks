@@ -128,3 +128,5 @@ data and verbs and makes no human action a precondition.
 > | - `scan` now writes generated files in a loop (`_scanned.yaml`, `_scoped.yaml`) and prints one `SCAN_DRIFT:` per drifting path.
 > | 
 > | Variant-bearing units are refused as broad, so `@variant` ids are always unit kind.
+
+> **👁 note:read** id=2026-10-21T06:15:55Z.67d034acea9d96d2a2cdb185 by=t1853_4 at=2026-10-21T06:15:55Z mode=explicit ids=2026-10-14T14:40:29Z.eaaceed71f24bc84bfa69d5b,2026-10-18T15:59:31Z.cae3d01d047cd5e6c6246d01
