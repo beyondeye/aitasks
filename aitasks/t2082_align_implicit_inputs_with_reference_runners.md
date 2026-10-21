@@ -1,7 +1,7 @@
 ---
 priority: medium
 effort: low
-depends: []
+depends: [t1854_8, t1854_9, t1854_10, t1854_11]
 issue_type: enhancement
 status: Ready
 labels: [testing, testmap, go_engine]
@@ -9,7 +9,7 @@ gates: [risk_evaluated]
 anchor: 1852
 followup_kind: risk_mitigation
 created_at: 2026-10-20 15:21
-updated_at: 2026-10-20 15:21
+updated_at: 2026-10-21 22:08
 ---
 
 ## Origin
