@@ -73,3 +73,5 @@ save).
 > | "On a hard kill, changes not included in the latest successfully saved buffer may be lost, including edits queued during a pending save. Autosave targets starting within roughly three seconds when no save is pending; this is not a maximum loss window."
 > | 
 > | Also note that a write can commit before its response is read, so docs should say "may be lost", not "will be lost". Per your task's rule, document what the code does: check t2073_2's archived plan for the app's final wording before writing.
+
+> **👁 note:read** id=2026-10-21T05:49:56Z.02e10fc47bf8430e431615d9 by=t2073_5 at=2026-10-21T05:49:56Z mode=explicit ids=2026-10-20T09:26:38Z.e2d6a2801d7b97930ea15dc0
