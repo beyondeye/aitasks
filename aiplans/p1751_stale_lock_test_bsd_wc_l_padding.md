@@ -130,3 +130,17 @@ None identified.
 
 ### Goal-achievement risk: low
 None identified.
+
+## Final Implementation Notes
+- **Actual work done:** 11 one-line edits in 8 test files, as planned: 10× `assert_eq` → `assert_eq_trim` (`test_stale_lock.sh` ×2, `test_fold_mark.sh` ×2, `test_parallel_admission_cli.sh`, `test_pick_own_scoped_commit.sh`, `test_run_project_command.sh`, `test_sync_deferral_and_quarantine.sh` ×2, `test_revert_analyze_batch.sh`) and `| wc -l | tr -d ' '` on the `bogus` capture in `test_workflow_phase_prompt_drift.sh`. Verified under bash 5.3.9 and /bin/bash 3.2.57: stale_lock 134/134, fold_mark 277/277, parallel_admission_cli 53/53, pick_own_scoped_commit 103/103, workflow_phase_prompt_drift 17/17. Non-weakening probes: `assert_eq_trim "x" "1" "       2"` → FAIL; a seeded second guard record → "exactly ONE record" FAIL (got '2'); an existing anchor in place of the fabricated one → "fabricated anchor absent" FAIL (got 1). shellcheck counts unchanged in all 8 files. Static re-sweep after the fix: the only untrimmed string consumers left are the symmetric ones listed above. The post-fix full runtime re-sweep was still running at commit time.
+- **Deviations from plan:** None in the edits. The plan's out-of-scope list missed three pre-existing failures in files the first sweep only checked for padding: `test_run_project_command.sh` G and `test_sync_deferral_and_quarantine.sh` self/other commit-on-behalf (listed below).
+- **Issues encountered:** In review, the user pointed out that the first sweep only ran `assert_eq` files and only matched the quoted `got '…'` form, so it missed `test_workflow_phase_prompt_drift.sh` (local `check` helper, unquoted output). Re-swept every `wc -l` test file with a format-agnostic filter, plus a static trace of each captured count to its consumers.
+- **Key decisions:** Used `tr -d ' '` (not `assert_eq_trim`) for `test_workflow_phase_prompt_drift.sh`, because that file doesn't source `tests/lib/asserts.sh`. Symmetric comparisons (`test_goengines_benchci.sh:72`, `test_frozen_reopen_live.sh`) left as-is.
+- **Upstream defects identified:**
+  - `tests/test_revert_analyze_batch.sh:223-224 — NUL-stream control asserts GNU grep's binary-file behaviour (0 matches); macOS grep returns 1, so the file is red on macOS`
+  - `tests/test_task_git.sh:13b/13c/13d/15b and tests/test_task_worktree_helper.sh:3/5 — expected paths use /var/folders/… while the helpers return the realpath /private/var/folders/…; red on macOS`
+  - `tests/test_scratchpad_spawn_live.sh:218 — first cd without enter_scratch_cwd, so tests/test_cd_guard_lint.sh fails 2 checks`
+  - `tests/test_fixture_root.sh — control "the old shape leaks all three" gets 0|0 instead of 0|3, so the leak probe cannot see a leak`
+  - `tests/test_run_project_command.sh — "G: an error verdict still reports its LOG" expects 'set' but gets the log path`
+  - `tests/test_sync_deferral_and_quarantine.sh — "self: offers commit-on-behalf" / "other: never offers commit-on-behalf" get a DEFERRED_FILE:unknown_liveness record instead (holder pid liveness unverifiable on this host)`
+  - (`tests/test_shadow_phase_advisory.sh` "all 9 capabilities still dispatched" is already covered by t1779 — not re-filed.)
