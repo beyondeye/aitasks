@@ -3,16 +3,17 @@ priority: medium
 effort: medium
 depends: []
 issue_type: chore
-status: Ready
+status: Implementing
 labels: [task_attachments]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
 active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
+assigned_to: dario-e@beyond-eye.com
 anchor: 1065
 created_at: 2026-10-05 14:36
-updated_at: 2026-10-21 12:37
+updated_at: 2026-10-21 14:48
 ---
 
 ## Goal
