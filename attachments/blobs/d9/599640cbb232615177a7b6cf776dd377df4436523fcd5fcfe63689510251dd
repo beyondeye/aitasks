@@ -1,0 +1,414 @@
+{
+ "schema_version": "1.1.0",
+ "trail_id": "trail-artifacts-and-attachments",
+ "title": "Artifacts and attachments: landing order",
+ "owner": "aitasks#1076",
+ "scope": {
+  "kind": "ad_hoc",
+  "topics": [
+   "aitasks#1065",
+   "aitasks#1094",
+   "aitasks#1661",
+   "aitasks#774"
+  ],
+  "selection_note": "Assembled from the active tasks carrying `anchor: 1065` (the unified artifact model topic) plus tasks in the same story under other roots: aitasks#1094 (attachment metadata bucketing, no anchor), aitasks#1708 (anchor 1661) and aitasks#774 (HTML plans, the consumer the model exists for). Refreshed 2026-10-18: aitasks#1283, aitasks#1284, aitasks#1286 and aitasks#1709 completed and were archived, so they leave the member set (and with aitasks#1286 the aitasks#1142 root drops out of the topics); aitasks#1968, a new anchor-1065 task, joins under the same anchor-1065 rule with the user's confirmation. Refreshed 2026-10-21: aitasks#1231 and its children aitasks#1231_1, aitasks#1231_2, aitasks#1231_3 and aitasks#1231_4 completed and were archived, so they leave the member set; a topic-1065 snapshot found no new anchor-1065 task to add. The owner aitasks#1076 was chosen by the user as the umbrella for the model. Trail membership is a projection only: no member's `anchor` is reassigned."
+ },
+ "generation": {
+  "generated_at": "2026-10-21T07:18:16Z",
+  "generator": {
+   "agent_string": "claudecode/opus5_5",
+   "skill": "aitask-trail"
+  },
+  "project_revision": {
+   "aitasks": "4da69fcfb"
+  },
+  "input_digest": "499a3eb1282e8d65",
+  "inputs": [
+   {
+    "kind": "task_file",
+    "ref": "aitasks#1076"
+   },
+   {
+    "kind": "task_file",
+    "ref": "aitasks#1076_4"
+   },
+   {
+    "kind": "task_file",
+    "ref": "aitasks#1089"
+   },
+   {
+    "kind": "task_file",
+    "ref": "aitasks#1090"
+   },
+   {
+    "kind": "task_file",
+    "ref": "aitasks#1094"
+   },
+   {
+    "kind": "task_file",
+    "ref": "aitasks#1134"
+   },
+   {
+    "kind": "task_file",
+    "ref": "aitasks#1135"
+   },
+   {
+    "kind": "task_file",
+    "ref": "aitasks#1258"
+   },
+   {
+    "kind": "task_file",
+    "ref": "aitasks#1259"
+   },
+   {
+    "kind": "task_file",
+    "ref": "aitasks#1260"
+   },
+   {
+    "kind": "task_file",
+    "ref": "aitasks#1708"
+   },
+   {
+    "kind": "task_file",
+    "ref": "aitasks#1890"
+   },
+   {
+    "kind": "task_file",
+    "ref": "aitasks#1968"
+   },
+   {
+    "kind": "task_file",
+    "ref": "aitasks#774"
+   }
+  ]
+ },
+ "freshness": {
+  "state": "current",
+  "checked_at": "2026-10-21T07:18:16Z",
+  "refresh_recommended_because": "Refresh when aitasks#1890 records its storage/retention decision (it may reshape aitasks#1259, aitasks#1135, aitasks#1089 and aitasks#1090, and may add work on the shipped gitbranch adapter), when aitasks#1134 decides whether attachments become artifacts, or when the aitasks#635 gate topic advances far enough to unblock aitasks#1076_4."
+ },
+ "narrative": {
+  "problem_statement": "The artifact/attachment story has fourteen open tasks across four topic roots. The gitbranch backend and its settings tab, documentation and verification have landed, so the open work is four things: recording the storage-lifecycle decision against the backends that now exist, fixing the settings comment loss the new tab is one more surface for, settling attachments-versus-artifacts before extending `ait attach`, and unblocking the consumer (HTML plans), which remains transitively blocked on the separate gates topic.",
+  "recommendation_summary": "Start with aitasks#1890 (storage-lifecycle decision, revalidated against the shipped gitbranch backend) and, independently, aitasks#1260 (comment-preserving settings saves). Wave 2 settles attachments-vs-artifacts (aitasks#1134) before extending `ait attach` (aitasks#1258), then adds the branch backend's offline write queue (aitasks#1259). Wave 3 — the gate archetype and HTML plans — is gated on the aitasks#635 topic. Wave 4 holds optional breadth and two independent manual verifications.",
+  "overview": "Pick next: aitasks#1890 or aitasks#1260. Both are startable now and share no files. aitasks#1890 is the storage-lifecycle design review and needs you to agree the policy: what a fresh clone downloads, retention, cleanup versus purge, migration. Its research section predates the gitbranch backend and still calls it pending, so revalidate it first. The decision now reviews a shipped `aitask-artifacts` branch rather than shaping one, and a fetch-path answer that differs from what aitasks#1231_1 built becomes new work on that adapter. aitasks#1260 is a contained fix: every Save from the settings TUI's Project Config, Tmux and now Artifacts tabs strips the comments from `project_config.yaml`. The defect predates t1231, but the tab aitasks#1231_2 shipped is one more surface for it.\n\nWhat changed since the 2026-10-18 version. The whole t1231 family landed on 2026-10-19: aitasks#1231_1 (gitbranch backend, 3d9e4371d), aitasks#1231_2 (Artifacts settings tab, 7b357af39), aitasks#1231_3 (artifact documentation, a8a32dffc), the aitasks#1231_4 manual verification, and the aitasks#1231 umbrella. They leave the trail, and the old wave 2 is retired. The verification failed one item (the settings reference table omitted some Profiles- and Shortcuts-tab keys); the follow-up it spawned, aitasks#2068, is already done and archived. The old wave-1 premise, that aitasks#1890 should decide the storage model before aitasks#1231_1 fixed its fetch behaviour, no longer holds because the adapter shipped first, so wave 1 is reworked around that. aitasks#1258, aitasks#1259 and aitasks#1260 lose their only recorded blocker, the aitasks#1231 umbrella. aitasks#1089 and aitasks#1090 carry a new note from aitasks#1231_3: `tests/test_website_doc_lists.sh` now fails if a backend module lands without a row in the backend table of `concepts/artifacts.md`.\n\nWhat blocks what. aitasks#1134's attachments-versus-artifacts decision should precede aitasks#1258, which extends `ait attach` to non-local backends. aitasks#774 (HTML plans, the only high-priority member) still depends on aitasks#1076, whose last open child aitasks#1076_4 hard-depends on the aitasks#635 gates topic, which is still Ready with open children.\n\nIn flight: no member is, and none of the 12 in-flight tasks the probes enumerated names an artifact-backend or attachment path. Standing caution: aitasks#1258 quotes line numbers that predate the t1231 family landing.",
+  "method_note": "Lite refresh of the 2026-10-18 lite version. Membership and metadata come from one `aitask_trail_gather.sh snapshot --scope task --owner aitasks#1076 --allow-archived-owner --with-inflight` run over the stored member set minus the five archived t1231-family members, which the gatherer rejects as members (digest 499a3eb1282e8d65). A `--scope topic 1065` snapshot was also run to look for new anchor-1065 members; it found none. Also read for this refresh: the aitasks#1890 and aitasks#1260 bodies, the inboxes of aitasks#1089 and aitasks#1090, the archived aitasks#2068 task, the comment-loss notes in the archived p1231_2 plan, the aitasks#635 status, and the code and task-data git log subjects for the t1231 family. The belt-and-braces verifies/risk_mitigation_tasks sweep for the five landed members was NOT run (lite), so a follow-up they spawned that does not carry anchor 1065 could be missing; aitasks#2068 was found through the task-data git log, not through that sweep. The premise_invalidated reason for the old wave 1 was authored and consumed in this refresh. Carried over without re-verification: aitasks#1258's stale-line-number caution, aitasks#1259's rule-R1 description, aitasks#1094's triggers, and the rationale of the unchanged wave-3 and wave-4 entries. Not verified: no plan body of a live member was read, no tests were run, no board state or gate ledger was consulted; the in-flight picture is point-in-time, and the probes do not enumerate every running task.",
+  "caveats": [
+   "Ordering and classification are advisory. No member's depends, priority, boardidx, anchor, status or labels were changed.",
+   "No time estimates, completion forecasts or progress claims are made anywhere in this document."
+  ]
+ },
+ "waves": [
+  {
+   "wave_id": "w7-storage-decision-and-settings-comments",
+   "ordinal": 1,
+   "title": "Record the storage decision, and stop settings saves erasing comments",
+   "purpose": "Two independent starts. Record the artifact storage, download and retention policy with the user (aitasks#1890), now that the gitbranch backend it was meant to shape has shipped, and make settings saves preserve the comments in `project_config.yaml` (aitasks#1260), a defect the new Artifacts tab is one more surface for.",
+   "why_now": "Both entries are startable: aitasks#1890 is design-only and needs the user in the loop, and aitasks#1260's only recorded dependency, the aitasks#1231 umbrella, is archived. They share no files, so either can go first.",
+   "consequence_of_delay": "Until aitasks#1890 records a decision, aitasks#1259, aitasks#1135, aitasks#1089 and aitasks#1090 would be built against an unagreed retention and download policy. Until aitasks#1260 lands, each Save from the Project Config, Tmux or Artifacts tab strips the comments from `project_config.yaml`, and `ait setup` does not restore them.",
+   "entries": [
+    {
+     "entry_id": "e-1890",
+     "position": 1,
+     "task": "aitasks#1890",
+     "topic": "aitasks#1065",
+     "classification": "preferred_predecessor",
+     "confidence": "medium",
+     "snapshot": {
+      "status": "Ready",
+      "depends": [],
+      "gates_pending": [
+       "risk_evaluated"
+      ],
+      "priority": "medium",
+      "effort": "medium"
+     },
+     "rationale": "Design review of the artifact/attachment storage lifecycle: what a fresh clone downloads, retention states, cleanup versus permanent purge, and migration of existing history. The old reason for ordering it first, deciding before aitasks#1231_1 fixed its fetch path, lapsed when that adapter shipped (3d9e4371d). Its 'Research already done' section still calls t1231 pending, so revalidate it first; a fetch-path answer that differs from what shipped becomes new work on that adapter. Its outcome may also reshape aitasks#1259, aitasks#1135, aitasks#1089 and aitasks#1090. Medium confidence: the review may endorse what shipped."
+    },
+    {
+     "entry_id": "e-1260",
+     "position": 2,
+     "task": "aitasks#1260",
+     "topic": "aitasks#1065",
+     "classification": "core",
+     "confidence": "medium",
+     "snapshot": {
+      "status": "Ready",
+      "depends": [
+       "aitasks#1231"
+      ],
+      "gates_pending": [
+       "risk_evaluated"
+      ],
+      "priority": "medium",
+      "effort": "medium",
+      "followup_kind": "risk_mitigation"
+     },
+     "rationale": "`save_yaml_config` writes with `yaml.safe_dump`, so every Save from the settings TUI's Project Config, Tmux and Artifacts tabs strips the comments from `project_config.yaml`, including the seeded `artifacts:` documentation block. The defect predates t1231; aitasks#1231_2 accepted it and states it in the pane hint. Its recorded dependency, the aitasks#1231 umbrella, is archived, and nothing else gates it, so it moves up from the optional slot it held while that tab was unshipped."
+    }
+   ]
+  },
+  {
+   "wave_id": "w4-attachments-and-risk-debt",
+   "ordinal": 2,
+   "title": "Settle the attachment question, then extend attach and the branch backend",
+   "purpose": "Answer whether attachments become single-version artifacts, then close the two remaining risk-mitigation follow-ups the t1231 decomposition deferred. This is the wave where 'artifact' and 'attachment' stop being two half-stories.",
+   "why_now": "All three entries are startable now that the aitasks#1231 umbrella is archived. aitasks#1134 comes first because its decision's main consumer is aitasks#1258; aitasks#1259 sits after aitasks#1890 in wave 1 because that review's fetch and sync answer bears on an offline queue.",
+   "consequence_of_delay": "Until aitasks#1258 lands, `ait attach` rejects every backend but `local`; until aitasks#1259 lands, a gitbranch write fails offline.",
+   "entries": [
+    {
+     "entry_id": "e-1134",
+     "position": 1,
+     "task": "aitasks#1134",
+     "topic": "aitasks#1065",
+     "classification": "preferred_predecessor",
+     "confidence": "medium",
+     "snapshot": {
+      "status": "Ready",
+      "depends": [],
+      "gates_pending": [
+       "risk_evaluated"
+      ],
+      "priority": "low",
+      "effort": "medium"
+     },
+     "rationale": "The deferred decision on whether `attachments:` and `artifacts:` stay separate or attachments become the single-version case of an artifact. First because its outcome changes what aitasks#1258 should build; a durable decision to keep them separate is an acceptable answer."
+    },
+    {
+     "entry_id": "e-1258",
+     "position": 2,
+     "task": "aitasks#1258",
+     "topic": "aitasks#1065",
+     "classification": "core",
+     "confidence": "high",
+     "snapshot": {
+      "status": "Ready",
+      "depends": [
+       "aitasks#1231"
+      ],
+      "gates_pending": [
+       "risk_evaluated"
+      ],
+      "priority": "medium",
+      "effort": "high",
+      "followup_kind": "risk_mitigation"
+     },
+     "rationale": "`ait attach add` hard-rejects any backend but `local` and the gc transaction hard-codes `local`, so attachments cannot use the `dir` or `gitbranch` backends. Its recorded blocker, the aitasks#1231 umbrella, is archived. The highest-value item in the wave. Its quoted line numbers predate the t1231 family landing; re-locate by symbol before editing."
+    },
+    {
+     "entry_id": "e-1259",
+     "position": 3,
+     "task": "aitasks#1259",
+     "topic": "aitasks#1065",
+     "classification": "core",
+     "confidence": "medium",
+     "snapshot": {
+      "status": "Ready",
+      "depends": [
+       "aitasks#1231"
+      ],
+      "gates_pending": [
+       "risk_evaluated"
+      ],
+      "priority": "low",
+      "effort": "medium",
+      "followup_kind": "risk_mitigation"
+     },
+     "rationale": "The offline write queue for the now-shipped gitbranch backend. aitasks#1231_1's rule R1 (successful push = successful put) is correct and must not be weakened; the cost is that creation fails without a reachable remote. Its own body flags it as a genuine design task, and aitasks#1890's fetch and sync decision bears on it."
+    }
+   ]
+  },
+  {
+   "wave_id": "w5-gate-seam-and-html-plans",
+   "ordinal": 3,
+   "title": "Unblock the consumer: the artifact-producing gate seam, then HTML plans",
+   "purpose": "Deliver what the model was designed for — HTML plans flowing through the artifact layer — by first building the gate archetype that solves the planning-mode write blocker, then closing the umbrella and letting its consumer proceed.",
+   "why_now": "Its position records an external blocker, not a dependency on waves 1-2: aitasks#1076_4 hard-depends on aitasks#635, the gates framework topic, which is still Ready with open children. If that topic advances sooner, this wave can start in parallel with anything above.",
+   "consequence_of_delay": "aitasks#774 is the only member at priority high and stays blocked for as long as this wave does.",
+   "entries": [
+    {
+     "entry_id": "e-1076-4",
+     "position": 1,
+     "task": "aitasks#1076_4",
+     "topic": "aitasks#1065",
+     "classification": "hard_prerequisite",
+     "confidence": "high",
+     "snapshot": {
+      "status": "Ready",
+      "depends": [
+       "aitasks#1076_3",
+       "aitasks#635"
+      ],
+      "gates_pending": [],
+      "priority": "medium",
+      "effort": "high"
+     },
+     "rationale": "The artifact-producing gate archetype: the handle is preallocated and named in the plan during planning, content is materialized post-approval, and the approved plan body is never patched. Its aitasks#1076_3 dependency is archived; its aitasks#635 dependency is not, and that gates this whole wave."
+    },
+    {
+     "entry_id": "e-1076",
+     "position": 2,
+     "task": "aitasks#1076",
+     "topic": "aitasks#1065",
+     "classification": "coordination_only",
+     "confidence": "high",
+     "snapshot": {
+      "status": "Ready",
+      "depends": [],
+      "gates_pending": [],
+      "priority": "medium",
+      "effort": "high"
+     },
+     "rationale": "The umbrella for the unified artifact model and the owner of this trail; no code in the parent, so it closes when aitasks#1076_4 does. aitasks#774 records a hard `depends` on it."
+    },
+    {
+     "entry_id": "e-774",
+     "position": 3,
+     "task": "aitasks#774",
+     "topic": "aitasks#774",
+     "classification": "core",
+     "confidence": "high",
+     "snapshot": {
+      "status": "Ready",
+      "depends": [
+       "aitasks#1076"
+      ],
+      "gates_pending": [],
+      "priority": "high",
+      "effort": "high"
+     },
+     "rationale": "HTML plans — the consumer that motivated the model. Per the t1065 brainstorm the HTML plan becomes an artifact referenced by a stable handle, while the markdown plan stays inline and authoritative. Everything it needs exists once aitasks#1076_4 lands."
+    }
+   ]
+  },
+  {
+   "wave_id": "w6-lifecycle-and-remote-backends",
+   "ordinal": 4,
+   "title": "Optional breadth and verification of landed work",
+   "purpose": "Hold the work that widens the model or re-checks what already landed: manifest lifecycle on hard-delete, two more remote adapters, a postponed metadata migration, and two manual verifications. None of it blocks anything above.",
+   "why_now": "Last because nothing depends on any of it. The two verifications (aitasks#1708, aitasks#1968) are startable today and independent of every other wave, so they can be picked up whenever there is spare capacity.",
+   "consequence_of_delay": "Low. The fail-closed hard-delete guard is already in place, `local`, `dir` and `gitbranch` cover the shipped backend story, and the verified fixes are already pinned by automated tests.",
+   "entries": [
+    {
+     "entry_id": "e-1135",
+     "position": 1,
+     "task": "aitasks#1135",
+     "topic": "aitasks#1065",
+     "classification": "optional",
+     "confidence": "medium",
+     "snapshot": {
+      "status": "Ready",
+      "depends": [
+       "aitasks#1076_2"
+      ],
+      "gates_pending": [
+       "risk_evaluated"
+      ],
+      "priority": "low",
+      "effort": "medium"
+     },
+     "rationale": "Real manifest lifecycle on hard-delete plus a reaper for unreferenced manifests. It reuses 'the same guards as ait artifact rm', which aitasks#1286 corrected (222824f63). aitasks#1890's retention decision may reshape it; read that outcome first."
+    },
+    {
+     "entry_id": "e-1089",
+     "position": 2,
+     "task": "aitasks#1089",
+     "topic": "aitasks#1065",
+     "classification": "optional",
+     "confidence": "medium",
+     "snapshot": {
+      "status": "Ready",
+      "depends": [
+       "aitasks#1076_1"
+      ],
+      "gates_pending": [],
+      "priority": "medium",
+      "effort": "high"
+     },
+     "rationale": "One S3-compatible adapter covering five providers, against the generalized backend contract. The earlier reason to hold it, that the second remote backend was not yet documented and verified, lapsed when the t1231 family landed; it stays optional because aitasks#1890's decision may reshape it. Its inbox note from aitasks#1231_3: `tests/test_website_doc_lists.sh` fails if a backend module lands without a row in the backend table of `concepts/artifacts.md`."
+    },
+    {
+     "entry_id": "e-1090",
+     "position": 3,
+     "task": "aitasks#1090",
+     "topic": "aitasks#1065",
+     "classification": "optional",
+     "confidence": "medium",
+     "snapshot": {
+      "status": "Ready",
+      "depends": [
+       "aitasks#1076_1"
+      ],
+      "gates_pending": [],
+      "priority": "low",
+      "effort": "high"
+     },
+     "rationale": "The Google Drive adapter, after S3 and at lower priority: heaviest auth, weakest IAM, no content-addressed paths. aitasks#1890's decision may reshape it. It carries the same aitasks#1231_3 note about the backend-table drift guard as aitasks#1089."
+    },
+    {
+     "entry_id": "e-1094",
+     "position": 4,
+     "task": "aitasks#1094",
+     "topic": "aitasks#1094",
+     "classification": "optional",
+     "confidence": "high",
+     "snapshot": {
+      "status": "Postponed",
+      "depends": [],
+      "gates_pending": [],
+      "priority": "low",
+      "effort": "low"
+     },
+     "rationale": "Postponed by design; its activation triggers are conditions, not dependency edges. Listed so the trail records why it is not scheduled."
+    },
+    {
+     "entry_id": "e-1708",
+     "position": 5,
+     "task": "aitasks#1708",
+     "topic": "aitasks#1661",
+     "classification": "optional",
+     "confidence": "medium",
+     "snapshot": {
+      "status": "Ready",
+      "depends": [
+       "aitasks#1698"
+      ],
+      "gates_pending": [],
+      "priority": "medium",
+      "effort": "medium",
+      "followup_kind": "manual_verification"
+     },
+     "rationale": "Manual verification of the attach/artifact transaction boundary in branch mode (`verifies: [1698]`). Startable now and independent of every other member."
+    },
+    {
+     "entry_id": "e-1968",
+     "position": 6,
+     "task": "aitasks#1968",
+     "topic": "aitasks#1065",
+     "classification": "optional",
+     "confidence": "medium",
+     "snapshot": {
+      "status": "Ready",
+      "depends": [],
+      "gates_pending": [],
+      "priority": "low",
+      "effort": "medium",
+      "followup_kind": "risk_mitigation"
+     },
+     "rationale": "Manual verification of t1960's dir-backend fix on a real mount — plain `umount` (EBUSY) and `umount -l` while a put holds the cwd — which t1960's tests only simulate. Its inbox note from t1284 says an unprivileged `unshare --user --map-root-user --mount` namespace gave a real bind mount and umount, which may avoid sudo; the mid-put windows remain unexercised."
+    }
+   ]
+  }
+ ],
+ "evidence": [
+  {
+   "evidence_id": "ev-snapshot",
+   "source_type": "command_output",
+   "ref": "./.aitask-scripts/aitask_trail_gather.sh snapshot --scope task --owner aitasks#1076 --allow-archived-owner --with-inflight 1076 1076_4 1089 1090 1094 1134 1135 1258 1259 1260 1708 1890 1968 774",
+   "observed_at": "2026-10-21T07:18:16Z",
+   "summary": "Deterministic membership snapshot over the stored member set minus archived aitasks#1231, aitasks#1231_1, aitasks#1231_2, aitasks#1231_3 and aitasks#1231_4: 14 members, 14 inputs, digest 499a3eb1282e8d65, owner aitasks#1076. In-flight probes: 12 tasks enumerated (both_enumeration_ok), none a member. Source of every status, priority, effort, depends and gates value recorded here."
+  }
+ ],
+ "rendering_hints": {
+  "depth": "lite"
+ }
+}
