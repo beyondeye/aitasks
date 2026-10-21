@@ -150,3 +150,10 @@ Git references supporting the distinctions above:
   fresh-clone transfer cost, shared-blob retention, archived/pinned evidence,
   version expiry, offline retrieval, concurrent cleanup/write, migration, and
   old-clone resynchronization where applicable.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-21T09:36:58Z status=pass attempt=1 type=human
+>
+> Note: drift
