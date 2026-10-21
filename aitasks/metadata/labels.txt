@@ -1,4 +1,5 @@
 agent_chooser
+agent_keys
 agent_marks
 agentcrew
 agents_md
