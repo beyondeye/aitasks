@@ -311,3 +311,61 @@ Commit the code (`enhancement: … (t1939)`), then archive per the workflow.
 
 ### Planned mitigations
 - timing: after | name: setup_default_real_home_check | type: manual_verification | priority: medium | effort: low | inline_risk: medium | added_complexity: low | addresses: code-health — default migration of real shared per-user roots | desc: On a real unmigrated home (Linux and macOS), run the released `ait setup`; confirm HOME_MIGRATED:<n>, board (PyPy) and monitor boot, and a re-run prints no hint and does not re-migrate
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-21 12:40)
+- **Requested by user:** `migrate_home_legacy` buffered the verb's stdout+stderr in `$( )`. When a TERM reaches setup's whole process group, setup dies and the buffer is lost, although the verb handles the signal. The reviewer reproduced it: a competitor blocked the rollback, and the `HOME_FAILED` / `HOME_STRANDED` / `HOME_RESTORE` lines vanished while the venv stayed stranded. I12 signals only the verb, so it could not catch this. Verified valid. The impact is wider than lost output: on a signal the verb exits 128+signo **even when its rollback was blocked**, so those lines are the only record of a stranded entry, and a dead pipe reader could also SIGPIPE the verb while it prints them.
+- **Changes made:**
+  - The verb now writes straight to setup's stdout/stderr, with no buffer.
+  - Setup holds handler traps (`trap 'sig=…'`) for INT, TERM and HUP around the call. It therefore outlives a process-group signal, waits for the verb's own recovery, then reports and stops with 128+signo. It also stops when only setup was signalled and the verb finished normally. The traps are never `''`, because an ignored signal is inherited by the verb, which could then not trap it.
+  - A lock-free `ait engine home` pre-report keeps the `HOME_NEXT:none|…` case (no legacy root, already migrated) silent, which the dropped capture can no longer filter.
+  - Class messages now point at the HOME_ lines *above*.
+- **Tests:**
+  - New `setup_strict_pg`: setup leads its own process group (`set -m` in a subshell, output to a file).
+  - New **I13**: after the moves, a hook creates a competing venv and then TERMs the whole group. Expect exit 143, no "Setup complete!", setup's interrupted message, `HOME_SKIPPED:interrupted:TERM`, `HOME_FAILED:rollback|venv` and `HOME_STRANDED:` intact, and the two `HOME_RESTORE:` steps taken from setup's output restore the venv while keeping the competitor aside.
+  - Suite: 320/320.
+  - Mutants: **m7** (the original buffered code) fails I13, 7 assertions. **m8** (streaming without traps) fails I13 because setup does not outlive the TERM. **m9** (`trap ''` in place of handlers) fails I12, because the verb inherits SIG_IGN. m1–m6 are still each caught by their own case. Shellcheck findings are identical to HEAD.
+- **Files affected:** `.aitask-scripts/aitask_setup.sh`, `tests/test_aitasks_home.sh`, `aidocs/testing_engine/n014_explorer_006_proposal.md`
+
+## Final Implementation Notes
+- **Actual work done:**
+  - `aitask_setup.sh`:
+    - New `migrate_home_legacy`, run as the last step of `main()` (after `commit_framework_data_files`, before `check_latest_version`).
+    - A lock-free `ait engine home` pre-report keeps `HOME_NEXT:none|…` silent. Otherwise `ait engine home --migrate` runs with its output streamed to setup's own fds, inside INT/TERM/HUP handler traps.
+    - Branches on the exit class: 0/1 continue; 2 or 128+ make `main()` print "Setup stopped before completion" and exit with that status.
+    - `--no-home-migration` flag and `AIT_HOME_MIGRATE=0` opt-outs, plus a usage paragraph.
+    - `report_home_legacy` prints the `HOME_LEGACY:` line with `printf`, and its hint now points at `ait setup`.
+  - `install.sh`: calls the read-only `report_home_legacy` (behind a `declare -F` guard) and never migrates.
+  - `tests/test_aitasks_home.sh`:
+    - T9 registers `migrate_home_legacy`.
+    - New harnesses `setup_strict` and `setup_strict_pg` run the **installed** setup's `main()` under its own `set -euo pipefail`.
+    - Cases I1–I13 cover fresh install (the ordering pin), working venv and PyPy venv, re-run, hostile symlink, cross-device, collision, override, both opt-outs, classes 1, 2 and 143, and a process-group TERM. H-I2 shows install.sh only hints. S1–S3 are removed.
+    - 320/320 pass.
+  - `env -u AITASKS_HOME` added in `test_setup_python_install.sh` and `test_frozen_agents_acceptance.sh`.
+  - Docs: a new "Per-user root" section on the setup-install page (step 7 path, new step 11), the rule-2 location lines, a CLAUDE.md note, and the proposal's M1.6 current-state edits.
+- **Deviations from plan:**
+  - The plan's buffered `out="$(…)"` design was replaced by streaming plus handler traps after review (Change Request 1). Because nothing is captured, the silent no-op case now comes from the read-only `HOME_NEXT:` report.
+  - The proposal edits waited until t1853_4 committed the file (1518db768). It had uncommitted hunks there, and the user confirmed it had landed.
+- **Doc files decided but left unchanged** (rule 1 — `~/.aitask/…` resolves in every layout; rule 3 — code quotes, measurement records, blog):
+  - `website/content/docs/commands/board-stats.md` (requirements lookup path)
+  - `website/content/docs/development/_index.md` (runner's resolver path; dev-tier marker removal)
+  - `website/content/docs/development/pypy.md` (resolver path; diagnostic commands)
+  - `website/content/docs/tuis/codebrowser/_index.md`, `codebrowser/reference.md` (requirements lookup path)
+  - `website/content/docs/installation/pypy.md:27` (uninstall command; line 20 updated)
+  - `aidocs/framework/tui_conventions.md` (resolver path; `AIT_PYTHON=` command)
+  - `aidocs/framework/aitasks_extension_points.md` (quotes the PATH line the code writes)
+  - `aidocs/framework/sed_macos_issues.md` (dated test-run record)
+  - `aidocs/framework/python_tui_performance.md` 26/115/125/127/182-183/242-243/373-374/537/618 (code quotes and measurement records; 37 and 149 updated)
+  - `CLAUDE.md:79-80` (commands)
+  - the v0190 blog post (historical)
+- **Issues encountered:**
+  - `test_frozen_agents_acceptance.sh` refuses to run inside tmux by design, so it was not run; its edit is syntax-checked only.
+  - The two gated full-setup tests (`AIT_RUN_INTEGRATION_TESTS`, `AIT_ACCEPTANCE_FULL_SETUP`) were not run, because they need network and venv builds. They are hardening, not admission evidence.
+  - The data branch reports unpushed commits ("data worktree has unstaged changes blocking rebase") because another session has unstaged changes there. That is left for `ait syncer`.
+- **Key decisions:**
+  - install.sh does not migrate (R2): several tests run the full `install.sh` against the real `$HOME`, and a layout repair is `ait setup`'s verb.
+  - Migration runs last in `main()` (R1), so a fresh install also ends in the new layout and a stop loses no setup commit.
+  - Handler traps, never `trap ''`: an ignored signal is inherited by the verb, and the verb could then not trap it (proved by mutant m9).
+  - Docs keep `~/.aitask/…` for commands, because it works in every layout including opt-outs and overrides.
+- **Upstream defects identified:** None
