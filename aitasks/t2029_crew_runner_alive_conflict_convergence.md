@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1599
 followup_kind: risk_mitigation
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-16 01:06
-updated_at: 2026-10-20 17:23
+updated_at: 2026-10-21 15:17
 ---
 
 ## Origin
@@ -62,3 +63,8 @@ Constraints carried over from t2018: never open a merge or write conflict marker
 > | Advisory, from t2035 (commit 245754abe): the claim in this task's body that git_cmd(timeout=) runs through bounded_run in a 'new session' is now conditional. lib/bounded_run.py's _child_isolation() uses a new session only when the runner has a controlling terminal; otherwise git leads its own process group inside the caller's session. The process-group kill, the rc 124 on timeout and the non-interactive environment are unchanged, so this probably does not affect your premise. It is noted so the wording is not relied on.
 
 > **👁 note:read** id=2026-10-20T14:23:18Z.ff641d93d02cff237e5d3d0f by=t2029 at=2026-10-20T14:23:18Z mode=explicit ids=2026-10-16T05:02:57Z.08fcd57fba5492cdf769fc9c,2026-10-19T09:54:18Z.17e1f0eff5796b70ddf362fa
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-21T12:17:06Z status=pass attempt=1 type=human
