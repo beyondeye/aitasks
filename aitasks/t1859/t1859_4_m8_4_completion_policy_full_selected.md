@@ -1,14 +1,14 @@
 ---
 priority: medium
 effort: high
-depends: [t1859_1, t1854_2]
+depends: [t1859_1, t1854_12, t1854_7]
 issue_type: feature
 status: Postponed
 labels: [testing, testmap, gates]
 gates: [risk_evaluated]
 anchor: 1852
 created_at: 2026-10-19 15:43
-updated_at: 2026-10-19 15:44
+updated_at: 2026-10-21 22:08
 ---
 
 Child of t1859 (test-map **M8 — Completion policy and gates**), submodule
