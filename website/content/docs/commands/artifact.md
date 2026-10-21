@@ -193,6 +193,13 @@ branch is the store of record and nothing is pushed; a store created before
 Reads need no network when the version is already cached, and `rm` and `ls`
 never touch the store.
 
+**What gets downloaded.** The store branch is an ordinary branch on the remote,
+so a plain `git clone` downloads its whole history, and so does `ait sync`.
+`git clone --single-branch` leaves it out. Reading a version that is not cached
+fetches the **whole store branch**, not just that one blob; later reads of the
+same version come from the cache. Removing an artifact never shrinks the store:
+`rm` leaves the bytes in place, and a deleted blob stays in the branch history.
+
 `artifacts.backends.gitbranch.branch` must:
 
 - start with a letter or digit and use only letters, digits, `.`, `_`, `/` and

@@ -421,7 +421,12 @@ not over inline files:
   version in any manifest** references it (implemented in t1076_1 —
   `ait attach gc`'s blocking set unions `artifact_manifest referenced-hashes`).
   Version awareness matters — an older version's blob must survive until that
-  version is itself pruned, even after `current` moves on.
+  version is explicitly pruned (`ait artifact prune`; nothing expires
+  automatically), even after `current` moves on.
+
+The storage lifecycle — what a fresh clone downloads, size/kind routing,
+retention, pinning, cleanup versus permanent purge, and store compaction — is
+decided in [`artifact_storage_lifecycle.md`](artifact_storage_lifecycle.md).
 - **Fold semantics.** On fold, the artifact's manifest entry **re-binds to the
   primary task** (the handle in the folded task's frontmatter moves; manifest
   ownership updates), mirroring t1030's attachment re-bind-on-fold.
@@ -541,6 +546,9 @@ scoped here.**
 
 ## 14. Cross-references
 
+- [`artifact_storage_lifecycle.md`](artifact_storage_lifecycle.md) — t1890
+  storage lifecycle decisions (download model, routing, retention, purge scope,
+  compaction safety contract).
 - [`task_attachments_design.md`](task_attachments_design.md) — t1030 attachment
   design (backend adapter §5, universal local cache, hash-first model, per-blob
   meta ledger).

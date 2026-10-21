@@ -246,6 +246,11 @@ Recommended order to implement:
 
 ## 8. Lifecycle
 
+Retention, size/kind routing, cleanup versus permanent purge and what a fresh
+clone downloads are decided for attachments and artifacts together in
+[`artifact_storage_lifecycle.md`](artifact_storage_lifecycle.md); routing and
+retention reach attachments through t1258.
+
 ### Adding
 `ait attach add` hashes → uploads via backend → caches locally → patches
 frontmatter → `incref`s the blob's per-blob meta file → single commit.
@@ -413,6 +418,8 @@ step 4 being stable):
 
 ## 12. Cross-references
 
+- Storage lifecycle decisions shared with artifacts (t1890):
+  [`artifact_storage_lifecycle.md`](artifact_storage_lifecycle.md).
 - Existing platform-extensible dispatcher pattern (the model for the
   backend adapter): [`gitremoteproviderintegration.md`](gitremoteproviderintegration.md).
 - Documentation conventions for any user-facing prose generated from
