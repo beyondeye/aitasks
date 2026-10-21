@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1852
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-09 15:58
-updated_at: 2026-10-21 09:08
+updated_at: 2026-10-21 12:16
 ---
 
 ## Context
@@ -83,3 +84,8 @@ t1852_6 covers most of these with direct-verb cases (H5, H7, H8, H11–H13) plus
 - Any `ait` command's update check runs `mkdir -p ~/.aitask` and writes `update_check` (`ait` `check_for_updates`). The verb already detects that race and rolls back, but setup-time migration makes it more likely; keep setup's own update check out of the migration window.
 - The engine slot writers deliberately do not take `$AITASKS_HOME_LOCK` (D7 in the archived plan). Re-check that this still holds once setup calls `install_engine_binary` and the migration in the same run.
 - Never run `--migrate` against the developer's real `~/.aitask` from a test. Every case uses a scratch HOME.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-21T09:16:12Z status=pass attempt=1 type=human
