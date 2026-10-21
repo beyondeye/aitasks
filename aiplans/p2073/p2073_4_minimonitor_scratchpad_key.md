@@ -388,3 +388,60 @@ Standard child archival via task-workflow Step 9.
 
 ### Planned mitigations
 - timing: after | name: kill_bound_helpers_on_direct_kill | type: bug | priority: medium | effort: medium | inline_risk: medium | added_complexity: medium | addresses: bound helpers survive direct kill-pane paths | desc: Kill panes bound to an agent (shadow/scratchpad target options) when kill_agent_pane_smart's pane branch or a frozen-record drop kills that agent directly, with tests for both paths
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-20 18:40)
+- **Requested by user:** `scratchpad_placement` truncated a fractional YAML height (`1.5` → 1) and let `.inf` / `-.inf` raise `OverflowError`. `_recover_pad_pane` read any rc=0 listing as evidence: `garbage` and `%9 broken` gave "exited", and `bogus 999` gave "found bogus".
+- **Changes made:**
+  - The height is validated before any conversion: only an `int` (not a bool) or a string of decimal digits is accepted, and every float falls back to 12.
+  - Recovery trusts a listing only when every row matches `%<n> <positive pid>`. A malformed listing is retried within the bound and then reported unknown. A bad pid gives unknown with zero queries.
+  - Regressions: floats including inf/-inf/nan, `+5`, `1.5`, and six malformed listings. A spawn-level test confirms `bogus 999` never reaches stamping. All of these fail against the pre-fix code.
+- **Files affected:** `.aitask-scripts/monitor/monitor_core.py`, `tests/test_minimonitor_scratchpad_spawn.py`
+
+### Change Request 2 (2026-10-21 08:10)
+- **Requested by user:** `launch_split_pane` stripped the whole output before splitting, so `"\t999\n"` lost its pid and returned `(None, None)`.
+- **Changes made:** split the first non-blank line on the tab, then trim each field. Added the cases `"\t999\n"`, `"\n\t999\n"` and padded fields; the two empty-id cases fail against the old code.
+- **Files affected:** `.aitask-scripts/lib/agent_launch_utils.py`, `tests/test_minimonitor_scratchpad_spawn.py`
+
+## Final Implementation Notes
+- **Actual work done:**
+  - **`monitor_core.py` scratchpad section:**
+    - constants and `scratchpad_query_args`;
+    - `match_scratchpad_pane`: pure, frozen-first, matching on the store key or the target;
+    - `find_scratchpad_pane_status`: fails closed;
+    - `scratchpad_store_key`: runs this framework's `aitask_scratchpad_store.sh path` with `cwd=target_root`;
+    - `scratchpad_command`: a task pad pins `env AITASK_SCRATCHPAD_DIR=<dirname(key)>`;
+    - `scratchpad_placement`;
+    - `_probe_pane`: live/gone/unknown;
+    - `_recover_pad_pane`: bounded, identity-gated;
+    - `_stamp_or_remove`: ok/exited/removed/stuck;
+    - `spawn_scratchpad`.
+  - **`agent_launch_utils.py`:** `_split_window_argv` and `_select_split_window` are shared with `launch_in_tmux`, which behaves as before. The new `launch_split_pane` returns `(pane_id, pid, err)` from `-P -F '#{pane_id}\t#{pane_pid}'`.
+  - **`minimonitor_app.py`:** `Binding("o", "open_scratchpad", "Notes")`, `action_open_scratchpad`, and the `_spawn_scratchpad` adapter (companion = `TMUX_PANE`, `select_window=True`). The `o:notes` hint goes on the `e/E:shadow` line.
+  - **Config:** `tmux.scratchpad_position` (top|bottom, default bottom) and `tmux.scratchpad_height` (default 12) in `TMUX_CONFIG_SCHEMA`, plus seed doc blocks.
+  - **Tests:** `tests/test_minimonitor_scratchpad_spawn.py` (34 mocked tests that run the real store helper against temp roots, one of them symlinked) and `tests/test_scratchpad_spawn_live.sh` (cases A–F).
+- **Deviations from plan:**
+  1. `spawn_scratchpad` is imported in minimonitor straight from `monitor.monitor_core`, not through the `monitor.tmux_monitor` shim, whose docstring says new code goes in `monitor_core`.
+  2. Live case D uses the `aitask_frozen.sh drop` verb, with a real sibling agent so that the drop takes the `kill-pane` branch. Without a sibling, the drop kills the whole window and the pad with it.
+  3. The live test has **not been run in this session.** The session ran inside the user's live `-L ait` server, and the test's `require_clean_ait_server` guard correctly refused (exit 2). I did not override that guard. It is shellcheck-clean (`-x -P SCRIPTDIR`) and `bash -n` clean. It must be run from a terminal outside tmux with the `-L ait` server stopped.
+- **Issues encountered:**
+  - Every line `o:notes` could join costs one wrapped row at (15, 30): 28 → 29, exactly the budget. At 40 columns the band stays at 10 rows. The measurement script rendered each candidate with the `test_minimonitor_top_chrome_render._run` harness.
+  - Three review rounds tightened the plan before implementation: the env pin, the pane id taken from the launch, and unknown ≠ gone.
+- **Key decisions:**
+  - Duplicate rule: one pad per store **or** per agent pane.
+  - The store root is pinned on the command line, because the pad runs in the tmux server's environment and `ait` `cd`s to its own root.
+  - Absence is reported only from a valid identity plus a successful, interpretable query.
+  - Cleanup still runs a best-effort `kill-pane` when the probe is unknown, but reports "stuck" unless a second probe proves the pane gone.
+- **Upstream defects identified:**
+  - `.aitask-scripts/monitor/monitor_core.py:spawn_shadow` (~:4040-4070) — `spawn_shadow` resolves its new pane by pid (`resolve_pane_id_by_pid`), whose `None` merges "query failed" with "pane gone". A failure there leaves a live, unstamped shadow that lists as an agent. The same hole was fixed here for the scratchpad with `launch_split_pane` and identity-gated recovery.
+- **Notes for sibling tasks:**
+  - **For t2073_5 (docs):**
+    - The key is `o`, labelled "Notes".
+    - The config keys are `tmux.scratchpad_position` and `tmux.scratchpad_height`; an invalid value falls back to its default.
+    - A non-task agent gets an unsaved pad plus the notification "Not a task agent — notes will not be saved".
+    - Only one pad is allowed per task store, or per agent pane.
+    - The editor's store root follows the minimonitor's effective `AITASK_SCRATCHPAD_DIR`, which is pinned on the command.
+    - Known gap: a frozen-record drop, or `kill_agent_pane_smart`'s pane branch, leaves the pad open. The `kill_bound_helpers_on_direct_kill` follow-up fixes it.
+    - The website settings reference doesn't list `shadow_pane_width` either.
+  - **For whoever picks up the live test:** `tests/test_scratchpad_spawn_live.sh` must be run once outside tmux. Case E is the only end-to-end proof that the real `ait scratchpad` opens the stamped store under a differing server environment.
