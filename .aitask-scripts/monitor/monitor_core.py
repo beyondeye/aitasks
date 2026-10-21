@@ -67,7 +67,10 @@ from helper_panes import (  # noqa: E402,F401  (re-export)
     SCRATCHPAD_STORE_OPTION,
     SCRATCHPAD_TARGET_OPTION,
     SHADOW_TARGET_OPTION,
+    bound_helper_sweep_format,
+    helpers_bound_to,
     is_bound_helper,
+    kill_bound_helpers,
 )
 from task_yaml import parse_frontmatter  # noqa: E402
 import gate_ledger  # noqa: E402  (shared gate-ledger parser; single derivation path)
@@ -3791,7 +3794,30 @@ class TmuxMonitor:
         also cleans up any companion minimonitor pane. Otherwise only the
         requested pane is killed, preserving the minimonitor for surviving
         siblings.
+
+        After ANY successful kill, the agent's bound helpers (shadow,
+        scratchpad) are killed too (t2088). `kill-pane` / `kill-window` fire no
+        `pane-died`, so `aitask_companion_cleanup.sh` job 1 never runs here: on
+        the pane branch every helper would survive, and on the window branch
+        one placed in another window would.
         """
+        ok, killed_window = self._kill_agent_pane(pane_id)
+        if ok:
+            self._kill_bound_helpers(pane_id)
+        return ok, killed_window
+
+    def _kill_bound_helpers(self, pane_id: str) -> list[str]:
+        """The shared guarded sweep (`helper_panes.kill_bound_helpers`)."""
+        killed = kill_bound_helpers(self.tmux_run, pane_id,
+                                    frozen_option=FROZEN_OPTION)
+        for helper in killed:
+            self._pane_cache.pop(helper, None)
+            self._last_content.pop(helper, None)
+            self._last_change_time.pop(helper, None)
+        return killed
+
+    def _kill_agent_pane(self, pane_id: str) -> tuple[bool, bool]:
+        """`kill_agent_pane_smart` minus the helper sweep: one exit per route."""
         pane = self._pane_cache.get(pane_id)
         if pane is None:
             return self.kill_pane(pane_id), False

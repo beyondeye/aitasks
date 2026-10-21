@@ -10,6 +10,12 @@
 #     companion (minimonitor) pane; window stays alive.
 #   - Killing the last agent pane collapses the entire window (which also
 #     cleans up the companion pane).
+#   - Bound helpers (t2088): `kill-pane` / `kill-window` fire no `pane-died`,
+#     so the method retires the killed agent's shadow / scratchpad panes itself,
+#     each in a guarded `if-shell -F` dispatch. A helper bound to the agent
+#     dies, in its window or another; one bound to the surviving agent stays.
+#     Run through BOTH tmux_run routes, so the guard condition is evaluated by
+#     a real server via the control client's argv quoting too.
 #
 # `_is_companion_process` is monkey-patched to recognise the test's
 # companion-stand-in (a sleep loop with a unique sentinel argv) — the real
@@ -48,7 +54,9 @@ trap 'TMUX_TMPDIR="$FIXTURE_DIR" tmux kill-server 2>/dev/null || true; rm -rf "$
     export TMUX_TMPDIR="$FIXTURE_DIR"
     unset TMUX
     SESSION="ait_killsmart_$$"
-    tmux new-session -d -s "$SESSION" -n "primary" "tail -f /dev/null"
+    # Wide and tall enough for the three fixture panes plus two helpers
+    # (`split-window` refuses with "no space for a new pane" at 80x24).
+    tmux new-session -d -s "$SESSION" -n "primary" -x 240 -y 80 "tail -f /dev/null"
 
     PYTHONPATH="$REPO_ROOT/.aitask-scripts" \
     AIT_TEST_TMUX_DIR="$FIXTURE_DIR" \
@@ -237,11 +245,37 @@ def assert_window_absent(window_name):
         sys.exit(f"window {window_name!r} should be absent: {out!r}")
 
 
+def add_helper(target_window, option, bound_to):
+    """A helper pane bound to `bound_to` via `option`; returns its pane id."""
+    rc, out = sub(["split-window", "-d", "-t", target_window, "-P", "-F",
+                   "#{pane_id}", "tail -f /dev/null"])
+    pane = out.strip()
+    if rc != 0 or not pane:
+        sys.exit(f"fixture build: helper split failed ({rc}, {out!r})")
+    sub(["set-option", "-p", "-t", pane, option, bound_to])
+    return pane
+
+
+def pane_alive(pane_id):
+    rc, out = sub(["list-panes", "-a", "-F", "#{pane_id}"])
+    return pane_id in out.split()
+
+
 def run_pass(label, with_backend):
     print(f"== pass: {label} ==")
     win_name = f"kp_{label}"
     agents, companion = make_window(win_name)
     a1, a2 = agents
+    # Helpers are added AFTER make_window, whose companion detection expects
+    # exactly three panes. h_other sits in its own window (the shadow's
+    # separate-window placement).
+    h1 = add_helper(f"{session}:{win_name}", "@aitask_shadow_target", a1)
+    h2 = add_helper(f"{session}:{win_name}", "@aitask_scratchpad_target", a2)
+    sub(["new-window", "-d", "-t", session, "-n", f"kp_{label}_side",
+         "tail -f /dev/null"])
+    h_other = add_helper(f"{session}:kp_{label}_side",
+                         "@aitask_shadow_target", a2)
+    time.sleep(0.2)
 
     monitor = TmuxMonitor(session=session)
     if with_backend:
@@ -256,7 +290,11 @@ def run_pass(label, with_backend):
     assert ok and not killed_window, (
         f"{label}: kill A1 returned ({ok}, {killed_window})"
     )
-    assert_window_panes(win_name, [a2, companion])
+    # A1's shadow went with it; A2's pad (same window) and A2's shadow (other
+    # window) are bound to a LIVE agent and stay.
+    assert_window_panes(win_name, [a2, companion, h2])
+    assert pane_alive(h_other), f"{label}: A2's other-window shadow was killed"
+    assert not pane_alive(h1), f"{label}: A1's shadow outlived A1"
 
     # Step 2: kill A2 — last agent → window collapses (taking companion).
     ok, killed_window = monitor.kill_agent_pane_smart(a2)
@@ -264,6 +302,10 @@ def run_pass(label, with_backend):
         f"{label}: kill A2 returned ({ok}, {killed_window})"
     )
     assert_window_absent(win_name)
+    # The window branch: a helper in ANOTHER window is retired by the sweep.
+    assert not pane_alive(h_other), (
+        f"{label}: A2's other-window shadow outlived the window kill"
+    )
 
     if with_backend:
         asyncio.run(monitor.close_control_client())

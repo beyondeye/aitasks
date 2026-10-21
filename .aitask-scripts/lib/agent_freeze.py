@@ -96,6 +96,7 @@ from monitor.monitor_core import (  # noqa: E402
     classify_window_panes,
     count_other_real_agents,
     FROZEN_OPTION,
+    kill_bound_helpers,
     PaneCategory,
     RECORD_OPTION,
     STANDIN_READY_OPTION,
@@ -1507,6 +1508,11 @@ def drop_record(record_id: str) -> str:
          all three stamps with no unstamp step to fail. A failed or declined
          kill changes NOTHING: the user keeps a working viewer and an intact
          capture.
+      2b. **helpers** (t2088), only once the stand-in is verified gone: the
+         shadow / scratchpad panes bound to it. `kill-pane` fires no
+         `pane-died`, so cleanup job 1 never retires them on this path. Each
+         is its own guarded dispatch (`helper_panes.kill_bound_helpers`) and
+         best-effort: a helper left behind never changes the verdict.
       3. **store**, and only after the target is verified gone, with the claimed
          nonce. A `NONCE_MISMATCH` here means somebody minted a new lease while
          we were killing — the record and capture survive, which is the point.
@@ -1598,6 +1604,8 @@ def drop_record(record_id: str) -> str:
                 _release()
                 return (f"DROP_FAILED:{record_id}|kill:pane not verified gone "
                         f"({why})")
+            kill_bound_helpers(frozen_ops.run, pane_id,
+                               frozen_option=FROZEN_OPTION)
 
         frozen_ops.pause_at("drop_pre_store")
         _drop_fail_at("store")

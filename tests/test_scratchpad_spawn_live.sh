@@ -13,16 +13,19 @@
 #      companion are gone; a control pad bound to another agent survives
 #   C  freeze and restore keep the agent's pane id, and the pad stays bound to it
 #   D  dropping a frozen record kills the stand-in with `kill-pane`, which fires
-#      no `pane-died`: the pad is LEFT BEHIND. Asserted as the known gap that the
-#      `kill_bound_helpers_on_direct_kill` follow-up closes — flip this case
-#      when that lands.
+#      no `pane-died`, so the drop retires the stand-in's helpers itself
+#      (t2088): the pad and a shadow placed in another window are gone; a pad
+#      bound to the surviving sibling stays bound
+#   G  the same for the monitor's `kill_agent_pane_smart` pane branch (the
+#      other direct kill, t2088): agent, pad and other-window shadow gone;
+#      sibling, its pad and the minimonitor companion stay
 #   E  the REAL editor command (no seam) opens its store at the stamped key even
 #      though the tmux server's environment names a different store root —
 #      E1 with an override in the driver, E2 with none. Control E0: the same
 #      command WITHOUT the pinned root opens under the server's root, proving
 #      the two environments really differ and the pin is what makes E1/E2 pass.
 #
-# Cases A-D replace exactly one seam, `monitor_core.scratchpad_command`, with a
+# Cases A-D and G replace exactly one seam, `monitor_core.scratchpad_command`, with a
 # harmless `tail -f /dev/null`; everything below it is real — the store helper,
 # the duplicate lookup, `launch_split_pane`, the stamps, the cleanup hook.
 # Freeze/restore reuse the `test_restore_flows_live.sh` fixture (fake `claude`,
@@ -135,6 +138,11 @@ mon = TmuxMonitor(session=os.environ["AIT_SESSION"], multi_session=False,
 if sys.argv[1] == "discover":
     print(" ".join(p.pane_id for p in mon.discover_panes()))
     sys.exit(0)
+if sys.argv[1] == "kill":
+    mon.discover_panes()
+    ok, killed_window = mon.kill_agent_pane_smart(sys.argv[2])
+    print(f"KILL:{ok}:{killed_window}")
+    sys.exit(0)
 if os.environ.get("AIT_SEAM") == "1":
     mc.scratchpad_command = lambda *a, **k: "tail -f /dev/null"
 notes = []
@@ -190,6 +198,20 @@ make_live_agent() {
     [ "${seeded##*$'\n'}" = "UPSERTED:$rid|updated" ] || {
         echo "FAIL: seed did not update $rid (got '$seeded')" >&2; return 1; }
     printf '%s %s %s\n' "$rid" "$agent" "$companion"
+}
+
+# side_helpers <window> <shadow-bound-to> <pad-bound-to> -> "<shadow> <pad>"
+# Two bound helpers in a SEPARATE window: the shadow's configurable placement,
+# which only a whole-server sweep reaches. Stamped by hand — the sweep reads
+# the binding options, not how the pane was launched.
+side_helpers() {
+    local shadow pad
+    shadow="$(tm new-window -d -t "=$SESSION" -n "$1" -c "$ROOT" \
+        -P -F '#{pane_id}' "sleep 1000")"
+    pad="$(tm split-window -d -t "$shadow" -c "$ROOT" -P -F '#{pane_id}' "sleep 1000")"
+    tm set-option -p -t "$shadow" @aitask_shadow_target "$2"
+    tm set-option -p -t "$pad" @aitask_scratchpad_target "$3"
+    printf '%s %s\n' "$shadow" "$pad"
 }
 
 key_for() {  # key_for <root> <task> [<AITASK_SCRATCHPAD_DIR>|""]
@@ -286,7 +308,7 @@ section "Case C — freeze and restore keep the pad bound to the same pane id"
 )
 
 # ---------------------------------------------------------------------------
-section "Case D — KNOWN GAP: a frozen-record drop leaves the pad behind"
+section "Case D — a frozen-record drop retires the stand-in's helpers"
 # ---------------------------------------------------------------------------
 (
     read -r RID AGENT COMPANION < <(make_live_agent "agent-pick-2105") || { assert_record_fail; exit 1; }
@@ -295,6 +317,7 @@ section "Case D — KNOWN GAP: a frozen-record drop leaves the pad behind"
     SIBLING="$(tm split-window -d -t "$AGENT" -c "$ROOT" -P -F '#{pane_id}' "sleep 1000")"
     PAD="$(spawn "$AGENT" "agent-pick-2105" 2105 "$ROOT" "$COMPANION" 1)"
     [ -n "$PAD" ] || { assert_record_fail; echo "FAIL: D: no pad"; drop_record "$RID"; exit 1; }
+    read -r SHADOW CTRL_PAD < <(side_helpers side-2105 "$AGENT" "$SIBLING")
     out="$("$FROZEN_SH" freeze "$AGENT" 2>&1)"
     assert_contains "D: freeze reports FROZEN" "FROZEN:$RID" "$out"
 
@@ -306,13 +329,46 @@ section "Case D — KNOWN GAP: a frozen-record drop leaves the pad behind"
     if pane_exists "$SIBLING"; then assert_record_pass; else
         assert_record_fail; echo "FAIL: D: the sibling agent was killed"
     fi
-    # THE GAP: no pane-died fired, so nothing killed the bound pad. When
-    # kill_bound_helpers_on_direct_kill lands, this assertion flips.
-    sleep 0.5
-    if pane_exists "$PAD"; then assert_record_pass; else
-        assert_record_fail
-        echo "FAIL: D: the pad is gone — if the direct-kill follow-up landed, flip this case"
+    if wait_until 20 pane_gone "$PAD"; then assert_record_pass; else
+        assert_record_fail; echo "FAIL: D: the pad outlived its dropped stand-in"
     fi
+    if wait_until 20 pane_gone "$SHADOW"; then assert_record_pass; else
+        assert_record_fail; echo "FAIL: D: the other-window shadow outlived its stand-in"
+    fi
+    if pane_exists "$CTRL_PAD"; then assert_record_pass; else
+        assert_record_fail; echo "FAIL: D: a pad bound to the SIBLING was killed"
+    fi
+    assert_eq "D: the sibling's pad is still bound" "$SIBLING" \
+        "$(pane_fmt "$CTRL_PAD" '#{@aitask_scratchpad_target}')"
+)
+
+# ---------------------------------------------------------------------------
+section "Case G — kill_agent_pane_smart's pane branch retires the agent's helpers"
+# ---------------------------------------------------------------------------
+(
+    read -r AGENT COMPANION < <(make_agent_window "$SESSION" "agent-pick-2107" "$ROOT")
+    SIBLING="$(tm split-window -d -t "$AGENT" -c "$ROOT" -P -F '#{pane_id}' "sleep 1000")"
+    sleep 0.3
+    PAD="$(spawn "$AGENT" "agent-pick-2107" 2107 "$ROOT" "$COMPANION" 1)"
+    [ -n "$PAD" ] || { assert_record_fail; echo "FAIL: G: no pad"; exit 1; }
+    read -r SHADOW CTRL_PAD < <(side_helpers side-2107 "$AGENT" "$SIBLING")
+
+    out="$(AIT_SESSION="$SESSION" py kill "$AGENT" 2>&1)"
+    assert_contains "G: the pane branch was taken" "KILL:True:False" "$out"
+    if wait_until 20 pane_gone "$AGENT"; then assert_record_pass; else
+        assert_record_fail; echo "FAIL: G: the agent was not killed"
+    fi
+    if wait_until 20 pane_gone "$PAD"; then assert_record_pass; else
+        assert_record_fail; echo "FAIL: G: the pad outlived its killed agent"
+    fi
+    if wait_until 20 pane_gone "$SHADOW"; then assert_record_pass; else
+        assert_record_fail; echo "FAIL: G: the other-window shadow outlived its agent"
+    fi
+    for keep in "$SIBLING" "$CTRL_PAD" "$COMPANION"; do
+        if pane_exists "$keep"; then assert_record_pass; else
+            assert_record_fail; echo "FAIL: G: $keep (sibling / its pad / companion) was killed"
+        fi
+    done
 )
 
 # ---------------------------------------------------------------------------

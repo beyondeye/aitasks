@@ -142,7 +142,13 @@ class _FakeTmux:
             return all(self._cond_holds(c, pane) for c in operands)
         match = self._COND.match(cond)
         assert match, f"unrecognised if-shell condition: {cond!r}"
-        return str(pane.get(match.group(1), "")) == match.group(2)
+        return self._field(pane, match.group(1)) == match.group(2)
+
+    def _field(self, pane, key):
+        """One format field; `#{pid}` is SERVER-scoped, as in `_display`."""
+        if key == "pid":
+            return self.server_pid
+        return str(pane.get(key, ""))
 
     def _if_shell(self, args):
         """`if-shell -F -t <pane> <condition> <branch>`, as the server runs it.
@@ -244,7 +250,7 @@ class _FakeTmux:
                 continue
             fields = []
             for spec in fmt.split("\t"):
-                fields.append(str(pane.get(spec.strip("#{}"), "")))
+                fields.append(self._field(pane, spec.strip("#{}")))
             rows.append("\t".join(fields))
         return 0, "\n".join(rows) + ("\n" if rows else "")
 
@@ -3195,8 +3201,13 @@ class DropVerbTests(_FreezeTestCase):
         self.assertEqual(self.tmux.calls_of("kill-window"), [],
                          "the live sibling in the pane's ACTUAL window must "
                          "not be destroyed")
-        self.assertEqual(len(self.tmux.calls_of("kill-pane")), 1)
+        self.assertEqual(
+            [c for c in self.tmux.calls_of("kill-pane")
+             if c[-1] == AGENT_PANE], [["kill-pane", "-t", AGENT_PANE]])
         self.assertIn("%7", self.tmux.panes)
+        # `%8` is a shadow bound to the dropped stand-in, so the direct-kill
+        # sweep retires it too (t2088) — in its own guarded dispatch.
+        self.assertNotIn("%8", self.tmux.panes)
 
     def test_the_last_agent_collapses_the_window(self):
         self._freeze()
@@ -3239,6 +3250,99 @@ class DropVerbTests(_FreezeTestCase):
                          f"DROPPED:{self.rid}")
         self.assertEqual(self.tmux.calls_of("kill-window"), [])
         self.assertEqual(len(self.tmux.calls_of("kill-pane")), 1)
+
+
+class DropHelperSweepTests(_FreezeTestCase):
+    """`drop` retires the stand-in's bound helpers (t2088).
+
+    A real sibling keeps the window, so the drop takes the `kill-pane` branch —
+    the direct kill that fires no `pane-died`, so cleanup job 1 never runs.
+    """
+
+    def _add(self, pane_id, pid, window="agent-pick-1705", **opts):
+        self.tmux.panes[pane_id] = {
+            "session_name": "aitasks", "window_name": window,
+            "pane_id": pane_id, "pane_pid": str(pid), "pane_dead": "0",
+            "pane_current_path": str(self.root),
+            agent_freeze.RECORD_OPTION: "", agent_freeze.FROZEN_OPTION: "",
+            agent_freeze.STANDIN_READY_OPTION: "",
+            agent_freeze.AGENT_SESSION_OPTION: "",
+            "@aitask_shadow_target": "", "@aitask_monitor_kind": "",
+            "@aitask_scratchpad_target": "", **opts,
+        }
+
+    def setUp(self) -> None:
+        super().setUp()
+        agent_freeze.freeze_pane(AGENT_PANE)
+        self._add("%2", 5555)                                    # real sibling
+        self._add("%3", 5656, **{"@aitask_shadow_target": AGENT_PANE})
+        self._add("%4", 5757, **{"@aitask_scratchpad_target": AGENT_PANE})
+        self._add("%5", 5858, **{"@aitask_scratchpad_target": "%2"})
+        self._add("%6", 5959, **{agent_freeze.FROZEN_OPTION: "0badc0de",
+                                 "@aitask_shadow_target": AGENT_PANE})
+        self.tmux.calls.clear()
+
+    def _helper_kills(self):
+        return [c for c in self.tmux.calls_of("kill-pane")
+                if c[-1] != AGENT_PANE]
+
+    def test_the_stand_in_s_helpers_die_and_nothing_else(self):
+        self.assertEqual(agent_freeze.drop_record(self.rid),
+                         f"DROPPED:{self.rid}")
+        self.assertEqual(self.tmux.calls_of("kill-window"), [])
+        self.assertEqual(sorted(self.tmux.panes), ["%2", "%5", "%6"],
+                         "the sibling, its pad and a frozen stand-in that "
+                         "retained a target all stay")
+
+    def test_helper_kills_follow_the_verified_stand_in_kill(self):
+        agent_freeze.drop_record(self.rid)
+        verbs = [c[0] for c in self.tmux.calls]
+        first_if = verbs.index("if-shell")
+        sweep = next(i for i, c in enumerate(self.tmux.calls)
+                     if c[0] == "list-panes" and "-a" in c
+                     and "#{@aitask_scratchpad_target}" in c[-1]
+                     and i > first_if)
+        self.assertGreater(sweep, first_if,
+                           "the sweep lists only after the stand-in kill")
+        self.assertEqual(len(self._helper_kills()), 2)
+
+    def test_every_helper_kill_sits_inside_a_guarded_branch(self):
+        agent_freeze.drop_record(self.rid)
+        calls = self.tmux.calls
+        for i, call in enumerate(calls):
+            if call[0] == "kill-pane" and call[-1] != AGENT_PANE:
+                with self.subTest(kill=call):
+                    self.assertEqual(calls[i - 1][0], "if-shell")
+                    self.assertEqual(calls[i - 1][-1], " ".join(call))
+
+    def test_a_declined_stand_in_kill_sweeps_nothing(self):
+        self.tmux.kill_ok = False
+        line = agent_freeze.drop_record(self.rid)
+        self.assertTrue(line.startswith(f"DROP_FAILED:{self.rid}|kill:"), line)
+        self.assertEqual(self._helper_kills(), [])
+        for pane in ("%3", "%4"):
+            self.assertIn(pane, self.tmux.panes)
+
+    def test_a_restart_between_the_sweep_listing_and_the_dispatch(self):
+        """The recycled-`%N` hazard: a helper dispatch after a restart kills nothing."""
+        real_run = agent_frozen_ops._TMUX.run
+        restarted = []
+
+        def restarting_run(args, timeout=None):
+            if (args and args[0] == "if-shell" and args[3] != AGENT_PANE
+                    and not restarted):
+                restarted.append(True)
+                self.tmux.server_pid = "7777"
+            return real_run(args, timeout)
+
+        agent_frozen_ops._TMUX.run = restarting_run
+        self.addCleanup(setattr, agent_frozen_ops._TMUX, "run", real_run)
+        self.assertEqual(agent_freeze.drop_record(self.rid),
+                         f"DROPPED:{self.rid}")
+        self.assertEqual(restarted, [True], "no helper dispatch was reached")
+        self.assertEqual(self._helper_kills(), [])
+        for pane in ("%3", "%4"):
+            self.assertIn(pane, self.tmux.panes)
 
 
 if __name__ == "__main__":
