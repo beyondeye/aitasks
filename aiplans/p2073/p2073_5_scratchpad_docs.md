@@ -5,129 +5,229 @@ Sibling Tasks: aitasks/t2073/t2073_1_scratchpad_store_and_archival.md, aitasks/t
 Archived Sibling Plans: aiplans/archived/p2073/p2073_*_*.md
 Base branch: main
 Output branch: main
+plan_verified:
+  - claudecode/opus5_5 @ 2026-10-21 11:28
 ---
 
-# t2073_5 — scratchpad_docs
+# t2073_5 — scratchpad_docs (verified plan)
 
-Full parent design: `aiplans/p2073_minimonitor_scratchpad_pane.md`. The two parent
-sections below are copied verbatim so this plan stands alone.
+## Context
 
-## Coordination with in-flight tasks (applies to every child)
+t2073_1–4 have landed: the store helper, the `ait scratchpad` app, the bound-helper rule
+and minimonitor `o`. t2088 (4da69fcfb) has also landed, so a pad now closes when its agent
+is killed directly or its frozen record is dropped. This task writes the user-facing
+website docs. Per `aidocs/framework/documentation_conventions.md` they describe the
+current state only, use `{{< relref >}}` for internal links, and must pass
+`check_links.py --build`. Full parent design: `aiplans/p2073_minimonitor_scratchpad_pane.md`.
 
-- **t2065** (Implementing) has uncommitted hunks in `monitor/minimonitor_app.py`,
-  `monitor/monitor_app.py`, `monitor/monitor_shared.py`, `applink/router.py`.
-- t2072 landed during planning (da2eb3666); its files are clean again and no child
-  edits them.
-- Pre-edit gate for any shared file: `git diff --quiet -- <file>` AND its commit is
-  visible in `git log`. Do all non-overlapping work first; if the gate still fails,
-  stop and ask the user. No child edits `monitor_app.py`, `monitor_shared.py`,
-  `router.py` or `shadow_agent.md`. Only t2073_3 (rung 2) and t2073_4 (key) edit
-  `minimonitor_app.py` → both carry the gate as step 0.
+The working tree was clean at planning time, and no other in-flight task edits these
+pages. The work is docs only, on the current branch (profile `fast`).
 
-## Shared design decisions
+## Facts verified against landed code (the source for every claim)
 
-- **Layering:** the helper-pane vocabulary lives in a new library module
-  `.aitask-scripts/lib/helper_panes.py` (stdlib only), because both
-  `monitor/monitor_core.py` and `lib/agent_launch_utils.py` consume it and
-  `monitor_core` already imports `agent_launch_utils` (lib → TUI imports are banned by
-  `test_no_lib_to_tui_import.sh`). `SHADOW_TARGET_OPTION` moves there too;
-  `monitor_core` (and `tmux_monitor`, which re-exports it today) re-export the names
-  so existing imports keep working.
-- **New pane options** (defined in `lib/helper_panes.py`):
-  `SCRATCHPAD_TARGET_OPTION = "@aitask_scratchpad_target"` (value = bound agent pane
-  id; the helper classifier + lifecycle binding) and
-  `SCRATCHPAD_STORE_OPTION = "@aitask_scratchpad_store"` (the **canonical absolute
-  store directory** of a task pad, empty for an unsaved pad; used only by the
-  one-per-store duplicate lookup). A bare task id is NOT used: one tmux server hosts
-  several projects, and task numbers are repository-local, so project A's t42 must not
-  block project B's t42.
-- **One helper rule:** `BOUND_HELPER_TARGET_OPTIONS = (SHADOW_TARGET_OPTION,
-  SCRATCHPAD_TARGET_OPTION)` + `is_bound_helper(*targets) -> bool` in
-  `lib/helper_panes.py`.
-  Every Python format that classifies helpers is built from that tuple. The bash
-  copy (`aitask_companion_cleanup.sh`) is kept in step by `test_cleanup_rule_parity.sh`
-  plus a source tripwire asserting each option of the tuple appears in the script's
-  `-F` formats.
-- **Discovery:** scratchpad panes are dropped entirely in `_parse_list_panes` (like
-  companions) — **never** routed into the `shadows` list, where `commit_snapshots`
-  would make them compete with the real shadow for `_shadow_snapshots[<agent>]`.
-- **Store:** gitignored `.aitask-scratchpad/<id>/notes.md` (env
-  `AITASK_SCRATCHPAD_DIR`), written only through `aitask_scratchpad_store.sh` (registry
-  lock + `ait_atomic_render`), modelled verbatim on `aitask_shadow_rejected.sh`.
-- **One writer per store:** (a) spawn-time live lookup over `list-panes -a` keyed on
-  `@aitask_scratchpad_store` (task pads; canonical path, so per project) or
-  `@aitask_scratchpad_target` (unsaved pads; pane ids are server-unique), refusing on
-  an unverifiable query; (b) authoritative app-held `fcntl.flock` on
-  `<store>/.holder.lock` (kernel-released on any death, so no stale-pid problem).
-  **Only `open` creates that file**, inside its lifecycle-locked critical section; the
-  app opens it with `O_RDWR` and **no `O_CREAT`**, so an app racing archival can never
-  re-create anything in a pruned store (missing file → "not saved — task archived").
-  **Ownership comes before content:** the app takes the flock FIRST and only then reads
-  `notes.md`, so a previous writer's final save is always visible to its successor. On
-  contention the app takes a separate **read-only path** (snapshot read, `TextArea`
-  `read_only=True`, never saves, header "read-only: open elsewhere") and never later
-  promotes itself. Every `save` subprocess inherits the flock fd (`pass_fds`), so the
-  lock stays held until an orphaned in-flight save of a killed app finishes — a
-  successor cannot read before that write lands.
-- **Autosave with a deadline:** on every change, arm a save for
-  `min(last_change + 1.0 s, first_unsaved_change + 3.0 s)` — the 1 s debounce can be
-  postponed by continuous typing, the 3 s max dirty age cannot. Saves are serialized
-  (a change during an in-flight save keeps the dirty flag and its original
-  `first_unsaved_change`, and re-arms after the save returns). Save on `ctrl+s`, on exit
-  and on SIGHUP (best-effort). **On a hard kill, changes not included in the latest
-  successfully saved buffer may be lost, including edits queued during a pending
-  save.** Autosave targets starting within roughly three seconds when no save is
-  pending; this is not a maximum loss window. The helper's 5 s figure bounds only
-  its lock wait; no save duration is bounded (t2073_1).
-- **Store lifecycle is serialized by one per-task lock that lives OUTSIDE the store
-  dir** (`$SCRATCHPAD_DIR/.locks/<id>.lockd`, `registry_lock`), so no verb needs to
-  `mkdir` the store just to lock it (the shadow helper's `lock_or_busy` does
-  `mkdir -p STORE_DIR` — not copied):
-  - `open` — under the lock: refuse `NO_TASK` unless the active task file exists,
-    then `mkdir` the store and create `.holder.lock`. Archival moves the task file
-    **before** it prunes (`archive_move` precedes `prune_*` at every site), so an
-    `open` either runs wholly before the move (its store is pruned later) or sees the
-    moved file and refuses. No resurrection.
-  - `save` — under the lock: refuse `ARCHIVED` unless the active task file exists
-    (checked even when a directory survives), then `ABSENT` if the store dir is
-    gone; never `mkdir`. The app shows "not saved — task archived / store removed".
-  - `prune` — the store-absence check, own-root guard, sweep and `rmdir` all run
-    **under the lock** (an absence check before the lock would miss a first `open`
-    paused between its task check and its `mkdir`). The one early return is a
-    missing **root** dir: every lifecycle verb creates `<root>/.locks` before taking
-    the lock, so no critical section can be in flight, and any later `open` runs
-    after `archive_move` and refuses `NO_TASK` — this also keeps archival from
-    creating `.aitask-scratchpad/` in repos that never used a scratchpad.
-  - Deterministic coverage: a test-only pause seam (`AITASK_SCRATCHPAD_PAUSE_FIFO`,
-    honoured only when set) stops a verb at a named point inside the lock, so tests
-    interleave `open`-vs-`prune` and `save`-vs-`prune` exactly, and an externally held
-    lock proves prune never deletes while a lifecycle op holds it.
-- **Known gap, documented not fixed:** direct `kill-pane` paths fire no `pane-died`
-  (`kill_agent_pane_smart`'s pane branch, `agent_freeze.drop_record` via
-  `kill_if_stamped`), so bound helpers — shadows today, scratchpads too — survive
-  those kills. Freeze/restore use `respawn-pane -k` on the same pane id, so the binding
-  survives them. → after-mitigation follow-up (see Risk).
+- **Open:** minimonitor `o` (binding label "Notes"). The `o:notes` hint goes on the
+  `e/E:shadow` line (`minimonitor_app.py:1231`, `action_open_scratchpad` :3950).
+  - It opens a vertical split of the **followed agent's** pane, in the agent's window,
+    with that window selected.
+  - With no followed agent the notification is "No followed agent for a scratchpad".
+- **Task vs unsaved:** a window named `agent-(pick|qa|resume)-<id>`
+  (`task_id_from_window_name`, `monitor_core.py:4514`) gets the task's persistent pad.
+  Any other agent gets an unsaved pad, with the warning "Not a task agent — notes will
+  not be saved". Success toasts: "Opened scratchpad for t<id>" or "Opened scratchpad
+  (not saved)".
+- **Duplicates:** one pad per task store **or** per agent pane. A second press gives
+  "A scratchpad is already open for t<id>" (or "for this agent"). An unverifiable tmux
+  query refuses with "Could not verify whether a scratchpad is already open — not
+  opening". The backstop is a second editor on the same store (for example from a manual
+  `ait scratchpad --task`), which opens read-only (`read-only: open elsewhere`), never
+  saves and never promotes itself.
+  - `match_scratchpad_pane` (`monitor_core.py`) matches on the stamped store key or
+    target only, never on writability. A read-only pad opened by `o` therefore keeps
+    blocking `o` after the writer closes, and a manual (unstamped) editor is invisible
+    to the check.
+  - In read-only mode `action_flush_quit` exits immediately
+    (`scratchpad_app.py:486`).
+  - An orphaned in-flight save keeps the flock until its write lands, so a reopen
+    before then is read-only again.
+- **Placement config** (`scratchpad_placement`, `monitor_core.py:4283`):
+  - `tmux.scratchpad_position` is `top` or `bottom` (default `bottom`).
+  - `tmux.scratchpad_height` is a whole number of rows >= 1 (default `12`).
+  - An invalid value of either falls back to its default.
+  - Both are editable in `ait settings` → Tmux tab (`settings_app.py:354-370`) and
+    documented in `seed/project_config.yaml`.
+- **Keys** (`scratchpad_app.py:295`, plus Textual `TextArea` defaults; probed):
+  - `ctrl+s` saves now. `ctrl+q` makes one final save attempt and exits (the command
+    palette Quit does the same).
+  - `ctrl+c` copies the selection, or the whole buffer when nothing is selected. It uses
+    OSC 52 and, inside tmux, the tmux paste buffer (`tui_clipboard.copy_to_system_clipboard`).
+  - `ctrl+x` cuts (the line when nothing is selected) and goes to the same clipboard.
+  - `ctrl+z` / `ctrl+y` are undo / redo.
+  - `ctrl+v` pastes what was last copied or cut **in this pad** (Textual's
+    `app.clipboard`). To paste from the system clipboard, use the terminal's own paste
+    (bracketed paste) or the tmux paste buffer.
+  - Every letter key types. There is no `?` editor binding in this app. The keys are
+    rebindable from Settings → Shortcuts, scope `scratchpad` (`shortcut_scopes.py:61`);
+    this is checked at implementation time (see Step 1).
+- **Header:** `t<id> · <state> · → <pane>`, or `scratch · …` for an unsaved pad. The
+  states are `ST_*`, verbatim (`scratchpad_app.py:96-108`): opening…, saved, saving…,
+  unsaved changes, NOT SAVED (no task), read-only: open elsewhere, not saved — task
+  archived, not saved — no active task, not saved — store unavailable, save failed —
+  retrying in {n}s, save stuck — waiting for the previous write to finish, saving before
+  quit…, autosave stopped — error.
+- **Autosave** (module docstring, quoted verbatim per the t2073_2 notes and the t2073_1
+  inbox note):
+  - A save is due at `min(last change + 1 s, first unsaved change + 3 s)`. Saves are
+    serialized, and a failed save retries after 2 s.
+  - SIGHUP (for example from a `kill-pane`) triggers a detached, best-effort flush.
+  - Loss contract: "On a hard kill, changes not included in the latest successfully
+    saved buffer may be lost, including edits queued during a pending save. Autosave
+    targets starting within roughly three seconds when no save is pending; this is not a
+    maximum loss window."
+- **Storage:** `.aitask-scratchpad/<id>/notes.md` under the project root. It is
+  gitignored (`ait setup` adds `.aitask-scratchpad/`), and `AITASK_SCRATCHPAD_DIR`
+  overrides the root.
+- **Persistence:** the store is keyed by task id, not by agent. Killing or freezing the
+  agent and later re-picking (`agent-pick-<id>`), QA-ing or resuming the task, then
+  pressing `o`, reopens the same notes.
+- **Archival:** `aitask_archive.sh` `prune_scratchpad` deletes the store when the task
+  is archived. This covers parent, child and auto-archived parent, and also folded tasks
+  merged into it. A pad still open on an archived task shows "not saved — task archived".
+  A task with no active task file shows "not saved — no active task".
+- **Lifecycle:**
+  - The pad never appears in monitor or minimonitor agent lists.
+  - It closes when its agent pane exits (the `pane-died` cleanup hook), and also when the
+    agent is killed directly with monitor/minimonitor `k` or its frozen record is
+    dropped (t2088).
+  - It stays open across freeze and restore, because the pane id survives
+    `respawn-pane -k`.
+  - It survives a sibling agent's death.
+  - If the cleanup hook cannot be wired, the toast is "Scratchpad opened; auto-cleanup on
+    agent exit could not be wired — close the scratchpad by hand when the agent exits".
+- **CLI:** `ait scratchpad (--task <id> | --unsaved) [--target <pane>]`.
+  - `--target` only labels the header.
+  - An invalid task id prints `ait scratchpad: invalid task id: <x>` and exits 2;
+    argparse usage errors also exit 2.
+  - Missing Python packages makes the launcher die and tell you to run `ait setup`.
+  - It is not in the TUI switcher (`tui_registry` `in_switcher=False`).
 
-## This child
+## Implementation steps
 
-### t2073_5 — scratchpad_docs (website)
-Depends on t2073_4. Per `documentation_conventions.md` (current state only):
-`website/content/docs/tuis/scratchpad/{_index,how-to,reference}.md` (what it is,
-opening with `o`, placement + config, keys, storage path, persistence for aitask
-agents, unsaved pads for others, archival drop, autosave + loss window, one pad per
-task); `tuis/minimonitor/how-to.md` "How to Open a Scratchpad" next to the shadow
-section + key quick reference + `_index.md`; `tuis/_index.md` and
-`commands/_index.md` list `ait scratchpad`; `tuis/monitor/reference.md` tmux key table
-rows; `tuis/frozenagent/how-to.md` note that a bound pad survives freeze/restore. Run
-`hugo build --gc --minify` and `python3 check_links.py --build` in `website/`.
+1. **Pre-write check.** Confirm the Settings → Shortcuts tab lists the `scratchpad`
+   scope:
+   `grep -n scratchpad .aitask-scripts/settings/*.py .aitask-scripts/lib/shortcut*.py`
+   If it does not, drop the "rebindable" sentence.
+
+2. **NEW `website/content/docs/tuis/scratchpad/_index.md`** (weight 18,
+   title/linkTitle "Scratchpad", `maturity: [experimental]`,
+   `depth: [main-concept]`). Model it on `tuis/frozenagent/_index.md`, with these
+   sections:
+   - what it is;
+   - Opening (minimonitor `o`, the task pad vs the unsaved pad, a manual launch as an
+     escape hatch, not in the switcher);
+   - Layout (header + editor + footer; the header format);
+   - Saving (autosave summary + the loss contract quoted verbatim);
+   - Where notes live;
+   - Lifecycle (persists per task, dropped at archival, closes with its agent, survives
+     freeze/restore);
+   - Next/Reference footer.
+
+3. **NEW `tuis/scratchpad/how-to.md`** (weight 20, "How-To",
+   `depth: [intermediate]`). Sections:
+   - **Take notes beside an agent:** `o`, placement, how to focus the pane.
+   - **Copy notes into the agent:** `ctrl+c` with no selection copies everything; paste
+     with the terminal or tmux paste.
+   - **Paste into the pad:** terminal paste vs `ctrl+v`.
+   - **Keep notes across a re-pick:** kill/freeze, re-pick, then `o`.
+   - **Use a pad for a non-task agent:** unsaved, never written.
+   - **Change where the pad opens:** the two config keys, plus `ait settings` → Tmux.
+   - **When the header says read-only:** another editor holds the store, usually a manual
+     `ait scratchpad --task <id>`. Minimonitor's duplicate check cannot see a manual
+     editor, because it carries no pane stamps. The read-only pad is a snapshot taken
+     when it opened. It never saves and never becomes writable, even after the other
+     editor closes. While it is open it also blocks `o`: the duplicate check matches it
+     by task store and by agent, and does not ask whether it is writable, so `o` only
+     reports "A scratchpad is already open for t<id>". To recover:
+     1. Close the writer with `ctrl+q` and let its final save finish.
+     2. Close the read-only pad with `ctrl+q`. It exits at once, since it has nothing
+        to save.
+     3. Reopen with `o`, or rerun the same `ait scratchpad --task <id>` command for a
+        manually launched pad.
+
+     Reopening too early, while the writer's last save is still in flight, lands in
+     read-only again.
+
+4. **NEW `tuis/scratchpad/reference.md`** (weight 30, "Reference",
+   `depth: [advanced]`). Sections:
+   - Keybindings table;
+   - Header states table (every `ST_*`, with its meaning);
+   - Command line (forms, exit codes);
+   - Configuration table (two keys, defaults, fallback);
+   - Storage (path, gitignore, `AITASK_SCRATCHPAD_DIR`, pruned at archival including
+     folded tasks);
+   - Autosave timing (1 s debounce, 3 s maximum dirty age, 2 s retry, the verbatim loss
+     contract, with the 5 s store lock wait described as a lock wait only);
+   - Lifecycle rules: one pad per task store or agent pane, and the notifications. The
+     duplicate check sees only pads opened with `o`. A pad that is open blocks `o`
+     whether or not it is writable. A read-only pad is a non-refreshing snapshot that
+     never saves or promotes, and `ctrl+q` closes it at once. Also the closing and
+     surviving rules;
+   - See also.
+
+5. **`tuis/minimonitor/how-to.md`.** Add a `### How to Open a Scratchpad` section
+   between "How to Launch a Shadow Agent" (:179) and "How to Pick Shadow Concerns"
+   (:189). Give it a short body and link to `{{< relref "/docs/tuis/scratchpad" >}}`.
+   Then add the quick-reference row
+   `| \`o\` | Open a scratchpad notes pane beside the followed agent |` after the `E` row
+   (:447).
+
+6. **`tuis/minimonitor/_index.md`.** After "Launching a shadow agent" (:77-83), add a
+   short `## Opening a scratchpad` paragraph naming `o`, with a link. Also add
+   "a scratchpad" to the companion-pane list sentence at :39.
+
+7. **`tuis/_index.md`.** Add a **[Scratchpad](scratchpad/)** (`ait scratchpad`) bullet
+   after Frozen Agent. It is opened with minimonitor `o`, persists per task and is
+   experimental. The switcher paragraph needs no change: the scratchpad is not in the
+   switcher, and the "Minimonitor is not listed" sentence remains accurate.
+
+8. **`commands/_index.md`.**
+   - Add the TUI table row
+     `| [\`ait scratchpad\`](../tuis/scratchpad/) | Notes editor bound to a code agent pane — usually opened with minimonitor \`o\` |`
+     after the frozenagent row. Match the table's existing relative-link style.
+   - Add the usage line `ait scratchpad --task 42 # Open task 42's notes editor`
+     after `ait monitor` (:107).
+
+9. **`tuis/monitor/reference.md`.** Add two rows after `tmux.syncer.autostart` in the
+   tmux Configuration table (~:204):
+   - `tmux.scratchpad_position` | string | `bottom` | …
+   - `tmux.scratchpad_height` | int | `12` | …
+
+   Each description says that an invalid value falls back to the default, and links to
+   the scratchpad reference.
+
+10. **`tuis/frozenagent/how-to.md`.** Add a short note, under "Bring an agent back" or at
+    the end: a scratchpad bound to the agent stays open across freeze and restore, and
+    closes when the record is dropped.
+
+## Verification
+
+- `cd website && hugo build --gc --minify`
+- `cd website && python3 check_links.py --build` (mandatory; must exit 0)
+- Optionally run `python3 check_link_relevance.py` for the new links (a report only).
+- Re-grep each verbatim string the docs quote (the ST_* states, the notification texts,
+  the loss contract) against the code, so that no quote drifts.
 
 ## Step 9 (Post-Implementation)
-Standard child archival via task-workflow Step 9.
+
+Standard child archival via task-workflow Step 9 (current branch, no merge).
 
 ## Risk
 
 ### Code-health risk: low
-None identified.
+None identified. Documentation only: no code or test changes, and every page edit is
+additive.
 
 ### Goal-achievement risk: low
-- Docs could describe planned rather than landed behaviour · severity: low · → mitigation: none (read landed code and archived child plans first; check_links.py --build)
+- Docs could describe planned rather than landed behaviour · severity: low ·
+  → mitigation: none needed. Every claim above was re-verified against the landed code
+  and t2088 during planning, the quoted strings are re-grepped at implementation, and
+  `check_links.py --build` runs.
