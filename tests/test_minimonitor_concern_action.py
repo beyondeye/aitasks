@@ -2158,6 +2158,8 @@ class ReviewLoopArmTests(unittest.TestCase):
         app._find_own_agent_snapshot = lambda: snap
         asyncio.run(app.action_toggle_review_loop())
         self.assertIn(_UNDETECTED_KEY, app.spy_notify[-1][0])
+        # A RESOLVED key is a capability gap, not a resolution miss (t2096).
+        self.assertNotIn("could not identify", app.spy_notify[-1][0])
         self.assertFalse(app._review_loop.armed)
 
     def test_refusal_names_the_supported_set_from_the_constant(self):
@@ -2203,6 +2205,11 @@ class ReviewLoopArmTests(unittest.TestCase):
         app._find_own_agent_snapshot = lambda: snap
         asyncio.run(app.action_toggle_review_loop())
         self.assertIn("node", app.spy_notify[-1][0])
+        # `""` means "could not resolve" (agent_keys contract), so the refusal
+        # must say that — not claim the agent is unsupported (t2096: a Claude
+        # pane reading `2.1.306` was told the loop "supports claude").
+        self.assertIn("could not identify", app.spy_notify[-1][0])
+        self.assertNotIn("supports", app.spy_notify[-1][0])
         self.assertFalse(app._review_loop.armed)
 
     def test_refuses_shadow_agent_without_detector_naming_it(self):

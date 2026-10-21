@@ -1,15 +1,19 @@
 """Unit test for the canonical pane→agent resolver (t1467).
 
 Covers `lib/agent_keys.py`:
-  1. Rung 1 — the pane's own command, exact-match only.
-  2. Rung 2 — one level of child processes, against a REAL process tree rather
+  1. Rung 1 — the pane's tmux command, exact-match only.
+  2. Rung 2 — the pane process's OWN comm (t2096): a native Claude install is a
+     symlink to a version-named binary, so tmux reports `2.1.306` while `ps`
+     reports the invoked name `claude`. Tested against a real symlink.
+  3. Rung 3 — one level of child processes, against a REAL process tree rather
      than a mock, because the thing under test is precisely whether the
-     pgrep/ps pair reads a real tree correctly.
-  3. Rung 2 is not reached when rung 1 already answered.
+     pgrep/ps pair reads a real tree correctly. Not reached when an earlier
+     rung already answered.
   4. Ambiguity (children resolving to different agents) suppresses to "".
   5. Depth is bounded at one level — a grandchild does not resolve.
   6. Every failure path (no pgrep on PATH, no children) returns "".
-  7. Positive results are cached: the subprocess runs once per (pane_pid, cmd).
+  7. Positive results are cached: each subprocess runs once per (pane_pid, cmd),
+     and the own-comm lookup sits behind the caches like the child lookup.
   8. NEGATIVE results are only provisional — the wrapper's child appears
      asynchronously, so a first empty lookup must not pin the pane to "" for
      its lifetime. Retried on a backoff, with a terminal interval forever.
@@ -32,7 +36,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / ".aitask-scripts" /
 sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
 
 import agent_keys as ak  # noqa: E402
-from fake_agent_binary import fake_agent_binary  # noqa: E402
+from fake_agent_binary import (  # noqa: E402
+    FakeAgentBinaryUnavailable, fake_agent_binary)
 
 
 def _fake_agent_binary(tmpdir: str, name: str) -> str:
@@ -93,12 +98,16 @@ class RungOneTest(unittest.TestCase):
     def test_rung_two_is_not_reached_when_rung_one_answers(self):
         """Proven by making rung 2 explode: if it were consulted, this raises."""
         original = ak._child_commands
+        original_own = getattr(ak, "_own_command", None)
         ak._child_commands = lambda pid: (_ for _ in ()).throw(
-            AssertionError("rung 2 must not run when the command resolves"))
+            AssertionError("the child rung must not run when the command resolves"))
+        ak._own_command = lambda pid: (_ for _ in ()).throw(
+            AssertionError("the own-comm rung must not run when the command resolves"))
         try:
             self.assertEqual(ak.agent_key_from_pane("codex", 12345), "codex")
         finally:
             ak._child_commands = original
+            ak._own_command = original_own
 
 
 class RungTwoTest(unittest.TestCase):
@@ -169,6 +178,119 @@ class RungTwoTest(unittest.TestCase):
         self.assertEqual(ak.agent_key_from_pane("node", 0), "")
 
 
+class OwnCommandRungTest(unittest.TestCase):
+    """Rung 2: the pane process's own comm (t2096).
+
+    The measured shape: a native Claude install links `~/.local/bin/claude` to
+    `~/.local/share/claude/versions/2.1.306`. tmux names the RESOLVED executable
+    (`2.1.306`), `ps -o comm=` the INVOKED path (`claude`), and the agent has no
+    agent-named child — so neither the command nor the child rung resolves it.
+    """
+
+    def setUp(self):
+        ak._PANE_KEY_CACHE.clear()
+        ak._PANE_MISS_CACHE.clear()
+        self.original_children = ak._child_commands
+        self.original_own = getattr(ak, "_own_command", None)
+        self.tmp = tempfile.mkdtemp(prefix="t2096-owncomm-")
+        self.procs: list[subprocess.Popen] = []
+
+    def tearDown(self):
+        ak._child_commands = self.original_children
+        ak._own_command = self.original_own
+        ak._PANE_KEY_CACHE.clear()
+        ak._PANE_MISS_CACHE.clear()
+        for proc in self.procs:
+            try:
+                proc.kill()
+                proc.wait(timeout=5)
+            except Exception:
+                pass
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _stub(self, own: str, children: list[str] | None = None) -> None:
+        ak._own_command = lambda pid: own
+        if children is None:
+            ak._child_commands = lambda pid: (_ for _ in ()).throw(
+                AssertionError("children must not be consulted"))
+        else:
+            ak._child_commands = lambda pid: list(children)
+
+    def _spawn(self, path: str) -> int:
+        proc = subprocess.Popen([path, "30"], stdout=subprocess.DEVNULL,
+                                stderr=subprocess.DEVNULL)
+        self.procs.append(proc)
+        return proc.pid
+
+    def test_version_string_command_with_claude_comm_resolves(self):
+        """THE regression: tmux says `2.1.306`, the process is `claude`."""
+        self._stub("claude", children=[])
+        self.assertEqual(ak.agent_key_from_pane("2.1.306", 4242, "%4"), "claude")
+
+    def test_own_comm_outranks_children(self):
+        self._stub("claude")   # children stub raises if consulted
+        self.assertEqual(ak.agent_key_from_pane("2.1.306", 4242, "%4"), "claude")
+
+    def test_full_path_comm_resolves(self):
+        self._stub("/Users/x/.local/bin/claude", children=[])
+        self.assertEqual(ak.agent_key_from_pane("2.1.306", 4242, "%4"), "claude")
+
+    def test_unresolved_own_comm_falls_through_to_children(self):
+        self._stub("node", children=["codex"])
+        self.assertEqual(ak.agent_key_from_pane("node", 4242, "%1"), "codex")
+        ak._PANE_KEY_CACHE.clear()
+        ak._PANE_MISS_CACHE.clear()
+        self._stub("node", children=["codex", "claude"])
+        self.assertEqual(ak.agent_key_from_pane("node", 4242, "%2"), "",
+                         "ambiguity among children still suppresses")
+
+    def test_real_process_own_comm(self):
+        """The real `ps` path, end to end. NOT a symlink test: the helper's
+        copy and compile rungs come before its opt-in symlink fallback."""
+        try:
+            claude = _fake_agent_binary(self.tmp, "claude")
+        except FakeAgentBinaryUnavailable as exc:
+            self.skipTest(f"no runnable agent-named binary: {exc}")
+        pid = self._spawn(claude)
+        self.assertEqual(ak.agent_key_from_pane("2.1.306", pid, "%r"), "claude")
+
+    def test_real_symlink_invoked_name_resolves(self):
+        """The production shape: an agent-named SYMLINK to a version-named
+        binary. `ps` must report the invoked name, not the target's."""
+        try:
+            target = fake_agent_binary(self.tmp, "2.1.306")
+        except FakeAgentBinaryUnavailable as exc:
+            self.skipTest(f"no runnable binary: {exc}")
+        self.assertFalse(os.path.islink(target), "premise: the target is a file")
+        os.makedirs(os.path.join(self.tmp, "bin"))
+        link = os.path.join(self.tmp, "bin", "claude")
+        os.symlink(target, link)
+        self.assertTrue(os.path.islink(link), "premise: launched through a symlink")
+        pid = self._spawn(link)
+        deadline = time.monotonic() + 5.0
+        comm = ""
+        while time.monotonic() < deadline:
+            comm = ak._own_command(pid)
+            if comm:
+                break
+            time.sleep(0.05)
+        self.assertEqual(os.path.basename(comm), "claude",
+                         f"ps should report the invoked name, got {comm!r}")
+        self.assertEqual(ak.agent_key_from_pane("2.1.306", pid, "%t"), "claude")
+
+    def test_own_comm_missing_ps_returns_empty(self):
+        saved = os.environ.get("PATH", "")
+        os.environ["PATH"] = ""
+        try:
+            self.assertEqual(ak._own_command(os.getpid()), "")
+        finally:
+            os.environ["PATH"] = saved
+
+    def test_own_comm_no_pid_returns_empty(self):
+        self.assertEqual(ak._own_command(0), "")
+        self.assertEqual(ak._own_command(-1), "")
+
+
 class CacheTest(unittest.TestCase):
     """The lookup sits on the per-tick refresh path; once per pane, not per tick."""
 
@@ -177,15 +299,27 @@ class CacheTest(unittest.TestCase):
         ak._PANE_MISS_CACHE.clear()
         self.calls = 0
         self.original = ak._child_commands
+        self.original_own = getattr(ak, "_own_command", None)
 
         def counting(pid):
             self.calls += 1
             return ["codex"]
 
         ak._child_commands = counting
+        # Fake pids are real pids on the host: without this stub the own-comm
+        # rung would `ps` whatever process holds 4242 — possibly a real claude.
+        self.own = ""
+        self.own_calls = 0
+
+        def counting_own(pid):
+            self.own_calls += 1
+            return self.own
+
+        ak._own_command = counting_own
 
     def tearDown(self):
         ak._child_commands = self.original
+        ak._own_command = self.original_own
         ak._PANE_KEY_CACHE.clear()
         ak._PANE_MISS_CACHE.clear()
 
@@ -194,6 +328,20 @@ class CacheTest(unittest.TestCase):
             self.assertEqual(ak.agent_key_from_pane("node", 4242, "%1"), "codex")
         self.assertEqual(self.calls, 1,
                          f"expected exactly one lookup, got {self.calls}")
+        self.assertEqual(self.own_calls, 1,
+                         f"expected exactly one own-comm lookup, got {self.own_calls}")
+
+    def test_own_comm_positive_hit_is_looked_up_once(self):
+        """The own-comm rung sits BEHIND the positive cache (t2096): placed
+        before it, every refresh tick would run a `ps`."""
+        self.own = "claude"
+        for _ in range(10):
+            self.assertEqual(ak.agent_key_from_pane("2.1.306", 4243, "%3"),
+                             "claude")
+        self.assertEqual(self.own_calls, 1,
+                         f"expected exactly one own-comm lookup, got {self.own_calls}")
+        self.assertEqual(self.calls, 0,
+                         "children must not be consulted once own comm answers")
 
     def test_a_recycled_pid_does_not_inherit_the_dead_pane_answer(self):
         """pane_id is part of the cache identity (t1467 review).
@@ -253,9 +401,19 @@ class NegativeCacheRetryTest(unittest.TestCase):
             return list(self.children)
 
         ak._child_commands = scripted
+        self.original_own = getattr(ak, "_own_command", None)
+        self.own = ""
+        self.own_calls = 0
+
+        def scripted_own(pid):
+            self.own_calls += 1
+            return self.own
+
+        ak._own_command = scripted_own
 
     def tearDown(self):
         ak._child_commands = self.original
+        ak._own_command = self.original_own
         ak._now = self.original_now
         ak._PANE_KEY_CACHE.clear()
         ak._PANE_MISS_CACHE.clear()
@@ -276,11 +434,14 @@ class NegativeCacheRetryTest(unittest.TestCase):
         self.children = ["codex"]
         self.assertEqual(ak.agent_key_from_pane("node", 778), "codex")
         before = self.calls
+        own_before = self.own_calls
         self.clock[0] += 10_000
         for _ in range(5):
             self.assertEqual(ak.agent_key_from_pane("node", 778), "codex")
         self.assertEqual(self.calls, before,
                          "a positive answer must be cached for the pane's life")
+        self.assertEqual(self.own_calls, own_before,
+                         "the own-comm rung must not re-run on a cached hit")
 
     def test_backoff_bounds_the_lookup_rate(self):
         """A genuinely agent-less pane must not run a subprocess every tick."""
@@ -289,6 +450,24 @@ class NegativeCacheRetryTest(unittest.TestCase):
             ak.agent_key_from_pane("python", 779)
         self.assertLessEqual(self.calls, 3,
                              f"expected the backoff to bound lookups, got {self.calls}")
+        self.assertLessEqual(self.own_calls, 3,
+                             f"expected the backoff to bound own-comm lookups, "
+                             f"got {self.own_calls}")
+        self.assertEqual(self.own_calls, self.calls,
+                         "the miss backoff must gate both pid-driven rungs equally")
+
+    def test_own_comm_miss_inside_retry_interval_is_not_re_looked_up(self):
+        self.assertEqual(ak.agent_key_from_pane("2.1.306", 781), "")
+        for _ in range(5):
+            self.clock[0] += ak._MISS_RETRY_SCHEDULE[0] / 10
+            self.assertEqual(ak.agent_key_from_pane("2.1.306", 781), "")
+        self.assertEqual(self.own_calls, 1,
+                         f"a miss inside the retry interval must not re-run ps, "
+                         f"got {self.own_calls}")
+        self.own = "claude"
+        self.clock[0] += ak._MISS_RETRY_SCHEDULE[0] + 0.01
+        self.assertEqual(ak.agent_key_from_pane("2.1.306", 781), "claude")
+        self.assertEqual(self.own_calls, 2)
 
     def test_retries_continue_forever_at_the_terminal_interval(self):
         """The terminal step is load-bearing: a budget that STOPS would

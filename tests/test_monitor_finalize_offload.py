@@ -518,7 +518,22 @@ class AgentScopingCallSiteTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_unresolvable_pane_falls_open_and_says_so(self):
         """A `node` pane (the measured Codex wrapper shape, with no agent child
-        in this fixture) keeps the flat list and reports scoped=False."""
+        in this fixture) keeps the flat list and reports scoped=False.
+
+        `_pane()`'s pid (1009) is a literal, so it can be a REAL process on the
+        host — a `claude` there would resolve through the own-comm rung (t2096)
+        or the child rung. Both pid-driven rungs are stubbed empty so the "no
+        agent" premise is the fixture's, not the host's."""
+        agent_keys = sys.modules[monitor_core.agent_key_from_pane.__module__]
+        saved = (agent_keys._own_command, agent_keys._child_commands)
+        agent_keys._own_command = lambda pid: ""
+        agent_keys._child_commands = lambda pid: []
+        agent_keys._PANE_KEY_CACHE.clear()
+        agent_keys._PANE_MISS_CACHE.clear()
+        self.addCleanup(agent_keys._PANE_MISS_CACHE.clear)
+        self.addCleanup(agent_keys._PANE_KEY_CACHE.clear)
+        self.addCleanup(setattr, agent_keys, "_child_commands", saved[1])
+        self.addCleanup(setattr, agent_keys, "_own_command", saved[0])
         pane = _pane("%9", current_command="node")
         mon = _make_monitor([pane], {"%9": self.CODEX_BODY},
                             patterns=all_patterns())

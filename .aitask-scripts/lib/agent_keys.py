@@ -14,17 +14,22 @@ A mapper under `monitor/` would invert that and break `workflow_phase.py signal`
 
 Stdlib only, matching `gate_ledger.py`: no PyYAML, no tmux, no Textual.
 
-**`pane_current_command` is not an authoritative agent identifier.** Measured
-2026-08-13 on a real session:
+**`pane_current_command` is not an authoritative agent identifier.** tmux names
+the *resolved* executable, while ``ps -o comm=`` names the path that was
+*invoked*, and the two diverge for both symlinked and wrapper installs. Measured
+2026-10-21 on macOS (t2096):
 
-    claude     → native ELF binary          → pane reports `claude`    ✓
-    opencode   → native npx bin             → pane reports `opencode`  ✓
-    codex      → node wrapper, real binary  → pane reports `node`      ✗
-                 spawned as a direct child
+    agent      install shape                       pane_current_command  own comm
+    claude     `~/.local/bin/claude` → symlink to   `2.1.306`        ✗   `claude`  ✓
+               `…/claude/versions/2.1.306`
+    codex      native binary                       `codex`          ✓   `codex`
+    codex      node wrapper, real binary as child  `node`           ✗   `node`    ✗
+    opencode   native npx bin                      `opencode`       ✓
 
-So resolution is a two-rung ladder (:func:`agent_key_from_pane`), and `""` always
-means "could not resolve" — never "not an agent". Callers must degrade on `""`,
-never conclude from it.
+So resolution is a three-rung ladder (:func:`agent_key_from_pane`): the tmux
+command, then the pane process's own comm, then one level of children. `""`
+always means "could not resolve" — never "not an agent". Callers must degrade on
+`""`, never conclude from it.
 """
 from __future__ import annotations
 
@@ -65,7 +70,7 @@ _CACHE_MAX = 512
 # wrapper shape starts asynchronously, so a tick that lands between the pane's
 # exec and its child's exec sees no children at all. Caching that "" like a
 # positive would pin the pane to ledger-only for its entire lifetime — the exact
-# outcome rung 2 exists to prevent.
+# outcome rung 3 (the children) exists to prevent.
 #
 # Shape copied deliberately from `TaskInfoCache._MISS_RETRY_SCHEDULE`: escalating
 # backoff, then a sparse terminal interval repeated FOREVER. The terminal step is
@@ -94,6 +99,35 @@ def agent_key_from_command(current_command: str) -> str:
         return ""
     base = cmd.rsplit("/", 1)[-1].lower()
     return base if base in AGENT_KEYS else ""
+
+
+def _own_command(pane_pid: int) -> str:
+    """Command name of the ``pane_pid`` process ITSELF; ``""`` when unknowable.
+
+    ``ps -o comm=`` reports the invoked path, so a symlink named ``claude`` reads
+    ``claude`` even though tmux reports the target's basename. Every failure
+    (missing binary, non-zero exit — e.g. the pid is gone — timeout, empty
+    output) returns ``""``, which the caller treats as "try the next rung".
+
+    Module-level so tests can substitute it and count invocations.
+    """
+    if not pane_pid or pane_pid <= 0:
+        return ""
+    ps = shutil.which("ps")
+    if not ps:
+        return ""
+    try:
+        named = subprocess.run([ps, "-o", "comm=", "-p", str(pane_pid)],
+                               capture_output=True, text=True,
+                               timeout=_LOOKUP_TIMEOUT)
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    if named.returncode != 0:
+        return ""
+    for line in named.stdout.splitlines():
+        if line.strip():
+            return line.strip()
+    return ""
 
 
 def _child_commands(pane_pid: int) -> list[str]:
@@ -139,9 +173,16 @@ def _child_commands(pane_pid: int) -> list[str]:
 def agent_key_from_pane(current_command: str,
                         pane_pid: int | None = None,
                         pane_id: str = "") -> str:
-    """Two-rung resolution: the pane's own command, then ONE level of children.
+    """Three-rung resolution: the tmux command, the pane process's own comm,
+    then ONE level of children.
 
-    Rung 2 exists because a wrapper-style install hides the agent exactly one
+    Rung 2 exists because tmux reports the *resolved* executable: a native
+    Claude install is a symlink to a version-named binary, so the pane reads
+    ``2.1.306`` while ``ps`` names the invoked ``claude`` (t2096). It outranks
+    the children because it is what the pane process *is*; a child is only what
+    it spawned. A pane invoked by the versioned path itself stays unresolved.
+
+    Rung 3 exists because a wrapper-style install hides the agent exactly one
     level down (measured: ``node`` → ``codex``). It is bounded at one level on
     purpose — at depth 2 a real Codex is already running
     ``codex-code-mode-host``, so a deeper walk would resolve a pane to whatever
@@ -158,7 +199,9 @@ def agent_key_from_pane(current_command: str,
     child's sees no children at all — and is therefore retried on a backoff
     (:data:`_MISS_RETRY_SCHEDULE`, then :data:`_MISS_RETRY_TERMINAL` forever).
     Caching a miss like a hit would pin such a pane to ledger-only for its whole
-    lifetime, which is precisely the outcome rung 2 exists to prevent.
+    lifetime, which is precisely the outcome rung 3 exists to prevent. Both
+    pid-driven rungs sit behind both caches, so a resolved pane costs one lookup
+    for its life and a miss is retried no faster than the backoff allows.
     """
     key = agent_key_from_command(current_command)
     if key:
@@ -181,9 +224,11 @@ def agent_key_from_pane(current_command: str,
         if now - last_attempt < due_after:
             return ""
 
-    resolved_set = {k for k in (agent_key_from_command(c)
-                                for c in _child_commands(int(pane_pid))) if k}
-    resolved = resolved_set.pop() if len(resolved_set) == 1 else ""
+    resolved = agent_key_from_command(_own_command(int(pane_pid)))
+    if not resolved:
+        resolved_set = {k for k in (agent_key_from_command(c)
+                                    for c in _child_commands(int(pane_pid))) if k}
+        resolved = resolved_set.pop() if len(resolved_set) == 1 else ""
 
     if len(_PANE_KEY_CACHE) >= _CACHE_MAX or len(_PANE_MISS_CACHE) >= _CACHE_MAX:
         # Unbounded growth over a long-lived monitor's lifetime is the only

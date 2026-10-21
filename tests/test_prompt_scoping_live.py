@@ -195,7 +195,7 @@ class PromptScopingLiveTests(unittest.TestCase):
         cmd, snap = self._classify("agent-wrapped", CODEX_BODY)
         self.assertNotIn(cmd, ("codex",), "fixture must not resolve at rung 1")
         self.assertEqual(snap.agent_key, "codex",
-                         f"rung 2 must resolve a {cmd!r} pane with a codex child")
+                         f"the child rung must resolve a {cmd!r} pane with a codex child")
         self.assertTrue(snap.scoped)
         self.assertEqual(snap.awaiting_input_kind, "codex_permission")
 

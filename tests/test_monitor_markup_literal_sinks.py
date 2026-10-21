@@ -860,6 +860,11 @@ def _recheck_toast(followed_supported: bool):
         app = _app(MiniMonitorApp)
         app._review_loop = SimpleNamespace(armed=False, generation=0)
         snap = snapshot("agent-a", command=name)
+        # The followed key decides which toast fires: `""` stops at the
+        # "could not identify" refusal (which names the pane command), while a
+        # resolved key gets past it to the shadow-side refusal (t2096). Without
+        # this, the shadow-command site would pass on the followed-side toast.
+        snap.agent_key = "claude" if followed_supported else ""
         app._find_own_agent_snapshot = lambda: snap
         app._monitor = _FakeMonitor()
 

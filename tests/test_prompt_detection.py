@@ -584,14 +584,19 @@ def _check_fixture_is_isolated_from_host_process_table() -> None:
     """
     agent_keys = sys.modules[agent_key_from_pane.__module__]
     real_child_commands = agent_keys._child_commands
+    real_own_command = agent_keys._own_command
     agent_keys._PANE_KEY_CACHE.clear()
     agent_keys._PANE_MISS_CACHE.clear()
+    # Both pid-driven rungs (t2096: own comm, then children) see an agent, so
+    # isolation holds only if the fixture's pid reaches neither.
     agent_keys._child_commands = lambda pane_pid: ["claude"]
+    agent_keys._own_command = lambda pane_pid: "claude"
     try:
         _check_characterization_pattern_command_matrix()
         _check_scoping_provenance_is_reported()
     finally:
         agent_keys._child_commands = real_child_commands
+        agent_keys._own_command = real_own_command
         agent_keys._PANE_KEY_CACHE.clear()
         agent_keys._PANE_MISS_CACHE.clear()
 

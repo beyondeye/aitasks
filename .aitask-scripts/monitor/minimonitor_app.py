@@ -4575,6 +4575,18 @@ class MiniMonitorApp(
         # `snap.agent_key` is the value that actually scoped this pane's prompt
         # matching (t1467) — re-deriving it here could disagree with it.
         followed_key = snap.agent_key
+        if not followed_key:
+            # `""` means "could not resolve", never "not an agent" (agent_keys
+            # contract), so this must not read as a capability refusal: a
+            # Claude pane whose tmux command is `2.1.306` used to be told the
+            # loop "supports claude" (t2096). A miss is usually transient.
+            self.notify(
+                f"Auto-recheck unavailable: could not identify the followed "
+                f"agent from pane command "
+                f"'{snap.pane.current_command or 'unknown'}' — try again in a "
+                f"moment",
+                severity="warning", markup=False)  # pane command (t2017)
+            return
         if not review_loop.review_loop_agent_supported(followed_key):
             # Deliberately NOT `live_tiers_available`: that answers "can an
             # advisory phase hint be derived", while this loop INJECTS into the
@@ -4587,10 +4599,9 @@ class MiniMonitorApp(
             # moment the tuple widened.
             supported = ", ".join(review_loop.REVIEW_LOOP_AGENTS)
             self.notify(
-                f"Auto-recheck unavailable for "
-                f"'{snap.pane.current_command or 'unknown'}' — the recheck loop "
-                f"supports {supported}",
-                severity="warning", markup=False)  # pane command (t2017)
+                f"Auto-recheck unavailable for '{followed_key}' — the recheck "
+                f"loop supports {supported}",
+                severity="warning", markup=False)  # agent key (t2017)
             return
         ok, shadow_pane, shadow_command, shadow_pid = (
             await find_shadow_pane_info_async(
