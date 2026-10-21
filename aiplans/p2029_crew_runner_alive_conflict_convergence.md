@@ -199,7 +199,7 @@ Step 8d creates the spawned "after" mitigation.
 
 ### Planned mitigations
 - timing: post-phase | name: runner_identity_guard | type: bug | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: takeover duel (goal-achievement) | desc: Defer the field-wise resolution when the peer side carries a runner identity (hostname/pid) that differs from both the base and ours; regression cell 16d plus rows in table 17
-- timing: after | name: crew_runner_takeover_duel_detection | type: enhancement | priority: low | effort: medium | inline_risk: medium | added_complexity: medium | addresses: takeover duel (goal-achievement) | desc: Full takeover detection and a safe yield: when a pull (clean or conflicted) shows another live runner owns _runner_alive.yaml, log it and yield or hold rather than overwrite, and report the deferred competing-identity case to the operator
+- timing: after | name: crew_runner_takeover_duel_detection | type: enhancement | priority: low | effort: medium | inline_risk: medium | added_complexity: medium | addresses: takeover duel (goal-achievement) | desc: Full takeover detection and a safe yield: when a pull (clean or conflicted) shows another live runner owns _runner_alive.yaml, log it and yield or hold rather than overwrite, and report the deferred competing-identity case to the operator | created: t2115
 
 ## Post-Review Changes
 
