@@ -20,11 +20,18 @@ type ScannedDoc struct {
 }
 
 // ScannedRow is one scanned unit: an annotated member, a file-level unit
-// carrying covers, or a listed unit carrying variants.
+// carrying covers or axis claims, or a listed unit carrying variants.
+//
+// Axis and Facets are M2.4's named extension: Axis is the owning runner's
+// describe `axis:` on a row with variants (absent when the runner names
+// none), Facets the unit's `testmap:axis` claims, sorted. Both are omitted
+// when empty, so a registry without axes is written byte for byte as before.
 type ScannedRow struct {
 	Test     string         `yaml:"test"`
 	Line     int            `yaml:"line,omitempty"`
+	Axis     string         `yaml:"axis,omitempty"`
 	Variants []string       `yaml:"variants,omitempty,flow"`
+	Facets   []string       `yaml:"facets,omitempty,flow"`
 	Covers   []ScannedCover `yaml:"covers,omitempty"`
 }
 
@@ -58,14 +65,16 @@ const (
 func BuildScanned(cfg Config, anns []FileAnnotations, lists []Listing) (ScannedDoc, []Finding) {
 	type row struct {
 		line     int
+		axis     string
 		covers   map[ScannedCover]bool
 		variants map[string]bool
+		facets   map[string]bool
 	}
 	rows := map[ID]*row{}
 	get := func(id ID) *row {
 		r := rows[id]
 		if r == nil {
-			r = &row{covers: map[ScannedCover]bool{}, variants: map[string]bool{}}
+			r = &row{covers: map[ScannedCover]bool{}, variants: map[string]bool{}, facets: map[string]bool{}}
 			rows[id] = r
 		}
 		return r
@@ -98,12 +107,17 @@ func BuildScanned(cfg Config, anns []FileAnnotations, lists []Listing) (ScannedD
 				if listedPaths[f.Path] && !listedUnits[id] {
 					findings = append(findings, Finding{Rule: RuleDeadMember, Fields: []string{id.String()}, Severity: Always})
 				}
-			} else if len(u.Covers) > 0 {
+			} else if len(u.Covers) > 0 || len(u.Axes) > 0 {
 				get(id)
 			}
 			for _, c := range u.Covers {
 				if r := rows[id]; r != nil {
 					r.covers[ScannedCover{Source: c.Source, Line: c.Line, StampedAt: c.StampedAt, StampedBlob: c.StampedBlob}] = true
+				}
+			}
+			for _, a := range u.Axes {
+				if r := rows[id]; r != nil {
+					r.facets[a] = true
 				}
 			}
 		}
@@ -120,17 +134,23 @@ func BuildScanned(cfg Config, anns []FileAnnotations, lists []Listing) (ScannedD
 				findings = append(findings, Finding{Rule: RuleUnannotatedMember, Fields: []string{base.String()}, Severity: Always})
 			}
 			if u.ID.Variant != "" {
-				get(base).variants[u.ID.Variant] = true
+				r := get(base)
+				r.variants[u.ID.Variant] = true
+				r.axis = l.Axis // one owner per unit, so one axis (readInputs refuses a conflict)
 			}
 		}
 	}
 	doc := ScannedDoc{Contract: testmap.Contract, Units: []ScannedRow{}}
 	for id, r := range rows {
-		sr := ScannedRow{Test: id.String(), Line: r.line}
+		sr := ScannedRow{Test: id.String(), Line: r.line, Axis: r.axis}
 		for v := range r.variants {
 			sr.Variants = append(sr.Variants, v)
 		}
 		sort.Strings(sr.Variants)
+		for f := range r.facets {
+			sr.Facets = append(sr.Facets, f)
+		}
+		sort.Strings(sr.Facets)
 		for c := range r.covers {
 			sr.Covers = append(sr.Covers, c)
 		}

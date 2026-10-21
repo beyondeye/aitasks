@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/beyondeye/aitasks/goengines/internal/testmap/axes"
 	"github.com/beyondeye/aitasks/goengines/internal/testmap/registry"
 	"github.com/bmatcuk/doublestar/v4"
 	"gopkg.in/yaml.v3"
@@ -250,6 +251,9 @@ func (d Describe) Validate() error {
 	case TimeoutsPerUnit, TimeoutsBatch, TimeoutsNone:
 	default:
 		return fmt.Errorf("describe: timeouts %q is not per_unit|batch|none", d.Timeouts)
+	}
+	if _, err := axes.ParseRunnerDecl(d.Ext); err != nil { // M2.4's keys (axis.go)
+		return err
 	}
 	return nil
 }

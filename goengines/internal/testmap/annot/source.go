@@ -188,6 +188,11 @@ func toRegistry(f *File) registry.FileAnnotations {
 				ua.ReadsLine = r.Line.No
 			}
 		}
+		// The axis claims: M2.4's named extension (the grammar guarantees one
+		// `<axis>.<facet>=<value>` argument).
+		for _, ax := range u.Axes {
+			ua.Axes = append(ua.Axes, ax.Args[0])
+		}
 		fa.Units = append(fa.Units, ua)
 	}
 	return fa

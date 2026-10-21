@@ -1,0 +1,141 @@
+package axes
+
+import (
+	"fmt"
+	"strings"
+
+	"github.com/beyondeye/aitasks/goengines/internal/testmap/registry"
+	"gopkg.in/yaml.v3"
+)
+
+// The describe keys M2.4 owns (registered by the runner package, validated
+// here): `axis:` names the declared axis the runner's variants live on;
+// `token_format:` is how one of its units renders for `select --format
+// tokens` (M4.1), the line a project's own preview loop reads.
+const (
+	DescribeAxis        = "axis"
+	DescribeTokenFormat = "token_format"
+)
+
+// DefaultTokenFormat renders the id itself.
+const DefaultTokenFormat = "{id}"
+
+// tokenFields are the placeholders a token format may use.
+var tokenFields = map[string]func(registry.ID) string{
+	"id":      func(id registry.ID) string { return id.String() },
+	"base":    func(id registry.ID) string { return id.Base().String() },
+	"path":    func(id registry.ID) string { return id.Path },
+	"member":  func(id registry.ID) string { return id.Member },
+	"variant": func(id registry.ID) string { return id.Variant },
+}
+
+type tokenPart struct {
+	lit   string
+	field string // "" for a literal part
+}
+
+// TokenFormat is a parsed `token_format:` template: literal text and the
+// placeholders {id} {base} {path} {member} {variant}.
+type TokenFormat struct {
+	raw   string
+	parts []tokenPart
+}
+
+// ParseTokenFormat parses a token template. An unknown placeholder, an
+// unbalanced brace, an empty template or a control character is refused.
+func ParseTokenFormat(s string) (TokenFormat, error) {
+	if s == "" {
+		return TokenFormat{}, fmt.Errorf("token_format is empty")
+	}
+	if hasControl(s) {
+		return TokenFormat{}, fmt.Errorf("token_format %q contains a control character", s)
+	}
+	f := TokenFormat{raw: s}
+	rest := s
+	for rest != "" {
+		open := strings.IndexByte(rest, '{')
+		if cl := strings.IndexByte(rest, '}'); cl >= 0 && (open < 0 || cl < open) {
+			return TokenFormat{}, fmt.Errorf("token_format %q: unbalanced '}'", s)
+		}
+		if open < 0 {
+			f.parts = append(f.parts, tokenPart{lit: rest})
+			break
+		}
+		if open > 0 {
+			f.parts = append(f.parts, tokenPart{lit: rest[:open]})
+		}
+		end := strings.IndexByte(rest[open:], '}')
+		if end < 0 {
+			return TokenFormat{}, fmt.Errorf("token_format %q: unbalanced '{'", s)
+		}
+		name := rest[open+1 : open+end]
+		if _, ok := tokenFields[name]; !ok {
+			return TokenFormat{}, fmt.Errorf("token_format %q: unknown placeholder {%s}", s, name)
+		}
+		f.parts = append(f.parts, tokenPart{field: name})
+		rest = rest[open+end+1:]
+	}
+	return f, nil
+}
+
+// String is the template text.
+func (f TokenFormat) String() string { return f.raw }
+
+// Render renders id through the template; the zero TokenFormat renders the
+// default, {id}.
+func (f TokenFormat) Render(id registry.ID) string {
+	if f.parts == nil {
+		return id.String()
+	}
+	var b strings.Builder
+	for _, p := range f.parts {
+		if p.field == "" {
+			b.WriteString(p.lit)
+		} else {
+			b.WriteString(tokenFields[p.field](id))
+		}
+	}
+	return b.String()
+}
+
+// RunnerDecl is what a runner's describe declares for axes.
+type RunnerDecl struct {
+	Axis        string      // "" = the runner's variants are on no declared axis
+	TokenFormat TokenFormat // zero = DefaultTokenFormat
+}
+
+// ParseRunnerDecl decodes and validates the M2.4 describe keys from a
+// describe's registered-key values. Both are strings; an absent key is its
+// default.
+func ParseRunnerDecl(ext map[string]yaml.Node) (RunnerDecl, error) {
+	var d RunnerDecl
+	if n, ok := ext[DescribeAxis]; ok {
+		s, err := scalar(DescribeAxis, n)
+		if err != nil {
+			return RunnerDecl{}, err
+		}
+		if err := CheckName("axis", s); err != nil {
+			return RunnerDecl{}, fmt.Errorf("describe: axis: %v", err)
+		}
+		d.Axis = s
+	}
+	if n, ok := ext[DescribeTokenFormat]; ok {
+		s, err := scalar(DescribeTokenFormat, n)
+		if err != nil {
+			return RunnerDecl{}, err
+		}
+		f, err := ParseTokenFormat(s)
+		if err != nil {
+			return RunnerDecl{}, fmt.Errorf("describe: %v", err)
+		}
+		d.TokenFormat = f
+	}
+	return d, nil
+}
+
+func scalar(k string, n yaml.Node) (string, error) {
+	if n.Kind != yaml.ScalarNode || n.Tag == "!!null" {
+		return "", fmt.Errorf("describe: %s must be a string", k)
+	}
+	return n.Value, nil
+}

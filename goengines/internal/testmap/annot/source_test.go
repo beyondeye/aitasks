@@ -143,6 +143,25 @@ func TestSourceScopedKeys(t *testing.T) {
 	}
 }
 
+// The axis claims reach the registry (M2.4's named extension): each
+// `testmap:axis` argument in file order, per block.
+func TestSourceAxisClaims(t *testing.T) {
+	r := repo(t, map[string]string{
+		"tests/test_ru.sh": "# testmap:axis matrix.locale=ru\n# testmap:unit Case\n# testmap:axis matrix.direction=rtl\n# testmap:axis matrix.locale=ar\n",
+	})
+	r.Commit(t, "1", "test", "fixtures")
+	got, err := Source{}.Annotations(bg, r.Dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, _ := json.Marshal(got)
+	want := `[{"Path":"tests/test_ru.sh","Units":[{"Member":"","Line":0,"Covers":null,"Axes":["matrix.locale=ru"]},` +
+		`{"Member":"Case","Line":2,"Covers":null,"Axes":["matrix.direction=rtl","matrix.locale=ar"]}]}]`
+	if string(out) != want {
+		t.Errorf("got  %s\nwant %s", out, want)
+	}
+}
+
 // ExcludedReads reads exactly the files Annotations leaves out for `exclude:`
 // and reports an unreadable one instead of failing.
 func TestExcludedReads(t *testing.T) {

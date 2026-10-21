@@ -444,7 +444,7 @@ func (repo *Repository) assign(rcfg registry.Config, ix annIndex) error {
 func (repo *Repository) Listings() []registry.Listing {
 	var out []registry.Listing
 	for _, r := range repo.Runners {
-		l := registry.Listing{Runner: r.Name(), Bound: repo.Bound[r.Name()], ArtifactGlobs: r.Describe.ArtifactGlob}
+		l := registry.Listing{Runner: r.Name(), Bound: repo.Bound[r.Name()], ArtifactGlobs: r.Describe.ArtifactGlob, Axis: r.Describe.Axis()}
 		for _, u := range repo.Units {
 			if u.Runner == r.Name() {
 				l.Units = append(l.Units, registry.ListedUnit{ID: u.ID, Kind: u.Kind, Lowering: u.Lowering, Artifact: u.Artifact})

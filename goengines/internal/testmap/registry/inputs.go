@@ -3,6 +3,8 @@ package registry
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 
 	"github.com/beyondeye/aitasks/goengines/internal/lineproto"
 	"github.com/bmatcuk/doublestar/v4"
@@ -54,6 +56,11 @@ type UnitAnnotation struct {
 	Reads      []string `json:",omitempty"` // `testmap:reads <glob>…` (helpers only)
 	ScopedLine int      `json:",omitempty"` // first kind / area / scope / trigger / reviewed line
 	ReadsLine  int      `json:",omitempty"` // first reads line
+
+	// The axis claims (a named extension of M2.2, filled by M2.4): each
+	// `testmap:axis <axis>.<facet>=<value>` line's argument, in file order.
+	// Placement against the declared axes is M2.4's (internal/testmap/axes).
+	Axes []string `json:",omitempty"`
 }
 
 // Cover is one `testmap:covers <source> [@<date>/<blob10>]` line. The stamp
@@ -77,6 +84,7 @@ type Listing struct {
 	Runner        string
 	Bound         []string // test files the runner's bindings match (UNREGISTERED candidates)
 	ArtifactGlobs []string // the runner's `artifact_glob:` (UNMAPPED_ARTIFACT)
+	Axis          string   // the runner's describe `axis:` (M2.4); "" = its variants are on no declared axis
 	Units         []ListedUnit
 }
 
@@ -166,13 +174,22 @@ func readInputs(ctx context.Context, root string, in Inputs) ([]FileAnnotations,
 					return nil, nil, &InputError{Input: InputAnnotations, Err: errors.New(f.Path + ": covers: " + err.Error())}
 				}
 			}
+			for _, a := range u.Axes {
+				if err := checkChars("axis claim", a); err != nil || a == "" {
+					return nil, nil, &InputError{Input: InputAnnotations, Err: fmt.Errorf("%s: axis claim %q is invalid", f.Path, a)}
+				}
+			}
 		}
 	}
 	lists, err := in.Lister.List(ctx, root)
 	if err != nil {
 		return nil, nil, &InputError{Input: InputLister, Err: err}
 	}
+	axisOf := map[ID]string{} // a variant-bearing unit's axis: one owner, so one axis
 	for _, l := range lists {
+		if l.Axis != "" && (checkChars("axis", l.Axis) != nil || strings.ContainsAny(l.Axis, "./=")) {
+			return nil, nil, &InputError{Input: InputLister, Err: fmt.Errorf("%s: invalid axis %q", l.Runner, l.Axis)}
+		}
 		for _, p := range l.Bound {
 			if err := checkPath(p); err != nil {
 				return nil, nil, &InputError{Input: InputLister, Err: errors.New(l.Runner + ": bound: " + err.Error())}
@@ -187,6 +204,13 @@ func readInputs(ctx context.Context, root string, in Inputs) ([]FileAnnotations,
 			if !u.ID.Valid() {
 				return nil, nil, &InputError{Input: InputLister, Err: errors.New(l.Runner + ": invalid id " + u.ID.String())}
 			}
+			if u.ID.Variant == "" {
+				continue
+			}
+			if prev, seen := axisOf[u.ID.Base()]; seen && prev != l.Axis {
+				return nil, nil, &InputError{Input: InputLister, Err: fmt.Errorf("%s: variants of %s listed on axes %q and %q", l.Runner, u.ID.Base(), prev, l.Axis)}
+			}
+			axisOf[u.ID.Base()] = l.Axis
 		}
 	}
 	return anns, lists, nil

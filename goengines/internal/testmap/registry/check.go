@@ -85,6 +85,9 @@ type CheckContext struct {
 // CheckOptions are the flags of `check`.
 type CheckOptions struct {
 	Strict bool
+	// Rules, when set, runs only the rules with these names (M2.4's `axes
+	// --check`); a name no rule has is a CheckError.
+	Rules []string
 }
 
 // CheckResult is what `check` found.
@@ -93,6 +96,32 @@ type CheckResult struct {
 	Findings []Finding `json:"findings"`
 	Failing  int       `json:"failing"`
 	Summary  []Finding `json:"summary"`
+}
+
+// selectRules returns the registered rules named in names, in registration
+// order; every rule when names is empty.
+func selectRules(names []string) ([]CheckRule, error) {
+	if len(names) == 0 {
+		return rules, nil
+	}
+	want := map[string]bool{}
+	for _, n := range names {
+		want[n] = true
+	}
+	var out []CheckRule
+	found := map[string]bool{}
+	for _, r := range rules {
+		if want[r.Name] { // several rules may share a name (OWNS_VIOLATION, SCAN_DRIFT)
+			out = append(out, r)
+			found[r.Name] = true
+		}
+	}
+	for _, n := range names {
+		if !found[n] {
+			return nil, &CheckError{Rule: "options", Err: errors.New("unknown rule " + n)}
+		}
+	}
+	return out, nil
 }
 
 // now is the clock `check` judges dates against; tests replace it.
@@ -117,8 +146,12 @@ func Check(ctx context.Context, root string, in Inputs, opts CheckOptions) (*Che
 		Root: root, Reg: reg, Anns: anns, Lists: lists, Scanned: doc, MemberDrift: drift,
 		Strict: opts.Strict, Today: now(),
 	}
+	active, err := selectRules(opts.Rules)
+	if err != nil {
+		return nil, err
+	}
 	var patterns []string
-	for _, r := range rules {
+	for _, r := range active {
 		if r.Patterns != nil {
 			patterns = append(patterns, r.Patterns(c)...)
 		}
@@ -129,7 +162,7 @@ func Check(ctx context.Context, root string, in Inputs, opts CheckOptions) (*Che
 	}
 	res := &CheckResult{Findings: []Finding{}, Summary: []Finding{}}
 	strict := opts.Strict && reg.Config.PastBootstrap(c.Today)
-	for _, r := range rules {
+	for _, r := range active {
 		found, err := r.Run(c)
 		var ie *InputError
 		if errors.As(err, &ie) {

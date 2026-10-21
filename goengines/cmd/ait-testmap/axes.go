@@ -1,0 +1,172 @@
+package main
+
+import (
+	"context"
+	"flag"
+	"fmt"
+	"io"
+	"strconv"
+	"strings"
+
+	"github.com/beyondeye/aitasks/goengines/internal/lineproto"
+	"github.com/beyondeye/aitasks/goengines/internal/testmap/axes"
+	"github.com/beyondeye/aitasks/goengines/internal/testmap/registry"
+)
+
+// axesExits is the exit contract of `axes`: 0 ok, 1 a failing axis finding
+// (--check), 2 no `aitestmap/` or (for --list / --explain) no axes.yaml, 3 the
+// registry or an input could not be loaded or inspected, 64 usage.
+var axesExits = lineproto.ExitContract{
+	lineproto.ExitOK, lineproto.ExitFail, lineproto.ExitNothingRan, lineproto.ExitFramework, lineproto.ExitUsage,
+}
+
+// runAxes is `axes [--list] [--json] | axes --check [--strict] [--json] |
+// axes --explain <path> [--json]` (M2.4).
+func runAxes(e env, args []string) int {
+	const usage = "ait-testmap axes [--list] [--json] | axes --check [--strict] [--json] | axes --explain <path> [--json]"
+	fs := flag.NewFlagSet("axes", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	list := fs.Bool("list", false, "list every declared axis with its values and listed variant counts (the default)")
+	check := fs.Bool("check", false, "run the axis check rules")
+	explain := fs.String("explain", "", "where one path lands on every facet")
+	strict := fs.Bool("strict", false, "with --check: fail structural findings once bootstrap_until has passed")
+	asJSON := fs.Bool("json", false, "print one JSON object")
+	if err := fs.Parse(args); err != nil || fs.NArg() > 0 {
+		return lineproto.Usage(e.stderr, usage)
+	}
+	explaining := false
+	fs.Visit(func(f *flag.Flag) { explaining = explaining || f.Name == "explain" })
+	modes := 0
+	for _, on := range []bool{*list, *check, explaining} {
+		if on {
+			modes++
+		}
+	}
+	if modes > 1 || (*strict && !*check) {
+		return lineproto.Usage(e.stderr, usage)
+	}
+	if explaining && registry.CheckPath(*explain) != nil {
+		return lineproto.Usage(e.stderr, usage)
+	}
+	root, err := cwd()
+	if err != nil {
+		return reportError(e, err)
+	}
+	if *check {
+		return axesCheck(e, root, *strict, *asJSON)
+	}
+	reg, err := registry.Load(root)
+	if err != nil {
+		return reportError(e, err)
+	}
+	t := axes.Of(reg)
+	if !t.Declared() {
+		fmt.Fprintln(e.stderr, "AXES_ABSENT:"+axes.Path)
+		return lineproto.ExitNothingRan
+	}
+	if explaining {
+		return axesExplain(e, t, *explain, *asJSON)
+	}
+	return axesList(e, root, reg, t, *asJSON)
+}
+
+// axesCheck runs only the axis rules through `check`'s engine.
+func axesCheck(e env, root string, strict, asJSON bool) int {
+	res, err := registry.Check(context.Background(), root, testmapInputs(), registry.CheckOptions{Strict: strict, Rules: axes.RuleNames})
+	if err != nil {
+		return reportError(e, err)
+	}
+	code := lineproto.ExitOK
+	if res.Failing > 0 {
+		code = lineproto.ExitFail
+	}
+	if asJSON {
+		if err := lineproto.NewWriter(e.stdout, true).Emit(res); err != nil {
+			return reportError(e, err)
+		}
+		return code
+	}
+	lines := findingLines(res.Findings)
+	lines = append(lines, []string{"CHECK", res.Status, strconv.Itoa(len(res.Findings)), strconv.Itoa(res.Failing)})
+	if c := printLines(e, lines); c != lineproto.ExitOK {
+		return c
+	}
+	return code
+}
+
+type axisValueJSON struct {
+	Value    string            `json:"value"`
+	Facets   map[string]string `json:"facets"`
+	Variants int               `json:"variants"`
+}
+
+type axisJSON struct {
+	Name     string          `json:"name"`
+	Facets   []string        `json:"facets"`
+	Values   []axisValueJSON `json:"values"`
+	Variants int             `json:"variants"`
+}
+
+// axesList counts the variants the runners list now (the same inputs and
+// exclusions as `check`) per declared value.
+func axesList(e env, root string, reg *registry.Registry, t *axes.Table, asJSON bool) int {
+	anns, lists, err := registry.ReadInputs(context.Background(), root, testmapInputs())
+	if err != nil {
+		return reportError(e, err)
+	}
+	doc, _ := registry.BuildScanned(reg.Config, anns, lists)
+	counts := t.Counts(doc.Units)
+	out := []axisJSON{}
+	for _, a := range t.Axes {
+		aj := axisJSON{Name: a.Name, Facets: a.Facets, Values: []axisValueJSON{}}
+		for _, v := range a.ValueNames() {
+			n := counts[a.Name][v]
+			aj.Values = append(aj.Values, axisValueJSON{Value: v, Facets: a.Values[v], Variants: n})
+			aj.Variants += n
+		}
+		out = append(out, aj)
+	}
+	if asJSON {
+		if err := lineproto.NewWriter(e.stdout, true).Emit(struct {
+			Axes []axisJSON `json:"axes"`
+		}{out}); err != nil {
+			return reportError(e, err)
+		}
+		return lineproto.ExitOK
+	}
+	var lines [][]string
+	for _, aj := range out {
+		lines = append(lines, []string{"AXIS_DECL", aj.Name, strings.Join(aj.Facets, ","), strconv.Itoa(len(aj.Values)), strconv.Itoa(aj.Variants)})
+		for _, v := range aj.Values {
+			var fv []string
+			for _, f := range aj.Facets {
+				fv = append(fv, f+"="+v.Facets[f])
+			}
+			lines = append(lines, []string{"AXIS_VALUE", aj.Name, v.Value, strings.Join(fv, ","), strconv.Itoa(v.Variants)})
+		}
+	}
+	lines = append(lines, []string{"AXIS_DECLS", strconv.Itoa(len(out))})
+	return printLines(e, lines)
+}
+
+// axesExplain prints AXIS:<axis>.<facet>|<value or ->|<why> for one path.
+func axesExplain(e env, t *axes.Table, path string, asJSON bool) int {
+	ex := t.Explain(path)
+	if asJSON {
+		if ex == nil {
+			ex = []axes.Explanation{}
+		}
+		if err := lineproto.NewWriter(e.stdout, true).Emit(struct {
+			Path string             `json:"path"`
+			Hits []axes.Explanation `json:"hits"`
+		}{path, ex}); err != nil {
+			return reportError(e, err)
+		}
+		return lineproto.ExitOK
+	}
+	var lines [][]string
+	for _, x := range ex {
+		lines = append(lines, []string{"AXIS", x.Axis + "." + x.Facet, x.Value, x.Why})
+	}
+	return printLines(e, lines)
+}

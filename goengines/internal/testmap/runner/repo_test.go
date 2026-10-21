@@ -226,6 +226,8 @@ func TestDescribeOverrideValidated(t *testing.T) {
 	}
 	for yaml, want := range map[string]string{
 		"runners:\n  - name: full\n    timeouts: never\n":                                   "RUNNER_INVALID:full|describe: timeouts",
+		"runners:\n  - name: full\n    axis: a.b\n":                                         "RUNNER_INVALID:full|describe: axis: invalid axis name",
+		"runners:\n  - name: full\n    token_format: '{nope}'\n":                            "unknown placeholder {nope}",
 		"runners:\n  - name: full\n    fallback_command: make test\n":                       "fallback_command is only valid on a unit: suite runner",
 		"runners:\n  - name: full\n    timeouts: batch\n":                                   "timeouts: batch needs batch_timeout_s",
 		"runners:\n  - name: full\n    batch_timeout_s: 5\n    timeout_s: 1\n":              "batch_timeout_s is only valid with timeouts: batch",

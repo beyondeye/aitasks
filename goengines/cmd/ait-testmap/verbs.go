@@ -45,7 +45,7 @@ var verbs = []verb{
 	{Name: "annotate", Run: runAnnotate, Exits: stampExits},
 	{Name: "verify", Run: runVerify, Exits: stampExits},
 	stub("explain"),
-	stub("axes"),
+	{Name: "axes", Run: runAxes, Exits: axesExits},
 	{Name: "areas", Run: runAreas, Exits: areasExits},
 	{Name: "classify", Run: runClassify, Exits: classifyExits},
 	{Name: "costs", Run: runCosts, Exits: costsExits},

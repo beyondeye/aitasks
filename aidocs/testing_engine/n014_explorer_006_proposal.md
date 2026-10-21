@@ -451,6 +451,7 @@ Every line class is defined once. This table says where.
 | `AUTHOR_STAMPED:` `AUTHOR_REFUSED:` `AUTHOR_UNCORROBORATED:` | *The Agent Review Pass* → The authoring site; component *Author annotation* |
 | `FRAMEWORK:` `UNIVERSE:` `UNLISTED:` `AGGREGATE_RUNNER:` `SERIAL_LIST:` `RESOURCE_HINT:` `SUITE_CANDIDATE:` `RUNNER_SCRIPT_NEEDED:` `DETECT_DIFF:` `DETECT_UNKNOWN` `UNREGISTERED:` `CLASSIFY:` `KIND_PROPOSALS:` `FINISH:` `SCAFFOLD_TODO` `ENABLE_REFUSED:` | component *Onboarding verbs*; *Onboarding* (`CLASSIFY:` in component *Scoped-row registry and areas*; `ENABLE_REFUSED:` in *Onboarding* → the `enable` phase) |
 | `AREA:` `AREAS:` `AREA_IMPORT:` `CODEMAP_ABSENT:` | component *Scoped-row registry and areas* |
+| `AXIS:` `AXIS_DECL:` `AXIS_VALUE:` `AXIS_DECLS:` `AXES_ABSENT:` | component *Axis resolver verbs* |
 | `run`'s wave lines, per-id result lines and mechanism-failure lines; the `schedule` report and `schedule --check` lines; `costs` lines and `GATE_TIMEOUT_SUGGESTED:` | components *Runner contract*, *Scheduler and resources* (M3.1, M3.3); *Cost ledger* (M3.4) — line names fixed by those submodules |
 | `SURFACE` `EDGES` `STALE_PATH` `STALE` `EVIDENCED` `UNSTAMPED` `STALE_AREA` `REVIEW_DUE` `UNKNOWN` `DISPLAY` `DECISION` `CHECK_STRUCTURAL:` `SEEDED:` `ADOPTED:` | component *Staleness tool* |
 | `PREDICTION_SCORED:` `PREDICTION_FALSE_NEGATIVES:` `PREDICTION_MISSED:` `REJECTION_CONTRADICTED:` `LEVEL:` `NEXT:` `ADOPTED_UNREVIEWED:` `AGENT_ADOPTED:` | component *Feedback tools* |
@@ -2271,8 +2272,12 @@ rows `{name, when: [<glob>…], select: [<glob>[#<member glob>]…], implies:
 <glob>, reason, until?: YYYY-MM-DD}`; M2.5 adds `scopes:` / `areas:`. An
 unknown top-level key is refused; an unknown row field is ignored (the
 contract is additive). The generated `_scanned.yaml` is `{contract, units:
-[{test: <path>[#<member>], line?, variants?: [<value>…], covers?: [{source,
-line?, stamped_at?, stamped_blob?}]}]}`. The names `_scoped.yaml`,
+[{test: <path>[#<member>], line?, axis?, variants?: [<value>…], facets?:
+[<axis>.<facet>=<value>…], covers?: [{source, line?, stamped_at?,
+stamped_blob?}]}]}` — `axis` (the owning runner's describe `axis:`, on a row
+with variants) and `facets` (the unit's `testmap:axis` claims) are M2.4's and
+are omitted when empty, so `select` places variants and claimed plain units
+from committed state. The names `_scoped.yaml`,
 `areas.yaml`, `observed.yaml`, `seeded.yaml`, `adopted.yaml` and any other
 `_`-prefixed file are reserved: refused until the owning submodule registers
 its loader, never read as a hand file. **The one merge rule**: every file
@@ -2706,7 +2711,26 @@ plain units carrying `testmap:axis` for that value, or every variant of a
 unit reached by an edge, dep, rule or test-dep; `--axis <axis>.<facet>=<v>`
 forces a facet. Costs, `last_pass`, evidence and score are per variant;
 `check` enforces `DEAD_AXIS_SOURCE`, `UNKNOWN_VARIANT` and `UNCOVERED_VALUE`;
-observed sources widen only. The engine holds no project axis — the first
+observed sources widen only.
+
+`axes.yaml` is strict: a value names exactly one facet value per declared
+facet, and a source may only name a facet value some declared value carries,
+so a misspelt source is refused at load. The axis channel is additive: a
+selector selects the union of the axis join and every variant of each unit an
+edge, dep, rule or test-dep reaches, and never their intersection. A listed
+variant whose value the axis does not declare is placed by every hit on that
+axis (widening), so a missing declaration never under-selects. `--axis` is a
+cut: it keeps a variant only when its declared value carries the forced facet
+value (forces on one facet are alternatives; an undeclared value is cut) and a
+claimed plain unit only when it claims that value. Observed sources enter
+through the widen-only merge, which unions globs into declared `(axis, facet,
+value)` cells and never removes one or touches the declared values; the
+`registry/observed.yaml` loader that feeds it is M4.4's. A runner's
+`token_format:` is a template of literal text and `{id}` `{base}` `{path}`
+`{member}` `{variant}` (default `{id}`) that `select --format tokens` renders
+per selected unit. Whether a source may name a facet value only plain-unit
+claims carry is an open question for M4.1's design, weighed together with typo
+detection and the accepted `--axis` values. The engine holds no project axis — the first
 consumer is thinking_app's `matrix` axis with facets locale / direction /
 geometry over its 10 recording matrices. Level-3 `onboard scaffold --axes`
 writes only the skeleton the maintainer fills; the grid heuristic proposes, a
@@ -2717,12 +2741,16 @@ person declares (design decision 17).
 ### Axis resolver verbs *(M2.4)*
 
 `ait testmap axes --list` prints every declared axis with its facets, values
-and the variant count each value has in `list`; `--check` runs the axis
-rules (`DEAD_AXIS_SOURCE`, `UNKNOWN_VARIANT`, `UNCOVERED_VALUE`); `--explain
+and the variant count each value has in `list` (`AXIS_DECL:<axis>|<facets>|<values>|<variants>`,
+`AXIS_VALUE:<axis>|<value>|<facet>=<v>,…|<variants>`, then `AXIS_DECLS:<n>`);
+`--check [--strict]` runs only the axis rules (`DEAD_AXIS_SOURCE`,
+`UNKNOWN_VARIANT`, `UNCOVERED_VALUE`) and ends with `CHECK:`; `--explain
 <path>` prints `AXIS:<axis>.<facet>|<value or ->|<why>` per facet for one file
-— which glob matched, or that no source is declared — so a maintainer sees
-where a file lands before anything is trusted. `-` means no axis hit, which
-selects every variant.
+— which glob matched (`observed:<glob>` for an observed source), `no-source`
+when the facet declares none, or `no-match` — so a maintainer sees where a
+file lands before anything is trusted. `-` means no axis hit, which selects
+every variant. With no `axes.yaml`, `--list` and `--explain` print
+`AXES_ABSENT:aitestmap/axes.yaml` and exit 2; `--check` still runs.
 <!-- /section: component_axes -->
 
 <!-- section: component_cell_enumeration [dimensions: component_cell_enumeration] -->
@@ -2757,6 +2785,8 @@ fails:
 |---|---|
 | always fails | `STALE_PATH:<test>\|<source>` (the source is absent or a directory), `UNANNOTATED_MEMBER:<id>` (only in a file with at least one `testmap:unit` block), `DEAD_MEMBER:<file>#<member>`, `OWNS_VIOLATION`, `DUPLICATE_RULE`, `UNSTAMPED:<test>\|<source>` (reported only under `require_stamp` past `bootstrap_until`) |
 | fails under `--strict` past `bootstrap_until` (no `bootstrap_until` = no window) | `UNREGISTERED:<path>`, `UNMAPPED_ARTIFACT:<path>\|<runner>`, `SCAN_DRIFT:<path>` (the committed `_scanned.yaml` is not what `scan --apply` would write) |
+| always fails (M2.4) | `DEAD_AXIS_SOURCE:<axis>\|<facet>\|<value>\|<glob>` (a declared axis source matching no existing file) |
+| fails under `--strict` past `bootstrap_until` (M2.4) | `UNCOVERED_VALUE:<axis>\|<value>`; `UNKNOWN_VARIANT:<id>\|<axis>\|undeclared-axis\|undeclared-value` (a listed variant whose runner names an axis `axes.yaml` does not declare, or whose value that axis does not declare) and `UNKNOWN_VARIANT:<unit>\|<axis>.<facet>=<value>\|claim-undeclared-axis\|claim-undeclared-facet\|claim-undeclared-value` (a `testmap:axis` claim no declared value can place). A runner that names no `axis:` is not judged: its variants are selected with their unit |
 | never fails | `WAIVER_EXPIRED` |
 
 The files a declared pattern reaches (a runner's `artifact_glob:`, a rule's

@@ -1,0 +1,115 @@
+package axes
+
+import (
+	"github.com/beyondeye/aitasks/goengines/internal/testmap/registry"
+)
+
+// The three axis check rules (M2.4's, registered into M2.1's `check`).
+const (
+	// DEAD_AXIS_SOURCE:<axis>|<facet>|<value>|<glob> — a declared source glob
+	// matches no existing file. Always fails (like DEAD_SCOPE).
+	RuleDeadAxisSource = "DEAD_AXIS_SOURCE"
+	// UNKNOWN_VARIANT:<id>|<axis>|undeclared-axis|undeclared-value — a listed
+	// variant whose runner names an axis axes.yaml does not declare, or whose
+	// value the axis does not declare; UNKNOWN_VARIANT:<unit>|<claim>|
+	// claim-undeclared-axis|claim-undeclared-facet|claim-undeclared-value — a
+	// `testmap:axis` claim the table cannot place. Fails under --strict past
+	// bootstrap. A runner that names no axis is not judged: its variants are
+	// selected with their unit.
+	RuleUnknownVariant = "UNKNOWN_VARIANT"
+	// UNCOVERED_VALUE:<axis>|<value> — a declared value no runner lists on
+	// that axis. Fails under --strict past bootstrap.
+	RuleUncoveredValue = "UNCOVERED_VALUE"
+)
+
+// RuleNames are the axis rules, in registration order (`axes --check`).
+var RuleNames = []string{RuleDeadAxisSource, RuleUnknownVariant, RuleUncoveredValue}
+
+func init() {
+	registry.RegisterRule(registry.CheckRule{Name: RuleDeadAxisSource, Patterns: sourcePatterns, Run: checkDeadSources})
+	registry.RegisterRule(registry.CheckRule{Name: RuleUnknownVariant, Run: checkUnknownVariants})
+	registry.RegisterRule(registry.CheckRule{Name: RuleUncoveredValue, Run: checkUncoveredValues})
+}
+
+// handSources walks every declared (hand) source in a fixed order.
+func handSources(t *Table, fn func(a *Axis, facet, v string, s Source)) {
+	for _, a := range t.Axes {
+		for _, f := range a.Facets {
+			for _, v := range sortedKeys(a.Sources[f]) {
+				for _, s := range a.Sources[f][v] {
+					if s.Origin == OriginHand {
+						fn(a, f, v, s)
+					}
+				}
+			}
+		}
+	}
+}
+
+func sourcePatterns(c *registry.CheckContext) []string {
+	var out []string
+	handSources(Of(c.Reg), func(_ *Axis, _, _ string, s Source) { out = append(out, s.Glob) })
+	return out
+}
+
+func checkDeadSources(c *registry.CheckContext) ([]registry.Finding, error) {
+	var out []registry.Finding
+	handSources(Of(c.Reg), func(a *Axis, f, v string, s Source) {
+		if len(c.Match[s.Glob]) == 0 {
+			out = append(out, registry.Finding{Rule: RuleDeadAxisSource, Fields: []string{a.Name, f, v, s.Glob}, Severity: registry.Always})
+		}
+	})
+	return out, nil
+}
+
+func checkUnknownVariants(c *registry.CheckContext) ([]registry.Finding, error) {
+	t := Of(c.Reg)
+	var out []registry.Finding
+	add := func(fields ...string) {
+		out = append(out, registry.Finding{Rule: RuleUnknownVariant, Fields: fields, Severity: registry.StrictPastBootstrap})
+	}
+	for _, r := range c.Scanned.Units {
+		if r.Axis != "" {
+			a, ok := t.Axis(r.Axis)
+			for _, v := range r.Variants {
+				id := r.Test + "@" + v
+				switch {
+				case !ok:
+					add(id, r.Axis, "undeclared-axis")
+				case a.Values[v] == nil:
+					add(id, r.Axis, "undeclared-value")
+				}
+			}
+		}
+		for _, s := range r.Facets {
+			cl, err := ParseClaim(s)
+			if err != nil {
+				return nil, err // the annotation source and the loader guarantee the shape
+			}
+			a, ok := t.Axis(cl.Axis)
+			switch {
+			case !ok:
+				add(r.Test, s, "claim-undeclared-axis")
+			case !a.HasFacet(cl.Facet):
+				add(r.Test, s, "claim-undeclared-facet")
+			case !a.Carried(cl.Facet, cl.Value):
+				add(r.Test, s, "claim-undeclared-value")
+			}
+		}
+	}
+	return out, nil
+}
+
+func checkUncoveredValues(c *registry.CheckContext) ([]registry.Finding, error) {
+	t := Of(c.Reg)
+	counts := t.Counts(c.Scanned.Units)
+	var out []registry.Finding
+	for _, a := range t.Axes {
+		for _, v := range a.ValueNames() {
+			if counts[a.Name][v] == 0 {
+				out = append(out, registry.Finding{Rule: RuleUncoveredValue, Fields: []string{a.Name, v}, Severity: registry.StrictPastBootstrap})
+			}
+		}
+	}
+	return out, nil
+}

@@ -1,0 +1,445 @@
+package axes
+
+import (
+	"fmt"
+	"sort"
+
+	"github.com/beyondeye/aitasks/goengines/internal/testmap/registry"
+	"github.com/bmatcuk/doublestar/v4"
+)
+
+// Hit is one changed path placed on a facet value by a source glob.
+type Hit struct {
+	Axis   string `json:"axis"`
+	Facet  string `json:"facet"`
+	Value  string `json:"value"` // the facet value
+	Glob   string `json:"glob"`
+	Origin Origin `json:"origin"`
+	Path   string `json:"path"`
+}
+
+// Join is the facet join: every (path, source) pair whose glob matches the
+// path. The match is pattern-level (doublestar.Match), so a deleted path
+// still joins. Hits are deduplicated and sorted.
+func (t *Table) Join(paths []string) []Hit {
+	seen := map[Hit]bool{}
+	var out []Hit
+	for _, p := range paths {
+		for _, a := range t.axesOrNil() {
+			for _, f := range a.Facets {
+				for _, v := range sortedKeys(a.Sources[f]) {
+					for _, s := range a.Sources[f][v] {
+						if ok, _ := doublestar.Match(s.Glob, p); !ok {
+							continue
+						}
+						h := Hit{Axis: a.Name, Facet: f, Value: v, Glob: s.Glob, Origin: s.Origin, Path: p}
+						if !seen[h] {
+							seen[h] = true
+							out = append(out, h)
+						}
+					}
+				}
+			}
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return hitLess(out[i], out[j]) })
+	return out
+}
+
+func hitLess(a, b Hit) bool {
+	switch {
+	case a.Axis != b.Axis:
+		return a.Axis < b.Axis
+	case a.Path != b.Path:
+		return a.Path < b.Path
+	case a.Facet != b.Facet:
+		return a.Facet < b.Facet
+	case a.Value != b.Value:
+		return a.Value < b.Value
+	case a.Origin != b.Origin:
+		return a.Origin < b.Origin // hand < observed
+	}
+	return a.Glob < b.Glob
+}
+
+func (t *Table) axesOrNil() []*Axis {
+	if t == nil {
+		return nil
+	}
+	return t.Axes
+}
+
+// Explanation is one `axes --explain` line: where a path lands on one facet.
+// Value is "-" when no source places it; Why is the matching glob (prefixed
+// "observed:" for an observed one), "no-source" when the facet declares no
+// source, or "no-match" when none of its sources matches.
+type Explanation struct {
+	Axis  string `json:"axis"`
+	Facet string `json:"facet"`
+	Value string `json:"value"`
+	Why   string `json:"why"`
+}
+
+// Explain reports, per axis and per facet in declaration order, where path
+// lands. "-" means no axis hit, which selects every variant.
+func (t *Table) Explain(path string) []Explanation {
+	var out []Explanation
+	for _, a := range t.axesOrNil() {
+		for _, f := range a.Facets {
+			if len(a.Sources[f]) == 0 {
+				out = append(out, Explanation{Axis: a.Name, Facet: f, Value: "-", Why: "no-source"})
+				continue
+			}
+			var hits []Explanation
+			for _, origin := range []Origin{OriginHand, OriginObserved} {
+				for _, v := range sortedKeys(a.Sources[f]) {
+					for _, s := range a.Sources[f][v] {
+						if s.Origin != origin {
+							continue
+						}
+						if ok, _ := doublestar.Match(s.Glob, path); ok {
+							why := s.Glob
+							if origin == OriginObserved {
+								why = "observed:" + s.Glob
+							}
+							hits = append(hits, Explanation{Axis: a.Name, Facet: f, Value: v, Why: why})
+						}
+					}
+				}
+			}
+			if len(hits) == 0 {
+				hits = []Explanation{{Axis: a.Name, Facet: f, Value: "-", Why: "no-match"}}
+			}
+			out = append(out, hits...)
+		}
+	}
+	return out
+}
+
+// Placed is one unit an axis hit selects: a variant whose value carries the
+// hit's facet value (or whose value the axis does not declare — Undeclared,
+// placed by widening so a missing declaration never under-selects), or a
+// plain unit claiming the facet value through `testmap:axis`.
+type Placed struct {
+	ID         registry.ID `json:"id"`
+	Axis       string      `json:"axis"`
+	Facet      string      `json:"facet"`
+	FacetValue string      `json:"facet_value"`
+	Path       string      `json:"path"`
+	Glob       string      `json:"glob"`
+	Undeclared bool        `json:"undeclared,omitempty"`
+}
+
+// Reason is the selector's reason text, `axis(<axis>.<facet>=<v>) <- <path>`.
+func (p Placed) Reason() string {
+	return fmt.Sprintf("axis(%s.%s=%s) <- %s", p.Axis, p.Facet, p.FacetValue, p.Path)
+}
+
+// Rows is an index of scanned rows by id, with the file-level claims each
+// member inherits. Build it once with IndexRows and reuse it across the
+// Admits calls of one selection.
+type Rows struct {
+	rows      map[registry.ID]registry.ScannedRow
+	order     []registry.ID
+	fileClaim map[string][]string // path -> the file-level row's claims
+	members   map[string]bool     // path has member rows
+}
+
+// IndexRows indexes scanned rows. A row whose id does not parse or carries a
+// variant fragment is an error: a skipped row would be an unselectable unit.
+func IndexRows(rows []registry.ScannedRow) (*Rows, error) {
+	ix := &Rows{rows: map[registry.ID]registry.ScannedRow{}, fileClaim: map[string][]string{}, members: map[string]bool{}}
+	for _, r := range rows {
+		id, err := registry.ParseID(r.Test)
+		if err != nil {
+			return nil, err
+		}
+		if id.Variant != "" {
+			return nil, fmt.Errorf("scanned row %s carries a variant fragment", r.Test)
+		}
+		if _, dup := ix.rows[id]; !dup {
+			ix.order = append(ix.order, id)
+		}
+		ix.rows[id] = r
+		if id.Member == "" {
+			ix.fileClaim[id.Path] = r.Facets
+		} else {
+			ix.members[id.Path] = true
+		}
+	}
+	return ix, nil
+}
+
+// claimsOf is a plain unit's own claims plus its file-level row's.
+func (ix *Rows) claimsOf(id registry.ID) []Claim {
+	var out []Claim
+	raw := ix.rows[id].Facets
+	if id.Member != "" {
+		raw = append(append([]string{}, raw...), ix.fileClaim[id.Path]...)
+	}
+	for _, s := range raw {
+		if c, err := ParseClaim(s); err == nil {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// plain reports whether id is a runnable plain unit for claims: a row with
+// no variants, and not the file-level row of a file whose units are members.
+func (ix *Rows) plain(id registry.ID) bool {
+	r := ix.rows[id]
+	if len(r.Variants) > 0 {
+		return false
+	}
+	return id.Member != "" || !ix.members[id.Path]
+}
+
+// Select is variant expansion from axis hits over the scanned rows (the
+// committed `_scanned.yaml` units, or what scan would write). A hit on axis A
+// for facet f = v places every variant of an A row whose declared value
+// carries f=v, every A variant whose value A does not declare (Undeclared),
+// and every plain unit whose own or file-level claims carry A.f=v. A
+// variant-bearing row's claims are not consulted — its variants carry the
+// facet values. It is a method because which value carries f=v is the
+// table's declaration, in neither argument. Results are deduplicated and
+// sorted by id.
+func (t *Table) Select(rows []registry.ScannedRow, hits []Hit) ([]Placed, error) {
+	ix, err := IndexRows(rows)
+	if err != nil {
+		return nil, err
+	}
+	seen := map[Placed]bool{}
+	var out []Placed
+	add := func(p Placed) {
+		if !seen[p] {
+			seen[p] = true
+			out = append(out, p)
+		}
+	}
+	for _, h := range hits {
+		a, ok := t.Axis(h.Axis)
+		if !ok {
+			continue
+		}
+		for _, id := range ix.order {
+			r := ix.rows[id]
+			if len(r.Variants) > 0 {
+				if r.Axis != a.Name {
+					continue
+				}
+				for _, v := range r.Variants {
+					p := Placed{ID: registry.ID{Path: id.Path, Member: id.Member, Variant: v}, Axis: a.Name, Facet: h.Facet, FacetValue: h.Value, Path: h.Path, Glob: h.Glob}
+					decl, declared := a.Values[v]
+					switch {
+					case !declared:
+						p.Undeclared = true
+						add(p)
+					case decl[h.Facet] == h.Value:
+						add(p)
+					}
+				}
+				continue
+			}
+			if !ix.plain(id) {
+				continue
+			}
+			for _, c := range ix.claimsOf(id) {
+				if c.Axis == a.Name && c.Facet == h.Facet && c.Value == h.Value {
+					add(Placed{ID: id, Axis: a.Name, Facet: h.Facet, FacetValue: h.Value, Path: h.Path, Glob: h.Glob})
+					break
+				}
+			}
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if a, b := out[i].ID.String(), out[j].ID.String(); a != b {
+			return a < b
+		}
+		return out[i].Reason()+out[i].Glob < out[j].Reason()+out[j].Glob
+	})
+	return out, nil
+}
+
+// Expand returns every variant of a unit reached by an edge, dep, rule or
+// test-dep — `<unit>@<v>` for each listed variant, sorted — or the unit
+// itself when it carries no variants or already names one. Mapping a
+// file-level edge onto a file's members is the walk's job, not Expand's.
+func Expand(rows []registry.ScannedRow, unit registry.ID) []registry.ID {
+	if unit.Variant != "" {
+		return []registry.ID{unit}
+	}
+	key := unit.String()
+	for _, r := range rows {
+		if r.Test != key || len(r.Variants) == 0 {
+			continue
+		}
+		vs := append([]string{}, r.Variants...)
+		sort.Strings(vs)
+		out := make([]registry.ID, 0, len(vs))
+		for _, v := range vs {
+			out = append(out, registry.ID{Path: unit.Path, Member: unit.Member, Variant: v})
+		}
+		return out
+	}
+	return []registry.ID{unit}
+}
+
+// Counts is the number of listed variants per declared value, per axis, over
+// the scanned rows (undeclared values are not counted — check reports them).
+func (t *Table) Counts(rows []registry.ScannedRow) map[string]map[string]int {
+	out := map[string]map[string]int{}
+	for _, a := range t.axesOrNil() {
+		out[a.Name] = map[string]int{}
+		for v := range a.Values {
+			out[a.Name][v] = 0
+		}
+	}
+	for _, r := range rows {
+		a, ok := t.Axis(r.Axis)
+		if !ok {
+			continue
+		}
+		for _, v := range r.Variants {
+			if _, declared := a.Values[v]; declared {
+				out[a.Name][v]++
+			}
+		}
+	}
+	return out
+}
+
+// Force is a forced facet, `--axis <axis>.<facet>=<v>` (parsed by M4.1's
+// `select`).
+type Force Claim
+
+func (f Force) String() string { return Claim(f).String() }
+
+// ParseForce parses `<axis>.<facet>=<v>` with the claim grammar.
+func ParseForce(s string) (Force, error) {
+	c, err := ParseClaim(s)
+	if err != nil {
+		return Force{}, fmt.Errorf("invalid --axis %q (want <axis>.<facet>=<value>)", s)
+	}
+	return Force(c), nil
+}
+
+// ForceError is a forced facet the table cannot resolve. Reason is `axis`
+// (undeclared axis), `facet` (undeclared facet) or `value` (carried by no
+// declared value).
+type ForceError struct {
+	Force  Force
+	Reason string
+}
+
+func (e *ForceError) Error() string { return "--axis " + e.Force.String() + ": undeclared " + e.Reason }
+
+// ResolveForce checks a forced facet against the declaration.
+func (t *Table) ResolveForce(f Force) error {
+	a, ok := t.Axis(f.Axis)
+	switch {
+	case !ok:
+		return &ForceError{Force: f, Reason: "axis"}
+	case !a.HasFacet(f.Facet):
+		return &ForceError{Force: f, Reason: "facet"}
+	case !a.Carried(f.Facet, f.Value):
+		return &ForceError{Force: f, Reason: "value"}
+	}
+	return nil
+}
+
+// Admits is the forced-facet cut: whether id survives forces. Forces on the
+// same (axis, facet) are alternatives; different facets must all hold.
+//   - A variant on a forced axis survives only when its declared value
+//     carries an admitted value on every forced facet; an undeclared value is
+//     cut (it cannot be shown to carry it).
+//   - A plain unit with claims on a forced (axis, facet) survives only when one
+//     of them names an admitted value.
+//   - Units of other axes and unclaimed units pass.
+//
+// It is a method for the same reason as Select. It takes a prepared index
+// (IndexRows), so filtering many candidates costs a few map lookups each.
+func (t *Table) Admits(forces []Force, ix *Rows, id registry.ID) bool {
+	type af struct{ axis, facet string }
+	want := map[af]map[string]bool{}
+	for _, f := range forces {
+		k := af{f.Axis, f.Facet}
+		if want[k] == nil {
+			want[k] = map[string]bool{}
+		}
+		want[k][f.Value] = true
+	}
+	if id.Variant != "" {
+		r := ix.rows[id.Base()]
+		a, ok := t.Axis(r.Axis)
+		if !ok {
+			return true
+		}
+		decl, declared := a.Values[id.Variant]
+		for k, vals := range want {
+			if k.axis != a.Name {
+				continue
+			}
+			if !declared || !vals[decl[k.facet]] {
+				return false
+			}
+		}
+		return true
+	}
+	claims := ix.claimsOf(id)
+	for k, vals := range want {
+		claimed, hit := false, false
+		for _, c := range claims {
+			if c.Axis == k.axis && c.Facet == k.facet {
+				claimed = true
+				hit = hit || vals[c.Value]
+			}
+		}
+		if claimed && !hit {
+			return false
+		}
+	}
+	return true
+}
+
+// ObservedSource is a source an observation proposes for a facet value
+// (M4.4's missing-axis-source attribution).
+type ObservedSource struct {
+	Axis  string `json:"axis"`
+	Facet string `json:"facet"`
+	Value string `json:"value"`
+	Glob  string `json:"glob"`
+}
+
+// Widen is the widen-only merge of observed sources: each accepted one is
+// unioned into its (axis, facet, value) cell as an observed source. It never
+// removes a glob and never touches the declared values, so a hit set — and
+// with it the selection — can only grow. A source naming an undeclared axis
+// or facet, a facet value no declared value carries, or a bad glob is
+// returned as rejected and changes nothing. M4.4 owns `registry/observed.yaml`
+// and calls Widen when it loads it.
+func (t *Table) Widen(obs []ObservedSource) (rejected []ObservedSource) {
+	for _, o := range obs {
+		a, ok := t.Axis(o.Axis)
+		if !ok || !a.HasFacet(o.Facet) || !a.Carried(o.Facet, o.Value) || checkGlob(o.Glob) != nil {
+			rejected = append(rejected, o)
+			continue
+		}
+		cell := a.Sources[o.Facet][o.Value]
+		dup := false
+		for _, s := range cell {
+			dup = dup || s.Glob == o.Glob
+		}
+		if dup {
+			continue
+		}
+		if a.Sources == nil {
+			a.Sources = map[string]map[string][]Source{}
+		}
+		if a.Sources[o.Facet] == nil {
+			a.Sources[o.Facet] = map[string][]Source{}
+		}
+		a.Sources[o.Facet][o.Value] = append(cell, Source{Glob: o.Glob, Origin: OriginObserved})
+	}
+	return rejected
+}

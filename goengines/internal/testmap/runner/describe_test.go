@@ -40,12 +40,9 @@ timeouts: batch
 	}
 }
 
-// Unknown keys — M2.4's axis / token_format until it registers them — and
-// malformed values are refused, never ignored.
+// Unknown keys and malformed values are refused, never ignored.
 func TestDescribeRefusesUnknown(t *testing.T) {
 	for _, in := range []string{
-		"unit: file\naxis: locale\n",
-		"unit: file\ntoken_format: x\n",
 		"unit: file\nbogus: 1\n",
 		"unit: file\nunit: class\n",
 		"unit: file\nbatch: maybe\n",
@@ -57,33 +54,77 @@ func TestDescribeRefusesUnknown(t *testing.T) {
 			t.Errorf("%q accepted", in)
 		}
 	}
-	_, err := ParseDescribe([]byte("unit: file\naxis: locale\n"))
-	if err == nil || !strings.Contains(err.Error(), `unknown key "axis"`) {
-		t.Errorf("axis: %v", err)
+	_, err := ParseDescribe([]byte("unit: file\nbogus: 1\n"))
+	if err == nil || !strings.Contains(err.Error(), `unknown key "bogus"`) {
+		t.Errorf("bogus: %v", err)
 	}
 }
 
-// A registered key (M2.4's named extension) lands raw in Ext and survives a
-// merge; registering one of M3.1's own keys panics.
+// A registered key (a later submodule's named extension) lands raw in Ext
+// and survives a merge; registering one of M3.1's own keys, or a key
+// already registered (M2.4's axis), panics.
 func TestDescribeExtensionKey(t *testing.T) {
-	RegisterDescribeKey("axis")
-	t.Cleanup(func() { extMu.Lock(); delete(extKeys, "axis"); extMu.Unlock() })
-	d, err := ParseDescribe([]byte("unit: variant\naxis: locale\n"))
+	const key = "x_test_key"
+	RegisterDescribeKey(key)
+	t.Cleanup(func() { extMu.Lock(); delete(extKeys, key); extMu.Unlock() })
+	d, err := ParseDescribe([]byte("unit: variant\n" + key + ": locale\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if n, ok := d.Ext["axis"]; !ok || n.Value != "locale" {
+	if n, ok := d.Ext[key]; !ok || n.Value != "locale" {
 		t.Fatalf("Ext = %v", d.Ext)
 	}
-	if m := (Describe{}).Merge(d, map[string]bool{}); m.Ext["axis"].Value != "locale" {
+	if m := (Describe{}).Merge(d, map[string]bool{}); m.Ext[key].Value != "locale" {
 		t.Fatal("merge dropped an extension key")
 	}
-	defer func() {
-		if recover() == nil {
-			t.Error("registering an M3.1 key did not panic")
+	for _, k := range []string{"unit", "axis"} {
+		func() {
+			defer func() {
+				if recover() == nil {
+					t.Errorf("registering %s did not panic", k)
+				}
+			}()
+			RegisterDescribeKey(k)
+		}()
+	}
+}
+
+// M2.4's describe keys: `axis:` names an axis and `token_format:` is a token
+// template; both are validated (shape only — whether the axis is declared is
+// check's UNKNOWN_VARIANT) and read back through the accessors.
+func TestDescribeAxisKeys(t *testing.T) {
+	d, err := ParseDescribe([]byte("unit: variant\naxis: matrix\ntoken_format: '{base}@{variant}'\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := d.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	id := registry.MustParseID("app/F.kt#Welcome@ru")
+	if d.Axis() != "matrix" || d.TokenFormat().Render(id) != "app/F.kt#Welcome@ru" {
+		t.Fatalf("axis %q token %q", d.Axis(), d.TokenFormat().Render(id))
+	}
+	if plain, _ := ParseDescribe([]byte("unit: file\n")); plain.Axis() != "" || plain.TokenFormat().Render(id) != id.String() {
+		t.Fatal("absent keys must default to no axis and {id}")
+	}
+	for in, want := range map[string]string{
+		"unit: variant\naxis: [a]\n":               "axis must be a string",
+		"unit: variant\naxis: ~\n":                 "axis must be a string",
+		"unit: variant\naxis: a.b\n":               "invalid axis name",
+		"unit: variant\naxis: 'a b'\n":             "invalid axis name",
+		"unit: variant\ntoken_format: '{bogus}'\n": "unknown placeholder",
+		"unit: variant\ntoken_format: '{id'\n":     "unbalanced '{'",
+		"unit: variant\ntoken_format: 'id}'\n":     "unbalanced '}'",
+		"unit: variant\ntoken_format: ''\n":        "token_format is empty",
+	} {
+		d, err := ParseDescribe([]byte(in))
+		if err == nil {
+			err = d.Validate()
 		}
-	}()
-	RegisterDescribeKey("unit")
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%q: %v (want %q)", in, err, want)
+		}
+	}
 }
 
 func TestDescribeValidate(t *testing.T) {
@@ -135,5 +176,30 @@ func TestOneDocumentOnly(t *testing.T) {
 	}
 	if _, err := ParseDescribe([]byte("unit: file\n---\n")); err == nil {
 		t.Error("an empty second document accepted")
+	}
+}
+
+// The describe `axis:` reaches M2.1's lister input (M2.4), so `scan` can
+// persist which axis a unit's variants live on; a runner naming none leaves
+// it empty.
+func TestListingsCarryAxis(t *testing.T) {
+	if !isolated(t, hangLimit) {
+		return
+	}
+	r := newRepo(t, map[string]string{"app/F.kt": "class F\n", "tests/test_a.sh": "#!/bin/sh\n"})
+	put(t, r, "screens", spec{describe: "unit: variant\naxis: matrix", list: "app/F.kt@ru|variant|F-ru\napp/F.kt@en|variant|F-en\n"})
+	put(t, r, "shell", spec{describe: "unit: file", list: "tests/test_a.sh|file|a\n"})
+	runners(t, r, "runners:\n  - name: screens\n    bind: ['app/**']\n  - name: shell\n    bind: ['tests/*.sh']\n")
+	commitAll(t, r)
+	repo, err := Load(bg, r.Dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	for _, l := range repo.Listings() {
+		got[l.Runner] = l.Axis
+	}
+	if got["screens"] != "matrix" || got["shell"] != "" {
+		t.Fatalf("%v", got)
 	}
 }

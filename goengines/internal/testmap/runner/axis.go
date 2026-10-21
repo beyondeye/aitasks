@@ -1,0 +1,26 @@
+package runner
+
+import "github.com/beyondeye/aitasks/goengines/internal/testmap/axes"
+
+// The describe keys M2.4 owns, a named extension of this parse: `axis:`
+// names the declared axis the runner's variants live on and `token_format:`
+// how one of its units renders for `select --format tokens`. Both land raw
+// in Describe.Ext; Validate checks them through internal/testmap/axes.
+func init() {
+	RegisterDescribeKey(axes.DescribeAxis)
+	RegisterDescribeKey(axes.DescribeTokenFormat)
+}
+
+// Axis is the runner's describe `axis:`; "" when it names none. The value
+// was validated by Validate.
+func (d Describe) Axis() string {
+	decl, _ := axes.ParseRunnerDecl(d.Ext)
+	return decl.Axis
+}
+
+// TokenFormat is the runner's describe `token_format:`; the zero value
+// renders the default, {id}.
+func (d Describe) TokenFormat() axes.TokenFormat {
+	decl, _ := axes.ParseRunnerDecl(d.Ext)
+	return decl.TokenFormat
+}

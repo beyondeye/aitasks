@@ -1,0 +1,376 @@
+// Package axes is the variant-axis table of the test map (M2.4): the
+// `aitestmap/axes.yaml` declaration loaded into the registry, the facet join
+// that places changed paths on facet values, variant expansion and the
+// forced-facet cut the selector uses, the widen-only merge of observed
+// sources, the runner-side `axis:` / `token_format:` describe keys, and the
+// three axis check rules.
+//
+// An axis is a product of facets (thinking_app's `matrix`: locale ×
+// direction × geometry). Each declared value is one variant value — the
+// `<variant>` of a `<unit>@<variant>` id a runner lists — and names one
+// facet value per facet. Sources map a facet value to the globs whose
+// change reaches the variants carrying it.
+//
+// The package registers itself into the registry from init (the loader of
+// axes.yaml as a post-loader, the three check rules); the runner package
+// imports it to validate the describe keys, so every binary that links the
+// runner repository has the axis table and rules.
+//
+// Caller obligation (M4.1's walk): Select is an additional selection channel.
+// A selector unions Select(Join(changed)) with Expand of every unit its edge,
+// dep, rule or test-dep walk reaches, and never intersects the two — that
+// union is what keeps Invariant 1: a changed path with no axis hit still
+// reaches every variant of the units it covers.
+package axes
+
+import (
+	"bytes"
+	"errors"
+	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"regexp"
+	"sort"
+	"strings"
+	"unicode"
+
+	"github.com/beyondeye/aitasks/goengines/internal/testmap"
+	"github.com/beyondeye/aitasks/goengines/internal/testmap/registry"
+	"github.com/bmatcuk/doublestar/v4"
+	"gopkg.in/yaml.v3"
+)
+
+// Path is the axes declaration, beside the registry directory.
+const Path = registry.Dir + "/axes.yaml"
+
+// extKey is the registry.Ext key the loaded table lives under.
+const extKey = "axes"
+
+// Origin says where a source glob came from.
+type Origin string
+
+const (
+	OriginHand     Origin = "hand"     // declared in axes.yaml
+	OriginObserved Origin = "observed" // merged by Widen (M4.4's observed sources)
+)
+
+// Source is one glob reaching a facet value.
+type Source struct {
+	Glob   string `json:"glob"`
+	Origin Origin `json:"origin"`
+}
+
+// Axis is one declared axis.
+type Axis struct {
+	Name    string
+	Facets  []string                       // declaration order
+	Values  map[string]map[string]string   // variant value -> facet -> facet value
+	Sources map[string]map[string][]Source // facet -> facet value -> sources (hand first, then observed)
+}
+
+// ValueNames returns the declared variant values, sorted.
+func (a *Axis) ValueNames() []string {
+	out := make([]string, 0, len(a.Values))
+	for v := range a.Values {
+		out = append(out, v)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// HasFacet reports whether facet is declared on the axis.
+func (a *Axis) HasFacet(facet string) bool {
+	for _, f := range a.Facets {
+		if f == facet {
+			return true
+		}
+	}
+	return false
+}
+
+// Carried reports whether some declared value carries facet=v. It is the one
+// rule for a valid facet value: the loader's source check, claim validation,
+// ResolveForce and Widen all use it.
+func (a *Axis) Carried(facet, v string) bool {
+	for _, decl := range a.Values {
+		if decl[facet] == v {
+			return true
+		}
+	}
+	return false
+}
+
+// Table is the loaded axes declaration.
+type Table struct {
+	Axes     []*Axis // sorted by name
+	declared bool
+}
+
+// Declared reports whether `aitestmap/axes.yaml` exists.
+func (t *Table) Declared() bool { return t != nil && t.declared }
+
+// Axis returns the axis named name.
+func (t *Table) Axis(name string) (*Axis, bool) {
+	if t == nil {
+		return nil, false
+	}
+	for _, a := range t.Axes {
+		if a.Name == name {
+			return a, true
+		}
+	}
+	return nil, false
+}
+
+// Of returns the axes table of a loaded registry; an empty table when no
+// axes.yaml was loaded. Never nil.
+func Of(reg *registry.Registry) *Table {
+	if reg != nil {
+		if t, ok := reg.Ext[extKey].(*Table); ok {
+			return t
+		}
+	}
+	return &Table{}
+}
+
+// The name grammars. An axis or facet name is the `<axis>` / `<facet>` of a
+// `testmap:axis <axis>.<facet>=<value>` claim, minus '/', control characters
+// and Unicode whitespace; a facet value is the claim's `<value>`, minus
+// control characters and Unicode whitespace, so every declared facet value
+// can be claimed. A variant value is an id fragment (registry).
+var (
+	nameRe       = regexp.MustCompile(`^[^.=\s|#@/]+$`)
+	facetValueRe = regexp.MustCompile(`^[^=\s|#@]+$`)
+	// claimRe is annot's axisRe with groups; TestParseClaimMatchesAnnotParser
+	// pins ParseClaim against the real parser.
+	claimRe = regexp.MustCompile(`^([^.=\s|#@]+)\.([^.=\s|#@]+)=([^=\s|#@]+)$`)
+)
+
+func hasControl(s string) bool { return strings.ContainsFunc(s, unicode.IsControl) }
+
+// hasSpace reports Unicode whitespace. The regexes' \s is ASCII only, but the
+// annotation parser splits a `testmap:axis` line with strings.Fields (Unicode
+// whitespace), so a name or value carrying U+00A0 could be declared but never
+// claimed.
+func hasSpace(s string) bool { return strings.ContainsFunc(s, unicode.IsSpace) }
+
+// CheckName reports whether s is a valid axis or facet name.
+func CheckName(what, s string) error {
+	if !nameRe.MatchString(s) || hasControl(s) || hasSpace(s) {
+		return fmt.Errorf("invalid %s name %q", what, s)
+	}
+	return nil
+}
+
+func checkFacetValue(s string) error {
+	if !facetValueRe.MatchString(s) || hasControl(s) || hasSpace(s) {
+		return fmt.Errorf("invalid facet value %q", s)
+	}
+	return nil
+}
+
+func checkVariant(s string) error {
+	// An empty fragment is not a variant: ID{Variant: ""} is a plain unit and
+	// would validate, so it is refused explicitly.
+	if s == "" || !(registry.ID{Path: "x", Variant: s}).Valid() {
+		return fmt.Errorf("invalid variant value %q", s)
+	}
+	return nil
+}
+
+// Claim is one `testmap:axis <axis>.<facet>=<value>` claim: a plain unit
+// says it runs for that facet value.
+type Claim struct {
+	Axis, Facet, Value string
+}
+
+func (c Claim) String() string { return c.Axis + "." + c.Facet + "=" + c.Value }
+
+// ParseClaim parses `<axis>.<facet>=<value>` as the annotation parser reads
+// it: annot's shape rule on one whitespace-free argument.
+func ParseClaim(s string) (Claim, error) {
+	m := claimRe.FindStringSubmatch(s)
+	if m == nil || hasSpace(s) {
+		return Claim{}, fmt.Errorf("invalid axis claim %q (want <axis>.<facet>=<value>)", s)
+	}
+	return Claim{Axis: m[1], Facet: m[2], Value: m[3]}, nil
+}
+
+type axisDoc struct {
+	Name    string                         `yaml:"name"`
+	Facets  []string                       `yaml:"facets"`
+	Values  map[string]map[string]string   `yaml:"values"`
+	Sources map[string]map[string][]string `yaml:"sources"`
+}
+
+type fileDoc struct {
+	Contract int       `yaml:"contract"`
+	Axes     []axisDoc `yaml:"axes"`
+}
+
+func invalid(format string, args ...any) error {
+	return &registry.InvalidError{Path: Path, Reason: fmt.Sprintf(format, args...)}
+}
+
+// Parse decodes and validates an axes.yaml document. Unknown keys, repeated
+// names, a value that misses or invents a facet, a source on an undeclared
+// facet or on a facet value no declared value carries (a misspelt source), an
+// empty or invalid glob and an invalid name are all refused as
+// *registry.InvalidError. The contract is not checked here (Load does).
+func Parse(data []byte) (*Table, error) {
+	var doc fileDoc
+	if len(bytes.TrimSpace(data)) > 0 {
+		dec := yaml.NewDecoder(bytes.NewReader(data))
+		dec.KnownFields(true)
+		if err := dec.Decode(&doc); err != nil {
+			return nil, invalid("%v", err)
+		}
+	}
+	t := &Table{declared: true}
+	seen := map[string]bool{}
+	for n, d := range doc.Axes {
+		a, err := d.validate()
+		if err != nil {
+			return nil, invalid("axes[%d]: %v", n, err)
+		}
+		if seen[a.Name] {
+			return nil, invalid("axes[%d]: axis %s declared twice", n, a.Name)
+		}
+		seen[a.Name] = true
+		t.Axes = append(t.Axes, a)
+	}
+	sort.Slice(t.Axes, func(i, j int) bool { return t.Axes[i].Name < t.Axes[j].Name })
+	return t, nil
+}
+
+func (d axisDoc) validate() (*Axis, error) {
+	if err := CheckName("axis", d.Name); err != nil {
+		return nil, err
+	}
+	a := &Axis{Name: d.Name, Values: map[string]map[string]string{}, Sources: map[string]map[string][]Source{}}
+	if len(d.Facets) == 0 {
+		return nil, fmt.Errorf("axis %s: facets is required", d.Name)
+	}
+	for _, f := range d.Facets {
+		if err := CheckName("facet", f); err != nil {
+			return nil, fmt.Errorf("axis %s: %v", d.Name, err)
+		}
+		if a.HasFacet(f) {
+			return nil, fmt.Errorf("axis %s: facet %s declared twice", d.Name, f)
+		}
+		a.Facets = append(a.Facets, f)
+	}
+	if len(d.Values) == 0 {
+		return nil, fmt.Errorf("axis %s: values is required", d.Name)
+	}
+	for _, value := range sortedKeys(d.Values) {
+		decl := d.Values[value]
+		if err := checkVariant(value); err != nil {
+			return nil, fmt.Errorf("axis %s: %v", d.Name, err)
+		}
+		for _, f := range sortedKeys(decl) {
+			if !a.HasFacet(f) {
+				return nil, fmt.Errorf("axis %s: value %s: facet %s is not declared", d.Name, value, f)
+			}
+			if err := checkFacetValue(decl[f]); err != nil {
+				return nil, fmt.Errorf("axis %s: value %s: facet %s: %v", d.Name, value, f, err)
+			}
+		}
+		for _, f := range a.Facets {
+			if _, ok := decl[f]; !ok {
+				return nil, fmt.Errorf("axis %s: value %s: facet %s is missing", d.Name, value, f)
+			}
+		}
+		a.Values[value] = decl
+	}
+	for _, f := range sortedKeys(d.Sources) {
+		if !a.HasFacet(f) {
+			return nil, fmt.Errorf("axis %s: sources: facet %s is not declared", d.Name, f)
+		}
+		for _, v := range sortedKeys(d.Sources[f]) {
+			if !a.Carried(f, v) {
+				return nil, fmt.Errorf("axis %s: sources: no value carries %s=%s", d.Name, f, v)
+			}
+			globs := d.Sources[f][v]
+			if len(globs) == 0 {
+				return nil, fmt.Errorf("axis %s: sources: %s=%s has no glob", d.Name, f, v)
+			}
+			for _, g := range globs {
+				if err := checkGlob(g); err != nil {
+					return nil, fmt.Errorf("axis %s: sources: %s=%s: %v", d.Name, f, v, err)
+				}
+				if a.Sources[f] == nil {
+					a.Sources[f] = map[string][]Source{}
+				}
+				a.Sources[f][v] = append(a.Sources[f][v], Source{Glob: g, Origin: OriginHand})
+			}
+		}
+	}
+	return a, nil
+}
+
+func checkGlob(g string) error {
+	if g == "" || !doublestar.ValidatePattern(g) || hasControl(g) {
+		return fmt.Errorf("invalid glob %q", g)
+	}
+	return nil
+}
+
+func sortedKeys[V any](m map[string]V) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// Load reads `aitestmap/axes.yaml` under root: an absent file is an empty,
+// undeclared table; a newer contract is *testmap.ContractMismatchError; any
+// other unreadable or malformed content is *registry.InvalidError.
+func Load(root string) (*Table, error) {
+	data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(Path)))
+	if errors.Is(err, fs.ErrNotExist) {
+		return &Table{}, nil
+	}
+	if err != nil {
+		return nil, invalid("read: %v", err)
+	}
+	if err := testmap.CheckContract(Path, data); err != nil {
+		var cm *testmap.ContractMismatchError
+		if errors.As(err, &cm) {
+			return nil, cm
+		}
+		return nil, invalid("%s", strings.TrimPrefix(err.Error(), Path+": "))
+	}
+	return Parse(data)
+}
+
+// loadIntoRegistry is the post-loader: the axes table into reg.Ext, then the
+// persisted axis fields of `_scanned.yaml` checked against the grammar.
+func loadIntoRegistry(reg *registry.Registry, root string) error {
+	t, err := Load(root)
+	if err != nil {
+		return err
+	}
+	reg.Ext[extKey] = t
+	for n, u := range reg.Units {
+		if u.Axis != "" {
+			if len(u.Variants) == 0 {
+				return &registry.InvalidError{Path: registry.ScannedPath, Reason: fmt.Sprintf("units[%d]: %s: axis without variants", n, u.Test)}
+			}
+			if err := CheckName("axis", u.Axis); err != nil {
+				return &registry.InvalidError{Path: registry.ScannedPath, Reason: fmt.Sprintf("units[%d]: %v", n, err)}
+			}
+		}
+		for _, f := range u.Facets {
+			if _, err := ParseClaim(f); err != nil {
+				return &registry.InvalidError{Path: registry.ScannedPath, Reason: fmt.Sprintf("units[%d]: facets: %v", n, err)}
+			}
+		}
+	}
+	return nil
+}
+
+func init() { registry.RegisterPostLoad(loadIntoRegistry) }
