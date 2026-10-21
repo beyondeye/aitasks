@@ -44,3 +44,10 @@ under the one `artifacts:` schema (`kind: attachment`), and either:
 - The gc blocking set already unions both reference classes (frontmatter hashes +
   manifest versions) — unification would collapse them to one.
 - Consumer impact: board, mobile app, website — anything parsing `attachments:`.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1890** id=2026-10-21T12:34:04Z.1c6b506268c1c557115be1ea from=t1890 from_verified=yes at=2026-10-21T12:34:04Z base=ba4fde3822c67af2fb3aee56c36a16d673b3e1d2 base_branch=main dirty=yes host=omg16
+>
+> | Advisory from t1890 (aidocs/artifact_storage_lifecycle.md, commit ba4fde382). The storage lifecycle (download model, routing, retention, purge scope) was decided once for both attachments and artifacts, because they share the blob store. Whichever way you decide on unification, cross-reference that doc rather than restating the policy.
