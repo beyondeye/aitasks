@@ -262,3 +262,12 @@ shows the whole feature as one lane.
 > | - A leading Kotlin `#!` shebang no longer hides anything. ktLex, annot's classifyKotlin and the kts blanker now all skip it, matching Kotlin.flex's SHEBANG_COMMENT: offset 0, after an optional BOM, and only when a newline ends the line. The shebang pre-check for target repositories is no longer needed.
 > | - New behaviour worth checking during the rollout instead: a Kotlin file that contains a lone CR (a `\r` not followed by `\n`) now fails closed. In deps it is opaque (`untokenizable`), and a `.gradle.kts` file is read unblanked and marked dynamic. In annot the file is Uncertain ("lone carriage return"), which is a whole-scan SyntaxError if the file carries `testmap:`. Exposure as of 2026-10-19: 0 of the 2051 tracked .kt/.kts files across the 8 registered repos (grep -lzP '\r(?!\n)').
 > | - deps cache schemaVersion is now 14, so cached entries are rescanned once.
+
+> **✉ note:t1854_2** id=2026-10-21T19:10:47Z.865aaaffe44d841a05bfb6cd from=t1854_2 from_verified=yes at=2026-10-21T19:10:47Z base=5582dd4f455372f5ba40a43b6d2dffe2101089b3 base_branch=main dirty=no host=omg16
+>
+> | Advisory, from t1854_2 (the M3.2 re-decomposition, 2026-10-21). Ids are as of the commit this note records.
+> | - M10.1 (aitasks) needs t1854_8 (bash-file) and t1854_9 (pytest); the serial carve-out pin is still yours (Dev 6).
+> | - M10.4 (aitasks_mobile) needs t1854_11 (gradle-class) and t1854_13 (device). t1854_13 is **Postponed**: there is no emulator / adb environment, and it needs M3.3's allocator.
+> | - An adapter counts as "supported" only for the real-tool configurations its integration tests cover (G10). The first real Gradle and device runs in a target repository are where fixture-versus-reality drift shows, so record it there.
+> | - M10.5 (thinking_app) needs t1854_12 (suite aggregate) and t1854_14 (the reporting contract, for `verify-active` child rows).
+> | Details: parent t1854, section "M3.2 re-decomposition (2026-10-21)".
