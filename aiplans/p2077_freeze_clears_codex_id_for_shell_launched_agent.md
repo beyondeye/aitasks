@@ -374,10 +374,10 @@ Current-branch profile: commit, then Step 9 archival per the shared workflow.
 
 ### Goal-achievement risk: medium
 - The process shape of a hand-typed codex (direct child of the shell, wrapper exec'd away, rollout held by the child) is inferred from framework launches, not measured. Step 1 measures it before any code is written and stops on a mismatch · severity: low (residual, gated by Step 1) · → mitigation: none
-- A hand-started codex whose argv names no model (the usual way to type it) is cleared to re-pick, not made resumable. The `claude --resume <codex-uuid>` hazard is gone, but resumability for that case needs the model from codex's own config · severity: medium · → mitigation: codex_model_from_config
+- A hand-started codex whose argv names no model (the usual way to type it) is cleared to re-pick, not made resumable. The `claude --resume <codex-uuid>` hazard is gone, but resumability for that case needs the model from codex's own config · severity: medium · → mitigation: t2110
 
 ### Planned mitigations
-- timing: after | name: codex_model_from_config | type: enhancement | priority: low | effort: medium | inline_risk: medium | added_complexity: medium | addresses: goal-achievement — hand-started codex with no -m is cleared to re-pick, not resumable | desc: When a live codex's argv names no model, resolve it from codex's own config ($CODEX_HOME/config.toml model, -c model= / --profile in argv) so the freeze can record codex/<model> and a hand-started codex resumes instead of re-picking
+- timing: after | name: codex_model_from_config | type: enhancement | priority: low | effort: medium | inline_risk: medium | added_complexity: medium | addresses: goal-achievement — hand-started codex with no -m is cleared to re-pick, not resumable | desc: When a live codex's argv names no model, resolve it from codex's own config ($CODEX_HOME/config.toml model, -c model= / --profile in argv) so the freeze can record codex/<model> and a hand-started codex resumes instead of re-picking | created: t2110
 
 ## Implementation Progress
 
