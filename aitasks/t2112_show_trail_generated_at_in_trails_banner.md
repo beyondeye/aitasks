@@ -11,8 +11,9 @@ active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-21 16:48
-updated_at: 2026-10-21 16:49
+updated_at: 2026-10-21 17:18
 ---
 
 ## Goal
@@ -80,3 +81,8 @@ you are looking at is without opening the `s` selection modal.
 
 - Related but not folded in: t1514, which hardens the existing banner
   regression test.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-21T14:18:26Z status=pass attempt=1 type=human
