@@ -454,7 +454,7 @@ test_single_canonical_place() {
     # The exit table itself must live in exactly one source file.
     local table_sites
     table_sites=$(grep -rl "key opted in" "$PROJECT_DIR/.aitask-scripts" 2>/dev/null | wc -l)
-    assert_eq "canonical: the command-exit table appears in exactly one script" \
+    assert_eq_trim "canonical: the command-exit table appears in exactly one script" \
         "1" "$table_sites"
 
     # An unwhitelisted helper does not fail -- it STALLS the consuming procedure

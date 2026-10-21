@@ -150,7 +150,7 @@ assert_contains "the plan scope is echoed, so a run is self-describing" \
 # to assert against the live corpus: it cannot go false because tasks were
 # archived. Field 3 of SWEEP_METRIC is that recall.
 recalls="$(printf '%s\n' "$sweep_out" | sed -n 's/^SWEEP_METRIC:[0-9]*|[^|]*|\([^|]*\).*/\1/p' | sort -u | wc -l)"
-assert_eq "recall is invariant across the swept thresholds" "1" "$recalls"
+assert_eq_trim "recall is invariant across the swept thresholds" "1" "$recalls"
 
 # The paired negative control -- that precision and the hard-stop share DO move,
 # so the invariance above is not vacuous -- is deliberately NOT asserted here.

@@ -566,7 +566,7 @@ QF18B="$(quarantine_file "$TMP18B")"
 assert_contains "the record stores the path ENCODED, so the | cannot split it" \
     "t62_pipe%7Cand%25pct.md" "$(cat "$QF18B" 2>/dev/null)"
 LINES18B="$(wc -l < "$QF18B")"
-assert_eq "exactly one record was written" "1" "$LINES18B"
+assert_eq_trim "exactly one record was written" "1" "$LINES18B"
 # Run 2 proves the DECODE side: the hold can only stand if the path read back
 # out of the record resolves to the same file.
 OUT18BB="$(run_sync "$TMP18B")"
@@ -810,7 +810,7 @@ assert_eq "Test 30: the run deferred on protected_dirty" "DEFERRED:protected_dir
     "$(printf '%s\n' "$OUT30" | head -n1 | cut -d: -f1-2)"
 assert_deferred_on_overlap "Test 30" "$TMP30"
 LEFTOVER30="$(find "$TMP30/tmpdir_probe" -type f 2>/dev/null | wc -l)"
-assert_eq "the deferring run left no scratch files" "0" "$LEFTOVER30"
+assert_eq_trim "the deferring run left no scratch files" "0" "$LEFTOVER30"
 
 echo "--- Test 31: DEFERRED_FILE records appear only WITH a status line ---"
 # Four tests in this file assert not_contains "DEFERRED" over whole stdout, and
