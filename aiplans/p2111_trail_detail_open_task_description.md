@@ -202,3 +202,10 @@ Step 9 of the task workflow: review, commit, archive.
 The header, the control, the ghost reasons, both hosts and the no-entry path are
 each covered by a step and a test. Cross-repo description fetching is explicitly
 deferred.
+
+## Final Implementation Notes
+- **Actual work done:** Implemented as planned. `TrailEntryView.archived_task` carries the archived Task an `archived` ghost resolved to; `_open_trail_entry_detail` hands the live-or-archived task plus `ghost_kind` to `TrailDetailScreen`; the modal renders a compact "Task …" header (title + status · priority · effort · type · labels from the task file, plus a description hint or a ghost reason) before the "Entry …" section, and offers `o` / a "Description (o)" button that pushes `SectionViewerScreen` over the task body. `trails_app.check_action` now lets `SectionViewerScreen` own the arrow keys (the board already did).
+- **Deviations from plan:** The modal attribute/kwarg is `entry_task`, not `task` — `task` is Textual's read-only `MessagePump` property (`AttributeError: property 'task' ... has no setter`). The header is built by `_task_header()` returning `(heading, lines)` rather than taking `head`/`line` callables. The trails-app tests live in a new `TrailDetailTaskTests` class.
+- **Issues encountered:** Concurrent t2112 (trails banner) landed on main mid-session touching `board_trail_view.py` / `board_trail_screen.py`; edits applied on top cleanly.
+- **Key decisions:** Key `o` (avoids host `d` Freshness / `v` Summary / `T`); description availability is one predicate (`_description_available`) read by the hint, button, `check_action` and the action. Cross-repo description fetching deferred (would need a subprocess worker from the modal); the header states why no description is shown. Negative controls run (not committed): opener passing only `view.task` fails the archived pilot test; removing the trails-app viewer nav guard fails the arrow-key assertion.
+- **Upstream defects identified:** None
