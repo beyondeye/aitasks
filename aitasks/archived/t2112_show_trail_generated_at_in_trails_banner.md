@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: enhancement
-status: Implementing
+status: Done
 labels: [trails, tui, ui]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -15,7 +15,8 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus5_5
 created_at: 2026-10-21 16:48
-updated_at: 2026-10-21 17:18
+updated_at: 2026-10-21 19:01
+completed_at: 2026-10-21 19:01
 ---
 
 ## Goal
@@ -90,3 +91,14 @@ you are looking at is without opening the `s` selection modal.
 > **✅ gate:plan_approved** run=2026-10-21T14:18:26Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-10-21T15:57:47Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-10-21T16:01:16Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:2b2ca3f3ddc346f9
+
+> **✅ gate:risk_evaluated** run=2026-10-21T16:01:16Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/2112/risk_evaluated_2026-10-21T16:01:16Z-risk_evaluated-a1.log`
