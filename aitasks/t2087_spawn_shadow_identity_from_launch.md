@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2073
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-21 08:43
-updated_at: 2026-10-21 08:48
+updated_at: 2026-10-21 14:36
 ---
 
 ## Origin
@@ -42,3 +43,8 @@ t2073_4 added, and its tests pin:
 ## Suggested fix
 
 Move `spawn_shadow`'s same-window split branch onto `launch_split_pane`, and reuse `_recover_pad_pane` / `_stamp_or_remove`, generalized (renamed to helper-neutral names) for its stamp. The separate-window branch (`new_window=True`) needs the same identity: either add a `new-window -P -F '#{pane_id}\t#{pane_pid}'` sibling, or recover by pid with the same unknown ≠ gone rule. Add the matching mocked regressions to `tests/test_monitor_shadow_pick.py` / `tests/test_minimonitor_shadow_pick.py`.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-21T11:36:31Z status=pass attempt=1 type=human
