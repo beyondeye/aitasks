@@ -1,0 +1,568 @@
+{
+  "schema_version": "1.1.0",
+  "trail_id": "trail-artifacts-and-attachments",
+  "title": "Artifacts and attachments: landing order",
+  "owner": "aitasks#1076",
+  "scope": {
+    "kind": "ad_hoc",
+    "topics": [
+      "aitasks#1065",
+      "aitasks#1094",
+      "aitasks#1661",
+      "aitasks#774"
+    ],
+    "selection_note": "Assembled from the active tasks carrying `anchor: 1065` (the unified artifact model topic) plus tasks in the same story under other roots: aitasks#1094 (attachment metadata bucketing, no anchor), aitasks#1708 (anchor 1661) and aitasks#774 (HTML plans, the consumer the model exists for). Refreshed 2026-10-18: aitasks#1283, aitasks#1284, aitasks#1286 and aitasks#1709 completed and were archived, so they leave the member set (and with aitasks#1286 the aitasks#1142 root drops out of the topics); aitasks#1968, a new anchor-1065 task, joins under the same anchor-1065 rule with the user's confirmation. Refreshed 2026-10-21: aitasks#1231 and its children aitasks#1231_1, aitasks#1231_2, aitasks#1231_3 and aitasks#1231_4 completed and were archived, so they leave the member set; a topic-1065 snapshot found no new anchor-1065 task to add. The owner aitasks#1076 was chosen by the user as the umbrella for the model. Trail membership is a projection only: no member's `anchor` is reassigned. Refreshed again 2026-10-21 (after aitasks#1890): aitasks#1890 completed and was archived, so it leaves the member set; the seven anchor-1065 tasks it created (aitasks#2099 through aitasks#2105) join under the same anchor-1065 rule at the user's request."
+  },
+  "generation": {
+    "generated_at": "2026-10-21T12:57:26Z",
+    "generator": {
+      "agent_string": "claudecode/opus5_5",
+      "skill": "aitask-trail"
+    },
+    "project_revision": {
+      "aitasks": "ba4fde382"
+    },
+    "input_digest": "b062fa5930db24b3",
+    "inputs": [
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1076"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1076_4"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1089"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1090"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1094"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1134"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1135"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1258"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1259"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1260"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1708"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1968"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#2099"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#2100"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#2101"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#2102"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#2103"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#2104"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#2105"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#774"
+      }
+    ]
+  },
+  "freshness": {
+    "state": "current",
+    "checked_at": "2026-10-21T12:57:26Z",
+    "refresh_recommended_because": "Refresh when aitasks#2099 lands (it unblocks aitasks#2100 and changes what `ait sync` downloads), when aitasks#1135 lands (it unblocks the reclaim chain), when aitasks#1134 decides whether attachments become artifacts, or when the aitasks#635 gate topic advances far enough to unblock aitasks#1076_4."
+  },
+  "narrative": {
+    "problem_statement": "The artifact/attachment story has twenty open tasks across four topic roots. The storage-lifecycle decision (aitasks#1890) is now recorded in `aidocs/artifact_storage_lifecycle.md`, and it added seven implementation tasks. The open work is: stop routine fetches downloading the artifact store and give large recordings a separate repository, add size/kind routing, reclaim storage through manifest lifecycle, prune and store compaction, settle attachments versus artifacts before extending `ait attach`, fix the settings comment loss, and unblock the consumer (HTML plans), which remains transitively blocked on the separate gates topic.",
+    "recommendation_summary": "Start wave 1: aitasks#2099 (skip the store in routine fetches) first, plus the independent aitasks#1260, aitasks#2101 and optionally aitasks#2103. Wave 2 settles attachments-vs-artifacts (aitasks#1134) before extending `ait attach` (aitasks#1258), then the two `gitbranch.sh` changes, aitasks#1259 and aitasks#2100 (after aitasks#2099). Wave 3 is the strict reclaim chain aitasks#1135 \u2192 aitasks#2102 \u2192 aitasks#2104 \u2192 aitasks#2105. Wave 4, the gate archetype and HTML plans, is gated on the aitasks#635 topic. Wave 5 holds optional breadth and two manual verifications.",
+    "overview": "Pick next: aitasks#2099. It is startable, it is the first link of the download chain (aitasks#2100 waits on it), and until it lands every `ait sync` downloads the whole artifact store branch wherever gitbranch is in use. aitasks#1260, aitasks#2101 and aitasks#2103 are startable alongside it. aitasks#2099 and aitasks#1260 both touch the settings Artifacts tab save path, so whichever lands second rebases. aitasks#1135 is also startable and heads the reclaim chain in wave 3.\n\nWhat changed since the earlier 2026-10-21 version. aitasks#1890 landed (ba4fde382): the storage, download and retention policy is now recorded in `aidocs/artifact_storage_lifecycle.md`, and it created seven tasks, all joining this trail. aitasks#2099 makes routine fetches skip the store; aitasks#2100 adds a separate artifact repository; aitasks#2101 adds size/kind routing at creation; aitasks#2102 adds pin and explicit prune; aitasks#2103 adds cleanup and reporting verbs; aitasks#2104 adds store compaction; aitasks#2105 is the website page. aitasks#1135 moves from the optional wave to the head of the new reclaim wave, because aitasks#2102 now hard-depends on it. aitasks#1890 also left advisory notes on aitasks#1135, aitasks#1258, aitasks#1259, aitasks#1089, aitasks#1090, aitasks#1076_4 and aitasks#1134, so read their inboxes before planning them.\n\nWhat blocks what. Hard edges: aitasks#2100 needs aitasks#2099; aitasks#2102 needs aitasks#1135; aitasks#2104 needs aitasks#2102; aitasks#2105 needs aitasks#2099, aitasks#2100, aitasks#2101, aitasks#2102 and aitasks#2104. Advisory: aitasks#1134 before aitasks#1258, and aitasks#1259 and aitasks#2100 serialize on `gitbranch.sh`. aitasks#774 (HTML plans, the only high-priority member) still depends on aitasks#1076, whose last open child aitasks#1076_4 hard-depends on the aitasks#635 gates topic.\n\nIn flight: none of the 8 tasks the probes enumerated is a member, and none of their recorded paths names an artifact, attachment, sync, setup or settings file. Standing caution: aitasks#1258 quotes line numbers that predate the t1231 family landing.",
+    "method_note": "Lite refresh of the earlier 2026-10-21 lite version. Membership and metadata come from one `aitask_trail_gather.sh snapshot --scope task --owner aitasks#1076 --allow-archived-owner --with-inflight` run over the stored member set minus archived aitasks#1890, plus aitasks#2099 through aitasks#2105, which joined at the user's request. The new entries' rationales come from the task bodies written in aitasks#1890 and from `aidocs/artifact_storage_lifecycle.md`. In-flight overlap was checked by a keyword grep of the INFLIGHT_PATH records (artifact, attach, gitbranch, sync, setup, settings, web_merge, init_data), not by the parallel-admission checker. The belt-and-braces verifies/risk_mitigation_tasks sweep for aitasks#1890 was NOT run (lite); it spawned no follow-ups through the workflow seams. Carried over without re-verification: the rationales of the unchanged wave-2, wave-4 and wave-5 entries, aitasks#1258's stale-line-number caution and aitasks#1094's triggers. Not verified: no plan body of a live member was read, no tests were run, no board state or gate ledger was consulted; the in-flight picture is point-in-time, and the probes do not enumerate every running task.",
+    "caveats": [
+      "Ordering and classification are advisory. No member's depends, priority, boardidx, anchor, status or labels were changed.",
+      "No time estimates, completion forecasts or progress claims are made anywhere in this document."
+    ]
+  },
+  "waves": [
+    {
+      "wave_id": "w8-fetch-exclusion-and-quick-starts",
+      "ordinal": 1,
+      "title": "Stop routine fetches downloading the store, and other independent starts",
+      "purpose": "Four startable entries. Make `ait sync` and `fetch --all` skip the artifact store (aitasks#2099), make settings saves preserve `project_config.yaml` comments (aitasks#1260), add size/kind routing at creation (aitasks#2101), and optionally the cleanup/reporting verbs (aitasks#2103).",
+      "why_now": "None has an unsatisfied dependency. aitasks#2099 heads the download chain (aitasks#2100 waits on it), and every machine that syncs keeps downloading store history until it lands.",
+      "consequence_of_delay": "Until aitasks#2099 lands, each `ait sync` downloads the whole store branch wherever gitbranch is in use. Until aitasks#1260 lands, every Save from the Project Config, Tmux or Artifacts tab strips the comments from `project_config.yaml`.",
+      "entries": [
+        {
+          "entry_id": "e-2099",
+          "task": "aitasks#2099",
+          "topic": "aitasks#1065",
+          "classification": "core",
+          "confidence": "high",
+          "rationale": "Stops routine fetches downloading the store. Today `ait sync` runs `git fetch origin` with no refspec, and web-merge runs `fetch --all`. Under the default mapping both pull the whole `aitask-artifacts` history onto every machine that syncs. aitasks#1890 decided a per-remote negative refspec (shared mode by default, dedicated mode only when declared) and probed it on git 2.56.0. It is the first link of the download chain: aitasks#2100 hard-depends on it. One of its call sites is the settings Artifacts tab save, which aitasks#1260 also rewrites, so whichever lands second rebases.",
+          "snapshot": {
+            "status": "Ready",
+            "depends": [],
+            "gates_pending": [
+              "risk_evaluated"
+            ],
+            "priority": "medium",
+            "effort": "medium"
+          },
+          "position": 1
+        },
+        {
+          "entry_id": "e-1260",
+          "position": 2,
+          "task": "aitasks#1260",
+          "topic": "aitasks#1065",
+          "classification": "core",
+          "confidence": "medium",
+          "snapshot": {
+            "status": "Ready",
+            "depends": [
+              "aitasks#1231"
+            ],
+            "gates_pending": [
+              "risk_evaluated"
+            ],
+            "priority": "medium",
+            "effort": "medium",
+            "followup_kind": "risk_mitigation"
+          },
+          "rationale": "`save_yaml_config` writes with `yaml.safe_dump`, so every Save from the settings TUI's Project Config, Tmux and Artifacts tabs strips the comments from `project_config.yaml`, including the seeded `artifacts:` documentation block. The defect predates t1231; aitasks#1231_2 accepted it and states it in the pane hint. Its recorded dependency, the aitasks#1231 umbrella, is archived, and nothing else gates it, so it moves up from the optional slot it held while that tab was unshipped."
+        },
+        {
+          "entry_id": "e-2101",
+          "task": "aitasks#2101",
+          "topic": "aitasks#1065",
+          "classification": "core",
+          "confidence": "medium",
+          "rationale": "Size/kind routing at creation: binary or over-threshold content goes to a configured `large_backend`, everything else to `default_backend`. `update` keeps the existing backend and warns, naming `ait artifact move`. Startable now; no recorded dependency and no shared file with the rest of wave 1 beyond `aitask_artifact.sh`'s create path.",
+          "snapshot": {
+            "status": "Ready",
+            "depends": [],
+            "gates_pending": [
+              "risk_evaluated"
+            ],
+            "priority": "medium",
+            "effort": "medium"
+          },
+          "position": 3
+        },
+        {
+          "entry_id": "e-2103",
+          "task": "aitasks#2103",
+          "topic": "aitasks#1065",
+          "classification": "optional",
+          "confidence": "medium",
+          "rationale": "Three small, independent read-mostly additions aitasks#1890 found missing: `ait attach gc --dry-run`, eviction for the never-evicted `~/.cache/ait/artifacts`, and an `ait artifact usage` report answering what a fresh clone downloads. Optional because nothing depends on it; low effort, so it fits any spare slot.",
+          "snapshot": {
+            "status": "Ready",
+            "depends": [],
+            "gates_pending": [
+              "risk_evaluated"
+            ],
+            "priority": "low",
+            "effort": "low"
+          },
+          "position": 4
+        }
+      ]
+    },
+    {
+      "wave_id": "w4-attachments-and-risk-debt",
+      "ordinal": 2,
+      "title": "Settle the attachment question, then extend attach and the branch backend",
+      "purpose": "Answer whether attachments become single-version artifacts, then close the two remaining risk-mitigation follow-ups the t1231 decomposition deferred. This is the wave where 'artifact' and 'attachment' stop being two half-stories.",
+      "why_now": "aitasks#1134 comes first because its decision's main consumer is aitasks#1258. aitasks#1259 and aitasks#2100 both rewrite the remote calls in `gitbranch.sh`; aitasks#2100 also waits on aitasks#2099 from wave 1. The storage decision aitasks#1259 was waiting on is now recorded (aitasks#1890).",
+      "consequence_of_delay": "Until aitasks#1258 lands, `ait attach` rejects every backend but `local`; until aitasks#1259 lands, a gitbranch write fails offline; until aitasks#2100 lands, large recordings have no recommended home outside the code repository.",
+      "entries": [
+        {
+          "entry_id": "e-1134",
+          "position": 1,
+          "task": "aitasks#1134",
+          "topic": "aitasks#1065",
+          "classification": "preferred_predecessor",
+          "confidence": "medium",
+          "snapshot": {
+            "status": "Ready",
+            "depends": [],
+            "gates_pending": [
+              "risk_evaluated"
+            ],
+            "priority": "low",
+            "effort": "medium"
+          },
+          "rationale": "The deferred decision on whether `attachments:` and `artifacts:` stay separate or attachments become the single-version case of an artifact. First because its outcome changes what aitasks#1258 should build; a durable decision to keep them separate is an acceptable answer."
+        },
+        {
+          "entry_id": "e-1258",
+          "position": 2,
+          "task": "aitasks#1258",
+          "topic": "aitasks#1065",
+          "classification": "core",
+          "confidence": "high",
+          "snapshot": {
+            "status": "Ready",
+            "depends": [
+              "aitasks#1231"
+            ],
+            "gates_pending": [
+              "risk_evaluated"
+            ],
+            "priority": "medium",
+            "effort": "high",
+            "followup_kind": "risk_mitigation"
+          },
+          "rationale": "`ait attach add` hard-rejects any backend but `local` and the gc transaction hard-codes `local`, so attachments cannot use the `dir` or `gitbranch` backends. Its recorded blocker, the aitasks#1231 umbrella, is archived. The highest-value item in the wave. Its quoted line numbers predate the t1231 family landing; re-locate by symbol before editing."
+        },
+        {
+          "entry_id": "e-1259",
+          "position": 3,
+          "task": "aitasks#1259",
+          "topic": "aitasks#1065",
+          "classification": "core",
+          "confidence": "medium",
+          "snapshot": {
+            "status": "Ready",
+            "depends": [
+              "aitasks#1231"
+            ],
+            "gates_pending": [
+              "risk_evaluated"
+            ],
+            "priority": "low",
+            "effort": "medium",
+            "followup_kind": "risk_mitigation"
+          },
+          "rationale": "The offline write queue for the now-shipped gitbranch backend. aitasks#1231_1's rule R1 (successful push = successful put) is correct and must not be weakened; the cost is that creation fails without a reachable remote. Its own body flags it as a genuine design task, and aitasks#1890's fetch and sync decision bears on it."
+        },
+        {
+          "entry_id": "e-2100",
+          "task": "aitasks#2100",
+          "topic": "aitasks#1065",
+          "classification": "core",
+          "confidence": "medium",
+          "rationale": "Lets the gitbranch store live in a separate artifact repository, the home aitasks#1890 recommends for large recordings, so a clone of the code/data repository never contains store history. Hard-depends on aitasks#2099, which owns the fetch exclusion it relies on for named remotes. It edits every remote call in `gitbranch.sh`, as does aitasks#1259's offline queue: land one, then rebase the other.",
+          "snapshot": {
+            "status": "Ready",
+            "depends": [
+              "aitasks#2099"
+            ],
+            "gates_pending": [
+              "risk_evaluated"
+            ],
+            "priority": "medium",
+            "effort": "high"
+          },
+          "position": 4
+        }
+      ]
+    },
+    {
+      "wave_id": "w9-reclaim-storage",
+      "ordinal": 3,
+      "title": "Reclaim storage: manifest lifecycle, pin and prune, store compaction",
+      "purpose": "The reclaim half of the aitasks#1890 decision, a strict dependency chain: manifest lifecycle and orphan reaping (aitasks#1135), then pin and explicit prune (aitasks#2102), then gitbranch store compaction (aitasks#2104), and finally the website lifecycle page (aitasks#2105) once the behaviour exists.",
+      "why_now": "aitasks#1135 is startable today, and each later entry hard-depends on the one before. It follows waves 1-2 because nothing there needs it, while aitasks#2105 needs aitasks#2100 from wave 2.",
+      "consequence_of_delay": "Until this wave lands, nothing reclaims gitbranch store space (a delete only adds a commit) and old artifact versions are kept with no way to prune them. That costs storage, not correctness.",
+      "entries": [
+        {
+          "entry_id": "e-1135",
+          "position": 1,
+          "task": "aitasks#1135",
+          "topic": "aitasks#1065",
+          "classification": "hard_prerequisite",
+          "confidence": "high",
+          "snapshot": {
+            "status": "Ready",
+            "depends": [
+              "aitasks#1076_2"
+            ],
+            "gates_pending": [
+              "risk_evaluated"
+            ],
+            "priority": "low",
+            "effort": "medium"
+          },
+          "rationale": "Real manifest lifecycle on hard-delete plus a reaper for unreferenced manifests. It is now a hard prerequisite: aitasks#2102 (pin/prune) depends on it and reuses its local orphan sweep, so it moves out of the optional wave. Its inbox carries an advisory note from aitasks#1890 asking that gitbranch reaping defer to compaction, that a blob published before its manifest is pushed is not treated as an orphan, and that pins added later can survive hard-delete and the reaper."
+        },
+        {
+          "entry_id": "e-2102",
+          "task": "aitasks#2102",
+          "topic": "aitasks#1065",
+          "classification": "core",
+          "confidence": "medium",
+          "rationale": "Pin and explicit prune: nothing expires automatically, `prune` is dry-run by default, and it protects current, pinned, shared and any-archived-owner versions. Expired versions keep a tombstone. Pins outlive owner removal, so this task also extends `rm`, aitasks#1135's hard-delete and its reaper. Hard-depends on aitasks#1135.",
+          "snapshot": {
+            "status": "Ready",
+            "depends": [
+              "aitasks#1135"
+            ],
+            "gates_pending": [
+              "risk_evaluated"
+            ],
+            "priority": "medium",
+            "effort": "high"
+          },
+          "position": 2
+        },
+        {
+          "entry_id": "e-2104",
+          "task": "aitasks#2104",
+          "topic": "aitasks#1065",
+          "classification": "core",
+          "confidence": "medium",
+          "rationale": "Reclaims gitbranch store space by rebuilding the store with live blobs only, under the five-rule safety contract in `aidocs/artifact_storage_lifecycle.md` \u00a77 (fresh references, grace window, readable retired predecessor, late-reference sweep, one retirement at a time). Hard-depends on aitasks#2102. It refuses while unpublished writes exist, which is why it coordinates with aitasks#1259.",
+          "snapshot": {
+            "status": "Ready",
+            "depends": [
+              "aitasks#2102"
+            ],
+            "gates_pending": [
+              "risk_evaluated"
+            ],
+            "priority": "medium",
+            "effort": "high"
+          },
+          "position": 3
+        },
+        {
+          "entry_id": "e-2105",
+          "task": "aitasks#2105",
+          "topic": "aitasks#1065",
+          "classification": "core",
+          "confidence": "high",
+          "rationale": "The website concept page for the storage lifecycle. It can only be written once the behaviour exists (current-state-only rule), so it hard-depends on aitasks#2099, aitasks#2100, aitasks#2101, aitasks#2102 and aitasks#2104 and closes the storage work.",
+          "snapshot": {
+            "status": "Ready",
+            "depends": [
+              "aitasks#2099",
+              "aitasks#2100",
+              "aitasks#2101",
+              "aitasks#2102",
+              "aitasks#2104"
+            ],
+            "gates_pending": [
+              "risk_evaluated"
+            ],
+            "priority": "low",
+            "effort": "low"
+          },
+          "position": 4
+        }
+      ]
+    },
+    {
+      "wave_id": "w5-gate-seam-and-html-plans",
+      "ordinal": 4,
+      "title": "Unblock the consumer: the artifact-producing gate seam, then HTML plans",
+      "purpose": "Deliver what the model was designed for \u2014 HTML plans flowing through the artifact layer \u2014 by first building the gate archetype that solves the planning-mode write blocker, then closing the umbrella and letting its consumer proceed.",
+      "why_now": "Its position records an external blocker, not a dependency on waves 1-3: aitasks#1076_4 hard-depends on aitasks#635, the gates framework topic, which is still Ready with open children. If that topic advances sooner, this wave can start in parallel with anything above.",
+      "consequence_of_delay": "aitasks#774 is the only member at priority high and stays blocked for as long as this wave does.",
+      "entries": [
+        {
+          "entry_id": "e-1076-4",
+          "position": 1,
+          "task": "aitasks#1076_4",
+          "topic": "aitasks#1065",
+          "classification": "hard_prerequisite",
+          "confidence": "high",
+          "snapshot": {
+            "status": "Ready",
+            "depends": [
+              "aitasks#1076_3",
+              "aitasks#635"
+            ],
+            "gates_pending": [],
+            "priority": "medium",
+            "effort": "high"
+          },
+          "rationale": "The artifact-producing gate archetype: the handle is preallocated and named in the plan during planning, content is materialized post-approval, and the approved plan body is never patched. Its aitasks#1076_3 dependency is archived; its aitasks#635 dependency is not, and that gates this whole wave."
+        },
+        {
+          "entry_id": "e-1076",
+          "position": 2,
+          "task": "aitasks#1076",
+          "topic": "aitasks#1065",
+          "classification": "coordination_only",
+          "confidence": "high",
+          "snapshot": {
+            "status": "Ready",
+            "depends": [],
+            "gates_pending": [],
+            "priority": "medium",
+            "effort": "high"
+          },
+          "rationale": "The umbrella for the unified artifact model and the owner of this trail; no code in the parent, so it closes when aitasks#1076_4 does. aitasks#774 records a hard `depends` on it."
+        },
+        {
+          "entry_id": "e-774",
+          "position": 3,
+          "task": "aitasks#774",
+          "topic": "aitasks#774",
+          "classification": "core",
+          "confidence": "high",
+          "snapshot": {
+            "status": "Ready",
+            "depends": [
+              "aitasks#1076"
+            ],
+            "gates_pending": [],
+            "priority": "high",
+            "effort": "high"
+          },
+          "rationale": "HTML plans \u2014 the consumer that motivated the model. Per the t1065 brainstorm the HTML plan becomes an artifact referenced by a stable handle, while the markdown plan stays inline and authoritative. Everything it needs exists once aitasks#1076_4 lands."
+        }
+      ]
+    },
+    {
+      "wave_id": "w6-lifecycle-and-remote-backends",
+      "ordinal": 5,
+      "title": "Optional breadth and verification of landed work",
+      "purpose": "Hold the work that widens the model or re-checks what already landed: two more remote adapters (the per-file external option aitasks#1890 kept for later), a postponed metadata migration, and two manual verifications. None of it blocks anything above.",
+      "why_now": "Last because nothing depends on any of it. The two verifications (aitasks#1708, aitasks#1968) are startable today and independent of every other wave, so they can be picked up whenever there is spare capacity.",
+      "consequence_of_delay": "Low. `local`, `dir` and `gitbranch` cover the shipped backend story, a separate artifact repository (aitasks#2100) covers large recordings, and the verified fixes are already pinned by automated tests.",
+      "entries": [
+        {
+          "entry_id": "e-1089",
+          "position": 1,
+          "task": "aitasks#1089",
+          "topic": "aitasks#1065",
+          "classification": "optional",
+          "confidence": "medium",
+          "snapshot": {
+            "status": "Ready",
+            "depends": [
+              "aitasks#1076_1"
+            ],
+            "gates_pending": [],
+            "priority": "medium",
+            "effort": "high"
+          },
+          "rationale": "One S3-compatible adapter covering five providers, against the generalized backend contract. The earlier reason to hold it, that the second remote backend was not yet documented and verified, lapsed when the t1231 family landed; it stays optional because aitasks#1890's decision may reshape it. Its inbox note from aitasks#1231_3: `tests/test_website_doc_lists.sh` fails if a backend module lands without a row in the backend table of `concepts/artifacts.md`."
+        },
+        {
+          "entry_id": "e-1090",
+          "position": 2,
+          "task": "aitasks#1090",
+          "topic": "aitasks#1065",
+          "classification": "optional",
+          "confidence": "medium",
+          "snapshot": {
+            "status": "Ready",
+            "depends": [
+              "aitasks#1076_1"
+            ],
+            "gates_pending": [],
+            "priority": "low",
+            "effort": "high"
+          },
+          "rationale": "The Google Drive adapter, after S3 and at lower priority: heaviest auth, weakest IAM, no content-addressed paths. aitasks#1890's decision may reshape it. It carries the same aitasks#1231_3 note about the backend-table drift guard as aitasks#1089."
+        },
+        {
+          "entry_id": "e-1094",
+          "position": 3,
+          "task": "aitasks#1094",
+          "topic": "aitasks#1094",
+          "classification": "optional",
+          "confidence": "high",
+          "snapshot": {
+            "status": "Postponed",
+            "depends": [],
+            "gates_pending": [],
+            "priority": "low",
+            "effort": "low"
+          },
+          "rationale": "Postponed by design; its activation triggers are conditions, not dependency edges. Listed so the trail records why it is not scheduled."
+        },
+        {
+          "entry_id": "e-1708",
+          "position": 4,
+          "task": "aitasks#1708",
+          "topic": "aitasks#1661",
+          "classification": "optional",
+          "confidence": "medium",
+          "snapshot": {
+            "status": "Ready",
+            "depends": [
+              "aitasks#1698"
+            ],
+            "gates_pending": [],
+            "priority": "medium",
+            "effort": "medium",
+            "followup_kind": "manual_verification"
+          },
+          "rationale": "Manual verification of the attach/artifact transaction boundary in branch mode (`verifies: [1698]`). Startable now and independent of every other member."
+        },
+        {
+          "entry_id": "e-1968",
+          "position": 5,
+          "task": "aitasks#1968",
+          "topic": "aitasks#1065",
+          "classification": "optional",
+          "confidence": "medium",
+          "snapshot": {
+            "status": "Ready",
+            "depends": [],
+            "gates_pending": [],
+            "priority": "low",
+            "effort": "medium",
+            "followup_kind": "risk_mitigation"
+          },
+          "rationale": "Manual verification of t1960's dir-backend fix on a real mount \u2014 plain `umount` (EBUSY) and `umount -l` while a put holds the cwd \u2014 which t1960's tests only simulate. Its inbox note from t1284 says an unprivileged `unshare --user --map-root-user --mount` namespace gave a real bind mount and umount, which may avoid sudo; the mid-put windows remain unexercised."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    {
+      "evidence_id": "ev-snapshot",
+      "source_type": "command_output",
+      "ref": "./.aitask-scripts/aitask_trail_gather.sh snapshot --scope task --owner aitasks#1076 --allow-archived-owner --with-inflight 1076 1076_4 1089 1090 1094 1134 1135 1258 1259 1260 1708 1968 2099 2100 2101 2102 2103 2104 2105 774",
+      "observed_at": "2026-10-21T12:57:26Z",
+      "summary": "Deterministic membership snapshot over the stored member set minus archived aitasks#1890, plus aitasks#2099 through aitasks#2105: 20 members, 20 inputs, digest b062fa5930db24b3, owner aitasks#1076. In-flight probes: 8 tasks enumerated (both_enumeration_ok), none a member. Source of every status, priority, effort, depends and gates value recorded here."
+    }
+  ],
+  "rendering_hints": {
+    "depth": "lite"
+  }
+}
