@@ -37,4 +37,4 @@ Requested by the user after a shadow discussion of t1853_4's draft plan on 2026-
 - aiplans/p1853/p1853_4_m2_4_axes_and_variants.md (or its archived successor)
 - goengines/internal/testmap/axes/
 - aidocs/testing_engine/n014_explorer_006_proposal.md
-- aitasks/t1855_testmap_m4_selection_and_attribution.md (resolve current task path by ID if renamed)
+- aitasks/t1855_testmap_m4_selection_freshness_and_feedback.md (resolve current task path by ID if renamed)
