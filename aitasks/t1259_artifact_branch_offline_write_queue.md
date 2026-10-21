@@ -76,3 +76,10 @@ an implementation):
   the second clone resolves them.
 - Negative control: with the feature disabled/absent, the same offline create
   still fails closed (R1 is not weakened by default).
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1890** id=2026-10-21T12:33:48Z.9c78356516f353c783749bdd from=t1890 from_verified=yes at=2026-10-21T12:33:48Z base=ba4fde3822c67af2fb3aee56c36a16d673b3e1d2 base_branch=main dirty=yes host=omg16
+>
+> | Advisory from t1890 (aidocs/artifact_storage_lifecycle.md §7, commit ba4fde382). The planned store compaction (t2104) refuses while the local store is ahead of the remote, i.e. while there are unpublished writes. If your offline queue keeps pending writes, a cheap, queryable "pending writes exist" check (for example the ahead-of-origin local ref you prefer) lets compaction refuse reliably.
