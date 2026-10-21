@@ -183,3 +183,17 @@ Current-branch mode: no merge; commit code + plan separately, then archive via
 ### Goal-achievement risk: low
 - None identified. (Depth may now be dropped at middle widths where gen consumed
   the room — a deliberate, documented priority, pinned by a test.)
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-21 17:45)
+- **Requested by user:** `trail_generated_label` evaluated "now" in the generation timestamp's fixed offset (`local.tzinfo`); across a DST change that put New Year's Eve local time in the next year (TZ=Europe/Berlin, generated 2026-07-10T14:00Z, now 2026-12-31T22:30Z → returned `2026-07-10` instead of `07-10 16:00`).
+- **Changes made:** `today = (now or datetime.now(timezone.utc)).astimezone(tz)` — converted on its own to the current local offset. Added `test_now_uses_the_current_offset_not_the_generation_offset` (POSIX Berlin rule string, no tzdata); red-proofed against the old expression (old "today" = 2027-01-01 00:30+02:00).
+- **Files affected:** `.aitask-scripts/board/board_trail_view.py`, `tests/test_board_bytrail_view.py`
+
+## Final Implementation Notes
+- **Actual work done:** `trail_generated_label()` (board_trail_view.py) — schema-grammar parse (`$defs.timestamp`, seconds optional, `Z` only, `re.ASCII`, `fullmatch`), guarded parse+conversion, local `MM-DD HH:MM` same-year / `YYYY-MM-DD` otherwise. `_trail_generated_note()` + `_trail_banner(..., gen_note)` (board_trail_screen.py): additive-if-it-fits, tried before depth, placed right after the title; rungs 1–4 unchanged. Selection-modal `updated` field uses the same label, falling back to the raw / `?` rendering. 14 new tests in `tests/test_board_bytrail_view.py` (`TrailGeneratedLabelTests`, `TrailGeneratedBannerTests`), all with literal expected strings.
+- **Deviations from plan:** (1) The board re-exports every `board_trail_view` name and `tests/test_board_trail_view.py::SingleHomeTests` pins that set, so `_GENERATED_AT_RE` / `trail_generated_label` were added to `aitask_board.py`'s import block and to `VIEW_ONLY_NAMES` (caught by the full suite). Tests read both off the board (`self.ab.…`). (2) Reload-seam test drives the real `d` key → `load_trail_blob` worker → `_on_trail_reload` path rather than swapping `_trail_doc` by hand. (3) Post-review DST fix (see Change Request 1).
+- **Issues encountered:** The shared trail fixture (`gate_framework.json`) carries a `generated_at`, so `TrailDepthLabelTests._doc` now pops `generation` to keep isolating the depth note.
+- **Key decisions:** Generation outranks depth among the additive notes; offsets are rejected because the schema rejects them; banner tests force the zone with POSIX TZ strings (`UTC-3`, Berlin's rule) so no tzdata is needed, and build same-year inputs from the current year so they are not time bombs.
+- **Upstream defects identified:** None
