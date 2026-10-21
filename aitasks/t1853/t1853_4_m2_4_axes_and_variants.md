@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1852
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-11 17:42
-updated_at: 2026-10-21 09:16
+updated_at: 2026-10-21 11:43
 ---
 
 ## Context
@@ -135,3 +136,8 @@ data and verbs and makes no human action a precondition.
 > | Variant-bearing units are refused as broad, so `@variant` ids are always unit kind.
 
 > **👁 note:read** id=2026-10-21T06:15:55Z.67d034acea9d96d2a2cdb185 by=t1853_4 at=2026-10-21T06:15:55Z mode=explicit ids=2026-10-14T14:40:29Z.eaaceed71f24bc84bfa69d5b,2026-10-18T15:59:31Z.cae3d01d047cd5e6c6246d01
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-21T08:43:18Z status=pass attempt=1 type=human
