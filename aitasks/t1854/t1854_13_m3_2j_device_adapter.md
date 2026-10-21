@@ -1,14 +1,14 @@
 ---
 priority: medium
 effort: medium
-depends: []
+depends: [t1854_11, t1854_3]
 issue_type: feature
 status: Postponed
 labels: [testing, testmap, go_engine]
 gates: [risk_evaluated]
 anchor: 1852
 created_at: 2026-10-21 22:06
-updated_at: 2026-10-21 22:06
+updated_at: 2026-10-21 22:07
 ---
 
 ## Context
