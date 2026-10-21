@@ -13,117 +13,148 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1852
 created_at: 2026-10-13 19:17
-updated_at: 2026-10-21 15:34
+updated_at: 2026-10-21 22:07
 ---
 
 ## Context
 
-Child **M3.2 — Reference runners** of t1854 (test map, module M3). Wave
-**B**. These are the builtins built into the binary, so every target
-repository can list and run its units without a project script.
-**Provider:** M3.1 (`t1854_1`).
+Child **M3.2a — Evidence contract** of t1854 (test map, module M3). Wave **1**.
 
-Authoritative specification: `aidocs/testing_engine/n014_explorer_006_proposal.md`
-(M3 cut fixed in `6a3a81efc`):
+On 2026-10-21 M3.2 ("Reference runners") was re-decomposed around trustworthy
+test evidence. The decision is in the parent's *M3.2 re-decomposition
+(2026-10-21)* section and in `aiplans/p1854_testmap_m3_runners_scheduling_and_cost.md`.
+This task keeps the id t1854_2 and the old file name, and is **rescoped**: it
+writes the evidence guarantees into M3.1's runner contract **before any
+production runner exists**. It registers no builtin.
 
-- the Module Map row M3.2;
-- the component *Reference runners (M3.2)*;
-- *Onboarding → Detection, per target repository*, for what each target
-  needs;
-- *Assumptions → `assumption_batch_per_unit_timing_reportable`*;
-- *Tradeoffs → `tradeoff_batch_misreport_risk`*;
-- *Open questions* item 8: the bash-file per-file exit is the default.
+It is a named extension of M3.1 (`goengines/internal/testmap/runner/`) and of
+M3.4 (`goengines/internal/testmap/cost/`). Every other M3.2 sibling consumes
+it.
 
-Parent plan: `aiplans/p1854_testmap_m3_runners_scheduling_and_cost.md`
-(Deviations 3, 5 and 6).
+## Scope
 
-**Coarse plan only.** `aiplans/p1854/p1854_2_m3_2_reference_runners.md`
-records what the proposal fixes. Its **Step 0 — Reality check** is
-mandatory, runs before any code, and is recorded in the plan. It inspects
-M3.1 as landed (the contract, the manifest handle field, the top-level /
-child row marking).
+All guarantees below except G8 / G8a (t1854_6) and G9 (t1854_7). G10 is
+documented here and applied per adapter.
 
-## Scope (from the proposal, after the M3 cut fix)
+## Acceptance criteria
 
-- `ait-testmap runner <name>`: replace only the `runner` stub row.
-- `bash-file`. **No `list --invocations`**: the seeder reads M2.3's facts
-  directly.
-- `pytest`: junitxml; `testmap:batch no` honoured, so those units run
-  outside the batch.
-- `go-test`: per-file `-run` regex, `-json`.
-- `gradle-class`:
-  - a `--tests <lowering>` batch, one invocation per `group_by` group;
-  - JUnit XML inverted to ids through the list table;
-  - the zero-match trap is a mechanism failure.
-- `suite`: any command as one unit, with optional child rows from a
-  `children:` post-processor.
-- `device`: reads the allocator handle from the manifest's handle field
-  (M3.3 fills it) and refuses without one.
-- `engine-test`: over `goengines/`.
-- The `full` suite wrapper's `children:` post-processors:
-  - pytest junitxml;
-  - bash-file per-file exit;
-  - `go test -json`.
-- **Out of scope:** the serial carve-out agreement check in
-  `tests/test_serial_carveout_doc_drift.sh` moves to **M10.1**, which writes
-  the annotations it checks.
-- **Recursion refusal (for the Reality check to decide).** A `full` suite
-  command that reaches `./ait test` recurses, and through `aitask_test.sh`
-  it would also violate Invariant 5. The Reality check decides how it is
-  refused.
+- **Describe keys.** `describe` gains `accounting: cases|unit|aggregate` (default `unit`) and `discovery: native|inventory|candidates` (default `candidates`). An unknown value is refused, and `runners.yaml` may override both (the existing D6 override rule).
+- **Zero-test policy.** `runners.yaml` entries gain `zero_tests: error|skip` (default `error`, G3).
+- **Expected case identities (G1a).**
+  - A `cases` runner's discovery hands the engine each unit's case identities. The protocol shape is decided in Step 0: case rows in `list`, or a separate `cases` verb run in the same `Load`, so discovery is fresh for every run.
+  - The engine passes them in the manifest (`units[].cases`).
+  - An identity is a non-empty, line-safe string, unique within its unit. A duplicate at discovery is `INPUT_ERROR:lister`.
+- **Case results.**
+  - The adapter writes strict case rows to `<report_dir>/cases.jsonl`: `{"unit","case","status":pass|fail|error|skip,"duration_ms","message"?}`.
+  - Under `accounting: cases`, a top-level result row from the adapter is refused (start rows stay allowed). The **engine** derives the unit's result by G1a / G1b, and computes `cases_expected / passed / failed / errored / skipped` into the result and the record.
+  - Under `unit` / `aggregate`, a case row is refused.
+- **One shared reconciler.**
+  - It is keyed `(parent?, unit, case?)`, and both top-level `cases` units and (from t1854_14) suite child evidence go through it (G7).
+  - It takes the expected identities from discovery and the reported terminal results. It returns engine-derived statuses and counters, plus the reconciliation errors.
+  - Its API is what t1854_14 calls.
+- **Tests (case accounting).** Expected `{a,b}`, with each of these reported:
+  - `{a,a}` → `error:duplicate_case`;
+  - `{a,c}` → `error:unexpected_case` (+ `incomplete`);
+  - `{a}` → `incomplete`;
+  - `{a,b,b}` → `duplicate_case`.
+
+  Also: mixed pass and skip → `pass`, with the skip counted and listed; fail beside error → `fail`; error without fail → `error`; all skip → `skip`; zero expected → G3 under both policies. The same matrix is driven through the reconciler with **child-keyed** input. Isolated mutants (count-only reconciliation; adapter-supplied counters trusted) must turn the equal-count tests red.
+- **Output.** `RUN_ACCOUNTING:<selected>|<cases>|<unit>|<aggregate>|<unaccounted>` (text and JSON), and `DISCOVERY:<runner>|candidates` from `run`, `scan` and `check`.
+- **Freshness (G6).** The manifest gains `report_dir`, which the engine creates empty for every invocation. A `FreshReport(path, invStart)` helper refuses a file older than the start, a symbolic link, or a path outside the directory. A test covers each refusal.
+- **Reporting-contract seam (G7).** `runner.RegisterReportingContract(name)`, with `children:` refused at load while the name is unregistered. M3.1's existing child-row tests register a test-only contract.
+- **Ledger (M3.4).** Ledger rows record `accounting` and `discovery`. An `aggregate` result never anchors (`opaque:aggregate`); every other existing anchor decision is unchanged, and its tests stay green.
+- **Docs.**
+  - `goengines/README.md` Interfaces rows: the guarantee table and the status proves / does-not-prove table.
+  - Proposal `aidocs/testing_engine/n014_explorer_006_proposal.md`: split the Module Map M3.2 row into M3.2a–k (the sibling table in the parent), rewrite the *Reference runners* component around G1–G10, change Open question 8's default to "no per-file evidence without an explicit report", and add the deferred integrations to *Named follow-ups (not v1)*.
+- **Tests.** Every rule is pinned by a test in package `runner` / `cost` under the existing `isolated` guard. An isolated mutant proves each G2 / G3 / G6 / G7 refusal load-bearing. `ait engine test` is green.
 
 ## Key files to modify
 
-- `goengines/internal/testmap/runner/builtin/**`: a new package (owned).
-- `goengines/cmd/ait-testmap/verbs.go`: replace only the `runner` stub row.
+- `goengines/internal/testmap/runner/{describe,config,list,results,outcome,invoke,run}.go` (named extensions of M3.1), plus a new `reconcile.go`.
+- `goengines/internal/testmap/cost/{hook,eligibility,ledger}.go` (named extensions of M3.4).
+- `goengines/cmd/ait-testmap/run.go` (the output lines), `scancheck.go` (`DISCOVERY:`).
+- `goengines/README.md`; the proposal (M3.2's row and component only, plus OQ 8 and *Named follow-ups*).
 
 ## Reference files for patterns
 
-- M3.1's `internal/testmap/runner` contract and its fixture runners.
-- `goengines/internal/testmap/fixture`.
-- `tests/run_all_python_tests.sh`, for the pytest invocation shape and the
-  serial carve-out.
+- `runner/results.go` (`ValidateRows`, per-id protocol errors) and `runner/outcome.go` (the outcome table, cause precedence).
+- `aiplans/archived/p1854/p1854_1_m3_1_runner_contract_and_repository.md` (*Contract shapes*).
+- `aiplans/archived/p1854/p1854_4_m3_4_cost_ledger.md` (eligibility).
 
 ## Provides / consumes
 
-- **Provides:** runners for every target repository without a project script
-  (M4.5, M6.2, M8.4 `fallback_command`, M10.4 `gradle-class` / `device`,
-  M10.5).
-- **Consumes:** M3.1.
+- **Provides:** the evidence contract and the shared reconciler, to t1854_6, t1854_8–t1854_14, M4.5, M6.1, M8.4.
+- **Consumes:** M3.1 (t1854_1), M3.4 (t1854_4), t1985.
 
-## Implementation plan (coarse)
+## Step 0 — Reality check (mandatory, before any code; recorded in the plan)
 
-1. Step 0 — Reality check (in the plan file).
-2. The `runner <name>` verb and the builtin registration into M3.1's
-   `builtin:` scheme.
-3. `bash-file`, `pytest`, `go-test`, `engine-test`.
-4. `gradle-class` with JUnit inversion and the zero-match trap.
-5. `suite` + the three `children:` post-processors; `device`.
+Re-read the guarantees below and the parent's re-decomposition section.
+Inspect `runner` and `cost` as they are on the merge target. Decide the
+case-identity protocol shape. Tabulate every difference against this body,
+decide each one, and send notes to any sibling whose assumptions change.
+Re-confirm that every touched file is M3.2a's or a named extension.
 
-## Verification
+## Evidence guarantees (M3.2, shared by every sibling — decided 2026-10-21)
 
-- Each builtin lists and runs one passing and one failing unit on a fixture
-  repo.
-- pytest:
-  - junitxml inversion;
-  - `testmap:batch no` units run outside the batch.
-- `go-test -json`, per file.
-- `gradle-class`, against a fake Gradle emitting JUnit XML:
-  - one invocation per `group_by` group;
-  - the zero-match trap.
-- `suite` child rows through each of the three post-processors.
-- `device`:
-  - reads a fixture handle;
-  - refuses without one.
-- `engine-test` lists the `goengines/` packages.
-- A `full` suite command reaching `./ait test` is refused.
-- `ait engine test` is green.
+| # | guarantee |
+|---|---|
+| G1 | **Command outcome ≠ accounting.** Every top-level result carries the accounting class its runner declares (`describe` `accounting:`): **`cases`** (the engine holds the unit's expected case **identities** from discovery and reconciled them, identity by identity, against the adapter's terminal case results in this invocation); **`unit`** (the unit is one executable whose exit is its verdict, e.g. a bash test script; this is the default for project scripts); **`aggregate`** (one command over many tests; proves the command's exit only). A run prints both `RUN_RESULT` (outcomes) and `RUN_ACCOUNTING:<selected>\|<cases>\|<unit>\|<aggregate>\|<unaccounted>` |
+| G1a | **Case reconciliation is identity-based and engine-owned.** Each expected case identity needs **exactly one** terminal result (`pass\|fail\|error\|skip`). A missing identity, a duplicate (two results for one identity), an unexpected identity (not in the expected set) or a malformed identity makes the unit `error:incomplete\|duplicate_case\|unexpected_case`, whatever the totals. That catches equal-count substitutions (`{a,b}` expected, `{a,a}` or `{a,c}` reported). The counters (`cases_expected / passed / failed / errored / skipped`) are **computed by the engine from the validated case results**, never taken from the adapter, and an adapter never writes the top-level result of a `cases` unit (start rows only) |
+| G1b | **Unit status from validated cases**, in order: any case `fail` → `fail`; else any case `error` → `error`; else zero expected cases → G3; else every case `skip` → `skip`; else (every case `pass` or `skip`, ≥ 1 `pass`) → `pass`, with its skipped cases counted and listed in the evidence. A unit with a reconciliation error (G1a) is `error` before any of this applies |
+| G2 | **Never a pass, never an unexplained skip.** Evidence that is **missing** (an expected case or unit with no result), **ambiguous** (a report entry that inverts to zero or several cases or units), **stale** (a report the invocation did not produce) or **incomplete** (G1a) makes the unit `error` with a stated reason, or makes the whole invocation a mechanism failure. It is never `pass`, and never `skip` |
+| G3 | **Zero tests is an explicit policy.** A `cases` unit that executed zero cases is `error:zero_tests`, unless its runner entry sets `zero_tests: skip`. In that case it is `skip`, with reason `zero_tests` printed and in the ledger. It is never a pass |
+| G4 | **`skip` comes only from the tool's own per-case skip verdicts (with their reasons) or from G3.** An adapter never synthesizes one |
+| G5 | **Discovery is declared, and discovery is not execution.** `describe` `discovery:` is one of three classes. **`native`**: the framework's own collector, run under the same configuration and selection rules as execution, and bounded like execution because it may run project code. **`inventory`**: an explicit, enumerable rule or list, such as "each bind-matched script is one unit", or a committed inventory file. **`candidates`**: a source scan, which never claims complete discovery; `check` and `run` print `DISCOVERY:<runner>\|candidates`, and completeness consumers (M8 `full`) are told. The default for project scripts is `candidates` |
+| G6 | **Freshness.** An adapter reads reports only from the per-invocation report directory, which the engine creates empty. A file older than the invocation start, a symbolic link, or a path outside that directory is refused as stale |
+| G7 | **Child rows only through a registered reporting contract** (t1854_14). Until one is registered, `children:` is refused at load. A suite's exit is never read as individual test results. **Child evidence takes the same reconciliation route as top-level evidence.** Each subsumed unit's expected identities come from its own runner's discovery in the same `Load`. Its case identities (a `cases` runner) or its own identity (a `unit` runner) are reconciled by the **one shared engine reconciler** under G1a and G1b. Child statuses and counters are engine-derived, and a discovered subsumed unit with no reconciled evidence counts as `unaccounted` in `RUN_ACCOUNTING`, never as implicitly covered |
+| G8 | **Supervision with containment.** Every process an adapter starts, for discovery or for execution, runs bounded and cancellable, inside a **containment that a descendant cannot leave by changing its process group or session**. On Linux this is `PR_SET_CHILD_SUBREAPER` on the supervising process plus a parent-pid descendant tree, which still holds every orphaned and every `setsid()` descendant. A cgroup v2 leaf is used when a delegated cgroup is writable. Cleanup kills the whole contained tree and verifies it empty; a survivor or an unverifiable host is a mechanism failure. **Enforceable support restriction:** on a platform without verified containment (darwin today), production adapters refuse to run (`CONTAINMENT_UNAVAILABLE:<platform>`, mechanism, exit 3) instead of running uncontained. A documented prohibition is never counted as containment |
+| G8a | **Cleanup ownership is per invocation and survives a builtin crash.** Each invocation runs inside its own ownership boundary, whose membership the kernel keeps even after every process between it and the engine has died. **Initially that is a cgroup v2 leaf per invocation** (delegated subtree) only. Cleanup kills exactly that boundary's members. Without a delegated cgroup, the only boundary is the engine's subreaper tree, which cannot tell invocations apart once a builtin dies. Invocations then **must not overlap**: the engine refuses parallel execution (`PARALLEL_REFUSED:containment`) and runs serially, where the tree has a single owner. Killing the engine's whole tree is never used to clean up one invocation. **Every boundary backend must keep G9's cleared-environment recursion detection working before it is enabled.** For that reason a PID-namespace backend is deferred to its own task (below): PIDs, parent visibility and `/proc` differ across namespaces, and the ancestry backstop has no namespace-aware mapping |
+| G9 | **Recursion.** Every engine entry point that starts runner processes refuses a nested entry for the **same repository** at runtime, including through indirect calls: `run`, and `Load` (so `scan`, `check`, and later `test` / `select`) — native discovery runs project code too. Engine tests against fixture repositories are allowed. The guard is a prerequisite of **every** production adapter (through the foundation) |
+| G10 | **Support claims.** An adapter is *supported* only for the tool versions and platforms its real-tool integration tests run against, in CI (`AIT_TESTMAP_REQUIRE_REAL_TOOLS=1` turns their skips into failures there) or in a documented environment. Fakes serve targeted failure tests only. With no integration environment, the adapter stays **pending** |
 
-## Automation-first (user directive, 2026-10-11)
+What each status proves:
 
-Human review belonged to an older design. No path shipped here may make a
-human action a precondition. A human-only step met in the proposal is
-reported to its owning parent with a note, never encoded here.
+| status | proves | does not prove |
+|---|---|---|
+| `pass` | it ran in this invocation, under its bound. `cases`: every expected case identity has exactly one terminal result, none failed or errored, at least one passed (skipped cases are counted and listed). `unit`: the executable exited 0. `aggregate`: the command exited 0 | that the assertions are meaningful; that skipped cases ran; anything about cases discovery did not find (`candidates`); which tests ran inside an `aggregate` |
+| `fail` | at least one case failed (whatever the rest), or the executable / command exited non-zero | where the fault is |
+| `error` | the unit could not be judged: a case error with no failure, collection or build failure, incomplete / duplicate / unexpected / ambiguous / stale evidence, `zero_tests`, a protocol violation | anything about the code under test |
+| `skip` | every expected case was skipped by the tool (with reasons), or G3 applied | any behaviour |
+| `timeout` / `not_started` / `batch_timeout` / `missing` / `refused` | unchanged from M3.1 | — |
+
+## Carried reality-check facts (verified 2026-10-21 at main `ab1704c89`; re-verify in Step 0)
+
+- **M3.1 builtin protocol** (t1854_1, `3d1a2b628`).
+  - Register with `runner.RegisterBuiltin(name)`; registering a name twice panics, and an unregistered builtin is `RUNNER_UNRESOLVED`.
+  - A `builtin: <b>` runner runs as `runner.SelfExe()` + `runner <b> describe|list|run --manifest <abs>`, in the runner's `cwd`, under `Setsid`.
+  - Env: `AIT_TESTMAP_ROOT`, `AIT_TESTMAP_RUNNER`, `AIT_TESTMAP_COMMAND` (the `command:` override) and, on `run`, `AIT_TESTMAP_RUN_ID`.
+  - `runner.Manifest` is exported (indented JSON, with a `handle` field). `runner.LoadConfig` exposes `Entry{Bind, Cwd, Command, SubsumedBy, Overrides, OverrideKeys}` and `Config.Terminal`.
+  - The `runner` verb is still `stub("runner")` in `goengines/cmd/ait-testmap/verbs.go`, and `main_test.go` `TestStubsExit64` expects `NOT_IMPLEMENTED:runner`.
+- **Timeout model** (`runner/timeout.go`).
+  - `per_unit`: the runner bounds each unit, writes start rows, and reports `timeout`.
+  - `batch`: the `runners.yaml` entry must set `batch_timeout_s`.
+  - `none`, the default: every unit is a singleton invocation, bounded by the engine.
+  - `testmap:batch no` already makes a unit a singleton (`Unit.BatchNo` → `Key.Batch`).
+  - An out-of-contract run exit is `mechanism/runner_exit:<n>`, and the run exit contract is 0/1/2/75/64.
+- **Cleanup today.**
+  - The engine sweeps the runner's whole **session** on every exit path (`exec_unix.go`, `proc_linux.go` / `proc_darwin.go`).
+  - A process that calls `setsid()` escapes that sweep; M3.1 records this as a residual.
+  - `t1854_3` (M3.3) plans `errgroup` **parallel** execution of invocations through `runner.RegisterExecutor`.
+- **Hang guards** (t1985 `a81352ffb`, t1998 `b82f4becc`).
+  - `isolated(t, hangLimit)` and its tripwire are unexported test code in package `runner`.
+  - The tripwire parses only the `runner` directory, and `goengines/ci/preflight.sh` runs it alone before the suite.
+  - A new package is covered by neither (inbox notes from t1985 / t1998 on t1854_2).
+- **Eligibility** (M3.4 t1854_4 `487271c89`, t2080, t2081 `d9569b6ad`).
+  - A child row is never an anchor (`opaque:child`), nor is a `full` / suite unit (`opaque:suite`).
+  - `runnerConfig` treats `runners.yaml`, `runners/**` and each whitespace token of `command:` as runner inputs.
+  - `cost/implicit.go` rules key on the test's **language**, not on a runner. Per t2081, a runner whose cwd is not an ancestor of the test, which uses `pytest -c` / `--rootdir` / `-p`, or which runs go-test per-package units, invalidates them. t2082 re-aligns the rules once the adapters land, so every adapter records **what it reads** (command line, cwd, config flags) in its plan or Final Notes.
+- **Invariant 5 tripwire** (`goengines/guards_test.go`). It forbids the literal `aitask_*.sh` (and others) in non-test Go code unless the line carries `// invariant5-ok: <why>`.
+- **Tools on the reference host** (2026-10-21):
+  - bash 5.3, go 1.27.2 (module floor 1.26), pytest 8.4.2 in `~/.aitask/venv`, JDK 21;
+  - Gradle 9.4.1 / 9.5.1 cached in `~/.gradle/wrapper/dists`, with aitasks_mobile registered as a project;
+  - no `adb` / emulator;
+  - unprivileged user + pid namespaces work, and the session cgroup v2 scope is writable.
+- **Automation-first** (user directive, 2026-10-11). No path may make a human action a precondition. A human-only step met in the proposal is reported to its owning parent with a note.
 
 ## Inbox
 <!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
