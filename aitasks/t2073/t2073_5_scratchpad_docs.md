@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: [t2073_4]
 issue_type: documentation
-status: Ready
+status: Implementing
 labels: [website, scratchpad]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 2073
 created_at: 2026-10-20 10:32
-updated_at: 2026-10-20 10:32
+updated_at: 2026-10-21 08:50
 ---
 
 ## Context
