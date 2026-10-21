@@ -142,7 +142,7 @@ then archive per task-workflow Step 9.
 - The scope-expansion files (#8) may hide a second, non-sed failure once the sed is fixed. Severity: low. Mitigation: covered by step 8's file-a-follow-up rule.
 
 ### Planned mitigations
-- timing: after | name: scratchpad_live_run | type: manual_verification | priority: medium | effort: low | inline_risk: medium | added_complexity: low | addresses: #4's cwd change unverified by a live run (tmux refusal in-session) | desc: Run bash tests/test_scratchpad_spawn_live.sh from a plain terminal (not inside tmux, -L ait stopped) and confirm it passes after enter_scratch_cwd was added
+- timing: after | name: scratchpad_live_run | type: manual_verification | priority: medium | effort: low | inline_risk: medium | added_complexity: low | addresses: #4's cwd change unverified by a live run (tmux refusal in-session) | desc: Run bash tests/test_scratchpad_spawn_live.sh from a plain terminal (not inside tmux, -L ait stopped) and confirm it passes after enter_scratch_cwd was added | created: t2098
 
 ## Final Implementation Notes
 
