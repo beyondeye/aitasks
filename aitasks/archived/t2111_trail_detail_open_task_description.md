@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: enhancement
-status: Implementing
+status: Done
 labels: [trails, board, ui]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -15,7 +15,8 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus5_5
 created_at: 2026-10-21 16:43
-updated_at: 2026-10-21 19:10
+updated_at: 2026-10-21 22:10
+completed_at: 2026-10-21 22:10
 ---
 
 ## Problem
@@ -115,3 +116,14 @@ header + description viewer proves insufficient.
 > **✅ gate:plan_approved** run=2026-10-21T16:10:37Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-10-21T19:08:23Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-10-21T19:10:13Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:ea12a9ab9d107914
+
+> **✅ gate:risk_evaluated** run=2026-10-21T19:10:13Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/2111/risk_evaluated_2026-10-21T19:10:13Z-risk_evaluated-a1.log`
