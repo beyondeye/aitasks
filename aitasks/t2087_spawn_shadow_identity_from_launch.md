@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
@@ -48,3 +50,5 @@ Move `spawn_shadow`'s same-window split branch onto `launch_split_pane`, and reu
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-10-21T11:36:31Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-10-21T12:11:20Z status=pass attempt=1 type=human
