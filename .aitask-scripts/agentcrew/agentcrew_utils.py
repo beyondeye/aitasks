@@ -8,7 +8,7 @@ import re
 import subprocess
 import sys
 from collections import deque
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 import yaml
 
@@ -315,7 +315,8 @@ def crew_git_timeout() -> int:
 
 
 def git_cmd(worktree: str, *args: str, check: bool = True,
-            timeout: float | None = None) -> subprocess.CompletedProcess:
+            timeout: float | None = None, input: str | bytes | None = None,
+            text: bool = True) -> subprocess.CompletedProcess:
     """Run a git command in the given worktree directory.
 
     ``timeout`` is for network operations only: the command then runs through
@@ -324,10 +325,19 @@ def git_cmd(worktree: str, *args: str, check: bool = True,
     prompt — and its whole process tree is killed after ``timeout`` seconds. A
     timed-out command reports exit status 124 with a message on stderr, like
     any other failure. Never pass it for a step that writes the worktree.
+
+    ``input`` is fed to stdin, for local plumbing (``hash-object --stdin``,
+    ``mktree``). ``text=False`` exchanges raw bytes — for file names and blob
+    contents, which text mode would decode and newline-translate. Neither can
+    be combined with ``timeout``.
     """
     cmd = ["git", "-C", worktree] + list(args)
     if timeout is None:
-        return subprocess.run(cmd, capture_output=True, text=True, check=check)
+        return subprocess.run(cmd, capture_output=True, text=text, check=check,
+                              input=input)
+    if input is not None or not text:
+        raise ValueError("git_cmd: input= and text=False are for local commands; "
+                         "they cannot be bounded")
     try:
         result = run_bounded(cmd, timeout, env=noninteractive_env())
     except subprocess.TimeoutExpired:
@@ -430,38 +440,217 @@ def _sign_args(worktree: str) -> list[str] | None:
     return ["-S"] if found.stdout.strip() == "true" else []
 
 
+# Runner-file convergence (t2029): the runner owns _runner_alive.yaml, so a
+# merge conflict confined to it is resolved field by field, in memory.
+RUNNER_ALIVE_FILE = "_runner_alive.yaml"
+# The live runner's identity and heartbeat, which it rewrites after every pull.
+_RUNNER_OWNED_FIELDS = frozenset({"status", "pid", "hostname", "started_at",
+                                  "last_heartbeat", "next_check_at", "interval"})
+_ABSENT = object()    # a key missing from one side
+_CONFLICT = object()  # both sides changed a value differently
+
+
+def _three_way(base, ours, theirs):
+    """git's rule for one value: the side that changed it, else ``_CONFLICT``."""
+    if ours == theirs or theirs == base:
+        return ours
+    if ours == base:
+        return theirs
+    return _CONFLICT
+
+
+def _merge_runner_alive_fields(base: dict, ours: dict, theirs: dict) -> dict | None:
+    """Merge the runner file's fields; None when a key cannot be resolved.
+
+    Policies, in order — the field policies run before git's three-way rule:
+
+    1. A runner-owned field takes ours, unconditionally (absence included): it
+       describes the live runner doing this merge, which rewrites it right
+       after the pull. A peer naming another runner is refused beforehand
+       (``_competing_runner_identity``).
+    2. ``requested_action``: a stop either side introduced since the merge
+       base wins. Otherwise git's three-way rule, and theirs when both sides
+       changed it. So a stop already in the base, cleared by a restarted
+       runner and untouched on theirs, stays cleared, as a clean merge leaves
+       it. A repeat stop written over that identical stop before the
+       controller saw the clearing cannot be told from it and is lost — the
+       merge contains the peer's commit, so no later pull brings it back — and
+       must be reissued once the controller has synced.
+    3. Any other key: git's three-way rule; None when both sides changed it.
+
+    Keys keep ours' order, then theirs-only keys follow. The three sides must
+    be flat mappings of scalars, as ``_runner_alive_at`` returns them: values
+    are compared with ``==``, which a self-referencing value would recurse on.
+    """
+    merged = {}
+    for key in list(ours) + [k for k in theirs if k not in ours]:
+        b, o, t = (side.get(key, _ABSENT) for side in (base, ours, theirs))
+        if key in _RUNNER_OWNED_FIELDS:
+            value = o
+        elif key == "requested_action":
+            if b != "stop" and "stop" in (o, t):
+                value = "stop"
+            else:
+                value = _three_way(b, o, t)
+                if value is _CONFLICT:
+                    value = t
+        else:
+            value = _three_way(b, o, t)
+            if value is _CONFLICT:
+                return None
+        if value is not _ABSENT:
+            merged[key] = value
+    return merged
+
+
+def _runner_identity(fields: dict) -> tuple:
+    return fields.get("hostname", _ABSENT), fields.get("pid", _ABSENT)
+
+
+def _competing_runner_identity(base: dict, ours: dict, theirs: dict) -> bool:
+    """True when theirs names a runner other than this one.
+
+    Theirs' (hostname, pid) changed since the merge base and is not ours: a
+    takeover or a second runner rewrote the file. The field merge would
+    overwrite that claim with ours, so the pull defers instead.
+    """
+    peer = _runner_identity(theirs)
+    return peer != _runner_identity(base) and peer != _runner_identity(ours)
+
+
+def _identity_label(fields: dict) -> str:
+    return _one_line(f"{fields.get('hostname', '?')}/{fields.get('pid', '?')}")
+
+
+# What a runner file field may hold (date covers datetime). Anything else — a
+# list, a nested or self-referencing mapping — the runner never writes, and
+# comparing it could recurse without end, so it makes the side unreadable.
+_RUNNER_SCALARS = (str, int, float, bool, date, type(None))
+
+
+def _runner_alive_at(worktree: str, rev: str) -> dict | None:
+    """The runner file's fields at ``rev``; None unless it is a flat mapping of scalars.
+
+    The blob is a peer's bytes: read raw and decoded here, so invalid UTF-8,
+    a value YAML cannot construct (``2026-99-99 10:00:00`` is a timestamp
+    with no date), runaway nesting or a non-scalar value (``note: &n {self:
+    *n}``) is an unreadable side, never an exception that would end the runner.
+    """
+    found = git_cmd(worktree, "cat-file", "blob", f"{rev}:{RUNNER_ALIVE_FILE}",
+                    check=False, text=False)
+    if found.returncode != 0:
+        return None
+    try:
+        data = yaml.safe_load(found.stdout.decode("utf-8"))
+    except (yaml.YAMLError, ValueError, RecursionError):  # UnicodeDecodeError is a ValueError
+        return None
+    if not isinstance(data, dict) or not all(
+            isinstance(k, str) and isinstance(v, _RUNNER_SCALARS) for k, v in data.items()):
+        return None
+    return data
+
+
+def _resolve_runner_alive(worktree: str, head: str, upstream: str, tree: str,
+                          conflicted: list[str]) -> tuple[str, str]:
+    """Resolve a merge conflict confined to the runner file, in memory (t2029).
+
+    Returns ``(tree, "")`` — merge-tree's ``tree`` with the conflicted runner
+    file replaced by its field-wise merge — or ``("", reason)`` to defer; a
+    conflict on any other path defers with no reason, as before. Only objects
+    are written (hash-object, mktree); the worktree is never touched.
+    """
+    if conflicted != [RUNNER_ALIVE_FILE]:
+        return "", ""
+    if not _OBJECT_ID.fullmatch(tree):
+        return "", "merge-tree reported no tree id"
+    ours = _runner_alive_at(worktree, head)
+    theirs = _runner_alive_at(worktree, upstream)
+    base: dict | None = {}
+    found = git_cmd(worktree, "merge-base", head, upstream, check=False)
+    base_rev = found.stdout.strip()
+    if (found.returncode == 0 and _OBJECT_ID.fullmatch(base_rev)
+            and git_cmd(worktree, "cat-file", "-e", f"{base_rev}:{RUNNER_ALIVE_FILE}",
+                        check=False).returncode == 0):
+        base = _runner_alive_at(worktree, base_rev)
+    if ours is None or theirs is None or base is None:
+        return "", "runner file unreadable on one side"
+    if _competing_runner_identity(base, ours, theirs):
+        return "", ("competing runner identities: "
+                    f"{_identity_label(theirs)} vs {_identity_label(ours)}")
+    fields = _merge_runner_alive_fields(base, ours, theirs)
+    if fields is None:
+        return "", "runner file fields conflict"
+    blob = git_cmd(worktree, "hash-object", "-w", "--stdin", check=False,
+                   input=yaml.safe_dump(fields, default_flow_style=False, sort_keys=False))
+    blob_id = blob.stdout.strip()
+    if blob.returncode != 0 or not _OBJECT_ID.fullmatch(blob_id):
+        return "", f"runner file blob not written: {_one_line(blob.stderr)}"
+    # Raw bytes end to end: the other entries' names reach mktree exactly as
+    # ls-tree printed them (text mode would turn a CR into a LF, or fail).
+    listing = git_cmd(worktree, "ls-tree", "-z", tree, check=False, text=False)
+    if listing.returncode != 0:
+        return "", f"merge tree unreadable: {_one_line(listing.stderr.decode(errors='replace'))}"
+    runner_name = RUNNER_ALIVE_FILE.encode()
+    entries = [e for e in listing.stdout.split(b"\0") if e]
+    hits = [i for i, e in enumerate(entries) if e.partition(b"\t")[2] == runner_name]
+    if len(hits) != 1:
+        return "", "runner file entry not found once in the merge tree"
+    meta = entries[hits[0]].partition(b"\t")[0].split()
+    if len(meta) != 3 or meta[1] != b"blob" or meta[0] not in (b"100644", b"100755"):
+        return "", "runner file is not a regular file in the merge tree"
+    entries[hits[0]] = meta[0] + b" blob " + blob_id.encode() + b"\t" + runner_name
+    built = git_cmd(worktree, "mktree", "-z", check=False, text=False,
+                    input=b"".join(e + b"\0" for e in entries))
+    resolved = built.stdout.decode("ascii", errors="replace").strip()
+    if built.returncode != 0 or not _OBJECT_ID.fullmatch(resolved):
+        return "", f"merged tree not built: {_one_line(built.stderr.decode(errors='replace'))}"
+    return resolved, ""
+
+
 def _merge_diverged(worktree: str, head: str, upstream: str) -> tuple[str, str]:
     """Merge the pinned commits without ever opening a merge in the worktree.
 
     aitask_sync.sh's guarded merge (t1731), minus its disjoint-paths policy:
     the runner must merge same-file edits on different lines (its heartbeat vs
     a peer's requested_action). merge-tree proves the merge clean in memory,
-    commit-tree builds it, and ``_advance`` fast-forwards to it. commit-tree
-    does not read commit.gpgSign, so the setting is passed on explicitly; a
-    signing failure defers. As in t1731, no commit hooks run for this commit.
+    commit-tree builds it, and ``_advance`` fast-forwards to it. A conflict
+    confined to the runner's own file is resolved field by field in memory
+    instead (``_resolve_runner_alive``, t2029); any other conflict defers.
+    commit-tree does not read commit.gpgSign, so the setting is passed on
+    explicitly; a signing failure defers. As in t1731, no commit hooks run for
+    this commit.
     """
     proof = git_cmd(worktree, "merge-tree", "--write-tree", "--no-messages", "--name-only",
                     head, upstream, check=False)
     lines = proof.stdout.splitlines()
+    resolved = ""
     if proof.returncode == 1:
-        return PULL_DEFERRED, "merge_conflict: " + ", ".join(p for p in lines[1:] if p)
-    if proof.returncode == 129:
+        conflicted = [p for p in lines[1:] if p]
+        tree, why = _resolve_runner_alive(worktree, head, upstream,
+                                          lines[0].strip() if lines else "", conflicted)
+        if not tree:
+            return PULL_DEFERRED, ("merge_conflict: " + ", ".join(conflicted)
+                                   + (f" ({why})" if why else ""))
+        resolved = f" (resolved {RUNNER_ALIVE_FILE})"
+    elif proof.returncode == 129:
         # No live-worktree fallback: a plain merge would write conflict markers
         # into files the agents read and stage.
         return PULL_DEFERRED, ("merge_proof_unsupported: divergent histories need "
                                "git >= 2.38 (merge-tree --write-tree)")
-    tree = lines[0].strip() if lines else ""
-    if proof.returncode != 0 or not _OBJECT_ID.fullmatch(tree):
-        return PULL_DEFERRED, f"merge_proof_failed: {_one_line(proof.stderr) or 'no tree id'}"
+    else:
+        tree = lines[0].strip() if lines else ""
+        if proof.returncode != 0 or not _OBJECT_ID.fullmatch(tree):
+            return PULL_DEFERRED, f"merge_proof_failed: {_one_line(proof.stderr) or 'no tree id'}"
     sign = _sign_args(worktree)
     if sign is None:
         return PULL_DEFERRED, "merge_commit_failed: commit.gpgSign could not be read"
     commit = git_cmd(worktree, "commit-tree", *sign, tree, "-p", head, "-p", upstream,
-                     "-m", f"crew: merge {upstream[:12]} into {head[:12]}", check=False)
+                     "-m", f"crew: merge {upstream[:12]} into {head[:12]}{resolved}",
+                     check=False)
     merged = commit.stdout.strip()
     if commit.returncode != 0 or not _OBJECT_ID.fullmatch(merged):
         return PULL_DEFERRED, f"merge_commit_failed: {_one_line(commit.stderr)}"
-    return _advance(worktree, merged, f"merged {upstream[:12]}")
+    return _advance(worktree, merged, f"merged {upstream[:12]}{resolved}")
 
 
 def _sync_with_upstream(worktree: str) -> tuple[str, str]:
@@ -502,7 +691,9 @@ def git_pull(worktree: str, batch: bool = False) -> tuple[str, str]:
 
     Never opens a merge in the worktree (t2018): after fetching the upstream it
     fast-forwards, or for a diverged branch fast-forwards to the merge proven
-    clean in memory (``_merge_diverged``). A failed fetch, a conflict, a
+    clean in memory (``_merge_diverged``); a conflict confined to
+    _runner_alive.yaml is resolved there field by field (t2029). A failed
+    fetch, any other conflict, a runner file that cannot be resolved, a
     missing proof (git < 2.38) or a path that is dirty, untracked or ignored
     is a deferral that leaves the worktree as it was. Returns
     ``(status, detail)``:

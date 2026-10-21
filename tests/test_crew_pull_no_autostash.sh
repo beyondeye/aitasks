@@ -17,6 +17,11 @@
 # the merge decision, a merge started independently mid-pull, or an older git
 # without `merge-tree --write-tree`.
 #
+# Cells 16-17 (t2029): a conflict confined to the runner's own
+# _runner_alive.yaml is resolved field by field in memory and converges — the
+# remote stop is honoured, the rest of the merge tree is git's own — while any
+# other conflict, an unreadable side, or a peer naming another runner defers.
+#
 # Run: bash tests/test_crew_pull_no_autostash.sh
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -94,7 +99,7 @@ cat > "$HARNESS" <<'PYEOF'
 """Drive git_pull / run_loop / main through their real code with one seam.
 
   harness.py <scripts> pull   <wt> [--no-batch] [--write-after conflict|proof --write-path P --write-bytes F]
-  harness.py <scripts> runner <wt> --crew C --stub-root D [--once] [--inject-after-fetch]
+  harness.py <scripts> runner <wt> --crew C --stub-root D [--once] [--inject-after-fetch] [--interval N]
   harness.py <scripts> main   <wt> --stub-root D -- <runner argv>
 
 Common: --git-log F appends each git subcommand git_pull runs.
@@ -122,6 +127,7 @@ ap.add_argument("--git-log")
 ap.add_argument("--crew")
 ap.add_argument("--stub-root")
 ap.add_argument("--once", action="store_true")
+ap.add_argument("--interval", type=int, default=30)
 # Everything after `--` is the runner's own argv (main mode).
 own, runner_argv = sys.argv[1:], []
 if "--" in own:
@@ -283,7 +289,7 @@ r.time.sleep = fake_sleep
 
 if args.mode == "runner":
     r._repo_root = stub
-    rc = r.run_loop(WT, args.crew, 30, 3, args.once, False, True)
+    rc = r.run_loop(WT, args.crew, args.interval, 3, args.once, False, True)
 else:
     r.resolve_repo_root = lambda: stub
     sys.argv = ["ait crew runner", *runner_argv]
@@ -305,9 +311,17 @@ PYEOF
 #                agent_conflict — the peer sets w1_alive.yaml's last_heartbeat
 #                agent_disjoint — the peer sets w1_alive.yaml's last_message
 #                peer_adds_notes — the peer adds w1_notes.md
+#                runner_stop_wide — runner_stop, plus the peer adds peer_only.txt
+#                runner_stop_and_agent — runner_stop and agent_conflict, one commit
+#                runner_takeover — the peer rewrites the runner's pid, hostname
+#                                  and heartbeat lines (another runner took over)
+# Optional second argument: `nested` commits nested/dir/keep.txt before
+# "runner: started", so the merge base carries a subtree; `cyclic_note`
+# appends a self-referencing value to the base runner file (after its last
+# line, so it stays out of every peer edit's hunk).
 # Sets: ROOT REPO WT PEER REMOTE BRANCH PEER_SHA STUB
 setup_crew_remote_fixture() {
-    local peer_change="$1"
+    local peer_change="$1" layout="${2:-}"
     ROOT="$(mktemp -d "${TMPDIR:-/tmp}/ait_crew_pull_XXXXXX")"
     CLEANUP_DIRS+=("$ROOT")
     REPO="$ROOT/repo"
@@ -341,6 +355,13 @@ setup_crew_remote_fixture() {
             --work2do /dev/null --type impl --batch
     ) >/dev/null 2>&1
 
+    if [[ "$layout" == nested ]]; then
+        mkdir -p "$WT/nested/dir"
+        echo "kept across the merge" > "$WT/nested/dir/keep.txt"
+        git -C "$WT" add nested/dir/keep.txt
+        git -C "$WT" commit -m "crew: nested file" --quiet
+    fi
+
     # The runner's alive file, in write_runner_alive's key order.
     cat > "$WT/_runner_alive.yaml" <<'EOF'
 status: running
@@ -352,6 +373,9 @@ next_check_at: '2026-10-15 10:00:30'
 interval: 30
 requested_action: null
 EOF
+    if [[ "$layout" == cyclic_note ]]; then
+        printf '%s\n' 'note: &n {self: *n}' >> "$WT/_runner_alive.yaml"
+    fi
     git -C "$WT" add _runner_alive.yaml
     git -C "$WT" commit -m "runner: started" --quiet
 
@@ -392,6 +416,46 @@ EOF
             echo "peer notes" > "$PEER/w1_notes.md"
             git -C "$PEER" add w1_notes.md
             git -C "$PEER" commit -m "peer: add w1_notes.md" --quiet
+            ;;
+        runner_stop_wide)
+            sed 's/^requested_action: null$/requested_action: stop/' \
+                "$PEER/_runner_alive.yaml" > "$PEER/_runner_alive.yaml.tmp"
+            mv "$PEER/_runner_alive.yaml.tmp" "$PEER/_runner_alive.yaml"
+            echo "from another host" > "$PEER/peer_only.txt"
+            git -C "$PEER" add _runner_alive.yaml peer_only.txt
+            git -C "$PEER" commit -m "peer: request runner stop, add peer_only.txt" --quiet
+            ;;
+        runner_stop_and_agent)
+            sed 's/^requested_action: null$/requested_action: stop/' \
+                "$PEER/_runner_alive.yaml" > "$PEER/_runner_alive.yaml.tmp"
+            mv "$PEER/_runner_alive.yaml.tmp" "$PEER/_runner_alive.yaml"
+            sed "s/^last_heartbeat:.*/last_heartbeat: '2026-10-15 10:01:00'/" \
+                "$PEER/w1_alive.yaml" > "$PEER/w1_alive.yaml.tmp"
+            mv "$PEER/w1_alive.yaml.tmp" "$PEER/w1_alive.yaml"
+            git -C "$PEER" commit -am "peer: request runner stop, w1 heartbeat" --quiet
+            ;;
+        runner_stop_bad_utf8)
+            # The stop line ends in a comment holding a byte that is not UTF-8.
+            { sed -n '1,7p' "$PEER/_runner_alive.yaml"; printf 'requested_action: stop # \377\n'; } \
+                > "$PEER/_runner_alive.yaml.tmp"
+            mv "$PEER/_runner_alive.yaml.tmp" "$PEER/_runner_alive.yaml"
+            git -C "$PEER" commit -am "peer: request runner stop (bad bytes)" --quiet
+            ;;
+        runner_stop_bad_timestamp)
+            # An unquoted timestamp YAML cannot construct (month 99).
+            sed -e 's/^requested_action: null$/requested_action: stop/' \
+                -e 's/^last_heartbeat: .*/last_heartbeat: 2026-99-99 10:00:00/' \
+                "$PEER/_runner_alive.yaml" > "$PEER/_runner_alive.yaml.tmp"
+            mv "$PEER/_runner_alive.yaml.tmp" "$PEER/_runner_alive.yaml"
+            git -C "$PEER" commit -am "peer: request runner stop (bad timestamp)" --quiet
+            ;;
+        runner_takeover)
+            sed -e 's/^pid: 4242$/pid: 9999/' -e 's/^hostname: crewhost$/hostname: otherhost/' \
+                -e "s/^last_heartbeat: .*/last_heartbeat: '2026-10-15 10:07:00'/" \
+                -e "s/^next_check_at: .*/next_check_at: '2026-10-15 10:07:30'/" \
+                "$PEER/_runner_alive.yaml" > "$PEER/_runner_alive.yaml.tmp"
+            mv "$PEER/_runner_alive.yaml.tmp" "$PEER/_runner_alive.yaml"
+            git -C "$PEER" commit -am "peer: another runner took over" --quiet
             ;;
     esac
     git -C "$PEER" push --quiet 2>/dev/null
@@ -906,6 +970,261 @@ assert_contains "15: the pull is deferred as a failed fetch" "PULL_RESULT:deferr
 assert_eq "15: HEAD did not move" "$head_before" "$(git -C "$WT" rev-parse HEAD)"
 out="$(run_pull --no-batch)"
 assert_contains "15: non-batch warns about the fetch" "git pull warning: fetch_failed" "$out"
+
+# Rewrite one line of the crew worktree's runner file: set_runner_line <sed expr>
+set_runner_line() {
+    sed "$1" "$WT/_runner_alive.yaml" > "$WT/_runner_alive.yaml.tmp" &&
+        mv "$WT/_runner_alive.yaml.tmp" "$WT/_runner_alive.yaml"
+}
+
+# merge-tree's verdict on two commits: "<exit>|<conflicted paths, comma-joined>|<tree>"
+merge_tree_verdict() {
+    local out rc
+    out="$(git -C "$WT" merge-tree --write-tree --no-messages --name-only "$1" "$2")"
+    rc=$?
+    printf '%s|%s|%s' "$rc" "$(printf '%s\n' "$out" | sed -n '2,$p' | paste -sd, -)" \
+        "$(printf '%s\n' "$out" | head -n1)"
+}
+
+# --- Test 16a: a conflict confined to the runner file converges ---
+# The runner restarted with interval: 60 (line 7) while a peer set
+# requested_action: stop (line 8): adjacent edits, a real conflict. The pull
+# resolves the runner file field by field in memory; every other path of the
+# merge tree — a nested file from the base, the peer's new file, the local new
+# file — must be exactly what git's own merge produced.
+test_16a_runner_file_conflict_converges() {
+    echo "--- Test 16a: a runner-file conflict converges; the rest of the tree is git's merge ---"
+    setup_crew_remote_fixture runner_stop_wide nested
+    set_runner_line "s/^interval: 30$/interval: 60/"
+    echo "local" > "$WT/local_only.txt"
+    # Root names a text-mode tree rebuild would mangle: a CR (newline
+    # translation turns it into a LF) and a byte that is not UTF-8.
+    local cr_name=$'cr\rname.txt' raw_name=$'latin\xe9.txt'
+    echo "cr" > "$WT/$cr_name"
+    echo "raw" > "$WT/$raw_name"
+    git -C "$WT" add -- _runner_alive.yaml local_only.txt "$cr_name" "$raw_name"
+    git -C "$WT" commit -qm "runner: restarted with interval 60"
+    local head_before out verdict conflicted_tree expected actual base
+    head_before="$(git -C "$WT" rev-parse HEAD)"
+    out="$(run_pull)"
+    verdict="$(merge_tree_verdict "$head_before" "$PEER_SHA")"
+    assert_eq "16a: control: git reports a conflict on the runner file only" \
+        "1|_runner_alive.yaml" "${verdict%|*}"
+    conflicted_tree="${verdict##*|}"
+    assert_contains "16a: the pull merged" "PULL_RESULT:ok|merged" "$out"
+    assert_contains "16a: the pull names the resolved file" "resolved _runner_alive.yaml" "$out"
+    assert_eq "16a: HEAD's first parent is the pre-pull commit" "$head_before" \
+        "$(git -C "$WT" rev-parse -q --verify 'HEAD^1')"
+    assert_eq "16a: HEAD's second parent is the peer commit" "$PEER_SHA" \
+        "$(git -C "$WT" rev-parse -q --verify 'HEAD^2')"
+    assert_contains "16a: the merged runner file keeps the local interval" "interval: 60" \
+        "$(git -C "$WT" show HEAD:_runner_alive.yaml)"
+    assert_contains "16a: the merged runner file carries the remote stop" "requested_action: stop" \
+        "$(git -C "$WT" show HEAD:_runner_alive.yaml)"
+    assert_not_contains "16a: no conflict markers were committed" "<<<<<<<" \
+        "$(git -C "$WT" show HEAD:_runner_alive.yaml)"
+    expected="$(git -C "$WT" ls-tree -r "$conflicted_tree" | grep -v $'\t_runner_alive.yaml$')"
+    actual="$(git -C "$WT" ls-tree -r HEAD | grep -v $'\t_runner_alive.yaml$')"
+    assert_contains "16a: control: git's merge carries the nested file" "nested/dir/keep.txt" "$expected"
+    assert_contains "16a: control: git's merge carries the CR name" '"cr\rname.txt"' "$expected"
+    assert_contains "16a: control: git's merge carries the non-UTF-8 name" '"latin\351.txt"' "$expected"
+    # ls-tree quotes unusual names (core.quotePath), so this comparison is exact.
+    assert_eq "16a: every other path, mode and blob is git's own merge" "$expected" "$actual"
+    assert_eq "16a: the CR name survived byte for byte" "present" \
+        "$(git -C "$WT" cat-file -e "HEAD:$cr_name" 2>/dev/null && echo present || echo absent)"
+    assert_eq "16a: no LF-translated twin was created" "absent" \
+        "$(git -C "$WT" cat-file -e "HEAD:"$'cr\nname.txt' 2>/dev/null && echo present || echo absent)"
+    assert_eq "16a: the non-UTF-8 name survived byte for byte" "present" \
+        "$(git -C "$WT" cat-file -e "HEAD:$raw_name" 2>/dev/null && echo present || echo absent)"
+    base="$(git -C "$WT" merge-base "$head_before" "$PEER_SHA")"
+    assert_eq "16a: the nested file is the merge base's blob" \
+        "$(git -C "$WT" rev-parse "$base:nested/dir/keep.txt")" \
+        "$(git -C "$WT" rev-parse HEAD:nested/dir/keep.txt 2>/dev/null)"
+    assert_eq "16a: the peer's new file landed" "present" \
+        "$(git -C "$WT" cat-file -e HEAD:peer_only.txt 2>/dev/null && echo present || echo absent)"
+    assert_eq "16a: the local new file was kept" "present" \
+        "$(git -C "$WT" cat-file -e HEAD:local_only.txt 2>/dev/null && echo present || echo absent)"
+    assert_eq "16a: the worktree matches the merge" "clean" \
+        "$(git -C "$WT" diff --quiet HEAD -- _runner_alive.yaml && echo clean || echo dirty)"
+    assert_eq "16a: no merge was left in progress" "" "$(merge_head_state)"
+    assert_eq "16a: no unmerged entries" "" "$(git -C "$WT" ls-files -u)"
+    assert_eq "16a: nothing was stashed" "" "$(git -C "$WT" stash list)"
+}
+need_merge_tree 16a && test_16a_runner_file_conflict_converges
+
+# --- Test 16b: the running runner honours a stop through the conflict ---
+# A runner started with --interval 60: its own "runner: started" commit
+# rewrites line 7 next to the peer's line 8, so before t2029 every pull
+# deferred and the stop was never seen.
+test_16b_runner_honours_stop_through_conflict() {
+    echo "--- Test 16b: run_loop converges a conflicted runner file and honours the stop ---"
+    setup_crew_remote_fixture runner_stop
+    dirty_agent_heartbeat
+    local out rc merge
+    out="$(run_runner --once --interval 60)"; rc=$?
+    assert_eq "16b: run_loop exits 0" "0" "$rc"
+    assert_contains "16b: the remote stop was honoured" "SHUTDOWN:complete" "$out"
+    assert_not_contains "16b: no agent was launched before the stop was seen" "LAUNCH_STUB:" "$out"
+    assert_eq "16b: the peer's stop commit was merged" "merged" \
+        "$(git -C "$WT" merge-base --is-ancestor "$PEER_SHA" HEAD && echo merged || echo missing)"
+    assert_eq "16b: the shutdown push converged (remote head == HEAD)" \
+        "$(git -C "$WT" rev-parse HEAD)" "$(remote_head)"
+    merge="$(git -C "$WT" rev-list --merges -n1 HEAD)"
+    assert_eq "16b: control: the merged commits really conflicted" "1|_runner_alive.yaml" \
+        "$(v="$(merge_tree_verdict "$merge^1" "$merge^2")"; printf '%s' "${v%|*}")"
+    assert_contains "16b: the merge commit names the resolved file" "resolved _runner_alive.yaml" \
+        "$(git -C "$WT" log -1 --format=%s "$merge" 2>/dev/null)"
+    assert_contains "16b: the merge keeps the runner's interval" "interval: 60" \
+        "$(git -C "$WT" show "$merge:_runner_alive.yaml" 2>/dev/null)"
+    assert_contains "16b: the merge carries the remote stop" "requested_action: stop" \
+        "$(git -C "$WT" show "$merge:_runner_alive.yaml" 2>/dev/null)"
+    assert_contains "16b: the committed runner file says stopped" "status: stopped" \
+        "$(git -C "$WT" show HEAD:_runner_alive.yaml)"
+    assert_eq "16b: no merge was left in progress" "" "$(merge_head_state)"
+    assert_eq "16b: nothing was stashed" "" "$(git -C "$WT" stash list)"
+    assert_eq "16b: the agent's file bytes are unchanged" "$dirty_sha" "$(file_sha "$dirty_file")"
+    assert_eq "16b: the agent's file was never rewritten (inode+ctime)" "$dirty_ident" \
+        "$(file_ident "$dirty_file")"
+}
+need_merge_tree 16b && test_16b_runner_honours_stop_through_conflict
+
+# assert_runner_conflict_defers <label> <expected PULL_RESULT line>
+# Runs the pull on the prepared fixture: it must defer with exactly that
+# detail and leave HEAD, the runner file's bytes and the merge state alone.
+assert_runner_conflict_defers() {
+    local label="$1" expected="$2" head_before alive_sha out
+    head_before="$(git -C "$WT" rev-parse HEAD)"
+    alive_sha="$(file_sha "$WT/_runner_alive.yaml")"
+    out="$(run_pull)"
+    assert_eq "$label: the pull defers with the reason" "$expected" \
+        "$(printf '%s\n' "$out" | grep '^PULL_RESULT:')"
+    assert_eq "$label: HEAD did not move" "$head_before" "$(git -C "$WT" rev-parse HEAD)"
+    assert_eq "$label: the runner file's bytes are unchanged" "$alive_sha" \
+        "$(file_sha "$WT/_runner_alive.yaml")"
+    assert_eq "$label: no merge was left in progress" "" "$(merge_head_state)"
+    assert_eq "$label: no unmerged entries" "" "$(git -C "$WT" ls-files -u)"
+    assert_eq "$label: nothing was stashed" "" "$(git -C "$WT" stash list)"
+}
+
+# --- Test 16c: any other conflict, or an unreadable side, still defers ---
+test_16c_other_conflicts_defer() {
+    echo "--- Test 16c(i): a second conflicted path keeps today's deferral ---"
+    setup_crew_remote_fixture runner_stop_and_agent
+    set_runner_line "s/^interval: 30$/interval: 60/"
+    sed "s/^last_heartbeat:.*/last_heartbeat: '2026-10-15 10:02:00'/" \
+        "$WT/w1_alive.yaml" > "$WT/w1_alive.yaml.tmp" && mv "$WT/w1_alive.yaml.tmp" "$WT/w1_alive.yaml"
+    git -C "$WT" commit -qam "runner: iteration 12"
+    assert_runner_conflict_defers "16c(i)" \
+        "PULL_RESULT:deferred|merge_conflict: _runner_alive.yaml, w1_alive.yaml"
+
+    echo "--- Test 16c(ii): an unparseable runner file defers ---"
+    setup_crew_remote_fixture runner_stop
+    local_commit _runner_alive.yaml "s/^interval: 30$/interval: [60/" "runner: broken write"
+    assert_runner_conflict_defers "16c(ii)" \
+        "PULL_RESULT:deferred|merge_conflict: _runner_alive.yaml (runner file unreadable on one side)"
+
+    # An incoming blob the runner cannot decode or construct is an unreadable
+    # side — a deferral, never an exception that ends the runner.
+    local peer_case
+    for peer_case in bad_utf8 bad_timestamp; do
+        echo "--- Test 16c($peer_case): an unreadable incoming runner file defers ---"
+        setup_crew_remote_fixture "runner_stop_$peer_case"
+        local_commit _runner_alive.yaml "s/^interval: 30$/interval: 60/" "runner: restarted"
+        assert_runner_conflict_defers "16c($peer_case)" \
+            "PULL_RESULT:deferred|merge_conflict: _runner_alive.yaml (runner file unreadable on one side)"
+    done
+
+    # A self-referencing value parses, but every side loads its own copy and
+    # comparing them recurses without end. It must defer, not raise.
+    echo "--- Test 16c(cyclic): a self-referencing runner-file value defers ---"
+    setup_crew_remote_fixture runner_stop cyclic_note
+    assert_contains "16c(cyclic): fixture: the base runner file carries the cyclic value" \
+        "note: &n {self: *n}" "$(git -C "$WT" show HEAD:_runner_alive.yaml)"
+    local_commit _runner_alive.yaml "s/^interval: 30$/interval: 60/" "runner: restarted"
+    assert_runner_conflict_defers "16c(cyclic)" \
+        "PULL_RESULT:deferred|merge_conflict: _runner_alive.yaml (runner file unreadable on one side)"
+}
+need_merge_tree 16c && test_16c_other_conflicts_defer
+
+# --- Test 16d: a peer naming another runner defers (runner_identity_guard) ---
+# Another runner took over on the peer (pid/hostname/heartbeat, lines 2-6)
+# while this one restarted with interval: 60 (line 7). The field merge would
+# overwrite the other runner's claim, so the pull defers instead.
+test_16d_competing_runner_defers() {
+    echo "--- Test 16d: competing runner identities defer ---"
+    setup_crew_remote_fixture runner_takeover
+    local_commit _runner_alive.yaml "s/^interval: 30$/interval: 60/" "runner: restarted"
+    local head_before
+    head_before="$(git -C "$WT" rev-parse HEAD)"
+    assert_runner_conflict_defers "16d" \
+        "PULL_RESULT:deferred|merge_conflict: _runner_alive.yaml (competing runner identities: otherhost/9999 vs crewhost/4242)"
+    local verdict
+    verdict="$(merge_tree_verdict "$head_before" "$PEER_SHA")"
+    assert_eq "16d: control: git reports a conflict on the runner file only" \
+        "1|_runner_alive.yaml" "${verdict%|*}"
+}
+need_merge_tree 16d && test_16d_competing_runner_defers
+
+# --- Test 17: the runner file's field-merge and identity rules (pure functions) ---
+echo "--- Test 17: runner-file field merge and identity guard table ---"
+table="$("$AITASK_PYTHON" - "$PROJECT_DIR/.aitask-scripts" 2>&1 <<'PY'
+import sys
+sys.path.insert(0, sys.argv[1])
+import agentcrew.agentcrew_utils as u
+
+def merged(name, base, ours, theirs, key):
+    res = u._merge_runner_alive_fields(base, ours, theirs)
+    if res is None:
+        print(f"{name}|<unresolved>")
+    else:
+        print(f"{name}|{repr(res[key]) if key in res else '<absent>'}")
+
+ra = "requested_action"
+merged("status_theirs_only", {"status": "running"}, {"status": "running"}, {"status": "stopped"}, "status")
+merged("hostname_theirs_only", {"hostname": "a"}, {"hostname": "a"}, {"hostname": "b"}, "hostname")
+merged("owned_absent_on_ours", {"interval": 30}, {}, {"interval": 30}, "interval")
+merged("interval_both_changed", {"interval": 30}, {"interval": 60}, {"interval": 90}, "interval")
+merged("ra_theirs_stop", {ra: None}, {ra: None}, {ra: "stop"}, ra)
+merged("ra_ours_stop", {ra: None}, {ra: "stop"}, {ra: None}, ra)
+merged("ra_addadd_ours_stop", {}, {ra: "stop"}, {ra: None}, ra)
+merged("ra_historical_stop_cleared", {ra: "stop"}, {ra: None}, {ra: "stop"}, ra)
+merged("ra_theirs_cleared", {ra: "stop"}, {ra: "stop"}, {ra: None}, ra)
+merged("ra_both_changed_no_stop", {ra: None}, {ra: "hold"}, {ra: "wait"}, ra)
+merged("other_theirs_only", {"note": "a"}, {"note": "a"}, {"note": "b"}, "note")
+merged("other_both_changed", {"note": "a"}, {"note": "b"}, {"note": "c"}, "note")
+merged("other_deleted_one_side", {"note": "a"}, {}, {"note": "a"}, "note")
+order = u._merge_runner_alive_fields({}, {"a": 1, "b": 2}, {"c": 3, "a": 1, "b": 2})
+print("key_order|" + ",".join(order))
+
+def ident(name, base, ours, theirs):
+    print(f"{name}|{u._competing_runner_identity(base, ours, theirs)}")
+
+h1 = {"hostname": "h", "pid": 1}
+ident("id_takeover", h1, h1, {"hostname": "o", "pid": 9})
+ident("id_unchanged", h1, h1, h1)
+ident("id_ours_restarted", h1, {"hostname": "h", "pid": 2}, h1)
+ident("id_addadd_equal", {}, h1, h1)
+PY
+)"
+expected_table="status_theirs_only|'running'
+hostname_theirs_only|'a'
+owned_absent_on_ours|<absent>
+interval_both_changed|60
+ra_theirs_stop|'stop'
+ra_ours_stop|'stop'
+ra_addadd_ours_stop|'stop'
+ra_historical_stop_cleared|None
+ra_theirs_cleared|None
+ra_both_changed_no_stop|'wait'
+other_theirs_only|'b'
+other_both_changed|<unresolved>
+other_deleted_one_side|<absent>
+key_order|a,b,c
+id_takeover|True
+id_unchanged|False
+id_ours_restarted|False
+id_addadd_equal|False"
+assert_eq "17: the field-merge and identity table" "$expected_table" "$table"
 
 echo ""
 echo "=== Results ==="

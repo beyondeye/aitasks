@@ -236,10 +236,19 @@ The pull runs before the runner rewrites its own heartbeat. Step 14 committed
 `_runner_alive.yaml`, so it is clean at the pull, and an incoming change to it —
 such as a remote `requested_action: stop` — merges instead of being refused. A
 diverged crew branch is merged only when `git merge-tree --write-tree` (git >= 2.38)
-proves the merge clean in memory. The merge commit is signed when `commit.gpgSign`
-is set. The worktree is then advanced with a fast-forward that refuses rather than
-overwrite a dirty, untracked or ignored file. A failed fetch, a conflict, an older
-git (`merge_proof_unsupported`) or such a file defers the pull to the next
+proves the merge clean in memory. A conflict confined to `_runner_alive.yaml` is
+resolved in memory, field by field. The runner's own identity and heartbeat
+fields (`status`, `pid`, `hostname`, `started_at`, `last_heartbeat`,
+`next_check_at`, `interval`) are always kept. A stop that either side requested
+since the last common commit wins. A stop already in that commit can be cleared
+by a restarted runner, exactly as a clean merge clears it. A repeat stop sent
+before the controller saw that clearing cannot be told apart from the old one
+and is lost, so it must be reissued once the controller has synced. Otherwise the
+incoming `requested_action` wins. When the peer side names a different runner
+(`hostname`/`pid`), the conflict is not resolved. The merge commit is signed
+when `commit.gpgSign` is set. The worktree is then advanced with a fast-forward that refuses rather than
+overwrite a dirty, untracked or ignored file. A failed fetch, any other conflict, an
+older git (`merge_proof_unsupported`) or such a file defers the pull to the next
 iteration and leaves the worktree as it was. If another process left an
 unfinished merge or rebase in the crew worktree, the runner holds: it reads, writes
 and stages no crew file (`PULL_UNSAFE:<reason>` in `--batch`) until the state is
