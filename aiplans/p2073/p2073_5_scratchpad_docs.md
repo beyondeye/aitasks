@@ -231,3 +231,28 @@ additive.
   → mitigation: none needed. Every claim above was re-verified against the landed code
   and t2088 during planning, the quoted strings are re-grepped at implementation, and
   `check_links.py --build` runs.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-21 12:05)
+- **Requested by user:** the lifecycle promises (closes with its agent, survives freeze/restore, never listed as an agent) were stated unqualified while the page also documents manual CLI launches. A manual pad carries no `@aitask_scratchpad_target` stamp (`--target` only labels the header), so it falls through the helper filter — listed as an agent inside an `agent-…` window — and gets no cleanup binding. Verified: only `monitor_core.spawn_scratchpad` stamps and calls `attach_companion_cleanup_hook`; the app spawns no tmux.
+- **Changes made:** `_index.md` adds a manual-launch caveat under Opening and a lead-in limiting the three binding rules to pads opened with `o`. `reference.md` adds a "Binding comes only from o" lifecycle rule and links the `--target` sentence to it.
+- **Files affected:** `website/content/docs/tuis/scratchpad/_index.md`, `website/content/docs/tuis/scratchpad/reference.md`
+
+## Final Implementation Notes
+- **Actual work done:** New `website/content/docs/tuis/scratchpad/{_index,how-to,reference}.md` (weights 18/20/30, experimental). Cross-references: minimonitor how-to ("How to Open a Scratchpad" + `o` quick-reference row), minimonitor `_index.md` ("Opening a scratchpad" + companion-pane list), `tuis/_index.md` (Available TUIs bullet), `commands/_index.md` (TUI table row + usage line), `monitor/reference.md` (two tmux config rows), `frozenagent/how-to.md` (pad stays across freeze/restore; drop closes it, notes stay until archival). `hugo build --gc --minify` and `check_links.py --build` pass.
+- **Deviations from plan:**
+  - The frozenagent note claims the pad persists only across a restore that reuses the pane. Whether re-pick reuses the pane was not confirmed, so the note tells the user to press `o` wherever the agent comes back.
+  - Rebinding is documented for `ctrl+s`/`ctrl+q`/`ctrl+c` only. Those are in the `scratchpad` scope; `ctrl+x/z/y/v` are Textual `TextArea` bindings outside it.
+  - Two overclaims in the first draft were corrected before review. The SIGHUP flush is "best-effort". The 3 s figure is when a save starts, not a maximum dirty age.
+- **Issues encountered:**
+  - The plan review caught a wrong read-only recovery: `match_scratchpad_pane` blocks `o` regardless of writability, and a read-only pad never promotes. It was fixed in the plan before implementation.
+  - The code review caught unqualified lifecycle promises for hand-launched pads (Change Request 1).
+  - t2088 landed during planning, so the known kill-pane gap is not documented.
+- **Key decisions:**
+  - The loss contract is quoted verbatim from the `scratchpad_app.py` module docstring.
+  - Every quoted notification and state string was re-grepped against the code. `ctrl+v` is documented as an in-pad paste only (Textual `app.clipboard`), with terminal/tmux paste for the system clipboard.
+- **Upstream defects identified:** None
+- **Notes for sibling tasks:**
+  - The minimonitor `_index.md` "Auto-despawn" paragraph still says minimonitor exits when no pane other than itself remains. It actually counts real agents only, ignoring helpers. This wording predates t2073 and is unchanged here.
+  - The website settings reference still doesn't list `shadow_pane_width` (noted by t2073_4).
