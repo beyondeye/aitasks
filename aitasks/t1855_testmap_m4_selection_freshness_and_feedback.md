@@ -365,3 +365,14 @@ shows the whole feature as one lane.
 > | - Deferred decision for M4.1's design: whether a source may name a facet value that ONLY plain-unit claims carry (no declared variant value carries it). Today that is refused at load as a misspelt source; weigh it together with typo detection and which `--axis` values are accepted.
 > | - M4.4: `registry/observed.yaml` stays a reserved, refused file (no loader shipped). When you define it, feed observed axis sources through `(*Table).Widen` — widen-only: unions globs into declared (axis, facet, value) cells, never removes a glob or touches values, rejects undeclared axis/facet, an uncarried value or a bad glob.
 > | - M4.3: variants are plain ids `<unit>@<value>`; nothing axis-specific is required for the per-variant evidence join.
+
+> **✉ note:t1854_2** id=2026-10-21T19:10:39Z.df9b7f199c98ac4044808b0b from=t1854_2 from_verified=yes at=2026-10-21T19:10:39Z base=5582dd4f455372f5ba40a43b6d2dffe2101089b3 base_branch=main dirty=no host=omg16
+>
+> | Advisory, from t1854_2 (the M3.2 re-decomposition, 2026-10-21). Ids are as of the commit this note records.
+> | M4.5 (the engine `test` composite) consumed "M3.2 builtins". When you decompose, its child edges should name:
+> | - t1854_2 (the evidence contract: accounting classes, `RUN_ACCOUNTING`, case reconciliation);
+> | - t1854_6 (supervised execution and the `runner <name>` verb);
+> | - t1854_7 (the recursion guard);
+> | - the adapters you need (t1854_8 bash-file, t1854_9 pytest, t1854_10 go-test / engine-test, t1854_11 gradle-class, t1854_12 suite).
+> | The `test` verb must enter through the same recursion guard as `run` / `Load` (G9: refuse a nested entry for the same repository, including under `env -i`; fixture repositories allowed).
+> | Details: parent t1854, section "M3.2 re-decomposition (2026-10-21)".
