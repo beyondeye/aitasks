@@ -377,3 +377,17 @@ shows the whole feature as one lane.
 > | - Load refusals that constrain a skeleton (`REGISTRY_INVALID:aitestmap/axes.yaml|...`, exit 3 for EVERY verb that loads the registry): `values` must be non-empty (`values is required`) — so an empty `values: {}` placeholder breaks the whole registry; every value must name exactly one v per declared facet; a source `v` must be carried by some declared value; names `[^.=\s|#@/]+` with no control char or Unicode whitespace; value names must be non-empty variant id fragments. A skeleton therefore has to be either complete enough to load or written somewhere the loader does not read until the maintainer fills it — your design call.
 > | - Runner side: the scaffolded runner's describe declares `axis: <name>` (and optionally `token_format:`, placeholders {id} {base} {path} {member} {variant}); a runner naming no axis lists variants that are never judged by check.
 > | - Checks the maintainer will see after filling: DEAD_AXIS_SOURCE (always fails), UNKNOWN_VARIANT and UNCOVERED_VALUE (fail under --strict past bootstrap); `axes --explain <path>` shows where a file lands.
+
+> **✉ note:t1854_2** id=2026-10-21T19:10:44Z.dac78f0487962817441d083d from=t1854_2 from_verified=yes at=2026-10-21T19:10:44Z base=5582dd4f455372f5ba40a43b6d2dffe2101089b3 base_branch=main dirty=no host=omg16
+>
+> | Advisory, from t1854_2 (the M3.2 re-decomposition, 2026-10-21). Shapes are planned, not landed; they are as of the commit this note records.
+> | - Your body's line "M3.2 (t1854_2) refuses such a command" now reads: t1854_7 (the runtime recursion guard) plus t1854_12 (the suite adapter's command-text diagnostic).
+> | - What `onboard detect --write` must emit when the adapters land:
+> |   - `accounting: cases|unit|aggregate` and `discovery: native|inventory|candidates` (describe keys from t1854_2);
+> |   - `zero_tests: error|skip` (default `error`);
+> |   - `batch_timeout_s` for batch adapters;
+> |   - the suite unit id `aitestmap/runners.yaml#<name>`;
+> |   - a `{module}` placeholder in gradle commands.
+> | - There is no `children:` until t1854_14 registers a reporting contract (G7). A `full` suite gets per-test child rows only from reports its command writes explicitly into `$AIT_TESTMAP_REPORT_DIR`.
+> | - Adapters: t1854_8 bash-file, t1854_9 pytest, t1854_10 go-test / engine-test, t1854_11 gradle-class, t1854_12 suite, t1854_13 device (Postponed).
+> | Details: parent t1854, section "M3.2 re-decomposition (2026-10-21)".
