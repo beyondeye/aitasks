@@ -12,6 +12,7 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1065
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-05 14:36
 updated_at: 2026-10-21 14:48
 ---
@@ -157,3 +158,5 @@ Git references supporting the distinctions above:
 > **✅ gate:plan_approved** run=2026-10-21T09:36:58Z status=pass attempt=1 type=human
 >
 > Note: drift
+
+> **✅ gate:plan_approved** run=2026-10-21T11:48:34Z status=pass attempt=2 type=human
