@@ -394,6 +394,151 @@ class FocusRescueTests(TrailsAppTestBase):
         self._run(go())
 
 
+# --- card double-click -----------------------------------------------------------
+
+
+def _pre_fix_trail_click(card, event):
+    """`TrailTaskCard.on_click` as it was before t2089: no `prevent_default()`."""
+    card.focus()
+    if event.chain == 2:
+        card.app.action_view_details()
+
+
+class TrailCardDoubleClickTests(TrailsAppTestBase):
+    """t2089: Textual dispatches `on_click` to EVERY class in the MRO and stops
+    only after `event.prevent_default()`, so overriding `on_click` on a trail
+    card did not keep the base `TaskCard.on_click` from running too. Here it
+    read `app.expanded_tasks` — which `TrailsApp` does not have — on a parent
+    card with children, and crashed.
+
+    The fixture's first member `t9000_parent.md` has children `9000_1` and
+    `9000_2`; the second is a leaf; `GHOST_REF` renders as a ghost."""
+
+    async def _parent_card(self, app):
+        """The live parent card, after asserting it really has children (the
+        crash needs them: without, the base handler never reached the read)."""
+        card = next(c for c in app.query(self.ab.board_trail_view.TrailTaskCard)
+                    if c.task_data.filename == self.member_files[0])
+        # The same key the base handler derives (`t9000`, not `9000`).
+        task_num, _ = self.ab.TaskCard._parse_filename(card.task_data.filename)
+        self.assertTrue(app.manager.get_child_tasks_for_parent(task_num),
+                        "fixture parent must have loaded children")
+        return card
+
+    async def _double_click_parent(self, app, pilot) -> list:
+        """Double-click the parent card through a counting pass-through to the
+        real `action_view_details`; return the call record."""
+        await self._boot_and_select(app, pilot)
+        card = await self._parent_card(app)
+        real = app.action_view_details
+        calls = []
+
+        def counting():
+            calls.append(1)
+            real()
+
+        app.action_view_details = counting
+        await pilot.click(card, times=2)
+        await self._wait_screen(app, pilot,
+                                self.ab.board_trail_view.TrailDetailScreen)
+        await pilot.pause()
+        return calls
+
+    def _detail_screens(self, app) -> int:
+        return sum(isinstance(s, self.ab.board_trail_view.TrailDetailScreen)
+                   for s in app.screen_stack)
+
+    def test_parent_card_double_click_opens_one_detail(self):
+        async def go():
+            app = bf.make_trails_app()
+            with self._patches()[0], self._patches()[1]:
+                async with app.run_test(size=(200, 48)) as pilot:
+                    calls = await self._double_click_parent(app, pilot)
+                    self.assertEqual(len(calls), 1)
+                    self.assertEqual(self._detail_screens(app), 1)
+                    await pilot.press("escape")
+                    await self._settle(app, pilot)
+                    self.assertNoLiveWorkers(app)
+        # A handler exception is re-raised at `run_test` block exit, so
+        # reaching here also proves the double-click did not crash.
+        self._run(go())
+
+    def test_base_card_click_handler_never_runs_for_trail_cards(self):
+        """Parent, leaf and ghost: the base handler is never dispatched, and
+        each double-click opens details exactly once."""
+        async def go():
+            app = bf.make_trails_app()
+            base_calls = []
+            with self._patches()[0], self._patches()[1], \
+                    patch.object(self.ab.board_widgets.TaskCard, "on_click",
+                                 lambda card, event: base_calls.append(card)):
+                async with app.run_test(size=(200, 48)) as pilot:
+                    await self._boot_and_select(app, pilot)
+                    views = []
+                    app.action_view_details = lambda: views.append(1)
+                    cards = list(app.query(self.ab.TaskCard))
+                    self.assertEqual(
+                        [type(c).__name__ for c in cards],
+                        ["TrailTaskCard", "TrailTaskCard", "TrailGhostCard"])
+                    for i, card in enumerate(cards, start=1):
+                        await pilot.click(card, times=2)
+                        await pilot.pause()
+                        self.assertEqual(len(views), i, type(card).__name__)
+                    self.assertEqual(base_calls, [])
+                    await self._settle(app, pilot)
+                    self.assertNoLiveWorkers(app)
+        self._run(go())
+
+    def test_toggle_children_is_gated_off(self):
+        """Defence in depth: the App has no children to expand."""
+        app = bf.make_trails_app()
+        self.assertIs(app.check_action("toggle_children", None), False)
+
+    def test_control_without_prevent_default_double_opens(self):
+        """Negative control for the main test: the pre-fix handler lets the
+        base `TaskCard.on_click` run as well, which falls through to a second
+        `action_view_details` call (the gate now answers False, so no crash)."""
+        async def go():
+            app = bf.make_trails_app()
+            with self._patches()[0], self._patches()[1], \
+                    patch.object(self.ab.board_trail_view.TrailTaskCard,
+                                 "on_click", _pre_fix_trail_click):
+                async with app.run_test(size=(200, 48)) as pilot:
+                    calls = await self._double_click_parent(app, pilot)
+                    self.assertEqual(len(calls), 2)
+                    await pilot.press("escape")
+                    await self._settle(app, pilot)
+        self._run(go())
+
+    def test_control_pre_fix_crashes(self):
+        """Negative control for the crash itself: the pre-fix handler AND the
+        pre-fix gate reproduce the reported `AttributeError`, proving this
+        fixture reaches the `expanded_tasks` read."""
+        original_gate = self.ta.TrailsApp.check_action
+
+        def pre_fix_gate(app, action, parameters):
+            if action == "toggle_children":
+                return True
+            return original_gate(app, action, parameters)
+
+        async def go():
+            app = bf.make_trails_app()
+            with self._patches()[0], self._patches()[1], \
+                    patch.object(self.ab.board_trail_view.TrailTaskCard,
+                                 "on_click", _pre_fix_trail_click), \
+                    patch.object(self.ta.TrailsApp, "check_action",
+                                 pre_fix_gate):
+                async with app.run_test(size=(200, 48)) as pilot:
+                    await self._boot_and_select(app, pilot)
+                    card = await self._parent_card(app)
+                    await pilot.click(card, times=2)
+                    await pilot.pause()
+
+        with self.assertRaises(AttributeError) as caught:
+            self._run(go())
+        self.assertIn("expanded_tasks", str(caught.exception))
+
+
 # --- read-only boot --------------------------------------------------------------
 
 

@@ -111,10 +111,13 @@ class CardHost(Protocol):
 
     ``KanbanApp`` is the reference host. ``marked`` is read only behind
     ``self.markable`` (``_is_marked``), and only a Kanban-column parent card is
-    constructed markable; ``action_toggle_children`` is reached only from
-    ``TaskCard.on_click``, which the trail cards override. A host that mounts
-    only non-markable cards overriding ``on_click`` therefore never touches
-    those two — but it must still answer the rest.
+    constructed markable; ``expanded_tasks`` and ``action_toggle_children``
+    are reached only from ``TaskCard.on_click``. Overriding ``on_click`` does
+    not keep that handler out — Textual dispatches ``on_click`` to every class
+    in the MRO — so the trail cards call ``event.prevent_default()``. A host
+    that mounts only non-markable cards whose ``on_click`` prevents the
+    default therefore never touches those three — but it must still answer
+    the rest.
     """
 
     marked: MarkedSelection

@@ -562,6 +562,39 @@ class ByTrailPilotTests(ByTrailTestBase):
 
         self._run(go())
 
+    def test_double_click_runs_only_the_trail_card_handler(self):
+        """t2089: Textual dispatches `on_click` to every class in the MRO, so
+        the trail cards must `prevent_default()` or the base `TaskCard.on_click`
+        runs too — here it fell through to a second `action_view_details`.
+        Covers a live parent (with children), a live leaf and a ghost."""
+        ab = self.ab
+
+        async def go():
+            app = ab.KanbanApp()
+            base_calls = []
+            with patch.object(ab.board_widgets.TaskCard, "on_click",
+                              lambda card, event: base_calls.append(card)):
+                async with app.run_test(size=(220, 60)) as pilot:
+                    await pilot.pause()
+                    await self._enter_synthetic_bytrail(
+                        app, pilot, _wave_doc(["9000", "9001", "99999"]))
+                    cards = list(app.query(ab.TaskCard))
+                    self.assertEqual(
+                        [type(c).__name__ for c in cards],
+                        ["TrailTaskCard", "TrailTaskCard", "TrailGhostCard"])
+                    self.assertTrue(
+                        app.manager.get_child_tasks_for_parent("t9000"),
+                        "fixture parent must have children")
+                    views = []
+                    app.action_view_details = lambda: views.append(1)
+                    for i, card in enumerate(cards, start=1):
+                        await pilot.click(card, times=2)
+                        await pilot.pause()
+                        self.assertEqual(len(views), i, type(card).__name__)
+                    self.assertEqual(base_calls, [])
+
+        self._run(go())
+
     def test_ghost_navigation_and_detail(self):
         ab = self.ab
 

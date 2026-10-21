@@ -797,6 +797,10 @@ class TrailsApp(TuiSwitcherMixin, ShortcutsMixin, TrailScreenMixin, App):
             # Declared for shortcut ownership (C10), never live here: the
             # board-only machinery they reach does not exist in this App.
             return False
+        if action == "toggle_children":
+            # No such binding and no children to expand; the base
+            # TaskCard.on_click consults this gate (t2089).
+            return False
         if action in ("trail_refresh_local", "trail_refresh_drift",
                       "trail_refresh_agent"):
             if not self.active_trail_handle:

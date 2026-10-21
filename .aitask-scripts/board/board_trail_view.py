@@ -523,9 +523,12 @@ class TrailTaskCard(TaskCard):
                     classes="task-info trail-ops", markup=False)
 
     def on_click(self, event):
-        # No expand-children double-click in By-Trail. The base handler now
-        # consults check_action (which hides toggle_children here), so this
-        # override only states that behavior explicitly.
+        # No expand-children double-click in By-Trail. Overriding is not
+        # enough: Textual runs `on_click` for every class in the MRO, so the
+        # base `TaskCard.on_click` would run as well — opening the details a
+        # second time, or reading `expanded_tasks` on a host that has none
+        # (TrailsApp, t2089). Only prevent_default() stops that dispatch.
+        event.prevent_default()
         self.focus()
         if event.chain == 2:
             self.app.action_view_details()
@@ -581,6 +584,8 @@ class TrailGhostCard(TaskCard):
         return "dashed"
 
     def on_click(self, event):
+        # Keep the base TaskCard.on_click out (see TrailTaskCard.on_click).
+        event.prevent_default()
         self.focus()
         if event.chain == 2:
             self.app.action_view_details()
