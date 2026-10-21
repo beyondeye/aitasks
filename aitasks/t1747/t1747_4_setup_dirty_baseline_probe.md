@@ -1,5 +1,7 @@
 ---
 priority: high
+risk_code_health: low
+risk_goal_achievement: low
 effort: medium
 depends: [t1747_3]
 issue_type: bug
@@ -183,3 +185,5 @@ SC2129 / SC2295 notes. New code must add none.
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-10-21T14:30:00Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-10-21T15:55:26Z status=pass attempt=1 type=human
