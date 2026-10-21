@@ -131,3 +131,10 @@ None identified.
 
 ### Goal-achievement risk: low
 None identified.
+
+## Final Implementation Notes
+- **Actual work done:** Implemented as planned. `>q` in `.claude/skills/aitask-shadow/SKILL.md.j2` is now "Help me decide what to do now". It re-captures and re-reads `--phase`, gathers context without being limited to the captured output, explains in simple words, then gives a decision: options plus a suggestion when an `AskUserQuestion` is on screen, otherwise next moves plus a recommendation, with deeper capabilities only offered. `>e` is now explain-only. Updated the proactive offer, the intro line and the frontmatter description. The description is mirrored into the 4 stubs (claude, codex, opencode skill, opencode command). The capture-script comment, the 3 goldens, the aidocs and the website page are updated too. New Test 2q in `tests/test_skill_render_aitask_shadow.sh`.
+- **Deviations from plan:** During planning the user cut the `>q` prose twice. It does not list where to gather context (it only says the shadow is not limited to the captured output), and "Explain the situation in simple words." stands alone with no sub-rules. Reflowed "offered by its shortcode, / never started on your own" so the asserted phrase sits on one line.
+- **Issues encountered:** None. Negative control: rendering the HEAD template shows none of the new Test 2q phrases, and the old title is present.
+- **Key decisions:** Per-profile rendered variants are gitignored, so they were re-rendered locally and not committed. The capture-script edit is comment-only.
+- **Upstream defects identified:** None
