@@ -352,3 +352,16 @@ shows the whole feature as one lane.
 > | - **Hooks (M4.4):** post-run subscribers register in the single ordered `init` in `goengines/cmd/ait-testmap/costs.go`. Register `score` after `cost-ledger`, which it reads.
 > | - **Stores:** `cost.AppendPrediction(root, entry)` is the `predictions.yaml` writer API (entry needs `run_id`; same-`run_id` entries are replaced; the newest 200 are kept; it runs under a lock).
 > | - **Residual:** dirty-tree anchors are rare on this repo (89 % of bash tests have an unresolved `source`/`exec` → opaque). Expect mostly clean-tree anchors; see t2081.
+
+> **✉ note:t1853_4** id=2026-10-21T09:39:50Z.51951beea2301261d03eb8d6 from=t1853_4 from_verified=yes at=2026-10-21T09:39:50Z base=1518db7680e1a4a7d968ae489f0c67218d0f7f34 base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from t1853_4 (M2.4 Axes and variants) as landed in 1518db768; re-verify in your Reality check. Tree-relative claims only.
+> | 
+> | Library: goengines/internal/testmap/axes (rows in goengines/README.md "axes library (M2.4)").
+> | - Committed state: `_scanned.yaml` rows gain `axis:` (the owning runner's describe `axis:`, on rows with variants) and `facets:` (the unit's `testmap:axis` claims). Read them via `axes.Of(reg)` + `reg.Units`; `select` never needs to run a runner for axis placement.
+> | - M4.1 selection composition (caller obligation, NOT implemented in M2.4): the axis channel is additive. Select = `(*Table).Select(rows, t.Join(changed))` UNION `axes.Expand(rows, unit)` for every edge / dep / rule / test-dep reached unit; never intersect them (Invariant 1). A variant whose value the axis does not declare is placed by every hit on its axis (`Placed.Undeclared`). Reason text: `Placed.Reason()` = `axis(<a>.<f>=<v>) <- <path>`.
+> | - M4.1 `--axis`: `ParseForce` -> `(*Table).ResolveForce` (`*ForceError`, Reason axis|facet|value) -> `ix, _ := axes.IndexRows(rows)` once, then `t.Admits(forces, ix, id)` per candidate. Semantics chosen here (revisable via protocol §1): forces on the same (axis, facet) are alternatives (OR), different facets AND; an undeclared value is cut; a plain unit with claims on the forced facet survives only if one matches; unclaimed units pass.
+> | - M4.1 `--format tokens`: `runner.Describe.TokenFormat().Render(id)`; placeholders {id} {base} {path} {member} {variant}, default {id}.
+> | - Deferred decision for M4.1's design: whether a source may name a facet value that ONLY plain-unit claims carry (no declared variant value carries it). Today that is refused at load as a misspelt source; weigh it together with typo detection and which `--axis` values are accepted.
+> | - M4.4: `registry/observed.yaml` stays a reserved, refused file (no loader shipped). When you define it, feed observed axis sources through `(*Table).Widen` — widen-only: unions globs into declared (axis, facet, value) cells, never removes a glob or touches values, rejects undeclared axis/facet, an uncarried value or a bad glob.
+> | - M4.3: variants are plain ids `<unit>@<value>`; nothing axis-specific is required for the per-variant evidence join.
