@@ -33,7 +33,9 @@ bash "$PROJECT_DIR/install.sh" --dir "$SCRATCH"
 # fire (no --yes flag exists, by design).
 echo ""
 echo "--- Running ait setup (HOME=$FAKE_HOME) ---"
-HOME="$FAKE_HOME" "$SCRATCH/ait" setup < /dev/null
+# AITASKS_HOME unset: setup migrates the per-user root into it (t1939), so an
+# inherited value would aim a scratch HOME's tenants at a real root.
+env -u AITASKS_HOME HOME="$FAKE_HOME" "$SCRATCH/ait" setup < /dev/null
 
 # Assert venv exists and Python >= 3.11
 echo ""

@@ -1834,6 +1834,14 @@ main() {
         check_superseded_model_defaults
     fi
 
+    # The upgrade path never migrates the legacy per-user root (t1939): that is
+    # a layout repair, which `ait setup` owns. Surface the read-only hint
+    # instead. The declare -F guard: `--version` can pair this installer with
+    # an older aitask_setup.sh that predates the function.
+    if declare -F report_home_legacy >/dev/null; then
+        report_home_legacy
+    fi
+
     report_claude_session_hook
 
     echo ""

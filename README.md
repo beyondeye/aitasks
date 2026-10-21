@@ -101,7 +101,7 @@ The shim detects that no aitasks project exists, downloads the latest release, i
 **Global dependencies** (installed once per machine via `install.sh` and `ait setup`):
 
 - CLI tools: `fzf`, `gh` (for GitHub), `glab` (for GitLab), or `bkt` (for Bitbucket), `jq`, `git`
-- Python venv at `~/.aitask/venv/` with `textual`, `pyyaml`, `linkify-it-py`
+- Python venv with `textual`, `pyyaml`, `linkify-it-py`, in the per-user root (`~/.aitasks/venv/` by default; see [Per-user root](https://aitasks.io/docs/commands/setup-install/#per-user-root))
 - Global `ait` shim at `~/.local/bin/ait`
 - Claude Code permissions in `.claude/settings.local.json` (see [Claude Code Permissions](https://aitasks.io/docs/commands/setup-install/#claude-code-permissions))
 

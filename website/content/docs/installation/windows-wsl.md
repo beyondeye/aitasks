@@ -45,7 +45,7 @@ curl -fsSL https://raw.githubusercontent.com/beyondeye/aitasks/main/install.sh |
 ait setup
 ```
 
-`ait setup` automatically detects WSL and installs dependencies via `apt`. It also installs a modern Python (3.11) user-scoped via [uv](https://github.com/astral-sh/uv) into `~/.aitask/python/` if your system Python is too old.
+`ait setup` automatically detects WSL and installs dependencies via `apt`. It also installs a modern Python (3.11) user-scoped via [uv](https://github.com/astral-sh/uv) into the [per-user root]({{< relref "/docs/commands/setup-install#per-user-root" >}}) (`~/.aitasks/python/` by default) if your system Python is too old.
 
 If you already have the global `ait` shim installed (from a previous project), you can skip the `curl` step and just run `ait setup` in the new project directory.
 

@@ -689,7 +689,7 @@ project-specific in it yet.
 | **M1.3** Build, CI and release | `goengines/build.sh` (matrix over every `cmd/*`, `CGO_ENABLED=0`, ldflags), `.github/workflows/goengines-check.yml`, the `goengines` job in `release.yml` with `release needs: [plan, goengines]`, SHA256SUMS | `component_binary_distribution` | `goengines/build.sh`; the two workflow edits; `aidocs/framework/go_engine.md` (build half) | release assets `ait-testmap_<V>_<os>_<arch>` + sums | M1.2 |
 | **M1.4** Shim and handshake | `.aitask-scripts/aitask_testmap.sh` (strict handshake `AIT_TESTMAP_BIN` > `AIT_ENGINE=dev` > `$AITASKS_HOME/engine/v<V>/` > `ENGINE_MISSING` exit 3), `lib/platform_detect.sh`, the `ait testmap` dispatcher arm | `component_binary_distribution` | `aitask_testmap.sh`; `lib/platform_detect.sh`; `tests/test_testmap_shim.sh`, `tests/test_platform_detect.sh` | `ait testmap <verb>` for every later bash caller | M1.1, M1.2 |
 | **M1.5** Install, upgrade and developer verbs | `install_engine_binary()` (source order, checksum, atomic install, self-check, `--force-engine`, `--no-testmap` / `AIT_TESTMAP_FETCH=0`, `.aitask-testmap/` gitignore), `install.sh` reaching it right after `install_global_shim` (the engine flags `--local-engine` / `--engine-from-source` / `--no-testmap` / `--force-engine` in both `install.sh`'s and `aitask_setup.sh::main()`'s parsers), `aitask_engine.sh` `build\|test\|cross\|prune`, `report_testmap_state()` with the states `engine-missing` / `absent` / `onboarded` (M6.1 adds `bootstrapping\|<next>`) | `component_engine_packaging` | the two functions in `aitask_setup.sh` and the four engine flags in its `main()` parser; the four engine flags and the `install_engine_binary` call in `install.sh` (a named extension of the installer); `aitask_engine.sh` (except `home`); `tests/test_install_engine_binary.sh`; `packaging_strategy.md` paragraph; `CLAUDE.md` Engine block | an installed engine on every host that ran `ait setup`; `TESTMAP:<state>` | M1.1, M1.3, M1.4 |
-| **M1.6** Framework home report and migration | `ait engine home [--migrate]`, with a destination-collision preflight before any move (`destination-exists:<name>` refusal, nothing moved) | `component_framework_home` | the `home` arm of `aitask_engine.sh`; the `HOME_LEGACY:` hint in setup; `tests/test_aitasks_home.sh` migration cases | the migration verb; the named follow-up that flips the default | M1.1, M1.5 |
+| **M1.6** Framework home report and migration | `ait engine home [--migrate]`, with a destination-collision preflight before any move (`destination-exists:<name>` refusal, nothing moved) | `component_framework_home` | the `home` arm of `aitask_engine.sh`; `migrate_home_legacy` (the setup default, `--no-home-migration` / `AIT_HOME_MIGRATE=0`) and the `HOME_LEGACY:` hint in setup and `install.sh`; `tests/test_aitasks_home.sh` migration cases | the migration verb; setup migrating by default | M1.1, M1.5 |
 
 #### M2 — Registry and map model
 
@@ -863,9 +863,7 @@ the loop closing without a person — lands.
 
 ### Named follow-ups (not v1)
 
-Recorded so that the modules above do not absorb them by accident: flipping
-`ait engine home --migrate` to the setup default (M1.6's named follow-up);
-a versioned scanner-plugin contract beyond the one-JSON-line-per-file form
+Recorded so that the modules above do not absorb them by accident: a versioned scanner-plugin contract beyond the one-JSON-line-per-file form
 (M2.3); symbol-level attribution of Kotlin and Python changes and hunk-level
 attribution inside a member file (M2.3 / M4.1); a second-model cross-check
 of verdicts through `ait codeagent testmap-review --agent-string <other>`
@@ -2152,15 +2150,28 @@ restore each entry; when it is merely absent (the rollback could not recreate
 it), recreate it and restore each entry. A signal that lands after `ln -s` is recognised by the
 completed layout and keeps the migration.
 SIGKILL or power loss mid-move is not recovered. `pypy_venv` is in the known set because
-`setup_pypy_venv()` creates it and `python_resolve.sh` reads it. In this
-release `ait setup` only prints the `HOME_LEGACY:` hint; flipping the
-default (reserving `--no-home-migration` / `AIT_HOME_MIGRATE=0`) is a named
-follow-up admitted when `tests/test_aitasks_home.sh`, through a real
-`install.sh --dir`, covers fresh install, migration with a working venv and
-PyPy venv afterwards, idempotent re-run, a hostile pre-existing symlink,
-cross-device refusal, a destination collision refused with both trees
-unchanged, and the `AITASKS_HOME` override, and the 18 doc files
-naming `~/.aitask` are updated.
+`setup_pypy_venv()` creates it and `python_resolve.sh` reads it.
+`ait setup` runs `--migrate` as the last step of `main()` (`migrate_home_legacy`),
+after every tenant writer and every setup commit, so it never recreates a tenant
+it just moved and a fresh install ends in the new layout. A lock-free report
+whose `HOME_NEXT:` is `none` keeps it silent; otherwise the verb writes its
+protocol lines straight to setup's output (never into a buffer that a
+process-group TERM or HUP would discard with setup), setup outlives such a
+signal through handler traps until the verb's own recovery has finished, and
+it branches on the verb's exit class only: 0 continues; 1
+(a refusal or rollback) reports and continues, and the summary keeps the
+`HOME_LEGACY:` hint; 2 (a blocked rollback) stops setup with exit 2 after the
+`HOME_STRANDED:` / `HOME_RESTORE:` lines; 128+signo stops with that status.
+`--no-home-migration` or `AIT_HOME_MIGRATE=0` opts out. `install.sh` (the
+`ait upgrade` path) never migrates and only prints the hint, which points at
+`ait setup`. `tests/test_aitasks_home.sh` drives the installed tree's setup
+`main()`, after a real `install.sh --dir`, under setup's own `set -euo
+pipefail` through fresh install, migration with a working venv and PyPy venv
+afterwards, idempotent re-run, a hostile pre-existing symlink, cross-device
+refusal, a destination collision refused with both trees unchanged, the
+`AITASKS_HOME` override, both opt-outs and every exit class, including a TERM
+to setup's whole process group (cases I1–I13,
+H-I2).
 <!-- /section: component_framework_home -->
 
 **M2 — Registry and map model**
@@ -4076,13 +4087,15 @@ metadata.
   `claude_hook_status.sh`'s `==` against `command -v python3`, which compares
   PATH spellings — and PATH keeps the literal `~/.aitask/bin` entry, so it
   still matches through the symlink. This is the
-  precondition of `ait engine home --migrate`, re-checked by
-  `tests/test_aitasks_home.sh` before the default is flipped.
-- **`assumption_legacy_user_root_coexists`** — in this release `~/.aitasks/`
-  (engine) and `~/.aitask/` (venv, pypy_venv, python, bin, uv, dev_tier,
-  update_check) coexist without either reading the other; the migration
-  exists as an explicit verb and nothing in this feature depends on it having
-  run.
+  precondition of `ait engine home --migrate` and of setup running it by
+  default; `tests/test_aitasks_home.sh` re-checks it through the symlink
+  after every migration case.
+- **`assumption_legacy_user_root_coexists`** — until `ait setup` (or the
+  explicit verb) migrates a home, `~/.aitasks/` (engine) and `~/.aitask/`
+  (venv, pypy_venv, python, bin, uv, dev_tier, update_check) coexist without
+  either reading the other; a refused migration, an opt-out and an
+  upgrade-only home stay in that state, and nothing in this feature depends on
+  the migration having run.
 - **`assumption_target_repos_accept_aitestmap_root`** — every target repo
   accepts a root `aitestmap/` directory of committed YAML (`onboard.yaml`,
   `seeded.yaml`, `adopted.yaml` and `costs/policy.yaml` included) and an
@@ -4554,8 +4567,8 @@ document.
   zero-risk but would leave two dot-directories one character apart holding
   halves of one install, explained forever by every doc page; chosen: the
   split as the transition, the migration designed, shipped as an explicit
-  verb and reversible through the symlink, becoming the default in a named
-  follow-up.
+  verb and reversible through the symlink, then run by `ait setup` by
+  default with `--no-home-migration` / `AIT_HOME_MIGRATE=0` as the opt-out.
 - **`tradeoff_home_migration_window`** — the migration has a window of
   milliseconds (renames only), from the first `mv` to the verified `ln -s`,
   during which a process that hardcodes the legacy path may see an entry
@@ -4568,8 +4581,9 @@ document.
   root, 20 test files, 18 doc files, the venv's absolute shebangs and
   two symlink trees — none rewritten, all resolving through the symlink. The
   refusal cases are the ones a designer does not see on their own host (the
-  known-entry set once lacked `pypy_venv`), which is why the verb is explicit
-  in this release.
+  known-entry set once lacked `pypy_venv`), which is why the verb shipped
+  explicit first and became the setup default only after real-host runs on
+  Linux and macOS, and why every refusal leaves setup running with the hint.
 
 ### Map and registry structure (M2, M3)
 

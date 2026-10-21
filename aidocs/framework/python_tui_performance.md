@@ -34,7 +34,7 @@ Investigation of options to speed up the aitasks Python TUIs (board, codebrowser
   - Minimonitor (`minimonitor_app.py`): 733 LOC.
   - Shared `tmux_monitor.py`: 740 LOC.
 - **Cold-start cost:** dominated by `import textual` (~115 ms); board parse adds ~26 ms.
-- **Distribution:** `ait setup` installs CPython user-scoped via `uv` on Linux, brew on macOS. Venv at `~/.aitask/venv`. Python is resolved through `lib/python_resolve.sh`.
+- **Distribution:** `ait setup` installs CPython user-scoped via `uv` on Linux, brew on macOS. Venv in the per-user root (`$AITASKS_HOME/venv`, default `~/.aitasks/venv`), reached as `~/.aitask/venv` through the compatibility symlink. Python is resolved through `lib/python_resolve.sh`.
 
 ## Per-TUI Bottleneck Classification
 
@@ -146,7 +146,7 @@ Most flexible. `AIT_USE_PYPY=1 ait board` routes just that invocation through Py
 
 ### Distribution implications
 
-You don't ship PyPy yourself — `ait setup` installs it via `uv` (already a dependency on Linux) or brew. Disk cost: ~50-80 MB PyPy + ~50 MB second venv = ~100-150 MB additional in `~/.aitask/`. Acceptable for an opt-in feature.
+You don't ship PyPy yourself — `ait setup` installs it via `uv` (already a dependency on Linux) or brew. Disk cost: ~50-80 MB PyPy + ~50 MB second venv = ~100-150 MB additional in the per-user root (`~/.aitasks/` by default). Acceptable for an opt-in feature.
 
 ## Recommendations
 

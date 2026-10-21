@@ -2480,16 +2480,82 @@ setup_aitasks_home() {
 # --- Legacy per-user root hint (t1852_6) ---
 # report_home_legacy — when the legacy per-user root still holds tenants, print
 # its HOME_LEGACY: line (taken verbatim from `ait engine home`, the one owner of
-# that listing) and the explicit migration verb. Setup never migrates; flipping
-# that default is a named follow-up. Silent when there is nothing to report.
+# that listing) and how to migrate. Setup migrates by default
+# (migrate_home_legacy), so from setup this shows only after a refusal, a
+# rollback or an opt-out; install.sh, which never migrates, shows it too.
+# Silent when there is nothing to report.
 report_home_legacy() {
     local out line
     out="$(bash "$SCRIPT_DIR/aitask_engine.sh" home 2>/dev/null)" || return 0
     line="$(printf '%s\n' "$out" | grep '^HOME_LEGACY:' | grep -v '^HOME_LEGACY:none$' | grep -v '|(empty)$')" || return 0
     [[ -n "$line" ]] || return 0
-    info "  $line"
-    info "    (optional) 'ait engine home --migrate' moves these into $AITASKS_HOME and leaves a symlink behind"
+    # printf, not info's echo -e: tenant names are %q-escaped and may hold backslashes.
+    printf '%b%s\n' "${BLUE}[ait]${NC}   " "$line"
+    info "    'ait engine home' shows what blocks it; 'ait setup' (or 'ait engine home --migrate') moves these into $AITASKS_HOME and leaves a symlink behind"
     return 0
+}
+
+# --- Legacy per-user root migration (t1939) ---
+# migrate_home_legacy [--no-home-migration] — run `ait engine home --migrate`
+# (the one owner of the move) and branch on its exit class.
+#
+# The verb writes STRAIGHT to setup's stdout/stderr, never into a $( ) buffer:
+# its HOME_FAILED / HOME_STRANDED / HOME_RESTORE lines are the only record of a
+# blocked rollback (on a signal it exits 128+signo even then), and a buffer
+# dies with setup when a TERM/HUP reaches the whole process group. Setup itself
+# outlives such a signal through HANDLER traps (never '': an ignored signal is
+# inherited by the verb, which could then not trap it), waits for the verb's
+# own recovery, then reports. Opt-outs: the flag, or AIT_HOME_MIGRATE=0.
+# Returns the class to the caller:
+#   0          migrated, nothing to migrate, or opted out
+#   1          refused or rolled back — the legacy root is as it was; continue
+#   2          rollback blocked — HOME_STRANDED/HOME_RESTORE printed; caller stops
+#   128+signo  interrupted (the verb's, or setup's own) — caller stops
+migrate_home_legacy() {
+    if [[ "${1:-}" == "--no-home-migration" ]]; then
+        info "Per-user root migration skipped (--no-home-migration)"
+        return 0
+    fi
+    if [[ "${AIT_HOME_MIGRATE:-1}" == "0" ]]; then
+        info "Per-user root migration skipped (AIT_HOME_MIGRATE=0)"
+        return 0
+    fi
+    # The lock-free report says whether there is anything to do; only an
+    # explicit HOME_NEXT:none (no legacy root, already migrated) stays silent.
+    local next
+    next="$(bash "$SCRIPT_DIR/aitask_engine.sh" home 2>/dev/null </dev/null | grep '^HOME_NEXT:' | head -n1)" || next=""
+    [[ "$next" == HOME_NEXT:none\|* ]] && return 0
+
+    info "Migrating the per-user root into $AITASKS_HOME ('ait engine home --migrate'):"
+    local rc=0 sig=""
+    trap 'sig=INT' INT
+    trap 'sig=TERM' TERM
+    trap 'sig=HUP' HUP
+    bash "$SCRIPT_DIR/aitask_engine.sh" home --migrate </dev/null || rc=$?
+    trap - INT TERM HUP
+    # Setup was signalled but the verb finished on its own: still stop.
+    if [[ -n "$sig" ]] && (( rc < 128 )); then
+        case "$sig" in INT) rc=130 ;; TERM) rc=143 ;; HUP) rc=129 ;; esac
+    fi
+    case "$rc" in
+        0)
+            success "Per-user root migration done: the legacy root now links to $AITASKS_HOME"
+            return 0 ;;
+        1)
+            warn "Per-user root not migrated (see the HOME_ lines above) — nothing was changed; setup continues"
+            return 1 ;;
+        2)
+            warn "Per-user root migration FAILED and its rollback was blocked."
+            warn "Run the HOME_RESTORE steps above in order, then re-run 'ait setup'."
+            return 2 ;;
+        *)
+            if (( rc >= 128 )); then
+                warn "Per-user root migration interrupted (exit $rc). Read the HOME_ lines above: any HOME_RESTORE steps must be run in order before re-running 'ait setup'."
+                return "$rc"
+            fi
+            warn "Per-user root migration did not run (exit $rc); setup continues"
+            return 1 ;;
+    esac
 }
 
 # --- Test map engine install (t1852_5) ---
@@ -5027,7 +5093,10 @@ Options:
   --force-engine
                 Replace an engine slot marked as a custom build (.dev)
   --no-testmap  Skip the test map engine install entirely
-  --yes         With --hooks-only: accept the hook without a prompt, for
+  --no-home-migration
+                Leave the legacy per-user root ~/.aitask in place
+                (also: AIT_HOME_MIGRATE=0)
+  --yes        With --hooks-only: accept the hook without a prompt, for
                 non-interactive use
   -h, --help    Show this help message
 
@@ -5037,6 +5106,10 @@ runs revalidate and repair it without re-passing the flag.
 The test map engine is installed to $AITASKS_HOME/engine/v<VERSION>/ (default
 ~/.aitasks). AIT_TESTMAP_FETCH=0 skips the download; an explicit
 --local-engine or --engine-from-source still installs.
+
+At the end, setup moves an older per-user root (~/.aitask: venv, python, bin,
+...) into $AITASKS_HOME and leaves ~/.aitask behind as a symlink to it, so
+every existing path keeps working. A refusal changes nothing and is reported.
 
 Examples:
   ait setup                            # Install / repair dependencies and config
@@ -5052,7 +5125,7 @@ main() {
     INSTALL_PYPY=0
     INSTALL_CHAT=0
     INSTALL_DEV=0
-    local hooks_only=0 assume_yes=0
+    local hooks_only=0 assume_yes=0 no_home_migration=0
     local args=()
     # Test map engine flags, passed through to install_engine_binary.
     local engine_args=() no_testmap=0 other_engine_flag=0 engine_path=""
@@ -5063,6 +5136,7 @@ main() {
             --with-dev)  INSTALL_DEV=1; shift ;;
             --hooks-only) hooks_only=1; shift ;;
             --yes)       assume_yes=1; shift ;;
+            --no-home-migration) no_home_migration=1; shift ;;
             --local-engine)
                 [[ $# -ge 2 && -n "$2" ]] || die "--local-engine requires a path argument"
                 # `ait` has already cd'ed to the project root: a relative path
@@ -5240,6 +5314,22 @@ main() {
     echo ""
 
     commit_framework_data_files
+    echo ""
+
+    # Last, after every tenant writer (venv, python, uv, bin, pypy, dev tier) and
+    # every setup commit: setup never recreates a tenant it just moved, a fresh
+    # install also ends in the new layout, and a blocked rollback stops here
+    # with nothing left uncommitted (t1939).
+    local home_rc=0
+    if [[ "$no_home_migration" == "1" ]]; then
+        migrate_home_legacy --no-home-migration || home_rc=$?
+    else
+        migrate_home_legacy || home_rc=$?
+    fi
+    if (( home_rc >= 2 )); then
+        warn "Setup stopped before completion (per-user root migration, exit $home_rc)."
+        exit "$home_rc"
+    fi
     echo ""
 
     check_latest_version

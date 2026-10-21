@@ -8,10 +8,16 @@
 # `AITASKS_HOME:<path>` token beside the `Python venv:` summary line; and no
 # framework script OF THIS FEATURE names the legacy per-user root.
 #
-# M1.6 (cases H*, S*): `ait engine home` reports both roots; `--migrate` runs a
+# M1.6 (cases H*): `ait engine home` reports both roots; `--migrate` runs a
 # preflight that refuses with both trees byte-identical, moves the known tenant
 # set, leaves the compatibility symlink, rolls back on any failed step or
-# catchable signal, and reports a blocked rollback precisely. Setup only hints.
+# catchable signal, and reports a blocked rollback precisely.
+#
+# t1939 (cases I*, H-I2): `ait setup` migrates by default. The I cases run the
+# INSTALLED tree's setup main() (after a real install.sh --dir) under setup's
+# own `set -euo pipefail`, across the admission matrix, both opt-outs and every
+# exit class of the verb, including a TERM to setup's whole process group
+# (I13). install.sh never migrates; it only hints (H-I2).
 # Every case runs on a scratch HOME — never the real legacy root.
 #
 # --- Grep guard scope (documented on purpose — a guard that overclaims is
@@ -179,6 +185,7 @@ FEATURE_FUNCTIONS=(
     "aitask_setup.sh:_install_engine_tiers"          # M1.5 — install_engine_binary's source tiers
     "aitask_setup.sh:report_testmap_state"           # M1.5
     "aitask_setup.sh:report_home_legacy"             # M1.6 — the HOME_LEGACY: hint
+    "aitask_setup.sh:migrate_home_legacy"            # t1939 — setup-driven migration
 )
 LEGACY_RE='(\$HOME|\$\{HOME\}|~)/\.aitask(/|["'"'"'[:space:]]|$)'
 MARKER_RE='#[[:space:]]*legacy-root-ok:'
@@ -869,23 +876,291 @@ if [[ "$REAL_VENV" == 1 ]]; then
         "$(HOME="$H" "$H/.aitask/venv/bin/python" -c 'print(42)' 2>&1)"
 fi
 
-# --- S1-S3: setup prints the HOME_LEGACY: hint and never migrates ---------------
-H="$SCRATCH/s1"; mklegacy "$H" --no-engine
+# --- H-I2: the upgrade path (install.sh) never migrates; it only hints ------------
+H="$SCRATCH/hI2"; T2="$SCRATCH/tI2"; mkdir -p "$T2" "$SCRATCH/binI2"; mklegacy "$H" --no-engine
 sig_l="$(tree_sig "$H/.aitask")"
-out="$(RUN_MAIN_HOME="$H" run_main "$SCRATCH/s1ah" "" report_home_legacy)"
-n_home="$(printf '%s\n' "$out" | grep -n 'AITASKS_HOME:' | tail -n1 | cut -d: -f1)"
-n_hint="$(printf '%s\n' "$out" | grep -n "HOME_LEGACY:$H/.aitask|$KNOWN_7" | head -n1 | cut -d: -f1)"
-assert_eq "S1 the HOME_LEGACY: hint is the line after AITASKS_HOME:" "$((n_home + 1))" "${n_hint:-missing}"
-assert_contains "S1 the hint names the explicit verb" "ait engine home --migrate" "$out"
-assert_eq "S1 setup never migrates (legacy byte-identical)" "$sig_l" "$(tree_sig "$H/.aitask")"
+ires="$(cd "$PROJECT_DIR" && env -u AITASKS_HOME -u AIT_HOME_MIGRATE HOME="$H" SHIM_DIR="$SCRATCH/binI2" \
+    bash "$PROJECT_DIR/install.sh" --dir "$T2" --local-tarball "$TARBALL" --local-engine "$FAKE" </dev/null 2>&1)"
+irc=$?
+assert_exit_zero_rc "H-I2 install.sh over a populated legacy root exits 0" "$irc"
+if [[ "$irc" -ne 0 ]]; then printf '%s\n' "$ires" | tail -n 20; fi
+assert_eq "H-I2 install.sh never migrates (legacy byte-identical)" "$sig_l" "$(tree_sig "$H/.aitask")"
+assert_contains "H-I2 install.sh prints the HOME_LEGACY: hint" "HOME_LEGACY:$H/.aitask|$KNOWN_7" "$ires"
+assert_contains "H-I2 the hint points at ait setup" "'ait setup'" "$ires"
+assert_not_contains "H-I2 no migration protocol from install.sh" "HOME_MIGRATED:" "$ires"
 
-H="$SCRATCH/s2"; mkdir -p "$H"
-out="$(RUN_MAIN_HOME="$H" run_main "$SCRATCH/s2ah" "" report_home_legacy)"
-assert_not_contains "S2 no legacy root → no hint" "HOME_LEGACY:" "$out"
+# --- I1-I12: setup migrates by default — the INSTALLED setup, production options ---
+# setup_strict <setup.sh> <home> <aitasks_home | -> [main args…] — run that
+# setup's main() under its OWN `set -euo pipefail` (production, unlike
+# run_main's `set +euo pipefail`). Every function except the home path is
+# stubbed `return 0`, so main() runs to the end offline and prompt-free and the
+# tier probes answer "yes": the REAL call sites of setup_python_venv,
+# setup_pypy_venv and setup_dev_deps are reached, where SETUP_EVAL can install
+# tenant writers. SETUP_ENV (array) adds environment. Sets out (stdout+stderr), rc.
+SETUP_ENV=(); SETUP_EVAL=""
+STRICT_BODY='
+    source "$1" --source-only
+    shift
+    keep=" main info success warn die detect_os setup_aitasks_home migrate_home_legacy report_home_legacy "
+    for fn in $(compgen -A function); do
+        [[ "$keep" == *" $fn "* ]] && continue
+        eval "$fn() { return 0; }"
+    done
+    eval "$SETUP_EVAL"
+    main "$@"'
+setup_strict() {
+    local script="$1" h="$2" ah="$3"; shift 3
+    local envs=(HOME="$h")
+    [[ "$ah" != - ]] && envs+=(AITASKS_HOME="$ah")
+    out="$(env -u AITASKS_HOME -u AIT_HOME_MIGRATE "${envs[@]}" ${SETUP_ENV[@]+"${SETUP_ENV[@]}"} \
+        SETUP_EVAL="$SETUP_EVAL" bash -c "$STRICT_BODY" _ "$script" "$@" </dev/null 2>&1)"
+    rc=$?
+}
 
-H="$SCRATCH/s3"; mkdir -p "$H/.aitasks"; ln -s "$H/.aitasks" "$H/.aitask"
-out="$(RUN_MAIN_HOME="$H" run_main "$H/.aitasks" "" report_home_legacy)"
-assert_not_contains "S3 already migrated → no hint" "HOME_LEGACY:" "$out"
+# setup_strict_pg — setup_strict, but setup leads its OWN process group (job
+# control in a subshell) and writes to a file, not a pipe, so a hook can signal
+# the whole group — setup, the verb and the hook — the way a terminal's
+# TERM/HUP does, without signalling this test.
+setup_strict_pg() {
+    local script="$1" h="$2" ah="$3"; shift 3
+    local envs=(HOME="$h")
+    [[ "$ah" != - ]] && envs+=(AITASKS_HOME="$ah")
+    ( set -m
+      env -u AITASKS_HOME -u AIT_HOME_MIGRATE "${envs[@]}" ${SETUP_ENV[@]+"${SETUP_ENV[@]}"} \
+          SETUP_EVAL="$SETUP_EVAL" bash -c "$STRICT_BODY" _ "$script" "$@" \
+          </dev/null >"$SCRATCH/pg_out" 2>&1 &
+      wait "$!" ) 2>/dev/null
+    rc=$?
+    out="$(cat "$SCRATCH/pg_out")"
+}
+
+# Tenant writers: the shapes setup_python_venv (venv, python, uv, bin),
+# setup_pypy_venv and setup_dev_deps leave in $HOME/.aitask — idempotent, so a
+# re-run through the symlink rewrites identical bytes.
+TENANTS="$SCRATCH/tenants.sh"
+cat >"$TENANTS" <<'EOF'
+setup_python_venv() {
+    local l="$HOME/.aitask"
+    mkdir -p "$l/python/3.x/bin" "$l/uv" "$l/bin"
+    if [[ ! -e "$l/venv/bin/python" ]]; then
+        if [[ -z "${TEN_PY3:-}" ]] || ! "$TEN_PY3" -m venv --without-pip "$l/venv" >/dev/null 2>&1; then
+            mkdir -p "$l/venv/bin"
+            printf '#!/bin/sh\necho 42\n' >"$l/venv/bin/python"
+            chmod +x "$l/venv/bin/python"
+        fi
+    fi
+    if [[ -n "${TEN_PY3:-}" ]]; then ln -sfn "$TEN_PY3" "$l/python/3.x/bin/python3"; fi
+    printf 'uv-binary\n' >"$l/uv/uv"
+    printf '#!/usr/bin/env bash\nexec "$HOME/.aitask/venv/bin/python" "$@"\n' >"$l/bin/python3"
+    chmod +x "$l/bin/python3"
+}
+setup_pypy_venv() {
+    mkdir -p "$HOME/.aitask/pypy_venv/bin"
+    printf '#!/bin/sh\necho pypy\n' >"$HOME/.aitask/pypy_venv/bin/python"
+    chmod +x "$HOME/.aitask/pypy_venv/bin/python"
+}
+setup_dev_deps() { printf 'dev tier installed\n' >"$HOME/.aitask/dev_tier"; }
+EOF
+WRITERS='source "'"$TENANTS"'"'
+ISETUP="$T/.aitask-scripts/aitask_setup.sh"
+DONE="Setup complete!"
+
+# hint_after_home — 0 when the HOME_LEGACY: hint is the line right after the
+# summary's AITASKS_HOME: line in $out.
+hint_after_home() {
+    local n_home n_hint
+    n_home="$(printf '%s\n' "$out" | grep -n 'AITASKS_HOME:' | tail -n1 | cut -d: -f1)"
+    n_hint="$(printf '%s\n' "$out" | grep -n 'HOME_LEGACY:' | head -n1 | cut -d: -f1)"
+    [[ -n "$n_home" && "$n_hint" == "$((n_home + 1))" ]]
+}
+
+# I1 — fresh install: the tenant writers run at their real call sites, then the
+# migration at the end of main() moves what they wrote. This is the ordering
+# pin: a migration placed before setup_python_venv finds no legacy root and
+# leaves a legacy tree behind.
+H="$SCRATCH/i1"; mkdir -p "$H"
+SETUP_ENV=(TEN_PY3="$PY3"); SETUP_EVAL="$WRITERS"
+setup_strict "$ISETUP" "$H" -
+SETUP_ENV=(); SETUP_EVAL=""
+assert_exit_zero_rc "I1 fresh install: setup exits 0" "$rc"
+if [[ "$rc" -ne 0 ]]; then printf '%s\n' "$out" | tail -n 20; fi
+assert_contains "I1 completes" "$DONE" "$out"
+assert_eq "I1 HOME_MIGRATED:6 (venv python uv bin pypy_venv dev_tier)" "HOME_MIGRATED:6" "$(hline HOME_MIGRATED:)"
+assert_eq "I1 the legacy root is a link to the default root" "LINK:$H/.aitasks" "$(tree_sig "$H/.aitask")"
+assert_dir_exists "I1 the venv lives in the new root" "$H/.aitasks/venv"
+assert_eq "I1 the venv runs through ~/.aitask" "42" "$(HOME="$H" "$H/.aitask/venv/bin/python" -c 'print(42)' 2>&1)"
+assert_eq "I1 the PyPy venv runs through ~/.aitask" "pypy" "$(HOME="$H" "$H/.aitask/pypy_venv/bin/python" 2>&1)"
+assert_not_contains "I1 no hint" "HOME_LEGACY:" "$out"
+
+# I2 — an existing legacy root with a working venv and PyPy venv.
+H="$SCRATCH/i2"; mklegacy "$H" --no-engine
+SETUP_ENV=(TEN_PY3="$PY3"); SETUP_EVAL="$WRITERS"
+setup_strict "$ISETUP" "$H" -
+assert_exit_zero_rc "I2 setup exits 0" "$rc"
+assert_contains "I2 completes" "$DONE" "$out"
+assert_eq "I2 HOME_MIGRATED:7" "HOME_MIGRATED:7" "$(hline HOME_MIGRATED:)"
+assert_eq "I2 the legacy root is a link" "LINK:$H/.aitasks" "$(tree_sig "$H/.aitask")"
+if [[ "$REAL_VENV" == 1 ]]; then
+    assert_eq "I2 the real venv runs through ~/.aitask" "42" "$(HOME="$H" "$H/.aitask/venv/bin/python" -c 'print(42)' 2>&1)"
+fi
+assert_eq "I2 the bin/python3 wrapper runs" "42" "$(HOME="$H" "$H/.aitask/bin/python3" -c 'print(42)' 2>&1)"
+assert_eq "I2 the PyPy venv runs" "pypy" "$(HOME="$H" "$H/.aitask/pypy_venv/bin/python" 2>&1)"
+assert_not_contains "I2 no hint" "HOME_LEGACY:" "$out"
+
+# I3 — re-run setup after migrating: no re-migration, no hint, nothing changed.
+sig_a="$(tree_sig "$H/.aitasks")"
+setup_strict "$ISETUP" "$H" -
+SETUP_ENV=(); SETUP_EVAL=""
+assert_exit_zero_rc "I3 re-run exits 0" "$rc"
+assert_contains "I3 completes" "$DONE" "$out"
+assert_not_contains "I3 no re-migration" "HOME_MIGRATED:" "$out"
+assert_not_contains "I3 no hint" "HOME_LEGACY:" "$out"
+assert_eq "I3 the link is unchanged" "LINK:$H/.aitasks" "$(tree_sig "$H/.aitask")"
+assert_eq "I3 the new root is byte-identical" "$sig_a" "$(tree_sig "$H/.aitasks")"
+assert_eq "I3 the tenants still resolve" "pypy" "$(HOME="$H" "$H/.aitask/pypy_venv/bin/python" 2>&1)"
+
+# I4 — a hostile pre-existing symlink: refused, setup carries on, nothing touched.
+H="$SCRATCH/i4"; mkdir -p "$H" "$SCRATCH/elsewhereI4"; printf 'mine\n' >"$SCRATCH/elsewhereI4/f"
+ln -s "$SCRATCH/elsewhereI4" "$H/.aitask"
+sig_e="$(tree_sig "$SCRATCH/elsewhereI4")"
+setup_strict "$ISETUP" "$H" -
+assert_exit_zero_rc "I4 a refusal never fails setup" "$rc"
+assert_contains "I4 completes" "$DONE" "$out"
+assert_eq "I4 HOME_SKIPPED:foreign-symlink:<target>" "HOME_SKIPPED:foreign-symlink:$SCRATCH/elsewhereI4" "$(hline HOME_SKIPPED:)"
+assert_eq "I4 the link is untouched" "$SCRATCH/elsewhereI4" "$(readlink "$H/.aitask")"
+assert_eq "I4 its target is untouched" "$sig_e" "$(tree_sig "$SCRATCH/elsewhereI4")"
+
+# I5 — cross-device: refused, setup carries on.
+if [[ -d /dev/shm && -w /dev/shm && "$(dev_of /dev/shm)" != "$(dev_of "$SCRATCH")" ]]; then
+    H="$SCRATCH/i5"; mklegacy "$H" --no-engine; AH="/dev/shm/aitasks-home-i5.$$"
+    rm -rf "$AH"
+    sig_l="$(tree_sig "$H/.aitask")"
+    setup_strict "$ISETUP" "$H" "$AH"
+    rm -rf "$AH"
+    assert_exit_zero_rc "I5 cross-device refusal never fails setup" "$rc"
+    assert_contains "I5 completes" "$DONE" "$out"
+    assert_eq "I5 HOME_SKIPPED:cross-device" "HOME_SKIPPED:cross-device" "$(hline HOME_SKIPPED:)"
+    assert_eq "I5 legacy tree byte-identical" "$sig_l" "$(tree_sig "$H/.aitask")"
+else
+    echo "SKIP: I5 cross-device (no second writable filesystem at /dev/shm) — not counted" >&2
+fi
+
+# I6 — a destination collision: refused with both trees byte-identical; the
+# summary keeps the hint right after AITASKS_HOME:.
+H="$SCRATCH/i6"; AH="$SCRATCH/ah_i6"; mklegacy "$H"; mkdir -p "$AH/engine"
+sig_l="$(tree_sig "$H/.aitask")"; sig_a="$(tree_sig "$AH")"
+setup_strict "$ISETUP" "$H" "$AH"
+assert_exit_zero_rc "I6 a collision never fails setup" "$rc"
+assert_contains "I6 completes" "$DONE" "$out"
+assert_eq "I6 HOME_SKIPPED:destination-exists:engine" "HOME_SKIPPED:destination-exists:engine" "$(hline HOME_SKIPPED:)"
+assert_eq "I6 legacy tree byte-identical" "$sig_l" "$(tree_sig "$H/.aitask")"
+assert_eq "I6 new root byte-identical" "$sig_a" "$(tree_sig "$AH")"
+TOTAL=$((TOTAL + 1))
+if hint_after_home; then PASS=$((PASS + 1)); else FAIL=$((FAIL + 1)); echo "FAIL: I6 the hint is the line after AITASKS_HOME:"; fi
+
+# I7 — the AITASKS_HOME override: the link points at it, the default root is untouched.
+H="$SCRATCH/i7"; AH="$SCRATCH/custom_i7"; mklegacy "$H" --no-engine
+setup_strict "$ISETUP" "$H" "$AH"
+assert_exit_zero_rc "I7 setup exits 0" "$rc"
+assert_eq "I7 HOME_MIGRATED:7" "HOME_MIGRATED:7" "$(hline HOME_MIGRATED:)"
+assert_eq "I7 the legacy root links to the override" "LINK:$AH" "$(tree_sig "$H/.aitask")"
+assert_dir_exists "I7 the tenants are in the override" "$AH/venv"
+assert_dir_not_exists "I7 no default root was created" "$H/.aitasks"
+
+# I8 / I9 — both opt-outs: the legacy tree is untouched and the hint stays.
+H="$SCRATCH/i8"; mklegacy "$H" --no-engine
+sig_l="$(tree_sig "$H/.aitask")"
+setup_strict "$ISETUP" "$H" - --no-home-migration
+assert_exit_zero_rc "I8 --no-home-migration: setup exits 0" "$rc"
+assert_contains "I8 completes" "$DONE" "$out"
+assert_contains "I8 names the flag" "skipped (--no-home-migration)" "$out"
+assert_eq "I8 legacy tree byte-identical" "$sig_l" "$(tree_sig "$H/.aitask")"
+assert_not_contains "I8 the verb never ran" "HOME_MIGRATED:" "$out"
+TOTAL=$((TOTAL + 1))
+if hint_after_home; then PASS=$((PASS + 1)); else FAIL=$((FAIL + 1)); echo "FAIL: I8 the hint is the line after AITASKS_HOME:"; fi
+
+H="$SCRATCH/i9"; mklegacy "$H" --no-engine
+sig_l="$(tree_sig "$H/.aitask")"
+SETUP_ENV=(AIT_HOME_MIGRATE=0)
+setup_strict "$ISETUP" "$H" -
+SETUP_ENV=()
+assert_exit_zero_rc "I9 AIT_HOME_MIGRATE=0: setup exits 0" "$rc"
+assert_contains "I9 completes" "$DONE" "$out"
+assert_contains "I9 names the env var" "skipped (AIT_HOME_MIGRATE=0)" "$out"
+assert_eq "I9 legacy tree byte-identical" "$sig_l" "$(tree_sig "$H/.aitask")"
+TOTAL=$((TOTAL + 1))
+if hint_after_home; then PASS=$((PASS + 1)); else FAIL=$((FAIL + 1)); echo "FAIL: I9 the hint is the line after AITASKS_HOME:"; fi
+
+# I10 — class 1, rolled back: reported, setup completes (under errexit).
+H="$SCRATCH/i10"; AH="$SCRATCH/ah_i10"; mklegacy "$H" --no-engine
+sig_l="$(tree_sig "$H/.aitask")"
+SETUP_ENV=(HOOK_L="$H/.aitask" HOOK_AH="$AH" AIT_HOME_TEST_HOOK="$(mkhook i10 \
+    '[[ "$1" == post-moves ]] && : >"$HOOK_L/stray"; exit 0')")
+setup_strict "$ISETUP" "$H" "$AH"
+SETUP_ENV=()
+assert_exit_zero_rc "I10 a rollback never fails setup" "$rc"
+assert_contains "I10 completes" "$DONE" "$out"
+assert_eq "I10 HOME_ROLLED_BACK:7" "HOME_ROLLED_BACK:7" "$(hline HOME_ROLLED_BACK:)"
+rm -f "$H/.aitask/stray"
+assert_eq "I10 legacy tree restored byte-identically" "$sig_l" "$(tree_sig "$H/.aitask")"
+
+# I11 — class 2, rollback blocked: setup stops (exit 2) and the protocol lines
+# are verbatim — the HOME_RESTORE commands copied from SETUP's output restore it.
+H="$SCRATCH/i11"; AH="$SCRATCH/ah_i11"; mklegacy "$H" --no-engine
+venv_sig="$(tree_sig "$H/.aitask/venv")"
+SETUP_ENV=(HOOK_L="$H/.aitask" HOOK_AH="$AH" AIT_HOME_TEST_HOOK="$(mkhook i11 \
+    'if [[ "$1" == post-moves ]]; then : >"$HOOK_L/stray"; mkdir "$HOOK_L/venv"; echo competitor >"$HOOK_L/venv/marker"; fi; exit 0')")
+setup_strict "$ISETUP" "$H" "$AH"
+SETUP_ENV=()
+assert_eq "I11 setup stops with exit 2" "2" "$rc"
+assert_not_contains "I11 setup does not complete" "$DONE" "$out"
+assert_contains "I11 says setup stopped" "Setup stopped before completion" "$out"
+assert_eq "I11 HOME_FAILED:rollback|venv at line start" "HOME_FAILED:rollback|venv" "$(hline HOME_FAILED:)"
+assert_eq "I11 HOME_STRANDED verbatim" "HOME_STRANDED:venv|$AH/venv|$H/.aitask/venv" "$(hline HOME_STRANDED:)"
+restore11="$(hline 'HOME_RESTORE:venv|' | sed 's/^HOME_RESTORE:venv|//')"
+assert_eq "I11 two restore steps" "2" "$(printf '%s\n' "$restore11" | grep -c '^mv -- ')"
+(set -e; while IFS= read -r cmd; do eval "$cmd"; done <<<"$restore11")
+assert_eq "I11 setup's restore steps put the original venv back" "$venv_sig" "$(tree_sig "$H/.aitask/venv")"
+assert_eq "I11 …and keep the competitor aside" "competitor" "$(cat "$H/.aitask/venv.competing/marker" 2>/dev/null)"
+
+# I12 — interrupted (128+signo): setup stops with the verb's status.
+H="$SCRATCH/i12"; AH="$SCRATCH/ah_i12"; mklegacy "$H" --no-engine; mkdir -p "$AH"
+sig_l="$(tree_sig "$H/.aitask")"
+SETUP_ENV=(HOOK_L="$H/.aitask" HOOK_AH="$AH" AIT_HOME_TEST_HOOK="$(mkhook i12 \
+    '[[ "$1:${2:-}" == pre-mv:python ]] && kill -TERM "$PPID"; exit 0')")
+setup_strict "$ISETUP" "$H" "$AH"
+SETUP_ENV=()
+assert_eq "I12 setup stops with exit 143" "143" "$rc"
+assert_not_contains "I12 setup does not complete" "$DONE" "$out"
+assert_contains "I12 HOME_SKIPPED:interrupted:TERM" "HOME_SKIPPED:interrupted:TERM" "$out"
+assert_contains "I12 HOME_ROLLED_BACK" "HOME_ROLLED_BACK:" "$out"
+assert_eq "I12 legacy tree restored byte-identically" "$sig_l" "$(tree_sig "$H/.aitask")"
+
+# I13 — TERM to the WHOLE process group (setup + verb) after the moves, with a
+# competitor blocking the rollback. The verb's HOME_FAILED / HOME_STRANDED /
+# HOME_RESTORE lines are the only record of where the venv is; they must reach
+# setup's output even though setup received the TERM too, and setup must
+# outlive it to report and stop with 143. A $( )-buffered verb loses them.
+H="$SCRATCH/i13"; AH="$SCRATCH/ah_i13"; mklegacy "$H" --no-engine
+venv_sig="$(tree_sig "$H/.aitask/venv")"
+SETUP_ENV=(HOOK_L="$H/.aitask" HOOK_AH="$AH" AIT_HOME_TEST_HOOK="$(mkhook i13 \
+    'if [[ "$1" == post-moves ]]; then' \
+    '    mkdir "$HOOK_L/venv"; echo competitor >"$HOOK_L/venv/marker"' \
+    '    kill -TERM -- "-$(ps -o pgid= -p $$ | tr -d " ")"' \
+    'fi; exit 0')")
+setup_strict_pg "$ISETUP" "$H" "$AH"
+SETUP_ENV=()
+assert_eq "I13 setup stops with exit 143" "143" "$rc"
+assert_not_contains "I13 setup does not complete" "$DONE" "$out"
+assert_contains "I13 setup outlived the TERM and reports it" "Per-user root migration interrupted (exit 143)" "$out"
+assert_eq "I13 HOME_SKIPPED:interrupted:TERM" "HOME_SKIPPED:interrupted:TERM" "$(hline HOME_SKIPPED:)"
+assert_eq "I13 HOME_FAILED:rollback|venv survives" "HOME_FAILED:rollback|venv" "$(hline HOME_FAILED:)"
+assert_eq "I13 HOME_STRANDED survives" "HOME_STRANDED:venv|$AH/venv|$H/.aitask/venv" "$(hline HOME_STRANDED:)"
+restore13="$(hline 'HOME_RESTORE:venv|' | sed 's/^HOME_RESTORE:venv|//')"
+assert_eq "I13 both restore steps survive" "2" "$(printf '%s\n' "$restore13" | grep -c '^mv -- ')"
+(set -e; while IFS= read -r cmd; do eval "$cmd"; done <<<"$restore13")
+assert_eq "I13 the surviving steps put the original venv back" "$venv_sig" "$(tree_sig "$H/.aitask/venv")"
+assert_eq "I13 …and keep the competitor aside" "competitor" "$(cat "$H/.aitask/venv.competing/marker" 2>/dev/null)"
 
 # --- Summary -----------------------------------------------------------------
 echo ""

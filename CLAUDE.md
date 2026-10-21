@@ -119,6 +119,11 @@ ait engine cross            # release matrix + sums (goengines/build.sh all)
 ait engine prune [--dry-run]  # drop v*/ slots no registered project uses
 ait engine home [--migrate]   # report / move the legacy ~/.aitask root into $AITASKS_HOME
 ```
+`ait setup` runs `ait engine home --migrate` as its last step (opt out with
+`--no-home-migration` or `AIT_HOME_MIGRATE=0`); `install.sh` / `ait upgrade`
+never migrate, they only print the `HOME_LEGACY:` hint. Tests must never reach
+a real `~/.aitask`: run setup's `main()` only under a scratch `HOME` with
+`AITASKS_HOME` unset or scratch.
 Build and release mechanics: `aidocs/framework/go_engine.md`; engine interfaces:
 `goengines/README.md`.
 

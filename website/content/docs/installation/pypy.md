@@ -17,7 +17,7 @@ CPython remains the default; PyPy is a sibling install, not a replacement. For t
 ait setup --with-pypy
 ```
 
-This installs PyPy 3.11 into `~/.aitask/pypy_venv/` (~100-150 MB) with the same dependency set as the regular CPython venv. `ait setup` (without the flag) also offers an interactive prompt on TTYs.
+This installs PyPy 3.11 into the [per-user root]({{< relref "/docs/commands/setup-install#per-user-root" >}}) (`~/.aitasks/pypy_venv/` by default, ~100-150 MB) with the same dependency set as the regular CPython venv. `ait setup` (without the flag) also offers an interactive prompt on TTYs.
 
 After installation, `ait board` auto-routes through PyPy on next launch — no further action required.
 

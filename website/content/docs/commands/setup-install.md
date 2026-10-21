@@ -28,7 +28,7 @@ Run `ait setup --help` for the full option list, including the opt-in dependency
 4. **Git repo** — Verifies you are inside a git repository. If no `.git/` is found, explains that aitasks is tightly integrated with git and asks to confirm this is the correct project directory before offering to run `git init`
 5. **Draft directory** — Creates `aitasks/new/` for local draft tasks and adds it to `.gitignore` so drafts stay local-only
 6. **Task ID counter** — Initializes the `aitask-ids` counter branch on the remote for atomic task numbering. This prevents duplicate task IDs when multiple PCs create tasks against the same repo
-7. **Python venv** — Creates virtual environment at `~/.aitask/venv/` and installs `textual` (>=8.1), `pyyaml`, `linkify-it-py`, `tomli`, `plotext` (for `ait stats-tui` chart panes), and other dependencies with pinned versions. After installing, setup validates that every dependency imports and matches its pinned version range, repairing the venv if not. Recreates the venv if existing Python is too old. For an opt-in PyPy 3.11 venv that speeds up `ait board` (`ait setup --with-pypy`), see [PyPy Runtime]({{< relref "/docs/installation/pypy" >}}).
+7. **Python venv** — Creates a virtual environment in the [per-user root](#per-user-root) (`~/.aitasks/venv/` by default) and installs `textual` (>=8.1), `pyyaml`, `linkify-it-py`, `tomli`, `plotext` (for `ait stats-tui` chart panes), and other dependencies with pinned versions. After installing, setup validates that every dependency imports and matches its pinned version range, repairing the venv if not. Recreates the venv if existing Python is too old. For an opt-in PyPy 3.11 venv that speeds up `ait board` (`ait setup --with-pypy`), see [PyPy Runtime]({{< relref "/docs/installation/pypy" >}}).
 
    Setup also has two further **opt-in dependency tiers**, neither installed by default. Each is remembered after the first opt-in, so later plain `ait setup` runs revalidate and repair it:
 
@@ -37,7 +37,8 @@ Run `ait setup --help` for the full option list, including the opt-in dependency
 8. **Global shim** — Installs `ait` shim at `~/.local/bin/ait` that finds the nearest project-local `ait` dispatcher by walking up the directory tree. Warns if `~/.local/bin` is not in PATH
 9. **Claude Code permissions** — Shows the recommended permission entries, then prompts Y/n to install them into `.claude/settings.local.json`. If settings already exist, merges permissions (union of allow-lists)
 10. **Session hook** — Its own Y/n prompt, separate from the permissions one: installs a SessionStart hook that records each agent's session id so a frozen agent can be restored. `ait setup --hooks-only` runs this step alone. See [Session Hooks](#session-hooks)
-11. **Version check** — Compares local version against latest GitHub release and suggests update if newer
+11. **Per-user root** — Moves a `~/.aitask/` directory into `~/.aitasks/` and leaves `~/.aitask` behind as a symlink to it. See [Per-user root](#per-user-root)
+12. **Version check** — Compares local version against latest GitHub release and suggests update if newer
 
 Setup also ensures the shared project config file exists at `aitasks/metadata/project_config.yaml`. That file is seeded from `seed/project_config.yaml`, tracked in git, and includes project-wide workflow settings such as:
 
@@ -80,6 +81,17 @@ ait setup --hooks-only --yes    # accept without a prompt, e.g. from a script
 Without a terminal, `--hooks-only` refuses unless you pass `--yes`: the shortcut never installs an executable hook without an explicit answer. It does nothing when the hook is already installed, and it stops before writing anything when the hook could not work on this machine — the hook runs `python3` from your `PATH` directly, so that command has to work, and the session store needs a Python that meets the framework minimum. When Python is missing, or the framework's own `~/.aitask/bin/python3` wrapper is broken, it tells you to run the full `ait setup`, which installs or repairs it; a different `python3` that does not run is yours to fix. If `AIT_PYTHON` points at a Python older than the minimum, it says so instead: that override wins over every other interpreter, so a full setup would not fix it — unset `AIT_PYTHON` or point it at a newer Python.
 
 The hook only helps Claude Code agents **started after** it is installed. An agent that was already frozen without a recorded session stays view-only — you can still re-pick it if it has a task — and an agent that is running now needs a restart before its session is recorded.
+
+
+### Per-user root
+
+The files `ait setup` installs for your user rather than for one project — the Python venv, the optional PyPy venv, the user-scoped Python, `uv`, the `python3` wrappers, the dev-tier marker and the test map engine — live in one directory, `~/.aitasks/`. Set `AITASKS_HOME` to put it somewhere else.
+
+When `ait setup` finds a `~/.aitask/` directory holding them instead, its last step moves the contents into `~/.aitasks/` and leaves `~/.aitask` behind as a symlink to it. Every `~/.aitask/...` path keeps working, so the commands in these docs use that spelling: it is right whether or not the move has happened.
+
+The move is all or nothing. Setup checks everything first (an unknown file, a name that already exists in `~/.aitasks/`, a different filesystem, a foreign symlink) and, if anything is in the way, changes nothing, prints the reasons and finishes. Run `ait engine home` to see the report again, then `ait engine home --migrate` (or `ait setup`) once the obstacle is gone. If a step fails partway, setup puts everything back. In the rare case that cannot be done safely, setup stops and prints `HOME_RESTORE:` commands to run in order.
+
+To keep the old layout, pass `--no-home-migration`, or set `AIT_HOME_MIGRATE=0` in your environment. `ait upgrade` never moves the directory; it only reports when an old one is still there.
 
 ---
 

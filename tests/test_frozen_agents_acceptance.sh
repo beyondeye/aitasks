@@ -1284,10 +1284,12 @@ if [ "${AIT_ACCEPTANCE_FULL_SETUP:-0}" = "1" ]; then
     # packaging/ (cleanup_packaging_leftover), so a setup that still needs to
     # install a shim would fail with "Cannot locate shim source". Under one HOME
     # the installer has already put the shim there and setup finds it in place.
-    HOME="$FULL/home" bash "$PROJECT_DIR/install.sh" \
+    # AITASKS_HOME unset for both: setup migrates the per-user root into it
+    # (t1939), so an inherited value would aim the scratch tenants at a real root.
+    env -u AITASKS_HOME HOME="$FULL/home" bash "$PROJECT_DIR/install.sh" \
         --dir "$FULL" --local-tarball "$SCRATCH/full.tar.gz" \
         </dev/null >/dev/null 2>&1
-    HOME="$FULL/home" "$FULL/ait" setup </dev/null >"$SCRATCH/full_setup.log" 2>&1
+    env -u AITASKS_HOME HOME="$FULL/home" "$FULL/ait" setup </dev/null >"$SCRATCH/full_setup.log" 2>&1
     assert_eq "level 3: a full \`ait setup\` exits 0" "0" "$?"
     assert_eq "level 3: it installed exactly one aitasks SessionStart group" "1" \
         "$(count_sessionstart_groups "$FULL/.claude/settings.json")"

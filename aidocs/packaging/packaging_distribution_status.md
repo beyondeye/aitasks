@@ -176,7 +176,7 @@ After official Fedora repo inclusion, request an EPEL branch via Fedora's `relen
 
 Both `.deb` and `.rpm` declare `python3 >= 3.9` as a hard runtime dependency (`packaging/nfpm/nfpm.yaml:27` and `:39`). This is a **package-install-layer** limitation, not a framework runtime limitation:
 
-- The framework runtime is fine on essentially any modern Linux. `ait setup` provisions a modern Python (3.11) user-scoped via [uv](https://github.com/astral-sh/uv) into `~/.aitask/python/` when the system Python is too old (see `.aitask-scripts/aitask_setup.sh`, `find_modern_python` / `_install_modern_python_linux`).
+- The framework runtime is fine on essentially any modern Linux. `ait setup` provisions a modern Python (3.11) user-scoped via [uv](https://github.com/astral-sh/uv) into the per-user root (`$AITASKS_HOME/python/`, default `~/.aitasks/python/`; `~/.aitask` is a compatibility symlink to it) when the system Python is too old (see `.aitask-scripts/aitask_setup.sh`, `find_modern_python` / `_install_modern_python_linux`).
 - The constraint is set by the packaging system (apt/dnf) refusing to install a package whose declared deps cannot be satisfied. Without the dep declaration, users on truly ancient systems would get a confusing `ait setup` failure instead of a clear apt error.
 
 **Path to lower the floor:** Unlikely to be worth pursuing — Python 3.9 is end-of-life October 2025; future tightening is more likely than loosening. If we ever need to support a system stuck on Python 3.8, the recommendation is to use the curl install path, which sidesteps the package-system dep entirely.

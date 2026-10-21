@@ -85,7 +85,7 @@ Install aitasks on Debian, Ubuntu, and WSL2 via the official `.deb` package, dis
 - **Works directly:** Debian 11 (Bullseye) and newer; Ubuntu 22.04 (Jammy) and newer. These ship `python3 >= 3.9`, which satisfies the `.deb`'s declared dependency.
 - **Ubuntu 20.04 (Focal):** `apt install ./aitasks_*.deb` is **blocked by apt's dependency solver** because Focal ships `python3 = 3.8`. Two workarounds:
   1. Install a newer Python from the [deadsnakes PPA](https://launchpad.net/~deadsnakes/+archive/ubuntu/ppa) first, then proceed with the `.deb` install.
-  2. **Skip the `.deb` and use the curl install path (recommended for Focal users).** `ait setup` will install a modern Python (3.11) user-scoped via [uv](https://github.com/astral-sh/uv) into `~/.aitask/python/`, independent of the system Python. No sudo needed beyond the base package install:
+  2. **Skip the `.deb` and use the curl install path (recommended for Focal users).** `ait setup` will install a modern Python (3.11) user-scoped via [uv](https://github.com/astral-sh/uv) into the [per-user root]({{< relref "/docs/commands/setup-install#per-user-root" >}}) (`~/.aitasks/python/` by default), independent of the system Python. No sudo needed beyond the base package install:
      ```bash
      cd /path/to/your-project
      curl -fsSL https://raw.githubusercontent.com/beyondeye/aitasks/main/install.sh | bash
