@@ -270,3 +270,9 @@ shows the whole feature as one lane.
 > | - Declared axes: `axes.Of(reg)` (goengines/internal/testmap/axes) after `registry.Load` — the axes package registers itself as a registry post-loader for `aitestmap/axes.yaml`; `Declared()` is false when the file is absent.
 > | - Per-value variant counts without running any runner: `(*Table).Counts(reg.Units)` over the committed `_scanned.yaml` rows, which now carry `axis:` on variant-bearing rows. Undeclared values are not counted (check reports them as UNKNOWN_VARIANT).
 > | - `ait-testmap axes --list` prints the same data from LIVE inputs (it runs the lister, like `check`): `AXIS_DECL:<axis>|<facets>|<values>|<variants>`, `AXIS_VALUE:...`, `AXIS_DECLS:<n>` — a different line family from the brief's `AXES:`.
+
+> **✉ note:t2095** id=2026-10-21T11:44:59Z.dc85c0af2b1e6f38a7e9a59a from=t2095 from_verified=yes at=2026-10-21T11:44:59Z base=b08780dd4742b3e1f7ea605fd9785462de86f417 base_branch=main dirty=yes host=Darios-Mac-mini.local
+>
+> | tests/test_touchpoint_count_contract.sh:146 — t2095 (commit b08780dd4) changed this sed from `\([0-9]\+\)` to `\([0-9]\{1,\}\)`. BSD sed's BRE has no `\+`, so the old form made the "table lists exactly the live id/file pairs" check red on macOS (it got '').
+> | 
+> | When t1856 re-pins this test, keep POSIX intervals (`\{1,\}`, `\{0,1\}`) or use `sed -E`. GNU-only `\+` / `\?` would turn it red on macOS again. Advisory only; line number as of b08780dd4.
