@@ -539,6 +539,110 @@ class TrailCardDoubleClickTests(TrailsAppTestBase):
         self.assertIn("expanded_tasks", str(caught.exception))
 
 
+class TrailDetailTaskTests(TrailsAppTestBase):
+    """t2111: the detail modal is handed the card's task — live, or the
+    archived one an `archived` ghost resolved to — and `o` opens its body.
+
+    Both tests open the modal through the real card (`enter`), so they pin the
+    host's handoff in `_open_trail_entry_detail`, which a directly constructed
+    `TrailDetailScreen` would bypass."""
+
+    ARCHIVED_BODY = "ARCHIVED-DESC-MARKER: what the landed task did.\n"
+
+    def _is_viewer(self, app) -> bool:
+        return type(app.screen).__name__ == "SectionViewerScreen"
+
+    def test_live_card_hands_its_task_and_the_viewer_owns_the_arrows(self):
+        detail_cls = self.ab.board_trail_view.TrailDetailScreen
+        captured = {}
+
+        async def go():
+            app = bf.make_trails_app()
+            with self._patches()[0], self._patches()[1]:
+                async with app.run_test(size=(200, 48)) as pilot:
+                    await self._boot_and_select(app, pilot)
+                    focused = app._focused_card()
+                    captured["file"] = focused.task_data.filename
+                    await pilot.press("enter")
+                    await self._wait_screen(app, pilot, detail_cls)
+                    captured["wired"] = (app.screen.entry_task
+                                         is focused.task_data)
+                    await pilot.press("o")
+                    await self._wait_until(pilot,
+                                           lambda: self._is_viewer(app))
+                    captured["content"] = app.screen._content
+                    captured["nav_down"] = app.check_action("nav_down", ())
+                    await pilot.press("down")
+                    await self._settle(app, pilot)
+                    captured["still_viewer"] = self._is_viewer(app)
+                    await pilot.press("escape")
+                    await self._wait_screen(app, pilot, detail_cls)
+                    await pilot.press("escape")
+                    await self._settle(app, pilot)
+                    captured["focus_after"] = self._focused_filename(app)
+
+        asyncio.run(go())
+        self.assertEqual(captured["file"], self.member_files[0])
+        self.assertTrue(captured["wired"])
+        self.assertIn("Synthetic fixture task", captured["content"])
+        self.assertFalse(captured["nav_down"],
+                         "the App's priority arrows must leave the viewer alone")
+        self.assertTrue(captured["still_viewer"])
+        self.assertEqual(captured["focus_after"], self.member_files[0])
+
+    def test_archived_ghost_opens_its_archived_description(self):
+        import board_task_manager as btm
+        detail_cls = self.ab.board_trail_view.TrailDetailScreen
+        archived = self.ab.Task.from_text(
+            Path(f"t{GHOST_REF}_landed_work.md"),
+            "---\nstatus: Done\npriority: low\neffort: low\n"
+            "issue_type: chore\n---\n" + self.ARCHIVED_BODY, archived=True)
+
+        def load_archived(manager, task_id):
+            return archived if task_id == GHOST_REF else None
+
+        captured = {}
+
+        async def go():
+            app = bf.make_trails_app()
+            with self._patches()[0], self._patches()[1], \
+                    patch.object(btm.TaskManager, "_load_archived_task",
+                                 load_archived):
+                async with app.run_test(size=(200, 48)) as pilot:
+                    await self._boot_and_select(app, pilot)
+                    for _ in range(2):
+                        await pilot.press("down")
+                        await self._settle(app, pilot)
+                    card = app._focused_card()
+                    captured["card"] = type(card).__name__
+                    captured["kind"] = card.trail_view.ghost_kind
+                    await pilot.press("enter")
+                    await self._wait_screen(app, pilot, detail_cls)
+                    screen = app.screen
+                    captured["task"] = screen.entry_task
+                    captured["ghost_kind"] = screen.ghost_kind
+                    captured["text"] = screen._sections().plain
+                    captured["button"] = len(
+                        screen.query("#btn_trail_detail_desc"))
+                    await pilot.press("o")
+                    await self._wait_until(pilot,
+                                           lambda: self._is_viewer(app))
+                    captured["content"] = app.screen._content
+                    await pilot.press("escape")
+                    await self._wait_screen(app, pilot, detail_cls)
+
+        asyncio.run(go())
+        self.assertEqual(captured["card"], "TrailGhostCard")
+        self.assertEqual(captured["kind"], "archived")
+        self.assertIs(captured["task"], archived)
+        self.assertEqual(captured["ghost_kind"], "archived")
+        self.assertIn(f"Task t{GHOST_REF} landed work (archived)",
+                      captured["text"])
+        self.assertIn("Done · low · low · type: chore", captured["text"])
+        self.assertEqual(captured["button"], 1)
+        self.assertIn("ARCHIVED-DESC-MARKER", captured["content"])
+
+
 # --- read-only boot --------------------------------------------------------------
 
 

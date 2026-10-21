@@ -5073,6 +5073,127 @@ class TrailDetailSectionTests(ByTrailTestBase):
         self.assertIn(self.UNOWNED_OBS, b)
 
 
+class TrailDetailTaskHeaderTests(ByTrailTestBase):
+    """t2111: the detail modal names the entry's task and opens its body.
+
+    The header comes from the task FILE handed over by the host; the body is
+    never rendered into the modal (it is long already) — it opens in its own
+    `SectionViewerScreen`."""
+
+    BODY = "DESC-MARKER: the full task body.\n"
+
+    def _task(self, body=None):
+        return self.ab.Task.from_text(
+            Path("t42_add_login_flow.md"),
+            "---\nstatus: Implementing\npriority: high\neffort: low\n"
+            "issue_type: feature\nlabels: [ui, backend]\n---\n"
+            + (self.BODY if body is None else body))
+
+    def _screen(self, ref="aitasks#42", task=None, ghost_kind=""):
+        doc = _wave_doc(["42"])
+        entry = doc["waves"][0]["entries"][0]
+        entry["task"] = ref
+        return self.ab.TrailDetailScreen(
+            doc, [], entry=entry, wave=doc["waves"][0], entry_task=task,
+            ghost_kind=ghost_kind)
+
+    def test_live_task_header_leads_without_the_body(self):
+        screen = self._screen(task=self._task())
+        text = screen._sections().plain
+        self.assertIn("Task t42 add login flow\n", text)
+        self.assertIn("Implementing · high · low · type: feature · "
+                      "labels: ui, backend", text)
+        self.assertIn("Description: press o", text)
+        self.assertLess(text.index("Task t42"), text.index("Entry aitasks#42"))
+        self.assertNotIn("DESC-MARKER", text,
+                         "the body must open in its own viewer, not the modal")
+        self.assertTrue(screen.check_action("view_description", ()))
+
+    def test_archived_ghost_keeps_its_task_on_the_view(self):
+        task = self._task()
+        lanes = self.ab.build_trail_lanes(
+            _wave_doc(["42"]), {}, "aitasks",
+            lambda local_id: task if local_id == "42" else None)
+        view = lanes[0].entries[0]
+        self.assertEqual(view.ghost_kind, "archived")
+        self.assertIsNone(view.task, "`task` keeps meaning 'live'")
+        self.assertIs(view.archived_task, task)
+        screen = self._screen(task=view.archived_task, ghost_kind="archived")
+        self.assertIn("Task t42 add login flow (archived)",
+                      screen._sections().plain)
+        self.assertTrue(screen.check_action("view_description", ()))
+
+    def test_missing_and_cross_repo_ghosts_offer_no_description(self):
+        cases = (("aitasks#42", "missing", "No task file found"),
+                 ("otherproj#7", "cross_repo", "another repository"))
+        for ref, kind, reason in cases:
+            with self.subTest(kind=kind):
+                screen = self._screen(ref=ref, ghost_kind=kind)
+                text = screen._sections().plain
+                self.assertIn(f"Task {ref}\n", text)
+                self.assertIn(reason, text)
+                self.assertFalse(screen.check_action("view_description", ()))
+                # Unmounted: reaching `self.app` would raise, so a guard that
+                # let the action through fails this test.
+                screen.action_view_description()
+
+    def test_empty_body_says_so_and_offers_no_description(self):
+        screen = self._screen(task=self._task(body="\n  \n"))
+        self.assertIn("Description: the task file has no description",
+                      screen._sections().plain)
+        self.assertFalse(screen.check_action("view_description", ()))
+        screen.action_view_description()
+
+    def test_no_entry_renders_no_task_header(self):
+        screen = self.ab.TrailDetailScreen(_wave_doc(["42"]), [],
+                                           entry_task=self._task())
+        text = screen._sections().plain
+        self.assertNotIn("Task ", text)
+        self.assertIn("Showing the full trail.", text)
+
+    def test_board_wires_the_live_task_and_opens_its_description(self):
+        ab = self.ab
+        captured = {}
+
+        async def go():
+            app = ab.KanbanApp()
+            async with app.run_test(size=(160, 48)) as pilot:
+                await pilot.pause()
+                task = next(t for t in app.manager.task_datas.values()
+                            if t.content.strip()
+                            and re.match(r"t\d+_", t.filename))
+                await self._enter_synthetic_bytrail(
+                    app, pilot, _wave_doc([task.filename.split("_")[0][1:]]))
+                app.action_focus_board()
+                await self._settle(pilot)
+                focused = app._focused_card()
+                captured["card"] = type(focused).__name__
+                await pilot.press("enter")
+                await self._settle(pilot)
+                screen = app.screen
+                captured["detail"] = type(screen).__name__
+                captured["wired"] = screen.entry_task is focused.task_data
+                captured["button"] = len(
+                    screen.query("#btn_trail_detail_desc"))
+                await pilot.press("o")
+                await self._settle(pilot)
+                captured["viewer"] = type(app.screen).__name__
+                captured["content"] = getattr(app.screen, "_content", None)
+                captured["body"] = task.content
+                await pilot.press("escape")
+                await self._settle(pilot)
+                captured["back"] = type(app.screen).__name__
+
+        self._run(go())
+        self.assertEqual(captured["card"], "TrailTaskCard")
+        self.assertEqual(captured["detail"], "TrailDetailScreen")
+        self.assertTrue(captured["wired"])
+        self.assertEqual(captured["button"], 1)
+        self.assertEqual(captured["viewer"], "SectionViewerScreen")
+        self.assertEqual(captured["content"], captured["body"])
+        self.assertEqual(captured["back"], "TrailDetailScreen")
+
+
 class TrailDetailRevealKeyTests(ByTrailTestBase):
     """t1505_2: the `a` reveal key on the detail modal."""
 

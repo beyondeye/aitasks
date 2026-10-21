@@ -139,6 +139,10 @@ class TrailEntryView:
     xdep_blocked: bool = False
     remote_state: str = ""
     remote_status: str = ""
+    # The archived task an `archived` ghost resolved to (t2111), so the detail
+    # modal can show its header and description. Kept apart from `task`, which
+    # means "live" to every card and gating seam.
+    archived_task: "Task | None" = None
 
 
 @dataclass
@@ -316,8 +320,9 @@ def build_trail_lanes(doc, tasks_by_id, local_project, archived_lookup,
             archived_task = archived_lookup(local_id)
             if archived_task is not None:
                 landed = archived_task.metadata.get("status") == "Done"
-                views.append(TrailEntryView(entry, None, "archived", landed,
-                                            drift))
+                views.append(TrailEntryView(
+                    entry, None, "archived", landed, drift,
+                    archived_task=archived_task))
             else:
                 views.append(TrailEntryView(entry, None, "missing", False,
                                             drift))
@@ -843,6 +848,9 @@ class TrailDetailScreen(ModalScreen):
     #trail_detail_body {
         height: 1fr;
     }
+    #trail_detail_buttons {
+        height: auto;
+    }
     """
 
     BINDINGS = [
@@ -854,15 +862,25 @@ class TrailDetailScreen(ModalScreen):
         # it while the modal is up — pinned by a negative control asserting
         # `base_filter` does not change.
         Binding("a", "toggle_all", "Show all", show=False),
+        # Opens the task description in its own viewer (t2111). Not `d` / `v`
+        # (the host's Freshness / Summary) nor `T`; the board's App-level `o`
+        # is non-priority, so this shadows it the same way `a` does.
+        Binding("o", "view_description", "Description", show=False),
     ]
 
     def __init__(self, doc: dict, drift_reasons: list,
-                 entry: dict | None = None, wave: dict | None = None):
+                 entry: dict | None = None, wave: dict | None = None,
+                 entry_task=None, ghost_kind: str = ""):
         super().__init__()
         self.doc = doc or {}
         self.drift_reasons = drift_reasons or []
         self.entry = entry
         self.wave = wave
+        # The entry's task — live, or the archived one an `archived` ghost
+        # resolved to — handed over by the host, never looked up here (C2).
+        # Not `self.task`: that is Textual's read-only MessagePump property.
+        self.entry_task = entry_task
+        self.ghost_kind = ghost_kind
         self.show_all = False
 
     def _scope(self) -> dict:
@@ -1045,6 +1063,10 @@ class TrailDetailScreen(ModalScreen):
         full = self.show_all or self.entry is None
 
         if self.entry is not None:
+            heading, lines = self._task_header()
+            head(heading)
+            for row in lines:
+                text.append(f"{row}\n")
             head(f"Entry {self.entry.get('task', '?')}")
             line("classification", self.entry.get("classification"))
             line("confidence", self.entry.get("confidence"))
@@ -1147,17 +1169,92 @@ class TrailDetailScreen(ModalScreen):
             text.append("Showing the full trail.\n")
         return text
 
+    def _description_available(self) -> bool:
+        """Whether there is a task body to open — the one rule the header
+        hint, the button, ``check_action`` and the action all read."""
+        task = self.entry_task
+        return (task is not None
+                and bool((getattr(task, "content", "") or "").strip()))
+
+    def _task_title(self) -> str:
+        task_num, task_name = TaskCard._parse_filename(
+            self.entry_task.filename)
+        return f"{task_num} {task_name}".strip()
+
+    def _task_header(self) -> tuple:
+        """``(heading, lines)`` naming the entry's task (t2111).
+
+        Built from the task FILE (live, or the archived one an ``archived``
+        ghost resolved to) — never from ``entry.snapshot``, which is the trail
+        document's frozen copy. The body is deliberately not rendered here:
+        the modal is long already, so the description opens in its own viewer.
+        """
+        if self.entry_task is None:
+            heading = f"Task {self.entry.get('task', '?')}"
+            if self.ghost_kind == "cross_repo":
+                reason = ("Lives in another repository — no local task file, "
+                          "so its description is not available here.")
+            else:
+                reason = ("No task file found (active or archived) — "
+                          "description not available.")
+            return heading, [reason]
+        heading = f"Task {self._task_title()}"
+        if self.ghost_kind == "archived":
+            heading += " (archived)"
+        meta = self.entry_task.metadata or {}
+        parts = [str(meta[key]) for key in ("status", "priority", "effort")
+                 if meta.get(key)]
+        if meta.get("issue_type"):
+            parts.append(f"type: {meta['issue_type']}")
+        labels = meta.get("labels")
+        if isinstance(labels, list):
+            labels = ", ".join(str(label) for label in labels)
+        if labels:
+            parts.append(f"labels: {labels}")
+        lines = [" · ".join(parts)] if parts else []
+        if self._description_available():
+            lines.append("Description: press o (or the Description button) "
+                         "to open it")
+        else:
+            lines.append("Description: the task file has no description")
+        return heading, lines
+
     def compose(self):
         with Container(id="trail_detail_dialog"):
             with VerticalScroll(id="trail_detail_body"):
                 yield Static(self._sections(), id="trail_detail_text")
-            yield Button("Close", id="btn_trail_detail_close")
+            with Horizontal(id="trail_detail_buttons"):
+                if self._description_available():
+                    yield Button("Description (o)",
+                                 id="btn_trail_detail_desc")
+                yield Button("Close", id="btn_trail_detail_close")
 
     def check_action(self, action: str, parameters):
         if action == "toggle_all":
             # Live while revealed too, so the user can scope back.
             return self.show_all or bool(self._scope()["withheld"])
+        if action == "view_description":
+            return self._description_available()
         return True
+
+    def action_view_description(self):
+        # Re-checked here, not only in check_action: a binding gate is not an
+        # action guard (see action_toggle_all).
+        if not self._description_available():
+            return
+        try:
+            from section_viewer import SectionViewerScreen
+        except Exception as exc:
+            self.app.notify(f"Section viewer unavailable: {exc}",
+                            severity="warning")
+            return
+        self.app.push_screen(SectionViewerScreen(
+            self.entry_task.content,
+            title=f"{self._task_title()} — description"))
+
+    @on(Button.Pressed, "#btn_trail_detail_desc")
+    def description_button(self):
+        self.action_view_description()
 
     def action_toggle_all(self):
         # Re-checked here, not only in check_action: a binding gate is not an

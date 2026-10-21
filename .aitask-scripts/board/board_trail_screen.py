@@ -696,9 +696,18 @@ class TrailScreenMixin:
         if entry is None:
             return False
         reasons = self._trail_drift[1] if self._trail_drift else []
+        # The task the modal's header and description read (t2111): the live
+        # task, else the archived one an `archived` ghost resolved to. Handed
+        # over from the card's view — the modal resolves no task itself (C2).
+        view = getattr(card, "trail_view", None)
+        task, ghost_kind = None, ""
+        if view is not None:
+            task = view.task if view.task is not None else view.archived_task
+            ghost_kind = view.ghost_kind
         self.push_screen(TrailDetailScreen(
             self._trail_doc or {}, reasons, entry=entry,
-            wave=getattr(card, "trail_wave", None)))
+            wave=getattr(card, "trail_wave", None),
+            entry_task=task, ghost_kind=ghost_kind))
         return True
 
     # --- By-Trail view (t1210_4) ---

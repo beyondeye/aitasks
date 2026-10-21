@@ -776,6 +776,11 @@ class TrailsApp(TuiSwitcherMixin, ShortcutsMixin, TrailScreenMixin, App):
         if action in ("nav_up", "nav_down", "nav_left", "nav_right"):
             if isinstance(self.screen, TuiSwitcherOverlay):
                 return False
+            # The task-description viewer the trail detail opens (t2111) owns
+            # its arrows (minimap rows, content scroll). Type-name check, as on
+            # the board, to keep section_viewer a lazy import.
+            if type(self.screen).__name__ == "SectionViewerScreen":
+                return False
             if isinstance(self.app.focused, (Input, SelectionList, DataTable)):
                 return False
             if action in ("nav_left", "nav_right") and len(self.screen_stack) > 1:
