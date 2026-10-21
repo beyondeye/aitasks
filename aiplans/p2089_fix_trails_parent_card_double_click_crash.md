@@ -110,3 +110,10 @@ the workflow's Step 9.
 
 ### Goal-achievement risk: low
 None identified.
+
+## Final Implementation Notes
+- **Actual work done:** As planned. `TrailTaskCard.on_click` / `TrailGhostCard.on_click` call `event.prevent_default()` (comment explains MRO dispatch); `TrailsApp.check_action` answers False for `toggle_children`; the `CardHost` docstring now states that only `prevent_default()` keeps the base handler out. Tests: `TrailCardDoubleClickTests` in `tests/test_trails_app.py` (parent single-detail, base-handler-never-runs over parent/leaf/ghost, gate-off, two in-file negative controls) and `test_double_click_runs_only_the_trail_card_handler` in `tests/test_board_bytrail_view.py`.
+- **Deviations from plan:** None in substance. The test helper derives the child-lookup key with `TaskCard._parse_filename` (`t9000`, not `9000`) — `get_child_tasks_for_parent` matches the `t<N>_` prefix, and the anti-vacuity precondition caught the bare-number mistake.
+- **Issues encountered:** None beyond the above. Red proof before the fix: the main test raised the reported `AttributeError: 'TrailsApp' object has no attribute 'expanded_tasks'`; the base-handler spy recorded 6 calls (2 clicks × 3 cards) in both the TrailsApp and the board By-Trail tests. After the fix: 306 passed across the four affected modules; full suite `PYTHON SUITE: PASSED (runner=pytest, exit=0)`.
+- **Key decisions:** Negative controls are durable in-file tests (patching the pre-fix handler / gate) rather than hand mutants. The double-open control asserts `view_details` count == 2 — a screen-stack count alone cannot catch the regression, because the second call is a no-op once the modal is on top (`_focused_card()` returns None).
+- **Upstream defects identified:** None
