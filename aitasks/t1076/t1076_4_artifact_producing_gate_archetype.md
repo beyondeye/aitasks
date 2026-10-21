@@ -46,3 +46,10 @@ stays here; for now it lives under t1076 with the t635 coordination link.
 - Plan references a derivable handle; after approval the gate produces content +
   manifest entry + frontmatter handle, with the approved plan body unchanged.
 - Re-running is idempotent; a second edit creates a new version (manifest repoint).
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1890** id=2026-10-21T12:34:01Z.867a25b717f33355071a77a3 from=t1890 from_verified=yes at=2026-10-21T12:34:01Z base=ba4fde3822c67af2fb3aee56c36a16d673b3e1d2 base_branch=main dirty=yes host=omg16
+>
+> | Advisory from t1890 (aidocs/artifact_storage_lifecycle.md §5, commit ba4fde382). Evidence that a gate result cites stays reproducible only if its version is pinned. Nothing expires automatically, but an explicit prune (t2102) can expire unpinned history. Consider having artifact-producing gates pin the produced version, using the pin verb t2102 adds.
