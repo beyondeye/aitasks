@@ -175,3 +175,47 @@ Both really run under `go test ./...` as an end-to-end consumer check of `Isolat
 ## Post-implementation
 
 Step 8 review, commit (`refactor: … (t1854_5)`), then the D12 notes citing the commit SHA, then Step 9 archival on the current branch (no merge).
+
+## Final Implementation Notes
+
+- **Actual work done:**
+  - `goengines/internal/testsupport/hangguard/` now holds the t1985 watchdog as non-test code. `hangguard.go` (unix) has `Isolated`, `childSettings`, `childRunPattern`, `runChild`, `scanOutput` and `problems`. `reap_linux.go` has the `/proc` marker reap and its seams. `reap_other.go` is the non-Linux stub.
+  - The controls moved to hangguard's internal tests: `controls_linux_test.go` (`TestIsolationControls`, `TestReapMarkedUncertainty`) and `hangguard_unix_test.go` (`TestChildRunPattern`, `TestScanOutput`).
+  - `tripwire_test.go` is the t1998 tripwire, generalized over `tripwirePackages` (runner, hangguard, tripfixture), plus the new `TestIsolationTripwireImports`.
+  - `hangguard/tripfixture/fixture_test.go` is the test-only second package: two guarded tests, one through `exec.Command`, one through its local starter `startAll`.
+  - runner keeps only `watchdog_unix_test.go`, with `hangLimit` and the `isolated` wrapper. Its other three watchdog/tripwire files are deleted.
+  - `ci/preflight.sh` runs `-run '^TestIsolationTripwire(Catches|Imports)?$' ./internal/testsupport/hangguard/`. The E7 pin in `tests/test_install_engine_binary.sh` is updated to match.
+  - Docs: `aidocs/framework/go_engine.md` (check job, step 1), and `goengines/README.md` (a Layout row, a Rules bullet, and an Interfaces row "hang guard (M3.2b)").
+- **Deviations from plan:**
+  - gofmt expands the runner wrapper's one-line body (`t.Helper(); return …`) to three lines; the wrapper still holds only those two statements.
+  - Red proof 2 as first written replaced the starter call with `_ = startAll`. That still references the local starter, so the test was correctly still "starts a process" (rc 0), and the mutant was invalid. Redone with the call removed: `TestGuardedLocalStarter is guarded, but the tripwire sees no process start` (rc 1).
+- **Issues encountered:**
+  - The baseline pre-phase as first planned copied only the runner directory, which cannot compile outside the module (review caught it before approval). It used a `git archive HEAD goengines` export instead, and the after dump an `rsync` copy of the changed module.
+- **Key decisions:** D1–D12 above, as planned.
+  - Env names renamed to `AIT_HANGGUARD_ISOLATE` / `AIT_HANGGUARD_CONTROL` (no production reader). `HANG:` / `LEAK:` / `isolated: …` texts are byte-identical.
+  - Each entry's import starters = the global list + every other entry's `localStarters`, so `runner.Run` / `runner.Load` count in any listed package.
+  - Per-entry vacuity: ≥1 guarded or allowlisted test, every `localStarters` name declared, and the tripwire must find itself.
+- **Verification evidence (2026-10-22):**
+  - **tripwire_baseline:**
+    - The old tripwire on the HEAD export gave `50 guarded, 34 pure, 2 allowlisted` (86 rows).
+    - The new tripwire's runner entry gives `50 guarded, 30 pure, 0 allowlisted`. The per-test dump diff is exactly six deleted rows (`TestChildRunPattern`, `TestIsolationControls`, `TestIsolationTripwire`, `TestIsolationTripwireCatches`, `TestReapMarkedUncertainty`, `TestScanOutput`): no `via` chain or guard flag changed.
+    - The other entries: hangguard `0 guarded, 5 pure, 2 allowlisted`; tripfixture `2 guarded, 0 pure, 0 allowlisted`.
+  - **move_diff_audit** (old file → sed renames → diff against the new homes, comments and blank lines excluded):
+    - unix: the residual is the import split, the dropped `hangLimit` and gofmt const alignment;
+    - linux: the residual is the import split plus the planned control-local `hangLimit` and `readPid`;
+    - `watchdog_other_test.go` → `reap_other.go` is identical;
+    - tripwire: every removed code line maps to D4–D8 (global lists → entries; starters passed as parameters; messages generalized).
+  - `gofmt`, `go vet ./...`, `ci/preflight.sh` and `go test -count=1 ./...` all pass (19 packages ok). `bash tests/test_install_engine_binary.sh` passes 222/222 (E7 included). `GOOS=darwin go vet ./internal/testsupport/... ./internal/testmap/runner/` and `GOOS=windows go vet ./internal/testsupport/hangguard/` are clean.
+  - Red proofs, each via `./ci/preflight.sh`, then restored and `cmp`-verified byte-identical:
+    - (1) dropping `TestGuardedCommand`'s guard → rc 1, "starts a process";
+    - (2) removing `TestGuardedLocalStarter`'s start → rc 1, "is guarded, but the tripwire sees no process start";
+    - (3) `import _ ".../hangguard"` in `runner/axis.go` → rc 1, "imports … which is test support";
+    - (4) runner's entry removed → rc 1, "watchdog_unix_test.go imports the hang guard, but internal/testmap/runner has no tripwirePackages entry";
+    - (5) `guardFunc = "Isolate"` → rc 1, both tripfixture tests "start a process".
+- **Upstream defects identified:** None
+- **Notes for sibling tasks:**
+  - A process-starting test begins with `if !hangguard.Isolated(t, <limit>) { return }` (import `github.com/beyondeye/aitasks/goengines/internal/testsupport/hangguard`), or with a local `isolated` wrapper as runner does.
+  - The package then needs ONE `tripwirePackages` entry in `internal/testsupport/hangguard/tripwire_test.go`: `{dir, name, localStarters, allow}`. Without it, `TestIsolationTripwireImports` fails preflight.
+  - Name in `localStarters` any entry point that starts processes through methods, interfaces or func fields (the tripwire is lexical). Those names then count as starters for every other listed package too.
+  - The guard re-execs the package's own test binary, so the guard must be the first statement of a *top-level* test. Subtests are rejected.
+  - A child test binary started from a guarded test inherits `AIT_HANGGUARD_ISOLATE`. If it is also a test binary of this module that uses the guard (e.g. a go-test adapter running this module's tests), its `Isolated` fails with "runs inside the subprocess of …". Worse, a same-named test runs its body in-process, unguarded. Clear the variable in such a child's environment.
