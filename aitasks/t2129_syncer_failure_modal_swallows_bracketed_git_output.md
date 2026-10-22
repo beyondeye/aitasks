@@ -3,12 +3,13 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [syncer, git, tui]
+assigned_to: dario-e@beyond-eye.com
 anchor: 2126
 followup_kind: upstream_defect
 created_at: 2026-10-22 23:27
-updated_at: 2026-10-22 23:27
+updated_at: 2026-10-23 00:01
 ---
 
 ## Origin
