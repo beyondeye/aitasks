@@ -121,3 +121,19 @@ What each status proves:
   - no `adb` / emulator;
   - unprivileged user + pid namespaces work, and the session cgroup v2 scope is writable.
 - **Automation-first** (user directive, 2026-10-11). No path may make a human action a precondition. A human-only step met in the proposal is reported to its owning parent with a note.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1854_2** id=2026-10-22T08:04:11Z.bbad20cd00016b4686d27d04 from=t1854_2 from_verified=yes at=2026-10-22T08:04:11Z base=6dc5b76a4681026614ebb8366c455ff7d4915ff1 base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from t1854_2 (M3.2a evidence contract), as landed in 6dc5b76a4. Verify against goengines/README.md (Interfaces + "Evidence contract (M3.2)") and internal/testmap/runner before relying on it.
+> | 
+> | Decisions that change what a cases adapter assumes:
+> | - Case identities come from `list`: one `<unit id>\tcase\t<identity>` row per expected case, beside the unit row (any order). An identity is non-empty UTF-8 with no control char, once per unit; a duplicate is RUNNER_PROTOCOL (INPUT_ERROR:lister via scan/check). There is no separate `cases` verb.
+> | - `list` and `run` get AIT_TESTMAP_ACCOUNTING (the effective class, after runners.yaml overrides); `run` also gets AIT_TESTMAP_REPORT_DIR. The manifest carries `accounting`, `report_dir` and `units[].cases` (present, possibly [], only for cases runners).
+> | - Write one row per terminal tool result to `$AIT_TESTMAP_REPORT_DIR/cases.jsonl`: `{"unit","case","status":pass|fail|error|skip,"duration_ms","message"?}`. Members spelled exactly, once, lossless JSON (no invalid UTF-8, no unpaired \uD8xx escape). Never write a top-level result row to results.jsonl (start rows are fine): it is the unit's `result_under_cases` error.
+> | - Exit rule under cases: 0 iff no reported case is fail/error, 1 otherwise, 2 only with no case rows. Missing/zero evidence is the engine's (incomplete / zero_tests), not an exit concern.
+> | - `accounting: cases` refuses `timeouts: per_unit` (use batch or none).
+> | - Kill path: only a unit whose every expected identity was reported keeps its status; invalid written evidence stays an error; everything else is timeout attribution.
+> | - Reports are read only through runner.FreshReport from the engine-created report directory (a replaced dir, links, stale mtimes are refused).
