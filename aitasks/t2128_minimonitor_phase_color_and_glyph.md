@@ -3,11 +3,12 @@ priority: medium
 effort: medium
 depends: []
 issue_type: enhancement
-status: Ready
+status: Implementing
 labels: [minimonitor, gates, ui]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-10-22 22:57
-updated_at: 2026-10-22 22:57
+updated_at: 2026-10-22 22:59
 ---
 
 ## Goal
