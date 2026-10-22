@@ -82,3 +82,15 @@ exclusion mechanics. This task adds the remote and declares dedicated mode.
   remotes, "What gets downloaded".
 - A recommended setup for large recordings (separate repo, dedicated mode).
 - Settings reference rows for the new fields.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t2099** id=2026-10-22T09:52:23Z.60eae19ca87f632886e4ef2e from=t2099 from_verified=yes at=2026-10-22T09:52:23Z base=db9829d512d526d3b23a48829a4e517321a54d87 base_branch=main dirty=yes host=omg16
+>
+> | t2099 landed (db9829d51): routine-fetch exclusion for the gitbranch store. Context for t2100 (claims as of that commit; verify before relying):
+> | 
+> | - artifact_registry.py has a read-only verb `gitbranch-fetch-config` that already READS artifacts.backends.gitbranch.remote (default origin, non-empty string) and remote_dedicated (default false, must be bool). Only types are checked; URL-vs-name validation and KNOWN_ADAPTERS registration were left to t2100 — put the real validation there (or in a shared helper both use).
+> | - Exclusion mechanics live in .aitask-scripts/lib/artifact_fetch_exclusion.sh (afx_apply_core). Shared mode applies to every named remote. Dedicated mode applies only to a declared remote that is a registered `git remote` and is not origin; a URL value gets no dedicated mode. Dedicated state is reversible via remote.<r>.aitaskDedicatedState / aitaskSavedFetch / aitaskSavedSkipFetchAll / aitaskDedicatedSet (write-ahead, drift-checked). If t2100 changes how the store remote is chosen, keep the declared remote flowing through _artifact_afx_read_inputs (local config only).
+> | - The store record gained an optional "retired" list. When t2100 adds "remote" to artifacts/gitbranch_store.json, extend _artifact_gitbranch_record_parse/_record_write and carry "retired" forward in every record write (migrate step 8 included).
+> | - `ait sync` guards its broad fetches with a data-branch-first narrow fetch of origin; a store in a separate repo never reaches that path, but a named store remote does via shared/dedicated exclusion.
