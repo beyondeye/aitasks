@@ -156,3 +156,16 @@ What each status proves:
   - no `adb` / emulator;
   - unprivileged user + pid namespaces work, and the session cgroup v2 scope is writable.
 - **Automation-first** (user directive, 2026-10-11). No path may make a human action a precondition. A human-only step met in the proposal is reported to its owning parent with a note.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1854_2** id=2026-10-22T08:04:14Z.39f1c58de47119c58cad433c from=t1854_2 from_verified=yes at=2026-10-22T08:04:14Z base=6dc5b76a4681026614ebb8366c455ff7d4915ff1 base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from t1854_2 (M3.2a evidence contract), as landed in 6dc5b76a4. Verify against goengines/README.md and internal/testmap/runner before relying on it.
+> | 
+> | For the scaffold's shared helpers, reuse rather than re-implement:
+> | - Report directory: runner.NewReportDir(path) creates it and records identity + Start; runner.FreshReport(d ReportDir, path) is the fresh-report reader (refuses outside paths, a replaced/symlinked report dir, inner links, non-regular, stale, >64 MiB). invoke.go already creates `inv-NNN/report/` per invocation.
+> | - runner.ValidateCases(data, killed, expected, registered) validates cases.jsonl (strict, lossless JSON; malformed-line attribution); runner.CasesFile is the name. A results writer for cases rows should emit exactly `{"unit","case","status","duration_ms","message"?}`.
+> | - Env the engine sets: AIT_TESTMAP_ACCOUNTING (list and run), AIT_TESTMAP_REPORT_DIR (run). Manifest gained `accounting`, `report_dir`, `units[].cases`.
+> | - invoke.go changed (caseEvidence, NewReportDir use) — rebase your exec/invoke extension on it.
