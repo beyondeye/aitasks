@@ -45,3 +45,7 @@ Follow `aidocs/framework/testing_conventions.md`: source `tests/lib/scratch_cwd.
 > **✅ gate:plan_approved** run=2026-10-22T08:17:15Z status=pass attempt=1 type=human
 >
 > Note: drift
+
+> **✅ gate:risk_evaluated** run=2026-10-22T12:19:32Z status=pass attempt=1 type=machine
+>
+> Note: risk section authored at planning; fix landed via t2095
