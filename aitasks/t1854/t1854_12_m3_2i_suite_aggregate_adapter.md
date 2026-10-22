@@ -127,3 +127,13 @@ What each status proves:
   - no `adb` / emulator;
   - unprivileged user + pid namespaces work, and the session cgroup v2 scope is writable.
 - **Automation-first** (user directive, 2026-10-11). No path may make a human action a precondition. A human-only step met in the proposal is reported to its owning parent with a note.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1854_2** id=2026-10-22T08:04:17Z.d00bc9c5a5bc912c32e077e4 from=t1854_2 from_verified=yes at=2026-10-22T08:04:17Z base=6dc5b76a4681026614ebb8366c455ff7d4915ff1 base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from t1854_2 (M3.2a), as landed in 6dc5b76a4. Verify before relying on it.
+> | - Declare `accounting: aggregate` for the suite builtin: aggregate results never anchor (cost: `opaque:aggregate`) and RUN_ACCOUNTING counts them apart.
+> | - `children:` is now refused at load unless the name is registered with runner.RegisterReportingContract (t1854_14 registers formats). A `full: true` suite without a registered contract has its child rows refused (`invalid_child`), so a suite with no children stays clean only if it writes no child rows.
+> | - Under unit/aggregate a non-empty cases.jsonl in the report dir is a protocol error (`cases:refused`).
