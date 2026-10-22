@@ -483,3 +483,94 @@ merge.
 
 ### Planned mitigations
 - timing: post-phase | name: transcript_layout_agreement | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — transcript layout encoded twice (hook classifier vs agent_sessions) | desc: Pin the hook's kind inference and agent_sessions' rollout regex / claude layout to the same committed fixtures
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-22 10:22)
+- **Requested by user:** (1) the viewer's refusal note hard-coded "re-pick it
+  instead (P)" although the frozenagent shortcuts are rebindable — name the
+  active binding and add a rebound-key case; (2) the new doc paragraphs said a
+  hand-started agent resumes only when its CLI matches the raw default, which is
+  false once freeze has recovered its agent string (`_resume_agent` then uses the
+  stored `claudecode/<model>` without consulting `raw`), and implied an automatic
+  re-pick where the restore is in fact refused with re-pick left available.
+- **Changes made:** `agent_restore.resume_refusal_note` takes the caller's
+  active `repick_key` and names no key without one; `FrozenAgentApp._active_key`
+  resolves it through `keybinding_registry.resolve_key` (single characters shown
+  verbatim, combos via `shortcut_labels.display_form`). New
+  `test_a_rebound_repick_key_is_the_one_the_note_names` (repick rebound to `z`:
+  the note names `z` and `z` re-picks), killed by a mutant that re-hard-codes
+  `(P)`. Both doc paragraphs now say the recovered agent and model are used when
+  present, the raw default only without them, and that an unknown or different
+  CLI refuses the restore while re-pick stays available.
+- **Files affected:** `.aitask-scripts/lib/agent_restore.py`,
+  `.aitask-scripts/frozenagent/frozenagent_app.py`,
+  `tests/test_agent_restore.py`, `tests/test_frozenagent_app.py`,
+  `website/content/docs/concepts/framework-session.md`,
+  `website/content/docs/workflows/freeze-and-restore-agents.md`
+
+### Change Request 2 (2026-10-22 10:35)
+- **Requested by user:** `_active_key` read `keybinding_registry.resolve_key`,
+  i.e. the SAVED configuration. The shortcut editor writes a rebind to the
+  registry at once but applies it only at the next launch
+  (`shortcut_editor_modal.py` "restart the TUI to apply the new keys"), so a
+  rebind saved while the viewer runs made the note advertise a key that did
+  nothing. Take the key from the running viewer's installed binding, or omit
+  it, and add a change-after-startup case.
+- **Changes made:** `FrozenAgentApp._active_key` now reads the live keymap
+  (`self.screen.active_bindings`, the public map the footer test already uses)
+  and returns "" when no installed binding answers to the action, so the note
+  names no key. New `test_a_rebind_saved_after_startup_is_not_advertised`
+  (registry says `z` after startup: the note still names `P`, `z` dispatches
+  nothing, `P` re-picks), killed by a mutant restoring the registry lookup; and
+  `test_the_key_comes_from_the_live_keymap_or_not_at_all`.
+- **Files affected:** `.aitask-scripts/frozenagent/frozenagent_app.py`,
+  `tests/test_frozenagent_app.py`
+
+## Final Implementation Notes
+- **Actual work done:** As planned (Steps 1–7 + the inline post-phase), plus the
+  two review rounds above:
+  - hook transcript-shape kind gated on the payload's own session id, and the
+    conflict refusal (step 5c);
+  - store `--agent-kind`, with evidence bound to its session (a new id without
+    evidence clears the kind; the explicit string is preserved);
+  - restore `unknown_agent` / `agent_mismatch:<rec>:<launch>` gate in
+    `_resume_agent`, shared by `resume_blocker` and `build_resume_argv` (which
+    now passes the checked string explicitly);
+  - freeze backfill refuses a recovered kind that differs from the stored one,
+    blank included;
+  - the frozenagent viewer preflight with `resume_refusal_note`;
+  - five website pages.
+- **Deviations from plan:**
+  - `_restore_ack_kind` (agent_sessions.py) was added. The t1802 test caught
+    that a repick-mode restore ack that lost its environment reports a NEW
+    session with no evidence, so the planned rule cleared the kind. But the
+    restore launched the record's own stored agent string, so that launch is
+    evidence: both verified ack paths (in-grace and late-ok) supply that
+    string's kind when the ack carries none.
+  - Three t1850 freeze tests asserted the old "fill a blank-kind record holding
+    an id from argv0" behaviour, which this task removes on purpose. They now
+    seed a matching kind, and negative cases were added.
+  - The frozenagent fixture record gained a session id, because the preflight
+    refuses `no_session` before dispatch.
+  - The docs also cover `tuis/frozenagent/{_index,reference}.md` (the outcome
+    tables) and the `restore did not start` paragraph of the workflow page.
+- **Issues encountered:**
+  - A chained `str.replace` while threading `agent_kind` cascaded across indent
+    levels; it was fixed by hand.
+  - The hook test's `arg_value` drops empty arguments, so a `raw_value` helper
+    was added for asserting an empty `--agent-string`.
+- **Key decisions:**
+  - Kind evidence comes from the payload transcript shape, not from the
+    per-agent hook config (the user's decision). No install-flow change; it
+    works on upgrade.
+  - The viewer preflight is synchronous: the `raw` resolution measured 21 ms
+    and runs only for string-less records.
+  - The note's re-pick key comes from the live keymap
+    (`screen.active_bindings`), never from the shortcut registry: a saved
+    rebind applies only at the next launch.
+  - Verification: 10 mutants in total, all killed (8 core guards, the
+    hard-coded key, and the registry lookup). Every live store record with a
+    session (25/25) classifies to its own kind.
+- **Upstream defects identified:**
+  - `.aitask-scripts/aitask_session_hook.sh:194 — a SAME-kind agent started inside another (e.g. `claude -p` run from a claude agent's Bash tool) inherits TMUX_PANE, @aitask_record and AITASK_AGENT_STRING, passes the process-tree guard (the pane process is its ancestor), and its SessionStart rebinds the pane's record to the nested session, so a restore resumes the nested session instead of the pane's own. The t2109 conflict refusal catches only a DIFFERENT kind; found by code reading.`
