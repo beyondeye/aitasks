@@ -3,13 +3,14 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Folded
 labels: [syncer, git]
 gates: [risk_evaluated]
+folded_into: 2126
 anchor: 1599
 followup_kind: upstream_defect
 created_at: 2026-09-10 15:54
-updated_at: 2026-09-10 15:54
+updated_at: 2026-10-22 12:48
 ---
 
 ## Problem
