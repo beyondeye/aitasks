@@ -435,3 +435,53 @@ stale-agent action block at lines 354-357 repeats the line-222 claim.
   This is confirmed in review, and a writer that bypasses it must still move
   the branch to commit, which fails the swap. Cells 21a/b and 22b/c inject the
   real sequence.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-22)
+- **Requested by user:** `git_commit_push_if_changes` ignored `git add -A`'s exit status. With a held `index.lock`, the add failed, the empty cached diff read as "no work", and a terminal status stayed uncommitted with no warning (reproduced by the reviewer; this predates t2028).
+- **Changes made:** The Python path now checks the add's exit status and reports a failure through `_warn_commit_skipped` ("git add failed: …"). The shell `crew_commit_paths` now dies explicitly on a failed `git add` instead of relying on errexit. New cell 24i (held `index.lock`) covers both: setmode fails naming the add, the Python call warns and commits nothing, and with the lock removed the same call commits.
+- **Files affected:** `.aitask-scripts/agentcrew/agentcrew_utils.py`, `.aitask-scripts/lib/agentcrew_utils.sh`, `tests/test_crew_pull_no_autostash.sh`
+
+## Final Implementation Notes
+- **Actual work done:** Implemented the approved design.
+  - `lib/agentcrew_utils.sh` gains:
+    - `crew_merge_state` (the shell twin of the Python probe);
+    - `crew_unsafe_report`, `crew_require_clean` and `_crew_sign_args`;
+    - `crew_commit_paths`, which commits with plumbing (`write-tree`, a state re-check, `commit-tree`, then a compare-and-swap `update-ref` on the branch ref) and retries up to 3 times;
+    - a rewritten `crew_pull_rebase`. It checks the state first, gates the rebase on a `merge-tree --write-tree` proof (129 rebases as before), and leaves a stopped rebase in place and reports it, returning 2.
+  - addwork/setmode refuse right after resolving the worktree, commit via `crew_commit_paths`, and on pull status 2 skip the push and die.
+  - In Python, `_commit_index` uses the same plumbing. `git_commit_push_if_changes` checks the state, retries on a moved branch, and pushes whenever its staged work is on the branch, whoever committed it. Its skip warnings always go to stderr.
+  - Docs: the architecture doc's step 5, step 14, the "Concurrent Write Strategy" git-writers section and the stale-agent action are now current; the website crew page has one new paragraph.
+  - Tests: cells 18-25 in `tests/test_crew_pull_no_autostash.sh`, built on a PATH git wrapper, a concurrent-writer script and a Python commit harness.
+- **Deviations from plan:**
+  1. Cell numbers are 18-25 instead of 16-22, because t2029 (`0e744364a`) landed mid-session and took cells 16-17.
+  2. The test's state probe (`crew_state`) uses the pre-existing Python `crew_merge_state`, so the red proof against old code is not a missing-function crash. A shell/Python parity check was added in cell 22 and cell 25 (clean, `probe_failed`).
+  3. The guard in setmode sits right after `resolve_crew`, before the status-gate read, because a stopped rebase can leave markers in the status file. addwork's guard likewise sits before its validations.
+  4. D1 in `tests/test_brainstorm_addwork_deadline.sh` used a slow pre-commit hook. Crew commits run no hooks now, so D1 slows the commit with a slow signer instead (`signer slow-commit`); its intent is unchanged.
+  5. Post-review: `git add` failures are reported explicitly on both paths (cell 24i).
+- **Issues encountered:**
+  - Three plan-review rounds rejected earlier designs, each with a reproduction:
+    1. An auto-abort guarded by a worktree-versus-index check discards a *staged* foreign write.
+    2. addwork/setmode's own `git add`/`git commit` committed into a stopped rebase.
+    3. A post-commit "parent == pre" check false-positives on a legitimate concurrent commit, and a quarantine on detection is not persistent once MERGE_HEAD is gone.
+
+    Plumbing plus compare-and-swap replaced all three.
+  - The first concurrent-merge fixture ran a bare `git merge` on a dirty index; the writer now commits the staged index first.
+  - `assert_injected` first re-checked MERGE_HEAD after the command, which conflated setup with the guard; it was dropped, because the writer verifies MERGE_HEAD at injection time.
+- **Key decisions:**
+  - Report, never auto-abort.
+  - A failed swap is ordinary concurrency (retry), never interference.
+  - A tree equal to HEAD's means "already committed by another writer", which still publishes.
+  - Hooks do not run for crew commits; signing does. This is the same trade-off as t2018's synthetic merge commit.
+- **Red proof (scratch worktree at HEAD with the new test file):**
+  - 18a/b, 19a/b, 20, 21, 22a-d, 23a, 23g, 24a, 24b and 24g fail with real guard assertions.
+  - On old code, 23a/24b concluded the injected merge *and pushed it to the remote*, and 24g committed into the stopped rebase.
+  - Cells injecting at `after-write-tree` / `before-update-ref` / `after-update-ref` fail only at setup on old code, because those steps do not exist there.
+  - Final green run: 536/536.
+- **Verification run:**
+  - Shell suites (all rc 0): `test_crew_pull_no_autostash`, `test_crew_publish_upstream`, `test_brainstorm_addwork_deadline`, `test_crew_setmode`, `test_crew_addwork_output_instructions`, `test_crew_groups`, `test_crew_init`, `test_crew_cleanup`, `test_agentcrew_terminal_push`, `test_crew_runner`, `test_crew_git_noninteractive`, `test_agentcrew_error_recovery`, `test_crew_status`, `test_crew_report`, `test_crew_branch_delete_bounded`.
+  - Python subset: 140 passed.
+  - `shellcheck -S warning` is clean, and `check_links.py --build` passed.
+- **Upstream defects identified:**
+  - `tests/test_scratchpad_spawn_live.sh:218` — an unconfined `(cd "$1" && …)` and no `enter_scratch_cwd` call make `tests/test_cd_guard_lint.sh` fail (2 failures, pre-existing, from t2088's commit `4da69fcfb`).
