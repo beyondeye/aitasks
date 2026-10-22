@@ -3,7 +3,8 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Done
+archived_reason: superseded
 labels: [testing, bash_scripts]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -13,7 +14,8 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 anchor: 1599
 followup_kind: upstream_defect
 created_at: 2026-10-22 10:38
-updated_at: 2026-10-22 11:17
+updated_at: 2026-10-22 15:19
+completed_at: 2026-10-22 15:19
 ---
 
 ## Origin
