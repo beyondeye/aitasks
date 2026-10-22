@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1852
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-21 15:09
-updated_at: 2026-10-22 10:10
+updated_at: 2026-10-22 10:42
 ---
 
 ## Origin
@@ -37,3 +38,8 @@ Spawned from t1939 during Step 8b review.
 - Ignore PIPE for the recovery phase alongside INT/TERM/HUP in `home_rollback` and `home_on_signal` (`trap '' PIPE`; the verb is the final process, so nothing inherits it).
 - Consider also writing the HOME_FAILED / HOME_STRANDED / HOME_RESTORE block to a durable file under `$AITASKS_HOME`, so a lost stdout cannot lose the restore steps. `ait engine home` could then surface that file.
 - Pin this with a case in `tests/test_aitasks_home.sh`: a hook that closes the reader (for example, run the verb as `… | (exit 0)` with a competitor blocking the rollback) and asserts the tree state and the durable record.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-22T07:42:26Z status=pass attempt=1 type=human
