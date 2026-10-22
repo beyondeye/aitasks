@@ -12,8 +12,9 @@ active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1065
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-22 12:51
-updated_at: 2026-10-22 12:54
+updated_at: 2026-10-22 15:40
 ---
 
 ## Origin
@@ -56,3 +57,8 @@ recommends `--single-branch` clones precisely to keep the artifact store out.
 Reproduce `ait setup` in a `--single-branch` file:// clone of a repo with an
 `aitask-data` branch. If it breaks, fetch with the explicit refspec and set the
 branch upstream explicitly, as the t2099 fixture does.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-22T12:40:05Z status=pass attempt=1 type=human
