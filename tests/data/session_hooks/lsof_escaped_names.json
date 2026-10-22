@@ -1,0 +1,41 @@
+{
+  "captured_with": "lsof 4.91, macOS (Darwin 24.6.0), LC_ALL=C, -Fn",
+  "pairs": [
+    {
+      "name": "caf\u00e9",
+      "lsof": "caf\\xc3\\xa9"
+    },
+    {
+      "name": "a\nb",
+      "lsof": "a\\nb"
+    },
+    {
+      "name": "back\\slash",
+      "lsof": "back\\\\slash"
+    },
+    {
+      "name": "t\tx",
+      "lsof": "t\\tx"
+    },
+    {
+      "name": "d\u007fx",
+      "lsof": "d\\x7fx"
+    },
+    {
+      "name": "c\u0001x",
+      "lsof": "c^Ax"
+    },
+    {
+      "name": "q^Ax",
+      "lsof": "q^Ax"
+    },
+    {
+      "name": "sp ace",
+      "lsof": "sp ace"
+    },
+    {
+      "name": "plain",
+      "lsof": "plain"
+    }
+  ]
+}

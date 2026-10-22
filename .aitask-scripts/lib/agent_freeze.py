@@ -253,8 +253,8 @@ _RESOLVE_AGENT_SH = _SCRIPTS_DIR / "aitask_resolve_detected_agent.sh"
 
 #: Misses that are positive evidence the pane's process is NOT running the
 #: recorded codex session. `MISS_NO_PROCESS` is deliberately absent: it means
-#: the process could not be inspected at all (no `/proc` -- every macOS freeze),
-#: which is absence of evidence and must never clear a stored id.
+#: the process could not be inspected at all (no `/proc` and no `ps`/`lsof`
+#: answer), which is absence of evidence and must never clear a stored id.
 #:
 #: `MISS_NO_MATCH` belongs here because a RESUMED codex opens its rollout at
 #: launch, before any turn (measured, codex 0.154 -- t1804). So "codex process,
@@ -1373,7 +1373,7 @@ def _reconcile_restoring(
         # A resumed codex holds its rollout open from launch, so its session is
         # provable from the process itself (t2040). The store compares it: a
         # match is a VERIFIED confirm, a mismatch is persisted and aborts. No
-        # evidence (not codex, re-pick, no /proc, no rollout yet) leaves the
+        # evidence (not codex, re-pick, not inspectable, no rollout yet) leaves the
         # liveness confirm, which keeps the captures.
         evidence = agent_sessions.codex_resume_evidence(rec, observed.pane_pid)
         if evidence:

@@ -473,7 +473,7 @@ class CodexPidCorrelationTests(_TranscriptTestCase):
                          agent_sessions.MISS_NO_PROCESS)
 
 
-class CodexShellPaneTests(_TranscriptTestCase):
+class _ShellPaneBase(_TranscriptTestCase):
     """`codex_observe_pid` through a pane SHELL (t2077).
 
     A codex typed at a shell prompt is the shell's direct child, so the pane
@@ -528,6 +528,31 @@ class CodexShellPaneTests(_TranscriptTestCase):
         rollout = self.codex(501, self.A, tpgid=501)
         self.shell([501], tpgid=501)
         return rollout
+
+    def _wrap(self, name, before=None, after=None, *, when=lambda *a: True):
+        """Patch ``agent_sessions.<name>`` with a one-shot mutating wrapper."""
+        target = agent_sessions.os if name == "readlink" else agent_sessions
+        real = getattr(target, name)
+        fired = []
+
+        def wrapper(*args, **kwargs):
+            once = not fired and when(*args)
+            if once:
+                fired.append(True)
+                if before:
+                    before()
+            result = real(*args, **kwargs)
+            if once and after:
+                after()
+            return result
+
+        setattr(target, name, wrapper)
+        self.addCleanup(setattr, target, name, real)
+        return fired
+
+
+class CodexShellPaneTests(_ShellPaneBase):
+    """The shell-pane cases; fixture builders live on `_ShellPaneBase`."""
 
     # --- the measured case ---------------------------------------------------
 
@@ -766,27 +791,6 @@ class CodexShellPaneTests(_TranscriptTestCase):
 
     # --- one observation, one process -----------------------------------------
 
-    def _wrap(self, name, before=None, after=None, *, when=lambda *a: True):
-        """Patch ``agent_sessions.<name>`` with a one-shot mutating wrapper."""
-        target = agent_sessions.os if name == "readlink" else agent_sessions
-        real = getattr(target, name)
-        fired = []
-
-        def wrapper(*args, **kwargs):
-            once = not fired and when(*args)
-            if once:
-                fired.append(True)
-                if before:
-                    before()
-            result = real(*args, **kwargs)
-            if once and after:
-                after()
-            return result
-
-        setattr(target, name, wrapper)
-        self.addCleanup(setattr, target, name, real)
-        return fired
-
     def _replace_child_with_b(self):
         import shutil
         shutil.rmtree(self.home / "proc" / "501")
@@ -939,6 +943,335 @@ class ProcessAgentEvidenceTests(_TranscriptTestCase):
         self.assertEqual(self.environ(320), "claudecode/opus5")
         self.assertEqual(self.environ(320, "AITASK_MISSING"), "")
         self.assertIsNone(self.environ(9999))
+
+
+# --- the macOS backend (t2048) -----------------------------------------------
+#
+# macOS has no /proc: argv comes from `sysctl(KERN_PROCARGS2)`, jobs and
+# children from `ps`, open files from `lsof`. The fake below answers all three
+# FROM THE SAME fake `/proc` fixture, so every fixture-driven class above can be
+# re-run on the macOS backend unchanged -- the shell / foreground / identity
+# logic is shared, and only the four readers differ.
+
+LSOF_FIXTURE = (REPO_ROOT / "tests" / "data" / "session_hooks"
+                / "lsof_escaped_names.json")
+
+#: A real `KERN_PROCARGS2` buffer, captured on macOS 15 for
+#: `perl -e 'sleep 20' 'explain -m gpt-5.4'` started under `env -i`.
+REAL_PROCARGS2 = (b"\x04\x00\x00\x00/usr/bin/perl\x00\x00\x00/usr/bin/perl\x00"
+                  b"-e\x00sleep 20\x00explain -m gpt-5.4\x00")
+
+
+def lsof_render(path: str) -> str:
+    """How lsof 4.91 prints a name under LC_ALL=C (pinned by the fixture test)."""
+    named = {0x5C: "\\\\", 0x0A: "\\n", 0x09: "\\t", 0x0D: "\\r",
+             0x08: "\\b", 0x0C: "\\f"}
+    out = []
+    for byte in os.fsencode(path):
+        if byte in named:
+            out.append(named[byte])
+        elif byte < 0x20:
+            out.append("^" + chr(byte + 0x40))
+        elif byte >= 0x7F:
+            out.append(f"\\x{byte:02x}")
+        else:
+            out.append(chr(byte))
+    return "".join(out)
+
+
+def procargs2_image(argv) -> bytes:
+    """A `KERN_PROCARGS2` buffer: argc, exec path, padding, argv, environ."""
+    raw = len(argv).to_bytes(4, sys.byteorder)
+    raw += argv[0].encode() + b"\0\0\0"
+    raw += b"".join(a.encode() + b"\0" for a in argv)
+    return raw + b"HOME=/h\0"
+
+
+class _PsBackend:
+    """Mixin: run a fixture-driven test class on the macOS backend."""
+
+    def setUp(self):
+        super().setUp()
+        self.probe_calls = []
+        for name, value in (("_ps_probe", lambda _root: True),
+                            ("_darwin_procargs", self._fake_procargs),
+                            ("_run_probe", self._fake_probe)):
+            real = getattr(agent_sessions, name)
+            setattr(agent_sessions, name, value)
+            self.addCleanup(setattr, agent_sessions, name, real)
+
+    def _proc(self, pid) -> Path:
+        return self.home / "proc" / str(int(pid))
+
+    def _fake_procargs(self, pid):
+        try:
+            raw = (self._proc(pid) / "cmdline").read_bytes()
+        except OSError:
+            return None
+        return procargs2_image([a.decode() for a in raw.split(b"\0") if a])
+
+    def _stat(self, pid):
+        try:
+            text = (self._proc(pid) / "stat").read_text()
+        except OSError:
+            return None
+        fields = text.rpartition(")")[2].split()
+        return int(fields[1]), int(fields[2]), int(fields[4]), int(fields[5])
+
+    def _fake_probe(self, cmd, env=None):
+        self.probe_calls.append(cmd)
+        if cmd[:2] == ["ps", "-p"]:
+            stat = self._stat(cmd[2])
+            if stat is None:
+                return None
+            _ppid, pgrp, tty_nr, tpgid = stat
+            tty = f"ttys{tty_nr:03d}" if tty_nr else "??"
+            return f"{pgrp:>5} {tpgid:>5} {tty}\n"
+        if cmd[:2] == ["ps", "-A"]:
+            # The fixture's children lists ARE the snapshot: a process no list
+            # names is shown under init, so a fixture that leaves a child out
+            # models a ps snapshot that missed it.
+            rows: dict[int, int] = {}
+            for d in sorted((self.home / "proc").iterdir()):
+                for children in d.glob("task/*/children"):
+                    for child in children.read_text().split():
+                        rows.setdefault(int(child), int(d.name))
+            for d in sorted((self.home / "proc").iterdir()):
+                rows.setdefault(int(d.name), 1)
+            return "".join(f"{pid:>5} {ppid:>5}\n" for pid, ppid in rows.items())
+        if cmd[0] == "lsof":
+            self.assertEqual((env or {}).get("LC_ALL"), "C")
+            fd_dir = self._proc(cmd[-1]) / "fd"
+            if not fd_dir.is_dir():
+                return None
+            lines = [f"p{int(cmd[-1])}", "fcwd", "n/", "ftxt", "n/usr/bin/codex"]
+            for link in sorted(fd_dir.iterdir(), key=lambda p: int(p.name)):
+                try:
+                    target = os.readlink(link)
+                except OSError:
+                    continue
+                lines += [f"f{link.name}", "n" + lsof_render(target)]
+            return "\n".join(lines) + "\n"
+        raise AssertionError(f"unexpected probe {cmd}")
+
+
+_NO_PS_ANALOGUE = "fixture mechanism has no macOS analogue; see PsBackendTests"
+
+
+class PsCodexPidCorrelationTests(_PsBackend, CodexPidCorrelationTests):
+    pass
+
+
+class PsCodexShellPaneTests(_PsBackend, CodexShellPaneTests):
+    @unittest.skip("ps -A cannot be half-readable; " + _NO_PS_ANALOGUE)
+    def test_an_unreadable_children_list_is_not_evidence(self):
+        pass
+
+    @unittest.skip("readlink is a /proc step; " + _NO_PS_ANALOGUE)
+    def test_a_suspend_during_readlink_yields_no_process(self):
+        pass
+
+    @unittest.skip("readlink is a /proc step; " + _NO_PS_ANALOGUE)
+    def test_a_child_gone_during_readlink_is_not_a_disproof(self):
+        pass
+
+    @unittest.skip("readlink is a /proc step; " + _NO_PS_ANALOGUE)
+    def test_a_depth0_codex_gone_during_readlink_is_not_a_disproof(self):
+        pass
+
+
+class PsCodexProcessModelTests(_PsBackend, CodexProcessModelTests):
+    pass
+
+
+class PsProcessAgentEvidenceTests(_PsBackend, ProcessAgentEvidenceTests):
+    pass
+
+
+class PsBackendTests(_PsBackend, _ShellPaneBase):
+    """What only the macOS backend can get wrong (t2048)."""
+
+    # --- argv boundaries ---------------------------------------------------
+
+    def test_ps_a_prompt_argument_never_invents_a_model(self):
+        """`ps -o args=` would re-split this into `-m gpt-5.4`."""
+        rollout = self.write_codex(self.A, self.root)
+        self.write_proc(600, argv=("/usr/bin/codex", "explain -m gpt-5.4"),
+                        fds=[rollout])
+        self.assertEqual(self.observe(600), (self.A, str(rollout), "", ""))
+        self.assertEqual(agent_sessions.codex_process_model(600), (True, ""))
+
+    def test_ps_an_argv0_with_a_space_is_still_codex(self):
+        rollout = self.write_codex(self.A, self.root)
+        self.write_proc(600, argv=("/Users/me/my apps/codex", "-m", "gpt-5.4"),
+                        fds=[rollout])
+        self.assertEqual(self.observe(600), (self.A, str(rollout), "gpt-5.4", ""))
+
+    def test_ps_parse_procargs2_on_a_real_buffer(self):
+        self.assertEqual(agent_sessions._parse_procargs2(REAL_PROCARGS2),
+                         ["/usr/bin/perl", "-e", "sleep 20", "explain -m gpt-5.4"])
+
+    def test_ps_parse_procargs2_fails_closed(self):
+        for raw in (None, b"", b"\x04\x00", REAL_PROCARGS2[:-1],
+                    REAL_PROCARGS2[:30],
+                    (9).to_bytes(4, sys.byteorder) + REAL_PROCARGS2[4:],
+                    (0).to_bytes(4, sys.byteorder) + REAL_PROCARGS2[4:],
+                    REAL_PROCARGS2[:4] + b"/usr/bin/perl"):
+            with self.subTest(raw=raw):
+                self.assertIsNone(agent_sessions._parse_procargs2(raw))
+
+    def test_ps_unreadable_procargs_is_not_evidence(self):
+        rollout = self.write_codex(self.A, self.root)
+        self.write_proc(600, argv=None, fds=[rollout])
+        self.assertEqual(self.observe(600)[3], agent_sessions.MISS_NO_PROCESS)
+
+    # --- probe failures are "could not look" ---------------------------------
+
+    def test_ps_no_lsof_answer_is_not_evidence(self):
+        self.foreground_codex_pane()
+        fake = agent_sessions._run_probe
+        agent_sessions._run_probe = (
+            lambda cmd, env=None: None if cmd[0] == "lsof" else fake(cmd, env))
+        self.assertEqual(self.observe()[3], agent_sessions.MISS_NO_PROCESS)
+
+    def test_ps_no_ps_a_answer_on_the_shell_route_is_not_evidence(self):
+        self.foreground_codex_pane()
+        fake = agent_sessions._run_probe
+        agent_sessions._run_probe = (
+            lambda cmd, env=None: None if cmd[:2] == ["ps", "-A"] else fake(cmd, env))
+        self.assertEqual(self.observe()[3], agent_sessions.MISS_NO_PROCESS)
+
+    def test_ps_a_pid_missing_from_ps_a_has_no_children_list(self):
+        self.foreground_codex_pane()
+        self.assertIsNone(agent_sessions._ps_children(4242))
+        self.assertEqual(agent_sessions._ps_children(self.SHELL), [501])
+
+    def test_ps_lsof_without_its_pid_line_is_no_answer(self):
+        agent_sessions._run_probe = lambda cmd, env=None: "fcwd\nn/\n"
+        self.assertIsNone(agent_sessions._lsof_open_files(600))
+
+    def test_ps_lsof_pseudo_entries_are_not_descriptors(self):
+        """A rollout named only as `cwd` / `txt` is not an open descriptor."""
+        agent_sessions._run_probe = lambda cmd, env=None: (
+            "p600\nfcwd\nn/a/rollout-x.jsonl\nftxt\nn/usr/bin/codex\n"
+            "f7\nn/tmp/plain\n")
+        self.assertEqual(agent_sessions._lsof_open_files(600),
+                         [("/tmp/plain", "/tmp/plain")])
+
+    def test_ps_a_suspend_during_the_lsof_read_yields_no_process(self):
+        self.foreground_codex_pane()
+        fired = self._wrap("_lsof_open_files",
+                           after=lambda: self.suspend_all(501))
+        self.assertEqual(self.observe()[3], agent_sessions.MISS_NO_PROCESS)
+        self.assertTrue(fired)
+
+    def test_ps_a_child_gone_during_the_lsof_read_is_not_a_disproof(self):
+        import shutil
+        self.foreground_codex_pane()
+        fired = self._wrap(
+            "_lsof_open_files",
+            after=lambda: shutil.rmtree(self.home / "proc" / "501"))
+        self.assertEqual(self.observe()[3], agent_sessions.MISS_NO_PROCESS)
+        self.assertTrue(fired)
+
+    # --- lsof name escaping ------------------------------------------------
+
+    def _escape_pairs(self):
+        return json.loads(LSOF_FIXTURE.read_text())["pairs"]
+
+    def test_ps_the_fake_renders_names_exactly_as_captured(self):
+        """Anchors the fake to reality: otherwise it could emit raw names and
+        hide every escaping bug."""
+        for pair in self._escape_pairs():
+            with self.subTest(name=pair["name"]):
+                self.assertEqual(lsof_render(pair["name"]), pair["lsof"])
+
+    def test_ps_captured_names_decode_back_or_are_uncertain(self):
+        pairs = self._escape_pairs()
+        self.assertTrue(any("\\" in p["lsof"] for p in pairs))
+        for pair in pairs:
+            with self.subTest(name=pair["name"]):
+                decoded = agent_sessions._decode_lsof_name(pair["lsof"])
+                if "^" in pair["lsof"]:
+                    # `\x01` and a literal `^A` render identically.
+                    self.assertIsNone(decoded)
+                else:
+                    self.assertEqual(decoded, pair["name"])
+
+    def test_ps_malformed_escapes_are_uncertain(self):
+        for raw in ("a\\", "a\\q", "a\\x4", "a\\xzz"):
+            with self.subTest(raw=raw):
+                self.assertIsNone(agent_sessions._decode_lsof_name(raw))
+
+    def _codex_home_at(self, dirname):
+        rollout = self.write_codex(self.A, self.root)
+        moved = self.home / dirname / rollout.name
+        moved.parent.mkdir(parents=True)
+        rollout.rename(moved)
+        self.write_proc(600, fds=[moved])
+        return moved
+
+    def test_ps_a_non_ascii_codex_home_resolves(self):
+        rollout = self._codex_home_at("café")
+        self.assertEqual(self.observe(600),
+                         (self.A, str(rollout), "gpt-5.6-terra", ""))
+
+    def test_ps_an_escaped_newline_in_the_path_resolves(self):
+        rollout = self._codex_home_at("a\nb")
+        self.assertEqual(self.observe(600)[0], self.A)
+
+    def test_ps_an_ambiguous_caret_name_is_not_a_disproof(self):
+        """Skipping it would leave no candidate -> `MISS_NO_MATCH`, which
+        clears a stored id."""
+        self._codex_home_at("c\x01x")
+        self.assertEqual(self.observe(600)[3], agent_sessions.MISS_NO_PROCESS)
+
+    def test_ps_a_rollout_gone_after_the_lsof_read_is_not_a_disproof(self):
+        rollout = self._codex_home_at("plain")
+        fired = self._wrap("_lsof_open_files", after=rollout.unlink)
+        self.assertEqual(self.observe(600)[3], agent_sessions.MISS_NO_PROCESS)
+        self.assertTrue(fired)
+
+    def test_ps_lsof_runs_under_the_c_locale(self):
+        rollout = self._codex_home_at("plain")
+        self.observe(600)
+        self.assertTrue(any(c[0] == "lsof" for c in self.probe_calls))
+
+
+class PsProbeContractTests(unittest.TestCase):
+    """Which root goes to `ps` / `lsof` (t2048). Linux must never get there."""
+
+    def _with_platform(self, value):
+        real = agent_sessions._PS_PROBE_PLATFORM
+        agent_sessions._PS_PROBE_PLATFORM = value
+        self.addCleanup(setattr, agent_sessions, "_PS_PROBE_PLATFORM", real)
+
+    def test_only_the_real_proc_root_on_darwin(self):
+        self._with_platform(True)
+        self.assertTrue(agent_sessions._ps_probe("/proc"))
+        self.assertFalse(agent_sessions._ps_probe("/tmp/fake/proc"))
+
+    def test_never_off_darwin(self):
+        self._with_platform(False)
+        for root in ("/proc", "/tmp/fake/proc"):
+            with self.subTest(root=root):
+                self.assertFalse(agent_sessions._ps_probe(root))
+
+    def test_the_platform_flag_reflects_this_host(self):
+        self.assertEqual(agent_sessions._PS_PROBE_PLATFORM,
+                         sys.platform == "darwin")
+
+    def test_run_probe_reports_no_answer_not_an_empty_one(self):
+        self.assertIsNone(agent_sessions._run_probe(
+            ["/nonexistent/t2048-no-such-binary"]))
+        self.assertIsNone(agent_sessions._run_probe(["false"]))
+        self.assertEqual(agent_sessions._run_probe(["echo", "x"]), "x\n")
+
+    def test_run_probe_times_out_to_no_answer(self):
+        real = agent_sessions._PROBE_TIMEOUT_S
+        agent_sessions._PROBE_TIMEOUT_S = 0.2
+        self.addCleanup(setattr, agent_sessions, "_PROBE_TIMEOUT_S", real)
+        self.assertIsNone(agent_sessions._run_probe(["sleep", "5"]))
 
 
 class UnknownModelNoteTests(unittest.TestCase):

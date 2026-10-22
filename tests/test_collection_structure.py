@@ -95,6 +95,22 @@ TESTS_DIR = REPO_ROOT / "tests"
 # the base test-free and move its tests into a concrete subclass. Waive an edge
 # only when it is genuinely collected AND genuinely harmless, and say why.
 INHERITED_TEST_DUP_ALLOWLIST: frozenset[str] = frozenset({
+    # t2048 — the same parameterization shape: one process-observation
+    # contract over two backends. On Linux the codex resolver reads `/proc`; on
+    # macOS it reads `KERN_PROCARGS2`, `ps` and `lsof`. Each `Ps*` subclass
+    # re-runs its base's fixture-driven cases with the macOS backend swapped in
+    # (a fake answering from the same fake `/proc`), so the shared shell /
+    # foreground / identity logic is proven on both. Running the base's tests
+    # twice IS the mechanism. Genuinely collected: all run. Genuinely harmless:
+    # fixture files only, no app boot, no subprocess, ~0.3s for all four.
+    "test_agent_sessions_transcripts: "
+    "PsCodexPidCorrelationTests(CodexPidCorrelationTests)",
+    "test_agent_sessions_transcripts: "
+    "PsCodexShellPaneTests(CodexShellPaneTests)",
+    "test_agent_sessions_transcripts: "
+    "PsCodexProcessModelTests(CodexProcessModelTests)",
+    "test_agent_sessions_transcripts: "
+    "PsProcessAgentEvidenceTests(ProcessAgentEvidenceTests)",
     # t1598 — the ONE shape this guard's structural refactor does not fit:
     # deliberate parameterization of a single contract across two
     # implementations. `_DiscoverWindowPanesContract` holds the

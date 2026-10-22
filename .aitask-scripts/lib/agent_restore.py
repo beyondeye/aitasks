@@ -253,8 +253,9 @@ def resume_blocker(rec: dict) -> str:
 
     ``no_session``: no captured session. Since t1804 a codex agent's id is
     captured at freeze time from the rollout its process held open, so this now
-    means that correlation was unavailable: no `/proc` (macOS), the pane was
-    running neither codex directly nor a codex as its shell's foreground job,
+    means that correlation was unavailable: the process could not be
+    inspected, the pane was running neither codex directly nor a codex as its
+    shell's foreground job,
     the agent had taken no turn yet (codex opens its rollout at the FIRST
     turn), its model is not in `models_codex.json` (or, for a codex started by
     hand, neither its launch nor an existing codex label on its record names
@@ -1093,7 +1094,7 @@ def _liveness_note(agent_kind: str) -> str:
     """Why a `liveness` outcome kept the captures.
 
     Nothing proved the session within the grace: no hook ack, and for a codex
-    resume no rollout evidence either (e.g. no `/proc`, as on macOS). The note
+    resume no rollout evidence either (e.g. the process could not be inspected). The note
     says so inline, so the outcome does not read as an unexplained downgrade.
     It is the same for every agent since t2040: codex is no longer
     liveness-only.

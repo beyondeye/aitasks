@@ -106,8 +106,9 @@ verified restore deletes the capture files.
 
 A resumed Codex agent is verified differently. Its TUI fires the hook only at
 its first turn (that is the measured behaviour of Codex 0.163.0; 0.153.4 fired it
-only under `codex exec`). So the coordinator does not wait for a hook. It reads,
-on Linux, which session's transcript the resumed process holds open, and the
+only under `codex exec`). So the coordinator does not wait for a hook. It reads
+which session's transcript the resumed process holds open (from `/proc` on
+Linux, from `lsof` on macOS), and the
 store compares that session with the one it asked for. A match is verified and
 deletes the capture. A different session aborts the restore.
 
@@ -116,7 +117,8 @@ confirmed on the evidence the coordinator does have: the process it launched is
 running in the pane. That is the **unverified** outcome, and it deliberately
 **keeps** the capture. It is the outcome for any agent whose CLI reports no
 session within the grace, and for a Codex resume where the session cannot be
-read from the process (no `/proc`, as on macOS).
+read from the process (for example a TUI routed through the shared Codex
+app-server daemon, which holds the transcript instead).
 
 A hook that reports in after the restore has settled is never refused. Codex
 does this at its first turn. If the restore was confirmed on liveness and the

@@ -167,6 +167,32 @@ file stays valid, redacted, and in agreement with the implemented rule.
 Re-probe the real stores and update the JSON and the table above in the same
 commit. Keep the redaction contract below: record the *rule*, never a path.
 
+## `lsof_escaped_names.json` — how macOS `lsof` renders a path
+
+Added by t2048. On macOS `codex_observe_pid` reads the rollout a codex process
+holds open from `lsof -Fn` (run under `LC_ALL=C`), and lsof prints the name
+**escaped**, not raw. Each pair records a real directory name and lsof's
+rendering of it, captured from a live process on 2026-10-22 (lsof 4.91,
+Darwin 24.6.0):
+
+| real byte(s) | rendered as |
+|---|---|
+| `\` | `\\` |
+| newline, tab, CR, BS, FF | `\n`, `\t`, `\r`, `\b`, `\f` |
+| `≥ 0x7f` (e.g. UTF-8 `é`) | `\xNN` per byte (`caf\xc3\xa9`) |
+| any other control byte | `^X` (`\x01` → `^A`) — **identical to a literal `^A`** |
+
+The last row is why the decoder treats any `^` as uncertain. Treating it as
+"no rollout here" instead would turn into `MISS_NO_MATCH`, which clears a stored
+session id. The test fake renders names with these rules and is checked against
+this file, so a fake emitting raw names cannot hide an escaping bug.
+
+### How to refresh
+
+Create directories with these names, hold one file open in each from a scratch
+process, and run `LC_ALL=C lsof -n -P -w -Ffn -p <pid>`. Record names only,
+never the absolute path (the redaction contract below applies).
+
 ## Redaction contract
 
 Fixtures are committed to a public repository, and redaction is asserted on

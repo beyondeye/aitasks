@@ -14,7 +14,9 @@ holding the ``registry_lock.sh`` mutex around a read-modify-write. Readers (the
 TUIs) read the JSON directly with no lock: every write lands via ``os.replace``,
 so a reader always observes one whole generation.
 
-THIS MODULE NEVER TOUCHES TMUX. It imports no tmux and spawns no process. The
+THIS MODULE NEVER TOUCHES TMUX. It imports no tmux and spawns no process other
+than the read-only `ps` / `lsof` probes that stand in for `/proc` on macOS
+(t2048, :func:`_run_probe`). The
 pane->record join (``@aitask_record``) is stamped by the *caller* -- the
 SessionStart hook (t1705_3) and the freeze engine (t1705_4) -- immediately after
 a successful ``UPSERTED:`` line, using ``ait_stamp_record`` in
@@ -34,6 +36,7 @@ import os
 import re
 import shutil
 import stat
+import subprocess
 import sys
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -1659,7 +1662,7 @@ def restore_verdict(
         if rec.ack == "liveness":
             # A SUCCESS: the agent is running, but nothing proved its session
             # within the grace (no hook ack, and for codex no rollout evidence,
-            # e.g. on a platform without /proc). Never styled as an error.
+            # e.g. a process that could not be inspected). Never styled as an error.
             # `ack == "rollout"` falls through to "restored": it is verified.
             return True, "restored, unverified — capture kept", False
         return True, "restored", False
@@ -1754,8 +1757,9 @@ MISS_NO_MATCH = "no_match"
 MISS_UNSUPPORTED_AGENT = "unsupported_agent"
 #: More than one candidate session -- the resolver refuses to pick one.
 MISS_AMBIGUOUS = "ambiguous"
-#: The process could not be inspected at all (no `/proc`, e.g. macOS; a gone or
-#: unreadable pid). ABSENCE OF EVIDENCE -- never evidence that a stored session
+#: The process could not be inspected at all (no `/proc` and no `ps`/`lsof`
+#: answer; a gone or unreadable pid; an lsof name that could not be decoded with
+#: certainty). ABSENCE OF EVIDENCE -- never evidence that a stored session
 #: id is stale, which is why `agent_freeze` does not clear on it.
 MISS_NO_PROCESS = "no_process"
 #: The process is inspectable and is NOT codex, so its open files say nothing
@@ -1859,15 +1863,199 @@ def _codex_rollout_identity(path: Path) -> tuple[str, str]:
     return session_id, str(payload.get("cwd") or "")
 
 
+# MACOS HAS NO /proc (t2048). The same four facts -- argv, job (pgrp, tty,
+# tpgid), direct children, open files -- come from the kernel and from `ps` /
+# `lsof` instead. Each `/proc` reader below dispatches on :func:`_ps_probe`, so
+# the shell / foreground / identity logic above them runs unchanged on both.
+#
+# Measured on macOS 15 (Darwin 24.6), lsof 4.91, codex 0.163.0:
+#   * argv comes from `sysctl(KERN_PROCARGS2)`, NOT `ps -o args=`: ps
+#     space-joins argv, so a single prompt argument "explain -m gpt-5.4" would
+#     re-split into a fake `-m` and invent a model. The sysctl buffer is
+#     ``int argc``, the exec path, NUL padding, then argc NUL-terminated
+#     strings (then the environment). It fails (EINVAL) for a gone pid and for
+#     another user's process.
+#   * `ps -p <pid> -o pgid=,tpgid=,tty=` -> ``18806 18806 ttys005``; a process
+#     with no terminal reports tpgid 0 and tty ``??``. A gone pid exits 1.
+#   * `lsof -Ffn -p <pid>` -> ``p<pid>`` then ``f<fd>`` / ``n<name>`` pairs.
+#     Real descriptors are numeric; ``cwd`` / ``txt`` are pseudo-entries. Under
+#     LC_ALL=C the name is ESCAPED: ``\`` -> ``\\``; newline, tab, CR, BS, FF
+#     by name; bytes >= 0x7f as ``\xNN`` (``café`` -> ``caf\xc3\xa9``); any
+#     other control byte as ``^X`` -- indistinguishable from a literal ``^X``
+#     (captured: tests/data/session_hooks/lsof_escaped_names.json).
+#   * A resumed in-process codex TUI holds its rollout from launch, exactly as
+#     on Linux; a daemon-routed one holds none (the app-server daemon does).
+
+#: The probe backend applies only to the real `/proc` root on macOS. Linux never
+#: reaches it, and a test's fake `proc_root` is never routed to `ps`.
+_PS_PROBE_PLATFORM = sys.platform == "darwin"
+
+#: Per-command bound: a freeze runs on a keypress path. Same bound as the `ps`
+#: fallback in `monitor_core._is_companion_process`.
+_PROBE_TIMEOUT_S = 2
+
+
+def _ps_probe(proc_root: str) -> bool:
+    """Do this root's process facts come from `ps` / `lsof` instead of files?"""
+    return _PS_PROBE_PLATFORM and proc_root == "/proc"
+
+
+def _run_probe(cmd: list[str], env: dict | None = None) -> str | None:
+    """stdout of a read-only probe command; **None when it gave no answer**.
+
+    A missing binary, a timeout, or a non-zero exit is "could not look" --
+    never an empty answer, which a caller could read as a disproof.
+    """
+    try:
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, errors="replace",
+            timeout=_PROBE_TIMEOUT_S, env=env)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if result.returncode != 0:
+        return None
+    return result.stdout
+
+
+def _darwin_procargs(pid: int) -> bytes | None:
+    """The raw ``KERN_PROCARGS2`` buffer for ``pid``; None when unreadable."""
+    try:
+        import ctypes
+        import ctypes.util
+
+        libc = ctypes.CDLL(ctypes.util.find_library("c"), use_errno=True)
+        mib = (ctypes.c_int * 3)(1, 49, int(pid))  # CTL_KERN, KERN_PROCARGS2
+        size = ctypes.c_size_t(0)
+        if libc.sysctl(mib, 3, None, ctypes.byref(size), None, 0) != 0:
+            return None
+        buf = ctypes.create_string_buffer(size.value)
+        if libc.sysctl(mib, 3, buf, ctypes.byref(size), None, 0) != 0:
+            return None
+        return buf.raw[:size.value]
+    except (OSError, ValueError, TypeError, AttributeError):
+        return None
+
+
+def _parse_procargs2(raw: bytes | None) -> list[str] | None:
+    """argv from a ``KERN_PROCARGS2`` buffer; None on any inconsistency.
+
+    Fails closed: a short buffer, a non-positive argc, or fewer argv strings
+    than argc is "could not look", never a shorter argv.
+    """
+    if not raw or len(raw) < 4:
+        return None
+    argc = int.from_bytes(raw[:4], sys.byteorder, signed=True)
+    if argc <= 0:
+        return None
+    _exec_path, sep, rest = raw[4:].partition(b"\0")
+    if not sep:
+        return None
+    rest = rest.lstrip(b"\0")
+    argv: list[str] = []
+    for _ in range(argc):
+        arg, sep, rest = rest.partition(b"\0")
+        if not sep:
+            return None
+        argv.append(arg.decode("utf-8", errors="replace"))
+    return argv
+
+
+def _ps_job(pid: int) -> tuple[int, str, int] | None:
+    """``(pgrp, tty, tpgid)`` from `ps`; tty is a name, compared for equality only."""
+    out = _run_probe(["ps", "-p", str(int(pid)), "-o", "pgid=,tpgid=,tty="])
+    fields = (out or "").split()
+    if len(fields) != 3:
+        return None
+    try:
+        return int(fields[0]), fields[2], int(fields[1])
+    except ValueError:
+        return None
+
+
+def _ps_children(pid: int) -> list[int] | None:
+    """``pid``'s direct children from one `ps -A` snapshot; None if ``pid`` is absent."""
+    out = _run_probe(["ps", "-A", "-o", "pid=,ppid="])
+    if out is None:
+        return None
+    seen = False
+    children: list[int] = []
+    for line in out.splitlines():
+        fields = line.split()
+        if len(fields) != 2 or not all(f.isdigit() for f in fields):
+            continue
+        child, parent = int(fields[0]), int(fields[1])
+        if child == pid:
+            seen = True
+        if parent == pid:
+            children.append(child)
+    return sorted(set(children)) if seen else None
+
+
+_LSOF_NAMED_ESCAPES = {"\\": b"\\", "n": b"\n", "t": b"\t", "r": b"\r",
+                       "b": b"\b", "f": b"\f"}
+
+
+def _decode_lsof_name(name: str) -> str | None:
+    """The real path behind an lsof ``-Fn`` name (LC_ALL=C); None if uncertain.
+
+    ``^X`` is ambiguous -- lsof prints a control byte and a literal caret
+    sequence the same way -- so any ``^`` is uncertain, as is an unknown or
+    truncated escape.
+    """
+    if "^" in name:
+        return None
+    out = bytearray()
+    i = 0
+    while i < len(name):
+        ch = name[i]
+        if ch != "\\":
+            out += ch.encode("utf-8", errors="surrogateescape")
+            i += 1
+            continue
+        nxt = name[i + 1:i + 2]
+        if nxt in _LSOF_NAMED_ESCAPES:
+            out += _LSOF_NAMED_ESCAPES[nxt]
+            i += 2
+        elif nxt == "x" and re.fullmatch(r"[0-9a-fA-F]{2}", name[i + 2:i + 4]):
+            out.append(int(name[i + 2:i + 4], 16))
+            i += 4
+        else:
+            return None
+    return os.fsdecode(bytes(out))
+
+
+def _lsof_open_files(pid: int) -> list[tuple[str, str | None]] | None:
+    """``(raw name, decoded path or None)`` per numeric fd; None when lsof gave no answer."""
+    out = _run_probe(["lsof", "-n", "-P", "-w", "-Ffn", "-p", str(int(pid))],
+                     env={**os.environ, "LC_ALL": "C"})
+    if out is None:
+        return None
+    lines = out.splitlines()
+    if f"p{int(pid)}" not in lines:
+        return None
+    files: list[tuple[str, str | None]] = []
+    fd = ""
+    for line in lines:
+        if line.startswith("f"):
+            fd = line[1:]
+        elif line.startswith("n") and fd.isdigit():
+            files.append((line[1:], _decode_lsof_name(line[1:])))
+    return files
+
+
 def _codex_cmdline_argv(pid: int, proc_root: str) -> list[str] | None:
     """``/proc/<pid>/cmdline`` as argv; **None when it could not be read**.
 
     The None-vs-empty distinction is load-bearing: "could not look" and "looked,
     and it is not codex" drive opposite decisions in the freeze engine (keep a
-    stored session id vs. clear it). Collapsing them would make every macOS
-    freeze -- where there is no `/proc` at all -- claim positive evidence that a
-    valid session id is stale.
+    stored session id vs. clear it). Collapsing them would claim positive
+    evidence that a valid session id is stale whenever a process merely could
+    not be inspected.
+
+    On macOS the exact argv comes from ``KERN_PROCARGS2`` (t2048).
     """
+    if _ps_probe(proc_root):
+        return _parse_procargs2(_darwin_procargs(pid))
     try:
         with open(f"{proc_root}/{int(pid)}/cmdline", "rb") as fh:
             raw = fh.read()
@@ -1893,8 +2081,10 @@ def _direct_children(pid: int, proc_root: str) -> list[int] | None:
 
     None when that could not be read -- including a kernel built without
     CONFIG_PROC_CHILDREN, which has no ``children`` file at all. "Could not
-    look" must never read as "has no children".
+    look" must never read as "has no children". On macOS: one `ps -A` snapshot.
     """
+    if _ps_probe(proc_root):
+        return _ps_children(int(pid))
     try:
         tasks = sorted(Path(proc_root, str(int(pid)), "task").iterdir())
     except (OSError, ValueError, TypeError):
@@ -1912,12 +2102,16 @@ def _direct_children(pid: int, proc_root: str) -> list[int] | None:
     return list(dict.fromkeys(children))
 
 
-def _proc_job(pid: int, proc_root: str) -> tuple[int, int, int] | None:
+def _proc_job(pid: int, proc_root: str) -> tuple[int, int | str, int] | None:
     """``(pgrp, tty_nr, tpgid)`` from ``/proc/<pid>/stat``; None when unreadable.
 
     ``comm`` (field 2) is parenthesised and may itself contain spaces and
-    ``)``, so the fields are counted from after the LAST ``)``.
+    ``)``, so the fields are counted from after the LAST ``)``. On macOS it
+    comes from `ps`, with the tty as a name rather than a device number --
+    only ever compared for equality.
     """
+    if _ps_probe(proc_root):
+        return _ps_job(int(pid))
     try:
         with open(f"{proc_root}/{int(pid)}/stat", encoding="utf-8",
                   errors="replace") as fh:
@@ -2096,8 +2290,8 @@ def process_environ_value(
 ) -> str | None:
     """``name``'s value in ``/proc/<pid>/environ``. Never raises.
 
-    Returns None when the environ could not be read (no `/proc`, another user's
-    process, a gone pid) and "" when it was read and the variable is absent.
+    Returns None when the environ could not be read (no `/proc` -- this reader
+    has no macOS rung, so always there -- another user's process, a gone pid) and "" when it was read and the variable is absent.
     The environ is the one the process was exec'd with, which is what a launch
     prefix such as `env AITASK_AGENT_STRING=… claude` sets.
     """
@@ -2111,6 +2305,41 @@ def process_environ_value(
         if entry.startswith(prefix):
             return entry[len(prefix):]
     return ""
+
+
+def _readlink_targets(entries: list[Path]) -> list[str]:
+    """The live targets of `/proc/<pid>/fd` entries; vanished and deleted skipped."""
+    targets: list[str] = []
+    for entry in entries:
+        try:
+            target = os.readlink(str(entry))
+        except OSError:
+            continue
+        if not target.endswith(" (deleted)"):
+            targets.append(target)
+    return targets
+
+
+def _lsof_rollout_targets(pid: int) -> list[str] | None:
+    """The rollout-shaped files ``pid`` holds open, per lsof; None if uncertain.
+
+    A rollout-shaped name (the basename is codex-generated ASCII, so it is
+    matched on the raw rendering) whose path cannot be decoded with certainty,
+    or whose decoded path does not exist, makes the whole look uncertain. Skipping
+    it instead would let a mis-rendered path turn into `MISS_NO_MATCH`, which
+    CLEARS a stored session id.
+    """
+    files = _lsof_open_files(pid)
+    if files is None:
+        return None
+    targets: list[str] = []
+    for raw, decoded in files:
+        if not _CODEX_ROLLOUT_RE.match(raw.rsplit("/", 1)[-1]):
+            continue
+        if decoded is None or not os.path.exists(decoded):
+            return None
+        targets.append(decoded)
+    return targets
 
 
 def codex_session_for_pid(
@@ -2157,13 +2386,16 @@ def codex_observe_pid(
     rollout-shaped file, must never be able to write its session into a codex
     record.
 
-    Linux-only: it reads `/proc/<pid>/fd`. Elsewhere every answer is
-    ``MISS_NO_PROCESS``, which leaves callers exactly where they were before
-    this existed (no captured id -> restore falls back to re-pick).
+    Linux reads `/proc/<pid>/fd`; macOS reads the same facts from the kernel,
+    `ps` and `lsof` (t2048 -- see the note above :func:`_ps_probe`). Where
+    neither answers, every result is ``MISS_NO_PROCESS``, which leaves callers
+    exactly where they were before this existed (no captured id -> restore
+    falls back to re-pick).
 
-    **It assumes the TUI runs in-process** (t2040, measured on 0.163.0). A codex
-    TUI routed through the shared app-server daemon holds no rollout itself:
-    the daemon does, so this returns ``MISS_NO_MATCH``. The framework's
+    **It assumes the TUI runs in-process** (t2040, measured on 0.163.0; the
+    same on macOS, t2048). A codex TUI routed through the shared app-server
+    daemon holds no rollout itself: the daemon does, so this returns
+    ``MISS_NO_MATCH``. The framework's
     launches avoid that through ``tui.alternate_screen=never`` in
     ``CODEX_TUI_OVERRIDES`` (see `lib/agent_string.sh`); a hand-started
     `codex` can be daemon-routed. For a restore the miss is harmless (liveness,
@@ -2184,13 +2416,18 @@ def codex_observe_pid(
     if pid_int <= 0:
         return "", "", "", MISS_NO_PROCESS
 
-    try:
-        entries = sorted(Path(proc_root, str(pid_int), "fd").iterdir())
-    except OSError:
-        return "", "", "", MISS_NO_PROCESS
+    ps_mode = _ps_probe(proc_root)
+    entries: list[Path] = []
+    if not ps_mode:
+        try:
+            entries = sorted(Path(proc_root, str(pid_int), "fd").iterdir())
+        except OSError:
+            return "", "", "", MISS_NO_PROCESS
 
     # Read the cmdline only after the fd directory proved readable, so an
-    # unreadable /proc reports "could not look", never "not codex".
+    # unreadable /proc reports "could not look", never "not codex". On macOS
+    # the argv read is itself the "could I look" test (it fails for a gone pid
+    # and for another user's process), and the open files are read below.
     argv = _codex_cmdline_argv(pid_int, proc_root)
     if argv is None:
         return "", "", "", MISS_NO_PROCESS
@@ -2206,20 +2443,23 @@ def codex_observe_pid(
             pid_int, argv, proc_root)
         if miss:
             return "", "", "", miss
-        try:
-            entries = sorted(Path(proc_root, str(agent_pid), "fd").iterdir())
-        except OSError:
-            # The child exited. Never fall back to a replacement child.
+        if not ps_mode:
+            try:
+                entries = sorted(
+                    Path(proc_root, str(agent_pid), "fd").iterdir())
+            except OSError:
+                # The child exited. Never fall back to a replacement child.
+                return "", "", "", MISS_NO_PROCESS
+
+    if ps_mode:
+        targets = _lsof_rollout_targets(agent_pid)
+        if targets is None:
             return "", "", "", MISS_NO_PROCESS
+    else:
+        targets = _readlink_targets(entries)
 
     candidates: dict[str, list[Path]] = {}
-    for entry in entries:
-        try:
-            target = os.readlink(str(entry))
-        except OSError:
-            continue
-        if target.endswith(" (deleted)"):
-            continue
+    for target in targets:
         path = Path(target)
         if not _CODEX_ROLLOUT_RE.match(path.name):
             continue

@@ -202,7 +202,7 @@ A restore succeeds in one of two ways, and they are not the same outcome:
 
 | Outcome | What happened | The capture |
 |---|---|---|
-| `restored` | the session that came back was confirmed to be the one asked for — by the resumed agent's session hook, or, for a Codex agent on Linux, from the transcript the resumed process holds open | **deleted** |
+| `restored` | the session that came back was confirmed to be the one asked for — by the resumed agent's session hook, or, for a Codex agent, from the transcript the resumed process holds open | **deleted** |
 | `restored, unverified — capture kept` | the agent is running, nothing confirmed it is the same session, and the framework confirmed it on the process alone | **kept** |
 
 Both are successes. The second is not a fault, and it is the safer of the two:
@@ -212,8 +212,9 @@ than deleted.
 You will see it whenever nothing confirms the session within the grace. The
 [session hook]({{< relref "/docs/commands/setup-install" >}}#session-hooks) was
 declined at `ait setup`, the CLI reports no session at startup, or the agent is
-a Codex resume whose session cannot be read from its process (there is no
-`/proc`, as on macOS).
+a Codex resume whose session cannot be read from its process (for example a
+Codex started by hand whose TUI is routed through the shared app-server daemon,
+which holds the transcript instead).
 
 Codex fires the hook only at a session's first turn, not at launch (measured on
 Codex 0.163.0; Codex 0.153.4 fires it only under `codex exec`). So a resumed
