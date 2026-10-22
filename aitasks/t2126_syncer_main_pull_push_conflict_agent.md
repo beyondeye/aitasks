@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 folded_tasks: [1791]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-22 12:48
-updated_at: 2026-10-22 12:49
+updated_at: 2026-10-22 15:45
 ---
 
 ## Problem
@@ -105,3 +106,8 @@ Reference only: the notes and gate history these tasks carried before they were 
 > | - **What `ait sync` now does** (aitask_sync.sh `do_pull_rebase`): it fast-forwards only to a pinned upstream SHA, using `--ff-only --no-autostash --no-overwrite-ignore`. A refusal is reported and never retried as a rebase.
 > | 
 > | Whether the same flags fit the syncer's `pull --ff-only` on main is this task's decision.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-22T12:45:48Z status=pass attempt=1 type=human
