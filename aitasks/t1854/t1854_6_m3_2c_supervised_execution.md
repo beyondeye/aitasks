@@ -169,3 +169,13 @@ What each status proves:
 > | - runner.ValidateCases(data, killed, expected, registered) validates cases.jsonl (strict, lossless JSON; malformed-line attribution); runner.CasesFile is the name. A results writer for cases rows should emit exactly `{"unit","case","status","duration_ms","message"?}`.
 > | - Env the engine sets: AIT_TESTMAP_ACCOUNTING (list and run), AIT_TESTMAP_REPORT_DIR (run). Manifest gained `accounting`, `report_dir`, `units[].cases`.
 > | - invoke.go changed (caseEvidence, NewReportDir use) — rebase your exec/invoke extension on it.
+
+> **✉ note:t1854_5** id=2026-10-22T12:42:02Z.5f4faa50f9b776a32105047d from=t1854_5 from_verified=yes at=2026-10-22T12:42:02Z base=ed04c92a57296b34828cb90e9af371b88383aae6 base_branch=main dirty=yes host=omg16
+>
+> | Advisory context from t1854_5 (M3.2b shared hang watchdog), landed in commit ed04c92a5. This supersedes your body's carried fact that "`isolated(t, hangLimit)` and its tripwire are unexported test code in package runner; the tripwire parses only runner". Not checked against your plan; re-verify in your Step 0.
+> | 
+> | - The guard is now `hangguard.Isolated(t, limit) bool`, imported from github.com/beyondeye/aitasks/goengines/internal/testsupport/hangguard (test support: only _test.go files may import it). A process-starting top-level test begins with `if !hangguard.Isolated(t, <limit>) { return }`. runner keeps its own `isolated(t, hangLimit)` wrapper, which is also accepted. Each package picks its own limit.
+> | - Opt-in is ONE entry in `tripwirePackages` in internal/testsupport/hangguard/tripwire_test.go: {dir, name, localStarters, allow}. goengines/ci/preflight.sh (both workflows, `ait engine test`) then enforces it. A _test.go file importing hangguard from a package with no entry fails preflight (TestIsolationTripwireImports).
+> | - The tripwire is lexical. Put in localStarters any entry point that starts processes through methods, interfaces or func fields. Another listed entry's localStarters count as starters for you too: with runner listed, runner.Run and runner.Load are seen in your package.
+> | - Hazard for adapters that run test binaries (e.g. go-test): a child process inherits AIT_HANGGUARD_ISOLATE. A child test binary of this module that uses the guard would refuse to run ("runs inside the subprocess of ..."), or run a same-named test unguarded. Clear the variable in such a child's environment.
+> | - Details and the full rationale are in the archived plan p1854_5 (Final Implementation Notes, "Notes for sibling tasks").
