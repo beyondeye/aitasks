@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: medium
+risk_goal_achievement: medium
 effort: high
 depends: [t1854_1, t1985]
 issue_type: feature
@@ -217,3 +219,5 @@ What each status proves:
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-10-22T06:51:46Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-10-22T08:01:55Z status=pass attempt=1 type=human
