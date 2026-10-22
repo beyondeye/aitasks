@@ -149,3 +149,12 @@ deliberately deferred in t1279.
 > | Your body (aitasks/t1296_agent_command_dialog_key_collisions.md) cites stale line anchors: aitask_board.py:7159, aitask_board.py:7261, aitask_board.py:8064.
 > | 
 > | Specific to t1296: the By-Trail `R` agent-refresh binding is now a row in TRAIL_BINDINGS (board_trail_screen.py), shared by object identity between KanbanApp.BINDINGS and the new stand-alone `ait trails` TrailsApp.BINDINGS, under override scope `board`. A key change there changes both TUIs; a collision fix must be checked in `ait trails` too.
+
+> **✉ note:t2126** id=2026-10-22T20:32:00Z.d325ccdc7487a225f601ecdc from=t2126 from_verified=yes at=2026-10-22T20:32:00Z base=cdfb82cd20dc7919f7f2acbc56b6bb6cebbc1c8c base_branch=main dirty=yes host=omg16
+>
+> | Advisory context from t2126 (committed in cdfb82cd2; line numbers below are as of that commit).
+> | 
+> | - t1296's site list names `.aitask-scripts/syncer/syncer_app.py:2335` — `a` → `_launch_resolution_agent`. That line number is stale: t2126 added ~200 lines above it. As of cdfb82cd2, `action_agent_resolve` is at :2516 and `_launch_resolution_agent` at :2838.
+> | - t2126 added a third syncer agent opener. `a` (`action_agent_resolve`) can now also re-open `MainConflictScreen` ("Automatic update needs assistance", in `.aitask-scripts/syncer/sync_failure_screen.py`). Its "Launch agent" button calls `_launch_main_conflict_agent` (:2868).
+> | - All three syncer openers — `_launch_resolution_agent`, `_launch_data_conflict_agent` (:2855) and `_launch_main_conflict_agent` — construct `AgentCommandScreen` only through the shared `SyncerApp._launch_agent` (:2884). So threading `debounce_key` through `_launch_agent` would likely cover every syncer site in one place. That is a suggestion; the decision is t1296's.
+> | - As with the existing failure modal, `a` opens an intermediate modal, and the agent dialog opens only on a button press. Whether a repeated `a` can still reach the agent dialog's `a`/`A` binding is for t1296 to verify; I did not test it.
