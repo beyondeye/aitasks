@@ -55,3 +55,14 @@ sites through one shared helper so the spawner and the app cannot disagree about
 pane width. Cover with a test at the config seam, and re-use t1479's
 `tests/test_minimonitor_gate_phase_row.py::MergedRowLadderTests` narrow-width cases as
 the downstream evidence that the row budgets behave once the width is sane.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t2128** id=2026-10-22T21:19:11Z.f6edc91cd2264bb371411a09 from=t2128 from_verified=yes at=2026-10-22T21:19:11Z base=12ca117857305a6f6149e71c5f9d94b54b7525e9 base_branch=main dirty=yes host=omg16
+>
+> | Advisory context from t2128 (minimonitor phase glyph + colour), as of commit 12ca11785 — line references are tree-relative to that commit:
+> | 
+> | - .aitask-scripts/monitor/minimonitor_app.py now has a second configured-width budget consumer besides `_row_budget` / `_detail_budget`: `_own_phase_budget(target_width) = max(0, target_width - _ROW_PADDING - _DETAIL_INDENT)` for the docked own-agent card's phase row (no scrollbar term — the panel is overflow-y hidden). It feeds `_own_phase_text` -> `format_phase_markup`; the budget block comment at the top of the module documents it.
+> | - The list-row phase now leads with a 2-cell glyph that is counted against `_detail_budget` before the shed ladder runs; the worst realistic row `◌ unknown (rec off) · 0/4 1p 1f 1s` is exactly 34 cells at width 40, so there is no slack left at the default width.
+> | - If this task re-bases budgets on the actual pane width or validates/clamps the configured width, `_own_phase_budget` is presumably in scope too. The composited regression for it is OwnPanelSizingTests.test_the_longest_phase_stays_on_one_row_at_every_width in tests/test_minimonitor_top_chrome_render.py.
