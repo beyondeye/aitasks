@@ -26,6 +26,11 @@
 #                              state to preserve.
 #
 # Neither function ever replaces an entry that is not a symlink.
+#
+# The aitask-data branch helpers at the end (ait_fetch_data_branch,
+# ait_ensure_local_data_branch, ait_reconcile_data_branch_upstream,
+# ait_report_data_branch_upstream) are shared by the same two bootstrap paths,
+# so a --single-branch clone gets a working upstream from either (t2127).
 
 [[ -n "${_AIT_DATA_SYMLINKS_LOADED:-}" ]] && return 0
 _AIT_DATA_SYMLINKS_LOADED=1
@@ -254,5 +259,114 @@ ait_link_worktree_data() {
         # shellcheck disable=SC2034  # read by callers to pick LINKED vs ALREADY_LINKED
         AIT_LINK_WORKTREE_CHANGED=1
     done
+    return 0
+}
+
+# --- The aitask-data branch and its origin upstream (t2127) ------------------
+# A --single-branch clone maps only its one branch in remote.origin.fetch, which
+# breaks the data branch twice over: a bare `git fetch origin aitask-data` lands
+# in FETCH_HEAD alone (no tracking ref, so the `git worktree add` DWIM finds
+# nothing), and git resolves aitask-data@{u} by mapping branch.aitask-data.merge
+# through those refspecs, so @{u} -- which `ait sync` pins -- stays unresolvable
+# even once branch config and tracking ref both exist. Download and
+# normalization are separate on purpose: the fetch is network-only, the
+# reconcile is config-only and runs on every route (fetch, create, a local
+# branch, setup's re-run).
+
+AIT_DATA_BRANCH_SPEC="+refs/heads/aitask-data:refs/remotes/origin/aitask-data"
+
+# ait_fetch_data_branch <repo_dir>
+#   Download origin's aitask-data into refs/remotes/origin/aitask-data with an
+#   explicit refspec. Writes no config. On failure git's message is left in
+#   AIT_DATA_FETCH_ERR.
+ait_fetch_data_branch() {
+    AIT_DATA_FETCH_ERR=""
+    # shellcheck disable=SC2034  # out-param: read by the two callers' warnings
+    AIT_DATA_FETCH_ERR="$(git -C "$1" fetch origin "$AIT_DATA_BRANCH_SPEC" 2>&1 >/dev/null)"
+}
+
+# ait_ensure_local_data_branch <repo_dir>
+#   Create a local aitask-data from origin/aitask-data when only the tracking ref
+#   exists. Replaces the worktree-add DWIM, which needs origin's fetch config to
+#   map the branch; the upstream is set by ait_reconcile_data_branch_upstream.
+ait_ensure_local_data_branch() {
+    git -C "$1" show-ref --verify -q refs/heads/aitask-data && return 0
+    git -C "$1" show-ref --verify -q refs/remotes/origin/aitask-data || return 0
+    git -C "$1" branch -q --no-track aitask-data refs/remotes/origin/aitask-data
+}
+
+# _ait_data_branch_mapped <repo_dir> -- origin's fetch config maps aitask-data.
+_ait_data_branch_mapped() {
+    local v
+    while IFS= read -r v; do
+        case "${v#+}" in
+            "refs/heads/*:refs/remotes/origin/*"|"${AIT_DATA_BRANCH_SPEC#+}") return 0 ;;
+        esac
+    done < <(git -C "$1" config --get-all remote.origin.fetch 2>/dev/null)
+    return 1
+}
+
+# ait_reconcile_data_branch_upstream <repo_dir>
+#   Network-free: make aitask-data@{u} resolve to origin/aitask-data. Leaves
+#   alone a repo with no origin or no local aitask-data, an upstream configured
+#   to anything else (a half-written one is reported, not rewritten), and a
+#   branch never fetched or published -- the mapping is
+#   written only once origin demonstrably carries the branch, because an exact
+#   refspec whose source is missing makes every later `git fetch origin` fail.
+#   Returns 0 resolved or nothing to do; 1 a write failed or @{u} still does not
+#   resolve (message in AIT_DATA_UPSTREAM_ERR); 2 the upstream is
+#   origin/aitask-data but its tracking ref has not been fetched yet.
+ait_reconcile_data_branch_upstream() {
+    local dir="$1" remote merge
+    AIT_DATA_UPSTREAM_ERR=""
+    git -C "$dir" remote get-url origin >/dev/null 2>&1 || return 0
+    git -C "$dir" show-ref --verify -q refs/heads/aitask-data || return 0
+    remote="$(git -C "$dir" config --get branch.aitask-data.remote 2>/dev/null)" || remote=""
+    merge="$(git -C "$dir" config --get branch.aitask-data.merge 2>/dev/null)" || merge=""
+    if [[ -n "$remote" && -n "$merge" ]]; then
+        [[ "$remote" == origin && "$merge" == refs/heads/aitask-data ]] || return 0
+    elif [[ -n "$remote$merge" ]]; then
+        # Half an upstream: no @{u} at all. The half that is set names
+        # origin's aitask-data -> complete it below; anything else is a
+        # half-written upstream elsewhere -> report it, never rewrite it.
+        if [[ "${remote:-origin}" != origin || "${merge:-refs/heads/aitask-data}" != refs/heads/aitask-data ]]; then
+            AIT_DATA_UPSTREAM_ERR="branch.aitask-data has an incomplete upstream (remote='$remote', merge='$merge'); left as is"
+            return 1
+        fi
+        if ! git -C "$dir" show-ref --verify -q refs/remotes/origin/aitask-data; then
+            AIT_DATA_UPSTREAM_ERR="branch.aitask-data has an incomplete upstream (remote='$remote', merge='$merge') and origin/aitask-data is not fetched; run 'git fetch origin $AIT_DATA_BRANCH_SPEC', then 'ait setup'"
+            return 1
+        fi
+        merge=""
+    elif ! git -C "$dir" show-ref --verify -q refs/remotes/origin/aitask-data; then
+        return 0
+    fi
+    if ! _ait_data_branch_mapped "$dir"; then
+        if ! AIT_DATA_UPSTREAM_ERR="$(git -C "$dir" config --add remote.origin.fetch "$AIT_DATA_BRANCH_SPEC" 2>&1)"; then
+            AIT_DATA_UPSTREAM_ERR="could not add $AIT_DATA_BRANCH_SPEC to remote.origin.fetch: ${AIT_DATA_UPSTREAM_ERR:-<no output>}"
+            return 1
+        fi
+    fi
+    git -C "$dir" show-ref --verify -q refs/remotes/origin/aitask-data || return 2
+    if [[ -z "$merge" ]]; then
+        AIT_DATA_UPSTREAM_ERR="$(git -C "$dir" branch -q --set-upstream-to=origin/aitask-data aitask-data 2>&1)" || return 1
+    fi
+    if ! git -C "$dir" rev-parse --verify -q 'aitask-data@{u}' >/dev/null; then
+        AIT_DATA_UPSTREAM_ERR="aitask-data@{u} still does not resolve"
+        return 1
+    fi
+    return 0
+}
+
+# ait_report_data_branch_upstream <repo_dir>
+#   Run the reconcile and report on stderr. Never fails the caller: the layout
+#   is usable without an upstream, only `ait sync` needs it.
+ait_report_data_branch_upstream() {
+    local rc=0
+    ait_reconcile_data_branch_upstream "$1" || rc=$?
+    case "$rc" in
+        1) warn "Could not make origin/aitask-data the aitask-data branch's upstream ('ait sync' needs it): ${AIT_DATA_UPSTREAM_ERR:-<no output>}" ;;
+        2) info "  The aitask-data branch's upstream origin/aitask-data is not fetched yet; the next 'ait sync' fetches it." >&2 ;;
+    esac
     return 0
 }

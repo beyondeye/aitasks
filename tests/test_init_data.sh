@@ -210,6 +210,68 @@ popd >/dev/null
 
 rm -rf "$TMPDIR_5"
 
+# --- Tests 5b/5c: --single-branch clone (t2127) ---
+# A --single-branch clone maps only its one branch, so a bare
+# `git fetch origin aitask-data` updates no tracking ref and git cannot map
+# aitask-data@{u} -- which `ait sync` pins -- to one.
+sb_upstream() {
+    git -C "$1" rev-parse --symbolic-full-name 'aitask-data@{u}' 2>/dev/null || echo "<unresolved>"
+}
+
+echo "--- Test 5b: Initialize from remote branch (--single-branch clone) ---"
+TMPDIR_5B="$(setup_repo_with_remote)"
+install_script "$TMPDIR_5B/local"
+create_data_branch_setup "$TMPDIR_5B/local"
+git clone --quiet --single-branch -b "$(git -C "$TMPDIR_5B/local" branch --show-current)" \
+    "file://$TMPDIR_5B/remote.git" "$TMPDIR_5B/sb" 2>/dev/null
+install_script "$TMPDIR_5B/sb"
+(cd "$TMPDIR_5B/sb" && git config user.email "test@test.com" && git config user.name "Test")
+output=$(cd "$TMPDIR_5B/sb" && bash .aitask-scripts/aitask_init_data.sh 2>/dev/null)
+assert_eq_trim "5b: single-branch init output" "INITIALIZED" "$output"
+assert_dir_exists "5b: .aitask-data worktree created" "$TMPDIR_5B/sb/.aitask-data"
+assert_eq_trim "5b: aitask-data@{u} resolves" "refs/remotes/origin/aitask-data" "$(sb_upstream "$TMPDIR_5B/sb")"
+rm -rf "$TMPDIR_5B"
+
+echo "--- Test 5c: Initialize from a hand-configured local branch (--single-branch clone) ---"
+TMPDIR_5C="$(setup_repo_with_remote)"
+install_script "$TMPDIR_5C/local"
+create_data_branch_setup "$TMPDIR_5C/local"
+git clone --quiet --single-branch -b "$(git -C "$TMPDIR_5C/local" branch --show-current)" \
+    "file://$TMPDIR_5C/remote.git" "$TMPDIR_5C/sb" 2>/dev/null
+install_script "$TMPDIR_5C/sb"
+(
+    cd "$TMPDIR_5C/sb" || exit 1
+    git config user.email "test@test.com" && git config user.name "Test"
+    git fetch -q origin "+refs/heads/aitask-data:refs/remotes/origin/aitask-data"
+    git branch -q --no-track aitask-data refs/remotes/origin/aitask-data
+    git config branch.aitask-data.remote origin
+    git config branch.aitask-data.merge refs/heads/aitask-data
+) >/dev/null 2>&1
+assert_eq_trim "5c: precondition -- @{u} unresolved" "<unresolved>" "$(sb_upstream "$TMPDIR_5C/sb")"
+output=$(cd "$TMPDIR_5C/sb" && bash .aitask-scripts/aitask_init_data.sh 2>/dev/null)
+assert_eq_trim "5c: init output" "INITIALIZED" "$output"
+assert_eq_trim "5c: aitask-data@{u} resolves" "refs/remotes/origin/aitask-data" "$(sb_upstream "$TMPDIR_5C/sb")"
+rm -rf "$TMPDIR_5C"
+
+echo "--- Test 5d: Initialize with half an upstream naming origin (--single-branch clone) ---"
+TMPDIR_5D="$(setup_repo_with_remote)"
+install_script "$TMPDIR_5D/local"
+create_data_branch_setup "$TMPDIR_5D/local"
+git clone --quiet --single-branch -b "$(git -C "$TMPDIR_5D/local" branch --show-current)" \
+    "file://$TMPDIR_5D/remote.git" "$TMPDIR_5D/sb" 2>/dev/null
+install_script "$TMPDIR_5D/sb"
+(
+    cd "$TMPDIR_5D/sb" || exit 1
+    git config user.email "test@test.com" && git config user.name "Test"
+    git fetch -q origin "+refs/heads/aitask-data:refs/remotes/origin/aitask-data"
+    git branch -q --no-track aitask-data refs/remotes/origin/aitask-data
+    git config branch.aitask-data.remote origin
+) >/dev/null 2>&1
+output=$(cd "$TMPDIR_5D/sb" && bash .aitask-scripts/aitask_init_data.sh 2>/dev/null)
+assert_eq_trim "5d: init output" "INITIALIZED" "$output"
+assert_eq_trim "5d: aitask-data@{u} resolves" "refs/remotes/origin/aitask-data" "$(sb_upstream "$TMPDIR_5D/sb")"
+rm -rf "$TMPDIR_5D"
+
 # --- Test 6: Broken symlink repair ---
 echo "--- Test 6: Broken symlink repair ---"
 

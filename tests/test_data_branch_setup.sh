@@ -1884,6 +1884,186 @@ rm -rf "$proj_37"
     AIT_SETUP_DATA_DIRTY_BASELINE=""
 }
 
+# --- Tests 38-39: --single-branch clones (t2127) ---
+# A --single-branch clone maps only its one branch in remote.origin.fetch. A bare
+# `git fetch origin aitask-data` then updates no tracking ref, the worktree-add
+# DWIM finds nothing to guess from, and git cannot map aitask-data@{u} to a
+# tracking ref -- which `ait sync` pins. Every route must end with the upstream
+# resolving: fetch (38), create (38b), and a re-run over a hand-built layout (38c).
+# Remotes are file:// as in t2099; a plain-path clone hard-links objects.
+
+DATA_SPEC="+refs/heads/aitask-data:refs/remotes/origin/aitask-data"
+
+# sb_clone <fixture> <dest> -- a --single-branch clone of the fixture's remote.
+sb_clone() {
+    local br
+    br="$(git -C "$1/local" branch --show-current)"
+    git clone -q --single-branch -b "$br" "file://$1/remote.git" "$2" 2>/dev/null
+    git -C "$2" config user.email "test@test.com"
+    git -C "$2" config user.name "Test"
+    mkdir -p "$2/.aitask-scripts"
+}
+
+data_upstream() {
+    git -C "$1" rev-parse --symbolic-full-name 'aitask-data@{u}' 2>/dev/null || echo "<unresolved>"
+}
+
+fetch_cfg() { git -C "$1" config --get-all remote.origin.fetch 2>/dev/null; }
+
+spec_count() { fetch_cfg "$1" | grep -cxF -- "$DATA_SPEC"; }
+
+tref() {
+    git -C "$1" show-ref --verify -q "$2" && echo "present" || echo "absent"
+}
+
+echo "--- Test 38: single-branch clone, remote has aitask-data (t2127) ---"
+T38="$(setup_repo_with_remote)"
+seed_remote_data_branch "$T38/local"
+git -C "$T38/local" push -q origin "HEAD:refs/heads/store-x" 2>/dev/null
+sb_clone "$T38" "$T38/sb"
+SCRIPT_DIR="$T38/sb/.aitask-scripts"
+out_38="$(cd "$T38/sb" && setup_data_branch </dev/null 2>&1)"
+assert_file_exists "38: .aitask-data is a worktree" "$T38/sb/.aitask-data/.git"
+assert_eq_trim "38: worktree is on aitask-data" "aitask-data" \
+    "$(git -C "$T38/sb/.aitask-data" branch --show-current 2>/dev/null)"
+assert_symlink "38: aitasks symlink created" "$T38/sb/aitasks"
+assert_eq_trim "38: aitask-data@{u} resolves" "refs/remotes/origin/aitask-data" "$(data_upstream "$T38/sb")"
+assert_eq_trim "38: origin maps aitask-data exactly once" "1" "$(spec_count "$T38/sb")"
+git -C "$T38/sb" fetch -q origin 2>/dev/null
+assert_eq_trim "38: the store branch stays out after a plain fetch" "absent" \
+    "$(tref "$T38/sb" refs/remotes/origin/store-x)"
+assert_not_contains "38: no upstream warning" "aitask-data branch's upstream" "$out_38"
+
+echo "--- Test 38f: re-running setup is idempotent (t2127) ---"
+(cd "$T38/sb" && setup_data_branch </dev/null >/dev/null 2>&1)
+assert_eq_trim "38f: still exactly one aitask-data mapping" "1" "$(spec_count "$T38/sb")"
+assert_eq_trim "38f: upstream still resolves" "refs/remotes/origin/aitask-data" "$(data_upstream "$T38/sb")"
+rm -rf "$T38"
+
+echo "--- Test 38b: single-branch clone, setup creates and pushes aitask-data (t2127) ---"
+T38B="$(setup_repo_with_remote)"
+sb_clone "$T38B" "$T38B/sb"
+SCRIPT_DIR="$T38B/sb/.aitask-scripts"
+(cd "$T38B/sb" && setup_data_branch </dev/null >/dev/null 2>&1)
+assert_eq_trim "38b: aitask-data pushed" "1" \
+    "$(git -C "$T38B/sb" ls-remote --heads origin refs/heads/aitask-data | wc -l | tr -d ' ')"
+assert_eq_trim "38b: tracking ref exists" "present" "$(tref "$T38B/sb" refs/remotes/origin/aitask-data)"
+assert_eq_trim "38b: aitask-data@{u} resolves" "refs/remotes/origin/aitask-data" "$(data_upstream "$T38B/sb")"
+rm -rf "$T38B"
+
+echo "--- Test 38c: setup repairs a hand-built single-branch layout (t2127) ---"
+# The t2099 fixture's shape: explicit fetch, untracked branch, upstream set by
+# hand, worktree added -- but no mapping, so @{u} does not resolve.
+T38C="$(setup_repo_with_remote)"
+seed_remote_data_branch "$T38C/local"
+sb_clone "$T38C" "$T38C/sb"
+(
+    cd "$T38C/sb" || exit 1
+    git fetch -q origin "$DATA_SPEC"
+    git branch -q --no-track aitask-data refs/remotes/origin/aitask-data
+    git config branch.aitask-data.remote origin
+    git config branch.aitask-data.merge refs/heads/aitask-data
+    git worktree add -q .aitask-data aitask-data
+) >/dev/null 2>&1
+assert_eq_trim "38c: precondition -- @{u} unresolved" "<unresolved>" "$(data_upstream "$T38C/sb")"
+SCRIPT_DIR="$T38C/sb/.aitask-scripts"
+out_38c="$(cd "$T38C/sb" && setup_data_branch </dev/null 2>&1)"
+assert_contains "38c: took the already-configured route" "already configured" "$out_38c"
+assert_eq_trim "38c: aitask-data@{u} resolves after the re-run" "refs/remotes/origin/aitask-data" \
+    "$(data_upstream "$T38C/sb")"
+rm -rf "$T38C"
+
+echo "--- Test 38d: an upstream on another remote is left alone (t2127) ---"
+T38D="$(setup_repo_with_remote)"
+seed_remote_data_branch "$T38D/local"
+sb_clone "$T38D" "$T38D/sb"
+git -C "$T38D/sb" remote add other "file://$T38D/remote.git"
+git -C "$T38D/sb" fetch -q other 2>/dev/null
+git -C "$T38D/sb" branch -q --track aitask-data other/aitask-data
+before_38d="$(git -C "$T38D/sb" config --get-regexp '^branch\.aitask-data\.'; fetch_cfg "$T38D/sb")"
+SCRIPT_DIR="$T38D/sb/.aitask-scripts"
+(cd "$T38D/sb" && setup_data_branch </dev/null >/dev/null 2>&1)
+assert_file_exists "38d: worktree created from the local branch" "$T38D/sb/.aitask-data/.git"
+assert_eq "38d: branch upstream and origin fetch config unchanged" "$before_38d" \
+    "$(git -C "$T38D/sb" config --get-regexp '^branch\.aitask-data\.'; fetch_cfg "$T38D/sb")"
+rm -rf "$T38D"
+
+echo "--- Test 38e: unreachable remote writes no mapping (t2127) ---"
+T38E="$(setup_repo_with_remote)"
+sb_clone "$T38E" "$T38E/sb"
+git -C "$T38E/sb" remote set-url origin "$T38E/does-not-exist.git"
+before_38e="$(fetch_cfg "$T38E/sb")"
+SCRIPT_DIR="$T38E/sb/.aitask-scripts"
+out_38e="$(cd "$T38E/sb" && setup_data_branch </dev/null 2>&1)"
+assert_file_exists "38e: worktree still created" "$T38E/sb/.aitask-data/.git"
+assert_eq "38e: origin fetch config unchanged" "$before_38e" "$(fetch_cfg "$T38E/sb")"
+assert_not_contains "38e: no upstream warning" "aitask-data branch's upstream" "$out_38e"
+rm -rf "$T38E"
+
+# hand_layout <fixture> -- the t2099 fixture's hand-built single-branch layout
+# with NO upstream config at all; callers add the half they test.
+hand_layout() {
+    seed_remote_data_branch "$1/local"
+    sb_clone "$1" "$1/sb"
+    (
+        cd "$1/sb" || exit 1
+        git fetch -q origin "$DATA_SPEC"
+        git branch -q --no-track aitask-data refs/remotes/origin/aitask-data
+        git worktree add -q .aitask-data aitask-data
+    ) >/dev/null 2>&1
+}
+
+echo "--- Test 38g: a half upstream naming origin is completed (t2127) ---"
+T38G="$(setup_repo_with_remote)"
+hand_layout "$T38G"
+git -C "$T38G/sb" config branch.aitask-data.remote origin
+assert_eq_trim "38g: precondition -- @{u} unresolved" "<unresolved>" "$(data_upstream "$T38G/sb")"
+SCRIPT_DIR="$T38G/sb/.aitask-scripts"
+(cd "$T38G/sb" && setup_data_branch </dev/null >/dev/null 2>&1)
+assert_eq_trim "38g: aitask-data@{u} resolves after the re-run" "refs/remotes/origin/aitask-data" \
+    "$(data_upstream "$T38G/sb")"
+rm -rf "$T38G"
+
+echo "--- Test 38h: a half upstream elsewhere is reported, not rewritten (t2127) ---"
+T38H="$(setup_repo_with_remote)"
+hand_layout "$T38H"
+git -C "$T38H/sb" config branch.aitask-data.remote other
+before_38h="$(git -C "$T38H/sb" config --get-regexp '^branch\.aitask-data\.'; fetch_cfg "$T38H/sb")"
+SCRIPT_DIR="$T38H/sb/.aitask-scripts"
+out_38h="$(cd "$T38H/sb" && setup_data_branch </dev/null 2>&1)"
+assert_contains "38h: the incomplete upstream is reported" "incomplete upstream (remote='other', merge='')" "$out_38h"
+assert_eq "38h: branch upstream and origin fetch config unchanged" "$before_38h" \
+    "$(git -C "$T38H/sb" config --get-regexp '^branch\.aitask-data\.'; fetch_cfg "$T38H/sb")"
+rm -rf "$T38H"
+
+echo "--- Test 39: plain clone keeps its fetch config (t2127 control) ---"
+T39="$(setup_repo_with_remote)"
+seed_remote_data_branch "$T39/local"
+git clone -q "file://$T39/remote.git" "$T39/full" 2>/dev/null
+git -C "$T39/full" config user.email "test@test.com"
+git -C "$T39/full" config user.name "Test"
+mkdir -p "$T39/full/.aitask-scripts"
+before_39="$(fetch_cfg "$T39/full")"
+SCRIPT_DIR="$T39/full/.aitask-scripts"
+(cd "$T39/full" && setup_data_branch </dev/null >/dev/null 2>&1)
+assert_eq "39: origin fetch config unchanged" "$before_39" "$(fetch_cfg "$T39/full")"
+assert_eq_trim "39: aitask-data@{u} resolves" "refs/remotes/origin/aitask-data" "$(data_upstream "$T39/full")"
+rm -rf "$T39"
+
+echo "--- Test 39b: plain clone's create route does not fetch the branch back (t2127) ---"
+# The push already made the tracking ref in a plain clone; a fetch-back would
+# be an extra network request. Every fetch fails under the shim, so one shows
+# up as the fetch-back warning.
+T39B="$(setup_repo_with_remote)"
+SCRIPT_DIR="$T39B/local/.aitask-scripts"
+mkdir -p "$SCRIPT_DIR"
+shim_install git:git_fetch
+out_39b="$(cd "$T39B/local" && setup_data_branch </dev/null 2>&1)"
+shim_remove
+assert_not_contains "39b: no fetch-back after the push" "could not fetch it back" "$out_39b"
+assert_eq_trim "39b: aitask-data@{u} resolves" "refs/remotes/origin/aitask-data" "$(data_upstream "$T39B/local")"
+rm -rf "$T39B"
+
 # --- Summary ---
 echo ""
 echo "==============================="

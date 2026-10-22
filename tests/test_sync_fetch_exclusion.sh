@@ -119,12 +119,14 @@ git clone -q --single-branch -b main "file://$T/remote.git" "$Z" 2>/dev/null
 (
     cd "$Z" || exit 1
     git config user.email z@test.com; git config user.name Z; git config commit.gpgsign false
-    git fetch -q origin "+refs/heads/aitask-data:refs/remotes/origin/aitask-data"
-    # `branch --track` refuses outside a --single-branch clone's refspec.
-    git branch -q aitask-data origin/aitask-data
-    git config branch.aitask-data.remote origin
-    git config branch.aitask-data.merge refs/heads/aitask-data
+    # setup_data_branch's own sequence (t2127): explicit-refspec fetch, local
+    # branch from the tracking ref, worktree, then the upstream reconcile that
+    # maps aitask-data so @{u} resolves in a --single-branch clone.
+    source .aitask-scripts/lib/data_symlinks.sh
+    ait_fetch_data_branch "$PWD"
+    ait_ensure_local_data_branch "$PWD"
     git worktree add -q .aitask-data aitask-data
+    ait_report_data_branch_upstream "$PWD"
     mkdir -p .aitask-data/aiplans
     # main already carries the aitasks/ and aiplans/ symlinks (the fixture commits them).
     mkdir -p bin; cp "$Y/bin/hostname" bin/
@@ -133,8 +135,19 @@ git clone -q --single-branch -b main "file://$T/remote.git" "$Z" 2>/dev/null
 assert_contains "2: setup excluded the store" "^refs/heads/store-b" "$(fetchvals "$Z")"
 assert_contains "2: setup excluded the retired store" "^refs/heads/store-a" "$(fetchvals "$Z")"
 B3="$(xstore store-b)"
-( cd "$Z" && export PATH="$PWD/bin:$PATH" TEST_HOSTNAME=testhost AITASKS_LOCK_DIR="$T/zlocks" \
-    && ./.aitask-scripts/aitask_sync.sh --batch ) >/dev/null 2>&1
+# A data-branch commit for Z to pull, so the verdict proves @{u} was followed.
+(
+    cd "$T/X" || exit 1
+    git fetch -q origin aitask-data && git checkout -q -B aitask-data origin/aitask-data || exit 1
+    printf 'z\n' >> zmark && git add zmark && git commit -qm "zmark" && git push -q origin aitask-data
+) >/dev/null 2>&1
+out="$( cd "$Z" && export PATH="$PWD/bin:$PATH" TEST_HOSTNAME=testhost AITASKS_LOCK_DIR="$T/zlocks" \
+    && ./.aitask-scripts/aitask_sync.sh --batch 2>/dev/null )"
+assert_eq "2: aitask-data@{u} resolves" "refs/remotes/origin/aitask-data" \
+    "$(git -C "$Z" rev-parse --symbolic-full-name 'aitask-data@{u}' 2>/dev/null)"
+assert_eq "2: sync completed" "PULLED" "$(first_line "$out")"
+assert_eq "2: the published data commit was pulled" "$(git -C "$T/remote.git" rev-parse aitask-data)" \
+    "$(git -C "$Z" rev-parse aitask-data)"
 assert_eq "2: no store tracking ref" "absent" "$(tref "$Z" refs/remotes/origin/store-b)"
 # Exact, not a count: sync legitimately creates local objects (the lock-branch
 # init commit), so assert none of the store commit's own objects arrived.

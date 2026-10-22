@@ -1593,6 +1593,9 @@ setup_data_branch() {
     # Already configured — worktree exists
     if [[ -d "$project_dir/.aitask-data/.git" || -f "$project_dir/.aitask-data/.git" ]]; then
         success "Task data branch already configured (.aitask-data/ worktree exists)"
+        # The repair route for an install whose upstream never resolved, e.g. a
+        # --single-branch clone set up before t2127. Network-free, idempotent.
+        ait_report_data_branch_upstream "$project_dir"
         return
     fi
 
@@ -1708,12 +1711,12 @@ setup_data_branch() {
         # Report git's own error rather than discarding it, and do not claim the
         # branch was found when the fetch that materializes it failed (t1631).
         # The old `|| true` plus an unconditional `branch_exists=true` sent
-        # Step 2 into git's "invalid reference: aitask-data".
-        local fetch_err=""
-        if fetch_err="$(git -C "$project_dir" fetch origin aitask-data 2>&1 >/dev/null)"; then
+        # Step 2 into git's "invalid reference: aitask-data". The explicit
+        # refspec is what makes a --single-branch clone get a tracking ref (t2127).
+        if ait_fetch_data_branch "$project_dir"; then
             branch_exists=true
         else
-            warn "Could not fetch the aitask-data branch from remote. git said: ${fetch_err:-<no output>}"
+            warn "Could not fetch the aitask-data branch from remote. git said: ${AIT_DATA_FETCH_ERR:-<no output>}"
         fi
     fi
 
@@ -1755,6 +1758,12 @@ setup_data_branch() {
             local push_err=""
             if ! push_err="$(git -C "$project_dir" push -u origin aitask-data 2>&1 >/dev/null)"; then
                 warn "Could not push aitask-data branch to remote. git said: ${push_err:-<no output>}"
+            elif ! git -C "$project_dir" show-ref --verify -q refs/remotes/origin/aitask-data \
+                    && ! ait_fetch_data_branch "$project_dir"; then
+                # Without a mapping (--single-branch) the push created no
+                # tracking ref, so @{u} has nothing to resolve to (t2127). A
+                # plain clone's push already made one: no fetch there.
+                warn "Pushed aitask-data but could not fetch it back, so 'ait sync' has no upstream yet. git said: ${AIT_DATA_FETCH_ERR:-<no output>}"
             fi
         fi
     fi
@@ -1766,7 +1775,8 @@ setup_data_branch() {
     # `2>/dev/null` threw away the only explanation of why (t1627, mirroring the
     # same fix in aitask_init_data.sh at t1624).
     local wt_add_err=""
-    if ! wt_add_err="$(cd "$project_dir" && git worktree add .aitask-data aitask-data 2>&1 >/dev/null)"; then
+    if ! wt_add_err="$(ait_ensure_local_data_branch "$project_dir" 2>&1 >/dev/null \
+            && cd "$project_dir" && git worktree add .aitask-data aitask-data 2>&1 >/dev/null)"; then
         warn "Failed to create the .aitask-data worktree in '$project_dir'. git said: ${wt_add_err:-<no output>}"
         # `return`, not `die`. This whole step is optional — answering 'n' at the
         # prompt above reaches the identical state — and dying here would abort
@@ -1784,6 +1794,7 @@ setup_data_branch() {
         fi
         return
     fi
+    ait_report_data_branch_upstream "$project_dir"
 
     # --- Step 3: Populate data ---
     if [[ "$needs_migration" == true ]]; then

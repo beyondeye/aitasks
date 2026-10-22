@@ -200,10 +200,10 @@ if [[ "$branch_found" == false ]] && git remote get-url origin &>/dev/null; then
     if git ls-remote --exit-code --heads origin refs/heads/aitask-data >/dev/null 2>&1; then
         info "Found aitask-data branch on remote, fetching..." >&2
         # Report git's own error rather than discarding it (t1631, mirroring
-        # t1627's sweep in aitask_setup.sh).
-        fetch_err=""
-        if ! fetch_err="$(git fetch origin aitask-data 2>&1 >/dev/null)"; then
-            warn "Failed to fetch aitask-data branch from remote. git said: ${fetch_err:-<no output>}" >&2
+        # t1627's sweep in aitask_setup.sh). The explicit refspec is what makes
+        # a --single-branch clone get a tracking ref (t2127).
+        if ! ait_fetch_data_branch "$PWD"; then
+            warn "Failed to fetch aitask-data branch from remote. git said: ${AIT_DATA_FETCH_ERR:-<no output>}" >&2
             echo "NO_DATA_BRANCH"
             exit 0
         fi
@@ -271,9 +271,12 @@ info "Creating .aitask-data/ worktree..." >&2
 git worktree prune 2>/dev/null || true
 # Surface git's own error: the old text named `git worktree add .aitask-data
 # aitask-data` as the remedy, which is the command that just failed.
-wt_add_err="$(git worktree add .aitask-data aitask-data 2>&1 >/dev/null)" || {
+wt_add_err="$(ait_ensure_local_data_branch "$PWD" 2>&1 >/dev/null \
+    && git worktree add .aitask-data aitask-data 2>&1 >/dev/null)" || {
     die "Failed to create the .aitask-data worktree in '$PWD'. git said: ${wt_add_err:-<no output>}"
 }
+# stderr only: stdout carries just this script's token.
+ait_report_data_branch_upstream "$PWD" >&2
 
 # --- Step 5: Create symlinks ---
 ait_ensure_data_symlinks "$PWD"
