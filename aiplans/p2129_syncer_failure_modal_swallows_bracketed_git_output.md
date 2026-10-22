@@ -77,3 +77,10 @@ None identified.
 
 ### Goal-achievement risk: low
 None identified.
+
+## Final Implementation Notes
+- **Actual work done:** As planned. `SyncFailureScreen.compose` now builds its body with `Text.assemble` (bold label tuples, plain-string values) and the title `Label` sets `markup=False`, matching `MainConflictScreen`. Added `_SyncFailureHost` + `SyncFailureScreenRenderTests` (3 tests) to `tests/test_syncer_rows.py`.
+- **Deviations from plan:** None.
+- **Issues encountered:** None. Red proof: before the fix `test_git_output_and_command_render_verbatim` and `test_title_is_literal` failed (`[rejected]` / `[b]` swallowed); `test_empty_tail_reads_empty` passed both before and after. Full `tests/test_syncer_rows.py`: 178 passed.
+- **Key decisions:** Pinned the title too (`markup=False`) — the task named only the body, but the title interpolates `ctx.action` / `ctx.ref_name` through the same markup sink.
+- **Upstream defects identified:** None
