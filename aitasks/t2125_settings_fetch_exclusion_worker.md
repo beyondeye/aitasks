@@ -3,12 +3,13 @@ priority: low
 effort: low
 depends: []
 issue_type: performance
-status: Ready
+status: Implementing
 labels: [task_attachments]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1065
 followup_kind: review_finding
 created_at: 2026-10-22 12:46
-updated_at: 2026-10-22 12:46
+updated_at: 2026-10-22 12:54
 ---
 
 ## Context
