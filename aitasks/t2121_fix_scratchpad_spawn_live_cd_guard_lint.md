@@ -39,3 +39,10 @@ Neither failure involves files that t2028 touched.
 ## Suggested fix
 
 Follow `aidocs/framework/testing_conventions.md`: source `tests/lib/scratch_cwd.sh` and call `enter_scratch_cwd` at the top of the file, and rewrite `key_for()`'s `cd` in a form the lint accepts (as t2079 did for three other tests). Then re-run `tests/test_cd_guard_lint.sh` and the live test itself.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-22T08:17:15Z status=pass attempt=1 type=human
+>
+> Note: drift
