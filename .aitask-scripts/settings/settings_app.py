@@ -506,6 +506,7 @@ def _safe_id(name: str) -> str:
 
 _SETTINGS_DIR = Path(__file__).resolve().parent
 ARTIFACT_REGISTRY = _SETTINGS_DIR.parent / "lib" / "artifact_registry.py"
+ARTIFACT_CLI = _SETTINGS_DIR.parent / "aitask_artifact.sh"
 _BUILD_VERIFY_DOCS = "https://aitasks.io/docs/skills/aitask-pick/build-verification/"
 
 
@@ -3948,6 +3949,32 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
             # a value read from YAML) — refused like any other failure.
             return 1, "", f"cannot run the artifact registry: {exc}"
 
+    def _run_fetch_exclusion(self) -> tuple[int, str, str]:
+        """Run `aitask_artifact.sh fetch-exclusion apply` (t2099).
+
+        Keeps routine fetches off the gitbranch store after the branch config
+        changed. Returns (rc, stdout, stderr) and never raises.
+        """
+        try:
+            proc = subprocess.run(
+                [str(ARTIFACT_CLI), "fetch-exclusion", "apply"],
+                capture_output=True, text=True, timeout=30,
+            )
+            return proc.returncode, proc.stdout, proc.stderr
+        except (OSError, ValueError, subprocess.TimeoutExpired) as exc:
+            return 1, "", f"cannot run the fetch-exclusion update: {exc}"
+
+    def _apply_fetch_exclusion(self) -> None:
+        rc, out, err = self._run_fetch_exclusion()
+        if rc != 0:
+            detail = err.strip().splitlines()[-1] if err.strip() else "see 'ait artifact fetch-exclusion apply'"
+            self.notify(
+                "Routine-fetch exclusion for the gitbranch store not updated: "
+                f"{escape(detail)}. Re-run: ait artifact fetch-exclusion apply",
+                severity="warning", timeout=15)
+        elif "FETCH_EXCLUSION:CHANGED" in out.splitlines():
+            self.notify("Routine fetches now skip the gitbranch store branch")
+
     @staticmethod
     def _registry_message(stderr: str, fallback: str) -> str:
         msg = stderr.strip().removeprefix("artifact_registry.py: ").strip()
@@ -4199,6 +4226,8 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
         if self._refresh_after_save("project", "Artifact settings saved"):
             self._populate_artifacts_tab()
             self.notify("Artifact settings saved")
+        if branch:
+            self._apply_fetch_exclusion()
         if old_branch not in (None, "") and branch and str(old_branch) != branch:
             old, new = escape(str(old_branch)), escape(branch)
             self.notify(

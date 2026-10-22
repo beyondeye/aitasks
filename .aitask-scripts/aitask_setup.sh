@@ -1243,6 +1243,28 @@ setup_id_counter() {
     esac
 }
 
+# --- Routine-fetch exclusion for the gitbranch artifact store (t2099) ---
+# Adds ^refs/heads/<store> to every named remote so `ait sync`, `git fetch` and
+# `git fetch --all --prune` never download the store branch. Silent when the
+# gitbranch backend is not configured; best-effort — a failure warns and never
+# aborts setup. Idempotent: a re-run prints FETCH_EXCLUSION:UNCHANGED.
+setup_artifact_fetch_exclusion() {
+    local project_dir="$SCRIPT_DIR/.." out rc=0
+    git -C "$project_dir" rev-parse --is-inside-work-tree &>/dev/null || return 0
+    out="$(cd "$project_dir" && "$SCRIPT_DIR/aitask_artifact.sh" fetch-exclusion apply)" || rc=$?
+    if (( rc != 0 )); then
+        warn "Could not update the routine-fetch exclusion for the gitbranch artifact store. Re-run: ait artifact fetch-exclusion apply"
+        return 0
+    fi
+    case "$out" in
+        *FETCH_EXCLUSION:NOT_CONFIGURED*) ;;
+        *FETCH_EXCLUSION:CHANGED*)   info "Artifact store: routine fetches now skip the gitbranch store branch" ;;
+        *FETCH_EXCLUSION:UNCHANGED*) info "Artifact store: routine-fetch exclusion already in place" ;;
+        *)                           info "Artifact store fetch exclusion: ${out##*$'\n'}" ;;
+    esac
+    return 0
+}
+
 # --- Task lock branch setup ---
 setup_lock_branch() {
     local project_dir="$SCRIPT_DIR/.."
@@ -5342,6 +5364,10 @@ main() {
     echo ""
 
     setup_python_venv
+    echo ""
+
+    # After the venv: the registry read needs PyYAML.
+    setup_artifact_fetch_exclusion
     echo ""
 
     # Revalidate/repair an existing PyPy venv on every `ait setup` (the

@@ -278,5 +278,11 @@ wt_add_err="$(git worktree add .aitask-data aitask-data 2>&1 >/dev/null)" || {
 # --- Step 5: Create symlinks ---
 ait_ensure_data_symlinks "$PWD"
 
+# --- Step 6: Routine-fetch exclusion for the gitbranch artifact store (t2099) ---
+# Best-effort, and on stderr: stdout carries only this script's own token.
+if ! "$SCRIPT_DIR/aitask_artifact.sh" fetch-exclusion apply >&2; then
+    warn "Could not update the routine-fetch exclusion for the gitbranch artifact store. Re-run: ait artifact fetch-exclusion apply" >&2
+fi
+
 success "Data branch initialized: .aitask-data/ worktree + symlinks" >&2
 echo "INITIALIZED"

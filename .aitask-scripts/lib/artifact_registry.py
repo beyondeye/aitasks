@@ -12,6 +12,8 @@ field) against the git-tracked project config's `artifacts:` block:
           path: /mnt/share/ait-artifacts   # required, absolute
         gitbranch:
           branch: aitask-artifacts         # required, a git branch name
+          remote: origin                   # optional (t2100); read by gitbranch-fetch-config
+          remote_dedicated: false          # optional (t2100); read by gitbranch-fetch-config
 
 The registry owns REGISTRATION + CONFIGURATION validation (is the name in
 config, are required keys present and sane); the bash dispatcher
@@ -67,12 +69,17 @@ def load_config(path):
 
     Returns {} when the file is missing or empty; dies on a YAML parse error
     or a present-but-non-mapping root (never silently fail open to `local`).
+    `-` reads the config from stdin: `ait artifact fetch-exclusion` parses the
+    exact snapshot it fingerprinted, never a file that may change meanwhile.
     """
-    if not os.path.isfile(path):
-        return {}
     try:
-        with open(path, "r", encoding="utf-8") as f:
-            data = yaml.safe_load(f)
+        if path == "-":
+            data = yaml.safe_load(sys.stdin.read())
+        elif not os.path.isfile(path):
+            return {}
+        else:
+            with open(path, "r", encoding="utf-8") as f:
+                data = yaml.safe_load(f)
     except yaml.YAMLError as exc:
         die("%s: YAML parse error: %s" % (path, exc))
     if data is None:
@@ -211,6 +218,32 @@ def cmd_adapters():
         print(name)
 
 
+def cmd_gitbranch_fetch_config(config, path):
+    """Print `<branch>\\t<remote>\\t<0|1>` for the routine-fetch exclusion
+    (t2099), or nothing when gitbranch is not registered.
+
+    `remote` (default `origin`) and `remote_dedicated` (default false) are READ
+    here, not registered in KNOWN_ADAPTERS: t2100 owns their registration and
+    full validation (URL vs remote name). Only their types are checked, so a
+    malformed value fails closed instead of silently meaning the default.
+    """
+    backends = registered_backends(config, path)
+    if "gitbranch" not in backends:
+        return
+    entry = backends["gitbranch"]
+    branch = validate_value("gitbranch", "branch", entry.get("branch"),
+                            "ref_name", path)
+    remote = entry.get("remote", "origin")
+    if not isinstance(remote, str) or not remote.strip():
+        die("%s: artifacts.backends.gitbranch.remote must be a non-empty string"
+            % path)
+    dedicated = entry.get("remote_dedicated", False)
+    if not isinstance(dedicated, bool):
+        die("%s: artifacts.backends.gitbranch.remote_dedicated must be true or "
+            "false (got %r)" % (path, dedicated))
+    print("%s\t%s\t%d" % (branch, remote.strip(), 1 if dedicated else 0))
+
+
 def cmd_validate_ref(value):
     """Exit 0 when <value> is an acceptable gitbranch branch, else 1 + why."""
     why = check_ref_name(value)
@@ -221,7 +254,8 @@ def cmd_validate_ref(value):
 def main(argv):
     if len(argv) < 3 or argv[0] != "--config":
         die("usage: artifact_registry.py --config <path> "
-            "<backend-env|default-backend|list|adapters|validate-ref> ...")
+            "<backend-env|default-backend|list|adapters|validate-ref|"
+            "gitbranch-fetch-config> ...")
     path = argv[1]
     cmd = argv[2]
     rest = argv[3:]
@@ -246,6 +280,10 @@ def main(argv):
         if len(rest) != 1:
             die("validate-ref <branch>")
         cmd_validate_ref(rest[0])
+    elif cmd == "gitbranch-fetch-config":
+        if rest:
+            die("gitbranch-fetch-config takes no arguments")
+        cmd_gitbranch_fetch_config(config, path)
     else:
         die("unknown subcommand: " + cmd)
 

@@ -35,6 +35,8 @@ ait artifact rm 42 art:t42-htmlplan                  # Remove it from t42
 | `versions <handle>` | List versions oldest first |
 | `init-store <backend>` | Initialize a backend's store |
 | `gitbranch-migrate --from <old> --to <new>` | Move the `gitbranch` store to another branch |
+| `fetch-exclusion apply` | Keep routine fetches off the `gitbranch` store branch |
+| `fetch-exclusion drop-retired <branch>` | Stop excluding a retired store branch that was deleted from the remote |
 | `help` | Show the built-in help (also `--help`, `-h`) |
 
 `<task>` accepts a parent id (`16`) or a child id (`16_2`), with or without the
@@ -159,7 +161,8 @@ identity. This is the only way to rename the branch once the store exists.
 3. Anything written to `<old>` before it was retired is copied too, and `<new>`
    is verified to hold every blob.
 4. The project's store record (see [below](#the-gitbranch-backend)) is updated to
-   `<new>` and committed.
+   `<new>`, lists `<old>` as retired, and is committed. Routine fetches keep
+   skipping both branches (see [fetch-exclusion](#fetch-exclusion)).
 
 It prints `MIGRATED:<store-id>:<new>`, or `ALREADY_MIGRATED:<store-id>:<new>`
 when there was nothing left to do, so it is safe to run again. If a step fails,
@@ -172,6 +175,40 @@ the command warns until you do, and until then every `gitbranch` operation
 refuses. `project_config.yaml` lives on the task data branch with the store
 record, so once you commit the new setting, teammates pick up both when they
 pull it.
+
+### fetch-exclusion
+
+```bash
+ait artifact fetch-exclusion apply
+ait artifact fetch-exclusion drop-retired <branch>
+```
+
+`apply` keeps routine fetches — `ait sync`, `git fetch`, `git fetch --all
+--prune` — from downloading the `gitbranch` store. It adds
+`^refs/heads/<branch>` to every named remote's `remote.<name>.fetch`, for the
+configured branch, the branch in the store record, and every branch the record
+lists as retired. It never changes your other fetch settings. It removes only
+the entries it added itself, and only once their branch is no longer configured,
+recorded or retired. Running it again changes nothing. It needs git 2.29 or
+newer; an older git prints a warning and nothing changes.
+
+You rarely need to run it by hand: `ait setup`, saving the Settings
+**Artifacts** tab, `init-store gitbranch` and `gitbranch-migrate` run it, and
+`ait sync` re-applies it whenever the configuration or the store record changes.
+Run it yourself after adding a git remote.
+
+`drop-retired <branch>` removes a retired branch from the store record, commits
+the record, and stops excluding the branch. Use it once the retired branch has
+been deleted from the remote. It refuses the current store branch.
+
+**Dedicated store remote.** When `artifacts.backends.gitbranch.remote` names a
+remote that holds only the store and `remote_dedicated: true` is set, that
+remote gets `skipFetchAll true` and a fetch list containing only the exclusions.
+Its previous fetch settings are saved and restored when the declaration is
+removed. `origin` is never put in dedicated mode. If the saved settings cannot
+be restored because the remote's fetch settings were edited by hand, `apply`
+refuses, changes nothing on that remote, and prints the git commands that
+restore it.
 
 ### The gitbranch backend
 
@@ -194,11 +231,33 @@ Reads need no network when the version is already cached, and `rm` and `ls`
 never touch the store.
 
 **What gets downloaded.** The store branch is an ordinary branch on the remote,
-so a plain `git clone` downloads its whole history, and so does `ait sync`.
-`git clone --single-branch` leaves it out. Reading a version that is not cached
-fetches the **whole store branch**, not just that one blob; later reads of the
-same version come from the cache. Removing an artifact never shrinks the store:
-`rm` leaves the bytes in place, and a deleted blob stays in the branch history.
+so a plain `git clone` downloads its whole history once; `git clone
+--single-branch` leaves it out. After that, routine fetches skip it:
+[`fetch-exclusion`](#fetch-exclusion) excludes the store and its retired
+predecessors on every named remote, so `ait sync`, `git fetch` and `git fetch
+--all --prune` never download them.
+
+`ait sync` fetches the task data branch first and applies the exclusion from the
+configuration and store record it just fetched, and only then fetches
+everything else. A teammate's migration is therefore excluded on your first sync
+after it is published. If the exclusion cannot be confirmed, for example because
+`.git/config` is locked, the sync stops before that fetch and reports
+`DEFERRED:fetch_exclusion`; the next sync retries.
+
+One window remains. A new store branch is pushed before the record that names
+it, and the record reaches the remote with the migrating (or first-writing)
+clone's next sync. A sync elsewhere in that window still downloads the new
+branch once.
+
+A clone that fetched the store before the exclusion keeps its
+`refs/remotes/<remote>/<branch>`, which no longer advances. Drop it with
+`git update-ref -d refs/remotes/<remote>/<branch>`; a later artifact read
+recreates it for its own bookkeeping.
+
+Reading a version that is not cached fetches the **whole store branch**, not
+just that one blob; later reads of the same version come from the cache.
+Removing an artifact never shrinks the store: `rm` leaves the bytes in place,
+and a deleted blob stays in the branch history.
 
 `artifacts.backends.gitbranch.branch` must:
 

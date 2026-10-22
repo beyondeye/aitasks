@@ -71,6 +71,8 @@ source "$SCRIPT_DIR/lib/tmux_exec.sh"         # ait_tmux_pane_for_pid (holder's 
 # resolve_python; both are already loaded by the time we get here.
 # shellcheck source=lib/task_automerge.sh
 source "$SCRIPT_DIR/lib/task_automerge.sh"
+# shellcheck source=lib/artifact_fetch_exclusion.sh
+source "$SCRIPT_DIR/lib/artifact_fetch_exclusion.sh"   # afx_fingerprint (t2099 guard)
 
 # --- Configuration ---
 BATCH_MODE=false
@@ -1926,6 +1928,111 @@ report_skipped() {
 }
 
 # --- Fetch with timeout ---
+# --- Routine-fetch exclusion guard (t2099) ---------------------------------
+#
+# The broad `fetch origin` below follows every positive mapping, so a gitbranch
+# artifact store on origin is excluded only by the ^refs/heads/<store> entries
+# `ait artifact fetch-exclusion apply` maintains. A clone learns a NEW store
+# branch (a migration target) only from the data branch, so before each broad
+# fetch the guard fetches the data branch ALONE, applies the exclusion from the
+# union of the local and fetched config + store record, and only then lets the
+# broad fetch run. It FAILS CLOSED: when protection cannot be established, the
+# broad fetch does not run and the sync defers (retried by the next sync).
+#
+# Remaining window (not closable here): a migration pushes the new store branch
+# before the record naming it reaches the remote, so until the migrating clone
+# syncs, other clones' broad fetches can download the new branch once.
+#
+# Every apply is keyed by a fingerprint of its inputs (lib/artifact_fetch_
+# exclusion.sh): an unchanged fingerprint skips the CLI entirely; a failed apply
+# stores none, so the next sync retries.
+_SYNC_AFX_REASON=""
+
+# _sync_afx_data_ref -- print the remote-tracking ref of the data branch.
+_sync_afx_data_ref() {
+    local db
+    db="$(git -C "$_AIT_DATA_WORKTREE" symbolic-ref --short -q HEAD)" || return 1
+    [[ -n "$db" ]] || return 1
+    printf 'refs/remotes/origin/%s' "$db"
+}
+
+# _sync_afx_reconcile [<ref>] -- fingerprint fast path, else the locked apply.
+# 0 = protection established (applied, unchanged, not configured, or an old git
+# that can never be protected); 1 = unknown (_SYNC_AFX_REASON says why).
+_sync_afx_reconcile() {
+    local ref="${1:-}" fp stored rc=0
+    local -a ref_arg=()
+    [[ -n "$ref" ]] && ref_arg=( --also-ref "$ref" )
+    fp="$(afx_fingerprint "$_AIT_DATA_WORKTREE" "$ref")" \
+        || { _SYNC_AFX_REASON="fingerprint_failed"; return 1; }
+    stored="$(git config --get "$AFX_FINGERPRINT_KEY" 2>/dev/null)" || stored=""
+    [[ "$fp" == "$stored" ]] && return 0
+    "$SCRIPT_DIR/aitask_artifact.sh" fetch-exclusion apply --if-changed "${ref_arg[@]}" >/dev/null || rc=$?
+    if (( rc != 0 )); then
+        _SYNC_AFX_REASON="apply_failed"
+        return 1
+    fi
+    return 0
+}
+
+# _sync_fetch_exclusion_guard -- run immediately before EVERY broad fetch.
+# 0 = proceed; 124 = timed out, 3 = remote unreachable (the caller reports
+# NO_NETWORK); 1 = protection unknown (the caller defers). In every non-zero case
+# the caller does NOT run its broad fetch.
+_sync_fetch_exclusion_guard() {
+    local ref db rc=0 lrc=0
+    _SYNC_AFX_REASON=""
+    _ait_detect_data_worktree
+    ref="$(_sync_afx_data_ref)" || { _SYNC_AFX_REASON="no_data_branch"; return 1; }
+    db="${ref#refs/remotes/origin/}"
+    _sync_test_seam pre_exclusion_fetch
+    _git_with_timeout "${AIT_RECONCILE_GIT_OPTS[@]}" fetch origin "+refs/heads/$db:$ref" 2>/dev/null || rc=$?
+    if (( rc == 124 )); then
+        return 124
+    elif (( rc != 0 )); then
+        # Only a DEFINITIVE absence (ls-remote exit 2) is a no-op: no remote
+        # data branch means no remote record. An unreachable remote is the
+        # network (the broad fetch would fail the same way); a reachable remote
+        # whose data branch still would not fetch leaves protection unknown.
+        _git_with_timeout ls-remote --exit-code origin "refs/heads/$db" >/dev/null 2>&1 || lrc=$?
+        case "$lrc" in
+            2)   ref="" ;;
+            124) return 124 ;;
+            0)   _SYNC_AFX_REASON="data_branch_fetch_failed"; return 1 ;;
+            *)   return 3 ;;
+        esac
+    fi
+    _sync_afx_reconcile "$ref" || return 1
+    _sync_test_seam post_exclusion_guard
+    return 0
+}
+
+# _sync_fetch_exclusion_defer_msg [initial] -- the user-facing half of a guard
+# deferral. From do_fetch ("initial") the sweep's skip report is emitted first:
+# that deferral exits before main's own report_skipped call, and what the sweep
+# left uncommitted must not vanish. The retry path runs after it, so it skips it.
+_sync_fetch_exclusion_defer_msg() {
+    [[ "${1:-}" == initial ]] && report_skipped
+    iwarn "Sync deferred: the routine-fetch exclusion for the gitbranch artifact store could not be confirmed (${_SYNC_AFX_REASON}); fetching now could download the store. Fix the cause (see above), or run 'ait artifact fetch-exclusion apply', then sync again."
+}
+
+# _sync_reconcile_after_converge -- after every successful convergence (no
+# network): settles what the fetch-time union kept on the safe side — a retired
+# branch the incoming record dropped, a dedicated declaration the incoming
+# config turned off — within the same sync. Failure only warns: the fetch
+# already happened, and no fingerprint is stored, so the next guard retries.
+_sync_reconcile_after_converge() {
+    local ref=""
+    _ait_detect_data_worktree
+    ref="$(_sync_afx_data_ref)" || ref=""
+    if [[ -n "$ref" ]] && ! git rev-parse -q --verify "$ref^{commit}" >/dev/null 2>&1; then
+        ref=""
+    fi
+    _sync_afx_reconcile "$ref" \
+        || iwarn "Could not update the routine-fetch exclusion after pulling (${_SYNC_AFX_REASON}); the next sync retries."
+    return 0
+}
+
 do_fetch() {
     iinfo "Fetching from remote..."
     local fetch_exit=0
@@ -1940,9 +2047,21 @@ do_fetch() {
         iwarn "No usable Python (>= 3.8) to run the bounded fetch/push; 'ait setup' repairs the framework venv."
         exit 1
     fi
-    # Pinned (AIT_RECONCILE_GIT_OPTS, lib/task_utils.sh — t1789): this fetch
-    # feeds the rebase, so it must not leave a detached maintenance run behind.
-    _git_with_timeout "${AIT_RECONCILE_GIT_OPTS[@]}" fetch origin 2>/dev/null || fetch_exit=$?
+    # t2099: the store exclusion must be in place BEFORE the broad fetch, or the
+    # broad fetch must not run at all.
+    local guard_rc=0
+    _sync_fetch_exclusion_guard || guard_rc=$?
+    if (( guard_rc == 124 || guard_rc == 3 )); then
+        fetch_exit=$guard_rc
+    elif (( guard_rc != 0 )); then
+        batch_out "DEFERRED:fetch_exclusion:${_SYNC_AFX_REASON}"
+        _sync_fetch_exclusion_defer_msg initial
+        exit 0
+    else
+        # Pinned (AIT_RECONCILE_GIT_OPTS, lib/task_utils.sh — t1789): this fetch
+        # feeds the rebase, so it must not leave a detached maintenance run behind.
+        _git_with_timeout "${AIT_RECONCILE_GIT_OPTS[@]}" fetch origin 2>/dev/null || fetch_exit=$?
+    fi
 
     if [[ $fetch_exit -eq 124 ]]; then
         batch_out "NO_NETWORK"
@@ -2278,9 +2397,20 @@ do_push() {
         # "not blocked", and act on a world it never saw — surfacing later as a
         # generic push/rebase error instead of the true outcome. Same contract as
         # do_fetch: report the network, stop the run.
-        local refetch_exit=0
-        # Pinned for the same reason as do_fetch's: it feeds the retry rebase.
-        _git_with_timeout "${AIT_RECONCILE_GIT_OPTS[@]}" fetch origin 2>/dev/null || refetch_exit=$?
+        local refetch_exit=0 guard_rc=0
+        # t2099: guard this broad fetch too — the rejection proves the remote
+        # moved, and what moved may be a migration record naming a new store.
+        _sync_fetch_exclusion_guard || guard_rc=$?
+        if (( guard_rc == 124 || guard_rc == 3 )); then
+            refetch_exit=$guard_rc
+        elif (( guard_rc != 0 )); then
+            batch_out "DEFERRED:fetch_exclusion:${_SYNC_AFX_REASON}"
+            _sync_fetch_exclusion_defer_msg
+            return 2
+        else
+            # Pinned for the same reason as do_fetch's: it feeds the retry rebase.
+            _git_with_timeout "${AIT_RECONCILE_GIT_OPTS[@]}" fetch origin 2>/dev/null || refetch_exit=$?
+        fi
         if [[ $refetch_exit -ne 0 ]]; then
             batch_out "NO_NETWORK"
             if [[ "$BATCH_MODE" == false ]]; then
@@ -2333,6 +2463,9 @@ do_push() {
             fi
             return 1
         fi
+        # Converged (guarded merge or rebase): settle the exclusion before the
+        # retry push, so it happens whatever that push's outcome (t2099).
+        _sync_reconcile_after_converge
         local retry_exit=0
         _git_with_timeout push origin 2>/dev/null || retry_exit=$?
 
@@ -2458,6 +2591,11 @@ main() {
             exit 1
         fi
     fi
+
+    # Step 7b (t2099): after the early guarded merge and Step 7's pull, settle the
+    # routine-fetch exclusion from the converged inputs — no network. A no-op
+    # (fingerprint fast path) when nothing relevant changed.
+    _sync_reconcile_after_converge
 
     # Step 8: Push if local has commits (recount after possible rebase)
     local did_push=false

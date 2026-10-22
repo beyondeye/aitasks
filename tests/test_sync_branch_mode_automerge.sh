@@ -1358,8 +1358,12 @@ TMP17="$(setup_trace_fixture)"
 run_refetch_sync "$TMP17"
 assert_contains "17: precondition — the pre_push seam fired" "running pre_push hook" \
     "$(cat "$TMP17/err.txt")"
+# Broad fetches only: since t2099 each one is preceded by the routine-fetch
+# exclusion guard's data-branch fetch (`fetch origin +refs/heads/...`).
 assert_eq_trim "17: the refetch ran (do_fetch + do_push's refetch)" "2" \
-    "$(grep -c 'fetch origin' "$TMP17/shimbin/git.log")"
+    "$(grep -c 'fetch origin$' "$TMP17/shimbin/git.log")"
+assert_eq_trim "17: each broad fetch was guarded by a data-branch fetch" "2" \
+    "$(grep -c 'fetch origin +refs/heads/aitask-data:refs/remotes/origin/aitask-data$' "$TMP17/shimbin/git.log")"
 assert_eq "17: the retried push converged (rc 0)" "0" "$REFETCH_RC"
 assert_eq_trim "17: the local commit reached the remote" "1" \
     "$(git -C "$TMP17/remote.git" log --format=%s aitask-data | grep -cxF 'local: labels')"

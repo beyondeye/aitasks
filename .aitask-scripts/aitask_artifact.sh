@@ -93,7 +93,15 @@ artifact manifest and never rewrite the task file.
   gitbranch-migrate --from <old> --to <new>    Move the gitbranch store to another branch,
                                                keeping its identity. <old> is retired
                                                (readable, refuses writes); re-run to resume.
-  help                                         Show this help.
+  fetch-exclusion apply                        Keep routine fetches (ait sync, git fetch,
+                                               fetch --all) off the gitbranch store: adds
+                                               ^refs/heads/<store> to every named remote,
+                                               for the store and its retired predecessors.
+                                               Idempotent; re-run after adding a remote.
+  fetch-exclusion drop-retired <branch>        Release a retired store branch (after it was
+                                               deleted from the remote) from the record and
+                                               from the exclusion.
+  help                                        Show this help.
 
 These verbs stage whole paths, so they REFUSE to start when a path they would
 commit (the task file, an attachment meta JSON, an artifact manifest) already
@@ -207,24 +215,61 @@ _artifact_gitbranch_record_path() {
     printf '%s/artifacts/gitbranch_store.json' "$_AIT_DATA_WORKTREE"
 }
 
-# _artifact_gitbranch_record_read -- print "<store_id>\t<branch>", or nothing
-# when there is no record. Dies on a malformed record (never reads it as absent).
-_artifact_gitbranch_record_read() {
-    local p
-    p="$(_artifact_gitbranch_record_path)"
-    [[ -e "$p" ]] || return 0
+# _artifact_gitbranch_record_parse <path|-> <record|retired> -- `record` prints
+# "<store_id>\t<branch>", `retired` one retired branch per line (t2099: the
+# predecessors gitbranch-migrate retired, kept so every clone keeps excluding
+# them from routine fetches). Nothing when <path> does not exist. Dies on a
+# malformed record, `retired` included — never reads it as absent.
+_artifact_gitbranch_record_parse() {
+    local p="$1" mode="$2"
+    [[ "$p" == - || -e "$p" ]] || return 0
     "$(require_python)" -c '
 import json, re, sys
+sys.path.insert(0, sys.argv[3])
+from artifact_registry import check_ref_name
 try:
-    d = json.load(open(sys.argv[1], encoding="utf-8"))
+    d = json.load(sys.stdin if sys.argv[1] == "-" else open(sys.argv[1], encoding="utf-8"))
 except Exception as exc:
     sys.exit("not valid JSON: %s" % exc)
 i = d.get("store_id") if isinstance(d, dict) else None
 b = d.get("branch") if isinstance(d, dict) else None
 if not (isinstance(i, str) and re.fullmatch(r"[0-9a-f]{32}", i) and isinstance(b, str) and b):
     sys.exit("expected {\"store_id\": <32 hex>, \"branch\": <name>}")
-print(i + "\t" + b)' "$p" \
+r = d.get("retired", [])
+if not isinstance(r, list) or any(not isinstance(x, str) or check_ref_name(x) for x in r):
+    sys.exit("\"retired\" must be a list of valid branch names")
+if sys.argv[2] == "retired":
+    for x in r:
+        print(x)
+else:
+    print(i + "\t" + b)' "$p" "$mode" "$SCRIPT_DIR/lib" \
         || die "ait artifact: $(_artifact_gitbranch_record_relpath) is malformed — restore it from data-branch history (./ait git log -- $(_artifact_gitbranch_record_relpath))"
+}
+
+# _artifact_gitbranch_record_read -- print "<store_id>\t<branch>", or nothing
+# when there is no record. Dies on a malformed record (never reads it as absent).
+_artifact_gitbranch_record_read() {
+    _artifact_gitbranch_record_parse "$(_artifact_gitbranch_record_path)" record
+}
+
+# _artifact_gitbranch_record_retired -- print the record's retired branches.
+_artifact_gitbranch_record_retired() {
+    _artifact_gitbranch_record_parse "$(_artifact_gitbranch_record_path)" retired
+}
+
+# _artifact_gitbranch_record_write <store_id> <branch> [retired...] -- write the
+# record atomically. JSON through json.dumps: `retired` is a list.
+_artifact_gitbranch_record_write() {
+    local p json
+    p="$(_artifact_gitbranch_record_path)"
+    json="$("$(require_python)" -c '
+import json, sys
+d = {"store_id": sys.argv[1], "branch": sys.argv[2]}
+if sys.argv[3:]:
+    d["retired"] = sorted(set(sys.argv[3:]))
+print(json.dumps(d))' "$@")" || return 1
+    mkdir -p "$(dirname "$p")" || return 1
+    ait_atomic_write_text "$p" "$json"
 }
 
 # _artifact_assert_gitbranch_store -- the LOCAL half of the store guard (no
@@ -1029,6 +1074,10 @@ cmd_init_store() {
         NOTHING_TO_INIT:*)     info "The '${backend}' backend needs no initialization — nothing to do" ;;
         *)                     die "ait artifact init-store: unexpected backend output: $out" ;;
     esac
+    if [[ "$backend" == "gitbranch" ]]; then
+        _artifact_fetch_exclusion_best_effort "ait artifact init-store"
+    fi
+    return 0
 }
 
 # ── Verb: gitbranch-migrate ──────────────────────────────────────────────────
@@ -1058,6 +1107,9 @@ cmd_gitbranch_migrate() {
     # The backend must be registered; its configured branch is only reported.
     artifact_registry_activate gitbranch
     with_attach_lock _artifact_gitbranch_migrate_txn "$from" "$to" "$ARTIFACT_GITBRANCH_BRANCH"
+    # After with_attach_lock returned (the fetch-exclusion lock never nests):
+    # exclude <to>, and keep <from> excluded through the record's `retired`.
+    _artifact_fetch_exclusion_best_effort "ait artifact gitbranch-migrate"
 }
 
 # _artifact_gitbranch_migrate_step_failed <rc> <unknown-effect> <what> -- die
@@ -1205,11 +1257,23 @@ _artifact_gitbranch_migrate_txn() {
     [[ -z "$missing" ]] \
         || die "ait artifact gitbranch-migrate: blobs missing on '${to}' after the copy: ${missing//$'\n'/ }"
 
-    # 8. The record follows the store.
-    if [[ "$sid" != "${rec%%$'\t'*}" || "$rec_branch" != "$to" ]]; then
-        local p; p="$(_artifact_gitbranch_record_path)"
-        mkdir -p "$(dirname "$p")" || die "ait artifact gitbranch-migrate: cannot create $(dirname "$p")"
-        ait_atomic_write_text "$p" "{\"store_id\": \"${sid}\", \"branch\": \"${to}\"}" \
+    # 8. The record follows the store, and names <from> as retired (t2099):
+    # every clone keeps excluding the retired predecessor from routine fetches.
+    # A record that predates `retired` is backfilled by re-running the migration.
+    local -a kept=()
+    local rb retired_out
+    # A capture, not `mapfile < <(...)`: a process substitution would swallow
+    # the reader's die and read a malformed record as "nothing retired".
+    retired_out="$(_artifact_gitbranch_record_retired)" \
+        || die "ait artifact gitbranch-migrate: could not read the record's retired branches"
+    while IFS= read -r rb; do
+        [[ -n "$rb" && "$rb" != "$to" ]] && kept+=( "$rb" )
+    done <<< "$retired_out"
+    local from_listed=0
+    for rb in "${kept[@]}"; do [[ "$rb" == "$from" ]] && from_listed=1; done
+    if [[ "$sid" != "${rec%%$'\t'*}" || "$rec_branch" != "$to" ]] || (( ! from_listed )); then
+        (( from_listed )) || kept+=( "$from" )
+        _artifact_gitbranch_record_write "$sid" "$to" "${kept[@]}" \
             || die "ait artifact gitbranch-migrate: could not write ${rec_rel}"
         if ! _artifact_commit "ait: Migrate gitbranch artifact store ${sid} to ${to}" "$rec_rel"; then
             txn_abort "ait artifact gitbranch-migrate: committing the migration record failed"
@@ -1231,6 +1295,244 @@ _artifact_gitbranch_migrate_txn() {
     return 0
 }
 
+# ── Verb: fetch-exclusion (t2099) ────────────────────────────────────────────
+#
+# Keeps routine fetches (`ait sync`, `git fetch`, `git fetch --all --prune`)
+# off the gitbranch store: lib/artifact_fetch_exclusion.sh owns the git-config
+# mechanics, this verb gathers the inputs. The desired set is
+#   {configured branch} ∪ {record branch} ∪ {record retired}
+# — all shared data, so every clone computes the same set. The record-branch
+# term keeps the real store excluded while the config was changed without a
+# migration; `retired` keeps a migrated-away predecessor excluded while it is
+# still on the remote (t2104 releases it with `drop-retired`).
+
+_AFX_INPUT_BRANCHES=()
+_AFX_INPUT_DECL=""
+_AFX_INPUT_DED=0
+
+# _artifact_afx_read_inputs <cfg-present> <cfg-content> <rec-present>
+# <rec-content> <local:0|1> -- append the branches one SNAPSHOTTED config +
+# record pair contributes. Contents arrive as strings and reach the parsers on
+# stdin: what is applied is exactly what was fingerprinted. The dedicated-mode
+# declaration is taken from the LOCAL pair only. Returns 1 on a read failure
+# (the readers already said why), never reading a broken input as "absent".
+_artifact_afx_read_inputs() {
+    local cfg_p="$1" cfg="$2" rec_p="$3" recc="$4" is_local="$5" out branch remote ded rec rb
+    if [[ "$cfg_p" == 1 ]]; then
+        out="$(printf '%s' "$cfg" | "$(require_python)" "$SCRIPT_DIR/lib/artifact_registry.py" --config - gitbranch-fetch-config)" \
+            || return 1
+        if [[ -n "$out" ]]; then
+            IFS=$'\t' read -r branch remote ded <<< "$out"
+            _AFX_INPUT_BRANCHES+=( "$branch" )
+            if [[ "$is_local" == 1 ]]; then _AFX_INPUT_DECL="$remote"; _AFX_INPUT_DED="$ded"; fi
+        fi
+    fi
+    if [[ "$rec_p" == 1 ]]; then
+        rec="$(printf '%s' "$recc" | _artifact_gitbranch_record_parse - record)" || return 1
+        [[ -n "$rec" ]] && _AFX_INPUT_BRANCHES+=( "${rec#*$'\t'}" )
+        out="$(printf '%s' "$recc" | _artifact_gitbranch_record_parse - retired)" || return 1
+        while IFS= read -r rb; do [[ -n "$rb" ]] && _AFX_INPUT_BRANCHES+=( "$rb" ); done <<< "$out"
+    fi
+    return 0
+}
+
+# _artifact_afx_snapshot <ref|""> -- capture every source input ONCE: the
+# working-tree files' bytes (_AFX_SNAP_*) and, with <ref>, the blob ids there
+# (immutable objects). Sets _AFX_SNAP_IDS in afx_input_ids' exact format, so the
+# fingerprint stored after the apply describes the bytes the apply consumed.
+_AFX_SNAP_IDS=""
+_artifact_afx_snapshot() {
+    local ref="$1" f c id i=0
+    _AFX_SNAP_IDS=""; _AFX_SNAP_PRESENT=(); _AFX_SNAP_CONTENT=(); _AFX_SNAP_REFID=()
+    for f in "${AFX_INPUT_FILES[@]}"; do
+        if [[ -f "$_AIT_DATA_WORKTREE/$f" ]]; then
+            # The trailing `x` keeps trailing newlines through $( ).
+            c="$(cat -- "$_AIT_DATA_WORKTREE/$f" && printf x)" || return 1
+            c="${c%x}"
+            id="$(printf '%s' "$c" | git hash-object --stdin)" || return 1
+            _AFX_SNAP_PRESENT[i]=1; _AFX_SNAP_CONTENT[i]="$c"
+        else
+            id=none; _AFX_SNAP_PRESENT[i]=0; _AFX_SNAP_CONTENT[i]=""
+        fi
+        _AFX_SNAP_IDS+="local $f $id"$'\n'
+        if [[ -n "$ref" ]]; then
+            id="$(git rev-parse -q --verify "$ref:$f" 2>/dev/null)" || id=none
+            _AFX_SNAP_REFID[i]="$id"
+            _AFX_SNAP_IDS+="ref $f $id"$'\n'
+        fi
+        i=$((i + 1))
+    done
+    _AFX_SNAP_IDS="${_AFX_SNAP_IDS%$'\n'}"
+    return 0
+}
+
+# _artifact_afx_apply_snapshot <ref|""> -- apply exactly the snapshot.
+_artifact_afx_apply_snapshot() {
+    local ref="$1" i c rc
+    local -a rp=() rcontent=()
+    _AFX_INPUT_BRANCHES=(); _AFX_INPUT_DECL=""; _AFX_INPUT_DED=0
+    _artifact_afx_read_inputs "${_AFX_SNAP_PRESENT[0]}" "${_AFX_SNAP_CONTENT[0]}" \
+        "${_AFX_SNAP_PRESENT[1]}" "${_AFX_SNAP_CONTENT[1]}" 1 || return 1
+    if [[ -n "$ref" ]]; then
+        for i in 0 1; do
+            if [[ "${_AFX_SNAP_REFID[i]}" == none ]]; then
+                rp[i]=0; rcontent[i]=""
+            else
+                c="$(git cat-file blob "${_AFX_SNAP_REFID[i]}" && printf x)" || return 1
+                rp[i]=1; rcontent[i]="${c%x}"
+            fi
+        done
+        _artifact_afx_read_inputs "${rp[0]}" "${rcontent[0]}" "${rp[1]}" "${rcontent[1]}" 0 || return 1
+    fi
+    local -a want=()
+    local b
+    while IFS= read -r b; do [[ -n "$b" ]] && want+=( "$b" ); done \
+        < <(printf '%s\n' "${_AFX_INPUT_BRANCHES[@]}" | sort -u)
+    if (( ${#want[@]} == 0 )); then
+        echo "FETCH_EXCLUSION:NOT_CONFIGURED"
+        return 0
+    fi
+    rc=0; afx_apply_core "$_AFX_INPUT_DECL" "$_AFX_INPUT_DED" "${want[@]}" || rc=$?
+    return "$rc"
+}
+
+_AFX_STABLE_ATTEMPTS=3
+
+# _artifact_afx_apply_locked <ref|""> <if-changed:0|1> -- the whole
+# read-modify-write, under the fetch-exclusion lock. That lock serializes
+# appliers, NOT writers of the source files or of <ref>, so stability is
+# checked instead: the inputs are snapshotted, the snapshot is applied, and the
+# live inputs must still equal it afterwards. A change mid-apply re-runs it on a
+# fresh snapshot; inputs that never hold still fail the apply (exit 1, which the
+# sync guard turns into a deferral) and store no fingerprint.
+_artifact_afx_apply_locked() {
+    local ref="$1" if_changed="$2" stored live attempt rc
+    _ait_detect_data_worktree
+    if [[ -n "$ref" ]]; then
+        git rev-parse -q --verify "$ref^{commit}" >/dev/null \
+            || { warn "ait artifact fetch-exclusion: --also-ref '$ref' is not a commit"; return 1; }
+    fi
+    for (( attempt = 1; attempt <= _AFX_STABLE_ATTEMPTS; attempt++ )); do
+        _artifact_afx_snapshot "$ref" || { warn "ait artifact fetch-exclusion: could not read the inputs"; return 1; }
+        if [[ "$if_changed" == 1 && "$attempt" == 1 ]]; then
+            stored="$(git config --get "$AFX_FINGERPRINT_KEY" 2>/dev/null)" || stored=""
+            if [[ "$(afx_fingerprint_from "$_AFX_SNAP_IDS")" == "$stored" ]]; then
+                echo "FETCH_EXCLUSION:UNCHANGED"; return 0
+            fi
+        fi
+        if ! afx_git_supports_negative_refspec; then
+            echo "FETCH_EXCLUSION:UNSUPPORTED_GIT:$(afx_git_version)"
+            warn "git $(afx_git_version) has no negative refspecs (git >= 2.29 needed): routine fetches will still download the gitbranch artifact store"
+        else
+            rc=0; _artifact_afx_apply_snapshot "$ref" || rc=$?
+            (( rc == 0 )) || return 1
+        fi
+        live="$(afx_input_ids "$_AIT_DATA_WORKTREE" "$ref")" || return 1
+        if [[ "$live" == "$_AFX_SNAP_IDS" ]]; then
+            if [[ "$if_changed" == 1 ]]; then
+                # Over the CONSUMED inputs plus the remote state just written.
+                git config "$AFX_FINGERPRINT_KEY" "$(afx_fingerprint_from "$_AFX_SNAP_IDS")" \
+                    || { warn "ait artifact fetch-exclusion: could not store the input fingerprint"; return 1; }
+            fi
+            return 0
+        fi
+        warn "ait artifact fetch-exclusion: the configuration or store record changed while it was being applied — re-applying"
+    done
+    echo "FETCH_EXCLUSION:INPUTS_UNSTABLE"
+    warn "ait artifact fetch-exclusion: the configuration or store record kept changing; the exclusion is not confirmed — retry"
+    return 1
+}
+
+# _artifact_fetch_exclusion_apply [--also-ref <ref>] [--if-changed]
+_artifact_fetch_exclusion_apply() {
+    local ref="" if_changed=0
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --also-ref)   ref="${2:-}"; [[ -n "$ref" ]] || die "Usage: ait artifact fetch-exclusion apply [--also-ref <ref>] [--if-changed]"; shift 2 ;;
+            --if-changed) if_changed=1; shift ;;
+            *)            die "ait artifact fetch-exclusion apply: unknown argument $1" ;;
+        esac
+    done
+    # shellcheck source=lib/artifact_fetch_exclusion.sh
+    source "$SCRIPT_DIR/lib/artifact_fetch_exclusion.sh"
+    afx_with_lock _artifact_afx_apply_locked "$ref" "$if_changed"
+}
+
+# _artifact_fetch_exclusion_best_effort <context> [args...] -- the in-CLI call
+# sites (init-store, gitbranch-migrate): tokens go to stderr (the verb's own
+# stdout stays its own), and a failure warns without failing the verb.
+_artifact_fetch_exclusion_best_effort() {
+    local ctx="$1"; shift
+    if ! _artifact_fetch_exclusion_apply "$@" >&2; then
+        warn "${ctx}: could not update the routine-fetch exclusion for the gitbranch store — re-run: ait artifact fetch-exclusion apply"
+    fi
+    return 0
+}
+
+# _artifact_drop_retired_txn <branch> -- remove <branch> from the record's
+# retired list and commit, under the attach lock (the record's writer lock).
+_artifact_drop_retired_txn() {
+    local b="$1" rec_rel rec sid rec_branch out rb listed=0
+    local -a kept=()
+    rec_rel="$(_artifact_gitbranch_record_relpath)"
+    txn_begin "ait artifact fetch-exclusion drop-retired"
+    rec="$(_artifact_gitbranch_record_read)" \
+        || die "ait artifact fetch-exclusion drop-retired: could not read the gitbranch store record (see error above)"
+    if [[ -z "$rec" ]]; then
+        txn_end
+        info "No gitbranch store record — nothing is retired"
+        return 0
+    fi
+    sid="${rec%%$'\t'*}"; rec_branch="${rec#*$'\t'}"
+    [[ "$b" != "$rec_branch" ]] \
+        || die "ait artifact fetch-exclusion drop-retired: '$b' is the current store branch, not a retired one"
+    out="$(_artifact_gitbranch_record_retired)" \
+        || die "ait artifact fetch-exclusion drop-retired: could not read the record's retired branches"
+    while IFS= read -r rb; do
+        [[ -n "$rb" ]] || continue
+        if [[ "$rb" == "$b" ]]; then listed=1; else kept+=( "$rb" ); fi
+    done <<< "$out"
+    if (( ! listed )); then
+        txn_end
+        info "'$b' is not listed as a retired store branch — nothing to release"
+        return 0
+    fi
+    txn_require_clean "ait artifact fetch-exclusion drop-retired" "$rec_rel"
+    txn_snap_add "$rec_rel"
+    _artifact_gitbranch_record_write "$sid" "$rec_branch" "${kept[@]}" \
+        || die "ait artifact fetch-exclusion drop-retired: could not write ${rec_rel}"
+    if ! _artifact_commit "ait: Release retired gitbranch store branch ${b}" "$rec_rel"; then
+        txn_abort "ait artifact fetch-exclusion drop-retired: committing the record failed"
+    fi
+    txn_end
+    success "Released retired store branch '${b}' from the gitbranch store record"
+    return 0
+}
+
+# cmd_fetch_exclusion apply [--also-ref <ref>] [--if-changed] | drop-retired <branch>
+cmd_fetch_exclusion() {
+    local sub="${1:-}"
+    case "$sub" in
+        apply) shift; _artifact_fetch_exclusion_apply "$@" ;;
+        drop-retired)
+            shift
+            local b="${1:-}"
+            [[ -n "$b" && $# -eq 1 ]] || die "Usage: ait artifact fetch-exclusion drop-retired <branch>"
+            "$(require_python)" "$SCRIPT_DIR/lib/artifact_registry.py" --config "aitasks/metadata/project_config.yaml" \
+                validate-ref "$b" || die "ait artifact fetch-exclusion drop-retired: '$b' is not a usable branch (see error above)"
+            local cfg_out
+            cfg_out="$("$(require_python)" "$SCRIPT_DIR/lib/artifact_registry.py" --config "aitasks/metadata/project_config.yaml" gitbranch-fetch-config)" \
+                || die "ait artifact fetch-exclusion drop-retired: could not read the gitbranch config (see error above)"
+            [[ "${cfg_out%%$'\t'*}" != "$b" || -z "$cfg_out" ]] \
+                || die "ait artifact fetch-exclusion drop-retired: '$b' is the configured artifacts.backends.gitbranch.branch, not a retired one"
+            with_attach_lock _artifact_drop_retired_txn "$b"
+            # After with_attach_lock returned: the fetch-exclusion lock never nests.
+            _artifact_fetch_exclusion_apply
+            ;;
+        *) die "Usage: ait artifact fetch-exclusion apply [--also-ref <ref>] [--if-changed] | drop-retired <branch>" ;;
+    esac
+}
+
 main() {
     local verb="${1:-}"
     case "$verb" in
@@ -1244,6 +1546,7 @@ main() {
         versions)   shift; cmd_versions "$@" ;;
         init-store) shift; cmd_init_store "$@" ;;
         gitbranch-migrate) shift; cmd_gitbranch_migrate "$@" ;;
+        fetch-exclusion) shift; cmd_fetch_exclusion "$@" ;;
         *)          die "Unknown verb: $verb (try 'ait artifact help')" ;;
     esac
 }

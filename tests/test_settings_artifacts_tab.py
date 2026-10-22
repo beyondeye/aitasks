@@ -89,15 +89,28 @@ class _Fixture(unittest.TestCase):
         self.cfg.write_text(text, encoding="utf-8")
         return self.cfg.read_bytes()
 
-    def run_app(self, body, canned: dict | None = None):
+    def run_app(self, body, canned: dict | None = None,
+                fetch_exclusion: tuple[int, str, str] | None = None):
         """Boot the app with a recording seam and a notify/save spy, then run
-        `body(app, pilot, calls, notes, saves)`."""
+        `body(app, pilot, calls, notes, saves)`.
+
+        The fetch-exclusion seam (t2099) is always stubbed — a save must never
+        launch the real CLI from a test — and records its calls in
+        `app._fx_calls`; `fetch_exclusion` is its canned (rc, out, err)."""
         async def runner():
             app = SettingsApp()
             calls: list = []
             notes: list = []
             saves: list = []
             app._run_artifact_registry = _recorder(app, calls, canned)
+            fx_calls: list = []
+            fx_result = fetch_exclusion or (0, "FETCH_EXCLUSION:UNCHANGED\n", "")
+
+            def fx_seam():
+                fx_calls.append(True)
+                return fx_result
+            app._run_fetch_exclusion = fx_seam
+            app._fx_calls = fx_calls
             real_notify = app.notify
 
             def notify(message, **kw):
@@ -386,6 +399,67 @@ class SaveTests(_Fixture):
                 "ait artifact gitbranch-migrate --from old-branch --to new-branch"
                 in m for m in warnings), notes)
         self.run_app(body)
+
+
+class FetchExclusionTests(_Fixture):
+    """t2099: saving a gitbranch branch re-applies the routine-fetch exclusion."""
+
+    def test_save_with_branch_applies_exclusion(self):
+        self.write_cfg("artifacts:\n  backends:\n    gitbranch:\n"
+                       "      branch: old-branch\n")
+
+        async def body(app, pilot, calls, notes, saves):
+            self.set_branch(app, "new-branch")
+            app.save_artifacts_settings()
+            await pilot.pause()
+            self.assertEqual(len(saves), 1, notes)
+            self.assertEqual(len(app._fx_calls), 1)
+        self.run_app(body)
+
+    def test_changed_exclusion_is_reported(self):
+        self.write_cfg("artifacts:\n  backends:\n    gitbranch:\n"
+                       "      branch: old-branch\n")
+
+        async def body(app, pilot, calls, notes, saves):
+            self.set_branch(app, "new-branch")
+            app.save_artifacts_settings()
+            await pilot.pause()
+            self.assertTrue(any("Routine fetches now skip" in m for m, _ in notes), notes)
+        self.run_app(body, fetch_exclusion=(
+            0, "EXCLUDED:origin:new-branch\nFETCH_EXCLUSION:CHANGED\n", ""))
+
+    def test_failed_exclusion_warns_and_keeps_the_save(self):
+        self.write_cfg("artifacts:\n  backends:\n    gitbranch:\n"
+                       "      branch: old-branch\n")
+
+        async def body(app, pilot, calls, notes, saves):
+            self.set_branch(app, "new-branch")
+            app.save_artifacts_settings()
+            await pilot.pause()
+            self.assertEqual(len(saves), 1, notes)
+            warnings = [m for m, sev in notes if sev == "warning"]
+            self.assertTrue(any(
+                "not updated" in m and "[x] lock busy" in m
+                and "ait artifact fetch-exclusion apply" in m
+                for m in warnings), notes)
+            # Advisory only: the exclusion never turns into an error toast.
+            self.assertFalse(any("exclusion" in m for m in self.errors(notes)), notes)
+        # The stderr carries markup-like text: it must render literally.
+        self.run_app(body, fetch_exclusion=(1, "FETCH_EXCLUSION:BUSY\n", "[x] lock busy\n"))
+
+    def test_save_without_gitbranch_skips_exclusion(self):
+        self.write_cfg("verify_build: make\n")
+
+        async def body(app, pilot, calls, notes, saves):
+            app.save_artifacts_settings()
+            await pilot.pause()
+            self.assertEqual(app._fx_calls, [])
+        self.run_app(body)
+
+    def test_real_seam_targets_the_artifact_cli(self):
+        from settings_app import ARTIFACT_CLI
+        self.assertEqual(ARTIFACT_CLI.name, "aitask_artifact.sh")
+        self.assertTrue(os.access(ARTIFACT_CLI, os.X_OK), ARTIFACT_CLI)
 
 
 class HostileValueTests(_Fixture):

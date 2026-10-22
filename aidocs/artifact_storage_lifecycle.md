@@ -59,7 +59,7 @@ downloads every ref its refspec follows, and every blob committed to
 | plain `git clone` | the full `aitask-data` history, every blob ever committed | **the full store history** (it is a ref on `origin`) | nothing | nothing | nothing |
 | `git clone --single-branch` | code only | code only | nothing | nothing | nothing |
 | `ait setup` | fetches `aitask-data` by name, so all of its blobs | nothing | nothing | nothing | nothing |
-| `ait sync` | `aitask-data` deltas | **today:** the full store history (`git fetch origin` with no refspec, `aitask_sync.sh:278-284`). **After t2099:** nothing. | nothing (after t2099/t2100) | nothing | nothing |
+| `ait sync` | `aitask-data` deltas | nothing: the negative refspec excludes the store and its retired predecessors (t2099), applied by a data-branch-first guard before the broad fetch. Exception: a new store branch pushed before its record is published (§8). | nothing (after t2099/t2100) | nothing | nothing |
 | first read of one artifact | already local | **the whole store branch**: `ls-remote`, then a full branch fetch (`gitbranch.sh:126-136`) | the whole store branch from that repo | one file | one object |
 | a later read of the same version | local | cache hit, no network | cache hit, no network | cache | cache |
 
@@ -72,7 +72,7 @@ backend shares the per-user blob cache (`~/.cache/ait/artifacts`, §6).
 | Backend | New-machine download | Disk use | On-demand access | Offline | Version recovery | Credentials | Operational burden |
 |---|---|---|---|---|---|---|---|
 | `local` (data branch) | everything ever committed, through `ait setup` | full history in every checkout, permanently (D4) | none needed (already local) | full | every version, plus git history | none beyond repo access | none; the cost is unbounded growth of `aitask-data` |
-| `gitbranch`, same repo (`origin`) | plain clone: whole store history. `--single-branch` and `ait setup`: none. `ait sync`: none after t2099 | the main object store holds whatever was fetched; no eviction | first read fetches the whole store branch | cached reads only; writes fail closed (rule R1) until t1259 | every version; the store history also keeps deleted blobs until compaction (t2104) | repo push access | low: branch name config, occasional compaction |
+| `gitbranch`, same repo (`origin`) | plain clone: whole store history. `--single-branch` and `ait setup`: none. `ait sync`: none (t2099) | the main object store holds whatever was fetched; no eviction | first read fetches the whole store branch | cached reads only; writes fail closed (rule R1) until t1259 | every version; the store history also keeps deleted blobs until compaction (t2104) | repo push access | low: branch name config, occasional compaction |
 | `gitbranch`, separate repo (t2100) | none | depends on t2100's object-store decision (main repo vs. an isolated bare repo, which would make eviction possible) | first read fetches the whole store branch from that repo | as above | as above | access to a second repo (credential helper / SSH) | medium: a second repository to create, back up and grant access to |
 | `dir` | none; the directory must be mounted on each machine | external; the cache holds read copies | one file per read | cached reads work without the mount; uncached reads and writes need it | as long as the directory keeps the blobs; delete really frees space | filesystem / mount access | medium: mount management on every machine (t1968 covers unmount races) |
 | S3-compatible *(future, t1089)* | none | external, billed; cache only | one object per read | cached reads only | as long as the bucket keeps the objects (lifecycle rules are the host's) | access keys in env vars or a gitignored file, never in `project_config.yaml` | medium: bucket, keys and cost |
@@ -265,6 +265,19 @@ requirement and the number of blobs it is about to make unreachable.
   next operation refuses and names the migration, or follows the fallback,
   rather than writing to the old store. Their local copies of the old objects
   stay until their own `git gc` and reflog expiry.
+- **Retired branches stay excluded from routine fetches** (t2099). Migration
+  writes the predecessor into the record's `retired` list. Every clone computes
+  the same exclusion set from the configured branch, the record branch and
+  `retired`, so other clones and fresh clones exclude the predecessor without
+  ever fetching the store. `ait artifact fetch-exclusion drop-retired <branch>`
+  releases an entry once the branch is deleted from the remote (t2104's hook).
+  `ait sync` fetches the data branch first and applies the exclusion before its
+  broad fetch, so a published migration is excluded on the first sync after it.
+  One window remains. Migration pushes the new branch before the record naming
+  it reaches the remote, which happens at the migrating clone's next sync, and a
+  store's first write has the same window. A sync elsewhere in that window
+  downloads the new branch once. Closing it needs announce-before-copy
+  publication ordering, which t2099 deliberately left out of scope.
 - **Remote-host constraints.** Deleting a branch on a hosted remote makes its
   objects unreachable, but the host decides when to garbage-collect them. Forks,
   caches and pull-request refs may keep them indefinitely, and some hosts purge

@@ -89,8 +89,10 @@ DEFERRED_REASONS = frozenset({
     "publication_blocked",   # a commit we cannot vouch for is being withheld
     "protected_dirty",       # files another session owns block the rebase
     "worktree_wedged",       # the data worktree is stuck mid-rebase/merge
+    "fetch_exclusion",       # the gitbranch store exclusion could not be
+                             # confirmed, so the broad fetch was not run (t2099)
 })
-# Deliberately three, not five. `locks_unavailable` and `lock_contended` are
+# Deliberately four, not six. `locks_unavailable` and `lock_contended` are
 # per-file SKIP reasons inside the sweep: they surface in the stderr report and
 # roll up into `protected_dirty` on the wire, so they are not wire reasons and
 # declaring them here would make this set untrue.

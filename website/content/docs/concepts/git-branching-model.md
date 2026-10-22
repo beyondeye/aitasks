@@ -16,7 +16,7 @@ aitasks splits the repository across several long-lived branches:
 | `aitask-data` | All task and plan files. Checked out as a worktree at `.aitask-data/`. |
 | `aitask-locks` | Atomic task locks (one commit per lock acquire / release). |
 | `aitask-ids` | Reservation log used to allocate fresh task IDs without collisions. |
-| `aitask-artifacts` (optional) | Artifact blobs, present only when the `gitbranch` artifact backend is configured; the branch name is configurable. Written by `ait artifact` without a worktree. |
+| `aitask-artifacts` (optional) | Artifact blobs, present only when the `gitbranch` artifact backend is configured; the branch name is configurable. Written by `ait artifact` without a worktree. Routine fetches (`ait sync`, `git fetch`) skip it; only an artifact read fetches it. |
 
 `aitasks/` and `aiplans/` at the project root are **symlinks** into the `.aitask-data/` worktree, so they appear in the usual places but actually live on `aitask-data`. The `./ait git` wrapper routes git commands to the correct worktree based on the paths you pass — `./ait git add aitasks/t42_foo.md` operates on `aitask-data`, `git add src/foo.py` operates on `main`, and the two are committed independently.
 
