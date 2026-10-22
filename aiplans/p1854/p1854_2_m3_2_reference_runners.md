@@ -282,3 +282,120 @@ Each refusal returns an error naming why. `absent` = no such file.
 - Mutant table recorded with red/green per mutant and a `cmp` restore check.
 - `goengines/README.md` rows name every new test. The proposal renders: the M3.2a–k rows sit in the M3 Module Map table, and the section markers are intact.
 - Acceptance-criteria walk in Final Notes: one line per criterion → the test or file that meets it.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-22 07:40)
+- **Requested by user:** two blocking G6 / G2 defects. (1) `FreshReport` checked the components below the report directory but never the directory itself, so replacing the engine-created report directory with a symbolic link to a sibling directory let outside `cases.jsonl` evidence pass (unit `pass`, exit 0, no protocol error). (2) `decodeCase` (and M3.1's `decodeRow`) accepted repeated JSON members: `"status":"fail","status":"pass"` silently decoded as a pass, and Go's case-insensitive key match did the same for `"Status"`.
+- **Changes made:**
+  - `runner.NewReportDir(path) ReportDir` creates the report directory and records its identity and `Start`. `FreshReport(d ReportDir, path)` refuses the directory replaced: an `Lstat` that is not the same directory, and then every read through an `os.Root` handle whose `Stat(".")` identity is re-checked, so a swap after the check is never followed. It also refuses an inner symbolic link explicitly (`Lstat` plus `O_NOFOLLOW` through the root), even one pointing at a fresh file inside the directory. A removed report directory is a refusal, not absent evidence.
+  - `members` / `exactMembers` / `soleString` in `results.go`: a `results.jsonl` or `cases.jsonl` row whose members are not each spelled exactly, at most once, is malformed. Attribution of a malformed line (`ownID`, `caseUnit`) needs exactly one `id` / `unit` member, so a row naming two units taints every unit of the invocation (cases) or stays an invocation-level error (results).
+  - Regression tests were written first and seen red against the unfixed code: `TestCasesStaleReport` (the `swap` runner) and `TestCasesRepeatedMember` (repeated `status`, a `Status` case fold, two `unit` members, and a repeated `status` in `results.jsonl`). `TestFreshReportRefusals` gained the symlinked, recreated, removed and unregistered report directory cases and an inside-the-directory link.
+  - New isolated mutants m18–m21, all red, restored byte-identical. The whole set m01–m21 was re-run after the restructure, and m13 was redefined so it compiles (its first form failed to build, which is not a valid red).
+- **Files affected:** `goengines/internal/testmap/runner/{report_unix.go,invoke.go,results.go,evidence_contract_test.go,cases_run_test.go}`, `goengines/README.md`.
+
+### Change Request 2 (2026-10-22 08:05)
+- **Requested by user:** (1, blocking) invalid UTF-8 in `cases.jsonl` was silently repaired by JSON decoding before identity validation, so a reported case `a\xff` became the expected `a�` and passed. (2, follow-up) `caseEvidence` fully decoded `cases.jsonl` even under `unit` / `aggregate`, which reject it on the emitted flag alone.
+- **Changes made:**
+  - `exactMembers` refuses a line that is not valid UTF-8 before any decoding. That covers `results.jsonl` too, where the same repair happened. `soleString` (malformed-line attribution) never accepts a value with invalid UTF-8, so attribution never names a repaired identity.
+  - `caseEvidence` reads the report, records any freshness error and the emitted flag, and returns for `unit` / `aggregate` before decoding a row. The rejected-report taint is applied after `ValidateCases`, for `cases` only.
+  - `TestCasesInvalidUTF8` (raw 0xff against an expected U+FFFD identity in `cases.jsonl`, and a raw byte in a `results.jsonl` row) was seen red first and passes now. Mutant m22 (the UTF-8 check dropped) is red and was restored byte-identical. Full `ait engine test`, preflight and vet are green.
+- **Files affected:** `goengines/internal/testmap/runner/{results.go,invoke.go,cases_run_test.go}`, `goengines/README.md`.
+
+### Change Request 3 (2026-10-22 08:25)
+- **Requested by user:** (blocking) the raw UTF-8 check let unpaired JSON surrogate escapes (`\ud800`, `\udfff`) through: the bytes are valid UTF-8, and decoding then repaired them into U+FFFD, so the case matched an expected U+FFFD identity and passed.
+- **Changes made:**
+  - `lossless(s)` in `results.go` requires valid UTF-8 and requires every surrogate `\u` escape inside a string literal to be a high surrogate followed immediately by an escaped low one. Every other escape is taken as is, so an escaped backslash before `u` is literal text.
+  - `exactMembers` (both decoders) and `soleString` (malformed-line attribution) use it. A literal U+FFFD, its `�` escape and valid surrogate pairs stay accepted.
+  - Tests: `TestExactMembersUnicode` (accepted: a literal or escaped U+FFFD, a valid pair, an escaped backslash followed by `u`; refused: a lone high or low surrogate, a high surrogate followed by a non-surrogate, a reversed pair, a surrogate in a member name, raw 0xff) and two new rows in `TestCasesInvalidUTF8` (an escaped surrogate in `cases.jsonl` against an expected U+FFFD, and in `results.jsonl`). Both were seen red first.
+  - Mutants m23 (surrogate checks dropped), m24 (attribution lossy) and m25 (escape not skipped) are red and were restored byte-identical. Full `ait engine test`, preflight and vet are green; the characterization test is unedited.
+- **Files affected:** `goengines/internal/testmap/runner/{results.go,cases_run_test.go,evidence_contract_test.go}`, `goengines/README.md`.
+
+## Final Implementation Notes
+- **Actual work done:** everything in Design A–H, plus the pre-phase characterization. The pieces:
+  - `describe` keys `accounting` / `discovery` and the `zero_tests` entry key;
+  - case rows in `list` and `Unit.Cases`;
+  - `runner/reconcile.go` (`Reconcile`, `Expectation`, `CaseResult`, `Reconciled`, `CaseCounts`, `EvidenceKey`, reasons and policy constants);
+  - `ReportDir` / `NewReportDir` / `FreshReport`;
+  - `cases.jsonl` validation (`ValidateCases`, `CasesFile`) with malformed-line attribution;
+  - end-classified derivation in `invoke.caseEvidence`, with the kill-path precedence;
+  - the cases arm of `decide`;
+  - the `Result` / `Record` / `Manifest` fields;
+  - `RunReport.Accounting` / `DiscoveryCandidates`, `RunAccounting`, and `Lister` as a pointer that remembers its `Candidates()`;
+  - the `DISCOVERY:` / `CASES:` / `RUN_ACCOUNTING:` lines;
+  - `RegisterReportingContract` and the `Children` gate on child rows;
+  - ledger `accounting` / `discovery` / `reason` and `opaque:aggregate`;
+  - the README Interfaces rows and the *Evidence contract (M3.2)* section;
+  - the proposal: Module Map rows M3.2a–k, the *Reference runners* component, OQ 8 and the Named follow-ups.
+- **Deviations from plan:**
+  - `FreshReport(dir, path, start)` became `FreshReport(d ReportDir, path)` + `NewReportDir(path)` (CR1). Only the recorded directory identity can refuse a replaced report directory.
+  - Both row decoders now refuse lossy JSON: repeated or non-exact members (CR1), invalid UTF-8 and unpaired surrogate escapes (CR2, CR3). This is a named-extension change to M3.1's `decodeRow` / `ownID` too, which had the same G2 hole.
+  - `caseEvidence` returns before decoding under `unit` / `aggregate` (CR2).
+  - A rejected report gives `rejected_report,incomplete` (the refused rows are never read) rather than `rejected_report` alone.
+  - Five existing exact-output tests gained the default `DISCOVERY:` line: `cmd/ait-testmap/{run_test,axes_test,scoped_e2e_test}.go`.
+- **Issues encountered:**
+  - The characterization pinned one M3.1 behaviour I had misread: `unit` accounting with exit 75 plus a row keeps the row's `pass` and adds an `exit_mismatch` cause. The test pins it as observed.
+  - A fixture quoting bug (`${DUP:-two}` inside single quotes) was caught by the reconciler itself as `unexpected_case`.
+  - Mutant m13 first failed to compile (`fi` unused), which is not a valid red. It was redefined until a test failed.
+  - Mutants are anchored on exact source text, so the m12 / m13 anchors had to move after the `FreshReport` restructure; the whole set was re-run.
+- **Key decisions:**
+  - Case identities come from `list` rows, not a separate `cases` verb: one native collection per `Load`.
+  - `accounting: cases` refuses `timeouts: per_unit`.
+  - A `zero_tests` on a non-cases runner and case rows from a non-cases `list` are refused, not ignored.
+  - The engine passes the effective class (`AIT_TESTMAP_ACCOUNTING`, manifest `accounting`) so a builtin can honour a `runners.yaml` override.
+  - `unaccounted` counts subsumed units without a valid child row (t1854_14 swaps the source for the reconciler).
+  - `DISCOVERY:` lines appear in `run` text and `--json`, and in `scan` / `check` text only. The M2.x JSON characterizations stay unchanged.
+  - Freshness uses the report directory's own mtime as the bound (same kernel clock as the files).
+- **Verification:**
+  - `./ait engine test` green (17 packages, exit 0); `ci/preflight.sh` green; `go vet ./...` and `gofmt` clean.
+  - `TestCharacterizeUnitAccountingOutcomes` was green on the untouched tree and is byte-identical to that version now (`cmp`).
+  - Isolated mutants, each restored byte-identical (`cmp`), all RED:
+    - m01 count-only reconciliation;
+    - m02 counters from raw rows;
+    - m03 zero expected → pass;
+    - m04 incomplete dropped;
+    - m05 malformed attribution dropped;
+    - m06 derive before classifying the end;
+    - m07 policy as a protocol error;
+    - m08 rejected-report taint dropped;
+    - m09 kill path `Complete` instead of `Terminal`;
+    - m10 kill path drops invalid evidence;
+    - m11 `result_under_cases` dropped;
+    - m12 freshness mtime;
+    - m13 inner symlink (Lstat check + O_NOFOLLOW);
+    - m14 outside path;
+    - m15 contract check in `Validate`;
+    - m16 child rows without a contract;
+    - m17 `opaque:aggregate`;
+    - m18 replaced report directory (both identity checks);
+    - m19 / m20 exact members in the case / result decoders;
+    - m21 last-member-wins attribution;
+    - m22 UTF-8 check;
+    - m23 surrogate checks;
+    - m24 lossy attribution;
+    - m25 escape not skipped.
+- **Acceptance walk:**
+  - describe keys: `TestDescribeEvidenceKeys`, `TestDescribeRefusesUnknownClasses`.
+  - zero-test policy: `TestZeroTestsEntryKey`, `TestCasesZeroTestsPolicy`.
+  - expected case identities: `TestListCaseRows`, `TestListCaseRowsMalformed`, `TestRunCasesThroughBinary` (`INPUT_ERROR:lister` through scan).
+  - case results: `TestCasesRunReconciled`, `TestCasesTopLevelRowRefused`, `TestCaseRowsRefusedUnderUnit`.
+  - reconciler and its matrix, including child keys: `TestReconcileMatrix`.
+  - output: `TestRunThroughBinary`, `TestRunCasesThroughBinary`, `TestScanCheckRealLister`, `TestRunAccounting`.
+  - freshness: `TestFreshReportRefusals`, `TestCasesStaleReport`, `TestReportDirFreshPerInvocation`.
+  - G7 seam: `TestChildrenNeedRegisteredContract`, `TestChildRowsNeedContract`.
+  - ledger: `TestLedgerRecordsAccountingDiscovery`, `TestEligibilityAggregateNeverAnchors`, with every other eligibility test green.
+  - docs: README and proposal.
+  - the mutants above.
+- **Upstream defects identified:** None
+- **Notes for sibling tasks:**
+  - **The protocol for a cases adapter (t1854_9/10/11/13):**
+    - `list` prints `<unit>\tcase\t<identity>` rows. The identity is non-empty UTF-8 with no control character, once per unit.
+    - The adapter writes `{"unit","case","status":pass|fail|error|skip,"duration_ms","message"?}` lines to `$AIT_TESTMAP_REPORT_DIR/cases.jsonl`. Every member is spelled exactly, once, as lossless JSON.
+    - It writes start rows only, never a top-level result, to `results.jsonl`. It exits 0 iff no reported case failed or errored, 1 otherwise, and 2 only with no case rows.
+    - It reads `manifest.units[].cases` and `manifest.accounting` (also `$AIT_TESTMAP_ACCOUNTING`).
+    - `timeouts: per_unit` is refused for `cases`.
+  - **The kill path:** only a unit with every expected identity reported keeps its status. Invalid written evidence is still an error; everything else is timeout attribution.
+  - **For t1854_6 (scaffold):** use `runner.NewReportDir` / `runner.FreshReport` / `runner.ValidateCases`, not a parallel reader. `ReportDir` carries the recorded identity; build it only through `NewReportDir`.
+  - **For t1854_12 (suite):** declare `accounting: aggregate`. Aggregate results never anchor, and `full: true` child rows need a registered contract (t1854_14).
+  - **For t1854_14:** call `runner.Reconcile` with `EvidenceKey{Parent: suite, Unit: subsumed}`. Put report-level faults in `Expectation.Taints` (`malformed_case`, `rejected_report`) and report `stray`. Register formats with `runner.RegisterReportingContract`. Today `RunAccounting.Unaccounted` counts subsumed units with no valid child row (`accountFor` in `run.go`); swap its source to reconciled child evidence.
+  - Test helpers: `withReportingContract(t, name)` (runner) or a package `init` (cost); `crow` in the fixture runner script; `scenRepo` / `runIDs` / `resultOf` in `cases_run_test.go`.
