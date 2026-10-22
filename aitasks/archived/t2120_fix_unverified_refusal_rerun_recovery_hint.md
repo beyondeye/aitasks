@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [git, bash_scripts, robustness]
 active_gates: [risk_evaluated]
 active_gates_filtered: []
@@ -16,7 +16,8 @@ anchor: 1733
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5_5
 created_at: 2026-10-22 10:07
-updated_at: 2026-10-22 11:03
+updated_at: 2026-10-22 12:57
+completed_at: 2026-10-22 12:57
 ---
 
 ## Origin
@@ -66,3 +67,14 @@ wording (grep "Re-run 'ait setup'" / "to retry") and whether the setup-side
 > **✅ gate:plan_approved** run=2026-10-22T08:03:03Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-10-22T09:53:59Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-10-22T09:57:38Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:c04a925393c9a8d5
+
+> **✅ gate:risk_evaluated** run=2026-10-22T09:57:38Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/2120/risk_evaluated_2026-10-22T09:57:38Z-risk_evaluated-a1.log`
