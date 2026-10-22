@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1599
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-16 01:05
-updated_at: 2026-10-20 19:14
+updated_at: 2026-10-22 10:06
 ---
 
 ## Origin
@@ -59,3 +60,8 @@ Have addwork/setmode refuse cleanly when their rebase stops: abort only the reba
 > | Advisory context only; the design choice of abort vs report stays yours.
 
 > **👁 note:read** id=2026-10-20T16:14:37Z.67bd9fa84dd8502ea4697aab by=t2028 at=2026-10-20T16:14:37Z mode=explicit ids=2026-10-16T05:02:51Z.793c22e73a93f02ec5c1b5f3
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-22T07:06:28Z status=pass attempt=1 type=human
