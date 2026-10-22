@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1852
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-21 22:06
-updated_at: 2026-10-22 11:23
+updated_at: 2026-10-22 15:04
 ---
 
 ## Context
@@ -120,3 +121,8 @@ What each status proves:
   - no `adb` / emulator;
   - unprivileged user + pid namespaces work, and the session cgroup v2 scope is writable.
 - **Automation-first** (user directive, 2026-10-11). No path may make a human action a precondition. A human-only step met in the proposal is reported to its owning parent with a note.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-22T12:04:00Z status=pass attempt=1 type=human
