@@ -90,3 +90,8 @@ Points to get right, all load-bearing in the current design:
 `proc_root`; the macOS path needs the same treatment — an injectable command
 runner rather than a real `lsof` — plus a live check on an actual Mac, which is
 the part this repo's Linux CI cannot do.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-22T07:08:29Z status=pass attempt=1 type=human
