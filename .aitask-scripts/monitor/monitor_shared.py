@@ -160,10 +160,57 @@ STATE_STYLE_PROMPT = "bold magenta"
 #: tests/test_markup_colour_contract.py. #1e90ff is CSS `dodgerblue`, the shade
 #: the old name intended; plain CSS `blue` is #000080, far too dark on the
 #: #1a1a1a card.
-STATE_STYLE_DONE = "bold #1e90ff"
+STATE_COLOUR_DONE = "#1e90ff"
+STATE_STYLE_DONE = f"bold {STATE_COLOUR_DONE}"
 
 STATE_STYLE_IDLE = "yellow"
 STATE_STYLE_ACTIVE = "green"
+
+
+# Advisory workflow-phase marks (t2128): the minimonitor's phase row leads each
+# phase with its own glyph and paints it in its own colour, so the phase reads
+# at a glance instead of disappearing into the dim gate counts beside it.
+#
+# One (glyph, style) per member of `workflow_phase.PHASES`, keyed off that tuple
+# and pinned to it by a drift guard (tests/test_minimonitor_gate_phase_row.py).
+# Every `unknown (…)` variant is the UNKNOWN phase, so it takes that entry.
+#
+# Glyphs are one fill-level family — the circle fills as the task moves through
+# the workflow, and the dotted one is "cannot tell". Admitted under the
+# `mark_glyphs` codepoint policy by measurement: covered by every family in
+# `mark_glyphs.SUPPORTED_FONTS`, claimed by no emoji font, and East Asian Width
+# Neutral, so each is exactly one cell (evidence: tests/data/font_coverage.json,
+# checked by tests/test_mark_glyphs_single_source.py).
+#
+# PLAN and UNKNOWN stay `dim` — the row's colour before t2128; UNKNOWN is
+# "cannot tell", not a phase, and must not compete with one. POSTIMPL reuses the
+# DONE colour without its bold.
+#
+# IMPLEMENT's green is chosen by WCAG contrast, not taste. It must stay legible
+# on the focused card (`MiniPaneCard:focus` paints `$accent`, #ffa62b orange
+# under the default `textual-dark` theme) as well as on dark and light
+# backgrounds, and must differ from POSTIMPL's blue in luminance, not only hue.
+# Measured: 2.37 on the focus orange (POSTIMPL's blue manages 1.66), 4.05 on
+# #121212, 3.50 on #E0E0E0, 1.43 against #1e90ff. Lighter greens vanish on the
+# orange, darker ones on the dark background.
+PHASE_COLOUR_IMPLEMENT = "#22863a"
+
+PHASE_MARKS: dict[str, tuple[str, str]] = {
+    "PLAN": ("◔", "dim"),
+    "IMPLEMENT": ("◕", PHASE_COLOUR_IMPLEMENT),
+    "POSTIMPL": ("◉", STATE_COLOUR_DONE),
+    workflow_phase.UNKNOWN_PHASE: ("◌", "dim"),
+}
+
+
+def phase_mark(sig) -> tuple[str, str]:
+    """``(glyph, style)`` for a ``workflow_phase.PhaseSignal``.
+
+    Total: a phase outside :data:`PHASE_MARKS` reads as UNKNOWN, the same
+    degradation ``workflow_phase.parse_signal`` applies to a non-member.
+    """
+    return PHASE_MARKS.get(getattr(sig, "phase", None),
+                           PHASE_MARKS[workflow_phase.UNKNOWN_PHASE])
 
 
 def _state_color(snap: PaneSnapshot, completed: bool = False) -> str:

@@ -58,11 +58,13 @@ os.environ.pop("TMUX_PANE", None)
 from rich.cells import cell_len  # noqa: E402
 from rich.text import Text  # noqa: E402
 from textual.app import App, ComposeResult  # noqa: E402
+from textual.content import Content  # noqa: E402
 from textual.containers import VerticalScroll  # noqa: E402
 
 import gate_ledger  # noqa: E402
 import workflow_phase  # noqa: E402
 from monitor import minimonitor_app as mm  # noqa: E402
+from monitor import monitor_shared as ms  # noqa: E402
 from monitor.monitor_core import PaneCategory, TaskInfo  # noqa: E402
 from monitor.prompt_patterns import agent_key_from_command  # noqa: E402
 
@@ -331,6 +333,173 @@ class MergedRowLadderTests(unittest.TestCase):
             "")
 
 
+def _every_phase_signal() -> list[workflow_phase.PhaseSignal]:
+    """One signal per narrow phase rendering the row can carry: every member of
+    PHASES, waiting or not, under every resolution suffix, plus every
+    `_UNKNOWN_TEXT` cause. Built from the vocabulary constants, so a new phase
+    or cause is swept automatically."""
+    sigs = []
+    for resolution in ("scoped", "unresolved", "no_markers"):
+        for waiting in ("RUNNING", "WAITING"):
+            for phase in workflow_phase.PHASES:
+                sigs.append(_sig(phase=phase, waiting=waiting,
+                                 resolution=resolution))
+            sigs.append(_sig(recording="off", waiting=waiting,
+                             resolution=resolution))
+    return sigs
+
+
+class GlyphLadderTests(unittest.TestCase):
+    """The shed ladder with the phase glyph (t2128): the glyph's cells are
+    counted on every rung, before anything decides what fits."""
+
+    def _assert_fits(self, line: str, budget: int) -> None:
+        self.assertLessEqual(
+            cell_len(line), budget,
+            f"{line!r} is {cell_len(line)} cells, budget is {budget}")
+
+    def test_best_case_joins_verbatim_with_the_glyph(self):
+        line = mm.format_gate_phase_row("IMPLEMENT ⏸", "2/2 pass",
+                                        _DETAIL_BUDGET, glyph="◕")
+        self.assertEqual(line, "◕ IMPLEMENT ⏸ · 2/2 pass")
+
+    def test_the_glyph_is_counted_before_rung_1_decides(self):
+        """33 cells without the glyph, 35 with it: the verbatim tail fits only
+        if the glyph is forgotten, so counting it must abbreviate."""
+        bare = mm.format_gate_phase_row("IMPLEMENT ⏸", "3/4 pass, 1 pending",
+                                        _DETAIL_BUDGET)
+        self.assertEqual(bare, "IMPLEMENT ⏸ · 3/4 pass, 1 pending")
+        line = mm.format_gate_phase_row("IMPLEMENT ⏸", "3/4 pass, 1 pending",
+                                        _DETAIL_BUDGET, glyph="◕")
+        self.assertEqual(line, "◕ IMPLEMENT ⏸ · 3/4 1p")
+        self._assert_fits(line, _DETAIL_BUDGET)
+
+    def test_rung_2_keeps_the_glyph_and_clips_the_phase(self):
+        line = mm.format_gate_phase_row(
+            "SOMEVERYLONGPHASENAME ⏸", "1/4 pass, 1 pending, 1 failed, 1 stale",
+            30, glyph="◌")
+        self._assert_fits(line, 30)
+        self.assertTrue(line.startswith("◌ SOME"), line)
+        self.assertTrue(line.endswith("· 1/4 1p 1f 1s"), line)
+        self.assertIn("…", line)
+
+    def test_rung_3_drops_the_glyph_with_the_phase(self):
+        line = mm.format_gate_phase_row(
+            "SOMEVERYLONGPHASENAME ⏸", "1/4 pass, 1 pending, 1 failed, 1 stale",
+            16, glyph="◌")
+        self.assertEqual(line, "1/4 1p 1f 1s")
+
+    def test_a_lone_phase_keeps_its_glyph_down_to_one_cell(self):
+        self.assertEqual(
+            mm.format_gate_phase_row("unknown (rec off)", "", 10, glyph="◌"),
+            "◌ unknown…")
+        for budget in (1, 2, 3, 5):
+            with self.subTest(budget=budget):
+                self.assertEqual(
+                    mm.format_gate_phase_row("unknown (rec off)", "", budget,
+                                             glyph="◌"), "◌")
+        self.assertEqual(
+            mm.format_gate_phase_row("unknown (rec off)", "", 0, glyph="◌"), "")
+
+    def test_no_glyph_keeps_the_pre_t2128_ladder(self):
+        """The plain API without a glyph is byte-identical to before."""
+        self.assertEqual(mm.format_gate_phase_row("IMPLEMENT", "", 4), "IMP…")
+        self.assertEqual(mm.format_gate_phase_row("IMPLEMENT", "", 1), "…")
+
+    def test_every_phase_fits_every_budget(self):
+        """The sweep: every phase rendering x every gate shape x budgets 0..40,
+        drawn exactly as the row draws it — glyph included."""
+        gate_shapes = ("", "2/2 pass", "3/4 pass, 1 pending",
+                       "0/4 pass, 1 pending, 1 failed, 1 stale")
+        for sig in _every_phase_signal():
+            for gates in gate_shapes:
+                for budget in range(0, 41):
+                    with self.subTest(sig=sig, gates=gates, budget=budget):
+                        markup = mm.format_gate_phase_markup(sig, gates, budget)
+                        self._assert_fits(Content.from_markup(markup).plain,
+                                          budget)
+
+
+class PhaseMarkTests(unittest.TestCase):
+    """`monitor_shared.PHASE_MARKS` — the phase -> (glyph, style) table."""
+
+    def test_ratified_marks(self):
+        self.assertEqual(ms.PHASE_MARKS, {
+            "PLAN": ("◔", "dim"),
+            "IMPLEMENT": ("◕", "#22863a"),
+            "POSTIMPL": ("◉", "#1e90ff"),
+            "UNKNOWN": ("◌", "dim"),
+        })
+        self.assertEqual(ms.STATE_STYLE_DONE, f"bold {ms.STATE_COLOUR_DONE}")
+
+    def test_drift_guard_every_phase_has_a_mark(self):
+        """Keyed off the vocabulary, not a re-listing of it: a phase added to
+        `workflow_phase.PHASES` without a mark fails here."""
+        self.assertEqual(set(ms.PHASE_MARKS), set(workflow_phase.PHASES))
+        self.assertIn(workflow_phase.UNKNOWN_PHASE, ms.PHASE_MARKS)
+
+    def test_every_unknown_variant_takes_the_unknown_mark(self):
+        unknown = ms.PHASE_MARKS[workflow_phase.UNKNOWN_PHASE]
+        variants = [s for s in _every_phase_signal()
+                    if s.phase == workflow_phase.UNKNOWN_PHASE]
+        rendered = {workflow_phase.render_phase_narrow(s) for s in variants}
+        # Every cause in `_UNKNOWN_TEXT` is actually exercised.
+        for long_text, narrow in workflow_phase._UNKNOWN_TEXT.values():
+            self.assertTrue(any(r.startswith(narrow) for r in rendered),
+                            f"{narrow!r} never rendered")
+        for sig in variants:
+            with self.subTest(sig=sig):
+                self.assertEqual(ms.phase_mark(sig), unknown)
+
+    def test_a_non_member_degrades_to_unknown(self):
+        self.assertEqual(ms.phase_mark(_sig(phase="BOGUS")),
+                         ms.PHASE_MARKS[workflow_phase.UNKNOWN_PHASE])
+        self.assertEqual(ms.phase_mark(object()),
+                         ms.PHASE_MARKS[workflow_phase.UNKNOWN_PHASE])
+
+    def test_every_style_is_live_textual_markup(self):
+        """`parse_style` is Textual's own decision procedure — an unknown
+        token would paint as unstyled text without raising (t1453)."""
+        from textual.markup import parse_style
+        for phase, (glyph, style) in ms.PHASE_MARKS.items():
+            with self.subTest(phase=phase):
+                parse_style(style)
+                self.assertEqual(cell_len(glyph), 1)
+
+    def test_format_phase_markup_renders_glyph_and_text_in_its_style(self):
+        for phase, (glyph, style) in ms.PHASE_MARKS.items():
+            if phase == workflow_phase.UNKNOWN_PHASE:
+                sig = _sig(recording="off")
+                text = "unknown (rec off)"
+            else:
+                sig, text = _sig(phase=phase), phase
+            with self.subTest(phase=phase):
+                markup = mm.format_phase_markup(sig, 40)
+                content = Content.from_markup(markup)
+                self.assertEqual(content.plain, f"{glyph} {text}")
+                self.assertEqual(
+                    [(s.start, s.end, str(s.style)) for s in content.spans],
+                    [(0, len(content.plain), style)])
+
+    def test_format_phase_markup_fits_every_budget(self):
+        for sig in _every_phase_signal():
+            glyph, style = ms.phase_mark(sig)
+            for budget in range(0, 41):
+                with self.subTest(sig=sig, budget=budget):
+                    markup = mm.format_phase_markup(sig, budget)
+                    plain = Content.from_markup(markup).plain
+                    self.assertLessEqual(cell_len(plain), budget)
+                    if workflow_phase.render_phase_narrow(sig) and budget >= 1:
+                        self.assertTrue(plain.startswith(glyph), plain)
+                        self.assertTrue(markup.startswith(f"[{style}]"), markup)
+                    elif budget == 0:
+                        self.assertEqual(markup, "")
+
+    def test_nothing_honest_to_say_renders_no_phase(self):
+        self.assertEqual(mm.format_phase_markup(_sig(), 40), "")
+        self.assertEqual(mm.format_gate_phase_markup(_sig(), "", 40), "")
+
+
 def _snap(*, window_name: str = "agent-pick-42", content: str = "",
           awaiting_input: bool = False, awaiting_input_kind: str = "",
           command: str = "node"):
@@ -387,6 +556,26 @@ def _gated_app(summary: str, phase_signal: workflow_phase.PhaseSignal):
     return app
 
 
+def _card_rows(markup: str) -> list[str]:
+    """The card's rows as rendered plain text.
+
+    Parsed WHOLE, with Textual's parser — the one ``MiniPaneCard`` uses. A row
+    cannot be parsed on its own any more: the gate/phase row opens by closing
+    the ``[dim]`` the title row leaves open (t2128), which is a dangling tag
+    out of context.
+    """
+    return Content.from_markup(markup).plain.split("\n")
+
+
+def _row_styles(markup: str, row: int) -> list[frozenset]:
+    """Per cell of rendered ``row``, the set of style strings covering it."""
+    content = Content.from_markup(markup)
+    start = sum(len(r) + 1 for r in content.plain.split("\n")[:row])
+    end = start + len(content.plain.split("\n")[row])
+    return [frozenset(str(s.style) for s in content.spans
+                      if s.start <= i < s.end) for i in range(start, end)]
+
+
 class CardShapeTests(unittest.TestCase):
     """The card's line structure, pinned at the source. Complements the
     composited test below: a wrap on screen can hide a missing line, so the
@@ -396,40 +585,71 @@ class CardShapeTests(unittest.TestCase):
         app = _gated_app("3/4 pass, 1 pending",
                          _sig(phase="IMPLEMENT", waiting="WAITING"))
         markup = app._agent_card_text(_snap())
-        lines = markup.split("\n")
+        lines = _card_rows(markup)
         self.assertEqual(
             len(lines), 3,
             f"gated card should be 3 rows (was 4 before t1479): {markup!r}")
-        merged = Text.from_markup(lines[2]).plain.strip()
-        self.assertEqual(merged, "IMPLEMENT ⏸ · 3/4 pass, 1 pending")
+        # The glyph's two cells push the verbatim tail (35 cells) past the
+        # 34-cell detail budget, so rung 1 abbreviates it (t2128).
+        self.assertEqual(lines[2].strip(), "◕ IMPLEMENT ⏸ · 3/4 1p")
         self.assertNotIn("gates: ", markup)
         self.assertNotIn("phase: ", markup)
 
     def test_gates_without_a_phase_render_alone(self):
         app = _gated_app("2/2 pass", _sig())
-        lines = app._agent_card_text(_snap()).split("\n")
+        lines = _card_rows(app._agent_card_text(_snap()))
         self.assertEqual(len(lines), 3)
-        self.assertEqual(Text.from_markup(lines[2]).plain.strip(), "2/2 pass")
+        self.assertEqual(lines[2].strip(), "2/2 pass")
 
     def test_phase_without_counted_gate_runs_renders_alone(self):
         app = _gated_app("", _sig(phase="PLAN"))
-        lines = app._agent_card_text(_snap()).split("\n")
+        lines = _card_rows(app._agent_card_text(_snap()))
         self.assertEqual(len(lines), 3)
-        self.assertEqual(Text.from_markup(lines[2]).plain.strip(), "PLAN")
+        self.assertEqual(lines[2].strip(), "◔ PLAN")
 
     def test_ungated_task_with_no_phase_has_no_third_row(self):
         app = _gated_app("", _sig())
-        lines = app._agent_card_text(_snap()).split("\n")
+        lines = _card_rows(app._agent_card_text(_snap()))
         self.assertEqual(len(lines), 2, "name + title only")
 
     def test_merged_row_fits_the_detail_budget(self):
         app = _gated_app("0/4 pass, 1 pending, 1 failed, 1 stale",
                          _sig(recording="off"))
-        merged = Text.from_markup(
-            app._agent_card_text(_snap()).split("\n")[2]).plain
+        merged = _card_rows(app._agent_card_text(_snap()))[2]
         self.assertLessEqual(
             cell_len(merged), _ROW_WIDTH_BUDGET,
             f"merged row is {cell_len(merged)} cells: {merged!r}")
+
+    def test_the_phase_carries_its_own_style_and_the_counts_stay_dim(self):
+        """t2128's point, at the span level: the phase is painted in its own
+        colour — NOT also dim, which is what it would be if the title row's
+        open `[dim]` leaked into this row — and only the counts are dim."""
+        for phase, style in (("IMPLEMENT", ms.PHASE_COLOUR_IMPLEMENT),
+                             ("POSTIMPL", ms.STATE_COLOUR_DONE)):
+            with self.subTest(phase=phase):
+                app = _gated_app("1/4 pass, 1 pending", _sig(phase=phase))
+                markup = app._agent_card_text(_snap())
+                row = _card_rows(markup)[2]
+                styles = _row_styles(markup, 2)
+                head = row.index(phase) + len(phase)
+                lead = len(row) - len(row.lstrip())
+                for i in range(lead, head):
+                    self.assertEqual(styles[i], frozenset({style}),
+                                     f"cell {i} {row[i]!r} of {row!r}")
+                for i in range(head, len(row)):
+                    self.assertEqual(styles[i], frozenset({"dim"}),
+                                     f"cell {i} {row[i]!r} of {row!r}")
+
+    def test_the_title_row_keeps_its_dim(self):
+        """Negative control for the `[/dim]` that opens the gate/phase row: it
+        must close the title's span only where the title ENDS."""
+        app = _gated_app("2/2 pass", _sig(phase="PLAN"))
+        markup = app._agent_card_text(_snap())
+        title = _card_rows(markup)[1]
+        styles = _row_styles(markup, 1)
+        for i, ch in enumerate(title):
+            if ch.strip():
+                self.assertIn("dim", styles[i], f"title cell {i} {ch!r}")
 
 
 class _RowHost(App):
@@ -485,23 +705,28 @@ class CompositedRowTests(unittest.TestCase):
         self.assertEqual(merged.strip(), expected)
         self.assertNotIn(
             "…", merged, f"row was ellipsised by the compositor: {merged!r}")
+        # The strip carries MiniPaneCard's 1-cell left padding and the row's
+        # 2-cell indent, so measure the content against the detail budget it
+        # was sized to — not the strip against `_ROW_WIDTH_BUDGET`, which was
+        # off by the padding cell and could not fail until a row reached 34.
+        content = merged.strip()
         self.assertLessEqual(
-            cell_len(merged), _ROW_WIDTH_BUDGET,
-            f"row is {cell_len(merged)} cells, budget is {_ROW_WIDTH_BUDGET}")
+            cell_len(content), _DETAIL_BUDGET,
+            f"row is {cell_len(content)} cells, budget is {_DETAIL_BUDGET}")
 
     def test_best_case(self):
         self._assert_row("2/2 pass", _sig(phase="IMPLEMENT", waiting="WAITING"),
-                         "IMPLEMENT ⏸ · 2/2 pass")
+                         "◕ IMPLEMENT ⏸ · 2/2 pass")
 
     def test_multi_part_gate_summary(self):
         self._assert_row(
             "1/4 pass, 1 pending, 1 failed, 1 stale", _sig(phase="POSTIMPL"),
-            "POSTIMPL · 1/4 1p 1f 1s")
+            "◉ POSTIMPL · 1/4 1p 1f 1s")
 
     def test_longest_unknown_phase_variant(self):
         self._assert_row(
             "0/4 pass, 1 pending, 1 failed, 1 stale", _sig(recording="off"),
-            "unknown (rec off) · 0/4 1p 1f 1s")
+            "◌ unknown (rec off) · 0/4 1p 1f 1s")
 
 
 if __name__ == "__main__":

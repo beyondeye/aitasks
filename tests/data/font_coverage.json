@@ -20,6 +20,22 @@
       "CaskaydiaMono Nerd Font": true,
       "JetBrainsMono Nerd Font": true
     },
+    "25C9": {
+      "CaskaydiaMono Nerd Font": true,
+      "JetBrainsMono Nerd Font": true
+    },
+    "25CC": {
+      "CaskaydiaMono Nerd Font": true,
+      "JetBrainsMono Nerd Font": true
+    },
+    "25D4": {
+      "CaskaydiaMono Nerd Font": true,
+      "JetBrainsMono Nerd Font": true
+    },
+    "25D5": {
+      "CaskaydiaMono Nerd Font": true,
+      "JetBrainsMono Nerd Font": true
+    },
     "2605": {
       "CaskaydiaMono Nerd Font": false,
       "JetBrainsMono Nerd Font": false
@@ -52,7 +68,7 @@
     },
     "JetBrainsMono Nerd Font": {
       "file": "/usr/share/fonts/TTF/JetBrainsMonoNerdFont-Regular.ttf",
-      "version": "Version 2.304; ttfautohint (v1.8.4.7-5d5b);Nerd Fonts 3.5.0"
+      "version": "Version 2.304; ttfautohint (v1.8.4.7-5d5b);Nerd Fonts 3.5.1"
     }
   },
   "generated_by": "tests/tools/regen_font_coverage.py",

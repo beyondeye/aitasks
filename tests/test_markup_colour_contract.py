@@ -561,6 +561,68 @@ class BrainstormOperationRowPaintingTests(unittest.TestCase):
         self.assertFalse(bool(self._styles(disabled=False)["ZZLABEL"].strike))
 
 
+class MinimonitorPhasePaintingTests(_CompositedCase):
+    """The minimonitor phase row's colour actually paints (t2128).
+
+    The row follows the task-title row, which leaves its ``[dim]`` span open on
+    purpose (t2017). Had the phase row not closed it, the phase would carry its
+    own colour AND dim in the span list, and only the compositor shows which
+    one wins — a dimmed colour is not the colour. So the whole card is mounted,
+    and the phase segment must paint exactly like a live reference run of the
+    ratified phase style.
+    """
+
+    def _card(self, phase: str) -> str:
+        from types import SimpleNamespace
+
+        import workflow_phase
+        from monitor import minimonitor_app as mm
+        from monitor.monitor_core import TaskInfo
+
+        app = mm.MiniMonitorApp.__new__(mm.MiniMonitorApp)
+        app._target_width = 40
+        app._completed_pane_ids = frozenset()
+        app._monitor = _FakeMonitor()
+        info = TaskInfo(
+            task_id="42", task_file="aitasks/t42_demo.md", title="Demo task",
+            priority="medium", effort="low", issue_type="enhancement",
+            status="Implementing", body="", plan_content=None,
+            task_file_abs="/nonexistent/t42_demo.md",
+        )
+        app._task_cache = SimpleNamespace(
+            get_task_id_for_pane=lambda pane: "42",
+            get_task_info=lambda task_id, session=None: info,
+        )
+        sig = workflow_phase.PhaseSignal(phase=phase)
+        app._gate_cache = SimpleNamespace(
+            summary_for=lambda info: "1/4 pass, 1 pending",
+            phase_for=lambda info, **kw: sig,
+        )
+        app._init_agent_marks()
+        return app._agent_card_text(_snapshot())
+
+    def _run(self, markups: list[str], reference_style: str) -> dict[str, str]:
+        result: dict[str, str] = {}
+
+        async def runner():
+            app = _MarkupHost(markups, reference_style)
+            async with app.run_test(size=(80, 12)) as pilot:
+                await pilot.pause()
+                result.update(painted(app))
+
+        asyncio.run(runner())
+        return result
+
+    def test_each_coloured_phase_paints_its_style_undimmed(self):
+        for phase, (glyph, style) in ms.PHASE_MARKS.items():
+            if style == "dim":
+                continue  # PLAN / UNKNOWN keep the pre-t2128 dim on purpose
+            with self.subTest(phase=phase):
+                target = f"{glyph} {phase}"
+                colours = self._run([self._card(phase)], style)
+                self.assert_painted_with(colours, target, f"{phase} phase")
+
+
 class CrossSurfaceAgreementTests(unittest.TestCase):
     """Every DONE surface must emit the one shared style.
 

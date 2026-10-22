@@ -627,6 +627,55 @@ class CodepointPolicyTests(unittest.TestCase):
         import regen_font_coverage as regen
         self.assertIn(0x0046, regen.EXTRA_MEASURED_CODEPOINTS)
 
+    @staticmethod
+    def _phase_glyphs() -> list[str]:
+        """The glyphs of ``monitor_shared.PHASE_MARKS``, read from source.
+
+        Through the AST rather than an import: this suite runs font-free AND
+        dependency-free, and importing ``monitor_shared`` pulls in Textual.
+        """
+        tree = ast.parse((SCRIPTS / "monitor" / "monitor_shared.py")
+                         .read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if (isinstance(node, ast.AnnAssign)
+                    and isinstance(node.target, ast.Name)
+                    and node.target.id == "PHASE_MARKS"
+                    and isinstance(node.value, ast.Dict)):
+                return [entry.elts[0].value for entry in node.value.values]
+        raise AssertionError("monitor_shared.PHASE_MARKS not found")
+
+    def test_the_phase_glyphs_evidence_is_recorded(self):
+        """The t2128 workflow-phase glyphs, held to the same policy as `P`/`F`.
+
+        ``monitor_shared.PHASE_MARKS`` leads the minimonitor's phase row with
+        one glyph per phase. Each must be covered by every supported font,
+        claimed by no emoji font, and narrow — the row's budget counts it as
+        one cell before deciding what else fits, so a wide glyph would wrap it.
+        """
+        sys.path.insert(0, str(PROJECT_DIR / "tests" / "tools"))
+        import regen_font_coverage as regen
+
+        glyphs = self._phase_glyphs()
+        self.assertEqual(glyphs, ["◔", "◕", "◉", "◌"],
+                         "the phase glyph set changed — re-measure it")
+        for glyph in glyphs:
+            key = f"{ord(glyph):04X}"
+            with self.subTest(glyph=glyph):
+                self.assertEqual(len(glyph), 1)
+                self.assertIn(ord(glyph), regen.EXTRA_MEASURED_CODEPOINTS,
+                              f"U+{key} is not measured by the generator")
+                self.assertIn(key, self.coverage,
+                              f"U+{key} has no coverage entry — regenerate")
+                for family in SUPPORTED_FONTS:
+                    self.assertTrue(
+                        self.coverage[key][family],
+                        f"U+{key} ({glyph}) is not covered by {family} — the "
+                        f"phase glyph would resolve by fallback")
+                self.assertNotIn(ord(glyph), _EMOJI_CAPABLE,
+                                 f"U+{key} ({glyph}) is emoji-capable")
+                self.assertEqual(unicodedata.east_asian_width(glyph), "N",
+                                 f"U+{key} ({glyph}) is not width-Neutral")
+
     def test_the_manifest_covers_exactly_the_supported_fonts(self):
         self.assertEqual(set(self.manifest["fonts"]), set(SUPPORTED_FONTS))
         for key, families in self.coverage.items():

@@ -74,8 +74,13 @@ MANIFEST_PATH = REPO_ROOT / "tests" / "data" / "font_coverage.json"
 #:                font and claimed by no emoji font. See the note in
 #:                tests/data/font_coverage.json's task record about how its
 #:                entry was written.
+#:   25D4 / 25D5 / 25C9 / 25CC
+#:                CHOSEN (t2128) — `◔ ◕ ◉ ◌`, the minimonitor's workflow-phase
+#:                glyphs (`monitor_shared.PHASE_MARKS`). Covered by every
+#:                supported font, claimed by no emoji font, EAW Neutral
 EXTRA_MEASURED_CODEPOINTS = (
     0x2610, 0x2611, 0x2714, 0x2605, 0x2606, 0x0050, 0x23F8, 0x25A0, 0x0046,
+    0x25D4, 0x25D5, 0x25C9, 0x25CC,
 )
 
 

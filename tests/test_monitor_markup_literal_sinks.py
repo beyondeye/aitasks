@@ -216,13 +216,19 @@ OWN_PANEL_BEFORE = {
 }
 
 #: (title, window, mark_kind, phase, frozen_at) per case above.
+#:
+#: Since t2128 ``phase`` is framework-built *markup* carrying its own style
+#: (``format_phase_markup``), not plain text the panel dims. The case passes
+#: the dim markup the panel used to wrap the phase in, so the pins above stay
+#: byte-identical and still say what they said: the Content conversion changed
+#: nothing benign input renders.
 OWN_PANEL_CASES = {
     "name_only": (None, "agent-followed", None, "", None),
     "mark_and_name": (None, "agent-followed", agent_marks.KIND_NONE, "", None),
     "name_and_title": (OWN_TITLE, "agent-followed", agent_marks.KIND_NONE, "",
                        None),
     "title_and_phase": (OWN_TITLE, "agent-followed", agent_marks.KIND_NONE,
-                        "planning", None),
+                        "[dim]planning[/]", None),
     "frozen": (OWN_TITLE, "agent-followed", None, "", "2026-09-04T09:20:00Z"),
     "frozen_marked_long_name": (None, OWN_LONG_NAME, agent_marks.KIND_PRIORITY,
                                 "", ""),
@@ -257,7 +263,7 @@ class OwnPanelHostileTests(unittest.TestCase):
             for title in TITLES:
                 with self.subTest(name=name, title=title):
                     card = Static(own_card(title, name, agent_marks.KIND_NONE,
-                                           "planning", None)).render()
+                                           "[dim]planning[/]", None)).render()
                     self.assertEqual(card.plain,
                                      f"☆ {name}\n  {title}\n  planning")
                     self.assertIn("bold", covering(card, 2, 2 + len(name)))
@@ -267,6 +273,26 @@ class OwnPanelHostileTests(unittest.TestCase):
                     self.assertEqual(
                         cell_styles(card, phase_at, len(card.plain)),
                         [frozenset({"dim"})] * len("planning"))
+
+    def test_the_real_phase_markup_renders_its_glyph_in_its_style(self):
+        """What production passes (t2128): ``format_phase_markup``'s output,
+        under hostile names and titles — the glyph and phase on the last row,
+        in exactly the phase's own style and nothing else."""
+        sig = workflow_phase.PhaseSignal(phase="IMPLEMENT", waiting="WAITING")
+        glyph, style = ms.phase_mark(sig)
+        phase = mm.format_phase_markup(sig, mm._own_phase_budget(40))
+        expected = f"{glyph} IMPLEMENT ⏸"
+        for name in NAMES:
+            for title in TITLES:
+                with self.subTest(name=name, title=title):
+                    card = Static(own_card(title, name, agent_marks.KIND_NONE,
+                                           phase, None)).render()
+                    self.assertTrue(card.plain.endswith(f"\n  {expected}"),
+                                    repr(card.plain))
+                    at = len(card.plain) - len(expected)
+                    self.assertEqual(
+                        cell_styles(card, at, len(card.plain)),
+                        [frozenset({style})] * len(expected))
 
     def test_a_frozen_hostile_name_keeps_the_frozen_row(self):
         for name in NAMES:
@@ -451,19 +477,24 @@ class MiniListRowTests(unittest.TestCase):
 
     def test_the_open_title_span_changes_nothing_the_phase_row_renders(self):
         """The title row leaves `[dim]` open (a trailing backslash cannot sit
-        before its `[/]`). The gate/phase row after it must render exactly as
-        it does parsed on its own — same text, and the same styles on every
-        visible cell. Only the row's two-space indent picks up the open dim,
-        and a style on a blank cell draws nothing."""
-        sig = workflow_phase.PhaseSignal(phase="PLAN")
+        before its `[/]`). The gate/phase row after it opens by closing that
+        span (t2128), and must then render exactly as its own markup does
+        parsed alone — same text, and the same styles on every visible cell.
+        Only the row's two-space indent, which precedes the close, picks up the
+        open dim, and a style on a blank cell draws nothing.
+
+        IMPLEMENT, not PLAN: PLAN is itself dim, so a leaked title `[dim]` would
+        add nothing visible to it and this test could not see the leak."""
+        sig = workflow_phase.PhaseSignal(phase="IMPLEMENT")
         for title in TITLES + ["benign title"]:
             with self.subTest(title=title):
                 text = mini_app(title, summary="2/2 pass",
                                 phase=sig)._agent_card_text(snapshot("agent-a"))
                 rows = text.split("\n")
                 self.assertEqual(len(rows), 3, text)
+                self.assertTrue(rows[2].startswith("  [/dim]"), rows[2])
                 card = parse(text)
-                alone = parse(rows[2])
+                alone = parse(rows[2].replace("[/dim]", "", 1))
                 offset = card.plain.rindex("\n") + 1
                 self.assertEqual(card.plain[offset:], alone.plain)
                 visible = [i for i, ch in enumerate(alone.plain) if ch != " "]

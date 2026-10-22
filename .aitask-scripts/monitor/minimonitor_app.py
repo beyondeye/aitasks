@@ -80,6 +80,7 @@ from monitor.monitor_shared import (  # noqa: E402
     format_section_header, format_session_divider, format_shadow_glyph,
     format_state_dot, is_task_completed,
     format_shadow_stale_banner, format_staleness_detail, markup_literal,
+    phase_mark,
     uncertified_round_block_msg, unparsed_concerns_msg,
 )
 from monitor.concern_parser import (  # noqa: E402
@@ -188,8 +189,15 @@ AUTO_CLOSE_CONFIRMATIONS = 2
 #     other   ␠␠○␠<name>␠␠<cmd ≤ 10>    name = 36 − 4 − 2 − 10 = 20
 #     title   ␠␠<title>                 ≤ min(30, detail)      = 30
 #             (under live AND frozen rows — not capture-derived, t2042)
-#     gates   ␠␠<gate+phase>            ≤ detail               = 34
-#             (live rows only — the phase reads the capture)
+#     gates   ␠␠<glyph>␠<phase>␠·␠<gates>  ≤ detail          = 34
+#             (live rows only — the phase reads the capture; the phase glyph's
+#             2 cells are counted BEFORE the shed ladder decides what fits)
+#
+# The docked own-agent card is outside the list, so it has no scrollbar: its
+# phase row (`_own_phase_budget`) is target_width − 2 (`.mini-own-card`
+# `padding: 0 1`) − 2 (indent) = 36 at the default width. It is budgeted for the
+# same reason as the list rows — `_OWN_PANEL_MAX_ROWS` reserves exactly ONE phase
+# row, so a wrapped continuation would be hidden by the panel cap.
 #
 # What gives way, in order (t1351 — decided, not reflexive):
 #
@@ -259,6 +267,16 @@ def _detail_budget(target_width: int) -> int:
     seam, not here.
     """
     return max(0, _row_budget(target_width) - _DETAIL_INDENT)
+
+
+def _own_phase_budget(target_width: int) -> int:
+    """Cells available to the docked own-agent card's phase row (t2128).
+
+    No scrollbar term — the panel is ``overflow-y: hidden`` (see its stylesheet
+    comment) — but otherwise the same arithmetic and the same zero-only clamp as
+    :func:`_detail_budget`, for the same reason.
+    """
+    return max(0, target_width - _ROW_PADDING - _DETAIL_INDENT)
 
 
 def _clip(text: str, budget: int) -> str:
@@ -381,7 +399,63 @@ def _pane_mode_detail(in_mode: bool | None, mode_name: str) -> dict:
     }
 
 
-def format_gate_phase_row(phase: str, gates: str, budget: int) -> str:
+def _phase_head(phase: str, budget: int, glyph: str = "") -> str:
+    """The phase segment — ``<glyph> <phase>`` — sized to ``budget`` cells.
+
+    Shared by the list rows' shed ladder (rung 2) and the docked card, so the
+    two surfaces clip a phase identically (t2128). The glyph is the one part
+    worth keeping longest: it carries the phase's shape and colour in one cell.
+    So the phase TEXT is clipped first, and only while that still leaves
+    :data:`_MIN_PHASE_CELLS`; below that the glyph renders alone, and below one
+    cell nothing does. Without a glyph this is plain :func:`_clip`.
+    """
+    if not phase:
+        return ""
+    lead = f"{glyph} " if glyph else ""
+    if cell_len(lead + phase) <= budget:
+        return lead + phase
+    if not glyph:
+        return _clip(phase, budget)
+    room = budget - cell_len(lead)
+    if room >= _MIN_PHASE_CELLS:
+        return lead + _clip(phase, room)
+    return glyph if cell_len(glyph) <= budget else ""
+
+
+def _gate_phase_parts(phase: str, gates: str, budget: int,
+                      glyph: str = "") -> tuple[str, str]:
+    """:func:`format_gate_phase_row`'s ladder, returning the two segments.
+
+    ``(head, tail)``: the budgeted phase segment (glyph included) and the
+    budgeted gate segment, either possibly ``""``. Kept apart so the caller can
+    style them differently AFTER every width decision was made on plain text —
+    the joined row is ``head · tail`` when both are present.
+    """
+    if not phase and not gates:
+        return "", ""
+    if not gates:
+        return _phase_head(phase, budget, glyph), ""
+    short = gate_ledger.abbreviate_gate_summary(gates)
+    if not phase:
+        for candidate in (gates, short):
+            if cell_len(candidate) <= budget:
+                return "", candidate
+        return "", _clip(short, budget)
+    head = f"{glyph} {phase}" if glyph else phase
+    for candidate in (gates, short):                    # 1. abbreviate the tail
+        if cell_len(f"{head} · {candidate}") <= budget:
+            return head, candidate
+    room = budget - cell_len(f" · {short}")             # 2. the phase gives way
+    lead = cell_len(f"{glyph} ") if glyph else 0
+    if room - lead >= _MIN_PHASE_CELLS:
+        return _phase_head(phase, room, glyph), short
+    if cell_len(short) <= budget:                       # 3. drop the phase
+        return "", short
+    return "", _clip(short, budget)                     # 4. terminal backstop
+
+
+def format_gate_phase_row(phase: str, gates: str, budget: int,
+                          glyph: str = "") -> str:
     """The gate summary and the advisory workflow phase on ONE line (t1479).
 
     ``<PHASE><⏸> · <gate summary>`` — phase first (the coarser signal), counts
@@ -407,30 +481,47 @@ def format_gate_phase_row(phase: str, gates: str, budget: int) -> str:
     4. terminal backstop — clip the abbreviated summary, reachable only if it
        alone exceeds the budget.
 
-    At the default 40-column pane (36-cell budget) the worst realistic case,
-    ``unknown (rec off) · 0/4 1p 1f 1s``, is 32 cells: rungs 2-4 exist so the
-    failure mode is stated rather than emergent.
+    ``glyph`` (t2128) is the phase's leading mark, rendered as
+    ``<glyph> <phase>``. Its cells are counted on every rung — the row is
+    measured as it will be drawn, so the ladder never under-counts it into a
+    wrap. A clipped phase (rung 2) keeps its glyph; a dropped phase (rung 3)
+    drops the glyph with it.
+
+    At the default 40-column pane (34-cell detail budget) the worst realistic
+    case, ``◌ unknown (rec off) · 0/4 1p 1f 1s``, is exactly 34 cells: rungs 2-4
+    exist so the failure mode is stated rather than emergent.
     """
-    if not phase and not gates:
-        return ""
-    if not gates:
-        return _clip(phase, budget)
-    short = gate_ledger.abbreviate_gate_summary(gates)
-    if not phase:
-        for candidate in (gates, short):
-            if cell_len(candidate) <= budget:
-                return candidate
-        return _clip(short, budget)
-    for candidate in (gates, short):                    # 1. abbreviate the tail
-        line = f"{phase} · {candidate}"
-        if cell_len(line) <= budget:
-            return line
-    room = budget - cell_len(f" · {short}")             # 2. the phase gives way
-    if room >= _MIN_PHASE_CELLS:
-        return f"{_clip(phase, room)} · {short}"
-    if cell_len(short) <= budget:                       # 3. drop the phase
-        return short
-    return _clip(short, budget)                         # 4. terminal backstop
+    return " · ".join(
+        part for part in _gate_phase_parts(phase, gates, budget, glyph) if part)
+
+
+def format_gate_phase_markup(sig, gates: str, budget: int) -> str:
+    """:func:`format_gate_phase_row` for ``sig``, as styled markup (t2128).
+
+    Every width decision is made on the plain text first — glyph included —
+    and only then is the phase segment wrapped in its own style
+    (:func:`monitor_shared.phase_mark`) while the gate counts stay dim, so
+    styling can never change what fits. Both segments are made literal: the
+    text is framework-built today, but this row ends in a closing tag, and
+    ``markup_literal`` costs nothing (t2017).
+    """
+    glyph, style = phase_mark(sig)
+    head, tail = _gate_phase_parts(
+        workflow_phase.render_phase_narrow(sig), gates, budget, glyph)
+    out = f"[{style}]{markup_literal(head)}[/]" if head else ""
+    if tail:
+        sep = " · " if head else ""
+        out += f"[dim]{sep}{markup_literal(tail)}[/]"
+    return out
+
+
+def format_phase_markup(sig, budget: int) -> str:
+    """The docked card's phase row for ``sig``: glyph + phase in its own style,
+    sized to ``budget`` cells by :func:`_phase_head` — ``""`` when there is
+    nothing honest to say or no room to say it (t2128)."""
+    glyph, style = phase_mark(sig)
+    head = _phase_head(workflow_phase.render_phase_narrow(sig), budget, glyph)
+    return f"[{style}]{markup_literal(head)}[/]" if head else ""
 
 
 # -- Widgets ------------------------------------------------------------------
@@ -2507,15 +2598,20 @@ class MiniMonitorApp(
                 # describe one thing between them, and two rows of a four-row
                 # card is too much of this pane to spend on it. Either half may
                 # be empty (ungated task / unresolvable phase); the row is
-                # omitted only when both are.
-                merged = format_gate_phase_row(
-                    workflow_phase.render_phase_narrow(
-                        self._phase_for_snap(snap, info)),
+                # omitted only when both are. The phase leads with its own
+                # glyph and colour, the counts stay dim (t2128).
+                merged = format_gate_phase_markup(
+                    self._phase_for_snap(snap, info),
                     self._gate_cache.summary_for(info) or "",
                     _detail_budget(self._target_width),
                 )
                 if merged:
-                    line1 += f"\n  [dim]{merged}[/]"
+                    # `[/dim]` closes the span `_title_row` (always emitted just
+                    # above) deliberately leaves open: inside it the phase's
+                    # colour would be painted dimmed — the one thing this row's
+                    # styling exists to prevent. Safe against a title ending in
+                    # a backslash: the newline sits between it and the tag.
+                    line1 += f"\n  [/dim]{merged}"
         return line1
 
     def _title_row(self, info) -> str:
@@ -2527,8 +2623,9 @@ class MiniMonitorApp(
         # backslash, which would turn a `[/]` here into text, and no escaping
         # can prevent that (see `markup_literal`). The open `[dim]` is
         # harmless: the only row that can follow is the live gate/phase row,
-        # which is `[dim]…[/]` in full, so it renders exactly as before; Textual
-        # closes the span at end of input. A row added after this one must not
+        # which starts by closing it (`[/dim]`, t2128 — its phase is coloured,
+        # and would otherwise paint dimmed); Textual closes the span at end of
+        # input when no row follows. A row added after this one must not
         # assume it starts unstyled.
         return f"\n  [dim]{markup_literal(title)}"
 
@@ -2686,7 +2783,9 @@ class MiniMonitorApp(
         widen the narrowed contract above rather than keep it narrow. What it
         did adopt is the *rendering*: ``render_phase_narrow`` (label-free), so
         the phase reads the same on both surfaces of this 40-column pane instead
-        of carrying a ``phase: `` label the rows next to it dropped.
+        of carrying a ``phase: `` label the rows next to it dropped. That
+        includes the phase glyph and colour (t2128), so ``phase`` is the
+        styled markup ``format_phase_markup`` builds, not plain text.
 
         ``marked is None`` ⇒ there is nothing markable here (the window was
         never an agent, or was renamed off the ``agent-`` prefix after the panel
@@ -2735,7 +2834,10 @@ class MiniMonitorApp(
                 else Content.from_markup(f"{format_mark_glyph(mark_kind)} ")
                 + identity)
         if phase:
-            line += Content.from_markup(f"\n  [dim]{phase}[/]")
+            # `phase` is framework-built markup carrying its own glyph and
+            # colour (`format_phase_markup`, t2128), with its text already made
+            # literal — so it is parsed here as-is, never wrapped in `[dim]`.
+            line += Content.from_markup(f"\n  {phase}")
         return line
 
     def _refresh_own_live_state(self) -> None:
@@ -2817,6 +2919,10 @@ class MiniMonitorApp(
         Fails soft: any resolution problem yields no phase line rather than a
         stale or fabricated one, because this panel must never be broken by an
         advisory signal.
+
+        Returned as styled markup (glyph + colour, t2128) and sized to
+        ``_own_phase_budget``: ``_OWN_PANEL_MAX_ROWS`` reserves one phase row,
+        so a phase that wrapped would lose its tail under the panel cap.
         """
         if snap is None:
             return ""
@@ -2826,7 +2932,8 @@ class MiniMonitorApp(
         info = self._task_cache.get_task_info(task_id, snap.pane.session_name)
         if info is None:
             return ""
-        return workflow_phase.render_phase_narrow(self._phase_for_snap(snap, info))
+        return format_phase_markup(self._phase_for_snap(snap, info),
+                                   _own_phase_budget(self._target_width))
 
     async def _maybe_build_own_agent_panel(self) -> None:
         """Populate the docked panel for the agent this minimonitor follows —

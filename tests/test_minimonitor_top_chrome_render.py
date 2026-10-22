@@ -44,6 +44,9 @@ import minimonitor_app as mm  # noqa: E402
 from monitor.tmux_control import TmuxControlState  # noqa: E402
 import monitor_core as mc  # noqa: E402
 import monitor_shared as ms  # noqa: E402
+import workflow_phase  # noqa: E402  (on sys.path once minimonitor_app is imported)
+from rich.cells import cell_len  # noqa: E402
+from textual.content import Content  # noqa: E402
 from textual.widgets import Static  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -194,12 +197,15 @@ class _ChromeFixture(unittest.TestCase):
 
     async def _populate(self, app, pilot, *, banners=True, own=True,
                         session=True, window=OWN_WINDOW,
-                        own_category=mm.PaneCategory.AGENT):
+                        own_category=mm.PaneCategory.AGENT, phase_sig=None):
         """Drive chrome through the production write sites only.
 
         ``own`` is tri-state: ``False`` builds no panel, ``True`` builds the
         fixture's minimal one (no task ⇒ 3 rows), and ``"full"`` installs
         `_TitleCache` and a phase so the panel renders every row it ever can.
+        ``phase_sig`` (with ``"full"``) stubs the phase *signal* instead of the
+        rendered phase text, so the real, budgeted ``_own_phase_text`` runs
+        (t2128).
 
         ``session`` is tri-state too, because the bar now ships
         ``display: none`` and a raw ``update()`` can no longer reveal it
@@ -215,7 +221,10 @@ class _ChromeFixture(unittest.TestCase):
         if own:
             if own == "full":
                 app._task_cache = _TitleCache()
-                app._own_phase_text = lambda snap: OWN_PHASE
+                if phase_sig is None:
+                    app._own_phase_text = lambda snap: OWN_PHASE
+                else:
+                    app._phase_for_snap = lambda snap, info: phase_sig
             app._find_own_window_snapshot = (
                 lambda: _own_snapshot(window, own_category)
             )
@@ -238,7 +247,8 @@ class _ChromeFixture(unittest.TestCase):
         await pilot.pause()
 
     def _run(self, size, *, banners=True, own=True, session=True, after=None,
-             window=OWN_WINDOW, own_category=mm.PaneCategory.AGENT):
+             window=OWN_WINDOW, own_category=mm.PaneCategory.AGENT,
+             phase_sig=None):
         """Boot, populate, and hand the live app to ``after``."""
         result = {}
 
@@ -247,7 +257,8 @@ class _ChromeFixture(unittest.TestCase):
             async with app.run_test(size=size) as pilot:
                 await self._populate(app, pilot, banners=banners, own=own,
                                      session=session, window=window,
-                                     own_category=own_category)
+                                     own_category=own_category,
+                                     phase_sig=phase_sig)
                 result["regions"] = {
                     sel: app.query_one(sel).region
                     for sel in CHROME_IDS + ["#mini-pane-list", "#mini-key-hints"]
@@ -729,6 +740,57 @@ class OwnPanelSizingTests(_ChromeFixture):
                         f"panel scrolled at width {width} with a "
                         f"{len(window)}-char window name",
                     )
+
+    def test_the_longest_phase_stays_on_one_row_at_every_width(self):
+        """The pinned phase row is budgeted, so its glyph never wraps it (t2128).
+
+        `_OWN_PANEL_MAX_ROWS` reserves exactly one phase row. Unbudgeted, the
+        glyph's two cells push `unknown (rec off)?` (18 cells, which fit the
+        18-cell row at width 22 exactly) onto a second row, and the panel cap
+        hides the continuation: the screen reads `◌ unknown (rec`. Measured
+        with the real `_own_phase_text` and a two-row title, across the longest
+        variants of every phase, on two identity shapes: the short name at
+        every width down to 22, and the pathological two-row name down to 26.
+
+        Not at 22 with the pathological name, deliberately: there the mark glyph
+        is wrapped onto a row of its own (identity = 3 rows, not the 2
+        `_OWN_PANEL_MAX_ROWS` budgets), so the cap hides the phase row whatever
+        it holds — measured identical with the pre-t2128 unstyled phase. That
+        is an identity-wrap defect, not a phase-width one (see the t2128 plan's
+        upstream defects).
+        """
+        sigs = [
+            workflow_phase.PhaseSignal(recording="off", resolution="unresolved"),
+            workflow_phase.PhaseSignal(waiting="WAITING",
+                                       resolution="unresolved"),
+            workflow_phase.PhaseSignal(resolution="no_markers"),
+            workflow_phase.PhaseSignal(phase="IMPLEMENT", waiting="WAITING",
+                                       resolution="unresolved"),
+            workflow_phase.PhaseSignal(phase="POSTIMPL", waiting="WAITING",
+                                       resolution="no_markers"),
+        ]
+        shapes = [(w, OWN_WINDOW) for w in (40, 30, 26, 22)] + [
+            (w, OWN_WINDOW_PATHOLOGICAL) for w in (40, 30, 26)]
+        for width, window in shapes:
+            for sig in sigs:
+                expected = Content.from_markup(mm.format_phase_markup(
+                    sig, mm._own_phase_budget(width))).plain
+                with self.subTest(width=width, name=len(window),
+                                  phase=expected):
+                    glyph, _style = mm.phase_mark(sig)
+                    self.assertTrue(expected.startswith(glyph), expected)
+                    self.assertLessEqual(cell_len(expected), width - 4)
+                    out = self._run((width, 30), own="full",
+                                    window=window,
+                                    phase_sig=sig)
+                    panel = out["regions"]["#mini-own-agent"]
+                    band = out["rows"][panel.y:panel.y + panel.height]
+                    self.assertTrue(
+                        any(row.strip() == expected for row in band),
+                        f"the phase {expected!r} is not whole on one row at "
+                        f"width {width}: {band!r}")
+                    self.assertLessEqual(panel.height, mm._OWN_PANEL_MAX_ROWS)
+                    self.assertFalse(self._scrollbar_in(out))
 
     def test_the_cap_is_applied_at_the_reveal_site(self):
         """`panel.styles.max_height` is load-bearing, so prove it is set.
