@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import os
+import re
 import shlex
 import subprocess
 import sys
@@ -23,7 +24,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -89,6 +90,8 @@ from sync_action_runner import (  # noqa: E402
     CONFLICT_CHOICE_AGENT,
     CONFLICT_CHOICE_INTERACTIVE,
     DATA_CONFLICT_WINDOW_NAME,
+    MAIN_REASON_DIVERGED,
+    MAIN_REASON_SUBMODULES,
     STATUS_AUTOMERGED,
     STATUS_MERGED,
     STATUS_CONFLICT,
@@ -105,11 +108,17 @@ from sync_action_runner import (  # noqa: E402
     SyncConflictScreen,
     SyncResult,
     build_data_conflict_prompt,
+    build_main_conflict_prompt,
+    main_conflict_window_name,
     run_interactive_sync,
     run_sync_batch,
     sync_session_running,
 )
-from sync_failure_screen import SyncFailureContext, SyncFailureScreen  # noqa: E402
+from sync_failure_screen import (  # noqa: E402
+    MainConflictScreen,
+    SyncFailureContext,
+    SyncFailureScreen,
+)
 from upgrade_screens import (  # noqa: E402
     ForceConfirmScreen,
     HandoffConfirmScreen,
@@ -369,6 +378,264 @@ class DataConflictContext:
     def repo_root(self) -> Path:
         # A None root is the legacy CWD-relative target, i.e. the launch repo.
         return (self.target.root or Path(".")).resolve()
+
+
+@dataclass(frozen=True)
+class MainConflictContext:
+    """The last main-branch pull or push that needs assistance, so `a`
+    re-offers ITS agent: a divergence, or a pull deferred because of
+    recursive submodules.
+
+    A sibling of DataConflictContext (t2126): neither is a generic failure,
+    and the agent gets a purpose-built prompt rather than the failure modal's
+    command-and-tail one.
+    """
+
+    action: str          # "pull" | "push"
+    reason: str          # MAIN_DIVERGED | MAIN_SUBMODULES
+    target: ActionTarget
+    upstream: str        # the remote branch it is compared with, e.g. origin/main
+    command: str
+    output_tail: str
+
+    @property
+    def repo_root(self) -> Path:
+        return (self.target.root or Path(".")).resolve()
+
+    @property
+    def branch(self) -> str:
+        return self.target.branch or "main"
+
+
+# ─── Main-branch pull / push (pure; unit-tested in test_syncer_main_pull_push) ──
+
+MAIN_OK = "ok"
+MAIN_REFUSED = "refused"      # a precondition failed; nothing was run against git state
+MAIN_FAILED = "failed"        # any other failure: the generic failure modal
+# The two "Automatic update needs assistance" outcomes. Each IS the reason the
+# dialog and the resolver agent are given.
+MAIN_DIVERGED = MAIN_REASON_DIVERGED      # local and upstream have diverged
+MAIN_SUBMODULES = MAIN_REASON_SUBMODULES  # pull deferred: recursive submodules
+
+# A checkout in any of these states must not be fast-forwarded. The same set
+# aitask_sync.sh's _worktree_wedged checks.
+_MIDOP_MARKERS = {
+    "rebase-merge": "rebase", "rebase-apply": "rebase", "MERGE_HEAD": "merge",
+    "CHERRY_PICK_HEAD": "cherry-pick", "REVERT_HEAD": "revert",
+    "BISECT_LOG": "bisect",
+}
+
+# Printed by `git merge --ff-only` (the pull's apply step) when no fast-forward
+# is possible; fetch never prints it. Matched under LC_ALL=C (run_git).
+_PULL_DIVERGED_RE = re.compile(
+    r"^fatal: Not possible to fast-forward, aborting\.$", re.MULTILINE
+)
+
+
+def run_git(args: list[str], cwd: str) -> tuple[int, str, str]:
+    """Run git with a pinned C locale, so classify_main_failure can read it.
+
+    A localized git would print translated refusals, which would silently
+    drop every divergence to the generic failure path.
+    """
+    env = dict(os.environ)
+    env["LC_ALL"] = "C"
+    env.pop("LANGUAGE", None)
+    try:
+        proc = subprocess.run(
+            ["git", *args],
+            capture_output=True,
+            text=True,
+            cwd=cwd,
+            env=env,
+            timeout=GIT_TIMEOUT_SECONDS,
+        )
+        return proc.returncode, proc.stdout, proc.stderr
+    except subprocess.TimeoutExpired:
+        return 124, "", f"git timed out after {GIT_TIMEOUT_SECONDS}s"
+    except FileNotFoundError:
+        return 127, "", "git executable not found"
+
+
+def classify_main_failure(action: str, branch: str, output: str) -> bool:
+    """True iff ``output`` is the divergence refusal of ``action``'s git step.
+
+    Each marker is one only that step prints: the pull's `merge --ff-only`
+    refusal, and push's per-ref `[rejected]` line for exactly the ref pushed
+    (`[remote rejected]`, e.g. a declining hook, is not divergence).
+    """
+    if action == "pull":
+        return _PULL_DIVERGED_RE.search(output) is not None
+    if action == "push":
+        b = re.escape(branch)
+        pattern = (
+            rf"^ ! \[rejected\]\s+{b} -> {b} \((?:fetch first|non-fast-forward)\)$"
+        )
+        return re.search(pattern, output, re.MULTILINE) is not None
+    return False
+
+
+@dataclass(frozen=True)
+class MainActionResult:
+    status: str          # MAIN_*
+    message: str = ""    # MAIN_REFUSED: the notice to show
+    command: str = ""    # display form of the git step that stopped
+    output: str = ""     # that step's stdout + stderr
+    # The remote branch compared against, once known: the pull's configured
+    # upstream (which need not share the local branch's name), the push's
+    # origin/<branch>. git's divergence messages never name it.
+    upstream: str = ""
+
+
+GitRunner = Callable[[list[str], str], tuple[int, str, str]]
+
+
+def _git_display(cwd: str, args: list[str]) -> str:
+    return f"git -C {shlex.join([cwd, *args])}"
+
+
+def _main_failed(
+    cwd: str, args: list[str], out: str, err: str, upstream: str = ""
+) -> MainActionResult:
+    return MainActionResult(MAIN_FAILED, command=_git_display(cwd, args),
+                            output=out + err, upstream=upstream)
+
+
+def _pull_checkout_refusal(git: GitRunner, cwd: str, branch: str) -> str | None:
+    """Why ``cwd``'s checkout must not be fast-forwarded now, or None.
+
+    Run before the fetch AND again right before the merge: the merge applies
+    to whatever HEAD is, and another session may switch branch or start a
+    merge/rebase while the fetch is on the network.
+    """
+    rc, head, _ = git(["symbolic-ref", "-q", "HEAD"], cwd)
+    head_ref = head.strip() if rc == 0 else ""
+    if head_ref != f"refs/heads/{branch}":
+        now = head_ref.removeprefix("refs/heads/") or "a detached HEAD"
+        return f"Switch to {branch} to pull (currently on {now})."
+    rc, gitdir, _ = git(["rev-parse", "--absolute-git-dir"], cwd)
+    if rc != 0 or not gitdir.strip():
+        # Fail closed: "cannot look" is never "not mid-operation".
+        return "Could not inspect the checkout's git state — not pulling."
+    for marker, op in _MIDOP_MARKERS.items():
+        if os.path.exists(os.path.join(gitdir.strip(), marker)):
+            return f"Checkout is mid-{op} — finish or abort it before pulling."
+    return None
+
+
+def run_main_pull(git: GitRunner, cwd: str, branch: str) -> MainActionResult:
+    """Fast-forward ``branch`` in ``cwd`` to its upstream, or say why not.
+
+    Not `git pull`: it rejects --no-overwrite-ignore. A dirty tree is no
+    reason to refuse — git refuses the merge itself when it would overwrite a
+    modified, untracked or ignored file, and names the files (t1791).
+    --no-autostash keeps a user's merge.autoStash from stashing other
+    sessions' edits. Every ref is bound to the NAMED branch, never to HEAD.
+    """
+    refusal = _pull_checkout_refusal(git, cwd, branch)
+    if refusal:
+        return MainActionResult(MAIN_REFUSED, message=refusal)
+
+    args = ["rev-parse", "--symbolic-full-name", f"{branch}@{{upstream}}"]
+    rc, out, err = git(args, cwd)
+    tracking = out.strip()
+    if rc != 0 or not tracking:
+        return _main_failed(cwd, args, out, err)
+    # What the user knows it as: origin/release, or a local branch for ".".
+    shown = tracking.removeprefix("refs/remotes/").removeprefix("refs/heads/")
+    upstream: list[str] = []
+    for key in (f"branch.{branch}.remote", f"branch.{branch}.merge"):
+        args = ["config", "--get", key]
+        rc, out, err = git(args, cwd)
+        if rc != 0 or not out.strip():
+            return _main_failed(cwd, args, out, err or f"{key} is not set\n", shown)
+        upstream.append(out.strip())
+
+    gate = _recursive_submodules_present(git, cwd)
+    if isinstance(gate, MainActionResult):
+        return gate
+    if gate:
+        # Deliberately narrow (t2126): `git pull` would also update the
+        # submodules, and doing that safely in a checkout other sessions work
+        # in is the resolver agent's job. Stop before changing anything.
+        return MainActionResult(MAIN_SUBMODULES, upstream=shown)
+
+    # The upstream ref by name: a deleted remote branch fails here, where a
+    # plain non-pruning fetch would exit 0 over the stale tracking ref.
+    args = ["fetch", *upstream]
+    rc, out, err = git(args, cwd)
+    if rc != 0:
+        return _main_failed(cwd, args, out, err, shown)
+
+    # Pin what THIS fetch brought: FETCH_HEAD and the tracking ref must agree
+    # (an unmapped refspec or a concurrent fetch would make them differ).
+    pins = []
+    for ref in ("FETCH_HEAD", tracking):
+        args = ["rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}"]
+        rc, out, err = git(args, cwd)
+        pins.append(out.strip() if rc == 0 else "")
+    if not pins[0] or pins[0] != pins[1]:
+        return MainActionResult(
+            MAIN_FAILED,
+            command=_git_display(cwd, ["fetch", *upstream]),
+            output=(
+                f"{tracking} does not match what this fetch brought "
+                f"(FETCH_HEAD {pins[0] or 'unreadable'}, {tracking} "
+                f"{pins[1] or 'unreadable'}); another fetch may have run "
+                "meanwhile. Nothing was changed — retry.\n"
+            ),
+            upstream=shown,
+        )
+
+    # Apply boundary. git has no "merge only if HEAD is X"; this re-check
+    # narrows the window from the whole fetch to two local git calls.
+    refusal = _pull_checkout_refusal(git, cwd, branch)
+    if refusal:
+        return MainActionResult(
+            MAIN_REFUSED,
+            message=f"Checkout changed while fetching: {refusal} Nothing was merged.",
+            upstream=shown,
+        )
+
+    args = ["merge", "--ff-only", "--no-autostash", "--no-overwrite-ignore", pins[0]]
+    rc, out, err = git(args, cwd)
+    if rc == 0:
+        return MainActionResult(MAIN_OK, upstream=shown)
+    status = MAIN_DIVERGED if classify_main_failure("pull", branch, out + err) else MAIN_FAILED
+    return MainActionResult(status, command=_git_display(cwd, args),
+                            output=out + err, upstream=shown)
+
+
+def _recursive_submodules_present(git: GitRunner, cwd: str) -> bool | MainActionResult:
+    """True when `git pull` here would also update submodules: submodule.recurse
+    is set and the checkout has initialized submodules (`git submodule init`
+    records each one's url in the local config)."""
+    args = ["config", "--type=bool", "--get", "submodule.recurse"]
+    rc, out, err = git(args, cwd)
+    if rc == 1 or (rc == 0 and out.strip() == "false"):
+        return False
+    if rc != 0:
+        return _main_failed(cwd, args, out, err)
+    # --includes: a file-scoped lookup skips include.path unless asked, and git
+    # itself reads an included submodule url as initialized.
+    args = ["config", "--local", "--includes", "--get-regexp", r"^submodule\..*\.url$"]
+    rc, out, err = git(args, cwd)
+    if rc == 1:
+        return False
+    if rc != 0:
+        return _main_failed(cwd, args, out, err)
+    return bool(out.strip())
+
+
+def run_main_push(git: GitRunner, cwd: str, branch: str) -> MainActionResult:
+    args = ["push", "origin", f"{branch}:{branch}"]
+    rc, out, err = git(args, cwd)
+    shown = f"origin/{branch}"
+    if rc == 0:
+        return MainActionResult(MAIN_OK, upstream=shown)
+    status = MAIN_DIVERGED if classify_main_failure("push", branch, out + err) else MAIN_FAILED
+    return MainActionResult(status, command=_git_display(cwd, args),
+                            output=out + err, upstream=shown)
 
 
 def discover_syncer_sessions() -> list[AitasksSession]:
@@ -926,7 +1193,9 @@ class SyncerApp(TuiSwitcherMixin, ShortcutsMixin, App):
         self._refresh_gen = 0
         self._refresh_active = False
         self._pending_fetch: object = PENDING_UNSET
-        self._last_failure: SyncFailureContext | DataConflictContext | None = None
+        self._last_failure: (
+            SyncFailureContext | DataConflictContext | MainConflictContext | None
+        ) = None
 
     def compose(self) -> ComposeResult:
         # Widget ids (#branches, #detail_scroll, #detail) are unchanged by the
@@ -2254,6 +2523,9 @@ class SyncerApp(TuiSwitcherMixin, ShortcutsMixin, App):
         if isinstance(ctx, DataConflictContext):
             self._open_conflict_screen(ctx)
             return
+        if isinstance(ctx, MainConflictContext):
+            self._open_main_conflict_screen(ctx)
+            return
         self._open_failure_screen(ctx)
 
     def _post_action_refresh(self, row: RowSpec) -> None:
@@ -2458,85 +2730,66 @@ class SyncerApp(TuiSwitcherMixin, ShortcutsMixin, App):
     # ---------------------------------------------------- main pull / push
 
     def _git(self, args: list[str], cwd: str) -> tuple[int, str, str]:
-        try:
-            proc = subprocess.run(
-                ["git", *args],
-                capture_output=True,
-                text=True,
-                cwd=cwd,
-                timeout=GIT_TIMEOUT_SECONDS,
-            )
-            return proc.returncode, proc.stdout, proc.stderr
-        except subprocess.TimeoutExpired:
-            return 124, "", f"git timed out after {GIT_TIMEOUT_SECONDS}s"
-        except FileNotFoundError:
-            return 127, "", "git executable not found"
+        return run_git(args, cwd)
 
     @work(thread=True, exclusive=True, group="syncer-action")
     def _main_pull_worker(self, row: RowSpec, target: ActionTarget) -> None:
         try:
-            cwd = str(target.root)
-            branch = target.branch or "main"
-            label = target.label
-            rc, head, _ = self._git(["rev-parse", "--abbrev-ref", "HEAD"], cwd)
-            head_name = head.strip() if rc == 0 else "?"
-            if head_name != branch:
-                self.call_from_thread(
-                    self.notify,
-                    self._prefix(
-                        label,
-                        f"Switch to {branch} to pull (currently on {head_name}).",
-                    ),
-                    severity="warning",
-                )
-                return
-
-            rc, status_out, _ = self._git(["status", "--porcelain"], cwd)
-            if rc == 0 and status_out.strip():
-                self.call_from_thread(
-                    self.notify,
-                    self._prefix(
-                        label, "Working tree dirty — stash or commit before pulling."
-                    ),
-                    severity="warning",
-                )
-                return
-
-            rc, out, err = self._git(["pull", "--ff-only"], cwd)
-            cmd = f"git -C {cwd} pull --ff-only"
-            if rc != 0:
-                tail = "\n".join((err or out).splitlines()[-FAILURE_TAIL_LINES:])
-                self.call_from_thread(
-                    self._fail, row, "pull", cmd, "ERROR", tail, out + err,
-                )
-                return
-            self.call_from_thread(
-                self.notify, self._prefix(label, "main: Pulled."), severity="information"
-            )
-            self.call_from_thread(self._post_action_refresh, row)
+            result = run_main_pull(self._git, str(target.root), target.branch or "main")
+            self.call_from_thread(self._on_main_action_done, row, target, "pull", result)
         finally:
             self.call_from_thread(self._set_busy, False)
 
     @work(thread=True, exclusive=True, group="syncer-action")
     def _main_push_worker(self, row: RowSpec, target: ActionTarget) -> None:
         try:
-            cwd = str(target.root)
-            branch = target.branch or "main"
-            label = target.label
-            rc, out, err = self._git(["push", "origin", f"{branch}:{branch}"], cwd)
-            cmd = f"git -C {cwd} push origin {branch}:{branch}"
-            if rc != 0:
-                tail = "\n".join((err or out).splitlines()[-FAILURE_TAIL_LINES:])
-                self.call_from_thread(
-                    self._fail, row, "push", cmd, "ERROR", tail, out + err,
-                )
-                return
-            self.call_from_thread(
-                self.notify, self._prefix(label, "main: Pushed."), severity="information"
-            )
-            self.call_from_thread(self._post_action_refresh, row)
+            result = run_main_push(self._git, str(target.root), target.branch or "main")
+            self.call_from_thread(self._on_main_action_done, row, target, "push", result)
         finally:
             self.call_from_thread(self._set_busy, False)
+
+    def _on_main_action_done(
+        self, row: RowSpec, target: ActionTarget, action: str,
+        result: MainActionResult,
+    ) -> None:
+        label = target.label
+        if result.status == MAIN_OK:
+            done = "Pulled" if action == "pull" else "Pushed"
+            self.notify(self._prefix(label, f"main: {done}."), severity="information")
+            self._post_action_refresh(row)
+            return
+        if result.status == MAIN_REFUSED:
+            self.notify(self._prefix(label, result.message), severity="warning")
+            return
+        tail = "\n".join(result.output.splitlines()[-FAILURE_TAIL_LINES:])
+        if result.status in (MAIN_DIVERGED, MAIN_SUBMODULES):
+            # Captured like a failure so `a` re-offers it, but as its own
+            # context: re-opening shows the needs-assistance dialog (t2126).
+            upstream = result.upstream or f"origin/{target.branch or 'main'}"
+            ctx = MainConflictContext(
+                action, result.status, target, upstream, result.command, tail)
+            self._last_failure = ctx
+            self._open_main_conflict_screen(ctx)
+            self._post_action_refresh(row)
+            return
+        self._fail(row, action, result.command, "ERROR", tail, result.output)
+
+    def _open_main_conflict_screen(self, ctx: MainConflictContext) -> None:
+        self.push_screen(
+            MainConflictScreen(
+                ctx.action, ctx.reason, ctx.branch, ctx.upstream,
+                str(ctx.repo_root), ctx.output_tail, repo_label=ctx.target.label,
+            ),
+            lambda choice: self._on_main_conflict_resolved(choice, ctx),
+        )
+
+    def _on_main_conflict_resolved(
+        self, choice: str | None, ctx: MainConflictContext
+    ) -> None:
+        # Equality, never truthiness: the modal's dismiss value is a closed set.
+        if choice == CONFLICT_CHOICE_AGENT:
+            self._launch_main_conflict_agent(ctx)
+        self._tick_refresh()
 
     # ---------------------------------------------------- failure escape hatch
 
@@ -2612,6 +2865,22 @@ class SyncerApp(TuiSwitcherMixin, ShortcutsMixin, App):
             project_root=root,
         )
 
+    def _launch_main_conflict_agent(self, ctx: MainConflictContext) -> None:
+        title = f"Assist the {ctx.action} of {ctx.branch} ({ctx.reason})"
+        if ctx.target.label:
+            title = f"{title} on {ctx.target.label}"
+        root = ctx.repo_root
+        self._launch_agent(
+            title=title,
+            window_name=main_conflict_window_name(ctx.action),
+            prompt=build_main_conflict_prompt(
+                ctx.action, ctx.reason, ctx.branch, ctx.upstream, root,
+                ctx.output_tail,
+            ),
+            # The stopped repo, so a multi-repo row's agent runs in ITS repo.
+            project_root=root,
+        )
+
     def _launch_agent(
         self, *, title: str, window_name: str, prompt: str, project_root: Path
     ) -> None:
@@ -2635,8 +2904,8 @@ class SyncerApp(TuiSwitcherMixin, ShortcutsMixin, App):
         )
 
         def on_launch(result: Any) -> None:
-            # The one launch boundary for every syncer agent (data-conflict and
-            # failure recovery), guarded when the launch happens, not when it
+            # The one launch boundary for every syncer agent (data-conflict,
+            # main-divergence and failure recovery), guarded when the launch happens, not when it
             # was chosen (t1955). The lock is held for the whole inline
             # suspended child; tmux / terminal spawns hold it only to spawn,
             # but a stray on this repo refuses every launch mode.

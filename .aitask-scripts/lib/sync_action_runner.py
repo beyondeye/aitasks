@@ -18,6 +18,9 @@ Layers exposed:
   Dismisses with a CONFLICT_CHOICE_* value or None. Self-contained CSS.
 - `build_data_conflict_prompt(files, repo_root)` — pure builder for the prompt
   the "Launch agent to resolve" choice hands a code agent.
+- `build_main_conflict_prompt(action, reason, branch, upstream, repo_root,
+  output_tail)` — the syncer's counterpart for a main-branch pull or push
+  that needs assistance (diverged, or deferred for recursive submodules).
 - `run_interactive_sync(app, on_done)` — terminal-spawn-or-suspend fallback that
   runs `./ait sync` interactively.
 
@@ -750,6 +753,160 @@ def build_data_conflict_prompt(
         "final integrated result preserves the intended resolution, both as "
         "published on the remote and in the live `.aitask-data` checkout, and "
         "that the end state above holds. Remove any worktree you created.\n"
+    )
+
+
+#: The syncer's main-branch actions that can need an agent's help (t2126).
+MAIN_CONFLICT_ACTIONS = ("pull", "push")
+
+#: Why a main-branch action needs assistance — a closed set.
+#: diverged: the local branch and its upstream each have commits the other
+#: lacks (pull could not fast-forward; push was rejected).
+#: submodules: a pull deferred before changing anything, because
+#: `submodule.recurse` is set and the checkout has initialized submodules,
+#: which the syncer deliberately does not update itself.
+MAIN_REASON_DIVERGED = "diverged"
+MAIN_REASON_SUBMODULES = "submodules"
+MAIN_CONFLICT_REASONS = (MAIN_REASON_DIVERGED, MAIN_REASON_SUBMODULES)
+
+#: tmux window prefix for the main-branch agent; the action is appended.
+#: Distinct from DATA_CONFLICT_WINDOW_NAME and the generic failure agent's
+#: `agent-syncfix-<action>`.
+MAIN_CONFLICT_WINDOW_PREFIX = "agent-syncfix-main-"
+
+
+def _check_main_conflict_action(action: str, reason: str | None = None) -> None:
+    if action not in MAIN_CONFLICT_ACTIONS:
+        raise ValueError(f"not a main-branch conflict action: {action!r}")
+    if reason is not None and reason not in MAIN_CONFLICT_REASONS:
+        raise ValueError(f"not a main-branch assistance reason: {reason!r}")
+
+
+def main_conflict_window_name(action: str) -> str:
+    """The tmux window name for the main-branch agent of ``action``."""
+    _check_main_conflict_action(action)
+    return f"{MAIN_CONFLICT_WINDOW_PREFIX}{action}"
+
+
+def describe_main_conflict_reason(
+    action: str, reason: str, branch: str, upstream: str
+) -> str:
+    """One plain sentence or two on why the action stopped — shared by the
+    syncer's dialog and the resolver prompt, so both say the same thing."""
+    _check_main_conflict_action(action, reason)
+    if reason == MAIN_REASON_SUBMODULES:
+        return (
+            "submodule.recurse is set and this checkout has initialized "
+            "submodules. The syncer does not update submodules automatically, "
+            "so it stopped before changing anything."
+        )
+    if action == "pull":
+        return (
+            f"The local {branch} and its upstream {upstream} have diverged: each "
+            "has commits the other lacks, so the fast-forward was refused. "
+            "Nothing was changed."
+        )
+    return (
+        f"The push to {upstream} was rejected: {upstream} has commits the local "
+        f"{branch} lacks. Nothing was published."
+    )
+
+
+def build_main_conflict_prompt(
+    action: str,
+    reason: str,
+    branch: str,
+    upstream: str,
+    repo_root: Path | str,
+    output_tail: str,
+) -> str:
+    """The prompt for a code agent finishing a main-branch pull or push the
+    syncer stopped (t2126).
+
+    ``reason`` is MAIN_REASON_DIVERGED or MAIN_REASON_SUBMODULES.
+    ``upstream`` names the remote branch involved: for a pull the branch's
+    configured upstream, which need not share its name (git's refusal never
+    names it); for a push ``origin/<branch>``. Same shape as
+    build_data_conflict_prompt: the facts, the outcome wanted, the
+    constraints and the pitfalls — not a recipe.
+
+    The constraints exist because the main checkout is shared by several live
+    agent sessions: their uncommitted edits sit in its working tree and they
+    commit to it while the agent works.
+    """
+    _check_main_conflict_action(action, reason)
+    tail = output_tail.strip()
+    if tail:
+        quoted = "\n".join(f"    {line}" for line in tail.splitlines())
+        reported = f"Git reported:\n{quoted}\n"
+    else:
+        reported = ""
+    if action == "pull":
+        publish = (
+            "Publishing is not part of this goal: ask the user before you push "
+            "anything."
+        )
+    else:
+        publish = f"Publish the integrated result to `{upstream}`."
+    submodules = sub_constraint = sub_pitfall = ""
+    if reason == MAIN_REASON_SUBMODULES:
+        submodules = (
+            " Its submodules are checked out at the commits the result records, "
+            "as `git pull` with `submodule.recurse` would leave them."
+        )
+        sub_constraint = (
+            "- Never strand local work in a submodule: commits there that no "
+            "branch holds, or uncommitted changes.\n"
+        )
+        sub_pitfall = (
+            "- `git submodule update` moves a submodule's HEAD to its recorded "
+            "commit, which strands commits made there on a detached HEAD, and "
+            "`git pull` with `submodule.recurse` runs it.\n"
+        )
+    why = describe_main_conflict_reason(action, reason, branch, upstream)
+    return (
+        f"`ait syncer` stopped a {action} of `{branch}` and needs your help.\n"
+        "\n"
+        f"Repository: {repo_root}\n"
+        f"Local branch: {branch}\n"
+        f"Upstream: {upstream}\n"
+        f"Operation: {action}\n"
+        f"Reason: {reason} — {why}\n"
+        f"{reported}"
+        "\n"
+        "Context: the state may have moved since; check it yourself. This "
+        "checkout is shared by several live agent sessions: their uncommitted "
+        "edits are in its working tree, and they commit to it while you work.\n"
+        "\n"
+        f"Goal: integrate the local `{branch}` with `{upstream}`, keeping both "
+        f"sides' commits. {publish} Leave the live checkout at {repo_root} up "
+        f"to date with the integrated result.{submodules} Choose your own "
+        "approach, tools and recovery, following this repository's "
+        "instructions. Ask the user when the choice between merge and rebase, "
+        "or an ambiguous conflict resolution, is theirs to make.\n"
+        "\n"
+        "Constraints:\n"
+        "- Never force-push, in any form.\n"
+        "- Keep every commit other sessions made, local or published.\n"
+        "- Never stash, reset, check out, restore or clean other sessions' "
+        "uncommitted edits: they must stay byte-for-byte intact.\n"
+        "- Keep the shared checkout available: do not leave a merge or rebase "
+        "in progress there, not even while you work — other sessions commit "
+        "there.\n"
+        f"{sub_constraint}"
+        "\n"
+        "Pitfalls:\n"
+        "- A rebase drops merge commits, and this branch carries merge commits "
+        "from task branches.\n"
+        f"- Other sessions may commit to `{branch}` while you work, so check "
+        "again before you publish or finish.\n"
+        "- An incoming change to a file another session has modified blocks "
+        "updating the live checkout. Stop and ask the user rather than moving "
+        "their edits.\n"
+        f"{sub_pitfall}"
+        "\n"
+        "Before you finish, verify — by whatever method you choose — that the "
+        "end state above holds. Remove any worktree you created.\n"
     )
 
 

@@ -120,13 +120,13 @@ Actions on the Branches tab always target the **highlighted row's repo** — hig
 | Key | Target ref | Action |
 |-----|-----------|--------|
 | **s** | `aitask-data` | Sync via that repo's `ait sync --batch` (auto-merges frontmatter conflicts) |
-| **u** | `main` | Pull with `git pull --ff-only` in that repo |
+| **u** | `main` | Pull: fetch the branch's upstream, then fast-forward only (`git merge --ff-only --no-autostash --no-overwrite-ignore`) in that repo |
 | **p** | `main` | Push to `origin main:main` from that repo |
-| **a** | (last failure or conflict) | Re-open the most recent failure or data-sync conflict modal |
+| **a** | (last failure or conflict) | Re-open the most recent failure, data-sync conflict, or "needs assistance" dialog |
 
 The syncer scopes each action to the appropriate ref: `s` only operates on `aitask-data` rows, `u` and `p` only on `main` rows — the footer hints follow the highlighted row. Before running anything, the syncer verifies the target repo still resolves (and, for pull/push, that a status snapshot exists so the branch is derived from the right repo); failures surface as a notification naming the project. There is no batch fan-out: each action affects exactly one repo.
 
-The `u` action refuses to pull on a dirty working tree or when HEAD is not on `main`. The `s` action runs the same code path as the [`ait sync`]({{< relref "/docs/commands/sync" >}}) CLI in batch mode; if `aitask_merge.py` cannot resolve a conflict automatically, the syncer shows a conflict dialog that can launch a code agent to resolve it or hand off to interactive sync (see [Failure handling](#failure-handling)).
+The `u` action refuses to pull when HEAD is not on `main` or the checkout is in the middle of a merge, rebase, cherry-pick, revert or bisect — it checks again after the fetch, right before it fast-forwards. A dirty working tree is fine: the fast-forward leaves modified and untracked files alone, and only refuses when an incoming commit would overwrite a modified, untracked or ignored file, in which case the failure dialog shows git's own message naming those files. The pull deliberately does not update submodules: when `submodule.recurse` is set and the checkout has initialized submodules — the case where `git pull` would also update them — it stops before changing anything and offers the resolver agent instead (see [Failure handling](#failure-handling)). The `s` action runs the same code path as the [`ait sync`]({{< relref "/docs/commands/sync" >}}) CLI in batch mode; if `aitask_merge.py` cannot resolve a conflict automatically, the syncer shows a conflict dialog that can launch a code agent to resolve it or hand off to interactive sync (see [Failure handling](#failure-handling)).
 
 ## Framework versions
 
@@ -333,6 +333,18 @@ When `s` stops on a conflict that the auto-merge could not resolve, the syncer s
 - **Launch agent to resolve** — opens an `AgentCommandScreen` for a code agent in the `agent-syncfix-data-conflict` window, rooted in the repository whose sync conflicted (also when you re-open the dialog with `a` from another row). The agent gets the conflicted files and the goal — the conflicts merged with both sides' intent kept, the data branch integrated with the remote and published — and chooses its own approach. It must do the resolution in a separate worktree, so the shared `.aitask-data` checkout stays usable by other sessions while it works, and finish with their work preserved and no merge or rebase left in progress. Before it finishes it verifies that the published and live result still holds the resolution.
 - **Resolve Interactively** — opens `ait sync` in a terminal, where each conflicted file is edited in `$EDITOR`.
 - **Dismiss** — closes the dialog; `a` re-opens it later.
+
+When `u` or `p` cannot finish on its own, the syncer shows an **Automatic update needs assistance** dialog naming the repository, the operation, the upstream and the reason. The upstream is `main`'s configured upstream for `u`, which need not be `origin/main`, and `origin/main` for `p`. There are two reasons:
+
+- **Diverged** — the local `main` and the upstream each have commits the other lacks: the pull could not fast-forward, or the push was rejected (`non-fast-forward` / `fetch first`). The dialog also shows git's output.
+- **Submodules** — `submodule.recurse` is set and the checkout has initialized submodules, so `git pull` would also update them. The syncer deliberately leaves that to the agent, which can tell local submodule work apart from what the pull brings, and stops before changing anything.
+
+The dialog offers:
+
+- **Launch agent** — opens an `AgentCommandScreen` for a code agent in the `agent-syncfix-main-pull` or `agent-syncfix-main-push` window, rooted in the repository whose pull or push stopped. The agent is given the repository, the local branch, the upstream, the operation and the reason. Its goal is the local `main` integrated with the upstream, both sides' commits kept, and the live checkout up to date — with the submodules at their recorded commits in the submodule case. For a push it also publishes the result; for a pull it asks you before pushing. Because the checkout is shared by other live sessions, it never force-pushes, keeps their commits and their uncommitted edits, and keeps the checkout usable (no merge or rebase left in progress there); in the submodule case it also never strands local work in a submodule. It asks you when the choice between merge and rebase, or a conflict resolution, is yours to make.
+- **Dismiss** — closes the dialog; `a` re-opens it later.
+
+Any other pull or push failure (authentication, network, a refused overwrite) shows the failure modal above.
 
 A deferred sync (`Sync deferred: …`) is not a conflict: it means sync declined to touch another session's in-flight work, and it does not arm `a`.
 

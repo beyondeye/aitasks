@@ -26,7 +26,9 @@ PROJECT_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_DIR / ".aitask-scripts" / "lib"))
 sys.path.insert(0, str(PROJECT_DIR / ".aitask-scripts" / "syncer"))
 
+from textual.app import App  # noqa: E402
 from textual.widgets import (  # noqa: E402
+    Button,
     DataTable,
     Footer,
     Input,
@@ -46,6 +48,7 @@ from agent_launch_utils import AitasksSession, TmuxLaunchConfig  # noqa: E402
 import syncer_app  # noqa: E402
 import sync_action_runner  # noqa: E402
 from sync_action_runner import (  # noqa: E402
+    CONFLICT_CHOICE_AGENT,
     CONFLICT_CHOICE_INTERACTIVE,
     DATA_CONFLICT_WINDOW_NAME,
     STATUS_CONFLICT,
@@ -55,11 +58,21 @@ from sync_action_runner import (  # noqa: E402
     SyncConflictScreen,
     SyncResult,
 )
-from sync_failure_screen import SyncFailureContext, SyncFailureScreen  # noqa: E402
+from sync_failure_screen import (  # noqa: E402
+    MainConflictScreen,
+    SyncFailureContext,
+    SyncFailureScreen,
+)
 from syncer_app import (  # noqa: E402
+    MAIN_DIVERGED,
+    MAIN_FAILED,
+    MAIN_REFUSED,
+    MAIN_SUBMODULES,
     PENDING_UNSET,
     ActionTarget,
     DataConflictContext,
+    MainActionResult,
+    MainConflictContext,
     PushTarget,
     RowSpec,
     SettingsRow,
@@ -3782,6 +3795,277 @@ class InteractiveSyncCompletionTests(_TabbedShellBase):
         self.assertEqual(out["calls"],
                          [(["/tmp/repo1/ait", "sync"], {"cwd": "/tmp/repo1"})])
 
+
+class _MainConflictHost(App):
+    """Minimal host that pushes a MainConflictScreen and records its result."""
+
+    def __init__(self, action: str = "pull", tail: str = "", label: str = "",
+                 upstream: str = "origin/main", reason: str = MAIN_DIVERGED) -> None:
+        super().__init__()
+        self._args = (action, reason, "main", upstream, "/tmp/repo1", tail)
+        self._label = label
+        self.result: object = "UNSET"
+
+    def compose(self):
+        yield Static("host")
+
+    def on_mount(self) -> None:
+        self.push_screen(
+            MainConflictScreen(*self._args, repo_label=self._label), self._record
+        )
+
+    def _record(self, result) -> None:
+        self.result = result
+
+
+class MainConflictScreenTests(unittest.TestCase):
+    """"Automatic update needs assistance": its dismiss value is the same
+    CLOSED set as the data-conflict dialog (t1911), it names the reason, and
+    git's output renders verbatim."""
+
+    TAIL = " ! [rejected]        main -> main (fetch first)"
+
+    def _run(self, coro):
+        return asyncio.run(coro)
+
+    def _dismiss_via(self, action) -> object:
+        async def runner():
+            app = _MainConflictHost()
+            async with app.run_test(size=(120, 30)) as pilot:
+                await pilot.pause()
+                await action(pilot)
+                await pilot.pause()
+            return app.result
+
+        return self._run(runner())
+
+    def _render(self, **kw) -> tuple[str, str]:
+        async def runner():
+            app = _MainConflictHost(label="repo1", **kw)
+            async with app.run_test(size=(120, 30)) as pilot:
+                await pilot.pause()
+                title = str(app.screen.query_one("#main_conflict_title").render())
+                body = str(app.screen.query_one("#main_conflict_body Static").render())
+            return title, body
+
+        return self._run(runner())
+
+    def test_agent_button_dismisses_with_agent(self):
+        self.assertEqual(
+            self._dismiss_via(lambda p: p.click("#btn_main_conflict_agent")),
+            CONFLICT_CHOICE_AGENT,
+        )
+
+    def test_dismiss_and_escape_dismiss_with_none(self):
+        self.assertIsNone(self._dismiss_via(lambda p: p.click("#btn_main_conflict_dismiss")))
+        self.assertIsNone(self._dismiss_via(lambda p: p.press("escape")))
+
+    def test_divergence_names_the_repo_upstream_and_what_diverged(self):
+        for action, said in (("pull", "its upstream origin/main have diverged"),
+                             ("push", "push to origin/main was rejected")):
+            with self.subTest(action=action):
+                title, body = self._render(action=action, tail=self.TAIL)
+                self.assertIn("Automatic update needs assistance", title)
+                self.assertIn("repo1", title)
+                self.assertIn("Repository: /tmp/repo1", body)
+                self.assertIn(f"Operation: {action} of main", body)
+                self.assertIn(said, body)
+                # `[rejected]` is git's text, not console markup.
+                self.assertIn(self.TAIL, body)
+
+        title, body = self._render(upstream="origin/release")
+        self.assertIn("Upstream: origin/release", body)
+        self.assertIn("its upstream origin/release", body)
+
+    def test_the_submodule_deferral_is_its_own_reason(self):
+        title, body = self._render(reason=MAIN_SUBMODULES)
+        self.assertIn("Automatic update needs assistance", title)
+        self.assertIn("submodule.recurse is set", body)
+        self.assertIn("stopped before changing anything", body)
+        self.assertNotIn("diverged", body)
+        self.assertNotIn("Git output", body)
+
+    def test_buttons_fit_inside_the_dialog_at_80_columns(self):
+        async def runner():
+            app = _MainConflictHost(tail=self.TAIL)
+            async with app.run_test(size=(80, 30)) as pilot:
+                await pilot.pause()
+                content = app.screen.query_one("#main_conflict_dialog").content_region
+                buttons = [
+                    app.screen.query_one(f"#{bid}", Button).region
+                    for bid in ("btn_main_conflict_agent", "btn_main_conflict_dismiss")
+                ]
+            return content, buttons
+
+        content, buttons = self._run(runner())
+        for region in buttons:
+            self.assertGreater(region.width, 0)
+            self.assertTrue(content.contains_region(region), f"{region} clipped")
+
+
+class MainConflictAgentTests(_TabbedShellBase):
+    """A main pull/push that needs assistance offers its own agent (t2126):
+    the dialog, `a` re-offering it (not the failure modal), a launch rooted in
+    the repo that stopped with the right facts — and every other outcome
+    unchanged."""
+
+    agent_seams = DataConflictAgentTests.agent_seams
+    TAIL = " ! [rejected]        main -> main (fetch first)"
+
+    def _two_repos(self):
+        sessions = [sess("/tmp/repo0", "repo0"), sess("/tmp/repo1", "repo1")]
+        row = RowSpec("r1", sessions[1].key, "main", "repo1")
+        target = ActionTarget(Path("/tmp/repo1"), "main", "repo1")
+        return sessions, row, target
+
+    def _done(self, app, row, target, action, status, **kw):
+        app._on_main_action_done(
+            row, target, action, MainActionResult(status, **kw))
+
+    def _diverged(self, app, row, target, action="pull", upstream="origin/main"):
+        self._done(app, row, target, action, MAIN_DIVERGED,
+                   command="git -C /tmp/repo1 merge --ff-only x", output=self.TAIL,
+                   upstream=upstream)
+
+    async def _launch(self, app, pilot):
+        await pilot.click("#btn_main_conflict_agent")
+        await pilot.pause()
+        return _SpyAgentScreen.instances[-1]
+
+    def test_divergence_offers_the_dialog_and_a_reopens_it(self):
+        async def runner():
+            sessions, row, target = self._two_repos()
+            with self.agent_seams() as calls:
+                async with self.booted(sessions=sessions) as (app, pilot):
+                    self._diverged(app, row, target)
+                    await pilot.pause()
+                    self.assertIsInstance(app.screen, MainConflictScreen)
+                    self.assertEqual(app.screen.action, "pull")
+
+                    await pilot.press("escape")
+                    await pilot.pause()
+                    self.assertNotIsInstance(app.screen, MainConflictScreen)
+                    ctx = app._last_failure
+                    self.assertIsInstance(ctx, MainConflictContext)
+                    self.assertEqual(ctx.reason, MAIN_DIVERGED)
+                    self.assertEqual(ctx.repo_root, Path("/tmp/repo1").resolve())
+
+                    app.action_agent_resolve()
+                    await pilot.pause()
+                    self.assertIsInstance(app.screen, MainConflictScreen)
+                    self.assertNotIsInstance(app.screen, SyncFailureScreen)
+                    await pilot.press("escape")
+                    await self.settle(app, pilot)
+            self.assertEqual(calls.dry_run, [])
+
+        self._run(runner())
+
+    def test_agent_choice_launches_in_the_diverged_repo(self):
+        async def runner():
+            sessions, row, target = self._two_repos()
+            root = Path("/tmp/repo1").resolve()
+            with self.agent_seams() as calls:
+                async with self.booted(sessions=sessions) as (app, pilot):
+                    self._diverged(app, row, target, action="push")
+                    await pilot.pause()
+                    spy = await self._launch(app, pilot)
+
+                    self.assertEqual(len(_SpyAgentScreen.instances), 1)
+                    self.assertEqual(
+                        spy.kwargs["default_window_name"], "agent-syncfix-main-push")
+                    self.assertEqual(spy.kwargs["project_root"], root)
+                    self.assertEqual(spy.kwargs["operation_args"], [spy.prompt_str])
+                    self.assertIn("repo1", spy.title_text)
+                    self.assertEqual(calls.dry_run, [(root, "raw", (spy.prompt_str,))])
+                    self.assertIn(f"Repository: {root}", spy.prompt_str)
+                    self.assertIn("Operation: push", spy.prompt_str)
+                    self.assertIn("Reason: diverged", spy.prompt_str)
+                    self.assertIn("Never force-push", spy.prompt_str)
+                    self.assertIn("Publish the integrated result", spy.prompt_str)
+                    self.assertIn(self.TAIL, spy.prompt_str)
+                    spy.dismiss(None)
+                    await self.settle(app, pilot)
+
+        self._run(runner())
+
+    def test_the_pulls_configured_upstream_reaches_dialog_and_prompt(self):
+        async def runner():
+            sessions, row, target = self._two_repos()
+            with self.agent_seams():
+                async with self.booted(sessions=sessions) as (app, pilot):
+                    self._diverged(app, row, target, upstream="origin/release")
+                    await pilot.pause()
+                    self.assertEqual(app._last_failure.upstream, "origin/release")
+                    self.assertEqual(app.screen.upstream, "origin/release")
+                    spy = await self._launch(app, pilot)
+                    self.assertIn("Upstream: origin/release", spy.prompt_str)
+                    self.assertNotIn("origin/main", spy.prompt_str)
+                    spy.dismiss(None)
+                    await self.settle(app, pilot)
+
+        self._run(runner())
+
+    def test_a_submodule_deferral_offers_the_agent_with_its_reason(self):
+        async def runner():
+            sessions, row, target = self._two_repos()
+            root = Path("/tmp/repo1").resolve()
+            with self.agent_seams():
+                async with self.booted(sessions=sessions) as (app, pilot):
+                    self._done(app, row, target, "pull", MAIN_SUBMODULES,
+                               upstream="origin/release")
+                    await pilot.pause()
+                    self.assertIsInstance(app.screen, MainConflictScreen)
+                    self.assertEqual(app.screen.reason, MAIN_SUBMODULES)
+                    self.assertEqual(app._last_failure.reason, MAIN_SUBMODULES)
+
+                    spy = await self._launch(app, pilot)
+                    self.assertEqual(
+                        spy.kwargs["default_window_name"], "agent-syncfix-main-pull")
+                    self.assertEqual(spy.kwargs["project_root"], root)
+                    for fact in (f"Repository: {root}", "Local branch: main",
+                                 "Upstream: origin/release", "Operation: pull",
+                                 "Reason: submodules"):
+                        self.assertIn(fact, spy.prompt_str)
+                    for rule in ("Never force-push", "Keep every commit other sessions made",
+                                 "byte-for-byte intact", "Keep the shared checkout available",
+                                 "ask the user before you push",
+                                 "Never strand local work in a submodule"):
+                        self.assertIn(rule, spy.prompt_str)
+                    spy.dismiss(None)
+                    await self.settle(app, pilot)
+
+        self._run(runner())
+
+    def test_other_failures_keep_the_generic_failure_modal(self):
+        async def runner():
+            sessions, row, target = self._two_repos()
+            with self.agent_seams():
+                async with self.booted(sessions=sessions) as (app, pilot):
+                    self._done(app, row, target, "push", MAIN_FAILED,
+                               command="git -C /tmp/repo1 push origin main:main",
+                               output="fatal: could not read from remote\n")
+                    await pilot.pause()
+                    self.assertIsInstance(app.screen, SyncFailureScreen)
+                    self.assertIsInstance(app._last_failure, SyncFailureContext)
+                    self.assertEqual(app._last_failure.action, "push")
+                    await pilot.press("escape")
+                    await self.settle(app, pilot)
+
+        self._run(runner())
+
+    def test_a_refusal_is_a_notice_and_arms_nothing(self):
+        async def runner():
+            sessions, row, target = self._two_repos()
+            with self.agent_seams():
+                async with self.booted(sessions=sessions) as (app, pilot):
+                    self._done(app, row, target, "pull", MAIN_REFUSED,
+                               message="Checkout is mid-merge — finish or abort it")
+                    await self.settle(app, pilot)
+                    self.assertIsNone(app._last_failure)
+                    self.assertNotIsInstance(app.screen, MainConflictScreen)
+                    self.assertNotIsInstance(app.screen, SyncFailureScreen)
+
+        self._run(runner())
 
 if __name__ == "__main__":
     unittest.main()

@@ -24,8 +24,13 @@ import sync_action_runner  # noqa: E402
 from sync_action_runner import (  # noqa: E402
     CONFLICT_CHOICE_AGENT,
     CONFLICT_CHOICE_INTERACTIVE,
+    DATA_CONFLICT_WINDOW_NAME,
+    MAIN_REASON_DIVERGED,
+    MAIN_REASON_SUBMODULES,
     SyncConflictScreen,
     build_data_conflict_prompt,
+    build_main_conflict_prompt,
+    main_conflict_window_name,
     sync_batch_command,
     STATUS_AUTOMERGED,
     STATUS_CONFLICT,
@@ -1349,6 +1354,128 @@ class BuildDataConflictPromptTests(unittest.TestCase):
     def test_leaves_the_approach_to_the_agent_and_asks_on_ambiguity(self):
         self.assertMentions("choose your own approach", "ask the user when")
 
+
+class BuildMainConflictPromptTests(unittest.TestCase):
+    """The main-branch resolver prompt (t2126): the facts the agent needs,
+    the outcome, the constraints and the pitfalls, checked by intent — no
+    Git command sequence is pinned."""
+
+    ROOT = Path("/work/projB")
+    TAIL = " ! [rejected]        main -> main (fetch first)\nerror: failed to push"
+
+    def prompt(self, action: str, reason: str = MAIN_REASON_DIVERGED,
+               upstream: str = "origin/main", tail: str | None = None) -> str:
+        return build_main_conflict_prompt(
+            action, reason, "main", upstream, self.ROOT,
+            self.TAIL if tail is None else tail)
+
+    def assertMentions(self, text: str, *phrases: str) -> None:
+        for phrase in phrases:
+            self.assertIn(phrase.lower(), text.lower(), f"prompt lacks {phrase!r}")
+
+    CASES = (("pull", MAIN_REASON_DIVERGED), ("push", MAIN_REASON_DIVERGED),
+             ("pull", MAIN_REASON_SUBMODULES))
+
+    def test_gives_repository_branch_upstream_operation_and_reason(self):
+        for action, reason in self.CASES:
+            with self.subTest(action=action, reason=reason):
+                text = self.prompt(action, reason, upstream="origin/release")
+                self.assertIn(f"Repository: {self.ROOT}\n", text)
+                self.assertIn("Local branch: main\n", text)
+                self.assertIn("Upstream: origin/release\n", text)
+                self.assertIn(f"Operation: {action}\n", text)
+                self.assertIn(f"Reason: {reason} — ", text)
+                self.assertMentions(text, "may have moved since")
+
+    def test_the_reason_says_what_happened(self):
+        self.assertMentions(self.prompt("pull"),
+                            "its upstream origin/main have diverged")
+        self.assertMentions(self.prompt("push"),
+                            "the push to origin/main was rejected")
+        self.assertMentions(self.prompt("pull", MAIN_REASON_SUBMODULES, tail=""),
+                            "submodule.recurse is set",
+                            "initialized submodules",
+                            "stopped before changing anything")
+
+    def test_quotes_git_output_only_when_there_is_some(self):
+        text = self.prompt("push")
+        for line in self.TAIL.splitlines():
+            self.assertIn(line, text)
+        self.assertNotIn("Git reported", self.prompt("pull", MAIN_REASON_SUBMODULES,
+                                                     tail=""))
+
+    def test_states_the_integrated_outcome_with_both_sides_kept(self):
+        for action, reason in self.CASES:
+            with self.subTest(action=action, reason=reason):
+                self.assertMentions(
+                    self.prompt(action, reason, upstream="origin/release"),
+                    "integrate the local `main` with `origin/release`",
+                    "keeping both sides' commits",
+                    f"live checkout at {self.ROOT} up to date",
+                    "choose your own approach",
+                )
+
+    def test_the_submodule_case_asks_for_submodules_at_their_recorded_commits(self):
+        self.assertMentions(self.prompt("pull", MAIN_REASON_SUBMODULES),
+                            "submodules are checked out at the commits the result records")
+        self.assertNotIn("submodule", self.prompt("pull").lower())
+
+    def test_only_the_push_case_requires_publishing(self):
+        self.assertMentions(self.prompt("push"),
+                            "publish the integrated result to `origin/main`")
+        for reason in (MAIN_REASON_DIVERGED, MAIN_REASON_SUBMODULES):
+            pull = self.prompt("pull", reason)
+            self.assertNotIn("Publish the integrated result", pull)
+            self.assertMentions(pull, "ask the user before you push")
+
+    def test_states_the_shared_checkout_constraints(self):
+        for action, reason in self.CASES:
+            with self.subTest(action=action, reason=reason):
+                self.assertMentions(
+                    self.prompt(action, reason),
+                    "never force-push",
+                    "keep every commit other sessions made",
+                    "never stash, reset, check out",
+                    "byte-for-byte intact",
+                    "keep the shared checkout available",
+                    "do not leave a merge or rebase in progress",
+                    "ask the user when the choice between merge and rebase",
+                )
+
+    def test_the_submodule_case_protects_submodule_work(self):
+        text = self.prompt("pull", MAIN_REASON_SUBMODULES)
+        self.assertMentions(text, "never strand local work in a submodule",
+                            "strands commits made there on a detached head")
+
+    def test_names_the_pitfalls(self):
+        self.assertMentions(
+            self.prompt("push"),
+            "a rebase drops merge commits",
+            "other sessions may commit to `main` while you work",
+            "stop and ask the user rather than moving their edits",
+        )
+
+    def test_the_named_upstream_replaces_origin_main_everywhere(self):
+        text = self.prompt("pull", upstream="origin/release")
+        self.assertNotIn("origin/main", text)
+        self.assertNotIn("remote `main`", text)
+
+    def test_window_names_are_distinct(self):
+        names = {main_conflict_window_name("pull"), main_conflict_window_name("push")}
+        self.assertEqual(names, {"agent-syncfix-main-pull", "agent-syncfix-main-push"})
+        # Neither the data-conflict agent's nor the generic failure agent's.
+        self.assertTrue(names.isdisjoint(
+            {DATA_CONFLICT_WINDOW_NAME, "agent-syncfix-pull", "agent-syncfix-push"}))
+
+    def test_rejects_an_unknown_action_or_reason(self):
+        with self.assertRaises(ValueError):
+            build_main_conflict_prompt("sync", MAIN_REASON_DIVERGED, "main",
+                                       "origin/main", self.ROOT, "")
+        with self.assertRaises(ValueError):
+            build_main_conflict_prompt("pull", "conflict", "main",
+                                       "origin/main", self.ROOT, "")
+        with self.assertRaises(ValueError):
+            main_conflict_window_name("sync")
 
 if __name__ == "__main__":
     unittest.main()
