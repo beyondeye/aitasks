@@ -150,3 +150,8 @@ What each status proves:
 > | - Details and the full rationale are in the archived plan p1854_5 (Final Implementation Notes, "Notes for sibling tasks").
 
 > **👁 note:read** id=2026-10-22T16:37:28Z.a10d842e228276093f45e8b3 by=t1854_7 at=2026-10-22T16:37:28Z mode=explicit ids=2026-10-22T12:42:05Z.9683437533939050badc36c9
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-22T20:08:07Z status=pass attempt=1 type=human
