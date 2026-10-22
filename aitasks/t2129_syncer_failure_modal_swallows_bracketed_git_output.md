@@ -12,8 +12,9 @@ active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2126
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-22 23:27
-updated_at: 2026-10-23 00:01
+updated_at: 2026-10-23 00:21
 ---
 
 ## Origin
@@ -33,3 +34,8 @@ t2126 added a sibling modal (`MainConflictScreen`, same file) that avoids this b
 ## Suggested fix
 
 Build the `SyncFailureScreen` body with `Text.assemble` (or escape every interpolated value with `rich.markup.escape`), and add a render test in `tests/test_syncer_rows.py` asserting a `[rejected]` tail and a bracketed command render verbatim.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-22T21:21:46Z status=pass attempt=1 type=human
