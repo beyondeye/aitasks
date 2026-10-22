@@ -3,18 +3,17 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Ready
 labels: [testing, bash_scripts]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
 active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
-assigned_to: dario-e@beyond-eye.com
 anchor: 1599
 followup_kind: upstream_defect
 created_at: 2026-10-22 10:38
-updated_at: 2026-10-22 10:51
+updated_at: 2026-10-22 11:17
 ---
 
 ## Origin
