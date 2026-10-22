@@ -94,3 +94,15 @@ Implements the §7 contract exactly:
   - Hosted remotes decide when unreachable objects are collected.
   - The coordination requirement (do not keep manifest commits unpushed across a
     `--delete-retired`).
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t2099** id=2026-10-22T09:52:21Z.f7b8588289f80fca1130cbd9 from=t2099 from_verified=yes at=2026-10-22T09:52:21Z base=db9829d512d526d3b23a48829a4e517321a54d87 base_branch=main dirty=yes host=omg16
+>
+> | t2099 landed (db9829d51): routine-fetch exclusion for the gitbranch store. What it gives t2104 (claims as of that commit; verify before relying):
+> | 
+> | - The store record artifacts/gitbranch_store.json can now carry an optional "retired" list (validated fail-closed by _artifact_gitbranch_record_parse in aitask_artifact.sh). gitbranch-migrate step 8 adds <from> to it. Every clone keeps ^refs/heads/<retired> in its fetch config because the exclusion set is {configured branch} ∪ {record branch} ∪ {record retired}.
+> | - Your release hook after --delete-retired is `ait artifact fetch-exclusion drop-retired <branch>`: under the attach lock it removes <branch> from "retired", commits the record, then re-applies the exclusion. Other clones release it on their next `ait sync` (post-convergence reconcile). It refuses the current store/config branch.
+> | - Compaction retires a branch through the same gitbranch-migrate fence, so if compaction writes the record itself, carry the existing "retired" entries forward (and add the retired predecessor) — otherwise clones would start downloading the retired branch again.
+> | - Record writes should go through _artifact_gitbranch_record_write (json.dumps, sorted unique retired).
