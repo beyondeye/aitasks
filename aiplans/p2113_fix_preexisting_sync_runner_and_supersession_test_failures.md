@@ -153,3 +153,30 @@ Step 9.
 
 ### Goal-achievement risk: low
 - Once membership is visible, other macOS-specific containment failures could show up in the 9 tests (for example, timing in the nested bounded-runner cases). · severity: low · → mitigation: none (the verification step runs the module; anything new is diagnosed in this task)
+
+## Final Implementation Notes
+
+- **Steps 1–3 done as planned.** The pre-fix control ran: the new ps-backend tests failed against `pgrep -s` (6/6). The zombie-filter control ran: with the `Z` filter removed, both zombie tests failed (`[4242, 4243] != []`, `[4242, 4243, 4244, 4245] != [4242, 4244]`), and the filter was then restored.
+- **Deviation (user-approved scope expansion): fixture race in the containment tests.** Once membership worked on macOS, a latent race showed up. The class's 0.5s sync timeout could fire before a fixture's chain of Python interpreters started, so the stop killed the chain before it recorded its pids. That gave "fixture never started" failures in about 10% of module runs (5 tests: nested runner, uncoordinated-grace control, stopped runner, cut-down-by-cap, plain-subprocess control). Pre-fix these tests failed every time on macOS, so the race never showed.
+  - Fix: `_sync(ready=…)` holds the stop's **first membership listing** until the fixture is up (a pid count, or a predicate). Nothing is signalled before that listing, so this is deterministic (same pattern as `test_a_runner_started_after_the_first_listing_is_still_stopped`). The "orderly stop" bounds are now measured from `self.released`, the end of the hold. The same-group / own-group / fd-dropper / unprovable-stop tests also hold (`ready=1`), which stops them passing vacuously when their writer never started.
+  - The plain-`subprocess.run` control bypasses our stop, so it gets a 2s timeout and a 3s writer instead, plus a guard that the writer started.
+  - The first attempt widened only the cut-down test's timeout. It was reverted in favour of the hold.
+  - Control: with a `sitecustomize.py` adding 0.8s to every Python start, the previous test version fails exactly those 5 tests and the new version passes.
+- **Leaked fixtures found and removed:** four SIGSTOPped `bounded_run.py` runners from `test_a_stopped_runner_is_resumed_to_clean_up`, reparented to init, all started before the fix (15:05–17:30). The old macOS path never sent SIGCONT because membership was always "unknown". After checking each one's identity (state `T` plus the test's temp-dir command line), they were killed. None leaked in any post-fix run.- **Actual work done:** the non-`/proc` membership backend in `sync_action_runner._session_members` moved from `pgrep -s` to `ps -A -o pid=,stat=` + `os.getsid`, with zombie filtering and fail-closed semantics. That restores the t1947 timeout containment on macOS. The supersession test now compares against the resolved repository path. The containment fixtures were made race-free (readiness hold, stop-duration bounds, a readiness-synced control, identity-checked stopped-runner cleanup). Before this task: 10 failures on macOS; after: `PYTHON SUITE: PASSED`.
+- **Key decisions:** the supersession *test* changed rather than the CLI, because `--root` is resolved on purpose and the printed `cd` path is the one the CLI worked on. Fixture races were fixed by synchronizing on fixture readiness, not by widening timeouts. Widening only made the race less likely (the review confirmed a fixed 2s allowance still failed).
+- **Upstream defects identified:** None
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-21 22:45)
+- **Requested by user:** (1) The plain-subprocess control still relied on a fixed 2s startup allowance (it failed in the reviewer's affected-module run with pid count 0); synchronize readiness with the timeout stimulus while keeping the survivor proof. (2) The minimum-duration bounds in the uncoordinated-grace and cut-down-by-cap tests still measured from before the fixture hold, so a slow fixture start could satisfy them with no stop work at all.
+- **Changes made:**
+  - The control now runs `subprocess.run`'s timeout path verbatim on a `Popen` (`communicate(timeout)`, then `kill()` the direct child, then `communicate()`), starting the timeout only once the writer exists.
+  - `_sync` records `self.finished`. Every stop-duration bound (two lower, two upper) uses `_stop_seconds()` = `finished - released`, excluding both the sync timeout and the hold. The cap bound is now `>= 2 * grace`; it was `TIMEOUT + 2 * grace` from before the hold.
+  - A stopped-runner leak was found (a SIGSTOPped `bounded_run.py` started 22:13, outside every run of this session, matching the reviewer's runs). `tearDown` now SIGKILLs the pid in `runner.pid` before deleting the temp dir, after checking identity: the command line must name this test's unique temp dir. A first attempt used `addCleanup`, which runs *after* `tearDown` has deleted the pid file and so could never fire; it was moved into `tearDown`.
+- **Controls:**
+  - With `_term_session` forced to give up at once, both min-duration bounds fail (0.09s vs 3.0 and vs 6.0).
+  - With a 2.5s interpreter start, the previous fixed-2s control fails (`0 != 1`) and the new one passes.
+  - With the stopped-runner test failing right after SIGSTOP, the new tearDown leaves 0 stopped runners; with the kill disabled it leaves 1.
+- **Verification:** module 3/3 OK, 0.8s slow-start class run OK, supersession OK, 0 stopped runners left. These edits are test-only and confined to this module; the last full-suite run (before this change request) was `PYTHON SUITE: PASSED`.
+- **Files affected:** `tests/test_sync_action_runner.py`
