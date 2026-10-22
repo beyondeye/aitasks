@@ -141,3 +141,35 @@ None identified.
 
 ### Goal-achievement risk: low
 None identified.
+
+## Final Implementation Notes
+
+- **Actual work done:** every site in the Context table was rewritten to the
+  shared path-scoped wording, both refusal helpers' header comments now explain
+  why the recovery is a path-scoped manual commit, and the three planned
+  assertions plus the setup re-run negative assertion were added.
+- **Deviations from plan:** none in the code. The plan went through three
+  review rounds before approval: (1) a bare `git commit` sweeps a foreign
+  pre-staged index, so every hint must name paths; (2) the two `still_untracked`
+  "…to finalize" warnings were missing from the first inventory; (3) the first
+  caution text quoted `'git commit'` and would have tripped the audit grep.
+- **Issues encountered:** `aitask_setup.sh` carried live t2099's uncommitted
+  hunks. The commit waited for t2099 to land (`db9829d51`), after which
+  `git diff HEAD` on the four paths was only this task's change, so a plain
+  `git commit -o --` was correct.
+- **Key decisions:** wording only, no recovery machinery. The data-branch
+  "NOT committed." lines stay as they are because they name no command.
+- **Upstream defects identified:** None
+
+### Verification record
+
+- **Done as planned**, no deviations. Every site in the table was rewritten.
+  The 18 replacements were applied by a script that checked each old string
+  occurred exactly the expected number of times before substituting.
+- **Red proof:** with only the test edits in place, the 4 new assertions failed
+  (setup 2 ×2, setup 3, install 2) and every pre-existing one passed
+  (setup 118/121, install 128/129).
+- **Green:** `test_setup_failopen_probes.sh` and `test_install_failopen_probes.sh`
+  both print ALL TESTS PASSED. The audit grep from Verification finds nothing.
+  shellcheck reports the same set of findings as the HEAD versions of both
+  files (all pre-existing, none on an edited line).
