@@ -12,8 +12,9 @@ active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1733
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-22 10:07
-updated_at: 2026-10-22 10:11
+updated_at: 2026-10-22 11:03
 ---
 
 ## Origin
@@ -56,3 +57,8 @@ install.sh `git add` failure message) to name the manual commit as the recovery,
 matching `_install_refuse_unverified_commit`. Check whether any test pins the old
 wording (grep "Re-run 'ait setup'" / "to retry") and whether the setup-side
 `git add`/`git commit` failure messages carry the same hint.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-22T08:03:03Z status=pass attempt=1 type=human
