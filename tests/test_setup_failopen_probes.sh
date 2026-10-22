@@ -241,6 +241,10 @@ output="$(with_shim "ls-files --modified" commit_framework_files 2>&1 </dev/null
 assert_eq "2: shim fired" "yes" "$(shim_fired)"
 assert_contains "2: refusal says nothing was committed" "NOT committed" "$output"
 assert_not_contains_ci "2: no false 'already committed' success" "already committed" "$output"
+# Recovery is a path-scoped manual commit: a re-run's snapshot would treat
+# setup's leftover files as pre-existing and leave them alone (t2120).
+assert_contains "2: refusal names a path-scoped commit" "git commit -- <path>" "$output"
+assert_not_contains "2: refusal does not send the user to a re-run" "Re-run 'ait setup'" "$output"
 assert_eq "2: no commit made" "$before" "$(commit_count "$d")"
 reset_baseline_globals
 
@@ -298,6 +302,7 @@ assert_eq "3: main baseline NOT flagged" "0" "$AIT_SETUP_BASELINE_UNVERIFIED"
 echo "new" > "$d/.aitask-data/aitasks/metadata/new_config.yaml"
 output="$(commit_framework_data_files 2>&1 </dev/null)"
 assert_contains "3: data refusal says nothing was committed" "NOT committed" "$output"
+assert_contains "3: data refusal names a path-scoped commit" "./ait git commit -- <path>" "$output"
 assert_eq "3: no data commit made" "$data_before" "$(commit_count "$d/.aitask-data")"
 assert_eq "3: data edit still modified" " M aitasks/metadata/tracked.txt" \
     "$(git -C "$d/.aitask-data" status --porcelain -- aitasks/metadata/tracked.txt)"

@@ -1308,13 +1308,14 @@ _install_intersect() {
 # Refuse a framework commit whose pre-install dirty state could not be read:
 # the upgrade's own files left uncommitted are recoverable by hand, someone
 # else's work committed under the upgrade message is not (t2116). The recovery
-# is a manual commit, not a re-run: a re-run's snapshot would find the files
-# this run left dirty and leave them alone as pre-existing changes.
+# is a path-scoped manual commit, not a re-run: a re-run's snapshot would find
+# the files this run left dirty and leave them alone as pre-existing changes,
+# and a commit without paths would sweep anything else already staged (t2120).
 _install_refuse_unverified_commit() {
     local what="$1" recovery="$2"
     warn "Could not read the uncommitted state of $what — the framework update was NOT committed."
     warn "Committing without it could sweep someone else's uncommitted work into the upgrade commit."
-    info "Once git works again, review 'git status' and commit the framework files yourself with $recovery."
+    info "Once git works again, review 'git status' and commit only the framework files you reviewed, naming each path: $recovery — a commit without paths also commits anything else already staged."
 }
 
 # Snapshot the pre-install dirty framework-path state. main() MUST call this
@@ -1427,7 +1428,7 @@ commit_installed_files() {
         0) ;;
         1) info "  .aitask-scripts/VERSION is not git-tracked — skipping auto-commit of framework update."
            return ;;
-        *) _install_refuse_unverified_commit "the framework paths" "'git add' / 'git commit'"
+        *) _install_refuse_unverified_commit "the framework paths" "'git add -- <path>...' / 'git commit -- <path>...'"
            return ;;
     esac
 
@@ -1435,7 +1436,7 @@ commit_installed_files() {
         warn "commit_installed_files: baseline not armed — committing without pre-install dirty protection" >&2
     fi
     if [[ "$AIT_INSTALL_BASELINE_UNVERIFIED" == "1" ]]; then
-        _install_refuse_unverified_commit "the framework paths" "'git add' / 'git commit'"
+        _install_refuse_unverified_commit "the framework paths" "'git add -- <path>...' / 'git commit -- <path>...'"
         return
     fi
 
@@ -1458,7 +1459,7 @@ commit_installed_files() {
     all_changes="$(_install_list_changes "$INSTALL_DIR" "$data_branch_re" \
         "${paths_to_add[@]}")" || list_rc=$?
     if (( list_rc != 0 )); then
-        _install_refuse_unverified_commit "the framework paths" "'git add' / 'git commit'"
+        _install_refuse_unverified_commit "the framework paths" "'git add -- <path>...' / 'git commit -- <path>...'"
         return
     fi
 
@@ -1517,7 +1518,7 @@ commit_installed_files() {
         if ! add_output=$(cd "$INSTALL_DIR" && git add -- "${changed_files[@]}" 2>&1); then
             warn "git add failed:"
             printf '%s\n' "$add_output" | awk '{print "    " $0}'
-            warn "Framework files NOT committed. Run 'ait setup' to retry."
+            warn "Framework files NOT committed. Review 'git status' and commit only the framework files you reviewed, naming each path: 'git add -- <path>...' / 'git commit -- <path>...' — re-running 'ait setup' would leave them alone as pre-existing changes."
             return
         fi
     fi
@@ -1529,7 +1530,7 @@ commit_installed_files() {
             git commit -m "ait: Update aitasks framework to v${version}" -- "${commit_paths[@]}" 2>&1); then
             warn "git commit failed:"
             printf '%s\n' "$commit_output" | awk '{print "    " $0}'
-            warn "Framework files staged but NOT committed. Run 'git commit' manually."
+            warn "Framework files staged but NOT committed. Commit them yourself naming each path — 'git commit -- <path>...'; a commit without paths also commits anything else already staged."
             return
         fi
         success "Framework update v${version} committed to git"
@@ -1552,7 +1553,7 @@ commit_installed_files() {
     if [[ -n "$still_untracked" ]]; then
         warn "Some framework files remain untracked after commit:"
         printf '%s\n' "$still_untracked" | awk 'NR<=20 {print "    " $0}'
-        warn "Run 'git status' to investigate, then 'git add' and 'git commit' to finalize."
+        warn "Run 'git status' to investigate, then commit only the listed files you intend, naming each path: 'git add -- <path>...' / 'git commit -- <path>...'."
     fi
 }
 
@@ -1583,7 +1584,7 @@ commit_installed_data_files() {
     fi
     if [[ "$AIT_INSTALL_DATA_BASELINE_UNVERIFIED" == "1" ]]; then
         _install_refuse_unverified_commit "the aitask-data framework paths" \
-            "'git -C .aitask-data add' / 'git -C .aitask-data commit'"
+            "'git -C .aitask-data add -- <path>...' / 'git -C .aitask-data commit -- <path>...'"
         return
     fi
 
@@ -1605,7 +1606,7 @@ commit_installed_data_files() {
     all_changes="$(_install_list_changes "$data_dir" "" "${data_paths[@]}")" || list_rc=$?
     if (( list_rc != 0 )); then
         _install_refuse_unverified_commit "the aitask-data framework paths" \
-            "'git -C .aitask-data add' / 'git -C .aitask-data commit'"
+            "'git -C .aitask-data add -- <path>...' / 'git -C .aitask-data commit -- <path>...'"
         return
     fi
 

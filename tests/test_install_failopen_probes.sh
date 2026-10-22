@@ -241,6 +241,7 @@ output="$(with_shim "ls-files --others" commit_installed_files 2>&1 </dev/null)"
 assert_eq "2: shim fired" "yes" "$(shim_fired)"
 assert_contains "2: refusal says nothing was committed" "NOT committed" "$output"
 assert_not_contains_ci "2: no false 'already committed' success" "already committed" "$output"
+assert_contains "2: refusal names a path-scoped commit" "git commit -- <path>" "$output"
 assert_eq "2: no commit made" "$before" "$(commit_count "$d")"
 assert_eq "2: the upgrade's file left untracked" "?? $NEW_FILE" \
     "$(git -C "$d" status --porcelain -- "$NEW_FILE")"

@@ -4369,13 +4369,16 @@ _ait_framework_version_tracked() {
 }
 
 # Refuse a framework commit whose pre-setup dirty state could not be read:
-# setup's own files left uncommitted are recoverable by re-running setup,
-# someone else's work committed under a setup message is not (t1747_4).
+# setup's own files left uncommitted are recoverable by hand, someone else's
+# work committed under a setup message is not (t1747_4). The recovery is a
+# path-scoped manual commit, not a re-run: a re-run's snapshot would find the
+# files this run left dirty and leave them alone as pre-existing changes, and
+# a commit without paths would sweep anything else already staged (t2120).
 _ait_refuse_unverified_commit() {
     local what="$1" recovery="$2"
     warn "Could not read the uncommitted state of $what — framework files were NOT committed."
     warn "Committing without it could sweep someone else's uncommitted work into the setup commit."
-    info "Re-run 'ait setup' once git works again, or commit the intended files yourself with $recovery."
+    info "Once git works again, review 'git status' and commit only the framework files you reviewed, naming each path: $recovery — a commit without paths also commits anything else already staged."
 }
 
 # Print stdin lines NOT present in the newline-joined set $1 (exact match).
@@ -4506,7 +4509,7 @@ commit_framework_files() {
         warn "commit_framework_files: baseline not armed — committing without pre-setup dirty protection" >&2
     fi
     if [[ "${AIT_SETUP_BASELINE_UNVERIFIED:-0}" == "1" ]]; then
-        _ait_refuse_unverified_commit "the framework paths" "'git add' / 'git commit'"
+        _ait_refuse_unverified_commit "the framework paths" "'git add -- <path>...' / 'git commit -- <path>...'"
         return
     fi
 
@@ -4528,7 +4531,7 @@ commit_framework_files() {
     all_changes="$(_ait_list_framework_changes "$project_dir" "$data_branch_re" \
         "${paths_to_add[@]}")" || list_rc=$?
     if (( list_rc != 0 )); then
-        _ait_refuse_unverified_commit "the framework paths" "'git add' / 'git commit'"
+        _ait_refuse_unverified_commit "the framework paths" "'git add -- <path>...' / 'git commit -- <path>...'"
         return
     fi
 
@@ -4604,7 +4607,7 @@ commit_framework_files() {
             if ! add_output=$(cd "$project_dir" && git add -- "${changed_files[@]}" 2>&1); then
                 warn "git add failed:"
                 printf '%s\n' "$add_output" | awk '{print "    " $0}'
-                warn "Framework files NOT committed. Run 'git add -A && git commit' manually."
+                warn "Framework files NOT committed. Review 'git status' and commit only the framework files you reviewed, naming each path: 'git add -- <path>...' / 'git commit -- <path>...'."
                 return
             fi
             # Path-scoped diff guard and commit: a bare `git commit` would
@@ -4615,7 +4618,7 @@ commit_framework_files() {
                 if ! commit_output=$(cd "$project_dir" && git commit -m "ait: Add aitask framework" -- "${changed_files[@]}" 2>&1); then
                     warn "git commit failed:"
                     printf '%s\n' "$commit_output" | awk '{print "    " $0}'
-                    warn "Framework files staged but NOT committed. Run 'git commit' manually."
+                    warn "Framework files staged but NOT committed. Commit them yourself naming each path — 'git commit -- <path>...'; a commit without paths also commits anything else already staged."
                     return
                 fi
             fi
@@ -4638,7 +4641,7 @@ commit_framework_files() {
                 warn "Some framework files remain untracked after commit:"
                 # awk reads all stdin — no SIGPIPE even if list is huge.
                 printf '%s\n' "$still_untracked" | awk 'NR<=20 {print "    " $0}'
-                warn "Run 'git status' to investigate, then 'git add -A && git commit' to finalize."
+                warn "Run 'git status' to investigate, then commit only the listed files you intend, naming each path: 'git add -- <path>...' / 'git commit -- <path>...'."
             else
                 success "Framework files committed to git"
             fi
@@ -4651,7 +4654,7 @@ commit_framework_files() {
             if [[ $total_count -gt 10 ]]; then
                 info "    ... and $((total_count - 10)) more"
             fi
-            info "You can manually commit later with 'git add' and 'git commit'."
+            info "You can commit them later, naming each path: 'git add -- <path>...' / 'git commit -- <path>...'."
             ;;
     esac
 }
@@ -4684,7 +4687,7 @@ commit_framework_data_files() {
         warn "commit_framework_data_files: baseline not armed — committing without pre-setup dirty protection" >&2
     fi
     if [[ "${AIT_SETUP_DATA_BASELINE_UNVERIFIED:-0}" == "1" ]]; then
-        _ait_refuse_unverified_commit "the aitask-data framework paths" "'./ait git add' / './ait git commit'"
+        _ait_refuse_unverified_commit "the aitask-data framework paths" "'./ait git add -- <path>...' / './ait git commit -- <path>...'"
         return
     fi
 
@@ -4701,7 +4704,7 @@ commit_framework_data_files() {
     # unverified: refuse — an empty list would report a false "already committed".
     all_changes="$(_ait_list_framework_changes "$data_dir" "" "${data_paths[@]}")" || list_rc=$?
     if (( list_rc != 0 )); then
-        _ait_refuse_unverified_commit "the aitask-data framework paths" "'./ait git add' / './ait git commit'"
+        _ait_refuse_unverified_commit "the aitask-data framework paths" "'./ait git add -- <path>...' / './ait git commit -- <path>...'"
         return
     fi
 
@@ -4786,7 +4789,7 @@ commit_framework_data_files() {
             if [[ $total_count -gt 10 ]]; then
                 info "    ... and $((total_count - 10)) more"
             fi
-            info "You can manually commit later with './ait git add' and './ait git commit'."
+            info "You can commit them later, naming each path: './ait git add -- <path>...' / './ait git commit -- <path>...'."
             ;;
     esac
 }
