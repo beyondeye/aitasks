@@ -3,12 +3,13 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [task_attachments]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1065
 followup_kind: upstream_defect
 created_at: 2026-10-22 12:51
-updated_at: 2026-10-22 12:51
+updated_at: 2026-10-22 12:54
 ---
 
 ## Origin
