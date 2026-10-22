@@ -3903,6 +3903,59 @@ class MainConflictScreenTests(unittest.TestCase):
             self.assertTrue(content.contains_region(region), f"{region} clipped")
 
 
+class _SyncFailureHost(App):
+    """Minimal host that pushes a SyncFailureScreen."""
+
+    def __init__(self, ctx: SyncFailureContext) -> None:
+        super().__init__()
+        self._ctx = ctx
+
+    def compose(self):
+        yield Static("host")
+
+    def on_mount(self) -> None:
+        self.push_screen(SyncFailureScreen(self._ctx))
+
+
+class SyncFailureScreenRenderTests(unittest.TestCase):
+    """The failure modal shows git's output, the command and the title
+    verbatim — square brackets are git's text, not console markup (t2129)."""
+
+    TAIL = " ! [rejected]        main -> main (fetch first)"
+    COMMAND = "git push '/x/[bold]y.git' main:main"
+
+    def _render(self, **kw) -> tuple[str, str]:
+        fields = dict(ref_name="main", action="push", command=self.COMMAND,
+                      status="ERROR", stderr_tail=self.TAIL)
+        fields.update(kw)
+
+        async def runner():
+            app = _SyncFailureHost(SyncFailureContext(**fields))
+            async with app.run_test(size=(120, 30)) as pilot:
+                await pilot.pause()
+                title = str(app.screen.query_one("#sync_failure_title").render())
+                body = str(app.screen.query_one("#sync_failure_body Static").render())
+            return title, body
+
+        return asyncio.run(runner())
+
+    def test_git_output_and_command_render_verbatim(self):
+        _title, body = self._render()
+        self.assertIn(self.TAIL, body)
+        self.assertIn(f"Command: {self.COMMAND}", body)
+        self.assertIn("Branch: main", body)
+        self.assertIn("Status: ERROR", body)
+        self.assertIn("Output (tail):", body)
+
+    def test_empty_tail_reads_empty(self):
+        _title, body = self._render(stderr_tail="")
+        self.assertIn("Output (tail):\n(empty)", body)
+
+    def test_title_is_literal(self):
+        title, _body = self._render(action="[b]push")
+        self.assertIn("Sync action failed: [b]push on main", title)
+
+
 class MainConflictAgentTests(_TabbedShellBase):
     """A main pull/push that needs assistance offers its own agent (t2126):
     the dialog, `a` re-offering it (not the failure modal), a launch rooted in

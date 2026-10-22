@@ -72,19 +72,22 @@ class SyncFailureScreen(GuardedModalScreen):
 
     def compose(self):
         ctx = self.ctx
-        body = (
-            f"[b]Branch:[/b] {ctx.ref_name}\n"
-            f"[b]Command:[/b] {ctx.command}\n"
-            f"[b]Status:[/b] {ctx.status}\n\n"
-            f"[b]Output (tail):[/b]\n{ctx.stderr_tail or '(empty)'}"
-        )
+        # Plain-string values: git output (` ! [rejected] …`) and paths carry
+        # square brackets that console markup would swallow (t2129).
+        parts = [
+            ("Branch: ", "bold"), ctx.ref_name, "\n",
+            ("Command: ", "bold"), ctx.command, "\n",
+            ("Status: ", "bold"), ctx.status, "\n\n",
+            ("Output (tail):", "bold"), "\n", ctx.stderr_tail or "(empty)",
+        ]
         with Container(id="sync_failure_dialog"):
             yield Label(
                 f"Sync action failed: {ctx.action} on {ctx.ref_name}",
                 id="sync_failure_title",
+                markup=False,
             )
             with VerticalScroll(id="sync_failure_body"):
-                yield Static(body)
+                yield Static(Text.assemble(*parts))
             with Horizontal(id="sync_failure_buttons"):
                 yield Button(
                     "Launch agent to resolve",
