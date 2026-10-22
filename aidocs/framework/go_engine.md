@@ -123,10 +123,13 @@ tests below, and on `workflow_dispatch`.
 
 1. gofmt (fails listing the unformatted files), `go vet ./...`, the hang-guard
    preflight `./ci/preflight.sh`, then `go test ./...`. The preflight runs the
-   runner package's isolation tripwire alone: inside `go test ./...` it would run
-   in file order, after tests that could already hang, so a process-starting test
-   that omits the `isolated` guard fails here in seconds and the suite never
-   starts. `ait engine test` runs the same sequence.
+   hang-guard tripwire (`internal/testsupport/hangguard`) alone, over every
+   package its `tripwirePackages` list names: inside `go test ./...` it would run
+   in package order, after tests that could already hang, so a process-starting
+   test that omits the hang guard fails here in seconds and the suite never
+   starts. It also fails a package that imports the guard without a list entry,
+   and a non-test file that imports it at all; a new package opts in with one
+   entry. `ait engine test` runs the same sequence.
 2. `./build.sh all` into a scratch directory plus `sha256sum -c` — the release
    matrix, cross-compiled on every change.
 3. The repository-side guards:

@@ -724,7 +724,7 @@ EOF
 chmod +x "$E7/bin/go"
 G="$(cd "$E7/goengines" && pwd)"
 want="$G|vet ./...
-$G|test -count=1 -run ^TestIsolationTripwire(Catches)?\$ ./internal/testmap/runner/
+$G|test -count=1 -run ^TestIsolationTripwire(Catches|Imports)?\$ ./internal/testsupport/hangguard/
 $G|test ./... -short"
 out="$(E7_LOG="$E7/log" PATH="$E7/bin:$PATH" bash "$E7/.aitask-scripts/aitask_engine.sh" test -short 2>&1)"; rc=$?
 assert_exit_zero_rc_out "E7 ait engine test exits 0 when every step passes" "$rc" "$out"

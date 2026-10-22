@@ -1,6 +1,6 @@
 //go:build unix && !linux
 
-package runner
+package hangguard
 
 import "time"
 
