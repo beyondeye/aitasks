@@ -9,12 +9,11 @@ active_gates: [risk_evaluated]
 active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
-children_to_implement: [t1854_2, t1854_3, t1854_5, t1854_6, t1854_7, t1854_8, t1854_9, t1854_10, t1854_11, t1854_12, t1854_13, t1854_14]
+children_to_implement: [t1854_3, t1854_5, t1854_6, t1854_7, t1854_8, t1854_9, t1854_10, t1854_11, t1854_12, t1854_13, t1854_14]
 anchor: 1852
 created_at: 2026-09-22 09:19
-updated_at: 2026-10-21 22:09
+updated_at: 2026-10-22 11:04
 ---
-
 
 ## Goal
 
