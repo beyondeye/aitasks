@@ -870,7 +870,8 @@ class RobustnessTests(CliCase):
         marker = "Review it, then run: "
         self.assertIn(marker, proc.stdout)
         command = proc.stdout.split(marker, 1)[1].splitlines()[0].strip()
-        self.assertTrue(command.startswith(f"cd '{root}' && "), command)
+        # The CLI resolves --root (macOS: /var -> /private/var).
+        self.assertTrue(command.startswith(f"cd '{root.resolve()}' && "), command)
         # The advertised command works once the cause is gone.
         hook.unlink()
         fixed = subprocess.run(["bash", "-c", command], cwd=str(self.tmp),

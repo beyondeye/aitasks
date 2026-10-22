@@ -403,6 +403,8 @@ def _session_members(sid: int) -> list[int] | None:
     Session, not process group: a descendant may move itself into its own
     group (bounded_run.py does, for every fetch/push) and close every inherited
     fd, but it keeps the session. Only an explicit ``setsid()`` leaves it.
+
+    Two backends: ``/proc`` where it exists (Linux), else ``ps`` + ``getsid``.
     """
     if os.path.exists("/proc/self/stat"):
         members = []
@@ -434,19 +436,35 @@ def _session_members(sid: int) -> list[int] | None:
             if session == sid:
                 members.append(int(name))
         return members
+    # No /proc (macOS, BSD): list every pid with ps and ask getsid() for its
+    # session. Not `pgrep -s`: macOS pgrep has no -s, and an unknown answer
+    # there left every timed-out sync uncontained (t2113).
     try:
-        out = subprocess.run(["pgrep", "-s", str(sid)], capture_output=True,
-                             text=True, timeout=5)
+        out = subprocess.run(["ps", "-A", "-o", "pid=,stat="],
+                             capture_output=True, text=True, timeout=5)
     except (OSError, subprocess.SubprocessError):
         return None
-    if out.returncode == 1:
-        return []
     if out.returncode != 0:
         return None
-    try:
-        return [int(pid) for pid in out.stdout.split()]
-    except ValueError:
-        return None
+    members = []
+    for line in out.stdout.splitlines():
+        try:
+            pid_text, state = line.split(None, 1)
+            pid = int(pid_text)
+        except ValueError:
+            return None
+        if state.startswith("Z"):
+            continue  # exited, only awaiting its reaper
+        try:
+            if os.getsid(pid) == sid:
+                members.append(pid)
+        except ProcessLookupError:
+            continue  # exited between listing and asking
+        except OSError:
+            # EPERM and the like: it may be a member. Never let an unknown
+            # answer pass as "gone".
+            return None
+    return members
 
 
 def sync_session_running(sid: int) -> bool:

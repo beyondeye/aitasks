@@ -621,6 +621,8 @@ class TimeoutContainmentTests(unittest.TestCase):
                     os.kill(int(pid), signal.SIGKILL)
                 except (ProcessLookupError, PermissionError):
                     pass
+        # Before the temp dir (and the pid file in it) is removed.
+        self._kill_fixture_pid_in(self.root / "runner.pid")
         self._tmp.cleanup()
 
     def _write_script(self, body: str) -> None:
@@ -633,9 +635,73 @@ class TimeoutContainmentTests(unittest.TestCase):
             sys.executable, str(self.writer), str(self.pidfile),
             str(self.marker), str(delay), "1" if own_group else "0"))
 
-    def _sync(self) -> "sync_action_runner.SyncResult":
-        return sync_action_runner.run_sync_batch(
-            timeout=self.TIMEOUT, repo_root=self.root)
+    def _sync(self, ready=None, timeout: float | None = None
+              ) -> "sync_action_runner.SyncResult":
+        """Run the stand-in sync, optionally holding the stop for the fixture.
+
+        ``ready`` (a pid count, or a predicate) holds the stop's first
+        membership listing until the fixture is up. Nothing is signalled
+        before that listing, so a slow interpreter start can no longer let the
+        timeout kill the fixture before it exists (t2113). ``self.released``
+        is when the hold let go and ``self.finished`` when the sync returned:
+        the stop proper is ``self._stop_seconds()``, free of the sync timeout
+        and of the hold.
+        """
+        import time
+        timeout = self.TIMEOUT if timeout is None else timeout
+        self.released = self.finished = None
+        if ready is None:
+            return sync_action_runner.run_sync_batch(timeout=timeout,
+                                                     repo_root=self.root)
+        if isinstance(ready, int):
+            count = ready
+            ready = lambda: self._pid_count() >= count  # noqa: E731
+        real_members = sync_action_runner._session_members
+        held = {"up": None}
+
+        def held_first_listing(sid):
+            if held["up"] is None:
+                deadline = time.monotonic() + 10
+                while not ready() and time.monotonic() < deadline:
+                    time.sleep(0.02)
+                held["up"] = ready()
+                self.released = time.monotonic()
+            return real_members(sid)
+
+        with mock.patch.object(sync_action_runner, "_session_members",
+                               held_first_listing):
+            result = sync_action_runner.run_sync_batch(timeout=timeout,
+                                                       repo_root=self.root)
+        self.finished = time.monotonic()
+        self.assertTrue(held["up"], "fixture: the sync's processes never started")
+        return result
+
+    def _stop_seconds(self) -> float:
+        """How long the stop itself ran: from the released hold to return."""
+        return self.finished - self.released
+
+    def _kill_fixture_pid_in(self, pid_file: Path) -> None:
+        """SIGKILL the pid recorded in ``pid_file`` if it is still this
+        test's fixture. A SIGSTOPped runner outlives a failed test otherwise
+        (t2113); identity is its command line naming this test's unique temp
+        dir, so a recycled pid is never touched."""
+        import signal
+        import subprocess
+        try:
+            pid = int(pid_file.read_text().split()[0])
+        except (OSError, IndexError, ValueError):
+            return
+        cmd = subprocess.run(["ps", "-o", "command=", "-p", str(pid)],
+                             capture_output=True, text=True).stdout
+        if str(self.root) in cmd:
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                pass
+
+    def _pid_count(self) -> int:
+        return (len(self.pidfile.read_text().split())
+                if self.pidfile.exists() else 0)
 
     def _assert_stopped(self, result) -> None:
         import time
@@ -647,28 +713,41 @@ class TimeoutContainmentTests(unittest.TestCase):
 
     def test_control_plain_subprocess_run_leaves_a_survivor(self):
         # Proves the fixture makes a real survivor: subprocess.run(timeout=)
-        # kills only the direct sh, as run_sync_batch used to.
+        # kills only the direct sh, as run_sync_batch used to. This is run()'s
+        # timeout path verbatim (communicate, kill, communicate), started only
+        # once the writer exists, so a slow interpreter start cannot let the
+        # timeout kill sh before it launched the writer (t2113).
         import subprocess
         import time
-        self._write_script(self._writer_cmd(1.0, own_group=False)
+        self._write_script(self._writer_cmd(3.0, own_group=False)
                            + " >/dev/null 2>&1")
-        with self.assertRaises(subprocess.TimeoutExpired):
-            subprocess.run([str(self.script)], capture_output=True,
-                           timeout=self.TIMEOUT)
-        time.sleep(1.5)
+        with subprocess.Popen([str(self.script)], stdout=subprocess.PIPE,
+                              stderr=subprocess.PIPE) as proc:
+            deadline = time.monotonic() + 10
+            while self._pid_count() < 1 and time.monotonic() < deadline:
+                time.sleep(0.02)
+            self.assertEqual(self._pid_count(), 1,
+                             "fixture: sh never started the writer")
+            with self.assertRaises(subprocess.TimeoutExpired):
+                proc.communicate(timeout=self.TIMEOUT)
+            proc.kill()
+            proc.communicate()
+        deadline = time.monotonic() + 5
+        while not self.marker.exists() and time.monotonic() < deadline:
+            time.sleep(0.05)
         self.assertTrue(self.marker.exists())
 
     def test_timeout_stops_a_same_group_child(self):
         # The pull/rebase shape: a foreground git in the script's own group.
         self._write_script(self._writer_cmd(1.0, own_group=False)
                            + " >/dev/null 2>&1")
-        self._assert_stopped(self._sync())
+        self._assert_stopped(self._sync(ready=1))
 
     def test_timeout_stops_a_child_in_its_own_process_group(self):
         # The `timeout 10 git fetch` shape, out of killpg's reach.
         self._write_script(self._writer_cmd(1.0, own_group=True)
                            + " >/dev/null 2>&1")
-        self._assert_stopped(self._sync())
+        self._assert_stopped(self._sync(ready=1))
 
     def test_timeout_stops_an_fd_dropping_descendant(self):
         # Out of the group AND holding no inherited fd: only the session
@@ -678,7 +757,7 @@ class TimeoutContainmentTests(unittest.TestCase):
             sys.executable, str(self.dropper), str(self.writer),
             str(self.pidfile), str(self.marker), "1.0"))
         self._write_script(launch + " >/dev/null 2>&1\nsleep 5")
-        self._assert_stopped(self._sync())
+        self._assert_stopped(self._sync(ready=1))
 
     # --- A nested bounded runner (t2035) ---------------------------------
     # aitask_sync.sh runs fetch/push through lib/bounded_run.py, which puts git
@@ -736,7 +815,7 @@ class TimeoutContainmentTests(unittest.TestCase):
         import threading
         result = {}
         worker = threading.Thread(
-            target=lambda: result.setdefault("r", self._sync()))
+            target=lambda: result.setdefault("r", self._sync(ready=2)))
         worker.start()
         self._wait_for_both_pids()
         worker.join(30)
@@ -750,15 +829,14 @@ class TimeoutContainmentTests(unittest.TestCase):
             os.environ.pop("AIT_BOUNDED_RUN_GRACE", None)
             started = time.monotonic()
             result = self._run_nested()
-        returned = time.monotonic() - started
         self.assertEqual(result.status, sync_action_runner.STATUS_TIMEOUT)
         self.assertIsNone(result.stray_session)
         self.assertEqual(self._nested_survivors(), [],
                          "a transport process outlived the timeout result")
         # Orderly: the runner reaped its own group inside the TERM window, so
         # the stop never needed its SIGKILL rounds.
-        self.assertLess(returned, self.TIMEOUT
-                        + sync_action_runner._TERM_GRACE_SECONDS)
+        self.assertLess(self._stop_seconds(),
+                        sync_action_runner._TERM_GRACE_SECONDS)
         time.sleep(max(0.0, started + self.NESTED_DELAY + 1.0 - time.monotonic()))
         self.assertFalse(self.marker.exists(),
                          "the nested transport wrote after the timeout result")
@@ -777,9 +855,9 @@ class TimeoutContainmentTests(unittest.TestCase):
             os.environ.pop("AIT_BOUNDED_RUN_GRACE", None)
             started = time.monotonic()
             result = self._run_nested()
-        returned = time.monotonic() - started
         self.assertEqual(result.status, sync_action_runner.STATUS_TIMEOUT)
-        self.assertGreaterEqual(returned, sync_action_runner._TERM_GRACE_SECONDS)
+        self.assertGreaterEqual(self._stop_seconds(),
+                                sync_action_runner._TERM_GRACE_SECONDS)
         self.assertIsNone(result.stray_session)
         self.assertEqual(self._nested_survivors(), [])
         time.sleep(max(0.0, started + self.NESTED_DELAY + 1.0 - time.monotonic()))
@@ -801,23 +879,24 @@ class TimeoutContainmentTests(unittest.TestCase):
             f"echo $! > {shlex.quote(str(runner_pid_file))}\nwait")
         timeout = 1.5
         result = {}
+        stopped = threading.Event()  # the stop starts only once it is stopped
         with mock.patch.dict(os.environ):
             os.environ.pop("AIT_BOUNDED_RUN_GRACE", None)
             worker = threading.Thread(target=lambda: result.setdefault(
-                "r", sync_action_runner.run_sync_batch(timeout=timeout,
-                                                       repo_root=self.root)))
+                "r", self._sync(ready=stopped.is_set, timeout=timeout)))
             started = time.monotonic()
             worker.start()
             self._wait_for_both_pids()
             os.kill(int(runner_pid_file.read_text()), sig.SIGSTOP)
+            stopped.set()
             worker.join(30)
-        returned = time.monotonic() - started
         self.assertFalse(worker.is_alive())
         r = result["r"]
         self.assertEqual(r.status, sync_action_runner.STATUS_TIMEOUT)
         self.assertIsNone(r.stray_session)
         self.assertEqual(self._nested_survivors(), [])
-        self.assertLess(returned, timeout + sync_action_runner._TERM_GRACE_SECONDS,
+        self.assertLess(self._stop_seconds(),
+                        sync_action_runner._TERM_GRACE_SECONDS,
                         "the stopped runner was not resumed to clean up")
         time.sleep(max(0.0, started + self.NESTED_DELAY + 1.0 - time.monotonic()))
         self.assertFalse(self.marker.exists())
@@ -840,14 +919,13 @@ class TimeoutContainmentTests(unittest.TestCase):
         with mock.patch.dict(os.environ):
             os.environ.pop("AIT_BOUNDED_RUN_GRACE", None)
             started = time.monotonic()
-            result = self._sync()
-        returned = time.monotonic() - started
+            result = self._sync(ready=2)
         self.assertEqual(result.status, sync_action_runner.STATUS_TIMEOUT)
         self.assertTrue(self.pidfile.exists()
                         and len(self.pidfile.read_text().split()) >= 2,
                         "fixture: the runner never started its transport")
-        self.assertGreaterEqual(returned, self.TIMEOUT
-                                + 2 * sync_action_runner._TERM_GRACE_SECONDS,
+        self.assertGreaterEqual(self._stop_seconds(),
+                                2 * sync_action_runner._TERM_GRACE_SECONDS,
                                 "fixture: the stop did not reach the cap")
         self.assertIsNone(result.stray_session)
         self.assertEqual(self._nested_survivors(), [],
@@ -937,7 +1015,7 @@ class TimeoutContainmentTests(unittest.TestCase):
                                lambda members, sig: None), \
                 mock.patch.object(sync_action_runner, "_TERM_GRACE_SECONDS", 0.2), \
                 mock.patch.object(sync_action_runner, "_KILL_DEADLINE_SECONDS", 0.3):
-            result = self._sync()
+            result = self._sync(ready=1)
         self.assertEqual(result.status, sync_action_runner.STATUS_TIMEOUT)
         sid = result.stray_session
         self.assertIsNotNone(sid)
@@ -1001,6 +1079,89 @@ class TimeoutContainmentTests(unittest.TestCase):
                 members, running = self._probe_with_stat_error(exc)
                 self.assertEqual(members, [])
                 self.assertFalse(running)
+
+    # --- The ps backend (every host without /proc, macOS included) -------
+    # macOS pgrep has no -s, so this backend is the only membership query
+    # there (t2113). Each test forces it by hiding /proc.
+
+    def _without_proc(self):
+        real_exists = os.path.exists
+        return mock.patch.object(
+            sync_action_runner.os.path, "exists",
+            lambda p: False if p == "/proc/self/stat" else real_exists(p))
+
+    def _probe_listing(self, rows: list[str], sid: int = 4242):
+        """Membership of ``sid`` with a canned ps listing, every pid in it."""
+        import subprocess
+        listing = subprocess.CompletedProcess(
+            ["ps"], 0, "".join(f"{row}\n" for row in rows), "")
+        with self._without_proc(), \
+                mock.patch.object(sync_action_runner.subprocess, "run",
+                                  return_value=listing), \
+                mock.patch.object(sync_action_runner.os, "getsid",
+                                  lambda pid: sid):
+            return (sync_action_runner._session_members(sid),
+                    sync_action_runner.sync_session_running(sid))
+
+    def test_ps_backend_lists_a_live_session(self):
+        with self._without_proc():
+            members = sync_action_runner._session_members(os.getsid(0))
+            running = sync_action_runner.sync_session_running(os.getsid(0))
+        self.assertIsNotNone(members)
+        self.assertIn(os.getpid(), members)
+        self.assertTrue(running)
+
+    def test_ps_backend_reports_an_ended_session_empty(self):
+        import subprocess
+        proc = subprocess.Popen(["sh", "-c", "exit 0"], start_new_session=True)
+        proc.wait()
+        with self._without_proc():
+            self.assertEqual(sync_action_runner._session_members(proc.pid), [])
+            self.assertFalse(sync_action_runner.sync_session_running(proc.pid))
+
+    def test_ps_backend_zombie_only_session_is_empty(self):
+        # A zombie has exited and only awaits its reaper: a session of nothing
+        # but zombies must not keep task data marked unsafe.
+        members, running = self._probe_listing(["4242 Z", "4243 Z+"])
+        self.assertEqual(members, [])
+        self.assertFalse(running)
+
+    def test_ps_backend_counts_only_live_members(self):
+        members, running = self._probe_listing(
+            ["4242 Ss", "4243 Z", "4244 R+", "4245 Z+"])
+        self.assertEqual(members, [4242, 4244])
+        self.assertTrue(running)
+
+    def test_ps_backend_unknown_is_not_gone(self):
+        import errno
+        import subprocess
+
+        def denied(pid):
+            raise PermissionError(errno.EPERM, "denied")
+
+        failed = subprocess.CompletedProcess(["ps"], 1, "", "ps: failed")
+        cases = {
+            "getsid-denied": mock.patch.object(sync_action_runner.os,
+                                               "getsid", denied),
+            "ps-failed": mock.patch.object(sync_action_runner.subprocess,
+                                           "run", return_value=failed),
+        }
+        sid = os.getsid(0)  # before getsid is patched
+        for name, patch in cases.items():
+            with self.subTest(case=name), self._without_proc(), patch:
+                self.assertIsNone(sync_action_runner._session_members(sid))
+                self.assertTrue(sync_action_runner.sync_session_running(sid))
+
+    def test_ps_backend_skips_a_vanished_pid(self):
+        import errno
+
+        def gone(pid):
+            raise ProcessLookupError(errno.ESRCH, "gone")
+
+        sid = os.getsid(0)  # before getsid is patched
+        with self._without_proc(), \
+                mock.patch.object(sync_action_runner.os, "getsid", gone):
+            self.assertEqual(sync_action_runner._session_members(sid), [])
 
     def test_normal_exit_does_not_wait_for_session_helpers(self):
         # A helper left in the session after a clean exit (credential-cache,
