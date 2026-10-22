@@ -130,3 +130,15 @@ What each status proves:
   - no `adb` / emulator;
   - unprivileged user + pid namespaces work, and the session cgroup v2 scope is writable.
 - **Automation-first** (user directive, 2026-10-11). No path may make a human action a precondition. A human-only step met in the proposal is reported to its owning parent with a note.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1854_2** id=2026-10-22T08:04:20Z.dfef9825e36e26d08cbfce78 from=t1854_2 from_verified=yes at=2026-10-22T08:04:20Z base=6dc5b76a4681026614ebb8366c455ff7d4915ff1 base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from t1854_2 (M3.2a), as landed in 6dc5b76a4. Verify the API in internal/testmap/runner/reconcile.go before relying on it.
+> | - Reconciler: runner.Reconcile([]Expectation{Key: EvidenceKey{Parent: suite id, Unit: subsumed id}, Cases, ZeroTests, Taints}, []CaseResult{Key, Case, Status, DurationMS, Message}) -> ([]Reconciled, stray). A unit-class subsumed runner: pass Cases = [its own id] per your plan. Report-level faults go in Taints (runner.ReasonMalformedCase / ReasonRejectedReport); report the `stray` results yourself. Reconciled has Status, Reasons (errors), Policy (zero_tests), Counts, Skipped, Complete, Terminal; TestReconcileMatrix already drives child keys.
+> | - Register each report format with runner.RegisterReportingContract(name); until then `children:` is RUNNER_INVALID and child rows are invalid_child.
+> | - Reports: read through runner.FreshReport(ReportDir, path); the dir is $AIT_TESTMAP_REPORT_DIR / manifest report_dir.
+> | - RunAccounting.Unaccounted today counts subsumed units (terminal suite selected, not themselves selected) with no valid child row (accountFor in run.go); swap its source to reconciled child evidence.
+> | - The child-row path in ValidateRows (rowContext.Children) is M3.1's; replacing it with the reconciler is yours.
