@@ -143,6 +143,7 @@ While a restore is in flight the header reads `dispatching…`; a drop reads
 | `restored, unverified — capture kept` | the agent is running but nothing confirmed it was the same session, so **the capture is kept**. A success, not a fault |
 | `restore failed: <reason> — capture kept` | the attempt failed and the viewer is back; the capture is intact |
 | `restore ended — capture kept` | the attempt ended without a recorded reason; the capture is intact |
+| `cannot restore: <reason> — re-pick it instead (P)` | the record cannot be resumed, and the reason says why; nothing was dispatched and re-pick is still available |
 | `restore did not start — run 'ait frozenagent' or reconcile` | nothing was dispatched |
 | `restore still <state> after the grace — run reconcile; capture kept` | still in transition; only a reconcile pass can settle it |
 | `dropped — capture removed` | the record and its capture are gone |

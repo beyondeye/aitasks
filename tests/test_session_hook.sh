@@ -109,6 +109,19 @@ run_hook() {
     HOOK_ERR="$(cat "$TMP/stderr")"
 }
 
+# run_hook_as <agent-string> <payload-json> — run_hook with a chosen
+# AITASK_AGENT_STRING ("" = an agent started by hand). run_hook pins the
+# variable AFTER its caller's assignments, so it cannot be overridden there.
+run_hook_as() {
+    local agent="$1" payload="$2"
+    : >"$TMUX_STUB_LOG"; : >"$SESSIONS_STUB_LOG"; rm -f "$SESSIONS_STUB_COUNT"
+    HOOK_OUT="$(printf '%s' "$payload" | env \
+        TMUX_PANE="%7" TMUX= AITASK_AGENT_STRING="$agent" \
+        bash "$HOOK" 2>"$TMP/stderr")"
+    HOOK_RC=$?
+    HOOK_ERR="$(cat "$TMP/stderr")"
+}
+
 # argv_of <n> — the n-th invocation's argv, one argument per line.
 argv_of() {
     python3 - "$SESSIONS_STUB_LOG" "$1" <<'PY'
@@ -323,7 +336,10 @@ for agent in claude codex; do
 import json,sys
 d=json.load(open(sys.argv[1])); d['cwd']=sys.argv[2]
 print(json.dumps(d))" "$fx" "$ROOT")"
-    run_hook "$pl"
+    # The agent string the fixture's own hook saw: forcing claude's onto the
+    # codex payload would be an inherited-environment conflict (t2109).
+    fx_agent="$(python3 -c "import json,sys;print(json.load(open(sys.argv[1])).get('_env_visible_to_hook',{}).get('AITASK_AGENT_STRING',''))" "$fx")"
+    run_hook_as "$fx_agent" "$pl"
     case "$status" in
         captured)
             assert_eq "fixture $agent (captured): exit 0" "0" "$HOOK_RC"
@@ -603,6 +619,138 @@ sleep 30 & _gone=$!
 kill "$_gone" 2>/dev/null; wait "$_gone" 2>/dev/null
 assert_contains "units: get_pid_exe on a reaped pid -> rc 1" "rc=1" "$(_unit get_pid_exe "$_gone")"
 assert_contains "units: pid_argv_match on a reaped pid -> rc 2 (no boundaries)" "rc=2" "$(_unit pid_argv_match "$_gone" codex app-server --managed-daemon)"
+
+# ===========================================================================
+# t2109: the agent kind of an agent started by hand, from the transcript shape
+# ===========================================================================
+export TMUX_STUB_DISPLAY="$DISPLAY_LINE"
+SID="0c27eaaa-1e53-4fee-ae6f-95622bd96bca"
+OTHER="1a933386-7eb0-4351-90db-1070dd40d49f"
+CLAUDE_T="/h/.claude/projects/-h-proj/$SID.jsonl"
+CODEX_T="/h/.codex/sessions/2026/10/21/rollout-2026-10-21T15-58-47-$SID.jsonl"
+
+# pl_for <transcript> [session-id] — a payload rooted at the scratch project.
+pl_for() {
+    printf '{"session_id":"%s","transcript_path":"%s","cwd":"%s","source":"startup"}' \
+        "${2-$SID}" "$1" "$ROOT"
+}
+
+# flag_count <flag> — how often <flag> appears in invocation 1.
+flag_count() {
+    argv_of 1 | grep -cx -- "$1" | tr -d ' '
+}
+
+# raw_value <flag> — the value after <flag> in invocation 1, an EMPTY value
+# included (argv_of drops empty arguments, so arg_value would read the next
+# flag instead). "<absent>" when the flag is not there.
+raw_value() {
+    python3 - "$SESSIONS_STUB_LOG" "$1" <<'PY'
+import sys
+raw = open(sys.argv[1], 'rb').read()
+calls = [c for c in raw.split(b'\x1e') if c]
+args = [a.decode() for a in calls[0].split(b'\x00')[:-1]] if calls else []
+print(args[args.index(sys.argv[2]) + 1] if sys.argv[2] in args else "<absent>")
+PY
+}
+
+# expect_kind <label> <kind> — recorded, with --agent-kind <kind>, or with no
+# --agent-kind at all when <kind> is empty.
+expect_kind() {
+    expect_recorded "$1"
+    if [ -n "$2" ]; then
+        assert_eq "$1: --agent-kind" "$2" "$(arg_value 1 --agent-kind)"
+    else
+        assert_eq "$1: no --agent-kind" "0" "$(flag_count --agent-kind)"
+    fi
+}
+
+echo "--- t2109: a hand-started agent's kind comes from its transcript ---"
+run_hook_as "" "$(pl_for "$CLAUDE_T")"
+expect_kind "claude shape, own sid" claudecode
+assert_eq "claude shape: --agent-string stays blank" "" "$(raw_value --agent-string)"
+run_hook_as "" "$(pl_for "$CODEX_T")"
+expect_kind "codex rollout shape, own sid" codex
+
+echo "--- t2109: the path must name the payload's OWN session ---"
+run_hook_as "" "$(pl_for "$CLAUDE_T" "$OTHER")"
+expect_kind "claude shape naming another session" ""
+run_hook_as "" "$(pl_for "$CODEX_T" "$OTHER")"
+expect_kind "codex shape naming another session" ""
+run_hook_as "" "$(pl_for "/h/.codex/sessions/2026/10/21/rollout-$SID-x.jsonl")"
+expect_kind "codex shape with the sid not at the end" ""
+
+echo "--- t2109: no recognisable shape is no evidence ---"
+run_hook_as "" "$(pl_for "/t/a.jsonl")"
+expect_kind "a plain path" ""
+run_hook_as "" "$(pl_for "")"
+expect_kind "no transcript at all" ""
+run_hook_as "" "$(pl_for "/h/notprojects/-h-proj/$SID.jsonl")"
+expect_kind "claude basename under a non-projects grandparent" ""
+run_hook_as "" "$(pl_for "/h/.codex/sessions/$SID.jsonl")"
+expect_kind "a bare <sid>.jsonl outside projects/" ""
+
+echo "--- t2109: an explicit agent string is preserved ---"
+run_hook_as "claudecode/opus5" "$(pl_for "$CLAUDE_T")"
+expect_kind "explicit claude + claude shape" claudecode
+assert_eq "explicit claude + claude shape: string forwarded" "claudecode/opus5" "$(arg_value 1 --agent-string)"
+run_hook_as "claudecode/opus5" "$(pl_for "/t/a.jsonl")"
+expect_kind "explicit claude + unrecognised shape" ""
+assert_eq "explicit claude + unrecognised shape: string forwarded" "claudecode/opus5" "$(arg_value 1 --agent-string)"
+run_hook_as "bad value;x" "$(pl_for "$CLAUDE_T")"
+expect_kind "a malformed string names no kind, so no conflict" claudecode
+assert_eq "a malformed string is forwarded verbatim" "bad value;x" "$(arg_value 1 --agent-string)"
+
+echo "--- t2109: an inherited agent string naming another kind records nothing ---"
+run_hook_as "claudecode/opus5" "$(pl_for "$CODEX_T")"
+expect_refused "codex session under claude's inherited string"
+assert_contains "the refusal names the explicit kind" "names claudecode" "$HOOK_ERR"
+assert_contains "the refusal names the session's kind" "a codex session" "$HOOK_ERR"
+run_hook_as "codex/gpt5" "$(pl_for "$CLAUDE_T")"
+expect_refused "claude session under codex's inherited string"
+assert_contains "the reverse refusal names both kinds" "names codex but the transcript is a claudecode session" "$HOOK_ERR"
+
+echo "--- t2109: one transcript layout, two encodings (fixtures) ---"
+# [transcript_layout_agreement] Each captured fixture must yield its own kind
+# from the hook AND match the layout agent_sessions encodes, so a refreshed
+# fixture with a changed layout cannot pass by updating only one of the two.
+for agent in claude codex; do
+    fx="$FIXTURES/${agent}_sessionstart.json"
+    status="$(python3 -c "import json,sys;print(json.load(open(sys.argv[1])).get('_fixture_status',''))" "$fx" 2>/dev/null)"
+    if [ "$status" != captured ]; then
+        echo "  SKIP: $agent fixture is '$status', not captured"
+        continue
+    fi
+    pl="$(python3 -c "
+import json,sys
+d=json.load(open(sys.argv[1])); d['cwd']=sys.argv[2]
+print(json.dumps(d))" "$fx" "$ROOT")"
+    want=claudecode; [ "$agent" = codex ] && want=codex
+    run_hook_as "" "$pl"
+    expect_kind "fixture $agent, blank agent string" "$want"
+    store_view="$(python3 - "$fx" "$PROJECT_DIR/.aitask-scripts/lib" <<'PY'
+import json, os, sys
+from pathlib import Path
+sys.path.insert(0, sys.argv[2])
+import agent_sessions
+fx = json.load(open(sys.argv[1]))
+path, sid = fx["transcript_path"], fx["session_id"]
+base = os.path.basename(path)
+# The claude store root's NAME, as the store's own transcript resolver
+# computes it (every candidate root, override included).
+claude_roots = {r.name for r in agent_sessions._claude_store_roots(
+    Path("/h"), {"CLAUDE_CONFIG_DIR": "/c"})}
+m = agent_sessions._CODEX_ROLLOUT_RE.match(base)
+if m:
+    print("codex" if m.group("session_id") == sid else "codex-other-sid")
+elif (base == sid + ".jsonl" and len(claude_roots) == 1
+      and os.path.basename(os.path.dirname(os.path.dirname(path))) in claude_roots):
+    print("claudecode")
+else:
+    print("none:" + ",".join(sorted(claude_roots)))
+PY
+)"
+    assert_eq "fixture $agent: agent_sessions' layout reads the same kind" "$want" "$store_view"
+done
 
 echo ""
 echo "========================================="

@@ -72,6 +72,7 @@ Outcomes are sentences rather than states:
 | `restored, unverified — capture kept` | **kept** | running, but unconfirmed — a success |
 | `restore failed: <reason> — capture kept` | kept | the attempt failed; the viewer is back |
 | `restore ended — capture kept` | kept | ended with no recorded reason |
+| `cannot restore: <reason> — re-pick it instead (P)` | kept | the record cannot be resumed (no session, or its CLI is unknown or not the one the restore would launch); nothing was dispatched |
 | `restore did not start — run 'ait frozenagent' or reconcile` | kept | nothing was dispatched |
 | `restore still <state> after the grace — run reconcile; capture kept` | kept | still transitional |
 | `record vanished` | — | the record is gone |

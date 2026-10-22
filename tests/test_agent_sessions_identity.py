@@ -573,6 +573,120 @@ class BlankAgentStringTests(_UpsertTestCase):
         self.assertEqual(rec.agent_kind, "codex")
 
 
+class AgentKindEvidenceTests(_UpsertTestCase):
+    """t2109: `agent_kind` is the kind of the agent whose CURRENT session the
+    record holds, as far as some call proved it.
+
+    `agent_kind` is the hook's transcript-shape evidence for an agent started
+    by hand. It sets the kind and never clears a stored explicit agent string;
+    a disagreement stays visible for the restore to refuse. A NEW session that
+    arrives with no evidence at all clears the kind, so neither the previous
+    session's evidence nor a preserved string can vouch for it.
+    """
+
+    def test_a_kind_only_create(self):
+        rec = self.sf.by_id(self.rid(self.up(session_id="A", agent_kind="codex")))
+        self.assertEqual((rec.agent_string, rec.agent_kind), ("", "codex"))
+
+    def test_a_kind_on_a_same_kind_explicit_record_preserves_both(self):
+        rid = self.rid(self.up(session_id="A", agent_string="claudecode/opus5"))
+        self.up(session_id="B", agent_kind="claudecode")
+        rec = self.sf.by_id(rid)
+        self.assertEqual((rec.agent_string, rec.agent_kind),
+                         ("claudecode/opus5", "claudecode"))
+
+    def test_a_conflicting_kind_preserves_the_explicit_string(self):
+        rid = self.rid(self.up(session_id="A", agent_string="claudecode/opus5"))
+        self.up(session_id="B", agent_kind="codex")
+        rec = self.sf.by_id(rid)
+        self.assertEqual((rec.agent_string, rec.agent_kind, rec.codeagent_session_id),
+                         ("claudecode/opus5", "codex", "B"))
+
+    def test_a_later_explicit_string_decides_the_kind_again(self):
+        rid = self.rid(self.up(session_id="A", agent_kind="codex"))
+        self.up(session_id="B", agent_string="claudecode/opus5")
+        rec = self.sf.by_id(rid)
+        self.assertEqual((rec.agent_string, rec.agent_kind),
+                         ("claudecode/opus5", "claudecode"))
+
+    def test_a_blank_kind_on_the_same_session_is_not_supplied(self):
+        rid = self.rid(self.up(session_id="A", agent_kind="codex"))
+        self.up(session_id="A", agent_kind="")
+        self.assertEqual(self.sf.by_id(rid).agent_kind, "codex")
+
+    def test_an_agreeing_string_and_kind_are_accepted(self):
+        rec = self.sf.by_id(self.rid(self.up(
+            session_id="A", agent_string="codex/gpt5", agent_kind="codex")))
+        self.assertEqual((rec.agent_string, rec.agent_kind), ("codex/gpt5", "codex"))
+
+    def test_a_malformed_kind_is_refused_before_anything_changes(self):
+        rid = self.rid(self.up(session_id="A", agent_string="claudecode/opus5"))
+        before = vars(self.sf.by_id(rid)).copy()
+        for value in ("Codex", "codex/x", "a b", "codex\n"):
+            with self.subTest(value=value):
+                with self.assertRaises(ValueError):
+                    self.up(session_id="B", agent_kind=value)
+                self.assertEqual(vars(self.sf.by_id(rid)), before)
+
+    def test_a_kind_contradicting_the_string_in_one_call_is_refused(self):
+        with self.assertRaises(ValueError):
+            self.up(session_id="A", agent_string="claudecode/opus5",
+                    agent_kind="codex")
+        self.assertEqual(self.sf.sessions, [])
+
+    def test_the_restore_ack_applies_the_kind(self):
+        rid = self.rid(self.up(session_id="sid-1", agent_kind="claudecode"))
+        rec = self.sf.by_id(rid)
+        rec.state = agent_sessions.STATE_FROZEN
+        self.sf, line = agent_sessions.restore_begin(
+            self.sf, rid, mode="repick", owner_pid=os.getpid())
+        nonce = line.split("|")[1]
+        self.up(pane="%42", pane_pid=4242, restore_of=rid, nonce=nonce,
+                session_id="new-sid", agent_kind="codex")
+        self.assertEqual(self.sf.by_id(rid).agent_kind, "codex")
+
+    # --- review finding 1: an unidentified replacement -----------------------
+
+    def test_an_unidentified_session_on_an_explicit_record_clears_the_kind(self):
+        """THE regression: before, the record kept `claudecode` and the restore
+        launched `claude --resume <B>` for a session nothing identified."""
+        rid = self.rid(self.up(session_id="A", agent_string="claudecode/opus5"))
+        self.up(session_id="B")
+        rec = self.sf.by_id(rid)
+        self.assertEqual((rec.agent_string, rec.agent_kind, rec.codeagent_session_id),
+                         ("claudecode/opus5", "", "B"))
+
+    def test_an_unidentified_session_on_a_kind_only_record_clears_the_kind(self):
+        rid = self.rid(self.up(session_id="A", agent_kind="claudecode"))
+        self.up(session_id="B")
+        rec = self.sf.by_id(rid)
+        self.assertEqual((rec.agent_string, rec.agent_kind, rec.codeagent_session_id),
+                         ("", "", "B"))
+
+    def test_the_same_session_without_evidence_keeps_the_kind(self):
+        """CONTROL: re-reporting the recorded session proves nothing new and
+        disproves nothing either (t1802 / t1807)."""
+        for fields in (dict(agent_string="claudecode/opus5"),
+                       dict(agent_kind="claudecode")):
+            with self.subTest(**fields):
+                self.sf = agent_sessions.SessionsFile()
+                rid = self.rid(self.up(session_id="A", **fields))
+                self.up(session_id="A")
+                self.up(session_id="")
+                self.assertEqual(self.sf.by_id(rid).agent_kind, "claudecode")
+
+    def test_a_new_session_with_evidence_takes_that_kind(self):
+        """CONTROL: the evidence-carrying replacement is recorded as such."""
+        rid = self.rid(self.up(session_id="A", agent_string="claudecode/opus5"))
+        self.up(session_id="B", agent_kind="codex")
+        self.assertEqual(self.sf.by_id(rid).agent_kind, "codex")
+
+    def test_a_cleared_session_does_not_count_as_a_new_one(self):
+        rid = self.rid(self.up(session_id="A", agent_kind="codex"))
+        self.up(clear_session_id=True)
+        self.assertEqual(self.sf.by_id(rid).agent_kind, "codex")
+
+
 class BlankSessionIdTests(_UpsertTestCase):
     """t1807: `session_id=""` means "not supplied", never "clear it".
 

@@ -374,12 +374,16 @@ def _backfill_agent_string(
     Two rules keep it from making a record lie:
 
     * it fills a blank only, and never overwrites a stored value;
-    * it never pairs a codex model with a session id it cannot prove. A
-      blank-kind record holding an id got it from a SessionStart hook, which
-      can be another agent's. Older codex never fires it interactively, and
-      codex 0.163.0 fires it only at the first turn. This code cannot tell
-      whose hook it was, and filling in `codex/…` for a foreign id would make
-      the restore `codex resume <someone else's id>`.
+    * it never pairs a model with a session id recorded under another kind or
+      under none (t2109), and never a codex model with any id. The record's
+      kind is the evidence for WHOSE session the id is (the hook's transcript
+      shape, or an agent string); the pane process's argv0 says only what runs
+      in the pane now. A blank-kind id came from a hook nothing could
+      attribute, and older codex never fires one interactively while codex
+      0.163.0 fires it only at the first turn. Filling in `claudecode/…` or
+      `codex/…` for such an id would make the restore
+      `claude --resume <someone else's id>`. A codex id is the codex capture's
+      to label: it proves the conversation from the live process first.
 
     Model only: no `--session-id` / `--transcript`, so a cleared or unverified
     id is never brought back. Never raises and never fails the freeze.
@@ -391,9 +395,10 @@ def _backfill_agent_string(
         value = _recover_agent_string(facts.get("pane_pid", "0"), root)
         if not value:
             return
-        if (stored.get("codeagent_session_id", "")
-                and agent_sessions.agent_kind_of(value) == "codex"):
-            return
+        if stored.get("codeagent_session_id", ""):
+            recovered = agent_sessions.agent_kind_of(value)
+            if recovered == "codex" or recovered != stored.get("agent_kind", ""):
+                return
         rc, out = frozen_ops.store(
             "upsert", "--id", record_id,
             "--root", stored.get("root") or root,

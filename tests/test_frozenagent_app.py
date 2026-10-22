@@ -119,7 +119,9 @@ def _record(rid: str, **over) -> dict:
         "window_slot": 0, "pane_id": "%9", "pane_pid": 4242,
         "session": "aitasks", "operation": "pick", "task_id": "1705",
         "agent_string": "claudecode/opus5", "agent_kind": "claudecode",
-        "codeagent_session_id": "", "transcript_path": "",
+        # A restorable session: the viewer preflights a restore (t2109) and
+        # refuses a record with none before anything is dispatched.
+        "codeagent_session_id": "sess-abc", "transcript_path": "",
         "started_at": "2026-09-04T09:12:03Z", "state": "frozen",
         "state_at": "2026-09-04T09:20:00Z",
         "op_nonce": "", "op_owner_pid": 0, "op_started_at": "",
@@ -1390,10 +1392,12 @@ class ActionArgvTests(_AppCase):
         self.assertEqual(len(argvs), 1)
         self.assertIn(f"aitask_frozen.sh restore {self.RECORD_ID}", argvs[0][2])
 
-    async def _dispatch_notes(self, agent_string: str) -> list[str]:
+    async def _dispatch_notes(self, agent_string: str,
+                              agent_kind: str | None = None) -> list[str]:
         self.fx.write([_record(
             self.RECORD_ID, agent_string=agent_string,
-            agent_kind=agent_sessions_kind(agent_string),
+            agent_kind=(agent_sessions_kind(agent_string)
+                        if agent_kind is None else agent_kind),
             capture_ansi=str(self.fx.frozen / self.RECORD_ID / "capture.ansi"),
             capture_txt=str(self.fx.frozen / self.RECORD_ID / "capture.txt"),
         )])
@@ -1406,18 +1410,23 @@ class ActionArgvTests(_AppCase):
             return original(message, **kwargs)
 
         app.notify = spy
-        async with app.run_test(size=(80, 20)) as pilot:
-            await pilot.press("R")
-            await pilot.pause()
+        # The preflight resolves a string-less record's `raw` default (t2109);
+        # pin it to the same CLI so the restore goes ahead.
+        with patch.object(self.app_mod.agent_restore, "_raw_agent_string",
+                          return_value="claudecode/sonnet5_5"):
+            async with app.run_test(size=(80, 20)) as pilot:
+                await pilot.press("R")
+                await pilot.pause()
         self.assertEqual(len(self.tmux.run_shell_argvs()), 1,
                          "the warning must not stop the restore")
         return seen
 
     async def test_restoring_a_record_with_no_agent_string_says_so_at_dispatch(self):
         """t1850: the default model is used, and the viewer is replaced on
-        success, so dispatch is the only moment the user can be told."""
+        success, so dispatch is the only moment the user can be told. The
+        record names its CLI (t2109), or the preflight would refuse it."""
         import agent_sessions
-        seen = await self._dispatch_notes("")
+        seen = await self._dispatch_notes("", agent_kind="claudecode")
         self.assertIn(agent_sessions.UNKNOWN_MODEL_NOTE, seen)
 
     async def test_a_known_agent_string_restores_without_the_warning(self):
@@ -1833,6 +1842,152 @@ class DropOutcomeTests(_AppCase):
             app._poll_drop(self.RECORD_ID, {"t": self.app_mod.DROP_GRACE})
             await pilot.pause()
             self.assertIn("drop failed", app._header_note)
+
+
+class RestorePreflightTests(_AppCase):
+    """t2109: a resume the coordinator would refuse is refused HERE, by name.
+
+    The coordinator runs detached and reports only through the store, and a
+    refusal writes nothing there, so without the preflight the viewer reported
+    "restore did not start" after the dispatch grace. Nothing goes pending on a
+    refusal, so re-pick stays available.
+    """
+
+    RAW = "claudecode/sonnet5_5"
+
+    def setUp(self) -> None:
+        super().setUp()
+        raw = patch.object(self.app_mod.agent_restore, "_raw_agent_string",
+                           side_effect=lambda root: self.RAW)
+        raw.start()
+        self.addCleanup(raw.stop)
+
+    def _write(self, **over) -> None:
+        self.fx.write([_record(
+            self.RECORD_ID,
+            capture_ansi=str(self.fx.frozen / self.RECORD_ID / "capture.ansi"),
+            capture_txt=str(self.fx.frozen / self.RECORD_ID / "capture.txt"),
+            **over,
+        )])
+
+    async def _press_restore(self) -> tuple[object, list[str]]:
+        """Press R; return the app (still running) and every notification."""
+        app = self.make_app()
+        seen: list[str] = []
+        original = app.notify
+
+        def spy(message, **kwargs):
+            seen.append(str(message))
+            return original(message, **kwargs)
+
+        app.notify = spy
+        return app, seen
+
+    async def _refused(self, needle: str, *, task_id: bool = True, repick_key: str = "P"):
+        app, seen = await self._press_restore()
+        async with app.run_test(size=(100, 20)) as pilot:
+            await pilot.press("R")
+            await pilot.pause()
+            self.assertEqual(self.tmux.run_shell_argvs(), [],
+                             "a refused resume must dispatch nothing")
+            self.assertNotIn(self.RECORD_ID, app._pending)
+            self.assertIn(needle, app._header_note)
+            self.assertTrue(any(needle in m for m in seen), seen)
+            if task_id:
+                self.assertIn(f"re-pick it instead ({repick_key})", app._header_note)
+                # Re-pick stays available, and works — on the key the note names.
+                self.assertTrue(app.check_action("repick", ()))
+                await pilot.press(repick_key)
+                await pilot.pause()
+                argvs = self.tmux.run_shell_argvs()
+                self.assertEqual(len(argvs), 1)
+                self.assertIn(f"aitask_frozen.sh restore {self.RECORD_ID} --repick",
+                              argvs[0][2])
+            else:
+                self.assertIn("no task id to re-pick", app._header_note)
+
+    async def test_an_unknown_agent_is_refused_and_re_pick_stays_available(self):
+        self._write(agent_string="", agent_kind="")
+        await self._refused("the agent CLI that ran this session is unknown")
+
+    async def test_an_explicit_string_against_another_kind_is_refused(self):
+        self._write(agent_string="claudecode/opus5", agent_kind="codex")
+        await self._refused("this is a codex session but the restore would launch claudecode")
+
+    async def test_a_kind_only_record_of_another_cli_than_the_raw_default_is_refused(self):
+        self._write(agent_string="", agent_kind="codex")
+        await self._refused("this is a codex session but the restore would launch claudecode")
+
+    async def test_a_refusal_without_a_task_id_says_there_is_nothing_to_re_pick(self):
+        self._write(agent_string="", agent_kind="", task_id="")
+        await self._refused("the agent CLI that ran this session is unknown", task_id=False)
+
+    async def test_no_session_is_reported_at_once_not_as_a_dispatch_timeout(self):
+        self._write(codeagent_session_id="")
+        await self._refused("no session was recorded for this agent")
+
+    async def test_a_kind_only_record_of_the_raw_defaults_cli_is_dispatched(self):
+        import agent_sessions
+        self._write(agent_string="", agent_kind="claudecode")
+        app, seen = await self._press_restore()
+        async with app.run_test(size=(100, 20)) as pilot:
+            await pilot.press("R")
+            await pilot.pause()
+        argvs = self.tmux.run_shell_argvs()
+        self.assertEqual(len(argvs), 1)
+        self.assertIn(f"aitask_frozen.sh restore {self.RECORD_ID}", argvs[0][2])
+        self.assertIn(agent_sessions.UNKNOWN_MODEL_NOTE, seen)
+
+    async def test_a_rebound_repick_key_is_the_one_the_note_names(self):
+        """The recovery instruction must name the key re-pick answers to now."""
+        import keybinding_registry
+        overrides = patch.object(
+            keybinding_registry, "load_user_overrides",
+            return_value={"frozenagent": {"repick": "z"}})
+        overrides.start()
+        self.addCleanup(overrides.stop)
+        self._write(agent_string="", agent_kind="")
+        await self._refused("the agent CLI that ran this session is unknown",
+                            repick_key="z")
+
+    async def test_a_rebind_saved_after_startup_is_not_advertised(self):
+        """The shortcut editor saves to the registry but applies new keys only
+        at the next launch. Until then the note must name the key that WORKS in
+        this viewer, never the saved-but-inactive one."""
+        import keybinding_registry
+        self._write(agent_string="", agent_kind="")
+        app, seen = await self._press_restore()
+        async with app.run_test(size=(100, 20)) as pilot:
+            # Saved while the viewer runs: the registry now says `z`.
+            with patch.object(keybinding_registry, "load_user_overrides",
+                              return_value={"frozenagent": {"repick": "z"}}):
+                self.assertEqual(keybinding_registry.resolve_key("frozenagent", "repick"), "z")
+                await pilot.press("R")
+                await pilot.pause()
+                self.assertIn("re-pick it instead (P)", app._header_note)
+                self.assertNotIn("(z)", app._header_note)
+                await pilot.press("z")
+                await pilot.pause()
+                self.assertEqual(self.tmux.run_shell_argvs(), [],
+                                 "the saved key is not live yet")
+                await pilot.press("P")
+                await pilot.pause()
+        argvs = self.tmux.run_shell_argvs()
+        self.assertEqual(len(argvs), 1)
+        self.assertIn(f"aitask_frozen.sh restore {self.RECORD_ID} --repick", argvs[0][2])
+
+    async def test_the_key_comes_from_the_live_keymap_or_not_at_all(self):
+        app = self.make_app()
+        async with app.run_test(size=(100, 20)):
+            self.assertEqual(app._active_key("repick"), "P")
+            self.assertEqual(app._active_key("copy_or_quit_hint"), "Ctrl+C")
+            self.assertEqual(app._active_key("no_such_action"), "",
+                             "an action with no installed binding names no key")
+
+    async def test_a_markup_shaped_kind_is_shown_verbatim(self):
+        """The kind comes off the record as stored; it must never be parsed."""
+        self._write(agent_string="claudecode/opus5", agent_kind="[bold]x")
+        await self._refused("this is a [bold]x session")
 
 
 class SingleFlightTests(_AppCase):

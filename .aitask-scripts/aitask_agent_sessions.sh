@@ -35,7 +35,8 @@
 #   upsert  --root <r> --window <w> --pane <id> --pane-pid <pid>
 #           [--id <rid>] [--session <name>] [--session-id <sid>]
 #           [--clear-session-id] [--transcript <p>] [--agent-string <s>]
-#           [--operation <op>] [--task-id <t>] [--restore-of <rid> --nonce <n>]
+#           [--agent-kind <k>] [--operation <op>] [--task-id <t>]
+#           [--restore-of <rid> --nonce <n>]
 #
 #   `--clear-session-id` DELIBERATELY forgets the recorded session (id and
 #   transcript together), so the next restore re-picks instead of resuming. A
@@ -43,6 +44,13 @@
 #   and the two must stay distinguishable: one is an accident, the other is
 #   evidence. Refused with `--restore-of`, whose whole purpose is to assert
 #   which session came back.
+#
+#   `--agent-kind` is evidence of WHICH CLI owns the reported session, for an
+#   agent no agent string names (t2109; the SessionStart hook infers it from
+#   the transcript path). It never clears a stored agent string. A new session
+#   id that arrives with neither leaves the record's kind unknown, and a
+#   restore then re-picks. Malformed, or contradicting `--agent-string`, it is
+#   refused with exit 2 and nothing written.
 #   freeze-begin      <id> --owner-pid <pid> --capture-ansi <p>
 #                          --capture-txt <p> --lines <n> [--phase <t>]
 #   freeze-commit     <id> --nonce <n> --pane <pane_id|""> --pane-pid <pid|0>

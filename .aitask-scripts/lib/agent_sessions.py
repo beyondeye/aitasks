@@ -88,6 +88,8 @@ _ID_RE = re.compile(r"[0-9a-f]{8}")
 _TS_FMT = "%Y-%m-%dT%H:%M:%SZ"
 
 _AGENT_STRING_RE = re.compile(r"([a-z]+)/[a-z0-9_]+")
+#: An agent KIND on its own (t2109): the kind part of the same grammar.
+_AGENT_KIND_RE = re.compile(r"[a-z]+")
 
 
 class MalformedSessionsError(Exception):
@@ -746,6 +748,7 @@ def _apply_upsert_fields(
     session_id=None,
     transcript=None,
     agent_string=None,
+    agent_kind=None,
     operation=None,
     task_id=None,
     clear_session_id=False,
@@ -777,7 +780,23 @@ def _apply_upsert_fields(
     one fact ("which conversation this record points at"), and a path without
     an id is a dangling reference. An accidental blank and a deliberate clear
     are then impossible to confuse, which is what keeps t1807's guarantee.
+
+    ``agent_kind`` is the kind of the agent whose CURRENT session the record
+    holds, and only as far as some call proved it (t2109). Three rules:
+
+    * an agent string decides it, as it always did;
+    * a bare ``agent_kind`` -- the hook's transcript-shape evidence for an agent
+      started by hand -- sets it and never touches a stored agent string. An
+      explicit identity is preserved even when the evidence disagrees with it,
+      and that disagreement stays visible for the restore to refuse;
+    * a NEW session id that arrives with neither clears it. Evidence belongs
+      to the session it came with: a claude record's old kind, or its
+      preserved string, must not vouch for an unidentified replacement, or a
+      restore would launch `claude --resume <someone else's id>`. Re-reporting
+      the SAME id without evidence changes nothing, as for the string.
     """
+    new_session = (bool(session_id) and not clear_session_id
+                   and session_id != rec.codeagent_session_id)
     if session is not None:
         rec.session = session
     if session_id:
@@ -786,7 +805,11 @@ def _apply_upsert_fields(
         rec.transcript_path = transcript
     if agent_string:
         rec.agent_string = agent_string
-        rec.agent_kind = agent_kind_of(agent_string)
+        rec.agent_kind = agent_kind_of(agent_string) or agent_kind or ""
+    elif agent_kind:
+        rec.agent_kind = agent_kind
+    elif new_session:
+        rec.agent_kind = ""
     if operation is not None:
         rec.operation = operation
     if task_id is not None:
@@ -795,6 +818,20 @@ def _apply_upsert_fields(
     if clear_session_id:
         rec.codeagent_session_id = ""
         rec.transcript_path = ""
+
+
+def _restore_ack_kind(rec: SessionRecord, agent_kind: str | None) -> str | None:
+    """The kind a verified restore ack reports, given what the ack itself sent.
+
+    The ack's process is the one the restore LAUNCHED (nonce, or launch pid for
+    a late ack), and the launch ran the record's own agent string when it had
+    one -- `agent_restore` resumes with it and re-picks with it. So an ack that
+    lost its environment still reports a session of that string's kind, and a
+    re-pick's new session keeps its record resumable (t1802's defensive layer,
+    under t2109's evidence rule). With no stored string the launch ran a
+    project default, whose kind nothing here knows: no evidence.
+    """
+    return agent_kind or agent_kind_of(rec.agent_string) or None
 
 
 def _follow_window(sf: SessionsFile, rec: SessionRecord, croot: str,
@@ -863,6 +900,7 @@ def upsert(
     session_id: str | None = None,
     transcript: str | None = None,
     agent_string: str | None = None,
+    agent_kind: str | None = None,
     operation: str | None = None,
     task_id: str | None = None,
     restore_of: str | None = None,
@@ -897,6 +935,17 @@ def upsert(
     if clear_session_id and restore_of is not None:
         raise ValueError("--clear-session-id cannot be combined with --restore-of")
 
+    # An agent kind is EVIDENCE about the session this call reports (t2109).
+    # Malformed, or contradicted by the agent string sent beside it, it is a
+    # caller bug: refused before anything is touched.
+    if agent_kind:
+        if not _AGENT_KIND_RE.fullmatch(agent_kind):
+            raise ValueError(f"malformed --agent-kind: {agent_kind!r}")
+        named = agent_kind_of(agent_string)
+        if named and named != agent_kind:
+            raise ValueError(
+                f"--agent-kind {agent_kind} contradicts --agent-string {agent_string}")
+
     # --- the restore acknowledgement ----------------------------------------
     if restore_of is not None:
         rec = _require_record(sf, restore_of)
@@ -914,6 +963,7 @@ def upsert(
                     session_id=session_id,
                     transcript=transcript,
                     agent_string=agent_string,
+                    agent_kind=_restore_ack_kind(rec, agent_kind),
                     operation=operation,
                     task_id=task_id,
                 )
@@ -952,6 +1002,7 @@ def upsert(
                 session_id=session_id,
                 transcript=transcript,
                 agent_string=agent_string,
+                agent_kind=_restore_ack_kind(rec, agent_kind),
                 operation=operation,
                 task_id=task_id,
             )
@@ -985,7 +1036,8 @@ def upsert(
                 rec = _create(
                     sf, croot, window, pane, pane_pid, now,
                     session=session, session_id=session_id, transcript=transcript,
-                    agent_string=agent_string, operation=operation, task_id=task_id,
+                    agent_string=agent_string, agent_kind=agent_kind,
+                    operation=operation, task_id=task_id,
                 )
                 return sf, f"UPSERTED:{rec.id}|created_slot{rec.window_slot}|ambiguous_relocation"
 
@@ -1000,6 +1052,7 @@ def upsert(
             session_id=session_id,
             transcript=transcript,
             agent_string=agent_string,
+            agent_kind=agent_kind,
             operation=operation,
             task_id=task_id,
             clear_session_id=clear_session_id,
@@ -1021,7 +1074,8 @@ def upsert(
     rec = _create(
         sf, croot, window, pane, pane_pid, now,
         session=session, session_id=session_id, transcript=transcript,
-        agent_string=agent_string, operation=operation, task_id=task_id,
+        agent_string=agent_string, agent_kind=agent_kind,
+        operation=operation, task_id=task_id,
     )
     if existing:
         return sf, f"UPSERTED:{rec.id}|created_slot{rec.window_slot}"
@@ -2867,6 +2921,7 @@ def main(argv: list[str] | None = None) -> int:
                 clear_session_id="--clear-session-id" in rest,
                 transcript=_arg(rest, "transcript"),
                 agent_string=_arg(rest, "agent-string"),
+                agent_kind=_arg(rest, "agent-kind"),
                 operation=_arg(rest, "operation"),
                 task_id=_arg(rest, "task-id"),
                 restore_of=(

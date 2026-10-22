@@ -98,6 +98,21 @@ reporting the pane that started the daemon, which is not necessarily this
 agent's pane. Those reports are ignored, so a hand-started Codex agent like this
 is restored by re-picking its task.
 
+The hook also records which CLI owns the session. An agent launched by the
+framework names itself. For an agent you start by hand, the hook reads it from
+the shape of the transcript path the agent reports: a Claude Code transcript
+lives under `projects/`, a Codex one is a `rollout-…` file. It counts only when
+that path names the very session being reported. A restore resumes the session
+only with that same CLI. For an agent started by hand, the restore uses the
+agent and model the record names when freezing could recover them (the agent was
+started with a model the framework knows). Without them it would launch the
+project's default agent for raw sessions, and resumes only when that default is
+the same CLI. When nothing could tell which CLI it was, or the restore would
+launch a different one, the restore is refused and the agent stays frozen; you
+can still re-pick its task. An agent started inside another agent inherits that
+agent's identity. When the inherited identity and the transcript disagree, the
+hook records nothing.
+
 The hook is also the acknowledgement channel for a restore. The replacement
 agent is launched with the record id and the attempt's nonce in its environment;
 the hook hands them back, and the store checks that the session that came up is

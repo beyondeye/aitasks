@@ -342,6 +342,51 @@ class AgentKindTests(unittest.TestCase):
         self.assertEqual(agent_sessions.agent_kind_of("newagent/m1"), "newagent")
 
 
+class CliAgentKindTests(_StoreTestCase):
+    """t2109: `--agent-kind` through `main()`, read back from the file."""
+
+    def run_cli(self, *argv):
+        import agent_sessions as mod
+        return mod.main(["--file", str(self.store), *argv])
+
+    def up(self, *extra):
+        return self.run_cli("upsert", "--root", str(self.tmp), "--window", "w",
+                            "--pane", "%1", "--pane-pid", "1", *extra)
+
+    def rec(self):
+        return agent_sessions.load(self.store).sessions[0]
+
+    def test_the_kind_is_persisted(self):
+        self.assertEqual(self.up("--session-id", "A", "--agent-kind", "codex"), 0)
+        self.assertEqual((self.rec().agent_string, self.rec().agent_kind), ("", "codex"))
+
+    def test_a_malformed_kind_exits_2_and_writes_nothing(self):
+        self.assertEqual(self.up("--session-id", "A", "--agent-kind", "codex"), 0)
+        before = self.store.read_bytes()
+        self.assertEqual(self.up("--session-id", "B", "--agent-kind", "Codex"), 2)
+        self.assertEqual(self.store.read_bytes(), before)
+
+    def test_a_contradicting_pair_exits_2_and_writes_nothing(self):
+        self.assertEqual(self.up("--session-id", "A"), 0)
+        before = self.store.read_bytes()
+        self.assertEqual(self.up("--session-id", "B", "--agent-string",
+                                 "claudecode/opus5", "--agent-kind", "codex"), 2)
+        self.assertEqual(self.store.read_bytes(), before)
+
+    def test_an_unidentified_replacement_clears_the_kind_on_disk(self):
+        """Review finding 1 on the wire: both record shapes."""
+        for first in (("--agent-string", "claudecode/opus5"),
+                      ("--agent-kind", "claudecode")):
+            with self.subTest(first=first[0]):
+                self.store.unlink(missing_ok=True)
+                self.assertEqual(self.up("--session-id", "A", *first), 0)
+                self.assertEqual(self.up("--session-id", "B"), 0)
+                rec = self.rec()
+                self.assertEqual((rec.agent_kind, rec.codeagent_session_id), ("", "B"))
+                kept = "claudecode/opus5" if first[0] == "--agent-string" else ""
+                self.assertEqual(rec.agent_string, kept)
+
+
 class CliPersistenceTests(_StoreTestCase):
     """Does the CLI actually WRITE what the transitions decided?
 

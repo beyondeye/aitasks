@@ -56,12 +56,13 @@ of them:
 
 - **Re-pick needs a task id.** Without one the viewer refuses and points you the
   other way: `This record has no task id — restore instead`.
-- **Restore needs a recorded session id.** When the agent's session was never
-  captured there is nothing to resume, so the restore never starts and the record
-  is left untouched. The viewer reports this as
-  `restore did not start — run 'ait frozenagent' or reconcile`, because the
-  coordinator runs detached and cannot report its own reason back. Re-pick is the
-  way back here, and is the reason it exists.
+- **Restore needs a recorded session id, and the CLI it belongs to.** When the
+  agent's session was never captured there is nothing to resume. When nothing
+  could tell which CLI ran it, or the restore would launch a different CLI, it
+  cannot be resumed either. The viewer checks this before it starts anything,
+  leaves the record untouched, and says why, for example
+  `cannot restore: no session was recorded for this agent — re-pick it instead (P)`.
+  Re-pick is the way back here, and is the reason it exists.
 
 Neither asks for confirmation, because neither can leave you with nothing: if the
 attempt fails, the viewer comes back and the capture is intact. Watch the header:

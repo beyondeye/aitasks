@@ -74,6 +74,20 @@
 # refuses that late ack (t2040). A matching one upgrades a liveness confirm to
 # verified, and anything else is an ordinary upsert, so the pane is stamped
 # either way.
+#
+# AGENT KIND (t2109): an agent started by hand carries no AITASK_AGENT_STRING, so
+# the hook takes its kind from the payload's transcript path, and only when the
+# path names the payload's OWN session id. Measured layouts (claude 2.1.263 and
+# 2.1.304, codex 0.163.0; the committed fixtures and every live record):
+#   claude: <config>/projects/<encoded-cwd>/<session_id>.jsonl
+#   codex:  <codex_home>/sessions/YYYY/MM/DD/rollout-<ts>-<session_id>.jsonl
+# The kind travels as --agent-kind. An explicit AITASK_AGENT_STRING is forwarded
+# unchanged and the store never clears it on inference. When the two DISAGREE the
+# hook records nothing: an agent started inside another one (a `codex exec` from
+# a claude agent's Bash tool) inherits that agent's AITASK_AGENT_STRING and
+# TMUX_PANE, and recording would pair the nested session with the outer CLI. An
+# unrecognised shape is no evidence at all; the store then leaves a new
+# session's kind unknown and a restore re-picks rather than guess the CLI.
 # ---------------------------------------------------------------------------
 
 set -uo pipefail
@@ -101,20 +115,30 @@ payload="$(cat)"
 # every field the moment cwd or transcript_path contains a space -- and the
 # claude project-dir encoding preserves spaces, so this is reachable in normal
 # use. NUL is the one byte a POSIX path cannot contain.
+# The fifth field is the transcript-shape agent kind (see AGENT KIND above).
 _fields=()
 while IFS= read -r -d '' _f; do
     _fields+=("$_f")
 done < <(printf '%s' "$payload" | python3 -c '
-import json, sys
+import json, os, sys
 d = json.load(sys.stdin)
 if not isinstance(d, dict):
     raise SystemExit(1)
 keys = ("session_id", "transcript_path", "cwd", "source")
-sys.stdout.write("\0".join(str(d.get(k) or "") for k in keys) + "\0")
+vals = [str(d.get(k) or "") for k in keys]
+sid, path = vals[0], vals[1]
+base = os.path.basename(path)
+kind = ""
+if sid and base == sid + ".jsonl" and \
+        os.path.basename(os.path.dirname(os.path.dirname(path))) == "projects":
+    kind = "claudecode"
+elif sid and base.startswith("rollout-") and base.endswith("-" + sid + ".jsonl"):
+    kind = "codex"
+sys.stdout.write("\0".join(vals + [kind]) + "\0")
 ' 2>/dev/null)
 
 # Malformed / unparseable / non-object payload, or no python3 at all.
-if [ "${#_fields[@]}" -ne 4 ]; then
+if [ "${#_fields[@]}" -ne 5 ]; then
     echo "aitask_session_hook: unparseable payload; nothing recorded" >&2
     exit 0
 fi
@@ -123,6 +147,7 @@ transcript_path="${_fields[1]}"
 payload_cwd="${_fields[2]}"
 # shellcheck disable=SC2034  # Captured for completeness / future use.
 source_kind="${_fields[3]}"
+payload_kind="${_fields[4]}"
 
 # A blank session id is a NO-OP -- never an upsert, never a pane option. The
 # store treats a blank id as "not supplied" on an ordinary update (t1807), so
@@ -230,6 +255,19 @@ while IFS= read -r _hop; do
     fi
 done <<<"$_chain"
 
+# --- 5c. agent identity (t2109) --------------------------------------------
+# An explicit agent string that names another kind than this session's own
+# transcript belongs to an outer agent whose environment this one inherited.
+# Same grammar as agent_sessions._AGENT_STRING_RE (a full match).
+explicit_kind=""
+if [[ "${AITASK_AGENT_STRING:-}" =~ ^([a-z]+)/[a-z0-9_]+$ ]]; then
+    explicit_kind="${BASH_REMATCH[1]}"
+fi
+if [ -n "$explicit_kind" ] && [ -n "$payload_kind" ] && [ "$explicit_kind" != "$payload_kind" ]; then
+    echo "aitask_session_hook: AITASK_AGENT_STRING names $explicit_kind but the transcript is a $payload_kind session (an agent started inside another inherits its environment); nothing recorded" >&2
+    exit 0
+fi
+
 # --- 6. operation / task id from the window name ---------------------------
 # Same shape as monitor_core._TASK_ID_RE.
 operation=""
@@ -243,6 +281,8 @@ fi
 # A blank AITASK_AGENT_STRING (an agent not started through the wrapper) is a
 # no-op in the store, not a clear: the record keeps the string it already has
 # (t1802). The restore coordinator delivers the variable to its replacements.
+# The transcript-shape kind rides beside it as evidence for THIS session
+# (t2109); without either, the store leaves a new session's kind unknown.
 args=(upsert
       --root "$root"
       --window "$window"
@@ -254,6 +294,7 @@ args=(upsert
       --agent-string "${AITASK_AGENT_STRING:-}"
       --operation "$operation"
       --task-id "$task_id")
+[ -n "$payload_kind" ] && args+=(--agent-kind "$payload_kind")
 [ -n "$existing_record" ] && args+=(--id "$existing_record")
 # A restore launch (see the restore coordinator, t1705_5) exports these; they
 # turn this upsert into the restore ACKNOWLEDGEMENT for the old record. They stay

@@ -74,6 +74,14 @@ monitors' own keys keep their usual meaning on a frozen agent.
 Each route needs something the other does not, and a record may carry only one:
 re-pick needs a **task id**, restore needs a recorded **session id**. An agent
 whose CLI cannot resume a session — OpenCode today — can only be re-picked.
+Restore also needs to know which CLI the session belongs to, and it relaunches
+only that CLI. For an agent you start by hand, outside `ait`, the restore uses
+the agent and model the record names when freezing could recover them (the
+agent was started with a model the framework knows). Without them it would use
+the project's default agent for raw sessions, and resumes only when that default
+runs the same CLI. When the CLI could not be told, or it differs, the restore is
+refused and the agent stays frozen; re-picking its task is still available (see
+[the session hook]({{< relref "/docs/concepts/framework-session" >}}#the-session-hook)).
 So can a Codex agent started by hand that Codex runs through its shared
 app-server daemon: nothing can yet tell which conversation belongs to its pane,
 so no session id is recorded for it (see
@@ -185,9 +193,10 @@ highlighted row — or all at once:
 
 Restore-All works through the records sequentially, and one record's failure
 never stops the batch: with three frozen agents and one missing binary, the other
-two come back. A record with no recorded session id, or one whose CLI cannot
-resume, is reported as a failure by the first form and keeps its capture — those
-are the ones to bring back by re-picking.
+two come back. A record with no recorded session id, one whose CLI cannot
+resume, or one whose CLI is unknown or is not the one the restore would launch,
+is reported as a failure by the first form and keeps its capture — those are the
+ones to bring back by re-picking.
 
 Agents whose windows survived come back in them. Agents whose windows are gone —
 after a tmux restart, say — come back in **new windows under their recorded
@@ -235,10 +244,15 @@ capture is intact. The header reports what happened —
 `restore failed: <reason> — capture kept` — and the viewer shows the store's
 memory of it the next time you open the record.
 
+**A record that cannot be resumed is refused before anything starts.** The
+viewer names the reason — no session id to resume, an agent that does not
+support resuming, or a session whose CLI is unknown or is not the one the
+restore would launch — as `cannot restore: <reason>`, and leaves the record
+untouched. Re-pick is the way forward.
+
 **`restore did not start` is the other shape of failure.** Nothing was
-dispatched: the record has no session id to resume, the agent does not support
-resuming, or tmux could not be queried to find out where the agent should land.
-Re-pick is the way forward for the first two.
+dispatched, for a reason only the coordinator could see — for example, tmux
+could not be queried to find out where the agent should land.
 
 **A stand-in that died is respawned.** So is a freeze or a restore whose
 coordinator was killed part-way: records in a transitional state are settled from

@@ -67,12 +67,14 @@ from textual.widgets import (  # noqa: E402
 )
 
 import agent_frozen_ops  # noqa: E402
+import agent_restore  # noqa: E402
 import agent_sessions  # noqa: E402
 from agent_launch_utils import compact_root  # noqa: E402
 from frozenagent.capture_log import CaptureLog  # noqa: E402
 from monitor.ansi_utils import strip_ansi  # noqa: E402
 from monitor.monitor_core import STANDIN_READY_OPTION, TaskInfoCache  # noqa: E402
 from multirow_footer import MultiRowFooter  # noqa: E402
+from shortcut_labels import display_form  # noqa: E402
 from shortcuts_mixin import ShortcutsMixin  # noqa: E402
 from tui_clipboard import copy_to_system_clipboard  # noqa: E402
 from tmux_exec import TmuxClient  # noqa: E402
@@ -975,6 +977,20 @@ class FrozenAgentApp(TuiSwitcherMixin, ShortcutsMixin, App):
         _TMUX.run(["run-shell", "-b",
                    shlex.join([str(FROZEN_SH), *argv])])
 
+    def _active_key(self, action: str) -> str:
+        """The key ``action`` answers to in THIS running viewer, else "".
+
+        Read from the installed keymap, never from the shortcut registry: a
+        rebind saved in the shortcut editor reaches the registry at once but
+        takes effect only at the next launch, so the registry can name a key
+        that does nothing here. A single character is shown as typed:
+        `display_form` capitalises it, and in Textual `z` and `Z` differ.
+        """
+        for key, active in self.screen.active_bindings.items():
+            if active.binding.action == action:
+                return key if len(key) == 1 else display_form(key)
+        return ""
+
     def _refuse_if_pending(self, rid: str, what: str) -> bool:
         if rid in self._pending:
             self.notify(f"{self._pending[rid]} already in flight for this record",
@@ -1002,6 +1018,20 @@ class FrozenAgentApp(TuiSwitcherMixin, ShortcutsMixin, App):
             self.notify("This record has no task id — restore instead",
                         severity="warning")
             return
+        if not repick:
+            # Read-only preflight (t2109). The coordinator runs detached and
+            # reports only through the store, where a refusal writes nothing, so
+            # without this the user would see "restore did not start" after the
+            # dispatch grace instead of the reason. The coordinator still makes
+            # the same check itself; nothing is pending, so re-pick stays open.
+            blocker = agent_restore.resume_blocker(dataclasses.asdict(rec))
+            if blocker:
+                note = agent_restore.resume_refusal_note(
+                    blocker, rec.task_id, self._active_key("repick"))
+                self._set_note(rid, note)
+                # The kind comes off the record verbatim: never parse it as markup.
+                self.notify(note, severity="warning", markup=False)
+                return
 
         # Snapshot BEFORE dispatch. `restore_attempts` is the only field
         # `restore-begin` bumps monotonically, so it — not `state`, and never

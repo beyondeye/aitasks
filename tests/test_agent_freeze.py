@@ -1158,6 +1158,35 @@ class UnlabelledHookRecordTests(_FreezeTestCase):
         agent_freeze.freeze_pane(AGENT_PANE)
         self.assertEqual(self.rec().codeagent_session_id, "")
 
+    def _claude_record_replaced_without_evidence(self):
+        """A claude record whose session was then replaced by one nothing
+        identified (t2109): the explicit string stays, the kind is cleared."""
+        self.seed_record(agent_string="claudecode/opus5", session_id="sess-claude")
+        self.seed_record(session_id=self.HOOK_ID)
+        self.assertEqual((self.rec().agent_string, self.rec().agent_kind,
+                          self.rec().codeagent_session_id),
+                         ("claudecode/opus5", "", self.HOOK_ID))
+
+    def test_an_unidentified_replacement_on_a_claude_record_is_captured(self):
+        """t2109: with its kind cleared, the record is no longer skipped as a
+        claude record, so a live codex proving the id labels it."""
+        self._claude_record_replaced_without_evidence()
+        self.observe_codex(self.HOOK_ID)
+        result = agent_freeze.freeze_pane(AGENT_PANE)
+        self.assertTrue(result.ok, result.line)
+        self.assertEqual(self.rec().codeagent_session_id, self.HOOK_ID)
+        self.assertEqual(self.rec().agent_string, "codex/gpt5_6_terra")
+        self.assertEqual(self.rec().agent_kind, "codex")
+
+    def test_an_unidentified_replacement_naming_no_model_is_cleared(self):
+        self._claude_record_replaced_without_evidence()
+        self.observe_codex(self.HOOK_ID, cli_id="", agent_string="")
+        result = agent_freeze.freeze_pane(AGENT_PANE)
+        self.assertTrue(result.ok, result.line)
+        self.assertEqual(self.rec().codeagent_session_id, "")
+        self.assertEqual(self.rec().agent_string, "claudecode/opus5",
+                         "the explicit identity is preserved")
+
     def test_a_non_codex_pane_leaves_the_hook_id_alone(self):
         """The claude-pane guard, preserved: `not_codex` disproves only a
         CODEX-kind id."""
@@ -1678,7 +1707,9 @@ class AgentStringRecoveryTests(_FreezeTestCase):
     # --- the fill ------------------------------------------------------------
 
     def test_a_stamped_blank_record_is_filled_with_the_model_only(self):
-        self.seed_record(session_id="sess-claude")
+        # t2109: the session is recorded under its kind (the hook's transcript
+        # shape for an agent started by hand); only then may argv0 name a model.
+        self.seed_record(session_id="sess-claude", agent_kind="claudecode")
         self.claude_with_model()
         result = agent_freeze.freeze_pane(AGENT_PANE)
         self.assertTrue(result.ok, result.line)
@@ -1732,15 +1763,37 @@ class AgentStringRecoveryTests(_FreezeTestCase):
         self.assertEqual(self.rec().codeagent_session_id, "sess-hook")
 
     def test_a_claudecode_model_on_a_record_with_a_session_is_filled(self):
-        self.seed_record(session_id="sess-hook")
+        self.seed_record(session_id="sess-hook", agent_kind="claudecode")
         self.claude_with_model()
         agent_freeze.freeze_pane(AGENT_PANE)
         self.assertEqual(self.rec().agent_string, "claudecode/opus5")
 
+    def test_a_session_under_no_kind_is_never_labelled_from_argv0(self):
+        """t2109: nothing proved whose the id is, and the pane's argv0 says only
+        what runs there now. Labelling it would restore `claude --resume <id>`
+        for an id that may be another agent's."""
+        self.seed_record(session_id="sess-hook")
+        self.claude_with_model()
+        result = agent_freeze.freeze_pane(AGENT_PANE)
+        self.assertTrue(result.ok, result.line)
+        self.assertEqual(self.rec().agent_string, "")
+        self.assertEqual(self.rec().agent_kind, "")
+        self.assertEqual(
+            [c for c in self.upserts() if "claudecode/opus5" in c], [])
+
+    def test_a_session_under_another_kind_is_never_relabelled(self):
+        """t2109: the hook proved a codex session; a claude argv0 in the pane
+        must not turn it into `claude --resume <codex-id>`."""
+        self.seed_record(session_id="sess-hook", agent_kind="codex")
+        self.claude_with_model()
+        agent_freeze.freeze_pane(AGENT_PANE)
+        self.assertEqual(self.rec().agent_string, "")
+        self.assertEqual(self.rec().agent_kind, "codex")
+
     # --- the unstamped path: guard the SELECTED record ------------------------
 
-    def _unstamped_with_stored_session(self):
-        self.seed_record(session_id="sess-unproven")
+    def _unstamped_with_stored_session(self, **fields):
+        self.seed_record(session_id="sess-unproven", **fields)
         self.panes[AGENT_PANE][agent_freeze.RECORD_OPTION] = ""
         self.panes[AGENT_PANE][agent_freeze.AGENT_SESSION_OPTION] = ""
 
@@ -1757,13 +1810,23 @@ class AgentStringRecoveryTests(_FreezeTestCase):
         self.assertEqual(self.rec().agent_string, "")
 
     def test_unstamped_claude_on_the_same_record_is_filled(self):
-        self._unstamped_with_stored_session()
+        self._unstamped_with_stored_session(agent_kind="claudecode")
         self.claude_with_model()
         result = agent_freeze.freeze_pane(AGENT_PANE)
         self.assertTrue(result.ok, result.line)
         self.assertEqual(result.record_id, self.rid)
         self.assertEqual(self.rec().codeagent_session_id, "sess-unproven")
         self.assertEqual(self.rec().agent_string, "claudecode/opus5")
+
+    def test_unstamped_claude_on_a_kindless_session_stays_blank(self):
+        """t2109: the selected record's id is unattributed, so the guard holds
+        on the fallback path too."""
+        self._unstamped_with_stored_session()
+        self.claude_with_model()
+        result = agent_freeze.freeze_pane(AGENT_PANE)
+        self.assertTrue(result.ok, result.line)
+        self.assertEqual(self.rec().codeagent_session_id, "sess-unproven")
+        self.assertEqual(self.rec().agent_string, "")
 
 
 class FailureInjectionTests(_FreezeTestCase):

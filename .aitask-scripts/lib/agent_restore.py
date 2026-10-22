@@ -138,6 +138,7 @@ from agent_launch_utils import (  # noqa: E402
     discover_aitasks_sessions_checked,
     maybe_spawn_minimonitor,
     pick_launch_argv,
+    resolve_agent_string,
     resolve_dry_run_command,
     tmux_window_target,
     unique_window_name,
@@ -208,6 +209,49 @@ class RestoreResult:
 # --- argv construction ------------------------------------------------------
 
 
+def _raw_agent_string(root: str) -> str:
+    """The project's `raw` agent string, resolved with that project's config.
+
+    A scrubbed environment, because ``root`` may be a foreign project (`gone
+    --all-roots`): an inherited override would resolve every root alike. ""
+    when it cannot be resolved. Tests patch this name.
+    """
+    from cross_repo_settings import resolver_env  # heavy; only for blank strings
+    return resolve_agent_string(Path(root), "raw", env=resolver_env()) or ""
+
+
+def _resume_agent(rec: dict) -> tuple[str, str]:
+    """``(agent string the resume launches, blocker)`` (t2109).
+
+    The record's ``agent_kind`` says which CLI owns its session, and only as far
+    as a call proved it (see `agent_sessions._apply_upsert_fields`). The launch
+    runs the stored agent string, or, when there is none, the project's `raw`
+    default. Two refusals:
+
+    * ``unknown_agent`` -- nothing proved the session's CLI (an agent started
+      by hand whose transcript shape was not recognised, or a session that
+      replaced the recorded one without evidence). Guessing would launch, say,
+      `claude --resume <codex-id>`.
+    * ``agent_mismatch:<record kind>:<launch kind>`` -- the session belongs to
+      another CLI than the one the launch would run: a hand-started agent of a
+      kind other than the raw default, or evidence that contradicts a
+      preserved explicit agent string.
+
+    An unresolvable `raw` default is no blocker: it returns ``("", "")`` and the
+    build step reports `binary`, as before.
+    """
+    kind = rec.get("agent_kind", "")
+    if not kind:
+        return "", "unknown_agent"
+    agent_string = rec.get("agent_string", "") or _raw_agent_string(rec.get("root", ""))
+    if not agent_string:
+        return "", ""
+    launch = agent_sessions.agent_kind_of(agent_string)
+    if launch and launch != kind:
+        return "", f"agent_mismatch:{kind}:{launch}"
+    return agent_string, ""
+
+
 def build_resume_argv(rec: dict) -> str | None:
     """`invoke raw --resume-session <sid>` for this record's agent.
 
@@ -215,16 +259,24 @@ def build_resume_argv(rec: dict) -> str | None:
     ``extra_global_flags`` rather than in ``*args``: positional arguments land
     after ``invoke raw``, where the wrapper reads them as operation arguments.
 
+    The agent string is the one :func:`_resume_agent` CHECKED, passed
+    explicitly: a record without its own string resumes on the resolved `raw`
+    default only when that default runs the session's own CLI (t2109).
+
     Returns None when the wrapper cannot resolve a command — a missing binary, an
-    unknown model, or opencode (which has no resume surface). The caller turns
-    that into a failure *before* touching the store.
+    unknown model, or opencode (which has no resume surface) — or when the
+    session's CLI is unknown or not the one the launch would run. The caller
+    turns that into a failure *before* touching the store.
     """
     session_id = rec.get("codeagent_session_id", "")
     if not frozen_ops.usable_identifier(session_id):
         return None
+    agent_string, blocker = _resume_agent(rec)
+    if blocker or not agent_string:
+        return None
     return resolve_dry_run_command(
         Path(rec["root"]), "raw",
-        agent_string=rec.get("agent_string") or None,
+        agent_string=agent_string,
         extra_global_flags=["--resume-session", session_id],
     )
 
@@ -265,12 +317,47 @@ def resume_blocker(rec: dict) -> str:
     that is not a usable identifier (`frozen_ops.usable_identifier`: blank,
     whitespace, a line break) is no session either — the record is read
     verbatim (t2067), so that rule lives here, not in a parser.
+
+    ``unknown_agent`` / ``agent_mismatch:<record kind>:<launch kind>``: the
+    session's CLI is unproven, or is not the CLI the launch would run — see
+    :func:`_resume_agent` (t2109). A record without its own agent string costs
+    one wrapper call here, to resolve the `raw` default.
     """
     if not frozen_ops.usable_identifier(rec.get("codeagent_session_id", "")):
         return "no_session"
     if rec.get("agent_kind", "") == "opencode":
         return "resume_unsupported:opencode"
-    return ""
+    return _resume_agent(rec)[1]
+
+
+def resume_refusal_note(blocker: str, task_id: str, repick_key: str = "") -> str:
+    """What a viewer tells the user when :func:`resume_blocker` refuses.
+
+    The viewer checks BEFORE it dispatches the detached coordinator, which has no
+    channel back but the store, and a refusal writes nothing there (t2109).
+    ``repick_key`` is the viewer's ACTIVE re-pick binding, which the user may
+    have rebound; without one the sentence names no key.
+    """
+    reason, _, detail = blocker.partition(":")
+    if reason == "no_session":
+        why = "no session was recorded for this agent"
+    elif reason == "resume_unsupported":
+        why = f"{detail or 'this agent'} cannot resume a session"
+    elif reason == "unknown_agent":
+        why = "the agent CLI that ran this session is unknown"
+    elif reason == "agent_mismatch":
+        session_kind, _, launch_kind = detail.partition(":")
+        why = (f"this is a {session_kind} session but the restore would "
+               f"launch {launch_kind}")
+    else:
+        why = blocker
+    if not frozen_ops.usable_identifier(task_id):
+        nxt = "it has no task id to re-pick"
+    elif repick_key:
+        nxt = f"re-pick it instead ({repick_key})"
+    else:
+        nxt = "re-pick it instead"
+    return f"cannot restore: {why} — {nxt}"
 
 
 def repick_blocker(rec: dict) -> str:

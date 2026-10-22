@@ -486,6 +486,125 @@ class TestPreflightsWriteNothing(_SwapMixin, unittest.TestCase):
         self.assertEqual([], store.calls)
 
 
+class TestAgentKindGate(_SwapMixin, unittest.TestCase):
+    """t2109: a resume runs only when the session's CLI is known AND is the CLI
+    the launch would run.
+
+    The record's `agent_kind` is the evidence for whose session the id is; the
+    launch runs the stored agent string or, without one, the project's `raw`
+    default. `_raw_agent_string` is patched, so nothing depends on this
+    checkout's config.
+    """
+
+    RAW = "claudecode/sonnet5_5"
+
+    def setUp(self) -> None:
+        self.raw_calls: list[str] = []
+        raw = unittest.mock.patch.object(
+            agent_restore, "_raw_agent_string",
+            side_effect=lambda root: (self.raw_calls.append(root), self.RAW)[1])
+        raw.start()
+        self.addCleanup(raw.stop)
+
+    def _refused_before_any_write(self, rec, blocker):
+        self.assertEqual(agent_restore.resume_blocker(rec), blocker)
+        self.assertIsNone(agent_restore.build_resume_argv(rec))
+        store = self.swap_store(_RecordingStore())
+        tmux = self.swap_tmux(_FakeTmux())
+        with unittest.mock.patch.object(agent_restore, "_reread", return_value=rec):
+            result = agent_restore.restore("7f3a2c1d")
+        self.assertFalse(result.ok)
+        self.assertEqual(result.line, f"RESTORE_FAILED:7f3a2c1d|{blocker}")
+        self.assertEqual(result.outcome, blocker.split(":", 1)[0])
+        self.assertEqual(([], []), (store.calls, tmux.calls),
+                         "a kind refusal must write nothing and issue no tmux")
+
+    def test_an_unknown_kind_is_refused(self):
+        self._refused_before_any_write(_rec(agent_string="", agent_kind=""),
+                                       "unknown_agent")
+
+    def test_an_explicit_string_whose_kind_was_cleared_is_refused(self):
+        """Review finding 1, restore half: an unidentified replacement leaves
+        the explicit string but no kind, and the string alone must not launch
+        `claude --resume <B>`."""
+        self._refused_before_any_write(
+            _rec(agent_string="claudecode/opus5", agent_kind=""), "unknown_agent")
+
+    def test_a_kind_only_record_of_another_cli_than_the_raw_default_is_refused(self):
+        self._refused_before_any_write(_rec(agent_string="", agent_kind="codex"),
+                                       "agent_mismatch:codex:claudecode")
+
+    def test_evidence_contradicting_a_preserved_string_is_refused(self):
+        self._refused_before_any_write(
+            _rec(agent_string="claudecode/opus5", agent_kind="codex"),
+            "agent_mismatch:codex:claudecode")
+
+    def test_a_kind_only_record_of_the_raw_defaults_cli_resumes_with_that_string(self):
+        rec = _rec(agent_string="", agent_kind="claudecode")
+        self.assertEqual(agent_restore.resume_blocker(rec), "")
+        with unittest.mock.patch.object(agent_restore, "resolve_dry_run_command",
+                                        return_value="claude --resume sess-abc") as dry:
+            self.assertEqual(agent_restore.build_resume_argv(rec),
+                             "claude --resume sess-abc")
+        self.assertEqual(dry.call_args.kwargs["agent_string"], self.RAW,
+                         "the launch must use the string that was checked")
+        self.assertEqual(dry.call_args.kwargs["extra_global_flags"],
+                         ["--resume-session", "sess-abc"])
+        self.assertEqual(self.raw_calls[-1], rec["root"])
+
+    def test_an_explicit_agreeing_string_needs_no_raw_resolution(self):
+        rec = _rec()
+        self.assertEqual(agent_restore.resume_blocker(rec), "")
+        with unittest.mock.patch.object(agent_restore, "resolve_dry_run_command",
+                                        return_value="x") as dry:
+            agent_restore.build_resume_argv(rec)
+        self.assertEqual(dry.call_args.kwargs["agent_string"], "claudecode/opus5")
+        self.assertEqual(self.raw_calls, [])
+
+    def test_an_unresolvable_raw_default_is_reported_as_binary(self):
+        self.RAW = ""
+        rec = _rec(agent_string="", agent_kind="claudecode")
+        self.assertEqual(agent_restore.resume_blocker(rec), "")
+        self.assertIsNone(agent_restore.build_resume_argv(rec))
+        store = self.swap_store(_RecordingStore())
+        self.swap_tmux(_FakeTmux())
+        with unittest.mock.patch.object(agent_restore, "_reread", return_value=rec):
+            result = agent_restore.restore("7f3a2c1d")
+        self.assertEqual(result.line, "RESTORE_FAILED:7f3a2c1d|binary")
+        self.assertEqual(store.calls, [])
+
+    def test_re_pick_ignores_the_kind(self):
+        rec = _rec(agent_string="", agent_kind="")
+        self.assertEqual(agent_restore.repick_blocker(rec), "")
+
+    def test_the_ide_offer_reports_the_same_refusal(self):
+        import agent_reopen
+        line = agent_reopen.gone_line(_rec(agent_string="", agent_kind=""), "gone")
+        self.assertEqual(line.split("|")[5:7], ["unknown_agent", "ok"])
+
+    def test_every_refusal_has_a_sentence_and_a_next_step(self):
+        cases = {
+            "no_session": "no session was recorded for this agent",
+            "resume_unsupported:opencode": "opencode cannot resume a session",
+            "unknown_agent": "the agent CLI that ran this session is unknown",
+            "agent_mismatch:codex:claudecode":
+                "this is a codex session but the restore would launch claudecode",
+            "something_new": "something_new",
+        }
+        for blocker, why in cases.items():
+            with self.subTest(blocker=blocker):
+                self.assertEqual(
+                    agent_restore.resume_refusal_note(blocker, "1705", "P"),
+                    f"cannot restore: {why} — re-pick it instead (P)")
+                # The key is the caller's ACTIVE binding; none known, none named.
+                self.assertEqual(
+                    agent_restore.resume_refusal_note(blocker, "1705"),
+                    f"cannot restore: {why} — re-pick it instead")
+                self.assertEqual(
+                    agent_restore.resume_refusal_note(blocker, " ", "P"),
+                    f"cannot restore: {why} — it has no task id to re-pick")
+
+
 class TestNonceMismatchIssuesNoTmux(_SwapMixin, unittest.TestCase):
     """`NONCE_MISMATCH` means reconcile already settled this record.
 
@@ -584,7 +703,11 @@ class TestRestoreEnvDelivery(_SwapMixin, unittest.TestCase):
                 self.assertEqual(mode, env.get("AITASK_RESTORE_MODE"))
 
     def test_a_record_without_an_agent_string_delivers_only_the_four(self):
-        branch = self._respawn_branch(_rec(agent_string="", agent_kind=""))
+        # A string-less record must still name its CLI to be resumed (t2109),
+        # and its kind must be the `raw` default's.
+        with unittest.mock.patch.object(agent_restore, "_raw_agent_string",
+                                        return_value="claudecode/sonnet5_5"):
+            branch = self._respawn_branch(_rec(agent_string="", agent_kind="claudecode"))
         self.assertNotIn("AITASK_AGENT_STRING", branch)
         self.assertEqual(4, branch.count(" -e "))
 
