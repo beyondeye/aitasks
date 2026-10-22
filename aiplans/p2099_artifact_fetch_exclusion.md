@@ -592,3 +592,117 @@ notes go out:
 - `fetch --prune` with a negative refspec may delete the backend's bookkeeping
   `refs/remotes/origin/<store>`. That ref is never authority (R1); scenarios 3
   and 4 measure it. · severity: low · → mitigation: none (covered by plan tests)
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-22 11:40)
+- **Requested by user:** three review findings, all verified CONFIRMED:
+  (1) the stored fingerprint certified inputs the apply never consumed, because
+  a config change mid-apply was fingerprinted from the live files after the
+  apply; (2) a release that failed between removing the fetch value and clearing
+  ownership removed the user's duplicate on retry; (3) the dedicated drift check
+  accepted any negative refspec, so a user's own `^refs/heads/<x>` was silently
+  dropped.
+- **Changes made:**
+  1. The apply snapshots its inputs once: working-tree bytes, with
+     `--no-filters` ids, plus `<ref>` blob ids. It parses the snapshot over
+     stdin (`artifact_registry.py --config -`, record parser `-`), then checks
+     that the live inputs still equal the snapshot. A change re-applies on a
+     fresh snapshot, up to 3 attempts, after which it prints
+     `FETCH_EXCLUSION:INPUTS_UNSTABLE` and exits 1. The fingerprint it stores
+     is over the consumed snapshot.
+  2. A release records `remote.<r>.aitaskReleasing "<branch> <target count>"`
+     before its first change. `_afx_set_count` converges to that count, and
+     pending markers are finished first on every run. The non-idempotent
+     `_afx_unset_exact` was removed.
+  3. `remote.<r>.aitaskDedicatedSet` records the branches dedicated mode wrote,
+     added before live is rewritten and pruned after. The drift check requires
+     every live value to be one of those `^refs/heads/<b>`.
+- **Files affected:** `.aitask-scripts/lib/artifact_fetch_exclusion.sh`,
+  `.aitask-scripts/aitask_artifact.sh`, `.aitask-scripts/lib/artifact_registry.py`,
+  `tests/test_artifact_fetch_exclusion.sh` (scenarios 12, 13, 14, 14b; shim
+  `AFX_MUTATE_MATCH` mode). Each regression was proven against a mutant that
+  restores the old behaviour.
+
+### Change Request 2 (2026-10-22 12:05)
+- **Requested by user:** review finding (verified CONFIRMED, disposition
+  follow-up). The Settings save runs the fetch-exclusion CLI synchronously, so
+  a held lock (up to 10s) or a slow child (up to the 30s timeout) freezes the
+  TUI.
+- **Changes made:** none in this task, per the follow-up disposition.
+  Follow-up task t2125 (`settings_fetch_exclusion_worker`, performance,
+  `followup_kind: review_finding`) moves the call into a Textual worker.
+- **Files affected:** none.
+
+## Final Implementation Notes
+- **Actual work done:** all eight plan steps are implemented.
+  - `lib/artifact_fetch_exclusion.sh` (new) holds the git-config mechanics:
+    shared mode with ownership plus write-ahead release markers, a reversible
+    dedicated mode (write-ahead state, a backup sentinel, and a record of the
+    written set), the repository-wide lock, and the fingerprint helpers.
+  - `artifact_registry.py` gains the `gitbranch-fetch-config` verb and
+    `--config -` (stdin).
+  - `aitask_artifact.sh`:
+    - the record gains a fail-closed `retired` list, maintained by migrate
+      step 8 (backfilled on re-run);
+    - a new `fetch-exclusion apply [--also-ref <ref>] [--if-changed] |
+      drop-retired <branch>` verb, whose apply is snapshot-based and
+      stability-checked;
+    - init-store and gitbranch-migrate call it best-effort.
+  - `aitask_setup.sh` gains a `setup_artifact_fetch_exclusion` step after the
+    venv, and `aitask_init_data.sh` runs the apply on the INITIALIZED path.
+  - `aitask_sync.sh` guards both broad fetches with a data-branch-first narrow
+    fetch plus the apply. It fails closed with
+    `DEFERRED:fetch_exclusion:<reason>` and maps an unreachable remote to
+    `NO_NETWORK`. A no-network reconciliation runs after every convergence
+    route. `sync_action_runner.py` declares the new deferral reason.
+  - The Settings TUI re-applies the exclusion on save.
+  - Docs: `artifact.md` (the fetch-exclusion section and "What gets
+    downloaded"), the `git-branching-model.md` row, the settings page, and
+    `aidocs/artifact_storage_lifecycle.md` (§3 cells, §8 retirement and the
+    remaining window).
+- **Deviations from plan:**
+  - Tests are split into two files: `tests/test_artifact_fetch_exclusion.sh`
+    (CLI and mechanics, 245 assertions) and `tests/test_sync_fetch_exclusion.sh`
+    (the sync guard, 52).
+  - The migration scenarios that run through sync simulate the migrating
+    clone's data-branch publish directly; the real `gitbranch-migrate` record
+    writing is covered in the mechanics file.
+  - An unreachable remote reports `NO_NETWORK` instead of a fetch-exclusion
+    deferral, to keep the existing network contract. The broad fetch still
+    never runs.
+  - A guard deferral on the initial fetch emits the sweep's skip report first.
+- **Issues encountered:**
+  - Four existing tests needed updates.
+    - `test_attach_lock_callback_contract.sh`: its allowlist is keyed by line
+      number, so the keys moved. Its closure scanner also pulled `main()` in
+      through a mode argument named `main`, which is now `record`.
+    - `test_sync_branch_mode_automerge.sh` 17: it now counts broad fetches and
+      guard fetches separately.
+    - `test_sync_deferral_and_quarantine.sh`: led to the `NO_NETWORK` mapping.
+    - `test_sync_protect_paths.sh`: led to the lazy temp dir, later replaced by
+      the stdin snapshot, and the skip report on deferral.
+  - The mutant harness hung once on an unbounded FIFO write; the test now
+    releases pauses with a bounded write.
+  - One Python-suite run failed with an unidentified test (output not
+    captured); three later full runs passed.
+- **Key decisions:** see "Decisions taken during planning" (1)–(7) and Change
+  Request 1. Every safety property was proven against a mutant:
+  - no lock;
+  - reordered sentinel;
+  - re-taken backup;
+  - claiming a user entry;
+  - unvalidated `retired`;
+  - each sync guard and reconcile site removed;
+  - guard fail-open;
+  - no stability check;
+  - no release marker;
+  - a drift check that accepts any negative refspec.
+- **Upstream defects identified:**
+  - `.aitask-scripts/aitask_setup.sh:1691` (`setup_data_branch`):
+    `git fetch origin aitask-data` in a `--single-branch` clone updates no
+    `refs/remotes/origin/aitask-data`, and `git branch --track` refuses there.
+    The test fixture had to set the upstream by hand, and the setup flow's own
+    single-branch path was not verified.
+- **Follow-ups:** t2125 moves the Settings save's fetch-exclusion call into a
+  Textual worker (review finding, Change Request 2).
