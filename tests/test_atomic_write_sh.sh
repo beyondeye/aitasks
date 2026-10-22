@@ -16,6 +16,9 @@
 #   | render_failure_*                  | drop the discard in ait_atomic_render   |
 #   | commit_failure_no_residue         | drop the rm -f in ait_atomic_commit     |
 #   | empty_output_rejected             | drop the [[ -s "$tmp" ]] check          |
+#   | nofollow_link_replaced (t2106)    | resolve <dest> / write via `> "$dest"`  |
+#   | nofollow_dirlink_replaced         | drop -T from the native rename          |
+#   | nofollow_dir_refused (portable)   | drop the nested-temp check              |
 #
 # Two of these are worth spelling out, because a plausible-looking test would
 # NOT discriminate them:
@@ -221,6 +224,50 @@ assert_eq "content round-trips" "$(printf 'one\ntwo')" "$(cat "$d/f.md")"
 assert_eq "exactly one trailing newline" "8" \
     "$(wc -c < "$d/f.md" | tr -d '[:space:]')"
 assert_eq "no residue after a successful write" "0" "$(residue_count "$d" "f.md")"
+
+# --- no-follow writer (t2106) ------------------------------------------------
+# ait_atomic_write_text_nofollow never dereferences the last path component:
+# a link there (to a file or to a directory) is replaced with the target left
+# byte-identical, and a directory there refuses the write and stays empty. Each
+# case runs unforced — expecting whichever rename ait_atomic_nofollow_native
+# says this host's mv selects — and forced onto the portable fallback.
+for run in default portable; do
+    pm=""; [[ "$run" == portable ]] && pm=1
+    mvmode=portable
+    # The same per-run setting the writer calls get, never an inherited one.
+    if AIT_ATOMIC_PORTABLE_MV="$pm" ait_atomic_nofollow_native; then mvmode=native; fi
+    echo "--- ait_atomic_write_text_nofollow ($run: $mvmode rename) ---"
+    d="$WORK/nofollow_$run"; mkdir -p "$d/vdir"
+    printf 'VICTIM\n' > "$d/victim.md"
+
+    ln -s victim.md "$d/link.md"
+    AIT_ATOMIC_PORTABLE_MV="$pm" ait_atomic_write_text_nofollow "$d/link.md" "NEW"
+    assert_eq "$run($mvmode): a link at the destination is replaced" "no" "$([ -L "$d/link.md" ] && echo yes || echo no)"
+    assert_eq "$run($mvmode): …by the new content" "NEW" "$(cat "$d/link.md")"
+    assert_eq "$run($mvmode): …and its target is untouched" "VICTIM" "$(cat "$d/victim.md")"
+
+    ln -s vdir "$d/dirlink.md"
+    rc=0; AIT_ATOMIC_PORTABLE_MV="$pm" ait_atomic_write_text_nofollow "$d/dirlink.md" "NEW" 2>/dev/null || rc=$?
+    assert_eq "$run($mvmode): nothing lands inside a linked directory" "0" \
+        "$(find "$d/vdir" -mindepth 1 2>/dev/null | wc -l | tr -d '[:space:]')"
+    if [[ "$mvmode" == native ]]; then
+        assert_eq "$run(native): a link to a directory is replaced" "0:NEW" "$rc:$(cat "$d/dirlink.md" 2>/dev/null)"
+    else
+        assert_eq "$run(portable): a link to a directory is refused, link kept" "1:vdir" "$rc:$(readlink "$d/dirlink.md")"
+    fi
+
+    mkdir -p "$d/target"
+    rc=0; AIT_ATOMIC_PORTABLE_MV="$pm" ait_atomic_write_text_nofollow "$d/target" "NEW" 2>/dev/null || rc=$?
+    assert_eq "$run($mvmode): a directory destination is refused" "1" "$rc"
+    assert_eq "$run($mvmode): …and nothing is left inside it" "0" \
+        "$(find "$d/target" -mindepth 1 2>/dev/null | wc -l | tr -d '[:space:]')"
+    assert_eq "$run($mvmode): …nor beside it" "0" "$(residue_count "$d" "target")"
+
+    printf 'x\n' > "$d/m640.md"; chmod 640 "$d/m640.md"
+    AIT_ATOMIC_PORTABLE_MV="$pm" ait_atomic_write_text_nofollow "$d/m640.md" "y"
+    assert_eq "$run($mvmode): an existing regular file's mode survives" "640" "$(file_mode "$d/m640.md")"
+    assert_eq "$run($mvmode): no residue after a successful write" "0" "$(residue_count "$d" "m640.md")"
+done
 
 echo
 echo "=== Results ==="

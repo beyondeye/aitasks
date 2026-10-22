@@ -185,4 +185,54 @@ ait_atomic_write_text() {
     ait_atomic_commit "$tmp" "$dest"
 }
 
+# --- ait_atomic_write_text_nofollow <dest> <content> -----------------------
+# ait_atomic_write_text for a path whose LAST component must never be
+# dereferenced — a caller-owned file that a link planted at its path must not
+# redirect. The directory part is resolved as usual (`pwd -P`); the final
+# component is not, neither before staging nor at the rename, so a link or
+# directory that appears there AFTER any caller-side check still cannot take
+# the write:
+#   * a link at <dest> — to a file or to a directory — is REPLACED by the
+#     rename; its target is never touched;
+#   * a directory at <dest> refuses the write; nothing is left inside it.
+# The ordinary ait_atomic_write_text is unchanged: callers that want a file
+# symlink followed (the aitasks/ layout) keep that behaviour.
+#
+# The rename is `mv -T` (rename(2) onto the path itself) where mv supports it.
+# Elsewhere a plain `mv -f` moves the temp INTO a directory found at <dest>;
+# the temp's name is unique, so that overwrites nothing, and it is detected,
+# removed and reported as a failure. AIT_ATOMIC_PORTABLE_MV=1 forces that
+# fallback (a test seam); ait_atomic_nofollow_native says which path a call
+# takes, so a test derives its expectations from the same decision.
+ait_atomic_write_text_nofollow() {
+    local dest="$1" dir base tmp mode
+    dir="$(cd "$(dirname "$dest")" 2>/dev/null && pwd -P)" || return 1
+    base="$(basename "$dest")"
+    dest="$dir/$base"
+    tmp="$(mktemp "$dir/.$base.XXXXXX")" || return 1
+    mode=""
+    [[ -f "$dest" && ! -L "$dest" ]] && mode="$(ait_file_mode "$dest")"
+    [[ -n "$mode" ]] || mode="$(printf '%o' $(( 0666 & ~0$(umask) )))"
+    chmod "$mode" "$tmp" || { ait_atomic_discard "$tmp"; return 1; }
+    printf '%s\n' "$2" > "$tmp" || { ait_atomic_discard "$tmp"; return 1; }
+    if ait_atomic_nofollow_native; then
+        mv -fT -- "$tmp" "$dest" || { ait_atomic_discard "$tmp"; return 1; }
+        return 0
+    fi
+    mv -f -- "$tmp" "$dest" || { ait_atomic_discard "$tmp"; return 1; }
+    if [[ -e "$dest/${tmp##*/}" ]]; then
+        ait_atomic_discard "$dest/${tmp##*/}"
+        echo "atomic_write: destination is a directory: $dest" >&2
+        return 1
+    fi
+}
+
+# --- ait_atomic_nofollow_native --------------------------------------------
+# 0 when ait_atomic_write_text_nofollow renames with `mv -T` (mv advertises
+# --no-target-directory and AIT_ATOMIC_PORTABLE_MV is unset), 1 when it takes
+# the portable fallback.
+ait_atomic_nofollow_native() {
+    [[ -z "${AIT_ATOMIC_PORTABLE_MV:-}" ]] && mv --help 2>&1 | grep -q -- '--no-target-directory'
+}
+
 fi

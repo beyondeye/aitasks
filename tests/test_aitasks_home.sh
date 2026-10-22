@@ -13,6 +13,12 @@
 # set, leaves the compatibility symlink, rolls back on any failed step or
 # catchable signal, and reports a blocked rollback precisely.
 #
+# t2106 (cases H31-H34): a blocked rollback also saves its protocol lines in a
+# durable record ($AITASKS_HOME/.home_restore), and recovery survives a dead
+# stdout reader — it neither dies of SIGPIPE nor loses its 128+signo status —
+# while a record that could not be written whole is never published, and no
+# planted link or directory at the record's paths is written through or into.
+#
 # t1939 (cases I*, H-I2): `ait setup` migrates by default. The I cases run the
 # INSTALLED tree's setup main() (after a real install.sh --dir) under setup's
 # own `set -euo pipefail`, across the admission matrix, both opt-outs and every
@@ -648,6 +654,8 @@ no_lock "$AH" "H21"
 
 # --- H22: a blocked rollback is reported precisely and touches nothing foreign ----
 H="$SCRATCH/h22"; AH="$SCRATCH/ah22"; mklegacy "$H"; mkdir -p "$AH"
+# An earlier attempt's record: replaced by this one, never accumulated.
+printf '# an earlier attempt\nHOME_RESTORE:venv|mv -- /old /older\n' >"$AH/.home_restore"
 declare -a before22=()
 for e in bin dev_tier engine pypy_venv python update_check uv venv; do before22+=("$(tree_sig "$H/.aitask/$e")"); done
 HOME_ENV=(HOOK_L="$H/.aitask" HOOK_AH="$AH" AIT_HOME_TEST_HOOK="$(mkhook h22 \
@@ -662,6 +670,11 @@ assert_eq "H22 HOME_STRANDED names where it is and where it belongs" \
 restore22="$(hline 'HOME_RESTORE:venv|' | sed 's/^HOME_RESTORE:venv|//')"
 assert_eq "H22 two restore steps, competitor aside first" "2" "$(printf '%s\n' "$restore22" | grep -c '^mv -- ')"
 assert_contains "H22 the warning points at the steps" "HOME_RESTORE:venv" "$err"
+assert_eq "H22 HOME_RECORD names the durable record" "HOME_RECORD:$AH/.home_restore" "$(hline HOME_RECORD:)"
+assert_eq "H22 the record holds exactly the printed lines" \
+    "$(printf '%s\n' "$out" | grep '^HOME_' | grep -v '^HOME_RECORD:')" "$(grep '^HOME_' "$AH/.home_restore")"
+assert_eq "H22 the earlier record is replaced, not accumulated (one header)" "1" "$(grep -c '^#' "$AH/.home_restore")"
+assert_not_contains "H22 …and none of its steps survive" "/older" "$(cat "$AH/.home_restore")"
 i=0
 for e in bin dev_tier engine pypy_venv python update_check uv; do
     assert_eq "H22 $e restored byte-identically" "${before22[$i]}" "$(tree_sig "$H/.aitask/$e")"
@@ -670,7 +683,7 @@ done
 assert_eq "H22 the original venv is intact where it now is" "${before22[7]}" "$(tree_sig "$AH/venv")"
 assert_eq "H22 the competing venv is untouched" "competitor" "$(cat "$H/.aitask/venv/marker" 2>/dev/null)"
 assert_file_exists "H22 the competing stray file is untouched" "$H/.aitask/stray"
-assert_eq "H22 nothing else left in the new root" "venv" "$(ls -A "$AH" | tr '\n' ' ' | sed 's/ $//')"
+assert_eq "H22 nothing else left in the new root (but the record)" ".home_restore venv" "$(ls -A "$AH" | tr '\n' ' ' | sed 's/ $//')"
 no_lock "$AH" "H22"
 # Following the printed steps verbatim restores the original AND keeps the
 # competitor (a bare `mv <now> <legacy>` would nest it inside the competitor).
@@ -765,7 +778,7 @@ assert_contains "H27 second step recreates the directory" "mkdir -- $H/.aitask" 
 (set -e; while IFS= read -r cmd; do eval "$cmd"; done <<<"$restore27")
 assert_eq "H27 following the steps restores the legacy tree byte-identically" "$sig_l" "$(tree_sig "$H/.aitask")"
 assert_eq "H27 …and keeps the obstruction aside" "obstruction" "$(cat "$H/.aitask.competing" 2>/dev/null)"
-assert_eq "H27 …leaving the new root empty" "" "$(ls -A "$AH")"
+assert_eq "H27 …leaving only the record in the new root" ".home_restore" "$(ls -A "$AH")"
 no_lock "$AH" "H27"
 
 # --- H29: the legacy root cannot be recreated during rollback (absent, not obstructed)
@@ -779,7 +792,8 @@ if [[ "$(id -u)" != 0 ]]; then
     chmod u+w "$H"
     assert_eq "H29 exit 2" "2" "$rc"
     assert_contains "H29 HOME_FAILED:rollback" "HOME_FAILED:rollback|" "$out"
-    assert_eq "H29 the originals are intact in the new root" "$sig_l" "$(tree_sig "$AH")"
+    assert_eq "H29 the originals are intact in the new root (beside the record)" "$sig_l" "$(tree_sig "$AH" | grep -v '^F \./\.home_restore ')"
+    assert_file_exists "H29 the record is saved" "$AH/.home_restore"
     restore29="$(hline 'HOME_RESTORE:' | sed 's/^HOME_RESTORE:[^|]*|//')"
     assert_contains "H29 the first step recreates the directory (nothing to set aside)" \
         "mkdir -- $H/.aitask" "$(printf '%s\n' "$restore29" | head -n1)"
@@ -787,7 +801,7 @@ if [[ "$(id -u)" != 0 ]]; then
     assert_contains "H29 the warning says it is missing, not obstructed" "is missing and could not be recreated" "$err"
     (set -e; while IFS= read -r cmd; do eval "$cmd"; done <<<"$restore29")
     assert_eq "H29 once writable, the steps restore the legacy tree byte-identically" "$sig_l" "$(tree_sig "$H/.aitask")"
-    assert_eq "H29 …leaving the new root empty" "" "$(ls -A "$AH")"
+    assert_eq "H29 …leaving only the record in the new root" ".home_restore" "$(ls -A "$AH")"
     no_lock "$AH" "H29"
 else
     echo "SKIP: H29 unwritable-parent rollback (running as root) — not counted" >&2
@@ -817,7 +831,7 @@ if [[ "$(id -u)" != 0 ]]; then
     assert_eq "H30 the competing update_check is kept aside" "competitor" "$(cat "$H/.aitask/update_check.competing" 2>/dev/null)"
     rm -f "$H/.aitask/update_check.competing"
     assert_eq "H30 the steps restore the legacy tree byte-identically" "$sig_l" "$(tree_sig "$H/.aitask")"
-    assert_eq "H30 …leaving the new root empty" "" "$(ls -A "$AH")"
+    assert_eq "H30 …leaving only the record in the new root" ".home_restore" "$(ls -A "$AH")"
     no_lock "$AH" "H30"
 else
     echo "SKIP: H30 read-only legacy rollback (running as root) — not counted" >&2
@@ -835,6 +849,210 @@ assert_eq "H28 reports the completed migration, not a rollback" "HOME_MIGRATED:8
 assert_eq "H28 the symlink is kept" "LINK:$AH" "$(tree_sig "$H/.aitask")"
 assert_eq "H28 nothing undone" "$sig_l" "$(tree_sig "$AH")"
 no_lock "$AH" "H28"
+
+# --- H31: a dead stdout reader cannot cost recovery its output, lock or status ---
+# The reader closes its read end BEFORE it creates the marker, and the hook waits
+# for the marker, so every protocol write of the recovery hits EPIPE — no race.
+#   rollback  a blocked rollback (legacy-root-not-empty)        → exit 2
+#   signal    TERM after the moves, the rollback blocked         → exit 143
+#   linked    TERM after the verified link (completed migration) → exit 143
+# Without PIPE ignored the verb dies at its first write (141) and every later
+# line — the restore steps included — is lost; a bare echo in the signal
+# handler exits 1 under errexit instead of 143.
+for variant in rollback signal linked; do
+    H="$SCRATCH/h31$variant"; AH="$SCRATCH/ah31$variant"; mklegacy "$H"; mkdir -p "$AH"
+    sig_l="$(tree_sig "$H/.aitask")"; venv_sig="$(tree_sig "$H/.aitask/venv")"
+    gone="$SCRATCH/h31$variant.reader_gone"
+    wait_gone='i=0; while [[ ! -e "$HOOK_GONE" ]] && (( i < 200 )); do sleep 0.05; i=$((i + 1)); done'
+    case "$variant" in
+        rollback) point=post-moves; act=':'; want=2 ;;
+        signal)   point=post-moves; act='kill -TERM "$PPID"'; want=143 ;;
+        linked)   point=post-link;  act='kill -TERM "$PPID"'; want=143 ;;
+    esac
+    competitor=':'
+    [[ "$point" == post-moves ]] && competitor=': >"$HOOK_L/stray"; mkdir "$HOOK_L/venv"; echo competitor >"$HOOK_L/venv/marker"'
+    hook="$(mkhook "h31$variant" \
+        "if [[ \"\$1\" == $point ]]; then" \
+        "    $competitor" \
+        "    $wait_gone" \
+        "    $act" \
+        'fi; exit 0')"
+    env -u AITASKS_HOME HOME="$H" AITASKS_HOME="$AH" HOOK_L="$H/.aitask" HOOK_AH="$AH" \
+        HOOK_GONE="$gone" AIT_HOME_TEST_HOOK="$hook" \
+        bash "$ENG" home --migrate 2>"$SCRATCH/home_err" </dev/null | { exec 0<&-; : >"$gone"; }
+    rc=${PIPESTATUS[0]}
+    err="$(cat "$SCRATCH/home_err")"
+    assert_eq "H31 $variant: exit $want (not 141: SIGPIPE did not kill it)" "$want" "$rc"
+    no_lock "$AH" "H31 $variant"
+    if [[ "$variant" == linked ]]; then
+        assert_eq "H31 linked: the symlink is kept" "LINK:$AH" "$(tree_sig "$H/.aitask")"
+        assert_eq "H31 linked: the migrated tree is intact" "$sig_l" "$(tree_sig "$AH")"
+        continue
+    fi
+    assert_eq "H31 $variant: the original venv is intact where it now is" "$venv_sig" "$(tree_sig "$AH/venv")"
+    assert_eq "H31 $variant: the competing venv is untouched" "competitor" "$(cat "$H/.aitask/venv/marker" 2>/dev/null)"
+    assert_eq "H31 $variant: every other entry came back" "venv" "$(ls "$AH")"
+    rec="$AH/.home_restore"
+    assert_file_exists "H31 $variant: the durable record exists" "$rec"
+    assert_eq "H31 $variant: the record holds HOME_FAILED" "HOME_FAILED:rollback|venv" "$(grep '^HOME_FAILED:' "$rec" 2>/dev/null)"
+    assert_eq "H31 $variant: the record holds HOME_STRANDED" \
+        "HOME_STRANDED:venv|$AH/venv|$H/.aitask/venv" "$(grep '^HOME_STRANDED:' "$rec" 2>/dev/null)"
+    restore31="$(grep '^HOME_RESTORE:venv|' "$rec" 2>/dev/null | sed 's/^HOME_RESTORE:venv|//')"
+    assert_eq "H31 $variant: the record holds both restore steps" "2" "$(printf '%s\n' "$restore31" | grep -c '^mv -- ')"
+    assert_contains "H31 $variant: stderr names the record" "$rec" "$err"
+    home_eng "$H" "$AH"
+    assert_eq "H31 $variant: the report surfaces the record" "HOME_RECORD:$rec" "$(hline HOME_RECORD:)"
+    (set -e; while IFS= read -r cmd; do eval "$cmd"; done <<<"$restore31")
+    assert_eq "H31 $variant: the record's steps put the original venv back" "$venv_sig" "$(tree_sig "$H/.aitask/venv")"
+    assert_eq "H31 $variant: …and keep the competitor aside" "competitor" "$(cat "$H/.aitask/venv.competing/marker" 2>/dev/null)"
+    # Once the obstacles are gone a migration completes, and the record — which
+    # describes a layout that no longer exists — goes with it.
+    rm -rf "$H/.aitask/stray" "$H/.aitask/venv.competing"
+    home_eng "$H" "$AH" --migrate
+    assert_eq "H31 $variant: the next migration completes" "HOME_MIGRATED:8" "$out"
+    assert_file_not_exists "H31 $variant: …and removes the record" "$rec"
+    home_eng "$H" "$AH"
+    assert_eq "H31 $variant: the report no longer shows a record" "" "$(hline HOME_RECORD:)"
+done
+
+# --- H32: a record that cannot be written is never published --------------------
+# The new root turns read-only around the record write only, so staging the
+# record fails. The steps still reach stdout, no HOME_RECORD line claims a
+# record, and an earlier record is left byte-identical with a warning that it
+# describes an earlier attempt.
+if [[ "$(id -u)" != 0 ]]; then
+    H="$SCRATCH/h32"; AH="$SCRATCH/ah32"; mklegacy "$H"; mkdir -p "$AH"
+    printf '# an earlier attempt\nHOME_RESTORE:venv|mv -- /old /older\n' >"$AH/.home_restore"
+    old_rec="$(tree_sig "$AH/.home_restore")"
+    venv_sig="$(tree_sig "$H/.aitask/venv")"
+    HOME_ENV=(HOOK_L="$H/.aitask" HOOK_AH="$AH" AIT_HOME_TEST_HOOK="$(mkhook h32 \
+        'case "$1" in' \
+        '  post-moves) : >"$HOOK_L/stray"; mkdir "$HOOK_L/venv"; echo competitor >"$HOOK_L/venv/marker" ;;' \
+        '  pre-record-write) chmod a-w "$HOOK_AH" ;;' \
+        '  post-record-write) chmod u+w "$HOOK_AH" ;;' \
+        'esac; exit 0')")
+    home_eng "$H" "$AH" --migrate
+    HOME_ENV=()
+    chmod u+w "$AH"
+    assert_eq "H32 exit 2" "2" "$rc"
+    assert_eq "H32 HOME_STRANDED still reaches stdout" "HOME_STRANDED:venv|$AH/venv|$H/.aitask/venv" "$(hline HOME_STRANDED:)"
+    assert_eq "H32 both restore steps still reach stdout" "2" "$(hline 'HOME_RESTORE:venv|' | grep -c .)"
+    assert_eq "H32 no HOME_RECORD line for an unwritten record" "" "$(hline HOME_RECORD:)"
+    left32=("$AH"/.home_restore.*)
+    assert_eq "H32 no staging leftover" "$AH/.home_restore.*" "${left32[*]}"
+    assert_eq "H32 the earlier record is left byte-identical" "$old_rec" "$(tree_sig "$AH/.home_restore")"
+    assert_contains "H32 stderr: the steps could not be saved" "could NOT be saved" "$err"
+    assert_contains "H32 stderr: the existing record is an earlier attempt's" "describes an EARLIER attempt" "$err"
+    assert_eq "H32 the original venv is intact where it now is" "$venv_sig" "$(tree_sig "$AH/venv")"
+    assert_eq "H32 the competing venv is untouched" "competitor" "$(cat "$H/.aitask/venv/marker" 2>/dev/null)"
+    no_lock "$AH" "H32"
+else
+    echo "SKIP: H32 read-only new root around the record write (running as root) — not counted" >&2
+fi
+
+# --- H33: a planted link or directory at the record's paths is never written through
+#   tmplink     .home_restore.tmp → a victim file: staging uses an exclusive mktemp,
+#               so the victim is untouched and the record is published normally
+#   reclink     .home_restore → the victim: refused, link and victim untouched
+#   recdir      .home_restore is a directory: refused, nothing nested inside it
+#   recdirlink  .home_restore → a directory: refused, nothing nested inside it
+for shape in tmplink reclink recdir recdirlink; do
+    H="$SCRATCH/h33$shape"; AH="$SCRATCH/ah33$shape"; mklegacy "$H"; mkdir -p "$AH"
+    victim="$SCRATCH/h33$shape.victim"; vdir="$SCRATCH/h33$shape.vdir"
+    printf 'victim\n' >"$victim"; mkdir -p "$vdir"
+    case "$shape" in
+        tmplink)    ln -s "$victim" "$AH/.home_restore.tmp" ;;
+        reclink)    ln -s "$victim" "$AH/.home_restore" ;;
+        recdir)     mkdir "$AH/.home_restore" ;;
+        recdirlink) ln -s "$vdir" "$AH/.home_restore" ;;
+    esac
+    HOME_ENV=(HOOK_L="$H/.aitask" HOOK_AH="$AH" AIT_HOME_TEST_HOOK="$(mkhook "h33$shape" \
+        'if [[ "$1" == post-moves ]]; then : >"$HOOK_L/stray"; mkdir "$HOOK_L/venv"; echo competitor >"$HOOK_L/venv/marker"; fi; exit 0')")
+    home_eng "$H" "$AH" --migrate
+    HOME_ENV=()
+    assert_eq "H33 $shape: exit 2" "2" "$rc"
+    assert_eq "H33 $shape: the victim file is untouched" "victim" "$(cat "$victim")"
+    assert_eq "H33 $shape: the victim directory is still empty" "" "$(ls -A "$vdir")"
+    assert_eq "H33 $shape: both restore steps still reach stdout" "2" "$(hline 'HOME_RESTORE:venv|' | grep -c .)"
+    no_lock "$AH" "H33 $shape"
+    if [[ "$shape" == tmplink ]]; then
+        assert_eq "H33 tmplink: the planted link is untouched" "$victim" "$(readlink "$AH/.home_restore.tmp")"
+        assert_eq "H33 tmplink: the record is published" "HOME_RECORD:$AH/.home_restore" "$(hline HOME_RECORD:)"
+        assert_eq "H33 tmplink: …as a regular file holding the printed lines" \
+            "$(printf '%s\n' "$out" | grep '^HOME_' | grep -v '^HOME_RECORD:')" \
+            "$( [[ -f "$AH/.home_restore" && ! -L "$AH/.home_restore" ]] && grep '^HOME_' "$AH/.home_restore")"
+        continue
+    fi
+    assert_eq "H33 $shape: no HOME_RECORD line" "" "$(hline HOME_RECORD:)"
+    assert_contains "H33 $shape: stderr says it is not a regular file" "is a link or not a regular file" "$err"
+    case "$shape" in
+        reclink|recdirlink) assert_eq "H33 $shape: the link is untouched" \
+            "$([[ $shape == reclink ]] && echo "$victim" || echo "$vdir")" "$(readlink "$AH/.home_restore")" ;;
+        recdir) assert_eq "H33 recdir: nothing nested inside the directory" "" "$(ls -A "$AH/.home_restore")" ;;
+    esac
+    home_eng "$H" "$AH"
+    assert_eq "H33 $shape: the report shows no record" "" "$(hline HOME_RECORD:)"
+done
+
+# --- H34: a link or directory installed at the record path AFTER the check ------
+# The pre-record-write hook runs between home_record_close's check and the
+# write, so this is the race window itself. Publication never dereferences the
+# record's path: a link (to a file or a directory) is replaced and its target
+# kept byte-identical; a real directory refuses the write and stays empty. One
+# run is unforced and expects whichever rename this host's mv selects (the
+# library's own ait_atomic_nofollow_native decides); the other forces the
+# portable fallback (AIT_ATOMIC_PORTABLE_MV=1), so it is always covered.
+native34=portable
+# shellcheck source=../.aitask-scripts/lib/atomic_write.sh
+if (. "$PROJECT_DIR/.aitask-scripts/lib/atomic_write.sh"; AIT_ATOMIC_PORTABLE_MV="" ait_atomic_nofollow_native); then native34=native; fi
+for run in default portable; do
+    mvmode=portable
+    [[ "$run" == default ]] && mvmode="$native34"
+    for shape in link dirlink dir; do
+        H="$SCRATCH/h34$run$shape"; AH="$SCRATCH/ah34$run$shape"; mklegacy "$H"; mkdir -p "$AH"
+        victim="$SCRATCH/h34$run$shape.victim"; vdir="$SCRATCH/h34$run$shape.vdir"
+        printf 'victim\n' >"$victim"; mkdir -p "$vdir"
+        case "$shape" in
+            link)    plant='ln -s "$HOOK_VICTIM" "$HOOK_AH/.home_restore"' ;;
+            dirlink) plant='ln -s "$HOOK_VDIR" "$HOOK_AH/.home_restore"' ;;
+            dir)     plant='mkdir "$HOOK_AH/.home_restore"' ;;
+        esac
+        HOME_ENV=(HOOK_L="$H/.aitask" HOOK_AH="$AH" HOOK_VICTIM="$victim" HOOK_VDIR="$vdir" \
+            AIT_HOME_TEST_HOOK="$(mkhook "h34$run$shape" \
+            'case "$1" in' \
+            '  post-moves) : >"$HOOK_L/stray"; mkdir "$HOOK_L/venv"; echo competitor >"$HOOK_L/venv/marker" ;;' \
+            "  pre-record-write) $plant ;;" \
+            'esac; exit 0')")
+        # Pinned per run (an inherited value must not flip the default run).
+        if [[ "$run" == portable ]]; then HOME_ENV+=(AIT_ATOMIC_PORTABLE_MV=1); else HOME_ENV+=(AIT_ATOMIC_PORTABLE_MV=); fi
+        home_eng "$H" "$AH" --migrate
+        HOME_ENV=()
+        t="H34 $run($mvmode) $shape"
+        assert_eq "$t: exit 2" "2" "$rc"
+        assert_eq "$t: the victim file is byte-identical" "victim" "$(cat "$victim")"
+        assert_eq "$t: the victim directory is still empty" "" "$(ls -A "$vdir")"
+        assert_eq "$t: both restore steps still reach stdout" "2" "$(hline 'HOME_RESTORE:venv|' | grep -c .)"
+        left34=("$AH"/.home_restore.*)
+        assert_eq "$t: no staging leftover" "$AH/.home_restore.*" "${left34[*]}"
+        no_lock "$AH" "$t"
+        if [[ "$shape" == dir ]]; then
+            assert_eq "$t: no HOME_RECORD line" "" "$(hline HOME_RECORD:)"
+            assert_eq "$t: nothing left inside the directory" "" "$(ls -A "$AH/.home_restore")"
+            assert_contains "$t: stderr says the steps could not be saved" "could NOT be saved" "$err"
+        elif [[ "$mvmode" == portable && "$shape" == dirlink ]]; then
+            # Without mv -T the rename follows a link to a directory; the temp
+            # is taken back out and the record is not published.
+            assert_eq "$t: no HOME_RECORD line" "" "$(hline HOME_RECORD:)"
+            assert_eq "$t: the link is untouched" "$vdir" "$(readlink "$AH/.home_restore")"
+        else
+            assert_eq "$t: the record is published" "HOME_RECORD:$AH/.home_restore" "$(hline HOME_RECORD:)"
+            assert_eq "$t: …as a regular file replacing the link" "file" \
+                "$([[ -f "$AH/.home_restore" && ! -L "$AH/.home_restore" ]] && echo file || echo other)"
+            assert_eq "$t: …holding the printed lines" \
+                "$(printf '%s\n' "$out" | grep '^HOME_' | grep -v '^HOME_RECORD:')" "$(grep '^HOME_' "$AH/.home_restore")"
+        fi
+    done
+done
 
 # --- H-I: through a real install.sh --dir ---------------------------------------
 # The installed tree's `ait engine home --migrate`, against the real

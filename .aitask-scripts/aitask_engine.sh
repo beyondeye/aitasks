@@ -46,7 +46,8 @@ set -euo pipefail
 # | HOME_SKIPPED:<refusal> (one line per reason) | preflight refusal, nothing moved, exit 1 — foreign-symlink:<t>, legacy-not-a-directory, root-not-absolute, root-not-normalized, root-unresolvable, same-root, root-inside-legacy, legacy-inside-root, cross-device, cross-device:<n>, unknown-entry:<n> (control characters %q-escaped), relative-symlink:<path>, scan-incomplete[:<path>] (a directory find could not read, or a link target that could not be read), destination-exists:<n>, busy, lock-unavailable | H5-H10, H16, H18, H24-H26 |
 # | HOME_MIGRATED:<n> | moved, legacy root is now a symlink to $AITASKS_HOME, exit 0 (128+signo when a signal arrived after ln — the completed migration is kept) | H11, H12, H21, H28 |
 # | HOME_SKIPPED:<reason> then HOME_ROLLED_BACK:<n> | a step failed or a signal arrived mid-move; every moved entry restored, exit 1 (128+signo when interrupted) — destination-exists:<n>, move-failed:<n>, legacy-root-not-empty:<csv>, symlink-failed, interrupted:<SIG> | H14-H16, H19, H20 |
-# | HOME_FAILED:rollback|<csv> then HOME_STRANDED:<name>|<now>|<legacy> and HOME_RESTORE:<name or .>|<command> lines, run in order (per entry: competitor aside, then restore — or the single restore when nothing occupies the legacy path; when the legacy root itself is obstructed: obstruction aside, mkdir, then each entry; when it is absent: mkdir, then each entry) | rollback blocked; competing entries and obstructions untouched, exit 2 | H22, H23, H27, H29, H30 |
+# | HOME_FAILED:rollback|<csv> then HOME_STRANDED:<name>|<now>|<legacy> and HOME_RESTORE:<name or .>|<command> lines, run in order (per entry: competitor aside, then restore — or the single restore when nothing occupies the legacy path; when the legacy root itself is obstructed: obstruction aside, mkdir, then each entry; when it is absent: mkdir, then each entry), then HOME_RECORD:<path> | rollback blocked; competing entries and obstructions untouched, exit 2 | H22, H23, H27, H29, H30 |
+# | HOME_RECORD:<path> | the same HOME_SKIPPED…HOME_RESTORE lines, saved durably at $AITASKS_HOME/.home_restore (one current block, atomically replacing any earlier one) so a dead stdout cannot lose them; printed only when the whole record was published, and by the report while it is a regular file; never written through a link or into a directory, even one that appears mid-write; a completed migration removes it | H22, H31-H34 |
 # | USAGE:<msg> | home with an argument other than --migrate, exit 64 | H17 |
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -58,6 +59,8 @@ source "$SCRIPT_DIR/lib/terminal_compat.sh"
 source "$SCRIPT_DIR/lib/aitasks_home.sh"
 # shellcheck source=lib/engine_install.sh
 source "$SCRIPT_DIR/lib/engine_install.sh"
+# shellcheck source=lib/atomic_write.sh
+source "$SCRIPT_DIR/lib/atomic_write.sh"
 
 REGISTRY_FILE="${AITASKS_PROJECTS_INDEX:-$HOME/.config/aitasks/projects.yaml}"
 
@@ -273,6 +276,9 @@ HOME_ROOT_PHYS=""      # the physical path $AITASKS_HOME has (or will have)
 HOME_ROOT_ANCHOR=""    # its nearest existing ancestor (itself when it exists)
 HOME_PHASE=""          # "" | locked | moving | removed | linked | finished
 HOME_LOCK_TOKEN=""
+HOME_RECORD=""         # $AITASKS_HOME/.home_restore, set by cmd_home
+HOME_RECORDING=0       # 1 while a blocked rollback's lines are collected
+HOME_RECORD_LINES=()   # the record being built, published whole at the end
 
 # home_lstat_id <path> — "<dev>:<inode>" of the path itself (lstat; GNU, else BSD).
 home_lstat_id() {
@@ -477,6 +483,9 @@ home_report() {
     else
         echo "HOME_SYMLINK:none"
     fi
+    if [[ -f "$HOME_RECORD" && ! -L "$HOME_RECORD" ]]; then
+        echo "HOME_RECORD:$HOME_RECORD"
+    fi
     home_preflight
     case "$HOME_STATE" in
         ready)
@@ -527,8 +536,10 @@ home_locate() {
 # Prints the outcome; returns 1 (fully restored) or 2 (something stranded).
 home_rollback() {
     local reason="$1" i n where src restored=0 stranded=() s
-    # Recovery itself must not be cut short by a further signal.
-    trap '' INT TERM HUP
+    # Recovery itself must not be cut short by a further signal — nor by a
+    # dead stdout reader: the moves are done before anything is printed, and a
+    # write into a closed pipe must fail (EPIPE) rather than kill the verb.
+    trap '' INT TERM HUP PIPE
     if ! home_present "$LEGACY_ROOT"; then
         mkdir "$LEGACY_ROOT" 2>/dev/null || true
     fi
@@ -558,16 +569,18 @@ home_rollback() {
             *)             stranded+=("$n|?") ;;
         esac
     done
-    echo "HOME_SKIPPED:$reason"
     if [[ ${#stranded[@]} -eq 0 ]]; then
+        echo "HOME_SKIPPED:$reason"
         echo "HOME_ROLLED_BACK:$restored"
         return 1
     fi
+    home_record_open
+    home_emit "HOME_SKIPPED:$reason"
     local names=()
     for s in "${stranded[@]}"; do names+=("${s%%|*}"); done
-    echo "HOME_FAILED:rollback|$(home_csv "${names[@]}")"
+    home_emit "HOME_FAILED:rollback|$(home_csv "${names[@]}")"
     for s in "${stranded[@]}"; do
-        echo "HOME_STRANDED:${s%%|*}|${s#*|}|$LEGACY_ROOT/${s%%|*}"
+        home_emit "HOME_STRANDED:${s%%|*}|${s#*|}|$LEGACY_ROOT/${s%%|*}"
     done
     # The legacy root itself may be what blocks the way back (something put a
     # file or a foreign link there): set THAT aside and recreate the directory
@@ -579,7 +592,57 @@ home_rollback() {
             home_restore_steps "${s%%|*}" "${s#*|}"
         done
     fi
+    home_record_close
     return 2
+}
+
+# home_record_open — start the durable record of a blocked rollback. It is ONE
+# current block, collected in memory and published whole by home_record_close:
+# an earlier record is replaced, never carried over — replaying an obsolete
+# block's steps beside new ones would nest and mis-restore entries.
+home_record_open() {
+    HOME_RECORDING=1
+    HOME_RECORD_LINES=("# $(date '+%Y-%m-%d %H:%M:%S') ait engine home --migrate: rollback blocked — run the HOME_RESTORE commands in order")
+}
+
+# home_emit <line> — one protocol line: into the record being collected, then
+# to stdout. Never fails, so it is safe under errexit in the signal handler
+# even when stdout is a closed pipe.
+home_emit() {
+    [[ "$HOME_RECORDING" == 1 ]] && HOME_RECORD_LINES+=("$1")
+    printf '%s\n' "$1" 2>/dev/null || true
+}
+
+# home_record_close — publish the record through lib/atomic_write.sh's
+# no-follow writer: staged in an exclusive mktemp beside it (no fixed temp name
+# a planted link could redirect), renamed in only when the whole text was
+# written, and the record's own path never dereferenced — a link that appears
+# there even after the check below is replaced, never written through, and a
+# directory refuses the write. The check only names the static case in the
+# warning: a link or non-file already at the path is left untouched.
+# HOME_RECORD: is printed only for a published record; the rollback's outcome
+# never changes.
+home_record_close() {
+    local why=""
+    HOME_RECORDING=0
+    if [[ -L "$HOME_RECORD" ]] || { home_present "$HOME_RECORD" && [[ ! -f "$HOME_RECORD" ]]; }; then
+        why=not-a-file
+    else
+        home_hook pre-record-write
+        ait_atomic_write_text_nofollow "$HOME_RECORD" "$(printf '%s\n' "${HOME_RECORD_LINES[@]}")" 2>/dev/null || why=write-failed
+        home_hook post-record-write
+    fi
+    HOME_RECORD_LINES=()
+    if [[ -z "$why" ]]; then
+        home_emit "HOME_RECORD:$HOME_RECORD"
+        warn "The HOME_RESTORE steps are also saved in $HOME_RECORD; 'ait engine home' shows it until a migration completes."
+    elif [[ "$why" == not-a-file ]]; then
+        warn "The HOME_RESTORE steps could NOT be saved: $HOME_RECORD is a link or not a regular file, and is left untouched — the lines above are their only copy."
+    elif home_present "$HOME_RECORD"; then
+        warn "The HOME_RESTORE steps could NOT be saved — the lines above are their only copy. $HOME_RECORD describes an EARLIER attempt, not this one."
+    else
+        warn "The HOME_RESTORE steps could NOT be saved to $HOME_RECORD — the lines above are their only copy."
+    fi
 }
 
 # home_restore_steps <name> <current path or ?> — the manual restore for one
@@ -598,15 +661,15 @@ home_restore_steps() {
     if ! home_present "$legacy"; then
         # Nothing is in the way: the move back itself failed (e.g. the legacy
         # directory was not writable). One step, once that is fixed.
-        printf 'HOME_RESTORE:%s|mv -- %q %q\n' "$(home_show "$n")" "$cur" "$legacy"
+        home_emit "$(printf 'HOME_RESTORE:%s|mv -- %q %q' "$(home_show "$n")" "$cur" "$legacy")"
         warn "$n could not be moved back to $legacy (the move failed — check that $LEGACY_ROOT is writable). Once it is, run the HOME_RESTORE:$n command above."
         return 0
     fi
     aside="$(home_aside "$legacy")"
     # Setting the competitor aside moves anything nested inside it too.
     if [[ "$cur" == "$legacy/"* ]]; then cur="$aside/${cur#"$legacy"/}"; fi
-    printf 'HOME_RESTORE:%s|mv -- %q %q\n' "$(home_show "$n")" "$legacy" "$aside"
-    printf 'HOME_RESTORE:%s|mv -- %q %q\n' "$(home_show "$n")" "$cur" "$legacy"
+    home_emit "$(printf 'HOME_RESTORE:%s|mv -- %q %q' "$(home_show "$n")" "$legacy" "$aside")"
+    home_emit "$(printf 'HOME_RESTORE:%s|mv -- %q %q' "$(home_show "$n")" "$cur" "$legacy")"
     warn "$n could not be moved back: something else now occupies $legacy. Run the two HOME_RESTORE:$n commands above in order — the first sets that competing entry aside at $aside (kept, inspect it), the second restores the original."
 }
 
@@ -628,16 +691,16 @@ home_restore_root_steps() {
     local aside="" s n cur
     if home_present "$LEGACY_ROOT"; then
         aside="$(home_aside "$LEGACY_ROOT")"
-        printf 'HOME_RESTORE:.|mv -- %q %q\n' "$LEGACY_ROOT" "$aside"
+        home_emit "$(printf 'HOME_RESTORE:.|mv -- %q %q' "$LEGACY_ROOT" "$aside")"
     fi
-    printf 'HOME_RESTORE:.|mkdir -- %q\n' "$LEGACY_ROOT"
+    home_emit "$(printf 'HOME_RESTORE:.|mkdir -- %q' "$LEGACY_ROOT")"
     for s in "${stranded[@]}"; do
         n="${s%%|*}"; cur="${s#*|}"
         if [[ "$cur" == "?" ]]; then
             warn "$n was moved and then could not be located by identity; inspect $AITASKS_HOME by hand."
             continue
         fi
-        printf 'HOME_RESTORE:%s|mv -- %q %q\n' "$(home_show "$n")" "$cur" "$LEGACY_ROOT/$n"
+        home_emit "$(printf 'HOME_RESTORE:%s|mv -- %q %q' "$(home_show "$n")" "$cur" "$LEGACY_ROOT/$n")"
     done
     if [[ -n "$aside" ]]; then
         warn "$LEGACY_ROOT is no longer a directory (something replaced it), so the entries could not be moved back. Run the HOME_RESTORE: commands above in order — the first sets that obstruction aside at $aside (kept, inspect it), the second recreates the directory, the rest restore each entry."
@@ -651,7 +714,9 @@ home_restore_root_steps() {
 # migration is complete and nothing is undone. SIGKILL is not catchable.
 home_on_signal() {
     local sig="$1" code=1
-    trap '' INT TERM HUP
+    # A trap handler runs under errexit: every write below goes through
+    # home_emit, so a closed stdout cannot turn 128+signo into 1.
+    trap '' INT TERM HUP PIPE
     case "$sig" in INT) code=130 ;; TERM) code=143 ;; HUP) code=129 ;; esac
     # A signal landing after ln but before the phase advanced still finds a
     # completed layout: recognise it rather than "roll back" through the link.
@@ -661,11 +726,19 @@ home_on_signal() {
     fi
     case "$HOME_PHASE" in
         moving|removed) home_rollback "interrupted:$sig" || true ;;
-        linked)         echo "HOME_MIGRATED:${#HOME_MOVE[@]}" ;;
+        linked)         home_migrated ;;
         finished)       ;;
-        *)              echo "HOME_SKIPPED:interrupted:$sig" ;;
+        *)              home_emit "HOME_SKIPPED:interrupted:$sig" ;;
     esac
     exit "$code"
+}
+
+# home_migrated — the migration is complete: a blocked-rollback record now
+# describes a layout that no longer exists (its steps would run through the new
+# link), so it goes before HOME_MIGRATED is reported.
+home_migrated() {
+    rm -f -- "$HOME_RECORD" 2>/dev/null || true
+    home_emit "HOME_MIGRATED:${#HOME_MOVE[@]}"
 }
 
 # home_skip_preflight — print the preflight verdict when it is not `ready`;
@@ -763,7 +836,7 @@ home_migrate() {
     HOME_PHASE=linked
     home_hook post-link
 
-    echo "HOME_MIGRATED:${#HOME_MOVE[@]}"
+    home_migrated
     HOME_PHASE=finished
     success "Moved ${#HOME_MOVE[@]} entr$([[ ${#HOME_MOVE[@]} -eq 1 ]] && echo y || echo ies) into $AITASKS_HOME; $LEGACY_ROOT now links there." >&2
     exit 0
@@ -773,6 +846,7 @@ cmd_home() {
     # One spelling of the root for the whole verb: trailing slashes would make
     # basename-derived names (the stray-link cleanup) empty.
     while [[ "$AITASKS_HOME" == */ && "$AITASKS_HOME" != / ]]; do AITASKS_HOME="${AITASKS_HOME%/}"; done
+    HOME_RECORD="$AITASKS_HOME/.home_restore"
     case "$#:${1:-}" in
         0:)          home_report ;;
         1:--migrate) home_migrate ;;

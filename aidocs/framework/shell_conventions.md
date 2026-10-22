@@ -52,7 +52,13 @@ portability quirks (BSD vs GNU tooling) live in
   ait_atomic_render "$dest" _my_body || die "could not write $dest"
 
   ait_atomic_write_text "$dest" "$content"   # when you already hold the text
+  ait_atomic_write_text_nofollow "$dest" "$content"   # never dereference $dest itself
   ```
+  The ordinary helpers follow a file symlink at the target (the `aitasks/`
+  layout needs that). For a file the script owns at a fixed path, where a link
+  planted there must never redirect the write — even one appearing after a
+  check — use `ait_atomic_write_text_nofollow`: a link at the target is replaced
+  and a directory there refuses the write.
   **Renderers must not rely on `set -e`.** Bash disables errexit inside a
   function whose exit status is being tested, so a mid-renderer failure followed
   by a successful command commits a partial file — guard every fallible command
