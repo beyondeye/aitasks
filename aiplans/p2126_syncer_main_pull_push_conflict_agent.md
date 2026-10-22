@@ -299,3 +299,102 @@ Then Step 9 (Post-Implementation): review, commit, archive per task-workflow.
 
 ### Goal-achievement risk: low
 - Classification depends on git's English wording; a future git rewording silently degrades to the generic failure modal (the safe direction) · severity: low · → mitigation: covered in plan (locale pin + real-output tests that fail on the installed git if wording changes)
+
+## Implementation notes
+
+- All steps implemented as planned (1–5). Deviation: the dialog body is a
+  `rich.text.Text` built with `Text.assemble`, not console markup, so git's
+  `[rejected]` lines render verbatim (pinned by a render test).
+- Pull refusal messages: "Switch to <b> to pull (currently on <x>)." /
+  "Checkout is mid-<op> — …" / "Checkout changed while fetching: … Nothing was
+  merged."; the midop marker map mirrors `aitask_sync.sh` `_worktree_wedged`.
+- Mutants (isolated copy in the scratchpad, real tree untouched):
+  classifier → `return False` fails the 3 positive classification tests;
+  apply-boundary re-check removed fails both mid-fetch tests (the branch-switch
+  case returns `ok`, i.e. fast-forwards `feature` — the bug);
+  plain `fetch` instead of `fetch <remote> <merge-ref>` fails the
+  deleted-upstream and configured-upstream tests.
+- Tests: `tests/test_syncer_main_pull_push.py` (20, real git),
+  `MainConflictScreenTests` + `MainConflictAgentTests` in `test_syncer_rows.py`
+  (8), `BuildMainConflictPromptTests` in `test_sync_action_runner.py` (8). All 7
+  modules importing the syncer libs: 570 passed. `check_links.py --build`:
+  PASSED.
+- Review fix (Step 8): the pull's configured upstream need not be
+  `origin/<branch>`, and git's refusal never names it. `MainActionResult` and
+  `MainConflictContext` now carry `upstream` (pull: `<branch>@{upstream}` short
+  name; push: `origin/<branch>`), and the dialog title/summary and
+  `build_main_conflict_prompt(action, branch, upstream, …)` name it. New tests:
+  real-git divergence against `origin/release` while `main` already contains
+  `origin/main` (prompt names release, never origin/main), plus dialog and
+  launch propagation. 574 passed; `check_links.py --build` PASSED.
+- Review fix 2 (Step 8): with `submodule.recurse=true`, `git pull` runs
+  `git submodule update --recursive --checkout` after the merge; `merge` alone
+  does not (probed: submodule stayed on the old commit, result `ok`). Now
+  `_submodule_plan` (before the merge) lists the populated submodules whose
+  gitlink the fast-forward moves and REFUSES when one has local work (HEAD ≠
+  recorded gitlink, or uncommitted changes incl. nested) — `git pull` itself
+  strands such a local commit (probed). `_update_submodules` (after) updates
+  exactly those paths, verifies each HEAD, and returns `MAIN_PARTIAL` (generic
+  failure modal, status `PARTIAL`, report last in the output, view refreshed)
+  when any did not follow. An unpublished submodule commit fails the recursive
+  fetch first, so nothing merges (same as `git pull`). 7 new real-git tests +
+  1 dispatch test; mutants (no update / no protection) each caught by 2 tests.
+- **Scope narrowed by the user (Step 8, supersedes "Review fix 2").** The
+  custom submodule preflight / update / verification / `MAIN_PARTIAL`
+  machinery was removed. Deliberate limitation: when `submodule.recurse` is
+  set and the checkout has initialized submodules (`submodule.<n>.url` in the
+  local config — what `git submodule init` writes), `run_main_pull` returns
+  `MAIN_SUBMODULES` right after resolving the upstream, before any fetch or
+  merge, and the syncer offers the resolver agent. An unreadable
+  `submodule.recurse` fails closed. Without either condition the ordinary
+  fast-forward runs (and, like `git pull` without recursion, leaves submodules
+  alone). The dialog is now "Automatic update needs assistance" with a closed
+  reason set (`MAIN_REASON_DIVERGED` / `MAIN_REASON_SUBMODULES` in
+  sync_action_runner; the syncer's statuses alias them), and one shared
+  `describe_main_conflict_reason` feeds both the dialog and the prompt. The
+  prompt gives labeled Repository / Local branch / Upstream / Operation /
+  Reason facts; the submodule case adds "never strand local work in a
+  submodule" and the `git submodule update` detached-HEAD pitfall.
+  Broader automatic submodule support is left for a separate task.
+- Mutants on the final code: no deferral gate → 2 deferral tests fail;
+  classifier → `False` → 4 divergence tests fail.
+- Review fix (Step 8): the initialized-submodule lookup is file-scoped
+  (`--local`), and git skips `include.path` for file-scoped lookups unless
+  `--includes` is passed — a url moved into an included file read as "no
+  submodules", so the pull ran instead of deferring. Added `--includes`
+  (probed: without it rc 1, with it the url is found, as git's own lookup
+  does) and a real-git regression test (url only in an included file →
+  deferred, state unchanged, no fetch/merge); mutant without `--includes`
+  fails it.
+
+## Final Implementation Notes
+- **Actual work done:** `u` no longer refuses on a dirty tree; it resolves
+  the named branch's upstream, defers when `submodule.recurse` is set and
+  initialized submodules exist, fetches the upstream ref by name, pins
+  FETCH_HEAD == tracking ref, re-checks HEAD/mid-operation state, then
+  `merge --ff-only --no-autostash --no-overwrite-ignore`. A diverged pull, a
+  `fetch first`/`non-fast-forward` push, and the submodule deferral open an
+  "Automatic update needs assistance" dialog (`MainConflictScreen`,
+  `MainConflictContext`, reason ∈ diverged/submodules) whose agent gets
+  `build_main_conflict_prompt` (labeled Repository / Local branch / Upstream /
+  Operation / Reason facts + constraints), window `agent-syncfix-main-<action>`.
+  All syncer git runs under `LC_ALL=C` (`run_git`). Other failures keep the
+  generic modal.
+- **Deviations from plan:** `git pull` replaced by fetch → pin → merge (it
+  rejects `--no-overwrite-ignore`); the dialog is generalised from
+  "divergence" to "needs assistance" with two reasons; the button reads
+  "Launch agent". Automatic submodule updating was built and then removed at
+  the user's request — deliberate limitation, documented; broader support is
+  a separate task.
+- **Issues encountered:** five review rounds, all valid and fixed: branch
+  binding + apply-boundary re-check; stale tracking ref after a deleted
+  upstream; the real (possibly differently named) upstream in dialog/prompt;
+  `submodule.recurse` side effect (resolved by the deferral gate);
+  `--includes` for the file-scoped submodule-url lookup.
+- **Key decisions:** classifier markers are each printed only by the step
+  they are matched against (merge's "Not possible to fast-forward"; push's
+  per-ref `[rejected]` for exactly `<branch> -> <branch>`); the dialog body
+  is a `rich.text.Text`, never markup, so git output renders verbatim;
+  reason text is shared by dialog and prompt (`describe_main_conflict_reason`).
+- **Upstream defects identified:**
+  - .aitask-scripts/syncer/sync_failure_screen.py:75-79 — `SyncFailureScreen` renders the failed command's stderr through console markup, so git's `[rejected]` (and any bracketed text in a path) is swallowed from the "Output (tail)" shown to the user (reproduced: ` ! [rejected]        main -> main` renders as ` !         main -> main`).
