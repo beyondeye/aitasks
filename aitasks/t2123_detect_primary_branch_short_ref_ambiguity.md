@@ -1,5 +1,7 @@
 ---
 priority: low
+risk_code_health: low
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
@@ -12,8 +14,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-22 10:52
-updated_at: 2026-10-22 10:54
+updated_at: 2026-10-23 00:23
 ---
 
 ## Origin
@@ -67,3 +70,8 @@ Read the full target (`git symbolic-ref --quiet refs/remotes/origin/HEAD`) and
 strip `refs/remotes/origin/`, accepting the value only when that prefix
 matched; keep the existing `main`/`master` fallbacks. Apply the same change to
 the Python mirror, and add a regression case with a local `origin/main` branch.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-22T21:23:09Z status=pass attempt=1 type=human
