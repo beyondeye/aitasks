@@ -12,8 +12,9 @@ active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1065
 followup_kind: review_finding
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-22 12:46
-updated_at: 2026-10-22 12:54
+updated_at: 2026-10-22 22:09
 ---
 
 ## Context
@@ -54,3 +55,8 @@ that time the TUI neither processes input nor repaints.
 - A new test: a seam that blocks, for example on an `Event`, does not block the
   save handler. The save returns, the UI stays responsive (a key press is
   processed), and the toast arrives once the seam is released.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-22T19:09:47Z status=pass attempt=1 type=human
