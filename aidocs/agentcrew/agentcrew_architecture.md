@@ -219,7 +219,7 @@ The runner (`ait crew runner`) is the central orchestrator. It runs in a loop, e
 2. Check for stop request (requested_action in _runner_alive.yaml)
 3. Update runner heartbeat (_runner_alive.yaml)
 4. Read all agent statuses
-5. Mark stale agents as Error (heartbeat timeout exceeded)
+5. Log stale agents (heartbeat timeout exceeded; their status is unchanged)
 6. Process pending commands (pause/resume from _commands.yaml)
 7. Find ready agents (Waiting + all deps Completed)
 8. Filter by per-type max_parallel limits
@@ -228,7 +228,7 @@ The runner (`ait crew runner`) is the central orchestrator. It runs in a loop, e
 11. Recompute crew status from all agent statuses
 12. Report progress (PROGRESS, ETA, RUNNING count, READY count)
 13. Check if all agents terminal → stop runner
-14. Git commit + push all changes
+14. Git commit + push all changes (skipped while a merge or rebase is unfinished)
 15. Sleep for interval seconds
 ```
 
@@ -319,9 +319,15 @@ The crew worktree is a shared filesystem. Conflict is avoided by role separation
 - **Agents write:** `_alive.yaml` (heartbeat), `_output.md` (results). These are agent-owned files.
 - **Runner writes:** `_status.yaml` (state transitions), `_crew_status.yaml`, `_runner_alive.yaml`. Runner uses field-level YAML updates (read → modify → write).
 - **CLI writes:** `_commands.yaml` (appends to pending queue).
-- **Runner serializes git:** Only the runner runs `git add -A && git commit && git push`. Agents never touch git directly.
+- **Git writers:** four paths commit in the worktree. The runner stages everything (`git add -A`) and commits each iteration and at start-up and shutdown. `ait crew status set` does the same for terminal transitions (`Completed`, `Aborted`, `Error`), so they reach origin even when no runner is left. `ait crew addwork` and `ait crew setmode` commit their own files, then rebase onto the upstream and push.
 
 No explicit file locking is used. Field-level updates assume YAML reads and writes are atomic enough for the single-writer-per-file pattern.
+
+Because several processes commit in one worktree, none of them may conclude, join or strand another's merge or rebase:
+
+- Every writer checks for an unfinished merge or rebase (`crew_merge_state`, in `agentcrew_utils.py` and its shell twin in `lib/agentcrew_utils.sh`) before it stages and again before it commits. While one is present, the runner and `ait crew status set` skip the commit with a warning. `addwork` and `setmode` refuse and change nothing.
+- No crew commit uses `git commit`, which would conclude a merge (it reads `MERGE_HEAD`) or commit onto a rebase's detached HEAD. The tree is written, the state re-checked, the commit built with `git commit-tree`, and the branch moved with a compare-and-swap `git update-ref <branch> <new> <old>`. A branch that moved meanwhile is ordinary concurrency, so the writer retries. A tree equal to HEAD's means another writer already committed the change, and a writer that staged work still pushes in that case. Commit hooks do not run for crew commits; signing (`commit.gpgSign`) does.
+- `addwork` and `setmode` open their rebase only when `git merge-tree --write-tree` proves it clean (git < 2.38 rebases as before). A rebase that stops anyway is left in place and reported, never aborted: `rebase --abort` is a hard reset and would discard anything another crew process wrote or staged meanwhile. `addwork` then exits non-zero, so a caller such as brainstorm does not write the agent's input into that worktree. The runner holds until someone resolves it.
 
 ## Command and Control
 
@@ -360,10 +366,7 @@ Agents signal liveness by updating `<agent>_alive.yaml` at regular intervals (vi
 **Detection:** Each runner iteration calls `get_stale_agents()` which checks all `Running` agents:
 - If `_alive.yaml` doesn't exist, or `last_heartbeat` is missing/unparseable, or `now - last_heartbeat > timeout` → agent is stale.
 
-**Action on stale agent:**
-- Status set to `Error`
-- `error_message` set to `"Heartbeat timeout — agent presumed dead"`
-- `completed_at` set to current time
+**Action on stale agent:** the runner logs it (`Stale heartbeat (status unchanged): …`) and changes nothing. An agent's status is its own self-reported lifecycle; `get_stale_agents()` serves visibility and read-only queries.
 
 ## Operation Groups
 

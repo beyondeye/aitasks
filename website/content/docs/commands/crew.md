@@ -179,6 +179,15 @@ A runner that is already running pauses, reading and writing no crew files, unti
 the merge or rebase is resolved, and then carries on. With `--batch`, each of these
 cases prints `PULL_UNSAFE:<reason>`.
 
+The other crew commands never finish or join such a merge or rebase either. While one
+is unfinished, `ait crew addwork` and `ait crew setmode` refuse and change nothing.
+Commits by the runner and by `ait crew status set` are skipped with a warning; the
+status change stays in the worktree. After committing, `addwork` and `setmode`
+rebase onto the crew branch's upstream only when git can prove the rebase clean.
+When it would conflict, they leave the branch as it is and warn. A rebase that stops
+anyway is left in place and reported, never aborted (`git rebase --abort` would reset
+files other crew processes wrote), and `addwork` then exits with an error.
+
 ## ait crew report
 
 Report on crew state, agent details, and aggregated outputs.

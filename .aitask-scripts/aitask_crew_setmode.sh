@@ -84,6 +84,9 @@ validate_agent_name "$AGENT_NAME"
 
 # --- Resolve crew worktree and locate status file ---
 WT_PATH="$(resolve_crew "$CREW_ID")"
+# Refuse before reading or writing while another process's merge or rebase is
+# unfinished in the shared worktree (t2028): its status file may hold markers.
+crew_require_clean "$WT_PATH" "launch_mode was not changed"
 STATUS_FILE="$WT_PATH/${AGENT_NAME}_status.yaml"
 if [[ ! -f "$STATUS_FILE" ]]; then
     die "Agent '$AGENT_NAME' not found in crew '$CREW_ID' (no $STATUS_FILE)"
@@ -120,11 +123,19 @@ mv "$tmpfile" "$STATUS_FILE"
 (
     cd "$WT_PATH"
     if ! git diff --quiet -- "${AGENT_NAME}_status.yaml" 2>/dev/null; then
-        git add "${AGENT_NAME}_status.yaml"
-        git commit -m "crew: Set launch_mode=${MODE} for agent '${AGENT_NAME}' in crew '${CREW_ID}'" --quiet
-        # Bounded fetch + local rebase, keeping t2008's --no-autostash (see
-        # crew_pull_rebase in lib/agentcrew_utils.sh).
-        crew_pull_rebase . || true
+        # Refuses, and never concludes or joins, another process's unfinished
+        # merge or rebase (t2028).
+        crew_commit_paths . "crew: Set launch_mode=${MODE} for agent '${AGENT_NAME}' in crew '${CREW_ID}'" \
+            "${AGENT_NAME}_status.yaml"
+        # Bounded fetch + local rebase, keeping t2008's --no-autostash and
+        # rebasing only when proven clean (see crew_pull_rebase in
+        # lib/agentcrew_utils.sh). Status 2: an unfinished merge or rebase is
+        # in the worktree (already reported) — push nothing and fail.
+        pull_rc=0
+        crew_pull_rebase . || pull_rc=$?
+        if [[ "$pull_rc" -eq 2 ]]; then
+            die "launch_mode of agent '${AGENT_NAME}' is committed but not published: the crew worktree is left unsafe (see above)"
+        fi
         crew_push . || true
     fi
 )

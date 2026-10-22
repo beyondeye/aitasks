@@ -22,6 +22,15 @@
 # remote stop is honoured, the rest of the merge tree is git's own — while any
 # other conflict, an unreadable side, or a peer naming another runner defers.
 #
+# Cells 18-25 (t2028): the other writers of the worktree — addwork and setmode
+# (shell) and git_commit_push_if_changes (the runner, `ait crew status set`) —
+# never strand, conclude or join an unfinished merge or rebase. A PATH `git`
+# wrapper fakes merge-tree's exit status and runs a concurrent writer at an
+# exact point of the commit sequence; the Python side uses a second harness on
+# the same git_cmd seam. Each injection cell first checks that the concurrent
+# writer really produced its state (INJECTED:ok), and controls with ordinary
+# concurrent commits pin that healthy concurrency still commits and publishes.
+#
 # Run: bash tests/test_crew_pull_no_autostash.sh
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -315,6 +324,10 @@ PYEOF
 #                runner_stop_and_agent — runner_stop and agent_conflict, one commit
 #                runner_takeover — the peer rewrites the runner's pid, hostname
 #                                  and heartbeat lines (another runner took over)
+#                status_conflict — the peer sets w1's launch_mode (conflicts
+#                                  with a setmode of w1)
+#                meta_conflict — the peer registers w3 in _crew_meta.yaml's
+#                                agents list (conflicts with an addwork)
 # Optional second argument: `nested` commits nested/dir/keep.txt before
 # "runner: started", so the merge base carries a subtree; `cyclic_note`
 # appends a self-referencing value to the base runner file (after its last
@@ -456,6 +469,18 @@ EOF
                 "$PEER/_runner_alive.yaml" > "$PEER/_runner_alive.yaml.tmp"
             mv "$PEER/_runner_alive.yaml.tmp" "$PEER/_runner_alive.yaml"
             git -C "$PEER" commit -am "peer: another runner took over" --quiet
+            ;;
+        status_conflict)
+            sed 's/^launch_mode: .*/launch_mode: openshell_headless/' \
+                "$PEER/w1_status.yaml" > "$PEER/w1_status.yaml.tmp"
+            mv "$PEER/w1_status.yaml.tmp" "$PEER/w1_status.yaml"
+            git -C "$PEER" commit -am "peer: w1 launch_mode" --quiet
+            ;;
+        meta_conflict)
+            sed 's/^agents: \[w1\]$/agents: [w1, w3]/' \
+                "$PEER/_crew_meta.yaml" > "$PEER/_crew_meta.yaml.tmp"
+            mv "$PEER/_crew_meta.yaml.tmp" "$PEER/_crew_meta.yaml"
+            git -C "$PEER" commit -am "peer: register w3" --quiet
             ;;
     esac
     git -C "$PEER" push --quiet 2>/dev/null
@@ -1225,6 +1250,612 @@ id_unchanged|False
 id_ours_restarted|False
 id_addadd_equal|False"
 assert_eq "17: the field-merge and identity table" "$expected_table" "$table"
+
+# =============================================================================
+# Cells 18-25 (t2028): the shell writers and git_commit_push_if_changes
+# =============================================================================
+
+REAL_GIT="$(command -v git)"
+
+# Another crew process acting once, at the moment a harness picks:
+#   merge      — commits the shared staged index, then opens a merge of a side
+#                commit on a disjoint path. A bare `git merge` refuses on a
+#                dirty index, so this is the only way one can start once the
+#                writer under test has staged.
+#   commit     — an ordinary heartbeat commit of the shared index (it takes the
+#                staged change of the writer under test with it)
+#   commit-own — an ordinary heartbeat commit of _runner_alive.yaml alone
+#                (--only: the other staged changes stay staged)
+# Always the real git, never the PATH wrapper. Writes one INJECTED: line to
+# $HARNESS_INJECT_LOG and nothing to stdout.
+WRITER="$HARNESS_DIR/concurrent_writer.sh"
+cat > "$WRITER" <<'SHEOF'
+#!/usr/bin/env bash
+wt="$1" kind="$2"
+g() { "$REAL_GIT" -C "$wt" "$@"; }
+say() { printf '%s\n' "$*" >> "$HARNESS_INJECT_LOG"; }
+heartbeat() {
+    sed "s/^last_heartbeat: .*/last_heartbeat: '2026-10-15 10:09:$1'/" "$wt/_runner_alive.yaml" \
+        > "$wt/_runner_alive.yaml.tmp" && mv "$wt/_runner_alive.yaml.tmp" "$wt/_runner_alive.yaml"
+}
+case "$kind" in
+    merge)
+        g commit --quiet -m "concurrent writer" || { say "INJECTED:failed commit $?"; exit 0; }
+        concurrent="$(g rev-parse HEAD)"
+        blob="$(printf 'injected\n' | g hash-object -w --stdin)" &&
+            tree="$( { g ls-tree HEAD; printf '100644 blob %s\tinjected.txt\n' "$blob"; } | g mktree)" &&
+            side="$(g commit-tree "$tree" -p HEAD -m "another process's merge")" ||
+            { say "INJECTED:failed side $?"; exit 0; }
+        g merge --no-commit --no-ff --no-autostash --quiet "$side" >/dev/null 2>&1 ||
+            { say "INJECTED:failed merge $?"; exit 0; }
+        merge_head="$(g rev-parse -q --verify MERGE_HEAD)" || { say "INJECTED:failed merge_head 1"; exit 0; }
+        say "INJECTED:ok merge $concurrent $merge_head"
+        ;;
+    commit)
+        heartbeat 11
+        g add _runner_alive.yaml && g commit --quiet -m "concurrent heartbeat" ||
+            { say "INJECTED:failed commit $?"; exit 0; }
+        say "INJECTED:ok commit $(g rev-parse HEAD)"
+        ;;
+    commit-own)
+        heartbeat 22
+        g commit --quiet -m "concurrent heartbeat" --only -- _runner_alive.yaml ||
+            { say "INJECTED:failed commit $?"; exit 0; }
+        say "INJECTED:ok commit-own $(g rev-parse HEAD)"
+        ;;
+    *) say "INJECTED:failed kind 2" ;;
+esac
+SHEOF
+chmod +x "$WRITER"
+
+# PATH stand-in for git, for the crew shell scripts. Logs each subcommand to
+# $HARNESS_GIT_LOG; HARNESS_GIT_MERGE_TREE_RC=<rc> answers merge-tree with that
+# status and no output (129 = a git without --write-tree);
+# HARNESS_GIT_AFTER_REBASE_STAGE=<file> appends a line to that tracked file and
+# stages it after a rebase that stopped; HARNESS_GIT_INJECT=<kind>@<point> runs
+# the concurrent writer once, at after-add | after-write-tree |
+# before-update-ref | after-update-ref.
+GITWRAP_DIR="$HARNESS_DIR/gitwrap"
+mkdir -p "$GITWRAP_DIR"
+cat > "$GITWRAP_DIR/git" <<'SHEOF'
+#!/usr/bin/env bash
+args=("$@")
+i=0 wt="." sub=""
+while (( i < ${#args[@]} )); do
+    case "${args[i]}" in
+        -C) wt="${args[i+1]}"; i=$((i + 2)) ;;
+        -c) i=$((i + 2)) ;;
+        -*) i=$((i + 1)) ;;
+        *)  sub="${args[i]}"; break ;;
+    esac
+done
+[[ -n "${HARNESS_GIT_LOG:-}" ]] && printf '%s\n' "$sub" >> "$HARNESS_GIT_LOG"
+if [[ "$sub" == merge-tree && -n "${HARNESS_GIT_MERGE_TREE_RC:-}" ]]; then
+    exit "$HARNESS_GIT_MERGE_TREE_RC"
+fi
+point="${HARNESS_GIT_INJECT#*@}"
+inject() {
+    [[ -n "${HARNESS_GIT_INJECT:-}" && ! -e "$HARNESS_INJECT_LOG.done" ]] || return 0
+    : > "$HARNESS_INJECT_LOG.done"
+    "$WRITER" "$wt" "${HARNESS_GIT_INJECT%@*}" >&2
+}
+[[ "$point:$sub" == before-update-ref:update-ref ]] && inject
+"$REAL_GIT" "$@"
+rc=$?
+case "$point:$sub" in
+    after-add:add|after-write-tree:write-tree|after-update-ref:update-ref) inject ;;
+esac
+if [[ "$sub" == rebase && -n "${HARNESS_GIT_AFTER_REBASE_STAGE:-}" ]]; then
+    gp="$("$REAL_GIT" -C "$wt" rev-parse --git-path rebase-merge)"
+    [[ "$gp" == /* ]] || gp="$wt/$gp"
+    if [[ -e "$gp" ]]; then
+        echo "staged_by: another crew process" >> "$wt/$HARNESS_GIT_AFTER_REBASE_STAGE"
+        "$REAL_GIT" -C "$wt" add -- "$HARNESS_GIT_AFTER_REBASE_STAGE"
+    fi
+fi
+exit "$rc"
+SHEOF
+chmod +x "$GITWRAP_DIR/git"
+
+# git_commit_push_if_changes through its real code, with the concurrent writer
+# run once at <point> through the git_cmd seam.
+COMMIT_HARNESS="$HARNESS_DIR/crew_commit_harness.py"
+cat > "$COMMIT_HARNESS" <<'PYEOF'
+"""crew_commit_harness.py <scripts> <wt> <message> [--inject <kind>@<point>]"""
+import os
+import subprocess
+import sys
+
+scripts, wt, message = sys.argv[1:4]
+inject = sys.argv[5] if len(sys.argv) > 5 and sys.argv[4] == "--inject" else ""
+sys.path.insert(0, scripts)
+import agentcrew.agentcrew_utils as u  # noqa: E402
+
+kind, _, point = inject.partition("@")
+WT = os.path.abspath(wt)
+real_git_cmd = u.git_cmd
+done = []
+
+
+def writer():
+    if inject and not done:
+        done.append(True)
+        subprocess.run([os.environ["WRITER"], WT, kind], check=False, stdout=sys.stderr)
+
+
+def wrapped_git_cmd(worktree, *a, **kw):
+    sub = a[0] if a else ""
+    if point == "before-update-ref" and sub == "update-ref":
+        writer()
+    result = real_git_cmd(worktree, *a, **kw)
+    if (point, sub) in (("after-add", "add"), ("after-write-tree", "write-tree"),
+                        ("after-update-ref", "update-ref")):
+        writer()
+    return result
+
+
+u.git_cmd = wrapped_git_cmd
+u.git_commit_push_if_changes(WT, message, batch=True)
+print("COMMIT_HARNESS:done", flush=True)
+PYEOF
+
+# new_inject_log — a fresh log for this cell's concurrent writer.
+new_inject_log() {
+    INJECT_LOG="$ROOT/inject.log"
+    rm -f "$INJECT_LOG" "$INJECT_LOG.done" "$ROOT/git.log"
+    : > "$INJECT_LOG"
+}
+
+# run_cli [VAR=value ...] -- <script> <args...> — a crew script from $REPO with
+# the git wrapper first on PATH. Sets RC OUT ERR.
+run_cli() {
+    local envs=() script
+    while [[ "$1" != "--" ]]; do envs+=("$1"); shift; done
+    shift
+    script="$1"
+    shift
+    (cd "$REPO" && env PATH="$GITWRAP_DIR:$PATH" REAL_GIT="$REAL_GIT" WRITER="$WRITER" \
+        HARNESS_INJECT_LOG="$INJECT_LOG" HARNESS_GIT_LOG="$ROOT/git.log" "${envs[@]}" \
+        bash ".aitask-scripts/$script" "$@") >"$ROOT/out" 2>"$ROOT/err"
+    RC=$?
+    OUT="$(cat "$ROOT/out")"
+    ERR="$(cat "$ROOT/err")"
+}
+setmode_w1() { run_cli "${@:2}" -- aitask_crew_setmode.sh --crew "$CREW_ID" --name w1 --mode "$1"; }
+addwork_as() {
+    run_cli "${@:2}" -- aitask_crew_addwork.sh --crew "$CREW_ID" --name "$1" \
+        --work2do /dev/null --type impl --batch
+}
+
+# run_commit <message> [<kind>@<point>] — the Python commit path. Sets RC OUT ERR.
+run_commit() {
+    local inj=()
+    [[ -n "${2:-}" ]] && inj=(--inject "$2")
+    env REAL_GIT="$REAL_GIT" WRITER="$WRITER" HARNESS_INJECT_LOG="$INJECT_LOG" \
+        "$AITASK_PYTHON" "$COMMIT_HARNESS" "$PROJECT_DIR/.aitask-scripts" "$WT" "$1" "${inj[@]}" \
+        >"$ROOT/out" 2>"$ROOT/err"
+    RC=$?
+    OUT="$(cat "$ROOT/out")"
+    ERR="$(cat "$ROOT/err")"
+}
+
+# The real `ait crew status set`, from $REPO. Sets RC OUT ERR.
+status_set_w1() {
+    (cd "$REPO" && "$AITASK_PYTHON" "$PROJECT_DIR/.aitask-scripts/agentcrew/agentcrew_status.py" \
+        --crew "$CREW_ID" --agent w1 set --status "$1") >"$ROOT/out" 2>"$ROOT/err"
+    RC=$?
+    OUT="$(cat "$ROOT/out")"
+    ERR="$(cat "$ROOT/err")"
+}
+
+# The worktree's unfinished operation, as the runner sees it (the Python
+# crew_merge_state, which predates t2028 and is what the runner holds on).
+crew_state() {
+    "$AITASK_PYTHON" -c 'import sys
+sys.path.insert(0, sys.argv[1])
+from agentcrew.agentcrew_utils import crew_merge_state
+print(crew_merge_state(sys.argv[2]) or "")' "$PROJECT_DIR/.aitask-scripts" "$WT"
+}
+
+# The same, from the shell twin the crew scripts refuse on.
+crew_state_sh() {
+    ( . "$PROJECT_DIR/.aitask-scripts/lib/agentcrew_utils.sh" >/dev/null 2>&1; crew_merge_state "$WT" )
+}
+
+# HEAD | branch | index digest | state | MERGE_HEAD
+wt_snapshot() {
+    printf '%s|%s|%s|%s|%s' "$(git -C "$WT" rev-parse HEAD)" \
+        "$(git -C "$WT" symbolic-ref -q HEAD)" \
+        "$(git -C "$WT" ls-files -s | sha256sum | cut -d' ' -f1)" \
+        "$(crew_state)" "$(merge_head_state)"
+}
+
+# assert_injected <cell> <kind> — the concurrent writer really ran, and for a
+# merge MERGE_HEAD existed when it finished (the writer checks that before it
+# prints INJECTED:ok). Sets INJECTED_COMMIT and, for a merge, INJECTED_MERGE_HEAD.
+assert_injected() {
+    local line
+    line="$(grep '^INJECTED:' "$INJECT_LOG" 2>/dev/null | head -n1)"
+    assert_contains "$1: setup: the concurrent writer ran ($2)" "INJECTED:ok $2 " "$line"
+    INJECTED_COMMIT="$(printf '%s' "$line" | cut -d' ' -f3)"
+    INJECTED_MERGE_HEAD="$(printf '%s' "$line" | cut -d' ' -f4)"
+}
+
+assert_linear() {
+    assert_eq "$1: history stays linear" "" "$(git -C "$WT" rev-list --min-parents=2 HEAD)"
+}
+
+assert_no_unsafe_report() {
+    assert_not_contains "$1: no unfinished-operation report" "unfinished" "$ERR"
+    assert_not_contains "$1: no commit-skipped warning" "git commit skipped" "$ERR"
+}
+
+assert_published() {
+    assert_eq "$1: the remote holds the local tip" "$(git -C "$WT" rev-parse HEAD)" "$(remote_head)"
+}
+
+# The crew worktree catches up with its upstream, so a push is a fast-forward.
+catch_up_with_remote() {
+    git -C "$WT" fetch --quiet && git -C "$WT" merge --ff-only --no-autostash --quiet '@{u}'
+    assert_eq "fixture: the crew worktree is level with the remote" "$(remote_head)" \
+        "$(git -C "$WT" rev-parse HEAD)"
+}
+
+# A stopped rebase in the crew worktree, made by hand: a local commit to
+# <file> conflicts with the peer's.
+stop_a_rebase_by_hand() {
+    local_commit "$1" "$2" "local: conflicting edit"
+    git -C "$WT" fetch --quiet
+    git -C "$WT" rebase --no-autostash --quiet >/dev/null 2>&1
+    assert_eq "fixture: the rebase stopped" "rebase_in_progress" "$(crew_state)"
+}
+
+# A merge left open in the crew worktree, made by hand (clean, uncommitted).
+open_a_merge_by_hand() {
+    local blob tree side
+    blob="$(printf 'by hand\n' | git -C "$WT" hash-object -w --stdin)"
+    tree="$( { git -C "$WT" ls-tree HEAD; printf '100644 blob %s\tby_hand.txt\n' "$blob"; } | git -C "$WT" mktree)"
+    side="$(git -C "$WT" commit-tree "$tree" -p HEAD -m "a merge by hand")"
+    git -C "$WT" merge --no-commit --no-ff --no-autostash --quiet "$side" >/dev/null 2>&1
+    assert_eq "fixture: a merge is open" "merge_in_progress" "$(crew_state)"
+}
+
+# --- Test 18: a rebase that would conflict is never opened ---
+test_18a_setmode_conflict_not_rebased() {
+    echo "--- Test 18a: setmode, conflicting upstream → not rebased, nothing opened ---"
+    setup_crew_remote_fixture status_conflict
+    new_inject_log
+    setmode_w1 interactive
+    assert_eq "18a: setmode succeeds" "0" "$RC"
+    assert_contains "18a: UPDATED printed" "UPDATED:w1:interactive" "$OUT"
+    assert_eq "18a: no unfinished operation" "" "$(crew_state)"
+    assert_eq "18a: HEAD is on the crew branch" "refs/heads/$BRANCH" "$(git -C "$WT" symbolic-ref -q HEAD)"
+    assert_eq "18a: HEAD is setmode's commit" "crew: Set launch_mode=interactive for agent 'w1' in crew '$CREW_ID'" \
+        "$(git -C "$WT" log -1 --format=%s)"
+    assert_eq "18a: the remote is unchanged" "$PEER_SHA" "$(remote_head)"
+    assert_contains "18a: the warning names the conflict" "not rebased onto its upstream: it conflicts in w1_status.yaml" "$ERR"
+    assert_not_contains "18a: no rebase ran" "rebase" "$(cat "$ROOT/git.log")"
+}
+need_merge_tree 18a && test_18a_setmode_conflict_not_rebased
+
+test_18b_addwork_conflict_not_rebased() {
+    echo "--- Test 18b: addwork, conflicting upstream → not rebased, nothing opened ---"
+    setup_crew_remote_fixture meta_conflict
+    new_inject_log
+    addwork_as w2
+    assert_eq "18b: addwork succeeds" "0" "$RC"
+    assert_contains "18b: ADDED printed" "ADDED:w2" "$OUT"
+    assert_eq "18b: no unfinished operation" "" "$(crew_state)"
+    assert_eq "18b: HEAD is on the crew branch" "refs/heads/$BRANCH" "$(git -C "$WT" symbolic-ref -q HEAD)"
+    assert_eq "18b: HEAD is addwork's commit" "crew: Add agent 'w2' to crew '$CREW_ID'" \
+        "$(git -C "$WT" log -1 --format=%s)"
+    assert_eq "18b: the remote is unchanged" "$PEER_SHA" "$(remote_head)"
+    assert_contains "18b: the warning names the conflict" "it conflicts in _crew_meta.yaml" "$ERR"
+}
+need_merge_tree 18b && test_18b_addwork_conflict_not_rebased
+
+# --- Test 19: a rebase that stops anyway is left and reported, never aborted ---
+echo "--- Test 19a: setmode, a stopped rebase (no merge proof) is left and reported ---"
+setup_crew_remote_fixture status_conflict
+new_inject_log
+setmode_w1 interactive HARNESS_GIT_MERGE_TREE_RC=129
+assert_exit_nonzero_rc "19a: setmode fails" "$RC"
+assert_not_contains "19a: no UPDATED" "UPDATED:" "$OUT"
+assert_eq "19a: the rebase is left in progress" "rebase_in_progress" "$(crew_state)"
+assert_eq "19a: the remote is unchanged" "$PEER_SHA" "$(remote_head)"
+assert_contains "19a: the report names it" "has an unfinished rebase (rebase_in_progress)" "$ERR"
+assert_contains "19a: the report says it was not aborted" "left in progress, not aborted" "$ERR"
+assert_contains "19a: the report carries the remedy" "rebase --abort" "$ERR"
+assert_not_contains "19a: nothing pushed" "push" "$(cat "$ROOT/git.log")"
+
+echo "--- Test 19b: addwork, a stopped rebase (no merge proof) is left and reported ---"
+setup_crew_remote_fixture meta_conflict
+new_inject_log
+addwork_as w2 HARNESS_GIT_MERGE_TREE_RC=129
+assert_exit_nonzero_rc "19b: addwork fails" "$RC"
+assert_not_contains "19b: no ADDED" "ADDED:" "$OUT"
+assert_eq "19b: the rebase is left in progress" "rebase_in_progress" "$(crew_state)"
+assert_eq "19b: the remote is unchanged" "$PEER_SHA" "$(remote_head)"
+assert_contains "19b: addwork says the agent is registered but not published" \
+    "is registered (committed) in crew '$CREW_ID' but not published" "$ERR"
+assert_not_contains "19b: nothing pushed" "push" "$(cat "$ROOT/git.log")"
+
+# --- Test 20: a write staged during the stopped rebase survives ---
+echo "--- Test 20: a foreign write staged while the rebase is stopped survives ---"
+setup_crew_remote_fixture status_conflict
+new_inject_log
+setmode_w1 interactive HARNESS_GIT_MERGE_TREE_RC=129 HARNESS_GIT_AFTER_REBASE_STAGE=_runner_alive.yaml
+assert_exit_nonzero_rc "20: setmode fails" "$RC"
+assert_eq "20: the rebase is left in progress" "rebase_in_progress" "$(crew_state)"
+assert_contains "20: the staged write is in the worktree" "staged_by: another crew process" \
+    "$(cat "$WT/_runner_alive.yaml")"
+assert_contains "20: the staged write is in the index" "staged_by: another crew process" \
+    "$(git -C "$WT" show :_runner_alive.yaml)"
+
+# --- Test 21: a failed merge proof never rebases ---
+echo "--- Test 21: a merge proof that errors → no rebase, worktree as it was ---"
+setup_crew_remote_fixture peer_only
+new_inject_log
+setmode_w1 interactive HARNESS_GIT_MERGE_TREE_RC=128
+assert_eq "21: setmode succeeds" "0" "$RC"
+assert_contains "21: UPDATED printed" "UPDATED:w1:interactive" "$OUT"
+assert_contains "21: the warning says the proof failed" "the merge proof failed (git merge-tree exit 128)" "$ERR"
+assert_not_contains "21: no rebase ran" "rebase" "$(cat "$ROOT/git.log")"
+assert_eq "21: no unfinished operation" "" "$(crew_state)"
+assert_eq "21: HEAD is setmode's commit" "crew: Set launch_mode=interactive for agent 'w1' in crew '$CREW_ID'" \
+    "$(git -C "$WT" log -1 --format=%s)"
+
+# --- Test 22: addwork and setmode refuse an existing unfinished operation ---
+# test_22 <label> <merge|rebase> <setmode|addwork>
+test_22() {
+    local label="$1" state="$2" cli="$3" before status_sha
+    echo "--- Test $label: $cli refuses a $state left in the worktree ---"
+    if [[ "$state" == merge ]]; then
+        setup_crew_remote_fixture peer_only
+        open_a_merge_by_hand
+    else
+        setup_crew_remote_fixture agent_conflict
+        stop_a_rebase_by_hand w1_alive.yaml "s/^last_heartbeat:.*/last_heartbeat: '2026-10-15 10:02:00'/"
+    fi
+    new_inject_log
+    assert_eq "$label: the shell probe agrees with the runner's" "$(crew_state)" "$(crew_state_sh)"
+    before="$(wt_snapshot)"
+    status_sha="$(file_sha "$WT/w1_status.yaml")"
+    if [[ "$cli" == setmode ]]; then
+        setmode_w1 interactive
+        assert_not_contains "$label: no UPDATED" "UPDATED:" "$OUT"
+        assert_eq "$label: the status file is untouched" "$status_sha" "$(file_sha "$WT/w1_status.yaml")"
+    else
+        addwork_as w2
+        assert_not_contains "$label: no ADDED" "ADDED:" "$OUT"
+        assert_eq "$label: no agent file written" "" "$(cd "$WT" && ls w2_* 2>/dev/null)"
+    fi
+    assert_exit_nonzero_rc "$label: $cli fails" "$RC"
+    assert_eq "$label: HEAD, index and state unchanged" "$before" "$(wt_snapshot)"
+    assert_contains "$label: the refusal names the state" "${state}_in_progress" "$ERR"
+}
+test_22 22a merge setmode
+test_22 22b merge addwork
+test_22 22c rebase setmode
+test_22 22d rebase addwork
+
+# --- Test 23: concurrent writers during setmode's commit ---
+# The fixture's peer commit is disjoint, so a setmode that commits rebases onto
+# it and publishes.
+test_23_merge() {
+    local label="$1" point="$2" remote_before
+    echo "--- Test $label: a merge opened at $point never gets concluded ---"
+    setup_crew_remote_fixture peer_only
+    new_inject_log
+    remote_before="$(remote_head)"
+    setmode_w1 interactive "HARNESS_GIT_INJECT=merge@$point"
+    assert_injected "$label" merge
+    assert_exit_nonzero_rc "$label: setmode fails" "$RC"
+    assert_not_contains "$label: no UPDATED" "UPDATED:" "$OUT"
+    assert_eq "$label: the merge is still open" "$INJECTED_MERGE_HEAD" "$(merge_head_state)"
+    assert_eq "$label: HEAD is the concurrent writer's commit" "$INJECTED_COMMIT" "$(git -C "$WT" rev-parse HEAD)"
+    assert_contains "$label: the refusal names the merge" "has an unfinished merge (merge_in_progress)" "$ERR"
+    assert_eq "$label: the remote is unchanged" "$remote_before" "$(remote_head)"
+}
+test_23_merge 23a after-add
+test_23_merge 23b after-write-tree
+test_23_merge 23c before-update-ref
+
+SETMODE_SUBJECT="crew: Set launch_mode=interactive for agent 'w1' in crew '$CREW_ID'"
+
+echo "--- Test 23d: control — an own-path commit lands before setmode's swap → retried ---"
+setup_crew_remote_fixture peer_only
+new_inject_log
+setmode_w1 interactive HARNESS_GIT_INJECT=commit-own@before-update-ref
+assert_injected 23d commit-own
+assert_eq "23d: setmode succeeds" "0" "$RC"
+assert_contains "23d: UPDATED printed" "UPDATED:w1:interactive" "$OUT"
+assert_eq "23d: setmode's commit lands on top of the concurrent one" \
+    "$SETMODE_SUBJECT|concurrent heartbeat|peer: add peer_only.txt" \
+    "$(git -C "$WT" log -3 --format=%s | paste -sd'|' -)"
+assert_contains "23d: HEAD carries setmode's change" "launch_mode: interactive" "$(git -C "$WT" show HEAD:w1_status.yaml)"
+assert_linear 23d
+assert_no_unsafe_report 23d
+assert_published 23d
+
+echo "--- Test 23e: control — a commit takes setmode's staged change before its swap ---"
+setup_crew_remote_fixture peer_only
+new_inject_log
+setmode_w1 interactive HARNESS_GIT_INJECT=commit@before-update-ref
+assert_injected 23e commit
+assert_eq "23e: setmode succeeds" "0" "$RC"
+assert_contains "23e: UPDATED printed" "UPDATED:w1:interactive" "$OUT"
+assert_eq "23e: no empty commit of setmode's own" "concurrent heartbeat|peer: add peer_only.txt" \
+    "$(git -C "$WT" log -2 --format=%s | paste -sd'|' -)"
+assert_contains "23e: HEAD carries setmode's change" "launch_mode: interactive" "$(git -C "$WT" show HEAD:w1_status.yaml)"
+assert_linear 23e
+assert_no_unsafe_report 23e
+assert_published 23e
+
+echo "--- Test 23f: control — an ordinary commit right after setmode's own ---"
+setup_crew_remote_fixture peer_only
+new_inject_log
+setmode_w1 interactive HARNESS_GIT_INJECT=commit@after-update-ref
+assert_injected 23f commit
+assert_eq "23f: setmode succeeds" "0" "$RC"
+assert_eq "23f: both commits, in order" "concurrent heartbeat|$SETMODE_SUBJECT|peer: add peer_only.txt" \
+    "$(git -C "$WT" log -3 --format=%s | paste -sd'|' -)"
+assert_linear 23f
+assert_no_unsafe_report 23f
+assert_published 23f
+new_inject_log
+setmode_w1 headless
+assert_eq "23f: a later setmode still works" "0" "$RC"
+assert_contains "23f: the later setmode committed" "launch_mode: headless" "$(git -C "$WT" show HEAD:w1_status.yaml)"
+
+echo "--- Test 23g: control — a commit takes setmode's staged change right after the add ---"
+setup_crew_remote_fixture peer_only
+new_inject_log
+setmode_w1 interactive HARNESS_GIT_INJECT=commit@after-add
+assert_injected 23g commit
+assert_eq "23g: setmode succeeds" "0" "$RC"
+assert_eq "23g: no empty commit of setmode's own" "concurrent heartbeat|peer: add peer_only.txt" \
+    "$(git -C "$WT" log -2 --format=%s | paste -sd'|' -)"
+assert_contains "23g: HEAD carries setmode's change" "launch_mode: interactive" "$(git -C "$WT" show HEAD:w1_status.yaml)"
+assert_no_unsafe_report 23g
+assert_published 23g
+
+# --- Test 24: git_commit_push_if_changes (the runner, `ait crew status set`) ---
+set_w1_status() {
+    sed "s/^status: .*/status: $1/" "$WT/w1_status.yaml" > "$WT/w1_status.yaml.tmp" &&
+        mv "$WT/w1_status.yaml.tmp" "$WT/w1_status.yaml"
+}
+
+echo "--- Test 24a: a stopped rebase → nothing staged, nothing committed ---"
+setup_crew_remote_fixture agent_conflict
+stop_a_rebase_by_hand w1_alive.yaml "s/^last_heartbeat:.*/last_heartbeat: '2026-10-15 10:02:00'/"
+new_inject_log
+echo "dirty: yes" >> "$WT/w1_status.yaml"
+before="$(wt_snapshot)"
+run_commit "runner: iteration 1"
+assert_eq "24a: HEAD, index and state unchanged" "$before" "$(wt_snapshot)"
+assert_eq "24a: the change is still unstaged" "dirty" \
+    "$(git -C "$WT" diff --quiet -- w1_status.yaml && echo clean || echo dirty)"
+assert_contains "24a: the warning says why" "git commit skipped (runner: iteration 1): unfinished rebase_in_progress" "$ERR"
+
+test_24_merge() {
+    local label="$1" point="$2"
+    echo "--- Test $label: a merge opened at $point never gets concluded ---"
+    setup_crew_remote_fixture peer_only
+    catch_up_with_remote
+    new_inject_log
+    set_w1_status Running
+    run_commit "runner: iteration 2" "merge@$point"
+    assert_injected "$label" merge
+    assert_eq "$label: the merge is still open" "$INJECTED_MERGE_HEAD" "$(merge_head_state)"
+    assert_eq "$label: HEAD is the concurrent writer's commit" "$INJECTED_COMMIT" "$(git -C "$WT" rev-parse HEAD)"
+    assert_contains "$label: the warning names the merge" "unfinished merge_in_progress" "$ERR"
+    assert_eq "$label: nothing pushed" "$PEER_SHA" "$(remote_head)"
+}
+test_24_merge 24b after-add
+test_24_merge 24c before-update-ref
+
+echo "--- Test 24d: control — an own-path commit lands before the swap → retried, pushed ---"
+setup_crew_remote_fixture peer_only
+catch_up_with_remote
+new_inject_log
+set_w1_status Completed
+run_commit "agent w1: Running -> Completed" commit-own@before-update-ref
+assert_injected 24d commit-own
+assert_eq "24d: the commit lands on top of the concurrent one" \
+    "agent w1: Running -> Completed|concurrent heartbeat" "$(git -C "$WT" log -2 --format=%s | paste -sd'|' -)"
+assert_contains "24d: HEAD carries the status change" "status: Completed" "$(git -C "$WT" show HEAD:w1_status.yaml)"
+assert_linear 24d
+assert_no_unsafe_report 24d
+assert_published 24d
+out="$(run_runner --once 2>&1)"
+assert_not_contains "24d: the runner then runs normally" "PULL_UNSAFE" "$out"
+
+echo "--- Test 24e: control — a commit takes the staged change before the swap → still pushed ---"
+setup_crew_remote_fixture peer_only
+catch_up_with_remote
+new_inject_log
+set_w1_status Completed
+run_commit "agent w1: Running -> Completed" commit@before-update-ref
+assert_injected 24e commit
+assert_eq "24e: no empty commit of its own" "concurrent heartbeat" "$(git -C "$WT" log -1 --format=%s)"
+assert_contains "24e: HEAD carries the status change" "status: Completed" "$(git -C "$WT" show HEAD:w1_status.yaml)"
+assert_linear 24e
+assert_no_unsafe_report 24e
+assert_published 24e
+
+echo "--- Test 24f: control — an ordinary commit right after the swap ---"
+setup_crew_remote_fixture peer_only
+catch_up_with_remote
+new_inject_log
+set_w1_status Running
+run_commit "runner: iteration 3" commit@after-update-ref
+assert_injected 24f commit
+assert_eq "24f: both commits, in order" "concurrent heartbeat|runner: iteration 3" \
+    "$(git -C "$WT" log -2 --format=%s | paste -sd'|' -)"
+assert_linear 24f
+assert_no_unsafe_report 24f
+new_inject_log
+set_w1_status Completed
+run_commit "runner: iteration 4"
+assert_eq "24f: a later call commits normally" "runner: iteration 4" "$(git -C "$WT" log -1 --format=%s)"
+assert_no_unsafe_report 24f
+assert_published 24f
+
+echo "--- Test 24g: \`ait crew status set\` during a stopped rebase ---"
+setup_crew_remote_fixture agent_conflict
+local_commit w1_status.yaml "s/^status: .*/status: Running/" "local: w1 running"
+stop_a_rebase_by_hand w1_alive.yaml "s/^last_heartbeat:.*/last_heartbeat: '2026-10-15 10:02:00'/"
+new_inject_log
+head_before="$(git -C "$WT" rev-parse HEAD)"
+status_set_w1 Completed
+assert_contains "24g: the status is set" "STATUS_SET:w1:Running:Completed" "$OUT"
+assert_contains "24g: the status file says so" "status: Completed" "$(cat "$WT/w1_status.yaml")"
+assert_eq "24g: nothing committed" "$head_before" "$(git -C "$WT" rev-parse HEAD)"
+assert_eq "24g: the rebase is left alone" "rebase_in_progress" "$(crew_state)"
+assert_contains "24g: the warning says the change is uncommitted" "git commit skipped (agent w1: Running -> Completed)" "$ERR"
+
+echo "--- Test 24h: control — once the rebase is resolved, the same call commits ---"
+git -C "$WT" rebase --abort
+set_w1_status Completed
+run_commit "agent w1: Running -> Completed"
+assert_eq "24h: committed" "agent w1: Running -> Completed" "$(git -C "$WT" log -1 --format=%s)"
+assert_no_unsafe_report 24h
+
+# --- Test 24i: a staging failure is reported, never read as "no work" ---
+echo "--- Test 24i: a held index.lock → git add fails → reported, never silently dropped ---"
+setup_crew_remote_fixture peer_only
+catch_up_with_remote
+new_inject_log
+index_lock="$(git -C "$WT" rev-parse --git-path index.lock)"
+[[ "$index_lock" == /* ]] || index_lock="$WT/$index_lock"
+: > "$index_lock"
+head_before="$(git -C "$WT" rev-parse HEAD)"
+setmode_w1 interactive
+assert_exit_nonzero_rc "24i: setmode fails" "$RC"
+assert_not_contains "24i: setmode prints no UPDATED" "UPDATED:" "$OUT"
+assert_contains "24i: setmode names the failed add" "git add failed in crew worktree" "$ERR"
+assert_eq "24i: setmode committed nothing" "$head_before" "$(git -C "$WT" rev-parse HEAD)"
+set_w1_status Completed
+run_commit "agent w1: Running -> Completed"
+assert_eq "24i: nothing committed" "$head_before" "$(git -C "$WT" rev-parse HEAD)"
+assert_contains "24i: the warning names the failed add" \
+    "git commit skipped (agent w1: Running -> Completed): git add failed" "$ERR"
+assert_contains "24i: the change is still in the worktree" "status: Completed" "$(cat "$WT/w1_status.yaml")"
+rm -f "$index_lock"
+run_commit "agent w1: Running -> Completed"
+assert_eq "24i: control: with the lock gone the same call commits" "agent w1: Running -> Completed" \
+    "$(git -C "$WT" log -1 --format=%s)"
+assert_no_unsafe_report 24i
+
+# --- Test 25: the shell probe and the runner's agree (clean, unknown) ---
+echo "--- Test 25: shell and runner crew_merge_state agree ---"
+assert_eq "25: clean worktree" "|" "$(crew_state)|$(crew_state_sh)"
+saved_wt="$WT"
+WT="$ROOT/not_a_repo"
+mkdir -p "$WT"
+assert_eq "25: git cannot answer → probe_failed" "probe_failed|probe_failed" "$(crew_state)|$(crew_state_sh)"
+WT="$saved_wt"
 
 echo ""
 echo "=== Results ==="

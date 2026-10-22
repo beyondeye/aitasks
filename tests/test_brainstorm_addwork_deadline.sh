@@ -11,7 +11,8 @@
 #
 # Every cell drives the real _run_addwork (through a stub ./ait that execs the
 # real aitask_crew_addwork.sh) with the deadline and stop grace patched short:
-#   D1  the deadline expires during a slow pre-commit hook
+#   D1  the deadline expires during a slow commit (its signing step: crew
+#       commits run no hooks since t2028)
 #   D2  ... during the rebase (a slow commit signer, while rebase-merge exists)
 #   D3  a commit signer that hangs and ignores SIGTERM: the last resort
 #   D4  ... during a hanging fetch: publishing is skipped
@@ -202,6 +203,7 @@ all_gone() {
 }
 
 # signer <mode> — install a stub gpg.program and turn on commit signing.
+#   slow-commit: 4s for addwork's commit
 #   slow-rebase: fast for addwork's commit, 4s for the rebase's re-sign
 #   hang-commit: the commit's signature hangs and ignores SIGTERM
 signer() {
@@ -214,6 +216,7 @@ if [ -d "\$gd/rebase-merge" ]; then where=in-rebase; else where=no-rebase; fi
 echo "call \$n: \$where" >> "$ROOT/gpg.log"
 cat >/dev/null
 case "$mode:\$n" in
+    slow-commit:1) echo start >> "$ROOT/sign.log"; sleep 4; echo end >> "$ROOT/sign.log" ;;
     slow-rebase:2) sleep 4 ;;
     hang-commit:1) echo \$\$ >> "$ROOT/gpg.pids"; trap '' TERM; sleep 30 ;;
 esac
@@ -243,20 +246,16 @@ EOF
 
 echo "=== brainstorm's addwork deadline is a stop request (t2024) ==="
 
-# --- D1: slow commit hook ---
-echo "--- D1: the deadline expires during a slow pre-commit hook ---"
+# --- D1: slow commit ---
+# crew_commit_paths builds the commit with commit-tree (t2028), which runs no
+# hooks; signing is the commit's one slow local step.
+echo "--- D1: the deadline expires during a slow commit (signing) ---"
 new_crew d1
 remote_before="$(remote_tip d1)"
-cat > "$REPO/.git/hooks/pre-commit" <<EOF
-#!/bin/sh
-echo start >> "$ROOT/hook.log"
-sleep 4
-echo end >> "$ROOT/hook.log"
-EOF
-chmod +x "$REPO/.git/hooks/pre-commit"
+signer slow-commit
 HARNESS_CREW=d1 HARNESS_AGENT=a1 HARNESS_DEADLINE=1 HARNESS_STOP_GRACE=15 run_harness run
 assert_eq "D1: registration succeeds" "ok:a1" "$RESULT"
-assert_contains "D1: the hook ran to completion (never killed)" "end" "$(cat "$ROOT/hook.log" 2>/dev/null)"
+assert_contains "D1: the signing ran to completion (never killed)" "end" "$(cat "$ROOT/sign.log" 2>/dev/null)"
 elapsed_cmp "D1" "it waited for the commit" ge 4
 elapsed_cmp "D1" "it finished inside the stop grace" le 12
 assert_eq "D1: the registration is committed" "yes" "$(committed a1)"

@@ -740,14 +740,111 @@ def git_push(worktree: str, batch: bool = False) -> None:
         print(f"[{ts}] git push warning: {result.stderr.strip()}", file=sys.stderr)
 
 
+def _commit_index(worktree: str, message: str) -> tuple[str, str]:
+    """Commit the staged index to the checked-out crew branch (t2028).
+
+    Never ``git commit``: it concludes a merge (it reads MERGE_HEAD) and commits
+    onto a rebase's detached HEAD, so no check placed before it can be trusted
+    and none placed after it can tell our commit from a concurrent writer's.
+    The tree is written, the state re-checked, the commit built with commit-tree
+    (which never reads MERGE_HEAD), and the branch ref advanced with a
+    compare-and-swap update-ref: it lands only if the branch is still where it
+    was, so the commit is exactly ours and a plain child of it. As for the
+    synthetic merge commit (``_merge_diverged``), no commit hooks run. Mirrors
+    ``crew_commit_paths`` in lib/agentcrew_utils.sh.
+
+    Returns ``(outcome, detail)``: ``committed`` (detail: the commit),
+    ``nothing`` (the tree is HEAD's: another writer committed it), ``unsafe``
+    (detail: the crew_merge_state that appeared), ``moved`` (the branch moved
+    under the swap; retry), or ``failed`` (detail: why).
+    """
+    ref = git_cmd(worktree, "symbolic-ref", "-q", "HEAD", check=False)
+    branch = ref.stdout.strip()
+    if ref.returncode != 0 or not branch:
+        state = crew_merge_state(worktree)
+        return ("unsafe", state) if state else ("failed", "HEAD is detached")
+    pre = _commit_id(worktree, "HEAD")
+    if not pre:
+        return "failed", "HEAD is not a commit"
+    written = git_cmd(worktree, "write-tree", check=False)
+    tree = written.stdout.strip()
+    state = crew_merge_state(worktree)
+    if state:
+        return "unsafe", state
+    if written.returncode != 0 or not _OBJECT_ID.fullmatch(tree):
+        return "failed", f"write-tree: {_one_line(written.stderr) or 'no tree id'}"
+    head_tree = git_cmd(worktree, "rev-parse", "-q", "--verify", f"{pre}^{{tree}}", check=False)
+    if head_tree.returncode == 0 and head_tree.stdout.strip() == tree:
+        return "nothing", ""
+    sign = _sign_args(worktree)
+    if sign is None:
+        return "failed", "commit.gpgSign could not be read"
+    commit = git_cmd(worktree, "commit-tree", *sign, tree, "-p", pre, "-m", message, check=False)
+    new = commit.stdout.strip()
+    if commit.returncode != 0 or not _OBJECT_ID.fullmatch(new):
+        return "failed", f"commit-tree: {_one_line(commit.stderr)}"
+    swap = git_cmd(worktree, "update-ref", "-m", f"commit: {message}", branch, new, pre,
+                   check=False)
+    if swap.returncode != 0:
+        return "moved", ""
+    return "committed", new
+
+
+_COMMIT_ATTEMPTS = 3
+
+
 def git_commit_push_if_changes(worktree: str, message: str, batch: bool = False) -> None:
-    """Stage all changes in worktree, commit and push if there are changes."""
-    git_cmd(worktree, "add", "-A", check=False)
-    # Check if there are staged changes
-    result = git_cmd(worktree, "diff", "--cached", "--quiet", check=False)
-    if result.returncode != 0:
-        git_cmd(worktree, "commit", "-m", message, check=False)
-        git_push(worktree, batch)
+    """Stage all changes in worktree, commit and push if there are changes.
+
+    Never stages, commits or pushes while a merge or rebase is unfinished in the
+    worktree (t2028): ``git add -A`` would mark conflicted paths resolved with
+    their markers. The commit goes through ``_commit_index``, so it can never
+    conclude or join another process's operation; a branch that moved under it
+    is retried. A call that staged work publishes the branch once that work is
+    on it, whoever committed it — ``ait crew status set`` relies on its terminal
+    transition reaching origin. The skip warnings go to stderr in batch mode too:
+    they are the only sign that a change stayed uncommitted.
+    """
+    had_work = False
+    for _ in range(_COMMIT_ATTEMPTS):
+        state = crew_merge_state(worktree)
+        if state:
+            _warn_commit_skipped(worktree, message, f"unfinished {state}",
+                                 "staged but not committed" if had_work else "nothing staged")
+            return
+        staged = git_cmd(worktree, "add", "-A", check=False)
+        if staged.returncode != 0:
+            # An unstaged change is not "no work": a held index.lock would
+            # otherwise leave e.g. a terminal status uncommitted without a word.
+            _warn_commit_skipped(worktree, message,
+                                 f"git add failed: {_one_line(staged.stderr) or f'exit {staged.returncode}'}",
+                                 "staged but not committed" if had_work else "not staged")
+            return
+        if git_cmd(worktree, "diff", "--cached", "--quiet", check=False).returncode == 0:
+            if had_work:
+                git_push(worktree, batch)  # another writer committed our work
+            return
+        had_work = True
+        outcome, detail = _commit_index(worktree, message)
+        if outcome in ("committed", "nothing"):
+            git_push(worktree, batch)
+            return
+        if outcome == "unsafe":
+            _warn_commit_skipped(worktree, message, f"unfinished {detail}",
+                                 "staged but not committed")
+            return
+        if outcome == "failed":
+            _warn_commit_skipped(worktree, message, detail, "staged but not committed")
+            return
+    _warn_commit_skipped(worktree, message, "the crew branch kept moving",
+                         "staged but not committed")
+
+
+def _warn_commit_skipped(worktree: str, message: str, reason: str, left: str) -> None:
+    ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
+    print(f"[{ts}] git commit skipped ({message}): {reason} in {worktree}; changes "
+          f"{left}. The crew runner holds while a merge or rebase is unfinished: "
+          f"`git -C {worktree} status` shows it.", file=sys.stderr)
 
 
 # ---------------------------------------------------------------------------

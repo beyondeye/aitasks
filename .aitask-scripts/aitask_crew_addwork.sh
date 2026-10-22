@@ -121,6 +121,10 @@ validate_agent_name "$AGENT_NAME"
 # Resolve crew worktree
 WT_PATH="$(resolve_crew "$CREW_ID")"
 
+# Refuse before reading or writing anything while another process's merge or
+# rebase is unfinished in the shared worktree (t2028).
+crew_require_clean "$WT_PATH" "nothing was written"
+
 # Check agent name uniqueness
 if [[ -f "$WT_PATH/${AGENT_NAME}_status.yaml" ]]; then
     die "Agent '$AGENT_NAME' already exists in crew '$CREW_ID'"
@@ -326,21 +330,28 @@ GROUPEOF
 fi
 
 # --- Commit in worktree ---
-(
-    cd "$WT_PATH"
-    # shellcheck disable=SC2086
-    git add "${AGENT_NAME}_work2do.md" "${AGENT_NAME}_status.yaml" \
-            "${AGENT_NAME}_input.md" "${AGENT_NAME}_output.md" \
-            "${AGENT_NAME}_instructions.md" "${AGENT_NAME}_commands.yaml" \
-            "${AGENT_NAME}_alive.yaml" "_crew_meta.yaml" $GIT_ADD_GROUPS
-    git commit -m "crew: Add agent '${AGENT_NAME}' to crew '${CREW_ID}'" --quiet
-)
+# crew_commit_paths refuses, and never concludes or joins, another process's
+# unfinished merge or rebase (t2028).
+# shellcheck disable=SC2086
+crew_commit_paths "$WT_PATH" "crew: Add agent '${AGENT_NAME}' to crew '${CREW_ID}'" \
+    "${AGENT_NAME}_work2do.md" "${AGENT_NAME}_status.yaml" \
+    "${AGENT_NAME}_input.md" "${AGENT_NAME}_output.md" \
+    "${AGENT_NAME}_instructions.md" "${AGENT_NAME}_commands.yaml" \
+    "${AGENT_NAME}_alive.yaml" "_crew_meta.yaml" $GIT_ADD_GROUPS
 
 # --- Publish (best-effort) ---
-# Outside the commit subshell, so a stop request recorded by this shell's trap
-# is seen between the steps. crew_pull_rebase keeps t2008's --no-autostash.
+# Outside the commit step, so a stop request recorded by this shell's trap is
+# seen between the steps. crew_pull_rebase keeps t2008's --no-autostash and
+# rebases only when the rebase is proven clean (t2028). Its status 2 means an
+# unfinished merge or rebase is in the worktree (already reported): nothing is
+# pushed, and addwork fails, so a caller such as brainstorm does not go on to
+# write the agent's input into a worktree an abort would reset.
+PULL_RC=0
 if [[ -z "$_AIT_CREW_STOP" ]]; then
-    crew_pull_rebase "$WT_PATH" || true
+    crew_pull_rebase "$WT_PATH" || PULL_RC=$?
+fi
+if [[ "$PULL_RC" -eq 2 ]]; then
+    die "Agent '$AGENT_NAME' is registered (committed) in crew '$CREW_ID' but not published: the crew worktree is left unsafe (see above)"
 fi
 if [[ -z "$_AIT_CREW_STOP" ]]; then
     crew_push "$WT_PATH" || true

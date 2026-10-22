@@ -154,8 +154,144 @@ crew_push() {
     [[ "$rc" -eq 0 ]] || return 1
 }
 
+# --- Unfinished git operations in the shared crew worktree (t2028) ---
+# The runner, `ait crew status set`, addwork and setmode all commit in the same
+# worktree. None of them may conclude, join or strand another process's merge or
+# rebase: the runner holds while one is unfinished (agentcrew_utils.py git_pull,
+# t2018), and these helpers make the shell writers refuse instead.
+
+# _crew_warn_raw <message> — warn() without echo -e, for text that carries
+# paths or git output (warn() would interpret backslashes in them).
+_crew_warn_raw() {
+    printf '%b%s%b\n' "$YELLOW" "Warning: $1" "$NC" >&2
+}
+
+# crew_merge_state <worktree>
+# Print the unfinished merge or rebase in the worktree: merge_in_progress,
+# rebase_in_progress, unmerged_paths, or probe_failed when git could not answer
+# (an unknown state is not a clean one). Prints nothing when clean; always
+# returns 0. Mirrors agentcrew_utils.py crew_merge_state — keep the two in sync.
+crew_merge_state() {
+    local wt="$1" rc=0 name path unmerged
+    git -C "$wt" rev-parse -q --verify MERGE_HEAD >/dev/null 2>&1 || rc=$?
+    if [[ "$rc" -eq 0 ]]; then
+        echo "merge_in_progress"
+        return 0
+    fi
+    if [[ "$rc" -ne 1 ]]; then
+        echo "probe_failed"
+        return 0
+    fi
+    for name in rebase-merge rebase-apply; do
+        if ! path="$(git -C "$wt" rev-parse --git-path "$name" 2>/dev/null)"; then
+            echo "probe_failed"
+            return 0
+        fi
+        [[ "$path" == /* ]] || path="$wt/$path"
+        if [[ -e "$path" ]]; then
+            echo "rebase_in_progress"
+            return 0
+        fi
+    done
+    if ! unmerged="$(git -C "$wt" ls-files -u 2>/dev/null)"; then
+        echo "probe_failed"
+        return 0
+    fi
+    [[ -z "$unmerged" ]] || echo "unmerged_paths"
+    return 0
+}
+
+# crew_unsafe_report <worktree> <state> <what happened>
+# The one warning for an unfinished operation, on stderr. Same wording as
+# brainstorm_crew._MERGE_STATE_TEXT.
+crew_unsafe_report() {
+    local wt="$1" state="$2" what="$3" top text
+    top="$(git -C "$wt" rev-parse --show-toplevel 2>/dev/null)" || top="$wt"
+    case "$state" in
+        merge_in_progress)  text="an unfinished merge" ;;
+        rebase_in_progress) text="an unfinished rebase" ;;
+        unmerged_paths)     text="unmerged paths" ;;
+        probe_failed)       text="a state git could not report" ;;
+        *)                  text="$state" ;;
+    esac
+    _crew_warn_raw "crew worktree $top has $text ($state): $what. The crew runner holds until it is resolved: \`git -C $top status\` shows it; \`git -C $top rebase --abort\` (or \`merge --abort\`) undoes it, resetting tracked files other crew processes may have written or staged."
+}
+
+# crew_require_clean <worktree> <what happened>
+# Die, after reporting it, when the worktree has an unfinished operation.
+crew_require_clean() {
+    local wt="$1" what="$2" state
+    state="$(crew_merge_state "$wt")"
+    [[ -z "$state" ]] && return 0
+    crew_unsafe_report "$wt" "$state" "$what"
+    die "the crew worktree is not safe to write (see above)"
+}
+
+# _crew_sign_args <worktree>
+# Print -S when commit.gpgSign is set, as `git commit` would sign; nothing when
+# unset or false. Returns 1 when the setting cannot be read. Mirrors
+# agentcrew_utils.py _sign_args.
+_crew_sign_args() {
+    local value rc=0
+    value="$(git -C "$1" config --type=bool commit.gpgSign 2>/dev/null)" || rc=$?
+    [[ "$rc" -eq 1 ]] && return 0
+    [[ "$rc" -eq 0 ]] || return 1
+    if [[ "$value" == "true" ]]; then
+        echo "-S"
+    fi
+    return 0
+}
+
+# crew_commit_paths <worktree> <message> <path>...
+# Stage <path>... and commit them to the checked-out crew branch, or die.
+# Never `git commit`: it concludes a merge (it reads MERGE_HEAD) and commits onto
+# a rebase's detached HEAD, so no check placed before it can be trusted, and
+# none placed after it can tell our commit from a concurrent writer's. Instead
+# the tree is written, the state re-checked, the commit built with commit-tree
+# (which never reads MERGE_HEAD) and the branch ref advanced with a
+# compare-and-swap update-ref: it lands only if the branch is still where it
+# was, so the commit is exactly ours and a plain child of it. A merge or rebase
+# cannot start once our paths are staged (both refuse on a dirty index), so one
+# can only appear after another writer commits the index — which moves the
+# branch and fails our swap. A failed swap is ordinary concurrency: retry. A
+# tree equal to HEAD's means another writer already committed our paths. As for
+# the runner's synthetic merge commit (t2018), no commit hooks run.
+crew_commit_paths() {
+    local wt="$1" msg="$2"
+    shift 2
+    local what="$*" ref pre tree new sign _
+    for _ in 1 2 3; do
+        crew_require_clean "$wt" "$what written but not staged or committed"
+        git -C "$wt" add -- "$@" \
+            || die "git add failed in crew worktree $wt: $what written but not staged or committed"
+        if ! ref="$(git -C "$wt" symbolic-ref -q HEAD)"; then
+            crew_require_clean "$wt" "$what staged but not committed"
+            die "crew worktree $wt has a detached HEAD: $what staged but not committed"
+        fi
+        pre="$(git -C "$wt" rev-parse -q --verify 'HEAD^{commit}')" \
+            || die "crew worktree $wt: HEAD is not a commit; $what staged but not committed"
+        if ! tree="$(git -C "$wt" write-tree 2>/dev/null)"; then
+            crew_require_clean "$wt" "$what staged but not committed"
+            die "git write-tree failed in crew worktree $wt: $what staged but not committed"
+        fi
+        crew_require_clean "$wt" "$what staged but not committed"
+        if [[ "$tree" == "$(git -C "$wt" rev-parse -q --verify "$pre^{tree}")" ]]; then
+            return 0
+        fi
+        sign="$(_crew_sign_args "$wt")" \
+            || die "commit.gpgSign could not be read in crew worktree $wt: $what staged but not committed"
+        # shellcheck disable=SC2086  # $sign is empty or the single word -S
+        new="$(git -C "$wt" commit-tree $sign "$tree" -p "$pre" -m "$msg")" \
+            || die "git commit-tree failed in crew worktree $wt: $what staged but not committed"
+        if git -C "$wt" update-ref -m "commit: $msg" "$ref" "$new" "$pre" 2>/dev/null; then
+            return 0
+        fi
+    done
+    die "crew worktree $wt: $what staged but not committed: the crew branch kept moving"
+}
+
 # crew_pull_rebase <worktree>
-# Rebase the crew branch onto its freshly fetched upstream (best-effort, quiet).
+# Rebase the crew branch onto its freshly fetched upstream (best-effort).
 # What `git pull --rebase --no-autostash` did, split in two so that only the
 # network step is bounded: the fetch of the tracked branch runs through
 # _crew_git_bounded, and the local rebase runs only after a fetch that
@@ -164,11 +300,25 @@ crew_push() {
 # agents' uncommitted heartbeats, status and command files, and a user's
 # rebase.autoStash would stash and re-apply them; without it the rebase refuses
 # on a dirty worktree, as under git's default. The upstream is read like
-# agentcrew_utils.py's _upstream_source (t2018). Returns 1, quietly, when there
-# is no upstream (the old pull died with "no tracking information"), or when
-# the fetch or the rebase failed.
+# agentcrew_utils.py's _upstream_source (t2018).
+# The rebase is opened only when `merge-tree --write-tree` proves it clean in
+# memory (t2028, the runner's rule from t2018); a proven conflict leaves the
+# branch as it is. git < 2.38 has no proof and rebases as before. A rebase that
+# stops anyway is left in place and reported, never aborted: `rebase --abort` is
+# a hard reset, and it would discard anything another crew process wrote or
+# staged meanwhile — which no check can rule out in a shared worktree.
+# Returns 0 when rebased; 1 when not rebased, with the worktree as it was (no
+# upstream, failed fetch, proven conflict, failed proof, or a rebase that
+# refused to start — the last one quietly, as it is the common dirty-worktree
+# case); 2 when an unfinished operation is in the worktree (reported). Never
+# writes to stdout.
 crew_pull_rebase() {
-    local wt="$1" branch remote merge_ref out rc=0
+    local wt="$1" state branch remote merge_ref out proof paths rc=0
+    state="$(crew_merge_state "$wt")"
+    if [[ -n "$state" ]]; then
+        crew_unsafe_report "$wt" "$state" "the crew branch was not rebased or published"
+        return 2
+    fi
     branch="$(git -C "$wt" symbolic-ref -q HEAD 2>/dev/null)" || return 1
     remote="$(git -C "$wt" for-each-ref --format='%(upstream:remotename)' "$branch" 2>/dev/null)" || return 1
     merge_ref="$(git -C "$wt" for-each-ref --format='%(upstream:remoteref)' "$branch" 2>/dev/null)" || return 1
@@ -177,7 +327,25 @@ crew_pull_rebase() {
     _crew_git_bounded "$wt" "$out" fetch --quiet -- "$remote" "$merge_ref" || rc=$?
     rm -f "$out"
     [[ "$rc" -eq 0 ]] || return 1
-    git -C "$wt" rebase --no-autostash --quiet >/dev/null 2>&1
+    rc=0
+    proof="$(git -C "$wt" merge-tree --write-tree --no-messages --name-only HEAD '@{u}' 2>/dev/null)" || rc=$?
+    case "$rc" in
+        0|129) ;;  # proven clean, or a git with no proof (< 2.38): rebase as before
+        1)
+            paths="$(printf '%s\n' "$proof" | sed -e '1d' -e '/^$/d' | sort -u | tr '\n' ' ')"
+            _crew_warn_raw "crew branch not rebased onto its upstream: it conflicts in ${paths% }; left unchanged and not published"
+            return 1
+            ;;
+        *)
+            _crew_warn_raw "crew branch not rebased onto its upstream: the merge proof failed (git merge-tree exit $rc); left unchanged and not published"
+            return 1
+            ;;
+    esac
+    git -C "$wt" rebase --no-autostash --quiet >/dev/null 2>&1 && return 0
+    state="$(crew_merge_state "$wt")"
+    [[ -n "$state" ]] || return 1
+    crew_unsafe_report "$wt" "$state" "the rebase onto the upstream stopped and was left in progress, not aborted"
+    return 2
 }
 
 # validate_crew_id <id>
