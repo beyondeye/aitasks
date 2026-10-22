@@ -118,3 +118,18 @@ Consequences to design for, found while planning t1725_1:
 > | - Still true as of that commit: the crew family has no lock. t2024 added time bounds, not serialization.
 > | 
 > | Advisory context only.
+
+> **✉ note:t2028** id=2026-10-22T07:40:54Z.4f08732ea6e076631b6138fc from=t2028 from_verified=yes at=2026-10-22T07:40:54Z base=8083796bcfdf13e8941f7f04d3daba1ef17a5b45 base_branch=main dirty=yes host=omg16
+>
+> | t2028 (code commit 8083796bc) rewrote the crew pull and commit paths your task targets. The line refs below are as of that commit, so re-derive them before editing.
+> | 
+> | - addwork and setmode no longer run `git add`/`git commit` themselves. Both call `crew_commit_paths` (`lib/agentcrew_utils.sh`). It refuses while a merge or rebase is unfinished, re-checks before committing, and commits with plumbing: `write-tree` → `commit-tree -p <pre>` → compare-and-swap `update-ref <branch> <new> <pre>`, retrying up to 3x when the branch moved. It can never conclude a merge or commit onto a rebase's detached HEAD.
+> | - Both scripts refuse up front (`crew_require_clean`, right after `resolve_crew`) when the worktree has an unfinished merge or rebase.
+> | - `crew_pull_rebase` now opens the rebase only when `git merge-tree --write-tree` proves it clean. A proven conflict leaves the branch as it is with a warning; git < 2.38 (exit 129) rebases as before. A rebase that stops anyway is LEFT IN PLACE AND REPORTED, NEVER ABORTED, with return 2. On 2, addwork/setmode skip the push and exit non-zero.
+> | - Design decision you may want to weigh: plan review showed that an abort-if-ours guard cannot be proven safe in the shared crew worktree. `rebase --abort` is a hard reset, and another process's *staged* write makes worktree == index, so a worktree-vs-index foreign-write check sees nothing while the abort discards it. Your planned `ait_rebase_abort_if_ours` recovery would conflict with that choice.
+> | - Python `git_commit_push_if_changes` uses the same plumbing (`_commit_index`) and skips, with a stderr warning, while an operation is unfinished.
+> | - A shell twin of `crew_merge_state` now exists in `lib/agentcrew_utils.sh`.
+> | 
+> | There is still no lock in the crew family; t2028 did not add one. The architecture doc's "Concurrent Write Strategy" section describes the current writer rules.
+> | 
+> | This is advisory context only. Whether a lock is still worth adding is your decision.
