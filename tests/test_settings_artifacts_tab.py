@@ -17,7 +17,10 @@ Pinned here:
   - `k` switches to the tab;
   - values read from the YAML are text, never markup or argv-unsafe: a
     backend named "[/bold]" renders and is refused, a branch with a NUL byte is
-    refused without crashing.
+    refused without crashing;
+  - the routine-fetch exclusion apply (t2099) runs in a thread worker
+    (t2125): a held apply blocks neither the save nor input, any later save
+    retires its toast, and exit — real `App.run` teardown too — never waits.
 
 Run: python3 tests/test_settings_artifacts_tab.py
 """
@@ -26,10 +29,15 @@ from __future__ import annotations
 
 import asyncio
 import os
+import subprocess
 import sys
 import tempfile
+import threading
+import time
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest import mock
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts"))
@@ -90,13 +98,16 @@ class _Fixture(unittest.TestCase):
         return self.cfg.read_bytes()
 
     def run_app(self, body, canned: dict | None = None,
-                fetch_exclusion: tuple[int, str, str] | None = None):
+                fetch_exclusion: tuple[int, str, str] | None = None,
+                fx_seam=None):
         """Boot the app with a recording seam and a notify/save spy, then run
         `body(app, pilot, calls, notes, saves)`.
 
         The fetch-exclusion seam (t2099) is always stubbed — a save must never
         launch the real CLI from a test — and records its calls in
-        `app._fx_calls`; `fetch_exclusion` is its canned (rc, out, err)."""
+        `app._fx_calls`; `fetch_exclusion` is its canned (rc, out, err), and
+        `fx_seam(cancelled)` replaces the canned answer when given. The seam runs
+        in the fetch-exclusion worker thread (t2125): drain before asserting."""
         async def runner():
             app = SettingsApp()
             calls: list = []
@@ -106,11 +117,38 @@ class _Fixture(unittest.TestCase):
             fx_calls: list = []
             fx_result = fetch_exclusion or (0, "FETCH_EXCLUSION:UNCHANGED\n", "")
 
-            def fx_seam():
+            def seam(cancelled=lambda: False):
                 fx_calls.append(True)
+                if fx_seam is not None:
+                    return fx_seam(cancelled)
                 return fx_result
-            app._run_fetch_exclusion = fx_seam
+            app._run_fetch_exclusion = seam
             app._fx_calls = fx_calls
+            # Completion handshake for every fetch-exclusion thread body.
+            # `@work` dispatches through `run_worker`; only the work callable
+            # is wrapped, so group / exclusive / thread stay production's. A
+            # cancelled worker's thread outlives it — `wait_for_complete()`
+            # does not cover it — and its body ends only after any
+            # `call_from_thread` callback has run, so `done` proves the late
+            # result went through (or was kept off) the notification path.
+            real_run_worker = app.run_worker
+            fx_bodies: list[tuple[threading.Event, threading.Event]] = []
+
+            def run_worker(work, *args, **kwargs):
+                if kwargs.get("group") != "fetch_exclusion":
+                    return real_run_worker(work, *args, **kwargs)
+                started, done = threading.Event(), threading.Event()
+                fx_bodies.append((started, done))
+
+                def body():
+                    started.set()
+                    try:
+                        return work()
+                    finally:
+                        done.set()
+                return real_run_worker(body, *args, **kwargs)
+            app.run_worker = run_worker
+            app._fx_bodies = fx_bodies
             real_notify = app.notify
 
             def notify(message, **kw):
@@ -147,6 +185,56 @@ class _Fixture(unittest.TestCase):
 
     def errors(self, notes) -> list[str]:
         return [m for m, sev in notes if sev == "error"]
+
+    @classmethod
+    async def drain(cls, app, pilot) -> None:
+        """Let every fetch-exclusion thread body finish and its toast land — a
+        deliberate drain of real workers (testing_conventions.md). Waits on
+        each started body's `done`, not only on the workers: a superseded
+        thread keeps running after its worker was cancelled and removed."""
+        await app.workers.wait_for_complete()
+        for started, done in app._fx_bodies:
+            if started.is_set():
+                await cls.wait_for(done, what="a fetch-exclusion thread body")
+        await pilot.pause()
+
+    @staticmethod
+    async def wait_for(event: threading.Event, timeout: float = 5.0,
+                       what: str = "the seam") -> None:
+        """Poll, never block: the loop must stay free to run the
+        `call_from_thread` callback a finishing thread body waits on."""
+        deadline = time.monotonic() + timeout
+        while not event.is_set():
+            assert time.monotonic() < deadline, f"{what} never finished"
+            await asyncio.sleep(0.02)
+
+
+class _BlockingSeam:
+    """A fetch-exclusion seam that holds its result until `release` is set.
+
+    With `honour_cancel` it returns as soon as `cancelled()` turns true, like
+    the real seam; otherwise it ignores cancellation and returns `result`
+    anyway — the late result a superseded worker must never toast. `cap` keeps
+    a broken test from hanging forever."""
+
+    def __init__(self, result, honour_cancel: bool = True, cap: float = 10.0):
+        self.result = result
+        self.honour_cancel = honour_cancel
+        self.cap = cap
+        self.entered = threading.Event()
+        self.release = threading.Event()
+        self.saw_cancel = False
+
+    def __call__(self, cancelled):
+        self.entered.set()
+        deadline = time.monotonic() + self.cap
+        while not self.release.wait(0.02):
+            if self.honour_cancel and cancelled():
+                self.saw_cancel = True
+                return 1, "", "fetch-exclusion update abandoned"
+            if time.monotonic() >= deadline:
+                break
+        return self.result
 
 
 class SchemaTests(unittest.TestCase):
@@ -401,41 +489,49 @@ class SaveTests(_Fixture):
         self.run_app(body)
 
 
+_GITBRANCH_CFG = ("artifacts:\n  backends:\n    gitbranch:\n"
+                  "      branch: old-branch\n")
+_CHANGED = (0, "EXCLUDED:origin:new-branch\nFETCH_EXCLUSION:CHANGED\n", "")
+_BUSY = (1, "FETCH_EXCLUSION:BUSY\n", "[x] lock busy\n")
+
+
+def _fx_toasts(notes) -> list[str]:
+    return [m for m, _ in notes
+            if "Routine fetches now skip" in m or "exclusion" in m]
+
+
 class FetchExclusionTests(_Fixture):
-    """t2099: saving a gitbranch branch re-applies the routine-fetch exclusion."""
+    """t2099: saving a gitbranch branch re-applies the routine-fetch exclusion;
+    t2125: off the event loop, newest save wins, exit never waits on it."""
 
     def test_save_with_branch_applies_exclusion(self):
-        self.write_cfg("artifacts:\n  backends:\n    gitbranch:\n"
-                       "      branch: old-branch\n")
+        self.write_cfg(_GITBRANCH_CFG)
 
         async def body(app, pilot, calls, notes, saves):
             self.set_branch(app, "new-branch")
             app.save_artifacts_settings()
-            await pilot.pause()
+            await self.drain(app, pilot)
             self.assertEqual(len(saves), 1, notes)
             self.assertEqual(len(app._fx_calls), 1)
         self.run_app(body)
 
     def test_changed_exclusion_is_reported(self):
-        self.write_cfg("artifacts:\n  backends:\n    gitbranch:\n"
-                       "      branch: old-branch\n")
+        self.write_cfg(_GITBRANCH_CFG)
 
         async def body(app, pilot, calls, notes, saves):
             self.set_branch(app, "new-branch")
             app.save_artifacts_settings()
-            await pilot.pause()
+            await self.drain(app, pilot)
             self.assertTrue(any("Routine fetches now skip" in m for m, _ in notes), notes)
-        self.run_app(body, fetch_exclusion=(
-            0, "EXCLUDED:origin:new-branch\nFETCH_EXCLUSION:CHANGED\n", ""))
+        self.run_app(body, fetch_exclusion=_CHANGED)
 
     def test_failed_exclusion_warns_and_keeps_the_save(self):
-        self.write_cfg("artifacts:\n  backends:\n    gitbranch:\n"
-                       "      branch: old-branch\n")
+        self.write_cfg(_GITBRANCH_CFG)
 
         async def body(app, pilot, calls, notes, saves):
             self.set_branch(app, "new-branch")
             app.save_artifacts_settings()
-            await pilot.pause()
+            await self.drain(app, pilot)
             self.assertEqual(len(saves), 1, notes)
             warnings = [m for m, sev in notes if sev == "warning"]
             self.assertTrue(any(
@@ -445,21 +541,228 @@ class FetchExclusionTests(_Fixture):
             # Advisory only: the exclusion never turns into an error toast.
             self.assertFalse(any("exclusion" in m for m in self.errors(notes)), notes)
         # The stderr carries markup-like text: it must render literally.
-        self.run_app(body, fetch_exclusion=(1, "FETCH_EXCLUSION:BUSY\n", "[x] lock busy\n"))
+        self.run_app(body, fetch_exclusion=_BUSY)
 
     def test_save_without_gitbranch_skips_exclusion(self):
         self.write_cfg("verify_build: make\n")
 
         async def body(app, pilot, calls, notes, saves):
             app.save_artifacts_settings()
-            await pilot.pause()
+            # Checked before any pause: a started worker is listed at once.
+            self.assertEqual(
+                [w for w in app.workers if w.group == "fetch_exclusion"], [])
+            await self.drain(app, pilot)
             self.assertEqual(app._fx_calls, [])
         self.run_app(body)
+
+    def test_blocked_seam_does_not_block_save(self):
+        self.write_cfg(_GITBRANCH_CFG)
+        seam = _BlockingSeam(_CHANGED)
+
+        async def body(app, pilot, calls, notes, saves):
+            self.set_branch(app, "new-branch")
+            app.save_artifacts_settings()       # returns with the seam held
+            self.assertEqual(len(saves), 1, notes)
+            await self.wait_for(seam.entered)
+            self.assertEqual(_fx_toasts(notes), [])
+            # The UI still processes input while the apply is pending.
+            await pilot.press("k")
+            await pilot.pause()
+            self.assertEqual(app.query_one(TabbedContent).active, "tab_artifacts")
+            self.assertEqual(_fx_toasts(notes), [])
+            seam.release.set()
+            await self.drain(app, pilot)
+            self.assertTrue(any("Routine fetches now skip" in m for m, _ in notes), notes)
+        self.run_app(body, fx_seam=seam)
+
+    def test_newest_save_wins(self):
+        self.write_cfg(_GITBRANCH_CFG)
+        first = _BlockingSeam(_CHANGED, honour_cancel=False)
+        seams = [first, lambda cancelled: (0, "FETCH_EXCLUSION:UNCHANGED\n", "")]
+
+        async def body(app, pilot, calls, notes, saves):
+            self.set_branch(app, "new-branch")
+            app.save_artifacts_settings()
+            await self.wait_for(first.entered)
+            await pilot.pause()
+            self.set_branch(app, "newer-branch")
+            app.save_artifacts_settings()
+            await pilot.pause()
+            first.release.set()                 # the older run finishes last
+            await self.drain(app, pilot)
+            self.assertEqual([d.is_set() for _s, d in app._fx_bodies], [True, True])
+            self.assertEqual(len(app._fx_calls), 2)
+            self.assertEqual(_fx_toasts(notes), [])
+        self.run_app(body, fx_seam=lambda cancelled: seams.pop(0)(cancelled))
+
+    def _assert_clearing_save_retires(self, late_result):
+        self.write_cfg(_GITBRANCH_CFG)
+        seam = _BlockingSeam(late_result, honour_cancel=False)
+
+        async def body(app, pilot, calls, notes, saves):
+            self.set_branch(app, "new-branch")
+            app.save_artifacts_settings()
+            await self.wait_for(seam.entered)
+            await pilot.pause()
+            await self.select_backend(app, pilot, "local")
+            self.set_branch(app, "")
+            app.save_artifacts_settings()       # no branch: launches nothing
+            await pilot.pause()
+            self.assertEqual(len(saves), 2, notes)
+            self.assertEqual(len(app._fx_calls), 1)
+            seam.release.set()
+            await self.drain(app, pilot)
+            self.assertEqual([d.is_set() for _s, d in app._fx_bodies], [True])
+            self.assertEqual(_fx_toasts(notes), [])
+        self.run_app(body, fx_seam=seam)
+
+    def test_clearing_save_retires_pending_failure(self):
+        self._assert_clearing_save_retires(_BUSY)
+
+    def test_clearing_save_retires_pending_change(self):
+        self._assert_clearing_save_retires(_CHANGED)
+
+    def test_exit_does_not_wait_for_seam(self):
+        self.write_cfg(_GITBRANCH_CFG)
+        seam = _BlockingSeam(_CHANGED)
+
+        async def body(app, pilot, calls, notes, saves):
+            self.set_branch(app, "new-branch")
+            app.save_artifacts_settings()
+            await self.wait_for(seam.entered)
+            app.exit()
+        started = time.monotonic()
+        self.run_app(body, fx_seam=seam)
+        self.assertLess(time.monotonic() - started, seam.cap / 2)
+        self.assertTrue(seam.saw_cancel)
+        self.assertFalse(seam.release.is_set())
 
     def test_real_seam_targets_the_artifact_cli(self):
         from settings_app import ARTIFACT_CLI
         self.assertEqual(ARTIFACT_CLI.name, "aitask_artifact.sh")
         self.assertTrue(os.access(ARTIFACT_CLI, os.X_OK), ARTIFACT_CLI)
+
+
+class RealFetchExclusionSeamTests(unittest.TestCase):
+    """The real `_run_fetch_exclusion` against a stand-in CLI script (t2125)."""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def run_seam(self, script: str, cancelled=lambda: False, timeout=30):
+        cli = self.root / "fake_artifact.sh"
+        cli.write_text("#!/usr/bin/env bash\n" + script, encoding="utf-8")
+        cli.chmod(0o755)
+        host = SimpleNamespace(FETCH_EXCLUSION_TIMEOUT=timeout)
+        with mock.patch("settings_app.ARTIFACT_CLI", cli):
+            started = time.monotonic()
+            result = SettingsApp._run_fetch_exclusion(host, cancelled)
+        return result, time.monotonic() - started
+
+    def test_output_and_status_come_back(self):
+        (rc, out, err), _ = self.run_seam(
+            'echo "FETCH_EXCLUSION:CHANGED"; echo "warn: $1 $2" >&2; exit 0\n')
+        self.assertEqual(
+            (rc, out, err),
+            (0, "FETCH_EXCLUSION:CHANGED\n", "warn: fetch-exclusion apply\n"))
+
+    def test_failure_status_is_kept(self):
+        (rc, out, _err), _ = self.run_seam('echo "FETCH_EXCLUSION:BUSY"; exit 3\n')
+        self.assertEqual((rc, out), (3, "FETCH_EXCLUSION:BUSY\n"))
+
+    def test_cancel_abandons_without_killing_the_child(self):
+        marker = self.root / "finished"
+        (rc, _out, err), elapsed = self.run_seam(
+            f'sleep 1; echo done > "{marker}"\n', cancelled=lambda: True)
+        self.assertEqual(rc, 1)
+        self.assertIn("abandoned", err)
+        self.assertLess(elapsed, 0.9)
+        deadline = time.monotonic() + 5
+        while not marker.exists() and time.monotonic() < deadline:
+            time.sleep(0.05)
+        self.assertTrue(marker.exists(), "the abandoned CLI was killed")
+
+    def test_timeout_kills_and_reports(self):
+        (rc, _out, err), elapsed = self.run_seam("sleep 5\n", timeout=0.3)
+        self.assertEqual(rc, 1)
+        self.assertIn("timed out", err)
+        self.assertLess(elapsed, 2)
+
+    def test_missing_cli_is_a_failure_not_a_crash(self):
+        host = SimpleNamespace(FETCH_EXCLUSION_TIMEOUT=30)
+        with mock.patch("settings_app.ARTIFACT_CLI", self.root / "absent.sh"):
+            rc, _out, err = SettingsApp._run_fetch_exclusion(host)
+        self.assertEqual(rc, 1)
+        self.assertIn("cannot run the fetch-exclusion update", err)
+
+
+_TEARDOWN_DRIVER = '''
+import asyncio, sys, threading, time
+sys.path[:0] = {paths!r}
+from settings_app import SettingsApp
+
+mark = sys.argv[1]
+app = SettingsApp()
+entered = threading.Event()
+
+
+def seam(cancelled=lambda: False):
+    entered.set()
+    deadline = time.monotonic() + 20
+    while time.monotonic() < deadline:
+        if {honour!r} and cancelled():
+            open(mark, "w").write("cancelled")
+            return 1, "", "abandoned"
+        time.sleep(0.02)
+    open(mark, "w").write("timeout")
+    return 0, "", ""
+
+
+app._run_fetch_exclusion = seam
+
+
+async def auto(pilot):
+    await pilot.pause()
+    _field, row = app._artifacts_widgets()
+    row.raw_value = "new-branch"
+    app.save_artifacts_settings()
+    while not entered.is_set():
+        await asyncio.sleep(0.02)
+    app.exit()
+
+
+app.run(headless=True, size=(140, 45), auto_pilot=auto)
+'''
+
+
+class RealTeardownTests(_Fixture):
+    """A real `App.run` teardown (asyncio.run + default-executor join), which
+    `run_test` does not reproduce: exit must not wait on a held apply (t2125)."""
+
+    def run_driver(self, honour_cancel: bool):
+        self.write_cfg(_GITBRANCH_CFG)
+        paths = [str(REPO_ROOT / ".aitask-scripts"),
+                 str(REPO_ROOT / ".aitask-scripts" / "lib"),
+                 str(REPO_ROOT / ".aitask-scripts" / "settings")]
+        driver = self.root / "driver.py"
+        driver.write_text(_TEARDOWN_DRIVER.format(paths=paths, honour=honour_cancel),
+                          encoding="utf-8")
+        mark = self.root / "seam_outcome"
+        started = time.monotonic()
+        proc = subprocess.run([sys.executable, str(driver), str(mark)],
+                              cwd=self.root, capture_output=True, text=True,
+                              timeout=15)
+        return proc, time.monotonic() - started, mark
+
+    def test_headless_run_exits_with_seam_blocked(self):
+        proc, elapsed, mark = self.run_driver(honour_cancel=True)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertLess(elapsed, 8, proc.stderr)
+        self.assertEqual(mark.read_text(), "cancelled")
 
 
 class HostileValueTests(_Fixture):

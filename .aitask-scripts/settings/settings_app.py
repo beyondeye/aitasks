@@ -13,6 +13,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
@@ -70,12 +71,13 @@ from launch_modes import DEFAULT_LAUNCH_MODE, normalize_launch_mode  # noqa: E40
 import model_supersession as ms  # noqa: E402
 from metadata_commit import commit_metadata, remedy_command  # noqa: E402
 
-from textual import on  # noqa: E402
+from textual import on, work  # noqa: E402
 from textual.app import App, ComposeResult  # noqa: E402
 from textual.binding import Binding  # noqa: E402
 from textual.containers import Container, Horizontal, Vertical, VerticalScroll  # noqa: E402
 from textual.message import Message  # noqa: E402
 from textual.screen import ModalScreen  # noqa: E402
+from textual.worker import get_current_worker  # noqa: E402
 from textual.widgets import (  # noqa: E402
     Button,
     DataTable,
@@ -2209,6 +2211,8 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
         self._repop_counter: int = 0  # ensures unique widget IDs across repopulations
         self._tmux_tab_rc: int = 0  # counter snapshot for tmux tab widgets
         self._artifacts_tab_rc: int = 0  # counter snapshot for artifacts tab widgets
+        # Bumped by every artifacts save; an apply result from an older one is dropped.
+        self._fetch_exclusion_gen: int = 0
         self._profiles_tab_rc: int = 0  # counter snapshot for profiles tab widgets
         self._shortcuts_swept: bool = False  # global scope sweep runs once
         self._shortcuts_query: str = ""  # fuzzy filter for the Shortcuts tab
@@ -3949,23 +3953,71 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
             # a value read from YAML) — refused like any other failure.
             return 1, "", f"cannot run the artifact registry: {exc}"
 
-    def _run_fetch_exclusion(self) -> tuple[int, str, str]:
+    FETCH_EXCLUSION_TIMEOUT = 30  # seconds before the CLI is killed
+
+    def _run_fetch_exclusion(
+            self, cancelled: Callable[[], bool] = lambda: False,
+    ) -> tuple[int, str, str]:
         """Run `aitask_artifact.sh fetch-exclusion apply` (t2099).
 
         Keeps routine fetches off the gitbranch store after the branch config
         changed. Returns (rc, stdout, stderr) and never raises.
+
+        Runs in the fetch-exclusion worker thread (t2125) and polls `cancelled`,
+        so app exit never waits on the CLI. A cancelled run is abandoned, never
+        killed: the CLI rewrites remote.<r>.* in several git-config steps, and
+        stopping it part-way could leave them half rewritten. Its output goes to
+        unlinked temp files rather than pipes, so an abandoned child neither
+        blocks on a full pipe nor dies of SIGPIPE once nobody reads it.
         """
         try:
-            proc = subprocess.run(
-                [str(ARTIFACT_CLI), "fetch-exclusion", "apply"],
-                capture_output=True, text=True, timeout=30,
-            )
-            return proc.returncode, proc.stdout, proc.stderr
-        except (OSError, ValueError, subprocess.TimeoutExpired) as exc:
+            with tempfile.TemporaryFile("w+") as out_f, \
+                    tempfile.TemporaryFile("w+") as err_f:
+                proc = subprocess.Popen(
+                    [str(ARTIFACT_CLI), "fetch-exclusion", "apply"],
+                    stdin=subprocess.DEVNULL, stdout=out_f, stderr=err_f,
+                )
+                deadline = time.monotonic() + self.FETCH_EXCLUSION_TIMEOUT
+                while True:
+                    try:
+                        rc = proc.wait(timeout=0.1)
+                        break
+                    except subprocess.TimeoutExpired:
+                        if cancelled():
+                            return 1, "", "fetch-exclusion update abandoned"
+                        if time.monotonic() >= deadline:
+                            proc.kill()
+                            proc.wait()
+                            return 1, "", (
+                                "cannot run the fetch-exclusion update: timed "
+                                f"out after {self.FETCH_EXCLUSION_TIMEOUT}s")
+                out_f.seek(0)
+                err_f.seek(0)
+                return rc, out_f.read(), err_f.read()
+        except (OSError, ValueError) as exc:
+            # ValueError: an undecodable output byte (UnicodeDecodeError).
             return 1, "", f"cannot run the fetch-exclusion update: {exc}"
 
+    def _retire_fetch_exclusion(self) -> None:
+        """Invalidate any in-flight apply: its result describes an older save."""
+        self._fetch_exclusion_gen += 1
+        self.workers.cancel_group(self, "fetch_exclusion")
+
     def _apply_fetch_exclusion(self) -> None:
-        rc, out, err = self._run_fetch_exclusion()
+        """Re-apply the exclusion off the event loop (t2125): the CLI waits up
+        to 10s on a repository-wide lock, and the UI must not freeze meanwhile."""
+        self._fetch_exclusion_worker(self._fetch_exclusion_gen)
+
+    @work(thread=True, exclusive=True, group="fetch_exclusion")
+    def _fetch_exclusion_worker(self, gen: int) -> None:
+        worker = get_current_worker()
+        rc, out, err = self._run_fetch_exclusion(lambda: worker.is_cancelled)
+        if not worker.is_cancelled:  # superseded, or the app is exiting
+            self.call_from_thread(self._on_fetch_exclusion, gen, rc, out, err)
+
+    def _on_fetch_exclusion(self, gen: int, rc: int, out: str, err: str) -> None:
+        if gen != self._fetch_exclusion_gen:  # a newer save retired this run
+            return
         if rc != 0:
             detail = err.strip().splitlines()[-1] if err.strip() else "see 'ait artifact fetch-exclusion apply'"
             self.notify(
@@ -4223,6 +4275,10 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
             return
 
         self.config_mgr.save_project_settings(data)
+        # Retire on every save, not only when a new apply starts: a save that
+        # clears the branch launches nothing, yet a pending apply from an
+        # earlier branch save must not toast after it.
+        self._retire_fetch_exclusion()
         if self._refresh_after_save("project", "Artifact settings saved"):
             self._populate_artifacts_tab()
             self.notify("Artifact settings saved")
