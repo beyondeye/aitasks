@@ -60,6 +60,10 @@ func Rows(ctx context.Context, rep *runner.RunReport) ([]byte, error) {
 			Row: RowResult, RunID: rep.RunID, Surface: surface, HostClass: hc, At: at,
 			Invocation: res.Invocation, Group: rec.Group, ID: res.ID.String(),
 			Status: res.Status, DurationMS: res.DurationMS, HeadSHA: rec.HeadStart, Clean: clean,
+			Reason: res.Reason,
+		}
+		if r := j.runnerOf(res.ID); r != nil {
+			row.Accounting, row.Discovery = r.Describe.Accounting, r.Describe.Discovery
 		}
 		if res.Child {
 			row.Parent = res.Parent.String()

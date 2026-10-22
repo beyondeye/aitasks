@@ -5,21 +5,39 @@ import (
 	"slices"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/beyondeye/aitasks/goengines/internal/testmap/registry"
 )
 
-// ListRow is one `list` row with its line number.
+// ListRow is one `list` row with its line number, and the case identities
+// its case rows named, in list order.
 type ListRow struct {
-	Unit registry.ListedUnit
-	Line int
+	Unit  registry.ListedUnit
+	Line  int
+	Cases []string
+}
+
+// caseKind is the kind field of a case row: `<unit id>\tcase\t<identity>`
+// names one expected case identity of a unit the same output lists (G1a;
+// only an `accounting: cases` runner may print one).
+const caseKind = "case"
+
+// ValidCaseID reports whether s can be a case identity: non-empty, valid
+// UTF-8, no control character (so it is one tab-free line). It is otherwise
+// free text.
+func ValidCaseID(s string) bool {
+	return s != "" && utf8.ValidString(s) && !strings.ContainsFunc(s, unicode.IsControl)
 }
 
 // ParseList parses a runner's `list` output: one
-// `<id>\t<kind>\t<lowering>[\t<artifact>]` row per line, each line ending in
-// a newline. A malformed row is an error naming the line — never skipped: a
+// `<id>\t<kind>\t<lowering>[\t<artifact>]` unit row or one
+// `<unit id>\tcase\t<identity>` case row per line, each line ending in a
+// newline. A malformed row is an error naming the line — never skipped: a
 // list that silently drops a row would make a unit invisible to `check` and
-// to `run --all`.
+// to `run --all`, and a dropped or doubled case row would change what the
+// engine reconciles. A case row must name a unit the same output lists, and
+// an identity appears once per unit.
 func ParseList(data []byte) ([]ListRow, error) {
 	if len(data) == 0 {
 		return nil, nil
@@ -30,8 +48,25 @@ func ParseList(data []byte) ([]ListRow, error) {
 	}
 	var rows []ListRow
 	seen := map[registry.ID]int{}
+	type caseRow struct {
+		unit registry.ID
+		id   string
+		line int
+	}
+	var cases []caseRow
 	for i, line := range strings.Split(strings.TrimSuffix(text, "\n"), "\n") {
 		no := i + 1
+		if f := strings.Split(line, "\t"); len(f) == 3 && f[1] == caseKind {
+			unit, err := registry.ParseID(f[0])
+			if err != nil {
+				return nil, fmt.Errorf("list line %d: case row: %v", no, err)
+			}
+			if !ValidCaseID(f[2]) {
+				return nil, fmt.Errorf("list line %d: case row: invalid case identity %q", no, f[2])
+			}
+			cases = append(cases, caseRow{unit, f[2], no})
+			continue
+		}
 		u, err := parseListRow(line)
 		if err != nil {
 			return nil, fmt.Errorf("list line %d: %v", no, err)
@@ -41,6 +76,23 @@ func ParseList(data []byte) ([]ListRow, error) {
 		}
 		seen[u.ID] = no
 		rows = append(rows, ListRow{Unit: u, Line: no})
+	}
+	at := map[registry.ID]int{}
+	for i, r := range rows {
+		at[r.Unit.ID] = i
+	}
+	first := map[[2]string]int{}
+	for _, c := range cases {
+		i, ok := at[c.unit]
+		if !ok {
+			return nil, fmt.Errorf("list line %d: case row for %s, which this output does not list", c.line, c.unit)
+		}
+		k := [2]string{c.unit.String(), c.id}
+		if prev, dup := first[k]; dup {
+			return nil, fmt.Errorf("list line %d: case %q of %s already listed on line %d", c.line, c.id, c.unit, prev)
+		}
+		first[k] = c.line
+		rows[i].Cases = append(rows[i].Cases, c.id)
 	}
 	return rows, nil
 }

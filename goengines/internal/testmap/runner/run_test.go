@@ -141,6 +141,7 @@ func TestRunAllSubsumedAndChildren(t *testing.T) {
 	if !isolated(t, hangLimit) {
 		return
 	}
+	withReportingContract(t, "bash-file-exit")
 	r := newRepo(t, map[string]string{"tests/a.sh": "", "tests/b.sh": "", "suite.cfg": ""})
 	st := stateOfRepoless(t)
 	put(t, r, "shell", spec{describe: "unit: file", list: "tests/a.sh|file|a\ntests/b.sh|file|b\n",
@@ -167,7 +168,7 @@ func TestRunAllSubsumedAndChildren(t *testing.T) {
 	}
 	// A suite that exits 0 while one of its child rows fails contradicts
 	// itself: exit_mismatch, never a pass.
-	put(t, r, "full", spec{describe: "unit: suite\nfull: true", list: "suite.cfg|suite|all\n",
+	put(t, r, "full", spec{describe: "unit: suite\nfull: true\nchildren: bash-file-exit", list: "suite.cfg|suite|all\n",
 		run: "row suite.cfg pass 30; row tests/a.sh pass 10 suite.cfg; row tests/b.sh fail 20 suite.cfg; exit 0"})
 	rep, err := Run(bg, r.Dir, Options{All: true, RunID: "contradiction"})
 	if err != nil || rep.Invocations[0].CauseDetail != "exit_mismatch" || rep.Exit() != 1 {
@@ -175,7 +176,7 @@ func TestRunAllSubsumedAndChildren(t *testing.T) {
 	}
 	// Exit 1 with a passing suite parent and a failing registered child is
 	// consistent (no cause) — and the failing child fails the run.
-	put(t, r, "full", spec{describe: "unit: suite\nfull: true", list: "suite.cfg|suite|all\n",
+	put(t, r, "full", spec{describe: "unit: suite\nfull: true\nchildren: bash-file-exit", list: "suite.cfg|suite|all\n",
 		run: "row suite.cfg pass 30; row tests/a.sh pass 10 suite.cfg; row tests/b.sh fail 20 suite.cfg; exit 1"})
 	rep, err = Run(bg, r.Dir, Options{All: true, RunID: "child-fails"})
 	if err != nil || rep.Invocations[0].Cause != "" || statuses(rep)["suite.cfg"] != StatusPass || rep.Exit() != 1 {
@@ -220,7 +221,7 @@ func TestSubsumptionCycleWithPassingRunner(t *testing.T) {
 	if !errors.As(err, &le) || le.ExitCode() != 3 {
 		t.Fatalf("not a framework error: %v", err)
 	}
-	if _, err := registry.Check(bg, r.Dir, registry.Inputs{Annotations: noAnns{}, Lister: Lister{}}, registry.CheckOptions{}); err == nil {
+	if _, err := registry.Check(bg, r.Dir, registry.Inputs{Annotations: noAnns{}, Lister: &Lister{}}, registry.CheckOptions{}); err == nil {
 		t.Fatal("check passed over a subsumption cycle")
 	}
 }

@@ -10,6 +10,7 @@ import (
 
 // Every M3.1 describe key decodes to its field, both list forms included.
 func TestDescribeGoldens(t *testing.T) {
+	withReportingContract(t, "pytest-junitxml")
 	d, err := ParseDescribe([]byte(`unit: class
 batch: no
 needs: [heavy-run, emulator]
@@ -24,7 +25,8 @@ timeouts: batch
 		t.Fatal(err)
 	}
 	want := Describe{Unit: "class", Batch: false, Needs: []string{"heavy-run", "emulator"}, GroupBy: "regex:^(.*?)/src/",
-		FilterScope: FilterWholeRun, Full: true, Children: "pytest-junitxml", ArtifactGlob: []string{"app/src/**/screens/*.kt"}, Timeouts: TimeoutsBatch}
+		FilterScope: FilterWholeRun, Full: true, Children: "pytest-junitxml", ArtifactGlob: []string{"app/src/**/screens/*.kt"}, Timeouts: TimeoutsBatch,
+		Accounting: AccountingUnit, Discovery: DiscoveryCandidates}
 	if !reflect.DeepEqual(d, want) {
 		t.Fatalf("got  %+v\nwant %+v", d, want)
 	}
@@ -35,7 +37,8 @@ timeouts: batch
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := (Describe{Unit: "file", Batch: true, GroupBy: "none", FilterScope: FilterPerUnit, Timeouts: TimeoutsNone}); !reflect.DeepEqual(min, want) {
+	if want := (Describe{Unit: "file", Batch: true, GroupBy: "none", FilterScope: FilterPerUnit, Timeouts: TimeoutsNone,
+		Accounting: AccountingUnit, Discovery: DiscoveryCandidates}); !reflect.DeepEqual(min, want) {
 		t.Fatalf("defaults: %+v", min)
 	}
 }

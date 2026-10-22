@@ -35,6 +35,22 @@ const (
 	FilterWholeRun = "whole_run"
 )
 
+// Accounting classes (`describe` key `accounting:`, G1): what a top-level
+// result proves about the tests behind it.
+const (
+	AccountingCases     = "cases"     // the engine reconciled every expected case identity (reconcile.go)
+	AccountingUnit      = "unit"      // the unit is one executable whose exit is its verdict
+	AccountingAggregate = "aggregate" // one command over many tests: proves the command's exit only
+)
+
+// Discovery classes (`describe` key `discovery:`, G5): how the runner's
+// `list` knows its units.
+const (
+	DiscoveryNative     = "native"     // the framework's own collector, under the execution configuration
+	DiscoveryInventory  = "inventory"  // an explicit, enumerable rule or list
+	DiscoveryCandidates = "candidates" // a source scan: never a claim of complete discovery
+)
+
 // Describe is a runner's `describe` output: one YAML mapping. Unknown keys
 // are refused, so a misspelt key never silently changes how units are run.
 // Keys a later submodule owns are registered with RegisterDescribeKey and
@@ -49,17 +65,20 @@ type Describe struct {
 	Children     string   `json:"children,omitempty"`
 	ArtifactGlob []string `json:"artifact_glob,omitempty"`
 	Timeouts     string   `json:"timeouts"`
+	Accounting   string   `json:"accounting"`
+	Discovery    string   `json:"discovery"`
 	// Ext holds the values of keys registered by RegisterDescribeKey.
 	Ext map[string]yaml.Node `json:"-"`
 }
 
 // defaultDescribe is what every key defaults to.
 func defaultDescribe() Describe {
-	return Describe{Batch: true, GroupBy: "none", FilterScope: FilterPerUnit, Timeouts: TimeoutsNone}
+	return Describe{Batch: true, GroupBy: "none", FilterScope: FilterPerUnit, Timeouts: TimeoutsNone,
+		Accounting: AccountingUnit, Discovery: DiscoveryCandidates}
 }
 
 // The describe keys M3.1 owns, in documentation order.
-var describeKeys = []string{"unit", "batch", "needs", "group_by", "filter_scope", "full", "children", "artifact_glob", "timeouts"}
+var describeKeys = []string{"unit", "batch", "needs", "group_by", "filter_scope", "full", "children", "artifact_glob", "timeouts", "accounting", "discovery"}
 
 var (
 	extMu   sync.Mutex
@@ -76,6 +95,30 @@ func RegisterDescribeKey(key string) {
 		panic("runner: describe key registered twice: " + key)
 	}
 	extKeys[key] = true
+}
+
+var (
+	contractMu sync.Mutex
+	contracts  = map[string]bool{}
+)
+
+// RegisterReportingContract makes `children: <name>` valid (G7): child rows
+// reach the engine only through a registered reporting contract (t1854_14
+// registers each report format it ships). Until then `children:` is refused
+// at load. Registering an invalid name, or a name twice, panics.
+func RegisterReportingContract(name string) {
+	contractMu.Lock()
+	defer contractMu.Unlock()
+	if !validName(name) || contracts[name] {
+		panic("runner: reporting contract registered twice or invalid: " + name)
+	}
+	contracts[name] = true
+}
+
+func reportingContractRegistered(name string) bool {
+	contractMu.Lock()
+	defer contractMu.Unlock()
+	return contracts[name]
 }
 
 func isExtKey(key string) bool {
@@ -166,6 +209,10 @@ func parseDescribeMap(n *yaml.Node, other map[string]bool) (Describe, map[string
 			d.ArtifactGlob, err = stringList(k, v)
 		case "timeouts":
 			d.Timeouts, err = scalar(k, v)
+		case "accounting":
+			d.Accounting, err = scalar(k, v)
+		case "discovery":
+			d.Discovery, err = scalar(k, v)
 		default:
 			return d, nil, fmt.Errorf("describe: unknown key %q", k)
 		}
@@ -206,6 +253,12 @@ func (d Describe) Merge(o Describe, set map[string]bool) Describe {
 	if set["timeouts"] {
 		d.Timeouts = o.Timeouts
 	}
+	if set["accounting"] {
+		d.Accounting = o.Accounting
+	}
+	if set["discovery"] {
+		d.Discovery = o.Discovery
+	}
 	for k, v := range o.Ext {
 		if d.Ext == nil {
 			d.Ext = map[string]yaml.Node{}
@@ -241,6 +294,9 @@ func (d Describe) Validate() error {
 		if !validName(d.Children) {
 			return fmt.Errorf("describe: children: invalid post-processor name %q", d.Children)
 		}
+		if !reportingContractRegistered(d.Children) {
+			return fmt.Errorf("describe: children: %s is not a registered reporting contract (a suite's exit is never read as test results)", d.Children)
+		}
 	}
 	for _, g := range d.ArtifactGlob {
 		if g == "" || !doublestar.ValidatePattern(g) {
@@ -251,6 +307,21 @@ func (d Describe) Validate() error {
 	case TimeoutsPerUnit, TimeoutsBatch, TimeoutsNone:
 	default:
 		return fmt.Errorf("describe: timeouts %q is not per_unit|batch|none", d.Timeouts)
+	}
+	switch d.Accounting {
+	case AccountingCases, AccountingUnit, AccountingAggregate:
+	default:
+		return fmt.Errorf("describe: accounting %q is not cases|unit|aggregate", d.Accounting)
+	}
+	switch d.Discovery {
+	case DiscoveryNative, DiscoveryInventory, DiscoveryCandidates:
+	default:
+		return fmt.Errorf("describe: discovery %q is not native|inventory|candidates", d.Discovery)
+	}
+	if d.Accounting == AccountingCases && d.Timeouts == TimeoutsPerUnit {
+		// A per_unit runner reports a unit's timeout as its top-level row,
+		// and a cases unit's top-level result is the engine's alone.
+		return errors.New("describe: accounting: cases cannot use timeouts: per_unit (use batch or none)")
 	}
 	if _, err := axes.ParseRunnerDecl(d.Ext); err != nil { // M2.4's keys (axis.go)
 		return err

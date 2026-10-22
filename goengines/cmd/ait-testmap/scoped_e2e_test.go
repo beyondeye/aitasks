@@ -62,7 +62,9 @@ func TestScopedEndToEndRealInputs(t *testing.T) {
 	}
 	expect("import", 0, "AREA_IMPORT:board|src/board/**|added\nAREA_IMPORT:board_ui|src/board/ui/**|added\nWROTE:"+registry.AreasPath+"\n", "",
 		"areas", "--import-codemap", "--apply")
-	expect("scan", 0, "SCAN:2|9|0\nWROTE:"+registry.ScannedPath+"\nWROTE:"+registry.ScopedPath+"\n", "", "scan", "--apply")
+	// The fixture runner declares no discovery class: candidates (G5).
+	const disc = "DISCOVERY:shell|candidates\n"
+	expect("scan", 0, disc+"SCAN:2|9|0\nWROTE:"+registry.ScannedPath+"\nWROTE:"+registry.ScopedPath+"\n", "", "scan", "--apply")
 	data, err := os.ReadFile(filepath.Join(r.Dir, registry.ScopedPath))
 	if err != nil {
 		t.Fatal(err)
@@ -74,7 +76,7 @@ func TestScopedEndToEndRealInputs(t *testing.T) {
 	if string(data) != wantScoped {
 		t.Fatalf("_scoped.yaml:\n%s\nwant\n%s", data, wantScoped)
 	}
-	expect("check", 0, "KIND_MISMATCH:tests/test_wide.sh|9|CONVERT_TO_SUITE\n"+emptyAdoption+"CHECK:pass|1|0\n", "", "check")
+	expect("check", 0, "KIND_MISMATCH:tests/test_wide.sh|9|CONVERT_TO_SUITE\n"+disc+emptyAdoption+"CHECK:pass|1|0\n", "", "check")
 	expect("classify", 0, "CLASSIFY:tests/test_wide.sh|integration|fanout:9\n", "", "classify", "--suggest")
 
 	// The child area's directory goes away: its glob is dead.
@@ -82,7 +84,7 @@ func TestScopedEndToEndRealInputs(t *testing.T) {
 		t.Fatal(err)
 	}
 	expect("dead area", 1, "DEAD_SCOPE:"+registry.AreasPath+"|areas|board_ui|src/board/ui/**\n"+
-		"KIND_MISMATCH:tests/test_wide.sh|9|CONVERT_TO_SUITE\n"+emptyAdoption+"CHECK:fail|2|1\n", "", "check")
+		"KIND_MISMATCH:tests/test_wide.sh|9|CONVERT_TO_SUITE\n"+disc+emptyAdoption+"CHECK:fail|2|1\n", "", "check")
 
 	// A reads line moved into a listed test is refused by both verbs.
 	r.Write(t, "tests/test_flow.sh", "#!/usr/bin/env bash\n# testmap:reads x/*\n# testmap:unit flow_a\n# testmap:kind e2e\n# testmap:scope src/board/**\nflow_a() { :; }\n")
@@ -120,7 +122,7 @@ func TestScopedInvalidAreaRecovers(t *testing.T) {
 		}
 	}
 	r.Write(t, "tests/test_live.sh", "#!/usr/bin/env bash\n# testmap:kind integration\n# testmap:area board\n")
-	if code, out, errs := call("scan", "--apply"); code != 0 || errs != "" || out != "SCAN:0|0|0\nWROTE:"+registry.ScopedPath+"\n" {
+	if code, out, errs := call("scan", "--apply"); code != 0 || errs != "" || out != "DISCOVERY:shell|candidates\nSCAN:0|0|0\nWROTE:"+registry.ScopedPath+"\n" {
 		t.Fatalf("recovered scan: %d %q %q", code, out, errs)
 	}
 	if code, _, errs := call("check"); code != 1 || errs != "" {

@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/beyondeye/aitasks/goengines/internal/testmap/registry"
 )
@@ -15,7 +17,8 @@ import (
 // far inside int64.
 const maxDurationMS int64 = 1 << 40
 
-// Row is one valid `results.jsonl` result row.
+// Row is one valid `results.jsonl` result row, or a `cases` unit's
+// engine-derived result (Reason, Cases and Skipped set by the reconciler).
 type Row struct {
 	ID         registry.ID
 	Status     string
@@ -23,6 +26,9 @@ type Row struct {
 	Parent     registry.ID // zero for a top-level row
 	Child      bool
 	Message    string
+	Reason     string      // engine-derived: reconciliation reasons, else the G3 policy
+	Cases      *CaseCounts // engine-derived counters of a cases unit
+	Skipped    []string    // the cases unit's skipped identities
 }
 
 // rawRow is the wire form: a start row `{"id","event":"start"}` or a result
@@ -42,8 +48,9 @@ type rowContext struct {
 	expected   map[registry.ID]bool
 	TimeoutS   map[registry.ID]float64
 	Registered func(registry.ID) bool // an owned unit of some runner
-	Full       bool                   // child rows allowed
+	Children   bool                   // child rows allowed: full: true with a registered reporting contract (G7)
 	Mode       string                 // timeouts mode
+	Accounting string                 // the runner's accounting class
 }
 
 // Validation is what row validation keeps.
@@ -53,7 +60,16 @@ type Validation struct {
 	Reported map[registry.ID]bool   // expected ids with a valid top-level result
 	PerID    map[registry.ID]string // expected ids whose own rows broke the protocol → error
 	Errors   []string               // every protocol error, `<detail>:<id or line N>`, in line order
-	Emitted  bool                   // results.jsonl held any non-whitespace byte
+	Emitted  bool                   // results.jsonl (or cases.jsonl) held any non-whitespace byte
+	// Cases is set for an accounting: cases invocation: what the adapter's
+	// own case rows say, which the exit is checked against (decide).
+	Cases *CaseExit
+}
+
+// CaseExit is the adapter's own case verdicts in one invocation.
+type CaseExit struct {
+	Rows    int  // well-formed case rows for expected units
+	Failing bool // a reported fail or error among them
 }
 
 // ValidateRows validates every complete line of results.jsonl — on a normal
@@ -67,7 +83,9 @@ type Validation struct {
 // start, a start after its result, a result without its start in per_unit
 // mode, `timeout` from a non-per_unit runner, a bound not enforced) lands in
 // PerID and is never treated as reported. Rows naming ids outside the
-// manifest and invalid child rows are discarded and recorded.
+// manifest and invalid child rows are discarded and recorded. Under
+// accounting: cases a top-level result row is refused per id
+// (`result_under_cases`): a cases unit's result is the engine's alone.
 func ValidateRows(data []byte, killed bool, c rowContext) Validation {
 	v := Validation{Started: map[registry.ID]bool{}, Reported: map[registry.ID]bool{}, PerID: map[registry.ID]string{}}
 	v.Emitted = len(bytes.TrimSpace(data)) > 0
@@ -138,7 +156,7 @@ func ValidateRows(data []byte, killed bool, c rowContext) Validation {
 			switch {
 			case err != nil:
 				v.Errors = append(v.Errors, "malformed:"+at)
-			case !c.Full || !c.expected[parent]:
+			case !c.Children || !c.expected[parent]:
 				v.Errors = append(v.Errors, "invalid_child:"+id.String())
 			case !c.Registered(id):
 				v.Errors = append(v.Errors, "unregistered_id:"+id.String())
@@ -155,6 +173,8 @@ func ValidateRows(data []byte, killed bool, c rowContext) Validation {
 			v.Errors = append(v.Errors, foreign(c, id)+":"+id.String())
 		case v.Reported[id] || v.PerID[id] != "":
 			perID(id, "duplicate")
+		case c.Accounting == AccountingCases:
+			perID(id, "result_under_cases")
 		case c.Mode == TimeoutsPerUnit && !v.Started[id]:
 			perID(id, "missing_start")
 		default:
@@ -180,30 +200,32 @@ func ValidateRows(data []byte, killed bool, c rowContext) Validation {
 	return v
 }
 
-// ownID decodes just the identity of a malformed line — a JSON object with a
-// string "id" that is top-level by the same rule decodeRow applies (a
-// "parent" that is absent, null or "" decodes to an empty Parent, so the
-// row is top-level) — and returns it when it is an expected id. A parent
+// ownID decodes just the identity of a malformed line — a JSON object with
+// exactly one string "id" member that is top-level by the same rule
+// decodeRow applies (a "parent" that is absent, null or "" decodes to an
+// empty Parent, so the row is top-level) — and returns it when it is an
+// expected id. A repeated "id" or "parent" names no single unit. A parent
 // that names an id makes it a child row, never this unit's own; a parent of
 // any other JSON type is unclassifiable and stays an invocation-level error.
 func ownID(line string, c rowContext) (registry.ID, bool) {
-	var probe struct {
-		ID     *string         `json:"id"`
-		Parent json.RawMessage `json:"parent"`
-	}
-	if json.Unmarshal([]byte(line), &probe) != nil || probe.ID == nil {
+	m, err := members(line)
+	if err != nil {
 		return registry.ID{}, false
 	}
-	if len(probe.Parent) > 0 {
+	own, ok := soleString(m, "id")
+	if !ok || len(m["parent"]) > 1 {
+		return registry.ID{}, false // no id, or a repeated id / parent: whose row it is, is ambiguous
+	}
+	if ps := m["parent"]; len(ps) == 1 {
 		var p any
-		if json.Unmarshal(probe.Parent, &p) != nil {
+		if json.Unmarshal(ps[0], &p) != nil {
 			return registry.ID{}, false
 		}
 		if s, isStr := p.(string); p != nil && !(isStr && s == "") {
 			return registry.ID{}, false
 		}
 	}
-	id, err := registry.ParseID(*probe.ID)
+	id, err := registry.ParseID(own)
 	if err != nil || !c.expected[id] {
 		return registry.ID{}, false
 	}
@@ -221,6 +243,9 @@ func foreign(c rowContext, id registry.ID) string {
 // decodeRow decodes one strict JSON object and checks its form.
 func decodeRow(line string) (rawRow, error) {
 	var r rawRow
+	if err := exactMembers(line, "id", "event", "status", "duration_ms", "parent", "message"); err != nil {
+		return r, err
+	}
 	dec := json.NewDecoder(strings.NewReader(line))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&r); err != nil {
@@ -247,6 +272,265 @@ func decodeRow(line string) (rawRow, error) {
 		return r, fmt.Errorf("event %q", r.Event)
 	}
 	return r, nil
+}
+
+// CasesFile is the case-results report an accounting: cases runner writes
+// into the per-invocation report directory: one strict JSON object per line,
+// `{"unit","case","status":pass|fail|error|skip,"duration_ms","message"?}`.
+const CasesFile = "cases.jsonl"
+
+// CaseEvidence is what validating cases.jsonl keeps.
+type CaseEvidence struct {
+	Results []CaseResult             // well-formed rows for expected units, file order
+	Taints  map[registry.ID][]string // expected units with malformed evidence (ReasonMalformedCase)
+	Errors  []string                 // protocol errors, `cases:<detail>:<id or line N>`
+	Exit    CaseExit
+	Emitted bool
+}
+
+type rawCase struct {
+	Unit       string `json:"unit"`
+	Case       string `json:"case"`
+	Status     string `json:"status"`
+	DurationMS *int64 `json:"duration_ms"`
+	Message    string `json:"message,omitempty"`
+}
+
+// ValidateCases validates every complete line of cases.jsonl, on a normal
+// exit and after a kill alike (only after an engine kill is an unterminated
+// final line ignored as truncated). A malformed line is attributed like
+// ValidateRows attributes one (ownID): when it still names an expected unit,
+// that unit's evidence is tainted malformed_case whatever valid rows it also
+// has; when it names no identifiable unit, every expected unit is tainted —
+// ambiguous evidence is never a pass (G2). A row naming a unit outside the
+// manifest is a protocol error.
+func ValidateCases(data []byte, killed bool, expected []registry.ID, registered func(registry.ID) bool) CaseEvidence {
+	ce := CaseEvidence{Taints: map[registry.ID][]string{}}
+	ce.Emitted = len(bytes.TrimSpace(data)) > 0
+	exp := map[registry.ID]bool{}
+	for _, id := range expected {
+		exp[id] = true
+	}
+	taint := func(id registry.ID) {
+		if !slices.Contains(ce.Taints[id], ReasonMalformedCase) {
+			ce.Taints[id] = append(ce.Taints[id], ReasonMalformedCase)
+		}
+	}
+	c := rowContext{Registered: registered}
+	text := string(data)
+	lines := strings.Split(text, "\n")
+	if strings.HasSuffix(text, "\n") || text == "" {
+		lines = lines[:len(lines)-1]
+	} else if killed {
+		lines = lines[:len(lines)-1] // truncated by the kill
+	}
+	for i, line := range lines {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		at := fmt.Sprintf("line %d", i+1)
+		r, err := decodeCase(line)
+		if err != nil {
+			ce.Errors = append(ce.Errors, "cases:malformed:"+at)
+			if id, ok := caseUnit(line); ok {
+				if exp[id] {
+					taint(id)
+				}
+				continue // a unit outside the manifest: the error above is all
+			}
+			for _, id := range expected {
+				taint(id)
+			}
+			continue
+		}
+		id, err := registry.ParseID(r.Unit)
+		if err != nil {
+			ce.Errors = append(ce.Errors, "cases:malformed:"+at)
+			for _, id := range expected {
+				taint(id)
+			}
+			continue
+		}
+		if !exp[id] {
+			ce.Errors = append(ce.Errors, "cases:"+foreign(c, id)+":"+id.String())
+			continue
+		}
+		ce.Exit.Rows++
+		if r.Status == StatusFail || r.Status == StatusError {
+			ce.Exit.Failing = true
+		}
+		ce.Results = append(ce.Results, CaseResult{Key: EvidenceKey{Unit: id}, Case: r.Case, Status: r.Status, DurationMS: *r.DurationMS, Message: r.Message})
+	}
+	return ce
+}
+
+// caseUnit is the unit a malformed case line still names: exactly one
+// "unit" member, a valid id. A repeated "unit" names no single unit.
+func caseUnit(line string) (registry.ID, bool) {
+	m, err := members(line)
+	if err != nil {
+		return registry.ID{}, false
+	}
+	u, ok := soleString(m, "unit")
+	if !ok {
+		return registry.ID{}, false
+	}
+	id, err := registry.ParseID(u)
+	return id, err == nil
+}
+
+// decodeCase decodes one strict case row.
+func decodeCase(line string) (rawCase, error) {
+	var r rawCase
+	if err := exactMembers(line, "unit", "case", "status", "duration_ms", "message"); err != nil {
+		return r, err
+	}
+	dec := json.NewDecoder(strings.NewReader(line))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&r); err != nil {
+		return r, err
+	}
+	if err := dec.Decode(&struct{}{}); err != io.EOF {
+		return r, fmt.Errorf("trailing data")
+	}
+	if !caseStatus(r.Status) {
+		return r, fmt.Errorf("status %q", r.Status)
+	}
+	if r.DurationMS == nil || *r.DurationMS < 0 || *r.DurationMS > maxDurationMS {
+		return r, fmt.Errorf("duration_ms missing or outside [0, %d]", maxDurationMS)
+	}
+	return r, nil
+}
+
+// members scans line as one JSON object and returns each member's raw values
+// under its exact key, in order. Decoding alone cannot judge a row: Go's
+// decoder matches keys case-insensitively and keeps the last of a repeated
+// member, so `"status":"fail","status":"pass"` (or `…,"Status":"pass"`) would
+// silently decode as a pass.
+func members(line string) (map[string][]json.RawMessage, error) {
+	dec := json.NewDecoder(strings.NewReader(line))
+	tok, err := dec.Token()
+	if err != nil {
+		return nil, err
+	}
+	if d, ok := tok.(json.Delim); !ok || d != '{' {
+		return nil, fmt.Errorf("not a JSON object")
+	}
+	out := map[string][]json.RawMessage{}
+	for dec.More() {
+		tok, err := dec.Token()
+		if err != nil {
+			return nil, err
+		}
+		k, ok := tok.(string)
+		if !ok {
+			return nil, fmt.Errorf("member name %v", tok)
+		}
+		var v json.RawMessage
+		if err := dec.Decode(&v); err != nil {
+			return nil, err
+		}
+		out[k] = append(out[k], v)
+	}
+	if _, err := dec.Token(); err != nil { // the closing brace
+		return nil, err
+	}
+	if _, err := dec.Token(); err != io.EOF {
+		return nil, fmt.Errorf("trailing data")
+	}
+	return out, nil
+}
+
+// exactMembers refuses a row that cannot be decoded without loss — invalid
+// UTF-8, or an unpaired surrogate escape: decoding repairs either into
+// U+FFFD, which may be the very identity expected — or whose members are not
+// each one of allowed, spelled exactly, at most once.
+func exactMembers(line string, allowed ...string) error {
+	if !lossless(line) {
+		return fmt.Errorf("invalid UTF-8 or an unpaired surrogate escape")
+	}
+	m, err := members(line)
+	if err != nil {
+		return err
+	}
+	for k, vs := range m {
+		if !slices.Contains(allowed, k) {
+			return fmt.Errorf("member %q", k)
+		}
+		if len(vs) > 1 {
+			return fmt.Errorf("member %q repeated", k)
+		}
+	}
+	return nil
+}
+
+// soleString is key's value when the member appears exactly once, as a
+// string that decodes without loss (never a repaired one).
+func soleString(m map[string][]json.RawMessage, key string) (string, bool) {
+	vs := m[key]
+	if len(vs) != 1 || !lossless(string(vs[0])) {
+		return "", false
+	}
+	var s string
+	if json.Unmarshal(vs[0], &s) != nil {
+		return "", false
+	}
+	return s, true
+}
+
+// lossless reports whether the JSON text s decodes without Go's silent
+// repairs: it is valid UTF-8, and every \u escape inside a string literal
+// that is a surrogate is a high surrogate immediately followed by an escaped
+// low one. Any other escape (an escaped backslash included) is taken as is.
+func lossless(s string) bool {
+	if !utf8.ValidString(s) {
+		return false
+	}
+	hex4 := func(i int) (rune, bool) {
+		if i+6 > len(s) || s[i] != '\\' || s[i+1] != 'u' {
+			return 0, false
+		}
+		var r rune
+		for _, c := range s[i+2 : i+6] {
+			switch {
+			case c >= '0' && c <= '9':
+				r = r<<4 | (c - '0')
+			case c >= 'a' && c <= 'f':
+				r = r<<4 | (c - 'a' + 10)
+			case c >= 'A' && c <= 'F':
+				r = r<<4 | (c - 'A' + 10)
+			default:
+				return 0, false
+			}
+		}
+		return r, true
+	}
+	in := false
+	for i := 0; i < len(s); i++ {
+		switch c := s[i]; {
+		case !in:
+			in = c == '"'
+		case c == '"':
+			in = false
+		case c == '\\':
+			r, ok := hex4(i)
+			switch {
+			case !ok:
+				i++ // any other escape: one character, taken as is
+			case r >= 0xDC00 && r <= 0xDFFF:
+				return false // a low surrogate with no high one before it
+			case r >= 0xD800 && r <= 0xDBFF:
+				lo, ok := hex4(i + 6)
+				if !ok || lo < 0xDC00 || lo > 0xDFFF {
+					return false
+				}
+				i += 11
+			default:
+				i += 5
+			}
+		}
+	}
+	return true
 }
 
 // RunnerJSON is the optional `runner.json`.

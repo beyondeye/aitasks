@@ -8,13 +8,17 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"path/filepath"
+	"strings"
 	"syscall"
+	"time"
 )
 
 // Bounds on what the engine reads back from a runner's report files.
 var (
 	resultsMax    int64 = 64 << 20 // results.jsonl
 	runnerJSONMax int64 = 1 << 20  // runner.json
+	reportMax     int64 = 64 << 20 // a file in the per-invocation report directory (FreshReport)
 )
 
 // readReport reads a report file a runner wrote, after the runner's
@@ -35,19 +39,118 @@ func readReport(path string, limit int64) (data []byte, absent bool, err error) 
 		return nil, false, err
 	}
 	defer f.Close()
+	data, err = readOpened(f, limit, nil)
+	return data, false, err
+}
+
+// ReportDir is a per-invocation report directory as the engine created it
+// (G6): empty, a real directory, with its identity and creation time
+// recorded, so a later read can tell it from anything put in its place.
+type ReportDir struct {
+	Path  string
+	Start time.Time // its own modification time at creation: the freshness bound
+	id    os.FileInfo
+}
+
+// NewReportDir creates path, which must not exist, and records it. Start is
+// read from the same kernel clock that stamps the files a runner writes into
+// it (time.Now and coarse file timestamps would disagree by a tick).
+func NewReportDir(path string) (ReportDir, error) {
+	if err := os.Mkdir(path, 0o755); err != nil {
+		return ReportDir{}, err
+	}
+	fi, err := os.Lstat(path)
+	if err != nil {
+		return ReportDir{}, err
+	}
+	return ReportDir{Path: path, Start: fi.ModTime(), id: fi}, nil
+}
+
+// FreshReport reads a report a runner wrote into the report directory d,
+// refusing anything the invocation did not produce: a path outside d; d
+// itself replaced (a symbolic link, or any directory but the one the engine
+// created — every read goes through a handle on that directory, so nothing
+// swapped in after the check is followed); a path through anything but real
+// directories; a symbolic link; a non-regular file; a file last modified
+// before d.Start (stale: copied or linked in with its old timestamp); a file
+// past reportMax. Every refusal is an error naming why; absent is a file
+// that does not exist in the real directory.
+func FreshReport(d ReportDir, path string) (data []byte, absent bool, err error) {
+	if d.id == nil {
+		return nil, false, errors.New("not a report directory the engine created")
+	}
+	rel, err := filepath.Rel(filepath.Clean(d.Path), filepath.Clean(path))
+	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		return nil, false, fmt.Errorf("outside the report directory: %s", path)
+	}
+	replaced := errors.New("the report directory was replaced")
+	if fi, err := os.Lstat(d.Path); err != nil || !fi.IsDir() || !os.SameFile(fi, d.id) {
+		return nil, false, replaced
+	}
+	root, err := os.OpenRoot(d.Path)
+	if err != nil {
+		return nil, false, replaced
+	}
+	defer root.Close()
+	if fi, err := root.Stat("."); err != nil || !os.SameFile(fi, d.id) {
+		return nil, false, replaced // swapped between the check and the open
+	}
+	parts := strings.Split(rel, string(filepath.Separator))
+	for i := range parts[:len(parts)-1] {
+		fi, err := root.Lstat(filepath.Join(parts[:i+1]...))
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, true, nil
+		}
+		if err != nil {
+			return nil, false, err
+		}
+		if !fi.IsDir() {
+			return nil, false, fmt.Errorf("%s is not a directory (%s)", parts[i], fi.Mode().Type())
+		}
+	}
+	switch fi, err := root.Lstat(rel); {
+	case errors.Is(err, fs.ErrNotExist):
+		return nil, true, nil
+	case err != nil:
+		return nil, false, err
+	case fi.Mode()&fs.ModeSymlink != 0:
+		return nil, false, errors.New("a symbolic link")
+	}
+	f, err := root.OpenFile(rel, os.O_RDONLY|syscall.O_NONBLOCK|syscall.O_NOFOLLOW, 0)
+	if err != nil {
+		return nil, false, err // swapped for a link or removed after the check: refused either way
+	}
+	defer f.Close()
+	data, err = readOpened(f, reportMax, func(fi os.FileInfo) error {
+		if fi.ModTime().Before(d.Start) {
+			return fmt.Errorf("stale: modified %s, before the invocation started (%s)", fi.ModTime().UTC().Format(time.RFC3339Nano), d.Start.UTC().Format(time.RFC3339Nano))
+		}
+		return nil
+	})
+	return data, false, err
+}
+
+// readOpened reads an opened report: only a regular file (fstat on the
+// handle), check applied to that same metadata, at most limit bytes.
+func readOpened(f *os.File, limit int64, check func(os.FileInfo) error) ([]byte, error) {
 	fi, err := f.Stat()
 	if err != nil {
-		return nil, false, err
+		return nil, err
 	}
 	if !fi.Mode().IsRegular() {
-		return nil, false, fmt.Errorf("not a regular file (%s)", fi.Mode().Type())
+		return nil, fmt.Errorf("not a regular file (%s)", fi.Mode().Type())
 	}
-	data, err = io.ReadAll(io.LimitReader(f, limit+1))
+	if check != nil {
+		if err := check(fi); err != nil {
+			return nil, err
+		}
+	}
+	data, err := io.ReadAll(io.LimitReader(f, limit+1))
 	if err != nil {
-		return nil, false, err
+		return nil, err
 	}
 	if int64(len(data)) > limit {
-		return nil, false, fmt.Errorf("exceeds %d bytes", limit)
+		return nil, fmt.Errorf("exceeds %d bytes", limit)
 	}
-	return data, false, nil
+	return data, nil
 }

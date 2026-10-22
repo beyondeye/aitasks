@@ -150,6 +150,7 @@ type Unit struct {
 	Resources []string    `json:"resources,omitempty"` // sorted, deduplicated
 	BatchNo   bool        `json:"batch_no,omitempty"`  // must run as a singleton invocation
 	TimeoutS  float64     `json:"timeout_s"`
+	Cases     []string    `json:"cases,omitempty"` // expected case identities (accounting: cases), from this Load's list
 }
 
 // Repository is the loaded runner repository: every runner resolved,
@@ -262,6 +263,9 @@ func loadRunner(ctx context.Context, root string, cfg Config, e Entry) (*Runner,
 	if err := r.checkTimeouts(); err != nil {
 		return nil, err
 	}
+	if e.ZeroTests != "" && r.Describe.Accounting != AccountingCases {
+		return nil, lineErr(ClassInvalid, e.Name, "zero_tests is only valid with accounting: cases")
+	}
 	out, err = r.call(ctx, root, "list")
 	if err != nil {
 		return nil, err
@@ -269,6 +273,11 @@ func loadRunner(ctx context.Context, root string, cfg Config, e Entry) (*Runner,
 	rows, err := ParseList(out)
 	if err != nil {
 		return nil, lineErr(ClassProtocol, e.Name, "list", err.Error())
+	}
+	for _, row := range rows {
+		if len(row.Cases) > 0 && r.Describe.Accounting != AccountingCases {
+			return nil, lineErr(ClassProtocol, e.Name, "list", fmt.Sprintf("list line %d: case rows from a runner with accounting: %s", row.Line, r.Describe.Accounting))
+		}
 	}
 	for _, row := range rows {
 		if _, err := r.Describe.GroupOf(row.Unit.ID); err != nil {
@@ -290,9 +299,15 @@ func (r *Runner) checkTimeouts() error {
 	return nil
 }
 
-// call runs `describe` or `list` and returns its stdout.
+// call runs `describe` or `list` and returns its stdout. `list` learns the
+// effective accounting class (runners.yaml may override the runner's own), so
+// a builtin knows whether to print case rows.
 func (r *Runner) call(ctx context.Context, root, verb string) ([]byte, error) {
-	c, err := r.command(root, os.Environ(), verb)
+	env := os.Environ()
+	if verb == "list" {
+		env = append(env, "AIT_TESTMAP_ACCOUNTING="+r.Describe.Accounting)
+	}
+	c, err := r.command(root, env, verb)
 	if err != nil {
 		return nil, lineErr(ClassUnresolved, r.Name(), err.Error())
 	}
@@ -392,6 +407,7 @@ func (repo *Repository) ownerOf(id registry.ID, ix annIndex) string {
 func (repo *Repository) assign(rcfg registry.Config, ix annIndex) error {
 	listers := map[registry.ID][]*Runner{}
 	rows := map[registry.ID]map[*Runner]registry.ListedUnit{}
+	cases := map[registry.ID]map[*Runner][]string{}
 	var ids []registry.ID
 	for _, r := range repo.Runners {
 		for _, row := range r.Listed {
@@ -401,10 +417,12 @@ func (repo *Repository) assign(rcfg registry.Config, ix annIndex) error {
 			}
 			if rows[id] == nil {
 				rows[id] = map[*Runner]registry.ListedUnit{}
+				cases[id] = map[*Runner][]string{}
 				ids = append(ids, id)
 			}
 			listers[id] = append(listers[id], r)
 			rows[id][r] = row.Unit
+			cases[id][r] = row.Cases
 		}
 	}
 	for _, id := range ids {
@@ -432,6 +450,7 @@ func (repo *Repository) assign(rcfg registry.Config, ix annIndex) error {
 			ID: id, Kind: lu.Kind, Lowering: lu.Lowering, Artifact: lu.Artifact,
 			Runner: owner, Group: group, Resources: res, TimeoutS: r.TimeoutS,
 			BatchNo: !r.Describe.Batch || ix.batchNo(id) || r.Describe.Timeouts == TimeoutsNone,
+			Cases:   cases[id][r],
 		})
 		repo.owned[id] = true
 	}
@@ -456,14 +475,22 @@ func (repo *Repository) Listings() []registry.Listing {
 }
 
 // Lister is the runner-backed registry.UnitLister `scan` and `check` read
-// (a named extension of M2.1, wired in cmd/ait-testmap/scancheck.go).
-type Lister struct{}
+// (a named extension of M2.1, wired in cmd/ait-testmap/scancheck.go). It
+// remembers the last loaded repository's `candidates` runners, which the
+// verbs print as DISCOVERY lines (G5).
+type Lister struct {
+	candidates []string
+}
 
 // List implements registry.UnitLister.
-func (Lister) List(ctx context.Context, root string) ([]registry.Listing, error) {
+func (l *Lister) List(ctx context.Context, root string) ([]registry.Listing, error) {
 	repo, err := Load(ctx, root)
 	if err != nil {
 		return nil, err
 	}
+	l.candidates = candidates(repo)
 	return repo.Listings(), nil
 }
+
+// Candidates are the runners of the last List whose discovery is candidates.
+func (l *Lister) Candidates() []string { return l.candidates }

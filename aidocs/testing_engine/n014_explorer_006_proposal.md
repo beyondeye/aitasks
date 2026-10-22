@@ -711,7 +711,17 @@ Everything that executes a test and records what it cost.
 | submodule | scope | components | owns | provides | depends on |
 |---|---|---|---|---|---|
 | **M3.1** Runner contract and repository | `describe` / `list` / `run --manifest` (with the allocator-handle field, empty until M3.3 fills it), `runners.yaml` bindings, `builtin:` scheme, `command:` / `cwd:` overrides, shadow-by-name, the canonical grouping function (`batch: no` units are singletons; the wave class is the caller's input), per-unit timeouts under the runner-declared timeout model with a separate `max_invocation_s` ceiling and session-level process cleanup, `results.jsonl` (top-level and child rows) / `runner.json`, reconciliation as mechanism failures, the engine's per-invocation record (`cause`, HEAD at start and end, the modified-path set), exit contract `0/1/2/75/64`, `subsumed_by:`, `fallback_command:`, `full: true` + `children:`, the runner-backed unit lister `scan` and `check` call (a named extension of M2.1), the `runner` / `batch` / `needs` annotation fields into the registry (a named extension of M2.2's source), the `run` verb over a plan-executor seam whose built-in serial plan refuses a non-empty resource set until M3.3 plugs in, and an ordered multi-subscriber post-run hook (M3.4 subscribes; M4.4 may) — `axis:` / `token_format:` are M2.4's extension of the `describe` parse | `component_runner_contract` | `internal/runner` (contract, repository, `run` verb) | the runner interface every builtin and project script implements; the grouping function the scheduler, selector and estimate share | M1.2, M2.1, M2.2 |
-| **M3.2** Reference runners | `bash-file`, `pytest` (junitxml, `testmap:batch no`), `go-test`, `gradle-class`, `suite`, `device` (reads the allocator handle from the manifest), `engine-test`; the `full` suite wrapper's `children:` post-processors (pytest junitxml, bash-file per-file exit, `go test -json`) | `component_reference_runners` | `internal/runner/builtin/*`; `ait-testmap runner <name>` | runners for every target repository without a project script | M3.1 |
+| **M3.2a** Evidence contract | the guarantees G1–G7 and G10 written into M3.1's contract before any runner exists: `describe` `accounting: cases\|unit\|aggregate` and `discovery: native\|inventory\|candidates`, `runners.yaml` `zero_tests: error\|skip`, case rows in `list`, `units[].cases` and `report_dir` in the manifest, `cases.jsonl`, the shared case reconciler, `FreshReport`, the reporting-contract seam (`children:` refused until registered), `RUN_ACCOUNTING` / `DISCOVERY` / `CASES` lines, ledger `accounting` / `discovery`, `opaque:aggregate`; no runner enabled | `component_reference_runners` | `internal/runner/reconcile.go`; named extensions of M3.1 (`describe`, `config`, `list`, `results`, `outcome`, `invoke`, `run`) and M3.4 (`hook`, `eligibility`, `ledger`) | the evidence contract and the reconciler every adapter and M3.2k use | M3.1, M3.4 |
+| **M3.2b** Shared hang watchdog | the runner tests' watchdog and isolation tripwire moved to a shared test package and extended to every M3.2 package and `ci/preflight.sh` | `component_reference_runners` | `internal/testsupport/hangguard/**` | the hang guard every adapter's real-process tests run under | — |
+| **M3.2c** Supervised execution foundation | containment a descendant cannot leave through `setsid()` (Linux subreaper tree; a cgroup v2 leaf when delegated), per-invocation cleanup boundaries (`Boundary.Overlappable()`; invocations serialize, `PARALLEL_REFUSED:containment`, without a crash-surviving boundary), `CONTAINMENT_UNAVAILABLE` where no containment exists, the `ait-testmap runner <name>` verb and the builtin scaffold; no production adapter | `component_reference_runners` | `internal/procsup/**`; the `internal/runner/builtin/` scaffold; named extensions of M3.1's exec, invoke, plan and run | supervision, boundaries and the scaffold every adapter runs through | M3.2a, M3.2b, M3.2d |
+| **M3.2d** Recursion guard | G9: runtime refusal of a nested `run` / `Load` of the same repository, through indirect and cleared-environment calls; fixture repositories allowed | `component_reference_runners` | `internal/runner/recursion.go`; named extensions of M3.1's `run` and `repo` | the guard every adapter requires | — |
+| **M3.2e** `bash-file` adapter | each bound script is one unit (`accounting: unit`, `discovery: inventory`), `per_unit` timeouts | `component_reference_runners` | `internal/runner/builtin/bash*` | runners for bash test suites | M3.2c |
+| **M3.2f** `pytest` adapter | `accounting: cases`, native discovery through `--collect-only` under the execution configuration, junitxml into the report directory mapped to exactly one collected nodeid, `testmap:batch no` honoured | `component_reference_runners` | `internal/runner/builtin/pytest*` | runners for pytest suites | M3.2c |
+| **M3.2g** `go-test` and `engine-test` adapters | `accounting: cases`, native discovery, `go test -json`; `engine-test` over `goengines/` | `component_reference_runners` | `internal/runner/builtin/gotest*` | runners for Go packages | M3.2c |
+| **M3.2h** `gradle-class` adapter | `accounting: cases`, `--tests <lowering>` batch, one invocation per `group_by` group, JUnit XML mapped to listed cases; pending without a real Gradle environment | `component_reference_runners` | `internal/runner/builtin/gradle*` | runners for Gradle source sets | M3.2c |
+| **M3.2i** `suite` adapter | any command as one `aggregate` unit; no children | `component_reference_runners` | `internal/runner/builtin/suite*` | the suite runner and `fallback_command` carrier | M3.2c, M3.2d |
+| **M3.2j** `device` adapter | `accounting: cases`; reads the allocator handle from the manifest and refuses without one; pending without an emulator environment | `component_reference_runners` | `internal/runner/builtin/device*` | the device runner | M3.2h, M3.3 |
+| **M3.2k** Suite reporting contract | child evidence for a `full: true` suite only from reports its command writes explicitly into the report directory (JUnit XML, a `go test -json` stream, an engine-native per-test JSONL), each a registered reporting contract, reconciled by M3.2a's reconciler against each subsumed runner's discovery; a subsumed unit with no evidence is `unaccounted` | `component_reference_runners` | `internal/runner/builtin/report*`; the reconciler call site in M3.1's `invoke` (named extension) | child evidence for `full` suites | M3.2i, M3.2e, M3.2f, M3.2g |
 | **M3.3** Scheduler and resources | resource kinds and scopes, `resources.yaml`, `flock(2)` slot files, admission with 75 deferral and backoff, allocator with signal-safe release (filling the manifest's handle field), `errgroup` execution of the invocations M3.1's grouping function forms (never re-formed), the kind → wave class mapping from M2.5's kind data, `broad_after_unit` waves as an ordering over wave-homogeneous invocations, admission-holding invocations last, `concurrency: serial\|parallel`, the schedule report and its check half `schedule --check`; plugs the scheduler into M3.1's `run` seam (a named extension of M3.1) | `component_scheduler_resources`, `component_broad_test_scopes` (scheduling half) | `internal/sched`; verb `schedule` | the wave plan `run` executes; exit 75 semantics | M3.1, M2.5 |
 | **M3.4** Cost ledger | Welford / P² per `(id, host class)`, `.aitask-testmap/ledger.jsonl` written as a subscriber of M3.1's post-run hook, anchor eligibility decided at run time (no cause, HEAD unmoved, the modified-path set disjoint from the unit's test file, test-side closure, `covers` sources, the closure's `reads` globs and the runner configuration; empty for an opaque closure), `costs --update`, `last_pass` from eligible passes only, flake rate, the per-group estimate over top-level ids (disjoint accounting) and the full-suite p95, `costs/predictions.yaml` (store only; `score` writes it in M4.4), `costs --gate-timeout`, the run-id prefixes, the `costs/policy.yaml` file format (read/write helpers; the writer logic is M8.5) | `component_cost_ledger` | `internal/cost`; verb `costs` | costs and anchors for the selector, the evidence join, readiness and the cadence | M3.1, M2.3, M2.5 |
 
@@ -870,7 +880,12 @@ of verdicts through `ait codeagent testmap-review --agent-string <other>`
 (M7.3); `agent_review.min_verified` as a floor on which models may write
 `--by` (M7.5); `--source-lines <n>` in the packet (M7.1); integrating the
 map gates into an existing explicit gate DAG, which M6.5's `enable` phase
-refuses in v1 (M6.5 / M8.2).
+refuses in v1 (M6.5 / M8.2); automatic per-file evidence for bash suites
+through a shell exit hook, and automatic pytest reports through an injected
+plugin, both behind M3.2k's explicit reporting contract (M3.2); a
+PID-namespace per-invocation cleanup boundary, once it keeps G9's
+cleared-environment recursion detection working — until then a host
+without a delegated cgroup runs invocations serially (M3.2c).
 <!-- /section: module_map -->
 
 <!-- section: data_flow [dimensions: component_test_entrypoint, component_test_front_verb, component_onboarding_engine_verbs, component_onboarding_skill, component_seeder, component_completion_policy, component_auto_policy, component_workflow_integration, component_workflow_seam, component_selector, component_annotation_scanner, component_author_annotation, component_freshness, component_feedback_tools, component_cost_ledger, component_registry_loader, component_staleness_tool, component_engine_packaging, component_agent_review, component_agent_review_pass] -->
@@ -3032,38 +3047,96 @@ M2.1's `check` (until then the row is refused as `INPUT_ERROR:lister`).
 <!-- section: component_reference_runners [dimensions: component_reference_runners] -->
 ### Reference runners *(M3.2)*
 
-Built into the binary as `ait-testmap runner <name>`: `bash-file`; `pytest`
-(junitxml; `testmap:batch no` honoured — the aitasks serial carve-out's
-annotations, and the agreement check extending
-`tests/test_serial_carveout_doc_drift.sh`, are M10.1's); `go-test` (per-file
-`-run` regex, `-json`); `gradle-class` (`--tests <lowering>` batch, one
-invocation per `group_by` group, JUnit XML inverted to ids through the list
-table, zero-match trap as a mechanism failure); `suite` (any command as one
-unit, optional child rows from a `children:` post-processor); `device`
-(reads the allocator handle from the manifest's handle field and refuses
-without one); `command:` / `cwd:` overrides; shadow-by-name with
-`explain` showing which won; `engine-test` over `goengines/`. thinking_app's
-`tools/verification/testmap_runner.sh` (`screen-matrix`: `list` from the
-two membership manifests plus `matrix_classes` with an artifact column, `run`
+Built into the binary as `ait-testmap runner <name>`. Every builtin rests on
+one evidence contract (M3.2a), part of M3.1's runner contract, and runs only
+through the supervised foundation (M3.2c) under the recursion guard (M3.2d):
+
+- **G1 — command outcome is not accounting.** `describe` declares
+  `accounting: cases | unit | aggregate` (default `unit`). A `cases` runner's
+  `list` names each unit's expected case identities (`<unit>\tcase\t<identity>`
+  rows, fresh on every `Load`), the manifest passes them (`units[].cases`), and
+  the adapter writes one strict row per terminal tool result to
+  `<report_dir>/cases.jsonl` and never the unit's own result. `unit`: the
+  executable's exit is its verdict. `aggregate`: one command over many tests,
+  proving the command's exit only; it never anchors evidence
+  (`opaque:aggregate`). `run` prints `RUN_RESULT` and
+  `RUN_ACCOUNTING:<selected>|<cases>|<unit>|<aggregate>|<unaccounted>`.
+- **G1a / G1b — identity-based, engine-owned reconciliation.** One shared
+  reconciler, keyed `(parent?, unit, case)`, judges top-level `cases` units and
+  suite child evidence alike: each expected identity needs exactly one
+  terminal result, and a duplicate, unexpected, malformed or missing identity
+  makes the unit `error` whatever the totals. The engine derives the status
+  (any `fail` → `fail`; else any `error` → `error`; else zero expected → G3;
+  else all `skip` → `skip`; else `pass`, its skipped cases counted and listed)
+  and the counters; an adapter supplies neither.
+- **G2 – G4 — no unexplained outcome.** Missing, ambiguous, stale or
+  incomplete evidence is `error` with a stated reason, never `pass` or `skip`.
+  Zero expected cases is the runner's `zero_tests: error | skip` policy
+  (default `error`, reason `zero_tests`), never a pass. `skip` comes only from
+  the tool's own per-case verdicts or that policy.
+- **G5 — discovery is declared and is not execution.** `discovery: native |
+  inventory | candidates` (default `candidates`). Native discovery runs the
+  framework's collector under the execution configuration, bounded like
+  execution; `candidates` never claims complete discovery, and `run`, `scan`
+  and `check` say so (`DISCOVERY:<runner>|candidates`).
+- **G6 — freshness.** Reports are read only from the invocation's report
+  directory (`report_dir`, `$AIT_TESTMAP_REPORT_DIR`), created empty; an older,
+  linked or outside file is refused, and the units it would have proved are
+  `error`.
+- **G7 — child evidence only through a registered reporting contract.**
+  `children:` names a contract registered with
+  `runner.RegisterReportingContract`, or the runner is refused at load. A
+  suite's exit is never read as individual test results; a subsumed unit with
+  no reconciled child evidence is `unaccounted`.
+- **G8 / G8a / G9 — prerequisites of every adapter.** Containment a
+  descendant cannot leave through `setsid()`, per-invocation cleanup ownership
+  that survives a builtin crash (invocations run serially where no such
+  boundary exists), refusal on a platform without containment, and a runtime
+  refusal of a nested `run` / `Load` of the same repository.
+- **G10 — support claims.** An adapter is supported only for the tool
+  versions and platforms its real-tool integration tests run against;
+  otherwise it stays pending.
+
+The builtins: `bash-file` (`unit`, `inventory`, `per_unit` timeouts);
+`pytest` (`cases`, native discovery through `--collect-only` under the same
+configuration as execution, junitxml into the report directory with each
+testcase mapped to exactly one collected nodeid, `testmap:batch no` honoured
+— the aitasks serial carve-out's annotations, and the agreement check
+extending `tests/test_serial_carveout_doc_drift.sh`, are M10.1's); `go-test`
+(`cases`, native, `-json`) and `engine-test` over `goengines/`;
+`gradle-class` (`cases`, `--tests <lowering>` batch, one invocation per
+`group_by` group, JUnit XML mapped to the listed cases, so a filter matching
+nothing leaves its cases `incomplete`; pending without a real Gradle
+environment); `suite` (any command as one `aggregate` unit); `device`
+(`cases`; reads the allocator handle from the manifest's handle field and
+refuses without one; pending without an emulator environment); `command:` /
+`cwd:` overrides; shadow-by-name with `explain` showing which won. A `full:
+true` suite gets child evidence (M3.2k) only from reports its command writes
+explicitly into the report directory — JUnit XML, a `go test -json` stream,
+or the engine-native per-test JSONL a bash suite writes per file — each a
+registered reporting contract; automatic shell-exit hooks and injected pytest
+plugins are named follow-ups. thinking_app's
+`tools/verification/testmap_runner.sh` (`screen-matrix`: `list` from the two
+membership manifests plus `matrix_classes` with an artifact column, `run`
 through `screenshot-tests.sh unit-tests --tests`) and `verify-active` as a
-`full: true` suite runner whose child rows come from
-`lib/screenshot-diff-set.sh` are the project-side reference. `onboard detect`
-(M6.1) seeds a repository from these: `bash-file` for `tests/**/test_*.sh`;
-`pytest` for `test_*.py` / `*_test.py` (an aggregate runner script's serial
-carve-out list becomes `testmap:batch no` candidates); `go-test` per package
-from `go list`; `gradle-class` for `src/test/**/*.kt|java`; a
-`kmp-sourceset` detector mapping `commonTest` / `androidHostTest` to
-gradle-class unit runners (`:<module>:jvmTest`, `testDebugUnitTest`) and
-`androidDeviceTest` to the device runner (`connectedDebugAndroidTest`,
-`needs: [emulator]`); and a `full: true` suite runner named `full` wrapping
-`project_config.yaml test_command` (or `verify_build` only when the user
-names it as the suite) whose `children:` post-processor is a builtin
-inverting pytest junitxml, bash-file names from the per-file exit and `go
-test -json` events to registered ids, and whose `fallback_command:` is the
-previous `test_command` — so the existing full gate anchors evidence from
-day one without a project script. The seeder's `static:invocation` origin
-reads the bash scanner's facts directly (*Dependency scanners*: same scan,
-same cache, read once); no runner re-resolves them.
+`full: true` suite runner whose child evidence comes from the per-test report
+`lib/screenshot-diff-set.sh` writes are the project-side reference. `onboard
+detect` (M6.1) seeds a repository from these: `bash-file` for
+`tests/**/test_*.sh`; `pytest` for `test_*.py` / `*_test.py` (an aggregate
+runner script's serial carve-out list becomes `testmap:batch no`
+candidates); `go-test` per package from `go list`; `gradle-class` for
+`src/test/**/*.kt|java`; a `kmp-sourceset` detector mapping `commonTest` /
+`androidHostTest` to gradle-class unit runners (`:<module>:jvmTest`,
+`testDebugUnitTest`) and `androidDeviceTest` to the device runner
+(`connectedDebugAndroidTest`, `needs: [emulator]`); and a `full: true` suite
+runner named `full` wrapping `project_config.yaml test_command` (or
+`verify_build` only when the user names it as the suite), `aggregate` unless
+its command writes a report a registered contract reads, whose
+`fallback_command:` is the previous `test_command` — so the existing full
+gate runs from day one without a project script, and anchors evidence only
+where an explicit report accounts for it. The seeder's `static:invocation`
+origin reads the bash scanner's facts directly (*Dependency scanners*: same
+scan, same cache, read once); no runner re-resolves them.
 <!-- /section: component_reference_runners -->
 
 <!-- section: component_scheduler_resources [dimensions: component_scheduler_resources] -->
@@ -5039,10 +5112,12 @@ overturns it; the module that owns the answer is named.
 7. *(M6.1)* Should `onboard finish` refuse while any unparked pending seeds
    remain, or accept a user-set threshold? Default: threshold, default 0,
    printed in `status`; parked and `REVIEW_HUMAN` rows never block `finish`.
-8. *(M3.2)* Should the `full` suite wrapper's `children:` post-processor for
-   bash-file tests infer per-file results from the runner's own per-file
-   exit or require junit-style output? Default: the per-file exit; a
-   monolithic script gets suite-level evidence only.
+8. *(M3.2)* Should the `full` suite wrapper's child evidence for bash-file
+   tests be inferred from the runner's own per-file exit or require an
+   explicit report? Default: no per-file evidence without an explicit report
+   — a bash suite reports per-file exits through the engine-native per-test
+   JSONL it writes into the report directory (M3.2k), and a monolithic script
+   gets suite-level (`aggregate`) evidence only.
 9. *(M4.4)* Should `readiness` count only scored predictions whose selection
    was non-trivial (at least one unit) toward `min_scored_full_runs`? A
    `no_selection` advisory run scored against a green full run says nothing.

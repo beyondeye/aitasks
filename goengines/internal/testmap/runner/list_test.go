@@ -64,7 +64,7 @@ func TestListMalformedThroughScan(t *testing.T) {
 	put(t, r, "shell", spec{describe: "unit: file", list: "tests/test_a.sh|file\n"})
 	runners(t, r, "runners:\n  - name: shell\n    bind: ['tests/*.sh']\n")
 	commitAll(t, r)
-	_, err := registry.Scan(bg, r.Dir, registry.Inputs{Annotations: noAnns{}, Lister: Lister{}}, true)
+	_, err := registry.Scan(bg, r.Dir, registry.Inputs{Annotations: noAnns{}, Lister: &Lister{}}, true)
 	var ie *registry.InputError
 	if !errors.As(err, &ie) || ie.Input != registry.InputLister {
 		t.Fatalf("scan: %v", err)

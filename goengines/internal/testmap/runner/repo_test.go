@@ -213,6 +213,7 @@ func TestDescribeOverrideValidated(t *testing.T) {
 	if !isolated(t, hangLimit) {
 		return
 	}
+	withReportingContract(t, "pytest-junitxml")
 	r := newRepo(t, map[string]string{"suite.cfg": ""})
 	put(t, r, "full", spec{describe: "unit: file", list: "suite.cfg|suite|all\n"})
 	runners(t, r, "runners:\n  - name: full\n    unit: suite\n    full: true\n    children: pytest-junitxml\n    fallback_command: make test\n")

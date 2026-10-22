@@ -1,0 +1,227 @@
+package runner
+
+import (
+	"slices"
+
+	"github.com/beyondeye/aitasks/goengines/internal/testmap/registry"
+)
+
+// The shared case reconciler (G1a / G1b / G3). Every case-level evidence —
+// a top-level `accounting: cases` unit's `cases.jsonl` rows, and (t1854_14) a
+// suite's child evidence translated from its reports — goes through
+// Reconcile, so one rule decides what a unit's cases prove. The engine owns
+// the outcome: statuses and counters are computed here from the validated
+// case results, never taken from a runner or a report.
+
+// Reconciliation reasons, in the order a unit's Reasons lists them. Each is
+// an error: the unit is `error` whatever its totals.
+const (
+	ReasonDuplicateCase  = "duplicate_case"  // two or more results for one expected identity
+	ReasonUnexpectedCase = "unexpected_case" // a result for an identity not expected (or invalid)
+	ReasonMalformedCase  = "malformed_case"  // evidence naming the unit could not be validated (a taint)
+	ReasonRejectedReport = "rejected_report" // the report itself was refused, e.g. stale (G6; a taint)
+	ReasonIncomplete     = "incomplete"      // an expected identity with no result
+)
+
+// reasonOrder fixes the order of Reconciled.Reasons.
+var reasonOrder = []string{ReasonDuplicateCase, ReasonUnexpectedCase, ReasonMalformedCase, ReasonRejectedReport, ReasonIncomplete}
+
+// PolicyZeroTests is the G3 policy reason: the unit expected zero cases, and
+// its runner's `zero_tests:` decided the status. It explains a status; it is
+// never a reconciliation error.
+const PolicyZeroTests = "zero_tests"
+
+// CaseCounts are a unit's engine-computed case counters.
+type CaseCounts struct {
+	Expected int `json:"expected"`
+	Passed   int `json:"passed"`
+	Failed   int `json:"failed"`
+	Errored  int `json:"errored"`
+	Skipped  int `json:"skipped"`
+}
+
+// add sums o into c.
+func (c *CaseCounts) add(o CaseCounts) {
+	c.Expected += o.Expected
+	c.Passed += o.Passed
+	c.Failed += o.Failed
+	c.Errored += o.Errored
+	c.Skipped += o.Skipped
+}
+
+// EvidenceKey names whose evidence a case result is: Unit, and for child
+// evidence the suite Parent that reported it (zero for a top-level unit).
+type EvidenceKey struct {
+	Parent registry.ID
+	Unit   registry.ID
+}
+
+// Expectation is one unit's expected case identities, from its runner's
+// discovery in the same Load, and the faults the caller already found in its
+// evidence before reconciling (ReasonMalformedCase, ReasonRejectedReport).
+type Expectation struct {
+	Key       EvidenceKey
+	Cases     []string
+	ZeroTests string // ZeroTestsError ("" too) or ZeroTestsSkip
+	Taints    []string
+}
+
+// CaseResult is one reported terminal case result.
+type CaseResult struct {
+	Key        EvidenceKey
+	Case       string
+	Status     string // pass | fail | error | skip
+	DurationMS int64
+	Message    string
+}
+
+// Reconciled is one unit's reconciled evidence.
+type Reconciled struct {
+	Key        EvidenceKey
+	Status     string     // pass | fail | error | skip
+	Reasons    []string   // reconciliation errors, in reasonOrder
+	Policy     string     // PolicyZeroTests when G3 decided the status
+	Counts     CaseCounts // over identities with exactly one valid result
+	Skipped    []string   // the skipped identities, sorted
+	DurationMS int64      // Σ of the counted results' durations
+	// Complete: no reconciliation reason. A G3 outcome is complete.
+	Complete bool
+	// Terminal: complete with at least one expected case, each with exactly
+	// one result — the unit provably finished. An engine kill keeps only
+	// such units' statuses (an empty expectation proves nothing ran).
+	Terminal bool
+}
+
+// Reason renders the reasons, else the policy, as one field.
+func (r Reconciled) Reason() string {
+	if len(r.Reasons) > 0 {
+		out := r.Reasons[0]
+		for _, s := range r.Reasons[1:] {
+			out += "," + s
+		}
+		return out
+	}
+	return r.Policy
+}
+
+// Reconcile matches the reported results to the expected identities, unit
+// by unit, identity by identity:
+//
+//   - each expected identity needs exactly one terminal result: two or more
+//     is duplicate_case, none is incomplete;
+//   - a result for an identity that is not expected, not a valid identity, or
+//     whose status is not pass|fail|error|skip, is unexpected_case;
+//   - each taint the caller attached is a reason of its own;
+//
+// then derives the status (G1b): any reason → error; else any fail → fail;
+// else any error → error; else zero expected → the G3 policy (error, or skip
+// under zero_tests: skip); else every case skip → skip; else pass.
+//
+// Counts are computed from the identities that have exactly one valid
+// result; equal totals never stand in for matching identities. out follows
+// expect's order; stray holds the results whose key matches no expectation,
+// for the caller to report.
+func Reconcile(expect []Expectation, reported []CaseResult) (out []Reconciled, stray []CaseResult) {
+	byKey := map[EvidenceKey][]CaseResult{}
+	for _, r := range reported {
+		byKey[r.Key] = append(byKey[r.Key], r)
+	}
+	known := map[EvidenceKey]bool{}
+	for _, e := range expect {
+		known[e.Key] = true
+		out = append(out, reconcileUnit(e, byKey[e.Key]))
+	}
+	for _, r := range reported {
+		if !known[r.Key] {
+			stray = append(stray, r)
+		}
+	}
+	return out, stray
+}
+
+func reconcileUnit(e Expectation, results []CaseResult) Reconciled {
+	rc := Reconciled{Key: e.Key, Counts: CaseCounts{Expected: len(e.Cases)}}
+	reasons := map[string]bool{}
+	for _, t := range e.Taints {
+		if t != ReasonMalformedCase && t != ReasonRejectedReport {
+			panic("runner: unknown reconciliation taint " + t)
+		}
+		reasons[t] = true
+	}
+	expected := map[string]bool{}
+	for _, c := range e.Cases {
+		expected[c] = true
+	}
+	got := map[string][]CaseResult{}
+	for _, r := range results {
+		if !expected[r.Case] || !ValidCaseID(r.Case) || !caseStatus(r.Status) {
+			reasons[ReasonUnexpectedCase] = true
+			continue
+		}
+		got[r.Case] = append(got[r.Case], r)
+	}
+	anyFail, anyError, allSkip := false, false, true
+	for _, c := range e.Cases {
+		switch rs := got[c]; len(rs) {
+		case 0:
+			reasons[ReasonIncomplete] = true
+			allSkip = false
+		case 1:
+			r := rs[0]
+			rc.DurationMS += r.DurationMS
+			switch r.Status {
+			case StatusPass:
+				rc.Counts.Passed++
+				allSkip = false
+			case StatusFail:
+				rc.Counts.Failed++
+				anyFail, allSkip = true, false
+			case StatusError:
+				rc.Counts.Errored++
+				anyError, allSkip = true, false
+			case StatusSkip:
+				rc.Counts.Skipped++
+				rc.Skipped = append(rc.Skipped, c)
+			}
+		default:
+			reasons[ReasonDuplicateCase] = true
+			allSkip = false
+		}
+	}
+	slices.Sort(rc.Skipped)
+	for _, r := range reasonOrder {
+		if reasons[r] {
+			rc.Reasons = append(rc.Reasons, r)
+		}
+	}
+	switch {
+	case len(rc.Reasons) > 0:
+		rc.Status = StatusError
+	case anyFail:
+		rc.Status = StatusFail
+	case anyError:
+		rc.Status = StatusError
+	case len(e.Cases) == 0:
+		rc.Policy = PolicyZeroTests
+		rc.Status = StatusError
+		if e.ZeroTests == ZeroTestsSkip {
+			rc.Status = StatusSkip
+		}
+	case allSkip:
+		rc.Status = StatusSkip
+	default:
+		rc.Status = StatusPass
+	}
+	rc.Complete = len(rc.Reasons) == 0
+	rc.Terminal = rc.Complete && len(e.Cases) > 0
+	return rc
+}
+
+// caseStatus reports whether s is a terminal case status.
+func caseStatus(s string) bool {
+	switch s {
+	case StatusPass, StatusFail, StatusError, StatusSkip:
+		return true
+	}
+	return false
+}

@@ -44,9 +44,11 @@ func TestRunThroughBinary(t *testing.T) {
 	r := runnerRepo(t, twoRows)
 	code, out, errs := call("run", "--all", "--run-id", "r1")
 	want := "RUN:r1\n" +
+		"DISCOVERY:shell|candidates\n" +
 		`INVOCATION:1|shell|2|["shell","",[],"unit",""]` + "\n" +
 		"UNIT:tests/test_a.sh|pass|3|top|\n" +
 		"UNIT:tests/test_b.sh|fail|4|top|\n" +
+		"RUN_ACCOUNTING:2|0|2|0|0\n" +
 		"RUN_RESULT:fail|1|1|0|0|0\n"
 	if code != 1 || errs != "" || out != want {
 		t.Fatalf("run: %d %q %q\nwant %q", code, out, errs, want)
@@ -60,8 +62,11 @@ func TestRunThroughBinary(t *testing.T) {
 		Results []struct {
 			ID, Status string
 		} `json:"results"`
+		Accounting          runner.RunAccounting `json:"accounting"`
+		DiscoveryCandidates []string             `json:"discovery_candidates"`
 	}
-	if code != 1 || json.Unmarshal([]byte(out), &rep) != nil || rep.RunID != "r2" || len(rep.Results) != 1 || rep.Results[0].ID != "tests/test_a.sh" {
+	if code != 1 || json.Unmarshal([]byte(out), &rep) != nil || rep.RunID != "r2" || len(rep.Results) != 1 || rep.Results[0].ID != "tests/test_a.sh" ||
+		rep.Accounting != (runner.RunAccounting{Selected: 1, Unit: 1}) || len(rep.DiscoveryCandidates) != 1 {
 		// test_a passes, but the runner (reporting both) adds an unexpected row.
 		t.Fatalf("--json: %d %s", code, out)
 	}
@@ -95,7 +100,7 @@ func TestRunVerbErrors(t *testing.T) {
 func TestScanCheckRealLister(t *testing.T) {
 	r := runnerRepo(t, twoRows)
 	code, out, errs := call("scan", "--apply")
-	if code != 0 || errs != "" || out != "SCAN:1|1|0\nWROTE:"+registry.ScannedPath+"\n" {
+	if code != 0 || errs != "" || out != "DISCOVERY:shell|candidates\nSCAN:1|1|0\nWROTE:"+registry.ScannedPath+"\n" {
 		t.Fatalf("scan: %d %q %q", code, out, errs)
 	}
 	data, _ := os.ReadFile(filepath.Join(r.Dir, registry.ScannedPath))
@@ -103,12 +108,50 @@ func TestScanCheckRealLister(t *testing.T) {
 		t.Fatalf("_scanned.yaml:\n%s", data)
 	}
 	code, out, errs = call("check")
-	if code != 0 || errs != "" || out != emptyAdoption+"CHECK:pass|0|0\n" {
+	if code != 0 || errs != "" || out != "DISCOVERY:shell|candidates\n"+emptyAdoption+"CHECK:pass|0|0\n" {
 		t.Fatalf("check: %d %q %q", code, out, errs)
 	}
 	// An unlisted bound file is UNREGISTERED through the real lister.
 	r.Write(t, "tests/test_c.sh", "#!/bin/sh\n")
 	if _, out, _ := call("check"); !strings.Contains(out, "UNREGISTERED:tests/test_c.sh") {
 		t.Fatalf("check after adding an unlisted test: %q", out)
+	}
+	// A runner declaring its discovery is not a candidates source: no line.
+	r.Write(t, runner.RunnersPath, "contract: 1\nrunners:\n  - name: shell\n    bind: ['tests/*.sh']\n    timeout_s: 5\n    batch_timeout_s: 10\n    discovery: inventory\n")
+	if _, out, _ := call("check"); strings.Contains(out, "DISCOVERY:") {
+		t.Fatalf("inventory runner: %q", out)
+	}
+}
+
+// A cases runner end to end through the dispatcher: the CASES line, the
+// RUN_ACCOUNTING class counts, and a duplicate case identity at discovery
+// refused as the lister's input error by scan and as a protocol error by run.
+func TestRunCasesThroughBinary(t *testing.T) {
+	r := runnerRepo(t, "")
+	r.Write(t, runner.RunnersPath, "contract: 1\nrunners:\n  - name: shell\n    bind: ['tests/*.sh']\n    timeout_s: 5\n    batch_timeout_s: 10\n    zero_tests: skip\n")
+	script := "#!/usr/bin/env bash\ncase \"$1\" in\n" +
+		"describe) printf 'unit: file\\ntimeouts: batch\\naccounting: cases\\ndiscovery: native\\n';;\n" +
+		"list) printf \"tests/test_a.sh\\tfile\\ta\\ntests/test_a.sh\\tcase\\tone\\ntests/test_a.sh\\tcase\\t${DUP:-two}\\ntests/test_b.sh\\tfile\\tb\\n\";;\n" +
+		"run) C=\"$AIT_TESTMAP_REPORT_DIR/cases.jsonl\"\n" +
+		"printf '{\"unit\":\"tests/test_a.sh\",\"case\":\"one\",\"status\":\"pass\",\"duration_ms\":2}\\n{\"unit\":\"tests/test_a.sh\",\"case\":\"two\",\"status\":\"skip\",\"duration_ms\":1}\\n' > \"$C\";;\nesac\n"
+	r.Write(t, runner.RunnersDir+"/shell.sh", script)
+	code, out, errs := call("run", "--all", "--run-id", "c1")
+	want := "RUN:c1\n" +
+		`INVOCATION:1|shell|2|["shell","",[],"unit",""]` + "\n" +
+		"UNIT:tests/test_a.sh|pass|3|top|\n" +
+		"CASES:tests/test_a.sh|2|1|0|0|1|\n" +
+		"UNIT:tests/test_b.sh|skip|0|top|\n" +
+		"CASES:tests/test_b.sh|0|0|0|0|0|zero_tests\n" +
+		"RUN_ACCOUNTING:2|2|0|0|0\n" +
+		"RUN_RESULT:pass|1|0|1|0|0\n"
+	if code != 0 || errs != "" || out != want {
+		t.Fatalf("run: %d %q %q\nwant %q", code, out, errs, want)
+	}
+	t.Setenv("DUP", "one")
+	if code, out, errs := call("scan"); code != 3 || out != "" || !strings.HasPrefix(errs, "INPUT_ERROR:lister|RUNNER_PROTOCOL:shell/list/list line 3: case \"one\" of tests/test_a.sh already listed on line 2") {
+		t.Fatalf("duplicate case through scan: %d %q %q", code, out, errs)
+	}
+	if code, _, errs := call("run", "--all", "--run-id", "c2"); code != 3 || !strings.HasPrefix(errs, "RUNNER_PROTOCOL:shell|list|list line 3: case") {
+		t.Fatalf("duplicate case through run: %d %q", code, errs)
 	}
 }

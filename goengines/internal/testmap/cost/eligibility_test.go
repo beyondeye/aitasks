@@ -16,6 +16,10 @@ import (
 
 var bg = context.Background()
 
+// A test-only reporting contract (G7): the suite fixtures' child rows load
+// only through a registered one.
+func init() { runner.RegisterReportingContract("test-children") }
+
 // The eligibility fixture: tests/test_a.sh sources tests/lib/helper.sh (which
 // declares `testmap:reads tests/data/*.txt`), covers src/a.sh and src/[id].ts
 // by annotation and src/b.sh by a hand-file edge, and a scanner plugin
@@ -230,7 +234,7 @@ func TestEligibilityScriptRunnerClosure(t *testing.T) {
 func TestEligibilitySuiteAndChildRows(t *testing.T) {
 	full := `#!/usr/bin/env bash
 case "$1" in
-describe) printf 'unit: suite\nfull: true\ntimeouts: batch\n';;
+describe) printf 'unit: suite\nfull: true\nchildren: test-children\ntimeouts: batch\n';;
 list) printf 'suite.cfg\tsuite\tall\n';;
 run) R=$(sed -n 's/^  "results": "\(.*\)",$/\1/p' "$3")
   printf '{"id":"suite.cfg","status":"pass","duration_ms":9}\n{"id":"tests/test_a.sh","status":"pass","duration_ms":3,"parent":"suite.cfg"}\n' >> "$R";;
@@ -252,6 +256,50 @@ esac
 		t.Fatalf("suite: %+v", s)
 	}
 	if c := reasonOf(t, rows, "tests/test_a.sh"); c.Anchor || c.AnchorReason != "opaque:child" {
+		t.Fatalf("child: %+v", c)
+	}
+}
+
+// G1: an aggregate result proves one command's exit, never which tests ran,
+// so it never anchors — on a clean tree as on a dirty one — while the same
+// runner declared unit keeps every existing decision.
+func TestEligibilityAggregateNeverAnchors(t *testing.T) {
+	r := eligRepo(t, "", map[string]string{runner.RunnersPath: shellRunners + "    accounting: aggregate\n"})
+	if row := reasonOf(t, judged(t, r.Dir, false), "tests/test_a.sh"); row.Anchor || row.AnchorReason != "opaque:aggregate" || row.Accounting != runner.AccountingAggregate {
+		t.Fatalf("clean tree: %+v", row)
+	}
+	dirty(t, r, "docs/readme.md")
+	if row := reasonOf(t, judged(t, r.Dir, false), "tests/test_a.sh"); row.Anchor || row.AnchorReason != "opaque:aggregate" {
+		t.Fatalf("dirty tree: %+v", row)
+	}
+	u := eligRepo(t, "", nil)
+	if row := reasonOf(t, judged(t, u.Dir, false), "tests/test_a.sh"); !row.Anchor || row.AnchorReason != "" {
+		t.Fatalf("unit accounting, clean tree: %+v", row)
+	}
+}
+
+// Ledger result rows carry the result's runner's accounting and discovery
+// classes (a child row: the subsumed runner's) and the engine-derived reason.
+func TestLedgerRecordsAccountingDiscovery(t *testing.T) {
+	full := `#!/usr/bin/env bash
+case "$1" in
+describe) printf 'unit: suite\nfull: true\nchildren: test-children\naccounting: aggregate\ndiscovery: inventory\ntimeouts: batch\n';;
+list) printf 'suite.cfg\tsuite\tall\n';;
+run) R=$(sed -n 's/^  "results": "\(.*\)",$/\1/p' "$3")
+  printf '{"id":"suite.cfg","status":"pass","duration_ms":9}\n{"id":"tests/test_a.sh","status":"pass","duration_ms":3,"parent":"suite.cfg"}\n' >> "$R";;
+*) exit 64;;
+esac
+`
+	r := eligRepo(t, "", map[string]string{
+		"suite.cfg":                    "x\n",
+		runner.RunnersDir + "/full.sh": full,
+		runner.RunnersPath:             shellRunners + "    discovery: native\n    subsumed_by: full\n  - name: full\n    bind: ['suite.cfg']\n    timeout_s: 30\n    batch_timeout_s: 30\n",
+	})
+	rows := judged(t, r.Dir, true)
+	if s := reasonOf(t, rows, "suite.cfg"); s.Accounting != runner.AccountingAggregate || s.Discovery != runner.DiscoveryInventory || s.AnchorReason != "opaque:aggregate" {
+		t.Fatalf("suite: %+v", s)
+	}
+	if c := reasonOf(t, rows, "tests/test_a.sh"); c.Parent != "suite.cfg" || c.Accounting != runner.AccountingUnit || c.Discovery != runner.DiscoveryNative || !c.Anchor {
 		t.Fatalf("child: %+v", c)
 	}
 }

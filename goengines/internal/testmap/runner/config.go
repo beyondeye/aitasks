@@ -49,6 +49,7 @@ type Entry struct {
 	MaxInvocationS  float64  // per-runner ceiling (0 = the config's)
 	SubsumedBy      string   // a full: true runner whose child rows cover this runner's units
 	FallbackCommand string   // only on a unit: suite runner (used by `ait test` when the engine is absent)
+	ZeroTests       string   // zero_tests: error|skip (G3; "" = error), only on an accounting: cases runner
 
 	// The describe keys this entry overrides (D6: a generic builtin such as
 	// `suite` cannot know `full` / `children` itself).
@@ -60,8 +61,15 @@ type Entry struct {
 var entryKeys = map[string]bool{
 	"name": true, "builtin": true, "script": true, "command": true, "cwd": true, "bind": true,
 	"timeout_s": true, "batch_timeout_s": true, "max_invocation_s": true,
-	"subsumed_by": true, "fallback_command": true,
+	"subsumed_by": true, "fallback_command": true, "zero_tests": true,
 }
+
+// Zero-test policies (`zero_tests:`, G3): what a cases unit that executed
+// zero cases is. It is never a pass.
+const (
+	ZeroTestsError = "error" // the default
+	ZeroTestsSkip  = "skip"
+)
 
 // ErrNoRunners is an absent runners.yaml. A registry with no runner
 // declaration has no unit universe, so the lister refuses rather than report
@@ -182,6 +190,11 @@ func parseEntry(n *yaml.Node) (Entry, error) {
 			e.SubsumedBy, err = str(k, v)
 		case "fallback_command":
 			e.FallbackCommand, err = str(k, v)
+		case "zero_tests":
+			e.ZeroTests, err = str(k, v)
+			if err == nil && e.ZeroTests != ZeroTestsError && e.ZeroTests != ZeroTestsSkip {
+				err = fmt.Errorf("zero_tests %q is not error|skip", e.ZeroTests)
+			}
 		}
 		if err != nil {
 			return e, err

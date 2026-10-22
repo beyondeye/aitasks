@@ -37,6 +37,69 @@ type RunReport struct {
 	// ledger) needs without loading every runner again.
 	Repo *Repository `json:"-"`
 	All  bool        `json:"-"`
+	// Accounting is the run's evidence accounting (G1 / G7): the selected
+	// top-level units by their runner's accounting class, and the subsumed
+	// units a selected suite was to cover that no child evidence accounts for.
+	Accounting RunAccounting `json:"accounting"`
+	// DiscoveryCandidates are the loaded runners whose discovery is
+	// `candidates` (G5): their lists never claim complete discovery.
+	DiscoveryCandidates []string `json:"discovery_candidates"`
+}
+
+// RunAccounting is RUN_ACCOUNTING:<selected>|<cases>|<unit>|<aggregate>|<unaccounted>.
+// A command outcome (RUN_RESULT) never says every test was accounted for;
+// this does.
+type RunAccounting struct {
+	Selected    int `json:"selected"`
+	Cases       int `json:"cases"`
+	Unit        int `json:"unit"`
+	Aggregate   int `json:"aggregate"`
+	Unaccounted int `json:"unaccounted"`
+}
+
+// accountFor computes the run's accounting. A unit of a subsumed_by runner is
+// unaccounted when the terminal suite of its chain has a selected unit, the
+// unit itself was not selected, and no child result names it: a suite's
+// exit never stands in for the tests it runs.
+func accountFor(repo *Repository, units []Unit, results []Result) RunAccounting {
+	a := RunAccounting{Selected: len(units)}
+	selected, running := map[registry.ID]bool{}, map[string]bool{}
+	for _, u := range units {
+		selected[u.ID] = true
+		running[u.Runner] = true
+		switch repo.Runner(u.Runner).Describe.Accounting {
+		case AccountingCases:
+			a.Cases++
+		case AccountingAggregate:
+			a.Aggregate++
+		default:
+			a.Unit++
+		}
+	}
+	child := map[registry.ID]bool{}
+	for _, r := range results {
+		if r.Child {
+			child[r.ID] = true
+		}
+	}
+	for _, u := range repo.Units {
+		r := repo.Runner(u.Runner)
+		if r.Entry.SubsumedBy != "" && running[repo.Config.Terminal(r.Name())] && !selected[u.ID] && !child[u.ID] {
+			a.Unaccounted++
+		}
+	}
+	return a
+}
+
+// candidates are the loaded runners declaring discovery: candidates.
+func candidates(repo *Repository) []string {
+	out := []string{}
+	for _, r := range repo.Runners {
+		if r.Describe.Discovery == DiscoveryCandidates {
+			out = append(out, r.Name())
+		}
+	}
+	return out
 }
 
 var runIDRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
@@ -79,8 +142,10 @@ func Run(ctx context.Context, root string, opts Options) (*RunReport, error) {
 		return nil, err
 	}
 	rel := StateDir + "/runs/" + runID
-	report := &RunReport{RunID: runID, Root: root, Dir: rel, Selected: len(units), Invocations: []Record{}, Results: []Result{}, Repo: repo, All: opts.All}
+	report := &RunReport{RunID: runID, Root: root, Dir: rel, Selected: len(units), Invocations: []Record{}, Results: []Result{}, Repo: repo, All: opts.All,
+		DiscoveryCandidates: candidates(repo)}
 	if len(units) == 0 {
+		report.Accounting = accountFor(repo, units, nil)
 		report.HookErrors = runHooks(ctx, report)
 		return report, nil
 	}
@@ -108,6 +173,7 @@ func Run(ctx context.Context, root string, opts Options) (*RunReport, error) {
 		report.Invocations = append(report.Invocations, o.Record)
 		report.Results = append(report.Results, o.Results...)
 	}
+	report.Accounting = accountFor(repo, units, report.Results)
 	report.HookErrors = runHooks(ctx, report)
 	return report, nil
 }

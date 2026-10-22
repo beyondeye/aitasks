@@ -67,6 +67,13 @@ type ResultRow struct {
 	Clean        bool   `json:"clean"`
 	Anchor       bool   `json:"anchor"`
 	AnchorReason string `json:"anchor_reason,omitempty"`
+	// The evidence contract (M3.2a): the accounting and discovery classes of
+	// the result's own runner (a child row's: the subsumed runner's), and the
+	// engine-derived reason of a cases unit (reconciliation reasons, else the
+	// zero-test policy).
+	Accounting string `json:"accounting,omitempty"`
+	Discovery  string `json:"discovery,omitempty"`
+	Reason     string `json:"reason,omitempty"`
 }
 
 // RunEndRow closes a run's batch: the fold accepts the run only when exactly

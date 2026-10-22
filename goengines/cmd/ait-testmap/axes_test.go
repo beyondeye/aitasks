@@ -214,7 +214,7 @@ func TestAxesRealRunnerPersistsAxis(t *testing.T) {
 		t.Fatal(err)
 	}
 	r.Commit(t, "2", "test", "axis runner")
-	if code, out, errs := call("scan", "--apply"); code != 0 || errs != "" || !strings.HasPrefix(out, "SCAN:2|1|2\n") {
+	if code, out, errs := call("scan", "--apply"); code != 0 || errs != "" || !strings.HasPrefix(out, "DISCOVERY:shell|candidates\nDISCOVERY:screens|candidates\nSCAN:2|1|2\n") {
 		t.Fatalf("scan: %d %q %q", code, out, errs)
 	}
 	data, _ := os.ReadFile(filepath.Join(r.Dir, registry.ScannedPath))

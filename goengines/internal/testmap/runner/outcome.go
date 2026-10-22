@@ -40,6 +40,11 @@ type Result struct {
 	Started    bool        `json:"started,omitempty"` // a valid start row was seen
 	Message    string      `json:"message,omitempty"`
 	Invocation int         `json:"invocation"`
+	// A cases unit's engine-derived evidence (reconcile.go): the reasons
+	// (or the G3 policy), the counters and the skipped identities.
+	Reason       string      `json:"reason,omitempty"`
+	Cases        *CaseCounts `json:"cases,omitempty"`
+	SkippedCases []string    `json:"skipped_cases,omitempty"`
 }
 
 // failing reports whether a status fails a run.
@@ -61,7 +66,10 @@ type verdict struct {
 //  2. classify how the invocation ended — a sweep failure, a start failure or
 //     an output overflow is mechanism; an engine kill is timeout; exit 75 is
 //     a clean refusal only with nothing emitted and no protocol error; exits
-//     0 / 1 / 2 are checked against the rows;
+//     0 / 1 / 2 are checked against the rows — for an accounting: cases
+//     invocation against the adapter's own case rows (v.Cases), since the
+//     engine derived the units' results and the reconciler already owns
+//     missing and zero evidence;
 //  3. only then, synthesize the still-unreported valid expected ids
 //     (AttributeKill after a kill, `refused` after a clean refusal,
 //     `not_started` when the runner never started, else `missing`);
@@ -73,7 +81,8 @@ func decide(end EndState, v Validation, expected []registry.ID, mode string) ver
 	status := map[registry.ID]Result{}
 	for _, r := range v.Rows {
 		if !r.Child {
-			status[r.ID] = Result{ID: r.ID, Status: r.Status, DurationMS: r.DurationMS, Message: r.Message}
+			status[r.ID] = Result{ID: r.ID, Status: r.Status, DurationMS: r.DurationMS, Message: r.Message,
+				Reason: r.Reason, Cases: r.Cases, SkippedCases: r.Skipped}
 		}
 	}
 	for id, detail := range v.PerID {
@@ -119,6 +128,13 @@ func decide(end EndState, v Validation, expected []registry.ID, mode string) ver
 			out.Refused = true
 			synth = StatusRefused
 		} else {
+			set(CauseReconciliation, "exit_mismatch")
+		}
+	case v.Cases != nil && (end.Exit == lineproto.ExitOK || end.Exit == lineproto.ExitFail || end.Exit == lineproto.ExitNothingRan):
+		switch {
+		case end.Exit == lineproto.ExitOK && v.Cases.Failing,
+			end.Exit == lineproto.ExitFail && !v.Cases.Failing,
+			end.Exit == lineproto.ExitNothingRan && v.Cases.Rows > 0:
 			set(CauseReconciliation, "exit_mismatch")
 		}
 	case end.Exit == lineproto.ExitOK || end.Exit == lineproto.ExitFail:

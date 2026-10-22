@@ -135,7 +135,7 @@ func TestValidateRowsMalformedAttribution(t *testing.T) {
 func ctxFor(mode string, full bool, expected ...string) rowContext {
 	return rowContext{
 		Expected: ids(expected...), TimeoutS: map[registry.ID]float64{},
-		Registered: func(id registry.ID) bool { return id.Path != "foreign" && id.Path != "zzz" }, Full: full, Mode: mode,
+		Registered: func(id registry.ID) bool { return id.Path != "foreign" && id.Path != "zzz" }, Children: full, Mode: mode,
 	}
 }
 

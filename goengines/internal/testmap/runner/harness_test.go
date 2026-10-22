@@ -37,13 +37,14 @@ func newRepo(t *testing.T, files map[string]string) *fixture.Repo {
 type spec struct {
 	describe string // describe output (YAML)
 	list     string // list rows, `<id> <kind> <lowering> [<artifact>]` joined by '\t' per line ("|" is replaced by a tab)
-	run      string // bash run body; $M manifest, $R results, $IDS manifest ids (one per line), $D state dir of the test
+	run      string // bash run body; $M manifest, $R results, $C cases.jsonl, $IDS manifest ids (one per line), $D state dir of the test
 }
 
 // script renders a runner script. In the run body:
 //
 //	row <id> <status> [<duration_ms>] [<parent>]   append a result row
 //	start <id>                                    append a start row
+//	crow <unit> <case> <status> [<duration_ms>]   append a cases.jsonl row
 func script(s spec, stateDir string) string {
 	var list strings.Builder
 	for _, l := range strings.Split(strings.TrimSpace(s.list), "\n") {
@@ -61,6 +62,8 @@ func script(s spec, stateDir string) string {
 		"IDS=$(sed -n 's/^      \"id\": \"\\(.*\\)\",$/\\1/p' \"$M\")\n" +
 		"row() { local p=''; [ -n \"${4:-}\" ] && p=\",\\\"parent\\\":\\\"$4\\\"\"; printf '{\"id\":\"%s\",\"status\":\"%s\",\"duration_ms\":%s%s}\\n' \"$1\" \"$2\" \"${3:-1}\" \"$p\" >> \"$R\"; }\n" +
 		"start() { printf '{\"id\":\"%s\",\"event\":\"start\"}\\n' \"$1\" >> \"$R\"; }\n" +
+		"C=\"$AIT_TESTMAP_REPORT_DIR/cases.jsonl\"\n" +
+		"crow() { printf '{\"unit\":\"%s\",\"case\":\"%s\",\"status\":\"%s\",\"duration_ms\":%s}\\n' \"$1\" \"$2\" \"$3\" \"${4:-1}\" >> \"$C\"; }\n" +
 		s.run + "\n;;\n" +
 		"*) exit 64;;\nesac\n"
 }
@@ -139,6 +142,14 @@ func withBuiltin(t *testing.T, name string) {
 	t.Helper()
 	RegisterBuiltin(name)
 	t.Cleanup(func() { builtinMu.Lock(); delete(builtins, name); builtinMu.Unlock() })
+}
+
+// withReportingContract registers a test-only reporting contract (G7) for
+// the test, so a `children:` naming it loads.
+func withReportingContract(t *testing.T, name string) {
+	t.Helper()
+	RegisterReportingContract(name)
+	t.Cleanup(func() { contractMu.Lock(); delete(contracts, name); contractMu.Unlock() })
 }
 
 // withExecutor swaps the plan executor for the test only.

@@ -24,15 +24,22 @@ var runExits = lineproto.ExitContract{
 // runRun is `run [--all] [--run-id <id>] [--json] [<id>...]`:
 //
 //	RUN:<run-id>
+//	DISCOVERY:<runner>|candidates                    (per loaded runner whose discovery is a source scan)
 //	INVOCATION:<n>|<runner>|<units expected>|<group key>
 //	UNIT:<id>|<status>|<duration_ms>|top|            (per manifest id)
+//	CASES:<id>|<expected>|<passed>|<failed>|<errored>|<skipped>|<reasons>  (after an engine-derived cases unit)
 //	UNIT:<id>|<status>|<duration_ms>|child|<parent>  (per valid child row)
 //	CAUSE:<n>|<cause>|<detail>                       (an invocation with a cause)
-//	PROTOCOL_ERROR:<n>|<detail>                      (each results.jsonl violation)
+//	PROTOCOL_ERROR:<n>|<detail>                      (each results.jsonl / cases.jsonl violation)
+//	RUN_ACCOUNTING:<selected>|<cases>|<unit>|<aggregate>|<unaccounted>
 //	RUN_RESULT:<pass|fail|nothing|refused|error>|<passed>|<failed>|<skipped>|<failed children>|<invocations with a cause>
 //
 // The three unit counts are over top-level results (disjoint accounting);
 // failing child rows are counted apart and fail the run on their own.
+// RUN_RESULT is the command outcome; RUN_ACCOUNTING says what that outcome
+// rests on (G1): the selected units by accounting class, and the subsumed
+// units no child evidence accounts for. <reasons> is the cases unit's
+// reconciliation reasons, else its zero-test policy (`zero_tests`).
 //
 // A framework error before execution prints RUN_ERROR / RUNNER_* /
 // CONTRACT_MISMATCH on stderr and exits 3; a failed post-run subscriber
@@ -71,6 +78,9 @@ func runRun(e env, args []string) int {
 		return code
 	}
 	lines := [][]string{{"RUN", rep.RunID}}
+	for _, name := range rep.DiscoveryCandidates {
+		lines = append(lines, []string{"DISCOVERY", name, runner.DiscoveryCandidates})
+	}
 	for _, rec := range rep.Invocations {
 		n := strconv.Itoa(rec.Invocation)
 		lines = append(lines, []string{"INVOCATION", n, rec.Runner, strconv.Itoa(rec.UnitsExpected), rec.Group})
@@ -82,6 +92,10 @@ func runRun(e env, args []string) int {
 				lines = append(lines, []string{"UNIT", res.ID.String(), res.Status, strconv.FormatInt(res.DurationMS, 10), "child", res.Parent.String()})
 			} else {
 				lines = append(lines, []string{"UNIT", res.ID.String(), res.Status, strconv.FormatInt(res.DurationMS, 10), "top", ""})
+				if c := res.Cases; c != nil {
+					lines = append(lines, []string{"CASES", res.ID.String(), strconv.Itoa(c.Expected), strconv.Itoa(c.Passed),
+						strconv.Itoa(c.Failed), strconv.Itoa(c.Errored), strconv.Itoa(c.Skipped), res.Reason})
+				}
 			}
 		}
 		if rec.Cause != "" {
@@ -115,6 +129,8 @@ func runRun(e env, args []string) int {
 		lineproto.ExitOK: "pass", lineproto.ExitFail: "fail", lineproto.ExitNothingRan: "nothing",
 		lineproto.ExitRefused: "refused", lineproto.ExitFramework: "error",
 	}[code]
+	a := rep.Accounting
+	lines = append(lines, []string{"RUN_ACCOUNTING", strconv.Itoa(a.Selected), strconv.Itoa(a.Cases), strconv.Itoa(a.Unit), strconv.Itoa(a.Aggregate), strconv.Itoa(a.Unaccounted)})
 	lines = append(lines, []string{"RUN_RESULT", verdict, strconv.Itoa(passed), strconv.Itoa(failed), strconv.Itoa(skipped), strconv.Itoa(childFailed), strconv.Itoa(causes)})
 	if c := printLines(e, lines); c != lineproto.ExitOK {
 		return c

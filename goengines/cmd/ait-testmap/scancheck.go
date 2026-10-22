@@ -23,7 +23,23 @@ import (
 // repository). A nil field makes both verbs refuse with INPUT_UNAVAILABLE,
 // exit 3 — they never run on an empty input as if it were the repository.
 var testmapInputs = func() registry.Inputs {
-	return registry.Inputs{Annotations: annot.Source{}, Lister: runner.Lister{}}
+	return registry.Inputs{Annotations: annot.Source{}, Lister: &runner.Lister{}}
+}
+
+// discoveryLines are `DISCOVERY:<runner>|candidates`, one per runner the
+// runner repository loaded whose discovery is a source scan (G5): its units
+// are never claimed to be every test there is. Only the runner-backed lister
+// knows them; an injected one prints none.
+func discoveryLines(in registry.Inputs) [][]string {
+	l, ok := in.Lister.(*runner.Lister)
+	if !ok {
+		return nil
+	}
+	var lines [][]string
+	for _, name := range l.Candidates() {
+		lines = append(lines, []string{"DISCOVERY", name, runner.DiscoveryCandidates})
+	}
+	return lines
 }
 
 // scanCheckExits is the exit contract of `scan` and `check`: 0 clean, 1 a
@@ -95,6 +111,8 @@ func cwd() (string, error) { return os.Getwd() }
 // `WROTE:<path>` (--apply, changed) or `SCAN_DRIFT:<path>` (dry run, would
 // change), once per generated file (`_scanned.yaml`, then M2.5's
 // `_scoped.yaml`). Member drift exits 1 and refuses every write.
+// `DISCOVERY:<runner>|candidates` lines precede `SCAN:` (and `check`'s
+// summary lines).
 func runScan(e env, args []string) int {
 	return scanWith(e, args, testmapInputs())
 }
@@ -127,6 +145,7 @@ func scanWith(e env, args []string, in registry.Inputs) int {
 		return code
 	}
 	lines := findingLines(res.Findings)
+	lines = append(lines, discoveryLines(in)...)
 	lines = append(lines, []string{"SCAN", strconv.Itoa(res.Units), strconv.Itoa(res.Edges), strconv.Itoa(res.Variants)})
 	for _, w := range res.Wrote {
 		lines = append(lines, []string{"WROTE", w})
@@ -180,6 +199,7 @@ func checkWith(e env, args []string, in registry.Inputs) int {
 		return code
 	}
 	lines := findingLines(res.Findings)
+	lines = append(lines, discoveryLines(in)...)
 	lines = append(lines, findingLines(res.Summary)...)
 	lines = append(lines, []string{"CHECK", res.Status, strconv.Itoa(len(res.Findings)), strconv.Itoa(res.Failing)})
 	if c := printLines(e, lines); c != lineproto.ExitOK {

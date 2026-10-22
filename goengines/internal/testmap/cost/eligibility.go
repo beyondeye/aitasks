@@ -159,17 +159,22 @@ func (j *judge) decide(res runner.Result, rec runner.Record) (bool, string) {
 		return false, "head-unborn"
 	case rec.HeadStart != rec.HeadEnd:
 		return false, "head-moved"
-	case len(rec.Modified) == 0:
+	}
+	// An aggregate result proves one command's exit, never which tests ran
+	// (G1): it anchors nothing, on a clean tree too.
+	if !res.Child {
+		if r := j.runnerOf(res.ID); r != nil && r.Describe.Accounting == runner.AccountingAggregate {
+			return false, "opaque:aggregate"
+		}
+	}
+	if len(rec.Modified) == 0 {
 		return true, ""
 	}
 	if res.Child {
 		return false, "opaque:child"
 	}
-	u, ok := j.units[res.ID]
-	var r *runner.Runner
-	if ok && j.rep.Repo != nil {
-		r = j.rep.Repo.Runner(u.Runner)
-	}
+	u := j.units[res.ID]
+	r := j.runnerOf(res.ID)
 	if r == nil {
 		return false, "eligibility-error:unit:" + res.ID.String()
 	}
@@ -253,6 +258,16 @@ func (j *judge) decide(res runner.Result, rec runner.Record) (bool, string) {
 		return false, "runner-config:" + why
 	}
 	return true, ""
+}
+
+// runnerOf is the runner owning id in the run's repository (nil when the
+// unit or the repository is unknown).
+func (j *judge) runnerOf(id registry.ID) *runner.Runner {
+	u, ok := j.units[id]
+	if !ok || j.rep.Repo == nil {
+		return nil
+	}
+	return j.rep.Repo.Runner(u.Runner)
 }
 
 // closure is {test} ∪ its test-side closure, the test first.

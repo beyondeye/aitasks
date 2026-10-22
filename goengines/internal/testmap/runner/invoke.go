@@ -1,6 +1,7 @@
 package runner
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/beyondeye/aitasks/goengines/internal/gitx"
+	"github.com/beyondeye/aitasks/goengines/internal/lineproto"
 	"github.com/beyondeye/aitasks/goengines/internal/testmap"
 	"github.com/beyondeye/aitasks/goengines/internal/testmap/registry"
 )
@@ -27,17 +29,22 @@ type Manifest struct {
 	Group      string         `json:"group"`
 	Handle     string         `json:"handle"` // the allocator handle (M3.3); "" when none is held
 	Timeouts   string         `json:"timeouts"`
+	Accounting string         `json:"accounting"` // the effective accounting class (runners.yaml overrides applied)
 	DeadlineS  float64        `json:"deadline_s"` // the engine's deadline for this invocation
 	Results    string         `json:"results"`
 	RunnerJSON string         `json:"runner_json"`
+	ReportDir  string         `json:"report_dir"` // created empty for this invocation; reports are read only from here (G6)
 	Units      []ManifestUnit `json:"units"`
 }
 
-// ManifestUnit is one unit to run.
+// ManifestUnit is one unit to run. Cases is present (possibly empty) only
+// for an accounting: cases runner: the unit's expected case identities, from
+// this run's discovery.
 type ManifestUnit struct {
-	ID       string  `json:"id"`
-	Lowering string  `json:"lowering"`
-	TimeoutS float64 `json:"timeout_s"`
+	ID       string   `json:"id"`
+	Lowering string   `json:"lowering"`
+	TimeoutS float64  `json:"timeout_s"`
+	Cases    []string `json:"cases,omitzero"`
 }
 
 // Record is the engine's own per-invocation record (`record.json`) — never
@@ -55,6 +62,9 @@ type Record struct {
 	ExitCode       int      `json:"exit_code"`
 	ElapsedMS      int64    `json:"elapsed_ms"`
 	Timeouts       string   `json:"timeouts"`
+	Accounting     string   `json:"accounting"`
+	Discovery      string   `json:"discovery"`
+	ReportDir      string   `json:"report_dir"`
 	DeadlineS      float64  `json:"deadline_s"`
 	Killed         bool     `json:"killed"`
 	Refused        bool     `json:"refused"`
@@ -66,6 +76,9 @@ type Record struct {
 	HeadStart      string   `json:"head_start"`
 	HeadEnd        string   `json:"head_end"`
 	Modified       []string `json:"modified"` // start ∪ end, root-relative (../ outside the root), sorted
+	// Cases sums the engine-derived counters of the invocation's cases units
+	// (accounting: cases only).
+	Cases *CaseCounts `json:"cases,omitempty"`
 }
 
 // invoker runs invocations for one run.
@@ -78,9 +91,11 @@ type invoker struct {
 func (iv *invoker) invoke(ctx context.Context, inv *Invocation) Outcome {
 	r := iv.repo.Runner(inv.Runner)
 	mode := r.Describe.Timeouts
+	acct := r.Describe.Accounting
 	rec := Record{
 		Contract: testmap.Contract, RunID: iv.runID, Invocation: inv.Index, Group: inv.Key.String(),
 		Runner: inv.Runner, UnitsExpected: len(inv.Units), Timeouts: mode, ProtocolErrors: []string{}, Modified: []string{},
+		Accounting: acct, Discovery: r.Describe.Discovery,
 	}
 	expected := make([]registry.ID, len(inv.Units))
 	timeouts := map[registry.ID]float64{}
@@ -104,13 +119,26 @@ func (iv *invoker) invoke(ctx context.Context, inv *Invocation) Outcome {
 	if err := os.MkdirAll(idir, 0o755); err != nil {
 		return fail("state:" + err.Error())
 	}
+	// The report directory is created empty for this invocation; its own
+	// modification time is the freshness bound (FreshReport), read from the
+	// same kernel clock that stamps the files a runner writes into it.
+	report, err := NewReportDir(filepath.Join(idir, "report"))
+	if err != nil {
+		return fail("state:" + err.Error())
+	}
+	rdir := report.Path
+	rec.ReportDir = rdir
 	m := Manifest{
 		Contract: testmap.Contract, RunID: iv.runID, Invocation: inv.Index, Group: rec.Group, Handle: inv.Handle,
-		Timeouts: mode, DeadlineS: rec.DeadlineS,
-		Results: filepath.Join(idir, "results.jsonl"), RunnerJSON: filepath.Join(idir, "runner.json"),
+		Timeouts: mode, Accounting: acct, DeadlineS: rec.DeadlineS,
+		Results: filepath.Join(idir, "results.jsonl"), RunnerJSON: filepath.Join(idir, "runner.json"), ReportDir: rdir,
 	}
 	for _, u := range inv.Units {
-		m.Units = append(m.Units, ManifestUnit{ID: u.ID.String(), Lowering: u.Lowering, TimeoutS: u.TimeoutS})
+		mu := ManifestUnit{ID: u.ID.String(), Lowering: u.Lowering, TimeoutS: u.TimeoutS}
+		if acct == AccountingCases {
+			mu.Cases = append([]string{}, u.Cases...)
+		}
+		m.Units = append(m.Units, mu)
 	}
 	mpath := filepath.Join(idir, "manifest.json")
 	if err := writeJSON(mpath, m); err != nil {
@@ -121,7 +149,8 @@ func (iv *invoker) invoke(ctx context.Context, inv *Invocation) Outcome {
 	if perr != nil {
 		return fail("provenance:" + perr.Error())
 	}
-	c, err := r.command(iv.repo.Root, append(os.Environ(), "AIT_TESTMAP_RUN_ID="+iv.runID), "run", "--manifest", mpath)
+	c, err := r.command(iv.repo.Root, append(os.Environ(), "AIT_TESTMAP_RUN_ID="+iv.runID,
+		"AIT_TESTMAP_REPORT_DIR="+rdir, "AIT_TESTMAP_ACCOUNTING="+acct), "run", "--manifest", mpath)
 	if err != nil {
 		return fail("runner_start:" + err.Error())
 	}
@@ -136,7 +165,7 @@ func (iv *invoker) invoke(ctx context.Context, inv *Invocation) Outcome {
 	data, _, rerr := readReport(m.Results, resultsMax)
 	v := ValidateRows(data, res.Killed, rowContext{
 		Expected: expected, TimeoutS: timeouts, Registered: iv.repo.Registered,
-		Full: r.Describe.Full, Mode: mode,
+		Children: r.Describe.Full && r.Describe.Children != "", Mode: mode, Accounting: acct,
 	})
 	if rerr != nil {
 		v.Errors = append(v.Errors, "report:results.jsonl:"+oneLine(rerr.Error()))
@@ -148,6 +177,7 @@ func (iv *invoker) invoke(ctx context.Context, inv *Invocation) Outcome {
 	if jerr != nil {
 		v.Errors = append(v.Errors, "report:runner.json:"+oneLine(jerr.Error()))
 	}
+	rec.Cases = iv.caseEvidence(&v, inv, r, report, res)
 	vd := decide(EndState{Exit: res.Exit, Killed: res.Killed, Bound: bound, StartErr: res.StartErr, Overflow: res.Overflow, Sweep: res.Sweep}, v, expected, mode)
 	if perr != nil && causeRank[CauseMechanism] > causeRank[vd.Cause] {
 		vd.Cause, vd.CauseDetail = CauseMechanism, "provenance:"+oneLine(perr.Error())
@@ -164,6 +194,94 @@ func (iv *invoker) invoke(ctx context.Context, inv *Invocation) Outcome {
 	}
 	rec.OverheadMS = max(rec.ElapsedMS-top, 0)
 	return iv.finish(inv, rec, vd, &idir)
+}
+
+// caseEvidence reads the invocation's cases.jsonl and, for an accounting:
+// cases runner, derives each unit's result through the shared reconciler,
+// recording the derived rows in v. It returns the invocation's summed
+// counters (nil for any other class).
+//
+// Under unit / aggregate accounting a case row is refused. Under cases the
+// end is classified first, in decide's order, and only then are results
+// derived:
+//
+//   - the runner ran and exited 0 / 1 / 2 by itself: every unit that did not
+//     break the results protocol is reconciled; each reconciliation reason
+//     is a protocol error (the G3 policy is not);
+//   - the engine killed it: what the runner did write is still judged —
+//     attributable invalid evidence (any reason but incomplete) makes the
+//     unit error — and a unit that provably finished (Terminal) keeps its
+//     status; every other unit, a zero-expected one included, is left to
+//     AttributeKill;
+//   - anything else (exit 75, an out-of-contract exit, a start failure):
+//     nothing is derived, so a clean refusal stays a refusal.
+//
+// A refused report (FreshReport: stale, a link, the report directory
+// replaced, not a regular file, oversized) taints every unit rejected_report: rejected
+// evidence outranks the zero-test policy, never yields a pass or a skip.
+func (iv *invoker) caseEvidence(v *Validation, inv *Invocation, r *Runner, report ReportDir, res execResult) *CaseCounts {
+	acct := r.Describe.Accounting
+	expected := make([]registry.ID, len(inv.Units))
+	for i, u := range inv.Units {
+		expected[i] = u.ID
+	}
+	data, _, ferr := FreshReport(report, filepath.Join(report.Path, CasesFile))
+	if ferr != nil {
+		v.Errors = append(v.Errors, "report:"+CasesFile+":"+oneLine(ferr.Error()))
+	}
+	emitted := len(bytes.TrimSpace(data)) > 0
+	v.Emitted = v.Emitted || emitted
+	if acct != AccountingCases {
+		// Refused whole: what the rows say is never read.
+		if emitted {
+			v.Errors = append(v.Errors, "cases:refused:"+CasesFile+" from accounting: "+acct)
+		}
+		return nil
+	}
+	ce := ValidateCases(data, res.Killed, expected, iv.repo.Registered)
+	if ferr != nil {
+		for _, id := range expected {
+			ce.Taints[id] = append(ce.Taints[id], ReasonRejectedReport)
+		}
+	}
+	v.Errors = append(v.Errors, ce.Errors...)
+	v.Cases = &ce.Exit
+	ran := res.StartErr == nil && !res.Killed &&
+		(res.Exit == lineproto.ExitOK || res.Exit == lineproto.ExitFail || res.Exit == lineproto.ExitNothingRan)
+	if !ran && !res.Killed {
+		return &CaseCounts{}
+	}
+	var expect []Expectation
+	for _, u := range inv.Units {
+		if v.PerID[u.ID] != "" {
+			continue // its results protocol is already broken: error
+		}
+		expect = append(expect, Expectation{Key: EvidenceKey{Unit: u.ID}, Cases: u.Cases, ZeroTests: r.Entry.ZeroTests, Taints: ce.Taints[u.ID]})
+	}
+	rcs, _ := Reconcile(expect, ce.Results)
+	sum := &CaseCounts{}
+	for _, rc := range rcs {
+		reasons := rc.Reasons
+		if res.Killed {
+			reasons = slices.DeleteFunc(slices.Clone(rc.Reasons), func(s string) bool { return s == ReasonIncomplete })
+			switch {
+			case len(reasons) > 0:
+				rc.Status, rc.Reasons, rc.Policy = StatusError, reasons, ""
+			case rc.Terminal:
+			default:
+				continue // unfinished: AttributeKill decides
+			}
+		}
+		id := rc.Key.Unit
+		counts := rc.Counts
+		sum.add(counts)
+		v.Reported[id] = true
+		v.Rows = append(v.Rows, Row{ID: id, Status: rc.Status, DurationMS: rc.DurationMS, Reason: rc.Reason(), Cases: &counts, Skipped: rc.Skipped})
+		for _, reason := range reasons {
+			v.Errors = append(v.Errors, reason+":"+id.String())
+		}
+	}
+	return sum
 }
 
 // finish stamps the verdict into the record, writes record.json (when the
@@ -239,16 +357,20 @@ func writeJSON(path string, v any) error {
 // MarshalJSON renders ids as their canonical strings.
 func (r Result) MarshalJSON() ([]byte, error) {
 	type wire struct {
-		ID         string `json:"id"`
-		Status     string `json:"status"`
-		DurationMS int64  `json:"duration_ms"`
-		Parent     string `json:"parent,omitempty"`
-		Child      bool   `json:"child,omitempty"`
-		Started    bool   `json:"started,omitempty"`
-		Message    string `json:"message,omitempty"`
-		Invocation int    `json:"invocation"`
+		ID         string      `json:"id"`
+		Status     string      `json:"status"`
+		DurationMS int64       `json:"duration_ms"`
+		Parent     string      `json:"parent,omitempty"`
+		Child      bool        `json:"child,omitempty"`
+		Started    bool        `json:"started,omitempty"`
+		Message    string      `json:"message,omitempty"`
+		Invocation int         `json:"invocation"`
+		Reason     string      `json:"reason,omitempty"`
+		Cases      *CaseCounts `json:"cases,omitempty"`
+		Skipped    []string    `json:"skipped_cases,omitempty"`
 	}
-	w := wire{ID: r.ID.String(), Status: r.Status, DurationMS: r.DurationMS, Child: r.Child, Started: r.Started, Message: r.Message, Invocation: r.Invocation}
+	w := wire{ID: r.ID.String(), Status: r.Status, DurationMS: r.DurationMS, Child: r.Child, Started: r.Started, Message: r.Message, Invocation: r.Invocation,
+		Reason: r.Reason, Cases: r.Cases, Skipped: r.SkippedCases}
 	if r.Child {
 		w.Parent = r.Parent.String()
 	}
