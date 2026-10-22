@@ -122,6 +122,14 @@ names the child of t1747 that owns the fix.
 | A10 | `aitask_sync.sh::_sync_gitdir:301` | "which git-dir owns the data worktree?" | `_worktree_wedged` early refusal; quarantine file location | fabricated `.git` ⇒ "not wedged" ⇒ sync proceeds; **and relocates the quarantine file, losing every held entry** | t1747_3 |
 | A12 | `aitask_lock.sh::lock_task:195` | "does a lock already exist?" | acquiring a task lock **over another session's** | failed `ls-tree` ⇒ no output ⇒ `grep -q` false ⇒ the whole lock-exists block at `:195-276` is skipped, and with it *every* liveness gate (`LOCK_LIVE_HOLDER`, `LOCK_UNVERIFIABLE_HOLDER`, `LOCK_RECLAIM`) — a silent reprise of the t1466 defect those gates exist to prevent | t1747_6 |
 
+**`install.sh` carries the A9/A9b twin.** It is outside the `.aitask-scripts/`
+audit boundary (see [The detection boundary](#the-detection-boundary)), but its
+stand-alone copy of the pre-install dirty baseline — `_install_list_changes`,
+`_install_version_tracked`, consumed by `snapshot_pre_install_dirty` and both
+`commit_installed_*` committers — takes the same fix shape: one unverified flag
+per baseline, and each committer refuses on its flag or its own failed probe.
+`tests/test_install_failopen_probes.sh` pins it (t2116).
+
 **A11 — `lib/task_utils.sh::task_git_commit_scoped:588-594` — is correct as
 written**, not a defect. It already separates rc from empty and deliberately
 resolves the unknown toward *committing*, which is that site's safe direction. It

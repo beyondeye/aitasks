@@ -1168,6 +1168,12 @@ set_permissions() {
 AIT_INSTALL_DIRTY_BASELINE=""
 AIT_INSTALL_DATA_DIRTY_BASELINE=""
 AIT_INSTALL_BASELINE_ARMED=0
+# ARMED means "a snapshot ran"; UNVERIFIED means "it ran but could not read the
+# dirty state", so its empty baseline is unknown rather than clean and the
+# matching committer refuses. One flag per baseline, each read only by that
+# baseline's committer (t2116). Keep these separate from ARMED.
+AIT_INSTALL_BASELINE_UNVERIFIED=0
+AIT_INSTALL_DATA_BASELINE_UNVERIFIED=0
 
 # Print the framework pathspecs that exist in <dir>, one per line. With
 # <include_absent>=1, print every pathspec: the baseline needs that, because a
@@ -1215,22 +1221,24 @@ _install_data_framework_paths() {
     return 0
 }
 
-# The main-repo commit eligibility, split so commit_installed_files can keep
-# its distinct messages. snapshot_pre_install_dirty gates on the SAME predicate
-# (_install_commit_eligible): a snapshot skipped in a state the committer acts
-# in would leave it committing against an empty baseline. No HEAD is required —
+# The main-repo commit eligibility: a work tree with .aitask-scripts/VERSION in
+# the index. snapshot_pre_install_dirty and commit_installed_files test the SAME
+# two predicates: a snapshot skipped in a state the committer acts in would
+# leave it committing against an empty baseline. No HEAD is required —
 # `ls-files --error-unmatch` reads the index, so a repository with no first
 # commit and a staged VERSION is eligible.
 _install_is_worktree() {
     git -C "$1" rev-parse --is-inside-work-tree &>/dev/null
 }
 
+# Is .aitask-scripts/VERSION in <dir>'s index? 0 = tracked, 1 = genuinely
+# untracked (the project does not track the framework), 2 = unverified.
+# `--error-unmatch` exits 1 for an untracked path and 128 for a git error, so
+# the two are separable (t2116).
 _install_version_tracked() {
-    git -C "$1" ls-files --error-unmatch -- .aitask-scripts/VERSION &>/dev/null
-}
-
-_install_commit_eligible() {
-    _install_is_worktree "$1" && _install_version_tracked "$1"
+    local rc=0
+    git -C "$1" ls-files --error-unmatch -- .aitask-scripts/VERSION >/dev/null 2>&1 || rc=$?
+    case $rc in 0) return 0 ;; 1) return 1 ;; *) return 2 ;; esac
 }
 
 # Data-worktree eligibility, shared by the data snapshot and
@@ -1264,6 +1272,8 @@ _install_data_branch_exclude_re() {
 # `ls-files --modified` too — would miss the baseline; extraction recreates it
 # and the commit would turn the user's pending rename into an addition.
 # Mirrors _ait_list_framework_changes in aitask_setup.sh.
+# Returns 0 when the list is verified; 2 when any probe failed, with stdout
+# empty — an unreadable worktree is not a clean one (t2116).
 _install_list_changes() {
     local workdir="$1" extra_exclude_re="$2"
     shift 2
@@ -1271,12 +1281,14 @@ _install_list_changes() {
     if [[ -n "$extra_exclude_re" ]]; then
         exclude_re="$exclude_re|$extra_exclude_re"
     fi
-    local untracked modified staged
+    local untracked modified staged probe_rc=0
     untracked="$(git -C "$workdir" ls-files --others --exclude-standard \
-        -- "$@" 2>/dev/null)" || true
-    modified="$(git -C "$workdir" ls-files --modified -- "$@" 2>/dev/null)" || true
+        -- "$@" 2>/dev/null)" || probe_rc=1
+    modified="$(git -C "$workdir" ls-files --modified -- "$@" 2>/dev/null)" || probe_rc=1
     staged="$(git -C "$workdir" diff --cached --name-only --no-renames \
-        -- "$@" 2>/dev/null)" || true
+        -- "$@" 2>/dev/null)" || probe_rc=1
+    # A partial list is not a smaller dirty set: print nothing on failure.
+    (( probe_rc == 0 )) || return 2
     printf '%s\n%s\n%s\n' "$untracked" "$modified" "$staged" \
         | sed '/^$/d' | sort -u | { grep -Ev "$exclude_re" || true; }
 }
@@ -1293,31 +1305,78 @@ _install_intersect() {
     grep -Fx -f <(printf '%s\n' "$1") || true
 }
 
+# Refuse a framework commit whose pre-install dirty state could not be read:
+# the upgrade's own files left uncommitted are recoverable by hand, someone
+# else's work committed under the upgrade message is not (t2116). The recovery
+# is a manual commit, not a re-run: a re-run's snapshot would find the files
+# this run left dirty and leave them alone as pre-existing changes.
+_install_refuse_unverified_commit() {
+    local what="$1" recovery="$2"
+    warn "Could not read the uncommitted state of $what — the framework update was NOT committed."
+    warn "Committing without it could sweep someone else's uncommitted work into the upgrade commit."
+    info "Once git works again, review 'git status' and commit the framework files yourself with $recovery."
+}
+
 # Snapshot the pre-install dirty framework-path state. main() MUST call this
 # before extraction — nothing earlier writes into INSTALL_DIR. Each baseline is
 # gated only on its own committer's eligibility, so neither commit can ever act
 # with a baseline that was skipped.
+#
+# Unverified: a failed git probe yields no list, and an empty baseline would
+# read as "nothing was dirty" — the commit-all sweep. Instead it sets that
+# baseline's UNVERIFIED flag and its committer refuses (t2116). The data and
+# main flags are independent, like the baselines themselves.
 snapshot_pre_install_dirty() {
     local data_dir="$INSTALL_DIR/.aitask-data" p
     AIT_INSTALL_BASELINE_ARMED=1
+    AIT_INSTALL_BASELINE_UNVERIFIED=0
+    AIT_INSTALL_DATA_BASELINE_UNVERIFIED=0
     AIT_INSTALL_DIRTY_BASELINE=""
     AIT_INSTALL_DATA_DIRTY_BASELINE=""
 
-    if _install_data_worktree_present "$data_dir"; then
-        local data_paths=()
-        while IFS= read -r p; do data_paths+=("$p"); done \
-            < <(_install_data_framework_paths "$data_dir" 1)
-        AIT_INSTALL_DATA_DIRTY_BASELINE="$(_install_list_changes "$data_dir" "" \
-            "${data_paths[@]}")" || true
+    # The data worktree's own predicate (_install_data_worktree_present), split
+    # so that a present .git which git cannot read is an unverified baseline,
+    # not a missing one.
+    if [[ -d "$data_dir/.git" || -f "$data_dir/.git" ]]; then
+        if ! _install_is_worktree "$data_dir"; then
+            AIT_INSTALL_DATA_BASELINE_UNVERIFIED=1
+        else
+            local data_paths=() data_rc=0
+            while IFS= read -r p; do data_paths+=("$p"); done \
+                < <(_install_data_framework_paths "$data_dir" 1)
+            # unverified: flag the data baseline; commit_installed_data_files refuses.
+            AIT_INSTALL_DATA_DIRTY_BASELINE="$(_install_list_changes "$data_dir" "" \
+                "${data_paths[@]}")" || data_rc=$?
+            (( data_rc == 0 )) || AIT_INSTALL_DATA_BASELINE_UNVERIFIED=1
+        fi
     fi
 
-    if _install_commit_eligible "$INSTALL_DIR"; then
-        local fw_paths=()
-        while IFS= read -r p; do fw_paths+=("$p"); done \
-            < <(_install_framework_paths "$INSTALL_DIR" 1)
-        AIT_INSTALL_DIRTY_BASELINE="$(_install_list_changes "$INSTALL_DIR" \
-            "$(_install_data_branch_exclude_re "$INSTALL_DIR")" "${fw_paths[@]}")" || true
+    # A failed rev-parse is unverified whether or not $INSTALL_DIR/.git exists:
+    # --dir may name a subdirectory of an ancestor repository, which has no
+    # local .git. With truly no repository the flag is inert —
+    # commit_installed_files bails on its own repo check before reading it.
+    if ! _install_is_worktree "$INSTALL_DIR"; then
+        AIT_INSTALL_BASELINE_UNVERIFIED=1
+        return 0
     fi
+
+    # Framework not tracked → no main baseline; commit_installed_files skips too.
+    local vrc=0
+    # unverified: flag the main baseline; commit_installed_files refuses.
+    _install_version_tracked "$INSTALL_DIR" || vrc=$?
+    case $vrc in
+        0) ;;
+        1) return 0 ;;
+        *) AIT_INSTALL_BASELINE_UNVERIFIED=1; return 0 ;;
+    esac
+
+    local fw_paths=() main_rc=0
+    while IFS= read -r p; do fw_paths+=("$p"); done \
+        < <(_install_framework_paths "$INSTALL_DIR" 1)
+    # unverified: flag the main baseline; commit_installed_files refuses.
+    AIT_INSTALL_DIRTY_BASELINE="$(_install_list_changes "$INSTALL_DIR" \
+        "$(_install_data_branch_exclude_re "$INSTALL_DIR")" "${fw_paths[@]}")" || main_rc=$?
+    (( main_rc == 0 )) || AIT_INSTALL_BASELINE_UNVERIFIED=1
     return 0
 }
 
@@ -1361,13 +1420,23 @@ commit_installed_files() {
     # Only auto-commit if the previous framework version was committed. We use
     # .aitask-scripts/VERSION as the sentinel: projects that want framework
     # files tracked commit it, projects that don't leave it untracked.
-    if ! _install_version_tracked "$INSTALL_DIR"; then
-        info "  .aitask-scripts/VERSION is not git-tracked — skipping auto-commit of framework update."
-        return
-    fi
+    local vrc=0
+    # unverified: refuse — skipping is safe, but "not git-tracked" would be false.
+    _install_version_tracked "$INSTALL_DIR" || vrc=$?
+    case $vrc in
+        0) ;;
+        1) info "  .aitask-scripts/VERSION is not git-tracked — skipping auto-commit of framework update."
+           return ;;
+        *) _install_refuse_unverified_commit "the framework paths" "'git add' / 'git commit'"
+           return ;;
+    esac
 
     if [[ "$AIT_INSTALL_BASELINE_ARMED" != "1" ]]; then
         warn "commit_installed_files: baseline not armed — committing without pre-install dirty protection" >&2
+    fi
+    if [[ "$AIT_INSTALL_BASELINE_UNVERIFIED" == "1" ]]; then
+        _install_refuse_unverified_commit "the framework paths" "'git add' / 'git commit'"
+        return
     fi
 
     local version="unknown"
@@ -1383,10 +1452,15 @@ commit_installed_files() {
         return
     fi
 
-    local data_branch_re all_changes
+    local data_branch_re all_changes list_rc=0
     data_branch_re="$(_install_data_branch_exclude_re "$INSTALL_DIR")"
+    # unverified: refuse — an empty list would report a false "already committed".
     all_changes="$(_install_list_changes "$INSTALL_DIR" "$data_branch_re" \
-        "${paths_to_add[@]}")" || true
+        "${paths_to_add[@]}")" || list_rc=$?
+    if (( list_rc != 0 )); then
+        _install_refuse_unverified_commit "the framework paths" "'git add' / 'git commit'"
+        return
+    fi
 
     local changed_files=() excluded_files=() changed_file
     while IFS= read -r changed_file; do
@@ -1507,6 +1581,11 @@ commit_installed_data_files() {
     if [[ "$AIT_INSTALL_BASELINE_ARMED" != "1" ]]; then
         warn "commit_installed_data_files: baseline not armed — committing without pre-install dirty protection" >&2
     fi
+    if [[ "$AIT_INSTALL_DATA_BASELINE_UNVERIFIED" == "1" ]]; then
+        _install_refuse_unverified_commit "the aitask-data framework paths" \
+            "'git -C .aitask-data add' / 'git -C .aitask-data commit'"
+        return
+    fi
 
     local version="unknown"
     if [[ -f "$INSTALL_DIR/.aitask-scripts/VERSION" ]]; then
@@ -1521,8 +1600,14 @@ commit_installed_data_files() {
         return
     fi
 
-    local all_changes
-    all_changes="$(_install_list_changes "$data_dir" "" "${data_paths[@]}")" || true
+    local all_changes list_rc=0
+    # unverified: refuse — an empty list would hide the update behind a silent no-op.
+    all_changes="$(_install_list_changes "$data_dir" "" "${data_paths[@]}")" || list_rc=$?
+    if (( list_rc != 0 )); then
+        _install_refuse_unverified_commit "the aitask-data framework paths" \
+            "'git -C .aitask-data add' / 'git -C .aitask-data commit'"
+        return
+    fi
 
     local changed_files=() excluded_files=() changed_file
     while IFS= read -r changed_file; do
