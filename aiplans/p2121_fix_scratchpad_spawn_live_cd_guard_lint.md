@@ -104,3 +104,69 @@ t2079 precedent.
 
 ### Planned mitigations
 - timing: post-phase | name: keyfor_standalone_equivalence | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement: live test not runnable in the agent session | desc: run the rewritten key_for standalone from the scratch cwd against the real store helper; assert output byte-identical to the old form, and that a bad root gives exit 1 with empty output
+
+## Final Implementation Notes
+- **Actual work done:** None in this task. The remote drift check at the
+  Checkpoint found that `origin/main` commit 5211159fc50a (t2095, "Fix macOS-red
+  tests found by the wc -l sweep") already carried exactly the two changes this
+  plan describes, in `tests/test_scratchpad_spawn_live.sh`: the `enter_scratch_cwd`
+  block after `PROJECT_DIR=`, and the `(cd "$1" || exit 1` rewrite of `key_for()`.
+  The user merged remote `main`. The task was then closed as already fixed by t2095,
+  with no code commit.
+- **Deviations from plan:** The implementation steps were not performed by this
+  task. t2095 made them upstream. Verification was run against the merged tree
+  (HEAD 931f2fa6d919).
+- **Verification (on the merged tree):**
+  - `bash tests/test_cd_guard_lint.sh`: exit 0, `Results: 92 passed, 0 failed`.
+    Before the merge it was 90/2.
+  - `bash -n tests/test_scratchpad_spawn_live.sh`: OK.
+  - `shellcheck`: no findings attributable to the fix. Remaining findings are
+    SC2034 unused vars (REAL_PATH, REAL_TMUX, FAKE_AGENT, SESSIONS_SH) and
+    SC1091 infos.
+  - Post-phase keyfor_standalone_equivalence: all 5 checks PASS (script below,
+    run as `bash keyfor_equiv.sh <repo>`). It compares the old and the shipped
+    key_for from the read-only scratch cwd, against the real store helper.
+  - The live test `tests/test_scratchpad_spawn_live.sh` itself was NOT run. It
+    refuses inside tmux while a `-L ait` server is alive, so it must be run from a
+    non-tmux terminal.
+- **Issues encountered:** None beyond the duplicate.
+- **Key decisions:** Close as already fixed rather than re-commit an identical diff.
+- **Upstream defects identified:** None
+
+### keyfor_standalone_equivalence script (verbatim)
+```bash
+#!/usr/bin/env bash
+# keyfor_standalone_equivalence (t2121 post-phase): old vs new key_for, run from
+# the read-only scratch cwd against the real store helper.
+set -uo pipefail
+PROJECT_DIR="$1"
+. "$PROJECT_DIR/tests/lib/scratch_cwd.sh"
+enter_scratch_cwd
+STORE_SH="$PROJECT_DIR/.aitask-scripts/aitask_scratchpad_store.sh"
+PAD="$(mktemp -d)/pad"
+
+old_key_for() {
+    (cd "$1" && if [ -n "${3:-}" ]; then AITASK_SCRATCHPAD_DIR="$3" "$STORE_SH" path "$2"
+              else env -u AITASK_SCRATCHPAD_DIR "$STORE_SH" path "$2"; fi)
+}
+# Extract the shipped key_for verbatim from the test file.
+eval "$(sed -n '/^key_for() {/,/^}/p' "$PROJECT_DIR/tests/test_scratchpad_spawn_live.sh")"
+
+fail=0
+check() {
+    local label="$1" a b; shift
+    a="$(old_key_for "$@")"; b="$(key_for "$@")"
+    if [ -n "$a" ] && [ "$a" = "$b" ]; then echo "PASS: $label -> $b"
+    else echo "FAIL: $label old='$a' new='$b'"; fail=1; fi
+}
+echo "cwd: $(pwd)"
+check "with pad dir" "$PROJECT_DIR" 2101 "$PAD"
+check "empty third arg" "$PROJECT_DIR" 2101 ""
+check "two args" "$PROJECT_DIR" 2101
+
+out="$(key_for /nonexistent/ait_root 2101 "$PAD" 2>/dev/null)"; rc=$?
+if [ "$rc" = 1 ] && [ -z "$out" ]; then echo "PASS: bad root -> rc=1, empty output"
+else echo "FAIL: bad root rc=$rc out='$out'"; fail=1; fi
+[ "$(pwd)" = "${TMPDIR:-/tmp}/ait-test-cwd-$(id -u)" ] && echo "PASS: caller cwd unchanged" || { echo "FAIL: cwd moved"; fail=1; }
+exit "$fail"
+```
