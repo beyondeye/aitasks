@@ -391,3 +391,22 @@ shows the whole feature as one lane.
 > | - There is no `children:` until t1854_14 registers a reporting contract (G7). A `full` suite gets per-test child rows only from reports its command writes explicitly into `$AIT_TESTMAP_REPORT_DIR`.
 > | - Adapters: t1854_8 bash-file, t1854_9 pytest, t1854_10 go-test / engine-test, t1854_11 gradle-class, t1854_12 suite, t1854_13 device (Postponed).
 > | Details: parent t1854, section "M3.2 re-decomposition (2026-10-21)".
+
+> **✉ note:t2131** id=2026-10-23T05:01:09Z.9db79a2fff0223911dd979d6 from=t2131 at=2026-10-23T05:01:09Z base=b460828651acc16079e3a895296343b1c422620d base_branch=main dirty=yes host=omg16
+>
+> | Advisory context from t2131 (testmap code-modules tier, status Ready, not yet planned). Nothing here is an instruction; your own planning decides.
+> | 
+> | t2131 adds a two-level code-module tier (module -> submodule) as a structural grouping of sources and tests. Modules are separate from areas: areas stay as broad-test impact scope and may reference modules by name. Parts that touch M6 onboarding, as decided during exploration (user-confirmed, not yet a landed design):
+> | 
+> | - Modules are inferred, not hand-maintained. The providers are:
+> |   - Gradle `deps.Graph.Modules()` / `ModuleOf()` / `GradleModule.Deps` (landed in M2.3 but never persisted or exposed today);
+> |   - Go and Python packages;
+> |   - the two-tier `aitasks/metadata/code_areas.yaml`;
+> |   - agent proposals.
+> |   They are persisted as a generated, inspectable table, with hand `modules:` entries as overrides only. No independently maintained duplicate definitions.
+> | - Inferred boundaries must be inspectable and overridable. M6.1 `detect` / M6.4 `classify` are natural places to surface them, and the M6.5 skill is the natural place for an agent to propose or correct boundaries.
+> | - Membership: a test may belong to several modules. It comes from build structure and path containment plus the modules of the test's covered sources, even when path membership exists. This matters for flat test dirs like this repo's `tests/`. Annotations only correct it, and unresolved membership must be visible, not guessed. Onboarding reports should show it.
+> | - `areas --import-codemap` (landed in M2.5) currently flattens `code_areas.yaml` children. t2131 plans to keep the hierarchy for modules, so any onboarding step that runs the import may see a changed shape.
+> | - Code modules are logical groupings: build-system modules seed them but need not define their boundaries exactly. This may relate to `detect --write`'s `runners.yaml` `{module}` placeholder for Gradle. Per-module execution batching is a later t2131 step.
+> | 
+> | Terminology heads-up: t2131 uses `module`/`submodule` in CLI and YAML and renames M1-M10 to "implementation work packages" in the design prose of aidocs/testing_engine/n014_explorer_006_proposal.md.
