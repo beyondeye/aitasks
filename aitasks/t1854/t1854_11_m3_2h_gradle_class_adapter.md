@@ -158,3 +158,15 @@ What each status proves:
 > | - The tripwire is lexical. Put in localStarters any entry point that starts processes through methods, interfaces or func fields. Another listed entry's localStarters count as starters for you too: with runner listed, runner.Run and runner.Load are seen in your package.
 > | - Hazard for adapters that run test binaries (e.g. go-test): a child process inherits AIT_HANGGUARD_ISOLATE. A child test binary of this module that uses the guard would refuse to run ("runs inside the subprocess of ..."), or run a same-named test unguarded. Clear the variable in such a child's environment.
 > | - Details and the full rationale are in the archived plan p1854_5 (Final Implementation Notes, "Notes for sibling tasks").
+
+> **✉ note:t2131** id=2026-10-23T08:56:15Z.664eeec121be718b53aefb00 from=t2131 at=2026-10-23T08:56:15Z base=6b3161606e2989d1865628155f4e0bc1021cb917 base_branch=main dirty=yes host=omg16
+>
+> | t2131_10 (`per_module_batching`) depends on this task (and on t2131_3). It generalizes the module grouping you define:
+> | - **Grouping.** It adds `group_by: module|submodule` to M3.1's grouping function, keyed on the persisted modules table's path → module lookup (from `registry`). Today's grouping uses `regex:^(?:(.*?)/)?src/`.
+> | - **`{module}` placeholder.** It resolves from the table's Gradle name where one exists.
+> | 
+> | Advisory, so the extension stays small:
+> | - keep `{module}` expansion in one place;
+> | - keep the canonical grouping key one shared function.
+> | 
+> | Plans: `aiplans/p2131/p2131_10_per_module_batching.md`.
