@@ -26,6 +26,8 @@ This child brings the inferred modules into onboarding and lets an **agent propo
 - **Agent review.** The M6.5 skill's agent review writes:
   - `provider: agent` **proposals**. They are an inference provider (rank 2, below hand overrides, default 5), not overrides; a conflict is reported, not won. The intake is shaped like M6.4's `kind_proposals[]`, and `modules --scan` reads it;
   - `testmap:module` annotation lines, through a **key-aware rewriter planner** next to `PlanCovers`. Today `annot/rewrite.go` writes only `covers` lines: see `ownedBy` 304-313, `coverAt` 316-325, `PlanCovers` 490-521.
+- **Rerunnable, not one-shot.** The agent review is not only a step of the first onboarding pass. It can be re-run on demand whenever the codebase has moved, for example when `MODULES_DRIFT` fires or `MODULE_UNRESOLVED:` findings accumulate. A re-run revises the existing agent proposals and keeps their `by:` provenance; hand overrides are never touched. User decision, 2026-10-23: agent-defined boundaries are where the tier's value lies, so they must be maintainable as the code evolves.
+- **Reuse the agent review pass, do not build a second one.** The proposal already plans agent review machinery: the adoption model (seeds → verdicts → stamped) and *The Agent Review Pass* (packets, verdicts, calibration, budgets), owned by M6 and M7 (t1858). The boundary review should run through that machinery rather than a parallel proposal path. The Reality check decides how; if it needs an M7 work package, add that hold (below).
 - **This child never writes `completion.mode: module`.** A test pins that. The enabling write is t2131_11, after module-mode support exists (t2131_8).
 
 ## Dependency hold
@@ -37,6 +39,8 @@ This child brings the inferred modules into onboarding and lets an **agent propo
 - **M6.5** (the onboarding skill `.claude/skills/aitask-testmap-onboard/**`), in t1857.
 
 Each provider parent's coarse pass adds the ids and flips this task to `Ready` once nothing is left unresolved. In `depends:`: `t2131_5` (membership and `MODULE_UNRESOLVED:`). Keep it when wiring; `aitask_update.sh --deps` replaces the list.
+
+A possible further hold on an **M7** work package (agent review verbs or pass, in t1858) is not recorded yet. It is decided at the Reality check below, not guessed now. t2131_12 depends on this task, so the retrospective measures agent-refined boundaries.
 
 ## Key Files to Modify (as M6 lands them)
 
@@ -55,13 +59,14 @@ Each provider parent's coarse pass adds the ids and flips this task to `Ready` o
 1. **Step 0 — Reality check.** Read these as landed:
    - the M6.1 / M6.4 line classes;
    - the M6.5 skill and its `kind_proposals[]` intake;
-   - the rewriter ownership checks for a non-`covers` key.
+   - the rewriter ownership checks for a non-`covers` key;
+   - the landed M7 agent review pass (proposal *The Agent Review Pass*, ~1241; t1858): can module-boundary proposals travel as its packets and verdicts, with its calibration and budgets? If so, use it and add the M7 hold. If not, record why in the plan before building a proposal path of its own.
 
    **Stop if M6.1/M6.4/M6.5 have not landed.**
 2. The onboarding lines.
-3. The proposal intake.
+3. The proposal intake, through the agent review pass where the Reality check says it fits.
 4. The rewriter planner.
-5. The skill review step.
+5. The skill review step, invocable on demand as well as from onboarding.
 6. Tests and skill goldens.
 
 ## Verification Steps
@@ -69,6 +74,7 @@ Each provider parent's coarse pass adds the ids and flips this task to `Ready` o
 - detect / classify / inventory lines on a fixture.
 - An agent proposal is written with `by: agent:<string>` and reloaded.
 - A conflict with a build provider is reported, not won.
+- A re-run after the code moves revises the agent's own proposals, keeps their provenance, and leaves hand overrides untouched.
 - `testmap:module` lines are placed by the planner (goldens).
 - No write of `completion.mode`.
 - No step requires a person.

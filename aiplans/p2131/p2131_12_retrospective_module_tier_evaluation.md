@@ -29,8 +29,8 @@ This coarse plan records what the parent pass fixed for this slice. It does not 
 `Postponed` until the M4 coarse pass (t1855) wires the id for:
 - **M4.4** (`score` window scoring, `predictions.yaml`).
 
-In `depends:`: `t2131_7` (the paired records) and `t2131_8` (module mode).
-Keep these when wiring. Landed: M3.4 t1854_4 (the cost ledger).
+In `depends:`: `t2131_7` (the paired records), `t2131_8` (module mode) and
+`t2131_9` (agent-refined module boundaries). Keep these when wiring. Landed: M3.4 t1854_4 (the cost ledger).
 
 ## Reading list
 
@@ -62,7 +62,11 @@ Keep these when wiring. Landed: M3.4 t1854_4 (the cost ledger).
      runs;
    - **cost:** the added cost of widening;
    - **fallbacks:** the full-fallback share per `WIDEN_FULL` reason;
-   - **cadence:** the full-run share under `module`.
+   - **cadence:** the full-run share under `module`;
+   - **boundary source:** every measurement above split into build or
+     package providers and the codemap, versus agent-refined boundaries
+     (`provider: agent` proposals and `testmap:module` corrections from
+     t2131_9). The tier is not judged on package-derived boundaries alone.
 2. **Outcomes table** in this plan.
 3. **Decide:**
    - whether to adopt the smarter-reach follow-ups (conservative inclusion of

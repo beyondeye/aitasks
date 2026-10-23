@@ -33,6 +33,15 @@ This coarse plan records what the parent pass fixed for this slice. It does not 
     and `modules --scan` reads it.
   - It writes `testmap:module` lines through a key-aware rewriter planner next
     to `PlanCovers`.
+- **Rerunnable, not one-shot.** The review can be re-run on demand whenever
+  the code has moved, e.g. when `MODULES_DRIFT` fires or `MODULE_UNRESOLVED:`
+  findings accumulate. A re-run revises the agent's own proposals, keeps their
+  `by:` provenance and never touches hand overrides. User decision,
+  2026-10-23: agent-defined boundaries are where the tier's value lies.
+- **Reuse the agent review pass.** Run the boundary review through the
+  proposal's adoption model and *The Agent Review Pass* (packets, verdicts,
+  calibration, budgets; M6/M7, t1858), not a parallel proposal path. The
+  Reality check decides how. If it needs an M7 work package, add that hold.
 - **Never `completion.mode: module`.** It never writes it, and a test pins
   that. The enabling write is t2131_11.
 
@@ -44,6 +53,9 @@ This coarse plan records what the parent pass fixed for this slice. It does not 
 - **M6.5** (the onboarding skill).
 
 In `depends:`: `t2131_5`. Keep it when wiring.
+
+A possible M7 hold (t1858's agent review verbs or pass) is decided at the
+Reality check, not recorded now. t2131_12 depends on this task.
 
 ## Reading list
 
@@ -71,15 +83,21 @@ In `depends:`: `t2131_5`. Keep it when wiring.
 1. Read the M6.1 / M6.4 line classes and the M6.5 skill structure as landed.
 2. Read the `kind_proposals[]` intake shape.
 3. Read the rewriter ownership checks (today `covers`-only).
-4. **Stop if M6.1/M6.4/M6.5 have not landed.**
+4. Read the landed M7 agent review pass (proposal ~1241; t1858). Decide
+   whether boundary proposals travel as its packets and verdicts. If yes, use
+   it and add the M7 hold. If no, record why here before building a path of
+   its own.
+5. **Stop if M6.1/M6.4/M6.5 have not landed.**
 5. Record the outcome here.
 
 ## Implementation steps (coarse)
 
 1. The onboarding lines.
-2. The proposal intake read by `modules --scan`.
+2. The proposal intake read by `modules --scan`, through the agent review
+   pass where the Reality check says it fits.
 3. `PlanModule` and the key-aware ownership check.
-4. The skill review step, including codemap generation when absent.
+4. The skill review step, including codemap generation when absent. It is
+   invocable on demand as well as from onboarding.
 5. Tests and skill goldens.
 6. **Commit.** `feature: … (t2131_9)`. Suggest the agent-port follow-ups.
 
@@ -88,6 +106,8 @@ In `depends:`: `t2131_5`. Keep it when wiring.
 - The detect / classify / inventory lines on a fixture.
 - An agent proposal is written with `by: agent:<string>` and reloaded.
 - A conflict is reported, not won.
+- A re-run after the code moves revises the agent's own proposals, keeps
+  provenance, and leaves hand overrides untouched.
 - The planner places `testmap:module` lines correctly (goldens).
 - No write of `completion.mode`.
 - No step requires a person.

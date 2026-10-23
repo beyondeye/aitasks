@@ -1,14 +1,14 @@
 ---
 priority: medium
 effort: medium
-depends: [t2131_7, t2131_8]
+depends: [t2131_7, t2131_8, t2131_9]
 issue_type: chore
 status: Postponed
 labels: [testmap, go_engine, testing]
 gates: [risk_evaluated]
 anchor: 1852
 created_at: 2026-10-23 11:52
-updated_at: 2026-10-23 11:52
+updated_at: 2026-10-23 12:16
 ---
 
 ## Context
@@ -25,6 +25,7 @@ The tier was designed under partial information. In particular, reach uses a del
 - **Cost:** the added cost of widening (M3.4 ledger: per-group estimate, full-suite p95);
 - **Fallback share:** the full-fallback share per `WIDEN_FULL` reason (`deleted_path`, `renamed_path`, `unmapped_path`, `uncertain_reference`, `modules_stale`), from the recorded widen outcomes and per-reason counters;
 - **Cadence:** the full-run share under `module` mode.
+- **Boundary source:** every measurement above split by how the affected modules' boundaries were set: build or package providers and the codemap, versus agent-refined (`provider: agent` proposals and `testmap:module` corrections from t2131_9). The tier is not judged on package-derived boundaries alone.
 
 **What it decides:**
 - Whether the **smarter-reach follow-ups** named in the proposal are justified by excessive fallbacks:
@@ -41,7 +42,7 @@ The outcomes go into its plan. New tasks are created only with data behind them.
 
 - **M4.4** (`score` window scoring, `predictions.yaml`), in t1855.
 
-The provider parent's coarse pass adds the id and flips this task to `Ready` once nothing is left unresolved. In `depends:`: `t2131_7` (the paired records) and `t2131_8` (module mode). Keep them when wiring; `aitask_update.sh --deps` replaces the list. Landed: M3.4 (t1854_4, the cost ledger).
+The provider parent's coarse pass adds the id and flips this task to `Ready` once nothing is left unresolved. In `depends:`: `t2131_7` (the paired records), `t2131_8` (module mode) and `t2131_9` (agent-refined module boundaries). Keep them when wiring; `aitask_update.sh --deps` replaces the list. Landed: M3.4 (t1854_4, the cost ledger).
 
 ## Key Files
 
@@ -59,7 +60,7 @@ The provider parent's coarse pass adds the id and flips this task to `Ready` onc
    - M4.4 `score` and the M3.4 ledger fields as landed.
 
    **Stop if M4.4 has not landed or no project has data.**
-2. Collect the four measurements.
+2. Collect the five measurements, each split by boundary source.
 3. Write the outcomes table.
 4. Decide on each follow-up, and file only the data-backed ones.
 
