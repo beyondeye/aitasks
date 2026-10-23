@@ -3,11 +3,12 @@ priority: high
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [setup, minimonitor, tui, python_deps]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-10-23 11:25
-updated_at: 2026-10-23 11:25
+updated_at: 2026-10-23 11:27
 ---
 
 # Pin rich >= 14.3.3: `split_graphemes` hangs TUIs on a leading zero-width char
