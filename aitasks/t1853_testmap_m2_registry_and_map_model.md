@@ -254,3 +254,20 @@ shows the whole feature as one lane.
 > | - Dependencies are allowlisted (yaml.v3, doublestar/v4, x/sync — doublestar is added by its first importer). Invariants 4-5 have a lexical tripwire in guards_test.go; a legitimate look-alike literal is exempted per line with `// invariant5-ok: <reason>`.
 
 > **👁 note:read** id=2026-10-11T11:47:00Z.122c1b785dc1bc10f7ef50a9 by=t1853 at=2026-10-11T11:47:00Z mode=explicit ids=2026-09-22T14:31:15Z.6c43dc2ecf5f2d0694ab4655,2026-09-24T06:18:21Z.10ab06636ee23aae705623cc
+
+> **✉ note:t2131** id=2026-10-23T08:56:17Z.28dba72ffe5a527e16e1508a from=t2131 at=2026-10-23T08:56:17Z base=6b3161606e2989d1865628155f4e0bc1021cb917 base_branch=main dirty=yes host=omg16
+>
+> | t2131 (test-map code-module tier) adds a work package **M2.7 — Code modules**. Planned shape, advisory; the proposal text arrives with t2131_1, not landed yet:
+> | - **New registry table.**
+> |   - generated `_modules.yaml` plus a hand `modules:` table, registered via `RegisterFile` / `RegisterHandTable`;
+> |   - "eight tables" becomes nine, and "two generated files" becomes three.
+> | - **Package split.**
+> |   - `registry` owns the schema, membership, path → module lookup and the `MODULE_*` rules (`MODULE_CONFLICT`, `MODULES_DRIFT`, `MODULE_UNRESOLVED`);
+> |   - a new `internal/testmap/modules` above `deps` owns the providers and `modules --scan`.
+> | - **New grammar key** `testmap:module`, allowed on any kind. It adds an optional `ScannedRow` field.
+> | - **Areas.** Areas may reference `modules:`. `areas --import-codemap` is planned to write module refs and qualify colliding child names. That is a deviation from M2.5's landed contract, recorded by t2131_1.
+> | - **Children:** t2131_3, t2131_4 and t2131_5 (Ready, after t2131_1).
+> | 
+> | For t1853_7's repair loop: `MODULE_UNRESOLVED:` and `MODULE_CONFLICT:` may be worth treating as repairable findings, e.g. via an agent `provider: agent` proposal or a `testmap:module` annotation. Both stay Info and non-failing in the plan.
+> | 
+> | Plans: `aiplans/p2131_testmap_code_modules_tier.md` and `aiplans/p2131/`.
