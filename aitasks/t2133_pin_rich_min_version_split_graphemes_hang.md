@@ -11,8 +11,9 @@ active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-23 11:25
-updated_at: 2026-10-23 11:27
+updated_at: 2026-10-23 11:56
 ---
 
 # Pin rich >= 14.3.3: `split_graphemes` hangs TUIs on a leading zero-width char
@@ -96,3 +97,8 @@ character.
 
 `~/.aitask/venv/bin/python -m pip install 'rich>=14.3.3'`, then kill and relaunch
 any hung TUI. Already-running TUIs keep the old rich loaded until they restart.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-23T08:56:02Z status=pass attempt=1 type=human
