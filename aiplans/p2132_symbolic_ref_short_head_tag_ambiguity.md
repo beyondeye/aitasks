@@ -226,3 +226,71 @@ t2124 paths. Then Step 9 (Post-Implementation) archives the task.
   `refs/heads/…`; its fixture publishes the tag and needs a two-stage red proof;
   the sweep found no other unqualified push destination) · → mitigation: none
   (covered in-plan by step 6)
+
+## Final Implementation Notes
+
+- **Actual work done:** All 10 sites now read HEAD with `symbolic-ref --quiet HEAD`
+  and accept the value only under `refs/heads/`. The 5 listed sites are
+  `aitask_merge_task.sh` `_head_branch`, `aitask_task_worktree.sh` `head_ref`,
+  `aitask_sync.sh` `_sync_afx_data_ref`, `lib/task_utils.sh` `task_git_pull`
+  rebase-mode key, and `lib/shadow_scope.py` `dedicated_worktree`. The 5 widened
+  sites are `lib/verified_update_lib.sh` `current_task_branch`,
+  `aitask_metadata_commit.sh` preflight `BRANCH:`, `aitask_note.sh`
+  `PROV_BASE_BRANCH`, `lib/task_utils.sh` `task_git_health`, and
+  `aitask_lock_diag.sh` section 12. `commit_and_push_from_remote_clone` now pushes
+  `HEAD:refs/heads/${branch}`. 8 tag-beside-branch regressions were added, each
+  with a fixture-precondition assert that `--short` / `--abbrev-ref` really is
+  ambiguous.
+- **Deviations from plan:** `shadow_scope.py` compares the full ref against
+  `refs/heads/aitask/<task_name>` instead of stripping and comparing. The result
+  is the same, with one less branch. The metadata-commit test uses an in-scope
+  metadata path, because `--preflight` refuses non-metadata paths. The note test
+  also gained a detached control (8e: `base_branch=HEAD`).
+- **Issues encountered:** The two-stage red for verified-update showed the retry
+  misclassification in practice. With only the branch-name fix, the ambiguous
+  `dst refspec` push was retried 5 times and reported as "concurrent pushes".
+- **Key decisions:** The idiom is inline at every site rather than a shared
+  helper. `merge_task` and `task_worktree` source only `terminal_compat.sh`, and
+  fixtures copy explicit lib subsets. Detached HEAD keeps each site's old
+  vocabulary: `HEAD` / `DETACHED` / empty. Exit codes other than 0 and 1 map to
+  each site's existing "could not inspect" fallback (`FAILED:` / `?` / `unknown`
+  / a distinct `die`).
+- **Red/green evidence:**
+  - Red (unfixed code), per suite: merge_lock_broker case18
+    `PREFLIGHT_HEAD_MISMATCH:main:heads/main`; task_worktree_helper 11b
+    `unmerged_into:heads/master`; sync_fetch_exclusion 10 "store downloaded"
+    (`yes`); ait_git_gateway_pull H "refused (got 0)", sequence editor ran;
+    shadow_scope `dedicated_worktree|no`; verified_update 9t "Failed to clone
+    task data branch 'heads/main'", then, with the branch-name fix only, "Failed
+    to update metadata after 5 retries due to concurrent pushes";
+    metadata_commit_seam 12b `BRANCH:heads/aitask-data`; note_append 8d
+    `base_branch=heads/feature`.
+  - Green: all 11 planned suites (8 touched + test_task_git, test_lock_diag,
+    test_usage_update) rc=0, each run as its own `bash` invocation. 16 adjacent
+    suites rc=0 (merge broker verdicts/concurrency, note_*, sync_*, task_push,
+    task_commit_scoped, setup_metadata_commit_scope).
+  - Display-site probe (scratch repo, `.aitask-data` worktree on `aitask-data`
+    beside tag `aitask-data`). The probe script builds the repo, sources
+    `lib/task_utils.sh` to call `task_git_health`, and runs
+    `aitask_lock_diag.sh` from inside it:
+    ```
+    fixture: --short=heads/aitask-data
+    # before
+    Branch (rev-parse --abbrev-ref HEAD): heads/aitask-data
+      PASS: Data worktree exists (branch: heads/aitask-data)
+    # after
+    Branch: aitask-data
+      PASS: Data worktree exists (branch: aitask-data)
+    ```
+  - Close-out sweep:
+    `grep -rnE 'symbolic-ref[^|]*--short|--short[^|]*symbolic-ref|abbrev-ref HEAD' .aitask-scripts/`
+    with comment lines excluded leaves only
+    `lib/verified_update_lib.sh:73` (`has_remote_tracking`, an existence check
+    whose value is discarded). t2124 landed as `6b3161606` with the same idiom.
+- **Upstream defects identified:**
+  - `.aitask-scripts/lib/verified_update_lib.sh:118-121` — `is_retryable_push_error`
+    matches `failed to push some refs`, which git prints for **every** rejected
+    push (auth denied, ambiguous destination, hook refusal, protected branch),
+    not only races. Any non-race push failure is therefore retried
+    `MAX_REMOTE_RETRIES` times and then reported as "concurrent pushes",
+    hiding git's real error. Observed directly in this task's stage-2 red.
