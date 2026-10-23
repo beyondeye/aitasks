@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [task-workflow, worktree, git]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -16,7 +16,8 @@ assigned_to: dario-e@beyond-eye.com
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5_5
 created_at: 2026-10-22 11:18
-updated_at: 2026-10-23 11:22
+updated_at: 2026-10-23 11:36
+completed_at: 2026-10-23 11:36
 ---
 
 ## Origin
@@ -548,3 +549,14 @@ helper (`EXTERNALIZE=<old helper>`) fails C1, C2, C5, C7i, C7ii, C8 and C10.
 > **✅ gate:plan_approved** run=2026-10-23T08:22:20Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-10-23T08:35:55Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-10-23T08:36:29Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:26791108bfe70d88
+
+> **✅ gate:risk_evaluated** run=2026-10-23T08:36:29Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/2124/risk_evaluated_2026-10-23T08:36:29Z-risk_evaluated-a1.log`
