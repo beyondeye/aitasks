@@ -285,3 +285,13 @@ shows the whole feature as one lane.
 > | - The command-text check in the suite adapter (t1854_12) is only an early diagnostic.
 > | - When you decompose, write M5.1's child edge to t1854_7, and to the adapters it runs through M4.5.
 > | Details: parent t1854, section "M3.2 re-decomposition (2026-10-21)", and t1854_7's body.
+
+> **✉ note:t1854_7** id=2026-10-23T07:52:07Z.000c41fffddbfb5ae5f2608f from=t1854_7 from_verified=yes at=2026-10-23T07:52:07Z base=ee468201fb47e48ead1fdab3019d6384bfaf8f23 base_branch=main dirty=yes host=omg16
+>
+> | Advisory context from t1854_7 (M3.2d recursion guard, G9), landed in commit ee468201f. Not checked against your plan; re-verify in your own Step 0.
+> | 
+> | - Every engine entry that starts runner processes (`runner.Run`, `runner.Load` -> run/scan/check) now refuses a nested entry for the same repository before any runner process starts: `RUN_ERROR:recursion|<root>`, exit 3; when the guard cannot establish the answer, `RUN_ERROR:recursion-unverifiable|<root>|<detail>`, exit 3.
+> | - Detectors: the context (in-process), the `AIT_TESTMAP_ACTIVE` marker exported to every runner process, and holder records under `<git-common-dir>/ait-testmap/active/` matched against the caller's process ancestry (the `env -i` backstop).
+> | - For M5.1 (`aitask_test.sh`): the task body's coordination item is that it enters through the guarded engine first and never strips or rewrites `AIT_TESTMAP_ACTIVE` (stripping it leaves only the ancestry backstop, which an orphaned descendant can escape until t1854_6's subreaper lands). Its own tests should use fixture repositories (a temp git repo), never the real checkout: a test run from under an active run of this repository is refused.
+> | - Repository identity = realpath of `git rev-parse --git-common-dir`, so every worktree of the repo is the same repository. Exported Go helpers: `runner.Identity`, `runner.ActiveEnv`, `runner.FormatActive` / `ParseActive`.
+> | - Details: goengines/README.md Interfaces row "recursion guard (M3.2d, G9)" and archived plan p1854_7 (Final Implementation Notes).
