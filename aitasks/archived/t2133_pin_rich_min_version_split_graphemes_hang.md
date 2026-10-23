@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [setup, minimonitor, tui, python_deps]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -15,7 +15,8 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus5_5
 created_at: 2026-10-23 11:25
-updated_at: 2026-10-23 11:56
+updated_at: 2026-10-23 12:22
+completed_at: 2026-10-23 12:22
 ---
 
 # Pin rich >= 14.3.3: `split_graphemes` hangs TUIs on a leading zero-width char
@@ -106,3 +107,14 @@ any hung TUI. Already-running TUIs keep the old rich loaded until they restart.
 > **✅ gate:plan_approved** run=2026-10-23T08:56:02Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-10-23T09:21:24Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-10-23T09:22:47Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:138fcaa26d33f418
+
+> **✅ gate:risk_evaluated** run=2026-10-23T09:22:47Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/2133/risk_evaluated_2026-10-23T09:22:47Z-risk_evaluated-a1.log`
