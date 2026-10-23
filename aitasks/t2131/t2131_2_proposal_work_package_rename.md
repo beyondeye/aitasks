@@ -1,0 +1,60 @@
+---
+priority: medium
+effort: low
+depends: []
+issue_type: documentation
+status: Ready
+labels: [testmap, testing, documentation]
+gates: [risk_evaluated]
+anchor: 1852
+created_at: 2026-10-23 11:50
+updated_at: 2026-10-23 11:50
+---
+
+## Context
+
+Child 2 of t2131 (test-map code-module tier).
+- **Parent plan:** `aiplans/p2131_testmap_code_modules_tier.md`, default 14.
+- **Coarse plan:** `aiplans/p2131/p2131_2_proposal_work_package_rename.md`.
+- **Wave:** now.
+
+The code-module tier introduces "module" / "submodule" as **code** groupings. The proposal `aidocs/testing_engine/n014_explorer_006_proposal.md` already uses "module" (M1–M10) and "submodule" (M2.5, …) for its **implementation cut**. This child removes that collision in prose: both tiers become **"work package"** (user decision, 2026-10-23). So M2 is "work package M2", M2.5 is "work package M2.5", and "child work package" is used only where the tier matters.
+
+This child is a mechanical rename, kept separate from t2131_1 so it can run when no other session is editing the proposal.
+
+## Key Files to Modify
+
+- `aidocs/testing_engine/n014_explorer_006_proposal.md`. Measured at planning: about 78 work-package-sense lines out of 109 lines containing "module"/"submodule".
+  - **Headings to rename:**
+    - `### Invariants every module honours` (104);
+    - `## Module Map` (650);
+    - `### Modules and submodules` (678);
+    - `### Cross-module interfaces` (819);
+    - `### Verification of the seam, by module` (1962).
+  - **Prose to rename:** 106, 149-157, 288, 654-676, 821, 851, 876, 1982-1986, 2007, 2308, 3989, 4115, 4537, 5078; the "Modules: …" lead-ins (1027, 1243, 1432, 1586, 1810); and the table column headers `module` / `submodule` (685, 698, …, 1168, 1827, 1964).
+  - **Design decision 19 (639-646)**, "Modules are cut by ownership, not by package": rename the work-package sense and keep the Go-package sense.
+
+## Keep as is (identifiers and other senses)
+
+- Section marker ids (`module_map` at 649/889) and node metadata keys (`assumption_modules_map_to_parent_tasks` 4522-4530, `tradeoff_module_boundaries_cut_across_packages` 5057-5071). Other files cite them.
+- Task file names and ids (`t1853_testmap_m2_…`, `m8_4_…`).
+- Every **Go module** (341, 688, 2006, 2015, 2634, 2642), **Gradle module** (702, 1574, 2520, 2550, 2563, 2669-2676, 3129) and **Python module** (561, 1209, 2334, 2347, 2392, 2411, 2438, 2597-2620, 1570, 4293) mention, plus the generic "hot production module" (1184, 4311).
+- The vocabulary entries for "work package" and "code module", added by t2131_1. If t2131_1 has not landed, add the "work package" entry here.
+
+## Reference Files for Patterns
+
+- `aidocs/framework/documentation_conventions.md`: state the current term positively, with no "formerly called" history.
+
+## Implementation Plan
+
+1. **Step 0 — Reality check.**
+   - Re-measure the line inventory (`grep -n -i 'module'`) and classify every hit by sense.
+   - List every file outside the proposal that cites a heading being renamed ("Module Map", "Modules and submodules", "Cross-module interfaces"). Keep each cited anchor resolvable, or leave it: task bodies may keep saying "Module Map row".
+   - Check that no `Implementing` task's plan is editing the proposal right now. If one is, wait or rebase onto it.
+2. Rename the headings and prose; leave every identifier and other sense in place.
+3. Commit (`documentation: … (t2131_2)`).
+
+## Verification Steps
+
+- Every remaining "module"/"submodule" in the proposal is either the code-module sense (from t2131_1), a kept identifier, or the Go, Gradle or Python sense. List the kept ones in the plan.
+- Every cited anchor still resolves.
