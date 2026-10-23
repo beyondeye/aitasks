@@ -125,6 +125,10 @@ func newRunID(explicit string, now time.Time) (string, error) {
 // per-invocation records under .aitask-testmap/runs/<run-id>/, and calls the
 // post-run hooks. A framework error is returned before anything runs; once
 // execution starts, failures are causes in the records.
+//
+// The recursion guard (Load's) is held from discovery until the hooks
+// return, and the executor and the hooks get the guarded context: an
+// in-process Load or Run of this repository through it is refused.
 func Run(ctx context.Context, root string, opts Options) (*RunReport, error) {
 	if fi, err := os.Stat(filepath.Join(root, registry.Dir)); err != nil || !fi.IsDir() {
 		return nil, registry.ErrAbsent
@@ -133,10 +137,11 @@ func Run(ctx context.Context, root string, opts Options) (*RunReport, error) {
 	if err != nil {
 		return nil, err
 	}
-	repo, err := Load(ctx, root)
+	ctx, repo, release, err := load(ctx, root)
 	if err != nil {
 		return nil, err
 	}
+	defer release()
 	units, err := selectUnits(repo, opts)
 	if err != nil {
 		return nil, err

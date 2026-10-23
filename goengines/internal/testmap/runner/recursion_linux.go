@@ -1,0 +1,61 @@
+//go:build linux
+
+package runner
+
+import (
+	"errors"
+	"fmt"
+	"io/fs"
+	"strconv"
+	"strings"
+	"syscall"
+)
+
+// procfsView reads /proc/<pid>/stat on demand (through readStat).
+type procfsView struct{}
+
+func platformProcView() (procView, error) { return procfsView{}, nil }
+
+// lookup reads ppid (field 4) and starttime (field 22). A stat that cannot
+// be read is classified by kill(pid, 0): ESRCH gone, EPERM a live process of
+// another user (hidepid); a process we may signal but not read is an error.
+func (procfsView) lookup(pid int) (procFact, procState, error) {
+	data, err := readStat(pid)
+	if err == nil {
+		f, ok := parseStatFact(string(data))
+		if !ok {
+			return procFact{}, 0, fmt.Errorf("unparsable /proc/%d/stat", pid)
+		}
+		return f, procFound, nil
+	}
+	if !gone(err) && !errors.Is(err, fs.ErrPermission) {
+		return procFact{}, 0, fmt.Errorf("pid %d: stat: %v", pid, err)
+	}
+	switch kerr := syscall.Kill(pid, 0); {
+	case errors.Is(kerr, syscall.ESRCH):
+		return procFact{}, procGone, nil
+	case errors.Is(kerr, syscall.EPERM):
+		return procFact{}, procForeign, nil
+	default:
+		return procFact{}, 0, fmt.Errorf("pid %d: stat: %v; kill 0: %v", pid, err, kerr)
+	}
+}
+
+// parseStatFact reads the fields after the command name, which is in
+// parentheses and may itself contain spaces or ')'.
+func parseStatFact(line string) (procFact, bool) {
+	i := strings.LastIndexByte(line, ')')
+	if i < 0 {
+		return procFact{}, false
+	}
+	f := strings.Fields(line[i+1:])
+	// f[0] is field 3 (state): ppid is f[1], starttime (field 22) f[19].
+	if len(f) < 20 {
+		return procFact{}, false
+	}
+	ppid, err := strconv.Atoi(f[1])
+	if err != nil || f[19] == "" {
+		return procFact{}, false
+	}
+	return procFact{Ppid: ppid, Start: f[19]}, true
+}

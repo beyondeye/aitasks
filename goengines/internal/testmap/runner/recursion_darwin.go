@@ -1,0 +1,39 @@
+//go:build darwin
+
+package runner
+
+import (
+	"bytes"
+	"fmt"
+	"os/exec"
+	"strings"
+)
+
+// psView is one `ps` snapshot of every process.
+type psView map[int]procFact
+
+func platformProcView() (procView, error) {
+	cmd := exec.Command("/bin/ps", "-A", "-o", "pid=,ppid=,lstart=")
+	cmd.Env = []string{"LC_ALL=C"}
+	var out, errb bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &errb
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("ps: %v: %s", err, strings.TrimSpace(errb.String()))
+	}
+	m, err := parsePsAncestry(out.String())
+	if err != nil {
+		return nil, err
+	}
+	return psView(m), nil
+}
+
+// lookup answers from the snapshot. ps -A lists every user's processes, so
+// a pid it does not list is gone (the walk restarts on a fresh snapshot).
+func (v psView) lookup(pid int) (procFact, procState, error) {
+	f, ok := v[pid]
+	if !ok {
+		return procFact{}, procGone, nil
+	}
+	return f, procFound, nil
+}

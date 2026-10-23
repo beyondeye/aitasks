@@ -119,14 +119,20 @@ type Runner struct {
 	TimeoutS       float64  // effective per-unit bound
 	MaxInvocationS float64  // effective invocation ceiling
 	Listed         []ListRow
-	Dir            string // absolute working directory
+	Dir            string        // absolute working directory
+	marker         func() string // the AIT_TESTMAP_ACTIVE value of a process it starts now (G9)
 }
 
 // Name is the runner's declared name.
 func (r *Runner) Name() string { return r.Entry.Name }
 
-// command builds the process for verb (+ args).
+// command builds the process for verb (+ args). Every runner process gets
+// the loading entry's marker in place of the inherited one.
 func (r *Runner) command(root string, env []string, args ...string) (command, error) {
+	if r.marker != nil {
+		env = slices.DeleteFunc(slices.Clone(env), func(kv string) bool { return strings.HasPrefix(kv, ActiveEnv+"=") })
+		env = append(env, ActiveEnv+"="+r.marker())
+	}
 	env = append(env, "AIT_TESTMAP_ROOT="+root, "AIT_TESTMAP_RUNNER="+r.Name())
 	if r.Resolution.Source == SourceBuiltin {
 		self, err := SelfExe()
@@ -156,13 +162,14 @@ type Unit struct {
 // Repository is the loaded runner repository: every runner resolved,
 // described and listed, and every listed unit assigned to exactly one owner.
 type Repository struct {
-	Root    string
-	Config  Config
-	Runners []*Runner // runners.yaml order
-	Units   []Unit    // owned units, sorted by id
-	Bound   map[string][]string
-	byName  map[string]*Runner
-	owned   map[registry.ID]bool
+	Root     string
+	Identity string // the repository identity the recursion guard held (G9)
+	Config   Config
+	Runners  []*Runner // runners.yaml order
+	Units    []Unit    // owned units, sorted by id
+	Bound    map[string][]string
+	byName   map[string]*Runner
+	owned    map[registry.ID]bool
 }
 
 // Runner returns the runner named name.
@@ -184,18 +191,46 @@ func (r *Repository) Registered(id registry.ID) bool { return r.owned[id] }
 // A unit is owned only if its owner lists it; a runner that lists a unit it
 // does not own drops it. Excluded paths are dropped. Bound[runner] is the
 // git-visible files whose owner is that runner (UNREGISTERED candidates).
+//
+// Before the first runner process starts, the recursion guard refuses a
+// nested entry for the same repository (*RecursionError, see recursion.go).
 func Load(ctx context.Context, root string) (*Repository, error) {
-	cfg, err := LoadConfig(root)
+	_, repo, release, err := load(ctx, root)
 	if err != nil {
 		return nil, err
+	}
+	release()
+	return repo, nil
+}
+
+// load is Load still holding the recursion guard: the caller runs whatever
+// else starts runner processes under the returned context, then releases.
+// On an error nothing is held.
+func load(ctx context.Context, root string) (context.Context, *Repository, func(), error) {
+	cfg, err := LoadConfig(root)
+	if err != nil {
+		return nil, nil, nil, err
 	}
 	rcfg, err := registry.LoadConfig(root)
 	if err != nil {
-		return nil, err
+		return nil, nil, nil, err
 	}
-	repo := &Repository{Root: root, Config: cfg, byName: map[string]*Runner{}, owned: map[registry.ID]bool{}, Bound: map[string][]string{}}
+	gctx, g, err := enterGuard(ctx, root)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	repo, err := loadGuarded(gctx, root, cfg, rcfg, g)
+	if err != nil {
+		g.release()
+		return nil, nil, nil, err
+	}
+	return gctx, repo, g.release, nil
+}
+
+func loadGuarded(ctx context.Context, root string, cfg Config, rcfg registry.Config, g *guard) (*Repository, error) {
+	repo := &Repository{Root: root, Identity: g.identity, Config: cfg, byName: map[string]*Runner{}, owned: map[registry.ID]bool{}, Bound: map[string][]string{}}
 	for _, e := range cfg.Runners {
-		r, err := loadRunner(ctx, root, cfg, e)
+		r, err := loadRunner(ctx, root, cfg, e, g.marker)
 		if err != nil {
 			return nil, err
 		}
@@ -236,12 +271,12 @@ func Load(ctx context.Context, root string) (*Repository, error) {
 	return repo, nil
 }
 
-func loadRunner(ctx context.Context, root string, cfg Config, e Entry) (*Runner, error) {
+func loadRunner(ctx context.Context, root string, cfg Config, e Entry, marker func() string) (*Runner, error) {
 	res, err := resolve(root, e)
 	if err != nil {
 		return nil, err
 	}
-	r := &Runner{Entry: e, Resolution: res, TimeoutS: timeoutFor(e), MaxInvocationS: cfg.maxFor(e), Dir: root}
+	r := &Runner{Entry: e, Resolution: res, TimeoutS: timeoutFor(e), MaxInvocationS: cfg.maxFor(e), Dir: root, marker: marker}
 	if e.Cwd != "" && e.Cwd != "." {
 		r.Dir = filepath.Join(root, filepath.FromSlash(e.Cwd))
 		if fi, err := os.Stat(r.Dir); err != nil || !fi.IsDir() {

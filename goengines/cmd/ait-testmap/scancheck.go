@@ -62,6 +62,16 @@ func reportError(e env, err error) int {
 		fmt.Fprintln(e.stderr, "TESTMAP_ABSENT:"+registry.Dir+"/")
 		return lineproto.ExitNothingRan
 	}
+	// A refused nested entry prints its own line whatever wraps it (scan and
+	// check see it inside INPUT_ERROR:lister): RUN_ERROR:recursion is one
+	// line on every verb (G9).
+	var re *runner.RecursionError
+	if errors.As(err, &re) {
+		if l, lerr := re.Line(); lerr == nil {
+			fmt.Fprintln(e.stderr, l)
+			return re.ExitCode()
+		}
+	}
 	var le lineError
 	if errors.As(err, &le) {
 		if l, lerr := le.Line(); lerr == nil {

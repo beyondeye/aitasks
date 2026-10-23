@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -153,5 +154,27 @@ func TestRunCasesThroughBinary(t *testing.T) {
 	}
 	if code, _, errs := call("run", "--all", "--run-id", "c2"); code != 3 || !strings.HasPrefix(errs, "RUNNER_PROTOCOL:shell|list|list line 3: case") {
 		t.Fatalf("duplicate case through run: %d %q", code, errs)
+	}
+}
+
+// A nested entry for a repository already active prints exactly
+// RUN_ERROR:recursion|<root> on every verb that reaches the runners — run
+// directly, scan and check through the lister — with nothing on stdout,
+// exit 3 (G9).
+func TestRunAndCheckRecursionLine(t *testing.T) {
+	r := runnerRepo(t, twoRows)
+	id, err := runner.Identity(context.Background(), r.Dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(runner.ActiveEnv, runner.FormatActive([]string{id}))
+	for _, args := range [][]string{{"run", "--all", "--run-id", "x"}, {"check"}, {"scan"}} {
+		if code, out, errs := call(args...); code != 3 || out != "" || errs != "RUN_ERROR:recursion|"+root+"\n" {
+			t.Errorf("%v: %d %q %q", args, code, out, errs)
+		}
 	}
 }

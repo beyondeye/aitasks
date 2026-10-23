@@ -1,0 +1,489 @@
+package runner
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"slices"
+	"strconv"
+	"strings"
+	"sync/atomic"
+	"time"
+
+	"github.com/beyondeye/aitasks/goengines/internal/gitx"
+	"github.com/beyondeye/aitasks/goengines/internal/lineproto"
+)
+
+// The recursion guard (M3.2d, G9). Every engine entry that starts runner
+// processes — Run, and Load (so scan, check and every verb reading the
+// runner-backed lister) — refuses a nested entry for the same repository
+// before any runner process starts. A nested entry can arrive three ways, and
+// each has its own detector:
+//
+//   - in process, through the context a hook or an executor received
+//     (Via "context");
+//   - in a child process that inherited the environment: the
+//     AIT_TESTMAP_ACTIVE marker every runner process is given (Via "marker");
+//   - in a child process whose environment was cleared (`env -i`): the
+//     holder records under <git-common-dir>/ait-testmap/active/, one per
+//     active entry, matched against this process's ancestry
+//     (Via "ancestor:<pid>").
+//
+// What cannot be proven is refused too (recursion-unverifiable): an
+// unresolvable identity, a malformed marker, an ancestry that cannot be read
+// or does not hold still.
+
+// ActiveEnv carries the active repository identities to runner processes.
+const ActiveEnv = "AIT_TESTMAP_ACTIVE"
+
+// Identity is the realpath of root's git common dir: every worktree of one
+// repository has the same identity.
+func Identity(ctx context.Context, root string) (string, error) {
+	out, err := gitx.Repo{Dir: root}.Run(ctx, "rev-parse", "--git-common-dir")
+	if err != nil {
+		return "", err
+	}
+	dir := strings.TrimSuffix(string(out), "\n")
+	if dir == "" {
+		return "", errors.New("git rev-parse --git-common-dir printed nothing")
+	}
+	if !filepath.IsAbs(dir) {
+		dir = filepath.Join(root, dir)
+	}
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		return "", err
+	}
+	return filepath.EvalSymlinks(abs)
+}
+
+var activeEscape = strings.NewReplacer("%", "%25", ":", "%3A")
+
+// FormatActive is the marker value: the identities joined by ':', each with
+// '%' and ':' percent-escaped (a path may contain ':').
+func FormatActive(ids []string) string {
+	parts := make([]string, len(ids))
+	for i, id := range ids {
+		parts[i] = activeEscape.Replace(id)
+	}
+	return strings.Join(parts, ":")
+}
+
+// ParseActive reads a marker value. An empty value is no identity; a bad
+// escape, an empty item or a relative path is an error.
+func ParseActive(s string) ([]string, error) {
+	if s == "" {
+		return nil, nil
+	}
+	var out []string
+	for _, p := range strings.Split(s, ":") {
+		id, err := unescapeActive(p)
+		if err != nil {
+			return nil, err
+		}
+		if !filepath.IsAbs(id) {
+			return nil, fmt.Errorf("identity %q is not an absolute path", id)
+		}
+		out = append(out, id)
+	}
+	return out, nil
+}
+
+func unescapeActive(p string) (string, error) {
+	var b strings.Builder
+	for i := 0; i < len(p); i++ {
+		if p[i] != '%' {
+			b.WriteByte(p[i])
+			continue
+		}
+		switch strings.ToUpper(p[i+1 : min(i+3, len(p))]) {
+		case "25":
+			b.WriteByte('%')
+		case "3A":
+			b.WriteByte(':')
+		default:
+			return "", fmt.Errorf("bad escape in %q", p)
+		}
+		i += 2
+	}
+	return b.String(), nil
+}
+
+// unionIDs keeps the first occurrence of each identity, in order.
+func unionIDs(lists ...[]string) []string {
+	var out []string
+	for _, l := range lists {
+		for _, id := range l {
+			if !slices.Contains(out, id) {
+				out = append(out, id)
+			}
+		}
+	}
+	return out
+}
+
+// RecursionError is a refused nested entry: RUN_ERROR:recursion|<root>, or
+// RUN_ERROR:recursion-unverifiable|<root>|<detail> when the guard could not
+// establish that the entry is not nested. Via names the detector that
+// refused (context, marker, ancestor:<pid>); it is not on the line.
+type RecursionError struct {
+	Root         string
+	Via          string
+	Unverifiable bool
+	Detail       string
+}
+
+func (e *RecursionError) fields() []string {
+	if e.Unverifiable {
+		return []string{"recursion-unverifiable", oneLine(e.Root), oneLine(e.Detail)}
+	}
+	return []string{"recursion", oneLine(e.Root)}
+}
+
+func (e *RecursionError) Error() string { return ClassRun + ":" + strings.Join(e.fields(), "|") }
+
+// Line is the protocol line.
+func (e *RecursionError) Line() (string, error) { return lineproto.Format(ClassRun, e.fields()...) }
+
+// ExitCode is the framework-error exit.
+func (e *RecursionError) ExitCode() int { return lineproto.ExitFramework }
+
+type activeKey struct{}
+
+// ctxEntry is one entry an in-process call holds. It is live from its guard
+// until release: a context kept past the call (a hook saving its context)
+// no longer refuses, and no longer exports, a released identity.
+type ctxEntry struct {
+	id   string
+	done atomic.Bool
+}
+
+// withActive is ctx carrying the entries its request holds.
+func withActive(ctx context.Context, entries []*ctxEntry) context.Context {
+	return context.WithValue(ctx, activeKey{}, entries)
+}
+
+// liveEntries are ctx's entries not yet released.
+func liveEntries(ctx context.Context) []*ctxEntry {
+	es, _ := ctx.Value(activeKey{}).([]*ctxEntry)
+	return slices.DeleteFunc(slices.Clone(es), func(e *ctxEntry) bool { return e.done.Load() })
+}
+
+// liveIDs are the identities of the entries not yet released.
+func liveIDs(es []*ctxEntry) []string {
+	var ids []string
+	for _, e := range es {
+		if !e.done.Load() {
+			ids = append(ids, e.id)
+		}
+	}
+	return ids
+}
+
+// holderRecord is one active entry, as a nested entry with a cleared
+// environment finds it.
+type holderRecord struct {
+	Pid   int    `json:"pid"`
+	Start string `json:"start"`
+	Root  string `json:"root"`
+}
+
+// holdersDir holds the records of identity's active entries.
+func holdersDir(identity string) string { return filepath.Join(identity, "ait-testmap", "active") }
+
+// holderPrefix names a published record, h-<pid>-<unique>; temp files are
+// never read.
+const holderPrefix = "h-"
+
+// holderMax bounds one record read.
+const holderMax int64 = 64 << 10
+
+// guard is one entry holding its identity.
+type guard struct {
+	identity  string
+	inherited []string    // the marker identities this process inherited
+	callers   []*ctxEntry // the caller's entries live at entry (not its context: a kept Repository must not pin it)
+	entry     *ctxEntry
+	record    string // this entry's holder record
+}
+
+// marker is the AIT_TESTMAP_ACTIVE value of a runner process started now:
+// the inherited identities, the caller's entries still live, and this one.
+func (g *guard) marker() string {
+	return FormatActive(unionIDs(g.inherited, liveIDs(g.callers), []string{g.identity}))
+}
+
+// release ends the entry and removes its record. A record left behind (a
+// crash) names a process that is gone; the next entry prunes it.
+func (g *guard) release() {
+	g.entry.done.Store(true)
+	os.Remove(g.record)
+}
+
+// enterGuard refuses a nested entry for root's repository, then registers
+// this entry. It returns the context to run the entry under — it carries the
+// entry, so an in-process re-entry through it is refused until release — and
+// the guard.
+func enterGuard(ctx context.Context, root string) (context.Context, *guard, error) {
+	unverifiable := func(detail string) error {
+		return &RecursionError{Root: root, Unverifiable: true, Detail: detail}
+	}
+	id, err := Identity(ctx, root)
+	if err != nil {
+		return nil, nil, unverifiable("identity: " + err.Error())
+	}
+	held := liveEntries(ctx)
+	if slices.ContainsFunc(held, func(e *ctxEntry) bool { return e.id == id }) {
+		return nil, nil, &RecursionError{Root: root, Via: "context"}
+	}
+	inherited, err := ParseActive(os.Getenv(ActiveEnv))
+	if err != nil {
+		return nil, nil, unverifiable(ActiveEnv + ": " + err.Error())
+	}
+	if slices.Contains(inherited, id) {
+		return nil, nil, &RecursionError{Root: root, Via: "marker"}
+	}
+	dir := holdersDir(id)
+	holders, err := readHolders(dir)
+	if err != nil {
+		return nil, nil, unverifiable("holders: " + err.Error())
+	}
+	links, err := stableWalk(os.Getpid(), newProcView)
+	if err != nil {
+		return nil, nil, unverifiable("ancestry: " + err.Error())
+	}
+	if name, ok := unreadableAncestor(links, holders); ok {
+		return nil, nil, unverifiable("holders: " + name + " cannot be read and names an ancestor")
+	}
+	if pid, ok := matchAncestor(links, holders); ok {
+		return nil, nil, &RecursionError{Root: root, Via: "ancestor:" + strconv.Itoa(pid)}
+	}
+	if len(holders) > 0 {
+		if v, err := newProcView(); err == nil {
+			for _, h := range holders {
+				if stale(v, h) {
+					os.Remove(h.path)
+				}
+			}
+		}
+	}
+	record, err := writeHolder(dir, holderRecord{Pid: links[0].Pid, Start: links[0].Start, Root: root})
+	if err != nil {
+		return nil, nil, unverifiable("holders: " + err.Error())
+	}
+	e := &ctxEntry{id: id}
+	g := &guard{identity: id, inherited: inherited, callers: held, entry: e, record: record}
+	return withActive(ctx, append(slices.Clip(held), e)), g, nil
+}
+
+// matchAncestor is the pid of a readable holder that is one of this
+// process's ancestors (links[0] is this process itself, never a match).
+func matchAncestor(links []procLink, holders []holder) (int, bool) {
+	for _, h := range holders {
+		for _, l := range links[1:] {
+			if h.valid && l.Pid == h.rec.Pid && l.Start == h.rec.Start {
+				return l.Pid, true
+			}
+		}
+	}
+	return 0, false
+}
+
+// unreadableAncestor is a record that cannot be read (malformed, not a
+// regular file, oversized) whose name names one of this process's
+// ancestors: it might be that ancestor's, so nothing can be proven. One
+// naming a live non-ancestor is irrelevant, one naming a gone pid stale.
+func unreadableAncestor(links []procLink, holders []holder) (string, bool) {
+	for _, h := range holders {
+		for _, l := range links[1:] {
+			if !h.valid && l.Pid == h.namePid {
+				return filepath.Base(h.path), true
+			}
+		}
+	}
+	return "", false
+}
+
+// holder is one published record: valid when it was read and agrees with
+// its name.
+type holder struct {
+	path    string
+	namePid int
+	rec     holderRecord
+	valid   bool
+}
+
+// readHolders reads the published records through readReport (no symbolic
+// link, no blocking on a FIFO, a regular file only, bounded). A name that is
+// not h-<pid>-<unique> is an error: its holder cannot even be named.
+func readHolders(dir string) ([]holder, error) {
+	entries, err := os.ReadDir(dir)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var out []holder
+	for _, e := range entries {
+		rest, ok := strings.CutPrefix(e.Name(), holderPrefix)
+		if !ok {
+			continue
+		}
+		pidText, unique, _ := strings.Cut(rest, "-")
+		pid, err := strconv.Atoi(pidText)
+		if err != nil || pid <= 0 || unique == "" {
+			return nil, fmt.Errorf("%s is not a holder record name", e.Name())
+		}
+		p := filepath.Join(dir, e.Name())
+		data, absent, err := readReport(p, holderMax)
+		if absent {
+			continue // released meanwhile
+		}
+		h := holder{path: p, namePid: pid}
+		h.valid = err == nil && json.Unmarshal(data, &h.rec) == nil && h.rec.Pid == pid && h.rec.Start != ""
+		out = append(out, h)
+	}
+	return out, nil
+}
+
+// stale reports a record whose process provably no longer runs: the pid it
+// names is gone, or — for a readable record — now names a process with
+// another start time. Anything uncertain keeps the record.
+func stale(v procView, h holder) bool {
+	f, st, err := v.lookup(h.namePid)
+	switch {
+	case err != nil:
+		return false
+	case st == procGone:
+		return true
+	case st == procFound && h.valid:
+		return f.Start != h.rec.Start
+	}
+	return false
+}
+
+// writeHolder publishes rec atomically (temp file, then rename) under a name
+// unique to this entry, also among the entries of one process.
+func writeHolder(dir string, rec holderRecord) (string, error) {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", err
+	}
+	b, err := json.Marshal(rec)
+	if err != nil {
+		return "", err
+	}
+	f, err := os.CreateTemp(dir, ".tmp-")
+	if err != nil {
+		return "", err
+	}
+	_, werr := f.Write(append(b, '\n'))
+	if cerr := f.Close(); werr == nil {
+		werr = cerr
+	}
+	if werr != nil {
+		os.Remove(f.Name())
+		return "", werr
+	}
+	p := filepath.Join(dir, fmt.Sprintf("%s%d-%d", holderPrefix, rec.Pid, time.Now().UnixNano()))
+	if err := os.Rename(f.Name(), p); err != nil {
+		os.Remove(f.Name())
+		return "", err
+	}
+	return p, nil
+}
+
+// procFact is what the ancestry walk reads of one process.
+type procFact struct {
+	Ppid  int
+	Start string // an opaque start-time token: /proc starttime ticks, or ps lstart
+}
+
+// procState is what a lookup established.
+type procState int
+
+const (
+	procFound   procState = iota
+	procGone              // the process does not exist (any more)
+	procForeign           // it exists, but belongs to another user and cannot be read
+)
+
+// procView answers lookups; each walk takes a fresh one.
+type procView interface {
+	lookup(pid int) (procFact, procState, error)
+}
+
+// newProcView is the platform's process view (a test seam).
+var newProcView = platformProcView
+
+// procLink is one process on a walk.
+type procLink struct {
+	Pid, Ppid int
+	Start     string
+}
+
+const (
+	maxWalkLinks = 4096
+	maxWalks     = 5
+)
+
+// walkOnce follows ppid from self. changed reports an ancestor that vanished
+// mid-walk: the chain was reparented under the walk, so it is restarted,
+// never truncated. A foreign ancestor ends what can be seen.
+func walkOnce(v procView, self int) (links []procLink, changed bool, err error) {
+	seen := map[int]bool{}
+	for pid := self; ; {
+		if seen[pid] || len(links) >= maxWalkLinks {
+			return nil, false, fmt.Errorf("ancestry cycle at pid %d", pid)
+		}
+		seen[pid] = true
+		f, st, err := v.lookup(pid)
+		if err != nil {
+			return nil, false, err
+		}
+		if pid == self && st != procFound {
+			return nil, false, errors.New("own process is not visible")
+		}
+		switch st {
+		case procGone:
+			return nil, true, nil
+		case procForeign:
+			return links, false, nil
+		}
+		links = append(links, procLink{Pid: pid, Ppid: f.Ppid, Start: f.Start})
+		if f.Ppid <= 0 {
+			return links, false, nil
+		}
+		pid = f.Ppid
+	}
+}
+
+// stableWalk is self's ancestry (self first), accepted only when two
+// consecutive complete walks agree link for link. Each walk takes a fresh
+// view from views.
+func stableWalk(self int, views func() (procView, error)) ([]procLink, error) {
+	var prev []procLink
+	for range maxWalks {
+		v, err := views()
+		if err != nil {
+			return nil, err
+		}
+		links, changed, err := walkOnce(v, self)
+		if err != nil {
+			return nil, err
+		}
+		if changed {
+			prev = nil
+			continue
+		}
+		if prev != nil && slices.Equal(prev, links) {
+			return links, nil
+		}
+		prev = links
+	}
+	return nil, errors.New("ancestry unstable")
+}

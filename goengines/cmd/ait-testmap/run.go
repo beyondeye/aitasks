@@ -43,7 +43,10 @@ var runExits = lineproto.ExitContract{
 //
 // A framework error before execution prints RUN_ERROR / RUNNER_* /
 // CONTRACT_MISMATCH on stderr and exits 3; a failed post-run subscriber
-// prints RUN_HOOK_ERROR:<hook>|<detail> on stderr and exits 3.
+// prints RUN_HOOK_ERROR:<hook>|<detail> on stderr and exits 3. A nested entry
+// for a repository already active (G9) prints RUN_ERROR:recursion|<root>, or
+// RUN_ERROR:recursion-unverifiable|<root>|<detail> when the guard could not
+// tell, and exits 3 before any runner process starts.
 func runRun(e env, args []string) int {
 	const usage = "ait-testmap run [--all] [--run-id <id>] [--json] [<id>...]"
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)

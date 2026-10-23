@@ -1,0 +1,34 @@
+package runner
+
+import (
+	"fmt"
+	"strconv"
+	"strings"
+)
+
+// parsePsAncestry reads `ps -A -o pid=,ppid=,lstart=` under LC_ALL=C: one
+// process per line, pid, ppid, then the five lstart fields (`Thu Oct 22
+// 16:37:28 2026`), kept as the start token with single spaces. It has no
+// build tag so it is tested on every platform; only darwin runs ps.
+func parsePsAncestry(out string) (map[int]procFact, error) {
+	m := map[int]procFact{}
+	for _, line := range strings.Split(out, "\n") {
+		f := strings.Fields(line)
+		if len(f) == 0 {
+			continue
+		}
+		if len(f) != 7 {
+			return nil, fmt.Errorf("ps: unparsable line %q", line)
+		}
+		pid, err1 := strconv.Atoi(f[0])
+		ppid, err2 := strconv.Atoi(f[1])
+		if err1 != nil || err2 != nil || pid <= 0 || ppid < 0 {
+			return nil, fmt.Errorf("ps: unparsable line %q", line)
+		}
+		if _, dup := m[pid]; dup {
+			return nil, fmt.Errorf("ps: pid %d listed twice", pid)
+		}
+		m[pid] = procFact{Ppid: ppid, Start: strings.Join(f[2:], " ")}
+	}
+	return m, nil
+}
