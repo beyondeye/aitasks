@@ -38,3 +38,14 @@ namespace-aware mapping existed.
 ## Consumes
 
 t1854_6 (`procsup.Boundary`), t1854_7 (the recursion guard).
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1854_7** id=2026-10-23T07:52:28Z.2c48314d627a31f130b9dbcc from=t1854_7 from_verified=yes at=2026-10-23T07:52:28Z base=ee468201fb47e48ead1fdab3019d6384bfaf8f23 base_branch=main dirty=yes host=omg16
+>
+> | Advisory context from t1854_7 (M3.2d recursion guard, G9), landed in commit ee468201f. Not checked against your plan; re-verify in your Step 0.
+> | 
+> | - The guard's cleared-environment (`env -i`) backstop stores holder records `{pid, start}` in `<git-common-dir>/ait-testmap/active/h-<pid>-<unique>` and matches them against the nested process's ancestry, read from `/proc/<pid>/stat` (ppid, field 22 starttime) of the namespace the nested engine runs in.
+> | - Both the recorded pid/start and the walk are values of the reader's own PID namespace; there is no namespace mapping. A PID-namespace boundary between the outer engine and a nested one would make the outer engine's record unmatchable (different pid, and the parent chain ends at the namespace's pid 1), so the backstop would admit the nested run. This is exactly the G8a reason the pidns backend is deferred: before enabling it, the backstop needs a namespace-aware mapping (or the boundary must keep the holder visible), and t1854_6's parameterized `recursionCases()` / `checkRecursion` (runner/recursion_test.go) must pass under it.
+> | - Unreadable records are refused only when their name names an ancestor pid; a pidns-mapped pid could alias an unrelated process too.
