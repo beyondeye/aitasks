@@ -408,7 +408,12 @@ they must come from that one resolution rather than from two different sources:
   to the wrong branch.
 
 In **current-branch mode** neither branch is resolved (nothing is cut, nothing is
-merged): record the detected primary branch in both fields, and omit `Worktree:`.
+merged): record the checked-out branch — the one the work lands on — in both
+fields (the detected primary only on a detached HEAD), and omit `Worktree:`.
+
+`Branch:` is the branch the work is committed on: `aitask/<task_name>` in worktree
+mode (cut later by Step 7 — not the branch checked out while planning), else the
+checked-out branch, omitted when that is the primary.
 
 `Worktree:` records the **intent** Step 5 resolved, not a directory that exists.
 Externalization runs here in Step 6 while the fork is deferred to Step 7, so the

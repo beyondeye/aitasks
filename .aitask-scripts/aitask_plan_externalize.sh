@@ -56,8 +56,9 @@
 #                        --no-worktree, and with a profile whose create_worktree
 #                        is false.
 #   --no-worktree        Step 5 created no worktree, so neither `base_branch` nor
-#                        `output_branch` applies; both fall back to the detected
-#                        primary branch.
+#                        `output_branch` applies; both record the checked-out
+#                        branch -- the one the work lands on -- and fall back to
+#                        the detected primary only on a detached HEAD (t2124).
 #
 # `Worktree:` is emitted IFF --worktree is passed. There is deliberately no
 # fallback: this field used to come from a `[[ -d aiwork/<task_name> ]]` probe,
@@ -65,6 +66,12 @@
 # cut anything -- and would therefore drop the field from every worktree-mode
 # plan. A caller that makes NO worktree claim at all (neither flag) gets a
 # one-line stderr warning, so the omission is loud rather than silent.
+#
+# `Branch:` names the branch the work is committed on. With --worktree that is
+# the task branch Step 7 cuts, `aitask/<task_name>` -- NOT the branch checked out
+# while this runs, which is still the repo root's because the fork is deferred
+# (t1536). Otherwise it is the checked-out branch, omitted when that is the
+# primary (t2124).
 #
 # Resolution precedence (t1233 for output, t1277 for base):
 #
@@ -75,7 +82,8 @@
 #                 > detected primary
 #
 # Outside worktree mode (--no-worktree / `create_worktree: false`) every derived
-# value on BOTH chains is discarded and the detected primary is recorded.
+# value on BOTH chains is discarded and the checked-out branch is recorded in
+# both fields; the detected primary only when HEAD is detached (t2124).
 #
 # Both header fields are consumed by task-workflow -- `Output branch:` by Step 9's
 # merge, `Base branch:` by Re-entry Routing (which resolves the branch context
@@ -172,16 +180,20 @@ Arguments:
                        is deferred to Step 7 (t1536), so this is Step-5 intent,
                        not a disk probe. Mutually exclusive with --no-worktree.
   --no-worktree        No worktree was created, so base_branch and output_branch
-                       are both ignored.
+                       are both ignored; both fields record the checked-out
+                       branch (the detected primary only on a detached HEAD).
 
 `Worktree:` is emitted only when --worktree is given; supplying neither flag
-warns on stderr and omits the field.
+warns on stderr and omits the field. `Branch:` is aitask/<task_name> with
+--worktree, else the checked-out branch (omitted when it is the primary).
 
 Precedence:
   Base branch:   --base-branch[-file] > profile base_branch > detected primary
   Output branch: --output-branch > profile output_branch
                > --output-branch-default[-file]
                > resolved base > detected primary
+  --no-worktree: both fields = the checked-out branch (detected primary on a
+                 detached HEAD)
 
 Output (exit 0):
   PLAN_EXISTS:<path>                  Already externalized (no-op)
@@ -557,21 +569,50 @@ if [[ "$WORKTREE_FLAG_SEEN" == false && "$NO_WORKTREE_FLAG_SEEN" == false ]]; th
     warn "no worktree claim (--worktree/--no-worktree) -- 'Worktree:' omitted from the plan header"
 fi
 
+PRIMARY_BRANCH="$(detect_primary_branch)"
+# The checked-out branch; empty on a detached HEAD or outside a repository. Read
+# the full ref and strip `refs/heads/` rather than using `--short`, which
+# abbreviates by ambiguity: with a tag `dev` beside branch `dev` it answers
+# `heads/dev`, a name nothing downstream can resolve as a branch (t2124).
+CURRENT_BRANCH="$(git symbolic-ref --quiet HEAD 2>/dev/null || true)"
+case "$CURRENT_BRANCH" in
+    refs/heads/*) CURRENT_BRANCH="${CURRENT_BRANCH#refs/heads/}" ;;
+    *)            CURRENT_BRANCH="" ;;
+esac
+
 # Outside worktree mode nothing is cut and nothing is merged, so no derived value
-# on either chain applies.
-[[ "$WORKTREE_MODE" == true ]] \
-    || { OUTPUT_BRANCH_OVERRIDE=""; OUTPUT_BRANCH_DEFAULT=""; BASE_BRANCH_OVERRIDE=""; }
+# on either chain applies: the work lands on the checked-out branch, and that is
+# what both fields record. The detected primary is only the fallback when there is
+# no branch to name (detached HEAD) -- recording it otherwise points a resumed
+# session at a branch the work never touched (t2124).
+if [[ "$WORKTREE_MODE" != true ]]; then
+    [[ -z "$CURRENT_BRANCH" ]] \
+        || validate_branch_name "$CURRENT_BRANCH" "current branch (HEAD)"
+    OUTPUT_BRANCH_DEFAULT=""
+    BASE_BRANCH_OVERRIDE="${CURRENT_BRANCH:-$PRIMARY_BRANCH}"
+    OUTPUT_BRANCH_OVERRIDE="$BASE_BRANCH_OVERRIDE"
+fi
 [[ -n "$OUTPUT_BRANCH_OVERRIDE" ]] || OUTPUT_BRANCH_OVERRIDE="$OUTPUT_BRANCH_DEFAULT"
 [[ -n "$OUTPUT_BRANCH_OVERRIDE" ]] || OUTPUT_BRANCH_OVERRIDE="$BASE_BRANCH_OVERRIDE"
-
-PRIMARY_BRANCH="$(detect_primary_branch)"
 BASE_BRANCH_RESOLVED="${BASE_BRANCH_OVERRIDE:-$PRIMARY_BRANCH}"
+
+# `Branch:` names the branch the work is committed on. In worktree mode that is the
+# task branch Step 7 cuts (`aitask/<task_name>`), not the branch checked out now:
+# the fork is deferred (t1536), so at Step 6 HEAD is still the repo root's branch.
+# Otherwise it is the checked-out branch, omitted when that is the primary (t2124).
+BRANCH_FIELD=""
+if [[ "$WORKTREE_FLAG_SEEN" == true ]]; then
+    BRANCH_FIELD="aitask/${TASK_BASENAME%.md}"
+elif [[ -n "$CURRENT_BRANCH" && "$CURRENT_BRANCH" != "$PRIMARY_BRANCH" ]]; then
+    BRANCH_FIELD="$CURRENT_BRANCH"
+fi
 
 # BASE_INTENT gates the `Base branch:` splice into a plan that ALREADY carries
 # frontmatter. It is DERIVED, not flag-enumerated: true iff a base was actually
 # supplied (--base-branch[-file] or a profile that really sets base_branch), or the
 # caller positively asserted there is no fork (--no-worktree / create_worktree:
-# false, where the primary is the right answer and a stale value must go).
+# false, where the checked-out branch is the right answer and a stale value must
+# go).
 #
 # The asymmetry with OUTPUT_INTENT is deliberate. A profile with no output_branch
 # still DETERMINES the merge target (it falls back to base/primary), so --profile
@@ -665,9 +706,6 @@ if [[ "$first_line" == "---" ]]; then
 fi
 
 build_header() {
-    local current_branch=""
-    current_branch=$(git symbolic-ref --short HEAD 2>/dev/null || echo "")
-
     echo "---"
     echo "Task: $TASK_BASENAME"
 
@@ -723,8 +761,8 @@ build_header() {
     # a missing claim is warned about at parse time instead.
     [[ -n "$WORKTREE_PATH" ]] && echo "Worktree: $WORKTREE_PATH"
 
-    if [[ -n "$current_branch" && "$current_branch" != "$PRIMARY_BRANCH" ]]; then
-        echo "Branch: $current_branch"
+    if [[ -n "$BRANCH_FIELD" ]]; then
+        echo "Branch: $BRANCH_FIELD"
     fi
 
     echo "Base branch: $BASE_BRANCH_RESOLVED"
@@ -734,7 +772,7 @@ build_header() {
     echo ""
 }
 
-# Record `Worktree:` / `Base branch:` / `Output branch:` inside a plan file that
+# Record `Worktree:` / `Branch:` / `Base branch:` / `Output branch:` inside a plan file that
 # ALREADY carries frontmatter. build_header() is skipped for such sources, so
 # without this the flags would be accepted and silently dropped -- Step 9 would
 # merge somewhere else, Re-entry Routing would resolve the wrong fork point, and
@@ -751,11 +789,16 @@ build_header() {
 #   "set"  + <wt>  -> --worktree; record that path
 #   "none"         -> --no-worktree; remove any existing `Worktree:` line
 #
+# `Branch:` rides the worktree claim, because the claim is what decides it (see
+# BRANCH_FIELD): with any claim an existing line becomes `br`, or is dropped when
+# `br` is empty -- exactly what build_header() would emit; with no claim it is
+# left alone (t2124).
+#
 # Replaces an existing field, else inserts before the closing `---` in
-# build_header order (Worktree, Base, Output), keeping the `---` count at 2. No-op
-# when the file does not open with `---` or when no field was claimed.
+# build_header order (Worktree, Branch, Base, Output), keeping the `---` count at
+# 2. No-op when the file does not open with `---` or when no field was claimed.
 splice_header_branches() {
-    local file="$1" base="$2" out="$3" wt_claim="${4:-}" wt="${5:-}"
+    local file="$1" base="$2" out="$3" wt_claim="${4:-}" wt="${5:-}" br="${6:-}"
     [[ -n "$base" || -n "$out" || -n "$wt_claim" ]] || return 0
     [[ "$(head -n 1 "$file" 2>/dev/null || true)" == "---" ]] || return 0
     # Renderer contract (lib/atomic_write.sh): a single `awk`, so the renderer's
@@ -764,17 +807,22 @@ splice_header_branches() {
     # ait_atomic_render also fixes the old `awk … > "$tmp" && mv …` form, which
     # left the temp behind whenever awk failed.
     _ait_splice_header_branches_body() {
-        awk -v base="$base" -v out="$out" -v wtc="$wt_claim" -v wt="$wt" '
+        awk -v base="$base" -v out="$out" -v wtc="$wt_claim" -v wt="$wt" -v br="$br" '
             NR == 1                 { print; next }
             done_fm                 { print; next }
             /^Worktree:/            { if (wtc != "") {
                                           if (wtc == "set") { print "Worktree: " wt; seen_wt = 1 }
                                           next   # wtc == "none" -> drop the line
                                       } }
+            /^Branch:/              { if (wtc != "") {
+                                          if (br != "") { print "Branch: " br; seen_br = 1 }
+                                          next   # empty br -> drop the line
+                                      } }
             /^Base branch:/         { if (base != "") { print "Base branch: " base; seen_base = 1; next } }
             /^Output branch:/       { if (out  != "") { print "Output branch: " out; seen_out  = 1; next } }
             $0 == "---" {
                 if (wtc == "set" && !seen_wt) print "Worktree: " wt
+                if (wtc != "" && br != "" && !seen_br) print "Branch: " br
                 if (base != "" && !seen_base) print "Base branch: " base
                 if (out  != "" && !seen_out)  print "Output branch: " out
                 done_fm = 1; print; next
@@ -830,14 +878,15 @@ if [[ "$has_frontmatter" == true ]]; then
         _splice_wt="$WORKTREE_PATH"
     elif [[ "$NO_WORKTREE_FLAG_SEEN" == true ]]; then
         # Positively "there is no worktree" -- clear any stale line, so a later
-        # session cannot consume it. `Worktree:` is the ONLY field --no-worktree
-        # deletes: the two branch fields are OVERWRITTEN with the detected primary
-        # instead, because an absent `Base branch:` is what Re-entry Routing reads
-        # as a legacy plan (and then confirms the guessed base with the user).
+        # session cannot consume it. `Worktree:` is the field --no-worktree
+        # deletes: the two branch fields are OVERWRITTEN with the checked-out
+        # branch instead, because an absent `Base branch:` is what Re-entry
+        # Routing reads as a legacy plan (and then confirms the guessed base with
+        # the user). `Branch:` follows build_header() -- see BRANCH_FIELD.
         _splice_wt_claim="none"
     fi
     splice_header_branches "$EXTERNAL_PLAN" "$_splice_base" "$_splice_out" \
-        "$_splice_wt_claim" "$_splice_wt"
+        "$_splice_wt_claim" "$_splice_wt" "$BRANCH_FIELD"
 fi
 
 if [[ "$EXISTED_BEFORE" == true ]]; then

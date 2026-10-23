@@ -10,7 +10,10 @@ PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 . "$PROJECT_DIR/tests/lib/scratch_cwd.sh"
 enter_scratch_cwd
 . "$PROJECT_DIR/tests/lib/asserts.sh"
-EXTERNALIZE="$PROJECT_DIR/.aitask-scripts/aitask_plan_externalize.sh"
+# Overridable so a negative control can point the suite at a pre-fix scripts
+# tree (the helper sources its siblings from $SCRIPT_DIR/lib, so pass a path
+# inside a complete .aitask-scripts copy, never a lone file).
+EXTERNALIZE="${EXTERNALIZE:-$PROJECT_DIR/.aitask-scripts/aitask_plan_externalize.sh}"
 
 PASS=0
 FAIL=0
@@ -665,7 +668,9 @@ rm -rf "$TMPDIR7S"
 # Stale values are non-primary on purpose: `main` -> `main` asserts nothing, which
 # is exactly why the original report read the overwrite as a no-op (t1578).
 #
-# The contract is REPLACEMENT with the detected primary, not deletion: only
+# The contract is REPLACEMENT with the checked-out branch -- here the detected
+# primary, since this sandbox is not a repository and HEAD names no branch
+# (Test 17 covers a real one, t2124) -- not deletion: only
 # `Worktree:` is actually removed. The final block characterizes the asymmetry the
 # corrected doc states -- on this path build_header() writes both fields
 # unconditionally, so the per-field intent gating never applies and a bare --force
@@ -1347,6 +1352,224 @@ provenance_base="plan header"
 assert_eq "control: fallback binds main" "main" "$base_branch"
 assert_eq "control: fallback provenance is recorded" "legacy plan, no Base branch field" "$provenance_base"
 rm -rf "$TMPDIR16"
+
+# --- Test 17: branch fields name the branch the work lands on (t2124).
+# Every sandbox above is a non-git directory, so HEAD never names a branch and
+# the primary fallback is all they can see. These are real repositories on
+# `main` with a `dev` branch beside it: current-branch mode must record the
+# checked-out branch (the primary only on a detached HEAD), `Branch:` must be
+# `aitask/<task_name>` under --worktree, and a tag named like the branch must not
+# turn `dev` into `heads/dev`. Git runs under an empty HOME so the user's config
+# cannot shape the fixture.
+echo "--- Test 17: branch fields follow the checked-out branch ---"
+T17_ROOT=$(mktemp -d)
+mkdir -p "$T17_ROOT/home" "$T17_ROOT/nopy"
+# Resolve the real interpreter with the real HOME, before it is emptied: C11
+# goes through --profile, whose YAML parser is the helper's only Python use.
+T17_PY="$(. "$PROJECT_DIR/.aitask-scripts/lib/python_resolve.sh" && require_ait_python)"
+# Any Python use by the stubbed cases leaves a marker (C9).
+for _p in python3 python; do
+    printf '#!/bin/sh\ntouch "%s/python_called"\nexit 97\n' "$T17_ROOT" > "$T17_ROOT/nopy/$_p"
+    chmod +x "$T17_ROOT/nopy/$_p"
+done
+
+t17_git() { HOME="$T17_ROOT/home" GIT_CONFIG_NOSYSTEM=1 git "$@"; }
+
+# new_git_sandbox [internal-plan-text]: a repo on `main` with a `dev` branch and
+# origin/HEAD -> origin/main, task t999 and an internal plan. Prints its path.
+new_git_sandbox() {
+    local d
+    d=$(mktemp -d "$T17_ROOT/sb.XXXXXX")
+    mkdir -p "$d/aitasks" "$d/aiplans" "$d/plans"
+    printf -- '---\npriority: medium\nstatus: Ready\n---\n\nSandbox task body.\n' \
+        > "$d/aitasks/t999_sandbox_task.md"
+    t17_git -C "$d" init --quiet -b main
+    t17_git -C "$d" config user.email t2124@test.invalid
+    t17_git -C "$d" config user.name t2124
+    t17_git -C "$d" config commit.gpgsign false
+    t17_git -C "$d" add -A
+    t17_git -C "$d" commit --quiet -m init
+    t17_git -C "$d" branch dev
+    t17_git -C "$d" update-ref refs/remotes/origin/main HEAD
+    t17_git -C "$d" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main
+    if [[ -n "${1:-}" ]]; then
+        printf '%s' "$1" > "$d/plans/internal.md"
+    else
+        printf '# Sandbox plan\n\n- Step 1\n' > "$d/plans/internal.md"
+    fi
+    echo "$d"
+}
+
+# run_t17 <sandbox> <args...>: externalize t999 with the Python stub on PATH.
+# Sets T17_RC, T17_ERR and T17_PLAN. run_t17_py does the same with the real
+# interpreter (C11 only).
+run_t17() {
+    local sb="$1"; shift
+    T17_PLAN="$sb/aiplans/p999_sandbox_task.md"
+    T17_RC=0
+    T17_ERR=$(cd "$sb" && HOME="$T17_ROOT/home" GIT_CONFIG_NOSYSTEM=1 \
+        AIT_PYTHON="$T17_ROOT/nopy/python3" PATH="$T17_ROOT/nopy:$PATH" \
+        AIT_PLAN_EXTERNALIZE_INTERNAL_DIR="$sb/plans" \
+        "$EXTERNALIZE" 999 --internal "$sb/plans/internal.md" --force "$@" 2>&1 >/dev/null) \
+        || T17_RC=$?
+}
+run_t17_py() {
+    local sb="$1"; shift
+    T17_PLAN="$sb/aiplans/p999_sandbox_task.md"
+    T17_RC=0
+    T17_ERR=$(cd "$sb" && HOME="$T17_ROOT/home" GIT_CONFIG_NOSYSTEM=1 \
+        AIT_PYTHON="$T17_PY" AIT_PLAN_EXTERNALIZE_INTERNAL_DIR="$sb/plans" \
+        "$EXTERNALIZE" 999 --internal "$sb/plans/internal.md" --force "$@" 2>&1 >/dev/null) \
+        || T17_RC=$?
+}
+
+# Every line for one header field -- so a single assert_eq pins the value AND
+# that it appears exactly once (a duplicate makes this two lines).
+t17_field() { grep -- "^$2:" "$1" 2>/dev/null || true; }
+t17_fences() { grep -cx -- '---' "$1" 2>/dev/null || true; }
+t17_body() { awk 'n >= 2 { print } /^---$/ { n++ }' "$1"; }
+
+T17_WT=(--worktree aiwork/t999_sandbox_task --base-branch dev --output-branch dev)
+
+# C1: current-branch mode on dev records dev, not the primary.
+sb=$(new_git_sandbox); t17_git -C "$sb" checkout --quiet dev
+run_t17 "$sb" --no-worktree
+assert_eq "C1 current-branch on dev: exit 0" "0" "$T17_RC"
+assert_eq "C1 Base branch is the checked-out dev" "Base branch: dev" "$(t17_field "$T17_PLAN" "Base branch")"
+assert_eq "C1 Output branch is the checked-out dev" "Output branch: dev" "$(t17_field "$T17_PLAN" "Output branch")"
+assert_eq "C1 Branch is dev" "Branch: dev" "$(t17_field "$T17_PLAN" Branch)"
+assert_eq "C1 no Worktree line" "" "$(t17_field "$T17_PLAN" Worktree)"
+
+# C2: worktree mode on dev -- Branch is the task branch Step 7 will cut.
+sb=$(new_git_sandbox); t17_git -C "$sb" checkout --quiet dev
+run_t17 "$sb" "${T17_WT[@]}"
+assert_eq "C2 worktree on dev: exit 0" "0" "$T17_RC"
+assert_eq "C2 Branch is the task branch, not the checked-out dev" \
+    "Branch: aitask/t999_sandbox_task" "$(t17_field "$T17_PLAN" Branch)"
+assert_eq "C2 Base branch dev" "Base branch: dev" "$(t17_field "$T17_PLAN" "Base branch")"
+assert_eq "C2 Output branch dev" "Output branch: dev" "$(t17_field "$T17_PLAN" "Output branch")"
+assert_eq "C2 Worktree recorded" "Worktree: aiwork/t999_sandbox_task" "$(t17_field "$T17_PLAN" Worktree)"
+
+# C3: detached HEAD -- no branch to name, so the primary is the fallback.
+sb=$(new_git_sandbox); t17_git -C "$sb" checkout --quiet --detach main
+run_t17 "$sb" --no-worktree
+assert_eq "C3 detached HEAD: exit 0" "0" "$T17_RC"
+assert_eq "C3 Base branch falls back to the primary" "Base branch: main" "$(t17_field "$T17_PLAN" "Base branch")"
+assert_eq "C3 Output branch falls back to the primary" "Output branch: main" "$(t17_field "$T17_PLAN" "Output branch")"
+assert_eq "C3 no Branch line" "" "$(t17_field "$T17_PLAN" Branch)"
+
+# C4: on the primary, current-branch output is unchanged.
+sb=$(new_git_sandbox)
+run_t17 "$sb" --no-worktree
+assert_eq "C4 current-branch on main: exit 0" "0" "$T17_RC"
+assert_eq "C4 Base branch main" "Base branch: main" "$(t17_field "$T17_PLAN" "Base branch")"
+assert_eq "C4 Output branch main" "Output branch: main" "$(t17_field "$T17_PLAN" "Output branch")"
+assert_eq "C4 no Branch line on the primary" "" "$(t17_field "$T17_PLAN" Branch)"
+
+# C5: worktree mode on the primary gains `Branch:` -- the intended change.
+sb=$(new_git_sandbox)
+run_t17 "$sb" "${T17_WT[@]}"
+assert_eq "C5 worktree on main: exit 0" "0" "$T17_RC"
+assert_eq "C5 Branch is the task branch" "Branch: aitask/t999_sandbox_task" "$(t17_field "$T17_PLAN" Branch)"
+assert_eq "C5 Base branch dev" "Base branch: dev" "$(t17_field "$T17_PLAN" "Base branch")"
+assert_eq "C5 Output branch dev" "Output branch: dev" "$(t17_field "$T17_PLAN" "Output branch")"
+
+# C6: no worktree claim keeps the checked-out branch in `Branch:`.
+sb=$(new_git_sandbox); t17_git -C "$sb" checkout --quiet dev
+run_t17 "$sb" --base-branch dev --output-branch dev
+assert_eq "C6 no worktree claim: exit 0" "0" "$T17_RC"
+assert_eq "C6 Branch stays the checked-out dev" "Branch: dev" "$(t17_field "$T17_PLAN" Branch)"
+assert_eq "C6 Base branch dev" "Base branch: dev" "$(t17_field "$T17_PLAN" "Base branch")"
+assert_eq "C6 Output branch dev" "Output branch: dev" "$(t17_field "$T17_PLAN" "Output branch")"
+assert_eq "C6 no Worktree line" "" "$(t17_field "$T17_PLAN" Worktree)"
+
+# C7: sources already carrying frontmatter go through the splice, which replaces
+# present fields in place and inserts missing ones before the closing fence -- so
+# assert value, uniqueness and fence integrity, not global order.
+T17_FRONT='---
+Task: t999_sandbox_task.md
+Branch: dev
+Base branch: main
+Output branch: main
+---
+
+# Sandbox plan
+
+- Step 1
+'
+sb=$(new_git_sandbox "$T17_FRONT"); t17_git -C "$sb" checkout --quiet dev
+run_t17 "$sb" "${T17_WT[@]}"
+assert_eq "C7i splice with --worktree: exit 0" "0" "$T17_RC"
+assert_eq "C7i one Branch, the task branch" "Branch: aitask/t999_sandbox_task" "$(t17_field "$T17_PLAN" Branch)"
+assert_eq "C7i one Base branch, dev" "Base branch: dev" "$(t17_field "$T17_PLAN" "Base branch")"
+assert_eq "C7i one Output branch, dev" "Output branch: dev" "$(t17_field "$T17_PLAN" "Output branch")"
+assert_eq "C7i one Worktree line" "Worktree: aiwork/t999_sandbox_task" "$(t17_field "$T17_PLAN" Worktree)"
+assert_eq "C7i exactly two fences" "2" "$(t17_fences "$T17_PLAN")"
+assert_eq "C7i body unchanged" "$(t17_body "$sb/plans/internal.md")" "$(t17_body "$T17_PLAN")"
+
+T17_STALE="${T17_FRONT/Task: t999_sandbox_task.md/Task: t999_sandbox_task.md
+Worktree: aiwork/stale}"
+sb=$(new_git_sandbox "$T17_STALE"); t17_git -C "$sb" checkout --quiet dev
+run_t17 "$sb" --no-worktree
+assert_eq "C7ii splice with --no-worktree: exit 0" "0" "$T17_RC"
+assert_eq "C7ii one Branch, dev" "Branch: dev" "$(t17_field "$T17_PLAN" Branch)"
+assert_eq "C7ii one Base branch, dev" "Base branch: dev" "$(t17_field "$T17_PLAN" "Base branch")"
+assert_eq "C7ii one Output branch, dev" "Output branch: dev" "$(t17_field "$T17_PLAN" "Output branch")"
+assert_eq "C7ii stale Worktree removed" "" "$(t17_field "$T17_PLAN" Worktree)"
+assert_eq "C7ii exactly two fences" "2" "$(t17_fences "$T17_PLAN")"
+
+# C8: git accepts this ref; the header must not. It is recorded only in
+# current-branch mode, so that is where it has to fail closed.
+# shellcheck disable=SC2016  # the literal $(id) is the payload
+T17_BAD='dev$(id)'
+sb=$(new_git_sandbox); t17_git -C "$sb" checkout --quiet -b "$T17_BAD"
+run_t17 "$sb" --no-worktree
+assert_eq "C8 unsafe checked-out branch: non-zero exit" "nonzero" "$([[ $T17_RC -ne 0 ]] && echo nonzero || echo zero)"
+assert_contains "C8 stderr names the unsafe branch" "unsafe branch name" "$T17_ERR"
+assert_file_not_exists "C8 no plan written" "$T17_PLAN"
+t17_git -C "$sb" checkout --quiet dev
+run_t17 "$sb" --no-worktree
+assert_eq "C8 control: the same sandbox on dev exits 0" "0" "$T17_RC"
+
+# C10: a tag named like the branch makes `git symbolic-ref --short` answer
+# `heads/dev`, which the drift check would look up as refs/heads/heads/dev.
+sb=$(new_git_sandbox); t17_git -C "$sb" tag dev
+# Same commit, so pointing HEAD at the branch is a checkout -- without the
+# ambiguity warning `checkout` / `switch` print for a name that is also a tag.
+t17_git -C "$sb" symbolic-ref HEAD refs/heads/dev
+run_t17 "$sb" --no-worktree
+assert_eq "C10 tag beside the branch, current-branch: exit 0" "0" "$T17_RC"
+assert_eq "C10 Base branch is dev, not heads/dev" "Base branch: dev" "$(t17_field "$T17_PLAN" "Base branch")"
+assert_eq "C10 Output branch is dev, not heads/dev" "Output branch: dev" "$(t17_field "$T17_PLAN" "Output branch")"
+assert_eq "C10 Branch is dev, not heads/dev" "Branch: dev" "$(t17_field "$T17_PLAN" Branch)"
+run_t17 "$sb" --base-branch dev --output-branch dev
+assert_eq "C10 tag beside the branch, no claim: Branch is dev" "Branch: dev" "$(t17_field "$T17_PLAN" Branch)"
+
+# C9: none of the cases above reached Python; the control proves the stub is
+# actually on the path a --profile run takes.
+assert_file_not_exists "C9 no Python interpreter was invoked by C1-C8/C10" "$T17_ROOT/python_called"
+sb=$(new_git_sandbox)
+printf 'create_worktree: false\n' > "$sb/prof.yaml"
+run_t17 "$sb" --profile prof.yaml --no-worktree
+assert_file_exists "C9 control: a --profile run does reach the stub" "$T17_ROOT/python_called"
+assert_eq "C9 control: and fails without a real interpreter" "nonzero" "$([[ $T17_RC -ne 0 ]] && echo nonzero || echo zero)"
+
+# C11: the profile route into current-branch mode (`create_worktree: false`),
+# with base/output values that must be discarded, records the checked-out branch
+# exactly like --no-worktree does -- with and without the flag beside it.
+for _c11_flags in "" "--no-worktree"; do
+    _c11_label="C11 profile create_worktree:false${_c11_flags:+ + $_c11_flags}"
+    sb=$(new_git_sandbox); t17_git -C "$sb" checkout --quiet dev
+    printf 'create_worktree: false\nbase_branch: release\noutput_branch: release\n' > "$sb/prof.yaml"
+    # shellcheck disable=SC2086  # empty / single-word flag set, split on purpose
+    run_t17_py "$sb" --profile prof.yaml $_c11_flags
+    assert_eq "$_c11_label: exit 0" "0" "$T17_RC"
+    assert_eq "$_c11_label: Base branch is the checked-out dev" "Base branch: dev" "$(t17_field "$T17_PLAN" "Base branch")"
+    assert_eq "$_c11_label: Output branch is the checked-out dev" "Output branch: dev" "$(t17_field "$T17_PLAN" "Output branch")"
+    assert_eq "$_c11_label: Branch is dev" "Branch: dev" "$(t17_field "$T17_PLAN" Branch)"
+    assert_eq "$_c11_label: no Worktree line" "" "$(t17_field "$T17_PLAN" Worktree)"
+done
+rm -rf "$T17_ROOT"
 
 # --- Results ---
 
