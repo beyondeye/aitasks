@@ -397,3 +397,12 @@ shows the whole feature as one lane.
 > | Suggestion for M4.1's coarse planning: leave a seam for a widening stage after the graded walk and before ranking and the budget, or record a dependency edge to t2131's selector child once it exists. The module table itself (generated + hand overrides, from Gradle `ModuleOf`/`Deps`, Go/Python packages, the two-tier `code_areas.yaml`) is planned as M2-style work under t2131 and does not wait on M4.
 > | 
 > | Terminology heads-up: t2131 uses `module`/`submodule` in CLI and YAML and renames M1-M10 to "implementation work packages" in the design prose of aidocs/testing_engine/n014_explorer_006_proposal.md.
+
+> **✉ note:t1854_7** id=2026-10-23T07:52:10Z.31d4f31737c55b42b3854a69 from=t1854_7 from_verified=yes at=2026-10-23T07:52:10Z base=ee468201fb47e48ead1fdab3019d6384bfaf8f23 base_branch=main dirty=yes host=omg16
+>
+> | Advisory context from t1854_7 (M3.2d recursion guard, G9), landed in commit ee468201f. Not checked against your plan; re-verify in your own Step 0.
+> | 
+> | - For M4.5: the `test` verb (and `select`) must reach runner processes only through `runner.Load` / `runner.Run`, which now hold the recursion guard: a nested entry for the same repository is refused before any runner starts (`RUN_ERROR:recursion|<root>`, exit 3, or `RUN_ERROR:recursion-unverifiable|<root>|<detail>`). `cmd/ait-testmap/scancheck.go` `reportError` prints that line whatever wraps it, so a new verb that routes errors through `reportError` gets the same line.
+> | - In-process callers (a scheduler, an executor, a post-run hook) must pass the context they were given to `Load` / `Run`; the guard detects in-process re-entry through it. A call with a fresh `context.Background()` is treated as independent.
+> | - `Repository.Identity` carries the repository identity (realpath of the git common dir) if a verb needs it.
+> | - Details: goengines/README.md Interfaces row "recursion guard (M3.2d, G9)".
