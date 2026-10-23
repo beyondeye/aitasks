@@ -68,7 +68,8 @@ def detect_primary_branch(worktree: Path) -> str:
     """Resolve the repository's primary branch name dynamically.
 
     Tries, in order: the ``origin/HEAD`` symbolic ref (authoritative for any
-    clone, reflecting the real remote default — main/master/trunk/develop), a
+    clone, reflecting the real remote default — main/master/trunk/develop;
+    read as the full ref and trusted only under ``refs/remotes/origin/``), a
     local ``main`` → ``master`` probe, then a ``"main"`` fallback. Keeps
     ``"main"`` as the logical/user-facing ref name so the CLI surface is
     unchanged in main-default repos, while master-default repos (where
@@ -78,13 +79,14 @@ def detect_primary_branch(worktree: Path) -> str:
     ``.aitask-scripts/lib/git_utils.sh:detect_primary_branch`` — keep the two
     resolution orders in sync. (t1031)
     """
-    proc = run_git(worktree, ["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"])
+    # Full ref, never --short: --short abbreviates by ambiguity, so a local
+    # branch named "origin/main" turns its answer into "remotes/origin/main". (t2123)
+    proc = run_git(worktree, ["symbolic-ref", "--quiet", "refs/remotes/origin/HEAD"])
+    prefix = "refs/remotes/origin/"
     if proc.returncode == 0:
         head = proc.stdout.strip()
-        if head.startswith("origin/"):
-            head = head[len("origin/"):]
-        if head:
-            return head
+        if head.startswith(prefix) and len(head) > len(prefix):
+            return head[len(prefix):]
     for candidate in ("main", "master"):
         if ref_exists(worktree, candidate):
             return candidate

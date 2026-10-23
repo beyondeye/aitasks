@@ -18,7 +18,7 @@ LIB_SRC = PROJECT_DIR / ".aitask-scripts" / "lib"
 
 sys.path.insert(0, str(LIB_SRC))
 sys.path.insert(0, str(PROJECT_DIR / "tests" / "lib"))
-from desync_state import physical_main_branch  # noqa: E402
+from desync_state import detect_primary_branch, physical_main_branch  # noqa: E402
 from shell_startup_closure import copy_startup_closure  # noqa: E402
 
 
@@ -324,6 +324,30 @@ class DesyncStateTests(unittest.TestCase):
             ref = data["refs"][0]
             self.assertEqual(ref["local_ref"], "master")
             self.assertEqual(ref["status"], "ok")
+
+    def test_detect_primary_branch_ignores_short_ref_ambiguity(self) -> None:
+        # t2123: --short abbreviates by ambiguity, so a local branch named
+        # origin/trunk turned the answer into "remotes/origin/trunk".
+        with tempfile.TemporaryDirectory() as tmp:
+            project = make_local_project_without_remote(Path(tmp))
+            git(project, "update-ref", "refs/remotes/origin/trunk", "HEAD")
+            git(project, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/trunk")
+            git(project, "branch", "origin/trunk")
+            short = git(project, "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD")
+            self.assertEqual(short.stdout.strip(), "remotes/origin/trunk")  # fixture is ambiguous
+            # trunk, not the probe's main: the origin/HEAD answer survives.
+            self.assertEqual(detect_primary_branch(project), "trunk")
+
+    def test_detect_primary_branch_rejects_origin_head_outside_remote_namespace(self) -> None:
+        # The target (trunk) differs from the probe's answer (main), so a
+        # rejected target is distinguishable from an accepted one.
+        with tempfile.TemporaryDirectory() as tmp:
+            project = make_local_project_without_remote(Path(tmp))
+            git(project, "branch", "trunk")
+            git(project, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/heads/trunk")
+            short = git(project, "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD")
+            self.assertEqual(short.stdout.strip(), "trunk")  # fixture names the outside target
+            self.assertEqual(detect_primary_branch(project), "main")
 
     def test_physical_main_branch(self) -> None:
         # master-default snapshot → physical branch is master

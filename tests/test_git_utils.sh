@@ -70,6 +70,52 @@ mkdir -p "$TMPROOT/plain"
 result=$(cd "$TMPROOT/plain" && detect_primary_branch)
 assert_eq "non-git dir falls back to main" "main" "$result"
 
+# Point origin/HEAD at <target> with no remote configured: a bare ref setup is
+# enough for detect_primary_branch, which only reads refs.
+set_origin_head() {
+    local dir="$1" target="$2"
+    (
+        cd "$dir" || exit 1
+        case "$target" in
+            refs/remotes/*) git update-ref "$target" HEAD ;;
+        esac
+        git symbolic-ref refs/remotes/origin/HEAD "$target"
+    )
+}
+
+# --- Test 5: a local branch named origin/main makes --short ambiguous (t2123) ---
+echo "--- Test 5: local origin/main branch beside origin/HEAD ---"
+make_repo "$TMPROOT/ambig_main" main
+set_origin_head "$TMPROOT/ambig_main" refs/remotes/origin/main
+( cd "$TMPROOT/ambig_main" && git branch origin/main )
+short=$(cd "$TMPROOT/ambig_main" && git symbolic-ref --quiet --short refs/remotes/origin/HEAD)
+assert_eq "fixture: --short is ambiguous here" "remotes/origin/main" "$short"
+result=$(cd "$TMPROOT/ambig_main" && detect_primary_branch)
+assert_eq "ambiguous --short still resolves main" "main" "$result"
+
+# --- Test 6: the origin/HEAD answer survives the ambiguity (not the probe) ---
+# The probe would say main; only the symbolic-ref path can produce trunk.
+echo "--- Test 6: local origin/trunk branch, origin/HEAD -> trunk ---"
+make_repo "$TMPROOT/ambig_trunk" main
+set_origin_head "$TMPROOT/ambig_trunk" refs/remotes/origin/trunk
+( cd "$TMPROOT/ambig_trunk" && git branch origin/trunk )
+short=$(cd "$TMPROOT/ambig_trunk" && git symbolic-ref --quiet --short refs/remotes/origin/HEAD)
+assert_eq "fixture: --short is ambiguous here" "remotes/origin/trunk" "$short"
+result=$(cd "$TMPROOT/ambig_trunk" && detect_primary_branch)
+assert_eq "ambiguous --short resolves origin/HEAD's trunk" "trunk" "$result"
+
+# --- Test 7: origin/HEAD outside refs/remotes/origin/ is not trusted ---
+# The target (trunk) must differ from the probe's answer (main), or the test
+# cannot tell a rejected target from an accepted one.
+echo "--- Test 7: origin/HEAD -> refs/heads/trunk falls through to the probe ---"
+make_repo "$TMPROOT/outside" main
+( cd "$TMPROOT/outside" && git branch trunk )
+set_origin_head "$TMPROOT/outside" refs/heads/trunk
+short=$(cd "$TMPROOT/outside" && git symbolic-ref --quiet --short refs/remotes/origin/HEAD)
+assert_eq "fixture: --short names the outside target" "trunk" "$short"
+result=$(cd "$TMPROOT/outside" && detect_primary_branch)
+assert_eq "outside-prefix origin/HEAD falls through to main" "main" "$result"
+
 # --- Results ---
 echo ""
 echo "==============================="
