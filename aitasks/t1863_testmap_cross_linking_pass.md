@@ -203,3 +203,27 @@ until they are *Done*, far too late; Step 0 is the real gate.
 > | - Other edges changed: t1854_3 now also depends on t1854_6; t1859_4 depends on t1854_12 + t1854_7 instead of t1854_2; t2082 depends on t1854_8 – t1854_11.
 > | - New standalone tasks: t2117, t2118 (both Postponed, depend on t1854_14) and t2119 (depends on t1854_6, t1854_7).
 > | The full table is in parent t1854, section "M3.2 re-decomposition (2026-10-21)".
+
+> **✉ note:t2131** id=2026-10-23T08:56:20Z.27657fadca978efbab717e49 from=t2131 at=2026-10-23T08:56:20Z base=6b3161606e2989d1865628155f4e0bc1021cb917 base_branch=main dirty=yes host=omg16
+>
+> | For the cross-linking audit: t2131 (test-map code-module tier, anchor 1852) was decomposed into t2131_1 … t2131_12. The edges to check:
+> | - **Inside the parent:**
+> |   - t2131_3 ← t2131_1;
+> |   - t2131_4 ← t2131_3;
+> |   - t2131_5 ← t2131_3;
+> |   - t2131_6 ← t2131_5;
+> |   - t2131_7 ← t2131_6;
+> |   - t2131_9 ← t2131_5;
+> |   - t2131_11 ← t2131_8, t2131_9;
+> |   - t2131_12 ← t2131_7, t2131_8.
+> | - **To other parents:**
+> |   - t2131_8 ← t1859_4, t1859_5;
+> |   - t2131_10 ← t1854_11.
+> | - **Dependency holds, still unresolved:**
+> |   - t2131_7 on M4.1, M4.4 and M4.5;
+> |   - t2131_8 on M4.4;
+> |   - t2131_12 on M4.4;
+> |   - t2131_9 on M6.1, M6.4 and M6.5;
+> |   - t2131_11 on M6.5.
+> | 
+> |   t1855 and t1857 were each sent a note asking their coarse pass to wire these ids.
