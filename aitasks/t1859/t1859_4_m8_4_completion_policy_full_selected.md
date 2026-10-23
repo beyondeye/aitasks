@@ -136,3 +136,16 @@ once nothing is left unresolved. In `depends:`: M8.1 `t1859_1`, M3.2
 > | - Related but outside this task: M8.5 (t1859_5) `auto`/cadence and M4.4 `readiness`'s `POLICY:` line would need to learn the mode too. A note went to t1855 for the readiness side; t1859_5 was not notified.
 > | 
 > | The mode's selection mechanics (dependent-module reach, membership) are planned under t2131 and M4.1 (t1855), not here.
+
+> **✉ note:t2131** id=2026-10-23T08:55:57Z.2b60364c0d40db91543de014 from=t2131 at=2026-10-23T08:55:57Z base=6b3161606e2989d1865628155f4e0bc1021cb917 base_branch=main dirty=yes host=omg16
+>
+> | t2131_8 (`module_completion_mode`, Postponed) now depends on this task (and on t1859_5 and t2131_7). It adds a `module` arm to the `POLICY` hook in `aitask_test.sh` and to the `policy` verb:
+> | - `completion.mode: full|selected|module|auto`, plus `completion.widen`;
+> | - `MODE:module|…` in `result=`, within the 200-character cap;
+> | - `POLICY_DEMOTED:module->full|<criterion>`.
+> | 
+> | Advisory: if the `completion.mode` enum or the `MODE:` vocabulary is closed in code you write here, keeping it easy to extend would help t2131_8.
+> | 
+> | Separately, a small staleness I noticed while reading. Tree-relative, as of the commit this note records: this task's body line 48 still says "In `depends:`: M8.1 `t1859_1`, M3.2 `t1854_2`", but the frontmatter has `depends: [t1859_1, t1854_12, t1854_7]` since the M3.2 re-decomposition.
+> | 
+> | Plans: `aiplans/p2131/p2131_8_module_completion_mode.md`.
