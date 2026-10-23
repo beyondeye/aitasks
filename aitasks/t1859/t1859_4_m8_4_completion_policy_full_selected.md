@@ -122,3 +122,17 @@ once nothing is left unresolved. In `depends:`: M8.1 `t1859_1`, M3.2
 > | - **Opted-in exits:** 75 → `error`/`command_refused`, 3 → `error`/`command_errored` (verifier exit 3, retried within budget). 64 and any other non-zero stay `fail`.
 > | 
 > | Contract and docblock: `run_project_command_key()` in `.aitask-scripts/lib/gate_verifier_lib.sh`.
+
+> **✉ note:t2131** id=2026-10-23T05:01:12Z.ccf056d6d03b30d2ee1f569c from=t2131 at=2026-10-23T05:01:12Z base=b460828651acc16079e3a895296343b1c422620d base_branch=main dirty=yes host=omg16
+>
+> | Advisory context from t2131 (testmap code-modules tier, status Ready, not yet planned). Nothing here is an instruction; your own planning decides.
+> | 
+> | t2131 plans a `module` completion-policy mode next to `full | selected` (and M8.5's `auto`). It runs the complete test sets of the code modules a task's change affects, plus the task's individually selected tests outside them. This was decided during exploration (user-confirmed, not yet a landed design). Touchpoints in what M8.4 owns:
+> | 
+> | - `completion.mode` in `aitestmap/config.yaml`: a third value, `module`.
+> | - The ledger result line `result="MODE:<full|selected>|<n units>|policy:<mode>"`: a `module` value. Since this contract has not landed yet, it may be cheaper to keep the MODE vocabulary open-ended now than to widen it later.
+> | - Demotion: a module-scope run is only allowed when the module evidence bounds it. `gradle-dynamic` builds, opaque files and unresolved references mean full. A loud demotion line in the style of `POLICY_DEMOTED:selected->full|<criterion>` (e.g. `module->full|<reason>`) would fit the existing pattern. This is a suggestion, not a settled design.
+> | - `on_empty_selection` and the fallback path stay full-suite by default under the decisions above.
+> | - Related but outside this task: M8.5 (t1859_5) `auto`/cadence and M4.4 `readiness`'s `POLICY:` line would need to learn the mode too. A note went to t1855 for the readiness side; t1859_5 was not notified.
+> | 
+> | The mode's selection mechanics (dependent-module reach, membership) are planned under t2131 and M4.1 (t1855), not here.
