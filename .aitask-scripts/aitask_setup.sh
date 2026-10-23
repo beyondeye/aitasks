@@ -38,7 +38,15 @@ AIT_VENV_PYTHON_PREFERRED="${AIT_VENV_PYTHON_PREFERRED:-3.13}"
 # COMMON; the CPython venv installs COMMON + CPYTHON_EXTRA. The parallel
 # *_IMPORTS arrays list the import names to verify after install (the import name
 # differs from the distribution name for some: pyyaml->yaml, linkify-it-py->linkify_it).
-AIT_PIP_SPECS_COMMON=('textual>=8.2.7,<9' 'pyyaml==6.0.3' 'linkify-it-py==2.1.0' 'tomli>=2.4.0,<3')
+#
+# rich is not a direct dependency: it is a version FLOOR on textual's transitive
+# one (textual only asks for rich>=14.2.0). rich 14.3.2's split_graphemes loops
+# forever on a zero-width char before any visible one (U+200E, U+FE0F, raw ESC),
+# hanging any TUI that truncates such text (t2133; also the t940 codebrowser
+# hang). verify_venv_specs is what enforces the floor on an existing venv; its
+# `rich` import entry (lib/python_resolve.sh) only keeps specs and imports
+# paired, since importing textual already imports rich.
+AIT_PIP_SPECS_COMMON=('textual>=8.2.7,<9' 'rich>=14.3.3' 'pyyaml==6.0.3' 'linkify-it-py==2.1.0' 'tomli>=2.4.0,<3')
 AIT_PIP_SPECS_CPYTHON_EXTRA=('minijinja>=2.0,<3' 'segno>=1.5,<2' 'plotext==5.3.2' 'websockets>=12,<17' 'msgpack>=1,<2')
 # Derived, not duplicated: lib/python_resolve.sh (sourced above) owns this list
 # because resolve_pypy_python() must import exactly the same set before it will
@@ -93,9 +101,15 @@ verify_venv_imports() {
 # Uses pip's vendored packaging (no extra dependency — pip is in every venv);
 # importlib.metadata.version() resolves the distribution name from each spec
 # (e.g. pyyaml, linkify-it-py), independent of the import name.
+#
+# Also sets global `specs_check_ok` (true|false): false when the inspection
+# itself failed (broken interpreter, no importable packaging). bad_specs is then
+# empty, which must NOT be read as "all in range" — report_venv_dep_drift
+# distinguishes the two.
 verify_venv_specs() {
     local py="$1"; shift
     bad_specs=()
+    specs_check_ok=true
     local out
     out="$("$py" - "$@" <<'PY' 2>/dev/null
 import sys
@@ -113,7 +127,7 @@ for spec in sys.argv[1:]:
     if not req.specifier.contains(inst, prereleases=True):
         print(f"{req.name} {inst} (need {req.specifier})")
 PY
-)" || out=""
+)" || { out=""; specs_check_ok=false; }
     [[ -n "$out" ]] && while IFS= read -r line; do bad_specs+=("$line"); done <<< "$out"
     return 0  # never fail the caller (set -e); result is in $bad_specs
 }
@@ -2528,6 +2542,38 @@ report_home_legacy() {
     # printf, not info's echo -e: tenant names are %q-escaped and may hold backslashes.
     printf '%b%s\n' "${BLUE}[ait]${NC}   " "$line"
     info "    'ait engine home' shows what blocks it; 'ait setup' (or 'ait engine home --migrate') moves these into $AITASKS_HOME and leaves a symlink behind"
+    return 0
+}
+
+# --- Python venv dependency drift hint (t2133) ---
+# report_venv_dep_drift — read-only check of the existing venvs against the pip
+# specs above. Setup repairs drift itself (pip install + verify_venv_specs);
+# install.sh / `ait upgrade` never touch the venvs, so this is how an
+# upgraded-only machine learns that a raised floor (e.g. rich>=14.3.3) needs
+# `ait setup`. A venv that does not exist is silent; an inspection that failed
+# is reported as such, never as clean. Installs and removes nothing.
+report_venv_dep_drift() {
+    local dir py specs_label
+    local -a specs
+    for dir in "$VENV_DIR" "$PYPY_VENV_DIR"; do
+        py="$dir/bin/python"
+        [[ -x "$py" ]] || continue
+        if [[ "$dir" == "$VENV_DIR" ]]; then
+            specs=("${AIT_PIP_SPECS_COMMON[@]}" "${AIT_PIP_SPECS_CPYTHON_EXTRA[@]}")
+        else
+            specs=("${AIT_PIP_SPECS_COMMON[@]}")
+        fi
+        verify_venv_specs "$py" "${specs[@]}"
+        if [[ "$specs_check_ok" != true ]]; then
+            warn "Could not check Python dependency versions in $dir (interpreter or version check failed)."
+        elif [[ ${#bad_specs[@]} -gt 0 ]]; then
+            printf -v specs_label '%s; ' "${bad_specs[@]}"
+            warn "Python venv $dir has dependencies outside the required range: ${specs_label%; }"
+        else
+            continue
+        fi
+        info "    'ait upgrade' does not update Python dependencies — run 'ait setup' to repair them."
+    done
     return 0
 }
 

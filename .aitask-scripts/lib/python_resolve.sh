@@ -44,7 +44,7 @@ PYPY_VENV_DIR="${PYPY_VENV_DIR:-$HOME/.aitask/pypy_venv}"
 # AIT_IMPORTS_COMMON from this array so the list has exactly one home.
 # Keep in step with AIT_PIP_SPECS_COMMON in aitask_setup.sh (the distribution
 # names that install these: pyyaml->yaml, linkify-it-py->linkify_it).
-AIT_PYPY_RUNTIME_IMPORTS=(textual yaml linkify_it tomli)
+AIT_PYPY_RUNTIME_IMPORTS=(textual rich yaml linkify_it tomli)
 
 # Startup sources — contract: aidocs/framework/shell_conventions.md (source-on-startup); scanner: tests/lib/shell_startup_closure.py
 # shellcheck source=terminal_compat.sh

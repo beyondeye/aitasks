@@ -37,6 +37,11 @@ SELECTION_STYLE = Style(bgcolor="dark_blue")
 # keeps the file viewable (showing its literal bytes) and avoids the hang.
 # Tab/newline are preserved: tabs are expanded downstream; newlines delimit
 # lines.
+#
+# The hang itself is a rich < 14.3.3 bug, now excluded by the `rich>=14.3.3`
+# floor in aitask_setup.sh (t2133). The translation is kept: showing the literal
+# bytes is a display feature in its own right, and it still protects a venv that
+# has not been re-set-up since the floor was raised.
 _CONTROL_CHAR_TRANSLATION = {
     code: 0x2400 + code
     for code in range(0x20)

@@ -86,7 +86,7 @@ STUB
 #   partial     — textual present, `yaml` MISSING (the board imports yaml too)
 #   broken      — every module present, but textual's __init__ raises (a
 #                 discoverable package is not an importable one)
-for _m in textual yaml linkify_it tomli; do
+for _m in textual rich yaml linkify_it tomli; do
     mkdir -p "$SCRATCH/deps_full/$_m";   : > "$SCRATCH/deps_full/$_m/__init__.py"
     mkdir -p "$SCRATCH/deps_broken/$_m"; : > "$SCRATCH/deps_broken/$_m/__init__.py"
 done

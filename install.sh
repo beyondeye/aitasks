@@ -1928,6 +1928,13 @@ main() {
         report_home_legacy
     fi
 
+    # Upgrade never repairs Python deps (setup owns pip); surface venv spec drift
+    # read-only so an upgraded-only machine learns it needs `ait setup` (t2133).
+    # Same declare -F guard as above, for the same older-tarball reason.
+    if declare -F report_venv_dep_drift >/dev/null; then
+        report_venv_dep_drift
+    fi
+
     report_claude_session_hook
 
     echo ""
