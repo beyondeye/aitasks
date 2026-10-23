@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2123
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-23 11:13
-updated_at: 2026-10-23 11:24
+updated_at: 2026-10-23 11:44
 ---
 
 ## Origin
@@ -64,3 +65,8 @@ Read `git symbolic-ref --quiet HEAD` and strip `refs/heads/`, accepting the
 value only when that prefix matched (detached / unexpected → existing
 fallback). Add a tag-beside-branch regression per touched site, with a red
 proof against the unfixed code.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-23T08:44:12Z status=pass attempt=1 type=human
