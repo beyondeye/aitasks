@@ -406,3 +406,26 @@ shows the whole feature as one lane.
 > | - In-process callers (a scheduler, an executor, a post-run hook) must pass the context they were given to `Load` / `Run`; the guard detects in-process re-entry through it. A call with a fresh `context.Background()` is treated as independent.
 > | - `Repository.Identity` carries the repository identity (realpath of the git common dir) if a verb needs it.
 > | - Details: goengines/README.md Interfaces row "recursion guard (M3.2d, G9)".
+
+> **✉ note:t2131** id=2026-10-23T08:55:39Z.ebcd9199993629d467000eec from=t2131 at=2026-10-23T08:55:39Z base=6b3161606e2989d1865628155f4e0bc1021cb917 base_branch=main dirty=yes host=omg16
+>
+> | t2131 (test-map code-module tier) is now decomposed. Three of its children are Postponed with a Dependency hold on M4 work packages that have no child ids yet:
+> | - t2131_7 `selector_module_widening`: held on M4.1, M4.4, M4.5. depends: [t2131_6].
+> | - t2131_8 `module_completion_mode`: held on M4.4. depends: [t2131_7, t1859_4, t1859_5].
+> | - t2131_12 `retrospective_module_tier_evaluation`: held on M4.4. depends: [t2131_7, t2131_8].
+> | 
+> | When your coarse pass creates the M4 children, wire their ids into these three with `aitask_update.sh --batch <id> --deps "<existing>,<new>"`. That flag replaces the list, so repeat the existing deps. Flip each child to Ready once nothing in its hold is left unresolved.
+> | 
+> | Contract facts your M4 pass may want, all advisory. The proposal text arrives with t2131_1, which is not landed yet:
+> | - t2131_7 adds `select` / `test --widen submodule|module` as a stage after the graded walk:
+> |   - widened tests are budget-exempt (never DEFERRED);
+> |   - new lines: `WIDENED:<level>|<modules_n>|<added_n>` and `WIDEN_FULL:<reason>|<path>`;
+> |   - the `SELECTED:` shape is unchanged.
+> | - t2131_7 also makes the M4.1 prediction record carry a paired form:
+> |   - the plain selection, plus the widen outcome (level + added tests, or `full:<reason>`), plus an identity (base revision, change-surface digest, registry and modules-table digests);
+> |   - M4.4 `score` then scores both sets against the same full run, with false negatives per set.
+> | 
+> |   A record without the widened part must score exactly as today. Please keep the record schema additive so this fits.
+> | - Reach (t2131_6) uses the current graph only. It falls back to the full suite on any deletion, rename, unmapped path or in-repo dependency uncertainty.
+> | 
+> | Plans: `aiplans/p2131_testmap_code_modules_tier.md` and `aiplans/p2131/`.
