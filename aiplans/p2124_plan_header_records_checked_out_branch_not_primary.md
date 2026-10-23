@@ -117,3 +117,10 @@ no reader and is pinned by C5.)
 ### Goal-achievement risk: low
 None identified. (The patch is the downstream's reviewed fix, applies cleanly, and
 the ported suite plus its negative control prove the behaviour.)
+
+## Final Implementation Notes
+- **Actual work done:** Applied the downstream (thinking_backend#t65, commit a2e872d) helper + canonical doc patch verbatim (applied cleanly), renamed its `(t65)` cross-refs to `(t2124)`. Ported C1-C10 into `tests/test_plan_externalize.sh` as Test 17 with a dedicated `new_git_sandbox` helper (real repo, empty HOME, `GIT_CONFIG_NOSYSTEM=1`), plus C11 (profile `create_worktree: false` + conflicting `base_branch`/`output_branch: release`, with and without `--no-worktree`, real interpreter resolved before HOME is emptied). Made `EXTERNALIZE` overridable. Re-rendered remote/fast/default (tracked changes only in the 6 remote `planning.md`/`plan-externalization.md` copies across .claude/.agents/.opencode) and regenerated the three `planning-*` procedure goldens (diff = the doc edit only; no plan-externalization golden exists).
+- **Deviations from plan:** Also refreshed the Test 7t comment, which still stated "replacement with the detected primary" as the contract.
+- **Issues encountered:** None. Negative control (full pre-fix `.aitask-scripts` tree via `git archive HEAD`, so `lib/` sourcing works): 308/326 pass, 18 fail — all in C1, C2, C5, C7i, C7ii, C8, C10, C11; Tests 1-16 and every exit-0/plan-written control (C3, C4, C6, C8 control) pass, proving the old helper starts and writes plans. With the fix: 326/326; test_skill_render_task_workflow 361/361; aitask_skill_verify OK; reentry_drift, parity, plan_approved_marker green.
+- **Key decisions:** `t17_field` asserts the full set of lines for a field with one `assert_eq`, so value and uniqueness are pinned together.
+- **Upstream defects identified:** None
