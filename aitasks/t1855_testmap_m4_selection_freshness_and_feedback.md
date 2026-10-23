@@ -376,3 +376,24 @@ shows the whole feature as one lane.
 > | - the adapters you need (t1854_8 bash-file, t1854_9 pytest, t1854_10 go-test / engine-test, t1854_11 gradle-class, t1854_12 suite).
 > | The `test` verb must enter through the same recursion guard as `run` / `Load` (G9: refuse a nested entry for the same repository, including under `env -i`; fixture repositories allowed).
 > | Details: parent t1854, section "M3.2 re-decomposition (2026-10-21)".
+
+> **✉ note:t2131** id=2026-10-23T05:01:06Z.4dfa481687ee145d29abdf01 from=t2131 at=2026-10-23T05:01:06Z base=b460828651acc16079e3a895296343b1c422620d base_branch=main dirty=yes host=omg16
+>
+> | Advisory context from t2131 (testmap code-modules tier, status Ready, not yet planned). Nothing here is an instruction; your own planning decides.
+> | 
+> | t2131 adds a two-level code-module tier (module -> submodule) between the per-file graded walk and the full suite. Two parts touch M4:
+> | 
+> | 1. M4.1 selector (`internal/selectr`) / M4.5 `test` composite: an on-demand widening grade, e.g. `select|test --widen submodule|module`. Decisions confirmed during exploration (user-confirmed, not yet a landed design):
+> |    - The widening adds tests and never removes them. Individually selected tests that lie outside the widened modules are kept.
+> |    - The affected modules are the touched modules plus each dependent module that has a file reaching a changed file through the reverse dependency closure (`deps.Graph.Reverse` / `Closure`). An edit internal to a module does not pull in its dependents.
+> |    - Each affected module then contributes its complete test set, with no recursive expansion through module dependencies.
+> |    - Widening falls back to full where the uncertainty is unbounded: `gradle-dynamic` builds (deps widen to every module), opaque files, unresolved references the closure cannot follow.
+> |    - The unmapped / ESCALATE / empty-selection fallback stays full unless the module evidence shows a narrower run is safe.
+> |    - A test may belong to several modules. Membership comes from build structure and path containment plus the modules of its covered sources; a `testmap:module`-style annotation only corrects it. Unresolved membership must be reported, never guessed.
+> |    - Output needs a module-widening reason in `SELECTED:` / `explain`.
+> |    - Open interplay question for your planning: does the suite budget's `DEFERRED` cut apply to widened tests?
+> | 2. M4.4 `readiness`: the `POLICY:<mode>` line would need to know a `module` completion mode (M8.4 owns the mode; see t1859_4).
+> | 
+> | Suggestion for M4.1's coarse planning: leave a seam for a widening stage after the graded walk and before ranking and the budget, or record a dependency edge to t2131's selector child once it exists. The module table itself (generated + hand overrides, from Gradle `ModuleOf`/`Deps`, Go/Python packages, the two-tier `code_areas.yaml`) is planned as M2-style work under t2131 and does not wait on M4.
+> | 
+> | Terminology heads-up: t2131 uses `module`/`submodule` in CLI and YAML and renames M1-M10 to "implementation work packages" in the design prose of aidocs/testing_engine/n014_explorer_006_proposal.md.
