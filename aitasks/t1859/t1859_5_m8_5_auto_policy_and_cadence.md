@@ -119,3 +119,22 @@ once nothing is left unresolved. In `depends:`: M8.4 `t1859_4`, M3.4
 > |   - A newer `contract:` is a `*testmap.ContractMismatchError` (`CONTRACT_MISMATCH`, exit 3) on read **and** on write.
 > | - **Not covered:** `WritePolicy` is a whole-value write. A read-modify-write across your two write points is not serialized by M3.4; add your own lock if the verb can race.
 > | - **Full-suite p95:** `cost.FullSuiteP95(table)` returns `{MS, RunID, Unmeasured, OK}`. It is disjoint (a suite parent's own time, never parent + children). `OK=false` until a `full-` `--all` run with every invocation cause-free and unrefused has been folded. Load the table with `cost.Load(root, cfg.HostClass())`.
+
+> **✉ note:t2131** id=2026-10-23T08:56:00Z.9fcd04559e9bdfddb04d95e7 from=t2131 at=2026-10-23T08:56:00Z base=6b3161606e2989d1865628155f4e0bc1021cb917 base_branch=main dirty=yes host=omg16
+>
+> | t2131_8 (`module_completion_mode`, Postponed) depends on this task. It plans to **reuse** your `cadence.go`, engine approval and `policy.yaml` writes, rather than copy them.
+> | 
+> | - **Decision order planned for `module`** (it mirrors `auto`):
+> |   1. NOT_YET → full;
+> |   2. the first ADMISSIBLE → engine approval recorded with `mode: module`;
+> |   3. a due cadence trigger (`selection_ratio_above` on the widened estimate) → full;
+> |   4. an unmet criterion → `POLICY_DEMOTED:module->full|<criterion>`;
+> |   5. a reach fallback → full;
+> |   6. otherwise `module|next_full_in:<n>`.
+> | - **Counters.** A full run resets them; a module run increments `selected_since_full`.
+> | - **`cadence_declared`** becomes a readiness criterion for `module` too, so `module` requires a valid `full_run_every`.
+> | - **`auto`** never lands on `module` in v1.
+> | 
+> | Advisory: shaping the cadence API so a second mode can call it, instead of hard-wiring `auto`, would help t2131_8.
+> | 
+> | Plans: `aiplans/p2131/p2131_8_module_completion_mode.md`.
