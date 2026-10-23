@@ -123,3 +123,10 @@ None identified.
 
 ### Goal-achievement risk: low
 None identified.
+
+## Final Implementation Notes
+- **Actual work done:** `detect_primary_branch()` in `.aitask-scripts/lib/git_utils.sh` and its Python twin in `.aitask-scripts/lib/desync_state.py` now read `git symbolic-ref --quiet refs/remotes/origin/HEAD` (full ref) and accept it only when it starts with `refs/remotes/origin/` and names something after the prefix; anything else falls through to the unchanged `main`/`master` probe and `main` fallback. Added bash Tests 5–7 to `tests/test_git_utils.sh` (with a small `set_origin_head` fixture helper) and two cases to `tests/test_desync_state.py`. Every new case asserts its fixture precondition (`--short` output) so it cannot pass vacuously.
+- **Deviations from plan:** None. The plan-review round replaced the outside-prefix fixture (`refs/heads/main`, vacuous because old and new code both answer `main`) with `refs/heads/trunk` beside a local `main`, which distinguishes them.
+- **Issues encountered:** None. Red proof: all five new cases failed on the unfixed functions (`remotes/origin/main`, `remotes/origin/trunk`, `trunk` ×2 outside-prefix) and pass after the fix. Callers' suites green: `test_plan_externalize.sh` 264/264, `test_contribute.sh` 124/124, `test_note_append.sh` 124/124; `test_desync_state.py` + `test_desync_summary_cache.py` 22 passed; `shellcheck .aitask-scripts/lib/git_utils.sh` clean.
+- **Key decisions:** Deliberate behaviour change — an `origin/HEAD` pointing outside `refs/remotes/origin/` is no longer trusted (it previously leaked its abbreviated name); pinned by bash Test 7 and the second Python case.
+- **Upstream defects identified:** None
