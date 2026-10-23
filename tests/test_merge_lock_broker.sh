@@ -486,6 +486,28 @@ out="$(broker "$R17" "$C17" force-release --yes --expect "$tok")"
 assert_contains "case17: the printed token is accepted verbatim" "FORCE_RELEASED:tA" "$out"
 free_lock
 
+# ---------------------------------------------------------------------------
+echo "--- Case 18: a tag named like the output branch (t2132) ---"
+# `symbolic-ref --short HEAD` abbreviates by ambiguity: with tag `main` beside
+# branch `main` it answers `heads/main`, which never equals the output branch.
+free_lock
+R18="$(new_repo r18)"; A18="$(spawn_anchor)"
+( cd "$R18" && git tag main ) >/dev/null 2>&1
+short18="$( cd "$R18" && git symbolic-ref --short HEAD )"
+assert_eq "case18: fixture: --short is ambiguous here" "heads/main" "$short18"
+out="$(broker "$R18" "$A18" begin tA main aitask/tclean)"
+assert_contains "case18: the preflight sees HEAD on the output branch" "MERGE_OK:" "$out"
+out="$(broker "$R18" "$A18" finish tA)"
+assert_eq "case18: finish releases" "RELEASED" "$out"
+# The abort path compares HEAD with the recorded output branch after --abort.
+R18b="$(new_repo r18b)"
+( cd "$R18b" && git tag main ) >/dev/null 2>&1
+out="$(broker "$R18b" "$A18" begin tA main aitask/tconf)"
+assert_contains "case18: the conflicting merge parks" "MERGE_CONFLICT:" "$out"
+out="$(broker "$R18b" "$A18" abort tA)"
+assert_eq "case18: abort reaches a clean state on the output branch" "ABORTED" "$out"
+free_lock
+
 echo "========================="
 echo "Results: $PASS/$TOTAL passed, $FAIL failed"
 [[ "$FAIL" -gt 0 ]] && exit 1

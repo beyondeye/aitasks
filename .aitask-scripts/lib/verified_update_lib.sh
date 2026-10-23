@@ -74,12 +74,16 @@ has_remote_tracking() {
 }
 
 current_task_branch() {
-    local branch
-    branch="$(./ait git rev-parse --abbrev-ref HEAD)"
-    if [[ "$branch" == "HEAD" ]]; then
-        die "Data worktree is on a detached HEAD (possibly mid-rebase). Run './ait git-health' for diagnosis, then './ait git rebase --abort' or '--continue' to recover."
-    fi
-    printf '%s\n' "$branch"
+    # Full ref, never --abbrev-ref: beside a same-named tag it answers
+    # "heads/<b>", which no clone or push can use as a branch (t2132).
+    local ref rc=0
+    ref="$(./ait git symbolic-ref --quiet HEAD)" || rc=$?
+    case "$rc:$ref" in
+        0:refs/heads/?*) printf '%s\n' "${ref#refs/heads/}" ;;
+        0:* | 1:*)
+            die "Data worktree is on a detached HEAD (possibly mid-rebase). Run './ait git-health' for diagnosis, then './ait git rebase --abort' or '--continue' to recover." ;;
+        *)  die "Could not resolve HEAD of the task data worktree (git exited $rc). Run './ait git-health' for diagnosis." ;;
+    esac
 }
 
 current_task_remote() {
@@ -222,7 +226,9 @@ commit_and_push_from_remote_clone() {
 
     run_before_push_hook "$clone_dir" "$attempt"
 
-    if push_output="$(git -C "$clone_dir" push --quiet origin "HEAD:${branch}" 2>&1)"; then
+    # Qualified destination: a bare "HEAD:<b>" is ambiguous on an origin that
+    # also carries tag <b> ("dst refspec <b> matches more than one") (t2132).
+    if push_output="$(git -C "$clone_dir" push --quiet origin "HEAD:refs/heads/${branch}" 2>&1)"; then
         # Capture the pushed commit BEFORE the clone is destroyed — it is the
         # subject of the local-ref invariant below.
         pushed_sha="$(git -C "$clone_dir" rev-parse HEAD 2>/dev/null || true)"

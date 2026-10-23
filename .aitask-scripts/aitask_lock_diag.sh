@@ -172,7 +172,15 @@ check_info "TERM: ${TERM:-unset}"
 echo "--- 12. Data worktree ---"
 if [[ -d ".aitask-data" ]]; then
     if git worktree list 2>/dev/null | grep -q ".aitask-data"; then
-        data_branch=$(git -C .aitask-data rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
+        # Full ref, never --abbrev-ref: beside a same-named tag it answers
+        # "heads/<b>" (t2132). Detached reads HEAD, as it always did.
+        ref_rc=0
+        data_branch=$(git -C .aitask-data symbolic-ref --quiet HEAD 2>/dev/null) || ref_rc=$?
+        case "$ref_rc:$data_branch" in
+            0:refs/heads/?*) data_branch="${data_branch#refs/heads/}" ;;
+            0:* | 1:*)       data_branch="HEAD" ;;
+            *)               data_branch="unknown" ;;
+        esac
         check_pass "Data worktree exists (branch: $data_branch)"
     else
         check_fail "Directory .aitask-data exists but is not a git worktree"

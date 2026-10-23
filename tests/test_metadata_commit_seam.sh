@@ -357,6 +357,25 @@ assert_eq "12: nothing was staged" "" "$(staged_paths "$TMP12")"
 assert_eq "12: the dirty file is STILL dirty (untouched)" "dirtied" \
     "$(tail -n1 "$TMP12/local/.aitask-data/aitasks/metadata/stats_config.json")"
 
+# --- Test 12b: BRANCH: beside a same-named tag, and on a detached HEAD -----
+# `rev-parse --abbrev-ref HEAD` answers `heads/aitask-data` when a tag shares the
+# data branch's name (t2132). The line is compared whole: `BRANCH:heads/...` must
+# not be accepted, and a detached HEAD must still read DETACHED, not FAILED.
+echo "--- Test 12b: --preflight BRANCH: is the branch name, never heads/<b> ---"
+TMP12B="$(setup_repo)"
+data_git "$TMP12B" tag aitask-data
+assert_eq "12b: fixture: --abbrev-ref is ambiguous here" "heads/aitask-data" \
+    "$(data_git "$TMP12B" rev-parse --abbrev-ref HEAD)"
+_mc "$TMP12B" --preflight aitasks/metadata/never_existed.json
+assert_eq "12b: exit 0" "0" "$MC_RC"
+assert_eq "12b: the BRANCH: line names the branch" "BRANCH:aitask-data" \
+    "$(printf '%s\n' "$MC_OUT" | grep '^BRANCH:')"
+data_git "$TMP12B" checkout -q --detach
+_mc "$TMP12B" --preflight aitasks/metadata/never_existed.json
+assert_eq "12b: detached: exit 0" "0" "$MC_RC"
+assert_eq "12b: a detached HEAD still reads DETACHED" "BRANCH:DETACHED" \
+    "$(printf '%s\n' "$MC_OUT" | grep '^BRANCH:')"
+
 # --- Test 13: MIDOP — a wedged destination is REPORTED, not fatal ----------
 # The discriminating case for running the preflight with the wedged-worktree
 # guard bypassed: assert_data_worktree_clean DIES on these states, and

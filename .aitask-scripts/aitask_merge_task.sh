@@ -81,7 +81,16 @@ _anchor_or_refuse() {
 _merge_head_present() { [[ -f "$(git rev-parse --git-dir)/MERGE_HEAD" ]]; }
 _unmerged_paths()     { git diff --name-only --diff-filter=U 2>/dev/null || true; }
 _tree_dirty_tracked() { git status --porcelain -uno 2>/dev/null | grep -c . || true; }
-_head_branch()        { git symbolic-ref --short HEAD 2>/dev/null || true; }
+# Full ref, never --short: --short abbreviates by ambiguity, so a tag named like
+# the branch turns the answer into "heads/<b>", which never equals the output
+# branch (t2132). Empty on a detached HEAD.
+_head_branch() {
+    local ref
+    ref="$(git symbolic-ref --quiet HEAD 2>/dev/null || true)"
+    case "$ref" in
+        refs/heads/?*) printf '%s' "${ref#refs/heads/}" ;;
+    esac
+}
 
 # _cleanup_lock_and_report <lock_dir> <verdict> — release then emit. Used on
 # every PRE-MERGE refusal: the reservation is only retained once a merge was

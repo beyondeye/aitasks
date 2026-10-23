@@ -394,8 +394,15 @@ note_capture_provenance() {
 
     [[ "$PROV_BASE" == "unknown" ]] && return 0
 
-    PROV_BASE_BRANCH="$(git -C "$root" rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
-    [[ -n "$PROV_BASE_BRANCH" ]] || PROV_BASE_BRANCH="unknown"
+    # Full ref, never --abbrev-ref: beside a same-named tag it answers
+    # "heads/<b>" (t2132). A detached HEAD keeps the literal HEAD it always had.
+    local ref_rc=0
+    PROV_BASE_BRANCH="$(git -C "$root" symbolic-ref --quiet HEAD 2>/dev/null)" || ref_rc=$?
+    case "$ref_rc:$PROV_BASE_BRANCH" in
+        0:refs/heads/?*) PROV_BASE_BRANCH="${PROV_BASE_BRANCH#refs/heads/}" ;;
+        0:* | 1:*)       PROV_BASE_BRANCH="HEAD" ;;
+        *)               PROV_BASE_BRANCH="unknown" ;;
+    esac
 
     # Off-primary HEAD gets a merge base. Discover the primary with the existing
     # helper — never hardcode 'main': this is framework code shipped into other

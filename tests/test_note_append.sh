@@ -384,6 +384,22 @@ assert_contains "8b. merge base is against master, not a hardcoded main" \
     "base_mergebase=$MASTER_BASE" "$body"
 assert_contains "8c. base_branch is the feature branch" "base_branch=feature" "$body"
 
+# A tag named like the branch: `rev-parse --abbrev-ref HEAD` answers
+# `heads/feature`, which is no branch name (t2132). Asserted on the LAST marker:
+# t706 already carries 8c's note.
+git -C "$MASTER" tag feature
+assert_eq "8d. fixture: --abbrev-ref is ambiguous here" "heads/feature" \
+    "$(git -C "$MASTER" rev-parse --abbrev-ref HEAD)"
+( cd "$DATA" && AIT_DIR="$MASTER" "$NOTE" 706 --from 701 --text "beside a tag" ) >/dev/null 2>&1
+last="$(grep '^> \*\*' "$DATA/aitasks/t706_x.md" | tail -n1)"
+assert_contains "8d. base_branch is the branch, not heads/<b>" "base_branch=feature" "$last"
+# A detached HEAD keeps recording the literal HEAD, as before.
+git -C "$MASTER" checkout -q --detach
+( cd "$DATA" && AIT_DIR="$MASTER" "$NOTE" 706 --from 701 --text "detached" ) >/dev/null 2>&1
+last="$(grep '^> \*\*' "$DATA/aitasks/t706_x.md" | tail -n1)"
+assert_contains "8e. a detached HEAD records base_branch=HEAD" "base_branch=HEAD" "$last"
+git -C "$MASTER" checkout -q feature
+
 # --- 9. Degraded provenance (F16) ------------------------------------------
 #
 # `dirty=unknown` IFF `base=none`. Requiring yes/no unconditionally would be

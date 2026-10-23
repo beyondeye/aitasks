@@ -389,7 +389,13 @@ cmd_remove() {
                 reason="checked_out"
             else
                 local head_ref anc_rc=0
-                head_ref="$(git symbolic-ref --short -q HEAD || echo HEAD)"
+                # Full ref, never --short: a tag named like the branch turns
+                # --short's answer into "heads/<b>" (t2132).
+                head_ref="$(git symbolic-ref -q HEAD || true)"
+                case "$head_ref" in
+                    refs/heads/?*) head_ref="${head_ref#refs/heads/}" ;;
+                    *)             head_ref="HEAD" ;;
+                esac
                 git merge-base --is-ancestor "$BRANCH_REF" HEAD >/dev/null 2>&1 || anc_rc=$?
                 if [[ $anc_rc -eq 1 ]]; then
                     reason="unmerged_into:$head_ref"

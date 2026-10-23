@@ -464,6 +464,14 @@ run_ait pull;                                     h_refused "branch.aitask-data.
 git -C "$DATA" config pull.rebase true
 run_ait pull;                                     h_refused "branch config over pull.rebase=true"
 git -C "$DATA" config --unset pull.rebase
+# A tag named like the data branch: `symbolic-ref --short` answers
+# `heads/aitask-data`, so the key read was branch.heads/aitask-data.rebase and
+# the interactive branch config went unseen (t2132).
+git -C "$DATA" tag aitask-data
+assert_eq "H: fixture: --short is ambiguous here" "heads/aitask-data" \
+    "$(git -C "$DATA" symbolic-ref --short HEAD)"
+run_ait pull;                                     h_refused "branch config beside a same-named tag"
+git -C "$DATA" tag -d aitask-data >/dev/null
 git -C "$DATA" config --unset branch.aitask-data.rebase
 
 # Control: an explicit --rebase overrides an interactive config (git's own rule),

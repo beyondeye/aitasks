@@ -253,6 +253,34 @@ assert_eq "Concurrent remote updates both counted" "2" "$(json_get "$WORKDIR_9" 
 assert_eq "Concurrent score sum preserved" "160" "$(json_get "$WORKDIR_9" '.models[0].verifiedstats.pick.all_time.score_sum')"
 rm -rf "$TMPDIR_9"
 
+echo "--- Test 9t: a tag named like the data branch, published to origin (t2132) ---"
+# Two defects: `rev-parse --abbrev-ref HEAD` answers `heads/main` beside a
+# same-named tag (so the clone of that "branch" failed), and once the name is
+# right, the unqualified push destination `HEAD:main` is ambiguous on an origin
+# that carries both refs/heads/main and refs/tags/main.
+TMPDIR_9T="$(setup_remote_repo)"
+WORKDIR_9T="$TMPDIR_9T/work"
+ORIGIN_9T="$TMPDIR_9T/origin.git"
+git -C "$WORKDIR_9T" tag main
+git -C "$WORKDIR_9T" push --quiet origin refs/tags/main:refs/tags/main
+tag_9t="$(git --git-dir="$ORIGIN_9T" rev-parse refs/tags/main)"
+assert_eq "9t: fixture: --abbrev-ref is ambiguous here" "heads/main" \
+    "$(git -C "$WORKDIR_9T" rev-parse --abbrev-ref HEAD)"
+assert_eq "9t: fixture: origin carries the branch and the tag" "2" \
+    "$(git --git-dir="$ORIGIN_9T" for-each-ref --format='%(refname)' refs/heads/main refs/tags/main | wc -l | tr -d ' ')"
+rc_9t=0
+output_9t=$(cd "$WORKDIR_9T" && \
+    ./.aitask-scripts/aitask_verified_update.sh --agent-string claudecode/opus4_6 --skill pick --score 4 --silent 2>&1) || rc_9t=$?
+assert_eq "9t: exits 0" "0" "$rc_9t"
+assert_eq "9t: structured output" "UPDATED:claudecode/opus4_6:pick:80" "$output_9t"
+origin_9t="$(git --git-dir="$ORIGIN_9T" rev-parse refs/heads/main)"
+assert_contains "9t: origin's branch carries the update" "ait: Update verified score" \
+    "$(git --git-dir="$ORIGIN_9T" log -1 --format=%s refs/heads/main)"
+assert_eq "9t: origin's tag is untouched" "$tag_9t" "$(git --git-dir="$ORIGIN_9T" rev-parse refs/tags/main)"
+assert_eq "9t: the local branch converged onto the pushed commit" "$origin_9t" \
+    "$(git -C "$WORKDIR_9T" rev-parse refs/heads/main)"
+rm -rf "$TMPDIR_9T"
+
 echo "--- Test 10: Old schema migration on update ---"
 TMPDIR_10="$(setup_repo)"
 # Inject old-format verifiedstats manually

@@ -241,8 +241,10 @@ def dedicated_worktree(checkout: str, source: str, task_name: "str | None") -> s
     common = _git(checkout, "rev-parse", "--path-format=absolute", "--git-common-dir")
     if git_dir is None or common is None or git_dir.strip() == common.strip():
         return "no"
-    branch = _git(checkout, "symbolic-ref", "--quiet", "--short", "HEAD")
-    if task_name and branch is not None and _dec(branch).strip() == f"aitask/{task_name}":
+    # Full ref, never --short: beside a same-named tag --short answers
+    # "heads/<b>", which never equals the task branch (t2132).
+    ref = _git(checkout, "symbolic-ref", "--quiet", "HEAD")
+    if task_name and ref is not None and _dec(ref).strip() == f"refs/heads/aitask/{task_name}":
         return "yes|branch"
     return "no"
 

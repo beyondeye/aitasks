@@ -183,6 +183,17 @@ assert_contains "11: verdict PRESERVED" "PRESERVED" "$OUT"
 assert_eq "11: exits 0 without --strict" "0" "$RC"
 assert_eq "11: the commits are still reachable" "1" "$(git branch --list aitask/tA | wc -l | tr -d ' ')"
 
+echo "=== Case 11b: a tag named like the checked-out branch (t2132) ==="
+# `symbolic-ref --short` answers `heads/<b>` when a tag shares the branch's name.
+fresh_repo
+git worktree add -q -b aitask/tA aiwork/tA "$PRIMARY"
+git -C aiwork/tA commit -q --allow-empty -m "work"
+git tag "$PRIMARY"
+assert_eq "11b: fixture: --short is ambiguous here" "heads/$PRIMARY" "$(git symbolic-ref --short HEAD)"
+run_helper remove tA --force
+assert_contains "11b: the reason names the branch, not heads/<b>" \
+    "BRANCH_KEPT unmerged_into:$PRIMARY aitask/tA" "$OUT"
+
 echo "=== Case 12: remove WITHOUT --force on a dirty worktree ==="
 fresh_repo
 git worktree add -q -b aitask/tA aiwork/tA "$PRIMARY"

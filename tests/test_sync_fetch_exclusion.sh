@@ -330,6 +330,21 @@ git -C "$T/remote.git" update-ref -d refs/heads/aitask-data
 out="$(run_sync "$T")"
 assert_not_contains "9: no fetch-exclusion deferral" "DEFERRED:fetch_exclusion" "$out"
 
+echo "--- 10. A tag named like the data branch does not disarm the guard (t2132) ---"
+# `symbolic-ref --short` answers `heads/aitask-data` beside a same-named tag; the
+# guard then fetched refs/heads/heads/aitask-data, read the miss as "no remote
+# data branch", and let the broad fetch download the store.
+world
+git -C "$Y" tag aitask-data aitask-data
+assert_eq "10: fixture: --short is ambiguous here" "heads/aitask-data" \
+    "$(git -C "$Y/.aitask-data" symbolic-ref --short HEAD)"
+A10="$(xstore store-a)"
+xpub store-a store-a
+out="$(run_sync "$T")"
+assert_not_contains "10: no fetch-exclusion deferral" "DEFERRED:fetch_exclusion" "$out"
+assert_eq "10: the store was not downloaded" "no" "$(has_obj "$Y" "$A10")"
+assert_contains "10: store-a is excluded" "^refs/heads/store-a" "$(fetchvals "$Y")"
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed, $TOTAL total"
 [[ "$FAIL" -eq 0 ]]

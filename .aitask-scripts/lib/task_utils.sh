@@ -520,13 +520,21 @@ task_git_health() {
     local gitdir branch head_ref state
     local hits=()
     gitdir="$(_ait_data_gitdir)"
-    branch="$(git -C .aitask-data rev-parse --abbrev-ref HEAD 2>/dev/null || echo '?')"
+    # Full ref, never --abbrev-ref: beside a same-named tag it answers
+    # "heads/<b>" (t2132). Detached reads HEAD, an unreadable HEAD '?'.
+    local ref_rc=0
+    branch="$(git -C .aitask-data symbolic-ref --quiet HEAD 2>/dev/null)" || ref_rc=$?
+    case "$ref_rc:$branch" in
+        0:refs/heads/?*) branch="${branch#refs/heads/}" ;;
+        0:* | 1:*)       branch="HEAD" ;;
+        *)               branch="?" ;;
+    esac
     head_ref="$(git -C .aitask-data rev-parse --short HEAD 2>/dev/null || echo '?')"
 
     info "Mode: branch (.aitask-data worktree present)"
     info "Worktree path: .aitask-data"
     info "Git-dir: ${gitdir:-<missing>}"
-    info "Branch (rev-parse --abbrev-ref HEAD): $branch"
+    info "Branch: $branch"
     info "HEAD commit: $head_ref"
 
     if [[ -z "$gitdir" || ! -d "$gitdir" ]]; then
@@ -817,7 +825,14 @@ task_git_pull() {
     local mode branch key cfg_rc mode_src="the pull arguments"
     mode="$AIT_PULL_REBASE_MODE"
     if [[ -z "$mode" ]]; then
-        branch="$(_ait_data_git symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
+        # Full ref, never --short: beside a same-named tag --short answers
+        # "heads/<b>", and branch.heads/<b>.rebase would miss the branch's
+        # interactive setting (t2132).
+        branch="$(_ait_data_git symbolic-ref --quiet HEAD 2>/dev/null || true)"
+        case "$branch" in
+            refs/heads/?*) branch="${branch#refs/heads/}" ;;
+            *)             branch="" ;;
+        esac
         for key in ${branch:+"branch.$branch.rebase"} pull.rebase; do
             cfg_rc=0
             mode="$(_ait_data_git ${AIT_GIT_CONFIG_OPTS[@]+"${AIT_GIT_CONFIG_OPTS[@]}"} \

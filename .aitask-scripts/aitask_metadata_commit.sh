@@ -146,17 +146,19 @@ run_preflight() {
 
     # A failing rev-parse is "could not inspect", never "detached": an empty
     # answer must not be reported as a git state we did not observe.
+    # Full ref, never --abbrev-ref: beside a same-named tag it answers
+    # "heads/<b>" (t2132). symbolic-ref exits 1 for a detached HEAD, so only
+    # other exits are "could not inspect".
     local br_rc=0
-    branch="$(task_git rev-parse --abbrev-ref HEAD 2>/dev/null)" || br_rc=$?
-    if [[ $br_rc -ne 0 ]]; then
+    branch="$(task_git symbolic-ref --quiet HEAD 2>/dev/null)" || br_rc=$?
+    if [[ $br_rc -ne 0 && $br_rc -ne 1 ]]; then
         printf 'FAILED:cannot resolve HEAD of the task-data worktree\n'
         return 1
     fi
-    if [[ -z "$branch" || "$branch" == "HEAD" ]]; then
-        printf 'BRANCH:DETACHED\n'
-    else
-        printf 'BRANCH:%s\n' "$branch"
-    fi
+    case "$br_rc:$branch" in
+        0:refs/heads/?*) printf 'BRANCH:%s\n' "${branch#refs/heads/}" ;;
+        *)               printf 'BRANCH:DETACHED\n' ;;
+    esac
 
     local midop
     midop="$(ait_data_inprogress_state)"

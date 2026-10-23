@@ -279,6 +279,16 @@ outO="$(scope "$C" 7 --checkout "$FIXTURE_ROOT/wt_other")"
 assert_contains "a worktree on another branch is not dedicated" \
     "SIGNAL:dedicated_worktree|no" "$outO"
 
+# A tag named like the task branch: `symbolic-ref --short` answers
+# `heads/aitask/t7_x`, which never equals aitask/<task_name> (t2132).
+git -C "$C" tag aitask/t7_x aitask/t7_x
+assert_eq "fixture: --short is ambiguous here" "heads/aitask/t7_x" \
+    "$(git -C "$FIXTURE_ROOT/wt_ded" symbolic-ref --short HEAD)"
+outT="$(scope "$C" 7 --checkout "$FIXTURE_ROOT/wt_ded")"
+assert_contains "dedicated by branch beside a same-named tag" \
+    "SIGNAL:dedicated_worktree|yes|branch" "$outT"
+git -C "$C" tag -d aitask/t7_x >/dev/null
+
 echo "=== no binding, no record: the shadow's own checkout, stated as such ==="
 D="$(new_repo)"
 task "$D" 3 Implementing 'x'

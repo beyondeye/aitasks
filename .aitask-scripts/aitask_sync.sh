@@ -1951,8 +1951,14 @@ _SYNC_AFX_REASON=""
 # _sync_afx_data_ref -- print the remote-tracking ref of the data branch.
 _sync_afx_data_ref() {
     local db
-    db="$(git -C "$_AIT_DATA_WORKTREE" symbolic-ref --short -q HEAD)" || return 1
-    [[ -n "$db" ]] || return 1
+    # Full ref, never --short: beside a same-named tag --short answers
+    # "heads/<b>", and the guard would then fetch a branch that does not exist,
+    # read the miss as "no remote data branch" and let the broad fetch run (t2132).
+    db="$(git -C "$_AIT_DATA_WORKTREE" symbolic-ref -q HEAD)" || return 1
+    case "$db" in
+        refs/heads/?*) db="${db#refs/heads/}" ;;
+        *)             return 1 ;;
+    esac
     printf 'refs/remotes/origin/%s' "$db"
 }
 
