@@ -106,6 +106,7 @@ positioning
 project_groups
 pypy
 python
+python_deps
 qa
 refactor
 release_scripts
