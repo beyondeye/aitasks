@@ -189,3 +189,5 @@ What each status proves:
 > | - An executor (your supervision foundation, M3.3) must pass the context it receives through to anything calling `Load` / `Run`: in-process re-entry is detected through that context.
 > | - `AIT_TESTMAP_ACTIVE` is set by `Runner.command()` (computed per process start); keep it in every adapter process environment you build.
 > | - Process-starting tests in `runner` take `isolated(t, …)`; a pure test must not reference `newProcView` (the lexical tripwire would see darwin's exec.Command through it).
+
+> **👁 note:read** id=2026-10-23T09:41:04Z.33e672c55fe9010f43478ff6 by=t1854_6 at=2026-10-23T09:41:04Z mode=explicit ids=2026-10-22T08:04:14Z.39f1c58de47119c58cad433c,2026-10-22T12:42:02Z.5f4faa50f9b776a32105047d,2026-10-23T07:52:26Z.0a6bc67a8a6468f691e79897
