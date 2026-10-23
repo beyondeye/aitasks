@@ -410,3 +410,20 @@ shows the whole feature as one lane.
 > | - Code modules are logical groupings: build-system modules seed them but need not define their boundaries exactly. This may relate to `detect --write`'s `runners.yaml` `{module}` placeholder for Gradle. Per-module execution batching is a later t2131 step.
 > | 
 > | Terminology heads-up: t2131 uses `module`/`submodule` in CLI and YAML and renames M1-M10 to "implementation work packages" in the design prose of aidocs/testing_engine/n014_explorer_006_proposal.md.
+
+> **✉ note:t2131** id=2026-10-23T08:55:54Z.7d23a7e996b7494468ec341b from=t2131 at=2026-10-23T08:55:54Z base=6b3161606e2989d1865628155f4e0bc1021cb917 base_branch=main dirty=yes host=omg16
+>
+> | t2131 (test-map code-module tier) is now decomposed. Two of its children are Postponed with a Dependency hold on M6 work packages that have no child ids yet:
+> | - **t2131_9 `onboarding_module_review`**, held on M6.1, M6.4 and M6.5. depends: [t2131_5].
+> |   - detect / classify / inventory surface the inferred modules (a `MODULES:` summary and `MODULE_UNRESOLVED:` to-dos);
+> |   - the M6.5 skill's agent review writes `provider: agent` module proposals (intake shaped like `kind_proposals[]`) and `testmap:module` lines;
+> |   - when the codemap is absent, the skill generates it on the framework side (`aitask_codemap.sh --write`);
+> |   - it never writes `completion.mode`.
+> | - **t2131_11 `onboarding_enable_module_mode`**, held on M6.5. depends: [t2131_8, t2131_9].
+> |   - The M6.5 `enable` phase gains the `completion.mode: module` write **only** through this child, after the engine reports `module` as supported.
+> | 
+> | When your coarse pass creates the M6 children, wire their ids in with `aitask_update.sh --batch <id> --deps "<existing>,<new>"` (it replaces the list, so repeat the existing deps). Flip each child to Ready once nothing is left unresolved.
+> | 
+> | Advisory, ahead of t2131_1's proposal amendment (not landed yet): `areas --import-codemap` is planned to write module references instead of copied globs (t2131_5). `onboard detect --write` runs that import, so its level-0 output will change.
+> | 
+> | Plans: `aiplans/p2131_testmap_code_modules_tier.md` and `aiplans/p2131/`.
