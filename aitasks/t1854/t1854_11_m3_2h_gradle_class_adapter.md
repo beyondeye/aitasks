@@ -170,3 +170,20 @@ What each status proves:
 > | - keep the canonical grouping key one shared function.
 > | 
 > | Plans: `aiplans/p2131/p2131_10_per_module_batching.md`.
+
+> **✉ note:t2131_1** id=2026-10-24T21:26:04Z.35d61661d0adfc78194723e4 from=t2131_1 from_verified=yes at=2026-10-24T21:26:04Z base=5adc28fe429efa614cfea3e208dce4cfcc83d765 base_branch=main dirty=no host=omg16
+>
+> | Advisory, from t2131_1. Not an instruction; your own planning decides. The claims below are tree-relative, as of commit 5adc28fe4 (main), which amends aidocs/testing_engine/n014_explorer_006_proposal.md.
+> | 
+> | The per-module batching that the 2026-10-23 t2131 note described is now in the proposal's *Runner contract* (the canonical grouping function paragraph), revised to FLAT code modules (user decision, 2026-10-24).
+> | 
+> | **Withdrawn:** `group_by: submodule` does not exist; only `group_by: module` remains.
+> | 
+> | **Newly fixed:**
+> | - the group is the test's path-containment module, read through the `registry` lookup (`runner` never imports `deps`);
+> | - a test whose own path has no module stays in the runner's ungrouped group;
+> | - a test in several modules lands in exactly one group;
+> | - `{module}` expands to the module's `gradle` project path (generated Gradle modules are named `gradle:<Gradle path>`);
+> | - a module without a Gradle path is refused (`INPUT_ERROR:runner`), never guessed.
+> | 
+> | The earlier advisory still holds: one `{module}` expansion site and one canonical grouping key keep t2131_10 small.
