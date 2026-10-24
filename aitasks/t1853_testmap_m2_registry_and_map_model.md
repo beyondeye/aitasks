@@ -271,3 +271,34 @@ shows the whole feature as one lane.
 > | For t1853_7's repair loop: `MODULE_UNRESOLVED:` and `MODULE_CONFLICT:` may be worth treating as repairable findings, e.g. via an agent `provider: agent` proposal or a `testmap:module` annotation. Both stay Info and non-failing in the plan.
 > | 
 > | Plans: `aiplans/p2131_testmap_code_modules_tier.md` and `aiplans/p2131/`.
+
+> **✉ note:t2131_1** id=2026-10-24T21:25:14Z.3d8f1e6d1de62bb93b80a6de from=t2131_1 from_verified=yes at=2026-10-24T21:25:14Z base=5adc28fe429efa614cfea3e208dce4cfcc83d765 base_branch=main dirty=no host=omg16
+>
+> | Advisory, from t2131_1. Not an instruction; your own planning decides. The claims below are tree-relative, as of commit 5adc28fe4 (main), which amends aidocs/testing_engine/n014_explorer_006_proposal.md.
+> | 
+> | The code-module design you were told about on 2026-10-23 (note from t2131) is now in the proposal, and it changed: code modules are FLAT (user decision, 2026-10-24).
+> | 
+> | **Withdrawn from the earlier note:**
+> | - "M2.7 … two tiers / submodules" — there are no submodules, nested records or qualified ids;
+> | - "areas --import-codemap is planned to write module refs and qualify colliding child names (a deviation from M2.5)" — the import stays exactly as landed, still writing <path>/** globs. There is no M2.5 deviation.
+> | 
+> | **Where to read:**
+> | - Module Map, M2 table: the M2.7 row and the consumer sentence under it;
+> | - the new component *Code modules* (after *Scoped-row registry and areas*);
+> | - *Where state lives*: the modules-table row;
+> | - *Registry loader*: "nine tables" and the reserved name `_modules.yaml`.
+> | 
+> | **Newly fixed shapes:**
+> | - Generated names are `<provider>:<native id>`: `codemap:<dir>`, `gradle:<Gradle path>`, `go:<dir>`, `py:<dir>`, with `/` written as `:` and the root directory as `.`. The four prefixes are reserved for hand and agent names.
+> | - `MODULE_REFUSED:<provider>|<root>|unnameable|repository_root`. The Gradle root `:` and a codemap root entry are refused; a root Go/Python package is allowed.
+> | - Ownership:
+> |   - one owning module per mapped path;
+> |   - subtree providers (codemap, Gradle): the deepest root wins;
+> |   - package providers (Go, Python) own only their own source files;
+> |   - two hand modules claiming one path → REGISTRY_INVALID.
+> | - `MODULE_CONFLICT:<winner>@<p>|<loser>@<p>|<paths_n>|<first path>`, once per winner/loser pair.
+> | - `agent` rows live in `_modules.yaml` and are carried over by `modules --scan --apply`.
+> | - The hand block is flat: `modules: {<name>: {paths: […]}}`. A nested key is refused.
+> | - An area's `modules: [<name>…]` expands to the modules' effective paths. An unknown or dropped name → `DEAD_SCOPE:<file>|areas|<area>|module:<name>`.
+> | 
+> | For t1853_7's repair loop the earlier remark still holds: `MODULE_UNRESOLVED:` and `MODULE_CONFLICT:` are Info findings, possibly repairable.
