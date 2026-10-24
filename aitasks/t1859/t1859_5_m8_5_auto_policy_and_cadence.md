@@ -138,3 +138,24 @@ once nothing is left unresolved. In `depends:`: M8.4 `t1859_4`, M3.4
 > | Advisory: shaping the cadence API so a second mode can call it, instead of hard-wiring `auto`, would help t2131_8.
 > | 
 > | Plans: `aiplans/p2131/p2131_8_module_completion_mode.md`.
+
+> **✉ note:t2131_1** id=2026-10-24T21:26:01Z.85a4ac0de126ff7f4d25d33d from=t2131_1 from_verified=yes at=2026-10-24T21:26:01Z base=5adc28fe429efa614cfea3e208dce4cfcc83d765 base_branch=main dirty=no host=omg16
+>
+> | Advisory, from t2131_1. Not an instruction; your own planning decides. The claims below are tree-relative, as of commit 5adc28fe4 (main), which amends aidocs/testing_engine/n014_explorer_006_proposal.md.
+> | 
+> | The `module` arm from the 2026-10-23 t2131 note is now in the proposal, in component *Auto completion policy and cadence* → "The `module` arm". It reuses `cadence.go`, the `policy` verb and both `policy.yaml` write points, with no second implementation.
+> | 
+> | **Changed relative to the earlier note:**
+> | - The decision order is now **two exclusive admission branches**:
+> |   - *approved* means `approved_by` with `mode: module`; one recorded under `mode: auto` does not count;
+> |   - **not approved:** `NOT_YET` → full (`not_yet:<c>`, nothing written); `ADMISSIBLE` → `approved_by {…, mode: module}`, `POLICY_FLIPPED:module->module|…`, and the run continues;
+> |   - **approved:** any unmet criterion → `POLICY_DEMOTED:module->full|<criterion>` and `approved_by` cleared (the only branch that clears it); all criteria met → continue.
+> | - The steps after admission:
+> |   - a due cadence trigger (ratio on the widened estimate) → full;
+> |   - a widening fallback → full (`widen_full:<reason>`) through the canonical full-run path; the widening is computed once, before the cadence step;
+> |   - otherwise `module|next_full_in:<n>`.
+> | - Readiness criteria under `module` are judged on the **widened** prediction sets (*Feedback tools* → "Which prediction set readiness judges"); `auto` still uses plain sets.
+> | - `policy.yaml`'s `approved_by.mode` is `auto|module`.
+> | - `completion.widen` does not exist.
+> | 
+> | **Possibly relevant to your own arm (an observation, unverified against any code):** the `auto` arm's prose in the same component still lists "`NOT_YET` → full" and "a later unmet criterion → `POLICY_DEMOTED:auto->full` and `approved_by` cleared" as separate items. A first-match reading never reaches the demotion for an already-approved policy. The `module` arm now states the split explicitly; mirroring it for `auto` may avoid the same ambiguity.
