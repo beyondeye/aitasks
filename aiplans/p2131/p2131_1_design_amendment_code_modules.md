@@ -739,3 +739,142 @@ the proposal's component *Code modules*."
 ## Step 9 reference
 
 Shared post-implementation (task-workflow Step 9). Current branch, no merge.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-25 00:40)
+- **Requested by user:** three review concerns. (1) `ait test --widen-modules`
+  was advertised, but the bash front's flag list (component *Test entrypoint*)
+  lacked it, and no child owned parsing and forwarding it. (2) The `module` arm's
+  ordered steps put `NOT_YET → full` before "a later unmet criterion →
+  `POLICY_DEMOTED`". A first-match implementation could never reach the
+  demotion for an approved policy, so the approval would never be cleared.
+  (3) t2131_2 claimed that every remaining "submodule" is the work-package
+  sense, which ignores the two intentional code-module uses.
+- **Changes made:**
+  - **Proposal.** The front's flag list gains `--widen-modules`, parsed and
+    forwarded unchanged with no widening logic. The M2.7 consumer sentence
+    names the front (t2131_7). The `module` arm is restructured into two
+    exclusive admission branches. "Not approved" leads to `not_yet` (no
+    write) or the flip. "Approved" leads to `POLICY_DEMOTED`, with
+    `approved_by` cleared, or continues. Approved means `approved_by` with
+    `mode: module`. The cadence, widen-fallback and widened-run steps
+    follow.
+  - **t2131_7 task and plan.** They own the front's flag parsing and
+    forwarding plus a fake-engine invocation check in
+    `tests/test_ait_test_entrypoint.sh`. The dependency hold gains **M5.1
+    (t1856)**, and the Reality check stops if M5.1 has not landed.
+  - **t2131_8 task and plan.** They carry the same two-branch order. The
+    matrix gains "approved + newly unmet criterion → demotion and approval
+    cleared, never `not_yet`".
+  - **Parent plan.** Default 10 records the front forwarding. Default 11
+    records the two-branch order. The decomposition row for _7 gets hold
+    `M4.1, M4.4, M4.5, M5.1` and the front in its scope. The template
+    Reality-check and acceptance lists for _7 and _8 are updated.
+  - **t2131_2 task and plan.** They keep the rejected-hierarchy wording
+    (decision 20) and the refused `submodules:` / `children:` keys as
+    written, listed under "Keep as is".
+  - **Contract notes (step 42).** They gain a seventh recipient, **t1856
+    (M5)**: wire the M5.1 id into t2131_7's hold, and the front's flag
+    table gains `--widen-modules`. The t1859_5 note points out that the
+    `auto` arm's prose has the same first-match ambiguity (advisory only).
+- **Files affected:** `aidocs/testing_engine/n014_explorer_006_proposal.md`;
+  `aiplans/p2131_testmap_code_modules_tier.md`;
+  `aitasks/t2131/t2131_{2,7,8}_*.md`; `aiplans/p2131/p2131_{2,7,8}_*.md`.
+
+## Final Implementation Notes
+- **Actual work done:**
+  - **Part A, the proposal.** Every D1–D11 site was amended, plus Change
+    Request 1:
+    - vocabulary (*Code module*, *Work package*, `module` under *Mode and
+      policy* / *Cadence*);
+    - invariant 1, decision 20 and section-marker dimensions;
+    - the process map, registry tree, config block, *Where state lives* and
+      the line-protocol index;
+    - the M2.7 row, its consumer sentence, interfaces, waves and named
+      follow-ups;
+    - data flow, Run Surface forms / step 6 / step 7 / output contract, and
+      the workflow-seam policy;
+    - the Go package list, verb table and budget, and the loader's "nine
+      tables" / reserved name / `modules:` hand key;
+    - the new component *Code modules* (table and names, providers and
+      ownership, deps, the verb, freshness, membership, widening, worked
+      examples 1–6, tests);
+    - area `modules:` references (`areas --import-codemap` unchanged), the
+      runner `group_by: module`, the selector, the `test` composite and the
+      front's flag table;
+    - feedback tools (paired scoring, `WIDEN_SCORED:`, "Which prediction set
+      readiness judges");
+    - the completion policy component, the `module` arm (two exclusive
+      admission branches), onboarding verbs and skill, and two tradeoffs.
+  - **Part B, the task data.** Revised for the flat design: the parent task
+    and plan (defaults rewritten with numbers kept), this task, and the
+    t2131_2 … t2131_12 tasks and plans. Every task's `depends:` / `status:` /
+    `children_to_implement:` was verified unchanged against `HEAD`.
+- **Deviations from plan:**
+  - The design was revised **four times during planning** at the user's
+    review, and those revisions *are* the plan:
+    - the two-level design was replaced by flat modules;
+    - submodule reach evidence, readiness evidence and the full-fallback
+      execution were defined;
+    - the area import stays as landed, with collision-safe provider-prefixed
+      names;
+    - root packages became package-bounded (`go:.`) instead of refused.
+  - One more review round (Change Request 1) added the front flag ownership
+    (t2131_7 now held on M5.1 / t1856), the two-branch `module` order and the
+    t2131_2 wording fix.
+  - Example 7 (name safety) went into the provider acceptance lists and the
+    component's test list rather than as a seventh worked example.
+- **Issues encountered:**
+  - The audit's first run flagged 4 lines: revision-note continuation lines
+    and the codemap file's own `two-tier` shape. They were resolved with an
+    explicit `(path, line prefix)` allowlist instead of loosening the
+    patterns.
+  - A manual pass over every remaining "submodule" in the proposal confirmed
+    that each one is the work-package sense, the rejected alternative or the
+    refused key.
+- **Key decisions:**
+  - one spelling, `--widen-modules`, a plain flag;
+  - generated names are `<provider>:<native id>` (`/` → `:`, the root as
+    `.`), so they cannot collide;
+  - subtree providers (codemap, Gradle) use deepest-root ownership;
+    package providers (Go, Python) own only their own source files;
+  - only subtree roots at the repository root are refused;
+  - module references in areas expand to effective paths, while the codemap
+    import keeps writing globs;
+  - readiness under `module` is judged on widened sets, conservatively;
+  - `POLICY_FLIPPED:module->module` follows `auto`'s "mode → what it runs"
+    convention.
+- **Upstream defects identified:** None
+- **post-phase proposal_consistency_audit:**
+  - Script, kept in the scratchpad: `audit.py`.
+  - It checks:
+    - hierarchy leftovers (`<module>/`, `completion.widen`, `group_by:
+      submodule`, `--widen <level>`, `module|submodule`, parent-module,
+      two-level / two tiers / two-tier, `<parent>-<child>`, "import writes
+      refs", "deeper folds", `WIDENED:<level>`, `Widen(level`) across the
+      proposal and all 24 Part-B files, with an explicit 4-entry allowlist;
+    - each new prefix appears in both the index and the component;
+    - `WIDEN_SCORED:` appears in the index and in feedback tools;
+    - section markers are balanced;
+    - no "eight tables" / "two generated files" remains;
+    - `_modules.yaml` appears in the tree, state table and reserved names;
+    - `modules` appears in the verb table;
+    - generated names in the examples carry their prefix;
+    - the `WIDEN_FULL` → `--all` sentence appears in its three homes.
+  - Final output: `AUDIT:PASS|0 findings`.
+- **Notes for sibling tasks:**
+  - The proposal's component *Code modules* is now the contract. Where a
+    child body and the proposal differ, the proposal wins, and a child whose
+    Reality check finds a rule wrong amends the proposal in its own change.
+  - Every child body carries a dated "Revised 2026-10-24" marker. The
+    defaults keep their numbers.
+  - **t2131_2:** the proposal has grown by about 450 lines, so re-measure the
+    rename inventory. The two code-module uses of "submodule" stay.
+  - **t2131_3:** the `Module` struct is flat
+    (`{Name, Provider, By, Root, Paths, Gradle, Evidence, Deps}`).
+  - **t2131_7:** now also held on M5.1 (t1856).
+  - **t2131_8:** implement the two-branch admission order. The `auto` arm's
+    prose (M8.5) still lists `NOT_YET` and "a later unmet criterion"
+    separately, the same first-match ambiguity. t1859_5 was told; it is
+    advisory only.
