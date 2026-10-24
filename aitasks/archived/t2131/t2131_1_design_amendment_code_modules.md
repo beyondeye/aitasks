@@ -5,7 +5,7 @@ risk_goal_achievement: medium
 effort: medium
 depends: []
 issue_type: documentation
-status: Implementing
+status: Done
 labels: [testmap, testing, documentation]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -16,7 +16,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1852
 implemented_with: claudecode/opus5_5
 created_at: 2026-10-23 11:50
-updated_at: 2026-10-24 23:23
+updated_at: 2026-10-25 00:26
+completed_at: 2026-10-25 00:26
 ---
 
 ## Context
@@ -120,3 +121,14 @@ The prose rename of M1–M10 to "work packages" (default 14) is **not** in this 
 > **✅ gate:plan_approved** run=2026-10-24T20:18:01Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-10-24T21:24:56Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-10-24T21:26:39Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:24e68be18021ff26
+
+> **✅ gate:risk_evaluated** run=2026-10-24T21:26:39Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/2131_1/risk_evaluated_2026-10-24T21:26:39Z-risk_evaluated-a1.log`
