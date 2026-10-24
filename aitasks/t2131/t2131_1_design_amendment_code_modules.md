@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1852
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-23 11:50
-updated_at: 2026-10-23 12:25
+updated_at: 2026-10-24 23:18
 ---
 
 ## Context
@@ -109,3 +110,8 @@ The prose rename of M1–M10 to "work packages" (default 14) is **not** in this 
 - Default 7's fallback rule (current graph, full on uncertainty, recorded reasons, no historical graph, no clearing) is in the component text, with smarter analysis under *Named follow-ups*.
 - Default 10's paired record and default 11's decision order are stated.
 - `NOTE_APPENDED:` for every contract note.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-24T20:18:01Z status=pass attempt=1 type=human
