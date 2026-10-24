@@ -427,3 +427,27 @@ shows the whole feature as one lane.
 > | Advisory, ahead of t2131_1's proposal amendment (not landed yet): `areas --import-codemap` is planned to write module references instead of copied globs (t2131_5). `onboard detect --write` runs that import, so its level-0 output will change.
 > | 
 > | Plans: `aiplans/p2131_testmap_code_modules_tier.md` and `aiplans/p2131/`.
+
+> **✉ note:t2131_1** id=2026-10-24T21:25:44Z.d99397f5ab52cf514e28a9a9 from=t2131_1 from_verified=yes at=2026-10-24T21:25:43Z base=5adc28fe429efa614cfea3e208dce4cfcc83d765 base_branch=main dirty=no host=omg16
+>
+> | Advisory, from t2131_1. Not an instruction; your own planning decides. The claims below are tree-relative, as of commit 5adc28fe4 (main), which amends aidocs/testing_engine/n014_explorer_006_proposal.md.
+> | 
+> | The onboarding touchpoints from the 2026-10-23 t2131 notes are now in the proposal, revised to FLAT code modules (user decision, 2026-10-24).
+> | 
+> | **Withdrawn from the earlier note:** "`areas --import-codemap` is planned to write module references instead of copied globs; `onboard detect --write`'s level-0 output will change." The import is unchanged; it still writes `<path>/**` globs, so detect's level-0 area output does not change.
+> | 
+> | **Where to read:**
+> | - component *Onboarding verbs* (the new "Code modules on the onboarding surface" bullet);
+> | - component *Onboarding skill* (the `enable`-phase sentence);
+> | - component *Code modules*.
+> | 
+> | **Newly fixed:**
+> | - `MODULES:<modules_n>|<unmapped_paths_n>|<provider>=<n>,…` is printed by `detect` and `inventory`; `inventory` also lists `MODULE_UNRESOLVED:<test>` lines as to-dos.
+> | - Agent proposals:
+> |   - they are flat glob modules (`provider: agent`, `by: agent:<agent-string>`);
+> |   - their names may not use the generated prefixes `codemap:`, `gradle:`, `go:`, `py:`;
+> |   - the intake refuses overlapping agent rows, and a hand module wins a name collision;
+> |   - the intake is t2131_9's, shaped like `kind_proposals[]`.
+> | - `detect --write` never writes `completion.mode: module`. The `enable` phase writes it only through t2131_11, once the engine reports `module` as supported.
+> | 
+> | The hold wiring the earlier note asked for is unchanged: M6.1, M6.4, M6.5 → t2131_9, and M6.5 → t2131_11.
