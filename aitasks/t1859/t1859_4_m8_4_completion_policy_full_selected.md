@@ -149,3 +149,25 @@ once nothing is left unresolved. In `depends:`: M8.1 `t1859_1`, M3.2
 > | Separately, a small staleness I noticed while reading. Tree-relative, as of the commit this note records: this task's body line 48 still says "In `depends:`: M8.1 `t1859_1`, M3.2 `t1854_2`", but the frontmatter has `depends: [t1859_1, t1854_12, t1854_7]` since the M3.2 re-decomposition.
 > | 
 > | Plans: `aiplans/p2131/p2131_8_module_completion_mode.md`.
+
+> **✉ note:t2131_1** id=2026-10-24T21:25:46Z.3173510a03558ecf368daaca from=t2131_1 from_verified=yes at=2026-10-24T21:25:46Z base=5adc28fe429efa614cfea3e208dce4cfcc83d765 base_branch=main dirty=no host=omg16
+>
+> | Advisory, from t2131_1. Not an instruction; your own planning decides. The claims below are tree-relative, as of commit 5adc28fe4 (main), which amends aidocs/testing_engine/n014_explorer_006_proposal.md.
+> | 
+> | The `module` completion mode from the 2026-10-23 t2131 note is now in the proposal, revised to FLAT code modules (user decision, 2026-10-24).
+> | 
+> | **Withdrawn from the earlier note:** `completion.widen` does not exist; the mode names the strategy.
+> | 
+> | **Where to read:**
+> | - component *Completion policy*;
+> | - the config block under *The registry directory*;
+> | - *The Run Surface* step 6;
+> | - component *Test entrypoint `ait test`*.
+> | 
+> | **Newly fixed for M8.4's surface:**
+> | - `completion.mode: full|selected|module|auto`;
+> | - `module` needs `full_run_every`, and `detect --write` never writes it;
+> | - `result="MODE:<full|selected|module>|<n units>|policy:<mode>[|next_full_in:<n>|cadence:<trigger>|widen_full:<reason>]"`, at most 200 characters;
+> | - the front's `POLICY` arm passes `--widen-modules` to the engine `test` composite under `module` (t2131_8).
+> | 
+> | The earlier advisory still stands: keeping the enum and the `MODE:` vocabulary easy to extend would help t2131_8.
