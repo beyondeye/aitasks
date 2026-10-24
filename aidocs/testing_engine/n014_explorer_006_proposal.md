@@ -109,7 +109,8 @@ not a bug fix.
 1. **The loop can only fail toward running more.** A seed selects from the
    moment it is written; parking never removes selection; a demotion runs
    full; a cadence full run is never skipped by `on_empty_selection` or a
-   demotion; an undeclared axis source reaches every variant.
+   demotion; an undeclared axis source reaches every variant; a module
+   widening or a `module` completion that cannot bound its reach runs full.
 2. **A stamp is a claim; a seed is not.** Only an explicit adopt — by class,
    by row, from a `verifies` verdict or from an author claim — writes a
    `testmap:covers` line and its stamp; seeds never suppress `STALE`, anchor
@@ -157,7 +158,7 @@ implementation task for a module reads the Module Map entry, the module's
 components, and the narrative sections those components name.
 <!-- /section: overview -->
 
-<!-- section: architecture [dimensions: component_test_entrypoint, component_test_front_verb, component_onboarding_engine_verbs, component_onboarding_skill, component_seeder, component_agent_brief, component_agent_instructions, component_completion_policy, component_auto_policy, component_workflow_seam, component_workflow_integration, component_go_engine, component_registry_loader, component_engine_binary, component_gates, component_adoption_ledger, component_agent_review, component_agent_review_pass, component_author_annotation] -->
+<!-- section: architecture [dimensions: component_test_entrypoint, component_test_front_verb, component_onboarding_engine_verbs, component_onboarding_skill, component_seeder, component_agent_brief, component_agent_instructions, component_completion_policy, component_auto_policy, component_workflow_seam, component_workflow_integration, component_go_engine, component_registry_loader, component_engine_binary, component_gates, component_adoption_ledger, component_agent_review, component_agent_review_pass, component_author_annotation, component_code_modules] -->
 ## Architecture
 
 ### Vocabulary
@@ -234,10 +235,13 @@ mode (a pre-review run that can never block). The *completion policy* in
 `aitestmap/config.yaml` decides whether completion runs the whole registry
 or the task's selection: `full` always runs everything, `selected` runs the
 selection after a person approved it, `auto` runs the selection once
-`readiness` is `ADMISSIBLE` and runs the whole registry on a *cadence*.
+`readiness` is `ADMISSIBLE` and runs the whole registry on a *cadence*, and
+`module` runs every test of the code modules the change reaches, behind the
+same cadence.
 
 **Cadence.** `completion.full_run_every: {tasks: N, selection_ratio_above:
-R, days: D}`; any trigger fires a full completion run under `auto`, which is
+R, days: D}`; any trigger fires a full completion run under `auto` and
+`module`, which is
 what keeps scoring alive without a person scheduling anything. The cadence
 state lives in `aitestmap/costs/policy.yaml` and is reset by every full run
 whatever triggered it.
@@ -248,6 +252,21 @@ record not yet scored since the last full run — under `full` normally one
 task, under `auto` a window of up to `tasks` tasks — and attributes each miss
 to the earliest task in the window whose change surface reaches the failing
 unit.
+
+**Code module.** A named set of source paths — `payments-api`,
+`gradle:services:payments:api`, `go:internal:testmap:registry` — that sits
+between "the tests mapped to the changed files" and "the full suite". Modules
+are flat: no module contains another, and every module has the same standing.
+They are inferred from project structure (the codemap, Gradle projects, Go
+and Python packages) and refined by agent proposals and hand overrides, into
+`registry/_modules.yaml`. Each mapped source path has exactly one owning
+module; a test belongs to every module its own path or one of its covered
+sources falls in. *Module widening* adds every test of the modules a change
+reaches. The full contract is component *Code modules*.
+
+**Work package.** The implementation cut under *Module Map*: M1–M10 and their
+children (M2.5, M3.2h, …). A work package is a unit of planning, not of code;
+a Gradle, Go or Python "module" keeps its ecosystem meaning.
 
 ### The process boundary
 
@@ -296,19 +315,21 @@ Each line carries the module that owns it (see *Module Map*).
       │  MODE   completion iff --gate or $AIT_GATE_TASK_ID · advisory iff --advisory · else interactive
       │  TASK   --task > $AIT_GATE_TASK_ID > aitask/<task_name> branch > single own lock (aitask_lock.sh --list-mine) > NO_TASK
       │  INTAKE aitask_change_surface.sh list <id> | --dirty (printed) | --all | <path|id>...
-      │  POLICY completion: config.yaml completion.mode full|selected|auto re-checked against `readiness`   [M8.4]
+      │  POLICY completion: config.yaml completion.mode full|selected|module|auto re-checked against `readiness`   [M8.4]
       │         auto → costs/policy.yaml + cadence (full_run_every.tasks / selection_ratio_above / days) → full | selected   [M8.5]
+      │         module → the same cadence and ledger → full | the module widening (`test --widen-modules`)   [M8.5 named extension, M2.7]
       │         a POLICY_WRITE: line from the engine is committed by the front under `ait: testmap policy <flip|full-run> (t<id>)`
       └─ .aitask-scripts/aitask_testmap.sh   [M1.4]  the shim: resolves $AIT_TESTMAP_BIN > AIT_ENGINE=dev > $AITASKS_HOME/engine/v<V>/
            └─ ait-testmap test … | select | schedule | run | brief | onboard … | readiness | policy … | costs … | annotate --author
-                internal/registry     [M2.1, M2.6]  eight tables: six core + seeds (registry/seeded.yaml) + adopted (registry/adopted.yaml)
+                internal/registry     [M2.1, M2.6, M2.7]  nine tables: six core + seeds (registry/seeded.yaml) + adopted (registry/adopted.yaml) + modules (registry/_modules.yaml + hand modules:)
                 internal/annot        [M2.2, M7.4]  grammar v3 + line-targeted rewriter; adopt, --agent-verdicts and --author are callers
                 internal/deps         [M2.3]        scanners; invocation / import / package facts, anchor lines and declared symbols
                 internal/axes         [M2.4]        axes.yaml, facet join, axes --list|--check|--explain
                 internal/runner       [M3.1, M3.2]  contract + builtins + subsumed_by: · fallback_command: · the `full` suite wrapper · the canonical grouping function · run seam + post-run hook
                 internal/sched        [M3.3]        resources, waves (ordering over M3.1's invocations), admission deferral
                 internal/cost         [M3.4]        ledger + costs --gate-timeout; run_id prefixes test- / gate- / full- / review-; costs/policy.yaml
-                internal/selectr      [M4.1, M4.5]  graded walk + seeded edges at d1 · explain --sources · the `test` composite
+                internal/selectr      [M4.1, M4.5]  graded walk + seeded edges at d1 · explain --sources · the `test` composite · --widen-modules
+                internal/modules      [M2.7]        module providers (codemap · Gradle · Go · Python · agent rows) · modules --list|--explain|--scan · Widen
                 internal/stale        [M4.2, M4.3]  stale line classes, --confirm*, the evidence join
                 internal/feedback     [M4.4, M8.4, M8.5]  score (window scoring; REJECTION_CONTRADICTED) · attribute (+ --propose) · readiness · policy (verb `policy`) · cadence.go
                 internal/seed         [M6.2]        origins static:{package,invocation,import} · coverage · observed · convention · plan · prose · cochange; class per origin; noisy-OR
@@ -347,7 +368,7 @@ goengines/                                          [M1.2, M1.3]  Go source, one
 aitestmap/
   config.yaml            unit_covers_max, suite_budget_s, bootstrap_until, require_stamp, broad_review_days, concurrency,
                          broad_after_unit, device_policy, host_class, flake_threshold, symbol_scanners, run_gate_admission
-                         + completion: {mode full|selected|auto, full_run_every: {tasks, selection_ratio_above, days}, deferred, on_empty_selection, engine_absent}
+                         + completion: {mode full|selected|module|auto, full_run_every: {tasks, selection_ratio_above, days}, deferred, on_empty_selection, engine_absent}
                          + agent_review: {enabled, confidence, accept_min, calibration_min, batch, packet_lines, max_pairs_per_run, author, measured_confidence}
                          + readiness: {min_scored_full_runs, max_false_negatives, require_opaque_proofs, min_full_runs_since_map_change}
                          + conventions: [{test, source}]  helper_roots: [...]  helper_fanin: 0.05
@@ -355,7 +376,8 @@ aitestmap/
   onboard.yaml           phase ledger: {contract, task, level, phases{...}, rejections[], reviews[], kind_proposals[], calibration[]}
   axes.yaml · runners.yaml · resources.yaml      runners.yaml written by onboard detect --write, confirmed per runner
   registry/
-    _scanned.yaml · _scoped.yaml · observed.yaml · areas.yaml · <area>.yaml
+    _scanned.yaml · _scoped.yaml · _modules.yaml · observed.yaml · areas.yaml · <area>.yaml
+                         _modules.yaml: the code modules table, generated by modules --scan --apply; hand overrides in a hand file's modules:
     seeded.yaml          the queue; generated by onboard seed; a row gains a verdict on intake; rows leave on adopt / reject; parked rows stay
     adopted.yaml         provenance of class-, verdict- and author-adopted edges; a row leaves when a human re-stamps the edge
   costs/
@@ -369,10 +391,12 @@ The `config.yaml` blocks this feature adds, with the values `onboard detect
 
 ```yaml
 completion:
-  mode: auto                     # full | selected | auto — auto is what detect --write writes (confirmed in the attended config table);
+  mode: auto                     # full | selected | module | auto — auto is what detect --write writes (confirmed in the attended config table);
                                  # selected is written only by the skill's --policy re-entry after READINESS_DECISION:ADMISSIBLE with a
                                  # human approved_by; auto behaves as full until readiness is ADMISSIBLE, then runs the selection and lets
-                                 # the cadence below force full runs; a project that wants a person in the flip sets full
+                                 # the cadence below force full runs; a project that wants a person in the flip sets full;
+                                 # module is auto's shape with the module widening in place of the selection — it needs full_run_every,
+                                 # and detect --write never writes it (see component Code modules)
   full_run_every:                # the cadence that replaces the human approver under auto — each trigger is a printed reason
     tasks: 5                     # at most N selected completion runs between full runs (a miss survives at most N-1 tasks)
     selection_ratio_above: 0.60  # a selection estimated at >= 60 % of the full-suite p95 runs full — the saving is not worth the window
@@ -417,11 +441,12 @@ name these rows; they do not restate them.
 |---|---|---|
 | seed queue | `aitestmap/registry/seeded.yaml` rows `{test[#member], covers, origin[], confidence, evidence{static: file:line, convention: pair, cochange: [task ids], plan: path, prose: line, coverage: run id, observed: run id, agent_review?}, proposed_at, verdict?}` — `evidence.agent_review {verdict, assert_line?, rationale, by, run, packet_sha, test_blob, unsure: n, at}` once reviewed | `onboard seed --apply`; `attribute --propose`; `onboard adopt --agent-verdicts` (adds the origin and the verdict; parks; removes a row only when it adopts it); rows removed by `onboard adopt` / `onboard reject` |
 | adopted-edge provenance | `aitestmap/registry/adopted.yaml` rows `{test, source, origin[], confidence?, adopted_at, task?, by, run?, rationale?, assert_line?, packet_sha?, test_blob?, source_blob?, stamp?, evidence{static: <relation or none>}?}` — `by` is `human:<email>`, `agent:<agent-string>` or `auto`; `confidence` is absent when nothing measured it (a machine first stamp); `stamp` is the `<date>/<blob10>` the row vouches for, refreshed by an automated re-stamp; a `verifies` adoption's `by` / `run` / `packet_sha` / `test_blob` are its review record's replay data | `onboard adopt --class` (a person, or `--auto` over a rule or measurement class); `onboard adopt --agent-verdicts` (a `verifies` verdict); `annotate --author`; `annotate` / `verify` / `annotate --from-body` by an `agent:` or `auto` actor for an edge's first stamp (written before the test file); rows deleted when a human `verify`, `annotate`, `stale --confirm-source` or a per-row `adopt` re-stamps that edge |
+| code modules table | `aitestmap/registry/_modules.yaml` `{contract, modules: [{name, provider: codemap\|gradle\|go\|python\|agent, by?, root?, paths?: [<glob>…], gradle?, evidence: [<string>…], deps?: [{module, evidence: {from, to}}]}]}` — flat: no record nests another; `root` for the codemap, Gradle, Go and Python providers, `paths` for `agent` rows, `by: agent:<agent-string>` on `agent` rows, `gradle` the project path `{module}` expands to; plus a hand file's `modules: {<name>: {paths: [<glob>…]}}` block (globs unioned across hand files, like areas) | `modules --scan --apply` (re-infers every provider row; `agent` rows are carried over unchanged, never re-inferred); `agent` rows through the onboarding review's intake; the hand block by the project |
 | phase ledger | `aitestmap/onboard.yaml` `{contract, task, level, phases{detect, inventory, seed, waivers, enable, full_run, adopt, review: {status, at, by, counts{reviewed, adopted, parked, unsure}, partial}, classify, scaffold, finish: {status, at, by, counts}}, rejections[] {test, source, reason, by, run?}, reviews[] {test, source, verdict, test_blob, packet_sha, run, by}, kind_proposals[] {test, kind, reason, at}, calibration[] {run, agree, disagree, ratio, ground_truth, at}}` — `reviews[]` is the verdict memo so a pair is read once per test blob per reader; a `rejections[]` row without `by:` reads as a person's | the engine's `onboard` verbs; read by `onboard status`, `readiness`, `report_testmap_state()`, the skill's re-entry |
 | seed dump for review | `.aitask-testmap/onboard/<run-id>/seed.json` (gitignored), attached to the level task with `ait attach` | `onboard seed --json --out` |
 | review packets as files | `.aitask-testmap/onboard/<run-id>/review/<n>.txt` (gitignored): the same line-protocol packet `onboard review` prints, ≤ `agent_review.batch` pairs each, grouped by test file, one file per crew agent | `onboard review --out <dir>`; read by crew agents; their `_output.md` fed back by `onboard review --collect <crew-id>` |
-| completion policy, cadence, review knobs, readiness thresholds, conventions, helper roots, docs, notes, excludes | `aitestmap/config.yaml` — the committed, human-authored declaration | `onboard detect --write` (level 0: `completion.mode auto`, `full_run_every`, `agent_review`, `readiness`); the skill's `enable` phase (`docs:`, `notes:`); the `--policy selected` re-entry (`completion.mode`, `run_gate_admission.approved_by {who, at, statement}`); calibration (`agent_review.measured_confidence`) |
-| the engine's policy ledger | `aitestmap/costs/policy.yaml` `{contract, last_full_run {run_id, at, task, sha}, selected_since_full, approved_by {who: engine:readiness@<run>, at, mode: auto, statement}}` — committed | `ait test --gate` under `auto`: the engine writes it and prints `POLICY_WRITE:<path>`; the bash front commits it under `ait: testmap policy <flip\|full-run> (t<id>)` with the path named |
+| completion policy, cadence, review knobs, readiness thresholds, conventions, helper roots, docs, notes, excludes | `aitestmap/config.yaml` — the committed, human-authored declaration | `onboard detect --write` (level 0: `completion.mode auto`, `full_run_every`, `agent_review`, `readiness`); the skill's `enable` phase (`docs:`, `notes:`; `completion.mode module` only once the engine supports it — component *Code modules*); the `--policy selected` re-entry (`completion.mode`, `run_gate_admission.approved_by {who, at, statement}`); calibration (`agent_review.measured_confidence`) |
+| the engine's policy ledger | `aitestmap/costs/policy.yaml` `{contract, last_full_run {run_id, at, task, sha}, selected_since_full, approved_by {who: engine:readiness@<run>, at, mode: auto\|module, statement}}` — committed | `ait test --gate` under `auto` or `module`: the engine writes it and prints `POLICY_WRITE:<path>`; the bash front commits it under `ait: testmap policy <flip\|full-run> (t<id>)` with the path named |
 | test entry and exit-contract opt-in | `aitasks/metadata/project_config.yaml`: `test_command: ./ait test`, `gate_command_exit_contract: [test_command]` | the skill's `enable` phase, confirmed once as a table |
 | gate declarations | profiles' `default_gates` (`testmap_fresh`, `testmap_check`, `tests_pass` in that list order, no `unlocks:`; `rendered_gates` where present); `gates.yaml` `tests_pass.timeout_seconds` | the skill's `enable` phase; the timeout from `costs --gate-timeout` after the first full run |
 | agent instructions | `CLAUDE.md` `>>>aitasks` block, `AGENTS.md`, `.codex/instructions.md`, the OpenCode mirror | `ait setup` from the seed; a hand-maintained `CLAUDE.md` by the level-0 task |
@@ -430,10 +455,10 @@ name these rows; they do not restate them.
 | dependency cache | `${XDG_CACHE_HOME:-~/.cache}/aitasks/testmap/deps/<blob-sha1>.json`; the co-change matrix keyed by HEAD sha | the scanners; the seeder |
 
 Every registry file that this feature adds (`seeded.yaml`, `adopted.yaml`,
-`onboard.yaml`, `costs/policy.yaml`) carries its own `contract:` field; the
+`_modules.yaml`, `onboard.yaml`, `costs/policy.yaml`) carries its own `contract:` field; the
 contract stays 1 and a newer value is refused with `CONTRACT_MISMATCH`
-exactly like the core tables. `by:`, `verdict:` and the review fields are
-additive, so an older engine ignores them.
+exactly like the core tables. `by:`, `verdict:`, the review fields and the
+modules table's `provider:` are additive, so an older engine ignores them.
 
 ### Line-protocol index
 
@@ -443,7 +468,7 @@ Every line class is defined once. This table says where.
 |---|---|
 | `MODE:` `TASK:` `INTAKE:` `POLICY:` `SELECTED:` `RUN:` `RESULT:` `VERDICT:` `REASON:` `DETAIL:` `LOG:` `TESTMAP_ABSENT:` `ENGINE_MISSING:` `NO_TASK:` `AMBIGUOUS_TASK:` `UNANNOTATED_TEST:` `HINT:` and the exit table | *The Run Surface* |
 | `TESTMAP:` `RUNNER:` `FULL_GATE:` `GATE:` `AGENT_REVIEW:` `VERBS:` `AXES:` `RESOURCE:` `NEW_TEST:` `DOCS:` `NOTES:` `ONBOARD_NEXT:` | *The Run Surface* → `--howto` |
-| `POLICY_FLIPPED:` `POLICY_DEMOTED:` `POLICY_WRITE:` `POLICY:auto\|…` `CADENCE:` `READINESS:` `READINESS_DECISION:` | *The Workflow Seam* → Completion policy; components *Completion policy*, *Auto completion policy* |
+| `POLICY_FLIPPED:` `POLICY_DEMOTED:` `POLICY_WRITE:` `POLICY:auto\|…` `POLICY:module\|…` `CADENCE:` `READINESS:` `READINESS_DECISION:` | *The Workflow Seam* → Completion policy; components *Completion policy*, *Auto completion policy* (the `module` arm) |
 | `SEED:` `SEED_HELPER:` `SEED_READS:` `SEED_KIND:` `SEED_BATCH_NO:` `SEED_MEMBER:` `SEED_AXIS:` `SEED_HISTORY:` `SEED_SHADOWED` `SEED_REJECTED` | component *Seeder*; *The Adoption Model* |
 | `ADOPT_REFUSED:` `ADOPT_SKIP:` `ADOPT_SUMMARY:` `WROTE:` `REJECT_REFUSED:` `ADOPTED_ORPHAN` `REVIEW_UNRECORDED` | *The Adoption Model* → Placement |
 | `ADOPTION_ROUTE:` `ADOPTION_CONFLICT:` `ADOPTION_PARTIAL:` | component *Registry loader and writer* (M2.6 write routing) |
@@ -451,18 +476,19 @@ Every line class is defined once. This table says where.
 | `AUTHOR_STAMPED:` `AUTHOR_REFUSED:` `AUTHOR_UNCORROBORATED:` | *The Agent Review Pass* → The authoring site; component *Author annotation* |
 | `FRAMEWORK:` `UNIVERSE:` `UNLISTED:` `AGGREGATE_RUNNER:` `SERIAL_LIST:` `RESOURCE_HINT:` `SUITE_CANDIDATE:` `RUNNER_SCRIPT_NEEDED:` `DETECT_DIFF:` `DETECT_UNKNOWN` `UNREGISTERED:` `CLASSIFY:` `KIND_PROPOSALS:` `FINISH:` `SCAFFOLD_TODO` `ENABLE_REFUSED:` | component *Onboarding verbs*; *Onboarding* (`CLASSIFY:` in component *Scoped-row registry and areas*; `ENABLE_REFUSED:` in *Onboarding* → the `enable` phase) |
 | `AREA:` `AREAS:` `AREA_IMPORT:` `CODEMAP_ABSENT:` | component *Scoped-row registry and areas* |
+| `MODULE:` `MODULES:` `MODULE_OF:` `MODULE_CONFLICT:` `MODULE_REFUSED:` `MODULE_UNRESOLVED:` `MODULES_DRIFT:` `WIDENED:` `WIDEN_FULL:` (reasons `deleted_path` `renamed_path` `unmapped_path` `uncertain_reference` `modules_stale`) | component *Code modules* |
 | `AXIS:` `AXIS_DECL:` `AXIS_VALUE:` `AXIS_DECLS:` `AXES_ABSENT:` | component *Axis resolver verbs* |
 | `run`'s wave lines, per-id result lines and mechanism-failure lines; the `schedule` report and `schedule --check` lines; `costs` lines and `GATE_TIMEOUT_SUGGESTED:` | components *Runner contract*, *Scheduler and resources* (M3.1, M3.3); *Cost ledger* (M3.4) — line names fixed by those submodules |
 | `SURFACE` `EDGES` `STALE_PATH` `STALE` `EVIDENCED` `UNSTAMPED` `STALE_AREA` `REVIEW_DUE` `UNKNOWN` `DISPLAY` `DECISION` `CHECK_STRUCTURAL:` `SEEDED:` `ADOPTED:` | component *Staleness tool* |
-| `PREDICTION_SCORED:` `PREDICTION_FALSE_NEGATIVES:` `PREDICTION_MISSED:` `REJECTION_CONTRADICTED:` `LEVEL:` `NEXT:` `ADOPTED_UNREVIEWED:` `AGENT_ADOPTED:` | component *Feedback tools* |
-| `UNMAPPED_SOURCE:` `ESCALATE:` `DEFERRED:` `edge(…)` `adopted(…)` `axis(…)` `test-dep` `reads(…)` | component *Selector* |
+| `PREDICTION_SCORED:` `PREDICTION_FALSE_NEGATIVES:` `PREDICTION_MISSED:` `REJECTION_CONTRADICTED:` `WIDEN_SCORED:` `LEVEL:` `NEXT:` `ADOPTED_UNREVIEWED:` `AGENT_ADOPTED:` | component *Feedback tools* |
+| `UNMAPPED_SOURCE:` `ESCALATE:` `DEFERRED:` `edge(…)` `adopted(…)` `axis(…)` `test-dep` `reads(…)` `module(…)` | component *Selector* (`module(…)`: component *Code modules*) |
 | `STAMP:` `STAMP_SKIP:` `STAMP_REFUSED:` `STAMPS:` `ANNOT_INVALID:` `REWRITE_CONFLICT:` `RESTAMP_HOOK_ERROR:` (`annotate`, `verify`; `WROTE:` reused) | component *Annotation scanner and rewriter* |
 | `SUGGEST:` `SUGGESTS:` `SUGGEST_REFUSED:` `FROM_BODY:` `FROM_BODY_REFUSED:` `SCANNER_ERROR:` (`annotate --suggest`, `annotate --from-body`, any scan) | component *Dependency scanners* |
 | check rules `STALE_PATH` … `CONTRACT_MISMATCH`, `UNCOVERED_VALUE:` `UNMAPPED_ARTIFACT:` `DEAD_*` `UNKNOWN_VARIANT`, `KIND_MISMATCH:` `SCOPE_CONFLICT:` `SCOPE_INVALID:` `OWNS_VIOLATION:` `DUPLICATE_RULE:` `WAIVER_EXPIRED:` `SCAN_DRIFT:` `SCAN:` `CHECK:` `REGISTRY_INVALID:` `INPUT_UNAVAILABLE:` `INPUT_ERROR:` `CHECK_ERROR:` | component *Registry loader*; *Enumeration and reconciliation* |
 | `ENGINE:` `CONTRACT_MISMATCH` `TESTMAP_BINARY:skipped` `AITASKS_HOME:` `HOME_*` | components *Engine binary*, *Engine install*, *Framework home* |
 <!-- /section: architecture -->
 
-<!-- section: design_decisions [dimensions: component_adoption_ledger, component_seeder, component_onboarding_skill, component_test_entrypoint, component_test_front_verb, component_gates, component_completion_policy, component_auto_policy, component_workflow_integration, component_annotation_scanner, component_agent_review_pass, component_author_annotation, assumption_seeds_select_never_evidence, assumption_cochange_is_corroboration, assumption_onboarding_is_a_task, assumption_helper_degrades_when_absent, assumption_gate_exit_contract_reused, assumption_annotation_is_comment_only, assumption_task_resolvable_from_session, assumption_headless_launch_is_explicit_opt_in, assumption_session_agent_is_reviewer, assumption_agent_rejection_is_revocable] -->
+<!-- section: design_decisions [dimensions: component_adoption_ledger, component_seeder, component_onboarding_skill, component_test_entrypoint, component_test_front_verb, component_gates, component_completion_policy, component_auto_policy, component_workflow_integration, component_annotation_scanner, component_agent_review_pass, component_author_annotation, assumption_seeds_select_never_evidence, assumption_cochange_is_corroboration, assumption_onboarding_is_a_task, assumption_helper_degrades_when_absent, assumption_gate_exit_contract_reused, assumption_annotation_is_comment_only, assumption_task_resolvable_from_session, assumption_headless_launch_is_explicit_opt_in, assumption_session_agent_is_reviewer, assumption_agent_rejection_is_revocable, component_code_modules] -->
 ## Design decisions
 
 Each decision names the alternative it rejects, because the alternative is
@@ -644,6 +670,28 @@ the shortest way to say what the choice protects.
     module per package — would put the packet writer and the seeder in one
     task and the verdict intake in another, splitting a protocol across
     tasks.
+
+20. **Code modules are flat, data-derived structure and a cut knob — not
+    labels, tiers of trust or a hierarchy.** A code module is a named set of
+    source paths inferred from what the repository already declares — the
+    codemap, Gradle projects, Go and Python packages — and refined by agent
+    proposals (with `by:`) and hand overrides, persisted as an inspectable
+    generated table (component *Code modules*). This re-checks the t1812
+    decision that selection is "a graded graph walk (distance per unit, cut
+    knobs applied afterwards), not hand-typed basic/deep/deepest labels and
+    not profile tiers", and the result is that the decision stands: the
+    graded walk is unchanged, and module widening is one more cut knob
+    applied after it, which only ever adds tests. Modules stay a separate
+    concept from areas (broad-test impact scope), which may reference them.
+    Three alternatives are rejected. Reusing areas as modules would bend a
+    flat, broad-test-only scope that is refused on unit-kind blocks.
+    Hand-declared module labels would be a second definition of structure
+    the build already states, and it would drift. A built-in module →
+    submodule hierarchy would need nested ids, a level switch on every
+    interface, parent expansion rules and per-level readiness evidence, for
+    a choice no measurement has asked for; it is reconsidered only if the
+    retrospective measurement (t2131_12) shows flat modules make widened runs
+    too broad.
 <!-- /section: design_decisions -->
 
 <!-- section: module_map [dimensions: component_*, requirements_*] -->
@@ -703,6 +751,16 @@ Everything that reads and writes `aitestmap/` without running a test.
 | **M2.4** Axes and variants | `axes.yaml` and the axes table in the loader, the runner-side `axis:` / `token_format:` (a named extension of M3.1's `describe` parse), `<unit>@<value>` ids, the facet join and forced-facet resolution (the `--axis` flag is parsed by M4.1's `select`), `axes --list\|--check\|--explain`, the three axis check rules `DEAD_AXIS_SOURCE` / `UNKNOWN_VARIANT` / `UNCOVERED_VALUE` | `component_variant_axes`, `component_axes` | `internal/axes`; verb `axes` | variant expansion for the selector and evidence | M2.1, M3.1 |
 | **M2.5** Scoped rows and areas | `_scoped.yaml`, `registry/areas.yaml` and `areas:` blocks, `areas --import-codemap`, `owns:` by area name, kind ranking data, triggers, `reads`, `DEAD_SCOPE` / `KIND_MISMATCH\|CONVERT_TO_SUITE`, `classify --suggest` with the source-set / directory-convention and resource signals and `fanout:<n>` (the recorded-p95 signal lands from M6.4), the digest-exemption of scoped rows | `component_suite_registry`, `component_broad_test_scopes` (registry half) | the scoped tables in `internal/registry`; `internal/classify` (the `classify --suggest` engine `onboard classify` wraps); verbs `areas`, `classify --suggest` | the scoped join and the kind vocabulary | M2.1 |
 | **M2.6** Adoption tables | the `seeds` and `adopted` tables in the loader, `onboard.yaml`'s `rejections[]` / `reviews[]` / `kind_proposals[]` / `calibration[]` as read tables, the load rules `SEED_SHADOWED` / `ADOPTED_ORPHAN` / absent-`by:`-is-human, the write routing for every verb that touches the three files, `SEEDED:` / `ADOPTED:` counts on `check`, the fill of M2.2's post-re-stamp hook (an automated re-stamp refreshes the matching `adopted.yaml` row and keeps its `by:`; only an explicit human actor deletes it) | `component_registry_loader` (adoption half), `component_adoption_ledger` (data-model half) | the two tables in `internal/registry`; the `onboard.yaml` reader; golden tests for the `by:` merge and the shadow rule | the seeded-edge and adopted-edge rows the selector, `stale`, `readiness` and the `onboard` verbs read and write | M2.1, M2.2 |
+| **M2.7** Code modules | the flat modules table: `_modules.yaml` schema, loader and renderer (`KnownFields(true)`), the hand `modules:` block, the providers (codemap, Gradle, Go, Python; the reserved `agent` slot), names `<provider>:<native id>`, path ownership and precedence, `MODULE_CONFLICT` / `MODULE_REFUSED`, module → module `deps:` evidence, `MODULES_DRIFT`, test membership with `MODULE_UNRESOLVED`, the `testmap:module` key (a named extension of M2.2's grammar), area `modules:` references (a named extension of M2.5; `areas --import-codemap` is unchanged), the verb `modules`, and the `Widen` library the widening consumers call | `component_code_modules` | `registry/modules*.go` in `internal/registry`; `internal/modules/**`; verb `modules` | the modules table, path → module lookup, membership and `Widen` for M3.1, M4.1, M4.4, M4.5, M6.1, M6.4, M6.5, M8.4 and M8.5 | M2.1, M2.2, M2.3, M2.5, M2.6 |
+
+M2.7's consumers land as named extensions of the work packages that own
+their files: `--widen-modules` on `select` / `explain` (M4.1) and `test`
+(M4.5), with paired scoring in `score` (M4.4) and the public `ait test
+--widen-modules` flag parsed and forwarded by M5.1's bash front — t2131_7;
+the `module` arm of
+the completion policy (M8.4, M8.5) — t2131_8; `group_by: module` in M3.1's
+grouping function — t2131_10; and the onboarding surfaces in M6.1, M6.4 and
+M6.5 — t2131_9 and t2131_11.
 
 #### M3 — Runners, scheduling and cost
 
@@ -823,7 +881,8 @@ meet on. Each is defined once, in the section named, and consumed as data.
 
 | interface | defined by | consumed by |
 |---|---|---|
-| the loaded registry (eight tables, id grammar, config keys) | M2.1, M2.6 | every engine package |
+| the loaded registry (nine tables, id grammar, config keys) | M2.1, M2.6, M2.7 | every engine package |
+| the modules table, path → module lookup, test membership, `Widen`, the `MODULE_*` and `WIDEN*` lines | M2.7 | M3.1 (`group_by: module`), M4.1 / M4.5 (`--widen-modules`), M4.4 (paired scoring, readiness), M6.1 / M6.4 / M6.5 (onboarding surfaces), M8.4 / M8.5 (`module` mode) |
 | `testmap:` grammar, stamp format `@<date>/<blob10>`, the rewriter API | M2.2 | M4.2 (`--confirm*`), M6.3 (`adopt`), M7.2 (`--agent-verdicts`), M7.4 (`--author`) |
 | scanner facts: closure, invocation / import / package facts, anchor lines, declared symbols | M2.3 | M4.1 (closure), M6.2 (origins), M7.1 (packets), M7.4 (corroboration) |
 | the runner contract and `results.jsonl` | M3.1 | M3.2 (builtins), M3.3 (execution), M3.4 (ledger rows), M6.1 (`detect` writes `runners.yaml`) |
@@ -856,7 +915,7 @@ its own.
 |---|---|---|
 | **A** foundation | M1.1, M1.2, M8.1, M2.1, M2.2 | `ait-testmap version` builds and installs by hand; a registry parses and `check`s; annotations are read and rewritten; the verifier lib already speaks 75 / 3 |
 | **B** map and runners | M1.3, M1.4, M2.3, M2.5, M2.6, M3.1, M3.2 | release assets exist; `ait testmap` resolves the binary; closures, scoped rows and the seeded / adopted tables load; the builtins list and run units on every target repository |
-| **C** select and run | M1.5, M2.4, M3.3, M3.4, M4.1, M4.5 | `ait setup` installs the engine; `ait testmap test --changes -` selects, schedules, runs and records cost on a hand-annotated registry |
+| **C** select and run | M1.5, M2.4, M2.7, M3.3, M3.4, M4.1, M4.5 | `ait setup` installs the engine; `ait testmap test --changes -` selects, schedules, runs and records cost on a hand-annotated registry; `modules` infers, lists and explains the code modules |
 | **D** freshness and the front | M4.2, M4.3, M4.4, M5.1, M5.2, M5.3 | `./ait test` works in three modes on a hand-annotated registry; `stale`, `score`, `readiness` and `--howto` answer; every agent's instructions name the verb |
 | **E** adoption data and onboarding engine | M6.1, M6.2, M6.3, M8.2, M8.3 (without the seeds step), M8.4 | seeds select; a person adopts by class or row; `onboard detect --write` produces level 0 on every target; `testmap_check` can be declared; `tests_pass` runs `./ait test --gate` under `full` and `selected`; the freshness gate confirms stamps |
 | **F** reading and the onboarding skill | M6.5, M7.1, M7.2, M7.4, M9.1 | attended onboarding reaches level 1 with the skill's agent reading packets; the authoring agent stamps its own pairs; the pre-review procedure runs in every profile |
@@ -869,7 +928,9 @@ wave D the feature is usable interactively on a repository whose map was
 written by hand, with no onboarding and no gate flip; after wave F an
 attended onboarding brings a repository to level 1 and its completion gate
 runs under `full` with scoring live. Wave G is where the feature's defining value —
-the loop closing without a person — lands.
+the loop closing without a person — lands. M2.7's consumers follow their
+owners: `--widen-modules` lands with M4.4 (wave D), the `module` completion
+mode with M8.5 (wave G).
 
 ### Named follow-ups (not v1)
 
@@ -885,7 +946,14 @@ through a shell exit hook, and automatic pytest reports through an injected
 plugin, both behind M3.2k's explicit reporting contract (M3.2); a
 PID-namespace per-invocation cleanup boundary, once it keeps G9's
 cleared-environment recursion detection working — until then a host
-without a delegated cgroup runs invocations serially (M3.2c).
+without a delegated cgroup runs invocations serially (M3.2c); smarter module
+reach, gated on the measured `WIDEN_FULL` share (t2131_12) — conservative
+inclusion of an uncertain file with its reverse closure instead of falling
+back, per-language clearing of uncertain references iterated to a fixed
+point over the growing reach set, and a base-revision graph for deletions
+and renames (M2.7); `auto` learning to land on `module` (M8.5); and more than
+one level of code modules, only if measurements show flat modules make
+widened runs too broad (M2.7).
 <!-- /section: module_map -->
 
 <!-- section: data_flow [dimensions: component_test_entrypoint, component_test_front_verb, component_onboarding_engine_verbs, component_onboarding_skill, component_seeder, component_completion_policy, component_auto_policy, component_workflow_integration, component_workflow_seam, component_selector, component_annotation_scanner, component_author_annotation, component_freshness, component_feedback_tools, component_cost_ledger, component_registry_loader, component_staleness_tool, component_engine_packaging, component_agent_review, component_agent_review_pass] -->
@@ -934,6 +1002,9 @@ ait gates run 1234 → testmap_check → pass → tests_pass (next by list posit
       MODE:completion  POLICY:auto, cadence due           → POLICY:auto|full|cadence:tasks (5/5) | cadence:selection_ratio (0.63) | cadence:days (8)
                                                            → run --all → window score → last_full_run, selected_since_full := 0 → POLICY_WRITE: → `ait: testmap policy full-run (t1234)`
       MODE:completion  POLICY:auto, otherwise             → POLICY:auto|selected|next_full_in:<n> → task selection, deferred rows RUN, selected_since_full += 1
+      MODE:completion  POLICY:module, admissible          → the same readiness / flip / cadence steps → POLICY:module|module|next_full_in:<n> → test --widen-modules
+                                                           → the selection ∪ every test of the reached code modules (WIDENED:<modules>|<added>), selected_since_full += 1
+      MODE:completion  POLICY:module, reach unbounded     → WIDEN_FULL:<reason>|<path>|<more> → POLICY:module|full|widen_full:<reason> → run --all → window score → counters reset
    → run_project_command_key: 0 pass · 1 fail · 2 skip · 3 error(command_errored) · 75 error(command_refused)   [opted-in key]
    → ledger block result="MODE:full|720 units|policy:full" or result="MODE:selected|14|policy:auto|next_full_in:3" (the front's line in AIT_GATE_RESULT_FILE) → orchestrator: pass / fail / skip / error (retry within max_retries)
    → after any full run: PREDICTION_SCORED:<r1..rk>|<run> PREDICTION_FALSE_NEGATIVES:<n> → costs/predictions.yaml (every prediction since the last full run scored,
@@ -1580,7 +1651,7 @@ with a person asked only about the parked remainder — and in the headless
 profile not even that.
 <!-- /section: onboarding -->
 
-<!-- section: run_surface [dimensions: component_test_entrypoint, component_test_front_verb, component_agent_brief, component_agent_instructions, component_auto_policy, requirements_zero_config_entrypoint, requirements_agent_run_surface, requirements_agent_instructions_seeded, assumption_task_resolvable_from_session, assumption_helper_degrades_when_absent, assumption_instructions_block_reaches_agents, assumption_instruction_block_is_read, assumption_change_surface_is_intake] -->
+<!-- section: run_surface [dimensions: component_test_entrypoint, component_test_front_verb, component_agent_brief, component_agent_instructions, component_auto_policy, requirements_zero_config_entrypoint, requirements_agent_run_surface, requirements_agent_instructions_seeded, assumption_task_resolvable_from_session, assumption_helper_degrades_when_absent, assumption_instructions_block_reaches_agents, assumption_instruction_block_is_read, assumption_change_surface_is_intake, component_code_modules] -->
 ## The Run Surface
 
 Modules: M5.1 (the front), M4.5 (the composite), M5.2 (the brief), M5.3
@@ -1608,6 +1679,8 @@ ait test --gate                completion mode — what tests_pass runs; implied
 ait test --advisory --task <id> [--explain]
                                the pre-review form: VERDICT:/REASON:/DETAIL:/LOG: lines, exit 0/1/2/3, every absence a printed skip
 ait test --explain             the selection with reasons, groups and estimated cost; runs nothing
+ait test --widen-modules       the selection plus every test of the code modules the change reaches (component Code modules);
+                               a change whose reach cannot be bounded runs the whole registry exactly as --all does
 ait test --howto [--md]        this project's runners, kinds, resources, full gate, axes, completion policy and cadence, LEVEL, docs, notes
 ait test --tokens              select --format tokens (thinking_app: `| xargs tools/verification/screenshot-tests.sh preview`)
 ait test --dirty               no task: every dirty path as a TASK: row; explicit, printed as INTAKE:dirty, never the default
@@ -1658,7 +1731,9 @@ ait test --json                one object instead of lines
    older than `days`) → full with `POLICY:auto|full|cadence:<trigger>`;
    otherwise the selection with `POLICY:auto|selected|next_full_in:<n>`; a
    later unmet criterion → `POLICY_DEMOTED:auto->full|<criterion>` and
-   `approved_by` cleared. `on_empty_selection: skip` → exit 2 → the opted-in
+   `approved_by` cleared. `module` follows `auto`'s steps with the module
+   widening in place of the selection (component *Auto completion policy
+   and cadence*, the `module` arm). `on_empty_selection: skip` → exit 2 → the opted-in
    `tests_pass` records `skip`, never `pass` — except that a cadence full
    run ignores `on_empty_selection` and runs. Until M8.4 lands, the front's
    completion mode runs `--all`.
@@ -1671,7 +1746,11 @@ ait test --json                one object instead of lines
    adopted(static:invocation+agent:review 0.99 by agent:claudecode/opus5)`),
    `DEFERRED:` in interactive mode only, the waves, results per id,
    `RESULT:`. The front prefixes the run id (`test-`, `gate-`, `full-`; see
-   *Cost ledger*).
+   *Cost ledger*). With `--widen-modules` (and under `completion.mode:
+   module`) a `WIDENED:<modules_n>|<added_n>` line precedes the rows and each
+   added row carries `module(<name>) <- <changed path>[ via <reached
+   path>]`; a `WIDEN_FULL:<reason>|<path>|<more_n>` outcome runs as `--all`
+   does, through the canonical full-run path (component *Code modules*).
 8. **New-test and new-source notices.** `UNANNOTATED_TEST:<path>` +
    `HINT:./ait testmap annotate --suggest <path>` for a listed test in the
    change surface with no `testmap:` block, no seed and no adopted row;
@@ -1684,9 +1763,9 @@ ait test --json                one object instead of lines
 
 ```
 MODE:interactive|completion|advisory|fallback   TASK:<id>|none   INTAKE:change-surface|dirty|all|named
-POLICY:full|selected|auto|<sub-state…>   SELECTED:<units>|<groups>|<est_s>|<seeded>|<adopted>   RUN:<run-id>
-ESCALATE:… DEFERRED:… UNMAPPED_SOURCE:… UNANNOTATED_TEST:… HINT:…       (engine line classes pass through)
-POLICY_FLIPPED:… POLICY_DEMOTED:… POLICY_WRITE:…                          (completion under auto)
+POLICY:full|selected|module|auto|<sub-state…>   SELECTED:<units>|<groups>|<est_s>|<seeded>|<adopted>   RUN:<run-id>
+ESCALATE:… DEFERRED:… UNMAPPED_SOURCE:… UNANNOTATED_TEST:… HINT:… WIDENED:… WIDEN_FULL:…   (engine line classes pass through)
+POLICY_FLIPPED:… POLICY_DEMOTED:… POLICY_WRITE:…                          (completion under auto or module)
 RESULT:pass|fail|skip|error|refused|<n passed>|<n failed>|<n skipped>
 advisory only:  VERDICT:pass|fail|skip   REASON:all_passed|command_failed|testmap_absent|registry_absent|unknown_paths|no_selection|admission_refused
                 DETAIL:<one line>   LOG:.aitask-gates/<task>/affected_<run-id>.log
@@ -1804,7 +1883,7 @@ the runner-specific notes (`run_all_python_tests.sh` lanes, the `PIPESTATUS`
 caveat) as background.
 <!-- /section: run_surface -->
 
-<!-- section: workflow_seam [dimensions: component_workflow_seam, component_workflow_integration, component_gates, component_completion_policy, component_auto_policy, component_qa_integration, component_agent_review_pass, component_author_annotation, requirements_workflow_seam, requirements_workflow_seam_is_data, requirements_gate_enforcement, assumption_gate_exit_contract_reused] -->
+<!-- section: workflow_seam [dimensions: component_workflow_seam, component_workflow_integration, component_gates, component_completion_policy, component_auto_policy, component_qa_integration, component_agent_review_pass, component_author_annotation, requirements_workflow_seam, requirements_workflow_seam_is_data, requirements_gate_enforcement, assumption_gate_exit_contract_reused, component_code_modules] -->
 ## The Workflow Seam and the One Completion Gate
 
 Modules: M8.1 (the contract), M8.2 (`testmap_check`), M8.3
@@ -1955,7 +2034,10 @@ never skipped by `on_empty_selection` or a demotion. thinking_app's rule —
 full `verify-active` as the completion gate until admissible — is preserved
 exactly by `auto` until `ADMISSIBLE` and by `full` forever; the project
 chooses in `config.yaml`, and `--howto` prints which (a 1,180 s full run
-every 5 tasks is the price of the selection on the other 4). The completion
+every 5 tasks is the price of the selection on the other 4). A third shape,
+`completion.mode: module`, takes `auto`'s readiness, flip, cadence and
+demotion unchanged and runs, between full runs, the selection plus every
+test of the code modules the change reaches (component *Code modules*). The completion
 flow itself is drawn under *Data Flow*; the knobs are the `completion:`
 block under *Architecture*.
 
@@ -1992,7 +2074,7 @@ the implementation home (see *Module Map*).
 
 `goengines/cmd/ait-testmap` with packages
 `internal/{registry,axes,annot,deps,changesurface,selectr,sched,runner,cost,feedback,stale,gitx,platform}`
-plus `internal/seed`, `internal/onboard` and `internal/brief`. Go 1.26 with a
+plus `internal/seed`, `internal/onboard`, `internal/brief` and `internal/modules`. Go 1.26 with a
 pinned toolchain, `CGO_ENABLED=0`, `-trimpath -buildvcs=false -ldflags "-s -w
 -X version/commit/contract"`; dependencies `gopkg.in/yaml.v3`,
 `bmatcuk/doublestar/v4`, `golang.org/x/sync` only; stdlib `flag` verb table,
@@ -2039,10 +2121,13 @@ table is `test`, `select`, `schedule`, `run`, `scan`, `check`, `stale`,
 (M8.4's named extension of the table: `decide`, read-only for `full` /
 `selected`; M8.5 adds the `auto` arm and its `POLICY_WRITE:` write points),
 `brief`, `onboard {detect, inventory, seed, review, classify, adopt, reject,
-scaffold, status, finish}`, `runner <name>`, `version`. Budgets pinned by `go test
+scaffold, status, finish}`, `runner <name>`, `modules` (M2.7's named
+extension of the table, like `policy`: `--list`, `--explain
+<path|test-id>`, `--scan [--apply]`), `version`. Budgets pinned by `go test
 -bench` fixtures with a 2× regression rule: `select` < 200 ms warm on the
 aitasks shape and < 250 ms with axis expansion on the thinking_app shape,
-`scan` / `check` / `stale --task` < 300 ms, `stale --all` < 2 s, cold
+`scan` / `check` / `stale --task` < 300 ms (`check` including
+`MODULES_DRIFT`), `stale --all` < 2 s, cold
 `select` < 1.5 s, `brief` < 100 ms warm, `onboard seed` static + convention
 < 2 s and co-change < 5 s over 600 commits, `onboard status` < 200 ms,
 `onboard review --next 20` < 300 ms warm and `--out` < 1 s per 100 pairs,
@@ -2195,7 +2280,8 @@ H-I2).
 ### Registry loader and writer *(M2.1 core; M2.6 adoption tables)*
 
 `internal/registry` merges `aitestmap/registry/*.yaml` plus `axes.yaml` into
-eight tables. **M2.1** — the loader, its one merge rule and the edges, rules
+nine tables (the ninth, M2.7's flat code modules table, is specified in
+component *Code modules*). **M2.1** — the loader, its one merge rule and the edges, rules
 and waivers tables, into which M2.5 lands the scopes and areas tables and
 M2.4 the axes table (the six core tables) with unit ids `<path>[#<member>][@<variant>]`, each member's
 `variants:` list from `_scanned.yaml`, `owns:` routing by glob for edges and
@@ -2295,7 +2381,8 @@ paths), `edges:` rows `{test: <id>, covers: <path> | [<path>…]}`, `rules:`
 rows `{name, when: [<glob>…], select: [<glob>[#<member glob>]…], implies:
 [<path>…], escalate: <bool>, distance: <n>}` (one of `select` / `implies` /
 `escalate` required; `distance` defaults to 1) and `waivers:` rows `{path:
-<glob>, reason, until?: YYYY-MM-DD}`; M2.5 adds `scopes:` / `areas:`. An
+<glob>, reason, until?: YYYY-MM-DD}`; M2.5 adds `scopes:` / `areas:`, M2.7
+`modules:`. An
 unknown top-level key is refused; an unknown row field is ignored (the
 contract is additive). The generated `_scanned.yaml` is `{contract, units:
 [{test: <path>[#<member>], line?, axis?, variants?: [<value>…], facets?:
@@ -2303,7 +2390,7 @@ contract is additive). The generated `_scanned.yaml` is `{contract, units:
 stamped_blob?}]}]}` — `axis` (the owning runner's describe `axis:`, on a row
 with variants) and `facets` (the unit's `testmap:axis` claims) are M2.4's and
 are omitted when empty, so `select` places variants and claimed plain units
-from committed state. The names `_scoped.yaml`,
+from committed state. The names `_scoped.yaml`, `_modules.yaml`,
 `areas.yaml`, `observed.yaml`, `seeded.yaml`, `adopted.yaml` and any other
 `_`-prefixed file are reserved: refused until the owning submodule registers
 its loader, never read as a hand file. **The one merge rule**: every file
@@ -2855,6 +2942,12 @@ ledger (M3.4), so it lands with M6.4 as a named extension of this verb.
   a name are unioned. An area name carries no `/`, `#`, `@`, `|`, whitespace
   or glob metacharacter, so an `owns:` entry naming an area is never read as a
   pattern.
+- An area may also list `modules: [<name>…]` (M2.7's named extension), which
+  expands at load to those code modules' **effective** paths (component *Code
+  modules*) and is unioned with its `paths:`. The reference is a
+  hand-authored opt-in that follows later boundary changes; a name that is
+  unknown or absent from the effective modules table is refused as
+  `DEAD_SCOPE:<file>|areas|<area>|module:<name>`.
 - A hand file's `scopes:` rows are `{test, kind, areas, globs, triggers,
   reviewed_at}`. A hand row carries no `runner` or `needs`: those are per-test
   keys of the test's annotations and the runner bindings. A row naming a
@@ -2895,7 +2988,9 @@ ledger (M3.4), so it lands with M6.4 as a named extension of this verb.
   - `DEAD_SCOPE:<test>|area|<name>|undeclared` — a row names an undeclared
     area;
   - `DEAD_SCOPE:<test>|scope|<glob>|empty` — a scope glob matches no existing
-    file.
+    file;
+  - `DEAD_SCOPE:<file>|areas|<area>|module:<name>` — an area references a
+    code module that is unknown or absent from the effective table.
   Triggers are not judged.
 - `KIND_MISMATCH:<test>|<n>|CONVERT_TO_SUITE` — a unit-kind test with more than
   `unit_covers_max` distinct covered sources. It warns, and fails under
@@ -2919,7 +3014,13 @@ ledger (M3.4), so it lands with M6.4 as a named extension of this verb.
   `<path>/**`. It prints `AREA_IMPORT:<name>|<glob>|added|kept|differs`; an
   existing area is never rewritten. `--apply` adds the new areas to
   `registry/areas.yaml`, keeping its comments. A missing map is
-  `CODEMAP_ABSENT:<path>` (exit 2).
+  `CODEMAP_ABSENT:<path>` (exit 2). The import always copies `<path>/**`
+  globs and never writes a module reference, so an imported area's breadth
+  never depends on the code modules table, its provider precedence or an
+  override: with a codemap entry `api` at `services/api/` and a hand module
+  `api` over `services/api/public/**`, the imported area `api` is still
+  `services/api/**`, and a change to `services/api/internal/x.go` still
+  reaches that area's broad tests.
 - `classify --suggest [<test>…]` covers every annotated or listed test file
   when none is named, and writes nothing. An `exclude:`d file or a
   `testmap:reads` helper is not a test: it is left out of that default and
@@ -2939,6 +3040,240 @@ ledger (M3.4), so it lands with M6.4 as a named extension of this verb.
   - `internal/classify` exposes `RegisterSignal`, through which M6.4 adds the
     recorded-p95 signal.
 <!-- /section: component_suite_registry -->
+
+<!-- section: component_code_modules [dimensions: component_code_modules] -->
+### Code modules *(M2.7; consumers M3.1, M4.1, M4.4, M4.5, M6.1, M6.4, M6.5, M8.4, M8.5)*
+
+A middle ground between the tests the graded walk selects for the changed
+files and the full suite: **module widening** runs every test of the code
+modules a change reaches. The table, its providers, membership and the
+`Widen` operation are M2.7's (`registry/modules*.go` in `internal/registry`;
+`internal/modules`, which sits above `deps`). The consumers are named
+extensions of the work packages that own their files (see *Module Map*).
+
+**The table and names.** A code module is a named set of source paths. The
+model is **flat**: no record nests another, there is no parent/child
+relation and no qualified id, and every module has the same standing — a
+large module and a small one are equally modules. The generated
+`registry/_modules.yaml` and the hand `modules:` block have the schemas under
+*Where state lives*. A module's id is its name, which follows the area-name
+rule (no `/`, `#`, `@`, `|`, whitespace, control character or glob
+metacharacter). A nested key in a hand block (`submodules:`, `children:`) is
+an unknown key and is refused like any other. `_modules.yaml` is decoded
+strictly (`KnownFields(true)`).
+
+**Providers, boundaries and ownership.** Each provider has one
+deterministic initial rule. There is no knob that chooses how finely a
+provider cuts; boundaries are refined only through the codemap, agent
+proposals and hand overrides, each with provenance.
+
+- A **subtree provider** (codemap, Gradle) declares a module as one directory,
+  its root. The module owns every path under the root that is not under a
+  deeper root of the same provider: the deepest root wins. Nesting creates no
+  membership and no expansion — a nested root is simply another module.
+- A **package provider** (Go, Python) declares a module as one package. The
+  module owns only that package's own source files directly in its
+  directory: the `*.go` files (test files included), or the `*.py` / `*.pyi`
+  files. It never owns a subtree, so a subpackage is another module and no
+  package claims the unrelated files beside it (a README, scripts,
+  `testdata/`), which stay unmapped unless another provider owns them.
+- A **glob provider** (hand, agent) declares a module as a set of globs.
+
+| rank | provider | kind | boundary | name | known limitation |
+|---|---|---|---|---|---|
+| 1 (wins) | hand `modules:` | glob | the listed globs, unioned across hand files | the key | two hand modules claiming one path are `REGISTRY_INVALID` — an authoring error |
+| 2 | `agent` rows in `_modules.yaml` (`by: agent:<agent-string>`) | glob | the proposed globs | as proposed | written only through the onboarding review's intake (component *Onboarding verbs*), which refuses two agent rows that overlap |
+| 3 | the codemap `aitasks/metadata/code_areas.yaml` (read directly, never run — Invariant 5) | subtree | every entry, at any depth, rooted at its `path` | `codemap:<root>` | the granularity is whatever the map's author wrote; a parent entry owns only the files no child entry covers; the entry's own name is shown as evidence |
+| 4 | Gradle | subtree | every included project, at any nesting depth, rooted at its `projectDir` | `gradle:<the Gradle path without its leading :>` | one project is one module however mixed its sources; an aggregate project owns only its own build files |
+| 5 | Go | package | every package under a `go.mod` | `go:<dir>` | fine-grained (one module per package); a coarser grouping comes from the codemap, an agent or a hand override |
+| 5 | Python | package | every package (a regular package or a namespace portion) | `py:<dir>` | as for Go; a flat `tests/` directory is no package, so its tests' membership comes from their covered sources |
+
+- **Generated names cannot collide.** A generated name is `<provider
+  prefix>:<native id>`. The native id is the Gradle path for Gradle (unique
+  by construction), and for the codemap, Go and Python the repo-relative
+  directory with `/` written as `:`, the repository root directory written
+  `.`. No directory component can be `.`, and a root whose directory or
+  project name contains `:` or another character the name rule refuses is
+  not a module — `MODULE_REFUSED:<provider>|<root>|unnameable`, its paths
+  unmapped — so the mapping is injective: `a/b/` is `go:a:b`, `a.b/` is
+  `go:a.b`, and `a:b/` is refused. The prefixes `codemap:`, `gradle:`, `go:`
+  and `py:` are reserved; a hand or agent name using one is refused. Names
+  can therefore collide only between the two glob providers: the hand module
+  wins, and the agent row is dropped and reported with `MODULE_CONFLICT:`.
+- **No subtree module at the repository root.** The Gradle root project `:`
+  (its `Dir` is empty, and an empty directory contains every path) and a
+  codemap entry at the root would each own the whole repository, so each is
+  refused as `MODULE_REFUSED:<provider>|.|repository_root` and the files only
+  it would own stay unmapped. A root *package* is legitimate: `go:.` /
+  `py:.` owns only that package's own source files in the root directory, so
+  it is bounded and cannot become a catch-all.
+- **Ownership.** Each mapped path has exactly one owning module: the
+  highest-ranked provider claiming it wins, and within one subtree provider
+  the deepest root wins. Go and Python never claim the same file, so rank 5
+  needs no tie-break. A path no provider claims stays **unmapped**; nothing
+  is guessed.
+- **Conflicts.** `MODULE_CONFLICT:<winner>@<provider>|<loser>@<provider>|<paths_n>|<first path>`
+  (Info, never failing) is printed once per winner / loser pair whose path
+  sets overlap but differ, and for the hand / agent name collision above. A
+  refinement is the normal case: a hand `api` over `services/api/public/**`
+  takes those paths from `codemap:services:api`, which keeps the rest. A
+  lower-ranked module left with no paths is absent from the effective table.
+
+**Module → module `deps:`.** `modules --scan` records, per module, the
+modules it depends on, each with one file-level evidence pair `{from, to}`
+taken from the dependency graph. They are for inspection (`--list`,
+`--explain`) only: reach never trusts them.
+
+**The verb.** `modules --list` prints one
+`MODULE:<name>|<provider>|<root or globs>|<members_n>|<evidence>` per
+effective module, then `MODULES:<modules_n>|<unmapped_paths_n>|<provider>=<n>,…`.
+`modules --explain <path|test-id>` prints
+`MODULE_OF:<path|test-id>|<name>|path|covers:<source>|annotation` — for a
+path, its owning module; for a test, each module it belongs to and why.
+`modules --scan [--apply]` re-infers every provider over the cached
+`deps.Scan`, prints the same lines plus `MODULE_CONFLICT:` and
+`MODULE_REFUSED:`, and with `--apply` writes `_modules.yaml`, drift-gated
+exactly like `scan --apply` (`WROTE:` reused); `agent` rows are carried over
+unchanged, never re-inferred.
+
+**Freshness.** `check` reports `MODULES_DRIFT:aitestmap/registry/_modules.yaml`
+when a live re-inference over the cached `deps.Scan` differs from the
+committed table, like `SCAN_DRIFT:`, inside `check`'s 300 ms budget. Every
+widening consumer treats a drifted table as `WIDEN_FULL:modules_stale`. If
+M2.7's measurement puts the check over budget, detection moves to the
+consumers only, still failing toward full.
+
+**Membership.** Computed at load in `registry`, never persisted, one kind
+only. A test belongs to its path-containment module, if its own path has
+one, **and** to the owning module of every source it covers — `_scanned.yaml`
+covers and the hand, adopted and seeded edges. Covered-source modules count
+even when path membership exists, which is what makes a flat `tests/`
+directory work. `testmap:module <name>…` (a grammar key allowed on any kind,
+reaching the loader through an optional `ScannedRow` field that renders
+byte-identically when empty) replaces only the path-derived part; an
+annotation that would drop a covered-source module is reported as a
+finding, and the covered-source modules stay. A test with no module at all
+is `MODULE_UNRESOLVED:<test>` (Info, counted, never guessed).
+
+**Widening.** One operation: *find the modules containing the changed files
+and their transitive reverse dependents, add every test belonging to those
+modules, and keep the tests already selected.*
+
+- `Widen(current graph, table, membership, change surface, plain selection)`
+  returns either the affected modules — each with its evidence `{module,
+  origin: <changed path>, via?: <reached path>}` — and the added tests with
+  their reasons, or `full:<reason>`.
+- Reach reads only the **current** (post-change) dependency graph. The
+  reached paths are the changed paths plus every file in the **transitive**
+  reverse closure of the changed paths over resolved edges (indirect
+  dependents count). Each reached path maps to its one owning module. An
+  edit that nothing outside its module reaches pulls in no other module, and
+  reach never recurses through module `deps:`.
+- **When the bound is unsafe, run full.** The absence of a resolved edge is
+  never proof of independence, so the affected set is used only when no
+  uncertainty could carry the change outside it. Otherwise the outcome is
+  `WIDEN_FULL:<reason>|<first path>|<more_n>`:
+  - `deleted_path` / `renamed_path` — the change surface deletes or renames a
+    path (the current graph has no node for it);
+  - `unmapped_path` — a changed or reached path that no module owns,
+    root-only Gradle files included;
+  - `uncertain_reference` — any in-repo file anywhere carries dependency
+    uncertainty: an `Unresolved` entry naming an in-repo target, an opacity
+    reason, a `<dynamic>` source or a `gradle-dynamic` build. A reference the
+    scanner records as targeting outside the repository is not uncertainty;
+    a form the scanner cannot classify counts as uncertainty. The line names
+    the first such file and counts the rest;
+  - `modules_stale` — the modules table has drifted.
+- The initial scope makes no other distinction: there is no base-revision
+  graph and no per-language clearing of uncertain references (see *Named
+  follow-ups*).
+- Output: `WIDENED:<modules_n>|<added_n>` ahead of the rows; each added row
+  carries `module(<name>) <- <changed path>[ via <reached path>]`; the
+  `SELECTED:` shape is unchanged. Widening runs after the graded walk, and
+  widened tests are budget-exempt — never `DEFERRED`.
+- **A `WIDEN_FULL` outcome executes through the canonical full-run path**,
+  never a re-listing: `test --widen-modules` and `ait test --widen-modules`
+  run exactly what `--all` runs — `run --all` with `full: true` suites once
+  and `subsumed_by` honoured, the `full-` run-id prefix, anchors, cost rows
+  and the automatic `score` over every unscored prediction — and under
+  `completion.mode: module` it is an ordinary full completion run. `select
+  --widen-modules` and `explain --widen-modules` never execute or score a
+  test; each writes exactly what its plain form writes, a task-scoped
+  `select` therefore still writing the task's prediction record, now
+  carrying the widen outcome.
+- **The paired prediction record.** A widened task-scoped selection writes
+  one prediction record holding the plain selection (the graded walk), the
+  widen outcome (the added tests, or `full:<reason>`) and the identity the
+  score needs to compare both against the same later full run: the base
+  revision, the change-surface digest, the registry digest and the
+  modules-table digest. A record without the widened part scores exactly as
+  today, and newest-wins per task keeps the pair together. While
+  `completion.mode` is `module`, every task-scoped selection records the
+  widen outcome whether or not `--widen-modules` was passed, so the evidence
+  `module` needs accumulates with no person involved; what a selection
+  *runs* is unchanged.
+- **Recording.** Every fallback reason is on the `WIDEN_FULL:` line and in
+  the record's widen outcome; `score` derives the per-reason counts from the
+  records (`WIDEN_SCORED:`, component *Feedback tools*), never from a second
+  store.
+
+**Worked examples** — each yields one affected-module set and one test set:
+
+1. *One module.* Modules `gradle:services:payments:api`
+   (`services/payments/api/`) and `codemap:auth` (`auth/`). A change to
+   `services/payments/api/src/Charge.kt` that nothing outside the module
+   imports: affected {`gradle:services:payments:api`}; tests = the plain
+   selection ∪ that module's members.
+2. *Transitive chain.* Codemap entries give `codemap:ledger`,
+   `codemap:billing` and `codemap:reports`; `billing/Invoice.kt` imports
+   `ledger/Entry.kt` and `reports/Monthly.kt` imports `billing/Invoice.kt`.
+   A change to `ledger/Entry.kt`: affected {`codemap:ledger`,
+   `codemap:billing`, `codemap:reports`}, with `module(codemap:billing) <-
+   ledger/Entry.kt via billing/Invoice.kt` and `module(codemap:reports) <-
+   ledger/Entry.kt via reports/Monthly.kt`; tests = the members of all three
+   ∪ the plain selection.
+3. *A test in several modules.* Hand modules `board`
+   (`.aitask-scripts/board/**`) and `lib` (`.aitask-scripts/lib/**`).
+   `tests/test_board.sh` lies in no module by path and covers
+   `.aitask-scripts/board/aitask_board.py` and
+   `.aitask-scripts/lib/task_utils.sh`, so its modules are {`board`, `lib`}.
+   A change to `.aitask-scripts/lib/task_utils.sh` that no other module's
+   file reaches: affected {`lib`}, and the tests include
+   `tests/test_board.sh`.
+4. *A deeply nested native project.* `settings.gradle.kts` includes
+   `:services` (`services/`) and `:services:payments:api`
+   (`services/payments/api/`). `services/payments/api/src/A.kt` is owned by
+   `gradle:services:payments:api` alone (deepest root). A change there
+   affects {`gradle:services:payments:api`} plus its reverse dependents, and
+   never `gradle:services` by nesting — that module joins only if a file it
+   owns imports the changed file. The root project is no module
+   (`MODULE_REFUSED:gradle|.|repository_root`), so a change to the root-only
+   `build.gradle.kts` is `WIDEN_FULL:unmapped_path|build.gradle.kts|0`.
+5. *Unsafe changes.* Deleting `lib/old.sh` is
+   `WIDEN_FULL:deleted_path|lib/old.sh|0`; changing `tools/x.sh`, which no
+   module owns, is `WIDEN_FULL:unmapped_path|tools/x.sh|0`. Either way `ait
+   test --widen-modules` runs the canonical full run.
+6. *Root and child packages.* `go.mod` for `example.com/tool` sits at the
+   repository root, which holds `main.go`, `main_test.go` and `README.md`;
+   `tool/` holds `parse.go` and `parse_test.go`. `go:.` owns `main.go` and
+   `main_test.go`, `go:tool` owns `tool/parse.go` and `tool/parse_test.go`,
+   and `README.md` is unmapped. `main.go` imports `example.com/tool/tool`, so
+   a change to `tool/parse.go` affects {`go:tool`, `go:.`} with `module(go:.)
+   <- tool/parse.go via main.go`, and the tests are `tool/parse_test.go` and
+   `main_test.go` ∪ the plain selection. A change to `main.go`, which nothing
+   imports, affects {`go:.`}; only a change to `README.md` falls back
+   (`WIDEN_FULL:unmapped_path|README.md|0`).
+
+**Tests** (M2.7 and its consumers): a `_modules.yaml` load → render golden;
+each provider rule and each `MODULE_REFUSED` reason on fixtures (examples 4
+and 6, the `a/b` / `a.b` / `a:b` names, a codemap with duplicate entry names
+across parents, a hand name with a reserved prefix); ownership and
+`MODULE_CONFLICT` on a combined codemap + Gradle + hand fixture; a nested
+hand key refused; membership on a flat-`tests/` fixture (example 3); every
+`WIDEN_FULL` reason on a fixture where only that guard can fire, red without
+the guard; examples 1, 2 and 6's widening; an out-of-repo reference not
+firing `uncertain_reference`; a `MODULES_DRIFT` negative control.
+<!-- /section: component_code_modules -->
 
 <!-- section: component_broad_test_scopes [dimensions: component_broad_test_scopes] -->
 ### Broad-test scheduling and staleness policy *(M2.5 staleness half; M3.3 scheduling half)*
@@ -3012,7 +3347,15 @@ the caller derives from M2.5's kind data (`unit` and variant-bearing units
 → `unit`; `integration|e2e|device` → `broad`), and a unit with no kind data
 is `unit` — sound, because no broad unit exists before M2.5. The grouping
 does not depend on `broad_after_unit`, so an estimate never depends on that
-setting. No other package forms or re-forms an invocation.
+setting. No other package forms or re-forms an invocation. `group_by:
+module` (M2.7's named extension of this function) groups a runner's tests by
+each test's **path-containment** code module, read through the `registry`
+path → module lookup (`runner` never imports `deps`): a test whose own path
+has no module stays in the runner's ungrouped group, and a test that belongs
+to several modules through its covered sources still lands in exactly one
+group, its path module's. A runner command's `{module}` placeholder expands
+to the module's `gradle` project path; a module without one is refused
+(`INPUT_ERROR:runner`), never guessed.
 
 **The `run` verb** executes a plan through a plan-executor seam. Until M3.3
 plugs its scheduler in (a named extension of this verb), the built-in plan
@@ -3288,7 +3631,11 @@ discovery consumes. The `test` composite prints one
 `SELECTED:<n>|<groups>|<est_s>|<seeded_n>|<adopted_n>` line and
 `UNMAPPED_SOURCE:<path>` lines before the ranked rows so the front can build
 its verdict without parsing the rows; `ait test <source path>` reaches it as
-a one-row `TASK:` change set. The before-content a symbol scanner needs
+a one-row `TASK:` change set. `--widen-modules` adds the module widening
+stage after the graded walk (component *Code modules*): it prints
+`WIDENED:` or `WIDEN_FULL:` before the rows, adds budget-exempt rows with a
+`module(…)` reason, and makes the task's prediction record the paired form;
+`explain --widen-modules` shows the widened rows with their reasons. The before-content a symbol scanner needs
 comes from `HEAD:<path>` (`TASK:` rows) or the parent of the first `(t<id>)`
 commit (`COMMITTED:` rows) and is absent — so the whole file is the symbol
 set — when history is unreachable.
@@ -3398,7 +3745,14 @@ scoped row (culprit task ids from `git log --name-status -M` when history is
 reachable). For each missed test and each changed source in the run's
 surface whose pair sits in `onboard.yaml rejections[]`, it prints
 `REJECTION_CONTRADICTED:<test>|<source>|<run>` and keeps the row — evidence
-removes nags and never overrules a person. `attribute` records missing-edge
+removes nags and never overrules a person. A paired record (component *Code
+modules*) is scored twice against the same full run — its plain set and its
+widened set — and the run prints one
+`WIDEN_SCORED:<records_n>|plain_fn:<n>|widened_fn:<n>|full:<reason>=<n>,…`
+line: the false negatives of each set and the count of records whose widen
+outcome was a full fallback, per reason. The scored row in
+`costs/predictions.yaml` gains an optional `widened {added_n, fn, full?}`;
+a record without a widened part scores and is stored exactly as before. `attribute` records missing-edge
 / test-wrong / source-wrong, missing-axis-source (widen only), missing-trigger
 / area-too-narrow; a decision may be `propose` (default in autonomous
 profiles), which writes the row to `seeded.yaml` with origin `observed`
@@ -3416,18 +3770,40 @@ autonomous runs grow the review queue and never the accepted map.
 criteria are `min_scored_full_runs`, `max_false_negatives`,
 `require_opaque_proofs`, `min_full_runs_since_map_change` (default 3: clean
 scored full runs since the last bulk adoption or `--author` write) and, under
-`auto`, `cadence_declared` (all three `full_run_every` rules present and
-sane: `tasks ≥ 2`, `0 < selection_ratio_above ≤ 1`, `days ≥ 1`) with
-`approved_by` read `met|engine` from `costs/policy.yaml` once the flip is
-recorded. `readiness` enables nothing, never launches an agent, and `ait test
---gate` is the only writer of the flip.
+`auto` and `module`, `cadence_declared` (all three `full_run_every` rules
+present and sane: `tasks ≥ 2`, `0 < selection_ratio_above ≤ 1`, `days ≥ 1`)
+with `approved_by` read `met|engine` from `costs/policy.yaml` once the flip
+is recorded for the configured mode. Under `module` the `POLICY:` line reads
+`POLICY:module|<module|full>|…[|next_full_in:<n>]`. `readiness` enables
+nothing, never launches an agent, and `ait test --gate` is the only writer of
+the flip.
+
+**Which prediction set readiness judges.** Each mode is judged on the
+strategy it executes, never on another strategy's success:
+
+- `selected` and `auto` read the **plain** sets only, exactly as before;
+  widened parts are reported (`WIDEN_SCORED:`) and never feed their
+  criteria. A miss the plain set had and the widened set caught **is** a
+  false negative for them.
+- `module` reads the **widened** sets. `max_false_negatives` counts each
+  scored record's widened false negatives; a record with no widened part
+  counts its plain false negatives (an unknown is treated as a miss the
+  widening did not catch), so the same caught-by-widening miss is **not** a
+  false negative for `module`. `min_scored_full_runs` and
+  `min_full_runs_since_map_change` count a full run only when every record it
+  scored carries a widened part and at least one of those parts is not a
+  `full:` fallback (a fallback is a defined outcome, not evidence of the
+  widening's recall); Open Question 9's non-trivial-selection rule applies on
+  top. A change to the code modules table — the modules-table digest the
+  records carry — is a map change for `min_full_runs_since_map_change`, like
+  a bulk adoption or an author write.
 <!-- /section: component_feedback_tools -->
 
 <!-- section: component_test_front_verb [dimensions: component_test_front_verb] -->
 ### Engine `test` composite *(M4.5)*
 
 `internal/selectr` + `sched` + `runner`, reached by `aitask_test.sh`: `test
---task <id> --changes - | --paths <p>... | --all [--explain] [--budget-s]
+--task <id> --changes - | --paths <p>... | --all [--explain] [--widen-modules] [--budget-s]
 [--format lines|json|tokens] [--run <id>]` runs `select --include-stale` →
 `schedule` → `run` in one process and prints
 `SELECTED:<n>|<groups>|<est_s>|<seeded_n>|<adopted_n>`, one
@@ -3437,7 +3813,11 @@ one `edge(annotation) adopted(<origins> <confidence> by <who>)`), the
 schedule's wave lines, results per id and
 `RESULT:pass|fail|skip|deferred|<run_id>`. `--all` is `run --all` (anchors
 evidence, honours `subsumed_by`, and triggers `score` over every unscored
-prediction since the last full run); `--explain` stops after `select`; the
+prediction since the last full run); `--explain` stops after `select`;
+`--widen-modules` adds the module widening (component *Code modules*), and a
+`WIDEN_FULL` outcome continues as exactly the `--all` path above — the same
+run, the same `full-` prefix, the same automatic `score`; `--explain
+--widen-modules` still stops after `select`; the
 run id is prefixed by the front. It never resolves a task, reads a profile,
 applies a completion policy or touches a gate ledger — those are the bash
 front's.
@@ -3450,8 +3830,13 @@ front's.
 
 `.aitask-scripts/aitask_test.sh`, a ~150-line bash front over the shim, with
 flags `--task <id> | --gate | --advisory | --all | --dirty | --explain |
---howto [--md] | --tokens | --fresh-only | --budget-s <n> | --json` and
-positional `<path|id>...`. It resolves `MODE`, `TASK`, `INTAKE` and `POLICY`
+--widen-modules | --howto [--md] | --tokens | --fresh-only | --budget-s <n> |
+--json` and positional `<path|id>...`. `--widen-modules` (M2.7's named
+extension of this front, delivered with the selector widening) is parsed
+here and forwarded unchanged to the engine `test` composite, alone or with
+`--explain`; the front adds no widening logic of its own — a `WIDEN_FULL`
+outcome is already the composite's `--all` path — and under `completion.mode:
+module` its `POLICY` arm passes the same flag. It resolves `MODE`, `TASK`, `INTAKE` and `POLICY`
 in the order under *The Run Surface* → Resolution; calls the engine `test`
 composite (interactive: the budget applies and `DEFERRED` is printed;
 completion: deferred rows run); with no `aitestmap/` prints
@@ -3631,6 +4016,17 @@ phase).
   writes nothing without `--force`. *(M6.1)*
 - `inventory` runs `scan` + every `list` + `check` and prints `UNREGISTERED:`
   as the to-do list. *(M6.1)*
+- Code modules on the onboarding surface (M2.7's named extension of `detect`,
+  `inventory` and `classify`): `detect` and `inventory` print the
+  `MODULES:` summary of component *Code modules*, and `inventory` lists every
+  `MODULE_UNRESOLVED:` test as a to-do. The onboarding skill's agent review
+  may propose module boundaries as `provider: agent` rows (with `by:
+  agent:<agent-string>`, through an intake shaped like `kind_proposals[]`;
+  a proposal that conflicts with a hand module is reported, never wins) and
+  write `testmap:module` lines; the review can be rerun whenever
+  `MODULES_DRIFT` fires or `MODULE_UNRESOLVED:` findings accumulate, and no
+  step of it waits for a person. `detect --write` never writes
+  `completion.mode: module`. *(t2131_9)*
 - `seed` is the seeder. *(M6.2)*
 - `review [--next N] [--class <origin>] [--scope <glob>] [--ids <csv>]
   [--json] [--out <dir>] [--calibrate <n>] [--crew <id>] [--collect
@@ -3711,7 +4107,11 @@ remainder with the agent's verdicts and rationales pre-filled (accept all /
 review a sample of ten / edit rows / skip); per kind change individually;
 `UNLISTED` files (bind / not a test / later); the config table once. The
 skill exports `AIT_PROFILE_HEADLESS=1` around the engine in the headless
-profile so `reject` and `classify --apply` refuse.
+profile so `reject` and `classify --apply` refuse. The `enable` phase writes
+`completion.mode: module` (with a valid `full_run_every`) only when the
+engine reports `module` as a supported mode and the code modules table
+resolves without a `MODULE_UNRESOLVED:` that blocks readiness (t2131_11);
+otherwise it keeps `auto`.
 `tests/test_testmap_onboard_ledger.sh` covers resume from each phase
 including a partial `review`, idempotent re-run, `--no-task` and one task
 per level with `depends:`.
@@ -3846,13 +4246,15 @@ refusal, the row leaving on `verify`.
 <!-- section: component_completion_policy [dimensions: component_completion_policy] -->
 ### Completion policy *(M8.4)*
 
-`aitestmap/config.yaml completion:`: `mode full|selected|auto` (`auto` is
+`aitestmap/config.yaml completion:`: `mode full|selected|module|auto` (`auto` is
 what `detect --write` writes and the attended config table confirms;
 `selected` is written only by the onboarding skill's `--policy` re-entry
 after `READINESS_DECISION:ADMISSIBLE`, beside a human
-`run_gate_admission.approved_by` in `config.yaml`; `full` is the project's
+`run_gate_admission.approved_by` in `config.yaml`; `module` is never written
+by `detect --write`, only by the onboarding skill once the engine supports it
+or by the project; `full` is the project's
 opt-out of any flip), `full_run_every {tasks 5, selection_ratio_above 0.60,
-days 7}` (the cadence; all three required when the mode is `auto` —
+days 7}` (the cadence; all three required when the mode is `auto` or `module` —
 `READINESS:cadence_declared`: `tasks ≥ 2`, `0 < selection_ratio_above ≤ 1`,
 `days ≥ 1`), `deferred run|fail` (what completion does with rows the
 interactive budget would cut; default run), `on_empty_selection skip|full`
@@ -3860,7 +4262,8 @@ interactive budget would cut; default run), `on_empty_selection skip|full`
 full run), `engine_absent error|fallback_command` (default error). `ait
 test --gate` re-checks `readiness` on every completion run: under `selected`
 an unmet criterion prints `POLICY_DEMOTED:selected->full|<criterion>` and
-runs full; under `auto` the arm under *Auto completion policy* applies. The
+runs full; under `auto` and `module` the arms under *Auto completion policy*
+apply. The
 human flip and the engine flip are both bounded by the same automatic
 demotion, and the engine flip additionally by the cadence, so the policy
 can only fail toward running more. The decision is the engine verb `policy`
@@ -3868,8 +4271,9 @@ can only fail toward running more. The decision is the engine verb `policy`
 `policy` package), and `readiness` prints its
 `POLICY:<mode>|<what --gate would run now>[|next_full_in:<n>]` line through
 the same `feedback/policy` code, so the two cannot disagree. The gate-run
-ledger block carries `result="MODE:<full|selected>|<n
-units>|policy:<mode>[|next_full_in:<n>|cadence:<trigger>]"`, written by the
+ledger block carries `result="MODE:<full|selected|module>|<n
+units>|policy:<mode>[|next_full_in:<n>|cadence:<trigger>|widen_full:<reason>]"`
+(at most 200 characters), written by the
 bash front `aitask_test.sh` through M8.1's result carrier
 `AIT_GATE_RESULT_FILE`, never by the engine. M8.4 ships the block, the
 `full` and `selected` arms of the front's `POLICY` step and of the verb
@@ -3917,6 +4321,38 @@ completions, `days` days). Budget: the cadence check < 50 ms. Tests:
 `readiness` states and ledger counters for each trigger, the flip write and
 commit, the demotion clearing `approved_by`; engine tests for the window
 score attributing a miss to the right task.
+
+**The `module` arm.** `completion.mode: module` reuses this arm's machinery —
+`cadence.go`, the verb `policy` and its two `policy.yaml` write points, the
+front's commit — with no second implementation, and differs only in what it
+runs between full runs: the module widening (component *Code modules*), not
+the selection. Decision order inside `ait test --gate` under `module`, where
+*approved* means `costs/policy.yaml` holds an `approved_by` with `mode:
+module` (one recorded under `mode: auto` does not count). `readiness` runs
+first, its criteria judged on the widened sets (component *Feedback tools*),
+and the run takes exactly one of the two admission branches:
+
+1. **Not approved.** `NOT_YET` → full (`POLICY:module|full|not_yet:<criterion>`),
+   nothing written. `ADMISSIBLE` → `approved_by {who: engine:readiness@<run-id>,
+   at, mode: module, statement}` written,
+   `POLICY_FLIPPED:module->module|engine:readiness@<run>` (the mode, then
+   what it now runs), and the run continues at step 3.
+2. **Approved.** Any unmet criterion → `POLICY_DEMOTED:module->full|<criterion>`,
+   `approved_by` cleared, full — this is the only branch that clears an
+   approval. Every criterion met → the run continues at step 3.
+3. A due cadence trigger — `tasks`, `days`, or `selection_ratio_above`
+   computed on the **widened** estimate — → full
+   (`POLICY:module|full|cadence:<trigger>`).
+4. A widening fallback → full (`POLICY:module|full|widen_full:<reason>`), run
+   through the canonical full-run path. The widening is computed once, before
+   step 3; when it falls back, the ratio is not evaluated.
+5. Otherwise → the widened set (`test --widen-modules`),
+   `POLICY:module|module|next_full_in:<n>`, `selected_since_full` incremented.
+
+Every full run, whatever triggered it, resets `last_full_run` and
+`selected_since_full`. `cadence_declared` applies, so `module` needs a valid
+`full_run_every`; a human `approved_by` is optional; `result=` carries
+`MODE:module|…`. In v1 `auto` never lands on `module`.
 <!-- /section: component_auto_policy -->
 
 <!-- section: component_gates [dimensions: component_gates] -->
@@ -4661,12 +5097,28 @@ document.
 ### Map and registry structure (M2, M3)
 
 - **`tradeoff_registry_directory_complexity`** — a merged registry directory
-  needs more CLI logic than a single file: eight tables, two generated files,
+  needs more CLI logic than a single file: nine tables, three generated files,
   two ledgers (`onboard.yaml`, `costs/policy.yaml`), an id grammar with
   member and variant fragments and a handful of provenance fields; kept to
   one directory with one merge rule in one Go package with golden tests, no
   second plugin directory or generated cell table, and the axis table empty
   for every project that declares none.
+- **`tradeoff_flat_modules`** — code modules are one flat set, so a change
+  widens to the modules it reaches and never to "this region and its
+  parent"; the price is that a project cannot pick a small region and its
+  larger enclosing one through a built-in hierarchy, and a provider's single
+  rule may cut too finely (one module per Go or Python package) or too
+  coarsely (one Gradle project, one codemap entry). Accepted for v1:
+  boundaries are refined by the codemap, agent proposals and hand overrides,
+  and more levels are reconsidered only if measurements show widened runs
+  too broad.
+- **`tradeoff_module_reach_full_fallback`** — module widening falls back to
+  the full suite on any deletion, rename, unmapped path, stale table or
+  in-repo dependency uncertainty anywhere, because the absence of a resolved
+  edge is never proof of independence; in repositories with dynamic sources
+  or unresolved references it may fall back often. Accepted for soundness;
+  every fallback is recorded per reason, and only the named follow-ups,
+  gated on the measured share, would relax it.
 - **`tradeoff_cell_table_size`** — instead of ~2,500 generated cell rows,
   `_scanned.yaml` carries 49 member rows with a `variants:` list of at most
   ten values; the price is that `scan` and `check` exec each runner's `list`
