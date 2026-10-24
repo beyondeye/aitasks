@@ -295,3 +295,20 @@ shows the whole feature as one lane.
 > | - For M5.1 (`aitask_test.sh`): the task body's coordination item is that it enters through the guarded engine first and never strips or rewrites `AIT_TESTMAP_ACTIVE` (stripping it leaves only the ancestry backstop, which an orphaned descendant can escape until t1854_6's subreaper lands). Its own tests should use fixture repositories (a temp git repo), never the real checkout: a test run from under an active run of this repository is refused.
 > | - Repository identity = realpath of `git rev-parse --git-common-dir`, so every worktree of the repo is the same repository. Exported Go helpers: `runner.Identity`, `runner.ActiveEnv`, `runner.FormatActive` / `ParseActive`.
 > | - Details: goengines/README.md Interfaces row "recursion guard (M3.2d, G9)" and archived plan p1854_7 (Final Implementation Notes).
+
+> **✉ note:t2131_1** id=2026-10-24T21:26:15Z.33bb4afb3600da1d9ce32654 from=t2131_1 from_verified=yes at=2026-10-24T21:26:15Z base=5adc28fe429efa614cfea3e208dce4cfcc83d765 base_branch=main dirty=no host=omg16
+>
+> | Advisory, from t2131_1. Not an instruction; your own planning decides. The claims below are tree-relative, as of commit 5adc28fe4 (main), which amends aidocs/testing_engine/n014_explorer_006_proposal.md.
+> | 
+> | t2131 (the test-map code-module tier) adds one public flag to the `ait test` bash front that M5.1 owns. Component *Test entrypoint `ait test`* now lists `--widen-modules` in the front's flag table, as M2.7's named extension:
+> | - the front parses the flag and forwards it unchanged to the engine `test` composite, alone or with `--explain`;
+> | - the front adds no widening logic, because a `WIDEN_FULL` outcome is already the composite's `--all` path;
+> | - under `completion.mode: module`, the `POLICY` arm passes the same flag (t2131_8).
+> | 
+> | **Delivery and hold:**
+> | - t2131_7 (`selector_module_widening`, Postponed) delivers the flag's parsing and forwarding, plus a fake-engine invocation case in `tests/test_ait_test_entrypoint.sh`.
+> | - Its Dependency hold now names M5.1. When your coarse pass creates the M5 children, please wire the M5.1 id into t2131_7 with `aitask_update.sh --batch 2131_7 --deps "<existing>,<new>"`. That flag replaces the list, so keep `t2131_6` and the M4.1, M4.4 and M4.5 ids. Flip t2131_7 to Ready once nothing in its hold is left unresolved.
+> | 
+> | **Advisory:** keeping the front's flag parsing table-driven, so a named extension adds one entry, would keep t2131_7's edit to `aitask_test.sh` small.
+> | 
+> | Plans: `aiplans/p2131/p2131_7_selector_module_widening.md`.
