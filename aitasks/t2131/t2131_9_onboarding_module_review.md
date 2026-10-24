@@ -8,7 +8,7 @@ labels: [testmap, go_engine, testing, skills]
 gates: [risk_evaluated]
 anchor: 1852
 created_at: 2026-10-23 11:51
-updated_at: 2026-10-23 11:51
+updated_at: 2026-10-24 23:23
 ---
 
 ## Context
@@ -25,6 +25,10 @@ This child brings the inferred modules into onboarding and lets an **agent propo
 - **Missing codemap.** When `aitasks/metadata/code_areas.yaml` is absent, the onboarding **skill** generates it on the framework side (`aitask_codemap.sh --write`). The engine never runs that script (Invariant 5).
 - **Agent review.** The M6.5 skill's agent review writes:
   - `provider: agent` **proposals**. They are an inference provider (rank 2, below hand overrides, default 5), not overrides; a conflict is reported, not won. The intake is shaped like M6.4's `kind_proposals[]`, and `modules --scan` reads it;
+    - code modules are flat (revised 2026-10-24, user decision; proposal component *Code modules*), so an agent row is a **glob module**: a name and its globs, with no nesting;
+    - its name may not use the generated prefixes `codemap:`, `gradle:`, `go:`, `py:`;
+    - the intake refuses two agent rows that overlap;
+    - a hand module with the same name wins, and the conflict is reported;
   - `testmap:module` annotation lines, through a **key-aware rewriter planner** next to `PlanCovers`. Today `annot/rewrite.go` writes only `covers` lines: see `ownedBy` 304-313, `coverAt` 316-325, `PlanCovers` 490-521.
 - **Rerunnable, not one-shot.** The agent review is not only a step of the first onboarding pass. It can be re-run on demand whenever the codebase has moved, for example when `MODULES_DRIFT` fires or `MODULE_UNRESOLVED:` findings accumulate. A re-run revises the existing agent proposals and keeps their `by:` provenance; hand overrides are never touched. User decision, 2026-10-23: agent-defined boundaries are where the tier's value lies, so they must be maintainable as the code evolves.
 - **Reuse the agent review pass, do not build a second one.** The proposal already plans agent review machinery: the adoption model (seeds → verdicts → stamped) and *The Agent Review Pass* (packets, verdicts, calibration, budgets), owned by M6 and M7 (t1858). The boundary review should run through that machinery rather than a parallel proposal path. The Reality check decides how; if it needs an M7 work package, add that hold (below).

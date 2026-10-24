@@ -8,7 +8,9 @@ Output branch: main
 
 ## Context
 
-t2131 adds a two-level **code-module tier** (module → submodule) to the test map.
+t2131 adds a **code-module tier** — one flat set of code modules (*revised
+2026-10-24, user decision:* the two-level module → submodule design this pass
+first fixed is replaced; see "Design defaults") — to the test map.
 It sits between "tests mapped to the changed files" and "the full suite": a
 selection can be widened to every test of the code modules a change affects,
 and completion can run at module scope. Today:
@@ -111,6 +113,12 @@ folded in:
 
 ## Design defaults this pass fixes (written into the proposal by t2131_1)
 
+> **Revised 2026-10-24 (user decision): one flat set of code modules, no
+> submodules.** The defaults below are rewritten for the flat design with
+> their numbers kept, so child references ("default 7", …) stay valid. The
+> contract is the proposal's component *Code modules*, landed by t2131_1;
+> where this summary and the proposal differ, the proposal wins.
+
 These are the starting positions every child body records. t2131_1 writes them
 into the proposal. A later child whose Reality check finds one wrong amends the
 proposal in the same change and notes its siblings.
@@ -124,7 +132,7 @@ proposal in the same change and notes its siblings.
      - the `MODULE_*` check rules;
      - path → module lookup.
    - A new package `internal/testmap/modules` (above `deps`) owns the providers,
-     the `modules --scan` writer and the reach and widening library.
+     the `modules --scan` writer and the `Widen` library.
    - New work package **M2.7 — Code modules** owns both. "Eight tables" becomes
      nine; "two generated files" becomes three (proposal 4664).
 2. **Verb `modules`** (added to the proposal verb list and the frozen test):
@@ -133,147 +141,165 @@ proposal in the same change and notes its siblings.
 3. **Freshness.**
    - **Detection.** `check` gains `MODULES_DRIFT`, like `SCAN_DRIFT`: a live
      re-inference over the cached `deps.Scan`, within the 300 ms budget.
-   - **Consumers.** `select --widen` and `module` mode treat a drifted table as
-     `WIDEN_FULL:modules_stale`.
+   - **Consumers.** `select --widen-modules` and `module` mode treat a drifted
+     table as `WIDEN_FULL:modules_stale`.
    - **Over budget.** If t2131_3 measures the check over budget, drift detection
      moves to the consumers only, still failing toward full.
-4. **Ids and tiers.**
-   - A module name and a submodule name are each an id fragment (the
-     area-name rule).
-   - The qualified form `<module>/<submodule>` appears only in output and in
-     `testmap:module` values.
-   - YAML nests submodules under their module. A submodule has no submodules,
-     so the schema enforces two tiers.
-   - Submodule names are unique within their module only.
-5. **Providers, in precedence order:**
+4. **Names (flat).**
+   - A module is a named set of source paths. There are no nested records,
+     no parent/child relation and no qualified ids; every module has the same
+     standing.
+   - A name follows the area-name rule. A generated name is `<provider
+     prefix>:<native id>` — `codemap:<dir>`, `gradle:<Gradle path>`,
+     `go:<dir>`, `py:<dir>` — with `/` written as `:` and the repository root
+     directory as `.`. That is injective: a root whose name contains `:` or
+     another refused character is `MODULE_REFUSED:<provider>|<root>|unnameable`.
+   - The four prefixes are reserved for generated names; hand and agent names
+     may not use them, so names can collide only between hand and agent rows
+     (hand wins, reported).
+   - A nested hand key (`submodules:`, `children:`) is an unknown key and is
+     refused.
+5. **Providers, in precedence order** (one deterministic initial rule each;
+   no granularity knob):
 
-   | rank | provider | maps to |
-   |---|---|---|
-   | 1 (wins) | hand `modules:` overrides | project-authored |
-   | 2 | `provider: agent` proposals | carry `by: agent:<string>`; the slot is reserved by t2131_3 and written by t2131_9 |
-   | 3 | the codemap (read directly, never run) | parent → module, child → submodule |
-   | 4 | Gradle | `:a` → module, `:a:b` → submodule, deeper folds into `:a:b`; **the root project `:` is not a module** |
-   | 5 | Go | `go.mod` module → module, first package level → submodule |
-   | 5 | Python | top-level package → module, first subpackage → submodule |
+   | rank | provider | kind | boundary |
+   |---|---|---|---|
+   | 1 (wins) | hand `modules:` overrides | glob | the listed globs; an overlap between two hand modules is `REGISTRY_INVALID` |
+   | 2 | `provider: agent` proposals | glob | carry `by: agent:<string>`; the slot is reserved by t2131_3 and written by t2131_9 |
+   | 3 | the codemap (read directly, never run) | subtree | every entry at any depth is a module rooted at its `path`; deepest root wins |
+   | 4 | Gradle | subtree | every included project at any nesting depth, rooted at its `projectDir`; deepest root wins |
+   | 5 | Go | package | every package; it owns only its own `*.go` files in its directory |
+   | 5 | Python | package | every package; it owns only its own `*.py` / `*.pyi` files in its directory |
 
-   - Every row records `provider:` and its evidence.
-   - A disagreement is always reported as `MODULE_CONFLICT:` with both sides'
-     evidence, even when precedence settles it.
+   - Physical nesting creates no membership and no expansion: a nested root
+     is simply another module.
+   - **No subtree module at the repository root**: the Gradle root project
+     `:` and a codemap root entry are `MODULE_REFUSED:<provider>|.|repository_root`
+     (the existing catch-all protection). A root *package* (`go:.`, `py:.`)
+     is legitimate because it owns only its own source files.
+   - Every row records `provider:` and its evidence. Each mapped path has
+     exactly one owning module.
+   - A disagreement is reported as `MODULE_CONFLICT:` once per winner / loser
+     pair whose path sets overlap but differ.
    - A path that no provider covers stays unmapped. There is no guessing
      fallback.
 6. **Module → module edges.** `modules --scan` records `deps:` per module, with
    one file-level evidence pair each. These edges are for inspection only;
    reach (7) never trusts them.
-7. **Evidence-based reach, initial mechanism: the current graph plus a
-   conservative fallback.**
+7. **Module widening, one operation: the current graph plus a conservative
+   fallback.**
+   - "Find the modules containing changed files and their transitive reverse
+     dependents. Add every test belonging to those modules. Preserve tests
+     already selected."
    - **The graph.** Reach reads only the **current** (post-change) dependency
-     graph.
-   - **The affected set** is:
-     - the modules containing a changed path;
-     - every module with a file in the **transitive** reverse file closure of
-       the changed paths over resolved edges. Indirect dependents count.
+     graph. The reached paths are the changed paths ∪ the transitive reverse
+     file closure over resolved edges (indirect dependents count); each maps
+     to its one owning module. Each affected module carries evidence
+     `{module, origin: <changed path>, via?: <reached path>}`.
    - **What does not pull modules in.** An edit inside a module that nothing
-     outside it reaches pulls in no dependents. Reach never recurses through
+     outside it reaches pulls in no other module. Reach never recurses through
      module-level deps for their own sake.
    - **When the bound is unsafe, run full.** The absence of a resolved edge is
-     never proof of independence. So the affected set is used only when no
-     uncertainty could carry the change's impact outside it. Otherwise the run
-     falls back to the **full suite** and prints
-     `WIDEN_FULL:<reason>|<path>`:
-     - `deleted_path` / `renamed_path`: the change surface deletes or renames
-       a path (the current graph has no node for it);
+     never proof of independence. Otherwise the run falls back to the **full
+     suite** and prints `WIDEN_FULL:<reason>|<first path>|<more_n>`:
+     - `deleted_path` / `renamed_path`;
      - `unmapped_path`: a changed or reached path lies outside every module,
        including root-only Gradle paths;
      - `uncertain_reference`: any in-repo file anywhere carries dependency
-       uncertainty. That means an `Unresolved` entry naming an in-repo
-       target, an opacity reason, a `<dynamic>` source, or a `gradle-dynamic`
-       build. Without clearing, no uncertain reference can be shown not to
-       reach the changed paths, directly or indirectly. The reason names the
-       first such file and counts the rest;
+       uncertainty (an in-repo `Unresolved` entry, an opacity reason, a
+       `<dynamic>` source, a `gradle-dynamic` build); a form the scanner
+       cannot classify counts, an out-of-universe reference does not;
      - `modules_stale`: the modules table has drifted.
+   - There is no level, no parent fallback and no hierarchy in the interface.
    - **What the initial scope leaves out:** no historical (base-revision)
      graph and no per-language clearing of uncertain references.
-     - The one classification it makes is the scanner's existing in-repo vs
-       outside-the-universe distinction. A reference the scanner already
-       records as targeting outside the repository is not uncertainty about
-       an in-repo dependency.
-     - If the scanner cannot tell the two apart for a form, that form counts
-       as uncertainty.
-   - **Recording and measuring.** Every fallback reason is recorded:
-     - on the `WIDEN_FULL:` line;
-     - in the prediction record's widen outcome (default 10);
-     - in a per-reason counter.
-
-     t2131_6 measures each reason's frequency on this repo's graph and on a
-     Gradle fixture.
-   - **Smarter analysis is a named follow-up, not v1.** It is gated on
-     t2131_12 showing excessive full-suite fallbacks. Candidates:
-     - include uncertain files conservatively with their reverse closure,
-       instead of falling back;
-     - per-language clearing iterated to a fixed point over the growing reach
-       set;
-     - a base-revision graph for deletions and renames.
-8. **Membership** is computed at load, inside `registry`, and never persisted.
-   - **Base membership.** A test belongs to the modules that path containment
-     gives it, **plus** the modules of its covered sources: `_scanned.yaml`
+   - **Recording and measuring.** Every fallback reason is recorded on the
+     `WIDEN_FULL:` line and in the prediction record's widen outcome; `score`
+     derives per-reason counts from the records (`WIDEN_SCORED:`). t2131_6
+     measures each reason's frequency on this repo's graph and on a Gradle
+     fixture.
+   - **Smarter analysis is a named follow-up, not v1**, gated on t2131_12:
+     conservative inclusion of uncertain files, per-language clearing to a
+     fixed point, a base-revision graph.
+8. **Membership** is computed at load, inside `registry`, and never persisted;
+   there is one kind of membership.
+   - **Base membership.** A test belongs to its path-containment module (if
+     any) **plus** the owning modules of its covered sources: `_scanned.yaml`
      covers, hand, adopted and seeded edges. Covered-source modules count even
      when path membership exists, so flat `tests/` directories work.
-   - **Annotation.** `testmap:module <id>…` is a new grammar key, allowed on
+   - **Annotation.** `testmap:module <name>…` is a new grammar key, allowed on
      any kind. It reaches the loader through a new optional `ScannedRow`
-     field, byte-identical when empty.
-     - It replaces **only the path-derived part**; covered-source modules
-       always stay.
-     - An annotation that would drop one is a finding.
+     field, byte-identical when empty. It replaces **only the path-derived
+     part**; an annotation that would drop a covered-source module is a
+     finding.
    - **Unresolved.** A test with no membership is a `MODULE_UNRESOLVED:` check
      finding (Info, counted). It is never guessed.
 9. **Areas reference modules.**
-   - An area may list `modules: [<id>…]`, which expands to those modules'
-     globs.
-   - `areas --import-codemap` writes module references instead of copying
-     globs.
-   - A child name that collides across parents is qualified `<parent>-<child>`
-     instead of refused.
-   - This is a recorded deviation from the landed M2.5 contract.
-10. **Widening.** `select --widen submodule|module` and `test --widen
-    submodule|module`.
-    - **The result set.** It is the selected tests ∪ every member test of the
-      affected (sub)modules. Selected tests outside those modules are kept.
-    - **New output.** A reason token `module(<id>) <- <path>`, and a
-      `WIDENED:<level>|<modules_n>|<added_n>` line ahead of the rows. The
-      `SELECTED:` shape is unchanged.
+   - An area may list `modules: [<name>…]`, which expands at load to those
+     modules' **effective** paths; an unknown or dropped name is
+     `DEAD_SCOPE:<file>|areas|<area>|module:<name>`.
+   - **`areas --import-codemap` is unchanged from the landed M2.5 contract**:
+     it keeps copying `<path>/**` globs and never writes module references,
+     so an imported area's breadth never depends on the modules table or an
+     override (check: codemap `api` at `services/api/` under a hand module
+     `api` over `services/api/public/**` still imports area `api` =
+     `services/api/**`). There is no M2.5 deviation.
+10. **Widening surface, execution and the paired record.**
+    - **One spelling:** `select` / `explain` / `test --widen-modules` and `ait
+      test --widen-modules`; no level. M5.1's bash front (`aitask_test.sh`)
+      parses the public flag and forwards it unchanged to the engine `test`
+      composite (t2131_7, held on M5.1).
+    - **The result set.** The selected tests ∪ every member test of the
+      affected modules.
+    - **New output.** A reason token `module(<name>) <- <changed path>[ via
+      <reached path>]`, and a `WIDENED:<modules_n>|<added_n>` line ahead of
+      the rows. The `SELECTED:` shape is unchanged.
     - **Placement.** The widening stage runs after the graded walk.
     - **The budget.** Widened tests are budget-exempt (never `DEFERRED`).
+    - **Execution.** A `WIDEN_FULL` outcome runs through the canonical
+      full-run path (exactly what `--all` runs, with its scoring and
+      accounting). `select` / `explain --widen-modules` never execute or
+      score a test, and each writes exactly what its plain form writes — a
+      task-scoped `select` still writes the task's prediction record.
     - **Paired prediction.** A widened task-scoped selection writes **one**
-      prediction record holding:
-      - the **plain** selection (the graded walk, pre-widening);
-      - the widen outcome: the level and the added tests, or
-        `full:<reason>`;
-      - the identity the score needs to compare both against the same later
-        full run: base revision, change-surface digest, and the registry and
-        modules-table digests.
-
-      `score` scores the plain and widened sets against that run and reports
-      false negatives per set. A record without the widened part scores
-      exactly as today.
+      prediction record holding the plain selection, the widen outcome (the
+      added tests, or `full:<reason>`), and the identity: base revision,
+      change-surface digest, and the registry and modules-table digests.
+      `score` scores both sets against the same later full run and reports
+      false negatives per set; a record without the widened part scores
+      exactly as today. Under `completion.mode: module` every task-scoped
+      selection records the widen outcome automatically.
 11. **Completion: `module` mode, with the cadence.**
-    - **Configuration.** `completion.mode: full|selected|module|auto` plus
-      `completion.widen: module|submodule` (default `module`).
+    - **Configuration.** `completion.mode: full|selected|module|auto`. There
+      is **no `completion.widen`**: the mode names the strategy.
     - **Required cadence.** `module` requires a valid `full_run_every` (all
       three triggers). `READINESS:cadence_declared` becomes a criterion for
       `module` as well as `auto`; when unmet, the run is
       `POLICY_DEMOTED:module->full|cadence_declared`.
+    - **Readiness judges the executed strategy.** `selected` / `auto` read
+      plain sets only; `module` reads widened sets (a record without a widened
+      part counts its plain false negatives; a full run counts toward the run
+      totals only when every scored record carries a widened part and at
+      least one is not `full:`; a modules-table change is a map change).
     - **Decision order for each completion run under `module`.** It reuses
       M8.5's `cadence.go` and `policy` verb (no second implementation):
-      1. readiness `NOT_YET` → full;
-      2. first `ADMISSIBLE` → the engine records
-         `approved_by: engine:readiness@<run>`, `mode: module` in
-         `costs/policy.yaml`;
+      *Approved* means `costs/policy.yaml` holds `approved_by` with `mode:
+      module`; one recorded under `auto` does not count. Readiness runs
+      first, and each run takes exactly one admission branch:
+      1. **not approved:** `NOT_YET` → full (`not_yet:<criterion>`, nothing
+         written); `ADMISSIBLE` → the engine records `approved_by:
+         engine:readiness@<run>`, `mode: module`
+         (`POLICY_FLIPPED:module->module|…`) and continues at 3;
+      2. **approved:** any unmet criterion →
+         `POLICY_DEMOTED:module->full|<criterion>`, `approved_by` cleared,
+         full (the only branch that clears an approval); all met → continue
+         at 3;
       3. a due cadence trigger (`tasks`, `days`, or the
          `selection_ratio_above` ratio computed on the **widened** estimate) →
          full, with `cadence:<trigger>`;
-      4. any later unmet criterion → `POLICY_DEMOTED:module->full|<criterion>`;
-      5. a reach fallback → full, with `widen_full:<reason>`;
-      6. otherwise → `module|next_full_in:<n>`.
+      4. a reach fallback → full, with `widen_full:<reason>` (the widening is
+         computed once, before step 3);
+      5. otherwise → `module|next_full_in:<n>`.
     - **Reset after a full run.** Every full run resets the counters, exactly
       as under `auto`: `last_full_run` and `selected_since_full := 0`. Each
       module run increments `selected_since_full`.
@@ -282,13 +308,16 @@ proposal in the same change and notes its siblings.
     - **`auto` in v1.** `auto` never lands on `module`.
     - **Who enables it.** `mode: module` is written by onboarding only once
       the engine supports it (t2131_11), or by the project.
-12. **Runner contract.** `group_by: module|submodule` is a new `describe` value
-    (M3.1's vocabulary). Each test groups by its path-containment module.
-    `{module}` resolves from the table's Gradle name where one exists.
+12. **Runner contract.** `group_by: module` is a new `describe` value (M3.1's
+    vocabulary). Each test groups by its path-containment module; a test
+    without one stays ungrouped. `{module}` resolves from the table's Gradle
+    path where one exists, and is refused otherwise.
 13. **The t1812 re-check (t2131_1).** A new design decision states:
-    - code modules are logical source groupings derived from data, not
-      hand-typed labels and not profile tiers;
-    - widening is a cut knob applied after the graded walk.
+    - code modules are flat, data-derived logical source groupings, not
+      hand-typed labels, not profile tiers and not a hierarchy;
+    - widening is a cut knob applied after the graded walk;
+    - a built-in module → submodule hierarchy was considered and rejected,
+      to be reconsidered only if t2131_12 shows flat modules too broad.
 
     That squares the tier with t1812:55-56.
 14. **The prose rename (t2131_2).**
@@ -297,7 +326,8 @@ proposal in the same change and notes its siblings.
     - Section marker ids, node metadata keys and task names and ids keep their
       identifiers.
     - Gradle, Go and Python "module" stay as they are.
-    - A vocabulary entry defines "work package" and "code module".
+    - A vocabulary entry defines "work package" and "code module" (t2131_1
+      already adds both).
 
 ## Decomposition — twelve children
 
@@ -319,17 +349,17 @@ M2.1–M2.6 (`t1853_1..6`), M3.1 (`t1854_1`) and M3.4 (`t1854_4`).
 
 | child | name | type / effort | scope | depends | hold | status | wave |
 |---|---|---|---|---|---|---|---|
-| t2131_1 | `design_amendment_code_modules` | documentation / medium | Edits the proposal for defaults 1–13. The targets: vocabulary; design decision 20; a new M2 component *Code modules* (reach as default 7 states it, with the fallback-reason vocabulary); the M2.7 row and the waves table; the registry tree, *Where state lives*, the table and generated-file counts and the reserved names; line-protocol rows (`MODULE:`, `MODULE_CONFLICT:`, `MODULE_UNRESOLVED:`, `MODULES_DRIFT`, `WIDENED:`, `WIDEN_FULL:`); the verb list; *Selector*, *Run Surface* and the output contract (`--widen`, budget exemption, the paired prediction record); *Feedback tools* (paired scoring, `cadence_declared` for `module`); *Completion policy*, the config block, the data-flow matrix and readiness `POLICY:` (default 11's decision order); *Scoped-row registry and areas*; M3.1 `group_by: module`; onboarding lines; *Named follow-ups* (smarter reach analysis, gated on the measured fallback share); the t1812 re-check. Then sends **contract notes** with the commit SHA to t1853, t1855, t1857, t1859_4, t1859_5 and t1854_11. | — | — | Ready | now |
+| t2131_1 | `design_amendment_code_modules` | documentation / medium | Edits the proposal for defaults 1–13. The targets: vocabulary; design decision 20; a new M2 component *Code modules* (reach as default 7 states it, with the fallback-reason vocabulary); the M2.7 row and the waves table; the registry tree, *Where state lives*, the table and generated-file counts and the reserved names; line-protocol rows (`MODULE:`, `MODULES:`, `MODULE_OF:`, `MODULE_CONFLICT:`, `MODULE_REFUSED:`, `MODULE_UNRESOLVED:`, `MODULES_DRIFT`, `WIDENED:`, `WIDEN_FULL:`); the verb list; *Selector*, *Run Surface* and the output contract (`--widen-modules`, budget exemption, the canonical full-run fallback, the paired prediction record); *Feedback tools* (paired scoring, `cadence_declared` for `module`, which prediction set each mode's readiness judges); *Completion policy*, the config block, the data-flow matrix and readiness `POLICY:` (default 11's decision order); *Scoped-row registry and areas*; M3.1 `group_by: module`; onboarding lines; *Named follow-ups* (smarter reach analysis, gated on the measured fallback share); the t1812 re-check. Then sends **contract notes** with the commit SHA to t1853, t1855, t1857, t1859_4, t1859_5 and t1854_11. | — | — | Ready | now |
 | t2131_2 | `proposal_work_package_rename` | documentation / low | Default 14 only: a mechanical prose and heading rename, with every kept identifier listed. Timed so that no other session is editing the proposal. | — | — | Ready | now |
-| t2131_3 | `modules_table_and_core_providers` | feature / high | In `registry`: the schema (`provider:` enum including the reserved `agent`, plus `by:`), the `_modules.yaml` loader and renderer, the hand `modules:` table, path → module lookup, `MODULE_CONFLICT:` and `MODULES_DRIFT`. The `modules` package: the inference driver with the codemap and Gradle providers (root `:` excluded) and the module → module `deps:` evidence. The `modules` verb (`--list`, `--explain <path>`, `--scan [--apply]`), the verb-table test and the README interface rows. | t2131_1 | — | Ready | B/C (M2.7) |
-| t2131_4 | `modules_language_package_providers` | feature / medium | Exposes Go and Python package facts on `deps.Graph` through copy-returning accessors, with the cache key covering them. Adds the Go and Python providers. | t2131_3 | — | Ready | C (M2.7) |
-| t2131_5 | `test_module_membership` | feature / high | Default 8: the `testmap:module` key (parser, `UnitAnnotation`, `ScannedRow` field and render, `SCAN_DRIFT`, goldens, conformance records), membership, the annotation semantics, `MODULE_UNRESOLVED:` / unknown-id findings and `modules --explain <test-id>`. Default 9: area `modules:` references and the codemap import writing them. | t2131_3 | — | Ready | C (M2.7) |
-| t2131_6 | `module_reach_and_widening` | feature / medium | The library in `modules`: `Reach(current graph, table, change surface) → affected modules with evidence \| full reason` (default 7: transitive reverse closure over resolved edges; full on deletion, rename, unmapped path, any in-repo uncertainty, or a stale table; a per-reason counter) and `Widen(level, affected, membership) → plain + added tests with reasons` (default 10). Fallback frequency is measured per reason on this repo's graph (with a codemap the test harness generates through `aitask_codemap.sh --scan`, never the engine) and on a Gradle fixture. | t2131_5 | — | Ready | C (M2.7) |
-| t2131_7 | `selector_module_widening` | feature / high | Wires t2131_6 into `select` / `explain` (M4.1) and `test` (M4.5): `--widen`, the reason token, `WIDENED:` / `WIDEN_FULL:`, the budget exemption and the explain rows. Also the **paired prediction record** (plain + widen outcome incl. the fallback reason + identity, default 10) and its scoring contract in M4.4 `score`: both sets are scored against the same full run, false negatives are reported per set, and a record without the widened part scores as today. | t2131_6 | M4.1, M4.4, M4.5 | Postponed | D (after M4.4) |
-| t2131_8 | `module_completion_mode` | feature / medium | Default 11: the config enum and `completion.widen`; the `module` arm of M8.4's `POLICY` hook in `aitask_test.sh` (it passes `--widen` to `test`, from t2131_7); engine admission and the cadence decision order through M8.5's `cadence.go` and `policy.yaml` writes (no second implementation); `cadence_declared` for `module`; `MODE:module` / `POLICY_DEMOTED:module->full`; readiness `POLICY:module\|…\|next_full_in:<n>`. | t2131_7, t1859_4, t1859_5 | M4.4 | Postponed | G (with M8.5) |
+| t2131_3 | `modules_table_and_core_providers` | feature / high | In `registry`: the schema (`provider:` enum including the reserved `agent`, plus `by:`), the `_modules.yaml` loader and renderer, the hand `modules:` table, path → module lookup, `MODULE_CONFLICT:` and `MODULES_DRIFT`. The `modules` package: the inference driver with the codemap and Gradle providers (default 5: flat, every codemap entry and every Gradle project at any depth, deepest root wins; names `codemap:`/`gradle:` per default 4; `MODULE_REFUSED:` for an unnameable root and for a subtree root at the repository root, incl. the Gradle root `:`) and the module → module `deps:` evidence. The `modules` verb (`--list`, `--explain <path>`, `--scan [--apply]`), the verb-table test and the README interface rows. | t2131_1 | — | Ready | B/C (M2.7) |
+| t2131_4 | `modules_language_package_providers` | feature / medium | Exposes Go and Python package facts on `deps.Graph` through copy-returning accessors, with the cache key covering them. Adds the Go and Python providers (default 5: one module per package, `go:<dir>` / `py:<dir>`, owning only the package's own source files; a root package is `go:.` / `py:.`). | t2131_3 | — | Ready | C (M2.7) |
+| t2131_5 | `test_module_membership` | feature / high | Default 8: the `testmap:module` key (parser, `UnitAnnotation`, `ScannedRow` field and render, `SCAN_DRIFT`, goldens, conformance records), membership, the annotation semantics, `MODULE_UNRESOLVED:` / unknown-id findings and `modules --explain <test-id>`. Default 9: area `modules:` references (effective-path expansion, `DEAD_SCOPE:…|module:<name>`); `areas --import-codemap` stays as landed. | t2131_3 | — | Ready | C (M2.7) |
+| t2131_6 | `module_reach_and_widening` | feature / medium | The library in `modules`: one operation, `Widen(current graph, table, membership, change surface, plain selection) → affected modules with evidence + added tests with reasons \| full reason` (default 7: transitive reverse closure over resolved edges; full on deletion, rename, unmapped path, any in-repo uncertainty, or a stale table; reasons recorded for `WIDEN_SCORED:`). Fallback frequency is measured per reason on this repo's graph (with a codemap the test harness generates through `aitask_codemap.sh --scan`, never the engine) and on a Gradle fixture. | t2131_5 | — | Ready | C (M2.7) |
+| t2131_7 | `selector_module_widening` | feature / high | Wires t2131_6 into `select` / `explain` (M4.1), `test` (M4.5) and the public `ait test --widen-modules` flag of M5.1's bash front (parsed and forwarded unchanged): `--widen-modules`, the reason token, `WIDENED:` / `WIDEN_FULL:` (a full fallback runs through the canonical `--all` path), the budget exemption and the explain rows. Also the **paired prediction record** (plain + widen outcome incl. the fallback reason + identity, default 10) and its scoring contract in M4.4 `score`: both sets are scored against the same full run, false negatives are reported per set (`WIDEN_SCORED:`), a record without the widened part scores as today, and readiness judges each mode on the set it executes (default 11). | t2131_6 | M4.1, M4.4, M4.5, M5.1 | Postponed | D (after M4.4) |
+| t2131_8 | `module_completion_mode` | feature / medium | Default 11: the config enum (no `completion.widen`); the `module` arm of M8.4's `POLICY` hook in `aitask_test.sh` (it passes `--widen-modules` to `test`, from t2131_7); engine admission and the cadence decision order through M8.5's `cadence.go` and `policy.yaml` writes (no second implementation); `cadence_declared` for `module`; `MODE:module` / `POLICY_DEMOTED:module->full`; readiness `POLICY:module\|…\|next_full_in:<n>`. | t2131_7, t1859_4, t1859_5 | M4.4 | Postponed | G (with M8.5) |
 | t2131_9 | `onboarding_module_review` | feature / high | `onboard detect` / `classify` / `inventory` surface the inferred modules (a `MODULES:` summary, `MODULE_UNRESOLVED:` to-dos). When no codemap exists, the skill generates one on the framework side (`aitask_codemap.sh --write`). The M6.5 skill's agent review writes `provider: agent` proposals (intake shaped like `kind_proposals[]`; a conflict is reported, not won) and `testmap:module` lines through a key-aware rewriter planner next to `PlanCovers`. The review is **rerunnable on demand** (e.g. on `MODULES_DRIFT` or accumulating `MODULE_UNRESOLVED:`), not one-shot, and runs through the proposal's agent review pass (M6/M7, t1858) rather than a parallel path; a possible M7 hold is decided at its Reality check (added 2026-10-23, user decision). It **never writes `completion.mode: module`**, and a test pins that. No human gate. | t2131_5 | M6.1, M6.4, M6.5 | Postponed | F/G (with M6) |
-| t2131_10 | `per_module_batching` | feature / medium | Default 12: `group_by: module\|submodule` in M3.1's grouping function through the `registry` path → module lookup, and `{module}` expansion. The canonical grouping key stays one function shared by M3.3, M4.1 and M3.4. | t2131_3, t1854_11 | — | Ready (blocked by deps) | after M3.2h |
-| t2131_11 | `onboarding_enable_module_mode` | feature / low | The M6.5 skill's enabling write: `completion.mode: module` with `completion.widen` and a valid `full_run_every`, with agent provenance. It is written only when the engine reports `module` as supported (a capability probe of the landed config validation, never a version guess) and the modules table resolves with no `MODULE_UNRESOLVED:` blocking readiness. Verified on both sides: a fake engine without `module` support gets no write; the real engine gets the write and loads it. | t2131_8, t2131_9 | M6.5 | Postponed | G (after M8.5) |
+| t2131_10 | `per_module_batching` | feature / medium | Default 12: `group_by: module` in M3.1's grouping function through the `registry` path → module lookup, and `{module}` expansion. The canonical grouping key stays one function shared by M3.3, M4.1 and M3.4. | t2131_3, t1854_11 | — | Ready (blocked by deps) | after M3.2h |
+| t2131_11 | `onboarding_enable_module_mode` | feature / low | The M6.5 skill's enabling write: `completion.mode: module` with a valid `full_run_every`, with agent provenance. It is written only when the engine reports `module` as supported (a capability probe of the landed config validation, never a version guess) and the modules table resolves with no `MODULE_UNRESOLVED:` blocking readiness. Verified on both sides: a fake engine without `module` support gets no write; the real engine gets the write and loads it. | t2131_8, t2131_9 | M6.5 | Postponed | G (after M8.5) |
 | t2131_12 | `retrospective_module_tier_evaluation` | chore / medium | Runs once a registered project with `aitestmap/` has scored paired predictions. Measures, from the paired records (t2131_7): the miss rate of the plain vs the widened set against the same full runs; the added cost (M3.4 ledger); the **full-fallback share per `WIDEN_FULL` reason**; and the cadence's full-run share under `module`, each split by boundary source (build/package/codemap vs agent-refined). Decides whether the smarter-reach follow-ups (default 7) are justified, and whether `auto` should learn `module`. Outcomes go into its plan; follow-ups are filed only where the data justifies them. | t2131_7, t2131_8, t2131_9 (added 2026-10-23, so agent-refined boundaries are measured) | M4.4 | Postponed | after G |
 
 **Dependency holds** follow the convention of t1853_7 and t1859_4:
@@ -414,8 +444,10 @@ Then:
      - M4.1's landed walk, reason grammar and prediction-record schema;
      - M4.4's landed `score` and its `predictions.yaml` rows;
      - the `explain --sources --format table` columns;
-     - how `test` (M4.5) forwards `--widen`;
-     - **stop if M4.1/M4.4/M4.5 have not landed.**
+     - how `test` (M4.5) forwards `--widen-modules`;
+     - M5.1's landed flag parsing in `aitask_test.sh` and the fake engine of
+       `tests/test_ait_test_entrypoint.sh`;
+     - **stop if M4.1/M4.4/M4.5 or M5.1 have not landed.**
    - **_8:**
      - M8.4's landed `POLICY` hook, carrier and readiness lines;
      - M8.5's `cadence.go`, its decision order and the `policy.yaml` writes,
@@ -457,12 +489,16 @@ Then:
      - every cited anchor resolves.
    - **_3:**
      - a `_modules.yaml` load → render golden round trip;
-     - codemap fixture with duplicate child names across parents;
+     - codemap fixture with duplicate entry names across parents (distinct
+       `codemap:` names) and a codemap root entry refused;
      - Gradle `projectDir` override;
      - `gradle-dynamic` flagged;
-     - root `:` excluded;
-     - hand override wins and is reported;
-     - three-tier input refused;
+     - root `:` refused as `MODULE_REFUSED:gradle|.|repository_root`;
+     - the proposal's worked example 4 (a deeply nested Gradle project owns
+       its subtree; no expansion to the enclosing project);
+     - hand override wins and is reported; a hand name with a reserved
+       prefix is refused; the hand/agent name collision;
+     - a nested `submodules:` / `children:` hand key refused;
      - the reserved `provider: agent` row loads;
      - `TestVerbTableMatchesProposal` updated;
      - exact-line CLI tests for `modules`;
@@ -471,15 +507,23 @@ Then:
      - Go module and package fixture;
      - Python packages, including a namespace portion;
      - accessors return copies;
-     - the cache key changes when package facts change.
+     - the cache key changes when package facts change;
+     - the proposal's worked example 6 (`go:.` and `go:tool` distinct,
+       ordinary widening over the root package, `README.md` unmapped);
+     - `a/b/` and `a.b/` give `go:a:b` and `go:a.b`; `a:b/` is refused.
    - **_5:**
      - parse goldens and `TestParseErrors` cases;
      - `ScannedRow` round trip, byte-identical when empty;
      - the flat-`tests/` fixture gets the membership;
      - the annotation replaces only path membership, and a drop is a finding;
      - `MODULE_UNRESOLVED:` is counted, not failing;
-     - an area module ref expands, and an unknown ref is refused;
-     - the codemap import writes refs.
+     - an area module ref expands to effective paths, and an unknown ref is
+       refused;
+     - the proposal's worked example 3 (a test in several modules through
+       its covered sources);
+     - `areas --import-codemap` still writes `<path>/**` globs: under a hand
+       `api` over `services/api/public/**`, the imported area `api` stays
+       `services/api/**`.
    - **_6:** ordinary widening and conservative fallback, each guard isolated.
 
      **Ordinary widening** (a fully resolved fixture with no uncertainty
@@ -491,7 +535,8 @@ Then:
      - no recursion through module-level deps (a module dep with no file
        reach adds nothing);
      - selected tests outside the affected modules are kept;
-     - submodule vs module level.
+     - the proposal's worked examples 1, 2 and 5, and example 6's widening
+       over a root package.
 
      **One fixture per retained guard**, each built so that **only** that
      guard can fire. It asserts the exact `WIDEN_FULL:<reason>`, and its
@@ -517,20 +562,33 @@ Then:
 
      **Measured frequencies** are recorded in the plan.
    - **_7:**
-     - exact lines for `select --widen`;
+     - exact lines for `select --widen-modules`;
+     - a `WIDEN_FULL` outcome of `test --widen-modules` runs the canonical
+       `--all` path (scoring and accounting), while `select` / `explain
+       --widen-modules` execute nothing yet still write what the plain form
+       writes (the task's prediction record);
      - the reasons appear in `explain`;
      - the `SELECTED:` shape is unchanged;
      - widened tests are never `DEFERRED`;
-     - the prediction record carries plain + widen outcome (level and added
-       tests, or `full:<reason>`) + identity;
+     - the prediction record carries plain + widen outcome (the added tests,
+       or `full:<reason>`) + identity;
      - `score` against one full run reports false negatives per set (a miss
        the plain set has and the widened set catches);
      - a record without widening scores byte-identically to today;
-     - newest-wins per task keeps the pair together.
+     - newest-wins per task keeps the pair together;
+     - `ait test --widen-modules` (and `--explain --widen-modules`) reaches
+       the fake engine with the flag forwarded unchanged
+       (`tests/test_ait_test_entrypoint.sh`); an unknown-flag control without
+       it stays refused.
    - **_8:**
      - the `module` matrix:
-       - `NOT_YET` → full;
-       - the first `ADMISSIBLE` records the engine approval;
+       - not approved + `NOT_YET` → full, nothing written;
+       - not approved + the first `ADMISSIBLE` records the engine approval
+         and runs on;
+       - approved + a criterion that becomes unmet (e.g.
+         `max_false_negatives`) → `POLICY_DEMOTED:module->full|<criterion>`
+         and `approved_by` cleared, never the `not_yet` branch;
+       - an approval recorded under `mode: auto` does not admit `module`;
        - each cadence trigger (`tasks`, `days`, `selection_ratio_above` on
          the widened estimate) forces full with `cadence:<trigger>`;
        - after a full run, `selected_since_full` is reset to 0 and

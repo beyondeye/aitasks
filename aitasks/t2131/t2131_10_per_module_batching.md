@@ -8,7 +8,7 @@ labels: [testmap, go_engine, testing]
 gates: [risk_evaluated]
 anchor: 1852
 created_at: 2026-10-23 11:52
-updated_at: 2026-10-23 11:52
+updated_at: 2026-10-24 23:23
 ---
 
 ## Context
@@ -23,10 +23,11 @@ This is the "later optimization" in t2131's priorities: **per-module execution b
 **Automation-first:** no human step.
 
 **Default 12:**
-- `group_by: module|submodule` is a new value in M3.1's `describe` vocabulary (today `none|file|dir|regex:<re>`, `runner/describe.go:200,336`).
+- `group_by: module` is a new value in M3.1's `describe` vocabulary (today `none|file|dir|regex:<re>`, `runner/describe.go:200,336`). There is no `group_by: submodule` (revised 2026-10-24, user decision: code modules are flat).
+- A test whose own path has no module stays in the runner's ungrouped group.
 - Each test groups by its **path-containment** module, using the `registry` path → module lookup from t2131_3. `runner` imports `registry`, never `deps`.
 - A test that belongs to several modules still lands in exactly one group.
-- `{module}` in `command:` resolves from the table's Gradle name where one exists.
+- `{module}` in `command:` resolves from the module's `gradle` project path. A module without one is refused (`INPUT_ERROR:runner`), never guessed.
 - The canonical grouping key `(runner, group_by group, resource set, wave class, batch identity)` stays **one** function shared by M3.3 (execution), M4.1 (invocation groups, `SELECTED:` `<groups>`) and M3.4 (estimate).
 
 The runner-contract change is recorded in the proposal by t2131_1.
@@ -54,13 +55,15 @@ The task is `Ready` but blocked until both land. M3.1 (t1854_1, archived) owns t
 ## Implementation Plan
 
 1. **Step 0 — Reality check.** Read M3.1's grouping function and the gradle-class adapter's `{module}` handling as landed.
-2. Add `module` / `submodule` to `grouper()` through the registry lookup.
+2. Add `module` to `grouper()` through the registry lookup.
 3. Add the `{module}` expansion.
 4. Tests.
 
 ## Verification Steps
 
-- A grouping golden for module and submodule.
+- A grouping golden for `group_by: module`, including a test with no path module (ungrouped).
+- `group_by: submodule` is refused as an unknown value.
+- `{module}` is refused for a module without a `gradle` path.
 - A multi-module test lands in exactly one group.
 - `{module}` expansion.
 - Existing `group_by` values are unchanged (goldens).

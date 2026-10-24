@@ -11,8 +11,13 @@ Output branch: main
 
 ## Context
 
-- **Parent goal.** The code-module tier makes "module" / "submodule" mean
-  **code** groupings.
+- **Parent goal.** The code-module tier makes "module" mean a **code**
+  grouping. Code modules are flat (revised 2026-10-24, user decision), so
+  every "submodule" left in the proposal is the work-package sense, except
+  two intentional code-module uses that stay as written:
+  - the rejected module → submodule hierarchy in design decision 20;
+  - the literal refused hand keys `submodules:` / `children:` in component
+    *Code modules*.
 - **This child.** It removes the collision with the proposal's implementation
   cut (M1–M10 and Mx.y) in prose. Both tiers become **"work package"** (user
   decision, 2026-10-23); "child work package" is used only where the tier
@@ -81,8 +86,10 @@ This coarse plan records what the parent pass fixed for this slice. It does not 
 
 ## Verification / acceptance
 
-- Every remaining "module"/"submodule" is either the code-module sense, a kept
-  identifier, or the Go, Gradle or Python sense. List the kept identifiers in
+- Every remaining "module"/"submodule" is either the code-module sense
+  (including the rejected-hierarchy wording and the refused `submodules:`
+  key, both kept as written), a kept identifier, or the Go, Gradle or Python
+  sense. List the kept identifiers in
   this plan.
 - Every cited anchor resolves.
 

@@ -29,7 +29,7 @@ persisted:
     covers, and hand, adopted and seeded edges.
   - Covered-source modules count even when path membership exists. This
     repo's `tests/` → `.aitask-scripts/` is the motivating case.
-- **`testmap:module <id>…`.**
+- **`testmap:module <name>…`.**
   - **Grammar.** A new key, allowed on any kind (unlike `area`). It reaches
     the loader through an optional `ScannedRow` field, byte-identical when
     empty.
@@ -39,11 +39,15 @@ persisted:
 - **Unresolved tests** produce `MODULE_UNRESOLVED:` (Info, counted). They are
   never guessed.
 
-**Default 9 — areas reference modules.**
-- An area may list `modules: [<id>…]`.
-- `areas --import-codemap` writes refs, and colliding child names become
-  `<parent>-<child>`.
-- This deviates from M2.5, as recorded by t2131_1.
+**Default 9 — areas reference modules** (revised 2026-10-24, user decision:
+flat code modules; the codemap-import change is removed).
+- An area may list `modules: [<name>…]`, expanded at load to those modules'
+  **effective** paths. An unknown or dropped name is
+  `DEAD_SCOPE:<file>|areas|<area>|module:<name>`.
+- `areas --import-codemap` is **unchanged**. It keeps copying `<path>/**`
+  globs and never writes module references, so an imported area's breadth
+  never depends on the modules table. There is no M2.5 deviation.
+- Membership has one kind only; nothing is inherited.
 
 ## Reading list
 
@@ -53,7 +57,8 @@ persisted:
   (141-199).
 - `registry/inputs.go` (33-63), `registry/scan.go` (17-44), `registry/load.go`
   (400-410) and `registry/scoped.go` (369-376, 421-469, 669-672).
-- `registry/areas_import.go` and the goldens in `registry/testdata/scoped/`.
+- The goldens in `registry/testdata/scoped/` (`registry/areas_import.go` is
+  read only, to confirm it needs no change).
 
 ## Owned files / provides / consumes
 
@@ -63,7 +68,6 @@ persisted:
   - membership in `registry/modules.go`;
   - the findings in `rules_modules.go`;
   - the area module refs;
-  - the codemap-import change;
   - `modules --explain <test-id>`.
 - **Provides:** `MembersOf` (test → modules with source tags), which t2131_6
   consumes. Also `MODULE_UNRESOLVED:`, which t2131_9 consumes.
@@ -76,9 +80,8 @@ persisted:
    seeded.
 2. How unknown `testmap:area` names are treated. Mirror that for unknown
    module ids (refuse vs finding).
-3. Whether any registered project (`ait projects list`) already has a
-   codemap-imported `registry/areas.yaml`. If one does, the deviation needs a
-   migration note.
+3. Confirm that `areas --import-codemap` still writes `<path>/**` globs and
+   needs no change.
 4. Record the outcome here.
 
 ## Implementation steps (coarse)
@@ -88,8 +91,8 @@ persisted:
    `SCAN_DRIFT`.
 2. **Membership** with source tags. The annotation semantics.
 3. **Findings.** `MODULE_UNRESOLVED`, unknown id, and annotation drop.
-4. **Areas.** `modules:` refs, expanded at load. The codemap import writes
-   refs and qualifies collisions.
+4. **Areas.** `modules:` refs, expanded at load to effective paths, and the
+   `DEAD_SCOPE:…|module:<name>` refusal.
 5. **`modules --explain <test-id>`.**
 6. **Commit.** `feature: … (t2131_5)`.
 
@@ -101,8 +104,13 @@ persisted:
 - the flat-`tests/` fixture gets the membership;
 - the annotation replaces only path membership, and a drop is a finding;
 - `MODULE_UNRESOLVED:` is counted, not failing;
-- an area module ref expands, and an unknown ref is refused;
-- the codemap import writes refs and qualifies colliding names.
+- an area module ref expands to effective paths, and an unknown or dropped
+  ref is refused;
+- the proposal's worked example 3 (a test belonging to two modules through
+  its covered sources);
+- `areas --import-codemap` still writes `<path>/**` globs: with a hand `api`
+  over `services/api/public/**`, the imported area `api` stays
+  `services/api/**`.
 
 ## Step 9 reference
 

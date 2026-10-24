@@ -19,8 +19,18 @@ Output branch: main
   - `goRaw.Package` (`resolve.go:12`).
 
   It then adds the two providers (default 5):
-  - **Go:** `go.mod` module → module, first package level → submodule;
-  - **Python:** top-level package → module, first subpackage → submodule.
+  - **Go:** every package under a `go.mod` is one module, `go:<dir>`;
+  - **Python:** every package (regular or a namespace portion) is one module,
+    `py:<dir>`.
+
+  Revised 2026-10-24 (user decision): code modules are flat. These are
+  **package providers**:
+  - a module owns only the package's own source files directly in its
+    directory (`*.go`, or `*.py` / `*.pyi`), never a subtree;
+  - `/` is written as `:` and the root directory as `.` (`go:.` is a
+    legitimate, bounded root package);
+  - an unnameable directory (one containing `:` …) is refused as
+    `MODULE_REFUSED:<provider>|<dir>|unnameable`.
 
   Both rank below hand, agent, codemap and Gradle.
 - **Wave:** C (M2.7). Depends on t2131_3.
@@ -72,6 +82,10 @@ This coarse plan records what the parent pass fixed for this slice. It does not 
 - accessors return copies;
 - the cache key changes when package facts change;
 - a Go/Python vs codemap overlap reported as `MODULE_CONFLICT:`;
+- the proposal's worked example 6 (`go:.` and `go:tool` distinct; ordinary
+  widening over the root package; `README.md` unmapped);
+- `a/b/` and `a.b/` give the distinct names `go:a:b` and `go:a.b`; `a:b/` is
+  refused;
 - this repo's own scan result recorded here.
 
 ## Step 9 reference

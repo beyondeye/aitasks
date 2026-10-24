@@ -29,7 +29,10 @@ This coarse plan records what the parent pass fixed for this slice. It does not 
 - **Agent review.**
   - It writes `provider: agent` **proposals**. These are an inference
     provider (rank 2, below hand overrides), never overrides; a conflict is
-    reported, not won. The intake is shaped like M6.4's `kind_proposals[]`,
+    reported, not won. Code modules are flat (revised 2026-10-24), so an
+    agent row is a glob module. Its name may not use a generated prefix
+    (`codemap:`, `gradle:`, `go:`, `py:`). The intake refuses two
+    overlapping agent rows. The intake is shaped like M6.4's `kind_proposals[]`,
     and `modules --scan` reads it.
   - It writes `testmap:module` lines through a key-aware rewriter planner next
     to `PlanCovers`.

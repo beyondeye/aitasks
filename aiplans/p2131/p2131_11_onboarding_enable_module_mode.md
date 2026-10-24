@@ -21,8 +21,9 @@ This coarse plan records what the parent pass fixed for this slice. It does not 
 
 **Automation-first.** No human gate. The write carries agent provenance.
 
-**What it writes:** `completion.mode: module`, `completion.widen`, and a valid
-`full_run_every` (all three triggers).
+**What it writes:** `completion.mode: module` and a valid `full_run_every`
+(all three triggers). There is no `completion.widen` (revised 2026-10-24,
+user decision: code modules are flat).
 
 **When it writes:** only when all of these hold:
 - the engine reports `module` as **supported** (a capability probe, never a

@@ -72,7 +72,11 @@ In `depends:`: `t2131_7` (the paired records), `t2131_8` (module mode) and
    - whether to adopt the smarter-reach follow-ups (conservative inclusion of
      uncertain files, per-language clearing to a fixed point, a base-revision
      graph), judged on the fallback share;
-   - whether `auto` should learn `module`.
+   - whether `auto` should learn `module`;
+   - whether flat modules make widened runs too broad (the added cost per
+     module against the plain selection). That is the only trigger for
+     reconsidering a second module level (code modules are flat by user
+     decision, 2026-10-24).
 
    File only the data-backed ones.
 4. **Commit.** `chore: … (t2131_12)`.

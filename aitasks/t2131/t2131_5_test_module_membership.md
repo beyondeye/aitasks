@@ -8,7 +8,7 @@ labels: [testmap, go_engine, testing]
 gates: [risk_evaluated]
 anchor: 1852
 created_at: 2026-10-23 11:51
-updated_at: 2026-10-23 11:51
+updated_at: 2026-10-24 23:23
 ---
 
 ## Context
@@ -25,18 +25,18 @@ This child answers "which tests belong to which module" (test → module members
 
 **Automation-first:** no human step.
 
+> **Revised 2026-10-24 (user decision): flat code modules, no submodules.** Membership has one kind only (nothing is inherited). The codemap-import change below is **removed**: `areas --import-codemap` stays as landed. The contract is the proposal's component *Code modules*.
+
 **Design defaults (parent plan):**
 - **(8) Membership** is computed at load, inside `registry`, and never persisted.
   - **Base membership.** A test belongs to the modules that path containment gives it, **plus** the modules of its covered sources. Covered sources come from `_scanned.yaml` covers and from hand, adopted and seeded edges (the selector walks seeds). Covered-source modules count even when path membership exists, so flat test dirs work: in this repo `tests/` holds tests whose sources live in `.aitask-scripts/`.
-  - **Annotation.** `testmap:module <id>…` is a new grammar key, allowed on **any** kind (unlike `area`). It reaches the loader through a new optional `ScannedRow` field, byte-identical when empty (like `axis`; `_scanned.yaml` is `KnownFields(true)`).
+  - **Annotation.** `testmap:module <name>…` is a new grammar key, allowed on **any** kind (unlike `area`). It reaches the loader through a new optional `ScannedRow` field, byte-identical when empty (like `axis`; `_scanned.yaml` is `KnownFields(true)`).
     - It replaces **only the path-derived part**; covered-source modules always stay, so the map fails toward running more.
     - An annotation that would drop one is a finding.
   - **Unresolved.** A test with no membership is a `MODULE_UNRESOLVED:` check finding (Info, counted). It is never guessed.
 - **(9) Areas reference modules.**
-  - An area may list `modules: [<id>…]`, which expands to those modules' globs.
-  - `areas --import-codemap` writes module references instead of copying globs, so one codemap yields one definition.
-  - A child name that collides across parents is qualified `<parent>-<child>` instead of refused.
-  - This is a recorded deviation from the landed M2.5 contract (amended by t2131_1).
+  - An area may list `modules: [<name>…]`. The list expands at load to those modules' **effective** paths. An unknown name, or one absent from the effective table, is `DEAD_SCOPE:<file>|areas|<area>|module:<name>`.
+  - **`areas --import-codemap` is unchanged.** It keeps copying `<path>/**` globs and never writes module references, so an imported area's breadth never depends on the modules table or an override. There is no M2.5 deviation.
 
 ## Key Files to Modify
 
@@ -48,7 +48,7 @@ This child answers "which tests belong to which module" (test → module members
 - **Registry side:**
   - `registry/modules.go`: membership and `ModulesOf` (from t2131_3);
   - `registry/rules_modules.go`: `MODULE_UNRESOLVED`, unknown-id and annotation-drop findings;
-  - `registry/scoped.go` and `areas_import.go`: area module refs and the import change.
+  - `registry/scoped.go`: area module refs (`areas_import.go` stays as landed).
 - **CLI:** `goengines/cmd/ait-testmap/modules.go`, adding `modules --explain <test-id>` (membership with its sources).
 
 ## Reference Files for Patterns
@@ -62,10 +62,10 @@ This child answers "which tests belong to which module" (test → module members
 1. **Step 0 — Reality check.**
    - Which effective-edge sources exist at load.
    - How unknown `testmap:area` names are treated, mirrored for module ids.
-   - Whether any registered project already has a codemap-imported `areas.yaml` (the deviation).
+   - That `areas --import-codemap` still writes `<path>/**` globs and needs no change.
 2. Grammar key → `UnitAnnotation` → `ScannedRow` field → render and drift.
 3. Membership computation and the findings.
-4. Area `modules:` references and the codemap import change.
+4. Area `modules:` references.
 5. `modules --explain <test-id>`.
 
 ## Verification Steps
@@ -76,5 +76,6 @@ This child answers "which tests belong to which module" (test → module members
 - the flat-`tests/` fixture (a test outside the module dir covering a source inside it) gets that membership;
 - the annotation replaces only path membership, and an attempted drop is a finding;
 - `MODULE_UNRESOLVED:` is counted, not failing;
-- an area module ref expands, and an unknown ref is refused;
-- the codemap import writes refs and qualifies colliding child names.
+- an area module ref expands to effective paths, and an unknown or dropped ref is refused;
+- the proposal's worked example 3: `tests/test_board.sh`, which covers sources in `board` and `lib`, belongs to both;
+- `areas --import-codemap` still writes `<path>/**` globs. With a codemap entry `api` at `services/api/` and a hand module `api` over `services/api/public/**`, the imported area `api` stays `services/api/**`, so `services/api/internal/x.go` still reaches its broad tests.

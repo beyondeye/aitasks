@@ -24,6 +24,10 @@ This coarse plan records what the parent pass fixed for this slice. It does not 
 
 **Automation-first.** No human step. Agent rows keep `by:`.
 
+> **Revised 2026-10-24 (user decision): flat code modules, no submodules.**
+> Defaults 4 and 5 below are the flat versions; the contract is the
+> proposal's component *Code modules* (t2131_1).
+
 **Defaults consumed:** 1–6 and 12. The design-relevant points:
 - **(1) Split between packages.**
   - `registry` owns the schema, the `_modules.yaml` loader and renderer
@@ -33,12 +37,24 @@ This coarse plan records what the parent pass fixed for this slice. It does not 
     `modules --scan` writer.
 - **(3) Freshness.** `MODULES_DRIFT` in `check`, measured against 300 ms. If
   over budget, the consumers fail toward full instead.
-- **(4) Ids.** Each name is an id fragment, the qualified form is
-  `<module>/<submodule>`, and the nesting schema enforces two tiers.
-- **(5) Precedence.** Hand > agent (slot reserved here) > codemap > Gradle >
-  Go/Python.
-  - The root project `:` is not a module.
-  - `MODULE_CONFLICT:` is always reported.
+- **(4) Names (flat).** No nested records, no parent/child relation, no
+  qualified ids. A generated name is `<provider prefix>:<native id>`
+  (`codemap:<dir>`, `gradle:<Gradle path>`), with `/` written as `:` and the
+  repository root directory as `.`; an unnameable root is
+  `MODULE_REFUSED:<provider>|<root>|unnameable`. The prefixes are reserved
+  for generated names. A nested hand key is refused.
+- **(5) Precedence and boundaries.** Hand > agent (slot reserved here) >
+  codemap > Gradle > Go/Python.
+  - Codemap: every entry at any depth is a module rooted at its `path`.
+    Gradle: every included project at any depth, rooted at its
+    `projectDir`. Both are subtree providers: deepest root wins, and nesting
+    creates no membership or expansion.
+  - No subtree module at the repository root: the Gradle root project `:`
+    and a codemap root entry are `MODULE_REFUSED:<provider>|.|repository_root`.
+  - Each mapped path has exactly one owner; two hand modules claiming one
+    path are `REGISTRY_INVALID`.
+  - `MODULE_CONFLICT:` is printed once per winner/loser pair whose path sets
+    overlap but differ, and for a hand/agent name collision.
   - There is no guessing fallback.
 - **(6) `deps:` evidence.** Module → module `deps:` with one file-level
   evidence pair each, for inspection only.
@@ -87,16 +103,20 @@ This coarse plan records what the parent pass fixed for this slice. It does not 
 ## Implementation steps (coarse)
 
 1. **Registry types.**
-   - `Module{Name, Paths, Provider, By, Evidence, Submodules, Deps}`;
+   - `Module{Name, Provider, By, Root, Paths, Gradle, Evidence, Deps}` (flat;
+     `Root` for subtree and package providers, `Paths` for glob providers);
    - the hand table;
    - `_modules.yaml` load and render;
    - the lookup.
 2. **The `modules` package.**
    - the driver;
-   - the codemap provider (keeps both tiers; duplicate child names across
-     parents are allowed);
-   - the Gradle provider (excludes `:`; flags `gradle-dynamic`);
-   - precedence and `MODULE_CONFLICT:`;
+   - the codemap provider (every entry at any depth; names from paths, so
+     duplicate entry names across parents are harmless; a root entry is
+     refused);
+   - the Gradle provider (every project at any depth; `:` refused as
+     `repository_root`; flags `gradle-dynamic`);
+   - the name rule and `MODULE_REFUSED:`;
+   - ownership (deepest root), precedence and `MODULE_CONFLICT:`;
    - `deps:` evidence.
 3. **The `modules` verb.** `--list`, `--explain <path>` and `--scan
    [--apply]`, drift-gated. Update the verb-table test.
@@ -108,12 +128,17 @@ This coarse plan records what the parent pass fixed for this slice. It does not 
 
 `ait engine test` is green, plus:
 - a `_modules.yaml` load → render golden round trip;
-- a codemap fixture with duplicate child names across parents;
+- a codemap fixture with duplicate entry names across parents (distinct
+  `codemap:` names), and a codemap root entry refused;
 - a Gradle `projectDir` override;
 - `gradle-dynamic` flagged;
-- root `:` excluded;
-- a hand override wins and is reported;
-- three-tier input refused;
+- root `:` refused as `MODULE_REFUSED:gradle|.|repository_root`;
+- the proposal's worked example 4 (a deeply nested Gradle project owns its
+  subtree; no expansion to the enclosing project);
+- a hand override wins and is reported; a reserved-prefix hand name refused;
+  a hand/agent name collision;
+- a nested `submodules:` / `children:` hand key refused;
+- an unnameable root (`:` in a directory name) refused;
 - a reserved `provider: agent` row loads;
 - `TestVerbTableMatchesProposal` updated;
 - exact-line CLI tests for the `modules` verb;

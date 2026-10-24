@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: medium
 effort: medium
 depends: []
 issue_type: documentation
@@ -14,12 +16,14 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1852
 implemented_with: claudecode/opus5_5
 created_at: 2026-10-23 11:50
-updated_at: 2026-10-24 23:18
+updated_at: 2026-10-24 23:23
 ---
 
 ## Context
 
-Child 1 of t2131 (test-map **code-module tier**: module → submodule, between "tests mapped to the changed files" and "the full suite").
+Child 1 of t2131 (test-map **code-module tier**: one flat set of code modules, between "tests mapped to the changed files" and "the full suite").
+
+> **Revised 2026-10-24 (user decision): flat code modules, no submodules.** This child also revises the parent task and plan and the affected sibling tasks and plans to match; see the plan for the flat design (D1–D11).
 
 - **Parent plan:** `aiplans/p2131_testmap_code_modules_tier.md`. Its section "Design defaults this pass fixes" lists defaults 1–14.
 - **Coarse plan:** `aiplans/p2131/p2131_1_design_amendment_code_modules.md`.
@@ -43,34 +47,33 @@ The prose rename of M1–M10 to "work packages" (default 14) is **not** in this 
 ## Key Files to Modify
 
 `aidocs/testing_engine/n014_explorer_006_proposal.md` (5165 lines; line numbers as of main @ ee468201f):
-- **Vocabulary** (~163-250): entries for *code module / submodule* and *work package*.
-- **Design decisions** (~466-647): decision 20. Code modules are logical source groupings derived from data (build systems, packages, the codemap, agent proposals), not hand-typed labels and not profile tiers. Widening is a cut knob applied after the graded walk. This re-checks t1812:55-56 and states the result explicitly.
+- **Vocabulary** (~163-250): entries for *code module* and *work package*.
+- **Design decisions** (~466-647): decision 20. Code modules are flat logical source groupings derived from data (build systems, packages, the codemap, agent proposals), not hand-typed labels, not profile tiers and not a hierarchy. Widening is a cut knob applied after the graded walk. This re-checks t1812:55-56 and states the result explicitly.
 - **Registry tables:**
   - the registry tree (~346-365) gains `_modules.yaml`;
   - *Where state lives* (~416-430);
   - the "eight tables" mentions become nine (304, 826, 2197-2200);
   - "two generated files" becomes three (~4664);
   - the reserved-name list (2306-2309).
-- **Line-protocol index** (~438-463): `MODULE:`, `MODULE_CONFLICT:`, `MODULE_UNRESOLVED:`, `MODULES_DRIFT`, `WIDENED:`, `WIDEN_FULL:`, with the fallback reasons `deleted_path`, `renamed_path`, `unmapped_path`, `uncertain_reference`, `modules_stale`.
-- **Module Map, M2 table** (~694-705): add the row **M2.7 — Code modules**. It owns `registry/modules*.go` (schema, `_modules.yaml`, hand `modules:` table, membership, path lookup, `MODULE_*` rules) and `internal/testmap/modules/**` (providers, `modules --scan`, the reach/widening library). Add it to the waves table (~855-865).
+- **Line-protocol index** (~438-463): `MODULE:`, `MODULES:`, `MODULE_OF:`, `MODULE_CONFLICT:`, `MODULE_REFUSED:`, `MODULE_UNRESOLVED:`, `MODULES_DRIFT`, `WIDENED:`, `WIDEN_FULL:`, with the fallback reasons `deleted_path`, `renamed_path`, `unmapped_path`, `uncertain_reference`, `modules_stale`.
+- **Module Map, M2 table** (~694-705): add the row **M2.7 — Code modules**. It owns `registry/modules*.go` (schema, `_modules.yaml`, hand `modules:` table, membership, path lookup, `MODULE_*` rules) and `internal/testmap/modules/**` (providers, `modules --scan`, the `Widen` library). Add it to the waves table (~855-865).
 - **The verb list** (~2040): add `modules` (`--list`, `--explain <path|test-id>`, `--scan [--apply]`).
 - **A new M2 component *Code modules*** after *Scoped-row registry and areas* (~2941). It covers:
-  - tables and ids (two tiers; `<module>/<submodule>`);
-  - providers and precedence: hand > agent > codemap > Gradle > Go/Python; the root project `:` is not a module; `MODULE_CONFLICT:` is always reported;
+  - the flat table and names (`<provider>:<native id>` for generated modules);
+  - providers and precedence: hand > agent > codemap > Gradle > Go/Python, one boundary rule each; no subtree module at the repository root (the Gradle root `:`); `MODULE_CONFLICT:` reported;
   - module → module `deps:` (inspection only);
   - freshness (`MODULES_DRIFT`);
   - membership (default 8);
-  - **reach** (default 7, verbatim rules);
-  - widening (default 10).
-- ***Scoped-row registry and areas*** (~2831-2941): areas may reference `modules:`. `areas --import-codemap` writes module references, and colliding child names are qualified `<parent>-<child>`. Record this as a deviation from the landed M2.5 contract.
+  - **widening** as one operation (default 7, verbatim rules; default 10), with worked examples.
+- ***Scoped-row registry and areas*** (~2831-2941): areas may reference `modules:`. `areas --import-codemap` is unchanged: it keeps writing `<path>/**` globs (no M2.5 deviation).
 - ***Selector*** (~3266-3295), ***Run Surface*** steps 7-8 and the output contract (~1665-1693):
-  - `select` / `test --widen submodule|module`;
-  - the reason token `module(<id>) <- <path>`;
-  - widened tests are budget-exempt;
-  - the **paired prediction record**: plain selection + widen outcome (level and added tests, or `full:<reason>`) + identity (base revision, change-surface digest, registry and modules-table digests).
-- ***Feedback tools*** (~3388-3425): `score` scores the plain and widened sets against the same full run and reports false negatives per set. `cadence_declared` applies to `module` too.
+  - `select` / `test --widen-modules` (one flag, no level);
+  - the reason token `module(<name>) <- <changed path>[ via <reached path>]`;
+  - widened tests are budget-exempt; a full fallback runs the canonical `--all` path;
+  - the **paired prediction record**: plain selection + widen outcome (added tests, or `full:<reason>`) + identity (base revision, change-surface digest, registry and modules-table digests).
+- ***Feedback tools*** (~3388-3425): `score` scores the plain and widened sets against the same full run and reports false negatives per set; readiness judges each mode on the set it executes. `cadence_declared` applies to `module` too.
 - ***Completion policy*** (1940-1960, 3847-3879), the config block (~370-409), the data-flow matrix (~922-941) and readiness `POLICY:` (~3414):
-  - `completion.mode: full|selected|module|auto` and `completion.widen`;
+  - `completion.mode: full|selected|module|auto` (no `completion.widen`);
   - **default 11's decision order:**
     1. readiness `NOT_YET` → full;
     2. the first `ADMISSIBLE` → engine approval in `costs/policy.yaml`;
@@ -81,7 +84,7 @@ The prose rename of M1–M10 to "work packages" (default 14) is **not** in this 
   - every full run resets the counters;
   - a valid `full_run_every` is required for `module`;
   - `auto` never lands on `module` in v1.
-- ***Runner contract*** (~2962+): the `group_by: module|submodule` value, plus `{module}` from the table's Gradle name.
+- ***Runner contract*** (~2962+): the `group_by: module` value, plus `{module}` from the table's Gradle path.
 - ***Onboarding verbs*** (~3605-3690): a `MODULES:` summary and `MODULE_UNRESOLVED:` to-dos. The onboarding skill writes `completion.mode: module` only once the engine supports it.
 - ***Named follow-ups*** (~874-887): smarter reach, gated on the measured fallback share:
   - conservative inclusion of uncertain files;
@@ -102,7 +105,7 @@ The prose rename of M1–M10 to "work packages" (default 14) is **not** in this 
    - re-verify the cited line numbers.
 2. Edit the sections above in one change. Each new rule lives in exactly one component; other sections cross-reference it.
 3. Commit (`documentation: … (t2131_1)`).
-4. Send **contract notes** that point at the amended sections and carry the commit SHA, via `/aitask-note` (`--from 2131_1`), to: t1853 (M2), t1855 (M4), t1857 (M6), t1859_4 (M8.4), t1859_5 (M8.5) and t1854_11 (gradle-class adapter). Add only what is new relative to the notes those tasks already hold.
+4. Send **contract notes** that point at the amended sections and carry the commit SHA, via `/aitask-note` (`--from 2131_1`), to: t1853 (M2), t1855 (M4), t1857 (M6), t1859_4 (M8.4), t1859_5 (M8.5) and t1854_11 (gradle-class adapter). Add only what is new relative to the notes those tasks already hold, and withdraw explicitly every two-level statement those earlier notes made.
 
 ## Verification Steps
 

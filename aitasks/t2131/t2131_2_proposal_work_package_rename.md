@@ -8,7 +8,7 @@ labels: [testmap, testing, documentation]
 gates: [risk_evaluated]
 anchor: 1852
 created_at: 2026-10-23 11:50
-updated_at: 2026-10-23 11:50
+updated_at: 2026-10-25 00:40
 ---
 
 ## Context
@@ -18,7 +18,7 @@ Child 2 of t2131 (test-map code-module tier).
 - **Coarse plan:** `aiplans/p2131/p2131_2_proposal_work_package_rename.md`.
 - **Wave:** now.
 
-The code-module tier introduces "module" / "submodule" as **code** groupings. The proposal `aidocs/testing_engine/n014_explorer_006_proposal.md` already uses "module" (M1–M10) and "submodule" (M2.5, …) for its **implementation cut**. This child removes that collision in prose: both tiers become **"work package"** (user decision, 2026-10-23). So M2 is "work package M2", M2.5 is "work package M2.5", and "child work package" is used only where the tier matters.
+The code-module tier introduces "module" as a **code** grouping. It is flat (revised 2026-10-24, user decision): there is no code-level "submodule". Every "submodule" left in the proposal is therefore the work-package sense, **except two intentional code-module uses that stay as written**: the rejected module → submodule hierarchy (design decision 20, and the matching wording in its named follow-up and tradeoff), and the literal refused hand keys `submodules:` / `children:` in component *Code modules*. The proposal `aidocs/testing_engine/n014_explorer_006_proposal.md` already uses "module" (M1–M10) and "submodule" (M2.5, …) for its **implementation cut**. This child removes that collision in prose: both tiers become **"work package"** (user decision, 2026-10-23). So M2 is "work package M2", M2.5 is "work package M2.5", and "child work package" is used only where the tier matters.
 
 This child is a mechanical rename, kept separate from t2131_1 so it can run when no other session is editing the proposal.
 
@@ -31,6 +31,7 @@ This child is a mechanical rename, kept separate from t2131_1 so it can run when
     - `### Modules and submodules` (678);
     - `### Cross-module interfaces` (819);
     - `### Verification of the seam, by module` (1962).
+  - **Line numbers** in this section predate t2131_1, which inserts the code-module text (vocabulary, decision 20, the M2.7 row, component *Code modules*); Step 0 re-measures them.
   - **Prose to rename:** 106, 149-157, 288, 654-676, 821, 851, 876, 1982-1986, 2007, 2308, 3989, 4115, 4537, 5078; the "Modules: …" lead-ins (1027, 1243, 1432, 1586, 1810); and the table column headers `module` / `submodule` (685, 698, …, 1168, 1827, 1964).
   - **Design decision 19 (639-646)**, "Modules are cut by ownership, not by package": rename the work-package sense and keep the Go-package sense.
 
@@ -38,6 +39,7 @@ This child is a mechanical rename, kept separate from t2131_1 so it can run when
 
 - Section marker ids (`module_map` at 649/889) and node metadata keys (`assumption_modules_map_to_parent_tasks` 4522-4530, `tradeoff_module_boundaries_cut_across_packages` 5057-5071). Other files cite them.
 - Task file names and ids (`t1853_testmap_m2_…`, `m8_4_…`).
+- The two intentional code-module uses of "submodule": the rejected module → submodule hierarchy in design decision 20 (an alternative the design names in order to reject it), and the literal schema keys `submodules:` / `children:` that component *Code modules* refuses. Renaming either would change the contract.
 - Every **Go module** (341, 688, 2006, 2015, 2634, 2642), **Gradle module** (702, 1574, 2520, 2550, 2563, 2669-2676, 3129) and **Python module** (561, 1209, 2334, 2347, 2392, 2411, 2438, 2597-2620, 1570, 4293) mention, plus the generic "hot production module" (1184, 4311).
 - The vocabulary entries for "work package" and "code module", added by t2131_1. If t2131_1 has not landed, add the "work package" entry here.
 

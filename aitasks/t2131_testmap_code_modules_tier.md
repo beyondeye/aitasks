@@ -13,15 +13,23 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 children_to_implement: [t2131_1, t2131_2, t2131_3, t2131_4, t2131_5, t2131_6, t2131_7, t2131_8, t2131_9, t2131_10, t2131_11, t2131_12]
 anchor: 1852
 created_at: 2026-10-23 07:59
-updated_at: 2026-10-23 11:52
+updated_at: 2026-10-24 23:23
 ---
 
 ## Goal
 
-Add a **two-level code-module tier** (module → submodule) to the `ait testmap`
-design and engine. It sits between "tests mapped to the changed files" and
-"the full suite": a selection can be widened to run *all tests of the code
-modules a change affects*, and the completion policy can run at module scope.
+Add a **code-module tier** — one flat set of code modules — to the `ait
+testmap` design and engine. It sits between "tests mapped to the changed
+files" and "the full suite": a selection can be widened to run *all tests of
+the code modules a change affects*, and the completion policy can run at
+module scope.
+
+> **Revised 2026-10-24 (user decision): flat code modules, no submodules.**
+> The two-level module → submodule design recorded below on 2026-10-23 is
+> replaced by one flat set of modules with one widening rule; the
+> 2026-10-23 decisions are kept as written and annotated where this changes
+> them. The contract is the proposal's component *Code modules*
+> (`aidocs/testing_engine/n014_explorer_006_proposal.md`, t2131_1).
 
 Today testmap has no such concept. Every map edge is test → source **file**
 (`<path>[#member][@variant]` → repo-relative path). Annotation grammar v3
@@ -65,7 +73,8 @@ component tier, not even to exclude or defer it.
 
 1. **Priorities.**
    - First: (a) an on-demand **widening tier** on `select` / `test`
-     (e.g. `--widen submodule|module`), and (b) a **`module` completion-policy
+     (e.g. `--widen submodule|module`; *revised 2026-10-24:* one flag,
+     `--widen-modules`, with no level), and (b) a **`module` completion-policy
      mode** next to `full | selected | auto`.
    - Later optimization: per-module execution batching (e.g. one `./gradlew :core:test`).
    - Unmapped / opaque / empty-selection fallback **stays full-suite** unless the
@@ -95,24 +104,27 @@ component tier, not even to exclude or defer it.
    - **Unresolved membership stays visible** (a report line or check finding);
      it is never guessed silently.
 4. **Modules vs areas.**
-   - **Separate concepts.** Modules are a two-level *structural* grouping; areas
+   - **Separate concepts.** Modules are a two-level *structural* grouping
+     (*revised 2026-10-24:* a flat structural grouping); areas
      remain *broad-test impact scope*.
    - Reuse the existing scanning and glob machinery.
    - **No independently maintained duplicate definitions.** Modules are
      *inferred* by providers: Gradle, Go and Python packages, the
-     `code_areas.yaml` codemap keeping its two tiers, and agent proposals. They
+     `code_areas.yaml` codemap keeping its two tiers (*revised 2026-10-24:*
+     every codemap entry becomes one flat module), and agent proposals. They
      are persisted as a generated, **inspectable** table (pattern:
      `_scanned.yaml` + hand files), with hand `modules:` entries as
      **overrides** only.
    - An area may **reference modules** by name.
    - Inferred boundaries must be inspectable (a listing/explain verb) and overridable.
 5. **Naming.**
-   - Use `module` / `submodule` in CLI and YAML.
+   - Use `module` / `submodule` in CLI and YAML (*revised 2026-10-24:*
+     `module` only; there is no submodule).
    - In the design prose, call M1–M10 **implementation work packages** to remove
      the collision (task file names and ids stay as they are).
    - State in the design that code modules are **logical source groupings**:
      build-system modules can seed them but need not define their boundaries
-     exactly. At most two tiers.
+     exactly. At most two tiers (*revised 2026-10-24:* one flat tier).
 
 ## Where it plugs into the planned trail (`art:trail-testmap-feature`)
 
@@ -142,7 +154,9 @@ The task is a parent; split it into children slotted into the trail's waves. A l
 1. Design amendment: proposal section, decisions, the work-package rename in
    prose, and notes to t1855, t1857, t1859_4 and t1853.
 2. Modules table, providers and membership. Generated table + hand overrides,
-   codemap import keeping its hierarchy, module→module evidence edges,
+   codemap import keeping its hierarchy (*revised 2026-10-24:* the codemap
+   becomes flat modules, and `areas --import-codemap` stays as landed),
+   module→module evidence edges,
    unresolved-membership reporting, a listing/explain verb, area→module references.
 3. Selector widening (with or after the M4.1 child).
 4. `module` completion mode (with or after M8.4/M8.5).

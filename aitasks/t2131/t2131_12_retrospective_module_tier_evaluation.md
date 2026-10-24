@@ -8,7 +8,7 @@ labels: [testmap, go_engine, testing]
 gates: [risk_evaluated]
 anchor: 1852
 created_at: 2026-10-23 11:52
-updated_at: 2026-10-23 12:16
+updated_at: 2026-10-24 23:23
 ---
 
 ## Context
@@ -23,7 +23,7 @@ The tier was designed under partial information. In particular, reach uses a del
 **What it measures**, on a registered project with `aitestmap/` and scored **paired** prediction records (t2131_7):
 - **Misses:** the miss rate of the plain selection vs the module-widened set, against the same full runs (M4.4 window scoring);
 - **Cost:** the added cost of widening (M3.4 ledger: per-group estimate, full-suite p95);
-- **Fallback share:** the full-fallback share per `WIDEN_FULL` reason (`deleted_path`, `renamed_path`, `unmapped_path`, `uncertain_reference`, `modules_stale`), from the recorded widen outcomes and per-reason counters;
+- **Fallback share:** the full-fallback share per `WIDEN_FULL` reason (`deleted_path`, `renamed_path`, `unmapped_path`, `uncertain_reference`, `modules_stale`), from the recorded widen outcomes (`WIDEN_SCORED:`);
 - **Cadence:** the full-run share under `module` mode.
 - **Boundary source:** every measurement above split by how the affected modules' boundaries were set: build or package providers and the codemap, versus agent-refined (`provider: agent` proposals and `testmap:module` corrections from t2131_9). The tier is not judged on package-derived boundaries alone.
 
@@ -62,7 +62,7 @@ The provider parent's coarse pass adds the id and flips this task to `Ready` onc
    **Stop if M4.4 has not landed or no project has data.**
 2. Collect the five measurements, each split by boundary source.
 3. Write the outcomes table.
-4. Decide on each follow-up, and file only the data-backed ones.
+4. Decide on each follow-up, and file only the data-backed ones. The decisions include whether **flat modules make widened runs too broad**, measured as the widened-to-plain added-cost ratio per module. Code modules are flat by user decision (2026-10-24), and that measurement is the only trigger for reconsidering a second module level.
 
 ## Verification Steps
 

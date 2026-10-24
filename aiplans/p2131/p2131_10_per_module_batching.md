@@ -22,12 +22,16 @@ This coarse plan records what the parent pass fixed for this slice. It does not 
 **Automation-first:** no human step.
 
 **Default 12:**
-- `group_by: module|submodule` is a new `describe` value (M3.1 vocabulary;
-  today `none|file|dir|regex:<re>`).
+- `group_by: module` is a new `describe` value (M3.1 vocabulary; today
+  `none|file|dir|regex:<re>`). There is no `group_by: submodule` (revised
+  2026-10-24, user decision: code modules are flat).
+- A test whose own path has no module stays in the runner's ungrouped
+  group.
 - Each test groups by its **path-containment** module, through the `registry`
   lookup. `runner` imports `registry`, never `deps`.
 - A multi-module test lands in exactly one group.
-- `{module}` resolves from the table's Gradle name.
+- `{module}` resolves from the module's `gradle` project path. A module
+  without one is refused.
 - The canonical grouping key stays **one** function shared by M3.3, M4.1 and
   M3.4.
 
@@ -42,7 +46,7 @@ This coarse plan records what the parent pass fixed for this slice. It does not 
 
 ## Owned files / provides / consumes
 
-- **Owns:** the `group_by: module|submodule` branch of `grouper()` and its
+- **Owns:** the `group_by: module` branch of `grouper()` and its
   validation; the `{module}` expansion; the tests.
 - **Provides:** module-batched invocations.
 - **Consumes:** t2131_3's lookup; M3.1 (t1854_1, archived); t1854_11.
@@ -56,14 +60,17 @@ This coarse plan records what the parent pass fixed for this slice. It does not 
 
 ## Implementation steps (coarse)
 
-1. `grouper()` gains `module` / `submodule` through the registry lookup.
+1. `grouper()` gains `module` through the registry lookup.
 2. The `{module}` expansion from the table's Gradle name.
 3. Tests and goldens.
 4. **Commit.** `feature: … (t2131_10)`.
 
 ## Verification / acceptance
 
-- A grouping golden for module and submodule.
+- A grouping golden for `group_by: module`, including an ungrouped test with
+  no path module.
+- `group_by: submodule` is refused as an unknown value.
+- `{module}` is refused for a module without a `gradle` path.
 - A multi-module test lands in exactly one group.
 - `{module}` expansion.
 - Existing `group_by` values are unchanged.

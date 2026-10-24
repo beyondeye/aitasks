@@ -8,7 +8,7 @@ labels: [testmap, go_engine, testing, skills]
 gates: [risk_evaluated]
 anchor: 1852
 created_at: 2026-10-23 11:52
-updated_at: 2026-10-23 11:52
+updated_at: 2026-10-24 23:23
 ---
 
 ## Context
@@ -20,7 +20,7 @@ Child 11 of t2131 (test-map code-module tier).
 
 This is the onboarding skill's **enabling write** for `module` mode, kept separate from t2131_9 so that onboarding can never write an unsupported mode before its consumer (t2131_8) exists.
 
-**What it writes:** `completion.mode: module` with `completion.widen` and a valid `full_run_every` (all three triggers), with agent provenance.
+**What it writes:** `completion.mode: module` with a valid `full_run_every` (all three triggers), with agent provenance. There is no `completion.widen` (revised 2026-10-24, user decision: code modules are flat; the mode names the strategy).
 
 **When it writes:** only when all of these hold:
 - the engine reports `module` as a **supported** mode. This is a capability probe of the landed config validation or `policy` verb, never a version guess;
