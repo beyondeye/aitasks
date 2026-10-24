@@ -429,3 +429,38 @@ shows the whole feature as one lane.
 > | - Reach (t2131_6) uses the current graph only. It falls back to the full suite on any deletion, rename, unmapped path or in-repo dependency uncertainty.
 > | 
 > | Plans: `aiplans/p2131_testmap_code_modules_tier.md` and `aiplans/p2131/`.
+
+> **✉ note:t2131_1** id=2026-10-24T21:25:29Z.78e81b0e99598dc8f9b39f0d from=t2131_1 from_verified=yes at=2026-10-24T21:25:29Z base=5adc28fe429efa614cfea3e208dce4cfcc83d765 base_branch=main dirty=no host=omg16
+>
+> | Advisory, from t2131_1. Not an instruction; your own planning decides. The claims below are tree-relative, as of commit 5adc28fe4 (main), which amends aidocs/testing_engine/n014_explorer_006_proposal.md.
+> | 
+> | The module-widening contract that the 2026-10-23 t2131 notes described is now in the proposal, revised to FLAT code modules (user decision, 2026-10-24).
+> | 
+> | **Withdrawn from the earlier notes:**
+> | - `select` / `test --widen submodule|module`: the replacement is ONE plain flag, `--widen-modules`, on `select`, `explain`, `test` and `ait test`;
+> | - `WIDENED:<level>|<modules_n>|<added_n>`: it is now `WIDENED:<modules_n>|<added_n>`;
+> | - "level" anywhere in the prediction record: the widen outcome is just the added tests, or `full:<reason>`.
+> | 
+> | **Where to read:**
+> | - component *Code modules* → *Widening* (incl. worked examples 1–6);
+> | - *Selector*;
+> | - *Engine `test` composite*;
+> | - *Feedback tools*, incl. the new paragraph "Which prediction set readiness judges";
+> | - *The Run Surface*, steps 6–7 and the output contract.
+> | 
+> | **Newly fixed:**
+> | - `Widen` is one operation:
+> |   - the affected modules are the owning modules of the changed paths ∪ their transitive reverse closure over resolved edges;
+> |   - each carries evidence `{module, origin, via?}`;
+> |   - the reason token is `module(<name>) <- <changed path>[ via <reached path>]`;
+> |   - widened tests are budget-exempt.
+> | - `WIDEN_FULL:<reason>|<first path>|<more_n>`, with reasons `deleted_path`, `renamed_path`, `unmapped_path`, `uncertain_reference` and `modules_stale`.
+> | - **Execution.** A `WIDEN_FULL` outcome executes through the canonical `--all` path (`full-` prefix, anchors, cost rows, automatic score), never a re-listing.
+> | - **Recording.** `select` / `explain --widen-modules` never execute or score, but each writes exactly what its plain form writes, so a task-scoped `select` still writes the prediction record.
+> | - **The paired record:** plain selection + widen outcome + identity (base revision, change-surface digest, registry and modules-table digests). Under `completion.mode: module`, every task-scoped selection records the widen outcome automatically.
+> | - **Scoring.** `score` prints `WIDEN_SCORED:<records_n>|plain_fn:<n>|widened_fn:<n>|full:<reason>=<n>,…`. `predictions.yaml` rows gain an optional `widened {added_n, fn, full?}`; a record without it scores as today.
+> | - **Readiness judges the strategy each mode executes:**
+> |   - `selected` / `auto`: plain sets only;
+> |   - `module`: widened sets. A record without a widened part counts its plain false negatives. A full run counts toward the run totals only when every scored record carries a widened part and at least one of them is not `full:`. A modules-table change counts as a map change.
+> | 
+> | **New for M5:** t2131_7 is now also held on M5.1 (t1856), because the `ait test` front parses and forwards the public `--widen-modules` flag. When wiring ids into t2131_7, keep `t2131_6` and add the M4.1, M4.4, M4.5 and M5.1 ids.
