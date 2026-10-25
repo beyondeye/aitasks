@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: []
 issue_type: chore
-status: Ready
+status: Implementing
 labels: [go_engine, framework, release_scripts]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-10-25 09:33
-updated_at: 2026-10-25 09:33
+updated_at: 2026-10-25 11:05
 ---
 
 Turn public `goengines/` into the **export target** for Go source developed in
