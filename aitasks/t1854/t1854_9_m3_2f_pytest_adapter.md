@@ -237,3 +237,5 @@ What each status proves:
 > | - main_test.go dispatches `__nested_engine check|run`, which you can reuse for the recursion criteria. Assert `VIA:marker`, not just `RUN_ERROR:recursion`: the ancestry backstop refuses a nested entry whose marker was dropped too.
 > | - Do not use runner.Load as the oracle for your adapter's own error handling of tool stderr: loadGuarded re-runs annot / gitx.ListFiles, which reject git stderr themselves.
 > | - Real-tool tests chaining engine loads ran ~28 s under -race on a loaded host; bash-file uses its own 120 s hang limit.
+
+> **👁 note:read** id=2026-10-25T12:45:58Z.7c39f7e2fcd9aae1720cc719 by=t1854_9 at=2026-10-25T12:45:58Z mode=explicit ids=2026-10-22T08:04:02Z.70d9eaf2d10bfbd6eba66d23,2026-10-22T12:42:10Z.b09e80b7037ffa01caaaab7f,2026-10-25T06:58:39Z.77ae779f5cabdec6100bffbb,2026-10-25T08:54:19Z.260db30f2b8b583044a42b55,2026-10-25T12:30:52Z.c0e89544dded95a30f09aec2
