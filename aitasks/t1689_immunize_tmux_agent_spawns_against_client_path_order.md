@@ -156,3 +156,5 @@ should exec `$(mise which claude)` rather than re-resolving by name).
 > | `ait_tmux_new_session_persistent` (.aitask-scripts/lib/terminal_compat.sh:195) creates a NEW tmux server via `systemd-run --user --slice=session.slice ... tmux ... new-session` whenever `ait_systemd_user_available` is true (terminal_compat.sh:180). The `tmux` binary there — and therefore the server process and the default environment its panes inherit — comes from the systemd user manager's environment, not from the invoking shell's PATH. Fallbacks (`setsid tmux`, plain `tmux`) do use the caller's PATH; `AIT_NO_SYSTEMD_RUN=1` forces them.
 > | 
 > | Measured in t1811 only for binary resolution: a test that put a stub `tmux` first on PATH was bypassed on the systemd path. I did NOT check pane PATH ordering in your agent-spawn scenario — if your root cause depends on which PATH the tmux server (or its global environment) was started with, the systemd-run spawn is a candidate variable worth checking.
+
+> **👁 note:read** id=2026-10-25T10:45:16Z.08f2a1e1a210a52352b56ce3 by=t1689 at=2026-10-25T10:45:16Z mode=explicit ids=2026-09-17T06:15:37Z.02e440f3f6254a9c0f8d3f4a
