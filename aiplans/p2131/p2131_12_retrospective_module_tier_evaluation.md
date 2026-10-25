@@ -24,6 +24,28 @@ This coarse plan records what the parent pass fixed for this slice. It does not 
 
 **Automation-first:** no human step in the measurement.
 
+**Flat-modules evaluation — pre-registered criteria** (2026-10-25, user
+request). They are fixed before any data is read; the task body has the full
+text.
+- **Sample:** at least 20 scored paired records whose widened part is not
+  `full:`. Below that, the outcome is `insufficient_data`.
+- **Parent-level counterfactual:** computed offline from committed state at
+  each record's base revision (`git show <base>:…`). Each module's parent is
+  the nearest enclosing root of the same provider; hand and agent modules are
+  their own parents. Measure the counterfactual's added cost over flat
+  widening, and the failures it would have caught that flat widening missed.
+- **Too broad**, the signal for refining boundaries (not for levels): at least
+  25 % of counted records have a flat-widened estimate ≥ `selection_ratio_above`
+  × the full-suite p95.
+- **Too narrow**, the only signal for a second level: the parent level catches
+  at least 2 flat-missed failures in at least 2 distinct tasks, **and** its
+  estimate stays below `selection_ratio_above` × the full-suite p95 in at
+  least 75 % of counted records.
+- **Outcome:** `keep_flat` | `refine_boundaries` | `consider_levels` |
+  `insufficient_data`, with its counts, split by boundary source.
+- **Threshold changes:** a threshold changed after the data is read is
+  reported with its reason, and the outcome is shown under both thresholds.
+
 ## Dependency hold
 
 `Postponed` until the M4 coarse pass (t1855) wires the id for:
@@ -66,17 +88,16 @@ In `depends:`: `t2131_7` (the paired records), `t2131_8` (module mode) and
    - **boundary source:** every measurement above split into build or
      package providers and the codemap, versus agent-refined boundaries
      (`provider: agent` proposals and `testmap:module` corrections from
-     t2131_9). The tier is not judged on package-derived boundaries alone.
+     t2131_9). The tier is not judged on package-derived boundaries alone;
+   - **parent-level counterfactual:** per the pre-registered criteria above.
 2. **Outcomes table** in this plan.
 3. **Decide:**
    - whether to adopt the smarter-reach follow-ups (conservative inclusion of
      uncertain files, per-language clearing to a fixed point, a base-revision
      graph), judged on the fallback share;
    - whether `auto` should learn `module`;
-   - whether flat modules make widened runs too broad (the added cost per
-     module against the plain selection). That is the only trigger for
-     reconsidering a second module level (code modules are flat by user
-     decision, 2026-10-24).
+   - the flat-modules outcome, by the pre-registered criteria above (code
+     modules are flat by user decision, 2026-10-24).
 
    File only the data-backed ones.
 4. **Commit.** `chore: … (t2131_12)`.
@@ -85,6 +106,12 @@ In `depends:`: `t2131_7` (the paired records), `t2131_8` (module mode) and
 
 - The outcomes table is present, including the fallback share per reason.
 - Every follow-up filed cites the measurement behind it.
+- The flat-modules outcome is one of the four values, with its counts split by
+  boundary source.
+- The counterfactual is reproducible: the plan records the script and the
+  base revisions it read.
+- Any threshold changed after the data was read is reported under both
+  thresholds.
 
 ## Step 9 reference
 

@@ -8,7 +8,7 @@ labels: [testmap, go_engine, testing]
 gates: [risk_evaluated]
 anchor: 1852
 created_at: 2026-10-23 11:52
-updated_at: 2026-10-24 23:23
+updated_at: 2026-10-25 01:10
 ---
 
 ## Context
@@ -33,6 +33,32 @@ The tier was designed under partial information. In particular, reach uses a del
   - per-language clearing to a fixed point;
   - a base-revision graph.
 - Whether `auto` should learn `module`.
+- Whether flat code modules stay flat (user decision, 2026-10-24), under the pre-registered criteria below.
+
+**Flat-modules evaluation — criteria pre-registered 2026-10-25 (user request), fixed before any data is read:**
+- **Sample.** Only scored paired records whose widened part is not a `full:` fallback count. There must be at least **20** of them, the same number as `readiness.min_scored_full_runs`'s default. With fewer, the outcome is `insufficient_data`: no levels decision is taken, and the plan records how many records are still missing.
+- **Parent-level counterfactual** (computed offline from committed data, with no engine change):
+  - For each counted record, rebuild the state at its base revision with `git show <base>:…`: the modules table, the registry membership, the codemap or Gradle settings, and the cost ledger estimates. Then compute what a **parent-level widening** would have added.
+  - Each module's **parent** is the nearest enclosing root of the same provider: the codemap parent entry, the enclosing included Gradle project, or the parent package directory. A hand or agent module, or a module with no enclosing root, is its own parent.
+  - The parent level's set is the plain selection ∪ every test of every module under the affected modules' parents.
+  - Per record, measure the parent level's added cost over flat widening, and the failures of the same full run that the parent level would have caught but flat widening missed.
+- **Too broad** — the signal for **finer boundaries**, not for levels:
+  - It fires when **≥ 25 %** of counted records have a flat-widened estimate **≥ `selection_ratio_above` × the full-suite p95** (the project's own cadence threshold, default 0.60). Widening that costs that much is already treated as "run full".
+  - The response is boundary refinement: codemap entries, agent proposals (t2131_9) or hand overrides. A second level would not help, because flat modules already use the deepest root.
+  - The outcome lists the modules that dominate those records.
+- **Too narrow** — the only signal for **a coarser second level**. Both conditions must hold:
+  - the parent-level counterfactual catches **≥ 2** failures that flat widening missed, in **≥ 2** distinct tasks;
+  - in **≥ 75 %** of counted records, the parent-level estimate stays **below `selection_ratio_above` × the full-suite p95**.
+
+  When it fires, the outcome is `consider_levels`, filed as a follow-up task that cites these numbers. When widened misses exist but the parent level would not have caught them, they are reach or membership problems, not a levels problem.
+- **Outcome**, one of:
+  - `keep_flat`;
+  - `refine_boundaries` (too broad);
+  - `consider_levels` (too narrow);
+  - `insufficient_data`.
+
+  It is written with the counts behind it and split by boundary source. Agent-refined modules are judged separately, so a provider's default rule is never blamed for a boundary an agent already fixed.
+- **Changing a threshold after the data is read** requires stating the reason in the plan, and the outcome is then reported under both the original and the changed threshold.
 
 The outcomes go into its plan. New tasks are created only with data behind them.
 
@@ -60,11 +86,14 @@ The provider parent's coarse pass adds the id and flips this task to `Ready` onc
    - M4.4 `score` and the M3.4 ledger fields as landed.
 
    **Stop if M4.4 has not landed or no project has data.**
-2. Collect the five measurements, each split by boundary source.
+2. Collect the five measurements, each split by boundary source, plus the parent-level counterfactual.
 3. Write the outcomes table.
-4. Decide on each follow-up, and file only the data-backed ones. The decisions include whether **flat modules make widened runs too broad**, measured as the widened-to-plain added-cost ratio per module. Code modules are flat by user decision (2026-10-24), and that measurement is the only trigger for reconsidering a second module level.
+4. Decide on each follow-up, and file only the data-backed ones. For the flat-modules question, apply the pre-registered criteria above exactly as written (`keep_flat` / `refine_boundaries` / `consider_levels` / `insufficient_data`).
 
 ## Verification Steps
 
 - The outcomes table is in the plan, including the fallback share per reason.
 - Every follow-up filed cites the measurement behind it.
+- The flat-modules outcome is one of the four values, with the counted-record total, the too-broad share, the parent-level catches (failures and distinct tasks) and its cost share, each split by boundary source.
+- The parent-level counterfactual is reproducible: the plan records the script and the base revisions it read.
+- Any threshold changed after the data was read is listed with its reason, and the outcome is shown under both the original and the changed threshold.

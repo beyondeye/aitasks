@@ -317,7 +317,10 @@ proposal in the same change and notes its siblings.
       hand-typed labels, not profile tiers and not a hierarchy;
     - widening is a cut knob applied after the graded walk;
     - a built-in module → submodule hierarchy was considered and rejected,
-      to be reconsidered only if t2131_12 shows flat modules too broad.
+      to be reconsidered only if t2131_12's pre-registered "too narrow"
+      criterion fires (a parent-level counterfactual catches misses flat
+      widening missed, at acceptable cost). "Too broad" calls for boundary
+      refinement, not levels.
 
     That squares the tier with t1812:55-56.
 14. **The prose rename (t2131_2).**
@@ -360,7 +363,7 @@ M2.1–M2.6 (`t1853_1..6`), M3.1 (`t1854_1`) and M3.4 (`t1854_4`).
 | t2131_9 | `onboarding_module_review` | feature / high | `onboard detect` / `classify` / `inventory` surface the inferred modules (a `MODULES:` summary, `MODULE_UNRESOLVED:` to-dos). When no codemap exists, the skill generates one on the framework side (`aitask_codemap.sh --write`). The M6.5 skill's agent review writes `provider: agent` proposals (intake shaped like `kind_proposals[]`; a conflict is reported, not won) and `testmap:module` lines through a key-aware rewriter planner next to `PlanCovers`. The review is **rerunnable on demand** (e.g. on `MODULES_DRIFT` or accumulating `MODULE_UNRESOLVED:`), not one-shot, and runs through the proposal's agent review pass (M6/M7, t1858) rather than a parallel path; a possible M7 hold is decided at its Reality check (added 2026-10-23, user decision). It **never writes `completion.mode: module`**, and a test pins that. No human gate. | t2131_5 | M6.1, M6.4, M6.5 | Postponed | F/G (with M6) |
 | t2131_10 | `per_module_batching` | feature / medium | Default 12: `group_by: module` in M3.1's grouping function through the `registry` path → module lookup, and `{module}` expansion. The canonical grouping key stays one function shared by M3.3, M4.1 and M3.4. | t2131_3, t1854_11 | — | Ready (blocked by deps) | after M3.2h |
 | t2131_11 | `onboarding_enable_module_mode` | feature / low | The M6.5 skill's enabling write: `completion.mode: module` with a valid `full_run_every`, with agent provenance. It is written only when the engine reports `module` as supported (a capability probe of the landed config validation, never a version guess) and the modules table resolves with no `MODULE_UNRESOLVED:` blocking readiness. Verified on both sides: a fake engine without `module` support gets no write; the real engine gets the write and loads it. | t2131_8, t2131_9 | M6.5 | Postponed | G (after M8.5) |
-| t2131_12 | `retrospective_module_tier_evaluation` | chore / medium | Runs once a registered project with `aitestmap/` has scored paired predictions. Measures, from the paired records (t2131_7): the miss rate of the plain vs the widened set against the same full runs; the added cost (M3.4 ledger); the **full-fallback share per `WIDEN_FULL` reason**; and the cadence's full-run share under `module`, each split by boundary source (build/package/codemap vs agent-refined). Decides whether the smarter-reach follow-ups (default 7) are justified, and whether `auto` should learn `module`. Outcomes go into its plan; follow-ups are filed only where the data justifies them. | t2131_7, t2131_8, t2131_9 (added 2026-10-23, so agent-refined boundaries are measured) | M4.4 | Postponed | after G |
+| t2131_12 | `retrospective_module_tier_evaluation` | chore / medium | Runs once a registered project with `aitestmap/` has scored paired predictions. Measures, from the paired records (t2131_7): the miss rate of the plain vs the widened set against the same full runs; the added cost (M3.4 ledger); the **full-fallback share per `WIDEN_FULL` reason**; and the cadence's full-run share under `module`, each split by boundary source (build/package/codemap vs agent-refined). Decides whether the smarter-reach follow-ups (default 7) are justified, and whether `auto` should learn `module`. Decides whether flat modules stay flat under pre-registered criteria (2026-10-25): a parent-level counterfactual computed offline; "too broad" → refine boundaries; "too narrow" → consider a second level; at least 20 counted records, else `insufficient_data`. Outcomes go into its plan; follow-ups are filed only where the data justifies them. | t2131_7, t2131_8, t2131_9 (added 2026-10-23, so agent-refined boundaries are measured) | M4.4 | Postponed | after G |
 
 **Dependency holds** follow the convention of t1853_7 and t1859_4:
 - The hold paragraph lists the unresolved `M<n>.<m>` refs.
@@ -623,7 +626,11 @@ Then:
      - an outcomes table in the plan, including the fallback share per
        reason;
      - follow-ups (smarter reach, `auto` learning `module`) only where data
-       backs them.
+       backs them;
+     - the flat-modules outcome (`keep_flat` / `refine_boundaries` /
+       `consider_levels` / `insufficient_data`) under the pre-registered
+       criteria in t2131_12's body, including the parent-level
+       counterfactual.
    - **Every child:**
      - `ait engine test` is green where Go is touched;
      - no path requires a human action.
