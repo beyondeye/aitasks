@@ -224,7 +224,7 @@ acceptance criteria.
 - **G2 / G3 / G4.** Missing, ambiguous, stale or incomplete evidence is never a pass and never an unexplained skip. Zero tests is an explicit policy (`zero_tests: error|skip`, default `error`). A skip comes only from the tool's own verdicts.
 - **G5 / G6.** Discovery is declared (`native | inventory | candidates`) and kept separate from execution. Native discovery shares the execution configuration and is bounded. Reports are read only from a fresh per-invocation directory.
 - **G7.** Child rows come only through a registered reporting contract (t1854_14), through the same shared reconciler. Until then `children:` is refused.
-- **G8 / G8a.** Supervised execution inside a containment a descendant cannot leave by `setsid()` (Linux subreaper tree; a cgroup v2 leaf when delegated). Per-invocation cleanup ownership survives a builtin crash. Without a crash-surviving boundary, invocations run serially. On a platform without containment, production adapters refuse.
+- **G8 / G8a** (revised 2026-10-24 in t1854_6: the dedicated-supervisor design). Every contained process start runs under a per-start supervisor (`ait-testmap __supervise`), a subreaper of its own subtree only, which a descendant cannot leave by `setsid()`. Its cleanup ends only at `wait4` ECHILD, a kernel proof that the subtree is empty. Per-invocation cleanup ownership survives the death of every process that runs test code (runner, builtin, tool). The supervisor's own death is a stated residual: its subtree may be left running; the death is recorded `cleanup_unverified` and halts all further work in the process. Invocations may overlap on every Linux host (`Overlappable()`). On a platform without containment (darwin), production adapters refuse and invocations run serially. cgroup v2 hardening is a deferred follow-up.
 - **G9.** Runtime recursion refusal for the same repository, in `Run` and `Load`, including `env -i`. Calls against fixture repositories are allowed. It is a prerequisite of every adapter.
 - **G10.** An adapter is "supported" only for what real-tool integration tests cover. Otherwise it is pending.
 
@@ -254,7 +254,7 @@ Also re-pointed:
 
 - **t2117** `testmap_auto_bash_exit_integration` — Postponed, depends t1854_14.
 - **t2118** `testmap_auto_pytest_report_integration` — Postponed, depends t1854_14.
-- **t2119** `testmap_pidns_invocation_boundary` — Ready, depends t1854_6, t1854_7. Until it lands, hosts without a delegated cgroup run invocations serially.
+- **t2119** `testmap_pidns_invocation_boundary` — Ready, depends t1854_6, t1854_7. (Since t1854_6's dedicated supervisor, invocations no longer run serially without a delegated cgroup; see t1854_6's note on t2119.)
 
 ### Closure rule
 

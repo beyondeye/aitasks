@@ -34,32 +34,58 @@ recursion guard t1854_7.
 
 ## Acceptance criteria
 
-- **Containment (G8), `goengines/internal/procsup`.**
-  - **The subreaper tree.**
-    - The supervising process (the builtin, and also the engine's runner execution in M3.1's `runner/exec_unix.go`, a named extension that closes M3.1's documented `setsid()` residual) sets `PR_SET_CHILD_SUBREAPER`.
-    - It tracks its contained processes as the `/proc` parent-pid tree below itself; orphans and `setsid()` callers reparent to it and stay in the tree.
-    - Cleanup SIGKILLs the tree, repeating until it is empty or a bound expires. A survivor is `cleanup_incomplete`; an unreadable `/proc` is `cleanup_unverified`.
-  - **cgroup v2.** When a delegated cgroup v2 subtree is writable and a leaf is proven usable (Step 0 settles the "no internal processes" rule for the engine's own scope), each unit gets a leaf, killed with `cgroup.kill` and verified empty through `cgroup.procs`. The record reports `CONTAINMENT:subreaper|cgroup`.
-  - **Platforms without either (darwin).** Production adapters refuse with `CONTAINMENT_UNAVAILABLE:<platform>` (mechanism, exit 3). This is G8's enforceable support restriction. Only a test-only adapter may run uncontained there, and it is marked as such.
-  - **The engine sweep.** M3.1's session sweep stays as a second pass, its tests green. The session enumeration and kill routines move into `procsup`, shared by both.
+> **Revised 2026-10-24/25 (user decisions, recorded in `aiplans/p1854/p1854_6_m3_2c_supervised_execution.md`).**
+>
+> - The design is a **dedicated supervisor** per contained process start. It replaces the engine-wide subreaper tree and the cgroup v2 leaf.
+> - cgroup hardening is **deferred** to a follow-up task.
+> - The 2026-10-23 `AIT_TESTMAP_REQUIRE_CGROUP` decision is **withdrawn** together with cgroup. `AIT_TESTMAP_REQUIRE_REAL_TOOLS` is untouched and independent.
+
+- **Containment (G8), `goengines/internal/procsup`: the dedicated supervisor.**
+  - Every contained process start goes through `ait-testmap __supervise`, a re-exec of the engine binary that runs no test code:
+    - the engine's runner `describe` / `list` / `run`;
+    - a builtin's tool command.
+  - **What the supervisor does:**
+    - It sets `PR_SET_CHILD_SUBREAPER` on **itself only**.
+    - It starts the command with `Setsid` and starts nothing else, so every orphan and every `setsid()` descendant reparents to it.
+    - Cleanup SIGKILLs its **direct children** (its own unreaped children, so no pid reuse) and reaps them, repeating until `wait4` returns **ECHILD**. ECHILD is the kernel proof that the subtree is empty.
+  - **Verdicts:** a survivor past the bound is `cleanup_incomplete`; an unreadable `/proc` is `cleanup_unverified`.
+  - **Recording:** the record reports `containment: supervisor|none` and `boundary: supervisor|none`.
+  - **Bootstrap guard:** `procsup.Start`/`Run` refuse **before any launch** while the bootstrap sentinel `AIT_PROCSUP_SUPERVISOR` is in the caller's environment. The genuine supervisor scrubs the sentinel before starting its command. A missing handshake within `HandshakeTimeout` → the client kills the misdispatched process (`SupervisorDied: missing handshake`).
+  - **Platforms without a supervisor (darwin):** production adapters refuse with `CONTAINMENT_UNAVAILABLE:<platform>` (mechanism, exit 3). This is G8's enforceable support restriction. Only a test-only adapter may run uncontained there, and it is marked as such.
+  - **The session sweep:** M3.1's session enumeration and kill move into `procsup` (`SweepSession`, `SessionProcs`), and their unit tests stay green. The sweep serves **only the darwin (unsupervised) legacy path**.
+    - On Linux the engine **never signals by session number, on any path.** After a clean supervision the reaped runner's session id is no longer owned. After a supervision failure its original ownership is unverified.
+    - The mechanism failure and the halt carry the failure instead.
 - **Per-invocation ownership boundary (G8a).**
-  - `procsup.Boundary` is opened by the engine for each invocation, before the runner starts. It is a cgroup v2 leaf when delegated, else `tree` (the engine's subreaper tree). **No PID-namespace backend here**; that is the separate task `testmap_pidns_invocation_boundary`.
-  - `Kill` / `Verify` act on the boundary's members only, and the record reports `boundary:cgroup|tree`.
-  - `Boundary.Overlappable()` is true only for cgroup. M3.1's `invoke` cleans up through the boundary, never through the engine-wide tree.
-  - **The executor seam rule** (enforced in `runner.Run`, a named extension of M3.1's `plan.go`): an executor may start overlapping invocations only when every boundary is overlappable. Otherwise `Run` serializes them and prints `PARALLEL_REFUSED:containment`.
-  - **Invariant, pinned by a test:** under every enabled backend, t1854_7's cleared-environment (`env -i`) recursion refusal and its fixture-repository allowance pass. The test is parameterized over the backends, so any later backend must join it.
-- **Real-process overlap test.**
-  - Two invocations run in parallel through a test executor. Invocation A's builtin is SIGKILLed while it holds a `setsid()`, double-forked descendant. Invocation B runs to completion meanwhile.
-  - **Expected:** A's descendant is killed and A's record carries its cause. Every one of B's processes survives until B's normal exit, B's results are intact, and B has no cause.
-  - An isolated mutant that cleans up with the engine-wide tree must turn the "B unaffected" assertion red.
-  - It runs on a host with a delegated cgroup; on any other host it asserts the serial refusal.
-  - On 2026-10-21 the reference host's session scope was writable. Step 0 confirms that a leaf works there and decides CI coverage. An environment declared to have a cgroup boundary sets `AIT_TESTMAP_REQUIRE_REAL_TOOLS=1`, so a missing boundary fails there instead of passing as serial.
+  - **The boundary** is the invocation's supervisor. Membership survives the death of **every process that runs test code**: runner, builtin, tool, and any descendant. A dead tool supervisor inside a builtin is still contained: its orphans reparent to the invocation's supervisor.
+  - **Stated residual: the supervisor's own death.** Its subtree reparents to the nearest subreaper ancestor and **may be left running**. The engine makes no fallback kill. The death is recorded `mechanism` / `cleanup_unverified:supervisor_died:<detail>`, and it **halts**:
+    - every later `Start`/`Run` in the process is refused with `halted:<first detail>`, launching nothing;
+    - every other active supervisor is cancelled and records `halted`.
+
+    A failed cleanup (`cleanup_incomplete`/`cleanup_unverified`) halts the same way. Admission/registration and the halt snapshot are **one critical section**: an overlapping `Start` is either refused or included in the halt's cancellation.
+  - **A halted invocation is an interruption, not a timeout.**
+    - Its validly reported terminal results are kept, including cases-accounting units whose case evidence is complete.
+    - Attributable evidence errors stay errors.
+    - Every other unit is `missing`, never `timeout`.
+  - **Executor seam rule** (enforced in `runner.Run`, a named extension of M3.1's `plan.go`):
+    - `runner.Overlappable()` is true on Linux.
+    - Where containment is unavailable (darwin), `Run` serializes overlapping invocations and prints `PARALLEL_REFUSED:containment`.
+  - **Invariant, pinned by a test:** under every backend in `procsup.Backends()` (today `[supervisor]`), t1854_7's cleared-environment (`env -i`) recursion refusal and its fixture-repository allowance pass. This now includes an orphaned `setsid` double-fork case. The test is parameterized over the backends, so any later backend (cgroup hardening, t2119 PID namespace) must join it.
+- **Real-process overlap test (every Linux host, CI included; no knob).**
+  - **Setup:** two invocations run in parallel through a test executor. Invocation A's builtin is SIGKILLed while it holds a `setsid()`, double-forked descendant. Invocation B runs to completion meanwhile.
+  - **Expected:**
+    - A's descendant is killed, and A's record carries its cause;
+    - every one of B's processes survives until B's normal exit;
+    - B's results are intact, and B has no cause.
+  - **Mutant:** an isolated mutant that cleans up with the engine-wide descendant set must turn the "B unaffected" assertion red.
 - **Supervision API.**
-  - It runs each command in its own process group, inside the containment.
-  - Timeout: SIGTERM to the group, a grace period, then the containment kill and verification.
-  - Context cancellation and the supervisor's own exit path (deferred cleanup) follow the same path. If the builtin is SIGKILLed, the engine's boundary cleans up.
-  - stdout and stderr go to files, bounded.
-  - The same API runs native discovery, under a discovery bound below `ListTimeout`.
+  - **Isolation:** each command runs in its own session and process group, inside its own supervisor.
+  - **Timeout:** SIGTERM to the command's group while it is unreaped, a grace period, then the containment kill and the ECHILD proof.
+  - **Cancellation and exit paths:**
+    - context cancellation and the supervisor's own exit path follow the same path;
+    - EOF on the control pipe (the parent died) does too;
+    - if the builtin is SIGKILLed, the invocation's supervisor cleans up.
+  - **Output:** stdout and stderr go to files, bounded.
+  - **Discovery:** the same API runs native discovery, under a discovery bound below `ListTimeout`.
 - **Tests against real processes**, every one under the t1854_5 watchdog:
   - timeout;
   - cancellation;
@@ -69,21 +95,37 @@ recursion guard t1854_7.
   - **a child that calls `setsid()`, and a double-fork `setsid()` daemon** (an isolated mutant that drops the subreaper must turn them red);
   - a zombie;
   - output past the cap;
+  - the ECHILD proof;
+  - the parent's death;
+  - supervisor death and the halt, including a `Start` paused across the halt transition;
+  - an omitted supervisor dispatch (bounded, non-recursive);
   - a builtin that crashes mid-unit or is SIGKILLed while a `setsid()` descendant runs, where nothing is left behind (an engine-path test);
+  - halted cases reconciliation (an engine-path test);
+  - no session signalling on Linux, including a supervisor that dies after a completed cleanup;
   - the forced `CONTAINMENT_UNAVAILABLE` refusal.
 - **Platforms.** Linux (kernel ≥ 3.4, `/proc`) is supported. Darwin is compiled and vetted only, and refuses production adapters.
 - **Scaffold.**
-  - `ait-testmap runner <name> describe|list|run --manifest <path>` with a builtin registry; `UNKNOWN_BUILTIN:<name>` → 64. This replaces `stub("runner")` in `verbs.go` (`main_test.go` stub list updated).
-  - Shared helpers: manifest read, the results writer (start rows, `cases.jsonl` rows per t1854_2), the fresh-report reader, `runners.yaml` entry lookup, and an argv splitter. The splitter refuses shell metacharacters (`$`, backtick, `;`, `|`, `&`, `<`, `>`, newline); tools run through exec, never through a shell.
+  - `ait-testmap runner <name> describe|list|run --manifest <path>` with a builtin registry; `UNKNOWN_BUILTIN:<name>` → 64. This replaces `stub("runner")` in `verbs.go` (the `main_test.go` stub list is updated).
+  - **Shared helpers:**
+    - manifest read;
+    - the results writer (start rows, `cases.jsonl` rows per t1854_2);
+    - the fresh-report reader (`runner.OpenReportDir` + `FreshReport`);
+    - `runners.yaml` entry lookup;
+    - an argv splitter. It refuses shell metacharacters (`$`, backtick, `;`, `|`, `&`, `<`, `>`, newline) and quoting. Tools run through exec, never through a shell.
   - **No production adapter is registered.** A test-only adapter exercises the scaffold end to end through `runner.Run`.
-- **Coordination with t1854_3 (M3.3).** Its `errgroup` parallel execution consumes `Boundary.Overlappable()`, and t1854_3 depends on this task.
-- **Docs.** README Interfaces rows for `procsup`, `Boundary`, `runner <name>` and the support restriction. `ait engine test` is green.
+- **Coordination with t1854_3 (M3.3).**
+  - Its `errgroup` parallel execution consumes `runner.Overlappable()`. It is true on Linux, so parallelism is safe there.
+  - A halt cancels in-flight invocations and refuses queued ones.
+  - t1854_3 depends on this task.
+- **Docs.**
+  - README Interfaces rows for: `procsup`, `__supervise`, the halt rule and the supervisor-death residual, `runner <name>`, and the support restriction.
+  - `ait engine test` is green.
 
 ## Key files to modify
 
 - The new `goengines/internal/procsup/**` and `goengines/internal/testmap/runner/builtin/**` (the scaffold only).
-- `runner/exec_unix.go`, `runner/proc_*.go`, `runner/invoke.go`, `runner/plan.go`, `runner/run.go` (named extensions of M3.1).
-- `cmd/ait-testmap/verbs.go` (the `runner` row), a new `cmd/ait-testmap/builtin.go`, `main_test.go`.
+- `runner/exec_unix.go`, `runner/proc_*.go`, `runner/invoke.go`, `runner/plan.go`, `runner/run.go`, `runner/outcome.go`, `runner/timeout.go` (named extensions of M3.1); `runner/report_unix.go` (`OpenReportDir`, a named extension of t1854_2).
+- `cmd/ait-testmap/verbs.go` (the `runner` row), a new `cmd/ait-testmap/builtin.go`, `main.go` (the `__supervise` pre-dispatch), `main_test.go`.
 - `goengines/README.md`.
 
 ## Reference files for patterns
@@ -116,8 +158,8 @@ recursion guard t1854_7.
 | G5 | **Discovery is declared, and discovery is not execution.** `describe` `discovery:` is one of three classes. **`native`**: the framework's own collector, run under the same configuration and selection rules as execution, and bounded like execution because it may run project code. **`inventory`**: an explicit, enumerable rule or list, such as "each bind-matched script is one unit", or a committed inventory file. **`candidates`**: a source scan, which never claims complete discovery; `check` and `run` print `DISCOVERY:<runner>\|candidates`, and completeness consumers (M8 `full`) are told. The default for project scripts is `candidates` |
 | G6 | **Freshness.** An adapter reads reports only from the per-invocation report directory, which the engine creates empty. A file older than the invocation start, a symbolic link, or a path outside that directory is refused as stale |
 | G7 | **Child rows only through a registered reporting contract** (t1854_14). Until one is registered, `children:` is refused at load. A suite's exit is never read as individual test results. **Child evidence takes the same reconciliation route as top-level evidence.** Each subsumed unit's expected identities come from its own runner's discovery in the same `Load`. Its case identities (a `cases` runner) or its own identity (a `unit` runner) are reconciled by the **one shared engine reconciler** under G1a and G1b. Child statuses and counters are engine-derived, and a discovered subsumed unit with no reconciled evidence counts as `unaccounted` in `RUN_ACCOUNTING`, never as implicitly covered |
-| G8 | **Supervision with containment.** Every process an adapter starts, for discovery or for execution, runs bounded and cancellable, inside a **containment that a descendant cannot leave by changing its process group or session**. On Linux this is `PR_SET_CHILD_SUBREAPER` on the supervising process plus a parent-pid descendant tree, which still holds every orphaned and every `setsid()` descendant. A cgroup v2 leaf is used when a delegated cgroup is writable. Cleanup kills the whole contained tree and verifies it empty; a survivor or an unverifiable host is a mechanism failure. **Enforceable support restriction:** on a platform without verified containment (darwin today), production adapters refuse to run (`CONTAINMENT_UNAVAILABLE:<platform>`, mechanism, exit 3) instead of running uncontained. A documented prohibition is never counted as containment |
-| G8a | **Cleanup ownership is per invocation and survives a builtin crash.** Each invocation runs inside its own ownership boundary, whose membership the kernel keeps even after every process between it and the engine has died. **Initially that is a cgroup v2 leaf per invocation** (delegated subtree) only. Cleanup kills exactly that boundary's members. Without a delegated cgroup, the only boundary is the engine's subreaper tree, which cannot tell invocations apart once a builtin dies. Invocations then **must not overlap**: the engine refuses parallel execution (`PARALLEL_REFUSED:containment`) and runs serially, where the tree has a single owner. Killing the engine's whole tree is never used to clean up one invocation. **Every boundary backend must keep G9's cleared-environment recursion detection working before it is enabled.** For that reason a PID-namespace backend is deferred to its own task (below): PIDs, parent visibility and `/proc` differ across namespaces, and the ancestry backstop has no namespace-aware mapping |
+| G8 | **Revised 2026-10-24 for this task (dedicated supervisor; cgroup deferred; supervisor death is a stated residual that halts all work); the Acceptance criteria above are authoritative. Original text:** **Supervision with containment.** Every process an adapter starts, for discovery or for execution, runs bounded and cancellable, inside a **containment that a descendant cannot leave by changing its process group or session**. On Linux this is `PR_SET_CHILD_SUBREAPER` on the supervising process plus a parent-pid descendant tree, which still holds every orphaned and every `setsid()` descendant. A cgroup v2 leaf is used when a delegated cgroup is writable. Cleanup kills the whole contained tree and verifies it empty; a survivor or an unverifiable host is a mechanism failure. **Enforceable support restriction:** on a platform without verified containment (darwin today), production adapters refuse to run (`CONTAINMENT_UNAVAILABLE:<platform>`, mechanism, exit 3) instead of running uncontained. A documented prohibition is never counted as containment |
+| G8a | **Revised 2026-10-24 for this task (dedicated supervisor; cgroup deferred; supervisor death is a stated residual that halts all work); the Acceptance criteria above are authoritative. Original text:** **Cleanup ownership is per invocation and survives a builtin crash.** Each invocation runs inside its own ownership boundary, whose membership the kernel keeps even after every process between it and the engine has died. **Initially that is a cgroup v2 leaf per invocation** (delegated subtree) only. Cleanup kills exactly that boundary's members. Without a delegated cgroup, the only boundary is the engine's subreaper tree, which cannot tell invocations apart once a builtin dies. Invocations then **must not overlap**: the engine refuses parallel execution (`PARALLEL_REFUSED:containment`) and runs serially, where the tree has a single owner. Killing the engine's whole tree is never used to clean up one invocation. **Every boundary backend must keep G9's cleared-environment recursion detection working before it is enabled.** For that reason a PID-namespace backend is deferred to its own task (below): PIDs, parent visibility and `/proc` differ across namespaces, and the ancestry backstop has no namespace-aware mapping |
 | G9 | **Recursion.** Every engine entry point that starts runner processes refuses a nested entry for the **same repository** at runtime, including through indirect calls: `run`, and `Load` (so `scan`, `check`, and later `test` / `select`) — native discovery runs project code too. Engine tests against fixture repositories are allowed. The guard is a prerequisite of **every** production adapter (through the foundation) |
 | G10 | **Support claims.** An adapter is *supported* only for the tool versions and platforms its real-tool integration tests run against, in CI (`AIT_TESTMAP_REQUIRE_REAL_TOOLS=1` turns their skips into failures there) or in a documented environment. Fakes serve targeted failure tests only. With no integration environment, the adapter stays **pending** |
 
