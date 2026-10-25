@@ -55,3 +55,8 @@ stop family against a real remote (`-q` included) and pin each in a test: a
 race (retries), a hook refusal, and an ambiguous destination (both must fail
 fast and show git's message). `aitask_usage_update.sh` shares the lib, so cover
 both entry points.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-25T04:29:07Z status=pass attempt=1 type=human
