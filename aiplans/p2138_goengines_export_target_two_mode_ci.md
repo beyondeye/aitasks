@@ -430,11 +430,11 @@ uses; build.sh passes no build tags. The checks run in this order:
 
 ### Goal-achievement risk: medium
 - The `EXPORT.txt` format is defined here, before the exporter (aitasks_go#t21) exists. A divergent exporter would fail the required `record` check, or produce false drift · severity: medium · → mitigation: none (the step-10 note hands the contract to t21; unknown keys are tolerated)
-- GitHub Actions semantics (`!cancelled()` with a failed `needs`, a skipped job reported as success, `GITHUB_OUTPUT` plumbing) cannot be executed locally. The first real proof is the post-push run · severity: medium · → mitigation: observe_first_ci_runs
+- GitHub Actions semantics (`!cancelled()` with a failed `needs`, a skipped job reported as success, `GITHUB_OUTPUT` plumbing) cannot be executed locally. The first real proof is the post-push run · severity: medium · → mitigation: t2141
 
 ### Planned mitigations
 - timing: post-phase | name: actionlint_workflows | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — CI/release restructure silently skipping the legacy suite | desc: run pinned actionlint over goengines-check.yml and release.yml and fix findings in changed lines
-- timing: after | name: observe_first_ci_runs | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: medium | addresses: goal-achievement — Actions semantics unverifiable locally | desc: after push, confirm goengines-check passes in legacy mode on main (check/bench run as before, export-integrity reports legacy) and the release workflow wiring parses; optionally exercise export mode once on a throwaway branch with a fixture EXPORT.txt
+- timing: after | name: observe_first_ci_runs | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: medium | addresses: goal-achievement — Actions semantics unverifiable locally | desc: after push, confirm goengines-check passes in legacy mode on main (check/bench run as before, export-integrity reports legacy) and the release workflow wiring parses; optionally exercise export mode once on a throwaway branch with a fixture EXPORT.txt | created: t2141
 
 ## Implementation Notes
 
