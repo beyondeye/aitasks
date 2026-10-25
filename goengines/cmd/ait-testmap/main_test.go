@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -75,8 +76,9 @@ func TestStubsExit64(t *testing.T) {
 	}
 }
 
-// `runner <name>` (M3.2c): usage, an unknown builtin, and no production
-// adapter registered in the engine binary.
+// `runner <name>` (M3.2c): usage, an unknown builtin, and the production
+// adapters the engine binary registers — bash-file on linux only (M3.2e,
+// G10), none elsewhere.
 func TestRunnerVerb(t *testing.T) {
 	for _, tc := range []struct {
 		args []string
@@ -92,8 +94,18 @@ func TestRunnerVerb(t *testing.T) {
 			t.Errorf("%v: code %d stdout %q stderr %q, want 64 / %q", tc.args, code, out, errs, tc.want)
 		}
 	}
-	if got := builtin.Registered(); len(got) != 0 {
-		t.Fatalf("the engine binary registers builtin adapters %v; M3.2c registers none", got)
+	want := []string{}
+	if runtime.GOOS == "linux" {
+		want = []string{"bash-file"}
+	}
+	if got := builtin.Registered(); !slices.Equal(got, want) {
+		t.Fatalf("the engine binary registers builtin adapters %v, want %v", got, want)
+	}
+	if runtime.GOOS == "linux" {
+		code, out, errs := call("runner", "bash-file", "describe")
+		if code != 0 || errs != "" || !strings.Contains(out, "accounting: unit\n") || !strings.Contains(out, "discovery: inventory\n") {
+			t.Fatalf("runner bash-file describe: code %d stdout %q stderr %q", code, out, errs)
+		}
 	}
 }
 

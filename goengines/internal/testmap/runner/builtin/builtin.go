@@ -14,8 +14,9 @@
 // registered TestOnly runs uncontained there, and its tool runs are marked
 // Containment none.
 //
-// No production adapter is registered by this package; each adapter package
-// (M3.2e–j) registers its own.
+// Production adapters register themselves from their own files in this
+// package, only where their real-tool tests run (G10): bash-file
+// (bashfile_linux.go). Each adapter (M3.2e–j) registers its own.
 package builtin
 
 import (

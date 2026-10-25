@@ -62,6 +62,9 @@ func TestMain(m *testing.M) {
 		procsup.SetUnavailableForTesting()
 	}
 	procsup.MaybeSupervise()
+	if len(os.Args) == 3 && os.Args[1] == nestedEngineArg {
+		os.Exit(nestedEngine(os.Args[2]))
+	}
 	Register(echoAdapter("echo", true))
 	Register(echoAdapter("prodecho", false))
 	if len(os.Args) > 2 && os.Args[1] == "runner" {
