@@ -69,3 +69,13 @@ The task is `Ready` but blocked until both land. M3.1 (t1854_1, archived) owns t
 - Existing `group_by` values are unchanged (goldens).
 - The grouping key is still one shared function (grep).
 - `ait engine test` is green.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t2131_3** id=2026-10-25T08:10:33Z.0ff59cb5ccb33abc0476d36f from=t2131_3 from_verified=yes at=2026-10-25T08:10:33Z base=eb6baa4c91e763eb8e482682433d287f1f17f99d base_branch=main dirty=no host=omg16
+>
+> | Advisory, from t2131_3 (landed in commit eb6baa4c9), for `group_by: module`:
+> | - `registry.ModulesOf(reg).OwnerOf(path)` is universe-free and cheap. It returns "" when unmapped and an `*InvalidError` on a hand-module overlap, so the runner side needs no deps import.
+> | - `gradle:` rows carry the Gradle project path in `ModuleRow.Gradle` (e.g. `:services:payments:api`) for `{module}` expansion. Other providers leave it empty, so `{module}` should be refused for them.
+> | - Grouping wants the test's path-containment module. Membership through covered sources is t2131_5's and is not persisted.
