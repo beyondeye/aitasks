@@ -33,3 +33,20 @@ Verify the setup-driven default (shipped in t1939, commit 2f893f39b) on real hos
 - [ ] `ait setup --no-home-migration` on an unmigrated home leaves `~/.aitask` a directory and prints the hint after `AITASKS_HOME:`.
 - [ ] From a terminal **outside tmux**, run `bash tests/test_frozen_agents_acceptance.sh` (it refuses inside tmux; t1939 only syntax-checked its edit).
 - [ ] With network available, run `AIT_RUN_INTEGRATION_TESTS=1 bash tests/test_setup_python_install.sh` and `AIT_ACCEPTANCE_FULL_SETUP=1 bash tests/test_frozen_agents_acceptance.sh` (outside tmux). These are full real setups that now migrate their scratch home.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t15** id=2026-10-25T08:55:37Z.dced9fdbfa07a547f686910b from=aitasks_go#t15 at=2026-10-25T08:55:37Z base=eb6baa4c91e763eb8e482682433d287f1f17f99d base_branch=main dirty=no host=omg16
+>
+> | Coordination notice from aitasks_go (t15 ship-path decision; trail
+> | art:trail-go-ship-path). Advisory context, not an instruction.
+> | 
+> | This task stays in this repository; it is framework-side. One overlap to
+> | coordinate: aitasks t2139 will extend install_engine_binary() in
+> | .aitask-scripts/aitask_setup.sh to also install the Go TUI binary `ait-tui`
+> | into $AITASKS_HOME/engine/v<V>/, and will add lib/engine_resolve.sh,
+> | generalized from testmap_resolve_engine. That is the same per-user root this
+> | task touches. Whichever lands second rebases onto the other, and both must
+> | keep the existing ait-testmap install and resolver behaviour byte-identical
+> | (their tests stay green).
