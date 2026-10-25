@@ -76,3 +76,23 @@ Expected outcome of the brainstorm: a finalized proposal exported to `aiplans/`
 and a decomposition into child tasks (registry and CLI, scanners, selector,
 runner contract plus reference runners, scheduler and resources, cost ledger,
 gates, skill, per-repo bootstrap).
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t15** id=2026-10-25T07:37:11Z.f933cbac1ed9c438771857b7 from=aitasks_go#t15 from_verified=yes at=2026-10-25T07:37:11Z base=60ca89154aa0d66ceec006c9f8c6b764fe661ae6 base_branch=main dirty=yes host=omg16
+>
+> | Advance notice from aitasks_go (t15, aidocs/aitasks_go/ship_path.md there): ait-testmap Go
+> | development is scheduled to MIGRATE from public `goengines/` into the private aitasks_go
+> | repository (nested module `goengines/`); public goengines then receives exported snapshots
+> | only (no tests/bench/ci), with provenance trailers `Exported-From:` / `Migrated-From:`.
+> | 
+> | Nothing changes until the cutover. The migration is aitasks_go#t22; it depends on the
+> | export tooling (aitasks_go#t21) and on aitasks t2138 (two-mode goengines CI keyed on
+> | goengines/EXPORT.txt — legacy pipeline stays required until the bootstrap export).
+> | Before the cutover t22 inventories in-flight testmap tasks, sessions, locks, worktrees and
+> | PRs touching goengines, waits for or checkpoint-hands-off overlapping work (never relocating
+> | an actively owned task), holds a brief coordinated pause, re-checks freshly, then re-homes
+> | engine-only tasks to aitasks_go and splits mixed ones (Go part there; shim/installer/skills/
+> | docs/aitestmap stay here). Expect per-task notes at that point. Emergency public fixes after
+> | the cutover carry a `Return-To: aitasks_go` trailer plus a return task in aitasks_go.
