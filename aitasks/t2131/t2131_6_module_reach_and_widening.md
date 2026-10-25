@@ -105,3 +105,15 @@ It lives in `goengines/internal/testmap/modules` and can land before M4.1 exists
 **Recording:** every fallback sets the widen outcome (with its reason) that t2131_7's prediction record carries.
 
 **Measured frequencies** are recorded in the plan.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t2131_3** id=2026-10-25T08:10:31Z.c1f3d471dcb389819b67de9a from=t2131_3 from_verified=yes at=2026-10-25T08:10:31Z base=eb6baa4c91e763eb8e482682433d287f1f17f99d base_branch=main dirty=no host=omg16
+>
+> | Advisory, from t2131_3 (landed in commit eb6baa4c9), for reach/widening:
+> | - Live table and drift: `modules.Scan(ctx, root, reg)` returns `Result{Doc, Refused, Files (= Graph.Universe()), Graph}`. Compute staleness with `registry.ModulesDrift(root, res.Doc)`. Measured `check` with the live inference: ≈220 ms pinned on the aitasks shape (≈33 ms without a declared table).
+> | - Judge ownership over the full universe (`Universe()`), never `Graph.Files()`: JSON, Markdown and config files are owned too.
+> | - A registry with no declared table (no committed `_modules.yaml`, no hand `modules:`) has every path unmapped, so it falls back to full. `check` does not report drift for it.
+> | - Gradle modules are declared projects only (`GradleModule.Declared`). A build directory no settings file includes is unmapped, so a change there means `unmapped_path`.
+> | - `deps:` in the table are computed over the persisted rows only, never hand modules. They are inspection evidence, consistent with "reach never trusts them".
