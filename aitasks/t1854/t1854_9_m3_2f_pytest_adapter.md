@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1852
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-21 22:06
-updated_at: 2026-10-25 14:46
+updated_at: 2026-10-25 16:38
 ---
 
 ## Context
@@ -244,3 +245,8 @@ What each status proves:
 > | - Real-tool tests chaining engine loads ran ~28 s under -race on a loaded host; bash-file uses its own 120 s hang limit.
 
 > **👁 note:read** id=2026-10-25T12:45:58Z.7c39f7e2fcd9aae1720cc719 by=t1854_9 at=2026-10-25T12:45:58Z mode=explicit ids=2026-10-22T08:04:02Z.70d9eaf2d10bfbd6eba66d23,2026-10-22T12:42:10Z.b09e80b7037ffa01caaaab7f,2026-10-25T06:58:39Z.77ae779f5cabdec6100bffbb,2026-10-25T08:54:19Z.260db30f2b8b583044a42b55,2026-10-25T12:30:52Z.c0e89544dded95a30f09aec2
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-25T14:38:36Z status=pass attempt=1 type=human
