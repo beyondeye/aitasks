@@ -148,3 +148,17 @@ Then Step 9 (Post-Implementation): commit, archive per the task workflow.
 
 ### Goal-achievement risk: low
 None identified. All four sites named by the task (both conditions each) and their messages are converted through one predicate, each site gets a behavioural case, and the mutation control proves the cases fail without the fix.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-25, during plan review — before the 06:30 plan approval)
+- **Requested by user:** the always-pass / always-fail fixtures cannot see a site that skips its post-repair re-check (a stale `specs_check_ok=false` would then reject a venv the repair made healthy); add a stateful fail-once-then-succeed case asserting the repair is attempted and the ready outcome reached.
+- **Changes made:** added the `specs_ok=once` stub mode with a per-venv inspection log, section 9 (recovery cases for all four sites, each asserting exactly two inspections), and negative control C4 (no-op every post-repair `verify_venv_specs`; asserted to change exactly 4 lines).
+- **Files affected:** `tests/test_setup_pip_install_guards.sh` (plan only at the time; implemented in Step 7).
+
+## Final Implementation Notes
+- **Actual work done:** Added `venv_deps_bad` / `venv_deps_detail` after `verify_venv_specs` in `.aitask-scripts/aitask_setup.sh` and converted all 8 repair/failure conditions and their 8 messages in `setup_pypy_venv`, `setup_chat_deps`, `setup_dev_deps`, `setup_python_venv`; a failed inspection now triggers the repair, then the site's failure outcome, and is named "version check failed". `tests/test_setup_pip_install_guards.sh`: `specs_ok` fixture parameter (1 / 0 / once), `dev` driver case, `make_pip_ok`, `inspections` helpers, sections 8 (8a–8e, incl. the 8d dev-fixture control) and 9 (9a–9d), negative controls C3 and C4 — 108/108 pass. `tests/test_setup_verify_venv_imports.sh`: 4 direct helper asserts — 30/30 pass. `tests/test_aitasks_home.sh` 460/460 and `tests/test_python_resolve_pypy.sh` 14/14 unchanged-green.
+- **Deviations from plan:** the inspection log is `<venv-dir>.inspections` (a sibling of the venv directory, derived as `${path%/bin/python}.inspections`) rather than `<stub-path>.inspections`, so the count survives setup removing the PyPy venv under C4. The log append is best-effort (`2>/dev/null || :`) because cases 5b/5c make that directory read-only and never read the count.
+- **Issues encountered:** none in the code. The working tree also carried another session's uncommitted edits (`verified_update_lib.sh`, `metadata_update_fixture.sh`, `test_usage_update.sh`, `test_verified_update.sh`); the commit names only this task's three files.
+- **Key decisions:** one shared predicate instead of 8 inline edits, so each mutant is a single targeted sed (C3: the predicate clause; C4: the four re-checks) and the sites cannot drift. Red proof: the new test run against the pre-fix script (`bcdeff693`, scratch worktree) fails every section-8 and section-9 case (23 failures) while the 8d control passes. Shellcheck findings on `aitask_setup.sh` are identical to HEAD (31 = 31); the one new SC2016 note in the guards test is the C3 sed script's intentional literal `\$`, the same class as the existing C1/C2 mutant scripts.
+- **Upstream defects identified:** None
