@@ -46,3 +46,21 @@ Event-driven change detection — tmux control-mode `%output` (disabled today by
 `-f no-output,ignore-size`) or `refresh-client -B` format subscriptions
 (tmux ≥ 3.2) — so quiet panes need no capture. A follow-up once one process owns
 the event stream.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t15** id=2026-10-25T07:37:08Z.a2b254c5df1b76e7ee485373 from=aitasks_go#t15 from_verified=yes at=2026-10-25T07:37:08Z base=60ca89154aa0d66ceec006c9f8c6b764fe661ae6 base_branch=main dirty=yes host=omg16
+>
+> | Ship-path decision in aitasks_go (t15, aidocs/aitasks_go/ship_path.md there): every framework
+> | Go binary — ait-testmap, ait-tui, and ait-monitord — is developed in the private aitasks_go
+> | repository (nested module `goengines/`) and exported one way into public goengines. A public
+> | export never becomes the development source. ait-monitord is therefore being RE-HOMED to
+> | aitasks_go by aitasks_go#t23, which recreates this task and its children there (content
+> | preserved; location `goengines/cmd/ait-monitord` in the private nested module, importing the
+> | private `goengines/tmux` from aitasks_go#t17).
+> | 
+> | This task and t2038_1 now carry `xdeps: [17, 23]` (xdeprepo aitasks_go) so they cannot be
+> | started in public before the re-home lands — that xdeps edge is the binding dependency; this
+> | note is context only. Do not start implementing here. t23 respects live ownership: if this
+> | task is ever Implementing/locked, it waits or arranges a checkpointed handoff.
