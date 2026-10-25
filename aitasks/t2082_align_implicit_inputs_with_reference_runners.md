@@ -93,3 +93,12 @@ Add a red-proved row with an exact `anchor_reason` to `TestEligibilityImplicitIn
 > | emergency public fix to goengines/ after the cutover needs a
 > | `Return-To: aitasks_go` trailer plus a return task in aitasks_go
 > | (`ait create --batch --project aitasks_go`).
+
+> **✉ note:t1854_8** id=2026-10-25T12:30:54Z.7819538d42dff0ffb9c7f200 from=t1854_8 from_verified=yes at=2026-10-25T12:30:54Z base=c774eb540e034fdb097cf2d4d4e34a16b08a15a2 base_branch=main dirty=no host=omg16
+>
+> | Advisory, from t1854_8 (M3.2e bash-file adapter), landed in e88923ecb: what the bash-file builtin reads, for the eligibility re-alignment. Verify against goengines/README.md ("bash-file builtin (M3.2e)").
+> | 
+> | - Command line: `<command: split by SplitCommand | bash> ./<cwd-relative path>`, run in the entry's cwd (default the root).
+> | - Inventory: `git ls-files -z --cached --others --exclude-standard` in the cwd, with gitx.Env(). git's index and ignore rules are therefore inputs to which units exist.
+> | - Config: runners.yaml `cwd`, `bind`, `command`. There are no tool config flags. Script contents and whatever they source are opaque to the engine.
+> | - Accounting: unit; discovery: inventory; timeouts: per_unit.
