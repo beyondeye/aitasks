@@ -99,12 +99,30 @@ is the known-working configuration (task's control repro).
    `PATH="$AIT_SPAWN_PATH"`. This stays invisible to `test_no_raw_tmux.sh`'s
    command-position pattern (`tmux ${sock…}`), as today.
 6. **`.aitask-scripts/aitask_codeagent.sh`** `cmd_invoke` (belt-and-braces, item 2
-   of the task): source `lib/spawn_path.sh`. Just before `exec "${CMD[@]}"`,
-   `ait_spawn_path_normalize; export PATH="$AIT_SPAWN_PATH"`. This covers
-   `ait codeagent invoke` launched outside the gateway (e.g. from a `bash -lc`).
-   The pane pid stays the agent (still `exec`). Not doing the task's
-   shim-sniffing variant: it can't predict a loop without running the shim, and
-   normalization removes the documented trigger.
+   of the task): just before `exec "${CMD[@]}"` (i.e. *after* the `--dry-run`
+   return), lazily source `lib/spawn_path.sh`, then
+   `ait_spawn_path_normalize "${PATH-}"; export PATH="$AIT_SPAWN_PATH"`. The
+   source is lazy and on the exec branch only, so the five test files that copy
+   `aitask_codeagent.sh` into a scratch repo and only use `--dry-run`
+   (`test_codeagent.sh`, `_op_wiring`, `_work_report`, `_discuss`, `_trail`)
+   don't need the new lib. This covers `ait codeagent invoke` launched outside
+   the gateway (e.g. from a `bash -lc`). The pane pid stays the agent (still
+   `exec`). Not doing the task's shim-sniffing variant: it can't predict a loop
+   without running the shim, and normalization removes the documented trigger.
+6b. **Test scaffolds that copy `tmux_exec.sh`** (source-on-startup ↔
+   test-scaffold rule, `aidocs/framework/shell_conventions.md`): once
+   `tmux_exec.sh` sources `spawn_path.sh`, every scratch copy of it needs the
+   new file next to it, or the sourcing fails at startup. There are two copy
+   sites: `tests/lib/test_scaffold.sh:21` (`setup_fake_aitask_repo`, used by
+   many suites) and `tests/test_session_hook.sh:44`. Add
+   `lib/spawn_path.sh` to both `cp` lists. The other tests that use
+   `tmux_exec.sh` source it from `$PROJECT_DIR` and are unaffected. Before
+   finishing, re-grep `tests/` for `tmux_exec.sh` copy sites, including
+   `cp -R .aitask-scripts`, which picks the file up automatically.
+   `tmux_exec.sh` sources it with a plain
+   `source "$(dirname "${BASH_SOURCE[0]}")/spawn_path.sh"`, matching the file's
+   other sourced libs. There is deliberately no existence guard: a missing lib
+   must fail loudly, not silently skip normalization.
 7. **Docs**
    - `aidocs/framework/tmux_gateway.md`: "three centralized policies" → four. New
      `### 4. Pane PATH`: the measured table, the rule, the control-mode bypass,
@@ -155,19 +173,64 @@ is the known-working configuration (task's control repro).
   - Healthy order unchanged: PATH with no mise dirs → pane PATH equals the
     spawner's PATH exactly.
   - Uses the file-backed counters if any body runs in a subshell (CLAUDE.md t1207).
+  - The test resolves every lib from its own `REPO_ROOT` (`dirname "$0"/..`),
+    never from `$PWD` or a hard-coded path. That is what lets the pre-fix control
+    below run the same file against a scratch checkout.
+- **`tests/test_codeagent.sh`, new real-invoke test** (covers step 6 directly;
+  every existing invoke test is `--dry-run` and returns before the new code):
+  - `setup_test_env` also copies `lib/spawn_path.sh`.
+  - Fixture in a scratch `HOME`: `$HOME/.local/bin/claude` appends `SHIM` to a
+    marker file and exits 1. `$HOME/.local/share/mise/shims/claude` writes
+    `REAL` plus its argv (one arg per line) to the marker and exits 0. Both are
+    harmless and bounded.
+  - Spawning PATH is built from scratch only:
+    `$HOME/.local/bin:$HOME/.local/share/mise/shims:<dirs of bash, jq, git, python3 via command -v>:/usr/bin:/bin`,
+    so the developer's real `claude` can never be reached. First assert
+    `PATH=<that> command -v claude` resolves to the fake shim (the hazard is
+    really present).
+  - Run `HOME=… PATH=… bash "$CODEAGENT" --agent-string claudecode/<seed model> invoke raw probe-arg`
+    (no `--dry-run`). Assert the marker reads `REAL`, contains no `SHIM`, and
+    the recorded argv carries `--model` plus `probe-arg`. Derive the model id
+    the way the existing derived-default tests do, never pinned.
+  - Healthy-order control: no mise dirs in PATH means the fake `~/.local/bin/claude`
+    is still what runs (marker `SHIM`). That shows normalization is a no-op
+    without mise entries.
 
 ## Verification
 
 1. `python3 -m pytest tests/test_tmux_exec.py` (or the unittest runner) passes.
-2. `bash tests/test_tmux_spawn_path_live.sh` passes. **Pre-fix control**: `git stash` the
-   lib changes (keep the tests), re-run, and confirm the Python/shell/control cases
-   FAIL with `SHIM`. Record that in Final Implementation Notes.
-3. `bash tests/test_no_raw_tmux.sh`, `bash tests/test_codeagent.sh`,
-   `bash tests/test_aitasks_home.sh`.
-4. `shellcheck .aitask-scripts/lib/spawn_path.sh .aitask-scripts/lib/tmux_exec.sh .aitask-scripts/lib/terminal_compat.sh .aitask-scripts/aitask_codeagent.sh`.
-5. Full suite: `set -o pipefail; bash tests/run_all_python_tests.sh 2>&1 | tail -5`, reading
+2. `bash tests/test_tmux_spawn_path_live.sh` passes. Live tmux preflight: run it
+   from a plain terminal, or confirm `require_isolated_tmux` isolates (memory:
+   live tmux suites).
+3. **Pre-fix control, in isolation. Never `git stash` in this shared
+   checkout.** The working tree can hold another session's uncommitted edits
+   (it already has an unrelated `.claude/settings.local.json` change), and
+   swapping the libraries would change what running sessions execute. Instead:
+   ```bash
+   ctl=<scratchpad>/prefix_ctl
+   git worktree add --detach "$ctl" HEAD          # pre-fix libs, untouched
+   cp tests/test_tmux_spawn_path_live.sh tests/test_codeagent.sh "$ctl/tests/"
+   cp tests/test_tmux_exec.py "$ctl/tests/"        # the new unit tests
+   (cd "$ctl" && bash tests/test_tmux_spawn_path_live.sh)   # expect FAIL: SHIM (python/shell/control cases)
+   (cd "$ctl" && bash tests/test_codeagent.sh)              # expect FAIL: real-invoke test, marker SHIM
+   (cd "$ctl" && python3 -m pytest tests/test_tmux_exec.py -q) # expect ImportError/FAIL on the new tests
+   git worktree remove --force "$ctl"
+   ```
+   HEAD is the pre-implementation commit, as long as the implementation is
+   still uncommitted when this runs, which Step 8 guarantees. If any helper
+   the new tests need is missing from the old tree (e.g. `tests/lib/*`
+   additions), copy those test-side files too, but **never** lib files. Expect
+   the "built-in control" and "healthy order" cases to PASS pre-fix. Record the
+   per-case outcomes in Final Implementation Notes.
+4. `bash tests/test_no_raw_tmux.sh`, `bash tests/test_codeagent.sh`,
+   `bash tests/test_session_hook.sh`, `bash tests/test_aitasks_home.sh`, plus
+   two `setup_fake_aitask_repo` consumers that source `terminal_compat.sh`
+   (pick via `grep -l setup_fake_aitask_repo tests/*.sh`). Together they cover
+   the scaffold change (6b).
+5. `shellcheck .aitask-scripts/lib/spawn_path.sh .aitask-scripts/lib/tmux_exec.sh .aitask-scripts/lib/terminal_compat.sh .aitask-scripts/aitask_codeagent.sh`.
+6. Full suite: `set -o pipefail; bash tests/run_all_python_tests.sh 2>&1 | tail -5`, reading
    only the final `PYTHON SUITE:` line.
-6. `cd website && python3 check_links.py --build`.
+7. `cd website && python3 check_links.py --build`.
 
 Out of scope: switching `aitask_path.sh` from `~/.aitask/bin` to
 `$AITASKS_HOME/bin`. Unmigrated homes have only the legacy dir, and migrated
@@ -181,9 +244,12 @@ Step 9 (Post-Implementation) handles commit, archival and merge as usual.
 - Every gateway tmux subprocess (monitor, board, switcher, freeze/restore) can get a changed `env` on mise hosts — wide blast radius, though an identity no-op (no `env=` kwarg at all) wherever PATH has no mise entries · severity: low · → mitigation: none
 - The systemd-run rung's new `--setenv=PATH=…` changes the first server's global PATH for **every** Linux/systemd user (user-manager PATH → caller's normalized PATH), and cannot be exercised live on this macOS host — only its argv is unit-tested · severity: medium · → mitigation: verify_on_mise_linux_host
 - Python/shell normalizer mirror can drift · severity: low · → mitigation: none (the parity contract test is part of the plan)
+- `tmux_exec.sh` gains a startup `source` of a new lib, so any scratch copy of it without `spawn_path.sh` breaks at source time. Many suites go through `setup_fake_aitask_repo` · severity: low · → mitigation: none (step 6b updates both copy sites, and verification step 4 runs their consumers)
+- A pre-fix control that `git stash`es libs in the shared checkout would disturb concurrent sessions · severity: medium · → mitigation: none (verification step 3 runs the control in a detached scratch worktree, never stashing)
 
 ### Goal-achievement risk: medium
 - The `mise x` re-resolution mechanism comes from the task's Omarchy-host analysis; mise is not installed here, so the fix is proven against a synthetic recursing shim and the real tmux PATH mechanics, not against real `mise x` + the Omarchy shim · severity: medium · → mitigation: verify_on_mise_linux_host
+- The `cmd_invoke` guard (step 6) is unreachable from every existing invoke test (all `--dry-run`) · severity: low · → mitigation: none (the new real-invoke test in `test_codeagent.sh` exercises the exec path, with a pre-fix control)
 - Panes created outside the framework (the user's own tmux bindings, hand-typed `tmux new-window`) still inherit the caller's PATH — out of scope by design · severity: low · → mitigation: none
 
 ### Planned mitigations
