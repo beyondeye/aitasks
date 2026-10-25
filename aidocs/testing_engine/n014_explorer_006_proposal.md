@@ -689,9 +689,13 @@ the shortest way to say what the choice protects.
     the build already states, and it would drift. A built-in module →
     submodule hierarchy would need nested ids, a level switch on every
     interface, parent expansion rules and per-level readiness evidence, for
-    a choice no measurement has asked for; it is reconsidered only if the
-    retrospective measurement (t2131_12) shows flat modules make widened runs
-    too broad.
+    a choice no measurement has asked for. It is reconsidered only if the
+    retrospective measurement (t2131_12) meets its pre-registered "too
+    narrow" criterion: a parent-level widening, computed offline from the
+    paired prediction records, would have caught failures that flat widening
+    missed, at an acceptable cost. Widened runs that are too broad call for
+    finer boundaries (codemap entries, agent proposals, hand overrides), not
+    for a second level, because flat modules already use the deepest root.
 <!-- /section: design_decisions -->
 
 <!-- section: module_map [dimensions: component_*, requirements_*] -->
@@ -952,8 +956,9 @@ inclusion of an uncertain file with its reverse closure instead of falling
 back, per-language clearing of uncertain references iterated to a fixed
 point over the growing reach set, and a base-revision graph for deletions
 and renames (M2.7); `auto` learning to land on `module` (M8.5); and more than
-one level of code modules, only if measurements show flat modules make
-widened runs too broad (M2.7).
+one level of code modules, only if the retrospective's parent-level
+counterfactual shows flat widening missing failures that a coarser level
+would have caught at acceptable cost (M2.7).
 <!-- /section: module_map -->
 
 <!-- section: data_flow [dimensions: component_test_entrypoint, component_test_front_verb, component_onboarding_engine_verbs, component_onboarding_skill, component_seeder, component_completion_policy, component_auto_policy, component_workflow_integration, component_workflow_seam, component_selector, component_annotation_scanner, component_author_annotation, component_freshness, component_feedback_tools, component_cost_ledger, component_registry_loader, component_staleness_tool, component_engine_packaging, component_agent_review, component_agent_review_pass] -->
@@ -5110,8 +5115,9 @@ document.
   rule may cut too finely (one module per Go or Python package) or too
   coarsely (one Gradle project, one codemap entry). Accepted for v1:
   boundaries are refined by the codemap, agent proposals and hand overrides,
-  and more levels are reconsidered only if measurements show widened runs
-  too broad.
+  and a second level is reconsidered only if measurements show flat
+  widening missing failures that a coarser level would have caught, at
+  acceptable cost.
 - **`tradeoff_module_reach_full_fallback`** — module widening falls back to
   the full suite on any deletion, rename, unmapped path, stale table or
   in-repo dependency uncertainty anywhere, because the absence of a resolved
