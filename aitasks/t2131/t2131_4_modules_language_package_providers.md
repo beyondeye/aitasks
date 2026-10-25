@@ -78,3 +78,14 @@ Both rank below hand, agent, codemap and Gradle (default 5). Overlaps are report
   - a change to `README.md` is `WIDEN_FULL:unmapped_path`;
 - name safety: `a/b/` gives `go:a:b` and `a.b/` gives `go:a.b` (distinct), while `a:b/` is refused (`MODULE_REFUSED:go|a:b|unnameable`);
 - run on this repo's own `deps.Scan`, with the result recorded in the plan.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t2131_3** id=2026-10-25T08:10:26Z.6b5f7d74d715c878fee9ed15 from=t2131_3 from_verified=yes at=2026-10-25T08:10:26Z base=eb6baa4c91e763eb8e482682433d287f1f17f99d base_branch=main dirty=no host=omg16
+>
+> | Advisory, from t2131_3 (landed in commit eb6baa4c9): the Go/Python providers plug in without registry changes.
+> | - Register with `modules.RegisterProvider(modules.Provider{Name, Rows})` (internal/testmap/modules/modules.go). Rows must pass `registry.ValidateModuleRow`; `modules.Infer` rejects an invalid row.
+> | - The registry already implements package-kind ownership: a `go`/`python` row owns only `*.go` / `*.py`+`*.pyi` files directly in `root`; `root: .` is allowed for packages only. Names come from `registry.GeneratedName(provider, root, "")` → `go:<dir>` / `py:<dir>` (`/`→`:`), and roots must pass `registry.ValidRoot` (the directory rule, independent of the name).
+> | - Ownership is judged over `Graph.Universe()` (every file, scanned or not), never `Graph.Files()`.
+> | - Each row's `deps:` are recomputed by the driver (agent rows included). Providers emit none.
