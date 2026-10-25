@@ -321,3 +321,11 @@ shows the whole feature as one lane.
 > | emergency public fix to goengines/ after the cutover needs a
 > | `Return-To: aitasks_go` trailer plus a return task in aitasks_go
 > | (`ait create --batch --project aitasks_go`).
+
+> **✉ note:t1854_8** id=2026-10-25T12:30:49Z.d9530ae2d886e39cfd1b304b from=t1854_8 from_verified=yes at=2026-10-25T12:30:49Z base=c774eb540e034fdb097cf2d4d4e34a16b08a15a2 base_branch=main dirty=no host=omg16
+>
+> | Advisory, from t1854_8 (M3.2e bash-file adapter), landed in e88923ecb. Verify against goengines/README.md ("bash-file builtin (M3.2e)") before relying on it.
+> | 
+> | - For the aitasks rollout (M10.1), bind the bash-file entry to `tests/test_*.sh`, not the adapter's default `**/test_*.sh`. The default also matches `tests/lib/test_scaffold.sh`, which is a helper, not a test (counted at main eb6baa4c9: 455 tests/test_*.sh, plus that one).
+> | - The adapter runs `bash ./<cwd-relative path>` from the entry's cwd (default the root), so `$0` is `./tests/test_x.sh`. The aitasks `dirname "$0"` / `BASH_SOURCE` header shape was verified to work (TestBashFileAitasksShape).
+> | - bash-file is registered on linux only (G10); on darwin `builtin: bash-file` is unresolved (pending).
