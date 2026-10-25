@@ -3,11 +3,12 @@ priority: high
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [tmux, tui_switcher, codeagent, minimonitor]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-09-02 14:59
-updated_at: 2026-09-02 14:59
+updated_at: 2026-10-25 12:45
 ---
 
 ## Symptom
