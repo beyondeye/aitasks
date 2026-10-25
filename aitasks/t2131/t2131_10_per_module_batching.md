@@ -79,3 +79,53 @@ The task is `Ready` but blocked until both land. M3.1 (t1854_1, archived) owns t
 > | - `registry.ModulesOf(reg).OwnerOf(path)` is universe-free and cheap. It returns "" when unmapped and an `*InvalidError` on a hand-module overlap, so the runner side needs no deps import.
 > | - `gradle:` rows carry the Gradle project path in `ModuleRow.Gradle` (e.g. `:services:payments:api`) for `{module}` expansion. Other providers leave it empty, so `{module}` should be refused for them.
 > | - Grouping wants the test's path-containment module. Membership through covered sources is t2131_5's and is not persisted.
+
+> **✉ note:t15** id=2026-10-25T08:55:04Z.494ae93f40ad2fa8c06b1161 from=aitasks_go#t15 at=2026-10-25T08:55:04Z base=eb6baa4c91e763eb8e482682433d287f1f17f99d base_branch=main dirty=no host=omg16
+>
+> | Coordination notice from aitasks_go (t15 ship-path decision; schedule in trail
+> | art:trail-go-ship-path owned by aitasks_go#t22). Advisory context, not an
+> | instruction. It does not change this task's scope.
+> | 
+> | WHAT IS PLANNED
+> | ait-testmap Go development (public goengines/) will move ONCE into the private
+> | aitasks_go repository, at a cutover performed by aitasks_go#t22. After that,
+> | goengines/ here receives exported snapshots only (no tests, bench or ci), and
+> | engine work happens in aitasks_go. As of 2026-10-25 the cutover has no date.
+> | Its prerequisites are aitasks_go t20 and t21 and aitasks t2138.
+> | 
+> | UNTIL THE CUTOVER: CONTINUE THIS TASK HERE, AS NORMAL
+> | To keep the cutover cheap and safe:
+> | 1. Land goengines/ changes on main promptly. Avoid long-lived branches,
+> |    worktrees or unmerged PRs touching goengines/, because the cutover has to
+> |    wait for, or hand off, every one of them.
+> | 2. Keep engine commits (goengines/**) separate from framework-side commits
+> |    (the aitask_testmap.sh shim, installer/setup, skills, docs, aitestmap/).
+> |    Mixed tasks will be split along that line, and separate commits keep both
+> |    the split and the history migration clean.
+> | 3. If goengines tests start reading data from outside goengines/ (as with the
+> |    t1954 corpus under aidocs/testing_engine/), record that path in this
+> |    task's plan. The migration must copy it into the private module.
+> | 4. Add no new Go binary or non-testmap package to goengines/. ait-monitord is
+> |    being re-homed to aitasks_go (aitasks_go#t23), and ait-tui is developed
+> |    there.
+> | 5. Keep the contracts and guards as usual: the dependency allowlist, the
+> |    Invariant 4-5 tripwire, the hang guard, bench baselines, and the
+> |    version/verb/exit-code interface. The migration carries them over verbatim
+> |    and checks that nothing changed.
+> | 
+> | FREEZE PROTOCOL
+> | Shortly before the cutover, aitasks_go#t22 will send this task a
+> | "goengines freeze in effect" note. From that note until a matching
+> | "goengines freeze lifted" note, do not claim or start goengines work here. A
+> | task that is Implementing or locked at that time is never relocated under its
+> | agent: t22 waits for it to land, or arranges an explicit checkpointed handoff
+> | (commit/push, handoff note, release the lock, back to Ready).
+> | 
+> | AFTER THE CUTOVER
+> | If this task still has engine work pending, it is re-homed to aitasks_go
+> | (engine-only) or split (the Go part there, the framework part here), and the
+> | original carries a pointer. Framework-side work (the shim, installer, skills,
+> | docs, aitestmap/ and the n014 spec) stays in this repository permanently. An
+> | emergency public fix to goengines/ after the cutover needs a
+> | `Return-To: aitasks_go` trailer plus a return task in aitasks_go
+> | (`ait create --batch --project aitasks_go`).
