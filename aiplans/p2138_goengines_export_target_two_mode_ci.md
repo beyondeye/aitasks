@@ -435,3 +435,159 @@ uses; build.sh passes no build tags. The checks run in this order:
 ### Planned mitigations
 - timing: post-phase | name: actionlint_workflows | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — CI/release restructure silently skipping the legacy suite | desc: run pinned actionlint over goengines-check.yml and release.yml and fix findings in changed lines
 - timing: after | name: observe_first_ci_runs | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: medium | addresses: goal-achievement — Actions semantics unverifiable locally | desc: after push, confirm goengines-check passes in legacy mode on main (check/bench run as before, export-integrity reports legacy) and the release workflow wiring parses; optionally exercise export mode once on a throwaway branch with a fixture EXPORT.txt
+
+## Implementation Notes
+
+Steps 1–9 and the `actionlint_workflows` post-phase are done. Step 10 (the
+notes to aitasks_go#21 / #22) runs after the commit.
+
+Deviations and additions:
+
+- **Record rule added.** The record may not list `EXPORT.txt`, `README.md` or
+  `.gitignore`. The first real-tree dry run turned up a generator that listed
+  `EXPORT.txt` in itself, which made the record self-drifting.
+- **Drift enumeration** uses `git ls-files -co --exclude-standard` (newline-
+  separated, `core.quotepath=off`), falling back to `find`. No `sed -z`, which
+  is GNU-only.
+- **The engine-test export branch** passes `--dir "$GOENGINES"` explicitly,
+  and runs `drift` only after `check` succeeds (errexit). E7b pins both.
+- **The workflow guard** gained the `IntegrityStepControls` negative controls
+  and a sums-loop assertion. The two-mode controls are in
+  `PreflightOrderControls.test_every_gated_bypass_is_rejected`.
+
+Verification evidence:
+
+- `tests/test_goengines_export_integrity.sh`: 143/143.
+  - Mutant: restricting `TARGETS` to the host OS fails the 7 platform-only
+    assertions, so the matrix loop is load-bearing.
+- `tests/test_release_workflow_goengines.py`: 22 OK.
+  - Workflow mutants that fail it: `== 'legacy'` job if, `always()` step if,
+    drift without `continue-on-error`.
+- `tests/test_goengines_build.sh`: 107/107. A scratch tree with an extra
+  `cmd/ait-tui` gives 131/131.
+- `tests/test_install_engine_binary.sh`: 228/228 (E7 unchanged, E7b new).
+- `tests/test_goengines_benchci.sh` 28/28; `test_annot_conformance_corpus_sync.sh`
+  17/17; `test_cd_guard_lint.sh` 92/92.
+- Legacy mode on the real tree:
+  - `goengines_integrity.sh mode` prints `MODE:legacy`, and `check` / `drift`
+    report legacy;
+  - `ait engine test -short` passes.
+- Export checks on a scratch copy of the real `goengines/`, with a generated
+  record: `INTEGRITY_OK`, `DRIFT_NONE` (about 11 s).
+- actionlint v1.7.7: clean on expressions and wiring. Its shellcheck pass
+  reports only 3 SC2086 infos in the pre-existing release.yml
+  "Extract changelog" step (unchanged lines, not fixed).
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-25 12:40)
+- **Requested by user:** three verified defects in `goengines_integrity.sh`:
+  1. `check_closure` read the main module with a direct `go list -m` that
+     bypassed `GOWORK=off`, so an inherited workspace returned the wrong
+     module;
+  2. `drift` died under errexit on an unreadable `EXPORT.txt` instead of
+     printing `DRIFT_UNCHECKED`;
+  3. newline-separated `git ls-files` C-quoted names containing a quote or a
+     backslash, so those unlisted files went unreported.
+- **Changes made:**
+  - Every go call (`go env GOROOT`, `go mod edit -json`, `go list -m`) now goes
+    through `run_go`.
+  - `parse_record` reads through `parse_record_lines` inside an `if`, so an
+    unreadable record becomes the `cannot be read` error. `check` refuses it
+    with `INTEGRITY_FAIL:record:EXPORT.txt cannot be read`; `drift` prints
+    `DRIFT_UNCHECKED:EXPORT.txt cannot be read` and exits 0.
+  - The same audit found two more errexit exits: the `sed` pipeline in
+    `check_matrix` on an unreadable `build.sh` (now `INTEGRITY_FAIL:matrix`),
+    and `cp -R` (now `INTEGRITY_FAIL:copy`).
+  - `tree_files` is NUL-delimited for both git (`-z`) and find (`-print0`).
+  - `DRIFT:` lines `%q`-quote a path holding a control character, and the
+    `::warning` property and data are escaped per GitHub's workflow-command
+    rules.
+  - New test cases: 9b covers awkward names (space, quote, backslash,
+    comma/colon) with git and without, plus the annotation escape. 9c covers
+    an unreadable record and an unreadable exported file (skipped as root). 9d
+    covers an inherited unrelated `GOWORK`.
+  - Each new case is red against its mutant: direct `go list -m` 2 FAIL,
+    newline enumeration 3 FAIL, unguarded parse 4 FAIL.
+  - Results: 168/168; the real-tree dry run still gives `INTEGRITY_OK` and
+    `DRIFT_NONE`.
+- **Files affected:** `.github/scripts/goengines_integrity.sh`,
+  `tests/test_goengines_export_integrity.sh`.
+
+### Change Request 2 (2026-10-25 13:05)
+- **Requested by user:**
+  1. `go mod edit -json` (and `go env GOROOT`) inherited the caller's GOFLAGS.
+     With `-modfile=<benign.mod>`, the metadata check read the benign file, so
+     an absolute outside replace passed;
+  2. a NUL-enumerated name containing a newline could match two adjacent
+     paths in the newline-framed `REC_SEEN`, and was then silently skipped.
+- **Changes made:**
+  - `INDEPENDENT_ENV` now starts with `GOENV=off GOFLAGS=`.
+    - Probed: go treats an empty variable as unset and falls back to the
+      `go env -w` file. So `GOFLAGS=` alone does not clear a go env file's
+      `-modfile`, and neither do the empty `GOPRIVATE=` etc. `GOENV=off`
+      clears them.
+    - Per-call `GOFLAGS=-mod=…` values come later in the env argv, so they
+      still win.
+  - Drift record membership is consulted only for a `safe_path` name. A
+    record path never contains a newline, so any other name is unlisted.
+  - New cases:
+    - 9e: an absolute outside replace, a control, then `GOFLAGS=-modfile` and
+      a go env file carrying `-modfile`;
+    - 9b': adjacent `alpha` / `beta` record entries, plus `alpha\nbeta` and
+      `other\nname`, with git and with find.
+  - Mutants:
+    - without `GOFLAGS=`: 1 FAIL;
+    - without `GOENV=off`: 1 FAIL;
+    - without the `safe_path` guard: 4 FAIL.
+  - Results: 183/183; the real-tree dry run still gives `INTEGRITY_OK` and
+    `DRIFT_NONE`. `go_engine.md` documents the isolated environment.
+- **Files affected:** `.github/scripts/goengines_integrity.sh`,
+  `tests/test_goengines_export_integrity.sh`, `aidocs/framework/go_engine.md`.
+
+## Final Implementation Notes
+- **Actual work done:**
+  - Two-mode CI keyed on `goengines/EXPORT.txt`: the `mode` job, fail-closed
+    job-level `if:` on `check` / `bench`, a new always-on `export-integrity`
+    job, and step-level gating plus integrity and drift steps in the release
+    `goengines` job.
+  - The sums checks in both workflows verify every `*_SHA256SUMS.txt`.
+  - `.github/scripts/goengines_integrity.sh` (`mode` / `check` / `drift`)
+    implements `EXPORT.txt` format 1. Its checks are record, matrix, copy,
+    gofmt, private-deps, independent-build and closure. Every platform-dependent
+    check runs on each `build.sh` MATRIX target, and every go call uses one
+    isolated environment.
+  - New `tests/test_goengines_export_integrity.sh` (183 assertions).
+  - `tests/test_goengines_build.sh` is multi-executable and adds a two-program
+    fixture.
+  - The workflow guard pins the two-mode wiring, with negative controls.
+  - `ait engine test` export branch, pinned by E7b.
+  - Docs: the `goengines/README.md` "Source of truth" section (format 1, the
+    public-maintained files, CI in export mode, emergency fixes);
+    `go_engine.md` (wiring and *Export mode*); n014 (closure-scoped
+    allowlist, development location, two-mode note).
+- **Deviations from plan:**
+  - The record also refuses `EXPORT.txt` / `README.md` / `.gitignore` entries.
+  - `check` gained the `copy` failure, and the matrix check reports an
+    unreadable `build.sh`.
+  - Drift enumeration is NUL-delimited, and drift output escapes control
+    characters and annotation syntax.
+  - The isolated environment includes `GOENV=off GOFLAGS=` (review rounds 1–2).
+- **Issues encountered:** the review rounds found five real defects, all fixed
+  with mutant-proven regression cases (Change Requests 1–2):
+  - GOWORK bypass in the main-module lookup;
+  - errexit exits on unreadable inputs;
+  - C-quoted git names;
+  - inherited `-modfile`, including through the go env file;
+  - newline-name collisions in record membership.
+- **Key decisions:**
+  - The integrity script lives in `.github/scripts/`, because `goengines/`
+    may hold only exported files plus README / .gitignore.
+  - Legacy work is skipped only on a positive `export` answer.
+  - `drift` never fails.
+  - Unknown record keys are tolerated; `format:` is the version gate.
+  - The README developer sections stay, scoped to legacy mode. The cutover
+    task trims them.
+  - `main` has no branch protection, so "required" is enforced through the
+    release dependency.
+- **Upstream defects identified:** None
