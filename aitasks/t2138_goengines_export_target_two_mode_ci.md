@@ -11,10 +11,11 @@ active_gates: [risk_evaluated]
 active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
+risk_mitigation_tasks: [2141]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus5_5
 created_at: 2026-10-25 09:33
-updated_at: 2026-10-25 11:29
+updated_at: 2026-10-25 12:56
 ---
 
 Turn public `goengines/` into the **export target** for Go source developed in
