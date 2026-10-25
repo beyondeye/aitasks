@@ -60,3 +60,20 @@ This child is a mechanical rename, kept separate from t2131_1 so it can run when
 
 - Every remaining "module"/"submodule" in the proposal is either the code-module sense (from t2131_1), a kept identifier, or the Go, Gradle or Python sense. List the kept ones in the plan.
 - Every cited anchor still resolves.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t15** id=2026-10-25T08:55:34Z.1399c5697b7ce9da9d2e30f3 from=aitasks_go#t15 at=2026-10-25T08:55:34Z base=eb6baa4c91e763eb8e482682433d287f1f17f99d base_branch=main dirty=no host=omg16
+>
+> | Coordination notice from aitasks_go (t15 ship-path decision; trail
+> | art:trail-go-ship-path). Advisory context, not an instruction.
+> | 
+> | This is a framework-side documentation task and stays in this repository
+> | permanently. ait-testmap Go development will later move to the private
+> | aitasks_go repo (cutover by aitasks_go#t22), but the n014 proposal stays
+> | canonical here. One overlap to coordinate: aitasks t2138 amends
+> | aidocs/testing_engine/n014_explorer_006_proposal.md (M1.2: the development
+> | location, the dependency allowlist scoped to the ait-testmap closure, the
+> | scheduled cutover). Whichever of the two lands second should rebase onto the
+> | other rather than rewrite those paragraphs.
