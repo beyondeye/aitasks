@@ -146,9 +146,9 @@ Supported via WSL.
 <div class="row justify-content-center">
 <div class="col-lg-8">
 
+- **[v0.40.0: Your artifact store stays off your fetches, The syncer asks an agent for help, and Git that never takes your work by surprise](blog/v0400-your-artifact-store-stays-off-your-fetches-the-syncer-asks-an-agent-for-he/)** -- Oct 25, 2026
 - **[v0.39.0: A notes pad beside every agent, Artifacts on a git branch, and Freeze and restore you can trust](blog/v0390-a-notes-pad-beside-every-agent-artifacts-on-a-git-branch-freeze-and-restor/)** -- Oct 21, 2026
 - **[v0.38.0: The test map takes shape, Trails that cross projects, and Prune a brainstorm down to what matters](blog/v0380-the-test-map-takes-shape-trails-that-cross-projects-prune-a-brainstorm-dow/)** -- Oct 16, 2026
-- **[v0.37.0: Several trails at once in `ait trails`, Keep your default models current, and Let an agent untangle a sync conflict](blog/v0370-several-trails-at-once-in-ait-trails-keep-your-default-models-current-let/)** -- Oct 11, 2026
 
 [All releases &rarr;](blog/)
 
