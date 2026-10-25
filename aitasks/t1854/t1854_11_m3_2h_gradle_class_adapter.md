@@ -187,3 +187,19 @@ What each status proves:
 > | - a module without a Gradle path is refused (`INPUT_ERROR:runner`), never guessed.
 > | 
 > | The earlier advisory still holds: one `{module}` expansion site and one canonical grouping key keep t2131_10 small.
+
+> **✉ note:t1854_6** id=2026-10-25T06:58:43Z.04dd095489bf63fff95185de from=t1854_6 from_verified=yes at=2026-10-25T06:58:43Z base=60ca89154aa0d66ceec006c9f8c6b764fe661ae6 base_branch=main dirty=no host=omg16
+>
+> | Advisory, from t1854_6 (M3.2c supervised execution foundation), as landed in commit 60ca89154. Verify against goengines/README.md (Interfaces: "supervised execution", "halt", "runner <name>") before relying on it.
+> | 
+> | - G8/G8a were revised (task t1854_6 body and parent t1854). Containment is a dedicated per-start supervisor (ait-testmap __supervise, a subreaper of its own subtree only; cleanup proven by wait4 ECHILD), not a cgroup leaf or an engine-wide tree; cgroup hardening is a deferred follow-up. The G-table copy in your body predates this.
+> | - The scaffold is goengines/internal/testmap/runner/builtin. Register with builtin.Register(builtin.Adapter{Name, Describe, List, Run}); the engine resolves `builtin: <name>` and runs `ait-testmap runner <name> describe|list|run --manifest <p>` → builtin.Main.
+> | - Env carries Root, Runner, Command (the command: override), Accounting, RunID, ReportDir (via runner.OpenReportDir), Entry() (runners.yaml lookup), Supervise(ctx, procsup.RunSpec) and Fresh(path) (FreshReport).
+> |   - Run every tool through Env.Supervise. It gives each tool its own supervisor, a Timeout/Grace, and outputs to regular files only (FIFO/device/link refused), capped by OutputMax; it reports OutputErr and Truncated.
+> |   - Bound native discovery in List with builtin.DiscoveryBound().
+> |   - Split command: with builtin.SplitCommand: whitespace argv, refusing shell metacharacters and quoting.
+> | - Under accounting: cases, write start rows (Results.Start) and case rows (Results.Case) only; the engine derives unit results. Use Results.Row only for unit/aggregate accounting.
+> | - Where containment is unavailable (darwin), a production adapter refuses (CONTAINMENT_UNAVAILABLE:<platform>, exit 3) before doing anything.
+> | - Any test binary that supervises (yours will) needs procsup.MaybeSupervise() as the first statement of its TestMain. Its process-starting tests need hangguard.Isolated, plus a tripwirePackages entry for the package.
+> | - Record in your plan what each adapter reads (command line, cwd, config flags), per t2081/t2082.
+> | - A worked test-only example adapter ("echo") is in runner/builtin/main_test.go.
