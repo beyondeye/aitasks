@@ -2077,11 +2077,14 @@ def launch_in_tmux(command: str, config: TmuxLaunchConfig) -> tuple[int | None, 
         # (t956) — see TmuxClient.new_session_argv. ``new-session -d`` does not
         # support ``-P``, so query pane_pid from list-panes after creation. The
         # gateway returns the full argv (incl. any systemd-run/setsid prefix and
-        # the socket flag), so it goes straight to Popen, not client.spawn.
+        # the socket flag), so it goes straight to Popen, not client.spawn —
+        # with the gateway's spawn env, so the pane's PATH does not depend on
+        # ours (t1689; ``None`` = inherit).
         tmux_cmd = _TMUX.new_session_argv(
             config.session, config.window, command, cwd_args, config.cwd,
         )
-        proc = subprocess.Popen(tmux_cmd, stderr=subprocess.PIPE)
+        proc = subprocess.Popen(tmux_cmd, stderr=subprocess.PIPE,
+                                env=_TMUX.spawn_env())
         proc.wait()
         if proc.returncode != 0:
             stderr = proc.stderr.read().decode() if proc.stderr else ""

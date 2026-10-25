@@ -35,7 +35,7 @@ trap 'rm -rf "$TMP"' EXIT
 # sources; setup's SCRIPT_DIR points at it, so `$SCRIPT_DIR/..` is the project.
 FAKE="$TMP/proj"
 mkdir -p "$FAKE/.aitask-scripts/lib" "$FAKE/aitasks/metadata"
-for f in tmux_bootstrap.sh tmux_exec.sh terminal_compat.sh; do
+for f in tmux_bootstrap.sh tmux_exec.sh spawn_path.sh terminal_compat.sh; do
     cp "$PROJECT_DIR/.aitask-scripts/lib/$f" "$FAKE/.aitask-scripts/lib/"
 done
 CFG="$FAKE/aitasks/metadata/project_config.yaml"

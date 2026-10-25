@@ -707,6 +707,16 @@ cmd_invoke() {
     # for the SessionStart hook's session record (frozen-agent restore).
     export AITASK_AGENT_STRING="$agent_string"
 
+    # Resolve the agent binary under the normalized spawn PATH (t1689), so an
+    # invoke started outside the tmux gateway (e.g. from a `bash -lc`) cannot
+    # pick a `mise x` wrapper in ~/.local/bin that re-resolves to itself and
+    # loops. A no-op wherever PATH has no mise entry. Lazy: only a real launch
+    # needs it, never --dry-run.
+    # shellcheck source=lib/spawn_path.sh disable=SC1091
+    source "$SCRIPT_DIR/lib/spawn_path.sh"
+    ait_spawn_path_normalize "${PATH-}"
+    [[ "$AIT_SPAWN_PATH" == "${PATH-}" ]] || export PATH="$AIT_SPAWN_PATH"
+
     exec "${CMD[@]}"
 }
 

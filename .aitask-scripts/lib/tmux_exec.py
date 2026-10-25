@@ -1,7 +1,7 @@
 """tmux_exec - The single Python gateway for spawning ``tmux`` processes.
 
 `TmuxClient` is intended to become the **only** place in the Python side of the
-framework that launches a raw ``tmux`` process. It owns three cross-cutting
+framework that launches a raw ``tmux`` process. It owns four cross-cutting
 policies that are currently implicit and duplicated across call sites (t952):
 
 1. **Socket selection.** The framework runs its tmux sessions on a dedicated
@@ -26,7 +26,20 @@ policies that are currently implicit and duplicated across call sites (t952):
    "persistent control client when alive, subprocess fallback on ``rc == -1``".
    The control client itself (``monitor/tmux_control.py``) is passed in
    duck-typed, so the gateway owns the *strategy* without depending on
-   ``monitor/``.
+   ``monitor/``. Pane-creating verbs never ride the control client (policy 4).
+
+4. **Pane PATH (t1689).** tmux gives a new pane the PATH of the *client process
+   that issued* ``new-window`` / ``split-window`` / ``new-session`` — it even
+   overrides ``-e PATH=…`` — so the pane's PATH order depends on whoever
+   spawned it. An *attached* control client donates nothing: its spawns get the
+   server's global PATH, frozen at server start. Every tmux client launched
+   here therefore carries :func:`normalize_spawn_path` of the caller's PATH
+   (``env=`` only when that changes anything), pane-creating commands bypass
+   the control client (:func:`creates_pane`), and the systemd-run rung of
+   :meth:`TmuxClient.new_session_argv` hands the new server the same PATH via
+   ``--setenv``. Reordering is for the *pane* only: the launcher binaries
+   (``tmux``, ``setsid``, ``systemd-run``) stay the ones the caller's PATH
+   resolves (:func:`resolve_spawn_exe`). Shell mirror: ``lib/spawn_path.sh``.
 
 The spawn primitives (:meth:`TmuxClient.run` / :meth:`run_async`) are the sole
 owner of the ``(rc, stdout)`` contract — ``(-1, "")`` on ``FileNotFoundError`` /
@@ -48,6 +61,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import functools
 import os
 import re
 import shutil
@@ -91,6 +105,153 @@ def tmux_socket_args() -> list[str]:
         return ["-L", AIT_DEDICATED_SOCKET]
     sock = raw.strip()
     return ["-L", sock] if sock else []
+
+
+# tmux verbs whose new pane inherits the issuing client's PATH (policy 4). Full
+# spellings only: the framework never uses tmux's aliases (`neww`, `splitw`).
+_PANE_CREATING_VERBS = frozenset({
+    "new-session", "new-window", "split-window",
+    "respawn-pane", "respawn-window",
+})
+
+
+def creates_pane(args: list[str]) -> bool:
+    """Whether a tmux argv creates (or respawns) a pane.
+
+    Any token counts, so a ``\\;``-chained command that creates a pane anywhere
+    is caught. A false positive only costs a subprocess instead of the control
+    client, so matching on bare tokens errs on the safe side.
+    """
+    return any(a in _PANE_CREATING_VERBS for a in args)
+
+
+def _strip_entry(entry: str) -> str:
+    """A PATH entry without trailing slashes, keeping a lone ``/``."""
+    stripped = entry.rstrip("/")
+    return stripped or ("/" if entry.startswith("/") else entry)
+
+
+@functools.lru_cache(maxsize=32)
+def _normalize_cached(path: str, home: str, mise_data_dir: str,
+                      xdg_data_home: str, aitasks_home: str) -> str:
+    if mise_data_dir:
+        data = mise_data_dir.rstrip("/")
+    elif xdg_data_home:
+        data = xdg_data_home.rstrip("/") + "/mise"
+    elif home:
+        data = home.rstrip("/") + "/.local/share/mise"
+    else:
+        return path
+    shims = data + "/shims"
+    installs = data + "/installs/"
+
+    framework = set()
+    if home:
+        framework.add(home.rstrip("/") + "/.aitask/bin")
+    if aitasks_home:
+        framework.add(aitasks_home.rstrip("/") + "/bin")
+    elif home:
+        framework.add(home.rstrip("/") + "/.aitasks/bin")
+
+    lead: list[str] = []
+    mise: list[str] = []
+    rest: list[str] = []
+    leading = True
+    for entry in path.split(":"):
+        norm = _strip_entry(entry)
+        if norm == shims or norm.startswith(installs):
+            mise.append(entry)
+        elif leading and norm and norm in framework:
+            lead.append(entry)
+        else:
+            leading = False
+            rest.append(entry)
+    if not mise:
+        return path
+    return ":".join(lead + mise + rest)
+
+
+def _which(name: str, path: str, cwd=None) -> str | None:
+    """First executable ``name`` on ``path`` (an empty entry means ``.``).
+
+    A deliberate mirror of ``lib/spawn_path.sh::_ait_spawn_path_which`` rather
+    than :func:`shutil.which`, so the two gateways agree on every PATH.
+
+    ``cwd`` is the directory the child will run in. ``subprocess`` searches PATH
+    in the child *after* changing into it, so a relative entry (``bin``, or the
+    empty one) names a directory under ``cwd``, not under ours; such a match is
+    returned as an ABSOLUTE path under ``cwd``. ``cwd`` itself may be relative
+    (to our directory — where the child's chdir starts from), and a relative pin
+    would be re-resolved from inside it after that chdir, naming nothing.
+
+    The base is made absolute by concatenation only — never ``abspath`` /
+    ``normpath``. Those collapse ``..`` lexically, while the kernel resolves it
+    after following symlinks: with ``link -> elsewhere/nested``, ``link/..`` is
+    ``elsewhere``, not our directory. Left in place, the kernel reads the pinned
+    path exactly as it reads the child's ``chdir(cwd)``.
+    """
+    base = None
+    if cwd is not None:
+        base = os.fsdecode(cwd)
+        if not base.startswith("/"):
+            base = os.getcwd() + "/" + base
+    for entry in path.split(":"):
+        # Plain concatenation (not os.path.join) so a trailing-slash entry
+        # yields the same string the shell mirror builds.
+        candidate = (entry or ".") + "/" + name
+        if base is not None and not candidate.startswith("/"):
+            candidate = base + "/" + candidate
+        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+            return candidate
+    return None
+
+
+def resolve_spawn_exe(name: str, original_path: str | None,
+                      spawn_path: str, cwd=None) -> str:
+    """``name`` spelled so a process running under ``spawn_path`` executes the
+    file the caller's own ``original_path`` resolves.
+
+    Reordering PATH for the pane must not change *which launcher* runs: a
+    working ``tmux`` ahead of a mise-managed one that fails in this project
+    would otherwise be swapped out. Returns the bare ``name`` when both PATHs
+    resolve the same file (or the caller's resolves none, so the launch fails
+    exactly as before), and the caller's path to it only when they differ.
+    ``cwd`` is the child's working directory, as passed to ``Popen`` (see
+    :func:`_which`); ``None`` means it inherits ours.
+    """
+    if original_path is None or original_path == spawn_path:
+        return name
+    original = _which(name, original_path, cwd)
+    if original is None or _which(name, spawn_path, cwd) == original:
+        return name
+    return original
+
+
+def normalize_spawn_path(path: str, environ=None) -> str:
+    """The PATH a framework-spawned tmux client (and so its pane) should carry.
+
+    When ``path`` holds a mise entry — ``<mise_data>/shims`` or anything under
+    ``<mise_data>/installs/``, with ``mise_data`` = ``$MISE_DATA_DIR`` or
+    ``${XDG_DATA_HOME:-$HOME/.local/share}/mise`` — reorder it to: the framework
+    bins (``$HOME/.aitask/bin``, ``${AITASKS_HOME:-$HOME/.aitasks}/bin``) that
+    lead it, then every mise entry, then everything else. Relative order is kept
+    within each group, empty entries survive, entries compare with trailing
+    slashes stripped. No mise entry → ``path`` unchanged. Idempotent.
+
+    That is the order a mise-activated interactive shell already has. Under the
+    opposite order, with no ``__MISE_*`` session vars (tmux drops them), a
+    ``mise x <agent> -- <agent>`` wrapper in ``~/.local/bin`` resolves back to
+    itself and ``exec``s forever: a blank agent pane (t1689). Shell mirror:
+    ``lib/spawn_path.sh::ait_spawn_path_normalize``.
+    """
+    env = os.environ if environ is None else environ
+    return _normalize_cached(
+        path,
+        env.get("HOME") or "",
+        env.get("MISE_DATA_DIR") or "",
+        env.get("XDG_DATA_HOME") or "",
+        env.get("AITASKS_HOME") or "",
+    )
 
 
 def session_target(session: str) -> str:
@@ -237,6 +398,42 @@ class TmuxClient:
         """Build the full process argv: ``tmux`` + socket flag + caller args."""
         return ["tmux", *self._socket_args, *args]
 
+    @staticmethod
+    def spawn_env(base=None) -> dict | None:
+        """The environment a tmux client process should get (policy 4).
+
+        ``base`` (default ``os.environ``) with ``PATH`` replaced by
+        :func:`normalize_spawn_path`, or ``None`` when that changes nothing —
+        meaning "inherit", so hosts without mise see exactly today's calls.
+        """
+        src = os.environ if base is None else base
+        path = src.get("PATH")
+        if path is None:
+            return None
+        normalized = normalize_spawn_path(path, src)
+        if normalized == path:
+            return None
+        env = dict(src)
+        env["PATH"] = normalized
+        return env
+
+    def _launch(self, args: list[str], base=None,
+                cwd=None) -> tuple[list[str], dict]:
+        """The argv and extra subprocess kwargs for one tmux client (policy 4).
+
+        ``({argv}, {})`` — inherit — when normalization changes nothing.
+        Otherwise ``{"env": …}`` with the normalized PATH, and ``tmux`` spelled
+        so it is still the binary the caller's own PATH resolves
+        (:func:`resolve_spawn_exe`) from the child's working directory ``cwd``.
+        """
+        src = os.environ if base is None else base
+        argv = self._argv(args)
+        env = self.spawn_env(src)
+        if env is None:
+            return argv, {}
+        argv[0] = resolve_spawn_exe("tmux", src.get("PATH"), env["PATH"], cwd)
+        return argv, {"env": env}
+
     def run(
         self, args: list[str], timeout: float = _DEFAULT_TIMEOUT
     ) -> tuple[int, str]:
@@ -246,10 +443,10 @@ class TmuxClient:
         canonical subprocess primitive — the control-mode dispatcher
         (:meth:`run_via_control`) falls back to it on a transport failure.
         """
+        argv, extra = self._launch(args)
         try:
             result = subprocess.run(
-                self._argv(args),
-                capture_output=True, text=True, timeout=timeout,
+                argv, capture_output=True, text=True, timeout=timeout, **extra,
             )
         except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
             return (-1, "")
@@ -267,10 +464,10 @@ class TmuxClient:
         cross-repo note resolver, t1869). This additive sibling keeps stderr
         and classifies the outcome — see :class:`TmuxResult`.
         """
+        argv, extra = self._launch(args)
         try:
             result = subprocess.run(
-                self._argv(args),
-                capture_output=True, text=True, timeout=timeout,
+                argv, capture_output=True, text=True, timeout=timeout, **extra,
             )
         except FileNotFoundError:
             return TmuxResult("no_tmux", -1, "", "")
@@ -295,10 +492,11 @@ class TmuxClient:
         clipboard is silently left untouched. Returns ``True`` on success;
         ``False`` on any failure (no tmux, tmux < 3.2 lacking ``-w``, timeout).
         """
+        argv, extra = self._launch(["load-buffer", "-w", "-"])
         try:
             result = subprocess.run(
-                self._argv(["load-buffer", "-w", "-"]),
-                input=text, capture_output=True, text=True, timeout=timeout,
+                argv, input=text, capture_output=True, text=True,
+                timeout=timeout, **extra,
             )
         except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
             return False
@@ -313,11 +511,13 @@ class TmuxClient:
         the child is killed and reaped before returning. The async fallback for
         :meth:`run_async_via_control`.
         """
+        argv, extra = self._launch(args)
         try:
             proc = await asyncio.create_subprocess_exec(
-                *self._argv(args),
+                *argv,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.DEVNULL,
+                **extra,
             )
         except (FileNotFoundError, OSError):
             return (-1, "")
@@ -342,8 +542,14 @@ class TmuxClient:
         swallow ``FileNotFoundError`` — a fire-and-forget caller that needs the
         no-tmux case handled should guard with ``shutil.which("tmux")`` (as the
         current call sites already do via ``is_tmux_available``).
+
+        A caller-supplied ``env`` gets its ``PATH`` normalized like the
+        inherited one (policy 4).
         """
-        return subprocess.Popen(self._argv(args), **popen_kwargs)
+        argv, extra = self._launch(args, popen_kwargs.get("env"),
+                                   popen_kwargs.get("cwd"))
+        popen_kwargs.update(extra)
+        return subprocess.Popen(argv, **popen_kwargs)
 
     # -- control-mode exec dispatcher ---------------------------------------
     # "Control-client when alive, subprocess fallback on rc == -1." This is the
@@ -363,7 +569,14 @@ class TmuxClient:
         from the backend, falls back to :meth:`run`. Behavior-preserving port of
         the former ``TmuxMonitor.tmux_run`` dispatch — the ``rc != -1`` fallback
         branch is load-bearing.
+
+        Pane-creating commands skip the backend: a pane spawned through an
+        attached control client gets the server's global PATH (frozen at server
+        start), not a normalized one — only a fresh client donates its PATH
+        (policy 4, measured on tmux 3.6a in t1689).
         """
+        if creates_pane(args):
+            return self.run(args, timeout=timeout)
         if backend is not None and backend.is_alive:
             rc, out = backend.request_sync(args, timeout=timeout)
             if rc != -1:
@@ -376,8 +589,11 @@ class TmuxClient:
         """Async sibling of :meth:`run_via_control`.
 
         Port of the former ``TmuxMonitor._tmux_async`` dispatch. Falls back to
-        :meth:`run_async` on ``rc == -1`` from the backend.
+        :meth:`run_async` on ``rc == -1`` from the backend. Pane-creating
+        commands skip the backend, as in :meth:`run_via_control`.
         """
+        if creates_pane(args):
+            return await self.run_async(args, timeout=timeout)
         if backend is not None and backend.is_alive:
             rc, out = await backend.request_async(args, timeout=timeout)
             if rc != -1:
@@ -460,11 +676,18 @@ class TmuxClient:
         # from signalling the server cgroup when the launching transaction
         # finishes; --collect GCs the unit in the benign loser-of-a-race case.
         unit = f"ait-tmux-{safe}-{os.getpid()}-{os.urandom(3).hex()}"
-        return [
+        prefix = [
             "systemd-run", "--user", "--slice=session.slice", f"--unit={unit}",
             "--property=Type=forking", "--property=KillMode=none",
-            "--collect", "--quiet", "--",
+            "--collect", "--quiet",
         ]
+        # The unit runs in the user manager's environment, not ours, so its
+        # PATH would otherwise become the new server's global PATH. Hand it the
+        # same normalized PATH the setsid / plain rungs pass by inheritance.
+        path = os.environ.get("PATH")
+        if path is not None:
+            prefix.append(f"--setenv=PATH={normalize_spawn_path(path)}")
+        return prefix + ["--"]
 
     def new_session_argv(
         self,
@@ -485,10 +708,21 @@ class TmuxClient:
         socket flag is injected into the ``tmux`` portion in all rungs.
 
         Faithful port of ``agent_launch_utils._new_session_tmux_argv``; the
-        returned argv is meant to be passed straight to ``subprocess.Popen``.
+        returned argv is meant to be passed straight to ``subprocess.Popen``
+        **with** ``env=client.spawn_env()`` — the setsid / plain rungs hand the
+        new pane the launching process's PATH (policy 4).
         """
         cwd_args = cwd_args or []
-        base = ["tmux", *self._socket_args, "new-session", "-d",
+        # The caller Popens this with env=spawn_env(): every launcher token is
+        # spelled so that normalized PATH still runs the binary OURS resolves.
+        env = self.spawn_env()
+
+        def exe(name: str) -> str:
+            if env is None:
+                return name
+            return resolve_spawn_exe(name, os.environ.get("PATH"), env["PATH"])
+
+        base = [exe("tmux"), *self._socket_args, "new-session", "-d",
                 "-s", session, "-n", window]
         if self._server_running():
             # Server already running → new-session attaches a session (no server
@@ -502,7 +736,7 @@ class TmuxClient:
         created = base + ["-c", cwd or os.getcwd(), command]
         prefix = self._persistent_new_session_prefix(session)
         if prefix is not None:
-            return prefix + created
+            return [exe(prefix[0]), *prefix[1:]] + created
         if shutil.which("setsid"):
-            return ["setsid"] + created
+            return [exe("setsid")] + created
         return created

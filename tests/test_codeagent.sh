@@ -54,6 +54,8 @@ setup_test_env() {
     cp "$PROJECT_DIR/.aitask-scripts/lib/task_utils.sh" "$tmpdir/.aitask-scripts/lib/"
     cp "$PROJECT_DIR/.aitask-scripts/lib/archive_utils.sh" "$tmpdir/.aitask-scripts/lib/"
     cp "$PROJECT_DIR/.aitask-scripts/lib/agent_string.sh" "$tmpdir/.aitask-scripts/lib/"
+    # Lazily sourced by a real (non-dry-run) invoke just before exec (t1689).
+    cp "$PROJECT_DIR/.aitask-scripts/lib/spawn_path.sh" "$tmpdir/.aitask-scripts/lib/"
     chmod +x "$tmpdir/.aitask-scripts/aitask_codeagent.sh"
 
     # Metadata fixture via the shared helper. It copies every models_*.json plus
@@ -630,6 +632,54 @@ assert_contains_ci "no command shows usage" "Usage:" "$output"
 # Test 31: unknown command fails
 echo "--- Test 31: unknown command ---"
 assert_exit_nonzero "unknown command fails" bash -c "cd '$TMPDIR_TEST' && bash '$CODEAGENT' nonexistent-command"
+
+# Test 32: a real (non-dry-run) invoke execs the agent under the normalized
+# spawn PATH (t1689). Every other invoke test is --dry-run, which returns before
+# that code. Two harmless fakes named after the agent binary: the one in mise's
+# shims dir is the "real" agent; the one in ~/.local/bin stands in for a
+# `mise x` wrapper that would loop, and exits 1.
+echo "--- Test 32: real invoke under a mise PATH order ---"
+spawn_home="$(mktemp -d)"
+spawn_marks="$spawn_home/marks"
+mkdir -p "$spawn_home/.local/bin" "$spawn_home/.local/share/mise/shims" "$spawn_marks"
+# Derive the binary from the command the wrapper builds; never pin a name.
+output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" --agent-string "$seeded_pick" \
+    --dry-run invoke raw probe-arg 2>&1)
+agent_bin=$(printf '%s\n' "$output" | awk '/^DRY_RUN:/ { print $2; exit }')
+assert_contains_re "dry-run names an agent binary" '^DRY_RUN: [A-Za-z0-9_.-]+ ' "$output"
+cat >"$spawn_home/.local/share/mise/shims/$agent_bin" <<EOF
+#!/bin/sh
+echo REAL > "$spawn_marks/run"
+for a in "\$@"; do printf '%s\n' "\$a" >> "$spawn_marks/run"; done
+EOF
+cat >"$spawn_home/.local/bin/$agent_bin" <<EOF
+#!/bin/sh
+echo SHIM > "$spawn_marks/run"
+exit 1
+EOF
+chmod +x "$spawn_home/.local/share/mise/shims/$agent_bin" "$spawn_home/.local/bin/$agent_bin"
+# Only scratch dirs plus the tools the wrapper needs: no real agent install is
+# reachable ahead of the two fakes.
+spawn_tools="$(dirname "$(command -v jq)"):$(dirname "$(command -v git)"):/usr/bin:/bin"
+bad_path="$spawn_home/.local/bin:$spawn_home/.local/share/mise/shims:$spawn_tools"
+healthy_path="$spawn_home/.local/bin:$spawn_tools"
+run_real_invoke() {  # <PATH> -> marker contents (the run's own exit is ignored)
+    rm -f "$spawn_marks/run"
+    (cd "$TMPDIR_TEST" && env -u MISE_DATA_DIR -u XDG_DATA_HOME -u AITASKS_HOME \
+        HOME="$spawn_home" PATH="$1" "$BASH" "$CODEAGENT" \
+        --agent-string "$seeded_pick" invoke raw probe-arg >/dev/null 2>&1) || true
+    cat "$spawn_marks/run" 2>/dev/null || echo NO_MARKER
+}
+assert_eq "hazard present: the bad order resolves the wrapper first" \
+    "$spawn_home/.local/bin/$agent_bin" "$(PATH="$bad_path" command -v "$agent_bin")"
+output=$(run_real_invoke "$bad_path")
+assert_eq "real invoke runs the mise-managed binary" "REAL" "$(printf '%s\n' "$output" | head -n1)"
+assert_not_contains "real invoke never runs the looping wrapper" "SHIM" "$output"
+assert_contains "the agent receives the model flag value" "$seeded_cli_id" "$output"
+assert_contains "the agent receives the caller's argument" "probe-arg" "$output"
+output=$(run_real_invoke "$healthy_path")
+assert_eq "no mise entry: PATH is left alone (the first match still runs)" "SHIM" "$output"
+rm -rf "$spawn_home"
 
 # --- Cleanup ---
 

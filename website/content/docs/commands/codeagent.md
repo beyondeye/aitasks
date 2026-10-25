@@ -304,6 +304,12 @@ The code agent wrapper is integrated into both TUI applications:
 
 Both TUIs delegate all agent resolution to the centralized configuration -- there is no TUI-specific agent config.
 
+### Troubleshooting
+
+**An agent pane opens but stays blank.** On a host that manages the agent CLI with [mise](https://mise.jdx.dev/), check for a wrapper script in `~/.local/bin` named after the agent that runs `mise x <agent> -- <agent>`. Without mise's shell activation, that command looks the agent up through PATH again. When `~/.local/bin` comes before mise's shims directory, the lookup finds the wrapper itself, which re-executes forever and draws nothing.
+
+Panes the framework opens, and `ait codeagent invoke`, reorder PATH so mise's shims and install directories come before everything except the framework's own `bin` directories. A pane you open yourself keeps whatever PATH its tmux client had. If you hit the loop when launching by hand, put `~/.local/share/mise/shims` ahead of `~/.local/bin` in your PATH, or change the wrapper to run `exec "$(mise which <agent>)" "$@"`, which does not look the agent up again.
+
 ## Related
 
 - [`/aitask-refresh-code-models`]({{< relref "/docs/skills/aitask-refresh-code-models" >}}) — Research and update model configuration files

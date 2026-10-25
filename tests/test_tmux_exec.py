@@ -635,5 +635,509 @@ class TestGatewayIntegration(unittest.TestCase):
         self.assertEqual(argv[tmux_idx + 1:tmux_idx + 3], ["-L", self.SOCK])
 
 
+# --- Pane PATH (policy 4, t1689) ------------------------------------------
+
+_H = "/h"
+_SHIMS = "/h/.local/share/mise/shims"
+_LOCAL = "/h/.local/bin"
+_FW = "/h/.aitask/bin"
+# The hazardous spawner order and what the gateway must turn it into.
+_BAD_PATH = f"{_LOCAL}:{_SHIMS}:/usr/bin"
+_GOOD_PATH = f"{_SHIMS}:{_LOCAL}:/usr/bin"
+
+# (label, path, environ, expected). Every case runs through BOTH the Python
+# function and the shell mirror (TestShellParity), so the table is the contract.
+_NORMALIZE_CASES = [
+    ("no mise entry is unchanged",
+     f"{_LOCAL}:/usr/bin", {"HOME": _H}, f"{_LOCAL}:/usr/bin"),
+    ("empty path is unchanged", "", {"HOME": _H}, ""),
+    ("shims move ahead of ~/.local/bin, behind the framework bin",
+     f"{_FW}:{_LOCAL}:{_SHIMS}:/usr/bin", {"HOME": _H},
+     f"{_FW}:{_SHIMS}:{_LOCAL}:/usr/bin"),
+    ("install dirs move too, in order",
+     f"{_LOCAL}:/h/.local/share/mise/installs/node/20/bin:{_SHIMS}:/usr/bin",
+     {"HOME": _H},
+     f"/h/.local/share/mise/installs/node/20/bin:{_SHIMS}:{_LOCAL}:/usr/bin"),
+    ("MISE_DATA_DIR replaces the default data dir",
+     f"{_LOCAL}:/m/shims:{_SHIMS}", {"HOME": _H, "MISE_DATA_DIR": "/m/"},
+     f"/m/shims:{_LOCAL}:{_SHIMS}"),
+    ("XDG_DATA_HOME relocates the data dir",
+     f"{_LOCAL}:/x/mise/shims", {"HOME": _H, "XDG_DATA_HOME": "/x"},
+     f"/x/mise/shims:{_LOCAL}"),
+    ("trailing slashes compare equal but are kept verbatim",
+     f"{_LOCAL}/:{_SHIMS}/", {"HOME": _H}, f"{_SHIMS}/:{_LOCAL}/"),
+    ("empty entries survive",
+     f"{_LOCAL}::{_SHIMS}:", {"HOME": _H}, f"{_SHIMS}:{_LOCAL}::"),
+    ("a framework bin behind the shims is pulled to the front",
+     f"{_SHIMS}:{_FW}:/usr/bin", {"HOME": _H}, f"{_FW}:{_SHIMS}:/usr/bin"),
+    ("a framework bin after another entry is not leading",
+     f"/usr/bin:{_FW}:{_SHIMS}", {"HOME": _H}, f"{_SHIMS}:/usr/bin:{_FW}"),
+    ("~/.aitasks/bin counts as framework by default",
+     f"/h/.aitasks/bin:{_LOCAL}:{_SHIMS}", {"HOME": _H},
+     f"/h/.aitasks/bin:{_SHIMS}:{_LOCAL}"),
+    ("AITASKS_HOME/bin counts as framework",
+     f"/a/bin:{_LOCAL}:{_SHIMS}", {"HOME": _H, "AITASKS_HOME": "/a"},
+     f"/a/bin:{_SHIMS}:{_LOCAL}"),
+    ("no HOME and no data dir override is unchanged",
+     f"{_LOCAL}:{_SHIMS}", {}, f"{_LOCAL}:{_SHIMS}"),
+]
+
+_SPAWN_PATH_ENV_KEYS = ("HOME", "PATH", "MISE_DATA_DIR", "XDG_DATA_HOME",
+                        "AITASKS_HOME")
+
+
+def _spawn_path_env(path: str | None, home: str = _H):
+    """Patch os.environ to exactly HOME/PATH for the normalizer's inputs."""
+    env = patch.dict(os.environ, {}, clear=False)
+    env.start()
+    for key in _SPAWN_PATH_ENV_KEYS:
+        os.environ.pop(key, None)
+    os.environ["HOME"] = home
+    if path is not None:
+        os.environ["PATH"] = path
+    return env
+
+
+class TestNormalizeSpawnPath(unittest.TestCase):
+    def test_table(self):
+        for label, path, environ, expected in _NORMALIZE_CASES:
+            with self.subTest(label):
+                self.assertEqual(
+                    tmux_exec.normalize_spawn_path(path, environ), expected)
+
+    def test_idempotent(self):
+        for label, path, environ, _ in _NORMALIZE_CASES:
+            with self.subTest(label):
+                once = tmux_exec.normalize_spawn_path(path, environ)
+                self.assertEqual(
+                    tmux_exec.normalize_spawn_path(once, environ), once)
+
+    def test_reads_os_environ_by_default(self):
+        env = _spawn_path_env(_BAD_PATH)
+        try:
+            self.assertEqual(tmux_exec.normalize_spawn_path(_BAD_PATH),
+                             _GOOD_PATH)
+        finally:
+            env.stop()
+
+    def test_creates_pane(self):
+        for args in (["new-window", "-d"], ["split-window"],
+                     ["new-session", "-d"], ["respawn-pane", "-k"],
+                     ["respawn-window"],
+                     ["display-message", ";", "split-window", "-h"]):
+            with self.subTest(args):
+                self.assertTrue(tmux_exec.creates_pane(args))
+        for args in (["list-panes", "-a"], ["display-message", "-p"],
+                     ["kill-pane", "-t", "%1"], []):
+            with self.subTest(args):
+                self.assertFalse(tmux_exec.creates_pane(args))
+
+
+class TestShellParity(unittest.TestCase):
+    """lib/spawn_path.sh must answer the table exactly like the Python rule."""
+
+    BASH = shutil.which("bash")
+
+    def _shell(self, path: str, environ: dict) -> str:
+        script = ('source "$0"; ait_spawn_path_normalize "$1"; '
+                  'printf %s "$AIT_SPAWN_PATH"')
+        result = subprocess.run(
+            [self.BASH, "-c", script, str(LIB_DIR / "spawn_path.sh"), path],
+            capture_output=True, text=True, env=dict(environ), timeout=10,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return result.stdout
+
+    @unittest.skipIf(shutil.which("bash") is None, "bash not installed")
+    def test_table(self):
+        for label, path, environ, expected in _NORMALIZE_CASES:
+            with self.subTest(label):
+                self.assertEqual(self._shell(path, environ), expected)
+                self.assertEqual(self._shell(path, environ),
+                                 tmux_exec.normalize_spawn_path(path, environ))
+
+    @unittest.skipIf(shutil.which("bash") is None, "bash not installed")
+    def test_defaults_to_path(self):
+        script = ('source "$0"; ait_spawn_path_normalize; '
+                  'printf %s "$AIT_SPAWN_PATH"')
+        result = subprocess.run(
+            [self.BASH, "-c", script, str(LIB_DIR / "spawn_path.sh")],
+            capture_output=True, text=True, timeout=10,
+            env={"HOME": _H, "PATH": f"{os.path.dirname(self.BASH)}:{_SHIMS}"},
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout,
+                         f"{_SHIMS}:{os.path.dirname(self.BASH)}")
+
+
+class TestResolveSpawnExe(unittest.TestCase):
+    """Reordering PATH for the pane must never change which launcher runs.
+
+    Fixture on a real filesystem: a working ``tmux`` in ``sys/`` and a decoy in
+    mise's shims dir, with the caller's PATH resolving the working one first.
+    """
+
+    BASH = shutil.which("bash")
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp(prefix="ait_spawnexe_")
+        self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
+        self.home = os.path.join(self.root, "h")
+        self.shims = os.path.join(self.home, ".local/share/mise/shims")
+        self.sys = os.path.join(self.root, "sys")
+        self.only = os.path.join(self.root, "only")
+        for d in (self.shims, self.sys, self.only):
+            os.makedirs(d)
+        for d, name in ((self.sys, "tmux"), (self.shims, "tmux"),
+                        (self.only, "solo")):
+            p = os.path.join(d, name)
+            with open(p, "w") as f:
+                f.write("#!/bin/sh\nexit 0\n")
+            os.chmod(p, 0o755)
+        self.environ = {"HOME": self.home}
+        self.orig = f"{self.sys}:{self.shims}:/usr/bin"
+
+    def _cases(self):
+        spawn = tmux_exec.normalize_spawn_path(self.orig, self.environ)
+        return [
+            # (label, name, original_path, spawn_path, expected)
+            ("decoy ahead after reorder -> caller's absolute path",
+             "tmux", self.orig, spawn, f"{self.sys}/tmux"),
+            ("same file either way -> bare name",
+             "solo", f"{self.only}:{self.shims}", f"{self.shims}:{self.only}",
+             "solo"),
+            ("unchanged PATH -> bare name", "tmux", self.orig, self.orig, "tmux"),
+            ("caller resolves nothing -> bare name (fails as before)",
+             "nothere", self.orig, spawn, "nothere"),
+            ("empty entry means the current dir",
+             "tmux", f":{self.shims}", f"{self.shims}:", "./tmux"),
+        ]
+
+    def test_table(self):
+        self.assertEqual(tmux_exec.normalize_spawn_path(self.orig, self.environ),
+                         f"{self.shims}:{self.sys}:/usr/bin")
+        cwd = os.getcwd()
+        os.chdir(self.sys)  # for the empty-entry case
+        self.addCleanup(os.chdir, cwd)
+        for label, name, orig, spawn, expected in self._cases():
+            with self.subTest(label):
+                self.assertEqual(
+                    tmux_exec.resolve_spawn_exe(name, orig, spawn), expected)
+
+    @unittest.skipIf(shutil.which("bash") is None, "bash not installed")
+    def test_shell_parity(self):
+        script = ('source "$0"; ait_spawn_exe "$1" "$2" "$3"; '
+                  'printf %s "$AIT_SPAWN_EXE"')
+        for label, name, orig, spawn, expected in self._cases():
+            with self.subTest(label):
+                result = subprocess.run(
+                    [self.BASH, "-c", script, str(LIB_DIR / "spawn_path.sh"),
+                     name, orig, spawn],
+                    capture_output=True, text=True, timeout=10, cwd=self.sys,
+                    env={"HOME": self.home},
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stdout, expected)
+
+    def _captured_argv(self, method, *args):
+        captured = {}
+
+        def fake_run(argv, **kwargs):
+            captured["argv"] = argv
+            captured["env"] = kwargs.get("env")
+            return _FakeRunResult(0, "", "")
+
+        def fake_popen(argv, **kwargs):
+            captured["argv"] = argv
+            captured["env"] = kwargs.get("env")
+            return object()
+
+        env = _spawn_path_env(self.orig, home=self.home)
+        try:
+            with patch.object(subprocess, "run", side_effect=fake_run), \
+                 patch.object(subprocess, "Popen", side_effect=fake_popen):
+                getattr(TmuxClient(socket_args=[]), method)(*args)
+        finally:
+            env.stop()
+        return captured
+
+    def test_gateway_runs_the_callers_tmux_under_the_pane_path(self):
+        for method, args in (("run", (["new-window"],)),
+                             ("run_checked", (["new-window"],)),
+                             ("set_clipboard", ("text",)),
+                             ("spawn", (["new-window"],))):
+            with self.subTest(method):
+                got = self._captured_argv(method, *args)
+                self.assertEqual(got["argv"][0], f"{self.sys}/tmux")
+                self.assertEqual(got["env"]["PATH"],
+                                 f"{self.shims}:{self.sys}:/usr/bin")
+
+    def test_new_session_argv_spells_every_launcher(self):
+        env = _spawn_path_env(self.orig, home=self.home)
+        try:
+            with patch.object(TmuxClient, "_server_running", return_value=False), \
+                 patch.object(tmux_exec, "_systemd_user_available",
+                              return_value=False), \
+                 patch.object(tmux_exec.shutil, "which",
+                              side_effect=lambda n: f"/usr/bin/{n}"):
+                argv = TmuxClient(socket_args=[]).new_session_argv(
+                    "s", "w", "cmd", cwd="/")
+        finally:
+            env.stop()
+        # setsid is not in the fixture, so the caller resolves none -> bare.
+        self.assertEqual(argv[0], "setsid")
+        self.assertEqual(argv[1], f"{self.sys}/tmux")
+
+    def test_symlink_dotdot_cwd_keeps_the_kernels_meaning(self):
+        # parent/link -> elsewhere/nested, so chdir("link/..") enters
+        # `elsewhere`, while a lexical abspath/normpath would collapse it to
+        # `parent`. The working tmux lives in elsewhere/bin; parent has no bin.
+        parent = os.path.join(self.root, "parent")
+        elsewhere = os.path.join(self.root, "elsewhere")
+        os.makedirs(parent)
+        os.makedirs(os.path.join(elsewhere, "nested"))
+        os.makedirs(os.path.join(elsewhere, "bin"))
+        os.symlink(os.path.join(elsewhere, "nested"), os.path.join(parent, "link"))
+        working = os.path.join(elsewhere, "bin", "tmux")
+        with open(working, "w") as f:
+            f.write("#!/bin/sh\nexit 0\n")
+        os.chmod(working, 0o755)
+        with open(os.path.join(self.shims, "tmux"), "w") as f:
+            f.write("#!/bin/sh\nexit 23\n")
+        orig = f"bin:{self.shims}:/usr/bin:/bin"
+        spawn = tmux_exec.normalize_spawn_path(orig, self.environ)
+
+        cwd = os.getcwd()
+        os.chdir(parent)
+        self.addCleanup(os.chdir, cwd)
+        rel = os.path.join("link", "..")
+        absolute = os.path.join(parent, "link", "..")
+        env = _spawn_path_env(orig, home=self.home)
+        try:
+            for c in (rel, rel.encode(), Path(rel), absolute, absolute.encode()):
+                with self.subTest(cwd=c):
+                    got = tmux_exec.resolve_spawn_exe("tmux", orig, spawn, cwd=c)
+                    self.assertTrue(os.path.isabs(got), got)
+                    self.assertEqual(os.path.realpath(got),
+                                     os.path.realpath(working))
+                    self.assertEqual(
+                        subprocess.Popen(["tmux"], cwd=c).wait(), 0)  # control
+                    proc = TmuxClient(socket_args=[]).spawn(["x"], cwd=c)
+                    self.assertEqual(proc.wait(), 0)
+        finally:
+            env.stop()
+
+    def test_relative_entry_resolves_from_the_childs_cwd(self):
+        # subprocess searches PATH in the child AFTER chdir(cwd): a relative
+        # `bin` entry names <cwd>/bin. Our parent dir has no bin/, the child's
+        # holds the working tmux, and mise's shims hold a decoy that exits 23.
+        # child is a SUBDIRECTORY of parent, so its relative spelling is plain
+        # "child": a relative pin "child/bin/tmux" would then be re-resolved as
+        # child/child/bin/tmux after the chdir. (A sibling spelled "../child"
+        # would hide the bug: that pin happens to resolve again from inside.)
+        parent = os.path.join(self.root, "parent")
+        child = os.path.join(parent, "child")
+        os.makedirs(os.path.join(child, "bin"))
+        working = os.path.join(child, "bin", "tmux")
+        with open(working, "w") as f:
+            f.write("#!/bin/sh\nexit 0\n")
+        os.chmod(working, 0o755)
+        with open(os.path.join(self.shims, "tmux"), "w") as f:
+            f.write("#!/bin/sh\nexit 23\n")
+        orig = f"bin:{self.shims}:/usr/bin:/bin"
+        spawn = tmux_exec.normalize_spawn_path(orig, self.environ)
+        self.assertEqual(spawn, f"{self.shims}:bin:/usr/bin:/bin")
+
+        cwd = os.getcwd()
+        os.chdir(parent)
+        self.addCleanup(os.chdir, cwd)
+        real_working = os.path.realpath(working)
+        # A RELATIVE cwd (relative to ours, as Popen reads it) must pin an
+        # ABSOLUTE path: the child resolves a relative pin from inside cwd.
+        rel_child = os.path.relpath(child, parent)
+        for c in (child, rel_child):
+            with self.subTest(resolve_cwd=c):
+                got = tmux_exec.resolve_spawn_exe("tmux", orig, spawn, cwd=c)
+                self.assertTrue(os.path.isabs(got), got)
+                self.assertEqual(os.path.realpath(got), real_working)
+        # Without the child's cwd the lookup happens here, where bin/ is absent.
+        self.assertEqual(tmux_exec.resolve_spawn_exe("tmux", orig, spawn), "tmux")
+
+        # End to end, real processes: the caller's own Popen(cwd=…) runs the
+        # working tmux, and so must the gateway's spawn — for absolute and
+        # relative cwd, as str, bytes and PathLike.
+        env = _spawn_path_env(orig, home=self.home)
+        try:
+            for c in (child, child.encode(), Path(child),
+                      rel_child, rel_child.encode(), Path(rel_child)):
+                with self.subTest(cwd=c):
+                    self.assertEqual(
+                        subprocess.Popen(["tmux"], cwd=c).wait(), 0)  # control
+                    proc = TmuxClient(socket_args=[]).spawn(["x"], cwd=c)
+                    self.assertEqual(proc.wait(), 0)
+        finally:
+            env.stop()
+
+
+class TestSpawnEnvPlumbing(unittest.TestCase):
+    """Every gateway subprocess carries the normalized PATH — and only when it
+    differs, so non-mise hosts get no ``env`` kwarg at all."""
+
+    def setUp(self):
+        self.client = TmuxClient(socket_args=[])
+
+    def _run_kwargs(self, path, method, *args):
+        captured = {}
+
+        def fake_run(argv, **kwargs):
+            captured.update(kwargs)
+            return _FakeRunResult(0, "", "")
+
+        env = _spawn_path_env(path)
+        try:
+            with patch.object(subprocess, "run", side_effect=fake_run):
+                getattr(self.client, method)(*args)
+        finally:
+            env.stop()
+        return captured
+
+    def test_sync_methods_get_normalized_path(self):
+        for method, args in (("run", (["new-window"],)),
+                             ("run_checked", (["new-window"],)),
+                             ("set_clipboard", ("text",))):
+            with self.subTest(method):
+                kwargs = self._run_kwargs(_BAD_PATH, method, *args)
+                self.assertEqual(kwargs["env"]["PATH"], _GOOD_PATH)
+                self.assertEqual(kwargs["env"]["HOME"], _H)
+
+    def test_sync_methods_without_mise_pass_no_env(self):
+        for method, args in (("run", (["new-window"],)),
+                             ("run_checked", (["new-window"],)),
+                             ("set_clipboard", ("text",))):
+            with self.subTest(method):
+                kwargs = self._run_kwargs("/usr/bin:/bin", method, *args)
+                self.assertNotIn("env", kwargs)
+
+    def test_run_async_gets_normalized_path(self):
+        captured = {}
+
+        async def fake_exec(*argv, **kwargs):
+            captured.update(kwargs)
+            raise OSError
+
+        env = _spawn_path_env(_BAD_PATH)
+        try:
+            with patch.object(asyncio, "create_subprocess_exec",
+                              side_effect=fake_exec):
+                asyncio.run(self.client.run_async(["new-window"]))
+        finally:
+            env.stop()
+        self.assertEqual(captured["env"]["PATH"], _GOOD_PATH)
+
+    def _spawn_kwargs(self, path, **popen_kwargs):
+        captured = {}
+
+        def fake_popen(argv, **kwargs):
+            captured.update(kwargs)
+            return object()
+
+        env = _spawn_path_env(path)
+        try:
+            with patch.object(subprocess, "Popen", side_effect=fake_popen):
+                self.client.spawn(["new-window"], **popen_kwargs)
+        finally:
+            env.stop()
+        return captured
+
+    def test_spawn_inherited_env(self):
+        self.assertEqual(self._spawn_kwargs(_BAD_PATH)["env"]["PATH"],
+                         _GOOD_PATH)
+        self.assertNotIn("env", self._spawn_kwargs("/usr/bin:/bin"))
+
+    def test_spawn_caller_env_is_normalized_not_replaced(self):
+        custom = {"HOME": _H, "PATH": _BAD_PATH, "MARK": "1"}
+        kwargs = self._spawn_kwargs("/usr/bin:/bin", env=custom)
+        self.assertEqual(kwargs["env"]["PATH"], _GOOD_PATH)
+        self.assertEqual(kwargs["env"]["MARK"], "1")
+        self.assertEqual(custom["PATH"], _BAD_PATH)  # caller's dict untouched
+
+        plain = {"HOME": _H, "PATH": "/usr/bin"}
+        self.assertIs(self._spawn_kwargs(_BAD_PATH, env=plain)["env"], plain)
+
+    def test_spawn_env_none_without_path(self):
+        self.assertIsNone(TmuxClient.spawn_env({"HOME": _H}))
+
+
+class TestControlBypassForPaneCreation(unittest.TestCase):
+    """A pane spawned via the attached control client gets the server's global
+    PATH, so pane-creating verbs must take the subprocess route."""
+
+    def test_new_window_skips_alive_backend(self):
+        client = TmuxClient(socket_args=[])
+        backend = _FakeBackend(alive=True, sync_result=(0, "ctrl"))
+        with patch.object(client, "run", return_value=(0, "%9")) as m:
+            rc, out = client.run_via_control(
+                backend, ["new-window", "-t", "=s:", "cmd"])
+        self.assertEqual((rc, out), (0, "%9"))
+        self.assertEqual(backend.sync_calls, [])
+        m.assert_called_once()
+
+    def test_chained_split_skips_alive_backend(self):
+        client = TmuxClient(socket_args=[])
+        backend = _FakeBackend(alive=True, sync_result=(0, "ctrl"))
+        with patch.object(client, "run", return_value=(0, "")):
+            client.run_via_control(
+                backend, ["select-window", "-t", "=s:1", ";", "split-window"])
+        self.assertEqual(backend.sync_calls, [])
+
+    def test_query_still_uses_backend(self):
+        client = TmuxClient(socket_args=[])
+        backend = _FakeBackend(alive=True, sync_result=(0, "ctrl"))
+        with patch.object(client, "run") as m:
+            client.run_via_control(backend, ["list-panes", "-a"])
+        self.assertEqual(backend.sync_calls, [["list-panes", "-a"]])
+        m.assert_not_called()
+
+    def test_async_new_window_skips_alive_backend(self):
+        async def go():
+            client = TmuxClient(socket_args=[])
+            backend = _FakeBackend(alive=True, async_result=(0, "ctrl"))
+
+            async def fake_run_async(args, timeout=5.0):
+                return (0, "sub")
+            with patch.object(client, "run_async", side_effect=fake_run_async):
+                out = await client.run_async_via_control(
+                    backend, ["split-window", "-h"])
+            return out, backend.async_calls
+        out, calls = asyncio.run(go())
+        self.assertEqual(out, (0, "sub"))
+        self.assertEqual(calls, [])
+
+
+class TestPersistentPrefixSetenv(unittest.TestCase):
+    """The systemd-run rung hands the new server the normalized PATH."""
+
+    def _setenv_flags(self, path):
+        env = _spawn_path_env(path)
+        try:
+            # Borrow the ladder fixture without re-running its test methods.
+            argv = TestNewSessionArgv._build(self, systemd_available=True)
+        finally:
+            env.stop()
+        head = argv[:argv.index("--")]
+        return [a for a in head if a.startswith("--setenv=")]
+
+    def test_mise_path_is_normalized(self):
+        self.assertEqual(self._setenv_flags(_BAD_PATH),
+                         [f"--setenv=PATH={_GOOD_PATH}"])
+
+    def test_plain_path_is_passed_through(self):
+        self.assertEqual(self._setenv_flags("/usr/bin:/bin"),
+                         ["--setenv=PATH=/usr/bin:/bin"])
+
+    def test_no_path_no_setenv(self):
+        self.assertEqual(self._setenv_flags(None), [])
+
+
 if __name__ == "__main__":
     unittest.main()

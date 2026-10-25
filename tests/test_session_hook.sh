@@ -42,6 +42,7 @@ mkdir -p "$ROOT/aitasks/metadata" "$ROOT/.aitask-scripts/lib" "$TMP/bin"
 : >"$ROOT/aitasks/metadata/project_config.yaml"
 # Real gateway + constants: the hook must work against the shipped helpers.
 cp "$PROJECT_DIR/.aitask-scripts/lib/tmux_exec.sh" \
+   "$PROJECT_DIR/.aitask-scripts/lib/spawn_path.sh" \
    "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh" \
    "$PROJECT_DIR/.aitask-scripts/lib/agent_sessions.sh" \
    "$PROJECT_DIR/.aitask-scripts/lib/pid_anchor.sh" "$ROOT/.aitask-scripts/lib/"
