@@ -11,8 +11,9 @@ active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus5_5
 created_at: 2026-09-02 14:59
-updated_at: 2026-10-25 13:13
+updated_at: 2026-10-25 14:42
 ---
 
 ## Symptom
@@ -163,3 +164,8 @@ should exec `$(mise which claude)` rather than re-resolving by name).
 > | Measured in t1811 only for binary resolution: a test that put a stub `tmux` first on PATH was bypassed on the systemd path. I did NOT check pane PATH ordering in your agent-spawn scenario — if your root cause depends on which PATH the tmux server (or its global environment) was started with, the systemd-run spawn is a candidate variable worth checking.
 
 > **👁 note:read** id=2026-10-25T10:45:16Z.08f2a1e1a210a52352b56ce3 by=t1689 at=2026-10-25T10:45:16Z mode=explicit ids=2026-09-17T06:15:37Z.02e440f3f6254a9c0f8d3f4a
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-25T12:42:57Z status=pass attempt=1 type=human
