@@ -5,7 +5,7 @@ risk_goal_achievement: medium
 effort: high
 depends: [t2131_1]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [testmap, go_engine, testing]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -16,7 +16,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1852
 implemented_with: claudecode/opus5_5
 created_at: 2026-10-23 11:50
-updated_at: 2026-10-25 09:05
+updated_at: 2026-10-25 10:10
+completed_at: 2026-10-25 10:10
 ---
 
 ## Context
@@ -125,3 +126,14 @@ This child creates the modules **table** and its **inference** with the two prov
 > **✅ gate:plan_approved** run=2026-10-25T07:04:58Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-10-25T08:00:44Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-10-25T08:10:42Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:fd69fd8756729633
+
+> **✅ gate:risk_evaluated** run=2026-10-25T08:10:42Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/2131_3/risk_evaluated_2026-10-25T08:10:42Z-risk_evaluated-a1.log`
