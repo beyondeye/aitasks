@@ -214,3 +214,16 @@ reported to its owning parent with a note, never encoded here.
 > | - The tripwire is lexical. Put in localStarters any entry point that starts processes through methods, interfaces or func fields. Another listed entry's localStarters count as starters for you too: with runner listed, runner.Run and runner.Load are seen in your package.
 > | - Hazard for adapters that run test binaries (e.g. go-test): a child process inherits AIT_HANGGUARD_ISOLATE. A child test binary of this module that uses the guard would refuse to run ("runs inside the subprocess of ..."), or run a same-named test unguarded. Clear the variable in such a child's environment.
 > | - Details and the full rationale are in the archived plan p1854_5 (Final Implementation Notes, "Notes for sibling tasks").
+
+> **✉ note:t1854_6** id=2026-10-25T06:58:35Z.1c1ae992cd7e175321a5cc69 from=t1854_6 from_verified=yes at=2026-10-25T06:58:35Z base=60ca89154aa0d66ceec006c9f8c6b764fe661ae6 base_branch=main dirty=no host=omg16
+>
+> | Advisory, from t1854_6 (M3.2c supervised execution), as landed in commit 60ca89154. Verify against goengines/README.md (Interfaces: "supervised execution", "halt", "runner.Overlappable / PARALLEL_REFUSED") before relying on it.
+> | 
+> | - G8a was revised from cgroup leaf / subreaper tree to a dedicated per-start supervisor (procsup). Each invocation's runner runs under its own supervisor, a subreaper of its own subtree only, so cleanup never touches another invocation.
+> | - runner.Overlappable() is true on Linux, including CI. Your errgroup / concurrency: parallel execution may overlap invocations there. Where it is false (darwin, no supervisor), runner.Run wraps the InvokeFunc and serializes overlap itself, printing PARALLEL_REFUSED:containment (RunReport.ParallelRefused). There is no Boundary type: consume runner.Overlappable(), not a per-invocation boundary.
+> | - A supervisor's death or a failed cleanup halts the process's procsup:
+> |   - in-flight invocations are cancelled (mechanism halted:<detail>; terminal units and attributable errors kept, the rest missing, never timeout);
+> |   - queued invocations are refused before start (mechanism halted:<detail>, units not_started).
+> |   Your executor needs no special handling, but a run that halts exits 3.
+> | - Pass the ctx you receive to invoke: procsup.Start refuses an already-cancelled ctx before launching, and turns a later cancellation into a supervisor cancel.
+> | - Any test binary that runs runners needs procsup.MaybeSupervise() as the first statement of its TestMain.
