@@ -34,3 +34,20 @@ server instead — can be weighed during planning.)
 - Negative control: a deliberately diverging Go pattern must make the test fail.
 - When it passes, make the Go server the default (the Python server stays the
   fallback) and document the switch.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t15** id=2026-10-25T08:55:39Z.4687f06a021cb1c5641f9b2f from=aitasks_go#t15 at=2026-10-25T08:55:39Z base=eb6baa4c91e763eb8e482682433d287f1f17f99d base_branch=main dirty=no host=omg16
+>
+> | Coordination notice from aitasks_go (t15 ship-path decision; trail
+> | art:trail-go-ship-path). Advisory context, not an instruction.
+> | 
+> | This task's `depends: [2038]` points at the Go status server, which is being
+> | re-homed to the private aitasks_go repo by aitasks_go#t23 (it will be
+> | developed at goengines/cmd/ait-monitord there and exported here). When t23
+> | retires t2038, it will rewire this edge to an `xdeps` on the new aitasks_go
+> | monitord parent. Until then, this task correctly stays blocked. The
+> | cross-check itself (Python vs Go classifier) can still run from this
+> | repository against the exported ait-monitord binary, or against a build of
+> | the private source.
