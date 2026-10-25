@@ -5,7 +5,7 @@ risk_goal_achievement: medium
 effort: high
 depends: [t1854_2, t1854_5, t1854_7]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [testing, testmap, go_engine]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -18,6 +18,7 @@ anchor: 1852
 implemented_with: claudecode/opus5_5
 created_at: 2026-10-21 22:06
 updated_at: 2026-10-25 09:01
+completed_at: 2026-10-25 09:01
 ---
 
 ## Context
@@ -249,3 +250,14 @@ What each status proves:
 > **✅ gate:plan_approved** run=2026-10-25T04:35:54Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-10-25T06:58:11Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-10-25T07:01:07Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:bcfa58af8f9e4539
+
+> **✅ gate:risk_evaluated** run=2026-10-25T07:01:07Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1854_6/risk_evaluated_2026-10-25T07:01:07Z-risk_evaluated-a1.log`
