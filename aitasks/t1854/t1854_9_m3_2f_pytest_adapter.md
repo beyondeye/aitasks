@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: medium
+risk_goal_achievement: low
 effort: high
 depends: [t1854_6]
 issue_type: feature
@@ -27,24 +29,30 @@ thinking_backend.
 ## Acceptance criteria (specific)
 
 - **Classes.** `accounting: cases`, `discovery: native`.
+- **Evidence contract (amended 2026-10-25, plan review; user decision).** The reporting contract is the **exact runtime identity** of every result, recorded by an engine-owned, observe-only pytest plugin (`-p _aitestmap_pytest_evidence`, its directory prepended to `PYTHONPATH`, records written to `$AIT_TESTMAP_PYTEST_EVIDENCE`). It records the rootdir pytest resolved, the collected node ids, every collect report that did not pass, every test phase report with its node id, and the exit status. JUnit XML is **not** used: its `(classname, name)` keys are not identities (`tests/test_a.py::TestC::test_m` and `tests/test_a/TestC.py::test_m` share one), so a collect-only-vs-run substitution could be accepted as a pass.
+  - Only the controller writes (xdist workers are silent; xdist forwards their reports).
+  - The parse is strict: exactly one session (first) and one end (last), known members only, lossless JSON, and the end's exit status equal to the process exit. Discovery requires exactly one items record (`[]` for an empty collection), so a lost inventory can never read as zero-case units.
+  - Deviation from "no `-p`" (for t2082): the plugin is engine-owned and observe-only, and its source is part of the engine version. The environment gains only `PYTHONPATH` (the plugin directory first) and `AIT_TESTMAP_PYTEST_EVIDENCE`. No `-c`, `--rootdir`, `-o` or `--junitxml` is passed. This is adapter-scoped and distinct from the deferred injection into suite commands (t2118).
 - **Discovery.**
-  - `pytest --collect-only -q` per runner, run by `list` under the foundation's discovery bound (collection imports project code).
-  - It uses the **same** cwd, ini, rootdir and selection arguments as execution; Step 0 pins the exact shared argument set, and a test proves the two agree.
-  - The unit is a test file; its case identities are the collected nodeids.
-  - A collection error is `INPUT_ERROR:lister`, never a silently dropped unit.
+  - `pytest -p <plugin> --collect-only -q ./<file>…` over the bound, git-visible files, per runner, run by `list` under the foundation's discovery bound (collection imports project code).
+  - It uses the **same** cwd, ini, rootdir and selection arguments as execution: one argument builder; the two differ only by `--collect-only -q` (a test proves it).
+  - The unit is a test file. Its case identities are the collected node ids, plus, for a module skipped at collection (`pytest.skip(allow_module_level=True)`), the collector's node id.
+  - Node ids map to their files by exact path under the **reported** rootdir; the unit's lowering is its rootdir-relative path. A node id naming no listed file refuses the list.
+  - A collection error is `INPUT_ERROR:lister`, never a silently dropped unit. An interpreter that ignores `PYTHONPATH` (`python -I` / `-E`), and anything but pytest 8.x on CPython ≥ 3.10, refuse the list.
 - **Execution.**
-  - `timeouts: batch` (the entry needs `batch_timeout_s`).
-  - `--junitxml` into the fresh report directory (G6).
-  - Each report testcase maps to **exactly one** collected nodeid; no match or several matches is G2 `error`. The adapter writes one case row per testcase and the engine reconciles them.
+  - `timeouts: batch` (the entry needs `batch_timeout_s`), one pytest per invocation, **no start rows** (a batch timeout cannot say which file was running, so every unit is `batch_timeout`).
+  - The evidence is read only from the fresh report directory (G6, `Env.Fresh`).
+  - One case row per terminal tool result, keyed by the exact runtime node id: every phase that did not pass is its own result (setup/teardown `failed` → error, `skipped` → skip with its reason, xfail → skip `xfail: <reason>`) and the call phase always is one. Nothing is merged, so a test failing, then erroring or skipping in teardown, is `duplicate_case`. A collector's skip or failure is a result for the collector's node id.
+  - Mechanism (exit 3, no case rows), never a pass or an unexplained skip (G2): evidence absent, stale, linked or malformed; a node id outside every unit; the rootdir moved since discovery; an exit status contradicting the evidence (0 with a failure, 1 or 2 without one, 5 with a test).
 - **Policies.**
-  - G3: zero collected cases → `error:zero_tests` unless `zero_tests: skip`.
+  - G3: zero collected cases → `error:zero_tests` unless `zero_tests: skip`. A module-level skip is not zero tests: it is `skip` with its reason under either policy.
   - `testmap:batch no` units run as singleton invocations (tested with two such units beside a batch).
 - **Real-tool tests.**
   - pytest 8.x on CPython ≥ 3.10.
-  - CI installs a pinned pytest in `.github/workflows/goengines-check.yml` and sets `AIT_TESTMAP_REQUIRE_REAL_TOOLS=1`. Locally the tests use `~/.aitask/venv` (pytest 8.4.2).
-  - Cases: parametrized ids, class tests, xfail / xpass, a skip with a reason, a collection error, a rootdir above the cwd, and pytest-xdist when installed.
-- **Fakes** only for malformed / ambiguous / stale report cases.
-- **What it reads (for t2082).** It passes no `-c` / `--rootdir` / `-p` plugin, and the cwd is an ancestor of every listed test (the list is cwd-scoped). Any deviation decided in Step 0 is written down.
+  - CI installs a pinned pytest (8.4.2, with pytest-xdist 3.8.0) before `go test` in `.github/workflows/goengines-check.yml` and `release.yml`, which set `AIT_TESTMAP_REQUIRE_REAL_TOOLS=1`. Locally the tests use `python3` on PATH, else `~/.aitask/venv` (pytest 8.4.2).
+  - Cases: parametrized ids, class tests, xfail / xpass, a skip with a reason, a teardown skip, a collection error, a rootdir above and below the cwd, overlapping paths, an equal-key substitution, a module-level skip (isolated, mixed, appearing or disappearing), and pytest-xdist when installed.
+- **Fakes** only for evidence the real tool cannot produce: stale, linked, malformed, contradicting the exit, outside every unit, a moved rootdir, an unsupported version, a missing items record.
+- **What it reads (for t2082).** The command lines above. Its cwd is an ancestor of every listed test (the list is cwd-scoped). pytest itself resolves the ini from the args' common ancestor upward (possibly above the repository), the `conftest.py` files along the tests' paths, `PYTEST_ADDOPTS` / `PYTEST_PLUGINS` and installed plugins. The `-p` / `PYTHONPATH` deviation is documented above.
 
 ## Key files to modify
 
