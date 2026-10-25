@@ -104,8 +104,8 @@ verify_venv_imports() {
 #
 # Also sets global `specs_check_ok` (true|false): false when the inspection
 # itself failed (broken interpreter, no importable packaging). bad_specs is then
-# empty, which must NOT be read as "all in range" — report_venv_dep_drift
-# distinguishes the two.
+# empty, which must NOT be read as "all in range" — venv_deps_bad and
+# report_venv_dep_drift both distinguish the two.
 verify_venv_specs() {
     local py="$1"; shift
     bad_specs=()
@@ -130,6 +130,25 @@ PY
 )" || { out=""; specs_check_ok=false; }
     [[ -n "$out" ]] && while IFS= read -r line; do bad_specs+=("$line"); done <<< "$out"
     return 0  # never fail the caller (set -e); result is in $bad_specs
+}
+
+# venv_deps_bad — true when the last verify_venv_imports + verify_venv_specs
+# pair found a problem: a module that will not import, a spec out of range, or
+# a version inspection that itself failed. The last leaves bad_specs empty, so
+# testing bad_specs alone reads a failed check as "all in range" (t2135).
+venv_deps_bad() {
+    [[ ${#missing_imports[@]} -gt 0 || ${#bad_specs[@]} -gt 0 || "$specs_check_ok" != true ]]
+}
+
+# venv_deps_detail — the "missing: …; version: …" text for the warn/die that
+# follows venv_deps_bad. A failed inspection is named as such, never rendered
+# as "version: none".
+venv_deps_detail() {
+    if [[ "$specs_check_ok" == true ]]; then
+        printf 'missing: %s; version: %s' "${missing_imports[*]:-none}" "${bad_specs[*]:-none}"
+    else
+        printf 'missing: %s; version check failed' "${missing_imports[*]:-none}"
+    fi
 }
 
 # pip_install_guarded <label> <pip-binary> <pip-arg>... — run a `pip install`
@@ -726,15 +745,15 @@ setup_pypy_venv() {
     # venv (resolve_pypy_python returns empty when the venv dir is gone).
     verify_venv_imports "$PYPY_VENV_DIR/bin/python" "${AIT_IMPORTS_COMMON[@]}"
     verify_venv_specs   "$PYPY_VENV_DIR/bin/python" "${AIT_PIP_SPECS_COMMON[@]}"
-    if [[ ${#missing_imports[@]} -gt 0 || ${#bad_specs[@]} -gt 0 ]]; then
-        warn "PyPy venv deps need repair (missing: ${missing_imports[*]:-none}; version: ${bad_specs[*]:-none}). Retrying..."
+    if venv_deps_bad; then
+        warn "PyPy venv deps need repair ($(venv_deps_detail)). Retrying..."
         pip_install_guarded "PyPy venv dep repair" "$PYPY_VENV_DIR/bin/pip" \
             --quiet "${AIT_PIP_SPECS_COMMON[@]}"
         verify_venv_imports "$PYPY_VENV_DIR/bin/python" "${AIT_IMPORTS_COMMON[@]}"
         verify_venv_specs   "$PYPY_VENV_DIR/bin/python" "${AIT_PIP_SPECS_COMMON[@]}"
     fi
-    if [[ ${#missing_imports[@]} -gt 0 || ${#bad_specs[@]} -gt 0 ]]; then
-        warn "PyPy venv deps could not be installed (missing: ${missing_imports[*]:-none}; version: ${bad_specs[*]:-none}). Removing $PYPY_VENV_DIR so the board uses the CPython venv. Re-run 'ait setup --with-pypy' to retry."
+    if venv_deps_bad; then
+        warn "PyPy venv deps could not be installed ($(venv_deps_detail)). Removing $PYPY_VENV_DIR so the board uses the CPython venv. Re-run 'ait setup --with-pypy' to retry."
         # Removal is not cleanup — it IS half of the fallback mechanism, so a
         # removal that silently failed would report a fallback that did not
         # happen. (The other half lives in resolve_pypy_python(), which rejects
@@ -800,15 +819,15 @@ setup_chat_deps() {
     # continue (chat is an optional tier — never block the core setup).
     verify_venv_imports "$VENV_DIR/bin/python" "${AIT_IMPORTS_CHAT[@]}"
     verify_venv_specs   "$VENV_DIR/bin/python" "${AIT_PIP_SPECS_CHAT[@]}"
-    if [[ ${#missing_imports[@]} -gt 0 || ${#bad_specs[@]} -gt 0 ]]; then
-        warn "Chat deps need repair (missing: ${missing_imports[*]:-none}; version: ${bad_specs[*]:-none}). Retrying..."
+    if venv_deps_bad; then
+        warn "Chat deps need repair ($(venv_deps_detail)). Retrying..."
         pip_install_guarded "Chat deps repair" "$VENV_DIR/bin/pip" \
             --quiet "${AIT_PIP_SPECS_CHAT[@]}"
         verify_venv_imports "$VENV_DIR/bin/python" "${AIT_IMPORTS_CHAT[@]}"
         verify_venv_specs   "$VENV_DIR/bin/python" "${AIT_PIP_SPECS_CHAT[@]}"
     fi
-    if [[ ${#missing_imports[@]} -gt 0 || ${#bad_specs[@]} -gt 0 ]]; then
-        warn "Chat deps could not be installed (missing: ${missing_imports[*]:-none}; version: ${bad_specs[*]:-none}). Re-run 'ait setup --with-chat' to retry."
+    if venv_deps_bad; then
+        warn "Chat deps could not be installed ($(venv_deps_detail)). Re-run 'ait setup --with-chat' to retry."
         return 0
     fi
 
@@ -861,8 +880,8 @@ setup_dev_deps() {
     # continue (dev is an optional tier — never block the core setup).
     verify_venv_imports "$VENV_DIR/bin/python" "${AIT_IMPORTS_DEV[@]}"
     verify_venv_specs   "$VENV_DIR/bin/python" "${AIT_PIP_SPECS_DEV[@]}"
-    if [[ ${#missing_imports[@]} -gt 0 || ${#bad_specs[@]} -gt 0 ]]; then
-        warn "Dev deps need repair (missing: ${missing_imports[*]:-none}; version: ${bad_specs[*]:-none}). Retrying..."
+    if venv_deps_bad; then
+        warn "Dev deps need repair ($(venv_deps_detail)). Retrying..."
         if ! "$VENV_DIR/bin/pip" install --quiet "${AIT_PIP_SPECS_DEV[@]}"; then
             warn "Dev deps repair failed. Re-run 'ait setup --with-dev' to retry."
             return 0
@@ -870,8 +889,8 @@ setup_dev_deps() {
         verify_venv_imports "$VENV_DIR/bin/python" "${AIT_IMPORTS_DEV[@]}"
         verify_venv_specs   "$VENV_DIR/bin/python" "${AIT_PIP_SPECS_DEV[@]}"
     fi
-    if [[ ${#missing_imports[@]} -gt 0 || ${#bad_specs[@]} -gt 0 ]]; then
-        warn "Dev deps could not be installed (missing: ${missing_imports[*]:-none}; version: ${bad_specs[*]:-none}). Re-run 'ait setup --with-dev' to retry."
+    if venv_deps_bad; then
+        warn "Dev deps could not be installed ($(venv_deps_detail)). Re-run 'ait setup --with-dev' to retry."
         return 0
     fi
 
@@ -963,14 +982,14 @@ setup_python_venv() {
     # framework cannot run without its core CPython venv deps.
     verify_venv_imports "$VENV_DIR/bin/python" "${AIT_IMPORTS_COMMON[@]}" "${AIT_IMPORTS_CPYTHON_EXTRA[@]}"
     verify_venv_specs   "$VENV_DIR/bin/python" "${AIT_PIP_SPECS_COMMON[@]}" "${AIT_PIP_SPECS_CPYTHON_EXTRA[@]}"
-    if [[ ${#missing_imports[@]} -gt 0 || ${#bad_specs[@]} -gt 0 ]]; then
-        warn "CPython venv deps need repair (missing: ${missing_imports[*]:-none}; version: ${bad_specs[*]:-none}). Retrying..."
+    if venv_deps_bad; then
+        warn "CPython venv deps need repair ($(venv_deps_detail)). Retrying..."
         pip_install_guarded "CPython venv dep repair" "$VENV_DIR/bin/pip" \
             --quiet "${AIT_PIP_SPECS_COMMON[@]}" "${AIT_PIP_SPECS_CPYTHON_EXTRA[@]}"
         verify_venv_imports "$VENV_DIR/bin/python" "${AIT_IMPORTS_COMMON[@]}" "${AIT_IMPORTS_CPYTHON_EXTRA[@]}"
         verify_venv_specs   "$VENV_DIR/bin/python" "${AIT_PIP_SPECS_COMMON[@]}" "${AIT_PIP_SPECS_CPYTHON_EXTRA[@]}"
-        [[ ${#missing_imports[@]} -gt 0 || ${#bad_specs[@]} -gt 0 ]] && \
-            die "CPython venv still bad (missing: ${missing_imports[*]:-none}; version: ${bad_specs[*]:-none}). Check pip/network and re-run 'ait setup'."
+        venv_deps_bad && \
+            die "CPython venv still bad ($(venv_deps_detail)). Check pip/network and re-run 'ait setup'."
     fi
 
     # Expose venv-Python via stable wrapper scripts (t706, replacing the t695_3

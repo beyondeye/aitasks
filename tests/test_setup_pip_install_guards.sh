@@ -48,7 +48,7 @@ trap cleanup EXIT
 # Fixtures
 # ---------------------------------------------------------------------------
 
-# make_home <home-dir> <deps_ok:0|1>
+# make_home <home-dir> <deps_ok:0|1> [specs_ok:1|0|once, default 1]
 # Builds a scratch $HOME containing a CPython venv and a PyPy venv, each with:
 #   bin/pip    — always exits 1 (the offline / unreachable-index simulation)
 #   bin/python — a bash stub answering every probe aitask_setup.sh makes:
@@ -56,9 +56,10 @@ trap cleanup EXIT
 #                  * the find_modern_python version gate -> exit 0
 #                  * sys.version_info[:2]     -> "3.13"
 #                  * import <mod>             -> exit 0/1 per <deps_ok>
-#                  * stdin program (verify_venv_specs) -> canned bad-spec output
+#                  * stdin program (verify_venv_specs) -> per <specs_ok>, see
+#                    _make_py_stub
 make_home() {
-    local home="$1" deps_ok="$2" venv pypy_venv
+    local home="$1" deps_ok="$2" specs_ok="${3:-1}" venv pypy_venv
     venv="$home/.aitask/venv"
     pypy_venv="$home/.aitask/pypy_venv"
     # stubbin/ is prepended to PATH by run_case; empty unless a case plants a
@@ -75,24 +76,36 @@ PIPSTUB
         chmod +x "$d/bin/pip"
     done
 
-    _make_py_stub "$venv/bin/python"      cpython "$deps_ok"
-    _make_py_stub "$pypy_venv/bin/python" pypy    "$deps_ok"
+    _make_py_stub "$venv/bin/python"      cpython "$deps_ok" "$deps_ok" "$specs_ok"
+    _make_py_stub "$pypy_venv/bin/python" pypy    "$deps_ok" "$deps_ok" "$specs_ok"
 }
 
 # _make_py_stub <path> <impl> <deps_ok> [runtime_ok, default = deps_ok]
+#               [specs_ok, default 1]
 # <runtime_ok> is separate because resolve_pypy_python's probe asks a different
 # question from verify_venv_imports: "can this interpreter import the whole
 # framework runtime set", which a bare system PyPy answers no to even though it
 # is a perfectly good interpreter. (Which module is missing, and
 # discoverable-vs-importable, are pinned in tests/test_python_resolve_pypy.sh
 # where a real interpreter runs the probe; here only the outcome matters.)
+#
+# <specs_ok> drives the stdin program (verify_venv_specs' inspection):
+#   1    -> exit 0; canned bad-spec output unless <deps_ok> is 1
+#   0    -> exit 1 every time — the inspection itself failing, as it does when
+#           neither packaging nor pip._vendor.packaging imports
+#   once -> exit 1 on the first inspection, clean exit 0 after (a failure the
+#           repair fixes)
+# Every inspection appends a line to <venv-dir>.inspections (see `inspections`),
+# BESIDE the venv so the count survives setup removing the venv itself.
 _make_py_stub() {
-    local path="$1" impl="$2" deps_ok="$3" runtime_ok="${4:-$3}"
+    local path="$1" impl="$2" deps_ok="$3" runtime_ok="${4:-$3}" specs_ok="${5:-1}"
     cat > "$path" <<PYSTUB
 #!/usr/bin/env bash
 impl="$impl"
 deps_ok="$deps_ok"
 runtime_ok="$runtime_ok"
+specs_ok="$specs_ok"
+inspect_log="${path%/bin/python}.inspections"
 PYSTUB
     cat >> "$path" <<'PYSTUB'
 case "${1:-}" in
@@ -117,6 +130,13 @@ case "${1:-}" in
     esac ;;
   -)
     cat >/dev/null            # discard verify_venv_specs' program
+    # Best-effort: cases 5b/5c make the log's directory read-only, and they
+    # never read the count.
+    { echo x >> "$inspect_log"; } 2>/dev/null || :
+    case "$specs_ok" in
+      0)    exit 1 ;;
+      once) [ "$(wc -l < "$inspect_log")" -gt 1 ] && exit 0 || exit 1 ;;
+    esac
     [ "$deps_ok" = 1 ] && exit 0
     echo "textual 1.0.0 (need >=8.2.7,<9)"
     exit 0 ;;
@@ -148,6 +168,7 @@ case "$2" in
         pip_install_guarded "probe" "$VENV_DIR/bin/pip" --quiet somepkg
         ;;
     chat)        setup_chat_deps ;;
+    dev)         setup_dev_deps ;;
     pypy)        setup_pypy_venv ;;
     cpython)     setup_python_venv ;;
     pypy_then_resolve)
@@ -183,12 +204,30 @@ run_case() {
     ERR="$(cat "$errf")"
 }
 
-# fresh_home <name> <deps_ok> — a per-case $HOME (cases mutate/remove venvs)
+# fresh_home <name> <deps_ok> [specs_ok] — a per-case $HOME (cases mutate/remove
+# venvs)
 fresh_home() {
     local home="$SCRATCH/home_$1"
     rm -rf "$home"
-    make_home "$home" "$2"
+    make_home "$home" "$2" "${3:-1}"
     printf '%s' "$home"
+}
+
+# make_pip_ok <home> — swap the CPython venv's failing pip for one that
+# succeeds. setup_dev_deps returns on a failing install before it verifies
+# anything (deliberately — see its comment), so the dev cases need a pip that
+# lets them reach the verify block.
+make_pip_ok() {
+    printf '#!/usr/bin/env bash\nexit 0\n' > "$1/.aitask/venv/bin/pip"
+}
+
+# inspections <venv-dir> — how many times verify_venv_specs inspected that venv
+inspections() {
+    if [[ -f "$1.inspections" ]]; then
+        wc -l < "$1.inspections" | tr -d ' '
+    else
+        echo 0
+    fi
 }
 
 echo "=== A. Behavioural cases against the real script ==="
@@ -289,6 +328,99 @@ run_case "$SETUP" "$h" cpython
 assert_exit_nonzero_rc "7: a genuinely broken core venv still fails hard" "$RC"
 assert_contains "7: it dies with the actionable message, not a bare pip error" \
     "CPython venv still bad" "$ERR"
+
+# --- 8: imports pass, the version inspection itself fails (t2135) ---
+# verify_venv_specs leaves bad_specs EMPTY when its inspection fails, so a site
+# testing only missing_imports/bad_specs read a failed check as "all in range"
+# and enforced no version floor. Every site must treat it as needing repair and
+# name it, never render it as "version: none".
+h="$(fresh_home cpython_specfail 1 0)"
+run_case "$SETUP" "$h" cpython
+assert_exit_nonzero_rc "8a: cpython: a failed version check is fatal, not a pass" "$RC"
+assert_contains "8a: cpython: the repair warning names the failed check" \
+    "CPython venv deps need repair (missing: none; version check failed)" "$OUT"
+assert_contains "8a: cpython: it dies naming the failed check" \
+    "CPython venv still bad (missing: none; version check failed)" "$ERR"
+
+h="$(fresh_home pypy_specfail 1 0)"
+run_case "$SETUP" "$h" pypy
+assert_exit_zero_rc "8b: pypy: a failed version check still returns 0" "$RC"
+assert_dir_not_exists "8b: pypy: the unverifiable venv is removed (CPython fallback)" \
+    "$h/.aitask/pypy_venv"
+assert_contains "8b: pypy: the warning names the failed check" \
+    "PyPy venv deps could not be installed (missing: none; version check failed)" "$OUT"
+
+h="$(fresh_home chat_specfail 1 0)"
+run_case "$SETUP" "$h" chat
+assert_exit_zero_rc "8c: chat: a failed version check still returns 0" "$RC"
+assert_contains "8c: chat: the warning names the failed check" \
+    "Chat deps could not be installed (missing: none; version check failed)" "$OUT"
+assert_not_contains "8c: chat: an unverified tier is not reported ready" \
+    "Chat SDK deps ready" "$OUT"
+
+# 8d is the control for the dev fixture (a succeeding pip, healthy deps): it
+# proves 8e fails on the version check and not on a fixture the tier rejects.
+h="$(fresh_home dev_good 1)"
+make_pip_ok "$h"
+run_case "$SETUP" "$h" dev
+assert_exit_zero_rc "8d: dev control: a healthy tier returns 0" "$RC"
+assert_contains "8d: dev control: a healthy tier is ready" "Dev/test deps ready" "$OUT"
+assert_file_exists "8d: dev control: the opt-in marker is written" "$h/.aitask/dev_tier"
+
+h="$(fresh_home dev_specfail 1 0)"
+make_pip_ok "$h"
+run_case "$SETUP" "$h" dev
+assert_exit_zero_rc "8e: dev: a failed version check still returns 0" "$RC"
+assert_contains "8e: dev: the warning names the failed check" \
+    "Dev deps could not be installed (missing: none; version check failed)" "$OUT"
+assert_file_not_exists "8e: dev: an unverified tier records no opt-in" "$h/.aitask/dev_tier"
+
+# --- 9: the version check fails once, then the repair recovers (t2135) ---
+# Section 8 pins only the rejection, and would still pass if a site skipped its
+# post-repair re-check: the stale specs_check_ok=false from the FIRST inspection
+# would then reject a venv the repair had made healthy. Here the inspection fails
+# once and is clean afterwards, so each site must attempt the repair, re-check
+# (exactly two inspections), and reach its ready outcome. C4 is the control.
+h="$(fresh_home cpython_recover 1 once)"
+run_case "$SETUP" "$h" cpython
+assert_exit_zero_rc "9a: cpython: a repaired version check does not abort setup" "$RC"
+assert_contains "9a: cpython: execution continued to the end" "__REACHED_END__" "$OUT"
+assert_contains "9a: cpython: the repair was attempted" \
+    "CPython venv deps need repair (missing: none; version check failed). Retrying..." "$OUT"
+assert_not_contains "9a: cpython: no stale failure after the repair" "still bad" "$ERR"
+assert_eq "9a: cpython: inspected before and after the repair" \
+    "2" "$(inspections "$h/.aitask/venv")"
+
+h="$(fresh_home pypy_recover 1 once)"
+run_case "$SETUP" "$h" pypy
+assert_exit_zero_rc "9b: pypy: a repaired version check returns 0" "$RC"
+assert_dir_exists "9b: pypy: the repaired venv is kept" "$h/.aitask/pypy_venv"
+assert_contains "9b: pypy: the repair was attempted" \
+    "PyPy venv deps need repair (missing: none; version check failed)" "$OUT"
+assert_not_contains "9b: pypy: no stale failure after the repair" \
+    "could not be installed" "$OUT"
+assert_eq "9b: pypy: inspected before and after the repair" \
+    "2" "$(inspections "$h/.aitask/pypy_venv")"
+
+h="$(fresh_home chat_recover 1 once)"
+run_case "$SETUP" "$h" chat
+assert_exit_zero_rc "9c: chat: a repaired version check returns 0" "$RC"
+assert_contains "9c: chat: the repair was attempted" \
+    "Chat deps need repair (missing: none; version check failed)" "$OUT"
+assert_contains "9c: chat: the repaired tier is ready" "Chat SDK deps ready" "$OUT"
+assert_eq "9c: chat: inspected before and after the repair" \
+    "2" "$(inspections "$h/.aitask/venv")"
+
+h="$(fresh_home dev_recover 1 once)"
+make_pip_ok "$h"
+run_case "$SETUP" "$h" dev
+assert_exit_zero_rc "9d: dev: a repaired version check returns 0" "$RC"
+assert_contains "9d: dev: the repair was attempted" \
+    "Dev deps need repair (missing: none; version check failed)" "$OUT"
+assert_contains "9d: dev: the repaired tier is ready" "Dev/test deps ready" "$OUT"
+assert_file_exists "9d: dev: the opt-in marker is written" "$h/.aitask/dev_tier"
+assert_eq "9d: dev: inspected before and after the repair" \
+    "2" "$(inspections "$h/.aitask/venv")"
 
 echo "=== B. Structural tripwire ==="
 
@@ -407,6 +539,70 @@ assert_not_contains "C2: the shell died before the end" "__REACHED_END__" "$OUT"
 h="$(fresh_home neg_site_pypy 1)"
 run_case "$MUT_SITE" "$h" pypy
 assert_exit_zero_rc "C2: sites left guarded still survive (mutation is targeted)" "$RC"
+
+# --- C3: drop the specs_check_ok clause from venv_deps_bad (t2135) ---
+# The pre-fix predicate. Every section-8 case must fall back to reading a failed
+# version check as "all in range" — proving those cases detect exactly that
+# clause. (The string occurs only in venv_deps_bad.)
+make_mutant specscheck 's/ || "\$specs_check_ok" != true ]]/ ]]/'
+MUT_SPECS="$MUTANT"
+
+h="$(fresh_home neg_specs_cpython 1 0)"
+run_case "$MUT_SPECS" "$h" cpython
+assert_exit_zero_rc "C3/cpython: without the clause a failed check passes" "$RC"
+assert_contains "C3/cpython: ...and setup runs to the end" "__REACHED_END__" "$OUT"
+
+h="$(fresh_home neg_specs_pypy 1 0)"
+run_case "$MUT_SPECS" "$h" pypy
+assert_dir_exists "C3/pypy: without the clause the unverified venv is kept" \
+    "$h/.aitask/pypy_venv"
+
+h="$(fresh_home neg_specs_chat 1 0)"
+run_case "$MUT_SPECS" "$h" chat
+assert_contains "C3/chat: without the clause the unverified tier is ready" \
+    "Chat SDK deps ready" "$OUT"
+
+h="$(fresh_home neg_specs_dev 1 0)"
+make_pip_ok "$h"
+run_case "$MUT_SPECS" "$h" dev
+assert_file_exists "C3/dev: without the clause the unverified tier records opt-in" \
+    "$h/.aitask/dev_tier"
+
+# --- C4: skip every post-repair re-check (t2135) ---
+# The four post-repair verify_venv_specs calls are the only ones indented 8
+# spaces with the column alignment (report_venv_dep_drift's has one space).
+# With them no-op'd, specs_check_ok stays false from the first inspection, so
+# every section-9 recovery must flip to a rejection — the failure mode section 8
+# cannot see.
+make_mutant norecheck 's|^        verify_venv_specs   |        : |'
+MUT_RECHECK="$MUTANT"
+recheck_lines="$(diff "$SETUP" "$MUT_RECHECK" | grep -c '^>' || true)"
+assert_eq "C4: the mutation no-ops exactly the four post-repair re-checks" \
+    "4" "$recheck_lines"
+
+h="$(fresh_home neg_recheck_cpython 1 once)"
+run_case "$MUT_RECHECK" "$h" cpython
+assert_exit_nonzero_rc "C4/cpython: a skipped re-check rejects the repaired venv" "$RC"
+assert_contains "C4/cpython: ...with the stale failure" "still bad" "$ERR"
+assert_eq "C4/cpython: only the first inspection ran" "1" "$(inspections "$h/.aitask/venv")"
+
+h="$(fresh_home neg_recheck_pypy 1 once)"
+run_case "$MUT_RECHECK" "$h" pypy
+assert_dir_not_exists "C4/pypy: a skipped re-check removes the repaired venv" \
+    "$h/.aitask/pypy_venv"
+assert_eq "C4/pypy: only the first inspection ran" "1" "$(inspections "$h/.aitask/pypy_venv")"
+
+h="$(fresh_home neg_recheck_chat 1 once)"
+run_case "$MUT_RECHECK" "$h" chat
+assert_contains "C4/chat: a skipped re-check rejects the repaired tier" \
+    "Chat deps could not be installed" "$OUT"
+assert_eq "C4/chat: only the first inspection ran" "1" "$(inspections "$h/.aitask/venv")"
+
+h="$(fresh_home neg_recheck_dev 1 once)"
+make_pip_ok "$h"
+run_case "$MUT_RECHECK" "$h" dev
+assert_file_not_exists "C4/dev: a skipped re-check records no opt-in" "$h/.aitask/dev_tier"
+assert_eq "C4/dev: only the first inspection ran" "1" "$(inspections "$h/.aitask/venv")"
 
 echo ""
 echo "Tests: $TOTAL  Pass: $PASS  Fail: $FAIL  Skipped: $SKIPPED"

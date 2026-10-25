@@ -99,6 +99,23 @@ assert_eq "specs: failed inspection -> bad_specs empty" "0" "${#bad_specs[@]}"
 verify_venv_specs /bin/false "rich>=14.3.3"
 assert_eq "specs: /bin/false interpreter -> specs_check_ok=false" "false" "$specs_check_ok"
 
+# === venv_deps_bad / venv_deps_detail: the setup sites' repair decision (t2135) ===
+
+verify_venv_imports "$STUB_IMPORTS" textual yaml
+verify_venv_specs "$STUB_SPECFAIL" "rich>=14.3.3"
+if venv_deps_bad; then bad=yes; else bad=no; fi
+assert_eq "deps_bad: imports ok + failed inspection -> needs repair" "yes" "$bad"
+assert_eq "deps_detail: a failed inspection is named, not 'version: none'" \
+    "missing: none; version check failed" "$(venv_deps_detail)"
+
+verify_venv_specs "$STUB_OK" "textual>=8.2.7,<9"
+if venv_deps_bad; then bad=yes; else bad=no; fi
+assert_eq "deps_bad: imports ok + clean inspection -> fine" "no" "$bad"
+
+verify_venv_specs "$STUB_VER" "textual>=8.2.7,<9"
+assert_eq "deps_detail: an out-of-range spec is listed" \
+    "missing: none; version: textual 7.0.0 (need >=8.2.7,<9)" "$(venv_deps_detail)"
+
 # === rich floor (t2133): split_graphemes hang in 14.3.2, fixed in 14.3.3 ===
 
 rich_spec=""
