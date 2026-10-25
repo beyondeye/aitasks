@@ -272,3 +272,79 @@ As listed in the task body. Each one maps to a test in step 5, or to the tripwir
 
 Post-implementation follows the shared task-workflow Step 9: archival on the
 current branch, with no merge.
+
+## Final Implementation Notes
+- **Actual work done:**
+  - `runner/builtin/bashfile.go` (unix): the `bash-file` adapter.
+    - Describe: unit / inventory / per_unit, with the rules as YAML comments.
+    - List: supervised `git ls-files` inventory, bind filter, regular files only, fail-closed on any stderr, non-zero exit, timeout or truncation.
+    - Run: `<command|bash> ./<lowering>` per unit under `timeout_s`, start + result rows, per-unit logs, exit 3 on unproven containment.
+  - `bashfile_linux.go`: Linux-only `init` registration.
+  - `bashfile_tripwire_test.go`: the adapter-file no-direct-exec tripwire, generic over every non-scaffold file of the package.
+  - `bashfile_linux_test.go`: 17 tests. 15 are real-tool tests (`hangguard.Isolated`, `requireBash`), plus the pure `TestBashFileDescribe`, `TestBashFileUnitCheck` and `TestBashFileRunRefusesForgedUnit`.
+  - Named extensions:
+    - `builtin.go` package doc;
+    - `main_test.go` `__nested_engine` dispatch;
+    - `cmd/ait-testmap/main_test.go` `TestRunnerVerb` (Linux registers `[bash-file]`, plus `runner bash-file describe`);
+    - `goengines/README.md` (rows 119 and `runner <name>`, plus the new `bash-file` builtin and adapter-file tripwire rows);
+    - `AIT_TESTMAP_REQUIRE_REAL_TOOLS: '1'` on the legacy-mode `go test` step of `goengines-check.yml` and `release.yml`.
+- **Deviations from plan:**
+  - Bash-file tests use their own `bashHangLimit = 120s`. Under `-race` on a loaded host, `TestBashFileInventory` measured 28.3 s against the package's 30 s `hangLimit`, because each test chains two or three supervised engine loads of the race-instrumented binary. A hang still fails at that bound.
+  - `bashEntry` omits its default `timeout_s` when an extra line sets one (duplicate YAML key).
+- **Issues encountered:**
+  - `go test -race -count=3` exceeded go test's default 10 min timeout. It was not failing: the race pass alone takes ~212 s on a loaded box. Rerun with `-timeout 45m`.
+  - The other session's t2138 (two-mode CI) held uncommitted hunks in `goengines/README.md` and both workflows. Per the shared-file gate, those files were edited only after t2138 committed `309e0b8c6`.
+- **Key decisions:**
+  - The inventory runs git through `Env.Supervise`, not `gitx.ListFiles`, so discovery is contained and carries the recursion marker. gitx's stderr rule is kept.
+  - The script operand is `./<path>`: verified on bash 5.3, `bash --version` exits 0 without running a file named `--version`.
+  - Registration is Linux only (G10: no integration environment elsewhere), so darwin's `builtin: bash-file` is unresolved, i.e. pending.
+  - The log is never the evidence. A lost or truncated log only annotates the message.
+- **What the adapter reads (for t2082):**
+  - **Command line:** `<command: split by SplitCommand | bash> ./<cwd-relative path>`.
+  - **Cwd:** the entry's `cwd` (default the root).
+  - **Inventory:** `git ls-files -z --cached --others --exclude-standard` in the cwd, with the `gitx.Env()` environment, so git's index and ignore rules are inputs.
+  - **Config:** `runners.yaml` `cwd`, `bind`, `command`. There are no tool config flags. Script contents and whatever they source are opaque.
+- **Red proofs:** 13 isolated mutants, each applied to a scratch copy of `goengines/` (never the shared tree), sha256-restored, the copy diffed identical afterwards. All red:
+  - (a) no bind filter;
+  - (b) no regular-file check (`fi == nil` form, so it is not a compile-error "red");
+  - (c) ls-files stderr ignored → both adapter-scoped warning variants;
+  - (d) Truncated ignored;
+  - (e) timeout → fail;
+  - (f) non-zero → pass;
+  - (g) lowering check removed;
+  - (h) `os/exec` imported (tripwire);
+  - (m) the dot-import refusal disabled → `TestAdapterTripwireCatches` (`dot syscall`, `dot os`, `dot innocuous` not caught; see Post-Review Changes);
+  - (i) `AIT_TESTMAP_ACTIVE` filtered from the script env → `VIA:ancestor:<pid>`, so the `VIA:marker` assertion fails;
+  - (i2) the same filter on the inventory env;
+  - (j) no per-unit timeout → HANG at the hang guard;
+  - (l) operand without `./` → `--version` passes unrun;
+  - (k) registration removed → `TestRunnerVerb`.
+- **Verification:**
+  - `./ait engine test` rc 0 (re-run on the final tree, after the README and CI edits);
+  - `GOOS=darwin go vet ./...` ok;
+  - `./build.sh all` with sha256 ok;
+  - builtin package green with `AIT_TESTMAP_REQUIRE_REAL_TOOLS=1`, no skips;
+  - `-race -count=1` green (212 s); `-race -count=3 -timeout 45m` green (634 s, 0 `DATA RACE`);
+  - `python -m unittest tests/test_release_workflow_goengines.py` OK (22 tests);
+  - real-binary end-to-end: `ait-testmap run --all` on a scratch repository (`tests/test_ok.sh`, and `tests/test_bad.sh` leaving a `setsid` daemon, exit 4). Result `UNIT … fail`, `UNIT … pass`, `RUN_ACCOUNTING:2|0|2|0|0`, rc 1, `containment: supervisor`, the daemon gone, `unit-000{0,1}.std{out,err}` logs present.
+- **Post-phase [stress_bashfile_tests_under_load]:** `go test -count=10` of the builtin package while a full `go test -count=1 -p 8 ./...` ran concurrently gave **10/10 pass** (stress rc 0, load rc 0). No flake fixes were needed beyond the `bashHangLimit` bound above.
+- **Upstream defects identified:** None
+- **Notes for sibling tasks:**
+  - The adapter-file tripwire covers every new non-test file in `runner/builtin` automatically. Run tools only through `e.Supervise`; `gitx.Env()` is the one allowed gitx name.
+  - `TestRunnerVerb` pins the registered set: add your adapter to `want` (under its platform condition) when you register it.
+  - `main_test.go` now dispatches `__nested_engine check|run` (in `bashfile_linux_test.go`), so recursion tests can reuse it. Assert `VIA:marker`, not just `RUN_ERROR:recursion`: the ancestry backstop also refuses a nested entry whose marker was dropped.
+  - Do not use `runner.Load` as the oracle for an adapter's own git-stderr handling: `loadGuarded` re-runs `annot` / `gitx.ListFiles`, which reject stderr themselves. Call the adapter's list in-process, or confine the fault to the adapter's own call.
+  - Real-tool tests that chain engine loads need a hang limit above the package's 30 s under `-race`.
+  - CI now sets `AIT_TESTMAP_REQUIRE_REAL_TOOLS=1` on the legacy-mode `go test` steps. A tool your real-tool tests need must be on ubuntu-latest, or installed by the workflow (t1854_9: pytest).
+  - For M10.1 (t1861): bind the aitasks entry to `tests/test_*.sh`. The default `**/test_*.sh` also matches the helper `tests/lib/test_scaffold.sh`.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-25 11:20)
+- **Requested by user:** the adapter-file tripwire missed dot imports. `directExecFindings` recorded `local["."]` but examined only `ast.SelectorExpr`, so `import . "syscall"` + `ForkExec(…)` and `import . "os"` + `StartProcess` produced zero findings (verified CONFIRMED by the reviewer). Requested: reject dot imports, following the hang-guard parser's rule, and cover it.
+- **Changes made:**
+  - `directExecFindings` refuses every dot import, whatever the package, with `dot import of <path>, which the tripwire cannot resolve: import it by name`. This mirrors `hangguard/tripwire_test.go`, which refuses dot imports outright.
+  - `TestAdapterTripwireCatches` gains `dot syscall`, `dot os` and `dot innocuous`.
+  - The README adapter-file tripwire row states the rule.
+  - Red proof (m): on the scratch copy, the refusal disabled → all three cases "not caught", which is the reported gap; the copy is restored and diffed identical.
+- **Files affected:** `goengines/internal/testmap/runner/builtin/bashfile_tripwire_test.go`, `goengines/README.md`.
