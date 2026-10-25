@@ -368,3 +368,112 @@ byte-identical for every existing CLI fixture (no table declared).
 
 Shared post-implementation (current branch, no merge); commit
 `feature: Add the code modules table, codemap and Gradle providers and the modules verb (t2131_3)`.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-25 11:40)
+- **Requested by user:** six review findings, all verified and fixed —
+  (1) `--scan --apply` wrote `_modules.yaml` before its output lines were
+  validated (a refused root `a|b` made the run exit 3 *after* the write);
+  (2) carried agent rows' `deps:` pointing at a since-removed/renamed module
+  aborted regeneration; (3) `--list` ran the live providers, so a broken
+  current codemap hid a valid committed table; (4) Gradle `settings:` evidence
+  and the settings-derived `gradle-dynamic` flag came from the nearest
+  settings file, not the declaring one; (5) `Modules.Doc()` cloned only the
+  outer slice, so editing the snapshot mutated the loaded table and its
+  ownership index; (6) the budget benchmark ran `check` with empty inputs, so
+  133 ms did not validate the combined budget.
+- **Changes made:** (1) `formatLines` split from `printLines`; `modules --scan`
+  renders its whole text/JSON output first, then writes, then prints; (2) agent
+  rows keep `paths`/`by`/`evidence`, their `deps:` are cleared and recomputed
+  like every row's; (3) new `deps.Universe(ctx, root, cfg)` (the scan's file
+  set, no scanning) feeds `--list`; (4) `GradleModule.Settings` records the
+  declaring settings file, used for evidence and the dynamic flag
+  (`deepestSettings` removed); (5) `cloneDoc` deep-copies rows in `Doc()`,
+  `WithGenerated`, `ModulesFromDoc`; (6) the benchmark now carries ≈660
+  annotated tests with covers, member variants with artifacts, two hand files
+  (owns/rules/edges/waivers) and a persisted `_scanned.yaml`, asserted
+  non-empty. Re-measured pinned: **≈ 220 ms** (budget 300; ≈ 33 ms without a
+  declared table; Infer + addDeps ≈ 4 % of the profile, the warm deps scan
+  dominates). Baseline updated; proposal and README follow. Each fix has a
+  regression test, red-proved by a mutant: `TestModulesDocIsADeepCopy`,
+  `TestGradleEvidenceNamesTheDeclaringSettings`, `TestAgentRowsCarriedOver`
+  (kept / removed / renamed), `TestModulesScanApplyWritesNothingOnUnrenderableOutput`,
+  `TestModulesListSurvivesABrokenCodemap`, the `deps.Universe` equality check.
+- **Files affected:** `cmd/ait-testmap/{modules.go,scancheck.go,modules_test.go}`,
+  `internal/testmap/deps/{deps.go,gradle.go,scan.go,gradle_test.go,scan_test.go}`,
+  `internal/testmap/modules/{modules.go,deps.go,gradle.go,modules_test.go,bench_test.go}`,
+  `internal/testmap/registry/{modules.go,modules_test.go}`, `bench/baseline.txt`,
+  `goengines/README.md`, the proposal's *Code modules* component.
+
+## Final Implementation Notes
+- **Actual work done:** every plan step landed. Pre-phase
+  `characterize_check_without_table` (`cmd/ait-testmap/modules_characterize_test.go`,
+  green before and after, red with the `Declared()` gate removed). Step 1b:
+  `deps.Graph.Universe()`, `deps.Universe(ctx, root, cfg)`,
+  `GradleModule.Declared` / `.Settings`. Step 2: `registry/modules.go` — schema,
+  strict loader, renderer, hand `modules:` block (`paths` only), `NativeID` /
+  `ValidRoot` / `GeneratedName` / `ValidateModuleRow` / `ValidateModulesDoc`,
+  `ModulesOf` (`Declared`, `Doc` deep copy, `Hand`, `WithGenerated`,
+  `WithoutHand`, `ModulesFromDoc`), `OwnerOf`, `Resolve`, `ModulesDrift`, the
+  package-kind ownership arm for t2131_4. `registry.ReadCodemapEntries` shares
+  `ReadCodemap`'s decoder (`areas --import-codemap` unchanged). Step 3:
+  `registry/rules_modules.go` (`RegisterModuleInference`, `MODULES_DRIFT`,
+  `MODULE_CONFLICT`, once-per-run memo) and `check.go` (`ctx`, memo,
+  `*InvalidError` passthrough). Step 4: `internal/testmap/modules`
+  (`Infer`, `Scan`, `RegisterProvider`, codemap + Gradle providers,
+  `MODULE_REFUSED`, `deps:` evidence, the inference hook). Step 5: verb
+  `modules --list | --explain <path> | --scan [--apply]` with `--json`. Steps
+  6-9: tests, baseline line, README rows, proposal amendment.
+- **Measurements (Step 0 completion):** `check --strict` with the live
+  inference on the aitasks shape with a populated registry ≈ 220 ms pinned to
+  one P-core (budget 300; ≈ 33 ms on the same tree without a declared table;
+  `Infer` + `addDeps` ≈ 4 % of the profile, the warm deps scan dominates) →
+  detection stays in `check` (decision 1 holds). Provider overlap on the
+  benchmark fixture: 2372 files, 52 modules, 6 unmapped, 0 conflicts (codemap
+  and Gradle disjoint there); the combined test fixture exercises the
+  overlapping cases.
+- **Deviations from plan:** (a) the aitasks-shape generator moved from the
+  deps bench into `fixture.AitasksShape` so the deps and modules benchmarks
+  share it (deps bench unchanged in behaviour); (b) `TestUniverseIncludesUnscannedFiles`
+  covers excluded, deleted and symlink-reached files but no FIFO — git never
+  lists one; (c) `formatLines` was split out of `printLines` in `scancheck.go`
+  for the write-after-render order; (d) agent rows' `deps:` are recomputed
+  (review finding), so "carried over unchanged" now means `paths` / `by` /
+  `evidence` — proposal amended; (e) review round 1 (Post-Review Changes
+  above) added `deps.Universe`, `GradleModule.Settings` and a realistic
+  benchmark workload.
+- **Issues encountered:** `main` advanced mid-session (t1854_6 implemented
+  `runner`), so the verb-table edits were re-applied on the new rows; no
+  overlap. Two expectation slips in tests were mine (identical-root pairs are
+  correctly not conflicts; universe counts).
+- **Key decisions:** decisions 1-9 of this plan, all recorded in the proposal's
+  *Code modules* component: drift judged only for a declared table; `deps:`
+  over persisted rows only; hand declarations carry `paths` only; unmapped
+  `MODULE_OF:<path>||unmapped`; `deps:` in `--json` only; equal-root
+  tie-break by name; ownership over the complete universe; Gradle modules are
+  declared projects only; roots validated by the directory rule independently
+  of the name. `MODULES_DRIFT` registers before `MODULE_CONFLICT`, so it prints
+  first.
+- **Upstream defects identified:**
+  - `goengines/internal/testmap/deps/gradle.go:209-215 — a build file whose directory maps by moduleNameOf onto an existing project name with a different projectDir (include(":api") moved to services/api plus a stray api/build.gradle.kts) is attached to that project as its BuildFile via addModule's by-name return, which also feeds sourceEdges; the modules provider guards its build: evidence`
+- **Notes for sibling tasks:**
+  - **t2131_4 (Go/Python):** register with `modules.RegisterProvider`; the
+    registry already owns package-kind ownership (`*.go`; `*.py`/`*.pyi` directly
+    in `root`, `go:.` / `py:.` allowed) and validates `go:` / `py:` names via
+    `GeneratedName` — the provider only builds rows (each passes
+    `registry.ValidateModuleRow`).
+  - **t2131_5 (membership):** use `registry.ModulesOf(reg).OwnerOf(path)` for
+    covered-source modules and `Resolve(deps.Universe(...))` for effective
+    tables; `--explain` currently refuses a test id (`checkPath` → usage) —
+    widen it there. Hand overlap is an `*InvalidError` from both calls.
+  - **t2131_6 (reach):** the live table and drift come from `modules.Scan` +
+    `registry.ModulesDrift`; ownership must be judged over the full universe,
+    never `Graph.Files()`. A registry with no declared table has every path
+    unmapped (→ full).
+  - **t2131_10 (grouping):** `OwnerOf` is universe-free and cheap; `gradle:`
+    rows carry the Gradle path in `ModuleRow.Gradle` for `{module}`.
+  - Tests that run `check` with a declared table need a git repository (the
+    inference scans); the CLI helper `modulesRepo` in
+    `cmd/ait-testmap/modules_test.go` sets one up with a private cache and fake
+    inputs.
