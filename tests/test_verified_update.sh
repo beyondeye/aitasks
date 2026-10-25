@@ -281,6 +281,149 @@ assert_eq "9t: the local branch converged onto the pushed commit" "$origin_9t" \
     "$(git -C "$WORKDIR_9T" rev-parse refs/heads/main)"
 rm -rf "$TMPDIR_9T"
 
+echo "--- Test t2134: only a real race is retried; every other push failure stops at once ---"
+# "failed to push some refs" ends EVERY rejected push, so the old classifier
+# retried hook refusals and ambiguous destinations 5 times and reported them as
+# concurrent pushes. Every family below is git's own output from a real push.
+LIB_T2134="$PROJECT_DIR/.aitask-scripts/lib/verified_update_lib.sh"
+RACE_REASON_T2134="$(mdfix_server_race_reason)"
+echo "  (installed git's server-side race reason: '${RACE_REASON_T2134}')"
+
+# Echoes 0 when the classifier calls <output> a retryable race, else 1.
+t2134_classify() {
+    local rc=0
+    # shellcheck source=../.aitask-scripts/lib/verified_update_lib.sh
+    ( . "$LIB_T2134"; is_retryable_push_error "$1" ) || rc=$?
+    echo "$rc"
+}
+# The pre-t2134 classifier, kept as the mutant control.
+t2134_classify_old() {
+    if printf '%s' "$1" | grep -Eq 'non-fast-forward|fetch first|rejected|failed to push some refs'; then
+        echo 0
+    else
+        echo 1
+    fi
+}
+
+# --- t2134a: the classifier against real push output -------------------------
+D_A="$(mktemp -d)"
+git init --bare --quiet "$D_A/o.git"
+git --git-dir="$D_A/o.git" symbolic-ref HEAD refs/heads/main
+git init --quiet "$D_A/seed"
+git -C "$D_A/seed" -c user.email=t@t -c user.name=t commit --quiet --allow-empty -m seed
+git -C "$D_A/seed" push --quiet "$D_A/o.git" HEAD:refs/heads/main
+t2134_clone() {   # <dir>: a clone of origin carrying one unpushed commit
+    git clone --quiet "$D_A/o.git" "$1"
+    git -C "$1" -c user.email=t@t -c user.name=t commit --quiet --allow-empty -m "pusher $1"
+}
+# Fixture pushes run untranslated: git localizes its "error:" lines, and the
+# fixture-shape assertions and the old-classifier control read those.
+t2134_push() { LC_ALL=C LANGUAGE='' git -C "$1" push --quiet origin "$2" 2>&1; }
+# The same push under a translating locale, for the locale-independence check.
+t2134_push_de() { LANGUAGE=de LC_ALL=en_US.UTF-8 git -C "$1" push --quiet origin "$2" 2>&1; }
+
+t2134_clone "$D_A/c1"
+git -C "$D_A/seed" -c user.email=t@t -c user.name=t commit --quiet --allow-empty -m racer
+git -C "$D_A/seed" push --quiet "$D_A/o.git" HEAD:refs/heads/main
+out_ff="$(t2134_push "$D_A/c1" HEAD:refs/heads/main)"
+git -C "$D_A/c1" fetch --quiet origin
+out_nff="$(t2134_push "$D_A/c1" HEAD:refs/heads/main)"
+out_nff_de="$(t2134_push_de "$D_A/c1" HEAD:refs/heads/main)"
+
+t2134_clone "$D_A/c2"
+mdfix_install_server_race_pre_receive "$D_A/o.git" "$D_A/raced"
+out_srv="$(t2134_push "$D_A/c2" HEAD:refs/heads/main)"
+
+t2134_clone "$D_A/c3"
+mdfix_install_refusing_pre_receive "$D_A/o.git"
+out_pre="$(t2134_push "$D_A/c3" HEAD:refs/heads/main)"
+rm -f "$D_A/o.git/hooks/pre-receive"
+printf '#!/usr/bin/env bash\necho "update hook says no"\nexit 1\n' > "$D_A/o.git/hooks/update"
+chmod +x "$D_A/o.git/hooks/update"
+out_upd="$(t2134_push "$D_A/c3" HEAD:refs/heads/main)"
+rm -f "$D_A/o.git/hooks/update"
+
+git -C "$D_A/seed" tag main
+git -C "$D_A/seed" push --quiet "$D_A/o.git" refs/tags/main:refs/tags/main
+git -C "$D_A/c3" fetch --quiet origin
+out_amb="$(t2134_push "$D_A/c3" HEAD:main)"
+out_amb_de="$(t2134_push_de "$D_A/c3" HEAD:main)"
+out_bad="$(LC_ALL=C LANGUAGE='' git -C "$D_A/c3" push --quiet "$D_A/no-such-remote.git" HEAD:refs/heads/main 2>&1)"
+rm -rf "$D_A"
+
+# Fixture shape first: each output must be the family it claims to be.
+assert_contains "t2134a: fixture: fetch first" "(fetch first)" "$out_ff"
+assert_contains "t2134a: fixture: non-fast-forward" "(non-fast-forward)" "$out_nff"
+assert_contains "t2134a: fixture: pre-receive refusal" "(pre-receive hook declined)" "$out_pre"
+assert_contains "t2134a: fixture: the refusal carries the race words" "non-fast-forward fetch first rejected" "$out_pre"
+assert_contains "t2134a: fixture: update-hook refusal" "(hook declined)" "$out_upd"
+assert_contains "t2134a: fixture: ambiguous destination" "matches more than one" "$out_amb"
+assert_contains "t2134a: fixture: missing remote" "does not appear to be a git repository" "$out_bad"
+
+assert_eq "t2134a: fetch first is retried" "0" "$(t2134_classify "$out_ff")"
+assert_eq "t2134a: non-fast-forward is retried" "0" "$(t2134_classify "$out_nff")"
+assert_eq "t2134a: pre-receive refusal is not retried" "1" "$(t2134_classify "$out_pre")"
+assert_eq "t2134a: update-hook refusal is not retried" "1" "$(t2134_classify "$out_upd")"
+assert_eq "t2134a: ambiguous destination is not retried" "1" "$(t2134_classify "$out_amb")"
+assert_eq "t2134a: missing remote is not retried" "1" "$(t2134_classify "$out_bad")"
+case "$RACE_REASON_T2134" in
+    "incorrect old value provided")
+        assert_eq "t2134a: real server-side race is retried" "0" "$(t2134_classify "$out_srv")" ;;
+    "failed to update ref")
+        assert_eq "t2134a: real server-side race (older wording) is not retried" "1" "$(t2134_classify "$out_srv")" ;;
+    *)
+        assert_eq "t2134a: installed git's server-race reason is a known one" \
+            "incorrect old value provided|failed to update ref" "$RACE_REASON_T2134" ;;
+esac
+# Mutant control: the old classifier retried exactly these.
+assert_eq "t2134a: control: old classifier retried the refusal" "0" "$(t2134_classify_old "$out_pre")"
+assert_eq "t2134a: control: old classifier retried the ambiguous destination" "0" "$(t2134_classify_old "$out_amb")"
+# Locale independence: the classifier reads only git's untranslated status
+# line. Exercised only where git really translates (a German catalog and a
+# UTF-8 locale are installed); otherwise the output equals the C one.
+if [[ "$out_amb_de" != "$out_amb" ]]; then
+    assert_eq "t2134a: translated non-fast-forward is still retried" "0" "$(t2134_classify "$out_nff_de")"
+    assert_eq "t2134a: translated ambiguous destination is still not retried" "1" "$(t2134_classify "$out_amb_de")"
+else
+    echo "  (t2134a: locale independence not exercised — git does not translate here)"
+fi
+
+# --- t2134a': both server-race wordings, whatever git is installed ------------
+srv_new=$'remote: error: cannot lock ref \'refs/heads/main\': is at 9252a3f5995695ed78754c57cc49a38da14cca9f but expected 41692cd51aa04a62ac72788fba316e4913b7d229        \nTo /tmp/o.git\n ! [remote rejected] HEAD -> main (incorrect old value provided)\nerror: failed to push some refs to \'/tmp/o.git\''
+srv_old=$'remote: error: cannot lock ref \'refs/heads/main\': is at 9252a3f5995695ed78754c57cc49a38da14cca9f but expected 41692cd51aa04a62ac72788fba316e4913b7d229        \nTo /tmp/o.git\n ! [remote rejected] HEAD -> main (failed to update ref)\nerror: failed to push some refs to \'/tmp/o.git\''
+assert_eq "t2134a': 'incorrect old value provided' is retried" "0" "$(t2134_classify "$srv_new")"
+assert_eq "t2134a': 'failed to update ref' is not retried" "1" "$(t2134_classify "$srv_old")"
+
+# --- t2134b / t2134c: end-to-end through aitask_verified_update.sh -----------
+mdfix_check_push_refusal "t2134b" aitask_verified_update.sh \
+    --agent-string claudecode/opus4_6 --skill pick --score 4
+mdfix_check_server_race "t2134c" "$RACE_REASON_T2134" "UPDATED:claudecode/opus4_6:pick:80" \
+    aitask_verified_update.sh --agent-string claudecode/opus4_6 --skill pick --score 4 --silent
+
+# --- t2134d: a race on every attempt still ends with git's reason ------------
+TMPDIR_D="$(setup_remote_metadata_repo aitask_verified_update.sh)"
+cat > "$TMPDIR_D/always_race.sh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$AITASK_VERIFIED_UPDATE_ATTEMPT" >> "$T2134_ATTEMPTS"
+tmp="$(mktemp -d)"
+git clone --quiet "$T2134_ORIGIN" "$tmp/repo" >/dev/null 2>&1
+git -C "$tmp/repo" -c user.email=r@test.com -c user.name=Racer \
+    commit --quiet --allow-empty -m "racer $AITASK_VERIFIED_UPDATE_ATTEMPT"
+git -C "$tmp/repo" push --quiet origin HEAD:refs/heads/main
+rm -rf "$tmp"
+EOF
+rc_d=0
+out_d=$(cd "$TMPDIR_D/work" && \
+    AITASK_VERIFIED_UPDATE_BEFORE_PUSH_HOOK="$TMPDIR_D/always_race.sh" \
+    T2134_ATTEMPTS="$TMPDIR_D/attempts" T2134_ORIGIN="$TMPDIR_D/origin.git" \
+    ./.aitask-scripts/aitask_verified_update.sh --agent-string claudecode/opus4_6 --skill pick --score 4 --silent 2>&1) || rc_d=$?
+assert_exit_nonzero_rc "t2134d: retry exhaustion fails" "$rc_d"
+assert_eq "t2134d: every allowed attempt ran" "5" "$(_mdfix_attempts "$TMPDIR_D/attempts")"
+assert_contains "t2134d: reported as concurrent pushes" "after 5 retries due to concurrent pushes" "$out_d"
+assert_contains "t2134d: git's last reason is shown" "(fetch first)" "$out_d"
+rm -rf "$TMPDIR_D"
+
 echo "--- Test 10: Old schema migration on update ---"
 TMPDIR_10="$(setup_repo)"
 # Inject old-format verifiedstats manually

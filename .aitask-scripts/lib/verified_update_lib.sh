@@ -34,6 +34,7 @@ REGISTRY_CAS_ATTEMPTS=5
 AIT_METADATA_VALUE=""            # the new count / score (remote path only)
 AIT_METADATA_LOCAL_CONVERGED=""  # 1 = local branch has the commit, 0 = not on it
                                  #     (origin-only, or the local commit failed)
+AIT_LAST_PUSH_OUTPUT=""          # git's output from the last push that raced
 
 run_git_quiet() {
     if [[ "${SILENT:-false}" == "true" ]]; then
@@ -119,9 +120,18 @@ run_before_push_hook() {
         run_git_quiet bash "$AITASK_VERIFIED_UPDATE_BEFORE_PUSH_HOOK"
 }
 
+# Only git's own ref-status lines are race evidence. "failed to push some refs"
+# ends EVERY rejected push (hook refusal, ambiguous destination, ...) and a
+# hook's text arrives as "remote: ..." lines that may contain any word, so match
+# the " ! [...]" status line, which a hook can never print (t2134). Retryable:
+# the client-side race (fetch first / non-fast-forward) and the server-side one
+# (a competing push moved the ref before our lock). Older receive-packs report
+# the latter as "failed to update ref", which also covers non-race failures, so
+# it is not retried -- anything unlisted dies with git's text.
 is_retryable_push_error() {
     local output="$1"
-    printf '%s' "$output" | grep -Eq 'non-fast-forward|fetch first|rejected|failed to push some refs'
+    printf '%s\n' "$output" | grep -Eq \
+        '^ ! \[rejected\] .* \((fetch first|non-fast-forward)\)[[:space:]]*$|^ ! \[remote rejected\] .* \(incorrect old value provided\)[[:space:]]*$'
 }
 
 # Reconcile the local data branch with its upstream in BOTH directions. Renamed
@@ -254,6 +264,7 @@ commit_and_push_from_remote_clone() {
     rm -rf "$tmpdir"
 
     if is_retryable_push_error "$push_output"; then
+        AIT_LAST_PUSH_OUTPUT="$push_output"
         log_info "Metadata update raced with another push; retrying (${attempt}/${MAX_REMOTE_RETRIES})"
         return 10
     fi
@@ -274,6 +285,7 @@ commit_metadata_update() {
     AIT_METADATA_VALUE=""
     # shellcheck disable=SC2034
     AIT_METADATA_LOCAL_CONVERGED=""
+    AIT_LAST_PUSH_OUTPUT=""
 
     if ! has_remote_tracking; then
         # Same rule as commit_metadata_update_local: no value is produced here.
@@ -307,5 +319,5 @@ commit_metadata_update() {
         fi
     done
 
-    die "Failed to update metadata after ${MAX_REMOTE_RETRIES} retries due to concurrent pushes"
+    die "Failed to update metadata after ${MAX_REMOTE_RETRIES} retries due to concurrent pushes. Last push error: ${AIT_LAST_PUSH_OUTPUT}"
 }

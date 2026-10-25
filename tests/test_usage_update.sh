@@ -448,6 +448,18 @@ rc=0; cmp -s "$TMPDIR_CC/before.json" "$WORK_CC/aitasks/metadata/models_claudeco
 assert_eq "remote callback failure: local registry unchanged" "0" "$rc"
 rm -rf "$TMPDIR_CC"
 
+echo "--- Test t2134: only a real race is retried (usage entry point) ---"
+# The classifier lives in the shared lib; tests/test_verified_update.sh pins it
+# against every failure family. These cover this second entry point end to end.
+set +e
+RACE_REASON_T2134="$(mdfix_server_race_reason)"
+echo "  (installed git's server-side race reason: '${RACE_REASON_T2134}')"
+mdfix_check_push_refusal "t2134b-usage" aitask_usage_update.sh \
+    --agent-string claudecode/opus4_6 --skill pick
+mdfix_check_server_race "t2134c-usage" "$RACE_REASON_T2134" "UPDATED:claudecode/opus4_6:pick:1" \
+    aitask_usage_update.sh --agent-string claudecode/opus4_6 --skill pick --silent
+set -e
+
 echo ""
 echo "==============================="
 echo "Results: $PASS passed, $FAIL failed, $TOTAL total"
