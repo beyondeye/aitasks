@@ -1,5 +1,54 @@
 # Changelog
 
+## v0.40.0
+
+### Features
+
+- **Routine fetches skip the artifact store** (t2099): In a repository using the `gitbranch` artifact backend, `git fetch`, `ait sync`, `ait setup` and data init no longer download the artifact store branch. The new `ait artifact fetch-exclusion apply` sets this up, and `ait settings` re-applies it when you save. When the exclusion cannot be confirmed, `ait sync` defers with `DEFERRED:fetch_exclusion:<reason>` instead of fetching the store.
+- **Syncer offers an agent when main needs help** (t2126): In `ait syncer`, `u` on the main branch now works on a dirty tree, as a fast-forward that never overwrites ignored files. A diverged pull, a rejected push, or a repository with recursive submodules opens an "Automatic update needs assistance" dialog that can launch an agent with the repository, branch, upstream and reason filled in.
+- **Test-map per-case results** (t1854_2): Runners can now declare `accounting: cases` and report a result for each test case. `ait testmap run` checks those results against the cases the runner listed and prints `DISCOVERY:`, `CASES:` and `RUN_ACCOUNTING:` lines. A stale or replaced report is refused.
+- **Test-map recursion guard** (t1854_7): An `ait testmap` run started from inside a test that another `ait testmap` run is executing for the same repository is now refused with `RUN_ERROR:recursion|<root>`, instead of recursing.
+
+### Bug Fixes
+
+- **Setup and install never commit your unverified changes** (t1747_4, t2116): When `ait setup` or `install.sh` cannot verify which files were already modified before it ran, for example because git fails to read the index, it now refuses its framework commit instead of possibly sweeping your uncommitted work into it.
+- **Commit-refusal hints name the paths** (t2120): Those refusals, and the related "not committed" warnings, now tell you to commit the listed paths yourself. Re-running setup would leave them uncommitted.
+- **Crew git never strands or concludes an unfinished merge** (t2028): Crew add-work, set-mode and runner commits now refuse to commit into, conclude or push a crew worktree that is mid-merge or mid-rebase. A stopped rebase is left in place and reported.
+- **Crew runner status conflicts merge automatically** (t2029): A crew pull whose only conflict is the runner's `_runner_alive.yaml` status file is now resolved and merged, instead of deferred.
+- **Freeze keeps a Codex session started at a shell** (t2077): Freezing a Codex agent that you started by typing `codex` at the pane's shell prompt now records its session instead of clearing it. A Codex suspended with Ctrl-Z is not mistaken for one that is gone.
+- **Shadow pane bound to the pane it launched** (t2087): A shadow is now bound to exactly the pane its launch created. When that pane cannot be confirmed, you get a warning or an error, never a binding to the wrong pane.
+- **Claude panes with a version as their command** (t2096): Claude panes whose tmux command shows a version number (such as `2.1.306`) are now recognised as Claude. The minimonitor's `L` refusal now says whether the followed agent could not be identified or is not supported.
+- **Engine home rollback survives a closed output** (t2106): An interrupted `ait engine home --migrate` now finishes its rollback with the right exit status even when nothing is reading its output. A blocked rollback saves its restore steps to `$AITASKS_HOME/.home_restore` and announces them with `HOME_RECORD:`.
+- **Hand-started agents record their CLI** (t2109): The session hook now records which CLI a hand-started agent runs, taken from the session's own transcript. Restoring a frozen agent whose CLI is unknown or different is refused instead of launching the wrong one, and `ait frozenagent` explains why and names the re-pick key.
+- **Branch names read correctly beside a same-named tag** (t2123, t2132): Detecting the primary branch, and every place that reads the current branch name, now uses the full ref. A tag named like a branch no longer turns `main` into `heads/main` and breaks merges, worktree checks, sync, pulls and pushes.
+- **Plan headers record the right branch** (t2124): Plans written on the current branch now record the branch actually checked out, and plans under `--worktree` record the task branch, instead of the detected primary branch.
+- **Single-branch clones get a working data branch** (t2127): `ait setup` and data init in a `--single-branch` clone now create `aitask-data` with a working upstream. They use the data-branch layout, and `ait sync` really pulls task data.
+- **Syncer failure output shown verbatim** (t2129): The syncer's failure dialog no longer swallows bracketed git output such as `[rejected]`.
+- **TUIs no longer hang on zero-width characters** (t2133): `ait setup` now installs `rich` 14.3.3 or newer, which fixes a hang when rendering text with zero-width characters, such as some Markdown tables. `ait upgrade` reports outdated Python dependencies and points you to `ait setup`.
+- **Sync timeouts contained on macOS** (t2113): On macOS, a sync action that times out once again stops every process it started.
+- **Tests pass on macOS** (t2095): Nine shell test files that failed on macOS now pass.
+
+### Improvements
+
+- **Setup moves the legacy per-user root** (t1939): `ait setup` now moves the legacy `~/.aitask` root into `$AITASKS_HOME` (`~/.aitasks` by default) as its last step. Opt out with `--no-home-migration` or `AIT_HOME_MIGRATE=0`. `install.sh` and `ait upgrade` only print a hint.
+- **Codex session capture on macOS** (t2048): Freezing a Codex agent now verifies and captures its session on macOS, as it does on Linux.
+- **Trail detail shows the task** (t2111): The trail entry detail in `ait trails` and the board's By-Trail view now opens with a task header (title, status, priority, effort, type and labels), archived tasks included. Press `o` to read the task description.
+- **Trail generation time in the banner** (t2112): The trails banner now shows when the trail was generated, in your local time.
+- **Minimonitor phase symbols and colours** (t2128): Each workflow phase in `ait minimonitor` now has its own symbol and colour, in the agent list and on the pinned card. IMPLEMENT is green.
+- **Shared hang guard for engine tests** (t1854_5): The test-map engine's hang watchdog for process-starting tests is now shared by every engine package, and preflight checks each package that uses it.
+
+### Documentation
+
+- **Test-map code modules design** (t2131_1): The test-map design proposal now describes flat code modules (from a codemap, Go, Python and Gradle) and the `--widen-modules` flag.
+
+### Performance
+
+- **Settings save stays responsive** (t2125): Saving the Artifacts tab in `ait settings` now applies the fetch exclusion in the background, so the UI does not freeze. A newer save supersedes an older one, and an apply that hangs is stopped after 30 seconds.
+
+### Maintenance
+
+- **Artifact storage lifecycle decisions** (t1890): Recorded the design for artifact storage: what gets downloaded, routing, pinning, cleanup and compaction. The artifact command docs gained a "What gets downloaded" section.
+
 ## v0.39.0
 
 ### Features
