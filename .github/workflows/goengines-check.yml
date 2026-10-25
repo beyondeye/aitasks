@@ -108,7 +108,10 @@ jobs:
       - name: Hang-guard preflight
         run: ./ci/preflight.sh
 
+      # Real-tool adapter tests (G10): a missing tool fails here, never skips.
       - name: go test
+        env:
+          AIT_TESTMAP_REQUIRE_REAL_TOOLS: '1'
         run: go test ./...
 
       - name: Release cross-build

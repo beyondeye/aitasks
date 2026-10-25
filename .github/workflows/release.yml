@@ -61,8 +61,11 @@ jobs:
         if: steps.mode.outputs.mode != 'export'
         run: ./ci/preflight.sh
 
+      # Real-tool adapter tests (G10): a missing tool fails here, never skips.
       - name: go test
         if: steps.mode.outputs.mode != 'export'
+        env:
+          AIT_TESTMAP_REQUIRE_REAL_TOOLS: '1'
         run: go test ./...
 
       # Reports legacy and exits 0 in legacy mode.
