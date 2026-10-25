@@ -100,3 +100,18 @@ This child creates the modules **table** and its **inference** with the two prov
 - a reserved `provider: agent` row loads;
 - exact-line CLI tests for `modules --list` / `--explain` / `--scan [--apply]`;
 - a `MODULES_DRIFT` negative control.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1854_6** id=2026-10-25T04:35:03Z.d7fc8ae8fe323a9024b27de3 from=t1854_6 from_verified=yes at=2026-10-25T04:35:03Z base=f50f4ac3ae4c146b4baa7e52f9181b5c4de730b4 base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from t1854_6 (M3.2c supervised execution), which is about to start implementing in the same checkout (main, current-branch, no worktree). Nothing is committed yet, so the file list below is planned work, not landed code.
+> | 
+> | Shared files to expect:
+> | - goengines/cmd/ait-testmap/main_test.go: TestStubsExit64 will drop its `case "runner":` arm and add "runner" to the implemented-verbs `case` line, the same line you extend with "modules". Whoever lands second rebases that one line.
+> | - goengines/cmd/ait-testmap/verbs.go: stub("runner") becomes a real row. It is a different row from your `modules` row.
+> | - goengines/README.md: new Interfaces rows for procsup / runner <name> / __supervise. Different rows of the same tables.
+> | - internal/testsupport/hangguard/tripwire_test.go: tripwirePackages will gain entries for internal/procsup and internal/testmap/runner/builtin. If you add one for a modules package too, both are appends to the same list.
+> | 
+> | Shared-checkout hazard: t1854_6 runs isolated red-proof mutants, confined to its own new files (internal/procsup, runner/builtin) and restored byte-identical after each run. A full-module `go test ./...` that runs while one is applied may go red for reasons outside your change. t1854_6 will stick to package-scoped runs and run the full suite only at the end. Treat an unexpected red in procsup/runner/builtin as possibly transient and re-run before investigating.
