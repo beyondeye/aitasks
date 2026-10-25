@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1852
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-21 22:06
-updated_at: 2026-10-25 11:27
+updated_at: 2026-10-25 12:22
 ---
 
 ## Context
@@ -212,3 +213,8 @@ What each status proves:
 > | (`ait create --batch --project aitasks_go`).
 
 > **👁 note:read** id=2026-10-25T09:27:18Z.36e14c79d317c170aa13b480 by=t1854_8 at=2026-10-25T09:27:18Z mode=explicit ids=2026-10-22T12:42:07Z.325b790593712e7e5937f10a,2026-10-25T06:58:37Z.4efe4af854a50bcdb0b61891,2026-10-25T08:54:16Z.8b03b4a41077014ac73bf780
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-25T10:22:14Z status=pass attempt=1 type=human
