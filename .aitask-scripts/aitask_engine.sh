@@ -8,7 +8,10 @@ set -euo pipefail
 #                      ($AITASKS_HOME/engine/dev/), version <VERSION>-dev+<sha>;
 #                      use it with AIT_ENGINE=dev ait testmap …
 #   test [args]        go vet, the hang-guard preflight (goengines/ci/preflight.sh),
-#                      then go test over goengines/ (args go to the suite's go test)
+#                      then go test over goengines/ (args go to the suite's go test);
+#                      with goengines/EXPORT.txt (an export from aitasks_go, whose
+#                      tests ran there) the export integrity check and drift report
+#                      (.github/scripts/goengines_integrity.sh) instead
 #   cross [args]       the release matrix: goengines/build.sh all [args]
 #   prune [--dry-run] [--force]
 #                      remove release slots $AITASKS_HOME/engine/v*/ that no
@@ -133,6 +136,16 @@ cmd_build() {
 
 cmd_test() {
     require_source
+    if [[ -f "$GOENGINES/EXPORT.txt" ]]; then
+        # Export mode: the tree holds no tests, preflight or bench; they ran in
+        # aitasks_go at the exported commit (goengines/README.md).
+        info "goengines/ is an export from aitasks_go: its tests ran there; running the export integrity checks" >&2
+        [[ $# -eq 0 ]] || warn "ignoring go test arguments in export mode: $*"
+        local integrity="$SCRIPT_DIR/../.github/scripts/goengines_integrity.sh"
+        bash "$integrity" check --dir "$GOENGINES"
+        bash "$integrity" drift --dir "$GOENGINES"
+        return
+    fi
     cd "$GOENGINES"
     go vet ./...
     # The hang-guard tripwire alone first: inside the suite it would run after

@@ -7,6 +7,15 @@ This document covers how they are built, checked and released. The module's
 layout, the rules for engine submodules and every consumed interface shape are
 in `goengines/README.md`.
 
+**Two modes, one signal.** Whether `goengines/EXPORT.txt` exists decides how
+the tree is validated. In **legacy mode** (no `EXPORT.txt`), the tree is
+developed here and the test suite is the validation. In **export mode**, the
+tree is a generated export from the private `aitasks_go` repository, whose
+tests ran there, and the export integrity checks are the validation. Each
+section below names the mode it applies to; *Export mode* has the details.
+The policy, the record format and the emergency-fix protocol are in
+`goengines/README.md` (*Source of truth*).
+
 Go is a **build-time dependency only**. Framework developers and release CI need
 it; target-project users receive prebuilt binaries. `goengines/` is framework
 repository only — the release tarball's explicit path list does not include it.
@@ -97,10 +106,20 @@ Verify a download with `sha256sum -c ait-testmap_<V>_SHA256SUMS.txt` (or
 
 `plan → goengines → release → packaging`:
 
-- **`goengines`** (`needs: plan`) — setup-go from `goengines/go.mod`, `go vet`,
-  the hang-guard preflight (`./ci/preflight.sh`, see the `check` job below),
-  `go test`, `./build.sh all`, `sha256sum -c` over the result, and upload of
-  `goengines/dist/` as the `goengines-dist` artifact (`if-no-files-found: error`).
+- **`goengines`** (`needs: plan`), in order:
+  - setup-go from `goengines/go.mod`;
+  - `Detect goengines mode` (`goengines_integrity.sh mode`, never skipped; a
+    failed detection fails the job);
+  - `go vet`;
+  - the hang-guard preflight (`./ci/preflight.sh`, see the `check` job below)
+    and `go test`, both with `if: steps.mode.outputs.mode != 'export'`, so
+    they are skipped only on a positive export answer;
+  - the export integrity `check` (required; it reports legacy and passes in
+    legacy mode) and the `drift` report (`continue-on-error`);
+  - `./build.sh all`, then `sha256sum -c` over **every** `*_SHA256SUMS.txt`
+    (one per executable; none at all fails the step);
+  - upload of `goengines/dist/` as the `goengines-dist` artifact
+    (`if-no-files-found: error`).
 - **`release`** (`needs: [plan, goengines]`) — downloads `goengines-dist` into
   `goengines/dist`, runs the unchanged VERSION-matches-tag guard, and attaches
   `goengines/dist/*` in **both** `softprops/action-gh-release` steps (with and
@@ -109,17 +128,32 @@ Verify a download with `sha256sum -c ait-testmap_<V>_SHA256SUMS.txt` (or
 - **`packaging`** and `release-packaging.yml` are untouched; the nfpm package
   stays `arch: all`.
 
-A failing `go test` or cross-build therefore blocks the release. The same checks
-run on every push that touches `goengines/`, so a breakage surfaces before a tag.
+A failing `go test` (legacy), a failing integrity check (export) or a failing
+cross-build therefore blocks the release. The same checks run on every push that
+touches `goengines/`, so a breakage surfaces before a tag. `main` has no branch
+protection, so "required" here means that the release depends on it. If
+protection is ever added, mark `check` and `export-integrity` as required: a
+skipped job counts as passing, and each mode skips one of them.
 
 ## CI: `.github/workflows/goengines-check.yml`
 
-Triggers on push and pull request touching any of `goengines/**`, the workflow
-itself, `.github/workflows/release.yml`, the t1954 research corpus
-(`aidocs/testing_engine/t1954_parser_research/corpus/**`) and the four guard
-tests below, and on `workflow_dispatch`.
+Triggers on `workflow_dispatch`, and on any push or pull request that touches
+one of:
 
-**`check`** (required):
+- `goengines/**`;
+- the workflow itself, or `.github/workflows/release.yml`;
+- the integrity script (`.github/scripts/**`);
+- the t1954 research corpus
+  (`aidocs/testing_engine/t1954_parser_research/corpus/**`);
+- the five guard tests below.
+
+**`mode`** runs `goengines_integrity.sh mode` and exposes the result as the job
+output `mode`. **`check`** and **`bench`** carry `needs: mode` and
+`if: ${{ !cancelled() && needs.mode.outputs.mode != 'export' }}`. They are
+therefore skipped only on a positive export answer. If the mode job fails, its
+output is empty and both run in full.
+
+**`check`** (required, legacy mode):
 
 1. gofmt (fails listing the unformatted files), `go vet ./...`, the hang-guard
    preflight `./ci/preflight.sh`, then `go test ./...`. The preflight runs the
@@ -129,18 +163,27 @@ tests below, and on `workflow_dispatch`.
    test that omits the hang guard fails here in seconds and the suite never
    starts. It also fails a package that imports the guard without a list entry,
    and a non-test file that imports it at all; a new package opts in with one
-   entry. `ait engine test` runs the same sequence.
-2. `./build.sh all` into a scratch directory plus `sha256sum -c` — the release
-   matrix, cross-compiled on every change.
+   entry. `ait engine test` runs the same sequence in legacy mode (see *Export mode* for the other).
+2. `./build.sh all` into a scratch directory, then `sha256sum -c` over every
+   per-executable sums file. This cross-compiles the release matrix on every
+   change.
 3. The repository-side guards:
    - `tests/test_release_workflow_goengines.py` — the release wiring above
      (`needs`, the artifact hand-off, both release steps' `files`, the VERSION
      guard's position, `packaging`), this workflow's own trigger paths and
-     advisory split, and in both workflows the hang-guard preflight's position
-     before `go test ./...`. It is why `release.yml` is among the trigger paths: an edit
+     advisory split, the two-mode gating (the exact fail-closed `if:`
+     conditions, the mode step before the preflight, the integrity check that
+     is never skippable and the drift report that never blocks, each with
+     negative controls), the per-executable sums loop, and in both workflows
+     the hang-guard preflight's position before `go test ./...`. It is why `release.yml` is among the trigger paths: an edit
      to it alone still runs the guard.
    - `tests/test_goengines_build.sh` — asset names, build identity, the matrix
-     and its sums, usage refusals.
+     and one sums file per executable, for however many `cmd/*` programs the
+     tree holds, plus a two-program fixture; usage refusals.
+   - `tests/test_goengines_export_integrity.sh` — the integrity script over
+     fixture trees: mode detection, legacy no-ops, acceptance of the
+     provenance labels, every refusal (including violations that exist only on
+     a non-host release platform) and drift reporting.
    - `tests/test_goengines_benchci.sh` — the bench helper below.
    - `tests/test_annot_conformance_corpus_sync.sh` — the `annot` conformance
      fixtures (`goengines/internal/testmap/annot/testdata/conformance/`) are
@@ -150,7 +193,15 @@ tests below, and on `workflow_dispatch`.
      fixture has not been copied; the refresh commands are in the header of
      `conformance_test.go`.
 
-**`bench`** (`continue-on-error: true`, **advisory**): runs the benchmark gate,
+**`export-integrity`** (always runs, never advisory). It sets up Go, detects
+the mode, runs `goengines_integrity.sh check` (the required export validation;
+in legacy mode it reports legacy and passes) and `drift` (`continue-on-error`).
+Then, only in export mode, it runs the guards over public files that outlive
+the cutover: the release-workflow guard, `test_goengines_build.sh` and
+`test_goengines_export_integrity.sh`. In legacy mode the `check` job runs
+these.
+
+**`bench`** (`continue-on-error: true`, **advisory**, legacy mode): runs the benchmark gate,
 `go run ./internal/tools/benchgate -baseline <baseline>` in full mode. The gate
 is host-normalized but not yet proven portable across hosted runners; it becomes
 a required check only when the promotion criteria in `goengines/README.md`
@@ -190,6 +241,71 @@ gate falls back to scale 1 there, which says nothing about the host), for a
 `BENCH_MISSING` benchmark, and for a `BENCH_NEW` one (no baseline). The helper
 never judges a ratio against a threshold and always exits 0 once its arguments
 are well-formed, so the summary can never mask the gate's verdict.
+
+## Export mode
+
+Export mode starts when `goengines/EXPORT.txt` exists. The aitasks_go exporter
+writes that file, and the bootstrap export (the testmap cutover) creates it in
+the same commit that replaces the source. The format is defined in
+`goengines/README.md` (*`EXPORT.txt` (format 1)*). In this mode the tree holds
+no tests, `testdata/`, `bench/` or `ci/`.
+
+`.github/scripts/goengines_integrity.sh <mode|check|drift> [--dir <goengines>]`
+holds the checks. It lives outside `goengines/`, because that tree may hold
+only exported files plus `README.md` and `.gitignore`. Its header pins its
+output shapes. `check` runs every Go command in a scratch copy, so the
+checkout is never modified. Every Go command also runs under one isolated
+environment, which keeps any inherited `GOWORK`, `GOFLAGS`
+(`-modfile=…`) or proxy setting from steering one check and not another:
+
+- `GOENV=off`, because go treats an empty variable as unset and would fall
+  back to the user's `go env -w` file;
+- `GOFLAGS=` cleared before any per-call value;
+- `GOWORK=off`;
+- no `GOPRIVATE` / `GONOPROXY` / `GONOSUMDB`;
+- the public proxy only.
+
+The checks, in order:
+
+1. **`record`** — `EXPORT.txt` is a valid format-1 record.
+2. **`matrix`** — the release targets are read from `build.sh`'s
+   `readonly MATRIX=(…)` line. The checks below run per target with the
+   release build settings (`CGO_ENABLED=0`, `GOOS` / `GOARCH`, no tags),
+   because `go list` and `go build` see only one platform's files: a
+   `_darwin.go` file is invisible to a check run on Linux.
+3. **`gofmt`**.
+4. **`private-deps`** — no `github.com/beyondeye/aitasks_go` module in any of:
+   - a `go.mod` `require` or `replace`;
+   - `go.sum`;
+   - `go list -m all`;
+   - any package's import list, on each target.
+
+   A local `replace` must stay inside the tree. That rule is lexical and
+   conservative: no absolute path and no `..` segment. Every check is
+   structural, so the provenance labels pass: the generated header,
+   `EXPORT.txt`, the commit trailers and `SourceCommit`. When anything up to
+   this point has failed, `check` stops, because the remaining checks reach
+   the module proxy.
+5. **`independent-build`** — runs under `GOWORK=off GOFLAGS=-mod=mod
+   GOPRIVATE= GONOPROXY= GONOSUMDB= GOPROXY=https://proxy.golang.org`.
+   `go mod tidy -diff` must be clean, `go build ./...` must pass on each
+   target, and `go vet ./...` must pass.
+6. **`closure`** — on each target, the non-std closure of `cmd/ait-testmap`
+   (required), and of `cmd/ait-monitord` when present, stays inside the main
+   module and the allowlist (`gopkg.in/yaml.v3`, `bmatcuk/doublestar/v4`,
+   `golang.org/x/sync`). It also contains no main-module `tui/` package.
+   While `guards_test.go` exists, the allowlist is pinned equal to its
+   `allowedDeps`.
+
+`drift` hashes every `file:` entry, and reports modified, missing and
+unlisted files (`README.md`, `.gitignore` and gitignored files excepted). It
+always exits 0, and under Actions it emits `::warning` annotations. A drifted
+file is an emergency public fix that has not yet been returned to aitasks_go.
+The protocol is in `goengines/README.md` (*Emergency fixes*).
+
+`ait engine test` follows the same signal. In export mode it runs `check` and
+then `drift` in place of vet, the preflight and the suite, and it warns that
+any go-test arguments are ignored.
 
 ## Engine internals
 

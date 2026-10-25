@@ -2082,8 +2082,11 @@ the implementation home (see *Module Map*).
 `internal/{registry,axes,annot,deps,changesurface,selectr,sched,runner,cost,feedback,stale,gitx,platform}`
 plus `internal/seed`, `internal/onboard`, `internal/brief` and `internal/modules`. Go 1.26 with a
 pinned toolchain, `CGO_ENABLED=0`, `-trimpath -buildvcs=false -ldflags "-s -w
--X version/commit/contract"`; dependencies `gopkg.in/yaml.v3`,
-`bmatcuk/doublestar/v4`, `golang.org/x/sync` only; stdlib `flag` verb table,
+-X version/commit/contract"`; the `ait-testmap` dependency closure (and
+`ait-monitord`'s) is `gopkg.in/yaml.v3`, `bmatcuk/doublestar/v4`,
+`golang.org/x/sync` only. The allowlist is scoped to those binaries' closures,
+not to the module, which may also hold TUI binaries; those carry their own
+allowlist in `aitasks_go`. Also stdlib `flag` verb table,
 `syscall.Flock`, `os/exec` git; line-protocol stdout, `--json`, per-verb exit
 contracts. It never writes `aitasks/`, `aiplans/`, `.aitask-data/`, a gate
 ledger, `project_config.yaml`, `gates.yaml`, profiles or `CLAUDE.md`; never
@@ -2110,6 +2113,17 @@ line-protocol / exit-contract helpers `internal/lineproto` at
 `internal/<pkg>` for a testmap package, read `goengines/internal/testmap/<pkg>`.
 The per-user install directory `$AITASKS_HOME/engine/`, the `ait engine`
 verbs and the binary name `ait-testmap` are unaffected by the source layout.
+
+Development location. Until the scheduled testmap cutover (`aitasks_go#22`),
+the engine is developed in this repository's `goengines/`. From the cutover
+on, the private `aitasks_go` repository is the single development home for
+every framework Go binary. Reviewed snapshots are exported one way into public
+`goengines/`, which builds and releases them; the tests, benches and
+preflight run privately at the exported commit. The bootstrap export creates
+`goengines/EXPORT.txt`, the one signal that switches public CI from the test
+suite to the export integrity checks (`aidocs/framework/go_engine.md`, *Export
+mode*). This document stays canonical in aitasks, because it also specifies
+the bash, skill and doc halves.
 <!-- /section: component_go_engine -->
 
 <!-- section: component_engine_binary [dimensions: component_engine_binary] -->
@@ -2153,7 +2167,9 @@ gate path.
 `ait-testmap_<V>_SHA256SUMS.txt`, attached by both `action-gh-release` steps
 with `release needs: [plan, goengines]`; the VERSION-matches-tag guard is
 unchanged. `goengines-check.yml` runs gofmt, vet, test and the 2× bench rule on
-push / PR for `goengines/**`. `lib/platform_detect.sh` maps `uname`. The shim
+push / PR for `goengines/**`. Both workflows have two modes keyed on
+`goengines/EXPORT.txt`: legacy mode is the suite above, and export mode
+replaces it with the export integrity checks (`aidocs/framework/go_engine.md`). `lib/platform_detect.sh` maps `uname`. The shim
 `aitask_testmap.sh` resolves the binary through a strict handshake:
 `AIT_TESTMAP_BIN` (with an override notice) > `AIT_ENGINE=dev` slot at
 `$AITASKS_HOME/engine/dev/` requiring `<V>-dev+<sha>` >

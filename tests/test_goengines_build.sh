@@ -30,12 +30,34 @@ GOOS_HOST="$(go env GOOS)"
 GOARCH_HOST="$(go env GOARCH)"
 VERSION_FILE="$(tr -d '[:space:]' < "$PROJECT_DIR/.aitask-scripts/VERSION")"
 
+# The executables build.sh ships: every cmd/*/ holding a .go file (its own
+# discovery rule). An export may add programs beside ait-testmap, so every
+# count below is per executable.
+CMDS=()
+for d in "$PROJECT_DIR"/goengines/cmd/*/; do
+    compgen -G "$d*.go" >/dev/null || continue
+    CMDS+=("$(basename "$d")")
+done
+N=${#CMDS[@]}
+assert_contains "ait-testmap is among the executables" " ait-testmap " " ${CMDS[*]} "
+
+# built_lines <dir> <version> <target>: the BUILT lines one target prints.
+built_lines() {
+    local c lines=""
+    for c in "${CMDS[@]}"; do
+        lines+="BUILT:$1/${c}_$2_$3"$'\n'
+    done
+    printf '%s' "${lines%$'\n'}"
+}
+
 # --- 1. host build with an explicit identity ---------------------------------
 out="$("$BUILD" --version 9.9.9-test --commit abc123 --out "$TMP/h" 2>/dev/null)"
-bin="$TMP/h/ait-testmap_9.9.9-test_${GOOS_HOST}_${GOARCH_HOST}"
-assert_eq "host build prints one BUILT line" "BUILT:$bin" "$out"
-assert_file_exists "host binary named <name>_<V>_<os>_<arch>" "$bin"
-json="$("$bin" version --json)"
+assert_eq "host build prints one BUILT line per executable" \
+    "$(built_lines "$TMP/h" 9.9.9-test "${GOOS_HOST}_${GOARCH_HOST}")" "$out"
+for c in "${CMDS[@]}"; do
+    assert_file_exists "$c: host binary named <name>_<V>_<os>_<arch>" "$TMP/h/${c}_9.9.9-test_${GOOS_HOST}_${GOARCH_HOST}"
+done
+json="$("$TMP/h/ait-testmap_9.9.9-test_${GOOS_HOST}_${GOARCH_HOST}" version --json)"
 assert_contains "version --json carries --version" '"version":"9.9.9-test"' "$json"
 assert_contains "version --json carries --commit" '"commit":"abc123"' "$json"
 assert_eq "host build writes no sums file" "" "$(find "$TMP/h" -name '*SHA256SUMS*')"
@@ -43,35 +65,49 @@ assert_eq "host build writes no sums file" "" "$(find "$TMP/h" -name '*SHA256SUM
 # --- 2. default version is .aitask-scripts/VERSION ----------------------------
 out="$("$BUILD" --commit abc123 --out "$TMP/d" 2>/dev/null)"
 assert_eq "default version comes from VERSION" \
-    "BUILT:$TMP/d/ait-testmap_${VERSION_FILE}_${GOOS_HOST}_${GOARCH_HOST}" "$out"
+    "$(built_lines "$TMP/d" "$VERSION_FILE" "${GOOS_HOST}_${GOARCH_HOST}")" "$out"
 
-# --- 3. the release matrix ----------------------------------------------------
-out="$("$BUILD" --version 1.2.3 --commit abc123 --out "$TMP/all" all 2>/dev/null)"
-assert_eq "all prints four BUILT lines" "4" "$(printf '%s\n' "$out" | grep -c '^BUILT:')"
-assert_contains "all prints the SUMS line" "SUMS:$TMP/all/ait-testmap_1.2.3_SHA256SUMS.txt" "$out"
-sums="$TMP/all/ait-testmap_1.2.3_SHA256SUMS.txt"
-assert_eq "sums file lists the four matrix binaries, sorted" \
-    "ait-testmap_1.2.3_darwin_amd64 ait-testmap_1.2.3_darwin_arm64 ait-testmap_1.2.3_linux_amd64 ait-testmap_1.2.3_linux_arm64" \
-    "$(awk '{print $2}' "$sums" | tr '\n' ' ' | sed 's/ $//')"
 if command -v sha256sum >/dev/null 2>&1; then
     check=(sha256sum -c)
 else
     check=(shasum -a 256 -c)
 fi
-if (cd "$TMP/all" && "${check[@]}" "$(basename "$sums")" >/dev/null); then
-    assert_record_pass
-else
-    assert_record_fail
-    echo "FAIL: sha256 check of the sums file"
-fi
-for t in linux_amd64 linux_arm64 darwin_amd64 darwin_arm64; do
-    info="$(go version -m "$TMP/all/ait-testmap_1.2.3_$t")"
-    assert_contains "$t: GOOS" "GOOS=${t%%_*}" "$info"
-    assert_contains "$t: GOARCH" "GOARCH=${t#*_}" "$info"
-    assert_contains "$t: CGO disabled" "CGO_ENABLED=0" "$info"
-    assert_contains "$t: trimpath" "-trimpath=true" "$info"
-    assert_not_contains "$t: no VCS stamp" "vcs.revision" "$info"
-done
+
+# assert_matrix <dir> <version> <build.sh stdout> <name>...: the release
+# matrix of every named executable, one sorted sums file each.
+assert_matrix() {
+    local dir="$1" v="$2" out="$3" c t sums
+    shift 3
+    assert_eq "all prints four BUILT lines per executable" "$((4 * $#))" "$(printf '%s\n' "$out" | grep -c '^BUILT:')"
+    assert_eq "all prints one SUMS line per executable" "$#" "$(printf '%s\n' "$out" | grep -c '^SUMS:')"
+    for c in "$@"; do
+        sums="$dir/${c}_${v}_SHA256SUMS.txt"
+        assert_contains "$c: the SUMS line" "SUMS:$sums" "$out"
+        assert_eq "$c: its sums file lists exactly its four matrix binaries, sorted" \
+            "${c}_${v}_darwin_amd64 ${c}_${v}_darwin_arm64 ${c}_${v}_linux_amd64 ${c}_${v}_linux_arm64" \
+            "$(awk '{print $2}' "$sums" | tr '\n' ' ' | sed 's/ $//')"
+        if (cd "$dir" && "${check[@]}" "$(basename "$sums")" >/dev/null); then
+            assert_record_pass
+        else
+            assert_record_fail
+            echo "FAIL: $c: sha256 check of the sums file"
+        fi
+        for t in linux_amd64 linux_arm64 darwin_amd64 darwin_arm64; do
+            info="$(go version -m "$dir/${c}_${v}_$t")"
+            assert_contains "$c $t: GOOS" "GOOS=${t%%_*}" "$info"
+            assert_contains "$c $t: GOARCH" "GOARCH=${t#*_}" "$info"
+            assert_contains "$c $t: CGO disabled" "CGO_ENABLED=0" "$info"
+            assert_contains "$c $t: trimpath" "-trimpath=true" "$info"
+            assert_not_contains "$c $t: no VCS stamp" "vcs.revision" "$info"
+        done
+    done
+}
+
+# --- 3. the release matrix ----------------------------------------------------
+out="$("$BUILD" --version 1.2.3 --commit abc123 --out "$TMP/all" all 2>/dev/null)"
+assert_matrix "$TMP/all" 1.2.3 "$out" "${CMDS[@]}"
+assert_eq "the matrix holds the binaries and sums files only" "$((5 * N))" \
+    "$(find "$TMP/all" -type f | wc -l | tr -d ' ')"
 assert_eq "the bench tool under internal/ is never built" "" \
     "$(find "$TMP/all" -name '*benchgate*')"
 
@@ -116,6 +152,39 @@ assert_contains "a CRLF VERSION is accepted (the run stops later, at cmd discove
 assert_not_contains "a CRLF VERSION is not reported malformed" "malformed" "$res"
 res="$(fake_version empty '\n')"
 assert_contains "an empty VERSION is refused" "is empty" "$res"
+
+# --- 6. several executables ---------------------------------------------------
+# A fake tree with two programs and a cmd/ directory that holds no Go source:
+# each program gets its own binaries, identity and sums file, and nothing is
+# built for the directory without Go source.
+fake="$TMP/multi"
+mkdir -p "$fake/goengines/cmd/alpha" "$fake/goengines/cmd/beta" "$fake/goengines/cmd/notes" "$fake/.aitask-scripts"
+cp "$BUILD" "$fake/goengines/build.sh"
+printf '1.0.0\n' > "$fake/.aitask-scripts/VERSION"
+printf 'module example.com/multi\n\ngo %s\n' "$(go env GOVERSION | sed -E 's/^go([0-9]+\.[0-9]+).*/\1/')" > "$fake/goengines/go.mod"
+for c in alpha beta; do
+    cat > "$fake/goengines/cmd/$c/main.go" <<EOF
+package main
+
+import "fmt"
+
+var version, commit = "unset", "unset"
+
+func main() { fmt.Println("$c", version, commit) }
+EOF
+done
+printf 'notes, no Go source\n' > "$fake/goengines/cmd/notes/README"
+CMDS=(alpha beta)
+out="$("$fake/goengines/build.sh" --version 7.7.7 --commit def456 --out "$TMP/mh" 2>/dev/null)"
+assert_eq "two executables: one host BUILT line each" \
+    "$(built_lines "$TMP/mh" 7.7.7 "${GOOS_HOST}_${GOARCH_HOST}")" "$out"
+for c in alpha beta; do
+    assert_eq "$c carries its own --version / --commit" "$c 7.7.7 def456" \
+        "$("$TMP/mh/${c}_7.7.7_${GOOS_HOST}_${GOARCH_HOST}")"
+done
+out="$("$fake/goengines/build.sh" --version 7.7.7 --commit def456 --out "$TMP/ma" all 2>/dev/null)"
+assert_matrix "$TMP/ma" 7.7.7 "$out" alpha beta
+assert_eq "nothing is built for a cmd/ directory without Go source" "" "$(find "$TMP/ma" -name 'notes*')"
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed, $TOTAL total"

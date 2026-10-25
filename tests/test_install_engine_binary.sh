@@ -735,6 +735,37 @@ assert_exit_nonzero_rc "E7 a failing preflight fails ait engine test" "$rc"
 assert_contains "E7 … the preflight ran" "TestIsolationTripwire" "$(cat "$E7/log" 2>/dev/null)"
 assert_not_contains "E7 … and the suite never started" "|test ./..." "$(cat "$E7/log" 2>/dev/null)"
 
+# E7b: with goengines/EXPORT.txt (export mode) `ait engine test` runs the
+# export integrity check, then the drift report, and never the preflight or
+# the suite, which are not in an exported tree (t2138). The integrity script
+# is a stub that logs its verb.
+E7B="$WORK/e7b"
+mkdir -p "$E7B/goengines" "$E7B/.github/scripts" "$E7B/bin"
+cp -R "$T/.aitask-scripts" "$E7B/.aitask-scripts"
+: >"$E7B/goengines/build.sh"
+: >"$E7B/goengines/EXPORT.txt"
+cat >"$E7B/.github/scripts/goengines_integrity.sh" <<'EOF'
+#!/usr/bin/env bash
+printf 'integrity|%s\n' "$*" >>"$E7_LOG"
+[[ -n "${E7B_FAIL_CHECK:-}" && "$1" == check ]] && exit 1
+exit 0
+EOF
+cp "$E7/bin/go" "$E7B/bin/go"
+G="$(cd "$E7B/goengines" && pwd)"
+want="integrity|check --dir $G
+integrity|drift --dir $G"
+out="$(E7_LOG="$E7B/log" PATH="$E7B/bin:$PATH" bash "$E7B/.aitask-scripts/aitask_engine.sh" test 2>&1)"; rc=$?
+assert_exit_zero_rc_out "E7b ait engine test exits 0 in export mode when the checks pass" "$rc" "$out"
+assert_eq "E7b export mode: the integrity check, then the drift report, and no go invocation" "$want" "$(cat "$E7B/log" 2>/dev/null)"
+rm -f "$E7B/log"
+out="$(E7_LOG="$E7B/log" PATH="$E7B/bin:$PATH" bash "$E7B/.aitask-scripts/aitask_engine.sh" test -short 2>&1)"; rc=$?
+assert_contains "E7b go test arguments are reported as ignored" "ignoring go test arguments in export mode: -short" "$out"
+assert_not_contains "E7b … and never reach go" "|test" "$(cat "$E7B/log" 2>/dev/null)"
+rm -f "$E7B/log"
+out="$(E7_LOG="$E7B/log" E7B_FAIL_CHECK=1 PATH="$E7B/bin:$PATH" bash "$E7B/.aitask-scripts/aitask_engine.sh" test 2>&1)"; rc=$?
+assert_exit_nonzero_rc "E7b a failing integrity check fails ait engine test" "$rc"
+assert_not_contains "E7b … and the drift report does not run after it" "integrity|drift" "$(cat "$E7B/log" 2>/dev/null)"
+
 # --- footer ---------------------------------------------------------------------
 assert_counters_load
 echo ""

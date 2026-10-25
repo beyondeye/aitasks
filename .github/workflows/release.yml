@@ -42,22 +42,48 @@ jobs:
       - name: Go version
         run: go version
 
+      # Legacy mode (no goengines/EXPORT.txt): the tree is developed here and
+      # the preflight + go test below are its validation. Export mode: the
+      # tests ran in aitasks_go at the exported commit and are not in this
+      # tree; the integrity check is the validation. A failing detection fails
+      # the job, so the release never runs on an unknown mode.
+      - name: Detect goengines mode
+        id: mode
+        working-directory: .
+        run: .github/scripts/goengines_integrity.sh mode
+
       - name: go vet
         run: go vet ./...
 
       # The hang-guard tripwire alone, so a process-starting test that omits
       # the guard fails here in seconds instead of hanging the suite below.
       - name: Hang-guard preflight
+        if: steps.mode.outputs.mode != 'export'
         run: ./ci/preflight.sh
 
       - name: go test
+        if: steps.mode.outputs.mode != 'export'
         run: go test ./...
+
+      # Reports legacy and exits 0 in legacy mode.
+      - name: Export integrity
+        working-directory: .
+        run: .github/scripts/goengines_integrity.sh check
+
+      # Unreturned emergency fixes warn; they never block a release.
+      - name: Drift report
+        continue-on-error: true
+        working-directory: .
+        run: .github/scripts/goengines_integrity.sh drift
 
       - name: Build engine release assets
         run: |
           ./build.sh all
           cd dist
-          sha256sum -c ait-testmap_*_SHA256SUMS.txt
+          # One sums file per executable under cmd/; none at all is a failure.
+          sums=(*_SHA256SUMS.txt)
+          [ -e "${sums[0]}" ] || { echo "no SHA256SUMS files"; exit 1; }
+          for s in "${sums[@]}"; do sha256sum -c "$s"; done
 
       - name: Upload engine release assets
         uses: actions/upload-artifact@v4

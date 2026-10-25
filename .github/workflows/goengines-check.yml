@@ -1,10 +1,25 @@
 name: Go engines check
 
-# gofmt, vet, test, the release cross-build and the benchmark gate for the
-# goengines/ module, plus the committed guards over the release wiring and the
-# annot conformance corpus sync guard. The paths list names release.yml, the
-# t1954 research corpus and the guard tests too, so an edit to what the guards
-# protect (or to the guards themselves) still runs them.
+# Two modes, keyed on one signal: whether goengines/EXPORT.txt exists
+# (.github/scripts/goengines_integrity.sh mode).
+#
+# Legacy mode (no EXPORT.txt — goengines/ is developed here): the check job
+# (gofmt, vet, the hang-guard preflight, go test, the release cross-build and
+# the repository-side guards) and the advisory bench job run, and
+# export-integrity only reports that it is in legacy mode.
+#
+# Export mode (EXPORT.txt present — goengines/ is generated from aitasks_go,
+# whose private gate ran the tests at the exported commit): check and bench
+# are skipped and export-integrity is the validation — the integrity checks
+# (required), the EXPORT.txt drift report (a warning, never blocking) and the
+# guards over the public files that still exist.
+#
+# check and bench are skipped only on a positive `export` answer: if the mode
+# job fails, its output is empty and they run in full.
+#
+# The paths list names release.yml, the t1954 research corpus, the integrity
+# script and the guard tests too, so an edit to what the guards protect (or to
+# the guards themselves) still runs them.
 on:
   push:
     paths:
@@ -16,6 +31,8 @@ on:
       - 'tests/test_release_workflow_goengines.py'
       - 'aidocs/testing_engine/t1954_parser_research/corpus/**'
       - 'tests/test_annot_conformance_corpus_sync.sh'
+      - '.github/scripts/**'
+      - 'tests/test_goengines_export_integrity.sh'
   pull_request:
     paths:
       - 'goengines/**'
@@ -26,6 +43,8 @@ on:
       - 'tests/test_release_workflow_goengines.py'
       - 'aidocs/testing_engine/t1954_parser_research/corpus/**'
       - 'tests/test_annot_conformance_corpus_sync.sh'
+      - '.github/scripts/**'
+      - 'tests/test_goengines_export_integrity.sh'
   workflow_dispatch:
     inputs:
       seed_regression:
@@ -42,7 +61,20 @@ env:
   GOTOOLCHAIN: auto
 
 jobs:
+  mode:
+    runs-on: ubuntu-latest
+    outputs:
+      mode: ${{ steps.mode.outputs.mode }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Detect goengines mode
+        id: mode
+        run: .github/scripts/goengines_integrity.sh mode
+
   check:
+    needs: mode
+    if: ${{ !cancelled() && needs.mode.outputs.mode != 'export' }}
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -83,7 +115,10 @@ jobs:
         run: |
           ./build.sh all --out "$RUNNER_TEMP/dist"
           cd "$RUNNER_TEMP/dist"
-          sha256sum -c ait-testmap_*_SHA256SUMS.txt
+          # One sums file per executable under cmd/; none at all is a failure.
+          sums=(*_SHA256SUMS.txt)
+          [ -e "${sums[0]}" ] || { echo "no SHA256SUMS files"; exit 1; }
+          for s in "${sums[@]}"; do sha256sum -c "$s"; done
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -108,7 +143,61 @@ jobs:
         working-directory: .
         run: bash tests/test_annot_conformance_corpus_sync.sh
 
+      - name: export integrity script tests
+        working-directory: .
+        run: bash tests/test_goengines_export_integrity.sh
+
+  export-integrity:
+    # Required in export mode; in legacy mode the check step reports legacy
+    # and exits 0. Never advisory, never skipped.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: goengines/go.mod
+          cache-dependency-path: goengines/go.sum
+
+      - name: Detect goengines mode
+        id: mode
+        run: .github/scripts/goengines_integrity.sh mode
+
+      - name: Export integrity
+        run: .github/scripts/goengines_integrity.sh check
+
+      # A drifted file is an emergency public fix not yet returned to
+      # aitasks_go: a warning, never a failure (goengines/README.md).
+      - name: Drift report
+        continue-on-error: true
+        run: .github/scripts/goengines_integrity.sh drift
+
+      # The guards over public files that outlive the cutover; in legacy mode
+      # the check job runs them.
+      - name: Setup Python
+        if: steps.mode.outputs.mode == 'export'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Release workflow structure guard
+        if: steps.mode.outputs.mode == 'export'
+        run: |
+          python -m pip install pyyaml
+          python -m unittest tests/test_release_workflow_goengines.py
+
+      - name: build.sh tests
+        if: steps.mode.outputs.mode == 'export'
+        run: bash tests/test_goengines_build.sh
+
+      - name: export integrity script tests
+        if: steps.mode.outputs.mode == 'export'
+        run: bash tests/test_goengines_export_integrity.sh
+
   bench:
+    needs: mode
+    if: ${{ !cancelled() && needs.mode.outputs.mode != 'export' }}
     runs-on: ubuntu-latest
     # ADVISORY: the host-normalized gate is not yet proven portable across
     # hosted runners. It becomes a required check only once t1878 meets the
