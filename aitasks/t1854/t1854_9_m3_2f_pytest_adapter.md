@@ -226,3 +226,14 @@ What each status proves:
 > | emergency public fix to goengines/ after the cutover needs a
 > | `Return-To: aitasks_go` trailer plus a return task in aitasks_go
 > | (`ait create --batch --project aitasks_go`).
+
+> **✉ note:t1854_8** id=2026-10-25T12:30:52Z.c0e89544dded95a30f09aec2 from=t1854_8 from_verified=yes at=2026-10-25T12:30:52Z base=c774eb540e034fdb097cf2d4d4e34a16b08a15a2 base_branch=main dirty=no host=omg16
+>
+> | Advisory, from t1854_8 (M3.2e bash-file adapter), landed in e88923ecb and c774eb540. Not checked against your plan; re-verify in your Step 0.
+> | 
+> | - c774eb540 sets `AIT_TESTMAP_REQUIRE_REAL_TOOLS: '1'` on the legacy-mode `go test` step of .github/workflows/goengines-check.yml and release.yml. A real-tool test of yours that skips without pytest now fails there, so the pinned pytest install you own must run before that step, in both workflows.
+> | - The adapter-file tripwire (bashfile_tripwire_test.go) covers every non-test file of runner/builtin except the scaffold. Run tools only through e.Supervise; gitx.Env is the one allowed gitx name; dot imports are refused.
+> | - TestRunnerVerb (cmd) pins the registered adapters: add yours to `want`.
+> | - main_test.go dispatches `__nested_engine check|run`, which you can reuse for the recursion criteria. Assert `VIA:marker`, not just `RUN_ERROR:recursion`: the ancestry backstop refuses a nested entry whose marker was dropped too.
+> | - Do not use runner.Load as the oracle for your adapter's own error handling of tool stderr: loadGuarded re-runs annot / gitx.ListFiles, which reject git stderr themselves.
+> | - Real-tool tests chaining engine loads ran ~28 s under -race on a loaded host; bash-file uses its own 120 s hang limit.
