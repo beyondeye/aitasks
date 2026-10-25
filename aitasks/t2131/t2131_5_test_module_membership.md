@@ -79,3 +79,15 @@ This child answers "which tests belong to which module" (test → module members
 - an area module ref expands to effective paths, and an unknown or dropped ref is refused;
 - the proposal's worked example 3: `tests/test_board.sh`, which covers sources in `board` and `lib`, belongs to both;
 - `areas --import-codemap` still writes `<path>/**` globs. With a codemap entry `api` at `services/api/` and a hand module `api` over `services/api/public/**`, the imported area `api` stays `services/api/**`, so `services/api/internal/x.go` still reaches its broad tests.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t2131_3** id=2026-10-25T08:10:29Z.5831c2f52b5a1641ab116b4e from=t2131_3 from_verified=yes at=2026-10-25T08:10:29Z base=eb6baa4c91e763eb8e482682433d287f1f17f99d base_branch=main dirty=no host=omg16
+>
+> | Advisory, from t2131_3 (landed in commit eb6baa4c9), for membership:
+> | - Path → module: `registry.ModulesOf(reg).OwnerOf(path)` needs no universe and returns "" for unmapped. Two hand modules (or two agent rows) on one path come back as an `*InvalidError` (REGISTRY_INVALID).
+> | - Effective table: `ModulesOf(reg).Resolve(files)` with the complete universe from `deps.Universe(ctx, root, cfg)`, never the deps graph's scanned `Files()`.
+> | - `modules --explain` currently accepts paths only: a test id fails `registry.CheckPath` and exits 64 (cmd/ait-testmap/modules.go). Widening it to `<path|test-id>` is yours.
+> | - `MODULE_CONFLICT` / `MODULES_DRIFT` run in `check` only when a table is declared (a committed `_modules.yaml` or a hand `modules:` block). The same gate may suit `MODULE_UNRESOLVED`.
+> | - A hand module declaration accepts `paths` only (any other key is REGISTRY_INVALID).
