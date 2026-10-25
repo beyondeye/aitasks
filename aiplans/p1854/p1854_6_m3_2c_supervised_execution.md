@@ -686,3 +686,133 @@ longer exists.
 
 Post-implementation follows the shared task-workflow Step 9 (archival on the
 current branch, no merge).
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-25)
+- **Requested by user:** three verified review findings.
+  1. `procsup.Start` was context-free: `Run` and `execRunner` launched a real command even with an already-cancelled context.
+  2. `cappedFile` swallowed write/close errors, and `Wait` ignored the output copy error: lost output read as a clean result.
+  3. `Runner.call` accepted a halted describe/list that exited 0.
+- **Changes made:**
+  1. `Start(ctx, Spec)` refuses a done ctx before admission and again before launch. It installs its own ctx watcher right after the launch, so a cancellation during the handshake is recorded and delivered at activation; a launched supervisor is never abandoned. Both callers pass their context, and their own watcher goroutines are gone.
+  2. `Result.OutputErr` is set from `Wait`'s non-exit error (copy error, ErrWaitDelay) and from the first `cappedFile` write or close error (the file keeps draining). The engine records it as mechanism `runner_output:<detail>`, and describe/list refuse it.
+  3. `execResult.failed()` (StartErr, Overflow, Killed, Halted, OutputErr, exit ≠ 0) is used by `Runner.call`. A halt's cancel can land after the runner exited on its own, so halted plus exit 0 is refused.
+
+  Tests added:
+  - procsup: `TestStartRefusesDoneContext`, `TestCancelDuringHandshake`, `TestOutputLossReported` (/dev/full + a failing writer);
+  - runner: `TestExecRunnerRefusesCancelledContext`, `TestHaltedDiscoveryRefused`, `TestDiscoveryResultClassification`.
+
+  Mutants (p)–(t) were added, and all 20 mutants were re-run red against the final tree.
+- **Files affected:** `internal/procsup/{client_linux,procsup,run,other,main_test,supervise_linux_test}.go`, `internal/testmap/runner/{exec_unix,repo,invoke,outcome,supervise_run_linux_test}.go`, `goengines/README.md`.
+
+### Change Request 2 (2026-10-25)
+- **Requested by user:** one verified review finding. `procsup.Run` opened its output files with a blocking `O_WRONLY` before any timeout existed, so a reader-less FIFO at an output path, or one reached through a link, hung it indefinitely; no deadline interrupts `open(2)`.
+- **Changes made:** `openCapped` now accepts a regular file only:
+  - `O_NONBLOCK`: a reader-less FIFO fails at once with ENXIO;
+  - `O_NOFOLLOW`: a link is refused, a FIFO behind one included;
+  - fstat on the opened handle refuses anything not regular, with the reason "not a regular file";
+  - truncation runs last, on the same handle.
+
+  The write-error test moved from `/dev/full` (a device, now refused) to `TestCappedFileKeepsWriteError`. Added `TestRunRefusesNonRegularOutputs`, which covers a FIFO, a FIFO through a link, a link to a regular file, `/dev/null`, and a FIFO with a reader, each under a 30 ms deadline, with no launch and the link target unwritten. Mutants (u) blocking open, (v) no regular-file check and (w) following links are red; (v) only once the test asserts the refusal reason, since truncate also rejects non-regulars on Linux.
+- **Files affected:** `internal/procsup/run.go`, `internal/procsup/supervise_linux_test.go`, `goengines/README.md`.
+
+## Final Implementation Notes
+- **Actual work done:** the dedicated-supervisor design was implemented as planned.
+  - **New `goengines/internal/procsup`:**
+    - the `__supervise` supervisor (self-only `PR_SET_CHILD_SUBREAPER`, command under `Setsid`, control/status pipes, kill-direct-children-and-reap rounds to ECHILD);
+    - the client (`Start(ctx, Spec)`, `Proc.Cancel/Wait`, handshake, bootstrap sentinel guard, strict status decode, `SupervisorDied`);
+    - the halt (`admitMu` critical section around admit → launch → activate; cancels reservations too);
+    - `Run(ctx, RunSpec)` for builtin tools (regular-file outputs with a cap, `OutputErr`, timeout/grace, a test-only uncontained path);
+    - M3.1's session sweep, moved from `runner/proc_*.go`;
+    - the `…ForTesting` seams, guarded by `testing.Testing()`.
+  - **Engine (runner):**
+    - `execRunner` runs every runner through `procsup.Start`; the M3.1 path is kept only when `procsup.Available()` fails (darwin);
+    - `Record.Containment` / `Boundary`;
+    - `Halted` / `Interrupted()` / `OutputErr` threaded through `ValidateRows` / `ValidateCases` / `caseEvidence` / `decide`; a cleanup failure is classified first;
+    - `execResult.failed()` for describe/list;
+    - `Overlappable()` plus the darwin-mode serializing wrapper and `RunReport.ParallelRefused`;
+    - `OpenReportDir` (a named extension of t1854_2's `report_unix.go`).
+  - **New `runner/builtin` scaffold:** `Register` / `Adapter` / `Main` / `Env` (`Entry`, `Supervise`, `Fresh`), `DiscoveryBound`, `ReadManifest`, `Results`, `SplitCommand`.
+  - **cmd:** the `runner <name>` verb, the `__supervise` pre-dispatch in `run()`, the `PARALLEL_REFUSED` line, and `TestMain` dispatch in the cmd and cost test binaries.
+  - **Docs and records:** README Interfaces rows and Layout; the proposal's three M3.2c passages; the task body's acceptance criteria and the parent's G8/G8a summary (committed in Step 1).
+- **Deviations from plan:**
+  - No `AttributeHalt` function: a halt sets `synth = StatusMissing` in `decide` directly, which is the same behaviour; mutant (o) pins it.
+  - The plan's "first status line `{"pid"}`" is the handshake.
+  - Supervisors run in their own session (`Setsid`), so terminal SIGINT/SIGHUP never reaches them; the supervisor also treats SIGTERM/SIGINT/SIGHUP as a cancel.
+  - The `runner <name>` verb refuses `CONTAINMENT_UNAVAILABLE` on every verb (describe/list included), so through the engine a production builtin fails at `Load` rather than at run time.
+  - `Run`'s outputs accept regular files only (review CR2).
+- **Issues encountered:**
+  - The inherited fds 3/4 were not close-on-exec in the supervisor, so its command held the status pipe and a supervisor death never reached the client as EOF. Fixed with `CloseOnExec` (found by `TestHaltStartInterleavings`).
+  - `decide` let `runner_exit:-1` mask the supervisor-death detail, because equal-rank mechanism details keep the first one set. The cleanup failure is now classified first.
+  - Fixture shells that `wait` on long sleeps hung; LEAK reports came from fixtures that busy-loop with `sleep 0.05`. Fixtures now `exec sleep` and wait on `$!` only.
+  - Two first-pass mutants looked like survivors only because their `-run` regexes matched no test; with the regexes corrected they go red.
+  - Review CR1 (ctx-aware Start, lost-output reporting, halted zero-exit discovery) and CR2 (non-blocking regular-file outputs): see Post-Review Changes.
+- **Key decisions:**
+  - Membership is exact by construction (only the command is ever the supervisor's child), so no ownership heuristics, launch gate or poisoning exist.
+  - On Linux the engine never signals by session number.
+  - The halt is process-lifetime with no recovery: the engine is one process per verb.
+- **Host probe (Step 0, verbatim; `scratchpad/probe/probe_output.txt`):**
+      mode=subreaper self=2022323 env_entries=217
+      (a/b) setsid daemon pid=2022332 ppid=2022323 reparented_to_self=true
+      (c) cleanup rounds=2 err=<nil> daemon_alive=false
+      (d) before: grandchild=2022518 ppid=2022513 (middle=2022513)
+      (d) after middle SIGKILL: grandchild ppid=2022323 direct_child=true children=[2022518]
+      (d) cleanup rounds=2 err=<nil> grandchild_alive=false
+      final wait4: no child processes
+      ----
+      mode=no-subreaper self=2022617 env_entries=217
+      (a/b) setsid daemon pid=2022626 ppid=1481 reparented_to_self=false
+      ---- env-i
+      mode=subreaper self=2022855 env_entries=1
+      (a/b) setsid daemon pid=2022866 ppid=2022855 reparented_to_self=true
+      (c) cleanup rounds=2 err=<nil> daemon_alive=false
+      (d) before: grandchild=2022972 ppid=2022971 (middle=2022971)
+      (d) after middle SIGKILL: grandchild ppid=2022855 direct_child=true children=[2022972]
+      (d) cleanup rounds=2 err=<nil> grandchild_alive=false
+      final wait4: no child processes
+  - ppid 1481 in the no-subreaper control is the user's `systemd` (the user manager).
+- **Red proofs:** 23 isolated mutants, each run then restored byte-identical (sha256-checked), all red against the final tree:
+  - (a) no subreaper → setsid/daemon tests, builtin crash and `TestRecursionOrphan`;
+  - (b) cleanup not to ECHILD;
+  - (c) engine-wide descendant kill → overlap "B unaffected";
+  - (d) halt does not cancel the others (HANG);
+  - (e) Start ignores the halt;
+  - (f) control EOF ignored;
+  - (g) SplitCommand accepts `;`;
+  - (h) production adapter runs uncontained;
+  - (i) no darwin-mode wrapper;
+  - (j) no bootstrap guard (recursive launches, LEAK);
+  - (k) sweep after a supervision failure;
+  - (l) halt skips reservations;
+  - (m) registration after launch;
+  - (n) `caseEvidence` killed-only → U1 missing;
+  - (o) halt via `AttributeKill`;
+  - (p) Start ignores a done ctx (both checks);
+  - (q) no ctx watcher;
+  - (r) `cappedFile` swallows errors;
+  - (s) `failed()` ignores Halted;
+  - (t) `Wait` ignores the copy error;
+  - (u) blocking output open;
+  - (v) no regular-file check (needs the reason assertion);
+  - (w) outputs follow links.
+
+  The driver is `scratchpad/mutants.py`.
+- **Verification:**
+  - `ait engine test` green; `GOOS=darwin go vet ./...` green; release matrix cross-build (linux/darwin × amd64/arm64) green;
+  - `go test -race` (×3) for procsup green, and builtin green;
+  - real-binary end-to-end: `ait-testmap run --all` on a fixture whose runner leaves a setsid daemon → daemon gone, record `containment: supervisor`;
+  - the overlap test runs on every Linux host, so on CI too.
+- **Upstream defects identified:**
+  - `goengines/internal/testmap/runner/exec_unix.go:execUnsupervised` — the darwin (unsupervised) path sweeps the runner's session after `cmd.Run` has reaped the runner, so the session number can in principle have been reused by an unrelated session. Pre-existing M3.1 behaviour, kept unchanged and documented as a residual of the unsupervised path; production adapters refuse there anyway.
+- **Notes for sibling tasks:**
+  - Any test binary that starts runners or supervised tools needs `procsup.MaybeSupervise()` as the first statement of its `TestMain` (SupervisorExe is the test binary). Without it, Start returns `supervisor_dispatch_missing` inside the misdispatched child, and the outer start is `SupervisorDied: missing handshake` after 5 s.
+  - Adapters (t1854_8–13) build on `builtin.Register(Adapter{…})`:
+    - run every tool through `Env.Supervise`, with native discovery bounded by `DiscoveryBound()`;
+    - write outputs to regular files inside `m.ReportDir` and read them back with `Env.Fresh`;
+    - split the `command:` override with `SplitCommand`;
+    - under cases accounting, write start rows and case rows only;
+    - add a `tripwirePackages` entry; their process-starting tests use `hangguard.Isolated`;
+    - record what they read (t2081/t2082).
+  - The executor (t1854_3) may run invocations concurrently when `runner.Overlappable()` is true (Linux). A halt cancels in-flight invocations (mechanism `halted:…`) and refuses queued ones (`not_started`). `Run` serializes overlap only where it is false.
+  - A deferred hardening follow-up places supervisors in a cgroup v2 leaf (`supervisor_cgroup_hardening`); a new backend must join `recursionBackends` (`TestRecursionBackendsCovered`).
