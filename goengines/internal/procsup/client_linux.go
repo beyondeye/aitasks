@@ -1,0 +1,320 @@
+//go:build linux
+
+package procsup
+
+import (
+	"bufio"
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"os/exec"
+	"slices"
+	"strconv"
+	"syscall"
+	"time"
+)
+
+// SupervisorExe is the binary started as the supervisor (`<exe>
+// __supervise …`): the engine itself. Its main — or, in a test binary, its
+// TestMain through MaybeSupervise — dispatches SupervisorArg before
+// anything else.
+var SupervisorExe = os.Executable
+
+// Available reports whether processes can be started contained here: nil on
+// Linux (unless a test forced otherwise), *UnavailableError elsewhere.
+func Available() error {
+	if forcedUnavailable.Load() {
+		return unavailable()
+	}
+	return nil
+}
+
+// Backends are the containment backends this build has; every one must keep
+// the recursion guard's cleared-environment detection working (G8a).
+func Backends() []string { return []string{Supervisor} }
+
+// Proc is a started supervisor.
+type Proc struct {
+	cmd     *exec.Cmd
+	control *os.File
+	lines   <-chan string
+	pid     int
+	grace   time.Duration
+	bound   time.Duration
+	dead    string        // the handshake failed (why)
+	early   *status       // the first line was already the final status
+	waited  chan struct{} // closed when Wait has the supervisor's exit: stops the ctx watcher
+
+	// guarded by admitMu (halt.go)
+	launched, cancelRequested, haltCancel, cancelSent bool
+	killTimer                                         *time.Timer
+	unresponsive                                      bool
+}
+
+// Start launches a supervisor for s and waits for its handshake. It refuses
+// before launching anything when containment is unavailable, inside a
+// supervisor launch that was never dispatched (*DispatchError), once the
+// process's procsup is halted (*HaltedError), and when ctx is already done
+// (its error).
+//
+// From the launch on, ctx's cancellation is a Cancel — also while the
+// handshake is still pending: the cancel is delivered at activation, so a
+// launched supervisor is never abandoned; the caller always gets the Proc and
+// its Wait reports the cleanup.
+//
+// Admission and registration are one critical section with the halt (see
+// halt.go): a Start that overlaps a halt is either refused or included in
+// the halt's cancellation.
+func Start(ctx context.Context, s Spec) (*Proc, error) {
+	if _, ok := os.LookupEnv(sentinelEnv); ok {
+		return nil, &DispatchError{}
+	}
+	if err := Available(); err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	callHook(&beforeAdmit)
+	p := &Proc{grace: s.Grace, bound: s.Bound, waited: make(chan struct{})}
+	if p.bound <= 0 {
+		p.bound = SweepTimeout
+	}
+	if err := admit(p); err != nil {
+		return nil, err
+	}
+	callHook(&beforeLaunch)
+	if err := ctx.Err(); err != nil {
+		withdraw(p)
+		return nil, err
+	}
+	if err := p.launch(s); err != nil {
+		withdraw(p)
+		return nil, err
+	}
+	// Installed before the handshake: a cancellation during it is recorded
+	// (cancelRequested) and sent at activation.
+	go func() {
+		select {
+		case <-ctx.Done():
+			p.Cancel()
+		case <-p.waited:
+		}
+	}()
+	p.handshake()
+	if p.dead == "" && p.early == nil {
+		if h := startHook(); h != nil {
+			h(p.cmd.Process.Pid, p.pid)
+		}
+	}
+	activate(p)
+	return p, nil
+}
+
+func (p *Proc) launch(s Spec) error {
+	exe, err := SupervisorExe()
+	if err != nil {
+		return err
+	}
+	controlR, controlW, err := os.Pipe()
+	if err != nil {
+		return err
+	}
+	statusR, statusW, err := os.Pipe()
+	if err != nil {
+		controlR.Close()
+		controlW.Close()
+		return err
+	}
+	args := append([]string{SupervisorArg, "--grace", p.grace.String(), "--bound", p.bound.String(), "--", s.Path}, s.Args...)
+	cmd := exec.Command(exe, args...)
+	cmd.Dir = s.Dir
+	env := s.Env
+	if env == nil {
+		env = os.Environ()
+	}
+	cmd.Env = append(slices.Clone(env), sentinelEnv+"=1")
+	cmd.Stdout, cmd.Stderr = s.Stdout, s.Stderr
+	cmd.ExtraFiles = []*os.File{controlR, statusW}
+	// Its own session: a terminal's signals to the engine's foreground group
+	// never reach it.
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	cmd.WaitDelay = s.WaitDelay
+	if cmd.WaitDelay <= 0 {
+		cmd.WaitDelay = 500 * time.Millisecond
+	}
+	callHook(&onLaunch)
+	err = cmd.Start()
+	controlR.Close()
+	statusW.Close()
+	if err != nil {
+		controlW.Close()
+		statusR.Close()
+		return err
+	}
+	lines := make(chan string, 4)
+	go func() {
+		defer close(lines)
+		defer statusR.Close()
+		sc := bufio.NewScanner(statusR)
+		sc.Buffer(make([]byte, 64<<10), 64<<10)
+		for sc.Scan() {
+			lines <- sc.Text()
+		}
+	}()
+	p.cmd, p.control, p.lines = cmd, controlW, lines
+	return nil
+}
+
+// handshake reads the first status line within HandshakeTimeout: the
+// command's pid, or — when the command never started — already the final
+// status. A supervisor that sends neither in time is killed and counted dead.
+func (p *Proc) handshake() {
+	timer := time.NewTimer(HandshakeTimeout)
+	defer timer.Stop()
+	select {
+	case line, ok := <-p.lines:
+		if !ok {
+			p.dead = "missing handshake"
+			return
+		}
+		var h handshake
+		if decodeStrict(line, &h) == nil && h.Pid > 0 {
+			p.pid = h.Pid
+			return
+		}
+		var st status
+		if err := decodeStrict(line, &st); err == nil {
+			p.early = &st
+			return
+		}
+		p.dead = "malformed handshake: " + strconv.Quote(line)
+	case <-timer.C:
+		p.dead = "missing handshake"
+		_ = p.cmd.Process.Kill()
+	}
+}
+
+// Pid is the command's pid (0 when it never started).
+func (p *Proc) Pid() int { return p.pid }
+
+// Cancel asks the supervisor to stop the command: SIGTERM to its group, the
+// grace, then the containment kill. It is idempotent. A supervisor that has
+// not exited Grace + Bound + 2 s later is killed and counted dead.
+func (p *Proc) Cancel() {
+	admitMu.Lock()
+	defer admitMu.Unlock()
+	p.cancelRequested = true
+	if p.launched {
+		p.sendCancelLocked()
+	}
+}
+
+// sendCancelLocked writes the cancel byte once (admitMu held).
+func (p *Proc) sendCancelLocked() {
+	if p.cancelSent {
+		return
+	}
+	p.cancelSent = true
+	_, _ = p.control.Write([]byte{cancelMsg})
+	p.killTimer = time.AfterFunc(p.grace+p.bound+2*time.Second, func() {
+		admitMu.Lock()
+		p.unresponsive = true
+		admitMu.Unlock()
+		_ = p.cmd.Process.Kill()
+	})
+}
+
+// Wait waits for the supervisor and returns the command's end. A supervisor
+// death or a failed cleanup halts the process's procsup (halt.go).
+func (p *Proc) Wait() Result {
+	final, malformed := p.early, ""
+	for line := range p.lines {
+		if final != nil || malformed != "" {
+			malformed = "trailing status " + strconv.Quote(line)
+			continue
+		}
+		var st status
+		if err := decodeStrict(line, &st); err != nil {
+			malformed = "malformed status " + strconv.Quote(line)
+			continue
+		}
+		final = &st
+	}
+	werr := p.cmd.Wait()
+	close(p.waited)
+	_ = p.control.Close()
+
+	admitMu.Lock()
+	if p.killTimer != nil {
+		p.killTimer.Stop()
+	}
+	unresponsive, haltCancel := p.unresponsive, p.haltCancel
+	delete(registry, p)
+	hd := haltDetail
+	admitMu.Unlock()
+
+	r := Result{Pid: p.pid, Exit: -1}
+	ps := p.cmd.ProcessState
+	if werr != nil {
+		// The supervisor's own exit status is judged below; anything else
+		// Wait reports — an output copy error, or ErrWaitDelay (output pipes
+		// held open past WaitDelay) — means output was lost.
+		var ee *exec.ExitError
+		if !errors.As(werr, &ee) {
+			r.OutputErr = werr
+		}
+	}
+	switch {
+	case p.dead != "":
+		r.SupervisorDied, r.Detail = true, p.dead
+	case unresponsive:
+		r.SupervisorDied, r.Detail = true, "unresponsive after cancel"
+	case malformed != "":
+		r.SupervisorDied, r.Detail = true, malformed
+	case ps != nil && !ps.Exited():
+		r.SupervisorDied, r.Detail = true, "supervisor "+ps.String()
+	case final == nil:
+		r.SupervisorDied, r.Detail = true, fmt.Sprintf("no final status (%v)", werr)
+	case final.Error != "":
+		r.StartErr = errors.New(final.Error)
+	case ps != nil && ps.ExitCode() != 0:
+		r.SupervisorDied, r.Detail = true, "supervisor exit "+strconv.Itoa(ps.ExitCode())
+	default:
+		r.Exit, r.Signal, r.Cancelled = final.Exit, final.Signal, final.Cancelled
+		if final.StartError != "" {
+			r.StartErr = errors.New(final.StartError)
+		}
+		if final.Cleanup != cleanupOK {
+			r.Cleanup = &CleanupError{Detail: final.Cleanup}
+		}
+		r.Halted = haltCancel && final.Cancelled
+		if r.Halted {
+			r.HaltDetail = hd
+		}
+	}
+	switch {
+	case r.SupervisorDied:
+		halt("supervisor_died:" + r.Detail)
+	case r.Cleanup != nil:
+		halt(r.Cleanup.Error())
+	}
+	return r
+}
+
+// decodeStrict decodes one JSON object, refusing unknown fields and trailing
+// data.
+func decodeStrict(line string, v any) error {
+	dec := json.NewDecoder(bytes.NewReader([]byte(line)))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(v); err != nil {
+		return err
+	}
+	if dec.More() {
+		return errors.New("trailing data")
+	}
+	return nil
+}

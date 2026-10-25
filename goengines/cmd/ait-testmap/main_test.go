@@ -8,6 +8,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/beyondeye/aitasks/goengines/internal/testmap/runner/builtin"
 )
 
 func call(args ...string) (code int, stdout, stderr string) {
@@ -55,13 +57,11 @@ func TestStubsExit64(t *testing.T) {
 	var calls [][]string
 	for _, v := range proposalVerbs {
 		switch v {
-		case "version", "scan", "check", "annotate", "verify", "run", "axes", "areas", "classify", "costs": // implemented: scan and check by M2.1, annotate and verify by M2.2, run by M3.1, axes by M2.4, areas and classify by M2.5, costs by M3.4
+		case "version", "scan", "check", "annotate", "verify", "run", "axes", "areas", "classify", "costs", "runner": // implemented: scan and check by M2.1, annotate and verify by M2.2, run by M3.1, axes by M2.4, areas and classify by M2.5, costs by M3.4, runner by M3.2c
 		case "onboard":
 			for _, s := range proposalOnboard {
 				calls = append(calls, []string{"onboard", s, "--flag"})
 			}
-		case "runner":
-			calls = append(calls, []string{"runner", "pytest"})
 		default:
 			calls = append(calls, []string{v, "--anything"})
 		}
@@ -69,12 +69,31 @@ func TestStubsExit64(t *testing.T) {
 	for _, args := range calls {
 		code, out, errs := call(args...)
 		want := "NOT_IMPLEMENTED:" + strings.Join(args[:len(args)-1], " ") + "\n"
-		if args[0] == "runner" {
-			want = "NOT_IMPLEMENTED:runner\n"
-		}
 		if code != 64 || out != "" || errs != want {
 			t.Errorf("%v: code %d stdout %q stderr %q, want 64 / %q", args, code, out, errs, want)
 		}
+	}
+}
+
+// `runner <name>` (M3.2c): usage, an unknown builtin, and no production
+// adapter registered in the engine binary.
+func TestRunnerVerb(t *testing.T) {
+	for _, tc := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"runner"}, "USAGE:" + builtin.Usage + "\n"},
+		{[]string{"runner", "pytest"}, "USAGE:" + builtin.Usage + "\n"},
+		{[]string{"runner", "pytest", "describe"}, "UNKNOWN_BUILTIN:pytest\n"},
+		{[]string{"runner", "pytest", "run", "--manifest", "/m"}, "UNKNOWN_BUILTIN:pytest\n"},
+	} {
+		code, out, errs := call(tc.args...)
+		if code != 64 || out != "" || errs != tc.want {
+			t.Errorf("%v: code %d stdout %q stderr %q, want 64 / %q", tc.args, code, out, errs, tc.want)
+		}
+	}
+	if got := builtin.Registered(); len(got) != 0 {
+		t.Fatalf("the engine binary registers builtin adapters %v; M3.2c registers none", got)
 	}
 }
 

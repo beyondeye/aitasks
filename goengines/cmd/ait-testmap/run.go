@@ -31,6 +31,7 @@ var runExits = lineproto.ExitContract{
 //	UNIT:<id>|<status>|<duration_ms>|child|<parent>  (per valid child row)
 //	CAUSE:<n>|<cause>|<detail>                       (an invocation with a cause)
 //	PROTOCOL_ERROR:<n>|<detail>                      (each results.jsonl / cases.jsonl violation)
+//	PARALLEL_REFUSED:containment                     (the executor overlapped invocations where they may not: Run serialized them)
 //	RUN_ACCOUNTING:<selected>|<cases>|<unit>|<aggregate>|<unaccounted>
 //	RUN_RESULT:<pass|fail|nothing|refused|error>|<passed>|<failed>|<skipped>|<failed children>|<invocations with a cause>
 //
@@ -132,6 +133,9 @@ func runRun(e env, args []string) int {
 		lineproto.ExitOK: "pass", lineproto.ExitFail: "fail", lineproto.ExitNothingRan: "nothing",
 		lineproto.ExitRefused: "refused", lineproto.ExitFramework: "error",
 	}[code]
+	if rep.ParallelRefused != "" {
+		lines = append(lines, []string{"PARALLEL_REFUSED", rep.ParallelRefused})
+	}
 	a := rep.Accounting
 	lines = append(lines, []string{"RUN_ACCOUNTING", strconv.Itoa(a.Selected), strconv.Itoa(a.Cases), strconv.Itoa(a.Unit), strconv.Itoa(a.Aggregate), strconv.Itoa(a.Unaccounted)})
 	lines = append(lines, []string{"RUN_RESULT", verdict, strconv.Itoa(passed), strconv.Itoa(failed), strconv.Itoa(skipped), strconv.Itoa(childFailed), strconv.Itoa(causes)})

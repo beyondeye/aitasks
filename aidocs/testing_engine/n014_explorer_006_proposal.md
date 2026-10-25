@@ -775,7 +775,7 @@ Everything that executes a test and records what it cost.
 | **M3.1** Runner contract and repository | `describe` / `list` / `run --manifest` (with the allocator-handle field, empty until M3.3 fills it), `runners.yaml` bindings, `builtin:` scheme, `command:` / `cwd:` overrides, shadow-by-name, the canonical grouping function (`batch: no` units are singletons; the wave class is the caller's input), per-unit timeouts under the runner-declared timeout model with a separate `max_invocation_s` ceiling and session-level process cleanup, `results.jsonl` (top-level and child rows) / `runner.json`, reconciliation as mechanism failures, the engine's per-invocation record (`cause`, HEAD at start and end, the modified-path set), exit contract `0/1/2/75/64`, `subsumed_by:`, `fallback_command:`, `full: true` + `children:`, the runner-backed unit lister `scan` and `check` call (a named extension of M2.1), the `runner` / `batch` / `needs` annotation fields into the registry (a named extension of M2.2's source), the `run` verb over a plan-executor seam whose built-in serial plan refuses a non-empty resource set until M3.3 plugs in, and an ordered multi-subscriber post-run hook (M3.4 subscribes; M4.4 may) — `axis:` / `token_format:` are M2.4's extension of the `describe` parse | `component_runner_contract` | `internal/runner` (contract, repository, `run` verb) | the runner interface every builtin and project script implements; the grouping function the scheduler, selector and estimate share | M1.2, M2.1, M2.2 |
 | **M3.2a** Evidence contract | the guarantees G1–G7 and G10 written into M3.1's contract before any runner exists: `describe` `accounting: cases\|unit\|aggregate` and `discovery: native\|inventory\|candidates`, `runners.yaml` `zero_tests: error\|skip`, case rows in `list`, `units[].cases` and `report_dir` in the manifest, `cases.jsonl`, the shared case reconciler, `FreshReport`, the reporting-contract seam (`children:` refused until registered), `RUN_ACCOUNTING` / `DISCOVERY` / `CASES` lines, ledger `accounting` / `discovery`, `opaque:aggregate`; no runner enabled | `component_reference_runners` | `internal/runner/reconcile.go`; named extensions of M3.1 (`describe`, `config`, `list`, `results`, `outcome`, `invoke`, `run`) and M3.4 (`hook`, `eligibility`, `ledger`) | the evidence contract and the reconciler every adapter and M3.2k use | M3.1, M3.4 |
 | **M3.2b** Shared hang watchdog | the runner tests' watchdog and isolation tripwire moved to a shared test package and extended to every M3.2 package and `ci/preflight.sh` | `component_reference_runners` | `internal/testsupport/hangguard/**` | the hang guard every adapter's real-process tests run under | — |
-| **M3.2c** Supervised execution foundation | containment a descendant cannot leave through `setsid()` (Linux subreaper tree; a cgroup v2 leaf when delegated), per-invocation cleanup boundaries (`Boundary.Overlappable()`; invocations serialize, `PARALLEL_REFUSED:containment`, without a crash-surviving boundary), `CONTAINMENT_UNAVAILABLE` where no containment exists, the `ait-testmap runner <name>` verb and the builtin scaffold; no production adapter | `component_reference_runners` | `internal/procsup/**`; the `internal/runner/builtin/` scaffold; named extensions of M3.1's exec, invoke, plan and run | supervision, boundaries and the scaffold every adapter runs through | M3.2a, M3.2b, M3.2d |
+| **M3.2c** Supervised execution foundation | containment a descendant cannot leave through `setsid()`: a dedicated per-start supervisor (`ait-testmap __supervise`, a subreaper of its own subtree only; cleanup proven by `wait4` ECHILD), per-invocation cleanup ownership surviving every test-code process's death, with the supervisor's own death a stated residual that halts all further work (`runner.Overlappable()` true on Linux; `PARALLEL_REFUSED:containment` only where no supervisor exists), `CONTAINMENT_UNAVAILABLE` where no containment exists, the `ait-testmap runner <name>` verb and the builtin scaffold; no production adapter | `component_reference_runners` | `internal/procsup/**`; the `internal/runner/builtin/` scaffold; named extensions of M3.1's exec, invoke, plan and run | supervision, boundaries and the scaffold every adapter runs through | M3.2a, M3.2b, M3.2d |
 | **M3.2d** Recursion guard | G9: runtime refusal of a nested `run` / `Load` of the same repository, through indirect and cleared-environment calls; fixture repositories allowed | `component_reference_runners` | `internal/runner/recursion.go`; named extensions of M3.1's `run` and `repo` | the guard every adapter requires | — |
 | **M3.2e** `bash-file` adapter | each bound script is one unit (`accounting: unit`, `discovery: inventory`), `per_unit` timeouts | `component_reference_runners` | `internal/runner/builtin/bash*` | runners for bash test suites | M3.2c |
 | **M3.2f** `pytest` adapter | `accounting: cases`, native discovery through `--collect-only` under the execution configuration, junitxml into the report directory mapped to exactly one collected nodeid, `testmap:batch no` honoured | `component_reference_runners` | `internal/runner/builtin/pytest*` | runners for pytest suites | M3.2c |
@@ -948,9 +948,10 @@ map gates into an existing explicit gate DAG, which M6.5's `enable` phase
 refuses in v1 (M6.5 / M8.2); automatic per-file evidence for bash suites
 through a shell exit hook, and automatic pytest reports through an injected
 plugin, both behind M3.2k's explicit reporting contract (M3.2); a
-PID-namespace per-invocation cleanup boundary, once it keeps G9's
-cleared-environment recursion detection working — until then a host
-without a delegated cgroup runs invocations serially (M3.2c); smarter module
+PID-namespace per-invocation cleanup boundary, and cgroup v2 hardening of
+the per-start supervisor (membership surviving the supervisor's own death),
+each once it keeps G9's cleared-environment recursion detection working
+(M3.2c's supervisor already lets invocations overlap on Linux); smarter module
 reach, gated on the measured `WIDEN_FULL` share (t2131_12) — conservative
 inclusion of an uncertain file with its reverse closure instead of falling
 back, per-language clearing of uncertain references iterated to a fixed
@@ -3437,9 +3438,11 @@ through the supervised foundation (M3.2c) under the recursion guard (M3.2d):
   suite's exit is never read as individual test results; a subsumed unit with
   no reconciled child evidence is `unaccounted`.
 - **G8 / G8a / G9 — prerequisites of every adapter.** Containment a
-  descendant cannot leave through `setsid()`, per-invocation cleanup ownership
-  that survives a builtin crash (invocations run serially where no such
-  boundary exists), refusal on a platform without containment, and a runtime
+  descendant cannot leave through `setsid()` (a dedicated per-start
+  supervisor), per-invocation cleanup ownership that survives a builtin
+  crash (the supervisor's own death is a stated residual that halts all
+  further work; invocations run serially only where no supervisor exists),
+  refusal on a platform without containment, and a runtime
   refusal of a nested `run` / `Load` of the same repository.
 - **G10 — support claims.** An adapter is supported only for the tool
   versions and platforms its real-tool integration tests run against;

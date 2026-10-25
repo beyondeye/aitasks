@@ -8,11 +8,12 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
-	"slices"
 	"strconv"
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/beyondeye/aitasks/goengines/internal/procsup"
 )
 
 // Bounds of one runner process.
@@ -27,8 +28,9 @@ var (
 	// drainDelay bounds the wait for pipes a leaked process still holds once
 	// the runner has exited or been killed.
 	drainDelay = 500 * time.Millisecond
-	// SweepTimeout bounds the session sweep; live processes left after it
-	// are a mechanism failure (cleanup_incomplete).
+	// SweepTimeout bounds a cleanup (the supervisor's, or the session
+	// sweep); live processes left after it are a mechanism failure
+	// (cleanup_incomplete).
 	SweepTimeout = 5 * time.Second
 )
 
@@ -68,27 +70,95 @@ type execResult struct {
 	Exit        int   // the exit status; -1 when killed by a signal or never started
 	Killed      bool  // the engine's deadline fired and the engine killed it
 	Overflow    bool  // stdout exceeded outputMax (it was killed)
-	StartErr    error // the process could not be started
-	Sweep       error // *cleanupError: the session could not be proven empty
+	StartErr    error // the process could not be started (*procsup.HaltedError: refused by a halt)
+	Sweep       error // *procsup.CleanupError: the runner's processes could not be proven gone
+	// Halted: a halt (another supervisor's death or failed cleanup) cancelled
+	// the running runner. An interruption, never a timeout.
+	Halted      bool
+	HaltDetail  string
+	Containment string // procsup.Supervisor | procsup.None
+	// OutputErr: the runner's output did not fully reach the engine (a
+	// copy error, or pipes held open past drainDelay): what it printed
+	// cannot be trusted complete.
+	OutputErr error
 }
 
-// cleanupError is a session the sweep could not prove empty.
-type cleanupError struct {
-	Detail string // cleanup_incomplete:<pids> | cleanup_unverified:<reason>
+// Interrupted reports whether the runner was stopped by the engine — its
+// deadline or a halt — so a truncated last report line is expected.
+func (r execResult) Interrupted() bool { return r.Killed || r.Halted }
+
+// failed reports whether a describe / list result cannot be used: the
+// runner did not start, overflowed, was killed or halted, lost output, or
+// exited non-zero. A halted or output-losing run is refused even with exit
+// 0: a halt's cancel can land after the runner exited on its own but before
+// it was reaped (the supervisor reports it cancelled), and a listing nothing
+// proves complete is no listing.
+func (r execResult) failed() bool {
+	return r.StartErr != nil || r.Overflow || r.Killed || r.Halted || r.OutputErr != nil || r.Exit != 0
 }
 
-func (e *cleanupError) Error() string { return e.Detail }
+// sweepSession is M3.1's session sweep (procsup.SweepSession), used only on
+// the unsupervised path; a variable so a test can prove the supervised path
+// never calls it.
+var sweepSession = procsup.SweepSession
 
-// execRunner runs c under deadline. The runner leads a new session
-// (Setsid): every process group it or its tests create with setpgid stays
-// inside that session, so the engine owns all of them — process groups do
-// not nest, and a SIGKILLed runner cannot clean up after itself. On every
-// exit path (a normal exit, the engine's deadline, an output overflow, a
-// cancelled context) the whole session is swept before execRunner returns.
+// execRunner runs c under deadline.
 //
-// Residual: a process that calls setsid() itself leaves the session and
-// escapes the sweep; the runner contract forbids it.
+// On Linux the runner runs under a dedicated supervisor (procsup): every
+// process it starts — whatever process group or session it moves to — stays
+// in the supervisor's subtree and is killed, and proven gone (wait4 ECHILD),
+// before execRunner returns, on every exit path: a normal exit, the engine's
+// deadline, an output overflow, a cancelled context. The engine never
+// signals by session number there: after a clean supervision the reaped
+// runner's session id is no longer the runner's, and after a supervision
+// failure its ownership is unverified — the failure is recorded (Sweep) and
+// procsup halts all further work instead.
+//
+// Where no supervisor exists (darwin) the runner leads a new session and the
+// whole session is swept afterwards (M3.1). Residual there: a process that
+// calls setsid() itself leaves the session and escapes the sweep.
 func execRunner(ctx context.Context, c command, deadline time.Duration) execResult {
+	if procsup.Available() != nil {
+		return execUnsupervised(ctx, c, deadline)
+	}
+	dctx, cancel := context.WithTimeout(ctx, deadline)
+	defer cancel()
+	stdout := &capWriter{max: outputMax, onOver: cancel}
+	stderr := &capWriter{max: stderrMax}
+	res := execResult{Exit: -1, Containment: procsup.Supervisor}
+	// Start refuses an already-cancelled context before launching anything
+	// (as exec.CommandContext did), and turns the deadline, an overflow or a
+	// cancellation after the launch into a Cancel.
+	p, err := procsup.Start(dctx, procsup.Spec{Path: c.Path, Args: c.Args, Dir: c.Dir, Env: c.Env,
+		Stdout: stdout, Stderr: stderr, Bound: SweepTimeout, WaitDelay: drainDelay})
+	if err != nil {
+		res.StartErr = err
+		return res
+	}
+	r := p.Wait()
+	res.OutputErr = r.OutputErr
+	res.Exit = r.Exit
+	res.Overflow = stdout.over
+	res.Halted, res.HaltDetail = r.Halted, r.HaltDetail
+	res.Killed = r.Cancelled && !r.Halted && !stdout.over && ctx.Err() == nil && errors.Is(dctx.Err(), context.DeadlineExceeded)
+	switch {
+	case r.SupervisorDied:
+		res.Sweep = &procsup.CleanupError{Detail: "cleanup_unverified:supervisor_died:" + oneLine(r.Detail)}
+	case r.Cleanup != nil:
+		res.Sweep = r.Cleanup
+	case r.StartErr != nil:
+		res.StartErr = r.StartErr
+	}
+	res.Stdout = stdout.buf.Bytes()
+	res.StderrFirst = firstLine(stderr.buf.String())
+	return res
+}
+
+// execUnsupervised is M3.1's execution, where no supervisor exists: the
+// runner leads a new session (Setsid) — every process group it or its tests
+// create with setpgid stays inside it, so the engine owns all of them — and
+// the whole session is swept before it returns.
+func execUnsupervised(ctx context.Context, c command, deadline time.Duration) execResult {
 	dctx, cancel := context.WithTimeout(ctx, deadline)
 	defer cancel()
 	cmd := exec.CommandContext(dctx, c.Path, c.Args...)
@@ -101,7 +171,7 @@ func execRunner(ctx context.Context, c command, deadline time.Duration) execResu
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
 	cmd.WaitDelay = drainDelay
-	res := execResult{Exit: -1}
+	res := execResult{Exit: -1, Containment: procsup.None}
 	err := cmd.Run()
 	if cmd.Process == nil {
 		res.StartErr = err
@@ -109,77 +179,26 @@ func execRunner(ctx context.Context, c command, deadline time.Duration) execResu
 	}
 	// The runner's pid is its session id (Setsid). Sweep whatever is left,
 	// whatever happened.
-	res.Sweep = sweepSession(cmd.Process.Pid)
+	if serr := sweepSession(cmd.Process.Pid, SweepTimeout); serr != nil {
+		res.Sweep = serr
+	}
 	if cmd.ProcessState != nil {
 		res.Exit = cmd.ProcessState.ExitCode()
 	}
 	res.Overflow = stdout.over
 	res.Killed = err != nil && !stdout.over && ctx.Err() == nil && errors.Is(dctx.Err(), context.DeadlineExceeded)
-	if errors.Is(err, exec.ErrWaitDelay) && cmd.ProcessState != nil && cmd.ProcessState.Exited() {
-		err = nil // exited on its own; a leaked process held the pipes (swept above)
-	}
 	res.Stdout = stdout.buf.Bytes()
-	first, _, _ := strings.Cut(strings.TrimSpace(stderr.buf.String()), "\n")
-	if len(first) > 512 {
-		first = first[:512] + "…"
-	}
-	res.StderrFirst = first
+	res.StderrFirst = firstLine(stderr.buf.String())
 	return res
 }
 
-// proc is one process of a session.
-type proc struct {
-	Pid, Pgid int
-	Zombie    bool
-}
-
-// sweepSession kills every process whose session id is sid and returns once
-// none is alive (a zombie counts as gone: it runs nothing and its parent
-// reaps it). Each round kills every process group found in the session, then
-// every remaining pid, then re-enumerates — a process forked during a round
-// is caught by the next. A session that cannot be enumerated, or that is
-// still alive after SweepTimeout, is a *cleanupError: the engine never claims
-// a cleanup it could not observe.
-//
-// While any member is alive the kernel keeps sid allocated, so it cannot be
-// reused for an unrelated session during the sweep.
-func sweepSession(sid int) error {
-	end := time.Now().Add(SweepTimeout)
-	for {
-		procs, err := sessionProcs(sid)
-		if err != nil {
-			return &cleanupError{Detail: "cleanup_unverified:" + err.Error()}
-		}
-		var live []proc
-		for _, p := range procs {
-			if !p.Zombie {
-				live = append(live, p)
-			}
-		}
-		if len(live) == 0 {
-			return nil
-		}
-		if time.Now().After(end) {
-			pids := make([]string, len(live))
-			for i, p := range live {
-				pids[i] = strconv.Itoa(p.Pid)
-			}
-			return &cleanupError{Detail: "cleanup_incomplete:" + strings.Join(pids, ",")}
-		}
-		var groups []int
-		for _, p := range live {
-			if p.Pgid > 0 && !slices.Contains(groups, p.Pgid) {
-				groups = append(groups, p.Pgid)
-			}
-		}
-		for _, g := range groups {
-			_ = syscall.Kill(-g, syscall.SIGKILL)
-		}
-		for _, p := range live {
-			_ = syscall.Kill(p.Pid, syscall.SIGKILL)
-		}
-		time.Sleep(10 * time.Millisecond)
+// firstLine is the first line of s, at most 512 bytes.
+func firstLine(s string) string {
+	first, _, _ := strings.Cut(strings.TrimSpace(s), "\n")
+	if len(first) > 512 {
+		first = first[:512] + "…"
 	}
+	return first
 }
 
 // exitText describes how a runner process ended, for error details.
@@ -191,6 +210,10 @@ func (r execResult) exitText() string {
 		return fmt.Sprintf("output exceeds %d bytes", outputMax)
 	case r.Killed:
 		return "timed out"
+	case r.Halted:
+		return "halted:" + r.HaltDetail
+	case r.OutputErr != nil:
+		return "output lost: " + r.OutputErr.Error()
 	}
 	s := "exit " + strconv.Itoa(r.Exit)
 	if r.StderrFirst != "" {

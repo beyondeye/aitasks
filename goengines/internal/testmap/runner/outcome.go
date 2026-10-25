@@ -1,9 +1,11 @@
 package runner
 
 import (
+	"errors"
 	"strconv"
 
 	"github.com/beyondeye/aitasks/goengines/internal/lineproto"
+	"github.com/beyondeye/aitasks/goengines/internal/procsup"
 	"github.com/beyondeye/aitasks/goengines/internal/testmap/registry"
 )
 
@@ -26,7 +28,13 @@ type EndState struct {
 	Bound    string // the bound the deadline represented (unit | batch | invocation_max)
 	StartErr error  // the runner could not be started
 	Overflow bool   // stdout exceeded its cap
-	Sweep    error  // the session could not be proven empty
+	Sweep    error  // the runner's processes could not be proven gone
+	// Halted: a halt cancelled the running runner (another supervisor died,
+	// or its cleanup failed). An interruption that is not a timeout: the
+	// cause is mechanism, and an unreported unit is missing.
+	Halted     bool
+	HaltDetail string
+	OutputErr  error // the runner's output did not fully reach the engine
 }
 
 // Result is one unit result: a top-level row per manifest id (reported or
@@ -63,8 +71,9 @@ type verdict struct {
 // decide applies the invocation outcome table, in a fixed order:
 //
 //  1. protocol-invalid expected ids → error (never pass, never re-synthesized);
-//  2. classify how the invocation ended — a sweep failure, a start failure or
-//     an output overflow is mechanism; an engine kill is timeout; exit 75 is
+//  2. classify how the invocation ended — a cleanup failure, a start failure
+//     (a halt's refusal included), an output overflow or a halt is
+//     mechanism; an engine kill is timeout; exit 75 is
 //     a clean refusal only with nothing emitted and no protocol error; exits
 //     0 / 1 / 2 are checked against the rows — for an accounting: cases
 //     invocation against the adapter's own case rows (v.Cases), since the
@@ -72,7 +81,8 @@ type verdict struct {
 //     missing and zero evidence;
 //  3. only then, synthesize the still-unreported valid expected ids
 //     (AttributeKill after a kill, `refused` after a clean refusal,
-//     `not_started` when the runner never started, else `missing`);
+//     `not_started` when the runner never started, else — a halt included —
+//     `missing`);
 //  4. pick the primary cause by precedence, keeping every protocol error and
 //     the timeout bound.
 func decide(end EndState, v Validation, expected []registry.ID, mode string) verdict {
@@ -113,12 +123,30 @@ func decide(end EndState, v Validation, expected []registry.ID, mode string) ver
 		return false
 	}()
 	synth := StatusMissing
+	// A cleanup failure is classified first: it is the mechanism failure the
+	// record must name (a runner exit of -1 after a supervisor's death is a
+	// consequence of it, not the cause).
+	if end.Sweep != nil {
+		set(CauseMechanism, end.Sweep.Error())
+	}
 	switch {
 	case end.StartErr != nil:
-		set(CauseMechanism, "runner_start:"+oneLine(end.StartErr.Error()))
+		var he *procsup.HaltedError
+		if errors.As(end.StartErr, &he) {
+			set(CauseMechanism, oneLine(he.Error())) // halted:<origin>: nothing was started
+		} else {
+			set(CauseMechanism, "runner_start:"+oneLine(end.StartErr.Error()))
+		}
 		synth = StatusNotStarted
 	case end.Overflow:
 		set(CauseMechanism, "runner_output_overflow")
+	case end.OutputErr != nil:
+		set(CauseMechanism, "runner_output:"+oneLine(end.OutputErr.Error()))
+	case end.Halted:
+		// Before the kill case: mechanism outranks timeout, and a halt is
+		// never a timeout — an unreported unit is missing, not timeout.
+		set(CauseMechanism, "halted:"+oneLine(end.HaltDetail))
+		synth = StatusMissing
 	case end.Killed:
 		set(CauseTimeout, end.Bound)
 		out.TimedOut = end.Bound
@@ -159,7 +187,6 @@ func decide(end EndState, v Validation, expected []registry.ID, mode string) ver
 		set(CauseReconciliation, v.Errors[0])
 	}
 	if end.Sweep != nil {
-		set(CauseMechanism, end.Sweep.Error())
 		out.Refused = false
 		if synth == StatusRefused {
 			synth = StatusMissing

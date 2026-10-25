@@ -15,6 +15,8 @@ package main
 import (
 	"io"
 	"os"
+
+	"github.com/beyondeye/aitasks/goengines/internal/procsup"
 )
 
 var (
@@ -32,6 +34,12 @@ type env struct {
 }
 
 // run dispatches args to the verb table and returns the process exit code.
+// `__supervise` (internal: started only by procsup.Start, never by a user)
+// makes this process the dedicated supervisor of one contained command; it
+// is dispatched before the verb table, which it is not part of.
 func run(args []string, stdout, stderr io.Writer) int {
+	if len(args) > 0 && args[0] == procsup.SupervisorArg {
+		return procsup.SuperviseMain(args[1:])
+	}
 	return dispatch(verbs, "", args, env{stdout: stdout, stderr: stderr})
 }

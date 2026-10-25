@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"sync/atomic"
 	"time"
 
 	"github.com/beyondeye/aitasks/goengines/internal/lineproto"
@@ -44,6 +45,10 @@ type RunReport struct {
 	// DiscoveryCandidates are the loaded runners whose discovery is
 	// `candidates` (G5): their lists never claim complete discovery.
 	DiscoveryCandidates []string `json:"discovery_candidates"`
+	// ParallelRefused is "containment" when the executor tried to overlap
+	// invocations where they may not overlap (Overlappable false) and Run
+	// serialized them.
+	ParallelRefused string `json:"parallel_refused,omitempty"`
 }
 
 // RunAccounting is RUN_ACCOUNTING:<selected>|<cases>|<unit>|<aggregate>|<unaccounted>.
@@ -167,9 +172,17 @@ func Run(ctx context.Context, root string, opts Options) (*RunReport, error) {
 	exec, wave := seams()
 	invs := Group(units, wave)
 	iv := &invoker{repo: repo, runID: runID, dir: dir}
-	outs, err := exec.Execute(ctx, invs, iv.invoke)
+	invoke := InvokeFunc(iv.invoke)
+	var refused atomic.Bool
+	if !overlappable() {
+		invoke = serialize(invoke, &refused)
+	}
+	outs, err := exec.Execute(ctx, invs, invoke)
 	if err != nil {
 		return nil, err
+	}
+	if refused.Load() {
+		report.ParallelRefused = "containment"
 	}
 	if len(outs) != len(invs) {
 		return nil, lineErr(ClassRun, "executor", fmt.Sprintf("%d outcomes for %d invocations", len(outs), len(invs)))

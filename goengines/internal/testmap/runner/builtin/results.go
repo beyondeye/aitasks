@@ -1,0 +1,122 @@
+//go:build unix
+
+package builtin
+
+import (
+	"bytes"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+
+	"github.com/beyondeye/aitasks/goengines/internal/testmap"
+	"github.com/beyondeye/aitasks/goengines/internal/testmap/runner"
+)
+
+// ReadManifest reads `run --manifest <path>` strictly: unknown fields,
+// trailing data and another contract are refused.
+func ReadManifest(path string) (*runner.Manifest, error) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	dec := json.NewDecoder(bytes.NewReader(b))
+	dec.DisallowUnknownFields()
+	var m runner.Manifest
+	if err := dec.Decode(&m); err != nil {
+		return nil, fmt.Errorf("manifest: %v", err)
+	}
+	if err := dec.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		return nil, errors.New("manifest: trailing data")
+	}
+	if m.Contract != testmap.Contract {
+		return nil, fmt.Errorf("manifest: contract %d, engine %d", m.Contract, testmap.Contract)
+	}
+	return &m, nil
+}
+
+// Results writes an invocation's rows: start and result rows to the
+// manifest's results.jsonl, case rows to cases.jsonl in its report
+// directory (t1854_2's shapes exactly). Under accounting: cases an adapter
+// writes start rows and case rows only — the engine derives the units'
+// results.
+type Results struct {
+	results *os.File
+	cases   *os.File
+	casesAt string
+}
+
+// OpenResults opens m's result files for appending.
+func OpenResults(m *runner.Manifest) (*Results, error) {
+	f, err := os.OpenFile(m.Results, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o644)
+	if err != nil {
+		return nil, err
+	}
+	r := &Results{results: f}
+	if m.ReportDir != "" {
+		r.casesAt = filepath.Join(m.ReportDir, runner.CasesFile)
+	}
+	return r, nil
+}
+
+func writeRow(f *os.File, v any) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	_, err = f.Write(append(b, '\n'))
+	return err
+}
+
+// Start writes a start row: the unit began (per_unit / batch timeout
+// attribution).
+func (r *Results) Start(id string) error {
+	return writeRow(r.results, struct {
+		ID    string `json:"id"`
+		Event string `json:"event"`
+	}{id, "start"})
+}
+
+// Row writes a unit's result row.
+func (r *Results) Row(id, status string, durationMS int64, message string) error {
+	return writeRow(r.results, struct {
+		ID         string `json:"id"`
+		Status     string `json:"status"`
+		DurationMS int64  `json:"duration_ms"`
+		Message    string `json:"message,omitempty"`
+	}{id, status, durationMS, message})
+}
+
+// Case writes one case's terminal result (pass | fail | error | skip).
+func (r *Results) Case(unit, name, status string, durationMS int64, message string) error {
+	if r.casesAt == "" {
+		return errors.New("no report directory for cases.jsonl")
+	}
+	if r.cases == nil {
+		f, err := os.OpenFile(r.casesAt, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o644)
+		if err != nil {
+			return err
+		}
+		r.cases = f
+	}
+	return writeRow(r.cases, struct {
+		Unit       string `json:"unit"`
+		Case       string `json:"case"`
+		Status     string `json:"status"`
+		DurationMS int64  `json:"duration_ms"`
+		Message    string `json:"message,omitempty"`
+	}{unit, name, status, durationMS, message})
+}
+
+// Close closes the files, reporting the first failure.
+func (r *Results) Close() error {
+	err := r.results.Close()
+	if r.cases != nil {
+		if cerr := r.cases.Close(); err == nil {
+			err = cerr
+		}
+	}
+	return err
+}

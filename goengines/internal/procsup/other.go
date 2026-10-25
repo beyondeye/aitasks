@@ -1,0 +1,40 @@
+//go:build unix && !linux
+
+package procsup
+
+import (
+	"context"
+	"fmt"
+	"os"
+)
+
+// Available reports CONTAINMENT_UNAVAILABLE: there is no supervisor outside
+// Linux (no PR_SET_CHILD_SUBREAPER).
+func Available() error { return unavailable() }
+
+// Backends is empty: no containment backend on this platform.
+func Backends() []string { return nil }
+
+// Proc is never started on this platform.
+type Proc struct{}
+
+// Start refuses: containment is unavailable here.
+func Start(context.Context, Spec) (*Proc, error) { return nil, unavailable() }
+
+// Pid is 0.
+func (*Proc) Pid() int { return 0 }
+
+// Cancel does nothing.
+func (*Proc) Cancel() {}
+
+// Wait reports the refusal.
+func (*Proc) Wait() Result { return Result{Exit: -1, StartErr: unavailable()} }
+
+// Halted is never true here.
+func Halted() (bool, string) { return false, "" }
+
+// SuperviseMain refuses: there is no supervisor on this platform.
+func SuperviseMain([]string) int {
+	fmt.Fprintln(os.Stderr, unavailable().Line())
+	return 3
+}

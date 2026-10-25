@@ -1,0 +1,22 @@
+package main
+
+import (
+	"github.com/beyondeye/aitasks/goengines/internal/lineproto"
+	"github.com/beyondeye/aitasks/goengines/internal/testmap/runner/builtin"
+)
+
+// runnerExits is the exit contract of `runner <name> …`: describe and list
+// exit 0 or 3; run exits with the run contract (0 / 1 / 2 / 75), 3 for a
+// builtin failure (BUILTIN_ERROR, CONTAINMENT_UNAVAILABLE) and 64 for usage
+// (UNKNOWN_BUILTIN).
+var runnerExits = lineproto.ExitContract{
+	lineproto.ExitOK, lineproto.ExitFail, lineproto.ExitNothingRan, lineproto.ExitFramework, lineproto.ExitUsage, lineproto.ExitRefused,
+}
+
+// runRunner is `runner <name> describe|list|run --manifest <path>`: the
+// entry the engine runs a `builtin: <name>` runner through (builtin.Main).
+// No production adapter is registered yet; each adapter package registers
+// its own (M3.2e–j).
+func runRunner(e env, args []string) int {
+	return builtin.Main(args, e.stdout, e.stderr)
+}

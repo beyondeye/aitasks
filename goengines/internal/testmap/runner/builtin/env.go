@@ -1,0 +1,59 @@
+//go:build unix
+
+package builtin
+
+import (
+	"context"
+	"fmt"
+	"time"
+
+	"github.com/beyondeye/aitasks/goengines/internal/procsup"
+	"github.com/beyondeye/aitasks/goengines/internal/testmap/runner"
+)
+
+// Env is what the engine tells a builtin process (runner.Runner.command's
+// environment), and the adapter's access to supervised execution.
+type Env struct {
+	Root       string // AIT_TESTMAP_ROOT: the repository root
+	Runner     string // AIT_TESTMAP_RUNNER: the runners.yaml runner name
+	Command    string // AIT_TESTMAP_COMMAND: the entry's command: override ("" = the adapter's default)
+	Accounting string // AIT_TESTMAP_ACCOUNTING: the effective accounting class (list and run)
+	RunID      string // AIT_TESTMAP_RUN_ID (run)
+	// ReportDir is the invocation's report directory (run): reports are
+	// read back only through Fresh.
+	ReportDir runner.ReportDir
+	testOnly  bool
+}
+
+// Entry looks this runner's entry up in runners.yaml.
+func (e *Env) Entry() (runner.Entry, error) {
+	cfg, err := runner.LoadConfig(e.Root)
+	if err != nil {
+		return runner.Entry{}, err
+	}
+	for _, en := range cfg.Runners {
+		if en.Name == e.Runner {
+			return en, nil
+		}
+	}
+	return runner.Entry{}, fmt.Errorf("runners.yaml has no runner %q", e.Runner)
+}
+
+// Supervise runs one tool command bounded, cancellable and contained
+// (procsup.Run). A TestOnly adapter's command may run uncontained where no
+// supervisor exists; the result then says Containment none.
+func (e *Env) Supervise(ctx context.Context, s procsup.RunSpec) procsup.RunResult {
+	s.AllowUncontained = e.testOnly
+	return procsup.Run(ctx, s)
+}
+
+// Fresh reads a report a tool wrote into the invocation's report directory,
+// refusing anything the invocation did not produce (runner.FreshReport, G6).
+func (e *Env) Fresh(path string) (data []byte, absent bool, err error) {
+	return runner.FreshReport(e.ReportDir, path)
+}
+
+// DiscoveryBound bounds native discovery run from List: below the engine's
+// own ListTimeout, so a hung collector is the adapter's timeout, not the
+// engine's kill.
+func DiscoveryBound() time.Duration { return runner.ListTimeout * 9 / 10 }

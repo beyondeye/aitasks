@@ -1,0 +1,279 @@
+//go:build linux
+
+package procsup
+
+import (
+	"encoding/json"
+	"errors"
+	"flag"
+	"fmt"
+	"io"
+	"os"
+	"os/exec"
+	"os/signal"
+	"slices"
+	"strconv"
+	"strings"
+	"syscall"
+	"time"
+)
+
+// prSetChildSubreaper is PR_SET_CHILD_SUBREAPER (linux/prctl.h).
+const prSetChildSubreaper = 36
+
+// The supervisor's file descriptors beyond stdio: the control pipe (parent
+// → supervisor: a cancel byte, or EOF when the parent is gone) and the status
+// pipe (supervisor → parent: the handshake line, then the final status).
+const (
+	controlFD = 3
+	statusFD  = 4
+	cancelMsg = 'c'
+)
+
+// handshake is the supervisor's first status line: the command started.
+type handshake struct {
+	Pid int `json:"pid"`
+}
+
+// status is the supervisor's final status line.
+type status struct {
+	Exit       int    `json:"exit"`        // the command's exit status; -1 when signalled or never started
+	Signal     string `json:"signal"`      // the signal that ended it, "" otherwise
+	StartError string `json:"start_error"` // the command could not be started
+	Cancelled  bool   `json:"cancelled"`   // a cancel arrived while the command was still running
+	Cleanup    string `json:"cleanup"`     // ok | cleanup_incomplete:<pids> | cleanup_unverified:<reason>
+	Error      string `json:"error"`       // the supervisor could not supervise (subreaper)
+}
+
+const cleanupOK = "ok"
+
+// SuperviseMain runs the supervisor: `__supervise --grace <d> --bound <d> --
+// <path> [<args>…]`, with the command's working directory and environment
+// its own (minus the bootstrap sentinel), fds 0–2 passed straight through
+// to the command, fd 3 the control pipe and fd 4 the status pipe. It
+// returns the process exit code: 0 whenever a final status was written.
+func SuperviseMain(args []string) int {
+	fs := flag.NewFlagSet(SupervisorArg, flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	grace := fs.Duration("grace", 0, "SIGTERM-to-SIGKILL grace after a cancel")
+	bound := fs.Duration("bound", SweepTimeout, "cleanup bound")
+	if err := fs.Parse(args); err != nil || fs.NArg() == 0 {
+		fmt.Fprintln(os.Stderr, "USAGE:"+SupervisorArg+" --grace <d> --bound <d> -- <path> [<args>…]")
+		return 64
+	}
+	var fst syscall.Stat_t
+	if syscall.Fstat(controlFD, &fst) != nil || syscall.Fstat(statusFD, &fst) != nil {
+		fmt.Fprintln(os.Stderr, SupervisorArg+": no control or status pipe (internal: started only by procsup.Start)")
+		return 64
+	}
+	// Inherited descriptors are not close-on-exec: without this the command
+	// would hold the status pipe open, and a supervisor's death would never
+	// reach the parent as EOF.
+	syscall.CloseOnExec(controlFD)
+	syscall.CloseOnExec(statusFD)
+	control := os.NewFile(controlFD, "control")
+	out := os.NewFile(statusFD, "status")
+	if control == nil || out == nil {
+		fmt.Fprintln(os.Stderr, SupervisorArg+": no control or status pipe")
+		return 64
+	}
+	// From here on nothing below this process may carry the sentinel: a
+	// supervised builtin starting its own supervisors must not be refused.
+	_ = os.Unsetenv(sentinelEnv)
+	writeLine := func(v any) {
+		b, _ := json.Marshal(v)
+		_, _ = out.Write(append(b, '\n'))
+	}
+	if _, _, e := syscall.RawSyscall(syscall.SYS_PRCTL, prSetChildSubreaper, 1, 0); e != 0 {
+		writeLine(status{Exit: -1, Error: "subreaper:" + e.Error(), Cleanup: cleanupOK})
+		return 3
+	}
+	// A terminal's SIGINT / SIGHUP or a plain SIGTERM is a cancel, never a
+	// death: the subtree is cleaned up before the supervisor goes.
+	sigs := make(chan os.Signal, 8)
+	signal.Notify(sigs, syscall.SIGCHLD, syscall.SIGINT, syscall.SIGHUP, syscall.SIGTERM)
+
+	argv := fs.Args()
+	path := argv[0]
+	if !strings.Contains(path, "/") {
+		if lp, err := exec.LookPath(path); err == nil {
+			path = lp
+		}
+	}
+	env := slices.DeleteFunc(os.Environ(), func(kv string) bool { return strings.HasPrefix(kv, sentinelEnv+"=") })
+	p, err := os.StartProcess(path, argv, &os.ProcAttr{
+		Env:   env,
+		Files: []*os.File{os.Stdin, os.Stdout, os.Stderr},
+		Sys:   &syscall.SysProcAttr{Setsid: true},
+	})
+	if err != nil {
+		writeLine(status{Exit: -1, StartError: err.Error(), Cleanup: cleanupOK})
+		return 0
+	}
+	pid := p.Pid
+	_ = p.Release() // this process reaps with wait4 itself
+	writeLine(handshake{Pid: pid})
+
+	cancelled := make(chan struct{})
+	go func(c chan struct{}) {
+		buf := make([]byte, 1)
+		for {
+			n, err := control.Read(buf)
+			if err != nil || (n == 1 && buf[0] == cancelMsg) {
+				close(c) // EOF: the parent is gone — clean up all the same
+				return
+			}
+		}
+	}(cancelled)
+
+	st := status{Exit: -1}
+	done := false
+	record := func(ws syscall.WaitStatus) {
+		done = true
+		switch {
+		case ws.Exited():
+			st.Exit = ws.ExitStatus()
+		case ws.Signaled():
+			st.Signal = ws.Signal().String()
+		}
+	}
+	var killAt time.Time // after a cancel: when the grace ends
+	tick := time.NewTicker(50 * time.Millisecond)
+	defer tick.Stop()
+	for !done {
+		reapAll(pid, record)
+		if done {
+			break
+		}
+		if !killAt.IsZero() && !time.Now().Before(killAt) {
+			break // the grace is over: cleanup kills it
+		}
+		select {
+		case <-cancelled:
+			if killAt.IsZero() {
+				st.Cancelled = true
+				// The command is unreaped (only this process reaps it), so
+				// its pid — and the group it leads — cannot have been reused;
+				// the group lies inside the command's own session.
+				_ = syscall.Kill(-pid, syscall.SIGTERM)
+				killAt = time.Now().Add(*grace)
+				cancelled = nil // handled; never selected again
+			}
+		case s := <-sigs:
+			if s != syscall.SIGCHLD && killAt.IsZero() {
+				st.Cancelled = true
+				_ = syscall.Kill(-pid, syscall.SIGTERM)
+				killAt = time.Now().Add(*grace)
+			}
+		case <-tick.C:
+		}
+	}
+	if !done {
+		// Still unreaped, so the group number is still the command's: one
+		// signal stops the whole group before the per-child rounds.
+		_ = syscall.Kill(-pid, syscall.SIGKILL)
+	}
+	st.Cleanup = cleanup(*bound, pid, record)
+	if dieAfterCleanup {
+		_ = syscall.Kill(os.Getpid(), syscall.SIGKILL)
+	}
+	writeLine(st)
+	return 0
+}
+
+// reapAll reaps every zombie child without blocking, recording the command's
+// status when it is among them. Every child of the supervisor is a member,
+// so waiting on any child is safe.
+func reapAll(cmdPid int, record func(syscall.WaitStatus)) (echild bool) {
+	for {
+		var ws syscall.WaitStatus
+		pid, err := syscall.Wait4(-1, &ws, syscall.WNOHANG, nil)
+		switch {
+		case errors.Is(err, syscall.EINTR):
+			continue
+		case errors.Is(err, syscall.ECHILD):
+			return true
+		case err != nil || pid <= 0:
+			return false
+		}
+		if pid == cmdPid {
+			record(ws)
+		}
+	}
+}
+
+// cleanup kills the subtree: every round SIGKILLs the supervisor's direct
+// children (its own unreaped children: their pids are pinned), reaps, and
+// repeats, since a killed child's children reparent here. It is clean only
+// at ECHILD — no child at all, so no live descendant. Past bound it reports
+// the children still present (cleanup_incomplete), or why they could not be
+// listed (cleanup_unverified).
+func cleanup(bound time.Duration, cmdPid int, record func(syscall.WaitStatus)) string {
+	end := time.Now().Add(bound)
+	var listErr error
+	for {
+		if reapAll(cmdPid, record) {
+			return cleanupOK
+		}
+		kids, err := children()
+		listErr = err
+		for _, k := range kids {
+			_ = syscall.Kill(k, syscall.SIGKILL)
+		}
+		if time.Now().After(end) {
+			if reapAll(cmdPid, record) {
+				return cleanupOK
+			}
+			if listErr != nil {
+				return "cleanup_unverified:" + oneLine(listErr.Error())
+			}
+			pids := make([]string, len(kids))
+			for i, k := range kids {
+				pids[i] = strconv.Itoa(k)
+			}
+			return "cleanup_incomplete:" + strings.Join(pids, ",")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+// children lists the processes whose parent is this process. A stat that
+// cannot be read for another reason than the process being gone leaves the
+// listing incomplete (an error), though every child it did find is returned.
+func children() ([]int, error) {
+	self := os.Getpid()
+	ents, err := os.ReadDir("/proc")
+	if err != nil {
+		return nil, err
+	}
+	var out []int
+	var bad error
+	for _, e := range ents {
+		pid, err := strconv.Atoi(e.Name())
+		if err != nil {
+			continue
+		}
+		data, err := readStat(pid)
+		if err != nil {
+			if !gone(err) && bad == nil {
+				bad = fmt.Errorf("pid %d: %v", pid, err)
+			}
+			continue
+		}
+		s := string(data)
+		i := strings.LastIndexByte(s, ')')
+		if i < 0 {
+			continue
+		}
+		f := strings.Fields(s[i+1:])
+		if len(f) < 2 {
+			continue
+		}
+		if ppid, err := strconv.Atoi(f[1]); err == nil && ppid == self {
+			out = append(out, pid)
+		}
+	}
+	return out, bad
+}
+
+func oneLine(s string) string { return strings.NewReplacer("\n", " ", "\r", " ").Replace(s) }

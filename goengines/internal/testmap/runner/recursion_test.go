@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/beyondeye/aitasks/goengines/internal/procsup"
 	"github.com/beyondeye/aitasks/goengines/internal/testmap/fixture"
 	"github.com/beyondeye/aitasks/goengines/internal/testmap/registry"
 )
@@ -66,6 +67,13 @@ func recursionCases() []recursionCase {
 			add(recursionCase{group: "fixture", origin: origin, verb: "run", wrap: "direct", clear: clear, target: "fixture"})
 		}
 	}
+	// A setsid double fork orphans the nested engine out of the runner's
+	// process tree, its environment cleared: only the containment's
+	// subreaper keeps it below the outer engine, where the ancestry
+	// backstop finds it (t1854_6).
+	for _, origin := range []string{"discovery", "execution"} {
+		add(recursionCase{group: "orphan", origin: origin, verb: "run", wrap: "orphan", clear: true, target: "same", refused: true})
+	}
 	return cs
 }
 
@@ -113,6 +121,15 @@ func nestCommand(wrap, verb, dir string, clear bool) string {
 		return cd + `"$PY" -c 'import os, subprocess, sys; sys.exit(` + call + `)' "$E" ` + nestedEngineArg + " " + verb
 	case "noenv":
 		return cd + `env -i "$E" ` + nestedEngineArg + " " + verb
+	case "orphan":
+		// setsid sh -c '( … ) &': the inner subshell is orphaned the moment
+		// the setsid shell (its $$) exits and is reaped, and only then starts
+		// the nested engine, so the ancestry it walks is the orphan's; the
+		// runner waits for its result files.
+		inner := `while kill -0 $$ 2>/dev/null; do sleep 0.01; done; ` +
+			env + `"$0" ` + nestedEngineArg + ` "$1" >"$2/orphan.err" 2>&1; echo $? >"$2/orphan.rc"`
+		return cd + `setsid sh -c '( ` + inner + ` ) &' "$E" ` + verb + ` "$D" & wait $!; ` +
+			`while [ ! -s "$D/orphan.rc" ]; do sleep 0.01; done; cat "$D/orphan.err" >&2; exit "$(cat "$D/orphan.rc")"`
 	}
 	return cd + env + `"$E" ` + nestedEngineArg + " " + verb
 }
@@ -361,6 +378,48 @@ func TestRecursionFixtureAllowed(t *testing.T) {
 		return
 	}
 	runGroup(t, "fixture")
+}
+
+// An orphaned (setsid double-forked) nested engine with a cleared
+// environment is refused by the ancestry backstop, from discovery and from
+// execution: the supervisor's subreaper keeps it below the outer engine.
+func TestRecursionOrphan(t *testing.T) {
+	if !isolated(t, recursionLimit) {
+		return
+	}
+	runGroup(t, "orphan")
+}
+
+// recursionBackends prepares each procsup containment backend for the
+// recursion invariant (G8a): under every backend the cleared-environment
+// refusal and the fixture-repository allowance hold. A backend procsup
+// adds (cgroup hardening, a PID namespace) must join this table —
+// TestRecursionBackendsCovered fails until it does.
+var recursionBackends = map[string]func(t *testing.T){
+	procsup.Supervisor: func(*testing.T) {}, // the default on Linux
+}
+
+func TestRecursionBackendsCovered(t *testing.T) {
+	var got []string
+	for b := range recursionBackends {
+		got = append(got, b)
+	}
+	slices.Sort(got)
+	want := slices.Sorted(slices.Values(procsup.Backends()))
+	if !slices.Equal(got, want) {
+		t.Fatalf("recursion invariant backends %v, procsup.Backends() %v", got, want)
+	}
+}
+
+// Every recursion case under the supervisor backend.
+func TestRecursionBackendSupervisor(t *testing.T) {
+	if !isolated(t, recursionLimit) {
+		return
+	}
+	recursionBackends[procsup.Supervisor](t)
+	for _, c := range recursionCases() {
+		t.Run(c.group+"/"+c.name, func(t *testing.T) { checkRecursion(t, c) })
+	}
 }
 
 // The refusal happens before any runner process starts, leaves no run

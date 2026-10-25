@@ -1,6 +1,6 @@
 //go:build darwin
 
-package runner
+package procsup
 
 import (
 	"bytes"
@@ -12,14 +12,14 @@ import (
 	"syscall"
 )
 
-// sessionProcs lists the processes whose session id is sid: `ps` enumerates
+// SessionProcs lists the processes whose session id is sid: `ps` enumerates
 // every process with its process group and state, and getsid(2) gives each
 // one's session (darwin's ps has no session-id column). A process that exits
 // between the two (ESRCH) is skipped. Any other getsid failure means the
 // process's session cannot be established, so the session cannot be proven
 // empty: an error (cleanup_unverified), never a silent skip. A failing ps is
 // an error too.
-func sessionProcs(sid int) ([]proc, error) {
+func SessionProcs(sid int) ([]SessionProc, error) {
 	cmd := exec.Command("/bin/ps", "-A", "-o", "pid=,pgid=,stat=")
 	var out, errb bytes.Buffer
 	cmd.Stdout = &out
@@ -27,7 +27,7 @@ func sessionProcs(sid int) ([]proc, error) {
 	if err := cmd.Run(); err != nil {
 		return nil, fmt.Errorf("ps: %v: %s", err, strings.TrimSpace(errb.String()))
 	}
-	var procs []proc
+	var procs []SessionProc
 	for _, line := range strings.Split(out.String(), "\n") {
 		f := strings.Fields(line)
 		if len(f) < 3 {
@@ -46,7 +46,7 @@ func sessionProcs(sid int) ([]proc, error) {
 			return nil, fmt.Errorf("pid %d: getsid: %v", pid, err)
 		}
 		if s == sid {
-			procs = append(procs, proc{Pid: pid, Pgid: pgid, Zombie: strings.HasPrefix(f[2], "Z")})
+			procs = append(procs, SessionProc{Pid: pid, Pgid: pgid, Zombie: strings.HasPrefix(f[2], "Z")})
 		}
 	}
 	return procs, nil

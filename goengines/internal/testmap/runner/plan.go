@@ -3,7 +3,9 @@ package runner
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 
+	"github.com/beyondeye/aitasks/goengines/internal/procsup"
 	"github.com/beyondeye/aitasks/goengines/internal/testmap/registry"
 )
 
@@ -22,8 +24,35 @@ type InvokeFunc func(ctx context.Context, inv *Invocation) Outcome
 // Executor runs a plan: the invocations the canonical grouping function
 // formed, which it must neither re-form nor drop. It returns one Outcome per
 // invocation, in the order given. An error is a framework error (exit 3).
+// It may call invoke concurrently only when Overlappable reports true; Run
+// enforces that whatever the executor does.
 type Executor interface {
 	Execute(ctx context.Context, invs []*Invocation, invoke InvokeFunc) ([]Outcome, error)
+}
+
+// overlappable is Overlappable's answer; a variable so a test can force the
+// unsupervised (darwin) answer on Linux.
+var overlappable = func() bool { return procsup.Available() == nil }
+
+// Overlappable reports whether invocations may run concurrently (G8a): true
+// where every invocation runs under its own procsup supervisor (Linux), whose
+// cleanup touches only its own subtree. Without one (darwin) the session
+// sweep cannot tell overlapping invocations apart once a process leaves its
+// session, so Run serializes them and reports PARALLEL_REFUSED:containment.
+func Overlappable() bool { return overlappable() }
+
+// serialize makes invoke run one invocation at a time, recording in refused
+// that an executor tried to overlap two.
+func serialize(invoke InvokeFunc, refused *atomic.Bool) InvokeFunc {
+	var mu sync.Mutex
+	return func(ctx context.Context, inv *Invocation) Outcome {
+		if !mu.TryLock() {
+			refused.Store(true)
+			mu.Lock()
+		}
+		defer mu.Unlock()
+		return invoke(ctx, inv)
+	}
 }
 
 var (

@@ -71,11 +71,17 @@ type Record struct {
 	TimedOut       string   `json:"timed_out"`
 	ProtocolErrors []string `json:"protocol_errors"`
 	OverheadMS     int64    `json:"overhead_ms"`
-	Cause          string   `json:"cause"`
-	CauseDetail    string   `json:"cause_detail"`
-	HeadStart      string   `json:"head_start"`
-	HeadEnd        string   `json:"head_end"`
-	Modified       []string `json:"modified"` // start ∪ end, root-relative (../ outside the root), sorted
+	// Containment and Boundary say what contained the runner's processes
+	// and owned their cleanup (G8 / G8a): supervisor (a dedicated
+	// procsup supervisor per process start) or none (no containment on this
+	// platform: the session sweep only).
+	Containment string   `json:"containment"`
+	Boundary    string   `json:"boundary"`
+	Cause       string   `json:"cause"`
+	CauseDetail string   `json:"cause_detail"`
+	HeadStart   string   `json:"head_start"`
+	HeadEnd     string   `json:"head_end"`
+	Modified    []string `json:"modified"` // start ∪ end, root-relative (../ outside the root), sorted
 	// Cases sums the engine-derived counters of the invocation's cases units
 	// (accounting: cases only).
 	Cases *CaseCounts `json:"cases,omitempty"`
@@ -158,12 +164,13 @@ func (iv *invoker) invoke(ctx context.Context, inv *Invocation) Outcome {
 	res := execRunner(ctx, c, deadline)
 	rec.ElapsedMS = time.Since(start).Milliseconds()
 	rec.ExitCode, rec.Killed = res.Exit, res.Killed
+	rec.Containment, rec.Boundary = res.Containment, res.Containment
 	headEnd, modEnd, perr := provenance(ctx, git)
 	// The report files are read only through readReport: a FIFO, a link, a
 	// device or an oversized file left at a report path is a protocol error,
 	// never a read that blocks or grows past the bounds the deadline set.
 	data, _, rerr := readReport(m.Results, resultsMax)
-	v := ValidateRows(data, res.Killed, rowContext{
+	v := ValidateRows(data, res.Interrupted(), rowContext{
 		Expected: expected, TimeoutS: timeouts, Registered: iv.repo.Registered,
 		Children: r.Describe.Full && r.Describe.Children != "", Mode: mode, Accounting: acct,
 	})
@@ -178,7 +185,8 @@ func (iv *invoker) invoke(ctx context.Context, inv *Invocation) Outcome {
 		v.Errors = append(v.Errors, "report:runner.json:"+oneLine(jerr.Error()))
 	}
 	rec.Cases = iv.caseEvidence(&v, inv, r, report, res)
-	vd := decide(EndState{Exit: res.Exit, Killed: res.Killed, Bound: bound, StartErr: res.StartErr, Overflow: res.Overflow, Sweep: res.Sweep}, v, expected, mode)
+	vd := decide(EndState{Exit: res.Exit, Killed: res.Killed, Bound: bound, StartErr: res.StartErr, Overflow: res.Overflow, Sweep: res.Sweep,
+		Halted: res.Halted, HaltDetail: res.HaltDetail, OutputErr: res.OutputErr}, v, expected, mode)
 	if perr != nil && causeRank[CauseMechanism] > causeRank[vd.Cause] {
 		vd.Cause, vd.CauseDetail = CauseMechanism, "provenance:"+oneLine(perr.Error())
 	}
@@ -208,11 +216,13 @@ func (iv *invoker) invoke(ctx context.Context, inv *Invocation) Outcome {
 //   - the runner ran and exited 0 / 1 / 2 by itself: every unit that did not
 //     break the results protocol is reconciled; each reconciliation reason
 //     is a protocol error (the G3 policy is not);
-//   - the engine killed it: what the runner did write is still judged —
-//     attributable invalid evidence (any reason but incomplete) makes the
-//     unit error — and a unit that provably finished (Terminal) keeps its
-//     status; every other unit, a zero-expected one included, is left to
-//     AttributeKill;
+//   - the engine interrupted it — its deadline, or a halt (procsup cancelled
+//     it after another supervisor died; never a timeout): what the runner
+//     did write is still judged — attributable invalid evidence (any reason
+//     but incomplete) makes the unit error — and a unit that provably
+//     finished (Terminal) keeps its status; every other unit, a
+//     zero-expected one included, is left to decide's attribution
+//     (AttributeKill after a deadline, missing after a halt);
 //   - anything else (exit 75, an out-of-contract exit, a start failure):
 //     nothing is derived, so a clean refusal stays a refusal.
 //
@@ -238,7 +248,7 @@ func (iv *invoker) caseEvidence(v *Validation, inv *Invocation, r *Runner, repor
 		}
 		return nil
 	}
-	ce := ValidateCases(data, res.Killed, expected, iv.repo.Registered)
+	ce := ValidateCases(data, res.Interrupted(), expected, iv.repo.Registered)
 	if ferr != nil {
 		for _, id := range expected {
 			ce.Taints[id] = append(ce.Taints[id], ReasonRejectedReport)
@@ -246,9 +256,9 @@ func (iv *invoker) caseEvidence(v *Validation, inv *Invocation, r *Runner, repor
 	}
 	v.Errors = append(v.Errors, ce.Errors...)
 	v.Cases = &ce.Exit
-	ran := res.StartErr == nil && !res.Killed &&
+	ran := res.StartErr == nil && !res.Interrupted() &&
 		(res.Exit == lineproto.ExitOK || res.Exit == lineproto.ExitFail || res.Exit == lineproto.ExitNothingRan)
-	if !ran && !res.Killed {
+	if !ran && !res.Interrupted() {
 		return &CaseCounts{}
 	}
 	var expect []Expectation
@@ -262,14 +272,14 @@ func (iv *invoker) caseEvidence(v *Validation, inv *Invocation, r *Runner, repor
 	sum := &CaseCounts{}
 	for _, rc := range rcs {
 		reasons := rc.Reasons
-		if res.Killed {
+		if res.Interrupted() {
 			reasons = slices.DeleteFunc(slices.Clone(rc.Reasons), func(s string) bool { return s == ReasonIncomplete })
 			switch {
 			case len(reasons) > 0:
 				rc.Status, rc.Reasons, rc.Policy = StatusError, reasons, ""
 			case rc.Terminal:
 			default:
-				continue // unfinished: AttributeKill decides
+				continue // unfinished: decide attributes it
 			}
 		}
 		id := rc.Key.Unit

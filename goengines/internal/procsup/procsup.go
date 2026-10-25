@@ -1,0 +1,135 @@
+//go:build unix
+
+// Package procsup is supervised process execution with containment (M3.2c,
+// G8 / G8a).
+//
+// Every contained process start — the engine's runner describe / list / run,
+// a builtin's tool command — goes through a dedicated supervisor: a re-exec
+// of the engine binary as `<self> __supervise` that runs no test code. The
+// supervisor sets PR_SET_CHILD_SUBREAPER on itself only and starts the
+// command in a new session, so every orphan below it, setsid() callers
+// included, reparents to it: its descendants cannot leave its subtree by
+// changing their process group or session. Nothing but the command is ever
+// its child, so membership is exact per supervisor and concurrent
+// invocations cannot touch each other's processes.
+//
+// Cleanup SIGKILLs the supervisor's direct children — its own unreaped
+// children, whose pids cannot have been reused — reaps them and repeats
+// (orphans become direct children), and ends only when wait4 returns ECHILD:
+// a kernel proof that the subtree is empty, since any live descendant
+// implies a live direct child. A survivor past the bound is
+// cleanup_incomplete; a subtree that could not be inspected is
+// cleanup_unverified.
+//
+// Residual: the supervisor's own death (it runs as the same user as the
+// tests, which can kill it). Its remaining subtree reparents to the nearest
+// subreaper ancestor and may be left running. The client detects it
+// (SupervisorDied), never claims a cleanup, and halts the process's procsup:
+// every later Start is refused and every other active supervisor is
+// cancelled (halt.go). A failed cleanup halts the same way.
+//
+// Outside Linux there is no supervisor: Available reports
+// CONTAINMENT_UNAVAILABLE and production adapters refuse to run.
+package procsup
+
+import (
+	"io"
+	"runtime"
+	"time"
+)
+
+const (
+	// SupervisorArg is the argv[1] that makes the engine binary (or a test
+	// binary, through MaybeSupervise) a supervisor.
+	SupervisorArg = "__supervise"
+	// sentinelEnv marks a supervisor launch. The genuine supervisor removes
+	// it before starting its command, so a process that still carries it is
+	// a launch that was never dispatched (a test binary without
+	// MaybeSupervise in its TestMain), and Start refuses there before
+	// launching anything: the recursion stops at depth one.
+	sentinelEnv = "AIT_PROCSUP_SUPERVISOR"
+)
+
+var (
+	// SweepTimeout bounds a cleanup: the supervisor's kill-and-reap rounds,
+	// and SweepSession. Live processes left after it are cleanup_incomplete.
+	SweepTimeout = 5 * time.Second
+	// HandshakeTimeout bounds the wait for a launched supervisor's first
+	// status line; past it the client kills the process it launched.
+	HandshakeTimeout = 5 * time.Second
+)
+
+// Containment and boundary names recorded per invocation.
+const (
+	Supervisor = "supervisor"
+	None       = "none"
+)
+
+// CleanupError is a subtree (or session) that could not be proven empty:
+// cleanup_incomplete:<pids> | cleanup_unverified:<reason>.
+type CleanupError struct {
+	Detail string
+}
+
+func (e *CleanupError) Error() string { return e.Detail }
+
+// HaltedError is a start refused because the process's procsup is halted.
+type HaltedError struct {
+	Detail string // the first halting detail
+}
+
+func (e *HaltedError) Error() string { return "halted:" + e.Detail }
+
+// DispatchError is a start refused inside a supervisor launch that was never
+// dispatched (the sentinel is still in the environment).
+type DispatchError struct{}
+
+func (e *DispatchError) Error() string { return "supervisor_dispatch_missing" }
+
+// UnavailableError is a platform without a supervisor.
+type UnavailableError struct {
+	Platform string
+}
+
+func (e *UnavailableError) Error() string { return "CONTAINMENT_UNAVAILABLE:" + e.Platform }
+
+// Line is the protocol line production adapters print when they refuse.
+func (e *UnavailableError) Line() string { return e.Error() }
+
+func unavailable() *UnavailableError { return &UnavailableError{Platform: runtime.GOOS} }
+
+// Spec is one command to run under a supervisor.
+type Spec struct {
+	Path string
+	Args []string // not including the program name
+	Dir  string
+	Env  []string // nil: this process's environment
+	// Stdout and Stderr receive the command's output (nil: discarded). A
+	// non-*os.File writer is fed through a pipe, as with os/exec.
+	Stdout, Stderr io.Writer
+	Grace          time.Duration // after a cancel: SIGTERM, then this long before the kill
+	Bound          time.Duration // cleanup bound (0: SweepTimeout)
+	WaitDelay      time.Duration // bound on output pipes leaked holders keep open (0: 500 ms)
+}
+
+// Result is how a supervised command ended and whether its subtree was
+// proven empty.
+type Result struct {
+	Pid      int    // the command's pid (0 if it never started)
+	Exit     int    // its exit status; -1 when signalled or never started
+	Signal   string // the signal that ended it
+	StartErr error  // the command could not be started
+	Cleanup  error  // *CleanupError: the subtree was not proven empty
+	// OutputErr: the command's output did not fully reach the caller's
+	// writers (a copy error, or pipes a leaked holder kept open past
+	// WaitDelay). Its exit says nothing about what output was lost.
+	OutputErr  error
+	Cancelled  bool   // a cancel interrupted the running command
+	Halted     bool   // that cancel came from a halt
+	HaltDetail string // the halt's first detail (with Halted)
+	// SupervisorDied: the supervisor ended without a valid final status —
+	// killed, crashed, unresponsive, or never handshaking. Its subtree may
+	// be left running; nothing about the cleanup is known.
+	SupervisorDied bool
+	Detail         string // why the supervisor is counted dead
+}

@@ -1,0 +1,27 @@
+package builtin
+
+import (
+	"errors"
+	"fmt"
+	"strings"
+)
+
+// refused are the characters SplitCommand refuses: shell metacharacters
+// (tools run through exec, never a shell, so they would be passed
+// literally rather than mean what they say) and quoting, which it does not
+// implement.
+const refused = "$`;|&<>\n\r'\"\\"
+
+// SplitCommand splits a runners.yaml command: override into argv on
+// whitespace. Shell metacharacters, quoting and an empty command are
+// refused: the result is run through exec, never a shell.
+func SplitCommand(s string) ([]string, error) {
+	if i := strings.IndexAny(s, refused); i >= 0 {
+		return nil, fmt.Errorf("command %q: %q is not allowed (no shell, no quoting)", s, s[i])
+	}
+	argv := strings.Fields(s)
+	if len(argv) == 0 {
+		return nil, errors.New("empty command")
+	}
+	return argv, nil
+}

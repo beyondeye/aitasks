@@ -1,0 +1,192 @@
+//go:build unix
+
+// Package builtin is the scaffold every builtin runner adapter is built on
+// (M3.2c): the `ait-testmap runner <name> describe|list|run --manifest <path>`
+// entry point, the registry the engine's `builtin: <name>` resolves against,
+// and the helpers an adapter shares — manifest read, the results writer
+// (start rows, result rows, cases.jsonl rows), the fresh-report reader, the
+// runners.yaml entry lookup, an argv splitter, and supervised tool execution.
+//
+// Every process an adapter starts goes through Env.Supervise (procsup.Run):
+// bounded, cancellable, inside its own dedicated supervisor (G8). Where no
+// supervisor exists (darwin) a production adapter refuses before doing
+// anything (CONTAINMENT_UNAVAILABLE:<platform>, exit 3); only an adapter
+// registered TestOnly runs uncontained there, and its tool runs are marked
+// Containment none.
+//
+// No production adapter is registered by this package; each adapter package
+// (M3.2e–j) registers its own.
+package builtin
+
+import (
+	"context"
+	"fmt"
+	"io"
+	"os"
+	"os/signal"
+	"regexp"
+	"sort"
+	"sync"
+	"syscall"
+
+	"github.com/beyondeye/aitasks/goengines/internal/procsup"
+	"github.com/beyondeye/aitasks/goengines/internal/testmap/runner"
+)
+
+// Adapter is one builtin runner.
+type Adapter struct {
+	Name string
+	// TestOnly marks an adapter that exists only for tests: it may run
+	// uncontained where containment is unavailable. A production binary
+	// never registers one.
+	TestOnly bool
+	// Describe returns the runner's describe YAML.
+	Describe func(e *Env) ([]byte, error)
+	// List writes the runner's list rows. Native discovery runs its
+	// collector through e.Supervise, bounded by DiscoveryBound.
+	List func(ctx context.Context, e *Env, w io.Writer) error
+	// Run executes the manifest's units, writing rows through res, and
+	// returns the run exit (0 / 1 / 2 / 75; 64 for a usage error).
+	Run func(ctx context.Context, e *Env, m *runner.Manifest, res *Results) int
+}
+
+var (
+	mu       sync.Mutex
+	adapters = map[string]Adapter{}
+	nameRe   = regexp.MustCompile(`^[a-z][a-z0-9_-]*$`)
+)
+
+// Register makes a an available builtin (and `builtin: <name>` resolvable).
+// An invalid or duplicate name, or a missing verb, panics.
+func Register(a Adapter) {
+	mu.Lock()
+	defer mu.Unlock()
+	if !nameRe.MatchString(a.Name) || a.Describe == nil || a.List == nil || a.Run == nil {
+		panic("builtin: invalid adapter " + a.Name)
+	}
+	if _, dup := adapters[a.Name]; dup {
+		panic("builtin: adapter registered twice: " + a.Name)
+	}
+	adapters[a.Name] = a
+	runner.RegisterBuiltin(a.Name)
+}
+
+// Registered lists the registered adapters' names, sorted.
+func Registered() []string {
+	mu.Lock()
+	defer mu.Unlock()
+	out := make([]string, 0, len(adapters))
+	for n := range adapters {
+		out = append(out, n)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func lookup(name string) (Adapter, bool) {
+	mu.Lock()
+	defer mu.Unlock()
+	a, ok := adapters[name]
+	return a, ok
+}
+
+// Usage is the runner verb's usage line.
+const Usage = "ait-testmap runner <name> describe|list|run --manifest <path>"
+
+// Main runs `runner <name> <verb> …` and returns its exit code:
+//
+//	UNKNOWN_BUILTIN:<name>                    (stderr, exit 64)
+//	CONTAINMENT_UNAVAILABLE:<platform>        (stderr, exit 3; a production adapter without a supervisor)
+//	BUILTIN_ERROR:<name>|<verb>|<detail>       (stderr, exit 3)
+//
+// describe and list exit 0 on success; run exits with the adapter's code.
+// SIGTERM or SIGINT (the supervisor's cancel) cancels the adapter's context,
+// so its supervised tools are stopped and cleaned up before it returns.
+func Main(args []string, stdout, stderr io.Writer) int {
+	usage := func() int { fmt.Fprintln(stderr, "USAGE:"+Usage); return 64 }
+	if len(args) < 2 {
+		return usage()
+	}
+	name, verb, rest := args[0], args[1], args[2:]
+	a, ok := lookup(name)
+	if !ok {
+		fmt.Fprintln(stderr, "UNKNOWN_BUILTIN:"+oneLine(name))
+		return 64
+	}
+	var manifest string
+	switch {
+	case (verb == "describe" || verb == "list") && len(rest) == 0:
+	case verb == "run" && len(rest) == 2 && rest[0] == "--manifest":
+		manifest = rest[1]
+	default:
+		return usage()
+	}
+	if err := procsup.Available(); err != nil && !a.TestOnly {
+		fmt.Fprintln(stderr, err.Error())
+		return 3
+	}
+	fail := func(err error) int {
+		fmt.Fprintf(stderr, "BUILTIN_ERROR:%s|%s|%s\n", name, verb, oneLine(err.Error()))
+		return 3
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
+	defer stop()
+	e := newEnv(a)
+	switch verb {
+	case "describe":
+		b, err := a.Describe(e)
+		if err != nil {
+			return fail(err)
+		}
+		if _, err := stdout.Write(b); err != nil {
+			return fail(err)
+		}
+		return 0
+	case "list":
+		if err := a.List(ctx, e, stdout); err != nil {
+			return fail(err)
+		}
+		return 0
+	}
+	m, err := ReadManifest(manifest)
+	if err != nil {
+		return fail(err)
+	}
+	if m.ReportDir != "" {
+		if e.ReportDir, err = runner.OpenReportDir(m.ReportDir); err != nil {
+			return fail(err)
+		}
+	}
+	res, err := OpenResults(m)
+	if err != nil {
+		return fail(err)
+	}
+	code := a.Run(ctx, e, m, res)
+	if err := res.Close(); err != nil {
+		return fail(err)
+	}
+	return code
+}
+
+// oneLine makes free text safe for one line-protocol field.
+func oneLine(s string) string {
+	b := []byte(s)
+	for i, c := range b {
+		if c == '\n' || c == '\r' || c == '|' {
+			b[i] = ' '
+		}
+	}
+	return string(b)
+}
+
+// env reads the engine-provided environment once.
+func newEnv(a Adapter) *Env {
+	return &Env{
+		Root:       os.Getenv("AIT_TESTMAP_ROOT"),
+		Runner:     os.Getenv("AIT_TESTMAP_RUNNER"),
+		Command:    os.Getenv("AIT_TESTMAP_COMMAND"),
+		Accounting: os.Getenv("AIT_TESTMAP_ACCOUNTING"),
+		RunID:      os.Getenv("AIT_TESTMAP_RUN_ID"),
+		testOnly:   a.TestOnly,
+	}
+}

@@ -5,8 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"strconv"
 	"testing"
+
+	"github.com/beyondeye/aitasks/goengines/internal/procsup"
 )
 
 // nestedEngineArg makes the test binary a minimal engine: `<test binary>
@@ -19,7 +22,16 @@ const nestedEngineArg = "__nested_engine"
 // tests under an active marker for the enclosing repository (G9: the
 // engine's own suite stays green under one, because every test entry uses a
 // fixture repository).
+// dieAfterCleanupEnv=run makes this binary, supervising a runner's `run`,
+// die once its cleanup reached ECHILD and before its status (test code
+// only: TestNoSessionSignallingWhenSupervised).
+const dieAfterCleanupEnv = "AIT_TEST_DIE_AFTER_CLEANUP"
+
 func TestMain(m *testing.M) {
+	if os.Getenv(dieAfterCleanupEnv) == "run" && slices.Contains(os.Args, "run") {
+		procsup.SetDieAfterCleanupForTesting()
+	}
+	procsup.MaybeSupervise() // this binary is the supervisor of every runner it starts
 	if len(os.Args) == 3 && os.Args[1] == nestedEngineArg {
 		os.Exit(nestedEngine(os.Args[2]))
 	}

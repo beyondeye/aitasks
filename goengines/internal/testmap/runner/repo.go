@@ -350,7 +350,7 @@ func (r *Runner) call(ctx context.Context, root, verb string) ([]byte, error) {
 	if res.Sweep != nil {
 		return nil, lineErr(ClassProtocol, r.Name(), verb, res.Sweep.Error())
 	}
-	if res.StartErr != nil || res.Overflow || res.Killed || res.Exit != 0 {
+	if res.failed() {
 		return nil, lineErr(ClassProtocol, r.Name(), verb, res.exitText())
 	}
 	return res.Stdout, nil

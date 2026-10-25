@@ -340,3 +340,55 @@ func TestFreshReportRefusals(t *testing.T) {
 		t.Errorf("removed report directory: absent %v err %v", absent, err)
 	}
 }
+
+// OpenReportDir takes the engine's report directory in another process (a
+// builtin at startup): only a real, empty directory, and FreshReport then
+// judges freshness against the moment it was opened.
+func TestOpenReportDir(t *testing.T) {
+	base := t.TempDir()
+	dir := filepath.Join(base, "report")
+	if _, err := NewReportDir(dir); err != nil {
+		t.Fatal(err)
+	}
+	d, err := OpenReportDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fresh := filepath.Join(dir, "cases.jsonl")
+	if err := os.WriteFile(fresh, []byte("x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if data, _, err := FreshReport(d, fresh); err != nil || string(data) != "x\n" {
+		t.Fatalf("fresh: %q %v", data, err)
+	}
+	old := filepath.Join(dir, "old.jsonl")
+	if err := os.WriteFile(old, []byte("y\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(old, d.Start.Add(-time.Hour), d.Start.Add(-time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := FreshReport(d, old); err == nil || !strings.Contains(err.Error(), "stale") {
+		t.Fatalf("back-dated: %v", err)
+	}
+	if _, err := OpenReportDir(dir); err == nil || !strings.Contains(err.Error(), "not empty") {
+		t.Fatalf("non-empty: %v", err)
+	}
+	file := filepath.Join(base, "file")
+	if err := os.WriteFile(file, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	empty := filepath.Join(base, "empty")
+	if err := os.Mkdir(empty, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(base, "link")
+	if err := os.Symlink(empty, link); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []string{file, link, filepath.Join(base, "missing")} {
+		if _, err := OpenReportDir(p); err == nil {
+			t.Errorf("%s accepted", p)
+		}
+	}
+}

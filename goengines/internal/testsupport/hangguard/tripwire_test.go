@@ -70,7 +70,9 @@ type tripPackage struct {
 // tripwirePackages are the packages whose tests the tripwire covers. A
 // package whose tests start processes opts in with one entry.
 var tripwirePackages = []tripPackage{
-	{dir: "internal/testmap/runner", name: "runner", localStarters: []string{"Run", "Load", "sweepSession"}},
+	{dir: "internal/testmap/runner", name: "runner", localStarters: []string{"Run", "Load"}},
+	{dir: "internal/procsup", name: "procsup", localStarters: []string{"Start", "Run", "SweepSession", "SuperviseMain"}},
+	{dir: "internal/testmap/runner/builtin", name: "builtin", localStarters: []string{"Main"}},
 	{dir: guardDir, name: "hangguard", allow: map[string]string{
 		"TestIsolationControls":     "the watchdog's own negative controls: they launch runChild themselves and must see the HANG and LEAK reports it produces",
 		"TestReapMarkedUncertainty": "drives reapMarked against processes it starts; isolated, it would run under the cleanup it tests",

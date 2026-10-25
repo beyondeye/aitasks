@@ -1,0 +1,69 @@
+//go:build unix
+
+package procsup
+
+import (
+	"slices"
+	"strconv"
+	"strings"
+	"syscall"
+	"time"
+)
+
+// SessionProc is one process of a session.
+type SessionProc struct {
+	Pid, Pgid int
+	Zombie    bool
+}
+
+// SweepSession kills every process whose session id is sid and returns once
+// none is alive (a zombie counts as gone: it runs nothing and its parent
+// reaps it). Each round kills every process group found in the session, then
+// every remaining pid, then re-enumerates — a process forked during a round
+// is caught by the next. A session that cannot be enumerated, or that is
+// still alive after bound, is a *CleanupError: it never claims a cleanup it
+// could not observe.
+//
+// While any member is alive the kernel keeps sid allocated, so it cannot be
+// reused for an unrelated session during the sweep. It is only sound while
+// the caller knows the session still has its original members: the engine
+// uses it on the unsupervised (darwin) path only — on Linux it never signals
+// by session number (the supervisor owns cleanup there).
+func SweepSession(sid int, bound time.Duration) error {
+	end := time.Now().Add(bound)
+	for {
+		procs, err := SessionProcs(sid)
+		if err != nil {
+			return &CleanupError{Detail: "cleanup_unverified:" + err.Error()}
+		}
+		var live []SessionProc
+		for _, p := range procs {
+			if !p.Zombie {
+				live = append(live, p)
+			}
+		}
+		if len(live) == 0 {
+			return nil
+		}
+		if time.Now().After(end) {
+			pids := make([]string, len(live))
+			for i, p := range live {
+				pids[i] = strconv.Itoa(p.Pid)
+			}
+			return &CleanupError{Detail: "cleanup_incomplete:" + strings.Join(pids, ",")}
+		}
+		var groups []int
+		for _, p := range live {
+			if p.Pgid > 0 && !slices.Contains(groups, p.Pgid) {
+				groups = append(groups, p.Pgid)
+			}
+		}
+		for _, g := range groups {
+			_ = syscall.Kill(-g, syscall.SIGKILL)
+		}
+		for _, p := range live {
+			_ = syscall.Kill(p.Pid, syscall.SIGKILL)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}

@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/beyondeye/aitasks/goengines/internal/procsup"
 	"github.com/beyondeye/aitasks/goengines/internal/testmap/registry"
 )
 
@@ -238,8 +239,8 @@ func TestOutcomeTable(t *testing.T) {
 			want{map[string]string{"a": StatusError, "b": StatusBatchTimeout}, CauseReconciliation, "duplicate:a", false, BoundBatch}},
 		"start failure":       {EndState{Exit: -1, StartErr: errors.New("enoent")}, "", TimeoutsBatch, want{map[string]string{"a": StatusNotStarted, "b": StatusNotStarted}, CauseMechanism, "runner_start:enoent", false, ""}},
 		"overflow":            {EndState{Exit: -1, Overflow: true}, "", TimeoutsBatch, want{map[string]string{"a": StatusMissing, "b": StatusMissing}, CauseMechanism, "runner_output_overflow", false, ""}},
-		"sweep failed on 75":  {EndState{Exit: 75, Sweep: &cleanupError{Detail: "cleanup_incomplete:42"}}, "", TimeoutsBatch, want{map[string]string{"a": StatusMissing, "b": StatusMissing}, CauseMechanism, "cleanup_incomplete:42", false, ""}},
-		"sweep failed + kill": {EndState{Exit: -1, Killed: true, Bound: BoundBatch, Sweep: &cleanupError{Detail: "cleanup_unverified:x"}}, "", TimeoutsBatch, want{map[string]string{"a": StatusBatchTimeout, "b": StatusBatchTimeout}, CauseMechanism, "cleanup_unverified:x", false, BoundBatch}},
+		"sweep failed on 75":  {EndState{Exit: 75, Sweep: &procsup.CleanupError{Detail: "cleanup_incomplete:42"}}, "", TimeoutsBatch, want{map[string]string{"a": StatusMissing, "b": StatusMissing}, CauseMechanism, "cleanup_incomplete:42", false, ""}},
+		"sweep failed + kill": {EndState{Exit: -1, Killed: true, Bound: BoundBatch, Sweep: &procsup.CleanupError{Detail: "cleanup_unverified:x"}}, "", TimeoutsBatch, want{map[string]string{"a": StatusBatchTimeout, "b": StatusBatchTimeout}, CauseMechanism, "cleanup_unverified:x", false, BoundBatch}},
 	} {
 		exp := ids("a", "b")
 		v := ValidateRows([]byte(tc.data), tc.end.Killed, ctxFor(tc.mode, false, "a", "b"))

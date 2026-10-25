@@ -1,0 +1,110 @@
+//go:build unix
+
+package procsup
+
+import (
+	"os"
+	"sync"
+	"sync/atomic"
+	"testing"
+)
+
+// MaybeSupervise makes a test binary a supervisor when it was launched as
+// one: the first statement of the TestMain of every test binary that starts
+// supervised processes (procsup.SupervisorExe is the test binary there). It
+// returns only when this process is not a supervisor launch.
+func MaybeSupervise() {
+	if len(os.Args) > 1 && os.Args[1] == SupervisorArg {
+		if _, ok := os.LookupEnv(sentinelEnv); ok {
+			os.Exit(SuperviseMain(os.Args[2:]))
+		}
+	}
+}
+
+// Test seams. Every setter panics outside a test binary, so a production
+// binary cannot reach them; none of them can remove containment — they make
+// a start refuse, pause it, observe it, or make a supervisor die.
+var (
+	hookMu            sync.Mutex
+	beforeAdmit       func()
+	beforeLaunch      func()
+	onLaunch          func()
+	onStart           func(supervisorPid, commandPid int)
+	forcedUnavailable atomic.Bool
+	// dieAfterCleanup makes this process, when it supervises, kill itself
+	// once its cleanup reached ECHILD, before writing its status.
+	dieAfterCleanup bool
+)
+
+func testOnly(name string) {
+	if !testing.Testing() {
+		panic("procsup: " + name + " called outside a test binary")
+	}
+}
+
+func setHook(name string, slot *func(), f func()) (restore func()) {
+	testOnly(name)
+	hookMu.Lock()
+	old := *slot
+	*slot = f
+	hookMu.Unlock()
+	return func() { hookMu.Lock(); *slot = old; hookMu.Unlock() }
+}
+
+func callHook(slot *func()) {
+	hookMu.Lock()
+	f := *slot
+	hookMu.Unlock()
+	if f != nil {
+		f()
+	}
+}
+
+func startHook() func(int, int) {
+	hookMu.Lock()
+	defer hookMu.Unlock()
+	return onStart
+}
+
+// BeforeAdmitForTesting runs f at the start of every Start, before
+// admission (it may block, to pause a Start across a halt).
+func BeforeAdmitForTesting(f func()) (restore func()) {
+	return setHook("BeforeAdmitForTesting", &beforeAdmit, f)
+}
+
+// BeforeLaunchForTesting runs f after admission, before the launch.
+func BeforeLaunchForTesting(f func()) (restore func()) {
+	return setHook("BeforeLaunchForTesting", &beforeLaunch, f)
+}
+
+// OnLaunchForTesting runs f immediately before a supervisor is launched.
+func OnLaunchForTesting(f func()) (restore func()) {
+	return setHook("OnLaunchForTesting", &onLaunch, f)
+}
+
+// OnStartForTesting runs f with the supervisor's and the command's pids
+// once a supervisor has handshaken.
+func OnStartForTesting(f func(supervisorPid, commandPid int)) (restore func()) {
+	testOnly("OnStartForTesting")
+	hookMu.Lock()
+	old := onStart
+	onStart = f
+	hookMu.Unlock()
+	return func() { hookMu.Lock(); onStart = old; hookMu.Unlock() }
+}
+
+// SetUnavailableForTesting makes Available report CONTAINMENT_UNAVAILABLE,
+// as on a platform without a supervisor.
+func SetUnavailableForTesting() (restore func()) {
+	testOnly("SetUnavailableForTesting")
+	old := forcedUnavailable.Swap(true)
+	return func() { forcedUnavailable.Store(old) }
+}
+
+// SetDieAfterCleanupForTesting makes this process, when it supervises, kill
+// itself after its cleanup reached ECHILD and before it writes its status —
+// a supervisor death that left nothing behind.
+func SetDieAfterCleanupForTesting() {
+	testOnly("SetDieAfterCleanupForTesting")
+	dieAfterCleanup = true
+}

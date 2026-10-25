@@ -1,0 +1,222 @@
+//go:build unix
+
+package procsup
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"os/exec"
+	"sync"
+	"syscall"
+	"time"
+)
+
+// RunSpec is one tool command a builtin runs, bounded.
+type RunSpec struct {
+	Path string
+	Args []string
+	Dir  string
+	Env  []string // nil: this process's environment
+	// Stdout and Stderr are paths of regular files (created if absent,
+	// truncated; a link, a FIFO or a device is refused before anything is
+	// launched) the output is written to, each at
+	// most OutputMax bytes (0: DefaultOutputMax; "" discards). Past the cap
+	// the rest is drained and dropped, and the result is Truncated.
+	Stdout, Stderr string
+	OutputMax      int64
+	Timeout        time.Duration // 0: unbounded (the caller's ctx still applies)
+	Grace          time.Duration
+	Bound          time.Duration
+	// AllowUncontained lets a test-only adapter run where containment is
+	// unavailable (darwin): the command runs in its own session, killed by
+	// session group on timeout, and the result says Containment none.
+	// Production adapters never set it; they refuse instead (G8).
+	AllowUncontained bool
+}
+
+// RunResult is a finished RunSpec.
+type RunResult struct {
+	Result
+	TimedOut  bool // Timeout fired and cancelled the running command
+	Cancelled bool // the caller's ctx was cancelled
+	Truncated bool // output past OutputMax was dropped
+	// Result.OutputErr also carries the first error writing or closing an
+	// output file: the captured output is incomplete whatever the exit.
+	Containment string // supervisor | none
+}
+
+// Run runs s to completion under a supervisor: its own session and process
+// group, SIGTERM then the grace then the containment kill on timeout or
+// cancellation, the subtree proven empty before it returns.
+func Run(ctx context.Context, s RunSpec) RunResult {
+	stdout, err := openCapped(s.Stdout, s.OutputMax)
+	if err != nil {
+		return RunResult{Result: Result{Exit: -1, StartErr: err}}
+	}
+	defer stdout.close() // idempotent: Run closes both, and reports, before returning
+	stderr, err := openCapped(s.Stderr, s.OutputMax)
+	if err != nil {
+		return RunResult{Result: Result{Exit: -1, StartErr: err}}
+	}
+	defer stderr.close()
+	tctx, cancel := ctx, context.CancelFunc(func() {})
+	if s.Timeout > 0 {
+		tctx, cancel = context.WithTimeout(ctx, s.Timeout)
+	}
+	defer cancel()
+	var rr RunResult
+	if err := Available(); err != nil {
+		if !s.AllowUncontained {
+			return RunResult{Result: Result{Exit: -1, StartErr: err}}
+		}
+		rr = runUncontained(tctx, s, stdout, stderr)
+	} else {
+		// Start refuses an already-done context before launching, and turns
+		// a later cancellation (the timeout, or the caller's) into a Cancel.
+		p, err := Start(tctx, Spec{Path: s.Path, Args: s.Args, Dir: s.Dir, Env: s.Env, Stdout: stdout, Stderr: stderr, Grace: s.Grace, Bound: s.Bound})
+		if err != nil {
+			return RunResult{Result: Result{Exit: -1, StartErr: err}, Containment: Supervisor, Cancelled: ctx.Err() != nil}
+		}
+		rr = RunResult{Result: p.Wait(), Containment: Supervisor}
+	}
+	rr.Cancelled = ctx.Err() != nil
+	rr.TimedOut = !rr.Cancelled && errors.Is(tctx.Err(), context.DeadlineExceeded) && (rr.Result.Cancelled || rr.Containment == None)
+	rr.Truncated = stdout.truncated() || stderr.truncated()
+	for _, c := range []*cappedFile{stdout, stderr} {
+		if err := c.close(); err != nil && rr.OutputErr == nil {
+			rr.OutputErr = err
+		}
+	}
+	return rr
+}
+
+// runUncontained is the test-only path where no supervisor exists.
+func runUncontained(ctx context.Context, s RunSpec, stdout, stderr io.Writer) RunResult {
+	cmd := exec.Command(s.Path, s.Args...)
+	cmd.Dir, cmd.Env = s.Dir, s.Env
+	cmd.Stdout, cmd.Stderr = stdout, stderr
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	cmd.WaitDelay = 500 * time.Millisecond
+	r := RunResult{Result: Result{Exit: -1}, Containment: None}
+	if err := cmd.Start(); err != nil {
+		r.StartErr = err
+		return r
+	}
+	r.Pid = cmd.Process.Pid
+	done := make(chan struct{})
+	go func() {
+		select {
+		case <-ctx.Done():
+			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGTERM)
+			select {
+			case <-done:
+			case <-time.After(s.Grace):
+				_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+			}
+		case <-done:
+		}
+	}()
+	_ = cmd.Wait()
+	close(done)
+	if ps := cmd.ProcessState; ps != nil {
+		r.Exit = ps.ExitCode()
+		if ws, ok := ps.Sys().(syscall.WaitStatus); ok && ws.Signaled() {
+			r.Signal = ws.Signal().String()
+		}
+	}
+	return r
+}
+
+// cappedFile writes at most max bytes to a file and drops the rest, so the
+// pipe keeps draining. A write error is kept (the first one) rather than
+// returned: the command's output is still drained, and the result reports
+// the loss (OutputErr).
+type cappedFile struct {
+	mu     sync.Mutex
+	f      *os.File
+	max    int64
+	n      int64
+	over   bool
+	err    error // the first write or close error
+	closed bool
+}
+
+// DefaultOutputMax caps a RunSpec stream whose OutputMax is 0.
+const DefaultOutputMax = 64 << 20
+
+func openCapped(path string, max int64) (*cappedFile, error) {
+	if max <= 0 {
+		max = DefaultOutputMax
+	}
+	if path == "" {
+		return &cappedFile{}, nil
+	}
+	// Only a regular file, and never through a link: a blocking open of a
+	// FIFO with no reader would hang before any timeout or cancellation
+	// exists (no deadline interrupts open(2)), so the open itself never
+	// blocks (O_NONBLOCK: a reader-less FIFO fails at once with ENXIO), a
+	// link is refused (O_NOFOLLOW, which also stops a FIFO reached through
+	// one), and the opened handle must be a regular file (fstat on it, so
+	// nothing swapped in after a check is used). Truncation comes last, on
+	// that same handle.
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|syscall.O_NONBLOCK|syscall.O_NOFOLLOW, 0o644)
+	if err != nil {
+		return nil, fmt.Errorf("output %s: %w", path, err)
+	}
+	fi, err := f.Stat()
+	if err == nil && !fi.Mode().IsRegular() {
+		err = fmt.Errorf("not a regular file (%s)", fi.Mode().Type())
+	}
+	if err == nil {
+		err = f.Truncate(0)
+	}
+	if err != nil {
+		f.Close()
+		return nil, fmt.Errorf("output %s: %w", path, err)
+	}
+	return &cappedFile{f: f, max: max}, nil
+}
+
+func (c *cappedFile) Write(p []byte) (int, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.f == nil {
+		return len(p), nil
+	}
+	room := c.max - c.n
+	w := p
+	if int64(len(w)) > room {
+		w = w[:max(room, 0)]
+		c.over = true
+	}
+	if len(w) > 0 && c.err == nil {
+		k, err := c.f.Write(w)
+		c.n += int64(k)
+		if err != nil {
+			c.err = err // keep draining; the loss is reported, not hidden
+		}
+	}
+	return len(p), nil
+}
+
+func (c *cappedFile) truncated() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.over
+}
+
+// close closes the file once and returns the first write or close error.
+func (c *cappedFile) close() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.f != nil && !c.closed {
+		c.closed = true
+		if err := c.f.Close(); err != nil && c.err == nil {
+			c.err = err
+		}
+	}
+	return c.err
+}

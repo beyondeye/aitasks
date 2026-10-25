@@ -1,0 +1,81 @@
+//go:build linux
+
+package procsup
+
+import "sync"
+
+// The halt. A supervisor death or a failed cleanup means a subtree may be
+// left running that nothing owns any more, so the process stops all further
+// supervised work: every later Start is refused, and every other active
+// supervisor is cancelled (its subtree cleaned up, its result Halted). There
+// is no recovery: the halt lasts for the life of the process (the engine is
+// one process per verb).
+//
+// Admission and registration are one critical section with the halt, under
+// admitMu, which guards the halted flag, the first detail and the registry
+// together:
+//
+//  1. admit: if halted, refuse; else reserve the Proc in the registry;
+//  2. launch (outside the lock);
+//  3. activate: mark it launched, and if a cancel was requested meanwhile —
+//     by a halt that saw the reservation — send it now.
+//
+// A halt marks every registry entry, reservations included, and cancels the
+// launched ones at once. So a Start that overlaps a halt either checks after
+// it (refused, nothing launched) or reserved before it (in the snapshot,
+// cancelled no later than its activation): there is no third interleaving.
+var (
+	admitMu    sync.Mutex
+	halted     bool
+	haltDetail string
+	registry   = map[*Proc]struct{}{}
+)
+
+func admit(p *Proc) error {
+	admitMu.Lock()
+	defer admitMu.Unlock()
+	if halted {
+		return &HaltedError{Detail: haltDetail}
+	}
+	registry[p] = struct{}{}
+	return nil
+}
+
+// withdraw drops a reservation whose launch failed.
+func withdraw(p *Proc) {
+	admitMu.Lock()
+	defer admitMu.Unlock()
+	delete(registry, p)
+}
+
+func activate(p *Proc) {
+	admitMu.Lock()
+	defer admitMu.Unlock()
+	p.launched = true
+	if p.cancelRequested {
+		p.sendCancelLocked()
+	}
+}
+
+// halt stops further supervised work in this process (the first detail is
+// kept) and cancels every registered supervisor.
+func halt(detail string) {
+	admitMu.Lock()
+	defer admitMu.Unlock()
+	if !halted {
+		halted, haltDetail = true, detail
+	}
+	for p := range registry {
+		p.cancelRequested, p.haltCancel = true, true
+		if p.launched {
+			p.sendCancelLocked()
+		}
+	}
+}
+
+// Halted reports whether this process's procsup is halted, and why.
+func Halted() (bool, string) {
+	admitMu.Lock()
+	defer admitMu.Unlock()
+	return halted, haltDetail
+}

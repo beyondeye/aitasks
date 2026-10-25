@@ -66,6 +66,31 @@ func NewReportDir(path string) (ReportDir, error) {
 	return ReportDir{Path: path, Start: fi.ModTime(), id: fi}, nil
 }
 
+// OpenReportDir records, in another process than the engine's — a builtin,
+// at its startup, before any tool runs — the report directory the engine
+// created for this invocation: path must be a real directory (not a
+// symbolic link) and still empty. Start is its modification time now, which
+// is still its creation time since nothing has been written into it, so
+// FreshReport refuses a file older than the invocation exactly as on the
+// engine side.
+func OpenReportDir(path string) (ReportDir, error) {
+	fi, err := os.Lstat(path)
+	if err != nil {
+		return ReportDir{}, err
+	}
+	if !fi.IsDir() {
+		return ReportDir{}, fmt.Errorf("%s is not a directory (%s)", path, fi.Mode().Type())
+	}
+	ents, err := os.ReadDir(path)
+	if err != nil {
+		return ReportDir{}, err
+	}
+	if len(ents) > 0 {
+		return ReportDir{}, fmt.Errorf("%s is not empty (%s)", path, ents[0].Name())
+	}
+	return ReportDir{Path: path, Start: fi.ModTime(), id: fi}, nil
+}
+
 // FreshReport reads a report a runner wrote into the report directory d,
 // refusing anything the invocation did not produce: a path outside d; d
 // itself replaced (a symbolic link, or any directory but the one the engine
