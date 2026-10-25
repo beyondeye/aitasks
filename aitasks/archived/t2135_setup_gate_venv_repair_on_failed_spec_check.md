@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [setup, python_deps]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -17,7 +17,8 @@ anchor: 2133
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5_5
 created_at: 2026-10-23 12:22
-updated_at: 2026-10-25 06:30
+updated_at: 2026-10-25 07:45
+completed_at: 2026-10-25 07:45
 ---
 
 ## Origin
@@ -57,3 +58,14 @@ behavioural case whose stub passes imports but fails the `python -` inspection.
 > **✅ gate:plan_approved** run=2026-10-25T04:30:47Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-10-25T05:43:28Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-10-25T05:45:08Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:31092d5bfb7f8af3
+
+> **✅ gate:risk_evaluated** run=2026-10-25T05:45:08Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/2135/risk_evaluated_2026-10-25T05:45:08Z-risk_evaluated-a1.log`
