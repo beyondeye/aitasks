@@ -2,14 +2,14 @@
 priority: medium
 effort: medium
 depends: [2037]
-xdeps: [17]
+xdeps: [17, 23]
 xdeprepo: aitasks_go
 issue_type: feature
 status: Ready
 labels: [monitor, tmux]
 anchor: 2034
 created_at: 2026-10-16 08:11
-updated_at: 2026-10-16 08:11
+updated_at: 2026-10-25 09:36
 ---
 
 The `ait-monitord` binary skeleton (parent: Go monitor status server task).
