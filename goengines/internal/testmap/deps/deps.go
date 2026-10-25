@@ -72,6 +72,13 @@ type GradleModule struct {
 	Dir       string   `json:"dir"`  // repository-relative; "" = the repository root
 	BuildFile string   `json:"build_file,omitempty"`
 	Deps      []string `json:"deps,omitempty"` // logical names of the projects it depends on, direct
+	// Declared marks a project a settings file declares: its own directory's
+	// root project or an `include`. A record that exists only because a
+	// build file sits in a directory no settings file includes is false.
+	Declared bool `json:"declared,omitempty"`
+	// Settings is the settings file that declared the project (the first one,
+	// in path order, when several do); "" when none did.
+	Settings string `json:"settings,omitempty"`
 }
 
 // Problem is a non-fatal finding of a scan: an input it could not read

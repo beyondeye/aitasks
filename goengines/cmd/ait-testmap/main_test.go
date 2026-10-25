@@ -23,7 +23,7 @@ func call(args ...string) (code int, stdout, stderr string) {
 var proposalVerbs = []string{
 	"test", "select", "schedule", "run", "scan", "check", "stale", "annotate",
 	"verify", "explain", "axes", "areas", "classify", "costs", "score",
-	"attribute", "readiness", "brief", "onboard", "runner", "version",
+	"attribute", "readiness", "brief", "onboard", "runner", "modules", "version",
 }
 
 var proposalOnboard = []string{
@@ -57,7 +57,7 @@ func TestStubsExit64(t *testing.T) {
 	var calls [][]string
 	for _, v := range proposalVerbs {
 		switch v {
-		case "version", "scan", "check", "annotate", "verify", "run", "axes", "areas", "classify", "costs", "runner": // implemented: scan and check by M2.1, annotate and verify by M2.2, run by M3.1, axes by M2.4, areas and classify by M2.5, costs by M3.4, runner by M3.2c
+		case "version", "scan", "check", "annotate", "verify", "run", "axes", "areas", "classify", "costs", "runner", "modules": // implemented: scan and check by M2.1, annotate and verify by M2.2, run by M3.1, axes by M2.4, areas and classify by M2.5, costs by M3.4, runner by M3.2c, modules by M2.7
 		case "onboard":
 			for _, s := range proposalOnboard {
 				calls = append(calls, []string{"onboard", s, "--flag"})

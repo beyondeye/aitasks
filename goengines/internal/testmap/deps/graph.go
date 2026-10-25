@@ -10,6 +10,7 @@ import (
 type Graph struct {
 	files    map[string]*FileFacts
 	order    []string
+	universe []string // every universe file, scanned or not
 	reverse  map[string][]string
 	modules  []GradleModule
 	problems []Problem
@@ -42,6 +43,13 @@ func newGraph(facts map[string]*FileFacts, modules []GradleModule, problems []Pr
 
 // Files returns every scanned file, sorted.
 func (g *Graph) Files() []string { return slices.Clone(g.order) }
+
+// Universe returns every file the scan started from, sorted: the git-visible
+// files minus `exclude:`, missing files and anything reached through a
+// symbolic link or that is not a regular file — including the files no
+// scanner reads (JSON, Markdown, config, unsupported languages), which Files
+// omits. It is the file set path ownership is judged over.
+func (g *Graph) Universe() []string { return slices.Clone(g.universe) }
 
 // Facts returns a copy of path's facts.
 func (g *Graph) Facts(path string) (FileFacts, bool) {

@@ -1,0 +1,113 @@
+package registry
+
+import (
+	"context"
+	"errors"
+)
+
+// M2.7 check rules: MODULES_DRIFT (the committed `_modules.yaml` differs from
+// a live re-inference) and MODULE_CONFLICT (two modules whose path sets
+// overlap but differ). Both judge a live view the `modules` package infers
+// over the dependency graph; this package cannot scan, so that package
+// registers the inference from its init. Both run only for a registry that
+// declares a modules table (ModulesOf(reg).Declared()): one that never opted
+// in has no table to drift, and `check` stays exactly as it was for it.
+
+// Rule names of M2.7.
+const (
+	RuleModulesDrift   = "MODULES_DRIFT"
+	RuleModuleConflict = "MODULE_CONFLICT"
+)
+
+// LiveModules is the generated modules table inferred now, and the complete
+// file universe it was inferred over (every file, scanned or not).
+type LiveModules struct {
+	Doc   ModulesDoc
+	Files []string
+}
+
+// ModuleInference re-infers the generated modules table of the repository at
+// root (M2.7's `modules` package: deps.Scan plus the providers).
+type ModuleInference func(ctx context.Context, root string, reg *Registry) (*LiveModules, error)
+
+var moduleInference ModuleInference
+
+// RegisterModuleInference installs the live inference and returns the one it
+// replaces (tests restore it).
+func RegisterModuleInference(f ModuleInference) ModuleInference {
+	prev := moduleInference
+	moduleInference = f
+	return prev
+}
+
+type liveModulesMemo struct {
+	live *LiveModules
+	res  *Resolution
+	err  error
+}
+
+// liveModules infers the live table once per check run. ok is false when the
+// registry declares no modules table.
+func (c *CheckContext) liveModules() (memo *liveModulesMemo, ok bool) {
+	if !ModulesOf(c.Reg).Declared() {
+		return nil, false
+	}
+	if c.modules != nil {
+		return c.modules, true
+	}
+	m := &liveModulesMemo{}
+	c.modules = m
+	if moduleInference == nil {
+		m.err = errors.New("no module inference is registered") // fail closed: a declared table is never judged clean unseen
+		return m, true
+	}
+	ctx := c.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if m.live, m.err = moduleInference(ctx, c.Root, c.Reg); m.err != nil {
+		return m, true
+	}
+	m.res, m.err = ModulesOf(c.Reg).WithGenerated(m.live.Doc).Resolve(m.live.Files)
+	return m, true
+}
+
+func init() {
+	RegisterRule(CheckRule{Name: RuleModulesDrift, Run: checkModulesDrift})
+	RegisterRule(CheckRule{Name: RuleModuleConflict, Run: checkModuleConflict})
+}
+
+// MODULES_DRIFT:aitestmap/registry/_modules.yaml — the committed table is not
+// what `modules --scan --apply` would write now. Like SCAN_DRIFT it fails
+// only under --strict past bootstrap.
+func checkModulesDrift(c *CheckContext) ([]Finding, error) {
+	m, ok := c.liveModules()
+	if !ok {
+		return nil, nil
+	}
+	if m.err != nil {
+		return nil, m.err
+	}
+	changed, _, err := ModulesDrift(c.Root, m.live.Doc)
+	if err != nil || !changed {
+		return nil, err
+	}
+	return []Finding{{Rule: RuleModulesDrift, Fields: []string{ModulesPath}, Severity: StrictPastBootstrap}}, nil
+}
+
+// MODULE_CONFLICT:<winner>@<provider>|<loser>@<provider>|<paths_n>|<first path>
+// — Info, never failing: a refinement is the normal case.
+func checkModuleConflict(c *CheckContext) ([]Finding, error) {
+	m, ok := c.liveModules()
+	if !ok {
+		return nil, nil
+	}
+	if m.err != nil {
+		return nil, m.err
+	}
+	var out []Finding
+	for _, cf := range m.res.Conflicts {
+		out = append(out, Finding{Rule: RuleModuleConflict, Fields: cf.Fields(), Severity: Info})
+	}
+	return out, nil
+}

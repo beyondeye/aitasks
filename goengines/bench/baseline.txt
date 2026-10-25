@@ -20,3 +20,4 @@ internal/testmap/registry.BenchmarkScan 20281273 budget=300ms
 internal/testmap/annot.BenchmarkScan 21446962 budget=300ms
 internal/testmap/deps.BenchmarkScanCold 1003078576 budget=1500ms
 internal/testmap/deps.BenchmarkScanWarm 115961808 budget=150ms
+internal/testmap/modules.BenchmarkCheckModulesDrift 220186132 budget=300ms

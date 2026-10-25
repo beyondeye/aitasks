@@ -158,6 +158,11 @@ func buildGradle(files map[string]*scanned, u *universe, problem func(p, r strin
 		order = append(order, m)
 		return m
 	}
+	declare := func(m *GradleModule, sf string) {
+		if !m.Declared {
+			m.Declared, m.Settings = true, sf
+		}
+	}
 	var settingsFiles, buildFiles []string
 	for _, p := range u.list {
 		base := path.Base(p)
@@ -182,7 +187,7 @@ func buildGradle(files map[string]*scanned, u *universe, problem func(p, r strin
 		if sd == "" {
 			root = ":"
 		}
-		addModule(root, sd)
+		declare(addModule(root, sd), sf)
 		overrides := map[string]string{}
 		for _, pd := range g.ProjectDirs {
 			overrides[":"+strings.TrimPrefix(pd.Name, ":")] = path.Clean(joinRel(sd, pd.Dir))
@@ -193,7 +198,7 @@ func buildGradle(files map[string]*scanned, u *universe, problem func(p, r strin
 			if o, ok := overrides[name]; ok {
 				dir = rootDir(o)
 			}
-			addModule(name, dir)
+			declare(addModule(name, dir), sf)
 		}
 		if len(g.Dynamic) > 0 {
 			b.dynamic[sf] = true

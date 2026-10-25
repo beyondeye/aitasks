@@ -1,0 +1,57 @@
+package modules
+
+import (
+	"sort"
+
+	"github.com/beyondeye/aitasks/goengines/internal/testmap/deps"
+	"github.com/beyondeye/aitasks/goengines/internal/testmap/registry"
+)
+
+// addDeps records, per row, the modules it depends on: for every dependency
+// edge of a file the row owns whose target another module owns, one evidence
+// pair — the smallest (from, to). Ownership is judged on the persisted rows
+// alone (generated and agent, never the hand modules), so the generated file
+// is a function of its inputs and a hand edit never drifts it. An agent row's
+// deps are recomputed like any other's: they are derived evidence, not part
+// of its proposal, and a target module may since have been renamed or
+// removed. The edges are for inspection only: reach never trusts them.
+func addDeps(doc *registry.ModulesDoc, g *deps.Graph, files []string) error {
+	res, err := registry.ModulesFromDoc(*doc).Resolve(files)
+	if err != nil {
+		return err
+	}
+	type pair struct{ from, to string }
+	found := map[pair]registry.DepEvidence{}
+	for _, f := range files {
+		a := res.Owner[f]
+		if a == "" {
+			continue
+		}
+		facts, ok := g.Facts(f)
+		if !ok {
+			continue
+		}
+		for _, d := range facts.Deps {
+			b := res.Owner[d.Target]
+			if b == "" || b == a {
+				continue
+			}
+			ev := registry.DepEvidence{From: f, To: d.Target}
+			k := pair{a, b}
+			if prev, ok := found[k]; !ok || ev.From < prev.From || ev.From == prev.From && ev.To < prev.To {
+				found[k] = ev
+			}
+		}
+	}
+	for i := range doc.Modules {
+		r := &doc.Modules[i]
+		r.Deps = nil
+		for k, ev := range found {
+			if k.from == r.Name {
+				r.Deps = append(r.Deps, registry.ModuleDep{Module: k.to, Evidence: ev})
+			}
+		}
+		sort.Slice(r.Deps, func(x, y int) bool { return r.Deps[x].Module < r.Deps[y].Module })
+	}
+	return nil
+}

@@ -2,6 +2,7 @@ package deps
 
 import (
 	"fmt"
+	"maps"
 	"slices"
 	"testing"
 )
@@ -327,5 +328,25 @@ func TestScanGradleStringAwareComments(t *testing.T) {
 				t.Errorf("refs %+v, want line %d", g.ProjectRefs, c.line)
 			}
 		})
+	}
+}
+
+// Declared marks the projects a settings file declares — its own root project
+// and every include — never a record made up from a stray build directory.
+func TestGradleDeclaredProvenance(t *testing.T) {
+	r := repo(t, map[string]string{
+		"settings.gradle.kts":            `include(":app")` + "\n",
+		"build.gradle.kts":               "",
+		"app/build.gradle.kts":           "",
+		"examples/demo/build.gradle.kts": "",
+	})
+	g := scanRepo(t, r)
+	got := map[string]string{}
+	for _, m := range g.Modules() {
+		got[m.Name] = fmt.Sprint(m.Declared, " ", m.Settings)
+	}
+	want := map[string]string{":": "true settings.gradle.kts", ":app": "true settings.gradle.kts", ":examples:demo": "false "}
+	if !maps.Equal(got, want) {
+		t.Fatalf("declared %v, want %v", got, want)
 	}
 }

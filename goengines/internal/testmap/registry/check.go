@@ -78,8 +78,11 @@ type CheckContext struct {
 	Today       time.Time
 	Match       map[string][]string // MatchFiles over every rule's Patterns
 
-	scoped   *liveScopedMemo // M2.5's live scoped view, built once per run
-	adoption *Adoption       // M2.6's tables classified against the live stamped edges, built once per run
+	scoped   *liveScopedMemo  // M2.5's live scoped view, built once per run
+	adoption *Adoption        // M2.6's tables classified against the live stamped edges, built once per run
+	modules  *liveModulesMemo // M2.7's live modules table, inferred once per run
+
+	ctx context.Context
 }
 
 // CheckOptions are the flags of `check`.
@@ -144,7 +147,7 @@ func Check(ctx context.Context, root string, in Inputs, opts CheckOptions) (*Che
 	doc, drift := BuildScanned(reg.Config, anns, lists)
 	c := &CheckContext{
 		Root: root, Reg: reg, Anns: anns, Lists: lists, Scanned: doc, MemberDrift: drift,
-		Strict: opts.Strict, Today: now(),
+		Strict: opts.Strict, Today: now(), ctx: ctx,
 	}
 	active, err := selectRules(opts.Rules)
 	if err != nil {
@@ -167,6 +170,10 @@ func Check(ctx context.Context, root string, in Inputs, opts CheckOptions) (*Che
 		var ie *InputError
 		if errors.As(err, &ie) {
 			return nil, ie // an input a rule refuses (M2.5's scoped annotations) reads as INPUT_ERROR, like scan
+		}
+		var inv *InvalidError
+		if errors.As(err, &inv) {
+			return nil, inv // a table a rule finds invalid (M2.7's hand-module overlap) reads as REGISTRY_INVALID, like load
 		}
 		if err != nil {
 			return nil, &CheckError{Rule: r.Name, Err: err}

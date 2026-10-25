@@ -1,0 +1,204 @@
+package main
+
+import (
+	"bytes"
+	"context"
+	"flag"
+	"io"
+	"path/filepath"
+	"strconv"
+	"strings"
+
+	"github.com/beyondeye/aitasks/goengines/internal/lineproto"
+	"github.com/beyondeye/aitasks/goengines/internal/testmap/deps"
+	"github.com/beyondeye/aitasks/goengines/internal/testmap/modules"
+	"github.com/beyondeye/aitasks/goengines/internal/testmap/registry"
+)
+
+// modulesExits is the exit contract of `modules`: 0 done, 2 no `aitestmap/`,
+// 3 the registry, the code-area map or the scan could not be read (or the
+// table is invalid, e.g. two hand modules claiming one path), 64 usage.
+var modulesExits = lineproto.ExitContract{
+	lineproto.ExitOK, lineproto.ExitNothingRan, lineproto.ExitFramework, lineproto.ExitUsage,
+}
+
+// runModules is M2.7's verb:
+//   - `modules [--list] [--json]` — the committed table over the repository's
+//     files: `MODULE:<name>|<provider>|<root or globs>|<members_n>|<evidence>`
+//     per effective module, then `MODULES:<n>|<unmapped_n>|<provider>=<n>,…`;
+//   - `modules --explain <path> [--json]` — `MODULE_OF:<path>|<name>|path`, or
+//     `MODULE_OF:<path>||unmapped`;
+//   - `modules --scan [--apply] [--json]` — the live table: `MODULE_REFUSED:`,
+//     `MODULE_CONFLICT:`, `MODULE:` and `MODULES:` lines, then
+//     `WROTE:<path>` (--apply, changed) or `MODULES_DRIFT:<path>` (dry run,
+//     would change). Nothing is written when the table does not resolve.
+func runModules(e env, args []string) int {
+	const usage = "ait-testmap modules [--list] [--json] | modules --explain <path> [--json] | modules --scan [--apply] [--json]"
+	fs := flag.NewFlagSet("modules", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	list := fs.Bool("list", false, "list the effective modules table (the default)")
+	explain := fs.String("explain", "", "the module owning a path")
+	scan := fs.Bool("scan", false, "re-infer the table from the providers")
+	apply := fs.Bool("apply", false, "with --scan: write _modules.yaml when it changed")
+	asJSON := fs.Bool("json", false, "print one JSON object")
+	if err := fs.Parse(args); err != nil || fs.NArg() > 0 {
+		return lineproto.Usage(e.stderr, usage)
+	}
+	explaining := false
+	fs.Visit(func(f *flag.Flag) { explaining = explaining || f.Name == "explain" })
+	modes := 0
+	for _, on := range []bool{*list, explaining, *scan} {
+		if on {
+			modes++
+		}
+	}
+	if modes > 1 || (*apply && !*scan) || (explaining && registry.CheckPath(*explain) != nil) {
+		return lineproto.Usage(e.stderr, usage)
+	}
+	root, err := cwd()
+	if err != nil {
+		return reportError(e, err)
+	}
+	reg, err := registry.Load(root)
+	if err != nil {
+		return reportError(e, err)
+	}
+	table := registry.ModulesOf(reg)
+	if explaining {
+		return modulesExplain(e, table, *explain, *asJSON)
+	}
+	ctx := context.Background()
+	if !*scan {
+		// The committed table over the repository's files: no provider runs,
+		// so a broken codemap never hides a valid saved table.
+		files, err := deps.Universe(ctx, root, reg.Config)
+		if err != nil {
+			return reportError(e, err)
+		}
+		r, err := table.Resolve(files)
+		if err != nil {
+			return reportError(e, err)
+		}
+		if *asJSON {
+			return emitJSON(e, struct {
+				Modules  []registry.EffectiveModule `json:"modules"`
+				Unmapped int                        `json:"unmapped"`
+			}{r.Modules, len(r.Unmapped)})
+		}
+		return printLines(e, moduleLines(r))
+	}
+	res, err := modules.Scan(ctx, root, reg)
+	if err != nil {
+		return reportError(e, err)
+	}
+	r, err := table.WithGenerated(res.Doc).Resolve(res.Files)
+	if err != nil {
+		return reportError(e, err)
+	}
+	changed, rendered, err := registry.ModulesDrift(root, res.Doc)
+	if err != nil {
+		return reportError(e, &registry.CheckError{Rule: "read:" + registry.ModulesPath, Err: err})
+	}
+	write := *apply && changed
+	wrote := []string{}
+	if write {
+		wrote = append(wrote, registry.ModulesPath)
+	}
+	// The whole output is built and validated before the write: an output
+	// that cannot be rendered refuses the run with nothing written.
+	var out []byte
+	if *asJSON {
+		var buf bytes.Buffer
+		if err := lineproto.NewWriter(&buf, true).Emit(struct {
+			Refused   []modules.Refusal          `json:"refused"`
+			Conflicts []registry.Conflict        `json:"conflicts"`
+			Modules   []registry.EffectiveModule `json:"modules"`
+			Unmapped  int                        `json:"unmapped"`
+			Doc       registry.ModulesDoc        `json:"doc"`
+			Changed   bool                       `json:"changed"`
+			Wrote     []string                   `json:"wrote"`
+		}{res.Refused, r.Conflicts, r.Modules, len(r.Unmapped), res.Doc, changed, wrote}); err != nil {
+			return reportError(e, err)
+		}
+		out = buf.Bytes()
+	} else {
+		var lines [][]string
+		for _, x := range res.Refused {
+			lines = append(lines, append([]string{"MODULE_REFUSED"}, x.Fields()...))
+		}
+		for _, c := range r.Conflicts {
+			lines = append(lines, append([]string{registry.RuleModuleConflict}, c.Fields()...))
+		}
+		lines = append(lines, moduleLines(r)...)
+		switch {
+		case write:
+			lines = append(lines, []string{"WROTE", registry.ModulesPath})
+		case changed:
+			lines = append(lines, []string{registry.RuleModulesDrift, registry.ModulesPath})
+		}
+		formatted, code := formatLines(e, lines)
+		if code != lineproto.ExitOK {
+			return code
+		}
+		for _, l := range formatted {
+			out = append(out, l+"\n"...)
+		}
+	}
+	if write {
+		if _, err := registry.WriteFile(filepath.Join(root, filepath.FromSlash(registry.ModulesPath)), rendered); err != nil {
+			return reportError(e, &registry.CheckError{Rule: "write:" + registry.ModulesPath, Err: err})
+		}
+	}
+	if _, err := e.stdout.Write(out); err != nil {
+		return reportError(e, err)
+	}
+	return lineproto.ExitOK
+}
+
+func modulesExplain(e env, table *registry.Modules, p string, asJSON bool) int {
+	owner, err := table.OwnerOf(p)
+	if err != nil {
+		return reportError(e, err)
+	}
+	reason := "path"
+	if owner == "" {
+		reason = "unmapped"
+	}
+	if asJSON {
+		return emitJSON(e, struct {
+			Path   string `json:"path"`
+			Module string `json:"module"`
+			Reason string `json:"reason"`
+		}{p, owner, reason})
+	}
+	return printLines(e, [][]string{{"MODULE_OF", p, owner, reason}})
+}
+
+// moduleLines are the MODULE: lines of every effective module and the
+// MODULES: summary (providers with at least one module, in rank order).
+func moduleLines(r *registry.Resolution) [][]string {
+	var lines [][]string
+	count := map[string]int{}
+	for _, m := range r.Modules {
+		where := m.Root
+		if where == "" {
+			where = strings.Join(m.Paths, ",")
+		}
+		lines = append(lines, []string{"MODULE", m.Name, m.Provider, where, strconv.Itoa(len(m.Members)), strings.Join(m.Evidence, ",")})
+		count[m.Provider]++
+	}
+	var per []string
+	for _, p := range registry.Providers {
+		if n := count[p]; n > 0 {
+			per = append(per, p+"="+strconv.Itoa(n))
+		}
+	}
+	return append(lines, []string{"MODULES", strconv.Itoa(len(r.Modules)), strconv.Itoa(len(r.Unmapped)), strings.Join(per, ",")})
+}
+
+func emitJSON(e env, v any) int {
+	if err := lineproto.NewWriter(e.stdout, true).Emit(v); err != nil {
+		return reportError(e, err)
+	}
+	return lineproto.ExitOK
+}

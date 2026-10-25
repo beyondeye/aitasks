@@ -441,7 +441,7 @@ name these rows; they do not restate them.
 |---|---|---|
 | seed queue | `aitestmap/registry/seeded.yaml` rows `{test[#member], covers, origin[], confidence, evidence{static: file:line, convention: pair, cochange: [task ids], plan: path, prose: line, coverage: run id, observed: run id, agent_review?}, proposed_at, verdict?}` — `evidence.agent_review {verdict, assert_line?, rationale, by, run, packet_sha, test_blob, unsure: n, at}` once reviewed | `onboard seed --apply`; `attribute --propose`; `onboard adopt --agent-verdicts` (adds the origin and the verdict; parks; removes a row only when it adopts it); rows removed by `onboard adopt` / `onboard reject` |
 | adopted-edge provenance | `aitestmap/registry/adopted.yaml` rows `{test, source, origin[], confidence?, adopted_at, task?, by, run?, rationale?, assert_line?, packet_sha?, test_blob?, source_blob?, stamp?, evidence{static: <relation or none>}?}` — `by` is `human:<email>`, `agent:<agent-string>` or `auto`; `confidence` is absent when nothing measured it (a machine first stamp); `stamp` is the `<date>/<blob10>` the row vouches for, refreshed by an automated re-stamp; a `verifies` adoption's `by` / `run` / `packet_sha` / `test_blob` are its review record's replay data | `onboard adopt --class` (a person, or `--auto` over a rule or measurement class); `onboard adopt --agent-verdicts` (a `verifies` verdict); `annotate --author`; `annotate` / `verify` / `annotate --from-body` by an `agent:` or `auto` actor for an edge's first stamp (written before the test file); rows deleted when a human `verify`, `annotate`, `stale --confirm-source` or a per-row `adopt` re-stamps that edge |
-| code modules table | `aitestmap/registry/_modules.yaml` `{contract, modules: [{name, provider: codemap\|gradle\|go\|python\|agent, by?, root?, paths?: [<glob>…], gradle?, evidence: [<string>…], deps?: [{module, evidence: {from, to}}]}]}` — flat: no record nests another; `root` for the codemap, Gradle, Go and Python providers, `paths` for `agent` rows, `by: agent:<agent-string>` on `agent` rows, `gradle` the project path `{module}` expands to; plus a hand file's `modules: {<name>: {paths: [<glob>…]}}` block (globs unioned across hand files, like areas) | `modules --scan --apply` (re-infers every provider row; `agent` rows are carried over unchanged, never re-inferred); `agent` rows through the onboarding review's intake; the hand block by the project |
+| code modules table | `aitestmap/registry/_modules.yaml` `{contract, modules: [{name, provider: codemap\|gradle\|go\|python\|agent, by?, root?, paths?: [<glob>…], gradle?, evidence: [<string>…], deps?: [{module, evidence: {from, to}}]}]}` — flat: no record nests another; `root` for the codemap, Gradle, Go and Python providers, `paths` for `agent` rows, `by: agent:<agent-string>` on `agent` rows, `gradle` the project path `{module}` expands to; plus a hand file's `modules: {<name>: {paths: [<glob>…]}}` block (globs unioned across hand files, like areas) | `modules --scan --apply` (re-infers every provider row; `agent` rows keep their `paths`, `by` and `evidence` — never re-inferred — and only their derived `deps:` are recomputed); `agent` rows through the onboarding review's intake; the hand block by the project |
 | phase ledger | `aitestmap/onboard.yaml` `{contract, task, level, phases{detect, inventory, seed, waivers, enable, full_run, adopt, review: {status, at, by, counts{reviewed, adopted, parked, unsure}, partial}, classify, scaffold, finish: {status, at, by, counts}}, rejections[] {test, source, reason, by, run?}, reviews[] {test, source, verdict, test_blob, packet_sha, run, by}, kind_proposals[] {test, kind, reason, at}, calibration[] {run, agree, disagree, ratio, ground_truth, at}}` — `reviews[]` is the verdict memo so a pair is read once per test blob per reader; a `rejections[]` row without `by:` reads as a person's | the engine's `onboard` verbs; read by `onboard status`, `readiness`, `report_testmap_state()`, the skill's re-entry |
 | seed dump for review | `.aitask-testmap/onboard/<run-id>/seed.json` (gitignored), attached to the level task with `ait attach` | `onboard seed --json --out` |
 | review packets as files | `.aitask-testmap/onboard/<run-id>/review/<n>.txt` (gitignored): the same line-protocol packet `onboard review` prints, ≤ `agent_review.batch` pairs each, grouped by test file, one file per crew agent | `onboard review --out <dir>`; read by crew agents; their `_output.md` fed back by `onboard review --collect <crew-id>` |
@@ -3064,9 +3064,10 @@ large module and a small one are equally modules. The generated
 `registry/_modules.yaml` and the hand `modules:` block have the schemas under
 *Where state lives*. A module's id is its name, which follows the area-name
 rule (no `/`, `#`, `@`, `|`, whitespace, control character or glob
-metacharacter). A nested key in a hand block (`submodules:`, `children:`) is
-an unknown key and is refused like any other. `_modules.yaml` is decoded
-strictly (`KnownFields(true)`).
+metacharacter). A hand declaration carries `paths` and nothing else: a nested
+`submodules:` or `children:` — or any other key in it — is refused
+(`REGISTRY_INVALID`). `_modules.yaml` is decoded strictly
+(`KnownFields(true)`).
 
 **Providers, boundaries and ownership.** Each provider has one
 deterministic initial rule. There is no knob that chooses how finely a
@@ -3090,7 +3091,7 @@ proposals and hand overrides, each with provenance.
 | 1 (wins) | hand `modules:` | glob | the listed globs, unioned across hand files | the key | two hand modules claiming one path are `REGISTRY_INVALID` — an authoring error |
 | 2 | `agent` rows in `_modules.yaml` (`by: agent:<agent-string>`) | glob | the proposed globs | as proposed | written only through the onboarding review's intake (component *Onboarding verbs*), which refuses two agent rows that overlap |
 | 3 | the codemap `aitasks/metadata/code_areas.yaml` (read directly, never run — Invariant 5) | subtree | every entry, at any depth, rooted at its `path` | `codemap:<root>` | the granularity is whatever the map's author wrote; a parent entry owns only the files no child entry covers; the entry's own name is shown as evidence |
-| 4 | Gradle | subtree | every included project, at any nesting depth, rooted at its `projectDir` | `gradle:<the Gradle path without its leading :>` | one project is one module however mixed its sources; an aggregate project owns only its own build files |
+| 4 | Gradle | subtree | every project a settings file declares (its own root project or an `include`), at any nesting depth, rooted at its `projectDir`; a build directory no settings file includes is no project and no module; the evidence names the declaring settings file, never a nearer one | `gradle:<the Gradle path without its leading :>` | one project is one module however mixed its sources; an aggregate project owns only its own build files |
 | 5 | Go | package | every package under a `go.mod` | `go:<dir>` | fine-grained (one module per package); a coarser grouping comes from the codemap, an agent or a hand override |
 | 5 | Python | package | every package (a regular package or a namespace portion) | `py:<dir>` | as for Go; a flat `tests/` directory is no package, so its tests' membership comes from their covered sources |
 
@@ -3106,6 +3107,9 @@ proposals and hand overrides, each with provenance.
   and `py:` are reserved; a hand or agent name using one is refused. Names
   can therefore collide only between the two glob providers: the hand module
   wins, and the agent row is dropped and reported with `MODULE_CONFLICT:`.
+  A root is judged by the directory rule independently of how the name is
+  formed: a Gradle project whose path is nameable but whose `projectDir` is
+  `odd:dir` is `MODULE_REFUSED:gradle|odd:dir|unnameable`.
 - **No subtree module at the repository root.** The Gradle root project `:`
   (its `Dir` is empty, and an empty directory contains every path) and a
   codemap entry at the root would each own the whole repository, so each is
@@ -3116,8 +3120,13 @@ proposals and hand overrides, each with provenance.
 - **Ownership.** Each mapped path has exactly one owning module: the
   highest-ranked provider claiming it wins, and within one subtree provider
   the deepest root wins. Go and Python never claim the same file, so rank 5
-  needs no tie-break. A path no provider claims stays **unmapped**; nothing
-  is guessed.
+  needs no tie-break; two subtree roots of one provider at the same directory
+  claim identical sets, and the smaller name claims them. A path no provider
+  claims stays **unmapped**; nothing is guessed. Ownership, member counts and
+  conflicts are judged over the **complete file universe** — every
+  git-visible file outside `exclude:`, whatever its language — never only the
+  files a dependency scanner reads; the dependency facts are a separate input
+  used for `deps:` alone.
 - **Conflicts.** `MODULE_CONFLICT:<winner>@<provider>|<loser>@<provider>|<paths_n>|<first path>`
   (Info, never failing) is printed once per winner / loser pair whose path
   sets overlap but differ, and for the hand / agent name collision above. A
@@ -3127,27 +3136,42 @@ proposals and hand overrides, each with provenance.
 
 **Module → module `deps:`.** `modules --scan` records, per module, the
 modules it depends on, each with one file-level evidence pair `{from, to}`
-taken from the dependency graph. They are for inspection (`--list`,
-`--explain`) only: reach never trusts them.
+taken from the dependency graph, with ownership judged on the persisted rows
+alone (generated and `agent`, never the hand modules), so a hand edit never
+drifts the generated table. They are for inspection (`--list --json`,
+`--scan --json`) only: reach never trusts them.
 
 **The verb.** `modules --list` prints one
 `MODULE:<name>|<provider>|<root or globs>|<members_n>|<evidence>` per
 effective module, then `MODULES:<modules_n>|<unmapped_paths_n>|<provider>=<n>,…`.
 `modules --explain <path|test-id>` prints
 `MODULE_OF:<path|test-id>|<name>|path|covers:<source>|annotation` — for a
-path, its owning module; for a test, each module it belongs to and why.
+path, its owning module (`MODULE_OF:<path>||unmapped` when none); for a
+test, each module it belongs to and why.
 `modules --scan [--apply]` re-infers every provider over the cached
 `deps.Scan`, prints the same lines plus `MODULE_CONFLICT:` and
 `MODULE_REFUSED:`, and with `--apply` writes `_modules.yaml`, drift-gated
-exactly like `scan --apply` (`WROTE:` reused); `agent` rows are carried over
-unchanged, never re-inferred.
+exactly like `scan --apply` (`WROTE:` reused), and only once its whole output
+is rendered, so a refused run writes nothing; `agent` rows keep their
+`paths`, `by` and `evidence` (never re-inferred) and only their derived
+`deps:` are recomputed, so a dependency on a module since removed or renamed
+never blocks regeneration. `--list` and `--explain` read the committed table
+and run no provider: a codemap broken since the last `--apply` never hides a
+saved table.
 
 **Freshness.** `check` reports `MODULES_DRIFT:aitestmap/registry/_modules.yaml`
 when a live re-inference over the cached `deps.Scan` differs from the
 committed table, like `SCAN_DRIFT:`, inside `check`'s 300 ms budget. Every
 widening consumer treats a drifted table as `WIDEN_FULL:modules_stale`. If
 M2.7's measurement puts the check over budget, detection moves to the
-consumers only, still failing toward full.
+consumers only, still failing toward full (measured by t2131_3: `check
+--strict` with the live inference ≈ 220 ms on the aitasks shape with a
+populated registry, pinned to one core — ≈ 33 ms without a declared table —
+so detection stays in `check`). `MODULES_DRIFT` and `MODULE_CONFLICT` are judged
+only for a **declared** table — a committed `_modules.yaml` (even an empty
+one) or a hand `modules:` block. A repository that never opted in has no
+table to drift; its widening consumers see every path unmapped and fall back
+to full.
 
 **Membership.** Computed at load in `registry`, never persisted, one kind
 only. A test belongs to its path-containment module, if its own path has

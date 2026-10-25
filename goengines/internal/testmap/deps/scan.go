@@ -167,6 +167,27 @@ func (s *state) problem(p, reason string) {
 	s.mu.Unlock()
 }
 
+// Universe returns the file set a scan of root starts from — the git-visible
+// files minus `exclude:`, missing files and anything reached through a
+// symbolic link or that is not a regular file — without scanning any of them.
+// It equals Scan(…).Universe() for the same tree.
+func Universe(ctx context.Context, root string, cfg registry.Config) ([]string, error) {
+	listed, err := gitx.Repo{Dir: root}.ListFiles(ctx)
+	if err != nil {
+		return nil, err
+	}
+	r, err := os.OpenRoot(root)
+	if err != nil {
+		return nil, err
+	}
+	defer r.Close()
+	u, err := buildUniverse(r, listed, cfg)
+	if err != nil {
+		return nil, err
+	}
+	return u.list, nil
+}
+
 // Scan scans the repository at root and returns its dependency graph.
 func Scan(ctx context.Context, root string, o Options) (*Graph, error) {
 	androidRes, err := symbolScanners(o.Config.SymbolScanners)
@@ -213,6 +234,7 @@ func Scan(ctx context.Context, root string, o Options) (*Graph, error) {
 	}
 	facts, modules, ix := s.resolve(gl, plugins)
 	g := newGraph(facts, modules, s.problems)
+	g.universe = slices.Clone(u.list)
 	g.kt = ix
 	g.helper = o.Config.HelperRoots
 	return g, nil

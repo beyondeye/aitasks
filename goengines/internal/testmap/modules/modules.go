@@ -1,0 +1,152 @@
+// Package modules infers M2.7's code modules table: it runs each provider over
+// the repository (the codemap, the Gradle build; Go and Python packages are
+// registered by their own provider) and computes the module → module `deps:`
+// evidence from the dependency graph. It sits above `deps`; the table itself,
+// its names and path ownership are `registry`'s (registry/modules.go), and
+// this package registers the live inference `check` judges drift and
+// conflicts on.
+package modules
+
+import (
+	"context"
+	"fmt"
+	"sort"
+
+	"github.com/beyondeye/aitasks/goengines/internal/testmap"
+	"github.com/beyondeye/aitasks/goengines/internal/testmap/deps"
+	"github.com/beyondeye/aitasks/goengines/internal/testmap/registry"
+)
+
+// Refusal reasons: a root the name rule cannot name, and a subtree module at
+// the repository root (it would own every path).
+const (
+	ReasonUnnameable     = "unnameable"
+	ReasonRepositoryRoot = "repository_root"
+)
+
+// Refusal is one MODULE_REFUSED:<provider>|<root>|<reason>: a would-be module
+// that is not one. Its paths stay unmapped unless another provider owns them.
+type Refusal struct {
+	Provider string `json:"provider"`
+	Root     string `json:"root"` // "." for the repository root
+	Reason   string `json:"reason"`
+}
+
+// Fields are the MODULE_REFUSED line fields.
+func (r Refusal) Fields() []string { return []string{r.Provider, r.Root, r.Reason} }
+
+// Input is what a provider reads.
+type Input struct {
+	Root  string
+	Reg   *registry.Registry
+	Graph *deps.Graph
+}
+
+// Provider is one generated provider: its rows (each must pass
+// registry.ValidateModuleRow) and its refusals.
+type Provider struct {
+	Name string
+	Rows func(Input) ([]registry.ModuleRow, []Refusal, error)
+}
+
+var providers = []Provider{
+	{Name: registry.ProviderCodemap, Rows: codemapRows},
+	{Name: registry.ProviderGradle, Rows: gradleRows},
+}
+
+// RegisterProvider adds a generated provider (t2131_4's Go and Python
+// packages). Providers run in registration order; their rows are merged and
+// sorted by name, so the order never shows in the table.
+func RegisterProvider(p Provider) { providers = append(providers, p) }
+
+// Result is one inference: the table `modules --scan --apply` would write, the
+// refusals, the complete file universe it was judged over and the graph.
+type Result struct {
+	Doc     registry.ModulesDoc `json:"doc"`
+	Refused []Refusal           `json:"refused"`
+	Files   []string            `json:"-"`
+	Graph   *deps.Graph         `json:"-"`
+}
+
+// Infer runs every provider, carries the committed `agent` rows over (their
+// boundaries and provenance — paths, by, evidence — are never re-inferred)
+// and computes every row's `deps:`.
+func Infer(in Input) (*Result, error) {
+	doc := registry.ModulesDoc{Contract: testmap.Contract}
+	refused := []Refusal{}
+	for _, p := range providers {
+		rows, ref, err := p.Rows(in)
+		if err != nil {
+			return nil, err
+		}
+		for _, r := range rows {
+			if err := registry.ValidateModuleRow(r); err != nil {
+				return nil, fmt.Errorf("provider %s built an invalid row: %v", p.Name, err)
+			}
+		}
+		doc.Modules = append(doc.Modules, rows...)
+		refused = append(refused, ref...)
+	}
+	for _, r := range registry.ModulesOf(in.Reg).Doc().Modules {
+		if r.Provider == registry.ProviderAgent {
+			r.Deps = nil // derived evidence, recomputed below: a target may be gone
+			doc.Modules = append(doc.Modules, r)
+		}
+	}
+	sort.Slice(doc.Modules, func(i, j int) bool { return doc.Modules[i].Name < doc.Modules[j].Name })
+	if err := registry.ValidateModulesDoc(doc); err != nil {
+		return nil, err
+	}
+	files := in.Graph.Universe()
+	if err := addDeps(&doc, in.Graph, files); err != nil {
+		return nil, err
+	}
+	sort.SliceStable(refused, func(i, j int) bool {
+		a, b := refused[i], refused[j]
+		if ra, rb := registry.ProviderRank(a.Provider), registry.ProviderRank(b.Provider); ra != rb {
+			return ra < rb
+		}
+		if a.Root != b.Root {
+			return a.Root < b.Root
+		}
+		return a.Reason < b.Reason
+	})
+	return &Result{Doc: doc, Refused: refused, Files: files, Graph: in.Graph}, nil
+}
+
+// Scan scans the repository's dependency graph (cached, with the registry's
+// `exclude:`) and infers the table over it.
+func Scan(ctx context.Context, root string, reg *registry.Registry) (*Result, error) {
+	g, err := deps.Scan(ctx, root, deps.Options{Config: reg.Config})
+	if err != nil {
+		return nil, err
+	}
+	return Infer(Input{Root: root, Reg: reg, Graph: g})
+}
+
+func init() {
+	registry.RegisterModuleInference(func(ctx context.Context, root string, reg *registry.Registry) (*registry.LiveModules, error) {
+		res, err := Scan(ctx, root, reg)
+		if err != nil {
+			return nil, err
+		}
+		return &registry.LiveModules{Doc: res.Doc, Files: res.Files}, nil
+	})
+}
+
+// refusals collects refusals once per (provider, root, reason).
+type refusals struct {
+	seen map[Refusal]bool
+	list []Refusal
+}
+
+func (r *refusals) add(provider, root, reason string) {
+	x := Refusal{Provider: provider, Root: root, Reason: reason}
+	if r.seen == nil {
+		r.seen = map[Refusal]bool{}
+	}
+	if !r.seen[x] {
+		r.seen[x] = true
+		r.list = append(r.list, x)
+	}
+}

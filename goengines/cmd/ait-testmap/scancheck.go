@@ -91,19 +91,30 @@ func oneLine(s string) string {
 // printLines writes every line, or nothing: a line that cannot be formatted
 // is a framework error reported before any stdout is produced.
 func printLines(e env, lines [][]string) int {
-	var out []string
-	for _, l := range lines {
-		s, err := lineproto.Format(l[0], l[1:]...)
-		if err != nil {
-			fmt.Fprintf(e.stderr, "CHECK_ERROR:output|%s\n", oneLine(err.Error()))
-			return lineproto.ExitFramework
-		}
-		out = append(out, s)
+	out, code := formatLines(e, lines)
+	if code != lineproto.ExitOK {
+		return code
 	}
 	for _, s := range out {
 		fmt.Fprintln(e.stdout, s)
 	}
 	return lineproto.ExitOK
+}
+
+// formatLines formats every line or none: a line that cannot be formatted
+// prints CHECK_ERROR:output on stderr and returns exit 3. A verb that writes
+// a file formats its whole output first, so a refusal never follows a write.
+func formatLines(e env, lines [][]string) ([]string, int) {
+	var out []string
+	for _, l := range lines {
+		s, err := lineproto.Format(l[0], l[1:]...)
+		if err != nil {
+			fmt.Fprintf(e.stderr, "CHECK_ERROR:output|%s\n", oneLine(err.Error()))
+			return nil, lineproto.ExitFramework
+		}
+		out = append(out, s)
+	}
+	return out, lineproto.ExitOK
 }
 
 func findingLines(fs []registry.Finding) [][]string {

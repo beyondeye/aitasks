@@ -66,6 +66,7 @@ var verbs = []verb{
 		stub("onboard finish"),
 	}},
 	{Name: "runner", Run: runRunner, Exits: runnerExits},
+	{Name: "modules", Run: runModules, Exits: modulesExits},
 	{Name: "version", Run: runVersion, Exits: lineproto.ExitContract{lineproto.ExitOK, lineproto.ExitFramework, lineproto.ExitUsage}},
 }
 

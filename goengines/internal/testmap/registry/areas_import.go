@@ -77,19 +77,9 @@ func codemapError(format string, args ...any) error {
 // name. An absent map is ErrCodemapAbsent; a malformed one, a duplicate or
 // invalid name, or an invalid path is INPUT_ERROR:code_areas.
 func ReadCodemap(root string) ([]CodemapArea, error) {
-	data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(CodemapPath)))
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil, ErrCodemapAbsent
-	}
+	doc, err := readCodemapDoc(root)
 	if err != nil {
-		return nil, codemapError("%v", err)
-	}
-	var doc codemapDoc
-	if err := yaml.Unmarshal(data, &doc); err != nil {
-		return nil, codemapError("%v", err)
-	}
-	if doc.Version != 1 {
-		return nil, codemapError("version %d is not 1", doc.Version)
+		return nil, err
 	}
 	var out []CodemapArea
 	seen := map[string]bool{}
@@ -122,6 +112,73 @@ func ReadCodemap(root string) ([]CodemapArea, error) {
 		return nil, err
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out, nil
+}
+
+// readCodemapDoc reads and decodes the code-area map under root: absent is
+// ErrCodemapAbsent, unreadable, malformed or a version other than 1 is
+// INPUT_ERROR:code_areas.
+func readCodemapDoc(root string) (codemapDoc, error) {
+	var doc codemapDoc
+	data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(CodemapPath)))
+	if errors.Is(err, fs.ErrNotExist) {
+		return doc, ErrCodemapAbsent
+	}
+	if err != nil {
+		return doc, codemapError("%v", err)
+	}
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return doc, codemapError("%v", err)
+	}
+	if doc.Version != 1 {
+		return doc, codemapError("version %d is not 1", doc.Version)
+	}
+	return doc, nil
+}
+
+// CodemapEntry is one entry of the code-area map, at any depth, with its path
+// as written minus the trailing '/'. M2.7's codemap provider reads these:
+// unlike the area import it keeps every entry (names need not be unique —
+// a module's name comes from its path) and leaves naming to the provider.
+type CodemapEntry struct {
+	Name string
+	Path string
+}
+
+// ReadCodemapEntries reads every entry of the code-area map under root, in
+// document order (depth first). Absent is ErrCodemapAbsent. A malformed map,
+// an entry name that is empty or holds '|' or a control character, and a path
+// that is absolute, holds '\' or an empty, "." or ".." segment are
+// INPUT_ERROR:code_areas. The root ("" or "/") is returned as "."; whether a
+// path is nameable is the provider's call (MODULE_REFUSED), not an input error.
+func ReadCodemapEntries(root string) ([]CodemapEntry, error) {
+	doc, err := readCodemapDoc(root)
+	if err != nil {
+		return nil, err
+	}
+	var out []CodemapEntry
+	var walk func([]codemapEntry) error
+	walk = func(es []codemapEntry) error {
+		for _, e := range es {
+			if err := checkEvidence(e.Name); err != nil {
+				return codemapError("area name %q: %v", e.Name, err)
+			}
+			p := strings.TrimSuffix(e.Path, "/")
+			if p == "" || p == "." {
+				p = "."
+			} else if err := checkPathShape(p); err != nil {
+				return codemapError("area %s: path %q: %v", e.Name, e.Path, err)
+			}
+			out = append(out, CodemapEntry{Name: e.Name, Path: p})
+			if err := walk(e.Children); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	if err := walk(doc.Areas); err != nil {
+		return nil, err
+	}
 	return out, nil
 }
 

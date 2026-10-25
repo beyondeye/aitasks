@@ -1,0 +1,62 @@
+package modules
+
+import (
+	"strings"
+
+	"github.com/beyondeye/aitasks/goengines/internal/testmap/registry"
+)
+
+// gradleRows is the Gradle provider: every project a settings file declares,
+// at any nesting depth, is a subtree module `gradle:<the Gradle path without
+// its leading ':'>` rooted at its `projectDir`. A record that exists only
+// because a build file sits in a directory no settings file includes is no
+// project of the build, and is no module. The root project (and any project
+// moved to the repository root) would own every path and is refused; so is a
+// project whose path segment or directory the name rule cannot name. There is
+// no folding and no expansion: a nested project is simply another module.
+func gradleRows(in Input) ([]registry.ModuleRow, []Refusal, error) {
+	dynamic := map[string]bool{}
+	for _, p := range in.Graph.Problems() {
+		if strings.HasPrefix(p.Reason, "gradle-dynamic") {
+			dynamic[p.Path] = true
+		}
+	}
+	var ref refusals
+	var rows []registry.ModuleRow
+	for _, m := range in.Graph.Modules() {
+		if !m.Declared {
+			continue
+		}
+		if m.Dir == "" {
+			ref.add(registry.ProviderGradle, ".", ReasonRepositoryRoot)
+			continue
+		}
+		name, err := registry.GeneratedName(registry.ProviderGradle, m.Dir, m.Name)
+		if err != nil || registry.ValidRoot(registry.ProviderGradle, m.Dir) != nil {
+			ref.add(registry.ProviderGradle, m.Dir, ReasonUnnameable)
+			continue
+		}
+		row := registry.ModuleRow{Name: name, Provider: registry.ProviderGradle, Root: m.Dir, Gradle: m.Name}
+		sf := m.Settings // the file that declared it, never the nearest one
+		if sf != "" {
+			row.Evidence = append(row.Evidence, "settings:"+sf)
+		}
+		// A build file is attributed by directory name, so one outside the
+		// project's directory is not this project's (deps/gradle.go attaches a
+		// stray build file to a moved project of the same name).
+		own := m.BuildFile != "" && within(m.BuildFile, m.Dir)
+		if own {
+			row.Evidence = append(row.Evidence, "build:"+m.BuildFile)
+		}
+		if dynamic[sf] || own && dynamic[m.BuildFile] {
+			row.Evidence = append(row.Evidence, "gradle-dynamic")
+		}
+		rows = append(rows, row)
+	}
+	return rows, ref.list, nil
+}
+
+// within reports whether p lies under dir ("" is the repository root).
+func within(p, dir string) bool {
+	return dir == "" || p == dir || strings.HasPrefix(p, dir+"/")
+}

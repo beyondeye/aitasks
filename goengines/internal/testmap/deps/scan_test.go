@@ -40,6 +40,40 @@ func TestUniverse(t *testing.T) {
 	}
 }
 
+// Universe is the whole filtered file set the scan starts from: files no
+// scanner reads are in it (and absent from Files); excluded, deleted and
+// symlink-reached files are in neither.
+func TestUniverseIncludesUnscannedFiles(t *testing.T) {
+	r := repo(t, map[string]string{
+		"kept.sh":        "#!/bin/sh\n",
+		"conf/app.json":  "{}\n",
+		"README.md":      "# r\n",
+		"src/x.rs":       "fn main() {}\n",
+		"golden/x.json":  "{}\n",
+		"deleted.json":   "{}\n",
+		"real/inner.txt": "t\n",
+	})
+	r.Commit(t, "1", "feature", "init")
+	r.Remove(t, "deleted.json")
+	if err := os.Symlink("real", filepath.Join(r.Dir, "link")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("README.md", filepath.Join(r.Dir, "alias.md")); err != nil {
+		t.Fatal(err)
+	}
+	g := scanRepo(t, r, func(o *Options) { o.Config.Exclude = []string{"golden/**"} })
+	if got, want := g.Universe(), []string{"README.md", "conf/app.json", "kept.sh", "real/inner.txt", "src/x.rs"}; !slices.Equal(got, want) {
+		t.Fatalf("universe %v, want %v", got, want)
+	}
+	if got, want := g.Files(), []string{"kept.sh"}; !slices.Equal(got, want) {
+		t.Fatalf("files %v, want %v", got, want)
+	}
+	u, err := Universe(bg, r.Dir, registry.Config{Exclude: []string{"golden/**"}})
+	if err != nil || !slices.Equal(u, g.Universe()) {
+		t.Fatalf("Universe() = %v %v, want the scan's %v", u, err, g.Universe())
+	}
+}
+
 func TestClosureAndReverse(t *testing.T) {
 	r := repo(t, map[string]string{
 		"t.sh":     "#!/bin/sh\n. ./lib/a.sh\n",

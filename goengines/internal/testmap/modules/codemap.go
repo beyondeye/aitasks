@@ -1,0 +1,56 @@
+package modules
+
+import (
+	"errors"
+	"slices"
+
+	"github.com/beyondeye/aitasks/goengines/internal/testmap/registry"
+)
+
+// codemapRows is the codemap provider: every entry of
+// `aitasks/metadata/code_areas.yaml`, at any depth, is a subtree module
+// `codemap:<dir>` rooted at its path. The map is read, never generated
+// (Invariant 5). The name comes from the path, so two entries named alike
+// under different parents are two modules, and entries sharing a path are one
+// (each entry's name is evidence). A root entry would own the repository and
+// is refused, as is a path the name rule cannot name.
+func codemapRows(in Input) ([]registry.ModuleRow, []Refusal, error) {
+	entries, err := registry.ReadCodemapEntries(in.Root)
+	if errors.Is(err, registry.ErrCodemapAbsent) {
+		return nil, nil, nil
+	}
+	if err != nil {
+		return nil, nil, err
+	}
+	var ref refusals
+	byRoot := map[string]int{}
+	var rows []registry.ModuleRow
+	for _, e := range entries {
+		if e.Path == "." {
+			ref.add(registry.ProviderCodemap, ".", ReasonRepositoryRoot)
+			continue
+		}
+		if registry.ValidRoot(registry.ProviderCodemap, e.Path) != nil {
+			ref.add(registry.ProviderCodemap, e.Path, ReasonUnnameable)
+			continue
+		}
+		i, ok := byRoot[e.Path]
+		if !ok {
+			name, err := registry.GeneratedName(registry.ProviderCodemap, e.Path, "")
+			if err != nil {
+				ref.add(registry.ProviderCodemap, e.Path, ReasonUnnameable)
+				continue
+			}
+			i = len(rows)
+			byRoot[e.Path] = i
+			rows = append(rows, registry.ModuleRow{Name: name, Provider: registry.ProviderCodemap, Root: e.Path})
+		}
+		if ev := "entry:" + e.Name; !slices.Contains(rows[i].Evidence, ev) {
+			rows[i].Evidence = append(rows[i].Evidence, ev)
+		}
+	}
+	for i := range rows {
+		slices.Sort(rows[i].Evidence)
+	}
+	return rows, ref.list, nil
+}
