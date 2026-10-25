@@ -3,12 +3,13 @@ priority: medium
 effort: high
 depends: [t2131_1]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [testmap, go_engine, testing]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1852
 created_at: 2026-10-23 11:50
-updated_at: 2026-10-24 23:23
+updated_at: 2026-10-25 06:16
 ---
 
 ## Context
