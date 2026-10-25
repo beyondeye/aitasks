@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1852
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-21 22:06
-updated_at: 2026-10-23 12:41
+updated_at: 2026-10-25 06:35
 ---
 
 ## Context
@@ -196,3 +197,8 @@ What each status proves:
 > | - Process-starting tests in `runner` take `isolated(t, …)`; a pure test must not reference `newProcView` (the lexical tripwire would see darwin's exec.Command through it).
 
 > **👁 note:read** id=2026-10-23T09:41:04Z.33e672c55fe9010f43478ff6 by=t1854_6 at=2026-10-23T09:41:04Z mode=explicit ids=2026-10-22T08:04:14Z.39f1c58de47119c58cad433c,2026-10-22T12:42:02Z.5f4faa50f9b776a32105047d,2026-10-23T07:52:26Z.0a6bc67a8a6468f691e79897
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-25T04:35:54Z status=pass attempt=1 type=human
