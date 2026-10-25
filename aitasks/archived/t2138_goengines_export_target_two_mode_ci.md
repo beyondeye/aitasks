@@ -5,7 +5,7 @@ risk_goal_achievement: medium
 effort: medium
 depends: []
 issue_type: chore
-status: Implementing
+status: Done
 labels: [go_engine, framework, release_scripts]
 active_gates: [risk_evaluated]
 active_gates_filtered: []
@@ -15,7 +15,8 @@ risk_mitigation_tasks: [2141]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus5_5
 created_at: 2026-10-25 09:33
-updated_at: 2026-10-25 12:56
+updated_at: 2026-10-25 12:58
+completed_at: 2026-10-25 12:58
 ---
 
 Turn public `goengines/` into the **export target** for Go source developed in
@@ -115,3 +116,14 @@ aitasks_go (aitasks_go#t15). This task carries the parts of it that matter here.
 > **✅ gate:plan_approved** run=2026-10-25T09:29:40Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-10-25T10:49:00Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-10-25T10:58:26Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:cd21b157ea5a3495
+
+> **✅ gate:risk_evaluated** run=2026-10-25T10:58:26Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/2138/risk_evaluated_2026-10-25T10:58:26Z-risk_evaluated-a1.log`
