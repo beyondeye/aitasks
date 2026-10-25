@@ -10,8 +10,9 @@ active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-25 09:33
-updated_at: 2026-10-25 11:05
+updated_at: 2026-10-25 11:29
 ---
 
 Turn public `goengines/` into the **export target** for Go source developed in
@@ -104,3 +105,8 @@ aitasks_go (aitasks_go#t15). This task carries the parts of it that matter here.
 - A test fixture with an `EXPORT.txt` and no tests runs export mode.
 - The integrity script refuses a planted private import and a planted
   `replace`, and accepts the provenance header.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-25T09:29:40Z status=pass attempt=1 type=human
