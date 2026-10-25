@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1852
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-23 11:50
-updated_at: 2026-10-25 06:16
+updated_at: 2026-10-25 09:04
 ---
 
 ## Context
@@ -115,3 +116,8 @@ This child creates the modules **table** and its **inference** with the two prov
 > | - internal/testsupport/hangguard/tripwire_test.go: tripwirePackages will gain entries for internal/procsup and internal/testmap/runner/builtin. If you add one for a modules package too, both are appends to the same list.
 > | 
 > | Shared-checkout hazard: t1854_6 runs isolated red-proof mutants, confined to its own new files (internal/procsup, runner/builtin) and restored byte-identical after each run. A full-module `go test ./...` that runs while one is applied may go red for reasons outside your change. t1854_6 will stick to package-scoped runs and run the full suite only at the end. Treat an unexpected red in procsup/runner/builtin as possibly transient and re-run before investigating.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-25T07:04:58Z status=pass attempt=1 type=human
