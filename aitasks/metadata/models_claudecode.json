@@ -1520,7 +1520,7 @@
       "usagestats": {
         "pick": {
           "all_time": {
-            "runs": 266
+            "runs": 267
           },
           "prev_month": {
             "period": "2026-09",
@@ -1528,11 +1528,11 @@
           },
           "month": {
             "period": "2026-10",
-            "runs": 245
+            "runs": 246
           },
           "week": {
-            "period": "2026-W43",
-            "runs": 99
+            "period": "2026-W44",
+            "runs": 1
           }
         },
         "changelog": {

@@ -1,19 +1,23 @@
 ---
 priority: high
+risk_code_health: medium
+risk_goal_achievement: medium
 effort: medium
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [tmux, tui_switcher, codeagent, minimonitor]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
 active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
+risk_mitigation_tasks: [2143]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus5_5
 created_at: 2026-09-02 14:59
-updated_at: 2026-10-25 14:42
+updated_at: 2026-10-26 08:09
+completed_at: 2026-10-26 08:09
 ---
 
 ## Symptom
@@ -169,3 +173,16 @@ should exec `$(mise which claude)` rather than re-resolving by name).
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-10-25T12:42:57Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-10-25T16:19:08Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-10-26T06:09:52Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:e9d8008f0fb0559a
+
+> **✅ gate:risk_evaluated** run=2026-10-26T06:09:52Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1689/risk_evaluated_2026-10-26T06:09:52Z-risk_evaluated-a1.log`
