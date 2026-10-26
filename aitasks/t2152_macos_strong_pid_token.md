@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1689
 followup_kind: risk_mitigation
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-26 14:48
-updated_at: 2026-10-26 14:53
+updated_at: 2026-10-26 15:36
 ---
 
 ## Origin
@@ -47,3 +48,8 @@ Design points to settle:
 - extending `tests/lib/proc_fixtures.sh` `liveness_token_class` with the new strong kind
 
 Then remove the weak-token SKIP branches t2146 added. The new kind would take the strong branch on macOS. Affected: `test_lock_anchor_tmux_live`, `test_live_endpoint_tmux_live`, `test_note_with_live_composition`, `test_sync_holder_pane_live`, `test_lock_live_holder_gate`, `test_sync_protect_paths` (live_lock), `test_crash_recovery_pid_anchor` Test 15.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-26T13:36:43Z status=pass attempt=1 type=human
