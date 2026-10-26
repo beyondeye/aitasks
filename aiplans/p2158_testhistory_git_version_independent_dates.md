@@ -83,3 +83,20 @@ None identified.
 
 ### Goal-achievement risk: low
 None identified.
+
+## Final Implementation Notes
+- **Actual work done:** `TestHistory` (goengines/internal/testmap/fixture/fixture_test.go) now reads `git log --format=%ct --reverse` and compares it exactly against `Epoch + i·1min` (Unix seconds) for all three commits, built from `fixture.Epoch`; `fmt` and `time` imports added. Exactly as planned.
+- **Deviations from plan:** Commit type is `bug:` (the task's issue_type, as the commit convention requires), not the `test:` the plan named. (Plan review before approval replaced an `Epoch`-shift mutant, which could not fail because producer and expectation both derive from `Epoch`, with two producer-only mutants of `CommitMessage`'s `when`.)
+- **Issues encountered:** None.
+- **Key decisions:** `%ct` over parsing `%cI` with `time.Parse`: integers render identically on every git version, so no parsing tolerance is needed; the expectation is derived from `Epoch` instead of a hardcoded date string.
+- **Verification evidence** (run 2026-10-26, isolated scratch copies of the module from `git archive HEAD goengines`, host Go 1.27.2 mounted read-only, `--network none`, scratch GOCACHE, `-count=1`, `-run '^TestHistory$'`):
+
+  | variant | ait-dashproto:1 (git 2.43.0) | ait-dashproto:2 (git 2.56.0) |
+  |---|---|---|
+  | old test (HEAD) | FAIL `dates "2026-01-01T00:00:00+00:00\n…"` | ok |
+  | new test | ok | ok |
+  | mutant offset (`+ time.Second` in `when`) | FAIL `1767225601…` vs `1767225600…` | FAIL |
+  | mutant step (`ticks * time.Second`) | FAIL `…225601\n…225602` vs `…225660\n…225720` | FAIL |
+
+  Mutants applied by exact-string replacement asserted to occur once and to be present afterwards. Also: full fixture package ok under git 2.43; host `go vet` + `go test -count=1 ./internal/testmap/fixture/` ok; `goengines/ci/dashcheck.sh -run TestHistory ./internal/testmap/fixture/` → `DASHCHECK:PASS`.
+- **Upstream defects identified:** None
