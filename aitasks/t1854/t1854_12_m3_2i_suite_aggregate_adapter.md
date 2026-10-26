@@ -213,3 +213,5 @@ What each status proves:
 > | emergency public fix to goengines/ after the cutover needs a
 > | `Return-To: aitasks_go` trailer plus a return task in aitasks_go
 > | (`ait create --batch --project aitasks_go`).
+
+> **👁 note:read** id=2026-10-26T16:48:13Z.0d1514861e8c4fd92360f1f3 by=t1854_12 at=2026-10-26T16:48:13Z mode=explicit ids=2026-10-22T08:04:17Z.d00bc9c5a5bc912c32e077e4,2026-10-22T12:42:17Z.6b5591e6afa2c53b6675e1ec,2026-10-25T06:58:45Z.059084c55538e721691fa0e1,2026-10-25T08:54:28Z.2f8aba92ebab00843dda2104
