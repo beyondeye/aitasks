@@ -31,6 +31,16 @@
 #   4. The ancestor-walk fallback: a lock anchored to a DESCENDANT of the pane
 #      process (the `AIT_AGENT_PID` rung) still resolves to the pane.
 #
+# PLATFORM SPLIT. Cases 1-4 need a holder the resolver can PROVE alive, and only
+# a strong /proc identity token gives that. Without /proc (macOS/BSD) the claim
+# records the second-granular `ps` token, lock_holder_liveness answers `unknown`
+# for it by design, and the resolver stops at its liveness gate with
+# `LIVE_NONE:holder_unknown` before the agent gate or the pane map. On such a
+# host this file asserts exactly that (W1/W2) and SKIPs Cases 1-4 visibly. The
+# token class comes from liveness_token_class (tests/lib/proc_fixtures.sh),
+# which fails closed: a sentinel token or an unknown kind is a FAIL, never the
+# weak branch.
+#
 # Isolation: creates its own server on a private `-L` socket and kills it in a
 # trap. `require_isolated_tmux` additionally detaches this process from any
 # inherited server, so a stray call cannot reach the user's session. This test
@@ -50,6 +60,10 @@ PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 enter_scratch_cwd
 # shellcheck source=lib/asserts.sh
 . "$PROJECT_DIR/tests/lib/asserts.sh"
+# shellcheck source=../.aitask-scripts/lib/pid_anchor.sh
+. "$PROJECT_DIR/.aitask-scripts/lib/pid_anchor.sh"
+# shellcheck source=lib/proc_fixtures.sh
+. "$PROJECT_DIR/tests/lib/proc_fixtures.sh"
 
 PASS=0
 FAIL=0
@@ -112,6 +126,17 @@ git -C "$DATA" push -q origin main 2>/dev/null || true
 
 run_resolve() { ( cd "$DATA" && AITASKS_TMUX_SOCKET="$SOCK" "$RESOLVE" "$@" ); }
 
+report_and_exit() {
+    echo ""
+    echo "Results: $PASS passed, $FAIL failed, $TOTAL total"
+    if [[ "$FAIL" -eq 0 ]]; then
+        echo "ALL TESTS PASSED"
+        exit 0
+    fi
+    echo "SOME TESTS FAILED"
+    exit 1
+}
+
 wait_for_file() {
     local f="$1" _i
     for _i in $(seq 1 120); do
@@ -152,19 +177,13 @@ if [[ -n "$PANE_PID" ]]; then
 else
     FAIL=$((FAIL + 1))
     echo "FAIL: could not start a test pane"
-    echo ""
-    echo "Results: $PASS passed, $FAIL failed, $TOTAL total"
-    echo "SOME TESTS FAILED"
-    exit 1
+    report_and_exit
 fi
 
 if ! wait_for_file "$DATA/claim.rc"; then
     TOTAL=$((TOTAL + 1)); FAIL=$((FAIL + 1))
     echo "FAIL: in-pane claim did not finish within the budget"
-    echo ""
-    echo "Results: $PASS passed, $FAIL failed, $TOTAL total"
-    echo "SOME TESTS FAILED"
-    exit 1
+    report_and_exit
 fi
 
 assert_contains "0a. in-pane claim succeeded" "OWNED:1" "$(cat "$DATA/claim.out" 2>/dev/null)"
@@ -176,6 +195,35 @@ assert_contains "0a. in-pane claim succeeded" "OWNED:1" "$(cat "$DATA/claim.out"
 PANE_ID="$(tmux -L "$SOCK" list-panes -a -F '#{pane_id}' 2>/dev/null | head -1)"
 EXPECT_TARGET="$(tmux -L "$SOCK" list-panes -a \
     -F '#{session_name}:#{window_id}.#{pane_id}' 2>/dev/null | head -1)"
+
+# --- Which verdict can the claimed holder reach on this host? --------------
+
+pane_rc=0
+PANE_CLASS="$(liveness_token_class "$PANE_PID")" || pane_rc=$?
+if (( pane_rc != 0 )); then
+    TOTAL=$((TOTAL + 1)); FAIL=$((FAIL + 1))
+    echo "FAIL: identity fixture invalid for the pane process (liveness_token_class status $pane_rc)"
+    report_and_exit
+fi
+
+if [[ "$PANE_CLASS" == weak ]]; then
+    # The weak-token counterpart of the Case 2 / Case 1 ordering pair: the seed
+    # does not change the answer, because the liveness gate decides first.
+    echo "--- W: weak identity token — the liveness gate answers first ---"
+    out="$(run_resolve 1 2>/dev/null)"; rc=$?
+    assert_eq "W1. an unseeded claim stops at the liveness gate" \
+        "LIVE_NONE:holder_unknown" "$out"
+    assert_eq "W1b. …and that is a successful resolution" "0" "$rc"
+
+    write_task 1 "claudecode/opus5"
+    out="$(run_resolve 1 2>/dev/null)"; rc=$?
+    assert_eq "W2. seeding implemented_with does not get past it" \
+        "LIVE_NONE:holder_unknown" "$out"
+    assert_eq "W2b. …still a successful resolution" "0" "$rc"
+
+    skip_weak_token "Cases 1-4: PID→pane correlation needs a provably-alive holder"
+    report_and_exit
+fi
 
 # --- Case 2 first: the ORDERING CONTROL ------------------------------------
 #
@@ -258,8 +306,6 @@ if wait_for_file "$DATA/child.pid"; then
         -F '#{window_name} #{pane_id}' 2>/dev/null \
         | awk '$1 == "walk" { print $2; exit }')"
 
-    # shellcheck source=../.aitask-scripts/lib/pid_anchor.sh
-    . "$PROJECT_DIR/.aitask-scripts/lib/pid_anchor.sh"
     write_task 2 "claudecode/opus5"
     (
         cd "$DATA" || exit 1
@@ -310,11 +356,4 @@ fi
 
 # --- summary ---------------------------------------------------------------
 
-echo ""
-echo "Results: $PASS passed, $FAIL failed, $TOTAL total"
-if [[ "$FAIL" -eq 0 ]]; then
-    echo "ALL TESTS PASSED"
-    exit 0
-fi
-echo "SOME TESTS FAILED"
-exit 1
+report_and_exit

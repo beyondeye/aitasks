@@ -18,7 +18,13 @@
 #      an anchor equal to that pane's `#{pane_pid}`.
 #   2. That anchor is not the UNKNOWN sentinel (stated separately, so a
 #      regression reads as "fell back to UNKNOWN", not as a bare inequality).
-#   3. The recorded token + kind read back as `alive` while the pane is up.
+#   3. The recorded token + kind read back, while the pane is up, as the
+#      verdict this host's token supports: `alive` for a strong /proc token,
+#      `unknown` for the weak second-granular `ps` token (macOS/BSD), which
+#      lock_holder_liveness refuses to call alive BY DESIGN. Which one applies
+#      comes from liveness_token_class (tests/lib/proc_fixtures.sh), and it
+#      fails closed: a sentinel token or an unrecognised kind is a FAIL, never
+#      the weak branch.
 #   4. NEGATIVE CONTROL: the identical claim, in a real pane, with only the
 #      gateway socket repointed at a server that does not exist, records `-`.
 #      Without this, assertion 1 could pass vacuously on a broken guard.
@@ -57,6 +63,8 @@ enter_scratch_cwd
 . "$PROJECT_DIR/tests/lib/asserts.sh"
 # shellcheck source=../.aitask-scripts/lib/pid_anchor.sh
 . "$PROJECT_DIR/.aitask-scripts/lib/pid_anchor.sh"
+# shellcheck source=lib/proc_fixtures.sh
+. "$PROJECT_DIR/tests/lib/proc_fixtures.sh"
 
 PASS=0
 FAIL=0
@@ -228,10 +236,28 @@ if [[ -n "$PANE_PID" ]] && wait_for_claim "$LOCAL_DIR/claim.rc"; then
         FAIL=$((FAIL + 1))
         echo "FAIL: the tmux rung did not resolve — anchor fell back to UNKNOWN"
     fi
+    # The two equalities below would also hold if BOTH sides returned the
+    # sentinel (`-` / `none`), so the recorded values are pinned as usable first.
+    TOTAL=$((TOTAL + 1))
+    if [[ -n "$rec_tok" && "$rec_tok" != "-" ]] && [[ "$rec_kind" == proc || "$rec_kind" == ps ]]; then
+        PASS=$((PASS + 1))
+    else
+        FAIL=$((FAIL + 1))
+        echo "FAIL: the claim recorded no usable identity token (token='$rec_tok', kind='$rec_kind')"
+    fi
     assert_eq "Identity token recorded" "$(get_pid_starttime "$PANE_PID")" "$rec_tok"
     assert_eq "Token kind recorded" "$(get_pid_starttime_kind "$PANE_PID")" "$rec_kind"
-    assert_eq "Anchor reads back as alive while the pane is up" \
-        "alive" "$(lock_holder_liveness "$rec_pid" "$rec_tok" "$rec_kind")"
+
+    pane_rc=0
+    pane_class="$(liveness_token_class "$PANE_PID")" || pane_rc=$?
+    if (( pane_rc == 0 )); then
+        assert_eq "Anchor reads back as the $pane_class-token verdict while the pane is up (kind $rec_kind)" \
+            "$(expected_live_verdict "$PANE_PID")" \
+            "$(lock_holder_liveness "$rec_pid" "$rec_tok" "$rec_kind")"
+    else
+        TOTAL=$((TOTAL + 1)); FAIL=$((FAIL + 1))
+        echo "FAIL: identity fixture invalid for the pane process (liveness_token_class status $pane_rc)"
+    fi
 else
     TOTAL=$((TOTAL + 1)); FAIL=$((FAIL + 1))
     echo "FAIL: in-pane claim did not finish within the budget"

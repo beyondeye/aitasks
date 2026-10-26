@@ -178,6 +178,8 @@ set +e
 # liveness checks the signal-level tests make about their own fixtures.
 # shellcheck source=../.aitask-scripts/lib/pid_anchor.sh
 . "$PROJECT_DIR/.aitask-scripts/lib/pid_anchor.sh"
+# shellcheck source=lib/proc_fixtures.sh
+. "$PROJECT_DIR/tests/lib/proc_fixtures.sh"
 
 echo "=== Crash Recovery PID Anchor Tests (t723, t1465) ==="
 echo ""
@@ -347,8 +349,62 @@ assert_eq "Recorded token matches the live process" "$(get_pid_starttime "$ANCHO
 if [[ "$(uname)" == "Linux" ]]; then
     assert_eq "Token kind recorded as proc (Linux)" "proc" "$rec_kind_8"
 fi
-assert_eq "Recorded anchor reads back as alive" \
-    "alive" "$(lock_holder_liveness "$rec_pid_8" "$rec_tok_8" "$rec_kind_8")"
+
+# --- liveness_token_class: the contract the platform-split suites rely on ---
+# Tests that need a provably-alive holder branch on this classifier rather than
+# on `uname` (t2146). The positive half pins the branch Linux must take; the
+# negative half pins that a BROKEN identity fails closed instead of reading as
+# the weak-token limitation, because the product answers `unknown` for both.
+
+cls_rc_8=0
+cls_8="$(liveness_token_class "$ANCHOR_PID_8")" || cls_rc_8=$?
+assert_eq "liveness_token_class: a live pid classifies" "0" "$cls_rc_8"
+TOTAL=$((TOTAL + 1))
+if [[ "$cls_8" == strong || "$cls_8" == weak ]]; then
+    PASS=$((PASS + 1))
+else
+    FAIL=$((FAIL + 1))
+    echo "FAIL: liveness_token_class: expected strong|weak, got '$cls_8'"
+fi
+if [[ "$(uname)" == "Linux" ]]; then
+    assert_eq "liveness_token_class: Linux takes the strong branch" "strong" "$cls_8"
+    assert_eq "expected_live_verdict: Linux expects alive" \
+        "alive" "$(expected_live_verdict "$ANCHOR_PID_8")"
+fi
+assert_eq "expected_live_verdict agrees with the product for a live pid" \
+    "$(lock_holder_liveness "$ANCHOR_PID_8" "$(get_pid_starttime "$ANCHOR_PID_8")" \
+                            "$(get_pid_starttime_kind "$ANCHOR_PID_8")")" \
+    "$(expected_live_verdict "$ANCHOR_PID_8")"
+assert_eq "Recorded anchor reads back as the $cls_8-token verdict" \
+    "$(expected_live_verdict "$ANCHOR_PID_8")" \
+    "$(lock_holder_liveness "$rec_pid_8" "$rec_tok_8" "$rec_kind_8")"
+
+# Negative half. Each stub lives only inside its command substitution; the
+# result comes back as "[<stdout>] <status>" and is asserted out here, so the
+# counters never run inside a subshell.
+# shellcheck disable=SC2329  # the stubs are called via liveness_token_class
+neg_a="$( _pid_starttime_ps() { return 1; }; _pid_starttime_proc() { return 1; }
+          o="$(liveness_token_class "$ANCHOR_PID_8" 2>/dev/null)"; echo "[$o] $?" )"
+assert_eq "class: no token from either source (token '-', kind none) fails closed" "[] 3" "$neg_a"
+# shellcheck disable=SC2329  # the stubs are called via liveness_token_class
+neg_a2="$( _pid_starttime_ps() { return 1; }; _pid_starttime_proc() { return 1; }
+           o="$(expected_live_verdict "$ANCHOR_PID_8" 2>/dev/null)"; echo "[$o] $?" )"
+assert_eq "expected_live_verdict: broken identity prints nothing (never 'unknown')" "[] 3" "$neg_a2"
+neg_b="$( o="$(liveness_token_class "$(dead_pid_fixture)" 2>/dev/null)"; echo "[$o] $?" )"
+assert_eq "class: a dead pid has no token and fails closed" "[] 3" "$neg_b"
+# shellcheck disable=SC2329  # the stubs are called via liveness_token_class
+neg_c="$( get_pid_starttime_kind() { echo bogus; }
+          o="$(liveness_token_class "$ANCHOR_PID_8" 2>/dev/null)"; echo "[$o] $?" )"
+assert_eq "class: an unrecognised kind fails closed" "[] 3" "$neg_c"
+# Stub the TOKEN, not _pid_starttime_ps: without /proc get_pid_starttime reads
+# _pid_starttime_ps itself, so stubbing it would compare the stub with itself.
+# shellcheck disable=SC2329  # the stubs are called via liveness_token_class
+neg_d="$( get_pid_starttime_kind() { echo ps; }; get_pid_starttime() { echo 123456789; }
+          o="$(liveness_token_class "$ANCHOR_PID_8" 2>/dev/null)"; echo "[$o] $?" )"
+assert_eq "class: a ps kind whose token does not re-derive from ps fails closed" "[] 3" "$neg_d"
+neg_e="$(bash -c '. "$1"; o="$(liveness_token_class $$ 2>/dev/null)"; echo "[$o] $?"' \
+            _ "$PROJECT_DIR/tests/lib/proc_fixtures.sh")"
+assert_eq "class: pid_anchor.sh not sourced is a setup error" "[] 2" "$neg_e"
 
 echo "--- Test 9: Re-pick while the holder is ALIVE → no false crash ---"
 
@@ -545,10 +601,18 @@ _pid_exists abc;          assert_eq "_pid_exists: non-numeric is undecidable" "2
 # as crashed, so it must resolve to "exists".
 _pid_exists 1;            assert_eq "_pid_exists: EPERM means exists, not absent" "0" "$?"
 
-assert_eq "live + matching strong token ⇒ alive" \
-    "alive"   "$(lock_holder_liveness "$UNIT_PID" "$unit_tok" "$unit_kind")"
+# The matching-token row is `alive` only for a strong token; with the weak ps
+# token (no /proc) it is `unknown` by design. Fails closed via the classifier.
+unit_rc=0
+unit_class="$(liveness_token_class "$UNIT_PID")" || unit_rc=$?
+assert_eq "Fixture check: the unit pid has a usable identity token" "0" "$unit_rc"
+assert_eq "live + matching $unit_class token ⇒ $(expected_live_verdict "$UNIT_PID")" \
+    "$(expected_live_verdict "$UNIT_PID")" \
+    "$(lock_holder_liveness "$UNIT_PID" "$unit_tok" "$unit_kind")"
+# Same kind as the host records, so the reader re-derives from the source it can
+# actually read (a `proc` kind on a host without /proc would read `unknown`).
 assert_eq "live + wrong token ⇒ dead" \
-    "dead"    "$(lock_holder_liveness "$UNIT_PID" "99999999" proc)"
+    "dead"    "$(lock_holder_liveness "$UNIT_PID" "99999999" "$unit_kind")"
 assert_eq "live + no token ⇒ unknown" \
     "unknown" "$(lock_holder_liveness "$UNIT_PID" "-" proc)"
 assert_eq "live + unrecognised kind ⇒ unknown" \
@@ -562,7 +626,12 @@ assert_eq "pid 'abc' ⇒ unknown" "unknown" "$(lock_holder_liveness abc - proc)"
 is_lock_holder_alive 0 -
 assert_eq "is_lock_holder_alive rejects the pid:0 sentinel" "1" "$?"
 is_lock_holder_alive "$UNIT_PID" "$unit_tok" "$unit_kind"
-assert_eq "is_lock_holder_alive accepts a proven live holder" "0" "$?"
+unit_alive_rc=$?
+if [[ "$unit_class" == strong ]]; then
+    assert_eq "is_lock_holder_alive accepts a proven live holder" "0" "$unit_alive_rc"
+else
+    assert_eq "is_lock_holder_alive refuses a weak-token holder it cannot prove" "1" "$unit_alive_rc"
+fi
 
 # --- Test 16: the `ps` token generator (BSD/macOS implementation) ---
 # Linux `ps` supports lstart too, so the implementation is exercisable here

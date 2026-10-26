@@ -29,6 +29,14 @@
 # real `sleep` processes, so "alive" and "dead" are facts about this machine
 # rather than fixture decoration. Test 2 is the positive control.
 #
+# PLATFORM SPLIT. "Provably live" needs a strong /proc identity token. With the
+# weak second-granular `ps` token (macOS/BSD) a running holder reads `unknown` by
+# design, so the acquire gate refuses with LOCK_UNVERIFIABLE_HOLDER rather than
+# LOCK_LIVE_HOLDER. That is the same refusal (nothing claimed, nothing written)
+# under its undecidable name. The expected verdict and signal come from
+# liveness_token_class (tests/lib/proc_fixtures.sh), which fails closed: a
+# sentinel token or an unknown kind is a FAIL, never the weak branch.
+#
 # Run: bash tests/test_lock_live_holder_gate.sh
 
 set -e
@@ -193,6 +201,8 @@ set +e
 # The anchor lib itself, for the fixture's own liveness assertions.
 # shellcheck source=../.aitask-scripts/lib/pid_anchor.sh
 . "$PROJECT_DIR/.aitask-scripts/lib/pid_anchor.sh"
+# shellcheck source=lib/proc_fixtures.sh
+. "$PROJECT_DIR/tests/lib/proc_fixtures.sh"
 
 echo "=== Lock Acquire-Time Liveness Gate Tests (t1466) ==="
 echo ""
@@ -212,7 +222,20 @@ assert_eq "Lock is anchored to session A" "$SESSION_A" "$(lock_field "$TMPDIR_1"
 # The fixture must be telling the truth about A before anything is asserted
 # about the gate: a holder that already read as dead would make Test 1 pass for
 # entirely the wrong reason.
-assert_eq "Fixture check: session A reads as ALIVE" "alive" \
+# What a running holder reads as on this host, decided from A's real token.
+a_rc=0
+A_CLASS="$(liveness_token_class "$SESSION_A")" || a_rc=$?
+if (( a_rc != 0 )); then
+    TOTAL=$((TOTAL + 1)); FAIL=$((FAIL + 1))
+    echo "FAIL: identity fixture invalid for session A (liveness_token_class status $a_rc)"
+fi
+if [[ "$A_CLASS" == weak ]]; then
+    LIVE_SIGNAL=LOCK_UNVERIFIABLE_HOLDER
+else
+    LIVE_SIGNAL=LOCK_LIVE_HOLDER
+fi
+
+assert_eq "Fixture check: session A reads as running ($A_CLASS token)" "$(expected_live_verdict "$SESSION_A")" \
     "$(lock_holder_liveness "$(lock_field "$TMPDIR_1" 1 pid)" \
                             "$(lock_field "$TMPDIR_1" 1 pid_starttime)" \
                             "$(lock_field "$TMPDIR_1" 1 pid_starttime_kind)")"
@@ -226,8 +249,8 @@ out1=$(run_claim "$TMPDIR_1" 1 pc-A "AIT_AGENT_PID=$SESSION_B")
 exit1=$?
 
 assert_eq "Claim against a live holder exits non-zero" "1" "$exit1"
-assert_contains "Emits LOCK_LIVE_HOLDER" "LOCK_LIVE_HOLDER:alice@test.com" "$out1"
-assert_contains "LOCK_LIVE_HOLDER names the holding pid" "|${SESSION_A}" "$out1"
+assert_contains "Emits $LIVE_SIGNAL" "${LIVE_SIGNAL}:alice@test.com" "$out1"
+assert_contains "$LIVE_SIGNAL names the holding pid" "|${SESSION_A}" "$out1"
 assert_not_contains "Nothing was claimed (no OWNED)" "OWNED:" "$out1"
 assert_not_contains "A live holder is never called a crash" "RECLAIM_CRASH" "$out1"
 
@@ -258,7 +281,7 @@ echo "--- Test 3: self re-claim refreshes silently ---"
 # Session B now holds the lock and is alive. Without a self-exemption the gate
 # would refuse B its own lock — which is the Step 7 ownership guard, an in-pane
 # re-pick and every in-flight resume.
-assert_eq "Fixture check: the lock is now B's, and B is alive" "alive" \
+assert_eq "Fixture check: the lock is now B's, and B is running" "$(expected_live_verdict "$SESSION_B")" \
     "$(lock_holder_liveness "$(lock_field "$TMPDIR_1" 1 pid)" \
                             "$(lock_field "$TMPDIR_1" 1 pid_starttime)" \
                             "$(lock_field "$TMPDIR_1" 1 pid_starttime_kind)")"
