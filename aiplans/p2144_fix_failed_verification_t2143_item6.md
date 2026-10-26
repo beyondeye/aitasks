@@ -267,7 +267,7 @@ else: entries[0..L] with the hazard entries taken out (order kept),
   are in `~/.local/bin`, and the Omarchy docs and the user's rc name that same
   dir. Protecting the general case would mean sniffing file contents on the
   per-call hot path, which t1689 already rejected · severity: medium ·
-  → mitigation: wrapper_dirs_beyond_local_bin
+  → mitigation: t2153
 - Item 6 is host-specific. The unit table uses reduced copies of the real
   PATHs · severity: low (residual: addressed by inline post-phase
   verify_on_host_activated_path) · → mitigation: inline post-phase
@@ -275,7 +275,7 @@ else: entries[0..L] with the hazard entries taken out (order kept),
 
 ### Planned mitigations
 - timing: post-phase | name: verify_on_host_activated_path | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: item 6 is host-specific; reduced table PATHs may not match the real activated PATH | desc: Normalize this host's fresh activated PATH, the t2143-finding order and the t2143 bad env with both implementations, and spawn panes from each on a scratch tmux server, checking PATH and opencode/claude resolution
-- timing: after | name: wrapper_dirs_beyond_local_bin | type: enhancement | priority: low | effort: medium | inline_risk: medium | added_complexity: medium | addresses: residual — `mise x` wrappers outside ~/.local/bin are no longer protected | desc: Record whether self-referential `mise x` wrappers ever appear outside ~/.local/bin (e.g. $XDG_BIN_HOME, /usr/local/bin) on supported hosts; if they do, extend the hazard-dir set (or add a targeted pre-exec guard in ait codeagent invoke) rather than reinstating the full reorder
+- timing: after | name: wrapper_dirs_beyond_local_bin | type: enhancement | priority: low | effort: medium | inline_risk: medium | added_complexity: medium | addresses: residual — `mise x` wrappers outside ~/.local/bin are no longer protected | desc: Record whether self-referential `mise x` wrappers ever appear outside ~/.local/bin (e.g. $XDG_BIN_HOME, /usr/local/bin) on supported hosts; if they do, extend the hazard-dir set (or add a targeted pre-exec guard in ait codeagent invoke) rather than reinstating the full reorder | created: t2153
 
 ## Final Implementation Notes
 - **Actual work done:** Replaced t1689's "hoist every mise entry" normalization
