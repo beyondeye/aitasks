@@ -182,3 +182,27 @@ separately per Step 8, then archive with `./.aitask-scripts/aitask_archive.sh 21
 None identified. Both defects were reproduced with a probe. The fix delivers the intended
 behaviour, including the part the task's proposed guard-only fix would have missed (the
 App binding never fires), and is pinned by tests that fail before the fix.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-26 16:52)
+- **Requested by user:** The new tests press literal Tab/Shift+Tab, but `StatsApp.__init__` (via `ShortcutsMixin` → `keybinding_registry.register_app_bindings`) applies real user shortcut overrides, so a valid stats remap (e.g. `focus_next_panel=f6`) would fail `test_tab_routes_through_the_panel_cycle`. Isolate overrides during fixture construction.
+- **Changes made:** `_make_app` now also patches `keybinding_registry.load_user_overrides` to `{}` while constructing the app (same pattern as `tests/test_frozenagent_app.py`). Verified with a hostile `{"stats": {"focus_next_panel": "f6", "focus_prev_panel": "f7"}}` override wrapped around the whole `TestPanelCycle` run: it passes. As a control, an unisolated construction resolves the cycle keys to `['f6', 'f7']`, which proves the hostile condition really took effect.
+- **Files affected:** `tests/test_stats_focus_cycle_and_pane_selector_live.py`
+
+## Final Implementation Notes
+- **Actual work done:**
+  - `pane_selector.py` `on_key` ignores Enter when a `Button` is focused, so Enter on Cancel cancels.
+  - `stats_app.py`: the tab/shift+tab panel bindings are now `priority=True`. A new `check_action` declines them while a modal is on top, and `_cycle_focus` uses a shared `_modal_on_top()` (`len(screen_stack) > 1`) guard.
+  - The cycle gained a content slot: the pane's first focusable widget, last in the order, skipped when the pane has none. Focus anywhere under `#content` maps to that slot.
+  - New `tests/test_stats_focus_cycle_and_pane_selector_live.py` has 8 tests. Two fail on the unfixed tree (Enter-on-Cancel saved; `_cycle_focus` was called 0 times); all pass after the fix.
+- **Deviations from plan:**
+  - The multi-session test uses real `AitasksSession` fixtures plus a `_FixtureStatsApp` subclass that overrides `_load_data` with the in-memory backlog fixture, so no real archive scan runs.
+  - The content-slot design came from a plan-review concern: a ListView-only cycle would have removed the only keyboard route into content DataTables.
+- **Issues encountered:**
+  - The task's guard-only fix would have changed unreachable code. Textual 8.2.7's `Screen.BINDINGS` `tab → app.focus_next` sits earlier in the binding chain than the App's non-priority binding and consumed the key every time. Confirmed with a `run_test` probe.
+  - In review, the tests were found to depend on the user's real shortcut overrides. Fixed in Change Request 1.
+- **Key decisions:**
+  - Fall-through uses `check_action` returning False, not a guarded action. A guarded action would still swallow the key, because `run_action` returns True once it dispatches. This follows the `len(screen_stack) > 1` pattern in `board/aitask_board.py`'s `check_action`.
+  - `_apply_focus_hint` is unchanged. `on_descendant_focus` already refreshed the hint on every focus change, so it was never dead in practice.
+- **Upstream defects identified:** None
