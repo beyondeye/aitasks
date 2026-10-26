@@ -244,3 +244,64 @@ Post-implementation: commit the code (`bug: … (t2148)`) and the plan
 separately, then run the hosted CI probe (step 5). Archive via Step 9 of the
 task workflow (current-branch mode, no merge) **only if** the full-job
 acceptance is met, or the user has explicitly revised it.
+
+## Implementation progress (2026-10-26)
+
+- [x] `supervise_linux_test.go`: `killAfter` removed; `markOwned` / `sweepResidualAfter` /
+  `sweepOwned` / `ownedIn` / `ownedProc` / `killOwned` added (stdlib `os.FindProcess` +
+  `Process.WithHandle`, ownership re-checked inside the handle callback, `ErrNoHandle` → no
+  signal, reported); call sites updated in TestSuperviseParentDeath, TestSupervisorDeathHalts
+  (+ new sweep of `s1.Pid()`), TestHaltStartInterleavings; new `TestResidualSweepSparesUnowned`.
+- [x] Verification 1: gofmt clean, `go vet ./...` ok, procsup `-count=3` ok locally, hangguard ok,
+  `ci/preflight.sh` ok.
+- [x] Verification 2: dash container (`ubuntu:24.04 --init`), full procsup `-count=5`: PASS, 0 LEAK.
+- [x] Verification 3: dash container `--cpus 1` + 4 busy loops, the four affected tests `-count=80`:
+  PASS, 0 LEAK (pre-fix: 2/80 and 3/3).
+- [x] Verification 4 (mutants built from scratch copies of the module):
+  A pid-only kill → `LEAK:TestHaltStartInterleavings|…:sleep` 3/3 (dash);
+  B no d1 sweep → `LEAK:TestSupervisorDeathHalts|…:sleep` 3/3 local and 3/3 dash;
+  C ownership checks removed → `TestResidualSweepSparesUnowned` fails
+  ("a sweep of the unowned session killed: unowned true").
+- [ ] Verification 5 / post-phase hosted_ci_step_triage: pending (needs a pushed probe branch).
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-26 14:05)
+- **Requested by user:** (1) `ownedProc` failed the whole scan on an unreadable stat of an
+  *unrelated* process (an EACCES on pid 1 made a sweep of an empty session fail) — place such a
+  process by getsid like `SessionProcs`, keeping an error only for an unverifiable member of the
+  target session; (2) mutant C removed both ownership filters, so nothing proved the in-handle
+  re-check alone — add a focused `killOwned` check.
+- **Changes made:** `ownedProc` now falls back to `getsid` on an unreadable stat: another session →
+  skipped; gone → skipped; member of `sid` or unknown session → error (never killed, never clean).
+  `TestResidualSweepSparesUnowned` now calls `killOwned` directly on an unowned pid and on an owned
+  pid of another session, and asserts neither is signalled. New isolated
+  `TestResidualSweepUninspectable` (reusing `injectStat` / `startSession`): an uninspectable
+  unrelated process does not fail the sweep; an uninspectable member makes it fail and is not killed.
+- **Re-verified on the final code:** local vet/gofmt/procsup ×3/hangguard/preflight ok; dash
+  container full procsup ×5 PASS; dash stress ×80 PASS (0 LEAK); mutants rebuilt from scratch copies
+  of the final code: A → `LEAK:TestHaltStartInterleavings|…:sleep` 3/3, B →
+  `LEAK:TestSupervisorDeathHalts|…:sleep` 3/3, D (in-handle re-check removed only) →
+  "killOwned signalled the unowned process", E (getsid fallback reverted) → "an uninspectable
+  process of another session failed the sweep … permission denied".
+- **Files affected:** `goengines/internal/procsup/supervise_linux_test.go`
+
+## Final Implementation Notes
+- **Actual work done:** Root-caused both hosted-only leaks (dash forks the last command of
+  `sh -c`, so a pid-only kill of the dead supervisor's command leaves its `sleep`; and the cleanup
+  never killed s1's `sh` and never waited for signalled processes before hangguard's scan). Replaced
+  `killAfter` with an ownership-scoped, waiting sweep of each documented residual session
+  (`markOwned` env token + session filter + pidfd kill via `os.Process.WithHandle` with an in-handle
+  ownership re-check; `ErrNoHandle` fails closed). Added `TestResidualSweepSparesUnowned` and
+  `TestResidualSweepUninspectable`. Test-only; production code and hangguard untouched.
+- **Deviations from plan:** Two review rounds before implementation replaced the first design
+  (`SweepSession` by bare session number) with the ownership-scoped design, and raw pidfd syscall
+  numbers with the stdlib handle API. Post-review: getsid fallback for unreadable stats, and a
+  direct `killOwned` check (Change Request 1).
+- **Issues encountered:** Not reproducible on the dev box because `/bin/sh` is bash there; reproduced
+  deterministically in `docker run --init ubuntu:24.04` with a static `go test -c` binary, and the race
+  under `--cpus 1` + busy loops.
+- **Key decisions:** Fix the tests, not the detector: everything hangguard reported really was alive.
+  Ownership by a per-run env token rather than session numbers (no stale-number kills); sweep only
+  documented residual sessions so hangguard still reports any other leak.
+- **Upstream defects identified:** None
