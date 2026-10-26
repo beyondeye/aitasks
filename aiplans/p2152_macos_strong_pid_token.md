@@ -356,3 +356,46 @@ Step 9 (Post-Implementation): commit code and plan separately, then archive via
 
 ### Planned mitigations
 - timing: after | name: linux_lock_suite_run | type: test | priority: medium | effort: low | inline_risk: high | added_complexity: low | addresses: shared refactor unverified on Linux (no CI job, no local Linux runtime) | desc: Run the pid_anchor/lock/crash-recovery/merge-lock/live-holder shell suites individually on a Linux host and record each file's result for t2152
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-26 16:35)
+- **Requested by user:** Test 19's `r19_proc` stub emitted `BSDINFO_CALLED` on stderr to prove a lower source was never consulted, but `get_pid_identity` discards each source's stderr, so the assertion could not observe a stray probe (a reviewer mutation adding a discarded bsdinfo call passed while three calls happened).
+- **Changes made:** the lower-rung stubs in the ladder cases (`r19_proc`, `r19_bsd`) now append to a `mktemp` marker file that the helper cannot discard, and two new assertions require that file to be empty. Verified with the same mutation in a scratch harness: the fixed code records `[]`, the mutated code records `[bsdinfo,bsdinfo,bsdinfo]`. Full suite: 114/114.
+- **Files affected:** tests/test_crash_recovery_pid_anchor.sh
+
+## Final Implementation Notes
+- **Actual work done:** `lib/pid_anchor.sh` gains the strong macOS token kind `bsdinfo` (`_pid_starttime_bsdinfo`: `proc_pidinfo(PROC_PIDTBSDINFO)` via ctypes + public libproc, `<sec>.<usec6>`, `$OSTYPE`-gated, interpreter from a lazily sourced `python_resolve.sh` via `_pid_anchor_python`), a single-probe `get_pid_identity` (ladder proc > bsdinfo > ps > none; `get_pid_starttime[_kind]` are now thin wrappers), a `bsdinfo` reader case in `lock_holder_liveness` with strong = proc|bsdinfo, and a single `get_pid_identity` call in `_ait_current_anchor`. The writers in `aitask_lock.sh` and `lib/merge_lock.sh` take kind+token from one probe. `tests/lib/proc_fixtures.sh`: `liveness_token_class` returns strong for proc|bsdinfo and fails closed with status 4 on a ps-only host; `skip_weak_token` was deleted; `expected_live_verdict` is alive-or-nothing. Weak-token branches were removed from the seven listed suites and from `test_sync_deferral_and_quarantine.sh` Test 33. Test 17 now runs with whatever strong kind the host records (macOS included), and Test 6's planted ps variant runs on any host. New Test 19 covers the ladder, same-source reader, writer split and real-probe contract. `crash-recovery.md`'s macOS bullet was rewritten.
+- **Deviations from plan:** (1) `test_sync_deferral_and_quarantine.sh` Test 33 also carried a `/proc`-readability branch expecting `unknown_liveness` on macOS. The task's list missed it (it keys on `[ -r /proc/self/stat ]`, not on `liveness_token_class`), so it was found only by the regression run. It is now strong-required via the classifier, as a scope expansion. (2) The live product check read this session's real anchor (`get_pid_identity` → `bsdinfo`, liveness `alive`, ~32 ms) instead of re-claiming t2152. Its lock predates the change with a `ps` token, so a re-claim would have hit the documented transitional `LOCK_UNVERIFIABLE_HOLDER` and needed `--force`. The legacy `ps` lock reads `unknown` as designed.
+- **Issues encountered:** a first stress run of 60 concurrent `get_pid_identity` loops reported all `ps`. That was a harness artifact: it sourced the lib under zsh, where `BASH_SOURCE` is empty, so `python_resolve.sh` was not found. Re-run under bash: 900/900 identical `bsdinfo` tokens, so no transient-probe identity mismatch under load. Change Request 1 fixed an unobservable stderr marker in Test 19.
+- **Key decisions:** no self-identity bridge for legacy `ps` locks (kind match stays required, t1466). Python via ctypes rather than Perl's private syscall number. A `ps` token on a supported host is now a test FAILURE (status 4), not a SKIP. Linux is NOT verified in this session: no checked-in CI job runs these shell suites and this host has no Linux runtime. Only the stub-driven proc-branch cases in Test 19 ran here; the real Linux run is the `linux_lock_suite_run` after-mitigation.
+- **Verification as run (macOS 15.7.3):**
+  - Pre-fix control, with only the test edits applied: crash suite 27/103 FAIL, gate suite 4/61 FAIL.
+  - Post-fix:
+
+    | Suite | Result |
+    |---|---|
+    | crash_recovery | 114/114 |
+    | live_holder_gate | 60/60 |
+    | lock_anchor_tmux_live | 12/12 |
+    | live_endpoint_tmux_live | 16/16 (Cases 1-4 now run) |
+    | note_with_live_composition | 117/117 |
+    | sync_holder_pane_live | 51/51 |
+    | sync_protect_paths | 31/31 |
+    | sync_deferral_and_quarantine | 139/139 |
+    | task_lock | 94/94 |
+    | lock_diag | 9/9 |
+    | live_endpoint_degradation | 53/53 |
+    | session_hook | 193/193 |
+    | sync_auto_commit_scoping | 38/38 |
+    | archive_carryover_anchor | 5/5 |
+    | merge_lock_broker | 100/100 |
+    | merge_broker_rendered_verdicts | 25/25 |
+    | test_parallel_admission_collect (unittest) | 132 OK |
+
+  - `test_merge_lock_concurrency` FAILS (16/30): the Case 2 N=51 lock leaks and later cases cascade. Unmodified HEAD (bdf78abab, run from a `git archive` copy) fails the same way on this host (3 merges, then `HELD … unknown`), so the failure predates this task.
+  - shellcheck: no warnings in edited files. `check_links.py --build`: SWEEP PASSED.
+- **Upstream defects identified:**
+  - `.aitask-scripts/lib/stale_lock.sh:689-694` — `stale_lock_release` waits only 40×50 ms for the `.gc` guard. Meanwhile every merge-lock waiter (`_MERGE_LOCK_SLEEP=0.05`, `lib/merge_lock.sh:78`) takes that same guard each poll and runs the holder-liveness seam inside it. With N contenders the guard is almost never free, so the holder's `finish` gives up ("guard busy — lock NOT released") and the lock leaks.
+    - Reproduced by `tests/test_merge_lock_concurrency.sh` Case 2 on unmodified HEAD on macOS.
+    - The slower `bsdinfo` probe raises guard occupancy further (1 merge vs 3 before the leak).
