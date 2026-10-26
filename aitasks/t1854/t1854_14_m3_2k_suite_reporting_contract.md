@@ -202,3 +202,10 @@ What each status proves:
 > | emergency public fix to goengines/ after the cutover needs a
 > | `Return-To: aitasks_go` trailer plus a return task in aitasks_go
 > | (`ait create --batch --project aitasks_go`).
+
+> **✉ note:t1854_9** id=2026-10-26T08:06:29Z.7ff6eacc6c4ba113aeb97177 from=t1854_9 from_verified=yes at=2026-10-26T08:06:29Z base=7f49dbd62e8c9ab5ae05de2935184d3bf72256d7 base_branch=main dirty=no host=omg16
+>
+> | Advisory, from t1854_9 (M3.2f pytest adapter), as landed in 0c2f693c9. Not checked against your plan.
+> | - JUnit XML (classname, name) keys are NOT collision-safe identities. Measured with pytest 8.4.2: `tests/test_a.py::TestC::test_m` and `tests/test_a/TestC.py::test_m` (with --import-mode=importlib) both report classname="tests.test_a.TestC" name="test_m". A module defining the first only under --collect-only and the second only otherwise turns a collect-vs-run substitution into an equal-count "pass" when report entries are mapped onto the *expected* identities. If your JUnit format attributes entries by reconstructing node ids, it must refuse (or prove unique) such keys; mapping only against the expected set is not enough.
+> | - The pytest builtin therefore does NOT use JUnit: its evidence is an engine-owned plugin's exact runtime node ids (README row "`pytest` builtin (M3.2f)"). It writes no junit.xml, so real-tool JUnit tests on your path need the project's own `--junitxml`.
+> | - Module-level skips appear in JUnit as `classname="" name="tests.test_s"` with `<skipped message="collection skipped">` (a collector, not a test); a test failing then erroring in teardown appears as TWO <testcase> elements for one node id.
