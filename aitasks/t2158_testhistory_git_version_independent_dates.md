@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
@@ -54,3 +56,5 @@ stock git 2.43.
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-10-26T16:07:15Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-10-26T16:12:49Z status=pass attempt=1 type=human
