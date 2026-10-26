@@ -253,7 +253,7 @@ Step 9 (Post-Implementation) handles commit, archival and merge as usual.
 - Panes created outside the framework (the user's own tmux bindings, hand-typed `tmux new-window`) still inherit the caller's PATH — out of scope by design · severity: low · → mitigation: none
 
 ### Planned mitigations
-- timing: after | name: verify_on_mise_linux_host | type: manual_verification | priority: high | effort: low | inline_risk: high | added_complexity: low | addresses: systemd-run --setenv rung untestable on macOS; real `mise x` + Omarchy shim not exercised | desc: On the Omarchy/mise Linux host, re-run t1689's repro (bad-order PATH new-window via gateway, switcher x/e, minimonitor/monitor spawns, first-server systemd-run launch) and confirm the real agent binary boots in each
+- timing: after | name: verify_on_mise_linux_host | type: manual_verification | priority: high | effort: low | inline_risk: high | added_complexity: low | addresses: systemd-run --setenv rung untestable on macOS; real `mise x` + Omarchy shim not exercised | desc: On the Omarchy/mise Linux host, re-run t1689's repro (bad-order PATH new-window via gateway, switcher x/e, minimonitor/monitor spawns, first-server systemd-run launch) and confirm the real agent binary boots in each | created: t2143
 
 ## Post-Review Changes
 
