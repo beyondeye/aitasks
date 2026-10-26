@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1852
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-26 17:46
-updated_at: 2026-10-26 17:58
+updated_at: 2026-10-26 18:07
 ---
 
 ## Origin
@@ -48,3 +49,8 @@ and check against `fixture.Epoch` (+1 min per commit), or use `--format=%ct` (Un
 which is version-independent. Verify under both renderings, e.g. with
 `goengines/ci/dashcheck.sh -run TestHistory ./internal/testmap/fixture/` and a scratch image on
 stock git 2.43.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-26T16:07:15Z status=pass attempt=1 type=human
