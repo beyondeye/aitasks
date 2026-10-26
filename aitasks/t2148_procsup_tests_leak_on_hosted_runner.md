@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: daelyasy@hotmail.com
 anchor: 1852
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-26 11:38
-updated_at: 2026-10-26 12:05
+updated_at: 2026-10-26 15:26
 ---
 
 ## Origin
@@ -82,3 +83,8 @@ negative control proving that a real leak still fails.
 Re-observing the full legacy `check` on `main` after this lands is owned by a
 dependent follow-up created by t2141 (a task archives before its push, so this task
 can't observe its own main-branch run).
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-26T13:26:23Z status=pass attempt=1 type=human
