@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1852
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-26 10:05
-updated_at: 2026-10-26 12:25
+updated_at: 2026-10-26 14:54
 ---
 
 ## Origin
@@ -37,3 +38,8 @@ Spawned from t1854_9 (M3.2f pytest adapter) during Step 8b review.
 ## Suggested fix
 
 Apply the same check in `bashFileList`: refuse (list error, naming the path) when `id.String() != rel` or the id has a member/variant. Add a regression with a committed `tests/test_a#b.sh` asserting the Load error, plus an isolated red proof. Consider whether the shared `gitInventory` caller should own the check for both adapters.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-26T12:54:46Z status=pass attempt=1 type=human
