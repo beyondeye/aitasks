@@ -303,11 +303,30 @@ Current-branch mode: no merge. Commit code (`bug: … (t2146)`) and the plan
 separately, then run gates (`risk_evaluated`), archive with
 `./.aitask-scripts/aitask_archive.sh 2146`, and push.
 
-## Final Implementation Notes (to fill)
+## Final Implementation Notes
+- **Actual work done:** Added a three-way, fail-closed `liveness_token_class` (with `expected_live_verdict` and `skip_weak_token`) to `tests/lib/proc_fixtures.sh`. The four named live suites now assert the verdict that matches the token kind:
+  - `test_lock_anchor_tmux_live`: platform-correct verdict, plus a check that the recorded token is usable, so a `-`/`none` sentinel can no longer satisfy the equality checks.
+  - `test_live_endpoint_tmux_live`: W1/W2 `holder_unknown` controls, then a visible SKIP of Cases 1-4. The summary block is factored into `report_and_exit`.
+  - `test_note_with_live_composition`: 1e-1g/3a expect `holder_unknown` on a weak token, write-before-live is still asserted in full, and 3f/3g SKIP behind a 3f-weak control.
+  - `test_sync_holder_pane_live`: `EXPECT_REASON` is `live_lock` or `unknown_liveness`, S1h-weak asserts the unknown_liveness wording, and S1c-e/S2c/S1h/S1i SKIP.
+  - `lock_yaml_live` in `tests/lib/sync_fixture.sh` now records its token through `get_pid_starttime` / `get_pid_starttime_kind`, so a macOS lock carries a real `ps` token instead of `-`.
+  - `test_tmux_control.sh` defaults `PYTHON_BIN` to `require_ait_python`.
+  - Post-phase `linux_strong_token_pin`, in `test_crash_recovery_pid_anchor.sh`: the Linux pin (strong/alive), a both-platform agreement check with `lock_holder_liveness`, and six negative fail-closed cases.
+- **Deviations from plan:** Scope expansion from the step-0 sweep. All of these fail on macOS for the same root cause as the task:
+  - `test_crash_recovery_pid_anchor.sh`: Test 8 `alive`, and Test 15's matching-token, wrong-token and `is_lock_holder_alive` rows. The wrong-token row now uses the host's own kind, which is identical on Linux.
+  - `test_lock_live_holder_gate.sh`: fixture checks for A/B, and the expected refusal is `LOCK_UNVERIFIABLE_HOLDER` on a weak token instead of `LOCK_LIVE_HOLDER`.
+  - The `test_sync_protect_paths.sh` `live_lock` driver.
+  - The same bare-`python3` PYTHON_BIN default in `test_tmux_run_parity`, `test_tmux_control_resilience`, `test_kill_agent_pane_smart` and `test_multi_agent_window_substrate`, plus the bare `python3 -c` in `test_sync_deferral_and_quarantine.sh` Test 36, which lacks `textual`.
 
-The **Upstream defects identified** bullet should record
-`.aitask-scripts/lib/pid_anchor.sh:66 — macOS has only the weak ps token, so
-every live-holder consumer (ait note --with-live, sync pane naming, the
-LOCK_LIVE_HOLDER gate) degrades to unknown there`, and note that it is covered
-by the `macos_strong_pid_token` after-mitigation (Step 8d). In Step 8b, decline
-a duplicate.
+  `test_frozen_standin_spike.sh` refuses to run inside tmux (`require_clean_ait_server`, exit 2). That is expected and not a failure; it was not run.
+- **Issues encountered:**
+  - A plan review found that the first helper design folded `kind=none`, `-` tokens and a missing source into the weak branch. A broken recorder then made the platform-correct `unknown` agree with the product, so the check passed over the bug. The fix is a strict classifier.
+  - Planning showed that a ps-mismatch negative case which stubs `_pid_starttime_ps` is tautological on a host without /proc, because `get_pid_starttime` reads that same function. The case stubs the token getter instead.
+  - Pre-fix control: putting the naive classifier back fails 5 of the 6 negative contract cases (71/76).
+- **Key decisions:**
+  - Branch on the recorded token class, never on `uname`.
+  - A class failure is a counted FAIL and never a skip.
+  - Weak-token skips are `SKIP: … — not counted` lines on stderr, and each one sits next to an asserted weak-token control.
+- **Upstream defects identified:**
+  - `.aitask-scripts/lib/pid_anchor.sh:66 — macOS has only the weak second-granular ps token, so every live-holder consumer (ait note --with-live LIVE_PANE, sync live_lock pane naming, the LOCK_LIVE_HOLDER acquire gate) degrades to unknown there`. Covered by the `macos_strong_pid_token` after-mitigation (Step 8d), so no duplicate is needed in 8b.
+  - `tests/test_sync_protect_paths.sh:241 — drive_scan_failed injects failure via TMPDIR=<missing dir>, but macOS mktemp ignores a nonexistent TMPDIR and succeeds, so the scan_failed reason never fires on macOS (1 failure, independent of t2146)`.
