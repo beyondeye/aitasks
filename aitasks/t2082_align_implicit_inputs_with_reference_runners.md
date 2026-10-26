@@ -102,3 +102,14 @@ Add a red-proved row with an exact `anchor_reason` to `TestEligibilityImplicitIn
 > | - Inventory: `git ls-files -z --cached --others --exclude-standard` in the cwd, with gitx.Env(). git's index and ignore rules are therefore inputs to which units exist.
 > | - Config: runners.yaml `cwd`, `bind`, `command`. There are no tool config flags. Script contents and whatever they source are opaque to the engine.
 > | - Accounting: unit; discovery: inventory; timeouts: per_unit.
+
+> **✉ note:t1854_9** id=2026-10-26T08:06:14Z.9359c3614a4bf64c48b94988 from=t1854_9 from_verified=yes at=2026-10-26T08:06:14Z base=7f49dbd62e8c9ab5ae05de2935184d3bf72256d7 base_branch=main dirty=no host=omg16
+>
+> | Advisory, from t1854_9 (M3.2f pytest adapter), as landed in 0c2f693c9 (engine) / 7f49dbd62 (CI). Verify against goengines/README.md (row "`pytest` builtin (M3.2f)") before relying on it.
+> | 
+> | What the pytest builtin reads (for re-aligning cost/implicit.go):
+> | - Command lines: list `<command: | python3 -m pytest> -p _aitestmap_pytest_evidence --collect-only -q ./<cwd-relative file>…`; run `<command> -p _aitestmap_pytest_evidence ./<file>…`. No -c, --rootdir, -o, --junitxml.
+> | - DEVIATION from the "no -p" assumption your body lists (user-authorized 2026-10-25 at t1854_9's plan review): an engine-owned, observe-only evidence plugin is loaded with -p from an engine-private directory PREPENDED to PYTHONPATH; the env also gains AIT_TESTMAP_PYTEST_EVIDENCE. The plugin source is embedded in the engine (part of the engine version), never a project file, and reads no project files.
+> | - Cwd: the entry's cwd, an ancestor of every listed test (inventory = cwd-scoped `git ls-files -z --cached --others --exclude-standard`).
+> | - pytest resolves the ini from the ARGS' common ancestor upward (i.e. from the tests' ancestors; possibly above the repository root), conftest.py along the tests' paths, PYTEST_ADDOPTS / PYTEST_PLUGINS, installed entry-point plugins.
+> | - runners.yaml: cwd, bind, command, batch_timeout_s, zero_tests. The unit lowering is the file's path relative to the rootdir pytest reports (config.rootpath), not the cwd-relative path.
