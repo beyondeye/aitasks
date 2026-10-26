@@ -28,6 +28,7 @@ on:
       - '.github/workflows/release.yml'
       - 'tests/test_goengines_build.sh'
       - 'tests/test_goengines_benchci.sh'
+      - 'tests/test_goengines_dashcheck.sh'
       - 'tests/test_release_workflow_goengines.py'
       - 'aidocs/testing_engine/t1954_parser_research/corpus/**'
       - 'tests/test_annot_conformance_corpus_sync.sh'
@@ -40,6 +41,7 @@ on:
       - '.github/workflows/release.yml'
       - 'tests/test_goengines_build.sh'
       - 'tests/test_goengines_benchci.sh'
+      - 'tests/test_goengines_dashcheck.sh'
       - 'tests/test_release_workflow_goengines.py'
       - 'aidocs/testing_engine/t1954_parser_research/corpus/**'
       - 'tests/test_annot_conformance_corpus_sync.sh'
@@ -146,6 +148,11 @@ jobs:
       - name: benchci.sh tests
         working-directory: .
         run: bash tests/test_goengines_benchci.sh
+
+      # Stubbed: needs neither docker nor Go (the dash run itself is local only).
+      - name: dashcheck.sh tests
+        working-directory: .
+        run: bash tests/test_goengines_dashcheck.sh
 
       - name: annot conformance corpus sync guard
         working-directory: .

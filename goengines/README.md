@@ -138,6 +138,50 @@ go build -ldflags "-X main.version=<V> -X main.commit=<sha>" -o ait-testmap ./cm
 `go.mod` pins `go 1.26.0` and `toolchain go1.27.1`; with `GOTOOLCHAIN=auto` an
 older local Go fetches the pinned toolchain once.
 
+### Dash parity (local, opt-in)
+
+The hosted `ubuntu-latest` runners use dash as `/bin/sh`; many dev boxes use
+bash. Tests that start `sh -c` can behave differently under the two: dash forks
+the last command where bash execs it, so a test that kills the shell's pid
+leaves the command running. `ci/dashcheck.sh` runs the preflight and the suite
+under dash before a push:
+
+```bash
+cd goengines
+./ci/dashcheck.sh                     # preflight + go test -count=1 ./...
+./ci/dashcheck.sh -run TestX ./internal/procsup/   # args go to go test
+./ci/dashcheck.sh --stress 4 -count=20 ./internal/procsup/   # --cpus 1 + 4 busy loops
+```
+
+It runs in an `ubuntu:24.04` container shaped like the runner: dash, git from
+`ppa:git-core/ppa`, python3 with the check job's pinned pytest,
+`AIT_TESTMAP_REQUIRE_REAL_TOOLS=1`, a non-root uid and `--init`. Your Go
+toolchain and module cache are mounted read-only, as is the module itself, and
+the container runs with no network. Downloads happen only in the preparation on
+the host: `go mod download` fetches any module missing from your cache, and the
+image builds once per Dockerfile content. To pick up a newer git, remove the
+image with `docker rmi` on its `aitasks-dashcheck:<hash>` tag. `--stress` takes
+1 to 99 loops. `-count=1` always comes
+first, because the build cache is shared with your host runs and a result
+cached under bash would otherwise replay as a pass. An explicit `-count=N`
+still overrides it.
+
+Container output goes to stderr. Read the verdict from stdout:
+
+| stdout | exit |
+|---|---|
+| `DASHCHECK:PASS` | 0 |
+| `DASHCHECK:FAIL:<probe\|preflight\|suite>:<rc>` | 1 |
+| `DASHCHECK:FAIL:internal:<rc>` (the script itself stopped on an error) | 1 |
+| `DASHCHECK:NOT_RUN:<reason>` (no docker, daemon down, non-linux Go, …) | 3 |
+
+`NOT_RUN` is never a pass. The probe fails when the container's `/bin/sh` is
+not dash, or when your Go cannot run there (it needs a statically linked linux
+toolchain, which the official builds are). The check matches the runner's shell
+and tools. It does not match the runner's kernel or scheduling (`--stress`
+covers part of that), its toolchain (your Go, not the `toolchain` pin) or
+`CGO_ENABLED` (0 here).
+
 ### Host normalization
 
 Baselines are one host's numbers, so the gate normalizes for host speed

@@ -9,7 +9,8 @@ These assertions pin the wiring statically:
   VERSION guard still runs first, and `packaging` is unchanged.
 - goengines-check.yml: it triggers on every file these guards protect and
   runs them (the annot conformance corpus sync guard included, with the t1954
-  research corpus among the trigger paths), and only its bench job is advisory.
+  research corpus among the trigger paths, and the stubbed dashcheck.sh tests,
+  t2154), and only its bench job is advisory.
 - both: the hang-guard preflight (goengines/ci/preflight.sh) runs alone before
   `go test ./...`, and the suite runs only when it passes (t1998); and the
   pinned pytest the pytest adapter's real-tool tests require is installed
@@ -43,6 +44,7 @@ CHECK_PATHS = [
     ".github/workflows/release.yml",
     "tests/test_goengines_build.sh",
     "tests/test_goengines_benchci.sh",
+    "tests/test_goengines_dashcheck.sh",
     "tests/test_release_workflow_goengines.py",
     "aidocs/testing_engine/t1954_parser_research/corpus/**",
     "tests/test_annot_conformance_corpus_sync.sh",
@@ -238,6 +240,7 @@ class GoenginesCheckWorkflow(unittest.TestCase):
         for guard in ("tests/test_release_workflow_goengines.py",
                       "tests/test_goengines_build.sh",
                       "tests/test_goengines_benchci.sh",
+                      "tests/test_goengines_dashcheck.sh",
                       "tests/test_annot_conformance_corpus_sync.sh"):
             self.assertIn(guard, runs)
         self.assertIn("tests/test_goengines_export_integrity.sh", runs)
