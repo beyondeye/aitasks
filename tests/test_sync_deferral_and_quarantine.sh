@@ -1019,7 +1019,11 @@ assert_contains "an unreadable snapshot yields unverified" "|unverified|" "$ROW3
 assert_not_contains "and never claims the task is unlocked" "|none|" "$ROW36"
 
 # Parsed, not just pattern-matched: the field has to survive the real consumer.
-HOLDER36="$(printf '%s' "$OUT36" | python3 -c '
+# sync_action_runner imports the framework's deps (textual), which a bare system
+# python3 may lack, so use the framework interpreter, as
+# test_sync_holder_pane_live.sh does.
+PY36="$( . "$PROJECT_DIR/.aitask-scripts/lib/python_resolve.sh" >/dev/null 2>&1 && resolve_python 2>/dev/null )"
+HOLDER36="$(printf '%s' "$OUT36" | "${PY36:-python3}" -c '
 import sys
 sys.path.insert(0, "'"$PROJECT_DIR"'/.aitask-scripts/lib")
 from sync_action_runner import parse_sync_output

@@ -126,14 +126,17 @@ plant_lock() {
 }
 
 # A lock YAML anchored to a LIVE process on this host (this test's own shell).
-# Without /proc it records a `ps` token, which reads as `unknown`, never `alive`
-# (lock_holder_liveness in pid_anchor.sh) -- by design, not a fixture defect.
+# The token and kind come from the same functions a real claim records with, so
+# without /proc the lock carries a REAL `ps` token, which reads as `unknown`,
+# never `alive` (lock_holder_liveness in pid_anchor.sh) -- by design, not a
+# fixture defect. It must not be `-`: a tokenless lock also reads `unknown`, but
+# through the no-identity path, and a test meant to exercise the weak-token
+# limitation would then pass over a broken recorder.
 lock_yaml_live() {
     local tid="$1" host="${2:-testhost}" pid="${3:-$$}"
     local start kind
-    start="$(awk '{print $22}' "/proc/$pid/stat" 2>/dev/null)"
-    kind=proc
-    if [[ -z "$start" ]]; then start="-"; kind=ps; fi
+    start="$(get_pid_starttime "$pid")"
+    kind="$(get_pid_starttime_kind "$pid")"
     printf 'task_id: %s\nlocked_by: other@x.com\nlocked_at: 2026-01-01 00:00\nhostname: %s\npid: %s\npid_starttime: %s\npid_starttime_kind: %s' \
         "$tid" "$host" "$pid" "$start" "$kind"
 }
@@ -174,6 +177,9 @@ set_userconfig_email() {
 # every wrapper that runs the script directly does, not only run_sync.
 # shellcheck source=git_config_isolation.sh
 . "$PROJECT_DIR/tests/lib/git_config_isolation.sh"
+# lock_yaml_live records its identity token the way a real claim does.
+# shellcheck source=../../.aitask-scripts/lib/pid_anchor.sh
+. "$PROJECT_DIR/.aitask-scripts/lib/pid_anchor.sh"
 
 # Run the sweep in <tmpdir>'s clone. Echoes stdout; stderr lands in a
 # deterministic file, because callers capture stdout with $( ) and an assignment

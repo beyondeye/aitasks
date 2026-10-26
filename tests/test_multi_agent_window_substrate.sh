@@ -28,7 +28,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Start from an empty read-only dir, never the invoking one (t1826).
 . "$REPO_ROOT/tests/lib/scratch_cwd.sh"
 enter_scratch_cwd
-PYTHON_BIN="${PYTHON_BIN:-python3}"
+# The cases import monitor.* -> monitor_core, which needs `yaml`; a bare system
+# python3 may lack it, so default to the framework interpreter the way
+# tests/run_all_python_tests.sh does. An explicit PYTHON_BIN still wins.
+# shellcheck source=../.aitask-scripts/lib/python_resolve.sh
+. "$REPO_ROOT/.aitask-scripts/lib/python_resolve.sh"
+PYTHON_BIN="${PYTHON_BIN:-$(require_ait_python 2>/dev/null || echo python3)}"
 
 if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
     echo "SKIP: $PYTHON_BIN not available"
