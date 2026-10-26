@@ -34,6 +34,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from textual.app import App, ComposeResult  # noqa: E402
 from textual.binding import Binding  # noqa: E402
 from textual.containers import Container, Horizontal, Vertical  # noqa: E402
+from textual.widget import Widget  # noqa: E402
 from textual.widgets import Footer, Header, Label, ListItem, ListView, Static  # noqa: E402
 
 from lib.tui_switcher import TuiSwitcherMixin  # noqa: E402  (also adds lib/ to sys.path)
@@ -176,8 +177,11 @@ class StatsApp(TuiSwitcherMixin, ShortcutsMixin, App):
 
     BINDINGS = [
         Binding("r", "refresh", "Refresh"),
-        Binding("tab", "focus_next_panel", "Focus"),
-        Binding("shift+tab", "focus_prev_panel", "Focus"),
+        # priority=True: the Screen's own tab/shift+tab (focus_next/previous)
+        # would otherwise consume the key first. check_action declines these
+        # while a modal is on top so Tab falls through to the modal.
+        Binding("tab", "focus_next_panel", "Focus", priority=True),
+        Binding("shift+tab", "focus_prev_panel", "Focus", priority=True),
         Binding("s", "focus_sessions", "Sessions"),
         Binding("c", "focus_layouts", "Layouts"),
         Binding("n", "new_custom", "New custom"),
@@ -643,20 +647,42 @@ class StatsApp(TuiSwitcherMixin, ShortcutsMixin, App):
     def action_focus_prev_panel(self) -> None:
         self._cycle_focus(forward=False)
 
+    def _modal_on_top(self) -> bool:
+        return len(self.screen_stack) > 1
+
+    def check_action(self, action: str, parameters) -> bool | None:
+        if action in ("focus_next_panel", "focus_prev_panel") and self._modal_on_top():
+            return False
+        return True
+
     def _cycle_focus(self, forward: bool) -> None:
-        if self.screen is not self:
+        if self._modal_on_top():
             # A modal is on top — let its own bindings handle Tab.
             return
         sidebar = self.query_one("#sidebar", ListView)
         layouts = self.query_one("#layout_list", ListView)
-        cycle: list[ListView] = [sidebar, layouts]
+        cycle: list[Widget] = [sidebar, layouts]
         if self.multi_session:
             sessions = self.query_one("#session_list", ListView)
-            # Order: session_list → sidebar → layouts → session_list.
             cycle = [sessions, sidebar, layouts]
-        try:
-            current = cycle.index(self.focused)  # type: ignore[arg-type]
-        except ValueError:
+        # Order: session_list → sidebar → layouts → content → session_list.
+        # The content slot (the pane's first focusable widget, e.g. a
+        # DataTable) is the keyboard route into the pane; it is skipped when
+        # the pane has nothing focusable.
+        content = self.query_one("#content", Container)
+        content_target = next((w for w in content.query("*") if w.focusable), None)
+        if content_target is not None:
+            cycle.append(content_target)
+        focused = self.focused
+        if focused in cycle:
+            current = cycle.index(focused)
+        elif (
+            content_target is not None
+            and focused is not None
+            and content in focused.ancestors_with_self
+        ):
+            current = len(cycle) - 1
+        else:
             current = -1
         step = 1 if forward else -1
         target = cycle[(current + step) % len(cycle)]

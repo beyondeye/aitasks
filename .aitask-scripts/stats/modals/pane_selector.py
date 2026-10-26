@@ -125,6 +125,7 @@ class PaneSelectorModal(ModalScreen):
         pass
 
     def on_key(self, event) -> None:
-        if event.key == "enter":
+        # A focused Button handles its own Enter, so Enter on Cancel cancels.
+        if event.key == "enter" and not isinstance(self.focused, Button):
             self.dismiss(self._selected_pane_ids())
             event.stop()
