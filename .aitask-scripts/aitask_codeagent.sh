@@ -710,7 +710,7 @@ cmd_invoke() {
     # Resolve the agent binary under the normalized spawn PATH (t1689), so an
     # invoke started outside the tmux gateway (e.g. from a `bash -lc`) cannot
     # pick a `mise x` wrapper in ~/.local/bin that re-resolves to itself and
-    # loops. A no-op wherever PATH has no mise entry. Lazy: only a real launch
+    # loops. A no-op unless ~/.local/bin precedes a mise entry. Lazy: only a real launch
     # needs it, never --dry-run.
     # shellcheck source=lib/spawn_path.sh disable=SC1091
     source "$SCRIPT_DIR/lib/spawn_path.sh"

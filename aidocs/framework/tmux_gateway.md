@@ -148,14 +148,22 @@ precedes mise's shims dir, leaving a blank agent pane (t1689).
 The gateway therefore owns the PATH every tmux client carries:
 
 - **The rule** — `normalize_spawn_path` (Python) / `ait_spawn_path_normalize`
-  in `lib/spawn_path.sh` (shell; result in `$AIT_SPAWN_PATH`, no fork). When
-  PATH holds a mise entry (`<mise_data>/shims`, or anything under
-  `<mise_data>/installs/`), reorder to: the framework bins that lead PATH
-  (`$HOME/.aitask/bin`, `${AITASKS_HOME:-$HOME/.aitasks}/bin`), then every mise
-  entry, then the rest. No mise entry → unchanged, byte for byte. That is the
-  order a mise-activated interactive shell already has. The two
+  in `lib/spawn_path.sh` (shell; result in `$AIT_SPAWN_PATH`, no fork) is a
+  minimal displacement. When a `$HOME/.local/bin` entry precedes the **last**
+  mise entry (anything under `<mise_data>/` — `shims`, `installs/*`,
+  `command-wrappers/bin`), those `~/.local/bin` entries move to just after it.
+  Nothing else moves. Otherwise PATH is unchanged, byte for byte. The two
   implementations are pinned together by `TestShellParity` in
   `tests/test_tmux_exec.py`.
+- **Why only `~/.local/bin`** — that is where the self-referential `mise x`
+  wrappers live (Omarchy's `omarchy-mise-install` writes them there). Neither
+  PATH shape nor shadowing tells the hazard apart from a healthy shell: a
+  mise-activated shell legitimately puts user tool dirs such as
+  `~/.opencode/bin` ahead of mise (an rc prepends them after activation), and
+  their binaries shadow mise-managed names on purpose. That shell already has
+  `~/.local/bin` behind every mise entry, so it reaches the pane untouched,
+  every tool keeping its precedence (t2144). A `mise x` wrapper in any other
+  dir ahead of mise is not covered.
 - **Python** — `run`, `run_checked`, `set_clipboard`, `run_async` and `spawn`
   pass `env=TmuxClient.spawn_env()` only when normalization changed something,
   so hosts without mise see exactly the calls they always did. A caller that
