@@ -103,3 +103,10 @@ None identified.
 
 ### Goal-achievement risk: low
 None identified.
+
+## Final Implementation Notes
+- **Actual work done:** `drive_scan_failed` in `tests/test_sync_protect_paths.sh` now injects the mktemp failure with a PATH shim (`$t/failbin/mktemp`, `exit 1`) passed as `PATH="$t/failbin:$PATH" run_sync "$t"`, replacing `TMPDIR=<missing dir>`. The evidence fragment was tightened from "nothing swept" to "could not allocate a scratch file". Implemented as planned.
+- **Deviations from plan:** None in the change. The commit scope deviated: a concurrent session had an unrelated uncommitted `live_lock` hunk (strong `bsdinfo` token on macOS) in the same file, plus edits to ~11 other files. With the user's approval, only the `drive_scan_failed` hunk was staged (`git apply --cached`) and committed. The other session's hunk was left untouched in the working tree.
+- **Issues encountered:** None in the fix. Verified on macOS (Darwin 24.6): pre-fix `30 passed, 1 failed (of 31)`; post-fix `31 passed, 0 failed (of 31)`. Control: the tightened fragment with the old TMPDIR injection still FAILS (`30 passed, 1 failed`), so the assertion is not vacuous. shellcheck shows only the pre-existing SC1091 source-following infos.
+- **Key decisions:** An unconditionally failing shim, rather than one that fails only the first call. It reproduces the Linux semantics of the old injection (every `mktemp` in the run fails), so no other reachable path changes. The shim dir lives outside the fixture's git tree, and `setup_repo` scopes it to this driver's `$t`.
+- **Upstream defects identified:** None
