@@ -12,8 +12,9 @@ active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1689
 followup_kind: verification_failure
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-26 09:38
-updated_at: 2026-10-26 10:06
+updated_at: 2026-10-26 14:43
 ---
 
 ## Failed verification item from t2143
@@ -77,3 +78,8 @@ already has" does not hold on this host. Consider a narrower precondition
 (reorder only when a non-mise entry that shadows a mise-managed name precedes
 every mise entry) rather than another set addition. Repro and evidence
 commands are in `aiplans/p2143_manual_verification_auto.md` (item 6).
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-26T12:43:38Z status=pass attempt=1 type=human
