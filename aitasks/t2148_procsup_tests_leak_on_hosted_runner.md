@@ -3,13 +3,14 @@ priority: high
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [go_engine, testing]
 gates: [risk_evaluated]
+assigned_to: daelyasy@hotmail.com
 anchor: 1852
 followup_kind: upstream_defect
 created_at: 2026-10-26 11:38
-updated_at: 2026-10-26 11:38
+updated_at: 2026-10-26 12:05
 ---
 
 ## Origin
