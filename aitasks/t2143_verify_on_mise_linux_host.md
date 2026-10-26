@@ -5,7 +5,7 @@ depends: []
 issue_type: manual_verification
 status: Implementing
 labels: [tmux, tui_switcher, codeagent, minimonitor]
-assigned_to: daelyasy@hotmail.com
+assigned_to: dario-e@beyond-eye.com
 anchor: 1689
 followup_kind: risk_mitigation
 created_at: 2026-10-26 08:09
