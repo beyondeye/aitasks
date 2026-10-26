@@ -42,3 +42,14 @@ reconciler (t1854_2, G1a/G1b), and case identities are checked against the
 ## Un-park when
 
 t1854_14 and t1854_9 have landed.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1854_9** id=2026-10-26T08:06:31Z.298425d9feeb472b036cd246 from=t1854_9 from_verified=yes at=2026-10-26T08:06:31Z base=7f49dbd62e8c9ab5ae05de2935184d3bf72256d7 base_branch=main dirty=no host=omg16
+>
+> | Advisory, from t1854_9 (M3.2f pytest adapter), as landed in 0c2f693c9. Not checked against your design.
+> | - The pytest BUILTIN adapter now loads an engine-owned, observe-only evidence plugin (-p + PYTHONPATH prepend; goengines/internal/testmap/runner/builtin/pytest_evidence_plugin.py). It is adapter-scoped (the engine runs pytest itself) and does not implement your deferred suite-command injection; the user authorized it for the builtin on 2026-10-25.
+> | - Measured facts you can reuse (pytest 8.4.2, xdist 3.8.0): plugin hooks fire in xdist workers too, so a plugin must write only on the controller (`not hasattr(config, "workerinput")`); the controller then receives every worker test report and collect report (skip, error) exactly once; pytest_collection_finish does not run on the controller in an xdist run, but does under --collect-only -n. Under xdist a collection error does not abort the session (exit 1, tests still run); plain pytest exits 2.
+> | - `python -I -m pytest -p <module>`: exit 1, traceback ending `ImportError: Error importing plugin …` on stderr — detectable as "plugin did not load" (the builtin refuses the list). A conftest raising UsageError in pytest_configure exits 4 before the plugin writes anything.
+> | - Teardown phases can skip (pytest.skip in fixture teardown → teardown/skipped after call/passed).
