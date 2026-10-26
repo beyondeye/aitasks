@@ -276,3 +276,66 @@ else: entries[0..L] with the hazard entries taken out (order kept),
 ### Planned mitigations
 - timing: post-phase | name: verify_on_host_activated_path | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: item 6 is host-specific; reduced table PATHs may not match the real activated PATH | desc: Normalize this host's fresh activated PATH, the t2143-finding order and the t2143 bad env with both implementations, and spawn panes from each on a scratch tmux server, checking PATH and opencode/claude resolution
 - timing: after | name: wrapper_dirs_beyond_local_bin | type: enhancement | priority: low | effort: medium | inline_risk: medium | added_complexity: medium | addresses: residual — `mise x` wrappers outside ~/.local/bin are no longer protected | desc: Record whether self-referential `mise x` wrappers ever appear outside ~/.local/bin (e.g. $XDG_BIN_HOME, /usr/local/bin) on supported hosts; if they do, extend the hazard-dir set (or add a targeted pre-exec guard in ait codeagent invoke) rather than reinstating the full reorder
+
+## Final Implementation Notes
+- **Actual work done:** Replaced t1689's "hoist every mise entry" normalization
+  with a minimal displacement. `$HOME/.local/bin` entries that come before the
+  LAST mise entry (anything under `<mise_data>/`) move to just after it, and
+  nothing else moves. It is implemented in `tmux_exec.py::_normalize_cached`
+  and `spawn_path.sh::ait_spawn_path_normalize` (two-pass, no fork), kept in
+  parity. The framework-bin hoist and the `AITASKS_HOME` input are removed.
+  Updated comments in `tmux_exec.sh` and `aitask_codeagent.sh` and the rule
+  in `aidocs/framework/tmux_gateway.md`.
+- **Deviations from plan:** Two `TestResolveSpawnExe` tests
+  (`test_relative_entry_resolves_from_the_childs_cwd`,
+  `test_symlink_dotdot_cwd_keeps_the_kernels_meaning`) depended on the old rule
+  moving a *relative* `bin` entry behind the shims. The new rule only ever
+  moves the absolute `~/.local/bin` backwards, so a gateway can no longer pin a
+  relative entry. Their `resolve_spawn_exe` legs now take an explicit
+  reordered spawn PATH. Their gateway legs use a PATH that normalization
+  really reorders (an emptied `~/.local/bin` ahead of the relative `bin`).
+  `TestShellParity.test_defaults_to_path` now uses `bashdir:LOCAL:SHIMS`.
+  The shell mirror also got its own idempotency and entry-preservation test.
+- **Issues encountered:** Two plan reviews caught bugs in the draft algorithm,
+  and both are now regression cases:
+  - no mise entry → `last == -1` → `entries[:-1]` duplicated `~/.local/bin`
+    on every pass;
+  - an exclusive `moved` bound dropped `~/.local/bin` when it was itself the
+    last mise entry (`MISE_DATA_DIR=$HOME/.local`).
+
+  The first plan's "trust a mise-led PATH" rule was also rejected: the real
+  activated PATH starts with `~/.opencode/bin` (the rc prepends it after
+  activation).
+- **Key decisions:** `~/.local/bin` is the only hazard dir. All 23
+  self-referential `mise use … && exec mise x <n> -- <n>` wrappers on this host
+  live there (`omarchy-mise-install`), and that is also where the t1689
+  incident and the user's `~/.bashrc` warning point. PATH shape and shadowing
+  cannot separate the two cases, because `~/.opencode/bin/opencode`
+  legitimately shadows mise's opencode. Item 6's literal wording ("pane PATH
+  still starts with `~/.aitask/bin`") cannot be satisfied on this host. The
+  verified form is "pane PATH == caller PATH".
+- **Verification:**
+  - `test_tmux_exec.py`: 85 passed.
+  - `test_tmux_spawn_path_live.sh`: 22/22.
+  - `test_codeagent.sh`: 258/258 (Test 32 still reordered).
+  - `test_session_hook.sh`: 242/242.
+  - `test_setup_tmux_default_session.sh`: 55/55.
+  - shellcheck: clean.
+  - `run_all_python_tests.sh`: `PYTHON SUITE: PASSED (runner=pytest,
+    exit=0)` (9913 passed / 6 skipped, serial carve-out 13 passed).
+  - Negative control (`git archive HEAD` copy with the new tests): 4 unit
+    tests fail (normalize table, shell table, `test_defaults_to_path`,
+    `test_relative_entry_…`) and 4 live activated-order assertions fail (pane
+    got shims first and `REAL` instead of `USER`).
+- **Post-phase verify_on_host_activated_path** (scratch `-L ait_v2144`, killed
+  afterwards; `-L ait` untouched):
+  - Fresh activated capture (`bash -ic 'eval "$(mise hook-env -s bash)"'`)
+    and the t2143-finding order: Python/shell parity ok, unchanged=yes.
+  - t2143 bad env: becomes
+    `/usr/share/omarchy/bin:<data>/shims:~/.local/bin:/usr/bin:/bin`.
+  - Activated panes through both gateways: pane PATH == caller PATH,
+    `opencode` → `~/.opencode/bin/opencode`, `claude` →
+    `<data>/command-wrappers/bin/claude`.
+  - Bad-env panes: shims@2 before `~/.local/bin`@3, `claude` →
+    `<data>/shims/claude` (not the `~/.local/bin` wrapper).
+- **Upstream defects identified:** None
