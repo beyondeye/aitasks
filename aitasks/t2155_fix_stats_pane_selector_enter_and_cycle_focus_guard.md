@@ -10,8 +10,9 @@ active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-26 15:58
-updated_at: 2026-10-26 16:19
+updated_at: 2026-10-26 17:50
 ---
 
 ## Origin
@@ -79,3 +80,8 @@ if len(self.screen_stack) > 1:
 ## Reference
 
 The aitasks_go Go port (`demos/stats/go/` in that repo) already implements both intended behaviours: Enter on a focused Cancel cancels, and Tab cycles session → sidebar → layouts with the focus hint. It's documented in its `aidocs/porting/stats.md`.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-26T15:51:00Z status=pass attempt=1 type=human
