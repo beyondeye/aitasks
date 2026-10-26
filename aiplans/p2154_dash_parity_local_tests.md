@@ -212,3 +212,52 @@ mode, no merge). Archive via task-workflow Step 9.
   moves on. A git-version-dependent test (like `TestHistory`) can diverge until
   the image is rebuilt. The README documents the refresh · severity: low ·
   → mitigation: none needed
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-26 17:05)
+- **Requested by user:** (1) `mkdir -p "$gocache"` on a GOCACHE that is a regular file exited 1
+  under errexit with empty stdout, bypassing the verdict protocol; (2) `--stress` accepted any
+  digit string, and `18446744073709551616` wrapped to 0 in bash arithmetic, giving an unstressed
+  PASS; (3) the header and README called the image build the only download, but host-side
+  `go mod download` can fetch too.
+- **Changes made:** cache preparation → `NOT_RUN:cache-unusable` (not a writable dir); short
+  `go env` output → `NOT_RUN:no-go`; an EXIT-trap backstop prints `DASHCHECK:FAIL:internal:<rc>`
+  (exit 1) for any exit no other verdict decided; `--stress` bounded to 1–99 by regex before any
+  arithmetic; header + README: the container is offline, host preparation (`go mod download`,
+  the one-time image build) may download. Stub tests added for every case (66 asserts); mutants
+  verified: no trap → internal-error test fails; cache guard removed → cache test fails (and
+  the backstop still prints a verdict); unbounded regex → the 100 / overflow usage tests fail.
+- **Files affected:** `goengines/ci/dashcheck.sh`, `tests/test_goengines_dashcheck.sh`,
+  `goengines/README.md`
+
+## Final Implementation Notes
+- **Actual work done:** `goengines/ci/dashcheck.sh` runs `./ci/preflight.sh` then
+  `go test -count=1 <args>` (default `./...`) in an `ubuntu:24.04` container shaped like the
+  hosted runner (dash `/bin/sh`, PPA git, python3 + pinned pytest, real tools required, host uid,
+  `--init`, `--network none`), with the host Go toolchain / module cache read-only, the host build
+  cache rw and the module read-only. Three docker runs (probe, preflight, suite), each judged by its
+  exit status; one stdout verdict line (`PASS` / `FAIL:<step>:<rc>` / `FAIL:internal:<rc>` /
+  `NOT_RUN:<reason>`, never 0 for NOT_RUN). `--stress N` (1–99) adds `--cpus 1` and N busy loops.
+  Stub test `tests/test_goengines_dashcheck.sh` (66 asserts, no docker/Go), wired into the CI
+  `check` job and `test_release_workflow_goengines.py`; README "Dash parity (local, opt-in)".
+- **Deviations from plan:** added `NOT_RUN:no-go` (go missing / short `go env`) and
+  `NOT_RUN:unmountable-path` (relative path or `:` in a mount path), plus Change Request 1
+  (`cache-unusable`, EXIT-trap `FAIL:internal`, stress bound). `HOME=/tmp` instead of a created
+  `/tmp/home`. The suite has 21 packages (the plan's "23" was a miscount of the prototype output).
+- **Issues encountered:** stock Ubuntu git 2.43 fails `TestHistory` (see upstream defects), hence
+  the git-core PPA in the image, matching the hosted runner images.
+- **Key decisions:** docker over bwrap (no dash on the host; a bind over the `/usr/bin/sh`
+  symlink would replace bash itself); the whole suite with real tools rather than static test
+  binaries in a bare image (those skip or fail every git/python/go test); host GOROOT mount (no
+  run-time download) at the cost of requiring a statically linked linux Go, checked by the probe;
+  `-count=1` forced first because the shared build cache would otherwise replay bash-run results.
+  CLAUDE.md unchanged: the check is opt-in (needs docker), not a routine pre-push step.
+- **Verification:** real run `DASHCHECK:PASS` (preflight + 21 packages under dash); `--stress 2
+  -count=20` on the two t2148 tests PASS; negative control on the pre-t2148 tree (`a06e4f5d8^`,
+  scratch worktree, removed afterwards) → `DASHCHECK:FAIL:suite:1` with
+  `LEAK:TestHaltStartInterleavings|…:sleep`, while plain local `go test` on that tree passes;
+  `AIT_DASHCHECK_DOCKER=nope` → `NOT_RUN:no-docker` exit 3; shellcheck clean; workflow guard 26
+  tests OK; benchci test unchanged-green.
+- **Upstream defects identified:**
+  - `goengines/internal/testmap/fixture/fixture_test.go:49 — TestHistory requires git to print a UTC %cI date as "Z"; git 2.43 (Ubuntu 24.04's stock git) prints "+00:00", so the test fails on stock-distro git even though the fixture dates are correct`
