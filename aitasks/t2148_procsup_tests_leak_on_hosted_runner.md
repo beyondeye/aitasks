@@ -31,6 +31,10 @@ isolated subprocess exited:
 - run 40279191111 (6e315def2):
   `supervise_linux_test.go:250: LEAK:TestSupervisorDeathHalts|5383:sh` and
   `supervise_linux_test.go:311: LEAK:TestHaltStartInterleavings|5484:sleep`
+- run 40301069108 (t2141's throwaway fail-closed probe, otherwise identical to 6e315def2):
+  `supervise_linux_test.go:311: LEAK:TestHaltStartInterleavings|5467:sleep`
+
+TestHaltStartInterleavings has failed on 3 of 3 hosted runs so far.
 
 Message: "processes carrying the test's marker were alive after its subprocess
 exited (killed)". The last green `check` (40161193156, v0.40.0) predates procsup.
