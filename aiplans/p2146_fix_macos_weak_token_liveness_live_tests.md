@@ -291,11 +291,11 @@ step-0 sweep finds failing in the same way (scope expansion).
 - Four suites get edited by hand. The strong branch could drift from the original assertions, which would change what Linux tests. · severity: low · → mitigation: none (diff review in Verification 3)
 
 ### Goal-achievement risk: low
-- On macOS the PID→pane correlation, the agent check and the `live_lock` stderr naming stay unexercised (explicit SKIPs). The suites go green, but macOS live delivery is still degraded in the product. This was accepted by design; the product fix is separate. · severity: low · → mitigation: macos_strong_pid_token
+- On macOS the PID→pane correlation, the agent check and the `live_lock` stderr naming stay unexercised (explicit SKIPs). The suites go green, but macOS live delivery is still degraded in the product. This was accepted by design; the product fix is separate. · severity: low · → mitigation: t2152
 
 ### Planned mitigations
 - timing: post-phase | name: linux_strong_token_pin | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: platform branch silently routes Linux to the weak/skip path | desc: Contract test for liveness_token_class — Linux pin (strong, alive), a both-platform agreement check against lock_holder_liveness, and negative cases (broken identity, dead pid, bogus kind, ps mismatch, unsourced) that must fail closed
-- timing: after | name: macos_strong_pid_token | type: enhancement | priority: medium | effort: medium | inline_risk: high | added_complexity: high | addresses: macOS live features stay degraded (weak ps token ⇒ unknown) | desc: Add a strong macOS identity token kind (proc_pidinfo PROC_PIDTBSDINFO start time, µs) to pid_anchor.sh so lock_holder_liveness can return alive on macOS; then drop the weak-token SKIPs in the four live suites
+- timing: after | name: macos_strong_pid_token | type: enhancement | priority: medium | effort: medium | inline_risk: high | added_complexity: high | addresses: macOS live features stay degraded (weak ps token ⇒ unknown) | desc: Add a strong macOS identity token kind (proc_pidinfo PROC_PIDTBSDINFO start time, µs) to pid_anchor.sh so lock_holder_liveness can return alive on macOS; then drop the weak-token SKIPs in the four live suites | created: t2152
 
 ## Step 9 (Post-Implementation)
 
