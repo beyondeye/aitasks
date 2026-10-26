@@ -1,20 +1,24 @@
 ---
 priority: medium
+risk_code_health: medium
+risk_goal_achievement: medium
 effort: medium
 depends: [2143]
 issue_type: bug
-status: Implementing
+status: Done
 labels: [verification, bug]
 active_gates: [risk_evaluated]
 active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
+risk_mitigation_tasks: [2153]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1689
 followup_kind: verification_failure
 implemented_with: claudecode/opus5_5
 created_at: 2026-10-26 09:38
-updated_at: 2026-10-26 14:43
+updated_at: 2026-10-26 15:25
+completed_at: 2026-10-26 15:25
 ---
 
 ## Failed verification item from t2143
@@ -83,3 +87,16 @@ commands are in `aiplans/p2143_manual_verification_auto.md` (item 6).
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-10-26T12:43:38Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-10-26T13:11:32Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-10-26T13:25:42Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:2e8ce320d56fa987
+
+> **✅ gate:risk_evaluated** run=2026-10-26T13:25:42Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/2144/risk_evaluated_2026-10-26T13:25:42Z-risk_evaluated-a1.log`
