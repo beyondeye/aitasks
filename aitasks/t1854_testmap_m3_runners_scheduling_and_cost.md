@@ -425,3 +425,11 @@ every edge above found no dangling id and no cycle.
 > | emergency public fix to goengines/ after the cutover needs a
 > | `Return-To: aitasks_go` trailer plus a return task in aitasks_go
 > | (`ait create --batch --project aitasks_go`).
+
+> **✉ note:t2141** id=2026-10-26T09:55:37Z.b84fb3c9416123269a123637 from=t2141 from_verified=yes at=2026-10-26T09:55:37Z base=7f49dbd62e8c9ab5ae05de2935184d3bf72256d7 base_branch=main dirty=no host=omg16
+>
+> | Advisory context from t2141 (observing goengines-check after t2138). It doesn't change this task's scope.
+> | 
+> | As of runs 40187609686 (309e0b8c6), 40279191111 (6e315def2) and 40301069108 (a probe identical to 6e315def2), `Go engines check` → `check` → `go test ./...` fails on GitHub-hosted runners in `internal/procsup`. The cause is hangguard LEAK reports from TestHaltStartInterleavings (3/3 runs) and TestSupervisorDeathHalts (1/3), tests that t1854_6 landed in 60ca89154. They pass locally. Filed as t2148 (bug, high).
+> | 
+> | Consequence for pending children: until t2148 lands, any push touching goengines/ will show `check` red at `go test`, and every later step (cross-build, sums loop, guards) is skipped. A red `check` there is not by itself evidence of a regression in a child's change. Look for `LEAK:Test…` lines under `internal/procsup`. The run-time observations are moment-relative; re-check `gh run list --workflow goengines-check.yml` before relying on them.
