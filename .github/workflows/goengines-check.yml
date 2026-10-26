@@ -108,6 +108,16 @@ jobs:
       - name: Hang-guard preflight
         run: ./ci/preflight.sh
 
+      # The pytest adapter's real-tool tests (G10) run against exactly these
+      # versions; they are installed before the suite, which requires them.
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned pytest (real-tool adapter tests)
+        run: python -m pip install pytest==8.4.2 pytest-xdist==3.8.0
+
       # Real-tool adapter tests (G10): a missing tool fails here, never skips.
       - name: go test
         env:
@@ -122,11 +132,6 @@ jobs:
           sums=(*_SHA256SUMS.txt)
           [ -e "${sums[0]}" ] || { echo "no SHA256SUMS files"; exit 1; }
           for s in "${sums[@]}"; do sha256sum -c "$s"; done
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
 
       - name: Release workflow structure guard
         working-directory: .

@@ -778,7 +778,7 @@ Everything that executes a test and records what it cost.
 | **M3.2c** Supervised execution foundation | containment a descendant cannot leave through `setsid()`: a dedicated per-start supervisor (`ait-testmap __supervise`, a subreaper of its own subtree only; cleanup proven by `wait4` ECHILD), per-invocation cleanup ownership surviving every test-code process's death, with the supervisor's own death a stated residual that halts all further work (`runner.Overlappable()` true on Linux; `PARALLEL_REFUSED:containment` only where no supervisor exists), `CONTAINMENT_UNAVAILABLE` where no containment exists, the `ait-testmap runner <name>` verb and the builtin scaffold; no production adapter | `component_reference_runners` | `internal/procsup/**`; the `internal/runner/builtin/` scaffold; named extensions of M3.1's exec, invoke, plan and run | supervision, boundaries and the scaffold every adapter runs through | M3.2a, M3.2b, M3.2d |
 | **M3.2d** Recursion guard | G9: runtime refusal of a nested `run` / `Load` of the same repository, through indirect and cleared-environment calls; fixture repositories allowed | `component_reference_runners` | `internal/runner/recursion.go`; named extensions of M3.1's `run` and `repo` | the guard every adapter requires | — |
 | **M3.2e** `bash-file` adapter | each bound script is one unit (`accounting: unit`, `discovery: inventory`), `per_unit` timeouts | `component_reference_runners` | `internal/runner/builtin/bash*` | runners for bash test suites | M3.2c |
-| **M3.2f** `pytest` adapter | `accounting: cases`, native discovery through `--collect-only` under the execution configuration, junitxml into the report directory mapped to exactly one collected nodeid, `testmap:batch no` honoured | `component_reference_runners` | `internal/runner/builtin/pytest*` | runners for pytest suites | M3.2c |
+| **M3.2f** `pytest` adapter | `accounting: cases`, native discovery through `--collect-only` under the execution configuration; evidence of exact runtime node ids from an engine-owned, observe-only plugin (`-p` from an engine-private `PYTHONPATH` entry) read from the report directory — JUnit `(classname, name)` keys are not identities; module-level skips as collector identities; `testmap:batch no` honoured | `component_reference_runners` | `internal/runner/builtin/pytest*` | runners for pytest suites | M3.2c |
 | **M3.2g** `go-test` and `engine-test` adapters | `accounting: cases`, native discovery, `go test -json`; `engine-test` over `goengines/` | `component_reference_runners` | `internal/runner/builtin/gotest*` | runners for Go packages | M3.2c |
 | **M3.2h** `gradle-class` adapter | `accounting: cases`, `--tests <lowering>` batch, one invocation per `group_by` group, JUnit XML mapped to listed cases; pending without a real Gradle environment | `component_reference_runners` | `internal/runner/builtin/gradle*` | runners for Gradle source sets | M3.2c |
 | **M3.2i** `suite` adapter | any command as one `aggregate` unit; no children | `component_reference_runners` | `internal/runner/builtin/suite*` | the suite runner and `fallback_command` carrier | M3.2c, M3.2d |
@@ -3490,8 +3490,12 @@ through the supervised foundation (M3.2c) under the recursion guard (M3.2d):
 
 The builtins: `bash-file` (`unit`, `inventory`, `per_unit` timeouts);
 `pytest` (`cases`, native discovery through `--collect-only` under the same
-configuration as execution, junitxml into the report directory with each
-testcase mapped to exactly one collected nodeid, `testmap:batch no` honoured
+configuration as execution; its evidence is the exact runtime node id of
+every phase, recorded into the report directory by an engine-owned,
+observe-only plugin the adapter loads itself — not JUnit, whose
+`(classname, name)` keys two distinct node ids can share; a module skipped
+at collection is one expected identity, its collector; `testmap:batch no`
+honoured
 — the aitasks serial carve-out's annotations, and the agreement check
 extending `tests/test_serial_carveout_doc_drift.sh`, are M10.1's); `go-test`
 (`cases`, native, `-json`) and `engine-test` over `goengines/`;
