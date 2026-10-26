@@ -193,3 +193,29 @@ work stays on the current branch.
 
 ### Planned mitigations
 - timing: after | name: post_mortem_pid_reads | type: test | priority: low | effort: low | inline_risk: low | added_complexity: medium | addresses: the latent started-before-deadline race in the six other post-mortem _read_pid callers of tests/test_bounded_run.py | desc: Factor t2142's "did the fixture start? else retry with a doubled deadline" loop into a helper and apply it to the post-mortem _read_pid callers (lines ~102, 117, 146, 175, 198, 236)
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-26, plan review)
+- **Requested by user:** the first proposed Step 1 fallback (`${TMPDIR:-/tmp}/ait_isolated_tmux_<uid>`) can equal the rejected `/tmp` path (TMPDIR unset or `/tmp`), so it followed a squatted symlink, chmod'ed its target and exported it; on macOS it also restored the long socket path.
+- **Changes made:** one validator (`_ait_isolated_dir_ok`: real dir, not a symlink, owned) applied to every candidate before chmod/export; fallback is a fresh `mktemp -d /tmp/ait_isotmux_XXXXXX`; fail closed (exit 2) when no private dir validates.
+- **Files affected:** `tests/lib/tmux_isolation.sh`
+
+### Change Request 2 (2026-10-26)
+- **Requested by user:** the retry loop discarded pid-less attempts before checking returncode/diagnostic/elapsed, so a transient non-timeout git failure (exit 128) passed as a slow start.
+- **Changes made:** returncode 124, `timed out after {timeout}s`, `AIT_CREW_GIT_TIMEOUT` and the elapsed bound are asserted per attempt, before any retry.
+- **Files affected:** `tests/test_bounded_run.py`
+
+### Change Request 3 (2026-10-26)
+- **Requested by user:** per-attempt assertions ran before the fixture pid was registered in `self.leftovers`, so a failing attempt that had written a pid left a surviving fixture teardown could not kill.
+- **Changes made:** the pidfile is read and the pid appended to `self.leftovers` immediately after each call, before any assertion.
+- **Files affected:** `tests/test_bounded_run.py`
+
+## Final Implementation Notes
+- **Actual work done:** `require_isolated_tmux` now defaults the isolated `TMUX_TMPDIR` to `/tmp/ait_isolated_tmux_<uid>` (validated; fresh mktemp fallback; fail closed), fixing the macOS `sun_path` overflow for all six adopters that run a private `-L ait_<name>_<pid>` server in the inherited dir. `test_git_cmd_timeout_reports_124` retries with 1/2/4/8s deadlines until the ssh stub demonstrably ran, asserting a genuine timeout on every attempt and registering any pid before asserting. `_read_pid` default raised to 30s with a docstring stating it only helps a still-alive fixture.
+- **Deviations from plan:** the helper uses a function-`local iso_dir` instead of a global + `unset`; `mkdir -m 700` without `-p` (shellcheck SC2174). Change Requests 1–3 above. Plan verification expected all six live adopters to PASS; only two do — the other four now pass the socket stage and fail on a separate pre-existing macOS defect (below). `test_tmux_control.sh` (a planned regression check) fails under system `python3` (no `yaml`, pre-existing) and passes with `PYTHON_BIN=~/.aitasks/venv/bin/python`.
+- **Issues encountered:** the task's suggested bounded_run fix (raise `_read_pid`'s bound) could not work: the pid is read after the group is killed. Diagnosed and fixed the deadline-vs-startup race instead.
+- **Key decisions:** fixed the helper rather than the two named tests, so every inheriting adopter benefits. Verification evidence: pre-fix control (both named tests fail at pane start; after: no socket failures in any of the six); squat harness 8/8 on the new helper vs 6/8 failing on the rejected proposal; slow-stub control (old body `fixture never wrote` after 6.2s, new passes); exit-128 injection (previous body passes, new fails); leak control (previous body leaves fixture alive after teardown, new kills it); `test_bounded_run` 26 OK (1 skipped); full Python suite `PYTHON SUITE: PASSED (runner=unittest, exit=0)` (run before Change Requests 2–3; module re-run after each); shellcheck clean.
+- **Upstream defects identified:**
+  - `.aitask-scripts/lib/pid_anchor.sh:276 — on macOS (no /proc) lock_holder_liveness can only return "unknown" for the weak ps token, so tests/test_lock_anchor_tmux_live.sh, test_live_endpoint_tmux_live.sh, test_note_with_live_composition.sh and test_sync_holder_pane_live.sh fail their alive / LIVE_PANE / live_lock expectations on macOS (24 assertions); previously masked by the socket-path failure`
+  - `tests/test_tmux_control.sh:22 — PYTHON_BIN defaults to bare python3; a system python without PyYAML fails importing monitor_core (task_yaml) — should default to the framework venv python`
