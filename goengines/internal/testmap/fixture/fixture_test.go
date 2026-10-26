@@ -1,10 +1,12 @@
 package fixture
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestMessageGrammar(t *testing.T) {
@@ -45,9 +47,15 @@ func TestHistory(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(r.Dir, "README")); !os.IsNotExist(err) {
 		t.Fatalf("README still in the work tree: %v", err)
 	}
-	dates := r.Run(t, "log", "--format=%cI", "--reverse")
-	if !strings.HasPrefix(dates, "2026-01-01T00:00:00Z\n2026-01-01T00:01:00Z\n") {
-		t.Fatalf("dates %q", dates)
+	// %ct is Unix seconds, which every git version renders the same way; %cI
+	// writes a UTC offset as "Z" or "+00:00" depending on the git version.
+	dates := r.Run(t, "log", "--format=%ct", "--reverse")
+	var wantDates strings.Builder
+	for i := range 3 {
+		fmt.Fprintf(&wantDates, "%d\n", Epoch.Add(time.Duration(i)*time.Minute).Unix())
+	}
+	if dates != wantDates.String() {
+		t.Fatalf("commit dates %q, want %q (Epoch + 1 min per commit)", dates, wantDates.String())
 	}
 }
 
