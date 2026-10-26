@@ -11,12 +11,13 @@ active_gates: [risk_evaluated]
 active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
+risk_mitigation_tasks: [2153]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1689
 followup_kind: verification_failure
 implemented_with: claudecode/opus5_5
 created_at: 2026-10-26 09:38
-updated_at: 2026-10-26 14:43
+updated_at: 2026-10-26 15:25
 ---
 
 ## Failed verification item from t2143
