@@ -117,3 +117,21 @@ None identified. A one-clause change at each of two sites, reusing the existing
 None identified. The equivalence (`CheckPath` ≡ fragment-free `ParseID`) is
 measured, both adapters get an end-to-end regression, and the red proof shows the
 old clause fails it.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-26 13:10)
+- **Requested by user:** `TestBashFileFragmentPathsRefused` paired the invalid path with `tests/test_ok.sh`, which sorts *after* `tests/test_a…`, so `buf.Len() == 0` never proved that a row accumulated before a later invalid file is withheld (an immediate-write overlay still passed).
+- **Changes made:** the valid fixture is now `tests/test_0_ok.sh` (sorts first); the test's doc comment says why. Mutant check: replacing the buffered `fmt.Fprintf(&rows, …)` with `fmt.Fprintf(w, …)` makes both subtests fail with a leaked `tests/test_0_ok.sh\tfile\ttests/test_0_ok.sh` row; with the buffer restored, the builtin package is green (`AIT_TESTMAP_REQUIRE_REAL_TOOLS=1`). Not applied to pytest: `pytestList` refuses while building its argv, before any row exists.
+- **Files affected:** `goengines/internal/testmap/runner/builtin/bashfile_linux_test.go`
+
+## Final Implementation Notes
+- **Actual work done:** `bashFileList` (`bashfile.go`) and `pytestList` (`pytest.go`) now call `registry.CheckPath(rel)` instead of `registry.ParseID(rel)` (pytest additionally dropped its no-op `id.String() != rel`), so an inventoried path with a `#` member or `@` variant refuses the listing with a message naming the path. The messages now say which grammar was violated (`a plain file id: no '#' member, no '@' variant, …`); pytest keeps `"::"`. Regressions: new `TestBashFileFragmentPathsRefused` (direct `bashFileList` call with no rows + `runner.Load` error, for `#` and `@`, with a valid fixture that sorts before the invalid one); `TestPytestOptionShapedPath` extended with `tests/test_a#b.py` / `tests/test_a@v.py`. `goengines/README.md` bash-file and pytest rows updated (rule + test name).
+- **Deviations from plan:** first draft added a `fileUnitID` helper in `inventory.go` with its own grammar table; at plan review it was replaced by the existing `registry.CheckPath` (equivalent to fragment-free `ParseID`, already covered by `TestCheckPath`, already used by `bashFileUnitCheck`). One post-review test strengthening (Change Request 1).
+- **Issues encountered:** the task's premise that the pytest adapter already refuses these paths was false: `ParseID` + `String()` round-trips, so `id.String() != rel` never fires once parsing succeeds (probe: `tests/test_a#b.sh`, `tests/test_a@v.sh`, `tests/x#m@v.sh`, `tests/test_a#b.py` all round-trip). Fixed in pytest too.
+- **Key decisions:** kept the existing control-character check on `p` at both sites even though `CheckPath(rel)` now covers it, so that each site changes only its id clause.
+- **Red proofs (isolated, Edit-only, no git restore/stash):**
+  - old clauses restored at both sites → `TestBashFileFragmentPathsRefused` fails (`err <nil> rows "tests/test_a#b.sh\tfile\ttests/test_a#b.sh\n…"`, same for `@`), and `TestPytestOptionShapedPath` fails (`Load succeeded, want an error containing ["tests/test_a#b.py" "no '#' member"]`);
+  - immediate-write mutant in `bashFileList` (`fmt.Fprintf(w, …)`) → both subtests fail with a leaked `tests/test_0_ok.sh` row.
+  - Fix restored → `AIT_TESTMAP_REQUIRE_REAL_TOOLS=1 go test ./internal/testmap/runner/builtin/ -count=1` ok; `go test ./internal/testmap/... -count=1` all ok; gofmt/vet clean.
+- **Upstream defects identified:** None
