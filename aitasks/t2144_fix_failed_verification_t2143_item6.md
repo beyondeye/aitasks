@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: medium
+risk_goal_achievement: medium
 effort: medium
 depends: [2143]
 issue_type: bug
@@ -83,3 +85,5 @@ commands are in `aiplans/p2143_manual_verification_auto.md` (item 6).
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-10-26T12:43:38Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-10-26T13:11:32Z status=pass attempt=1 type=human
