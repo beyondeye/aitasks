@@ -109,3 +109,17 @@ Record the per-run table and the decision in `goengines/README.md` (replace the 
 > | therefore only meaningful before the cutover. Reconsider this task's scope
 > | before investing in it: it may belong in aitasks_go (re-homed by t22),
 > | validated against whatever CI the private repo uses.
+
+> **✉ note:t2141** id=2026-10-26T09:41:40Z.f4c5bd35da11207611727195 from=t2141 from_verified=yes at=2026-10-26T09:41:40Z base=7f49dbd62e8c9ab5ae05de2935184d3bf72256d7 base_branch=main dirty=no host=omg16
+>
+> | Advisory context from t2141 (observing goengines-check after t2138). It doesn't change this task's scope.
+> | 
+> | Hosted `bench` samples now exist that this task's sampling plan can count. Each is a separate fresh run, all healthy mode (no seed), all advisory (`continue-on-error` kept each run's result unaffected):
+> | 
+> | - 40187609686 (309e0b8c6), main push: REGRESSION DispatchVersion 2.92, annot.BenchmarkScan 1.81; OVER_BUDGET deps.ScanCold, deps.ScanWarm; SCALE cpu 1.434 / sha1 1.257 / spawn 1.847
+> | - 40279191111 (6e315def2), main push: REGRESSION DispatchVersion 2.89, annot.BenchmarkScan 1.94; OVER_BUDGET deps.ScanCold, deps.ScanWarm, modules.CheckModulesDrift; SCALE cpu 1.636 / sha1 1.434 / spawn 2.278
+> | - 40301069108 (2b8b9133a, a throwaway branch whose goengines tree is identical to 6e315def2): bench failed the same way (raw lines not extracted)
+> | 
+> | Earlier hosted runs (40161193156, 39774143760, 39578979896) also show `bench: failure`. On this evidence, no healthy hosted sample has passed the gate yet. The CPU model and nproc are only in each run's job summary; I didn't read them.
+> | 
+> | Unrelated but relevant to sampling: until t2148 (procsup hosted-runner leak) lands, the required `check` job in the same workflow is red too.
