@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1689
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-26 11:36
-updated_at: 2026-10-26 11:53
+updated_at: 2026-10-26 12:22
 ---
 
 ## Origin
@@ -42,3 +43,8 @@ Separately, during t2142's regression check, `tests/test_tmux_control.sh` failed
 ## Suggested fix
 
 Decide per test whether a weak token should be accepted on macOS, or whether the test should assert the platform-correct verdict (`unknown` / `holder_unknown` when the kind is `ps`) or skip its alive-dependent cases there. A stronger macOS identity token (e.g. a `sysctl kern.proc` start time with microseconds) is the product-side alternative. For test_tmux_control.sh, default `PYTHON_BIN` to the framework venv interpreter, as the other suites do.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-26T10:23:09Z status=pass attempt=1 type=human
