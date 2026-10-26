@@ -401,3 +401,143 @@ Each amended criterion maps to a test:
 
 Post-implementation follows the shared task-workflow Step 9: archival on the
 current branch, with no merge.
+
+## Final Implementation Notes
+- **Actual work done:**
+  - `runner/builtin/pytest_evidence_plugin.py`: the engine-owned, observe-only evidence plugin (stdlib only, controller-only, line-buffered JSONL; `trylast` session-finish record), embedded with `//go:embed`.
+  - `runner/builtin/pytest.go` (unix): the `pytest` adapter. It holds `pytestArgv` (the one shared builder), `pytestEnv`, the strict `pytestParseEvidence` (mode-specific `items`), `pytestFiles` (exact-path node id → file under the reported rootdir), `pytestRows` (the phase rule), `pytestList` and `pytestRun`.
+  - `pytest_linux.go`: Linux-only `init` registration.
+  - `runner/builtin/inventory.go`: `gitInventory`, `entryCwd`, `bound`, `toolFailure` and `firstLine`, moved out of `bashfile.go` (bash-file behaviour unchanged; its tests are the oracle).
+  - `runner/results.go`: `runner.JSONMembers`, which exports t1854_2's strict, lossless member check for an adapter reading its own tool's JSON. A named extension.
+  - Tests:
+    - `pytest_test.go`: 9 pure tests;
+    - `pytest_linux_test.go`: 19 real-tool tests, each `hangguard.Isolated`, `requirePytest` / `requireXdist`.
+  - Named extensions:
+    - `builtin.go` doc;
+    - `cmd/ait-testmap/main_test.go` `TestRunnerVerb` (`[bash-file pytest]` on Linux, plus `runner pytest describe`; the unknown-builtin example is now `nosuch`);
+    - `goengines/README.md` (the layout row, the `runner <name>` row, the new `pytest` builtin row).
+  - Framework side (separate commits):
+    - both workflows install `pytest==8.4.2 pytest-xdist==3.8.0` before `go test`;
+    - `tests/test_release_workflow_goengines.py` pins that ordering, with negative controls;
+    - the proposal's two pytest descriptions;
+    - the task body's amended acceptance criteria.
+- **Deviations from plan:**
+  - pytest's own `Timeout` is the invocation deadline **plus 10 s** (`pytestDeadlineSlack`), not the deadline. With equal bounds, pytest's own timeout races the engine's kill. When it wins, the builtin exits 3 on its own, and the units read `missing` instead of `batch_timeout`.
+  - `-p <plugin>` lives inside `pytestArgv`. The first smoke run showed that passing it per verb is easy to forget: the "plugin did not load" guard caught that, fail-closed.
+  - `detail()` reports the **last** stderr line. A `python -I` failure is a traceback ending in `ImportError: Error importing plugin …`, and a conftest `UsageError` is one `ERROR:` line.
+  - List reports pytest's own non-zero exit (and its detail) **before** any evidence check. A conftest `UsageError` exits 4 before the plugin writes anything, so a generic parse error would hide the real message.
+  - Run-side `exit 64` for a bad `command:` is not exercised end to end. The same split refuses the list first, so a run with a bad command cannot be reached. The list-side refusal is tested.
+  - Fixtures use a Python `.gitignore` (`__pycache__/`, `.pytest_cache/`). Without it, a broad bind picked up the bytecode pytest wrote during the previous Load.
+  - Proposal edits (`aidocs/testing_engine/n014_explorer_006_proposal.md`) were added. The coarse plan named them; the detailed plan had omitted them.
+- **Issues encountered:**
+  - The hang-guard tripwire is lexical: a local variable named `run` in a pure test resolved to the package-level `run` helper (→ `runner.Run`). Renamed.
+  - The scaffold's `oneLine` turns `|` into spaces inside `BUILTIN_ERROR`, so a discovery-side nested refusal reads `RUN_ERROR:recursion <root>` in the Load error. The test asserts it the way bash-file does, with `VIA:marker` checked in the state file.
+- **Key decisions:**
+  - Exact runtime node ids from an engine-owned plugin replace JUnit (user decision at the plan review). The `-p` / `PYTHONPATH` deviation is written down for t2082, t1861, t1854_14 and t2118.
+  - A module skipped at collection is an expected identity (its collector node id). The rootdir comes from pytest (`config.rootpath`) rather than being inferred.
+  - Every non-passed phase is its own case row, and the call phase always is one. Nothing is merged, so fail+teardown-error and pass+teardown-skip are `duplicate_case`.
+  - No start rows: a batch timeout attributes `batch_timeout` to every unreported unit.
+  - Support is gated in code: pytest 8.x on CPython ≥ 3.10, else `PYTEST_UNSUPPORTED`.
+- **What the adapter reads (for t2082):**
+  - list: `<command: | python3 -m pytest> -p _aitestmap_pytest_evidence --collect-only -q ./<cwd-relative file>…`;
+  - run: `<command> -p _aitestmap_pytest_evidence ./<file>…`;
+  - no `-c` / `--rootdir` / `-o` / `--junitxml`;
+  - the env adds `PYTHONPATH=<engine-private plugin dir>[:inherited]` and `AIT_TESTMAP_PYTEST_EVIDENCE`;
+  - cwd = the entry's `cwd`;
+  - pytest resolves the ini from the args' common ancestor upward, `conftest.py` along the tests' paths, `PYTEST_ADDOPTS` / `PYTEST_PLUGINS` and entry-point plugins;
+  - inventory: `git ls-files -z --cached --others --exclude-standard` with `gitx.Env()`;
+  - runners.yaml: `cwd`, `bind`, `command`, `batch_timeout_s`, `zero_tests`.
+- **Red proofs:** 20 isolated mutants on a scratch copy of `goengines/`, each sha256-restored, the copy diffed identical afterwards. All red, each at its intended assertion:
+  - (a) the plugin's worker guard removed → xdist duplicate records;
+  - (b) the skipped-collector identity not listed;
+  - (c) run rows filtered to the expected identities → the collision unit turns `skip`/`zero_tests`;
+  - (d) the end exit status unchecked;
+  - (e, e2) exit consistency removed;
+  - (f) evidence read without `Fresh` (stale / symlink);
+  - (g) rootdir drift unchecked;
+  - (h) rows deduplicated;
+  - (i, i2) `AIT_TESTMAP_ACTIVE` dropped → `VIA:ancestor`;
+  - (j) registration removed;
+  - (k) `os/exec` imported → the adapter tripwire;
+  - (l) start rows written → `timeout`, not `batch_timeout`;
+  - (m) the operand without `./`;
+  - (n) collection errors not refused;
+  - (o) the version gate removed;
+  - (p) unit mapping by path suffix;
+  - (q) teardown skip dropped → `pass`;
+  - (r) the discovery items record not required.
+- **Verification:**
+  - `./ait engine test` rc 0 (31 s, 22 packages);
+  - `./ci/preflight.sh` ok;
+  - `GOOS=darwin go vet ./...` ok;
+  - `./build.sh all` with sha256 ok;
+  - builtin + cmd green with `AIT_TESTMAP_REQUIRE_REAL_TOOLS=1`, no skips;
+  - `-race -count=1` green (builtin 666 s, cmd 75 s, 0 `DATA RACE`);
+  - `python -m unittest tests/test_release_workflow_goengines.py`: 26 OK;
+  - `tests/test_goengines_export_integrity.sh` 183/183, `tests/test_goengines_build.sh` 107/107;
+  - real-binary end-to-end on a scratch fixture:
+    - `UNIT tests/test_a.py fail` with `CASES 5|3|1|0|1`;
+    - `tests/test_empty.py error zero_tests`;
+    - the module-skipped `tests/test_s.py skip` with reason `mod reason` in `cases.jsonl`;
+    - `RUN_ACCOUNTING:3|3|0|0|0`, containment `supervisor`.
+- **Post-phase [stress_pytest_tests_under_load]:** `go test -count=10` of the builtin package, while a full `go test -count=1 -p 8 ./...` ran concurrently, gave **10/10 pass** (stress rc 0, 250.5 s; load rc 0). No flake fixes were needed.
+- **Post-phase [dogfood_aitasks_pytest]:** run on a `git archive HEAD` export of aitasks (`bind: ['tests/test_*.py']`, venv python).
+  - `check`: rc 0 in **17–18 s**. There are **378 units with 9901 case identities**, identical to plain `pytest --collect-only -q tests/test_*.py` (9901).
+  - A serial single-invocation `run --all` passed 1800 s and hit `batch_timeout_s: 1800`. All 378 units were `batch_timeout` (`CAUSE:1|timeout|batch`), and no pytest process survived. This is the kill path on the real suite.
+  - With `command: … -m pytest -n 4 --dist loadfile` (and `batch_timeout_s: 3600`), `run --all` took **508 s**: 371 pass, 6 fail, 1 skip.
+  - Cases: 9901 expected = 9835 passed + 13 failed + 53 skipped. `RUN_ACCOUNTING:378|378|0|0|0`; no mechanism, `unexpected_case`, duplicate or unattributable row.
+  - All 13 failures reproduce identically under plain pytest in the same export. They come from the export's environment (no task-data layout), not from the adapter.
+  - For M10.1: run the aitasks entry under xdist (`-n 4 --dist loadfile`), or set a batch timeout above the serial runtime.
+- **Upstream defects identified:** None
+- **Notes for sibling tasks** (sent with `./ait note` after the commit):
+  - **t2082:** what it reads, including the `-p` / `PYTHONPATH` deviation;
+  - **t1861:** the bind, the cost, xdist, module-skip and duplicate semantics, `-I` unsupported, the dogfood numbers;
+  - **t1854_14:** JUnit `(classname, name)` keys are not collision-safe, with the measured repro;
+  - **t2118:** the xdist controller-guard facts, `-I` detection, and that the builtin's plugin is adapter-scoped.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-26)
+- **Requested by user:**
+  1. (blocking, confirmed) `pytestMember` decoded required scalars directly, so JSON `null` passed without assignment. `{"k":"end","exitstatus":null}` with exit 0 gave `UNIT …|pass`, and a skipped call with `message: null` gave an unexplained skip. Reject `null` for every required non-nullable field (keeping the nullable `xfail`), with parser and adapter regressions.
+  2. (follow-up, plausible) `pytestReadOwn` read discovery's evidence with an unbounded `os.ReadFile`, while execution's is capped by `FreshReport`. Add an explicit size bound, refused before decoding.
+- **Changes made:**
+  1. `pytestMember` refuses a raw `null` unless the target is `**string` (the xfail reason only).
+     - `TestPytestParseEvidence` gains null cases for `exitstatus`, `message` (test and collect), `nodeid`, `duration`, `rootdir`, `v` and `nodeids`, plus `xfail: null` / `""` still accepted.
+     - The fake gains `nullexit` and `nullmessage`, both → mechanism, unit non-pass.
+     - Red proofs: (s) with the guard disabled, `nullexit` reproduces the reported `Status:pass`; (s2) the parser cases go red.
+  2. `pytestReadOwn(p, max)` opens with `O_NOFOLLOW`, requires a regular file, reads through `io.LimitReader(max+1)`, and refuses past `pytestEvidenceMax` (64 MiB, `FreshReport`'s `reportMax`) before any decoding.
+     - `TestPytestReadOwn` covers: absent, at the cap, past the cap, a symlink, a directory.
+     - Red proof (t): reading uncapped → red.
+     - Not measured: the practical memory impact with a large quiet-collection fixture. The bound makes it moot for discovery, since the file is never decoded past 64 MiB.
+  3. The README row states both rules.
+- **Files affected:**
+  - `goengines/internal/testmap/runner/builtin/pytest.go`;
+  - `pytest_test.go`;
+  - `pytest_linux_test.go`;
+  - `goengines/README.md`.
+- **Verification:**
+  - `ci/preflight.sh` ok;
+  - builtin + cmd green with `AIT_TESTMAP_REQUIRE_REAL_TOOLS=1`;
+  - `./ait engine test` rc 0;
+  - mutants s, s2 and t red, each restored and the copy identical.
+
+### Change Request 2 (2026-10-26)
+- **Requested by user:** (blocking, confirmed) `pytestReadOwn` opened the evidence with `O_RDONLY|O_NOFOLLOW` but no `O_NONBLOCK`. A writer-less FIFO at `AIT_TESTMAP_PYTEST_EVIDENCE` blocked inside `OpenFile` before the regular-file check and the cap, stalling `check` / `scan` until the outer list timeout, and a direct `list` indefinitely. Add `O_NONBLOCK`, following `runner/report_unix.go`, with a protected regression.
+- **Changes made:**
+  - `pytestReadOwn` opens with `O_RDONLY|O_NONBLOCK|O_NOFOLLOW` (`readReport`'s flags). A link (`ELOOP`) is named as one, and the fstat regular-file check then refuses the FIFO.
+  - `TestPytestReadOwn` makes a writer-less FIFO and requires a "not a regular file" refusal within its own 5 s bound, so a regression fails rather than hangs.
+  - The fake gains a discovery `fifo` mode (`mkfifo` at the evidence path, exit 0). `TestPytestFakeEvidence` requires the Load refusal within 30 s, under the package hang guard.
+  - Red proofs, with `O_NONBLOCK` removed: (u) `TestPytestReadOwn` → "reading a writer-less FIFO blocked"; (u2) `TestPytestFakeEvidence` → `HANG` at the 2 min hang guard. Both restored, and the copy diffed identical.
+  - The README states the open discipline.
+- **Files affected:**
+  - `goengines/internal/testmap/runner/builtin/pytest.go`;
+  - `pytest_test.go`;
+  - `pytest_linux_test.go`;
+  - `goengines/README.md`.
+- **Verification:**
+  - `ci/preflight.sh` ok;
+  - builtin + cmd green with `AIT_TESTMAP_REQUIRE_REAL_TOOLS=1`;
+  - `./ait engine test` rc 0.
+
+- **Commits:** `0c2f693c9` (engine: adapter, plugin, inventory, tests, README), `7f49dbd62` (framework: CI pytest pin, workflow guard, proposal).
