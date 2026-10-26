@@ -1,5 +1,7 @@
 ---
 priority: low
+risk_code_health: low
+risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: enhancement
@@ -13,8 +15,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1689
 followup_kind: risk_mitigation
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-26 15:25
-updated_at: 2026-10-26 15:45
+updated_at: 2026-10-26 16:28
 ---
 
 ## Origin
@@ -52,3 +55,8 @@ panes unchanged.
    The full hoist breaks legitimate tool precedence (t2144: `~/.opencode/bin`
    ahead of mise on purpose).
 3. If they never appear, close with the measurement recorded.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-26T14:28:48Z status=pass attempt=1 type=human
