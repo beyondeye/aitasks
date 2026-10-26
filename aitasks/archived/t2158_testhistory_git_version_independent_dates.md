@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [go_engine, testing]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -17,7 +17,8 @@ anchor: 1852
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5_5
 created_at: 2026-10-26 17:46
-updated_at: 2026-10-26 18:07
+updated_at: 2026-10-26 18:13
+completed_at: 2026-10-26 18:13
 ---
 
 ## Origin
@@ -58,3 +59,14 @@ stock git 2.43.
 > **✅ gate:plan_approved** run=2026-10-26T16:07:15Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-10-26T16:12:49Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-10-26T16:13:31Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:4f49f2dbdfe73028
+
+> **✅ gate:risk_evaluated** run=2026-10-26T16:13:31Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/2158/risk_evaluated_2026-10-26T16:13:31Z-risk_evaluated-a1.log`
