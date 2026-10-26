@@ -534,8 +534,10 @@ func pytestList(ctx context.Context, e *Env, w io.Writer) error {
 		if fi, err := os.Lstat(filepath.Join(dir, filepath.FromSlash(p))); err != nil || !fi.Mode().IsRegular() {
 			continue
 		}
-		if id, err := registry.ParseID(rel); err != nil || id.String() != rel || strings.ContainsFunc(p, unicode.IsControl) || strings.Contains(p, "::") {
-			return fmt.Errorf("%q cannot be a pytest unit (a unit id, no control character, no \"::\")", rel)
+		// CheckPath, as bash-file's: a parsed id round-trips, so only the
+		// plain path grammar refuses a '#' member or '@' variant.
+		if err := registry.CheckPath(rel); err != nil || strings.ContainsFunc(p, unicode.IsControl) || strings.Contains(p, "::") {
+			return fmt.Errorf("%q cannot be a pytest unit (a plain file id: no '#' member, no '@' variant, no control character, no \"::\")", rel)
 		}
 		args = append(args, p)
 	}

@@ -636,6 +636,27 @@ func TestBashFileInventoryTruncatedFailsClosed(t *testing.T) {
 	}
 }
 
+// A bound path the id grammar reads as a member or variant ('#', '@') is not
+// a plain file id: it refuses the listing, with no rows, rather than being
+// listed as a unit whose run can never match it (missing_start). The valid
+// script sorts first, so a row already accumulated must be withheld too.
+func TestBashFileFragmentPathsRefused(t *testing.T) {
+	if !hangguard.Isolated(t, bashHangLimit) {
+		return
+	}
+	for _, p := range []string{"tests/test_a#b.sh", "tests/test_a@v.sh"} {
+		t.Run(p, func(t *testing.T) {
+			r, _ := bashRepo(t, map[string]string{"tests/test_0_ok.sh": "exit 0\n", p: "exit 0\n"}, bashEntry("b", ""))
+			var buf bytes.Buffer
+			err := bashFileList(context.Background(), &Env{Root: r.Dir, Runner: "b"}, &buf)
+			if err == nil || !strings.Contains(err.Error(), strconv.Quote(p)) || !strings.Contains(err.Error(), "no '#' member") || buf.Len() != 0 {
+				t.Fatalf("err %v rows %q", err, buf.String())
+			}
+			loadErr(t, r, "RUNNER_PROTOCOL:b|list|", p)
+		})
+	}
+}
+
 // A manifest unit whose lowering is not its id's cwd-relative path, or whose
 // bound is not positive, is an error row and is never run.
 func TestBashFileUnitCheck(t *testing.T) {

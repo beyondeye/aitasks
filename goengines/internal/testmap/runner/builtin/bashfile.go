@@ -90,8 +90,10 @@ func bashFileList(ctx context.Context, e *Env, w io.Writer) error {
 		if fi, err := os.Lstat(filepath.Join(dir, filepath.FromSlash(p))); err != nil || !fi.Mode().IsRegular() {
 			continue
 		}
-		if _, err := registry.ParseID(rel); err != nil || strings.ContainsFunc(p, unicode.IsControl) {
-			return fmt.Errorf("%q cannot be a unit id", rel)
+		// CheckPath, not ParseID: ParseID reads a '#' or '@' in the path as a
+		// member or variant fragment, and that unit could never pass.
+		if err := registry.CheckPath(rel); err != nil || strings.ContainsFunc(p, unicode.IsControl) {
+			return fmt.Errorf("%q cannot be a unit id (a plain file id: no '#' member, no '@' variant, no control character)", rel)
 		}
 		fmt.Fprintf(&rows, "%s\tfile\t%s\n", rel, p)
 	}

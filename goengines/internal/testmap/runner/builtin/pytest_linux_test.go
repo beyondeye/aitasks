@@ -860,7 +860,8 @@ func TestPytestFakeEvidence(t *testing.T) {
 }
 
 // A file name starting with "-" stays an operand (./-tests/...); a path
-// containing "::" (pytest's node selector) is refused.
+// containing "::" (pytest's node selector), or one the id grammar reads as a
+// member or variant ('#', '@'), is refused.
 func TestPytestOptionShapedPath(t *testing.T) {
 	if !hangguard.Isolated(t, pytestHangLimit) {
 		return
@@ -873,4 +874,8 @@ func TestPytestOptionShapedPath(t *testing.T) {
 	unitIs(t, run(t, r, "option-shaped"), "-tests/test_o.py", runner.StatusPass, "")
 	r, _ = pyRepo(t, map[string]string{"tests/test_a::b.py": "def test_x(): pass\n"}, pyEntry("py", py, ""))
 	loadErr(t, r, `"::"`)
+	for _, p := range []string{"tests/test_a#b.py", "tests/test_a@v.py"} {
+		r, _ = pyRepo(t, map[string]string{p: "def test_x(): pass\n"}, pyEntry("py", py, ""))
+		loadErr(t, r, p, "no '#' member")
+	}
 }
