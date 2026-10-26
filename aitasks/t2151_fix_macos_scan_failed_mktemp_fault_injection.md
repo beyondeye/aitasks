@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1689
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-26 14:46
-updated_at: 2026-10-26 14:53
+updated_at: 2026-10-26 15:27
 ---
 
 ## Origin
@@ -41,3 +42,8 @@ The fault injection never fires, the branch is never reached, and the test fails
 ## Suggested fix
 
 Use a fault seam that works on both platforms. Options: a PATH shim `mktemp` that exits 1 in the fixture's `bin/`, or an existing `AIT_SYNC_SEAM_*` hook if one covers this point. Keep the "the reason actually fired" assertion, and run the pre-fix control on macOS.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-26T13:27:53Z status=pass attempt=1 type=human
