@@ -166,8 +166,8 @@ merge_lock_acquire() {
     _merge_lock_output_branch="$out_branch"
     _merge_lock_task_branch="$task_branch"
     _merge_lock_anchor_pid="$(get_session_anchor_pid)"
-    _merge_lock_anchor_token="$(get_pid_starttime "$_merge_lock_anchor_pid")"
-    _merge_lock_anchor_kind="$(get_pid_starttime_kind "$_merge_lock_anchor_pid")"
+    read -r _merge_lock_anchor_kind _merge_lock_anchor_token \
+        <<<"$(get_pid_identity "$_merge_lock_anchor_pid")"
 
     # shellcheck disable=SC2034  # all three are read by lib/stale_lock.sh
     STALE_LOCK_IDENTITY_PID="$_merge_lock_anchor_pid"

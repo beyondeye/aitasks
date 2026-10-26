@@ -29,13 +29,12 @@
 # real `sleep` processes, so "alive" and "dead" are facts about this machine
 # rather than fixture decoration. Test 2 is the positive control.
 #
-# PLATFORM SPLIT. "Provably live" needs a strong /proc identity token. With the
-# weak second-granular `ps` token (macOS/BSD) a running holder reads `unknown` by
-# design, so the acquire gate refuses with LOCK_UNVERIFIABLE_HOLDER rather than
-# LOCK_LIVE_HOLDER. That is the same refusal (nothing claimed, nothing written)
-# under its undecidable name. The expected verdict and signal come from
-# liveness_token_class (tests/lib/proc_fixtures.sh), which fails closed: a
-# sentinel token or an unknown kind is a FAIL, never the weak branch.
+# STRONG TOKEN REQUIRED. "Provably live" needs a strong identity token: `proc`
+# on Linux, `bsdinfo` on macOS. liveness_token_class
+# (tests/lib/proc_fixtures.sh) checks that precondition and fails closed: a
+# sentinel token, an unknown kind, or a host left with only the weak
+# second-granular `ps` token is a FAIL. (The `ps` refusal itself —
+# LOCK_UNVERIFIABLE_HOLDER — is pinned by Test 6's planted weak-token variant.)
 #
 # Run: bash tests/test_lock_live_holder_gate.sh
 
@@ -222,20 +221,15 @@ assert_eq "Lock is anchored to session A" "$SESSION_A" "$(lock_field "$TMPDIR_1"
 # The fixture must be telling the truth about A before anything is asserted
 # about the gate: a holder that already read as dead would make Test 1 pass for
 # entirely the wrong reason.
-# What a running holder reads as on this host, decided from A's real token.
+# A must carry a strong token, or no verdict below can be `alive`.
 a_rc=0
-A_CLASS="$(liveness_token_class "$SESSION_A")" || a_rc=$?
+liveness_token_class "$SESSION_A" >/dev/null || a_rc=$?
 if (( a_rc != 0 )); then
     TOTAL=$((TOTAL + 1)); FAIL=$((FAIL + 1))
     echo "FAIL: identity fixture invalid for session A (liveness_token_class status $a_rc)"
 fi
-if [[ "$A_CLASS" == weak ]]; then
-    LIVE_SIGNAL=LOCK_UNVERIFIABLE_HOLDER
-else
-    LIVE_SIGNAL=LOCK_LIVE_HOLDER
-fi
 
-assert_eq "Fixture check: session A reads as running ($A_CLASS token)" "$(expected_live_verdict "$SESSION_A")" \
+assert_eq "Fixture check: session A reads as running" "$(expected_live_verdict "$SESSION_A")" \
     "$(lock_holder_liveness "$(lock_field "$TMPDIR_1" 1 pid)" \
                             "$(lock_field "$TMPDIR_1" 1 pid_starttime)" \
                             "$(lock_field "$TMPDIR_1" 1 pid_starttime_kind)")"
@@ -249,8 +243,8 @@ out1=$(run_claim "$TMPDIR_1" 1 pc-A "AIT_AGENT_PID=$SESSION_B")
 exit1=$?
 
 assert_eq "Claim against a live holder exits non-zero" "1" "$exit1"
-assert_contains "Emits $LIVE_SIGNAL" "${LIVE_SIGNAL}:alice@test.com" "$out1"
-assert_contains "$LIVE_SIGNAL names the holding pid" "|${SESSION_A}" "$out1"
+assert_contains "Emits LOCK_LIVE_HOLDER" "LOCK_LIVE_HOLDER:alice@test.com" "$out1"
+assert_contains "LOCK_LIVE_HOLDER names the holding pid" "|${SESSION_A}" "$out1"
 assert_not_contains "Nothing was claimed (no OWNED)" "OWNED:" "$out1"
 assert_not_contains "A live holder is never called a crash" "RECLAIM_CRASH" "$out1"
 
@@ -376,10 +370,10 @@ assert_eq "Task file was not touched" "$hash_before_6" "$(task_file_hash "$TMPDI
 
 # The weak-token variant reaches the same outcome by a different route: the
 # token matches, but a one-second-resolution `ps` token cannot exclude a PID
-# recycled within that second. Linux has both token sources, so the dispatch is
-# plantable here even though it only occurs natively on BSD/macOS.
-if [[ "$(uname)" == "Linux" ]]; then
-    ps_tok_6=$(_pid_starttime_ps "$SESSION_6")
+# recycled within that second. `ps` answers on every host, so the dispatch is
+# plantable anywhere even though no supported host records it natively.
+ps_tok_6=$(_pid_starttime_ps "$SESSION_6")
+if [[ -n "$ps_tok_6" ]]; then
     plant_lock "$TMPDIR_6" 1 "task_id: 1
 locked_by: alice@test.com
 locked_at: 2026-01-01 00:00
@@ -394,7 +388,8 @@ pid_starttime_kind: ps"
     assert_not_contains "Weak token cannot license a live-holder verdict" \
         "LOCK_LIVE_HOLDER" "$out6b"
 else
-    echo "  (weak-token variant skipped on non-Linux: needs both token sources)"
+    TOTAL=$((TOTAL + 1)); FAIL=$((FAIL + 1))
+    echo "FAIL: Test 6 weak-token variant: ps gave no token for live session $SESSION_6"
 fi
 
 stop_session "$SESSION_6"

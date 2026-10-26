@@ -11,6 +11,9 @@
 # later — kept the whole suite green while RECLAIM_CRASH fired on every
 # same-host re-pick.
 #
+# Test 19 (t2152) covers the strong macOS token kind `bsdinfo`: the source
+# ladder, the reader's same-source rule, and the real probe on macOS.
+#
 # Live-tmux coverage of the default anchor rung lives in a separate file
 # (tests/test_lock_anchor_tmux_live.sh) so this one stays boot-free.
 #
@@ -346,48 +349,42 @@ rec_kind_8=$(lock_field "$TMPDIR_8" 1 pid_starttime_kind)
 
 assert_eq "Anchor is the session PID (not the claim script)" "$ANCHOR_PID_8" "$rec_pid_8"
 assert_eq "Recorded token matches the live process" "$(get_pid_starttime "$ANCHOR_PID_8")" "$rec_tok_8"
-if [[ "$(uname)" == "Linux" ]]; then
-    assert_eq "Token kind recorded as proc (Linux)" "proc" "$rec_kind_8"
-fi
+case "$OSTYPE" in
+    linux*)  assert_eq "Token kind recorded as proc (Linux)" "proc" "$rec_kind_8" ;;
+    darwin*) assert_eq "Token kind recorded as bsdinfo (macOS)" "bsdinfo" "$rec_kind_8" ;;
+esac
 
-# --- liveness_token_class: the contract the platform-split suites rely on ---
-# Tests that need a provably-alive holder branch on this classifier rather than
-# on `uname` (t2146). The positive half pins the branch Linux must take; the
-# negative half pins that a BROKEN identity fails closed instead of reading as
-# the weak-token limitation, because the product answers `unknown` for both.
+# --- liveness_token_class: the contract the live-holder suites rely on ---
+# Tests that need a provably-alive holder require a STRONG token through this
+# classifier, never through `uname` (t2146, t2152). The positive half pins that
+# a supported host has one; the negative half pins that a BROKEN identity and a
+# weak-only host both fail closed, because the product answers `unknown` for
+# each and a test agreeing with it would hide the defect.
 
 cls_rc_8=0
 cls_8="$(liveness_token_class "$ANCHOR_PID_8")" || cls_rc_8=$?
 assert_eq "liveness_token_class: a live pid classifies" "0" "$cls_rc_8"
-TOTAL=$((TOTAL + 1))
-if [[ "$cls_8" == strong || "$cls_8" == weak ]]; then
-    PASS=$((PASS + 1))
-else
-    FAIL=$((FAIL + 1))
-    echo "FAIL: liveness_token_class: expected strong|weak, got '$cls_8'"
-fi
-if [[ "$(uname)" == "Linux" ]]; then
-    assert_eq "liveness_token_class: Linux takes the strong branch" "strong" "$cls_8"
-    assert_eq "expected_live_verdict: Linux expects alive" \
-        "alive" "$(expected_live_verdict "$ANCHOR_PID_8")"
-fi
+assert_eq "liveness_token_class: this host has a strong token" "strong" "$cls_8"
+assert_eq "expected_live_verdict expects alive" \
+    "alive" "$(expected_live_verdict "$ANCHOR_PID_8")"
 assert_eq "expected_live_verdict agrees with the product for a live pid" \
     "$(lock_holder_liveness "$ANCHOR_PID_8" "$(get_pid_starttime "$ANCHOR_PID_8")" \
                             "$(get_pid_starttime_kind "$ANCHOR_PID_8")")" \
     "$(expected_live_verdict "$ANCHOR_PID_8")"
-assert_eq "Recorded anchor reads back as the $cls_8-token verdict" \
-    "$(expected_live_verdict "$ANCHOR_PID_8")" \
-    "$(lock_holder_liveness "$rec_pid_8" "$rec_tok_8" "$rec_kind_8")"
+assert_eq "Recorded anchor reads back as alive" \
+    "alive" "$(lock_holder_liveness "$rec_pid_8" "$rec_tok_8" "$rec_kind_8")"
 
 # Negative half. Each stub lives only inside its command substitution; the
 # result comes back as "[<stdout>] <status>" and is asserted out here, so the
 # counters never run inside a subshell.
 # shellcheck disable=SC2329  # the stubs are called via liveness_token_class
 neg_a="$( _pid_starttime_ps() { return 1; }; _pid_starttime_proc() { return 1; }
+          _pid_starttime_bsdinfo() { return 1; }
           o="$(liveness_token_class "$ANCHOR_PID_8" 2>/dev/null)"; echo "[$o] $?" )"
-assert_eq "class: no token from either source (token '-', kind none) fails closed" "[] 3" "$neg_a"
+assert_eq "class: no token from any source (token '-', kind none) fails closed" "[] 3" "$neg_a"
 # shellcheck disable=SC2329  # the stubs are called via liveness_token_class
 neg_a2="$( _pid_starttime_ps() { return 1; }; _pid_starttime_proc() { return 1; }
+           _pid_starttime_bsdinfo() { return 1; }
            o="$(expected_live_verdict "$ANCHOR_PID_8" 2>/dev/null)"; echo "[$o] $?" )"
 assert_eq "expected_live_verdict: broken identity prints nothing (never 'unknown')" "[] 3" "$neg_a2"
 neg_b="$( o="$(liveness_token_class "$(dead_pid_fixture)" 2>/dev/null)"; echo "[$o] $?" )"
@@ -402,6 +399,17 @@ assert_eq "class: an unrecognised kind fails closed" "[] 3" "$neg_c"
 neg_d="$( get_pid_starttime_kind() { echo ps; }; get_pid_starttime() { echo 123456789; }
           o="$(liveness_token_class "$ANCHOR_PID_8" 2>/dev/null)"; echo "[$o] $?" )"
 assert_eq "class: a ps kind whose token does not re-derive from ps fails closed" "[] 3" "$neg_d"
+# A weak-only host: the strong sources are unavailable, so the identity is the
+# real, re-derivable ps token. That is not BROKEN, but it cannot prove a live
+# holder either, so it fails closed under its own status rather than skipping.
+# shellcheck disable=SC2329  # the stubs are called via liveness_token_class
+neg_f="$( _pid_starttime_proc() { return 1; }; _pid_starttime_bsdinfo() { return 1; }
+          o="$(liveness_token_class "$ANCHOR_PID_8" 2>/dev/null)"; echo "[$o] $?" )"
+assert_eq "class: a weak-only (ps) host fails closed" "[] 4" "$neg_f"
+# shellcheck disable=SC2329  # the stubs are called via expected_live_verdict
+neg_f2="$( _pid_starttime_proc() { return 1; }; _pid_starttime_bsdinfo() { return 1; }
+           o="$(expected_live_verdict "$ANCHOR_PID_8" 2>/dev/null)"; echo "[$o] $?" )"
+assert_eq "expected_live_verdict: a weak-only host prints nothing (never 'unknown')" "[] 4" "$neg_f2"
 neg_e="$(bash -c '. "$1"; o="$(liveness_token_class $$ 2>/dev/null)"; echo "[$o] $?"' \
             _ "$PROJECT_DIR/tests/lib/proc_fixtures.sh")"
 assert_eq "class: pid_anchor.sh not sourced is a setup error" "[] 2" "$neg_e"
@@ -529,28 +537,37 @@ assert_not_contains "Untokened live PID is not claimed" "OWNED:" "$out14"
 
 echo "--- Test 17: weak (second-granular) token cannot prove liveness ---"
 
-if [[ "$(uname)" == "Linux" ]]; then
+# Every supported host has both token sources: `ps` everywhere, plus a strong
+# one (`proc` on Linux, `bsdinfo` on macOS). The strong kind is whatever this
+# host records for the anchor, so the case runs on both platforms.
+strong_kind_17=$(get_pid_starttime_kind "$ANCHOR_PID_14")
+case "$strong_kind_17" in
+    proc|bsdinfo) strong_ok_17=1 ;;
+    *)            strong_ok_17=0 ;;
+esac
+assert_eq "Fixture check: the anchor records a strong kind (got '$strong_kind_17')" "1" "$strong_ok_17"
+if (( strong_ok_17 )); then
     ps_tok_17=$(_pid_starttime_ps "$ANCHOR_PID_14")
-    proc_tok_17=$(_pid_starttime_proc "$ANCHOR_PID_14")
+    strong_tok_17=$(get_pid_starttime "$ANCHOR_PID_14")
 
     assert_eq "kind=ps + matching token ⇒ unknown (weak)" \
         "unknown" "$(lock_holder_liveness "$ANCHOR_PID_14" "$ps_tok_17" ps)"
-    assert_eq "kind=proc + matching token ⇒ alive (strong)" \
-        "alive" "$(lock_holder_liveness "$ANCHOR_PID_14" "$proc_tok_17" proc)"
+    assert_eq "kind=$strong_kind_17 + matching token ⇒ alive (strong)" \
+        "alive" "$(lock_holder_liveness "$ANCHOR_PID_14" "$strong_tok_17" "$strong_kind_17")"
 
     # Neither verdict is a crash — the strength gate changes the VERDICT, and
     # t1466's acquire gate then routes the two verdicts to different OUTCOMES.
     # The claim below runs with AIT_AGENT_PID equal to the planted anchor, so
     # the two halves also pin the self-identity rule:
     #
-    #   kind=proc — the recorded triple (pid, token, kind) is exactly this
+    #   strong kind — the recorded triple (pid, token, kind) is exactly this
     #     session's, so the lock is OURS. It refreshes silently, as every
     #     in-pane re-pick and in-flight resume must.
     #   kind=ps — same pid, but a second-granular token this host would never
     #     have written. That is not a provable identity, so it is not self, and
     #     the weak token cannot license an "alive" verdict either. Undecidable
     #     ⇒ refused at acquire, its own signal.
-    for pair in "ps:$ps_tok_17" "proc:$proc_tok_17"; do
+    for pair in "ps:$ps_tok_17" "$strong_kind_17:$strong_tok_17"; do
         kind_17="${pair%%:*}"; tok_17="${pair#*:}"
         plant_lock "$TMPDIR_12" 1 "task_id: 1
 locked_by: alice@test.com
@@ -561,12 +578,12 @@ pid_starttime: $tok_17
 pid_starttime_kind: $kind_17"
         out17=$(run_claim "$TMPDIR_12" 1 "AIT_AGENT_PID=$ANCHOR_PID_14")
         assert_not_contains "kind=$kind_17 live holder → not a crash" "RECLAIM_CRASH" "$out17"
-        if [[ "$kind_17" == "proc" ]]; then
-            assert_contains "kind=proc live holder is OUR OWN lock → refreshed" \
+        if [[ "$kind_17" != "ps" ]]; then
+            assert_contains "kind=$kind_17 live holder is OUR OWN lock → refreshed" \
                 "OWNED:1" "$out17"
-            assert_contains "kind=proc self re-claim → RECLAIM_STATUS" \
+            assert_contains "kind=$kind_17 self re-claim → RECLAIM_STATUS" \
                 "RECLAIM_STATUS" "$out17"
-            assert_not_contains "kind=proc self re-claim is not refused" \
+            assert_not_contains "kind=$kind_17 self re-claim is not refused" \
                 "LOCK_UNVERIFIABLE_HOLDER" "$out17"
         else
             assert_contains "kind=ps live holder → LOCK_UNVERIFIABLE_HOLDER" \
@@ -575,8 +592,6 @@ pid_starttime_kind: $kind_17"
                 "OWNED:" "$out17"
         fi
     done
-else
-    echo "  (skipped on non-Linux: needs both token sources on one host)"
 fi
 
 kill "$ANCHOR_PID_14" 2>/dev/null
@@ -601,14 +616,13 @@ _pid_exists abc;          assert_eq "_pid_exists: non-numeric is undecidable" "2
 # as crashed, so it must resolve to "exists".
 _pid_exists 1;            assert_eq "_pid_exists: EPERM means exists, not absent" "0" "$?"
 
-# The matching-token row is `alive` only for a strong token; with the weak ps
-# token (no /proc) it is `unknown` by design. Fails closed via the classifier.
+# The matching-token row is `alive` only for a strong token, which every
+# supported host records (`proc` / `bsdinfo`). Fails closed via the classifier.
 unit_rc=0
-unit_class="$(liveness_token_class "$UNIT_PID")" || unit_rc=$?
-assert_eq "Fixture check: the unit pid has a usable identity token" "0" "$unit_rc"
-assert_eq "live + matching $unit_class token ⇒ $(expected_live_verdict "$UNIT_PID")" \
-    "$(expected_live_verdict "$UNIT_PID")" \
-    "$(lock_holder_liveness "$UNIT_PID" "$unit_tok" "$unit_kind")"
+liveness_token_class "$UNIT_PID" >/dev/null || unit_rc=$?
+assert_eq "Fixture check: the unit pid has a strong identity token" "0" "$unit_rc"
+assert_eq "live + matching $unit_kind token ⇒ alive" \
+    "alive" "$(lock_holder_liveness "$UNIT_PID" "$unit_tok" "$unit_kind")"
 # Same kind as the host records, so the reader re-derives from the source it can
 # actually read (a `proc` kind on a host without /proc would read `unknown`).
 assert_eq "live + wrong token ⇒ dead" \
@@ -626,12 +640,9 @@ assert_eq "pid 'abc' ⇒ unknown" "unknown" "$(lock_holder_liveness abc - proc)"
 is_lock_holder_alive 0 -
 assert_eq "is_lock_holder_alive rejects the pid:0 sentinel" "1" "$?"
 is_lock_holder_alive "$UNIT_PID" "$unit_tok" "$unit_kind"
-unit_alive_rc=$?
-if [[ "$unit_class" == strong ]]; then
-    assert_eq "is_lock_holder_alive accepts a proven live holder" "0" "$unit_alive_rc"
-else
-    assert_eq "is_lock_holder_alive refuses a weak-token holder it cannot prove" "1" "$unit_alive_rc"
-fi
+assert_eq "is_lock_holder_alive accepts a proven live holder" "0" "$?"
+is_lock_holder_alive "$UNIT_PID" "$(_pid_starttime_ps "$UNIT_PID")" ps
+assert_eq "is_lock_holder_alive refuses a weak-token holder it cannot prove" "1" "$?"
 
 # --- Test 16: the `ps` token generator (BSD/macOS implementation) ---
 # Linux `ps` supports lstart too, so the implementation is exercisable here
@@ -709,6 +720,152 @@ assert_eq "UNKNOWN anchor reads back as unknown" "unknown" \
                             "$(lock_field "$TMPDIR_18" 1 pid_starttime_kind)")"
 
 rm -rf "$TMPDIR_18"
+
+# --- Test 19: the bsdinfo identity token (macOS strong kind, t2152) ---
+# The source ladder and the reader's same-source rule are asserted on every
+# platform through stubs, so the Linux path of the shared code is exercised on a
+# macOS host and vice versa. The real probe is asserted where it can run.
+
+echo "--- Test 19: bsdinfo identity token ---"
+
+sleep 300 &
+UNIT_PID_19=$!
+
+# A recorded bsdinfo lock whose probe now fails must read `unknown`. The ps and
+# proc stubs return tokens that DIFFER from the recorded one, so a reader that
+# fell back to another source would answer `dead` — a false crash.
+# shellcheck disable=SC2329  # the stubs are called via lock_holder_liveness
+r19_reader="$( _pid_starttime_bsdinfo() { return 1; }
+               _pid_starttime_ps() { echo Mon_Jan__1_00:00:00_2001; }
+               _pid_starttime_proc() { echo 1; }
+               lock_holder_liveness "$UNIT_PID_19" 1793019250.025784 bsdinfo )"
+assert_eq "bsdinfo probe failure on a recorded bsdinfo lock ⇒ unknown (no source switch)" \
+    "unknown" "$r19_reader"
+
+# Ladder order: proc > bsdinfo > ps > none. A lower rung must never run once a
+# higher one answered. A lower-rung stub records each call in a marker file:
+# get_pid_identity discards every source's stderr and stdout of a source it does
+# not select, so neither channel could witness a stray probe.
+CALLS_19="$(mktemp)"
+# shellcheck disable=SC2329  # the stubs are called via get_pid_identity
+r19_proc="$( _pid_starttime_proc() { echo 4242; }
+             _pid_starttime_bsdinfo() { echo bsdinfo >> "$CALLS_19"; echo 9.000009; }
+             _pid_starttime_ps() { echo ps >> "$CALLS_19"; echo X; }
+             get_pid_identity "$UNIT_PID_19"
+             echo "[$(get_pid_starttime_kind "$UNIT_PID_19")|$(get_pid_starttime "$UNIT_PID_19")]" )"
+assert_eq "ladder: proc answers first; wrappers agree" \
+    "proc 4242
+[proc|4242]" "$r19_proc"
+assert_eq "ladder: with proc answering, no lower source is ever probed" "" "$(cat "$CALLS_19")"
+: > "$CALLS_19"
+# shellcheck disable=SC2329
+r19_bsd="$( _pid_starttime_proc() { return 1; }; _pid_starttime_bsdinfo() { echo 1.000001; }
+            _pid_starttime_ps() { echo ps >> "$CALLS_19"; echo X; }
+            get_pid_identity "$UNIT_PID_19" )"
+assert_eq "ladder: no proc ⇒ bsdinfo" "bsdinfo 1.000001" "$r19_bsd"
+assert_eq "ladder: with bsdinfo answering, ps is never probed" "" "$(cat "$CALLS_19")"
+rm -f "$CALLS_19"
+# shellcheck disable=SC2329
+r19_ps="$( _pid_starttime_proc() { return 1; }; _pid_starttime_bsdinfo() { return 1; }
+           _pid_starttime_ps() { echo X; }
+           get_pid_identity "$UNIT_PID_19" )"
+assert_eq "ladder: no strong source ⇒ ps" "ps X" "$r19_ps"
+# shellcheck disable=SC2329
+r19_none="$( _pid_starttime_proc() { return 1; }; _pid_starttime_bsdinfo() { return 1; }
+             _pid_starttime_ps() { return 1; }
+             get_pid_identity "$UNIT_PID_19" )"
+assert_eq "ladder: no source ⇒ none -" "none -" "$r19_none"
+assert_eq "identity of the unknown anchor is none -" "none -" "$(get_pid_identity -)"
+
+# The writers split one get_pid_identity call with `read -r kind token`; a
+# swapped order would store the kind as the token. Pinned through the
+# self-anchor cache, which uses the same split. (A stub cannot reach the claim
+# scripts' own processes; their writers are covered by Test 8's real claim.)
+# shellcheck disable=SC2329,SC2034  # the stub and the vars are read by _ait_current_anchor
+r19_writer="$( AIT_AGENT_PID=$UNIT_PID_19; _AIT_SELF_ANCHOR_CACHED=""
+               _pid_starttime_proc() { echo 4242; }
+               _ait_current_anchor
+               echo "$_AIT_SELF_ANCHOR_PID|$_AIT_SELF_ANCHOR_KIND|$_AIT_SELF_ANCHOR_TOKEN" )"
+assert_eq "writer split: kind and token land in the right fields" \
+    "$UNIT_PID_19|proc|4242" "$r19_writer"
+
+if [[ "$OSTYPE" == darwin* ]]; then
+    tok_19=$(_pid_starttime_bsdinfo "$UNIT_PID_19"); rc_19=$?
+    assert_eq "bsdinfo: readable for an own live pid" "0" "$rc_19"
+    TOTAL=$((TOTAL + 1))
+    if [[ "$tok_19" =~ ^[0-9]+\.[0-9]{6}$ ]]; then
+        PASS=$((PASS + 1))
+    else
+        FAIL=$((FAIL + 1))
+        echo "FAIL: bsdinfo token should be <sec>.<usec6> (got: '$tok_19')"
+    fi
+    assert_eq "bsdinfo: stable across reads" "$tok_19" "$(_pid_starttime_bsdinfo "$UNIT_PID_19")"
+
+    _pid_starttime_bsdinfo "$(dead_pid_fixture)" >/dev/null
+    assert_eq "bsdinfo: fails for a reaped pid" "1" "$?"
+
+    # pid 1 belongs to root. Whether this user may read it is a property of the
+    # runner, so assert only that kind and token agree with what was observed.
+    if p1_tok_19=$(_pid_starttime_bsdinfo 1); then
+        assert_eq "pid 1 readable ⇒ recorded as bsdinfo" \
+            "bsdinfo $p1_tok_19" "$(get_pid_identity 1)"
+    else
+        p1_id_19=$(get_pid_identity 1)
+        case "${p1_id_19%% *}" in
+            ps)   assert_eq "pid 1 unreadable ⇒ the ps fallback, with its own token" \
+                      "ps $(_pid_starttime_ps 1)" "$p1_id_19" ;;
+            none) assert_eq "pid 1 unreadable by every source ⇒ none -" "none -" "$p1_id_19" ;;
+            *)    assert_eq "pid 1 unreadable ⇒ never recorded as bsdinfo" "ps|none" "$p1_id_19" ;;
+        esac
+    fi
+
+    # The token is p_start, the field `ps lstart` truncates to the second. Pins
+    # the struct proc_bsdinfo offset: a wrong one would not decode to this.
+    lstart_19="$(LC_ALL=C date -r "${tok_19%%.*}" '+%a %b %e %T %Y' | tr -s '[:space:]' '_')"
+    lstart_19="${lstart_19#_}"; lstart_19="${lstart_19%_}"
+    assert_eq "bsdinfo seconds decode to the ps lstart of the same process" \
+        "$(_pid_starttime_ps "$UNIT_PID_19")" "$lstart_19"
+
+    # The case the kind exists for: processes started back to back.
+    sleep 300 & PID_19A=$!
+    sleep 300 & PID_19B=$!
+    tok_19a=$(_pid_starttime_bsdinfo "$PID_19A"); tok_19b=$(_pid_starttime_bsdinfo "$PID_19B")
+    TOTAL=$((TOTAL + 1))
+    if [[ -n "$tok_19a" && -n "$tok_19b" && "$tok_19a" != "$tok_19b" ]]; then
+        PASS=$((PASS + 1))
+    else
+        FAIL=$((FAIL + 1))
+        echo "FAIL: back-to-back processes need distinct bsdinfo tokens (got '$tok_19a' / '$tok_19b')"
+    fi
+    if [[ "${tok_19a%%.*}" == "${tok_19b%%.*}" ]]; then
+        assert_eq "same second: ps cannot tell them apart, bsdinfo can" \
+            "$(_pid_starttime_ps "$PID_19A")" "$(_pid_starttime_ps "$PID_19B")"
+    fi
+    kill "$PID_19A" "$PID_19B" 2>/dev/null
+    wait "$PID_19A" "$PID_19B" 2>/dev/null
+
+    assert_eq "identity: macOS records bsdinfo" "bsdinfo $tok_19" "$(get_pid_identity "$UNIT_PID_19")"
+    assert_eq "wrapper: kind" "bsdinfo" "$(get_pid_starttime_kind "$UNIT_PID_19")"
+    assert_eq "wrapper: token" "$tok_19" "$(get_pid_starttime "$UNIT_PID_19")"
+    assert_eq "live + matching bsdinfo token ⇒ alive" \
+        "alive" "$(lock_holder_liveness "$UNIT_PID_19" "$tok_19" bsdinfo)"
+    assert_eq "live + wrong bsdinfo token ⇒ dead" \
+        "dead" "$(lock_holder_liveness "$UNIT_PID_19" 1.000000 bsdinfo)"
+
+    # No interpreter: the writer degrades to the weak-but-consistent ps kind.
+    # shellcheck disable=SC2329  # the stub is called via get_pid_identity
+    r19_nopy="$( _pid_anchor_python() { return 1; }; get_pid_identity "$UNIT_PID_19" )"
+    assert_eq "no Python ⇒ ps fallback, never none" \
+        "ps $(_pid_starttime_ps "$UNIT_PID_19")" "$r19_nopy"
+else
+    _pid_starttime_bsdinfo "$UNIT_PID_19" >/dev/null
+    assert_eq "bsdinfo: not a source off macOS" "1" "$?"
+    assert_eq "a bsdinfo lock read off macOS ⇒ unknown, never dead" \
+        "unknown" "$(lock_holder_liveness "$UNIT_PID_19" 1.000000 bsdinfo)"
+fi
+
+kill "$UNIT_PID_19" 2>/dev/null
+wait "$UNIT_PID_19" 2>/dev/null
 
 # --- Test 7: Syntax checks ---
 echo "--- Test 7: Syntax checks ---"

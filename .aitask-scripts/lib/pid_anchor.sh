@@ -33,9 +33,11 @@ AIT_PID_ANCHOR_UNKNOWN="-"
 # --- Identity token ("starttime") -------------------------------------------
 #
 # A bare PID is not an identity: PIDs are recycled. The token pins WHICH
-# process a PID referred to when the lock was written. Two sources, in
-# decreasing strength — see get_pid_starttime_kind() for why the strength is
-# recorded alongside the value rather than assumed by the reader.
+# process a PID referred to when the lock was written. Three sources, in
+# decreasing preference — see get_pid_identity() for why the source is recorded
+# alongside the value rather than assumed by the reader. `proc` and `bsdinfo`
+# are STRONG (sub-second resolution, so they can prove a live holder); `ps` is
+# WEAK (one-second resolution, so it never can).
 
 # Linux: /proc/<pid>/stat field 22 (jiffies since boot — invariant per process).
 # Resolution is ~10 ms, so it excludes PID recycling for practical purposes.
@@ -56,7 +58,57 @@ _pid_starttime_proc() {
     printf '%s\n' "${fields[19]}"
 }
 
-# BSD / macOS (anywhere without /proc): the process start time from `ps`,
+# The framework's Python interpreter, for the bsdinfo probe below. Resolved
+# through lib/python_resolve.sh, sourced LAZILY and only if present — the same
+# degrade-don't-break rule as _anchor_tmux_pane_pid: this file is copied
+# standalone into test fixtures, and a missing resolver must leave the `ps`
+# fallback in charge rather than break sourcing.
+_pid_anchor_python() {
+    local py
+    if ! declare -F resolve_python >/dev/null 2>&1; then
+        [[ -r "$_PID_ANCHOR_LIB_DIR/python_resolve.sh" ]] || return 1
+        # shellcheck source=python_resolve.sh disable=SC1091
+        source "$_PID_ANCHOR_LIB_DIR/python_resolve.sh" || return 1
+        declare -F resolve_python >/dev/null 2>&1 || return 1
+    fi
+    py="$(resolve_python)"
+    [[ -n "$py" ]] || return 1
+    printf '%s\n' "$py"
+}
+
+# macOS: the process start time from proc_pidinfo(PROC_PIDTBSDINFO), read
+# through ctypes and the PUBLIC libproc API — `pbi_start_tvsec` /
+# `pbi_start_tvusec`, the two uint64 at offset 120 of the 136-byte
+# struct proc_bsdinfo. That is the kernel's `p_start`: set at fork, kept across
+# exec, and the very field `ps -o lstart` truncates to the second. Printed as
+# <sec>.<usec> (e.g. 1793019250.025784), so it is microsecond-granular — STRONG.
+#
+# There is no pure-shell route: `sysctl kern.proc.pid.<n>` is not a CLI oid on
+# Darwin. Perl's raw `syscall(336, …)` answers in ~3 ms against Python's ~20 ms,
+# but 336 is a private, unstable syscall number; this stays on the public API.
+#
+# A process owned by another user answers EPERM (n == 0), and so does one that
+# is gone; both return 1 here, and the ladder falls through to `ps`. Gated on
+# $OSTYPE (no fork), so other platforms never start the interpreter.
+_pid_starttime_bsdinfo() {
+    local pid="$1" py raw
+    [[ "${OSTYPE:-}" == darwin* ]] || return 1
+    [[ "$pid" =~ ^[0-9]+$ ]] || return 1
+    py="$(_pid_anchor_python)" || return 1
+    raw="$("$py" -I -S -c '
+import ctypes, struct, sys
+buf = ctypes.create_string_buffer(136)  # sizeof(struct proc_bsdinfo)
+n = ctypes.CDLL("/usr/lib/libproc.dylib").proc_pidinfo(
+    int(sys.argv[1]), 3, ctypes.c_uint64(0), buf, 136)  # 3 = PROC_PIDTBSDINFO
+if n != 136:
+    sys.exit(1)
+sec, usec = struct.unpack_from("=QQ", buf.raw, 120)  # pbi_start_tv{sec,usec}
+print("%d.%06d" % (sec, usec))' "$pid" 2>/dev/null)" || return 1
+    [[ "$raw" =~ ^[0-9]+\.[0-9]{6}$ ]] || return 1
+    printf '%s\n' "$raw"
+}
+
+# Anywhere the strong sources cannot answer: the process start time from `ps`,
 # whitespace-collapsed into one opaque word (e.g. Mon_Aug_10_09:19:16_2026).
 # LC_ALL=C pins the month names so the token is comparable across reads.
 #
@@ -72,28 +124,47 @@ _pid_starttime_ps() {
     printf '%s\n' "$raw"
 }
 
-# Echo the identity token for <pid>, or "-" when none can be obtained.
-get_pid_starttime() {
-    local pid="${1:-}"
-    [[ -z "$pid" || "$pid" == "-" ]] && { echo "-"; return; }
-    _pid_starttime_proc "$pid" && return 0
-    _pid_starttime_ps "$pid" && return 0
-    echo "-"
+# Echo "<kind> <token>" for <pid>: which source answered (proc | bsdinfo | ps)
+# and its token, or "none -" when no source can. First source that answers
+# wins, so a host records the strongest token it can read.
+#
+# The writer stores the kind in the lock beside the token, and the reader
+# trusts the stored value rather than re-deriving it from its own platform. Two
+# reasons: it is provenance for the value stored next to it, and it makes the
+# weak-token branch plantable — hence testable anywhere — instead of only
+# reachable on a host that has no strong source.
+#
+# Writers take kind and token from ONE call. Probing them separately could pair
+# a bsdinfo token with a `ps` kind when the interpreter fails between the two
+# probes, and the reader would then compare the wrong encodings and answer
+# `dead` — a false crash.
+get_pid_identity() {
+    local pid="${1:-}" tok
+    [[ -z "$pid" || "$pid" == "-" ]] && { echo "none -"; return; }
+    if tok="$(_pid_starttime_proc "$pid" 2>/dev/null)"; then
+        echo "proc $tok"
+    elif tok="$(_pid_starttime_bsdinfo "$pid" 2>/dev/null)"; then
+        echo "bsdinfo $tok"
+    elif tok="$(_pid_starttime_ps "$pid" 2>/dev/null)"; then
+        echo "ps $tok"
+    else
+        echo "none -"
+    fi
 }
 
-# Echo which source produced (or would produce) the token: proc | ps | none.
-#
-# The writer stores this in the lock beside the token, and the reader trusts
-# the stored value rather than re-deriving it from its own platform. Two
-# reasons: it is provenance for the value stored next to it, and it makes the
-# weak-token branch plantable — hence testable on Linux — instead of only
-# reachable on a platform this project cannot run its test suite on.
+# Echo the identity token for <pid>, or "-" when none can be obtained.
+get_pid_starttime() {
+    local id
+    id="$(get_pid_identity "${1:-}")"
+    printf '%s\n' "${id#* }"
+}
+
+# Echo which source produced (or would produce) the token:
+# proc | bsdinfo | ps | none. See get_pid_identity.
 get_pid_starttime_kind() {
-    local pid="${1:-}"
-    [[ -z "$pid" || "$pid" == "-" ]] && { echo "none"; return; }
-    _pid_starttime_proc "$pid" >/dev/null 2>&1 && { echo "proc"; return; }
-    _pid_starttime_ps "$pid" >/dev/null 2>&1 && { echo "ps"; return; }
-    echo "none"
+    local id
+    id="$(get_pid_identity "${1:-}")"
+    printf '%s\n' "${id%% *}"
 }
 
 # --- Parent chain (is that pid one of my ancestors?) ------------------------
@@ -233,16 +304,18 @@ _pid_exists() {
 # --- Liveness verdict ------------------------------------------------------
 
 # Echo exactly one of: alive | dead | unknown.
-#   $1 = recorded pid, $2 = recorded identity token, $3 = token kind (proc|ps)
+#   $1 = recorded pid, $2 = recorded identity token,
+#   $3 = token kind (proc | bsdinfo — strong; ps — weak)
 #
 # `alive` means "this PID is PROVABLY the process the lock recorded" — it
 # requires existence AND a matching STRONG token. `dead` requires positive
 # evidence: a confirmed-absent PID, or a token that proves a different process
 # now holds the number. Everything else is `unknown`: no usable anchor
 # ("-", "0", non-numeric); a process we cannot inspect; a process with no
-# recorded token (a bare PID cannot be told apart from a recycled one); and a
-# process whose token matches but was only second-granular (kind `ps`), which
-# cannot exclude same-second recycling.
+# recorded token (a bare PID cannot be told apart from a recycled one); a
+# recorded source this host cannot read now (e.g. a bsdinfo lock with no
+# interpreter, or read off macOS); and a process whose token matches but was
+# only second-granular (kind `ps`), which cannot exclude same-second recycling.
 #
 # Reporting any `unknown` as a crash is what made RECLAIM_CRASH meaningless
 # (t1465). Reporting one as alive would mislead the acquire-path liveness gate
@@ -266,15 +339,20 @@ lock_holder_liveness() {
     # generic get_pid_starttime here would compare a /proc token against a
     # recorded `ps` one on any host that has both, and every weak-token lock
     # would read as `dead` — a false crash, the exact defect being fixed.
+    # A source that cannot answer now is `unknown`, never a fallback to another
+    # source: that would compare two encodings of the same instant.
     case "$kind" in
-        proc) current=$(_pid_starttime_proc "$pid" 2>/dev/null) || current="-" ;;
-        ps)   current=$(_pid_starttime_ps "$pid" 2>/dev/null)   || current="-" ;;
-        *)    current="-" ;;   # unrecognised kind => cannot compare
+        proc)    current=$(_pid_starttime_proc "$pid" 2>/dev/null)    || current="-" ;;
+        bsdinfo) current=$(_pid_starttime_bsdinfo "$pid" 2>/dev/null) || current="-" ;;
+        ps)      current=$(_pid_starttime_ps "$pid" 2>/dev/null)      || current="-" ;;
+        *)       current="-" ;;   # unrecognised kind => cannot compare
     esac
     [[ "$current" == "-" || -z "$current" ]] && { echo unknown; return 0; }
     [[ "$current" == "$starttime" ]] || { echo dead; return 0; }
-    [[ "$kind" == "proc" ]] || { echo unknown; return 0; }   # weak token
-    echo alive
+    case "$kind" in
+        proc|bsdinfo) echo alive ;;
+        *)            echo unknown ;;   # weak token
+    esac
 }
 
 # Boolean convenience wrapper over lock_holder_liveness: true only for a
@@ -300,8 +378,8 @@ _AIT_SELF_ANCHOR_KIND=""
 _ait_current_anchor() {
     if [[ -z "$_AIT_SELF_ANCHOR_CACHED" ]]; then
         _AIT_SELF_ANCHOR_PID="$(get_session_anchor_pid)"
-        _AIT_SELF_ANCHOR_TOKEN="$(get_pid_starttime "$_AIT_SELF_ANCHOR_PID")"
-        _AIT_SELF_ANCHOR_KIND="$(get_pid_starttime_kind "$_AIT_SELF_ANCHOR_PID")"
+        read -r _AIT_SELF_ANCHOR_KIND _AIT_SELF_ANCHOR_TOKEN \
+            <<<"$(get_pid_identity "$_AIT_SELF_ANCHOR_PID")"
         _AIT_SELF_ANCHOR_CACHED=1
     fi
 }

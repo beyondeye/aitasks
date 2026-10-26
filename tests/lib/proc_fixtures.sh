@@ -70,21 +70,22 @@ if [[ -z "${_AIT_PROC_FIXTURES_LOADED:-}" ]]; then
         return $?
     }
 
-    # liveness_token_class <pid> -- classify the identity token this host
-    # records for a LIVE <pid>, so a test can expect the verdict the product
-    # actually reaches instead of hard-coding the Linux one. stdout + status:
-    #   strong (0)  kind `proc`: lock_holder_liveness can answer `alive`
-    #   weak   (0)  kind `ps` with a real, re-derivable ps token -- the supported
-    #               no-/proc limitation (macOS/BSD); liveness reads `unknown`
-    #               BY DESIGN (see lock_holder_liveness in pid_anchor.sh)
+    # liveness_token_class <pid> -- check that this host records a STRONG
+    # identity token for a LIVE <pid>, the precondition of every case that needs
+    # a provably-alive holder. stdout + status:
+    #   strong (0)  kind `proc` (Linux) or `bsdinfo` (macOS): lock_holder_liveness
+    #               can answer `alive`
     #   nothing, 2  pid_anchor.sh is not sourced (fixture setup error)
     #   nothing, 3  no usable token, kind none/unrecognised, or a `ps` kind whose
     #               token does not re-derive from ps: identity is BROKEN
+    #   nothing, 4  only the weak second-granular `ps` token is available: the
+    #               host has no strong source, so its live-holder features are
+    #               degraded (liveness reads `unknown` by design)
     #
-    # FAIL CLOSED. Status 2/3 must fail the test, never select the weak branch:
-    # a broken recorder (token `-`, kind `none`) also makes the product answer
-    # `unknown`, so collapsing it into `weak` would let the platform-correct
-    # assertion agree with the bug. Branch on the token, never on `uname`.
+    # FAIL CLOSED. Every non-zero status must fail the test. A weak host used to
+    # select a SKIP branch (t2146); since the strong `bsdinfo` kind (t2152) a
+    # weak token on a supported platform is a defect to report, not a limitation
+    # to absorb. Branch on the token, never on `uname`.
     liveness_token_class() {
         local pid="${1:-}" kind tok
         if ! declare -F get_pid_starttime_kind >/dev/null \
@@ -99,37 +100,28 @@ if [[ -z "${_AIT_PROC_FIXTURES_LOADED:-}" ]]; then
             return 3
         fi
         case "$kind" in
-            proc) echo strong ;;
+            proc|bsdinfo) echo strong ;;
             ps)
                 if [[ "$(_pid_starttime_ps "$pid" 2>/dev/null)" != "$tok" ]]; then
                     echo "proc_fixtures: pid '$pid' has kind=ps but its token does not re-derive from ps" >&2
                     return 3
                 fi
-                echo weak ;;
+                echo "proc_fixtures: pid '$pid' has only the weak second-granular ps token — no strong identity source on this host (live-holder features degraded)" >&2
+                return 4 ;;
             *)
                 echo "proc_fixtures: pid '$pid' has unrecognised token kind '$kind'" >&2
                 return 3 ;;
         esac
     }
 
-    # expected_live_verdict <pid> -- the verdict a LIVE <pid> reads back as on
-    # this host: `alive` (strong) or `unknown` (weak). On a class failure it
-    # prints NOTHING and returns that status, so an assert_eq against it fails
-    # loudly instead of agreeing with the product on `unknown`.
+    # expected_live_verdict <pid> -- the verdict a LIVE <pid> reads back as:
+    # `alive`. On a class failure it prints NOTHING and returns that status, so
+    # an assert_eq against it fails loudly instead of agreeing with the product
+    # on `unknown`.
     expected_live_verdict() {
-        local cls rc=0
-        cls="$(liveness_token_class "${1:-}")" || rc=$?
+        local rc=0
+        liveness_token_class "${1:-}" >/dev/null || rc=$?
         (( rc == 0 )) || return "$rc"
-        case "$cls" in
-            strong) echo alive ;;
-            weak)   echo unknown ;;
-        esac
-    }
-
-    # skip_weak_token <what> -- announce a case that needs a provably-alive
-    # holder and cannot have one on this host. Same "— not counted" shape as
-    # the suite's other conditional skips.
-    skip_weak_token() {
-        echo "SKIP: $1 (weak ps identity token, no /proc; liveness reads unknown by design) — not counted" >&2
+        echo alive
     }
 fi

@@ -118,21 +118,16 @@ drive_live_lock() {
     (cd "$t/local" && printf 'edit10\n' >> .aitask-data/aitasks/t10_alpha.md)
     local out; out="$(run_sync "$t")"
     assert_usable_stdout "live_lock" "$out"
-    # live_lock needs a holder the sweep can PROVE alive: a strong /proc token.
-    # With the weak `ps` token (macOS/BSD) this same running holder reads
-    # `unknown` by design and routes to unknown_liveness instead. The class
-    # fails closed: a sentinel token or an unknown kind is a FAIL, not the weak
-    # branch.
-    local cls rc=0
-    cls="$(liveness_token_class "$$")" || rc=$?
+    # live_lock needs a holder the sweep can PROVE alive: a strong token
+    # (`proc` on Linux, `bsdinfo` on macOS). The class fails closed: a sentinel
+    # token, an unknown kind, or a weak-only `ps` host is a FAIL.
+    local rc=0
+    liveness_token_class "$$" >/dev/null || rc=$?
     if (( rc != 0 )); then
         TOTAL=$((TOTAL + 1)); FAIL=$((FAIL + 1))
         echo "FAIL: live_lock: identity fixture invalid for this test's shell (liveness_token_class status $rc)"
-    elif [[ "$cls" == strong ]]; then
-        assert_reason_fired "live_lock" "$t" "held by YOUR OWN live session"
     else
-        assert_reason_fired "live_lock (weak token)" "$t" "could not be verified as gone"
-        skip_weak_token "live_lock: the 'held by YOUR OWN live session' line"
+        assert_reason_fired "live_lock" "$t" "held by YOUR OWN live session"
     fi
     # The wrong-by-construction wording this task removes.
     assert_not_contains "live_lock: the old roll-up wording is gone" \

@@ -32,6 +32,7 @@ TOTAL=0
 
 . "$PROJECT_DIR/tests/lib/asserts.sh"
 . "$PROJECT_DIR/tests/lib/sync_fixture.sh"
+. "$PROJECT_DIR/tests/lib/proc_fixtures.sh"
 
 # Advance origin/aitask-data from a second clone, so the local repo is genuinely
 # behind (remote_ahead > 0).
@@ -873,6 +874,13 @@ wire_row_for() {                      # <tmpdir> -> the DEFERRED_FILE row for t1
     printf '%s\n' "$2" | grep -m1 '^DEFERRED_FILE:.*|10|'
 }
 
+# `self` and `other` need a holder the sweep can PROVE alive: lock_yaml_live
+# anchors to this shell, so it must carry a strong token (`proc` on Linux,
+# `bsdinfo` on macOS). The classifier fails closed on a weak-only host.
+cls_rc_33=0
+liveness_token_class "$$" >/dev/null || cls_rc_33=$?
+assert_eq "Fixture check: this shell has a strong identity token" "0" "$cls_rc_33"
+
 # self: lock host == this host, lock email == userconfig email.
 TMP33="$(setup_repo)"
 plant_lock "$TMP33" 10 "$(lock_yaml_live 10)"
@@ -888,17 +896,8 @@ assert_deferred_on_overlap "Test 33" "$TMP33"
 assert_contains "self: the row carries the class" "|tracked|self|" "$ROW_SELF"
 assert_contains "self: and the encoded email" "other@x.com" "$ROW_SELF"
 assert_contains "self: and the host" "testhost" "$ROW_SELF"
-if [ -r /proc/self/stat ]; then
-    assert_contains "self: and the action offers commit-on-behalf" \
-        "--commit-for-task 10" "$ROW_SELF"
-else
-    # No /proc: lock_yaml_live records a `ps` token, which never proves `alive`
-    # (pid_anchor.sh lock_holder_liveness), so the row is the fail-safe one.
-    assert_contains "self (no /proc): an unprovable holder is unknown_liveness" \
-        "DEFERRED_FILE:unknown_liveness|" "$ROW_SELF"
-    assert_not_contains "self (no /proc): and is never offered commit-on-behalf" \
-        "--commit-for-task" "$ROW_SELF"
-fi
+assert_contains "self: and the action offers commit-on-behalf" \
+    "--commit-for-task 10" "$ROW_SELF"
 
 # other: same verified host, a different non-empty email.
 TMP33B="$(setup_repo)"
@@ -910,15 +909,8 @@ advance_remote_overlapping "$TMP33B"
 ROW_OTHER="$(wire_row_for "$TMP33B" "$(run_sync "$TMP33B")")"
 assert_deferred_on_overlap "Test 33B" "$TMP33B"
 assert_contains "other: the row carries the class" "|tracked|other|" "$ROW_OTHER"
-if [ -r /proc/self/stat ]; then
-    assert_contains "other: and never offers commit-on-behalf" \
-        "left for that session" "$ROW_OTHER"
-else
-    assert_contains "other (no /proc): an unprovable holder is unknown_liveness" \
-        "DEFERRED_FILE:unknown_liveness|" "$ROW_OTHER"
-    assert_not_contains "other (no /proc): and never offers commit-on-behalf" \
-        "--commit-for-task" "$ROW_OTHER"
-fi
+assert_contains "other: and never offers commit-on-behalf" \
+    "left for that session" "$ROW_OTHER"
 
 # remote: a different host entirely -- liveness is not decidable from here.
 TMP33C="$(setup_repo)"

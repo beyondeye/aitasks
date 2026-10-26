@@ -127,11 +127,12 @@ plant_lock() {
 
 # A lock YAML anchored to a LIVE process on this host (this test's own shell).
 # The token and kind come from the same functions a real claim records with, so
-# without /proc the lock carries a REAL `ps` token, which reads as `unknown`,
-# never `alive` (lock_holder_liveness in pid_anchor.sh) -- by design, not a
-# fixture defect. It must not be `-`: a tokenless lock also reads `unknown`, but
-# through the no-identity path, and a test meant to exercise the weak-token
-# limitation would then pass over a broken recorder.
+# the lock carries whatever this host really records: a strong `proc` /
+# `bsdinfo` token that reads `alive`, or, on a host with no strong source, a
+# REAL weak `ps` token that reads `unknown` by design (lock_holder_liveness in
+# pid_anchor.sh). It must not be `-`: a tokenless lock also reads `unknown`, but
+# through the no-identity path, and a test asserting on that verdict would then
+# pass over a broken recorder.
 lock_yaml_live() {
     local tid="$1" host="${2:-testhost}" pid="${3:-$$}"
     local start kind

@@ -286,13 +286,13 @@ lock_task() {
         fi
 
         # Step 3: Build lock file content (YAML)
-        # pid_starttime_kind records WHICH source produced the identity token,
-        # because a `ps`-derived token is only second-granular and therefore
-        # cannot prove liveness (see lib/pid_anchor.sh).
+        # pid_starttime_kind records WHICH source produced the identity token:
+        # `proc` / `bsdinfo` are strong, while a `ps`-derived token is only
+        # second-granular and therefore cannot prove liveness (see
+        # lib/pid_anchor.sh). Both come from ONE probe, so they cannot disagree.
         local lock_pid lock_starttime lock_starttime_kind lock_yaml
         lock_pid=$(get_lock_pid)
-        lock_starttime=$(get_pid_starttime "$lock_pid")
-        lock_starttime_kind=$(get_pid_starttime_kind "$lock_pid")
+        read -r lock_starttime_kind lock_starttime <<<"$(get_pid_identity "$lock_pid")"
         lock_yaml="task_id: $task_id
 locked_by: $email
 locked_at: $(get_timestamp)

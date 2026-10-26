@@ -40,16 +40,13 @@
 #   E2     screen left waiting -> committed
 #   E2c    CONTROL: E2 via $NOSRV -> refused (observed: unresolvable)
 #
-# PLATFORM SPLIT. The `live_lock` sub-reason and its pane-naming stderr line need
-# a holder the sweep can PROVE alive, and only a strong /proc identity token
-# gives that. With the weak second-granular `ps` token (macOS/BSD) the holder
-# reads `unknown` by design and routes to `unknown_liveness`. Its record still
-# carries the pane and state (aitask_sync.sh resolves the pane for both), but its
-# stderr line is the fixed "could not be verified as gone" text. On such a host
-# S1c/S1c-a expect unknown_liveness, S1h-weak asserts that line, and the
-# pane-naming lines SKIP visibly. The class comes from liveness_token_class
-# (tests/lib/proc_fixtures.sh), which fails closed: a sentinel token or an
-# unknown kind is a setup FAIL, never the weak branch.
+# STRONG TOKEN REQUIRED. The `live_lock` sub-reason and its pane-naming stderr
+# line need a holder the sweep can PROVE alive, which takes a strong identity
+# token: `proc` on Linux, `bsdinfo` on macOS. With only the weak second-granular
+# `ps` token the holder would route to `unknown_liveness` instead.
+# liveness_token_class (tests/lib/proc_fixtures.sh) checks the precondition and
+# fails closed: a sentinel token, an unknown kind, or a weak-only host is a
+# setup FAIL.
 
 set -uo pipefail
 
@@ -223,16 +220,11 @@ done
 [[ -n "$line" ]] || fail_setup "could not start the holder's pane"
 read -r PANE_PID PANE_ID PANE_H <<<"$line"
 
-# Which verdict can this holder reach here? Decided once, from the identity
-# token new_fixture's lock will carry for PANE_PID.
+# The holder must be provably alive here, from the identity token
+# new_fixture's lock will carry for PANE_PID.
 holder_rc=0
-HOLDER_CLASS="$(liveness_token_class "$PANE_PID")" || holder_rc=$?
+liveness_token_class "$PANE_PID" >/dev/null || holder_rc=$?
 (( holder_rc == 0 )) || fail_setup "identity fixture invalid for the holder's pane (liveness_token_class status $holder_rc)"
-if [[ "$HOLDER_CLASS" == strong ]]; then
-    EXPECT_REASON=live_lock
-else
-    EXPECT_REASON=unknown_liveness
-fi
 TARGET="$(tmux -L "$SOCK" list-panes -a -F '#{session_name}:#{window_id}.#{pane_id}' 2>/dev/null | head -1)"
 
 ASK_LINE='Enter to select · ↑/↓ to navigate · Esc to cancel'
@@ -292,19 +284,13 @@ run_sync_live "$T" > "$T/sync_stdout"
 assert_eq "S1a. the run defers" "DEFERRED:protected_dirty" "$(head -n1 "$T/sync_stdout" | cut -d: -f1-2)"
 read_record "$T" 10
 assert_eq "S1b. t10 has exactly one record" "1" "$r_count"
-assert_eq "S1c. sub-reason ($HOLDER_CLASS token)" "$EXPECT_REASON" "$r_reason"
+assert_eq "S1c. sub-reason" "live_lock" "$r_reason"
 assert_eq "S1d. pid" "$PANE_PID" "$r_pid"
 assert_eq "S1e. pane = tmux's own target, '|' intact after the round-trip" "$TARGET" "$r_pane"
 assert_eq "S1f. pane_state" "waiting_claude_askuserquestion" "$r_state"
 assert_eq "S1g. the record is whole" "END" "$r_end"
-if [[ "$HOLDER_CLASS" == strong ]]; then
-    assert_contains "S1h. stderr names the pane" "pane $TARGET" "$(sync_err "$T")"
-    assert_contains "S1i. stderr says it is waiting" "waiting on a prompt: claude_askuserquestion" "$(sync_err "$T")"
-else
-    assert_contains "S1h-weak. stderr says the holder could not be verified as gone" \
-        "the holder could not be verified as gone" "$(sync_err "$T")"
-    skip_weak_token "S1h/S1i: the live_lock stderr line naming the pane and its prompt"
-fi
+assert_contains "S1h. stderr names the pane" "pane $TARGET" "$(sync_err "$T")"
+assert_contains "S1i. stderr says it is waiting" "waiting on a prompt: claude_askuserquestion" "$(sync_err "$T")"
 
 # --- S1c: control, no server ------------------------------------------------
 echo "--- S1c: control - the identical sweep with no server reachable ---"
@@ -313,15 +299,11 @@ set_screen waiting || fail_setup "S1c: screen"
 assert_nosrv_empty "S1c"
 SYNC_FIXTURE_TMUX_SOCKET="$NOSRV" run_sync "$T" > "$T/sync_stdout"
 read_record "$T" 10
-assert_eq "S1c-a. sub-reason unchanged" "$EXPECT_REASON" "$r_reason"
+assert_eq "S1c-a. sub-reason unchanged" "live_lock" "$r_reason"
 assert_eq "S1c-b. pid still filled" "$PANE_PID" "$r_pid"
 assert_eq "S1c-c. pane empty" "" "$r_pane"
 assert_eq "S1c-d. pane_state empty" "" "$r_state"
-if [[ "$HOLDER_CLASS" == strong ]]; then
-    assert_contains "S1c-e. stderr back to the bare pid" "live session on this host (pid $PANE_PID)" "$(sync_err "$T")"
-else
-    skip_weak_token "S1c-e: the live_lock stderr line's bare-pid form"
-fi
+assert_contains "S1c-e. stderr back to the bare pid" "live session on this host (pid $PANE_PID)" "$(sync_err "$T")"
 
 # --- S2: an active holder ---------------------------------------------------
 echo "--- S2: an active holder ---"
@@ -332,11 +314,7 @@ run_sync_live "$T" > "$T/sync_stdout"
 read_record "$T" 10
 assert_eq "S2a. the same pane" "$TARGET" "$r_pane"
 assert_eq "S2b. pane_state" "active" "$r_state"
-if [[ "$HOLDER_CLASS" == strong ]]; then
-    assert_contains "S2c. stderr says it is running" "running — not at a prompt" "$(sync_err "$T")"
-else
-    skip_weak_token "S2c: the live_lock stderr line for an active holder"
-fi
+assert_contains "S2c. stderr says it is running" "running — not at a prompt" "$(sync_err "$T")"
 
 # --- S3: post-phase pane_unresolvable_degrades_to_pid -----------------------
 echo "--- S3: a live holder in no pane degrades to a pid-only record ---"

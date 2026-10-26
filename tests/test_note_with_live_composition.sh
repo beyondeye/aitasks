@@ -22,15 +22,12 @@
 # reporting rules (the test_live_endpoint_no_sendkeys.sh precedent), and
 # t1657_7 carries the live two-session manual item.
 #
-# PLATFORM SPLIT. Cases that need a live holder the resolver can PROVE alive
-# (1e-1g, 3a, 3f/3g) depend on the host's identity token. A strong /proc token
-# gives `alive`. The weak second-granular `ps` token (macOS/BSD) gives `unknown`
-# by design, so the resolver answers `LIVE_NONE:holder_unknown` at its liveness
-# gate before the agent gate or the pane map. On such a host those cases expect
-# holder_unknown, the write-before-live contract around them is still asserted
-# in full, and 3f/3g SKIP visibly. The class comes from liveness_token_class
-# (tests/lib/proc_fixtures.sh), which fails closed: a sentinel token or an
-# unknown kind is a FAIL, never the weak branch.
+# STRONG TOKEN REQUIRED. Cases that need a live holder the resolver can PROVE
+# alive (1e-1g, 3a, 3f/3g) need a strong identity token: `proc` on Linux,
+# `bsdinfo` on macOS. With only the weak second-granular `ps` token the resolver
+# would answer `LIVE_NONE:holder_unknown` at its liveness gate instead.
+# liveness_token_class (tests/lib/proc_fixtures.sh) checks the precondition and
+# fails closed: a sentinel token, an unknown kind, or a weak-only host is a FAIL.
 #
 # §7 exists because goldens cannot do its job. A golden is generated FROM the
 # template it checks, so deleting a trigger-point offer and regenerating leaves
@@ -115,8 +112,7 @@ git -C "$DATA" push -q origin main 2>/dev/null || true
 # plumbing-only seam test_live_endpoint_degradation.sh uses. remote_host and
 # holder_dead cannot arise from a real claim on this machine, and neither can
 # holder_unknown on a host with a strong /proc token, so forging is the only
-# way to reach them there. (On a weak-token host a real live holder ALSO reads
-# holder_unknown; see the PLATFORM SPLIT note in the header.)
+# way to reach them there.
 forge_lock() {
     local id="$1" yaml="$2"
     (
@@ -151,7 +147,7 @@ LIVE_KIND="$(get_pid_starttime_kind "$LIVE_PID")"
 # Every "live, local, alive" forge below embeds LIVE_TOKEN/LIVE_KIND, so they
 # must be a real identity before any case is allowed to depend on them.
 live_rc=0
-LIVE_CLASS="$(liveness_token_class "$LIVE_PID")" || live_rc=$?
+liveness_token_class "$LIVE_PID" >/dev/null || live_rc=$?
 if (( live_rc != 0 )); then
     echo "FAIL: identity fixture invalid for this test's shell (liveness_token_class status $live_rc)"
     echo ""
@@ -159,12 +155,6 @@ if (( live_rc != 0 )); then
     echo "SOME TESTS FAILED"
     exit 1
 fi
-
-# The live-lane answer for a holder forged with LIVE_TOKEN/LIVE_KIND: the reason
-# named for a strong token, the liveness gate's holder_unknown for a weak one.
-live_reason() {
-    if [[ "$LIVE_CLASS" == strong ]]; then echo "$1"; else echo "LIVE_NONE:holder_unknown"; fi
-}
 
 # Run the REAL entry point inside the data repo. Never a replica of the
 # composition: a test that re-implemented the order would pass no matter what
@@ -264,14 +254,11 @@ pid_starttime_kind: $LIVE_KIND
 # agent_unknown is the Step 4 -> Step 7 attribution window: locked, local and
 # alive, but `implemented_with` is not written until Step 7. It must read as
 # unavailable, never as an error.
-if [[ "$LIVE_CLASS" == weak ]]; then
-    echo "NOTE: weak identity token — 1e-1g expect holder_unknown (the liveness gate answers first); write-before-live is still asserted in full" >&2
-fi
 sed -i.bak '/implemented_with/d' "$DATA/aitasks/t900_x.md" && rm -f "$DATA/aitasks/t900_x.md.bak"
 git -C "$DATA" add -A && git -C "$DATA" commit -qm "clear impl" >/dev/null 2>&1
 live_lock 900
 out="$(run_note 900 --from 901 --with-live --text "agent unknown case" 2>/dev/null)"; rc=$?
-assert_durable_first "1e." "$out" "$rc" "$(live_reason LIVE_NONE:agent_unknown)"
+assert_durable_first "1e." "$out" "$rc" "LIVE_NONE:agent_unknown"
 
 # A family the manifest does not carry. Restore attribution first, as a codex one.
 python3 - "$DATA/aitasks/t900_x.md" <<'PY'
@@ -283,7 +270,7 @@ open(p, "w").write(s)
 PY
 git -C "$DATA" add -A && git -C "$DATA" commit -qm "codex impl" >/dev/null 2>&1
 out="$(run_note 900 --from 901 --with-live --text "unsupported agent case" 2>/dev/null)"; rc=$?
-assert_durable_first "1f." "$out" "$rc" "$(live_reason LIVE_NONE:agent_unsupported:codex)"
+assert_durable_first "1f." "$out" "$rc" "LIVE_NONE:agent_unsupported:codex"
 
 # no_pane: a claudecode holder, alive and local, but the tmux gateway points at
 # a server that does not exist, so no pane map can be built.
@@ -296,7 +283,7 @@ PY
 git -C "$DATA" add -A && git -C "$DATA" commit -qm "claudecode impl" >/dev/null 2>&1
 out="$( cd "$DATA" && AIT_DIR="$CODE" AITASKS_TMUX_SOCKET="ait_nonexistent_$$" \
         "$NOTE" 900 --from 901 --with-live --text "no pane case" 2>/dev/null )"; rc=$?
-assert_durable_first "1g." "$out" "$rc" "$(live_reason LIVE_NONE:no_pane)"
+assert_durable_first "1g." "$out" "$rc" "LIVE_NONE:no_pane"
 
 # --- 2. The errexit regression --------------------------------------------
 #
@@ -409,9 +396,8 @@ else
     for _ in $(seq 1 120); do [[ -s "$DATA/claim.rc" ]] && break; sleep 0.25; done
 
     pane_rc=0
-    PANE_CLASS=""
     if [[ -n "$PANE_PID" ]]; then
-        PANE_CLASS="$(liveness_token_class "$PANE_PID")" || pane_rc=$?
+        liveness_token_class "$PANE_PID" >/dev/null || pane_rc=$?
     fi
 
     if [[ -z "$PANE_PID" || ! -s "$DATA/claim.rc" ]]; then
@@ -424,17 +410,11 @@ else
         # ORDERING CONTROL, run FIRST — while the task is in exactly the state a
         # real claim leaves it: locked, Implementing, `implemented_with` still
         # empty because Step 7 has not run. If this did not answer agent_unknown,
-        # the positive case below would prove nothing about the seed. With a
-        # weak token the liveness gate answers first, so it reads holder_unknown.
-        if [[ "$PANE_CLASS" == strong ]]; then
-            want_3a="LIVE_NONE:agent_unknown"
-        else
-            want_3a="LIVE_NONE:holder_unknown"
-        fi
+        # the positive case below would prove nothing about the seed.
         out="$( cd "$DATA" && AIT_DIR="$CODE" AITASKS_TMUX_SOCKET="$SOCK" \
                 "$NOTE" 902 --from 901 --with-live --text "control" 2>/dev/null )"; rc=$?
-        assert_eq "3a. CONTROL: unseeded attribution stops at the first gate that applies ($PANE_CLASS token)" \
-            "$want_3a" "$(line2 "$out")"
+        assert_eq "3a. CONTROL: unseeded attribution stops at agent_unknown" \
+            "LIVE_NONE:agent_unknown" "$(line2 "$out")"
         assert_eq "3b. CONTROL: still a durable success" "0" "$rc"
 
         # Independent ground truth, read from tmux rather than rebuilt from the
@@ -461,21 +441,15 @@ PY
             "1" "$(printf '%s\n' "$(line1 "$out")" | grep -c '^NOTE_APPENDED:')"
         assert_eq "3d. exactly two lines" "2" "$(nlines "$out")"
         assert_eq "3e. exit 0" "0" "$rc"
-        if [[ "$PANE_CLASS" == strong ]]; then
-            assert_eq "3f. the WHOLE live line, built from tmux's own rendering" \
-                "LIVE_PANE:${PANE_ID}|${EXPECT_TARGET}|${PANE_PID}|agent=claudecode" \
-                "$(line2 "$out")"
+        assert_eq "3f. the WHOLE live line, built from tmux's own rendering" \
+            "LIVE_PANE:${PANE_ID}|${EXPECT_TARGET}|${PANE_PID}|agent=claudecode" \
+            "$(line2 "$out")"
 
-            # The adapter joins on the pane id alone, so it must be present as such.
-            got_target="$(line2 "$out")"; got_target="${got_target#LIVE_PANE:*|}"
-            got_target="${got_target%%|*}"
-            assert_contains "3g. the target ends in the pane id (the adapter's join key)" \
-                ".$PANE_ID" "$got_target"
-        else
-            assert_eq "3f-weak. a seeded weak-token holder still stops at the liveness gate" \
-                "LIVE_NONE:holder_unknown" "$(line2 "$out")"
-            skip_weak_token "3f/3g: the positive LIVE_PANE line"
-        fi
+        # The adapter joins on the pane id alone, so it must be present as such.
+        got_target="$(line2 "$out")"; got_target="${got_target#LIVE_PANE:*|}"
+        got_target="${got_target%%|*}"
+        assert_contains "3g. the target ends in the pane id (the adapter's join key)" \
+            ".$PANE_ID" "$got_target"
 
         note_id="$(line1 "$out")"; note_id="${note_id#NOTE_APPENDED:}"; note_id="${note_id%%|*}"
         assert_contains "3h. the durable entry the adapter must name exists on disk" \
