@@ -3,12 +3,13 @@ priority: high
 effort: low
 depends: []
 issue_type: manual_verification
-status: Ready
+status: Implementing
 labels: [tmux, tui_switcher, codeagent, minimonitor]
+assigned_to: daelyasy@hotmail.com
 anchor: 1689
 followup_kind: risk_mitigation
 created_at: 2026-10-26 08:09
-updated_at: 2026-10-26 08:09
+updated_at: 2026-10-26 08:22
 ---
 
 ## Origin
