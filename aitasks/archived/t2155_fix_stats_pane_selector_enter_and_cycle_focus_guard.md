@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [stats_ui, textual, tui]
 active_gates: [risk_evaluated]
 active_gates_filtered: []
@@ -14,7 +14,8 @@ active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus5_5
 created_at: 2026-10-26 15:58
-updated_at: 2026-10-26 17:51
+updated_at: 2026-10-26 18:07
+completed_at: 2026-10-26 18:07
 ---
 
 ## Origin
@@ -89,3 +90,14 @@ The aitasks_go Go port (`demos/stats/go/` in that repo) already implements both 
 > **✅ gate:plan_approved** run=2026-10-26T15:51:00Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-10-26T16:06:13Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-10-26T16:07:09Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:ef5a3beaeabeb918
+
+> **✅ gate:risk_evaluated** run=2026-10-26T16:07:09Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/2155/risk_evaluated_2026-10-26T16:07:09Z-risk_evaluated-a1.log`
