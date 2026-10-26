@@ -159,3 +159,59 @@ change.
   other distros weren't measured. This is accepted by explicit user decision
   and documented as a limitation with its reproduced trigger · severity: low ·
   → mitigation: none
+
+## Final Implementation Notes
+- **Actual work done:** I measured whether self-referential `mise x` wrappers
+  appear outside `~/.local/bin`, then closed with an explicit acceptance of the
+  uncovered case. The only change is in `aidocs/framework/tmux_gateway.md`:
+  - The "Why only `~/.local/bin`" bullet is now scoped to Omarchy's writer.
+    It previously read "that is where the wrappers live", a universal claim.
+  - A new "Accepted limitation: wrappers in other dirs" bullet records the
+    bounded evidence (one Omarchy host plus the Omarchy sources examined; other
+    platforms not examined), the jdx/mise#8560 counterexample, and the
+    reproduced orderings. Every ordering it names appears in the table above.
+  - `tmux_exec.py`, `spawn_path.sh`, `aitask_codeagent.sh` and the tests are
+    unchanged.
+- **Deviations from plan:** One addition. The plan said the "Why only" bullet
+  could stay as it was, but its first sentence was a universal claim that the
+  new limitation bullet contradicts, so it was reworded to name Omarchy's
+  writer.
+- **Issues encountered:** The user rejected the first plan draft for two
+  reasons:
+  - It concluded "never on supported hosts" from one Omarchy host, while
+    setting aside the upstream `.devcontainer/bin` wrapper as "off Omarchy".
+  - Its documented trigger ("precedes shims with installs present") was
+    contradicted by the plan's own `I:O:SH` row.
+
+  Both were fixed. Claims are now bounded to what was examined, the user
+  explicitly accepted the limitation (rather than adding an invoke pre-exec
+  guard), and the doc names the tested orderings instead of inferring a rule.
+- **Key decisions:**
+  - No hazard-dir extension: no examined source writes wrappers to another
+    fixed dir, and moving user tool dirs behind mise re-breaks t2144.
+  - No `ait codeagent invoke` pre-exec guard, by user decision. The guard would
+    protect agent launches only; it was offered and declined.
+- **Verification:** the plan's probe script, re-run verbatim at implementation
+  time on mise 2026.10.12 (`env -i`, so no `__MISE_*` variables; `gh`
+  installed by mise):
+  ```
+  LOOP  O:SH:I
+  ok  O:SH
+  ok  O:I
+  ok  O:C:SH
+  ok  SH:O:I
+  ok  I:O:SH
+  ok  SH:I:O
+  ok  O:omarchy:SH
+  ```
+  The host scan found 20 SELF wrappers, all in `~/.local/bin`. The other
+  `mise`-mentioning scripts (2 in `~/.local/bin`, 8 in `/usr/bin`, 8 in
+  `/usr/share/omarchy/bin`) don't loop. `git diff --stat` shows only
+  `aidocs/framework/tmux_gateway.md` (14+/4-).
+- **Upstream defects identified:**
+  - jdx/mise (`src/cli/exec.rs`, per #8560's description): the #8560 fix
+    builds its lookup PATH as "entries not in the pristine PATH, then the
+    original entries minus shims". Without `__MISE_*` session variables, an
+    inherited `installs/<tool>/…/bin` entry counts as original, so a
+    self-referential wrapper ordered `wrapper:shims:installs` still recurses on
+    mise 2026.10.12. This is external, not an aitasks defect.
