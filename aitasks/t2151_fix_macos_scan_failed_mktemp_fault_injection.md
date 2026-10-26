@@ -3,13 +3,14 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [test_infrastructure]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1689
 followup_kind: upstream_defect
 created_at: 2026-10-26 14:46
-updated_at: 2026-10-26 14:46
+updated_at: 2026-10-26 14:53
 ---
 
 ## Origin
