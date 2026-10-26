@@ -155,15 +155,25 @@ The gateway therefore owns the PATH every tmux client carries:
   Nothing else moves. Otherwise PATH is unchanged, byte for byte. The two
   implementations are pinned together by `TestShellParity` in
   `tests/test_tmux_exec.py`.
-- **Why only `~/.local/bin`** — that is where the self-referential `mise x`
-  wrappers live (Omarchy's `omarchy-mise-install` writes them there). Neither
+- **Why only `~/.local/bin`** — that is where Omarchy's `omarchy-mise-install`
+  writes its self-referential `mise x` wrappers. Neither
   PATH shape nor shadowing tells the hazard apart from a healthy shell: a
   mise-activated shell legitimately puts user tool dirs such as
   `~/.opencode/bin` ahead of mise (an rc prepends them after activation), and
   their binaries shadow mise-managed names on purpose. That shell already has
   `~/.local/bin` behind every mise entry, so it reaches the pane untouched,
-  every tool keeping its precedence (t2144). A `mise x` wrapper in any other
-  dir ahead of mise is not covered.
+  every tool keeping its precedence (t2144).
+- **Accepted limitation: wrappers in other dirs** — a self-referential wrapper
+  in any other dir ahead of mise (e.g. a user-authored project `bin/`, as in
+  jdx/mise#8560) is not covered. Covering it would mean reordering legitimate
+  tool dirs or sniffing file contents. On the one Omarchy host and the Omarchy
+  sources examined, every such wrapper was in `~/.local/bin`, and
+  `omarchy-mise-install` hard-codes that dir. Other platforms were not
+  examined (t2153). Reproduced on mise 2026.10.12 with no `__MISE_*`
+  variables and the tool installed by mise: the order
+  `wrapper:shims:installs/<tool>/…/bin` loops. `wrapper:shims`,
+  `wrapper:installs`, `installs:wrapper:shims` and `shims:installs:wrapper` do
+  not loop. The full matrix and the probe are in the archived t2153 plan.
 - **Python** — `run`, `run_checked`, `set_clipboard`, `run_async` and `spawn`
   pass `env=TmuxClient.spawn_env()` only when normalization changed something,
   so hosts without mise see exactly the calls they always did. A caller that
