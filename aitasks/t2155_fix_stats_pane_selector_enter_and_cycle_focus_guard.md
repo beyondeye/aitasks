@@ -3,10 +3,11 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [stats_ui, textual, tui]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-10-26 15:58
-updated_at: 2026-10-26 15:58
+updated_at: 2026-10-26 16:19
 ---
 
 ## Origin
