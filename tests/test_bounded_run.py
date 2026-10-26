@@ -55,7 +55,11 @@ def _gone_within(pid: int, seconds: float = 3.0) -> bool:
     return not _alive(pid)
 
 
-def _read_pid(path: Path, seconds: float = 5.0) -> int:
+def _read_pid(path: Path, seconds: float = 30.0) -> int:
+    """Wait for a fixture to record its pid. A readiness ceiling, so a quick
+    fixture pays nothing for its size — but it only helps a fixture that is
+    still alive. Read after the group was killed, a pid that was never written
+    stays unwritten however long this waits (t2142)."""
     deadline = time.monotonic() + seconds
     while time.monotonic() < deadline:
         text = path.read_text().strip() if path.exists() else ""
@@ -438,15 +442,35 @@ class TestCrewGitTimeout(_TmpDirCase):
             subprocess.run(["git", "-C", str(repo), "config", key, value], check=True)
         subprocess.run(["git", "-C", str(repo), "remote", "add", "origin",
                         "ssh://crew-hang.invalid/repo.git"], check=True)
-        start = time.monotonic()
-        result = git_cmd(str(repo), "ls-remote", "origin", check=False, timeout=1)
-        elapsed = time.monotonic() - start
-        pid = _read_pid(self.pidfile)
-        self.leftovers.append(pid)
-        self.assertEqual(result.returncode, 124)
-        self.assertIn("timed out after 1s", result.stderr)
-        self.assertIn("AIT_CREW_GIT_TIMEOUT", result.stderr)
-        self.assertLess(elapsed, 1 + br.KILL_GRACE_SECONDS + 1)
+        # The deadline also bounds git's own start-up: under load (or a cold
+        # /usr/bin/git xcrun shim on macOS) git can spend the whole second
+        # before it execs the stub, and the group is killed before the stub
+        # writes its pid. No readiness wait can recover a pid that was never
+        # written — the group is already dead when we look (t2142). So retry
+        # with a doubled deadline until the stub demonstrably ran. Only a
+        # genuine timeout may be retried: every attempt must still report the
+        # deadline, so an unrelated git failure (e.g. exit 128) fails here
+        # instead of passing as a slow start.
+        for timeout in (1, 2, 4, 8):
+            self.pidfile.unlink(missing_ok=True)
+            start = time.monotonic()
+            result = git_cmd(str(repo), "ls-remote", "origin", check=False, timeout=timeout)
+            elapsed = time.monotonic() - start
+            # Register the stub BEFORE any assertion: a failing attempt must
+            # still leave teardown a pid to kill.
+            text = self.pidfile.read_text().strip() if self.pidfile.exists() else ""
+            if text:
+                pid = int(text.splitlines()[0])
+                self.leftovers.append(pid)
+            attempt = f"attempt with a {timeout}s deadline"
+            self.assertEqual(result.returncode, 124, attempt)
+            self.assertIn(f"timed out after {timeout}s", result.stderr, attempt)
+            self.assertIn("AIT_CREW_GIT_TIMEOUT", result.stderr, attempt)
+            self.assertLess(elapsed, timeout + br.KILL_GRACE_SECONDS + 1, attempt)
+            if text:
+                break
+        else:
+            self.fail("the ssh stub never ran, even with an 8s deadline")
         self.assertTrue(_gone_within(pid))
 
 

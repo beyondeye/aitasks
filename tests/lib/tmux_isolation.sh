@@ -38,6 +38,10 @@
 if [[ -z "${_AIT_TMUX_ISOLATION_LOADED:-}" ]]; then
     _AIT_TMUX_ISOLATION_LOADED=1
 
+    # A usable isolated socket dir: a real directory (never a symlink) that
+    # this user owns. Applied to EVERY candidate, before chmod or export.
+    _ait_isolated_dir_ok() { [[ ! -L "$1" && -d "$1" && -O "$1" ]]; }
+
     require_isolated_tmux() {
         # 1. Detach from any tmux server inherited from the surrounding
         #    terminal: a stray `tmux` call can no longer reach the user's
@@ -56,20 +60,48 @@ if [[ -z "${_AIT_TMUX_ISOLATION_LOADED:-}" ]]; then
         unset TMUX_PANE
 
         # 2. Redirect tmux's *default* socket directory away from the user's
-        #    (/tmp/tmux-$UID) to a private, per-user location. Per-case
-        #    `export TMUX_TMPDIR=...` in the tests still overrides this; this is
-        #    the safety net so that any tmux call WITHOUT its own override still
-        #    lands in an isolated dir and can never address the user's server.
+        #    (/tmp/tmux-$UID) to a private, per-user location,
+        #    /tmp/ait_isolated_tmux_<uid> (or a fresh mktemp dir, below).
+        #    Per-case `export TMUX_TMPDIR=...` in the tests still overrides
+        #    this; this is the safety net so that any tmux call WITHOUT its own
+        #    override still lands in an isolated dir and can never address the
+        #    user's server.
         #
         #    A fixed per-user path (mode 0700) is reused across runs, so it
-        #    needs no per-run cleanup and cannot accumulate temp dirs. Nothing
-        #    should ever spawn a server here (every real test sets its own
-        #    fixture TMUX_TMPDIR), so it stays empty in normal operation; if a
-        #    stray call ever did, that server would be isolated and harmless.
+        #    needs no per-run cleanup and cannot accumulate temp dirs. Tests
+        #    that run a private `-L ait_<name>_<pid>` server without their own
+        #    TMUX_TMPDIR (test_tmux_pane_for_pid.sh, test_lock_anchor_tmux_live.sh,
+        #    …) put its socket here and kill it in their own trap.
+        #
+        #    /tmp, not $TMPDIR: tmux appends tmux-<uid>/<socket>, and macOS's
+        #    $TMPDIR (/private/var/folders/<hash>/<hash>/T/, ~57 bytes resolved)
+        #    pushes such a socket past AF_UNIX's ~104-byte sun_path — every
+        #    connect fails with "File name too long" (t2142, the t1729 class).
+        #
+        #    /tmp is shared, so the fixed name is only a candidate. If it is
+        #    squatted (a symlink, a file, another user's dir), take a FRESH
+        #    mktemp dir instead — never a second fixed name, which can equal the
+        #    rejected one (TMPDIR unset or =/tmp), and never $TMPDIR, which is
+        #    the long path this avoids. mktemp creates it atomically, 0700,
+        #    ours; in that rare case one dir per run is left behind (this
+        #    sourced helper owns no EXIT trap). The sticky bit on /tmp stops
+        #    anyone else replacing a validated entry before the chmod below.
         if [[ -z "${_AIT_ISOLATED_TMUX_TMPDIR:-}" ]]; then
-            _AIT_ISOLATED_TMUX_TMPDIR="${TMPDIR:-/tmp}/ait_isolated_tmux_$(id -u)"
-            mkdir -p "$_AIT_ISOLATED_TMUX_TMPDIR" 2>/dev/null || true
-            chmod 700 "$_AIT_ISOLATED_TMUX_TMPDIR" 2>/dev/null || true
+            local iso_dir
+            iso_dir="/tmp/ait_isolated_tmux_$(id -u)"
+            mkdir -m 700 "$iso_dir" 2>/dev/null || true
+            if ! _ait_isolated_dir_ok "$iso_dir"; then
+                iso_dir="$(mktemp -d /tmp/ait_isotmux_XXXXXX 2>/dev/null)" || iso_dir=""
+            fi
+            # Fail closed: without a private dir there is no isolation to
+            # offer. (Not a breach of "isolate, never refuse" — that policy is
+            # about a live user session, not an unusable /tmp.)
+            if [[ -z "$iso_dir" ]] || ! _ait_isolated_dir_ok "$iso_dir" \
+                    || ! chmod 700 "$iso_dir" 2>/dev/null; then
+                echo "ERROR: require_isolated_tmux: could not establish a private tmux socket dir under /tmp" >&2
+                exit 2
+            fi
+            _AIT_ISOLATED_TMUX_TMPDIR="$iso_dir"
             export _AIT_ISOLATED_TMUX_TMPDIR
         fi
         export TMUX_TMPDIR="$_AIT_ISOLATED_TMUX_TMPDIR"
