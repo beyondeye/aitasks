@@ -189,10 +189,10 @@ work stays on the current branch.
   deadlines, and carry the same race in principle: the run at line 102 (1 s), and those at lines
   117 (1 s), 146 (0.5 s KeyboardInterrupt), 175 (0.3 s), 198 (0.5 s) and 236 (CLI 0.5 s). They
   spawn `sh` directly, which takes milliseconds, and none has been seen to flake. Step 3's longer
-  bound does not help them. · severity: low · → mitigation: post_mortem_pid_reads
+  bound does not help them. · severity: low · → mitigation: t2147
 
 ### Planned mitigations
-- timing: after | name: post_mortem_pid_reads | type: test | priority: low | effort: low | inline_risk: low | added_complexity: medium | addresses: the latent started-before-deadline race in the six other post-mortem _read_pid callers of tests/test_bounded_run.py | desc: Factor t2142's "did the fixture start? else retry with a doubled deadline" loop into a helper and apply it to the post-mortem _read_pid callers (lines ~102, 117, 146, 175, 198, 236)
+- timing: after | name: post_mortem_pid_reads | type: test | priority: low | effort: low | inline_risk: low | added_complexity: medium | addresses: the latent started-before-deadline race in the six other post-mortem _read_pid callers of tests/test_bounded_run.py | desc: Factor t2142's "did the fixture start? else retry with a doubled deadline" loop into a helper and apply it to the post-mortem _read_pid callers (lines ~102, 117, 146, 175, 198, 236) | created: t2147
 
 ## Post-Review Changes
 
