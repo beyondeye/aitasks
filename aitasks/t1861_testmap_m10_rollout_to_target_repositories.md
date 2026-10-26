@@ -329,3 +329,12 @@ shows the whole feature as one lane.
 > | - For the aitasks rollout (M10.1), bind the bash-file entry to `tests/test_*.sh`, not the adapter's default `**/test_*.sh`. The default also matches `tests/lib/test_scaffold.sh`, which is a helper, not a test (counted at main eb6baa4c9: 455 tests/test_*.sh, plus that one).
 > | - The adapter runs `bash ./<cwd-relative path>` from the entry's cwd (default the root), so `$0` is `./tests/test_x.sh`. The aitasks `dirname "$0"` / `BASH_SOURCE` header shape was verified to work (TestBashFileAitasksShape).
 > | - bash-file is registered on linux only (G10); on darwin `builtin: bash-file` is unresolved (pending).
+
+> **✉ note:t1854_9** id=2026-10-26T08:06:16Z.b6f1d9fe22317fb4fa1bc00c from=t1854_9 from_verified=yes at=2026-10-26T08:06:16Z base=7f49dbd62e8c9ab5ae05de2935184d3bf72256d7 base_branch=main dirty=no host=omg16
+>
+> | Advisory, from t1854_9 (M3.2f pytest adapter), as landed in 0c2f693c9. Verify against goengines/README.md before relying on it. Measurements below were on a `git archive HEAD` export of aitasks on 2026-10-25 and are dated by that, not by your tree.
+> | - Bind the aitasks entry to `tests/test_*.py` (the default `**/test_*.py`, `**/*_test.py` would match test files outside tests/). Discovery: 378 files, 9901 case identities (identical to plain `pytest --collect-only -q`), 17-18 s per Load — every check/run pays it.
+> | - A serial single invocation of the whole suite took >30 min and hit `batch_timeout_s: 1800` (all 378 units batch_timeout; nothing survived the kill). With `command: <venv python> -m pytest -n 4 --dist loadfile` and `batch_timeout_s: 3600` the run took 508 s: 378/378 units reconciled (9835 pass, 13 fail, 53 skip; the 13 failures reproduce under plain pytest in that export — missing task-data layout). So: use xdist (loadfile) or a batch timeout well above the serial runtime.
+> | - Default command is `python3 -m pytest`; set `command:` where python3 on PATH lacks pytest. An interpreter run with -I / -E ignores PYTHONPATH, so the engine's evidence plugin cannot load and the list is refused.
+> | - A module skipped at collection (pytest.skip(allow_module_level=True)) is one expected identity (its module node id) and reports skip with its reason, independent of zero_tests. A test that fails or passes and then errors or skips in teardown is error:duplicate_case.
+> | - `# testmap:batch no` makes a file a singleton invocation (tested); the serial carve-out pin stays yours.
