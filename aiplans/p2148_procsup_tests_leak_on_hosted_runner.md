@@ -232,11 +232,11 @@ Production code, `SweepSession` and hangguard stay unchanged.
 - The container reproduces dash, but not the runner's exact kernel or
   scheduling. Another timing-only leak in a procsup test could still appear
   only on hosted runners · severity: low ·
-  → mitigation: dash_parity_local_tests
+  → mitigation: t2154
 
 ### Planned mitigations
 - timing: post-phase | name: hosted_ci_step_triage | type: bug | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: later check-job steps may fail and keep the job red | desc: read hosted runs per step as diagnostics; investigate any failure before classifying; acceptance stays 3 full green check jobs — unmet ⇒ no archive-as-complete, ask the user
-- timing: after | name: dash_parity_local_tests | type: test | priority: medium | effort: medium | inline_risk: medium | added_complexity: medium | addresses: hosted-only shell/timing differences invisible on bash-/bin/sh dev boxes | desc: let the Go suite (or preflight) run under dash locally (docker/bwrap recipe or CI matrix) so fork-vs-exec differences surface before the push
+- timing: after | name: dash_parity_local_tests | type: test | priority: medium | effort: medium | inline_risk: medium | added_complexity: medium | addresses: hosted-only shell/timing differences invisible on bash-/bin/sh dev boxes | desc: let the Go suite (or preflight) run under dash locally (docker/bwrap recipe or CI matrix) so fork-vs-exec differences surface before the push | created: t2154
 
 ## Step 9
 
