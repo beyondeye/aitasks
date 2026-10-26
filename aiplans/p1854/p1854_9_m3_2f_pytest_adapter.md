@@ -488,7 +488,8 @@ current branch, with no merge.
   - Cases: 9901 expected = 9835 passed + 13 failed + 53 skipped. `RUN_ACCOUNTING:378|378|0|0|0`; no mechanism, `unexpected_case`, duplicate or unattributable row.
   - All 13 failures reproduce identically under plain pytest in the same export. They come from the export's environment (no task-data layout), not from the adapter.
   - For M10.1: run the aitasks entry under xdist (`-n 4 --dist loadfile`), or set a batch timeout above the serial runtime.
-- **Upstream defects identified:** None
+- **Upstream defects identified:**
+  - goengines/internal/testmap/runner/builtin/bashfile.go:93 — bash-file accepts a script path that `registry.ParseID` reads as a member/variant (`#`, `@`). It is checked only for a parse error, not that `id.String() == rel`. Reproduced: a committed `tests/test_a#b.sh` is listed, then always ends `UNIT …|error` with `PROTOCOL_ERROR missing_start` (fail-closed, but it can never pass). The pytest adapter refuses such paths at list time with an explicit message.
 - **Notes for sibling tasks** (sent with `./ait note` after the commit):
   - **t2082:** what it reads, including the `-p` / `PYTHONPATH` deviation;
   - **t1861:** the bind, the cost, xdist, module-skip and duplicate semantics, `-I` unsupported, the dogfood numbers;
