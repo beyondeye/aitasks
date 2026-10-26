@@ -234,3 +234,90 @@ None identified. This is a test-only change in one file. It mirrors t2142's loop
 
 ### Goal-achievement risk: low
 - The no-pid acceptance sets were derived by reading `bounded_run.py`. Review found and reproduced two states that an earlier revision mishandled: trap installed with the pid pending, and start-up overhead counted in elapsed. · severity: low · → mitigation: none needed. The before-trap, after-trap and startup controls drive each state on both bodies.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-26 12:40)
+- **Requested by user:** The per-attempt SIGHUP timer in
+  signal_during_cleanup called `timer.cancel()` without draining. A callback
+  already past its wait survived the cancellation and signalled the next
+  attempt; the review reproduced it as attempt 2 failing its 2.30 s cleanup
+  bound at 2.10 s. Drain each timer inside the protected region, and cover a
+  dispatched callback that crosses cancellation.
+- **Changes made:** Added a module-level context manager,
+  `_signal_after(delay, sig)`. Its callback sends under a lock, and only while
+  still armed. It sends with `signal.pthread_kill` to the main thread, so the
+  signal is pending there before the disarm can take the lock. Exiting disarms
+  under that lock, then cancels and joins the timer. A signal is therefore either
+  handled inside the block's exit, which sits inside `call`'s `except`, or never
+  sent. signal_during_cleanup's `call` now uses it. Added
+  `TestSignalAfter`, with two tests:
+  - a dispatched callback, delayed by a patched slow `pthread_kill`, raises inside
+    the block and never after it;
+  - a block that ends before the delay is never signalled.
+- **Verification:** The naive cancel-only version fails
+  `test_a_dispatched_signal_never_outlives_the_block` ("Hangup not raised").
+  The fixed version passed 20 runs out of 20. The signal_during_cleanup controls
+  pass on the new body in before-trap and after-trap modes. The module ran
+  33 tests, OK.
+- **Files affected:** tests/test_bounded_run.py
+
+### Change Request 2 (2026-10-26 12:55)
+- **Requested by user:** `test_a_dispatched_signal_never_outlives_the_block`
+  assumed the Timer worker would enter the fake kill during a 0.15 s body sleep,
+  with no handshake. A worker delayed by 0.25 s let the correct helper cancel an
+  undispatched callback, and the test failed with "Hangup not raised".
+  Synchronise on callback entry; use timeouts only as failure ceilings.
+- **Changes made:** The fake `pthread_kill` sets an `entered` Event. The block
+  (delay 0) exits only after `entered.wait(10)`, where the 10 s is a failure
+  ceiling. Once entered, the callback holds the helper's lock while armed, so the
+  correct exit waits for the send whatever the timing. The 0.3 s pause after
+  entry is documented as widening the cancel-only control's window, not as a
+  synchronisation. `test_a_block_that_ends_first_is_never_signalled` now uses a
+  60 s delay and asserts the exit returns in under 10 s, with no post-sleep.
+- **Verification:** The naive cancel-only helper failed 5 runs out of 5, plain
+  and with a 0.25 s late Timer worker. One delayed run shows the stray `Hangup`
+  escaping the block. The fixed helper with the 0.25 s late worker passed 5 out
+  of 5, and plain 20 out of 20.
+- **Files affected:** tests/test_bounded_run.py
+
+## Final Implementation Notes
+- **Actual work done:** All in `tests/test_bounded_run.py`:
+  - `_written_pid()`: reads the pidfile once, without waiting.
+  - `_TmpDirCase._run_until_started(call, check, deadlines, pidfile=None)`:
+    the t2142 retry loop, factored out. It registers the pid in a `finally`
+    before any check or unexpected exception, prefixes check failures with the
+    attempt, and fails once every deadline is spent.
+  - `_signal_after(delay, sig)`: a context manager (added in Change Request 1)
+    whose signal can never reach a later attempt.
+  - The six post-mortem `_read_pid` tests and `test_git_cmd_timeout_reports_124`
+    now go through the helper, with per-attempt deadlines and scaled bounds.
+  - New classes `TestRunUntilStarted` (5 tests) and `TestSignalAfter` (2 tests).
+    The module went from 24 to 33 tests.
+- **Deviations from plan:** Change Requests 1 and 2 (above) added
+  `_signal_after` and its two contract tests. The plan's "no-pid" rule was
+  revised twice during plan review, before implementation, and was implemented
+  as approved.
+- **Issues encountered:**
+  - pytest is not installed on this machine, so the suite ran on the unittest
+    backend (`runner=unittest`).
+  - The system `python3` (3.9) has no `yaml`, so the module cannot be imported
+    there; the `~/.aitask` venv (3.13) is the interpreter used.
+  - The control driver's trace filter first dropped attempt-1 lines, because
+    unittest's `... ` header has no trailing newline; fixed with an unanchored
+    grep.
+  - In zsh, `$m` does not word-split; use `${=args}`.
+- **Key decisions:**
+  - A no-pid attempt gets no elapsed lower bound and no shape inference: it
+    accepts any deadline outcome under the test's existing ceiling, because
+    start-up overhead (interpreter, `Popen`) is unbounded and the trap state is
+    unknown.
+  - Readiness-dependent bounds apply only when the pid was written.
+  - Expected exceptions are caught inside each test's `call` and returned, so
+    unexpected ones propagate with their traceback.
+  - Per-attempt signal timers drain under a lock and are joined.
+  - Controls (scratch, not committed): before-trap, after-trap and
+    startup-overhead injections. All six converted tests fail on the old body in
+    both modes and pass on the new one. The naive cancel-only signal timer fails
+    `TestSignalAfter`; the fixed one passes, including with a late Timer worker.
+- **Upstream defects identified:** None
