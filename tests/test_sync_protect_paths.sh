@@ -254,13 +254,23 @@ drive_lock_acquired_during_scan() {
     assert_reason_fired "lock_acquired_during_scan" "$t" "was locked while we were scanning"
 }
 
-# mktemp fails when TMPDIR names a directory that does not exist.
+# mktemp fails: a PATH shim that always exits 1, ahead of the real one.
+# NOT `TMPDIR=<missing dir>`: BSD mktemp (macOS) falls back to the per-user
+# confstr temp dir when $TMPDIR does not exist and succeeds, so that injection
+# never reached the branch there (t2151). run_sync prepends the fixture's own
+# bin/ to the PATH it inherits, so the shim dir sits right behind it.
+#
+# The evidence names the mktemp site, not the shared "nothing swept" tail: the
+# `git status` failure site reports the same reason with the same tail.
 drive_scan_failed() {
     local t; t="$(setup_repo)"
     (cd "$t/local" && printf 'edit10\n' >> .aitask-data/aitasks/t10_alpha.md)
-    local out; out="$(TMPDIR="$t/no_such_dir" run_sync "$t")"
+    mkdir -p "$t/failbin"
+    printf '#!/usr/bin/env bash\nexit 1\n' > "$t/failbin/mktemp"
+    chmod +x "$t/failbin/mktemp"
+    local out; out="$(PATH="$t/failbin:$PATH" run_sync "$t")"
     assert_usable_stdout "scan_failed" "$out"
-    assert_reason_fired "scan_failed" "$t" "nothing swept"
+    assert_reason_fired "scan_failed" "$t" "could not allocate a scratch file"
 }
 
 drive_lock_contended() {
