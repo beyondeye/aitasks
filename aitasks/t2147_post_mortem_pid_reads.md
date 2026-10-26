@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1689
 followup_kind: risk_mitigation
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-26 11:38
-updated_at: 2026-10-26 11:53
+updated_at: 2026-10-26 12:21
 ---
 
 ## Origin
@@ -41,3 +42,8 @@ Apply the helper to the six post-mortem `_read_pid` callers at lines ~102, 117, 
 Several of these tests also assert a lower bound on elapsed time against the grace. Scale those bounds per attempt, so a retry under a longer deadline does not break them.
 
 Verify each converted test with a slow-start pre-fix control (a fixture that sleeps before writing its pid): the old body fails, the new body passes.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-26T10:21:15Z status=pass attempt=1 type=human
