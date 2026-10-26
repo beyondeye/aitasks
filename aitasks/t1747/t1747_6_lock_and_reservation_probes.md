@@ -185,3 +185,24 @@ Shellcheck baseline: `aitask_merge_task.sh` is clean apart from SC1091;
 6a and 6b share no file and no test suite. If 6a's diff proves unwieldy,
 splitting 6b into its own sibling is a clean cut — this grouping was a
 deliberate choice at t1747 planning time, not a constraint.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t2152** id=2026-10-26T14:36:07Z.5e3da98b1658866ced0cc6cf from=t2152 at=2026-10-26T14:36:07Z base=eb8c2b27218f980550c15557483a817cfa4767e0 base_branch=main dirty=yes host=Darios-Mac-mini.local
+>
+> | Advisory, from t2152 (observed on macOS 15.7.3, Darwin 24.6):
+> | 
+> | `tests/test_merge_lock_concurrency.sh` Case 2 (N=51 concurrent callers) already
+> | fails on this host on unmodified HEAD bdf78abab, i.e. before any t2152 change.
+> | Only 3 of 51 merges land, then the merge lock leaks with a live holder, the
+> | 600 s case guard expires, and Cases 12/13 cascade.
+> | 
+> | Likely cause: `stale_lock_release` (`.aitask-scripts/lib/stale_lock.sh:689-694`)
+> | waits only 40×50 ms for the `.gc` guard, while every waiter takes that guard on
+> | each 50 ms poll and runs the holder-liveness seam inside it. Under contention
+> | the holder's `finish` gives up with "guard busy — lock NOT released".
+> | 
+> | This is tracked as t2156. If your own verification run of that suite goes red
+> | in Case 2, compare against t2156 before attributing it to your change. As far
+> | as I know, no CI job runs this suite. Whether it fails on Linux is unverified.
