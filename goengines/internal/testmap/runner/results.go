@@ -464,6 +464,25 @@ func exactMembers(line string, allowed ...string) error {
 	return nil
 }
 
+// JSONMembers decodes line as one JSON object strictly, for an adapter
+// reading its own tool's JSON evidence: it is refused unless it decodes
+// without loss and every member is one of allowed, spelled exactly, at most
+// once. It returns each member's raw value.
+func JSONMembers(line string, allowed ...string) (map[string]json.RawMessage, error) {
+	if err := exactMembers(line, allowed...); err != nil {
+		return nil, err
+	}
+	m, err := members(line)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]json.RawMessage, len(m))
+	for k, vs := range m {
+		out[k] = vs[0]
+	}
+	return out, nil
+}
+
 // soleString is key's value when the member appears exactly once, as a
 // string that decodes without loss (never a repaired one).
 func soleString(m map[string][]json.RawMessage, key string) (string, bool) {

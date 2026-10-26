@@ -133,7 +133,7 @@ def _strip_entry(entry: str) -> str:
 
 @functools.lru_cache(maxsize=32)
 def _normalize_cached(path: str, home: str, mise_data_dir: str,
-                      xdg_data_home: str, aitasks_home: str) -> str:
+                      xdg_data_home: str) -> str:
     if mise_data_dir:
         data = mise_data_dir.rstrip("/")
     elif xdg_data_home:
@@ -142,33 +142,29 @@ def _normalize_cached(path: str, home: str, mise_data_dir: str,
         data = home.rstrip("/") + "/.local/share/mise"
     else:
         return path
-    shims = data + "/shims"
-    installs = data + "/installs/"
-
-    framework = set()
-    if home:
-        framework.add(home.rstrip("/") + "/.aitask/bin")
-    if aitasks_home:
-        framework.add(aitasks_home.rstrip("/") + "/bin")
-    elif home:
-        framework.add(home.rstrip("/") + "/.aitasks/bin")
-
-    lead: list[str] = []
-    mise: list[str] = []
-    rest: list[str] = []
-    leading = True
-    for entry in path.split(":"):
-        norm = _strip_entry(entry)
-        if norm == shims or norm.startswith(installs):
-            mise.append(entry)
-        elif leading and norm and norm in framework:
-            lead.append(entry)
-        else:
-            leading = False
-            rest.append(entry)
-    if not mise:
+    # An all-slash data dir would make every absolute entry a mise entry, and
+    # with no HOME there is no hazard dir to move.
+    if not data or not home:
         return path
-    return ":".join(lead + mise + rest)
+    prefix = data + "/"
+    hazard = home.rstrip("/") + "/.local/bin"
+
+    entries = path.split(":")
+    norms = [_strip_entry(e) for e in entries]
+    last = max((i for i, n in enumerate(norms) if n.startswith(prefix)),
+               default=-1)
+    if last < 0:
+        # No mise entry: identity. This must come first — with last == -1 the
+        # slices below would take the whole PATH and duplicate a hazard entry.
+        return path
+    # Both spans run through `last` INCLUSIVE: a custom data root
+    # (MISE_DATA_DIR=$HOME/.local) makes ~/.local/bin a mise entry too, and it
+    # may be the last one — an exclusive bound would drop it.
+    moved = [e for e, n in zip(entries[:last + 1], norms) if n == hazard]
+    if not moved:
+        return path
+    kept = [e for e, n in zip(entries[:last + 1], norms) if n != hazard]
+    return ":".join(kept + moved + entries[last + 1:])
 
 
 def _which(name: str, path: str, cwd=None) -> str | None:
@@ -230,18 +226,23 @@ def resolve_spawn_exe(name: str, original_path: str | None,
 def normalize_spawn_path(path: str, environ=None) -> str:
     """The PATH a framework-spawned tmux client (and so its pane) should carry.
 
-    When ``path`` holds a mise entry — ``<mise_data>/shims`` or anything under
-    ``<mise_data>/installs/``, with ``mise_data`` = ``$MISE_DATA_DIR`` or
-    ``${XDG_DATA_HOME:-$HOME/.local/share}/mise`` — reorder it to: the framework
-    bins (``$HOME/.aitask/bin``, ``${AITASKS_HOME:-$HOME/.aitasks}/bin``) that
-    lead it, then every mise entry, then everything else. Relative order is kept
-    within each group, empty entries survive, entries compare with trailing
-    slashes stripped. No mise entry → ``path`` unchanged. Idempotent.
+    Minimal displacement: when a ``$HOME/.local/bin`` entry precedes the LAST
+    mise entry — anything under ``<mise_data>/``, with ``mise_data`` =
+    ``$MISE_DATA_DIR`` or ``${XDG_DATA_HOME:-$HOME/.local/share}/mise`` — move
+    those ``~/.local/bin`` entries to just after it. Nothing else moves; empty
+    entries survive and entries compare with trailing slashes stripped.
+    Otherwise (no mise entry, or ``~/.local/bin`` already behind every one)
+    ``path`` is returned unchanged. Idempotent.
 
-    That is the order a mise-activated interactive shell already has. Under the
-    opposite order, with no ``__MISE_*`` session vars (tmux drops them), a
-    ``mise x <agent> -- <agent>`` wrapper in ``~/.local/bin`` resolves back to
-    itself and ``exec``s forever: a blank agent pane (t1689). Shell mirror:
+    Why only ``~/.local/bin``: that is where self-referential
+    ``mise x <agent> -- <agent>`` wrappers live (Omarchy's
+    ``omarchy-mise-install`` writes them there). With ``~/.local/bin`` ahead of
+    mise and no ``__MISE_*`` session vars (tmux drops them), such a wrapper
+    resolves back to itself and ``exec``s forever: a blank agent pane (t1689).
+    Every other entry keeps the caller's precedence, because a healthy activated
+    shell legitimately puts user tool dirs (e.g. ``~/.opencode/bin``) ahead of
+    mise and already has ``~/.local/bin`` behind it — hoisting the whole mise
+    block would reorder exactly that shell (t2144). Shell mirror:
     ``lib/spawn_path.sh::ait_spawn_path_normalize``.
     """
     env = os.environ if environ is None else environ
@@ -250,7 +251,6 @@ def normalize_spawn_path(path: str, environ=None) -> str:
         env.get("HOME") or "",
         env.get("MISE_DATA_DIR") or "",
         env.get("XDG_DATA_HOME") or "",
-        env.get("AITASKS_HOME") or "",
     )
 
 

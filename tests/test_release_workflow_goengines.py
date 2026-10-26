@@ -11,7 +11,9 @@ These assertions pin the wiring statically:
   runs them (the annot conformance corpus sync guard included, with the t1954
   research corpus among the trigger paths), and only its bench job is advisory.
 - both: the hang-guard preflight (goengines/ci/preflight.sh) runs alone before
-  `go test ./...`, and the suite runs only when it passes (t1998).
+  `go test ./...`, and the suite runs only when it passes (t1998); and the
+  pinned pytest the pytest adapter's real-tool tests require is installed
+  before the suite, under the suite's own condition (t1854_9).
 - the two modes keyed on goengines/EXPORT.txt (t2138): legacy work is skipped
   only on a positive `export` answer from goengines_integrity.sh mode (in
   release.yml the preflight and suite carry exactly LEGACY_STEP_IF, in
@@ -54,6 +56,9 @@ INTEGRITY = ".github/scripts/goengines_integrity.sh"
 LEGACY_STEP_IF = "steps.mode.outputs.mode != 'export'"
 LEGACY_JOB_IF = "${{ !cancelled() && needs.mode.outputs.mode != 'export' }}"
 EXPORT_STEP_IF = "steps.mode.outputs.mode == 'export'"
+# The pytest adapter's supported versions (G10), pinned for its real-tool tests.
+PYTEST_PIN = "pytest==8.4.2"
+XDIST_PIN = "pytest-xdist==3.8.0"
 # Every per-executable sums file, failing when there is none.
 SUMS_LOOP = 'for s in "${sums[@]}"; do sha256sum -c "$s"; done'
 
@@ -108,6 +113,24 @@ def assert_preflight_precedes_suite(tc: unittest.TestCase, steps: list, gate=Non
     tc.assertIn(f"{INTEGRITY} mode", str(steps[mode[0]].get("run", "")))
 
 
+def assert_pytest_pinned_before_suite(tc: unittest.TestCase, steps: list, gate=None) -> None:
+    # AIT_TESTMAP_REQUIRE_REAL_TOOLS=1 turns a missing pytest into a failing
+    # suite: the pinned install and its python run before it, skipped only
+    # when the suite itself is.
+    runs = [str(s.get("run", "")) for s in steps]
+    suite = [i for i, r in enumerate(runs) if "go test ./..." in r]
+    pins = [i for i, r in enumerate(runs) if "pip install" in r and PYTEST_PIN in r]
+    py = [i for i, s in enumerate(steps) if uses(s, "actions/setup-python")]
+    tc.assertTrue(suite, "no step runs go test ./...")
+    tc.assertEqual(len(pins), 1, f"exactly one step installs {PYTEST_PIN}")
+    tc.assertIn(XDIST_PIN, runs[pins[0]], f"{XDIST_PIN} is installed with it")
+    tc.assertLess(pins[0], min(suite), "pytest must be installed before the suite")
+    tc.assertTrue([i for i in py if i < pins[0]], "a python is set up before the pytest install")
+    for i in [pins[0], max(i for i in py if i < pins[0])]:
+        tc.assertEqual(steps[i].get("if"), gate, "skipped only when the suite is")
+        tc.assertNotIn("continue-on-error", steps[i], "a failed install must end the job")
+
+
 def step_running(tc: unittest.TestCase, steps: list, needle: str) -> tuple:
     hits = [(i, s) for i, s in enumerate(steps) if needle in str(s.get("run", ""))]
     tc.assertEqual(len(hits), 1, f"exactly one step runs {needle!r}")
@@ -154,6 +177,9 @@ class ReleaseWorkflow(unittest.TestCase):
 
     def test_preflight_precedes_the_suite(self):
         assert_preflight_precedes_suite(self, self.jobs["goengines"]["steps"], gate=LEGACY_STEP_IF)
+
+    def test_pytest_pinned_before_the_suite(self):
+        assert_pytest_pinned_before_suite(self, self.jobs["goengines"]["steps"], gate=LEGACY_STEP_IF)
 
     def test_integrity_runs_before_the_build(self):
         steps = self.jobs["goengines"]["steps"]
@@ -221,6 +247,9 @@ class GoenginesCheckWorkflow(unittest.TestCase):
 
     def test_preflight_precedes_the_suite(self):
         assert_preflight_precedes_suite(self, self.jobs["check"]["steps"])
+
+    def test_pytest_pinned_before_the_suite(self):
+        assert_pytest_pinned_before_suite(self, self.jobs["check"]["steps"])
 
     def test_mode_job_decides_the_mode(self):
         job = self.jobs["mode"]
@@ -322,6 +351,35 @@ class PreflightOrderControls(unittest.TestCase):
         for name, steps in bypasses.items():
             with self.subTest(name), self.assertRaises(AssertionError):
                 assert_preflight_precedes_suite(self, steps, gate=LEGACY_STEP_IF)
+
+
+class PytestPinControls(unittest.TestCase):
+    """Negative controls for assert_pytest_pinned_before_suite."""
+
+    PY = {"uses": "actions/setup-python@v5"}
+    PIN = {"run": f"python -m pip install {PYTEST_PIN} {XDIST_PIN}"}
+    SUITE = {"run": "go test ./..."}
+
+    def test_the_wired_order_passes(self):
+        assert_pytest_pinned_before_suite(self, [self.PY, self.PIN, self.SUITE])
+        g = {"if": LEGACY_STEP_IF}
+        assert_pytest_pinned_before_suite(self, [{**self.PY, **g}, {**self.PIN, **g}, {**self.SUITE, **g}], gate=LEGACY_STEP_IF)
+
+    def test_every_gap_is_rejected(self):
+        gaps = {
+            "no install": [self.PY, self.SUITE],
+            "install after the suite": [self.PY, self.SUITE, self.PIN],
+            "unpinned": [self.PY, {"run": "python -m pip install pytest pytest-xdist"}, self.SUITE],
+            "no xdist": [self.PY, {"run": f"python -m pip install {PYTEST_PIN}"}, self.SUITE],
+            "no python before it": [self.PIN, self.PY, self.SUITE],
+            "skippable install": [self.PY, {**self.PIN, "if": "false"}, self.SUITE],
+            "tolerated install failure": [self.PY, {**self.PIN, "continue-on-error": True}, self.SUITE],
+            "skippable python": [{**self.PY, "if": "false"}, self.PIN, self.SUITE],
+            "two installs": [self.PY, self.PIN, self.PIN, self.SUITE],
+        }
+        for name, steps in gaps.items():
+            with self.subTest(name), self.assertRaises(AssertionError):
+                assert_pytest_pinned_before_suite(self, steps)
 
 
 class IntegrityStepControls(unittest.TestCase):

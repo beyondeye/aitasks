@@ -7,9 +7,11 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -40,10 +42,168 @@ func pidFile(t *testing.T, path string) int {
 	return 0
 }
 
-// killAfter makes sure a fixture process the test deliberately leaves alive
-// does not outlive it.
-func killAfter(t *testing.T, pid int) {
-	t.Cleanup(func() { _ = syscall.Kill(pid, syscall.SIGKILL) })
+// ownerEnv marks the processes a test starts, so its cleanup can tell its own
+// residuals from an unrelated process that reused a pid or session number.
+const ownerEnv = "AIT_PROCSUP_TEST_OWNER"
+
+// markOwned gives every process the test starts from here on — supervisors,
+// commands and their daemons all inherit this process's environment — an
+// entry unique to this run, and returns it ("<ownerEnv>=<value>").
+func markOwned(t *testing.T) string {
+	v := t.Name() + "|" + strconv.Itoa(os.Getpid()) + "." + strconv.FormatInt(time.Now().UnixNano(), 10)
+	t.Setenv(ownerEnv, v)
+	return ownerEnv + "=" + v
+}
+
+// sweepResidualAfter makes sure the residual session sid — a dead
+// supervisor's command (its supervisor started it with setsid) or a setsid
+// daemon, left alive on purpose — does not outlive the test.
+func sweepResidualAfter(t *testing.T, owner string, sid int) {
+	t.Cleanup(func() {
+		if err := sweepOwned(owner, sid, SweepTimeout); err != nil {
+			t.Errorf("residual session %d outlived the test: %v", sid, err)
+		}
+	})
+}
+
+// sweepOwned kills every process of session sid whose environment holds
+// owner, and returns once none is alive (a zombie counts as gone).
+//
+// Every member, not only the leader: /bin/sh may fork its last command rather
+// than exec it (dash does), so the leader's pid alone misses the process doing
+// the work. And it waits: the hang guard scans for the test's processes as
+// soon as the test's process exits, and a process merely signalled may still
+// be running then. As in the hang guard's own reap, one empty scan is
+// confirmed by a second: a process inside execve reads an empty environment.
+//
+// A process without owner is never signalled, whatever its session or pid, so
+// a number since reused by an unrelated process is harmless; owned processes
+// outside sid are left for the hang guard to report. Each kill goes through a
+// process handle (a pidfd) and re-checks ownership once the handle pins the
+// process. Without a handle nothing is signalled: the sweep fails rather than
+// kill by number.
+func sweepOwned(owner string, sid int, bound time.Duration) error {
+	end := time.Now().Add(bound)
+	quiet := false // the previous scan found nothing
+	var problems []string
+	for {
+		pids, err := ownedIn(owner, sid)
+		if err == nil && len(pids) == 0 {
+			if quiet {
+				return nil
+			}
+			quiet = true
+			time.Sleep(5 * time.Millisecond)
+			continue
+		}
+		quiet = false
+		if time.Now().After(end) {
+			if err != nil {
+				problems = append(problems, "scan: "+err.Error())
+			}
+			return fmt.Errorf("still present after %v: %v; %s", bound, pids, strings.Join(problems, "; "))
+		}
+		problems = problems[:0]
+		for _, pid := range pids {
+			if kerr := killOwned(pid, owner, sid); kerr != nil {
+				problems = append(problems, kerr.Error())
+			}
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// ownedIn lists the live processes of session sid, other than this one, that
+// carry owner. A process it cannot inspect for another reason than having
+// exited, or another uid's (never ours), is an error: the list may be short.
+func ownedIn(owner string, sid int) ([]int, error) {
+	ents, err := os.ReadDir("/proc")
+	if err != nil {
+		return nil, err
+	}
+	self := os.Getpid()
+	var pids []int
+	var first error
+	for _, e := range ents {
+		pid, perr := strconv.Atoi(e.Name())
+		if perr != nil || pid == self {
+			continue
+		}
+		ok, oerr := ownedProc(pid, owner, sid)
+		if oerr != nil && first == nil {
+			first = oerr
+		}
+		if ok {
+			pids = append(pids, pid)
+		}
+	}
+	return pids, first
+}
+
+// ownedProc reports whether pid is a live member of session sid whose
+// environment holds owner exactly. A stat it cannot read places the process
+// by getsid(2), as SessionProcs does: another session is unrelated; a member
+// of sid, or one whose session is unknown, cannot be shown unowned — an error.
+func ownedProc(pid int, owner string, sid int) (bool, error) {
+	data, err := readStat(pid)
+	if err != nil {
+		if gone(err) {
+			return false, nil
+		}
+		s, serr := getsid(pid)
+		switch {
+		case serr == nil && s != sid, serr != nil && gone(serr):
+			return false, nil
+		case serr != nil:
+			return false, fmt.Errorf("pid %d: stat: %v; getsid: %v", pid, err, serr)
+		}
+		return false, fmt.Errorf("pid %d (session %d): stat: %v", pid, sid, err)
+	}
+	p, s, ok := parseStat(pid, string(data))
+	if !ok {
+		return false, fmt.Errorf("unparsable /proc/%d/stat", pid)
+	}
+	if s != sid || p.Zombie {
+		return false, nil
+	}
+	env, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/environ")
+	switch {
+	case err == nil:
+		return slices.Contains(strings.Split(string(env), "\x00"), owner), nil
+	case gone(err), errors.Is(err, syscall.EACCES), errors.Is(err, syscall.EPERM):
+		return false, nil // exited, or another uid's: not this test's
+	default:
+		return false, fmt.Errorf("pid %d: %v", pid, err)
+	}
+}
+
+// killOwned SIGKILLs pid through a process handle, only if — with the handle
+// pinning the process — it still is an owned member of sid: a pid reused
+// before the handle opened fails the check, one reused after it is not the
+// process the handle names.
+func killOwned(pid int, owner string, sid int) error {
+	p, err := os.FindProcess(pid) // a pidfd where available, else just the number
+	if err != nil {
+		return err
+	}
+	defer p.Release()
+	var sigErr error
+	err = p.WithHandle(func(uintptr) {
+		if ok, _ := ownedProc(pid, owner, sid); ok {
+			sigErr = p.Signal(syscall.SIGKILL)
+		}
+	})
+	switch {
+	case errors.Is(err, os.ErrProcessDone):
+		return nil
+	case errors.Is(err, os.ErrNoHandle):
+		return fmt.Errorf("pid %d: no process handle, not signalled", pid)
+	case err != nil:
+		return fmt.Errorf("pid %d: %v", pid, err)
+	case sigErr != nil && !errors.Is(sigErr, os.ErrProcessDone):
+		return fmt.Errorf("pid %d: %v", pid, sigErr)
+	}
+	return nil
 }
 
 // resetHalt clears the process-wide halt state a test set.
@@ -209,6 +369,7 @@ func TestSuperviseParentDeath(t *testing.T) {
 	if !hangguard.Isolated(t, hangLimit) {
 		return
 	}
+	owner := markOwned(t)
 	d := t.TempDir()
 	exe, err := os.Executable()
 	if err != nil {
@@ -232,8 +393,8 @@ func TestSuperviseParentDeath(t *testing.T) {
 	}
 	sup, _ := strconv.Atoi(f[0])
 	daemon := pidFile(t, d+"/daemon.pid")
-	killAfter(t, daemon)
-	killAfter(t, sup)
+	sweepResidualAfter(t, owner, daemon)
+	sweepResidualAfter(t, owner, sup)
 	_ = parent.Process.Kill()
 	_ = parent.Wait()
 	for end := time.Now().Add(SweepTimeout + 2*time.Second); time.Now().Before(end) && (alive(daemon) || alive(sup)); time.Sleep(20 * time.Millisecond) {
@@ -244,13 +405,14 @@ func TestSuperviseParentDeath(t *testing.T) {
 }
 
 // A supervisor's death halts: its own result says SupervisorDied (and its
-// daemon is left — the stated residual), the other active supervisor is
-// cancelled and cleans up, and a later Start launches nothing.
+// command and daemon are left — the stated residual), the other active
+// supervisor is cancelled and cleans up, and a later Start launches nothing.
 func TestSupervisorDeathHalts(t *testing.T) {
 	if !hangguard.Isolated(t, hangLimit) {
 		return
 	}
 	resetHalt(t)
+	owner := markOwned(t)
 	d := t.TempDir()
 	var mu sync.Mutex
 	sups := map[int]int{} // command pid → supervisor pid
@@ -261,13 +423,14 @@ func TestSupervisorDeathHalts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	sweepResidualAfter(t, owner, s1.Pid()) // waits for its daemon: outlives its supervisor
 	s2, err := Start(context.Background(), sh("setsid sleep 300 & echo $! > "+d+"/d2.pid; wait"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	d1, d2 := pidFile(t, d+"/d1.pid"), pidFile(t, d+"/d2.pid")
-	killAfter(t, d1)
-	killAfter(t, d2)
+	sweepResidualAfter(t, owner, d1)
+	sweepResidualAfter(t, owner, d2)
 	mu.Lock()
 	sup1 := sups[s1.Pid()]
 	mu.Unlock()
@@ -312,6 +475,7 @@ func TestHaltStartInterleavings(t *testing.T) {
 		return
 	}
 	resetHalt(t)
+	owner := markOwned(t)
 	d := t.TempDir()
 	var mu sync.Mutex
 	sups := map[int]int{}
@@ -322,7 +486,7 @@ func TestHaltStartInterleavings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	killAfter(t, s1.Pid()) // left behind by its supervisor's death: the residual
+	sweepResidualAfter(t, owner, s1.Pid()) // left behind by its supervisor's death: the residual
 	admits, atLaunch := 0, 0
 	p1Paused, p2Paused := make(chan struct{}), make(chan struct{})
 	releaseP1, releaseP2 := make(chan struct{}), make(chan struct{})
@@ -388,6 +552,95 @@ func TestHaltStartInterleavings(t *testing.T) {
 	if _, err := os.Stat(d + "/p2.pid"); n != 2 || err == nil {
 		t.Fatalf("launches %d (want s1 and P1), P2 marker %v", n, err)
 	}
+}
+
+// The residual sweep signals only the swept session's processes that carry
+// the owner entry exactly: a process without it (here: with a longer value)
+// survives a sweep of its own session — a reused pid or session number is
+// never killed — and an owned process survives a sweep of another session;
+// an owned member of the swept session does not. The last guard holds on its
+// own too: killOwned, handed a pid that is not an owned member of the session
+// (what a pid reused after the scan looks like), signals nothing.
+func TestResidualSweepSparesUnowned(t *testing.T) {
+	if !hangguard.Isolated(t, hangLimit) {
+		return
+	}
+	owner := ownerEnv + "=" + t.Name() + "|sweep"
+	start := func(env []string) (int, <-chan struct{}) {
+		cmd := exec.Command("sleep", "300")
+		cmd.Env = env
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+		if err := cmd.Start(); err != nil {
+			t.Fatal(err)
+		}
+		done := make(chan struct{})
+		go func() { _ = cmd.Wait(); close(done) }()
+		t.Cleanup(func() { _ = cmd.Process.Kill(); <-done })
+		return cmd.Process.Pid, done
+	}
+	unowned, unownedDone := start(append(os.Environ(), owner+"x"))
+	owned, ownedDone := start(append(os.Environ(), owner))
+	for _, c := range []struct {
+		name     string
+		pid, sid int
+		done     <-chan struct{}
+	}{{"unowned", unowned, unowned, unownedDone}, {"owned, other session", owned, unowned, ownedDone}} {
+		if err := killOwned(c.pid, owner, c.sid); err != nil {
+			t.Fatalf("killOwned %s: %v", c.name, err)
+		}
+		select {
+		case <-c.done:
+			t.Fatalf("killOwned signalled the %s process", c.name)
+		case <-time.After(200 * time.Millisecond):
+		}
+	}
+	if err := sweepOwned(owner, unowned, time.Second); err != nil {
+		t.Fatalf("unowned session: %v", err)
+	}
+	if !alive(unowned) || !alive(owned) {
+		t.Fatalf("a sweep of the unowned session killed: unowned %v, owned elsewhere %v", !alive(unowned), !alive(owned))
+	}
+	if err := sweepOwned(owner, owned, SweepTimeout); err != nil {
+		t.Fatalf("owned session: %v", err)
+	}
+	select {
+	case <-ownedDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the owned member survived the sweep of its session")
+	}
+	if !alive(unowned) {
+		t.Fatal("the sweep of the owned session killed the unowned process")
+	}
+}
+
+// A process whose stat cannot be read is placed by getsid: one in another
+// session does not fail the sweep, and a member of the swept session cannot
+// be shown unowned, so the sweep reports it — and does not kill it.
+func TestResidualSweepUninspectable(t *testing.T) {
+	if !hangguard.Isolated(t, hangLimit) {
+		return
+	}
+	owner := ownerEnv + "=" + t.Name() + "|sweep"
+	t.Run("unrelated", func(t *testing.T) {
+		target, other := startSession(t), startSession(t)
+		injectStat(t, syscall.EACCES, nil, other)
+		if err := sweepOwned(owner, target, time.Second); err != nil {
+			t.Fatalf("an uninspectable process of another session failed the sweep: %v", err)
+		}
+		if !alive(target) || !alive(other) {
+			t.Fatalf("unowned killed: target %v, other %v", !alive(target), !alive(other))
+		}
+	})
+	t.Run("member", func(t *testing.T) {
+		target := startSession(t)
+		injectStat(t, syscall.EACCES, nil, target)
+		if err := sweepOwned(owner, target, 100*time.Millisecond); err == nil {
+			t.Fatal("an uninspectable member of the swept session was taken for clean")
+		}
+		if !alive(target) {
+			t.Fatal("a member of unproven ownership was killed")
+		}
+	})
 }
 
 // A test binary that forgot MaybeSupervise runs its suite instead of

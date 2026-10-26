@@ -13,7 +13,8 @@
 #   * every tmux client carries ait_spawn_path_normalize of the caller's PATH
 #     (lib/spawn_path.sh): tmux copies the issuing client's PATH into a new
 #     pane, so this is what makes a pane's PATH independent of its spawner
-#     (t1689). Unchanged — no PATH prefix at all — when PATH has no mise entry.
+#     (t1689). Unchanged — no PATH prefix at all — when normalization moves
+#     nothing (no mise entry, or ~/.local/bin already behind every one).
 #
 # Usage (sourced):
 #     source "$SCRIPT_DIR/lib/tmux_exec.sh"

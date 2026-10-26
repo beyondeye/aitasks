@@ -1,0 +1,803 @@
+//go:build unix
+
+package builtin
+
+import (
+	"bytes"
+	"context"
+	_ "embed"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"maps"
+	"os"
+	"path"
+	"path/filepath"
+	"slices"
+	"strconv"
+	"strings"
+	"syscall"
+	"time"
+	"unicode"
+	"unicode/utf8"
+
+	"github.com/beyondeye/aitasks/goengines/internal/lineproto"
+	"github.com/beyondeye/aitasks/goengines/internal/procsup"
+	"github.com/beyondeye/aitasks/goengines/internal/testmap/registry"
+	"github.com/beyondeye/aitasks/goengines/internal/testmap/runner"
+)
+
+// The pytest builtin (M3.2f): each bound Python test file is one unit whose
+// expected case identities are the node ids pytest collects for it
+// (accounting: cases, discovery: native). The evidence of both verbs is the
+// engine-owned evidence plugin's record of exact runtime identities
+// (pytest_evidence_plugin.py), never a report keyed on reconstructed names.
+const (
+	pytestName = "pytest"
+	// pytestGrace is SIGTERM → kill for pytest on a timeout or a cancel.
+	pytestGrace = time.Second
+	// pytestPluginModule is the evidence plugin's module name: `-p` loads it
+	// from an engine-private directory prepended to PYTHONPATH.
+	pytestPluginModule = "_aitestmap_pytest_evidence"
+	// pytestEvidenceEnv names the file the plugin writes its records to.
+	pytestEvidenceEnv = "AIT_TESTMAP_PYTEST_EVIDENCE"
+	// pytestMessageMax bounds a case row's message, in bytes.
+	pytestMessageMax = 512
+	// pytestDeadlineSlack keeps pytest's own bound past the invocation's
+	// deadline: the engine's kill at the deadline is what attributes a
+	// batch timeout, so this bound only fires if that kill never comes.
+	pytestDeadlineSlack = 10 * time.Second
+)
+
+var (
+	pytestDefaultCommand = []string{"python3", "-m", "pytest"}
+	pytestDefaultBind    = []string{"**/test_*.py", "**/*_test.py"}
+	// pytestDiscoveryFlags are the only arguments discovery adds to the
+	// argument set it shares with execution.
+	pytestDiscoveryFlags = []string{"--collect-only", "-q"}
+	// pytestListMax caps discovery's inventory and pytest's own output (a
+	// variable so a test can force it).
+	pytestListMax int64 = procsup.DefaultOutputMax
+	// pytestEvidenceMax caps discovery's evidence file, read before any
+	// decoding: execution's is capped by FreshReport the same way (a
+	// variable so a test can force it).
+	pytestEvidenceMax int64 = 64 << 20
+)
+
+//go:embed pytest_evidence_plugin.py
+var pytestPluginSource []byte
+
+// pytestDescribeDoc is the describe document: the contract and the support
+// claim as comments, then the keys.
+const pytestDescribeDoc = `# pytest (M3.2f): one Python test file per unit; its cases are the node ids
+#   pytest collects for it.
+# evidence: an engine-owned, observe-only pytest plugin, loaded with
+#   -p ` + pytestPluginModule + ` from an engine-private directory prepended to
+#   PYTHONPATH, records exact runtime identities (the rootdir, the collected
+#   node ids, collect reports that did not pass, every test phase, the exit
+#   status) into $` + pytestEvidenceEnv + `. No -c, --rootdir, -o or --junitxml
+#   is passed. An interpreter that ignores PYTHONPATH (python -I / -E) is
+#   refused: the plugin does not load.
+# discovery: the git-visible regular files under the runner cwd matching the
+#   entry's bind: (default **/test_*.py, **/*_test.py), then
+#   <command: | python3 -m pytest> -p <plugin> --collect-only -q ./<file>...
+#   in the cwd, bounded. It imports the test modules (module-level code runs;
+#   __pycache__ may be written). Any collection error refuses the whole list.
+#   A module skipped at collection (pytest.skip(allow_module_level=True)) has
+#   one expected identity: its collector node id. Each node id is mapped to its
+#   file through the rootdir pytest reports; the unit's lowering is its
+#   rootdir-relative path.
+# run: one pytest per invocation, <command: | python3 -m pytest> -p <plugin>
+#   ./<file>... in the cwd. Every phase that did not pass is its own case result
+#   (setup/teardown failed -> error, skipped -> skip with its reason, xfail ->
+#   skip "xfail: <reason>"); the call phase always is one (passed -> pass,
+#   xpass -> pass, failed -> fail). A test failing and then erroring or
+#   skipping in teardown therefore has two results: duplicate_case. Nothing is
+#   collapsed; the engine reconciles the identities.
+# mechanism (exit 3, no case rows): evidence absent, stale or malformed; the
+#   exit status differing from the evidence (0 with a failure, 1 or 2 without
+#   one, 5 with a test); a node id outside every unit; the rootdir moved since
+#   discovery.
+# no start rows: a batch timeout cannot say which file was running.
+# a pass proves: every collected node id of the file ran once in this
+#   invocation and passed (skips counted and listed). Not coverage.
+# logs: pytest.stdout / pytest.stderr and pytest-evidence.jsonl in the
+#   invocation's report directory.
+# supported: pytest 8.x on CPython >= 3.10, linux. Anything else is refused at
+#   discovery; darwin is pending.
+unit: file
+accounting: cases
+discovery: native
+timeouts: batch
+`
+
+func pytestAdapter() Adapter {
+	return Adapter{Name: pytestName, Describe: pytestDescribe, List: pytestList, Run: pytestRun}
+}
+
+func pytestDescribe(*Env) ([]byte, error) { return []byte(pytestDescribeDoc), nil }
+
+// pytestCommand is the entry's command: split, or python3 -m pytest.
+func pytestCommand(e *Env) ([]string, error) {
+	if e.Command == "" {
+		return slices.Clone(pytestDefaultCommand), nil
+	}
+	return SplitCommand(e.Command)
+}
+
+// pytestArgv is the one argument builder both verbs use: the command, the
+// evidence plugin, the verb's own flags, then the files as
+// ./<cwd-relative path> (a name starting with "-" stays an operand).
+func pytestArgv(cmd, flags, files []string) []string {
+	argv := slices.Concat(cmd, []string{"-p", pytestPluginModule}, flags)
+	for _, f := range files {
+		argv = append(argv, "./"+f)
+	}
+	return argv
+}
+
+// pytestEnv is the environment pytest runs in: this process's, with the
+// plugin directory prepended to PYTHONPATH and the evidence file named.
+func pytestEnv(environ []string, pluginDir, evidence string) []string {
+	out := make([]string, 0, len(environ)+2)
+	pp := pluginDir
+	for _, kv := range environ {
+		k, v, _ := strings.Cut(kv, "=")
+		switch k {
+		case "PYTHONPATH":
+			if v != "" {
+				pp += string(os.PathListSeparator) + v
+			}
+		case pytestEvidenceEnv:
+		default:
+			out = append(out, kv)
+		}
+	}
+	return append(out, "PYTHONPATH="+pp, pytestEvidenceEnv+"="+evidence)
+}
+
+// pytestWritePlugin writes the evidence plugin into dir, returning the
+// directory to put on PYTHONPATH.
+func pytestWritePlugin(dir string) (string, error) {
+	pd := filepath.Join(dir, "pytest-plugin")
+	if err := os.Mkdir(pd, 0o755); err != nil {
+		return "", err
+	}
+	return pd, os.WriteFile(filepath.Join(pd, pytestPluginModule+".py"), pytestPluginSource, 0o644)
+}
+
+// pytestEvidence is one pytest process's parsed evidence.
+type pytestEvidence struct {
+	Rootdir, Pytest, Python, Impl string
+	Items                         []string
+	HasItems                      bool
+	Collect                       []pytestCollectRec
+	Tests                         []pytestTestRec
+	Exit                          int
+}
+
+type pytestCollectRec struct{ NodeID, Outcome, Message string }
+
+type pytestTestRec struct {
+	NodeID, When, Outcome, Message string
+	XFail                          *string
+	DurationMS                     int64
+}
+
+// The evidence parse modes: discovery requires exactly one items record (an
+// explicit [] for a genuinely empty collection), so a lost inventory can never
+// read as zero-case units; an xdist controller never collects, so execution
+// allows none.
+const (
+	pytestDiscovery = iota
+	pytestExecution
+)
+
+// pytestParseEvidence parses the plugin's records strictly: the first is the
+// session and the last the end, exactly one of each; every record is a known
+// kind with exactly its members, decoded without loss; the end's exit status
+// is the process's.
+func pytestParseEvidence(data []byte, mode int, exit int) (*pytestEvidence, error) {
+	if len(data) == 0 || data[len(data)-1] != '\n' {
+		return nil, errors.New("evidence: empty, or its last line is incomplete")
+	}
+	lines := strings.Split(strings.TrimSuffix(string(data), "\n"), "\n")
+	ev := &pytestEvidence{}
+	for i, line := range lines {
+		bad := func(format string, a ...any) error {
+			return fmt.Errorf("evidence line %d: %s", i+1, fmt.Sprintf(format, a...))
+		}
+		m, err := runner.JSONMembers(line, "k", "v", "rootdir", "pytest", "python", "impl", "nodeids", "nodeid", "outcome", "message", "when", "xfail", "duration", "exitstatus")
+		if err != nil {
+			return nil, bad("%v", err)
+		}
+		var k string
+		if err := pytestMember(m, "k", &k); err != nil {
+			return nil, bad("%v", err)
+		}
+		first, last := i == 0, i == len(lines)-1
+		if first != (k == "session") || last != (k == "end") {
+			return nil, bad("record %q out of place (the first record is the session, the last the end)", k)
+		}
+		var want []string
+		switch k {
+		case "session":
+			want = []string{"k", "v", "rootdir", "pytest", "python", "impl"}
+			var v int
+			err = errors.Join(pytestMember(m, "v", &v), pytestMember(m, "rootdir", &ev.Rootdir), pytestMember(m, "pytest", &ev.Pytest),
+				pytestMember(m, "python", &ev.Python), pytestMember(m, "impl", &ev.Impl))
+			if err == nil && v != 1 {
+				err = fmt.Errorf("record version %d", v)
+			}
+		case "items":
+			want = []string{"k", "nodeids"}
+			if ev.HasItems {
+				err = errors.New("a second items record")
+			} else if err = pytestMember(m, "nodeids", &ev.Items); err == nil && ev.Items == nil {
+				err = errors.New("nodeids is not a list")
+			}
+			ev.HasItems = true
+		case "collect":
+			want = []string{"k", "nodeid", "outcome", "message"}
+			var c pytestCollectRec
+			err = errors.Join(pytestMember(m, "nodeid", &c.NodeID), pytestMember(m, "outcome", &c.Outcome), pytestMember(m, "message", &c.Message))
+			if err == nil && c.Outcome != "skipped" && c.Outcome != "failed" {
+				err = fmt.Errorf("collect outcome %q", c.Outcome)
+			}
+			ev.Collect = append(ev.Collect, c)
+		case "test":
+			want = []string{"k", "nodeid", "when", "outcome", "xfail", "message", "duration"}
+			var tr pytestTestRec
+			var dur float64
+			err = errors.Join(pytestMember(m, "nodeid", &tr.NodeID), pytestMember(m, "when", &tr.When), pytestMember(m, "outcome", &tr.Outcome),
+				pytestMember(m, "xfail", &tr.XFail), pytestMember(m, "message", &tr.Message), pytestMember(m, "duration", &dur))
+			tr.DurationMS = pytestMS(dur)
+			ev.Tests = append(ev.Tests, tr)
+		case "end":
+			want = []string{"k", "exitstatus"}
+			err = pytestMember(m, "exitstatus", &ev.Exit)
+		default:
+			return nil, bad("unknown record %q", k)
+		}
+		if err != nil {
+			return nil, bad("%s: %v", k, err)
+		}
+		if len(m) != len(want) {
+			return nil, bad("%s record has members %v, want %v", k, slices.Sorted(maps.Keys(m)), want)
+		}
+	}
+	switch {
+	case ev.Exit != exit:
+		return nil, fmt.Errorf("evidence: pytest exited %d but recorded exit status %d", exit, ev.Exit)
+	case mode == pytestDiscovery && !ev.HasItems:
+		return nil, errors.New("evidence: discovery recorded no items record")
+	}
+	return ev, nil
+}
+
+// pytestMember decodes member key of m into v; it must be present, and
+// null only where the target is nullable (a **string: the xfail reason). Go's
+// decoder would leave any other target untouched on null, turning a missing
+// exit status into 0 or a missing message into "".
+func pytestMember(m map[string]json.RawMessage, key string, v any) error {
+	raw, ok := m[key]
+	if !ok {
+		return fmt.Errorf("member %q missing", key)
+	}
+	if _, nullable := v.(**string); !nullable && bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return fmt.Errorf("member %q is null", key)
+	}
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(v); err != nil {
+		return fmt.Errorf("member %q: %v", key, err)
+	}
+	return nil
+}
+
+// pytestMS converts a phase duration in seconds to milliseconds, clamped.
+func pytestMS(s float64) int64 {
+	if !(s > 0) {
+		return 0
+	}
+	if s > 1e9 {
+		return 1e12
+	}
+	return int64(s * 1000)
+}
+
+// pytestSupported refuses anything but pytest 8.x on CPython >= 3.10 (G10:
+// the versions the real-tool tests run against).
+func pytestSupported(ev *pytestEvidence) error {
+	major, _, _ := strings.Cut(ev.Pytest, ".")
+	py := strings.SplitN(ev.Python, ".", 3)
+	pmaj, err1 := strconv.Atoi(py[0])
+	pmin, err2 := -1, error(nil)
+	if len(py) > 1 {
+		pmin, err2 = strconv.Atoi(py[1])
+	}
+	if major != "8" || ev.Impl != "CPython" || err1 != nil || err2 != nil || pmaj != 3 || pmin < 10 {
+		return fmt.Errorf("PYTEST_UNSUPPORTED:pytest %s on %s %s (supported: pytest 8.x on CPython >= 3.10)", ev.Pytest, ev.Impl, ev.Python)
+	}
+	return nil
+}
+
+// pytestFiles maps node ids to the files they were collected from: a node
+// id's file part (before the first "::") is relative to the rootdir pytest
+// reported, and must name exactly one argument file, by exact path equality.
+type pytestFiles struct {
+	root   string            // the reported rootdir, symlinks resolved
+	byPath map[string]string // absolute file → its cwd-relative argument
+	absOf  map[string]string // cwd-relative argument → absolute file
+}
+
+// newPytestFiles indexes the cwd-relative argument files under cwdDir
+// against rootdir, both resolved through their symbolic links.
+func newPytestFiles(rootdir, cwdDir string, args []string) (*pytestFiles, error) {
+	if !filepath.IsAbs(rootdir) {
+		return nil, fmt.Errorf("rootdir %q is not absolute", rootdir)
+	}
+	root, err := filepath.EvalSymlinks(rootdir)
+	if err != nil {
+		return nil, fmt.Errorf("rootdir: %v", err)
+	}
+	cwd, err := filepath.EvalSymlinks(cwdDir)
+	if err != nil {
+		return nil, fmt.Errorf("cwd: %v", err)
+	}
+	pf := &pytestFiles{root: root, byPath: map[string]string{}, absOf: map[string]string{}}
+	for _, a := range args {
+		abs := filepath.Join(cwd, filepath.FromSlash(a))
+		pf.byPath[abs], pf.absOf[a] = a, abs
+	}
+	return pf, nil
+}
+
+// unitOf is the argument file node id was collected from.
+func (pf *pytestFiles) unitOf(nodeid string) (string, error) {
+	f, _, _ := strings.Cut(nodeid, "::")
+	if f == "" || path.IsAbs(f) || slices.Contains(strings.Split(f, "/"), "..") {
+		return "", fmt.Errorf("node id %q names no file under the rootdir %s", nodeid, pf.root)
+	}
+	a, ok := pf.byPath[filepath.Join(pf.root, filepath.FromSlash(f))]
+	if !ok {
+		return "", fmt.Errorf("node id %q names no listed file (rootdir %s)", nodeid, pf.root)
+	}
+	return a, nil
+}
+
+// lowering is a's path relative to the rootdir: the file part of its node
+// ids.
+func (pf *pytestFiles) lowering(a string) (string, error) {
+	abs, ok := pf.absOf[a]
+	if !ok {
+		return "", fmt.Errorf("%s is not listed", a)
+	}
+	rel, err := filepath.Rel(pf.root, abs)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("%s is outside the rootdir %s", a, pf.root)
+	}
+	return filepath.ToSlash(rel), nil
+}
+
+// pytestRow is one case result derived from the evidence.
+type pytestRow struct {
+	File, Case, Status, Message string
+	DurationMS                  int64
+}
+
+// pytestRows derives the case results: every phase that did not pass is its
+// own terminal verdict, and the call phase always is one; a collect report
+// that did not pass is a result for its collector node id. Rows keep evidence
+// order and are never merged or deduplicated: the engine reconciles them.
+func pytestRows(ev *pytestEvidence, pf *pytestFiles) ([]pytestRow, error) {
+	var rows []pytestRow
+	add := func(nodeid, status, msg string, ms int64) error {
+		f, err := pf.unitOf(nodeid)
+		if err != nil {
+			return err
+		}
+		rows = append(rows, pytestRow{File: f, Case: nodeid, Status: status, Message: pytestBound(msg), DurationMS: ms})
+		return nil
+	}
+	skip := func(prefix string, xfail *string, msg string) string {
+		if xfail != nil {
+			return prefix + "xfail: " + *xfail
+		}
+		return prefix + msg
+	}
+	for _, c := range ev.Collect {
+		status := runner.StatusSkip
+		if c.Outcome == "failed" {
+			status = runner.StatusError
+		}
+		if err := add(c.NodeID, status, c.Message, 0); err != nil {
+			return nil, err
+		}
+	}
+	for _, tr := range ev.Tests {
+		var status, msg string
+		switch tr.When + "/" + tr.Outcome {
+		case "setup/passed", "teardown/passed":
+			continue
+		case "setup/failed":
+			status, msg = runner.StatusError, "setup: "+tr.Message
+		case "setup/skipped":
+			status, msg = runner.StatusSkip, skip("", tr.XFail, tr.Message)
+		case "call/passed":
+			status = runner.StatusPass
+			if tr.XFail != nil {
+				msg = "xpass: " + *tr.XFail
+			}
+		case "call/failed":
+			status, msg = runner.StatusFail, tr.Message
+		case "call/skipped":
+			status, msg = runner.StatusSkip, skip("", tr.XFail, tr.Message)
+		case "teardown/failed":
+			status, msg = runner.StatusError, "teardown: "+tr.Message
+		case "teardown/skipped":
+			status, msg = runner.StatusSkip, skip("teardown: ", tr.XFail, tr.Message)
+		default:
+			return nil, fmt.Errorf("evidence: test %q phase %q outcome %q", tr.NodeID, tr.When, tr.Outcome)
+		}
+		if err := add(tr.NodeID, status, msg, tr.DurationMS); err != nil {
+			return nil, err
+		}
+	}
+	return rows, nil
+}
+
+// pytestBound makes a message one valid-UTF-8 line of at most
+// pytestMessageMax bytes.
+func pytestBound(s string) string {
+	s = strings.ToValidUTF8(oneLine(s), "?")
+	if len(s) <= pytestMessageMax {
+		return s
+	}
+	s = s[:pytestMessageMax]
+	for !utf8.ValidString(s) {
+		s = s[:len(s)-1]
+	}
+	return s
+}
+
+// pytestTool is one finished pytest run: its result, and the paths of its
+// evidence file and logs.
+type pytestTool struct {
+	rr       procsup.RunResult
+	evidence string
+	stdout   string
+	stderr   string
+}
+
+// pytestExec runs pytest once, supervised, in dir with the evidence plugin
+// loaded; the plugin, the evidence file and the logs go to out.
+func pytestExec(ctx context.Context, e *Env, argv []string, dir, out string, timeout time.Duration, outMax int64) (pytestTool, error) {
+	pd, err := pytestWritePlugin(out)
+	if err != nil {
+		return pytestTool{}, err
+	}
+	t := pytestTool{
+		evidence: filepath.Join(out, "pytest-evidence.jsonl"),
+		stdout:   filepath.Join(out, "pytest.stdout"),
+		stderr:   filepath.Join(out, "pytest.stderr"),
+	}
+	t.rr = e.Supervise(ctx, procsup.RunSpec{Path: argv[0], Args: argv[1:], Dir: dir, Env: pytestEnv(os.Environ(), pd, t.evidence),
+		Stdout: t.stdout, Stderr: t.stderr, OutputMax: outMax, Timeout: timeout, Grace: pytestGrace})
+	return t, nil
+}
+
+// detail is what pytest said about a failure: its last stderr line (a
+// traceback ends with the error, a usage error is one line), else its last
+// stdout line.
+func (t pytestTool) detail() string {
+	for _, p := range []string{t.stderr, t.stdout} {
+		b, _ := os.ReadFile(p)
+		lines := strings.Split(strings.TrimSpace(string(b)), "\n")
+		if s := strings.TrimSpace(lines[len(lines)-1]); s != "" {
+			return ": " + s
+		}
+	}
+	return ""
+}
+
+// pytestList writes, per bound file, `<id>\tfile\t<rootdir-relative path>`
+// and one `<id>\tcase\t<node id>` row per collected node id (then per
+// collector skipped at collection), from one bounded --collect-only run with
+// the evidence plugin. Anything short of a clean, complete collection is an
+// error, never a partial list.
+func pytestList(ctx context.Context, e *Env, w io.Writer) error {
+	cmd, err := pytestCommand(e)
+	if err != nil {
+		return err
+	}
+	en, err := e.Entry()
+	if err != nil {
+		return err
+	}
+	cwd, dir := entryCwd(e, en)
+	bind := en.Bind
+	if len(bind) == 0 {
+		bind = pytestDefaultBind
+	}
+	files, err := gitInventory(ctx, e, dir, pytestListMax)
+	if err != nil {
+		return err
+	}
+	var args []string
+	for _, p := range files {
+		rel := path.Join(cwd, p)
+		if !bound(bind, rel) {
+			continue
+		}
+		if fi, err := os.Lstat(filepath.Join(dir, filepath.FromSlash(p))); err != nil || !fi.Mode().IsRegular() {
+			continue
+		}
+		// CheckPath, as bash-file's: a parsed id round-trips, so only the
+		// plain path grammar refuses a '#' member or '@' variant.
+		if err := registry.CheckPath(rel); err != nil || strings.ContainsFunc(p, unicode.IsControl) || strings.Contains(p, "::") {
+			return fmt.Errorf("%q cannot be a pytest unit (a plain file id: no '#' member, no '@' variant, no control character, no \"::\")", rel)
+		}
+		args = append(args, p)
+	}
+	if len(args) == 0 {
+		return nil
+	}
+	tmp, err := os.MkdirTemp("", "ait-pytest-list-")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(tmp)
+	t, err := pytestExec(ctx, e, pytestArgv(cmd, pytestDiscoveryFlags, args), dir, tmp, DiscoveryBound(), pytestListMax)
+	if err != nil {
+		return err
+	}
+	if err := toolFailure(t.rr); err != nil {
+		return fmt.Errorf("pytest --collect-only: %v%s", err, t.detail())
+	}
+	if t.rr.Truncated {
+		return fmt.Errorf("pytest --collect-only: output truncated at %d bytes", pytestListMax)
+	}
+	if t.rr.Signal != "" {
+		return fmt.Errorf("pytest --collect-only: signal %s%s", t.rr.Signal, t.detail())
+	}
+	data, err := pytestReadOwn(t.evidence, pytestEvidenceMax)
+	if err != nil {
+		return err
+	}
+	loaded := bytes.HasPrefix(data, []byte(`{"k":"session"`))
+	if t.rr.Exit != lineproto.ExitOK && t.rr.Exit != 5 { // 5: no tests collected
+		if ev, err := pytestParseEvidence(data, pytestDiscovery, t.rr.Exit); err == nil {
+			if err := pytestCollectionError(ev); err != nil {
+				return err
+			}
+		}
+		msg := fmt.Sprintf("pytest --collect-only: exit %d%s", t.rr.Exit, t.detail())
+		if !loaded {
+			msg += " (the evidence plugin recorded nothing: does the interpreter honour PYTHONPATH?)"
+		}
+		return errors.New(msg)
+	}
+	if !loaded {
+		return fmt.Errorf("pytest --collect-only: the evidence plugin did not load (exit %d%s): does the interpreter honour PYTHONPATH?", t.rr.Exit, t.detail())
+	}
+	ev, err := pytestParseEvidence(data, pytestDiscovery, t.rr.Exit)
+	if err != nil {
+		return fmt.Errorf("pytest --collect-only: %v", err)
+	}
+	if err := pytestCollectionError(ev); err != nil {
+		return err
+	}
+	if len(ev.Tests) > 0 {
+		return errors.New("pytest --collect-only: the evidence records executed tests")
+	}
+	if err := pytestSupported(ev); err != nil {
+		return err
+	}
+	pf, err := newPytestFiles(ev.Rootdir, dir, args)
+	if err != nil {
+		return err
+	}
+	cases := map[string][]string{}
+	for _, n := range ev.Items {
+		a, err := pf.unitOf(n)
+		if err != nil {
+			return err
+		}
+		cases[a] = append(cases[a], n)
+	}
+	for _, c := range ev.Collect {
+		a, err := pf.unitOf(c.NodeID)
+		if err != nil {
+			return fmt.Errorf("collection skip: %v", err)
+		}
+		cases[a] = append(cases[a], c.NodeID)
+	}
+	var rows strings.Builder
+	for _, a := range args { // sorted: the inventory's order
+		low, err := pf.lowering(a)
+		if err != nil {
+			return err
+		}
+		id := path.Join(cwd, a)
+		fmt.Fprintf(&rows, "%s\tfile\t%s\n", id, low)
+		for _, n := range cases[a] {
+			if !runner.ValidCaseID(n) {
+				return fmt.Errorf("node id %q cannot be a case identity", n)
+			}
+			fmt.Fprintf(&rows, "%s\tcase\t%s\n", id, n)
+		}
+	}
+	_, err = io.WriteString(w, rows.String())
+	return err
+}
+
+// pytestCollectionError is discovery's refusal of a collection error: a
+// unit that cannot be collected is never silently dropped.
+func pytestCollectionError(ev *pytestEvidence) error {
+	for _, c := range ev.Collect {
+		if c.Outcome == "failed" {
+			return fmt.Errorf("pytest --collect-only: collection error: %s: %s", c.NodeID, c.Message)
+		}
+	}
+	return nil
+}
+
+// pytestReadOwn reads discovery's evidence from its private directory the
+// way readReport reads a report: never following a symbolic link
+// (O_NOFOLLOW), never blocking on a FIFO (O_NONBLOCK), only a regular file
+// (fstat on the opened handle), at most max bytes (refused past it, never
+// decoded). Absent means empty.
+func pytestReadOwn(p string, max int64) ([]byte, error) {
+	f, err := os.OpenFile(p, os.O_RDONLY|syscall.O_NONBLOCK|syscall.O_NOFOLLOW, 0)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if errors.Is(err, syscall.ELOOP) {
+		return nil, fmt.Errorf("evidence %s is a symbolic link", p)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("evidence %s: %v", p, err)
+	}
+	defer f.Close()
+	if fi, err := f.Stat(); err != nil || !fi.Mode().IsRegular() {
+		return nil, fmt.Errorf("evidence %s is not a regular file", p)
+	}
+	data, err := io.ReadAll(io.LimitReader(f, max+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > max {
+		return nil, fmt.Errorf("pytest --collect-only: evidence larger than %d bytes", max)
+	}
+	return data, nil
+}
+
+// pytestRun runs the manifest's units in one pytest under the invocation's
+// deadline and writes one case row per terminal result in its evidence. A
+// result the evidence cannot prove — evidence absent, stale, malformed or
+// contradicting pytest's exit, a node id outside every unit, a rootdir moved
+// since discovery — is a mechanism failure (exit 3) with no case rows.
+func pytestRun(ctx context.Context, e *Env, m *runner.Manifest, res *Results) int {
+	fail := func(format string, a ...any) int {
+		fmt.Fprintf(os.Stderr, "PYTEST_ERROR:%s\n", oneLine(fmt.Sprintf(format, a...)))
+		return lineproto.ExitFramework
+	}
+	cmd, err := pytestCommand(e)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "PYTEST_ERROR:command:"+oneLine(err.Error()))
+		return lineproto.ExitUsage
+	}
+	en, err := e.Entry()
+	if err != nil || m.ReportDir == "" {
+		return fail("setup:%v report_dir=%q", err, m.ReportDir)
+	}
+	cwd, dir := entryCwd(e, en)
+	if len(m.Units) == 0 {
+		return lineproto.ExitNothingRan
+	}
+	args := make([]string, len(m.Units))
+	for i, u := range m.Units {
+		a, err := pytestUnitCheck(cwd, u)
+		if err != nil {
+			return fail("protocol:%s: %v", u.ID, err)
+		}
+		args[i] = a
+	}
+	var limit time.Duration
+	if m.DeadlineS > 0 {
+		limit = time.Duration(m.DeadlineS*float64(time.Second)) + pytestDeadlineSlack
+	}
+	t, err := pytestExec(ctx, e, pytestArgv(cmd, nil, args), dir, m.ReportDir, limit, 0)
+	if err != nil {
+		return fail("setup:%v", err)
+	}
+	// The logs are not the evidence: their loss does not judge the run.
+	rr := t.rr
+	rr.OutputErr = nil
+	if err := toolFailure(rr); err != nil {
+		return fail("pytest: %v", err)
+	}
+	if t.rr.Signal != "" {
+		return fail("pytest: signal %s", t.rr.Signal)
+	}
+	switch t.rr.Exit {
+	case 0, 1, 2, 5:
+	default:
+		return fail("pytest: exit %d%s", t.rr.Exit, t.detail())
+	}
+	data, absent, err := e.Fresh(t.evidence)
+	switch {
+	case err != nil:
+		return fail("evidence: %v", err)
+	case absent:
+		return fail("evidence: absent (pytest exit %d%s)", t.rr.Exit, t.detail())
+	}
+	ev, err := pytestParseEvidence(data, pytestExecution, t.rr.Exit)
+	if err != nil {
+		return fail("%v", err)
+	}
+	pf, err := newPytestFiles(ev.Rootdir, dir, args)
+	if err != nil {
+		return fail("%v", err)
+	}
+	for i, u := range m.Units {
+		if low, err := pf.lowering(args[i]); err != nil || low != u.Lowering {
+			return fail("rootdir moved since discovery: %s is %q under the rootdir %s, discovery said %q", u.ID, low, pf.root, u.Lowering)
+		}
+	}
+	rows, err := pytestRows(ev, pf)
+	if err != nil {
+		return fail("%v", err)
+	}
+	failing := slices.ContainsFunc(rows, func(r pytestRow) bool { return r.Status == runner.StatusFail || r.Status == runner.StatusError })
+	switch {
+	case t.rr.Exit == 0 && failing:
+		return fail("pytest exited 0 but its evidence records a failure or an error")
+	case (t.rr.Exit == 1 || t.rr.Exit == 2) && !failing:
+		return fail("pytest exited %d but its evidence records no failure or error", t.rr.Exit)
+	case t.rr.Exit == 5 && len(ev.Tests) > 0:
+		return fail("pytest exited 5 (no tests collected) but its evidence records tests")
+	}
+	byArg := map[string]string{}
+	for i, u := range m.Units {
+		byArg[args[i]] = u.ID
+	}
+	for _, r := range rows {
+		if res.Case(byArg[r.File], r.Case, r.Status, r.DurationMS, r.Message) != nil {
+			return lineproto.ExitFramework
+		}
+	}
+	switch {
+	case failing:
+		return lineproto.ExitFail
+	case len(rows) == 0:
+		return lineproto.ExitNothingRan
+	}
+	return lineproto.ExitOK
+}
+
+// pytestUnitCheck refuses a manifest unit that is not a file under the cwd
+// whose cases all name its lowering, and returns its cwd-relative path.
+func pytestUnitCheck(cwd string, u runner.ManifestUnit) (string, error) {
+	a := u.ID
+	if cwd != "" {
+		var ok bool
+		if a, ok = strings.CutPrefix(u.ID, cwd+"/"); !ok {
+			return "", fmt.Errorf("not under the cwd %s", cwd)
+		}
+	}
+	if err := registry.CheckPath(a); err != nil || strings.Contains(a, "::") {
+		return "", fmt.Errorf("path %q: %v", a, err)
+	}
+	if u.Lowering == "" || path.IsAbs(u.Lowering) || path.Clean(u.Lowering) != u.Lowering || slices.Contains(strings.Split(u.Lowering, "/"), "..") {
+		return "", fmt.Errorf("lowering %q is not a clean relative path", u.Lowering)
+	}
+	for _, c := range u.Cases {
+		if f, _, _ := strings.Cut(c, "::"); f != u.Lowering {
+			return "", fmt.Errorf("case %q does not name the lowering %q", c, u.Lowering)
+		}
+	}
+	return a, nil
+}

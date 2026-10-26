@@ -11,11 +11,15 @@
 # the pane an order under which a `mise x <agent> -- <agent>` wrapper in
 # ~/.local/bin resolves back to itself and loops forever — a blank agent pane.
 #
-# Rule: when PATH holds a mise entry (<mise_data>/shims, or anything under
-# <mise_data>/installs/), reorder to
-#   framework bins that lead PATH, then every mise entry, then the rest
-# keeping relative order inside each group and keeping empty entries. With no
-# mise entry the input is returned unchanged, byte for byte. Idempotent.
+# Rule (minimal displacement): when a $HOME/.local/bin entry precedes the LAST
+# mise entry (anything under <mise_data>/), move those ~/.local/bin entries to
+# just after it; nothing else moves, empty entries survive. Otherwise the input
+# is returned unchanged, byte for byte. Idempotent.
+#
+# Only ~/.local/bin moves because that is where the self-referential `mise x`
+# wrappers live (Omarchy's omarchy-mise-install). A healthy mise-activated shell
+# puts user tool dirs (e.g. ~/.opencode/bin) ahead of mise on purpose and already
+# has ~/.local/bin behind it, so it comes back untouched (t2144).
 #
 # Side-effect free: sourcing defines one function and touches nothing else
 # (unlike aitask_path.sh, which prepends ~/.aitask/bin on source).
@@ -71,52 +75,55 @@ ait_spawn_path_normalize() {
     else
         return 0
     fi
-    local shims="$data/shims" installs="$data/installs/"
+    # An all-slash data dir would make every absolute entry a mise entry, and
+    # with no HOME there is no hazard dir to move.
+    [[ -n "$data" && -n "$home" ]] || return 0
+    local prefix="$data/" hazard
+    _ait_spawn_path_base "$home"; hazard="$_AIT_SP_BASE/.local/bin"
 
-    local fw1="" fw2=""
-    if [[ -n "$home" ]]; then
-        _ait_spawn_path_base "$home"; fw1="$_AIT_SP_BASE/.aitask/bin"
-    fi
-    if [[ -n "${AITASKS_HOME-}" ]]; then
-        _ait_spawn_path_base "$AITASKS_HOME"; fw2="$_AIT_SP_BASE/bin"
-    elif [[ -n "$home" ]]; then
-        _ait_spawn_path_base "$home"; fw2="$_AIT_SP_BASE/.aitasks/bin"
-    fi
-
-    # Three groups as ':'-joined strings plus a count each — a count, not an
-    # emptiness test, because a group may legitimately hold one empty entry.
-    local lead="" mise="" rest="" n_lead=0 n_mise=0 n_rest=0
-    local leading=1 s="$src" e n
+    # Pass 1: index of the LAST mise entry.
+    local last=-1 i=0 s="$src" e n
     while :; do
         e="${s%%:*}"
         _ait_spawn_path_strip "$e"; n="$_AIT_SP_STRIPPED"
-        if [[ "$n" == "$shims" || "$n" == "$installs"* ]]; then
-            if (( n_mise )); then mise+=":$e"; else mise="$e"; fi
-            n_mise=$(( n_mise + 1 ))
-        elif (( leading )) && [[ -n "$n" && ( "$n" == "$fw1" || "$n" == "$fw2" ) ]]; then
-            if (( n_lead )); then lead+=":$e"; else lead="$e"; fi
-            n_lead=$(( n_lead + 1 ))
+        [[ "$n" == "$prefix"* ]] && last=$i
+        [[ "$s" == *:* ]] || break
+        s="${s#*:}"
+        i=$(( i + 1 ))
+    done
+    # No mise entry: identity, before any group is built.
+    (( last >= 0 )) || return 0
+
+    # Pass 2: entries 0..last INCLUSIVE split into kept / moved (a custom data
+    # root can make ~/.local/bin a mise entry, possibly the last one), then the
+    # tail verbatim. ':'-joined strings plus a count each — a count, not an
+    # emptiness test, because a group may legitimately hold one empty entry.
+    local kept="" moved="" n_kept=0 n_moved=0 tail="" has_tail=0
+    i=0; s="$src"
+    while :; do
+        e="${s%%:*}"
+        if (( i > last )); then
+            tail="$s"; has_tail=1
+            break
+        fi
+        _ait_spawn_path_strip "$e"; n="$_AIT_SP_STRIPPED"
+        if [[ "$n" == "$hazard" ]]; then
+            if (( n_moved )); then moved+=":$e"; else moved="$e"; fi
+            n_moved=$(( n_moved + 1 ))
         else
-            leading=0
-            if (( n_rest )); then rest+=":$e"; else rest="$e"; fi
-            n_rest=$(( n_rest + 1 ))
+            if (( n_kept )); then kept+=":$e"; else kept="$e"; fi
+            n_kept=$(( n_kept + 1 ))
         fi
         [[ "$s" == *:* ]] || break
         s="${s#*:}"
+        i=$(( i + 1 ))
     done
 
-    (( n_mise )) || return 0
+    (( n_moved )) || return 0
 
-    local out="" n_out=0 g
-    for g in lead mise rest; do
-        case "$g" in
-            lead) (( n_lead )) || continue; e="$lead" ;;
-            mise) e="$mise" ;;
-            rest) (( n_rest )) || continue; e="$rest" ;;
-        esac
-        if (( n_out )); then out+=":$e"; else out="$e"; fi
-        n_out=$(( n_out + 1 ))
-    done
+    local out="$moved"
+    (( n_kept )) && out="$kept:$moved"
+    (( has_tail )) && out+=":$tail"
     AIT_SPAWN_PATH="$out"
 }
 

@@ -645,41 +645,77 @@ _FW = "/h/.aitask/bin"
 _BAD_PATH = f"{_LOCAL}:{_SHIMS}:/usr/bin"
 _GOOD_PATH = f"{_SHIMS}:{_LOCAL}:/usr/bin"
 
+_CW = "/h/.local/share/mise/command-wrappers/bin"
+_INST = "/h/.local/share/mise/installs"
+_OMARCHY = "/usr/share/omarchy/bin"
+_OPENCODE = "/h/.opencode/bin"
+
 # (label, path, environ, expected). Every case runs through BOTH the Python
 # function and the shell mirror (TestShellParity), so the table is the contract.
 _NORMALIZE_CASES = [
-    ("no mise entry is unchanged",
+    ("no mise entry is unchanged, even with ~/.local/bin first",
      f"{_LOCAL}:/usr/bin", {"HOME": _H}, f"{_LOCAL}:/usr/bin"),
+    ("no mise entry: ~/.local/bin last is unchanged",
+     f"/usr/bin:{_LOCAL}", {"HOME": _H}, f"/usr/bin:{_LOCAL}"),
+    ("no mise entry: repeated ~/.local/bin is unchanged",
+     f"{_LOCAL}:/usr/bin:{_LOCAL}", {"HOME": _H}, f"{_LOCAL}:/usr/bin:{_LOCAL}"),
     ("empty path is unchanged", "", {"HOME": _H}, ""),
-    ("shims move ahead of ~/.local/bin, behind the framework bin",
-     f"{_FW}:{_LOCAL}:{_SHIMS}:/usr/bin", {"HOME": _H},
-     f"{_FW}:{_SHIMS}:{_LOCAL}:/usr/bin"),
-    ("install dirs move too, in order",
-     f"{_LOCAL}:/h/.local/share/mise/installs/node/20/bin:{_SHIMS}:/usr/bin",
+    ("~/.local/bin moves behind the shims (the t1689 order)",
+     _BAD_PATH, {"HOME": _H}, _GOOD_PATH),
+    ("only ~/.local/bin moves (the t2143 bad env)",
+     f"{_LOCAL}:{_OMARCHY}:{_SHIMS}:/usr/bin", {"HOME": _H},
+     f"{_OMARCHY}:{_SHIMS}:{_LOCAL}:/usr/bin"),
+    ("~/.local/bin goes behind the LAST mise entry",
+     f"{_FW}:{_LOCAL}:{_OMARCHY}:{_SHIMS}:{_INST}/node/20/bin:/usr/bin",
      {"HOME": _H},
-     f"/h/.local/share/mise/installs/node/20/bin:{_SHIMS}:{_LOCAL}:/usr/bin"),
+     f"{_FW}:{_OMARCHY}:{_SHIMS}:{_INST}/node/20/bin:{_LOCAL}:/usr/bin"),
+    ("a fresh mise-activated shell is unchanged (t2144)",
+     f"{_OPENCODE}:/h/flutter/bin:{_CW}:{_SHIMS}:{_CW}:{_FW}"
+     f":{_INST}/java/21/bin:{_INST}/opencode/latest/node_modules/.bin"
+     f":{_OPENCODE}:{_OMARCHY}:/usr/bin:{_LOCAL}:/usr/bin/core_perl",
+     {"HOME": _H},
+     f"{_OPENCODE}:/h/flutter/bin:{_CW}:{_SHIMS}:{_CW}:{_FW}"
+     f":{_INST}/java/21/bin:{_INST}/opencode/latest/node_modules/.bin"
+     f":{_OPENCODE}:{_OMARCHY}:/usr/bin:{_LOCAL}:/usr/bin/core_perl"),
+    ("the t2143-finding activated order is unchanged",
+     f"{_CW}:{_FW}:{_OPENCODE}:/h/flutter/bin:{_INST}/java/21/bin"
+     f":/usr/bin:{_LOCAL}", {"HOME": _H},
+     f"{_CW}:{_FW}:{_OPENCODE}:/h/flutter/bin:{_INST}/java/21/bin"
+     f":/usr/bin:{_LOCAL}"),
+    ("command-wrappers counts as a mise entry",
+     f"{_LOCAL}:{_CW}:/usr/bin", {"HOME": _H}, f"{_CW}:{_LOCAL}:/usr/bin"),
+    ("~/.local/bin between mise entries moves past the last one",
+     f"{_CW}:{_LOCAL}:{_SHIMS}:/usr/bin", {"HOME": _H},
+     f"{_CW}:{_SHIMS}:{_LOCAL}:/usr/bin"),
+    ("other dirs ahead of mise keep their place",
+     f"/usr/bin:{_FW}:{_SHIMS}", {"HOME": _H}, f"/usr/bin:{_FW}:{_SHIMS}"),
+    ("duplicates move in order; one already behind stays",
+     f"{_LOCAL}:{_SHIMS}:{_LOCAL}/", {"HOME": _H},
+     f"{_SHIMS}:{_LOCAL}:{_LOCAL}/"),
+    ("empty entries survive",
+     f"{_LOCAL}::{_SHIMS}:", {"HOME": _H}, f":{_SHIMS}:{_LOCAL}:"),
+    ("trailing slashes compare equal but are kept verbatim",
+     f"{_LOCAL}/:{_SHIMS}/", {"HOME": _H}, f"{_SHIMS}/:{_LOCAL}/"),
     ("MISE_DATA_DIR replaces the default data dir",
      f"{_LOCAL}:/m/shims:{_SHIMS}", {"HOME": _H, "MISE_DATA_DIR": "/m/"},
      f"/m/shims:{_LOCAL}:{_SHIMS}"),
     ("XDG_DATA_HOME relocates the data dir",
      f"{_LOCAL}:/x/mise/shims", {"HOME": _H, "XDG_DATA_HOME": "/x"},
      f"/x/mise/shims:{_LOCAL}"),
-    ("trailing slashes compare equal but are kept verbatim",
-     f"{_LOCAL}/:{_SHIMS}/", {"HOME": _H}, f"{_SHIMS}/:{_LOCAL}/"),
-    ("empty entries survive",
-     f"{_LOCAL}::{_SHIMS}:", {"HOME": _H}, f"{_SHIMS}:{_LOCAL}::"),
-    ("a framework bin behind the shims is pulled to the front",
-     f"{_SHIMS}:{_FW}:/usr/bin", {"HOME": _H}, f"{_FW}:{_SHIMS}:/usr/bin"),
-    ("a framework bin after another entry is not leading",
-     f"/usr/bin:{_FW}:{_SHIMS}", {"HOME": _H}, f"{_SHIMS}:/usr/bin:{_FW}"),
-    ("~/.aitasks/bin counts as framework by default",
-     f"/h/.aitasks/bin:{_LOCAL}:{_SHIMS}", {"HOME": _H},
-     f"/h/.aitasks/bin:{_SHIMS}:{_LOCAL}"),
-    ("AITASKS_HOME/bin counts as framework",
-     f"/a/bin:{_LOCAL}:{_SHIMS}", {"HOME": _H, "AITASKS_HOME": "/a"},
-     f"/a/bin:{_SHIMS}:{_LOCAL}"),
+    ("a sibling dir sharing the name prefix is not mise",
+     f"{_LOCAL}:/h/.local/share/mise-old/bin", {"HOME": _H},
+     f"{_LOCAL}:/h/.local/share/mise-old/bin"),
+    ("an all-slash MISE_DATA_DIR is unchanged",
+     f"{_LOCAL}:{_SHIMS}", {"HOME": _H, "MISE_DATA_DIR": "/"},
+     f"{_LOCAL}:{_SHIMS}"),
     ("no HOME and no data dir override is unchanged",
      f"{_LOCAL}:{_SHIMS}", {}, f"{_LOCAL}:{_SHIMS}"),
+    ("no HOME with MISE_DATA_DIR is unchanged (no hazard dir)",
+     f"{_LOCAL}:/m/shims", {"MISE_DATA_DIR": "/m"}, f"{_LOCAL}:/m/shims"),
+    ("overlapping roles: ~/.local/bin as the last mise entry is kept",
+     f"{_LOCAL}:/h/.local/shims:{_LOCAL}/", {"HOME": _H,
+                                             "MISE_DATA_DIR": "/h/.local"},
+     f"/h/.local/shims:{_LOCAL}:{_LOCAL}/"),
 ]
 
 _SPAWN_PATH_ENV_KEYS = ("HOME", "PATH", "MISE_DATA_DIR", "XDG_DATA_HOME",
@@ -711,6 +747,14 @@ class TestNormalizeSpawnPath(unittest.TestCase):
                 once = tmux_exec.normalize_spawn_path(path, environ)
                 self.assertEqual(
                     tmux_exec.normalize_spawn_path(once, environ), once)
+
+    def test_preserves_entries(self):
+        """Only a reorder: no entry dropped or duplicated."""
+        for label, path, environ, _ in _NORMALIZE_CASES:
+            with self.subTest(label):
+                out = tmux_exec.normalize_spawn_path(path, environ)
+                self.assertEqual(sorted(out.split(":")),
+                                 sorted(path.split(":")))
 
     def test_reads_os_environ_by_default(self):
         env = _spawn_path_env(_BAD_PATH)
@@ -757,24 +801,35 @@ class TestShellParity(unittest.TestCase):
                                  tmux_exec.normalize_spawn_path(path, environ))
 
     @unittest.skipIf(shutil.which("bash") is None, "bash not installed")
+    def test_idempotent_and_preserves_entries(self):
+        for label, path, environ, _ in _NORMALIZE_CASES:
+            with self.subTest(label):
+                once = self._shell(path, environ)
+                self.assertEqual(self._shell(once, environ), once)
+                self.assertEqual(sorted(once.split(":")),
+                                 sorted(path.split(":")))
+
+    @unittest.skipIf(shutil.which("bash") is None, "bash not installed")
     def test_defaults_to_path(self):
         script = ('source "$0"; ait_spawn_path_normalize; '
                   'printf %s "$AIT_SPAWN_PATH"')
         result = subprocess.run(
             [self.BASH, "-c", script, str(LIB_DIR / "spawn_path.sh")],
             capture_output=True, text=True, timeout=10,
-            env={"HOME": _H, "PATH": f"{os.path.dirname(self.BASH)}:{_SHIMS}"},
+            env={"HOME": _H,
+                 "PATH": f"{os.path.dirname(self.BASH)}:{_LOCAL}:{_SHIMS}"},
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout,
-                         f"{_SHIMS}:{os.path.dirname(self.BASH)}")
+                         f"{os.path.dirname(self.BASH)}:{_SHIMS}:{_LOCAL}")
 
 
 class TestResolveSpawnExe(unittest.TestCase):
     """Reordering PATH for the pane must never change which launcher runs.
 
-    Fixture on a real filesystem: a working ``tmux`` in ``sys/`` and a decoy in
-    mise's shims dir, with the caller's PATH resolving the working one first.
+    Fixture on a real filesystem: a working ``tmux`` in ``~/.local/bin`` (the
+    one dir normalization moves) and a decoy in mise's shims dir, with the
+    caller's PATH resolving the working one first.
     """
 
     BASH = shutil.which("bash")
@@ -784,7 +839,7 @@ class TestResolveSpawnExe(unittest.TestCase):
         self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
         self.home = os.path.join(self.root, "h")
         self.shims = os.path.join(self.home, ".local/share/mise/shims")
-        self.sys = os.path.join(self.root, "sys")
+        self.sys = os.path.join(self.home, ".local/bin")
         self.only = os.path.join(self.root, "only")
         for d in (self.shims, self.sys, self.only):
             os.makedirs(d)
@@ -905,14 +960,18 @@ class TestResolveSpawnExe(unittest.TestCase):
         with open(os.path.join(self.shims, "tmux"), "w") as f:
             f.write("#!/bin/sh\nexit 23\n")
         orig = f"bin:{self.shims}:/usr/bin:/bin"
-        spawn = tmux_exec.normalize_spawn_path(orig, self.environ)
+        # Given, not normalized — see test_relative_entry_resolves_from_the_childs_cwd.
+        spawn = f"{self.shims}:bin:/usr/bin:/bin"
+        # The gateway leg uses a PATH normalization really reorders.
+        gw_orig = f"{self.sys}:bin:{self.shims}:/usr/bin:/bin"
+        os.remove(os.path.join(self.sys, "tmux"))  # keep `bin` the resolver
 
         cwd = os.getcwd()
         os.chdir(parent)
         self.addCleanup(os.chdir, cwd)
         rel = os.path.join("link", "..")
         absolute = os.path.join(parent, "link", "..")
-        env = _spawn_path_env(orig, home=self.home)
+        env = _spawn_path_env(gw_orig, home=self.home)
         try:
             for c in (rel, rel.encode(), Path(rel), absolute, absolute.encode()):
                 with self.subTest(cwd=c):
@@ -944,9 +1003,12 @@ class TestResolveSpawnExe(unittest.TestCase):
         os.chmod(working, 0o755)
         with open(os.path.join(self.shims, "tmux"), "w") as f:
             f.write("#!/bin/sh\nexit 23\n")
+        # The spawn PATH is given, not normalized: normalization only ever
+        # moves the absolute ~/.local/bin backwards, so it never puts a decoy
+        # ahead of a relative entry. resolve_spawn_exe's contract still covers
+        # any spawn PATH it is handed.
         orig = f"bin:{self.shims}:/usr/bin:/bin"
-        spawn = tmux_exec.normalize_spawn_path(orig, self.environ)
-        self.assertEqual(spawn, f"{self.shims}:bin:/usr/bin:/bin")
+        spawn = f"{self.shims}:bin:/usr/bin:/bin"
 
         cwd = os.getcwd()
         os.chdir(parent)
@@ -965,7 +1027,13 @@ class TestResolveSpawnExe(unittest.TestCase):
 
         # End to end, real processes: the caller's own Popen(cwd=…) runs the
         # working tmux, and so must the gateway's spawn — for absolute and
-        # relative cwd, as str, bytes and PathLike.
+        # relative cwd, as str, bytes and PathLike. The gateway's PATH really
+        # is reordered here (an empty ~/.local/bin moves behind the shims), so
+        # the child gets env=PATH while the relative entry still leads.
+        os.remove(os.path.join(self.sys, "tmux"))  # keep `bin` the resolver
+        orig = f"{self.sys}:bin:{self.shims}:/usr/bin:/bin"
+        self.assertEqual(tmux_exec.normalize_spawn_path(orig, self.environ),
+                         f"bin:{self.shims}:{self.sys}:/usr/bin:/bin")
         env = _spawn_path_env(orig, home=self.home)
         try:
             for c in (child, child.encode(), Path(child),

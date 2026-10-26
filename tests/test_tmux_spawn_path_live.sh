@@ -17,6 +17,10 @@
 # control (raw tmux, no gateway) MUST read SHIM, proving the fixture reproduces
 # the hazard; every gateway route must read REAL.
 #
+# The other direction (t2144): a mise-activated order, with a user tool dir
+# ahead of mise on purpose and ~/.local/bin behind it, must reach the pane
+# verbatim — $FIX/userbin/fakeagent (writes USER) must keep winning.
+#
 # Every lib is resolved from this file's own REPO_ROOT, so the same file can be
 # copied into a scratch checkout of the pre-fix tree as a negative control.
 #
@@ -195,17 +199,19 @@ assert_eq "launch_in_tmux new-session first window resolves the real binary" \
     "REAL" "$(wait_mark launch)"
 
 # --- Decoy tmux: the reorder must not swap the launcher -----------------------
-# The caller's PATH resolves the real tmux first; a failing `tmux` sits in mise's
-# shims dir, which normalization moves ahead of it. Every route must still run
-# the caller's tmux, while the pane gets the reordered PATH (fakeagent -> REAL).
+# The caller's PATH resolves the real tmux first, from ~/.local/bin; a failing
+# `tmux` sits in mise's shims dir, which normalization moves ~/.local/bin behind.
+# Every route must still run the caller's tmux, while the pane gets the
+# reordered PATH (fakeagent -> REAL).
 cat >"$SHIMS/tmux" <<'EOF'
 #!/bin/sh
 exit 23
 EOF
 chmod +x "$SHIMS/tmux"
-DECOY_PATH="$TMUX_DIR:$LOCALBIN:$SHIMS:/usr/bin:/bin"
+ln -s "$TMUX_BIN" "$LOCALBIN/tmux"
+DECOY_PATH="$LOCALBIN:$SHIMS:$TMUX_DIR:/usr/bin:/bin"
 assert_eq "decoy control: the caller's PATH resolves the real tmux" \
-    "$TMUX_BIN" "$(PATH="$DECOY_PATH" command -v tmux)"
+    "$LOCALBIN/tmux" "$(PATH="$DECOY_PATH" command -v tmux)"
 
 PATH="$DECOY_PATH" "$PY" - "$LIB_DIR" <<'PYEOF'
 import sys
@@ -249,7 +255,7 @@ PYEOF
 assert_eq "decoy: launch_in_tmux new-session runs the caller's tmux" "0" "$?"
 assert_eq "decoy: launch_in_tmux pane resolves the real binary" \
     "REAL" "$(wait_mark decoy_launch)"
-rm -f "$SHIMS/tmux"
+rm -f "$SHIMS/tmux" "$LOCALBIN/tmux"
 
 # --- Healthy order: no mise entry -> the pane PATH is the spawner's, verbatim
 pane_cmd='printf %s "$PATH" > '"$MARKS"'/healthy_py'
@@ -270,6 +276,41 @@ PATH="$HEALTHY_PATH" "$BASH_BIN" -c '
 ' _ "$LIB_DIR" "$pane_cmd"
 assert_eq "healthy order: shell gateway leaves the pane PATH untouched" \
     "$HEALTHY_PATH" "$(wait_mark healthy_sh)"
+
+# --- Activated order: a mise-activated shell reaches the pane verbatim (t2144)
+# A user tool dir leads on purpose (the shell rc prepends it after mise
+# activation), mise's entries follow, ~/.local/bin is already behind them.
+USERBIN="$FIX/userbin"
+mkdir -p "$USERBIN"
+cat >"$USERBIN/fakeagent" <<EOF
+#!/bin/sh
+echo USER > "$MARKS/\$1"
+EOF
+chmod +x "$USERBIN/fakeagent"
+ACTIVATED_PATH="$USERBIN:$TMUX_DIR:$FHOME/.local/share/mise/command-wrappers/bin:$SHIMS:/usr/bin:/bin:$LOCALBIN"
+
+pane_cmd='printf %s "$PATH" > '"$MARKS"'/act_path_py; fakeagent act_py'
+PATH="$ACTIVATED_PATH" "$PY" - "$LIB_DIR" "$pane_cmd" <<'PYEOF'
+import sys
+sys.path.insert(0, sys.argv[1])
+from tmux_exec import TmuxClient
+rc, _ = TmuxClient().run(["new-window", "-d", "-t", "=base:", sys.argv[2]])
+sys.exit(0 if rc == 0 else 1)
+PYEOF
+assert_eq "activated order: python gateway leaves the pane PATH untouched" \
+    "$ACTIVATED_PATH" "$(wait_mark act_path_py)"
+assert_eq "activated order: python gateway pane keeps the user's tool" \
+    "USER" "$(wait_mark act_py)"
+
+pane_cmd='printf %s "$PATH" > '"$MARKS"'/act_path_sh; fakeagent act_sh'
+PATH="$ACTIVATED_PATH" "$BASH_BIN" -c '
+    source "$1/tmux_exec.sh"
+    ait_tmux new-window -d -t "=base:" "$2"
+' _ "$LIB_DIR" "$pane_cmd"
+assert_eq "activated order: shell gateway leaves the pane PATH untouched" \
+    "$ACTIVATED_PATH" "$(wait_mark act_path_sh)"
+assert_eq "activated order: shell gateway pane keeps the user's tool" \
+    "USER" "$(wait_mark act_sh)"
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed, $TOTAL total"

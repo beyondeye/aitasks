@@ -61,6 +61,18 @@ jobs:
         if: steps.mode.outputs.mode != 'export'
         run: ./ci/preflight.sh
 
+      # The pytest adapter's real-tool tests (G10) run against exactly these
+      # versions; they are installed before the suite, which requires them.
+      - name: Setup Python
+        if: steps.mode.outputs.mode != 'export'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned pytest (real-tool adapter tests)
+        if: steps.mode.outputs.mode != 'export'
+        run: python -m pip install pytest==8.4.2 pytest-xdist==3.8.0
+
       # Real-tool adapter tests (G10): a missing tool fails here, never skips.
       - name: go test
         if: steps.mode.outputs.mode != 'export'

@@ -1,0 +1,117 @@
+//go:build unix
+
+package builtin
+
+import (
+	"bytes"
+	"context"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+	"time"
+
+	"github.com/beyondeye/aitasks/goengines/internal/gitx"
+	"github.com/beyondeye/aitasks/goengines/internal/procsup"
+	"github.com/beyondeye/aitasks/goengines/internal/testmap/runner"
+	"github.com/bmatcuk/doublestar/v4"
+)
+
+// The inventory the file-unit adapters share (bash-file, pytest): the
+// entry's cwd, and git's view of the files under it.
+
+// inventoryGrace is SIGTERM → kill for the inventory's git.
+const inventoryGrace = time.Second
+
+// entryCwd is the entry's cwd relative to the root ("" for the root) and its
+// absolute directory.
+func entryCwd(e *Env, en runner.Entry) (rel, dir string) {
+	if en.Cwd != "" && en.Cwd != "." {
+		rel = en.Cwd
+	}
+	return rel, filepath.Join(e.Root, filepath.FromSlash(rel))
+}
+
+// gitInventory lists the git-visible files under dir, cwd-relative, sorted
+// and unique: `git ls-files -z --cached --others --exclude-standard`, run
+// supervised so it is contained and carries the recursion marker. Anything
+// short of a clean, complete listing — max bytes of output at most — is an
+// error, never a partial list.
+func gitInventory(ctx context.Context, e *Env, dir string, max int64) ([]string, error) {
+	tmp, err := os.MkdirTemp("", "ait-inventory-")
+	if err != nil {
+		return nil, err
+	}
+	defer os.RemoveAll(tmp)
+	out, errf := filepath.Join(tmp, "ls.out"), filepath.Join(tmp, "ls.err")
+	rr := e.Supervise(ctx, procsup.RunSpec{Path: "git", Args: []string{"ls-files", "-z", "--cached", "--others", "--exclude-standard"},
+		Dir: dir, Env: gitx.Env(), Stdout: out, Stderr: errf, OutputMax: max,
+		Timeout: DiscoveryBound(), Grace: inventoryGrace})
+	stderr, _ := os.ReadFile(errf)
+	if err := toolFailure(rr); err != nil {
+		return nil, fmt.Errorf("git ls-files: %v%s", err, firstLine(stderr))
+	}
+	switch {
+	case rr.Truncated:
+		return nil, fmt.Errorf("git ls-files: output truncated at %d bytes", max)
+	case rr.Exit != 0:
+		return nil, fmt.Errorf("git ls-files: exit %d%s", rr.Exit, firstLine(stderr))
+	case len(stderr) > 0:
+		// git exits 0 when it cannot read a directory and says so only on
+		// stderr: a listing with a warning may be incomplete (gitx's rule).
+		return nil, fmt.Errorf("git ls-files: incomplete listing%s", firstLine(stderr))
+	}
+	data, err := os.ReadFile(out)
+	if err != nil {
+		return nil, err
+	}
+	var files []string
+	for rec := range bytes.SplitSeq(data, []byte{0}) {
+		if len(rec) > 0 {
+			files = append(files, string(rec))
+		}
+	}
+	slices.Sort(files)
+	return slices.Compact(files), nil
+}
+
+func bound(globs []string, rel string) bool {
+	for _, g := range globs {
+		if ok, _ := doublestar.Match(g, rel); ok {
+			return true
+		}
+	}
+	return false
+}
+
+// toolFailure is a supervised run that says nothing about the tool: it never
+// started, its containment is not proven, or it was stopped.
+func toolFailure(rr procsup.RunResult) error {
+	switch {
+	case rr.StartErr != nil:
+		return fmt.Errorf("start: %v", rr.StartErr)
+	case rr.SupervisorDied:
+		return fmt.Errorf("supervisor died: %s", rr.Detail)
+	case rr.Cleanup != nil:
+		return fmt.Errorf("cleanup: %v", rr.Cleanup)
+	case rr.Containment != procsup.Supervisor:
+		return fmt.Errorf("containment %q", rr.Containment)
+	case rr.Cancelled:
+		return errors.New("cancelled")
+	case rr.TimedOut:
+		return errors.New("timed out")
+	case rr.OutputErr != nil:
+		return fmt.Errorf("output: %v", rr.OutputErr)
+	}
+	return nil
+}
+
+func firstLine(b []byte) string {
+	s, _, _ := strings.Cut(strings.TrimSpace(string(b)), "\n")
+	if s == "" {
+		return ""
+	}
+	return ": " + s
+}
