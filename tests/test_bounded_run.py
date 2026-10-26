@@ -11,6 +11,7 @@ Run: python3 -m pytest tests/test_bounded_run.py   (or via run_all_python_tests.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import signal
 import subprocess
@@ -55,6 +56,37 @@ def _gone_within(pid: int, seconds: float = 3.0) -> bool:
     return not _alive(pid)
 
 
+@contextlib.contextmanager
+def _signal_after(delay: float, sig: int):
+    """Send ``sig`` to the main thread ``delay`` s into the block, unless it ended.
+
+    A Timer's cancel() cannot stop a callback already past its wait, which would
+    then signal whatever runs next -- a later attempt (t2147). So exiting
+    disarms under the lock the callback sends under, then joins it: a signal is
+    sent before the disarm, and its handler runs inside this block's exit, or
+    never. Thread-directed, so it is pending on the main thread before the
+    disarm can take the lock."""
+    lock = threading.Lock()
+    armed = [True]
+
+    def fire():
+        with lock:
+            if armed[0]:
+                signal.pthread_kill(threading.main_thread().ident, sig)
+
+    timer = threading.Timer(delay, fire)
+    timer.start()
+    try:
+        yield
+    finally:
+        try:
+            with lock:
+                armed[0] = False
+        finally:
+            timer.cancel()
+            timer.join()
+
+
 def _read_pid(path: Path, seconds: float = 30.0) -> int:
     """Wait for a fixture to record its pid. A readiness ceiling, so a quick
     fixture pays nothing for its size — but it only helps a fixture that is
@@ -67,6 +99,12 @@ def _read_pid(path: Path, seconds: float = 30.0) -> int:
             return int(text.splitlines()[0])
         time.sleep(0.05)
     raise AssertionError(f"fixture never wrote {path}")
+
+
+def _written_pid(path: Path) -> int | None:
+    """The pid a fixture recorded, read once without waiting; None if it never did."""
+    text = path.read_text().strip() if path.exists() else ""
+    return int(text.splitlines()[0]) if text else None
 
 
 class _TmpDirCase(unittest.TestCase):
@@ -86,6 +124,48 @@ class _TmpDirCase(unittest.TestCase):
                 pass
         self._tmp.cleanup()
 
+    def _run_until_started(self, call, check, deadlines, pidfile=None) -> int:
+        """Run ``call(deadline)`` under each deadline in turn until its fixture
+        demonstrably ran -- wrote its pid -- and return that pid.
+
+        For a pid read after the group was killed: the deadline also bounds the
+        fixture's start-up, and under load the group can die before the pid is
+        written, which no readiness wait can recover (t2142, t2147). ``call``
+        returns its outcome; it catches an expected exception and returns it,
+        so an unexpected one propagates. ``check(outcome, elapsed, deadline,
+        started)`` asserts the attempt genuinely reached its deadline.
+
+        ``started`` (the pid was written) means the fixture was ready, so the
+        test's assertions apply in full. No pid proves nothing about how far the
+        fixture got -- it may die at the first SIGTERM, or, paused between its
+        trap and its pid write, ignore it and die pid-less at the SIGKILL -- and
+        ``elapsed`` also counts start-up that nothing bounds from below. So a
+        no-pid check accepts any deadline outcome under the overall ceiling,
+        without a lower bound on elapsed."""
+        pidfile = self.pidfile if pidfile is None else pidfile
+        for deadline in deadlines:
+            pidfile.unlink(missing_ok=True)
+            start = time.monotonic()
+            try:
+                outcome = call(deadline)
+            finally:
+                # Register the fixture BEFORE any assertion: a failing attempt
+                # must still leave teardown a pid to kill.
+                elapsed = time.monotonic() - start
+                pid = _written_pid(pidfile)
+                if pid is not None:
+                    self.leftovers.append(pid)
+            try:
+                check(outcome, elapsed, deadline, pid is not None)
+            except AssertionError as err:
+                ran = "ran" if pid is not None else "never ran"
+                err.args = (f"attempt with a {deadline:g}s deadline (fixture {ran}): {err}",)
+                raise
+            if pid is not None:
+                return pid
+        self.fail(f"the fixture never wrote {pidfile.name}, even with a "
+                  f"{deadlines[-1]:g}s deadline")
+
 
 class TestRunBounded(_TmpDirCase):
     def test_normal_output_and_returncode(self):
@@ -98,15 +178,20 @@ class TestRunBounded(_TmpDirCase):
         # \$\$: the INNER shell must expand it, or the pid recorded is the leader's.
         inner = TERM_IGNORING.format(pidfile=self.pidfile).replace("$$", "\\$\\$")
         cmd = ["sh", "-c", f"sh -c \"{inner}\" & wait"]
-        start = time.monotonic()
+
+        def call(deadline):
+            try:
+                return br.run_bounded(cmd, deadline)
+            except subprocess.TimeoutExpired as exc:
+                return exc
+
+        def check(outcome, elapsed, deadline, _started):
+            self.assertIsInstance(outcome, subprocess.TimeoutExpired)
+            self.assertLess(elapsed, deadline + 1 + 1.5)
+
         with patch.dict(os.environ, {br.GRACE_ENV: "1"}):
-            with self.assertRaises(subprocess.TimeoutExpired):
-                br.run_bounded(cmd, 1)
-        elapsed = time.monotonic() - start
-        pid = _read_pid(self.pidfile)
-        self.leftovers.append(pid)
+            pid = self._run_until_started(call, check, (1, 2, 4, 8))
         self.assertTrue(_gone_within(pid), "the TERM-ignoring grandchild survived")
-        self.assertLess(elapsed, 1 + 1 + 1.5)
 
     def test_expiry_terms_the_whole_group_before_any_sigkill(self):
         # git removes its *.lock files on SIGTERM; a descendant that only ever
@@ -115,10 +200,21 @@ class TestRunBounded(_TmpDirCase):
         inner = (f"trap 'echo cleaned > {marker}; exit 0' TERM; "
                  f"echo \\$\\$ > {self.pidfile}; sleep 30 & wait")
         cmd = ["sh", "-c", f"sh -c \"{inner}\" & wait"]
+
+        def call(deadline):
+            # A grandchild TERMed between its trap and its pid write leaves a
+            # marker but no pid; only the attempt that ran may vouch for it.
+            marker.unlink(missing_ok=True)
+            try:
+                return br.run_bounded(cmd, deadline)
+            except subprocess.TimeoutExpired as exc:
+                return exc
+
+        def check(outcome, _elapsed, _deadline, _started):
+            self.assertIsInstance(outcome, subprocess.TimeoutExpired)
+
         with patch.dict(os.environ, {br.GRACE_ENV: "2"}):
-            with self.assertRaises(subprocess.TimeoutExpired):
-                br.run_bounded(cmd, 1)
-        self.leftovers.append(_read_pid(self.pidfile))
+            self._run_until_started(call, check, (1, 2, 4, 8))
         self.assertTrue(marker.exists(), "the grandchild never got SIGTERM")
 
     def test_normal_exit_neither_waits_for_nor_kills_a_lingering_descendant(self):
@@ -137,21 +233,30 @@ class TestRunBounded(_TmpDirCase):
         def interrupt(_signum, _frame):
             raise KeyboardInterrupt
 
+        cmd = ["sh", "-c", TERM_IGNORING.format(pidfile=self.pidfile)]
+
+        def call(deadline):
+            # The interrupt is this test's deadline; run_bounded's own stays far off.
+            signal.setitimer(signal.ITIMER_REAL, deadline)
+            try:
+                br.run_bounded(cmd, 20)
+            except KeyboardInterrupt as exc:
+                return exc
+            finally:
+                signal.setitimer(signal.ITIMER_REAL, 0)
+
+        def check(outcome, _elapsed, _deadline, _started):
+            self.assertIsInstance(outcome, KeyboardInterrupt)
+            self.assertIs(signal.getsignal(signal.SIGINT), signal.default_int_handler,
+                          "the SIGINT shield was not restored")
+
         previous = signal.signal(signal.SIGALRM, interrupt)
         try:
-            signal.setitimer(signal.ITIMER_REAL, 0.5)
             with patch.dict(os.environ, {br.GRACE_ENV: "1"}):
-                with self.assertRaises(KeyboardInterrupt):
-                    br.run_bounded(
-                        ["sh", "-c", TERM_IGNORING.format(pidfile=self.pidfile)], 20)
+                pid = self._run_until_started(call, check, (0.5, 1, 2, 4))
         finally:
-            signal.setitimer(signal.ITIMER_REAL, 0)
             signal.signal(signal.SIGALRM, previous)
-        pid = _read_pid(self.pidfile)
-        self.leftovers.append(pid)
         self.assertTrue(_gone_within(pid), "KeyboardInterrupt left the child running")
-        self.assertIs(signal.getsignal(signal.SIGINT), signal.default_int_handler,
-                      "the SIGINT shield was not restored")
 
     def test_a_signal_during_cleanup_is_deferred_until_the_group_is_dead(self):
         """A SIGHUP that lands mid-cleanup surfaces only after the SIGKILL."""
@@ -161,25 +266,34 @@ class TestRunBounded(_TmpDirCase):
         def on_hup(_signum, _frame):
             raise Hangup
 
+        cmd = ["sh", "-c", TERM_IGNORING.format(pidfile=self.pidfile)]
+
+        def call(deadline):
+            # Cleanup starts at the timeout and waits out the 2s grace for the
+            # TERM-ignoring child; the SIGHUP lands 0.7s into it, and never in a
+            # later attempt (_signal_after).
+            try:
+                with _signal_after(deadline + 0.7, signal.SIGHUP):
+                    br.run_bounded(cmd, deadline)
+            except (Hangup, subprocess.TimeoutExpired) as exc:
+                return exc
+
+        def check(outcome, elapsed, deadline, started):
+            # No pid: either deadline outcome, no elapsed bound (_run_until_started).
+            if not started:
+                self.assertIsInstance(outcome, (Hangup, subprocess.TimeoutExpired))
+                return
+            self.assertIsInstance(outcome, Hangup)
+            self.assertGreaterEqual(elapsed, deadline + 2 - 0.3,
+                                    "the cleanup did not finish first")
+
         previous = signal.signal(signal.SIGHUP, on_hup)
-        # Cleanup starts at the 0.3s timeout and waits out the 2s grace for the
-        # TERM-ignoring child; the SIGHUP lands in the middle of it.
-        timer = threading.Timer(1.0, os.kill, (os.getpid(), signal.SIGHUP))
-        start = time.monotonic()
         try:
-            timer.start()
             with patch.dict(os.environ, {br.GRACE_ENV: "2"}):
-                with self.assertRaises(Hangup):
-                    br.run_bounded(["sh", "-c", TERM_IGNORING.format(pidfile=self.pidfile)],
-                                   0.3)
+                pid = self._run_until_started(call, check, (0.3, 0.6, 1.2, 2.4))
         finally:
-            timer.cancel()
             signal.signal(signal.SIGHUP, previous)
-        elapsed = time.monotonic() - start
-        pid = _read_pid(self.pidfile)
-        self.leftovers.append(pid)
         self.assertFalse(_alive(pid), "the signal cut the cleanup short")
-        self.assertGreaterEqual(elapsed, 0.3 + 2 - 0.3, "the cleanup did not finish first")
 
     def test_stop_request_lets_a_cooperating_child_finish(self):
         script = (f"trap 'echo stopping; exit 0' TERM; echo $$ > {self.pidfile}; "
@@ -193,17 +307,30 @@ class TestRunBounded(_TmpDirCase):
         self.assertLess(elapsed, 0.5 + 2.0)
 
     def test_stop_request_ignored_is_killed_after_the_stop_grace(self):
-        start = time.monotonic()
+        cmd = ["sh", "-c", TERM_IGNORING.format(pidfile=self.pidfile)]
+
+        def call(deadline):
+            try:
+                return br.run_bounded(cmd, deadline, stop_grace=1)
+            except subprocess.TimeoutExpired as exc:
+                return exc
+
+        def check(outcome, elapsed, deadline, started):
+            self.assertLess(elapsed, deadline + 1 + 1 + 1.5)
+            # No pid: a leader that never reached its trap honours the stop;
+            # no elapsed lower bound either (_run_until_started).
+            if not started:
+                if not isinstance(outcome, subprocess.TimeoutExpired):
+                    self.assertIsInstance(outcome, br.BoundedResult)
+                    self.assertTrue(outcome.stopped, "a normal exit is no deadline")
+                return
+            self.assertIsInstance(outcome, subprocess.TimeoutExpired)
+            self.assertGreaterEqual(elapsed, deadline + 1 - 0.2,
+                                    "the stop grace was not honoured")
+
         with patch.dict(os.environ, {br.GRACE_ENV: "1"}):
-            with self.assertRaises(subprocess.TimeoutExpired):
-                br.run_bounded(["sh", "-c", TERM_IGNORING.format(pidfile=self.pidfile)],
-                               0.5, stop_grace=1)
-        elapsed = time.monotonic() - start
-        pid = _read_pid(self.pidfile)
-        self.leftovers.append(pid)
+            pid = self._run_until_started(call, check, (0.5, 1, 2, 4))
         self.assertTrue(_gone_within(pid))
-        self.assertGreaterEqual(elapsed, 0.5 + 1 - 0.2, "the stop grace was not honoured")
-        self.assertLess(elapsed, 0.5 + 1 + 1 + 1.5)
 
     def test_timeout_carries_the_output_so_far(self):
         with self.assertRaises(subprocess.TimeoutExpired) as ctx:
@@ -231,18 +358,23 @@ class TestGracePropagation(_TmpDirCase):
 
     def test_the_cli_honours_an_inherited_grace(self):
         """The grace the CLI waits before SIGKILL is the one its parent handed it."""
-        cmd = CLI + ["--timeout", "0.5", "--", "sh", "-c",
-                     TERM_IGNORING.format(pidfile=self.pidfile)]
         env = dict(os.environ, **{br.GRACE_ENV: "3"})
-        start = time.monotonic()
-        proc = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=30)
-        elapsed = time.monotonic() - start
-        pid = _read_pid(self.pidfile)
-        self.leftovers.append(pid)
-        self.assertEqual(proc.returncode, br.TIMED_OUT)
+
+        def call(deadline):
+            cmd = CLI + ["--timeout", f"{deadline:g}", "--", "sh", "-c",
+                         TERM_IGNORING.format(pidfile=self.pidfile)]
+            return subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=30)
+
+        def check(proc, elapsed, deadline, started):
+            self.assertEqual(proc.returncode, br.TIMED_OUT)
+            self.assertLess(elapsed, deadline + 3 + 2.0)
+            # No pid: no elapsed lower bound -- the interpreter's start-up is in
+            # it too (_run_until_started).
+            if started:
+                self.assertGreaterEqual(elapsed, deadline + 3 - 0.3)
+
+        pid = self._run_until_started(call, check, (0.5, 1, 2, 4))
         self.assertTrue(_gone_within(pid))
-        self.assertGreaterEqual(elapsed, 0.5 + 3 - 0.3)
-        self.assertLess(elapsed, 0.5 + 3 + 2.0)
 
 
 class TestCli(_TmpDirCase):
@@ -444,34 +576,138 @@ class TestCrewGitTimeout(_TmpDirCase):
                         "ssh://crew-hang.invalid/repo.git"], check=True)
         # The deadline also bounds git's own start-up: under load (or a cold
         # /usr/bin/git xcrun shim on macOS) git can spend the whole second
-        # before it execs the stub, and the group is killed before the stub
-        # writes its pid. No readiness wait can recover a pid that was never
-        # written — the group is already dead when we look (t2142). So retry
-        # with a doubled deadline until the stub demonstrably ran. Only a
-        # genuine timeout may be retried: every attempt must still report the
-        # deadline, so an unrelated git failure (e.g. exit 128) fails here
-        # instead of passing as a slow start.
-        for timeout in (1, 2, 4, 8):
-            self.pidfile.unlink(missing_ok=True)
-            start = time.monotonic()
-            result = git_cmd(str(repo), "ls-remote", "origin", check=False, timeout=timeout)
-            elapsed = time.monotonic() - start
-            # Register the stub BEFORE any assertion: a failing attempt must
-            # still leave teardown a pid to kill.
-            text = self.pidfile.read_text().strip() if self.pidfile.exists() else ""
-            if text:
-                pid = int(text.splitlines()[0])
-                self.leftovers.append(pid)
-            attempt = f"attempt with a {timeout}s deadline"
-            self.assertEqual(result.returncode, 124, attempt)
-            self.assertIn(f"timed out after {timeout}s", result.stderr, attempt)
-            self.assertIn("AIT_CREW_GIT_TIMEOUT", result.stderr, attempt)
-            self.assertLess(elapsed, timeout + br.KILL_GRACE_SECONDS + 1, attempt)
-            if text:
-                break
-        else:
-            self.fail("the ssh stub never ran, even with an 8s deadline")
+        # before it execs the stub (t2142). Only a genuine timeout may be
+        # retried: every attempt must still report the deadline, so an
+        # unrelated git failure (e.g. exit 128) fails here instead of passing
+        # as a slow start.
+        def call(timeout):
+            return git_cmd(str(repo), "ls-remote", "origin", check=False, timeout=timeout)
+
+        def check(result, elapsed, timeout, _started):
+            self.assertEqual(result.returncode, 124)
+            self.assertIn(f"timed out after {timeout}s", result.stderr)
+            self.assertIn("AIT_CREW_GIT_TIMEOUT", result.stderr)
+            self.assertLess(elapsed, timeout + br.KILL_GRACE_SECONDS + 1)
+
+        pid = self._run_until_started(call, check, (1, 2, 4, 8))
         self.assertTrue(_gone_within(pid))
+
+
+class TestRunUntilStarted(_TmpDirCase):
+    """The retry helper's own contract, driven by in-process fake calls."""
+
+    def _sleeper(self) -> int:
+        # A real process of our own: teardown SIGKILLs every registered pid.
+        proc = subprocess.Popen(["sleep", "30"])
+        self.addCleanup(proc.wait)
+        self.addCleanup(proc.kill)
+        return proc.pid
+
+    def test_stops_at_the_first_attempt_whose_fixture_ran(self):
+        pid, seen = self._sleeper(), []
+
+        def call(deadline):
+            if deadline == 2:
+                self.pidfile.write_text(f"{pid}\n")
+            return deadline
+
+        def check(outcome, _elapsed, deadline, started):
+            seen.append((outcome, deadline, started))
+
+        self.assertEqual(self._run_until_started(call, check, (1, 2, 4)), pid)
+        self.assertEqual(seen, [(1, 1, False), (2, 2, True)])
+        self.assertEqual(self.leftovers, [pid])
+
+    def test_registers_the_pid_before_a_failing_check(self):
+        pid = self._sleeper()
+
+        def call(_deadline):
+            self.pidfile.write_text(f"{pid}\n")
+
+        def check(*_args):
+            self.fail("boom")
+
+        with self.assertRaises(AssertionError) as ctx:
+            self._run_until_started(call, check, (1, 2))
+        self.assertIn("attempt with a 1s deadline (fixture ran): boom", str(ctx.exception))
+        self.assertEqual(self.leftovers, [pid])
+
+    def test_registers_the_pid_before_an_unexpected_exception(self):
+        pid = self._sleeper()
+
+        def call(_deadline):
+            self.pidfile.write_text(f"{pid}\n")
+            raise RuntimeError("unexpected")
+
+        with self.assertRaises(RuntimeError):
+            self._run_until_started(call, lambda *_: None, (1, 2))
+        self.assertEqual(self.leftovers, [pid])
+
+    def test_fails_once_every_deadline_is_spent(self):
+        tried = []
+        with self.assertRaises(AssertionError) as ctx:
+            self._run_until_started(tried.append, lambda *_: None, (1, 2, 4))
+        self.assertEqual(tried, [1, 2, 4])
+        self.assertIn("even with a 4s deadline", str(ctx.exception))
+
+    def test_a_stale_pidfile_never_counts_as_a_start(self):
+        self.pidfile.write_text("12345\n")
+        with self.assertRaises(AssertionError):
+            self._run_until_started(lambda _d: None, lambda *_: None, (1,))
+        self.assertEqual(self.leftovers, [])
+
+
+class TestSignalAfter(unittest.TestCase):
+    """The per-attempt signal timer: nothing it sends may outlive its block."""
+
+    def test_a_dispatched_signal_never_outlives_the_block(self):
+        """A callback past its wait when the block exits: its signal surfaces
+        inside the block's exit, never after it."""
+        class Hangup(Exception):
+            pass
+
+        def on_hup(_signum, _frame):
+            raise Hangup
+
+        real_kill = signal.pthread_kill
+        entered = threading.Event()
+
+        def slow_kill(*args):
+            entered.set()
+            # Not a synchronisation: the block exits only after `entered`, and
+            # from there a correct helper's exit waits for this send whatever
+            # its timing. The pause only widens the window in which a
+            # cancel-only helper would let the signal cross the exit.
+            time.sleep(0.3)
+            real_kill(*args)
+
+        previous = signal.signal(signal.SIGHUP, on_hup)
+        try:
+            with patch.object(signal, "pthread_kill", slow_kill):
+                with self.assertRaises(Hangup):
+                    with _signal_after(0, signal.SIGHUP):
+                        self.assertTrue(entered.wait(10), "the timer never fired")
+            time.sleep(0.5)  # a signal that crossed the exit would raise here
+        finally:
+            signal.signal(signal.SIGHUP, previous)
+
+    def test_a_block_that_ends_first_is_never_signalled(self):
+        class Hangup(Exception):
+            pass
+
+        def on_hup(_signum, _frame):
+            raise Hangup
+
+        previous = signal.signal(signal.SIGHUP, on_hup)
+        try:
+            start = time.monotonic()
+            # Far beyond any scheduling delay: the block always ends first. The
+            # exit joins the timer, so nothing can fire once it returns.
+            with _signal_after(60, signal.SIGHUP):
+                pass
+            self.assertLess(time.monotonic() - start, 10, "the exit waited out the delay")
+        finally:
+            signal.signal(signal.SIGHUP, previous)
 
 
 if __name__ == "__main__":
