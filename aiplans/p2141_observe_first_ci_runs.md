@@ -167,3 +167,34 @@ Notes, then archive through the normal Step 9 flow.
   severity: low · → mitigation: none (follow-up tasks A and B are the dispositions)
 - Probe A's fixture record isn't a real exporter's output. It proves the wiring, not
   aitasks_go#t21's exporter · severity: low · → mitigation: none (out of scope by design)
+
+## Final Implementation Notes
+- **Actual work done:** Observation only; no tracked code file changed. Results per item:
+  - **Item 1 (legacy on `main`): PARTIALLY VERIFIED.** Runs 40187609686 (309e0b8c6) and 40279191111 (6e315def2):
+    - `mode` printed `MODE:legacy`;
+    - `check` and `bench` were admitted;
+    - `export-integrity` printed `INTEGRITY_SKIPPED:legacy mode …` and `DRIFT_SKIPPED:legacy`, and its four export-only steps were `skipped`;
+    - `bench` failed but stayed advisory: the run's red status came from `check`.
+
+    `check` stopped at `go test` (the procsup leak, t2148), so the release cross-build, the sums loop and every guard step after it were `skipped` and are unobserved. Owned by t2149 (depends on t2148).
+  - **Item 2 (fail-closed): CONFIRMED.** Run 40301069108 on throwaway `probe/t2141-fail-closed` (head 2b8b9133a, `goengines/EXPORT.txt` → symlink to README.md):
+    - `mode` failed with `MODE_ERROR:EXPORT.txt is a symlink`;
+    - `check` and `bench` **still ran** (`!cancelled()` with an empty output; `check` got as far as `go test`, which hit the procsup leak again);
+    - `export-integrity` failed at its own `Detect goengines mode` step, and everything after it was skipped.
+  - **Item 3 (export mode): CONFIRMED.** Run 40301050677 on throwaway `probe/t2141-export-mode` (head 3030c3005; fixture `EXPORT.txt` built from the tree's real hashes, plus two seeded drift fixtures):
+    - `mode` printed `MODE:export`, and **`check` and `bench` were `skipped`**: the positive proof that `mode=export` travels through `GITHUB_OUTPUT` to `needs.mode.outputs`;
+    - `Export integrity` printed `INTEGRITY_OK`;
+    - `Drift report` printed `DRIFT:modified:t2141_probe_modified.txt`, `DRIFT:unlisted:t2141_probe_unlisted.txt` and `DRIFT_FOUND:2`, and the check-run API lists two `warning` annotations titled `goengines drift` on exactly those paths;
+    - the step's own conclusion was `success`, with no `##[error]` in its log, so it exited 0 itself rather than being masked by `continue-on-error`;
+    - Setup Python, the structure guard, build.sh tests and the integrity script tests all ran and passed;
+    - the job and the run were `success`;
+    - no third drift entry appeared.
+  - **Item 4 (Release job): DEFERRED** to t2150 (next `v*` tag; depends on t2148). v0.40.0 predates t2138.
+- **Deviations from plan:** The plan's Context paragraph says "one follow-up task". Post-review planning (the user's two blocking concerns) changed that to two follow-ups (t2149, t2150), as the Steps section records. Probe A was strengthened before execution, at the user's request, to seed drift so the warning-only claim is actually exercised.
+- **Issues encountered:** `aitask_create.sh` takes `--deps`, not `--depends`. The first attempt failed at argument parsing and created nothing.
+- **Key decisions:**
+  - All probe work ran in a detached scratch worktree cut from `origin/main` (6e315def2), never the shared checkout. Both probe branches were deleted afterwards: `git ls-remote origin 'refs/heads/probe/*'` returns nothing, no probe worktree remains, and the main checkout's `git status` was unchanged across the probes.
+  - The re-observation of item 1 lives in a dependent task (t2149) rather than as a criterion on t2148, because a task archives before its push.
+  - Bench failures are not a wiring finding. An advisory note (id 2026-10-26T09:41:40Z.f4c5bd35da11207611727195) went to t1878 with the hosted samples.
+- **Upstream defects identified:**
+  - `goengines/internal/procsup/supervise_linux_test.go:250,311 — TestSupervisorDeathHalts / TestHaltStartInterleavings fail through the hangguard LEAK detector on hosted runners (3/3 runs) but not locally; already filed as t2148`
