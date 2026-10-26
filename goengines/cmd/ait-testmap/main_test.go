@@ -77,17 +77,17 @@ func TestStubsExit64(t *testing.T) {
 }
 
 // `runner <name>` (M3.2c): usage, an unknown builtin, and the production
-// adapters the engine binary registers — bash-file on linux only (M3.2e,
-// G10), none elsewhere.
+// adapters the engine binary registers — bash-file and pytest on linux only
+// (M3.2e, M3.2f, G10), none elsewhere.
 func TestRunnerVerb(t *testing.T) {
 	for _, tc := range []struct {
 		args []string
 		want string
 	}{
 		{[]string{"runner"}, "USAGE:" + builtin.Usage + "\n"},
-		{[]string{"runner", "pytest"}, "USAGE:" + builtin.Usage + "\n"},
-		{[]string{"runner", "pytest", "describe"}, "UNKNOWN_BUILTIN:pytest\n"},
-		{[]string{"runner", "pytest", "run", "--manifest", "/m"}, "UNKNOWN_BUILTIN:pytest\n"},
+		{[]string{"runner", "nosuch"}, "USAGE:" + builtin.Usage + "\n"},
+		{[]string{"runner", "nosuch", "describe"}, "UNKNOWN_BUILTIN:nosuch\n"},
+		{[]string{"runner", "nosuch", "run", "--manifest", "/m"}, "UNKNOWN_BUILTIN:nosuch\n"},
 	} {
 		code, out, errs := call(tc.args...)
 		if code != 64 || out != "" || errs != tc.want {
@@ -96,7 +96,7 @@ func TestRunnerVerb(t *testing.T) {
 	}
 	want := []string{}
 	if runtime.GOOS == "linux" {
-		want = []string{"bash-file"}
+		want = []string{"bash-file", "pytest"}
 	}
 	if got := builtin.Registered(); !slices.Equal(got, want) {
 		t.Fatalf("the engine binary registers builtin adapters %v, want %v", got, want)
@@ -105,6 +105,10 @@ func TestRunnerVerb(t *testing.T) {
 		code, out, errs := call("runner", "bash-file", "describe")
 		if code != 0 || errs != "" || !strings.Contains(out, "accounting: unit\n") || !strings.Contains(out, "discovery: inventory\n") {
 			t.Fatalf("runner bash-file describe: code %d stdout %q stderr %q", code, out, errs)
+		}
+		code, out, errs = call("runner", "pytest", "describe")
+		if code != 0 || errs != "" || !strings.Contains(out, "accounting: cases\n") || !strings.Contains(out, "discovery: native\n") {
+			t.Fatalf("runner pytest describe: code %d stdout %q stderr %q", code, out, errs)
 		}
 	}
 }
