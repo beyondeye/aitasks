@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2138
 followup_kind: risk_mitigation
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-25 12:56
-updated_at: 2026-10-26 09:50
+updated_at: 2026-10-26 11:37
 ---
 
 ## Origin
@@ -41,3 +42,8 @@ t2138 made `goengines-check.yml` and the release `goengines` job two-mode, keyed
 4. **Release job.** At the next `v*` tag, confirm in the `Release` run that the `goengines` job detected legacy mode, ran the preflight and `go test`, reported legacy at `Export integrity`, and uploaded every `*_SHA256SUMS.txt`.
 
 Record any divergence from the static guard's model as a bug task against the workflow wiring.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-26T09:37:08Z status=pass attempt=1 type=human
