@@ -10,6 +10,10 @@
 #     set-but-empty => no flag (legacy escape hatch, follows $TMUX — used by
 #     the test isolation harness).
 #   * targets are exact-match `=session` / `=session:window`.
+#   * every tmux client carries ait_spawn_path_normalize of the caller's PATH
+#     (lib/spawn_path.sh): tmux copies the issuing client's PATH into a new
+#     pane, so this is what makes a pane's PATH independent of its spawner
+#     (t1689). Unchanged — no PATH prefix at all — when PATH has no mise entry.
 #
 # Usage (sourced):
 #     source "$SCRIPT_DIR/lib/tmux_exec.sh"
@@ -35,6 +39,10 @@ _TMUX_EXEC_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # sources us back at file scope), so this one-way edge has no cycle.
 # shellcheck source=terminal_compat.sh disable=SC1091
 source "$_TMUX_EXEC_LIB_DIR/terminal_compat.sh"
+# The pane-PATH normalizer (side-effect-free leaf). Unguarded on purpose: a
+# missing lib must fail loudly, never silently skip normalization.
+# shellcheck source=spawn_path.sh disable=SC1091
+source "$(dirname "${BASH_SOURCE[0]}")/spawn_path.sh"
 
 # The dedicated socket name every ait-managed tmux session lives on when the
 # env var is unset (t953). Mirrored verbatim in lib/tmux_exec.py.
@@ -99,13 +107,23 @@ ait_tmux_legacy_socket_args() {
 # ait_tmux <args...>
 # Function form: run `tmux` with the socket flag prepended. For captured /
 # plain call sites. Returns tmux's exit code. (exec / compound sites use the
-# ait_tmux_socket_args emitter instead — see header.)
+# ait_tmux_socket_args emitter instead — see header.) The tmux client runs with
+# the normalized spawn PATH when that differs from ours — but it is still the
+# tmux binary OUR PATH resolves (ait_spawn_exe), so the reorder can never swap
+# in a different tmux.
 ait_tmux() {
     local -a _argv=(tmux)
     local _line
     while IFS= read -r _line; do _argv+=("$_line"); done < <(ait_tmux_socket_args)
     _argv+=("$@")
-    command "${_argv[@]}"
+    ait_spawn_path_normalize "${PATH-}"
+    if [[ "$AIT_SPAWN_PATH" == "${PATH-}" ]]; then
+        command "${_argv[@]}"
+    else
+        ait_spawn_exe tmux "${PATH-}" "$AIT_SPAWN_PATH"
+        _argv[0]="$AIT_SPAWN_EXE"
+        PATH="$AIT_SPAWN_PATH" command "${_argv[@]}"
+    fi
 }
 
 # ait_tmux_session_target <session>  -> "=<session>"

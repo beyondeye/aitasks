@@ -205,6 +205,18 @@ ait_tmux_new_session_persistent() {
     local -a sock=()
     local _line
     while IFS= read -r _line; do sock+=("$_line"); done < <(ait_tmux_socket_args)
+    # The first window's PATH must not depend on ours (t1689): tmux copies the
+    # issuing client's PATH into it, and under systemd-run the client runs in
+    # the user manager's environment instead, so that rung is handed the PATH
+    # explicitly. Normalized once; tmux_exec.sh brought in spawn_path.sh.
+    ait_spawn_path_normalize "${PATH-}"
+    local spawn_path="$AIT_SPAWN_PATH"
+    local -a setenv=()
+    [[ -n "${PATH+x}" ]] && setenv=("--setenv=PATH=$spawn_path")
+    # The launchers that run under that PATH stay the binaries OURS resolves.
+    local tmux_exe setsid_exe
+    ait_spawn_exe tmux "${PATH-}" "$spawn_path"; tmux_exe="$AIT_SPAWN_EXE"
+    ait_spawn_exe setsid "${PATH-}" "$spawn_path"; setsid_exe="$AIT_SPAWN_EXE"
 
     if ait_systemd_user_available; then
         local safe unit
@@ -217,13 +229,14 @@ ait_tmux_new_session_persistent() {
         # The socket flag goes into the tmux argv *inside* the unit command.
         systemd-run --user --slice=session.slice --unit="$unit" \
             --property=Type=forking --property=KillMode=none \
-            --collect --quiet -- \
-            tmux ${sock[@]+"${sock[@]}"} new-session -d -s "$session" -c "$root" -n "$window" "$cmd"
+            --collect --quiet ${setenv[@]+"${setenv[@]}"} -- \
+            "$tmux_exe" ${sock[@]+"${sock[@]}"} new-session -d -s "$session" -c "$root" -n "$window" "$cmd"
         return $?
     fi
+    # `PATH=<same value>` is a no-op wherever normalization changed nothing.
     if command -v setsid >/dev/null 2>&1; then
-        setsid tmux ${sock[@]+"${sock[@]}"} new-session -d -s "$session" -c "$root" -n "$window" "$cmd"
+        PATH="$spawn_path" "$setsid_exe" "$tmux_exe" ${sock[@]+"${sock[@]}"} new-session -d -s "$session" -c "$root" -n "$window" "$cmd"
         return $?
     fi
-    tmux ${sock[@]+"${sock[@]}"} new-session -d -s "$session" -c "$root" -n "$window" "$cmd"
+    PATH="$spawn_path" "$tmux_exe" ${sock[@]+"${sock[@]}"} new-session -d -s "$session" -c "$root" -n "$window" "$cmd"
 }

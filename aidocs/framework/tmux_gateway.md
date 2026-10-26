@@ -2,8 +2,8 @@
 
 The framework talks to tmux through a **single command gateway per language**.
 The gateway is the only sanctioned place a raw `tmux` process is spawned, and it
-owns three cross-cutting policies (socket, targeting, exec strategy) that used to
-be scattered and duplicated across ~45–50 call sites. New code that touches tmux
+owns four cross-cutting policies (socket, targeting, exec strategy, pane PATH)
+that used to be scattered and duplicated across ~45–50 call sites. New code that touches tmux
 — in any script or TUI, not just the obvious ones — must route through it.
 
 Read this when writing or editing any shell or Python code under
@@ -27,7 +27,9 @@ raw `tmux` process; everything else goes through them.
   - `new_session_argv` — builds the socket-aware, persistence-wrapped
     `new-session` argv (mirrors `terminal_compat.sh`'s persistence ladder).
   - Module functions `tmux_socket_args`, `session_target`,
-    `session_scope_target`, `window_target`.
+    `session_scope_target`, `window_target`, `normalize_spawn_path`,
+    `resolve_spawn_exe`, `creates_pane`, and `TmuxClient.spawn_env` (see
+    *Pane PATH*).
 - **Shell** — `.aitask-scripts/lib/tmux_exec.sh`. Source it, then use:
   - `ait_tmux <args…>` — function form, socket flag auto-prepended, for captured
     / plain call sites.
@@ -47,7 +49,7 @@ raw `tmux` process; everything else goes through them.
     **default** server, for the migration window only (detect a pre-dedicated-socket
     session so a mid-flight user is not stranded). Not for general use.
 
-## The three centralized policies
+## The four centralized policies
 
 ### 1. Socket selection (dedicated `-L ait` socket)
 
@@ -122,6 +124,64 @@ connection) duck-typed; if it is alive they route through it, otherwise they fal
 back to `run` / `run_async`. The gateway owns the *strategy* without depending on
 `monitor/`. The `(rc, stdout)` / `(-1, "")` fallback branch is load-bearing.
 
+**Pane-creating verbs never ride the control client.** `new-session`,
+`new-window`, `split-window`, `respawn-pane` and `respawn-window` (anywhere in
+the argv, so `\;` chains count) go straight to `run` / `run_async` even when the
+backend is alive — see *Pane PATH* for why.
+
+### 4. Pane PATH (the pane's PATH must not depend on its spawner)
+
+tmux gives a new pane the PATH of the **client process that issued the
+command**. Measured on tmux 3.6a against a scratch server:
+
+| issuing client | PATH the new pane gets |
+|---|---|
+| a fresh `tmux new-window` subprocess (unattached client) | the **client's** PATH — it even overrides `-e PATH=…` |
+| an attached `tmux -C attach` control client | the **server's global PATH**, frozen when the server started; the control client's own PATH is ignored |
+
+Every other variable comes from the server's global environment, so session
+variables a shell activation set (mise's `__MISE_*`) never reach the pane. On a
+mise host that combination is a hazard: a `mise x <agent> -- <agent>` wrapper in
+`~/.local/bin` resolves back to itself and `exec`s forever when `~/.local/bin`
+precedes mise's shims dir, leaving a blank agent pane (t1689).
+
+The gateway therefore owns the PATH every tmux client carries:
+
+- **The rule** — `normalize_spawn_path` (Python) / `ait_spawn_path_normalize`
+  in `lib/spawn_path.sh` (shell; result in `$AIT_SPAWN_PATH`, no fork). When
+  PATH holds a mise entry (`<mise_data>/shims`, or anything under
+  `<mise_data>/installs/`), reorder to: the framework bins that lead PATH
+  (`$HOME/.aitask/bin`, `${AITASKS_HOME:-$HOME/.aitasks}/bin`), then every mise
+  entry, then the rest. No mise entry → unchanged, byte for byte. That is the
+  order a mise-activated interactive shell already has. The two
+  implementations are pinned together by `TestShellParity` in
+  `tests/test_tmux_exec.py`.
+- **Python** — `run`, `run_checked`, `set_clipboard`, `run_async` and `spawn`
+  pass `env=TmuxClient.spawn_env()` only when normalization changed something,
+  so hosts without mise see exactly the calls they always did. A caller that
+  `Popen`s `new_session_argv` itself passes `env=client.spawn_env()`
+  (`None` = inherit).
+- **Shell** — `ait_tmux` runs the client as `PATH="$AIT_SPAWN_PATH" command tmux …`
+  when it differs; `ait_tmux_new_session_persistent` (in `terminal_compat.sh`)
+  prefixes its setsid / plain rungs the same way.
+- **New server** — the systemd-run rung of both persistence ladders adds
+  `--setenv=PATH=<normalized>`: the unit runs in the user manager's environment,
+  which would otherwise become the new server's global PATH.
+- **Direct agent launches** — `ait codeagent invoke` normalizes PATH just
+  before it `exec`s the agent, covering launches that bypass the gateway.
+- **The launcher is not reordered** — only the pane's PATH is. `tmux` (and
+  `setsid` / `systemd-run` in the persistence ladders) stays the binary the
+  caller's PATH resolves: `resolve_spawn_exe` / `ait_spawn_exe` spell it as that
+  absolute path whenever the reordered PATH would pick a different file (e.g. a
+  mise-managed `tmux` behind a working system one), and leave the bare name
+  otherwise.
+
+Panes created outside the framework (the user's own key bindings, a hand-typed
+`tmux new-window`) still inherit whatever their client had.
+
+`tests/test_tmux_spawn_path_live.sh` reproduces the hazard with a bounded fake
+wrapper on a private server and drives every route above against it.
+
 ## The enforcement guard
 
 `tests/test_no_raw_tmux.sh` greps `.aitask-scripts/` for raw `tmux` spawns and
@@ -146,8 +206,11 @@ backends that already reach the gateway socket — not as an escape hatch.
    (`list-panes -s`) takes `session_scope_target`, never `session_target` (see
    *Target formatting*).
 3. Don't thread `-L` / `-S` yourself — the gateway owns the socket flag.
-4. Don't add yourself to the `test_no_raw_tmux.sh` allowlist.
-5. Run `bash tests/test_no_raw_tmux.sh` before committing.
+4. Never hand tmux a PATH yourself, and never send a pane-creating verb over the
+   control client — the gateway owns the pane PATH (see *Pane PATH*). A caller
+   that `Popen`s a gateway-built argv passes `env=client.spawn_env()`.
+5. Don't add yourself to the `test_no_raw_tmux.sh` allowlist.
+6. Run `bash tests/test_no_raw_tmux.sh` before committing.
 
 ## Multiple real agents per window — state keyed by `pane_id`
 

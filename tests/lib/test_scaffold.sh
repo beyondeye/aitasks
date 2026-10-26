@@ -19,6 +19,9 @@ if [[ -z "${_AIT_TEST_SCAFFOLD_LOADED:-}" ]]; then
         # lazily from ait_tmux_new_session_persistent (t952_4), so any scaffolded
         # test that reaches the persistent-spawn path needs it present.
         cp "$PROJECT_DIR/.aitask-scripts/lib/tmux_exec.sh"      "$repo_dir/.aitask-scripts/lib/"
+        # spawn_path.sh is sourced at startup by tmux_exec.sh (pane-PATH
+        # normalizer, t1689); a side-effect-free leaf.
+        cp "$PROJECT_DIR/.aitask-scripts/lib/spawn_path.sh"     "$repo_dir/.aitask-scripts/lib/"
         cp "$PROJECT_DIR/.aitask-scripts/lib/python_resolve.sh"  "$repo_dir/.aitask-scripts/lib/"
         # yaml_utils.sh is a base leaf lib sourced unconditionally by both
         # task_utils.sh and agentcrew_utils.sh — the two most-copied add-on libs.
