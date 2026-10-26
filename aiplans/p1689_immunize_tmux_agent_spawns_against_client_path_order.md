@@ -242,13 +242,13 @@ Step 9 (Post-Implementation) handles commit, archival and merge as usual.
 
 ### Code-health risk: medium
 - Every gateway tmux subprocess (monitor, board, switcher, freeze/restore) can get a changed `env` on mise hosts — wide blast radius, though an identity no-op (no `env=` kwarg at all) wherever PATH has no mise entries · severity: low · → mitigation: none
-- The systemd-run rung's new `--setenv=PATH=…` changes the first server's global PATH for **every** Linux/systemd user (user-manager PATH → caller's normalized PATH), and cannot be exercised live on this macOS host — only its argv is unit-tested · severity: medium · → mitigation: verify_on_mise_linux_host
+- The systemd-run rung's new `--setenv=PATH=…` changes the first server's global PATH for **every** Linux/systemd user (user-manager PATH → caller's normalized PATH), and cannot be exercised live on this macOS host — only its argv is unit-tested · severity: medium · → mitigation: t2143
 - Python/shell normalizer mirror can drift · severity: low · → mitigation: none (the parity contract test is part of the plan)
 - `tmux_exec.sh` gains a startup `source` of a new lib, so any scratch copy of it without `spawn_path.sh` breaks at source time. Many suites go through `setup_fake_aitask_repo` · severity: low · → mitigation: none (step 6b updates both copy sites, and verification step 4 runs their consumers)
 - A pre-fix control that `git stash`es libs in the shared checkout would disturb concurrent sessions · severity: medium · → mitigation: none (verification step 3 runs the control in a detached scratch worktree, never stashing)
 
 ### Goal-achievement risk: medium
-- The `mise x` re-resolution mechanism comes from the task's Omarchy-host analysis; mise is not installed here, so the fix is proven against a synthetic recursing shim and the real tmux PATH mechanics, not against real `mise x` + the Omarchy shim · severity: medium · → mitigation: verify_on_mise_linux_host
+- The `mise x` re-resolution mechanism comes from the task's Omarchy-host analysis; mise is not installed here, so the fix is proven against a synthetic recursing shim and the real tmux PATH mechanics, not against real `mise x` + the Omarchy shim · severity: medium · → mitigation: t2143
 - The `cmd_invoke` guard (step 6) is unreachable from every existing invoke test (all `--dry-run`) · severity: low · → mitigation: none (the new real-invoke test in `test_codeagent.sh` exercises the exec path, with a pre-fix control)
 - Panes created outside the framework (the user's own tmux bindings, hand-typed `tmux new-window`) still inherit the caller's PATH — out of scope by design · severity: low · → mitigation: none
 
