@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: [2143]
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [verification, bug]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1689
 followup_kind: verification_failure
 created_at: 2026-10-26 09:38
-updated_at: 2026-10-26 09:38
+updated_at: 2026-10-26 10:06
 ---
 
 ## Failed verification item from t2143
