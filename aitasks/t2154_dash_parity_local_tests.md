@@ -3,13 +3,14 @@ priority: medium
 effort: medium
 depends: []
 issue_type: test
-status: Ready
+status: Implementing
 labels: [go_engine, testing]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1852
 followup_kind: risk_mitigation
 created_at: 2026-10-26 15:56
-updated_at: 2026-10-26 15:56
+updated_at: 2026-10-26 16:14
 ---
 
 ## Origin
