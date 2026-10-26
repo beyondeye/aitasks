@@ -305,3 +305,17 @@ acceptance is met, or the user has explicitly revised it.
   Ownership by a per-run env token rather than session numbers (no stale-number kills); sweep only
   documented residual sessions so hangguard still reports any other leak.
 - **Upstream defects identified:** None
+
+## Hosted CI acceptance (post-phase hosted_ci_step_triage)
+
+Probe branch `t2148-ci-probe` = origin/main (4626b080c) + the fix cherry-picked (20faee626); deleted
+after the runs. `Go engines check` on ubuntu-latest:
+- 40334103309 (push), 40334114895 (workflow_dispatch), 40334119129 (workflow_dispatch):
+  **`check` job success in all three, every step success** — incl. `go test ./...` and every step after
+  it (release cross-build, sums loop, structure guard, build.sh/benchci.sh tests, annot corpus sync
+  guard, export-integrity tests). **Acceptance met: 3/3 full green `check` jobs.**
+- `bench` job: "Benchmark gate" failed in all three (BENCH_REGRESSION / BENCH_OVER_BUDGET in
+  cmd/ait-testmap, testmap/annot, testmap/deps, testmap/modules). Investigated: the job is
+  `continue-on-error: true` (ADVISORY), it failed identically on main runs 40279191111,
+  40187609686 and 40161193156 (the last green `check`, pre-procsup), and it measures packages this
+  test-only change does not touch. Pre-existing, owned by t1878 (bench calibration) — unrelated.
