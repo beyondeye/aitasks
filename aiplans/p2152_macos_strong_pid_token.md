@@ -340,7 +340,7 @@ Step 9 (Post-Implementation): commit code and plan separately, then archive via
   liveness strength `case`) executes on Linux, but no checked-in CI job runs
   the lock, crash-recovery or merge-lock shell suites, and this host has no
   Linux runtime. In-session evidence is limited to the stub-driven proc-branch
-  cases in Test 19. · severity: medium · → mitigation: linux_lock_suite_run
+  cases in Test 19. · severity: medium · → mitigation: t2157
 
 ### Goal-achievement risk: low
 - The `proc_bsdinfo` layout (136 bytes, start time at offset 120) is an ABI
@@ -355,7 +355,7 @@ Step 9 (Post-Implementation): commit code and plan separately, then archive via
   because such a host's live features really are degraded. · severity: low · → mitigation: none
 
 ### Planned mitigations
-- timing: after | name: linux_lock_suite_run | type: test | priority: medium | effort: low | inline_risk: high | added_complexity: low | addresses: shared refactor unverified on Linux (no CI job, no local Linux runtime) | desc: Run the pid_anchor/lock/crash-recovery/merge-lock/live-holder shell suites individually on a Linux host and record each file's result for t2152
+- timing: after | name: linux_lock_suite_run | type: test | priority: medium | effort: low | inline_risk: high | added_complexity: low | addresses: shared refactor unverified on Linux (no CI job, no local Linux runtime) | desc: Run the pid_anchor/lock/crash-recovery/merge-lock/live-holder shell suites individually on a Linux host and record each file's result for t2152 | created: t2157
 
 ## Post-Review Changes
 
