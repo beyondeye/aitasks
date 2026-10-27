@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
@@ -15,7 +17,7 @@ anchor: 1852
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5_5
 created_at: 2026-10-27 08:49
-updated_at: 2026-10-27 12:03
+updated_at: 2026-10-27 12:04
 ---
 
 ## Origin
@@ -49,3 +51,5 @@ Find which tail phase blocks under `-race` (likely the writer-less FIFO path), f
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-10-27T10:03:52Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-10-27T11:52:45Z status=pass attempt=1 type=human
