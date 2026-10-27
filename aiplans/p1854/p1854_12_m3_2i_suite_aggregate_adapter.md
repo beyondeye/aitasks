@@ -376,3 +376,75 @@ Every criterion maps to a test above:
 Post-implementation follows the shared task-workflow Step 9: archival on the
 current branch, with no merge. Commits: engine (`goengines/**`) first, then
 framework (the task body), kept separate per the aitasks_go cutover note.
+
+## Final Implementation Notes
+- **Actual work done:**
+  - `runner/builtin/suite.go` (unix): the `suite` adapter, with these parts:
+    - `suiteFixed`, the fixed-contract table that also generates the describe keys;
+    - `suiteCommand`: `command:` is required, and the `SUITE_RECURSION:` diagnostic is written first on stderr;
+    - `suiteRecursionWord`, a pure tokenizer;
+    - `suiteFixedOverride`;
+    - `suiteList`: no process. It refuses fixed-contract overrides, a non-aggregate effective accounting, `bind:` on the suite, a foreign `bind:` over `aitestmap/runners.yaml`, and an `exclude:` of it;
+    - `suiteRun`: `bash -c <command:>` supervised in the cwd, start + result row, logs `unit-0000.std{out,err}`, a backstop at deadline + 10 s, and the run-side fixed-contract and unit checks (`suiteUnitCheck`).
+  - `suite_linux.go`: Linux-only `init` registration.
+  - `suite_linux_test.go`: 16 tests. Three are pure: `TestSuiteDescribe`, `TestSuiteRecursionWord`, and the in-process parts of 5b. The rest are real-tool tests under `hangguard.Isolated` + `requireBash`.
+  - Named extensions:
+    - `builtin.go` package doc;
+    - `cmd/ait-testmap/main_test.go` `TestRunnerVerb` (`[bash-file pytest suite]`, `runner suite describe` with and without `command:`);
+    - `goengines/README.md` (layout row, `runner <name>` row, the new `suite` builtin row).
+  - Framework side: task-body criteria amended (`bash -c`, the list refusals, the fixed contract).
+- **Deviations from plan:**
+  - Test 13 (`cases.jsonl` written by the command): the engine keeps the command's `pass` row and refuses the evidence at the invocation instead, with cause `reconciliation` and detail `cases:refused:cases.jsonl from accounting: aggregate`. The run exits 1, and the cause rules out an anchor. The plan's "the unit is not `pass`" misread t1854_2's shape. The test pins the real shape: cause, protocol error, run exit 1, no case counters.
+  - Red proof (h) (stdout to the builtin's own stdout) could not be expressed: `procsup.RunSpec` takes only regular-file paths and refuses a link, FIFO or device. So coverage is by construction, plus `TestSuiteOutputPastCap` (past 64 MiB the unit still passes, with no mechanism cause).
+  - The YAML single-quoted `command:` in fixtures folds newlines, so multi-line fixture commands are written with `;`.
+  - The pytest suite's `loadErr(t, r, want...)` helper is reused instead of a new one.
+- **Issues encountered:**
+  - A full-package `go test -race` run failed on `TestPytestFakeEvidence` (`HANG` at its 2 min guard), which belongs to t1854_9, not this task.
+    - It reproduces alone, and on a `git archive HEAD` export **without** this task's files, so it predates this change.
+    - Without `-race` it passes in 0.5 s. Under `-race` it stops after its last subtest, in the final `noitems` / FIFO-refusal `Load` phase (Change Request 2 of t1854_9, verified then without `-race`). Root cause not proven.
+    - Recorded under Upstream defects.
+  - This task's tests under `-race`: `TestSuite*`, `TestRunnerVerb`, `TestScaffold*` and `TestAdapter*` are green, with 0 `DATA RACE`.
+- **Key decisions:**
+  - `bash -c`, not `sh -c` (user decision 2026-10-26: the shell `gate_verifier_lib.sh` runs `test_command` with).
+  - The fixed contract is enforced in the adapter (plan review 2026-10-27). The engine merges `runners.yaml` overrides before `Validate`, and an `accounting: unit` suite would otherwise anchor on a clean tree. The list refuses through two layers (override keys, effective accounting) and the run re-checks the manifest.
+  - The adapter never reports `timeout` (that would be `timeout_not_per_unit` under `timeouts: none`). The engine's kill attributes it.
+  - The list refuses any configuration where the engine would silently drop the suite unit.
+- **What the adapter reads (for t2082):**
+  - command line `bash -c <command:>`, the whole string as one argument;
+  - cwd = the entry's `cwd`;
+  - the inventory starts no process. It reads `runners.yaml` (own `command`, `cwd`, `bind`, overrides, every other entry's `bind`) and `config.yaml` `exclude:`;
+  - the environment is inherited (`AIT_TESTMAP_*`, including `REPORT_DIR` and `ACTIVE`), stdin `/dev/null`;
+  - no tool config flags.
+- **Red proofs:** 20 isolated mutants on a scratch copy of `goengines/`, applied by a driver that checks the must-red and must-stay-green (sub)tests per mutant. Each copy was restored from a pristine tree and diffed identical, with sha256 rechecked. All went red as expected, none through a build failure:
+  - (a) empty-command check;
+  - (b) diagnostic off;
+  - (c) own stderr line dropped;
+  - (d) own bind;
+  - (e) foreign bind;
+  - (f) exclude (first attempt was a compile error, re-expressed as `&& false`);
+  - (g) `bash` → `sh`, red through `shopt -qo posix`;
+  - (i) Truncated ignored;
+  - (j) non-zero → pass;
+  - (k) adapter-reported timeout → `protocol:timeout_not_per_unit` (reason confirmed);
+  - (l) `AIT_TESTMAP_ACTIVE` dropped → `VIA:ancestor:<pid>` (reason confirmed);
+  - (m) unit check off;
+  - (n) `os/exec` → adapter tripwire;
+  - (o) registration removed → `TestRunnerVerb`;
+  - (p) invariant5 marker removed → `TestInvariant5Tripwire`;
+  - (q), (q2), (q3), (q4), (r): the layer-attributed table, with every must-stay-green case confirmed green.
+- **Verification:**
+  - `./ait engine test` rc 0;
+  - `./ci/preflight.sh` ok;
+  - `GOOS=darwin go vet ./...` ok;
+  - `./build.sh all` ok;
+  - builtin + cmd with `AIT_TESTMAP_REQUIRE_REAL_TOOLS=1`, no skips;
+  - `tests/test_goengines_export_integrity.sh` 183/183, `tests/test_goengines_build.sh` 107/107;
+  - real-binary end-to-end on a scratch repository, three suites (`ok`, `bad` exit 4, `slow` leaving a `setsid` daemon, `timeout_s: 1`):
+    - `UNIT:…#bad|fail`, `…#ok|pass`, `…#slow|timeout`, `CAUSE:3|timeout|unit`;
+    - `RUN_ACCOUNTING:3|0|0|3|0`, rc 1;
+    - `containment: supervisor` for all three, and the daemon gone.
+- **Post-phase [stress_suite_tests_under_load]:** `go test -count=10` of the builtin package (with `AIT_TESTMAP_REQUIRE_REAL_TOOLS=1`), while a full `go test -count=1 -p 8 ./...` ran concurrently, gave **10/10 pass** (stress rc 0, 320 s; load rc 0). No flake fixes were needed. The first attempt never ran, because a shell `cd` was scoped to the backgrounded half only; it was rerun correctly.
+- **Upstream defects identified:**
+  - `goengines/internal/testmap/runner/builtin/pytest_linux_test.go:827` — `TestPytestFakeEvidence` deterministically exceeds its 2 min hang guard under `go test -race`, in the final `noitems` / writer-less-FIFO `Load` phase after the `nullmessage` subtest. Without `-race` it takes 0.5 s. It reproduces on a pristine `HEAD` export, and the root cause is not proven.
+- **Commits:** `ecefd276d` (engine: adapter, tests, README, TestRunnerVerb); the framework side (task body amendment) is committed separately via `./ait git`.
+- **Notes for sibling tasks** (to send with `./ait note` after the commit): t1857, t1859_4, t1854_14 and t2082, as listed in "Notes to send after the commit".
