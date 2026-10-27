@@ -151,8 +151,9 @@ model to an op default; website docs (only per-op defaults are documented).
   - `bash tests/test_install_superseded_models.sh` (copies the real table)
   - `bash tests/test_resolve_detected_agent.sh`, `bash tests/test_codeagent.sh`
     (read the real registries)
-  - Known pre-existing failure, not a regression: `tests/test_codeagent_resume_session.sh`
-    opencode cases pin `openai_gpt_5_2` (already unavailable before this task) — tracked by t1909.
+  - `bash tests/test_codeagent_resume_session.sh` — planned as a known
+    pre-existing failure (t1909), but it passes 40/40: t1949 already derived its
+    opencode model from a fixture registry (see Final Implementation Notes).
 
 ## Commits (Step 8)
 
@@ -176,3 +177,25 @@ Then Step 9 (Post-Implementation): gates, archival, push via `./ait git push`.
 
 ### Goal-achievement risk: low
 - The `gpt6_1_terra` catalog description is thin ("GPT-6.1 Terra Codex model."), so its notes could drift into invented capability claims · severity: low · → mitigation: none — notes are restricted to the catalog text plus the recorded lineage
+
+## Final Implementation Notes
+- **Actual work done:** All six implementation steps ran as planned, in order.
+  - `add-json` registered `codex/gpt6_1_terra` (`gpt-6.1-terra`, notes "GPT-6.1 Terra Codex model, successor to GPT-5.6 Terra") and `codex/gpt6_astra` (`gpt-6-astra`, notes "Frontier-intelligence GPT-6 model for the most demanding work") in `aitasks/metadata/models_codex.json` and `seed/models_codex.json`.
+  - `record-supersession` recorded `codex/gpt5_6_terra → gpt6_1_terra`.
+  - `aitask_opencode_models.sh --sync-seed` refreshed the full registry: 139 models (107 active, 32 unavailable); the seed is byte-identical to the metadata file. A re-derived dry-run immediately before applying was identical to the plan-time delta: 10 new active, 10 active → unavailable, nothing dropped, nothing revived.
+  - `record-supersession` recorded `opencode/openai_gpt_5_6_terra → openai_gpt_6_1_terra` and `openai_gpt_5_6_terra_fast → openai_gpt_6_1_terra_fast`.
+  - The pin re-check against the applied delta (word-bounded on both the name and the `cli_id`, across `tests/` incl. fixtures, `seed/`, `.aitask-scripts/`, `codeagent_config*.json`) found only the three expected structural edges in `model_supersessions.json`.
+- **Verification evidence:**
+  - Before the change, `ait codeagent check` on `codex/gpt6_1_terra`, `codex/gpt6_astra` and `opencode/openai_gpt_6_1_terra` failed with `Unknown model`. After it, all three plus `opencode/openai_gpt_6_1_terra_fast` print `OK`.
+  - `--dry-run invoke raw` emits `-m gpt-6.1-terra`, `-m gpt-6-astra` and `--model openai/gpt-6.1-terra`.
+  - `aitask_resolve_detected_agent.sh` returns `AGENT_STRING:codex/gpt6_1_terra`, `codex/gpt6_astra` and `opencode/openai_gpt_6_1_terra`, not the `unregistered_*` fallback.
+  - The new codex entries agree between metadata and seed (`jq` diff empty). `ait codeagent check-superseded --report` reports "No superseded code-agent model defaults."
+  - Tests: `test_add_model.sh` 142/142, `test_opencode_models_merge.sh` 32/32, `test_install_superseded_models.sh` 23/23, `test_resolve_detected_agent.sh` 55/55, `test_codeagent.sh` all passed, `pytest tests/test_model_supersession.py` 57 passed (including the shipped-table contract against `seed/`), `test_codeagent_resume_session.sh` 40/40.
+- **Deviations from plan:** None in the implementation. One verification expectation was wrong: `test_codeagent_resume_session.sh` was planned as a known t1909 failure, but it passes.
+- **Issues encountered:** The first delta computation used `join` and failed on locale sort order; it was redone in Python. The plan-time `\b` pin grep also matched `claude-sonnet-4-6`, because PCRE `\b` treats `-` as a boundary; the implementation-time grep used explicit lookarounds instead.
+- **Key decisions:**
+  - Codex notes use only the catalog descriptions plus the lineage this task records.
+  - No lineage for `gpt6_astra` (a new tier) or for the other refresh additions (per task scope).
+  - `opencode_gpt_5_6_terra` gets no successor because no Zen-provider `gpt-6.1-terra` exists.
+- **Upstream defects identified:** None
+- **Stale task observed (not a code defect):** t1909 ("unpin opencode model in resume-session test") describes `tests/test_codeagent_resume_session.sh:107-112` pinning `opencode/openai_gpt_5_2`. That pin no longer exists: commit 4d1a9f93c (t1949) derives the model via `codeagent_active_model` from a fixture registry (now line 125), and the test passes 40/40. t1909 is still `Ready` and appears already resolved.
