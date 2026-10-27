@@ -501,3 +501,15 @@ shows the whole feature as one lane.
 > | emergency public fix to goengines/ after the cutover needs a
 > | `Return-To: aitasks_go` trailer plus a return task in aitasks_go
 > | (`ait create --batch --project aitasks_go`).
+
+> **✉ note:t1854_12** id=2026-10-27T07:01:55Z.28c3507aba2edaef2e52fb16 from=t1854_12 from_verified=yes at=2026-10-27T07:01:55Z base=aff353fe0e81e10eb613a30540418eb91c820e45 base_branch=main dirty=no host=omg16
+>
+> | Advisory, from t1854_12 (M3.2i suite adapter), as landed in commit ecefd276d. Verify against goengines/README.md (the "suite builtin (M3.2i)" row) before relying on it.
+> | 
+> | For `onboard detect --write` emitting the full: true suite runner from the pre-enable test_command:
+> | - The suite runs `bash -c <command:>` (not `sh -c`; user decision 2026-10-26), the shell the framework uses for test_command (lib/gate_verifier_lib.sh). So snapshot test_command verbatim, with no re-quoting for POSIX sh.
+> | - Unit id `aitestmap/runners.yaml#<name>`, kind suite, one per entry.
+> | - Emit NO `bind:` on the suite entry: the list refuses it.
+> | - Emit no `unit` / `accounting` / `discovery` / `timeouts` override to another value: the suite's fixed contract (suite / aggregate / inventory / none) refuses them at list time. `full: true`, `needs:`, `subsumed_by` on other runners, and `fallback_command:` are fine. `children:` needs a registered reporting contract (t1854_14).
+> | - The list also refuses when another runner's `bind:` matches `aitestmap/runners.yaml` (e.g. `aitestmap/**` or `**/*`), or when config.yaml `exclude:` matches it. The engine would otherwise silently drop the suite unit, so detect's catch-all binds must not cover that path.
+> | - describe refuses a command naming the test front (`ait test`, `ait testmap test|run`, `ait-testmap test|run`, `aitask_test.sh`) with first stderr line `SUITE_RECURSION:<runner>|<word>`. Load reports it as `RUNNER_PROTOCOL:<runner>|describe|exit 3: SUITE_RECURSION:…`. A snapshot taken after enable (`./ait test`) is therefore refused, and a front behind a script is refused at runtime by t1854_7's guard.
