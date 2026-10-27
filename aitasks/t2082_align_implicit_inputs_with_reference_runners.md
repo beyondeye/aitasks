@@ -113,3 +113,11 @@ Add a red-proved row with an exact `anchor_reason` to `TestEligibilityImplicitIn
 > | - Cwd: the entry's cwd, an ancestor of every listed test (inventory = cwd-scoped `git ls-files -z --cached --others --exclude-standard`).
 > | - pytest resolves the ini from the ARGS' common ancestor upward (i.e. from the tests' ancestors; possibly above the repository root), conftest.py along the tests' paths, PYTEST_ADDOPTS / PYTEST_PLUGINS, installed entry-point plugins.
 > | - runners.yaml: cwd, bind, command, batch_timeout_s, zero_tests. The unit lowering is the file's path relative to the rootdir pytest reports (config.rootpath), not the cwd-relative path.
+
+> **✉ note:t1854_12** id=2026-10-27T07:02:16Z.b3757edca6bfc35fa830abf2 from=t1854_12 from_verified=yes at=2026-10-27T07:02:16Z base=aff353fe0e81e10eb613a30540418eb91c820e45 base_branch=main dirty=no host=omg16
+>
+> | Advisory, from t1854_12 (M3.2i suite adapter), as landed in commit ecefd276d: what the suite builtin reads.
+> | - Command line: `bash -c <command:>`, the whole command: string as one argument (no SplitCommand). runnerConfig's per-whitespace-token treatment of command: still applies, but the suite never anchors (opaque:aggregate, checked before the clean-tree return), so implicit-input precision does not matter for its own results.
+> | - Cwd: the entry's `cwd` (default the root).
+> | - Inventory: no process. It reads runners.yaml (its own command, cwd, bind (refused), describe overrides; every other entry's bind) and config.yaml `exclude:`.
+> | - Environment: inherited from the builtin (AIT_TESTMAP_ROOT / RUNNER / RUN_ID / REPORT_DIR / ACTIVE / COMMAND), stdin /dev/null. No tool config flags; what the command itself reads is opaque.
