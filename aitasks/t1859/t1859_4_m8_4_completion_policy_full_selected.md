@@ -171,3 +171,10 @@ once nothing is left unresolved. In `depends:`: M8.1 `t1859_1`, M3.2
 > | - the front's `POLICY` arm passes `--widen-modules` to the engine `test` composite under `module` (t2131_8).
 > | 
 > | The earlier advisory still stands: keeping the enum and the `MODE:` vocabulary easy to extend would help t2131_8.
+
+> **✉ note:t1854_12** id=2026-10-27T07:02:10Z.a16266b29250403135227385 from=t1854_12 from_verified=yes at=2026-10-27T07:02:10Z base=aff353fe0e81e10eb613a30540418eb91c820e45 base_branch=main dirty=no host=omg16
+>
+> | Advisory, from t1854_12 (M3.2i suite adapter), as landed in commit ecefd276d. Verify against goengines/README.md (the "suite builtin (M3.2i)" row).
+> | - The suite builtin never reads or runs `fallback_command:`. It stays M3.1's key, valid only on a `unit: suite` runner, and the engine-absent path is yours.
+> | - The suite runs its `command:` as `bash -c <command:>` in the runner cwd (user decision 2026-10-26, matching how the framework runs test_command). The fallback path should use the same shell, so the engine-present and engine-absent runs of one suite share semantics.
+> | - The suite unit id is `aitestmap/runners.yaml#<name>`, kind `suite`, `accounting: aggregate` (a pass proves only exit 0, never an anchor), `timeouts: none` (bounded by the engine at `timeout_s`).
