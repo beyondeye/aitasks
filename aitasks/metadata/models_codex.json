@@ -351,6 +351,20 @@
       "notes": "Latest GPT-6.1 workhorse model for coding and everyday agentic work",
       "verified": {},
       "verifiedstats": {}
+    },
+    {
+      "name": "gpt6_1_terra",
+      "cli_id": "gpt-6.1-terra",
+      "notes": "GPT-6.1 Terra Codex model, successor to GPT-5.6 Terra",
+      "verified": {},
+      "verifiedstats": {}
+    },
+    {
+      "name": "gpt6_astra",
+      "cli_id": "gpt-6-astra",
+      "notes": "Frontier-intelligence GPT-6 model for the most demanding work",
+      "verified": {},
+      "verifiedstats": {}
     }
   ]
 }

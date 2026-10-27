@@ -356,6 +356,48 @@
       "verifiedstats": {}
     },
     {
+      "name": "openai_gpt_6_1_sol_ultrafast",
+      "cli_id": "openai/gpt-6.1-sol-ultrafast",
+      "notes": "GPT-6.1 Sol Ultrafast (1050k context, openai provider)",
+      "status": "active",
+      "verified": {
+        "pick": 0,
+        "explain": 0,
+        "batch-review": 0,
+        "work-report": 0,
+        "trail": 0
+      },
+      "verifiedstats": {}
+    },
+    {
+      "name": "openai_gpt_6_1_terra",
+      "cli_id": "openai/gpt-6.1-terra",
+      "notes": "GPT-6.1 Terra (1050k context, openai provider)",
+      "status": "active",
+      "verified": {
+        "pick": 0,
+        "explain": 0,
+        "batch-review": 0,
+        "work-report": 0,
+        "trail": 0
+      },
+      "verifiedstats": {}
+    },
+    {
+      "name": "openai_gpt_6_1_terra_fast",
+      "cli_id": "openai/gpt-6.1-terra-fast",
+      "notes": "GPT-6.1 Terra Fast (1050k context, openai provider)",
+      "status": "active",
+      "verified": {
+        "pick": 0,
+        "explain": 0,
+        "batch-review": 0,
+        "work-report": 0,
+        "trail": 0
+      },
+      "verifiedstats": {}
+    },
+    {
       "name": "openai_gpt_6_astra",
       "cli_id": "openai/gpt-6-astra",
       "notes": "GPT-6 Astra (1050k context, openai provider)",
@@ -443,6 +485,20 @@
       "name": "openai_gpt_6_sol_fast",
       "cli_id": "openai/gpt-6-sol-fast",
       "notes": "GPT-6 Sol Fast (1050k context, openai provider)",
+      "status": "active",
+      "verified": {
+        "pick": 0,
+        "explain": 0,
+        "batch-review": 0,
+        "work-report": 0,
+        "trail": 0
+      },
+      "verifiedstats": {}
+    },
+    {
+      "name": "opencode_beam_free",
+      "cli_id": "opencode/beam-free",
+      "notes": "Beam Free (1048k context, opencode provider)",
       "status": "active",
       "verified": {
         "pick": 0,
@@ -639,7 +695,7 @@
       "name": "opencode_claude_sonnet_4",
       "cli_id": "opencode/claude-sonnet-4",
       "notes": "Claude Sonnet 4 (1000k context, opencode provider)",
-      "status": "active",
+      "status": "unavailable",
       "verified": {
         "batch-review": 0,
         "pick": 0,
@@ -720,10 +776,24 @@
       "verifiedstats": {}
     },
     {
+      "name": "opencode_deepseek_v4_1_flash_free",
+      "cli_id": "opencode/deepseek-v4.1-flash-free",
+      "notes": "DeepSeek V4.1 Flash Free (200k context, opencode provider)",
+      "status": "active",
+      "verified": {
+        "pick": 0,
+        "explain": 0,
+        "batch-review": 0,
+        "work-report": 0,
+        "trail": 0
+      },
+      "verifiedstats": {}
+    },
+    {
       "name": "opencode_deepseek_v4_flash",
       "cli_id": "opencode/deepseek-v4-flash",
       "notes": "DeepSeek V4 Flash (1000k context, opencode provider)",
-      "status": "active",
+      "status": "unavailable",
       "verified": {
         "pick": 0,
         "explain": 0,
@@ -751,7 +821,7 @@
       "name": "opencode_deepseek_v4_flash_vision_exp",
       "cli_id": "opencode/deepseek-v4-flash-vision-exp",
       "notes": "DeepSeek V4 Flash Vision Exp (1000k context, opencode provider)",
-      "status": "active",
+      "status": "unavailable",
       "verified": {
         "pick": 0,
         "explain": 0,
@@ -779,7 +849,7 @@
       "name": "opencode_exo_free",
       "cli_id": "opencode/exo-free",
       "notes": "Exo Free (1048k context, opencode provider)",
-      "status": "active",
+      "status": "unavailable",
       "verified": {
         "pick": 0,
         "explain": 0,
@@ -793,6 +863,20 @@
       "name": "opencode_fledge_alpha_free",
       "cli_id": "opencode/fledge-alpha-free",
       "notes": "Fledge Alpha Free (1048k context, opencode provider)",
+      "status": "unavailable",
+      "verified": {
+        "pick": 0,
+        "explain": 0,
+        "batch-review": 0,
+        "work-report": 0,
+        "trail": 0
+      },
+      "verifiedstats": {}
+    },
+    {
+      "name": "opencode_flint_40b_free",
+      "cli_id": "opencode/flint-40b-free",
+      "notes": "Flint 40B Free (262k context, opencode provider)",
       "status": "active",
       "verified": {
         "pick": 0,
@@ -916,6 +1000,20 @@
       "verifiedstats": {}
     },
     {
+      "name": "opencode_gemini_4_argon",
+      "cli_id": "opencode/gemini-4-argon",
+      "notes": "Gemini 4 Argon (1048k context, opencode provider)",
+      "status": "active",
+      "verified": {
+        "pick": 0,
+        "explain": 0,
+        "batch-review": 0,
+        "work-report": 0,
+        "trail": 0
+      },
+      "verifiedstats": {}
+    },
+    {
       "name": "opencode_glm_4_6",
       "cli_id": "opencode/glm-4.6",
       "notes": "GLM-4.6 (204k context, opencode provider)",
@@ -1003,6 +1101,20 @@
       "name": "opencode_glm_5_3_flash",
       "cli_id": "opencode/glm-5.3-flash",
       "notes": "GLM-5.3-Flash (1000k context, opencode provider)",
+      "status": "active",
+      "verified": {
+        "pick": 0,
+        "explain": 0,
+        "batch-review": 0,
+        "work-report": 0,
+        "trail": 0
+      },
+      "verifiedstats": {}
+    },
+    {
+      "name": "opencode_glm_5_3_flash_free",
+      "cli_id": "opencode/glm-5.3-flash-free",
+      "notes": "GLM-5.3-Flash Free (200k context, opencode provider)",
       "status": "active",
       "verified": {
         "pick": 0,
@@ -1465,7 +1577,7 @@
       "name": "opencode_ling_3_0_flash_fin_free",
       "cli_id": "opencode/ling-3.0-flash-fin-free",
       "notes": "Ling 3.0 Flash Fin Free (262k context, opencode provider)",
-      "status": "active",
+      "status": "unavailable",
       "verified": {
         "pick": 0,
         "explain": 0,
@@ -1479,7 +1591,7 @@
       "name": "opencode_ling_3_1_flash_free",
       "cli_id": "opencode/ling-3.1-flash-free",
       "notes": "Ling 3.1 Flash Free (262k context, opencode provider)",
-      "status": "active",
+      "status": "unavailable",
       "verified": {
         "pick": 0,
         "explain": 0,
@@ -1493,7 +1605,7 @@
       "name": "opencode_longcat_2_5_preview_free",
       "cli_id": "opencode/longcat-2.5-preview-free",
       "notes": "LongCat 2.5 Preview Free (1000k context, opencode provider)",
-      "status": "active",
+      "status": "unavailable",
       "verified": {
         "pick": 0,
         "explain": 0,
@@ -1661,6 +1773,20 @@
       "name": "opencode_muse_spark_1_3_contributor_free",
       "cli_id": "opencode/muse-spark-1.3-contributor-free",
       "notes": "Muse Spark 1.3 Free (1048k context, opencode provider)",
+      "status": "unavailable",
+      "verified": {
+        "pick": 0,
+        "explain": 0,
+        "batch-review": 0,
+        "work-report": 0,
+        "trail": 0
+      },
+      "verifiedstats": {}
+    },
+    {
+      "name": "opencode_muse_wonder_1_0",
+      "cli_id": "opencode/muse-wonder-1.0",
+      "notes": "Muse Wonder (1048k context, opencode provider)",
       "status": "active",
       "verified": {
         "pick": 0,
@@ -1675,6 +1801,20 @@
       "name": "opencode_nemotron_3_5_lightning_free",
       "cli_id": "opencode/nemotron-3.5-lightning-free",
       "notes": "Nemotron 3.5 Lightning Free (262k context, opencode provider)",
+      "status": "active",
+      "verified": {
+        "pick": 0,
+        "explain": 0,
+        "batch-review": 0,
+        "work-report": 0,
+        "trail": 0
+      },
+      "verifiedstats": {}
+    },
+    {
+      "name": "opencode_nemotron_3_5_super_vl_free",
+      "cli_id": "opencode/nemotron-3.5-super-vl-free",
+      "notes": "Nemotron 3.5 Super VL Free (1048k context, opencode provider)",
       "status": "active",
       "verified": {
         "pick": 0,
@@ -1787,7 +1927,7 @@
       "name": "opencode_space_bunny_free",
       "cli_id": "opencode/space-bunny-free",
       "notes": "Space Bunny Free (1048k context, opencode provider)",
-      "status": "active",
+      "status": "unavailable",
       "verified": {
         "pick": 0,
         "explain": 0,
