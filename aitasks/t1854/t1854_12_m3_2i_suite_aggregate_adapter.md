@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: medium
 depends: [t1854_6, t1854_7]
 issue_type: feature
@@ -14,7 +16,7 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1852
 implemented_with: claudecode/opus5_5
 created_at: 2026-10-21 22:06
-updated_at: 2026-10-27 07:56
+updated_at: 2026-10-27 07:57
 ---
 
 ## Context
@@ -32,14 +34,16 @@ lands (G7).
 
 - **Classes.** `accounting: aggregate`, `discovery: inventory`.
 - **The unit.** One per runner entry, id `aitestmap/runners.yaml#<name>`, kind `suite`. That file exists and has no member blocks, so there is no member drift.
-- **Run.** The command (`command:`, required — `describe` refuses without it) runs through the foundation as `sh -c` (the same trust as `test_command`), with output to a log in the invocation directory, never to the builtin's capped stdout. `timeouts: none` (an engine singleton).
+  - *(amended 2026-10-27, Step 0 #9)* The list refuses a unit the engine would silently drop: a `bind:` on the suite entry, another runner's `bind:` matching `aitestmap/runners.yaml`, and an `exclude:` of it. The list starts no process, so the discovery-side recursion test has nothing to nest; instead, a test proves that `Load` runs neither `command:` nor `fallback_command:` (Step 0 #10).
+- **Fixed contract** *(added 2026-10-27, plan review, Step 0 #15)*. `runner.Load` merges `runners.yaml` describe overrides before validating. So the list refuses an override of `unit`, `accounting`, `discovery` or `timeouts` to any other value: `accounting: unit` would let the aggregate anchor on a clean tree, and `timeouts: per_unit` / `batch` would leave the command without its `timeout_s` bound. `run` re-checks the manifest's effective `timeouts` / `accounting`. The other keys stay overridable (`full`, `children`, `needs`, …).
+- **Run.** The command (`command:`, required — `describe` refuses without it) runs through the foundation as `bash -c` *(amended 2026-10-27 from `sh -c`, user decision: the shell the framework runs `test_command` with, `lib/gate_verifier_lib.sh`, so a snapshotted `test_command` keeps its semantics)*, with output to a log in the invocation directory, never to the builtin's capped stdout. `timeouts: none` (an engine singleton).
 - **Result.** The command's exit is the aggregate result. A pass proves only that the command exited 0; no individual test result is ever inferred from it. `aggregate` never anchors (t1854_2).
 - **Recursion.**
   - An early **diagnostic**: `describe` refuses a command whose words name the test front (`ait test`, `ait testmap test|run`, `ait-testmap test|run`, or a word whose basename is `aitask_test.sh`) with `SUITE_RECURSION:<runner>|<word>`. The `aitask_test.sh` literal carries `// invariant5-ok: named only to refuse it`.
   - The **runtime** protection is t1854_7's guard.
   - Test: a nested `./ait`-style call hidden behind a script is refused at runtime.
 - **`fallback_command:`** stays M3.1's key (only on `unit: suite`); this adapter does not run it (M8.4 does).
-- **Real-tool tests.** Real `sh` commands: pass, fail, a timeout with a `setsid` descendant (contained), an output past the cap.
+- **Real-tool tests.** Real `bash -c` commands: pass, fail, a timeout with a `setsid` descendant (contained), an output past the cap.
 
 ## Key files to modify
 
