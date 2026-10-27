@@ -87,6 +87,10 @@
       "gpt5_4_mini": {
         "by": "gpt5_6_luna",
         "source": "record-supersession 2026-10-09"
+      },
+      "gpt5_6_terra": {
+        "by": "gpt6_1_terra",
+        "source": "record-supersession 2026-10-27"
       }
     },
     "opencode": {
@@ -312,6 +316,14 @@
         "by": "openai_gpt_5_6_luna",
         "source": "record-supersession 2026-10-11",
         "variant_change": "mini -> luna tier (mirrors codex/gpt5_4_mini)"
+      },
+      "openai_gpt_5_6_terra": {
+        "by": "openai_gpt_6_1_terra",
+        "source": "record-supersession 2026-10-27"
+      },
+      "openai_gpt_5_6_terra_fast": {
+        "by": "openai_gpt_6_1_terra_fast",
+        "source": "record-supersession 2026-10-27"
       }
     }
   }
