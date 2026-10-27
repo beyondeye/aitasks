@@ -96,7 +96,7 @@ func TestRunnerVerb(t *testing.T) {
 	}
 	want := []string{}
 	if runtime.GOOS == "linux" {
-		want = []string{"bash-file", "pytest"}
+		want = []string{"bash-file", "pytest", "suite"}
 	}
 	if got := builtin.Registered(); !slices.Equal(got, want) {
 		t.Fatalf("the engine binary registers builtin adapters %v, want %v", got, want)
@@ -109,6 +109,16 @@ func TestRunnerVerb(t *testing.T) {
 		code, out, errs = call("runner", "pytest", "describe")
 		if code != 0 || errs != "" || !strings.Contains(out, "accounting: cases\n") || !strings.Contains(out, "discovery: native\n") {
 			t.Fatalf("runner pytest describe: code %d stdout %q stderr %q", code, out, errs)
+		}
+		t.Setenv("AIT_TESTMAP_COMMAND", "true")
+		code, out, errs = call("runner", "suite", "describe")
+		if code != 0 || errs != "" || !strings.Contains(out, "accounting: aggregate\n") || !strings.Contains(out, "discovery: inventory\n") {
+			t.Fatalf("runner suite describe: code %d stdout %q stderr %q", code, out, errs)
+		}
+		t.Setenv("AIT_TESTMAP_COMMAND", "")
+		code, out, errs = call("runner", "suite", "describe")
+		if code != 3 || out != "" || !strings.HasPrefix(errs, "BUILTIN_ERROR:suite|describe|command: is required") {
+			t.Fatalf("runner suite describe without a command: code %d stdout %q stderr %q", code, out, errs)
 		}
 	}
 }

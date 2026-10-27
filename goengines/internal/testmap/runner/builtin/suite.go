@@ -1,0 +1,297 @@
+//go:build unix
+
+package builtin
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"path"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/beyondeye/aitasks/goengines/internal/lineproto"
+	"github.com/beyondeye/aitasks/goengines/internal/procsup"
+	"github.com/beyondeye/aitasks/goengines/internal/testmap/registry"
+	"github.com/beyondeye/aitasks/goengines/internal/testmap/runner"
+	"github.com/bmatcuk/doublestar/v4"
+)
+
+// The suite builtin (M3.2i): any command as one aggregate unit, whose exit
+// is the unit's whole result (accounting: aggregate). No individual test
+// result is ever read from it; child evidence is t1854_14's reporting
+// contract.
+const (
+	suiteName = "suite"
+	// suiteGrace is SIGTERM → kill for a command the backstop stops.
+	suiteGrace = time.Second
+	// suiteDeadlineSlack keeps the adapter's own bound past the engine's
+	// deadline: under timeouts: none the engine bounds the unit, and its kill
+	// must win, so the unit is attributed `timeout`.
+	suiteDeadlineSlack = 10 * time.Second
+)
+
+// suiteFixed is the suite's fixed contract: the describe keys whose value
+// its evidence depends on, which a runners.yaml override may not change
+// (another value would make an aggregate anchor-eligible, or leave the
+// command without a bound). The describe document is generated from it.
+var suiteFixed = []struct{ key, value string }{
+	{"unit", "suite"},
+	{"accounting", runner.AccountingAggregate},
+	{"discovery", runner.DiscoveryInventory},
+	{"timeouts", runner.TimeoutsNone},
+}
+
+// suiteOverridable names the describe keys an entry may still override.
+const suiteOverridable = "full, children, needs, batch, group_by, filter_scope, artifact_glob, axis, token_format"
+
+// suiteDescribeDoc is the describe document's comments: the rule and the
+// support claim. The keys follow, from suiteFixed.
+const suiteDescribeDoc = `# suite (M3.2i): any command as one aggregate unit.
+# unit: one per runner entry, id aitestmap/runners.yaml#<name>, kind suite.
+#   The entry takes no bind:. Its command: is required.
+# fixed: unit, accounting, discovery and timeouts may not be overridden in
+#   runners.yaml (overridable: ` + suiteOverridable + `).
+# run: bash -c <command:> in the runner cwd, one supervised process; the
+#   engine bounds it as a singleton invocation (timeout_s), and its whole
+#   process tree is killed and proven gone. Exit 0 -> pass; non-zero or a
+#   signal -> fail; over timeout_s -> timeout.
+# a pass proves: the command exited 0 within its bound. No individual test
+#   result is ever inferred from it, and an aggregate never anchors.
+# fallback_command: is carried for the engine-absent path; never run here.
+# full: true may be set by the entry; child rows need a registered reporting
+#   contract (children:), and the command must not write cases.jsonl.
+# recursion: describe refuses a command naming the test front
+#   (SUITE_RECURSION:<runner>|<word>); the runtime guard refuses the rest.
+# logs: unit-<n>.stdout / unit-<n>.stderr in the invocation's report
+#   directory.
+# supported: GNU bash >= 4.4 on linux. darwin is pending.
+`
+
+func suiteAdapter() Adapter {
+	return Adapter{Name: suiteName, Describe: suiteDescribe, List: suiteList, Run: suiteRun}
+}
+
+func suiteDescribe(e *Env) ([]byte, error) {
+	if _, err := suiteCommand(e); err != nil {
+		return nil, err
+	}
+	var b strings.Builder
+	b.WriteString(suiteDescribeDoc)
+	for _, f := range suiteFixed {
+		fmt.Fprintf(&b, "%s: %s\n", f.key, f.value)
+	}
+	return []byte(b.String()), nil
+}
+
+// suiteCommand is the entry's command:, required and free of a word that
+// names the test front. A refusal writes SUITE_RECURSION:<runner>|<word> on
+// stderr first: the engine reports a builtin's first stderr line, and
+// Main's BUILTIN_ERROR line would blank the field separator.
+func suiteCommand(e *Env) (string, error) {
+	if strings.TrimSpace(e.Command) == "" {
+		return "", errors.New("command: is required (the command the suite runs)")
+	}
+	if w, ok := suiteRecursionWord(e.Command); ok {
+		fmt.Fprintf(os.Stderr, "SUITE_RECURSION:%s|%s\n", oneLine(e.Runner), oneLine(w))
+		return "", fmt.Errorf("suite recursion: the command names the test front (%s)", w)
+	}
+	return e.Command, nil
+}
+
+// suiteRecursionWord reports the word of cmd that names the test front:
+// `ait test`, `ait testmap test|run`, `ait-testmap test|run`, or
+// aitask_test.sh, each matched on the word's basename. It is an early,
+// lexical diagnostic: a false positive is a loud refusal, and what it cannot
+// see (a front reached through a script) the runtime guard refuses.
+func suiteRecursionWord(cmd string) (string, bool) {
+	words := strings.FieldsFunc(strings.ReplaceAll(cmd, "$(", " "), func(r rune) bool {
+		return strings.ContainsRune(" \t\n\r;&|()<>`", r)
+	})
+	for i := range words {
+		words[i] = strings.Trim(words[i], `'"`)
+	}
+	next := func(i int, want ...string) bool {
+		if i >= len(words) {
+			return false
+		}
+		for _, w := range want {
+			if words[i] == w {
+				return true
+			}
+		}
+		return false
+	}
+	for i, w := range words {
+		switch path.Base(w) {
+		case "ait":
+			if next(i+1, "test") || (next(i+1, "testmap") && next(i+2, "test", "run")) {
+				return w, true
+			}
+		case "ait-testmap":
+			if next(i+1, "test", "run") {
+				return w, true
+			}
+		case "aitask_test.sh": // invariant5-ok: named only to refuse it
+			return w, true
+		}
+	}
+	return "", false
+}
+
+// suiteFixedOverride refuses an entry that overrides a key of the fixed
+// contract to another value (an override equal to it is redundant).
+func suiteFixedOverride(en runner.Entry) error {
+	o := map[string]string{
+		"unit": en.Overrides.Unit, "accounting": en.Overrides.Accounting,
+		"discovery": en.Overrides.Discovery, "timeouts": en.Overrides.Timeouts,
+	}
+	for _, f := range suiteFixed {
+		if en.OverrideKeys[f.key] && o[f.key] != f.value {
+			return fmt.Errorf("runners.yaml overrides %s: %s, but a suite's %s is fixed at %s (overridable: %s)", f.key, o[f.key], f.key, f.value, suiteOverridable)
+		}
+	}
+	return nil
+}
+
+// suiteList writes the entry's one row, `aitestmap/runners.yaml#<name>\tsuite\t<name>`.
+// It starts no process. It refuses, rather than lists, a unit that would
+// not run as declared: a fixed-contract override, a bind: on the suite, a
+// binding of another runner, or an exclude: that would take the unit from
+// it (the engine drops such a unit silently).
+func suiteList(_ context.Context, e *Env, w io.Writer) error {
+	if _, err := suiteCommand(e); err != nil {
+		return err
+	}
+	cfg, err := runner.LoadConfig(e.Root)
+	if err != nil {
+		return err
+	}
+	var en *runner.Entry
+	for i := range cfg.Runners {
+		if cfg.Runners[i].Name == e.Runner {
+			en = &cfg.Runners[i]
+		}
+	}
+	if en == nil {
+		return fmt.Errorf("runners.yaml has no runner %q", e.Runner)
+	}
+	if err := suiteFixedOverride(*en); err != nil {
+		return err
+	}
+	if e.Accounting != runner.AccountingAggregate {
+		return fmt.Errorf("the effective accounting is %q, but a suite's accounting is fixed at %s", e.Accounting, runner.AccountingAggregate)
+	}
+	id := runner.RunnersPath + "#" + e.Runner
+	if len(en.Bind) > 0 {
+		return fmt.Errorf("a suite runner takes no bind: (its one unit is %s)", id)
+	}
+	for _, o := range cfg.Runners {
+		for _, g := range o.Bind {
+			if ok, _ := doublestar.Match(g, runner.RunnersPath); ok {
+				return fmt.Errorf("runner %s's bind: %s matches %s and would own the suite unit %s", o.Name, g, runner.RunnersPath, id)
+			}
+		}
+	}
+	rcfg, err := registry.LoadConfig(e.Root)
+	if err != nil {
+		return err
+	}
+	if rcfg.Excluded(runner.RunnersPath) {
+		return fmt.Errorf("exclude: drops %s, so the suite unit %s would never run", runner.RunnersPath, id)
+	}
+	if pid, err := registry.ParseID(id); err != nil || pid.String() != id {
+		return fmt.Errorf("%q cannot be a suite unit id", id)
+	}
+	_, err = fmt.Fprintf(w, "%s\tsuite\t%s\n", id, e.Runner)
+	return err
+}
+
+// suiteRun runs the invocation's one unit as `bash -c <command:>` in the cwd,
+// supervised, and writes a start row then its result row. The engine bounds
+// it (timeouts: none); the adapter never reports a timeout.
+func suiteRun(ctx context.Context, e *Env, m *runner.Manifest, res *Results) int {
+	cmd, err := suiteCommand(e)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "SUITE_ERROR:command:"+oneLine(err.Error()))
+		return lineproto.ExitUsage
+	}
+	en, err := e.Entry()
+	if err != nil || m.ReportDir == "" {
+		fmt.Fprintf(os.Stderr, "SUITE_ERROR:setup:%v report_dir=%q\n", err, m.ReportDir)
+		return lineproto.ExitFramework
+	}
+	_, dir := entryCwd(e, en)
+	if len(m.Units) == 0 {
+		return lineproto.ExitNothingRan
+	}
+	if err := suiteUnitCheck(e.Runner, m); err != nil {
+		for _, u := range m.Units {
+			if res.Row(u.ID, runner.StatusError, 0, "protocol:"+oneLine(err.Error())) != nil {
+				return lineproto.ExitFramework
+			}
+		}
+		return lineproto.ExitFail
+	}
+	id := m.Units[0].ID
+	if res.Start(id) != nil {
+		return lineproto.ExitFramework
+	}
+	var backstop time.Duration
+	if m.DeadlineS > 0 {
+		backstop = time.Duration(m.DeadlineS*float64(time.Second)) + suiteDeadlineSlack
+	}
+	log := filepath.Join(m.ReportDir, "unit-0000")
+	t0 := time.Now()
+	rr := e.Supervise(ctx, procsup.RunSpec{Path: "bash", Args: []string{"-c", cmd}, Dir: dir,
+		Stdout: log + ".stdout", Stderr: log + ".stderr", Timeout: backstop, Grace: suiteGrace})
+	ms := time.Since(t0).Milliseconds()
+	if rr.StartErr != nil || rr.SupervisorDied || rr.Cleanup != nil || rr.Cancelled || rr.TimedOut || rr.Containment != procsup.Supervisor {
+		fmt.Fprintf(os.Stderr, "SUITE_ERROR:%s|%s\n", id, oneLine(toolFailure(rr).Error()))
+		return lineproto.ExitFramework
+	}
+	status, msg := runner.StatusPass, ""
+	switch {
+	case rr.Exit == 0:
+	case rr.Signal != "":
+		status, msg = runner.StatusFail, "signal "+rr.Signal
+	default:
+		status, msg = runner.StatusFail, fmt.Sprintf("exit %d", rr.Exit)
+	}
+	// The log is not the evidence (the exit is), but its loss is said.
+	switch {
+	case rr.OutputErr != nil:
+		msg = strings.TrimPrefix(msg+"; log incomplete: "+oneLine(rr.OutputErr.Error()), "; ")
+	case rr.Truncated:
+		msg = strings.TrimPrefix(msg+"; log truncated", "; ")
+	}
+	if res.Row(id, status, ms, msg) != nil {
+		return lineproto.ExitFramework
+	}
+	if status != runner.StatusPass {
+		return lineproto.ExitFail
+	}
+	return lineproto.ExitOK
+}
+
+// suiteUnitCheck refuses a manifest the suite's contract cannot have
+// produced: the fixed timeouts and accounting, one unit, and that unit being
+// this runner's own.
+func suiteUnitCheck(name string, m *runner.Manifest) error {
+	switch {
+	case m.Timeouts != runner.TimeoutsNone:
+		return fmt.Errorf("timeouts %q, but a suite's timeouts is fixed at %s", m.Timeouts, runner.TimeoutsNone)
+	case m.Accounting != runner.AccountingAggregate:
+		return fmt.Errorf("accounting %q, but a suite's accounting is fixed at %s", m.Accounting, runner.AccountingAggregate)
+	case len(m.Units) != 1:
+		return fmt.Errorf("%d units, but a suite runs its one unit per invocation", len(m.Units))
+	}
+	u := m.Units[0]
+	if want := runner.RunnersPath + "#" + name; u.ID != want || u.Lowering != name {
+		return fmt.Errorf("unit %s lowering %q is not this runner's %s lowering %q", u.ID, u.Lowering, want, name)
+	}
+	return nil
+}
