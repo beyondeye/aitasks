@@ -9,7 +9,8 @@
 // test's own timeout. Isolated re-executes the test binary for one top-level
 // test, under that test's own deadline, in a subprocess leading its own
 // session; past the deadline the subprocess is killed and the test fails with
-// HANG:<test>|<limit>.
+// HANG:<test>|<limit>. The subprocess runs without the race runtime's exit
+// sleep unless the parent asks for one (childGORACE).
 //
 // Cleanup is by environment marker, not by session: the code under test may
 // start processes in sessions of their own (the runner package starts every
@@ -301,6 +302,26 @@ type childRun struct {
 	cleanupErr      error    // the leftovers could not be proven gone
 }
 
+// childGORACE is the subprocess's GORACE entry: atexit_sleep_ms=0, then the
+// parent's options. A race-instrumented process sleeps atexit_sleep_ms
+// (default 1000) before it exits, and every process a guarded test chains —
+// supervisors, builtins, nested engines — is this binary, so under -race each
+// exit charges a second to limit: TestPytestFakeEvidence's chain measured
+// 121.6 s against its 120 s limit, and 1.5 s without the sleep. The runtime
+// applies GORACE's options in order, the last assignment winning, so a parent
+// that sets atexit_sleep_ms keeps its value; the prefix is a complete option
+// and a separator, so the parent's options parse as they would alone (one the
+// runtime refuses stays refused). Go prints a race report where the race is
+// detected and still exits 66; the sleep only gives goroutines still running
+// after main returns a second more to race. A binary built without -race
+// ignores GORACE.
+func childGORACE(parent string) string {
+	if parent == "" {
+		return "GORACE=atexit_sleep_ms=0"
+	}
+	return "GORACE=atexit_sleep_ms=0 " + parent
+}
+
 // runChild runs the top-level test name in a subprocess under limit with
 // settings s and the extra environment env, kills it past limit, then kills
 // every process its launch marked.
@@ -334,7 +355,7 @@ func runChild(t *testing.T, name string, limit time.Duration, s childSettings, e
 	cmd := exec.Command(exe, args...)
 	// TMPDIR keeps the subprocess's t.TempDir() fixtures under this test's,
 	// so a killed subprocess leaves nothing behind in the system temp dir.
-	cmd.Env = append(append(os.Environ(), env...), "TMPDIR="+tmp, marker)
+	cmd.Env = append(append(append(os.Environ(), childGORACE(os.Getenv("GORACE"))), env...), "TMPDIR="+tmp, marker)
 	cmd.Stdout, cmd.Stderr = out, out
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	start := time.Now()

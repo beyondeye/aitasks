@@ -166,6 +166,10 @@ func controlFixture(t *testing.T, mode, dir string) {
 			return
 		}
 		recordSubtests(t, dir)
+	case "gorace":
+		if err := os.WriteFile(filepath.Join(dir, "gorace"), []byte(os.Getenv("GORACE")), 0o644); err != nil {
+			t.Fatal(err)
+		}
 	default:
 		t.Fatalf("unknown control mode %q", mode)
 	}
@@ -175,9 +179,10 @@ func controlFixture(t *testing.T, mode, dir string) {
 // goroutine dump, and the processes it left outside the subprocess's session
 // are killed by the marker sweep; a leak after a passing run is reported and
 // killed; a failure and a run that selected nothing are reported; a PASS line
-// far past the report cap still reads as a pass, with the report capped; and
-// the subprocess selects subtests and runs at the CPU setting exactly as the
-// parent's own testing flags would.
+// far past the report cap still reads as a pass, with the report capped; the
+// subprocess's GORACE turns the race runtime's exit sleep off and keeps the
+// parent's options; and the subprocess selects subtests and runs at the CPU
+// setting exactly as the parent's own testing flags would.
 func TestIsolationControls(t *testing.T) {
 	if v, ok := os.LookupEnv(controlEnv); ok {
 		mode, dir, _ := strings.Cut(v, "|")
@@ -275,6 +280,36 @@ func TestIsolationControls(t *testing.T) {
 		if err != nil || rest != fmt.Sprintf("\n[truncated %d bytes]", n) || n+outputCap < noisyBytes ||
 			!strings.HasPrefix(c.output, "=== RUN   "+name+"\n") {
 			t.Errorf("report not the output's first %d bytes plus a truncation note: %d bytes ending %q", outputCap, len(c.output), end)
+		}
+	})
+	// The subprocess's GORACE is atexit_sleep_ms=0 followed by the parent's
+	// options, kept verbatim: a misleading value is still prefixed, and an
+	// explicit atexit_sleep_ms of the parent's comes after the prefix, where
+	// the runtime's last assignment wins.
+	t.Run("gorace", func(t *testing.T) {
+		for _, row := range []struct {
+			parent string
+			unset  bool
+			want   string
+		}{
+			{unset: true, want: "atexit_sleep_ms=0"},
+			{parent: "halt_on_error=1", want: "atexit_sleep_ms=0 halt_on_error=1"},
+			{parent: "strip_path_prefix=/work/atexit_sleep_ms=demo/", want: "atexit_sleep_ms=0 strip_path_prefix=/work/atexit_sleep_ms=demo/"},
+			{parent: "halt_on_error=1,atexit_sleep_ms=250", want: "atexit_sleep_ms=0 halt_on_error=1,atexit_sleep_ms=250"},
+			{parent: "atexit_sleep_ms=1000", want: "atexit_sleep_ms=0 atexit_sleep_ms=1000"},
+		} {
+			t.Setenv("GORACE", row.parent) // restored after the subtest, set or not
+			if row.unset {
+				os.Unsetenv("GORACE")
+			}
+			dir := t.TempDir()
+			c := runChild(t, name, hangLimit, settings, controlEnv+"=gorace|"+dir)
+			if c.hung || !c.state.Success() || !c.passed {
+				t.Fatalf("parent %q: hung %v state %v passed %v\n%s", row.parent, c.hung, c.state, c.passed, c.output)
+			}
+			if b, err := os.ReadFile(filepath.Join(dir, "gorace")); err != nil || string(b) != row.want {
+				t.Errorf("parent %q (unset %v): child GORACE %q, %v; want %q", row.parent, row.unset, b, err, row.want)
+			}
 		}
 	})
 
