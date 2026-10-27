@@ -204,3 +204,70 @@ archived plan's final notes verbatim.
   instead, because the measurements show the FIFO path never blocks
   (121.57 s → 1.51 s with only the knob changed) · severity: low ·
   → mitigation: none: Verification §4–6 reproduce both directions
+
+## Final Implementation Notes
+
+- **Actual work done:** as planned. `childGORACE` in
+  `goengines/internal/testsupport/hangguard/hangguard.go` prefixes
+  `atexit_sleep_ms=0` to the parent's `GORACE`, and `runChild` puts that entry
+  into every isolated subprocess's env (after `os.Environ()`, before the
+  caller's `env`). There is a package-doc sentence, a `gorace` control mode and
+  subtest in `controls_linux_test.go` (exact child values for 5 parent
+  settings), and a sentence on the hang guard row of `goengines/README.md`.
+- **Deviations from plan:** none in the final plan. The plan went through two
+  reviewed revisions before approval:
+  - A substring "already set?" check was replaced by a runtime-grammar parser,
+    because the substring check misread
+    `strip_path_prefix=/work/atexit_sleep_ms=demo/`.
+  - The parser and its race-only timing oracle were then replaced by the
+    prefix composition, which relies only on the runtime's measured
+    last-assignment-wins rule. The oracle's 1 s threshold could fail falsely on
+    a loaded or paused host.
+- **Issues encountered:** none during implementation. During diagnosis:
+  - `/usr/bin/time` and `bc` are not installed on this host (timing used
+    `date +%s%N` and awk).
+  - The hang report's child dump and live `ps` sampling showed no stuck
+    process. The FIFO `Load` was simply the phase running at 120 s.
+- **Key decisions:**
+  - Fixed at hangguard's single launch point rather than in five self-re-exec
+    `TestMain`s.
+  - Hang limits unchanged, so a real hang still fails at them.
+  - `GORACE` is set unconditionally, because a binary built without `-race`
+    ignores it.
+  - The pure helper has no separate unit test: the end-to-end rows pin every
+    output.
+- **Verification results (2026-10-27, host load ~8–10):**
+  - gofmt/vet clean.
+  - hangguard passes, plain and `-race`.
+  - Mutants (scratch copy) each fail the `gorace` subtest, and the pristine
+    copy passes:
+    - M1, no entry: fails all 5 rows.
+    - M2, append instead of prepend: fails the 4 set-parent rows.
+    - M3, substring skip: fails the misleading-value row and the 2 explicit
+      rows.
+  - `TestPytestFakeEvidence` under `-race`, guarded: PASS in 1.62 s
+    (subtests ~0.10 s, previously 8.10 s each).
+  - Negative control `GORACE=atexit_sleep_ms=1000`:
+    `HANG:TestPytestFakeEvidence|2m0s` (120.18 s).
+  - `AIT_TESTMAP_REQUIRE_REAL_TOOLS=1 go test -race -count=1 -timeout 45m ./internal/testmap/runner/builtin/`:
+    ok in 39.0 s (earlier recorded figure: 666 s).
+  - `ait engine test` ok, preflight tripwire included.
+  - `go test -race ./internal/procsup/ ./internal/testmap/runner/`: ok in
+    9.9 s / 53.4 s.
+- **Probe evidence (verbatim).** The race-built probe binary:
+  `go test -c -race -o $S/hgprobe.test ./internal/testsupport/hangguard/`
+  (go1.27.2). Exit time per `GORACE`:
+  ```bash
+  probe() { local t0 t1 rc; t0=$(date +%s%N); env GORACE="$1" ./hgprobe.test -test.run='^$' >probe.out 2>&1; rc=$?; t1=$(date +%s%N); printf '%-50s exit=%-3s %5.2fs\n' "$(printf '%q' "$1")" "$rc" "$(awk -v a=$t0 -v b=$t1 'BEGIN{print (b-a)/1e9}')"; }
+  # composition check (child value = "atexit_sleep_ms=0 <parent>"):
+  #   ''                                          0.009s   halt_on_error=1                      0.008s
+  #   strip_path_prefix=/work/atexit_sleep_ms=demo/  0.008s   strip_path_prefix="x atexit_sleep_ms=0 y"  0.008s
+  #   atexit_sleep_ms=250                         0.259s   halt_on_error=1,atexit_sleep_ms=250  0.259s
+  #   atexit_sleep_ms=1000                        1.008s   '  ,atexit_sleep_ms=1000'            1.008s
+  #   atexit_sleep_ms (no '=')                    exit 66  strip_path_prefix="x (unterminated)  exit 66
+  # control without the prefix: GORACE='' 1.01s; GORACE=strip_path_prefix=/work/atexit_sleep_ms=0/ 1.01s
+  ```
+  In-process timing, with the guard bypassed via
+  `AIT_HANGGUARD_ISOLATE='TestPytestFakeEvidence|debug'`: 121.57 s with the
+  default sleep, 1.51 s with `GORACE=atexit_sleep_ms=0`.
+- **Upstream defects identified:** None
