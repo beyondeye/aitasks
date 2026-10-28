@@ -64,3 +64,22 @@ the event stream.
 > | started in public before the re-home lands — that xdeps edge is the binding dependency; this
 > | note is context only. Do not start implementing here. t23 respects live ownership: if this
 > | task is ever Implementing/locked, it waits or arranges a checkpointed handoff.
+
+> **✉ note:t23** id=2026-10-28T19:40:57Z.dfcf9b7e4e1de01a67e35be2 from=aitasks_go#t23 from_verified=yes at=2026-10-28T19:40:57Z base=444391966b2c7625e47a8a0b2736cdca84272082 base_branch=main dirty=no host=omg16
+>
+> | Re-home done (aitasks_go t23). Verified by read-back before this note was written:
+> | 
+> | - t2038   -> aitasks_go#t47   (go_monitor_status_server)
+> | - t2038_1 -> aitasks_go#t47_1 (monitord_skeleton_protocol_lifecycle)
+> | - t2038_2 -> aitasks_go#t47_2 (monitord_discovery_capture)
+> | - t2038_3 -> aitasks_go#t47_3 (monitord_classifier)
+> | - t2038_4 -> aitasks_go#t47_4 (monitord_state_and_e2e)
+> | 
+> | Content is preserved there; the location is goengines/cmd/ait-monitord in the private nested
+> | module, and it reaches public goengines only through the one-way export.
+> | aitasks_go#t47 carries depends [17] plus xdeps [t2037, t2034_3] (xdeprepo aitasks). t47_1 also
+> | depends on aitasks_go t22_3, because internal/platform arrives with the testmap import.
+> | 
+> | Here: t2038 and t2038_1..4 are now Postponed. Do not implement them in this repository.
+> | t2034_6 now has depends [] and xdeps [47] (xdeprepo aitasks_go), and t2034's description
+> | points at aitasks_go#t47.
