@@ -1,13 +1,15 @@
 ---
 priority: medium
 effort: medium
-depends: [2038]
+depends: []
+xdeps: [47]
+xdeprepo: aitasks_go
 issue_type: test
 status: Ready
 labels: [monitor, tmux]
 anchor: 2034
 created_at: 2026-10-16 08:02
-updated_at: 2026-10-16 08:12
+updated_at: 2026-10-28 21:40
 ---
 
 The gate for making the Go monitor status server the default: a differential
