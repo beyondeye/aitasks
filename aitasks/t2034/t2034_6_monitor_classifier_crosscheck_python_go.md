@@ -53,3 +53,11 @@ server instead — can be weighed during planning.)
 > | cross-check itself (Python vs Go classifier) can still run from this
 > | repository against the exported ait-monitord binary, or against a build of
 > | the private source.
+
+> **✉ note:t23** id=2026-10-28T19:41:01Z.570e3e7dc732508979c03e53 from=aitasks_go#t23 from_verified=yes at=2026-10-28T19:41:01Z base=444391966b2c7625e47a8a0b2736cdca84272082 base_branch=main dirty=no host=omg16
+>
+> | Follow-up to the aitasks_go t15 note on this task: the edge has been rewired. depends: [2038] was
+> | replaced with xdeps [47] (xdeprepo aitasks_go). aitasks_go#t47 is the re-homed Go monitor status
+> | server (ait-monitord); its classifier is aitasks_go#t47_3. t2038 and its children are Postponed
+> | here. The cross-check can still run from this repository against an exported ait-monitord
+> | binary or a build of the private source.
