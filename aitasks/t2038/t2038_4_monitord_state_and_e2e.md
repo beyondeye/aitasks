@@ -3,11 +3,11 @@ priority: medium
 effort: medium
 depends: [t2038_3]
 issue_type: feature
-status: Ready
+status: Postponed
 labels: [monitor]
 anchor: 2034
 created_at: 2026-10-16 08:11
-updated_at: 2026-10-16 08:11
+updated_at: 2026-10-28 21:40
 ---
 
 State in the Go server, and the end-to-end comparison (parent: Go monitor status

@@ -3,11 +3,11 @@ priority: medium
 effort: medium
 depends: [t2038_1]
 issue_type: feature
-status: Ready
+status: Postponed
 labels: [monitor, tmux]
 anchor: 2034
 created_at: 2026-10-16 08:11
-updated_at: 2026-10-16 08:11
+updated_at: 2026-10-28 21:40
 ---
 
 Discovery and capture in the Go server (parent: Go monitor status server task).
