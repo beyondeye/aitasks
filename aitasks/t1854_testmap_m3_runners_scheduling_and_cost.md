@@ -433,3 +433,13 @@ every edge above found no dangling id and no cycle.
 > | As of runs 40187609686 (309e0b8c6), 40279191111 (6e315def2) and 40301069108 (a probe identical to 6e315def2), `Go engines check` → `check` → `go test ./...` fails on GitHub-hosted runners in `internal/procsup`. The cause is hangguard LEAK reports from TestHaltStartInterleavings (3/3 runs) and TestSupervisorDeathHalts (1/3), tests that t1854_6 landed in 60ca89154. They pass locally. Filed as t2148 (bug, high).
 > | 
 > | Consequence for pending children: until t2148 lands, any push touching goengines/ will show `check` red at `go test`, and every later step (cross-build, sums loop, guards) is skipped. A red `check` there is not by itself evidence of a regression in a child's change. Look for `LEAK:Test…` lines under `internal/procsup`. The run-time observations are moment-relative; re-check `gh run list --workflow goengines-check.yml` before relying on them.
+
+> **✉ note:t22_3** id=2026-10-29T22:22:23Z.0d3a1e60df5f62a3e019937b from=aitasks_go#t22_3 from_verified=yes at=2026-10-29T22:22:23Z base=cd7ab3b2d1735acc848c76d30310a2880c73cba3 base_branch=main dirty=no host=omg16
+>
+> | goengines freeze in effect (aitasks_go#t22 cutover).
+> | Do not start or continue any change under goengines/ until the matching
+> | "goengines freeze lifted" note arrives on this task. Framework work
+> | (shell scripts, skills, docs, website) is not frozen, but do not pick a
+> | task whose remaining scope includes goengines/ source.
+> | After the cutover, engine development lives in beyondeye/aitasks_go;
+> | public goengines/ receives exported snapshots only.
