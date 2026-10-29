@@ -53,6 +53,14 @@ REGISTRY_LOCK_DIR="${REGISTRY_FILE}.lockd"
 # acquire dies, which the silent bootstrap `add` (tmux_bootstrap.sh invokes it as
 # `... >/dev/null 2>&1 || true`) swallows — harmlessly skipping a last_opened
 # refresh instead of clobbering a concurrent writer's groups.
+#
+# Every exit after a successful acquire — a `die` inside the locked section
+# included, and a `( cmd_update … )` subshell in cmd_doctor too — releases the
+# mutex through the EXIT trap registry_lock_acquire installs (lib/registry_lock.sh),
+# so a die under the lock needs no explicit release. Do not install another
+# `trap … EXIT` in this script: bash keeps one, and replacing it would leak the
+# lock on every such die (pinned by tests/test_projects_lock_released_on_die.sh,
+# t2164).
 registry_lock_or_die() {
     # The lock dir lives beside the registry; its parent may not exist yet on a
     # first-ever write (ait_atomic_write_text would otherwise create it). mkdir the parent
