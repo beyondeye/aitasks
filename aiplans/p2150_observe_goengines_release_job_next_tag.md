@@ -89,3 +89,22 @@ None identified.
 
 ### Goal-achievement risk: low
 None identified.
+
+## Final Implementation Notes
+- **Actual work done:** Observed the first `v*` tag after t2148: `v0.40.1` → `b5e76cf6b`; t2148 fix `a06e4f5d8` is an ancestor. Release run **40858419630** (event push, headSha `b5e76cf6b592fcef21415535dc8f43848addb87e`) had all 13 jobs `success`. Step-level conclusions for job `goengines` (**123395220031**), all steps `success`:
+  - `Detect goengines mode` → `MODE:legacy` (no `goengines/EXPORT.txt` at the tag; `mode=` is appended to `$GITHUB_OUTPUT` at `.github/scripts/goengines_integrity.sh:540-541`).
+  - `go vet` → success, no findings.
+  - `Hang-guard preflight` → ran (`ok …/internal/testsupport/hangguard 0.756s`). This and the next three steps are gated on `steps.mode.outputs.mode != 'export'`, and all four executed.
+  - `Setup Python` / `Install pinned pytest` → pytest 8.4.2 + pytest-xdist 3.8.0.
+  - `go test` (`AIT_TESTMAP_REQUIRE_REAL_TOOLS=1`) → 21/21 packages `ok`, incl. `internal/procsup 7.515s`.
+  - `Export integrity` → `MODE:legacy` + `INTEGRITY_SKIPPED:legacy mode — goengines/ is developed here; gofmt, vet, the preflight, go test and the bench are its validation`.
+  - `Drift report` → `DRIFT_SKIPPED:legacy`.
+  - `Build engine release assets` → 4 targets of `ait-testmap` (the only executable under `goengines/cmd/` at v0.40.1); `ait-testmap_0.40.1_SHA256SUMS.txt`; in-job `sha256sum -c` 4/4 `OK`.
+  - `Upload engine release assets` → artifact `goengines-dist` ID 12889983906, 5 files, digest `ad76da16c783…`.
+  - The `release` job (**123396018588**) downloaded the same artifact (same digest) and uploaded all 5 `ait-testmap_*` files to the GitHub release.
+  - Independent re-check: `gh release download v0.40.1 --pattern 'ait-testmap_*'` followed by `sha256sum -c ait-testmap_0.40.1_SHA256SUMS.txt` gave 4/4 `OK`. The release has 4 binaries + 1 sums file, i.e. one sums file per `cmd/` executable.
+- **Divergence from the static guard:** none. `release.yml`, `goengines_integrity.sh`, `goengines/build.sh` and `tests/test_release_workflow_goengines.py` show an empty diff between `v0.40.1` and `main` at `c0483ba6e`, so the guard at HEAD models the wiring that ran. `python3 tests/test_release_workflow_goengines.py` gave 26 tests `OK`. The observed order and gating match the guard's model. No bug task was created.
+- **Deviations from plan:** None.
+- **Issues encountered:** The job log's per-step labels read `UNKNOWN STEP`, so steps were segmented by their `##[group]Run …` headers instead.
+- **Key decisions:** Claims are bounded to this one legacy-mode run. The first export-mode Release run (`MODE:export`, `INTEGRITY_OK`, drift and asset checks after the aitasks_go#t22 cutover) was not observed and is out of scope. The advisory note from aitasks_go#t22_2 places it in a follow-up filed after the cutover.
+- **Upstream defects identified:** None
