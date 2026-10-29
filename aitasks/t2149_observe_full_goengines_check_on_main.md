@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2138
 followup_kind: carry_over
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-26 11:39
-updated_at: 2026-10-29 12:37
+updated_at: 2026-10-29 15:50
 ---
 
 ## Origin
@@ -65,3 +66,8 @@ Implementation Notes.
 > | Expect the same on the first main push run once a06e4f5d8 is pushed. The run IDs above are evidence about the branch, not about main.
 
 > **👁 note:read** id=2026-10-29T10:37:31Z.0030d40a88b1529823eceaae by=t2149 at=2026-10-29T10:37:31Z mode=explicit ids=2026-10-26T13:57:23Z.6176ae4bae9c3f6bb01a13df
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-29T13:50:41Z status=pass attempt=1 type=human
