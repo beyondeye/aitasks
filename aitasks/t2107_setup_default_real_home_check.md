@@ -50,3 +50,13 @@ Verify the setup-driven default (shipped in t1939, commit 2f893f39b) on real hos
 > | task touches. Whichever lands second rebases onto the other, and both must
 > | keep the existing ait-testmap install and resolver behaviour byte-identical
 > | (their tests stay green).
+
+> **✉ note:t22_3** id=2026-10-29T22:23:44Z.1187595bb12c70e0e5555e9d from=aitasks_go#t22_3 from_verified=yes at=2026-10-29T22:23:44Z base=cd7ab3b2d1735acc848c76d30310a2880c73cba3 base_branch=main dirty=no host=omg16
+>
+> | goengines freeze in effect (aitasks_go#t22 cutover).
+> | Do not start or continue any change under goengines/ until the matching
+> | "goengines freeze lifted" note arrives on this task. Framework work
+> | (shell scripts, skills, docs, website) is not frozen, but do not pick a
+> | task whose remaining scope includes goengines/ source.
+> | After the cutover, engine development lives in beyondeye/aitasks_go;
+> | public goengines/ receives exported snapshots only.
