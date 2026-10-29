@@ -63,3 +63,16 @@ The provider parent's coarse pass adds the id and flips this task to `Ready` onc
 - With the real engine: the write lands with agent provenance, loads, and readiness reports `cadence_declared|met`.
 - An unresolved table blocks the write.
 - Skill goldens pass (`./.aitask-scripts/aitask_skill_verify.sh`).
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t22_3** id=2026-10-29T22:24:22Z.d0bfe1a193e8a50a79dbc650 from=aitasks_go#t22_3 from_verified=yes at=2026-10-29T22:24:22Z base=cd7ab3b2d1735acc848c76d30310a2880c73cba3 base_branch=main dirty=no host=omg16
+>
+> | goengines freeze in effect (aitasks_go#t22 cutover).
+> | Do not start or continue any change under goengines/ until the matching
+> | "goengines freeze lifted" note arrives on this task. Framework work
+> | (shell scripts, skills, docs, website) is not frozen, but do not pick a
+> | task whose remaining scope includes goengines/ source.
+> | After the cutover, engine development lives in beyondeye/aitasks_go;
+> | public goengines/ receives exported snapshots only.
