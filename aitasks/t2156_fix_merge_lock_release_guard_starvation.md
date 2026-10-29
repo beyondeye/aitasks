@@ -3,13 +3,14 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Folded
 labels: [tmux, test_infrastructure]
 gates: [risk_evaluated]
+folded_into: 2167
 anchor: 1689
 followup_kind: upstream_defect
 created_at: 2026-10-26 16:35
-updated_at: 2026-10-26 16:35
+updated_at: 2026-10-30 01:34
 ---
 
 ## Origin
