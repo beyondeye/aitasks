@@ -116,11 +116,13 @@ assert_shape_unchanged() {
 
 # --- 1. Every verb × every unreadable shape ------------------------------
 
-# label|stdin|verb args… (args are space-separated; none contain spaces)
+# label|stdin|verb args (space-separated)
+# Paths appear as @ALPHA@ / @BETA@ and are substituted after the split, so a
+# TMPDIR containing whitespace still reaches the verb as one argument.
 VERBS=(
-    "add|-|add $ALPHA_ROOT"
+    "add|-|add @ALPHA@"
     "remove --force|-|remove alpha --force"
-    "update|-|update alpha $BETA_ROOT"
+    "update|-|update alpha @BETA@"
     "prune --yes|-|prune --yes"
     "doctor|k|doctor"
     "group set|-|group set alpha suite_b"
@@ -135,6 +137,12 @@ for shape in non_utf8 directory dangling_symlink; do
     for spec in "${VERBS[@]}"; do
         IFS='|' read -r label stdin_text argline <<< "$spec"
         read -r -a args <<< "$argline"
+        for i in "${!args[@]}"; do
+            case "${args[i]}" in
+                @ALPHA@) args[i]="$ALPHA_ROOT" ;;
+                @BETA@)  args[i]="$BETA_ROOT" ;;
+            esac
+        done
         make_shape "$shape"
         [[ "$stdin_text" == "-" ]] && stdin_text=""
         rc=0
