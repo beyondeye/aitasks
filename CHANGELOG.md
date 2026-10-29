@@ -1,5 +1,40 @@
 # Changelog
 
+## v0.40.1
+
+### Features
+
+- **Supervised test-map runs** (t1854_6): On Linux, each `ait testmap` runner now runs under its own dedicated supervisor. Processes a test leaves behind are stopped and reaped when the runner finishes, including daemons that detach into their own session. Each record states its containment, and a supervisor failure stops the whole run rather than letting it continue unsupervised.
+- **Built-in bash-file runner** (t1854_8): The new `bash-file` builtin runner treats each tracked shell test script as one unit. It runs each script under its timeout and records pass or fail plus per-unit logs. Linux only.
+- **Built-in pytest runner** (t1854_9): The new `pytest` builtin runner reports every test case by its exact pytest node id, including modules skipped at collection and setup or teardown errors. It works with pytest-xdist and needs pytest 8.x on CPython 3.10 or newer.
+- **Built-in suite runner** (t1854_12): The new `suite` builtin runner runs a whole-suite command with `bash -c` as a single aggregate unit. It refuses any configuration where its result would be silently dropped.
+- **Test-map code modules** (t2131_3): `ait testmap` now has a code modules table, inferred from your codemap and Gradle projects, and a `modules` verb (`--list`, `--explain <path>`, `--scan [--apply]`, `--json`). Once you declare a table, `check` reports `MODULES_DRIFT` when the table is out of date and `MODULE_CONFLICT` when modules overlap.
+- **GPT-6.1 Terra and GPT-6 Astra** (t2159): Codex can now use `gpt6_1_terra` and `gpt6_astra`. The OpenCode model list was refreshed with 10 new models, including GPT-6.1 Terra. GPT-5.6 Terra is recorded as superseded by GPT-6.1 Terra.
+
+### Bug Fixes
+
+- **Agent panes find the right tools under mise** (t1689, t2144): A self-referential `mise x` wrapper in `~/.local/bin` can no longer send a tmux-launched agent into an endless loop, whatever PATH order the launching shell had. The fix moves only `~/.local/bin` entries that come before mise's entries to just after them. In every other case the pane gets exactly your PATH.
+- **Metadata pushes retry only on a real race** (t2134): When updating task metadata, a push is now retried only when someone else pushed first. Any other rejection, such as a refusing hook, fails at once with git's message. When retries run out, you see the last push error.
+- **Setup repairs venvs whose version check fails** (t2135): When `ait setup` cannot check package versions in one of its Python environments, it now repairs that environment instead of treating it as healthy. If the repair does not fix it, setup reports "version check failed".
+- **Stats TUI: Enter on Cancel and Tab cycling** (t2155): In the stats TUI's pane selector, Enter on the Cancel button now cancels instead of saving. Tab and Shift+Tab cycle between panels again, now including the content pane. While a dialog is open, Tab stays in the dialog.
+- **Runners refuse `#` and `@` in test paths** (t2145): The bash-file and pytest runners now refuse a test file whose path contains `#` or `@`, and name that file. Before, they listed it as a unit that could never pass.
+- **Tests pass on macOS** (t2142, t2146, t2151): Live tmux tests no longer fail on macOS because of an over-long socket path. Live-holder tests now expect the result that matches the process token macOS records. The sync scan-failure test injects its fault in a way that also works on macOS.
+- **Go engine tests reliable on CI and any git** (t2148, t2158, t2160): The process-supervision tests no longer leave processes running on hosted runners where `/bin/sh` is dash. `TestHistory` now passes with any git version. Hang-guarded tests no longer stall under `-race`: the builtin runner tests went from about 11 minutes to 39 seconds.
+
+### Improvements
+
+- **Live-holder checks work on macOS** (t2152): macOS now records a precise process identity for lock holders. `ait note --with-live`, sync's live-lock pane naming and the lock gate can therefore tell whether a holder is still alive, as on Linux. Locks taken before this release keep reading as unknown until they are taken again.
+- **Wrapper-directory limitation documented** (t2153): The tmux gateway docs now state that only `~/.local/bin` wrappers are handled, and list the PATH orderings that were tested.
+
+### Tests
+
+- **Slow-start retries in bounded-run tests** (t2147): Tests that read a fixture's pid after it exits now retry with longer deadlines when the fixture starts slowly, instead of flaking.
+- **Local dash-parity check** (t2154): `goengines/ci/dashcheck.sh` runs the Go engine suite in a container set up like the hosted CI runner, with dash as `/bin/sh`. This lets you catch CI-only failures locally. It needs docker.
+
+### Maintenance
+
+- **Go engines as an export target** (t2138): CI now runs in one of two modes, chosen by `goengines/EXPORT.txt`. A new export-integrity check verifies that the exported engine source matches its record and builds on its own.
+
 ## v0.40.0
 
 ### Features
