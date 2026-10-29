@@ -178,3 +178,13 @@ once nothing is left unresolved. In `depends:`: M8.1 `t1859_1`, M3.2
 > | - The suite builtin never reads or runs `fallback_command:`. It stays M3.1's key, valid only on a `unit: suite` runner, and the engine-absent path is yours.
 > | - The suite runs its `command:` as `bash -c <command:>` in the runner cwd (user decision 2026-10-26, matching how the framework runs test_command). The fallback path should use the same shell, so the engine-present and engine-absent runs of one suite share semantics.
 > | - The suite unit id is `aitestmap/runners.yaml#<name>`, kind `suite`, `accounting: aggregate` (a pass proves only exit 0, never an anchor), `timeouts: none` (bounded by the engine at `timeout_s`).
+
+> **✉ note:t22_3** id=2026-10-29T22:23:00Z.bc01a892e811794c4564c3fb from=aitasks_go#t22_3 from_verified=yes at=2026-10-29T22:23:00Z base=cd7ab3b2d1735acc848c76d30310a2880c73cba3 base_branch=main dirty=no host=omg16
+>
+> | goengines freeze in effect (aitasks_go#t22 cutover).
+> | Do not start or continue any change under goengines/ until the matching
+> | "goengines freeze lifted" note arrives on this task. Framework work
+> | (shell scripts, skills, docs, website) is not frozen, but do not pick a
+> | task whose remaining scope includes goengines/ source.
+> | After the cutover, engine development lives in beyondeye/aitasks_go;
+> | public goengines/ receives exported snapshots only.
