@@ -121,3 +121,13 @@ Add a red-proved row with an exact `anchor_reason` to `TestEligibilityImplicitIn
 > | - Cwd: the entry's `cwd` (default the root).
 > | - Inventory: no process. It reads runners.yaml (its own command, cwd, bind (refused), describe overrides; every other entry's bind) and config.yaml `exclude:`.
 > | - Environment: inherited from the builtin (AIT_TESTMAP_ROOT / RUNNER / RUN_ID / REPORT_DIR / ACTIVE / COMMAND), stdin /dev/null. No tool config flags; what the command itself reads is opaque.
+
+> **✉ note:t22_3** id=2026-10-29T22:23:29Z.fffe398b8362dd6ee29714fe from=aitasks_go#t22_3 from_verified=yes at=2026-10-29T22:23:29Z base=cd7ab3b2d1735acc848c76d30310a2880c73cba3 base_branch=main dirty=no host=omg16
+>
+> | goengines freeze in effect (aitasks_go#t22 cutover).
+> | Do not start or continue any change under goengines/ until the matching
+> | "goengines freeze lifted" note arrives on this task. Framework work
+> | (shell scripts, skills, docs, website) is not frozen, but do not pick a
+> | task whose remaining scope includes goengines/ source.
+> | After the cutover, engine development lives in beyondeye/aitasks_go;
+> | public goengines/ receives exported snapshots only.
