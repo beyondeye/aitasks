@@ -115,6 +115,26 @@ class ConfigGroupReadTests(unittest.TestCase):
     def test_missing_config_file_is_none(self):
         self.assertIsNone(_resolve_config_project_group(self.tmp / "nope"))
 
+    def test_non_utf8_config_is_none(self):
+        # t2163: a non-UTF-8 config reads as "no group" — it must not raise
+        # out of discovery.
+        root = _write_config(self.tmp / "p", group=None)
+        cfg = root / "aitasks" / "metadata" / "project_config.yaml"
+        cfg.write_bytes(b"project:\n  name: caf\xe9\n  project_group: suite_a\n")
+        self.assertIsNone(_resolve_config_project_group(root))
+
+    def test_invalid_byte_after_the_group_line_is_still_none(self):
+        # The whole file is decoded, so the answer cannot depend on whether the
+        # bad byte falls inside the text reader's first chunk (~8 KiB).
+        root = _write_config(self.tmp / "p", group=None)
+        cfg = root / "aitasks" / "metadata" / "project_config.yaml"
+        cfg.write_bytes(
+            b"project:\n  project_group: suite_a\n"
+            + b"# padding\n" * 2000
+            + b"tail: \xff\n"
+        )
+        self.assertIsNone(_resolve_config_project_group(root))
+
 
 class ResolveSessionGroupTests(unittest.TestCase):
     def setUp(self):

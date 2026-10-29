@@ -173,7 +173,7 @@ validate_group_slug() {
 }
 
 # Read a registered entry's current project_group (5th pipe field) by name from
-# pre-fetched `list_registry_entries` output. Echoes the raw value (slug, the
+# pre-fetched `load_registry_or_die` output. Echoes the raw value (slug, the
 # unset sentinel `-`, or empty). Used by cmd_add to let a user-set registry
 # group survive a re-add (registry wins over config bootstrap).
 registry_group_for_name() {
@@ -193,27 +193,41 @@ project_name_for_root() {
     basename "$root"
 }
 
-# Iterate the registry and emit one pipe-separated line per entry:
-#   <name>|<path>|<git_remote>|<last_opened>
+# Load the registry into REGISTRY_TSV, one pipe-separated line per entry:
+#   <name>|<path>|<git_remote>|<last_opened>|<project_group>
 # Pipe is used (not tab) so empty middle fields survive `read -r` (tab is
 # whitespace IFS — consecutive tabs collapse).
-# Empty / missing registry → no output.
 #
 # Single registry-file reader authority (t970): shells out to the Python
 # parser in agent_launch_utils.py instead of re-implementing the YAML grammar
 # in awk. The output is byte-identical to the former awk reader (golden-corpus
-# tested in tests/test_registry_reader_parity.sh). Because this feeds the
-# read-modify-write round-trip (cmd_add / cmd_remove / cmd_update re-serialize
-# the whole file via build_registry_yaml), every mutating verb guards Python
-# availability up front with `require_python` — a missing interpreter aborts
-# loudly rather than returning empty and wiping git_remote/last_opened.
-list_registry_entries() {
-    [[ -f "$REGISTRY_FILE" ]] || return 0
-    local python_bin
+# tested in tests/test_registry_reader_parity.sh).
+#
+# The read is STRICT (--list-registry-strict). A missing registry is a definite
+# empty answer; a path that exists but cannot be read — non-UTF-8 content, a
+# directory, a dangling symlink, an I/O error — dies here, in the calling shell.
+# Every mutating verb rebuilds the whole file from this read via
+# build_registry_yaml, so an empty answer for an unreadable registry would drop
+# every entry (t2163). For the same reason a missing interpreter dies rather
+# than reading as empty. Pass --locked when the caller holds the registry
+# mutex: it is released before dying.
+load_registry_or_die() {
+    local locked=0 rc=0 python_bin
+    [[ "${1:-}" == "--locked" ]] && locked=1
+    REGISTRY_TSV=""
     python_bin=$(resolve_python)
-    [[ -n "$python_bin" ]] || return 0
-    AITASKS_PROJECTS_INDEX="$REGISTRY_FILE" "$python_bin" \
-        "$SCRIPT_DIR/lib/agent_launch_utils.py" --list-registry
+    if [[ -n "$python_bin" ]]; then
+        REGISTRY_TSV=$(AITASKS_PROJECTS_INDEX="$REGISTRY_FILE" "$python_bin" \
+            "$SCRIPT_DIR/lib/agent_launch_utils.py" --list-registry-strict) || rc=$?
+    else
+        rc=1
+    fi
+    if [[ "$rc" -ne 0 ]]; then
+        if [[ "$locked" -eq 1 ]]; then
+            registry_lock_release "$REGISTRY_LOCK_DIR"
+        fi
+        die "Cannot read the project registry $REGISTRY_FILE — left unchanged. Fix or remove it, then retry."
+    fi
 }
 
 # Build a registry YAML body from entries on stdin (pipe-separated:
@@ -287,7 +301,11 @@ PYEOF
 }
 
 cmd_list() {
-    if [[ ! -f "$REGISTRY_FILE" ]]; then
+    # Read first: only the strict reader can tell a genuinely missing registry
+    # from a directory or dangling symlink at the path (both fail `-f`), and
+    # the latter must die rather than report an empty registry (t2163).
+    load_registry_or_die
+    if [[ -z "$REGISTRY_TSV" && ! -e "$REGISTRY_FILE" && ! -L "$REGISTRY_FILE" ]]; then
         info "No registered projects. Run \`ait projects add\` from any aitasks project root."
         return 0
     fi
@@ -306,7 +324,7 @@ cmd_list() {
         else
             printf '%-20s  %-7s  %s\n' "$name" "$status" "$path"
         fi
-    done < <(list_registry_entries)
+    done <<< "$REGISTRY_TSV"
 
     if [[ "$has_any" == "0" ]]; then
         info "Registry file exists but contains no entries."
@@ -340,7 +358,8 @@ cmd_add() {
     registry_lock_or_die
 
     local tsv_in tsv_out
-    tsv_in=$(list_registry_entries || true)
+    load_registry_or_die --locked
+    tsv_in="$REGISTRY_TSV"
 
     # Resolve the project_group for the fresh entry (t1025_1):
     #   - On re-add, an existing registry group (incl. the `-` unset sentinel)
@@ -412,7 +431,8 @@ cmd_remove() {
     [[ -n "$name" ]] || die "Usage: ait projects remove <name> [--force]"
 
     local tsv
-    tsv=$(list_registry_entries || true)
+    load_registry_or_die
+    tsv="$REGISTRY_TSV"
     if [[ -z "$tsv" ]]; then
         die "No registered projects."
     fi
@@ -439,7 +459,8 @@ cmd_remove() {
     # concurrent bootstrap `add`s). Re-read inside the lock so the rewrite is
     # based on the current registry, not the pre-prompt snapshot (t1073).
     registry_lock_or_die
-    tsv=$(list_registry_entries || true)
+    load_registry_or_die --locked
+    tsv="$REGISTRY_TSV"
 
     local tsv_out
     tsv_out=$(awk -F'|' -v skip="$name" '$1 != skip { print }' <<< "$tsv")
@@ -472,7 +493,8 @@ cmd_update() {
     registry_lock_or_die  # serialize read-modify-write (t1073)
 
     local tsv
-    tsv=$(list_registry_entries || true)
+    load_registry_or_die --locked
+    tsv="$REGISTRY_TSV"
     if [[ -z "$tsv" ]]; then
         die "No registered projects."
     fi
@@ -520,7 +542,8 @@ cmd_prune() {
     done
 
     local tsv
-    tsv=$(list_registry_entries || true)
+    load_registry_or_die
+    tsv="$REGISTRY_TSV"
 
     local stale_names=()
     local stale_paths=()
@@ -588,7 +611,8 @@ cmd_doctor() {
     done
 
     local tsv
-    tsv=$(list_registry_entries || true)
+    load_registry_or_die
+    tsv="$REGISTRY_TSV"
 
     local stale_names=() stale_paths=() stale_remotes=() stale_lasts=()
     if [[ -n "$tsv" ]]; then
@@ -763,7 +787,8 @@ set_registry_group() {
     local value="$2"
     registry_lock_or_die  # serialize read-modify-write (t1073)
     local tsv
-    tsv=$(list_registry_entries || true)
+    load_registry_or_die --locked
+    tsv="$REGISTRY_TSV"
     if [[ -z "$tsv" ]] || ! awk -F'|' -v want="$name" '$1 == want { f=1 } END { exit !f }' <<< "$tsv"; then
         die "Project '$name' is not registered."
     fi
@@ -787,7 +812,8 @@ rename_registry_group() {
     local new="$2"
     registry_lock_or_die  # serialize read-modify-write (t1073)
     local tsv
-    tsv=$(list_registry_entries || true)
+    load_registry_or_die --locked
+    tsv="$REGISTRY_TSV"
     if [[ -z "$tsv" ]] || ! awk -F'|' -v want="$old" '$5 == want { f=1 } END { exit !f }' <<< "$tsv"; then
         die "No registered project has group '$old'."
     fi
@@ -809,7 +835,8 @@ cmd_group() {
             local live
             live=$(live_tmux_project_names)
             local tsv
-            tsv=$(list_registry_entries || true)
+            load_registry_or_die
+            tsv="$REGISTRY_TSV"
             if [[ -z "$tsv" ]]; then
                 info "No registered projects."
                 return 0
@@ -882,7 +909,8 @@ cmd_group() {
             # config slugs with a sourced message.
             registry_lock_or_die  # serialize read-modify-write (t1073)
             local tsv
-            tsv=$(list_registry_entries || true)
+            load_registry_or_die --locked
+            tsv="$REGISTRY_TSV"
             if [[ -z "$tsv" ]]; then
                 registry_lock_release "$REGISTRY_LOCK_DIR"
                 info "No registered projects."

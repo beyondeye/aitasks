@@ -10,6 +10,8 @@ Verifies:
   - When a registered project's `project_name` already appears in
     the live-tmux results, the registry entry is deduped out (the
     live one wins).
+  - A non-UTF-8 registry or repo config never raises out of discovery
+    (t2163): the registry reads as empty, the config as "no group".
 
 Run: python3 tests/test_discover_include_registered.py
   or: bash tests/run_all_python_tests.sh
@@ -27,8 +29,10 @@ import agent_launch_utils
 from agent_launch_utils import (
     AitasksSession,
     _parse_registry_records,
+    _parse_registry_records_strict,
     _read_registry_index,
     discover_aitasks_sessions,
+    discover_aitasks_sessions_checked,
 )
 
 
@@ -297,6 +301,83 @@ class IncludeRegisteredTests(unittest.TestCase):
         self.assertEqual(flipped.default_session_problem, "block_scalar")
         clean = dataclasses.replace(entry, default_session_problem=None)
         self.assertEqual(clean.key, entry.key)
+
+
+class NonUtf8DiscoveryTests(unittest.TestCase):
+    """t2163: invalid UTF-8 in the registry or a repo config must not escape
+    ``discover_aitasks_sessions`` in any mode. The non-strict reader treats the
+    registry as empty and the config as having no group; the strict reader
+    keeps raising, because a registry rewriter must not mistake it for empty."""
+
+    def setUp(self) -> None:
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self.tmp = Path(self._tmpdir.name)
+        self._saved_tmux = agent_launch_utils._TMUX
+        agent_launch_utils._TMUX = agent_launch_utils.TmuxClient(socket_args=[])
+        self.live_root: Path | None = None
+        self._tmux_patch = mock.patch.object(
+            agent_launch_utils.subprocess, "run", side_effect=self._fake_run,
+        )
+        self._tmux_patch.start()
+        idx = self.tmp / "projects.yaml"
+        proj = _make_fake_project(self.tmp / "registered")
+        idx.write_bytes(
+            f"projects:\n  - name: registered\n    path: {proj}\n".encode()
+            + b"    project_group: caf\xe9\n"
+        )
+        os.environ["AITASKS_PROJECTS_INDEX"] = str(idx)
+
+    def tearDown(self) -> None:
+        self._tmux_patch.stop()
+        agent_launch_utils._TMUX = self._saved_tmux
+        self._tmpdir.cleanup()
+        os.environ.pop("AITASKS_PROJECTS_INDEX", None)
+
+    def _fake_run(self, argv, *args, **kwargs):
+        # A running server: no sessions, or one live session on live_root.
+        if argv[:2] == ["tmux", "list-sessions"]:
+            out = "live_sess\n" if self.live_root is not None else ""
+            return mock.Mock(returncode=0, stdout=out, stderr="")
+        if argv[:2] == ["tmux", "list-panes"] and self.live_root is not None:
+            return mock.Mock(returncode=0, stdout=f"{self.live_root}\n", stderr="")
+        if argv and argv[0] == "tmux":
+            return mock.Mock(returncode=1, stdout="", stderr="")
+        return mock.Mock(returncode=0, stdout="", stderr="")
+
+    def _live_project_with_non_utf8_config(self) -> Path:
+        root = _make_fake_project(self.tmp / "live")
+        (root / "aitasks" / "metadata" / "project_config.yaml").write_bytes(
+            b"project:\n  name: caf\xe9\n  project_group: suite_a\n"
+        )
+        self.live_root = root
+        return root
+
+    def test_non_strict_registry_reader_is_empty(self):
+        self.assertEqual(_parse_registry_records(), [])
+        self.assertEqual(_read_registry_index(), [])
+
+    def test_strict_registry_reader_still_raises(self):
+        with self.assertRaises(UnicodeDecodeError):
+            _parse_registry_records_strict()
+
+    def test_discovery_does_not_raise_in_any_mode(self):
+        self.assertEqual(discover_aitasks_sessions(), [])
+        self.assertEqual(discover_aitasks_sessions(include_registered=True), [])
+        self.assertEqual(discover_aitasks_sessions_checked(), ([], True))
+
+    def test_live_session_with_non_utf8_config_has_no_group(self):
+        root = self._live_project_with_non_utf8_config()
+        with mock.patch.object(
+            agent_launch_utils, "_walk_up_to_aitasks",
+            side_effect=lambda p: root if p == root else None,
+        ):
+            plain = discover_aitasks_sessions()
+            checked, complete = discover_aitasks_sessions_checked()
+            registered = discover_aitasks_sessions(include_registered=True)
+        for result in (plain, checked, registered):
+            self.assertEqual([s.session for s in result], ["live_sess"])
+            self.assertIsNone(result[0].project_group)
+        self.assertTrue(complete)
 
 
 if __name__ == "__main__":

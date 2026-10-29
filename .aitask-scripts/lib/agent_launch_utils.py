@@ -694,7 +694,9 @@ def _resolve_config_project_group(project_root: Path) -> str | None:
     the repo's ``aitasks/metadata/project_config.yaml`` declares a *valid*
     ``project.project_group``. An absent, empty, sentinel, or invalid value
     resolves to ``None`` (a malformed config can never leak into
-    :class:`AitasksSession`). Never raises — a read error is treated as None.
+    :class:`AitasksSession`). Never raises — a read error or non-UTF-8 content
+    is treated as None. The whole file is decoded up front, so an invalid byte
+    anywhere yields None rather than depending on where the scan stops.
     """
     cfg = project_root / "aitasks" / "metadata" / "project_config.yaml"
     if not cfg.is_file():
@@ -706,25 +708,25 @@ def _resolve_config_project_group(project_root: Path) -> str | None:
             s = s[1:-1]
         return s
 
+    try:
+        text = cfg.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return None
+
     in_project_block = False
     value = ""
-    try:
-        with open(cfg, encoding="utf-8") as fh:
-            for raw in fh:
-                line = raw.rstrip("\n")
-                if not line.strip() or line.lstrip().startswith("#"):
-                    continue
-                if line[:1] not in (" ", "\t"):
-                    in_project_block = line.startswith("project:")
-                    continue
-                if not in_project_block:
-                    continue
-                stripped = line.lstrip()
-                if stripped.startswith("project_group:"):
-                    value = _unquote(stripped[len("project_group:"):])
-                    break
-    except OSError:
-        return None
+    for line in text.split("\n"):
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        if line[:1] not in (" ", "\t"):
+            in_project_block = line.startswith("project:")
+            continue
+        if not in_project_block:
+            continue
+        stripped = line.lstrip()
+        if stripped.startswith("project_group:"):
+            value = _unquote(stripped[len("project_group:"):])
+            break
 
     if not value:
         return None
@@ -737,9 +739,10 @@ def _parse_registry_records() -> list[RegistryRecord]:
 
     Returns a :class:`RegistryRecord` for every entry, with empty strings for
     absent fields. This is the **single
-    registry-file reader authority** (t970): it is the byte-parity equivalent of
-    ``aitask_projects.sh::list_registry_entries`` and is exposed to the bash
-    side via the ``--list-registry`` / ``--resolve-index`` CLI below. Honors
+    registry-file reader authority** (t970): its records are what the
+    ``--list-registry`` / ``--resolve-index`` CLI below expose to the bash side
+    (``aitask_projects.sh::load_registry_or_die`` reads them through the
+    ``--list-registry-strict`` twin). Honors
     the ``AITASKS_PROJECTS_INDEX`` env var (same override the bash side
     supports); no PyYAML dependency.
 
@@ -754,13 +757,14 @@ def _parse_registry_records() -> list[RegistryRecord]:
     :func:`_read_registry_index`, which additionally requires a non-empty path
     and annotates ``OK``/``STALE`` for the discover path.
 
-    Any read failure yields ``[]`` — indistinguishable from an empty registry.
-    That is right for display and pickers; a caller that must RULE OUT an entry
-    uses :func:`_parse_registry_records_strict` instead.
+    Any read failure — including non-UTF-8 content — yields ``[]``,
+    indistinguishable from an empty registry. That is right for discovery,
+    display and pickers; a caller that must RULE OUT an entry, or that rewrites
+    the registry from this read, uses :func:`_parse_registry_records_strict`.
     """
     try:
         return _parse_registry_records_strict()
-    except OSError:
+    except (OSError, UnicodeDecodeError):
         return []
 
 
@@ -3126,7 +3130,7 @@ def load_tmux_defaults(project_root: Path) -> dict:
 def _cli_list_registry(strict: bool = False) -> int:
     """Emit one ``name|path|git_remote|last_opened|project_group`` line per entry.
 
-    Byte-identical to bash ``list_registry_entries`` — pipe-separated, empty
+    Byte-identical to the former bash awk reader — pipe-separated, empty
     fields preserved, file order. Feeds the registry read+write round-trip, so
     the 5th ``project_group`` field (t1025_1) must round-trip for the whole-line-
     preserving writers (``cmd_remove`` / ``cmd_prune``) to retain group state.

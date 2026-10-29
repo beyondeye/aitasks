@@ -50,6 +50,8 @@ projects:
 
 The file is **gitignored** — it is per-user and machine-specific. Manage it with `ait projects add` rather than editing it by hand.
 
+If the file cannot be read — for example, a hand edit saved it in an encoding other than UTF-8, or a directory sits at its path — the commands that list or change the registry (`list`, `add`, `remove`, `update`, `prune`, `doctor` and the `group` subcommands) stop with an error and leave the file exactly as it is, so fix or remove it and retry. Session discovery in the TUIs keeps working and treats the registry as empty until then.
+
 ### Project groups
 
 A **project-group** keeps related registered projects together in the TUI switcher and Stats TUI. For example, `frontend` and `backend` can both belong to the `storefront` group while another set of repos belongs to `internal_tools`.
