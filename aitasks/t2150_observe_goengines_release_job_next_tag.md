@@ -3,13 +3,14 @@ priority: medium
 effort: low
 depends: [2148]
 issue_type: test
-status: Ready
+status: Implementing
 labels: [go_engine, framework, release_scripts]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 2138
 followup_kind: carry_over
 created_at: 2026-10-26 11:39
-updated_at: 2026-10-26 11:39
+updated_at: 2026-10-29 22:06
 ---
 
 ## Origin
