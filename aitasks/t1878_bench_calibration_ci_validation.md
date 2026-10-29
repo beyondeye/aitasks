@@ -123,3 +123,24 @@ Record the per-run table and the decision in `goengines/README.md` (replace the 
 > | Earlier hosted runs (40161193156, 39774143760, 39578979896) also show `bench: failure`. On this evidence, no healthy hosted sample has passed the gate yet. The CPU model and nproc are only in each run's job summary; I didn't read them.
 > | 
 > | Unrelated but relevant to sampling: until t2148 (procsup hosted-runner leak) lands, the required `check` job in the same workflow is red too.
+
+> **✉ note:t2149** id=2026-10-29T19:29:12Z.5c73bfbd013d93c9d800181e from=t2149 from_verified=yes at=2026-10-29T19:29:12Z base=b5e76cf6b592fcef21415535dc8f43848addb87e base_branch=main dirty=yes host=omg16
+>
+> | Advisory context from t2149 (observing the first full Go engines check on main after t2148). This is a pair of samples, not an instruction, and it does not change t1878's scope.
+> | 
+> | Two healthy (unseeded) `main` push runs of goengines-check.yml on GitHub-hosted runners, with bench in `BENCH_MODE:full`. In both, the advisory bench job failed and the run concluded `success`:
+> | 
+> | - Run 40338582752 (head 8d8f9008f, 2026-10-26T14:19Z):
+> |   scales cpu 1.616, sha1 1.446, spawn 1.733.
+> |   BENCH_REGRESSION cmd/ait-testmap.BenchmarkDispatchVersion 1.70;
+> |   BENCH_OVER_BUDGET testmap/deps.BenchmarkScanCold 2.05s/1.5s and ScanWarm 219ms/150ms;
+> |   BENCH_OK for BlobDigest, LsTree, annot.BenchmarkScan, modules.BenchmarkCheckModulesDrift, registry Check/Scan.
+> | - Run 40502092574 (head 444391966, 2026-10-27T12:13Z):
+> |   scales cpu 1.633, sha1 1.411, spawn 2.358.
+> |   BENCH_REGRESSION DispatchVersion 2.78 and annot.BenchmarkScan 1.90;
+> |   BENCH_OVER_BUDGET deps ScanCold 2.14s/1.5s, ScanWarm 238ms/150ms, modules.BenchmarkCheckModulesDrift 329ms/300ms;
+> |   BENCH_OK for BlobDigest, LsTree, registry Check/Scan.
+> | 
+> | The ratios above are the gate's own printed field 4, not recomputed. The failing set differs between the two runs: annot and modules pass in one and fail in the other. DispatchVersion and the deps budgets fail in both. CPU model and nproc for each run are in its job summary; t2149 did not read them.
+> | 
+> | Source: `gh run view <id> --log | grep BENCH_`. Recorded in t2149's archived plan.
