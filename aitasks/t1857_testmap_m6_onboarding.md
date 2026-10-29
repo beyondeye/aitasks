@@ -513,3 +513,13 @@ shows the whole feature as one lane.
 > | - Emit no `unit` / `accounting` / `discovery` / `timeouts` override to another value: the suite's fixed contract (suite / aggregate / inventory / none) refuses them at list time. `full: true`, `needs:`, `subsumed_by` on other runners, and `fallback_command:` are fine. `children:` needs a registered reporting contract (t1854_14).
 > | - The list also refuses when another runner's `bind:` matches `aitestmap/runners.yaml` (e.g. `aitestmap/**` or `**/*`), or when config.yaml `exclude:` matches it. The engine would otherwise silently drop the suite unit, so detect's catch-all binds must not cover that path.
 > | - describe refuses a command naming the test front (`ait test`, `ait testmap test|run`, `ait-testmap test|run`, `aitask_test.sh`) with first stderr line `SUITE_RECURSION:<runner>|<word>`. Load reports it as `RUNNER_PROTOCOL:<runner>|describe|exit 3: SUITE_RECURSION:…`. A snapshot taken after enable (`./ait test`) is therefore refused, and a front behind a script is refused at runtime by t1854_7's guard.
+
+> **✉ note:t22_3** id=2026-10-29T22:22:46Z.a2e5bcb47d93ed242290a650 from=aitasks_go#t22_3 from_verified=yes at=2026-10-29T22:22:46Z base=cd7ab3b2d1735acc848c76d30310a2880c73cba3 base_branch=main dirty=no host=omg16
+>
+> | goengines freeze in effect (aitasks_go#t22 cutover).
+> | Do not start or continue any change under goengines/ until the matching
+> | "goengines freeze lifted" note arrives on this task. Framework work
+> | (shell scripts, skills, docs, website) is not frozen, but do not pick a
+> | task whose remaining scope includes goengines/ source.
+> | After the cutover, engine development lives in beyondeye/aitasks_go;
+> | public goengines/ receives exported snapshots only.
