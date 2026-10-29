@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: medium
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
@@ -13,7 +15,7 @@ assigned_to: dario-e@beyond-eye.com
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5_5
 created_at: 2026-10-29 11:47
-updated_at: 2026-10-29 12:42
+updated_at: 2026-10-29 12:43
 ---
 
 ## Origin
@@ -63,3 +65,5 @@ non-UTF-8 config to `tests/test_discover_include_registered.py` /
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-10-29T10:43:04Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-10-29T19:31:41Z status=pass attempt=1 type=human
