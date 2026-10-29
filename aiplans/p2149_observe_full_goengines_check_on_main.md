@@ -105,3 +105,68 @@ None identified. (No source, workflow or test file changes.)
 None identified. Every checklist item is directly observed on a qualifying
 `main` push run, and the static-guard comparison is per-property against the
 guard's assertions.
+
+## Final Implementation Notes
+
+- **Actual work done:** Observation only; no source, workflow or test file changed.
+  The acceptance run is **Go engines check run 40338582752**: event `push`, branch
+  `main`, head `8d8f9008f8ffd35a6d1f9a55c9dfafebbe0519f3` ("ait: Merge origin/main
+  into main"), started 2026-10-26T14:19:29Z, run conclusion `success`. It is the
+  first `main` push run whose head contains t2148's fix `a06e4f5d8`. The previous
+  push run, 40279191111 (`6e315def23`), does not contain it. On 2026-10-29 its
+  step conclusions were re-read and matched the planning-time table exactly:
+  - `mode` (success): Detect goengines mode=success; log `MODE:legacy`.
+  - `check` (success): gofmt, go vet, Hang-guard preflight, Setup Python,
+    Install pinned pytest, **go test** (every package `ok`, incl.
+    `internal/procsup 7.462s`), **Release cross-build** (4 targets built;
+    `sums=(*_SHA256SUMS.txt)` matched `ait-testmap_0.40.0_SHA256SUMS.txt`, so at
+    least one sums file exists; `sha256sum -c` printed 4× `: OK` for
+    darwin_amd64/darwin_arm64/linux_amd64/linux_arm64), **Release workflow
+    structure guard**, **build.sh tests**, **benchci.sh tests**, **annot
+    conformance corpus sync guard**, **export integrity script tests**: all
+    `success`.
+  - `export-integrity` (success): Export integrity=success, printing
+    `INTEGRITY_SKIPPED:legacy mode — goengines/ is developed here; gofmt, vet,
+    the preflight, go test and the bench are its validation`; Drift report=success,
+    printing `DRIFT_SKIPPED:legacy`. The export-only steps Setup Python, Release
+    workflow structure guard, build.sh tests and export integrity script tests
+    were all `skipped`.
+  - `bench` (job `failure`, advisory): it ran, and Benchmark gate=failure with
+    `BENCH_MODE:full`, `BENCH_REGRESSION:cmd/ait-testmap.BenchmarkDispatchVersion|7661|2793|1.70`,
+    `BENCH_OVER_BUDGET:internal/testmap/deps.BenchmarkScanCold|2052975439|1.5s` and
+    `BENCH_OVER_BUDGET:internal/testmap/deps.BenchmarkScanWarm|218511183|150ms`.
+    The other benchmarks were `BENCH_OK`. The run conclusion stayed `success`, so
+    the job-level `continue-on-error` holds. The bench verdict belongs to t1878.
+- **Static-guard comparison (`tests/test_release_workflow_goengines.py`):** No
+  divergence. The mode job and its mode step are not skippable. `check` and
+  `bench` both ran (legacy, so `needs.mode.outputs.mode != 'export'`).
+  `export-integrity` always runs: its integrity check is blocking and passed, and
+  its drift report is advisory and passed. Its guard steps carrying
+  `EXPORT_STEP_IF` (and Setup Python) were skipped. Only `bench` is advisory: it
+  went red and the run stayed green. The sums loop verified every sums file.
+  The structure guard itself ran green inside this run at `8d8f9008f`, so the
+  workflow and the model agreed at the observed commit. **No bug task created.**
+- **Deviations from plan:** None.
+- **Issues encountered:** None. The bench failure is expected and owned by t1878
+  (the t2148 note predicted it). On this run `testmap/annot` and
+  `testmap/modules` were `BENCH_OK`, while the t2148 note's branch runs had them
+  failing. The set of failing benchmarks varies from run to run; that is
+  t1878's concern.
+- **Key decisions:**
+  - Only the first qualifying push run on `main` counts, per the task. Branch
+    and workflow_dispatch runs (the t2148 note's 40334103309 / 40334114895 /
+    40334119129) were not used as evidence.
+  - Supplementary context, not acceptance: `dashcheck.sh tests` was added to
+    `check` later (`3c4e20069`, t2154), so it is absent from 40338582752. The
+    latest `main` push run, **40502092574** (`444391966b`, success), runs it
+    green, with the same step list otherwise and the same advisory bench failure.
+- **Upstream defects identified:** None
+- **Reproduction commands:**
+  ```bash
+  gh run list --workflow goengines-check.yml --branch main --limit 15 \
+    --json databaseId,event,headSha,conclusion,createdAt
+  git merge-base --is-ancestor a06e4f5d8 8d8f9008f8   # fix included (exit 0)
+  git merge-base --is-ancestor a06e4f5d8 6e315def23   # earlier run: not included (exit 1)
+  gh run view 40338582752 --json jobs,conclusion
+  gh run view 40338582752 --log | grep -E 'MODE:|INTEGRITY_|DRIFT_|SHA256SUMS|: OK$|BENCH_'
+  ```
