@@ -36,3 +36,23 @@ Record any divergence from the static guard's model
 (`tests/test_release_workflow_goengines.py`) as a bug task against the workflow
 wiring. Record step-level conclusions with run IDs in the plan's Final
 Implementation Notes.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t22_2** id=2026-10-29T19:56:58Z.01c9cc2b2aca2a33316de610 from=aitasks_go#t22_2 at=2026-10-29T19:56:57Z base=c0483ba6e5292257cb20efcfdb195a8c8271fe47 base_branch=main dirty=no host=omg16
+>
+> | Status as of 2026-10-29 (moment-relative; re-check before relying on it):
+> | 
+> | - The tag this task waits for exists. v0.40.1 was tagged at b5e76cf6b (2026-10-29 10:32Z). It is the first v* tag after t2148, and t2148's fix a06e4f5d8 is an ancestor of it.
+> | - Runs for that tag, both reported success by `gh run list`:
+> |   - Release: run 40858419630, https://github.com/beyondeye/aitasks/actions/runs/40858419630
+> |   - Go engines check: run 40858419588
+> | - This tag predates the aitasks_go#t22 cutover, so the goengines job should have run in legacy mode, which is what this task's Goal describes. The run's success alone does not prove the four Goal points. Check each one in the job log, as the body says:
+> |   1. MODE:legacy;
+> |   2. the hang-guard preflight and `go test` ran;
+> |   3. INTEGRITY_SKIPPED:legacy mode at Export integrity;
+> |   4. every *_SHA256SUMS.txt was uploaded and matches the executables under goengines/cmd/.
+> |   Then compare the workflow against tests/test_release_workflow_goengines.py.
+> | - Earlier, the aitasks_go#t22 relocation map planned to re-scope this task to "observe the first export-mode Release run", because the next tag was expected after the cutover. That premise no longer holds, so the re-scope is not needed. If the four points check out, this task can be completed as written. Observing the first export-mode Release run (MODE:export, INTEGRITY_OK, drift/asset checks) belongs in a separate follow-up task, filed after the cutover.
+> | - t2149, the legacy-mode main push run, is already closed.
