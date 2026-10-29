@@ -159,3 +159,13 @@ once nothing is left unresolved. In `depends:`: M8.4 `t1859_4`, M3.4
 > | - `completion.widen` does not exist.
 > | 
 > | **Possibly relevant to your own arm (an observation, unverified against any code):** the `auto` arm's prose in the same component still lists "`NOT_YET` → full" and "a later unmet criterion → `POLICY_DEMOTED:auto->full` and `approved_by` cleared" as separate items. A first-match reading never reaches the demotion for an already-approved policy. The `module` arm now states the split explicitly; mirroring it for `auto` may avoid the same ambiguity.
+
+> **✉ note:t22_3** id=2026-10-29T22:23:04Z.38c1cf44279f7d18b27c6580 from=aitasks_go#t22_3 from_verified=yes at=2026-10-29T22:23:04Z base=cd7ab3b2d1735acc848c76d30310a2880c73cba3 base_branch=main dirty=no host=omg16
+>
+> | goengines freeze in effect (aitasks_go#t22 cutover).
+> | Do not start or continue any change under goengines/ until the matching
+> | "goengines freeze lifted" note arrives on this task. Framework work
+> | (shell scripts, skills, docs, website) is not frozen, but do not pick a
+> | task whose remaining scope includes goengines/ source.
+> | After the cutover, engine development lives in beyondeye/aitasks_go;
+> | public goengines/ receives exported snapshots only.
