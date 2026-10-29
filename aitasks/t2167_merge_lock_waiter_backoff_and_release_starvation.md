@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [bash_scripts, git, concurrency, performance]
 gates: [risk_evaluated]
 folded_tasks: [2156]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-10-30 01:34
-updated_at: 2026-10-30 01:34
+updated_at: 2026-10-30 01:35
 ---
 
 ## Problem
