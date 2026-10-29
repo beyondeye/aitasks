@@ -84,3 +84,16 @@ A possible further hold on an **M7** work package (agent review verbs or pass, i
 - No step requires a person.
 - Skill goldens pass through `./.aitask-scripts/aitask_skill_verify.sh`.
 - `ait engine test` is green.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t22_3** id=2026-10-29T22:24:16Z.83666a38ca0759637c48dc8a from=aitasks_go#t22_3 from_verified=yes at=2026-10-29T22:24:16Z base=cd7ab3b2d1735acc848c76d30310a2880c73cba3 base_branch=main dirty=no host=omg16
+>
+> | goengines freeze in effect (aitasks_go#t22 cutover).
+> | Do not start or continue any change under goengines/ until the matching
+> | "goengines freeze lifted" note arrives on this task. Framework work
+> | (shell scripts, skills, docs, website) is not frozen, but do not pick a
+> | task whose remaining scope includes goengines/ source.
+> | After the cutover, engine development lives in beyondeye/aitasks_go;
+> | public goengines/ receives exported snapshots only.
