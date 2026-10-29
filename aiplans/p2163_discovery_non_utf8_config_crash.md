@@ -225,3 +225,45 @@ Standard archival per task-workflow Step 9 (current branch, no merge).
 ### Goal-achievement risk: low
 - None identified. Discovery tolerance follows the task's suggested fix, and the
   writer requirement is pinned by a byte-for-byte test with a red proof.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-29 13:10)
+- **Requested by user:** The new `multi_project.md` paragraph claimed *every* `ait projects` verb stops on an unreadable registry, but `resolve` / `exec` delegate to `aitask_project_resolve.sh` (bash index lookup, no strict read) and still succeed — confirmed in scratch: `resolve` printed `RESOLVED:` exit 0 and `exec` ran the command with a non-UTF-8 `git_remote` in the registry. Narrow the paragraph; no resolver change.
+- **Changes made:** Paragraph now names the commands that read through `load_registry_or_die` (`list`, `add`, `remove`, `update`, `prune`, `doctor`, the `group` subcommands). `check_links.py --build` re-run: SWEEP PASSED.
+- **Files affected:** `website/content/docs/workflows/multi_project.md`
+
+## Final Implementation Notes
+- **Actual work done:**
+  - `agent_launch_utils.py`:
+    - `_resolve_config_project_group` now decodes the whole config up front (`read_text` → `split("\n")`) and returns None on `(OSError, UnicodeDecodeError)`.
+    - The non-strict `_parse_registry_records` catches `(OSError, UnicodeDecodeError)` → `[]`.
+    - The strict reader is unchanged.
+  - `aitask_projects.sh`:
+    - `list_registry_entries` is replaced by `load_registry_or_die [--locked]`. It loads `REGISTRY_TSV` via `--list-registry-strict`, dies in the calling shell on any read failure, and releases the mutex first when `--locked`.
+    - All 11 readers are converted: `list`, `add`, `remove` (both reads), `update`, `prune`, `doctor`, `set_registry_group`, `rename_registry_group`, `group list`, `group sync`.
+    - `cmd_list` now reads first, and prints its "No registered projects" message only when the strict read is empty **and** the path is truly absent (`! -e && ! -L`).
+  - Tests:
+    - new `tests/test_projects_unreadable_registry.sh` (145 checks: 3 shapes × 11 verbs, the mid-confirmation `remove` FIFO test, the CLI exit contract, two positive controls);
+    - `NonUtf8DiscoveryTests` in `tests/test_discover_include_registered.py` (4 tests);
+    - 2 config tests in `tests/test_project_groups.py`.
+  - Docs: one paragraph in `website/content/docs/workflows/multi_project.md`, narrowed in Change Request 1.
+- **Deviations from plan:**
+  - Added the docs paragraph. The plan said to edit only existing text, and none covered the case.
+  - The discovery "no sessions" assertion uses a fake tmux whose `list-sessions` succeeds with empty output, so `_checked` returns `([], True)`. Under the base fixture's rc=1 tmux, `_checked` would report incomplete.
+- **Issues encountered:** The new `NonUtf8DiscoveryTests` class was first appended after the file's `if __name__ == "__main__": unittest.main()`, so under `python3 <file>` it never ran (13 tests in both trees, so the first red proof falsely passed). Moved above the guard: 17 tests.
+- **Red proofs and mutant (scratch copies of the tree; reproducible):**
+  - **Python:** copy `tests/test_discover_include_registered.py` + `tests/test_project_groups.py` next to a copy of `.aitask-scripts/lib/` holding `git show HEAD:.aitask-scripts/lib/agent_launch_utils.py`. HEAD gives 3 errors in discovery (all except the strict-still-raises pin) and 1 failure + 1 error in config. The new code passes everything.
+  - **Bash:** copy `.aitask-scripts/` with the HEAD versions of `aitask_projects.sh` and `agent_launch_utils.py`, plus `tests/lib/asserts.sh` and the new test. HEAD: `Passed: 78 / 145`, including `non_utf8: add leaves the registry untouched` (the wipe) and all three mid-confirmation checks.
+  - **Mutant:** in a copy of the new tree, revert only `cmd_remove`'s in-lock read to the tolerant `--list-registry || true`. Result: `Passed: 142 / 145`, and exactly the three mid-confirmation checks fail.
+- **Verification:**
+  - 11 existing projects/registry bash suites green;
+  - `run_all_python_tests.sh --test-dir tests` → `PYTHON SUITE: PASSED (runner=pytest, exit=0)` (9934 passed, 6 skipped + 13 serial);
+  - shellcheck output identical to HEAD (5× SC1091 info);
+  - `check_links.py --build` SWEEP PASSED.
+- **Key decisions:**
+  - Display verbs (`list`, `group list`) also fail closed, so that they never print an empty listing for an unreadable registry.
+  - `resolve` / `exec` stay on the resolver (out of scope, per review).
+  - Directory and dangling-symlink registry paths are now fatal (deliberate).
+- **Upstream defects identified:**
+  - `.aitask-scripts/aitask_projects.sh:493-502` — `cmd_update`'s "No registered projects." / "Project '<name>' is not registered." dies run while the registry mutex is held and never release it. The lock is left to stale-pid reclaim. The same pattern occurs in `set_registry_group` (788-793), `rename_registry_group` (813-818), `cmd_add`'s invalid-config-slug die, and `group sync`'s invalid-slug die.
