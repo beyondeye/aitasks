@@ -162,3 +162,24 @@ using the existing scaffold and helpers. No runtime code changes.
   left behind, is resolved by pinning the existing release with a test that the
   mutant proves can go red. · severity: low · → mitigation: none needed
   (the mutant proof in Verification step 2 is the evidence)
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-29 21:20)
+- **Requested by user:** `read -r -a args` in the section-1 case loop split the flattened command string on whitespace, including whitespace inside `ALPHA_ROOT` / `BAD_ROOT`; under a `TMPDIR` containing a space the two `update` rows and the `add` row died at the earlier "Path does not exist" check instead of the locked die (reviewer reproduced 35/38).
+- **Changes made:** the case table now carries `@ALPHA@` / `@BAD@` placeholders, substituted per element after the split, so each path stays one argument. Verified 38/38 with the default `TMPDIR` and with `TMPDIR` containing a space; the trap-removed mutant still fails 11/38 under the spaced `TMPDIR`, with every row still matching its locked-section message.
+- **Files affected:** `tests/test_projects_lock_released_on_die.sh`
+
+## Final Implementation Notes
+- **Actual work done:** Measured first: every `die` the task listed (cmd_update ×2, set_registry_group via group set/unset, rename_registry_group, cmd_add invalid config slug, group sync invalid config slug) already releases `projects.yaml.lockd`, because `registry_lock_acquire` installs `trap "registry_lock_release '$dir'" EXIT` and `die` calls `exit 1`. The doctor case: the lock records the doctor's own live pid (`$$`, not the subshell's `BASHPID`), so a leak there would never be stale-reclaimed — but the subshell's own EXIT trap releases it. Shipped a regression test (`tests/test_projects_lock_released_on_die.sh`, 38 assertions: the seven locked-die rows, an end-to-end doctor run via FIFO, a positive control) and a comment above `registry_lock_or_die` in `aitask_projects.sh`. No release mechanics changed.
+- **Deviations from plan:** None beyond Change Request 1 (placeholder substitution in the case table so whitespace in `TMPDIR` cannot split paths).
+- **Issues encountered:** The first mutant attempt used a grep/sed pattern that did not match the trap line, so that run was unmutated and passed; redone with a fixed-string match by line number. The real mutant (trap line deleted in a scratch copy) fails 11/38: all seven lock assertions plus four doctor assertions — doctor waits out the ~10 s acquire on the leaked live-pid lock and exits 1. That confirms the doctor stall the task predicted would happen if the trap were ever lost.
+- **Key decisions:** Did not add explicit `registry_lock_release` calls or a `die_locked` helper — they would duplicate the trap's release. `load_registry_or_die --locked` keeps its explicit release (harmless; out of scope). The test file is mode 644, matching its sibling.
+- **Upstream defects identified:**
+  - `tests/test_projects_unreadable_registry.sh:121-123` — the VERBS table flattens `$ALPHA_ROOT` / `$BETA_ROOT` into a space-split argline (`read -r -a args`), so under a `TMPDIR` containing whitespace the `add` and `update` rows die at the earlier "Path does not exist" check instead of the unreadable-registry read; fails loud (assert_contains "Cannot read…" misses), not silent. Same defect class the reviewer caught in this task's new test.
+
+## Verification results
+- `bash tests/test_projects_lock_released_on_die.sh` → 38/38 (default TMPDIR and TMPDIR with a space).
+- Mutant (trap line removed in scratch copy) → 27/38, 11 failures as predicted; every row still matches its locked-section message.
+- `test_projects_unreadable_registry` 145/145, `test_aitask_projects_doctor` 26/26, `test_aitask_projects_update` 14/14, `test_aitask_projects_remove` 11/11, `test_registry_lock` 51/51, `test_projects_cmd` 42/42, `test_registry_concurrency` 3/3.
+- shellcheck: only SC1091 infos (unfollowed sources), as in sibling files.
