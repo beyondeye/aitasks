@@ -97,3 +97,16 @@ The provider parent's coarse pass adds the id and flips this task to `Ready` onc
 - The flat-modules outcome is one of the four values, with the counted-record total, the too-broad share, the parent-level catches (failures and distinct tasks) and its cost share, each split by boundary source.
 - The parent-level counterfactual is reproducible: the plan records the script and the base revisions it read.
 - Any threshold changed after the data was read is listed with its reason, and the outcome is shown under both the original and the changed threshold.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t22_3** id=2026-10-29T22:24:25Z.501bbbc1f44bea98cb4513e1 from=aitasks_go#t22_3 from_verified=yes at=2026-10-29T22:24:25Z base=cd7ab3b2d1735acc848c76d30310a2880c73cba3 base_branch=main dirty=no host=omg16
+>
+> | goengines freeze in effect (aitasks_go#t22 cutover).
+> | Do not start or continue any change under goengines/ until the matching
+> | "goengines freeze lifted" note arrives on this task. Framework work
+> | (shell scripts, skills, docs, website) is not frozen, but do not pick a
+> | task whose remaining scope includes goengines/ source.
+> | After the cutover, engine development lives in beyondeye/aitasks_go;
+> | public goengines/ receives exported snapshots only.
