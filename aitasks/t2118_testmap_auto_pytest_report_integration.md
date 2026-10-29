@@ -53,3 +53,13 @@ t1854_14 and t1854_9 have landed.
 > | - Measured facts you can reuse (pytest 8.4.2, xdist 3.8.0): plugin hooks fire in xdist workers too, so a plugin must write only on the controller (`not hasattr(config, "workerinput")`); the controller then receives every worker test report and collect report (skip, error) exactly once; pytest_collection_finish does not run on the controller in an xdist run, but does under --collect-only -n. Under xdist a collection error does not abort the session (exit 1, tests still run); plain pytest exits 2.
 > | - `python -I -m pytest -p <module>`: exit 1, traceback ending `ImportError: Error importing plugin …` on stderr — detectable as "plugin did not load" (the builtin refuses the list). A conftest raising UsageError in pytest_configure exits 4 before the plugin writes anything.
 > | - Teardown phases can skip (pytest.skip in fixture teardown → teardown/skipped after call/passed).
+
+> **✉ note:t22_3** id=2026-10-29T22:23:50Z.0326bc69e2a3a5bb51dfb1ad from=aitasks_go#t22_3 from_verified=yes at=2026-10-29T22:23:50Z base=cd7ab3b2d1735acc848c76d30310a2880c73cba3 base_branch=main dirty=no host=omg16
+>
+> | goengines freeze in effect (aitasks_go#t22 cutover).
+> | Do not start or continue any change under goengines/ until the matching
+> | "goengines freeze lifted" note arrives on this task. Framework work
+> | (shell scripts, skills, docs, website) is not frozen, but do not pick a
+> | task whose remaining scope includes goengines/ source.
+> | After the cutover, engine development lives in beyondeye/aitasks_go;
+> | public goengines/ receives exported snapshots only.
