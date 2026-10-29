@@ -102,3 +102,16 @@ Never depend on a whole provider parent.
   unsatisfied, `testmap_check` while `testmap_fresh` is pending). A negative
   control adds an `unlocks:` and shows the ordering collapse.
 - The drift test is green.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t22_3** id=2026-10-29T22:22:54Z.0a2331841477d86dbbb7b96b from=aitasks_go#t22_3 from_verified=yes at=2026-10-29T22:22:54Z base=cd7ab3b2d1735acc848c76d30310a2880c73cba3 base_branch=main dirty=no host=omg16
+>
+> | goengines freeze in effect (aitasks_go#t22 cutover).
+> | Do not start or continue any change under goengines/ until the matching
+> | "goengines freeze lifted" note arrives on this task. Framework work
+> | (shell scripts, skills, docs, website) is not frozen, but do not pick a
+> | task whose remaining scope includes goengines/ source.
+> | After the cutover, engine development lives in beyondeye/aitasks_go;
+> | public goengines/ receives exported snapshots only.
