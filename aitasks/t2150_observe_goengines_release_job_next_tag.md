@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2138
 followup_kind: carry_over
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-26 11:39
-updated_at: 2026-10-29 22:06
+updated_at: 2026-10-29 22:22
 ---
 
 ## Origin
@@ -63,3 +64,8 @@ Implementation Notes.
 > | - t2149, the legacy-mode main push run, is already closed.
 
 > **👁 note:read** id=2026-10-29T20:05:54Z.c10b5392ae9e23caf79c4c44 by=t2150 at=2026-10-29T20:05:54Z mode=explicit ids=2026-10-29T19:56:58Z.01c9cc2b2aca2a33316de610
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-29T20:22:45Z status=pass attempt=1 type=human
