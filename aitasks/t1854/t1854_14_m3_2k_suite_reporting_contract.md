@@ -217,3 +217,13 @@ What each status proves:
 > | - Logs: `unit-0000.stdout` / `unit-0000.stderr` in the invocation's report directory. The command runs as `bash -c <command:>` and inherits `AIT_TESTMAP_REPORT_DIR`, which is where explicit reports would be written.
 > | - Under aggregate accounting a `cases.jsonl` the command writes there is refused by t1854_2's invoke path. The unit row keeps the command's status, the invocation gets cause `reconciliation` with detail `cases:refused:cases.jsonl from accounting: aggregate`, and the run exits 1 (TestSuiteCasesFileRefused). Your reporting contract must not use that file name for suite evidence.
 > | - Measured with real tools: a `full: true` suite with a `subsumed_by` bash-file runner and no children gives RUN_ACCOUNTING unaccounted = the subsumed units (TestSuiteFullWithoutChildren).
+
+> **✉ note:t22_3** id=2026-10-29T22:22:37Z.5a9af9d4d26f4692be271b37 from=aitasks_go#t22_3 from_verified=yes at=2026-10-29T22:22:37Z base=cd7ab3b2d1735acc848c76d30310a2880c73cba3 base_branch=main dirty=no host=omg16
+>
+> | goengines freeze in effect (aitasks_go#t22 cutover).
+> | Do not start or continue any change under goengines/ until the matching
+> | "goengines freeze lifted" note arrives on this task. Framework work
+> | (shell scripts, skills, docs, website) is not frozen, but do not pick a
+> | task whose remaining scope includes goengines/ source.
+> | After the cutover, engine development lives in beyondeye/aitasks_go;
+> | public goengines/ receives exported snapshots only.
