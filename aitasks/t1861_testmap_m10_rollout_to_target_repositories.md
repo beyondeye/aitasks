@@ -338,3 +338,13 @@ shows the whole feature as one lane.
 > | - Default command is `python3 -m pytest`; set `command:` where python3 on PATH lacks pytest. An interpreter run with -I / -E ignores PYTHONPATH, so the engine's evidence plugin cannot load and the list is refused.
 > | - A module skipped at collection (pytest.skip(allow_module_level=True)) is one expected identity (its module node id) and reports skip with its reason, independent of zero_tests. A test that fails or passes and then errors or skips in teardown is error:duplicate_case.
 > | - `# testmap:batch no` makes a file a singleton invocation (tested); the serial carve-out pin stays yours.
+
+> **✉ note:t22_3** id=2026-10-29T22:23:12Z.cbb414738c2bcfcfd29342b9 from=aitasks_go#t22_3 from_verified=yes at=2026-10-29T22:23:12Z base=cd7ab3b2d1735acc848c76d30310a2880c73cba3 base_branch=main dirty=no host=omg16
+>
+> | goengines freeze in effect (aitasks_go#t22 cutover).
+> | Do not start or continue any change under goengines/ until the matching
+> | "goengines freeze lifted" note arrives on this task. Framework work
+> | (shell scripts, skills, docs, website) is not frozen, but do not pick a
+> | task whose remaining scope includes goengines/ source.
+> | After the cutover, engine development lives in beyondeye/aitasks_go;
+> | public goengines/ receives exported snapshots only.
