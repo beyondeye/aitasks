@@ -35,11 +35,16 @@ The other `die` calls made **after** `registry_lock_or_die` have no such release
 - `group sync`: the invalid config-slug die inside its loop.
 
 Each of these exits with the lock dir still present. `lib/registry_lock.sh`
-(the `stale_lock.sh` adapter) reclaims a lock whose holder pid is dead, so the
-next writer is not wedged forever. Until that reclaim runs, though, a concurrent
-writer can still wait out its acquire timeout. This matters for the silent
-bootstrap `ait projects add` burst on tmux restart (t1073), where a skipped
-refresh is the outcome.
+(the `stale_lock.sh` adapter) reclaims a lock whose recorded holder pid is
+dead, so for a standalone command the leftover is probably freed by the next
+acquire. That was **not measured** in t2163.
+
+The case worth checking first is `cmd_doctor`, which runs
+`( cmd_update "$name" "$new_path" )` in a subshell. If the lock records the
+long-lived doctor process as its holder, a failed update there would leave a
+lock whose holder is still alive, and the doctor's later `cmd_remove` in the
+same run could then block for its full acquire timeout. Verify which pid the
+lock records before relying on this.
 
 The registry is never corrupted by this; only the lock is held too long.
 
