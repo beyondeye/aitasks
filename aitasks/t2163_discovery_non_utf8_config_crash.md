@@ -11,8 +11,9 @@ active_gates_profile: fast
 active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-29 11:47
-updated_at: 2026-10-29 11:54
+updated_at: 2026-10-29 12:42
 ---
 
 ## Origin
@@ -57,3 +58,8 @@ so that each returns `[]` / `None`. Keep `_parse_registry_records_strict` raisin
 (its callers need "could not look"). Add test rows for a non-UTF-8 registry and a
 non-UTF-8 config to `tests/test_discover_include_registered.py` /
 `tests/test_project_groups.py`.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-29T10:43:04Z status=pass attempt=1 type=human
