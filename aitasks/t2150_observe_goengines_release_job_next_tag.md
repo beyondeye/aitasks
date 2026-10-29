@@ -56,3 +56,5 @@ Implementation Notes.
 > |   Then compare the workflow against tests/test_release_workflow_goengines.py.
 > | - Earlier, the aitasks_go#t22 relocation map planned to re-scope this task to "observe the first export-mode Release run", because the next tag was expected after the cutover. That premise no longer holds, so the re-scope is not needed. If the four points check out, this task can be completed as written. Observing the first export-mode Release run (MODE:export, INTEGRITY_OK, drift/asset checks) belongs in a separate follow-up task, filed after the cutover.
 > | - t2149, the legacy-mode main push run, is already closed.
+
+> **👁 note:read** id=2026-10-29T20:05:54Z.c10b5392ae9e23caf79c4c44 by=t2150 at=2026-10-29T20:05:54Z mode=explicit ids=2026-10-29T19:56:58Z.01c9cc2b2aca2a33316de610
