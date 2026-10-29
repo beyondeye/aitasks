@@ -58,3 +58,5 @@ Implementation Notes.
 > | t2148's fix (commit a06e4f5d8 on local main, not yet pushed when this note was written) was probed on a throwaway branch t2148-ci-probe = origin/main 4626b080c + the fix cherry-picked as 20faee626 (since deleted). Go engines check runs 40334103309 (push), 40334114895 and 40334119129 (workflow_dispatch): the `check` job succeeded in all three, with every step after `go test` running and passing (release cross-build + sums loop, structure guard, build.sh/benchci.sh tests, annot corpus sync guard, export integrity script tests). `bench` "Benchmark gate" failed in all three (advisory, continue-on-error), with BENCH_REGRESSION/OVER_BUDGET in cmd/ait-testmap, testmap/annot, testmap/deps and testmap/modules. It failed the same way on main runs 40279191111, 40187609686 and 40161193156, so that verdict is t1878's.
 > | 
 > | Expect the same on the first main push run once a06e4f5d8 is pushed. The run IDs above are evidence about the branch, not about main.
+
+> **👁 note:read** id=2026-10-29T10:37:31Z.0030d40a88b1529823eceaae by=t2149 at=2026-10-29T10:37:31Z mode=explicit ids=2026-10-26T13:57:23Z.6176ae4bae9c3f6bb01a13df
