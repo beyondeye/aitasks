@@ -1,4 +1,0 @@
-{
- "construct": "lib/broken.py",
- "test": "tests/test_y.py"
-}

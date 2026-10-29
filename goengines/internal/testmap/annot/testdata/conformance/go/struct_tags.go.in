@@ -1,9 +1,0 @@
-package p
-
-type T struct {
-	A string `json:"a"
-// testmap:covers src/tag.go
-`
-	B string `json:"b" // not a comment`
-}
-// testmap:covers src/real.go

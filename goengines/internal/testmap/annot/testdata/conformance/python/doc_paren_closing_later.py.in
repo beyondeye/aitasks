@@ -1,5 +1,0 @@
-("""Docstring whose statement closes later.
-testmap:covers src/p.sh
-"""
-)
-# testmap:covers src/comment.sh

@@ -1,6 +1,0 @@
-#!/usr/bin/env bash
-# header
-set -e
-# testmap:covers src/old.sh @2026-01-01/0123456789
-# testmap:covers src/new @2026-10-12/aaaaaaaaaa
-echo hi

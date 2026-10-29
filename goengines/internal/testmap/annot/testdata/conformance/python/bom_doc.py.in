@@ -1,5 +1,0 @@
-﻿"""Doc after a BOM.
-
-testmap:covers src/bom_doc.py
-"""
-print("bom")

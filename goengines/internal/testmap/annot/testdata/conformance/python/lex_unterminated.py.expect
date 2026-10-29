@@ -1,9 +1,0 @@
-lang: python
-expect: uncertain
-read:
-writable: 
-readonly: 
-lookalikes: 2
-comments: 
-refuse: uncertain@1
-note: origin: M2.2 annot/lexctx_test.go TestClassifyPython 'unterminated' @ 3d1a2b628fc0

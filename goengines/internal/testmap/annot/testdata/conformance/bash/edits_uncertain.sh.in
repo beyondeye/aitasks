@@ -1,4 +1,0 @@
-#!/usr/bin/env bash
-# testmap:covers src/u.sh
-cat <<EOF
-never terminated

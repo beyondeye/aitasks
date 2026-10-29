@@ -1,9 +1,0 @@
-// testmap:covers src/Real.kt
-val fixture = """
-    // testmap:covers src/InRaw.kt
-    ${"// testmap:bogus"}
-"""
-/* outer /* nested */
-// testmap:covers src/InBlock.kt
-*/
-// testmap:covers src/Real2.kt

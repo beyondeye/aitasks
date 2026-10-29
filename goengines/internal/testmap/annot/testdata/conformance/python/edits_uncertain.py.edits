@@ -1,7 +1,0 @@
-op: annotate member= source=src/u.py stamp=@2026-02-02/bbbbbbbbbb
-outcome: refused:uncertain
-after:
-
-op: raw kind=replace line=1 member= source=src/u.py new=# testmap:covers src/u.py @2026-02-02/bbbbbbbbbb
-outcome: refused:uncertain
-after:

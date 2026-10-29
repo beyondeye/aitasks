@@ -1,8 +1,0 @@
-val json = """
-{
-  "comment": "// testmap:covers app/in_json.kt",
-  "x": 1
-}
-// testmap:covers app/in_raw.kt
-""".trimIndent()
-// testmap:covers app/real.kt

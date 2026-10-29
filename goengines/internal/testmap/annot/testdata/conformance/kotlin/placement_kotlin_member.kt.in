@@ -1,4 +1,0 @@
-object F {
-    // testmap:unit Welcome
-    fun welcome() = 1
-}

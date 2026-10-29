@@ -1,4 +1,0 @@
-op: annotate member= source=a stamp=@2026-02-02/bbbbbbbbbb
-outcome: refused:docstring
-after:
-  - line=3 member= key=covers value=a stamp= origin=docstring

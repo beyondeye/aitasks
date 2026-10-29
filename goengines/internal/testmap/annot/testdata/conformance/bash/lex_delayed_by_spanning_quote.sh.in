@@ -1,6 +1,0 @@
-consume <<EOF "a
-EOF
-b"
-# testmap:covers x @2026-01-01/0123456789
-EOF
-# real

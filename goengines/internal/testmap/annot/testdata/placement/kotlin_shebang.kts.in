@@ -1,6 +1,0 @@
-#!/usr/bin/env -S kotlin -J-Dtag={
-package app
-
-import a.B
-
-class T

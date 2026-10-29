@@ -1,4 +1,0 @@
-package a
-
-// testmap:covers x
-func f() {} // trailing

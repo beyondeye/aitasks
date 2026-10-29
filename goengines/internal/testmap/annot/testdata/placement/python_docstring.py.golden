@@ -1,6 +1,0 @@
-"""Tests for x.
-
-More.
-"""
-# testmap:covers src/new @2026-10-12/aaaaaaaaaa
-import os

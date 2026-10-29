@@ -1,3 +1,0 @@
-#!/usr/bin/env kotlin
-// testmap:covers app/script.kts
-println("hi")

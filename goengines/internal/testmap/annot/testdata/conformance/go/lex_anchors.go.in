@@ -1,4 +1,0 @@
-//go:build x
-
-// Package a.
-package a

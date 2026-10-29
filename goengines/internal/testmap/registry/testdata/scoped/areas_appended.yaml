@@ -1,7 +1,0 @@
-# hand-curated areas
-contract: 1
-areas:
-  # the board, narrowed by hand
-  board: {paths: [".aitask-scripts/board/app/**"]}
-  board_tests:
-    paths: [tests/board/**]

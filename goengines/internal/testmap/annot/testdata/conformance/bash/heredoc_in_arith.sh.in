@@ -1,7 +1,0 @@
-#!/usr/bin/env bash
-x=$(( $(cat <<EOF
-1
-EOF
-) + 1 ))
-echo "$x"
-# testmap:covers src/arith.sh

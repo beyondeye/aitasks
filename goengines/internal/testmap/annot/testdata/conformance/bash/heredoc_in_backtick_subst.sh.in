@@ -1,7 +1,0 @@
-#!/usr/bin/env bash
-x=`cat <<EOF
-# testmap:covers src/in_backtick.sh
-EOF
-`
-echo "$x"
-# testmap:covers src/after.sh

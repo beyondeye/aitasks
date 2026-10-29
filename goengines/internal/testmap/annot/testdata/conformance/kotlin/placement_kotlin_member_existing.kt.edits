@@ -1,6 +1,0 @@
-op: annotate member=Welcome source=src/new stamp=@2026-10-12/aaaaaaaaaa
-outcome: applied
-after:
-  - line=2 member=Welcome key=unit value=Welcome stamp= origin=comment
-  - line=3 member=Welcome key=covers value=src/Old.kt stamp= origin=comment
-  - line=4 member=Welcome key=covers value=src/new stamp=@2026-10-12/aaaaaaaaaa origin=comment

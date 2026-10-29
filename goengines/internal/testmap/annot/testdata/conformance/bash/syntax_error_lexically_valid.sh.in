@@ -1,4 +1,0 @@
-#!/usr/bin/env bash
-if true; then
-# testmap:covers src/x.sh
-echo missing-fi

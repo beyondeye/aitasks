@@ -1,4 +1,0 @@
-#!/usr/bin/env bash
-# header
-# testmap:unit First
-first() { :; }

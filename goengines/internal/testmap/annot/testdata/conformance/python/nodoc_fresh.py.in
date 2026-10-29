@@ -1,4 +1,0 @@
-#!/usr/bin/env python3
-# Header comment.
-import sys
-print(sys.version_info[0])

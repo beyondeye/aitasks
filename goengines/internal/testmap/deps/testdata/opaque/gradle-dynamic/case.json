@@ -1,4 +1,0 @@
-{
- "construct": "lib/build.gradle.kts",
- "test": "app/src/test/kotlin/y/ServiceTest.kt"
-}

@@ -1,5 +1,0 @@
-object F {
-    // testmap:unit Welcome
-    // testmap:covers src/new @2026-10-12/aaaaaaaaaa
-    fun welcome() = 1
-}

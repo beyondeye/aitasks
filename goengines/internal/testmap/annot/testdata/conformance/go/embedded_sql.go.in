@@ -1,9 +1,0 @@
-package p
-
-const q = `
--- testmap:covers src/q.sql
-/* testmap:covers src/block.sql */
-// testmap:covers src/in_sql.go
-`
-
-// testmap:covers src/real.go

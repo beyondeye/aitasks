@@ -1,2 +1,0 @@
-line=$(( cd "$D" && ls 2>&1 ) | grep '^t)' || true)
-# real

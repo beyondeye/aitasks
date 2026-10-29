@@ -1,7 +1,0 @@
-package app
-
-import a.B
-import c.D as E
-// testmap:covers src/new @2026-10-12/aaaaaaaaaa
-
-class T

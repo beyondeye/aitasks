@@ -1,4 +1,0 @@
-package a
-import b.C
-// testmap:covers x
-class T

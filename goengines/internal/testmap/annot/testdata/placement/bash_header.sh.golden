@@ -1,8 +1,0 @@
-#!/usr/bin/env bash
-# test_x.sh - header.
-#
-# Covers: prose
-# testmap:covers src/new @2026-10-12/aaaaaaaaaa
-set -euo pipefail
-
-echo hi

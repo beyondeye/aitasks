@@ -1,5 +1,0 @@
-#!/usr/bin/env bash
-# header
-# testmap:covers src/new @2026-10-12/aaaaaaaaaa
-# testmap:unit First
-first() { :; }

@@ -1,5 +1,0 @@
-{
- "construct": "src/main/kotlin/x/res/Strings.kt",
- "test": "src/test/kotlin/y/ServiceTest.kt",
- "android_res": true
-}

@@ -1,4 +1,0 @@
-val a = '\''
-val b = "${"}"}// testmap:covers app/trailing.kt"
-val c = "\${not a template} // still a string"
-// testmap:covers app/real.kt

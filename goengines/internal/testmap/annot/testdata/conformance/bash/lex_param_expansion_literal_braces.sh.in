@@ -1,2 +1,0 @@
-printf '%s\n' ${x:-{a}b}
-# real

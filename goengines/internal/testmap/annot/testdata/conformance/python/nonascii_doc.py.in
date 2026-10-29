@@ -1,8 +1,0 @@
-# é€漢😀 a comment before the module docstring
-"""Module 😀 doc, é.
-
-testmap:covers src/doc_x.py
-"""
-# testmap:covers src/a.py
-x = "€😀"
-print(x)

@@ -1,5 +1,0 @@
-op: annotate member= source=src/new stamp=@2026-10-12/aaaaaaaaaa
-outcome: applied
-after:
-  - line=4 member= key=covers value=src/old.sh stamp=@2026-01-01/0123456789 origin=comment
-  - line=5 member= key=covers value=src/new stamp=@2026-10-12/aaaaaaaaaa origin=comment

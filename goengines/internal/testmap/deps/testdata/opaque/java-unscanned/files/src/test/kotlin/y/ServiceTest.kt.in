@@ -1,7 +1,0 @@
-package y
-
-import x.api.Repo
-
-class ServiceTest {
-    fun t(r: Repo) = r.get()
-}

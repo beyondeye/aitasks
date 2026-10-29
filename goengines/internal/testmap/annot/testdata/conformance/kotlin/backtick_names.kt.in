@@ -1,6 +1,0 @@
-class B {
-    fun `name with "quotes" and # hashes`() = '"'
-// testmap:covers app/real.kt
-    fun `another * name with ' apostrophe`() = 1
-// testmap:covers app/real2.kt
-}

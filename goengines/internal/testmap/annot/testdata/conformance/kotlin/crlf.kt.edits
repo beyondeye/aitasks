@@ -1,5 +1,0 @@
-op: annotate member= source=app/crlf2.kt stamp=@2026-10-12/aaaaaaaaaa
-outcome: applied
-after:
-  - line=3 member= key=covers value=app/crlf.kt stamp= origin=comment
-  - line=4 member= key=covers value=app/crlf2.kt stamp=@2026-10-12/aaaaaaaaaa origin=comment

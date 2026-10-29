@@ -1,6 +1,0 @@
-package app
-
-import a.B
-import c.D as E
-
-class T

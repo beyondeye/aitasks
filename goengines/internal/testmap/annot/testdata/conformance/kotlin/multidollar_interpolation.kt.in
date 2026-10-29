@@ -1,7 +1,0 @@
-package app
-
-val x = 1
-val s = $$"""$${x} ${not a template} // testmap:covers app/fake.kt"""
-val r = $$"${"
-// testmap:covers app/real.kt
-fun h() = "}"

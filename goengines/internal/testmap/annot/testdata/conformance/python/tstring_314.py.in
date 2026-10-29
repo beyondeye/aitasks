@@ -1,6 +1,0 @@
-name = "x"
-t = t"""
-# testmap:covers src/in_tstring.py
-{name}"""
-# testmap:covers src/real.py
-print(type(t).__name__)

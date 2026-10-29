@@ -1,3 +1,0 @@
-package x.res
-
-fun id(res: Any, pkg: String): Int = res.getIdentifier("title", "string", pkg)

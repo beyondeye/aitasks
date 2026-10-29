@@ -1,5 +1,0 @@
-{
- "construct": "a/a.go",
- "test": "b/b_test.go",
- "go": true
-}

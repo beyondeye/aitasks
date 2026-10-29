@@ -1,5 +1,0 @@
-(
-    "doc\n"
-    "testmap:covers src/g.sh"
-)
-import os

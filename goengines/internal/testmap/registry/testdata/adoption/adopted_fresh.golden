@@ -1,9 +1,0 @@
-# Written by ait-testmap. Change it through the onboard / annotate verbs.
-contract: 1
-adopted:
-  - test: tests/a.sh#M
-    source: src/a.sh
-    origin: ['scanner:from-body']
-    adopted_at: "2026-10-19"
-    by: agent:claudecode/opus5_5
-    stamp: 2026-10-19/0123456789

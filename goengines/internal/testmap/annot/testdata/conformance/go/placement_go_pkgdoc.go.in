@@ -1,4 +1,0 @@
-// Package a does things.
-package a
-
-func f() {}

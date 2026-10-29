@@ -1,5 +1,0 @@
-object F {
-    // testmap:unit Welcome
-    // testmap:covers src/Old.kt
-    fun welcome() = 1
-}

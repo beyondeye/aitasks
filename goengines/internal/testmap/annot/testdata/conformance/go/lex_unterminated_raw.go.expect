@@ -1,9 +1,0 @@
-lang: go
-expect: uncertain
-read:
-writable: 
-readonly: 
-lookalikes: 3
-comments: 
-refuse: uncertain@2
-note: origin: M2.2 annot/lexctx_test.go TestClassifyGo 'unterminated-raw' @ 3d1a2b628fc0

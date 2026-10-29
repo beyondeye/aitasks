@@ -1,9 +1,0 @@
-#!/usr/bin/env bash
-v=a
-case "$v" in
-  a) echo one ;;   # trailing
-  '#'*) echo hash ;;
-  *) echo other
-# testmap:covers src/in_case.sh
-     ;;
-esac

@@ -1,3 +1,0 @@
-﻿#!/x {
-// testmap:covers src/new @2026-10-12/aaaaaaaaaa
-println(1)

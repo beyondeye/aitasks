@@ -1,5 +1,0 @@
-// Package a does things.
-package a
-// testmap:covers src/new @2026-10-12/aaaaaaaaaa
-
-func f() {}

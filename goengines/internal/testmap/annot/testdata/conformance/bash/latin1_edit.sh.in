@@ -1,4 +1,0 @@
-#!/bin/sh
-# café - latin-1 bytes in a comment
-# testmap:covers src/latin1.sh
-echo "naïve"

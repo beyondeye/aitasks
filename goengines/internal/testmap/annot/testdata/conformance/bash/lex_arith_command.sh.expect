@@ -1,9 +1,0 @@
-lang: bash
-expect: certain
-read:
-writable: 
-readonly: 
-lookalikes: 
-comments: 2
-refuse: none
-note: origin: M2.2 annot/lexctx_test.go TestClassifyBash 'arith-command' @ 3d1a2b628fc0

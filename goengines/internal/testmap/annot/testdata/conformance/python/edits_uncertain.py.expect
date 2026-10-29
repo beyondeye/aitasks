@@ -1,9 +1,0 @@
-lang: python
-expect: uncertain
-read:
-writable: 
-readonly: 
-lookalikes: 
-comments: 1
-refuse: uncertain
-native: python-tokenize+ast

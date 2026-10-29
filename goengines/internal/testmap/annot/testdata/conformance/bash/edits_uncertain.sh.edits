@@ -1,7 +1,0 @@
-op: annotate member= source=src/u.sh stamp=@2026-02-02/bbbbbbbbbb
-outcome: refused:uncertain
-after:
-
-op: raw kind=replace line=2 member= source=src/u.sh new=# testmap:covers src/u.sh @2026-02-02/bbbbbbbbbb
-outcome: refused:uncertain
-after:

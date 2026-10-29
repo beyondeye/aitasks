@@ -1,8 +1,0 @@
-package app
-
-val s = $$"""${
-// testmap:covers app/fake.kt
-}"""
-
-// testmap:covers app/real.kt
-fun f() = 1

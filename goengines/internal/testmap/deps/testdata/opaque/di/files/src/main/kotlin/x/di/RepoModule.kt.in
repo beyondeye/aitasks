@@ -1,9 +1,0 @@
-package x.di
-
-import x.api.Repo
-
-@Module
-class RepoModule {
-    @Provides
-    fun repo(): Repo = object : Repo { override fun get() = 1 }
-}

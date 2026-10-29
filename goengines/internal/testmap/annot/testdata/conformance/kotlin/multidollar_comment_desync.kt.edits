@@ -1,4 +1,0 @@
-op: raw kind=replace line=9 member= source=app/fake.kt from=original new=// testmap:covers app/fake.kt @2026-02-02/bbbbbbbbbb
-outcome: refused:not-comment
-after:
-  - line=3 member= key=covers value=app/real.kt stamp= origin=comment

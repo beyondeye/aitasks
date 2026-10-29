@@ -1,9 +1,0 @@
-lang: bash
-expect: certain
-read:
-writable: 
-readonly: 
-lookalikes: 4
-comments: 6
-refuse: none
-note: origin: M2.2 annot/lexctx_test.go TestClassifyBash 'heredoc-body-continuation' @ 3d1a2b628fc0

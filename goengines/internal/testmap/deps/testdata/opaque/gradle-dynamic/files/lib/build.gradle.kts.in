@@ -1,5 +1,0 @@
-val dep = findProperty("libDep") as String
-
-dependencies {
-    implementation(project(dep))
-}

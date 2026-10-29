@@ -1,5 +1,0 @@
-import os
-X = """
-# testmap:covers x @2026-01-01/0123456789
-"""
-# real

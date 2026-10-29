@@ -1,5 +1,0 @@
-{
- "construct": "src/main/kotlin/x/secret/Secret.kt",
- "test": "src/test/kotlin/y/ServiceTest.kt",
- "chmod000": true
-}

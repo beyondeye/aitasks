@@ -1,4 +1,0 @@
-op: annotate member= source=src/latin1.py stamp=@2026-02-02/bbbbbbbbbb
-outcome: applied
-after:
-  - line=3 member= key=covers value=src/latin1.py stamp=@2026-02-02/bbbbbbbbbb origin=comment

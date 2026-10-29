@@ -1,4 +1,0 @@
-{
- "construct": "src/main/kotlin/x/k/Limits.kt",
- "test": "src/test/kotlin/y/ServiceTest.kt"
-}

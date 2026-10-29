@@ -1,5 +1,0 @@
-op: annotate member= source=src/nonl2.sh stamp=@2026-10-12/aaaaaaaaaa
-outcome: applied
-after:
-  - line=3 member= key=covers value=src/nonl.sh stamp= origin=comment
-  - line=4 member= key=covers value=src/nonl2.sh stamp=@2026-10-12/aaaaaaaaaa origin=comment

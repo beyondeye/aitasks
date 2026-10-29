@@ -1,5 +1,0 @@
-package x.api
-
-interface Repo {
-    fun get(): Int
-}

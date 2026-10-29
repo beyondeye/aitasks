@@ -1,4 +1,0 @@
-{
- "construct": "build/generated/ksp/main/kotlin/x/gen/Factory.kt",
- "test": "src/test/kotlin/y/ServiceTest.kt"
-}

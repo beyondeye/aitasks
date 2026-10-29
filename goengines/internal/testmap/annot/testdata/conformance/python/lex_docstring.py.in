@@ -1,6 +1,0 @@
-"""Doc.
-
-testmap:covers a.py
-"""
-# testmap:covers b.py
-import os

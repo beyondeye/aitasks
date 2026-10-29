@@ -1,5 +1,0 @@
-package p
-
-// testmap:covers src/crlf.go
-var s = `a
-b`

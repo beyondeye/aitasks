@@ -1,5 +1,0 @@
-//go:build linux
-
-package a
-
-import "testing"
