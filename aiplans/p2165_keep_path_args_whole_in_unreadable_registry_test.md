@@ -81,3 +81,10 @@ None identified.
 
 ### Goal-achievement risk: low
 None identified.
+
+## Final Implementation Notes
+- **Actual work done:** Implemented as planned. In `tests/test_projects_unreadable_registry.sh` section 1 the VERBS table now carries `@ALPHA@` / `@BETA@` placeholders, and a per-element `case` loop substitutes `$ALPHA_ROOT` / `$BETA_ROOT` after `read -r -a`. This is the same idiom as `tests/test_projects_lock_released_on_die.sh` section 1. The table comment is updated to match.
+- **Deviations from plan:** None.
+- **Issues encountered:** None. Before the fix, `TMPDIR="<scratch>/sp ace"` reproduced 139/145 (add + update × 3 shapes died at "Path does not exist: …/sp"). After the fix, 145/145 under both the default and the spaced TMPDIR. Shellcheck shows only the pre-existing SC1091 info for the sourced `asserts.sh`, unchanged from HEAD.
+- **Key decisions:** Substitute per element after the split, not by quoting inside the table, so the path bytes never pass through either the `IFS='|'` split or the whitespace split.
+- **Upstream defects identified:** None
