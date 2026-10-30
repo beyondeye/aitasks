@@ -3,13 +3,13 @@ priority: low
 effort: medium
 depends: []
 issue_type: performance
-status: Ready
+status: Postponed
 labels: [testmap, go_engine]
 gates: [risk_evaluated]
 anchor: 1852
 followup_kind: review_finding
 created_at: 2026-10-14 17:26
-updated_at: 2026-10-14 17:26
+updated_at: 2026-10-30 12:10
 ---
 
 ## Context

@@ -3,13 +3,13 @@ priority: medium
 effort: medium
 depends: []
 issue_type: enhancement
-status: Ready
+status: Postponed
 labels: [testing, testmap, go_engine]
 gates: [risk_evaluated]
 anchor: 1852
 followup_kind: risk_mitigation
 created_at: 2026-10-25 09:00
-updated_at: 2026-10-25 09:00
+updated_at: 2026-10-30 12:10
 ---
 
 ## Origin

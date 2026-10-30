@@ -3,13 +3,13 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Postponed
 labels: [testmap, go_engine, testing]
 gates: [risk_evaluated]
 anchor: 1852
 followup_kind: upstream_defect
 created_at: 2026-10-25 10:09
-updated_at: 2026-10-25 10:09
+updated_at: 2026-10-30 12:10
 ---
 
 ## Origin

@@ -8,7 +8,7 @@ labels: [testing, testmap, go_engine]
 gates: [risk_evaluated]
 anchor: 1852
 created_at: 2026-10-21 22:07
-updated_at: 2026-10-21 22:08
+updated_at: 2026-10-30 12:10
 ---
 
 ## Context

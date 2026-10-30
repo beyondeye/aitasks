@@ -1,14 +1,14 @@
 ---
 priority: medium
 effort: medium
-depends: [1853_4]
+depends: [t1853_4]
 issue_type: chore
-status: Ready
+status: Postponed
 labels: [testing, testmap, go_engine]
 gates: [risk_evaluated]
 anchor: 1852
 created_at: 2026-10-21 10:07
-updated_at: 2026-10-21 10:07
+updated_at: 2026-10-30 12:10
 ---
 
 ## Goal

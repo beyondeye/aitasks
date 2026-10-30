@@ -1,15 +1,15 @@
 ---
 priority: medium
 effort: low
-depends: [1852_3]
+depends: [t1852_3]
 issue_type: test
-status: Ready
+status: Postponed
 labels: [testmap, go_engine, testing, test_infrastructure]
 gates: [risk_evaluated]
 anchor: 1852
 followup_kind: risk_mitigation
 created_at: 2026-09-24 15:44
-updated_at: 2026-09-24 15:44
+updated_at: 2026-10-30 12:10
 ---
 
 ## Origin
