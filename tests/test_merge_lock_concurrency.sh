@@ -158,6 +158,12 @@ N=51
 WAIT_SECS=120          # per-caller lock wait budget
 ATTEMPT_CAP=10         # begin attempts per caller before it is a failure
 CASE_BUDGET=600        # whole-case wall-clock GUARD (not a perf assertion)
+# Waiter poll base, through the marker-gated seam (t2167). The production 30 s
+# cadence would leave N=51 serially draining for minutes; a short poll keeps the
+# case fast AND puts the most waiter pressure on every holder's release - the
+# t2156 starvation this case leaked on. The production cadence and its timeout
+# clamp are covered by test_merge_lock_broker.sh Cases 19-20.
+POLL_MS=500
 free_lock
 R2="$(new_repo n51 "$N")"
 mkdir -p "$TMP/n51"
@@ -169,7 +175,7 @@ worker() {             # <i> <anchor>
             printf 'CAP_EXHAUSTED\n' > "$TMP/n51/rc_$i"; return
         fi
         rc=0
-        out="$( cd "$R2" && AIT_AGENT_PID="$anchor" "$BROKER" \
+        out="$( cd "$R2" && AIT_AGENT_PID="$anchor" AIT_MERGE_LOCK_POLL_MS="$POLL_MS" "$BROKER" \
                 begin "t$i" main "aitask/t$i" --wait-secs "$WAIT_SECS" \
                 2>"$TMP/n51/err_$i" )" || rc=$?
         printf '%s\n' "$out" >> "$TMP/n51/out_$i"

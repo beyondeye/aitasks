@@ -160,8 +160,16 @@ In: `lock: none`.
 ./.aitask-scripts/aitask_merge_task.sh begin "<task_id>" "$output_branch" "aitask/<task_name>" --wait-secs 120
 ```
 
-`--wait-secs 120` lets a short queue drain without a prompt; the broker prints
-`WAITING:<holder>:<elapsed>` to stderr meanwhile.
+`--wait-secs 120` lets a short queue drain without a prompt. While the mutex is
+held the broker re-tries roughly every 30 seconds (jittered), printing one
+`WAITING:<holder>:<elapsed>` line to stderr per retry, and makes a final attempt
+at the deadline — so it never overruns the budget by a whole retry interval.
+
+**Give this call enough time.** `begin` can block for the whole `--wait-secs`
+budget and then run the merge. If your shell tool enforces a per-command
+timeout, set this call's timeout to at least `--wait-secs` + 120 seconds (240
+for 120, 420 for 300). A timeout that kills `begin` after it acquired the mutex
+leaves a reservation held that you do not know you own.
 
 ### `begin` verdicts
 
@@ -241,8 +249,9 @@ Another task holds the mutex; nothing was acquired, so `terminal-release` is
 `none`. Name the holder and the seconds waited, then ask "Wait and retry" /
 "Stop here".
 
-- **Wait and retry** → re-run `begin` with `--wait-secs 300`. Bounded: after
-  **3** declines, stop.
+- **Wait and retry** → re-run `begin` with `--wait-secs 300`, with a shell
+  timeout of at least 420 seconds (see `## Entry`). Bounded: after **3**
+  declines, stop.
 - **Stop here** → `continues-to` `stop-in-flight`: end the workflow, task and
   branch retained, re-enterable at `POSTIMPL` (**Stopped** banner,
   `workflow-end.md`, `outcome=in-flight`).

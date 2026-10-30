@@ -508,6 +508,196 @@ out="$(broker "$R18b" "$A18" abort tA)"
 assert_eq "case18: abort reaches a clean state on the output branch" "ABORTED" "$out"
 free_lock
 
+# ---------------------------------------------------------------------------
+# t2167: the waiter polls on a LONG jittered interval (merge_lock.sh delta 4)
+# and never probes a live holder under the .gc guard (delta 6). Cases 19-21 run
+# with the seams OFF, so the production 30 s cadence is what is under test.
+# ---------------------------------------------------------------------------
+echo "--- Case 19: the wait budget clamps the poll ---"
+free_lock; disable_seams
+R19="$(new_repo r19)"; A19="$(spawn_anchor)"; B19="$(spawn_anchor)"
+broker "$R19" "$A19" begin tA main aitask/tclean >/dev/null
+t0=$(date +%s)
+out="$( cd "$R19" && AIT_AGENT_PID="$B19" "$BROKER" begin tB main aitask/tclean2 --wait-secs 3 2>"$TMP/err19" )"
+el=$(( $(date +%s) - t0 ))
+assert_contains "case19: a lock held past the budget is refused, naming the holder" "BUSY:tA:" "$out"
+assert_eq "case19: BUSY within budget + 2 s, not budget + a 30 s interval" "yes" "$([[ "$el" -le 5 ]] && echo yes || echo "no(${el}s)")"
+assert_eq "case19: one poll inside a 3 s budget = exactly one WAITING line" "1" "$(grep -c '^WAITING:tA:' "$TMP/err19" || true)"
+t0=$(date +%s)
+out="$( cd "$R19" && AIT_AGENT_PID="$B19" "$BROKER" begin tB main aitask/tclean2 --wait-secs 0 2>"$TMP/err19b" )"
+el=$(( $(date +%s) - t0 ))
+assert_contains "case19: --wait-secs 0 is still one attempt" "BUSY:tA:" "$out"
+assert_eq "case19: --wait-secs 0 never waits (no WAITING line)" "0" "$(grep -c '^WAITING:' "$TMP/err19b" || true)"
+assert_eq "case19: --wait-secs 0 returns at once" "yes" "$([[ "$el" -le 1 ]] && echo yes || echo "no(${el}s)")"
+broker "$R19" "$A19" finish tA >/dev/null
+
+echo "--- Case 20: a lock freed mid-sleep is taken by the final attempt ---"
+free_lock; disable_seams
+R20="$(new_repo r20)"; A20="$(spawn_anchor)"; B20="$(spawn_anchor)"
+broker "$R20" "$A20" begin tA main aitask/tclean >/dev/null
+t0=$(date +%s)
+( cd "$R20" && AIT_AGENT_PID="$B20" "$BROKER" begin tB main aitask/tclean2 --wait-secs 5 \
+    >"$TMP/out20" 2>"$TMP/err20" ) &
+b20=$!
+# Bounded wait for B to be asleep in its (clamped) poll, then free the lock.
+for _ in $(seq 1 50); do grep -q '^WAITING:' "$TMP/err20" 2>/dev/null && break; sleep 0.1; done
+assert_eq "case20: B reported it is waiting before the release" "1" "$(grep -c '^WAITING:' "$TMP/err20" || true)"
+broker "$R20" "$A20" finish tA >/dev/null
+wait "$b20" 2>/dev/null || true
+el=$(( $(date +%s) - t0 ))
+assert_contains "case20: the attempt at the deadline acquires the freed lock" "MERGE_OK:" "$(cat "$TMP/out20")"
+assert_eq "case20: and returns within budget + 2 s" "yes" "$([[ "$el" -le 7 ]] && echo yes || echo "no(${el}s)")"
+broker "$R20" "$B20" finish tB >/dev/null
+
+echo "--- Case 21: the poll seam is marker-gated ---"
+free_lock; disable_seams
+R21="$(new_repo r21)"; A21="$(spawn_anchor)"; B21="$(spawn_anchor)"
+broker "$R21" "$A21" begin tA main aitask/tclean >/dev/null
+( cd "$R21" && AIT_AGENT_PID="$B21" AIT_MERGE_LOCK_POLL_MS=200 "$BROKER" begin tB main aitask/tclean2 --wait-secs 2 \
+    >/dev/null 2>"$TMP/err21a" )
+assert_eq "case21: AIT_MERGE_LOCK_POLL_MS is IGNORED without the marker" "1" "$(grep -c '^WAITING:' "$TMP/err21a" || true)"
+enable_seams
+( cd "$R21" && AIT_AGENT_PID="$B21" AIT_MERGE_LOCK_POLL_MS=200 "$BROKER" begin tB main aitask/tclean2 --wait-secs 2 \
+    >/dev/null 2>"$TMP/err21b" )
+n21="$(grep -c '^WAITING:' "$TMP/err21b" || true)"
+assert_eq "case21: with the marker the short poll takes effect (>=3 polls)" "yes" "$([[ "$n21" -ge 3 ]] && echo yes || echo "no($n21)")"
+# Leading zeros are DECIMAL: bash arithmetic would read "08" as invalid octal
+# (abort, exit 1, no verdict) and "0500" as 320.
+for v21 in 08 0500; do
+    rc21=0
+    out="$( cd "$R21" && AIT_AGENT_PID="$B21" AIT_MERGE_LOCK_POLL_MS="$v21" "$BROKER" begin tB main aitask/tclean2 --wait-secs 1 \
+            2>"$TMP/err21c" )" || rc21=$?
+    assert_eq "case21: POLL_MS=$v21 still yields a verdict with exit 0" "0" "$rc21"
+    assert_contains "case21: POLL_MS=$v21 still yields BUSY" "BUSY:tA:" "$out"
+    assert_contains "case21: POLL_MS=$v21 is read as decimal $((10#$v21)) ms" "poll interval $((10#$v21)) ms" "$(cat "$TMP/err21c")"
+done
+# An over-long value is not a seam value at all: the production cadence applies.
+out="$( cd "$R21" && AIT_AGENT_PID="$B21" AIT_MERGE_LOCK_POLL_MS=99999999999999999999 "$BROKER" begin tB main aitask/tclean2 --wait-secs 1 \
+        2>"$TMP/err21d" )"
+assert_contains "case21: an over-long POLL_MS still yields BUSY" "BUSY:tA:" "$out"
+assert_not_contains "case21: an over-long POLL_MS is ignored, not wrapped" "poll interval" "$(cat "$TMP/err21d")"
+broker "$R21" "$A21" finish tA >/dev/null
+disable_seams
+
+# --- Bounded rendezvous (Cases 22 / 22c) ------------------------------------
+# Each FIFO is held open READ-WRITE by this shell on a fixed fd, so the other
+# side's open() never blocks and no EOF ever arrives. Hence two rules: every
+# test-side read is `read -t` (a missed rendezvous FAILS, never hangs), and
+# every signal in both directions is ONE newline-terminated line - a bare byte
+# would make the bounded read time out although the rendezvous was reached.
+# Fixed fd numbers rather than `exec {fd}<>` (bash 4.1+; the floor is 4.0).
+rdv_read() {                       # <fd> -> the token, or TIMEOUT
+    local tok=""
+    if IFS= read -t 20 -r tok <&"$1"; then printf '%s' "$tok"; else printf 'TIMEOUT'; fi
+}
+reap_bounded() {                   # <pid>
+    local p="$1"
+    for _ in $(seq 1 100); do kill -0 "$p" 2>/dev/null || break; sleep 0.1; done
+    kill -KILL "$p" 2>/dev/null || true
+    wait "$p" 2>/dev/null || true
+}
+# The lib-level waiter. Reports on the result FIFO: `P` on entering a holder
+# probe (and parks there until released through G), `D` once
+# merge_lock_acquire returned. MODE=wrap additionally parks it ONCE between the
+# unguarded pre-probe and the guarded core (R1/G1).
+waiter="$TMP/waiter.sh"
+cat > "$waiter" <<'INNER'
+set -u
+PROJECT_DIR="$1"; R="$2"; G="$3"; MODE="${4:-plain}"; R1="${5:-}"; G1="${6:-}"
+. "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh"
+. "$PROJECT_DIR/.aitask-scripts/lib/merge_lock.sh"
+lock_holder_liveness() { printf 'P\n' > "$R"; read -r _ < "$G"; printf 'alive'; }
+if [[ "$MODE" == "wrap" ]]; then
+    eval "_orig_stale_lock_acquire() $(declare -f stale_lock_acquire | tail -n +2)"
+    _parked=0
+    stale_lock_acquire() {
+        if [[ "$_parked" -eq 0 ]]; then
+            _parked=1; printf 'x\n' > "$R1"; read -r _ < "$G1"
+        fi
+        _orig_stale_lock_acquire "$@"
+    }
+fi
+merge_lock_acquire tW main aitask/tclean2 "merge lock" && rc=0 || rc=$?
+printf 'D\n' > "$R"
+exit "$rc"
+INNER
+
+echo "--- Case 22: a waiter mid-probe cannot starve the holder's release ---"
+# t2156: waiters probed a live holder UNDER the .gc guard, and the holder's
+# finish - which needs the same guard for a bounded ~2 s - gave up and leaked a
+# live reservation. Red control (recorded in the t2167 plan): with BOTH the
+# unguarded pre-probe and the seam's instance gating removed the token is still
+# P, but 22b sees the guard held and finish answers RETAINED.
+free_lock
+R22="$(new_repo r22)"; A22="$(spawn_anchor)"; W22="$(spawn_anchor)"
+out="$(broker "$R22" "$A22" begin tA main aitask/tclean)"
+assert_contains "case22: fixture: a live holder holds the lock" "MERGE_OK:" "$out"
+rm -f "$TMP/fifo22_r" "$TMP/fifo22_g"; mkfifo "$TMP/fifo22_r" "$TMP/fifo22_g"
+exec 7<>"$TMP/fifo22_r" 8<>"$TMP/fifo22_g"
+AIT_AGENT_PID="$W22" bash "$waiter" "$PROJECT_DIR" "$TMP/fifo22_r" "$TMP/fifo22_g" plain \
+    >/dev/null 2>"$TMP/w22.err" &
+w22=$!
+tok="$(rdv_read 7)"
+assert_eq "case22: precondition - the waiter is parked inside a holder probe (D = it never probed)" "P" "$tok"
+if [[ -e "$LOCKD.gc" ]]; then g22=held; else g22=free; fi
+assert_eq "case22b: ...and that probe holds NO guard" "free" "$g22"
+out="$(broker "$R22" "$A22" finish tA)"
+assert_eq "case22: the holder's release wins while the waiter is mid-probe" "RELEASED" "$out"
+printf 'x\n' >&8
+tok="$(rdv_read 7)"
+assert_eq "case22: the unparked waiter returns" "D" "$tok"
+reap_bounded "$w22"
+exec 7>&- 8>&-
+free_lock
+
+echo "--- Case 22c: a holder published AFTER the unguarded probe is not probed under the guard ---"
+# The waiter sees the lock ABSENT, then another session acquires before the
+# waiter reaches the core. The core's failed mkdir runs the seam under the
+# guard; without the instance gating it would probe the new LIVE holder there.
+# Red control (recorded in the t2167 plan): gating removed, pre-probe kept ->
+# token P and finish RETAINED.
+free_lock
+R22c="$(new_repo r22c)"; A22c="$(spawn_anchor)"; W22c="$(spawn_anchor)"
+rm -f "$TMP/fifo22c_r" "$TMP/fifo22c_g" "$TMP/fifo22c_r1" "$TMP/fifo22c_g1"
+mkfifo "$TMP/fifo22c_r" "$TMP/fifo22c_g" "$TMP/fifo22c_r1" "$TMP/fifo22c_g1"
+exec 7<>"$TMP/fifo22c_r" 8<>"$TMP/fifo22c_g" 5<>"$TMP/fifo22c_r1" 6<>"$TMP/fifo22c_g1"
+AIT_AGENT_PID="$W22c" bash "$waiter" "$PROJECT_DIR" "$TMP/fifo22c_r" "$TMP/fifo22c_g" wrap "$TMP/fifo22c_r1" "$TMP/fifo22c_g1" \
+    >/dev/null 2>"$TMP/w22c.err" &
+w22c=$!
+tok="$(rdv_read 5)"
+assert_eq "case22c: precondition - the waiter passed the absent-lock probe and is parked before the core" "x" "$tok"
+out="$(broker "$R22c" "$A22c" begin tA main aitask/tclean)"
+assert_contains "case22c: another session publishes a live holder in that window" "MERGE_OK:" "$out"
+printf 'x\n' >&6
+tok="$(rdv_read 7)"
+assert_eq "case22c: the waiter returns busy WITHOUT probing that holder (P = probed under the guard)" "D" "$tok"
+out="$(broker "$R22c" "$A22c" finish tA)"
+assert_eq "case22c: the holder's release is not starved" "RELEASED" "$out"
+assert_dir_not_exists "case22c: the lock really was released" "$LOCKD"
+# Only on the red path is the waiter still parked in a probe: free it.
+[[ "$tok" == "P" ]] && { printf 'x\n' >&8; printf 'x\n' >&8; printf 'x\n' >&8; }
+reap_bounded "$w22c"
+exec 7>&- 8>&- 5>&- 6>&-
+free_lock
+
+echo "--- Case 23: a same-session begin re-enters its own reservation ---"
+free_lock; disable_seams
+R23="$(new_repo r23)"; A23="$(spawn_anchor)"; B23="$(spawn_anchor)"
+out="$(broker "$R23" "$A23" begin tA main aitask/tclean --wait-secs 0)"
+assert_contains "case23: first begin merges" "MERGE_OK:" "$out"
+out="$(broker "$R23" "$A23" begin tA main aitask/tclean --wait-secs 0)"
+assert_contains "case23: a repeat begin, no finish between, re-enters (not BUSY on itself)" "MERGE_OK:" "$out"
+t0=$(date +%s)
+out="$(broker "$R23" "$A23" begin tA main aitask/tclean --wait-secs 5)"
+el=$(( $(date +%s) - t0 ))
+assert_contains "case23: with a wait budget it re-enters too" "MERGE_OK:" "$out"
+assert_eq "case23: ...at once, instead of waiting out the budget on itself" "yes" "$([[ "$el" -le 2 ]] && echo yes || echo "no(${el}s)")"
+out="$(broker "$R23" "$B23" begin tA main aitask/tclean --wait-secs 1)"
+assert_contains "case23: a DIFFERENT session on the same task id is still refused" "BUSY:tA:" "$out"
+out="$(broker "$R23" "$A23" finish tA)"
+assert_eq "case23: the owner finishes" "RELEASED" "$out"
+free_lock
+
 echo "========================="
 echo "Results: $PASS/$TOTAL passed, $FAIL failed"
 [[ "$FAIL" -gt 0 ]] && exit 1

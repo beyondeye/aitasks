@@ -21,7 +21,9 @@
 # admin-created shared base") for multi-user shared checkouts - precisely where
 # serialization matters most. An env var alone must never be able to disable the
 # mutex. The seams are honoured only when <lock_base>/.ait_merge_test_seams
-# exists; NEVER create that file in a real lock base.
+# exists; NEVER create that file in a real lock base. They are
+# AIT_MERGE_LOCK_DISABLED, AIT_MERGE_LOCK_POLL_MS (waiter poll base, in ms),
+# AIT_MERGE_BROKER_HOOK and the AIT_MERGE_FORCE_HOOK_* rendezvous points.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -48,6 +50,21 @@ _seam_lock_disabled() {
     _test_seams_enabled || return 1
     warn "aitask_merge_task: TEST SEAM ACTIVE - mutex acquisition skipped"
     return 0
+}
+# Base waiter poll interval in ms: AIT_MERGE_LOCK_POLL_MS under the marker,
+# otherwise the production cadence. Tests shorten it here; the default is never
+# shortened to make a test pass. The digits are length-bounded before any
+# arithmetic (a 20-digit value would wrap) and forced to base 10: bash reads a
+# leading 0 as octal, so "08" would abort and "0500" would mean 320 ms.
+_seam_poll_ms() {
+    local v="${AIT_MERGE_LOCK_POLL_MS:-}"
+    if [[ "$v" =~ ^[0-9]{1,7}$ ]] && _test_seams_enabled; then
+        v=$(( 10#$v ))
+        warn "aitask_merge_task: TEST SEAM ACTIVE - merge lock poll interval ${v} ms"
+        printf '%s' "$v"
+        return 0
+    fi
+    printf '%s' "$(( _MERGE_LOCK_POLL_SECS * 1000 ))"
 }
 _seam_run_hook() {
     [[ -n "${AIT_MERGE_BROKER_HOOK:-}" ]] || return 0
@@ -117,6 +134,17 @@ _release_and_verdict() {
     exit 0
 }
 
+# _begin_attempt <lock_dir> <task_id> <out_branch> <task_branch> — one acquire
+# attempt, then the same-owner re-entry: a reservation this task and session
+# already hold (a repeated begin after a lost response) is ours to resume, not
+# a holder to wait on. A different session on the same task id still fails
+# merge_lock_authorize and stays busy.
+_begin_attempt() {
+    local d="$1" task_id="$2"
+    merge_lock_acquire "$task_id" "$3" "$4" "merge lock" && return 0
+    merge_lock_authorize "$d" "$task_id" >/dev/null 2>&1
+}
+
 # ============================ begin ========================================
 cmd_begin() {
     local task_id="${1:-}" out_branch="${2:-}" task_branch="${3:-}"
@@ -150,26 +178,32 @@ cmd_begin() {
     if _seam_lock_disabled; then
         :
     else
-        local slice=2 start holder
+        # Long, jittered poll (merge_lock.sh delta 4): the first attempt is
+        # immediate, each sleep is clamped to the remaining budget so the last
+        # attempt lands at the deadline, and one WAITING line marks each poll.
+        local poll_ms start deadline now remaining delay_ms holder acquired=0
+        poll_ms="$(_seam_poll_ms)"
         start=$(date +%s)
-        if ! merge_lock_acquire "$task_id" "$out_branch" "$task_branch" 0 "merge lock"; then
-            while :; do
-                waited=$(( $(date +%s) - start ))
-                [[ "$waited" -ge "$wait_secs" ]] && break
-                holder="$(merge_lock_read "$dir" task_id)"
-                [[ -n "$holder" ]] || holder="unknown"
-                progress "WAITING:$holder:$waited"
-                if merge_lock_acquire "$task_id" "$out_branch" "$task_branch" "$slice" "merge lock"; then
-                    break
-                fi
-            done
+        deadline=$(( start + wait_secs ))
+        _begin_attempt "$dir" "$task_id" "$out_branch" "$task_branch" && acquired=1
+        while [[ "$acquired" -eq 0 ]]; do
+            now=$(date +%s)
+            remaining=$(( deadline - now ))
+            [[ "$remaining" -gt 0 ]] || break
+            holder="$(merge_lock_read "$dir" task_id)"
+            [[ -n "$holder" ]] || holder="unknown"
+            progress "WAITING:$holder:$(( now - start ))"
+            merge_lock_poll_delay_ms "$poll_ms"
+            delay_ms="$_MERGE_LOCK_POLL_DELAY_MS"
+            [[ "$delay_ms" -le $(( remaining * 1000 )) ]] || delay_ms=$(( remaining * 1000 ))
+            sleep "$(( delay_ms / 1000 )).$(printf '%03d' $(( delay_ms % 1000 )))"
+            _begin_attempt "$dir" "$task_id" "$out_branch" "$task_branch" && acquired=1
+        done
+        if [[ "$acquired" -eq 0 ]]; then
             waited=$(( $(date +%s) - start ))
-            if [[ -z "$(merge_lock_read "$dir" task_id)" ]] ||
-               ! merge_lock_authorize "$dir" "$task_id" >/dev/null 2>&1; then
-                holder="$(merge_lock_read "$dir" task_id)"
-                [[ -n "$holder" ]] || holder="unknown"
-                verdict "BUSY:$holder:$waited"; exit 0
-            fi
+            holder="$(merge_lock_read "$dir" task_id)"
+            [[ -n "$holder" ]] || holder="unknown"
+            verdict "BUSY:$holder:$waited"; exit 0
         fi
     fi
 
