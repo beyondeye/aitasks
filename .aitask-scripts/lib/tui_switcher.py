@@ -951,9 +951,10 @@ class TuiSwitcherOverlay(ModalScreen):
         agents = []
         others = []
         for win_idx, win_name in running_windows:
-            if win_name in _TUI_NAMES:
-                continue
             cat = _classify_window(win_name)
+            # Already listed in the TUI group above, brainstorm-<n> included.
+            if cat == "tui":
+                continue
             if cat == "agent":
                 agents.append((win_idx, win_name))
             else:

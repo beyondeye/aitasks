@@ -14,6 +14,8 @@
 #     to _discover_brainstorm_sessions (the end-to-end fix for both bugs:
 #     brainstorms appearing under the wrong session and missing under the
 #     right one).
+#   * A running brainstorm-<n> window appears once, as its TUI entry, and not
+#     again as a plain window row under "Other" (t2166).
 #
 # Run: bash tests/test_tui_switcher_brainstorm_session.sh
 
@@ -103,6 +105,29 @@ with tempfile.TemporaryDirectory() as tmp:
     disc_arg = mock_disc.call_args.args[0] if mock_disc.call_args.args else None
     print("POPULATE_DISC_CALLS:" + str(mock_disc.call_count))
     print("POPULATE_DISC_MATCH:" + str(disc_arg == proot_b))
+
+    # --- a running brainstorm-<n> window is listed exactly once (t2166) ---
+    ov = ts.TuiSwitcherOverlay(session="s1", current_tui="")
+    ov._attached_session = "s1"
+    ov._all_sessions = [AitasksSession("s1", proot_a, "proj_a")]
+    ov._selected_key = ov._all_sessions[0].key
+    list_view = MagicMock()
+    ov.query_one = MagicMock(return_value=list_view)
+    with patch("tui_switcher.get_tmux_windows", return_value=[
+            ("1", "stats"), ("2", "brainstorm-7"), ("3", "agent-pick-7")]), \
+         patch("tui_switcher._build_tui_list", return_value=[]), \
+         patch("tui_switcher._discover_brainstorm_sessions", return_value=[]), \
+         patch("tui_switcher._GroupHeader", lambda label: ("HDR", label)), \
+         patch("tui_switcher._TuiListItem",
+               lambda name, *a, **k: MagicMock(row=("TUI", name))), \
+         patch("tui_switcher._WindowListItem",
+               lambda name, idx: ("WIN", name)):
+        ov._populate_list_for("s1")
+    rows = [c.args[0] for c in list_view.append.call_args_list]
+    rows = [r.row if isinstance(r, MagicMock) else r for r in rows]
+    print("DUP_BRAINSTORM_ROWS:" + str(sum(1 for r in rows if r[1] == "brainstorm-7")))
+    print("DUP_HEADERS:" + ",".join(r[1] for r in rows if r[0] == "HDR"))
+    print("DUP_WINDOW_ROWS:" + ",".join(r[1] for r in rows if r[0] == "WIN"))
 PY
 )
 
@@ -129,6 +154,12 @@ assert_eq "_populate_list_for calls _discover_brainstorm_sessions once" \
     "1" "${R[POPULATE_DISC_CALLS]:-}"
 assert_eq "_populate_list_for passes the SELECTED session's project_root" \
     "True" "${R[POPULATE_DISC_MATCH]:-}"
+assert_eq "a running brainstorm-<n> window is listed exactly once" \
+    "1" "${R[DUP_BRAINSTORM_ROWS]:-}"
+assert_eq "brainstorm-<n> does not open an Other group" \
+    "TUIs,Code Agents" "${R[DUP_HEADERS]:-}"
+assert_eq "only the agent window is listed as a plain window row" \
+    "agent-pick-7" "${R[DUP_WINDOW_ROWS]:-}"
 
 echo ""
 echo "===================="
