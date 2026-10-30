@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 folded_tasks: [2156]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-30 01:34
-updated_at: 2026-10-30 01:35
+updated_at: 2026-10-30 11:02
 ---
 
 ## Problem
@@ -86,3 +87,8 @@ Verify with `bash tests/test_merge_lock_concurrency.sh` on macOS, Case 2 in part
 The following existing tasks have been folded into this task. Their requirements are incorporated in the description above. These references exist only for post-implementation cleanup.
 
 - **t2156** (`t2156_fix_merge_lock_release_guard_starvation.md`)
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-30T09:02:37Z status=pass attempt=1 type=human
