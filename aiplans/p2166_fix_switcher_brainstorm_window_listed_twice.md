@@ -92,3 +92,10 @@ None identified.
 
 ### Goal-achievement risk: low
 None identified.
+
+## Final Implementation Notes
+- **Actual work done:** As planned. `_populate_list_for`'s non-TUI loop now calls `_classify_window` first and skips `cat == "tui"` (covers `_TUI_NAMES` and the `brainstorm-` prefix), instead of skipping only `_TUI_NAMES` members. Added a regression case to `tests/test_tui_switcher_brainstorm_session.sh` (running `stats`, `brainstorm-7`, `agent-pick-7`; asserts one `brainstorm-7` row, headers `TUIs,Code Agents`, plain window rows `agent-pick-7`).
+- **Deviations from plan:** The `_TuiListItem` recorder returns a `MagicMock` carrying a `row` tuple rather than a bare tuple, because `_populate_list_for` sets `item.disabled` on the current entry. The third assert checks the plain window rows (`DUP_WINDOW_ROWS`) instead of agents alone — stricter, same intent.
+- **Issues encountered:** None. Red proof on unpatched code: 3/3 new asserts failed (2 rows; headers `TUIs,Code Agents,Other`; window rows `agent-pick-7,brainstorm-7`); 10/10 after the fix. `test_tui_switcher_multi_session.sh` 52/52, footer_fit 10/10, and the four switcher pytest modules pass. shellcheck reports only the pre-existing SC1091 info on the sourced helpers.
+- **Key decisions:** Skip by classifier result rather than adding a second prefix check, so the loop and `_classify_window` share one definition of "tui".
+- **Upstream defects identified:** None
