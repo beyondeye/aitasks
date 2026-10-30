@@ -374,3 +374,56 @@ medium; goal-achievement medium, held there by the macOS gap).
 ### Planned mitigations
 - timing: pre-phase | name: baseline_suites | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — waiter-path change in a load-bearing primitive | desc: run the three merge suites on the untouched tree and record pass counts before editing
 - timing: post-phase | name: post_shellcheck | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — signature change / shared-core collateral | desc: shellcheck changed scripts+tests, re-run merge suites plus test_stale_lock.sh and test_create_email_lock.sh
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-30 11:40)
+- **Requested by user:** `AIT_MERGE_LOCK_POLL_MS` passed `^[0-9]+$` and reached bash arithmetic raw. `08` aborted begin with "value too great for base" (exit 1, no verdict), and `0500` was read as octal (320 ms).
+- **Changes made:**
+  - `_seam_poll_ms` now length-bounds the value to `^[0-9]{1,7}$` (a 20-digit value would otherwise wrap) and normalises it with `$(( 10#$v ))` before use. The warn prints the normalised value.
+  - Broker Case 21 adds `08` and `0500`: exit 0, `BUSY`, read as decimal. It also adds an over-long value, which is ignored and gets the production cadence.
+  - Mutant M4 (the pre-fix seam) fails those 5 new asserts, reproducing `08` → exit 1 with no verdict.
+- **Files affected:** `.aitask-scripts/aitask_merge_task.sh`, `tests/test_merge_lock_broker.sh`
+
+## Final Implementation Notes
+- **Actual work done:**
+  - `lib/merge_lock.sh`:
+    - `merge_lock_acquire` is now ONE attempt: an unguarded pre-probe, then `stale_lock_acquire "$dir" 3 0.05`.
+    - New helpers `_merge_lock_instance_key` (builtin `read`, no fork) and `merge_lock_poll_delay_ms` (sets a global; jitter range [0.75, 1.25] × base).
+    - `_merge_lock_liveness_seam` is instance-gated on `_merge_lock_dead_key`.
+    - Constants: `_MERGE_LOCK_POLL_SECS=30`, `_MERGE_LOCK_ATTEMPT_RETRIES=3`, `_MERGE_LOCK_ATTEMPT_SLEEP=0.05`.
+    - Header: delta 4 rewritten, and delta 6 added for the two-layer starvation fix.
+  - `aitask_merge_task.sh`:
+    - `cmd_begin` uses the clamped jittered poll loop.
+    - `_begin_attempt` is one acquire plus the same-owner `merge_lock_authorize` re-entry.
+    - New `_seam_poll_ms`: `AIT_MERGE_LOCK_POLL_MS`, marker-gated, length-bounded, base 10.
+  - Tests:
+    - Broker Cases 19–23 added (19 timeout clamp, 20 final attempt at the deadline, 21 seam gating plus leading zeros, 22/22b/22c starvation regressions with a bounded FIFO rendezvous, 23 same-owner re-entry).
+    - Concurrency Case 2 now runs with `AIT_MERGE_LOCK_POLL_MS=500`.
+  - Docs: `merge-broker.md` documents the cadence and the shell-timeout rule (`--wait-secs` + 120 s). The golden and the 3 committed `remote` prerenders are regenerated.
+- **Measurements:** one waiter against a live holder, 60 s, counting xtrace lines.
+  - Before (HEAD via `git archive`): 1,043 `lock_holder_liveness` probes and 1,043 guard takes in 61 s (about 1,025/min, all under the guard), 26 WAITING lines.
+  - After: 4 probes in 60 s (all unguarded), 0 guard takes, 3 WAITING lines.
+- **Test results (Linux):**
+  - Baseline before any edit: broker 100/100, concurrency 30/30, rendered-verdicts 25/25.
+  - After: broker 135/135, concurrency 30/30 (Case 2: 51/51 merges, lock FREE afterwards, 7 s), rendered-verdicts 25/25, `test_stale_lock.sh` 134/134, `test_create_email_lock.sh` 78/78, `test_skill_render_task_workflow.sh` 361/361, `aitask_skill_verify.sh` OK.
+  - shellcheck `-x` is clean. Only the pre-existing SC1091 info notes remain.
+- **Red controls (isolated scratch copies of the working tree; none hung):**
+  - M1, pre-probe and gating both removed (the t2156 defect): fails 22b (guard held), 22 (`RETAINED:release_failed`), and 22c (`P` + `RETAINED`).
+  - M2, gating removed only: fails 22c only (`P` + `RETAINED`), the review's finding.
+  - M3, pre-probe removed only: fails 22's precondition (`D`), plus Case 4. Without the pre-probe no dead key is ever set, so a dead holder is never reclaimed; the pre-probe is load-bearing for reclaim too.
+  - M4, the pre-fix seam parser: fails the 5 new leading-zero / over-long asserts in Case 21.
+- **Deviations from plan:**
+  - Case 22's holder acquires and releases through the broker (`begin`/`finish`), not through `merge_lock_acquire`/`merge_lock_release`. That is end-to-end and stronger.
+  - The FIFOs use fixed fds (5–8) instead of `exec {fd}<>`, because the framework's floor is bash 4.0 and `{fd}` needs 4.1.
+  - FIFO names are prefixed `fifo22*`: the first draft's `r22` collided with `new_repo r22`'s directory.
+  - When the pre-probe sees the holder key change during the probe, the attempt returns busy instead of entering the core (nothing to decide).
+- **Issues encountered:**
+  - The FIFO/repo name collision above, caught on the first run (instant TIMEOUT from a bad fd).
+  - Review: leading-zero and octal handling of `AIT_MERGE_LOCK_POLL_MS`, fixed in Change Request 1.
+- **Key decisions:**
+  - Poll base 30 s with ±25% jitter.
+  - The release fix lives entirely in the merge-lock adapter (`stale_lock.sh` is untouched, so its other callers keep their short polls and 40×50 ms release budget).
+  - Same-session re-entry is now immediate instead of after the whole budget.
+  - **macOS was NOT verified in-session** (no host); it goes to a manual-verification follow-up.
+- **Upstream defects identified:** None
