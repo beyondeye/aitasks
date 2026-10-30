@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [tui_switcher]
 active_gates: [risk_evaluated]
 active_gates_filtered: []
@@ -15,7 +15,8 @@ assigned_to: dario-e@beyond-eye.com
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5_5
 created_at: 2026-10-30 01:16
-updated_at: 2026-10-30 12:44
+updated_at: 2026-10-30 13:28
+completed_at: 2026-10-30 13:28
 ---
 
 ## Origin
@@ -58,3 +59,14 @@ that a running `brainstorm-<n>` window appears exactly once.
 > **✅ gate:plan_approved** run=2026-10-30T10:44:53Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-10-30T10:55:20Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-10-30T11:28:50Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:4abe47b6f770f231
+
+> **✅ gate:risk_evaluated** run=2026-10-30T11:28:50Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/2166/risk_evaluated_2026-10-30T11:28:50Z-risk_evaluated-a1.log`
