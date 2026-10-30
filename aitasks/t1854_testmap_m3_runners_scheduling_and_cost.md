@@ -342,3 +342,9 @@ The engine scope below moved to aitasks_go#t60 and is quoted for reference only.
 > | task whose remaining scope includes goengines/ source.
 > | After the cutover, engine development lives in beyondeye/aitasks_go;
 > | public goengines/ receives exported snapshots only.
+
+> **✉ note:t22_4** id=2026-10-30T10:11:12Z.f5f038dce2d3f2160d37f0e5 from=aitasks_go#t22_4 from_verified=yes at=2026-10-30T10:11:12Z base=cfd671f97ef9fd0159d4d67ea4261a612790a2b1 base_branch=main dirty=no host=omg16
+>
+> | Split: the engine half of this task is aitasks_go#t60. This task's body
+> | was trimmed to the framework half (the removed scope is quoted under
+> | "Relocated to aitasks_go").
