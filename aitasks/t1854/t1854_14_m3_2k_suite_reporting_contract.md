@@ -1,135 +1,110 @@
 ---
 priority: medium
 effort: high
-depends: [t1854_12, t1854_8, t1854_9, t1854_10]
+depends: [t1854_12, t1854_8, t1854_9]
+xdeps: [60]
+xdeprepo: aitasks_go
 issue_type: feature
 status: Ready
 labels: [testing, testmap, go_engine]
 gates: [risk_evaluated]
 anchor: 1852
 created_at: 2026-10-21 22:06
-updated_at: 2026-10-21 22:07
+updated_at: 2026-10-30 12:09
 ---
+
+Split (aitasks_go#t22 cutover): the engine half of this task is aitasks_go#t60_5
+in beyondeye/aitasks_go. This body is the framework half.
 
 ## Context
 
-Child **M3.2k — Suite reporting contract** of t1854. Wave **4**. See the
-parent's *M3.2 re-decomposition (2026-10-21)* section.
+Child **M3.2k — Suite reporting contract** of t1854, framework half. Since
+the t22 cutover the engine work of M3.2k (the three reporting-contract
+formats, attribution through the shared reconciler, the suite-path tests and
+the engine README rows) is aitasks_go#t60_5 in beyondeye/aitasks_go, under the
+engine-side M3 parent aitasks_go#t60.
 
-It gives a `full: true` `suite` runner per-test **child** evidence, but only
-from reports the suite command writes **explicitly**, with attribution
-verified by the shared engine reconciler (G7). It replaces the rejected
-design's injected `BASH_ENV` traps and pytest plugins. Those automatic
-integrations are deferred to two standalone Postponed tasks that depend on
-this one. Proposal Open question 8 is answered "no per-file evidence without
-an explicit report".
+This task keeps the one framework deliverable: the **n014 proposal
+conformance edit** in `aidocs/testing_engine/n014_explorer_006_proposal.md`.
+Both places to edit already state the M3.2k design (added by t1854_2, commit
+`c6b1b491c`), so the edit brings them into line with what aitasks_go#t60_5
+actually lands; it is not new design:
 
-## Acceptance criteria (specific)
+- the *Reference runners (M3.2)* component (`### Reference runners *(M3.2)*`,
+  line ~3437), in the paragraph "A `full: true` suite gets child evidence
+  (M3.2k) only from reports its command writes explicitly … JUnit XML, a
+  `go test -json` stream, or the engine-native per-test JSONL …" (line
+  ~3508);
+- **Open Question 8** in `## Open Questions and their v1 defaults` (line
+  ~5620: "Default: no per-file evidence without an explicit report — a bash
+  suite reports per-file exits through the engine-native per-test JSONL …").
+  Open Question 8 stays answered "no per-file evidence without an explicit
+  report"; the edit makes its wording match the landed contract.
 
-- **Documented formats**, written explicitly by the command into `$AIT_TESTMAP_REPORT_DIR` (the fresh report directory):
-  - JUnit XML (e.g. the project's own `pytest --junitxml=$AIT_TESTMAP_REPORT_DIR/…`);
-  - a `go test -json` stream file;
-  - an engine-native per-test JSONL. This is the documented way a bash suite reports per-file exits (a small documented helper may write it).
+Line numbers are as of aitasks main at the cutover; re-locate them by
+heading before editing.
 
-  Each format is registered with `runner.RegisterReportingContract`, which un-refuses the matching `children:` names.
-- **Verified attribution through the shared reconciler (G7).**
-  - Each report entry is translated into a candidate `(suite parent, subsumed unit, case identity)` result. A `unit`-class subsumed runner (bash-file) uses the unit's own identity as its single case.
-  - The expected identities come from each subsumed runner's own discovery in the same `Load`.
-  - The engine reconciles them with **G1a / G1b**: exactly one terminal result per expected identity; a duplicate, unexpected or missing identity is an error whatever the counts; child statuses and counters are engine-derived, never taken from the report.
-  - Entries that map to no subsumed unit, or ambiguously, and stale reports are refused.
-  - A discovered subsumed unit with no evidence is `unaccounted` in `RUN_ACCOUNTING`, and child coverage is never claimed complete while any is.
-- **No injection.** The adapter sets nothing in the command's environment except `AIT_TESTMAP_REPORT_DIR` and the t1854_7 marker: no `BASH_ENV`, no `PYTHONPATH`, no `PYTEST_ADDOPTS`.
-- **Tests on the suite path**, with real tools producing the reports where possible:
-  - expected `{a,b}`, reported `{a,a}` → `duplicate_case`;
-  - `{a,c}` → `unexpected_case` + `incomplete`;
-  - `{a}` → `incomplete`;
-  - mixed pass and skip → `pass`, with the skip listed;
-  - fail beside skip → `fail`;
-  - a subsumed unit absent from every report → `unaccounted`;
-  - a bash file reported twice → `duplicate_case`;
-  - a stale report → refused.
+## Dependencies and ordering
 
-  Isolated mutants (per-unit count matching, report-supplied counters) must turn the equal-count cases red.
-- **Real-tool tests** per format, through the real pytest, go and bash adapters (G10).
+- `depends:` t1854_12, t1854_8, t1854_9 (all archived, satisfied). The
+  former edge to t1854_10 (aitasks_go#t60_2) is dropped: that task was re-homed, and its
+  replacement is a prerequisite of aitasks_go#t60_5.
+- `xdeps: [aitasks_go#t60]` (`xdeprepo: aitasks_go`). It unblocks only when
+  aitasks_go#t60 is Done, which happens only when all of its children are Done,
+  including aitasks_go#t60_5 and the Postponed device adapter aitasks_go#t60_4. This
+  is deliberate: it keeps t1854 (whose last local child this is) from
+  archiving before the engine side of M3 closes. The cost is accepted: this
+  small spec edit waits for all of M3.
+- Before editing, read aitasks_go#t60_5's final plan and Final Implementation
+  Notes (and any note it sent here) for the landed contract names, their
+  identity mapping, the JUnit collision rule and where the bash JSONL helper
+  lives.
 
-## Key files to modify
+## Acceptance
 
-- `goengines/internal/testmap/runner/builtin/report*.go` (owned).
-- The reconciler call site in `runner` (a named extension, through t1854_2's API).
-- `goengines/README.md`; the proposal (the *Reference runners* component and OQ 8).
+- The *Reference runners (M3.2)* paragraph and Open Question 8 name the
+  registered reporting contracts and their identity mapping exactly as
+  aitasks_go#t60_5 landed them, including the refusal (or proven uniqueness) of
+  colliding JUnit `(classname, name)` keys.
+- The spec text describing the engine-native per-test JSONL matches the
+  landed format and names its documented helper, wherever aitasks_go#t60_5's
+  Step 0 placed it. If the helper ships as a framework script
+  (`.aitask-scripts/`) or into target repositories, that part was filed in
+  aitasks as its own task; this task only references it.
+- No other spec section contradicts them (check at least the *Module Map*
+  M3.2k row, line ~786, and the M3.2a row).
+- A doc-only commit in aitasks (`documentation: … (t1854_14)`), with no
+  change under `goengines/`.
+- This body points to aitasks_go#t60_5 (done above).
 
-## Provides / consumes
+## Carried obligations (framework half)
 
-- **Provides:** child evidence for `full` suites, to M10.5 (thinking_app `verify-active`), M8 and the deferred automatic integrations.
-- **Consumes:** t1854_12 (suite), t1854_8 / t1854_9 / t1854_10 (formats and discovery), and t1854_2 (the reconciler).
+- Context / "Proposal Open question 8 is answered 'no per-file evidence without an explicit report'" — *Context*: Open Question 8 keeps that default; the conformance edit aligns its wording.
+- Acceptance / Documented formats / "an engine-native per-test JSONL … (a small documented helper may write it)" — *Acceptance*, second item: the spec text describing the format and its helper; the format, parser, README and an engine-embedded helper are aitasks_go#t60_5's.
+- Key files / "the proposal (the *Reference runners* component and OQ 8)" — *Context*: the two places to edit.
+- Inbox t1854_9 / "JUnit XML (classname, name) keys are NOT collision-safe … must refuse (or prove unique)" — *Acceptance*, first item: the spec wording; enforcement and its test are aitasks_go#t60_5's.
+- Inbox aitasks_go#t15 / cutover protocol — the header of this body is the pointer; the engine work moved to aitasks_go#t60_5, and this half's commit is doc-only.
 
-## Step 0 — Reality check (mandatory, before any code; recorded in the plan)
+## Relocated to aitasks_go
 
-Inspect the reconciler API, the suite adapter and the three adapters'
-identities as landed. Fix each format's identity mapping. Tabulate the
-differences and decide each one.
+The engine scope below moved to aitasks_go#t60_5 and is quoted for reference only.
 
-## Evidence guarantees (M3.2, shared by every sibling — decided 2026-10-21)
+> - The engine half owns:
+>   - the three reporting-contract formats (JUnit XML, a `go test -json` stream file, an engine-native per-test JSONL), each registered with `runner.RegisterReportingContract`;
+>   - translating report entries into candidate `(suite parent, subsumed unit, case identity)` results;
+>   - attribution through the shared reconciler (G1a/G1b) against each subsumed runner's own discovery;
+>   - refusing unmapped, ambiguous or stale entries, and counting `unaccounted` in `RUN_ACCOUNTING`;
+>   - the no-injection rule;
+>   - the `goengines/README.md` Interfaces rows and the documented JSONL format (plus its helper if it is engine-embedded).
+> - Acceptance:
+>   - the suite-path matrix: `{a,a}` → `duplicate_case`; `{a,c}` → `unexpected_case` + `incomplete`; `{a}` → `incomplete`; mixed pass+skip → `pass` with the skip listed; fail+skip → `fail`; absent subsumed unit → `unaccounted`; bash file reported twice → `duplicate_case`; stale report → refused;
+>   - isolated mutants (per-unit count matching, report-supplied counters) turn the equal-count cases red;
+>   - real-tool tests per format through the real pytest, go and bash adapters (G10);
+>   - the command env gains only `AIT_TESTMAP_REPORT_DIR` and the t1854_7 marker (no `BASH_ENV`/`PYTHONPATH`/`PYTEST_ADDOPTS`);
+>   - JUnit `(classname,name)` keys are refused or proven unique (t1854_9 note);
+>   - suite evidence never uses the file name `cases.jsonl` (t1854_12 note);
+>   - the engine tests are green.
 
-| # | guarantee |
-|---|---|
-| G1 | **Command outcome ≠ accounting.** Every top-level result carries the accounting class its runner declares (`describe` `accounting:`): **`cases`** (the engine holds the unit's expected case **identities** from discovery and reconciled them, identity by identity, against the adapter's terminal case results in this invocation); **`unit`** (the unit is one executable whose exit is its verdict, e.g. a bash test script; this is the default for project scripts); **`aggregate`** (one command over many tests; proves the command's exit only). A run prints both `RUN_RESULT` (outcomes) and `RUN_ACCOUNTING:<selected>\|<cases>\|<unit>\|<aggregate>\|<unaccounted>` |
-| G1a | **Case reconciliation is identity-based and engine-owned.** Each expected case identity needs **exactly one** terminal result (`pass\|fail\|error\|skip`). A missing identity, a duplicate (two results for one identity), an unexpected identity (not in the expected set) or a malformed identity makes the unit `error:incomplete\|duplicate_case\|unexpected_case`, whatever the totals. That catches equal-count substitutions (`{a,b}` expected, `{a,a}` or `{a,c}` reported). The counters (`cases_expected / passed / failed / errored / skipped`) are **computed by the engine from the validated case results**, never taken from the adapter, and an adapter never writes the top-level result of a `cases` unit (start rows only) |
-| G1b | **Unit status from validated cases**, in order: any case `fail` → `fail`; else any case `error` → `error`; else zero expected cases → G3; else every case `skip` → `skip`; else (every case `pass` or `skip`, ≥ 1 `pass`) → `pass`, with its skipped cases counted and listed in the evidence. A unit with a reconciliation error (G1a) is `error` before any of this applies |
-| G2 | **Never a pass, never an unexplained skip.** Evidence that is **missing** (an expected case or unit with no result), **ambiguous** (a report entry that inverts to zero or several cases or units), **stale** (a report the invocation did not produce) or **incomplete** (G1a) makes the unit `error` with a stated reason, or makes the whole invocation a mechanism failure. It is never `pass`, and never `skip` |
-| G3 | **Zero tests is an explicit policy.** A `cases` unit that executed zero cases is `error:zero_tests`, unless its runner entry sets `zero_tests: skip`. In that case it is `skip`, with reason `zero_tests` printed and in the ledger. It is never a pass |
-| G4 | **`skip` comes only from the tool's own per-case skip verdicts (with their reasons) or from G3.** An adapter never synthesizes one |
-| G5 | **Discovery is declared, and discovery is not execution.** `describe` `discovery:` is one of three classes. **`native`**: the framework's own collector, run under the same configuration and selection rules as execution, and bounded like execution because it may run project code. **`inventory`**: an explicit, enumerable rule or list, such as "each bind-matched script is one unit", or a committed inventory file. **`candidates`**: a source scan, which never claims complete discovery; `check` and `run` print `DISCOVERY:<runner>\|candidates`, and completeness consumers (M8 `full`) are told. The default for project scripts is `candidates` |
-| G6 | **Freshness.** An adapter reads reports only from the per-invocation report directory, which the engine creates empty. A file older than the invocation start, a symbolic link, or a path outside that directory is refused as stale |
-| G7 | **Child rows only through a registered reporting contract** (t1854_14). Until one is registered, `children:` is refused at load. A suite's exit is never read as individual test results. **Child evidence takes the same reconciliation route as top-level evidence.** Each subsumed unit's expected identities come from its own runner's discovery in the same `Load`. Its case identities (a `cases` runner) or its own identity (a `unit` runner) are reconciled by the **one shared engine reconciler** under G1a and G1b. Child statuses and counters are engine-derived, and a discovered subsumed unit with no reconciled evidence counts as `unaccounted` in `RUN_ACCOUNTING`, never as implicitly covered |
-| G8 | **Supervision with containment.** Every process an adapter starts, for discovery or for execution, runs bounded and cancellable, inside a **containment that a descendant cannot leave by changing its process group or session**. On Linux this is `PR_SET_CHILD_SUBREAPER` on the supervising process plus a parent-pid descendant tree, which still holds every orphaned and every `setsid()` descendant. A cgroup v2 leaf is used when a delegated cgroup is writable. Cleanup kills the whole contained tree and verifies it empty; a survivor or an unverifiable host is a mechanism failure. **Enforceable support restriction:** on a platform without verified containment (darwin today), production adapters refuse to run (`CONTAINMENT_UNAVAILABLE:<platform>`, mechanism, exit 3) instead of running uncontained. A documented prohibition is never counted as containment |
-| G8a | **Cleanup ownership is per invocation and survives a builtin crash.** Each invocation runs inside its own ownership boundary, whose membership the kernel keeps even after every process between it and the engine has died. **Initially that is a cgroup v2 leaf per invocation** (delegated subtree) only. Cleanup kills exactly that boundary's members. Without a delegated cgroup, the only boundary is the engine's subreaper tree, which cannot tell invocations apart once a builtin dies. Invocations then **must not overlap**: the engine refuses parallel execution (`PARALLEL_REFUSED:containment`) and runs serially, where the tree has a single owner. Killing the engine's whole tree is never used to clean up one invocation. **Every boundary backend must keep G9's cleared-environment recursion detection working before it is enabled.** For that reason a PID-namespace backend is deferred to its own task (below): PIDs, parent visibility and `/proc` differ across namespaces, and the ancestry backstop has no namespace-aware mapping |
-| G9 | **Recursion.** Every engine entry point that starts runner processes refuses a nested entry for the **same repository** at runtime, including through indirect calls: `run`, and `Load` (so `scan`, `check`, and later `test` / `select`) — native discovery runs project code too. Engine tests against fixture repositories are allowed. The guard is a prerequisite of **every** production adapter (through the foundation) |
-| G10 | **Support claims.** An adapter is *supported* only for the tool versions and platforms its real-tool integration tests run against, in CI (`AIT_TESTMAP_REQUIRE_REAL_TOOLS=1` turns their skips into failures there) or in a documented environment. Fakes serve targeted failure tests only. With no integration environment, the adapter stays **pending** |
-
-What each status proves:
-
-| status | proves | does not prove |
-|---|---|---|
-| `pass` | it ran in this invocation, under its bound. `cases`: every expected case identity has exactly one terminal result, none failed or errored, at least one passed (skipped cases are counted and listed). `unit`: the executable exited 0. `aggregate`: the command exited 0 | that the assertions are meaningful; that skipped cases ran; anything about cases discovery did not find (`candidates`); which tests ran inside an `aggregate` |
-| `fail` | at least one case failed (whatever the rest), or the executable / command exited non-zero | where the fault is |
-| `error` | the unit could not be judged: a case error with no failure, collection or build failure, incomplete / duplicate / unexpected / ambiguous / stale evidence, `zero_tests`, a protocol violation | anything about the code under test |
-| `skip` | every expected case was skipped by the tool (with reasons), or G3 applied | any behaviour |
-| `timeout` / `not_started` / `batch_timeout` / `missing` / `refused` | unchanged from M3.1 | — |
-
-## Carried reality-check facts (verified 2026-10-21 at main `ab1704c89`; re-verify in Step 0)
-
-- **M3.1 builtin protocol** (t1854_1, `3d1a2b628`).
-  - Register with `runner.RegisterBuiltin(name)`; registering a name twice panics, and an unregistered builtin is `RUNNER_UNRESOLVED`.
-  - A `builtin: <b>` runner runs as `runner.SelfExe()` + `runner <b> describe|list|run --manifest <abs>`, in the runner's `cwd`, under `Setsid`.
-  - Env: `AIT_TESTMAP_ROOT`, `AIT_TESTMAP_RUNNER`, `AIT_TESTMAP_COMMAND` (the `command:` override) and, on `run`, `AIT_TESTMAP_RUN_ID`.
-  - `runner.Manifest` is exported (indented JSON, with a `handle` field). `runner.LoadConfig` exposes `Entry{Bind, Cwd, Command, SubsumedBy, Overrides, OverrideKeys}` and `Config.Terminal`.
-  - The `runner` verb is still `stub("runner")` in `goengines/cmd/ait-testmap/verbs.go`, and `main_test.go` `TestStubsExit64` expects `NOT_IMPLEMENTED:runner`.
-- **Timeout model** (`runner/timeout.go`).
-  - `per_unit`: the runner bounds each unit, writes start rows, and reports `timeout`.
-  - `batch`: the `runners.yaml` entry must set `batch_timeout_s`.
-  - `none`, the default: every unit is a singleton invocation, bounded by the engine.
-  - `testmap:batch no` already makes a unit a singleton (`Unit.BatchNo` → `Key.Batch`).
-  - An out-of-contract run exit is `mechanism/runner_exit:<n>`, and the run exit contract is 0/1/2/75/64.
-- **Cleanup today.**
-  - The engine sweeps the runner's whole **session** on every exit path (`exec_unix.go`, `proc_linux.go` / `proc_darwin.go`).
-  - A process that calls `setsid()` escapes that sweep; M3.1 records this as a residual.
-  - `t1854_3` (M3.3) plans `errgroup` **parallel** execution of invocations through `runner.RegisterExecutor`.
-- **Hang guards** (t1985 `a81352ffb`, t1998 `b82f4becc`).
-  - `isolated(t, hangLimit)` and its tripwire are unexported test code in package `runner`.
-  - The tripwire parses only the `runner` directory, and `goengines/ci/preflight.sh` runs it alone before the suite.
-  - A new package is covered by neither (inbox notes from t1985 / t1998 on t1854_2).
-- **Eligibility** (M3.4 t1854_4 `487271c89`, t2080, t2081 `d9569b6ad`).
-  - A child row is never an anchor (`opaque:child`), nor is a `full` / suite unit (`opaque:suite`).
-  - `runnerConfig` treats `runners.yaml`, `runners/**` and each whitespace token of `command:` as runner inputs.
-  - `cost/implicit.go` rules key on the test's **language**, not on a runner. Per t2081, a runner whose cwd is not an ancestor of the test, which uses `pytest -c` / `--rootdir` / `-p`, or which runs go-test per-package units, invalidates them. t2082 re-aligns the rules once the adapters land, so every adapter records **what it reads** (command line, cwd, config flags) in its plan or Final Notes.
-- **Invariant 5 tripwire** (`goengines/guards_test.go`). It forbids the literal `aitask_*.sh` (and others) in non-test Go code unless the line carries `// invariant5-ok: <why>`.
-- **Tools on the reference host** (2026-10-21):
-  - bash 5.3, go 1.27.2 (module floor 1.26), pytest 8.4.2 in `~/.aitask/venv`, JDK 21;
-  - Gradle 9.4.1 / 9.5.1 cached in `~/.gradle/wrapper/dists`, with aitasks_mobile registered as a project;
-  - no `adb` / emulator;
-  - unprivileged user + pid namespaces work, and the session cgroup v2 scope is writable.
-- **Automation-first** (user directive, 2026-10-11). No path may make a human action a precondition. A human-only step met in the proposal is reported to its owning parent with a note.
 
 ## Inbox
 <!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->

@@ -9,101 +9,75 @@ active_gates: [risk_evaluated]
 active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
-children_to_implement: [t1854_3, t1854_10, t1854_11, t1854_13, t1854_14]
+children_to_implement: [t1854_14]
 anchor: 1852
 created_at: 2026-09-22 09:19
-updated_at: 2026-10-27 09:02
+updated_at: 2026-10-30 12:09
 ---
+
+Split (aitasks_go#t22 cutover): the engine half of this task is aitasks_go#t60
+in beyondeye/aitasks_go. This body is the framework half.
 
 ## Goal
 
 Part of the **testing engine / test map** feature — ten parent tasks, one per
-module of the proposal. This is **M3 — Runners, scheduling and cost**:
-everything that executes a test and records what it cost.
+module of the proposal. This is the framework-side tracker of **M3 —
+Runners, scheduling and cost**: everything that executes a test and records
+what it cost.
 
-This module delivers the runner contract every builtin and project script
-implements (`describe` / `list` / `run --manifest`, `results.jsonl`, the exit
-contract `0/1/2/75/64`), the reference runners for every target repository
-(`bash-file`, `pytest`, `go-test`, `gradle-class`, `suite`, `device`,
-`engine-test`), the scheduler over declared host resources with `flock(2)`
-slot files and exit-75 deferral, and the cost ledger keyed by `(id, host
-class)` that anchors `last_pass` evidence and stores predictions and the
-policy file.
+All remaining M3 work is engine work, and since the t22 cutover engine
+development lives in beyondeye/aitasks_go. The engine-side M3 parent is
+aitasks_go#t60, with the children aitasks_go#t60_1 (M3.3 scheduler), aitasks_go#t60_2
+(M3.2g `go-test` / `engine-test`), aitasks_go#t60_3 (M3.2h `gradle-class`),
+aitasks_go#t60_4 (M3.2j `device`, Postponed) and aitasks_go#t60_5 (the engine half of
+M3.2k, the suite reporting contract). Public `goengines/` is an export target
+only; never edit it here.
 
-This task carries the module's cut — submodules, owned files, the interfaces
-it provides and consumes, the seams later modules land into it — and the
-planning protocol. It does **not** restate the specification.
+This task keeps the framework side of M3:
+- the n014 proposal's M3 cut
+  (`aidocs/testing_engine/n014_explorer_006_proposal.md`, *Module Map* entry
+  `#### M3 — Runners, scheduling and cost` and the `(M3.x)` components). The
+  proposal stays here and is authoritative for both halves. Every proposal
+  correction an aitasks_go child's Reality check decides on (protocol §2,
+  step 4) arrives here by note and is applied or rejected here;
+- the module → task map below;
+- task-data cross-linking inside aitasks;
+- one framework child, t1854_14, rescoped to the proposal conformance edit
+  for M3.2k (the *Reference runners (M3.2)* paragraph on `full: true` suite
+  child evidence, and Open Question 8).
 
-**Proposal (authoritative for every detail):**
-`aidocs/testing_engine/n014_explorer_006_proposal.md` — start at the *Module
-Map* entry `#### M3 — Runners, scheduling and cost`, then the *Components*
-subsections tagged `(M3.x)` (listed under *Reading list* below), then the
-narrative sections those components name. *Architecture*, *Design decisions*
-and the *Invariants every module honours* apply to every module.
+## Acceptance
 
-**Acceptance:** the union of the module's components' test lists (*Module Map —
-How to read it*).
+- This body points to aitasks_go#t60 (done above).
+- The framework half of t1854_14 is archived.
+- Every proposal revision an aitasks_go child requested via
+  `./ait note --project aitasks` is applied, or rejected with a reason
+  recorded in this task's plan.
+- This task is archived only after aitasks_go#t60 is archived (closure rule). The
+  order is encoded: t1854_14 holds `xdeps` on aitasks_go#t60
+  (`xdeprepo: aitasks_go`), which unblocks only when aitasks_go#t60 is Done, and this parent
+  archives automatically with its last child.
 
-## Submodules (one child task each — settled at the coarse planning pass)
+## Proposal cut history
 
-| submodule | scope | depends on | wave |
-|---|---|---|---|
-| **M3.1** Runner contract and repository | `describe` / `list` / `run --manifest` (with the allocator-handle field), `runners.yaml` bindings, the `builtin:` scheme, `command:` / `cwd:` overrides, shadow-by-name, **the canonical grouping function** `(runner, group_by group, resource set, wave class, batch identity)` (`batch: no` units are singletons; the wave class is the caller's input), per-unit timeouts, `results.jsonl` (top-level / child rows) / `runner.json`, reconciliation as mechanism failures, the engine's per-invocation record (`cause`, HEAD at start and end, the modified-path set), the exit contract `0/1/2/75/64`, `subsumed_by:`, `fallback_command:`, `full: true` + `children:`; the runner-backed unit lister for `scan` / `check` (named extension of M2.1); `batch` / `needs` into the registry (named extension of M2.2); the `run` verb over a plan-executor seam (built-in serial plan refusing a non-empty resource set until M3.3) with an ordered multi-subscriber post-run hook. `axis:` / `token_format:` are M2.4's extension. Owns `internal/runner` (contract, repository, the `run` verb) | M1.2, M2.1, M2.2 | B |
-| **M3.2** Reference runners | **Re-decomposed 2026-10-21 into M3.2a–k (t1854_2, t1854_5 – t1854_14): see *M3.2 re-decomposition (2026-10-21)* below.** Original scope: `bash-file`, `pytest` (junitxml, `testmap:batch no`), `go-test`, `gradle-class`, `suite`, `device` (reads the manifest's allocator handle), `engine-test`; the `full` suite wrapper's `children:` post-processors (pytest junitxml, bash-file per-file exit, `go test -json`). Owns `internal/runner/builtin/*`, `ait-testmap runner <name>`. (No `list --invocations` — the seeder reads M2.3's facts directly; the serial carve-out drift-test pin is M10.1's.) | M3.1 | B |
-| **M3.3** Scheduler and resources | resource kinds and scopes, `resources.yaml`, `flock(2)` slot files, admission with 75 deferral and backoff, the allocator with signal-safe release (filling the manifest's handle field), `errgroup` execution of the invocations M3.1's grouping function forms (never re-formed), the kind → wave class mapping from M2.5, `broad_after_unit` waves as an ordering over wave-homogeneous invocations, admission-holding invocations last, `concurrency: serial\|parallel`, the schedule report and its check half `schedule --check`; plugs the scheduler into M3.1's `run` (named extension). Owns `internal/sched`, verb `schedule` | M3.1, M2.5 | C |
-| **M3.4** Cost ledger | Welford / P² per `(id, host class)`, `.aitask-testmap/ledger.jsonl` as a subscriber of M3.1's post-run hook, anchor eligibility at run time (no cause, HEAD unmoved, modified paths disjoint from the test, its test-side closure, `covers` sources, the closure's `reads` globs and the runner configuration; empty for an opaque closure), `costs --update`, `last_pass` from eligible passes only, flake rate, the per-group estimate over top-level ids (disjoint accounting) and the full-suite p95, `costs/predictions.yaml` (store only), `costs --gate-timeout` (`GATE_TIMEOUT_SUGGESTED:` homed here), the run-id prefixes, the `costs/policy.yaml` file format (read/write helpers only). Owns `internal/cost`, verb `costs` | M3.1, M2.3, M2.5 | C |
+The M3 cut was corrected at the coarse pass — proposal commit `6a3a81efc`;
+the rationale is the *Deviations* section of
+`aiplans/p1854_testmap_m3_runners_scheduling_and_cost.md`. This is a
+historical record; nothing is pending.
 
-## Cross-module seams
+**Automation-first (user directive, 2026-10-11).** The two human-flavoured
+steps next to M3 (trusting `concurrency` after reviewing the schedule report;
+confirming `runners.yaml` per runner) belong to onboarding (M6, t1857), which
+is asked to automate them. No M3 verb makes a human action a precondition;
+that engine rule is carried by aitasks_go#t60.
 
-**Provides** (defined here, consumed elsewhere):
-
-- The runner contract and `results.jsonl` — M3.1 → M3.2 (builtins), M3.3
-  (execution), M3.4 (ledger rows), M6.1 (`detect` writes `runners.yaml`).
-- Runners for every target repository without a project script — M3.2 → M4.5,
-  M6.2, M8.4 (`fallback_command`), M10.4 (`gradle-class`, `device`), M10.5.
-- `resources.yaml` and the wave plan `run` executes; exit 75 semantics — M3.3 →
-  M4.5, M6.1 (`RESOURCE_HINT` → entries), M6.4 (`needs:` bindings).
-- Cost rows, `last_pass`, the per-group estimate, `predictions.yaml`, the
-  `costs/policy.yaml` format — M3.4 → M4.1 (ranking, budget), M4.3 (anchors),
-  M4.4 (score, readiness), M6.5 (`--gate-timeout`), M8.5 (cadence state).
-
-**Consumes:** M1.2 (the binary, the harnesses); the loaded registry (M2.1); the `batch` / `needs` annotations (M2.2); the dependency closure and plugin `reads` (M2.3, for M3.4's eligibility rule); the kind data and helpers' `testmap:reads` (M2.5, for M3.3 and M3.4).
-
-**Hooks and extensions** (a file has one owner; a later submodule lands its
-edit as the owner's named extension). The cut was corrected at the coarse
-pass — proposal commit `6a3a81efc`; the rationale is the *Deviations* section
-of `aiplans/p1854_testmap_m3_runners_scheduling_and_cost.md`:
-
-- M3.1's `run` exposes a plan-executor seam; **M3.3** plugs the scheduler in
-  and fills the manifest's allocator-handle field.
-- M3.1's `run` exposes an ordered multi-subscriber post-run hook; **M3.4**
-  subscribes (the ledger); **M4.4**'s `score` may.
-- M3.1 owns the canonical grouping function; M3.3, M4.1 and M3.4's estimate
-  call it with the same inputs; nobody re-forms an invocation.
-- `axis:` / `token_format:` in `describe` are **M2.4**'s named extension.
-- The `SCAFFOLD_TODO` recognition and its `check` report are **M6.4**'s named
-  extension of M3.1's lister and M2.1's `check`.
-- `costs/predictions.yaml` is a store here; **M4.4**'s `score` writes it.
-- `costs/policy.yaml`: the format and its read/write helpers are M3.4's; the
-  writer logic (`POLICY_WRITE:`, `approved_by: engine:readiness@<run>`) is
-  **M8.5**'s.
-- `component_broad_test_scopes` is split: the registry / staleness half is
-  **M2.5**, the scheduling half is M3.3.
-- The `pytest` runner honours `testmap:batch no`; the aitasks carve-out
-  annotations and the agreement check in
-  `tests/test_serial_carveout_doc_drift.sh` are **M10.1**'s.
-- Invariant 1 (the loop can only fail toward running more) and invariant 4
-  (the engine never launches a code agent) bind the runner and the scheduler.
-
-**Automation-first (user directive, 2026-10-11).** No M3 verb makes a human
-action a precondition of any path: `concurrency`, `--serial` / `--parallel`,
-`resources.yaml` and `costs --gate-timeout` are values and computed
-suggestions, the schedule report and `schedule --check` are informational,
-and M3 encodes no "awaiting a person" state. The two human-flavoured steps
-next to M3 (trusting `concurrency` after reviewing the schedule report;
-confirming `runners.yaml` per runner) belong to onboarding (M6).
+**Serial carve-out.** The `pytest` runner honours `testmap:batch no` (landed
+in t1854_9). The aitasks carve-out annotations and the agreement check in
+`tests/test_serial_carveout_doc_drift.sh` are **M10.1**'s, owned by t1861.
 
 ## Reading list in the proposal
+
+Maintained here; the aitasks_go children read the same sections.
 
 - *Module Map* — `#### M3`, *How to read it*, *Cross-module interfaces*,
   *Suggested implementation order* (waves B, C).
@@ -120,201 +94,126 @@ confirming `runners.yaml` per runner) belong to onboarding (M6).
 
 ## Planning and implementation protocol (binding for this task and every child)
 
-This feature spans **ten parent tasks**, one per module of the proposal (see the
-module → task map at the end). The modules are cut by ownership of files, verbs
-and line protocols, not by Go package or by script, so children of different
-parents touch the same packages and scripts and meet on the interfaces listed
-above. Two consequences are binding.
+This feature spans **ten parent tasks**, one per module of the proposal (see
+the module → task map at the end), and since the t22 cutover two
+repositories: engine work in beyondeye/aitasks_go, framework work here.
 
-### 1. Coarse planning pass — all ten modules, before any submodule is implemented
+### 1. Coarse planning pass
 
-- Plan this task through the normal workflow (`/aitask-pick` → planning). In the
-  Complexity Assessment choose **"Yes, create child tasks"** and decompose into
-  **one child task per submodule row** in the table above (keep the `M<n>.<m>`
-  id in the child name); let the workflow write the child plan files; at the
-  child-task checkpoint choose **"Stop here"** so nothing is implemented. Do the
-  same for the other nine parents, in wave order (A → I), **before implementing
-  any child of any parent**.
-- Keep the coarse plan coarse. A child's plan records what the proposal fixes for
-  that submodule — scope, owned files, provided and consumed interfaces, the
-  component test lists that are its acceptance — and its wave. It does **not**
-  design internals against providers that do not exist yet; that is the reality
-  check's job (§2 below), and the child plan must say so in as many words.
-- Express cross-module order in task data, not in prose. Each child's `depends:`
-  names the child ids of the other parents it consumes, in the `t<parent>_<m>`
-  form (for example `depends: [t<M2 parent>_1]`), taken from the "depends on"
-  column above. When the provider parent has not been planned yet, the child body
-  records the `M<n>.<m>` reference and the dependency is filled with
-  `./.aitask-scripts/aitask_update.sh --batch <child-id> --deps ...` as soon as
-  the provider's children exist. After all ten parents are planned, one
-  cross-linking pass checks every "depends on" cell against a real `depends:`
-  entry, and checks the module → task map below against the parents' real ids.
-- Parent-level `depends:` stays empty on purpose: module-level dependencies form
-  a cycle (M6.5 → M8.2 / M8.4, M8.3 → M7.1 / M7.2, M7.1 → M6.2) and would block
-  wrongly; the real graph is acyclic only at submodule granularity.
-- Deviations from the proposal found while planning go into a **"Deviations from
-  the proposal"** section of the plan. A wrong cut — a file two submodules must
-  own, a dependency the wave table contradicts — is fixed **in the proposal**, not
-  patched in a plan; that is the proposal's own falsifier
-  (`assumption_modules_map_to_parent_tasks`). Send a note (`/aitask-note`) to
-  every parent whose tables the change touches.
+- The coarse pass for M3 is done (M3.1–M3.4, then the 2026-10-21 M3.2
+  re-decomposition into M3.2a–k, at the user's direction). Keep the coarse
+  plan coarse: a child's plan records scope, owned files, interfaces and
+  acceptance, and leaves internals to the Reality check.
+- Express cross-module order in task data, not in prose. Inside this
+  repository a child's `depends:` names the child ids it consumes
+  (`./.aitask-scripts/aitask_update.sh --batch <child-id> --deps ...`, which
+  replaces the whole list). A provider in aitasks_go is held through `xdeps`
+  (`--xdeps ... --xdeprepo aitasks_go`), which unblocks only when the target
+  is Done. Never add `depends` on a Postponed pointer original; link the
+  aitasks_go replacement instead. One cross-linking pass (t1863) checks every
+  "depends on" cell against a real edge, across both repositories.
+- Parent-level `depends:` stays empty on purpose, here and in aitasks_go#t60:
+  module-level dependencies form a cycle (M6.5 → M8.2 / M8.4, M8.3 → M7.1 /
+  M7.2, M7.1 → M6.2) and would block wrongly; the real graph is acyclic only
+  at submodule granularity.
+- Deviations from the proposal found while planning go into a **"Deviations
+  from the proposal"** section of the plan. A wrong cut — a file two
+  submodules must own, a dependency the wave table contradicts — is fixed
+  **in the proposal**, not patched in a plan; that is the proposal's own
+  falsifier (`assumption_modules_map_to_parent_tasks`). Send a note
+  (`/aitask-note`) to every parent whose tables the change touches, in either
+  repository.
 
-### 2. Reality check at child implementation time — a mandatory step in every child's plan
+### 2. Reality check at child implementation time
 
-The coarse plan is a hypothesis written before its providers existed. **Every
-child task's plan MUST carry an explicit "Reality check" step, executed before
-any code is written, and its outcome MUST be recorded in the child's plan
-file.** The step:
+Every child's plan, in either repository, carries a recorded "Reality check"
+step before any code (the full six steps are in aitasks_go#t60). Two of its steps
+reach this repository:
 
-1. Re-reads the proposal's Module Map row for this submodule, its component
-   subsections, and the row of every interface it consumes (the *Cross-module
-   interfaces* table).
-2. Inspects the **actual current state** of every provider it consumes — the
-   verbs, line protocols, files, hooks and tests as they exist on the merge
-   target now — and names the task and commit that landed each one. The
-   proposal's description of a provider and the coarse plan's description of it
-   are both claims to be verified, never facts to be assumed.
-3. Tabulates every difference in three columns: *proposal says* / *coarse plan
-   says* / *repository has*.
-4. Decides, per difference: adapt this child to reality; or revise this child's
-   coarse plan; or revise the proposal (cut errors and interface changes go
-   there, per §1). Records the decision and its reason.
-5. Sends a note (`/aitask-note`) to every downstream child whose assumptions a
-   difference or a decision breaks, hedging what cannot be proven from the tree.
-6. Re-confirms that every file this child will touch is owned by this submodule,
-   or that the edit lands as the owner's named extension (the "one owning
-   submodule" rule in *Module Map — How to read it*).
-
-A child whose plan lacks this step, or whose step is not recorded as executed,
-is not implementing this task as specified.
+- **Step 4 (decide).** Per difference: adapt the child to reality; or revise
+  its coarse plan; or revise the proposal. A proposal revision from an
+  aitasks_go child arrives here by note and is applied here (cut errors and
+  interface changes go into the proposal, per §1), or rejected with a reason.
+- **Step 5 (notify).** The child sends a note to every downstream child whose
+  assumptions a difference or a decision breaks, hedging what cannot be
+  proven from the tree. Cross-repo notes use `--project`.
 
 ## Module → task map
 
-| module | parent task |
-|---|---|
-| M1 — Engine foundation and distribution | t1852 |
-| M2 — Registry and map model | t1853 |
-| M3 — Runners, scheduling and cost | t1854 |
-| M4 — Selection, freshness and feedback | t1855 |
-| M5 — Run surface | t1856 |
-| M6 — Onboarding | t1857 |
-| M7 — Agent review and author annotation | t1858 |
-| M8 — Completion policy and gates | t1859 |
-| M9 — Workflow integration, skills and documentation | t1860 |
-| M10 — Rollout to the target repositories | t1861 |
+| module | parent task (aitasks) | engine parent (aitasks_go) |
+|---|---|---|
+| M1 — Engine foundation and distribution | t1852 (archived) | — |
+| M2 — Registry and map model | t1853 | aitasks_go#t59 |
+| M3 — Runners, scheduling and cost | t1854 | aitasks_go#t60 |
+| M4 — Selection, freshness and feedback | t1855 | aitasks_go#t61 |
+| M5 — Run surface | t1856 | aitasks_go#t62 |
+| M6 — Onboarding | t1857 | aitasks_go#t63 |
+| M7 — Agent review and author annotation | t1858 | aitasks_go#t64 |
+| M8 — Completion policy and gates | t1859 | aitasks_go#t65 |
+| M9 — Workflow integration, skills and documentation | t1860 | — |
+| M10 — Rollout to the target repositories | t1861 | — |
 
 All ten share the topic anchor of the M1 task, so the board's By-Topic view
 shows the whole feature as one lane.
 
-## M3.2 re-decomposition (2026-10-21)
+## Cross-linking inside aitasks
 
-M3.2 ("Reference runners") was **re-decomposed around trustworthy test
-evidence**, at the user's direction, during the t1854_2 planning session. The
-single seven-builtin child was rejected: it inferred per-test results through
-injected `BASH_ENV` traps and pytest plugins, listed tests by source scan,
-verified Gradle / device against fakes only, guarded hangs with a panic timer,
-and refused recursion lexically. The M3.2 Submodules row above now resolves to
-the eleven siblings below. Every child body carries the full guarantee table
-(G1–G10, incl. G1a / G1b / G8a), the carried reality-check facts and its
-acceptance criteria.
+- The M3.2 re-decomposition re-pointed t1859_4 (M8.4): it depends on t1854_12
+  and t1854_7 (both archived), where it used to depend on t1854_2. That edge
+  is task data on t1859_4; nothing more to do here.
+- The serial carve-out drift pin is M10.1's (t1861), unchanged (Dev 6).
+- The sequencing clarification from t1852 still holds: planning is
+  submodule-granular, never whole-parent; the cross-linking chore (t1863)
+  accepts archived children as evidence and never rewrites M10.2–M10.5
+  (cross-repo).
+- The t1853 note's M2.4 → M3.1 edge was applied to t1853_4, now archived.
 
-### Guarantees (summary — the full table is in every M3.2 child body)
+## Closure rule
 
-- **G1 / G1a / G1b.** "The command succeeded" is never "every test was accounted for". The accounting classes are `cases | unit | aggregate`. Case reconciliation is identity-based and owned by the engine: each expected identity has exactly one terminal result, and a duplicate, unexpected or missing identity is an error whatever the totals. The engine derives statuses and counters.
-- **G2 / G3 / G4.** Missing, ambiguous, stale or incomplete evidence is never a pass and never an unexplained skip. Zero tests is an explicit policy (`zero_tests: error|skip`, default `error`). A skip comes only from the tool's own verdicts.
-- **G5 / G6.** Discovery is declared (`native | inventory | candidates`) and kept separate from execution. Native discovery shares the execution configuration and is bounded. Reports are read only from a fresh per-invocation directory.
-- **G7.** Child rows come only through a registered reporting contract (t1854_14), through the same shared reconciler. Until then `children:` is refused.
-- **G8 / G8a** (revised 2026-10-24 in t1854_6: the dedicated-supervisor design). Every contained process start runs under a per-start supervisor (`ait-testmap __supervise`), a subreaper of its own subtree only, which a descendant cannot leave by `setsid()`. Its cleanup ends only at `wait4` ECHILD, a kernel proof that the subtree is empty. Per-invocation cleanup ownership survives the death of every process that runs test code (runner, builtin, tool). The supervisor's own death is a stated residual: its subtree may be left running; the death is recorded `cleanup_unverified` and halts all further work in the process. Invocations may overlap on every Linux host (`Overlappable()`). On a platform without containment (darwin), production adapters refuse and invocations run serially. cgroup v2 hardening is a deferred follow-up.
-- **G9.** Runtime recursion refusal for the same repository, in `Run` and `Load`, including `env -i`. Calls against fixture repositories are allowed. It is a prerequisite of every adapter.
-- **G10.** An adapter is "supported" only for what real-tool integration tests cover. Otherwise it is pending.
+M3 closes only when every M3.2 sibling is archived. The remaining siblings
+live in aitasks_go under aitasks_go#t60; the Postponed device adapter
+(aitasks_go#t60_4) keeps M3 open until an emulator environment exists; that is
+the honest state. This task closes after aitasks_go#t60. The deferred tasks
+aitasks_go#t74, aitasks_go#t75 and aitasks_go#t76 do not hold M3 open.
 
-### Siblings (dependency order)
+## Carried obligations (framework half)
 
-| id | scope | depends | wave |
-|---|---|---|---|
-| t1854_2 (rescoped) | M3.2a evidence contract: G1–G7, G10 in the runner contract; the shared reconciler; no runner enabled | t1854_1, t1985 | 1 |
-| t1854_5 | M3.2b shared hang watchdog (refactor of t1985 / t1998) | — | 1 |
-| t1854_7 | M3.2d recursion guard (G9) | — | 1 |
-| t1854_6 | M3.2c supervised execution foundation (G8 / G8a), the `runner <name>` verb, the scaffold, no production adapter | t1854_2, t1854_5, t1854_7 | 2 |
-| t1854_8 | M3.2e `bash-file` (`unit`, `inventory`) | t1854_6 | 3 |
-| t1854_9 | M3.2f `pytest` (`cases`, `native`) | t1854_6 | 3 |
-| t1854_10 | M3.2g `go-test` + `engine-test` (`cases`, `native`) | t1854_6 | 3 |
-| t1854_11 | M3.2h `gradle-class` (`cases`, native via `--test-dry-run` if Step 0 confirms; pending without a real Gradle environment) | t1854_6 | 3 |
-| t1854_12 | M3.2i `suite` aggregate (no children) | t1854_6, t1854_7 | 3 |
-| t1854_13 | M3.2j `device` — **Postponed** (no emulator environment; needs M3.3's allocator) | t1854_11, t1854_3 | 4 |
-| t1854_14 | M3.2k suite reporting contract (explicit reports, verified attribution) | t1854_12, t1854_8, t1854_9, t1854_10 | 4 |
+- Goal / "Proposal (authoritative for every detail): `aidocs/testing_engine/n014_explorer_006_proposal.md`" — *Goal*: this task owns the spec's M3 cut; aitasks_go#t60 reads it across repositories.
+- Submodules / M3.2 row "Re-decomposed … into M3.2a–k" — *Goal*: the engine adapters are aitasks_go#t60's children; the proposal edit is t1854_14.
+- Hooks / "The cut was corrected … proposal commit `6a3a81efc`; rationale in *Deviations* of `aiplans/p1854_…`" — *Proposal cut history*; nothing pending.
+- Hooks / "`pytest` runner honours `testmap:batch no`; carve-out annotations and `tests/test_serial_carveout_doc_drift.sh` are M10.1's" — *Proposal cut history → Serial carve-out*: the drift test stays with t1861; the honouring landed (t1854_9).
+- Automation-first / "two human-flavoured steps … belong to onboarding (M6)" — *Proposal cut history → Automation-first*: owned by t1857.
+- Reading list — *Reading list in the proposal*, maintained here.
+- Protocol §1 / "coarse planning pass … one child per submodule row … Stop here" — *Protocol §1*, first item: done.
+- Protocol §1 / "Keep the coarse plan coarse" — *Protocol §1*, first item: done.
+- Protocol §1 / "Express cross-module order in task data … one cross-linking pass" — *Protocol §1*, second item: cross-linking stays here; cross-repo edges are `xdeps` / pointers.
+- Protocol §1 / "Parent-level `depends:` stays empty on purpose" — *Protocol §1*, third item; this task keeps `depends: []`.
+- Protocol §1 / "Deviations … wrong cut fixed in the proposal … send a note to every parent" — *Protocol §1*, last item.
+- Protocol §2 / step 4 "adapt …; or revise this child's coarse plan; or revise the proposal" — *Protocol §2 → Step 4*: proposal revisions land here.
+- Protocol §2 / step 5 "Sends a note to every downstream child …" — *Protocol §2 → Step 5*: cross-repo notes via `--project`.
+- Module → task map — *Module → task map*, with the aitasks_go engine-parent column.
+- Siblings / t1854_14 "M3.2k suite reporting contract" — *Goal*: t1854_14 keeps the proposal half; the engine half is aitasks_go#t60_5.
+- Also re-pointed / "t1859_4 (M8.4) depends on t1854_12 + t1854_7" — *Cross-linking inside aitasks*, first item.
+- Closure rule / "M3 closes only when every M3.2 sibling above is archived … t1854_13 keeps M3 open" — *Closure rule* and *Acceptance*: aitasks_go#t60 closes on its children; this task closes after aitasks_go#t60 (aitasks#t1854_13 became aitasks_go#t60_4).
+- Closure rule / "t2117 / t2118 / t2119 do not hold M3 open" — *Closure rule* (now aitasks_go#t74, aitasks_go#t75, aitasks_go#t76).
+- Coverage audit / row "individual results need a documented reporting contract and verified attribution" (t1854_14) — *Goal*: the proposal text is t1854_14's; the contract and README are aitasks_go#t60_5's.
+- Coverage audit / "serial carve-out drift pin — M10.1 (t1861)" — *Cross-linking inside aitasks*, second item.
+- Inbox t1852 / sequencing clarification and the cross-linking chore — *Cross-linking inside aitasks*, third item.
+- Inbox t1853 / "M2.4 now depends on M3.1 … `aitask_update.sh --batch 1853_4 --deps`" — *Cross-linking inside aitasks*, last item: applied; t1853_4 is archived.
+- Inbox aitasks_go#t15 / cutover protocol — the header of this body is the pointer; the engine work moved to aitasks_go#t60.
 
-Also re-pointed:
+## Relocated to aitasks_go
 
-- t1854_3 (M3.3) now depends on t1854_6: parallel invocations need overlappable boundaries.
-- t1859_4 (M8.4) depends on t1854_12 + t1854_7, where it used to depend on t1854_2.
-- t2082 depends on t1854_8 / t1854_9 / t1854_10 / t1854_11.
+The engine scope below moved to aitasks_go#t60 and is quoted for reference only.
 
-### Deferred (standalone, anchor 1852 — tracked, not v1)
+> - aitasks_go#t60 is the engine-side M3 parent in aitasks_go. Its children are aitasks_go#t60_1 (scheduler), aitasks_go#t60_2 (go-test/engine-test), aitasks_go#t60_3 (gradle-class), aitasks_go#t60_4 (device, Postponed) and aitasks_go#t60_5 (the engine half of the suite reporting contract).
+> - It carries the binding parts of the body: the submodule cut, the cross-module seams, the hooks/extensions, the automation-first rule, the G1–G10 guarantees, and protocol §2 (the mandatory per-child Reality check).
+> - It closes when every R child is archived. Like the original, the Postponed device adapter keeps it open.
+> - Acceptance:
+>   - the union of the M3 component test lists (proposal *Module Map — How to read it*) is green in aitasks_go `goengines/`;
+>   - every R child is archived;
+>   - the aitasks_go#t74, aitasks_go#t75 and aitasks_go#t76 deferrals are tracked and do not hold aitasks_go#t60 open.
 
-- **t2117** `testmap_auto_bash_exit_integration` — Postponed, depends t1854_14.
-- **t2118** `testmap_auto_pytest_report_integration` — Postponed, depends t1854_14.
-- **t2119** `testmap_pidns_invocation_boundary` — Ready, depends t1854_6, t1854_7. (Since t1854_6's dedicated supervisor, invocations no longer run serially without a delegated cgroup; see t1854_6's note on t2119.)
-
-### Closure rule
-
-M3 closes only when every M3.2 sibling above is archived. The Postponed device
-adapter (t1854_13) therefore keeps M3 open until an emulator environment
-exists; that is the honest state. t2117 / t2118 / t2119 do not hold M3 open.
-
-### Requirement coverage audit (2026-10-21)
-
-Each requirement of the original M3.2 scope, of the user's directive and of
-the plan review is mapped to the task whose body owns it. Every row was
-checked by grepping that body for its acceptance text. A dependency walk over
-every edge above found no dangling id and no cycle.
-
-| source | requirement | owner |
-|---|---|---|
-| original | `ait-testmap runner <name>` verb + builtin registration | t1854_6 |
-| original | `bash-file` builtin | t1854_8 |
-| original | `pytest` junitxml | t1854_9 |
-| original | `testmap:batch no` honoured | t1854_9 |
-| original | `go-test` per-file `-run`, `-json` | t1854_10 |
-| original | `gradle-class` `--tests` batch, one invocation per `group_by` group | t1854_11 |
-| original | JUnit XML inverted to ids through the list table | t1854_11 |
-| original | zero-match trap (now: a listed case with no result is `error:incomplete`, never pass) | t1854_11 |
-| original | `suite`: any command as one unit | t1854_12 |
-| original | `device` reads the manifest handle, refuses without one | t1854_13 |
-| original | `engine-test` over `goengines/` (lists its packages) | t1854_10 |
-| original | `full` suite child rows (pytest junitxml, bash per-file exit, `go test -json`) | t1854_14 |
-| original | recursion: a `full` suite reaching `./ait test` is refused | t1854_7 |
-| original | `command:` / `cwd:` overrides | t1854_6 |
-| original | each builtin declares and proves its timeout mode | t1854_8 |
-| original | hang guard for builtin tests (t1985 / t1998 notes) | t1854_5 |
-| original | what each runner reads (t2081 note → t2082) | t1854_9 |
-| directive | guarantees defined first; what each result proves | t1854_2 |
-| directive | command success ≠ all tests accounted for | t1854_2 |
-| directive | missing / ambiguous / stale / incomplete never pass or unexplained skip | t1854_2 |
-| directive | explicit zero-test policy | t1854_2 |
-| directive | discovery separated from execution; native / inventory / candidates | t1854_2 |
-| directive | native discovery bounded like execution | t1854_6 |
-| directive | discovery and execution share configuration | t1854_9 |
-| directive | arbitrary suites start aggregate only | t1854_12 |
-| directive | automatic shell exit hooks deferred | t2117 |
-| directive | injected pytest plugins deferred | t2118 |
-| directive | individual results need a documented reporting contract and verified attribution | t1854_14 |
-| directive | supervision complete before runners; watchdog reused | t1854_6 |
-| directive | timeout / cancellation / crash / descendant cleanup specified and tested | t1854_6 |
-| directive | runtime recursion protection, fixture repos allowed | t1854_7 |
-| directive | recursion coordinated with owning tasks | t1854_7 |
-| directive | real tools, versions, pending without an environment | t1854_11 |
-| directive | deferred prerequisites block the feature (children:) | t1854_2 |
-| review | identity-based case reconciliation, equal-count substitutions tested | t1854_2 |
-| review | containment survives `setsid()` | t1854_6 |
-| review | guard before every adapter; recursion from discovery and execution | t1854_7 |
-| review | guard before every adapter (edge) | t1854_6 |
-| review | per-invocation cleanup ownership surviving a builtin crash; overlap test | t1854_6 |
-| review | t1854_3 coordination for parallel execution | t1854_6 |
-| review | suite child evidence through the shared reconciler | t1854_14 |
-| review | pidns deferred with forced-backend, `env -i` recursion and cleanup acceptance | t2119 |
-| original | no `bash-file list --invocations` (Dev 5) | dropped, unchanged |
-| original | serial carve-out drift pin | M10.1 (t1861), unchanged (Dev 6) |
 
 ## Inbox
 <!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->

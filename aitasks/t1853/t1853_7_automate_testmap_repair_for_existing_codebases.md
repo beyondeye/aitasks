@@ -2,110 +2,265 @@
 priority: high
 effort: high
 depends: [t1853_1, t1853_2, t1853_3, t1853_4, t1853_5, t1853_6, t1854_1, t1859_2, t1859_3]
+xdeps: [t59_1]
+xdeprepo: aitasks_go
 issue_type: feature
 status: Postponed
 labels: [testing, testmap, go_engine]
 gates: [risk_evaluated]
 anchor: 1852
 created_at: 2026-10-11 23:43
-updated_at: 2026-10-19 15:44
+updated_at: 2026-10-30 12:09
 ---
+
+Split (aitasks_go#t22 cutover): the engine half of this task is aitasks_go#t59_1
+in beyondeye/aitasks_go. This body is the framework half.
 
 ## Goal
 
-Implement the full automatic check → repair → recheck loop so an existing codebase can adopt `ait test` without a person fixing each test-map rule failure. Requested by the user during the t1853_1 shadow discussion on 2026-10-11; this is a sibling under t1853 and genuine new feature work.
+Implement the full automatic check → repair → recheck loop so an existing
+codebase can adopt `ait test` without a person fixing each test-map rule
+failure. Requested by the user during the t1853_1 shadow discussion on
+2026-10-11; this is a sibling under t1853 and genuine new feature work.
 
-Existing plans provide validators, annotation writers, scanners and adoption/review tools, but those pieces alone do not guarantee convergence after missing annotations or invalid ownership. Deliver the coordinator and any missing validated repair operations, then connect them to onboarding and ongoing task execution.
+Since the t22 cutover the loop is split across two repositories:
+- **Engine half, aitasks_go#t59_1 (aitasks_go):** the deterministic Go repair
+  coordinator, the rule-to-repair matrix and the missing validated mutation
+  primitives (`RouteRepair`, ownership correction, rename retarget,
+  scan-drift apply, `MODULE_*` handling, terminal classes). It never invokes
+  a model, launches agents or writes task / gate ledgers.
+- **Framework half, this task:** the agent-reasoning lane and the
+  integrations. It connects the coordinator to onboarding, explicit
+  maintenance and ongoing task execution, and owns the gate handoff, skills,
+  configuration, documentation and proposal updates.
 
-## Required behavior
+This task holds `xdeps` on aitasks_go#t59_1 (`xdeprepo: aitasks_go`), which
+unblocks only when that task is Done: the framework half wires and documents
+the coordinator the engine half actually lands.
 
-- Inventory the existing test corpus, including files with no testmap annotations. Do not rely only on `UNANNOTATED_MEMBER`, which is conditional on a file already opting into member annotations, or only on the current task's changed files.
-- Consume structured diagnostics from registry checks, enumeration and the `ait test` surface. Build a rule-to-repair matrix covering every rule reachable through the supported onboarding and maintenance flows. Include missing file/member annotations, unregistered tests and unmapped artifacts, missing/ambiguous/wrong ownership, stale or renamed paths/members, missing/stale stamps, generated scan drift, and scoped/area/variant/adoption-table consistency. Record the exact diagnostic and provider operation instead of inventing rule names.
-- Correct ownership at the file declaration/area/scope level that actually owns the path. Registry ownership errors concern declared paths outside the applicable ownership or ambiguous owners; an arbitrary unreferenced source file lacking ownership is not automatically a failure. Infer narrow ownership from repository structure, test intent and existing declarations.
-- Reuse M2.2's sole annotation rewriter, M2.3's scanner suggestions, M2.5's area/scoped operations and M2.6's write routing. Add deterministic validated mutation primitives where a rule currently has only detection. Preserve comment placement, unrelated content, exclusions and provenance.
-- Let the coding-agent workflow reason about test assertions, intended coverage and ambiguous ownership; keep the Go engine deterministic and free of model invocation, agent launching or task/gate-ledger writes. Static imports alone are insufficient evidence to assert semantic coverage or refresh a review stamp.
-- Support legacy tests through the onboarding/review/adoption path. Preserve M7.4 author annotation's change-surface boundary; do not silently expand it to the whole repository to backfill legacy tests.
-- After each repair batch, reload and recheck the actual repository; repeat until no blocking test-map rule failures remain. Use bounded attempts, repeated-state/no-progress detection and resumable progress. Supported repairable fixtures must reach clean automatically without routine human prompts. Unresolvable conflicts, unreadable files, incompatible contracts or exhausted budgets remain failures with precise residual diagnostics and repair history, never false success or an infinite loop.
-- Never achieve green by disabling checks/gates, weakening strictness, broadening ownership to catch-all globs, fabricating coverage/stamps or deleting valid tests. Successful map repair proceeds to the normal test execution and gate checks; passing map rules does not imply tests pass.
-- Integrate the same coordinator into existing-codebase onboarding, explicit maintenance and task completion when test-map failures arise. Define unattended configuration, retry ownership, restart behavior and machine-readable outcomes. The gate's own retry count (including zero) is not a repair coordinator; avoid nested retry loops and stale success records.
+## Required behavior (framework half)
+
+- **Agent-reasoning lane.** Let the coding-agent workflow reason about test
+  assertions, intended coverage and ambiguous ownership, and feed its
+  conclusions to the engine as proposals or verdicts. Static imports alone
+  are insufficient evidence to assert semantic coverage or refresh a review
+  stamp. Ownership inference from "test intent" is done here; deterministic
+  structure-based inference is the engine half's.
+- **Diagnostics from the `ait test` surface.** The `ait test` front
+  diagnostics (such as `UNANNOTATED_TEST`, M5.1) reach the coordinator
+  through the workflow; registry-check and enumeration diagnostics are
+  consumed by the engine half directly.
+- **Integration.** Integrate the same coordinator into existing-codebase
+  onboarding (the M6.5 onboarding skill), explicit maintenance (the M9.3
+  maintenance skill) and task completion (the M9.1 path and its gates) when
+  test-map failures arise. Successful map repair proceeds to the normal test
+  execution and gate checks; passing map rules does not imply tests pass.
+- **Gate handoff and retries.** Wire the `testmap_check` / `testmap_fresh`
+  handoff (t1859_2 / t1859_3). The gate's own retry count (including zero) is
+  not a repair coordinator; avoid nested retry loops and stale success
+  records. No run may produce a false gate success.
+- **Unattended configuration.** Define the profile / `project_config.yaml`
+  configuration, retry ownership and restart behaviour on the workflow side.
+  The machine-readable outcomes, resume state and engine `config.yaml` keys
+  are the engine half's; consume them as landed.
+- **Legacy tests.** Support legacy tests through the onboarding / review /
+  adoption skills. Preserve M7.4 author annotation's change-surface boundary;
+  do not silently expand it to the whole repository to backfill legacy tests.
+- **Never achieve green** by disabling checks / gates, weakening strictness,
+  broadening ownership to catch-all globs, fabricating coverage / stamps or
+  deleting valid tests. On this side that means: no skipped gate, no flipped
+  `require_stamp`, no extended `bootstrap_until`.
+- **Skills and docs.** Add the skill-wrapper ports and permission
+  touchpoints for any new engine verb, the documented user-facing entry
+  points, and user documentation (website).
 
 ## Dependencies and cross-references
 
-Concrete `depends:` entries are t1853_1 (registry/check), t1853_2 (annotation rewriter), t1853_3 (scanner facts), t1853_4 (axes/variants), t1853_5 (scopes/areas), and t1853_6 (adoption tables). These are real provider tasks, not placeholders.
+Concrete `depends:` entries are t1853_1 – t1853_6 and t1854_1 (all archived,
+kept as satisfied), and t1859_2 / t1859_3 (the M8.2 / M8.3 gate verifiers,
+pending). The engine half is held through `xdeps` on aitasks_go#t59_1.
 
-The following provider parents have not yet supplied their child IDs at creation time. Resolve each module to its actual active or archived child; never infer an ID from the module number. Add pending provider children to `depends:` while preserving existing edges; record landed providers and commits as satisfied.
+The following framework provider parents have not yet supplied their child
+IDs. Resolve each module to its actual active or archived child; never infer
+an ID from the module number. Add pending provider children to `depends:`
+while preserving existing edges; record landed providers and commits as
+satisfied.
 
 | Required provider module | Parent task | Consumed seam / named extension |
 |---|---|---|
-| M3.1 | [t1854](../t1854_testmap_m3_runners_scheduling_and_cost.md) → **`t1854_1`** (pending; in `depends:` since t1854's coarse pass) | Runner-backed enumeration and member identity for whole-corpus reconciliation |
-| M4.2 | [t1855](../t1855_testmap_m4_selection_freshness_and_feedback.md) | Staleness, retargeting and confirmation operations |
 | M5.1 | [t1856](../t1856_testmap_m5_run_surface.md) | `ait test`, unannotated-test diagnostics and test execution handoff |
 | M6.5 | [t1857](../t1857_testmap_m6_onboarding.md) | Onboarding skill integration after its inventory, seeding and adoption providers |
-| M7.2, M7.4, M7.5 | [t1858](../t1858_testmap_m7_agent_review_and_author_annotation.md) | Agent verdict intake, author annotation boundary and legacy review workflow |
-| M8.2, M8.3 | [t1859](../t1859_testmap_m8_completion_policy_and_gates.md) → **`t1859_2`**, **`t1859_3`** (pending; in `depends:` since t1859's coarse pass; the seeds step `t1859_6` is not consumed) | Check/freshness verifiers, failure handoff and revalidation |
+| M7.5 | [t1858](../t1858_testmap_m7_agent_review_and_author_annotation.md) | Legacy review workflow (the review skill) |
+| M8.2, M8.3 | [t1859](../t1859_testmap_m8_completion_policy_and_gates.md) → **`t1859_2`**, **`t1859_3`** (pending, in `depends:`; the seeds step `t1859_6` is not consumed) | Check/freshness verifiers, failure handoff and revalidation (e.g. `.aitask-scripts/aitask_gate_testmap_check.sh`) |
 | M9.1, M9.3 | [t1860](../t1860_testmap_m9_workflow_integration_skills_and_docs.md) | Task-workflow integration and maintenance skill extension |
 
-**Dependency hold:** Postponed only because the provider child graph above cannot yet be fully encoded. During provider decomposition, fill the relevant child edges. Set Ready after every row is resolved to an explicit pending dependency or evidenced landed provider; Ready does not bypass those dependencies. Do not depend on whole module parents: their graph is cyclic and parent completion is too coarse. Base provider tasks must not depend back on this consumer; this task lands the later named integration extensions.
+The engine providers this repair needs (M4.2 staleness / retargeting /
+confirmation, M6.3 class `--auto`, M7.2 verdict intake, M7.4 author
+annotation boundary) are consumed by aitasks_go#t59_1, not here; they live in
+aitasks_go#t61, aitasks_go#t63 and aitasks_go#t64 (not yet decomposed). This task reaches
+them through aitasks_go#t59_1.
 
-[t1863](../t1863_testmap_cross_linking_pass.md) must audit this supplementary sibling and its table as well as the original module rows. t1863 is a cross-reference, not an implementation dependency. [t1861](../t1861_testmap_m10_rollout_to_target_repositories.md) is the downstream rollout context; assess delivery requirements without rewriting foreign task dependencies.
+**Dependency hold:** Postponed because the framework provider child graph
+above cannot yet be fully encoded, and because the engine half must land
+first (the `xdeps` above). During provider decomposition, fill the relevant
+child edges. Set Ready after every row is resolved to an explicit pending
+dependency or evidenced landed provider; Ready does not bypass those
+dependencies, and the `xdeps` keeps it blocked until aitasks_go#t59_1 is Done. Do
+not depend on whole module parents: their graph is cyclic and parent
+completion is too coarse. Base provider tasks must not depend back on this
+consumer; this task lands the later named integration extensions.
+
+[t1863](../t1863_testmap_cross_linking_pass.md) must audit this supplementary
+sibling and its table as well as the original module rows, across both
+repositories. t1863 is a cross-reference, not an implementation dependency.
+[t1861](../t1861_testmap_m10_rollout_to_target_repositories.md) is the
+downstream rollout context; assess delivery requirements without rewriting
+foreign task dependencies.
 
 ## Assigned case: `UNSTAMPED` past bootstrap (from t1859, Dev 14)
 
 `check` treats an annotation edge without a stamp as an always-failing
-`UNSTAMPED` finding under `require_stamp` once `bootstrap_until` has passed,
-even without `--strict` (`goengines/internal/testmap/registry/rules_core.go`
-`checkUnstamped`). The two gates report it and hand it here; neither repairs
-it:
+`UNSTAMPED` finding under `require_stamp` once `bootstrap_until` has passed.
+The two gates report it and hand it to this repair; neither repairs it:
 
 - The autonomous lane of `testmap_fresh` (`t1859_3`) never invents a first
   stamp. It records `fail` with the `UNSTAMPED` pairs and a machine-readable
   handoff reason.
 - `testmap_check` (`t1859_2`) fails with the same reason.
 
-No policy demotion or further test run can supply the missing adoption, so
-this task owns the repair. **Legitimate first-stamp adoption routes**, each
-writing the stamp together with its `adopted.yaml` provenance:
-- `annotate --author` for pairs on the task's change surface (M7.4);
-- verdict adoption from engine-cut packets (M7.2);
-- class `--auto` over a rule or measurement class (M6.3).
-
-`--confirm-evidenced` is **not** a first-stamp route: it only re-stamps an
-existing claim. Forbidden:
+This task owns the workflow side of the repair: it routes the handoff to the
+engine coordinator (aitasks_go#t59_1), which adopts through a legitimate
+first-stamp route (`annotate --author` on the change surface (M7.4), verdict
+adoption from engine-cut packets (M7.2), or class `--auto` (M6.3)). For the
+M7.2 route, the agent that produces the verdicts runs here. Forbidden:
 - inventing a stamp;
 - extending `bootstrap_until` or flipping `require_stamp`;
-- weakening or skipping the check.
+- weakening or skipping the check or any gate.
 
 **Rollout prerequisite:** unattended completion under `require_stamp: true`
-past `bootstrap_until` requires this task to have landed. Until then, that
-configuration fails loudly at the gates and never passes silently.
+past `bootstrap_until` requires both halves of this repair to have landed
+before the t1861 rollout. Until then, that configuration fails loudly at the
+gates and never passes silently.
 
 ## Planning and ownership
 
-Read the authoritative proposal `aidocs/testing_engine/n014_explorer_006_proposal.md`, the parent t1853 protocol, and the provider task/plan files above. This is user-requested cross-module follow-through beyond the original six M2 module rows; do not silently label it M2.7 or move workflow/model execution into registry code.
+Read the authoritative proposal `aidocs/testing_engine/n014_explorer_006_proposal.md`,
+the parent t1853 protocol, and the provider task/plan files above, plus the
+landed aitasks_go#t59_1 in aitasks_go. This is user-requested cross-module
+follow-through beyond the original six M2 module rows; do not silently label
+it M2.7 or move workflow/model execution into registry code.
 
-The implementation plan must begin with `Step 0 — Reality check`: inspect landed providers and commits, compare proposal/coarse plans/repository behavior, finalize the diagnostic-to-repair matrix, and record each file's owning module and this task's named extension. Update the proposal's module/interface cuts where needed and notify affected provider tasks. Include the documented user-facing entry points and skill-wrapper ports required by the final skill changes.
+The implementation plan must begin with `Step 0 — Reality check`: inspect
+the landed providers and commits (the engine coordinator in aitasks_go, the
+gates and skills here), compare proposal/coarse plans/repository behavior,
+take the finalized diagnostic-to-repair matrix from aitasks_go#t59_1 and
+cross-check every skill-reachable rule against it, and record each file's
+owning module and this task's named extension. Update the proposal's
+module/interface cuts where needed and notify affected provider tasks (in
+aitasks_go with `--project aitasks_go`). Include the documented user-facing
+entry points and skill-wrapper ports required by the final skill changes.
 
 ## Acceptance
 
-- An integration fixture representing an existing mixed test corpus starts with absent annotations, uncovered members, missing/ambiguous ownership, renamed paths and scan drift. One unattended invocation repairs the supported failures, reaches a fresh clean check, and hands off to normal test execution without person-by-person fixes.
-- Every rule in the matrix has meaningful coverage for a supported automated repair or a precisely classified terminal failure. Ownership choices and annotations reflect assertions and actual ownership rather than merely suppressing diagnostics.
-- A second invocation on the clean fixture makes no changes. An interrupted run resumes without duplicate annotations, adoption rows or false gate success.
-- Conflicting rewrites, no-progress cycles, unreadable inputs and incompatible contracts terminate within the configured budget and retain actionable failing diagnostics.
-- Onboarding, maintenance and task-completion integration tests verify the same convergence semantics, legacy-file handling, change-surface boundaries and correct gate/test outcomes.
-- **`UNSTAMPED` handoff integration scenario.** The fixture runs an autonomous
-  profile with `require_stamp: true` past `bootstrap_until`:
+- **Handoff.** On the mixed existing-corpus fixture, the coordinator's clean
+  result hands off to normal test execution (`ait test`) without
+  person-by-person fixes.
+- **Judgement.** Ownership choices and annotations made through the agent
+  lane reflect assertions and actual ownership rather than merely suppressing
+  diagnostics.
+- **No false gate success.** An interrupted run never leaves a stale or false
+  gate success record.
+- Onboarding, maintenance and task-completion integration tests (bash /
+  skill goldens) verify the same convergence semantics, legacy-file handling,
+  change-surface boundaries and correct gate/test outcomes.
+- **`UNSTAMPED` handoff integration scenario.** The fixture runs an
+  autonomous profile with `require_stamp: true` past `bootstrap_until`:
   1. A task leaves an unstamped edge on its change surface.
   2. `testmap_fresh` records `fail` with the handoff.
-  3. The coordinator adopts the edge through a legitimate first-stamp route.
+  3. The coordinator (aitasks_go#t59_1) adopts the edge through a legitimate
+     first-stamp route.
   4. The **real** `testmap_check` verifier passes.
   5. `tests_pass` runs.
 
-  Negative controls:
-  - an edge with no legitimate route stays failing, with a precise residual
-    diagnostic;
-  - no run invents a stamp, extends `bootstrap_until`, flips `require_stamp`
-    or skips a gate.
-- User documentation explains adoption of an existing codebase, automatic repair behavior, configuration and residual failure reports. The dependency table and reciprocal references are reconciled with the final module ownership.
+  Negative controls: no run invents a stamp, extends `bootstrap_until`, flips
+  `require_stamp` or skips a gate.
+- User documentation explains adoption of an existing codebase, automatic
+  repair behavior, configuration and residual failure reports.
+- The dependency table and reciprocal references are reconciled with the
+  final module ownership across both repositories (with t1863).
+- This body points to aitasks_go#t59_1 (done above).
+
+## Carried obligations (framework half)
+
+- `## Goal` ¶1 — "Implement the full automatic check → repair → recheck loop" — *Goal*: the agent / workflow driver here, the loop engine in aitasks_go#t59_1.
+- `## Goal` ¶2 — "then connect them to onboarding and ongoing task execution" — *Required behavior → Integration*.
+- `## Required behavior` — "Consume structured diagnostics from registry checks, enumeration and the `ait test` surface" — *Required behavior → Diagnostics from the `ait test` surface*.
+- `## Required behavior` — "Correct ownership at the file declaration/area/scope level … Infer narrow ownership from repository structure, test intent and existing declarations" — *Required behavior → Agent-reasoning lane* (test intent); structure-based inference is aitasks_go#t59_1's.
+- `## Required behavior` — "Let the coding-agent workflow reason about test assertions, intended coverage and ambiguous ownership" — *Required behavior → Agent-reasoning lane*.
+- `## Required behavior` — "Support legacy tests through the onboarding/review/adoption path. Preserve M7.4 author annotation's change-surface boundary" — *Required behavior → Legacy tests* (skill path); the engine route boundary is aitasks_go#t59_1's.
+- `## Required behavior` — "Never achieve green by disabling checks/gates, weakening strictness, broadening ownership to catch-all globs, fabricating coverage/stamps or deleting valid tests" — *Required behavior → Never achieve green* and the *Acceptance* negative controls.
+- `## Required behavior` — "Successful map repair proceeds to the normal test execution and gate checks" — *Required behavior → Integration* and *Acceptance → Handoff*.
+- `## Required behavior` — "Integrate the same coordinator into existing-codebase onboarding, explicit maintenance and task completion" — *Required behavior → Integration*.
+- `## Required behavior` — "Define unattended configuration, retry ownership, restart behavior and machine-readable outcomes" — *Required behavior → Unattended configuration* (profile / config, retry ownership, restart); outcomes and resume state are aitasks_go#t59_1's.
+- `## Required behavior` — "The gate's own retry count … is not a repair coordinator; avoid nested retry loops and stale success records" — *Required behavior → Gate handoff and retries*.
+- `## Dependencies` table — M5.1 (t1856) "`ait test`, unannotated-test diagnostics and test execution handoff" — *Dependencies* table, M5.1 row.
+- `## Dependencies` table — M6.5 (t1857) "Onboarding skill integration" — *Dependencies* table, M6.5 row.
+- `## Dependencies` table — M7.2, M7.4, M7.5 (t1858) "Agent verdict intake, author annotation boundary and legacy review workflow" — *Dependencies* table, M7.5 row (the review skill); M7.2 / M7.4 are consumed by aitasks_go#t59_1.
+- `## Dependencies` table — M8.2, M8.3 → `t1859_2`, `t1859_3` "Check/freshness verifiers, failure handoff and revalidation" — *Dependencies* table, M8.2 / M8.3 row; kept in `depends:`.
+- `## Dependencies` table — M9.1, M9.3 (t1860) "Task-workflow integration and maintenance skill extension" — *Dependencies* table, M9.1 / M9.3 row.
+- `## Dependencies` — "**Dependency hold:** Postponed only because the provider child graph … cannot yet be fully encoded … Set Ready after every row is resolved" — *Dependency hold* (framework provider rows, plus the `xdeps` on aitasks_go#t59_1).
+- `## Dependencies` — "Do not depend on whole module parents … Base provider tasks must not depend back on this consumer" — *Dependency hold*, last sentences.
+- `## Dependencies` — "[t1863] must audit this supplementary sibling and its table" — *Dependencies and cross-references*, t1863 paragraph.
+- `## Dependencies` — "[t1861] is the downstream rollout context" — *Dependencies and cross-references*, t1861 paragraph.
+- `## Assigned case: UNSTAMPED` — "`testmap_fresh` (`t1859_3`) … records `fail` with the `UNSTAMPED` pairs and a machine-readable handoff reason" — *Assigned case*, first bullet.
+- `## Assigned case: UNSTAMPED` — "`testmap_check` (`t1859_2`) fails with the same reason" — *Assigned case*, second bullet.
+- `## Assigned case: UNSTAMPED` — "this task owns the repair" — *Assigned case*: the workflow handoff here, the engine adoption in aitasks_go#t59_1.
+- `## Assigned case: UNSTAMPED` — route "verdict adoption from engine-cut packets (M7.2)" — *Assigned case*: the agent producing verdicts runs here; the engine intake is aitasks_go#t59_1's.
+- `## Assigned case: UNSTAMPED` — "Forbidden: inventing a stamp; extending `bootstrap_until` or flipping `require_stamp`; weakening or skipping the check" — *Assigned case → Forbidden*.
+- `## Assigned case: UNSTAMPED` — "**Rollout prerequisite:** unattended completion under `require_stamp: true` past `bootstrap_until` requires this task to have landed" — *Assigned case → Rollout prerequisite*: both halves before t1861; the gates fail loudly until then.
+- `## Planning and ownership` — "Read the authoritative proposal … the parent t1853 protocol, and the provider task/plan files" — *Planning and ownership*, first paragraph.
+- `## Planning and ownership` — "do not silently label it M2.7 or move workflow/model execution into registry code" — *Planning and ownership*, first paragraph.
+- `## Planning and ownership` — "`Step 0 — Reality check`: inspect landed providers and commits … finalize the diagnostic-to-repair matrix, and record each file's owning module" — *Planning and ownership → Step 0* (this half's own; the matrix comes from aitasks_go#t59_1).
+- `## Planning and ownership` — "Update the proposal's module/interface cuts where needed and notify affected provider tasks" — *Planning and ownership → Step 0*.
+- `## Planning and ownership` — "Include the documented user-facing entry points and skill-wrapper ports" — *Planning and ownership* and *Required behavior → Skills and docs*.
+- `## Acceptance` — "integration fixture representing an existing mixed test corpus … One unattended invocation repairs … reaches a fresh clean check, and hands off to normal test execution" — *Acceptance → Handoff*; reaching a clean `check` is tested in aitasks_go#t59_1.
+- `## Acceptance` — "Every rule in the matrix has meaningful coverage … Ownership choices and annotations reflect assertions and actual ownership" — *Acceptance → Judgement*; rule coverage is aitasks_go#t59_1's.
+- `## Acceptance` — "A second invocation on the clean fixture makes no changes. An interrupted run resumes without duplicate annotations, adoption rows or false gate success" — *Acceptance → No false gate success*; idempotence and resume are aitasks_go#t59_1's.
+- `## Acceptance` — "Onboarding, maintenance and task-completion integration tests verify the same convergence semantics …" — *Acceptance*, fourth item.
+- `## Acceptance` — UNSTAMPED scenario steps 1–5 (task leaves edge → `testmap_fresh` fail → coordinator adopts → **real** `testmap_check` passes → `tests_pass` runs) — *Acceptance → `UNSTAMPED` handoff integration scenario* (end to end; step 3's engine route is aitasks_go#t59_1's).
+- `## Acceptance` — negative control "no run invents a stamp, extends `bootstrap_until`, flips `require_stamp` or skips a gate" — *Acceptance → `UNSTAMPED` scenario*, negative controls.
+- `## Acceptance` — "User documentation explains adoption of an existing codebase, automatic repair behavior, configuration and residual failure reports" — *Acceptance*, documentation item.
+- `## Acceptance` — "The dependency table and reciprocal references are reconciled with the final module ownership" — *Acceptance*, reconciliation item.
+
+## Relocated to aitasks_go
+
+The engine scope below moved to aitasks_go#t59_1 and is quoted for reference only.
+
+> - A deterministic engine coordinator (a verb or verbs; the exact name is fixed at Step 0) does the following:
+>   - inventories the whole test corpus through the M3.1 lister, including files with no annotations;
+>   - consumes the structured `check` / enumeration diagnostics;
+>   - applies a rule-to-repair matrix of exact diagnostic → provider operation;
+>   - reloads and rechecks after each batch, with bounded attempts, repeated-state / no-progress detection and resumable on-disk progress;
+>   - emits machine-readable outcomes and residual diagnostics with repair history.
+> - New validated mutation primitives where only detection exists:
+>   - `RouteRepair` in `registry/adoption_write.go` (`DeleteAdopted` / `RemoveSeed`, with the onboard.yaml `reviews[]` preservation);
+>   - ownership correction at the declaration / area / scope level;
+>   - path and member rename retarget;
+>   - scan-drift apply;
+>   - `MODULE_UNRESOLVED` / `MODULE_CONFLICT` handling as Info repair candidates.
+> - All writes go through `annot.Apply` / `AnnotateWith` and M2.6 routing.
+> - Terminal classification of `annot.ErrNoLeader` / `ErrUncertainContext` / `ErrByteOrderMark` files.
+> - First-stamp adoption only through the legitimate engine routes (`annotate --author` M7.4, the M7.2 verdict intake, M6.3 `--auto`), never by inventing stamps or touching `bootstrap_until` / `require_stamp`.
+> - The engine half never invokes a model, launches agents or writes task / gate ledgers.
+> - Acceptance:
+>   - A Go integration fixture (a mixed existing corpus: absent annotations, uncovered members, missing / ambiguous ownership, renamed paths, scan drift) reaches a fresh clean `check` in one unattended engine invocation.
+>   - Every matrix rule has coverage for its automated repair or for a precisely classified terminal failure.
+>   - A second run on the clean fixture is a no-op. An interrupted run resumes with no duplicate annotations or adoption rows.
+>   - Conflicting rewrites, no-progress cycles, unreadable inputs and incompatible contracts terminate within the budget and keep failing diagnostics.
+>   - Negative controls: no fabricated stamp, no `bootstrap_until` / `require_stamp` change, no catch-all ownership glob, no deleted valid test.
+>   - The engine side of the UNSTAMPED scenario: an edge with no legitimate route stays failing with a precise residual.
+>   - Bench, guards and the allowlist stay green in aitasks_go CI.
+
 
 ## Inbox
 <!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
