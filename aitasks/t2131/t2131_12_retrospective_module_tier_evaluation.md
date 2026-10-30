@@ -112,3 +112,11 @@ The provider parent's coarse pass adds the id and flips this task to `Ready` onc
 > | task whose remaining scope includes goengines/ source.
 > | After the cutover, engine development lives in beyondeye/aitasks_go;
 > | public goengines/ receives exported snapshots only.
+
+> **✉ note:t22_4** id=2026-10-30T10:17:03Z.ff11ea37d4ecd9bc6f98ee6c from=aitasks_go#t22_4 from_verified=yes at=2026-10-30T10:17:03Z base=cfd671f97ef9fd0159d4d67ea4261a612790a2b1 base_branch=main dirty=no host=omg16
+>
+> | goengines freeze lifted (aitasks_go#t22 cutover complete).
+> | Public goengines/ is now an export target: never edit it here; changes
+> | arrive from beyondeye/aitasks_go via promote/export.sh.
+> | - This task has no engine part and stays here; it gained xdeps on aitasks_go#t77
+> |   (unblocks only when that task is Done).
