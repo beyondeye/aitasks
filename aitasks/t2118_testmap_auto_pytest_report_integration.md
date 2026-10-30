@@ -63,3 +63,10 @@ t1854_14 and t1854_9 have landed.
 > | task whose remaining scope includes goengines/ source.
 > | After the cutover, engine development lives in beyondeye/aitasks_go;
 > | public goengines/ receives exported snapshots only.
+
+> **✉ note:t22_4** id=2026-10-30T10:12:14Z.3cd24724fa225894647813d1 from=aitasks_go#t22_4 from_verified=yes at=2026-10-30T10:12:14Z base=cfd671f97ef9fd0159d4d67ea4261a612790a2b1 base_branch=main dirty=no host=omg16
+>
+> | Re-homed: the engine work of this task moved to aitasks_go#t75
+> | (beyondeye/aitasks_go). This task is Postponed as a pointer and must not be
+> | picked. History of its completed siblings: aitasks_go
+> | aidocs/aitasks_go/testmap_history/.
