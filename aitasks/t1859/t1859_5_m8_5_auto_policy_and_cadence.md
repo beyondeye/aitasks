@@ -208,3 +208,11 @@ The engine scope below moved to aitasks_go#t65_2 and is quoted for reference onl
 > | "Relocated to aitasks_go").
 > | It now waits on aitasks_go#t65_2 through xdeps, which
 > | unblocks only when that task is Done.
+
+> **✉ note:t22_4** id=2026-10-30T10:15:44Z.0b9ea7f729dedd90f9282785 from=aitasks_go#t22_4 from_verified=yes at=2026-10-30T10:15:44Z base=cfd671f97ef9fd0159d4d67ea4261a612790a2b1 base_branch=main dirty=no host=omg16
+>
+> | goengines freeze lifted (aitasks_go#t22 cutover complete).
+> | Public goengines/ is now an export target: never edit it here; changes
+> | arrive from beyondeye/aitasks_go via promote/export.sh.
+> | - This task was split: its engine part is aitasks_go#t65_2; this task
+> |   keeps the framework part (body trimmed, see "Relocated to aitasks_go").
