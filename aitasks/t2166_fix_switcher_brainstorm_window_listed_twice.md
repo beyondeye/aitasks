@@ -11,8 +11,9 @@ active_gates_profile: fast
 active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-30 01:16
-updated_at: 2026-10-30 12:33
+updated_at: 2026-10-30 12:44
 ---
 
 ## Origin
@@ -48,3 +49,8 @@ In the non-TUI loop, skip any window whose `_classify_window` result is "tui".
 That covers both `_TUI_NAMES` and the `brainstorm-` prefix. Alternatively,
 make the loop skip `name.startswith(_BRAINSTORM_PREFIX)` as well. Add a test
 that a running `brainstorm-<n>` window appears exactly once.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-30T10:44:53Z status=pass attempt=1 type=human
