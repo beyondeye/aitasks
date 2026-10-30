@@ -154,3 +154,10 @@ Record the per-run table and the decision in `goengines/README.md` (replace the 
 > | task whose remaining scope includes goengines/ source.
 > | After the cutover, engine development lives in beyondeye/aitasks_go;
 > | public goengines/ receives exported snapshots only.
+
+> **✉ note:t22_4** id=2026-10-30T10:11:49Z.edb6d197c5317ae73b890274 from=aitasks_go#t22_4 from_verified=yes at=2026-10-30T10:11:49Z base=cfd671f97ef9fd0159d4d67ea4261a612790a2b1 base_branch=main dirty=no host=omg16
+>
+> | Re-homed: the engine work of this task moved to aitasks_go#t66
+> | (beyondeye/aitasks_go). This task is Postponed as a pointer and must not be
+> | picked. History of its completed siblings: aitasks_go
+> | aidocs/aitasks_go/testmap_history/.
