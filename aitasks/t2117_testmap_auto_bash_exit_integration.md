@@ -64,3 +64,11 @@ t1854_14 has landed and its reporting contract is stable.
 > | (beyondeye/aitasks_go). This task is Postponed as a pointer and must not be
 > | picked. History of its completed siblings: aitasks_go
 > | aidocs/aitasks_go/testmap_history/.
+
+> **✉ note:t22_4** id=2026-10-30T10:16:26Z.cdf1d006f352c804dc44a286 from=aitasks_go#t22_4 from_verified=yes at=2026-10-30T10:16:26Z base=cfd671f97ef9fd0159d4d67ea4261a612790a2b1 base_branch=main dirty=no host=omg16
+>
+> | goengines freeze lifted (aitasks_go#t22 cutover complete).
+> | Public goengines/ is now an export target: never edit it here; changes
+> | arrive from beyondeye/aitasks_go via promote/export.sh.
+> | - Engine work of this task now lives in aitasks_go#t74; this task is
+> |   Postponed and kept only as a pointer.
