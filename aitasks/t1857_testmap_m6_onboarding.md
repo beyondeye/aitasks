@@ -7,8 +7,11 @@ status: Ready
 labels: [testing, testmap, go_engine, skills]
 anchor: 1852
 created_at: 2026-09-22 09:19
-updated_at: 2026-09-22 09:19
+updated_at: 2026-10-30 12:10
 ---
+
+Split (aitasks_go#t22 cutover): the engine half of this task is aitasks_go#t63
+in beyondeye/aitasks_go. This body is the framework half.
 
 ## Goal
 
@@ -16,190 +19,336 @@ Part of the **testing engine / test map** feature — ten parent tasks, one per
 module of the proposal. This is **M6 — Onboarding**: bringing an existing
 test tree onto the map, in levels, as tasks.
 
-This module delivers the `onboard.yaml` phase ledger and the engine verbs that
-record into it (`detect` / `inventory` / `status` / `finish`, `seed` with the
-origin table and noisy-OR, `adopt` / `reject` with the autonomous floor
-enforced, `classify` / `scaffold` for levels 2 and 3), and the resumable
-`aitask-testmap-onboard` skill that runs one aitask per level, reaches level 1
-in attended and headless profiles alike, and writes the `enable` phase's
-project configuration.
+The module delivers the `onboard.yaml` phase ledger and the engine verbs that
+record into it (`detect` / `inventory` / `status` / `finish`, `seed`, `adopt` /
+`reject`, `classify` / `scaffold`) — now aitasks_go#t63 in aitasks_go — and the
+resumable `aitask-testmap-onboard` skill that runs one aitask per level,
+reaches level 1 in attended and headless profiles alike, and writes the
+`enable` phase's project configuration. This task stays the M6 parent for the
+framework part:
 
-This task carries the module's cut — submodules, owned files, the interfaces
-it provides and consumes, the seams later modules land into it — and the
-planning protocol. It does **not** restate the specification.
+- **M6.1, framework part:** the `report_testmap_state()`
+  `TESTMAP:bootstrapping|<next>` branch in `.aitask-scripts/aitask_setup.sh`,
+  plus its `tests/test_install_engine_binary.sh` case.
+- **M6.5 in full:** the onboarding skill.
+- The five permission touchpoints, the onboarding docs stating the
+  four-language policy, the proposal edits and notes, and the wiring of
+  t2131_9, t2131_11 and t1853_7.
+
+It carries the module's cut and the planning protocol; it does **not** restate
+the specification.
 
 **Proposal (authoritative for every detail):**
 `aidocs/testing_engine/n014_explorer_006_proposal.md` — start at the *Module
 Map* entry `#### M6 — Onboarding`, then the *Components* subsections tagged
-`(M6.x)` (listed under *Reading list* below), then the narrative sections
-those components name. *Architecture*, *Design decisions* and the *Invariants
-every module honours* apply to every module.
+`(M6.x)`, then the narrative sections those components name.
+*Architecture*, *Design decisions* and the *Invariants every module honours*
+apply to every module.
 
-**Acceptance:** the union of the module's components' test lists (*Module Map —
-How to read it*).
+**Acceptance:** the union of the framework components' test lists (*Module
+Map — How to read it*): the M6.1 setup case and M6.5. The M6.1–M6.4 engine
+test lists belong to aitasks_go#t63.
 
-## Submodules (one child task each — settled at the coarse planning pass)
+## Submodules (framework children — settled at the coarse planning pass)
 
 | submodule | scope | depends on | wave |
 |---|---|---|---|
-| **M6.1** Phase ledger, detect, inventory, status, finish | the `onboard.yaml` schema and phase rows, `onboard detect [--write] [--force]` with the closed detector list and `DETECT_DIFF:`, `inventory`, `status`, `finish [--auto]`, the `AIT_PROFILE_HEADLESS=1` refusals, `report_testmap_state()`'s `bootstrapping\|<next>` state, `ONBOARD_NEXT:` on the brief. Owns `internal/onboard/{ledger,detect,inventory,status,finish}.go` and the extension of `report_testmap_state()` | M1.5, M2.1, M2.5, M3.1, M5.2 | E |
-| **M6.2** Seeder and origin table | `onboard seed`, the origins `static:*` / `convention` / `cochange` / `plan` / `prose` / `coverage`, the class column, noisy-OR, the `helper_roots` / `helper_fanin` separation, the `SEED_*` lines, `--apply`, `--json --out`. Owns `internal/seed`, one fixture repo per origin | M2.3, M2.6, M3.2, M6.1 | E |
-| **M6.3** Adoption verbs | `onboard adopt --class [--accept-min] [--scope] [--dry-run]`, `--class --auto` with the autonomous floor enforced (`ADOPT_REFUSED:not-autonomous`), per-row `<test> [<source>]` / `--area --batch` / `--files-from -`, `onboard reject`, `ADOPT_REFUSED:dirty-foreign`, the `ADOPT_SKIP` cases, `WROTE:`, `ADOPT_SUMMARY:`, provenance rows, the reviewed-stamp path deleting provenance rows. Owns `internal/onboard/{adopt,reject}.go` | M2.2, M2.6, M6.2 | E |
-| **M6.4** Classify and scaffold | `onboard classify [--apply\|--propose]` with `kind_proposals[]`, the level-2 writes (kind / area / scope / reads / batch lines, `needs:` bindings, `resources.yaml` entries), `onboard scaffold --axes \| --runner <builtin> --as <name> \| --members` with `SCAFFOLD_TODO`. Owns `internal/onboard/{classify,scaffold}.go` | M2.4, M2.5, M3.4, M6.1 | G |
-| **M6.5** Onboarding skill | the `aitask-testmap-onboard` stub + `SKILL.md.j2` + one procedure file per phase; the survey and level proposal; task creation and claim; the `enable` phase's edits to `project_config.yaml`, profiles, `gates.yaml`, `docs:` / `notes:`, the hand-maintained `CLAUDE.md`; the `full_run` phase (`costs --gate-timeout`, the next level's task with `depends:`); the `--policy selected` re-entry; `--no-task`; refresh mode; the headless flow; goldens; `tests/test_testmap_onboard_ledger.sh`. Owns `.claude/skills/aitask-testmap-onboard/**`, `tests/golden/skills/aitask-testmap-onboard/`, the ledger test | M4.4, M5.1, M6.1, M6.2, M6.3, M8.2, M8.4 | F |
+| **M6.1 (framework part)** State report branch | `report_testmap_state()`'s `TESTMAP:bootstrapping\|<next phase>` branch for an unfinished `aitestmap/onboard.yaml`, between the absent and onboarded arms (a comment marks the spot); its own case in `tests/test_install_engine_binary.sh` next to T1–T3. Owns that extension of M1.5's reporter. May be its own small child or folded into M6.5's work | M1.5 (t1852_5, landed); the ledger format of aitasks_go#t63's M6.1 child (`xdeps`) | E |
+| **M6.5** Onboarding skill | the `aitask-testmap-onboard` stub + `SKILL.md.j2` + one procedure file per phase; the survey and level proposal; task creation and claim (`--type chore --labels testing,testmap`); the `enable` phase's edits to `project_config.yaml`, profiles, `gates.yaml`, `docs:` / `notes:`, the hand-maintained `CLAUDE.md`, with the gate order and `ENABLE_REFUSED:gate_dag_mode`; the `full_run` phase (`costs --gate-timeout`, the next level's task with `depends:`); the `--policy selected` re-entry; `--no-task`; refresh mode; the headless flow; goldens; `tests/test_testmap_onboard_ledger.sh`; the five permission touchpoints. Owns `.claude/skills/aitask-testmap-onboard/**`, `tests/golden/skills/aitask-testmap-onboard/`, the ledger test | M4.4 (aitasks_go#t61, not yet decomposed), M5.1 (t1856, not yet decomposed), M6.1–M6.3 (aitasks_go#t63, not yet decomposed), M8.2 (t1859_2), M8.3 (t1859_3), M8.4 (t1859_4) | F |
+
+M6.2–M6.4 and the engine part of M6.1 are aitasks_go#t63's children. Headless
+level 1 additionally needs M7.2 (aitasks_go#t64, not yet decomposed) and M7.5
+(t1858).
+
+## M6.5 contract notes (from the notes this task received; re-verify at the Reality check)
+
+- **Setup report** (t1852_5): `report_testmap_state()` ships
+  `TESTMAP:engine-missing`, `TESTMAP:absent|run /aitask-testmap-onboard` and
+  `TESTMAP:onboarded`. "Registry present" is `aitestmap/config.yaml`. Setup
+  reports and never onboards; the state prints after `install_engine_binary`
+  on `ait setup` only.
+- **Permission touchpoints** (t1852): the first skill of this module that
+  calls `ait testmap` or `./.aitask-scripts/aitask_testmap.sh` owes the
+  five-touchpoint checklist (`.claude/settings.local.json`,
+  `.codex/rules/default.rules`, `seed/claude_settings.local.json`,
+  `seed/codex_rules.default.rules`, `seed/opencode_config.seed.json`) as an
+  explicit deliverable.
+- **Gate order** (t1859 Dev 13): `enable` inserts `testmap_fresh,
+  testmap_check` immediately before `tests_pass`, or appends all three in
+  that order. It never reorders entries and never adds `unlocks:`; any
+  explicit `unlocks` flips the whole set into DAG mode
+  (`gate_orchestrator._dag_mode` in `.aitask-scripts/lib/gate_orchestrator.py`).
+  Before writing, `enable` runs a compatibility check with the orchestrator's
+  own predicate; in DAG mode it writes nothing and prints
+  `ENABLE_REFUSED:gate_dag_mode|<profile>|<gates declaring unlocks>`. Merging
+  the map gates into an existing DAG is a named follow-up.
+- **Headless config** (t1859 Dev 14): autonomous lanes under
+  `require_stamp: true` past `bootstrap_until` need the repair coordinator
+  (t1853_7 / aitasks_go#t59_1). Until it lands, `enable` does not create that
+  state for headless profiles.
+- **Procedure gates** (t1859): t635_29 (headless procedure-gate dispatch) has
+  not landed. Until it does, `testmap_fresh` defers as "needs agent" in
+  autonomous lanes, so declaring it into a headless profile blocks archival.
+- **Policy** (t1859): `--policy selected` stays an optional attended
+  alternative; `auto` is the automated route.
+- **Gate timeout** (t1854 Dev 12, t1854_4): `full_run` consumes
+  `ait testmap costs --gate-timeout <gate> [--host-class <hc>]`, which prints
+  `GATE_TIMEOUT_SUGGESTED:<gate>|<seconds>` (max(600, ⌈3 × full-suite p95⌉),
+  exit 0). Before a full run qualifies it prints `COSTS_NO_FULL_RUN:<hc>` on
+  stderr and exits 2, so call it only after the `full_run` phase's measured
+  run (`--run-id full-…` with `--all`, every invocation cause-free).
+  Untimed members add `COSTS_UNMEASURED:<hc>|<n>`.
+- **Language policy** (t1954_4): inline annotations are supported in bash,
+  Python, Go and Kotlin only. The skill surfaces unsupported-language test
+  files explicitly (the engine's `ADOPT_SKIP …|no-leader` lines), never as
+  "no annotations"; the onboarding docs and the skill state the four-language
+  policy.
+- **Code modules** (t2131, t2131_1): the skill is the natural place for an
+  agent to propose or correct module boundaries; that work is t2131_9's
+  framework half. `detect --write` never writes `completion.mode: module`;
+  `enable` writes it only through t2131_11, once the engine reports `module`
+  as supported.
+- **Repair** (t1853_7): M6.5's onboarding integration consumes the repair
+  coordinator to migrate a whole existing corpus; that extension lands in
+  t1853_7's framework half.
 
 ## Cross-module seams
 
 **Provides** (defined here, consumed elsewhere):
 
-- `onboard.yaml` phases and `ONBOARD_NEXT:` — M6.1 → M1.5
-  (`report_testmap_state`), M5.2, M6.5, M7.2 (`reviews[]`), M7.3
-  (`calibration[]`), M6.4 (`kind_proposals[]`).
-- `registry/seeded.yaml` rows and the origin table with its class column —
-  M6.2 (rows; the schema is M2.6's) → M4.1 (`edge(seeded:…)`), M4.4
-  (`--propose`), M6.3, M7.1, M7.2.
-- The adoption transitions and the `ADOPT_*` lines; every non-agent adoption
-  path; the rewriter calls the verdict intake reuses — M6.3 → M7.2, M6.5, M8.3.
-- Levels 2 and 3 — M6.4.
+- The `report_testmap_state` consumer of `onboard.yaml` phases (M6.1 → M1.5);
+  the ledger and `ONBOARD_NEXT:` themselves are aitasks_go#t63's.
 - Levels 0 and 1 attended; levels 0 and 1 headless once M7.2 and M7.5 exist —
   M6.5 → M9.5 (ports), M10.x (rollout).
 
 **Consumes:** the installed engine and `report_testmap_state()` (M1.5); the
-registry, scoped rows, axes and adoption tables (M2.1, M2.4, M2.5, M2.6); the
-rewriter (M2.2); scanner facts (M2.3); the runner contract, builtins,
-`resources.yaml` and costs (M3.1, M3.2, M3.3, M3.4); `readiness` (M4.4); `ait
-test` and the brief (M5.1, M5.2); the `testmap_check` gate and the completion
-policy (M8.2, M8.4); the verdict intake and the review skill for the headless
-level 1 (M7.2, M7.5); existing framework surfaces `aitask_create.sh`,
-`aitask_pick_own.sh`, `ait attach`, `aitask_task_commit.sh`, the profiles.
+engine verbs of M6.1–M6.4 (aitasks_go#t63) through the shim; `readiness` (M4.4,
+aitasks_go#t61); `ait test` (M5.1, t1856) and the brief (M5.2, aitasks_go#t62 through
+t1856's front); the `testmap_check` gate and the completion policy (M8.2
+t1859_2, M8.4 t1859_4); the verdict intake and the review skill for the
+headless level 1 (M7.2 in aitasks_go#t64, M7.5 in t1858); existing framework
+surfaces `aitask_create.sh`, `aitask_pick_own.sh`, `ait attach`,
+`aitask_task_commit.sh`, the profiles.
 
 **Hooks and extensions** (a file has one owner; a later submodule lands its
 edit as the owner's named extension):
 
-- M6.1 extends `report_testmap_state()` (owned by **M1.5**) with
-  `bootstrapping\|<next>` and adds `ONBOARD_NEXT:` to the brief (**M5.2**).
-- The `review.md` sub-phase under this skill's tree is owned by **M7.5**; M6.5
-  ships without it, and headless level 1 lands when M7.2 and M7.5 exist.
-- `internal/onboard` spans M6.x and M7.x by verb; `review.go` is M7's.
-- `seeded.yaml`'s schema and write routing are **M2.6**'s; M6.2 writes its
-  rows, `attribute --propose` (**M4.4**) also writes rows.
+- M6.1's framework part extends `report_testmap_state()` (owned by **M1.5**)
+  with `bootstrapping|<next>`; M6.1's engine part adds `ONBOARD_NEXT:` to the
+  brief (aitasks_go#t63 → aitasks_go#t62).
+- The `review.md` sub-phase under this skill's tree is owned by **M7.5**
+  (t1858); M6.5 ships without it, and headless level 1 lands when M7.2 and
+  M7.5 exist.
 - The level task the skill creates uses `--type chore --labels
   testing,testmap`; the rollout tasks (**M10**) are these level tasks in each
   target repository.
-- Invariants 3 and 10 bind: an autonomous path may seed everything, may adopt
-  a class only when every member carries a rule, a measurement or a reading
-  and clears `agent_review.accept_min`, and may never adopt a heuristic alone,
-  reject a seed, change a kind or declare an axis; headless runs record kind
-  proposals and never enter level 3. Every skill edit follows
-  `aidocs/framework/skill_authoring_conventions.md` and
-  `stub-skill-pattern.md` (Claude Code first; goldens in the same commit).
+- Invariants 3 and 10 bind the skill flow: an autonomous path may seed
+  everything, may adopt a class only when every member carries a rule, a
+  measurement or a reading and clears `agent_review.accept_min`, and may never
+  adopt a heuristic alone, reject a seed, change a kind or declare an axis;
+  headless runs record kind proposals and never enter level 3. The engine
+  verbs enforce the same refusals (aitasks_go#t63).
+- Every skill edit follows `aidocs/framework/skill_authoring_conventions.md`
+  and `stub-skill-pattern.md` (Claude Code first; goldens in the same commit).
+
+## Automation-first (user directive, 2026-10-11)
+
+Treat every proposal step that makes a human action a precondition as a
+candidate to automate; record the decision in the child plan and fix cut
+changes in the proposal. Framework-side candidates: the skill's per-runner
+confirmation of `runners.yaml`, the "listed for a person" steps, the
+`onboard reject` / `adopt --class` / kind-change / axis-declaration flows as
+the skill presents them. The engine-side decisions for the same verbs are
+aitasks_go#t63's; it sends its cut changes here as notes.
+
+## Wiring (when the children exist)
+
+- M6.5 ← M5.1 (t1856's child), M8.2 / M8.3 / M8.4 (t1859_2, t1859_3,
+  t1859_4): in-repo `depends:` edges.
+- M6.5 ← M6.1, M6.2, M6.3 (aitasks_go#t63's children), M4.4 (aitasks_go#t61's child),
+  and for headless level 1 M7.2 (aitasks_go#t64's child): `xdeps` with
+  `xdeprepo: aitasks_go`. Until the ids exist, the child body records the
+  prose hold with its owner, e.g. "M6.3 (aitasks_go#t63, not yet decomposed)".
+- The M6.1 framework branch ← aitasks_go#t63's M6.1 child: `xdeps`.
+- t2131_9 ← M6.5 and t2131_11 ← M6.5: in-repo `depends:` edges. t2131_9's
+  M6.1 / M6.4 holds are engine-side (aitasks_go#t77_6 ← aitasks_go#t63's children,
+  wired by aitasks_go#t63).
+- t1853_7 ← M6.5: an in-repo `depends:` edge.
+
+`--deps` and `--xdeps` replace the whole list, so repeat the existing
+entries. Flip a consumer to Ready only once nothing in its hold is left
+unresolved; `xdeps` unblock only when the target is Done.
 
 ## Reading list in the proposal
 
 - *Module Map* — `#### M6`, *How to read it*, *Cross-module interfaces*,
   *Suggested implementation order* (waves E, F, G).
-- *Components* — *Onboarding verbs (M6.1 / M6.3 / M6.4)*, *Seeder (M6.2)*,
-  *Adoption ledger: seeded → adopted → reviewed (M6.3 transitions)*,
-  *Onboarding skill `aitask-testmap-onboard` (M6.5)*, *Scoped-row registry and
-  areas (the onboarding signals consumed by M6.4)*, *Engine install, upgrade
-  and state report (the `bootstrapping` state)*.
+- *Components* — *Onboarding skill `aitask-testmap-onboard` (M6.5)*,
+  *Onboarding verbs (M6.1 / M6.3 / M6.4)* (as consumed), *Engine install,
+  upgrade and state report (the `bootstrapping` state)*, *Code modules*.
 - *The Adoption Model* — whole section.
 - *Onboarding: Levels × Phases* — whole section, especially *Invocation and
   task shape* and *Detection, per target repository*.
 - *Data Flow* — *Onboarding level 0*, *Level 1: seeds → verdicts → stamped
   edges*.
-- *Overview* — *How the loop closes without a person* (mechanism 2, the
-  autonomous floor).
+- *Overview* — *How the loop closes without a person* (mechanism 2).
 - *Assumptions* — *Seeding and adoption (M6, M7)*, *Onboarding (M6)*;
   *Tradeoffs* — *Seeding, adoption and onboarding (M6, M7)*; *Open questions*.
 
 ## Planning and implementation protocol (binding for this task and every child)
 
 This feature spans **ten parent tasks**, one per module of the proposal (see the
-module → task map at the end). The modules are cut by ownership of files, verbs
-and line protocols, not by Go package or by script, so children of different
-parents touch the same packages and scripts and meet on the interfaces listed
-above. Two consequences are binding.
+module → task map at the end). Since the t22 cutover the engine halves of
+several parents live in beyondeye/aitasks_go. The modules are cut by ownership
+of files, verbs and line protocols, so children of different parents meet on
+the interfaces listed above. Two consequences are binding.
 
-### 1. Coarse planning pass — all ten modules, before any submodule is implemented
+### 1. Coarse planning pass
 
-- Plan this task through the normal workflow (`/aitask-pick` → planning). In the
-  Complexity Assessment choose **"Yes, create child tasks"** and decompose into
-  **one child task per submodule row** in the table above (keep the `M<n>.<m>`
-  id in the child name); let the workflow write the child plan files; at the
-  child-task checkpoint choose **"Stop here"** so nothing is implemented. Do the
-  same for the other nine parents, in wave order (A → I), **before implementing
-  any child of any parent**.
-- Keep the coarse plan coarse. A child's plan records what the proposal fixes for
-  that submodule — scope, owned files, provided and consumed interfaces, the
-  component test lists that are its acceptance — and its wave. It does **not**
-  design internals against providers that do not exist yet; that is the reality
-  check's job (§2 below), and the child plan must say so in as many words.
-- Express cross-module order in task data, not in prose. Each child's `depends:`
-  names the child ids of the other parents it consumes, in the `t<parent>_<m>`
-  form (for example `depends: [t<M2 parent>_1]`), taken from the "depends on"
-  column above. When the provider parent has not been planned yet, the child body
-  records the `M<n>.<m>` reference and the dependency is filled with
-  `./.aitask-scripts/aitask_update.sh --batch <child-id> --deps ...` as soon as
-  the provider's children exist. After all ten parents are planned, one
-  cross-linking pass checks every "depends on" cell against a real `depends:`
-  entry, and checks the module → task map below against the parents' real ids.
-- Parent-level `depends:` stays empty on purpose: module-level dependencies form
-  a cycle (M6.5 → M8.2 / M8.4, M8.3 → M7.1 / M7.2, M7.1 → M6.2) and would block
-  wrongly; the real graph is acyclic only at submodule granularity.
-- Deviations from the proposal found while planning go into a **"Deviations from
-  the proposal"** section of the plan. A wrong cut — a file two submodules must
-  own, a dependency the wave table contradicts — is fixed **in the proposal**, not
-  patched in a plan; that is the proposal's own falsifier
-  (`assumption_modules_map_to_parent_tasks`). Send a note (`/aitask-note`) to
-  every parent whose tables the change touches.
+- Plan this task through the normal workflow (`/aitask-pick` → planning). In
+  the Complexity Assessment choose **"Yes, create child tasks"** and decompose
+  into **one child task per row** of the table above (the M6.1 framework part,
+  unless folded into M6.5, and M6.5; keep the `M6.<m>` id in the child name);
+  let the workflow write the child plan files; at the child-task checkpoint
+  choose **"Stop here"**. Start once the provider submodules the
+  wave-earliest child consumes have landed (submodule-granular), and
+  implement in proposal wave order.
+- Keep the coarse plan coarse. A child's plan records what the proposal fixes
+  for that submodule — scope, owned files, provided and consumed interfaces,
+  the component test lists that are its acceptance — and its wave. It does
+  **not** design internals against providers that do not exist yet; that is
+  the reality check's job (§2 below), and the child plan must say so.
+- Express cross-module order in task data, not in prose: `depends:` inside
+  this repository, `xdeps` (`xdeprepo: aitasks_go`) on aitasks_go tasks (see
+  *Wiring*).
+- Parent-level `depends:` stays empty on purpose: module-level dependencies
+  form a cycle (M6.5 → M8.2 / M8.4, M8.3 → M7.1 / M7.2, M7.1 → M6.2) and would
+  block wrongly; the real graph is acyclic only at submodule granularity.
+- Deviations from the proposal found while planning go into a **"Deviations
+  from the proposal"** section of the plan. A wrong cut is fixed **in the
+  proposal**, not patched in a plan (`assumption_modules_map_to_parent_tasks`).
+  Send a note (`/aitask-note`) to every parent whose tables the change touches,
+  including the aitasks_go halves (`--project aitasks_go`).
 
 ### 2. Reality check at child implementation time — a mandatory step in every child's plan
 
-The coarse plan is a hypothesis written before its providers existed. **Every
-child task's plan MUST carry an explicit "Reality check" step, executed before
-any code is written, and its outcome MUST be recorded in the child's plan
-file.** The step:
+**Every child task's plan MUST carry an explicit "Reality check" step, executed
+before any code is written, and its outcome MUST be recorded in the child's
+plan file.** The step:
 
 1. Re-reads the proposal's Module Map row for this submodule, its component
-   subsections, and the row of every interface it consumes (the *Cross-module
-   interfaces* table).
-2. Inspects the **actual current state** of every provider it consumes — the
-   verbs, line protocols, files, hooks and tests as they exist on the merge
-   target now — and names the task and commit that landed each one. The
-   proposal's description of a provider and the coarse plan's description of it
-   are both claims to be verified, never facts to be assumed.
-3. Tabulates every difference in three columns: *proposal says* / *coarse plan
-   says* / *repository has*.
-4. Decides, per difference: adapt this child to reality; or revise this child's
-   coarse plan; or revise the proposal (cut errors and interface changes go
-   there, per §1). Records the decision and its reason.
+   subsections, and the row of every interface it consumes.
+2. Inspects the **actual current state** of every provider it consumes and
+   names the task and commit that landed each one. Engine providers are
+   inspected in beyondeye/aitasks_go (or through the installed engine and
+   `goengines/README.md` exports).
+3. Tabulates every difference: *proposal says* / *coarse plan says* /
+   *repository has*.
+4. Decides, per difference: adapt; revise the coarse plan; or revise the
+   proposal. Records the decision and its reason.
 5. Sends a note (`/aitask-note`) to every downstream child whose assumptions a
-   difference or a decision breaks, hedging what cannot be proven from the tree.
-6. Re-confirms that every file this child will touch is owned by this submodule,
-   or that the edit lands as the owner's named extension (the "one owning
-   submodule" rule in *Module Map — How to read it*).
+   difference or a decision breaks, hedging what cannot be proven.
+6. Re-confirms that every file this child will touch is owned by this
+   submodule, or that the edit lands as the owner's named extension.
 
 A child whose plan lacks this step, or whose step is not recorded as executed,
 is not implementing this task as specified.
 
+## Acceptance
+
+- The skill goldens and `tests/test_testmap_onboard_ledger.sh` pass.
+- The DAG fixture (`build_verified` → `tests_pass` → `lint`) is refused with
+  `ENABLE_REFUSED:gate_dag_mode`, and a linear control is written in order.
+- The `tests/test_install_engine_binary.sh` bootstrapping case passes.
+- The touchpoint contract test passes with the five touchpoints present.
+- Headless level 1 is gated on M7.2 / M7.5.
+- The body points to aitasks_go#t63 (header above).
+
 ## Module → task map
 
-| module | parent task |
-|---|---|
-| M1 — Engine foundation and distribution | t1852 |
-| M2 — Registry and map model | t1853 |
-| M3 — Runners, scheduling and cost | t1854 |
-| M4 — Selection, freshness and feedback | t1855 |
-| M5 — Run surface | t1856 |
-| M6 — Onboarding | t1857 |
-| M7 — Agent review and author annotation | t1858 |
-| M8 — Completion policy and gates | t1859 |
-| M9 — Workflow integration, skills and documentation | t1860 |
-| M10 — Rollout to the target repositories | t1861 |
+| module | framework (aitasks) | engine (aitasks_go) |
+|---|---|---|
+| M1 — Engine foundation and distribution | t1852 (landed) | — |
+| M2 — Registry and map model | t1853 | aitasks_go#t59 |
+| M3 — Runners, scheduling and cost | t1854 | aitasks_go#t60 |
+| M4 — Selection, freshness and feedback | t1855 (tracker) | aitasks_go#t61 |
+| M5 — Run surface | t1856 | aitasks_go#t62 (M5.2 `brief`) |
+| M6 — Onboarding | t1857 (M6.1 setup branch, M6.5) | aitasks_go#t63 (M6.1 engine, M6.2–M6.4) |
+| M7 — Agent review and author annotation | t1858 | aitasks_go#t64 |
+| M8 — Completion policy and gates | t1859 | aitasks_go#t65 |
+| M9 — Workflow integration, skills and documentation | t1860 | — |
+| M10 — Rollout to the target repositories | t1861 | — |
 
-All ten share the topic anchor of the M1 task, so the board's By-Topic view
-shows the whole feature as one lane.
+All ten aitasks parents share the topic anchor of the M1 task, so the board's
+By-Topic view shows the whole feature as one lane.
+
+## Carried obligations (framework half)
+
+- `## Goal` / "the resumable `aitask-testmap-onboard` skill that runs one aitask per level, reaches level 1 in attended and headless profiles alike" — *Goal* and the M6.5 row of *Submodules*
+- `## Goal` / "writes the `enable` phase's project configuration" — M6.5 row (`enable` phase edits) and *M6.5 contract notes*, gate order bullet
+- `## Goal` / "**Acceptance:** the union of the module's components' test lists" — *Goal* (acceptance line) and *Acceptance*; the engine lists are aitasks_go#t63's
+- `## Submodules` / M6.1 row "`report_testmap_state()`'s `bootstrapping|<next>` state" — M6.1 (framework part) row of *Submodules*
+- `## Submodules` / M6.5 row (skill stub + `SKILL.md.j2` + procedures; survey; task creation; `enable` edits; `full_run`; `--policy selected`; `--no-task`; refresh; headless; goldens; `tests/test_testmap_onboard_ledger.sh`) — M6.5 row of *Submodules*
+- `## Cross-module seams` › Provides / "`onboard.yaml` phases and `ONBOARD_NEXT:` — M6.1 → M1.5 (`report_testmap_state`), M5.2, M6.5, M7.2, M7.3, M6.4" — *Cross-module seams* → Provides (the `report_testmap_state` consumer); the ledger and line are aitasks_go#t63's
+- `## Cross-module seams` › Provides / "Levels 0 and 1 attended; levels 0 and 1 headless once M7.2 and M7.5 exist — M6.5 → M9.5, M10.x" — *Cross-module seams* → Provides
+- `## Cross-module seams` › Consumes / "the installed engine and `report_testmap_state()` (M1.5)" — *Cross-module seams* → Consumes; *M6.5 contract notes*, setup report bullet
+- `## Cross-module seams` › Consumes / "`readiness` (M4.4)" — *Cross-module seams* → Consumes (`readiness` from aitasks_go#t61); *Wiring* (M6.5 ← M4.4 via `xdeps`)
+- `## Cross-module seams` › Consumes / "`ait test` and the brief (M5.1, M5.2)" — *Cross-module seams* → Consumes; *Wiring* (M6.5 ← M5.1)
+- `## Cross-module seams` › Consumes / "the `testmap_check` gate and the completion policy (M8.2, M8.4)" — *Cross-module seams* → Consumes; *Wiring* (M6.5 ← t1859_2, t1859_4)
+- `## Cross-module seams` › Consumes / "the verdict intake and the review skill for the headless level 1 (M7.2, M7.5)" — *Cross-module seams* → Consumes; *Hooks* (headless level 1 waits on M7.2 / M7.5); *Wiring*
+- `## Cross-module seams` › Consumes / "`aitask_create.sh`, `aitask_pick_own.sh`, `ait attach`, `aitask_task_commit.sh`, the profiles" — *Cross-module seams* → Consumes
+- `## Cross-module seams` › Hooks / "M6.1 extends `report_testmap_state()` (owned by M1.5) … and adds `ONBOARD_NEXT:` to the brief (M5.2)" — *Hooks*, first bullet (the `report_testmap_state()` extension)
+- `## Cross-module seams` › Hooks / "The `review.md` sub-phase under this skill's tree is owned by M7.5; M6.5 ships without it" — *Hooks*, `review.md` bullet
+- `## Cross-module seams` › Hooks / "The level task the skill creates uses `--type chore --labels testing,testmap`; the rollout tasks (M10) are these level tasks" — *Hooks*, level-task bullet
+- `## Cross-module seams` › Hooks / "Invariants 3 and 10 bind: an autonomous path may seed everything, may adopt a class only when … may never adopt a heuristic alone, reject a seed, change a kind or declare an axis; headless runs record kind proposals and never enter level 3" — *Hooks*, Invariants 3 and 10 bullet (the skill flow)
+- `## Cross-module seams` › Hooks / "Every skill edit follows `skill_authoring_conventions.md` and `stub-skill-pattern.md` (Claude Code first; goldens in the same commit)" — *Hooks*, skill-edit bullet
+- `## Reading list` — *Reading list in the proposal*
+- Protocol §1 / "decompose into one child task per submodule row" — *Planning protocol* §1, first bullet (M6.1 framework part and M6.5 here; the engine rows are aitasks_go#t63's)
+- Protocol §1 / "Keep the coarse plan coarse" — *Planning protocol* §1
+- Protocol §1 / "Express cross-module order in task data" — *Planning protocol* §1 and *Wiring* (M6.5 → aitasks_go#t63 children by `xdeps`)
+- Protocol §1 / "Parent-level `depends:` stays empty" — *Planning protocol* §1
+- Protocol §1 / "Deviations … fixed in the proposal … Send a note" — *Planning protocol* §1, deviations bullet
+- Protocol §2 / Reality check steps 1–6 — *Planning protocol* §2
+- `## Module → task map` — *Module → task map* (both repositories)
+- Inbox t1852 / "Permission touchpoints … The first skill of this module that calls `ait testmap` … owes the five-touchpoint checklist" — *M6.5 contract notes*, permission touchpoints bullet; *Acceptance*
+- Inbox t1852_5 / "`report_testmap_state()` … A comment marks where M6.1's `TESTMAP:bootstrapping|<next phase>` branch goes … M6.1 adds its own case there" — M6.1 (framework part) row and *M6.5 contract notes*, setup report bullet
+- Inbox t1853 / "Automation-first … `onboard reject` 'only a person', `onboard adopt --class` … kind changes … level-3 axis declaration … absent-`by:`-is-human" — *Automation-first* (skill flow and proposal edits)
+- Inbox t1853_7 / "M6.5 onboarding integration will consume the same coordinator" — *M6.5 contract notes*, repair bullet: the integration lands in t1853_7's framework half; *Wiring* (t1853_7 ← M6.5)
+- Inbox t1854 / "Dev 12. `GATE_TIMEOUT_SUGGESTED:` … M6.5's `full_run` phase consumes it unchanged" — *M6.5 contract notes*, gate timeout bullet
+- Inbox t1854 / "Automation-first … `concurrency: serial` at bootstrap …; `runners.yaml` … 'confirmed per runner'" — *Automation-first*: the skill's per-runner confirmation step
+- Inbox t1954_4 / "Action 1: onboarding and adoption (M6.3, M6.5) must surface unsupported-language test files explicitly, as `ADOPT_SKIP …|no-leader`" — *M6.5 contract notes*, language policy bullet (the skill surfaces the lines)
+- Inbox t1954_4 / "Action 2: the onboarding docs and skill state the four-language policy" — *M6.5 contract notes*, language policy bullet (docs and skill state the policy)
+- Inbox t1859 / "M6.5 depends on t1859_2 (M8.2), t1859_3 (M8.3 …) and t1859_4 (M8.4)" — *Wiring*: M6.5 ← t1859_2, t1859_3, t1859_4 in-repo
+- Inbox t1859 / "Dev 13: enable owns the gate order … `ENABLE_REFUSED:gate_dag_mode` … Acceptance: a pre-existing DAG fixture … is refused, and a linear control is written in order" — *M6.5 contract notes*, gate order bullet; *Acceptance* (DAG fixture)
+- Inbox t1859 / "Dev 14. … finish and config should not create that state for headless profiles before [t1853_7]" — *M6.5 contract notes*, headless config bullet
+- Inbox t1859 / "Not yet landed: t635_29 … declaring [procedure gates] into a headless profile blocks archival" — *M6.5 contract notes*, procedure gates bullet
+- Inbox t1859 / "`--policy selected` stays an optional attended alternative; `auto` is the automated route" — *M6.5 contract notes*, policy bullet
+- Inbox t1854_4 / "`ait testmap costs --gate-timeout` … call it only after the `full_run` phase's measured run" — *M6.5 contract notes*, gate timeout bullet
+- Inbox t2131 (05:01) / modules inferred / inspectable; "M6.1 `detect` / M6.4 `classify` are natural places to surface them, and the M6.5 skill is the natural place for an agent to propose" — *M6.5 contract notes*, code modules bullet (owned by t2131_9's framework half)
+- Inbox t2131 (08:55) / "wire their ids in [t2131_9 ← M6.1, M6.4, M6.5; t2131_11 ← M6.5] … Flip each child to Ready" — *Wiring*: t2131_9 ← M6.5 and t2131_11 ← M6.5 in-repo; the M6.1 / M6.4 holds are aitasks_go#t77_6's
+- Inbox t2131_1 / "`MODULES:` … printed by `detect` and `inventory`; `inventory` also lists `MODULE_UNRESOLVED:`"; "`detect --write` never writes `completion.mode: module`. The `enable` phase writes it only through t2131_11" — *M6.5 contract notes*, code modules bullet (`enable` writes `completion.mode: module` only through t2131_11)
+- Inbox aitasks_go#t15 / coordination / freeze / re-home — The freeze is over; the engine verbs live in aitasks_go#t63 (header above)
+
+## Relocated to aitasks_go
+
+The engine scope below moved to aitasks_go#t63 and is quoted for reference only.
+
+> - aitasks_go#t63 owns the M6 engine verbs, decomposed at its coarse pass in aitasks_go into M6.1 (engine part), M6.2, M6.3 and M6.4 children, each with a Reality-check step.
+> - M6.1:
+>   - the `onboard.yaml` schema and phase rows, written node / row-level so M2.6's four keys survive;
+>   - `onboard detect [--write] [--force]` with `DETECT_DIFF:`. It emits a strict `runners.yaml` (the adapter keys from the t1854_1 / t1854_2 / t1854_12 notes) and a pre-enable `test_command` snapshot (no recursion), and sets `bootstrap_until` to +90 days;
+>   - `inventory`, `status`, `finish [--auto]`, and the `AIT_PROFILE_HEADLESS=1` refusals;
+>   - the `ONBOARD_NEXT:` line as an extension of aitasks_go#t62's `brief`.
+> - M6.2: `onboard seed` (the origin table, noisy-OR, `helper_roots` / `helper_fanin`, `SEED_*`, `--apply` via `RouteOnboardSeed`).
+> - M6.3: `adopt` / `reject` with the autonomous floor, `ADOPT_SKIP …|no-leader` for unsupported languages, the M2.6 routes, `annot.AnnotateWith`.
+> - M6.4: `classify` / `scaffold`, the recorded-p95 `classify.RegisterSignal`, `SCAFFOLD_TODO` lister / check recognition, and `axes.yaml` skeleton validity.
+> - The automation-first decisions for `reject`, `adopt --class`, kind changes and `scaffold --axes` are made here.
+> - Acceptance:
+>   - The union of the M6.1–M6.4 component test lists passes in aitasks_go CI (one fixture repo per seed origin).
+>   - Invariants 3 and 10 hold in the engine: no autonomous heuristic-only adoption, no autonomous reject, kind change or axis declaration; headless runs never enter level 3.
+>   - `finish` / `detect --write` never create a `require_stamp: true`-past-bootstrap state for headless profiles before aitasks_go#t59_1 lands.
+>   - `detect --force` after enable never emits a recursive suite command.
+
 
 ## Inbox
 <!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->

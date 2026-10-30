@@ -12,8 +12,11 @@ active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 children_to_implement: [t1859_2, t1859_3, t1859_4, t1859_5, t1859_6]
 anchor: 1852
 created_at: 2026-09-22 09:19
-updated_at: 2026-10-20 18:55
+updated_at: 2026-10-30 12:10
 ---
+
+Split (aitasks_go#t22 cutover): the engine half of this task is aitasks_go#t65
+in beyondeye/aitasks_go. This body is the framework half.
 
 ## Goal
 
@@ -30,6 +33,16 @@ full | selected`) as the `POLICY` arm of `ait test`; and the self-approving
 approval in the engine's own ledger (`costs/policy.yaml`), never in the
 committed declaration. Invariant 9 binds: one completion gate.
 
+Since the t22 cutover, the engine Go of M8.4 and M8.5 (the `policy` package,
+the verb `policy`, `cadence.go`, the `readiness` / `brief` / `score` lines)
+lives in aitasks_go#t65 and its children aitasks_go#t65_1 and aitasks_go#t65_2 in
+beyondeye/aitasks_go. This task stays the M8 parent for the framework
+children: t1859_2 (M8.2), t1859_3 (M8.3), t1859_6 (the seeds step) and the
+framework halves of t1859_4 / t1859_5 (the `POLICY` arms in `aitask_test.sh`,
+`fallback_command`, the `result=` lines, the policy commit, the
+`tests/test_ait_test_entrypoint.sh` cases). t1859_4 and t1859_5 wait on their
+engine halves through `xdeps`.
+
 This task carries the module's cut — submodules, owned files, the interfaces
 it provides and consumes, the seams later modules land into it — and the
 planning protocol. It does **not** restate the specification.
@@ -41,19 +54,20 @@ subsections tagged `(M8.x)` (listed under *Reading list* below), then the
 narrative sections those components name. *Architecture*, *Design decisions*
 and the *Invariants every module honours* apply to every module.
 
-**Acceptance:** the union of the module's components' test lists (*Module Map —
-How to read it*).
+**Acceptance:** the union of the framework components' test lists (*Module
+Map — How to read it*): M8.2, M8.3, the seeds step, and the front halves of
+M8.4 / M8.5. The engine lists are aitasks_go#t65's.
 
 ## Submodules (one child task each — settled at the coarse planning pass)
 
 | submodule | scope | depends on | wave |
 |---|---|---|---|
-| **M8.1** Verifier exit contract and environment | `run_project_command_key()` rows 75 → error (`command_refused`) and 3 → error (`command_errored`) for opted-in keys (64 stays a fail), `AIT_GATE_TASK_ID` / `AIT_GATE_RUN_ID` and the result carrier `AIT_GATE_RESULT_FILE` exported around the command, `aitask_run_project_command.sh --task-id` exporting the first, the docblock table. Owns the two rows and exports in `lib/gate_verifier_lib.sh`, the export in `aitask_run_project_command.sh`, the `tests/test_gate_verifiers.sh` cases | — | A |
-| **M8.2** `testmap_check` gate | `aitask_gate_testmap_check.sh`: engine exits 0/1/2/3/64 and a missing engine map to 0/1/3/3/3/3. It always runs `check --strict`, with `bootstrap_until` as the strict flip. It reports `SEEDED:` / `ADOPTED:…` and the task's `UNMAPPED_SOURCE:` (failing past `bootstrap_until`). On `UNSTAMPED` it fails with a repair handoff. It adds the `testmap_check` entry to `gates_reference.yaml`, synced to `gates.yaml`, with **no `unlocks`**: it precedes `tests_pass` by list position. Owns the verifier script, its reference entry, its allowlist entries, and the `tests/test_gates_reference_drift.sh` update | M2.1, M2.6, M4.2, M8.1 | E |
-| **M8.3** `testmap_fresh` procedure gate | the skill `aitask-gate-testmap-fresh` and its stale workflow: `stale --task`, diffs per `STALE` row, retarget, re-stamp `EVIDENCED`, structural rows, never guess `UNKNOWN`, `adopted(… by <who>)` context. The autonomous lane never confirms `STALE` and never first-stamps. `UNSTAMPED` is a `pass` during bootstrap and otherwise a `fail` with a handoff to t1853_7. Also owns the `testmap_fresh` registry entry and the five `ait testmap` allowlist entries. Owns `.claude/skills/aitask-gate-testmap-fresh/**`, goldens | M4.2, M4.3 | E |
-| **M8.3 seeds step** | the seeds step of the same skill: `onboard review --ids` for touched test files; attended pre-fill / confirm / override / trust-batch; autonomous `--agent-verdicts`. A separate child, landing once M7.2 exists | M8.3, M7.1, M7.2 | G |
-| **M8.4** Completion policy `full` / `selected` | the `completion:` block (`mode`, `deferred`, `on_empty_selection`, `engine_absent`), the `POLICY` arm of `aitask_test.sh` for `full` and `selected` (readiness re-check, `POLICY_DEMOTED:selected->full`), `fallback_command` under `engine_absent`, the `result=` field on the gate-run ledger block (written through M8.1's `AIT_GATE_RESULT_FILE` carrier), `readiness`'s `POLICY:` line, the data the `--policy selected` re-entry writes, and the engine verb `policy` (`decide`). Owns the `POLICY` arm in `aitask_test.sh`, the `policy` package in `internal/testmap/feedback`, cases in `tests/test_ait_test_entrypoint.sh` | M3.2, M4.4, M5.1, M8.1 | E |
-| **M8.5** Auto policy and cadence | `internal/testmap/feedback/cadence.go`, the `auto` arm of the `POLICY` step, `costs/policy.yaml` writes through the `policy` verb and `POLICY_WRITE:`, the front's `ait: testmap policy <flip\|full-run> (t<id>)` commit, `POLICY_FLIPPED:`, the three triggers, the `POLICY:auto\|…` line shapes, `cadence_declared`, the `CADENCE:` readiness line, `approved_by\|engine`, the window-score trigger in M4.4, the `next full in` and `FULL_GATE:` cadence fields on the brief. Owns `cadence.go`, the `auto` arm, the additive lines in `readiness` and `brief`, the `auto` matrix in `tests/test_ait_test_entrypoint.sh` | M3.4, M4.4, M5.2, M8.4 | G |
+| **M8.1** Verifier exit contract and environment | landed (t1859_1): rows 75 / 3 in `run_project_command_key()`, `AIT_GATE_TASK_ID` / `AIT_GATE_RUN_ID` / `AIT_GATE_RESULT_FILE`, `aitask_run_project_command.sh --task-id`, the docblock, `tests/test_gate_verifiers.sh` cases | — | A |
+| **M8.2** `testmap_check` gate (t1859_2) | `aitask_gate_testmap_check.sh`: engine exits 0/1/2/3/64 and a missing engine map to 0/1/3/3/3/3. It always runs `check --strict`, with `bootstrap_until` as the strict flip. It reports `SEEDED:` / `ADOPTED:…` and the task's `UNMAPPED_SOURCE:` (failing past `bootstrap_until`). On `UNSTAMPED` it fails with a repair handoff. It adds the `testmap_check` entry to `gates_reference.yaml`, synced to `gates.yaml`, with **no `unlocks`**. Owns the verifier script, its reference entry, its allowlist entries, and the `tests/test_gates_reference_drift.sh` update | M2.1, M2.6 (landed), M4.2 (aitasks_go#t61, not yet decomposed), M8.1 (landed) | E |
+| **M8.3** `testmap_fresh` procedure gate (t1859_3) | the skill `aitask-gate-testmap-fresh` and its stale workflow: `stale --task`, diffs per `STALE` row, retarget, re-stamp `EVIDENCED`, structural rows, never guess `UNKNOWN`, `adopted(… by <who>)` context. The autonomous lane never confirms `STALE` and never first-stamps. `UNSTAMPED` is a `pass` during bootstrap and otherwise a `fail` with a handoff to t1853_7. Also owns the `testmap_fresh` registry entry and the five `ait testmap` allowlist entries, `.claude/skills/aitask-gate-testmap-fresh/**`, goldens | M4.2, M4.3 (aitasks_go#t61, not yet decomposed) | E |
+| **M8.3 seeds step** (t1859_6) | the seeds step of the same skill: `onboard review --ids` for touched test files; attended pre-fill / confirm / override / trust-batch; autonomous `--agent-verdicts` | M8.3, M7.1, M7.2 (aitasks_go#t64, not yet decomposed) | G |
+| **M8.4 front** (t1859_4) | the `POLICY` arm of `aitask_test.sh` for `full` and `selected` (calling the engine's `policy decide` / `readiness`, `POLICY_DEMOTED:selected->full`), `on_empty_selection`, `deferred`, `fallback_command` under `engine_absent`, the `result=` field written through M8.1's `AIT_GATE_RESULT_FILE`, cases in `tests/test_ait_test_entrypoint.sh`. The `policy` package, the verb and the `readiness` line are aitasks_go#t65_1 | M8.1, M3.2 (landed), M5.1 (t1856, not yet decomposed), aitasks_go#t65_1 (`xdeps`) | E |
+| **M8.5 front** (t1859_5) | the `auto` arm of the `POLICY` step, the `POLICY:auto\|…` line shapes, the front's `ait: testmap policy <flip\|full-run> (t<id>)` commit of `aitestmap/costs/policy.yaml`, a cadence full run ignoring `on_empty_selection`, `result=` carrying `policy:auto\|next_full_in:<n>` or `cadence:<trigger>`, the `auto` matrix in `tests/test_ait_test_entrypoint.sh`. `cadence.go`, the verb's `auto` arm and writes, and the `readiness` / `score` / `brief` lines are aitasks_go#t65_2 | t1859_4, aitasks_go#t65_2 (`xdeps`) | G |
 
 ## Cross-module seams
 
@@ -64,19 +78,24 @@ How to read it*).
 - The consistency gate placed before `tests_pass` (by list position) — M8.2.
 - The before-commit freshness step and the in-gate reading site — M8.3 → M9.5
   (ports), M10.x.
-- One gate whose meaning is a committed policy; the `completion:` block and
-  the `POLICY:` lines — M8.4, M8.5 → M5.2 (brief), M6.1 (`detect --write`),
-  M6.5 (`--policy selected`), M9.1.
-- The self-approving policy behind the scheduled full run — M8.5.
+- One gate whose meaning is a committed policy: the front's `POLICY` arms and
+  `result=` lines, and the `completion:` block data — M8.4, M8.5 → M6.5
+  (`--policy selected`), M9.1. The engine's `POLICY:` lines → M5.2 and M6.1
+  are aitasks_go#t65's.
+- The self-approving policy behind the scheduled full run — M8.5 (front here,
+  cadence and writes in aitasks_go#t65_2).
 
 **Consumes:** the registry and the adoption tables (M2.1, M2.6); the builtins
 and the `fallback_command` path (M3.2); cost rows and the `costs/policy.yaml`
-format (M3.4); the `stale` report and the evidence join (M4.2, M4.3);
-`readiness` and the window score (M4.4); `ait test` and its `POLICY` hook
-(M5.1); the brief (M5.2); packets and the verdict intake for M8.3's seeds step
-(M7.1, M7.2); existing `lib/gate_verifier_lib.sh`,
+format (M3.4); the `stale` report and the evidence join (M4.2, M4.3, from
+aitasks_go#t61); `readiness` and the window score (M4.4, aitasks_go#t61); `ait test`
+and its `POLICY` hook (M5.1); the brief (M5.2, aitasks_go#t62); packets and the
+verdict intake for M8.3's seeds step (M7.1, M7.2, aitasks_go#t64); the `policy`
+verb (aitasks_go#t65_1, aitasks_go#t65_2); existing `lib/gate_verifier_lib.sh`,
 `aitask_run_project_command.sh`, `.aitask-scripts/gates_reference.yaml` and
-`tests/test_gates_reference_drift.sh`, the gate ledger in `lib/gate_ledger.py`.
+`tests/test_gates_reference_drift.sh`, the gate ledger in
+`lib/gate_ledger.py`. Engine outputs are consumed through the shim; the bash
+tests use a fake engine.
 
 **Hooks and extensions** (a file has one owner; a later submodule lands its
 edit as the owner's named extension):
@@ -84,26 +103,23 @@ edit as the owner's named extension):
 - M8.4 and M8.5 fill the `POLICY` hook that **M5.1** leaves in
   `aitask_test.sh`; their test cases land in M5.1's
   `tests/test_ait_test_entrypoint.sh`.
-- M8.4 adds the `policy` package and M8.5 adds `cadence.go` to
-  `internal/feedback` (**M4.4**'s); both add additive lines to `readiness`
-  (M4.4) and `brief` (**M5.2**).
-- M8.5 owns the *writer logic* of `costs/policy.yaml`; its format and helpers
-  are **M3.4**'s. The engine's approval lives there, the human's in the
-  committed `config.yaml` — never the other way round.
 - M8.3 ships in wave E **without** its seeds step and gains it in wave G, as
-  two children (settled at the coarse pass).
-- M8.4 adds the engine verb `policy` as a named extension of M1.2's verb
-  table; M8.5 adds the `auto` arm and the `costs/policy.yaml` writes to it.
+  two children (t1859_3, t1859_6).
 - M8.1's result carrier `AIT_GATE_RESULT_FILE` is written by the bash front
   (M8.4 / M8.5), never by the engine.
+- The front reads `runners.yaml`'s full-suite `fallback_command:` itself when
+  the engine is absent (`completion.engine_absent: fallback_command`), with no
+  engine to parse `runners.yaml` (t1854 note).
 - The gate chain `testmap_fresh` → `testmap_check` → `tests_pass` is set by
   list position. No M8 gate declares `unlocks`, because any explicit
   `unlocks` switches the whole declared set to DAG mode. M6.5's `enable` owns
   the order, and refuses a set that is already a DAG
   (`ENABLE_REFUSED:gate_dag_mode|…`).
 - An `UNSTAMPED` failure under `require_stamp` past `bootstrap_until` is
-  handed to the automated repair coordinator t1853_7. Unattended completion in
-  that configuration requires it (rollout prerequisite).
+  handed to the automated repair coordinator t1853_7 (engine half
+  aitasks_go#t59_1). Unattended completion in that configuration requires it
+  (rollout prerequisite). t1853_7 consumes M8.2 and M8.3 to repair
+  check / freshness failures and rerun the real verifier.
 - **Automation-first:** no path requires a person. `selected`'s human
   `approved_by` is an optional attended alternative to the self-approving
   `auto`. The freshness gate's autonomous lane never confirms `STALE` and
@@ -115,7 +131,25 @@ edit as the owner's named extension):
   never skipped; a declared gate errors (exit 3) and never skips; `tests_pass`
   runs `./ait test --gate` and nothing else decides what completion means.
 
-## Known inconsistencies in the proposal — settle at the coarse pass
+## Contract notes for the gate children (from the notes this task received; re-verify)
+
+- **`check` contract** (t1853_1, t1853_6): exits 0 pass, 1 failing finding, 2
+  `TESTMAP_ABSENT:aitestmap/`, 3 `CONTRACT_MISMATCH` / `REGISTRY_INVALID` /
+  `INPUT_UNAVAILABLE` / `INPUT_ERROR` / `CHECK_ERROR` (stderr, nothing on
+  stdout), 64 usage. Stdout is the findings, then
+  `CHECK:<pass|fail>|<findings>|<failing>`. `check` always prints `SEEDED:<n>`
+  and `ADOPTED:<n>|human <h>|agent <a>|auto <m>` just before `CHECK:`; they
+  are not counted and never fail. The M2.6 reports are Info findings that
+  never fail, even under `--strict` past `bootstrap_until`.
+- **Permission touchpoints** (t1852): the first skill of this module that
+  calls `ait testmap` owes the five-touchpoint checklist
+  (`.claude/settings.local.json`, `.codex/rules/default.rules`,
+  `seed/claude_settings.local.json`, `seed/codex_rules.default.rules`,
+  `seed/opencode_config.seed.json`); t1859_3 takes it.
+- **M2.6** (t1853): t1853_6 has landed, so the M8.2 child records it as a
+  landed provider.
+
+## Known inconsistencies in the proposal — settled
 
 - **Resolved.** M8.2 listed M2.6 (then wave E) as a dependency; M2.6 has
   since moved to wave B (t1853, `3bc0de8ac`). The remaining conflict, M8.2
@@ -145,90 +179,142 @@ edit as the owner's named extension):
 ## Planning and implementation protocol (binding for this task and every child)
 
 This feature spans **ten parent tasks**, one per module of the proposal (see the
-module → task map at the end). The modules are cut by ownership of files, verbs
-and line protocols, not by Go package or by script, so children of different
-parents touch the same packages and scripts and meet on the interfaces listed
-above. Two consequences are binding.
+module → task map at the end). Since the t22 cutover the engine halves of
+several parents live in beyondeye/aitasks_go. The modules are cut by ownership
+of files, verbs and line protocols, so children of different parents meet on
+the interfaces listed above. Two consequences are binding.
 
-### 1. Coarse planning pass — all ten modules, before any submodule is implemented
+### 1. Coarse planning pass — done for M8
 
-- Plan this task through the normal workflow (`/aitask-pick` → planning). In the
-  Complexity Assessment choose **"Yes, create child tasks"** and decompose into
-  **one child task per submodule row** in the table above (keep the `M<n>.<m>`
-  id in the child name); let the workflow write the child plan files; at the
-  child-task checkpoint choose **"Stop here"** so nothing is implemented. Do the
-  same for the other nine parents, in wave order (A → I), **before implementing
-  any child of any parent**.
-- Keep the coarse plan coarse. A child's plan records what the proposal fixes for
-  that submodule — scope, owned files, provided and consumed interfaces, the
-  component test lists that are its acceptance — and its wave. It does **not**
-  design internals against providers that do not exist yet; that is the reality
-  check's job (§2 below), and the child plan must say so in as many words.
-- Express cross-module order in task data, not in prose. Each child's `depends:`
-  names the child ids of the other parents it consumes, in the `t<parent>_<m>`
-  form (for example `depends: [t<M2 parent>_1]`), taken from the "depends on"
-  column above. When the provider parent has not been planned yet, the child body
-  records the `M<n>.<m>` reference and the dependency is filled with
-  `./.aitask-scripts/aitask_update.sh --batch <child-id> --deps ...` as soon as
-  the provider's children exist. After all ten parents are planned, one
-  cross-linking pass checks every "depends on" cell against a real `depends:`
-  entry, and checks the module → task map below against the parents' real ids.
-- Parent-level `depends:` stays empty on purpose: module-level dependencies form
-  a cycle (M6.5 → M8.2 / M8.4, M8.3 → M7.1 / M7.2, M7.1 → M6.2) and would block
-  wrongly; the real graph is acyclic only at submodule granularity.
-- Deviations from the proposal found while planning go into a **"Deviations from
-  the proposal"** section of the plan. A wrong cut — a file two submodules must
-  own, a dependency the wave table contradicts — is fixed **in the proposal**, not
-  patched in a plan; that is the proposal's own falsifier
-  (`assumption_modules_map_to_parent_tasks`). Send a note (`/aitask-note`) to
-  every parent whose tables the change touches.
+- M8's coarse pass already ran: one child per submodule row (t1859_1–t1859_6),
+  "Stop here". The cutover re-decomposed the engine halves of M8.4 / M8.5 under
+  aitasks_go#t65 and added the cross-repo edges t1859_4 → aitasks_go#t65_1 and
+  t1859_5 → aitasks_go#t65_2.
+- Keep each child plan coarse: it does **not** design internals against
+  providers that do not exist yet; that is the reality check's job (§2 below).
+- Express cross-module order in task data, not in prose: `depends:` inside
+  this repository, `xdeps` (`xdeprepo: aitasks_go`) on aitasks_go tasks. The
+  holds on M4.2 / M4.3 / M4.4 (aitasks_go#t61), M7.1 / M7.2 (aitasks_go#t64) and M5.1
+  (t1856) are wired by those parents' coarse passes (t1855, t1858, t1856)
+  when their child ids exist.
+- Parent-level `depends:` stays empty on purpose: module-level dependencies
+  form a cycle (M6.5 → M8.2 / M8.4, M8.3 → M7.1 / M7.2, M7.1 → M6.2) and would
+  block wrongly; the real graph is acyclic only at submodule granularity.
+- Deviations from the proposal go into a **"Deviations from the proposal"**
+  section of the plan. A wrong cut is fixed **in the proposal**, not patched
+  in a plan (`assumption_modules_map_to_parent_tasks`). Send a note
+  (`/aitask-note`) to every parent whose tables the change touches, including
+  the aitasks_go halves (`--project aitasks_go`).
 
 ### 2. Reality check at child implementation time — a mandatory step in every child's plan
 
-The coarse plan is a hypothesis written before its providers existed. **Every
-child task's plan MUST carry an explicit "Reality check" step, executed before
-any code is written, and its outcome MUST be recorded in the child's plan
-file.** The step:
+**Every child task's plan MUST carry an explicit "Reality check" step, executed
+before any code is written, and its outcome MUST be recorded in the child's
+plan file.** The step:
 
 1. Re-reads the proposal's Module Map row for this submodule, its component
-   subsections, and the row of every interface it consumes (the *Cross-module
-   interfaces* table).
-2. Inspects the **actual current state** of every provider it consumes — the
-   verbs, line protocols, files, hooks and tests as they exist on the merge
-   target now — and names the task and commit that landed each one. The
-   proposal's description of a provider and the coarse plan's description of it
-   are both claims to be verified, never facts to be assumed.
-3. Tabulates every difference in three columns: *proposal says* / *coarse plan
-   says* / *repository has*.
-4. Decides, per difference: adapt this child to reality; or revise this child's
-   coarse plan; or revise the proposal (cut errors and interface changes go
-   there, per §1). Records the decision and its reason.
+   subsections, and the row of every interface it consumes.
+2. Inspects the **actual current state** of every provider it consumes and
+   names the task and commit that landed each one. Engine providers are
+   inspected in beyondeye/aitasks_go (or through the installed engine and
+   `goengines/README.md` exports).
+3. Tabulates every difference: *proposal says* / *coarse plan says* /
+   *repository has*.
+4. Decides, per difference: adapt; revise the coarse plan; or revise the
+   proposal. Records the decision and its reason.
 5. Sends a note (`/aitask-note`) to every downstream child whose assumptions a
-   difference or a decision breaks, hedging what cannot be proven from the tree.
-6. Re-confirms that every file this child will touch is owned by this submodule,
-   or that the edit lands as the owner's named extension (the "one owning
-   submodule" rule in *Module Map — How to read it*).
+   difference or a decision breaks, hedging what cannot be proven.
+6. Re-confirms that every file this child will touch is owned by this
+   submodule, or that the edit lands as the owner's named extension.
 
 A child whose plan lacks this step, or whose step is not recorded as executed,
 is not implementing this task as specified.
 
+## Acceptance
+
+- The union of the M8.2 / M8.3 / seeds-step component test lists plus the
+  front halves of M8.4 / M8.5 is green in the bash suite (fake engine).
+- The drift test is green; the five allowlist touchpoints are present.
+- The cross-repo edges t1859_4 → aitasks_go#t65_1 and t1859_5 → aitasks_go#t65_2 are
+  recorded (`xdeps`, `xdeprepo: aitasks_go`).
+- The body points to aitasks_go#t65 (header above).
+
 ## Module → task map
 
-| module | parent task |
-|---|---|
-| M1 — Engine foundation and distribution | t1852 |
-| M2 — Registry and map model | t1853 |
-| M3 — Runners, scheduling and cost | t1854 |
-| M4 — Selection, freshness and feedback | t1855 |
-| M5 — Run surface | t1856 |
-| M6 — Onboarding | t1857 |
-| M7 — Agent review and author annotation | t1858 |
-| M8 — Completion policy and gates | t1859 |
-| M9 — Workflow integration, skills and documentation | t1860 |
-| M10 — Rollout to the target repositories | t1861 |
+| module | framework (aitasks) | engine (aitasks_go) |
+|---|---|---|
+| M1 — Engine foundation and distribution | t1852 (landed) | — |
+| M2 — Registry and map model | t1853 | aitasks_go#t59 |
+| M3 — Runners, scheduling and cost | t1854 | aitasks_go#t60 |
+| M4 — Selection, freshness and feedback | t1855 (tracker) | aitasks_go#t61 |
+| M5 — Run surface | t1856 | aitasks_go#t62 (M5.2 `brief`) |
+| M6 — Onboarding | t1857 | aitasks_go#t63 |
+| M7 — Agent review and author annotation | t1858 | aitasks_go#t64 |
+| M8 — Completion policy and gates | t1859 | aitasks_go#t65 (aitasks_go#t65_1, aitasks_go#t65_2) |
+| M9 — Workflow integration, skills and documentation | t1860 | — |
+| M10 — Rollout to the target repositories | t1861 | — |
 
-All ten share the topic anchor of the M1 task, so the board's By-Topic view
-shows the whole feature as one lane.
+All ten aitasks parents share the topic anchor of the M1 task, so the board's
+By-Topic view shows the whole feature as one lane.
+
+## Carried obligations (framework half)
+
+- `## Goal` / "the verifier exit contract (75 → `command_refused`, 3 → `command_errored`) and the two environment variables every gate command sees" — M8.1 row of *Submodules* (landed, t1859_1)
+- `## Goal` / "the `testmap_check` consistency gate and the `testmap_fresh` procedure gate that precede `tests_pass`" — M8.2 and M8.3 rows of *Submodules* (t1859_2, t1859_3)
+- `## Goal` / "the committed completion policy (`completion.mode: full | selected`) as the `POLICY` arm of `ait test`" — M8.4 front row (t1859_4); the decision logic and verb are aitasks_go#t65_1
+- `## Goal` / "the self-approving `auto` policy that flips itself behind a cadence of full runs, recording its approval in the engine's own ledger (`costs/policy.yaml`), never in the committed declaration" — M8.5 front row (t1859_5); cadence and writes are aitasks_go#t65_2
+- `## Goal` / "Invariant 9 binds: one completion gate" — *Goal* and *Hooks* (Invariants bullet)
+- `## Goal` / "carries the module's cut … and the planning protocol" — *Goal* and *Planning and implementation protocol*
+- `## Goal` **Acceptance:** / "the union of the module's components' test lists" — *Goal* (acceptance line) and *Acceptance*, first bullet
+- `## Submodules` row M8.1 (rows 75/3, `AIT_GATE_TASK_ID`/`AIT_GATE_RUN_ID`/`AIT_GATE_RESULT_FILE`, `--task-id`, docblock, `tests/test_gate_verifiers.sh`) — M8.1 row (landed, t1859_1)
+- `## Submodules` row M8.2 `testmap_check` gate (verifier, exit mapping, `--strict`, `bootstrap_until`, `SEEDED:`/`ADOPTED:`, `UNMAPPED_SOURCE:`, `UNSTAMPED` handoff, reference entry no `unlocks`, allowlist, drift test) — M8.2 row (t1859_2)
+- `## Submodules` row M8.3 `testmap_fresh` procedure gate (skill, stale workflow, autonomous lane rules, registry entry, five allowlist entries, goldens) — M8.3 row (t1859_3)
+- `## Submodules` row / "M8.3 seeds step" (`onboard review --ids`, attended pre-fill/confirm/override/trust-batch, autonomous `--agent-verdicts`) — M8.3 seeds step row (t1859_6)
+- `## Submodules` row M8.4 (`completion:` block, `POLICY` arm full/selected, `POLICY_DEMOTED`, `fallback_command`, `result=`, readiness `POLICY:`, `--policy selected` data, verb `policy decide`; owns arm, `policy` package, test cases) — M8.4 front row (t1859_4)
+- `## Submodules` row M8.5 (`cadence.go`, `auto` arm, `costs/policy.yaml` writes, `POLICY_WRITE:`, commit, `POLICY_FLIPPED:`, triggers, `POLICY:auto|…`, `cadence_declared`, `CADENCE:`, `approved_by|engine`, window-score trigger, brief fields, `auto` matrix) — M8.5 front row (t1859_5)
+- `## Submodules` / "depends on" / "wave" columns — *Submodules* depends and wave columns, with the engine and cross-repo providers named
+- `## Cross-module seams` **Provides** / "verifier exit contract and the two environment variables — M8.1 → M5.1, M8.4, M9.1, M9.2" — *Cross-module seams* → Provides
+- **Provides** / "consistency gate placed before `tests_pass` (by list position) — M8.2" — *Cross-module seams* → Provides
+- **Provides** / "before-commit freshness step and the in-gate reading site — M8.3 → M9.5, M10.x" — *Cross-module seams* → Provides
+- **Provides** / "One gate whose meaning is a committed policy; the `completion:` block and the `POLICY:` lines — M8.4, M8.5 → M5.2 (brief), M6.1 (`detect --write`), M6.5 (`--policy selected`), M9.1" — *Cross-module seams* → Provides (front and data consumers here; engine `POLICY:` lines are aitasks_go#t65's)
+- **Provides** / "self-approving policy behind the scheduled full run — M8.5" — *Cross-module seams* → Provides
+- **Consumes** / "registry and adoption tables (M2.1, M2.6); builtins and `fallback_command` path (M3.2); cost rows and `costs/policy.yaml` format (M3.4); `stale` report and evidence join (M4.2, M4.3); `readiness` and window score (M4.4); the brief (M5.2); packets and verdict intake (M7.1, M7.2)" — *Cross-module seams* → Consumes (engine providers through the shim; fake engine in tests)
+- **Consumes** / "`ait test` and its `POLICY` hook (M5.1); existing `lib/gate_verifier_lib.sh`, `aitask_run_project_command.sh`, `gates_reference.yaml`, `tests/test_gates_reference_drift.sh`, `lib/gate_ledger.py`" — *Cross-module seams* → Consumes
+- **Hooks** / "M8.4 and M8.5 fill the `POLICY` hook that M5.1 leaves in `aitask_test.sh`; their test cases land in M5.1's `tests/test_ait_test_entrypoint.sh`" — *Cross-module seams* → Hooks
+- **Hooks** / "M8.3 ships in wave E without its seeds step and gains it in wave G, as two children" — *Cross-module seams* → Hooks (t1859_3, t1859_6)
+- **Hooks** / "M8.1's result carrier `AIT_GATE_RESULT_FILE` is written by the bash front (M8.4 / M8.5), never by the engine" — *Cross-module seams* → Hooks
+- **Hooks** / "gate chain `testmap_fresh` → `testmap_check` → `tests_pass` set by list position. No M8 gate declares `unlocks` … M6.5's `enable` owns the order … `ENABLE_REFUSED:gate_dag_mode`" — *Cross-module seams* → Hooks (gate chain by list position)
+- **Hooks** / "`UNSTAMPED` failure … handed to the automated repair coordinator t1853_7 … (rollout prerequisite)" — *Cross-module seams* → Hooks (`UNSTAMPED` handoff to t1853_7 / aitasks_go#t59_1)
+- **Hooks** / "Automation-first: no path requires a person … `auto` … freshness gate's autonomous lane never confirms `STALE`" — *Cross-module seams* → Hooks (automation-first)
+- **Hooks** / "`gates_reference.yaml` edits follow the edit protocol (maintainer `cp`, drift test, `lib/gate_ledger.py` parser)" — *Cross-module seams* → Hooks (`gates_reference.yaml` edit protocol)
+- **Hooks** / "Invariants 1, 8 and 9 bind: a demotion runs full, a cadence full run is never skipped; a declared gate errors (exit 3) and never skips; `tests_pass` runs `./ait test --gate`" — *Cross-module seams* → Hooks (Invariants 1, 8, 9)
+- `## Known inconsistencies` / "Resolved. M8.2 … moved to wave E … cut fixes in `aiplans/p1859_*.md` (Deviations)" — *Known inconsistencies in the proposal — settled* (record only)
+- `## Reading list` (Module Map, Components, Workflow Seam, Data Flow, Agent Review Pass, Overview, Assumptions) — *Reading list in the proposal*
+- `## Reading list` / "Framework rules: `aidocs/gates/aitask-gate-framework.md`, `aitask-gate-template`, `aitask-gate-docs-updated`" — *Reading list in the proposal*, framework rules bullet
+- Protocol §1 bullets (coarse pass one child per row + "Stop here"; keep coarse; cross-module order in task data; parent `depends:` empty; deviations into proposal + notes) — *Planning and implementation protocol* §1 (pass done; engine halves re-decomposed under aitasks_go#t65; cross-repo edges)
+- Protocol §2 steps 1–6 + "A child whose plan lacks this step…" — *Planning and implementation protocol* §2
+- `## Module → task map` — *Module → task map* (both repositories)
+- Inbox t1852 sequencing / goengines layout — *Planning and implementation protocol* §1 (submodule-granular sequencing)
+- Inbox t1852 / "Permission touchpoints … the first skill … owes the five-touchpoint checklist" — *Contract notes for the gate children*, permission touchpoints bullet (taken by t1859_3)
+- Inbox t1853 / "M2.6 (t1853_6) moved … wire `t1853_6` into the M8.2 child's `depends:`" — *Contract notes for the gate children*, M2.6 bullet (t1853_6 landed; satisfied)
+- Inbox t1853 / "Automation-first … `selected`'s human `approved_by` and M8.3's attended confirm steps" — *Cross-module seams* → Hooks (automation-first: `selected` approval optional, attended confirm steps)
+- Inbox t1853_7 / "consumes M8.2 and M8.3 … failure-handoff integration" — *Cross-module seams* → Hooks (`UNSTAMPED` handoff bullet: t1853_7 consumes M8.2 and M8.3)
+- Inbox t1853_1 `check` exits/severities contract — *Contract notes for the gate children*, `check` contract bullet
+- Inbox t1854 / "Dev 13 full-suite p95 … M8.5's cadence compares" → E; "Dev 14 `costs/policy.yaml` … writer logic stays M8.5's" → E; "`fallback_command:` … Reading it when the engine is absent … is the bash front's job" — *Cross-module seams* → Hooks (`fallback_command:` read by the front); Dev 13 / Dev 14 are aitasks_go#t65's
+- Inbox t1853_6 / "`check` ALWAYS prints `SEEDED:`/`ADOPTED:` … Info findings never failing" — *Contract notes for the gate children*, `check` contract bullet (`SEEDED:` / `ADOPTED:`, Info findings)
+- Inbox aitasks_go#t15 cutover notice — The freeze is over; the engine halves live in aitasks_go#t65 (header above)
+
+## Relocated to aitasks_go
+
+The engine scope below moved to aitasks_go#t65 and is quoted for reference only.
+
+> - aitasks_go#t65 is the aitasks_go coordinator for M8's engine halves only: aitasks_go#t65_1 (`goengines/internal/testmap/feedback/policy/`, verb `policy decide`, readiness `POLICY:` line) and aitasks_go#t65_2 (`cadence.go`, the verb's `auto` arm and both `policy.yaml` write points, `POLICY_WRITE:`, readiness `cadence_declared`/`CADENCE:`/`approved_by|engine`, `score` window trigger, brief `next full in`/`FULL_GATE:` cadence fields).
+> - It inherits M8's binding rules for the engine side: Invariants 1/8/9 as they apply to the verb (a demotion runs full; a cadence full run is never skipped); the engine's approval lives only in `costs/policy.yaml`, never in `config.yaml`; the engine never writes `AIT_GATE_RESULT_FILE` and never commits.
+> - Acceptance checks:
+>   - aitasks_go#t65_1 and aitasks_go#t65_2 acceptance lists green in `ait engine test` / private CI;
+>   - `policy` registered as a named extension of M1.2's verb table; exit/version/verb contract unchanged elsewhere;
+>   - no engine path writes `config.yaml`, `AIT_GATE_RESULT_FILE` or a git commit.
+
 
 ## Inbox
 <!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->

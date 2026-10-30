@@ -2,24 +2,37 @@
 priority: medium
 effort: high
 depends: [t1859_4, t1854_4]
+xdeps: [t65_2]
+xdeprepo: aitasks_go
 issue_type: feature
 status: Postponed
 labels: [testing, testmap, gates]
 gates: [risk_evaluated]
 anchor: 1852
 created_at: 2026-10-19 15:43
-updated_at: 2026-10-19 15:44
+updated_at: 2026-10-30 12:10
 ---
 
+Split (aitasks_go#t22 cutover): the engine half of this task is aitasks_go#t65_2
+in beyondeye/aitasks_go. This body is the framework half.
+
 Child of t1859 (test-map **M8 — Completion policy and gates**), submodule
-**M8.5 — Auto policy and cadence**, wave **G**. This is the self-approving
-`auto` policy, which closes the loop without a person:
+**M8.5 — Auto policy and cadence**, wave **G**: the bash front. This is the
+self-approving `auto` policy, which closes the loop without a person:
 - `ait test --gate` flips to the selection on the first `ADMISSIBLE` run,
   recording `approved_by: engine:readiness@<run>` in the engine's own ledger
   `aitestmap/costs/policy.yaml` (never in `config.yaml`);
 - a cadence (`full_run_every {tasks, selection_ratio_above, days}`) forces full
   runs, so scoring never stops;
 - an unmet criterion demotes loudly.
+
+The decision, the cadence (`cadence.go`), the verb `policy`'s `auto` arm and
+both `policy.yaml` writes, and the `readiness` / `score` / `brief` lines are
+aitasks_go#t65_2. This task adds the front's `auto` arm, invokes the verb, commits
+the file the engine wrote, and writes `result=`. It waits on aitasks_go#t65_2
+through `xdeps` (`xdeprepo: aitasks_go`), which unblocks only when
+aitasks_go#t65_2 is Done. Its tests use a fake engine that speaks the verb's
+published `auto` line protocol.
 
 Authoritative spec: `aidocs/testing_engine/n014_explorer_006_proposal.md` —
 the `#### M8` row, components *Auto completion policy and cadence*, *Cost
@@ -29,82 +42,100 @@ closes* (mechanism 4), Invariants 1 / 5 / 7 / 9, and Open question 13. The
 parent plan `aiplans/p1859_testmap_m8_completion_policy_and_gates.md` lists
 the cut fixes in *Deviations*: Dev 2 and Dev 7.
 
-This coarse plan records what the proposal fixes for M8.5. It does not design
-internals against providers that do not exist yet; the Reality check does that
-when this child is picked.
-
-**Automation-first:** this is the automated approval. Every write carries its
-provenance.
+This coarse plan records what the proposal fixes for M8.5's front. It does
+not design internals against providers that do not exist yet; the Reality
+check does that when this child is picked.
 
 ## Dependency hold
 
-`Postponed` only because providers have no child ids yet:
+`Postponed` because its providers have not landed:
 
-- **M4.4** (`readiness`, `score`), in t1855;
-- **M5.2** (`brief`), in t1856.
+- **aitasks_go#t65_2** (the `auto` arm of the verb, the writes, the cadence):
+  `xdeps`.
+- **M5.1** (`aitask_test.sh` and its `POLICY` hook,
+  `tests/test_ait_test_entrypoint.sh`), in t1856, reached through t1859_4.
 
-Each provider parent's coarse pass adds the ids and flips this task to `Ready`
-once nothing is left unresolved. In `depends:`: M8.4 `t1859_4`, M3.4
-`t1854_4`. Never depend on a whole provider parent.
+In `depends:`: M8.4 `t1859_4` (the front's `full` / `selected` arms), M3.4
+`t1854_4` (landed). The M4.4 (`readiness`, `score`) and M5.2 (`brief`) holds
+are engine-side: aitasks_go#t65_2 holds on them in aitasks_go. If t1855 adds an
+`xdeps` entry on aitasks_go#t61's M4.4 child here, keep it. Never depend on a whole
+provider parent. Flip this task to `Ready` once nothing in its hold is left
+unresolved.
 
 ## Key Files to Modify
 
-- `goengines/internal/testmap/feedback/cadence.go`: the three triggers. They
-  are:
-  - `selected_since_full ≥ tasks`;
-  - the selection estimate ≥ `selection_ratio_above` × the newest full-suite
-    p95 on this host class (the disjoint M3.4 figure);
-  - `now − last_full_run.at ≥ days`.
-
-  Budget: the check takes < 50 ms.
-- The verb `policy` (from M8.4): the `auto` arm and the two write points. Each
-  goes through M3.4's `policy.yaml` helpers (`contract` field, refusing
-  `CONTRACT_MISMATCH`) and prints `POLICY_WRITE:aitestmap/costs/policy.yaml`:
-  - pre-run: flip `POLICY_FLIPPED:auto->selected|engine:readiness@<run>`, or
-    demotion `POLICY_DEMOTED:auto->full|<criterion>` clearing `approved_by`;
-  - post-run: a full-run reset of `last_full_run` and
-    `selected_since_full := 0`, or a selected increment.
 - `.aitask-scripts/aitask_test.sh`: the `auto` arm, the `POLICY:auto|…` line
   shapes, and the path-scoped commit `ait: testmap policy <flip|full-run>
-  (t<id>)` (the engine never commits). A cadence full run ignores
+  (t<id>)` of `aitestmap/costs/policy.yaml` after the engine's
+  `POLICY_WRITE:` (the engine never commits). A cadence full run ignores
   `on_empty_selection`. `result=` carries `policy:auto|next_full_in:<n>` or
-  `cadence:<trigger>`.
-- `readiness` (M4.4's): `cadence_declared` (`tasks ≥ 2`,
-  `0 < ratio ≤ 1`, `days ≥ 1`), `CADENCE:`, and `approved_by|met|engine`.
-- `score` (M4.4's): the window-score trigger after a cadence full run.
-- `brief` (M5.2's): `next full in <n>` and the cadence on `FULL_GATE:`.
-- `tests/test_ait_test_entrypoint.sh`: the `auto` matrix.
+  `cadence:<trigger>`, within the 200-character cap.
+- `tests/test_ait_test_entrypoint.sh`: the `auto` matrix (fake engine).
 
 ## Reference Files for Patterns
 
-- M3.4's `policy.yaml` helpers (t1854_4).
 - `./ait git` versus plain git: `policy.yaml` is code-branch data, so commit it
   with plain `git commit -- <path>`, path-scoped.
+- The result carrier rules are in t1859_4's body and in the
+  `run_project_command_key()` docblock of `.aitask-scripts/lib/gate_verifier_lib.sh`.
 
 ## Implementation Plan
 
 0. **Reality check (MANDATORY, before any code; record the outcome).** Stop if
-   M3.4, M4.4 or M5.2 has not landed. Decide how the committed counter
-   behaves when several sessions or worktrees write it concurrently: a lock,
-   read-modify-write, and a merge rule that fails toward running more.
-1. Write `cadence.go`.
-2. Add the verb's `auto` arm and writes.
-3. Add the front's arm and commit.
-4. Add the readiness, score and brief lines.
-5. Write the tests.
+   aitasks_go#t65_2 or M5.1 has not landed. Read aitasks_go#t65_2's published `auto`
+   protocol and build the fake engine from it. Decide the commit / worktree
+   side of the concurrent-counter question: several sessions or worktrees may
+   write and commit `policy.yaml`; aitasks_go#t65_2 decides the lock and the
+   read-modify-write; this task decides the commit and merge behaviour, with
+   a rule that fails toward running more.
+1. Add the front's arm and commit.
+2. Write the tests.
 
 ## Verification Steps
 
-- The `auto` matrix:
+- The `auto` matrix through the front (fake engine):
   - `NOT_YET` → full;
   - first `ADMISSIBLE` → flip, write, and a path-scoped commit;
   - each cadence trigger → full;
   - the steady selection with the counter incremented;
-  - a demotion clears `approved_by`;
   - a cadence full run ignores `on_empty_selection`.
-- Engine tests for the window score attributing a miss to the right task.
-- Cadence budget.
-- `ait engine test` green.
+- The `result=` shapes stay within the 200-character cap.
+
+## Carried obligations (framework half)
+
+- Intro / "`ait test --gate` flips to the selection on the first `ADMISSIBLE` run, recording `approved_by: engine:readiness@<run>` in … `aitestmap/costs/policy.yaml` (never in `config.yaml`)" — Intro: the front invokes the verb and commits; the decision and write are aitasks_go#t65_2's
+- Intro / "a cadence (`full_run_every {tasks, selection_ratio_above, days}`) forces full runs, so scoring never stops" — Intro; the cadence is aitasks_go#t65_2's, the front honours a cadence full run (*Key Files*)
+- Intro / "an unmet criterion demotes loudly" — Intro and *Key Files* (the front prints the demotion line it receives)
+- `## Dependency hold` / "In `depends:`: M8.4 `t1859_4`, M3.4 `t1854_4`" — *Dependency hold*, `depends:` paragraph (t1859_4, t1854_4) plus `xdeps` on aitasks_go#t65_2
+- Key Files / "`aitask_test.sh`: the `auto` arm, the `POLICY:auto|…` line shapes" — *Key Files*, `aitask_test.sh` bullet
+- Key Files / "the path-scoped commit `ait: testmap policy <flip|full-run> (t<id>)` (the engine never commits)" — *Key Files*, `aitask_test.sh` bullet (path-scoped commit)
+- Key Files / "A cadence full run ignores `on_empty_selection`" — *Key Files*, `aitask_test.sh` bullet
+- Key Files / "`result=` carries `policy:auto|next_full_in:<n>` or `cadence:<trigger>`" — *Key Files*, `aitask_test.sh` bullet (`result=`)
+- Key Files / "`tests/test_ait_test_entrypoint.sh`: the `auto` matrix" — *Key Files*, entrypoint matrix bullet
+- Reference / "`policy.yaml` is code-branch data, so commit it with plain `git commit -- <path>`, path-scoped" — *Reference Files for Patterns*, plain-git bullet
+- Plan step 0 / "Reality check … Stop if M3.4, M4.4 or M5.2 has not landed. Decide how the committed counter behaves when several sessions or worktrees write it concurrently: a lock, read-modify-write, and a merge rule that fails toward running more" — *Implementation Plan* step 0 (stops on aitasks_go#t65_2 and M5.1; the commit / merge side of the concurrency decision)
+- Plan step 3 / "Add the front's arm and commit" — *Implementation Plan* step 1
+- Plan step 5 / "Write the tests" — *Implementation Plan* step 2 (entrypoint matrix); the Go tests are aitasks_go#t65_2's
+- Verification / "`auto` matrix: `NOT_YET` → full" — *Verification Steps*, matrix bullet (front path)
+- Verification / "first `ADMISSIBLE` → flip, write, and a path-scoped commit" — *Verification Steps*, matrix bullet (path-scoped commit)
+- Verification / "each cadence trigger → full" — *Verification Steps*, matrix bullet (front path)
+- Verification / "the steady selection with the counter incremented" — *Verification Steps*, matrix bullet (front path)
+- Verification / "a cadence full run ignores `on_empty_selection`" — *Verification Steps*, matrix bullet (`on_empty_selection` ignored)
+
+## Relocated to aitasks_go
+
+The engine scope below moved to aitasks_go#t65_2 and is quoted for reference only.
+
+> - `goengines/internal/testmap/feedback/cadence.go`: the three triggers (`selected_since_full ≥ tasks`; selection estimate ≥ `selection_ratio_above` × newest full-suite p95 on the host class via `cost.FullSuiteP95`; `now − last_full_run.at ≥ days`), under 50 ms; API callable by a second mode (`module`, t2131_8).
+> - The verb `policy` `auto` arm with its two write points through `cost.ReadPolicy`/`cost.WritePolicy` (`contract`, `CONTRACT_MISMATCH` refusal), each printing `POLICY_WRITE:`; pre-run flip (`POLICY_FLIPPED:auto->selected|engine:readiness@<run>`) or demotion (`POLICY_DEMOTED:auto->full|<criterion>`, clearing `approved_by`), post-run full-run reset or selected increment; the concurrency decision for the read-modify-write (lock / merge rule that fails toward running more).
+> - Readiness `cadence_declared`, `CADENCE:`, `approved_by|met|engine`; `score` window-score trigger; brief `next full in <n>` and cadence on `FULL_GATE:`.
+> - Acceptance checks:
+>   - engine-side `auto` decision matrix (`NOT_YET` → full; first `ADMISSIBLE` → flip + write; each trigger → full; steady selected increments the counter; demotion clears `approved_by`);
+>   - engine tests for the window score attributing a miss to the right task;
+>   - cadence budget < 50 ms;
+>   - `ait engine test` green;
+>   - engine never commits and never writes `config.yaml`.
+
 
 ## Inbox
 <!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->

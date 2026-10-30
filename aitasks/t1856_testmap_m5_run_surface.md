@@ -7,8 +7,11 @@ status: Ready
 labels: [testing, testmap, bash_scripts]
 anchor: 1852
 created_at: 2026-09-22 09:19
-updated_at: 2026-09-22 09:19
+updated_at: 2026-10-30 12:10
 ---
+
+Split (aitasks_go#t22 cutover): the engine half of this task is aitasks_go#t62
+in beyondeye/aitasks_go. This body is the framework half.
 
 ## Goal
 
@@ -20,30 +23,67 @@ This module delivers `ait test` — a bash front in three modes (interactive,
 completion, advisory) over the engine `test` composite, which still answers
 correctly when no registry or no engine exists (`TESTMAP_ABSENT` delegation to
 the project's `test_command`, `ENGINE_MISSING`); the computed project brief
-(`ait test --howto`); and the fourteen-line `## Running Tests` section every
-agent reads at session start.
+(`ait test --howto`, a front over the engine verb `brief`); and the
+fourteen-line `## Running Tests` section every agent reads at session start.
 
-This task carries the module's cut — submodules, owned files, the interfaces
-it provides and consumes, the seams later modules land into it — and the
-planning protocol. It does **not** restate the specification.
+Only one piece is engine work: M5.2's `goengines/internal/testmap/brief`
+package and the verb `brief [--md]`, now aitasks_go#t62. This task stays the M5
+parent for the framework children: M5.1, the M5.2 front, and M5.3. It carries
+the module's cut and the planning protocol; it does **not** restate the
+specification.
 
 **Proposal (authoritative for every detail):**
 `aidocs/testing_engine/n014_explorer_006_proposal.md` — start at the *Module
 Map* entry `#### M5 — Run surface`, then the *Components* subsections tagged
-`(M5.x)` (listed under *Reading list* below), then the narrative sections
-those components name. *Architecture*, *Design decisions* and the *Invariants
-every module honours* apply to every module.
+`(M5.x)`, then the narrative sections those components name.
+*Architecture*, *Design decisions* and the *Invariants every module honours*
+apply to every module.
 
-**Acceptance:** the union of the module's components' test lists (*Module Map —
-How to read it*).
+**Acceptance:** the union of the framework components' test lists (*Module
+Map — How to read it*): M5.1, the M5.2 front and M5.3. The M5.2 engine tests
+belong to aitasks_go#t62.
 
 ## Submodules (one child task each — settled at the coarse planning pass)
 
 | submodule | scope | depends on | wave |
 |---|---|---|---|
-| **M5.1** `ait test` bash front | the modes, task resolution (incl. the new `aitask_lock.sh --list-mine` verb), the intake, `TESTMAP_ABSENT` delegation to `aitask_run_project_command.sh test_command`, `ENGINE_MISSING`, the advisory verdict and log, the exit contract, run-id prefixes, `UNANNOTATED_TEST` / `HINT`, the `POLICY` hook (M8.4 / M8.5 fill it; until then completion runs `--all`), the `ait` dispatcher arm, the five permission touchpoints. Owns `.aitask-scripts/aitask_test.sh`, the `ait` `test)` arm, `--list-mine` in `aitask_lock.sh`, `tests/test_ait_test_entrypoint.sh` with the fake engine, the `tests/test_touchpoint_count_contract.sh` re-pin | M1.4, M4.1, M4.5 | D |
-| **M5.2** Brief | `brief [--md]`, `ait test --howto [--md]`, `ait testmap brief`; the `TESTMAP:` / `RUNNER:` / `FULL_GATE:` / `GATE:` / `VERBS:` / `AXES:` / `RESOURCE:` / `NEW_TEST:` / `DOCS:` / `NOTES:` lines. Owns `internal/brief`, verb `brief` | M2.1, M2.4, M3.4, M5.1 | D |
+| **M5.1** `ait test` bash front | the modes, task resolution (incl. the new `aitask_lock.sh --list-mine` verb), the intake, `TESTMAP_ABSENT` delegation to `aitask_run_project_command.sh test_command`, `ENGINE_MISSING`, the advisory verdict and log, the exit contract, run-id prefixes, `UNANNOTATED_TEST` / `HINT`, the `POLICY` hook (M8.4 / M8.5 fill it; until then completion runs `--all`), the `ait` dispatcher arm, the five permission touchpoints, the result-carrier write, honouring the recursion guard, forwarding `--widen-modules`. Owns `.aitask-scripts/aitask_test.sh`, the `ait` `test)` arm, `--list-mine` in `aitask_lock.sh`, `tests/test_ait_test_entrypoint.sh` with the fake engine, the `tests/test_touchpoint_count_contract.sh` re-pin | M1.4 (t1852_4, landed), M4.1, M4.5 (aitasks_go#t61, not yet decomposed), M8.1 (t1859_1, landed), the recursion guard (t1854_7, landed) | D |
+| **M5.2 front** Brief front | `ait test --howto [--md]` and the `ait testmap brief` pass-through, calling aitasks_go#t62's verb `brief [--md]`; tested against a fake `brief`. The engine verb and `internal/brief` are aitasks_go#t62 | M5.1, aitasks_go#t62 (`xdeps`) | D |
 | **M5.3** Agent instructions seed | the fourteen-line `## Running Tests` section; the `tests/test_agent_instructions.sh` case. Owns that section of `seed/aitasks_agent_instructions.seed.md` and the test case | M5.1 | D |
+
+## M5.1 contract notes (from the notes this task received; re-verify at the Reality check)
+
+- **Engine probe** (t1852_4): `source "$SCRIPT_DIR/aitask_testmap.sh" --source-only`,
+  then `rc=0; testmap_resolve_engine || rc=$?` (sourcing enables
+  `set -euo pipefail`). rc 0 sets `TESTMAP_ENGINE_BIN`; rc 3 or 64 sets
+  `TESTMAP_ENGINE_ERROR` to one line (`ENGINE_MISSING:<path>|<repair>`,
+  `VERSION_INVALID:<file>`, `ENGINE_PATH_UNSAFE:<var>`, `USAGE:`). The repair
+  text is `run 'ait setup' or set AIT_TESTMAP_BIN`. Do not guess from exit
+  codes: the engine exits 3 for its own framework errors.
+- **Diagnostics** go to stderr only; stdout is the engine's output.
+  `AIT_TESTMAP_BIN` is the fake-engine hook (absolute path to an executable,
+  no version check; a broken override never falls through).
+- **No network fetch.** The `ait` dispatcher runs `check_for_updates` for
+  every command not in its skip list; the `test)` arm needs the same skip-list
+  entry as `testmap` (test it as `tests/test_testmap_shim.sh` W1/W2/W4 do).
+- **Gate path** (t1859_1): `run_command_gate` exports `AIT_GATE_TASK_ID`,
+  `AIT_GATE_RUN_ID` and `AIT_GATE_RESULT_FILE` for the command run only; the
+  legacy helper exports only `AIT_GATE_TASK_ID`, and only with `--task-id`.
+  Exit contract for an opted-in key: 0 pass, 1 fail, 2 skip, 3 →
+  `command_errored`, 75 → `command_refused`, 64 and others → fail. The front
+  writes one line to `AIT_GATE_RESULT_FILE`; it becomes the gate block's
+  `result=`. The engine never writes it. Canonical statement: the
+  `run_project_command_key()` docblock in `.aitask-scripts/lib/gate_verifier_lib.sh`.
+- **Recursion guard** (t1854_7, t1854_2): enter through the guarded engine
+  first and never strip or rewrite `AIT_TESTMAP_ACTIVE`. The front's tests
+  drive fixture repositories (a temp git repo), never the real checkout.
+- **`--widen-modules`** (t2131_1): the front parses the flag and forwards it
+  unchanged to the engine `test` composite, alone or with `--explain`; no
+  widening logic in the front. Keep flag parsing table-driven so a named
+  extension adds one entry. Delivery is t2131_7's framework half.
+- **POSIX sed** (t2095): when re-pinning `tests/test_touchpoint_count_contract.sh`,
+  keep POSIX intervals (`\{1,\}`, `\{0,1\}`) or `sed -E`; GNU-only `\+` / `\?`
+  break macOS.
 
 ## Cross-module seams
 
@@ -51,33 +91,68 @@ How to read it*).
 
 - `ait test` modes, the exit table, the advisory `VERDICT:` / `REASON:` —
   M5.1 → M8.4 (`tests_pass` through `test_command`), M9.1, M9.2, every agent.
-- The computed project brief — M5.2 → every agent; M6.1, M7.3 and M8.5 add
-  lines to it.
+- The computed project brief — through the front (`ait test --howto`) over
+  aitasks_go#t62's verb; M6.1, M7.3 and M8.5 add lines to the engine side.
 - The sentence every agent reads at session start — M5.3.
 
 **Consumes:** the shim `ait testmap` (M1.4); the ranked list and the `test`
-composite (M4.1, M4.5); the registry, axes and costs the brief reads (M2.1,
-M2.4, M3.4); the verifier exit contract and the two environment variables
-(M8.1) for the completion mode; `aitask_run_project_command.sh` and
-`aitask_change_surface.sh` (exist today).
+composite (M4.1, M4.5, engine output from aitasks_go#t61's children); the
+verifier exit contract and the two environment variables (M8.1) for the
+completion mode; `aitask_run_project_command.sh` and
+`aitask_change_surface.sh` (exist today). The front's tests use the fake
+engine, so they do not wait on engine timing.
 
 **Hooks and extensions** (a file has one owner; a later submodule lands its
 edit as the owner's named extension):
 
 - The `POLICY` hook in `aitask_test.sh` is left in place by M5.1 and filled by
-  **M8.4** (`full` / `selected`) and **M8.5** (`auto`); until then completion
+  **M8.4** (`full` / `selected`, t1859_4) and **M8.5** (`auto`, t1859_5) via
+  the engine verb `policy` (aitasks_go#t65_1, aitasks_go#t65_2); until then completion
   runs `--all`. This interim state is deliberate
   (`tradeoff_module_boundaries_cut_across_packages`) — do not pre-empt it.
 - `tests/test_ait_test_entrypoint.sh` is M5.1's; M8.4 and M8.5 add their cases
   (incl. the `auto` matrix) to it.
-- The brief's additive lines land later: `ONBOARD_NEXT:` (**M6.1**),
-  `AGENT_REVIEW:` (**M7.3**), `KIND_PROPOSALS:` / `REVIEW_HUMAN:`, the policy
-  and cadence fields and `next full in` (**M8.5**).
 - The workflow-seam data rows that name `ait test` are owned by M5.1
   (*Workflow seam — the data edits*); the procedure edits are **M9.1**'s.
 - Invariant 8: every seam degrades to a printed skip where the engine or the
   registry is absent in advisory mode; a declared gate errors (exit 3) and
   never skips.
+
+## Proposal edits (settle at the coarse pass)
+
+- **One `RESULT:` shape.** *The Run Surface* has
+  `RESULT:pass|fail|skip|error|refused|<n passed>|<n failed>|<n skipped>`,
+  the `test` composite (M4.5) has `RESULT:pass|fail|skip|deferred|<run_id>`.
+  The front passes the engine's line classes through, so M5.1 and M4.5 agree
+  on one shape (with aitasks_go#t61's M4.5 child); t1855 writes it into the
+  proposal.
+- **Exit 2 vs Invariant 8.** The Run Surface exit table treats
+  "2 = TESTMAP_ABSENT + no test_command → skip" as a skip under the opt-in,
+  which reads against Invariant 8 (a declared gate errors, never skips). Also,
+  `--gate` with no `aitestmap/` delegates to `test_command`, which in an
+  onboarded project is `./ait test` itself (possible recursion). Settle both
+  in the proposal.
+- **M8.1 in M5.1's depends cell** (t1859 Dev 8): the cell names t1859_1.
+- **Automation-first:** treat any proposal step that makes a human action a
+  precondition as a candidate to automate; record the decision in the plan.
+
+## Wiring (when the children exist)
+
+- t1859_4 ← M5.1: an in-repo `depends:` edge.
+- t1859_5: its M5.2 hold is engine-side and already encoded as
+  aitasks_go#t65_2 → aitasks_go#t62; t1859_5 waits on aitasks_go#t65_2 through `xdeps`.
+  Remove the M5.2 prose hold from its body.
+- t2131_7 ← M5.1 (its framework half forwards `--widen-modules`): an in-repo
+  `depends:` edge.
+- t1853_7 ← M5.1: an in-repo `depends:` edge.
+- The M5.2 front child ← aitasks_go#t62: `xdeps` with `xdeprepo: aitasks_go`.
+- M5.1 ← M4.1 / M4.5: `xdeps` on aitasks_go#t61's children once they exist (see
+  t1855); until then the child body records the prose hold "M4.1 / M4.5
+  (aitasks_go#t61, not yet decomposed)".
+
+`--deps` and `--xdeps` replace the whole list, so repeat the existing
+entries. Flip a consumer to Ready only once nothing in its hold is left
+unresolved; `xdeps` unblock only when the target is Done.
 
 ## Reading list in the proposal
 
@@ -99,90 +174,152 @@ edit as the owner's named extension):
 ## Planning and implementation protocol (binding for this task and every child)
 
 This feature spans **ten parent tasks**, one per module of the proposal (see the
-module → task map at the end). The modules are cut by ownership of files, verbs
-and line protocols, not by Go package or by script, so children of different
-parents touch the same packages and scripts and meet on the interfaces listed
-above. Two consequences are binding.
+module → task map at the end). Since the t22 cutover the engine halves of
+several parents live in beyondeye/aitasks_go. The modules are cut by ownership
+of files, verbs and line protocols, so children of different parents meet on
+the interfaces listed above. Two consequences are binding.
 
-### 1. Coarse planning pass — all ten modules, before any submodule is implemented
+### 1. Coarse planning pass
 
-- Plan this task through the normal workflow (`/aitask-pick` → planning). In the
-  Complexity Assessment choose **"Yes, create child tasks"** and decompose into
-  **one child task per submodule row** in the table above (keep the `M<n>.<m>`
-  id in the child name); let the workflow write the child plan files; at the
-  child-task checkpoint choose **"Stop here"** so nothing is implemented. Do the
-  same for the other nine parents, in wave order (A → I), **before implementing
-  any child of any parent**.
-- Keep the coarse plan coarse. A child's plan records what the proposal fixes for
-  that submodule — scope, owned files, provided and consumed interfaces, the
-  component test lists that are its acceptance — and its wave. It does **not**
-  design internals against providers that do not exist yet; that is the reality
-  check's job (§2 below), and the child plan must say so in as many words.
-- Express cross-module order in task data, not in prose. Each child's `depends:`
-  names the child ids of the other parents it consumes, in the `t<parent>_<m>`
-  form (for example `depends: [t<M2 parent>_1]`), taken from the "depends on"
-  column above. When the provider parent has not been planned yet, the child body
-  records the `M<n>.<m>` reference and the dependency is filled with
-  `./.aitask-scripts/aitask_update.sh --batch <child-id> --deps ...` as soon as
-  the provider's children exist. After all ten parents are planned, one
-  cross-linking pass checks every "depends on" cell against a real `depends:`
-  entry, and checks the module → task map below against the parents' real ids.
-- Parent-level `depends:` stays empty on purpose: module-level dependencies form
-  a cycle (M6.5 → M8.2 / M8.4, M8.3 → M7.1 / M7.2, M7.1 → M6.2) and would block
-  wrongly; the real graph is acyclic only at submodule granularity.
-- Deviations from the proposal found while planning go into a **"Deviations from
-  the proposal"** section of the plan. A wrong cut — a file two submodules must
-  own, a dependency the wave table contradicts — is fixed **in the proposal**, not
-  patched in a plan; that is the proposal's own falsifier
-  (`assumption_modules_map_to_parent_tasks`). Send a note (`/aitask-note`) to
-  every parent whose tables the change touches.
+- Plan this task through the normal workflow (`/aitask-pick` → planning). In
+  the Complexity Assessment choose **"Yes, create child tasks"** and decompose
+  into **one child task per row** of the table above (M5.1, the M5.2 front,
+  M5.3; keep the `M5.<m>` id in the child name); let the workflow write the
+  child plan files; at the child-task checkpoint choose **"Stop here"**.
+  Start once the provider submodules the wave-earliest child consumes have
+  landed (submodule-granular, never whole-parent), and implement in proposal
+  wave order.
+- Keep the coarse plan coarse. A child's plan records what the proposal fixes
+  for that submodule — scope, owned files, provided and consumed interfaces,
+  the component test lists that are its acceptance — and its wave. It does
+  **not** design internals against providers that do not exist yet; that is
+  the reality check's job (§2 below), and the child plan must say so.
+- Express cross-module order in task data, not in prose: `depends:` inside
+  this repository, `xdeps` (`xdeprepo: aitasks_go`) on aitasks_go tasks. When
+  a provider has no child ids yet, the child body records the `M<n>.<m>`
+  reference and its owner, and the edge is added with
+  `./.aitask-scripts/aitask_update.sh --batch <child-id> --deps ...` (or
+  `--xdeps ... --xdeprepo aitasks_go`) as soon as the ids exist.
+- Parent-level `depends:` stays empty on purpose: module-level dependencies
+  form a cycle (M6.5 → M8.2 / M8.4, M8.3 → M7.1 / M7.2, M7.1 → M6.2) and would
+  block wrongly; the real graph is acyclic only at submodule granularity.
+- Deviations from the proposal found while planning go into a **"Deviations
+  from the proposal"** section of the plan. A wrong cut is fixed **in the
+  proposal**, not patched in a plan (`assumption_modules_map_to_parent_tasks`).
+  Send a note (`/aitask-note`) to every parent whose tables the change touches,
+  including the aitasks_go halves (`--project aitasks_go`).
 
 ### 2. Reality check at child implementation time — a mandatory step in every child's plan
 
-The coarse plan is a hypothesis written before its providers existed. **Every
-child task's plan MUST carry an explicit "Reality check" step, executed before
-any code is written, and its outcome MUST be recorded in the child's plan
-file.** The step:
+**Every child task's plan MUST carry an explicit "Reality check" step, executed
+before any code is written, and its outcome MUST be recorded in the child's
+plan file.** The step:
 
 1. Re-reads the proposal's Module Map row for this submodule, its component
-   subsections, and the row of every interface it consumes (the *Cross-module
-   interfaces* table).
-2. Inspects the **actual current state** of every provider it consumes — the
-   verbs, line protocols, files, hooks and tests as they exist on the merge
-   target now — and names the task and commit that landed each one. The
-   proposal's description of a provider and the coarse plan's description of it
-   are both claims to be verified, never facts to be assumed.
-3. Tabulates every difference in three columns: *proposal says* / *coarse plan
-   says* / *repository has*.
-4. Decides, per difference: adapt this child to reality; or revise this child's
-   coarse plan; or revise the proposal (cut errors and interface changes go
-   there, per §1). Records the decision and its reason.
+   subsections, and the row of every interface it consumes.
+2. Inspects the **actual current state** of every provider it consumes and
+   names the task and commit that landed each one. Engine providers are
+   inspected in beyondeye/aitasks_go (or through the installed engine and
+   `goengines/README.md` exports).
+3. Tabulates every difference: *proposal says* / *coarse plan says* /
+   *repository has*.
+4. Decides, per difference: adapt; revise the coarse plan; or revise the
+   proposal. Records the decision and its reason.
 5. Sends a note (`/aitask-note`) to every downstream child whose assumptions a
-   difference or a decision breaks, hedging what cannot be proven from the tree.
-6. Re-confirms that every file this child will touch is owned by this submodule,
-   or that the edit lands as the owner's named extension (the "one owning
-   submodule" rule in *Module Map — How to read it*).
+   difference or a decision breaks, hedging what cannot be proven.
+6. Re-confirms that every file this child will touch is owned by this
+   submodule, or that the edit lands as the owner's named extension.
 
 A child whose plan lacks this step, or whose step is not recorded as executed,
 is not implementing this task as specified.
 
+## Acceptance
+
+- `tests/test_ait_test_entrypoint.sh` passes with the fake engine, including
+  the `brief` / `--howto` arm against a fake `brief`.
+- `tests/test_touchpoint_count_contract.sh` is re-pinned with POSIX sed
+  intervals.
+- The `tests/test_agent_instructions.sh` case passes.
+- The dispatcher makes no network fetch on `ait test`.
+- The body points to aitasks_go#t62 (header above).
+
 ## Module → task map
 
-| module | parent task |
-|---|---|
-| M1 — Engine foundation and distribution | t1852 |
-| M2 — Registry and map model | t1853 |
-| M3 — Runners, scheduling and cost | t1854 |
-| M4 — Selection, freshness and feedback | t1855 |
-| M5 — Run surface | t1856 |
-| M6 — Onboarding | t1857 |
-| M7 — Agent review and author annotation | t1858 |
-| M8 — Completion policy and gates | t1859 |
-| M9 — Workflow integration, skills and documentation | t1860 |
-| M10 — Rollout to the target repositories | t1861 |
+| module | framework (aitasks) | engine (aitasks_go) |
+|---|---|---|
+| M1 — Engine foundation and distribution | t1852 (landed) | — |
+| M2 — Registry and map model | t1853 | aitasks_go#t59 |
+| M3 — Runners, scheduling and cost | t1854 | aitasks_go#t60 |
+| M4 — Selection, freshness and feedback | t1855 (tracker) | aitasks_go#t61 |
+| M5 — Run surface | t1856 | aitasks_go#t62 (M5.2 `brief`) |
+| M6 — Onboarding | t1857 | aitasks_go#t63 |
+| M7 — Agent review and author annotation | t1858 | aitasks_go#t64 |
+| M8 — Completion policy and gates | t1859 | aitasks_go#t65 |
+| M9 — Workflow integration, skills and documentation | t1860 | — |
+| M10 — Rollout to the target repositories | t1861 | — |
 
-All ten share the topic anchor of the M1 task, so the board's By-Topic view
-shows the whole feature as one lane.
+All ten aitasks parents share the topic anchor of the M1 task, so the board's
+By-Topic view shows the whole feature as one lane.
+
+## Carried obligations (framework half)
+
+- `## Goal` / "`ait test` — a bash front in three modes (interactive, completion, advisory) over the engine `test` composite" — *Goal* and the M5.1 row of *Submodules*
+- `## Goal` / "`TESTMAP_ABSENT` delegation to the project's `test_command`, `ENGINE_MISSING`" — M5.1 row of *Submodules*
+- `## Goal` / "the computed project brief (`ait test --howto`)" — M5.2 front row of *Submodules* over aitasks_go#t62's verb (*Relocated* below)
+- `## Goal` / "the fourteen-line `## Running Tests` section" — M5.3 row of *Submodules*
+- `## Goal` / "**Acceptance:** the union of the module's components' test lists" — *Goal* (acceptance line) and *Acceptance*; the M5.2 engine tests are aitasks_go#t62's
+- `## Submodules` / M5.1 row (modes, task resolution incl. `aitask_lock.sh --list-mine`, intake, delegation, `ENGINE_MISSING`, advisory verdict / log, exit contract, run-id prefixes, `UNANNOTATED_TEST` / `HINT`, `POLICY` hook, `ait` arm, five touchpoints; owns `aitask_test.sh`, `tests/test_ait_test_entrypoint.sh`, the touchpoint re-pin) — M5.1 row of *Submodules* and *M5.1 contract notes*
+- `## Submodules` / M5.2 row "`ait test --howto [--md]`, `ait testmap brief`" — M5.2 front row of *Submodules*
+- `## Submodules` / M5.3 row "fourteen-line `## Running Tests` section; the `tests/test_agent_instructions.sh` case" — M5.3 row of *Submodules*
+- `## Cross-module seams` › Provides / "`ait test` modes, the exit table, the advisory `VERDICT:` / `REASON:` — M5.1 → M8.4, M9.1, M9.2, every agent" — *Cross-module seams* → Provides
+- `## Cross-module seams` › Provides / "sentence every agent reads at session start — M5.3" — *Cross-module seams* → Provides
+- `## Cross-module seams` › Consumes / "the shim `ait testmap` (M1.4)" — *Cross-module seams* → Consumes; *M5.1 contract notes* (engine probe)
+- `## Cross-module seams` › Consumes / "the ranked list and the `test` composite (M4.1, M4.5)" — *Cross-module seams* → Consumes (engine output from aitasks_go#t61's children; fake engine in tests); *Wiring* (M5.1 ← M4.1 / M4.5)
+- `## Cross-module seams` › Consumes / "verifier exit contract and the two environment variables (M8.1)" — *Cross-module seams* → Consumes; *M5.1 contract notes* (gate path)
+- `## Cross-module seams` › Consumes / "`aitask_run_project_command.sh` and `aitask_change_surface.sh`" — *Cross-module seams* → Consumes
+- `## Cross-module seams` › Hooks / "The `POLICY` hook in `aitask_test.sh` … filled by M8.4 / M8.5; until then completion runs `--all` … do not pre-empt it" — *Cross-module seams* → Hooks (`POLICY` hook)
+- `## Cross-module seams` › Hooks / "`tests/test_ait_test_entrypoint.sh` is M5.1's; M8.4 and M8.5 add their cases" — *Cross-module seams* → Hooks
+- `## Cross-module seams` › Hooks / "workflow-seam data rows that name `ait test` are owned by M5.1; the procedure edits are M9.1's" — *Cross-module seams* → Hooks
+- `## Cross-module seams` › Hooks / "Invariant 8: every seam degrades to a printed skip … a declared gate errors (exit 3) and never skips" — *Cross-module seams* → Hooks (Invariant 8); the engine verb's clean absent-registry exit is aitasks_go#t62's
+- `## Reading list` / proposal sections — *Reading list in the proposal*
+- `## Reading list` / "`aidocs/framework/shell_conventions.md`; the permission-touchpoint contract" — *Reading list in the proposal*, framework rules bullet
+- Protocol §1 / "decompose into one child task per submodule row" — *Planning protocol* §1, first bullet (M5.1, M5.2 front, M5.3 children)
+- Protocol §1 / "Keep the coarse plan coarse" — *Planning protocol* §1
+- Protocol §1 / "Express cross-module order in task data" — *Planning protocol* §1 and *Wiring* (`depends:` here, `xdeps` to aitasks_go)
+- Protocol §1 / "Parent-level `depends:` stays empty" — *Planning protocol* §1
+- Protocol §1 / "Deviations … fixed in the proposal … Send a note" — *Planning protocol* §1, deviations bullet; *Proposal edits*
+- Protocol §2 / Reality check steps 1–6 — *Planning protocol* §2
+- `## Module → task map` — *Module → task map* (both repositories)
+- Inbox t1852 / sequencing; goengines layout — *Planning protocol* §1 (submodule-granular sequencing, wave order)
+- Inbox t1852_4 / "Probe for the engine … `testmap_resolve_engine`"; "All shim diagnostics go to STDERR"; "`AIT_TESTMAP_BIN` (your fake-engine hook)"; "Your `test)` arm needs the same [check_for_updates skip-list] entry" — *M5.1 contract notes*: engine probe, stderr diagnostics, fake-engine hook, skip-list entry
+- Inbox t1853 / "Automation-first … treat any proposal step that makes a human action a precondition as a candidate to automate" — *Proposal edits*, automation-first bullet
+- Inbox t1854 / "`RESULT:` has two shapes … M5.1 and M4.5 need one shape" — *Proposal edits*, `RESULT:` bullet
+- Inbox t1859 / "Dev 8. M5.1's depends cell now includes M8.1 = t1859_1" — M5.1 row of *Submodules* (depends cell names M8.1 = t1859_1, landed) and *Proposal edits*
+- Inbox t1859 / "Dev 2 … The bash front (aitask_test.sh) writes one line there [AIT_GATE_RESULT_FILE]" — *M5.1 contract notes*, gate path bullet (the front writes `AIT_GATE_RESULT_FILE`)
+- Inbox t1859 / "The POLICY hook. M8.4 … M8.5 … via the new engine verb `policy`" — *Cross-module seams* → Hooks (`POLICY` hook filled by t1859_4 / t1859_5 via aitasks_go#t65_1 / aitasks_go#t65_2's verb)
+- Inbox t1859 / "Wiring … add your child ids to t1859_4 (← M5.1) and t1859_5 (← M5.2)" — *Wiring*: t1859_4 ← M5.1 in-repo; the t1859_5 ← M5.2 hold is engine-side (aitasks_go#t65_2 → aitasks_go#t62)
+- Inbox t1859 / observation "exit table treats '2 = TESTMAP_ABSENT + no test_command → skip' … reads against Invariant 8"; "`--gate` with no aitestmap/ delegates to `test_command` … (possible recursion)" — *Proposal edits*, exit 2 vs Invariant 8 bullet
+- Inbox t1859_1 / gate-path env vars, legacy helper, exit contract, "M5.1's `depends:` should name `t1859_1`" — *M5.1 contract notes*, gate path bullet; M5.1 depends cell names t1859_1
+- Inbox t2095 / "When t1856 re-pins this test, keep POSIX intervals" — *M5.1 contract notes*, POSIX sed bullet; *Acceptance*
+- Inbox t1854_2 / "M5.1's `aitask_test.sh` should call or honour that guard **first**, and never strip the marker. Its own tests should drive fixture repositories"; "write M5.1's child edge to t1854_7" — *M5.1 contract notes*, recursion guard bullet (t1854_7 is landed, recorded in M5.1's depends cell)
+- Inbox t1854_7 / "enters through the guarded engine first and never strips or rewrites `AIT_TESTMAP_ACTIVE` … tests should use fixture repositories" — *M5.1 contract notes*, recursion guard bullet
+- Inbox t2131_1 / "`--widen-modules` … the front parses the flag and forwards it unchanged"; "wire the M5.1 id into t2131_7"; "keeping the front's flag parsing table-driven" — *M5.1 contract notes*, `--widen-modules` bullet; *Wiring* (t2131_7 ← M5.1)
+- Inbox aitasks_go#t15 / coordination / freeze / re-home — The freeze is over; the engine half lives in aitasks_go#t62 (header above)
+
+## Relocated to aitasks_go
+
+The engine scope below moved to aitasks_go#t62 and is quoted for reference only.
+
+> - aitasks_go#t62 owns M5.2's engine half: the `goengines/internal/testmap/brief` package and the engine verb `brief [--md]`.
+> - It emits the `TESTMAP:` / `RUNNER:` / `FULL_GATE:` / `GATE:` / `VERBS:` / `AXES:` / `RESOURCE:` / `NEW_TEST:` / `DOCS:` / `NOTES:` lines. `AXES:` comes via `axes.Of(reg)` plus `(*Table).Counts(reg.Units)` over committed `_scanned.yaml`, with no runner run.
+> - It leaves additive seams for `ONBOARD_NEXT:` (M6.1), `AGENT_REVIEW:` (M7.3), and `KIND_PROPOSALS:` / `REVIEW_HUMAN:` / policy and cadence fields / `next full in` (M8.5).
+> - Its plan carries the Reality-check step.
+> - Acceptance:
+>   - M5.2's component test list (the engine side) passes in aitasks_go CI.
+>   - The `AXES:` line runs < 100 ms warm (per the t1853_4 note), with a bench where the proposal pins a budget.
+>   - The brief reads only committed state.
+>   - The verb is registered in the verb table with its exit contract, and the version / verb interface is pinned for the shim.
+
 
 ## Inbox
 <!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->

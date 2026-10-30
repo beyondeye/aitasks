@@ -2,22 +2,34 @@
 priority: medium
 effort: high
 depends: [t1859_1, t1854_12, t1854_7]
+xdeps: [t65_1]
+xdeprepo: aitasks_go
 issue_type: feature
 status: Postponed
 labels: [testing, testmap, gates]
 gates: [risk_evaluated]
 anchor: 1852
 created_at: 2026-10-19 15:43
-updated_at: 2026-10-21 22:08
+updated_at: 2026-10-30 12:10
 ---
 
+Split (aitasks_go#t22 cutover): the engine half of this task is aitasks_go#t65_1
+in beyondeye/aitasks_go. This body is the framework half.
+
 Child of t1859 (test-map **M8 — Completion policy and gates**), submodule
-**M8.4 — Completion policy `full` / `selected`**, wave **E**. It makes the one
-completion gate (`tests_pass` running `./ait test --gate`) mean a committed
-policy:
+**M8.4 — Completion policy `full` / `selected`**, wave **E**: the bash front.
+It makes the one completion gate (`tests_pass` running `./ait test --gate`)
+mean a committed policy:
 - `full` runs the whole registry;
 - `selected` runs the task's selection, after a readiness re-check that demotes
   loudly to full.
+
+The decision logic (the `policy` package under
+`goengines/internal/testmap/feedback/policy/`), the engine verb `policy`
+(`decide`) and the `readiness` `POLICY:` line are aitasks_go#t65_1. This task adds
+the front's arms and calls that verb; it waits on aitasks_go#t65_1 through `xdeps`
+(`xdeprepo: aitasks_go`), which unblocks only when aitasks_go#t65_1 is Done. Its
+tests use a fake engine that speaks the verb's published line protocol.
 
 Authoritative spec: `aidocs/testing_engine/n014_explorer_006_proposal.md` —
 the `#### M8` row, component *Completion policy*, *The registry directory*
@@ -27,77 +39,145 @@ Open question 3. The parent plan
 `aiplans/p1859_testmap_m8_completion_policy_and_gates.md` lists the cut fixes
 in *Deviations*: Dev 2 (the `result=` carrier) and Dev 7 (verb `policy`).
 
-This coarse plan records what the proposal fixes for M8.4. It does not design
-internals against providers that do not exist yet; the Reality check does that
-when this child is picked.
+This coarse plan records what the proposal fixes for M8.4's front. It does
+not design internals against providers that do not exist yet; the Reality
+check does that when this child is picked.
 
 **Automation-first:** `selected`'s human `approved_by` (written by M6.5's
 `--policy selected`) is an optional attended alternative. `auto` (M8.5) is the
 automated route. Under `selected`, a missing or unmet approval demotes to
-`full`. M8.4 reads the field and never requires it.
+`full`. M8.4 reads the field and never requires it; no front path requires a
+human action.
 
 ## Dependency hold
 
-`Postponed` only because providers have no child ids yet:
+`Postponed` because its providers have not landed:
 
-- **M4.4** (`readiness`, the `internal/testmap/feedback` package), in t1855;
+- **aitasks_go#t65_1** (the `policy` verb and the decision): `xdeps`.
 - **M5.1** (`aitask_test.sh` and its `POLICY` hook,
-  `tests/test_ait_test_entrypoint.sh`), in t1856.
+  `tests/test_ait_test_entrypoint.sh`), in t1856, not yet decomposed. t1856's
+  coarse pass adds the M5.1 child id to `depends:`.
+- M4.4 (`readiness`) reaches this task through aitasks_go#t65_1, which holds on
+  it in aitasks_go (aitasks_go#t61's M4.4 child). If t1855 adds an `xdeps` entry on
+  that child here, keep it.
 
-Each provider parent's coarse pass adds the ids and flips this task to `Ready`
-once nothing is left unresolved. In `depends:`: M8.1 `t1859_1`, M3.2
-`t1854_2`. Landed: M3.1 `t1854_1` (defines `fallback_command:`).
+In `depends:`: M8.1 `t1859_1` (landed), plus the landed engine providers
+`t1854_12` and `t1854_7` (the stale body line naming M3.2 `t1854_2` is
+superseded). Landed: M3.1 `t1854_1` (defines `fallback_command:`). Flip this
+task to `Ready` once nothing in its hold is left unresolved.
 
 ## Key Files to Modify
 
 - `.aitask-scripts/aitask_test.sh` (M5.1's): the `full` / `selected` arms of
   the `POLICY` hook:
-  - the readiness re-check, `POLICY_DEMOTED:selected->full|<criterion>`;
+  - the readiness re-check through aitasks_go#t65_1's `policy decide` /
+    `readiness`, printing `POLICY_DEMOTED:selected->full|<criterion>` with the
+    criterion the engine reports;
   - `on_empty_selection` (skip → exit 2 | full);
   - `deferred: run|fail`;
   - `engine_absent: error|fallback_command`: the front reads `runners.yaml`'s
-    full-suite `fallback_command` **without the engine** and prints
-    `MODE:fallback`;
+    full-suite `fallback_command` **without the engine**, runs it as
+    `bash -c <command>` (the same shell the suite builtin uses, so the
+    engine-present and engine-absent runs share semantics), and prints
+    `MODE:fallback`. The suite builtin never reads `fallback_command:`;
   - writes `result="MODE:<full|selected>|<n units>|policy:<mode>"` through
     M8.1's `AIT_GATE_RESULT_FILE`.
-- `goengines/internal/testmap/feedback/policy/` (a new package in M4.4's
-  `feedback`): the decision logic, shared by `readiness`'s `POLICY:` line and
-  the new verb.
-- `goengines/cmd/ait-testmap/verbs.go`: verb **`policy`** (`decide`, read-only
-  for full/selected) as a named extension of M1.2's verb table. The exact
-  subcommand shape is fixed in the Reality check.
-- `readiness` (M4.4's): the additive `POLICY:<mode>|<what --gate would run
-  now>` line.
 - The data schema the `--policy selected` re-entry writes
   (`completion.mode: selected`, `run_gate_admission.approved_by {who, at,
-  statement}`); M6.5 writes it.
+  statement}`); M6.5 writes it, and the engine parses it.
 - `tests/test_ait_test_entrypoint.sh` (M5.1's): the cases.
+
+## The result carrier (t1859_1, landed; re-verify)
+
+- `AIT_GATE_RESULT_FILE` is an absolute path,
+  `<repo>/.aitask-gates/<task>/<gate>_<run>.result`, exported by
+  `run_command_gate` only. It is unset under the legacy helper
+  `aitask_run_project_command.sh`, so treat "unset" as "no carrier".
+- Write ONE line. The ledger records `result="<PROJECT_CMD_REASON>: <your line>"`,
+  e.g. `all_passed: MODE:full|720 units|policy:full`.
+- The sanitizer (`lib/gate_result_carrier.py`) keeps the first line, drops
+  control and separator characters, strips, and caps at 200 characters.
+- Command lists: the file is truncated before each command; a failing or
+  erroring command's own value is used, otherwise the last value written.
+- Opted-in exits: 75 → `error` / `command_refused`, 3 → `error` /
+  `command_errored`; 64 and any other non-zero stay `fail`.
+
+## Open modes (code-modules tier)
+
+- `completion.mode: full|selected|module|auto`. Keep the `MODE:` vocabulary
+  and the arm dispatch easy to extend: t2131_8 adds a `module` arm here
+  (`POLICY_DEMOTED:module->full|<criterion>`, passing `--widen-modules` to the
+  engine `test` composite). `completion.widen` does not exist.
+- The full `result=` shape is
+  `MODE:<full|selected|module>|<n units>|policy:<mode>[|next_full_in:<n>|cadence:<trigger>|widen_full:<reason>]`,
+  at most 200 characters.
 
 ## Reference Files for Patterns
 
-- `goengines/internal/testmap/registry/config.go` (`Completion`,
-  `RunGateAdmission`, `FullRunEvery` already parsed).
 - `.aitask-scripts/lib/yaml_utils.sh` (bash YAML reads).
+- `.aitask-scripts/lib/gate_verifier_lib.sh` (`run_project_command_key()`
+  docblock: the carrier and exit contract).
 
 ## Implementation Plan
 
 0. **Reality check (MANDATORY, before any code; record the outcome).** Stop if
-   M4.4 or M5.1 has not landed.
-1. Write the `policy` package and the verb.
-2. Add the readiness line.
-3. Add the front's arms and the fallback.
-4. Write the `result=` line.
-5. Write the tests.
+   M5.1 or aitasks_go#t65_1 has not landed. Read aitasks_go#t65_1's published verb shape
+   and build the fake engine from it.
+1. Add the front's arms and the fallback.
+2. Write the `result=` line.
+3. Write the entrypoint cases.
 
 ## Verification Steps
 
 - `full`; `selected` with every criterion met; `selected` demoted per
-  criterion.
+  criterion — through the front, with the fake engine.
 - `engine_absent: error` (3) and `fallback_command`.
 - `on_empty_selection` skip/full; `deferred: run|fail`.
-- The `result=` shape in the gate-run block; readiness `POLICY:`.
-- `ait engine test` green.
+- The `result=` shape in the gate-run block.
 - No path requires a human action.
+
+## Carried obligations (framework half)
+
+- Intro / "`full` runs the whole registry; `selected` runs the task's selection, after a readiness re-check that demotes loudly to full" — Intro (the front runs the policy; the decision is aitasks_go#t65_1's)
+- Intro **Automation-first** / "`selected`'s human `approved_by` … optional … a missing or unmet approval demotes to `full`. M8.4 reads the field and never requires it" — Intro **Automation-first** paragraph
+- `## Dependency hold` / "M5.1 (`aitask_test.sh` and its `POLICY` hook, `tests/test_ait_test_entrypoint.sh`), in t1856" — *Dependency hold*, M5.1 bullet
+- `## Dependency hold` / "In `depends:`: M8.1 `t1859_1`, M3.2 `t1854_2`. Landed: M3.1 `t1854_1`" — *Dependency hold*, `depends:` paragraph (the stale M3.2 line is superseded)
+- Key Files / "`aitask_test.sh` … the readiness re-check, `POLICY_DEMOTED:selected->full|<criterion>`" — *Key Files*, readiness re-check bullet (prints the criterion aitasks_go#t65_1 reports)
+- Key Files / "`on_empty_selection` (skip → exit 2 | full)" — *Key Files*, `on_empty_selection` bullet
+- Key Files / "`deferred: run|fail`" — *Key Files*, `deferred` bullet
+- Key Files / "`engine_absent: error|fallback_command`: the front reads `runners.yaml`'s full-suite `fallback_command` without the engine and prints `MODE:fallback`" — *Key Files*, `engine_absent` bullet
+- Key Files / "writes `result="MODE:<full|selected>|<n units>|policy:<mode>"` through M8.1's `AIT_GATE_RESULT_FILE`" — *Key Files*, `result=` bullet and *The result carrier*
+- Key Files / "The data schema the `--policy selected` re-entry writes … M6.5 writes it" — *Key Files*, data-schema bullet (written by M6.5)
+- Key Files / "`tests/test_ait_test_entrypoint.sh` (M5.1's): the cases" — *Key Files*, entrypoint cases bullet
+- Reference / "`registry/config.go` (`Completion`, `RunGateAdmission`, `FullRunEvery` already parsed)" → E; "`lib/yaml_utils.sh` (bash YAML reads)" — *Reference Files for Patterns* (`lib/yaml_utils.sh`); `registry/config.go` is aitasks_go#t65_1's
+- Plan step 0 / "Reality check (MANDATORY …). Stop if M4.4 or M5.1 has not landed" — *Implementation Plan* step 0 (stops on M5.1 and on aitasks_go#t65_1)
+- Plan step 3 / "Add the front's arms and the fallback" — *Implementation Plan* step 1
+- Plan step 4 / "Write the `result=` line" — *Implementation Plan* step 2
+- Plan step 5 / "Write the tests" — *Implementation Plan* step 3 (entrypoint cases); the Go tests are aitasks_go#t65_1's
+- Verification / "`full`; `selected` with every criterion met; `selected` demoted per criterion" — *Verification Steps*, first bullet (front path)
+- Verification / "`engine_absent: error` (3) and `fallback_command`" — *Verification Steps*
+- Verification / "`on_empty_selection` skip/full; `deferred: run|fail`" — *Verification Steps*
+- Verification / "The `result=` shape in the gate-run block" → F; "readiness `POLICY:`" — *Verification Steps* (`result=` shape); the readiness `POLICY:` line is aitasks_go#t65_1's
+- Verification / "No path requires a human action" — *Verification Steps*, last bullet
+- Inbox t1859_1 carrier contract (absolute path, unset under legacy helper, one line, `<reason>: ` prefix, sanitizer, command lists, opted-in exits) — *The result carrier*
+- Inbox t2131 (×2) / t2131_1 / "keep the `completion.mode` enum and the `MODE:` vocabulary easy to extend … `module` needs `full_run_every` … result shape with `next_full_in`/`cadence`/`widen_full` … front passes `--widen-modules`" — *Open modes* (the `MODE:` vocabulary and `result=` shape; `--widen-modules` under `module`)
+- Inbox t1854_12 / "The suite builtin never reads or runs `fallback_command:` … the engine-absent path is yours … use the same shell (`bash -c`)" — *Key Files*, `engine_absent` bullet (`bash -c`, the suite builtin never reads `fallback_command:`)
+
+## Relocated to aitasks_go
+
+The engine scope below moved to aitasks_go#t65_1 and is quoted for reference only.
+
+> - The `policy` package under `goengines/internal/testmap/feedback/policy/`: the full/selected decision, the selected readiness re-check criteria and the demotion criterion reported to the front; keep the `completion.mode` enum and `MODE:` vocabulary open for `module`/`auto` (t2131 notes).
+> - Verb `policy` (`decide`, read-only for full/selected) as a named extension of M1.2's verb table in `goengines/cmd/ait-testmap/verbs.go`; exact subcommand shape fixed in the Reality check and published to the framework half.
+> - The additive `POLICY:<mode>|<what --gate would run now>` line on `readiness` (M4.4's).
+> - Reading the `completion:` block and `run_gate_admission.approved_by` via `registry/config.go` (never requiring `approved_by`).
+> - Acceptance checks:
+>   - engine tests: `full`; `selected` with every criterion met; `selected` demoted per criterion (decision output);
+>   - readiness `POLICY:` line shape;
+>   - `ait engine test` green;
+>   - no engine path requires a human action, writes config, writes `AIT_GATE_RESULT_FILE` or commits;
+>   - mode enum not closed against `module`.
+
 
 ## Inbox
 <!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->

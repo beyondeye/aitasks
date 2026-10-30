@@ -7,8 +7,11 @@ status: Ready
 labels: [testing, testmap, go_engine, skills, codeagent]
 anchor: 1852
 created_at: 2026-09-22 09:19
-updated_at: 2026-09-22 09:19
+updated_at: 2026-10-30 12:10
 ---
+
+Split (aitasks_go#t22 cutover): the engine half of this task is aitasks_go#t64
+in beyondeye/aitasks_go. This body is the framework half.
 
 ## Goal
 
@@ -19,96 +22,106 @@ claims.
 
 Static closure proves that a test *runs* a script, not that it *checks* it;
 turning evidence into a claim needs a reader of the test body, and an agent
-can be that reader. This module delivers the packet writer, the one verdict
-intake all three reading sites share (*verifies* adopts, *drives* / *unsure*
-parks, only a person's `reject` removes), calibration against a ground truth,
-the authoring agent's `annotate --author`, the `aitask-testmap-review` skill
-with its launch surfaces (`ait skillrun`, `ait codeagent`, `ait crew
-runner` — print mode an explicit opt-in on each), and the crew form.
-Invariant 4 binds: the engine never launches a code agent, never calls a
-model, never decides a verdict.
+can be that reader. Five of the six submodules are engine Go — the packet
+writer (M7.1), the verdict intake (M7.2), calibration (M7.3), `annotate
+--author` (M7.4) and the crew form's engine arms (M7.6) — and moved to
+aitasks_go#t64, whose coarse pass decomposes them in aitasks_go.
 
-This task carries the module's cut — submodules, owned files, the interfaces
-it provides and consumes, the seams later modules land into it — and the
-planning protocol. It does **not** restate the specification.
+This task keeps **M7.5 — Review skill and launch surfaces**: the
+`aitask-testmap-review` skill with its launch surfaces (`ait skillrun`, `ait
+codeagent`, `ait crew runner` — print mode an explicit opt-in on each). It
+also keeps the module-level coarse planning for that row and the cross-repo
+wiring of M7's consumers in this repository.
+
+**Invariant 4 binds:** the engine never launches a code agent, never calls a
+model, never decides a verdict. Launching legitimately lives here, in the
+skill and the `testmap-review` codeagent operation.
 
 **Proposal (authoritative for every detail):**
 `aidocs/testing_engine/n014_explorer_006_proposal.md` — start at the *Module
 Map* entry `#### M7 — Agent review and author annotation`, then the
-*Components* subsections tagged `(M7.x)` (listed under *Reading list* below),
-then the narrative sections those components name. *Architecture*, *Design
-decisions* and the *Invariants every module honours* apply to every module.
+*Components* subsections tagged `(M7.x)`, then the narrative sections those
+components name. *Architecture*, *Design decisions* and the *Invariants every
+module honours* apply to every module.
 
-**Acceptance:** the union of the module's components' test lists (*Module Map —
-How to read it*).
+**Acceptance:** M7.5's component test list (*Module Map — How to read it*).
+The M7.1–M7.4 and M7.6 lists belong to aitasks_go#t64.
 
-## Submodules (one child task each — settled at the coarse planning pass)
+## Submodules
 
 | submodule | scope | depends on | wave |
 |---|---|---|---|
-| **M7.1** Packet writer | `onboard review [--next N] [--class] [--scope] [--ids] [--json] [--out <dir>]`, the memo skip, grouping by test file, the packet line protocol with assertion flagging per language and the `packet_lines` ceiling, `packet_sha`. Owns `internal/onboard/review.go` (writer), fixture repos per language for packet shape | M2.3, M2.6, M6.2 | F |
-| **M7.2** Verdict intake | `onboard adopt --agent-verdicts - --by <agent-string> --run <id>`, every validation (`VERDICT_INVALID` reasons, `VERDICT_STALE`, the `--by` grammar through `lib/agent_string.sh`), the writes for `verifies` / `drives` / `unsure`, parking, `REVIEW_HUMAN`, `reviews[]`, `REVIEW_APPLIED:` / `REVIEW_PARKED:` / `REVIEW_HUMAN:`. Owns `internal/onboard/review.go` (intake) | M6.3, M7.1 | F |
-| **M7.3** Calibration and agreement | `onboard review --calibrate <n>`, `REVIEW_AGREEMENT:`, `agent_review.measured_confidence`, `REVIEW_ORIGIN_DEMOTED`, `calibration[]`; the `AGENT_REVIEW:` brief line and the `CALIBRATION:` / `REVIEW_AGREEMENT:` readiness lines. Owns the calibration paths in `review.go` and the additive lines in `brief` and `readiness` | M4.4, M5.2, M7.2 | G |
-| **M7.4** Author annotation | `ait testmap annotate --author <test> <source>... [--task] [--by]`, the change-surface refusal, the unregistered refusal, the `adopted.yaml` row with origin `agent:author`, `AUTHOR_STAMPED:` / `AUTHOR_UNCORROBORATED:`, `agent_review.author`. Owns the `--author` arm in `internal/annot` | M2.2, M2.3, M2.6, M4.1, M5.1 | F |
-| **M7.5** Review skill and launch surfaces | the `aitask-testmap-review` stub + `SKILL.md.j2` + `review-batch.md` (the verifies-or-drives rule stated once), the onboarding skill's `review.md` sub-phase invoking it, `ait skillrun testmap-review`, the `testmap-review` operation in `aitask_codeagent.sh` (interactive by default, `--print` only under `--headless`), `verified.testmap-review` in the three model seeds and `aitask-add-model`, goldens, the `tests/test_codeagent.sh` pin, the no-`claude -p` grep test. Owns `.claude/skills/aitask-testmap-review/**`, `review.md` under the onboarding skill, the `aitask_codeagent.sh` operation, the model-seed keys, `tests/golden/skills/aitask-testmap-review/` | M6.5, M7.1, M7.2 | G |
-| **M7.6** Crew form | `onboard review --out <dir> --crew <id>` registering one reviewer per packet file through `aitask_crew_addwork.sh --type testmap-review --work2do review-batch.md`, the printed `ait crew runner` line, `onboard review --collect <crew-id>`. Owns the `--crew` / `--collect` arms in `review.go`, a fixture crew test | M7.1, M7.2, M7.5 | H |
+| **M7.5** Review skill and launch surfaces | the `aitask-testmap-review` stub + `SKILL.md.j2` + `review-batch.md` (the verifies-or-drives rule stated once), the onboarding skill's `review.md` sub-phase invoking it, `ait skillrun testmap-review`, the `testmap-review` operation in `aitask_codeagent.sh` (interactive by default, `--print` only under `--headless`), `verified.testmap-review` in the three model seeds and `aitask-add-model`, goldens, the `tests/test_codeagent.sh` pin, the no-`claude -p` grep test, and the five allowlist touchpoints if the skill calls the shim. Owns `.claude/skills/aitask-testmap-review/**`, `review.md` under the onboarding skill, the `aitask_codeagent.sh` operation, the model-seed keys, `tests/golden/skills/aitask-testmap-review/` | M6.5 (t1857, not yet decomposed), M7.1, M7.2 (aitasks_go#t64, not yet decomposed) | G |
+
+The engine rows (M7.1, M7.2, M7.3, M7.4, M7.6; waves F, F, G, F, H) are
+aitasks_go#t64's children. M7.6's crew arms consume this task's `review-batch.md`
+and register reviewers through `aitask_crew_addwork.sh`, so aitasks_go#t64's M7.6
+child takes `xdeps` on the M7.5 child here once it exists: report its id to
+aitasks_go#t64.
 
 ## Cross-module seams
 
 **Provides** (defined here, consumed elsewhere):
 
-- Review packets and the verdict grammar — M7.1, M7.2 → M6.5 (`review.md`),
-  M7.5, M7.6, M8.3 (the seeds step).
-- The one verdict intake all three reading sites share — M7.2 → the
-  `testmap_fresh` in-gate step (M8.3), the pre-review Affected Tests procedure
-  (M9.1), the bulk skill (M7.5).
-- The measured number that replaces the prior — M7.3.
-- `annotate --author` and the `AUTHOR_*` lines — M7.4 → M9.1 (the autonomous
-  branch), M9.3.
-- Bulk reading, attended and headless; the launch rule pinned by test — M7.5 →
-  M9.5 (ports), M10.x.
-- A parallel pass — M7.6.
+- Bulk reading, attended and headless; the launch rule pinned by test — M7.5
+  → M9.5 (ports), M10.x.
+- `review-batch.md`, the work file M7.6's crew form hands each reviewer.
 
-**Consumes:** the rewriter and the stamp format (M2.2); scanner facts (M2.3);
-the adoption tables (M2.6); the ranked list and the change-surface parse
-(M4.1); `readiness` (M4.4); `ait test` (M5.1) and the brief (M5.2); seeded rows
-(M6.2); the adoption transitions (M6.3); the onboarding skill tree (M6.5);
-existing framework surfaces `ait skillrun`, `aitask_codeagent.sh`,
-`aitask_crew_addwork.sh`, `lib/agent_string.sh`, the model seeds and
-`aitask-add-model`.
+**Consumes:** the packets and the verdict intake (M7.1, M7.2, through the
+shim); the onboarding skill tree (M6.5, t1857); existing framework surfaces
+`ait skillrun`, `aitask_codeagent.sh`, `aitask_crew_addwork.sh`,
+`lib/agent_string.sh`, the model seeds and `aitask-add-model`.
 
 **Hooks and extensions** (a file has one owner; a later submodule lands its
 edit as the owner's named extension):
 
-- M7.4 lands `--author` in `internal/annot`, owned by **M2.2**, as its named
-  extension.
-- M7.3's `AGENT_REVIEW:` (brief, **M5.2**) and `CALIBRATION:` /
-  `REVIEW_AGREEMENT:` (readiness, **M4.4**) are additive lines on protocols
-  owned elsewhere.
-- M7.5 owns `review.md` inside **M6.5**'s skill tree and the `testmap-review`
-  operation inside `aitask_codeagent.sh`; M7.6 registers work through
-  `aitask_crew_addwork.sh` and never a raw agent launch.
-- M7.2 reuses **M6.3**'s rewriter path and provenance row; it never forks
-  them.
-- The Step-8 in-gate site (**M8.3** seeds step) and the Step-7 authoring site
-  (**M9.1**) are consumers: M7 defines the packet, the intake and the skill,
-  not the sites.
-- Invariants 3 and 4 bind; the calibration, `--by` provenance and
-  `adopted(… by <who>)` display (invariant 7) are how an adopted row never
-  pretends to be a human review.
+- M7.5 owns `review.md` inside **M6.5**'s skill tree and the
+  `testmap-review` operation inside `aitask_codeagent.sh`.
+- The Step-8 in-gate site (**M8.3** seeds step, t1859_6) and the Step-7
+  authoring site (**M9.1**, t1860) are consumers: M7 defines the packet, the
+  intake and the skill, not the sites.
 - Named follow-ups (not v1): a second-model cross-check of verdicts through
-  `ait codeagent testmap-review --agent-string <other>` (M7.3);
+  `ait codeagent testmap-review --agent-string <other>` (the launch is this
+  task's operation; the agreement accounting is aitasks_go#t64's M7.3);
   `agent_review.min_verified` as a floor on which models may write `--by`
-  (M7.5); `--source-lines <n>` in the packet (M7.1).
+  (the config / model-seed side here; the `--by` check in aitasks_go#t64's M7.2
+  intake).
+
+## Automation-first (user directive, 2026-10-11)
+
+Treat every proposal step that makes a human action a precondition as a
+candidate to automate. M7's candidates are `REVIEW_HUMAN` parking (two
+`unsure` verdicts → a person) and `drives` / `unsure` rows "listed for a
+person". aitasks_go#t64 decides the engine emission; this task decides how the
+skill lists such rows, and writes cut changes into the proposal.
+
+## Wiring (the consumers wait on M7's child ids)
+
+- **t1859_6** (M8.3 seeds step) waits on M7.1 (packets, `onboard review
+  --ids`) and M7.2 (`onboard adopt --agent-verdicts`). When aitasks_go#t64
+  reports its child ids, give t1859_6 `xdeps` on both (`xdeprepo:
+  aitasks_go`), remove the prose hold, and flip it from Postponed to Ready
+  once nothing in its hold is left unresolved.
+- **t1853_7** (the repair coordinator) consumes M7.2 (verdict adoption) and
+  M7.4 (`annotate --author`) as first-stamp routes, and M7.5. Give its
+  framework half `xdeps` on the M7.2 and M7.4 children and a `depends:` edge
+  on the M7.5 child, preserving its current edges. Base providers never
+  depend back on the coordinator. (aitasks_go#t64 wires the engine half
+  aitasks_go#t59_1 in aitasks_go.)
+- M7.5 ← M6.5 (t1857's child): in-repo `depends:`. M7.5 ← M7.1, M7.2:
+  `xdeps` on aitasks_go#t64's children.
+- Notify the other downstream consumers (t1860 for M9.1 / M9.3 / M9.5, t1861
+  for M10.x) of the new ids.
+
+`--deps` and `--xdeps` replace the whole list, so repeat the existing
+entries. `xdeps` unblock only when the target is Done.
 
 ## Reading list in the proposal
 
 - *Module Map* — `#### M7`, *How to read it*, *Cross-module interfaces*,
   *Suggested implementation order* (waves F, G, H).
-- *Components* — *Agent review verbs (M7.1 / M7.2 / M7.3 / M7.6)*, *Agent
-  review pass (M7.5)*, *Author annotation (M7.4)*, *Adoption ledger (M7.2
-  verdict transitions)*, *Annotation scanner and rewriter (`--author`)*,
-  *Skills (the review skill)*.
+- *Components* — *Agent review pass (M7.5)*, *Skills (the review skill)*;
+  *Agent review verbs (M7.1 / M7.2 / M7.3 / M7.6)* as consumed.
 - *The Agent Review Pass* — whole section (*The packet*, *The verdict*,
   *Calibration*, *The skill*, *Launch surfaces*, *The in-gate site (Step 8)*,
   *The authoring site (Step 7)*, *Budgets*).
@@ -124,90 +137,134 @@ edit as the owner's named extension):
 ## Planning and implementation protocol (binding for this task and every child)
 
 This feature spans **ten parent tasks**, one per module of the proposal (see the
-module → task map at the end). The modules are cut by ownership of files, verbs
-and line protocols, not by Go package or by script, so children of different
-parents touch the same packages and scripts and meet on the interfaces listed
-above. Two consequences are binding.
+module → task map at the end). Since the t22 cutover the engine halves of
+several parents live in beyondeye/aitasks_go. The modules are cut by ownership
+of files, verbs and line protocols, so children of different parents meet on
+the interfaces listed above. Two consequences are binding.
 
-### 1. Coarse planning pass — all ten modules, before any submodule is implemented
+### 1. Coarse planning pass
 
-- Plan this task through the normal workflow (`/aitask-pick` → planning). In the
-  Complexity Assessment choose **"Yes, create child tasks"** and decompose into
-  **one child task per submodule row** in the table above (keep the `M<n>.<m>`
-  id in the child name); let the workflow write the child plan files; at the
-  child-task checkpoint choose **"Stop here"** so nothing is implemented. Do the
-  same for the other nine parents, in wave order (A → I), **before implementing
-  any child of any parent**.
-- Keep the coarse plan coarse. A child's plan records what the proposal fixes for
-  that submodule — scope, owned files, provided and consumed interfaces, the
-  component test lists that are its acceptance — and its wave. It does **not**
-  design internals against providers that do not exist yet; that is the reality
-  check's job (§2 below), and the child plan must say so in as many words.
-- Express cross-module order in task data, not in prose. Each child's `depends:`
-  names the child ids of the other parents it consumes, in the `t<parent>_<m>`
-  form (for example `depends: [t<M2 parent>_1]`), taken from the "depends on"
-  column above. When the provider parent has not been planned yet, the child body
-  records the `M<n>.<m>` reference and the dependency is filled with
-  `./.aitask-scripts/aitask_update.sh --batch <child-id> --deps ...` as soon as
-  the provider's children exist. After all ten parents are planned, one
-  cross-linking pass checks every "depends on" cell against a real `depends:`
-  entry, and checks the module → task map below against the parents' real ids.
-- Parent-level `depends:` stays empty on purpose: module-level dependencies form
-  a cycle (M6.5 → M8.2 / M8.4, M8.3 → M7.1 / M7.2, M7.1 → M6.2) and would block
-  wrongly; the real graph is acyclic only at submodule granularity.
-- Deviations from the proposal found while planning go into a **"Deviations from
-  the proposal"** section of the plan. A wrong cut — a file two submodules must
-  own, a dependency the wave table contradicts — is fixed **in the proposal**, not
-  patched in a plan; that is the proposal's own falsifier
-  (`assumption_modules_map_to_parent_tasks`). Send a note (`/aitask-note`) to
-  every parent whose tables the change touches.
+- Plan this task through the normal workflow (`/aitask-pick` → planning). In
+  the Complexity Assessment choose **"Yes, create child tasks"** and create
+  **one child task for the M7.5 row** (keep `M7.5` in the child name); let the
+  workflow write the child plan file; at the child-task checkpoint choose
+  **"Stop here"**. Sequencing is submodule-granular: start once the providers
+  of the child have landed, and implement in proposal wave order.
+- Keep the coarse plan coarse. The child's plan records what the proposal
+  fixes for M7.5 — scope, owned files, provided and consumed interfaces, the
+  component test list that is its acceptance — and its wave. It does **not**
+  design internals against providers that do not exist yet; that is the
+  reality check's job (§2 below), and the child plan must say so.
+- Express cross-module order in task data, not in prose: `depends:` inside
+  this repository, `xdeps` (`xdeprepo: aitasks_go`) on aitasks_go tasks (see
+  *Wiring*), using `./.aitask-scripts/aitask_update.sh --batch <child-id>
+  --deps ...` / `--xdeps ... --xdeprepo aitasks_go`.
+- Parent-level `depends:` stays empty on purpose: module-level dependencies
+  form a cycle (M6.5 → M8.2 / M8.4, M8.3 → M7.1 / M7.2, M7.1 → M6.2) and would
+  block wrongly; the real graph is acyclic only at submodule granularity.
+- Deviations from the proposal found while planning go into a **"Deviations
+  from the proposal"** section of the plan. A wrong cut is fixed **in the
+  proposal**, not patched in a plan (`assumption_modules_map_to_parent_tasks`).
+  Send a note (`/aitask-note`) to every parent whose tables the change
+  touches. aitasks_go#t64 sends its engine-side deviations here as notes; this task
+  writes them into the proposal.
 
 ### 2. Reality check at child implementation time — a mandatory step in every child's plan
 
-The coarse plan is a hypothesis written before its providers existed. **Every
-child task's plan MUST carry an explicit "Reality check" step, executed before
-any code is written, and its outcome MUST be recorded in the child's plan
-file.** The step:
+**Every child task's plan MUST carry an explicit "Reality check" step, executed
+before any code is written, and its outcome MUST be recorded in the child's
+plan file.** The step:
 
 1. Re-reads the proposal's Module Map row for this submodule, its component
-   subsections, and the row of every interface it consumes (the *Cross-module
-   interfaces* table).
-2. Inspects the **actual current state** of every provider it consumes — the
-   verbs, line protocols, files, hooks and tests as they exist on the merge
-   target now — and names the task and commit that landed each one. The
-   proposal's description of a provider and the coarse plan's description of it
-   are both claims to be verified, never facts to be assumed.
-3. Tabulates every difference in three columns: *proposal says* / *coarse plan
-   says* / *repository has*.
-4. Decides, per difference: adapt this child to reality; or revise this child's
-   coarse plan; or revise the proposal (cut errors and interface changes go
-   there, per §1). Records the decision and its reason.
+   subsections, and the row of every interface it consumes.
+2. Inspects the **actual current state** of every provider it consumes and
+   names the task and commit that landed each one. Engine providers are
+   inspected in beyondeye/aitasks_go (or through the installed engine and
+   `goengines/README.md` exports).
+3. Tabulates every difference: *proposal says* / *coarse plan says* /
+   *repository has*.
+4. Decides, per difference: adapt; revise the coarse plan; or revise the
+   proposal. Records the decision and its reason.
 5. Sends a note (`/aitask-note`) to every downstream child whose assumptions a
-   difference or a decision breaks, hedging what cannot be proven from the tree.
-6. Re-confirms that every file this child will touch is owned by this submodule,
-   or that the edit lands as the owner's named extension (the "one owning
-   submodule" rule in *Module Map — How to read it*).
+   difference or a decision breaks, hedging what cannot be proven.
+6. Re-confirms that every file this child will touch is owned by this
+   submodule, or that the edit lands as the owner's named extension.
 
 A child whose plan lacks this step, or whose step is not recorded as executed,
 is not implementing this task as specified.
 
+## Acceptance
+
+- M7.5's component test list is green: goldens, `aitask_skill_verify.sh`, the
+  `tests/test_codeagent.sh` pin, the no-`claude -p` grep test.
+- t1859_6 is Ready with its M7.1 / M7.2 cross-repo edges recorded.
+- t1853_7's M7.x rows are resolved (M7.2 / M7.4 `xdeps`, M7.5 `depends:`).
+- The body points to aitasks_go#t64 (header above).
+
 ## Module → task map
 
-| module | parent task |
-|---|---|
-| M1 — Engine foundation and distribution | t1852 |
-| M2 — Registry and map model | t1853 |
-| M3 — Runners, scheduling and cost | t1854 |
-| M4 — Selection, freshness and feedback | t1855 |
-| M5 — Run surface | t1856 |
-| M6 — Onboarding | t1857 |
-| M7 — Agent review and author annotation | t1858 |
-| M8 — Completion policy and gates | t1859 |
-| M9 — Workflow integration, skills and documentation | t1860 |
-| M10 — Rollout to the target repositories | t1861 |
+| module | framework (aitasks) | engine (aitasks_go) |
+|---|---|---|
+| M1 — Engine foundation and distribution | t1852 (landed) | — |
+| M2 — Registry and map model | t1853 | aitasks_go#t59 |
+| M3 — Runners, scheduling and cost | t1854 | aitasks_go#t60 |
+| M4 — Selection, freshness and feedback | t1855 (tracker) | aitasks_go#t61 |
+| M5 — Run surface | t1856 | aitasks_go#t62 (M5.2 `brief`) |
+| M6 — Onboarding | t1857 | aitasks_go#t63 |
+| M7 — Agent review and author annotation | t1858 (M7.5) | aitasks_go#t64 (M7.1–M7.4, M7.6) |
+| M8 — Completion policy and gates | t1859 | aitasks_go#t65 |
+| M9 — Workflow integration, skills and documentation | t1860 | — |
+| M10 — Rollout to the target repositories | t1861 | — |
 
-All ten share the topic anchor of the M1 task, so the board's By-Topic view
-shows the whole feature as one lane.
+All ten aitasks parents share the topic anchor of the M1 task, so the board's
+By-Topic view shows the whole feature as one lane. t1863's cross-linking pass
+checks this table against the parents' real ids.
+
+## Carried obligations (framework half)
+
+- `## Goal` / "the `aitask-testmap-review` skill with its launch surfaces (`ait skillrun`, `ait codeagent`, `ait crew runner` — print mode an explicit opt-in on each)" — *Goal* and the M7.5 row of *Submodules*
+- `## Goal` / "Invariant 4 binds: the engine never launches a code agent, never calls a model, never decides a verdict" — *Goal* (Invariant 4): launching lives in this task's skill and operation; the engine tripwire is aitasks_go#t64's
+- `## Goal` / "This task carries the module's cut … and the planning protocol" — *Goal* and *Planning and implementation protocol* (M7.5's cut; the engine rows' cut is aitasks_go#t64's)
+- `## Goal` **Acceptance:** / "the union of the module's components' test lists" — *Goal* (acceptance line) and *Acceptance*, first bullet
+- `## Submodules` row M7.5 Review skill and launch surfaces (skill tree, `review.md`, `aitask_codeagent.sh` op, model-seed keys, goldens, `tests/test_codeagent.sh`, no-`claude -p` grep) — M7.5 row of *Submodules*
+- `## Submodules` / "depends on" column (M2.3, M2.6, M6.2 / M6.3, M7.1 / M4.4, M5.2, M7.2 / M2.2, M2.3, M2.6, M4.1, M5.1 / M6.5, M7.1, M7.2 / M7.1, M7.2, M7.5) — M7.5 depends cell and *Wiring* (M7.5 ← M6.5 in-repo; ← M7.1, M7.2 via `xdeps`); M7.6 → M7.5 is aitasks_go#t64's `xdeps` onto this repository
+- `## Submodules` / "wave" column (F, F, G, F, G, H) — M7.5 row (wave G) and the engine waves noted under *Submodules*
+- **Provides** / "Bulk reading, attended and headless; the launch rule pinned by test — M7.5 → M9.5, M10.x" — *Cross-module seams* → Provides
+- **Consumes** / "the onboarding skill tree (M6.5); existing framework surfaces `ait skillrun`, `aitask_codeagent.sh`, `aitask_crew_addwork.sh`, `lib/agent_string.sh`, the model seeds and `aitask-add-model`" — *Cross-module seams* → Consumes (skill tree, `ait skillrun`, `aitask_codeagent.sh`, model seeds, `aitask-add-model`)
+- **Hooks** / "M7.5 owns `review.md` inside M6.5's skill tree and the `testmap-review` operation inside `aitask_codeagent.sh`" — *Cross-module seams* → Hooks
+- **Hooks** / "The Step-8 in-gate site (M8.3 seeds step) and the Step-7 authoring site (M9.1) are consumers: M7 defines the packet, the intake and the skill, not the sites" — *Cross-module seams* → Hooks
+- **Hooks** named follow-up / "a second-model cross-check of verdicts through `ait codeagent testmap-review --agent-string <other>` (M7.3)" — *Cross-module seams* → Hooks, named follow-ups (launch via this task's operation)
+- **Hooks** named follow-up / "`agent_review.min_verified` as a floor on which models may write `--by` (M7.5)" — *Cross-module seams* → Hooks, named follow-ups (config / model-seed side)
+- `## Reading list` (Module Map, Components, Agent Review Pass, Overview, Adoption Model, Data Flow, Assumptions/Tradeoffs) — *Reading list in the proposal*
+- `## Reading list` / "Framework rules: `skill_authoring_conventions.md`, `stub-skill-pattern.md`, `agent_runtime_guards_audit.md`; the `claude -p` caveat in `shell_conventions.md`" — *Reading list in the proposal*, framework rules bullet
+- Protocol §1 / "Plan this task … 'Yes, create child tasks' … one child task per submodule row … 'Stop here'" — *Planning and implementation protocol* §1, first bullet (one M7.5 child here)
+- Protocol §1 / "Keep the coarse plan coarse … child plan must say so" — *Planning and implementation protocol* §1
+- Protocol §1 / "Express cross-module order in task data … `depends:` … `aitask_update.sh --batch <child-id> --deps`" — *Planning and implementation protocol* §1 and *Wiring*
+- Protocol §1 / "Parent-level `depends:` stays empty on purpose" — *Planning and implementation protocol* §1
+- Protocol §1 / "Deviations … fixed in the proposal … Send a note to every parent whose tables the change touches" — *Planning and implementation protocol* §1, deviations bullet (aitasks_go#t64's deviations arrive here as notes)
+- Protocol §2 steps 1–6 (re-read Module Map row; inspect actual provider state naming task+commit; tabulate proposal/coarse plan/repository; decide per difference; note downstream children; re-confirm file ownership) and / "A child whose plan lacks this step … is not implementing this task" — *Planning and implementation protocol* §2
+- `## Module → task map` — *Module → task map* (both repositories; t1863 checks it)
+- Inbox t1852 / "Sequencing clarification … implement its children in proposal wave order" — *Planning and implementation protocol* §1 (wave order)
+- Inbox t1853 / "Automation-first … M7 candidates are `REVIEW_HUMAN` parking … and `drives` / `unsure` rows 'listed for a person'" — *Automation-first*: the skill decides how `drives` / `unsure` rows are listed
+- Inbox t1853_7 / "consumes M7.2, M7.4 and M7.5 … resolve and add actual child dependencies during decomposition" — *Wiring*, t1853_7 bullet
+- Inbox t1859 / "add both child ids [M7.1, M7.2] to t1859_6's depends and flip it from Postponed to Ready" — *Wiring*, t1859_6 bullet
+- Inbox t1859 / "t1853_7 … first-stamp routes include M7.2 verdict adoption and M7.4 `annotate --author`" — *Wiring*, t1853_7 bullet (first-stamp routes M7.2 / M7.4)
+- Inbox aitasks_go#t15 (cutover notice, keep engine/framework commits separate, record outside-goengines data paths) — The freeze is over; the engine rows live in aitasks_go#t64 (header above)
+
+## Relocated to aitasks_go
+
+The engine scope below moved to aitasks_go#t64 and is quoted for reference only.
+
+> - aitasks_go#t64 owns the engine rows M7.1 (packet writer `onboard review [--next N] [--class] [--scope] [--ids] [--json] [--out <dir>]`, memo skip via `AdoptionOf(reg).NeedsReview`, packet line protocol, per-language assertion flagging, `packet_lines` ceiling, `packet_sha`, per-language fixture repos), M7.2 (verdict intake `onboard adopt --agent-verdicts - --by --run`, `VERDICT_INVALID`/`VERDICT_STALE`, verifies/drives/unsure writes, parking, `REVIEW_HUMAN`, `reviews[]`, `REVIEW_APPLIED:`/`REVIEW_PARKED:`/`REVIEW_HUMAN:` via `OpenAdoption(..., RouteAdoptAgentVerdicts)` + `RecordVerdict`), M7.3 (calibration `--calibrate <n>`, `REVIEW_AGREEMENT:`, `measured_confidence`, `REVIEW_ORIGIN_DEMOTED`, `calibration[]`, `AGENT_REVIEW:` brief line, `CALIBRATION:`/`REVIEW_AGREEMENT:` readiness lines), M7.4 (`annotate --author` arm, change-surface and unregistered refusals, `adopted.yaml` row origin `agent:author`, `AUTHOR_STAMPED:`/`AUTHOR_UNCORROBORATED:`, `agent_review.author`, explicit refusal on `ErrNoLeader`/`ErrUncertainContext`/`ErrByteOrderMark`), M7.6 (`--crew <id>` / `--collect <crew-id>` arms, printed `ait crew runner` line, fixture crew test).
+> - Its own coarse pass decomposes those five rows (one child each, M-id in the name, Reality-check step mandated) and runs the per-child reality check.
+> - It honours Invariant 4 (engine never launches an agent, never calls a model, never decides a verdict) and Invariants 3/7.
+> - Acceptance checks:
+>   - the union of the M7.1/M7.2/M7.3/M7.4/M7.6 component test lists (proposal *Module Map — How to read it*), green in `ait engine test` / private CI;
+>   - Invariant 4-5 tripwire still green (no agent launch, no model call from the engine);
+>   - `annotate --author` refuses explicitly (not silently) on the three annot errors (t1954_4 note);
+>   - packet eligibility uses `NeedsReview`, never `reviews[]` alone (t1853_6 note);
+>   - M7.6 never launches an agent raw — only registers via `aitask_crew_addwork.sh` and prints the runner line.
+
 
 ## Inbox
 <!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->

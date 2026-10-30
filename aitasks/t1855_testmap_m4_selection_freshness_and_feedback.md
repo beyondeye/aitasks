@@ -3,203 +3,180 @@ priority: medium
 effort: high
 depends: []
 issue_type: feature
-status: Ready
+status: Postponed
 labels: [testing, testmap, go_engine]
 anchor: 1852
 created_at: 2026-09-22 09:19
-updated_at: 2026-09-22 09:19
+updated_at: 2026-10-30 12:10
 ---
+
+Split (aitasks_go#t22 cutover): the engine half of this task is aitasks_go#t61
+in beyondeye/aitasks_go. This body is the framework half.
 
 ## Goal
 
-Part of the **testing engine / test map** feature — ten parent tasks, one per
-module of the proposal. This is **M4 — Selection, freshness and feedback**:
-the map put to use — what to run, what is stale, what the last run proved,
-what the map got wrong.
+Tracker for **M4 — Selection, freshness and feedback** of the testing engine
+/ test map feature (ten modules, one parent task each; see the module → task
+map below). All five M4 submodules (M4.1–M4.5) are Go engine packages and
+verbs, so all M4 implementation moved to aitasks_go#t61. Its coarse pass runs in
+aitasks_go and creates one child per submodule there.
 
-This module delivers the change-surface intake and the graded selector with
-`explain`, the stamp semantics and the `stale` tool, the evidence join that
-turns `last_pass` anchors into `EVIDENCED` vs `STALE` per variant, the
-feedback verbs (`score` after every full run, `attribute --propose`,
-`readiness` with `LEVEL` / `NEXT`), and the engine `test` composite that runs
-`select --include-stale → schedule → run` in one process.
+This task is **Postponed**. It keeps only the framework side of that pass:
 
-This task carries the module's cut — submodules, owned files, the interfaces
-it provides and consumes, the seams later modules land into it — and the
-planning protocol. It does **not** restate the specification.
+1. the n014 proposal edits the pass decides
+   (`aidocs/testing_engine/n014_explorer_006_proposal.md` stays in this
+   repository and stays authoritative for every detail);
+2. pointing the aitasks-side consumers of M4 at aitasks_go#t61's child ids, as
+   cross-repo edges;
+3. keeping the module → task map and the t1863 audit inputs current.
 
-**Proposal (authoritative for every detail):**
-`aidocs/testing_engine/n014_explorer_006_proposal.md` — start at the *Module
-Map* entry `#### M4 — Selection, freshness and feedback`, then the
-*Components* subsections tagged `(M4.x)` (listed under *Reading list* below),
-then the narrative sections those components name. *Architecture*, *Design
-decisions* and the *Invariants every module honours* apply to every module.
+**Un-park:** when aitasks_go#t61 sends this task a note mapping each M4.x to its
+aitasks_go id, set this task Ready and do the work below. Archive it once the
+steps below are done and aitasks_go#t61 is Done.
 
-**Acceptance:** the union of the module's components' test lists (*Module Map —
-How to read it*).
+## Proposal edits (protocol §1: a wrong cut is fixed in the proposal)
 
-## Submodules (one child task each — settled at the coarse planning pass)
+- **Wave order vs. stated dependencies.** The M2.6 part is settled: M2.6
+  moved to wave B (t1853, `3bc0de8ac`) and landed (t1853_6). Still open: M4.5
+  (wave C) lists M4.4 (wave D). aitasks_go#t61 decides the engine ordering; one
+  resolution under the proposal's own rule is that M4.5 ships `test --all`
+  without the `score` trigger and M4.4 adds `score` as a subscriber of M3.1's
+  ordered post-run hook. This task then fixes the Module Map and the wave
+  tables to match. Decide with the M2 and M8 parents (t1853 / aitasks_go#t59,
+  t1859 / aitasks_go#t65).
+- **One `RESULT:` shape.** *The Run Surface → Output and exit contract* has
+  `RESULT:pass|fail|skip|error|refused|<n passed>|<n failed>|<n skipped>`;
+  *Engine `test` composite (M4.5)* has `RESULT:pass|fail|skip|deferred|<run_id>`.
+  M4.5 (aitasks_go#t61's child) and M5.1 (t1856) agree on one shape; this task
+  writes it into the proposal.
+- **Automation-first cut changes.** If aitasks_go#t61's M4.2 plan automates the
+  "human re-stamp" paths in `stale --confirm*` or the stamp semantics, write
+  that cut change into the proposal.
+- **Reality-check deviations.** Every module or interface cut change that a
+  aitasks_go#t61 child's Reality check reports arrives here as a note. Edit the
+  proposal, then send a note to every parent whose tables the change touches
+  (t1853, t1856–t1861 here; their aitasks_go halves with
+  `./ait note <id> --project aitasks_go --from 1855 --file -`).
 
-| submodule | scope | depends on | wave |
-|---|---|---|---|
-| **M4.1** Change-surface intake and selector | the `--changes -` line intake refusing `UNKNOWN:`, the graded walk with select / implies / escalate rules, variant expansion and axis join, test-dep at distance 1, `ESCALATE` on opaque files, the scoped join, kind-then-cost ranking, invocation groups, stale marks, `--include-stale`, the suite budget with `DEFERRED`, `--format lines\|json\|tokens`, the prediction record, `explain` and `explain --sources --format table`, the `edge(seeded:…)` and `adopted(…)` reasons, `SELECTED:` and `UNMAPPED_SOURCE:` ahead of the rows. Owns `internal/selectr`, `internal/changesurface`, verbs `select` and `explain` | M2.1, M2.3, M2.4, M2.5, M2.6, M3.4 | C — see *Known inconsistencies* |
-| **M4.2** Freshness and staleness | stamp semantics (who may write one), `stale --task\|--all` with its line classes and encodings, `--confirm`, `--confirm-source`, `--confirm-evidenced`, `--retarget`, the `SEEDED:` / `ADOPTED:` summaries, the `adopted(…)` DISPLAY field, `bootstrap_until` / `require_stamp` / `flake_threshold`. Owns `internal/stale` (all but the join), verb `stale` | M2.2, M2.6, M4.1 | D |
-| **M4.3** Evidence join | `last_pass` anchors per reached variant, flake and cause filtering, the ancestor check, one `git ls-tree` per sha, `EVIDENCED` vs `STALE` per variant, never rewriting. Owns the join in `internal/stale` + `internal/gitx` | M3.4, M4.2 | D |
-| **M4.4** Feedback: score, attribute, readiness | automatic `score` after every full run (window scoring, per-task attribution, `REJECTION_CONTRADICTED`), `attribute` with `--propose` writing `seeded.yaml` rows of origin `observed`, `readiness` with `LEVEL` / `NEXT`, its criteria and counters. Owns `internal/feedback` (all but `cadence.go` and the `policy` package), verbs `score`, `attribute`, `readiness` | M2.6, M3.4, M4.1 | D |
-| **M4.5** Engine `test` composite | `test --task --changes - \| --paths \| --all [--explain] [--budget-s] [--format] [--run <id>]` running `select --include-stale → schedule → run` in one process; `--all` as `run --all` honouring `subsumed_by` and triggering `score`. Owns verb `test` in `internal/selectr` | M3.2, M3.3, M4.1, M4.4 | C — see *Known inconsistencies* |
+## Cross-repo holds on M4 (Edge decisions of the t22 relocation map)
 
-## Cross-module seams
+`depends:` cannot cross repositories. A hold on an aitasks_go task is an
+`xdeps` entry with `xdeprepo: aitasks_go`; it unblocks only when the target is
+Done. When aitasks_go#t61's child ids arrive, give each consumer an `xdeps` entry
+naming the specific child, and remove the matching prose hold from its body:
 
-**Provides** (defined here, consumed elsewhere):
+| consumer | holds on | existing `xdeps` to keep |
+|---|---|---|
+| t1859_2 (M8.2) | M4.2 | — |
+| t1859_3 (M8.3) | M4.2, M4.3 | — |
+| t2131_12 | M4.4 | aitasks_go#t77 |
 
-- The ranked list, `SELECTED:`, `UNMAPPED_SOURCE:`, the prediction record,
-  `explain --sources --format table` — M4.1 → M4.5, M5.1 (verdict), M9.1
-  (procedure), M9.2 (QA).
-- The `stale` report and the `adopted(…)` DISPLAY — M4.2 → M8.2, M8.3.
-- Self-healing `STALE` rows — M4.3.
-- The `readiness` lines, `LEVEL` / `NEXT`, the scored history the policy flip
-  needs, the observed-seed path — M4.4 → M5.2, M6.1 (`status`), M6.5, M8.4,
-  M8.5.
-- The `test` composite's output — M4.5 → M5.1 (the one engine call the bash
-  front makes).
+The split framework halves t1853_7, t1859_4, t1859_5, t2131_7 and t2131_8 get
+no direct M4 entry: they reach M4 only through their engine halves
+(aitasks_go#t59_1, aitasks_go#t65_1, aitasks_go#t65_2, aitasks_go#t77_4, aitasks_go#t77_5), on which
+they already hold `xdeps`, and those engine halves hold M4 inside aitasks_go.
 
-**Consumes:** the loaded registry and the adoption tables (M2.1, M2.6); the
-stamp format and the rewriter (M2.2); scanner facts (M2.3); variant expansion
-(M2.4); the scoped join (M2.5); the builtins, the wave plan and the cost rows
-(M3.2, M3.3, M3.4); the change-surface line intake `COMMITTED:` / `TASK:` /
-`OTHER:` / `UNKNOWN:` produced by `aitask_change_surface.sh` (exists today —
-M4.1 parses it, M4.2 / M5.1 / M7.4 reuse the parse).
+Use `./.aitask-scripts/aitask_update.sh --batch <id> --xdeps "<existing>,<new>" --xdeprepo aitasks_go`.
+The flag replaces the whole list, so repeat the existing entries. Check the
+flag names with `--help` before the first call. A consumer stays Postponed
+while any of its holds still names an undecomposed milestone; flip it to
+Ready only once nothing in its hold is left unresolved.
 
-**Hooks and extensions** (a file has one owner; a later submodule lands its
-edit as the owner's named extension):
+The in-repo consumers in aitasks_go (aitasks_go#t65_1, aitasks_go#t65_2, aitasks_go#t77_4,
+aitasks_go#t77_5, aitasks_go#t59_1) are wired by aitasks_go#t61 itself.
 
-- `readiness` (M4.4) gains `CALIBRATION:` / `REVIEW_AGREEMENT:` from **M7.3**
-  and `POLICY:`, `CADENCE:`, `approved_by\|engine` from **M8.4 / M8.5** — all
-  additive; the base protocol is M4.4's.
-- `internal/feedback` is M4.4's; **M8.4** adds the `policy` package and
-  **M8.5** adds `cadence.go`.
-- The `testmap_fresh` gate's role on top of freshness is **M8.3**'s; M4.2
-  provides the report it consumes and never the workflow.
-- `score` (M4.4) writes `costs/predictions.yaml`, whose store is **M3.4**'s;
-  the window-score trigger is reused by M8.5's cadence.
-- The `edge(seeded:…)` / `adopted(…)` reasons and `--propose` rows depend on
-  the M2.6 tables — see the inconsistency below.
-- Invariant 2 (a stamp is a claim; a seed is not) is enforced here: seeds
-  never suppress `STALE`, anchor evidence, satisfy `require_stamp` or count
-  under `--strict`.
-- Named follow-up (not v1): hunk-level attribution inside a member file (with
-  M2.3).
+## Module → task map and cross-linking
 
-## Known inconsistencies in the proposal — settle at the coarse pass
+- Update the module → task map below once the ids exist: M4's engine work is
+  aitasks_go#t61 and its children in aitasks_go; this task is the framework
+  tracker.
+- Feed t1863 (the cross-linking pass): send it aitasks_go#t61's child ids and the
+  `xdeps` written above. t1863 accepts re-homed rows; do not add `depends:`
+  to Postponed pointer originals, link the aitasks_go replacement instead.
 
-- **Wave order vs. stated dependencies.** M4.1 (wave C), M4.2 and M4.4 (wave
-  D) list M2.6 (wave E) as a dependency, and M4.5 (wave C) lists M4.4 (wave D).
-  Either M2.6 moves to wave C and M4.5 to wave D, or the selector, `stale` and
-  `readiness` ship without seeded / adopted rows and M2.6 extends them
-  additively (and `test --all` ships without triggering `score`). Decide with
-  the M2 and M8 parents and fix the proposal's tables (protocol §1).
+## Acceptance
+
+- The proposal tables are consistent: no wave contradiction, one `RESULT:`
+  shape.
+- Every consumer in the table carries an `xdeps` hold naming the specific
+  aitasks_go#t61 child id (`xdeprepo: aitasks_go`), and its prose hold for that
+  M4.x is gone.
+- The body points to aitasks_go#t61 (header above) and the module → task map names
+  it.
+- This task is archived once aitasks_go#t61 is Done.
+
+## Planning protocol (framework side)
+
+- Express cross-module order in task data, not prose: in-repo `depends:`
+  here, `xdeps` across repositories.
+- Parent-level `depends:` stays empty on purpose: module-level dependencies
+  form a cycle (M6.5 → M8.2 / M8.4, M8.3 → M7.1 / M7.2, M7.1 → M6.2); the real
+  graph is acyclic only at submodule granularity.
+- Deviations from the proposal are fixed **in the proposal**, not patched in a
+  plan; that is the proposal's own falsifier
+  (`assumption_modules_map_to_parent_tasks`). Send a note (`/aitask-note`) to
+  every parent whose tables the change touches.
+- After all ten parents are planned, one cross-linking pass (t1863) checks
+  every "depends on" cell against a real `depends:` or `xdeps` entry, and
+  the module → task map against the parents' real ids.
 
 ## Reading list in the proposal
 
 - *Module Map* — `#### M4`, *How to read it*, *Cross-module interfaces*,
   *Suggested implementation order* (waves C, D).
-- *Components* — *Selector (M4.1)*, *Freshness (M4.2)*, *Staleness tool
-  (M4.2)*, *Evidence join (M4.3)*, *Feedback tools (M4.4)*, *Engine `test`
-  composite (M4.5)*.
-- *Data Flow* — *A task in steady state*, *Reading the map without running
-  anything*, *The policy flip* (what `score` and `readiness` feed).
-- *The Run Surface* — *Resolution, in order*, *Output and exit contract*.
-- *Architecture* — *Line-protocol index*.
-- *Assumptions* — *The map and freshness (M2, M4)*; *Tradeoffs* — *Freshness
-  and evidence (M4)*; *Open questions*.
-
-## Planning and implementation protocol (binding for this task and every child)
-
-This feature spans **ten parent tasks**, one per module of the proposal (see the
-module → task map at the end). The modules are cut by ownership of files, verbs
-and line protocols, not by Go package or by script, so children of different
-parents touch the same packages and scripts and meet on the interfaces listed
-above. Two consequences are binding.
-
-### 1. Coarse planning pass — all ten modules, before any submodule is implemented
-
-- Plan this task through the normal workflow (`/aitask-pick` → planning). In the
-  Complexity Assessment choose **"Yes, create child tasks"** and decompose into
-  **one child task per submodule row** in the table above (keep the `M<n>.<m>`
-  id in the child name); let the workflow write the child plan files; at the
-  child-task checkpoint choose **"Stop here"** so nothing is implemented. Do the
-  same for the other nine parents, in wave order (A → I), **before implementing
-  any child of any parent**.
-- Keep the coarse plan coarse. A child's plan records what the proposal fixes for
-  that submodule — scope, owned files, provided and consumed interfaces, the
-  component test lists that are its acceptance — and its wave. It does **not**
-  design internals against providers that do not exist yet; that is the reality
-  check's job (§2 below), and the child plan must say so in as many words.
-- Express cross-module order in task data, not in prose. Each child's `depends:`
-  names the child ids of the other parents it consumes, in the `t<parent>_<m>`
-  form (for example `depends: [t<M2 parent>_1]`), taken from the "depends on"
-  column above. When the provider parent has not been planned yet, the child body
-  records the `M<n>.<m>` reference and the dependency is filled with
-  `./.aitask-scripts/aitask_update.sh --batch <child-id> --deps ...` as soon as
-  the provider's children exist. After all ten parents are planned, one
-  cross-linking pass checks every "depends on" cell against a real `depends:`
-  entry, and checks the module → task map below against the parents' real ids.
-- Parent-level `depends:` stays empty on purpose: module-level dependencies form
-  a cycle (M6.5 → M8.2 / M8.4, M8.3 → M7.1 / M7.2, M7.1 → M6.2) and would block
-  wrongly; the real graph is acyclic only at submodule granularity.
-- Deviations from the proposal found while planning go into a **"Deviations from
-  the proposal"** section of the plan. A wrong cut — a file two submodules must
-  own, a dependency the wave table contradicts — is fixed **in the proposal**, not
-  patched in a plan; that is the proposal's own falsifier
-  (`assumption_modules_map_to_parent_tasks`). Send a note (`/aitask-note`) to
-  every parent whose tables the change touches.
-
-### 2. Reality check at child implementation time — a mandatory step in every child's plan
-
-The coarse plan is a hypothesis written before its providers existed. **Every
-child task's plan MUST carry an explicit "Reality check" step, executed before
-any code is written, and its outcome MUST be recorded in the child's plan
-file.** The step:
-
-1. Re-reads the proposal's Module Map row for this submodule, its component
-   subsections, and the row of every interface it consumes (the *Cross-module
-   interfaces* table).
-2. Inspects the **actual current state** of every provider it consumes — the
-   verbs, line protocols, files, hooks and tests as they exist on the merge
-   target now — and names the task and commit that landed each one. The
-   proposal's description of a provider and the coarse plan's description of it
-   are both claims to be verified, never facts to be assumed.
-3. Tabulates every difference in three columns: *proposal says* / *coarse plan
-   says* / *repository has*.
-4. Decides, per difference: adapt this child to reality; or revise this child's
-   coarse plan; or revise the proposal (cut errors and interface changes go
-   there, per §1). Records the decision and its reason.
-5. Sends a note (`/aitask-note`) to every downstream child whose assumptions a
-   difference or a decision breaks, hedging what cannot be proven from the tree.
-6. Re-confirms that every file this child will touch is owned by this submodule,
-   or that the edit lands as the owner's named extension (the "one owning
-   submodule" rule in *Module Map — How to read it*).
-
-A child whose plan lacks this step, or whose step is not recorded as executed,
-is not implementing this task as specified.
+- *Components* tagged `(M4.x)`; *The Run Surface* — *Output and exit
+  contract* (the `RESULT:` shape); *Architecture* — *Line-protocol index*.
 
 ## Module → task map
 
-| module | parent task |
-|---|---|
-| M1 — Engine foundation and distribution | t1852 |
-| M2 — Registry and map model | t1853 |
-| M3 — Runners, scheduling and cost | t1854 |
-| M4 — Selection, freshness and feedback | t1855 |
-| M5 — Run surface | t1856 |
-| M6 — Onboarding | t1857 |
-| M7 — Agent review and author annotation | t1858 |
-| M8 — Completion policy and gates | t1859 |
-| M9 — Workflow integration, skills and documentation | t1860 |
-| M10 — Rollout to the target repositories | t1861 |
+| module | framework (aitasks) | engine (aitasks_go) |
+|---|---|---|
+| M1 — Engine foundation and distribution | t1852 (landed) | — |
+| M2 — Registry and map model | t1853 | aitasks_go#t59 |
+| M3 — Runners, scheduling and cost | t1854 | aitasks_go#t60 |
+| M4 — Selection, freshness and feedback | t1855 (this tracker) | aitasks_go#t61 |
+| M5 — Run surface | t1856 | aitasks_go#t62 (M5.2 `brief`) |
+| M6 — Onboarding | t1857 | aitasks_go#t63 |
+| M7 — Agent review and author annotation | t1858 | aitasks_go#t64 |
+| M8 — Completion policy and gates | t1859 | aitasks_go#t65 |
+| M9 — Workflow integration, skills and documentation | t1860 | — |
+| M10 — Rollout to the target repositories | t1861 | — |
 
-All ten share the topic anchor of the M1 task, so the board's By-Topic view
-shows the whole feature as one lane.
+All ten aitasks parents share the topic anchor of the M1 task, so the board's
+By-Topic view shows the whole feature as one lane.
+
+## Carried obligations (framework half)
+
+- `## Goal` / "Proposal (authoritative …)" — *Goal*: the proposal stays in this repository and authoritative; this task edits it
+- `## Known inconsistencies` / "Wave order vs. stated dependencies … Decide with the M2 and M8 parents and fix the proposal's tables (protocol §1)" — *Proposal edits*, wave bullet: aitasks_go#t61 decides the engine ordering, this task fixes the tables
+- `## Reading list in the proposal` — *Reading list in the proposal* (the sections the table fixes touch)
+- Protocol §1 / "Express cross-module order in task data … `depends:`" — *Cross-repo holds on M4* (xdeps) and *Planning protocol*
+- Protocol §1 / "Parent-level `depends:` stays empty" — *Planning protocol*, parent-level `depends:` bullet
+- Protocol §1 / "Deviations … fixed **in the proposal** … Send a note to every parent" — *Proposal edits*, reality-check bullet: edit the proposal, then notify every parent
+- Protocol §1 / "After all ten parents are planned, one cross-linking pass" — *Module → task map and cross-linking*: feed t1863 the child ids and xdeps
+- `## Module → task map` — *Module → task map* (both repositories) and its update step
+- Inbox t1853 / "Automation-first … M4's candidates are the 'human re-stamp' paths in `stale --confirm*`" — *Proposal edits*, automation-first bullet
+- Inbox t1854 / "Wave contradiction … M4.5 ships `--all` without the `score` trigger" — *Proposal edits*, wave bullet
+- Inbox t1854 / "Two `RESULT:` shapes … M4.5 and M5.1 should agree on one" — *Proposal edits*, `RESULT:` bullet
+- Inbox t1859 / "Waiting on your child ids … t1859_2 ← M4.2, t1859_3 ← M4.2, M4.3, t1859_4 ← M4.4, t1859_5 ← M4.4 … flip each … to Ready" — *Cross-repo holds on M4*: t1859_2–t1859_5 get `xdeps` on the aitasks_go#t61 children, then flip to Ready when nothing is left in their holds
+- Inbox t2131 (08:55) / "wire their ids into these three [t2131_7, t2131_8, t2131_12] … Flip each child to Ready" — *Cross-repo holds on M4*: t2131_7, t2131_8 and t2131_12 rows
+- Inbox t2131_1 / "keep `t2131_6` and add the M4.1, M4.4, M4.5 and M5.1 ids" — *Cross-repo holds on M4*, t2131_7 row: its framework half dropped that edge (the reach task is now aitasks_go#t77_3 in aitasks_go, reached through aitasks_go#t77_4); the M4.1 / M4.4 / M4.5 holds become `xdeps`, the M5.1 hold is t1856's child
+- Inbox aitasks_go#t15 / coordination / freeze / re-home — The freeze is over; engine work for M4 lives in aitasks_go#t61 (header above)
+
+## Relocated to aitasks_go
+
+The engine scope below moved to aitasks_go#t61 and is quoted for reference only.
+
+> - aitasks_go#t61 owns the whole M4 engine, decomposed at its coarse pass in aitasks_go into one child per submodule (M4.1–M4.5, with the `M4.x` id in each name). Each child plan carries the binding Reality-check step.
+> - M4.1: `internal/selectr`, `internal/changesurface`, `select` / `explain`. M4.2: `internal/stale`, `stale`. M4.3: the evidence join. M4.4: `internal/feedback`, `score` / `attribute` / `readiness`. M4.5: the `test` composite. Each lands with the API facts from the inbox notes (adoption, scoped join, axes, cost ledger, recursion guard), and with seams left for the M8.4 `policy` / M8.5 `cadence.go` extensions and t2131_7 `--widen-modules`.
+> - Engine-side decisions: the automation-first review of the `stale --confirm*` human re-stamp paths, the M4.5 ↔ M4.4 `score` trigger ordering, and keeping the prediction record schema additive.
+> - Acceptance:
+>   - The union of the M4.1–M4.5 component test lists passes in aitasks_go CI, including the bench budgets (e.g. `select` 200 ms warm).
+>   - Invariant 2 holds: seeds never suppress `STALE`, never satisfy `require_stamp`, and never count under `--strict`.
+>   - The `test` verb enters through the recursion guard (G9).
+>   - The change-surface intake parses the `COMMITTED:` / `TASK:` / `OTHER:` / `UNKNOWN:` lines exactly as `aitask_change_surface.sh` emits them (fixture-based).
+>   - One `RESULT:` shape is agreed with M5.1 and pinned by tests.
+
 
 ## Inbox
 <!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
