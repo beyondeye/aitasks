@@ -3,12 +3,12 @@ priority: medium
 effort: medium
 depends: [t2131_3]
 issue_type: feature
-status: Ready
+status: Postponed
 labels: [testmap, go_engine, testing]
 gates: [risk_evaluated]
 anchor: 1852
 created_at: 2026-10-23 11:51
-updated_at: 2026-10-24 23:23
+updated_at: 2026-10-30 12:10
 ---
 
 ## Context

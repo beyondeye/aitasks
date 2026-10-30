@@ -2,13 +2,15 @@
 priority: medium
 effort: medium
 depends: [t2131_7, t2131_8, t2131_9]
+xdeps: [77]
+xdeprepo: aitasks_go
 issue_type: chore
 status: Postponed
 labels: [testmap, go_engine, testing]
 gates: [risk_evaluated]
 anchor: 1852
 created_at: 2026-10-23 11:52
-updated_at: 2026-10-25 01:10
+updated_at: 2026-10-30 12:10
 ---
 
 ## Context

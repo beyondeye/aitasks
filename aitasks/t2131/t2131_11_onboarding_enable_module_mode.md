@@ -2,13 +2,15 @@
 priority: medium
 effort: low
 depends: [t2131_8, t2131_9]
+xdeps: [t77_5]
+xdeprepo: aitasks_go
 issue_type: feature
 status: Postponed
 labels: [testmap, go_engine, testing, skills]
 gates: [risk_evaluated]
 anchor: 1852
 created_at: 2026-10-23 11:52
-updated_at: 2026-10-24 23:23
+updated_at: 2026-10-30 12:10
 ---
 
 ## Context
