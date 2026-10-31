@@ -3,11 +3,12 @@ priority: medium
 effort: high
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [trails, aitask_board, tui, performance]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-10-31 18:23
-updated_at: 2026-10-31 18:23
+updated_at: 2026-10-31 18:25
 ---
 
 ## Goal
