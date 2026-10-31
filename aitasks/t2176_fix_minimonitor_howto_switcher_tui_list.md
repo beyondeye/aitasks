@@ -3,13 +3,14 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [minimonitor, switcher, website]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 2174
 followup_kind: upstream_defect
 created_at: 2026-10-31 22:00
-updated_at: 2026-10-31 22:00
+updated_at: 2026-10-31 22:07
 ---
 
 ## Origin
