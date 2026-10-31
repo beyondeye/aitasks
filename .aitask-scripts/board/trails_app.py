@@ -14,7 +14,8 @@ Tabs (t1895): this host is ``_TRAIL_TABBED``. Every trail the user explicitly
 opens keeps its own in-memory session (``TrailSession``) and gets a tab in
 ``TrailTabStrip``; switching tabs re-renders from memory — no subprocess, no
 task reload, no drift re-run — and restores the tab's last focused card. ``s``
-serves the discovery cache (``r`` inside the selector re-scans), and a drift,
+re-scans every time — cheap once warm, because discovery is backed by an
+on-disk, content-keyed cache (lib/trail_discovery_cache.py) — and a drift,
 reload or watch result for a background tab updates only that tab and marks it
 ``•``. Tabs are session-only, never persisted (the t1210_4 rule).
 

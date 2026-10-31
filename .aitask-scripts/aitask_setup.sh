@@ -3125,6 +3125,86 @@ setup_scratchpad_gitignore() {
     success "Scratchpad notes rule added to .gitignore"
 }
 
+# --- Discovery-cache gitignore rule (t2173_1) ---
+# Trail discovery keeps an on-disk, content-keyed cache under
+# .aitask-cache/trail_discovery/. It is per-checkout, revalidated by content on
+# every read and safe to delete — nothing here belongs in git.
+#
+# The rule reaches a project by two routes, because `ait upgrade` never runs
+# setup: setup_cache_gitignore (ait setup) writes and commits it, and
+# upgrade_cache_gitignore (install.sh, existing installs) only writes it —
+# install.sh's commit_installed_files then commits .gitignore under the
+# pre-upgrade dirty baseline, the same contract as
+# setup_data_gitignore_symlink_safe.
+
+# _ait_add_cache_gitignore_rule <gitignore>
+#   -> 0 added, 1 already present, 2 could not inspect or write the file.
+# Callers run it as `|| rc=$?`, which suspends errexit inside it, so every
+# fallible step is checked here, and the write is read back before it counts.
+# `2>/dev/null` comes FIRST on each write: a failed redirection is reported
+# before any later redirection applies, and the wrapper's warning says it.
+_ait_add_cache_gitignore_rule() {
+    local gitignore="$1" rc=0
+    if [[ -e "$gitignore" || -L "$gitignore" ]]; then
+        grep -qxF ".aitask-cache/" "$gitignore" 2>/dev/null || rc=$?
+        case "$rc" in
+            0) return 1 ;;
+            1) ;;
+            *) return 2 ;;
+        esac
+        {
+            echo ""
+            echo "# Discovery caches (per-checkout, content-keyed, safe to delete)"
+            echo ".aitask-cache/"
+        } 2>/dev/null >> "$gitignore" || return 2
+    else
+        {
+            echo "# Discovery caches (per-checkout, content-keyed, safe to delete)"
+            echo ".aitask-cache/"
+        } 2>/dev/null > "$gitignore" || return 2
+    fi
+    grep -qxF ".aitask-cache/" "$gitignore" 2>/dev/null || return 2
+    return 0
+}
+
+# _ait_warn_cache_gitignore_failed — the shared rc-2 report of both wrappers.
+_ait_warn_cache_gitignore_failed() {
+    warn "Could not add .aitask-cache/ to .gitignore — left unchanged."
+    warn "  The discovery cache will show as untracked in 'git status'."
+    warn "  Fix by hand: add the line '.aitask-cache/' to .gitignore, or re-run 'ait setup'."
+}
+
+setup_cache_gitignore() {
+    local project_dir="$SCRIPT_DIR/.."
+    local rc=0
+    _ait_add_cache_gitignore_rule "$project_dir/.gitignore" || rc=$?
+    case "$rc" in
+        0) ;;
+        1) success "Discovery-cache rule already in .gitignore"; return 0 ;;
+        *) _ait_warn_cache_gitignore_failed; return 0 ;;
+    esac
+    info "Added .aitask-cache/ to .gitignore (discovery caches)"
+
+    _ait_commit_gitignore_rule "$project_dir" "ait: Add .aitask-cache/ to .gitignore (discovery caches)"
+
+    success "Discovery-cache rule added to .gitignore"
+}
+
+# Upgrade-path variant: writes the rule, commits nothing (see above). It MUST
+# run after install.sh's snapshot_pre_install_dirty and before
+# commit_installed_files. Never fatal, like setup_data_gitignore_symlink_safe.
+upgrade_cache_gitignore() {
+    local project_dir="$SCRIPT_DIR/.."
+    local rc=0
+    _ait_add_cache_gitignore_rule "$project_dir/.gitignore" || rc=$?
+    case "$rc" in
+        0) success "Added .aitask-cache/ to .gitignore (discovery caches)" ;;
+        1) success "Discovery-cache rule already in .gitignore" ;;
+        *) _ait_warn_cache_gitignore_failed ;;
+    esac
+    return 0
+}
+
 # --- Version check ---
 check_latest_version() {
     local local_version=""
@@ -5403,6 +5483,9 @@ main() {
     echo ""
 
     setup_scratchpad_gitignore
+    echo ""
+
+    setup_cache_gitignore
     echo ""
 
     setup_worktree_dirs_gitignore

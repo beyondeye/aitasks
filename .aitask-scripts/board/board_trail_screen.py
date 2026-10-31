@@ -389,10 +389,9 @@ class TrailScreenMixin:
     """By-Trail screen behaviour for an App that provides ``TrailHost``."""
 
     #: Host policy (t1895). False — the board's ``z`` view: one session at a
-    #: time, activating a trail replaces it, and ``s`` always re-scans. True —
-    #: ``ait trails``: every explicitly opened trail keeps its own session (one
-    #: tab each), activating an open trail switches to it, and ``s`` serves the
-    #: discovery cache, re-scanning only when it is missing or empty.
+    #: time, and activating a trail replaces it. True — ``ait trails``: every
+    #: explicitly opened trail keeps its own session (one tab each), and
+    #: activating an open trail switches to it. In both hosts ``s`` re-scans.
     _TRAIL_TABBED: ClassVar[bool] = False
 
     # The active session's state, under the names the single-trail view used.
@@ -988,16 +987,19 @@ class TrailScreenMixin:
                                "board", "trail_refresh_agent", "R") or "R")
 
     def action_trail_select(self):
-        """`s` in By-Trail: open the trail selector.
+        """`s` in By-Trail: open the trail selector, re-scanning first.
 
-        The board re-scans every time. A tabbed host serves the discovery cache
-        and re-scans only when it is missing or EMPTY: a successful zero-trail
-        scan must not pin a dead end, because an empty list never opens the
-        selector whose `r` key would re-scan (t1895)."""
+        Both hosts re-scan on every open (t2173_1): discovery revalidates its
+        on-disk, content-keyed cache, so a warm scan costs hashing plus
+        re-parsing only what changed, and the list shown is never a stale
+        in-memory one. ``_trail_infos`` stays the last scan's result — the
+        by-handle lookup, reconciliation and activation read it — it is just
+        no longer what ``s`` shows. The ``LoadingOverlay`` still appears on
+        every scan (it holds input while the scan runs; a warm one only
+        flashes it)."""
         if self._modal_is_active():
             return
-        self._open_trail_select(
-            rescan=not self._TRAIL_TABBED or not self._trail_infos)
+        self._open_trail_select(rescan=True)
 
     def action_trail_sync(self):
         """`S` in By-Trail: ait sync, then the local recompute.

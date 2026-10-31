@@ -130,6 +130,12 @@ class _TreeTestCase(unittest.TestCase):
         self.addCleanup(tmp.cleanup)
         tree = Path(tmp.name)
         (tree / "aitasks" / "archived").mkdir(parents=True)
+        # The discovery cache is cwd-relative by default, and some tests scan
+        # an absolute TASK_DIR from the repo root: keep it in the temp tree.
+        env = patch.dict(os.environ,
+                         {"AIT_TRAIL_CACHE_DIR": str(tree / ".trail-cache")})
+        env.start()
+        self.addCleanup(env.stop)
         return tree
 
     def _chdir(self, tree):

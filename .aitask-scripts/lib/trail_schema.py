@@ -100,6 +100,13 @@ from collections import namedtuple
 NORMALIZATION_VERSION = "1.0.0"  # versioned alongside schema_version (RFC par.8.1)
 DIGEST_HEX_LEN = 16              # sha256 truncation; matches ^[a-f0-9]{12,64}$
 
+#: Revision of what ``validate_trail`` accepts. Trail discovery's document cache
+#: (lib/trail_discovery_cache.py) keys its entries on this module's source, the
+#: schema file and this constant, so a validator change invalidates every cached
+#: document. Bump it when validation semantics change WITHOUT a change to this
+#: file or to the schema (e.g. a behaviour change in a library it relies on).
+VALIDATOR_REVISION = 1
+
 #: Authoring depths (t1505_4). These exact lowercase strings are what the skill
 #: writes into rendering_hints.depth and what the board's depth label reads --
 #: any other value is unrecognised by both and states nothing.
@@ -157,7 +164,14 @@ def load_schema(schema_path=None):
     (a broken schema is an install defect, not a document issue)."""
     path = schema_path or DEFAULT_SCHEMA_PATH
     with open(path, encoding="utf-8") as fh:
-        schema = json.load(fh)
+        return parse_schema(fh.read(), path)
+
+
+def parse_schema(raw, path):
+    """Parse + sanity-check schema text or bytes read from ``path`` (named in
+    the errors). ``load_schema`` is this over a fresh read; a caller that must
+    validate with the exact bytes it hashed parses them here instead."""
+    schema = json.loads(raw)
     if schema.get("title") != "Implementation Trail":
         raise RuntimeError("%s: not the Implementation Trail schema" % path)
     const = schema.get("properties", {}).get("schema_version", {}).get("const")
@@ -603,12 +617,15 @@ def _reject_json_constant(literal):
         "non-finite JSON constant %r is not valid JSON" % (literal,))
 
 
-def load_trail(source, schema_path=None, expect_depth=None):
+def load_trail(source, schema_path=None, expect_depth=None, *, schema=None):
     """Load + validate a trail document, fail-closed.
 
     source: str/os.PathLike = path to a JSON file; bytes = raw JSON payload.
     expect_depth: forwarded to validate_trail -- the authoring depth the
     CALLER ran at, or None (default) for the self-declared behaviour.
+    schema: an already-loaded schema to validate against instead of reading
+    ``schema_path`` now (trail discovery validates with the schema it froze
+    at import, the one its cache identity hashed).
     Returns the parsed document; raises TrailValidationError (with .issues)
     on parse failure or any validation issue.
     """
@@ -633,8 +650,9 @@ def load_trail(source, schema_path=None, expect_depth=None):
     except ValueError as exc:
         raise TrailValidationError(
             [TrailIssue("$", "json", "invalid JSON (%s): %s" % (origin, exc))])
-    issues = validate_trail(doc, load_schema(schema_path),
-                            expect_depth=expect_depth)
+    if schema is None:
+        schema = load_schema(schema_path)
+    issues = validate_trail(doc, schema, expect_depth=expect_depth)
     if issues:
         raise TrailValidationError(issues)
     return doc

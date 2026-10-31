@@ -79,54 +79,87 @@ def manifest_path(manifest_dir, handle):
     return os.path.join(manifest_dir, handle[len("art:"):] + ".json")
 
 
-def validate(rec, path):
-    """Enforce every schema invariant; die naming the file and the violation."""
+class ManifestError(ValueError):
+    """A manifest that exists but cannot be accepted (invalid JSON, unreadable,
+    or an invariant violation). The message is the exact text the CLI dies
+    with, so a non-exiting caller can report it unchanged."""
+
+
+def manifest_violation(rec, path):
+    """The first violated schema invariant as the CLI's error message, or None
+    when ``rec`` (read from ``path``) is a valid manifest.
+
+    The one statement of the invariants: ``validate`` dies on the message, and
+    ``read_manifest`` raises it, so a reader that must not exit (trail
+    discovery's cache, t2173_1) accepts exactly the manifests ``get`` does."""
     def bad(reason):
-        die("malformed manifest %s: %s -- repair or remove it" % (path, reason))
+        return "malformed manifest %s: %s -- repair or remove it" % (path, reason)
 
     if not isinstance(rec, dict):
-        bad("top-level value is not an object")
+        return bad("top-level value is not an object")
     for field in REQUIRED_FIELDS:
         if field not in rec:
-            bad("missing required field %r" % field)
+            return bad("missing required field %r" % field)
     handle = rec["handle"]
     if not isinstance(handle, str) or not HANDLE_RE.match(handle):
-        bad("invalid handle %r" % (handle,))
+        return bad("invalid handle %r" % (handle,))
     expected = handle[len("art:"):] + ".json"
     if os.path.basename(path) != expected:
-        bad("handle %r does not match filename (expected %s)" % (handle, expected))
+        return bad("handle %r does not match filename (expected %s)"
+                   % (handle, expected))
     versions = rec["versions"]
     if not isinstance(versions, list) or not versions:
-        bad("versions must be a non-empty list")
+        return bad("versions must be a non-empty list")
     for v in versions:
         if not isinstance(v, str) or not HASH_RE.match(v):
-            bad("invalid version hash %r" % (v,))
+            return bad("invalid version hash %r" % (v,))
     if len(set(versions)) != len(versions):
-        bad("duplicate entries in versions")
+        return bad("duplicate entries in versions")
     if rec["current"] not in versions:
-        bad("current not in versions")
+        return bad("current not in versions")
     backend = rec["backend"]
     if not isinstance(backend, str) or not BACKEND_RE.match(backend):
-        bad("invalid backend name %r (want [a-z0-9][a-z0-9_-]{0,31})" % (backend,))
+        return bad("invalid backend name %r (want [a-z0-9][a-z0-9_-]{0,31})"
+                   % (backend,))
     for field in ("created_at", "updated_at"):
         if not isinstance(rec[field], int):
-            bad("%s must be an integer epoch" % field)
+            return bad("%s must be an integer epoch" % field)
+    return None
 
 
-def load(path):
-    """Read + validate a manifest. None if absent; die (named) if malformed."""
+def validate(rec, path):
+    """Enforce every schema invariant; die naming the file and the violation."""
+    violation = manifest_violation(rec, path)
+    if violation is not None:
+        die(violation)
+
+
+def read_manifest(path):
+    """Read + validate a manifest without exiting: None if absent, the record
+    if valid; raises ``ManifestError`` carrying the CLI's message otherwise."""
     try:
         with open(path, "r", encoding="utf-8") as fh:
             rec = json.load(fh)
     except FileNotFoundError:
         return None
     except ValueError as exc:
-        die("malformed manifest %s: invalid JSON (%s) -- repair or remove it"
-            % (path, exc))
+        raise ManifestError(
+            "malformed manifest %s: invalid JSON (%s) -- repair or remove it"
+            % (path, exc)) from exc
     except OSError as exc:
-        die("cannot read %s: %s" % (path, exc))
-    validate(rec, path)
+        raise ManifestError("cannot read %s: %s" % (path, exc)) from exc
+    violation = manifest_violation(rec, path)
+    if violation is not None:
+        raise ManifestError(violation)
     return rec
+
+
+def load(path):
+    """Read + validate a manifest. None if absent; die (named) if malformed."""
+    try:
+        return read_manifest(path)
+    except ManifestError as exc:
+        die(str(exc))
 
 
 def atomic_write(path, rec):

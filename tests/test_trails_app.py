@@ -1351,7 +1351,10 @@ class TabbedSessionTests(TrailsAppTestBase):
     def _card_ids(self, app):
         return [id(c) for c in app.query(self.ab.TaskCard)]
 
-    def test_second_trail_opens_a_tab_from_the_cache(self):
+    def test_second_trail_opens_a_tab_from_a_fresh_scan(self):
+        """`s` re-scans on every open in the tabbed host too (t2173_1): the
+        on-disk discovery cache makes that cheap, and the list shown is never
+        a stale in-memory one."""
         async def go():
             calls, stack = self._counting()
             app = bf.make_trails_app()
@@ -1362,7 +1365,8 @@ class TabbedSessionTests(TrailsAppTestBase):
                     await pilot.press("s")
                     await self._wait_screen(
                         app, pilot, self.ab.board_trail_view.TrailSelectScreen)
-                    self.assertEqual(calls["discover"], 1, "s re-scanned")
+                    self.assertEqual(calls["discover"], 2,
+                                     "s served the in-memory list")
                     rows = [str(i.render()) for i in app.screen.query(
                         self.ab.board_trail_view.TrailSelectItem)]
                     self.assertIn("● open", rows[0])
@@ -1471,6 +1475,7 @@ class TabbedSessionTests(TrailsAppTestBase):
                     await self._wait_screen(
                         app, pilot, self.ab.board_trail_view.TrailSelectScreen)
                     selector = app.screen
+                    scans = calls["discover"]
                     await pilot.press("escape")
                     await self._settle(app, pilot)
                     selector.action_rescan()          # base screen on top
@@ -1484,7 +1489,8 @@ class TabbedSessionTests(TrailsAppTestBase):
                     await self._settle(app, pilot)
                     self.assertIsInstance(
                         app.screen, self.ab.board_trail_view.TrailSummaryScreen)
-                    self.assertEqual(calls["discover"], 1)
+                    self.assertEqual(calls["discover"], scans,
+                                     "a stale selector key started a scan")
                     await pilot.press("escape")
                     await self._settle(app, pilot)
         self._run(go())
@@ -1607,10 +1613,10 @@ class TabbedSessionTests(TrailsAppTestBase):
                     await pilot.press("s")
                     await self._wait_screen(
                         app, pilot, self.ab.board_trail_view.TrailSelectScreen)
-                    self.assertEqual(calls["discover"], 1)
+                    self.assertEqual(calls["discover"], 2)
                     await pilot.press("r")
                     await self._settle(app, pilot)
-                    self.assertEqual(calls["discover"], 2)
+                    self.assertEqual(calls["discover"], 3)
                     self.assertIsInstance(
                         app.screen, self.ab.board_trail_view.TrailSelectScreen)
                     await pilot.press("escape")
@@ -1733,14 +1739,16 @@ class TabbedSessionTests(TrailsAppTestBase):
                     self.assertEqual(self._card_ids(app), cards)
                     self.assertEqual(len(calls["drift"]), drifts)
 
-                    # Close A and reopen it from the cache: still rev2.
+                    # Close A and reopen it: `s` re-scans, and the stub's
+                    # scan (the original doc, read_seq 0) is older than rev2,
+                    # so newest-wins keeps rev2 in the discovery list.
                     await pilot.press("ctrl+w")
                     await self._settle(app, pilot)
                     discovered = calls["discover"]
                     await pilot.press("s")
                     await self._wait_screen(
                         app, pilot, self.ab.board_trail_view.TrailSelectScreen)
-                    self.assertEqual(calls["discover"], discovered)
+                    self.assertEqual(calls["discover"], discovered + 1)
                     await pilot.press("enter")
                     await self._settle(app, pilot)
                     self.assertEqual(app._trail_doc["title"], "Alpha rev2")

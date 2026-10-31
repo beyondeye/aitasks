@@ -15,7 +15,7 @@ Every key below can be rebound — press **?** for the in-place editor, or open
 
 | Key | Action | Context |
 |-----|--------|---------|
-| `s` | Open the trail selector from the list found by the last scan; it scans first only when that list is empty or the last scan failed | Any time; the selector also opens (after a scan) on launch |
+| `s` | Re-scan the project for trails, then open the trail selector | Any time; the selector also opens (after a scan) on launch |
 | `[` / `]` | Previous / next tab; wraps around | Two or more tabs open |
 | `1`–`9` | Go to tab 1–9 | That tab exists |
 | `Ctrl+W` | Close the active tab | A tab is open |
@@ -71,12 +71,12 @@ Shown before the switch when the jump has something to tell you — the other pr
 |-----|------------|--------------|----------------|
 | `r` | Re-read | Not read — the loaded copy is redrawn | Not read |
 | `d` | — | Fetched again, then freshness re-checked | Not read |
-| `s` | — | — | Not read — the list from the last scan is shown (scanned only when that list is empty or the last scan failed) |
-| `r` in the selector | — | Fetched again for every trail | Re-scanned |
+| `s` | — | Fetched only for trails whose stored version changed since the last scan | Re-scanned |
+| `r` in the selector | — | Fetched only for trails whose stored version changed since the last scan | Re-scanned |
 | `[` / `]` / `1`–`9` | — | — | — (the tab is redrawn from memory) |
 | `R` | — | A new version is written by the agent after you confirm; the view reloads it when it lands | — |
 
-None of `r`, `d`, `s` and the tab keys writes anything. `r` re-reads the task files for every tab, not only the active one: the other tabs show the new statuses when you switch to them. The statuses of [cross-repo dependencies]({{< relref "/docs/workflows/cross_project_dependencies" >}}#cross-repo-dependencies-in-implementation-trails) are checked together with the freshness check — when a trail opens and on `d`; `r` and the tab keys reuse the last results. For the costs of each key and the drift reasons a card can show, see [By-Trail]({{< relref "/docs/tuis/board/reference" >}}#by-trail) in the board reference — the view is the same.
+None of `r`, `d`, `s` and the tab keys writes anything to the task data or the trails. A scan keeps what it found in `.aitask-cache/` in the project and checks it against the content of the task files, archive bundles and stored trails every time, so a repeat scan re-reads only what changed and is quick. The cache belongs to this checkout and is safe to delete. `r` re-reads the task files for every tab, not only the active one: the other tabs show the new statuses when you switch to them. The statuses of [cross-repo dependencies]({{< relref "/docs/workflows/cross_project_dependencies" >}}#cross-repo-dependencies-in-implementation-trails) are checked together with the freshness check — when a trail opens and on `d`; `r` and the tab keys reuse the last results. For the costs of each key and the drift reasons a card can show, see [By-Trail]({{< relref "/docs/tuis/board/reference" >}}#by-trail) in the board reference — the view is the same.
 
 ## Tabs
 
@@ -95,7 +95,7 @@ Switching tabs reads nothing: no task files, no stored trail, no freshness check
 
 Closing the active tab shows the tab to its right, or to its left when it was the last one. Closing the only tab returns to the `no trail selected — press s` state.
 
-When a scan (`r` in the selector) finds a newer stored version of a trail that is open in a tab, that tab is updated and its freshness is re-checked.
+When a scan (`s`, or `r` in the selector) finds a newer stored version of a trail that is open in a tab, that tab is updated and its freshness is re-checked.
 
 `R` keeps watching for the new version after you switch to another tab, and reloads that trail's tab when the version lands. Only one `R` refresh is watched at a time: starting `R` for a second trail stops watching the first, so press `d` on the first trail once its refresh has finished. Closing a trail's tab stops the watch for that trail.
 

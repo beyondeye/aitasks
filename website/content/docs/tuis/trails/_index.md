@@ -30,7 +30,6 @@ The TUI is **read-only**. It never writes a trail and never changes a task. The 
 | Opening a trail | `z`, then the selector opens when no trail is active yet | The selector opens on launch |
 | Trail keys (`s`, `r`, `d`, `R`, `v`, `L`, `Enter`) | Yes | Yes — the same bindings |
 | Several trails open at once | No — one trail; choosing another replaces it | Yes — one tab each (`[` / `]`, `1`–`9`, `Ctrl+W`) |
-| `s` | Re-scans the project every time | Lists the trails from the last scan; `r` in the selector re-scans |
 | `T` | Hidden in By-Trail; used from the kanban and By-Topic views | Opens the trail-creation workflow for the focused live card |
 | `p` (pick the focused task) | Yes | Yes — the same launch dialog, for a live local card |
 | Move to a column (`m` / `M`) | Yes | No — there are no board columns here |

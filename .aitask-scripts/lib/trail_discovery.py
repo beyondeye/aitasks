@@ -19,7 +19,16 @@ whichever tree happened to load first and silently scan the wrong one.
 
 READ-ONLY contract: the only subprocesses ever spawned are the `artifact get`
 and `artifact versions` read verbs. Every trail WRITE happens in the launched
-skill after its own confirmation (RFC par.9.3, par.12).
+skill after its own confirmation (RFC par.9.3, par.12). The discovery cache
+(lib/trail_discovery_cache.py, t2173_1) writes only its own files under
+`.aitask-cache/`; a cache hit spawns nothing at all.
+
+CACHE: `discover_trails` revalidates a content-keyed, on-disk cache on every
+call — owner records keyed by each task file's / bundle's bytes, documents by
+the content address their manifest names — so a warm scan costs hashing plus
+re-parsing only what changed. Contracts are unchanged with or without it
+(`AIT_TRAIL_CACHE=0` disables it); the keying rules and stated boundaries are in
+that module's docstring.
 
 NOTE FOR TESTS: these functions call each other through THIS module's namespace.
 A test that stubs one of them (or ARTIFACT_SCRIPT) for a caller that also lives
@@ -27,18 +36,25 @@ here must patch it on `trail_discovery`, not on the board -- the board's names
 are re-export bindings and rebinding them does not affect resolution here.
 """
 
+import hashlib
+import io
 import itertools
 import os
 import subprocess
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from archive_iter import checked_glob, iter_archived_frontmatter
+import archive_iter
+from archive_iter import checked_glob
 from config_utils import task_dir
 from task_yaml import parse_frontmatter
 from topic_semantics import parse_task_filename, _task_id_sort_key
 import trail_schema
+# Imported LAST: it freezes the cache identities from the modules above (and
+# this one) at import — see its docstring.
+import trail_discovery_cache
 
 
 TRAIL_ARTIFACT_KIND = "implementation_trail"
@@ -135,6 +151,40 @@ def dedupe_trail_records(records):
     return [best[h] for h in order]
 
 
+def _decode_task_bytes(data: bytes) -> str:
+    """Exactly ``Path.read_text(encoding="utf-8", errors="replace")`` of the
+    file those bytes came from (universal newlines included), so text parsed
+    from bytes that were also hashed is the text the uncached reader saw."""
+    return io.TextIOWrapper(io.BytesIO(data), encoding="utf-8",
+                            errors="replace").read()
+
+
+def _parse_task_meta(text):
+    """The frontmatter mapping of ``text``; None when it does not parse to one
+    (``parse_frontmatter`` raises on malformed YAML, returns None on an empty or
+    delimiter-truncated file)."""
+    try:
+        parsed = parse_frontmatter(text)
+        meta = parsed[0] if parsed else None
+    except Exception:
+        meta = None
+    return meta if isinstance(meta, dict) else None
+
+
+def _active_task_paths(scan_errors):
+    """The live task files, in scan order (see `_iter_active_task_frontmatter`)."""
+    for pattern in ("*.md", "t*/t*_*.md"):
+        yield from checked_glob(_tasks_dir(), pattern, scan_errors)
+
+
+def _read_unit_bytes(path):
+    """A unit's bytes, or the OSError that prevented reading them."""
+    try:
+        return path.read_bytes(), None
+    except OSError as exc:
+        return None, exc
+
+
 def _iter_active_task_frontmatter(unreadable=None, scan_errors=None):
     """Yield ``(filename, metadata)`` for every live task file, read from disk.
 
@@ -183,18 +233,100 @@ def _iter_active_task_frontmatter(unreadable=None, scan_errors=None):
     listed (a child dir ``t42/`` with no read permission hides its owners).
     With ``scan_errors`` such a directory is reported there (t1957_3);
     without it the listing is ``Path.glob``, as before."""
-    for pattern in ("*.md", "t*/t*_*.md"):
-        for path in checked_glob(_tasks_dir(), pattern, scan_errors):
-            try:
-                parsed = parse_frontmatter(
-                    path.read_text(encoding="utf-8", errors="replace"))
-                meta = parsed[0] if parsed else None
-            except Exception:
-                meta = None
-            if isinstance(meta, dict):
-                yield path.name, meta
-            elif unreadable is not None and parse_task_filename(path.name)[0]:
-                unreadable.append(path.name)
+    for path in _active_task_paths(scan_errors):
+        data, _exc = _read_unit_bytes(path)
+        meta = None if data is None else _parse_task_meta(
+            _decode_task_bytes(data))
+        if meta is not None:
+            yield path.name, meta
+        elif unreadable is not None and parse_task_filename(path.name)[0]:
+            unreadable.append(path.name)
+
+
+def _owner_records(filename, meta, archived):
+    """The trail owner records one task's frontmatter yields, as cacheable
+    tuples ``(handle, owner_id, owner_archived, owner_folded, name)``."""
+    task_num, _name = parse_task_filename(filename)
+    folded = bool(meta.get("folded_into")) or meta.get("status") == "Folded"
+    records = []
+    for rec in meta.get("artifacts") or []:
+        if (isinstance(rec, dict) and rec.get("handle")
+                and rec.get("kind") == TRAIL_ARTIFACT_KIND):
+            records.append((str(rec["handle"]), (task_num or "").lstrip("t"),
+                            archived, folded, str(rec.get("name") or "")))
+    return records
+
+
+def _trail_info(record) -> TrailInfo:
+    handle, owner_id, archived, folded, name = record
+    return TrailInfo(handle=handle, owner_id=owner_id, owner_archived=archived,
+                     owner_folded=folded, name=name)
+
+
+def _forward_errors(unit_errors, scan_errors):
+    """Hand one unit's private diagnostics to the caller — only when it asked
+    for them, deduped exactly as ``archive_iter._note`` dedupes."""
+    if scan_errors is None:
+        return
+    for entry in unit_errors:
+        if entry not in scan_errors:
+            scan_errors.append(entry)
+
+
+def _read_archived_unit(kind, path, unit_errors, cache, key):
+    """The owner records of one archived unit (loose file or bundle), from the
+    cache when its bytes are unchanged, else parsed — and then cached only
+    when the read left ``unit_errors`` empty."""
+    def _parse_meta(text):
+        result = parse_frontmatter(text)
+        return result[0] if result else None
+
+    def _member_records(name, text):
+        meta = archive_iter.parse_archived_frontmatter(
+            name, text, _parse_meta, errors=unit_errors)
+        return _owner_records(name, meta, True) if isinstance(meta, dict) \
+            else []
+
+    if kind == "loose":
+        data, exc = _read_unit_bytes(path)
+        if data is None:
+            archive_iter._note(unit_errors, path, exc)
+            return []
+        sha = hashlib.sha256(data).hexdigest()
+        records = cache.lookup(key, sha)
+        if records is None:
+            records = _member_records(path.name, _decode_task_bytes(data))
+            if not unit_errors:
+                cache.store(key, sha, records)
+        return records
+
+    # A bundle is opened ONCE: hashed from this fd, then decompressed from the
+    # same fd, so a rename-replacement of the path cannot slip in between.
+    try:
+        fh = open(path, "rb")
+    except OSError as exc:
+        archive_iter._note(unit_errors, path, exc)
+        return []
+    with fh:
+        try:
+            digest = hashlib.sha256()
+            for chunk in iter(lambda: fh.read(1 << 20), b""):
+                digest.update(chunk)
+            fh.seek(0)
+        except OSError as exc:
+            archive_iter._note(unit_errors, path, exc)
+            return []
+        sha = digest.hexdigest()
+        records = cache.lookup(key, sha)
+        if records is not None:
+            return records
+        records = []
+        for name, text in archive_iter.iter_archive_file(path, fh,
+                                                         errors=unit_errors):
+            records.extend(_member_records(name, text))
+    if not unit_errors:
+        cache.store(key, sha, records)
+    return records
 
 
 def _iter_trail_frontmatter_records(unreadable=None, scan_errors=None):
@@ -208,32 +340,54 @@ def _iter_trail_frontmatter_records(unreadable=None, scan_errors=None):
     else that could hide a trail owner is best-effort unless ``scan_errors`` is
     a list (t1957_3): then a task or archive directory that cannot be listed,
     an unreadable archived file, a corrupt bundle and an unparseable archived
-    frontmatter are appended to it."""
-    def _records(filename, meta, archived):
-        task_num, _name = parse_task_filename(filename)
-        folded = bool(meta.get("folded_into")) or meta.get("status") == "Folded"
-        for rec in meta.get("artifacts") or []:
-            if (isinstance(rec, dict) and rec.get("handle")
-                    and rec.get("kind") == TRAIL_ARTIFACT_KIND):
-                yield TrailInfo(
-                    handle=str(rec["handle"]),
-                    owner_id=(task_num or "").lstrip("t"),
-                    owner_archived=archived,
-                    owner_folded=folded,
-                    name=str(rec.get("name") or ""),
-                )
+    frontmatter are appended to it.
 
-    for filename, meta in _iter_active_task_frontmatter(unreadable, scan_errors):
-        yield from _records(filename, meta, False)
+    Each unit (task file, loose archived file, bundle) is read through the
+    owner layer of the discovery cache. Whether a unit may be cached is decided
+    from diagnostics collected for THAT unit on every scan — a private list for
+    every archive_iter call, a private flag for an active file — never from the
+    caller's arguments, which a best-effort scan leaves unset; only afterwards
+    are they forwarded to the caller, if it asked. So a best-effort scan now
+    always drains and checks ``zstd``'s exit status (it still reports to
+    nobody — it just refuses to cache the bundle), and a later diagnostic scan
+    re-reads every faulty unit and reports it. Directory listings are never
+    cached: they run every scan with the caller's ``scan_errors``. The owner
+    cache is saved once the scan is exhausted."""
+    cache = trail_discovery_cache.OwnerCache.open()
+    tasks = _tasks_dir()
 
-    def _parse_meta(text):
-        result = parse_frontmatter(text)
-        return result[0] if result else None
+    for path in _active_task_paths(scan_errors):
+        records = None
+        data, _exc = _read_unit_bytes(path)
+        if data is not None:
+            key = "active:" + path.relative_to(tasks).as_posix()
+            sha = hashlib.sha256(data).hexdigest()
+            records = cache.lookup(key, sha)
+            if records is None:
+                meta = _parse_task_meta(_decode_task_bytes(data))
+                if meta is not None:
+                    records = _owner_records(path.name, meta, False)
+                    cache.store(key, sha, records)
+        if records is None:
+            # Unreadable or no frontmatter mapping: never cached, so it is
+            # reported on every scan (see `_iter_active_task_frontmatter`).
+            if unreadable is not None and parse_task_filename(path.name)[0]:
+                unreadable.append(path.name)
+            continue
+        for record in records:
+            yield _trail_info(record)
 
-    for filename, meta in iter_archived_frontmatter(
-            _tasks_dir() / "archived", _parse_meta, errors=scan_errors):
-        if isinstance(meta, dict):
-            yield from _records(filename, meta, True)
+    archived_dir = tasks / "archived"
+    for kind, path in archive_iter.archived_markdown_sources(
+            archived_dir, errors=scan_errors):
+        unit_errors: list = []
+        key = "archived:" + path.relative_to(archived_dir).as_posix()
+        records = _read_archived_unit(kind, path, unit_errors, cache, key)
+        _forward_errors(unit_errors, scan_errors)
+        for record in records:
+            yield _trail_info(record)
+
+    cache.save()
 
 
 def _trail_versions(handle: str) -> list:
@@ -251,15 +405,34 @@ def _trail_versions(handle: str) -> list:
     return []
 
 
+class _BlobLoad(tuple):
+    """``load_trail_blob``'s ``(doc, error, versions)`` plus ``.blob_hash``,
+    the content address (``sha256:<hex>``) of the bytes ``artifact get`` wrote,
+    and ``.blob_raw``, those bytes — what the document cache stores (it
+    re-proves a hit from them). A plain 3-tuple (every test stub of
+    ``load_trail_blob``) has neither, so a stubbed load is never cached."""
+
+    def __new__(cls, doc, error, versions, blob_hash="", blob_raw=b""):
+        self = super().__new__(cls, (doc, error, versions))
+        self.blob_hash = blob_hash
+        self.blob_raw = blob_raw
+        return self
+
+
 def load_trail_blob(handle: str):
-    """Fetch + validate a trail blob. Returns ``(doc, error, versions)``.
+    """Fetch + validate a trail blob. Returns ``(doc, error, versions)`` — a
+    ``_BlobLoad``, which also carries the fetched bytes' ``blob_hash``.
 
     Fail-closed (RFC §12): a get failure or schema-invalid document yields
     ``doc=None`` with a non-empty ``error`` and the versions fallback — never
-    a partial document. Read-only: only ``get``/``versions`` are spawned."""
+    a partial document. Read-only: only ``get``/``versions`` are spawned.
+    Validation uses the schema the document cache froze at import, so the
+    cache identity describes exactly what validated a cached document."""
     import tempfile
     doc = None
     error = ""
+    blob_hash = ""
+    raw = b""
     tmp_path = None
     try:
         fd, tmp_path = tempfile.mkstemp(prefix="ait_trail_", suffix=".json")
@@ -272,8 +445,12 @@ def load_trail_blob(handle: str):
             diag = (result.stderr or result.stdout).strip().splitlines()
             error = f"artifact unresolved: {diag[-1] if diag else handle}"
         else:
+            with open(tmp_path, "rb") as fh:
+                raw = fh.read()
             try:
-                doc = trail_schema.load_trail(tmp_path)
+                doc = trail_schema.load_trail(
+                    raw, schema=trail_discovery_cache.FROZEN_SCHEMA)
+                blob_hash = "sha256:" + hashlib.sha256(raw).hexdigest()
             except trail_schema.TrailValidationError as exc:
                 error = f"invalid trail document: {len(exc.issues)} issue(s)"
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as exc:
@@ -285,7 +462,8 @@ def load_trail_blob(handle: str):
             except OSError:
                 pass
     versions = _trail_versions(handle) if error else []
-    return doc, error, versions
+    return _BlobLoad(doc, error, versions, blob_hash,
+                     raw if blob_hash else b"")
 
 
 # --- Fetch-ordered reads ------------------------------------------------------
@@ -330,6 +508,32 @@ def sequenced_trail_read(handle: str, loader):
         return result, next(_TRAIL_READ_SEQ)
 
 
+def _cached_blob_loader(cache):
+    """A ``sequenced_trail_read`` loader that consults the document cache.
+
+    It runs INSIDE the per-handle lock, and the cache lookup reads the
+    manifest first, so a hit is a read like any other: its ``read_seq`` is
+    still drawn after it, and ``_reconcile_discovered_trails`` keeps its
+    newest-wins guarantee. A miss loads through ``load_trail_blob`` — looked
+    up in this module's namespace, so a test stub applies — and the fetched
+    bytes are stored only when the result carries them and no error."""
+    def load(handle):
+        doc = cache.lookup(handle)
+        if doc is not None:
+            return doc, "", []
+        result = load_trail_blob(handle)
+        doc, error, _versions = result
+        blob_hash = getattr(result, "blob_hash", "")
+        if blob_hash and not error and doc is not None:
+            cache.store(handle, blob_hash, getattr(result, "blob_raw", b""))
+        return result
+    return load
+
+
+#: Upper bound on parallel cold blob loads (each is one `artifact get`).
+_MAX_LOAD_WORKERS = 4
+
+
 def discover_trails(scan_errors=None):
     """Frontmatter-driven trail discovery, deduped by handle, blobs loaded and
     validated (fail-closed into ``load_error``). Subprocess-heavy — call from
@@ -342,11 +546,29 @@ def discover_trails(scan_errors=None):
 
     Directory listings and the archived half are best-effort unless
     ``scan_errors`` is a list, which then collects every failure that could
-    hide a trail owner the same way (t1957_3)."""
+    hide a trail owner the same way (t1957_3).
+
+    Both halves go through the discovery cache (module docstring). Blob loads
+    of distinct handles run in parallel — they never share a read lock — but
+    only for two or more trails: zero trails (a fresh project, the last owner
+    removed, every owner unreadable) loads nothing, and one loads inline."""
     unreadable = []
     infos = dedupe_trail_records(
         _iter_trail_frontmatter_records(unreadable, scan_errors))
-    for info in infos:
-        (info.doc, info.load_error, info.versions), info.read_seq = (
-            sequenced_trail_read(info.handle, load_trail_blob))
+    cache = trail_discovery_cache.DocCache.open()
+    loader = _cached_blob_loader(cache)
+
+    def read(info):
+        return sequenced_trail_read(info.handle, loader)
+
+    if len(infos) >= 2:
+        with ThreadPoolExecutor(
+                max_workers=min(_MAX_LOAD_WORKERS, len(infos))) as pool:
+            results = list(pool.map(read, infos))
+    else:
+        results = [read(info) for info in infos]
+    for info, ((doc, error, versions), read_seq) in zip(infos, results):
+        info.doc, info.load_error, info.versions = doc, error, versions
+        info.read_seq = read_seq
+    cache.save()
     return infos, unreadable

@@ -160,25 +160,28 @@ def find_archived_markdown_by_id(
         normalized, iter_legacy_archive(archived_dir, errors=errors))
 
 
+def _numbered_archive_paths(archived_dir: Path, errors) -> list:
+    """The numbered bundles in read order: every ``.tar.zst``, then each
+    ``.tar.gz`` that has no ``.tar.zst`` counterpart."""
+    # Primary: .tar.zst
+    zst_archives = checked_glob(archived_dir, "_b*/old*.tar.zst", errors)
+    # Fallback: .tar.gz (only those without a .tar.zst counterpart)
+    gz_archives = checked_glob(archived_dir, "_b*/old*.tar.gz", errors)
+    seen_stems = {archive.with_suffix("").with_suffix("")  # strip .tar.zst
+                  for archive in zst_archives}
+    return zst_archives + [
+        archive for archive in gz_archives
+        if archive.with_suffix("").with_suffix("") not in seen_stems]
+
+
 def iter_numbered_archives(
     archived_dir: Path,
     *,
     errors: list | None = None,
 ) -> Iterable[Tuple[str, str]]:
     """Yield (filename, text_content) from all numbered archives."""
-    # Primary: .tar.zst
-    zst_archives = checked_glob(archived_dir, "_b*/old*.tar.zst", errors)
-    # Fallback: .tar.gz (only those without a .tar.zst counterpart)
-    gz_archives = checked_glob(archived_dir, "_b*/old*.tar.gz", errors)
-
-    seen_stems = set()
-    for archive in zst_archives:
-        seen_stems.add(archive.with_suffix("").with_suffix(""))  # strip .tar.zst
+    for archive in _numbered_archive_paths(archived_dir, errors):
         yield from _iter_single_archive(archive, errors=errors)
-    for archive in gz_archives:
-        stem = archive.with_suffix("").with_suffix("")  # strip .tar.gz
-        if stem not in seen_stems:
-            yield from _iter_single_archive(archive, errors=errors)
 
 
 def iter_legacy_archive(
@@ -207,6 +210,47 @@ def iter_all_archived_tar_files(
     yield from iter_legacy_archive(archived_dir)
 
 
+def archived_markdown_sources(
+    archived_dir: Path,
+    *,
+    errors: list | None = None,
+) -> Iterable[Tuple[str, Path]]:
+    """Yield the read units of ``iter_all_archived_markdown``, in its order.
+
+    Each unit is ``("loose", <file>)`` or ``("bundle", <archive>)``: loose
+    parent files (child names at the top level are skipped), loose child files
+    in subdirectories, then the numbered bundles (``_numbered_archive_paths``).
+    The legacy ``old.tar.*`` is not a unit. Lazy on purpose: each directory is
+    listed only when the previous units have been consumed, so a consumer that
+    reads every unit as it arrives reports listing and read failures in the
+    same interleaving as the reader itself.
+
+    A consumer reads a ``"loose"`` unit with ``read_loose_markdown`` and a
+    ``"bundle"`` unit with ``iter_archive_file``. Trail discovery reads them one
+    at a time so it can key a cache on each unit's bytes (t2173_1)."""
+    if errors is not None or archived_dir.exists():
+        # Loose parent tasks
+        for path in checked_glob(archived_dir, "t*_*.md", errors):
+            if not _is_child_filename(path.name):
+                yield "loose", path
+        # Loose child tasks in subdirectories
+        for path in checked_glob(archived_dir, "t*/t*_*_*.md", errors):
+            yield "loose", path
+    # Numbered archives only (no legacy)
+    for archive in _numbered_archive_paths(archived_dir, errors):
+        yield "bundle", archive
+
+
+def read_loose_markdown(path: Path, errors: list | None = None) -> str | None:
+    """The text of one loose archived file (``errors="replace"``), or ``None``
+    (reported) when it cannot be read."""
+    try:
+        return path.read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        _note(errors, path, exc)
+        return None
+
+
 def iter_all_archived_markdown(
     archived_dir: Path,
     *,
@@ -217,25 +261,28 @@ def iter_all_archived_markdown(
     Scans in order: loose parent files, loose child files (in subdirs),
     then numbered tar.gz archives. Does NOT scan legacy old.tar.gz.
     """
-    if errors is not None or archived_dir.exists():
-        # Loose parent tasks
-        for path in checked_glob(archived_dir, "t*_*.md", errors):
-            if _is_child_filename(path.name):
-                continue
-            try:
-                yield path.name, path.read_text(encoding="utf-8", errors="replace")
-            except OSError as exc:
-                _note(errors, path, exc)
-                continue
-        # Loose child tasks in subdirectories
-        for path in checked_glob(archived_dir, "t*/t*_*_*.md", errors):
-            try:
-                yield path.name, path.read_text(encoding="utf-8", errors="replace")
-            except OSError as exc:
-                _note(errors, path, exc)
-                continue
-    # Numbered archives only (no legacy)
-    yield from iter_numbered_archives(archived_dir, errors=errors)
+    for kind, path in archived_markdown_sources(archived_dir, errors=errors):
+        if kind == "bundle":
+            yield from _iter_single_archive(path, errors=errors)
+            continue
+        text = read_loose_markdown(path, errors)
+        if text is not None:
+            yield path.name, text
+
+
+def parse_archived_frontmatter(name: str, text: str, parse_fn, *,
+                               errors: list | None = None):
+    """The per-file step of ``iter_archived_frontmatter``: ``parse_fn(text)``,
+    or ``None`` when it raises. With ``errors``, a task-named file whose result
+    is not a dict is reported (a non-dict that is not ``None`` is still
+    returned, and still yielded by the iterator)."""
+    try:
+        metadata = parse_fn(text)
+    except Exception:
+        metadata = None
+    if not isinstance(metadata, dict) and _TASK_NAME_RE.match(name):
+        _note(errors, name, "unparseable frontmatter")
+    return metadata
 
 
 def iter_archived_frontmatter(
@@ -254,12 +301,8 @@ def iter_archived_frontmatter(
     yielded, as before).
     """
     for name, text in iter_all_archived_markdown(archived_dir, errors=errors):
-        try:
-            metadata = parse_fn(text)
-        except Exception:
-            metadata = None
-        if not isinstance(metadata, dict) and _TASK_NAME_RE.match(name):
-            _note(errors, name, "unparseable frontmatter")
+        metadata = parse_archived_frontmatter(name, text, parse_fn,
+                                              errors=errors)
         if metadata is not None:
             yield name, metadata
 
@@ -288,10 +331,28 @@ def _find_in_archive_iter(
     return None
 
 
+def iter_archive_file(
+    archive_path: Path,
+    fileobj=None,
+    *,
+    errors: list | None = None,
+) -> Iterable[Tuple[str, str]]:
+    """Yield (filename, text_content) for the .md files of one bundle.
+
+    ``fileobj`` is an already-open binary file of ``archive_path``, positioned
+    at its start; it is read instead of re-opening the path, so a caller that
+    hashed those same bytes reads exactly what it hashed (a rename-replacement
+    of the path in between cannot slip in). ``archive_path`` still selects the
+    format by suffix and names the bundle in every ``errors`` note. Same
+    failure contract as the readers above."""
+    return _iter_single_archive(archive_path, errors=errors, fileobj=fileobj)
+
+
 def _iter_single_archive(
     archive_path: Path,
     *,
     errors: list | None = None,
+    fileobj=None,
 ) -> Iterable[Tuple[str, str]]:
     """Yield (filename, text_content) for .md files in a single archive.
 
@@ -301,11 +362,19 @@ def _iter_single_archive(
     The exit status is checked only when the read ran to completion — a caller
     that stops early (``find_archived_markdown_by_id``) closes the pipe on a
     still-running ``zstd``, and the SIGPIPE that follows is not a failure.
+
+    ``fileobj`` (see ``iter_archive_file``) replaces opening ``archive_path``:
+    it becomes ``zstd``'s stdin, or the gzip stream ``tarfile`` reads.
     """
     try:
         if archive_path.name.endswith(".tar.zst"):
+            if fileobj is None:
+                argv, stdin = ["zstd", "-dc", str(archive_path)], None
+            else:
+                argv, stdin = ["zstd", "-dc"], fileobj
             proc = subprocess.Popen(
-                ["zstd", "-dc", str(archive_path)],
+                argv,
+                stdin=stdin,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.DEVNULL,
             )
@@ -335,7 +404,11 @@ def _iter_single_archive(
                 if completed and returncode != 0:
                     _note(errors, archive_path, f"zstd exited {returncode}")
         else:
-            with tarfile.open(archive_path, "r:gz") as tf:
+            if fileobj is None:
+                opened = tarfile.open(archive_path, "r:gz")
+            else:
+                opened = tarfile.open(fileobj=fileobj, mode="r:gz")
+            with opened as tf:
                 for member in tf.getmembers():
                     if not member.isfile() or not member.name.endswith(".md"):
                         continue

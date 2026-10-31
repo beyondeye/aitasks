@@ -1911,6 +1911,13 @@ main() {
         info "Checking .gitignore data entries..."
         setup_data_gitignore_symlink_safe
     fi
+    # Same contract and position for the discovery-cache rule (t2173_1): an
+    # upgraded-only project otherwise never ignores .aitask-cache/.
+    if [[ "$EXISTING_INSTALL" == true ]] && \
+       declare -F upgrade_cache_gitignore >/dev/null; then
+        info "Checking .gitignore discovery-cache entry..."
+        upgrade_cache_gitignore
+    fi
 
     commit_installed_files
     commit_installed_data_files

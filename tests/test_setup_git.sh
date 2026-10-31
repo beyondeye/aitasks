@@ -838,12 +838,13 @@ setup_gate_logs_gitignore|.aitask-gates/
 setup_testmap_gitignore|.aitask-testmap/
 setup_shadow_store_gitignore|.aitask-shadow/
 setup_scratchpad_gitignore|.aitask-scratchpad/
+setup_cache_gitignore|.aitask-cache/
 setup_worktree_dirs_gitignore|aiwork/
 HELPERS
 
 # (c)/(d) a deleted .gitignore is a pre-existing change too. The gap was in the
 # shared baseline capture (absent paths were never scanned), so one helper
-# stands for all seven.
+# stands for all eight.
 for mode in unstaged staged; do
     d="$(new_gitignore_repo)"
     SCRIPT_DIR="$d/.aitask-scripts"
@@ -884,6 +885,58 @@ echo "regenerated" > "$d/CLAUDE.md"
 output=$(commit_framework_files 2>&1 </dev/null)
 assert_eq "27e: HEAD CLAUDE.md keeps the original" "original" "$(git -C "$d" show HEAD:CLAUDE.md)"
 assert_contains_ci "27e: deleted-then-regenerated file reported" "left alone" "$output"
+rm -rf "$d"
+
+# (f) the discovery-cache rule (t2173_1) reports a write it could not make:
+# both the setup and the upgrade wrapper warn, stay non-fatal, write nothing
+# and commit nothing — and neither claims the rule was added. A directory in
+# place of .gitignore stands in where root would ignore a read-only mode.
+for helper in setup_cache_gitignore upgrade_cache_gitignore; do
+    for fault in readonly directory; do
+        d="$(new_gitignore_repo)"
+        SCRIPT_DIR="$d/.aitask-scripts"
+        if [[ "$fault" == readonly ]]; then
+            chmod 444 "$d/.gitignore"
+            if [[ -w "$d/.gitignore" ]]; then
+                echo "SKIP: 27f $helper readonly (mode ignored for this user)"
+                rm -rf "$d"
+                continue
+            fi
+        else
+            rm "$d/.gitignore"
+            mkdir "$d/.gitignore"
+        fi
+        before="$(commit_count "$d")"
+        snapshot_pre_setup_dirty
+        rc=0
+        out="$("$helper" </dev/null 2>&1)" || rc=$?
+        assert_eq "27f $helper $fault: non-fatal" "0" "$rc"
+        assert_contains "27f $helper $fault: reports the failure" \
+            "Could not add .aitask-cache/ to .gitignore" "$out"
+        assert_not_contains "27f $helper $fault: no 'added' claim" "Added .aitask-cache/" "$out"
+        assert_not_contains "27f $helper $fault: no 'rule added' claim" "rule added" "$out"
+        assert_not_contains "27f $helper $fault: no 'already' claim" "already in .gitignore" "$out"
+        assert_eq "27f $helper $fault: no commit" "$before" "$(commit_count "$d")"
+        if [[ "$fault" == readonly ]]; then
+            assert_eq "27f $helper readonly: file unchanged" "base-rule" "$(cat "$d/.gitignore")"
+        fi
+        chmod -R u+w "$d"
+        rm -rf "$d"
+    done
+done
+
+# (g) the upgrade wrapper's success paths: it writes, never commits (install.sh
+# commits under its own baseline), and is idempotent.
+d="$(new_gitignore_repo)"
+SCRIPT_DIR="$d/.aitask-scripts"
+before="$(commit_count "$d")"
+out="$(upgrade_cache_gitignore </dev/null 2>&1)"
+assert_contains "27g upgrade_cache_gitignore: reports the add" "Added .aitask-cache/" "$out"
+assert_eq "27g upgrade_cache_gitignore: rule on disk" "1" "$(grep -cxF ".aitask-cache/" "$d/.gitignore")"
+assert_eq "27g upgrade_cache_gitignore: no commit" "$before" "$(commit_count "$d")"
+out="$(upgrade_cache_gitignore </dev/null 2>&1)"
+assert_contains "27g upgrade_cache_gitignore: second run is a no-op" "already in .gitignore" "$out"
+assert_eq "27g upgrade_cache_gitignore: not duplicated" "1" "$(grep -cxF ".aitask-cache/" "$d/.gitignore")"
 rm -rf "$d"
 
 # --- Test 28: each baseline is gated on its own committer's predicate (t1972) ---
