@@ -102,11 +102,25 @@ Since the aitasks_go#t22 cutover, this tree is developed in the private
 - the layout of the development tree;
 - the build, test and bench commands, including dash parity;
 - the bench gate's host normalization;
-- the rules for engine submodules.
+- the rules for engine submodules;
+- the canonical *Interfaces* and *Evidence contract (M3.2)* sections, which
+  this file mirrors below.
 
 Here only `build.sh` and the integrity checks described above apply.
 
 ## Interfaces
+
+**Mirror.** This section and *Evidence contract (M3.2)* mirror the canonical
+copy in aitasks_go's `goengines/README.md`, where rows are added and changed
+first. They stay here, rather than as a pointer, because their consumers are
+public (`ait testmap` and `ait setup`'s engine self-check parse these shapes,
+and `aidocs/framework/go_engine.md` cites them) and cannot read the private
+repository. The two copies were verified identical at aitasks_go@a0515af. A
+"pinned by" test lives in aitasks_go, since an export ships no tests. When an
+export changes a consumed shape, copy both sections from the private README in
+the public commit that lands that export. If the copies disagree, the private
+one is right. Each copy keeps its own note above the next line, and the shared
+contract text starts there.
 
 Shapes other tasks consume, each pinned by the named test.
 

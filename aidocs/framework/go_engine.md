@@ -4,8 +4,10 @@ The framework's Go executables live in one module, `goengines/`
 (`github.com/beyondeye/aitasks/goengines`), one executable per
 `goengines/cmd/<name>/`. Today that is `ait-testmap`, the test map engine.
 This document covers how they are built, checked and released. The module's
-layout, the rules for engine submodules and every consumed interface shape are
-in `goengines/README.md`.
+layout and the rules for engine submodules are in the private `aitasks_go`
+repository's `goengines/README.md`, which is also the canonical copy of every
+consumed interface shape; the public `goengines/README.md` carries a mirror of
+those shapes (*Interfaces*, *Evidence contract (M3.2)*).
 
 **Two modes, one signal.** Whether `goengines/EXPORT.txt` exists decides how
 the tree is validated. In **legacy mode** (no `EXPORT.txt`), the tree is
@@ -184,14 +186,6 @@ output is empty and both run in full.
      fixture trees: mode detection, legacy no-ops, acceptance of the
      provenance labels, every refusal (including violations that exist only on
      a non-host release platform) and drift reporting.
-   - `tests/test_goengines_benchci.sh` — the bench helper below.
-   - `tests/test_annot_conformance_corpus_sync.sh` — the `annot` conformance
-     fixtures (`goengines/internal/testmap/annot/testdata/conformance/`) are
-     exact copies of the bash, Python, Go and Kotlin fixtures of the research
-     corpus: the same file lists, bytes and executable bits. The Go conformance
-     test never reads `aidocs/`, so this step is what fails when a research
-     fixture has not been copied; the refresh commands are in the header of
-     `conformance_test.go`.
 
 **`export-integrity`** (always runs, never advisory). It sets up Go, detects
 the mode, runs `goengines_integrity.sh check` (the required export validation;
@@ -204,8 +198,8 @@ these.
 **`bench`** (`continue-on-error: true`, **advisory**, legacy mode): runs the benchmark gate,
 `go run ./internal/tools/benchgate -baseline <baseline>` in full mode. The gate
 is host-normalized but not yet proven portable across hosted runners; it becomes
-a required check only when the promotion criteria in `goengines/README.md`
-(*Host normalization*) are met. CI never records its own baseline — hosted
+a required check only when the promotion criteria in `aitasks_go`'s
+`goengines/README.md` (*Host normalization*) are met. CI never records its own baseline — hosted
 runners change machine per job — it judges against the committed, calibrated
 `goengines/bench/baseline.txt`.
 
@@ -311,5 +305,6 @@ any go-test arguments are ignored.
 
 The engine half of this document — packages, verbs, the line protocol and
 extension points — is written with the documentation module of the test map
-work. Until then the interface shapes and the rules for engine submodules are in
-`goengines/README.md`.
+work. Until then the interface shapes are in `goengines/README.md` (a mirror of
+the canonical private copy) and the rules for engine submodules are in
+`aitasks_go`'s `goengines/README.md`.

@@ -8,9 +8,10 @@ These assertions pin the wiring statically:
   needs it, downloads them and attaches them in BOTH gh-release steps, the
   VERSION guard still runs first, and `packaging` is unchanged.
 - goengines-check.yml: it triggers on every file these guards protect and
-  runs them (the annot conformance corpus sync guard included, with the t1954
-  research corpus among the trigger paths, and the stubbed dashcheck.sh tests,
-  t2154), and only its bench job is advisory.
+  runs them, and only its bench job is advisory. The guards whose subjects an
+  export never carries (goengines/ci/benchci.sh, ci/dashcheck.sh and the annot
+  conformance copy) were retired with their tests (t2172): no trigger path and
+  no step may name them again.
 - both: the hang-guard preflight (goengines/ci/preflight.sh) runs alone before
   `go test ./...`, and the suite runs only when it passes (t1998); and the
   pinned pytest the pytest adapter's real-tool tests require is installed
@@ -38,16 +39,21 @@ import yaml
 REPO = Path(__file__).resolve().parent.parent
 WORKFLOWS = Path(os.environ.get("AIT_WORKFLOWS_DIR", REPO / ".github" / "workflows"))
 
+# Tests retired in t2172: their subjects live only in aitasks_go, whose
+# private ports are canonical. A workflow that still names one runs a missing
+# file (legacy fallback) or triggers on a path nothing reads.
+RETIRED_GUARDS = [
+    "tests/test_goengines_benchci.sh",
+    "tests/test_goengines_dashcheck.sh",
+    "tests/test_annot_conformance_corpus_sync.sh",
+]
+
 CHECK_PATHS = [
     "goengines/**",
     ".github/workflows/goengines-check.yml",
     ".github/workflows/release.yml",
     "tests/test_goengines_build.sh",
-    "tests/test_goengines_benchci.sh",
-    "tests/test_goengines_dashcheck.sh",
     "tests/test_release_workflow_goengines.py",
-    "aidocs/testing_engine/t1954_parser_research/corpus/**",
-    "tests/test_annot_conformance_corpus_sync.sh",
     ".github/scripts/**",
     "tests/test_goengines_export_integrity.sh",
 ]
@@ -238,15 +244,22 @@ class GoenginesCheckWorkflow(unittest.TestCase):
     def test_check_job_runs_the_guards(self):
         runs = "\n".join(str(s.get("run", "")) for s in self.jobs["check"]["steps"])
         for guard in ("tests/test_release_workflow_goengines.py",
-                      "tests/test_goengines_build.sh",
-                      "tests/test_goengines_benchci.sh",
-                      "tests/test_goengines_dashcheck.sh",
-                      "tests/test_annot_conformance_corpus_sync.sh"):
+                      "tests/test_goengines_build.sh"):
             self.assertIn(guard, runs)
         self.assertIn("tests/test_goengines_export_integrity.sh", runs)
         self.assertIn("gofmt", runs)
         _, build = step_running(self, self.jobs["check"]["steps"], "./build.sh all")
         assert_sums_loop(self, str(build["run"]))
+
+    def test_no_retired_guard_is_named(self):
+        on = triggers(self.wf)
+        for event in ("push", "pull_request"):
+            for guard in RETIRED_GUARDS:
+                self.assertNotIn(guard, on[event]["paths"], event)
+        for name, job in self.jobs.items():
+            runs = "\n".join(str(s.get("run", "")) for s in job.get("steps", []))
+            for guard in RETIRED_GUARDS:
+                self.assertNotIn(guard, runs, f"{name} runs retired {guard}")
 
     def test_preflight_precedes_the_suite(self):
         assert_preflight_precedes_suite(self, self.jobs["check"]["steps"])
