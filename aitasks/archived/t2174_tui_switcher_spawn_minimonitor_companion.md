@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: feature
-status: Implementing
+status: Done
 labels: [tui, switcher, minimonitor, tmux]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -15,7 +15,8 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus5_5
 created_at: 2026-10-31 19:00
-updated_at: 2026-10-31 20:47
+updated_at: 2026-10-31 22:00
+completed_at: 2026-10-31 22:00
 ---
 
 ## Goal
@@ -151,3 +152,14 @@ no companion, so switching back from it to a given agent is awkward.
 > **✅ gate:plan_approved** run=2026-10-31T18:47:20Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-10-31T19:58:55Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-10-31T20:00:47Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:86f3a5a91513d3df
+
+> **✅ gate:risk_evaluated** run=2026-10-31T20:00:47Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/2174/risk_evaluated_2026-10-31T20:00:47Z-risk_evaluated-a1.log`
