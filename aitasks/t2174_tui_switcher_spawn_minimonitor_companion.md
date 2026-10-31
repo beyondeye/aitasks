@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: medium
+risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: feature
@@ -147,3 +149,5 @@ no companion, so switching back from it to a given agent is awkward.
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-10-31T18:47:20Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-10-31T19:58:55Z status=pass attempt=1 type=human
