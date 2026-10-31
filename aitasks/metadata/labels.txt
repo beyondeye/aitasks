@@ -133,6 +133,7 @@ skill_optiomizations
 skills
 statistics
 stats_ui
+switcher
 sync
 syncer
 task-archive
