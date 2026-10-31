@@ -427,3 +427,171 @@ Re-checked against `main` @ 8655e7334. Every assumption still holds:
 ### Planned mitigations
 - timing: pre-phase | name: characterize_archive_iter | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: archive_iter refactor changing order/error reporting for other consumers | desc: pin archive_iter readers' (name, text) sequence and errors on a mixed fixture before the refactor (t2173_1)
 - timing: post-phase | name: cache_differential_real_repo | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: cache silently serving a stale owner list or document | desc: uncached vs cold vs warm equality on this repo plus a scripted-mutation cached-vs-uncached fixture test (t2173_1)
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-31 22:10)
+- **Requested by user:** two blocking review concerns, both verified and
+  confirmed. (1) `DocCache.lookup` accepted any cached dict whose `blob` field
+  matched the manifest's `current`: a dict-shaped corruption (`{"waves":[0]}`,
+  `{}`) was served with `load_error=""` and zero `get` spawns, and crashed
+  `trail_entry_refs`. (2) `setup_cache_gitignore` ran only from `ait setup`;
+  `ait upgrade` (install.sh) never runs setup and the release tarball carries
+  no root `.gitignore`, so an upgraded-only project showed `?? .aitask-cache/`.
+- **Changes made:**
+  1. The doc layer stores the fetched blob's **raw bytes** (UTF-8 text) instead
+     of the parsed document. A hit requires the manifest `current` == entry
+     `blob`, `sha256(raw)` == `current` (it IS the blob `get` verified), and
+     re-validation with `FROZEN_SCHEMA`; the document is parsed fresh from
+     `raw` (no `deepcopy`). Any failure — hash mismatch, invalid document, lone
+     surrogate, `RecursionError` — is a miss that falls back to the real `get`.
+     `_BlobLoad` gained `.blob_raw`. Warm cost on this repo: 62 ms median
+     (was 55 ms), still 0 `get` spawns.
+  2. `aitask_setup.sh`: `_ait_add_cache_gitignore_rule` (write only, 0 added /
+     1 present); `setup_cache_gitignore` = write + `_ait_commit_gitignore_rule`;
+     new `upgrade_cache_gitignore` = write only. `install.sh` calls it for
+     existing installs (guarded by `declare -F`), beside
+     `setup_data_gitignore_symlink_safe`, before `commit_installed_files` — so
+     the pre-upgrade dirty baseline decides whether `.gitignore` is committed.
+  3. Tests: `DocEntryIntegrityTests` (six forgeries incl. dict-shaped ones, a
+     forged entry holding the real-but-invalid blob, fresh parse per hit);
+     `test_install_upgrade_dirty_baseline.sh` cases K (clean `.gitignore`:
+     rule committed, a written cache file stays out of `git status`, no
+     duplicate on re-upgrade) and K2 (dirty `.gitignore`: rule on disk only).
+     Negative controls: mutants dropping the hash check or the re-validation
+     each fail `DocEntryIntegrityTests`; the pre-fix `install.sh` (HEAD) fails
+     6 K/K2 assertions, reproducing `?? .aitask-cache/trail_discovery/owners.json`.
+- **Files affected:** `.aitask-scripts/lib/trail_discovery_cache.py`,
+  `.aitask-scripts/lib/trail_discovery.py`, `.aitask-scripts/aitask_setup.sh`,
+  `install.sh`, `tests/test_trail_discovery_cache.py`,
+  `tests/test_install_upgrade_dirty_baseline.sh`.
+
+### Change Request 2 (2026-10-31 22:40)
+- **Requested by user:** one blocking concern, verified and confirmed:
+  `_ait_add_cache_gitignore_rule` returned 0 ("added") after an unchecked
+  grouped redirection, and both wrappers call it in a status-tested context
+  (errexit suspended), so a read-only `.gitignore` printed "Permission denied"
+  yet both wrappers announced success while the rule stayed absent. An
+  unreadable `.gitignore` (grep exit 2) was also misread as "rule absent".
+- **Changes made:** the helper returns 0 added / 1 already present / 2 could
+  not inspect or write — every write is checked (`2>/dev/null` placed BEFORE
+  the target redirection, since a failed redirection is reported before later
+  redirections apply) and the rule is read back before it counts. Both
+  wrappers branch on all three: rc 2 → `_ait_warn_cache_gitignore_failed`
+  (accurate warning + the `ait setup` repair hint), non-fatal, no commit, no
+  success claim. Tests: `tests/test_setup_git.sh` 27f (both wrappers × a
+  read-only file and a directory in place of `.gitignore`: rc 0, the failure
+  reported, no added/already claim, no commit, file unchanged) and 27g (the
+  upgrade wrapper's add + idempotent no-op, never committing). Negative
+  control: the pre-fix helper body under the same read-only fixture prints
+  "Added .aitask-cache/ to .gitignore" over an unchanged file.
+- **Files affected:** `.aitask-scripts/aitask_setup.sh`, `tests/test_setup_git.sh`.
+
+## Final Implementation Notes
+- **Actual work done:** all nine plan steps plus both inline mitigations.
+  - Pre-phase `characterize_archive_iter`: `tests/test_archive_iter_characterization.py`
+    (10 tests) pins every archive_iter reader's `(name, text)` order and `errors`
+    list on a mixed tree (loose parents/children, a child name at top level, a
+    CRLF file, zst + gz bundles with and without a twin, a garbage bundle, a
+    whole archive followed by trailing garbage → `zstd exited 1`, an
+    unparseable member, legacy `old.tar.zst`, by-id lookups). Green before and
+    after the refactor; the existing `test_archive_iter_consolidated.py` (42)
+    also stayed green.
+  - `archive_iter.py`: `_numbered_archive_paths`, `archived_markdown_sources`,
+    `read_loose_markdown`, `iter_archive_file(archive_path, fileobj=None)`,
+    `parse_archived_frontmatter`; the public readers are rebuilt on them.
+  - `trail_schema.py`: `VALIDATOR_REVISION = 1`, `parse_schema(raw, path)`
+    (factored out of `load_schema`), `load_trail(..., *, schema=None)`.
+  - `artifact_manifest.py`: `ManifestError`, `manifest_violation`,
+    `read_manifest`; `validate` / `load` are thin dying wrappers, messages
+    unchanged (`test_artifact_manifest_lib.sh` 50/50, `test_artifact_cli.sh`
+    251/251).
+  - `lib/trail_discovery_cache.py` (new): `OwnerCache` / `DocCache` over
+    `owners.json` / `docs.json`; identities and `FROZEN_SCHEMA` frozen at
+    import; `proven_manifest_dir`; `manifest_current`.
+  - `trail_discovery.py`: per-unit cached readers, `_BlobLoad` (`blob_hash`,
+    `blob_raw`), `_cached_blob_loader`, `discover_trails` with the executor
+    only for ≥2 trails.
+  - Hosts: `action_trail_select` always re-scans; host docstrings updated.
+  - Setup: `.gitignore` rule; `_ait_add_cache_gitignore_rule` +
+    `setup_cache_gitignore` (setup) + `upgrade_cache_gitignore` (called by
+    install.sh for existing installs).
+  - Docs: trails `_index` / `reference` / `how-to`, `implementation-trails`,
+    board `reference`. `check_links.py --build`: SWEEP PASSED.
+  - Post-phase `cache_differential_real_repo`: `tests/perf/trail_discovery_bench.py`
+    on this repo (13 trails), final run:
+    ```
+    phase        seconds  get spawns
+    no-cache       2.341          13
+    cold           1.904          13
+    warm           0.062           0   (median of 7; min 0.060, max 0.073)
+    DIFFERENTIAL: PASS — uncached == cold == warm for all 13 handle(s)
+    ```
+    (first run, before the doc-entry re-proof: no-cache 1.957 / cold 1.890 /
+    warm 0.055). The fixture-based scripted-mutation differential is
+    `CachedEqualsUncachedTests.test_scripted_mutation_sequence` (edit / add /
+    remove / archive into a bundle / repoint a manifest / folded duplicate /
+    store failure on a fresh handle / recovery).
+- **Deviations from plan:**
+  - `archived_markdown_sources` is a lazy generator, not a list: with a list,
+    every directory would be listed before any loose file is read, which
+    reorders the `errors` interleaving the characterization pins.
+  - `OwnerCache.lookup` returns record tuples; `trail_discovery` builds the
+    fresh `TrailInfo`s (no import cycle between the two modules).
+  - The doc layer stores the blob's raw bytes, not the parsed doc (Change
+    Request 1), and the identity tests patch the frozen `DOC_IDENTITY` rather
+    than `VALIDATOR_REVISION` (identities are frozen at import — review
+    concern 1 of the plan review).
+  - A faulty active file that is not task-named (e.g. `README.md` failing to
+    parse) is not cached either — re-parsed each scan; trivial cost, simpler
+    rule ("a unit whose parse failed is never cached").
+  - The planned "failing get, versions fallback" table and the post-phase
+    differential surfaced the stated boundary concretely: a handle whose store
+    becomes unreachable behind a VALID manifest is served from the cache (the
+    last verified document). It is pinned as its own test
+    (`test_the_stated_boundary_blob_availability_is_not_reproven`) instead of
+    being part of the equality sequence, which uses a fresh handle for the
+    store-failure step.
+- **Issues encountered:**
+  - Existing tests scanning an absolute `TASK_DIR` from the repo root wrote a
+    real `.aitask-cache/` into the checkout: `tests/test_trail_discovery.py`'s
+    `_tree()` now points `AIT_TRAIL_CACHE_DIR` into its temp tree. After the
+    full suite no `.aitask-cache/` is left in the repo.
+  - `tests/test_trails_app.py`: 7 cases asserted the old "`s` serves the
+    in-memory list" counts; updated to "`s` always scans". The rev2 case is
+    stronger now: the stub's re-scan (original doc, `read_seq=0`) must lose to
+    rev2 under newest-wins.
+  - Inside doc-layer tests `subprocess.run` is the fake store, so the bundle
+    builder binds the real `subprocess.run` at import.
+- **Key decisions:**
+  - Cleanliness of a unit is decided from private per-unit diagnostics on
+    every scan; best-effort scans therefore now drain and check `zstd`'s exit
+    status (they report to nobody, they just refuse to cache).
+  - Verification by mutants (isolated copy under the scratchpad): identity
+    re-read from disk, schema re-read, validating with the on-disk schema,
+    owner identity omitting `trail_discovery.py`, no empty-discovery guard,
+    caching a faulty bundle, caller's lists deciding cleanliness, a hand-rolled
+    manifest check, no `current` check, lookup outside the read lock, no hash
+    re-proof, no re-validation — every one fails the new tests. One equivalent
+    mutant survives (dropping the `not error` guard before `store`: on error
+    `blob_hash` / `blob_raw` are empty and `store` refuses them).
+  - The pre-fix `install.sh` (HEAD) fails 6 of the new upgrade assertions
+    (cases K/K2), reproducing `?? .aitask-cache/trail_discovery/owners.json`.
+- **Upstream defects identified:**
+  - `install.sh:1909-1914` — `ait upgrade` never runs setup and calls only the `.gitignore` repairs explicitly wired into it, so the setup-only rules `.aitask-scratchpad/`, `.aitask-shadow/`, `.aitask-gates/` and `.aitask-testmap/` (`setup_scratchpad_gitignore`, `setup_shadow_store_gitignore`, `setup_gate_logs_gitignore`, `setup_testmap_gitignore` in `aitask_setup.sh`) never reach an upgraded-only project — their stores show as untracked there (this task wired only `.aitask-cache/`).
+  - `.aitask-scripts/lib/trail_schema.py:645-652` — `load_trail` catches only `ValueError` from `json.loads`, so a deeply nested JSON payload raises `RecursionError` out of `load_trail` (and out of `trail_discovery.load_trail_blob`, which catches only `TrailValidationError`), crashing the discovery worker instead of yielding a fail-closed `load_error` card. The cache's hit path already treats it as a miss.
+- **Notes for sibling tasks:**
+  - t2173_2 (two-pane dialog): `s` now ALWAYS re-scans in both hosts
+    (`action_trail_select` → `_open_trail_select(rescan=True)`); the
+    `LoadingOverlay("Scanning for trails…")` still shows on every scan (a warm
+    one ~60 ms only flashes it). `r` in the selector still dismisses
+    `TRAIL_SELECT_RESCAN`; with `s` re-scanning, `r` is now redundant for
+    picking up new trails — when you rebind it for the search box, the docs
+    that still mention "`r` in the selector" are trails `reference.md` (keys
+    table :41, refresh table, Tabs section) only.
+  - Tests that run real discovery should set `AIT_TRAIL_CACHE_DIR` to a temp
+    dir (or `AIT_TRAIL_CACHE=0`); the cache dir is cwd-relative by default.
+  - t2173_3 (manual verification): the warm open should feel near-instant;
+    `.aitask-cache/trail_discovery/{owners,docs}.json` appear in the checkout
+    and are gitignored; editing a trail-owning task's frontmatter is picked up
+    by the next `s`.
