@@ -3,12 +3,13 @@ priority: medium
 effort: high
 depends: []
 issue_type: performance
-status: Ready
+status: Implementing
 labels: [trails, aitask_board, performance]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 2173
 created_at: 2026-10-31 19:29
-updated_at: 2026-10-31 19:29
+updated_at: 2026-10-31 20:47
 ---
 
 ## Context
