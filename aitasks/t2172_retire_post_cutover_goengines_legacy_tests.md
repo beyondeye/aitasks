@@ -3,10 +3,11 @@ priority: low
 effort: low
 depends: []
 issue_type: chore
-status: Ready
+status: Implementing
 labels: [go_engine, testmap, tests]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-10-30 15:27
-updated_at: 2026-10-30 15:27
+updated_at: 2026-10-31 18:11
 ---
 
 ## Context
