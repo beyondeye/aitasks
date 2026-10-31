@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: chore
-status: Implementing
+status: Done
 labels: [go_engine, testmap, tests]
 active_gates: [risk_evaluated]
 active_gates_filtered: []
@@ -14,7 +14,8 @@ active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus5_5
 created_at: 2026-10-30 15:27
-updated_at: 2026-10-31 18:27
+updated_at: 2026-10-31 19:05
+completed_at: 2026-10-31 19:05
 ---
 
 ## Context
@@ -69,3 +70,14 @@ aitasks_go@a0515af) added the private CI that replaces the legacy jobs:
 > **✅ gate:plan_approved** run=2026-10-31T16:27:01Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-10-31T17:01:36Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-10-31T17:05:51Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:950e68fa5d0bf233
+
+> **✅ gate:risk_evaluated** run=2026-10-31T17:05:51Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/2172/risk_evaluated_2026-10-31T17:05:51Z-risk_evaluated-a1.log`
