@@ -127,3 +127,34 @@ Step 9 (Post-Implementation) handles commit, archival.
 
 ### Planned mitigations
 - timing: after | name: interfaces_mirror_drift_check | type: enhancement | priority: low | effort: low | inline_risk: low | added_complexity: medium | addresses: public Interfaces mirror drifting from the private canonical copy | desc: (aitasks_go, via --project aitasks_go) make the export step compare the shared contract content of goengines/README.md's Interfaces + Evidence contract (M3.2) sections against the public aitasks copy — from the anchor line `Shapes other tasks consume, each pinned by the named test.` to the end of the Evidence contract section, excluding each repo's intentional note above the anchor — and report drift; tests: identical contracts with differing notes → no warning, a changed row → warning, a missing anchor in either copy → error (never a silent pass)
+
+## Final Implementation Notes
+
+- **Actual work done:** all five plan steps. Deleted the three retired tests;
+  pruned their four trigger paths (incl. the t1954 corpus glob) and three
+  `check` steps from `goengines-check.yml`; the guard test gained
+  `RETIRED_GUARDS` + `test_no_retired_guard_is_named`; `go_engine.md` and the
+  public README record that layout/rules/host-normalization live in aitasks_go
+  and that the public Interfaces/Evidence sections are a mirror.
+- **Deviations from plan:** README note names `ait testmap` and `ait setup`'s
+  engine self-check (`lib/engine_install.sh`, `version --json`) as the public
+  consumers — verified by grep — instead of "shell callers" generically.
+- **Issues encountered:** a first substring-based edit of the guard test
+  matched the more-indented copies too and aborted before writing; redone with
+  edits scoped to the `CHECK_PATHS` block.
+- **Key decisions:** item 3 — keep the public Interfaces/Evidence sections as a
+  documented mirror (public consumers cannot read aitasks_go), with the line
+  `Shapes other tasks consume, each pinned by the named test.` as the shared
+  anchor; each repo's own note sits above it. The legacy `bench` job and
+  go_engine.md's bench/scaled-ratio prose stay: the job still exists for the
+  fail-closed mode fallback.
+- **Upstream defects identified:** None
+- **Verification:** `test_release_workflow_goengines.py` 27/27 OK; negative
+  control (scratch workflow with a re-added `dashcheck.sh tests` step via
+  `AIT_WORKFLOWS_DIR`) fails exactly `test_no_retired_guard_is_named`;
+  `test_goengines_build.sh` 107/107; `test_goengines_export_integrity.sh`
+  181/181; workflow YAML parses; `goengines_integrity.sh drift` → `DRIFT_NONE`;
+  public vs private README identical from the anchor line onward. Before the
+  change all three retired tests failed locally (missing subjects). The CI
+  half (a push touching `goengines/**` running green in export mode) is
+  pending — only observable after push.
