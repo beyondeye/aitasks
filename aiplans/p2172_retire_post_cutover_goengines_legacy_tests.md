@@ -123,10 +123,10 @@ Step 9 (Post-Implementation) handles commit, archival.
 
 ### Goal-achievement risk: low
 - The public Interfaces mirror can drift from the private canonical copy, since
-  nothing public can compare them · severity: low · → mitigation: interfaces_mirror_drift_check
+  nothing public can compare them · severity: low · → mitigation: aitasks_go#83 (interfaces_mirror_drift_check)
 
 ### Planned mitigations
-- timing: after | name: interfaces_mirror_drift_check | type: enhancement | priority: low | effort: low | inline_risk: low | added_complexity: medium | addresses: public Interfaces mirror drifting from the private canonical copy | desc: (aitasks_go, via --project aitasks_go) make the export step compare the shared contract content of goengines/README.md's Interfaces + Evidence contract (M3.2) sections against the public aitasks copy — from the anchor line `Shapes other tasks consume, each pinned by the named test.` to the end of the Evidence contract section, excluding each repo's intentional note above the anchor — and report drift; tests: identical contracts with differing notes → no warning, a changed row → warning, a missing anchor in either copy → error (never a silent pass)
+- timing: after | name: interfaces_mirror_drift_check | type: enhancement | priority: low | effort: low | inline_risk: low | added_complexity: medium | addresses: public Interfaces mirror drifting from the private canonical copy | desc: (aitasks_go, via --project aitasks_go) make the export step compare the shared contract content of goengines/README.md's Interfaces + Evidence contract (M3.2) sections against the public aitasks copy — from the anchor line `Shapes other tasks consume, each pinned by the named test.` to the end of the Evidence contract section, excluding each repo's intentional note above the anchor — and report drift; tests: identical contracts with differing notes → no warning, a changed row → warning, a missing anchor in either copy → error (never a silent pass) | created: aitasks_go#83
 
 ## Final Implementation Notes
 
@@ -158,3 +158,7 @@ Step 9 (Post-Implementation) handles commit, archival.
   change all three retired tests failed locally (missing subjects). The CI
   half (a push touching `goengines/**` running green in export mode) is
   pending — only observable after push.
+- **Risk mitigation (Step 8d):** created cross-repo as aitasks_go#83
+  (`t83_interfaces_mirror_drift_check`, committed there as ce58c33). Not
+  written to this task's `risk_mitigation_tasks`: that field holds local ids
+  only, and `83` would name this repository's t83.
