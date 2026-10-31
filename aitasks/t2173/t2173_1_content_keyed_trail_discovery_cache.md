@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2173
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-31 19:29
-updated_at: 2026-10-31 20:47
+updated_at: 2026-10-31 21:58
 ---
 
 ## Context
@@ -99,3 +100,8 @@ review round that tightened three points):
 - Post-phase: uncached vs cold vs warm equality on this repo, plus a scripted
   mutation fixture test comparing cached vs uncached after every step.
 - `cd website && python3 check_links.py --build`.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-31T19:58:41Z status=pass attempt=1 type=human
