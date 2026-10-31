@@ -5,7 +5,7 @@ depends: []
 issue_type: feature
 status: Ready
 labels: [compass, ait_monitor, aitask_monitormini]
-children_to_implement: [t2175_1]
+children_to_implement: [t2175_1, t2175_2]
 created_at: 2026-10-31 19:58
 updated_at: 2026-10-31 19:58
 ---
