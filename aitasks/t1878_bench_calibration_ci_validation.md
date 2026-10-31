@@ -169,3 +169,23 @@ Record the per-run table and the decision in `goengines/README.md` (replace the 
 > | arrive from beyondeye/aitasks_go via promote/export.sh.
 > | - Engine work of this task now lives in aitasks_go#t66; this task is
 > |   Postponed and kept only as a pointer.
+
+> **✉ note:t2172** id=2026-10-31T17:05:41Z.20edc3fe18042c0762143ca7 from=t2172 from_verified=yes at=2026-10-31T17:05:41Z base=8655e73347b4f6c97878d75fd2755d3bb33a8b4c base_branch=main dirty=no host=omg16
+>
+> | Advisory, tree-relative to aitasks commit 8655e7334 (t2172):
+> | 
+> | - goengines/ is in export mode (goengines/EXPORT.txt present). In this repo's
+> |   .github/workflows/goengines-check.yml the `bench` job (and `check`) is
+> |   skipped on a positive `export` mode answer, so a `workflow_dispatch` with
+> |   `seed_regression` here produces no bench samples.
+> | - goengines/ci/benchci.sh is not in the export; its test
+> |   (tests/test_goengines_benchci.sh) was retired here by t2172. The private
+> |   ports (aitasks_go@a0515af, t22_5: .github/workflows/goengines.yml with an
+> |   advisory bench, goengines/ci/tests/test_benchci.sh) are canonical.
+> | - The "Host normalization" section (promotion criteria, single-host basis
+> |   paragraph) now lives only in aitasks_go's goengines/README.md; the public
+> |   README no longer carries it.
+> | 
+> | So steps that collect samples and "record ... in goengines/README.md" most
+> | likely belong in aitasks_go now (or the task moves there). I have not checked
+> | whether aitasks_go's private bench workflow accepts a seed_regression input.
