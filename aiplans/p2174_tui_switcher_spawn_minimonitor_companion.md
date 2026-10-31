@@ -306,3 +306,35 @@ Then Step 9 (Post-Implementation): commit, archive, push via the task workflow.
 
 ### Planned mitigations
 - timing: post-phase | name: live_quit_closes_window | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: remain-on-exit/pane-died on TUI panes | desc: live isolated-tmux check that M spawns a companion beside a Textual TUI and that quitting the TUI closes the window
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-31 20:05)
+- **Requested by user:** (1) The docs placed the explicit Shift+M route inside passages describing the automatic `agent-`-prefix restriction, and called the window limit "three panes" when it counts only real panes (not bound helpers). (2) The stale-marker heal test used only the stale→live order, which HEAD already handled, so it did not pin the new behaviour.
+- **Changes made:** Moved the Shift+M sentence after the auto-spawn restriction list in `minimonitor/_index.md` and after the "In every case" paragraph in `minimonitor/how-to.md`, and stated that the explicit route has no window-name requirement. The limit now reads "three real panes", and the docs say helper panes (shadow, scratchpad) don't count. Added a `live_then_stale` layout and made the heal test cover both orders. Verified with a probe: HEAD clears 0 markers for live→stale and the working tree clears 1. The new case fails against HEAD and passes on the working tree.
+- **Files affected:** `website/content/docs/tuis/minimonitor/_index.md`, `website/content/docs/tuis/minimonitor/how-to.md`, `tests/test_tui_switcher_companion_spawn.py`
+
+## Final Implementation Notes
+- **Actual work done:** Implemented as planned.
+  - `agent_launch_utils.py`: `_companion_pane_format()` and `_CompanionScan` / `_scan_companion_window()` are a pure classifier, shared by `_companion_check_and_split` (which self-heals every stale marker, then applies the presence, 3-real-pane and agent-membership gates) and the new read-only `companion_present(pane) -> bool | None`. Added `gateway_pane_window(pane, tmux_env)` with a factored `_gateway_socket_matches`; `_gateway_pane_session`'s format is unchanged. `maybe_spawn_minimonitor(explicit=True)` bypasses `auto_spawn` only.
+  - `tui_switcher.py`: `Binding("M", "spawn_minimonitor", …)` in `_QUICK_JUMP_BINDINGS`; `_COMPANION_INELIGIBLE_HOSTS`; `_CompanionTarget`; `_resolve_companion_target()`, called at mount; `action_spawn_minimonitor()`; and `_hint_segment(..., spell_shift=True)`, which renders `(Shift+M) minimonitor` on the second hint line, only when a target exists.
+  - New `tests/test_tui_switcher_companion_spawn.py` (33 tests). Docs updated in `tuis/_index.md`, `tuis/monitor/_index.md`, `tuis/minimonitor/_index.md` and `tuis/minimonitor/how-to.md` (new "How to Add a Minimonitor Beside Any TUI" section).
+- **Deviations from plan:**
+  - `_companion_target` is a class-level default (`None`), not set in `__init__`. `test_tui_switcher_hint_text.py` builds the overlay with `object.__new__` and calls `_render_hint()` directly, so an `__init__` assignment raised AttributeError there.
+  - The plan's live check named `./ait stats`; that is the text report. The stats TUI is `./ait stats-tui` (the `tui_registry.py` launch command), and the check ran against that.
+- **Issues encountered:** The scratchpad path is too long for a unix socket (`File name too long`, the sun_path limit), so the live check's `TMUX_TMPDIR` was a short `mktemp -d /tmp/t2174.XXXX`. Every call used `-L t2174live` with `$TMUX` unset, and the directory was removed afterwards.
+- **Live check result (post-phase `live_quit_closes_window`, observed verbatim):**
+  - Overlay hint line: `(Shift+M) minimonitor  Enter switch`.
+  - After `M`: `%0 "./ait stats-tui" kind= dead=0` / `%1 ait minimonitor kind=minimonitor:3475910 dead=0`.
+  - `stats pane=%0 remain-on-exit=on`.
+  - `pane-died[0] run-shell "/home/ddt/Work/aitasks/.aitask-scripts/aitask_companion_cleanup.sh %0 %1"`.
+  - Switcher reopened in that window: hint row `Enter switch  ←/→ session  [/] group` (no minimonitor entry, 0 mentions).
+  - After `q` in stats: `no server running on /tmp/t2174.gN4Z/tmux-1000/t2174live`. Both panes and the session closed.
+- **Key decisions:**
+  - `auto_spawn: false` is bypassed by the explicit key (user-confirmed).
+  - The hint spells `Shift+M` from the resolved key, because `render_label` shows `m` and `M` both as `(M)` (plan-review finding).
+  - A probe result of None (unknown) hides the option.
+  - The mount probe is advisory; the locked re-check decides, and a refusal produces a warning notification.
+  - Negative controls: a probe with a divergent rule fails the parity test, and HEAD's implementation fails the live→stale heal case.
+- **Upstream defects identified:**
+  - `website/content/docs/tuis/minimonitor/how-to.md:394-401` — "How to Jump to Another TUI" lists `minimonitor` as a switcher entry ("the current TUI"), although the switcher never lists it, and it omits trails, stats, syncer, applink, chatlink and frozenagent.
