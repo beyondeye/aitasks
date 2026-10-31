@@ -6,6 +6,7 @@ agents_md
 ait_brainstorm
 ait_dispatcher
 ait_ide
+ait_monitor
 ait_settings
 ait_setup
 aitakspickrem
@@ -53,6 +54,7 @@ codeagent
 codebrowser
 codex
 codexcli
+compass
 concepts
 concern_format
 concurrency
