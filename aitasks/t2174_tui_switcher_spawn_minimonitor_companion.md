@@ -3,11 +3,12 @@ priority: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [tui, switcher, minimonitor, tmux]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-10-31 19:00
-updated_at: 2026-10-31 19:00
+updated_at: 2026-10-31 19:01
 ---
 
 ## Goal
