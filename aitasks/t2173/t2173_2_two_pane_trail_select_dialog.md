@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2173
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-31 19:29
-updated_at: 2026-10-31 23:40
+updated_at: 2026-11-01 00:04
 ---
 
 ## Context
@@ -81,3 +82,8 @@ decisions from the approved parent plan (incl. a review round on focus):
 - `cd website && python3 check_links.py --build`.
 - Step 8e: send t1647_5 a note (`TrailMergeSelectScreen` should build on the new
   two-pane widget; `TrailSelectItem` is gone).
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-31T22:04:53Z status=pass attempt=1 type=human
