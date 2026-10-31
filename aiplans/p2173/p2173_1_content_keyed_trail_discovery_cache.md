@@ -5,6 +5,8 @@ Sibling Tasks: aitasks/t2173/t2173_2_*.md
 Archived Sibling Plans: aiplans/archived/p2173/p2173_*_*.md
 Base branch: main
 Output branch: main
+plan_verified:
+  - claudecode/opus5_5 @ 2026-10-31 21:57
 ---
 
 # t2173_1 — Content-keyed discovery cache
@@ -12,6 +14,36 @@ Output branch: main
 Child of t2173 (parent plan: `aiplans/p2173_trail_select_two_pane_dialog_and_discovery_cache.md`,
 approved 2026-10-31 after a review round). The parent's Context section explains the
 measured costs (~3.3s per scan, 13 trails) and why the dialog is hard to scan.
+
+### Verification notes (2026-10-31, verify pass before implementation)
+
+Re-checked against `main` @ 8655e7334. Every assumption still holds:
+- `archive_iter.py` (352 lines): `iter_all_archived_markdown`, `iter_numbered_archives`,
+  `iter_archived_frontmatter`, `_iter_single_archive` (zstd drain + exit check only
+  when `errors is not None`), `_note` dedupe — exactly as described below.
+- `trail_discovery.py`: `_iter_active_task_frontmatter(unreadable, scan_errors)`,
+  `_iter_trail_frontmatter_records`, `load_trail_blob` (tempfile + `artifact get
+  --out`), `sequenced_trail_read`, serial `discover_trails` — unchanged.
+- `artifact_manifest.py`: `validate`/`load` die via `bad()`; `manifest_path` dies on a
+  bad handle; `HANDLE_RE` is imported by `trails_app.py` and `agent_launch_utils.py`
+  (must stay). `cmd_get` in `aitask_artifact.sh` goes manifest get → current →
+  `artifact_resolve` (hash-verified) → `cp` to `--out`.
+- `trail_schema.load_trail(source)` already accepts `bytes`.
+- `_ait_detect_data_worktree` rung 1 / legacy behaviour as stated; `_AIT_DATA_WORKTREE`
+  is reset to `""` at source time (no env override to mirror).
+- `board_trail_screen.py:990` `action_trail_select` still `rescan=not tabbed or not
+  self._trail_infos`; `_open_trail_select` :1341.
+- `setup_scratchpad_gitignore` :3101, call :5405; `tests/test_setup_git.sh` HELPERS
+  block :834–842 with "all seven" prose at :846. `.gitignore` has no `.aitask-cache/`.
+- Test updates needed under always-rescan (`tests/test_trails_app.py`): :1365
+  (`"s re-scanned"` → now expects 2) and :1739–1743 ("reopen from the cache: still
+  rev2" → `s` now scans; assert newest-wins keeps rev2 because the stub's infos carry
+  `read_seq=0`). `test_an_empty_scan_is_not_a_dead_end` (:1620) stays valid.
+- Plan review (2026-10-31) raised two blocking concerns, both confirmed and folded
+  in below: identities were refreshed from disk rather than bound to the loaded
+  code (and `trail_schema.load_schema()` re-reads the schema file on every
+  `load_trail` call, so the schema had to be frozen as well); and
+  `ThreadPoolExecutor(max_workers=min(4, n))` raises `ValueError` for `n == 0`.
 
 ### Design decisions
 
@@ -46,6 +78,40 @@ measured costs (~3.3s per scan, 13 trails) and why the dialog is hard to scan.
     `trail_schema.py` + new constant `trail_schema.VALIDATOR_REVISION = 1`
     (comment: bump when validation semantics change without a change to this
     file).
+- **Identities are bound to the loaded producer generation, frozen at import
+  (review concern 1).** Hashing producer sources from disk on each `open()`
+  would let a board / `ait trails` left running across an upgrade compute the
+  *new* identity while its *old* imported parser/validator produces the
+  results — a freshly launched process would then accept those entries
+  without reparsing. So:
+  - `trail_discovery_cache` computes `OWNER_IDENTITY` and `DOC_IDENTITY`
+    **eagerly at module import** (module-level constants, never recomputed;
+    `owner_identity()` / `doc_identity()` just return them). It is imported
+    by `trail_discovery` right after `archive_iter` / `task_yaml` /
+    `topic_semantics` / `trail_schema`, so the hash is taken in the same
+    import chain that loaded the code. Each source path comes from the loaded
+    module's own `__file__` (`sys.modules[...]`), not from a reconstructed
+    path, so it names exactly the file that was imported.
+  - **The schema is frozen too.** `trail_schema.load_schema()` re-reads
+    `implementation_trail.schema.json` on every `load_trail` call, so an old
+    process would otherwise validate with the *new* schema and its *old*
+    code. At import the cache module reads the schema bytes once, hashes them
+    into `DOC_IDENTITY`, and parses them with a new
+    `trail_schema.parse_schema(raw, origin)` (the sanity checks factored out
+    of `load_schema`, which now calls it). `load_trail_blob` validates with
+    that frozen schema via a new keyword `load_trail(source, ..., schema=None)`
+    (`None` ⇒ today's `load_schema(schema_path)`; every other caller is
+    unchanged). The identity therefore describes exactly what discovery
+    validates with.
+  - Consequence: an old process can only write entries under its *own*
+    import-time identity, which a new process (different sources/schema) sees
+    as a mismatch and discards — it cannot populate entries the new
+    implementation accepts. Residual boundary, stated in the docstring: an
+    upgrade landing *during* the import chain itself (milliseconds) is not
+    covered; PyYAML is deliberately excluded (see above).
+  - Owner-layer producers (`task_yaml`, `topic_semantics`, `archive_iter`,
+    `trail_discovery`) read no data files (checked), so freezing their source
+    hash covers their whole behaviour.
 - **Torn/corrupt cache is a miss, never an error**: any exception loading a file
   (bad JSON, wrong types, wrong format/identity) → empty layer; each entry is
   type-checked at lookup (malformed entry → miss). Saves are atomic
@@ -131,6 +197,14 @@ measured costs (~3.3s per scan, 13 trails) and why the dialog is hard to scan.
 - **Cold-path parallelism**: blob loads run through a
   `ThreadPoolExecutor(max_workers=min(4, n))` over `sequenced_trail_read`
   (distinct handles never share a lock); results assigned back in info order.
+  **Only when `n >= 2`** (review concern 2): `ThreadPoolExecutor(max_workers=0)`
+  raises `ValueError`, and `n == 0` is reachable (fresh project, last owner
+  removed, every owner unreadable). `n == 0` skips the load loop entirely and
+  `n == 1` loads inline; both still return `(infos, unreadable)` with
+  `unreadable` and `scan_errors` filled exactly as today (they are produced by
+  the owner scan, before the load step), and the doc cache is still saved —
+  like the owner layer, `DocCache.save()` drops entries for handles this scan
+  did not discover, so with `n == 0` it simply empties the layer.
 - **Hosts revalidate on every open.** `TrailScreenMixin.action_trail_select`
   (`board/board_trail_screen.py:990`) always calls
   `_open_trail_select(rescan=True)` — the tabbed host no longer serves its
@@ -175,13 +249,20 @@ measured costs (~3.3s per scan, 13 trails) and why the dialog is hard to scan.
      task-named file, return metadata or None).
    - Rewrite `iter_all_archived_markdown` / `iter_archived_frontmatter` on top
      of these three (behaviour identical — the characterization test proves it).
-2. **`lib/trail_schema.py`** — add `VALIDATOR_REVISION = 1` with its comment.
+2. **`lib/trail_schema.py`** — add `VALIDATOR_REVISION = 1` with its comment;
+   factor `parse_schema(raw, origin)` (JSON parse + the two sanity checks) out
+   of `load_schema`, which keeps its signature and messages and calls it; add
+   keyword `schema=None` to `load_trail` (given ⇒ used instead of
+   `load_schema(schema_path)`). CLI and other callers unchanged.
    **`lib/artifact_manifest.py`** — the `ManifestError` / `manifest_violation`
    / `read_manifest` refactor above; `validate` / `load` keep their CLI-facing
    die behaviour and messages (existing artifact-manifest tests must pass
    unchanged).
-3. **`lib/trail_discovery_cache.py`** (new) — `cache_dir()` (env override /
-   disabled), `owner_identity()`, `doc_identity()`, `proven_manifest_dir()`,
+3. **`lib/trail_discovery_cache.py`** (new) — module-level, computed once at
+   import: `OWNER_IDENTITY`, `DOC_IDENTITY`, `FROZEN_SCHEMA` (see "Identities
+   are bound to the loaded producer generation"); `cache_dir()` (env override /
+   disabled), `owner_identity()` / `doc_identity()` (return the frozen
+   constants), `proven_manifest_dir()`,
    `manifest_current(handle)`, `class OwnerCache` (`open()`, `lookup(key, sha)`
    → list of fresh `TrailInfo` or None, `store(key, sha, records)`, `seen(key)`,
    `save()`), `class DocCache` (`open()`, `lookup(handle)` → fresh doc copy or
@@ -191,7 +272,8 @@ measured costs (~3.3s per scan, 13 trails) and why the dialog is hard to scan.
 4. **`lib/trail_discovery.py`**:
    - `_BlobLoad(tuple)` with `.blob_hash`; `load_trail_blob` hashes the
      `--out` file bytes after a successful get and validates via
-     `trail_schema.load_trail(raw_bytes)` (same validation, one read).
+     `trail_schema.load_trail(raw_bytes, schema=trail_discovery_cache.FROZEN_SCHEMA)`
+     (same validation, one read, the schema the doc identity hashed).
    - Replace `_iter_active_task_frontmatter` + the archived half of
      `_iter_trail_frontmatter_records` with per-unit readers that consult
      `OwnerCache` (keeping the long t1365/t1371/t1379 rationale docstring on the
@@ -203,8 +285,9 @@ measured costs (~3.3s per scan, 13 trails) and why the dialog is hard to scan.
    - `discover_trails`: open `DocCache`; loader `_cached_blob_loader(handle)` =
      lookup → hit `(doc, "", [])`; miss → `load_trail_blob(handle)` (module
      namespace, so test stubs still apply) → store when
-     `getattr(result, "blob_hash", "")` and no error; parallel
-     `sequenced_trail_read` as above; `DocCache.save()`. Docstrings updated
+     `getattr(result, "blob_hash", "")` and no error; `sequenced_trail_read`
+     over the infos — no load for `n == 0`, inline for `n == 1`, the executor
+     only for `n >= 2`; `DocCache.save()`. Docstrings updated
      (module docstring: the cache, and that the read-only contract still holds).
 5. **Hosts**: `board_trail_screen.py` `action_trail_select` → always
    `rescan=True`, docstring rewritten (both hosts revalidate; t1895's
@@ -265,10 +348,35 @@ measured costs (~3.3s per scan, 13 trails) and why the dialog is hard to scan.
      happens while `_trail_read_lock(handle)` is held (assert `locked()` from a
      patched `manifest_current`);
    - read-only: across cold+warm scans only `artifact get`/`versions` argv seen.
+   - **identity generation (concern 1)** — two real subprocesses over a temp
+     copy of `.aitask-scripts/lib/` on `sys.path` and a shared temp
+     `AIT_TRAIL_CACHE_DIR`: process A imports `trail_discovery`, then (still
+     running) the test edits the copy — a producer change with a visible effect
+     (e.g. owner records gain a marker in `name`) and, in a second case, a
+     schema change that rejects a fixture doc A accepts — then A runs
+     `discover_trails()` and saves. `owner_identity()` / `doc_identity()` in A
+     equal their pre-edit values. Process B (fresh import of the edited copy)
+     then scans: its identities differ from A's, both layers are discarded, and
+     B's result equals an uncached B run (`AIT_TRAIL_CACHE=0`) — never A's
+     output. Negative control: without the edit, B hits A's entries (0 parses,
+     0 `get` spawns).
+   - `load_trail(..., schema=)` and `parse_schema`: the frozen schema is what
+     validates (a schema file edited after import does not change A's
+     verdict); `load_schema()` messages unchanged.
+   - **empty discovery (concern 2)** — an empty tree, an every-owner-unreadable
+     tree and a tree whose last owner was just removed (warm cache first), each
+     with the cache enabled **and** `AIT_TRAIL_CACHE=0`: `discover_trails()`
+     returns `([], unreadable)` with `unreadable` / `scan_errors` as without
+     the cache, no executor is constructed (patch
+     `trail_discovery.ThreadPoolExecutor` to raise), and the existing
+     `test_empty_tree_reports_no_trails_and_no_failures`
+     (tests/test_trail_discovery.py:220) stays green in both modes. A
+     one-trail tree also loads without the executor.
    - Existing suites: `tests/test_trail_discovery.py`,
      `tests/test_trail_discovery_sequencing.py`, `tests/test_board_bytrail_view.py`,
      `tests/test_trails_app.py` (update the `calls["discover"]` counts — `s` now
-     always scans; re-check `test_an_empty_scan_is_not_a_dead_end`),
+     always scans: :1365 and :1739–1743; re-check
+     `test_an_empty_scan_is_not_a_dead_end`),
      `tests/test_trail_screen_host_protocol.py`. If any test runs discovery with
      cwd = the real repo, point `AIT_TRAIL_CACHE_DIR` at a temp dir there.
 9. **Docs (current state)**: `website/content/docs/tuis/trails/_index.md`
@@ -308,6 +416,8 @@ measured costs (~3.3s per scan, 13 trails) and why the dialog is hard to scan.
 - `archive_iter.py` is shared (stats, explain, trail discovery, archived lookups); refactoring its iteration into a unit partition could change order or error reporting for other consumers · severity: low (residual — addressed by inline pre-phase characterize_archive_iter) · → mitigation: inline pre-phase characterize_archive_iter
 - A content-keyed cache that serves a stale owner list or document would be worse than slow (wrong trail shown); the keys (path+bytes hash, fetched-blob hash, layer identities) are designed for it but the failure is silent · severity: low (residual — addressed by inline post-phase cache_differential_real_repo) · → mitigation: inline post-phase cache_differential_real_repo
 - A doc-layer hit re-proves the manifest (full `validate` parity via the non-exiting refactor) but not blob availability, so an unreachable non-local store still shows the last verified document instead of an error card · severity: low · → mitigation: none (stated boundary in the module docstring; content-addressed, so never a wrong document)
+- A process left running across an upgrade could label results from its old imported parser/validator with the new on-disk identity (review concern 1) · severity: low (residual — identities and the validation schema are frozen at import; only an upgrade landing mid-import is uncovered) · → mitigation: none (designed out; pinned by the identity-generation subprocess test in step 8)
+- Parallel cold path could crash on an empty discovery (`ThreadPoolExecutor(max_workers=0)` raises, review concern 2) · severity: low (residual — executor only for n ≥ 2) · → mitigation: none (designed out; pinned by the empty-discovery tests in step 8)
 - Best-effort scans now drain and check `zstd`'s exit status for every bundle (private per-unit diagnostics), slightly more work than today on a cold scan · severity: low · → mitigation: none
 
 ### Goal-achievement risk: low
