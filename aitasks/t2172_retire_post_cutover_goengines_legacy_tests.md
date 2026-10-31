@@ -10,8 +10,9 @@ active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-30 15:27
-updated_at: 2026-10-31 18:11
+updated_at: 2026-10-31 18:27
 ---
 
 ## Context
@@ -59,3 +60,8 @@ aitasks_go@a0515af) added the private CI that replaces the legacy jobs:
 - The remaining `tests/test_goengines_*` and integrity tests pass.
 - A push touching `goengines/**` runs `goengines-check.yml` green in export
   mode, with no step referencing a removed file.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-31T16:27:01Z status=pass attempt=1 type=human
