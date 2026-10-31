@@ -18,6 +18,8 @@ Minimonitor is meant to be auto-spawned — you almost never start it yourself. 
 
 In every case the flow is the same: the launching TUI creates a new tmux window named `agent-...`, then the auto-spawn helper creates a horizontal right-split inside that window and runs `ait minimonitor` in it. The helper skips the split if the window name does not start with the configured agent prefix (default `agent-`) or if a monitor/minimonitor is already running in the window.
 
+Other TUI windows (board, trails, codebrowser, settings, stats, syncer, brainstorm and the rest) get no minimonitor automatically. You can add one on request from the TUI switcher, which has no window-name requirement — see [How to Add a Minimonitor Beside Any TUI](#how-to-add-a-minimonitor-beside-any-tui).
+
 > **Auto-despawn:** minimonitor closes itself automatically when the agent pane it sits next to exits. On every refresh cycle it checks the panes in its own tmux window; the first refresh after the agent pane has gone (so there is no pane left other than minimonitor itself) triggers an `exit()` and the minimonitor pane closes. A 5-second grace period after startup prevents premature exit on cold launch. You never need to `ait minimonitor` after an agent finishes — a new one will spawn with the next agent you launch.
 
 ### How to Start Minimonitor Manually
@@ -31,6 +33,15 @@ ait minimonitor
 This starts minimonitor in the current tmux pane.
 
 > **Single-instance guard:** `ait minimonitor` checks the current tmux **window** for any existing monitor or minimonitor process. If one is already running in the same window, the new invocation prints a short message and exits. The guard is per-window, so you can still have minimonitor split alongside each of several agent windows in the same session.
+
+### How to Add a Minimonitor Beside Any TUI
+
+From any ait TUI except monitor and minimonitor, press **j** to open the TUI switcher, then **Shift+M** (`M`). A minimonitor split opens on the right of the TUI you opened the switcher from, and focus returns to that TUI. Its agent list then gets you back to any code agent without reopening the switcher.
+
+- The switcher shows the key as `(Shift+M) minimonitor` on its second hint line, and only when that window has no monitor or minimonitor yet. Plain **m** still opens the full monitor.
+- The split always lands in the window you opened the switcher from, even after you browse another session with Left/Right.
+- `tmux.minimonitor.auto_spawn: false` does not block it: that setting covers automatic splits only. The window limit still applies — a window that already holds three real panes gets a warning instead of a split. Helper panes, such as a shadow agent or a scratchpad, do not count toward the three.
+- Quitting the TUI closes the minimonitor too, unless another pane you added still uses the window.
 
 ### How to Read the Agent List
 
@@ -436,6 +447,8 @@ tmux:
 ```
 
 You can edit these directly, or use [`ait settings`]({{< relref "/docs/tuis/settings" >}}) → Tmux tab, which writes the same keys.
+
+`auto_spawn: false` turns off the automatic splits only. The TUI switcher's **Shift+M** still adds a minimonitor on request — see [How to Add a Minimonitor Beside Any TUI](#how-to-add-a-minimonitor-beside-any-tui).
 
 ### Key Bindings Quick Reference
 

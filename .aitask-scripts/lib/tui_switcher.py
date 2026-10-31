@@ -34,6 +34,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+from typing import NamedTuple
 
 from textual.binding import Binding
 from textual.containers import Container
@@ -52,12 +53,14 @@ from agent_launch_utils import (  # noqa: E402
     AitasksSession,
     advance_group_selection,
     bootstrap_project_session,
+    companion_present,
     cross_group_ring,
     cross_group_step,
     current_tmux_session,
     default_selected_group,
     disambiguate_labels,
     discover_aitasks_sessions,
+    gateway_pane_window,
     get_tmux_windows,
     group_members,
     group_sessions,
@@ -259,15 +262,25 @@ _HINT_ITEMS = [
 _KEY_PAREN_RE = re.compile(r"\(([^)]*)\)")
 
 
-def _hint_segment(action_id: str, label: str, default_key: str) -> str:
+def _hint_segment(
+    action_id: str, label: str, default_key: str, *, spell_shift: bool = False,
+) -> str:
     """Render one bottom-hint segment with its live key highlighted in cyan.
 
     ``render_label`` inlines the key into the word where possible
     (``board`` + ``b`` -> ``(B)oard``) or prefixes it otherwise
     (``stats`` + ``z`` -> ``(Z) stats``); the regex re-applies the existing
     cyan markup to whichever ``(K)`` group it produced.
+
+    ``render_label`` uppercases a matched single letter, so ``m`` and ``M``
+    both render as ``(M)``. ``spell_shift`` makes an uppercase single-letter
+    key render as ``(Shift+M) <label>`` instead, for a segment whose key has a
+    lowercase sibling in the same overlay (``M`` companion vs ``m`` monitor).
+    The resolved key is used, so a rebind still shows as itself.
     """
     key = resolve_key(_TUI_SWITCHER_SCOPE, action_id, default_key) or default_key
+    if spell_shift and len(key) == 1 and key.isalpha() and key.isupper():
+        key = f"shift+{key.lower()}"
     rendered = render_label(label, key)
     return _KEY_PAREN_RE.sub(rf"[{TUI_KEY_HINT_STYLE}](\1)[/]", rendered, count=1)
 
@@ -407,7 +420,21 @@ _QUICK_JUMP_BINDINGS = [
     Binding("g", "shortcut_git", "Git", show=False),
     Binding("n", "shortcut_create", "New Task", show=False),
     Binding("e", "shortcut_agent", "Code Agent", show=False),
+    Binding("M", "spawn_minimonitor", "Minimonitor here", show=False),
 ]
+
+#: Hosts whose window never gets a switcher-spawned companion: they ARE the
+#: monitor, so a companion would be a second one.
+_COMPANION_INELIGIBLE_HOSTS = frozenset({"monitor", "minimonitor"})
+
+
+class _CompanionTarget(NamedTuple):
+    """The host TUI's own window, where the companion key would split."""
+
+    session: str
+    window_index: str
+    pane: str
+    project_root: Path
 
 # The overlay closes on the same key that opens it (a toggle). Resolve the
 # shared "open switcher" key at import so a rebind of the open key carries over
@@ -485,6 +512,11 @@ class TuiSwitcherOverlay(ModalScreen):
         ),
         *register_app_bindings(_TUI_SWITCHER_SCOPE, _QUICK_JUMP_BINDINGS),
     ]
+
+    #: The host TUI's own window, when the companion key is offered there.
+    #: Resolved in on_mount; None hides the hint and makes the key a no-op. A
+    #: class default, so an overlay that never mounted reads None too.
+    _companion_target: _CompanionTarget | None = None
 
     def __init__(
         self,
@@ -593,10 +625,30 @@ class TuiSwitcherOverlay(ModalScreen):
         self._selected_group = default_selected_group(
             self._all_sessions, self._selected_key
         )
+        self._companion_target = self._resolve_companion_target()
         self._render_hint()
         self._render_session_row()
         self._render_desync_line(self._selected_project_root())
         self._populate_list_for(self._session)
+
+    def _resolve_companion_target(self) -> _CompanionTarget | None:
+        """The host TUI's own window, when a companion may be offered there.
+
+        The window is ``$TMUX_PANE``'s, verified against the gateway server and
+        addressed by index — independent of the session being browsed with
+        Left/Right. Fails closed: an ineligible host, an unverifiable pane, or a
+        probe that could not tell (None) all hide the option.
+        """
+        if (not self._current_tui
+                or self._current_tui in _COMPANION_INELIGIBLE_HOSTS):
+            return None
+        pane = os.environ.get("TMUX_PANE", "")
+        location = gateway_pane_window(pane, os.environ.get("TMUX", ""))
+        if location is None:
+            return None
+        if companion_present(pane) is not False:   # present, or unknown
+            return None
+        return _CompanionTarget(location[0], location[1], pane, Path.cwd())
 
     def _handle_stale_selection(self) -> bool:
         """If the SELECTED session is a STALE registry entry, push the
@@ -770,6 +822,10 @@ class TuiSwitcherOverlay(ModalScreen):
             for action_id, label, default_key in _HINT_ITEMS
         ) + "\n"
         close = f"[{TUI_KEY_HINT_STYLE}]{display_form(_OVERLAY_OPEN_KEY)}/Esc[/] close"
+        if self._companion_target is not None:
+            text += _hint_segment(
+                "spawn_minimonitor", "minimonitor", "M", spell_shift=True,
+            ) + "  "
         if self._multi_mode:
             text += (
                 f"[{TUI_KEY_HINT_STYLE}]Enter[/] switch  "
@@ -1353,6 +1409,33 @@ class TuiSwitcherOverlay(ModalScreen):
             # result is None (cancelled) → leave the overlay open
 
         self.app.push_screen(screen, on_result)
+
+    def action_spawn_minimonitor(self) -> None:
+        """Split a minimonitor into the window of the TUI this switcher was
+        opened from — never the browsed session's.
+
+        The mount-time probe only decides whether to offer it; the locked check
+        in maybe_spawn_minimonitor decides whether it happens, and arms the
+        cleanup hook on the TUI pane (explicit ``agent_pane``).
+        """
+        target = self._companion_target
+        if target is None:
+            return
+        from agent_launch_utils import maybe_spawn_minimonitor
+        companion = maybe_spawn_minimonitor(
+            target.session, self._current_tui,
+            window_index=target.window_index, force_companion=True,
+            explicit=True, project_root=target.project_root,
+            agent_pane=target.pane,
+        )
+        if companion is None:
+            self.app.notify(
+                "Minimonitor not added: this window already has one, holds 3+ "
+                "panes, or tmux was busy",
+                severity="warning",
+            )
+            return
+        self.dismiss(None)
 
     def _switch_to(self, name: str, running: bool, window_index: str | None = None) -> None:
         # If the selected entry is a STALE registry row (t826_10), push

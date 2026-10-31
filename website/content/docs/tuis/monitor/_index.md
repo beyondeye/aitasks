@@ -73,7 +73,9 @@ The zone that currently has focus is the one your keystrokes reach. It is marked
 
 ### Jumping to Another TUI
 
-Press **j** from any zone to open the TUI switcher overlay. The overlay lists the TUIs that are integrated with the tmux workflow (board, monitor, minimonitor, codebrowser, settings, stats, brainstorm, syncer). Select one and monitor either focuses the existing tmux window running that TUI or creates a new window and launches it. This is the fastest way to move between the ait dashboard and any other TUI without leaving tmux.
+Press **j** from any zone to open the TUI switcher overlay. The overlay lists the TUIs that are integrated with the tmux workflow (board, monitor, codebrowser, settings, stats, brainstorm, syncer). Select one and monitor either focuses the existing tmux window running that TUI or creates a new window and launches it. This is the fastest way to move between the ait dashboard and any other TUI without leaving tmux.
+
+Opened from any other TUI, the switcher also offers **Shift+M** (`M`), which adds a minimonitor beside that TUI — see [How to Add a Minimonitor Beside Any TUI]({{< relref "/docs/tuis/minimonitor/how-to" >}}#how-to-add-a-minimonitor-beside-any-tui). It is not offered here, since monitor is the dashboard itself.
 
 When `aitask-data` or `main` falls behind origin, the monitor's session bar appends a compact desync summary (e.g., `· desync: aitask-data 3↓`). For an interactive surface that pulls/pushes/syncs the same refs, see the [Syncer]({{< relref "/docs/tuis/syncer" >}}).
 

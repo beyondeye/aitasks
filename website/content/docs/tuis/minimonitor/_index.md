@@ -60,6 +60,8 @@ All of these call the same auto-spawn helper. It only acts when:
 - The new window name starts with `agent-` (the default agent prefix).
 - No monitor or minimonitor pane is already running in that window.
 
+Beside any other TUI, a minimonitor is added on request instead: press **Shift+M** (`M`) in the TUI switcher. That route has no window-name requirement; it still skips a window that already has a monitor or minimonitor. See [How to Add a Minimonitor Beside Any TUI](how-to/#how-to-add-a-minimonitor-beside-any-tui).
+
 **Auto-despawn:** minimonitor polls the panes in its own tmux window on every refresh cycle. As soon as there is no longer any pane other than minimonitor itself — typically because the code agent has finished and its pane exited — minimonitor calls `exit()` and the split pane closes. A 5-second grace period after startup prevents premature exit on cold launch. The net effect is that the sidebar appears when the agent starts and disappears when the agent finishes, without any manual cleanup.
 
 Auto-spawn is controlled by `tmux.minimonitor.auto_spawn` (default `true`) and `tmux.minimonitor.width` (default `40` columns) in `project_config.yaml`; see the [how-to](how-to/#configuring-auto-spawn) for details.

@@ -513,16 +513,47 @@ def _gateway_pane_session(pane: str, tmux_env: str) -> str | None:
     verifiably the server ``tmux_env`` names (see :func:`current_tmux_session`)."""
     if not tmux_env or not pane:
         return None
-    own_socket = tmux_env.split(",", 1)[0]
     rc, out = _TMUX.run(
         ["display-message", "-p", "-t", pane, "#{socket_path}\t#{session_name}"])
     if rc != 0:
         return None
     sock, _, session = out.strip().partition("\t")
-    if not sock or not own_socket or (
-            os.path.realpath(sock) != os.path.realpath(own_socket)):
+    if not _gateway_socket_matches(sock, tmux_env):
         return None
     return session or None
+
+
+def _gateway_socket_matches(sock: str, tmux_env: str) -> bool:
+    """Is ``sock`` (a ``#{socket_path}`` the gateway answered with) the server
+    ``tmux_env`` (a ``$TMUX`` value) names?"""
+    own_socket = tmux_env.split(",", 1)[0]
+    return bool(sock and own_socket) and (
+        os.path.realpath(sock) == os.path.realpath(own_socket))
+
+
+def gateway_pane_window(pane: str, tmux_env: str) -> tuple[str, str] | None:
+    """``(session, window_index)`` of ``pane`` on the GATEWAY server, or None.
+
+    The same server-identity rule as :func:`current_tmux_session`: ``pane`` (a
+    ``$TMUX_PANE`` value) is trusted only when the gateway's ``#{socket_path}``
+    is the socket ``tmux_env`` names, because pane ids are per-server. Used to
+    address a caller's OWN window by index, never by name — several windows can
+    share a name.
+    """
+    if not tmux_env or not pane:
+        return None
+    rc, out = _TMUX.run(
+        ["display-message", "-p", "-t", pane,
+         "#{socket_path}\t#{session_name}\t#{window_index}"])
+    if rc != 0:
+        return None
+    parts = out.strip().split("\t")
+    if len(parts) != 3 or not _gateway_socket_matches(parts[0], tmux_env):
+        return None
+    session, window_index = parts[1], parts[2]
+    if not session or not window_index.isdigit():
+        return None
+    return session, window_index
 
 
 def _sessions_owned_by(project_root: Path, candidates) -> set[str]:
@@ -2529,6 +2560,122 @@ def _companion_spawn_lock(session: str, win_index: str,
         os.close(fd)
 
 
+def _companion_pane_format() -> str:
+    """The ``list-panes -F`` format `_scan_companion_window` parses.
+
+    `#{pane_start_command}` is LAST: it is free text, and the partition keeps
+    any `|` inside it in the remainder.
+    """
+    helper_fields = "|".join(f"#{{{opt}}}" for opt in BOUND_HELPER_TARGET_OPTIONS)
+    return (f"#{{pane_id}}|#{{{MONITOR_KIND_OPTION}}}|{helper_fields}"
+            "|#{@aitask_frozen}|#{pane_dead}|#{pane_start_command}")
+
+
+@dataclass(frozen=True)
+class _CompanionScan:
+    """One window's companion facts, read from a `_companion_pane_format` list."""
+
+    #: A live-marked monitor/minimonitor, or a companion still booting.
+    present: bool
+    #: Occupants counted toward the 3-pane overcrowding limit.
+    real_panes: int
+    window_panes: frozenset[str]
+    #: Panes carrying a monitor marker whose process is gone.
+    stale_marked: tuple[str, ...]
+
+
+def _scan_companion_window(out: str) -> _CompanionScan:
+    """Classify a window's panes for the companion rule. Pure: no tmux calls.
+
+    The ONE definition of "a companion is already here", shared by the split
+    path (`_companion_check_and_split`) and the read-only probe
+    (`companion_present`), so the switcher never offers a spawn the split would
+    refuse for presence, nor hides one it would allow.
+
+    A live monitor is recognised by the @aitask_monitor_kind marker it stamps
+    on itself, NOT by #{pane_current_command} — that reports `python` for a
+    running monitor, so the old substring match could never fire (t1451).
+    Liveness comes from monitor_marker_state, the same implementation the
+    shell guard in aitask_minimonitor.sh execs.
+
+    A companion that is still BOOTING has no marker yet: it is recognised by
+    its start command, which tmux sets atomically with the pane (t2039).
+    Together with the lock this closes the ~1 s boot-window race in which a
+    second spawn for the same window saw no marker. The shell guard stays
+    marker-only on purpose: if it also treated a booting sibling as blocking,
+    two companions booting at once would both exit.
+
+    Bound helper panes — shadows (t986) and scratchpads (t2073) — carry a
+    helper target (`BOUND_HELPER_TARGET_OPTIONS`) and must NOT count toward
+    the overcrowding limit: a helper following the agent should not block the
+    companion minimonitor from spawning for that same agent.
+    A frozen stand-in (t1705_4) carries `@aitask_frozen` and no helper marker,
+    so without this field it would count as an ordinary occupant. It IS a real
+    occupant — counted below — but the marker is read explicitly so the
+    occupancy rule states the case rather than getting it by accident, and so
+    the field is available if a later change needs to treat it differently.
+    """
+    present = False
+    real_panes = 0
+    window_panes: set[str] = set()
+    stale_marked: list[str] = []
+    for line in out.strip().splitlines():
+        pane_id, _, rest = line.partition("|")
+        window_panes.add(pane_id)
+        marker, _, rest = rest.partition("|")
+        helper_targets = []
+        for _opt in BOUND_HELPER_TARGET_OPTIONS:
+            helper_target, _, rest = rest.partition("|")
+            helper_targets.append(helper_target)
+        frozen, _, rest = rest.partition("|")
+        dead, _, start_command = rest.partition("|")
+        if frozen.strip():
+            # A frozen stand-in occupies the window like any agent would.
+            real_panes += 1
+            continue
+        if marker:
+            if monitor_marker_alive(marker):
+                present = True
+            else:
+                stale_marked.append(pane_id)
+            # A monitor pane is a helper either way — never counted below.
+            continue
+        if start_command.strip() == _COMPANION_START_COMMAND:
+            if dead.strip() != "1":
+                present = True               # a companion is already booting
+            continue                         # a dead companion is a helper too
+        if not is_bound_helper(*helper_targets):
+            real_panes += 1
+    return _CompanionScan(present, real_panes, frozenset(window_panes),
+                          tuple(stale_marked))
+
+
+def companion_present(pane: str) -> bool | None:
+    """Does ``pane``'s window already hold a monitor/minimonitor companion?
+
+    The read-only twin of `_companion_check_and_split`'s eligibility read — the
+    same format and the same `_scan_companion_window` — for callers that only
+    decide whether to OFFER a spawn (the TUI switcher's companion key). A live
+    marker or a booting `ait minimonitor` is present. Unlike the split path it
+    never self-heals a stale marker.
+
+    ``-t <pane>`` lists that pane's own window; an untargeted `list-panes`
+    resolves to the session's CURRENT window instead (t2039).
+
+    None means unknown — an empty pane id, a failed tmux read, or a listing that
+    does not contain ``pane`` — and callers fail closed on it.
+    """
+    if not pane:
+        return None
+    rc, out = _TMUX.run(["list-panes", "-t", pane, "-F", _companion_pane_format()])
+    if rc != 0:
+        return None
+    scan = _scan_companion_window(out)
+    if pane not in scan.window_panes:
+        return None
+    return scan.present
+
+
 def _companion_check_and_split(
     session: str,
     win_index: str,
@@ -2542,81 +2689,32 @@ def _companion_check_and_split(
     decision always reflects every split a previous lock holder made.
     ``split_ran`` is False when a gate refused or the split failed;
     ``companion_pane`` can still be None after a split whose output was empty.
+    The rule itself is `_scan_companion_window`'s.
     """
-    # Check existing panes for monitor/minimonitor and pane count.
-    #
-    # A live monitor is recognised by the @aitask_monitor_kind marker it stamps
-    # on itself, NOT by #{pane_current_command} — that reports `python` for a
-    # running monitor, so the old substring match could never fire (t1451).
-    # Liveness comes from monitor_marker_state, the same implementation the
-    # shell guard in aitask_minimonitor.sh execs.
-    #
-    # A companion that is still BOOTING has no marker yet: it is recognised by
-    # its start command, which tmux sets atomically with the pane (t2039).
-    # Together with the lock this closes the ~1 s boot-window race in which a
-    # second spawn for the same window saw no marker. The shell guard stays
-    # marker-only on purpose: if it also treated a booting sibling as blocking,
-    # two companions booting at once would both exit.
-    #
-    # Bound helper panes — shadows (t986) and scratchpads (t2073) — carry a
-    # helper target (`BOUND_HELPER_TARGET_OPTIONS`) and must NOT count toward
-    # the overcrowding limit: a helper following the agent should not block the
-    # companion minimonitor from spawning for that same agent.
-    # A frozen stand-in (t1705_4) carries `@aitask_frozen` and no helper marker,
-    # so without this field it would count as an ordinary occupant. It IS a real
-    # occupant — counted below — but the marker is read explicitly so the
-    # occupancy rule states the case rather than getting it by accident, and so
-    # the field is available if a later change needs to treat it differently.
-    #
-    # `#{pane_start_command}` is LAST: it is free text, and the partition keeps
-    # any `|` inside it in the remainder.
-    helper_fields = "|".join(f"#{{{opt}}}" for opt in BOUND_HELPER_TARGET_OPTIONS)
     rc, out = _TMUX.run(
         ["list-panes", "-t", tmux_window_target(session, win_index),
-         "-F", f"#{{pane_id}}|#{{{MONITOR_KIND_OPTION}}}|{helper_fields}"
-               "|#{@aitask_frozen}|#{pane_dead}|#{pane_start_command}"]
+         "-F", _companion_pane_format()]
     )
     if agent_pane and rc != 0:
         # Without the pane list there is no proof the agent is in this window.
         return False, None, ""
     if rc == 0:
-        real_panes = 0
-        window_panes: set[str] = set()
-        for line in out.strip().splitlines():
-            pane_id, _, rest = line.partition("|")
-            window_panes.add(pane_id)
-            marker, _, rest = rest.partition("|")
-            helper_targets = []
-            for _opt in BOUND_HELPER_TARGET_OPTIONS:
-                helper_target, _, rest = rest.partition("|")
-                helper_targets.append(helper_target)
-            frozen, _, rest = rest.partition("|")
-            dead, _, start_command = rest.partition("|")
-            if frozen.strip():
-                # A frozen stand-in occupies the window like any agent would.
-                real_panes += 1
-                continue
-            if marker:
-                if monitor_marker_alive(marker):
-                    return False, None, ""
-                # Stale: the marking process is gone. Self-heal so the residue
-                # cannot block spawns in this window forever.
-                _TMUX.spawn(
-                    ["set-option", "-pu", "-t", pane_id, MONITOR_KIND_OPTION],
-                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                )
-                # A monitor pane is a helper either way — never counted below.
-                continue
-            if start_command.strip() == _COMPANION_START_COMMAND:
-                if dead.strip() != "1":
-                    return False, None, ""   # a companion is already booting
-                continue                     # a dead companion is a helper too
-            if not is_bound_helper(*helper_targets):
-                real_panes += 1
-        # Avoid overcrowding: skip if 3+ non-helper panes already exist
-        if real_panes >= 3:
+        scan = _scan_companion_window(out)
+        # Stale: the marking process is gone. Self-heal so the residue cannot
+        # block spawns in this window forever. Every stale pane is healed, even
+        # beside a live companion — clearing a marker whose process is verified
+        # gone is always correct.
+        for pane_id in scan.stale_marked:
+            _TMUX.spawn(
+                ["set-option", "-pu", "-t", pane_id, MONITOR_KIND_OPTION],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
+        if scan.present:
             return False, None, ""
-        if agent_pane and agent_pane not in window_panes:
+        # Avoid overcrowding: skip if 3+ non-helper panes already exist
+        if scan.real_panes >= 3:
+            return False, None, ""
+        if agent_pane and agent_pane not in scan.window_panes:
             # Fail closed: never place a companion for a pane in another window.
             return False, None, ""
 
@@ -2650,6 +2748,7 @@ def maybe_spawn_minimonitor(
     *,
     window_index: str | None = None,
     force_companion: bool = False,
+    explicit: bool = False,
     project_root: Path | None = None,
     agent_pane: str | None = None,
 ) -> str | None:
@@ -2670,6 +2769,10 @@ def maybe_spawn_minimonitor(
             prefix-based and is also classified as a TUI in the registry. The
             `auto_spawn`, existing-minimonitor, and pane-count guards still
             apply.
+        explicit: if True, the user asked for this companion (the TUI
+            switcher's companion key), so ``tmux.minimonitor.auto_spawn`` —
+            which governs AUTOMATIC spawning only — does not apply. The
+            existing-minimonitor, pane-count and lock gates still do.
         project_root: when set, read ``project_config.yaml`` and pass
             ``-c <project_root>`` to ``tmux split-window`` so the companion
             pane starts in that project's directory. Required for cross-
@@ -2718,7 +2821,7 @@ def maybe_spawn_minimonitor(
         except Exception:
             pass
 
-    if not auto_spawn:
+    if not auto_spawn and not explicit:
         return None
 
     if not force_companion:
