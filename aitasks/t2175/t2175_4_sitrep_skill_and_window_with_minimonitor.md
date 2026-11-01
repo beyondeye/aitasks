@@ -22,3 +22,14 @@ Child of t2175. Depends on the writer, harvest and refresh children.
 - Capabilities: show Pick now / Next / Waiting; turn harvested prose into agent-derived action/watch items and write the situation text per theme; answer questions FROM THE SOURCES via the context pointers (not remembered summaries), warning when answering from a stale `checked_at`; trail status = report and offer (run `aitask-trail refresh` on user confirmation, never write the trail itself); suggestions via `aitask-backlog-roadmap`, not a reimplemented ranking; dismiss items; append every Q&A to the dated log.
 - Document in `aidocs/framework/sitrep.md` and add a pointer in CLAUDE.md; user-facing docs on the website (run `check_links.py`).
 - Suggest separate tasks for the codex/opencode ports.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t2175_1** id=2026-11-01T20:31:59Z.832b1a0b4cb2e23242b7b45b from=t2175_1 from_verified=yes at=2026-11-01T20:31:59Z base=42b547c679d0a15ccb6ff8b93ade765e53882203 base_branch=main dirty=no host=omg16
+>
+> | The sitrep store writer landed in 42b547c67: .aitask-scripts/aitask_sitrep_todo.sh (format core: .aitask-scripts/lib/sitrep_todo.py).
+> | 
+> | 1. Permission touchpoints are owed here. Per aidocs/framework/aitasks_extension_points.md ("Adding a new helper script"), the 5 touchpoints (.claude/settings.local.json, .codex/rules/default.rules, seed/claude_settings.local.json, seed/codex_rules.default.rules, seed/opencode_config.seed.json) apply only once a SKILL.md closure invokes the helper. t2175_1 therefore added none; the sitrep skill is the first such caller.
+> | 2. The skill should write only through the helper's verbs (qa, dismiss, add --derived agent, situation <theme>, upsert-context), never by editing .aitask-sitrep/ files: the strict parser refuses any hand edit (exit 4; recover with `restore todo|qa`).
+> | 3. Verb list, exit codes and result lines are in the helper's header; the consumer-contract fixture is tests/fixtures/sitrep/. Revs are store-wide stamps (compare for equality only); `--expect-rev` guards agent writes against concurrent refresh.
