@@ -215,3 +215,74 @@ Container#trail_select_dialog            (90% × 80%, own ids — not #dep_picke
 
 ### Goal-achievement risk: low
 None identified.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-01 00:45)
+- **Requested by user:** the migrated highlight-visibility check
+  (`test_dlg_arrows_move_…`) compared the whole dialog's frame text, which changes
+  on every move because the detail pane does, and discarded colour/style — it
+  passed with the highlight rule set to `$surface` and no bold (confirmed). Assert
+  distinguishable rendered styles for selected vs idle rows, in both hosts, with
+  a negative control.
+- **Changes made:** new `_dlg_row_look(screen, y)` reads the list row's rendered
+  segments (background, foreground, bold). The test asserts selected ≠ idle, and
+  that the look moves with ↓ and back with ↑. Negative control run: the
+  reviewer's mutant (highlight rule → `background: $surface; text-style: none`)
+  fails the test in both `BoardTrailSelectDialogTests` and
+  `TrailsAppSelectDialogTests`; unmutated, both pass.
+- **Files affected:** `tests/lib/trail_select_dialog_checks.py`.
+
+## Final Implementation Notes
+- **Actual work done:** `TrailSelectScreen` rewritten as a two-pane 90% × 80% dialog
+  (`board_trail_view.py`): `Input#trail_select_search` (keeps focus) +
+  `TrailTitleList` (`OptionList`, `can_focus=False`, option id = handle) on the
+  left; `TrailDetailPane` (`VerticalScroll`, `can_focus=False`) holding
+  `Static#trail_select_detail_body` on the right; Cancel below. New pure helpers
+  `_trail_select_title`, `trail_select_prompt` (always `Text`) and
+  `trail_select_detail`. Screen bindings: ↑/↓ list cursor, PgUp/PgDn detail
+  scroll, Ctrl+R rescan (only with `allow_rescan`), Esc cancel; `Input.Submitted`
+  and `OptionList.OptionSelected` dismiss the handle. `_show_detail` scrolls home
+  whenever the shown handle changes and keeps the offset for the same handle.
+  `TrailSelectItem` removed; `aitask_board.py` re-exports the new names instead.
+- **Tests:** host-agnostic `TrailSelectDialogChecks` (15 checks) in
+  `tests/lib/trail_select_dialog_checks.py`, mixed into
+  `BoardTrailSelectDialogTests` (test_board_bytrail_view.py) and
+  `TrailsAppSelectDialogTests` (test_trails_app.py). They replace the three t1366
+  `#dep_picker_dialog` selector tests (focus-visible frame, scroll/Cancel
+  reachable, hint at 80 cols); `test_gate_choice_focus_is_visible_in_frame` stays.
+  Headless renderer tests and the 0.9-width `ModalDefaultCssTests` are in
+  test_board_trail_view.py. The t2112 label test reads the detail pane. In
+  test_trails_app.py, `ctrl+r` replaced the in-selector `r` (renamed
+  `test_ctrl_r_in_the_selector_rescans`), and the `● open` rows are read from the
+  list. The perf bench walks the highlight with ↓.
+- **Mutant evidence (negative controls, run via a pytest plugin that patches
+  `board_trail_view` at test time):** `str` prompt → only the bracketed-title test
+  fails; no `scroll_home` → only the scroll-reset test fails; focusable detail
+  pane or focusable list → only the focus-cycle test fails; highlight rule set
+  to `$surface` + no bold → the arrows test fails in both hosts.
+- **Verification results:** the four affected modules: 401 passed. Full suite:
+  parallel lane 10062 passed / 0 failed. Serial carve-out: in one run two
+  `test_minimonitor_bottom_pin_live.py` tests failed with load ~6 while another
+  session was active; that module passed on the run before and alone (6 passed).
+  Not related to this change. `check_links.py --build`: SWEEP PASSED. The perf
+  bench completes one rep (`art:trail-testmap-feature`).
+- **Deviations from plan:** (1) the shared checks live in `tests/lib/`, not in
+  test_board_bytrail_view.py: `test_collection_structure.py`'s syntactic rule
+  rejects a same-module base carrying `test_*` methods, and `trail_model_checks`
+  is the existing pattern. (2) `_index.md` and `workflows/implementation-trails.md`
+  needed no edit (no selector `r` there). `board/reference.md` gained a pointer to
+  the trails selector table. (3) Docs gained a Typing / PgUp-PgDn / Tab row set
+  and a two-pane paragraph.
+- **Issues encountered:** the guard failure above, and the highlight-visibility
+  review finding (Change Request 1).
+- **Key decisions:** Ctrl+R over a focus-aware `r` (the box always has focus);
+  the board's priority `escape` dismisses with no value, so
+  `test_dlg_escape_opens_nothing` accepts `[]` or `[None]`, never a handle.
+- **Upstream defects identified:** None
+- **Notes for sibling tasks:** t2173_3 (manual verification) covers the
+  manual both-TUI checks in this plan's Verification. The row-look helper
+  (`_dlg_row_look`) is how to assert a visible highlight on an unfocused
+  `OptionList`; whole-frame diffs are not enough when a detail pane updates
+  alongside it. t1647_5's `TrailMergeSelectScreen` should build on
+  `TrailTitleList` / `trail_select_detail`.
