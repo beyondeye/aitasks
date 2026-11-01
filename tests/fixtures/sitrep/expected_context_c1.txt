@@ -1,0 +1,14 @@
+### c1
+- background: Second sitrep child; turns finished-agent output into items.
+- origin: agent=agent-pick-2175 task=t2175 commit=c17a85002 date=2026-11-01 skill=aitask-pick pane=%12
+- theme: sitrep
+- sources:
+  - task: aitasks/t2175/t2175_2_sitrep_harvest_parser_for_finished_agents.md
+  - plan: aiplans/p2175/p2175_2_sitrep_harvest_parser_for_finished_agents.md
+  - trail: trail-sitrep-1
+  - capture: sources/ceac25156205fb40.txt#L1-L3
+  - commit: c17a85002
+  - artifact: artifact-42
+  - file: aidocs/framework/shadow_agent.md#L10
+  - url: https://example.com/sitrep
+- related: c2, c3

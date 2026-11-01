@@ -178,7 +178,7 @@ assert_contains "B ... naming .gitignore" "    .gitignore" "$OUT"
 # only through install.sh's upgrade_cache_gitignore / upgrade_store_gitignore_rules
 # — under the same dirty-baseline contract as the symlink-safe repair above.
 UPGRADE_RULES=(.aitask-cache/ .aitask-gates/ .aitask-testmap/ .aitask-shadow/
-    .aitask-scratchpad/ aiwork/ .aitask-crews/)
+    .aitask-scratchpad/ .aitask-sitrep/ aiwork/ .aitask-crews/)
 echo ""
 echo "=== K: clean .gitignore gains every upgrade-path rule, committed ==="
 make_project "$TMP/K"

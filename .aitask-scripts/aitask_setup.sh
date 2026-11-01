@@ -3125,6 +3125,37 @@ setup_scratchpad_gitignore() {
     success "Scratchpad notes rule added to .gitignore"
 }
 
+# --- Sitrep store gitignore rule (t2175_1) ---
+# The sitrep todo store lives under .aitask-sitrep/. It is per-repo, local-only
+# working state -- written only by aitask_sitrep_todo.sh, which keeps its own
+# backups -- and nothing here belongs in git.
+setup_sitrep_store_gitignore() {
+    local project_dir="$SCRIPT_DIR/.."
+    local gitignore="$project_dir/.gitignore"
+
+    if [[ -f "$gitignore" ]] && grep -qxF ".aitask-sitrep/" "$gitignore"; then
+        success "Sitrep store rule already in .gitignore"
+        return
+    fi
+
+    info "Adding .aitask-sitrep/ to .gitignore (sitrep todo store)..."
+
+    if [[ -f "$gitignore" ]]; then
+        echo "" >> "$gitignore"
+        echo "# Sitrep todo store (per-repo, local-only; not rebuildable)" >> "$gitignore"
+        echo ".aitask-sitrep/" >> "$gitignore"
+    else
+        {
+            echo "# Sitrep todo store (per-repo, local-only; not rebuildable)"
+            echo ".aitask-sitrep/"
+        } > "$gitignore"
+    fi
+
+    _ait_commit_gitignore_rule "$project_dir" "ait: Add .aitask-sitrep/ to .gitignore (sitrep todo store)"
+
+    success "Sitrep store rule added to .gitignore"
+}
+
 # --- Discovery-cache gitignore rule (t2173_1) ---
 # Trail discovery keeps an on-disk, content-keyed cache under
 # .aitask-cache/trail_discovery/. It is per-checkout, revalidated by content on
@@ -3245,9 +3276,10 @@ _ait_upgrade_gitignore_rules() {
 
 # --- Setup-only store and worktree rules on the upgrade path (t2177) ---
 # setup_gate_logs_gitignore, setup_testmap_gitignore,
-# setup_shadow_store_gitignore, setup_scratchpad_gitignore and
-# setup_worktree_dirs_gitignore run only from `ait setup`, so an upgraded-only
-# project never ignored their directories. This writes the same rules under
+# setup_shadow_store_gitignore, setup_scratchpad_gitignore,
+# setup_sitrep_store_gitignore and setup_worktree_dirs_gitignore run only from
+# `ait setup`, so an upgraded-only project never ignored their directories.
+# This writes the same rules under
 # the same comments, in setup's order (tests/test_setup_git.sh pins the result
 # byte-identical to setup's), and commits nothing — the same install.sh
 # contract and position as upgrade_cache_gitignore. __pycache__/ is left out:
@@ -3265,6 +3297,9 @@ upgrade_store_gitignore_rules() {
     _ait_upgrade_gitignore_rules "scratchpad notes" "Scratchpad notes" \
         "Scratchpad notes (per-task, local-only; pruned at archive)" \
         ".aitask-scratchpad/"
+    _ait_upgrade_gitignore_rules "sitrep store" "The sitrep todo store" \
+        "Sitrep todo store (per-repo, local-only; not rebuildable)" \
+        ".aitask-sitrep/"
     _ait_upgrade_gitignore_rules "framework worktree directories" "Task and crew worktrees" \
         "Framework worktrees (local, per-task and per-crew branches)" \
         "aiwork/" ".aitask-crews/"
@@ -5549,6 +5584,9 @@ main() {
     echo ""
 
     setup_scratchpad_gitignore
+    echo ""
+
+    setup_sitrep_store_gitignore
     echo ""
 
     setup_cache_gitignore

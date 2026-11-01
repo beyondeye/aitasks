@@ -30,6 +30,9 @@ aiwork/
 # Scratchpad notes (per-task, local-only; pruned at archive)
 .aitask-scratchpad/
 
+# Sitrep todo store (per-repo, local-only; not rebuildable)
+.aitask-sitrep/
+
 # Discovery caches (per-checkout, content-keyed, safe to delete)
 .aitask-cache/
 

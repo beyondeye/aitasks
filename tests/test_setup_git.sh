@@ -838,13 +838,14 @@ setup_gate_logs_gitignore|.aitask-gates/
 setup_testmap_gitignore|.aitask-testmap/
 setup_shadow_store_gitignore|.aitask-shadow/
 setup_scratchpad_gitignore|.aitask-scratchpad/
+setup_sitrep_store_gitignore|.aitask-sitrep/
 setup_cache_gitignore|.aitask-cache/
 setup_worktree_dirs_gitignore|aiwork/
 HELPERS
 
 # (c)/(d) a deleted .gitignore is a pre-existing change too. The gap was in the
 # shared baseline capture (absent paths were never scanned), so one helper
-# stands for all eight.
+# stands for all nine.
 for mode in unstaged staged; do
     d="$(new_gitignore_repo)"
     SCRIPT_DIR="$d/.aitask-scripts"
@@ -945,7 +946,7 @@ assert_eq "27g upgrade_cache_gitignore: not duplicated" "1" "$(grep -cxF ".aitas
 rm -rf "$d"
 
 # (g2) the same for the upgrade-path store and worktree rules (t2177).
-STORE_RULES=(.aitask-gates/ .aitask-testmap/ .aitask-shadow/ .aitask-scratchpad/ aiwork/ .aitask-crews/)
+STORE_RULES=(.aitask-gates/ .aitask-testmap/ .aitask-shadow/ .aitask-scratchpad/ .aitask-sitrep/ aiwork/ .aitask-crews/)
 d="$(new_gitignore_repo)"
 SCRIPT_DIR="$d/.aitask-scripts"
 before="$(commit_count "$d")"
@@ -976,7 +977,8 @@ rm -rf "$d"
 # (h) parity: the upgrade route writes exactly what setup writes — same rules,
 # same comments, same order — so the two routes cannot drift apart.
 UPGRADE_COVERED=(setup_gate_logs_gitignore setup_testmap_gitignore
-    setup_shadow_store_gitignore setup_scratchpad_gitignore setup_worktree_dirs_gitignore)
+    setup_shadow_store_gitignore setup_scratchpad_gitignore setup_sitrep_store_gitignore
+    setup_worktree_dirs_gitignore)
 d_setup="$(new_gitignore_repo)"
 SCRIPT_DIR="$d_setup/.aitask-scripts"
 snapshot_pre_setup_dirty
@@ -986,9 +988,9 @@ SCRIPT_DIR="$d_up/.aitask-scripts"
 upgrade_store_gitignore_rules </dev/null >/dev/null 2>&1
 assert_eq "27h upgrade .gitignore is byte-identical to setup's" \
     "$(cat "$d_setup/.gitignore")" "$(cat "$d_up/.gitignore")"
-assert_eq "27h ... and setup's carries every store rule" "6" \
+assert_eq "27h ... and setup's carries every store rule" "7" \
     "$(grep -cxF -e .aitask-gates/ -e .aitask-testmap/ -e .aitask-shadow/ \
-        -e .aitask-scratchpad/ -e aiwork/ -e .aitask-crews/ "$d_setup/.gitignore")"
+        -e .aitask-scratchpad/ -e .aitask-sitrep/ -e aiwork/ -e .aitask-crews/ "$d_setup/.gitignore")"
 rm -rf "$d_setup" "$d_up"
 
 # (i) drift guard: every .gitignore rule setup's main() writes has an upgrade
