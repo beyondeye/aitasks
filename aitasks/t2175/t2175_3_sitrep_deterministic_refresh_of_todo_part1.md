@@ -4,11 +4,12 @@ effort: medium
 depends: [t2175_2]
 issue_type: feature
 status: Ready
-labels: [compass]
+labels: [sitrep]
 anchor: 2175
 created_at: 2026-10-31 19:58
-updated_at: 2026-10-31 19:58
+updated_at: 2026-11-01 17:40
 ---
+
 
 # Deterministic refresh of Part 1
 
@@ -23,3 +24,14 @@ Child of t2175. Depends on the format/writer and harvest children.
 
 ## Tests
 Landing of a follow-up, archival, fold, push, unreachable repo (-> unknown), concurrent refresh vs agent write.
+
+## Writing results (handed over by t2175_1)
+- Read items with `./.aitask-scripts/aitask_sitrep_todo.sh list --machine`
+  (`ITEM:c<N>|<rev>|kind|state|group|checked_at|ref|derived|outcome|title`) and
+  write results with `set-state --batch`, one line per item:
+  `<id>|<observed rev>|<state>|<checked_at>|<outcome>`.
+- A `STALE:c<N>|<rev>` result means someone changed the item since it was read
+  (e.g. the user dismissed it) — leave it, re-read it next tick, never retry
+  blind. `KEPT:c<N>|dismissed` means the batch tried to touch a dismissed item;
+  refresh never writes dismissed items and never sets `dismissed`.
+- Format contract: `tests/fixtures/sitrep/` (golden store).

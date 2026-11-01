@@ -54,7 +54,6 @@ codeagent
 codebrowser
 codex
 codexcli
-compass
 concepts
 concern_format
 concurrency
@@ -131,6 +130,7 @@ shadow
 shadow-concern
 shell
 shortcuts
+sitrep
 skill_optiomizations
 skills
 statistics

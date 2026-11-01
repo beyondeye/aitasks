@@ -4,13 +4,14 @@ effort: high
 depends: []
 issue_type: feature
 status: Ready
-labels: [compass, ait_monitor, aitask_monitormini]
+labels: [ait_monitor, aitask_monitormini, sitrep]
 children_to_implement: [t2175_1, t2175_2, t2175_3, t2175_4, t2175_5]
 created_at: 2026-10-31 19:58
-updated_at: 2026-10-31 19:58
+updated_at: 2026-11-01 17:40
 ---
 
-# Compass: a per-repo, persisted todo list with pointer-based context
+
+# Sitrep: a per-repo, persisted todo list with pointer-based context
 
 ## Problem
 Finished or frozen code-agent windows are kept open only for the follow-up
@@ -21,25 +22,25 @@ and loses track of which question went to which window. Closing the window
 destroys the information (`aitask_frozen.sh drop` deletes the capture).
 
 ## Feature
-**Compass** is a per-repo, advisory-only steward agent that runs in its own
+**Sitrep** is a per-repo, advisory-only steward agent that runs in its own
 window (with a minimonitor companion) and owns ONE persisted todo list for the
 repo: what is going on and what is pending, so finished agents can be closed.
 Analogous to the shadow agent (`aidocs/framework/shadow_agent.md`) but scoped
 to a whole repo, not one followed agent.
 
 ## Decisions (settled with the user)
-- Storage: per-repo, gitignored directory `.aitask-compass/` (like
+- Storage: per-repo, gitignored directory `.aitask-sitrep/` (like
   `.aitask-shadow/`), persisted on disk, never committed. NOT agent memory.
 - Harvest: automatic at agent freeze and at the workflow-end banner; closing an
   agent runs harvest first and `drop` refuses if harvest fails.
 - Authority: advisory only. Never picks, pushes, edits code or sends keystrokes.
-- Scope: one compass per repo (project root). Frozen and live agents from any
+- Scope: one sitrep per repo (project root). Frozen and live agents from any
   tmux session are included; the frozen-agent store
   (`~/.config/aitasks/agent_sessions.json`, captures in
   `~/.config/aitasks/frozen/<id>/capture.txt`) is global, so group by root.
-- Trail status: report and offer. Compass resolves the trail's tasks and says
+- Trail status: report and offer. Sitrep resolves the trail's tasks and says
   whether the trail is stale; refreshing it is `aitask-trail refresh`, run on
-  user confirmation. Compass never writes the trail itself.
+  user confirmation. Sitrep never writes the trail itself.
 - Pick suggestions reuse `aitask-backlog-roadmap`; do not reimplement ranking.
 
 ## Sources feeding the list (three kinds)
@@ -51,7 +52,7 @@ to a whole repo, not one followed agent.
    dismissed. VERIFY whether task files record their creating skill; if not,
    take the ids from the explore agent's final output.
 
-## The file: `.aitask-compass/todo.md`
+## The file: `.aitask-sitrep/todo.md`
 Markdown (agent-readable verbatim), two parts, written ONLY through one locked
 helper (mutex + atomic write + rolling backup, modelled on
 `aitask_shadow_rejected.sh`).
@@ -74,7 +75,7 @@ by following a pointer. Q&A is kept in a separate dated log, never in context.
   rebuildable): atomic writes, locked single writer, rolling backup.
 - Unverifiable state shows as `unknown`, never as done.
 - Task items link to the task file and show its live state; they never copy its
-  content (Compass must not become a second board).
+  content (Sitrep must not become a second board).
 - Cross-repo follow-ups (`aitasks#t2171`) are recorded as references and marked
   unverified unless the project registry resolves them.
 - Answers come from the sources, not remembered summaries; the agent warns when
@@ -84,7 +85,7 @@ by following a pointer. Q&A is kept in a separate dated log, never in context.
 1. todo.md format, locked writer, backup
 2. Harvest parser (items + context entries from finished agents)
 3. Deterministic refresh (Part 1 only)
-4. The compass skill and window (+ minimonitor companion)
+4. The sitrep skill and window (+ minimonitor companion)
 5. Monitor key: harvest-and-close
 
 Other code-agent ports of the skill (codex, opencode) are separate follow-up
