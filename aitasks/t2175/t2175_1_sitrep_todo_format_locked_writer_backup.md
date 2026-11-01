@@ -11,10 +11,10 @@ active_gates_profile: fast
 active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2175
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-31 19:58
-updated_at: 2026-11-01 17:40
+updated_at: 2026-11-01 17:46
 ---
-
 
 # todo.md format, locked writer and backup
 
@@ -29,3 +29,8 @@ First child of t2175 (read its description for the settled design); everything e
 
 ## Tests
 Bash test with concurrent writers, crash-mid-write, lock busy vs unusable, backup restore, schema rejection of status/count fields in context entries.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-01T15:46:18Z status=pass attempt=1 type=human
