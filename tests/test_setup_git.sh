@@ -887,11 +887,12 @@ assert_eq "27e: HEAD CLAUDE.md keeps the original" "original" "$(git -C "$d" sho
 assert_contains_ci "27e: deleted-then-regenerated file reported" "left alone" "$output"
 rm -rf "$d"
 
-# (f) the discovery-cache rule (t2173_1) reports a write it could not make:
-# both the setup and the upgrade wrapper warn, stay non-fatal, write nothing
-# and commit nothing — and neither claims the rule was added. A directory in
-# place of .gitignore stands in where root would ignore a read-only mode.
-for helper in setup_cache_gitignore upgrade_cache_gitignore; do
+# (f) the discovery-cache rule (t2173_1) and the upgrade-path store rules
+# (t2177) report a write they could not make: every wrapper warns, stays
+# non-fatal, writes nothing and commits nothing — and none claims a rule was
+# added. A directory in place of .gitignore stands in where root would ignore a
+# read-only mode.
+while IFS='|' read -r helper first_rule; do
     for fault in readonly directory; do
         d="$(new_gitignore_repo)"
         SCRIPT_DIR="$d/.aitask-scripts"
@@ -912,8 +913,8 @@ for helper in setup_cache_gitignore upgrade_cache_gitignore; do
         out="$("$helper" </dev/null 2>&1)" || rc=$?
         assert_eq "27f $helper $fault: non-fatal" "0" "$rc"
         assert_contains "27f $helper $fault: reports the failure" \
-            "Could not add .aitask-cache/ to .gitignore" "$out"
-        assert_not_contains "27f $helper $fault: no 'added' claim" "Added .aitask-cache/" "$out"
+            "Could not add $first_rule to .gitignore" "$out"
+        assert_not_contains "27f $helper $fault: no 'added' claim" "Added " "$out"
         assert_not_contains "27f $helper $fault: no 'rule added' claim" "rule added" "$out"
         assert_not_contains "27f $helper $fault: no 'already' claim" "already in .gitignore" "$out"
         assert_eq "27f $helper $fault: no commit" "$before" "$(commit_count "$d")"
@@ -923,7 +924,11 @@ for helper in setup_cache_gitignore upgrade_cache_gitignore; do
         chmod -R u+w "$d"
         rm -rf "$d"
     done
-done
+done <<'FAILING'
+setup_cache_gitignore|.aitask-cache/
+upgrade_cache_gitignore|.aitask-cache/
+upgrade_store_gitignore_rules|.aitask-gates/
+FAILING
 
 # (g) the upgrade wrapper's success paths: it writes, never commits (install.sh
 # commits under its own baseline), and is idempotent.
@@ -938,6 +943,69 @@ out="$(upgrade_cache_gitignore </dev/null 2>&1)"
 assert_contains "27g upgrade_cache_gitignore: second run is a no-op" "already in .gitignore" "$out"
 assert_eq "27g upgrade_cache_gitignore: not duplicated" "1" "$(grep -cxF ".aitask-cache/" "$d/.gitignore")"
 rm -rf "$d"
+
+# (g2) the same for the upgrade-path store and worktree rules (t2177).
+STORE_RULES=(.aitask-gates/ .aitask-testmap/ .aitask-shadow/ .aitask-scratchpad/ aiwork/ .aitask-crews/)
+d="$(new_gitignore_repo)"
+SCRIPT_DIR="$d/.aitask-scripts"
+before="$(commit_count "$d")"
+out="$(upgrade_store_gitignore_rules </dev/null 2>&1)"
+for rule in "${STORE_RULES[@]}"; do
+    assert_contains "27g2 upgrade_store_gitignore_rules: reports adding $rule" "$rule" "$out"
+    assert_eq "27g2 upgrade_store_gitignore_rules: $rule on disk" "1" "$(grep -cxF -- "$rule" "$d/.gitignore")"
+done
+assert_eq "27g2 upgrade_store_gitignore_rules: no commit" "$before" "$(commit_count "$d")"
+out="$(upgrade_store_gitignore_rules </dev/null 2>&1)"
+assert_not_contains "27g2 upgrade_store_gitignore_rules: second run adds nothing" "Added " "$out"
+for rule in "${STORE_RULES[@]}"; do
+    assert_eq "27g2 upgrade_store_gitignore_rules: $rule not duplicated" "1" "$(grep -cxF -- "$rule" "$d/.gitignore")"
+done
+rm -rf "$d"
+
+# (g3) each rule is guarded on its own: a hand-added .aitask-crews/ (this repo
+# carried one for a long time) gains only aiwork/.
+d="$(new_gitignore_repo)"
+SCRIPT_DIR="$d/.aitask-scripts"
+echo ".aitask-crews/" >> "$d/.gitignore"
+out="$(upgrade_store_gitignore_rules </dev/null 2>&1)"
+assert_contains "27g3 reports adding only aiwork/" "Added aiwork/ to .gitignore" "$out"
+assert_eq "27g3 aiwork/ added" "1" "$(grep -cxF "aiwork/" "$d/.gitignore")"
+assert_eq "27g3 .aitask-crews/ not duplicated" "1" "$(grep -cxF ".aitask-crews/" "$d/.gitignore")"
+rm -rf "$d"
+
+# (h) parity: the upgrade route writes exactly what setup writes — same rules,
+# same comments, same order — so the two routes cannot drift apart.
+UPGRADE_COVERED=(setup_gate_logs_gitignore setup_testmap_gitignore
+    setup_shadow_store_gitignore setup_scratchpad_gitignore setup_worktree_dirs_gitignore)
+d_setup="$(new_gitignore_repo)"
+SCRIPT_DIR="$d_setup/.aitask-scripts"
+snapshot_pre_setup_dirty
+for helper in "${UPGRADE_COVERED[@]}"; do "$helper" </dev/null >/dev/null 2>&1; done
+d_up="$(new_gitignore_repo)"
+SCRIPT_DIR="$d_up/.aitask-scripts"
+upgrade_store_gitignore_rules </dev/null >/dev/null 2>&1
+assert_eq "27h upgrade .gitignore is byte-identical to setup's" \
+    "$(cat "$d_setup/.gitignore")" "$(cat "$d_up/.gitignore")"
+assert_eq "27h ... and setup's carries every store rule" "6" \
+    "$(grep -cxF -e .aitask-gates/ -e .aitask-testmap/ -e .aitask-shadow/ \
+        -e .aitask-scratchpad/ -e aiwork/ -e .aitask-crews/ "$d_setup/.gitignore")"
+rm -rf "$d_setup" "$d_up"
+
+# (i) drift guard: every .gitignore rule setup's main() writes has an upgrade
+# route (or an explicit exclusion), so a new setup-only rule fails here until
+# one is decided. __pycache__/ is excluded: install.sh installs the scoped
+# .aitask-scripts/.gitignore, which covers the framework's own caches.
+main_helpers="$(sed -n '/^main() {/,/^}/p' "$PROJECT_DIR/.aitask-scripts/aitask_setup.sh" \
+    | grep -oE '\bsetup_[a-z_]*gitignore\b' | sort -u)"
+assert_contains "27i the main() scan found the helpers" "setup_cache_gitignore" "$main_helpers"
+while IFS= read -r helper; do
+    [[ -n "$helper" ]] || continue
+    case " ${UPGRADE_COVERED[*]} setup_cache_gitignore setup_python_cache_gitignore " in
+        *" $helper "*) covered=yes ;;
+        *) covered=no ;;
+    esac
+    assert_eq "27i $helper has an upgrade route or an explicit exclusion" "yes" "$covered"
+done <<<"$main_helpers"
 
 # --- Test 28: each baseline is gated on its own committer's predicate (t1972) ---
 # The data committer has no main-repo guard and the main committer needs no

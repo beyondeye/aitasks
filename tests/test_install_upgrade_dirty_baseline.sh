@@ -5,9 +5,10 @@
 # install.sh takes a dirty framework-path baseline before extraction
 # (snapshot_pre_install_dirty) and its two commits subtract it, so a user's
 # uncommitted work under a framework path is reported and left alone. An
-# existing install also gets setup_data_gitignore_symlink_safe (t1711) and
-# upgrade_cache_gitignore (t2173_1), whose .gitignore edits land in the upgrade
-# commit only when .gitignore was clean.
+# existing install also gets setup_data_gitignore_symlink_safe (t1711),
+# upgrade_cache_gitignore (t2173_1) and upgrade_store_gitignore_rules (t2177),
+# whose .gitignore edits land in the upgrade commit only when .gitignore was
+# clean.
 #
 # Each case runs the real installer against a scratch project built from a
 # release-style tarball of this checkout. INSTALL_SH points at another
@@ -172,41 +173,62 @@ assert_contains "B output reports the left-alone file" "left alone" "$OUT"
 assert_contains "B ... naming .gitignore" "    .gitignore" "$OUT"
 
 # ==============================================================================
-# `ait upgrade` never runs setup, so the discovery-cache rule (t2173_1) reaches
-# an upgraded-only project only through install.sh's upgrade_cache_gitignore —
-# under the same dirty-baseline contract as the symlink-safe repair above.
+# `ait upgrade` never runs setup, so the discovery-cache rule (t2173_1) and the
+# setup-only store and worktree rules (t2177) reach an upgraded-only project
+# only through install.sh's upgrade_cache_gitignore / upgrade_store_gitignore_rules
+# — under the same dirty-baseline contract as the symlink-safe repair above.
+UPGRADE_RULES=(.aitask-cache/ .aitask-gates/ .aitask-testmap/ .aitask-shadow/
+    .aitask-scratchpad/ aiwork/ .aitask-crews/)
 echo ""
-echo "=== K: clean .gitignore gains the discovery-cache rule, committed ==="
+echo "=== K: clean .gitignore gains every upgrade-path rule, committed ==="
 make_project "$TMP/K"
 printf 'node_modules/\n' > "$TMP/K/.gitignore"
 g add .gitignore; gcommit "$TMP/K" -m "plain gitignore"
 upgrade
 assert_eq "K upgrade exits 0" "0" "$RC"
-assert_eq "K disk has .aitask-cache/" "yes" "$(has_line "$(cat "$TMP/K/.gitignore")" ".aitask-cache/")"
-assert_eq "K HEAD .gitignore has .aitask-cache/" "yes" "$(has_line "$(g show HEAD:.gitignore)" ".aitask-cache/")"
+for rule in "${UPGRADE_RULES[@]}"; do
+    assert_eq "K disk has $rule" "yes" "$(has_line "$(cat "$TMP/K/.gitignore")" "$rule")"
+    assert_eq "K HEAD .gitignore has $rule" "yes" "$(has_line "$(g show HEAD:.gitignore)" "$rule")"
+done
 assert_eq "K .gitignore clean after upgrade" "" "$(g status --porcelain -- .gitignore)"
 assert_eq "K upgrade commit carries .gitignore" "yes" "$(has_line "$(upgrade_commit_files)" ".gitignore")"
-mkdir -p "$TMP/K/.aitask-cache/trail_discovery"
-echo '{}' > "$TMP/K/.aitask-cache/trail_discovery/owners.json"
-assert_eq "K a written cache file stays out of git status" "" \
-    "$(g status --porcelain --untracked-files=all -- .aitask-cache)"
+for rule in "${UPGRADE_RULES[@]}"; do
+    mkdir -p "$TMP/K/${rule}sub"
+    echo '{}' > "$TMP/K/${rule}sub/file.json"
+    assert_eq "K a file under $rule stays out of git status" "" \
+        "$(g status --porcelain --untracked-files=all -- "$rule")"
+done
 upgrade
 assert_eq "K second upgrade exits 0" "0" "$RC"
-assert_eq "K the rule is not duplicated" "1" "$(grep -cxF ".aitask-cache/" "$TMP/K/.gitignore")"
+for rule in "${UPGRADE_RULES[@]}"; do
+    assert_eq "K $rule is not duplicated" "1" "$(grep -cxF -- "$rule" "$TMP/K/.gitignore")"
+done
 
 echo ""
-echo "=== K2: dirty .gitignore gains the rule on disk but is never committed ==="
+echo "=== K2: dirty .gitignore gains the rules on disk but is never committed ==="
 make_project "$TMP/K2"
 printf 'node_modules/\n' > "$TMP/K2/.gitignore"
 g add .gitignore; gcommit "$TMP/K2" -m "plain gitignore"
 echo "user-rule.log" >> "$TMP/K2/.gitignore"
 upgrade
 assert_eq "K2 upgrade exits 0" "0" "$RC"
-assert_eq "K2 disk has .aitask-cache/" "yes" "$(has_line "$(cat "$TMP/K2/.gitignore")" ".aitask-cache/")"
+for rule in "${UPGRADE_RULES[@]}"; do
+    assert_eq "K2 disk has $rule" "yes" "$(has_line "$(cat "$TMP/K2/.gitignore")" "$rule")"
+    assert_eq "K2 HEAD .gitignore lacks $rule" "no" "$(has_line "$(g show HEAD:.gitignore)" "$rule")"
+done
 assert_eq "K2 disk keeps the user rule" "yes" "$(has_line "$(cat "$TMP/K2/.gitignore")" "user-rule.log")"
-assert_eq "K2 HEAD .gitignore lacks .aitask-cache/" "no" "$(has_line "$(g show HEAD:.gitignore)" ".aitask-cache/")"
 assert_eq "K2 upgrade commit lacks .gitignore" "no" "$(has_line "$(upgrade_commit_files)" ".gitignore")"
 assert_eq "K2 .gitignore still modified" " M .gitignore" "$(g status --porcelain -- .gitignore)"
+
+echo ""
+echo "=== K3: a hand-added .aitask-crews/ gains only aiwork/ ==="
+make_project "$TMP/K3"
+printf 'node_modules/\n.aitask-crews/\n' > "$TMP/K3/.gitignore"
+g add .gitignore; gcommit "$TMP/K3" -m "gitignore with crews"
+upgrade
+assert_eq "K3 upgrade exits 0" "0" "$RC"
+assert_eq "K3 HEAD .gitignore has aiwork/" "yes" "$(has_line "$(g show HEAD:.gitignore)" "aiwork/")"
+assert_eq "K3 .aitask-crews/ is not duplicated" "1" "$(grep -cxF ".aitask-crews/" "$TMP/K3/.gitignore")"
 
 # ==============================================================================
 # Regression control: the pre-fix installer listed only untracked + modified

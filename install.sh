@@ -1918,6 +1918,13 @@ main() {
         info "Checking .gitignore discovery-cache entry..."
         upgrade_cache_gitignore
     fi
+    # Same contract and position for the setup-only store and worktree rules
+    # (t2177): an upgraded-only project otherwise never ignores them.
+    if [[ "$EXISTING_INSTALL" == true ]] && \
+       declare -F upgrade_store_gitignore_rules >/dev/null; then
+        info "Checking .gitignore store and worktree entries..."
+        upgrade_store_gitignore_rules
+    fi
 
     commit_installed_files
     commit_installed_data_files

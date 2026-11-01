@@ -3135,53 +3135,75 @@ setup_scratchpad_gitignore() {
 # upgrade_cache_gitignore (install.sh, existing installs) only writes it —
 # install.sh's commit_installed_files then commits .gitignore under the
 # pre-upgrade dirty baseline, the same contract as
-# setup_data_gitignore_symlink_safe.
+# setup_data_gitignore_symlink_safe. upgrade_store_gitignore_rules (below) is
+# the same upgrade route for the older setup-only rules (t2177).
 
-# _ait_add_cache_gitignore_rule <gitignore>
-#   -> 0 added, 1 already present, 2 could not inspect or write the file.
+# _ait_add_gitignore_rules <gitignore> <comment> <rule>...
+#   -> 0 added, 1 every rule already present, 2 could not inspect or write.
+# Each rule is guarded on its own: only the missing ones are written, under one
+# "# <comment>" line, and their names are left in _ait_gitignore_added.
 # Callers run it as `|| rc=$?`, which suspends errexit inside it, so every
 # fallible step is checked here, and the write is read back before it counts.
 # `2>/dev/null` comes FIRST on each write: a failed redirection is reported
 # before any later redirection applies, and the wrapper's warning says it.
-_ait_add_cache_gitignore_rule() {
-    local gitignore="$1" rc=0
+_ait_gitignore_added=""
+_ait_add_gitignore_rules() {
+    local gitignore="$1" comment="$2" rc rule
+    shift 2
+    local missing=()
+    _ait_gitignore_added=""
     if [[ -e "$gitignore" || -L "$gitignore" ]]; then
-        grep -qxF ".aitask-cache/" "$gitignore" 2>/dev/null || rc=$?
-        case "$rc" in
-            0) return 1 ;;
-            1) ;;
-            *) return 2 ;;
-        esac
+        for rule in "$@"; do
+            rc=0
+            grep -qxF -- "$rule" "$gitignore" 2>/dev/null || rc=$?
+            case "$rc" in
+                0) ;;
+                1) missing+=("$rule") ;;
+                *) return 2 ;;
+            esac
+        done
+        [[ ${#missing[@]} -gt 0 ]] || return 1
         {
             echo ""
-            echo "# Discovery caches (per-checkout, content-keyed, safe to delete)"
-            echo ".aitask-cache/"
+            echo "# $comment"
+            printf '%s\n' "${missing[@]}"
         } 2>/dev/null >> "$gitignore" || return 2
     else
+        missing=("$@")
         {
-            echo "# Discovery caches (per-checkout, content-keyed, safe to delete)"
-            echo ".aitask-cache/"
+            echo "# $comment"
+            printf '%s\n' "${missing[@]}"
         } 2>/dev/null > "$gitignore" || return 2
     fi
-    grep -qxF ".aitask-cache/" "$gitignore" 2>/dev/null || return 2
+    for rule in "${missing[@]}"; do
+        grep -qxF -- "$rule" "$gitignore" 2>/dev/null || return 2
+    done
+    _ait_gitignore_added="${missing[*]}"
     return 0
 }
 
-# _ait_warn_cache_gitignore_failed — the shared rc-2 report of both wrappers.
-_ait_warn_cache_gitignore_failed() {
-    warn "Could not add .aitask-cache/ to .gitignore — left unchanged."
-    warn "  The discovery cache will show as untracked in 'git status'."
-    warn "  Fix by hand: add the line '.aitask-cache/' to .gitignore, or re-run 'ait setup'."
+# _ait_warn_gitignore_rules_failed <what> <rule>... — the shared rc-2 report.
+_ait_warn_gitignore_rules_failed() {
+    local what="$1"
+    shift
+    local lines="'$1'" noun="line" rule
+    for rule in "${@:2}"; do lines="$lines '$rule'"; noun="lines"; done
+    warn "Could not add $* to .gitignore — left unchanged."
+    warn "  $what will show as untracked in 'git status'."
+    warn "  Fix by hand: add the $noun $lines to .gitignore, or re-run 'ait setup'."
 }
+
+_AIT_CACHE_GITIGNORE_COMMENT="Discovery caches (per-checkout, content-keyed, safe to delete)"
 
 setup_cache_gitignore() {
     local project_dir="$SCRIPT_DIR/.."
     local rc=0
-    _ait_add_cache_gitignore_rule "$project_dir/.gitignore" || rc=$?
+    _ait_add_gitignore_rules "$project_dir/.gitignore" \
+        "$_AIT_CACHE_GITIGNORE_COMMENT" ".aitask-cache/" || rc=$?
     case "$rc" in
         0) ;;
         1) success "Discovery-cache rule already in .gitignore"; return 0 ;;
-        *) _ait_warn_cache_gitignore_failed; return 0 ;;
+        *) _ait_warn_gitignore_rules_failed "The discovery cache" ".aitask-cache/"; return 0 ;;
     esac
     info "Added .aitask-cache/ to .gitignore (discovery caches)"
 
@@ -3196,12 +3218,56 @@ setup_cache_gitignore() {
 upgrade_cache_gitignore() {
     local project_dir="$SCRIPT_DIR/.."
     local rc=0
-    _ait_add_cache_gitignore_rule "$project_dir/.gitignore" || rc=$?
+    _ait_add_gitignore_rules "$project_dir/.gitignore" \
+        "$_AIT_CACHE_GITIGNORE_COMMENT" ".aitask-cache/" || rc=$?
     case "$rc" in
         0) success "Added .aitask-cache/ to .gitignore (discovery caches)" ;;
         1) success "Discovery-cache rule already in .gitignore" ;;
-        *) _ait_warn_cache_gitignore_failed ;;
+        *) _ait_warn_gitignore_rules_failed "The discovery cache" ".aitask-cache/" ;;
     esac
+    return 0
+}
+
+# _ait_upgrade_gitignore_rules <label> <what> <comment> <rule>... — one
+# write-only, never-fatal upgrade step; <label> names the group in the success
+# line, <what> the store the failure warning says will show as untracked.
+_ait_upgrade_gitignore_rules() {
+    local label="$1" what="$2" comment="$3" rc=0
+    shift 3
+    _ait_add_gitignore_rules "$SCRIPT_DIR/../.gitignore" "$comment" "$@" || rc=$?
+    case "$rc" in
+        0) success "Added $_ait_gitignore_added to .gitignore ($label)" ;;
+        1) success "$* already in .gitignore" ;;
+        *) _ait_warn_gitignore_rules_failed "$what" "$@" ;;
+    esac
+    return 0
+}
+
+# --- Setup-only store and worktree rules on the upgrade path (t2177) ---
+# setup_gate_logs_gitignore, setup_testmap_gitignore,
+# setup_shadow_store_gitignore, setup_scratchpad_gitignore and
+# setup_worktree_dirs_gitignore run only from `ait setup`, so an upgraded-only
+# project never ignored their directories. This writes the same rules under
+# the same comments, in setup's order (tests/test_setup_git.sh pins the result
+# byte-identical to setup's), and commits nothing — the same install.sh
+# contract and position as upgrade_cache_gitignore. __pycache__/ is left out:
+# install.sh's scoped .aitask-scripts/.gitignore covers the framework's caches.
+upgrade_store_gitignore_rules() {
+    _ait_upgrade_gitignore_rules "gate sidecar logs" "Gate sidecar logs" \
+        "Gate sidecar logs (per-task verifier output; in-body summary is committed)" \
+        ".aitask-gates/"
+    _ait_upgrade_gitignore_rules "test map scratch" "Test map runs" \
+        "Test map runs, ledger and onboarding scratch (per-checkout)" \
+        ".aitask-testmap/"
+    _ait_upgrade_gitignore_rules "shadow rejection store" "The shadow rejection store" \
+        "Shadow concern-rejection store (per-task, local-only; pruned at archive)" \
+        ".aitask-shadow/"
+    _ait_upgrade_gitignore_rules "scratchpad notes" "Scratchpad notes" \
+        "Scratchpad notes (per-task, local-only; pruned at archive)" \
+        ".aitask-scratchpad/"
+    _ait_upgrade_gitignore_rules "framework worktree directories" "Task and crew worktrees" \
+        "Framework worktrees (local, per-task and per-crew branches)" \
+        "aiwork/" ".aitask-crews/"
     return 0
 }
 

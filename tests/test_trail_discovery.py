@@ -386,6 +386,23 @@ class LoadTrailBlobTests(unittest.TestCase):
         self.assertIsNone(doc, "an invalid document must not be returned")
         self.assertEqual(error, "invalid trail document: 2 issue(s)")
 
+    def test_too_deeply_nested_blob_is_rejected_not_raised(self):
+        """The REAL load_trail: a deep payload must come back as an error,
+        never a RecursionError escaping into the discovery worker (t2177)."""
+        def fake_run(cmd, **kw):
+            if "--out" not in cmd:          # the error path's versions read
+                return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+            out = cmd[cmd.index("--out") + 1]
+            with open(out, "wb") as fh:
+                fh.write(b"[" * 200000 + b"]" * 200000)
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+        with patch("subprocess.run", side_effect=fake_run):
+            doc, error, versions = td.load_trail_blob("art:deep")
+
+        self.assertIsNone(doc)
+        self.assertEqual(error, "invalid trail document: 1 issue(s)")
+
     def test_success_returns_the_document_with_no_error(self):
         def fake_run(cmd, **kw):
             return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")

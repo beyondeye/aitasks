@@ -216,19 +216,34 @@ def _type_names(type_spec):
 
 def _check_node(value, subschema, path, defs, issues):
     """Validate value against subschema; append TrailIssues. Returns True when
-    the node's *container type* matched (semantic checks may traverse it)."""
-    unsupported = (set(subschema) - SUPPORTED_KEYWORDS - ANNOTATION_KEYWORDS)
-    if unsupported:
-        raise RuntimeError(
-            "unsupported schema keyword(s) %s at %s -- extend the "
-            "trail_schema.py interpreter" % (sorted(unsupported), path))
+    the node's *container type* matched (semantic checks may traverse it).
 
-    if "$ref" in subschema:
+    A $ref chain is resolved in a loop, not by recursion: $ref is the one
+    keyword that re-enters on the same value, so this function recurses only
+    by descending into the document. A repeated name is a schema loop, raised
+    as the defect it is -- however long the chain -- which leaves
+    validate_trail's RecursionError catch meaning document nesting only."""
+    resolved = set()
+    while True:
+        unsupported = (set(subschema) - SUPPORTED_KEYWORDS
+                       - ANNOTATION_KEYWORDS)
+        if unsupported:
+            raise RuntimeError(
+                "unsupported schema keyword(s) %s at %s -- extend the "
+                "trail_schema.py interpreter" % (sorted(unsupported), path))
+        if "$ref" not in subschema:
+            break
         ref = subschema["$ref"]
         prefix = "#/$defs/"
         if not ref.startswith(prefix) or ref[len(prefix):] not in defs:
             raise RuntimeError("unresolvable $ref %r at %s" % (ref, path))
-        return _check_node(value, defs[ref[len(prefix):]], path, defs, issues)
+        name = ref[len(prefix):]
+        if name in resolved:
+            raise RuntimeError(
+                "cyclic $ref %r at %s: resolves back to itself without "
+                "descending into the value" % (ref, path))
+        resolved.add(name)
+        subschema = defs[name]
 
     if "type" in subschema and not _type_matches(value, subschema["type"]):
         issues.append(TrailIssue(
@@ -592,7 +607,8 @@ def _semantic_checks(doc, issues, expect_depth=None):
 def validate_trail(doc, schema=None, expect_depth=None):
     """Both validation phases over an in-memory document. Returns every issue
     as a list of TrailIssue (empty = valid); raises only RuntimeError, and
-    only for a defective schema/interpreter (never for a bad document).
+    only for a defective schema/interpreter (never for a bad document: one
+    nested too deeply to walk is a ``nesting`` issue).
 
     expect_depth (None | "lite" | "deep") is the AUTHORING depth the caller
     ran at, supplied from its own argument parsing rather than read out of the
@@ -606,9 +622,19 @@ def validate_trail(doc, schema=None, expect_depth=None):
     if schema is None:
         schema = load_schema()
     issues = []
-    root_ok = _check_node(doc, schema, "$", schema.get("$defs", {}), issues)
-    if root_ok and isinstance(doc, dict):
-        _semantic_checks(doc, issues, expect_depth=expect_depth)
+    try:
+        root_ok = _check_node(doc, schema, "$", schema.get("$defs", {}),
+                              issues)
+        if root_ok and isinstance(doc, dict):
+            _semantic_checks(doc, issues, expect_depth=expect_depth)
+    except RecursionError:
+        # A RuntimeError subclass, but raised by the DOCUMENT: a value nested
+        # deeper than the walk (e.g. _canonical_key under uniqueItems) can
+        # recurse. Report it as an issue; schema defects still raise -- a
+        # $ref chain never recurses (_check_node resolves it in a loop and
+        # raises a loop as a cyclic $ref), so this is document depth only.
+        issues.append(TrailIssue(
+            "$", "nesting", "document nests too deeply to validate"))
     return issues
 
 
@@ -650,6 +676,10 @@ def load_trail(source, schema_path=None, expect_depth=None, *, schema=None):
     except ValueError as exc:
         raise TrailValidationError(
             [TrailIssue("$", "json", "invalid JSON (%s): %s" % (origin, exc))])
+    except RecursionError:
+        raise TrailValidationError(
+            [TrailIssue("$", "nesting",
+                        "JSON nests too deeply to parse (%s)" % origin)])
     if schema is None:
         schema = load_schema(schema_path)
     issues = validate_trail(doc, schema, expect_depth=expect_depth)

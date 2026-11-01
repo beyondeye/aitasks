@@ -950,6 +950,87 @@ class MalformedShapeRobustness(unittest.TestCase):
                              rules(ctx.exception.issues))
 
 
+def _nested(depth):
+    value = "x"
+    for _ in range(depth):
+        value = [value]
+    return value
+
+
+class DeepNestingFailsClosed(unittest.TestCase):
+    """A deeply nested payload is a validation issue, never a RecursionError
+    escaping into a caller (t2177): the trail discovery worker runs under
+    Textual's exit_on_error, so an escaped raise exits the TUI."""
+
+    def test_unparseably_deep_json_is_a_nesting_issue(self):
+        with self.assertRaises(TrailValidationError) as ctx:
+            load_trail(b"[" * 200000 + b"]" * 200000)
+        self.assertEqual(rules(ctx.exception.issues), {"nesting"})
+
+    def test_parseable_but_too_deep_to_validate_is_a_nesting_issue(self):
+        # 500 levels parse, but uniqueItems' structural key recurses into
+        # each topics item, deeper than the interpreter allows.
+        doc = fixture("gate_framework.json")
+        doc["scope"]["topics"] = [_nested(500), _nested(500)]
+        self.assertIn("nesting", rules(validate_trail(doc)))
+        with self.assertRaises(TrailValidationError) as ctx:
+            load_trail(json.dumps(doc).encode("utf-8"))
+        self.assertIn("nesting", rules(ctx.exception.issues))
+
+    def _schema_with_title_def(self, **defs):
+        schema = copy.deepcopy(load_schema())
+        schema["$defs"].update(defs)
+        schema["properties"]["title"] = {"$ref": "#/$defs/%s" % next(iter(defs))}
+        return schema
+
+    def assert_schema_defect(self, schema):
+        # assertRaises(RuntimeError) alone would also accept RecursionError,
+        # the very misreport this guards against.
+        with self.assertRaises(RuntimeError) as ctx:
+            validate_trail(fixture("gate_framework.json"), schema)
+        self.assertIs(type(ctx.exception), RuntimeError)
+        self.assertIn("cyclic $ref", str(ctx.exception))
+
+    def test_a_self_referencing_def_is_a_schema_defect_not_nesting(self):
+        self.assert_schema_defect(self._schema_with_title_def(
+            loop={"$ref": "#/$defs/loop"}))
+
+    def test_a_two_def_ref_cycle_is_a_schema_defect_not_nesting(self):
+        self.assert_schema_defect(self._schema_with_title_def(
+            ping={"$ref": "#/$defs/pong"}, pong={"$ref": "#/$defs/ping"}))
+
+    # 1200 hops: longer than the Python stack allows, so a chain resolved by
+    # recursion would surface as a misleading document `nesting` issue.
+    LONG = 1200
+
+    def _alias_chain(self, end):
+        defs = {"a%d" % i: {"$ref": "#/$defs/a%d" % (i + 1)}
+                for i in range(self.LONG - 1)}
+        defs["a%d" % (self.LONG - 1)] = end
+        return self._schema_with_title_def(**defs)
+
+    def test_a_cycle_longer_than_the_stack_is_a_schema_defect(self):
+        self.assert_schema_defect(self._alias_chain({"$ref": "#/$defs/a0"}))
+
+    def test_an_acyclic_chain_longer_than_the_stack_still_validates(self):
+        schema = self._alias_chain({"type": "string"})
+        doc = fixture("gate_framework.json")
+        self.assertEqual(validate_trail(doc, schema), [])
+        doc["title"] = 1
+        self.assertEqual(rules(validate_trail(doc, schema)), {"type"})
+
+    def test_a_def_recursing_through_items_is_not_a_cycle(self):
+        # Legitimate recursion descends into the value each time, so depth
+        # follows the DOCUMENT: shallow passes, too deep is a nesting issue.
+        schema = self._schema_with_title_def(node={
+            "type": ["array", "string"], "items": {"$ref": "#/$defs/node"}})
+        doc = fixture("gate_framework.json")
+        doc["title"] = _nested(3)
+        self.assertEqual(validate_trail(doc, schema), [])
+        doc["title"] = _nested(5000)
+        self.assertEqual(rules(validate_trail(doc, schema)), {"nesting"})
+
+
 class DigestContract(unittest.TestCase):
     """RFC par.8.1 normalization (plan decision 4)."""
 
