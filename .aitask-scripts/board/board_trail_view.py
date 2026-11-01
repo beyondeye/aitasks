@@ -49,9 +49,10 @@ import yaml
 from rich.text import Text
 from textual import on
 from textual.binding import Binding
-from textual.containers import Container, Horizontal, VerticalScroll
+from textual.containers import Container, Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
-from textual.widgets import Button, Label, Static
+from textual.widgets import Button, Input, Label, OptionList, Static
+from textual.widgets.option_list import Option
 
 from board_widgets import (
     ColumnHeader, PickerItem, TaskCard,
@@ -59,6 +60,7 @@ from board_widgets import (
     _status_badge_text,
 )
 from cross_repo_notation import parse_ref as parse_cross_repo_ref
+from fuzzy_filter import rank
 from guarded_dismiss import GuardedModalScreen
 from topic_semantics import task_own_id
 from trail_discovery import TrailInfo, trail_entry_refs
@@ -75,7 +77,7 @@ from cross_repo_deps import classify_xdep_status, xdep_ref_pairs
 TRAIL_WATCH_INTERVAL = 20
 TRAIL_WATCH_MAX_TICKS = 90
 
-#: What `TrailSelectScreen` dismisses with when its `r` key asks for a fresh
+#: What `TrailSelectScreen` dismisses with when its Ctrl+R key asks for a fresh
 #: scan (a tabbed host only). Not a valid handle: handles never contain NUL.
 TRAIL_SELECT_RESCAN = "\x00rescan"
 TRAIL_GATHER_SCRIPT = Path(".aitask-scripts") / "aitask_trail_gather.sh"
@@ -701,87 +703,173 @@ def _trail_stored_freshness(info: TrailInfo) -> str:
     return "? unknown"
 
 
-class TrailSelectItem(PickerItem):
-    """Focusable row for one discovered trail (title · owner · scope ·
-    freshness · updated, with "also in" overlap sub-lines per §9.2)."""
+def _trail_select_title(info: TrailInfo) -> str:
+    """The one title string the selector both shows and filters on."""
+    doc = info.doc or {}
+    return str(doc.get("title") or info.name or info.handle)
 
-    def __init__(self, info: TrailInfo, overlap_notes: list,
-                 is_open: bool = False):
-        doc = info.doc or {}
-        title = str(doc.get("title") or info.name or info.handle)
-        owner = f"owner t{info.owner_id}" if info.owner_id else "owner ?"
-        if info.owner_archived:
-            owner += " (archived)"
-        scope = str((doc.get("scope") or {}).get("kind") or "?")
-        raw = (doc.get("generation") or {}).get("generated_at")
-        # Same local-time label as the banner (t2112), so the two agree;
-        # an unparseable value keeps the pre-t2112 raw / "?" rendering.
-        updated = trail_generated_label(raw) or str(raw or "?")
-        text = Text()
-        text.append(title)
-        if is_open:
-            # Already a tab (t1895): choosing it switches, never duplicates.
-            text.append("  ● open", style="bold")
-        text.append("   ")
-        text.append(f"{owner} · {scope} · {_trail_stored_freshness(info)} "
-                    f"· {updated}", style="dim")
+
+def trail_select_prompt(info: TrailInfo, is_open: bool = False) -> Text:
+    """One selector list row: the title only, plus ``● open`` for a trail that
+    already has a tab (t1895: choosing it switches, never duplicates).
+
+    Always a ``Text``: an ``OptionList`` parses a ``str`` prompt as markup, so a
+    title such as ``Plan [bold]`` would render as ``Plan`` — and no longer read
+    as the string the title filter matches on."""
+    text = Text(_trail_select_title(info))
+    if is_open:
+        text.append("  ● open", style="bold")
+    return text
+
+
+def trail_select_detail(info: TrailInfo, overlap_notes, is_open: bool = False,
+                        ) -> Text:
+    """The selector's detail pane for one trail: owner, scope, stored
+    freshness, generation time, the "also in" shared-task notes (§9.2) and,
+    for a trail that failed to load, its error and the recorded versions.
+
+    Every value is appended as plain text, never interpolated into markup —
+    titles, refs and error details are stored data."""
+    doc = info.doc or {}
+    text = Text()
+    text.append(_trail_select_title(info), style="bold")
+    if is_open:
+        text.append("  ● open", style="bold")
+    text.append("\n")
+    text.append(info.handle, style="dim")
+    text.append("\n\n")
+
+    owner = f"t{info.owner_id}" if info.owner_id else "?"
+    if info.owner_archived:
+        owner += " (archived)"
+    if info.owner_folded:
+        owner += " (folded)"
+    raw = (doc.get("generation") or {}).get("generated_at")
+    # Same local-time label as the banner (t2112), so the two agree; an
+    # unparseable value keeps the pre-t2112 raw / "?" rendering.
+    generated = trail_generated_label(raw) or str(raw or "?")
+    rows = (
+        ("Owner", owner),
+        ("Scope", str((doc.get("scope") or {}).get("kind") or "?")),
+        ("Freshness", _trail_stored_freshness(info)),
+        ("Generated", generated),
+    )
+    for label, value in rows:
+        text.append(f"{label:<10} ", style="dim")
+        text.append(value)
+        text.append("\n")
+
+    if overlap_notes:
+        text.append("\nShared tasks\n", style="bold")
         for ref, other_title in overlap_notes:
-            text.append(f"\n  └ also references: {ref} ({other_title})",
-                        style="dim italic")
-        super().__init__(text)
-        self.info = info
+            text.append(f"  {ref} — also in ")
+            text.append(str(other_title), style="italic")
+            text.append("\n")
 
-    def on_key(self, event):
-        if event.key == "enter":
-            self.screen.dismiss(self.info.handle)
-            event.prevent_default()
-            event.stop()
+    if info.load_error:
+        text.append("\nError\n", style="bold")
+        text.append(f"  {info.load_error}\n")
+        if info.versions:
+            text.append(f"\nRecorded versions (ait artifact versions "
+                        f"{info.handle}):\n", style="dim")
+            for version in info.versions:
+                text.append(f"  {version}\n")
+    text.rstrip()
+    return text
 
-    def on_click(self, event):
-        self.screen.dismiss(self.info.handle)
+
+class TrailTitleList(OptionList):
+    """The selector's title list. Never focusable: the search box keeps focus
+    and the screen drives this list's cursor, so ↑/↓ move the highlight while
+    typed keys still reach the box."""
+
+    can_focus = False
+
+
+class TrailDetailPane(VerticalScroll):
+    """The selector's detail pane. Never focusable — ``VerticalScroll`` is by
+    default, and a focused pane would re-activate both host Apps' priority
+    ``nav_up`` / ``nav_down`` (focus would move instead of the list cursor).
+    It scrolls with PgUp/PgDn (screen bindings) and the mouse wheel."""
+
+    can_focus = False
 
 
 class TrailSelectScreen(GuardedModalScreen):
     """Trail selection modal (RFC §9.1): dismisses the chosen handle or None.
 
-    Guarded (tui_conventions.md "Modal dismissal"): a key still dispatched to
-    this selector after it closed — an `r` re-scan, a repeated `Esc` — must not
-    pop whatever screen replaced it."""
+    Two panes: a title-only list under a fuzzy search box on the left, the
+    highlighted trail's details on the right. The search box and the Cancel
+    button are the only focusable widgets, so the box keeps focus while ↑/↓
+    (screen bindings — both host Apps' priority arrows stand down while an
+    ``Input`` is focused) move the list highlight and PgUp/PgDn scroll the
+    details.
 
-    # Mirrors the KanbanApp.CSS rules this modal used to borrow (t1794_3) so it
-    # lays out the same when pushed by an App without them (tui_conventions.md
-    # "Modals pushed by multiple Apps"). Textual scopes these rules to this
-    # screen; the values equal the board's own, so the board renders the same
-    # whichever rule wins.
+    Guarded (tui_conventions.md "Modal dismissal"): a key still dispatched to
+    this selector after it closed — a Ctrl+R re-scan, a repeated `Esc` — must
+    not pop whatever screen replaced it."""
+
+    # Self-contained (tui_conventions.md "Modals pushed by multiple Apps"): the
+    # board and `ait trails` both push this modal, and neither App's CSS styles
+    # these ids. The highlight rule matters most — the list never has focus, so
+    # OptionList's own focused-cursor styling never applies.
     DEFAULT_CSS = """
     TrailSelectScreen {
         align: center middle;
     }
-    #dep_picker_dialog {
-        width: 60%;
-        height: auto;
-        max-height: 50%;
+    #trail_select_dialog {
+        width: 90%;
+        height: 80%;
         background: $surface;
         border: thick $accent;
-        padding: 1 2;
+        padding: 0 1;
     }
-    #dep_picker_title {
+    #trail_select_title {
+        width: 100%;
         text-align: center;
-        padding: 0 0 1 0;
         text-style: bold;
     }
-    #dep_picker_dialog.picker-dialog { overflow-y: auto; }
-    .picker-dialog #dep_picker_title { width: 100%; dock: top; }
-    PickerItem { height: auto; width: 100%; padding: 0 1; }
-    PickerItem.dep-item-focused { background: $primary 20%; outline-left: thick $accent; }
+    #trail_select_hint {
+        width: 100%;
+        text-align: center;
+        color: $text-muted;
+        margin: 0 0 1 0;
+    }
+    #trail_select_body { height: 1fr; }
+    #trail_select_left { width: 40%; min-width: 24; height: 100%; }
+    #trail_select_search { width: 100%; }
+    #trail_select_list {
+        height: 1fr;
+        border: none;
+        padding: 0;
+        background: $surface;
+    }
+    #trail_select_list > .option-list--option-highlighted {
+        background: $primary 40%;
+        text-style: bold;
+    }
+    #trail_select_detail {
+        width: 1fr;
+        height: 100%;
+        border-left: solid $accent 50%;
+        padding: 0 1;
+    }
+    #trail_select_detail_body { width: 100%; height: auto; }
+    #trail_select_buttons { height: auto; align: center middle; }
     """
 
     BINDINGS = [
         Binding("escape", "cancel", "Cancel", show=False),
         # Re-scan from inside the selector — the tabbed host serves the list
         # from its cache, so this is how a trail created since is found. Inert
-        # unless the pusher allows it (the board's `s` always re-scans).
-        Binding("r", "rescan", "Rescan", show=False),
+        # unless the pusher allows it (the board's `s` always re-scans). Not a
+        # plain `r`: a typed `r` belongs to the search box.
+        Binding("ctrl+r", "rescan", "Rescan", show=False),
+        Binding("up", "cursor_up", "Up", show=False),
+        Binding("down", "cursor_down", "Down", show=False),
+        Binding("pageup", "detail_page_up", "Scroll details up", show=False),
+        Binding("pagedown", "detail_page_down", "Scroll details down",
+                show=False),
     ]
 
     def __init__(self, infos: list, overlaps: dict, open_handles=(),
@@ -791,28 +879,114 @@ class TrailSelectScreen(GuardedModalScreen):
         self.overlaps = overlaps
         self.open_handles = frozenset(open_handles)
         self.allow_rescan = allow_rescan
+        self._by_handle = {info.handle: info for info in infos}
+        self._query = ""
+        # The handle the detail pane shows (None = the no-match message); a
+        # sentinel until the first render, so that render scrolls home too.
+        self._detail_handle = object()
 
     def compose(self):
-        rescan = " · r rescan" if self.allow_rescan else ""
-        with Container(id="dep_picker_dialog", classes="picker-dialog"):
-            yield Label(
-                f"Select trail — [dim]↑/↓ move · Enter open{rescan} · "
-                "Esc cancel[/]",
-                id="dep_picker_title",
-            )
-            for info in self.infos:
-                yield TrailSelectItem(info, self.overlaps.get(info.handle, []),
-                                      is_open=info.handle in self.open_handles)
-            yield Button("Cancel", id="btn_dep_cancel")
+        rescan = " · Ctrl+R rescan" if self.allow_rescan else ""
+        hint = Text("Type to filter · ↑/↓ move · Enter open · Esc cancel\n"
+                    f"PgUp/PgDn scroll details{rescan}")
+        with Container(id="trail_select_dialog"):
+            yield Label("Select trail", id="trail_select_title")
+            yield Label(hint, id="trail_select_hint")
+            with Horizontal(id="trail_select_body"):
+                with Vertical(id="trail_select_left"):
+                    yield Input(placeholder="Filter by title…",
+                                id="trail_select_search")
+                    yield TrailTitleList(id="trail_select_list")
+                with TrailDetailPane(id="trail_select_detail"):
+                    yield Static(id="trail_select_detail_body")
+            with Horizontal(id="trail_select_buttons"):
+                yield Button("Cancel", id="btn_trail_select_cancel")
 
     def on_mount(self):
-        items = list(self.query(TrailSelectItem))
-        if items:
-            items[0].focus()
+        self._apply_filter("")
+        self.query_one("#trail_select_search", Input).focus()
 
-    @on(Button.Pressed, "#btn_dep_cancel")
+    def _list(self) -> TrailTitleList:
+        return self.query_one("#trail_select_list", TrailTitleList)
+
+    def _highlighted_handle(self):
+        options = self._list()
+        index = options.highlighted
+        if index is None or index >= options.option_count:
+            return None
+        return options.get_option_at_index(index).id
+
+    def _apply_filter(self, query: str):
+        """Show the trails whose title matches ``query`` (all of them, in
+        discovery order, for a blank one), highlighting the first."""
+        self._query = query
+        shown = rank(query, self.infos, key=_trail_select_title)
+        options = self._list()
+        options.clear_options()
+        options.add_options([
+            Option(trail_select_prompt(info, info.handle in self.open_handles),
+                   id=info.handle)
+            for info in shown])
+        options.highlighted = 0 if shown else None
+        self._show_detail(shown[0].handle if shown else None)
+
+    def _show_detail(self, handle):
+        body = self.query_one("#trail_select_detail_body", Static)
+        info = self._by_handle.get(handle) if handle is not None else None
+        if info is None:
+            body.update(Text(f'No trail title matches "{self._query}"'
+                             if self.infos else "No trails found."))
+        else:
+            body.update(trail_select_detail(
+                info, self.overlaps.get(handle, []),
+                is_open=handle in self.open_handles))
+        if handle != self._detail_handle:
+            # A different trail opens at its title: replacing the body keeps
+            # the pane's scroll offset, which would leave the new trail's
+            # header above the viewport after paging through a long one.
+            self._detail_handle = handle
+            self.query_one("#trail_select_detail",
+                           TrailDetailPane).scroll_home(animate=False)
+
+    @on(Input.Changed, "#trail_select_search")
+    def _search_changed(self, event):
+        self._apply_filter(event.value)
+
+    @on(Input.Submitted, "#trail_select_search")
+    def _search_submitted(self, event):
+        handle = self._highlighted_handle()
+        if handle is not None:
+            self.dismiss(handle)
+
+    @on(OptionList.OptionHighlighted, "#trail_select_list")
+    def _option_highlighted(self, event):
+        # Messages queue: act on the list's current highlight, not on a
+        # highlight a later filter has already replaced.
+        handle = self._highlighted_handle()
+        if handle is not None and event.option.id == handle:
+            self._show_detail(handle)
+
+    @on(OptionList.OptionSelected, "#trail_select_list")
+    def _option_selected(self, event):
+        self.dismiss(event.option.id)
+
+    @on(Button.Pressed, "#btn_trail_select_cancel")
     def cancel_button(self):
         self.dismiss(None)
+
+    def action_cursor_up(self):
+        self._list().action_cursor_up()
+
+    def action_cursor_down(self):
+        self._list().action_cursor_down()
+
+    def action_detail_page_up(self):
+        self.query_one("#trail_select_detail",
+                       TrailDetailPane).scroll_page_up(animate=False)
+
+    def action_detail_page_down(self):
+        self.query_one("#trail_select_detail",
+                       TrailDetailPane).scroll_page_down(animate=False)
 
     def action_cancel(self):
         self.dismiss(None)

@@ -9,7 +9,7 @@ depth: [intermediate]
 
 ### How to Open a Trail
 
-Run `ait trails`, or press **j** then **i** from any other TUI. The TUI scans the project and opens straight into the **trail selector**, which lists every trail it found; choose one and it opens in a tab, with its waves drawn as columns.
+Run `ait trails`, or press **j** then **i** from any other TUI. The TUI scans the project and opens straight into the **trail selector**, which lists every trail it found by title, with the highlighted trail's details beside the list. Type to filter the titles, then choose one with **Enter** or a click: it opens in a tab, with its waves drawn as columns.
 
 If you close the selector without choosing, the subtitle reads `no trail selected — press s`. Press **s** to open the selector again.
 

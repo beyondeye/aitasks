@@ -37,6 +37,8 @@ import types
 import unittest
 from pathlib import Path
 
+from rich.text import Text
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / "tests" / "lib"))
 sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts" / "board"))
@@ -60,13 +62,14 @@ MOVED_NAMES = (
     "run_trail_drift",
     "_GhostTaskStub", "_trail_badge_text", "_trail_drift_text",
     "TrailTaskCard", "TrailGhostCard", "TrailColumn",
-    "_trail_stored_freshness", "TrailSelectItem", "TrailSelectScreen",
+    "_trail_stored_freshness", "TrailSelectScreen",
     "TrailDetailScreen", "TrailSummaryScreen",
 )
 #: Defined by the view after the move, so never in the board's old body:
 #: `TRAIL_CSS` (new with the move), `TRAIL_SELECT_RESCAN` (the selector's
 #: rescan sentinel, t1895), the cross-repo status projection (t1957_1),
-#: the linked-trail modals (t1957_4) and the generation-time label (t2112).
+#: the linked-trail modals (t1957_4), the generation-time label (t2112) and the
+#: two-pane selector's list, detail pane and their renderers (t2173_2).
 VIEW_ONLY_NAMES = (
     "TRAIL_CSS", "TRAIL_SELECT_RESCAN",
     "XDEP_RESOLVED", "XDEP_CHECKING", "XDEP_UNCHECKED", "xdep_ref_state",
@@ -74,6 +77,8 @@ VIEW_ONLY_NAMES = (
     "linked_scan_error_text", "LinkedTrailItem", "LinkedTrailsScreen",
     "TrailJumpConfirmScreen",
     "_GENERATED_AT_RE", "trail_generated_label",
+    "_trail_select_title", "trail_select_prompt", "trail_select_detail",
+    "TrailTitleList", "TrailDetailPane",
 )
 
 
@@ -204,8 +209,8 @@ class ReexportIdentityTests(bf.FixtureBoardTestBase, unittest.TestCase):
     def test_the_classes_belong_to_the_view_module(self):
         for name in ("TrailEntryView", "TrailWaveLane", "_GhostTaskStub",
                      "TrailTaskCard", "TrailGhostCard", "TrailColumn",
-                     "TrailSelectItem", "TrailSelectScreen", "TrailDetailScreen",
-                     "TrailSummaryScreen"):
+                     "TrailTitleList", "TrailDetailPane", "TrailSelectScreen",
+                     "TrailDetailScreen", "TrailSummaryScreen"):
             with self.subTest(name=name):
                 self.assertEqual(getattr(self.ab, name).__module__,
                                  "board_trail_view")
@@ -306,7 +311,7 @@ def _modal_layout(screen_factory, dialog_id: str, then=None):
     alignment. Measured on the region rather than read off the style — Textual
     stores `width: 60%` in a width-relative unit, so the rule's text is not the
     claim; the laid-out size is. `then()` may build a second screen to push
-    after popping the first; its `#dep_picker_dialog` width is reported too."""
+    after popping the first; its `dialog_id` width is reported too."""
     from textual.containers import Container
 
     def compose(self):
@@ -328,7 +333,7 @@ def _modal_layout(screen_factory, dialog_id: str, then=None):
             app.push_screen(then())
             await pilot.pause()
             await pilot.pause()
-            other = app.screen.query_one("#dep_picker_dialog", Container)
+            other = app.screen.query_one(dialog_id, Container)
             out["other_width"] = other.region.width
         return out
 
@@ -350,14 +355,15 @@ class ModalDefaultCssTests(bf.FixtureBoardTestBase, unittest.TestCase):
 
     @staticmethod
     def _plain_picker_screen():
-        """A modal reusing the `#dep_picker_dialog` id with no CSS of its own."""
+        """A modal reusing the `#trail_select_dialog` id with no CSS of its
+        own."""
         from textual.containers import Container
         from textual.screen import ModalScreen
         from textual.widgets import Label
 
         class PlainPicker(ModalScreen):
             def compose(self):
-                with Container(id="dep_picker_dialog"):
+                with Container(id="trail_select_dialog"):
                     yield Label("plain")
 
         return PlainPicker()
@@ -371,18 +377,25 @@ class ModalDefaultCssTests(bf.FixtureBoardTestBase, unittest.TestCase):
 
     def test_the_select_modal_lays_out_without_the_board(self):
         self.assertCenteredAt(
-            _modal_layout(self._select_screen, "#dep_picker_dialog"), 0.6)
+            _modal_layout(self._select_screen, "#trail_select_dialog"), 0.9)
 
     def test_the_select_modal_rules_stay_scoped_to_it(self):
         """Negative control, and the scoping claim: the bare App supplies no
-        `#dep_picker_dialog` rule of its own — another modal reusing the id in
-        the same App does not get the width, even after the select modal ran.
-        (The board's 19 other `#dep_picker_dialog` modals rely on
-        `KanbanApp.CSS`, not on this screen.)"""
-        out = _modal_layout(self._select_screen, "#dep_picker_dialog",
+        `#trail_select_dialog` rule of its own — another modal reusing the id
+        in the same App does not get the width, even after the select modal
+        ran."""
+        out = _modal_layout(self._select_screen, "#trail_select_dialog",
                             then=self._plain_picker_screen)
-        self.assertCenteredAt(out, 0.6)
+        self.assertCenteredAt(out, 0.9)
         self.assertNotEqual(out["other_width"], out["width"], out)
+
+    def test_the_select_modal_highlight_is_its_own_rule(self):
+        """The list never has focus, so OptionList's focused-cursor styling
+        never applies; the visible highlight must come from this modal's own
+        CSS, whichever App pushes it."""
+        css = self.ab.board_trail_view.TrailSelectScreen.DEFAULT_CSS
+        self.assertIn(
+            "#trail_select_list > .option-list--option-highlighted", css)
 
     def test_the_detail_modal_lays_out_without_the_board(self):
         view = self.ab.board_trail_view
@@ -395,6 +408,63 @@ class ModalDefaultCssTests(bf.FixtureBoardTestBase, unittest.TestCase):
         self.assertCenteredAt(_modal_layout(
             lambda: view.TrailSummaryScreen("summary", "T"),
             "#trail_summary_dialog"), 0.8)
+
+
+class TrailSelectRendererTests(bf.FixtureBoardTestBase, unittest.TestCase):
+    """The two-pane selector's pure renderers (t2173_2), headless."""
+
+    def _info(self, **kw):
+        view = self.ab.board_trail_view
+        fields = dict(
+            handle="art:trail-a", owner_id="9000", owner_archived=False,
+            owner_folded=False, name="Trail A",
+            doc={"title": "Trail A", "scope": {"kind": "repo"},
+                 "generation": {"generated_at": "2026-08-01"},
+                 "freshness": {"state": "current"}})
+        fields.update(kw)
+        return view.TrailInfo(**fields)
+
+    def test_the_title_falls_back_to_name_then_handle(self):
+        title = self.ab.board_trail_view._trail_select_title
+        self.assertEqual(title(self._info()), "Trail A")
+        self.assertEqual(title(self._info(doc=None)), "Trail A")
+        self.assertEqual(title(self._info(doc=None, name="")), "art:trail-a")
+
+    def test_the_prompt_is_text_and_literal(self):
+        """A `str` OptionList prompt is parsed as markup (`Plan [bold]` would
+        render `Plan`); the prompt must be `Text` with the title verbatim."""
+        prompt = self.ab.board_trail_view.trail_select_prompt
+        info = self._info(doc={"title": "Plan [bold] x"})
+        for is_open, plain in ((False, "Plan [bold] x"),
+                               (True, "Plan [bold] x  ● open")):
+            with self.subTest(is_open=is_open):
+                text = prompt(info, is_open)
+                self.assertIsInstance(text, Text)
+                self.assertEqual(text.plain, plain)
+
+    def test_the_detail_carries_every_metadata_row(self):
+        detail = self.ab.board_trail_view.trail_select_detail
+        text = detail(self._info(owner_archived=True, owner_folded=True),
+                      [("t42", "Other [trail]")], is_open=True).plain
+        for needle in ("Trail A  ● open", "art:trail-a",
+                       "t9000 (archived) (folded)", "Scope      repo",
+                       "✓ current (recorded)", "Generated  2026-08-01",
+                       "Shared tasks", "t42 — also in Other [trail]"):
+            with self.subTest(needle=needle):
+                self.assertIn(needle, text)
+        self.assertNotIn("Error", text)
+
+    def test_the_detail_of_a_failed_trail_shows_error_and_versions(self):
+        detail = self.ab.board_trail_view.trail_select_detail
+        text = detail(self._info(doc=None, load_error="blob missing",
+                                 versions=["sha256:aaa", "sha256:bbb"]),
+                      []).plain
+        for needle in ("✗ unreadable", "Error", "blob missing",
+                       "Recorded versions (ait artifact versions art:trail-a)",
+                       "sha256:aaa", "sha256:bbb", "Generated  ?"):
+            with self.subTest(needle=needle):
+                self.assertIn(needle, text)
+        self.assertNotIn("Shared tasks", text)
 
 
 if __name__ == "__main__":

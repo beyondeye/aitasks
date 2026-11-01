@@ -48,6 +48,7 @@ sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts" / "lib"))
 import agent_command_screen as acs  # noqa: E402
 import board_fixture as bf  # noqa: E402
 import task_yaml  # noqa: E402
+from trail_select_dialog_checks import TrailSelectDialogChecks  # noqa: E402
 from trail_model_checks import (  # noqa: E402
     FIXTURE_PATH, TrailModelChecks, ghost_doc as _ghost_doc, load_fixture as _load_fixture,
 )
@@ -674,140 +675,6 @@ class ByTrailPilotTests(ByTrailTestBase):
 
         self._run(go())
 
-    # --- Trail-selection modal: focus visibility + overflow (t1366) ---------
-    #
-    # All four assert at RENDER level (the composited frame), never on
-    # `.classes` or `app.focused`. That distinction is the whole defect: before
-    # the fix, `down` moved focus AND applied `dep-item-focused` while the frame
-    # stayed byte-identical, so a property-level test passed against code the
-    # user experienced as completely dead.
-
-    def test_trail_select_focus_is_visible_in_frame(self):
-        """A `down` press must CHANGE the composited frame (t1366).
-
-        Also pins the multi-line half of the fix: the shared focus rule cannot
-        assume `height: 1`, so a row carrying "also references" sub-lines must
-        still render every line while focused.
-        """
-        ab = self.ab
-
-        async def go():
-            app = ab.KanbanApp()
-            async with app.run_test(size=(80, 24)) as pilot:
-                await pilot.pause()
-                infos = [self._mk_trail_info(f"art:t{i}",
-                                             f"Trail number {i:02d} long title")
-                         for i in range(3)]
-                overlaps = {"art:t0": [("t42", "Another trail")]}
-                app.push_screen(ab.TrailSelectScreen(infos, overlaps))
-                await self._settle(pilot)
-                items = list(app.screen.query(ab.TrailSelectItem))
-                self.assertEqual(len(items), 3)
-
-                before = self._screen_rows(app)
-                await pilot.press("down")
-                await self._settle(pilot)
-
-                # Focus really moved — otherwise a frame change would prove
-                # nothing about the highlight.
-                self.assertTrue(items[1].has_focus)
-                self.assertNotEqual(
-                    before, self._screen_rows(app),
-                    "focus moved but the composited frame is unchanged: the "
-                    "highlight never reaches the terminal")
-
-                # Ground truth for "visibly distinct": the focused row's
-                # background differs from an unfocused sibling's, and blurring
-                # restores it.
-                idle = items[0].styles.background
-                self.assertNotEqual(
-                    items[1].styles.background, idle,
-                    "focused row shares the unfocused background")
-                items[0].focus()
-                await self._settle(pilot)
-                self.assertEqual(items[1].styles.background, idle,
-                                 "blurring must restore the idle background")
-
-                # Multi-line row renders fully (no `height: 1` assumption).
-                dialog = app.screen.query_one("#dep_picker_dialog")
-                self.assertIn("also references",
-                              self._dialog_text(app, dialog))
-
-        self._run(go())
-
-    def test_trail_select_dialog_scrolls_and_cancel_is_reachable(self):
-        """No focusable widget may sit outside the rendered region (t1366).
-
-        Pre-fix the dialog was a plain non-scrolling `Container`, so with enough
-        trails the tail of the list and the Cancel button were focusable but
-        unreachable — arrow keys wrapped through invisible rows.
-        """
-        ab = self.ab
-
-        async def go():
-            app = ab.KanbanApp()
-            async with app.run_test(size=(100, 30)) as pilot:
-                await pilot.pause()
-                infos = [self._mk_trail_info(f"art:t{i}",
-                                             f"Trail number {i:02d} long title")
-                         for i in range(10)]
-                app.push_screen(ab.TrailSelectScreen(infos, {}))
-                await self._settle(pilot)
-
-                dialog = app.screen.query_one("#dep_picker_dialog")
-                self.assertTrue(
-                    dialog.allow_vertical_scroll,
-                    "dialog content overflows but the container cannot scroll")
-
-                items = list(app.screen.query(ab.TrailSelectItem))
-                items[-1].focus()
-                await self._settle(pilot)
-                self.assertTrue(
-                    app.screen.can_view_entire(items[-1]),
-                    "focusing the last row did not scroll it into view")
-
-                cancel = app.screen.query_one("#btn_dep_cancel")
-                cancel.focus()
-                await self._settle(pilot)
-                self.assertTrue(app.screen.can_view_entire(cancel),
-                                "Cancel button is focusable but off-screen")
-                self.assertIn("Cancel", self._dialog_text(app, dialog))
-
-        self._run(go())
-
-    def test_trail_select_hint_fits_80_cols(self):
-        """The hint names the arrow keys and is not truncated at 80 cols.
-
-        `Label` defaults to `width: auto`, so the hint used to overflow the
-        dialog's 42-column content box and clip mid-word to "Esc to c" — while
-        never mentioning the keys that actually move the selection.
-        """
-        ab = self.ab
-
-        async def go():
-            app = ab.KanbanApp()
-            async with app.run_test(size=(80, 24)) as pilot:
-                await pilot.pause()
-                infos = [self._mk_trail_info(f"art:t{i}", f"Trail {i:02d}")
-                         for i in range(10)]
-                app.push_screen(ab.TrailSelectScreen(infos, {}))
-                await self._settle(pilot)
-
-                dialog = app.screen.query_one("#dep_picker_dialog")
-                self.assertIn(
-                    "Select trail — ↑/↓ move · Enter open · Esc cancel",
-                    self._dialog_text(app, dialog),
-                    "hint is truncated or does not mention ↑/↓ at 80 columns")
-
-                # Still legible once the list has scrolled under it.
-                await pilot.press("down")
-                await pilot.press("down")
-                await self._settle(pilot)
-                self.assertIn("↑/↓ move", self._dialog_text(app, dialog),
-                              "hint scrolled out of view")
-
-        self._run(go())
-
     def test_gate_choice_focus_is_visible_in_frame(self):
         """The fix landed at the shared sink, not on the trail path (t1366).
 
@@ -836,6 +703,19 @@ class ByTrailPilotTests(ByTrailTestBase):
                     "sibling picker still has an invisible focus highlight")
 
         self._run(go())
+
+
+class BoardTrailSelectDialogTests(TrailSelectDialogChecks, ByTrailTestBase):
+    """`TrailSelectDialogChecks` under the board (`KanbanApp`)."""
+
+    def _dlg_app(self):
+        return self.ab.KanbanApp()
+
+    def _dlg_patches(self):
+        return []
+
+    async def _dlg_boot(self, app, pilot):
+        await pilot.pause()
 
 
 class RefreshSplitAndSupersessionTests(ByTrailTestBase):
@@ -4772,14 +4652,19 @@ class TrailGeneratedBannerTests(ByTrailTestBase):
                 legacy = self._mk_trail_info("art:legacy", "Legacy trail")
                 app.push_screen(ab.TrailSelectScreen([good, legacy], {}))
                 await self._settle(pilot)
-                rows["text"] = "\n".join(self._screen_rows(app))
+                # The label lives in the detail pane (t2173_2), which shows
+                # the highlighted trail: read it for each in turn.
+                rows["good"] = "\n".join(self._screen_rows(app))
+                await pilot.press("down")
+                await self._settle(pilot)
+                rows["legacy"] = "\n".join(self._screen_rows(app))
 
         with _forced_local_tz("UTC-3"):
             self._run(go())
-        self.assertIn("· 07-10 17:00", rows["text"])
-        self.assertNotIn("T14:00:00Z", rows["text"])
+        self.assertIn("Generated  07-10 17:00", rows["good"])
+        self.assertNotIn("T14:00:00Z", rows["good"])
         # Unparseable values keep the pre-t2112 raw rendering.
-        self.assertIn("· 2026-08-01", rows["text"])
+        self.assertIn("Generated  2026-08-01", rows["legacy"])
 
 
 class TrailDetailSectionTests(ByTrailTestBase):

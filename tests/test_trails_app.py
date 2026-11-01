@@ -59,6 +59,7 @@ import keybinding_registry  # noqa: E402
 from test_board_bytrail_view import (  # noqa: E402
     GatedCalls, NoteRecorder, _wave_doc, _xdep_doc, linked_scan, linked_trail,
 )
+from trail_select_dialog_checks import TrailSelectDialogChecks  # noqa: E402
 from trail_discovery import TrailInfo  # noqa: E402
 
 HANDLE = "art:trail-standalone"
@@ -157,6 +158,24 @@ class TrailsAppTestBase(bf.FixtureBoardTestBase, unittest.TestCase):
     def _focused_filename(self, app):
         card = app._focused_card()
         return card.task_data.filename if card is not None else None
+
+
+class TrailsAppSelectDialogTests(TrailSelectDialogChecks, TrailsAppTestBase):
+    """`TrailSelectDialogChecks` under `ait trails` (`TrailsApp`): booted on an
+    empty scan, so the pushed selector is the only one on the stack."""
+
+    def _dlg_app(self):
+        return bf.make_trails_app()
+
+    def _dlg_patches(self):
+        return [patch.object(self.ts, "discover_trails", lambda: ([], [])),
+                patch.object(self.ts, "run_trail_drift",
+                             lambda handle: ("CURRENT", []))]
+
+    async def _dlg_boot(self, app, pilot):
+        await self._settle(app, pilot)
+        self.assertNotIsInstance(app.screen,
+                                 self.ab.board_trail_view.TrailSelectScreen)
 
 
 # --- keyboard-only flows -------------------------------------------------------
@@ -1367,8 +1386,7 @@ class TabbedSessionTests(TrailsAppTestBase):
                         app, pilot, self.ab.board_trail_view.TrailSelectScreen)
                     self.assertEqual(calls["discover"], 2,
                                      "s served the in-memory list")
-                    rows = [str(i.render()) for i in app.screen.query(
-                        self.ab.board_trail_view.TrailSelectItem)]
+                    rows = TrailSelectDialogChecks._dlg_rows(app.screen)
                     self.assertIn("● open", rows[0])
                     self.assertNotIn("● open", rows[1])
                     await pilot.press("down")
@@ -1603,7 +1621,7 @@ class TabbedSessionTests(TrailsAppTestBase):
                                       action)
         self._run(go())
 
-    def test_r_in_the_selector_rescans(self):
+    def test_ctrl_r_in_the_selector_rescans(self):
         async def go():
             calls, stack = self._counting()
             app = bf.make_trails_app()
@@ -1614,7 +1632,7 @@ class TabbedSessionTests(TrailsAppTestBase):
                     await self._wait_screen(
                         app, pilot, self.ab.board_trail_view.TrailSelectScreen)
                     self.assertEqual(calls["discover"], 2)
-                    await pilot.press("r")
+                    await pilot.press("ctrl+r")
                     await self._settle(app, pilot)
                     self.assertEqual(calls["discover"], 3)
                     self.assertIsInstance(

@@ -264,7 +264,10 @@ exist only on the board. There, several trails can be open at once in tabs; here
 one trail is shown. In both, `s` re-scans for trails every time. The two TUIs keep **separate** trail selections — switching
 between them carries neither the selected trail nor the focused card across.
 
-Press `z` to enter the view and `s` to choose which trail it shows. Each wave
+Press `z` to enter the view and `s` to choose which trail it shows — the
+selector is the same as in `ait trails`, see
+[In the trail selector]({{< relref "/docs/tuis/trails/reference" >}}#in-the-trail-selector)
+(`Ctrl+R` re-scans only there). Each wave
 becomes a column headed `W1 · <title>`, and each card shows the member's
 classification glyph, its confidence, its task status, and any drift marker.
 `Enter` opens the full narrative for that member. Members that are not live

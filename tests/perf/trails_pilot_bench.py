@@ -13,7 +13,7 @@ Usage (from the repo root, under the interpreter being measured):
 Workload per repetition — every step settles and asserts the state it must
 reach, and any failed assertion aborts the run, so a repetition is recorded
 only if the whole flow happened:
-    boot -> selector -> focus <handle> + enter -> TrailsScreen with cards
+    boot -> selector -> down to <handle> + enter -> TrailsScreen with cards
     -> enter (detail) -> escape -> v (summary) -> escape
     -> d (drift re-run; call count must grow) -> 10x down -> no live workers
 
@@ -101,11 +101,16 @@ async def one_rep(tasks_dir: Path, handle: str, drift_calls: list) -> float:
         await settle(app, pilot)
         check(isinstance(app.screen, board_trail_view.TrailSelectScreen),
               "boot did not open the trail selector")
-        items = [i for i in app.screen.query(board_trail_view.TrailSelectItem)
-                 if i.info.handle == handle]
-        check(len(items) == 1, f"trail {handle!r} not offered by the selector")
-        items[0].focus()
+        options = app.screen.query_one("#trail_select_list")
+        index = next((i for i in range(options.option_count)
+                      if options.get_option_at_index(i).id == handle), None)
+        check(index is not None, f"trail {handle!r} not offered by the selector")
+        # Walk the highlight there with the keys a user would press: the search
+        # box keeps focus and ↓ moves the list.
+        for _ in range(index):
+            await pilot.press("down")
         await pilot.pause()
+        check(options.highlighted == index, "highlight did not reach the trail")
         await pilot.press("enter")
         await settle(app, pilot)
         check(isinstance(app.screen, trails_app.TrailsScreen), "selection did not land")

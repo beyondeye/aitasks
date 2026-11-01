@@ -34,11 +34,16 @@ Every key below can be rebound — press **?** for the in-place editor, or open
 
 ### In the trail selector
 
+The selector has two panes. On the left, a search box above the list of trail titles; on the right, the details of the highlighted trail: its owner task, scope, recorded freshness, when it was generated, the tasks it shares with other trails and, for a trail that could not be loaded, the error and its recorded versions. The search box keeps the keyboard focus, so you can type at any time.
+
 | Key | Action |
 |-----|--------|
+| Typing | Filter the list by trail title. The letters only have to appear in order, so `bcw` finds `Beta crew` |
 | `Up` / `Down` | Move between trails |
-| `Enter` | Open the trail in a new tab — or, on a row marked `● open`, switch to its tab |
-| `r` | Re-scan the project for trails and reopen the selector with the new list |
+| `Enter`, or a click on a title | Open the trail in a new tab — or, on a row marked `● open`, switch to its tab |
+| `PgUp` / `PgDn` | Scroll the details pane |
+| `Tab` / `Shift+Tab` | Move between the search box and the Cancel button |
+| `Ctrl+R` | Re-scan the project for trails and reopen the selector with the new list |
 | `Escape` | Close the selector |
 
 ### In the detail screen
@@ -72,7 +77,7 @@ Shown before the switch when the jump has something to tell you — the other pr
 | `r` | Re-read | Not read — the loaded copy is redrawn | Not read |
 | `d` | — | Fetched again, then freshness re-checked | Not read |
 | `s` | — | Fetched only for trails whose stored version changed since the last scan | Re-scanned |
-| `r` in the selector | — | Fetched only for trails whose stored version changed since the last scan | Re-scanned |
+| `Ctrl+R` in the selector | — | Fetched only for trails whose stored version changed since the last scan | Re-scanned |
 | `[` / `]` / `1`–`9` | — | — | — (the tab is redrawn from memory) |
 | `R` | — | A new version is written by the agent after you confirm; the view reloads it when it lands | — |
 
@@ -95,7 +100,7 @@ Switching tabs reads nothing: no task files, no stored trail, no freshness check
 
 Closing the active tab shows the tab to its right, or to its left when it was the last one. Closing the only tab returns to the `no trail selected — press s` state.
 
-When a scan (`s`, or `r` in the selector) finds a newer stored version of a trail that is open in a tab, that tab is updated and its freshness is re-checked.
+When a scan (`s`, or `Ctrl+R` in the selector) finds a newer stored version of a trail that is open in a tab, that tab is updated and its freshness is re-checked.
 
 `R` keeps watching for the new version after you switch to another tab, and reloads that trail's tab when the version lands. Only one `R` refresh is watched at a time: starting `R` for a second trail stops watching the first, so press `d` on the first trail once its refresh has finished. Closing a trail's tab stops the watch for that trail.
 
