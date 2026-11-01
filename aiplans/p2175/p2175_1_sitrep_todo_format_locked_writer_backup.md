@@ -374,3 +374,93 @@ Step 9 of the task workflow (commit, archive t2175_1, push via `./ait git`).
 
 ### Planned mitigations
 - timing: post-phase | name: sitrep_contract_fixture | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement — format fixed before its consumers exist | desc: golden v1 fixture + pinned list/context/check-sources output as the consumer contract, referenced from t2175_2/t2175_3
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-01 17:10)
+- **Requested by user:** verify and address four review findings: (1) revs
+  restored from an older backup could coincide with a rev an outstanding
+  refresh had observed, so a stale batch result applied to a different item
+  state; (2) `$`-anchored value regexes accepted a trailing LF (timestamps,
+  themes), writing an unparseable item; (3) an unreadable data file read as
+  empty (`read` exit 0, no output); (4) `store_state` read all four data files
+  on every mutation even when the marker settled it.
+- **Changes made:** (1) revs are now store-wide stamps that are never reused:
+  allocated from a `next_rev` high-water mark (written before the rename) plus
+  a scan of every store file, and pinned to the maximum by `restore`; an
+  (id, rev) token names one item state forever. (2) every value regex ends in
+  `\Z`; CR/LF in argument values (ref, timestamp, id, theme) is refused, never
+  stripped; and every rendered file is parsed back before it reaches the
+  wrapper, so a value that slips past validation becomes exit 2, not a corrupt
+  write. (3) `_read_tolerant` replaces the lenient reader: only a missing file
+  is absent, any other I/O error is exit 4 (read, id/rev scans, state check).
+  (4) content is inspected only when no decisive artifact (marker, counters,
+  sources/, recovered/) establishes the store.
+- **Files affected:** `.aitask-scripts/lib/sitrep_todo.py`,
+  `.aitask-scripts/aitask_sitrep_todo.sh`, `tests/test_sitrep_todo.sh`
+  (Test 6 rewritten for store-wide revs, new 6b refresh-across-restore, 14b
+  trailing newline, 14c unreadable file), `tests/test_sitrep_todo_format.py`,
+  `tests/fixtures/sitrep/` (regenerated: revs changed, `next_rev` added).
+- **Verification:** bash 218/218, Python 35/35; mutants (per-item rev,
+  lenient reads, `$` anchors + no parse-back) each turn both suites red.
+
+## Final Implementation Notes
+- **Actual work done:** Step 0 renamed the t2175 family compass → sitrep
+  (six task files, label, bodies) and handed durable-pointer / stale-write
+  duties to t2175_2 / t2175_3 in their bodies (commit `ait: Rename compass
+  feature to sitrep (t2175)`). New `.aitask-scripts/aitask_sitrep_todo.sh`
+  (locked writer: validation, `registry_lock.sh` mutex, init, backups,
+  counters, atomic commit, restore, test seams) and
+  `.aitask-scripts/lib/sitrep_todo.py` (strict parse / validate / mutate /
+  render core; render∘parse identity enforced by a canonical check). Gitignore
+  rule `.aitask-sitrep/` via `setup_sitrep_store_gitignore()` + the
+  `upgrade_store_gitignore_rules()` entry + this repo's `.gitignore`; parity
+  tests extended (`tests/test_setup_git.sh` 27b/27g2/27h, the "all nine"
+  comment; `tests/test_install_upgrade_dirty_baseline.sh` UPGRADE_RULES).
+  Tests: `tests/test_sitrep_todo.sh` (218 assertions), 
+  `tests/test_sitrep_todo_format.py` (35), contract fixture
+  `tests/fixtures/sitrep/` (store/ + pinned `expected_*.txt`).
+- **Deviations from plan:** `read` takes `all|todo|context|qa` (`todo` = Part
+  1, `all` the default); `list` accepts `--machine` but needs no flag; extra
+  result lines `CONTEXT:…|unchanged`, `SITUATION:…|absent`, per-line
+  `NOT_FOUND:c<N>` in batches; the qa header may carry `items: -`. Added
+  under-lock sweep of dead writers' staging temps (`.<name>.XXXXXX`) — none
+  can belong to a live writer while the mutex is held. `related:` must name
+  ids below the allocation mark (a forward reference inflated the id scan —
+  found when generating the fixture). Review round 1 (see Post-Review
+  Changes): store-wide revs (`next_rev`), `\Z` anchors + CR/LF refusal +
+  parse-back of every rendered file, strict I/O in reads, no content reads in
+  `store_state` once established.
+- **Issues encountered:** Python `$` matching before a final newline
+  (review finding); the related-id inflation above; a `rm -rf "$VAR"` in a
+  mutant runner was blocked by the safety check — mutants now run in fresh
+  `mktemp -d` dirs instead.
+- **Key decisions:** one physical `todo.md` + separate `qa.md`; record-level
+  verbs + per-item CAS instead of section writes; store-wide never-reused
+  revs and ids (high-water counters + structural scans over every store file
+  incl. backups and `recovered/`); `store.init` written LAST so "never
+  created" and "lost" are distinguishable; `capture:` only into the store's
+  own content-addressed `sources/`; the strict parser + line-1 banner make
+  hand edits fail closed (`restore`). Whitelist touchpoints deferred to
+  t2175_4 (first SKILL.md closure caller).
+- **Upstream defects identified:** None
+- **Notes for sibling tasks:**
+  - Contract = `tests/fixtures/sitrep/` + the helper's header. A format change
+    edits the fixture and bumps `format=`.
+  - t2175_2 (harvest): `retain` every passage first, point `capture:` at the
+    returned `sources/<hex>.txt#L…`; `add --ref` is idempotent (`EXISTS:` in
+    any state, so dismissals stick); `add … --context-file -` writes item +
+    stub context atomically; to target another repo's store set
+    `AITASK_SITREP_DIR` to its absolute `.aitask-sitrep` path. `related:` may
+    only name existing ids — add items first, then `upsert-context`.
+  - t2175_3 (refresh): `list --machine` → `set-state --batch` lines
+    `<id>|<observed rev>|<state>|<checked_at>|<outcome>`; `STALE:` = changed
+    since read (re-read next tick), `KEPT:` = dismissed (never written);
+    revs are store-wide stamps, compare for equality only. Every stamp of
+    `checked_at` changes the rev.
+  - t2175_4 (skill): owes the 5 whitelist touchpoints for
+    `aitask_sitrep_todo.sh`; Q&A only via `qa`, dismissals via `dismiss`,
+    never by editing files (the parser refuses hand edits).
+  - Test seams: `AITASK_SITREP_PAUSE_FIFO` (init:after_qa,
+    write:after_counter, write:after_backup, restore:after_preserve),
+    `AITASK_SITREP_NOW`, `AITASK_SITREP_LOCK_TIMEOUT`.
