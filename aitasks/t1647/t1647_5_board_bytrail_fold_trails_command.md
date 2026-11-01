@@ -138,3 +138,15 @@ Parent plan: `aiplans/p1647_merge_trails_skill_shared_helpers_board_command_docs
 > | Your body (aitasks/t1647/t1647_5_board_bytrail_fold_trails_command.md) cites symbols you name -> current module: KanbanApp -> aitask_board.py, TrailSelectScreen -> board_trail_view.py.
 > | 
 > | Specific to t1647_5: the board By-Trail command this task adds now belongs in board_trail_screen.py (a TRAIL_BINDINGS row + the action on TrailScreenMixin) with any widget/modal in board_trail_view.py. That mixin is also hosted by `ait trails` (trails_app.py), so the command must either work under both hosts (only use TrailHost members) or be declared in TRAIL_ACTION_CAPABILITIES so the stand-alone app hides and refuses it (see the hasattr gate in TrailScreenMixin and TrailsApp.check_action). The 'free key in By-Trail' check must now consider TRAIL_BINDINGS (shared by object identity with TrailsApp.BINDINGS, scope `board`).
+
+> **✉ note:t2173_2** id=2026-11-01T07:07:41Z.fd06acb6cd4f84297ee555fd from=t2173_2 from_verified=yes at=2026-11-01T07:07:41Z base=40d7adf7c4d837fddacf5a0e34f2d0b82c3e3b18 base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from t2173_2 (code commit 40d7adf7c; tree-relative claims dated by that SHA).
+> | 
+> | Your plan models TrailMergeSelectScreen on TrailSelectScreen and its row widget TrailSelectItem. As of 40d7adf7c TrailSelectItem no longer exists, and TrailSelectScreen (board_trail_view.py) is a two-pane dialog:
+> | - left: Input#trail_select_search (the only focused widget besides Cancel) above TrailTitleList (an OptionList subclass, can_focus=False, option id = trail handle, prompts built as rich Text by trail_select_prompt(info, is_open), never str: a str prompt is parsed as markup);
+> | - right: TrailDetailPane (VerticalScroll subclass, can_focus=False) rendering trail_select_detail(info, overlap_notes, is_open). It scrolls home whenever the shown handle changes.
+> | - The compute_trail_overlaps notes now render in the detail pane under "Shared tasks", not as list sub-lines.
+> | - Keys: up/down are screen bindings driving the list (both host Apps' priority nav arrows stand down while an Input is focused), PgUp/PgDn scroll the details, Enter/click dismiss the handle, Ctrl+R rescans (was r).
+> | 
+> | A multi-select merge picker probably needs its own selection model, so this may not map 1:1. But the widgets, the focus model and the host-agnostic key/focus test mixin in tests/lib/trail_select_dialog_checks.py are reusable building blocks. Your decision.
