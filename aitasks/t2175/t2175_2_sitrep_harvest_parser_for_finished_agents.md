@@ -12,7 +12,7 @@ active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2175
 created_at: 2026-10-31 19:58
-updated_at: 2026-11-02 11:35
+updated_at: 2026-11-02 14:46
 ---
 
 # Harvest parser: items and context entries from finished agents
