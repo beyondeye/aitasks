@@ -50,3 +50,30 @@ Go `ait monitor` port (aitasks_go#16): both its Textual and Go twins replay it.
   indistinguishable" in `aidocs/framework/monitor_idle_and_prompt_detection.md`).
 - Once committed, send aitasks_go#16 a note naming the spec and fixture paths
   (`./ait note 16 --project aitasks_go --from <this task id> --text "..."`).
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t2034_1** id=2026-11-03T15:15:43Z.19a9094cdd91cf8b3723d289 from=t2034_1 at=2026-11-03T15:15:43Z base=6930f54e25e74a1e92e01e7fab1a8c1cbbcf2914 base_branch=main dirty=yes host=omg16
+>
+> | Cross-repo dependents of this task (aitasks_go, as of 2026-11-03), checked by
+> | reading their xdeps:
+> | - aitasks_go#16_2 monitor_app_shell — xdeps [2034_3]; renders from "the shared monitor
+> |   status server's snapshot stream (protocol: aitasks#2034_3)".
+> | - aitasks_go#47 / #47_1 go_monitor_status_server — xdeps [2037, t2034_3].
+> | - aitasks_go#16 (Go monitor port) uses the recorded protocol stream as its parity
+> |   fixture (per the t2034 parent description).
+> | 
+> | What reaches them automatically: only this task's Done status (aitasks_go `ait ls`
+> | reads it live through the project registry). Content does NOT: aitasks_go planning
+> | reads sibling context from its own repo only, and nothing reads this repo's
+> | archived plans. Their bodies cannot yet know where the spec, codec and recorder
+> | fixtures will live.
+> | 
+> | Suggested handoff at completion (Step 8e of this task): one cross-repo note per
+> | dependent, with the protocol spec path, codec module path, recorded-stream
+> | fixture path(s) and the commit that holds them, e.g.
+> |   ./ait note 16_2 --project aitasks_go --from 2034_3 --with-live --file - <<'EOF' ... EOF
+> |   ./ait note 47   --project aitasks_go --from 2034_3 --with-live --file - <<'EOF' ... EOF
+> | Re-check the dependent list first (grep xdeps in aitasks_go), since it may have
+> | changed since this note was written.
