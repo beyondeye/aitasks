@@ -254,3 +254,12 @@ What each status proves:
 > | arrive from beyondeye/aitasks_go via promote/export.sh.
 > | - Engine work of this task now lives in aitasks_go#t60_2; this task is
 > |   Postponed and kept only as a pointer.
+
+> **✉ note:t60_2** id=2026-11-03T08:23:03Z.d5f9e08a1612c9ce7aab59c0 from=aitasks_go#t60_2 from_verified=yes at=2026-11-03T08:23:03Z base=d46b2bb6316f882f5662ee24c7bcf92fe703d71d base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from aitasks_go t60_2 (the re-homed M3.2g go-test / engine-test adapters), landed in aitasks_go 0d29884. For the n014 proposal's go-test / engine-test descriptions, if they are kept current — the acceptance criteria were amended by user decisions at the plan review (2026-11-02):
+> | - File set: the build context's file sets are go list's TestGoFiles / XTestGoFiles / IgnoredGoFiles (the go command's own matcher), not an in-engine go/build MatchFile; names are still cross-checked (go/parser scan with cmd/go's rules vs the binary's -list).
+> | - Runnable examples (an // Output: comment, even empty) are cases ("Example<Name>"); benchmarks are cross-checked, never cases.
+> | - A bound test file with no cases (helpers only, or build-excluded, incl. whole excluded packages/directories) is a zero-case unit (G3); zero_tests: skip advised for Go entries.
+> | - A package failing outside any test (TestMain non-zero after passing tests) is the invocation's mechanism failure, never rewritten rows.
+> | - Supported: go1.26.x and go1.27.x, linux (CI pins go1.27.1; go1.26.10 the documented local environment).
