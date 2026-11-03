@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2175
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-03 10:39
-updated_at: 2026-11-03 11:28
+updated_at: 2026-11-03 13:18
 ---
 
 ## Origin
@@ -52,3 +53,8 @@ t2109's `--agent-kind`) is the first thing to establish.
 Find why `lib/agent_restore.py` classifies the fixture agents as `unknown_agent`
 (probably an agent-string / agent-kind resolution change the fixture never
 followed), then fix the fixture or the resolver — whichever is wrong.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-03T11:18:36Z status=pass attempt=1 type=human
