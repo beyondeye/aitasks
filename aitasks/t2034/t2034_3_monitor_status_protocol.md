@@ -118,3 +118,5 @@ Go `ait monitor` port (aitasks_go#16): both its Textual and Go twins replay it.
 > | 
 > | Details: tests/test_monitor_client_agnostic.py and the archived plan
 > | aiplans/archived/p2034/p2034_2_*.md (Final Implementation Notes).
+
+> **👁 note:read** id=2026-11-03T20:50:03Z.2c294332c9e7a7832e361c13 by=t2034_3 at=2026-11-03T20:50:03Z mode=explicit ids=2026-11-03T15:15:43Z.19a9094cdd91cf8b3723d289,2026-11-03T20:44:11Z.d15fc2b139a213acfd7e9462
