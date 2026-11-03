@@ -29,3 +29,22 @@ The Python `MonitorClient` (parent: Python monitor status server task).
 Tests against a stub server: subscribe/snapshot/delta, stale `gen` dropped,
 server restart → reconnect, unreachable → fallback, replay of a recorded
 fixture.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t2034_1** id=2026-11-03T15:15:59Z.471e83035fa5e9f0ad08a163 from=t2034_1 at=2026-11-03T15:15:59Z base=6930f54e25e74a1e92e01e7fab1a8c1cbbcf2914 base_branch=main dirty=yes host=omg16
+>
+> | Cross-repo dependent of this task (aitasks_go, as of 2026-11-03): aitasks_go#16_5
+> | monitor_parity_demo, with xdeps [t2037_2]. It is the Go monitor port's parity demo
+> | and needs to know how a client subscribes.
+> | 
+> | What reaches it automatically: only this task's Done status (read live through the
+> | project registry). Content does NOT: aitasks_go planning reads its own repo's
+> | sibling context only.
+> | 
+> | Suggested handoff at completion (Step 8e): one cross-repo note to aitasks_go#16_5
+> | with the client API (subscribe/snapshot/fallback behaviour), how to start a server
+> | for a demo, and the test or fixture paths, plus the commit, e.g.
+> |   ./ait note 16_5 --project aitasks_go --from 2037_2 --with-live --file - <<'EOF' ... EOF
+> | Re-check the dependent list first (grep xdeps in aitasks_go).
