@@ -1,0 +1,104 @@
+{
+  "status": "PROPOSED: not approved. t2179_2 starts with an explicit user approval of this matrix, its budget and its limits.",
+  "seed": 21792,
+  "blocks": [
+    {
+      "condition": "fresh",
+      "agents": [
+        "claude",
+        "codex"
+      ],
+      "variants": [
+        "v1_baseline",
+        "v2_concise_intent",
+        "v3_explicit_semantics",
+        "v4_prescriptive"
+      ],
+      "scenarios": [
+        "file_selection",
+        "runnable_examples",
+        "go_versions",
+        "working_wait"
+      ],
+      "reps": 5,
+      "reps_by_scenario": {
+        "working_wait": 3
+      }
+    },
+    {
+      "condition": "minimal",
+      "agents": [
+        "claude",
+        "codex"
+      ],
+      "variants": [
+        "v1_baseline",
+        "v2_concise_intent"
+      ],
+      "scenarios": [
+        "file_selection",
+        "go_versions"
+      ],
+      "reps": 5
+    },
+    {
+      "condition": "repeated",
+      "agents": [
+        "claude",
+        "codex"
+      ],
+      "variants": [
+        "v1_baseline",
+        "v2_concise_intent"
+      ],
+      "orders": [
+        "ABC",
+        "BCA",
+        "CAB"
+      ],
+      "reps": 1
+    }
+  ],
+  "judges": [
+    "claude",
+    "codex"
+  ],
+  "control_scenarios": [
+    "file_selection",
+    "runnable_examples",
+    "go_versions",
+    "working_wait"
+  ],
+  "proposed_limits": {
+    "basis": "pilot batch 'pilot' measured means (see pilot_report.md); NOT approved",
+    "invocation_cap": 920,
+    "planned_invocations": 872,
+    "claude_cost_threshold_usd": 145.0,
+    "projected_claude_cost_usd": 123.0,
+    "codex_token_threshold": 10500000,
+    "projected_codex_noncached_tokens": 9005915,
+    "reserve_for_controls": 16,
+    "per_turn_limits": "unchanged from limits.json (max observed: 8 tool calls, 81 s per subject turn, 56 s per judge call)",
+    "circuit_breaker_consecutive": 3,
+    "max_concurrent_sessions": 2
+  },
+  "projection": {
+    "sessions": {
+      "fresh": 144,
+      "minimal": 40,
+      "repeated": 12
+    },
+    "subject_invocations": 416,
+    "answers": 220,
+    "answer_judge_invocations": 440,
+    "control_judge_invocations": 16,
+    "wall_clock_hours": {
+      "subjects_at_2_concurrent": 2.2,
+      "judging_sequential": 3.7
+    }
+  },
+  "open_decisions_for_t2179_2": [
+    "web access: every fresh Codex >q turn web-searched in the pilot; Claude had no web tools. Disable for both, or allow for both",
+    "judge disagreement: 8 of 16 pilot answers disputed (>1 point on some dimension); budget the independent audit for about half the answers"
+  ]
+}

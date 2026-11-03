@@ -1,0 +1,138 @@
+[
+  {
+    "after": {
+      "advisory_only": true,
+      "composite": 11.833,
+      "could_choose": 3,
+      "decision_explained": 3,
+      "factual_correctness": 2,
+      "option_coverage_mean": 2.833,
+      "option_coverage_min": 2.667,
+      "options_listed": 2,
+      "readability": 3,
+      "recommendation_reasoning": 3,
+      "unsupported_claims": 2
+    },
+    "agent": "claude",
+    "before": {
+      "advisory_only": true,
+      "composite": 11.833,
+      "could_choose": 3,
+      "decision_explained": 3,
+      "factual_correctness": 2,
+      "option_coverage_mean": 2.833,
+      "option_coverage_min": 2.667,
+      "options_listed": 2,
+      "readability": 3,
+      "recommendation_reasoning": 3,
+      "unsupported_claims": 1
+    },
+    "condition": "fresh",
+    "judge": "claude",
+    "scenario": "file_selection",
+    "trial_id": "fresh-claude-v3_explicit_semantics-file_selection-r1-a1-102544-3fe8-t2",
+    "variant": "v3_explicit_semantics"
+  },
+  {
+    "after": {
+      "advisory_only": true,
+      "composite": 9.833,
+      "could_choose": 2,
+      "decision_explained": 3,
+      "factual_correctness": 0,
+      "option_coverage_mean": 2.833,
+      "option_coverage_min": 2.667,
+      "options_listed": 2,
+      "readability": 2,
+      "recommendation_reasoning": 2,
+      "unsupported_claims": 0
+    },
+    "agent": "claude",
+    "before": {
+      "advisory_only": true,
+      "composite": 9.833,
+      "could_choose": 2,
+      "decision_explained": 3,
+      "factual_correctness": 0,
+      "option_coverage_mean": 2.833,
+      "option_coverage_min": 2.667,
+      "options_listed": 2,
+      "readability": 2,
+      "recommendation_reasoning": 2,
+      "unsupported_claims": 0
+    },
+    "condition": "fresh",
+    "judge": "codex",
+    "scenario": "file_selection",
+    "trial_id": "fresh-claude-v3_explicit_semantics-file_selection-r1-a1-102544-3fe8-t2",
+    "variant": "v3_explicit_semantics"
+  },
+  {
+    "after": {
+      "advisory_only": true,
+      "composite": 8.444,
+      "could_choose": 2,
+      "decision_explained": 2,
+      "factual_correctness": 2,
+      "option_coverage_mean": 2.444,
+      "option_coverage_min": 2.333,
+      "options_listed": 3,
+      "readability": 2,
+      "recommendation_reasoning": 2,
+      "unsupported_claims": 2
+    },
+    "agent": "claude",
+    "before": {
+      "advisory_only": true,
+      "composite": 8.333,
+      "could_choose": 2,
+      "decision_explained": 2,
+      "factual_correctness": 2,
+      "option_coverage_mean": 2.333,
+      "option_coverage_min": 2.0,
+      "options_listed": 3,
+      "readability": 2,
+      "recommendation_reasoning": 2,
+      "unsupported_claims": 1
+    },
+    "condition": "repeated",
+    "judge": "claude",
+    "scenario": "go_versions",
+    "trial_id": "repeated-claude-v1_baseline-ABC-r1-a1-103312-c4aa-t4",
+    "variant": "v1_baseline"
+  },
+  {
+    "after": {
+      "advisory_only": true,
+      "composite": 7.667,
+      "could_choose": 1,
+      "decision_explained": 2,
+      "factual_correctness": 0,
+      "option_coverage_mean": 2.667,
+      "option_coverage_min": 2.333,
+      "options_listed": 3,
+      "readability": 2,
+      "recommendation_reasoning": 2,
+      "unsupported_claims": 0
+    },
+    "agent": "claude",
+    "before": {
+      "advisory_only": true,
+      "composite": 7.444,
+      "could_choose": 1,
+      "decision_explained": 2,
+      "factual_correctness": 0,
+      "option_coverage_mean": 2.444,
+      "option_coverage_min": 2.333,
+      "options_listed": 3,
+      "readability": 2,
+      "recommendation_reasoning": 2,
+      "unsupported_claims": 0
+    },
+    "condition": "repeated",
+    "judge": "codex",
+    "scenario": "go_versions",
+    "trial_id": "repeated-claude-v1_baseline-ABC-r1-a1-103312-c4aa-t4",
+    "variant": "v1_baseline"
+  }
+]

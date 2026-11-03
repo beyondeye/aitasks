@@ -1,0 +1,61 @@
+{
+  "agents": {
+    "claude": {
+      "files": {
+        "render/SKILL.md": "6d9b341bb1ecbc7f8ed1cf9618ddf9f6ba47a9dc4d710f6722333c9032ed69a4",
+        "render/concern-format.md": "23c2495001c8596c846d214e8a9efafd5fd4e554e4d13e18ccd8304f8eadbeaa",
+        "render/impl-challenge.md": "62cf5f37b041a12b2498e347f14f9f00eb0b867492e83df7546856279aed6757",
+        "render/impl-review-angles.md": "424eae7b3f9f5e192cced2a44d43ec7ab372886cc0adbb64cdf56942a2e00255",
+        "render/plan-assumptions.md": "3bd6b96faf97d427d70a0944c4a0b762608c173c57942683dc7c6271b3a3dc1d",
+        "render/plan-challenge.md": "7050d3f1c8d7f17e12152daf87415272fda84b32c0a4d99125d2efd7ab414be3",
+        "render/plan-decisions.md": "c32f22106b9e0a7d337254cac9ccf1fbf1520da517620bcd90e8434b8c4bcb9a",
+        "render/plan-diagnose-errors.md": "1797d87168c3f7bfb5a35e9de89780f9c22d5c050fef0907e717988f18bd0023",
+        "render/plan-explain.md": "57dbad75aad77c786b2791fe720a2e417acd6b94659afc511b377576dfe4fcff",
+        "render/plan-socratic.md": "10a82ba624b3122fe4be4e65c50e8928c708092e13ef6bb25b3f0640e1836a53",
+        "render/round-preamble.md": "e412a975a7cbd45153838f72c10a53963795665fd65d160b8ef273172e242c81",
+        "render/spawn-learn-skill.md": "f260dbb2bcbe169698d22325002853d47e36059f837a5ecda58877ce30739231",
+        "render/task-summarize.md": "615d5430b386ddf5d964d213789a38625ce51a73179b654b556c8a78d08cab9c",
+        "stub/SKILL.md": "7e319e7bbf7bbceab2bbaebe50feb9b38c8ffae206253ab8cba9a5a7c403aa6a"
+      },
+      "q_span_lines": [
+        281,
+        300
+      ],
+      "render_dst": ".claude/skills/aitask-shadow-fast-",
+      "render_src": ".claude/skills/aitask-shadow-fast-",
+      "stub_dst": ".claude/skills/aitask-shadow/SKILL.md",
+      "stub_src": ".claude/skills/aitask-shadow/SKILL.md"
+    },
+    "codex": {
+      "files": {
+        "render/SKILL.md": "6d9b341bb1ecbc7f8ed1cf9618ddf9f6ba47a9dc4d710f6722333c9032ed69a4",
+        "render/concern-format.md": "bc8408f601e3948159d4c3d85cd16ff428e52e197f0715614f2e1e1f6766f2d5",
+        "render/impl-challenge.md": "2ab3faaa61bd72b7e56f1e3b4ff0eedf513848fa56a69d73108a0d3bedd6b9ad",
+        "render/impl-review-angles.md": "424eae7b3f9f5e192cced2a44d43ec7ab372886cc0adbb64cdf56942a2e00255",
+        "render/plan-assumptions.md": "bd275993b284a46de4d44784449818148392173ca6eebe5e7b90eb01e586b7de",
+        "render/plan-challenge.md": "46c12170b41ed176103a1a4db92b98b127b404a90741fe7a8899dfb2f16c1b55",
+        "render/plan-decisions.md": "c32f22106b9e0a7d337254cac9ccf1fbf1520da517620bcd90e8434b8c4bcb9a",
+        "render/plan-diagnose-errors.md": "a8664023445df17d028f62ffbf0aee62855cdedc11b2ae5342cf40b1ea8ff415",
+        "render/plan-explain.md": "57dbad75aad77c786b2791fe720a2e417acd6b94659afc511b377576dfe4fcff",
+        "render/plan-socratic.md": "10a82ba624b3122fe4be4e65c50e8928c708092e13ef6bb25b3f0640e1836a53",
+        "render/round-preamble.md": "e412a975a7cbd45153838f72c10a53963795665fd65d160b8ef273172e242c81",
+        "render/spawn-learn-skill.md": "f260dbb2bcbe169698d22325002853d47e36059f837a5ecda58877ce30739231",
+        "render/task-summarize.md": "615d5430b386ddf5d964d213789a38625ce51a73179b654b556c8a78d08cab9c",
+        "stub/SKILL.md": "3c2e6c24698666fa9ee589bf5de61e4c971534b15f464b945913704f5edfc650"
+      },
+      "q_span_lines": [
+        281,
+        300
+      ],
+      "render_dst": ".agents/skills/aitask-shadow-fast-codex-",
+      "render_src": ".agents/skills/aitask-shadow-fast-codex-",
+      "stub_dst": ".agents/skills/aitask-shadow/SKILL.md",
+      "stub_src": ".agents/skills/aitask-shadow/SKILL.md"
+    }
+  },
+  "profile": "fast",
+  "repo_sha": "d46b2bb6316f882f5662ee24c7bcf92fe703d71d",
+  "source_j2": ".claude/skills/aitask-shadow/SKILL.md.j2",
+  "source_j2_sha256": "311aaf03b22d74be9f918c468ab9039314bd4b48e1fd4795a4ba131565a1de43",
+  "v1_baseline_sha256": "468ec29998cccac55f6585be73f30434dd82da7e0c120aaf092320364f0b835e"
+}

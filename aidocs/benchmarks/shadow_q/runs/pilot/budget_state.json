@@ -1,0 +1,8 @@
+{
+  "invocations": 79,
+  "cap": 80,
+  "claude_cost_usd": 10.1655,
+  "claude_cost_threshold_usd": 15.0,
+  "codex_tokens": 744563,
+  "codex_token_threshold": 2000000
+}
