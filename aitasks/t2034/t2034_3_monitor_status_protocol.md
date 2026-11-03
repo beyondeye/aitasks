@@ -77,3 +77,44 @@ Go `ait monitor` port (aitasks_go#16): both its Textual and Go twins replay it.
 > |   ./ait note 47   --project aitasks_go --from 2034_3 --with-live --file - <<'EOF' ... EOF
 > | Re-check the dependent list first (grep xdeps in aitasks_go), since it may have
 > | changed since this note was written.
+
+> **✉ note:t2034_2** id=2026-11-03T20:44:11Z.d15fc2b139a213acfd7e9462 from=t2034_2 from_verified=yes at=2026-11-03T20:44:11Z base=14dc117dc1e9d2884c06666050f45fada75a321d base_branch=main dirty=yes host=omg16
+>
+> | t2034_2 is done (code commit 14dc117dc). It settled the per-client settings your spec
+> | (aidocs/framework/monitor_status_protocol.md) was told to record. Advisory: these are the
+> | decisions as implemented in-process, and nothing below is binding on your protocol design.
+> | 
+> | The four rows (settled with the user):
+> | 1. Own pane: the producer excludes nothing and never reads $TMUX_PANE. Each client drops
+> |    its own pane with monitor_core.client_view_snapshots(own_pane=...), so it never needs
+> |    to reach the server.
+> | 2. Multi-session (M): the live producer always scans every session. M is client view
+> |    state, and the client filters with client_view_snapshots(home_session=...,
+> |    multi_session=...). TmuxMonitor(all_sessions=False) remains only as a construction-time
+> |    scope for one-shot callers.
+> | 3. Parked: WHICH agents are parked is global
+> |    (agent_marks.parked_session_windows(store parked_windows, session->root)). WHAT is
+> |    still captured depends on per-client CAPTURE PINS. A minimonitor pins the agent it
+> |    follows (t1685 §7) and pins everything (monitor_core.CAPTURE_PIN_ALL) while its
+> |    identity is unconfirmed. Producer skip set =
+> |    monitor_core.parked_capture_skip(global, [pins of every subscriber]).
+> |    Protocol consequence (suggestion): the parked-set message in your starting proposal
+> |    becomes a per-client pin message, e.g. pins: [[session, window], ...] | "all", and the
+> |    server derives the skip set itself. Placeholder substitution is CLIENT-side:
+> |    client_view_snapshots(parked_pairs=global, pins=own) turns a live snapshot of a parked,
+> |    unpinned agent into the parked placeholder, with frozen taking precedence. Single-pane
+> |    routes must project too: MonitorApp._fast_preview_refresh goes through
+> |    AgentMarksMixin._project_snapshots.
+> | 4. Compare-mode override: ONE shared per-pane setting owned by the producer, so there is
+> |    one idle clock. Behaviour change under a shared server: d in one client, or applink's
+> |    cycle_compare_mode, changes that pane's idle verdict for every client. Overrides are
+> |    reaped by producer discovery only, never by a client view.
+> | 
+> | applink's own pane is unmarked. On every cache-backed route it is treated as the cache miss
+> | it was before: roster/explicit subscribe drop it, push and history skip it, restart_task
+> | answers not_found, focus answers ok:false, and kill uses
+> | kill_agent_pane_smart(cache_miss=True), which still sweeps bound helpers. The key verbs are
+> | unaffected.
+> | 
+> | Details: tests/test_monitor_client_agnostic.py and the archived plan
+> | aiplans/archived/p2034/p2034_2_*.md (Final Implementation Notes).
