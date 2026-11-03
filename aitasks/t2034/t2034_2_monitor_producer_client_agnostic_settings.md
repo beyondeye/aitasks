@@ -11,8 +11,9 @@ active_gates_profile: fast
 active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2034
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-16 08:01
-updated_at: 2026-11-03 17:18
+updated_at: 2026-11-03 18:19
 ---
 
 Make the `TmuxMonitor` producer client-agnostic, so one shared instance can
@@ -36,3 +37,8 @@ producer today:
   exactly as before.
 - Tests pinning each row, including the existing rule that the parked set is
   published *before* the capture (see the `set_parked_agents` docstring).
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-03T16:19:28Z status=pass attempt=1 type=human
