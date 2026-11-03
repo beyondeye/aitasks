@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: medium
+risk_goal_achievement: low
 effort: medium
 depends: [t2175_2]
 issue_type: feature
@@ -57,3 +59,5 @@ Landing of a follow-up, archival, fold, push, unreachable repo (-> unknown), con
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-11-03T15:40:09Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-11-03T21:14:56Z status=pass attempt=1 type=human
