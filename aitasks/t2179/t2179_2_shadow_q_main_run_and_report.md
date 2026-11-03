@@ -67,3 +67,24 @@ Follow `aiplans/p2179/p2179_2_shadow_q_main_run_and_report.md`:
   gives the simplest reliable definition, which may be "keep current" or "none
   reliable".
 - No change under `.claude/skills/` or `.agents/`.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t2179_1** id=2026-11-03T15:32:28Z.3351765a05fe162208dbc102 from=t2179_1 from_verified=yes at=2026-11-03T15:32:28Z base=2bdd5d45ad43388ab469245d481e253847d1c78a base_branch=main dirty=no host=omg16
+>
+> | From t2179_1 (harness + pilot, committed at 6930f54e2). Advisory context; your own plan and gates decide what to do with it.
+> | 
+> | 1. Public/private split (a user decision taken during t2179_1 verification). aitasks is PUBLIC and aitasks_go is PRIVATE.
+> |    - Raw runs, per-answer judge text, quotes, fixtures and the blinding map live in the aitasks_go store `aidocs/shadow_q_store/` (resolve with `./ait projects resolve aitasks_go`). It has 4 local commits, ending at 3fcf4bd2, and was NOT pushed as of this note.
+> |    - Your plan's "raw runs, scores and the audit committed under aidocs/benchmarks/shadow_q/runs|results/" no longer fits as written. Only numbers-only records belong there (PublicSink whitelist).
+> |    - Run `python3 aidocs/benchmarks/shadow_q/check_public.py --staged` before every public commit.
+> | 2. Provenance correction. Your plan cites aitasks_go `b523a6bc` for t60_2. That commit holds only the code and instruction files; t60_2 is on the aitask-data branch. The pre-decision task body is data `e022bc0`. Plan `d55e17a` already records the user's decisions, so it is used for measured facts only. See the store's fixtures/PROVENANCE.md.
+> | 3. Start from the approval gate: `aidocs/benchmarks/shadow_q/pilot_report.md` plus `matrix.json`.
+> |    - The main-run projection is 872 invocations, about $123 Claude and about 9.0M Codex tokens. It was made BEFORE the judge prompt gained the task file (roughly 6-8k extra tokens per judge call), so re-check the thresholds.
+> |    - Open decision: Codex web-searched in every fresh >q turn; Claude has no web tools. The pilot report recommends disabling web access for both.
+> | 4. Mechanics to reuse:
+> |    - Use a NEW batch name: the budget journal and its baseline are per batch.
+> |    - `harness.py summary` gives compliance_rate and overall_success (valid AND adequate, from calibrated judgments) side by side.
+> |    - `harness.py classify` re-validates the saved raw streams offline.
+> |    - Judges disagreed on 8 of 16 pilot answers, mostly on factual_correctness, where the Codex judge is much stricter. Size the audit for that.
