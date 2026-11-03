@@ -2020,20 +2020,34 @@ setup_data_branch() {
         *) warn "Could not rewrite legacy data entries in .gitignore (left unchanged) — 'ait setup' retries it" ;;
     esac
 
+    # Both blocks go through _ait_ensure_gitignore_block: an unchecked `>>`
+    # hung on a FIFO and aborted setup under errexit on a read-only file or a
+    # directory (t2185). A block it cannot write is reported with the exact
+    # lines to add by hand and is never claimed as written; the rest of the
+    # data-branch setup carries on.
+    local blk_rc link data_names="/$AIT_DATA_DIR_NAME"
+
     # After the rewrite above, a legacy `.aitask-data/` or `.aitask-data` line
-    # has become `/.aitask-data`, so this checks the one form setup writes (LF or
-    # CRLF). On a failed rewrite it appends the anchored block anyway, which
-    # ignores the root entries whatever the legacy lines still say.
-    if [[ ! -f "$gitignore" ]] || \
-       ! grep -qxF -e "/$AIT_DATA_DIR_NAME" -e "/$AIT_DATA_DIR_NAME"$'\r' -- "$gitignore" 2>/dev/null; then
-        {
-            echo ""
-            echo "# Task data (lives on aitask-data branch, accessed via symlinks)"
-            echo "/$AIT_DATA_DIR_NAME"
-            printf '/%s\n' "${AIT_DATA_LINKS[@]}"
-        } >> "$gitignore"
-        gitignore_changed=true
-    fi
+    # has become `/.aitask-data`, so the guard checks the one form setup writes
+    # (LF or CRLF). On a failed rewrite it appends the anchored block anyway,
+    # which ignores the root entries whatever the legacy lines still say.
+    local data_block=(
+        "# Task data (lives on aitask-data branch, accessed via symlinks)"
+        "/$AIT_DATA_DIR_NAME"
+    )
+    for link in "${AIT_DATA_LINKS[@]}"; do
+        data_block+=("/$link")
+        data_names+=", /$link"
+    done
+    blk_rc=0
+    _ait_ensure_gitignore_block "$gitignore" _ait_gitignore_has_data_block \
+        "${data_block[@]}" || blk_rc=$?
+    case "$blk_rc" in
+        0) gitignore_changed=true ;;
+        1) ;;
+        *) _ait_warn_gitignore_block_failed "task data" \
+               "The task data symlinks ($data_names)" "${data_block[@]}" ;;
+    esac
 
     # Install per-profile rendered-skill-closure ignore patterns so a consumer's
     # `git status` stays clean of on-demand rendered closures
@@ -2044,31 +2058,36 @@ setup_data_branch() {
     # MUST come after the broad `*-/` patterns. Keep this list in sync with the
     # repo .gitignore until t777_29 unifies both via
     # aitask_regen_gitignore_prerender.sh.
-    if [[ ! -f "$gitignore" ]] || ! grep -qF ".claude/skills/*-/" "$gitignore" 2>/dev/null; then
-        {
-            echo ""
-            echo "# Per-profile rendered skill variants (on-demand, not committed)"
-            echo "# Convention: rendered dirs end with a trailing hyphen; authoring"
-            echo "# dirs never do. See https://www.aitasks.io/docs/concepts/skill-templating/"
-            echo ".claude/skills/*-/"
-            echo ".agents/skills/*-/"
-            echo ".opencode/skills/*-/"
-            echo ""
-            echo "# Pre-rendered headless variants, committed so the skill works where"
-            echo "# 'ait setup' has not run (e.g. Claude Code Web). Negations win only"
-            echo "# when they follow the broad patterns above."
-            echo "!.claude/skills/aitask-pickrem-remote-/"
-            echo "!.agents/skills/aitask-pickrem-remote-codex-/"
-            echo "!.opencode/skills/aitask-pickrem-remote-/"
-            echo "!.claude/skills/aitask-pickweb-remote-/"
-            echo "!.agents/skills/aitask-pickweb-remote-codex-/"
-            echo "!.opencode/skills/aitask-pickweb-remote-/"
-            echo "!.claude/skills/task-workflow-remote-/"
-            echo "!.agents/skills/task-workflow-remote-codex-/"
-            echo "!.opencode/skills/task-workflow-remote-/"
-        } >> "$gitignore"
-        gitignore_changed=true
-    fi
+    local skill_block=(
+        "# Per-profile rendered skill variants (on-demand, not committed)"
+        "# Convention: rendered dirs end with a trailing hyphen; authoring"
+        "# dirs never do. See https://www.aitasks.io/docs/concepts/skill-templating/"
+        ".claude/skills/*-/"
+        ".agents/skills/*-/"
+        ".opencode/skills/*-/"
+        ""
+        "# Pre-rendered headless variants, committed so the skill works where"
+        "# 'ait setup' has not run (e.g. Claude Code Web). Negations win only"
+        "# when they follow the broad patterns above."
+        "!.claude/skills/aitask-pickrem-remote-/"
+        "!.agents/skills/aitask-pickrem-remote-codex-/"
+        "!.opencode/skills/aitask-pickrem-remote-/"
+        "!.claude/skills/aitask-pickweb-remote-/"
+        "!.agents/skills/aitask-pickweb-remote-codex-/"
+        "!.opencode/skills/aitask-pickweb-remote-/"
+        "!.claude/skills/task-workflow-remote-/"
+        "!.agents/skills/task-workflow-remote-codex-/"
+        "!.opencode/skills/task-workflow-remote-/"
+    )
+    blk_rc=0
+    _ait_ensure_gitignore_block "$gitignore" _ait_gitignore_has_skill_block \
+        "${skill_block[@]}" || blk_rc=$?
+    case "$blk_rc" in
+        0) gitignore_changed=true ;;
+        1) ;;
+        *) _ait_warn_gitignore_block_failed "rendered-skill" \
+               "Rendered per-profile skill directories" "${skill_block[@]}" ;;
+    esac
 
     # --- Step 8: (retired) ---
     # CLAUDE.md is intentionally NOT written here: it is regenerated on every
@@ -2917,6 +2936,9 @@ _ait_rewrite_data_gitignore_lines() {
     local gitignore="$1" name
     local legacy=()
     [[ -e "$gitignore" || -L "$gitignore" ]] || return 1
+    # Open only a regular file (or a symlink to one): a FIFO blocks grep's open
+    # until a writer appears (t2185, as _ait_add_gitignore_rules, t2178).
+    [[ -f "$gitignore" ]] || return 2
     for name in "$AIT_DATA_DIR_NAME" "${AIT_DATA_LINKS[@]}"; do
         # Both legacy forms, LF and CRLF: a CRLF line carries its CR into grep's line.
         if grep -qxF -e "$name/" -e "$name/"$'\r' -e "$name" -e "$name"$'\r' \
@@ -3121,6 +3143,9 @@ setup_sitrep_store_gitignore() {
 # Every setup .gitignore helper writes through _ait_add_gitignore_rules, by way
 # of _ait_setup_gitignore_group, and both routes take their comment and rule
 # strings from the one group table, _ait_gitignore_group (t2178).
+# setup_data_branch Step 7 writes whole blocks through
+# _ait_ensure_gitignore_block instead (below the per-rule writer): its guards
+# are per block, and its `!` re-includes must stay after its broad patterns.
 
 # _ait_add_gitignore_rules <gitignore> <comment> <rule>...
 #   -> 0 added, 1 every rule already present, 2 could not inspect or write
@@ -3220,6 +3245,97 @@ _ait_warn_gitignore_rules_failed() {
         warn "  $what will show as untracked in 'git status'."
         warn "  Fix by hand: add the $noun $lines to .gitignore, or re-run 'ait setup'."
     fi
+}
+
+# --- setup_data_branch Step 7's whole-block writer (t2185) ---
+# Step 7 writes two blocks to the main .gitignore, each behind ONE guard of its
+# own: the data block is present when its `/.aitask-data` line is (LF or CRLF),
+# the rendered-skill block when `.claude/skills/*-/` appears anywhere. The
+# per-rule writer above does not fit either: it would add each missing rule on
+# its own, and an appended broad `*-/` pattern that lands after an existing `!`
+# re-include silently cancels it — the negations only win when they follow.
+
+# Step 7's block guards: grep's status, 0 present, 1 absent, 2 unreadable.
+_ait_gitignore_has_data_block() {
+    grep -qxF -e "/$AIT_DATA_DIR_NAME" -e "/$AIT_DATA_DIR_NAME"$'\r' -- "$1" 2>/dev/null
+}
+_ait_gitignore_has_skill_block() {
+    grep -qF -e ".claude/skills/*-/" -- "$1" 2>/dev/null
+}
+
+# _ait_ensure_gitignore_block <gitignore> <guard> <line>...
+#   -> 0 appended, 1 already present, 2 could not inspect or write (an existing
+#      path that is not a regular file, an unreadable file, a failed or
+#      unverified append); on 2, _ait_gitignore_partial says whether bytes
+#      landed (see _ait_gitignore_note_partial).
+# <guard> <gitignore> is the block's own presence test; it runs again after the
+# append as the read-back, so the block counts as written only once its guard
+# finds it. Appends a blank line and then the lines — the bytes the old Step 7
+# echo blocks wrote, including when the file did not exist. Callers run it as
+# `|| rc=$?`, which suspends errexit inside it, so every fallible step is
+# checked here.
+_ait_ensure_gitignore_block() {
+    local gitignore="$1" guard="$2" rc=0 before
+    shift 2
+    _ait_gitignore_partial=""
+    if [[ -e "$gitignore" || -L "$gitignore" ]]; then
+        # Open only a regular file (or a symlink to one): a FIFO blocks the
+        # open until a peer appears, and a dangling symlink would have its
+        # target created. Anything else is "cannot inspect".
+        [[ -f "$gitignore" ]] || return 2
+        "$guard" "$gitignore" || rc=$?
+        case "$rc" in
+            0) return 1 ;;
+            1) ;;
+            *) return 2 ;;
+        esac
+        before="$(wc -c < "$gitignore" 2>/dev/null)" || before=""
+    else
+        before="absent"
+    fi
+    # `&&`, not a newline: a group's status is its LAST command's, so a failed
+    # separator would be lost if the block then wrote. That blank line is also
+    # what ends a last line with no newline, so the block would be glued onto
+    # the user's rule (`keep-me# ...`) while the read-back below still found it.
+    if ! {
+        echo "" && printf '%s\n' "$@"
+    } 2>/dev/null >> "$gitignore"; then
+        _ait_gitignore_note_partial "$gitignore" "$before"
+        return 2
+    fi
+    rc=0
+    "$guard" "$gitignore" || rc=$?
+    if [[ "$rc" -ne 0 ]]; then
+        _ait_gitignore_note_partial "$gitignore" "$before"
+        return 2
+    fi
+    return 0
+}
+
+# _ait_warn_gitignore_block_failed <label> <what> <line>... — the rc-2 report
+# for _ait_ensure_gitignore_block. Reads _ait_gitignore_partial, so it runs
+# straight after the failed write. It never offers re-running setup: Step 7 is
+# behind setup_data_branch's "already configured" return, so once the data
+# worktree exists nothing writes these blocks again. Instead it prints the
+# block's rules (no comments or blank lines) in order, one per line, as the
+# hand fix — through printf, so each line can be copied as it stands.
+_ait_warn_gitignore_block_failed() {
+    local label="$1" what="$2" line
+    shift 2
+    if [[ -n "$_ait_gitignore_partial" ]]; then
+        warn "Could not add the $label entries to .gitignore — the write stopped part-way, so it may now end in an incomplete entry."
+        warn "  $what will show as untracked in 'git status'."
+        warn "  'ait setup' does not retry this step. Fix by hand: delete any incomplete line at the end of .gitignore, then add these lines to .gitignore, in this order:"
+    else
+        warn "Could not add the $label entries to .gitignore — left unchanged."
+        warn "  $what will show as untracked in 'git status'."
+        warn "  'ait setup' does not retry this step. Fix by hand: add these lines to .gitignore, in this order:"
+    fi
+    for line in "$@"; do
+        [[ -z "$line" || "$line" == "#"* ]] && continue
+        printf '    %s\n' "$line"
+    done
+    return 0
 }
 
 # --- .gitignore rule groups: the one table setup and upgrade read (t2178) ---

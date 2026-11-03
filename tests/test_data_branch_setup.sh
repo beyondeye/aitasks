@@ -23,6 +23,8 @@ TOTAL=0
 
 # Shared assertion helpers (see tests/lib/asserts.sh)
 . "$PROJECT_DIR/tests/lib/asserts.sh"
+# run_bounded, for the Step 7 cases that could hang (see tests/lib/proc_fixtures.sh)
+. "$PROJECT_DIR/tests/lib/proc_fixtures.sh"
 
 assert_symlink() {
     local desc="$1" path="$2"
@@ -2136,6 +2138,211 @@ shim_remove
 assert_not_contains "39b: no fetch-back after the push" "could not fetch it back" "$out_39b"
 assert_eq_trim "39b: aitask-data@{u} resolves" "refs/remotes/origin/aitask-data" "$(data_upstream "$T39B/local")"
 rm -rf "$T39B"
+
+# --- Test 40: Step 7 survives a .gitignore it cannot write (t2185) ---
+# Step 7 appended both of its blocks with an unchecked `>>` after `[[ ! -f ]]`
+# tests. A FIFO in place of .gitignore blocks that open-for-write until a reader
+# appears; a read-only file or a directory fails the redirection, which aborts
+# `ait setup` (main() calls setup_data_branch bare, under `set -euo pipefail`).
+# Each case runs the whole function in a bounded child under that errexit
+# (ERREXIT_ON is the control). `clean` is the positive control: it shows this
+# harness can carry setup_data_branch to the end at all, so a fault case that
+# fails is the fault's doing.
+echo "--- Test 40: Step 7 survives a .gitignore it cannot write (t2185) ---"
+t40_log="$(mktemp)"
+# t40_run <dir> -> status (124 = did not return in time); output in $t40_log.
+t40_run() {
+    run_bounded 30 "$t40_log" env HOME="$1/home-scratch" bash -c '
+        source "$1" --source-only
+        [[ $- == *e* ]] && echo ERREXIT_ON
+        SCRIPT_DIR="$2/.aitask-scripts"
+        cd "$2" || exit 1
+        setup_data_branch
+        echo SURVIVED' _ "$PROJECT_DIR/.aitask-scripts/aitask_setup.sh" "$1"
+}
+for fault in clean readonly directory fifo; do
+    d="$(setup_local_repo)"
+    mkdir -p "$d/.aitask-scripts" "$d/home-scratch"
+    case "$fault" in
+        clean|readonly)
+            echo "base-rule" > "$d/.gitignore"
+            git -C "$d" add .gitignore
+            git -C "$d" commit -q -m "base .gitignore" -- .gitignore ;;
+    esac
+    case "$fault" in
+        readonly)
+            chmod 444 "$d/.gitignore"
+            if [[ -w "$d/.gitignore" ]]; then
+                echo "SKIP: 40 readonly (mode ignored for this user)"
+                chmod -R u+w "$d"
+                rm -rf "$d"
+                continue
+            fi ;;
+        directory) mkdir "$d/.gitignore" ;;
+        fifo) mkfifo "$d/.gitignore" ;;
+    esac
+    before="$(git -C "$d" rev-list --count HEAD)"
+    rc=0
+    t40_run "$d" || rc=$?
+    out="$(cat "$t40_log")"
+    assert_eq "40 $fault: child returns 0 within 30s (124 = hung)" "0" "$rc"
+    assert_contains "40 $fault: child shell has errexit (control)" "ERREXIT_ON" "$out"
+    assert_contains "40 $fault: survives setup's errexit" "SURVIVED" "$out"
+    assert_contains "40 $fault: data branch still configured" \
+        "Task data branch configured successfully" "$out"
+    assert_symlink "40 $fault: aitasks symlink created" "$d/aitasks"
+    assert_symlink "40 $fault: aiplans symlink created" "$d/aiplans"
+    if [[ "$fault" == clean ]]; then
+        assert_gitignore_line "40 clean: data block written" "$d/.gitignore" "/$AIT_DATA_DIR_NAME"
+        assert_gitignore_line "40 clean: rendered-skill block written" "$d/.gitignore" ".claude/skills/*-/"
+        assert_eq "40 clean: one new commit" "$((before + 1))" "$(git -C "$d" rev-list --count HEAD)"
+        assert_eq "40 clean: the commit names only .gitignore" ".gitignore" \
+            "$(git -C "$d" show --name-only --format='' HEAD)"
+        assert_not_contains "40 clean: no failure warning" "Could not add" "$out"
+    else
+        assert_contains "40 $fault: data block reported, nothing written" \
+            "Could not add the task data entries to .gitignore — left unchanged" "$out"
+        assert_contains "40 $fault: rendered-skill block reported, nothing written" \
+            "Could not add the rendered-skill entries to .gitignore — left unchanged" "$out"
+        # Step 7 never runs again once the data worktree exists, so re-running
+        # setup is no remedy: the warning must say so and give the lines.
+        assert_contains "40 $fault: no false re-run remedy" "does not retry this step" "$out"
+        assert_contains "40 $fault: hand fix names the data line" "    /$AIT_DATA_DIR_NAME" "$out"
+        assert_contains "40 $fault: hand fix names the skill pattern" "    .claude/skills/*-/" "$out"
+        assert_eq "40 $fault: no new commit" "$before" "$(git -C "$d" rev-list --count HEAD)"
+        case "$fault" in
+            readonly) assert_eq "40 readonly: file unchanged" "base-rule" "$(cat "$d/.gitignore")" ;;
+            directory) assert_eq "40 directory: still a directory" "yes" \
+                "$([[ -d "$d/.gitignore" && ! -L "$d/.gitignore" ]] && echo yes)" ;;
+            fifo) assert_eq "40 fifo: still a FIFO" "yes" "$([[ -p "$d/.gitignore" ]] && echo yes)" ;;
+        esac
+    fi
+    chmod -R u+w "$d" 2>/dev/null
+    rm -rf "$d"
+done
+rm -f "$t40_log"
+
+# --- Test 40b: the Step 7 block writer, case by case (t2185) ---
+# _ait_ensure_gitignore_block <gitignore> <guard> <line>... -> 0 appended,
+# 1 already present, 2 could not inspect or write. Pins the success bytes (the
+# old Step 7 echo blocks: a blank line, then the block), both guards, and the
+# two deliberate edge changes: an unreadable regular file and a dangling
+# symlink now get a warning instead of a blind append / a created target.
+echo "--- Test 40b: _ait_ensure_gitignore_block contract (t2185) ---"
+T40B="$(mktemp -d)"
+mkdir -p "$T40B/home-scratch"
+t40b_block=("# Test block" "/$AIT_DATA_DIR_NAME" "/aitasks")
+
+# Append to an existing file, then find it on the second call.
+printf 'base-rule\n' > "$T40B/gi"
+rc=0; _ait_ensure_gitignore_block "$T40B/gi" _ait_gitignore_has_data_block "${t40b_block[@]}" || rc=$?
+assert_eq "40b: append returns 0" "0" "$rc"
+assert_eq "40b: exact bytes appended (blank line, then the block)" \
+    "$(printf 'base-rule\n\n# Test block\n/%s\n/aitasks\n' "$AIT_DATA_DIR_NAME"; echo .)" \
+    "$(cat "$T40B/gi"; echo .)"
+rc=0; _ait_ensure_gitignore_block "$T40B/gi" _ait_gitignore_has_data_block "${t40b_block[@]}" || rc=$?
+assert_eq "40b: second call finds the block (1)" "1" "$rc"
+assert_eq "40b: block not duplicated" "1" "$(grep -cxF "/$AIT_DATA_DIR_NAME" "$T40B/gi")"
+
+# No .gitignore at all: created, with the same leading blank line as before.
+rc=0; _ait_ensure_gitignore_block "$T40B/new" _ait_gitignore_has_data_block "${t40b_block[@]}" || rc=$?
+assert_eq "40b: absent file — created (0)" "0" "$rc"
+assert_eq "40b: absent file — exact bytes" \
+    "$(printf '\n# Test block\n/%s\n/aitasks\n' "$AIT_DATA_DIR_NAME"; echo .)" \
+    "$(cat "$T40B/new"; echo .)"
+
+# The data guard still accepts a CRLF line; the skill guard is a substring match.
+printf 'foo\r\n/%s\r\n' "$AIT_DATA_DIR_NAME" > "$T40B/crlf"
+cp "$T40B/crlf" "$T40B/crlf.before"
+rc=0; _ait_ensure_gitignore_block "$T40B/crlf" _ait_gitignore_has_data_block "${t40b_block[@]}" || rc=$?
+assert_eq "40b: CRLF data line found (1)" "1" "$rc"
+assert_exit_zero "40b: CRLF file byte-identical" cmp -s "$T40B/crlf.before" "$T40B/crlf"
+printf '.claude/skills/*-/\r\n' > "$T40B/skill"
+rc=0; _ait_ensure_gitignore_block "$T40B/skill" _ait_gitignore_has_skill_block ".claude/skills/*-/" || rc=$?
+assert_eq "40b: skill guard finds its pattern (1)" "1" "$rc"
+
+# The leading blank line is also what ends a last line that has no newline. If
+# that separator write fails and the block is written anyway, the block's
+# comment is glued onto the user's rule (`keep-me# ...`), changing what it
+# ignores — and the guard read-back still finds the block on its own line, so
+# it would report success. The fault is injected by shadowing echo (the
+# separator write) inside the substitution's subshell. Control first: with no
+# fault, `keep-me` stays a line of its own.
+printf 'keep-me' > "$T40B/nonl-ok"
+rc=0; _ait_ensure_gitignore_block "$T40B/nonl-ok" _ait_gitignore_has_data_block "${t40b_block[@]}" || rc=$?
+assert_eq "40b no-newline control: append returns 0" "0" "$rc"
+assert_exit_zero "40b no-newline control: 'keep-me' still a whole line" grep -qxF "keep-me" "$T40B/nonl-ok"
+printf 'keep-me' > "$T40B/nonl"
+cp "$T40B/nonl" "$T40B/nonl.before"
+sep_out="$(
+    # shellcheck disable=SC2329  # shadows the builtin the helper calls
+    echo() { return 1; }
+    rc=0
+    _ait_ensure_gitignore_block "$T40B/nonl" _ait_gitignore_has_data_block "${t40b_block[@]}" || rc=$?
+    printf 'rc=%s partial=%s' "$rc" "$_ait_gitignore_partial"
+)"
+assert_eq "40b separator fault: reported as a failure, nothing partial" "rc=2 partial=" "$sep_out"
+assert_exit_zero "40b separator fault: file byte-identical (no rule glued to the block)" \
+    cmp -s "$T40B/nonl.before" "$T40B/nonl"
+
+# A regular file that cannot be read (grep exits 2): no blind append.
+printf 'base-rule\n' > "$T40B/wo"
+chmod 200 "$T40B/wo"
+if [[ -r "$T40B/wo" ]]; then
+    echo "SKIP: 40b write-only (mode ignored for this user)"
+else
+    rc=0; _ait_ensure_gitignore_block "$T40B/wo" _ait_gitignore_has_data_block "${t40b_block[@]}" || rc=$?
+    assert_eq "40b: unreadable file reports 2" "2" "$rc"
+    chmod 600 "$T40B/wo"
+    assert_eq "40b: unreadable file unchanged" "base-rule" "$(cat "$T40B/wo")"
+fi
+
+# A dangling symlink: refused, the link left as it is, its target not created.
+# The old Step 7 created the target and committed the link (t2185 pre-phase probe).
+ln -s gi-missing-target "$T40B/.gitignore"
+rc=0; _ait_ensure_gitignore_block "$T40B/.gitignore" _ait_gitignore_has_data_block "${t40b_block[@]}" || rc=$?
+assert_eq "40b dangling: reports 2" "2" "$rc"
+assert_eq "40b dangling: nothing partial" "" "$_ait_gitignore_partial"
+assert_eq "40b dangling: still a symlink" "yes" "$([[ -L "$T40B/.gitignore" ]] && echo yes)"
+assert_eq "40b dangling: link target unchanged" "gi-missing-target" "$(readlink "$T40B/.gitignore")"
+assert_eq "40b dangling: target not created" "no" \
+    "$([[ -e "$T40B/gi-missing-target" ]] && echo yes || echo no)"
+
+# A write that stops part-way: a 1 KiB file-size limit on a 1016-byte file cuts
+# the append (SIGXFSZ ignored, so the write fails with EFBIG instead of killing
+# the shell), and the warning must not claim the file was left unchanged. The
+# limit is set only in the pipeline's left stage; `cat` writes the log outside
+# it. Control: the file grew, but by less than a whole block.
+{ printf 'base-rule\n'; printf '%01005d\n' 0; } > "$T40B/partial"
+assert_eq "40b partial: fixture is 1016 bytes" "1016" "$(( $(wc -c < "$T40B/partial") ))"
+t40b_log="$(mktemp)"
+rc=0
+run_bounded 15 "$t40b_log" env HOME="$T40B/home-scratch" bash -c '
+    source "$1" --source-only
+    { trap "" XFSZ; ulimit -f 1
+      block=("# Task data (lives on aitask-data branch, accessed via symlinks)" "/$AIT_DATA_DIR_NAME" "/aitasks" "/aiplans")
+      blk=0
+      _ait_ensure_gitignore_block "$2" _ait_gitignore_has_data_block "${block[@]}" || blk=$?
+      echo "BLK_RC=$blk"
+      [[ "$blk" -ne 2 ]] || _ait_warn_gitignore_block_failed "task data" "The task data symlinks" "${block[@]}"
+      echo SURVIVED; } 2>&1 | cat' _ "$PROJECT_DIR/.aitask-scripts/aitask_setup.sh" "$T40B/partial" || rc=$?
+out="$(cat "$t40b_log")"
+size=$(( $(wc -c < "$T40B/partial") ))
+t40b_block_bytes=$(( $(printf '\n%s\n%s\n%s\n%s\n' \
+    "# Task data (lives on aitask-data branch, accessed via symlinks)" "/$AIT_DATA_DIR_NAME" "/aitasks" "/aiplans" | wc -c) ))
+assert_eq "40b partial: the write was cut part-way (control)" "yes" \
+    "$([[ "$size" -gt 1016 && "$size" -lt $((1016 + t40b_block_bytes)) ]] && echo yes)"
+assert_eq "40b partial: returns 0 within 15s" "0" "$rc"
+assert_contains "40b partial: writer reports 2" "BLK_RC=2" "$out"
+assert_contains "40b partial: survives" "SURVIVED" "$out"
+assert_contains "40b partial: says the write stopped part-way" \
+    "Could not add the task data entries to .gitignore — the write stopped part-way" "$out"
+assert_not_contains "40b partial: no unchanged claim" "left unchanged" "$out"
+assert_contains "40b partial: hand fix starts with the incomplete line" \
+    "delete any incomplete line at the end of .gitignore" "$out"
+rm -f "$t40b_log"
+chmod -R u+w "$T40B" 2>/dev/null
+rm -rf "$T40B"
 
 # --- Summary ---
 echo ""

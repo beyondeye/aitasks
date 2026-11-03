@@ -36,6 +36,8 @@ PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 . "$PROJECT_DIR/tests/lib/scratch_cwd.sh"
 enter_scratch_cwd
 . "$PROJECT_DIR/tests/lib/asserts.sh"
+# run_bounded, for the FIFO case that could hang (see tests/lib/proc_fixtures.sh)
+. "$PROJECT_DIR/tests/lib/proc_fixtures.sh"
 
 PASS=0
 FAIL=0
@@ -245,6 +247,34 @@ fi
 # Unchanged is reported as unchanged.
 run_repair
 assert_contains "D: clean file reports already symlink-safe" "already symlink-safe" "$REPAIR_OUT"
+
+# D4: a FIFO in place of .gitignore (t2185). Opening one for read blocks until a
+# writer appears, so the rewriter must refuse it before grep opens it. Nothing
+# unbounded may touch it: both calls run in a bounded child, under the errexit
+# `ait setup` and install.sh have (ERREXIT_ON is the control). Its own project
+# dir, so Case D's file is not disturbed.
+D4_PROJ="$WORK/d4proj"
+mkdir -p "$D4_PROJ/.aitask-scripts" "$D4_PROJ/home-scratch"
+mkfifo "$D4_PROJ/.gitignore"
+rc=0
+run_bounded 15 "$WORK/d4.log" env HOME="$D4_PROJ/home-scratch" bash -c '
+    source "$1" --source-only
+    [[ $- == *e* ]] && echo ERREXIT_ON
+    rw=0
+    _ait_rewrite_data_gitignore_lines "$2/.gitignore" || rw=$?
+    echo "RW_RC=$rw"
+    SCRIPT_DIR="$2/.aitask-scripts"
+    setup_data_gitignore_symlink_safe
+    echo SURVIVED' _ "$PROJECT_DIR/.aitask-scripts/aitask_setup.sh" "$D4_PROJ" || rc=$?
+d4_out="$(cat "$WORK/d4.log")"
+assert_eq "D4: FIFO .gitignore — child returns 0 within 15s (124 = hung)" "0" "$rc"
+assert_contains "D4: child shell has errexit (control)" "ERREXIT_ON" "$d4_out"
+assert_contains "D4: rewriter refuses a FIFO with 2 (not 1)" "RW_RC=2" "$d4_out"
+assert_contains "D4: repair step survives setup's errexit" "SURVIVED" "$d4_out"
+assert_contains "D4: repair step warns it could not rewrite" "Could not rewrite" "$d4_out"
+assert_not_contains "D4: repair step does not claim already-safe" "already symlink-safe" "$d4_out"
+assert_eq "D4: the FIFO is left in place" "yes" "$([[ -p "$D4_PROJ/.gitignore" ]] && echo yes)"
+rm -f "$D4_PROJ/.gitignore"
 SCRIPT_DIR="$SETUP_SCRIPT_DIR_SAVED"
 
 # --- Case E: the repair keeps the file's mode and writes through a symlink ----
