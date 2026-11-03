@@ -11,11 +11,12 @@ active_gates: [risk_evaluated]
 active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
+risk_mitigation_tasks: [2182]
 assigned_to: dario-e@beyond-eye.com
 anchor: 2175
 implemented_with: claudecode/opus5_5
 created_at: 2026-10-31 19:58
-updated_at: 2026-11-03 08:26
+updated_at: 2026-11-03 10:40
 ---
 
 # Harvest parser: items and context entries from finished agents
