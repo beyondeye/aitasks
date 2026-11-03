@@ -11,8 +11,9 @@ active_gates_profile: fast
 active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2175
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-31 19:58
-updated_at: 2026-11-03 11:55
+updated_at: 2026-11-03 17:40
 ---
 
 # Deterministic refresh of Part 1
@@ -51,3 +52,8 @@ Landing of a follow-up, archival, fold, push, unreachable repo (-> unknown), con
 > | - trail items are kind=watch with a `trail: art:trail-<id>` source and no ref.
 
 > **👁 note:read** id=2026-11-03T09:55:21Z.426bf30211645d2dab5979b4 by=t2175_3 at=2026-11-03T09:55:21Z mode=explicit ids=2026-11-03T09:12:24Z.508a1647fe2dbdb3db209a42
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-03T15:40:09Z status=pass attempt=1 type=human
