@@ -5,7 +5,7 @@ risk_goal_achievement: medium
 effort: high
 depends: []
 issue_type: test
-status: Implementing
+status: Done
 labels: [shadow, skills, testing]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -16,7 +16,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 2179
 implemented_with: claudecode/opus5_5
 created_at: 2026-11-03 08:34
-updated_at: 2026-11-03 09:55
+updated_at: 2026-11-03 17:32
+completed_at: 2026-11-03 17:32
 ---
 
 ## Context
@@ -92,3 +93,14 @@ Follow `aiplans/p2179/p2179_1_shadow_q_harness_and_pilot.md` steps 1-9.
 > **✅ gate:plan_approved** run=2026-11-03T07:55:28Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-11-03T15:02:08Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-11-03T15:32:47Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:0e8a3e302286c75f
+
+> **✅ gate:risk_evaluated** run=2026-11-03T15:32:47Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/2179_1/risk_evaluated_2026-11-03T15:32:47Z-risk_evaluated-a1.log`
