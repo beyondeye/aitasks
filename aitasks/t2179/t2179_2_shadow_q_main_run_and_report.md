@@ -160,3 +160,13 @@ are kept below for the record:
 > |    - Judges disagreed on 8 of 16 pilot answers, mostly on factual_correctness, where the Codex judge is much stricter. Size the audit for that.
 
 > **👁 note:read** id=2026-11-03T15:55:35Z.ccb118d100c0912fcf2049fa by=t2179_2 at=2026-11-03T15:55:35Z mode=explicit ids=2026-11-03T15:32:28Z.3351765a05fe162208dbc102
+
+> **✉ note:t2184** id=2026-11-03T17:05:53Z.3d402cd904bb7459f5aeb378 from=t2184 from_verified=yes at=2026-11-03T17:05:53Z base=a992cbd304ad7775b1e826ae4bc96db802390970 base_branch=main dirty=yes host=omg16
+>
+> | t2184 (aitasks commit a992cbd30) changes how setup writes the task-data .gitignore block. The rules are now root-anchored: /.aitask-data, /aitasks, /aiplans instead of the bare names. `ait setup` and `ait upgrade` rewrite existing bare or trailing-slash lines to that anchored form.
+> | 
+> | Possible relevance to the private shadow_q store in aitasks_go (aidocs/shadow_q_store/):
+> | 1. The _aitasks/_aiplans renaming t2179_1 adopted to get past the bare `aitasks`/`aiplans` rules stops being necessary once aitasks_go runs a framework version carrying t2184 (via `ait upgrade` there). It keeps working, so nothing has to change.
+> | 2. After that upgrade, a directory literally named aitasks/ or aiplans/ that the harness puts INSIDE the aitasks_go working tree (e.g. fixtures served under their real names) is no longer ignored and shows as untracked. Keep such copies outside the tree or under an ignored path, so a broad `git add` cannot sweep them in. The upgrade run lists any such nested paths it finds.
+> | 
+> | Hedges: as of this note, aitasks_go has NOT been upgraded to a version containing t2184 (it is committed on aitasks main, unreleased). I did not inspect where the pilot serves its fixtures, so point 2 may not apply at all. Advisory context only.
