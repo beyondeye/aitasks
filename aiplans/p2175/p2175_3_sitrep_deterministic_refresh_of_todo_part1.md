@@ -608,3 +608,153 @@ Step 9 of the task workflow: commit, archive t2175_3, push via `./ait git`.
 ### Planned mitigations
 - timing: post-phase | name: refresh_guard_mutants | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement — irreversible wrong `done`; code-health — format upgrade | desc: one mutant per guard (Implementing→done, lookup errors ignored, missing→done, push without ancestor check, re-read rev in batch, always-v2 render, v1 accepting push refs, folded entry landed without a Done receiver, upsert-context without a rev bump, @{push} without the remote check, deadline-free writer timeouts, push URL identity removed, checks without the worker group kill, kill instead of killpg, id ordering, interrupted target unstamped, re-read rev for the interrupted target) must turn its test red
 - timing: post-phase | name: live_store_smoke | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement — real paths unexercised; code-health — upgrade of real v1 stores | desc: dry-run and one write on a copy of this repo's real store, plus a read-only trail check on a real art:trail handle
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-03 18:40)
+- **Requested by user:** verify and address four review findings: (1) the fold
+  index merged active and every archived copy without active-over-archive
+  precedence (a stale archived copy invented a second receiver or kept an
+  obsolete relationship alive); (2) the fold scan skipped the legacy
+  `old.tar.*` archives that direct lookup reads; (3) an active task file with
+  no frontmatter was silently ignored by the fold scan instead of failing it;
+  (4) `--budget`/`AITASK_SITREP_REFRESH_BUDGET` accepted `inf` (OverflowError
+  traceback in the selector). Follow-up decision (user, same round): archived
+  historical prose and legacy inline headers (`--- effort:… pri:…`) declare
+  no folds; incomplete modern frontmatter, malformed YAML, unreadable records
+  and headerless ACTIVE files stay scan errors; the exemption never makes the
+  historical task itself done.
+- **Changes made:** `TaskIndex._build_folds` keeps ONE authoritative record per
+  task id (active > loose archived > the id's own numbered bundle > legacy
+  `old.tar.*`, the `find_archived_markdown_by_id` precedence; copies in other
+  bundles ignored) via `archived_markdown_sources` / `iter_archive_file` /
+  `iter_legacy_archive`; every unparseable task-named record is a scan error
+  except the two pre-frontmatter archived shapes (`_pre_frontmatter`, decided by
+  the owner grammar `task_yaml.FRONTMATTER_RE` = `\A---\n`). Budgets must be
+  finite and within 0..86400 (exit 2, both paths).
+- **Tests:** `FoldIndex` (stale copy, obsolete relationship, other-bundle copy,
+  legacy bundle incl. landed trail entry, active no-frontmatter, malformed YAML),
+  `PreFrontmatterArchive` (t20–t22 real shapes do not break the scan; t20–t22
+  themselves stay unknown; incomplete modern frontmatter / unknown dash header /
+  malformed archived YAML / headerless active / unreadable archived → the scan
+  error path), `BudgetValidation`, e2e Test 8 env `inf`/`1e400`/`nan` and an
+  overflowing `--budget`. Red proofs: the new FoldIndex/Budget tests fail on the
+  previous code (6 failures + 1 error); removing the exemption fails the t20–t22
+  test; exempting every record fails the four strictness tests.
+- **Real repo:** this repo's fold scan previously failed closed on t20–t22
+  (pre-frontmatter); now it completes with no errors (missing ids → "task file
+  not found"). A concurrent session's harvest ran the working-tree writer, so the
+  live `.aitask-sitrep/todo.md` is already format=2 (refresh never wrote it).
+- **Files affected:** `.aitask-scripts/lib/sitrep_refresh.py`,
+  `tests/test_sitrep_refresh.py`, `tests/test_sitrep_refresh.sh`.
+
+### Change Request 2 (2026-11-03 19:05)
+- **Requested by user:** the fold scan skipped a numbered `.tar.gz` whenever
+  its `.tar.zst` counterpart exists (`_numbered_archive_paths`), while
+  `find_archived_markdown_by_id` falls back to that gzip per task id — a
+  receiver only in the gzip was found by direct lookup but not by the scan.
+- **Changes made:** `_build_folds` also reads the gzip counterparts
+  `archived_markdown_sources` leaves out; ranks per id are active 0, loose 1,
+  own `.tar.zst` 2, own `.tar.gz` 3, legacy 4, so a zstd copy always wins.
+- **Tests:** `FoldIndex.test_a_gzip_record_absent_from_the_coexisting_zstd_bundle_is_read`
+  and the control `test_control_the_zstd_record_wins_when_both_bundles_hold_it`
+  (skip without zstd). Red proofs: dropping the gzip pass fails the first;
+  ranking gzip above zstd fails the control.
+- **Files affected:** `.aitask-scripts/lib/sitrep_refresh.py`, `tests/test_sitrep_refresh.py`.
+
+## Final Implementation Notes
+- **Actual work done:**
+  - New `.aitask-scripts/aitask_sitrep_refresh.sh` (thin entry: args, `..`
+    refusal, python resolve) + `.aitask-scripts/lib/sitrep_refresh.py`:
+    target selection, oldest-`checked_at`-first ordering, fail-closed task
+    lookup (`TaskIndex`, active > archived, authoritative-record fold scan),
+    the reminder rule vs the trail "landed" rule (receiver chain ≤5 hops),
+    the no-fetch push rule (`@{push}` → configured push remote with exactly one
+    URL equal to its push URL), the trail check (`trail_discovery.load_trail_blob`
+    + read-only `aitask_trail_gather.sh drift`), outcome hygiene (≤200, no `|`,
+    wave title capped at 60), and the parent/worker split: the parent owns the
+    deadline and the single `set-state --batch` write; the worker (own session)
+    does all slow work and is group-killed at the check deadline; a parent-death
+    watchdog in the worker kills its group if the parent is killed from outside.
+  - Writer (`lib/sitrep_todo.py`, header of `aitask_sitrep_todo.sh`): the
+    `push:<branch>@<sha>` ref, todo `format=2` (v1 read, upgraded on the first
+    changing write; v1 + push ref refused; qa stays v1; old empty templates
+    still count as templates), and `upsert-context` now gives the item a fresh
+    rev on created/replaced.
+  - Monitor (`monitor/monitor_shared.py`): `_maybe_refresh_sitrep` in the
+    trailing maintenance after the sessions purge, per distinct observed root
+    with `store.init`, `--budget 60` and a 75 s caller timeout derived from one
+    constant; `_sitrep_store_roots`.
+  - Fixture: `tests/fixtures/sitrep/store/` regenerated as format=2 through the
+    writer (+ c6 push item); the previous golden kept as `store_v1/` with
+    `expected_list_v1.txt`.
+  - Tests: `tests/test_sitrep_refresh.py` (66), `tests/test_sitrep_refresh.sh`
+    (120, `ONLY="…"` subset filter), `tests/test_monitor_sitrep_refresh.py` (10),
+    `test_sitrep_todo.sh` 16b/16c + the upsert rev pin (248),
+    `test_sitrep_todo_format.py` FormatVersions (42).
+- **Deviations from plan:**
+  - Test 6: an item dismissed during a refresh comes back `STALE`, not `KEPT` —
+    `dismiss` takes a fresh rev and the writer checks the rev first (t2175_1's
+    contract). `KEPT` needs the dismissed item's current rev, which a refresh
+    never holds. Docs say so.
+  - Added (not planned): the worker's parent watchdog (the monitor runner's
+    `proc.kill()` kills only the direct child); `--root`/`--budget` caller
+    contract in the monitor; `MAX_BUDGET` (86400) and non-finite rejection;
+    `MAX_WAVE_TITLE`; a raw `remote.<r>.url` check (git reports the remote's
+    NAME as its URL when none is configured); `ONLY=` filter in the e2e suite.
+  - Post-review rounds (see Post-Review Changes): authoritative-record fold
+    index incl. legacy and coexisting-gzip bundles; archived pre-frontmatter
+    records (t20–t22 shapes) declare no folds (user decision).
+- **Issues encountered:**
+  - `supervise` first reaped the worker before `killpg` — a reaped leader's pgid
+    can be reused, so the group is now always killed while the leader is still
+    unreaped (`waitid(WNOWAIT)`).
+  - `pgrep -f` matches argv, not script content: survivor checks put the
+    marker in the shim directory path.
+  - Under `push.default=simple` git itself refuses a local upstream's `@{push}`,
+    so the local-upstream unit test sets `push.default=upstream` to reach the
+    guard (found because the first mutant stayed green).
+  - The fold scan's own error check masked the "lookup errors ignored" mutant;
+    the test now uses a stale archived Done copy behind an unreadable active dir.
+  - A concurrent session's harvest ran the uncommitted working-tree writer, so
+    this repo's live `.aitask-sitrep/todo.md` is already format=2.
+- **Key decisions:** positive evidence only, `done` never re-checked; unknown
+  only for targets; picked (Implementing) stays open; CAS rev covers item AND
+  context; START carries the snapshot rev; interrupted target stamped unknown
+  (rotation); no fetch for pushes; reminder rule ≠ trail landed rule.
+- **Verification:** e2e 120/120, writer 248/248, harvest 125/125, unit 179 OK,
+  full Python suite PASSED (runner=pytest), shellcheck clean (warning level).
+- **Mutants (refresh_guard_mutants):** 17 mutants, each in a fresh `mktemp -d`
+  copy, all RED; unmutated control GREEN on every command: implementing_done,
+  lookup_errors_ignored, missing_done, push_no_ancestor, batch_reread_rev,
+  render_always_v2, v1_accepts_push, folded_entry_landed,
+  upsert_context_keeps_rev, push_any_destination, writer_fixed_timeouts,
+  push_url_identity_removed, no_kill_at_deadline, kill_not_killpg, id_ordering,
+  interrupted_unstamped, interrupted_reread_rev. (lookup_errors_ignored and
+  push_any_destination were first NOT RED; their tests were sharpened — see
+  Issues — then RED.) Review-round guards red-proven separately (CR1, CR2).
+- **live_store_smoke:** on a copy of the real store: dry-run verdicts matched
+  `task-status` (t2181 archived → done; t2182/t2183 Ready, t2185 Implementing
+  → open; triage items untouched); one real write upgraded the copy to format=2
+  and `list` / `load_todo_for_read` parse it; the real store was never written
+  by refresh. Trail check read-only on `art:trail-gates-framework-landing`:
+  `next wave 1/8 Close verification debt on landed substrate, repair the too…:
+  5 pending (t1417, t1438, t1437, t1473, t1534) · drift STALE (1) · generated
+  2026-08-31 · owner t635 Ready` (181 chars; all five verified Ready);
+  `art:trail-mobile-shadow-driving`: `next wave 1/4 Fix the wire contract: 1
+  pending (t1118_1) · drift CURRENT · generated 2026-08-17 · owner t1118 Ready`.
+  Real-repo fold scan: 42 receivers, no errors, 2.3 s.
+- **Upstream defects identified:**
+  - `aitasks/archived/_b0/old0.tar.zst` (t20, t21, t22) — pre-frontmatter archived task records that `archive_iter.iter_archived_frontmatter(errors=…)` reports as unparseable, so any fail-closed archive scan in this repo reports itself incomplete
+- **Notes for sibling tasks:**
+  - t2175_4 (skill): create push items with
+    `add --kind action --ref push:<branch>@<sha> --derived agent`; run
+    `aitask_sitrep_refresh.sh` on start after harvest `all`; outcomes are the live
+    state (read, never restate); unknown = unverified, never done; owes the 5
+    permission touchpoints for `aitask_sitrep_refresh.sh` (and the writer).
+  - t2175_5 (monitor): `_maybe_refresh_sitrep` already runs in `_maintenance()`;
+    put harvest `all` before it; `REFRESH_*` lines are available for an
+    indicator; the runner's `proc.kill()` reaches only the parent (the worker's
+    watchdog covers it).
+  - Writer users: a changed context now bumps the item rev — pass a fresh
+    `--expect-rev` after `upsert-context`.
