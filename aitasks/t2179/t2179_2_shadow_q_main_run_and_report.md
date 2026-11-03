@@ -88,3 +88,5 @@ Follow `aiplans/p2179/p2179_2_shadow_q_main_run_and_report.md`:
 > |    - `harness.py summary` gives compliance_rate and overall_success (valid AND adequate, from calibrated judgments) side by side.
 > |    - `harness.py classify` re-validates the saved raw streams offline.
 > |    - Judges disagreed on 8 of 16 pilot answers, mostly on factual_correctness, where the Codex judge is much stricter. Size the audit for that.
+
+> **👁 note:read** id=2026-11-03T15:55:35Z.ccb118d100c0912fcf2049fa by=t2179_2 at=2026-11-03T15:55:35Z mode=explicit ids=2026-11-03T15:32:28Z.3351765a05fe162208dbc102
