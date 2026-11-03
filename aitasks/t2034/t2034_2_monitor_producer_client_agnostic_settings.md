@@ -3,11 +3,12 @@ priority: medium
 effort: medium
 depends: [t2034_1]
 issue_type: refactor
-status: Ready
+status: Implementing
 labels: [monitor, minimonitor]
+assigned_to: dario-e@beyond-eye.com
 anchor: 2034
 created_at: 2026-10-16 08:01
-updated_at: 2026-10-16 08:01
+updated_at: 2026-11-03 17:18
 ---
 
 Make the `TmuxMonitor` producer client-agnostic, so one shared instance can
