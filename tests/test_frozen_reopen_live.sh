@@ -17,7 +17,10 @@
 #
 # Records are seeded through the SHIPPED store verbs (`upsert`, `freeze-begin`,
 # `freeze-commit` with the gone-pane pair), exactly the state a record is left
-# in after a tmux server dies under a frozen viewer.
+# in after a tmux server dies under a frozen viewer. Each seed carries
+# `--agent-kind` — the evidence a SessionStart hook supplies for a hand-started
+# agent — because a resume refuses a record whose CLI is unproven
+# (`unknown_agent`, t2109).
 #
 # Cases
 #   a   happy path: fresh window under the recorded name, stamped, recorded
@@ -52,7 +55,8 @@
 #       stand-in, never `pane_present`, never killed by drop
 #
 # REAL RESTORES (k, h2). The synthetic project symlinks the shipped
-# `.aitask-scripts` and copies the model metadata, so the restore coordinator
+# `.aitask-scripts` and copies the model metadata, with the `raw` default pinned
+# to the fake CLI's kind (`FIXTURE_RAW_AGENT`), so the restore coordinator
 # resolves a real `claude --resume` argv; a fake `claude` on PATH execs
 # `tests/lib/fake_agent.sh`, which drives the SHIPPED SessionStart hook — the
 # acknowledgement path is real. Companion auto-spawn stays off, so these cases
@@ -104,8 +108,25 @@ OTHER="$FIXTURE_DIR/other"
 make_project "$PROJ" A
 make_project "$OTHER" C
 ln -s "$PROJECT_DIR/.aitask-scripts" "$PROJ/.aitask-scripts"
-cp "$PROJECT_DIR/aitasks/metadata/codeagent_config.json" \
-    "$PROJECT_DIR"/aitasks/metadata/models_*.json "$PROJ/aitasks/metadata/"
+cp "$PROJECT_DIR"/aitasks/metadata/models_*.json "$PROJ/aitasks/metadata/"
+
+# The fake CLI below is `claude`, so the project's `raw` default is pinned to a
+# claudecode model instead of inherited from the repository's live config, whose
+# default may legitimately move to another CLI. The model is DERIVED — the first
+# one the launcher accepts (`codeagent_active_model`: not `unavailable`) — so a
+# registry refresh cannot rot a literal pin. Records stay WITHOUT an agent
+# string, so restores still exercise the raw-default resolution path; the seeded
+# `--agent-kind` is the pin's own kind, so the two cannot drift.
+# shellcheck source=lib/codeagent_defaults.sh
+. "$PROJECT_DIR/tests/lib/codeagent_defaults.sh"
+FIXTURE_AGENT_KIND="claudecode"
+fixture_model="$(codeagent_active_model "$PROJ/aitasks/metadata/models_$FIXTURE_AGENT_KIND.json")" \
+    || { echo "FAIL: no launchable model in models_$FIXTURE_AGENT_KIND.json" >&2; exit 1; }
+FIXTURE_RAW_AGENT="$FIXTURE_AGENT_KIND/$fixture_model"
+jq --arg raw "$FIXTURE_RAW_AGENT" '.defaults.raw = $raw' \
+    "$PROJECT_DIR/aitasks/metadata/codeagent_config.json" \
+    > "$PROJ/aitasks/metadata/codeagent_config.json" \
+    || { echo "FAIL: could not pin the fixture's raw default" >&2; exit 1; }
 
 # A fake `claude`, on PATH BEFORE the server starts: `respawn-pane` / the new
 # window run their command in the SERVER's environment, captured at start.
@@ -124,12 +145,15 @@ tm new-session -d -s -n -c "$PROJ" -n home
 
 # seed <window> [nosession] — a `frozen` record of $PROJ whose pane is gone.
 # Prints its id. `nosession` seeds no codeagent session id (cannot resume).
+# The record carries `--agent-kind` and no agent string: a resume then runs the
+# pinned `raw` default, whose kind must match the recorded one (t2109).
 seed() {
     local window="$1" out id nonce
     local -a sess=(--session-id "sess-$window")
     [ "${2:-}" = nosession ] && sess=()
     store upsert --root "$PROJ" --window "$window" --pane "%99999" \
-        --pane-pid 999999 "${sess[@]}" --task-id 12 >/dev/null
+        --pane-pid 999999 "${sess[@]}" --agent-kind "$FIXTURE_AGENT_KIND" \
+        --task-id 12 >/dev/null
     id="$(store list --root "$PROJ" | grep "|$window|" | tail -1 | cut -d: -f2 | cut -d'|' -f1)"
     mkdir -p "$AITASKS_FROZEN_DIR/$id"
     : > "$AITASKS_FROZEN_DIR/$id/c.ansi"
