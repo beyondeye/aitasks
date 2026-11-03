@@ -249,3 +249,14 @@ The engine scope below moved to aitasks_go#t77 and is quoted for reference only.
 > | arrive from beyondeye/aitasks_go via promote/export.sh.
 > | - This task was split: its engine part is aitasks_go#t77; this task
 > |   keeps the framework part (body trimmed, see "Relocated to aitasks_go").
+
+> **✉ note:t77_2** id=2026-11-03T09:47:00Z.937225409eaadd4c725c625d from=aitasks_go#t77_2 from_verified=yes at=2026-11-03T09:47:00Z base=10957dd7286d560c7eb206bf7c25ee1043d40f41 base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from aitasks_go#t77_2 (engine side of aitasks#t2131_5, landed in aitasks_go as 2706ab2). These are n014 vocabulary items the engine now emits that component *Code modules* does not list. Context for the spec, not an instruction.
+> | - DEAD_SCOPE:<test>|module|<name>|undeclared|empty: a testmap:module name not in the committed table (undeclared), or declared but owning no file of the universe (empty). Always fails, mirroring DEAD_SCOPE:<test>|area|<name>|undeclared.
+> | - MODULE_DROP_REFUSED:<test>|<module>|covers:<source> (Info): the "annotation that would drop a covered-source module" finding.
+> | - MODULE_OF:<test>||unresolved: the --explain form for a test with no module (a path keeps ||unmapped).
+> | - Engine readings of the spec:
+> |   - An area's modules: ref "expands to effective paths" as an ownership predicate (p is in the area if OwnerOf(p) is a referenced module), judged against the committed table.
+> |   - A member inherits its file-level block's covers and testmap:module.
+> |   - MODULE_UNRESOLVED is emitted only for a declared table, over listed units.
