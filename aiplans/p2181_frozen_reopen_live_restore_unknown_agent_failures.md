@@ -135,3 +135,40 @@ fixture/live-config coupling raised in review is removed inline (Step 1).
 None identified. Root cause is traced to the exact refusal branch and the
 commit that introduced it; the fix supplies the evidence the contract requires
 without weakening the resolver.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-03 13:40)
+- **Requested by user:** the literal `sonnet5_5` pin plus a custom name-only
+  presence check ignored model `status`; `lib/agent_string.sh:get_cli_model_id`
+  rejects `unavailable` models, so the guard could pass a pin the launcher
+  refuses. Use the existing `tests/lib/codeagent_defaults.sh`
+  `codeagent_active_model` helper instead.
+- **Changes made:** the fixture now sources `codeagent_defaults.sh`, derives the
+  model with `codeagent_active_model models_claudecode.json` (fails loudly when
+  none qualifies), builds `FIXTURE_RAW_AGENT=claudecode/<model>`, and writes the
+  fixture `codeagent_config.json` from the repo's with `jq '.defaults.raw =
+  $raw'`. The two python3 snippets (pin + presence check) are removed;
+  `FIXTURE_AGENT_KIND` is fixed to `claudecode` (the fake CLI's kind).
+- **Files affected:** `tests/test_frozen_reopen_live.sh`
+
+## Final Implementation Notes
+- **Actual work done:** `tests/test_frozen_reopen_live.sh` seeds every record
+  with `--agent-kind claudecode` (no agent string), and the fixture project's
+  `codeagent_config.json` is written from the repo's with `defaults.raw` pinned
+  to `claudecode/<first launchable model>` (via `codeagent_active_model`). Suite:
+  101/148 → 148/148 on omg16, run from inside tmux.
+- **Deviations from plan:** two review rounds. (1) Pre-implementation review:
+  pin `raw` rather than inherit the live default (fake CLI is `claude`).
+  (2) Post-implementation review: replace the literal `sonnet5_5` pin and the
+  status-blind presence check with the shared `codeagent_active_model` helper.
+- **Issues encountered:** none beyond the reviewed ones. Baseline reproduced the
+  task's exact 101/47 before the edit; the cause is not environment-dependent —
+  it is t2109's (`ad1e1ddab`) `_resume_agent` refusal of an empty `agent_kind`,
+  a contract this live suite (not in t2109's diff) never followed.
+- **Key decisions:** fix the fixture, not the resolver — the resolver's refusal
+  is the intended t2109 contract. Records keep no `--agent-string` so the
+  raw-default resolution path stays under test. Sibling
+  `test_ide_frozen_all_projects_live.sh` seeds the same kind-less shape but only
+  reopens viewers (never resumes), so it is unaffected.
+- **Upstream defects identified:** None
