@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [install, ait_setup]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -17,7 +17,8 @@ anchor: 2173
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5_5
 created_at: 2026-11-01 09:16
-updated_at: 2026-11-03 11:48
+updated_at: 2026-11-03 17:36
+completed_at: 2026-11-03 17:36
 ---
 
 ## Origin
@@ -42,3 +43,14 @@ Rebuild each `setup_*` store helper on `_ait_add_gitignore_rules` (the `setup_ca
 > **✅ gate:plan_approved** run=2026-11-03T09:48:34Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-11-03T15:32:03Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-11-03T15:36:10Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:0e8a3e302286c75f
+
+> **✅ gate:risk_evaluated** run=2026-11-03T15:36:10Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/2178/risk_evaluated_2026-11-03T15:36:10Z-risk_evaluated-a1.log`
