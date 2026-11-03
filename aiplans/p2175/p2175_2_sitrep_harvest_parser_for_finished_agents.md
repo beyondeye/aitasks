@@ -560,3 +560,123 @@ Step 9 of the task workflow: commit, archive t2175_2, push via `./ait git`.
 ### Planned mitigations
 - timing: post-phase | name: harvest_guard_mutants | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — gates on the drop and purge paths | desc: one mutant per guard (receipt gate, purge keep on frozen and live branches, sha check, pre-kill harvest, canonical root, byte-exact identity (4 normalizer mutants), marker banner check, per-record seq, receipt short-circuit, ignore re-check, continuation join, banner labels) must turn its test red
 - timing: after | name: harvest_other_agent_captures | type: test | priority: low | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement — heuristics tuned on Claude Code rendering | desc: once codex/opencode finished-pick captures exist, add them as fixtures and fix the banner, passage and identity heuristics they break
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-03)
+- **Requested by user:** verify and address three review findings: (1) the
+  UIs' 10 s `drop_verdict` grace reported a drop as failed while its
+  coordinator was still harvesting (up to 120 s); (2) the plan→wrapper `WORK:`
+  line split root and store on `|`, so a root containing `|` harvested into the
+  wrong directory; (3) freeze `main` harvested synchronously (up to 60 s) inside
+  the monitor's 90 s whole-freeze budget, and a timed-out caller left the
+  harvest running untracked.
+- **Changes made:** (1) `drop_verdict` treats a record leased by a LIVE owner as
+  in progress (every refusal path of `drop_record` releases its lease first),
+  up to `DROP_OBSERVE_CEILING` = 180 s, pinned above the 120 s drop harvest
+  budget; both UIs use that one interpreter, so neither UI changed. (2) `WORK:`
+  carries only the root and the wrapper takes the whole remainder; roots with
+  control characters fail closed (`root_unsupported`) before anything is
+  created. (3) freeze spawns the harvest detached (`harvest-after-freeze`,
+  `start_new_session`, stdio on /dev/null) and returns right after its
+  `FROZEN:` lines; the detached verb enforces its own budget with the
+  process-group kill. New test seam `AITASK_SITREP_HARVEST_CMD` (helper path).
+- **Tests:** a drop observed mid-harvest at 25 s reads "still working" and its
+  DROPPED is then observed; a refused drop reads as failed; live / dead /
+  ceiling lease cases; a `|` root (capture and record) lands in that exact repo
+  and a line-break root is refused; a caller-level subprocess test (2 s slow
+  freeze + 30 s slow harvest, stdout read to EOF) returns in < 8 s while the
+  detached harvest runs in its own session and is killed by its own 12 s
+  budget. Mutants: lease-blind verdict, pipe-split root, inline freeze harvest
+  — each RED.
+- **Files affected:** `.aitask-scripts/lib/agent_sessions.py`,
+  `.aitask-scripts/lib/agent_freeze.py`, `.aitask-scripts/lib/sitrep_harvest.py`,
+  `.aitask-scripts/aitask_sitrep_harvest.sh`, `tests/test_agent_freeze.py`,
+  `tests/test_frozen_restore_verdict.py`, `tests/test_sitrep_harvest.sh`.
+
+### Change Request 2 (2026-11-03)
+- **Requested by user:** the control-character check ran on the supplied root
+  only; a symlink resolving to a path with a line break was serialized into
+  `WORK:` and harvested into the truncated prefix (reproduced).
+- **Changes made:** `_safe_root()` validates the FINAL root at every return of
+  `canonical_root` (after realpath and main-worktree resolution) and again in
+  `_work()` just before serialization; `_main_worktree` reads
+  `git worktree list --porcelain -z`, so a line-break path comes back whole and
+  is refused instead of truncated.
+- **Tests:** symlinked non-git and git roots resolving to line-break paths fail
+  closed with `root_unsupported`, and no store appears under the truncated
+  prefix or in the target. The input-only mutant turns them RED (and
+  reproduces the truncated-prefix store). e2e 125/125.
+- **Files affected:** `.aitask-scripts/lib/sitrep_harvest.py`,
+  `tests/test_sitrep_harvest.sh`.
+
+## Final Implementation Notes
+- **Actual work done:** New `.aitask-scripts/lib/sitrep_harvest.py` (banner
+  grammar, advisory wrap-up passage, `HARVEST_RUN` marker search, Created /
+  trail / follow-up grammars, identity keys, canonical root, item builders,
+  plan/apply CLI) and `.aitask-scripts/aitask_sitrep_harvest.sh` (verbs
+  `record` / `all` / `banner` / `capture`, ignore rule via local
+  `info/exclude` with re-check, per-store harvest mutex, receipts). Session
+  store: `capture_harvested()`, `HarvestRequired` (exit 9) and the `drop` gate
+  with `--skip-harvest`; `purge()` keeps unharvested text on every branch
+  (`KEPT:<id>|unharvested_text`, `PURGED:` counts drops only); `drop_verdict`
+  reads a live lease as "still working" up to `DROP_OBSERVE_CEILING` (180 s).
+  Freeze engine: the post-freeze harvest is DETACHED (`harvest-after-freeze`
+  verb, own session, no inherited stdio, own group-killing budget);
+  `drop_record` step 0a
+  (harvest under the lease, before survivor scan and kill; process-group kill on
+  timeout); store exit 9 → `DROP_REFUSED:<id>|harvest:required`;
+  `aitask_frozen.sh drop <id> [--skip-harvest]`. `workflow-end.md`: new
+  "Sitrep harvest (best-effort)" step + reworded reader rule; all rendered
+  copies regenerated (codex/opencode copies render from the Claude source, so
+  no port tasks are needed for this step). Five permission touchpoints.
+- **Deviations from plan:**
+  - Fixtures are **synthetic**, not trimmed real captures: copying real frozen
+    captures / a transcript into the repo was blocked (they hold other
+    projects' content and conversation text). The fixtures reproduce the layout
+    measured on real captures (README in `tests/fixtures/sitrep_harvest/`).
+  - The cross-repo fixture project is `xproj`, not `aitasks`: the project
+    resolver resolves its own repository's name even with an empty registry.
+  - Added test seam `AITASK_SITREP_HARVEST_RUN_ID` (pins the pipe's run id).
+  - A record that no longer exists harvests as `HARVEST_NONE:<id>|no_record`
+    (nothing to lose), distinguished from an unreadable store (fails closed).
+  - An added e2e case: a tracked `.gitignore` negation makes the store
+    un-ignorable → `HARVEST_FAILED:store_not_ignorable`, nothing written.
+- **Issues encountered:** under a scratch `HOME` the `python3` wrapper finds
+  its venv through `$HOME`, so the e2e suite pins `AIT_PYTHON` before switching
+  HOME. On a fresh store the writer pauses at `init:after_qa` before
+  `write:after_backup`, so a lock-holding writer is started on an initialized
+  store.
+- **Verification:** `tests/test_sitrep_harvest.sh` 118/118;
+  `tests/test_sitrep_harvest.py` 43/43; `tests/test_agent_freeze.py` 207/207;
+  `test_frozen_restore_verdict.py` + poll characterization 49/49; session /
+  monitor / frozen-agent modules 482/482;
+  `test_sitrep_todo.sh` 218/218; banner contract 43/43; task-workflow render
+  361/361; skill_verify OK; agent-config seeds 22/22; frozen dry-run 15/15, ide
+  frozen offer 97/97, stand-in stamp 28/28. `test_frozen_reopen_live.sh`:
+  101/47 both with this change and on a clean HEAD worktree (pre-existing
+  `unknown_agent` failures in this environment). `test_frozen_agents_acceptance`,
+  `test_freeze_engine_live` and `test_restore_flows_live` refuse to run inside
+  tmux by design and were NOT run here.
+- **Mutants (harvest_guard_mutants):** 16 mutants, each in a fresh
+  `mktemp -d` copy, all RED; unmutated control copy GREEN on all three test
+  commands. Store drop receipt gate (e2e 15), purge keep all branches / frozen
+  only (e2e 14 frozen + live), receipt sha check (e2e 15 stale), drop_record
+  pre-kill harvest (RealHarvestCallerTests), canonical-root worktree map
+  (CanonicalRootTests), identity banner-only (e2e 4/6), strip markup / collapse
+  line breaks / drop whitespace (collision pairs), marker banner consistency,
+  per-record seq (e2e 5), receipt short-circuit (e2e 2), ignore re-check (e2e
+  9), continuation join, banner labels in workflow-end.md (contract tests).
+- **Upstream defects identified:** None
+- **Notes for sibling tasks:**
+  - t2175_3 (refresh): harvested task items carry `checked_at` of the harvest
+    and `state=unknown` when the task file was not found; triage items are
+    `kind=question derived=script` and are not refresh targets.
+  - t2175_4 (skill): triage item contract — `kind=question`, capture sources =
+    passage, canonical banner, identity keys; `related:` links triage items
+    sharing a banner; the skill turns the prose into `--derived agent` items and
+    marks the triage item done. Run `aitask_sitrep_harvest.sh all` on start.
+  - t2175_5 (monitor key): `capture --root` is the live-pane entry; new drop
+    results `HARVEST_REQUIRED` (exit 9), `DROP_REFUSED:<id>|harvest:<reason>`,
+    purge `KEPT:<id>|unharvested_text`; `--skip-harvest` is the explicit
+    discard; the maintenance tick should run `all` to release kept records.
