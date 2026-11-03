@@ -1,0 +1,19 @@
+● Bash(./.aitask-scripts/aitask_sitrep_harvest.sh banner --task 77 --skill pick <<'SITREP_EOF'
+      Plan approved and committed. Push main before you pick it up again.…)
+  ⎿  HARVEST_RUN:0123456789abcdef
+     HARVEST_ITEM:run-0123456789abcdef|c1|added|question|-
+     … +2 lines (ctrl+o to expand)
+
+● Plan approved and committed. Push main before you pick it up again.                                                                                                   
+                                                                                                                                                                        
+  ■ aitask workflow stopped — t77 example_stopped_task                                                                                                                  
+    outcome: ready                                                                                                                                                      
+    reason: plan approved; implementation deferred                                                                                                                      
+    next: /aitask-pick 77                                                                                                                                               
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── 
+❯ 
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── 
+  [Opus 5.5 | Max] ███░░░░░░░ 31% | ░░░░░░░░░░ -- | ⏱️  58m
+  example git:(main)
+  ⏵⏵ auto mode on (shift+tab to cycle)

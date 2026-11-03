@@ -18,7 +18,11 @@
 #                             relaunch one frozen agent in its stand-in's pane
 #                             (a gone pane: a new window, in NAME when given)
 #   restore --all [--repick]  relaunch every frozen agent, sequentially
-#   drop <id>                 remove a frozen record, its capture, and its stand-in
+#   drop <id> [--skip-harvest]
+#                             harvest the capture into the sitrep store, then
+#                             remove the record, its capture, and its stand-in
+#                             (refused with DROP_REFUSED:<id>|harvest:… when the
+#                             harvest fails; --skip-harvest discards explicitly)
 #   reconcile                 settle every non-`live` record from observable facts
 #   gone --root <path> | --all-roots
 #                             list the frozen records whose viewer is not
@@ -85,7 +89,7 @@ Usage: aitask_frozen.sh freeze <pane_id>
        aitask_frozen.sh freeze --all [--dry-run]
        aitask_frozen.sh restore <id> [--repick] [--session NAME]
        aitask_frozen.sh restore --all [--repick] [--session NAME]
-       aitask_frozen.sh drop <id>
+       aitask_frozen.sh drop <id> [--skip-harvest]
        aitask_frozen.sh reconcile
        aitask_frozen.sh gone --root <path> | --all-roots
        aitask_frozen.sh reopen <id> [--session NAME]
@@ -125,8 +129,10 @@ case "$1" in
         # `drop` execs the FREEZE module, not the restore coordinator: reconcile
         # (which lives there) is the repair side and must keep working with no
         # coordinator present, so nothing it depends on may reach toward
-        # `agent_restore`.
-        [ $# -eq 2 ] || usage
+        # `agent_restore`. It harvests the capture into the sitrep store before
+        # anything is killed and refuses when that fails (t2175_2);
+        # `--skip-harvest` is the explicit discard.
+        [ $# -eq 2 ] || { [ $# -eq 3 ] && [ "$3" = "--skip-harvest" ]; } || usage
         ;;
     reconcile)
         [ $# -eq 1 ] || usage

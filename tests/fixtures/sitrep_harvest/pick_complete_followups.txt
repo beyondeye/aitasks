@@ -1,0 +1,20 @@
+● Bash(./.aitask-scripts/aitask_archive.sh 153)
+  ⎿  COMMITTED:5531518
+
+● t153 is archived. Three follow-ups were created for the risks the review found; t45_19 still has to pick its window.                                                  
+  - Pick t154 before the next prod deploy.                                                                                                                              
+  - Watch the nightly run for the reboot barrier.                                                                                                                       
+                                                                                                                                                                        
+  ✔ aitask workflow complete — t153 example_followup_source                                                                                                             
+    outcome: archived (commit 5531518) · pushed: yes                                                                                                                    
+    follow-ups created: t154, t155, t156,                                                                                                                               
+      xproj#t2171, t45_19                                                                                                                                             
+
+✻ Cooked for 7m 7s · done 9:42 AM
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── 
+❯ 
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── 
+  [Opus 5.5 | Max] ███░░░░░░░ 31% | ░░░░░░░░░░ -- | ⏱️  58m
+  example git:(main)
+  ⏵⏵ auto mode on (shift+tab to cycle)

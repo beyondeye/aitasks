@@ -3873,6 +3873,12 @@ class TmuxMonitor:
         write unlocked. Best-effort by design: a store that is locked or
         unreadable must not stop the user killing a pane — reconcile's
         ``capture_missing`` / ``dead_pane`` rules retire the record later.
+
+        The store refuses (exit 9, ``HARVEST_REQUIRED``) to drop a record whose
+        capture text was never harvested into the sitrep store (t2175_2) — a
+        receipt read, well inside this call's 10 s. The record then stays
+        `frozen` with its pane gone, reconcile's benign KEEP row, and stays
+        droppable through `aitask_frozen.sh drop`, which harvests first.
         """
         script = (
             Path(__file__).resolve().parent.parent / "aitask_agent_sessions.sh"

@@ -1,0 +1,15 @@
+● Bash(./.aitask-scripts/aitask_trail_gather.sh drift --trail art:trail-example-plan-1)
+  ⎿  DRIFT:none
+
+● The trail art:trail-example-plan-1 is current. t99 is archived; refresh art:trail-example-plan-2 next.                                                                
+                                                                                                                                                                        
+  ✔ aitask workflow complete — t99 example_trail_task                                                                                                                   
+    outcome: archived (commit abc1234) · pushed: no                                                                                                                     
+    follow-ups created: none                                                                                                                                            
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── 
+❯ 
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── 
+  [Opus 5.5 | Max] ███░░░░░░░ 31% | ░░░░░░░░░░ -- | ⏱️  58m
+  example git:(main)
+  ⏵⏵ auto mode on (shift+tab to cycle)

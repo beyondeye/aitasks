@@ -58,6 +58,7 @@ Test seams, honoured **only** under ``AITASKS_TEST_MODE=1``. They are built from
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -77,6 +78,7 @@ from monitor.monitor_core import task_ref_from_window_name  # noqa: E402
 # Re-exported names only — never swapped, so an import alias is safe. Every
 # shared FUNCTION is called as `frozen_ops.<name>(...)` instead (seam rule).
 from agent_frozen_ops import (  # noqa: E402,F401
+    EXIT_HARVEST_REQUIRED,
     EXIT_LEASE_HELD,
     EXIT_LOCK_BUSY,
     EXIT_NONCE_MISMATCH,
@@ -1534,7 +1536,90 @@ def _other_real_agents(pane_id: str) -> int | None:
     )
 
 
-def drop_record(record_id: str) -> str:
+#: The sitrep harvest (t2175_2). Run before a drop deletes the capture, and
+#: best-effort after a freeze. Not imported: it is a separate entry point that
+#: writes another store through its own writer.
+_HARVEST_SH = _SCRIPTS_DIR / "aitask_sitrep_harvest.sh"
+#: Budgets (seconds). The drop path runs in a detached `run-shell -b`
+#: coordinator, so it can afford the larger one; the freeze path must not hold
+#: a `freeze --all` hostage. `AITASK_SITREP_HARVEST_TIMEOUT` overrides both.
+HARVEST_TIMEOUT_DROP = 120.0
+HARVEST_TIMEOUT_FREEZE = 60.0
+
+
+def _harvest_timeout(default: float) -> float:
+    raw = os.environ.get("AITASK_SITREP_HARVEST_TIMEOUT", "")
+    try:
+        value = float(raw) if raw else default
+    except ValueError:
+        return default
+    return value if value > 0 else default
+
+
+def _harvest_record(record_id: str, timeout: float) -> tuple[bool, str]:
+    """Run `aitask_sitrep_harvest.sh record <id>`. ``(ok, reason)``; never raises.
+
+    Started in its own process group and KILLED AS A GROUP on timeout, so a
+    cancelled harvest leaves no writer running behind the caller's back. A
+    cancelled harvest writes no receipt, so the store's `drop` / `purge` gates
+    then refuse -- cancellation can only fail closed.
+    """
+    # TEST SEAM: AITASK_SITREP_HARVEST_CMD replaces the helper path (a test
+    # can substitute a deliberately slow command). Production never sets it.
+    helper = Path(os.environ.get("AITASK_SITREP_HARVEST_CMD") or _HARVEST_SH)
+    if not helper.is_file():
+        return False, "harvest helper missing"
+    try:
+        proc = subprocess.Popen(
+            [str(helper), "record", record_id],
+            stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT, text=True, start_new_session=True,
+        )
+    except OSError as exc:
+        return False, f"spawn:{exc}"
+    try:
+        out, _ = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(proc.pid, 9)
+        except OSError:
+            pass
+        proc.communicate()
+        return False, f"timeout after {timeout:g}s"
+    last = ""
+    for line in (out or "").splitlines():
+        if line.startswith(("HARVESTED:", "HARVEST_NONE:", "HARVEST_FAILED:")):
+            last = line
+    if proc.returncode == 0 and last and not last.startswith("HARVEST_FAILED:"):
+        return True, last
+    return False, (last.partition("|")[2] if "|" in last else last) or f"exit {proc.returncode}"
+
+
+def _spawn_harvest_detached(record_id: str) -> bool:
+    """Start the post-freeze harvest as an independent process; never wait.
+
+    The freeze verb's callers bound the WHOLE freeze (the monitor allows 90 s
+    and reads stdout to EOF), so a synchronous harvest would spend their budget
+    and, if they gave up, outlive them untracked. Instead the harvest runs in its
+    own session with no inherited stdio -- the caller's pipe closes as soon as
+    the `FROZEN:` lines are printed -- and enforces its own budget through
+    `harvest-after-freeze` (`_harvest_record`, which kills its process group on
+    timeout). It is best-effort: a harvest that never finishes leaves no
+    receipt, so the drop / purge gates refuse until one does.
+    """
+    try:
+        subprocess.Popen(
+            [sys.executable, str(Path(__file__).resolve()),
+             "harvest-after-freeze", record_id],
+            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL, start_new_session=True, close_fds=True,
+        )
+    except OSError:
+        return False
+    return True
+
+
+def drop_record(record_id: str, *, skip_harvest: bool = False) -> str:
     """Remove a frozen record, its capture, and its stand-in pane.
 
     THE ORDER IS THE DESIGN. `drop` deletes the only copy of an agent's output,
@@ -1545,6 +1630,13 @@ def drop_record(record_id: str) -> str:
          lock, and it already encapsulates the staleness rule — held by a live
          coordinator => `LEASE_HELD`, held by a dead one => taken over, so a
          crash can never make a record permanently undroppable.
+      0a. **harvest** the capture into the repo's sitrep store (t2175_2), with
+         the lease held (so no restore can change the capture meanwhile) and
+         BEFORE anything is killed: a refused drop must cost the user nothing,
+         not even the viewer. Failure or timeout => `DROP_REFUSED:<id>|harvest:`
+         with the lease released. The store's own `drop` re-checks the receipt
+         (step 3), which is what covers the monitor's kill path.
+         ``skip_harvest`` is the explicit user discard.
       0b. **refuse a restore survivor** (t1875) — a whole-server scan for an
          agent a gone-pane restore left running that no record tracks. Deleting
          the record past one leaves that agent with no record at all, and at a
@@ -1596,6 +1688,12 @@ def drop_record(record_id: str) -> str:
         frozen_ops.store("lease-release", record_id, "--nonce", nonce)
 
     try:
+        if not skip_harvest:
+            ok, why = _harvest_record(record_id,
+                                      _harvest_timeout(HARVEST_TIMEOUT_DROP))
+            if not ok:
+                _release()
+                return f"DROP_REFUSED:{record_id}|harvest:{why}"
         _drop_fail_at("preflight")
         rec = frozen_ops.store_show(record_id)
         if not rec:
@@ -1663,7 +1761,9 @@ def drop_record(record_id: str) -> str:
 
         frozen_ops.pause_at("drop_pre_store")
         _drop_fail_at("store")
-        rc, out = frozen_ops.store("drop", record_id, "--nonce", nonce)
+        rc, out = frozen_ops.store(
+            "drop", record_id, "--nonce", nonce,
+            *(["--skip-harvest"] if skip_harvest else []))
         if rc == EXIT_NONCE_MISMATCH:
             # Somebody minted a new lease over ours while we were killing. The
             # record and its capture SURVIVE — that is what the leased form
@@ -1671,6 +1771,13 @@ def drop_record(record_id: str) -> str:
             # not: an `aborting -> frozen` recovery clears the nonce and would
             # have restored the identical pair.
             return f"DROP_ABORTED:{record_id}|raced"
+        if rc == EXIT_HARVEST_REQUIRED:
+            # The receipt step 0a wrote no longer matches the capture (or was
+            # never written by a skipped harvest). The record and capture
+            # survive; the viewer is already gone, which reconcile keeps as a
+            # benign `frozen | pane gone` row.
+            _release()
+            return f"DROP_REFUSED:{record_id}|harvest:required"
         if rc != 0:
             _release()
             return f"DROP_FAILED:{record_id}|store:{out.strip()}"
@@ -1832,14 +1939,34 @@ def main(argv: list[str] | None = None) -> int:
         results = freeze_all() if target == "--all" else [freeze_pane(target)]
         for result in results:
             print(result.line)
+        sys.stdout.flush()
+        # Best-effort sitrep harvest (t2175_2), DETACHED so no freeze caller
+        # waits on it (see `_spawn_harvest_detached`). Never changes the exit
+        # status: a failed harvest only means the later drop/purge gates
+        # refuse until one succeeds.
+        for result in results:
+            if result.ok and result.record_id:
+                _spawn_harvest_detached(result.record_id)
         # An empty batch is a success: there was nothing to freeze.
         return 0 if all(r.ok for r in results) else 1
 
-    if verb == "drop":
-        if len(rest) != 1:
-            print("usage: agent_freeze.py drop <record-id>", file=sys.stderr)
+    if verb == "harvest-after-freeze":
+        # Internal: the detached half of the freeze verb. Its own budget, its
+        # own process group; the result is the receipt (or its absence).
+        if len(rest) != 1 or not re.match(r"^[0-9a-f]{8}$", rest[0]):
+            print("usage: agent_freeze.py harvest-after-freeze <record-id>",
+                  file=sys.stderr)
             return 2
-        line = drop_record(rest[0])
+        ok, _why = _harvest_record(rest[0], _harvest_timeout(HARVEST_TIMEOUT_FREEZE))
+        return 0 if ok else 1
+
+    if verb == "drop":
+        skip = len(rest) == 2 and rest[1] == "--skip-harvest"
+        if len(rest) != 1 and not skip:
+            print("usage: agent_freeze.py drop <record-id> [--skip-harvest]",
+                  file=sys.stderr)
+            return 2
+        line = drop_record(rest[0], skip_harvest=skip)
         print(line)
         return 0 if line.startswith("DROPPED:") else 1
 

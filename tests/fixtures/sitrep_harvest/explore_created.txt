@@ -1,0 +1,21 @@
+● Bash(./.aitask-scripts/aitask_create.sh --batch --commit \
+        --name "example_first_task" \…)
+  ⎿  Added to label vocabulary: example_label
+     Created: aitasks/t562_example_first_task.md
+
+● Bash(./.aitask-scripts/aitask_create.sh --batch --commit --parent 562 \
+        --name "example_child" \…)
+  ⎿  Created: aitasks/t562/t562_1_example_child.md
+
+● Bash(./.aitask-scripts/aitask_create.sh --batch \
+        --name "example_draft" \…)
+  ⎿  Created: aitasks/new/draft_20261101_1200_example_draft.md
+
+● I created t562 and its child t562_1 and saved them for later. Run /aitask-pick 562 when you want to start.                                                            
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── 
+❯ 
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── 
+  [Opus 5.5 | Max] ███░░░░░░░ 31% | ░░░░░░░░░░ -- | ⏱️  58m
+  example git:(main)
+  ⏵⏵ auto mode on (shift+tab to cycle)

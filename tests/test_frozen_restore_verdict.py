@@ -211,6 +211,36 @@ class DropVerdictTests(unittest.TestCase):
                                         drop_grace=DROP_GRACE),
             (True, "drop failed — record kept", True))
 
+    def test_a_live_lease_keeps_waiting_past_the_grace(self):
+        """t2175_2: the coordinator holds its lease while it harvests the
+        capture, which can take far longer than the grace."""
+        rec = _rec(op_nonce="abcd1234", op_owner_pid=4242)
+        self.assertEqual(
+            agent_sessions.drop_verdict(rec, DROP_GRACE * 6, drop_grace=DROP_GRACE,
+                                        pid_alive=lambda pid: True),
+            (False, "", False))
+
+    def test_a_live_lease_is_bounded_by_the_ceiling(self):
+        rec = _rec(op_nonce="abcd1234", op_owner_pid=4242)
+        done, message, warn = agent_sessions.drop_verdict(
+            rec, agent_sessions.DROP_OBSERVE_CEILING, drop_grace=DROP_GRACE,
+            pid_alive=lambda pid: True)
+        self.assertEqual((done, warn), (True, True))
+        self.assertIn("record kept", message)
+
+    def test_a_dead_owners_lease_is_a_finished_drop(self):
+        rec = _rec(op_nonce="abcd1234", op_owner_pid=4242)
+        self.assertEqual(
+            agent_sessions.drop_verdict(rec, DROP_GRACE, drop_grace=DROP_GRACE,
+                                        pid_alive=lambda pid: False),
+            (True, "drop failed — record kept", True))
+
+    def test_the_ceiling_exceeds_the_drop_harvest_budget(self):
+        sys.path.insert(0, str(PROJECT_DIR / ".aitask-scripts"))
+        import agent_freeze
+        self.assertGreater(agent_sessions.DROP_OBSERVE_CEILING,
+                           agent_freeze.HARVEST_TIMEOUT_DROP + 30)
+
     def test_drop_never_interprets_state(self):
         """A dropped record disappears; it never passes through `live` or
         `restoring`, which is why it cannot share the restore interpreter."""

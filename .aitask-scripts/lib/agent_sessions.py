@@ -31,6 +31,7 @@ filesystem and no tmux.
 from __future__ import annotations
 
 import errno
+import hashlib
 import json
 import os
 import re
@@ -115,6 +116,11 @@ class SessionMismatch(Exception):
 
 class LeaseHeld(Exception):
     """A live lease blocks the take-over. Maps to wrapper exit 8."""
+
+
+class HarvestRequired(Exception):
+    """`drop` of a record whose capture text was never harvested (t2175_2).
+    Maps to wrapper exit 9; nothing is written and the capture survives."""
 
 
 # --- schema -----------------------------------------------------------------
@@ -257,6 +263,43 @@ def ensure_capture_dir(record_id: str) -> Path:
     except OSError:
         pass
     return d
+
+
+#: The sitrep harvest receipt sits beside the text capture
+#: (`<capture.txt>.harvested`) and dies with it. Written by
+#: `aitask_sitrep_harvest.sh` (lib/sitrep_harvest.py RECEIPT_SUFFIX must match).
+HARVEST_RECEIPT_SUFFIX = ".harvested"
+
+
+def capture_harvested(rec: "SessionRecord") -> bool:
+    """May this record's capture text be deleted? (t2175_2)
+
+    True when there is no text to lose (no `capture_txt`, a missing or empty
+    file) or when the sitrep harvest receipt names the CURRENT text's sha256 --
+    a re-freeze that rewrites capture.txt invalidates an older receipt. An
+    unreadable capture or receipt fails closed (False). A file read and a hash,
+    with no lock and no subprocess, so the destructive routes that consult it
+    (`drop`, `purge`) stay within their callers' time budgets.
+    """
+    txt = rec.capture_txt
+    if not txt:
+        return True
+    try:
+        with open(txt, "rb") as fh:
+            data = fh.read()
+    except FileNotFoundError:
+        return True
+    except OSError:
+        return False
+    if not data:
+        return True
+    want = f"sha256={hashlib.sha256(data).hexdigest()}"
+    try:
+        with open(txt + HARVEST_RECEIPT_SUFFIX, "r", encoding="utf-8") as fh:
+            receipt = fh.read().splitlines()
+    except (OSError, UnicodeDecodeError):
+        return False
+    return want in receipt
 
 
 def remove_captures(record_id: str) -> None:
@@ -1416,9 +1459,19 @@ def lease_release(
 
 
 def drop(
-    sf: SessionsFile, record_id: str, *, nonce: str | None = None
+    sf: SessionsFile, record_id: str, *, nonce: str | None = None,
+    skip_harvest: bool = False,
 ) -> tuple[SessionsFile, str]:
     """Remove a record from any state, with its capture files.
+
+    HARVEST GATE (t2175_2). The capture is often the only copy of an agent's
+    closing output, so a record whose capture text has no valid sitrep harvest
+    receipt (:func:`capture_harvested`) is refused with :class:`HarvestRequired`
+    -- nothing written, capture intact. Every drop route reaches this function
+    (`aitask_frozen.sh drop`, which harvests first, and the monitor's kill path,
+    which does not), so the gate covers them all. ``skip_harvest`` is the
+    explicit user discard (`--skip-harvest`), for a record that can never be
+    harvested (its repository is gone).
 
     Two forms, and the difference is the whole concurrency story (t1705_6):
 
@@ -1443,6 +1496,8 @@ def drop(
     rec = _require_record(sf, record_id)
     if nonce is not None:
         _require_nonce(rec, nonce)
+    if not skip_harvest and not capture_harvested(rec):
+        raise HarvestRequired(f"HARVEST_REQUIRED:{rec.id}")
     remove_captures(rec.id)
     sf.sessions = [r for r in sf.sessions if r.id != rec.id]
     return sf, f"DROPPED:{rec.id}"
@@ -1576,7 +1631,15 @@ def purge(
             if not rec.capture_ansi or not os.path.exists(rec.capture_ansi):
                 reason = "capture_missing"
 
-        if reason:
+        if reason and not capture_harvested(rec):
+            # HARVEST GATE (t2175_2), on EVERY branch: a liveness-only restore
+            # keeps a `live` record's captures, so `dead_window` / `dead_pane`
+            # can hold unharvested text just like a frozen `capture_missing`.
+            # Kept, not purged; a successful harvest (or an explicit
+            # `drop --skip-harvest`) releases it.
+            dropped.append(f"KEPT:{rec.id}|unharvested_text")
+            survivors.append(rec)
+        elif reason:
             dropped.append(f"DROPPED:{rec.id}|{reason}")
             remove_captures(rec.id)
         else:
@@ -1740,11 +1803,21 @@ def restore_verdict(
     return False, "", False
 
 
+#: How long a drop may legitimately keep its record leased. The coordinator
+#: harvests the capture into the sitrep store BEFORE it kills or deletes
+#: anything (t2175_2), for up to `agent_freeze.HARVEST_TIMEOUT_DROP` (120 s),
+#: so this must exceed that budget plus the kill/store steps
+#: (tests/test_sitrep_harvest.py pins the ordering).
+DROP_OBSERVE_CEILING = 180.0
+
+
 def drop_verdict(
     rec: "SessionRecord | None",
     elapsed: float,
     *,
     drop_grace: float,
+    ceiling: float = DROP_OBSERVE_CEILING,
+    pid_alive=None,
 ) -> tuple[bool, str, bool]:
     """What a dispatched drop has done so far: ``(done, message, warn)``.
 
@@ -1752,10 +1825,22 @@ def drop_verdict(
     `restoring` or `live` — it disappears — so :func:`restore_verdict` would
     wait for a state it can never observe. The coordinator's `DROP_FAILED:` /
     `DROP_REFUSED:` line goes to a detached job whose stdout is unreadable, so
-    the record's continued existence is the only observable.
+    the record itself is the only observable:
+
+    * gone                              -> dropped;
+    * leased by a LIVE owner            -> still working (it harvests first,
+      which can take far longer than `drop_grace`), until ``ceiling``;
+    * not leased once `drop_grace` has passed -> finished without dropping:
+      every refusal path of `drop_record` releases its lease first.
     """
     if rec is None:
         return True, "dropped — capture removed", False
+    alive = pid_alive or _pid_alive
+    working = bool(rec.op_nonce) and alive(rec.op_owner_pid)
+    if working:
+        if elapsed >= ceiling:
+            return True, "drop still running — record kept so far", True
+        return False, "", False
     if elapsed >= drop_grace:
         return True, "drop failed — record kept", True
     return False, "", False
@@ -2780,6 +2865,7 @@ _EXIT_CODES = {
     NonceMismatch: 6,
     SessionMismatch: 7,
     LeaseHeld: 8,
+    HarvestRequired: 9,
 }
 
 
@@ -3027,6 +3113,7 @@ def main(argv: list[str] | None = None) -> int:
                 sf,
                 _id_arg(rest[0], "id"),
                 nonce=_id_arg(raw_nonce, "--nonce") if raw_nonce else None,
+                skip_harvest="--skip-harvest" in rest,
             )
         elif verb == "fill-task":
             sf, line = fill_task(
@@ -3041,7 +3128,7 @@ def main(argv: list[str] | None = None) -> int:
             dump(sf, path)
             for entry in lines:
                 print(entry)
-            print(f"PURGED:{len(lines)}")
+            print(f"PURGED:{sum(1 for e in lines if e.startswith('DROPPED:'))}")
             return 0
         else:
             print(f"unknown verb: {verb}", file=sys.stderr)

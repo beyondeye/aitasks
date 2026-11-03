@@ -63,7 +63,7 @@
 #   standin-respawned <id> --nonce <n> --pane <id> --pane-pid <pid>
 #   lease-take        <id> --owner-pid <pid>
 #   lease-release     <id> --nonce <n>
-#   drop              <id> [--nonce <n>]
+#   drop              <id> [--nonce <n>] [--skip-harvest]
 #   fill-task         <id> [--operation <op>] [--task-id <t>]
 #
 #   `restore-confirm` without `--rollout-session` is the LIVENESS confirm (captures
@@ -113,6 +113,11 @@
 #                                   or by `restore-confirm --rollout-session`
 #                                   (last_error IS persisted)
 #   8  LEASE_HELD                 - a live coordinator owns this record
+#   9  HARVEST_REQUIRED           - `drop` of a record whose capture text has no
+#                                   valid sitrep harvest receipt (t2175_2); NOTHING
+#                                   written, the capture survives. Run
+#                                   `aitask_sitrep_harvest.sh record <id>`, or pass
+#                                   `--skip-harvest` to discard the text explicitly.
 
 set -euo pipefail
 
@@ -151,7 +156,7 @@ Usage: aitask_agent_sessions.sh upsert --root <r> --window <w> --pane <id> --pan
        aitask_agent_sessions.sh restore-abort <id> --nonce <n> [--error <reason>]
        aitask_agent_sessions.sh lease-take <id> --owner-pid <pid>
        aitask_agent_sessions.sh lease-release <id> --nonce <n>
-       aitask_agent_sessions.sh drop <id> [--nonce <n>]
+       aitask_agent_sessions.sh drop <id> [--nonce <n>] [--skip-harvest]
        aitask_agent_sessions.sh fill-task <id> [--operation <op>] [--task-id <t>]
        aitask_agent_sessions.sh list [--state <s>] [--root <r>] [--full]
        aitask_agent_sessions.sh show <id> [--json]
@@ -300,6 +305,10 @@ cmd_minting() {
 # with NONCE_MISMATCH instead of silently destroying the record and the only
 # copy of its capture. Extra arguments are FORWARDED -- this function used to
 # drop them, which would have made `--nonce` a silent no-op.
+#
+# The library refuses (exit 9, HARVEST_REQUIRED) a record whose capture text was
+# never harvested into the sitrep store -- a receipt read, so it fits every
+# caller's budget. `--skip-harvest` is the explicit discard (t2175_2).
 cmd_drop() {
     local id="${1:-}"; shift || true
     require_hex_id "$id" "id"

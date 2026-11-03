@@ -1,0 +1,16 @@
+● Bash(./.aitask-scripts/aitask_task_commit.sh -m "ait: Revert t77" aitasks/t77_example_stopped_task.md)
+  ⎿  COMMITTED:1:ait: Revert t77
+
+● Plan approved and committed. Push main before you pick it up again.                                                                                                   
+                                                                                                                                                                        
+  ■ aitask workflow stopped — t77 example_stopped_task                                                                                                                  
+    outcome: ready                                                                                                                                                      
+    reason: plan approved; implementation deferred                                                                                                                      
+    next: /aitask-pick 77                                                                                                                                               
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── 
+❯ 
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── 
+  [Opus 5.5 | Max] ███░░░░░░░ 31% | ░░░░░░░░░░ -- | ⏱️  58m
+  example git:(main)
+  ⏵⏵ auto mode on (shift+tab to cycle)

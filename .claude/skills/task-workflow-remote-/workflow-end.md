@@ -17,13 +17,37 @@ early exit printed its own ad-hoc text or nothing at all. The banners are define
 here once, and every exit site *references* this file instead of copying the
 text. A reference cannot drift or drop a line the way a copy can.
 
-**The banner is a message for the user, nothing more.** No tool, TUI or gate
-reads it. The monitor's COMPLETED badge is derived from the task file, not from
-this text, so the badge's timing is unaffected by the banner. Display it; never
-branch on it.
+**The banner is a message for the user; the workflow never branches on it.** No
+gate or TUI reads it, and the monitor's COMPLETED badge is derived from the task
+file, so the badge's timing is unaffected by the banner. The one reader is the
+sitrep harvest (`aitask_sitrep_harvest.sh`, see **Sitrep harvest** below), which
+turns the closing message and banner into todo items so the agent's window can
+be closed. Its grammar is pinned to the two templates below by
+`tests/test_sitrep_harvest.py`, so changing a banner line means changing that
+test too.
 
 This procedure never prompts and is the same under every profile. It is safe to
 reference from headless (`remote`) runs.
+
+## Sitrep harvest (best-effort)
+
+Immediately **before** you display the closing message and the banner, pipe
+exactly that text (the closing message, then the banner, as you are about to
+display them) into the harvest:
+
+```bash
+./.aitask-scripts/aitask_sitrep_harvest.sh banner --task <task_id> --skill <skill_name> <<'SITREP_EOF'
+<the closing message, verbatim>
+
+<the banner, verbatim>
+SITREP_EOF
+```
+
+Keep the quoted `'SITREP_EOF'` delimiter, so the shell expands nothing in the
+text. Ignore the command's output and exit status: it never prompts, a failure
+changes nothing in the workflow, and you do not mention it unless the user asks.
+Then display the closing message and the banner as usual. The banner is still
+the last thing you output.
 
 ## Rules
 

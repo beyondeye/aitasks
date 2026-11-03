@@ -318,6 +318,7 @@ class WireLineTests(unittest.TestCase):
             A.NonceMismatch: 6,
             A.SessionMismatch: 7,
             A.LeaseHeld: 8,
+            A.HarvestRequired: 9,
         }
         self.assertEqual(A._EXIT_CODES, raisable)
 

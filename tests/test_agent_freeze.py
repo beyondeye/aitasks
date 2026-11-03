@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import contextlib
 import copy
+import hashlib
 import io
 import json
 import os
@@ -411,8 +412,12 @@ class _FakeStore:
             return 0, line
         if verb == "drop":
             raw_nonce = self._arg(argv, "--nonce", None)
-            self.sf, line = agent_sessions.drop(
-                self.sf, argv[0], nonce=raw_nonce)
+            try:
+                self.sf, line = agent_sessions.drop(
+                    self.sf, argv[0], nonce=raw_nonce,
+                    skip_harvest="--skip-harvest" in argv)
+            except agent_sessions.HarvestRequired as exc:
+                return agent_freeze.EXIT_HARVEST_REQUIRED, str(exc)
             return 0, line
         if verb == "purge":
             return 0, "PURGED:0"
@@ -492,6 +497,43 @@ class _FreezeTestCase(unittest.TestCase):
         self.store = _FakeStore(self.sf)
         self._install(self.tmux, self.store)
         self._install_codex_observers()
+        self._install_harvest_stub()
+
+    # --- sitrep harvest (t2175_2) -----------------------------------------
+    #
+    # Stubbed for EVERY test: the real helper would read the real session
+    # store through its own wrapper. The default answer is a SUCCESSFUL harvest
+    # that writes the real receipt format beside the capture, so the store's
+    # drop gate sees exactly what it sees in production after a harvest.
+
+    def _install_harvest_stub(self) -> None:
+        self.harvest_calls: list[tuple[str, float]] = []
+        self.harvest_result: tuple[bool, str] = (True, "HARVESTED:stub")
+
+        def _harvest(record_id, timeout):
+            self.harvest_calls.append((record_id, timeout))
+            ok, why = self.harvest_result
+            rec = self.store.sf.by_id(record_id)
+            if ok and rec is not None and rec.capture_txt \
+                    and os.path.isfile(rec.capture_txt):
+                data = Path(rec.capture_txt).read_bytes()
+                Path(rec.capture_txt + agent_sessions.HARVEST_RECEIPT_SUFFIX
+                     ).write_text(f"sha256={hashlib.sha256(data).hexdigest()}\n"
+                                  "store=stub\n")
+            return ok, why
+
+        self._patch(agent_freeze, "_harvest_record", _harvest)
+
+        # The freeze verb's harvest is detached; by default record the spawn
+        # instead of starting a real process.
+        self.spawned_harvests: list[str] = []
+        self.spawn_result = True
+
+        def _spawn(record_id):
+            self.spawned_harvests.append(record_id)
+            return self.spawn_result
+
+        self._patch(agent_freeze, "_spawn_harvest_detached", _spawn)
 
     # --- codex session capture (t1804) ------------------------------------
     #
@@ -3672,6 +3714,294 @@ class DropVerbTests(_FreezeTestCase):
                          f"DROPPED:{self.rid}")
         self.assertEqual(self.tmux.calls_of("kill-window"), [])
         self.assertEqual(len(self.tmux.calls_of("kill-pane")), 1)
+
+
+_HARVEST_FIXTURE = (REPO_ROOT / "tests" / "fixtures" / "sitrep_harvest"
+                    / "pick_complete_nofollowups.txt")
+
+
+class RealHarvestCallerTests(_FreezeTestCase):
+    """The drop and freeze paths through the REAL harvest helper (t2175_2).
+
+    The fake tmux and fake store stay in place for drop_record's own calls; the
+    harvest subprocess reads a scratch copy of the same store through the real
+    wrapper, and writes the real sitrep store and receipt.
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        # Undo the default stub: these tests drive the real helper.
+        self._patch(agent_freeze, "_harvest_record",
+                    RealHarvestCallerTests._real_harvest)
+        result = agent_freeze.freeze_pane(AGENT_PANE)
+        self.assertTrue(result.ok, result.line)
+        rec = self.store.sf.by_id(self.rid)
+        self.capture = Path(rec.capture_txt)
+        self.capture.write_text(_HARVEST_FIXTURE.read_text(encoding="utf-8"),
+                                encoding="utf-8")
+        self.sessions_file = self.tmp / "sessions.json"
+        agent_sessions.dump(self.store.sf, self.sessions_file)
+        for var, value in (("AITASKS_AGENT_SESSIONS_FILE", str(self.sessions_file)),
+                           ("AITASK_SITREP_NOW", "2026-11-02T10:00:00Z")):
+            os.environ[var] = value
+            self.addCleanup(os.environ.pop, var, None)
+        for var in ("AITASK_SITREP_HARVEST_PAUSE_FIFO",
+                    "AITASK_SITREP_HARVEST_LOCK_TIMEOUT",
+                    "AITASK_SITREP_HARVEST_TIMEOUT"):
+            os.environ.pop(var, None)
+            self.addCleanup(os.environ.pop, var, None)
+        self.store.calls.clear()
+        self.tmux.calls.clear()
+
+    _real_harvest = staticmethod(agent_freeze._harvest_record)
+
+    def _receipt(self) -> Path:
+        return Path(str(self.capture) + agent_sessions.HARVEST_RECEIPT_SUFFIX)
+
+    def _killed(self) -> bool:
+        return bool(self.tmux.calls_of("kill-pane") or self.tmux.calls_of("kill-window"))
+
+    def _hold_harvest_mutex(self):
+        """A first harvest parked at its `apply:locked` seam, holding the mutex."""
+        fifo = self.tmp / "hold.fifo"
+        os.mkfifo(fifo)
+        env = dict(os.environ, AITASK_SITREP_HARVEST_PAUSE_FIFO=str(fifo))
+        holder = subprocess.Popen(
+            [str(agent_freeze._HARVEST_SH), "record", self.rid, "--force"],
+            env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        deadline = time.monotonic() + 20
+        while not Path(str(fifo) + ".reached").exists():
+            self.assertLess(time.monotonic(), deadline, "holder never took the mutex")
+            time.sleep(0.05)
+
+        def release():
+            with open(fifo, "w") as fh:
+                fh.write("go\n")
+            holder.wait(timeout=30)
+        return release
+
+    def test_refused_while_the_mutex_is_held_and_nothing_is_killed(self):
+        release = self._hold_harvest_mutex()
+        try:
+            os.environ["AITASK_SITREP_HARVEST_LOCK_TIMEOUT"] = "1"
+            line = agent_freeze.drop_record(self.rid)
+        finally:
+            release()
+        self.assertEqual(line, f"DROP_REFUSED:{self.rid}|harvest:harvest_lock_busy")
+        self.assertFalse(self._killed(), "a refused drop must not kill the viewer")
+        self.assertIn("lease-release", self.store.verbs())
+        self.assertNotIn("drop", self.store.verbs())
+        self.assertTrue(self.capture.exists())
+        self.assertIsNotNone(self.store.sf.by_id(self.rid))
+
+    def test_timeout_is_refused_and_the_harvest_group_is_killed(self):
+        fifo = self.tmp / "stall.fifo"
+        os.mkfifo(fifo)
+        os.environ["AITASK_SITREP_HARVEST_PAUSE_FIFO"] = str(fifo)
+        os.environ["AITASK_SITREP_HARVEST_TIMEOUT"] = "3"
+        started = time.monotonic()
+        line = agent_freeze.drop_record(self.rid)
+        self.assertLess(time.monotonic() - started, 15)
+        self.assertEqual(line, f"DROP_REFUSED:{self.rid}|harvest:timeout after 3s")
+        self.assertFalse(self._killed())
+        self.assertFalse(self._receipt().exists(), "a cancelled harvest writes no receipt")
+        self.assertTrue(self.capture.exists())
+        # The killed harvest held the mutex; its dead owner must not wedge the
+        # next harvest.
+        os.environ.pop("AITASK_SITREP_HARVEST_PAUSE_FIFO")
+        os.environ.pop("AITASK_SITREP_HARVEST_TIMEOUT")
+        ok, why = agent_freeze._harvest_record(self.rid, 60)
+        self.assertTrue(ok, why)
+
+    def test_success_harvests_then_drops_through_the_receipt_gate(self):
+        line = agent_freeze.drop_record(self.rid)
+        self.assertEqual(line, f"DROPPED:{self.rid}")
+        store = self.root / ".aitask-sitrep"
+        self.assertTrue((store / "todo.md").exists(), "the harvest wrote the store")
+        self.assertIn("Triage wrap-up of t42", (store / "todo.md").read_text())
+        self.assertIsNone(self.store.sf.by_id(self.rid))
+        self.assertFalse(self.capture.exists())
+
+    def test_skip_harvest_drops_without_a_receipt(self):
+        line = agent_freeze.drop_record(self.rid, skip_harvest=True)
+        self.assertEqual(line, f"DROPPED:{self.rid}")
+        drop_call = next(c for c in self.store.calls if c[0] == "drop")
+        self.assertIn("--skip-harvest", drop_call)
+        self.assertFalse((self.root / ".aitask-sitrep").exists())
+
+    def test_store_gate_refuses_when_step_0a_left_no_valid_receipt(self):
+        # Step 0a reports success but leaves no receipt (the capture changed
+        # after the harvest, say): the store's own gate is the backstop.
+        self._patch(agent_freeze, "_harvest_record", lambda rid, t: (True, "stub"))
+        line = agent_freeze.drop_record(self.rid)
+        self.assertEqual(line, f"DROP_REFUSED:{self.rid}|harvest:required")
+        self.assertTrue(self.capture.exists())
+        self.assertIsNotNone(self.store.sf.by_id(self.rid))
+
+
+class DropObservedDuringHarvestTests(_FreezeTestCase):
+    """The UIs observe a detached drop only through `drop_verdict` on the
+    record (t2175_2). A harvest that outlasts the old 10 s grace must read as
+    "still working", and the final DROPPED must still be observed."""
+
+    def test_a_long_harvest_is_not_reported_as_a_failed_drop(self):
+        import threading
+        agent_freeze.freeze_pane(AGENT_PANE)
+        started, release = threading.Event(), threading.Event()
+
+        def slow_harvest(record_id, timeout):
+            started.set()
+            release.wait(30)
+            return True, "HARVESTED:slow"
+        self._patch(agent_freeze, "_harvest_record", slow_harvest)
+        # Receipt as a successful harvest would leave it.
+        rec = self.store.sf.by_id(self.rid)
+        data = Path(rec.capture_txt).read_bytes()
+        Path(rec.capture_txt + agent_sessions.HARVEST_RECEIPT_SUFFIX).write_text(
+            f"sha256={hashlib.sha256(data).hexdigest()}\nstore=x\n")
+        result = {}
+        worker = threading.Thread(
+            target=lambda: result.setdefault("line", agent_freeze.drop_record(self.rid)))
+        worker.start()
+        try:
+            self.assertTrue(started.wait(10))
+            mid = self.store.sf.by_id(self.rid)
+            # 25 s into the drop: far past the UIs' 10 s grace.
+            self.assertEqual(
+                agent_sessions.drop_verdict(copy.deepcopy(mid), 25.0, drop_grace=10.0),
+                (False, "", False))
+        finally:
+            release.set()
+            worker.join(30)
+        self.assertEqual(result["line"], f"DROPPED:{self.rid}")
+        done, note, warn = agent_sessions.drop_verdict(
+            self.store.sf.by_id(self.rid), 26.0, drop_grace=10.0)
+        self.assertEqual((done, note, warn), (True, "dropped — capture removed", False))
+
+    def test_a_refused_drop_releases_its_lease_so_the_ui_reports_it(self):
+        self.harvest_result = (False, "writer:lock_busy")
+        agent_freeze.freeze_pane(AGENT_PANE)
+        line = agent_freeze.drop_record(self.rid)
+        self.assertTrue(line.startswith(f"DROP_REFUSED:{self.rid}|harvest:"))
+        done, note, warn = agent_sessions.drop_verdict(
+            self.store.sf.by_id(self.rid), 10.0, drop_grace=10.0)
+        self.assertEqual((done, note, warn), (True, "drop failed — record kept", True))
+
+
+class FreezeMainHarvestTests(_FreezeTestCase):
+    """The freeze verb harvests after printing, and never fails because of it."""
+
+    def _main(self, argv):
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = agent_freeze.main(argv)
+        return rc, buf.getvalue()
+
+    def test_harvest_is_spawned_detached_after_the_frozen_line(self):
+        rc, out = self._main(["freeze", AGENT_PANE])
+        self.assertEqual(rc, 0)
+        self.assertIn(f"FROZEN:{self.rid}", out)
+        self.assertEqual(self.spawned_harvests, [self.rid])
+        self.assertEqual(self.harvest_calls, [], "freeze must not harvest inline")
+
+    def test_a_failed_spawn_keeps_exit_zero(self):
+        self.spawn_result = False
+        rc, out = self._main(["freeze", AGENT_PANE])
+        self.assertEqual(rc, 0)
+        self.assertIn("FROZEN:", out)
+
+    def test_no_harvest_for_a_failed_freeze(self):
+        rc, _ = self._main(["freeze", "%404"])
+        self.assertEqual(rc, 1)
+        self.assertEqual(self.spawned_harvests, [])
+
+    def test_the_detached_verb_uses_the_freeze_budget(self):
+        rc, _ = self._main(["harvest-after-freeze", self.rid])
+        self.assertEqual(rc, 0)
+        self.assertEqual(self.harvest_calls,
+                         [(self.rid, agent_freeze.HARVEST_TIMEOUT_FREEZE)])
+        self.harvest_result = (False, "timeout after 60s")
+        rc, _ = self._main(["harvest-after-freeze", self.rid])
+        self.assertEqual(rc, 1)
+        rc, _ = self._main(["harvest-after-freeze", "nothex"])
+        self.assertEqual(rc, 2)
+
+    def test_drop_verb_grammar(self):
+        rc, _ = self._main(["drop", self.rid, "--bogus"])
+        self.assertEqual(rc, 2)
+
+
+_CALLER_CHILD = r'''
+import os, sys, time
+sys.path.insert(0, sys.argv[1])
+import test_agent_freeze as T
+import agent_freeze
+real_spawn = agent_freeze._spawn_harvest_detached
+case = T.FreezeMainHarvestTests("test_no_harvest_for_a_failed_freeze")
+case.setUp()
+agent_freeze._spawn_harvest_detached = real_spawn
+real_capture = agent_freeze._capture
+def slow_capture(*a, **k):
+    time.sleep(2)                      # delayed freeze work
+    return real_capture(*a, **k)
+agent_freeze._capture = slow_capture
+sys.exit(agent_freeze.main(["freeze", T.AGENT_PANE]))
+'''
+
+
+class FreezeCallerBudgetTests(unittest.TestCase):
+    """Concern (t2175_2): the monitor bounds a WHOLE freeze (90 s) and reads its
+    stdout to EOF. A slow freeze plus a slow harvest must not hold that caller:
+    the harvest is detached, keeps no handle on the caller's pipe, and still
+    enforces its own budget (process-group kill)."""
+
+    def test_slow_freeze_plus_slow_harvest_does_not_hold_the_caller(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        d = Path(tmp.name)
+        pidfile, donefile = d / "harvest.pid", d / "harvest.done"
+        slow = d / "slow_harvest.sh"
+        slow.write_text(f"#!/bin/sh\necho $$ > {pidfile}\nsleep 30\ntouch {donefile}\n")
+        slow.chmod(0o755)
+        child = d / "child.py"
+        child.write_text(_CALLER_CHILD)
+        env = dict(os.environ, AITASK_SITREP_HARVEST_CMD=str(slow),
+                   AITASK_SITREP_HARVEST_TIMEOUT="12", TMPDIR=str(d))
+        started = time.monotonic()
+        proc = subprocess.Popen([sys.executable, str(child), str(Path(__file__).parent)],
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                env=env, text=True)
+        out, err = proc.communicate(timeout=25)      # the caller reads to EOF
+        elapsed = time.monotonic() - started
+        self.assertEqual(proc.returncode, 0, err)
+        self.assertIn("FROZEN:", out)
+        # 2 s of freeze work + startup; an inline 12 s harvest would exceed it.
+        self.assertLess(elapsed, 8, "the caller waited on the harvest")
+
+        deadline = time.monotonic() + 10
+        while not pidfile.exists():
+            self.assertLess(time.monotonic(), deadline, "the detached harvest never ran")
+            time.sleep(0.05)
+        slow_pid = int(pidfile.read_text().strip())
+        try:
+            self.assertNotEqual(os.getsid(slow_pid), os.getsid(0),
+                                "the harvest must run in its own session")
+            # Its own 12 s budget kills it (and its group) long before 30 s.
+            deadline = time.monotonic() + 25
+            while True:
+                try:
+                    os.kill(slow_pid, 0)
+                except ProcessLookupError:
+                    break
+                self.assertLess(time.monotonic(), deadline,
+                                "the detached harvest outlived its own budget")
+                time.sleep(0.1)
+            self.assertFalse(donefile.exists())
+        finally:
+            try:
+                os.killpg(os.getpgid(slow_pid), 9)
+            except (ProcessLookupError, PermissionError, OSError):
+                pass
 
 
 class DropHelperSweepTests(_FreezeTestCase):

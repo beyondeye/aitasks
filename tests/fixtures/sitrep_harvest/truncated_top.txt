@@ -1,0 +1,13 @@
+  - The writer now cleans up temp files left by killed writers.                                                                                                         
+  - A few extra result lines.                                                                                                                                           
+                                                                                                                                                                        
+  ✔ aitask workflow complete — t42 example_store_writer                                                                                                                 
+    outcome: archived (commit 9f8e7d6c5) · pushed: yes                                                                                                                  
+    follow-ups created: none                                                                                                                                            
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── 
+❯ 
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── 
+  [Opus 5.5 | Max] ███░░░░░░░ 31% | ░░░░░░░░░░ -- | ⏱️  58m
+  example git:(main)
+  ⏵⏵ auto mode on (shift+tab to cycle)

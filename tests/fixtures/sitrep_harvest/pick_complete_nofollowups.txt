@@ -1,0 +1,24 @@
+● Bash(./ait git push 2>&1 | tail -3; echo "rc=${PIPESTATUS[0]}")
+  ⎿  rc=0
+
+● t42 is done: the example store is committed on main as 1a2b3c4d5, and the task is archived. The archive commit and task-data push                                     
+  went through, but main itself has not been pushed.                                                                                                                    
+                                                                                                                                                                        
+  What changed                                                                                                                                                          
+  - The writer lives in .aitask-scripts/aitask_example.sh. Part 1 holds the list and Part 2 the context map.                                                            
+  - Run git push origin main when you are ready; deploy dev only after CI is green.                                                                                     
+                                                                                                                                                                        
+  Profile 'fast': feedback questions disabled.                                                                                                                          
+                                                                                                                                                                        
+  ✔ aitask workflow complete — t42 example_store_writer                                                                                                                 
+    outcome: archived (commit 9f8e7d6c5) · pushed: yes                                                                                                                  
+    follow-ups created: none                                                                                                                                            
+
+✻ Worked for 12m 3s · done 10:33 PM
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── 
+❯ 
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── 
+  [Opus 5.5 | Max] █████░░░░░ 46% | ░░░░░░░░░░ -- | ⏱️  2h 10m
+  example git:(main ↑1)
+  ⏵⏵ auto mode on (shift+tab to cycle)

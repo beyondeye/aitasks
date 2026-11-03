@@ -47,6 +47,7 @@
       "Bash(./.aitask-scripts/aitask_resource_admission.sh:*)",
       "Bash(./.aitask-scripts/aitask_screen_recording.sh:*)",
       "Bash(./.aitask-scripts/aitask_shadow_capture.sh:*)",
+      "Bash(./.aitask-scripts/aitask_sitrep_harvest.sh:*)",
       "Bash(./.aitask-scripts/aitask_shadow_context.sh:*)",
       "Bash(./.aitask-scripts/aitask_shadow_scope.sh:*)",
       "Bash(./.aitask-scripts/aitask_shadow_rejected.sh:*)",

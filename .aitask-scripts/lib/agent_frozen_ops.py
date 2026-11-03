@@ -102,6 +102,7 @@ EXIT_TRANSITION_REFUSED = 5
 EXIT_NONCE_MISMATCH = 6
 EXIT_SESSION_MISMATCH = 7
 EXIT_LEASE_HELD = 8
+EXIT_HARVEST_REQUIRED = 9   # drop of unharvested capture text (t2175_2)
 
 
 class StageFailure(Exception):
