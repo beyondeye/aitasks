@@ -228,3 +228,72 @@ None identified. Both defects and the collision are reproduced. Each fix is
 checked against Textual's real parser, the real keypress dispatch with
 import-time overrides, or the real config reader, by tests that are red before
 the fix and have guard-specific mutants.
+
+## Final Implementation Notes
+
+- **Actual work done:** I implemented the plan as approved, in
+  `.aitask-scripts/lib/tui_switcher.py`.
+  - `_markup_literal` escapes `[` at the three key-into-markup sites: the close
+    hint, `_TuiListItem` and `_hint_segment`.
+  - `_KEY_PAREN_RE` is now `\((.+?)\)`.
+  - `_normalized_keys` (via `Binding.make_bindings`) feeds an
+    `_OVERLAY_RESERVED_KEYS` that includes `[`/`]` and the override-applied
+    quick-jump keys (`_QUICK_JUMP_LIVE_BINDINGS`).
+  - One constant, `_OVERLAY_TOGGLE_CLOSES`, decides both the toggle close
+    binding and the `_render_hint` close text.
+  - `action_shortcut_git` gates on `_build_tui_list(self._selected_project_root())`.
+  - The tests are: `tests/test_tui_switcher_hint_text.py` (new
+    `HostileKeyMarkupTests`), `tests/test_tui_switcher_git_shortcut_root.py`
+    (new) and `tests/test_tui_switcher_open_key_collision.py` (new, a Pilot
+    keypress test in a fresh interpreter per case, with
+    `TASK_DIR/metadata/userconfig.yaml`).
+- **Deviations from plan:** None, apart from correcting a stale comment
+  ("registered at class body") above `_TUI_SWITCHER_SCOPE`.
+- **Issues encountered:**
+  - The task's suggested fix (`rich`/`textual` `markup.escape(key)`) does not
+    work: both return a lone `[` unchanged. I used the Textual-specific rule
+    from `monitor_shared.markup_literal` (t2006) instead.
+  - The plan's first draft deferred the open-key/group-navigation collision.
+    Review rejected that, and the collision was verified in Textual 8.2.7's
+    `App._check_bindings`. Priority bindings run first, from the App down.
+    `_cycle_group` consumes `[` when there are two or more groups and raises
+    `SkipAction` (falling through) below that. A modal limits the
+    non-priority pass to its own bindings.
+- **Key decisions:**
+  - **Policy: structural keys and quick-jumps win.** A colliding toggle gets
+    no close binding, and the hint advertises only `Esc close`. This matches
+    the rule the code already stated ("skip it when it collides with a
+    fixed/quick-jump key").
+  - The alternative, toggle precedence, would silently kill group navigation
+    for anyone who binds the open key to `[`.
+  - The `register_app_bindings` call moved from the class body to the
+    module-level `_QUICK_JUMP_LIVE_BINDINGS`. It is the same call at the same
+    import time with an identical result, and it is named so the reserved set
+    reads the live keys.
+- **Verification evidence:**
+  - All new tests failed on the pre-fix code (including the child's real mount
+    `MarkupError` for open key `[`) and pass after the fix.
+  - Mutants, run in a scratch copy that was never committed:
+    - (M1) dropping `[`/`]` from the reserved tuple makes 2 tests fail. A
+      direct run showed `[` closing the overlay in single mode
+      (`open: False`), against `open: True` with the fix.
+    - (M2) building the reserved set from `_QUICK_JUMP_BINDINGS` defaults
+      makes both live-key tests fail.
+    - (M3) a hint that ignores `_OVERLAY_TOGGLE_CLOSES` makes 3 tests fail.
+  - Neighbouring suites (companion_spawn, agent_launch,
+    default_session_notify, shortcut_scopes, markup_colour_contract,
+    ring_dedupe, footer_fit.sh, multi_session.sh, brainstorm_session.sh) are
+    green.
+  - The full `tests/run_all_python_tests.sh` reported `PYTHON SUITE: PASSED
+    (runner=pytest, exit=0)`: 10166 passed and 6 skipped in the parallel lane,
+    13 passed in the serial lane.
+- **Upstream defects identified:**
+  - `.aitask-scripts/lib/tui_switcher.py:949-968` — `_render_session_row`
+    interpolates tmux session names, disambiguated project names and the
+    project-group label into Textual markup unescaped. A session named `[/]`
+    (legal for tmux) would raise `MarkupError` and break the overlay mount.
+    This is the same hazard class as monitor t1580/t2006. It is not
+    reproduced here, only read from the code.
+  - `.aitask-scripts/lib/tui_switcher.py:434` — `_WindowListItem.compose`
+    interpolates the tmux window name into markup unescaped (same class). It is
+    not reproduced here, only read from the code.
