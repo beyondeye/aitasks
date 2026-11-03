@@ -19,6 +19,8 @@ TOTAL=0
 
 # Shared assertion helpers (see tests/lib/asserts.sh)
 . "$PROJECT_DIR/tests/lib/asserts.sh"
+# run_bounded, for the cases that could hang (see tests/lib/proc_fixtures.sh)
+. "$PROJECT_DIR/tests/lib/proc_fixtures.sh"
 
 
 
@@ -888,48 +890,94 @@ assert_eq "27e: HEAD CLAUDE.md keeps the original" "original" "$(git -C "$d" sho
 assert_contains_ci "27e: deleted-then-regenerated file reported" "left alone" "$output"
 rm -rf "$d"
 
-# (f) the discovery-cache rule (t2173_1) and the upgrade-path store rules
-# (t2177) report a write they could not make: every wrapper warns, stays
-# non-fatal, writes nothing and commits nothing — and none claims a rule was
-# added. A directory in place of .gitignore stands in where root would ignore a
-# read-only mode.
-while IFS='|' read -r helper first_rule; do
-    for fault in readonly directory; do
+# (f) every .gitignore helper — setup's (t2178), the discovery-cache rule
+# (t2173_1) and the upgrade-path store rules (t2177) — reports a write it could
+# not make: it warns, stays non-fatal, writes nothing and commits nothing, and
+# none claims a rule was added. A directory in place of .gitignore stands in
+# where root would ignore a read-only mode. <reported> is what the failure line
+# names (every rule of the group).
+#
+# Each case also runs in a child shell under the errexit `ait setup`'s main()
+# has: this shell dropped it after sourcing, so an unchecked write that would
+# abort setup is invisible to the in-process call. ERREXIT_ON is the control.
+#
+# The fifo fault puts a FIFO where .gitignore should be: opening it blocks until
+# a peer appears, for read (grep) and for write (>>) alike. Nothing unbounded may
+# touch it, so that case runs only in the bounded child — and skips
+# snapshot_pre_setup_dirty too: its `git ls-files --others --exclude-standard`
+# reads .gitignore (git 2.56 does not block on a FIFO there, but the fixture
+# should not depend on that). An unarmed baseline is the direct-call default,
+# and the failure path never reaches the commit.
+errexit_helper_log="$(mktemp)"
+# errexit_helper_run <dir> <helper> -> status (124 = did not return in time);
+# output in $errexit_helper_log.
+errexit_helper_run() {
+    run_bounded 15 "$errexit_helper_log" env HOME="$1/home-scratch" bash -c '
+        source "$1" --source-only
+        [[ $- == *e* ]] && echo ERREXIT_ON
+        SCRIPT_DIR="$2/.aitask-scripts"
+        "$3"
+        echo SURVIVED' _ "$PROJECT_DIR/.aitask-scripts/aitask_setup.sh" "$1" "$2"
+}
+while IFS='|' read -r helper reported; do
+    for fault in readonly directory fifo; do
         d="$(new_gitignore_repo)"
         SCRIPT_DIR="$d/.aitask-scripts"
-        if [[ "$fault" == readonly ]]; then
-            chmod 444 "$d/.gitignore"
-            if [[ -w "$d/.gitignore" ]]; then
-                echo "SKIP: 27f $helper readonly (mode ignored for this user)"
-                rm -rf "$d"
-                continue
-            fi
-        else
-            rm "$d/.gitignore"
-            mkdir "$d/.gitignore"
-        fi
+        case "$fault" in
+            readonly)
+                chmod 444 "$d/.gitignore"
+                if [[ -w "$d/.gitignore" ]]; then
+                    echo "SKIP: 27f $helper readonly (mode ignored for this user)"
+                    rm -rf "$d"
+                    continue
+                fi ;;
+            directory) rm "$d/.gitignore"; mkdir "$d/.gitignore" ;;
+            fifo) rm "$d/.gitignore"; mkfifo "$d/.gitignore" ;;
+        esac
         before="$(commit_count "$d")"
-        snapshot_pre_setup_dirty
+        if [[ "$fault" != fifo ]]; then
+            snapshot_pre_setup_dirty
+            rc=0
+            out="$("$helper" </dev/null 2>&1)" || rc=$?
+            assert_eq "27f $helper $fault: non-fatal" "0" "$rc"
+        fi
         rc=0
-        out="$("$helper" </dev/null 2>&1)" || rc=$?
-        assert_eq "27f $helper $fault: non-fatal" "0" "$rc"
+        errexit_helper_run "$d" "$helper" || rc=$?
+        child_out="$(cat "$errexit_helper_log")"
+        assert_eq "27f $helper $fault: child returns 0 within 15s (124 = hung)" "0" "$rc"
+        assert_contains "27f $helper $fault: child shell has errexit" "ERREXIT_ON" "$child_out"
+        assert_contains "27f $helper $fault: survives setup's errexit" "SURVIVED" "$child_out"
+        [[ "$fault" == fifo ]] && out="$child_out"
         assert_contains "27f $helper $fault: reports the failure" \
-            "Could not add $first_rule to .gitignore" "$out"
+            "Could not add $reported to .gitignore" "$out"
+        # Nothing was written, so the warning may say so (27l: one that did write).
+        assert_contains "27f $helper $fault: says unchanged" \
+            "Could not add $reported to .gitignore — left unchanged" "$out"
         assert_not_contains "27f $helper $fault: no 'added' claim" "Added " "$out"
         assert_not_contains "27f $helper $fault: no 'rule added' claim" "rule added" "$out"
         assert_not_contains "27f $helper $fault: no 'already' claim" "already in .gitignore" "$out"
         assert_eq "27f $helper $fault: no commit" "$before" "$(commit_count "$d")"
-        if [[ "$fault" == readonly ]]; then
-            assert_eq "27f $helper readonly: file unchanged" "base-rule" "$(cat "$d/.gitignore")"
-        fi
+        case "$fault" in
+            readonly) assert_eq "27f $helper readonly: file unchanged" "base-rule" "$(cat "$d/.gitignore")" ;;
+            fifo) assert_eq "27f $helper fifo: still a FIFO" "yes" "$([[ -p "$d/.gitignore" ]] && echo yes)" ;;
+        esac
         chmod -R u+w "$d"
         rm -rf "$d"
     done
 done <<'FAILING'
+setup_draft_directory|aitasks/new/
+setup_python_cache_gitignore|__pycache__/
+setup_gate_logs_gitignore|.aitask-gates/
+setup_testmap_gitignore|.aitask-testmap/
+setup_shadow_store_gitignore|.aitask-shadow/
+setup_scratchpad_gitignore|.aitask-scratchpad/
+setup_sitrep_store_gitignore|.aitask-sitrep/
 setup_cache_gitignore|.aitask-cache/
+setup_worktree_dirs_gitignore|aiwork/ .aitask-crews/
 upgrade_cache_gitignore|.aitask-cache/
 upgrade_store_gitignore_rules|.aitask-gates/
 FAILING
+rm -f "$errexit_helper_log"
 
 # (g) the upgrade wrapper's success paths: it writes, never commits (install.sh
 # commits under its own baseline), and is idempotent.
@@ -1008,6 +1056,138 @@ while IFS= read -r helper; do
     esac
     assert_eq "27i $helper has an upgrade route or an explicit exclusion" "yes" "$covered"
 done <<<"$main_helpers"
+
+# (k) literal pins for every string the shared rule table moves (t2178). Once
+# setup and upgrade both read one table, 27h compares that table with itself, so
+# it can no longer catch a mis-copied comment or rule. These literals are the
+# independent oracle: the exact block each setup helper writes, its commit
+# subject, its added and already lines, and upgrade's per-group labels and
+# failure lines. Written green against the pre-table helpers. The "<rules> to
+# .gitignore (<note>)" substring is what both the old "Adding ..." and the new
+# "Added ..." line carry.
+while IFS='|' read -r helper comment rules note commit added already; do
+    d="$(new_gitignore_repo)"
+    SCRIPT_DIR="$d/.aitask-scripts"
+    snapshot_pre_setup_dirty
+    before="$(commit_count "$d")"
+    out="$("$helper" </dev/null 2>&1)"
+    assert_eq "27k $helper: exact block written" \
+        "$(printf 'base-rule\n\n# %s\n%s\n' "$comment" "${rules// /$'\n'}"; echo .)" \
+        "$(cat "$d/.gitignore"; echo .)"
+    assert_eq "27k $helper: one commit" "$((before + 1))" "$(commit_count "$d")"
+    assert_eq "27k $helper: commit subject" "$commit" "$(git -C "$d" log -1 --format=%s)"
+    assert_contains "27k $helper: names the note" "$rules to .gitignore ($note)" "$out"
+    assert_contains "27k $helper: added line" "$added" "$out"
+    before="$(commit_count "$d")"
+    out="$("$helper" </dev/null 2>&1)"
+    assert_contains "27k $helper: already line" "$already" "$out"
+    assert_eq "27k $helper: re-run commits nothing" "$before" "$(commit_count "$d")"
+    rm -rf "$d"
+done <<'PINS'
+setup_draft_directory|Draft tasks (local, not committed)|aitasks/new/|draft tasks are local-only|ait: Add aitasks/new/ to .gitignore (draft tasks)|Draft directory configured (aitasks/new/ in .gitignore)|Draft directory already in .gitignore
+setup_python_cache_gitignore|Python cache artifacts (generated by aitasks Python TUIs)|__pycache__/|Python cache artifacts|ait: Add __pycache__/ to .gitignore (Python cache artifacts)|Python cache rule added to .gitignore|Python cache rule already in .gitignore
+setup_gate_logs_gitignore|Gate sidecar logs (per-task verifier output; in-body summary is committed)|.aitask-gates/|gate sidecar logs|ait: Add .aitask-gates/ to .gitignore (gate sidecar logs)|Gate sidecar-log rule added to .gitignore|Gate sidecar-log rule already in .gitignore
+setup_testmap_gitignore|Test map runs, ledger and onboarding scratch (per-checkout)|.aitask-testmap/|test map runs and ledger|ait: Add .aitask-testmap/ to .gitignore (test map scratch)|Test map scratch rule added to .gitignore|Test map scratch rule already in .gitignore
+setup_shadow_store_gitignore|Shadow concern-rejection store (per-task, local-only; pruned at archive)|.aitask-shadow/|shadow concern-rejection store|ait: Add .aitask-shadow/ to .gitignore (shadow rejection store)|Shadow rejection-store rule added to .gitignore|Shadow rejection-store rule already in .gitignore
+setup_scratchpad_gitignore|Scratchpad notes (per-task, local-only; pruned at archive)|.aitask-scratchpad/|scratchpad notes store|ait: Add .aitask-scratchpad/ to .gitignore (scratchpad notes)|Scratchpad notes rule added to .gitignore|Scratchpad notes rule already in .gitignore
+setup_sitrep_store_gitignore|Sitrep todo store (per-repo, local-only; not rebuildable)|.aitask-sitrep/|sitrep todo store|ait: Add .aitask-sitrep/ to .gitignore (sitrep todo store)|Sitrep store rule added to .gitignore|Sitrep store rule already in .gitignore
+setup_cache_gitignore|Discovery caches (per-checkout, content-keyed, safe to delete)|.aitask-cache/|discovery caches|ait: Add .aitask-cache/ to .gitignore (discovery caches)|Discovery-cache rule added to .gitignore|Discovery-cache rule already in .gitignore
+setup_worktree_dirs_gitignore|Framework worktrees (local, per-task and per-crew branches)|aiwork/ .aitask-crews/|framework worktree directories|ait: Add worktree directories to .gitignore|Worktree directory rules added to .gitignore (aiwork/ .aitask-crews/)|Worktree directory rules already in .gitignore
+PINS
+
+# Upgrade route: each group's added, already and failure lines.
+d="$(new_gitignore_repo)"
+SCRIPT_DIR="$d/.aitask-scripts"
+out_added="$(upgrade_store_gitignore_rules </dev/null 2>&1)"
+out_again="$(upgrade_store_gitignore_rules </dev/null 2>&1)"
+rm -rf "$d"
+d="$(new_gitignore_repo)"
+SCRIPT_DIR="$d/.aitask-scripts"
+rm "$d/.gitignore"
+mkdir "$d/.gitignore"
+out_failed="$(upgrade_store_gitignore_rules </dev/null 2>&1)"
+rm -rf "$d"
+while IFS='|' read -r rules label what; do
+    assert_contains "27k upgrade $rules: added line" "Added $rules to .gitignore ($label)" "$out_added"
+    assert_contains "27k upgrade $rules: already line" "$rules already in .gitignore" "$out_again"
+    assert_contains "27k upgrade $rules: failure line" \
+        "  $what will show as untracked in 'git status'." "$out_failed"
+done <<'UPGRADE_PINS'
+.aitask-gates/|gate sidecar logs|Gate sidecar logs
+.aitask-testmap/|test map scratch|Test map runs
+.aitask-shadow/|shadow rejection store|The shadow rejection store
+.aitask-scratchpad/|scratchpad notes|Scratchpad notes
+.aitask-sitrep/|sitrep store|The sitrep todo store
+aiwork/ .aitask-crews/|framework worktree directories|Task and crew worktrees
+UPGRADE_PINS
+
+d="$(new_gitignore_repo)"
+SCRIPT_DIR="$d/.aitask-scripts"
+out="$(upgrade_cache_gitignore </dev/null 2>&1)"
+assert_contains "27k upgrade_cache_gitignore: added line" \
+    "Added .aitask-cache/ to .gitignore (discovery caches)" "$out"
+assert_eq "27k upgrade_cache_gitignore: exact block written" \
+    "$(printf 'base-rule\n\n# %s\n%s\n' 'Discovery caches (per-checkout, content-keyed, safe to delete)' '.aitask-cache/'; echo .)" \
+    "$(cat "$d/.gitignore"; echo .)"
+out="$(upgrade_cache_gitignore </dev/null 2>&1)"
+assert_contains "27k upgrade_cache_gitignore: already line" \
+    "Discovery-cache rule already in .gitignore" "$out"
+rm -rf "$d"
+
+# (l) a write that stops part-way (t2178): the append is several write()s, so a
+# failure after the first leaves bytes behind, and the warning must not claim
+# the file was left unchanged. A 1 KiB file-size limit on a 1016-byte .gitignore
+# cuts the append inside its comment line; SIGXFSZ is ignored so the write fails
+# with EFBIG instead of killing the shell. Control: the file must have grown,
+# but by less than a whole block — otherwise the probe did not cut a write.
+partial_log="$(mktemp)"
+partial_fixture() {
+    local d
+    d="$(new_gitignore_repo)"
+    { printf 'base-rule\n'; printf '%01005d\n' 0; } > "$d/.gitignore"
+    git -C "$d" commit -q -m "1016-byte .gitignore" -- .gitignore
+    echo "$d"
+}
+# partial_run <dir> <helper> -> status; output in $partial_log. The limit is set
+# only in the pipeline's left stage, which writes to a pipe: the log file is
+# written by `cat`, forked outside the limit, so a long warning cannot hit it.
+partial_run() {
+    run_bounded 15 "$partial_log" env HOME="$1/home-scratch" bash -c '
+        source "$1" --source-only
+        SCRIPT_DIR="$2/.aitask-scripts"
+        { trap "" XFSZ; ulimit -f 1; "$3"; echo SURVIVED; } 2>&1 | cat' \
+        _ "$PROJECT_DIR/.aitask-scripts/aitask_setup.sh" "$1" "$2"
+}
+gates_block_bytes=$(( $(printf '\n# %s\n%s\n' \
+    'Gate sidecar logs (per-task verifier output; in-body summary is committed)' \
+    '.aitask-gates/' | wc -c) ))
+for helper in setup_gate_logs_gitignore upgrade_store_gitignore_rules; do
+    d="$(partial_fixture)"
+    assert_eq "27l $helper: fixture is 1016 bytes" "1016" "$(( $(wc -c < "$d/.gitignore") ))"
+    before="$(commit_count "$d")"
+    rc=0
+    partial_run "$d" "$helper" || rc=$?
+    out="$(cat "$partial_log")"
+    size=$(( $(wc -c < "$d/.gitignore") ))
+    assert_eq "27l $helper: the write was cut part-way (control)" "yes" \
+        "$([[ "$size" -gt 1016 && "$size" -lt $((1016 + gates_block_bytes)) ]] && echo yes)"
+    assert_eq "27l $helper: returns 0 within 15s" "0" "$rc"
+    assert_contains "27l $helper: survives" "SURVIVED" "$out"
+    assert_contains "27l $helper: says the write stopped part-way" \
+        "Could not add .aitask-gates/ to .gitignore — the write stopped part-way" "$out"
+    assert_not_contains "27l $helper: no unchanged claim for .aitask-gates/" \
+        "Could not add .aitask-gates/ to .gitignore — left unchanged" "$out"
+    assert_not_contains "27l $helper: no 'added' claim" "Added " "$out"
+    assert_not_contains "27l $helper: no 'rule added' claim" "rule added" "$out"
+    assert_eq "27l $helper: no commit" "$before" "$(commit_count "$d")"
+    if [[ "$helper" == upgrade_store_gitignore_rules ]]; then
+        # The next group's first write fails outright at the limit: unchanged.
+        assert_contains "27l $helper: a group that wrote nothing says unchanged" \
+            "Could not add .aitask-testmap/ to .gitignore — left unchanged" "$out"
+    fi
+    rm -rf "$d"
+done
+rm -f "$partial_log"
 
 # --- Test 28: each baseline is gated on its own committer's predicate (t1972) ---
 # The data committer has no main-repo guard and the main committer needs no
