@@ -3,12 +3,13 @@ priority: medium
 effort: high
 depends: [t2179_1]
 issue_type: test
-status: Ready
+status: Implementing
 labels: [shadow, skills, testing]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 2179
 created_at: 2026-11-03 08:35
-updated_at: 2026-11-03 08:35
+updated_at: 2026-11-03 17:56
 ---
 
 ## Context
