@@ -6,6 +6,10 @@ issue_type: test
 status: Implementing
 labels: [shadow, skills, testing]
 gates: [risk_evaluated]
+active_gates: [risk_evaluated]
+active_gates_filtered: []
+active_gates_profile: fast
+active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2179
 created_at: 2026-11-03 08:35
