@@ -3,11 +3,12 @@ priority: medium
 effort: medium
 depends: [t2034_2]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [monitor, minimonitor, tmux]
+assigned_to: dario-e@beyond-eye.com
 anchor: 2034
 created_at: 2026-10-16 08:01
-updated_at: 2026-10-16 08:01
+updated_at: 2026-11-03 22:50
 ---
 
 Define the wire protocol between the shared monitor status server and its
