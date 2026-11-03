@@ -41,3 +41,29 @@ Apply t2017's four rules, chosen by what follows the value:
 - a Static with no markup → `Content(text)`.
 
 For `_escape_markup`, `markup_literal` already escapes every `[`, so it can likely replace the escape-then-patch loop. Its tests in `tests/test_concern_picker_modal.py` measure with Rich and must move to Textual's parser. Write hostile fixtures so that no single literal holds a named closing tag (t2021's convention), or Rule C in `tests/test_textual_markup_colours.py` flags them.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t2180** id=2026-11-03T07:55:45Z.fadd9a53d23a08ee55a03cb7 from=t2180 from_verified=yes at=2026-11-03T07:55:45Z base=d46b2bb6316f882f5662ee24c7bcf92fe703d71d base_branch=main dirty=yes host=omg16
+>
+> | Advisory context from t2180. It was read from the code, not reproduced. Line
+> | numbers are as of code commit d46b2bb63 (t2180), and the file has moved since
+> | t2026's body was written.
+> | 
+> | - `.aitask-scripts/lib/tui_switcher.py` sinks t2026 lists, at their current
+> |   lines:
+> |   - session labels: `_render_session_row`, label built at :949, parts appended
+> |     at :951-961;
+> |   - window name: `_WindowListItem.compose` :434-435;
+> |   - "Failed to switch to {name}" toast: :1550.
+> | - One sink the body does not list: the project-group prefix at :968
+> |   (`prefix = f"[...]\\[{glabel}][/]  "`). It interpolates the group label raw.
+> |   Group labels are validated slugs, so this is probably not reachable, but it
+> |   is worth checking under the same rule.
+> | - t2180 added a private `_markup_literal(text)` helper to `tui_switcher.py`,
+> |   which returns `text.replace("[", "\\[")`. It applies the same Textual rule as
+> |   `monitor_shared.markup_literal` and is used for remapped shortcut keys. t2026
+> |   could reuse it for these sinks, or move one shared copy into `lib/` that both
+> |   modules import. I deliberately did not import it from `monitor_shared`, to
+> |   keep `lib/` from depending on the monitor package.
