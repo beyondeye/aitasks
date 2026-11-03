@@ -41,3 +41,15 @@ Child of t2175. Depends on the writer, harvest and refresh children.
 > | 1. Triage items. Every finished run's closing message + banner becomes ONE script item: kind=question, group=now, derived=script, title "Triage wrap-up of t<id> <name>: turn its closing notes into action/watch items". Its context's capture: sources are the retained passage (first), the canonical banner, and identity key files; related: links earlier triage items that share the banner (a re-worded or duplicate run). The skill reads the passage, writes the action/watch items with `add --derived agent`, then marks the triage item done (set-state). Never edit the key files' items away: they are what makes re-harvest a no-op.
 > | 2. Run `./.aitask-scripts/aitask_sitrep_harvest.sh all` on start (or `all --root <repo>`): it harvests every record that still holds capture text and releases records purge is keeping (KEPT:<id>|unharvested_text).
 > | 3. workflow-end.md now pipes the closing message + banner into `aitask_sitrep_harvest.sh banner` (best-effort), so live agents' wrap-ups arrive without a freeze. The helper is on the five permission allowlists; aitask_sitrep_todo.sh still is not (owed by this task, per the t2175_1 note).
+
+> **✉ note:t2175_3** id=2026-11-03T21:19:27Z.5c42df1cba8a62e9ae591594 from=t2175_3 from_verified=yes at=2026-11-03T21:19:27Z base=df3ee6c58928513c2b2d3b242a2051e8e6d0dc9f base_branch=main dirty=yes host=omg16
+>
+> | The sitrep refresh landed in df3ee6c58: .aitask-scripts/aitask_sitrep_refresh.sh (core .aitask-scripts/lib/sitrep_refresh.py; contract in both headers).
+> | 
+> | 1. Push items. The writer accepts a new ref form `push:<branch>@<sha>` (todo.md is now format=2; format=1 stores are read and upgraded on their first changing write). Create push reminders with
+> |    `add --kind action --ref push:<branch>@<sha> --derived agent --context-file -`.
+> |    Refresh marks them done only when the sha is on the branch's remote push destination (no fetch, push URL must equal the single fetch URL); otherwise open ("not pushed: … ahead/behind … (fetched <date>)") or unknown.
+> | 2. Run `aitask_sitrep_refresh.sh --root <repo>` on start, after `aitask_sitrep_harvest.sh all`. Outcomes are the live state shown in Part 1 (status: Ready, archived (completed …), next wave …): read them, never restate task content. unknown means unverified, never done. Done items are never re-checked.
+> | 3. Targets are only: task items with a t<N> / <proj>#<N> ref, action items with a push: ref, watch items with trail: sources. Agent action/watch items without these anchors and triage questions are never touched by refresh.
+> | 4. A changed context entry (upsert-context created/replaced) now gives the item a fresh rev, so pass a re-read --expect-rev after it.
+> | 5. aitask_sitrep_refresh.sh has no code-agent permission entries yet; like the writer, its 5 touchpoints are owed by the first SKILL.md that calls it (this task), per aidocs/framework/aitasks_extension_points.md.
