@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
@@ -55,3 +57,5 @@ installer path (`install.sh` / `ait upgrade`) that writes it.
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-11-03T16:22:17Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-11-03T17:02:19Z status=pass attempt=1 type=human
