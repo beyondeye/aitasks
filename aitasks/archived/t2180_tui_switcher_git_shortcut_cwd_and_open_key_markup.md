@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [tui_switcher, tui]
 active_gates: [risk_evaluated]
 active_gates_filtered: []
@@ -15,7 +15,8 @@ assigned_to: dario-e@beyond-eye.com
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5_5
 created_at: 2026-11-03 08:19
-updated_at: 2026-11-03 09:08
+updated_at: 2026-11-03 10:04
+completed_at: 2026-11-03 10:04
 ---
 
 ## Origin
@@ -66,3 +67,14 @@ against current main.
 > **✅ gate:plan_approved** run=2026-11-03T07:08:37Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-11-03T07:34:54Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-11-03T08:04:05Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:2b5760d033dfaf1b
+
+> **✅ gate:risk_evaluated** run=2026-11-03T08:04:05Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/2180/risk_evaluated_2026-11-03T08:04:05Z-risk_evaluated-a1.log`
