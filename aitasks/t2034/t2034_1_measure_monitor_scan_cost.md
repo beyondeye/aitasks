@@ -11,8 +11,9 @@ active_gates_profile: fast
 active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2034
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-16 08:01
-updated_at: 2026-11-03 12:12
+updated_at: 2026-11-03 13:38
 ---
 
 Measure how much of a minimonitor's and a monitor's CPU goes to tmux scanning
@@ -40,3 +41,8 @@ The 2026-10-16 snapshot (7 minimonitors at 0.8–3.1% CPU each, 4 monitors at
 Numbers and method recorded in the plan file, so they are archived with the
 task. If scanning turns out to be a small share, say so: that lowers the payoff
 of the Go server (t2038) but not the single-idle-clock gain.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-03T11:38:04Z status=pass attempt=1 type=human
