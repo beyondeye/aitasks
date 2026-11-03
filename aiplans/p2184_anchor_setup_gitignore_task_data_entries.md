@@ -242,3 +242,42 @@ via the standard Step 9 flow.
 
 ### Planned mitigations
 - timing: post-phase | name: report_unhidden_nested_data_paths | type: bug | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement — nested dirs silently un-hidden by the anchoring migration | desc: after a successful data-entry rewrite, list (capped, neutral wording, no provenance claim) the untracked nested data-name paths
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-03 18:40)
+- **Requested by user:** The reporter parsed newline-delimited `git ls-files` output. `core.quotePath=false` still C-quotes paths holding `"`, `\` or control characters, so `docs/aitasks/normal.txt` plus `docs/aitasks/quote"name.txt` listed both `docs/aitasks/` and a malformed `"docs/aitasks/`. Read raw NUL-separated paths, escape only on display, and add a regression test.
+- **Changes made:** The reporter reads `git ls-files -z` and walks the path components in bash. It no longer uses awk or line-based parsing. A cheap per-path prefilter means only candidate paths are walked. Display goes through `printf`, never `info`/`echo -e`, and escapes odd entries. New Case G5 covers a quote-named file, a backslash-named file and a newline-named directory: exactly one entry per directory, the odd one escaped on a single line. Its precondition checks that git really quotes the path without `-z`.
+- **Files affected:** `.aitask-scripts/aitask_setup.sh`, `tests/test_gitignore_data_symlinks.sh`
+
+### Change Request 2 (2026-11-03 18:55)
+- **Requested by user:** (a) Blocking: the reporter read git through process substitution without checking its exit status, so a git that printed a path and then exited 128 produced a partial list. Print nothing on any git failure, and add a regression test for partial output followed by failure. (b) Follow-up allowed: the per-entry dedupe scanned every collected entry, which is quadratic (1200 dirs took 1.43 s).
+- **Changes made:**
+  - The producer, the new filter `_ait_nested_data_entries` and `LC_ALL=C sort -u` now run as one pipeline inside `$( )`. Every `PIPESTATUS` entry is checked there, and any failure prints nothing.
+  - The filter emits entries `printf %q`-encoded, which makes them injective and free of raw newlines. `sort -u` dedupes them in O(n log n). An associative array was ruled out because `install.sh` may run under macOS's `/bin/bash` 3.2.
+  - Case G6 uses a `git` function shim that prints a path and then fails, so nothing is listed; a control confirms the success path is consumed. A mutant without the status check fails exactly G6's two assertions.
+  - Case G7: 1200 distinct dirs plus a non-adjacent repeat give exactly "… and 1190 more". Measured runtime is 0.042 s, and 20,000 unrelated untracked files take 0.5 s.
+- **Files affected:** `.aitask-scripts/aitask_setup.sh`, `tests/test_gitignore_data_symlinks.sh`
+
+## Final Implementation Notes
+- **Actual work done:** All seven planned steps plus the inline post-phase landed.
+  - Step 7 writes `/.aitask-data`, `/aitasks`, `/aiplans`, derived from `AIT_DATA_DIR_NAME` / `AIT_DATA_LINKS`, and its presence guard checks the anchored form.
+  - `_ait_rewrite_data_gitignore_lines` / `_ait_render_data_gitignore` migrate both legacy forms, `name/` and `name` (LF and CRLF), to `/name`. Matching is exact whole lines only, and the 0/1/2 exit contract is unchanged.
+  - `setup_data_gitignore_symlink_safe` messages are updated, keeping the `already symlink-safe` substring.
+  - New `_ait_report_unhidden_nested_data_paths` and `_ait_nested_data_entries` run after every successful rewrite, both in Step 7 and in the re-run repair (which also covers `install.sh` / `ait upgrade`).
+  - This repo's `.gitignore` is anchored. The stray untracked `.aitask-scripts/board/aitasks/` and `website/aiplans/` were deleted, with the user's approval, after confirming they held no tracked files.
+  - `setup-install.md` step 5 is updated, and `check_links.py --build` passes.
+- **Deviations from plan:**
+  - The post-phase reporter was planned as an `ls-files | awk` filter. After the two review rounds above it became a `-z` NUL-separated bash filter plus `sort -u`, with every pipeline status checked. Its output is now in byte order, not discovery order.
+  - Test 33 became a two-variant function, `run_rerun_repair_case` a/b. Test 12 asserts that no `# Task data` header is appended, rather than counting bare lines.
+  - Case G gained G3 (the 10-entry cap), G4 (not a git repo), G5, G6 and G7.
+- **Issues encountered:**
+  - The plan's test inventory for `tests/test_install_upgrade_dirty_baseline.sh` named only cases A and B. Running the suite caught G2b (`:421`), which expected bare `.aitask-data` on disk, and it now expects `/.aitask-data`. A whole-file sweep of all 87 test files that touch setup or `.gitignore` then turned up only deliberate legacy fixtures or substring checks that still hold.
+  - Case G5's first precondition used `ls-files -o --exclude-standard`, where the bare block hid the fixture. It now uses plain `ls-files -o`.
+  - Red proofs against the pre-change code: 26 failures in `test_gitignore_data_symlinks` and 60 in `test_data_branch_setup`. With the new setup and the old repo `.gitignore`, only Case A's three nested checks fail.
+- **Key decisions:**
+  - The rewrite is whole-file and exact-line, the same scope as the t699/t1711 trailing-slash rewrite, because the block's header comment is user-editable.
+  - The reporter's wording is neutral ("show as untracked"), because a scan taken only after the rewrite cannot prove where a path came from (mixed-rule case G2).
+  - The reporter is bash 3.2-safe: no associative arrays, and no dependence on the caller's `pipefail`.
+- **Upstream defects identified:**
+  - `.aitask-scripts/aitask_setup.sh:2028` — Step 7's presence guard checks only the `/.aitask-data` line. A `.gitignore` that has it but lacks `/aitasks` or `/aiplans` (for example, after a hand edit) never gets those link rules added back. This predates t2184: the bare-form guard had the same one-line key.
