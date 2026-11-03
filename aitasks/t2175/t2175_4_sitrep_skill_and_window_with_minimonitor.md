@@ -53,3 +53,5 @@ Child of t2175. Depends on the writer, harvest and refresh children.
 > | 3. Targets are only: task items with a t<N> / <proj>#<N> ref, action items with a push: ref, watch items with trail: sources. Agent action/watch items without these anchors and triage questions are never touched by refresh.
 > | 4. A changed context entry (upsert-context created/replaced) now gives the item a fresh rev, so pass a re-read --expect-rev after it.
 > | 5. aitask_sitrep_refresh.sh has no code-agent permission entries yet; like the writer, its 5 touchpoints are owed by the first SKILL.md that calls it (this task), per aidocs/framework/aitasks_extension_points.md.
+
+> **👁 note:read** id=2026-11-03T21:37:47Z.f51d1e5447f93ca931dd238a by=t2175_4 at=2026-11-03T21:37:47Z mode=explicit ids=2026-11-01T20:31:59Z.832b1a0b4cb2e23242b7b45b,2026-11-03T09:12:19Z.245f989a719e2d0a28740530,2026-11-03T21:19:27Z.5c42df1cba8a62e9ae591594
