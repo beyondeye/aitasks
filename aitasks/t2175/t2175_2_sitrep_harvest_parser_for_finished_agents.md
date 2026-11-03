@@ -11,8 +11,9 @@ active_gates_profile: fast
 active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2175
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-31 19:58
-updated_at: 2026-11-02 14:46
+updated_at: 2026-11-03 08:26
 ---
 
 # Harvest parser: items and context entries from finished agents
@@ -48,3 +49,8 @@ Agent captures under `~/.config/aitasks/frozen/<id>/` are deleted by
 - **Acceptance:** after `aitask_frozen.sh drop <id>`,
   `aitask_sitrep_todo.sh check-sources` reports `SOURCE_OK` for every harvested
   pointer, and `context c<N>` + the retained file still show the passage.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-03T06:26:28Z status=pass attempt=1 type=human
