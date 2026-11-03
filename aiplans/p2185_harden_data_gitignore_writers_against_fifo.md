@@ -317,3 +317,16 @@ on the current branch (`main`), so there is no worktree to clean up.
 - timing: pre-phase | name: step7_parity_baseline | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: Step 7 rewrite could change success-path .gitignore bytes | desc: capture the .gitignore the unmodified setup_data_branch writes for fixtures (a)-(d) before editing source
 - timing: pre-phase | name: red_proof_new_tests | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: new tests could pass vacuously | desc: run the new D4 / Test 40 cases against unmodified source and record 124 / errexit-abort red output
 - timing: post-phase | name: step7_parity_compare | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: Step 7 rewrite could change success-path .gitignore bytes | desc: rerun fixtures (a)-(d) on the patched source and cmp against the baselines
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-03 23:22)
+- **Requested by user:** In `_ait_ensure_gitignore_block` the append group `{ echo ""; printf ...; }` checked only the final `printf`'s status, so a transient failure of the separator `echo` followed by a successful `printf` was lost. On a `.gitignore` whose last line had no newline (`keep-me`), that glued the block's comment onto the rule (`keep-me# ...`), returned rc 0 with an empty partial flag, and changed what `keep-me` ignores. Fix it so either failure reaches the rc-2 path, and add a focused regression case.
+- **Changes made:**
+  - The separator and the block are now chained with `echo "" && printf '%s\n' "$@"`, with a comment explaining why a newline-separated group loses the status.
+  - New Test 40b cases:
+    - a no-fault control: a no-newline `keep-me` stays a whole line;
+    - an injected separator fault (`echo` shadowed in the substitution's subshell) asserts `rc=2 partial=` and a byte-identical file.
+  - Red proof on the pre-fix code: both new assertions FAIL (`got 'rc=0 partial='`; the file changed). Green after the fix: 468/468.
+  - Parity fixtures (a)-(d) are still byte-identical; probe (e) still creates no target.
+- **Files affected:** `.aitask-scripts/aitask_setup.sh`, `tests/test_data_branch_setup.sh`
