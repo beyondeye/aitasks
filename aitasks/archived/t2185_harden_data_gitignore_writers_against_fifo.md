@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: [2184]
 issue_type: bug
-status: Implementing
+status: Done
 labels: [install, ait_setup]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -17,7 +17,8 @@ anchor: 2173
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5_5
 created_at: 2026-11-03 17:34
-updated_at: 2026-11-03 22:44
+updated_at: 2026-11-03 23:52
+completed_at: 2026-11-03 23:52
 ---
 
 ## Origin
@@ -52,3 +53,14 @@ t2178 also made the shared writer's failure warning honest about partial appends
 > **✅ gate:plan_approved** run=2026-11-03T20:44:54Z status=pass attempt=2 type=human
 
 > **✅ gate:review_approved** run=2026-11-03T21:47:02Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-11-03T21:52:13Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:d4e1bf0b2768f9c1
+
+> **✅ gate:risk_evaluated** run=2026-11-03T21:52:13Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/2185/risk_evaluated_2026-11-03T21:52:13Z-risk_evaluated-a1.log`
