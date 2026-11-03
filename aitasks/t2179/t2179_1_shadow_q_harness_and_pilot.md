@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: medium
 effort: high
 depends: []
 issue_type: test
@@ -12,8 +14,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2179
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-03 08:34
-updated_at: 2026-11-03 08:51
+updated_at: 2026-11-03 09:55
 ---
 
 ## Context
@@ -82,3 +85,8 @@ Follow `aiplans/p2179/p2179_1_shadow_q_harness_and_pilot.md` steps 1-9.
 - Judge calibration controls are ordered correctly.
 - `git diff --stat` shows nothing under `.claude/skills/` or `.agents/`.
 - End by presenting `pilot_report.md` numbers to the user. Do not start the main run.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-03T07:55:28Z status=pass attempt=1 type=human
