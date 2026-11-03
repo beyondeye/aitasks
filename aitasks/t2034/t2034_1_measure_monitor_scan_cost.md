@@ -3,11 +3,12 @@ priority: medium
 effort: low
 depends: []
 issue_type: performance
-status: Ready
+status: Implementing
 labels: [monitor, minimonitor, performance]
+assigned_to: dario-e@beyond-eye.com
 anchor: 2034
 created_at: 2026-10-16 08:01
-updated_at: 2026-10-16 08:12
+updated_at: 2026-11-03 12:12
 ---
 
 Measure how much of a minimonitor's and a monitor's CPU goes to tmux scanning
