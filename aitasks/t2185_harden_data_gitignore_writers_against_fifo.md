@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: low
 depends: [2184]
 issue_type: bug
@@ -14,8 +16,9 @@ plan_approved_at: 2026-11-03 18:55
 assigned_to: dario-e@beyond-eye.com
 anchor: 2173
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-03 17:34
-updated_at: 2026-11-03 22:42
+updated_at: 2026-11-03 22:44
 ---
 
 ## Origin
@@ -46,3 +49,5 @@ t2178 also made the shared writer's failure warning honest about partial appends
 > **✅ gate:plan_approved** run=2026-11-03T16:55:20Z status=pass attempt=1 type=human
 >
 > Note: deferred
+
+> **✅ gate:plan_approved** run=2026-11-03T20:44:54Z status=pass attempt=2 type=human
