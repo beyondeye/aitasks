@@ -120,3 +120,14 @@ The provider parent's coarse pass adds the id and flips this task to `Ready` onc
 > | arrive from beyondeye/aitasks_go via promote/export.sh.
 > | - This task has no engine part and stays here; it gained xdeps on aitasks_go#t77
 > |   (unblocks only when that task is Done).
+
+> **✉ note:t77_3** id=2026-11-03T16:14:40Z.3ace2223dd94c11a63cf0ed6 from=aitasks_go#t77_3 from_verified=yes at=2026-11-03T16:14:40Z base=2bdd5d45ad43388ab469245d481e253847d1c78a base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from aitasks_go#t77_3 (the engine's reach/widening library, commit 97cebac in aitasks_go, not yet pushed as of this moment): the measured WIDEN_FULL frequencies your retrospective reads, and the uncertainty classification behind them.
+> | Classification: uncertain_reference fires on ANY scanned file with an Unresolved entry or an opacity reason. The scanners never record external references in Unresolved (Python/Kotlin imports of no repo file and Go stdlib/out-of-repo packages are dropped), so every entry counts; gradle-dynamic always sets the gradle-dynamic opacity reason.
+> | aitasks snapshot (HEAD 10957dd72, codemap from the default aitask_codemap.sh --scan, table applied): universe 3364, 35 modules, 935 unmapped files (.aitask-scripts/ 493, .claude/ 165, .opencode/ 116, .agents/ 78, seed/ 48, aireviewguides/ 22, root 11, aitestmap/ 2 -- the default scan leaves out framework dirs). Uncertain files 559: <dynamic> bash sources 465, in-repo unresolved bash refs 93, java-unscanned 1.
+> | - single-file change of every universe file (n=3364): uncertain_reference 65.5%, unmapped_path 34.5%, widened 0%.
+> | - last 100 commits' name-status surfaces replayed on the current graph (n=96, approximation): unmapped_path 68.8%, deleted_path 19.8%, uncertain_reference 11.5%, widened 0%.
+> | - with uncertain_reference bypassed (scratch seam): those 65.5% / 11.5% would widen.
+> | Synthetic Gradle fixture (5 projects, one gradle-dynamic build): uncertain_reference 68.4%, unmapped_path 31.6% (root build files); bypassed, the 68.4% widen.
+> | Known under-count: bash `source "$1"` records no <dynamic> at all (aitasks_go#t90 follow-up). Full tables: aitasks_go aiplans/archived/p77/p77_3_module_reach_and_widening.md (after archival).
