@@ -12,8 +12,9 @@ active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2179
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-03 17:32
-updated_at: 2026-11-03 17:43
+updated_at: 2026-11-03 18:22
 ---
 
 ## Origin
@@ -49,3 +50,8 @@ existing bare `aitasks` / `aiplans` lines in that block to the anchored form (th
 rewrites legacy trailing-slash data entries), and a test with a nested `docs/aitasks/` file proving it is no
 longer ignored while the root symlinks still are. Check `.aitask-data` too, and the same block in any other
 installer path (`install.sh` / `ait upgrade`) that writes it.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-03T16:22:17Z status=pass attempt=1 type=human
