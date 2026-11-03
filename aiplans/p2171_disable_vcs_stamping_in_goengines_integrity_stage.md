@@ -223,3 +223,57 @@ None identified.
 
 ### Goal-achievement risk: low
 None identified.
+
+## Final Implementation Notes
+
+- **Actual work done:** All three plan steps were done as written.
+  - `-buildvcs=false` was added to the per-call `GOFLAGS` of the three
+    package-loading calls in `.github/scripts/goengines_integrity.sh`: the
+    private-deps `go list -e -deps`, the per-target `go build`, and the closure
+    `go list -deps`.
+  - The rule is explained in a comment above `run_go` and in one header clause.
+  - Regression section §9f was added to
+    `tests/test_goengines_export_integrity.sh`, with the logging `git` stub, 5
+    controls and 4 assertions.
+  - One bullet was added to the isolated-environment list in
+    `aidocs/framework/go_engine.md`.
+- **Deviations from plan:** None. The plan's contingency (a go command outside
+  the three running git) did not fire. Before the fix, the red-run git log
+  named exactly 12 `git status --porcelain` invocations, one per target:
+  4 × `go list -e -deps` (private-deps), 4 × `go build`, and 4 ×
+  `go list -deps` (closure). `vet`, `tidy` and `list -m` never ran git.
+- **Issues encountered:** In the agent's Bash shell, `PATH` resolves
+  `/usr/bin/go` (Arch, `go1.27.3-X:nodwarf5`) while `GOROOT` points at mise's
+  `go1.27.3`. So every compile fails with
+  `compile: version "go1.27.3" does not match go tool version "go1.27.3-X:nodwarf5"`.
+  This is a host environment problem, not a repository defect. All
+  verification ran with `PATH="$GOROOT/bin:$PATH"`.
+- **Key decisions:**
+  - The flag is not in `INDEPENDENT_ENV`, because a per-call `GOFLAGS=`
+    replaces the cleared value there.
+  - It is not on `vet`, `tidy` or `list -m`, which never stamp (confirmed by
+    the git log).
+  - The test observes at the process boundary, through the `git` stub. A user
+    review of the first plan showed that exit/output assertions cannot see the
+    `-e` listing's swallowed error.
+- **Verification evidence:**
+  - Red (test added, script unfixed): 186 passed, 4 failed (the 4 non-control
+    §9f assertions); all 5 controls passed.
+  - Green: 190 passed, 0 failed.
+  - Isolated per-site mutants, each built in a scratch project copy with
+    exactly one `-buildvcs=false` removed (2 of 3 sites left):
+
+    | mutant | result |
+    |---|---|
+    | M-private (line 339) | 189/1: red **only** on "no go command in check ran git"; the logged parent is `go list -e -deps …` |
+    | M-build (line 360) | 186/4: rc, `INTEGRITY_OK`, VCS-error and git-log assertions red; parent `go build ./...` |
+    | M-closure (line 389) | 186/4: same four red; parent `go list -deps -f {{if not .Standard}}…` |
+
+    No mutant reddened anything outside §9f.
+  - Real `goengines/` tree (export mode), `TMPDIR` under a private empty `.git`:
+    HEAD script → 8 `INTEGRITY_FAIL` (4 independent-build, 4 closure), rc 1.
+    Fixed script → `INTEGRITY_OK`, rc 0. Both versions give `INTEGRITY_OK`
+    with a plain `TMPDIR`.
+  - shellcheck: the script has 0 findings both at HEAD and now. The test file
+    has 2 at both, the pre-existing SC1091 "not following" notes.
+- **Upstream defects identified:** None
