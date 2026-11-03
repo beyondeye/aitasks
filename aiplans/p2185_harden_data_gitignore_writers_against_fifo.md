@@ -330,3 +330,43 @@ on the current branch (`main`), so there is no worktree to clean up.
   - Red proof on the pre-fix code: both new assertions FAIL (`got 'rc=0 partial='`; the file changed). Green after the fix: 468/468.
   - Parity fixtures (a)-(d) are still byte-identical; probe (e) still creates no target.
 - **Files affected:** `.aitask-scripts/aitask_setup.sh`, `tests/test_data_branch_setup.sh`
+
+## Final Implementation Notes
+- **Actual work done:**
+  - **`.aitask-scripts/aitask_setup.sh`**
+    - `_ait_rewrite_data_gitignore_lines` got a `[[ -f ]] || return 2` gate right after its existence check.
+    - New Step 7 block writer `_ait_ensure_gitignore_block`, with its guards `_ait_gitignore_has_data_block` / `_ait_gitignore_has_skill_block` and the reporter `_ait_warn_gitignore_block_failed`. They sit right after `_ait_warn_gitignore_rules_failed`, and the t2178 section comment now says why Step 7 writes whole blocks.
+    - `setup_data_branch` Step 7 builds `data_block` / `skill_block` arrays and sends both through the writer. A failed block is reported (rc 2) and never sets `gitignore_changed`.
+    - The warning gives the rule lines to add by hand (printed with `printf`, so they can be copied) and says `'ait setup' does not retry this step`.
+  - **Tests**
+    - `tests/test_gitignore_data_symlinks.sh`: Case D4 (FIFO; bounded errexit child).
+    - `tests/test_data_branch_setup.sh`: Test 40 covers clean / readonly / directory / fifo, with bounded errexit runs of the whole `setup_data_branch`. Test 40b covers append bytes, idempotency, absent file, the CRLF guard, the skill guard, the separator-fault regression and its control, a write-only file, a dangling symlink, and a partial write under `ulimit -f`.
+- **Deviations from plan:**
+  - The plan was written before t2184 landed. Implemented on post-t2184 HEAD (`a992cbd30`), so the data block and guard use t2184's anchored `/<name>` forms, and the D4 assertions keep to wording that is stable across t2184.
+  - Change Request 1 (review) chains the separator with `&&`; see Post-Review Changes.
+  - The comment on the rewriter gate originally claimed the FIFO "hung every `ait setup` and upgrade". It was reworded because git itself blocks earlier (see Issues encountered).
+- **Issues encountered:**
+  - **Red proof (pre-phase red_proof_new_tests, on unmodified a992cbd30):**
+    - D4 exited 124 after printing only `ERREXIT_ON`.
+    - Test 40 `fifo` exited 124.
+    - `readonly` and `directory` exited 1 without `SURVIVED`, aborting setup with `aitask_setup.sh: line 1618: …/.gitignore: Permission denied` and `…: Is a directory`.
+    - `clean` was green. The 40b cases failed because the helpers did not exist yet.
+    - There were 0 failures outside the new cases (`426 passed, 38 failed`, all `40*`).
+  - **Green:** 113/113 and 468/468. The other consumers all passed: `test_setup_git` 666, `test_data_branch_migration` 21, `test_install_upgrade_dirty_baseline` 137, `test_init_data` 148, `test_applink_setup_gitignore` 4, `test_install_create_data_dirs` 40, `test_agent_instructions` 156, `test_ait_git_gateway_pull` 281. Shellcheck findings are identical to HEAD.
+  - **Parity (step7_parity_baseline / step7_parity_compare):** fixtures (a) no file, (b) LF, (c) CRLF with `/.aitask-data\r`, and (d) legacy trailing-slash give byte-identical `.gitignore` files and the same Step 9 commit before and after. This was re-checked after Change Request 1.
+  - **Probe (e), dangling-symlink `.gitignore`, measured:**
+    - Before the fix, Step 7 created `gi-missing-target` with both blocks, and Step 9 committed `.gitignore` itself, the symlink (`.gitignore | 1 +`).
+    - After the fix, both blocks warn, the link is left as it is, no target is created, and nothing is committed.
+  - **The task's premise was too narrow.** It said "git itself does not block on a FIFO `.gitignore`". On git 2.56.0 on this host, that holds only for some shapes:
+    - **Untracked FIFO `.gitignore`:** `git ls-files --others --exclude-standard`, `git status --porcelain` and `git add -- .gitignore` all time out (124).
+    - **Tracked `.gitignore` replaced by a FIFO:** `ls-files --others --exclude-standard` with no pathspec returns 0, but with `-- sub/` (a directory git walks) it times out. `git add` returns 128.
+    - **Consequence:** `snapshot_pre_setup_dirty` hangs in its `ls-files --others --exclude-standard -- <framework paths>` call, measured with xtrace for both shapes. `main()` runs it before `setup_data_branch`, so a full `ait setup` with a FIFO `.gitignore` still hangs before this task's code runs.
+    - This task fixes the framework's own reads and appends. That fix stands on its own (the readonly and directory aborts are reached; the helpers can be called directly). It does not make `ait setup` survive a FIFO end to end.
+- **Key decisions:**
+  - Whole-block writer rather than `_ait_add_gitignore_rules`. That writer guards each rule separately, which would break the CRLF-tolerant single guard and could append a broad `*-/` pattern after an existing `!` re-include, cancelling it.
+  - The guard re-runs after the append as the read-back.
+  - It reuses `_ait_gitignore_partial` and `_ait_gitignore_note_partial`.
+  - The warning never suggests re-running setup, because Step 7 sits behind the "already configured" early return.
+- **Upstream defects identified:**
+  - `.aitask-scripts/aitask_setup.sh:4780 — _ait_list_framework_changes' git ls-files --others --exclude-standard probe, reached from snapshot_pre_setup_dirty (:4862, the first git step in main()), blocks on a FIFO .gitignore on git 2.56.0 (untracked FIFO, or a tracked .gitignore replaced by one while git walks a directory), so 'ait setup' still hangs before setup_data_branch; install.sh's snapshot_pre_install_dirty likely shares the shape (not measured). A single early precondition (refuse/warn when .gitignore exists but is not a regular file) before any git probe would cover git's own reads`
+  - `.aitask-scripts/aitask_setup.sh:3187 — _ait_add_gitignore_rules (t2178) writes its separator, comment and rules as { echo ""; echo "# comment"; printf ...; }, checking only the last status: a transient failure of the separator echo on a .gitignore whose last line lacks a newline glues the comment onto that rule (probe: 'keep-me' -> 'keep-me# Some comment', rc 0, "Added rule-a/"), the same defect Change Request 1 fixed in _ait_ensure_gitignore_block`
