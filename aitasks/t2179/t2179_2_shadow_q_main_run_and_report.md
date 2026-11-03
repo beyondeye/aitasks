@@ -3,17 +3,16 @@ priority: medium
 effort: high
 depends: [t2179_1]
 issue_type: test
-status: Implementing
+status: Postponed
 labels: [shadow, skills, testing]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
 active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
-assigned_to: dario-e@beyond-eye.com
 anchor: 2179
 created_at: 2026-11-03 08:35
-updated_at: 2026-11-03 17:56
+updated_at: 2026-11-03 18:09
 ---
 
 ## Context
