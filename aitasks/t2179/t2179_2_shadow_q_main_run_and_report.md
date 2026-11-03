@@ -1,9 +1,9 @@
 ---
 priority: medium
-effort: high
+effort: medium
 depends: [t2179_1]
 issue_type: test
-status: Postponed
+status: Ready
 labels: [shadow, skills, testing]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -12,7 +12,7 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 anchor: 2179
 created_at: 2026-11-03 08:35
-updated_at: 2026-11-03 18:09
+updated_at: 2026-11-03 18:35
 ---
 
 ## Context
@@ -33,13 +33,69 @@ and in this child's plan `aiplans/p2179/p2179_2_shadow_q_main_run_and_report.md`
 Read both, plus the archived t2179_1 plan, which is the primary record of what was
 actually built and any harness deviations.
 
-## Key Files to Create/Modify
+## Rescope (2026-11-03, user decisions): pilot-evidence closure, no paid calls
 
-Under `aidocs/benchmarks/shadow_q/`:
-- `runs/main/…`: raw outputs and per-turn JSONL from the main matrix.
-- `results/judgements*.jsonl`, `audit.md`, `aggregate.py`, `results/summary.json`.
-- `report.md`: the comparison report and the evidence-based recommendation.
-- Optionally a `runs.tar.zst` bundle registered with `ait artifact create 2179 … --kind report`.
+At the approval gate on 2026-11-03 the user **declined the main-run budget**. The
+re-checked projection was ≈ $164 Claude / ≈ 11.5M Codex tokens, against frozen
+thresholds of $145 / 10.5M. The user then chose to **finish this task from
+t2179_1's pilot results, with no further paid runs.** This section supersedes the
+main-run steps below.
+
+- **No CLI invocation of any kind** (subject or judge). Everything is built from
+  the saved pilot batch: the public `runs/pilot/`, plus the private store
+  `runs/pilot/` and `judging/pilot/`.
+- **Independent audit of all 16 pilot answers** by the implementing agent, against
+  `rubric.md`, read from the private store. That is every answer, because 8 of 16
+  are disputed between the judges.
+  - Prioritise factual-correctness disputes: the Codex judge was much stricter.
+  - Resolve each disagreement in writing.
+  - Quotes go to the private store only.
+- **Numbers-only `results/summary.json`:**
+  - pilot cells with compliance and overall success side by side, plus
+    conditional quality per judge;
+  - the final record per cell (the pilot's superseded never-launched rows are
+    reported separately);
+  - a **gap list**: every frozen `matrix.json` cell, marked
+    `not_run:budget_declined`.
+- **`report.md`** answers each acceptance question directly:
+  - "not determinable at n = 1" where that is the honest answer (concise-intent
+    sufficiency, consistency);
+  - the pilot observations as observations, never as evidence (Codex v1 terse and
+    recommendation-first; Claude explaining at length under every variant; the
+    single failure flag on Codex · v1 · minimal);
+  - hypotheses kept separate.
+  - The recommendation follows the evidence. The expected outcome is "keep the
+    current definition: nothing measured justifies a change".
+  - It names the targeted follow-up: **t2187**, a Codex-only v1 vs v2 (± v3)
+    experiment, Postponed until the user approves a spend.
+- **Acceptance gap, recorded and not redefined:** the parent's line "completed
+  repeated runs for both actual default agents" is **unmet**, because of the user's
+  budget decision.
+  - The report and the archived plan state this.
+  - t2187 carries the Codex side.
+  - The Claude side is covered only by t2187's optional ceiling check.
+- **Web access decision** (for any later run): disabled for both agents.
+- **Related follow-ups created 2026-11-03:**
+  - **t2186:** a generic agent-prompt eval harness (dev tooling under
+    `aidocs/benchmarks/prompt_eval/`). It absorbs the harness gaps listed in this
+    task's plan.
+  - **t2187:** the targeted Codex experiment, which depends on t2186.
+
+## Key Files to Create/Modify (rescoped)
+
+Under `aidocs/benchmarks/shadow_q/` (public, numbers only):
+- `aggregate.py`: pilot aggregation with final-record-per-cell and the frozen-matrix gap list.
+- `results/summary.json`, `results/audit.md` (trial ids and scores, no quotes), `report.md`.
+- `matrix.json`: `status` updated to record "not run: budget declined 2026-11-03" (cells unchanged).
+- `README.md`: list the new files.
+- `tests/test_shadow_q_harness.py`: offline tests for `aggregate.py`.
+
+In the private aitasks_go store `aidocs/shadow_q_store/`:
+- `audit/pilot_audit.md`: per-answer reading with quotes.
+- `report_examples.md`: representative outputs and counterexamples cited by `report.md`.
+
+(The original main-run file list: `runs/main/…`, judgements, a `runs.tar.zst` bundle. It is
+not produced under the rescope.)
 
 ## Reference Files for Patterns
 
@@ -50,7 +106,9 @@ Under `aidocs/benchmarks/shadow_q/`:
 
 ## Implementation Plan
 
-Follow `aiplans/p2179/p2179_2_shadow_q_main_run_and_report.md`:
+**Superseded by the Rescope above.** Follow the "Rescope" section of
+`aiplans/p2179/p2179_2_shadow_q_main_run_and_report.md`. The original main-run steps
+are kept below for the record:
 1. Approval gate before any spend.
 2. Run the frozen matrix (background), re-resolving agents at run time, with no
    model substitution.
@@ -64,12 +122,20 @@ Follow `aiplans/p2179/p2179_2_shadow_q_main_run_and_report.md`:
 
 ## Verification Steps
 
-- `results/summary.json` covers every frozen matrix cell, with counts equal to the
-  frozen matrix or an explicit gap list.
-- `report.md` answers: is concise intent sufficient; does explicit wording
-  materially improve consistency; do agent, context or repeated turns matter. It
-  gives the simplest reliable definition, which may be "keep current" or "none
-  reliable".
+- `results/summary.json` accounts for every pilot `>q` slot (16 final valid answers,
+  plus the superseded never-launched rows reported separately). It also lists every
+  frozen `matrix.json` cell in the gap list, as `not_run:budget_declined`.
+- The audit covers all 16 pilot answers, with every judge disagreement resolved in
+  writing.
+- `report.md` answers each question: is concise intent sufficient; does explicit
+  wording materially improve consistency; do agent, context or repeated turns
+  matter.
+  - It gives the simplest reliable definition the evidence supports, which may be
+    "keep current" or "none reliable".
+  - It states the unmet acceptance line, and points to t2187.
+- The pilot invocation total is unchanged (79): no CLI was called by this task.
+- `python3 tests/test_shadow_q_harness.py` passes.
+- `check_public.py --staged` passes before the public commit.
 - No change under `.claude/skills/` or `.agents/`.
 
 ## Inbox

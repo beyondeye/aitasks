@@ -20,9 +20,9 @@ deviation recorded there as authoritative over this plan's assumptions.
 
 The approval gate (step 1) ran on 2026-11-03. With the re-checked projection below,
 the user **declined** the main-run budget. **No paid invocation was made.** The
-harness, the store and the frozen `matrix.json` are untouched. A future pick resumes
-at step 1 with a fresh approval, then closes the harness gaps (step 1b, no spend)
-before any paid call.
+harness, the store and the frozen `matrix.json` are untouched. **Superseded the same
+day by the Rescope section below:** the task now closes on the pilot's evidence with
+no paid calls. The main run moves to t2186 / t2187.
 
 Decisions taken at the gate:
 - **Main-run budget: declined** ("Decline: stop here").
@@ -120,7 +120,102 @@ Re-checked against the tree and the t2179_1 records:
   - final-record-per-cell aggregation;
   - the aggregate metrics and the under-sampled flag, on synthetic trials.
 
-## Implementation
+## Rescope (2026-11-03, user decision): pilot-evidence closure, no paid calls
+
+After the budget was declined, the user chose to **finish t2179_2 from t2179_1's
+pilot results, with no further paid runs**. The "Implementation" section below is
+kept for the record. Its main-run design moves to two new tasks:
+- **t2186:** a generic agent-prompt eval harness, dev tooling under
+  `aidocs/benchmarks/prompt_eval/`. It absorbs the "Harness gaps" list above.
+- **t2187:** a Codex-only v1 vs v2 (± v3) targeted experiment. Postponed, depends on
+  t2186, with web search disabled.
+
+### Rescoped implementation (what this task now does)
+
+0. **No CLI invocations.** Invocation records may only be read, never added: the
+   pilot's `runs/pilot/invocations.jsonl` must still hold 79 records at the end.
+   Use a scratch copy for anything exploratory.
+1. **`aggregate.py`** (new, stdlib, public numbers only). It reads the public
+   `runs/pilot/{sessions,trials,scores}.json[l]` plus `matrix.json`, reuses
+   `validate.summarise()` and `harness.judgments_by_trial()`, and writes
+   `results/summary.json` with:
+   - **Final record per cell.** For each `cell_id`, take the trials of its last
+     launched session. The pilot's 8 `infra_failure:setup_failed` and 2
+     `not_run:circuit_open` rows, which were re-run with `--resume`, are reported
+     under `superseded`, never in a denominator.
+   - Per cell, per agent, per variant, per condition and per scenario:
+     - compliance and **overall success side by side**, never one without the
+       other;
+     - the sensitivity lines;
+     - outcome-class counts;
+     - Wilson intervals labelled small-sample (n = 1 makes them trivially wide;
+       report them anyway).
+   - Conditional quality over valid answers, per judge:
+     - rubric dimensions, option coverage, `could_choose`, failure flags;
+     - judge calibration (6/6) and disputes (8/16).
+   - The persistence view for the 2 repeated conversations: each answer against
+     the fresh answer of the same agent × variant × scenario where one exists. The
+     pilot has fresh answers only for `file_selection`; say so.
+   - Mechanics covariates: answer length (not scored), greeting and
+     capture-before-greeting flags, web-search counts, instruction length per
+     variant.
+   - **Gap list:** every `harness.expand_matrix(matrix.json)` cell, as
+     `not_run:budget_declined`, with counts by block.
+   - Writes through a whitelisted record (keys asserted by the test). Paired with
+     `check_public.py`.
+2. **Independent audit, all 16 answers.**
+   - Read each answer from the private store, with the screen, the task file and
+     the `reference.md`. Score it against `rubric.md` blind to both judges'
+     numbers first, then compare.
+   - For each answer: my scores, which judge I side with per disputed dimension,
+     and why (factual-correctness disputes first).
+   - Private: `aidocs/shadow_q_store/audit/pilot_audit.md`, with quotes.
+   - Public: `results/audit.md`, with trial ids, numbers and dispositions only.
+   - Record whether the audit changes any adequacy verdict. It reports, and never
+     overwrites the judges' scores.
+3. **`report.md`** (public, no quotes; examples cited by trial id and store commit
+   in the private `report_examples.md`):
+   - **Setup:** frozen baseline, the variants and their hypotheses, agents and
+     versions, the matrix as frozen versus what ran.
+   - **Results:** what the pilot measured, as observations.
+   - **Answers to the acceptance questions:**
+     - concise-intent sufficiency and consistency: not determinable at n = 1;
+     - agent: an observed difference in style and length; whether it reflects
+       quality is disputed between the judges, and the audit says which way;
+     - context and repeated turns: one observation each, not evidence.
+   - **Hypotheses**, labelled.
+   - **Recommendation:** the simplest definition the evidence supports. Expected:
+     keep the current definition, because nothing measured justifies a change.
+     Stated with its uncertainty.
+   - **Unmet acceptance line**, with the reason.
+   - **Targeted follow-up:** t2187, with its re-derivable cost estimate.
+4. **`matrix.json`:** set `status` to "NOT RUN: main-run budget declined by the
+   user on 2026-11-03 (t2179_2); see report.md". Cells and limits are unchanged.
+   Update `README.md`'s file table.
+5. **Tests** (`tests/test_shadow_q_harness.py`, offline):
+   - final-record-per-cell drops superseded rows;
+   - the gap list equals the `expand_matrix` count (196 sessions / 220 slots);
+   - overall success is never emitted without compliance;
+   - the summary record carries no non-whitelisted key.
+6. **Commits:**
+   - the store first, path-scoped
+     (`git -C <aitasks_go> add aidocs/shadow_q_store/audit aidocs/shadow_q_store/report_examples.md`,
+     then `commit -- aidocs/shadow_q_store`);
+   - ask before pushing aitasks_go;
+   - then `check_public.py --staged` and the public path-scoped commit
+     (`test: … (t2179_2)`).
+
+### Rescoped verification
+
+- `results/summary.json` accounts for all 16 final pilot slots plus the superseded
+  rows, and the gap list covers all 196 frozen sessions / 220 slots.
+- The audit covers 16/16 answers, with every disagreement dispositioned in writing.
+- `report.md` answers each acceptance question and states the unmet line.
+- `runs/pilot/invocations.jsonl` still holds 79 records.
+- The tests pass; `check_public.py --staged` passes.
+- Nothing changes under `.claude/skills/` or `.agents/`.
+
+## Implementation (original main-run design; NOT executed, carried by t2186/t2187)
 
 1. **Approval gate, before any spend.** Present this plan's re-checked projection,
    plus `pilot_report.md` and `matrix.json`, and get explicit approval of the
@@ -229,6 +324,13 @@ t2179 auto-archives with its last child.
   produced.
   · severity: high · → mitigation: none (a user budget decision; the cost levers are
   listed in the verification record)
+- **Rescope (pilot-evidence closure):** n = 1 per cell cannot answer the
+  wording-consistency questions, and the "repeated runs for both agents" acceptance
+  line stays unmet. The risk is that the report overstates the pilot.
+  · severity: high (accepted by the user's rescope) · → mitigation: none (addressed
+  in design: the report answers "not determinable" where it is, keeps observations
+  apart from evidence, records the unmet line, and names t2187 as the targeted
+  follow-up)
 - Headless replay may not reproduce the interactive terse pattern. In the pilot,
   Claude under v1 already explained at length, so its baseline may be at ceiling.
   · severity: medium · → mitigation: none (addressed in design: real clients and
