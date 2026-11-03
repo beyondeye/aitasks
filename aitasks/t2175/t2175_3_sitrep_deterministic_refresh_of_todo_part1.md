@@ -45,3 +45,5 @@ Landing of a follow-up, archival, fold, push, unreachable repo (-> unknown), con
 > | - task items (follow-ups, Created: tasks, a stopped run's own task) are derived=script with checked_at = the harvest time and state=open when the task file was found, state=unknown when it was not (or a cross-repo ref the registry could not resolve; their titles say "(cross-repo, unverified)"). Refs are normalized by the writer (t154, xproj#2171).
 > | - triage items (kind=question, no ref) are not refresh targets: the sitrep agent resolves them.
 > | - trail items are kind=watch with a `trail: art:trail-<id>` source and no ref.
+
+> **👁 note:read** id=2026-11-03T09:55:21Z.426bf30211645d2dab5979b4 by=t2175_3 at=2026-11-03T09:55:21Z mode=explicit ids=2026-11-03T09:12:24Z.508a1647fe2dbdb3db209a42
