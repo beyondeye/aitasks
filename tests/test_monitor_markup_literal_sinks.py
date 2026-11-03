@@ -366,9 +366,8 @@ class _Bar:
 
 class SessionBarTests(unittest.TestCase):
     @staticmethod
-    def _monitor(multi: bool):
-        return SimpleNamespace(multi_session=multi,
-                               control_state=lambda: TmuxControlState.CONNECTED)
+    def _monitor():
+        return SimpleNamespace(control_state=lambda: TmuxControlState.CONNECTED)
 
     def _monitor_bar(self, session: str, *, multi: bool) -> str:
         app = MonitorApp.__new__(MonitorApp)
@@ -376,7 +375,8 @@ class SessionBarTests(unittest.TestCase):
         app._completed_pane_ids = frozenset()
         app._auto_switch = False
         app._session = session
-        app._monitor = self._monitor(multi)
+        app._multi_session = multi   # client view state (t2034_2)
+        app._monitor = self._monitor()
         bar = _Bar()
         app.query_one = lambda *a, **k: bar
         app._rebuild_session_bar(attached_session=session, desync="")
@@ -404,7 +404,7 @@ class SessionBarTests(unittest.TestCase):
                 app._completed_pane_ids = frozenset()
                 app._session_bar_enabled = True
                 app._session = session
-                app._monitor = self._monitor(False)
+                app._monitor = self._monitor()
                 bar = _Bar()
                 app.query_one = lambda *a, **k: bar
                 app._rebuild_session_bar(desync="")

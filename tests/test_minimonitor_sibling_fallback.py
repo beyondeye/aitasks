@@ -42,7 +42,9 @@ sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts" / "board"))
 os.environ.pop("TMUX", None)
 
 import monitor.minimonitor_app as mm  # noqa: E402
-from monitor.monitor_core import PaneSnapshot, TmuxMonitor  # noqa: E402
+from monitor.monitor_core import (  # noqa: E402
+    PaneSnapshot, TmuxMonitor, client_view_snapshots,
+)
 
 MM_PANE = "%10"        # this minimonitor
 HELPER = "%11"         # a shadow / scratchpad / second minimonitor / stand-in
@@ -207,16 +209,19 @@ def _discovery_row(p: dict[str, str]) -> str:
 
 
 def _snapshots_from_discovery(panes) -> dict:
-    """Real discovery → `_snapshots`, in discovery order (what rung 1 reads)."""
-    mon = TmuxMonitor(session="demo", multi_session=False,
-                      agent_prefixes=["agent-"], exclude_pane=MM_PANE)
+    """Real discovery → client view → `_snapshots`, in discovery order (what
+    rung 1 reads). The minimonitor's own pane is dropped by the client view, as
+    in production (t2034_2), not by the producer."""
+    mon = TmuxMonitor(session="demo", all_sessions=False,
+                      agent_prefixes=["agent-"])
     stdout = "\n".join(_discovery_row(p) for p in panes) + "\n"
     with _no_cmdline_companions():
         found, _shadows = mon._parse_list_panes(stdout, "demo")
     now = time.monotonic()
-    return {p.pane_id: PaneSnapshot(pane=p, content="", timestamp=now,
-                                    idle_seconds=0.0, is_idle=False)
-            for p in found}
+    snaps = {p.pane_id: PaneSnapshot(pane=p, content="", timestamp=now,
+                                     idle_seconds=0.0, is_idle=False)
+             for p in found}
+    return client_view_snapshots(snaps, own_pane=MM_PANE, home_session="demo")
 
 
 def _rung1_end_to_end(panes) -> str | None:

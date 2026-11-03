@@ -477,7 +477,7 @@ class ControlClientLifecycleTests(unittest.TestCase):
 
     def test_a_teardown_during_a_blocked_start_installs_nothing(self):
         async def scenario():
-            mon = TmuxMonitor(session=SESSION, multi_session=False)
+            mon = TmuxMonitor(session=SESSION, all_sessions=False)
             release = threading.Event()
             stopped: list[str] = []
 

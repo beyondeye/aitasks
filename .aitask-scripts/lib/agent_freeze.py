@@ -954,8 +954,13 @@ def _agent_panes_for(session: str) -> list:
     `discover_panes()` is the contract that applies both it and the shadow
     filter — plus the correct `-t tmux_session_scope_target()` targeting.
     """
-    monitor = TmuxMonitor(session=session, multi_session=False, exclude_pane="")
-    return monitor.discover_panes()
+    monitor = TmuxMonitor(session=session, all_sessions=False)
+    # The caller's own pane is excluded explicitly (t2034_2). The producer used
+    # to do it — `exclude_pane=""` fell back to `$TMUX_PANE`, so passing "" never
+    # meant "exclude nothing" — and that is what keeps `ait freeze --all` run
+    # from an agent pane from respawning the pane that is running it.
+    own_pane = os.environ.get("TMUX_PANE") or None
+    return [p for p in monitor.discover_panes() if p.pane_id != own_pane]
 
 
 def _eligible_by_session() -> Iterator[tuple[str, list | None, Exception | None]]:

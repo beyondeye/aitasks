@@ -68,7 +68,7 @@ def _make_monitor(panes, content, *, patterns=None):
     pane's captured content between capture cycles.
     """
     mon = TmuxMonitor(
-        session="demo", multi_session=False, agent_prefixes=["agent-"],
+        session="demo", all_sessions=False, agent_prefixes=["agent-"],
         prompt_patterns=[] if patterns is None else patterns,
     )
     for p in panes:

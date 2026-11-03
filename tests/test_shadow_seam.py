@@ -117,7 +117,7 @@ def _make_monitor(panes, shadows, content):
     Same construction as ``tests/test_monitor_shadow_status._make_monitor``.
     """
     mon = TmuxMonitor(
-        session="demo", multi_session=False, agent_prefixes=["agent-"],
+        session="demo", all_sessions=False, agent_prefixes=["agent-"],
         prompt_patterns=all_patterns(), idle_threshold=5.0,
     )
     mon._run_offloaded = _sync_offloaded

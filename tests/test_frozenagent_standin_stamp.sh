@@ -292,8 +292,7 @@ import os
 from monitor.monitor_core import PaneCategory, TmuxMonitor, TmuxPaneInfo
 
 target = os.environ["AIT_P_TARGET"]
-mon = TmuxMonitor(session=os.environ["AIT_P_SESSION"], multi_session=False,
-                  exclude_pane="")
+mon = TmuxMonitor(session=os.environ["AIT_P_SESSION"], all_sessions=False)
 rc, out = mon.tmux_run(["display-message", "-p", "-t", target,
                         "#{pane_pid}\t#{@aitask_frozen}"])
 pid, frozen = 0, ""

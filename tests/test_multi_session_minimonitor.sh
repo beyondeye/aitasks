@@ -4,7 +4,7 @@
 #
 # Covers:
 #   * MiniMonitorApp registers the `M` binding (and preserves lowercase `m`)
-#   * action_toggle_multi_session flips state + invalidates cache
+#   * action_toggle_multi_session flips the app view flag, not the producer (t2034_2)
 #   * _start_monitoring no longer pins multi_session=False
 #   * _auto_select_own_window narrowing predicate (own-session vs cross)
 #   * _rebuild_pane_list emits session divider rows in multi mode only
@@ -65,14 +65,15 @@ assert_contains "MiniMonitorApp has n (next) binding" "N_IN_BINDINGS:True" "$out
 assert_contains "MiniMonitorApp has action_kill_own_agent handler" "HAS_KILL:True" "$out"
 assert_contains "MiniMonitorApp has action_pick_next_for_own handler" "HAS_NEXT:True" "$out"
 
-# --- Tier 1b: action flips state + invalidates cache ---
+# --- Tier 1b: action flips the APP's view flag, never the producer (t2034_2) ---
 
 out=$(PYTHONPATH="$PYPATH" "$AITASK_PYTHON" <<'PY'
 from monitor import minimonitor_app as mm
 
 class FakeMon:
+    """No `multi_session` attribute: touching the producer would raise."""
+    __slots__ = ("invalidated",)
     def __init__(self):
-        self.multi_session = True
         self.invalidated = 0
     def invalidate_sessions_cache(self):
         self.invalidated += 1
@@ -80,18 +81,18 @@ class FakeMon:
 app = mm.MiniMonitorApp.__new__(mm.MiniMonitorApp)
 fake = FakeMon()
 app._monitor = fake
+app._multi_session = True
 # Textual App instance methods need attaching — stub with bound lambdas.
 app.notify = lambda *a, **k: None
 app.call_later = lambda fn: None
 app._refresh_data = lambda: None  # referenced by call_later arg
 
 app.action_toggle_multi_session()
-print("AFTER_FLIP:" + str(fake.multi_session))
-print("INVALIDATED_1:" + str(fake.invalidated))
-
+print("AFTER_FLIP:" + str(app._multi_session))
 app.action_toggle_multi_session()
-print("BACK_ON:" + str(fake.multi_session))
-print("INVALIDATED_2:" + str(fake.invalidated))
+print("BACK_ON:" + str(app._multi_session))
+print("PRODUCER_UNTOUCHED:" + str(fake.invalidated == 0
+                                  and not hasattr(fake, "multi_session")))
 
 # No-op when monitor is None
 app._monitor = None
@@ -99,10 +100,9 @@ app.action_toggle_multi_session()
 print("NO_CRASH:True")
 PY
 )
-assert_contains "action flips multi_session off" "AFTER_FLIP:False" "$out"
-assert_contains "first toggle invalidates cache once" "INVALIDATED_1:1" "$out"
-assert_contains "action flips multi_session back on" "BACK_ON:True" "$out"
-assert_contains "second toggle invalidates cache again" "INVALIDATED_2:2" "$out"
+assert_contains "action flips the view off" "AFTER_FLIP:False" "$out"
+assert_contains "action flips the view back on" "BACK_ON:True" "$out"
+assert_contains "toggle leaves the producer untouched" "PRODUCER_UNTOUCHED:True" "$out"
 assert_contains "action is a no-op when monitor is None" "NO_CRASH:True" "$out"
 
 # --- Tier 1c: _start_monitoring no longer pins multi_session=False ---
@@ -201,8 +201,8 @@ app._task_cache = SimpleNamespace(
     get_task_id_for_pane=lambda p: None,
     get_task_info=lambda t, s=None: None,
 )
+app._multi_session = True
 app._monitor = SimpleNamespace(
-    multi_session=True,
     get_compare_mode=lambda pid: "stripped",
     is_compare_mode_overridden=lambda pid: False,
     # t1133 shadow glyph and t1326 mark lookup both read the monitor from
@@ -248,7 +248,7 @@ print("DIV2_STATIC:"  + str(isinstance(widgets[2], Static) and not isinstance(wi
 print("CARD3:"       + str(isinstance(widgets[3], mm.MiniPaneCard)))
 
 # Single-session: no dividers, just cards.
-app._monitor.multi_session = False
+app._multi_session = False
 asyncio.run(app._rebuild_pane_list())
 widgets = container.mounted
 print("SINGLE_COUNT:"  + str(len(widgets)))
@@ -282,8 +282,8 @@ captured = Capture()
 app = mm.MiniMonitorApp.__new__(mm.MiniMonitorApp)
 app.query_one = lambda *a, **k: captured
 app._session = "aitasks"
+app._multi_session = True
 app._monitor = SimpleNamespace(
-    multi_session=True,
     control_state=lambda: TmuxControlState.STOPPED,
 )
 # Pre-existing stub gap repaired in t1326: _rebuild_session_bar has read the
@@ -304,7 +304,7 @@ app._snapshots = {"%1": mk_snap("sA"), "%2": mk_snap("sB", idle=True)}
 app._rebuild_session_bar()
 print("MULTI_BAR:" + captured.text)
 
-app._monitor.multi_session = False
+app._multi_session = False
 app._rebuild_session_bar()
 print("SINGLE_BAR:" + captured.text)
 PY
@@ -358,8 +358,8 @@ def make_app(containers):
         get_task_id_for_pane=lambda p: None,
         get_task_info=lambda t, s=None: None,
     )
+    app._multi_session = False
     app._monitor = SimpleNamespace(
-        multi_session=False,
         get_compare_mode=lambda pid: "stripped",
         is_compare_mode_overridden=lambda pid: False,
         # t1133 shadow glyph and t1326 mark lookup, both read per row.
@@ -530,8 +530,8 @@ app = mm.MiniMonitorApp.__new__(mm.MiniMonitorApp)
 app._task_cache = SimpleNamespace(
     get_task_id_for_pane=lambda p: None, get_task_info=lambda t, s=None: None
 )
+app._multi_session = True
 app._monitor = SimpleNamespace(
-    multi_session=True,
     get_compare_mode=lambda pid: "stripped",
     is_compare_mode_overridden=lambda pid: False,
     get_shadow_snapshot=lambda pid: None,

@@ -103,8 +103,8 @@ def main() -> None:
     session, tmpdir = setup_fixture(args.panes)
     try:
         async def run() -> tuple[list[float], list[float], int, int]:
-            mon_sub = TmuxMonitor(session=session, multi_session=False)
-            mon_ctrl = TmuxMonitor(session=session, multi_session=False)
+            mon_sub = TmuxMonitor(session=session, all_sessions=False)
+            mon_ctrl = TmuxMonitor(session=session, all_sessions=False)
 
             # start_control_client itself spawns one subprocess
             # (`tmux -C attach`) — reset the counter after that so the

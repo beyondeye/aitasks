@@ -203,7 +203,7 @@ class MonitorRefreshNoSyncTmuxTests(unittest.TestCase):
         async def runner():
             mon = TmuxMonitor(
                 session="demo",
-                multi_session=True,
+                all_sessions=True,
                 agent_prefixes=["agent-"],
                 prompt_patterns=[],
             )

@@ -60,6 +60,7 @@ from monitor.monitor_core import spawn_scratchpad  # noqa: E402  (t2073_4)
 # companions, frozen-first) — rung 2 of `_find_sibling_pane_id` is a call site
 # of it rather than a local copy of the rule (t1388, t2073_3).
 from monitor.monitor_core import (  # noqa: E402
+    CAPTURE_PIN_ALL,
     FROZEN_AWARE_PANE_FORMAT,
     classify_window_panes,
 )
@@ -1106,7 +1107,7 @@ class MiniMonitorApp(
 
     # Whether the top session bar is shown at all (t1566). Off by default;
     # `tmux.minimonitor.session_bar: true` turns it on via main(). This gates
-    # only the BAR — monitor.multi_session is untouched, so agents from other
+    # only the BAR — the `_multi_session` view is untouched, so agents from other
     # sessions keep appearing in the pane list and `M` keeps working.
     #
     # A CLASS attribute for the same reason as the scroll state above: several
@@ -1381,6 +1382,11 @@ class MiniMonitorApp(
         self._agent_prefixes = agent_prefixes
         self._tui_names = tui_names
         self._compare_mode_default = compare_mode_default
+        # Client view state (t2034_2): the `M` toggle and the own-pane drop live
+        # here, not in the producer — see `AgentMarksMixin._project_snapshots`.
+        # Multi-session ON at start, as before (main() never configured it).
+        self._multi_session = True
+        self._own_pane_id = os.environ.get("TMUX_PANE") or None
         # Configured width of this companion side-column. tmux rescales panes
         # proportionally on a window resize (incl. detach->reattach), so the
         # pane spawned at this width drifts wider; on_resize re-pins it.
@@ -1825,7 +1831,7 @@ class MiniMonitorApp(
             snaps = await self._monitor.capture_all_async()
             if snaps is None:
                 return
-            self._snapshots = snaps
+            self._snapshots = self._project_snapshots(snaps)
             # Completed-pane set for THIS tick (t1322) — after the session
             # mapping refresh (which may clear the task cache), before the bar
             # and the pane list read it.
@@ -2013,32 +2019,32 @@ class MiniMonitorApp(
         # `_own_window_name` is from an earlier query and may predate a rename.
         return False
 
-    def _parked_agent_pairs(self) -> frozenset:
-        """Parked pairs to publish, minus the agent this minimonitor follows.
+    def _capture_pins(self):
+        """Parked agents this minimonitor needs captured live: the one it follows.
 
         Parking the followed agent is a signal to *other* monitors' lists, not
         an instruction to this pane to stop working (t1685 §7): its docked panel,
         the `L` auto-recheck loop, `c` concerns and shadow readiness are all
-        bound to that agent and all need live capture. So its pair is subtracted
-        before publication.
+        bound to that agent and all need live capture. So its pair is pinned —
+        subtracted from the published skip set (`_parked_agent_pairs`) and kept
+        live in this client's view (`_project_snapshots`). Under a shared
+        producer (t2034_2) this is a per-client pin, not a change to which agents
+        are parked: other clients still show the agent parked.
 
-        **Fail-safe on an unconfirmed identity.** The subtraction is only valid
-        against a window name confirmed by THIS tick's
-        `_update_own_window_info`; otherwise this returns an EMPTY set, publishing
-        no parked pairs at all. Costing one tick of capture for every parked
-        agent in this pane's view is recoverable and invisible except as CPU;
-        subtracting a stale post-rename name would leave the followed agent in
-        the parked set and freeze the panel this pane exists to show, with no
-        error anywhere. The mount-time seed deliberately does not set the
-        confirmation flag — it fills only unset fields and can race the first
-        refresh, which is the other half of the same hazard.
+        **Fail-safe on an unconfirmed identity.** The pin is only valid against a
+        window name confirmed by THIS tick's `_update_own_window_info`; otherwise
+        this returns :data:`CAPTURE_PIN_ALL`, so no parked pair is published at
+        all. Costing one tick of capture for every parked agent in this pane's
+        view is recoverable and invisible except as CPU; pinning a stale
+        post-rename name would leave the followed agent in the parked set and
+        freeze the panel this pane exists to show, with no error anywhere. The
+        mount-time seed deliberately does not set the confirmation flag — it
+        fills only unset fields and can race the first refresh, which is the
+        other half of the same hazard.
         """
         if not self._own_identity_confirmed or not self._own_window_name:
-            return frozenset()
-        own = (self._session, self._own_window_name)
-        return frozenset(
-            pair for pair in super()._parked_agent_pairs() if pair != own
-        )
+            return CAPTURE_PIN_ALL
+        return frozenset({(self._session, self._own_window_name)})
 
     def _find_own_agent_snapshot(self) -> PaneSnapshot | None:
         """Return the snapshot of the AGENT pane sharing this minimonitor's
@@ -2077,7 +2083,7 @@ class MiniMonitorApp(
         lowest-``pane_index`` pane of the same window and session, which is
         deterministic across ticks. The fallback cannot pick a helper: shadow and
         companion panes never reach ``_snapshots``, and this minimonitor's own
-        pane is dropped by ``TmuxMonitor.exclude_pane``.
+        pane is dropped by the client view (``_project_snapshots``).
         """
         agent = self._find_own_agent_snapshot()
         if agent is not None:
@@ -2477,7 +2483,7 @@ class MiniMonitorApp(
         # without a special-cased second write site.
         bar.display = self._session_bar_enabled
 
-        if self._monitor is not None and self._monitor.multi_session:
+        if self._monitor is not None and self._multi_session:
             # Count unique sessions currently represented in the snapshot so
             # the bar tracks what's on screen, not the discovery cache.
             sessions = {
@@ -3044,7 +3050,7 @@ class MiniMonitorApp(
         agents.sort(key=sort_key)
         others.sort(key=sort_key)
 
-        multi_mode = bool(self._monitor and self._monitor.multi_session)
+        multi_mode = bool(self._monitor and self._multi_session)
         widgets: list = []
 
         def append_group(snaps: list[PaneSnapshot], text_fn) -> None:
@@ -5630,14 +5636,14 @@ class MiniMonitorApp(
         """Flip the multi-session view ON/OFF in memory.
 
         Mirrors MonitorApp.action_toggle_multi_session: in-memory only (no
-        config write), invalidates the session cache so the first
-        post-toggle refresh re-discovers, and schedules a refresh to repaint.
+        config write), client view state only (t2034_2 — the producer always
+        scans every session and is left untouched), and schedules a refresh to
+        repaint.
         """
         if self._monitor is None:
             return
-        self._monitor.multi_session = not self._monitor.multi_session
-        self._monitor.invalidate_sessions_cache()
-        state = "ON" if self._monitor.multi_session else "OFF"
+        self._multi_session = not self._multi_session
+        state = "ON" if self._multi_session else "OFF"
         self.notify(f"Multi-session {state}", timeout=3)
         self.call_later(self._refresh_data)
 

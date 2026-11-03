@@ -34,8 +34,6 @@ from monitor.tmux_monitor import (  # noqa: E402
 
 
 class _FakeMonitor:
-    multi_session = False
-
     def __init__(self, snapshots: dict[str, PaneSnapshot]) -> None:
         self.snapshots = snapshots
         self._gen = 0
@@ -167,7 +165,8 @@ class MonitorFocusSwitchTests(unittest.TestCase):
 
     def test_focus_switch_renders_preview_once_and_targets_two_cards(self):
         async def runner():
-            app = MonitorApp(session="demo", project_root=REPO_ROOT)
+            app = MonitorApp(session="demo", project_root=REPO_ROOT,
+                             multi_session=False)
             async with app.run_test(size=(100, 30)) as pilot:
                 app = await self._mounted_app(pilot)
 
@@ -203,7 +202,8 @@ class MonitorFocusSwitchTests(unittest.TestCase):
 
     def test_refresh_fast_path_does_not_full_scan_selected_cards(self):
         async def runner():
-            app = MonitorApp(session="demo", project_root=REPO_ROOT)
+            app = MonitorApp(session="demo", project_root=REPO_ROOT,
+                             multi_session=False)
             async with app.run_test(size=(100, 30)) as pilot:
                 app = await self._mounted_app(pilot)
                 app._monitor.snapshots = _snapshots("%1", "%2")
@@ -237,7 +237,8 @@ class MonitorFocusSwitchTests(unittest.TestCase):
 
     def test_structural_refresh_reconciles_selected_state_and_mapping(self):
         async def runner():
-            app = MonitorApp(session="demo", project_root=REPO_ROOT)
+            app = MonitorApp(session="demo", project_root=REPO_ROOT,
+                             multi_session=False)
             async with app.run_test(size=(100, 30)) as pilot:
                 app = await self._mounted_app(pilot)
                 app._pane_cards["%2"].set_class(True, "selected")

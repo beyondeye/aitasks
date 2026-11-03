@@ -183,7 +183,7 @@ PyPy loses on **both** paths, for **different** reasons. The negative result is 
 - PyPy: 7.3.21 / Python 3.11.15 (`~/.aitask/pypy_venv/bin/python`).
 - Isolated benchmark sessions `pypy_bench_<pid>_{3,8,15}` with 3, 8, and 15 idle bash panes.
 - Direct microbenchmark of `TmuxMonitor.capture_all_async()` — the exact function the monitor calls every 3 s.
-- `multi_session=False` so discovery stayed scoped to the bench session.
+- `all_sessions=False` so discovery stayed scoped to the bench session.
 - Two sweeps: legacy fallback path (N=100 iter, 20 warmup, 3 reps) and control-mode path (N=500 iter, 50 warmup for CPython / **500 warmup for PyPy** to fully prime its JIT, 3 reps).
 - Part 3 (strace `fork,execve` sanity check) was skipped because `strace` is not installed on this machine.
 

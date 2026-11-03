@@ -120,8 +120,8 @@ def _mk_list_app(snapshots, *, own_window_index=None, multi_session=False):
         get_task_id_for_pane=lambda p: None,
         get_task_info=lambda t, s=None: None,
     )
+    app._multi_session = multi_session
     app._monitor = SimpleNamespace(
-        multi_session=multi_session,
         get_compare_mode=lambda pid: "stripped",
         is_compare_mode_overridden=lambda pid: False,
         get_shadow_snapshot=lambda pid: None,

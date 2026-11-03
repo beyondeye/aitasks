@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -187,9 +188,11 @@ class AppLinkServer:
         # Applink-only history scrollback ceiling (t1092), clamped at load.
         self._history_capture_lines = load_applink_config(
             project_root)["history_capture_lines"]
+        # The producer scans every session and excludes nothing (t2034_2); this
+        # server's own pane is filtered client-side by the router and pushers.
+        self._own_pane = os.environ.get("TMUX_PANE") or None
         self._monitor = TmuxMonitor(
             session=DEFAULT_SESSION,
-            multi_session=True,
             capture_lines=config["capture_lines"],
             idle_threshold=config["idle_threshold"],
             agent_prefixes=config["agent_prefixes"],
@@ -200,7 +203,7 @@ class AppLinkServer:
         self._router = FrameRouter(
             session_table, profile_gate, self._monitor,
             pair_profile=pair_profile, task_resolver=self._task_cache,
-            audit=self._audit,
+            audit=self._audit, own_pane=self._own_pane,
         )
 
     # -- Lifecycle -------------------------------------------------------------
@@ -378,6 +381,7 @@ class AppLinkServer:
                 history_capture_lines=getattr(
                     self, "_history_capture_lines", DEFAULT_HISTORY_CAPTURE_LINES),
                 task_resolver=getattr(self, "_task_cache", None),
+                own_pane=getattr(self, "_own_pane", None),
             )
             self._pushers[conn] = pusher
             pusher.start()

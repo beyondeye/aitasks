@@ -45,6 +45,7 @@ for _p in (str(_APPLINK_DIR), str(_SCRIPTS_DIR)):
 
 import content  # noqa: E402
 from monitor.monitor_core import task_id_from_window_name  # noqa: E402
+from monitor.monitor_core import client_view_snapshots  # noqa: E402  (t2034_2)
 
 # Back-pressure high-water mark (content_transport.md §Back-pressure).
 HIGH_WATER_BYTES = 256 * 1024
@@ -71,10 +72,14 @@ class PushScheduler:
         self, conn, ws, monitor, *, clock=None, audit=None,
         history_capture_lines=DEFAULT_HISTORY_CAPTURE_LINES,
         task_resolver=None,
+        own_pane: str | None = None,
     ) -> None:
         self._conn = conn
         self._ws = ws
         self._monitor = monitor
+        # This server's own pane (t2034_2) — never pushed, never history-pulled.
+        # See `FrameRouter._is_own_pane` for the admission rule.
+        self._own_pane = own_pane or None
         # Optional TaskInfoCache-like resolver. Kept optional so focused pusher
         # tests and non-server callers preserve the pre-title pane_status payload.
         self._tasks = task_resolver
@@ -153,6 +158,8 @@ class PushScheduler:
         snaps = await self._monitor.capture_all_async()
         if snaps is None:
             return  # superseded by a newer overlapping capture (t1111_4); skip tick
+        if self._own_pane is not None:
+            snaps = client_view_snapshots(snaps, own_pane=self._own_pane)
         if self._tasks is not None:
             update_mapping = getattr(self._tasks, "update_session_mapping", None)
             get_mapping = getattr(self._monitor, "get_session_to_project_mapping", None)
@@ -208,6 +215,8 @@ class PushScheduler:
         for pane_id, before_line, count, _token in sub.take_pending_history():
             if self._stopped:
                 return
+            if self._own_pane is not None and pane_id == self._own_pane:
+                continue  # defence in depth: the router never subscribes it (t2034_2)
             cached = self._monitor.get_pane(pane_id)   # _pane_cache read (no subprocess)
             # Capture only what THIS request can use (viewport + count + scroll
             # offset), clamped to the configured ceiling. Bounds the tmux capture

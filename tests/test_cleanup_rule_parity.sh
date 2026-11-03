@@ -214,7 +214,7 @@ session = os.environ["AIT_PARITY_SESSION"]
 target = os.environ["AIT_PARITY_TARGET"]
 windex = os.environ["AIT_PARITY_WINDEX"]
 
-mon = TmuxMonitor(session=session, multi_session=False, exclude_pane="")
+mon = TmuxMonitor(session=session, all_sessions=False)
 
 # Seed the cache the way discovery would. The target's own `frozen_record` is
 # what drives the drop-then-kill branch, so it is read from the real pane rather

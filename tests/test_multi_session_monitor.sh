@@ -4,11 +4,12 @@
 #
 # Covers:
 #   * TmuxPaneInfo.session_name field (added, default "")
-#   * TmuxMonitor(multi_session=True/False) discovery paths
+#   * TmuxMonitor(all_sessions=True/False) discovery paths
 #   * switch_to_pane cross-session vs same-session branching
 #   * kill_agent_pane_smart uses pane.session_name (not self.session)
 #   * _is_companion_process filtering still applies in multi mode
-#   * exclude_pane still applies in multi mode
+#   * the own pane is the client's to drop (t2034_2): the producer keeps it,
+#     client_view_snapshots filters it
 #   * MonitorApp M binding + action_toggle_multi_session behavior
 #   * Real tmux: two fake aitasks sessions aggregated in one list
 #
@@ -93,7 +94,7 @@ def fake_tmux_run(cmd, *args, **kwargs):
 with patch.object(tm, "discover_aitasks_sessions", return_value=fake_sessions), \
      patch.object(tm, "_is_companion_process", return_value=False), \
      patch.object(tm.TmuxMonitor, "tmux_run", side_effect=fake_tmux_run):
-    mon = tm.TmuxMonitor(session="ignored", multi_session=True)
+    mon = tm.TmuxMonitor(session="ignored", all_sessions=True)
     panes = mon.discover_panes()
 
 print("COUNT:" + str(len(panes)))
@@ -123,7 +124,7 @@ def fake_tmux_run(cmd, *args, **kwargs):
 
 with patch.object(tm, "_is_companion_process", return_value=False), \
      patch.object(tm.TmuxMonitor, "tmux_run", side_effect=fake_tmux_run):
-    mon = tm.TmuxMonitor(session="solo", multi_session=False)
+    mon = tm.TmuxMonitor(session="solo", all_sessions=False)
     mon.discover_panes()
 
 list_pane_calls = [c for c in calls if c and c[0] == "list-panes"]
@@ -168,7 +169,7 @@ def fake_tmux_run(cmd, *args, **kwargs):
 
 with patch.object(tm, "switch_to_pane_anywhere", side_effect=fake_switch_anywhere), \
      patch.object(tm.TmuxMonitor, "tmux_run", side_effect=fake_tmux_run):
-    mon = tm.TmuxMonitor(session="self_sess", multi_session=True)
+    mon = tm.TmuxMonitor(session="self_sess", all_sessions=True)
     mon._pane_cache["%7"] = pane
     ok = mon.switch_to_pane("%7")
 
@@ -216,7 +217,7 @@ def fake_tmux_run(cmd, *args, **kwargs):
 
 with patch.object(tm, "switch_to_pane_anywhere", side_effect=fake_switch_anywhere), \
      patch.object(tm.TmuxMonitor, "tmux_run", side_effect=fake_tmux_run):
-    mon = tm.TmuxMonitor(session="self_sess", multi_session=True)
+    mon = tm.TmuxMonitor(session="self_sess", all_sessions=True)
     mon._pane_cache["%8"] = pane
     ok = mon.switch_to_pane("%8")
 
@@ -262,7 +263,7 @@ def fake_tmux_run(cmd, *args, **kwargs):
 
 with patch.object(tm, "_is_companion_process", return_value=False), \
      patch.object(tm.TmuxMonitor, "tmux_run", side_effect=fake_tmux_run):
-    mon = tm.TmuxMonitor(session="self_sess", multi_session=True)
+    mon = tm.TmuxMonitor(session="self_sess", all_sessions=True)
     mon._pane_cache["%9"] = pane
     mon.kill_agent_pane_smart("%9")
 
@@ -306,7 +307,7 @@ def fake_companion(pid):
 with patch.object(tm, "discover_aitasks_sessions", return_value=fake_sessions), \
      patch.object(tm, "_is_companion_process", side_effect=fake_companion), \
      patch.object(tm.TmuxMonitor, "tmux_run", side_effect=fake_tmux_run):
-    mon = tm.TmuxMonitor(session="sessX", multi_session=True)
+    mon = tm.TmuxMonitor(session="sessX", all_sessions=True)
     panes = mon.discover_panes()
 
 print("COUNT:" + str(len(panes)))
@@ -319,9 +320,11 @@ assert_contains "companion filter still excludes companions in multi mode" \
 assert_contains "non-companion pane survives" "PANE:%1" "$out"
 assert_not_contains "companion pane is filtered out" "PANE:%2" "$out"
 
-# --- Tier 1h: exclude_pane still filters in multi mode ---
+# --- Tier 1h: own-pane exclusion is client-side (t2034_2) ---
+# The producer no longer reads $TMUX_PANE: with it pointing at a listed
+# (non-companion) pane, discovery KEEPS that pane, and the client view drops it.
 
-out=$(PYTHONPATH="$PYPATH" "$AITASK_PYTHON" <<'PY'
+out=$(TMUX_PANE="%exclude_me" PYTHONPATH="$PYPATH" "$AITASK_PYTHON" <<'PY'
 from unittest.mock import patch
 import monitor.monitor_core as tm
 from agent_launch_utils import AitasksSession
@@ -344,18 +347,25 @@ def fake_tmux_run(cmd, *args, **kwargs):
 with patch.object(tm, "discover_aitasks_sessions", return_value=fake_sessions), \
      patch.object(tm, "_is_companion_process", return_value=False), \
      patch.object(tm.TmuxMonitor, "tmux_run", side_effect=fake_tmux_run):
-    mon = tm.TmuxMonitor(
-        session="sessY", multi_session=True, exclude_pane="%exclude_me",
-    )
+    mon = tm.TmuxMonitor(session="sessY")
     panes = mon.discover_panes()
 
-print("COUNT:" + str(len(panes)))
-for p in panes:
-    print("PANE:" + p.pane_id)
+print("PRODUCER_COUNT:" + str(len(panes)))
+snaps = {
+    p.pane_id: tm.PaneSnapshot(pane=p, content="", timestamp=0.0,
+                               idle_seconds=0.0, is_idle=False)
+    for p in panes
+}
+view = tm.client_view_snapshots(snaps, own_pane="%exclude_me",
+                                home_session="sessY", multi_session=True)
+print("VIEW_COUNT:" + str(len(view)))
+for pid in view:
+    print("PANE:" + pid)
 PY
 )
-assert_contains "exclude_pane works in multi mode" "COUNT:1" "$out"
-assert_not_contains "excluded pane is gone" "PANE:%exclude_me" "$out"
+assert_contains "producer keeps the client's own pane" "PRODUCER_COUNT:2" "$out"
+assert_contains "client view drops exactly one pane" "VIEW_COUNT:1" "$out"
+assert_not_contains "own pane is gone from the view" "PANE:%exclude_me" "$out"
 assert_contains "other pane survives" "PANE:%keep_me" "$out"
 
 # --- Tier 1i: MonitorApp M binding + action_toggle_multi_session ---
@@ -537,7 +547,7 @@ fake_sessions = [
     AitasksSession(session="s2", project_root=Path("/tmp/p2"), project_name="p2"),
 ]
 with patch.object(tm, "discover_aitasks_sessions", return_value=fake_sessions):
-    mon = tm.TmuxMonitor(session="s1", multi_session=True)
+    mon = tm.TmuxMonitor(session="s1", all_sessions=True)
     mapping = mon.get_session_to_project_mapping()
 
 print("KEYS:" + ",".join(sorted(mapping.keys())))
@@ -669,7 +679,7 @@ else
 
         out=$(TMUX_TMPDIR="$TEST_TMUX_DIR" PYTHONPATH="$PYPATH" "$AITASK_PYTHON" -c "
 import monitor.monitor_core as tm
-mon = tm.TmuxMonitor(session='$SA', multi_session=True)
+mon = tm.TmuxMonitor(session='$SA', all_sessions=True)
 panes = mon.discover_panes()
 print('COUNT:' + str(len(panes)))
 for p in panes:
@@ -730,8 +740,8 @@ app = ma.MonitorApp.__new__(ma.MonitorApp)
 app._task_cache = SimpleNamespace(
     get_task_id_for_pane=lambda p: None, get_task_info=lambda t, s=None: None
 )
+app._multi_session = True
 app._monitor = SimpleNamespace(
-    multi_session=True,
     get_compare_mode=lambda pid: "stripped",
     is_compare_mode_overridden=lambda pid: False,
     get_shadow_snapshot=lambda pid: None,

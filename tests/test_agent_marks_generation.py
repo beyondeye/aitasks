@@ -45,7 +45,7 @@ def pane(session: str, window: str, pane_id: str,
 
 
 def _monitor() -> TmuxMonitor:
-    return TmuxMonitor(session="demo", multi_session=False)
+    return TmuxMonitor(session="demo", all_sessions=False)
 
 
 def assert_rows_parse(testcase: unittest.TestCase, stdout: str) -> None:
@@ -63,8 +63,7 @@ def assert_rows_parse(testcase: unittest.TestCase, stdout: str) -> None:
 
     rows = [line for line in stdout.splitlines() if line.strip()]
     mon = TmuxMonitor(
-        session="fixtureguard", multi_session=False, agent_prefixes=["agent-"],
-        exclude_pane="",
+        session="fixtureguard", all_sessions=False, agent_prefixes=["agent-"],
     )
     original = mc._is_companion_process
     mc._is_companion_process = lambda pid: False
@@ -230,7 +229,7 @@ class RealDiscoveryEnumerationTests(unittest.TestCase):
     def _monitor_with(self, stdout: str, *, companion: bool):
         import monitor.monitor_core as mc
 
-        mon = TmuxMonitor(session="demo", multi_session=False)
+        mon = TmuxMonitor(session="demo", all_sessions=False)
 
         async def fake_tmux(args, timeout=5.0):
             return 0, stdout
@@ -274,7 +273,7 @@ class RealDiscoveryEnumerationTests(unittest.TestCase):
     def test_failed_list_panes_is_not_enumerated(self):
         import asyncio
 
-        mon = TmuxMonitor(session="demo", multi_session=False)
+        mon = TmuxMonitor(session="demo", all_sessions=False)
 
         async def failing(args, timeout=5.0):
             return 1, ""

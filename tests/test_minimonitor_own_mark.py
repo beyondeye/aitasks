@@ -838,11 +838,15 @@ class OwnAgentStaysCapturedTests(_StoreFixture):
         whose mark simply never resolved, proving nothing."""
         self.park(OWN_WINDOW)
         app = self.app()
+        # The GLOBAL parked set (t2034_2) — the store-derived set before this
+        # client's capture pin. It is what the base mixin's `_parked_agent_pairs`
+        # read before the pin moved into `_capture_pins`; calling that method on
+        # a minimonitor would now dispatch to the minimonitor's own pin.
         self.assertIn(
             (SESSION, OWN_WINDOW),
-            AgentMarksMixin._parked_agent_pairs(app),
-            "the base mixin did not see the parked mark at all — the "
-            "subtraction test above is vacuous",
+            app._global_parked_pairs(),
+            "the store-derived parked set does not contain the mark at all — "
+            "the subtraction test above is vacuous",
         )
 
     def test_another_repos_parked_agent_is_still_published(self):

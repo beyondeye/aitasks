@@ -267,8 +267,8 @@ def _mk_list_app(snapshots, *, own_window_index=None, multi_session=False):
         get_task_id_for_pane=lambda p: None,
         get_task_info=lambda t, s=None: None,
     )
+    app._multi_session = multi_session
     app._monitor = SimpleNamespace(
-        multi_session=multi_session,
         get_compare_mode=lambda pid: "stripped",
         is_compare_mode_overridden=lambda pid: False,
         get_shadow_snapshot=lambda pid: None,
@@ -408,9 +408,8 @@ class MiniMonitorDividerTests(unittest.TestCase):
 
 
 class _FakeMonitor:
-    """Same shape as ``tests/test_monitor_focus_switch.py``, multi-session on."""
-
-    multi_session = True
+    """Same shape as ``tests/test_monitor_focus_switch.py``. Multi-session is
+    the app's own view state (t2034_2), ON by MonitorApp's default."""
 
     def __init__(self, snapshots: dict[str, PaneSnapshot]) -> None:
         self.snapshots = snapshots

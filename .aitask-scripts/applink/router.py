@@ -170,10 +170,15 @@ class FrameRouter:
         pair_profile: str = "monitor_control",
         task_resolver=None,
         audit=None,
+        own_pane: str | None = None,
     ) -> None:
         self._sessions = session_table
         self._gate = profile_gate
         self._monitor = monitor
+        # This server's own tmux pane (t2034_2). The producer no longer excludes
+        # it, and applink never marks its pane as a companion, so the client does:
+        # see `_is_own_pane`. None (stubs, headless without tmux) = no filter.
+        self._own_pane = own_pane or None
         self._pair_profile = pair_profile
         self._tasks = task_resolver
         # Security audit logger (auth/permission/pairing/reject events). Defaults
@@ -327,7 +332,9 @@ class FrameRouter:
             if pane_id is None:
                 return self._bad_field(msg_id, verb, "pane_id")
             prefer = bool(payload.get("prefer_companion", False))
-            ok = self._monitor.switch_to_pane(pane_id, prefer_companion=prefer)
+            # Own pane: the cache miss `switch_to_pane` returned while excluded.
+            ok = (False if self._is_own_pane(pane_id)
+                  else self._monitor.switch_to_pane(pane_id, prefer_companion=prefer))
             # Raise this pane's data-plane cadence (single focused pane). Read-only
             # clients cannot reach this verb (it is monitor_control+); they raise
             # cadence by subscribing to the pane with a fast cadence instead.
@@ -362,8 +369,13 @@ class FrameRouter:
                 # Subscription.panes + the push loop.
                 if len(panes) > _MAX_PANES:
                     return self._bad_field(msg_id, verb, "panes")
+                # The own pane never enters a subscription (t2034_2): it was never
+                # in the producer cache, so a live push or `history` pull for it
+                # could not happen, and must not start to now.
                 payload["panes"] = [
-                    p for p in panes if isinstance(p, str) and _PANE_ID_RE.match(p)
+                    p for p in panes
+                    if isinstance(p, str) and _PANE_ID_RE.match(p)
+                    and not self._is_own_pane(p)
                 ]
             else:
                 # Empty or absent `panes` means "all currently-discovered panes"
@@ -508,10 +520,7 @@ class FrameRouter:
         right task family (mirrors the desktop's ``snap.pane.session_name``
         plumbing). Returns ``(None, None, "")`` when the pane is unknown.
         """
-        pane = None
-        get_pane = getattr(self._monitor, "get_pane", None)
-        if callable(get_pane):
-            pane = get_pane(pane_id)
+        pane = self._cached_pane(pane_id)
         if pane is None:
             return None, None, ""
         session_name = getattr(pane, "session_name", "") or ""
@@ -550,7 +559,14 @@ class FrameRouter:
             return {"target": self._pane_target(pane_id)}
 
         def execute():
-            ok, killed_window = self._monitor.kill_agent_pane_smart(pane_id)
+            if self._is_own_pane(pane_id):
+                # The cache-miss route of `kill_agent_pane_smart` (t2034_2): a
+                # plain pane kill, never the window collapse, and the bound-helper
+                # sweep still runs after a successful kill.
+                ok, killed_window = self._monitor.kill_agent_pane_smart(
+                    pane_id, cache_miss=True)
+            else:
+                ok, killed_window = self._monitor.kill_agent_pane_smart(pane_id)
             return self._res(msg_id, "kill_pane",
                              {"ok": bool(ok), "killed_window": bool(killed_window)})
 
@@ -578,7 +594,7 @@ class FrameRouter:
             msg_id, verb, ERR_BAD_PAYLOAD,
             "pane holds a frozen agent; drop it from a desktop monitor (k)",
             detail={"reason": "frozen"})
-        cached = self._monitor.get_pane(pane_id)
+        cached = self._cached_pane(pane_id)
         if cached is not None and cached.frozen_record:
             return frozen
         ok, value = self._monitor.get_pane_option_sync(pane_id, FROZEN_OPTION)
@@ -614,7 +630,9 @@ class FrameRouter:
             return self._bad_field(msg_id, "restart_task", "pane_id")
 
         def build_details():
-            snap = self._monitor.capture_pane(pane_id)
+            # Own pane: the cache miss `capture_pane` returned while excluded.
+            snap = (None if self._is_own_pane(pane_id)
+                    else self._monitor.capture_pane(pane_id))
             if snap is None:
                 return self._err(msg_id, "restart_task", ERR_BAD_PAYLOAD,
                                  f"pane '{pane_id}' not found",
@@ -731,6 +749,26 @@ class FrameRouter:
 
     # -- Data-plane helpers ----------------------------------------------------
 
+    def _is_own_pane(self, pane_id) -> bool:
+        """Whether ``pane_id`` is this server's own pane (t2034_2).
+
+        The admission rule: the own pane is admissible exactly on the routes
+        that never consulted the producer's pane cache (``send_enter`` /
+        ``send_keys`` / ``forward_key`` / ``cycle_compare_mode``). Every
+        cache-backed route treats it as the cache miss it was while the producer
+        excluded it — so removing that exclusion opens nothing new.
+        """
+        return self._own_pane is not None and pane_id == self._own_pane
+
+    def _cached_pane(self, pane_id):
+        """``monitor.get_pane`` as this client may see it: never the own pane."""
+        if self._is_own_pane(pane_id):
+            return None
+        get_pane = getattr(self._monitor, "get_pane", None)
+        if not callable(get_pane):
+            return None
+        return get_pane(pane_id)
+
     def _discover_pane_ids(self) -> list[str]:
         """Pane ids (``%N``) for every currently-discovered pane — the expansion of
         an empty/absent ``subscribe``. Degrades to ``[]`` if the monitor cannot
@@ -739,7 +777,10 @@ class FrameRouter:
         discover = getattr(self._monitor, "discover_panes", None)
         if not callable(discover):
             return []
-        return [p.pane_id for p in discover() if getattr(p, "pane_id", None)]
+        return [
+            p.pane_id for p in discover()
+            if getattr(p, "pane_id", None) and not self._is_own_pane(p.pane_id)
+        ]
 
     # -- Frame builders --------------------------------------------------------
 

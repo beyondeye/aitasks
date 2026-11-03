@@ -137,8 +137,7 @@ from pathlib import Path
 from monitor import monitor_core as mc
 from monitor.monitor_core import TmuxMonitor
 
-mon = TmuxMonitor(session=os.environ["AIT_SESSION"], multi_session=False,
-                  exclude_pane="")
+mon = TmuxMonitor(session=os.environ["AIT_SESSION"], all_sessions=False)
 if sys.argv[1] == "discover":
     print(" ".join(p.pane_id for p in mon.discover_panes()))
     sys.exit(0)

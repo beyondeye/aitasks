@@ -120,7 +120,7 @@ def monitor_replying(*replies: tuple[int, str]) -> TmuxMonitor:
     Each call consumes the next reply; the last one repeats forever, so a test
     can drive N identical ticks with a single entry.
     """
-    mon = TmuxMonitor(session=SESSION, multi_session=False)
+    mon = TmuxMonitor(session=SESSION, all_sessions=False)
     queue = list(replies)
 
     def fake_tmux_run(args, timeout=5.0):

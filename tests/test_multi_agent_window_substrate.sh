@@ -107,9 +107,9 @@ check("empty -> zero", count_other_real_agents([], "%1") == 0)
 
 # -- _parse_list_panes filters shadow + companion panes -----------------------
 mc._is_companion_process = lambda pid: pid == 9999  # patch: pid 9999 == companion
-# exclude_pane="" pins the fixture: the default reads $TMUX_PANE, so running the
-# suite from inside a tmux pane would leak an ambient pane id into discovery.
-monitor = TmuxMonitor(session="testsess", exclude_pane="")
+# The producer reads no $TMUX_PANE (t2034_2), so an ambient pane id from the
+# shell running the suite cannot leak into discovery.
+monitor = TmuxMonitor(session="testsess")
 FMT_LINE = "\t".join  # _LIST_PANES_FORMAT: 11 fields now (10 and 9 = legacy)
 
 MISSING = "<attr missing>"

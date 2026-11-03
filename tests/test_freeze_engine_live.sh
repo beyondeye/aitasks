@@ -498,7 +498,7 @@ from monitor.monitor_core import PaneCategory, TmuxMonitor
 
 session = os.environ["AIT_SESSION"]
 window = os.environ["AIT_WINDOW"]
-mon = TmuxMonitor(session=session, multi_session=False, exclude_pane="")
+mon = TmuxMonitor(session=session, all_sessions=False)
 
 # What a category-only selection would have picked: every pane of the window,
 # classified by WINDOW NAME alone.
@@ -658,8 +658,7 @@ import os
 
 from monitor.monitor_core import TmuxMonitor
 
-mon = TmuxMonitor(session=os.environ["AIT_SESSION"], multi_session=False,
-                  exclude_pane="")
+mon = TmuxMonitor(session=os.environ["AIT_SESSION"], all_sessions=False)
 mon.discover_panes()          # populate the cache the real caller relies on
 mon.kill_agent_pane_smart(os.environ["AIT_TARGET"])
 PYEOF

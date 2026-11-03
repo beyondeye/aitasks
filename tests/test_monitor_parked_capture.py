@@ -73,7 +73,7 @@ def pane(session: str, window: str, pane_id: str,
 
 
 def _monitor() -> TmuxMonitor:
-    return TmuxMonitor(session="demo", multi_session=False)
+    return TmuxMonitor(session="demo", all_sessions=False)
 
 
 class CaptureFailureDropTests(unittest.TestCase):

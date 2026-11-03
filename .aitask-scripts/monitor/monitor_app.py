@@ -593,7 +593,10 @@ class MonitorApp(
         self._agent_prefixes = agent_prefixes
         self._tui_names = tui_names
         self._project_root = project_root
+        # Client view state (t2034_2): the `M` toggle and the own-pane drop live
+        # here, not in the producer — see `AgentMarksMixin._project_snapshots`.
         self._multi_session = multi_session
+        self._own_pane_id = os.environ.get("TMUX_PANE") or None
         self._compare_mode_default = compare_mode_default
         self._snapshots: dict[str, PaneSnapshot] = {}
         self._focused_pane_id: str | None = None
@@ -857,7 +860,6 @@ class MonitorApp(
             session=self._session,
             capture_lines=self._capture_lines,
             idle_threshold=self._idle_threshold,
-            multi_session=self._multi_session,
             compare_mode_default=self._compare_mode_default,
             **kwargs,
         )
@@ -1071,7 +1073,7 @@ class MonitorApp(
             snaps = self._monitor.commit_snapshots(gen, classified)
             if snaps is None:
                 return
-            self._snapshots = snaps
+            self._snapshots = self._project_snapshots(snaps)
             # Parked-pane set for THIS tick (t1685), same contract as the
             # completed set below: one pass, read by the list filter, the session
             # bar, auto-switch and the concern offer, so all of them agree within
@@ -1139,7 +1141,7 @@ class MonitorApp(
                     saved_pane_id = self._focused_pane_id
 
             attached_session = None
-            if self._monitor.multi_session:
+            if self._multi_session:
                 attached_session = await self._read_attached_session()
             # Off the render path (t1622): on a cache miss the sync reader ran
             # a fresh Python interpreter inline inside `_rebuild_session_bar`.
@@ -1363,7 +1365,14 @@ class MonitorApp(
         snap = self._monitor.commit_snapshot(gen, pane, content, result)
         if snap is None:
             return
-        self._snapshots[pane_id] = snap  # write under the PINNED id
+        # Same client projection as the bulk refresh (t2034_2): under a shared
+        # producer this pane can come back LIVE because another client pins it,
+        # and storing that raw would overwrite our parked placeholder. A pane our
+        # view does not admit is not stored at all.
+        projected = self._project_snapshots({pane_id: snap})
+        if pane_id not in projected:
+            return
+        self._snapshots[pane_id] = projected[pane_id]  # write under the PINNED id
         if pane_id == self._focused_pane_id:  # focus-identity guard
             self._update_content_preview()
 
@@ -1714,7 +1723,7 @@ class MonitorApp(
                 state_badge = "  [yellow]control: reconnecting[/]"
             elif s == TmuxControlState.FALLBACK:
                 state_badge = "  [red]control: fallback[/]"
-        if self._monitor is not None and self._monitor.multi_session:
+        if self._monitor is not None and self._multi_session:
             sessions = {
                 s.pane.session_name for s in self._snapshots.values()
                 if s.pane.session_name
@@ -1908,7 +1917,7 @@ class MonitorApp(
 
     def _rebuild_pane_list(self) -> bool:
         container = self.query_one("#pane-list", VerticalScroll)
-        multi_mode = bool(self._monitor and self._monitor.multi_session)
+        multi_mode = bool(self._monitor and self._multi_session)
 
         agents: list[PaneSnapshot] = []
         others: list[PaneSnapshot] = []
@@ -3121,15 +3130,14 @@ class MonitorApp(
         """Flip the multi-session view ON/OFF in memory.
 
         Persists only for the lifetime of this `MonitorApp` instance — no
-        config write (TUI auto-commit restriction). Invalidates the session
-        cache so the first post-toggle refresh re-discovers immediately.
+        config write (TUI auto-commit restriction). Client view state only
+        (t2034_2): the producer always scans every session, so the toggle
+        leaves it untouched and the scheduled refresh re-projects.
         """
         if self._monitor is None:
             return
-        self._monitor.multi_session = not self._monitor.multi_session
-        self._monitor.invalidate_sessions_cache()
-        self._multi_session = self._monitor.multi_session
-        state = "ON" if self._monitor.multi_session else "OFF"
+        self._multi_session = not self._multi_session
+        state = "ON" if self._multi_session else "OFF"
         self.notify(f"Multi-session {state}", timeout=3)
         self.call_later(self._refresh_data)
 

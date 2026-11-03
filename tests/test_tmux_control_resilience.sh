@@ -442,7 +442,7 @@ async def main():
     # In multi_session mode TmuxMonitor scans the session-discovery cache
     # which depends on the host tmux server. Pin to single-session so the
     # test fixture is isolated.
-    monitor = TmuxMonitor(session=session, multi_session=False)
+    monitor = TmuxMonitor(session=session, all_sessions=False)
     assert await monitor.start_control_client(), "control client failed to start"
     assert monitor.has_control_client()
     assert monitor.control_state() == TmuxControlState.CONNECTED

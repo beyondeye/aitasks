@@ -87,7 +87,7 @@ def _make_monitor(panes, shadows, content, *, patterns=None, idle_threshold=5.0)
     (cache-boundary invariant).
     """
     mon = TmuxMonitor(
-        session="demo", multi_session=False, agent_prefixes=["agent-"],
+        session="demo", all_sessions=False, agent_prefixes=["agent-"],
         prompt_patterns=all_patterns() if patterns is None else patterns,
         idle_threshold=idle_threshold,
     )
@@ -141,7 +141,7 @@ class ParseSplitTests(unittest.TestCase):
 
     def _mon(self):
         return TmuxMonitor(
-            session="demo", multi_session=False, agent_prefixes=["agent-"],
+            session="demo", all_sessions=False, agent_prefixes=["agent-"],
             prompt_patterns=[],
         )
 

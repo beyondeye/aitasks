@@ -150,7 +150,7 @@ check("freeze _enumerate_session(alpha) sessions",
       "alpha", fmt({o.session for o in observed}))
 
 # Monitor, single-session: sync + async.
-mon = TmuxMonitor(session="alpha", multi_session=False, exclude_pane="")
+mon = TmuxMonitor(session="alpha", all_sessions=False)
 check("monitor single sync: alpha's panes",
       fmt(alpha_ids), fmt(p.pane_id for p in mon.discover_panes()))
 panes, _shadows = asyncio.run(mon.discover_panes_with_shadows_async())
@@ -169,10 +169,8 @@ def attribution(panes):
 
 every = fmt(alpha_ids | other_ids)
 for label, panes in (
-    ("sync", TmuxMonitor(session="alpha", multi_session=True,
-                         exclude_pane="").discover_panes()),
-    ("async", asyncio.run(TmuxMonitor(session="alpha", multi_session=True,
-                                      exclude_pane="").discover_panes_async())),
+    ("sync", TmuxMonitor(session="alpha", all_sessions=True).discover_panes()),
+    ("async", asyncio.run(TmuxMonitor(session="alpha", all_sessions=True).discover_panes_async())),
 ):
     ids, dupes, wrong = attribution(panes)
     check(f"monitor multi {label}: every pane discovered", every, ids)

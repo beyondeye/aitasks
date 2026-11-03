@@ -581,6 +581,36 @@ class MarksView:
         return {k for k, kind in self._kinds.items() if kind == KIND_PARKED}
 
 
+def parked_session_windows(
+    parked_windows, session_roots: dict,
+) -> frozenset[tuple[str, str]]:
+    """The GLOBAL parked set, as ``(session_name, window_name)`` pairs (t2034_2).
+
+    ``parked_windows`` is :meth:`MarksView.parked_windows` — ``(canonical root,
+    window)`` keys from the per-user store — and ``session_roots`` maps each tmux
+    session to its project root. Both are client-independent, so every client
+    (and a shared monitor server) derives the identical set from them. Whether a
+    parked agent is also skipped at CAPTURE is a separate, per-client question
+    (capture pins — ``monitor_core.parked_capture_skip``).
+
+    Roots are canonicalized with :func:`mark_key`, the same rule the marks are
+    written with. A root mapped from two sessions yields a pair for each, which
+    is inert: a pane matches only when BOTH fields match.
+    """
+    parked = set(parked_windows or ())
+    if not parked:
+        return frozenset()
+    pairs = set()
+    for session, root in (session_roots or {}).items():
+        if not session or root is None:
+            continue
+        canon = mark_key(root, "")[0]
+        for mark_root, window in parked:
+            if mark_root == canon:
+                pairs.add((session, window))
+    return frozenset(pairs)
+
+
 # --- CLI (driven by aitask_agent_marks.sh, under the lock) ------------------
 
 

@@ -49,6 +49,9 @@ from monitor.monitor_core import (  # noqa: E402,F401
     TaskInfo,
     TaskInfoCache,
     combine_staleness,
+    CAPTURE_PIN_ALL,
+    client_view_snapshots,
+    parked_capture_skip,
 )
 
 from typing import TYPE_CHECKING, NamedTuple, Sequence
@@ -585,6 +588,12 @@ class AgentMarksMixin:
     #: Class-level floors, same `__new__`-built-test rationale as
     #: `_session_root_map` above.
     _maintenance_inflight: bool = False
+    #: Client view state (t2034_2) — the producer holds neither. `__init__` sets
+    #: the real values (`$TMUX_PANE`; multi-session ON, as both apps start).
+    #: The floor is OFF to match the single-session fake monitors most
+    #: `__new__`-built tests stubbed before the toggle moved here.
+    _own_pane_id: "str | None" = None
+    _multi_session: bool = False
     _refresh_inflight: bool = False
 
     #: Whether INACTIVE agents — parked (t1685) or frozen (t1705_7) — are hidden
@@ -790,35 +799,65 @@ class AgentMarksMixin:
         """
         return self._is_frozen(snap) or self._is_parked(snap)
 
+    def _global_parked_pairs(self) -> frozenset:
+        """The GLOBAL parked set as ``(session_name, window_name)`` pairs.
+
+        Identical for every client by construction (t2034_2): derived from the
+        per-user marks store and the session→root map ALONE — never from
+        ``_snapshots``. This is read *before* the first capture, when there are
+        no snapshots at all; deriving it from them would make a monitor opened
+        with an already-parked agent capture and classify that agent once on
+        every launch. Inverting the map instead makes the very first tick
+        correct. See :func:`agent_marks.parked_session_windows`.
+        """
+        return agent_marks.parked_session_windows(
+            self._marks_view.parked_windows(), self._session_root_map
+        )
+
+    def _capture_pins(self):
+        """Parked agents THIS client needs captured live anyway (t2034_2).
+
+        ``frozenset()`` here: a monitor shows parked agents as placeholders and
+        needs none of them live. A subclass returns its pinned pairs, or
+        :data:`CAPTURE_PIN_ALL` to fail safe (see ``MiniMonitorApp``).
+        """
+        return frozenset()
+
     def _parked_agent_pairs(self) -> frozenset:
-        """``(session_name, window_name)`` pairs whose capture must be skipped.
+        """``(session_name, window_name)`` pairs whose CAPTURE must be skipped.
 
         Published down to ``TmuxMonitor`` once per tick — the same shape as
         :meth:`_set_session_root_map`, and for the same reason: the capture path
         must not do a blocking tmux round-trip to learn about marks.
 
-        **Derived from the marks store and the session→root map ALONE — never
-        from ``_snapshots``.** This is published *before* the first capture, when
-        there are no snapshots at all; deriving it from them would make a
-        monitor opened with an already-parked agent capture and classify that
-        agent once on every launch. Inverting the map instead makes the very
-        first tick correct.
-
-        A root mapped from two sessions yields a pair for each. That is inert: a
-        pane matches only when BOTH fields match.
+        The global parked set minus this client's capture pins
+        (:func:`parked_capture_skip`); a shared server applies the same function
+        over every subscriber's pins.
         """
-        parked = self._marks_view.parked_windows()
-        if not parked:
-            return frozenset()
-        pairs = set()
-        for session in self._session_root_map:
-            root = self._root_for_session(session)
-            if root is None:
-                continue
-            for mark_root, window in parked:
-                if mark_root == root:
-                    pairs.add((session, window))
-        return frozenset(pairs)
+        return parked_capture_skip(
+            self._global_parked_pairs(), [self._capture_pins()]
+        )
+
+    def _project_snapshots(self, snaps: dict) -> dict:
+        """THIS client's view of a producer snapshot dict (t2034_2).
+
+        Every write into ``self._snapshots`` goes through here — the bulk
+        refreshes and the single-pane fast preview alike — so the own-pane drop,
+        the ``M`` session filter and the parked placeholder apply on every route.
+        Pure with respect to the producer: its bookkeeping already ran.
+        """
+        try:
+            parked = self._global_parked_pairs()
+        except Exception:  # noqa: BLE001 - advisory data must never break a tick
+            parked = frozenset()
+        return client_view_snapshots(
+            snaps,
+            own_pane=self._own_pane_id,
+            home_session=getattr(self, "_session", None),
+            multi_session=self._multi_session,
+            parked_pairs=parked,
+            pins=self._capture_pins(),
+        )
 
     def _publish_parked_agents(self) -> None:
         """Hand this tick's parked set to the monitor, before it captures.

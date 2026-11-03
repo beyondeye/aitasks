@@ -1955,12 +1955,151 @@ class TmuxControlBackend:
             return (-1, "")
 
 
+# -- Client view (t2034_2) -----------------------------------------------------
+#
+# The producer (`TmuxMonitor`) is client-agnostic: it scans every session, never
+# excludes a pane on a client's behalf, and returns what it captured. Everything
+# that depends on WHO is looking is applied by the client, through the pure
+# functions below, so one producer can serve many clients (t2037) and the
+# in-process single-client path uses exactly the same code.
+
+
+class _CapturePinAll:
+    """Sentinel type for :data:`CAPTURE_PIN_ALL` (a readable repr in tests)."""
+
+    __slots__ = ()
+
+    def __repr__(self) -> str:
+        return "CAPTURE_PIN_ALL"
+
+
+#: A client's capture-pin set meaning "I need live capture of every agent,
+#: parked or not". A minimonitor publishes it while its own identity is
+#: unconfirmed: subtracting a stale followed-agent name would freeze the panel
+#: the pane exists to show, so it fails safe by pinning everything (t1685 §7).
+CAPTURE_PIN_ALL = _CapturePinAll()
+
+
+def _pinned(pair: tuple, pins) -> bool:
+    return pins is CAPTURE_PIN_ALL or pair in pins
+
+
+def parked_capture_skip(global_parked, pin_sets) -> frozenset:
+    """The ``(session, window)`` pairs the producer must NOT capture.
+
+    ``global_parked`` is the store-derived parked set — global, identical for
+    every client (see ``agent_marks.parked_session_windows``). ``pin_sets`` is one
+    capture-pin set per client: agents that client needs captured live even
+    though they are parked (a minimonitor's followed agent). Any
+    :data:`CAPTURE_PIN_ALL` disables skipping entirely.
+
+    In-process there is one client, so this reproduces that client's published
+    set exactly; a shared server passes one pin set per subscriber.
+    """
+    skip = set(global_parked)
+    for pins in pin_sets:
+        if pins is CAPTURE_PIN_ALL:
+            return frozenset()
+        skip.difference_update(pins)
+    return frozenset(skip)
+
+
+def client_admits_pane(
+    pane: "TmuxPaneInfo", *, own_pane: str | None = None,
+    home_session: str | None = None, multi_session: bool = True,
+) -> bool:
+    """Whether a client's view shows this pane at all.
+
+    ``own_pane`` is the client's own tmux pane (its ``$TMUX_PANE``), which the
+    producer used to exclude on the client's behalf. ``multi_session=False`` is
+    the ``M`` toggle's single-session view: only ``home_session`` is shown.
+    """
+    if own_pane and getattr(pane, "pane_id", None) == own_pane:
+        return False
+    # An empty session name is a legacy/stub record of the home session — the
+    # same `("", home)` reading `_find_own_agent_snapshot` applies.
+    session = getattr(pane, "session_name", "")
+    if not multi_session and session and session != home_session:
+        return False
+    return True
+
+
+def client_view_snapshots(
+    snapshots: dict, *, own_pane: str | None = None,
+    home_session: str | None = None, multi_session: bool = True,
+    parked_pairs=frozenset(), pins=frozenset(), now: float | None = None,
+) -> dict:
+    """Project a producer snapshot dict into one client's view.
+
+    Drops what :func:`client_admits_pane` refuses, and turns a LIVE snapshot of
+    a parked agent this client does not pin into the parked placeholder. The
+    second half is a no-op in-process (the producer already skipped exactly
+    those panes), but under a shared producer another client's pin makes the
+    producer capture the agent live, and without the substitution that live
+    data would replace this client's parked row.
+
+    Frozen takes precedence, as in the capture partition: a frozen snapshot is
+    never rewritten to parked. Only AGENT panes are parked, matching
+    ``TmuxMonitor._is_parked_pane``.
+    """
+    stamp = time.monotonic() if now is None else now
+    out: dict = {}
+    for pane_id, snap in snapshots.items():
+        pane = snap.pane
+        if not client_admits_pane(
+            pane, own_pane=own_pane, home_session=home_session,
+            multi_session=multi_session,
+        ):
+            continue
+        if (
+            parked_pairs
+            and not getattr(snap, "frozen", False)
+            and not getattr(snap, "parked", False)
+            and getattr(pane, "category", None) == PaneCategory.AGENT
+            and (pane.session_name, pane.window_name) in parked_pairs
+            and not _pinned((pane.session_name, pane.window_name), pins)
+        ):
+            snap = _parked_snapshot(pane, stamp)
+        out[pane_id] = snap
+    return out
+
+
 class TmuxMonitor:
+    """The status PRODUCER: discovery, capture, classification, idle clock.
+
+    **Client-agnostic contract (t2034_2).** One instance must be able to serve
+    many clients (monitor, minimonitors, applink — t2037), so it holds no setting
+    that depends on which client is looking:
+
+    - **Own pane** — the producer excludes nothing on a client's behalf and never
+      reads ``$TMUX_PANE``. Each client drops its own pane with
+      :func:`client_view_snapshots` / :func:`client_admits_pane`. (Monitor and
+      minimonitor panes are dropped anyway by the companion filter; the client
+      filter covers an unmarked pane such as applink's.)
+    - **Multi-session** — the producer always scans every aitasks session. The
+      ``M`` toggle is client view state; the client filters by session.
+      ``all_sessions=False`` exists only as a construction-time scope for
+      one-shot callers (freeze-all's per-session discovery, the debug CLI,
+      benchmarks, tests) and is never flipped at runtime.
+    - **Parked agents** — WHICH agents are parked is global (the per-user marks
+      store plus the session→project map). Whether a parked agent is still
+      CAPTURED depends on clients' capture pins: the skip set the client publishes
+      through :meth:`set_parked_agents` is :func:`parked_capture_skip` of the
+      global set and the pins, and each client's view restores the placeholder
+      for a parked agent it does not pin.
+    - **Compare-mode override** — ONE shared per-pane setting owned here. Under a
+      shared producer, ``d`` in one client (or applink's ``cycle_compare_mode``)
+      changes that pane's idle verdict for every client: there is one idle clock.
+      Overrides are reaped by the producer's own discovery, never by a client's
+      view.
+    """
+
     # Session-discovery cache TTL: `discover_aitasks_sessions()` runs `tmux
     # list-sessions` plus a serial `list-panes -s` per session, which is
     # wasteful to redo every refresh tick. Ten seconds keeps the view snappy
-    # without re-querying on every paint. The `M` runtime toggle invalidates
-    # the cache so the first post-toggle refresh re-discovers immediately.
+    # without re-querying on every paint. (The `M` toggle no longer touches the
+    # producer — it is client view state since t2034_2 — so nothing
+    # invalidates this cache on it.)
     _SESSIONS_CACHE_TTL = 10.0
 
     def __init__(
@@ -1968,20 +2107,20 @@ class TmuxMonitor:
         session: str,
         capture_lines: int = 200,
         idle_threshold: float = 5.0,
-        exclude_pane: str | None = None,
         agent_prefixes: list[str] | None = None,
         tui_names: set[str] | None = None,
-        multi_session: bool = True,
+        all_sessions: bool = True,
         compare_mode_default: str = DEFAULT_COMPARE_MODE,
         prompt_patterns: list[PromptPattern] | None = None,
     ):
         self.session = session
         self.capture_lines = capture_lines
         self.idle_threshold = idle_threshold
-        self.exclude_pane = exclude_pane or os.environ.get("TMUX_PANE")
         self.agent_prefixes = agent_prefixes if agent_prefixes is not None else list(DEFAULT_AGENT_PREFIXES)
         self.tui_names = tui_names if tui_names is not None else set(DEFAULT_TUI_NAMES)
-        self.multi_session = multi_session
+        # Construction-time scan scope (t2034_2) — see the class docstring.
+        # Never a client toggle: live clients keep the default and filter.
+        self.all_sessions = all_sessions
         if compare_mode_default not in COMPARE_MODES:
             compare_mode_default = DEFAULT_COMPARE_MODE
         self.compare_mode_default = compare_mode_default
@@ -2115,6 +2254,12 @@ class TmuxMonitor:
 
     def set_parked_agents(self, pairs) -> None:
         """Publish the ``(session_name, window_name)`` pairs to skip capturing.
+
+        The value is a capture SKIP set — the global parked set minus every
+        client's capture pins (:func:`parked_capture_skip`, t2034_2) — not "the
+        parked set" itself. A pinned parked agent is captured live; each client's
+        view then restores the placeholder for parked agents it does not pin
+        (:func:`client_view_snapshots`).
 
         The same publish-down shape as ``AgentMarksMixin._set_session_root_map``,
         and for the same reason: marks live App-side, and the capture path must
@@ -2631,8 +2776,6 @@ class TmuxMonitor:
             if len(parts) not in self._LIST_PANES_ARITIES:
                 continue
             pane_id = parts[3]
-            if self.exclude_pane and pane_id == self.exclude_pane:
-                continue
             try:
                 pane_pid = int(parts[4])
                 width = int(parts[6])
@@ -2802,7 +2945,7 @@ class TmuxMonitor:
     def discover_panes(self) -> list[TmuxPaneInfo]:
         """Agent-facing panes only (shadow companions excluded) — the public
         discovery contract every non-shadow consumer relies on."""
-        if self.multi_session:
+        if self.all_sessions:
             return self._discover_panes_multi()[0]
         rc, stdout = self.tmux_run([
             "list-panes", "-s", "-t", tmux_session_scope_target(self.session),
@@ -2822,7 +2965,7 @@ class TmuxMonitor:
         """Discovery for the live capture pipeline (t1133): returns
         ``(agent_facing_panes, shadow_panes)`` from the SAME ``list-panes``
         output — shadow discovery costs zero extra tmux round-trips."""
-        if self.multi_session:
+        if self.all_sessions:
             panes, shadows, ok_sessions = await self._discover_panes_multi_async()
         else:
             rc, stdout = await self._tmux_async(
@@ -2905,7 +3048,7 @@ class TmuxMonitor:
         """Discover panes in a specific window (not session-wide).
 
         Uses 'tmux list-panes -t window_id' (no -s flag).
-        Does not filter by exclude_pane or update _pane_cache.
+        Does not update _pane_cache.
 
         Returns ``(observed, panes)``. ``observed`` is ``True`` only when tmux
         answered (``rc == 0``) **and** every non-blank record parsed. It is
@@ -2947,6 +3090,11 @@ class TmuxMonitor:
         """Effective idle-detection compare mode for a pane.
 
         Returns the per-pane override if set, otherwise the global default.
+
+        The override is ONE shared per-pane setting (t2034_2): every client of
+        this producer reads the same value, because there is one idle clock. It
+        is reaped only when the producer's own discovery loses the pane
+        (`_clean_stale`), never because a client's view hides it.
         """
         return self._compare_mode_overrides.get(pane_id, self.compare_mode_default)
 
@@ -3700,9 +3848,11 @@ class TmuxMonitor:
         # Cross-session: teleport via the shared primitive. `prefer_companion`
         # is intentionally ignored — companion lookup is an intra-session UX
         # affordance (the minimonitor lives in the same window as its agent).
+        # No multi-session gate (t2034_2): a client only offers panes its own
+        # view admits, so a pane from another session reaching here means the
+        # client is showing other sessions.
         if (
-            self.multi_session
-            and pane.session_name
+            pane.session_name
             and pane.session_name != self.session
         ):
             return switch_to_pane_anywhere(pane_id)
@@ -3785,7 +3935,9 @@ class TmuxMonitor:
             return True
         return False
 
-    def kill_agent_pane_smart(self, pane_id: str) -> tuple[bool, bool]:
+    def kill_agent_pane_smart(
+        self, pane_id: str, *, cache_miss: bool = False,
+    ) -> tuple[bool, bool]:
         """Kill an agent pane, collapsing the window if it was the last agent.
 
         Returns (ok, killed_window). If no other agent panes remain in the
@@ -3799,8 +3951,17 @@ class TmuxMonitor:
         `pane-died`, so `aitask_companion_cleanup.sh` job 1 never runs here: on
         the pane branch every helper would survive, and on the window branch
         one placed in another window would.
+
+        ``cache_miss=True`` takes the cache-miss route even when the pane IS in
+        the discovery cache: a plain pane kill, never the window collapse — but
+        the helper sweep still runs. It is for a client that must not see the
+        pane in the cache (applink's own pane, which the producer excluded until
+        t2034_2), so that client keeps exactly the behaviour it had.
         """
-        ok, killed_window = self._kill_agent_pane(pane_id)
+        if cache_miss:
+            ok, killed_window = self.kill_pane(pane_id), False
+        else:
+            ok, killed_window = self._kill_agent_pane(pane_id)
         if ok:
             self._kill_bound_helpers(pane_id)
         return ok, killed_window

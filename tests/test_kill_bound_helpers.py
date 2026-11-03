@@ -60,8 +60,8 @@ class KillAgentPaneSmartSweepTests(unittest.TestCase):
 
     def _run(self, panes, *, cached=True):
         model = TmuxServerModel(panes)
-        mon = TmuxMonitor(session="demo", multi_session=False,
-                          agent_prefixes=["agent-"], exclude_pane="")
+        mon = TmuxMonitor(session="demo", all_sessions=False,
+                          agent_prefixes=["agent-"])
         mon.tmux_run = model
         if cached:
             mon._pane_cache[AGENT] = TmuxPaneInfo(
@@ -135,8 +135,8 @@ class KillAgentPaneSmartSweepTests(unittest.TestCase):
                 return 1, ""
             return real_list(args)
         model._list = list_fails_for_the_window
-        mon = TmuxMonitor(session="demo", multi_session=False,
-                          agent_prefixes=["agent-"], exclude_pane="")
+        mon = TmuxMonitor(session="demo", all_sessions=False,
+                          agent_prefixes=["agent-"])
         mon.tmux_run = model
         mon._pane_cache[AGENT] = TmuxPaneInfo(
             window_index="7", window_name="agent-pick-2088", pane_index="0",
@@ -153,8 +153,8 @@ class KillAgentPaneSmartSweepTests(unittest.TestCase):
         panes = self._pane_branch_fixture()
         model = TmuxServerModel(panes)
         model.kill_ok = False
-        mon = TmuxMonitor(session="demo", multi_session=False,
-                          agent_prefixes=["agent-"], exclude_pane="")
+        mon = TmuxMonitor(session="demo", all_sessions=False,
+                          agent_prefixes=["agent-"])
         mon.tmux_run = model
         ok, _ = mon.kill_agent_pane_smart(AGENT)
         self.assertFalse(ok)

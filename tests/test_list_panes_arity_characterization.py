@@ -49,9 +49,9 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts"))
 sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts" / "lib"))
 
-# The suite may run inside a live agent pane; scrub the ambient tmux env so
-# TmuxMonitor does not adopt this pane as `exclude_pane` and silently drop a
-# fixture row (t1240).
+# The suite may run inside a live agent pane; scrub the ambient tmux env so no
+# ambient pane id reaches the fixture (t1240). The producer no longer reads
+# $TMUX_PANE (t2034_2), but app-level client views still do.
 os.environ.pop("TMUX", None)
 os.environ.pop("TMUX_PANE", None)
 
@@ -81,8 +81,7 @@ _AGENT_PID = 1111
 
 def _make_monitor(session: str = "demo") -> TmuxMonitor:
     return TmuxMonitor(
-        session=session, multi_session=False, agent_prefixes=["agent-"],
-        exclude_pane="",
+        session=session, all_sessions=False, agent_prefixes=["agent-"],
     )
 
 
