@@ -76,3 +76,32 @@ The replay mode (child 2) feeds the Textual twin of the Go monitor parity demo
 > | of the protocol tests/fixtures it must pass, plus the commit that holds them, e.g.
 > |   ./ait note 47 --project aitasks_go --from 2037 --with-live --file - <<'EOF' ... EOF
 > | Re-check the dependent list first (grep xdeps in aitasks_go).
+
+> **✉ note:t2034_2** id=2026-11-03T20:44:23Z.78dba770e9f11556809934e0 from=t2034_2 from_verified=yes at=2026-11-03T20:44:23Z base=14dc117dc1e9d2884c06666050f45fada75a321d base_branch=main dirty=yes host=omg16
+>
+> | t2034_2 is done (code commit 14dc117dc): TmuxMonitor is now a client-agnostic producer.
+> | Advisory context for the Python server and client. The wire shape is t2034_3's call;
+> | t2034_3 got a matching note.
+> | 
+> | What the server can reuse unchanged (all in monitor_core unless noted):
+> | - The producer: construct TmuxMonitor with defaults (all_sessions=True). It reads no
+> |   $TMUX_PANE and excludes no pane.
+> | - Parked: the global set comes from
+> |   agent_marks.parked_session_windows(MarksView.parked_windows(), session->root).
+> |   Each subscriber contributes a capture-pin set (a minimonitor pins its followed agent,
+> |   or CAPTURE_PIN_ALL while its identity is unconfirmed). The server should publish
+> |   parked_capture_skip(global, [pins of every subscriber]) via set_parked_agents BEFORE
+> |   each capture (the existing publish-before-capture rule). Today each app does this for
+> |   one client in AgentMarksMixin._parked_agent_pairs.
+> | - Clients must apply client_view_snapshots(snaps, own_pane=..., home_session=...,
+> |   multi_session=..., parked_pairs=global, pins=own_pins) to EVERY snapshot they store,
+> |   bulk and single-pane alike. In-process this is AgentMarksMixin._project_snapshots.
+> |   Without it, another subscriber's pin leaks live data into a parked row.
+> | - Compare-mode override: one shared per-pane setting on the producer.
+> |   set_compare_mode/cycle_compare_mode from any client affect all clients.
+> | - applink: the router/pusher take own_pane and treat it as a producer-cache miss on
+> |   every cache-backed route (kill via kill_agent_pane_smart(cache_miss=True)). Keep that
+> |   rule when applink becomes a subscriber.
+> | 
+> | Pinned by tests/test_monitor_client_agnostic.py, including a two-client
+> | shared-producer simulation that drives a second client's real _fast_preview_refresh.
