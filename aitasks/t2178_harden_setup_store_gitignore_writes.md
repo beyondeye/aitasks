@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2173
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-01 09:16
-updated_at: 2026-11-03 10:26
+updated_at: 2026-11-03 11:48
 ---
 
 ## Origin
@@ -32,3 +33,8 @@ t2173_1 hardened only the discovery-cache rule (`setup_cache_gitignore`: checked
 ## Suggested fix
 
 Rebuild each `setup_*` store helper on `_ait_add_gitignore_rules` (the `setup_cache_gitignore` shape: rc 1 → "already", rc 2 → shared warning and return 0, rc 0 → `_ait_commit_gitignore_rule`). Ideally share the rule/comment strings with `upgrade_store_gitignore_rules` so one table drives both routes. Keep 27h green. Add the 27f read-only/directory failure cases for each `setup_*` helper, and keep the 27a/27b dirty-baseline cases passing.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-03T09:48:34Z status=pass attempt=1 type=human
