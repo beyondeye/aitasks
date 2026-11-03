@@ -194,10 +194,36 @@ TUI_KEY_HINT_STYLE = "bold cyan"
 #: `bright_green` actually resolves to, and it is stable across every theme.
 TUI_RUNNING_STYLE = "#00ff00"
 
+
+def _markup_literal(text: str) -> str:
+    """``text`` as Textual markup that renders verbatim (t2180).
+
+    For a user-configured shortcut key interpolated into the overlay's markup.
+    Every key here is remappable, and ``[`` is a legal one: unescaped, the open
+    key ``[`` turned the close hint into ``[/Esc[/]``, which Textual rejects
+    with ``MarkupError``, and the switcher could not be opened at all.
+
+    The rule is Textual's, stated canonically on ``monitor_shared.markup_literal``
+    (t2006). Textual opens a tag at any ``[`` not preceded by a backslash, turns
+    exactly ``\\[`` back into ``[``, and keeps every other backslash literal, so
+    prefixing each ``[`` and touching nothing else is an exact round trip.
+    ``rich.markup.escape`` does not do this: it leaves a lone ``[`` alone (it
+    escapes only tag-shaped ``[...]``) and doubles backslashes, which Textual
+    does not collapse. That module is not imported, because ``lib/`` must not
+    pull in the monitor package for one line.
+
+    The one shape this cannot express is a backslash directly before a real tag.
+    Every call site here is safe from it, because the key is always followed by
+    ``)`` or ``/Esc``, never by a tag.
+    """
+    return text.replace("[", "\\[")
+
+
 # Customizable-shortcuts scope for the switcher overlay's quick-jump keys
 # (t876). Distinct from the module-level "shared" scope that registers the
 # `j` key that *opens* the switcher (see bottom of file). The quick-jumps are
-# registered at class body (see TuiSwitcherOverlay.BINDINGS) — the pattern that
+# registered at import (_QUICK_JUMP_LIVE_BINDINGS, spliced into
+# TuiSwitcherOverlay.BINDINGS) — the pattern that
 # actually wires user overrides into Textual's live key map, mirroring
 # brainstorm_dag_display.py. The structural keys (escape/enter/←/→) stay fixed
 # literals and are intentionally NOT registered (not user-customizable).
@@ -259,7 +285,12 @@ _HINT_ITEMS = [
     ("shortcut_agent", "agent", "e"),
 ]
 
-_KEY_PAREN_RE = re.compile(r"\(([^)]*)\)")
+#: The first ``(K)`` group ``render_label`` produced. Lazy and non-empty (``.+?``)
+#: rather than ``[^)]*``: the two match the same text for every non-empty group,
+#: since both stop at the first ``)``, but the key ``)`` renders as ``()) board``,
+#: where ``[^)]*`` matched the empty ``()`` and highlighted the wrong span (t2180).
+#: ``render_label`` never emits ``()`` for a non-empty key.
+_KEY_PAREN_RE = re.compile(r"\((.+?)\)")
 
 
 def _hint_segment(
@@ -272,6 +303,10 @@ def _hint_segment(
     (``stats`` + ``z`` -> ``(Z) stats``); the regex re-applies the existing
     cyan markup to whichever ``(K)`` group it produced.
 
+    The rendered text is made markup-literal first (:func:`_markup_literal`),
+    because the key is user-configured and ``[`` is a legal one. Labels are
+    framework words with no ``[``, so only the key can contribute one.
+
     ``render_label`` uppercases a matched single letter, so ``m`` and ``M``
     both render as ``(M)``. ``spell_shift`` makes an uppercase single-letter
     key render as ``(Shift+M) <label>`` instead, for a segment whose key has a
@@ -281,7 +316,7 @@ def _hint_segment(
     key = resolve_key(_TUI_SWITCHER_SCOPE, action_id, default_key) or default_key
     if spell_shift and len(key) == 1 and key.isalpha() and key.isupper():
         key = f"shift+{key.lower()}"
-    rendered = render_label(label, key)
+    rendered = _markup_literal(render_label(label, key))
     return _KEY_PAREN_RE.sub(rf"[{TUI_KEY_HINT_STYLE}](\1)[/]", rendered, count=1)
 
 
@@ -381,7 +416,7 @@ class _TuiListItem(ListItem):
         # Show shortcut hint if this TUI has one (resolved so a rebind shows).
         shortcut = _resolve_tui_shortcut(self.tui_name)
         hint = (
-            f" [{TUI_KEY_HINT_STYLE}]({display_form(shortcut)})[/]"
+            f" [{TUI_KEY_HINT_STYLE}]({_markup_literal(display_form(shortcut))})[/]"
             if shortcut and not self.is_current
             else ""
         )
@@ -436,15 +471,44 @@ class _CompanionTarget(NamedTuple):
     pane: str
     project_root: Path
 
-# The overlay closes on the same key that opens it (a toggle). Resolve the
-# shared "open switcher" key at import so a rebind of the open key carries over
-# to the close key; skip it when it collides with a fixed/quick-jump key
-# (escape always closes regardless).
+def _normalized_keys(key: str) -> frozenset[str]:
+    """The Textual key name(s) a binding on ``key`` actually listens for.
+
+    Uses Textual's own unrolling and normalisation (``Binding.make_bindings``):
+    ``"["`` becomes ``left_square_bracket`` and ``"b,k"`` becomes two keys. So a
+    collision check compares what Textual dispatches on, not the raw config
+    spelling.
+    """
+    return frozenset(
+        b.key for b in Binding.make_bindings([Binding(key, "noop", show=False)])
+    )
+
+
+# The quick-jumps with user overrides applied: the keys the overlay really
+# binds. Named once so the collision check below reads the LIVE keys. A rebound
+# quick-jump vacates its default key and occupies its new one.
+_QUICK_JUMP_LIVE_BINDINGS = register_app_bindings(
+    _TUI_SWITCHER_SCOPE, _QUICK_JUMP_BINDINGS
+)
+
+# The overlay closes on the same key that opens it (a toggle). The shared "open
+# switcher" key is resolved at import, so a rebind of the open key carries over
+# to the close key — unless it collides with a key the overlay already uses.
+# Then the fixed or quick-jump key wins, and the toggle gets no close binding.
+# `[` / `]` are reserved for group navigation: they are `priority=True`, so a
+# close binding on them could never fire while there is a group to move to
+# (t2180). Escape always closes regardless.
 _OVERLAY_OPEN_KEY = resolve_key("shared", "tui_switcher", "j") or "j"
-_OVERLAY_RESERVED_KEYS = {
-    "escape", "enter", "left", "right",
-    *(b.key for b in _QUICK_JUMP_BINDINGS),
-}
+_OVERLAY_RESERVED_KEYS = frozenset().union(
+    *(_normalized_keys(k) for k in ("escape", "enter", "left", "right", "[", "]")),
+    *(_normalized_keys(b.key) for b in _QUICK_JUMP_LIVE_BINDINGS),
+)
+#: Whether the open key also closes the overlay. This one value decides both the
+#: close binding (BINDINGS) and what the hint advertises (_render_hint), so the
+#: hint can never name a key that does not close.
+_OVERLAY_TOGGLE_CLOSES = not (
+    _normalized_keys(_OVERLAY_OPEN_KEY) & _OVERLAY_RESERVED_KEYS
+)
 
 
 class TuiSwitcherOverlay(ModalScreen):
@@ -494,10 +558,12 @@ class TuiSwitcherOverlay(ModalScreen):
     """
 
     # Structural keys stay fixed literals; only the quick-jumps are registered
-    # (customizable). The class-body register_app_bindings() call is what wires
-    # user overrides into Textual's live key map AND records the defaults for
-    # the editor — mirroring brainstorm_dag_display.py. The `j`→close toggle
-    # tracks the resolved open key (_OVERLAY_OPEN_KEY).
+    # (customizable). The import-time register_app_bindings() call
+    # (_QUICK_JUMP_LIVE_BINDINGS, spliced here) is what wires user overrides into
+    # Textual's live key map AND records the defaults for the editor, mirroring
+    # brainstorm_dag_display.py. The `j`→close toggle tracks the resolved open
+    # key (_OVERLAY_OPEN_KEY), and is bound only when it collides with nothing
+    # above (_OVERLAY_TOGGLE_CLOSES).
     BINDINGS = [
         Binding("escape", "dismiss_overlay", "Close", show=False),
         Binding("enter", "select_tui", "Switch", show=False),
@@ -507,10 +573,10 @@ class TuiSwitcherOverlay(ModalScreen):
         Binding("]", "next_group", "Next group", show=False, priority=True),
         *(
             [Binding(_OVERLAY_OPEN_KEY, "dismiss_overlay", "Close", show=False)]
-            if _OVERLAY_OPEN_KEY not in _OVERLAY_RESERVED_KEYS
+            if _OVERLAY_TOGGLE_CLOSES
             else []
         ),
-        *register_app_bindings(_TUI_SWITCHER_SCOPE, _QUICK_JUMP_BINDINGS),
+        *_QUICK_JUMP_LIVE_BINDINGS,
     ]
 
     #: The host TUI's own window, when the companion key is offered there.
@@ -821,7 +887,13 @@ class TuiSwitcherOverlay(ModalScreen):
             _hint_segment(action_id, label, default_key)
             for action_id, label, default_key in _HINT_ITEMS
         ) + "\n"
-        close = f"[{TUI_KEY_HINT_STYLE}]{display_form(_OVERLAY_OPEN_KEY)}/Esc[/] close"
+        # Advertise the open key as a close key only when it is bound as one
+        # (_OVERLAY_TOGGLE_CLOSES); a toggle that lost a collision closes nothing.
+        if _OVERLAY_TOGGLE_CLOSES:
+            toggle = _markup_literal(display_form(_OVERLAY_OPEN_KEY))
+            close = f"[{TUI_KEY_HINT_STYLE}]{toggle}/Esc[/] close"
+        else:
+            close = f"[{TUI_KEY_HINT_STYLE}]Esc[/] close"
         if self._companion_target is not None:
             text += _hint_segment(
                 "spawn_minimonitor", "minimonitor", "M", spell_shift=True,
@@ -1196,8 +1268,14 @@ class TuiSwitcherOverlay(ModalScreen):
         self.app.notify("No brainstorm session running", severity="warning")
 
     def action_shortcut_git(self) -> None:
-        """Switch to git TUI if configured, no-op otherwise."""
-        if not any(name == "git" for name, _, _ in _build_tui_list()):
+        """Switch to git TUI if configured, no-op otherwise.
+
+        "Configured" is read from the SELECTED session's project (t2180), the
+        same root `_get_launch_command` launches from. The process cwd is the
+        attached TUI's project, which differs in a cross-repo selection.
+        """
+        project_root = self._selected_project_root()
+        if not any(name == "git" for name, _, _ in _build_tui_list(project_root)):
             return
         self._shortcut_switch("git")
 

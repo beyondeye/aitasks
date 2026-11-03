@@ -27,11 +27,15 @@ import sys
 import types
 import unittest
 from pathlib import Path
+from unittest import mock
+
+from textual.content import Content
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts" / "lib"))
 
 import tui_switcher as ts  # noqa: E402
+from shortcut_labels import display_form, render_label  # noqa: E402
 from tui_switcher import (  # noqa: E402
     _HINT_ITEMS,
     _hint_segment,
@@ -209,6 +213,93 @@ class SessionRowPrefixTests(unittest.TestCase):
             text.startswith("Session: "), f"unexpected session row: {text!r}"
         )
         self.assertNotIn(TAG, text)
+
+
+#: Keys whose characters are markup-significant (`[`), regex-significant for
+#: the `(K)` group (`(`, `)`), or escape-adjacent (`\`). Every one is a legal
+#: shortcut value in userconfig.yaml.
+HOSTILE_KEYS = ["[", "]", "(", ")", "\\"]
+
+
+def _parse(markup: str) -> Content:
+    """Parse with Textual's own markup parser — the one the overlay's Label uses."""
+    return Content.from_markup(markup)
+
+
+def _styled_slices(content: Content) -> list[str]:
+    return [content.plain[s.start:s.end] for s in content.spans]
+
+
+class HostileKeyMarkupTests(unittest.TestCase):
+    """A remapped key must reach the screen verbatim (t2180).
+
+    The open key and every quick-jump key are user-configurable, and each is
+    interpolated into Textual markup. Every assertion here parses the produced
+    markup with Textual's real parser rather than comparing strings, because
+    the failure is in how that parser reads the key: `[` opens a tag, so the
+    open key `[` made the close hint unparseable and the switcher unopenable.
+    """
+
+    def _render(self, *, open_key: str, toggle_closes: bool, multi_mode: bool,
+                groups: list[str]) -> Content:
+        overlay, capture = _overlay(multi_mode=multi_mode)
+        with mock.patch.object(ts, "_OVERLAY_OPEN_KEY", open_key), \
+             mock.patch.object(ts, "_OVERLAY_TOGGLE_CLOSES", toggle_closes,
+                               create=True), \
+             _StubGroups(groups):
+            overlay._render_hint()
+        return _parse(capture.text)
+
+    def test_a_bracket_in_a_closing_open_key_parses_and_renders_verbatim(self):
+        """`ctrl+[` is not reserved, so it closes and is advertised: the `[` it
+        carries must not open a tag (pre-fix: MarkupError on mount)."""
+        for multi_mode, groups in ((False, ["only"]), (True, ["a", "b"])):
+            with self.subTest(multi_mode=multi_mode):
+                content = self._render(open_key="ctrl+[", toggle_closes=True,
+                                       multi_mode=multi_mode, groups=groups)
+                self.assertTrue(content.plain.endswith("Ctrl+[/Esc close"),
+                                repr(content.plain))
+                self.assertIn("Ctrl+[/Esc", _styled_slices(content))
+
+    def test_a_toggle_that_does_not_close_is_not_advertised(self):
+        """Open key `[` collides with group navigation, so it gets no close
+        binding — and the hint must say only what closes: Esc."""
+        cases = (
+            (False, ["only"], "Enter switch  Esc close"),
+            (True, ["a", "b"], "[/] group  Esc close"),
+        )
+        for multi_mode, groups, tail in cases:
+            with self.subTest(multi_mode=multi_mode):
+                content = self._render(open_key="[", toggle_closes=False,
+                                       multi_mode=multi_mode, groups=groups)
+                self.assertTrue(content.plain.endswith(tail), repr(content.plain))
+                self.assertNotIn("[/Esc", content.plain)
+
+    def test_hint_segment_renders_every_hostile_key_verbatim(self):
+        for key in HOSTILE_KEYS:
+            with self.subTest(key=key), mock.patch.object(
+                ts, "resolve_key", lambda scope, action, default=None, k=key: k
+            ):
+                content = _parse(_hint_segment("shortcut_board", "board", "b"))
+                self.assertEqual(content.plain, render_label("board", key))
+                self.assertEqual(
+                    _styled_slices(content), [f"({display_form(key)})"],
+                    "exactly the key group, and only it, is highlighted",
+                )
+
+    def test_list_row_hint_renders_every_hostile_key_verbatim(self):
+        for key in HOSTILE_KEYS:
+            with self.subTest(key=key), mock.patch.object(
+                ts, "_resolve_tui_shortcut", lambda name, k=key: k
+            ):
+                item = ts._TuiListItem("board", "Board", False, False)
+                static = next(iter(item.compose()))
+                content = _parse(str(static.content))
+                self.assertTrue(
+                    content.plain.endswith(f" ({display_form(key)})"),
+                    repr(content.plain),
+                )
+                self.assertIn(f"({display_form(key)})", _styled_slices(content))
 
 
 if __name__ == "__main__":
