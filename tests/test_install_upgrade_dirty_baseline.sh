@@ -135,7 +135,10 @@ upgrade_commit_files() {
 
 has_line() { grep -qxF -- "$2" <<<"$1" && echo yes || echo no; }
 
-LEGACY_GITIGNORE=$'node_modules/\n.aitask-data/\naitasks/\naiplans/'
+# Both legacy forms in one fixture, so the upgrade route rewrites each: the
+# trailing-slash `.aitask-data/` / `aiplans/` (t699, t1711) and the bare
+# `aitasks` setup wrote until t2184. All three end up root-anchored.
+LEGACY_GITIGNORE=$'node_modules/\n.aitask-data/\naitasks\naiplans/'
 
 # ==============================================================================
 echo ""
@@ -145,10 +148,13 @@ printf '%s\n' "$LEGACY_GITIGNORE" > "$TMP/A/.gitignore"
 g add .gitignore; gcommit "$TMP/A" -m "legacy gitignore"
 upgrade
 assert_eq "A upgrade exits 0" "0" "$RC"
-assert_eq "A disk has bare .aitask-data" "yes" "$(has_line "$(cat "$TMP/A/.gitignore")" ".aitask-data")"
-assert_eq "A disk has bare aitasks" "yes" "$(has_line "$(cat "$TMP/A/.gitignore")" "aitasks")"
-assert_eq "A HEAD .gitignore has bare .aitask-data" "yes" "$(has_line "$(g show HEAD:.gitignore)" ".aitask-data")"
+for name in .aitask-data aitasks aiplans; do
+    assert_eq "A disk has anchored /$name" "yes" "$(has_line "$(cat "$TMP/A/.gitignore")" "/$name")"
+    assert_eq "A HEAD .gitignore has anchored /$name" "yes" "$(has_line "$(g show HEAD:.gitignore)" "/$name")"
+done
+assert_eq "A disk lost bare aitasks" "no" "$(has_line "$(cat "$TMP/A/.gitignore")" "aitasks")"
 assert_eq "A HEAD .gitignore lost .aitask-data/" "no" "$(has_line "$(g show HEAD:.gitignore)" ".aitask-data/")"
+assert_eq "A HEAD .gitignore lost bare aitasks" "no" "$(has_line "$(g show HEAD:.gitignore)" "aitasks")"
 assert_eq "A .gitignore clean after upgrade" "" "$(g status --porcelain -- .gitignore)"
 assert_eq "A upgrade commit carries .gitignore" "yes" "$(has_line "$(upgrade_commit_files)" ".gitignore")"
 assert_eq "A upgrade commit carries VERSION" "yes" "$(has_line "$(upgrade_commit_files)" ".aitask-scripts/VERSION")"
@@ -162,9 +168,11 @@ g add .gitignore; gcommit "$TMP/B" -m "legacy gitignore"
 echo "user-rule.log" >> "$TMP/B/.gitignore"
 upgrade
 assert_eq "B upgrade exits 0" "0" "$RC"
-assert_eq "B disk has bare .aitask-data" "yes" "$(has_line "$(cat "$TMP/B/.gitignore")" ".aitask-data")"
+assert_eq "B disk has anchored /.aitask-data" "yes" "$(has_line "$(cat "$TMP/B/.gitignore")" "/.aitask-data")"
+assert_eq "B disk has anchored /aitasks" "yes" "$(has_line "$(cat "$TMP/B/.gitignore")" "/aitasks")"
 assert_eq "B disk keeps the user rule" "yes" "$(has_line "$(cat "$TMP/B/.gitignore")" "user-rule.log")"
 assert_eq "B HEAD .gitignore still legacy" "yes" "$(has_line "$(g show HEAD:.gitignore)" ".aitask-data/")"
+assert_eq "B HEAD .gitignore still has bare aitasks" "yes" "$(has_line "$(g show HEAD:.gitignore)" "aitasks")"
 assert_eq "B HEAD .gitignore lacks the user rule" "no" "$(has_line "$(g show HEAD:.gitignore)" "user-rule.log")"
 assert_eq "B .gitignore still modified" " M .gitignore" "$(g status --porcelain -- .gitignore)"
 assert_eq "B upgrade commit lacks .gitignore" "no" "$(has_line "$(upgrade_commit_files)" ".gitignore")"
@@ -410,7 +418,7 @@ assert_contains "G2b upgrade completes" "aitasks installed successfully" "$OUT"
 assert_eq "G2b no installer commit carries .gitignore" "no" "$(has_line "$(upgrade_commit_files)" ".gitignore")"
 assert_eq "G2b index .gitignore keeps the user rule" "yes" "$(has_line "$(g show :.gitignore)" "user-rule.log")"
 assert_eq "G2b index .gitignore keeps the legacy line" "yes" "$(has_line "$(g show :.gitignore)" ".aitask-data/")"
-assert_eq "G2b disk .gitignore repaired" "yes" "$(has_line "$(cat "$D2/.gitignore")" ".aitask-data")"
+assert_eq "G2b disk .gitignore repaired" "yes" "$(has_line "$(cat "$D2/.gitignore")" "/.aitask-data")"
 # Everything was untracked before this upgrade, so the left-alone list runs to
 # hundreds of entries and .gitignore sits past its 20-line display cut.
 assert_contains "G2b output reports left-alone files" "left alone" "$OUT"

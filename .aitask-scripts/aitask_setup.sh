@@ -2004,30 +2004,33 @@ setup_data_branch() {
     local gitignore="$project_dir/.gitignore"
     local gitignore_changed=false
 
-    # Migration: rewrite legacy trailing-slash entries to symlink-safe form.
+    # Migration: rewrite legacy data entries to the root-anchored form.
     # Trailing-slash patterns (`aitasks/`, `.aitask-data/`) match directories
-    # only and miss the symlinks the data layout creates; bare entries match
-    # both. Older repos may already have the legacy form committed. See
-    # _ait_rewrite_data_gitignore_lines (t699, t1711).
+    # only and miss the symlinks the data layout creates (t699, t1711); bare
+    # names match the symlinks but at ANY depth, so a nested `docs/aitasks/` is
+    # silently ignored too (t2184). `/aitasks` matches the root entry only, as a
+    # directory or a symlink. Older repos may have either legacy form committed.
+    # See _ait_rewrite_data_gitignore_lines.
     local rw_rc=0
     _ait_rewrite_data_gitignore_lines "$gitignore" || rw_rc=$?
     case "$rw_rc" in
-        0) gitignore_changed=true ;;
+        0) gitignore_changed=true
+           _ait_report_unhidden_nested_data_paths "$project_dir" ;;
         1) ;;
-        *) warn "Could not rewrite trailing-slash data entries in .gitignore (left unchanged) — 'ait setup' retries it" ;;
+        *) warn "Could not rewrite legacy data entries in .gitignore (left unchanged) — 'ait setup' retries it" ;;
     esac
 
-    # After the rewrite above, a legacy `.aitask-data/` line has become bare, so
-    # this checks the one form setup writes (LF or CRLF). On a failed rewrite it
-    # appends the bare block anyway, which is still symlink-safe.
+    # After the rewrite above, a legacy `.aitask-data/` or `.aitask-data` line
+    # has become `/.aitask-data`, so this checks the one form setup writes (LF or
+    # CRLF). On a failed rewrite it appends the anchored block anyway, which
+    # ignores the root entries whatever the legacy lines still say.
     if [[ ! -f "$gitignore" ]] || \
-       ! grep -qxF -e "$AIT_DATA_DIR_NAME" -e "$AIT_DATA_DIR_NAME"$'\r' -- "$gitignore" 2>/dev/null; then
+       ! grep -qxF -e "/$AIT_DATA_DIR_NAME" -e "/$AIT_DATA_DIR_NAME"$'\r' -- "$gitignore" 2>/dev/null; then
         {
             echo ""
             echo "# Task data (lives on aitask-data branch, accessed via symlinks)"
-            echo "$AIT_DATA_DIR_NAME"
-            echo "aitasks"
-            echo "aiplans"
+            echo "/$AIT_DATA_DIR_NAME"
+            printf '/%s\n' "${AIT_DATA_LINKS[@]}"
         } >> "$gitignore"
         gitignore_changed=true
     fi
@@ -2862,14 +2865,24 @@ setup_worktree_dirs_gitignore() {
     success "Worktree directory rules added to .gitignore ($added)"
 }
 
-# --- Symlink-safe data-name gitignore rules (t699, t1711) ---
+# --- Root-anchored, symlink-safe data-name gitignore rules (t699, t1711, t2184) ---
 # In branch mode .aitask-data, aitasks and aiplans are symlinks in every linked
-# worktree (ait_link_worktree_data). A trailing-slash pattern matches
-# directories only, so `.aitask-data/` leaves the worktree dirty
-# (`?? .aitask-data`) and `git worktree remove` refuses — task cleanup then
-# keeps the worktree and the task cannot archive. Rewrite each exact legacy
-# `<name>/` line to the bare `<name>`, which matches both shapes. The names come
+# worktree (ait_link_worktree_data) and live at the repository root. Setup has
+# written two legacy forms for them, each wrong in its own way:
+#   `<name>/`  a trailing slash matches directories only, so `.aitask-data/`
+#              leaves the worktree dirty (`?? .aitask-data`), `git worktree
+#              remove` refuses, and the task cannot archive (t699, t1711);
+#   `<name>`   a bare name matches the symlinks but at ANY depth, so every
+#              nested `docs/aitasks/` or `fixtures/aiplans/` is silently
+#              ignored as well (t2184).
+# Rewrite each exact legacy line to `/<name>`: the leading slash anchors it to
+# the directory holding the .gitignore (the root, or each linked worktree's
+# root), and with no trailing slash it still matches a symlink. The names come
 # from data_symlinks.sh, the one definition ait_link_worktree_data reads.
+#
+# Whole-file, exact-line scope, like the original trailing-slash rewrite: the
+# block's header comment is user-editable, so it is no boundary, and a bare
+# data-name line anywhere in the root .gitignore has the same defect.
 #
 # Prints nothing on stdout. Exit status is a three-way contract that callers
 # MUST branch on (never collapse 1 and 2):
@@ -2880,14 +2893,17 @@ setup_worktree_dirs_gitignore() {
 #      place, unmodified, with its mode intact
 
 # Renderer for ait_atomic_render: <gitignore> <space-separated legacy names>.
-# Whole-line match, names passed as data (no regex built from them). A CRLF
-# line keeps its CR: git strips a trailing CR before matching, so CRLF
-# `.aitask-data/` is still directory-only and needs the rewrite, and the
-# rewritten line keeps the file's own line ending. Other lines pass through
-# byte for byte.
+# Whole-line match, names passed as data (no regex built from them): both
+# `<name>/` and `<name>` become `/<name>`. A CRLF line keeps its CR: git strips
+# a trailing CR before matching, so CRLF `.aitask-data/` is still
+# directory-only and needs the rewrite, and the rewritten line keeps the file's
+# own line ending. Other lines pass through byte for byte.
 _ait_render_data_gitignore() {
     awk -v names="$2" '
-        BEGIN { n = split(names, a, " "); for (i = 1; i <= n; i++) want[a[i] "/"] = a[i] }
+        BEGIN {
+            n = split(names, a, " ")
+            for (i = 1; i <= n; i++) { want[a[i]] = "/" a[i]; want[a[i] "/"] = "/" a[i] }
+        }
         {
             line = $0; cr = ""
             if (sub(/\r$/, "", line)) cr = "\r"
@@ -2902,8 +2918,9 @@ _ait_rewrite_data_gitignore_lines() {
     local legacy=()
     [[ -e "$gitignore" || -L "$gitignore" ]] || return 1
     for name in "$AIT_DATA_DIR_NAME" "${AIT_DATA_LINKS[@]}"; do
-        # LF and CRLF forms: a CRLF line carries its CR into grep's line.
-        if grep -qxF -e "$name/" -e "$name/"$'\r' -- "$gitignore" 2>/dev/null; then
+        # Both legacy forms, LF and CRLF: a CRLF line carries its CR into grep's line.
+        if grep -qxF -e "$name/" -e "$name/"$'\r' -e "$name" -e "$name"$'\r' \
+                -- "$gitignore" 2>/dev/null; then
             legacy+=("$name")
         else
             # grep 1 = no such line; 2 = unreadable / a directory, not "absent".
@@ -2926,6 +2943,103 @@ _ait_rewrite_data_gitignore_lines() {
     return 0
 }
 
+# _ait_nested_data_entries — the filter stage of
+# _ait_report_unhidden_nested_data_paths. Reads NUL-separated paths on stdin.
+# For each path whose data name is a NON-root component, prints the path's
+# prefix through the FIRST such component (with a trailing `/` when that
+# component is a directory) as one line, printf %q-encoded: the encoding is
+# injective and never contains a raw newline, so the caller can dedupe with a
+# plain `sort -u` and print the lines as they are. Consecutive repeats (every
+# file under one directory) are skipped here; sort -u removes the rest.
+_ait_nested_data_entries() {
+    local path rest comp prefix entry name prev="" candidate is_data last
+    while IFS= read -r -d '' path; do
+        # Cheap prefilter: only a path with a data name as a non-root component
+        # is walked below (a root entry has no nested component at all).
+        candidate=0
+        for name in "$AIT_DATA_DIR_NAME" "${AIT_DATA_LINKS[@]}"; do
+            [[ "$path" == */"$name"/* || "$path" == */"$name" ]] && { candidate=1; break; }
+        done
+        [[ "$candidate" -eq 1 ]] || continue
+        prefix="${path%%/*}"
+        rest="${path#*/}"
+        while :; do
+            comp="${rest%%/*}"
+            last=0
+            [[ "$comp" == "$rest" ]] && last=1
+            prefix="$prefix/$comp"
+            is_data=0
+            for name in "$AIT_DATA_DIR_NAME" "${AIT_DATA_LINKS[@]}"; do
+                [[ "$comp" == "$name" ]] && { is_data=1; break; }
+            done
+            if [[ "$is_data" -eq 1 ]]; then
+                entry="$prefix"
+                [[ "$last" -eq 1 ]] || entry="$prefix/"
+                if [[ "$entry" != "$prev" ]]; then
+                    printf '%q\n' "$entry"
+                    prev="$entry"
+                fi
+                break
+            fi
+            [[ "$last" -eq 0 ]] || break
+            rest="${rest#*/}"
+        done
+    done
+    return 0
+}
+
+# _ait_report_unhidden_nested_data_paths <project_dir> — run after a successful
+# rewrite. Lists, via info, the untracked (not ignored) paths that sit under a
+# NESTED directory carrying a data name (`docs/aitasks/`, never the root
+# `aitasks`), at most 10 plus a remainder count, so they are seen before a
+# broad `git add` sweeps them in. Advisory and read-only: it never fails, and
+# prints nothing outside a git work tree, when any stage of the scan fails, or
+# when there is nothing to list.
+#
+# The wording claims no provenance. The scan runs after the rewrite only, so it
+# cannot tell a path the old bare rules hid from one that was untracked all
+# along — a mixed `.aitask-data/` + `/aitasks` file rewrites with rc 0 while
+# `docs/aitasks/` was visible before it (t2184).
+#
+# Files, not `--directory`: a wholly-untracked `docs/` would collapse to one
+# entry and hide the nested component. Paths are read raw and NUL-separated
+# (`-z`): without it git C-quotes any path holding `"`, `\` or a control
+# character — core.quotePath=false does not stop that — so one directory would
+# split into `docs/aitasks/` and `"docs/aitasks/`.
+_ait_report_unhidden_nested_data_paths() {
+    local project_dir="$1" listing label line total=0 nshown=0
+    # One pipeline, every stage's status read from PIPESTATUS (not pipefail: the
+    # helper must not depend on the caller's shell options). A git that fails
+    # after printing some paths leaves nothing to show, so a partial scan is
+    # never presented as the list. sort -u under LC_ALL=C: byte order, and no
+    # locale collation that could fold two different entries into one.
+    listing="$(
+        git -C "$project_dir" ls-files -z -o --exclude-standard 2>/dev/null \
+            | _ait_nested_data_entries | LC_ALL=C sort -u
+        _ait_scan_status=("${PIPESTATUS[@]}")
+        for _ait_scan_rc in "${_ait_scan_status[@]}"; do
+            [[ "$_ait_scan_rc" -eq 0 ]] || exit 1
+        done
+        exit 0
+    )" || return 0
+    [[ -n "$listing" ]] || return 0
+    while IFS= read -r line; do total=$((total + 1)); done <<< "$listing"
+    label="$(printf '%s/' "${AIT_DATA_LINKS[@]}" "$AIT_DATA_DIR_NAME")"
+    label="${label%/}"
+    info "  After anchoring the data entries in .gitignore, these paths under nested ${label} directories show as untracked — review them before a broad 'git add':"
+    # printf, not info: info is `echo -e`, which would read the backslashes of
+    # a %q-encoded entry as escapes.
+    while IFS= read -r line; do
+        [[ "$nshown" -lt 10 ]] || break
+        printf '    %s\n' "$line"
+        nshown=$((nshown + 1))
+    done <<< "$listing"
+    if [[ "$total" -gt 10 ]]; then
+        printf '    … and %d more\n' "$((total - 10))"
+    fi
+    return 0
+}
+
 # Re-run repair for existing installs: setup_data_branch's own Step 7 rewrite
 # sits behind its "already configured" early return, so on every later
 # `ait setup` only this reaches the file.
@@ -2942,14 +3056,17 @@ _ait_rewrite_data_gitignore_lines() {
 # before commit_installed_files, under the same baseline contract.
 setup_data_gitignore_symlink_safe() {
     local project_dir="$SCRIPT_DIR/.."
-    local rc=0
+    local rc=0 anchored
+    anchored="$(printf '/%s, ' "$AIT_DATA_DIR_NAME" "${AIT_DATA_LINKS[@]}")"
+    anchored="${anchored%, }"
     _ait_rewrite_data_gitignore_lines "$project_dir/.gitignore" || rc=$?
     case "$rc" in
-        0) success "Rewrote trailing-slash data entries in .gitignore to the symlink-safe form" ;;
-        1) success "Data entries in .gitignore already symlink-safe" ;;
-        *) warn "Could not rewrite trailing-slash data entries in .gitignore — left unchanged."
-           warn "  Linked task worktrees will show '?? $AIT_DATA_DIR_NAME' and worktree cleanup will keep them."
-           warn "  Fix by hand: change '$AIT_DATA_DIR_NAME/' to '$AIT_DATA_DIR_NAME' (likewise aitasks/ and aiplans/), or re-run 'ait setup'." ;;
+        0) success "Rewrote legacy data entries in .gitignore to the root-anchored form ($anchored)"
+           _ait_report_unhidden_nested_data_paths "$project_dir" ;;
+        1) success "Data entries in .gitignore already symlink-safe and root-anchored" ;;
+        *) warn "Could not rewrite legacy data entries in .gitignore — left unchanged."
+           warn "  A trailing-slash entry leaves linked task worktrees showing '?? $AIT_DATA_DIR_NAME' (worktree cleanup then keeps them); a bare one also ignores every nested directory of that name."
+           warn "  Fix by hand: change '$AIT_DATA_DIR_NAME/' or '$AIT_DATA_DIR_NAME' to '/$AIT_DATA_DIR_NAME' (likewise aitasks and aiplans), or re-run 'ait setup'." ;;
     esac
     return 0
 }

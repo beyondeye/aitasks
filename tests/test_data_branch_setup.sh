@@ -57,8 +57,9 @@ assert_file_contains() {
     fi
 }
 
-# Exact whole-line .gitignore checks: a substring match cannot tell the bare
-# `.aitask-data` from the directory-only `.aitask-data/` it must replace (t1711).
+# Exact whole-line .gitignore checks: a substring match cannot tell the anchored
+# `/.aitask-data` from the bare `.aitask-data` or the directory-only
+# `.aitask-data/` it must replace (t1711, t2184).
 assert_gitignore_line() {
     local desc="$1" file="$2" line="$3"
     TOTAL=$((TOTAL + 1))
@@ -82,8 +83,9 @@ assert_no_gitignore_line() {
 }
 
 # assert_data_symlinks_ignored <label> <gitignore>: asks git whether a repo with
-# that .gitignore ignores each data name when it is a SYMLINK, as in a linked
-# worktree. A control symlink must be reported, so a blind check fails.
+# that .gitignore ignores each data name when it is a SYMLINK at the root, as in
+# a linked worktree, and does NOT ignore a nested directory of that name
+# (t2184). A control symlink must be reported, so a blind check fails.
 # tests/test_gitignore_data_symlinks.sh carries the full gate; this is its
 # check applied to the file setup generated.
 assert_data_symlinks_ignored() {
@@ -94,11 +96,17 @@ assert_data_symlinks_ignored() {
     for name in "$AIT_DATA_DIR_NAME" "${AIT_DATA_LINKS[@]}" ait_t1711_control; do
         ln -s target "$repo/$name"
     done
+    for name in "$AIT_DATA_DIR_NAME" "${AIT_DATA_LINKS[@]}"; do
+        mkdir -p "$repo/ait_t2184_nested/$name"
+        echo nested > "$repo/ait_t2184_nested/$name/f"
+    done
     out="$(git -C "$repo" status --porcelain --untracked-files=all)"
     rm -rf "$repo"
     assert_contains "$label: control symlink IS reported" "?? ait_t1711_control" "$out"
     for name in "$AIT_DATA_DIR_NAME" "${AIT_DATA_LINKS[@]}"; do
         assert_not_contains "$label: symlink '$name' ignored" "?? $name" "$out"
+        assert_contains "$label: nested '$name' dir NOT ignored" \
+            "?? ait_t2184_nested/$name/f" "$out"
     done
 }
 
@@ -381,28 +389,21 @@ fi
 assert_symlink "aitasks is symlink" "$TMPDIR_1/local/aitasks"
 assert_symlink "aiplans is symlink" "$TMPDIR_1/local/aiplans"
 
-# Check .gitignore — symlink-safe (bare) form, not trailing-slash.
-# Trailing-slash patterns match directories only and would skip the
-# aitasks/aiplans symlinks setup_data_branch just created (t699).
-TOTAL=$((TOTAL + 1))
-if grep -qxF "aitasks" "$TMPDIR_1/local/.gitignore" 2>/dev/null; then
-    PASS=$((PASS + 1))
-else
-    FAIL=$((FAIL + 1))
-    echo "FAIL: .gitignore should contain bare 'aitasks' line"
-fi
-TOTAL=$((TOTAL + 1))
-if grep -qxF "aiplans" "$TMPDIR_1/local/.gitignore" 2>/dev/null; then
-    PASS=$((PASS + 1))
-else
-    FAIL=$((FAIL + 1))
-    echo "FAIL: .gitignore should contain bare 'aiplans' line"
-fi
-# .aitask-data in the bare form too (t1711): in a linked worktree it is a
+# Check .gitignore — root-anchored form. Trailing-slash patterns match
+# directories only and would skip the aitasks/aiplans symlinks
+# setup_data_branch just created (t699); bare names match them but at any
+# depth, ignoring every nested namesake too (t2184).
+for name in "${AIT_DATA_LINKS[@]}"; do
+    assert_gitignore_line "1: .gitignore has anchored /$name" "$TMPDIR_1/local/.gitignore" "/$name"
+    assert_no_gitignore_line "1: .gitignore has no bare $name" "$TMPDIR_1/local/.gitignore" "$name"
+done
+# .aitask-data anchored too (t1711, t2184): in a linked worktree it is a
 # symlink, which the directory-only `.aitask-data/` pattern does not match.
-assert_gitignore_line "1: .gitignore has bare .aitask-data" "$TMPDIR_1/local/.gitignore" ".aitask-data"
+assert_gitignore_line "1: .gitignore has anchored /.aitask-data" "$TMPDIR_1/local/.gitignore" "/.aitask-data"
 assert_no_gitignore_line "1: .gitignore has no trailing-slash .aitask-data/" \
     "$TMPDIR_1/local/.gitignore" ".aitask-data/"
+assert_no_gitignore_line "1: .gitignore has no bare .aitask-data" \
+    "$TMPDIR_1/local/.gitignore" ".aitask-data"
 # The generated file, asked of git with the names as SYMLINKS — the shape a
 # linked worktree has. In this primary .aitask-data is a real directory, so the
 # porcelain check below cannot see the regression on its own.
@@ -435,6 +436,22 @@ fi
 # so unrelated test-fixture untracked files (e.g. seed/) do not confound.
 symlink_porcelain="$(git -C "$TMPDIR_1/local" status --porcelain | grep -E '^\?\? (aitasks|aiplans|\.aitask-data)/?$' || true)"
 assert_eq_trim "data names ignored after setup_data_branch" "" "$symlink_porcelain"
+
+# t2184 acceptance, in the real repo setup just configured: a nested
+# docs/aitasks/ or docs/aiplans/ is ordinary content and must NOT be ignored,
+# while the root symlinks still are.
+assert_dir_not_exists "1: precondition: fixture has no docs/ of its own" "$TMPDIR_1/local/docs"
+mkdir -p "$TMPDIR_1/local/docs/aitasks" "$TMPDIR_1/local/docs/aiplans"
+echo "nested task copy" > "$TMPDIR_1/local/docs/aitasks/t1.md"
+echo "nested plan copy" > "$TMPDIR_1/local/docs/aiplans/p1.md"
+nested_porcelain_1="$(git -C "$TMPDIR_1/local" status --porcelain --untracked-files=all)"
+assert_contains "1: nested docs/aitasks/t1.md is reported (not ignored)" \
+    "?? docs/aitasks/t1.md" "$nested_porcelain_1"
+assert_contains "1: nested docs/aiplans/p1.md is reported (not ignored)" \
+    "?? docs/aiplans/p1.md" "$nested_porcelain_1"
+assert_eq_trim "1: root data symlinks still ignored beside the nested dirs" "" \
+    "$(printf '%s\n' "$nested_porcelain_1" | grep -E '^\?\? (aitasks|aiplans|\.aitask-data)/?$' || true)"
+rm -rf "$TMPDIR_1/local/docs"
 
 # Check skeleton directories
 assert_dir_exists "aitasks/metadata skeleton" "$TMPDIR_1/local/.aitask-data/aitasks/metadata"
@@ -907,51 +924,21 @@ EOF
 
 (cd "$TMPDIR_12/local" && setup_data_branch </dev/null >/dev/null 2>&1)
 
-# Legacy entries rewritten to bare form
-TOTAL=$((TOTAL + 1))
-if grep -qxF "aitasks/" "$TMPDIR_12/local/.gitignore" 2>/dev/null; then
-    FAIL=$((FAIL + 1))
-    echo "FAIL: legacy 'aitasks/' line should have been rewritten"
-else
-    PASS=$((PASS + 1))
-fi
-TOTAL=$((TOTAL + 1))
-if grep -qxF "aiplans/" "$TMPDIR_12/local/.gitignore" 2>/dev/null; then
-    FAIL=$((FAIL + 1))
-    echo "FAIL: legacy 'aiplans/' line should have been rewritten"
-else
-    PASS=$((PASS + 1))
-fi
-TOTAL=$((TOTAL + 1))
-if grep -qxF "aitasks" "$TMPDIR_12/local/.gitignore" 2>/dev/null; then
-    PASS=$((PASS + 1))
-else
-    FAIL=$((FAIL + 1))
-    echo "FAIL: bare 'aitasks' line should be present after migration"
-fi
-TOTAL=$((TOTAL + 1))
-if grep -qxF "aiplans" "$TMPDIR_12/local/.gitignore" 2>/dev/null; then
-    PASS=$((PASS + 1))
-else
-    FAIL=$((FAIL + 1))
-    echo "FAIL: bare 'aiplans' line should be present after migration"
-fi
-
-# No duplication: exactly one bare 'aitasks' / 'aiplans' line.
-aitasks_count=$(grep -cxF "aitasks" "$TMPDIR_12/local/.gitignore" 2>/dev/null | tr -d ' ')
-aiplans_count=$(grep -cxF "aiplans" "$TMPDIR_12/local/.gitignore" 2>/dev/null | tr -d ' ')
-assert_eq_trim "No duplicate bare 'aitasks' line" "1" "$aitasks_count"
-assert_eq_trim "No duplicate bare 'aiplans' line" "1" "$aiplans_count"
-
-# The fixture's legacy `.aitask-data/` is rewritten as well (t1711), and the
-# presence check recognises the result — no second appended block.
-assert_no_gitignore_line "12: legacy '.aitask-data/' rewritten" "$TMPDIR_12/local/.gitignore" ".aitask-data/"
-data_dir_count=$(grep -cxF ".aitask-data" "$TMPDIR_12/local/.gitignore" 2>/dev/null | tr -d ' ')
-assert_eq_trim "12: exactly one bare '.aitask-data' line" "1" "$data_dir_count"
+# Legacy entries rewritten to the root-anchored form (t699, t2184), each
+# exactly once, and the presence check recognises the result — no second
+# appended block.
+for name in "$AIT_DATA_DIR_NAME" "${AIT_DATA_LINKS[@]}"; do
+    assert_no_gitignore_line "12: legacy '$name/' rewritten" "$TMPDIR_12/local/.gitignore" "$name/"
+    assert_no_gitignore_line "12: no bare '$name' left" "$TMPDIR_12/local/.gitignore" "$name"
+    assert_eq_trim "12: exactly one anchored '/$name' line" "1" \
+        "$(grep -cxF -- "/$name" "$TMPDIR_12/local/.gitignore" 2>/dev/null | tr -d ' ')"
+done
+assert_eq_trim "12: no second task-data block appended" "0" \
+    "$(grep -cF "# Task data (lives on aitask-data branch" "$TMPDIR_12/local/.gitignore" 2>/dev/null | tr -d ' ')"
 assert_data_symlinks_ignored "12: migrated .gitignore" "$TMPDIR_12/local/.gitignore"
 
 # Symlinks must now be ignored: legacy trailing-slash entries no longer
-# match them, the migration rewrote them to the bare form. Filter to the
+# match them, the migration rewrote them to the anchored form. Filter to the
 # two paths under test so unrelated fixture untracked files don't confound.
 symlink_porcelain="$(git -C "$TMPDIR_12/local" status --porcelain | grep -E '^\?\? (aitasks|aiplans)$' || true)"
 assert_eq_trim "aitasks/aiplans symlinks ignored after gitignore migration" "" "$symlink_porcelain"
@@ -962,6 +949,59 @@ gitignore_status="$(git -C "$TMPDIR_12/local" status --porcelain -- .gitignore)"
 assert_eq_trim ".gitignore committed by migration (not left dirty)" "" "$gitignore_status"
 
 rm -rf "$TMPDIR_12"
+
+# --- Test 12b: gitignore migration from the bare form (t2184) ---
+# The block setup wrote from t1711 until t2184: bare `.aitask-data`, `aitasks`,
+# `aiplans`, which ignore every nested namesake. A project committed with it and
+# set up on a new PC reaches Step 7, which must anchor the lines in place (no
+# second block), list the nested data-name paths now showing as untracked, and
+# commit the result.
+echo "--- Test 12b: gitignore migration from the bare form ---"
+
+TMPDIR_12B="$(setup_repo_with_remote)"
+SCRIPT_DIR="$TMPDIR_12B/local/.aitask-scripts"
+mkdir -p "$SCRIPT_DIR" "$TMPDIR_12B/local/seed"
+cp "$PROJECT_DIR/seed/aitasks_agent_instructions.seed.md" "$TMPDIR_12B/local/seed/"
+cp "$PROJECT_DIR/seed/project_config.yaml" "$TMPDIR_12B/local/seed/"
+(
+    cd "$TMPDIR_12B/local" || exit 1
+    {
+        echo "node_modules/"
+        echo ""
+        echo "# Task data (lives on aitask-data branch, accessed via symlinks)"
+        printf '%s\n' "$AIT_DATA_DIR_NAME" "${AIT_DATA_LINKS[@]}"
+    } > .gitignore
+    git add .gitignore
+    git commit -m "init bare-form gitignore" --quiet
+    git push --quiet 2>/dev/null
+)
+mkdir -p "$TMPDIR_12B/local/docs/aitasks"
+echo "nested task copy" > "$TMPDIR_12B/local/docs/aitasks/t1.md"
+# Precondition: the committed bare block really hides the nested file.
+assert_contains "12b: precondition: HEAD carries the bare block" "aitasks" \
+    "$(git -C "$TMPDIR_12B/local" show HEAD:.gitignore | grep -xF aitasks)"
+assert_not_contains "12b: precondition: the bare block hides docs/aitasks/t1.md" \
+    "docs/aitasks/t1.md" "$(git -C "$TMPDIR_12B/local" status --porcelain --untracked-files=all)"
+
+out_12b="$(cd "$TMPDIR_12B/local" && setup_data_branch </dev/null 2>&1)"
+
+for name in "$AIT_DATA_DIR_NAME" "${AIT_DATA_LINKS[@]}"; do
+    assert_no_gitignore_line "12b: bare '$name' rewritten" "$TMPDIR_12B/local/.gitignore" "$name"
+    assert_eq_trim "12b: exactly one anchored '/$name' line" "1" \
+        "$(grep -cxF -- "/$name" "$TMPDIR_12B/local/.gitignore" 2>/dev/null | tr -d ' ')"
+done
+assert_eq_trim "12b: still exactly one task-data block" "1" \
+    "$(grep -cF "# Task data (lives on aitask-data branch" "$TMPDIR_12B/local/.gitignore" 2>/dev/null | tr -d ' ')"
+assert_data_symlinks_ignored "12b: migrated .gitignore" "$TMPDIR_12B/local/.gitignore"
+assert_contains "12b: nested docs/aitasks/t1.md now reported" "?? docs/aitasks/t1.md" \
+    "$(git -C "$TMPDIR_12B/local" status --porcelain --untracked-files=all)"
+assert_contains "12b: Step 7 lists the nested path" "    docs/aitasks/" "$out_12b"
+assert_eq_trim "12b: .gitignore committed by migration (not left dirty)" "" \
+    "$(git -C "$TMPDIR_12B/local" status --porcelain -- .gitignore)"
+assert_eq_trim "12b: HEAD carries the anchored form" "1" \
+    "$(git -C "$TMPDIR_12B/local" show HEAD:.gitignore | grep -cxF -- "/aitasks" | tr -d ' ')"
+
+rm -rf "$TMPDIR_12B"
 
 # --- Test 13: setup_worktree_dirs_gitignore (t1616) ---
 #
@@ -1193,7 +1233,7 @@ assert_file_exists "18: primary still gets its data worktree" "$TMPDIR_18/.aitas
 assert_symlink "18: primary still gets the aitasks symlink" "$TMPDIR_18/aitasks"
 assert_symlink "18: primary still gets the aiplans symlink" "$TMPDIR_18/aiplans"
 assert_gitignore_line "18: primary still gets the .gitignore block" \
-    "$TMPDIR_18/.gitignore" ".aitask-data"
+    "$TMPDIR_18/.gitignore" "/.aitask-data"
 
 rm -rf "$TMPDIR_18"
 
@@ -1643,34 +1683,63 @@ run_identity_guard_refusal_case "30" "git_worktree_list_omit"
 
 # --- Test 33: the re-run repair reaches an already-configured install (t1711) ---
 # setup_data_branch's Step 7 rewrite sits behind its "already configured" early
-# return, so an existing install with the legacy `.aitask-data/` line is only
-# ever repaired by setup_data_gitignore_symlink_safe.
-echo "--- Test 33: re-run repair rewrites legacy .aitask-data/ on a configured install (t1711) ---"
+# return, so an existing install with a legacy data block is only ever repaired
+# by setup_data_gitignore_symlink_safe. Both legacy forms are built explicitly —
+# never derived from what setup writes today — and the fixture is checked
+# before the repair runs (t2184).
+echo "--- Test 33: re-run repair rewrites a legacy data block on a configured install (t1711, t2184) ---"
 
-TMPDIR_33="$(setup_local_repo)"
-SCRIPT_DIR="$TMPDIR_33/.aitask-scripts"
-mkdir -p "$SCRIPT_DIR"
-cp "$PROJECT_DIR/.aitask-scripts/gates_reference.yaml" "$SCRIPT_DIR/"
-(cd "$TMPDIR_33" && setup_data_branch </dev/null >/dev/null 2>&1)
-assert_file_exists "33: precondition: data worktree configured" "$TMPDIR_33/.aitask-data/.git"
-# Put back the legacy line an older setup committed.
-sed_inplace 's#^\.aitask-data$#.aitask-data/#' "$TMPDIR_33/.gitignore"
-git -C "$TMPDIR_33" commit -q -m "legacy gitignore" -- .gitignore
-assert_gitignore_line "33: precondition: legacy line committed" "$TMPDIR_33/.gitignore" ".aitask-data/"
+# run_rerun_repair_case <label> <legacy line>...: configure an install, swap its
+# anchored data lines for the given legacy block, commit, then repair.
+run_rerun_repair_case() {
+    local label="$1" proj name line out out2 anchored=()
+    shift
+    for name in "$AIT_DATA_DIR_NAME" "${AIT_DATA_LINKS[@]}"; do anchored+=("/$name"); done
+    proj="$(setup_local_repo)"
+    SCRIPT_DIR="$proj/.aitask-scripts"
+    mkdir -p "$SCRIPT_DIR"
+    cp "$PROJECT_DIR/.aitask-scripts/gates_reference.yaml" "$SCRIPT_DIR/"
+    (cd "$proj" && setup_data_branch </dev/null >/dev/null 2>&1)
+    assert_file_exists "33$label: precondition: data worktree configured" "$proj/.aitask-data/.git"
 
-# A re-run of setup_data_branch alone early-returns and leaves it in place.
-(cd "$TMPDIR_33" && setup_data_branch </dev/null >/dev/null 2>&1)
-assert_gitignore_line "33: setup_data_branch re-run cannot reach the legacy line" \
-    "$TMPDIR_33/.gitignore" ".aitask-data/"
+    # Put back the legacy block an older setup committed: drop the anchored
+    # lines setup wrote, append the literal legacy ones.
+    grep -vxF "${anchored[@]/#/-e}" -- "$proj/.gitignore" > "$proj/.gitignore.t2184" || true
+    printf '%s\n' "$@" >> "$proj/.gitignore.t2184"
+    mv -- "$proj/.gitignore.t2184" "$proj/.gitignore"
+    git -C "$proj" commit -q -m "legacy gitignore" -- .gitignore
+    for line in "$@"; do
+        assert_gitignore_line "33$label: precondition: legacy '$line' on disk" "$proj/.gitignore" "$line"
+        assert_eq_trim "33$label: precondition: legacy '$line' committed in HEAD" "1" \
+            "$(git -C "$proj" show HEAD:.gitignore | grep -cxF -- "$line" | tr -d ' ')"
+    done
+    for line in "${anchored[@]}"; do
+        assert_no_gitignore_line "33$label: precondition: no anchored '$line' left" "$proj/.gitignore" "$line"
+    done
+    assert_exit_zero "33$label: precondition: the legacy .gitignore is committed (clean)" \
+        git -C "$proj" diff --quiet HEAD -- .gitignore
 
-out_33="$(setup_data_gitignore_symlink_safe 2>&1)"
-assert_contains "33: repair reports the rewrite" "Rewrote trailing-slash" "$out_33"
-assert_no_gitignore_line "33: legacy line gone" "$TMPDIR_33/.gitignore" ".aitask-data/"
-assert_gitignore_line "33: bare line present" "$TMPDIR_33/.gitignore" ".aitask-data"
-out_33b="$(setup_data_gitignore_symlink_safe 2>&1)"
-assert_contains "33: second run is a no-op" "already symlink-safe" "$out_33b"
+    # A re-run of setup_data_branch alone early-returns and leaves it in place.
+    (cd "$proj" && setup_data_branch </dev/null >/dev/null 2>&1)
+    assert_gitignore_line "33$label: setup_data_branch re-run cannot reach the legacy line" \
+        "$proj/.gitignore" "$1"
 
-rm -rf "$TMPDIR_33"
+    out="$(setup_data_gitignore_symlink_safe 2>&1)"
+    assert_contains "33$label: repair reports the rewrite" "Rewrote legacy data entries" "$out"
+    for line in "$@"; do
+        assert_no_gitignore_line "33$label: legacy '$line' gone" "$proj/.gitignore" "$line"
+    done
+    for line in "${anchored[@]}"; do
+        assert_gitignore_line "33$label: anchored '$line' present" "$proj/.gitignore" "$line"
+    done
+    out2="$(setup_data_gitignore_symlink_safe 2>&1)"
+    assert_contains "33$label: second run is a no-op" "already symlink-safe" "$out2"
+    rm -rf "$proj"
+}
+# a: the t699-era block (trailing-slash data dir, bare links).
+run_rerun_repair_case "a" "$AIT_DATA_DIR_NAME/" "${AIT_DATA_LINKS[@]}"
+# b: the t1711-era block (all bare) — the form setup wrote until t2184.
+run_rerun_repair_case "b" "$AIT_DATA_DIR_NAME" "${AIT_DATA_LINKS[@]}"
 
 # --- Test 34: a dirty .gitignore is never swept into a setup commit ---
 # main() runs the repair last, right before commit_framework_files; earlier
@@ -1701,7 +1770,8 @@ run_commit_protection_case() {
 
     local head_body
     head_body="$(git -C "$proj" show HEAD:.gitignore)"
-    assert_gitignore_line "34$label: repair applied on disk" "$proj/.gitignore" ".aitask-data"
+    assert_gitignore_line "34$label: repair applied on disk" "$proj/.gitignore" "/.aitask-data"
+    assert_gitignore_line "34$label: repair anchored aitasks on disk" "$proj/.gitignore" "/aitasks"
     assert_gitignore_line "34$label: helper rule applied on disk" "$proj/.gitignore" ".aitask-testmap/"
     if [[ "$dirty" == "dirty" ]]; then
         assert_not_contains "34$label: helper did NOT commit its rule over the dirty baseline" \
@@ -1719,6 +1789,8 @@ run_commit_protection_case() {
             ".aitask-testmap/" "$head_body"
         assert_not_contains "34$label: HEAD has no legacy line — repair committed" \
             ".aitask-data/" "$head_body"
+        assert_eq_trim "34$label: HEAD has the anchored /aitasks line" "1" \
+            "$(printf '%s\n' "$head_body" | grep -cxF -- "/aitasks" | tr -d ' ')"
         assert_eq_trim "34$label: .gitignore clean after commit" "" \
             "$(git -C "$proj" status --porcelain -- .gitignore)"
     fi
@@ -1816,11 +1888,12 @@ run_step9_case() {
         assert_not_contains "36$label: data rules not committed over the dirty baseline" \
             ".aitask-data" "$head_body"
         assert_gitignore_line "36$label: user's edit kept on disk" "$proj/.gitignore" "user-edit-t1963"
-        assert_gitignore_line "36$label: data rule applied on disk" "$proj/.gitignore" ".aitask-data"
+        assert_gitignore_line "36$label: data rule applied on disk" "$proj/.gitignore" "/.aitask-data"
         assert_eq_trim "36$label: .gitignore left modified, unstaged" "M .gitignore" \
             "$(git -C "$proj" status --porcelain -- .gitignore)"
     else
-        assert_contains "36$label: data rules committed" ".aitask-data" "$head_body"
+        assert_eq_trim "36$label: anchored data rule committed" "1" \
+            "$(printf '%s\n' "$head_body" | grep -cxF -- "/.aitask-data" | tr -d ' ')"
         assert_eq_trim "36$label: .gitignore clean (shared index resynced)" "" \
             "$(git -C "$proj" status --porcelain -- .gitignore)"
     fi

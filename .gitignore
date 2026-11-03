@@ -56,9 +56,9 @@ website/node_modules/
 website/.hugo_build.lock
 
 # Task data (lives on aitask-data branch, accessed via symlinks)
-.aitask-data
-aitasks
-aiplans
+/.aitask-data
+/aitasks
+/aiplans
 
 # Per-profile rendered skill variants (on-demand, not committed)
 # Convention: rendered dirs end with a trailing hyphen. Authoring dirs
