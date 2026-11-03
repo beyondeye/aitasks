@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [ait_setup, git]
 active_gates: [risk_evaluated]
 active_gates_filtered: []
@@ -16,7 +16,8 @@ anchor: 2179
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5_5
 created_at: 2026-11-03 17:32
-updated_at: 2026-11-03 18:22
+updated_at: 2026-11-03 19:06
+completed_at: 2026-11-03 19:06
 ---
 
 ## Origin
@@ -59,3 +60,14 @@ installer path (`install.sh` / `ait upgrade`) that writes it.
 > **✅ gate:plan_approved** run=2026-11-03T16:22:17Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-11-03T17:02:19Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-11-03T17:06:19Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:b6de8194dd18f36f
+
+> **✅ gate:risk_evaluated** run=2026-11-03T17:06:19Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/2184/risk_evaluated_2026-11-03T17:06:19Z-risk_evaluated-a1.log`
