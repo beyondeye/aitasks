@@ -5,13 +5,13 @@ depends: []
 issue_type: feature
 status: Ready
 labels: [monitor, minimonitor, tmux, performance, applink]
-children_to_implement: [t2034_1, t2034_2, t2034_3, t2034_6]
+children_to_implement: [t2034_2, t2034_3, t2034_6]
 artifacts:
   - handle: art:trail-monitor-status-server
     kind: implementation_trail
     name: Shared monitor status server (aitasks)
 created_at: 2026-10-16 08:01
-updated_at: 2026-10-28 21:40
+updated_at: 2026-11-03 17:02
 ---
 
 Replace per-instance tmux scanning in `ait monitor`, `ait minimonitor` and
