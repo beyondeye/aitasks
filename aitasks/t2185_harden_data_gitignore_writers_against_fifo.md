@@ -38,3 +38,10 @@ t2178 also made the shared writer's failure warning honest about partial appends
 
 - `_ait_rewrite_data_gitignore_lines`: add `[[ -f "$gitignore" ]] || return 2` right after its existence check (rc 2 is already reported non-fatally by `setup_data_gitignore_symlink_safe`); add a bounded FIFO case (`run_bounded` from `tests/lib/proc_fixtures.sh`, like t2178's 27f in `tests/test_setup_git.sh`) for `setup_data_gitignore_symlink_safe`.
 - `setup_data_branch` Step 7: check both appends (or route them through `_ait_add_gitignore_rules`-style checked writes), never fatal, honest warning; note the data block's guard is CRLF-tolerant and the rendered-skill block's guard is a single `grep -F` of one pattern, so they may not fit the per-rule writer as-is.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-03T16:55:20Z status=pass attempt=1 type=human
+>
+> Note: deferred
