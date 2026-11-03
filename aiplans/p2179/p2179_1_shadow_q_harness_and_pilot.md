@@ -807,3 +807,101 @@ commits have landed and the pilot numbers have been presented to the user.
 ### Planned mitigations
 - timing: pre-phase | name: startup_smoke | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: replay startup mismatch / Codex skill discovery in a fresh sandbox | desc: a model-free stub preflight (stub forms run directly and under `codex sandbox` read-only, with a write negative control), then one startup-only turn per agent; verifies variant load, greeting-before-capture order (a capture after the greeting is allowed), the allowlist, model extraction and trace-matched stub output; stops the pilot on a harness failure
 - timing: post-phase | name: public_leak_audit | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: private aitasks_go content leaking into the public repo | desc: before the public commit, run check_public.py with the real store plus the private leak_terms.txt, and read the staged public diff in full; any hit blocks the commit
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-03 11:40)
+- **Requested by user:** five blocking review findings, each to be verified and fixed if valid.
+  1. `validate.variant_load` granted coverage without checking that the read succeeded or delivered the bullet.
+  2. `match_output` accepted piped/head-only capture output as a fresh capture.
+  3. Budget recovery restored only the periodic snapshot, so calls journalled after it were lost.
+  4. `run_cli` stopped enforcing the deadline once stdout reached EOF, and waited unbounded.
+  5. `check_public` exempted the current contents of `frozen/` and `variants/`, letting a candidate file certify its own text.
+- **Changes made:** all five were confirmed, then fixed.
+  1. Reads count only if they succeeded *and* their returned text contains every `>q` bullet line; otherwise the result is `uncertain_load`. Skill-tool loads need the injected content.
+  2. Rule 2 needs a delivered (`full` or `head_tail`) screen and phase capture. A transformed one is `subject_noncompliance:capture_not_delivered`; head-only is `uncertain_delivery`, excluded from the denominator.
+  3. `Budget` writes an fsynced `reserve` record before every launch and a `usage` record after it, to `runs/<batch>/budget_journal.jsonl`. Recovery takes the maximum over the journal, `invocations.jsonl` and the snapshot. Unreported or interrupted calls are charged frozen bounds (`limits.json`: Claude $2.00, Codex 200k tokens).
+  4. `run_cli` enforces the deadline over the process lifetime, bounds every wait, and kills leftover group members.
+  5. Exemptions come only from HEAD-committed public sources, read from git objects. Raw streams are decoded fail-safe, minus the text from skill-file reads as recorded in the store's own trace.
+  - New offline tests cover each finding (75 tests in total).
+  - `harness.py classify` re-validated the saved pilot streams: 16/16 still `valid`, 0 changed (`runs/pilot/trials_reclassified.jsonl`).
+  - Real-trace negative controls show the checks are not vacuous: a failed read gives `not_loaded`; truncated output gives `uncertain`; a private line planted in a new `frozen/` file gets a hit.
+- **Files affected:** `aidocs/benchmarks/shadow_q/{validate.py,harness.py,check_public.py,store.py,judge.py,limits.json,pilot_report.md,README.md}`, `runs/pilot/trials_reclassified.jsonl`, `tests/test_shadow_q_harness.py`.
+
+### Change Request 2 (2026-11-03 12:15)
+- **Requested by user:** five further findings, each to be verified and fixed if valid.
+  1. Budget recovery took a max over journal and history, so a pending reservation in a pre-journal batch was absorbed: 79 historical calls + 1 reservation recovered as 79.
+  2. `summarise` labelled the valid-only rate "overall success". The approved definition requires valid **and** adequate (failure flag false, holistic ≥ 2).
+  3. The live Codex tool counter counted only `command_execution`.
+  4. Each threshold gated only its own agent's launches.
+  5. Per-option judge scores were type-checked but not bounded.
+- **Changes made:** all five were confirmed, then fixed.
+  1. The journal opens with a `baseline` record (the historical totals for a pre-journal batch). `reserve` and `usage` records share a global `seq`. Recovery: used = max(baseline, highest seq); spend = baseline + matched usage + bound per unmatched reservation.
+  2. `compliance_rate` is the valid-only rate. `overall_success` is valid **and** adequate over calibrated judgments (every calibrated judgment flag-free, and mean `could_choose` ≥ 2; unknown counted as not adequate and reported). `scores.json` now carries `failure_flag`. Pilot: compliance 16/16, overall success 14/16.
+  3. Tool invocations of every kind (`command_execution`, `web_search`, `mcp_tool_call`, `file_change`; Claude `tool_use`) count once per item id. Recounted pilot maximum: still 8.
+  4. Any threshold refuses every new launch, of either agent, subject or judge.
+  5. Every option score must be finite and in [0, 3]; otherwise the judgment is re-asked once, then `parse_failed`. All 48 saved pilot judgments pass.
+  - Tests for each: 81 in total.
+- **Files affected:** `aidocs/benchmarks/shadow_q/{harness.py,validate.py,judge.py,pilot_report.md}`, `runs/pilot/scores.json`, `tests/test_shadow_q_harness.py`.
+
+### Change Request 3 (2026-11-03 12:30)
+- **Requested by user:** two findings.
+  1. `test_empty_ancestor_dirs_are_flagged_not_refused` asserted the whole `check_ancestors` result, so it failed whenever empty `/tmp/.agents` / `/tmp/.codex` existed.
+  2. `run_cli` busy-polled after stdout EOF (`done.wait` returns at once once the event is set).
+- **Changes made:** both were confirmed, then fixed.
+  1. The test asserts only the fixture parent's entries and keeps the populated-dir refusal. It passes with empty `/tmp/.agents` and `/tmp/.codex` present (reproduced).
+  2. After EOF the loop waits on the process with a bounded `proc.wait(timeout=0.2)`. The new test bounds harness CPU while a child sleeps with stdout closed (82 tests).
+- **Files affected:** `aidocs/benchmarks/shadow_q/harness.py`, `tests/test_shadow_q_harness.py`.
+
+## Final Implementation Notes
+
+- **Actual work done:**
+  - **Public harness** in `aidocs/benchmarks/shadow_q/`:
+    - `freeze.py` / `qspan.py` freeze both fast render trees and stubs at aitasks `d46b2bb6`, with the `>q` span at 281-300.
+    - `variants/` holds v1-v4 plus hypotheses.
+    - `harness.py`: sandboxes, replay stubs, the real CLI runner with limits, the durable budget journal, and the `plan` / `manifest` / `preflight` / `smoke` / `pilot` (`--resume`) / `judge` / `rejudge` / `summary` / `classify` commands.
+    - `validate.py`, `judge.py`, `rubric.md`, `judge_prompt.md`, `store.py` and `check_public.py`.
+    - `limits.json`, plus `matrix.json` (proposed, unapproved).
+    - The numbers-only `runs/pilot/`, `pilot_report.md` and a README.
+  - **Private store** in aitasks_go `aidocs/shadow_q_store/`, in 4 path-scoped local commits (`828ee8a`, `9eb52dd`, `90c419b`, `3fcf4bd`). **Not pushed.** It holds:
+    - the verbatim instructions and skill listing at `b523a6bc`;
+    - the pre-decision t60_2 task (data `e022bc0`);
+    - reconstructed screens, references and controls, plus PROVENANCE;
+    - the raw streams, judgments and `pilot_notes.md`.
+  - **Pilot results:**
+    - 79 of 80 invocations (74 planned, +1 Claude re-smoke, +4 judge-fix check);
+    - $10.17 Claude cost and 744,563 Codex tokens, with neither threshold reached;
+    - 16/16 valid, compliance 16/16, overall success 14/16;
+    - calibration 6/6, with 8/16 answers disputed.
+  - **Main-run projection:** 872 invocations, about $123 and about 9.0M tokens (in `matrix.json`).
+  - **Tests:** `tests/test_shadow_q_harness.py`, 82 offline tests.
+- **Deviations from plan:**
+  - The private store lives in aitasks_go (user decision during verification).
+  - The sandbox also carries aitasks_go's skill listing and the overview doc that `AGENTS.md` points to (fidelity).
+  - Claude's allowlist gained read-only utilities (`echo`, `printf`, `true`, `cat`, `head`, `tail`, `wc`, `ls`, `nl`, `sed -n`, `grep`) after the startup smoke.
+  - The judge prompt includes the task file the subject could read.
+  - The ancestor guard refuses only content-bearing ancestors (and flags empty ones).
+  - Task fixtures are stored as `_aitasks/` / `_aiplans/`.
+  - `pilot --resume` was added to re-run cells that never launched.
+  - The 4-invocation re-judge check used headroom.
+- **Issues encountered:** each was found by the preflight, the smoke, the pilot or review, and fixed.
+  - The stdin strip needed `LC_ALL=C`.
+  - A `dontAsk` compound-command denial (`helper; echo`).
+  - Transient empty `/tmp/.agents` and `/tmp/.codex` refused 8 sandboxes before launch (0 invocations lost).
+  - aitasks_go's `.gitignore` silently dropped the task copies.
+  - The judge could not see the task file.
+  - Review rounds 1-3: read and capture delivery, a durable budget with a migration baseline, bounded waits, a non-self-certifying leak check, quality-aware overall success, counting of every tool kind, a global threshold stop, option-score bounds, and the post-EOF busy wait.
+- **Key decisions:**
+  - Pilot scores are mechanics only.
+  - The "adequate" rule: every calibrated judgment flag-free and mean `could_choose` ≥ 2; a flag from either judge counts.
+  - Unreported or interrupted calls are charged frozen bounds (Claude $2.00, Codex 200k tokens).
+  - Exemptions for the leak check come only from HEAD-committed public sources.
+- **Upstream defects identified:** None
+- **Notes for sibling tasks (t2179_2):**
+  1. Start with the approval gate on `matrix.json` and `pilot_report.md`. Re-check the thresholds, since the task-aware judge prompt adds about 6-8k tokens per judge call.
+  2. Decide on web access first: Codex web-searched in every fresh `>q` turn, while Claude had no web tools. The recommendation is to disable it for both.
+  3. Use a **new batch name**. The journal and its baseline are per batch.
+  4. Raw outputs, rationales and any quote go to the aitasks_go store, never the public repo. Run `check_public.py --staged` before each public commit.
+  5. The audit should prioritise factual-correctness disputes: the Codex judge is much stricter there.
+  6. Claude usually skipped the Step 0 greeting and pre-explained the AUQ at startup. Treat that as a covariate.
+  7. t2179_2's plan still cites `b523a6bc` for the t60_2 task, and `aidocs/benchmarks/shadow_q/runs|results/` for raw outputs. Both are superseded by the split, and a note is sent.
