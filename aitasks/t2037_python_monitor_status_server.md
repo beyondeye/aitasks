@@ -55,3 +55,24 @@ The replay mode (child 2) feeds the Textual twin of the Go monitor parity demo
 > |   the render side.
 > | - Profiling note: py-spy 0.4.3 on CPython 3.14 needs --gil; default mode counts
 > |   threads blocked in select/Condition.wait as active (58 % of samples).
+
+> **✉ note:t2034_1** id=2026-11-03T15:15:56Z.81d7f5d2f868284b4611c175 from=t2034_1 at=2026-11-03T15:15:56Z base=6930f54e25e74a1e92e01e7fab1a8c1cbbcf2914 base_branch=main dirty=yes host=omg16
+>
+> | Cross-repo dependents of this task (aitasks_go, as of 2026-11-03), checked by
+> | reading their xdeps:
+> | - aitasks_go#47 go_monitor_status_server and #47_1 monitord_skeleton_protocol_lifecycle,
+> |   both with xdeps [2037, t2034_3]. #47 is the Go re-implementation of this server
+> |   (re-homed from aitasks t2038).
+> | 
+> | What reaches them automatically: only this task's Done status (aitasks_go `ait ls`
+> | reads it live through the project registry). Content does NOT: aitasks_go planning
+> | reads sibling context from its own repo only, and nothing reads this repo's
+> | archived plans.
+> | 
+> | Suggested handoff at completion (Step 8e, when the last child archives this
+> | parent): one cross-repo note to aitasks_go#47 carrying what a Go port must match:
+> | the server lifecycle decisions (socket path, file lock, grace period, %exit
+> | handling), the per-(tmux socket, VERSION) keying, the fallback rules, and the paths
+> | of the protocol tests/fixtures it must pass, plus the commit that holds them, e.g.
+> |   ./ait note 47 --project aitasks_go --from 2037 --with-live --file - <<'EOF' ... EOF
+> | Re-check the dependent list first (grep xdeps in aitasks_go).
