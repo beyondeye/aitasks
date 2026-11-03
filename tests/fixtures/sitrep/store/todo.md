@@ -1,5 +1,5 @@
 <!-- GENERATED FILE - DO NOT EDIT MANUALLY. Machine-written by .aitask-scripts/aitask_sitrep_todo.sh in a strict format; a manual edit makes the store unreadable (recover with: aitask_sitrep_todo.sh restore todo). -->
-<!-- aitask-sitrep todo format=1 -->
+<!-- aitask-sitrep todo format=2 -->
 # Sitrep todo
 
 ## Part 1: Todo
@@ -18,6 +18,7 @@ Cross-repo question still open.
 
 - c1 | rev=1 | kind=task | state=open | group=now | checked_at=never | ref=t2175_2 | derived=script | outcome= | Harvest parser for finished agents
 - c4 | rev=4 | kind=watch | state=open | group=now | checked_at=never | ref= | derived=script | outcome= | CI on the sitrep branch
+- c6 | rev=8 | kind=action | state=open | group=now | checked_at=never | ref=push:main@1a2b3c4d5e6f | derived=agent | outcome= | Push main
 
 ### Next
 
@@ -55,3 +56,11 @@ Cross-repo question still open.
 - origin: agent=agent-pick-2175 date=2026-11-01
 - sources:
   - capture: sources/ceac25156205fb40.txt#L1-L2
+
+### c6
+- background: Agent-derived push reminder: main carries the sitrep refresh commit.
+- origin: agent=agent-pick-2175 date=2026-11-01 skill=aitask-sitrep
+- theme: sitrep
+- sources:
+  - commit: 1a2b3c4d5e6f
+- related: c2

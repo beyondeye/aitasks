@@ -39,6 +39,18 @@ CONSUMER CONTRACT. ``tests/fixtures/sitrep/`` holds a writer-produced store and
 ``tests/test_sitrep_todo.sh`` pins its ``list``/``context``/``check-sources``
 output. A format change edits that fixture and bumps ``format=``.
 
+FORMAT VERSIONS. todo.md is format 2: format 1 plus the ``push:<branch>@<sha>``
+ref (a push reminder, created by the sitrep skill and checked by the refresh,
+t2175_3). Format 1 files are still read -- render emits the parsed version, so
+render∘parse stays the identity -- and the first write that CHANGES one upgrades
+it to 2 (a no-op leaves it byte-identical); a format 1 file holding a ``push:``
+ref is refused. ``tests/fixtures/sitrep/store_v1/`` pins the format 1 read.
+qa.md is unchanged and stays format 1.
+
+REVISIONS cover the item AND its context entry: every change to either gives
+the item a fresh store-wide rev, so a refresh verdict computed from an older
+state of either (e.g. a swapped ``trail:`` source) fails the batch's rev check.
+
 Exit codes of the CLI: 0 ok, 2 bad request (:class:`RequestError`), 4 store
 unusable (:class:`FormatError`).
 """
@@ -53,7 +65,13 @@ import re
 import sys
 from dataclasses import dataclass, field
 
-FORMAT_VERSION = 1
+# todo.md is format 2 since t2175_3 (the `push:` ref form); format 1 files are
+# still READ (render emits the parsed version, so render∘parse stays the
+# identity) and are upgraded to 2 by the first write that changes them. qa.md
+# did not change and stays format 1.
+TODO_FORMAT_VERSION = 2
+TODO_READ_FORMATS = (1, 2)
+QA_FORMAT_VERSION = 1
 
 TODO_BANNER = (
     "<!-- GENERATED FILE - DO NOT EDIT MANUALLY. Machine-written by "
@@ -67,8 +85,17 @@ QA_BANNER = (
     "makes the store unreadable (recover with: aitask_sitrep_todo.sh restore "
     "qa). -->"
 )
-TODO_HEADER = f"<!-- aitask-sitrep todo format={FORMAT_VERSION} -->"
-QA_HEADER = f"<!-- aitask-sitrep qa format={FORMAT_VERSION} -->"
+QA_HEADER = f"<!-- aitask-sitrep qa format={QA_FORMAT_VERSION} -->"
+_TODO_HEADER_RE = re.compile(r"^<!-- aitask-sitrep todo format=([1-9][0-9]*) -->\Z")
+# The first format whose grammar has the `push:` ref.
+PUSH_REF_FORMAT = 2
+
+
+def todo_header(version: int) -> str:
+    return f"<!-- aitask-sitrep todo format={version} -->"
+
+
+TODO_HEADER = todo_header(TODO_FORMAT_VERSION)
 TODO_TITLE = "# Sitrep todo"
 QA_TITLE = "# Sitrep Q&A log"
 PART1 = "## Part 1: Todo"
@@ -114,6 +141,12 @@ ID_RE = re.compile(r"^c?([1-9][0-9]*)\Z")
 THEME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*\Z")
 LOCAL_REF_RE = re.compile(r"^t?([1-9][0-9]*(?:_[1-9][0-9]*)?)\Z")
 XREF_RE = re.compile(r"^([A-Za-z0-9][A-Za-z0-9._-]*)#t?([1-9][0-9]*(?:_[1-9][0-9]*)?)\Z")
+# A push reminder (t2175_3): `push:<branch>@<sha>` -- "push <branch> so <sha>
+# reaches its remote". The branch is a shell-safe subset of git's ref grammar
+# (no `..`, `//`, a component starting with `.`, trailing `/`, `.` or `.lock`); the refresh additionally runs
+# `git check-ref-format --branch` before using it, always as one argv element.
+PUSH_REF_RE = re.compile(
+    r"^push:([A-Za-z0-9_][A-Za-z0-9._/-]*)@([0-9a-fA-F]{7,40})\Z")
 CAPTURE_RE = re.compile(r"^sources/([0-9a-f]{16})\.txt#L([1-9][0-9]*)(?:-L([1-9][0-9]*))?\Z")
 COMMIT_RE = re.compile(r"^[0-9a-f]{7,40}\Z")
 URL_RE = re.compile(r"^https?://\S+\Z")
@@ -208,6 +241,9 @@ class TodoStore:
     situations: dict = field(default_factory=dict)  # theme -> [lines]
     items: dict = field(default_factory=dict)       # num -> Item
     contexts: dict = field(default_factory=dict)    # num -> ContextEntry
+    # The `format=` of line 2: the parsed one for a read file, the current one
+    # for a new or rewritten file (see _commit_todo).
+    format: int = TODO_FORMAT_VERSION
 
 
 @dataclass
@@ -231,7 +267,8 @@ def _slot_of(item: Item) -> str:
 
 
 def render_todo(store: TodoStore) -> str:
-    lines = [TODO_BANNER, TODO_HEADER, TODO_TITLE, "", PART1, "", SITUATION, ""]
+    lines = [TODO_BANNER, todo_header(store.format), TODO_TITLE, "", PART1, "",
+             SITUATION, ""]
     for theme in sorted(store.situations):
         lines.append(f"#### {theme}")
         lines.extend(store.situations[theme])
@@ -285,6 +322,18 @@ def _check_preamble(path: str, lines: list, banner: str, header: str) -> None:
     if len(lines) < 2 or lines[1] != header:
         found = lines[1] if len(lines) > 1 else ""
         raise FormatError(path, 2, f"unsupported or missing format header {found!r}")
+
+
+def _todo_format(path: str, lines: list) -> int:
+    """Check the todo preamble; return the `format=` of line 2."""
+    if not lines or lines[0] != TODO_BANNER:
+        raise FormatError(path, 1, "missing or altered generated-file banner "
+                          "(the file was edited by hand?)")
+    found = lines[1] if len(lines) > 1 else ""
+    m = _TODO_HEADER_RE.match(found)
+    if not m or int(m.group(1)) not in TODO_READ_FORMATS:
+        raise FormatError(path, 2, f"unsupported or missing format header {found!r}")
+    return int(m.group(1))
 
 
 def _parse_context_body(lines: list) -> ContextEntry:
@@ -361,8 +410,7 @@ def parse_todo(text: str, path: str = "todo.md") -> TodoStore:
     if not text.endswith("\n"):
         raise FormatError(path, text.count("\n") + 1, "missing final newline")
     lines = text.split("\n")[:-1]
-    _check_preamble(path, lines, TODO_BANNER, TODO_HEADER)
-    store = TodoStore()
+    store = TodoStore(format=_todo_format(path, lines))
     mode = "head"
     theme = None
     ctx_num = None
@@ -408,6 +456,9 @@ def parse_todo(text: str, path: str = "todo.md") -> TodoStore:
                 _check_item_values(item)
             except RequestError as e:
                 raise FormatError(path, lineno, str(e)) from None
+            if store.format < PUSH_REF_FORMAT and item.ref.startswith("push:"):
+                raise FormatError(path, lineno, f"push refs need format={PUSH_REF_FORMAT} "
+                                  f"(this file is format={store.format})")
             if item.num in store.items:
                 raise FormatError(path, lineno, f"duplicate item id c{item.num}")
             store.items[item.num] = item
@@ -507,8 +558,26 @@ def normalize_ref(ref: str) -> str:
     m = XREF_RE.match(ref)
     if m:
         return f"{m.group(1)}#{m.group(2)}"
-    raise RequestError(f"invalid ref {ref!r} (expected t<N>[_<M>], or "
-                       "<project>#<N>[_<M>] for a cross-repo task)")
+    m = PUSH_REF_RE.match(ref)
+    if m and _push_branch_ok(m.group(1)):
+        return f"push:{m.group(1)}@{m.group(2).lower()}"
+    raise RequestError(f"invalid ref {ref!r} (expected t<N>[_<M>], "
+                       "<project>#<N>[_<M>] for a cross-repo task, or "
+                       "push:<branch>@<sha> for a push reminder)")
+
+
+def _push_branch_ok(branch: str) -> bool:
+    """The parts of git's ref-name rules the character class cannot express."""
+    return not (".." in branch or "//" in branch or "/." in branch
+                or branch.endswith(("/", ".", ".lock")))
+
+
+def parse_push_ref(ref: str):
+    """(branch, sha) of a canonical `push:` ref, or None."""
+    m = PUSH_REF_RE.match(ref or "")
+    if not m or not _push_branch_ok(m.group(1)):
+        return None
+    return m.group(1), m.group(2).lower()
 
 
 def normalize_ts(value: str, allow_never: bool) -> str:
@@ -850,7 +919,11 @@ class Revs:
 
 
 def _is_template(path: str, kind: str) -> bool:
-    return _read_tolerant(path) == empty_text(kind)
+    text = _read_tolerant(path)
+    if kind == "todo":
+        # An empty generation written by an older writer is still a template.
+        return text in {render_todo(TodoStore(format=v)) for v in TODO_READ_FORMATS}
+    return text == empty_text(kind)
 
 
 def store_state(store_dir: str) -> str:
@@ -930,6 +1003,10 @@ def _commit_text(args, text: str, parse) -> None:
 
 
 def _commit_todo(args, store: TodoStore, revs=None) -> None:
+    # Every write that changes todo.md writes the CURRENT format: a format=1
+    # store is upgraded by its first changing write. Ops call this only when
+    # something changed, so a no-op leaves a v1 file byte-identical.
+    store.format = TODO_FORMAT_VERSION
     _commit_text(args, render_todo(store), parse_todo)
     if revs is not None and revs.used:
         print(f"@NEXT_REV:{revs.next}")
@@ -1105,7 +1182,12 @@ def op_upsert_context(args, text):
         print(f"CONTEXT:c{num}|unchanged")
         return
     store.contexts[num] = entry
-    _commit_todo(args, store)
+    # A changed context entry gives its ITEM a fresh rev (t2175_3): a refresh
+    # verdict computed from the old entry (e.g. its trail: source) must not
+    # pass the batch's rev check against the new one.
+    revs = Revs(args.store)
+    store.items[num].rev = revs.take()
+    _commit_todo(args, store, revs)
     print(f"CONTEXT:c{num}|{'replaced' if old is not None else 'created'}")
 
 

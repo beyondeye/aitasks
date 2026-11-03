@@ -105,7 +105,7 @@ class Refusals(unittest.TestCase):
         self.assertRefusedAt(self.text.replace("DO NOT EDIT", "do not edit", 1), 1)
 
     def test_future_format(self):
-        self.assertRefusedAt(self.text.replace("format=1", "format=2"), 2)
+        self.assertRefusedAt(self.text.replace("format=2", "format=3"), 2)
 
     def test_stray_blank_line_names_its_line(self):
         lines = self.text.split("\n")
@@ -132,6 +132,68 @@ class Refusals(unittest.TestCase):
         text = self.text + "### c9\n- background: x\n- origin: agent=a\n\n"
         with self.assertRaises(st.FormatError):
             st.parse_todo(text)
+
+
+class FormatVersions(unittest.TestCase):
+    """todo.md format 2 (t2175_3): reads format 1, writes format 2."""
+
+    V1 = os.path.join(os.path.dirname(__file__), "fixtures", "sitrep",
+                      "store_v1", "todo.md")
+
+    def test_v1_fixture_round_trips_as_v1(self):
+        with open(self.V1, encoding="utf-8") as fh:
+            text = fh.read()
+        parsed = st.parse_todo(text)
+        self.assertEqual(parsed.format, 1)
+        self.assertEqual(st.render_todo(parsed), text)
+
+    def test_render_emits_the_parsed_version(self):
+        s = _store(_item(1))
+        s.format = 1
+        self.assertIn("todo format=1 -->", st.render_todo(s).split("\n")[1])
+        self.assertIn("todo format=2 -->", st.empty_text("todo").split("\n")[1])
+
+    def test_v1_with_a_push_ref_is_refused_at_the_item_line(self):
+        s = _store(_item(1), _item(2, kind="action", ref="push:main@abcdef1"))
+        text = st.render_todo(s).replace("todo format=2", "todo format=1")
+        lineno = text.split("\n").index(s.items[2].line()) + 1
+        with self.assertRaises(st.FormatError) as cm:
+            st.parse_todo(text, "todo.md")
+        self.assertIn(f"todo.md:{lineno}:", str(cm.exception))
+        self.assertIn("push refs need format=2", str(cm.exception))
+
+    def test_v2_with_a_push_ref_parses(self):
+        s = _store(_item(1, kind="action", ref="push:main@abcdef1"))
+        self.assertEqual(st.parse_todo(st.render_todo(s)).items[1].ref,
+                         "push:main@abcdef1")
+
+    def test_qa_stays_format_1(self):
+        qa = st.empty_text("qa")
+        self.assertIn("qa format=1 -->", qa.split("\n")[1])
+        with self.assertRaises(st.FormatError):
+            st.parse_qa(qa.replace("qa format=1", "qa format=2"))
+
+    def test_an_old_empty_generation_is_still_a_template(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "todo.md")
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write(st.render_todo(st.TodoStore(format=1)))
+            self.assertTrue(st._is_template(path, "todo"))
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write(st.render_todo(_store(_item(1))))
+            self.assertFalse(st._is_template(path, "todo"))
+
+    def test_push_ref_grammar(self):
+        self.assertEqual(st.normalize_ref("push:main@ABCDEF1"), "push:main@abcdef1")
+        self.assertEqual(st.parse_push_ref("push:feature/x@abcdef1"),
+                         ("feature/x", "abcdef1"))
+        for bad in ("push:main", "push:@abcdef1", "push:main@abc12", "push:.x@abcdef1",
+                    "push:a..b@abcdef1", "push:a//b@abcdef1", "push:a/@abcdef1",
+                    "push:a.lock@abcdef1", "push:-x@abcdef1", "push:a/.b@abcdef1",
+                    "push:a.@abcdef1", "push:main@abcdef1\n"):
+            with self.assertRaises(st.RequestError, msg=bad):
+                st.normalize_ref(bad)
+            self.assertIsNone(st.parse_push_ref(bad), bad)
 
 
 class ContextSchema(unittest.TestCase):

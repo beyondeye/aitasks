@@ -514,6 +514,18 @@ _FROZEN_SH = _SCRIPT_DIR / "aitask_frozen.sh"
 #: rule as `_MARKS_SH`; the TUIs never import its mutators.
 _SESSIONS_SH = _SCRIPT_DIR / "aitask_agent_sessions.sh"
 
+#: The sitrep store's deterministic refresh (t2175_3). Run per observed project
+#: root that already HAS a sitrep store; it never creates one.
+_SITREP_REFRESH_SH = _SCRIPT_DIR / "aitask_sitrep_refresh.sh"
+
+#: The refresh's whole-run deadline (checks AND write), passed as `--budget`.
+#: The script bounds itself to it -- its worker's process group is killed at the
+#: check deadline -- and needs :data:`_SITREP_REFRESH_TIMEOUT` = budget + 15s
+#: from its caller (interpreter start and exit). Both derive from this one
+#: constant so the caller's kill can never land inside a healthy run's write.
+_SITREP_REFRESH_BUDGET = 60.0
+_SITREP_REFRESH_TIMEOUT = _SITREP_REFRESH_BUDGET + 15.0
+
 #: Hard ceiling on ONE `freeze <pane>`, and the per-pane unit that
 #: :data:`_FREEZE_ONE_TIMEOUT` scales for a batch.
 #:
@@ -595,6 +607,8 @@ class AgentMarksMixin:
     _own_pane_id: "str | None" = None
     _multi_session: bool = False
     _refresh_inflight: bool = False
+    _sitrep_refresh_inflight: bool = False
+    _sitrep_refresh_due_at: float = 0.0
 
     #: Whether INACTIVE agents — parked (t1685) or frozen (t1705_7) — are hidden
     #: from the pane list. Per-app-instance and in-memory by design: it is a view
@@ -642,6 +656,9 @@ class AgentMarksMixin:
                 await self._maybe_offer_concerns()
                 await self._maybe_purge_marks()
                 await self._maybe_purge_sessions()
+                # Sitrep harvest `all` (t2175_5) belongs BEFORE this, so items
+                # harvested in a pass are refreshed in the same pass.
+                await self._maybe_refresh_sitrep()
             finally:
                 # In a `finally` so a raising or cancelled maintenance pass
                 # cannot wedge every later tick's maintenance — the same rule
@@ -673,6 +690,11 @@ class AgentMarksMixin:
             time.monotonic() + _MARKS_PURGE_STARTUP_GRACE
         )
         self._sessions_purge_inflight: bool = False
+        # The sitrep refresh (t2175_3): same cadence and grace, its own flag.
+        self._sitrep_refresh_due_at: float = (
+            time.monotonic() + _MARKS_PURGE_STARTUP_GRACE
+        )
+        self._sitrep_refresh_inflight: bool = False
         # Guards the whole trailing-maintenance worker (concerns + purge), which
         # `_refresh_data` dispatches rather than awaits (t1598). Distinct from
         # `_marks_purge_inflight`: that one only covers the purge, and
@@ -1568,6 +1590,52 @@ class AgentMarksMixin:
                     os.unlink(path)
                 except OSError:
                     pass
+
+    async def _maybe_refresh_sitrep(self) -> None:
+        """Refresh each observed root's sitrep store Part 1 (t2175_3).
+
+        One `aitask_sitrep_refresh.sh --root <r>` per distinct project root of
+        this tick's sessions that already has a sitrep store -- a root without
+        one spawns nothing (the refresh never creates a store). Same scheduling
+        contract as :meth:`_maybe_purge_sessions`: an in-flight pass is never
+        stacked, the flag is cleared in a ``finally``, and failures are
+        swallowed -- the refresh writes nothing on failure, and the next pass
+        re-reads. The budget/timeout pair is the script's caller contract (see
+        :data:`_SITREP_REFRESH_BUDGET`).
+        """
+        if self._sitrep_refresh_inflight:
+            return
+        if time.monotonic() < self._sitrep_refresh_due_at:
+            return
+        self._sitrep_refresh_inflight = True
+        try:
+            roots = _sitrep_store_roots(
+                self._root_for_session(s) for s in list(self._session_root_map)
+            )
+            for root in roots:
+                try:
+                    await self._run_marks_cmd(
+                        ["--root", root, "--budget", f"{_SITREP_REFRESH_BUDGET:g}"],
+                        script=_SITREP_REFRESH_SH,
+                        timeout=_SITREP_REFRESH_TIMEOUT,
+                    )
+                except Exception:  # noqa: BLE001 - one root never stops the rest
+                    pass
+        except Exception:  # noqa: BLE001 - maintenance must never break a tick
+            pass
+        finally:
+            self._sitrep_refresh_inflight = False
+            self._sitrep_refresh_due_at = (
+                time.monotonic() + _MARKS_PURGE_INTERVAL
+            )
+
+
+def _sitrep_store_roots(roots) -> list:
+    """The roots (sorted, distinct) that already hold a sitrep store."""
+    return sorted({
+        r for r in roots
+        if r and os.path.isfile(os.path.join(r, ".aitask-sitrep", "store.init"))
+    })
 
 
 def _sanitized_region(region: str) -> str:

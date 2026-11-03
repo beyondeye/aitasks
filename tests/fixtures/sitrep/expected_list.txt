@@ -3,3 +3,4 @@ ITEM:c2|6|action|done|next|2026-11-01T09:30:00Z||agent|pushed and deployed|Push 
 ITEM:c3|3|question|unknown|waiting|never|aitasks#2171|script||Should refresh run on the monitor tick?
 ITEM:c4|4|watch|open|now|never||script||CI on the sitrep branch
 ITEM:c5|7|task|dismissed|next|2026-11-01T09:31:00Z|t2180|script|user: duplicate of t2175_3|Explore follow-up never picked
+ITEM:c6|8|action|open|now|never|push:main@1a2b3c4d5e6f|agent||Push main

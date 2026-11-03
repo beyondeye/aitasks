@@ -214,11 +214,15 @@ assert_eq "situation -> set" "SITUATION:alpha|set" "$OUT"
 assert_eq "situation leaves the c1 item line byte-identical" "$c1_line" "$(item_line c1)"
 run "$(ctx "Second item, new background.")" upsert-context c2
 assert_eq "upsert-context c2 -> replaced" "CONTEXT:c2|replaced" "$OUT"
+# A changed context entry gives its item a fresh rev (t2175_3): a refresh
+# verdict computed from the old entry must fail the batch's rev check.
+assert_eq "upsert-context c2 gives c2 a fresh rev" "4" "$(item_line c2 | sed -n 's/^- c2 | rev=\([0-9]*\) .*/\1/p')"
+assert_eq "upsert-context c2 leaves the c1 item line byte-identical" "$c1_line" "$(item_line c1)"
 run - context c1
 assert_eq "upsert-context c2 leaves the c1 context byte-identical" "$c1_ctx" "$OUT"
 before="$(cat "$S/todo.md")"
 run - update c2 --title "two renamed"
-assert_eq "an identical update reports the unchanged rev" "UPDATED:c2|3" "$OUT"
+assert_eq "an identical update reports the unchanged rev" "UPDATED:c2|4" "$OUT"
 assert_eq "an identical update writes nothing" "$before" "$(cat "$S/todo.md")"
 run - verify-is-not-a-verb
 assert_eq "unknown verb -> exit 2" "2" "$RC"
@@ -658,6 +662,49 @@ run - update c2 --title "$title"
 assert_eq "a no-op update on the fixture succeeds" "0" "$RC"
 assert_eq "... and leaves todo.md byte-identical" "$(cat "$FIXTURE/store/todo.md")" "$(cat "$S/todo.md")"
 assert_eq "the fixture qa.md parses" "VERIFIED:qa" "$(python3 "$CORE" verify qa "$S/qa.md")"
+assert_contains "the fixture is todo format 2" "format=2" "$(sed -n 2p "$S/todo.md")"
+
+# =============================================================================
+echo "=== Test 16b: a format=1 store is read as-is and upgraded by its first changing write ==="
+reset_store
+mkdir -p "$S"
+cp -R "$FIXTURE/store_v1/." "$S/"
+run - read
+assert_eq "read returns the v1 fixture byte-identical" "$(cat "$FIXTURE/store_v1/todo.md")" "$OUT"
+run - list --machine
+assert_eq "list --machine on the v1 fixture" "$(cat "$FIXTURE/expected_list_v1.txt")" "$OUT"
+title="$(sed -n 's/^ITEM:c2|\([^|]*|\)\{8\}//p' "$FIXTURE/expected_list_v1.txt")"
+run - update c2 --title "$title"
+assert_eq "a no-op update on the v1 fixture succeeds" "0" "$RC"
+assert_eq "... and leaves the v1 todo.md byte-identical (still format=1)" \
+    "$(cat "$FIXTURE/store_v1/todo.md")" "$(cat "$S/todo.md")"
+run - update c4 --title "CI on the sitrep branch (renamed)"
+assert_eq "a changing update on the v1 fixture succeeds" "0" "$RC"
+assert_eq "... line 2 is now format=2" "<!-- aitask-sitrep todo format=2 -->" "$(sed -n 2p "$S/todo.md")"
+v1_rest="$(sed -e 2d -e '/^- c4 |/d' "$FIXTURE/store_v1/todo.md")"
+v2_rest="$(sed -e 2d -e '/^- c4 |/d' "$S/todo.md")"
+assert_eq "... and every other line except the touched item is unchanged" "$v1_rest" "$v2_rest"
+assert_eq "the upgraded todo.md verifies" "VERIFIED:todo" "$(python3 "$CORE" verify todo "$S/todo.md")"
+assert_eq "qa.md stays format=1" "<!-- aitask-sitrep qa format=1 -->" "$(sed -n 2p "$S/qa.md")"
+
+# =============================================================================
+echo "=== Test 16c: push refs ==="
+reset_store
+run "$(ctx "A push reminder.")" add --kind action --title "Push main" --ref push:main@ABCDEF1 --derived agent --context-file -
+assert_eq "add --ref push:main@<sha> -> ADDED" "ADDED:c1" "$OUT"
+assert_contains "the sha is stored lowercase" "ref=push:main@abcdef1 |" "$(item_line c1)"
+run - add --kind action --title "Push main again" --ref push:main@abcdef1
+assert_eq "the same push ref again -> EXISTS" "EXISTS:c1" "$OUT"
+run - add --kind action --title "Push feature" --ref push:feature/x-1@0123456789abcdef0123456789abcdef01234567
+assert_eq "a slash branch and a 40-hex sha -> ADDED" "ADDED:c2" "$OUT"
+before="$(cat "$S/todo.md")"
+for bad in "push:main" "push:@abcdef1" "push:main@abc12" "push:main@xyz1234" "push:.hidden@abcdef1" \
+           "push:a..b@abcdef1" "push:a//b@abcdef1" "push:a/@abcdef1" "push:a.lock@abcdef1" \
+           "push:-x@abcdef1" "push:a/.b@abcdef1" "push:ma in@abcdef1" 'push:a$(id)@abcdef1'; do
+    run - add --kind action --title "bad" --ref "$bad"
+    assert_eq "invalid push ref '$bad' -> exit 2" "2" "$RC"
+done
+assert_eq "... and nothing was written" "$before" "$(cat "$S/todo.md")"
 
 echo ""
 echo "==============================="

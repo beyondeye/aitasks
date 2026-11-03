@@ -24,14 +24,15 @@
 # banner and the parser is strict: a hand-edited file is refused (exit 4) until
 # `restore` puts the last good generation back. The consumer contract is the
 # golden store in tests/fixtures/sitrep/ -- a format change edits that fixture
-# and bumps `format=`.
+# and bumps `format=`. todo.md is format 2 (adds the `push:<branch>@<sha>` ref,
+# t2175_3); format 1 files are read and upgraded by their first changing write.
 #
 # CONCURRENCY. `lib/atomic_write.sh` gives readers a whole-old-or-whole-new view
 # but does not serialize a read-modify-write, so every mutation holds the
 # `lib/registry_lock.sh` mutex (shadow-store pattern) and re-reads the file under
 # it. Verbs are record-level -- none replaces a whole section -- and stale
-# results are refused, not merged: every change gives the item a fresh
-# `rev=<N>`; `set-state --batch` lines and any `--expect-rev` write apply only
+# results are refused, not merged: every change to an item OR its context
+# entry gives the item a fresh `rev=<N>`; `set-state --batch` lines and any `--expect-rev` write apply only
 # when the item still has the observed rev (else `STALE:`), and a batch never
 # touches a dismissed item (`KEPT:`) nor sets `dismissed` -- dismissal is the
 # user's.
@@ -73,10 +74,13 @@
 # the fifo. AITASK_SITREP_NOW pins the clock (YYYY-MM-DDTHH:MM:SSZ).
 # AITASK_SITREP_LOCK_TIMEOUT overrides the 10s lock-wait budget.
 #
-# Callers: the sitrep harvest (t2175_2) and refresh (t2175_3) scripts, and the
-# sitrep skill (t2175_4).
+# Callers: the sitrep harvest (t2175_2) and refresh (t2175_3,
+# aitask_sitrep_refresh.sh) scripts, and the sitrep skill (t2175_4).
 #
 # Verbs (ids are c<N> or <N>; stdin text never contains NUL):
+#   Refs: t<N>[_<M>] (task), <project>#<N>[_<M>] (cross-repo task) or
+#   push:<branch>@<sha> (push reminder; branch in a shell-safe subset of git's
+#   ref grammar, sha 7-40 hex, stored lowercase).
 #   add --kind K --title T [--ref R] [--group now|next|waiting]
 #       [--state open|unknown] [--derived script|agent] [--checked-at TS|now|never]
 #       [--context-file -]          ADDED:c<N> | EXISTS:c<N> (a non-empty ref
