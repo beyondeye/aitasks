@@ -257,7 +257,10 @@ environment, which keeps any inherited `GOWORK`, `GOFLAGS`
 - `GOFLAGS=` cleared before any per-call value;
 - `GOWORK=off`;
 - no `GOPRIVATE` / `GONOPROXY` / `GONOSUMDB`;
-- the public proxy only.
+- the public proxy only;
+- `-buildvcs=false` on every `go build` and `go list -deps`: the scratch copy
+  is never a repository, and a stray ancestor `.git` (a sandbox's transient
+  `/tmp/.git`) would otherwise fail them with `error obtaining VCS status`.
 
 The checks, in order:
 

@@ -53,7 +53,8 @@
 # Every go command runs through run_go, under one independent environment
 # (no go env file, no inherited GOFLAGS such as -modfile, GOWORK=off, no
 # GOPRIVATE / GONOPROXY / GONOSUMDB, the public proxy only), so no inherited
-# setting reaches one check and not another.
+# setting reaches one check and not another. go build and go list -deps also
+# run with -buildvcs=false: the scratch copy is never a repository.
 #
 # Per-target checks run with the release build settings (CGO_ENABLED=0,
 # GOOS/GOARCH from build.sh's MATRIX, no build tags): go list evaluates build
@@ -234,6 +235,16 @@ first_line() {
 # go in the scratch copy, under the independent environment plus the given
 # extra assignments. Every go command goes through here: an inherited GOWORK,
 # GOFLAGS or proxy setting must never reach one check and not another.
+#
+# Every go build and package-mode go list (-deps) also passes -buildvcs=false
+# in its own GOFLAGS. The scratch copy is a bare tree, never a repository, so
+# VCS stamping there is always wrong, and under the default -buildvcs=auto
+# those commands walk up to any ancestor .git and run git status there. A
+# sandbox's transient /tmp/.git (Codex creates one per sandboxed command) then
+# fails them with "error obtaining VCS status", or, under go list -e, records
+# the error silently. The flag cannot live in INDEPENDENT_ENV: a per-call
+# GOFLAGS= replaces the cleared value there. go vet, go mod tidy and go list -m
+# never stamp.
 work=""
 run_go() {
     (cd "$work" && env "${INDEPENDENT_ENV[@]}" "$@")
@@ -325,7 +336,7 @@ for r in m.get("Replace") or []:
         [[ "$a" =~ $PRIVATE_RE ]] && fail private-deps "the module graph contains $a"
     done <<<"$out"
     for t in "${TARGETS[@]}"; do
-        if ! out="$(run_go GOFLAGS=-mod=readonly CGO_ENABLED=0 GOOS="${t%%_*}" GOARCH="${t#*_}" \
+        if ! out="$(run_go GOFLAGS="-mod=readonly -buildvcs=false" CGO_ENABLED=0 GOOS="${t%%_*}" GOARCH="${t#*_}" \
             go list -e -deps -f '{{.ImportPath}}:{{range .Imports}} {{.}}{{end}}' ./... 2>&1)"; then
             fail private-deps "$t: go list -deps failed: $(first_line "$out")"
             continue
@@ -346,7 +357,7 @@ check_independent_build() {
         fail independent-build "go mod tidy -diff is not clean: $(first_line "$out")"
     fi
     for t in "${TARGETS[@]}"; do
-        if ! out="$(run_go GOFLAGS=-mod=mod CGO_ENABLED=0 GOOS="${t%%_*}" GOARCH="${t#*_}" go build ./... 2>&1)"; then
+        if ! out="$(run_go GOFLAGS="-mod=mod -buildvcs=false" CGO_ENABLED=0 GOOS="${t%%_*}" GOARCH="${t#*_}" go build ./... 2>&1)"; then
             fail independent-build "$t: go build ./... failed: $(first_line "$out")"
         fi
     done
@@ -375,7 +386,7 @@ check_closure() {
     [[ -d "$work/cmd/ait-monitord" ]] && bins+=(ait-monitord)
     for t in "${TARGETS[@]}"; do
         for bin in "${bins[@]}"; do
-            if ! out="$(run_go GOFLAGS=-mod=mod CGO_ENABLED=0 GOOS="${t%%_*}" GOARCH="${t#*_}" \
+            if ! out="$(run_go GOFLAGS="-mod=mod -buildvcs=false" CGO_ENABLED=0 GOOS="${t%%_*}" GOARCH="${t#*_}" \
                 go list -deps -f '{{if not .Standard}}{{.ImportPath}}{{"\t"}}{{with .Module}}{{.Path}}{{end}}{{end}}' \
                 "./cmd/$bin" 2>&1)"; then
                 fail closure "$t:$bin: go list -deps failed: $(first_line "$out")"

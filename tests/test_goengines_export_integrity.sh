@@ -426,6 +426,55 @@ fi
     assert_contains "… INTEGRITY_OK" "INTEGRITY_OK" "$OUT"
 )
 
+# --- 9f. an ancestor .git that is no repository reaches no check ------------------
+# A sandbox can leave an empty .git in an ancestor of TMPDIR (Codex's bwrap
+# creates /tmp/.git for each sandboxed command). Under -buildvcs=auto, go build
+# and go list -deps in the scratch copy walk up to it and run git status there:
+# go build and the closure listing fail with "error obtaining VCS status", and
+# the private-deps listing's -e swallows the same error (t2171). Go stamps only
+# by running git, so a logging git stub sees every stamping attempt, including
+# the one no exit status or output shows. GIT_CEILING_DIRECTORIES keeps git's
+# own discovery from reaching a real repository above $TMP.
+(
+    d="$(mkfix vcs)"
+    rm -rf "$d/.git" # the real goengines/ has no .git of its own: its copy must not either
+    sandbox="$TMP/vcs/sandbox"
+    stub="$TMP/vcs/bin"
+    gitlog="$TMP/vcs/git.log"
+    realgit="$(command -v git)"
+    mkdir -p "$sandbox/.git" "$sandbox/tmp" "$stub"
+    cat >"$stub/git" <<EOF
+#!/usr/bin/env bash
+printf '%s | parent: %s\n' "\$*" "\$(ps -o args= -p "\$PPID" 2>/dev/null)" >>"$gitlog"
+exec "$realgit" "\$@"
+EOF
+    chmod +x "$stub/git"
+    probe="$sandbox/tmp/probe"
+    cp -R "$d/." "$probe"
+    under_sandbox() { (cd "$probe" && PATH="$stub:$PATH" GIT_CEILING_DIRECTORIES="$TMP" CGO_ENABLED=0 "$@" 2>&1); }
+
+    : >"$gitlog"
+    rc=0
+    out="$(under_sandbox env GOFLAGS=-mod=mod go build ./...)" || rc=$?
+    assert_eq "control: go build under the empty ancestor .git fails" "failed" "$([[ "$rc" -ne 0 ]] && echo failed || echo passed)"
+    assert_contains "control: … on VCS stamping" "error obtaining VCS status" "$out"
+    assert_contains "control: … after go ran git status" "status" "$(cat "$gitlog")"
+
+    : >"$gitlog"
+    rc=0
+    out="$(under_sandbox env GOFLAGS=-mod=readonly go list -e -deps -f '{{.ImportPath}}' ./...)" || rc=$?
+    assert_eq "control: the private-deps form (go list -e -deps) exits 0 there" "0" "$rc"
+    assert_contains "control: … yet it ran git status, which only the git log shows" "status" "$(cat "$gitlog")"
+    rm -rf "$probe"
+
+    : >"$gitlog"
+    run check "$d" TMPDIR="$sandbox/tmp" GIT_CEILING_DIRECTORIES="$TMP" PATH="$stub:$PATH"
+    assert_eq "an empty ancestor .git does not fail check" "0" "$RC"
+    assert_contains "… INTEGRITY_OK" "INTEGRITY_OK" "$OUT"
+    assert_not_contains "… and no check reports a VCS stamping error" "VCS status" "$OUT"
+    assert_eq "… and no go command in check ran git (the -e listing included)" "" "$(cat "$gitlog")"
+)
+
 # --- 10. the allowlist restates guards_test.go ------------------------------------
 GUARDS="$PROJECT_DIR/goengines/guards_test.go"
 if [[ -f "$GUARDS" ]]; then
