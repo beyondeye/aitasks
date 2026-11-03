@@ -551,7 +551,7 @@ Step 9 of the task workflow: commit, archive t2175_2, push via `./ait git`.
 - The harvest writes into other repos (store plus `info/exclude`) · severity: low · → mitigation: none (local-only exclude, re-checked; nothing written when nothing is found)
 
 ### Goal-achievement risk: medium
-- The passage-start detection and the marker search are tuned on Claude Code's tool-call layout. On codex/opencode captures the passage range may be wrong, or the marker invisible; the result is a linked duplicate triage item, never suppressed advice · severity: medium · → mitigation: harvest_other_agent_captures
+- The passage-start detection and the marker search are tuned on Claude Code's tool-call layout. On codex/opencode captures the passage range may be wrong, or the marker invisible; the result is a linked duplicate triage item, never suppressed advice · severity: medium · → mitigation: t2182
 - A Stopped run that was piped but whose marker line is not visible in the capture (an agent other than Claude Code, or a display change) shows twice, as two linked items · severity: low · → mitigation: none (duplicates are the designed uncertain-case outcome; the Complete-run majority match by commit)
 - Records with unharvested text are now kept by purge and refused by drop until harvested or explicitly discarded, so they can accumulate if no harvest runs · severity: low · → mitigation: none (freeze harvests automatically; `all` releases them; t2175_4/5 get notes to run `all` on start and on the maintenance tick)
 - Claude Code collapses long tool output (`… +N lines`), so a hidden `Created:` line is not harvested · severity: low · → mitigation: none (advisory, documented; banner follow-ups cover pick runs)
@@ -559,7 +559,7 @@ Step 9 of the task workflow: commit, archive t2175_2, push via `./ait git`.
 
 ### Planned mitigations
 - timing: post-phase | name: harvest_guard_mutants | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — gates on the drop and purge paths | desc: one mutant per guard (receipt gate, purge keep on frozen and live branches, sha check, pre-kill harvest, canonical root, byte-exact identity (4 normalizer mutants), marker banner check, per-record seq, receipt short-circuit, ignore re-check, continuation join, banner labels) must turn its test red
-- timing: after | name: harvest_other_agent_captures | type: test | priority: low | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement — heuristics tuned on Claude Code rendering | desc: once codex/opencode finished-pick captures exist, add them as fixtures and fix the banner, passage and identity heuristics they break
+- timing: after | name: harvest_other_agent_captures | type: test | priority: low | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement — heuristics tuned on Claude Code rendering | desc: once codex/opencode finished-pick captures exist, add them as fixtures and fix the banner, passage and identity heuristics they break | created: t2182
 
 ## Post-Review Changes
 
