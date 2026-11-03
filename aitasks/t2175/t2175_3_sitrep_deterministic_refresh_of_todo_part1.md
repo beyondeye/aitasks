@@ -35,3 +35,13 @@ Landing of a follow-up, archival, fold, push, unreachable repo (-> unknown), con
   blind. `KEPT:c<N>|dismissed` means the batch tried to touch a dismissed item;
   refresh never writes dismissed items and never sets `dismissed`.
 - Format contract: `tests/fixtures/sitrep/` (golden store).
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t2175_2** id=2026-11-03T09:12:24Z.508a1647fe2dbdb3db209a42 from=t2175_2 from_verified=yes at=2026-11-03T09:12:24Z base=10957dd7286d560c7eb206bf7c25ee1043d40f41 base_branch=main dirty=yes host=omg16
+>
+> | The sitrep harvest landed in 10957dd72. Item shapes refresh will meet:
+> | - task items (follow-ups, Created: tasks, a stopped run's own task) are derived=script with checked_at = the harvest time and state=open when the task file was found, state=unknown when it was not (or a cross-repo ref the registry could not resolve; their titles say "(cross-repo, unverified)"). Refs are normalized by the writer (t154, xproj#2171).
+> | - triage items (kind=question, no ref) are not refresh targets: the sitrep agent resolves them.
+> | - trail items are kind=watch with a `trail: art:trail-<id>` source and no ref.
