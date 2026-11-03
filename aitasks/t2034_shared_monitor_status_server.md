@@ -87,3 +87,30 @@ one level of children, so it lives in two top-level parents:
   protocol stream as its parity fixture.
 - How Go binaries ship, and so where shared Go code such as the tmux package
   lives, is decided in aitasks_go#15.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t2034_1** id=2026-11-03T15:02:06Z.4ba80cc9914a7fe3fc7a97d4 from=t2034_1 from_verified=yes at=2026-11-03T15:02:06Z base=6930f54e25e74a1e92e01e7fab1a8c1cbbcf2914 base_branch=main dirty=yes host=omg16
+>
+> | t2034_1 measurement results (2026-11-03, omg16; full tables, method and scripts in
+> | aiplans/p2034/p2034_1_measure_monitor_scan_cost.md, task-data commit db064ad60 —
+> | archived with t2034_1). Advisory; numbers are from one host at one moment.
+> | 
+> | - Monitoring cost at the time of measurement: ~2.2–2.4 cores (38 minimonitors
+> |   140–158 % of a core combined, 4 monitors ~8 %, tmux server 65–73 %). ps lifetime
+> |   averages (tmux server 21 %) understated it.
+> | - The tmux server is the largest single scan cost and is almost entirely scanning:
+> |   with 12 agents and K=0 scanners it used 0.02 %, K=1 0.77 %, K=4 2.68 % — grows as
+> |   N agents × K scanners (~0.64 % of a core per extra scanner at N=12,
+> |   ≈1.6 ms server CPU per capture-pane incl. discovery/control traffic). Supports the
+> |   "Why" section's quadratic-growth claim.
+> | - In-process, scanning is a minority of a minimonitor's CPU (≈14 % steady, live);
+> |   Textual render/dispatch ≈80 %. Monitor: producer ≈43 %.
+> | - Estimated shared-server saving ≈0.9–1.0 core (≈0.63–0.71 from tmux-server dedup
+> |   + ≈0.28 in-process). The gain is from dedup (t2037), not language: one Python
+> |   producer ≈0.7–0.9 % of a core, so t2038 / aitasks_go#t47's CPU payoff is small —
+> |   its case would rest on memory. Single-idle-clock gain unaffected.
+> | - Untouched by the server: minimonitor rendering ≈1.2 cores across 38 instances,
+> |   growing with N (every card re-rendered per tick) — spun out as a separate
+> |   follow-up task.
