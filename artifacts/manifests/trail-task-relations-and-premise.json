@@ -1,10 +1,11 @@
 {
   "backend": "local",
   "created_at": 1793772700,
-  "current": "sha256:04c86876164139875eddcb3ea6db9fe535989859f9af5b344e6a01391b861029",
+  "current": "sha256:304b689b7708d239d634605f37d7efd2ae14835422eb9475d409cd3eec770fc8",
   "handle": "art:trail-task-relations-and-premise",
-  "updated_at": 1793772700,
+  "updated_at": 1793801010,
   "versions": [
-    "sha256:04c86876164139875eddcb3ea6db9fe535989859f9af5b344e6a01391b861029"
+    "sha256:04c86876164139875eddcb3ea6db9fe535989859f9af5b344e6a01391b861029",
+    "sha256:304b689b7708d239d634605f37d7efd2ae14835422eb9475d409cd3eec770fc8"
   ]
 }
