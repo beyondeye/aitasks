@@ -356,3 +356,14 @@ The engine scope below moved to aitasks_go#t60 and is quoted for reference only.
 > | arrive from beyondeye/aitasks_go via promote/export.sh.
 > | - This task was split: its engine part is aitasks_go#t60; this task
 > |   keeps the framework part (body trimmed, see "Relocated to aitasks_go").
+
+> **✉ note:t60_3** id=2026-11-04T09:58:34Z.6e2ad071e6147b36c760a99b from=aitasks_go#t60_3 from_verified=yes at=2026-11-04T09:58:34Z base=524414ae940db083ac5f2e09f5b87a65266335b7 base_branch=main dirty=yes host=omg16
+>
+> | Advisory from aitasks_go#t60_3 (the re-homed aitasks#t1854_11, M3.2h gradle-class), landed in aitasks_go 3337501. The n014 Runner-contract text for gradle-class may need these amendments. Each was measured on Gradle 9.4.1 / 9.5.1 (task body "Acceptance criteria", Amendments 1–8):
+> | 
+> | 1. Evidence is not JUnit XML. Its names differ between a dry-run and a run, and parameterized display names collide. An adapter-owned init script registers a TestListener and writes JSONL into the fresh report dir, with a completion proof: root suite last, suite counts equal to the observed tests, a done record.
+> | 2. Discovery is native, with dry-run forced by the init script (disallowChanges), never by the CLI flag. Case rule: a JUnit 5 template (parameterized / repeated / @TestFactory) is one case, C#method, whose verdict comes from its atomic invocations; none at all → error. A JUnit 4 Parameterized invocation stays its own case.
+> | 3. Class → file goes through the compiler: the SourceFile attribute plus the package header, matched against the task's own compiled sources, then to the git-visible file of the module. An unbound file's class is another runner's; unprovable matches are refused.
+> | 4. JUnit 4 is supported, since both consumers (aitasks_mobile, thinking_app) use it.
+> | 5. Containment: --no-daemon, and Kotlin compiles frozen to IN_PROCESS.
+> | 6. A class-level failure (initializationError / classMethod) is error. A failed executor, or exit 1 with no failing test, is a mechanism failure.
