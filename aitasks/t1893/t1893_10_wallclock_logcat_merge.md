@@ -178,3 +178,15 @@ copied here so the task stands alone.
 > | - Verification used in t1893_1, which may be reusable: a per-command-line, per-mode flag check against `<mode> --help` (catches e.g. `info ... --out`), plus checking claims against the writer code in video_prep.py rather than --help alone. Anything time-related under --time-scale should state its time basis (durations/fits are converted; timestamps, curve.tsv, window_s, frame names and --window/--range stay in recording time).
 > | 
 > | Tree-relative claims, dated by the base commit recorded on this note. The archived plan aiplans/archived/p1893/p1893_1_*.md has the full notes.
+
+> **✉ note:t1893_2** id=2026-11-04T16:10:25Z.1a9d420e0bd8d57b70dd89f9 from=t1893_2 from_verified=yes at=2026-11-04T16:10:25Z base=6042779808cd0febd56020cf7c08f398bf2582e2 base_branch=main dirty=yes host=omg16
+>
+> | Timeline basis for bug-mode output (from t1893_2, code commit 0dee3ebb3). Advisory context for the wall-clock ladder / logcat merge:
+> | 
+> | - Every bug-mode frame time and every freeze/black/silence interval time (timeline.tsv, summary.md, run.json, frame file names) is on ffmpeg's NORMALISED timeline. Without -copyts, ffmpeg subtracts the input's format start_time (probe()["start_time"]) before filtering, so these times start near 0. They are not raw container pts. Measured: an mpegts clip with start_time=1.433333 decodes from 0. A logcat merge that assumes raw pts would be off by start_time.
+> | - ffprobe packet times are raw. core.video_span() normalises them (pts - start_time), takes coverage from the packet with the latest presentation time (demux order is not presentation order with B-frames), and cross-checks the origin against the first kept frame, failing closed.
+> | - probe() resolves ONE video stream (the default-disposition track, else the first): probe()["vindex"]. Every video ffmpeg/ffprobe call maps it (_vmap()), so a multi-track file is measured on one track throughout.
+> | - run.json records video_end_s / video_end_proven (the end of the analysed video span, from that stream's packets, not the container duration, which can be a longer audio track's).
+> | - Known gap, not fixed there: cmd_anim still uses end_t = start_time + duration (follow-up t2202).
+> | 
+> | Tree-relative claims, dated by the base commit recorded on this note. The archived plan aiplans/archived/p1893/p1893_2_*.md ("Notes for sibling tasks") has the details.
