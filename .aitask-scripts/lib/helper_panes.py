@@ -183,6 +183,22 @@ def helpers_bound_to(stdout: str, target_pane_id: str) -> list[HelperCandidate]:
     return found
 
 
+def all_of(halves: "list[str]") -> str:
+    """Join ``if-shell -F`` conditions with nested binary ``&&``.
+
+    tmux's ``#{&&:a,b}`` takes exactly two operands (measured on tmux 3.8), so
+    N conditions nest right: ``#{&&:a,#{&&:b,c}}``. The one grammar every
+    guarded dispatch here shares — the helper sweep and the harvest-and-close
+    run kill (t2175_5).
+    """
+    if not halves:
+        raise ValueError("all_of needs at least one condition")
+    cond = halves[-1]
+    for half in reversed(halves[:-1]):
+        cond = f"#{{&&:{half},{cond}}}"
+    return cond
+
+
 def _guard_condition(cand: HelperCandidate, target_pane_id: str,
                      frozen_option: str) -> str:
     """The `if-shell -F` condition that must hold, AT DISPATCH TIME, to kill.
@@ -193,18 +209,58 @@ def _guard_condition(cand: HelperCandidate, target_pane_id: str,
     to carry the same binding; the server-pid half is also what makes the
     "target is gone" reading the listing gave apply to the server the kill runs
     in, since pane ids are never reused within one generation.
-    Nested binary `&&` (measured on tmux 3.8).
     """
-    halves = [
+    return all_of([
         f"#{{==:#{{{frozen_option}}},}}",
         f"#{{==:#{{{cand.option}}},{target_pane_id}}}",
         f"#{{==:#{{pane_pid}},{cand.pane_pid}}}",
         f"#{{==:#{{pid}},{cand.server_pid}}}",
-    ]
-    cond = halves[-1]
-    for half in reversed(halves[:-1]):
-        cond = f"#{{&&:{half},{cond}}}"
-    return cond
+    ])
+
+
+def run_identity_condition(pane_pid: str, server_pid: str,
+                           frozen_option: str) -> str:
+    """The condition that must hold to kill ONE agent run (t2175_5).
+
+    Unfrozen, still running process ``pane_pid``, on server generation
+    ``server_pid``. A freeze or restore respawns a different process into the
+    same pane id, which fails the ``pane_pid`` half; a server restart that
+    recycles the ``%N`` fails the server half. Both values must be bare pids —
+    they are spliced into the condition, so anything else is refused here.
+    It guards the target pane only: tmux evaluates it in that pane's context,
+    which is why the run kill never extends to the pane's window.
+    """
+    if not (_PID_RE.fullmatch(pane_pid or "")
+            and _PID_RE.fullmatch(server_pid or "")):
+        raise ValueError("pane_pid and server_pid must be bare pids")
+    return all_of([
+        f"#{{==:#{{{frozen_option}}},}}",
+        f"#{{==:#{{pane_pid}},{pane_pid}}}",
+        f"#{{==:#{{pid}},{server_pid}}}",
+    ])
+
+
+#: Public name of the post-dispatch read-back format (see `_READBACK_FORMAT`).
+READBACK_FORMAT = _READBACK_FORMAT
+
+
+def readback_state(rc: int, out: str, pane_id: str, server_pid: str) -> str:
+    """Classify a :data:`READBACK_FORMAT` read of ``pane_id`` after a kill.
+
+    ``"gone"`` only from a successful read on the SAME server generation that
+    shows an empty ``#{pane_id}``; ``"present"`` when the pane answers with its
+    own id on that server; anything else — a failed read, a short read, a
+    different server, a different pane — is ``"unknown"``, never "gone".
+    """
+    if rc != 0:
+        return "unknown"
+    fields = (out.splitlines() or [""])[0].split("\t")
+    if len(fields) != 2 or fields[1].strip() != server_pid:
+        return "unknown"
+    found = fields[0].strip()
+    if not found:
+        return "gone"
+    return "present" if found == pane_id else "unknown"
 
 
 def kill_bound_helpers(
@@ -239,10 +295,6 @@ def kill_bound_helpers(
              f"kill-pane -t {cand.pane_id}"])
         rc, back = run(["display-message", "-p", "-t", cand.pane_id,
                         _READBACK_FORMAT])
-        if rc != 0:
-            continue
-        fields = (back.splitlines() or [""])[0].split("\t")
-        if (len(fields) == 2 and not fields[0].strip()
-                and fields[1].strip() == cand.server_pid):
+        if readback_state(rc, back, cand.pane_id, cand.server_pid) == "gone":
             killed.append(cand.pane_id)
     return killed

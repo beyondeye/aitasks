@@ -68,6 +68,7 @@ from monitor import review_loop  # noqa: E402  (auto-recheck decision core, t115
 from monitor import review_loop_log  # noqa: E402  (durable disarm/hold record, t1606)
 from monitor.tmux_control import TmuxControlState  # noqa: E402
 import agent_marks  # noqa: E402
+from monitor.sitrep_close import SitrepCloseMixin  # noqa: E402
 from monitor.monitor_shared import (  # noqa: E402
     _TASK_ID_RE, GateSummaryCache, TaskInfoCache, TaskDetailDialog,
     workflow_phase,
@@ -965,9 +966,12 @@ _BOARD_COLUMN_CMD_TIMEOUT = 20.0
 # all-operations requirement true by construction (t1159_2 review round 7).
 KEY_HINTS_TEXT = (
     "i:info  q:quit  tab:agent\n"
-    "I:info (followed agent)\n"
+    # t2175_5 bought the two rows `h` and `S` cost here: "(followed)" for
+    # "(followed agent)" and the glyph-first detect line ("\u2248strip =raw"
+    # still names both modes) each save one wrapped row at (15, 30), measured.
+    "I:info (followed)\n"
     "s/\u2191\u2193:switch  enter:send\n"
-    "d:detect (\u2248 strip, = raw)\n"
+    "d:detect \u2248strip =raw\n"
     # Shortened by t1705_7 to pay for the three keys added below. At width 15
     # this was the most expensive line in the band — four wrapped rows — so
     # trimming it buys back more than the new keys cost.
@@ -1010,8 +1014,8 @@ KEY_HINTS_TEXT = (
     # Footer), so a user hunting for "how do I show parked agents again?" has
     # nowhere else to look.
     "c:concerns  p:pick  P:parked/frozen\n"
-    "f:freeze  Z:all\n"
-    "L:loop ?:keys M:multi\n"
+    "f:freeze  Z:all  h:harvest\n"
+    "L:loop ?:keys M:multi S:sitrep\n"
     "space:mark ★ (followed agent)"
 )
 
@@ -1069,7 +1073,8 @@ _PANE_LIST_FLOOR_ROWS = 3
 
 
 class MiniMonitorApp(
-    AgentMarksMixin, ShadowRejectionsMixin, TuiSwitcherMixin, ShortcutsMixin, App
+    AgentMarksMixin, SitrepCloseMixin, ShadowRejectionsMixin, TuiSwitcherMixin,
+    ShortcutsMixin, App
 ):
     """Compact Textual app for monitoring tmux agent panes."""
 
@@ -1346,6 +1351,11 @@ class MiniMonitorApp(
         # binds it to Zoom.
         Binding("f", "freeze_current", "Freeze followed agent", show=False),
         Binding("Z", "freeze_all", "Freeze all agents", show=False),
+        # Sitrep (t2175_5): `h` harvests the FOLLOWED agent, shows what was
+        # captured, then offers to close it; `S` opens / switches to the
+        # repository's sitrep window. Same keys as the full monitor.
+        Binding("h", "harvest_close", "Harvest followed agent", show=False),
+        Binding("S", "open_sitrep", "Sitrep window", show=False),
         # `k` keeps its live-row meaning and branches on the frozen state
         # INSIDE the action. Restore and re-pick are the frozen-agent viewer's
         # own `R` / `P`, reached with Tab into the stand-in pane (t2054).
@@ -3324,6 +3334,28 @@ class MiniMonitorApp(
             ),
             confirmed,
         )
+
+    def _close_live_after_harvest(self, identity) -> None:
+        """`h`'s live close (t2175_5): the guarded run kill, then `k`'s tail.
+
+        The run kill is pane-only, so this minimonitor survives it and closes
+        itself once it verifiably sits alone (`_check_auto_close`). The
+        `killed_window` branch stays for parity with `_on_own_kill_confirmed`.
+        """
+        pane_id = identity.pane_id
+        snap = self._snapshots.get(pane_id)
+        name = snap.pane.window_name if snap else pane_id
+        status, killed_window = self._guarded_close(identity)
+        if status != "killed":
+            return
+        self._focused_pane_id = None
+        if not killed_window:
+            self.notify(f"Closed {name}", markup=False)
+            self.call_later(self._refresh_data)
+
+    def _default_sitrep_target(self):
+        """`S` with no followed agent: this companion's project and session."""
+        return self._project_root, self._session
 
     def _on_own_kill_confirmed(self, confirmed: bool | None, pane_id: str) -> None:
         if not confirmed or self._monitor is None:

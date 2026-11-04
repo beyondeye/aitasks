@@ -4,6 +4,7 @@
 #
 # Usage:
 #   ait sitrep [open] [--agent-string <a>] [--no-select] [--root <path>]
+#                     [--session <name>]
 #   ait sitrep root [--root <path>]
 #   ait sitrep triage <id> [--root <path>]
 #   ait sitrep triage --open [--root <path>]
@@ -13,14 +14,16 @@
 # that name) with a minimonitor companion. One sitrep per repository: the agent
 # pane is stamped `@aitask_sitrep_root=<canonical root>`, and a live lookup under
 # a per-server lock refuses rather than spawn a second one. Needs tmux; the new
-# window goes into the session holding $TMUX_PANE.
+# window goes into the session holding $TMUX_PANE, or into `--session <name>`
+# (which must exist; the TUIs pass the selected agent's session).
 #   SITREP_SPAWNED:<pane>|<session>:<window>   (+ SITREP_WARN:companion_not_spawned)
 #   SITREP_FOCUSED:<pane>
 #   SITREP_FOCUS_FAILED:<pane>                 exit 1 (it exists; switching to it
 #                                              failed; --no-select never switches)
 #   SITREP_REFUSED:<reason>                    exit 1
-#     reasons: not_in_tmux, no_session, root:<why>, lock_busy, lookup_failed,
-#     no_command, window_list_failed, launch:<why>, stamp:<exited|removed|stuck>
+#     reasons: not_in_tmux, no_session (also an unknown --session), root:<why>,
+#     lock_busy, lookup_failed, no_command, window_list_failed, launch:<why>,
+#     stamp:<exited|removed|stuck>
 #
 # root prints the canonical project root (a linked or removed `aiwork/` worktree
 # maps to the main worktree), then whether the cwd is it:
@@ -40,8 +43,9 @@
 #
 # Callers: users (`ait sitrep`), the sitrep skill (`root`, `triage`; hence the
 # code-agent allow-list entries, aidocs/framework/aitasks_extension_points.md),
-# and t2175_5's TUI key through `monitor_core.spawn_sitrep`. All tmux goes
-# through the gateways (lib/tmux_exec.py). See aidocs/framework/sitrep.md.
+# and t2175_5's TUI keys (`S` in monitor / minimonitor / TUI switcher), which
+# run `open --root <r> --session <s>`. All tmux goes through the gateways
+# (lib/tmux_exec.py). See aidocs/framework/sitrep.md.
 #
 # `open` runs monitor/sitrep_open.py (it drives the tmux launch stack, which
 # lib/ must not import); `root` and `triage` run lib/sitrep_cli.py (stdlib).
@@ -60,7 +64,7 @@ CORE="$SCRIPT_DIR/lib/sitrep_cli.py"
 OPEN="$SCRIPT_DIR/monitor/sitrep_open.py"
 
 usage() {
-    echo "Usage: ait sitrep [open] [--agent-string <a>] [--no-select] [--root <path>]" >&2
+    echo "Usage: ait sitrep [open] [--agent-string <a>] [--no-select] [--root <path>] [--session <name>]" >&2
     echo "       ait sitrep root [--root <path>]" >&2
     echo "       ait sitrep triage <id>|--open [--root <path>]" >&2
     exit 2

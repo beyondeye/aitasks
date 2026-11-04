@@ -456,6 +456,9 @@ _QUICK_JUMP_BINDINGS = [
     Binding("n", "shortcut_create", "New Task", show=False),
     Binding("e", "shortcut_agent", "Code Agent", show=False),
     Binding("M", "spawn_minimonitor", "Minimonitor here", show=False),
+    # t2175_5: open (or switch to) the selected session's repository sitrep
+    # agent window — `ait sitrep open --root <root> --session <session>`.
+    Binding("S", "shortcut_sitrep", "Sitrep", show=False),
 ]
 
 #: Hosts whose window never gets a switcher-spawned companion: they ARE the
@@ -1302,6 +1305,30 @@ class TuiSwitcherOverlay(ModalScreen):
             return
         self.dismiss(window_name)
 
+    def action_shortcut_sitrep(self) -> None:
+        """Open or switch to the SELECTED session's sitrep window (t2175_5).
+
+        Shortcut-on-selected, like every quick-jump: the root is the selected
+        session's project and the window goes into that session. The launch can
+        take seconds (agent start + stamp), so it runs as a worker on the host
+        App after the overlay closes, and its result arrives as a toast.
+        """
+        if self._handle_stale_selection():
+            return
+        if not self._ensure_session_live():
+            return
+        root = str(self._selected_project_root())
+        session = self._session
+        app = self.app
+        self.dismiss(None)
+        self._dispatch_sitrep_open(app, root, session)
+
+    def _dispatch_sitrep_open(self, app, root: str, session: str) -> None:
+        """The one sync seam that starts the worker (tests stub THIS)."""
+        app.run_worker(_open_sitrep_async(app, root, session),
+                       name="sitrep_open", group="sitrep-open",
+                       exclusive=False, exit_on_error=False)
+
     def action_shortcut_explore_pick(self) -> None:
         """Launch an explore agent after opening the agent/model picker dialog.
 
@@ -1681,6 +1708,46 @@ class TuiSwitcherMixin:
             session=session, current_tui=current, selected_session=selected,
             narrow=narrow,
         ))
+
+
+#: `ait sitrep open` launches an agent and waits for its stamp (t2175_5).
+_SITREP_OPEN_TIMEOUT = 45.0
+
+
+async def _open_sitrep_async(app, root: str, session: str) -> None:
+    """Run `aitask_sitrep.sh open --root R --session S`; toast the result.
+
+    Killed (and the cancellation re-raised) if the host App exits first; a
+    timeout kills the child too. The wording is `sitrep_cli.sitrep_open_message`,
+    shared with the monitor TUIs' `S` key.
+    """
+    import asyncio
+    from sitrep_cli import sitrep_open_message
+
+    script = Path(__file__).resolve().parent.parent / "aitask_sitrep.sh"
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            str(script), "open", "--root", root, "--session", session,
+            stdin=asyncio.subprocess.DEVNULL,
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT)
+    except OSError as exc:
+        app.notify(f"Sitrep not opened: {exc}", severity="error", markup=False)
+        return
+    try:
+        out, _ = await asyncio.wait_for(proc.communicate(),
+                                        timeout=_SITREP_OPEN_TIMEOUT)
+    except (asyncio.TimeoutError, asyncio.CancelledError) as exc:
+        try:
+            proc.kill()
+        except ProcessLookupError:
+            pass
+        if isinstance(exc, asyncio.CancelledError):
+            raise
+        app.notify("Sitrep not opened: timed out", severity="error")
+        return
+    msg, severity = sitrep_open_message(
+        proc.returncode or 0, out.decode("utf-8", "replace"))
+    app.notify(msg, severity=severity, markup=False)
 
 
 # Register the switcher binding under a synthetic "shared" scope so the

@@ -17,11 +17,12 @@ User-facing pages: `website/content/docs/workflows/sitrep.md` and
 | refresh | `.aitask-scripts/aitask_sitrep_refresh.sh` | `lib/sitrep_refresh.py` | deterministic re-check of task, push and trail items (Part 1 only) |
 | window + facts | `ait sitrep` → `.aitask-scripts/aitask_sitrep.sh` | `open`: `monitor/sitrep_open.py` → `monitor/monitor_core.py` `spawn_sitrep`; `root` / `triage`: `lib/sitrep_cli.py` (stdlib; lib/ never imports the monitor package) | opens the sitrep agent in its own window; read-only facts for the skill |
 | agent | `/aitask-sitrep` | `.claude/skills/aitask-sitrep/SKILL.md.j2` | triage, situation text, answers from the sources, dismissals, Q&A log |
+| monitor surface | `h` / `S` in `ait monitor` and `ait minimonitor`, `S` in the TUI switcher | `monitor/sitrep_close.py` (`SitrepCloseMixin`) | harvest-and-close, open the sitrep window, the `sitrep N now` count; the maintenance `harvest all` pass |
 
 Each helper's header is its wire contract (verbs, result lines, exit codes); the
 store's consumer contract is the fixture `tests/fixtures/sitrep/`. The monitor's
-maintenance tick runs refresh (`monitor/monitor_shared.py`
-`_maybe_refresh_sitrep`).
+maintenance tick runs `harvest all` and then refresh (`monitor/monitor_shared.py`
+`_maybe_harvest_sitrep`, `_maybe_refresh_sitrep`).
 
 ## The store
 
@@ -43,8 +44,11 @@ the main worktree root (`ait sitrep root` checks it).
 
 `ait sitrep` (default verb `open`) focuses the repository's sitrep agent or
 launches it. `monitor_core.spawn_sitrep(monitor, target_root=, session=,
-select_window=, agent_string=)` is the one implementation; t2175_5's TUI key
-calls it too. It returns `SitrepSpawn(status, pane, window, detail)` with status
+select_window=, agent_string=)` is the one implementation. The TUIs' `S` key
+runs it through the CLI, `ait sitrep open --root <r> --session <s>`, naming the
+selected agent's (or switcher session's) session; `--session` must name an
+existing session (exact `has-session -t =<s>`), else `SITREP_REFUSED:no_session`.
+It returns `SitrepSpawn(status, pane, window, detail)` with status
 `spawned`, `focused`, `focus_failed` (a sitrep exists but switching to it failed
 — reported, never claimed as focused; `--no-select` / `select_window=False`
 reuses it without switching) or `refused`. `--root` is validated once, inside the
@@ -98,6 +102,73 @@ unblocked. The sitrep screen only echoes the store (banners it is triaging, trai
 handles it reports), so harvesting it would feed the store back into itself. The
 match is the window name, so a hand-renamed sitrep window is harvested normally —
 at worst duplicate, linked triage items, never lost ones.
+
+## The monitor surface
+
+`monitor/sitrep_close.py` (`SitrepCloseMixin`, mixed into both apps) owns `h`
+and `S`; the TUI switcher's `S` lives in `lib/tui_switcher.py` and shares only
+the result wording (`sitrep_cli.sitrep_open_message` — lib/ never imports the
+monitor package).
+
+**`h` — harvest-and-close.** The order is the contract: capture first, show what
+was captured, then offer the close.
+
+- **Target.** The full monitor's focused card or the minimonitor's followed
+  agent — AGENT cards only (`_current_agent_snapshot` can return a TUI or shell
+  card, which `_kill_target_state` would call `live`). `unverified` state or an
+  unknown project root (`_strict_root_for_snap`) stops before anything runs.
+- **Harvest.** A frozen agent: `harvest record <id> --force` (`--force`
+  because the detached post-freeze harvest has usually written the receipt
+  already, and a short-circuit prints no item lines). A live agent: one gateway
+  `capture-pane -p -J -S -50000` (the freeze default depth), piped into
+  `harvest capture --root --agent --task --operation`. A live
+  `agent-sitrep[-n]` window is never captured or harvested (`capture` does not
+  consult the window name); its report is `skipped`, which is ok.
+- **Report.** `parse_harvest_output` reads the helper's lines; ok only when the
+  exit is 0 AND the last final line is `HARVESTED` / `HARVEST_NONE`. Titles come
+  from a lock-free store read (`item_titles`, display only).
+- **Dialog.** `HarvestResultDialog` (a `GuardedModalScreen`, its own CSS, plain
+  Content for every harvested string). A failed report renders only **Close** —
+  no affirmative button — and the confirm callback re-checks `report.ok`.
+- **Run identity.** A pane id is a container: a freeze or restore respawns
+  another process into it. `RunIdentity(pane_id, pane_pid, server #{pid},
+  @aitask_frozen)` is read before and after the harvest (a change fails the
+  report). At confirm: a frozen close requires the snapshot's record AND the
+  live `@aitask_frozen` option to still name the harvested record, then
+  `_drop_frozen` (the leased `aitask_frozen.sh drop`, via `run-shell -b`, which
+  harvests again under its lease); a live close re-reads `_kill_target_state`,
+  then `TmuxMonitor.kill_agent_run_guarded` — ONE `if-shell -F` gated on
+  unfrozen + the bound `pane_pid` + the bound server pid, then a read-back:
+  `killed` / `changed` (pane still there: refused, "press h again") /
+  `unknown` (never read as gone). **Pane only, never the window:** the
+  condition is evaluated in the target pane's context, so nothing at dispatch
+  can prove the window's other occupants — a single `swap-pane` (or a pane
+  moved in) would hand a `kill-window` an unrelated, unharvested agent under an
+  unchanged window id and pane count. The killed agent's bound helpers go with
+  the guarded sweep, and a companion minimonitor closes itself once it is
+  verifiably alone (`_check_auto_close`) — the "kill the companion only, never
+  the window" rule. The condition grammar is `helper_panes.all_of`, shared with
+  the helper sweep.
+- **Runner.** `run_owned_group` (`AgentMarksMixin._run_sitrep_harvest`): its own
+  process group, killed as a group on timeout AND on cancellation (Textual
+  cancels workers at app exit; `wait_for` does not touch the child), the
+  cancellation then re-raised. `_run_marks_cmd` would kill only the wrapper,
+  leaving the Python child holding the store mutex.
+
+**Maintenance.** `_maybe_harvest_sitrep` runs one global `harvest all` per pass
+(`_MARKS_PURGE_INTERVAL`, startup grace) BEFORE `_maybe_refresh_sitrep`, so a
+pass refreshes what it harvested, and kept records (`KEPT:…|unharvested_text`)
+become droppable and purgeable. Failures are swallowed; the next pass retries.
+
+**Indicator.** The full monitor's session bar shows `sitrep N now` — open items
+in the Pick-now group of its own repository's store (`SitrepNowCounter`, read
+off the pump with `asyncio.to_thread`, recounted only when the sha256 of
+`todo.md` changed). No store, an unreadable one, or zero → no term. The
+minimonitor has none (its session bar is hidden by default).
+
+**`S`.** The selected agent's root and session, else the app's own; the switcher
+uses its selected session. Result lines map to a toast; nothing is claimed for
+`SITREP_FOCUS_FAILED` or a refusal.
 
 ## The skill
 
@@ -165,3 +236,5 @@ against the rendered skill.
 | `tests/test_sitrep_window_live.sh` | the spawn against a private tmux server |
 | `tests/test_skill_render_aitask_sitrep.sh` | the skill's render, goldens, stubs |
 | `tests/test_sitrep_skill_contract.sh` | the skill's documented commands against the real helpers |
+| `tests/test_monitor_sitrep_harvest_close.py` | `h` / `S`: report parsing, the owned-group runner (timeout and cancel), target and sitrep-window guards, run identity, confirm callback, maintenance order, the count, the dialog, the real key presses, the switcher `S` |
+| `tests/test_kill_agent_run_guarded.sh` | the guarded run kill against a private tmux server (respawned / frozen pane refused, always pane-only: the last agent's window and companion stay, a pane moved into another agent's window and a helper swapped for an unrelated agent leave that agent alive) |

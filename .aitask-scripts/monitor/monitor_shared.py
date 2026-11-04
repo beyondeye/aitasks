@@ -526,6 +526,14 @@ _SITREP_REFRESH_SH = _SCRIPT_DIR / "aitask_sitrep_refresh.sh"
 _SITREP_REFRESH_BUDGET = 60.0
 _SITREP_REFRESH_TIMEOUT = _SITREP_REFRESH_BUDGET + 15.0
 
+#: The harvest helper and its runner live with the harvest-and-close key
+#: (t2175_5, `monitor/sitrep_close.py`); the maintenance `all` pass reuses both.
+from monitor.sitrep_close import (  # noqa: E402
+    HARVEST_ALL_TIMEOUT as _HARVEST_ALL_TIMEOUT,
+    SITREP_HARVEST_SH as _SITREP_HARVEST_SH,
+    run_owned_group,
+)
+
 #: Hard ceiling on ONE `freeze <pane>`, and the per-pane unit that
 #: :data:`_FREEZE_ONE_TIMEOUT` scales for a batch.
 #:
@@ -609,6 +617,8 @@ class AgentMarksMixin:
     _refresh_inflight: bool = False
     _sitrep_refresh_inflight: bool = False
     _sitrep_refresh_due_at: float = 0.0
+    _sitrep_harvest_inflight: bool = False
+    _sitrep_harvest_due_at: float = 0.0
 
     #: Whether INACTIVE agents — parked (t1685) or frozen (t1705_7) — are hidden
     #: from the pane list. Per-app-instance and in-memory by design: it is a view
@@ -656,8 +666,9 @@ class AgentMarksMixin:
                 await self._maybe_offer_concerns()
                 await self._maybe_purge_marks()
                 await self._maybe_purge_sessions()
-                # Sitrep harvest `all` (t2175_5) belongs BEFORE this, so items
-                # harvested in a pass are refreshed in the same pass.
+                # Harvest BEFORE refresh, so items harvested in a pass are
+                # refreshed in the same pass (t2175_5).
+                await self._maybe_harvest_sitrep()
                 await self._maybe_refresh_sitrep()
             finally:
                 # In a `finally` so a raising or cancelled maintenance pass
@@ -695,6 +706,11 @@ class AgentMarksMixin:
             time.monotonic() + _MARKS_PURGE_STARTUP_GRACE
         )
         self._sitrep_refresh_inflight: bool = False
+        # The sitrep `harvest all` pass (t2175_5): same cadence and grace.
+        self._sitrep_harvest_due_at: float = (
+            time.monotonic() + _MARKS_PURGE_STARTUP_GRACE
+        )
+        self._sitrep_harvest_inflight: bool = False
         # Guards the whole trailing-maintenance worker (concerns + purge), which
         # `_refresh_data` dispatches rather than awaits (t1598). Distinct from
         # `_marks_purge_inflight`: that one only covers the purge, and
@@ -1590,6 +1606,50 @@ class AgentMarksMixin:
                     os.unlink(path)
                 except OSError:
                     pass
+
+    async def _run_sitrep_harvest(
+        self, args: list[str], *, stdin: "bytes | None" = None,
+        timeout: float,
+    ) -> tuple[int, str]:
+        """`aitask_sitrep_harvest.sh` in its OWN process group. The test seam.
+
+        Not :meth:`_run_marks_cmd`: that runner kills only its direct child,
+        while the harvest wrapper's Python children hold the store mutex, and
+        it has no stdin (the live-pane `capture` verb reads the text there).
+        :func:`run_owned_group` kills the whole group on timeout and on
+        cancellation, then re-raises the cancellation (t2175_5).
+        """
+        return await run_owned_group(
+            [str(_SITREP_HARVEST_SH), *args], stdin=stdin, timeout=timeout)
+
+    async def _maybe_harvest_sitrep(self) -> None:
+        """Release frozen records still holding unharvested text (t2175_5).
+
+        One global ``aitask_sitrep_harvest.sh all`` per pass: every record with
+        capture text, each into its own repository's store, receipts written —
+        so the sessions purge stops keeping them (`KEPT:…|unharvested_text`)
+        and their drop is no longer refused. Receipts make the steady state a
+        no-op. Same scheduling contract as :meth:`_maybe_refresh_sitrep`, and
+        it runs BEFORE it in `_maintenance`. Failures (a busy store mutex, a
+        timeout) are swallowed: the next pass retries.
+        """
+        if self._sitrep_harvest_inflight:
+            return
+        if time.monotonic() < self._sitrep_harvest_due_at:
+            return
+        self._sitrep_harvest_inflight = True
+        try:
+            await self._run_sitrep_harvest(
+                ["all"], timeout=_HARVEST_ALL_TIMEOUT)
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001 - maintenance must never break a tick
+            pass
+        finally:
+            self._sitrep_harvest_inflight = False
+            self._sitrep_harvest_due_at = (
+                time.monotonic() + _MARKS_PURGE_INTERVAL
+            )
 
     async def _maybe_refresh_sitrep(self) -> None:
         """Refresh each observed root's sitrep store Part 1 (t2175_3).

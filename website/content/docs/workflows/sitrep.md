@@ -22,6 +22,8 @@ ait sitrep
 
 The first time, this opens a new window named `agent-sitrep` in your current tmux session, with the sitrep agent on the left and a [minimonitor]({{< relref "/docs/tuis/minimonitor" >}}) companion beside it. Running it again — from any window, or from a linked task worktree of the same repository — takes you to that same window: there is **one sitrep per repository**.
 
+From the TUIs, press **`S`**: in [`ait monitor`]({{< relref "/docs/tuis/monitor" >}}) it opens the sitrep window of the focused agent's repository, in a [minimonitor]({{< relref "/docs/tuis/minimonitor" >}}) that of the agent it follows, and in the TUI switcher (`j`) that of the selected session.
+
 Outside tmux, `ait sitrep` refuses. `ait codeagent invoke sitrep` starts the agent in the current terminal instead, without its own window or the one-per-repository check.
 
 The sitrep agent currently runs on Claude Code. Its code agent and model are the `sitrep` operation in [`ait codeagent`]({{< relref "/docs/commands/codeagent" >}}) and the Settings TUI.
@@ -73,6 +75,20 @@ Ask sitrep to dismiss an item you do not want to track (`>x c4 not needed`). Onl
 | `>x c<N> [reason]` | Dismiss an item |
 | `>r` | Collect new wrap-ups and re-check the list |
 | `>?` | Show the menu again |
+
+## Closing a finished agent
+
+In [`ait monitor`]({{< relref "/docs/tuis/monitor" >}}) or a [minimonitor]({{< relref "/docs/tuis/minimonitor" >}}), press **`h`** on a finished agent:
+
+1. The agent's terminal output is collected into the list first — the whole screen of a live agent, or the kept capture of a [frozen]({{< relref "/docs/workflows/freeze-and-restore-agents" >}}) one.
+2. A dialog shows what was captured: each new or already-known item, any warnings about a wrap-up that looked incomplete, and the outcome.
+3. Only then does it offer to close the agent: **Close agent** for a live agent, **Drop** for a frozen one (which also deletes its kept capture), or **Keep**.
+
+If the output could not be captured or collected, the dialog says why and offers no close — the agent stays. The close also applies only to the agent that was harvested: if the pane was frozen, restored or restarted while the dialog was open, nothing is closed and you are asked to press `h` again. A live sitrep window is never harvested; `h` on it just offers to close it.
+
+**Close agent** closes only the agent's own pane and its shadow or notes panes. Other panes in the window stay, and a [minimonitor]({{< relref "/docs/tuis/minimonitor" >}}) companion closes itself once it is alone in the window.
+
+While the monitor is open it also collects, every few minutes, any frozen agent whose capture is not in the list yet, so those agents can be dropped. The monitor's title bar shows `sitrep N now` while the list has open **Pick now** items.
 
 ## Where the list lives
 

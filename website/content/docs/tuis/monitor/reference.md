@@ -39,6 +39,8 @@ depth: [advanced]
 | `P` | Hide or show parked **and frozen** agents in the pane list — one filter over both (in-memory, per monitor instance) | Pane list zone |
 | `f` | Freeze the focused agent: its process ends, its output is captured and kept (confirms first) | Pane list zone |
 | `Z` | Freeze every agent on this machine, across all projects and including parked ones (confirms, naming the count) | Pane list zone |
+| `h` | Harvest the focused agent into the repository's [sitrep]({{< relref "/docs/workflows/sitrep" >}}) list, show what was captured, then offer to close it — **Close agent** for a live agent, **Drop** for a frozen one. A failed capture or harvest offers no close. A live `agent-sitrep` window is closed without being harvested | Pane list zone |
+| `S` | Open the [sitrep]({{< relref "/docs/workflows/sitrep" >}}) window of the focused agent's repository, or switch to it if it is already open | Pane list zone |
 
 #### Monitor Controls
 
@@ -142,6 +144,11 @@ bar). They are disjoint from the three above and from each other — an agent th
 is both frozen and carries a parked mark is counted once, as frozen — and both
 are shown whether or not `P` is hiding those rows, which makes them the one place
 a hidden agent is still accounted for.
+
+The full monitor's bar also shows `sitrep N now` while the [sitrep]({{< relref "/docs/workflows/sitrep" >}})
+list of the monitor's own repository has open **Pick now** items. It is omitted
+when there are none, when the repository has no sitrep list, and when the list
+cannot be read.
 
 **Cross-session focus from the main monitor:** pressing `Enter` on a pane that belongs to another session teleports the attached tmux client to that pane via `switch-client` + `select-window` + `select-pane`.
 

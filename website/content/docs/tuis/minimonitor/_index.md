@@ -33,6 +33,7 @@ Minimonitor is the persistent sidebar companion of a code agent pane. It gives y
 | Multi-session toggle | `M` (in-memory, per-TUI) | `M` (in-memory, per-TUI) |
 | Session grouping | `── session ──` dividers + inline `[project]` tag on each row | `── session ──` dividers only |
 | Frozen agents | Listed as `F <name>  frozen`; `f` freezes the focused card, `R` / `p` / `k` revive or drop it | Listed the same way; `f` freezes the **followed** agent, `R` / `p` / `k` act on it |
+| Sitrep | `h` harvests the focused card and offers to close it; `S` opens or switches to the sitrep window; the title bar shows `sitrep N now` while the list has open **Pick now** items | `h` and `S` act on the **followed** agent's repository; no title-bar count |
 | Intended placement | Its own tmux window | A side split inside an agent window |
 | TUI switcher (`j`) | Yes | Yes |
 

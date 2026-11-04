@@ -76,6 +76,31 @@ def root_arg(value: str) -> str:
     return value
 
 
+def sitrep_open_message(rc: int, out: str) -> "tuple[str, str]":
+    """``(message, severity)`` for `aitask_sitrep.sh open` output (t2175_5).
+
+    The one reading of the `open` wire lines for the TUIs that run it — the
+    monitor and minimonitor `S` key and the TUI switcher's `S` quick-jump.
+    """
+    lines = [ln.strip() for ln in out.splitlines() if ln.strip()]
+    warn = next((ln.partition(":")[2] for ln in lines
+                 if ln.startswith("SITREP_WARN:")), "")
+    for ln in lines:
+        head, _, rest = ln.partition(":")
+        if head in ("SITREP_SPAWNED", "SITREP_FOCUSED"):
+            msg = ("Sitrep window opened" if head == "SITREP_SPAWNED"
+                   else "Switched to the sitrep window")
+            if warn:
+                return f"{msg} ({warn})", "warning"
+            return msg, "information"
+        if head == "SITREP_FOCUS_FAILED":
+            return ("The sitrep window exists but switching to it failed",
+                    "warning")
+        if head in ("SITREP_REFUSED", "ERROR"):
+            return f"Sitrep not opened: {rest}", "error"
+    return f"Sitrep not opened (exit {rc})", "error"
+
+
 def _canonical(path: str) -> str:
     root, _ = sh.canonical_root(os.path.abspath(path))
     return root

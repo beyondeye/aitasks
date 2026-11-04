@@ -456,6 +456,60 @@ class OpenCliTests(TmuxSocketContainmentMixin, unittest.TestCase):
             self.mod.main(["--no-select"])
         self.assertFalse(spawn.call_args.kwargs["select_window"])
 
+    # -- --session (t2175_5: the TUIs name the selected agent's session) ------
+
+    def _session_run(self, has_session_rc, *argv):
+        import contextlib
+        import io
+        asked = []
+
+        def fake_run(_gw, args, timeout=5.0):
+            asked.append(list(args))
+            return has_session_rc, ""
+
+        patch.object(self.mod._Gateway, "tmux_run", fake_run).start()
+        spawn = patch.object(self.mod.monitor_core, "spawn_sitrep",
+                             return_value=mc.SitrepSpawn("focused", "%5", "", "")
+                             ).start()
+        lookup = patch.object(self.mod, "pane_session", return_value="own").start()
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = self.mod.main(list(argv))
+        return rc, buf.getvalue().strip(), spawn, lookup, asked
+
+    def test_a_named_session_reaches_the_spawn_instead_of_the_own_one(self):
+        rc, out, spawn, lookup, asked = self._session_run(0, "--session", "other")
+        self.assertEqual((rc, out), (0, "SITREP_FOCUSED:%5"))
+        self.assertEqual(spawn.call_args.kwargs["session"], "other")
+        self.assertEqual(asked, [["has-session", "-t", "=other"]],
+                         "the named session must be checked by EXACT name")
+        lookup.assert_not_called()
+
+    def test_an_unknown_named_session_is_refused_and_nothing_spawns(self):
+        rc, out, spawn, _lookup, _asked = self._session_run(1, "--session", "gone")
+        self.assertEqual((rc, out), (1, "SITREP_REFUSED:no_session"))
+        spawn.assert_not_called()
+
+    def test_without_session_the_own_pane_session_is_used(self):
+        rc, _out, spawn, lookup, asked = self._session_run(0)
+        self.assertEqual(spawn.call_args.kwargs["session"], "own")
+        self.assertEqual(asked, [])
+        lookup.assert_called_once()
+
+    def test_a_malformed_session_name_is_usage(self):
+        import contextlib
+        import io
+        for bad in ("", "-x", "a:b", "a.b", "a\nb", "a\x7fb"):
+            spawn = patch.object(self.mod.monitor_core, "spawn_sitrep").start()
+            with self.subTest(bad=bad), \
+                    contextlib.redirect_stderr(io.StringIO()), \
+                    contextlib.redirect_stdout(io.StringIO()) as out:
+                with self.assertRaises(SystemExit) as cm:
+                    self.mod.main(["--session", bad])
+                self.assertEqual(cm.exception.code, 2)
+                self.assertEqual(out.getvalue(), "")
+                spawn.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -77,6 +77,9 @@ from helper_panes import (  # noqa: E402,F401  (re-export)
     helpers_bound_to,
     is_bound_helper,
     kill_bound_helpers,
+    READBACK_FORMAT,
+    readback_state,
+    run_identity_condition,
 )
 from task_yaml import parse_frontmatter  # noqa: E402
 import gate_ledger  # noqa: E402  (shared gate-ledger parser; single derivation path)
@@ -3999,12 +4002,19 @@ class TmuxMonitor:
             self._last_change_time.pop(helper, None)
         return killed
 
-    def _kill_agent_pane(self, pane_id: str) -> tuple[bool, bool]:
-        """`kill_agent_pane_smart` minus the helper sweep: one exit per route."""
+    def _collapse_window_for(self, pane_id: str) -> "bool | None":
+        """Whether killing ``pane_id`` should take its whole window with it.
+
+        True when no other real agent shares the window (the window then holds
+        only this agent and its helpers / companion), False when one does, and
+        ``None`` when it cannot be decided — a pane missing from the discovery
+        cache or a failed listing — where the caller falls back to a plain
+        pane kill. `kill_agent_pane_smart`'s decision only: the guarded run
+        kill (:meth:`kill_agent_run_guarded`) never kills a window.
+        """
         pane = self._pane_cache.get(pane_id)
         if pane is None:
-            return self.kill_pane(pane_id), False
-
+            return None
         # Use the pane's own session so cross-session kills target the right
         # window; fall back to self.session for legacy single-session paths.
         target_session = pane.session_name or self.session
@@ -4013,11 +4023,74 @@ class TmuxMonitor:
             "list-panes", "-t", window_target, "-F", FROZEN_AWARE_PANE_FORMAT,
         ])
         if rc != 0:
-            return self.kill_pane(pane_id), False
+            return None
         others = count_other_real_agents(
             [(wp.pane_id, wp.is_helper) for wp in classify_window_panes(stdout)],
             pane_id,
         )
+        return others == 0
+
+    def kill_agent_run_guarded(
+        self, identity: "RunIdentity",
+    ) -> tuple[str, bool]:
+        """Kill ONE agent run, never whatever now occupies its pane (t2175_5).
+
+        ``identity`` was read when the run was harvested. The kill is ONE
+        ``if-shell -F`` whose condition the server evaluates at dispatch time:
+        still unfrozen, still running ``identity.pane_pid``, same server
+        generation. A freeze or restore that respawned another process into the
+        pane id fails it. Then a read-back decides, because ``if-shell``
+        answers 0 whether or not its branch ran.
+
+        **Pane only — never the window.** A window kill would also kill the
+        window's other occupants, and their identity cannot be proved at
+        dispatch: the condition is evaluated in the TARGET pane's context only,
+        so a single ``swap-pane`` (or a pane moved in) between any listing and
+        the dispatch would hand ``kill-window`` an unrelated, unharvested agent
+        under an unchanged window id and pane count. The killed agent's bound
+        helpers are retired by the guarded sweep, and a companion minimonitor
+        closes itself once it verifiably sits alone in its window
+        (`MiniMonitorApp._check_auto_close`) — the "kill the companion only,
+        never the window" rule.
+
+        Returns ``(status, False)``: ``killed`` (gone on the same server; the
+        helpers are swept), ``changed`` (the pane is still there — another
+        process, or frozen), ``unknown`` (the read-back failed, or names another
+        server: never read as gone), or ``failed`` (the identity is malformed;
+        nothing dispatched). The second element is always False — no window is
+        ever killed here.
+        """
+        pane_id = identity.pane_id
+        if not re.fullmatch(r"%[0-9]+", pane_id or ""):
+            return "failed", False
+        try:
+            cond = run_identity_condition(
+                identity.pane_pid, identity.server_pid, FROZEN_OPTION)
+        except ValueError:
+            return "failed", False
+        self.tmux_run(["if-shell", "-F", "-t", pane_id, cond,
+                       f"kill-pane -t {pane_id}"])
+        rc, out = self.tmux_run(
+            ["display-message", "-p", "-t", pane_id, READBACK_FORMAT])
+        state = readback_state(rc, out, pane_id, identity.server_pid)
+        if state == "present":
+            return "changed", False
+        if state != "gone":
+            return "unknown", False
+        self._pane_cache.pop(pane_id, None)
+        self._last_content.pop(pane_id, None)
+        self._last_change_time.pop(pane_id, None)
+        self._kill_bound_helpers(pane_id)
+        return "killed", False
+
+    def _kill_agent_pane(self, pane_id: str) -> tuple[bool, bool]:
+        """`kill_agent_pane_smart` minus the helper sweep: one exit per route."""
+        collapse = self._collapse_window_for(pane_id)
+        if collapse is None:
+            # Not in the cache, or the window listing failed: a plain pane kill
+            # and no record retirement, exactly as before the extraction.
+            return self.kill_pane(pane_id), False
+        others = 0 if collapse else 1
 
         # KILL FIRST, then retire the record (t1705_6, reversing t1705_4).
         #
@@ -4992,6 +5065,48 @@ def task_id_from_window_name(window_name: str) -> str | None:
 
     m = _TASK_ID_RE.match(window_name)
     return m.group("task_id") if m else None
+
+
+@dataclass(frozen=True)
+class RunIdentity:
+    """One agent RUN, as opposed to the pane that hosts it (t2175_5).
+
+    A pane id is a container: a freeze respawns a stand-in viewer into it and a
+    restore respawns the agent again, so "pane %5" names different processes
+    over time. Harvest-and-close binds the run it harvested — the process
+    (``pane_pid``) on its server generation (``server_pid``, tmux ``#{pid}``),
+    plus the frozen record the pane carried (empty for a live agent) — and
+    closes only that run (:meth:`TmuxMonitor.kill_agent_run_guarded`).
+    """
+
+    pane_id: str
+    pane_pid: str
+    server_pid: str
+    frozen_record: str
+
+
+#: One `display-message -p -t <pane>` read of a :class:`RunIdentity`.
+RUN_IDENTITY_FORMAT = f"#{{pane_id}}\t#{{pane_pid}}\t#{{pid}}\t#{{{FROZEN_OPTION}}}"
+
+
+def parse_run_identity(rc: int, out: str, pane_id: str) -> "RunIdentity | None":
+    """Parse a :data:`RUN_IDENTITY_FORMAT` read of ``pane_id``, or ``None``.
+
+    ``None`` for anything that does not prove the identity: a failed read, a
+    short read, a pane that no longer exists (tmux answers an empty
+    ``#{pane_id}``), an answer naming another pane, or pids that are not bare
+    digits (they are later spliced into a guard condition).
+    """
+    if rc != 0:
+        return None
+    fields = (out.splitlines() or [""])[0].split("\t")
+    if len(fields) != 4:
+        return None
+    pid_ok = re.compile(r"[0-9]+").fullmatch
+    found, pane_pid, server_pid, frozen = (f.strip() for f in fields)
+    if found != pane_id or not (pid_ok(pane_pid) and pid_ok(server_pid)):
+        return None
+    return RunIdentity(pane_id, pane_pid, server_pid, frozen)
 
 
 def task_ref_from_window_name(window_name: str) -> tuple[str, str] | None:

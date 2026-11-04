@@ -11,6 +11,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import asyncio
 import contextlib
 import os
 import sys
@@ -62,6 +63,9 @@ from monitor.concern_parser import (  # noqa: E402
     has_invalid_round_header, is_metadata_only_block, needs_addressing,
     parse_block_meta, parse_concerns,
     unrecovered_markers,
+)
+from monitor.sitrep_close import (  # noqa: E402
+    SitrepCloseMixin, SitrepNowCounter, format_sitrep_term,
 )
 from monitor.desync_summary import (  # noqa: E402
     # The blocking `get_desync_summary` is deliberately NOT imported here
@@ -391,7 +395,8 @@ class RestartConfirmDialog(ModalScreen):
 # -- Main app -----------------------------------------------------------------
 
 class MonitorApp(
-    AgentMarksMixin, ShadowRejectionsMixin, TuiSwitcherMixin, ShortcutsMixin, App
+    AgentMarksMixin, SitrepCloseMixin, ShadowRejectionsMixin, TuiSwitcherMixin,
+    ShortcutsMixin, App
 ):
     """Textual app for monitoring tmux panes running code agents."""
 
@@ -410,6 +415,10 @@ class MonitorApp(
     #: signature scan) are exercised by `__new__`-built test apps that never run
     #: `_refresh_data`.
     _frozen_pane_ids: frozenset = frozenset()
+    #: Open Pick-now items of this project's sitrep store (t2175_5), and the
+    #: content-keyed counter behind it. Class-level floors, same rationale.
+    _sitrep_now: "int | None" = None
+    _sitrep_counter: "SitrepNowCounter | None" = None
 
     TITLE = "tmux Monitor"
 
@@ -556,6 +565,11 @@ class MonitorApp(
         # action.
         Binding("f", "freeze_current", "Freeze"),
         Binding("Z", "freeze_all", "Freeze all"),
+        # Sitrep (t2175_5): `h` harvests the focused agent into the sitrep store,
+        # shows what was captured, and only then offers to close it; `S` opens
+        # or switches to the repository's sitrep window. Free in both apps.
+        Binding("h", "harvest_close", "Harvest"),
+        Binding("S", "open_sitrep", "Sitrep"),
     ]
 
     def __init__(
@@ -1153,6 +1167,16 @@ class MonitorApp(
                 desync = await _get_desync_summary_async(Path.cwd(), compact=False)
             except Exception:
                 desync = ""
+            # Open Pick-now items of this project's sitrep store (t2175_5): a
+            # small file read, recounted only when its content changed, off the
+            # message pump like the desync probe above.
+            try:
+                if self._sitrep_counter is None:
+                    self._sitrep_counter = SitrepNowCounter()
+                self._sitrep_now = await asyncio.to_thread(
+                    self._sitrep_counter.count, self._project_root)
+            except Exception:
+                self._sitrep_now = None
             self._rebuild_session_bar(attached_session, desync=desync)
             # Shadow reconciliation MUST run before the _restore_focus scheduling
             # below: it can change the active zone (grace fallback / selection
@@ -1703,6 +1727,10 @@ class MonitorApp(
         # Its own term, independent of the `P` filter, counted disjointly from
         # `parked` — a frozen agent carrying the parked mark is reported once.
         frozen_str = f"  [dim]{frozen_count} frozen[/]" if frozen_count > 0 else ""
+        # Open Pick-now items in this project's sitrep store (t2175_5). The
+        # term is digits and constant words only, so it needs no escaping.
+        sitrep_term = format_sitrep_term(self._sitrep_now)
+        sitrep_str = f"  [cyan]{sitrep_term}[/]" if sitrep_term else ""
         bar = self.query_one("#session-bar", SessionBar)
         auto_tag = "  [bold yellow]\\[AUTO][/]" if self._auto_switch else ""
         # Pre-fetched by `_refresh_data` (t1622). `None` means this call brought
@@ -1742,6 +1770,7 @@ class MonitorApp(
                 f"{idle_str}"
                 f"{parked_str}"
                 f"{frozen_str}"
+                f"{sitrep_str}"
                 f"{auto_tag}"
                 f"{desync}"
                 f"{state_badge}"
@@ -1756,6 +1785,7 @@ class MonitorApp(
                 f"{idle_str}"
                 f"{parked_str}"
                 f"{frozen_str}"
+                f"{sitrep_str}"
                 f"{auto_tag}"
                 f"{desync}"
                 f"{state_badge}"
@@ -3704,6 +3734,29 @@ class MonitorApp(
         else:
             self.notify(f"Failed to kill {name}", severity="error",
                         markup=False)
+
+    def _close_live_after_harvest(self, identity) -> None:
+        """`h`'s live close (t2175_5): the guarded run kill, then `k`'s tail.
+
+        Never `kill_agent_pane_smart`: that kills whatever occupies the pane id,
+        and a freeze or restore can have respawned another process into it
+        since the harvest. `_guarded_close` re-checks the state and kills only
+        the harvested run (`kill_agent_run_guarded`).
+        """
+        pane_id = identity.pane_id
+        snap = self._snapshots.get(pane_id)
+        name = snap.pane.window_name if snap else pane_id
+        status, _ = self._guarded_close(identity)
+        if status != "killed":
+            return
+        if self._focused_pane_id == pane_id:
+            self._focused_pane_id = None
+        self.notify(f"Closed {name}", markup=False)
+        self.call_later(self._refresh_data)
+
+    def _default_sitrep_target(self):
+        """`S` with no agent focused: this monitor's own project and session."""
+        return self._project_root, self._session
 
     def action_pick_next_sibling(self) -> None:
         """Find and launch next sibling task for the focused agent pane."""

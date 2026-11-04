@@ -11,7 +11,11 @@ package: tests/test_no_lib_to_tui_import.sh). The read-only verbs `root` and
     SITREP_FOCUS_FAILED:<pane>                 exit 1 (it exists; switching failed)
     SITREP_REFUSED:<reason>                    exit 1
 
-Needs tmux; the new window goes into the session holding $TMUX_PANE.
+Needs tmux; the new window goes into the session holding $TMUX_PANE, or into
+`--session <name>` when the caller names one (the monitor, minimonitor and TUI
+switcher pass the SELECTED agent's / session's name, t2175_5). A named session
+must exist on the server (exact match, `has-session -t =<name>`); otherwise
+`SITREP_REFUSED:no_session`. A malformed name exits 2 before tmux is asked.
 """
 
 from __future__ import annotations
@@ -30,6 +34,20 @@ from tmux_exec import TmuxClient  # noqa: E402
 from sitrep_cli import root_arg  # noqa: E402  (the one --root check)
 
 
+def session_arg(value: str) -> str:
+    """argparse ``type`` of ``--session``: a plain tmux session name.
+
+    tmux itself never creates a name holding ``:`` or ``.`` (they are target
+    separators), so either one, a control character, a leading ``-`` (an option
+    to tmux) or an empty value can only be a malformed request: exit 2.
+    """
+    if (not value or value.startswith("-")
+            or any(ch in value for ch in ":.")
+            or any(ord(ch) < 0x20 or ord(ch) == 0x7f for ch in value)):
+        raise argparse.ArgumentTypeError(f"invalid session name {value!r}")
+    return value
+
+
 class _Gateway:
     """The `monitor.tmux_run` duck type over the tmux gateway (`lib/tmux_exec`)."""
 
@@ -45,20 +63,26 @@ def main(argv=None) -> int:
     ap.add_argument("--agent-string", default=None)
     ap.add_argument("--no-select", action="store_true")
     ap.add_argument("--root", default=".", type=root_arg)
+    ap.add_argument("--session", default=None, type=session_arg)
     args = ap.parse_args(argv)
     pane = os.environ.get("TMUX_PANE", "")
-    if not os.environ.get("TMUX") or not pane:
+    if not os.environ.get("TMUX") or (not pane and args.session is None):
         print("SITREP_REFUSED:not_in_tmux")
         print("Hint: run `ait sitrep` inside tmux, or `ait codeagent invoke "
               "sitrep` to start the agent in this terminal (no window, no "
               "duplicate guard).", file=sys.stderr)
         return 1
-    session = pane_session(pane)
+    gateway = _Gateway()
+    if args.session is not None:
+        rc, _ = gateway.tmux_run(["has-session", "-t", f"={args.session}"])
+        session = args.session if rc == 0 else None
+    else:
+        session = pane_session(pane)
     if not session:
         print("SITREP_REFUSED:no_session")
         return 1
     res = monitor_core.spawn_sitrep(
-        _Gateway(), target_root=os.path.abspath(args.root), session=session,
+        gateway, target_root=os.path.abspath(args.root), session=session,
         select_window=not args.no_select, agent_string=args.agent_string)
     if res.status == "spawned":
         print(f"SITREP_SPAWNED:{res.pane}|{res.window}")
