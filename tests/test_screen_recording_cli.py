@@ -212,7 +212,7 @@ class BugMode(_VideoCase):
     def timeline(self, out):
         with open(out / "timeline.tsv") as fh:
             return [(float(r["time_s"]), set(r["why"].split("+")), r["file"])
-                    for r in csv.DictReader(fh, delimiter="\t")]
+                    for r in csv.DictReader(fh, delimiter="\t") if r["kind"] == "frame"]
 
     def assert_matches_expected(self, rows):
         expected = synth.BUG_TIMELINE["picks"]
@@ -261,6 +261,224 @@ class BugMode(_VideoCase):
         self.assertEqual([(t, why) for t, why, _ in rows], [(0.0, {"start", "state", "end"})])
 
 
+def gray_mean(png: Path) -> float:
+    raw = subprocess.run(["ffmpeg", "-v", "error", "-i", str(png), "-f", "rawvideo",
+                          "-pix_fmt", "gray", "-"], capture_output=True, check=True).stdout
+    return sum(raw) / len(raw)
+
+
+@unittest.skipUnless(HAVE_FFMPEG, "ffmpeg/ffprobe not installed")
+class TriageRows(_VideoCase):
+    """Freeze / black / silence rows in bug mode. Every end is checked for its
+    evidence: observed only when the detector marked it on a frame, else a lower
+    bound at the end of the analysed video span (from video packets, on the
+    detectors' timeline)."""
+
+    def bug(self, video, out_name, *extra):
+        out = self.tmp / out_name
+        self.cli_ok("bug", video, "--out", out, *extra)
+        with open(out / "timeline.tsv", newline="") as fh:
+            rows = list(csv.DictReader(fh, delimiter="\t"))
+        return out, rows, json.loads((out / "run.json").read_text())
+
+    @staticmethod
+    def intervals(run, kind):
+        return [iv for iv in run["intervals"] if iv["kind"] == kind]
+
+    def assert_span(self, iv, start, end, *, observed, tol=FRAME_MS / 1000 + 1e-3):
+        self.assertAlmostEqual(iv["start_s"], start, delta=tol, msg=iv)
+        self.assertAlmostEqual(iv["end_s"], end, delta=tol, msg=iv)
+        self.assertEqual(iv["end_observed"], observed, iv)
+
+    def test_freeze_and_black_within_a_frame(self):
+        for vfr in (False, True):
+            with self.subTest(vfr=vfr):
+                video = self.video(f"triage{'_vfr' if vfr else ''}", synth.triage_frames,
+                                   vfr=vfr)
+                out, rows, run = self.bug(video, f"triage-out-{vfr}")
+                truth = synth.TRIAGE_TRUTH
+                for kind in ("freeze", "black"):
+                    got = self.intervals(run, kind)
+                    self.assertEqual(len(got), len(truth[kind]), got)
+                    for iv, (a, b) in zip(got, truth[kind]):
+                        self.assert_span(iv, a, b, observed=True)
+                for iv in self.intervals(run, "black"):
+                    self.assertTrue(iv["file"] and (out / iv["file"]).exists(), iv)
+                # run.json and timeline.tsv carry the same intervals
+                tsv = [(r["kind"], float(r["time_s"]), float(r["end_s"]), r["file"] or None)
+                       for r in rows if r["kind"] != "frame"]
+                self.assertEqual(tsv, [(iv["kind"], round(iv["start_s"], 3),
+                                        round(iv["end_s"], 3), iv["file"])
+                                       for iv in run["intervals"]])
+                self.assertEqual(self.intervals(run, "silence"), [])
+                self.assertIsNone(run["detectors"]["silence"])
+                summary = (out / "summary.md").read_text()
+                self.assertIn("silence not checked (no audio stream)", summary)
+                self.assertIn("## Freeze, black and silence", summary)
+
+    def test_black_frame_comes_from_inside_the_interval(self):
+        video = self.video("dark_flash", synth.dark_flash_frames)
+        # fixture guard: mpdecimate drops the black frame, so the nearest kept
+        # frame (t=0) is not black -- the hazard this test exists for
+        cp = subprocess.run(["ffmpeg", "-hide_banner", "-nostdin", "-i", str(video), "-an",
+                             "-vf", "mpdecimate,showinfo", "-f", "null", "-"],
+                            capture_output=True, text=True)
+        self.assertEqual(cp.stderr.count(" pts_time:"), 1, "fixture no longer has the hazard")
+        out, rows, run = self.bug(video, "dark-out")
+        (iv,) = self.intervals(run, "black")
+        self.assert_span(iv, 0.5, 0.5 + 1 / 60, observed=True)
+        self.assertTrue(iv["file"].endswith("_0.500s.png"), iv)
+        start_png = next(out.glob("frames/01_0.000s.png"))
+        black, start = gray_mean(out / iv["file"]), gray_mean(start_png)
+        self.assertLess(black, start - 2, (black, start))
+        self.assertLessEqual(black, 24.5, black)   # blackdetect's pix_th in full range ~25.5
+        # duration consistency: the picture's "shown for" is the black run, never the
+        # 0.5 s until the next kept frame
+        (frame_row,) = [r for r in rows if r["kind"] == "frame" and r["file"] == iv["file"]]
+        (iv_row,) = [r for r in rows if r["kind"] == "black"]
+        for d in (float(frame_row["shown_for_s"]),
+                  float(iv_row["end_s"]) - float(iv_row["time_s"]), iv["duration_s"]):
+            self.assertAlmostEqual(d, 1 / 60, delta=FRAME_MS / 1000, msg=(frame_row, iv_row))
+        self.assertIn("0.017 s (black run)", (out / "summary.md").read_text())
+
+    def test_trailing_vs_final_frame_recovery(self):
+        for vfr in (False, True):
+            with self.subTest(vfr=vfr):
+                cut = self.video(f"tail_cut_{vfr}", lambda: synth.tail_frames(recover=False),
+                                 vfr=vfr)
+                _, _, run = self.bug(cut, f"tail-cut-{vfr}")
+                (iv,) = self.intervals(run, "black")
+                self.assertTrue(run["video_end_proven"], run["video_end_note"])
+                self.assertFalse(iv["end_observed"], iv)
+                self.assertAlmostEqual(iv["start_s"], 0.5, delta=1e-3)
+                self.assertAlmostEqual(iv["end_s"], run["video_end_s"], delta=1e-6)
+                rec = self.video(f"tail_rec_{vfr}", lambda: synth.tail_frames(recover=True),
+                                 vfr=vfr)
+                _, _, run = self.bug(rec, f"tail-rec-{vfr}")
+                (iv,) = self.intervals(run, "black")
+                self.assert_span(iv, 0.5, 59 / 60, observed=True)
+
+    def test_range_truncation_is_not_an_observed_end(self):
+        cut = self.video("tail_cut_False", lambda: synth.tail_frames(recover=False))
+        _, _, run = self.bug(cut, "tail-ranged", "--range", "0-0.8")
+        (iv,) = self.intervals(run, "black")
+        self.assertFalse(iv["end_observed"], iv)
+        self.assertAlmostEqual(iv["end_s"], 0.8, delta=1e-6)
+        self.assertEqual((run["video_end_s"], run["video_end_proven"]), (0.8, True))
+        rec = self.video("tail_rec_False", lambda: synth.tail_frames(recover=True))
+        _, _, run = self.bug(rec, "tail-rec-ranged", "--range", "0-1.0")
+        (iv,) = self.intervals(run, "black")
+        self.assert_span(iv, 0.5, 59 / 60, observed=True)
+
+    def test_video_end_ignores_longer_audio(self):
+        cut = self.video("tail_cut_False", lambda: synth.tail_frames(recover=False))
+        video = synth.mux_tone(cut, self.tmp / "tail_long_audio.mp4", duration=3,
+                               shortest=False)
+        out, rows, run = self.bug(video, "tail-long-audio")
+        # fixture guard: the container duration is the 3 s audio track's
+        self.assertAlmostEqual(run["video"]["duration"], 3.0, delta=0.05)
+        (iv,) = self.intervals(run, "black")
+        self.assertFalse(iv["end_observed"], iv)
+        self.assertTrue(run["video_end_proven"])
+        self.assertAlmostEqual(iv["end_s"], 1.0, delta=FRAME_MS / 1000)
+        self.assertAlmostEqual(iv["duration_s"], 0.5, delta=FRAME_MS / 1000)
+        last = [r for r in rows if r["kind"] == "frame"][-1]
+        self.assertLessEqual(float(last["shown_for_s"]), 0.5 + FRAME_MS / 1000, last)
+        _, _, run = self.bug(video, "tail-long-audio-ranged", "--range", "0-0.8")
+        (iv,) = self.intervals(run, "black")
+        self.assertAlmostEqual(iv["end_s"], 0.8, delta=1e-6)
+
+    def test_nonzero_start_time_shares_the_detector_origin(self):
+        path = self.tmp / "tail_ts5.mp4"
+        synth.encode(path, synth.tail_frames(recover=False), ts_offset=5)
+        out, _, run = self.bug(path, "tail-ts5")
+        self.assertAlmostEqual(run["video"]["start_time"], 5.0, delta=0.05)  # fixture guard
+        (iv,) = self.intervals(run, "black")
+        self.assertTrue(run["video_end_proven"], run["video_end_note"])
+        self.assert_span(iv, 0.5, 1.0, observed=False)
+        self.assertAlmostEqual(iv["duration_s"], 0.5, delta=FRAME_MS / 1000)
+        self.assertTrue(iv["file"].endswith("_0.500s.png") and (out / iv["file"]).exists(), iv)
+        _, _, run = self.bug(path, "tail-ts5-ranged", "--range", "0-0.8")
+        (iv,) = self.intervals(run, "black")
+        self.assertAlmostEqual(iv["end_s"], 0.8, delta=1e-6)
+
+    def test_bframe_reordering_keeps_the_last_frame(self):
+        path = self.tmp / "tail_bframes.mp4"
+        synth.encode(path, synth.tail_frames(recover=False), x264_params="b-adapt=0:bframes=3")
+        listing = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0",
+                                  "-show_entries", "packet=pts_time", "-of", "csv=p=0",
+                                  str(path)], capture_output=True, text=True, check=True).stdout
+        pts = [float(x.strip(",")) for x in listing.split()]
+        self.assertLess(pts[-1], max(pts), "fixture no longer reorders packets")  # guard
+        _, _, run = self.bug(path, "tail-bframes")
+        self.assertTrue(run["video_end_proven"], run["video_end_note"])
+        self.assertAlmostEqual(run["video_end_s"], 1.0, delta=0.002)
+        (iv,) = self.intervals(run, "black")
+        self.assertAlmostEqual(iv["duration_s"], 0.5, delta=0.002)
+
+    def test_one_video_stream_for_every_measurement(self):
+        """Two video tracks: a 1 s still first track and a 3 s default second track,
+        black from 0.5 s to its end. The default track is analysed, and its packets,
+        not the first track's, bound the trailing black run."""
+        first = self.tmp / "mt_first.mp4"
+        synth.encode(first, synth.card_frames(lambda t: 0.0, 1.0, "still"))
+        tail = synth.tail_frames(recover=False)
+        second = self.tmp / "mt_second.mp4"
+        synth.encode(second, tail[:30] + [tail[-1]] * 150)
+        video = self.tmp / "multitrack.mp4"
+        subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(first), "-i", str(second),
+                        "-map", "0:v", "-map", "1:v", "-c", "copy", "-disposition:v:0", "0",
+                        "-disposition:v:1", "default", str(video)], check=True)
+        listing = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v",
+                                  "-show_entries", "stream=index,duration:stream_disposition=default",
+                                  "-of", "compact=p=0", str(video)],
+                                 capture_output=True, text=True, check=True).stdout.splitlines()
+        # fixture guard: the default track is not the first, and lasts longer
+        self.assertEqual(listing, ["index=0|duration=1.000000|disposition:default=0",
+                                   "index=1|duration=3.000000|disposition:default=1"])
+        out, _, run = self.bug(video, "multitrack-out")
+        self.assertEqual((run["video"]["vindex"], run["video"]["video_streams"]), (1, 2))
+        self.assertTrue(run["video_end_proven"], run["video_end_note"])
+        self.assertAlmostEqual(run["video_end_s"], 3.0, delta=0.002)
+        (iv,) = self.intervals(run, "black")
+        self.assert_span(iv, 0.5, 3.0, observed=False)
+        self.assertLess(gray_mean(out / iv["file"]), 30)   # the black frame, from track 1
+        self.assertIn("video stream #1 of 2", (out / "summary.md").read_text())
+
+    def test_silence_gap_and_trailing_silence(self):
+        """Silence boundaries are checked within 50 ms: an AAC frame is 1024 samples
+        (21 ms at 48 kHz), plus encoder smear around the muted edges."""
+        base = self.video("triage", synth.triage_frames)
+        gap = synth.mux_tone(base, self.tmp / "triage_gap.mp4", duration=7, silent=(2.0, 4.5))
+        _, _, run = self.bug(gap, "triage-gap")
+        (iv,) = self.intervals(run, "silence")
+        self.assert_span(iv, 2.0, 4.5, observed=True, tol=0.05)
+        self.assertIsNotNone(run["detectors"]["silence"])
+        tail = synth.mux_tone(base, self.tmp / "triage_tail.mp4", duration=7,
+                              silent=(4.5, 7.0))
+        _, _, run = self.bug(tail, "triage-tail")
+        (iv,) = self.intervals(run, "silence")
+        self.assertFalse(iv["end_observed"], iv)
+        self.assertAlmostEqual(iv["start_s"], 4.5, delta=0.05)
+        self.assertAlmostEqual(iv["end_s"], 7.0, delta=0.05)
+
+    def test_more_black_intervals_than_budget(self):
+        video = self.video("black_flashes", lambda: synth.black_flash_frames(6))
+        out, rows, run = self.bug(video, "black-budget", "--max-frames", "4")
+        blacks = [r for r in rows if r["kind"] == "black"]
+        self.assertEqual(len(blacks), 6)
+        self.assertLessEqual(len(list((out / "frames").glob("*.png"))), 4)
+        self.assertTrue(run["cap_hit"])
+        no_image = sum(1 for r in blacks if not r["file"])
+        self.assertEqual(run["black_images_omitted"], no_image)
+        # start + end + two black frames fill the budget: the ranking is pinned
+        self.assertEqual(no_image, 4)
+        self.assertTrue(all("no image: --max-frames 4 reached" in r["why"]
+                            for r in blacks if not r["file"]))
+        self.assertIn("Warning: 4 black intervals have no image (--max-frames 4 reached)",
+                      (out / "summary.md").read_text())
+
+
 @unittest.skipUnless(HAVE_FFMPEG, "ffmpeg/ffprobe not installed")
 class InfoAndErrors(_VideoCase):
     def test_info(self):
@@ -287,6 +505,12 @@ class InfoAndErrors(_VideoCase):
             (("bug", video, "--crop-top", "900"), 1, "leave nothing"),
             (("bug", self.tmp / "missing.mp4"), 2, "no such file"),
             (("anim", video, "--time-scale", "0"), 2, "must be positive"),
+            (("bug", video, "--freeze-min", "0"), 1, "--freeze-min must be a positive"),
+            (("bug", video, "--freeze-min", "nan"), 1, "--freeze-min must be a positive"),
+            (("bug", video, "--black-min", "-1"), 1, "--black-min must be a number"),
+            # argparse's float() accepts these; nan would silently drop every black run
+            (("bug", video, "--black-min", "nan"), 1, "--black-min must be a number"),
+            (("bug", video, "--black-min", "inf"), 1, "--black-min must be a number"),
         ]
         for args, code, msg in cases:
             with self.subTest(args=args[2:]):

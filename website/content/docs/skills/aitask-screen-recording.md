@@ -43,7 +43,7 @@ This is the flow for `bug` and `anim`. `info` is a one-shot probe: it prints the
 | Mode | Use it when | What it does |
 |------|-------------|--------------|
 | `info` | You only need the file's properties | Probes the video. Prints JSON (size, rotation, duration, frame rate, codec, audio, `creation_time`) to stdout and a one-line summary to stderr. Takes no options and writes no files |
-| `bug` | You want to know what happened: a bug reproduced, a flow described | Picks the key screens — every screen that stayed up, brief flashes, samples of long motion — and writes them as frames, sheets and a timeline |
+| `bug` | You want to know what happened: a bug reproduced, a flow described | Picks the key screens — every screen that stayed up, brief flashes, samples of long motion — and writes them as frames, sheets and a timeline. Also lists every freeze, black interval and silent gap the ffmpeg detectors find, with a frame for each black interval |
 | `anim` | You want to know how something moves, usually to implement it | Finds each motion, measures its progress frame by frame, and fits named easing curves, a custom cubic-bezier and a spring |
 
 For a bug *inside* an animation, run `bug` first to find the moment, then `anim --window START-END` around it.
@@ -74,10 +74,12 @@ These do not apply to `info`.
 | `--min-dwell S` | 0.4 | A screen shown at least this long is a `state` pick |
 | `--interval S` | 1.0 | During continuous change, one `motion` pick per this many seconds |
 | `--brief-max S` | 0.12 | A change over within this long is a `brief` pick (flash, glitch, very quick transition) |
-| `--max-frames N` | 40 | Cap on picks; extra picks are dropped and reported |
+| `--max-frames N` | 40 | Cap on picks; extra picks are dropped and reported. Black frames rank below the first and last frame and above every other pick |
 | `--per-sheet N` | 8 | Frames per contact sheet |
 | `--view-size PX` | 1000 | Long edge of saved frames |
 | `--extract-audio` | off | Also write a 16 kHz mono `audio.wav` when the audio track is not silent |
+| `--freeze-min S` | 2 | No visible change for this long is a `freeze` row |
+| `--black-min S` | 0 | Shortest black run to report; `0` reports every black frame. A run whose end was not observed is always reported |
 
 ### `anim` only
 
@@ -106,12 +108,19 @@ The default location is `$TMPDIR/video-prep/<name>-<mode>` (`/tmp/video-prep/…
 ```
 <out>/
 ├── summary.md          # read first: findings, files to open, warnings
-├── run.json            # options and probed video properties
-├── timeline.tsv        # idx, time_s, shown_for_s, why, file
+├── run.json            # options, probed video, intervals, video end, cap_hit
+├── timeline.tsv        # idx, time_s, shown_for_s, why, file, kind, end_s
 ├── sheet_01.png …      # labelled contact sheets (needs ImageMagick)
 ├── frames/01_0.000s.png …   # one full-screen frame per pick
 └── audio.wav           # only with --extract-audio and a non-silent track
 ```
+
+`timeline.tsv` has two kinds of row, told apart by `kind`:
+
+- **`frame`** — one picked frame. `shown_for_s` is how long the picture stayed until the next visible change. For a black frame that mpdecimate dropped as a near-duplicate of the frame before it, `shown_for_s` is the black run's duration from blackdetect instead, and it is empty when that run's end was not observed.
+- **`freeze` / `black` / `silence`** — one detected interval. `time_s` is the start and `end_s` the end. `why` names the detector and its settings, and notes when the end was not observed (then `end_s` is a lower bound) or when a black interval got no image. `file` is a black interval's frame.
+
+`run.json` repeats the intervals under `intervals` (`start_s`, `end_s`, `end_observed`, `duration_s`, `frame_time_s`, `file`). Alongside them it records `detectors`, `video_end_s` / `video_end_proven` (the end of the analysed video span, from the video stream's own packets), `cap_hit` (`--max-frames` removed at least one pick) and `black_images_omitted`.
 
 **`anim`:**
 
@@ -149,8 +158,10 @@ Each line below is printed in `summary.md` (anim warnings also appear in `fit.js
 
 | Mode | What you see | What it means | What to do |
 |------|--------------|---------------|------------|
-| bug | `Warning: N picks were dropped. Narrow with --range, …` | More picks than `--max-frames`; motion samples went first, then brief picks, then the shortest-lived states | Narrow with `--range`, or raise `--interval` / `--min-dwell`, rather than raising `--max-frames` |
-| bug | `Nothing on screen changed in the analysed region.` | No visible change was detected | Check `--range` and the crop flags; for a small change, a more sensitive `--decimate` |
+| bug | `Warning: N picks were dropped. Narrow with --range, …` | More picks than `--max-frames`; motion samples went first, then brief picks, then the shortest-lived states, then black frames | Narrow with `--range`, or raise `--interval` / `--min-dwell`, rather than raising `--max-frames` |
+| bug | `Warning: N black intervals have no image (--max-frames M reached). …` | More black intervals than the budget leaves room for. Every interval keeps its row in `summary.md` and `timeline.tsv`; only the image is missing | Run again with `--range` around the listed times to see their frames |
+| bug | `Nothing on screen changed in the analysed region.` | No visible change was detected by mpdecimate. The triage rows may still list black frames it treated as duplicates | Check `--range` and the crop flags; for a small change, a more sensitive `--decimate` |
+| bug | `video end from container duration (not proven): …` | The end of the video stream could not be read from its packets (unknown last-frame duration, missing timestamps, or an unconfirmed timeline origin) | Intervals still going at the end are reported with the last frame as their lower bound; treat their durations as approximate |
 | bug | ``(no sheets: ImageMagick `magick` not found; read frames/ directly)`` | ImageMagick is not installed. In `anim` the sheets are simply absent from each segment's file list | Read `frames/` directly, or install ImageMagick 7 |
 | anim | `travel estimate varies by N% across frames: …` | More than one thing moves, or a fade is combined with the move | Rerun with `--roi` around the one element |
 | anim | `the change covers almost the whole region (full-screen transition?): …` | A full-screen push or slide; the timing is reliable, the curve shape is only a proxy unless it is a cross-fade | `--roi` on a strip only the incoming edge crosses |
@@ -164,6 +175,7 @@ Each line below is printed in `summary.md` (anim warnings also appear in `fit.js
 
 Other known limits:
 
+- **Several video tracks in one file:** only one is analysed, the default-disposition track, or the first when none is marked default. The summary's video line names it (`video stream #N of M`).
 - **Several elements animating at once** give a mixed curve. Run once per element with `--roi`.
 - **A fade combined with movement** — fit `--signal blend` for the opacity, and `--roi` with `--signal edge` for the motion, and report both.
 - **Low frame rate or dropped frames** (a large frame interval in the summary) make the timing coarser. Precision is ±1 frame: ±17 ms at 60 fps. A slowed capture with `--time-scale` gives proportionally more samples.
@@ -189,6 +201,7 @@ Recordings often show personal data.
 
 - [Screen Recordings]({{< relref "/docs/workflows/screen-recordings" >}}) — overview: choosing a mode, reading order, privacy
 - [Bug Report from a Recording]({{< relref "/docs/workflows/screen-recordings/bug-report" >}})
+- [Spot a Hang, a Black Flash or a Silent Gap]({{< relref "/docs/workflows/screen-recordings/hang-black-silence" >}})
 - [Animation from a Prototype Recording]({{< relref "/docs/workflows/screen-recordings/animation" >}})
 - [Recording Tips]({{< relref "/docs/workflows/screen-recordings/recording-tips" >}})
 

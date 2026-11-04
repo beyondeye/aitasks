@@ -33,17 +33,214 @@ def parse_showinfo(log: str) -> list[tuple[int, int, float]]:
 
 
 # --------------------------------------------------------------------------- #
+# bug mode triage: freeze / black / silence intervals
+#
+# Evidence model. blackdetect, freezedetect and silencedetect put their keys on
+# the frame (or audio frame) where a state starts or ends, and
+# `metadata=mode=print` / `ametadata=mode=print` log those frames with their pts.
+# An end is *observed* only when its key sits on a real frame: at EOF, or where
+# --range cuts the stream, blackdetect and silencedetect still log an end line
+# but attach no metadata (FFmpeg release/5.1 uninit paths), and freezedetect
+# logs nothing. Such an interval is reported with end_observed=False and its end
+# as a lower bound.
+
+_NUM = r"-?\d+(?:\.\d+)?(?:e[-+]?\d+)?"
+_META_HEAD = re.compile(rf"\bframe:\s*\d+\s+pts:\s*(-?\d+)\s+pts_time:\s*({_NUM})")
+_META_KEY = re.compile(r"\]\s*(lavfi\.[\w.]+)=(.*)$")
+_SILENCE_END_LOG = re.compile(rf"\bsilence_end:\s*({_NUM})")
+
+
+def _tag(line: str) -> str:
+    return line.split("]", 1)[0] if line.startswith("[") else ""
+
+
+def parse_metadata_print(log: str) -> list[tuple[int, float, dict[str, str]]]:
+    """(pts, pts_time, {key: raw value}) for each frame printed by ffmpeg's
+    metadata=mode=print / ametadata=mode=print filters."""
+    blocks: list[tuple[int, float, dict[str, str]]] = []
+    for line in log.splitlines():
+        if "metadata_" not in _tag(line):
+            continue
+        m = _META_HEAD.search(line)
+        if m:
+            blocks.append((int(m.group(1)), float(m.group(2)), {}))
+            continue
+        k = _META_KEY.search(line)
+        if k and blocks:
+            blocks[-1][2][k.group(1)] = k.group(2).strip()
+    return blocks
+
+
+@dataclass
+class Interval:
+    kind: str                  # freeze / black / silence
+    start: float               # seconds, same timeline as showinfo
+    end: float                 # observed end, or a lower bound when not end_observed
+    end_observed: bool         # True only when the detector marked the end on a frame
+    frame_pts: int | None = None   # black: the first black frame (detector-qualified)
+    frame_t: float | None = None
+
+    @property
+    def duration(self) -> float:
+        return self.end - self.start
+
+
+def triage_intervals(video_log: str, audio_log: str, span_end: float, *,
+                     black_min: float = 0.0) -> list[Interval]:
+    """Freeze, black and silence intervals from the detector metadata.
+
+    span_end is the end of the analysed video span: the lower bound for a freeze
+    or black run still going when the span ended. A trailing silence takes the
+    audio stream's own end (silencedetect's EOF log line) instead. Black runs
+    shorter than black_min are dropped only when their end was observed; a run
+    whose end was not observed is kept, since nothing proves it short.
+    """
+    out: list[Interval] = []
+    black = None    # (t, pts) of the open black run's first frame
+    freeze = None   # start time of the open freeze
+    for pts, t, kv in parse_metadata_print(video_log):
+        if "lavfi.black_end" in kv and black is not None:
+            iv = Interval("black", black[0], t, True, black[1], black[0])
+            if iv.duration >= black_min:
+                out.append(iv)
+            black = None
+        if "lavfi.black_start" in kv and black is None:
+            black = (t, pts)
+        # freezedetect reports a freeze only once it has lasted d, so the frame that
+        # first proves the duration can also be the one that ends it: both keys on
+        # one frame. Open before closing.
+        if "lavfi.freezedetect.freeze_start" in kv and freeze is None:
+            freeze = float(kv["lavfi.freezedetect.freeze_start"])
+        if "lavfi.freezedetect.freeze_end" in kv and freeze is not None:
+            out.append(Interval("freeze", freeze,
+                                float(kv["lavfi.freezedetect.freeze_end"]), True))
+            freeze = None
+    if black is not None:
+        out.append(Interval("black", black[0], max(span_end, black[0]), False,
+                            black[1], black[0]))
+    if freeze is not None:
+        out.append(Interval("freeze", freeze, max(span_end, freeze), False))
+
+    silence = None
+    observed_ends = set()
+    for _, _, kv in parse_metadata_print(audio_log):
+        # silencedetect walks samples: one audio frame can both reach d (start)
+        # and hear the sound resume (end). Open before closing.
+        if "lavfi.silence_start" in kv and silence is None:
+            silence = float(kv["lavfi.silence_start"])
+        if "lavfi.silence_end" in kv and silence is not None:
+            observed_ends.add(kv["lavfi.silence_end"])
+            out.append(Interval("silence", silence, float(kv["lavfi.silence_end"]), True))
+            silence = None
+    if silence is not None:
+        # silencedetect closes a trailing silence at EOF with a log line only; its
+        # value is the audio stream's end (byte-exact match keeps observed ends out)
+        eof = [m.group(1) for line in audio_log.splitlines()
+               if "silencedetect" in _tag(line)
+               for m in [_SILENCE_END_LOG.search(line)] if m
+               and m.group(1) not in observed_ends]
+        end = float(eof[-1]) if eof else span_end
+        out.append(Interval("silence", silence, max(end, silence), False))
+    return sorted(out, key=lambda iv: (iv.start, iv.kind))
+
+
+def _num_or_none(text: str) -> float | None:
+    try:
+        return float(text)
+    except ValueError:
+        return None
+
+
+def parse_packets(text: str) -> list[tuple[float | None, float | None]]:
+    """(pts_time, duration_time) per packet from
+    `ffprobe -show_entries packet=pts_time,duration_time -of compact=p=0`
+    (lines like `pts_time=0.983333|duration_time=0.016667`); N/A becomes None."""
+    out = []
+    for line in text.splitlines():
+        fields = dict(f.split("=", 1) for f in line.strip().split("|") if "=" in f)
+        if "pts_time" not in fields:
+            continue
+        out.append((_num_or_none(fields["pts_time"]),
+                    _num_or_none(fields.get("duration_time", "N/A"))))
+    return out
+
+
+@dataclass
+class Span:
+    end_t: float               # end used for dwell ("shown for") of the last kept frame
+    interval_end: float        # lower bound for a freeze/black run still going at the end
+    proven: bool               # both values are proven video coverage
+    max_pts: float | None      # latest presentation time of a video packet (normalised)
+    note: str = ""             # why the end is not proven
+
+
+def _close(a: float, b: float) -> bool:
+    # showinfo prints pts_time with 6 significant digits
+    return abs(a - b) <= max(1e-3, 1e-5 * abs(b))
+
+
+def video_span(packets, origin: float, *, range_end: float | None, ranged: bool,
+               first_kept_t: float, last_kept_t: float, container_end: float) -> Span:
+    """End of the analysed video span, on the detector's timeline.
+
+    ffmpeg subtracts the input's format start_time (`origin`) before filtering, but
+    ffprobe packet times are raw, so every packet pts is normalised first. Packets
+    come in demux order, so coverage is taken at the packet with the latest
+    presentation time: its pts + duration, proven only when that duration is known
+    and every packet has a pts. --range ending before the last frame is proven by
+    that later frame. The origin is confirmed against the first kept frame's
+    showinfo time; when it cannot be, nothing derived from packets is used.
+    """
+    pts = [(None if p is None else p - origin, d) for p, d in packets]
+    known = [(p, d) for p, d in pts if p is not None]
+    container = container_end if range_end is None else min(container_end, range_end)
+    origin_ok = bool(known) and any(_close(p, first_kept_t) for p, _ in known) and (
+        ranged or _close(min(p for p, _ in known), first_kept_t))
+    if not origin_ok:
+        return Span(container, max(last_kept_t, first_kept_t), False, None,
+                    "video timeline origin could not be confirmed")
+    p_max, d_max = max(known, key=lambda pd: (pd[0], pd[1] or 0.0))
+    if range_end is not None and range_end <= p_max:
+        return Span(range_end, range_end, True, p_max)
+    if len(known) == len(pts) and d_max and d_max > 0:
+        cov = p_max + d_max
+        end = cov if range_end is None else min(cov, range_end)
+        return Span(end, end, True, p_max)
+    why = ("a video packet has no timestamp" if len(known) < len(pts)
+           else "the last frame's duration is unknown")
+    return Span(container, p_max, False, p_max,
+                f"video coverage after the last frame at {p_max:.3f} s not established ({why})")
+
+
+# --------------------------------------------------------------------------- #
 # bug mode: which frames are worth looking at
 
 @dataclass
 class Pick:
-    index: int          # position in the kept-frame list
+    index: int | None   # position in the kept-frame list; None for a frame mpdecimate
+                        # dropped (added through a Mark, identified by `ref`)
     t: float            # pts_time, seconds
-    dwell: float        # seconds this picture stayed on screen
-    reasons: list[str]  # start / state / motion / brief / end
+    dwell: float        # seconds, read according to dwell_basis
+    reasons: list[str]  # start / state / motion / brief / black / end
+    ref: object = None  # caller's handle (the pts) for a frame outside the kept list
+    dwell_basis: str = "decimate"  # "decimate": until the next visible change;
+                                   # "black run" / "black run, lower bound": blackdetect
 
 
-_PRIORITY = {"start": 4, "end": 4, "state": 3, "brief": 2, "motion": 1}
+@dataclass
+class Mark:
+    """A frame the caller wants picked for `reason`. With `index`, it is that kept
+    frame; without, it is a frame mpdecimate dropped, whose duration the caller
+    knows from other evidence (`dwell`, `dwell_basis`)."""
+    t: float
+    reason: str
+    index: int | None = None
+    ref: object = None
+    dwell: float = 0.0
+    dwell_basis: str = "decimate"
+
+
+_PRIORITY = {"start": 4, "end": 4, "black": 3.5, "state": 3, "brief": 2, "motion": 1}
 
 
 def dwell_times(times: list[float], end_t: float) -> list[float]:
@@ -56,7 +253,7 @@ def dwell_times(times: list[float], end_t: float) -> list[float]:
 
 
 def select_key_frames(times, end_t, *, min_dwell=0.4, interval=1.0, brief_max=0.12,
-                      max_frames=40):
+                      max_frames=40, marks=()):
     """Pick the frames that summarise a recording, from mpdecimate's kept frames.
 
     - state:  dwell >= min_dwell, a screen that settled long enough to be seen
@@ -66,8 +263,13 @@ def select_key_frames(times, end_t, *, min_dwell=0.4, interval=1.0, brief_max=0.
               very quick transition) that interval sampling would step over
     - start / end: the first and last kept frame
 
-    Returns (picks, dropped); `dropped` counts picks removed to honour max_frames
-    (motion samples go first, then briefs, then the shortest-lived states).
+    - marks:  extra picks requested by the caller (Mark), e.g. a black frame; a
+              mark on a kept frame merges its reason, a mark without an index adds
+              a frame mpdecimate dropped, with the caller's dwell
+
+    Returns (picks, dropped) in time order; `dropped` counts picks removed to
+    honour max_frames (motion samples go first, then briefs, then the
+    shortest-lived states, then black frames; start and end go last).
     """
     n = len(times)
     if n == 0:
@@ -107,12 +309,19 @@ def select_key_frames(times, end_t, *, min_dwell=0.4, interval=1.0, brief_max=0.
         i = j + 1
     add(n - 1, "end")
 
+    extra = []
+    for m in marks:
+        if m.index is not None:
+            add(m.index, m.reason)
+        else:
+            extra.append(Pick(None, m.t, m.dwell, [m.reason], m.ref, m.dwell_basis))
     picks = [Pick(k, times[k], dwell[k], reasons[k]) for k in sorted(reasons)]
+    picks = sorted(picks + extra, key=lambda p: p.t)   # stable: kept frame first on ties
     if len(picks) <= max_frames:
         return picks, 0
     ranked = sorted(picks, key=lambda p: (max(_PRIORITY[r] for r in p.reasons), p.dwell),
                     reverse=True)
-    keep = sorted(ranked[:max_frames], key=lambda p: p.index)
+    keep = sorted(ranked[:max_frames], key=lambda p: p.t)
     return keep, len(picks) - len(keep)
 
 

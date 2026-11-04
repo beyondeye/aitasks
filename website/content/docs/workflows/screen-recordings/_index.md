@@ -47,6 +47,7 @@ ffmpeg and ffprobe 5.1 or later must be on `PATH`; `ait setup` does not install 
 ## Walkthroughs
 
 - [Bug Report from a Recording]({{< relref "/docs/workflows/screen-recordings/bug-report" >}}) — key screens, brief glitch frames, and a report that cites them
+- [Spot a Hang, a Black Flash or a Silent Gap]({{< relref "/docs/workflows/screen-recordings/hang-black-silence" >}}) — the freeze, black and silence rows, and why every black interval is represented
 - [Animation from a Prototype Recording]({{< relref "/docs/workflows/screen-recordings/animation" >}}) — measured duration, easing and spring fits, translated to code
 - [Recording Tips]({{< relref "/docs/workflows/screen-recordings/recording-tips" >}}) — capture a recording that analyses well on Android, iOS and desktop
 

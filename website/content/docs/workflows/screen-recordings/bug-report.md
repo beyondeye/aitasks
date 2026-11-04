@@ -32,15 +32,18 @@ The helper keeps only the frames that visibly differ from the one before, then p
 | `state` | A screen that stayed up at least `--min-dwell` (0.4 s) — the screens the user actually saw |
 | `motion` | One frame per `--interval` (1 s) of continuous change, such as scrolling or a long animation. An ordinary 300 ms transition is not sampled; you see the screens before and after it |
 | `brief` | A change that was over within `--brief-max` (0.12 s): a flash, a glitch frame, a very quick transition. **These are often the bug — look at them** |
+| `black` | The first frame of a black interval found by ffmpeg's blackdetect — even a single black frame |
 
 Each pick also records how long it was "shown for": the time until the next visible change.
+
+Alongside the picks, the summary lists every freeze, black interval and silent gap the ffmpeg detectors found. See [Spot a Hang, a Black Flash or a Silent Gap]({{< relref "/docs/workflows/screen-recordings/hang-black-silence" >}}) for what those rows mean.
 
 ## 3. Read the results
 
 1. **`summary.md`** — the video's properties, the pick counts, a sheet index, and the full timeline table
 2. **The contact sheets** (`sheet_01.png`, …) — eight labelled frames each, `#N <time>s` and `<reason> <shown for>s`
 3. **Individual frames** (`frames/04_5.500s.png`) — only the ones you need to see in detail; each costs about as much as a whole sheet
-4. **`timeline.tsv`** — the same timeline as tab-separated data: `idx`, `time_s`, `shown_for_s`, `why`, `file`
+4. **`timeline.tsv`** — the same timeline as tab-separated data: `idx`, `time_s`, `shown_for_s`, `why`, `file`, `kind`, `end_s`. Picked frames have `kind` `frame`; freeze, black and silence intervals have their own rows
 
 ## 4. Write the report
 

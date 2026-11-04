@@ -60,15 +60,23 @@ class Canvas:
         return bytes(self.buf)
 
 
-def encode(path, frames, *, w=W, h=H, fps=FPS, vfr=False, crf=18):
+def encode(path, frames, *, w=W, h=H, fps=FPS, vfr=False, crf=18, ts_offset=None,
+           x264_params=None):
     """Encode raw gray frames to H.264. vfr=True drops exact duplicates and keeps
-    the original timestamps, like Android's screenrecord does for a still screen."""
+    the original timestamps, like Android's screenrecord does for a still screen.
+    ts_offset shifts every timestamp (a nonzero container start_time);
+    x264_params is passed to -x264-params (e.g. B-frames that reorder packets)."""
     cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "rawvideo",
            "-pix_fmt", "gray", "-s", f"{w}x{h}", "-r", str(fps), "-i", "-"]
     if vfr:
         cmd += ["-vf", "mpdecimate=hi=1:lo=1:frac=0", "-fps_mode", "vfr"]
     cmd += ["-c:v", "libx264", "-preset", "veryfast", "-crf", str(crf),
-            "-pix_fmt", "yuv420p", str(path)]
+            "-pix_fmt", "yuv420p"]
+    if x264_params:
+        cmd += ["-x264-params", x264_params]
+    if ts_offset is not None:
+        cmd += ["-output_ts_offset", str(ts_offset)]
+    cmd += [str(path)]
     p = subprocess.Popen(cmd, stdin=subprocess.PIPE)
     for f in frames:
         p.stdin.write(f)
@@ -184,3 +192,97 @@ def bug_frames(*, clock=False, fps=FPS):
             c.rect(290, 4, 350, 20, 60 if int(t / 0.5) % 2 else 150)
         frames.append(c.bytes())
     return frames
+
+
+# --------------------------------------------------------------------------- #
+# bug-mode triage scenes (freeze / black / silence). A small bar moves 1 px per
+# frame, so no span is still unless the scene freezes it on purpose.
+
+def _bar(c, i):
+    x = 20 + i % 300
+    c.rect(x, 380, x + 20, 420, FG)
+
+
+TRIAGE_TRUTH = {
+    # (start s, end s) of each interval in triage_frames()
+    "freeze": [(2.0, 4.5)],
+    "black": [(5.0, 5.25), (6.0, 6.0 + 1 / FPS)],
+}
+
+
+def triage_frames(*, fps=FPS):
+    """7 s: the moving bar, held on its t=2.0 picture for [2.0, 4.5) (a hang), a
+    black span [5.0, 5.25) and a single black frame at 6.0."""
+    frames = []
+    for i in range(7 * fps):
+        t = i / fps
+        c = Canvas()
+        if 5.0 <= t < 5.25 or i == 6 * fps:
+            c.fill(0)
+        else:
+            _bar(c, 2 * fps if 2.0 <= t < 4.5 else i)
+        frames.append(c.bytes())
+    return frames
+
+
+DARK_GRAY, DARK_BLACK = 27, 23   # full-range gray: Y ~39 (not black) / Y ~36 (black)
+
+
+def dark_flash_frames(*, fps=FPS):
+    """1 s of a flat dark-gray screen with one slightly darker frame at 0.5 s.
+    blackdetect (pix_th 0.10: limited-range Y <= ~37) counts only that frame as
+    black, while mpdecimate sees it as a duplicate of the frame before it and
+    drops it: the nearest kept frame is the non-black one at t=0."""
+    frames = []
+    for i in range(fps):
+        c = Canvas(bg=DARK_BLACK if i == fps // 2 else DARK_GRAY)
+        frames.append(c.bytes())
+    return frames
+
+
+def tail_frames(*, recover, fps=FPS):
+    """1 s: the moving bar, then black from 0.5 s. recover=False: black to the last
+    frame (the run is cut by EOF); recover=True: the last frame shows the bar again
+    (an observed end on the final frame)."""
+    frames = []
+    for i in range(fps):
+        c = Canvas()
+        if i >= fps // 2 and not (recover and i == fps - 1):
+            c.fill(0)
+        else:
+            _bar(c, i)
+        frames.append(c.bytes())
+    return frames
+
+
+def black_flash_frames(n=6, *, fps=FPS):
+    """A still screen with n three-frame black flashes, at 0.5, 1.0, ... s. Each
+    return to the screen stays up 0.45 s, a 'state' pick, so the black frames
+    compete with states (not only with motion) for the --max-frames budget."""
+    starts = {round(0.5 * k * fps) for k in range(1, n + 1)}
+    frames = []
+    for i in range(round(0.5 * (n + 1) * fps)):
+        c = Canvas()
+        if any(s <= i < s + 3 for s in starts):
+            c.fill(0)
+        else:
+            _bar(c, 0)
+        frames.append(c.bytes())
+    return frames
+
+
+def mux_tone(video, out, *, duration, silent=None, shortest=True):
+    """Copy `video` and add a 440 Hz AAC tone of `duration` s, muted on the
+    [a, b] span `silent` (sample-exact before encoding)."""
+    expr = "sin(2*PI*440*t)"
+    if silent:
+        a, b = silent
+        expr = f"if(between(t\\,{a}\\,{b})\\,0\\,{expr})"
+    cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(video),
+           "-f", "lavfi", "-i", f"aevalsrc='{expr}':s=48000:d={duration}",
+           "-map", "0:v", "-map", "1:a", "-c:v", "copy", "-c:a", "aac"]
+    if shortest:
+        cmd += ["-shortest"]
+    cmd += [str(out)]
+    subprocess.run(cmd, check=True)
+    return out

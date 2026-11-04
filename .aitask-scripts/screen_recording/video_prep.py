@@ -30,6 +30,12 @@ import vp_core as core  # noqa: E402
 SHEET_MAX_EDGE = 1600      # keeps a sheet under Claude's per-image downscale limit
 TOKEN_TILE = 28            # image tokens ~= ceil(w/28) * ceil(h/28)
 
+# bug-mode triage detectors (ffmpeg defaults except blackdetect's d, which we
+# apply ourselves through --black-min: its metadata marks every run regardless)
+FREEZE_NOISE = "-60dB"
+BLACK_PIC_TH, BLACK_PIX_TH = 0.98, 0.10
+SILENCE_NOISE, SILENCE_MIN = "-60dB", 2.0
+
 
 class PrepError(RuntimeError):
     pass
@@ -72,7 +78,10 @@ def probe(video: str) -> dict:
                 and not s.get("disposition", {}).get("attached_pic")]
     if not vstreams:
         raise PrepError(f"{video}: no video stream")
-    vs = vstreams[0]
+    # one stream for everything: the default-disposition track (what players show),
+    # else the first. Every ffmpeg/ffprobe call maps this index explicitly, so the
+    # properties, detectors, packet coverage and extracted frames agree.
+    vs = next((s for s in vstreams if s.get("disposition", {}).get("default")), vstreams[0])
     rotation = 0
     for sd in vs.get("side_data_list", []) or []:
         if "rotation" in sd:
@@ -91,6 +100,7 @@ def probe(video: str) -> dict:
         "avg_fps": _rate(vs.get("avg_frame_rate")), "r_fps": _rate(vs.get("r_frame_rate")),
         "nb_frames": int(vs["nb_frames"]) if str(vs.get("nb_frames", "")).isdigit() else None,
         "codec": vs.get("codec_name"), "has_audio": bool(audio),
+        "vindex": int(vs["index"]), "video_streams": len(vstreams),
         "creation_time": (fmt.get("tags") or {}).get("creation_time"),
     }
 
@@ -125,19 +135,52 @@ def parse_span(text: str, flag: str) -> tuple[float, float]:
     return a, b
 
 
-def kept_frames(video, head: list[str], decimate: str | None) -> list[tuple[int, float]]:
-    """(pts, time) of the frames mpdecimate keeps, i.e. every visible change."""
+def _vmap(stream: int | None) -> list[str]:
+    """-map for the resolved video stream (probe()["vindex"]); empty = ffmpeg's choice."""
+    return [] if stream is None else ["-map", f"0:{stream}"]
+
+
+def scan(video, head: list[str], decimate: str | None, pre: list[str] = (), *,
+         stream: int | None = None):
+    """One decode pass: the `pre` filters (detectors) see every frame, then
+    mpdecimate keeps the visible changes. Returns ((pts, time) of the kept frames,
+    the ffmpeg log)."""
     md = "mpdecimate" + (f"={decimate}" if decimate else "")
-    vf = ",".join([*head, md, "showinfo"])
-    _, err = ffmpeg(["-i", video, "-an", "-vf", vf, "-fps_mode", "passthrough", "-f", "null", "-"])
-    return [(pts, t) for _, pts, t in core.parse_showinfo(err)]
+    vf = ",".join([*head, *pre, md, "showinfo"])
+    _, err = ffmpeg(["-i", video, *_vmap(stream), "-an", "-vf", vf, "-fps_mode", "passthrough",
+                     "-f", "null", "-"])
+    return [(pts, t) for _, pts, t in core.parse_showinfo(err)], err
 
 
-def decode_gray(video, head: str, crop: str | None, aw: int, ah: int):
+def kept_frames(video, head: list[str], decimate: str | None, *,
+                stream: int | None = None) -> list[tuple[int, float]]:
+    """(pts, time) of the frames mpdecimate keeps, i.e. every visible change."""
+    return scan(video, head, decimate, stream=stream)[0]
+
+
+def silence_log(video, span: tuple[float, float] | None) -> str:
+    """ffmpeg log of silencedetect (+ ametadata print) over the first audio stream."""
+    af = ",".join(x for x in [
+        f"atrim=start={span[0]:.6f}:end={span[1]:.6f}" if span else None,
+        f"silencedetect=n={SILENCE_NOISE}:d={SILENCE_MIN:g}", "ametadata=mode=print"] if x)
+    _, err = ffmpeg(["-i", video, "-vn", "-af", af, "-f", "null", "-"])
+    return err
+
+
+def video_packets(video, stream: int) -> list[tuple[float | None, float | None]]:
+    """(pts_time, duration_time) of every packet of the first video stream, in
+    demux order and on the container's raw timeline (demux only, no decode)."""
+    out, _ = run(["ffprobe", "-v", "error", "-select_streams", str(stream), "-show_entries",
+                  "packet=pts_time,duration_time", "-of", "compact=p=0", video])
+    return core.parse_packets(out)
+
+
+def decode_gray(video, head: str, crop: str | None, aw: int, ah: int, *,
+                stream: int | None = None):
     """Decode frames as aw x ah grayscale: [(pts, time, bytes)]."""
     vf = ",".join(x for x in [head, crop, f"scale={aw}:{ah}:flags=area", "format=gray",
                               "showinfo"] if x)
-    out, err = ffmpeg(["-i", video, "-an", "-vf", vf, "-fps_mode", "passthrough",
+    out, err = ffmpeg(["-i", video, *_vmap(stream), "-an", "-vf", vf, "-fps_mode", "passthrough",
                        "-f", "rawvideo", "-pix_fmt", "gray", "pipe:1"], binary=True)
     info = core.parse_showinfo(err)
     size = aw * ah
@@ -146,7 +189,8 @@ def decode_gray(video, head: str, crop: str | None, aw: int, ah: int):
     return [(pts, t, out[i * size:(i + 1) * size]) for i, (_, pts, t) in enumerate(info)]
 
 
-def extract_views(video, wanted: dict[int, Path], crop: str | None, vw: int, vh: int):
+def extract_views(video, wanted: dict[int, Path], crop: str | None, vw: int, vh: int, *,
+                  stream: int | None = None):
     """Write the frames whose pts are keys of `wanted` to the mapped PNG paths."""
     if not wanted:
         return
@@ -156,7 +200,7 @@ def extract_views(video, wanted: dict[int, Path], crop: str | None, vw: int, vh:
         expr = "+".join(f"eq(pts,{p})" for p in sorted(wanted))
         vf = ",".join(x for x in [f"select='{expr}'", crop, f"scale={vw}:{vh}:flags=area",
                                   "showinfo"] if x)
-        _, err = ffmpeg(["-i", video, "-an", "-vf", vf, "-fps_mode", "passthrough",
+        _, err = ffmpeg(["-i", video, *_vmap(stream), "-an", "-vf", vf, "-fps_mode", "passthrough",
                          str(tmp / "%05d.png")])
         got = core.parse_showinfo(err)
         for k, (_, pts, _) in enumerate(got, start=1):
@@ -251,8 +295,11 @@ def video_line(info: dict) -> str:
     if info["r_fps"] and info["avg_fps"] and abs(info["r_fps"] - info["avg_fps"]) > 0.5:
         fps += f" (r_frame_rate {info['r_fps']:.2f}: variable frame rate)"
     rot = f", rotated {info['rotation']}°" if info["rotation"] else ""
+    streams = ("" if info.get("video_streams", 1) <= 1 else
+               f", video stream #{info['vindex']} of {info['video_streams']} (the default "
+               "track, else the first; the others are not analysed)")
     return (f"{info['width']}x{info['height']}{rot}, {info['duration']:.2f} s, {fps}, "
-            f"codec {info['codec']}, audio: {'yes' if info['has_audio'] else 'none'}")
+            f"codec {info['codec']}, audio: {'yes' if info['has_audio'] else 'none'}{streams}")
 
 
 def audio_peak_db(video: str) -> float | None:
@@ -283,24 +330,76 @@ def cmd_info(args) -> int:
 # --------------------------------------------------------------------------- #
 # bug mode
 
+def _shown_for(p: core.Pick, *, tsv: bool = False, label: bool = False) -> str:
+    """How long a pick's picture was up. A frame mpdecimate dropped (a black frame
+    added for its interval) was never measured by it: its duration is the black
+    run's, and when that run's end was not observed it is only a lower bound."""
+    if p.dwell_basis == "black run, lower bound":
+        return "" if tsv else (f">={p.dwell:.2f}s" if label
+                               else f"≥ {p.dwell:.3f} s (black run, span ended)")
+    if p.dwell_basis == "black run":
+        return (f"{p.dwell:.3f}" if tsv else f"{p.dwell:.3f}s" if label
+                else f"{p.dwell:.3f} s (black run)")
+    return f"{p.dwell:.3f}" if tsv else f"{p.dwell:.2f}s" if label else f"{p.dwell:.2f} s"
+
+
+def _end_cell(iv: core.Interval) -> tuple[str, str]:
+    if iv.end_observed:
+        return f"{iv.end:.3f} s", f"{iv.duration:.3f} s"
+    return f"≥ {iv.end:.3f} s (span ended)", f"≥ {iv.duration:.3f} s"
+
+
 def cmd_bug(args) -> int:
+    # argparse's float() accepts nan and inf; every comparison with nan is false
+    if not math.isfinite(args.freeze_min) or args.freeze_min <= 0:
+        raise PrepError("--freeze-min must be a positive number of seconds")
+    if not math.isfinite(args.black_min) or args.black_min < 0:
+        raise PrepError("--black-min must be a number of seconds, 0 or more")
     info = probe(args.video)
     crop, cw, ch, region = crop_filter(args, info)
+    span = parse_span(args.range, "--range") if args.range else None
     head = []
-    end_t = info["start_time"] + info["duration"]
-    if args.range:
-        a, b = parse_span(args.range, "--range")
-        head.append(f"trim=start={a:.6f}:end={b:.6f}")
-        end_t = min(end_t, b)
+    if span:
+        head.append(f"trim=start={span[0]:.6f}:end={span[1]:.6f}")
     if crop:
         head.append(crop)
-    kept = kept_frames(args.video, head, args.decimate)
+    detectors = {
+        "freeze": f"freezedetect=n={FREEZE_NOISE}:d={args.freeze_min:g}",
+        "black": f"blackdetect=d=0:pic_th={BLACK_PIC_TH:g}:pix_th={BLACK_PIX_TH:g}",
+        "silence": (f"silencedetect=n={SILENCE_NOISE}:d={SILENCE_MIN:g}"
+                    if info["has_audio"] else None),
+    }
+    kept, vlog = scan(args.video, head, args.decimate,
+                      [detectors["freeze"], detectors["black"], "metadata=mode=print"],
+                      stream=info["vindex"])
     if not kept:
         raise PrepError("no frames decoded (check --range)")
     times = [t for _, t in kept]
+    vspan = core.video_span(video_packets(args.video, info["vindex"]), info["start_time"],
+                            range_end=span[1] if span else None, ranged=span is not None,
+                            first_kept_t=times[0], last_kept_t=times[-1],
+                            container_end=info["duration"])
+    end_t = vspan.end_t
+    alog = silence_log(args.video, span) if info["has_audio"] else ""
+    intervals = core.triage_intervals(vlog, alog, vspan.interval_end, black_min=args.black_min)
+
+    # one detector-qualified frame per black interval: the first black frame, even
+    # when mpdecimate dropped it as a near-duplicate of its predecessor
+    pts_index = {pts: i for i, (pts, _) in enumerate(kept)}
+    marks = []
+    for iv in intervals:
+        if iv.kind != "black":
+            continue
+        i = pts_index.get(iv.frame_pts)
+        if i is not None:
+            marks.append(core.Mark(iv.frame_t, "black", index=i))
+        else:
+            marks.append(core.Mark(iv.frame_t, "black", ref=iv.frame_pts, dwell=iv.duration,
+                                   dwell_basis=("black run" if iv.end_observed
+                                                else "black run, lower bound")))
     picks, dropped = core.select_key_frames(
         times, end_t, min_dwell=args.min_dwell, interval=args.interval,
-        brief_max=args.brief_max, max_frames=args.max_frames)
+        brief_max=args.brief_max, max_frames=args.max_frames, marks=marks)
 
     out = make_out_dir(args.out, args.video, "bug")
     frames_dir = out / "frames"
@@ -308,20 +407,45 @@ def cmd_bug(args) -> int:
     vw, vh = view_size(info["width"], info["height"], args.view_size)
     wanted, rows = {}, []
     for k, p in enumerate(picks, start=1):
-        pts = kept[p.index][0]
+        pts = kept[p.index][0] if p.index is not None else p.ref
         path = frames_dir / f"{k:02d}_{p.t:.3f}s.png"
         wanted[pts] = path
         rows.append((k, p, path))
-    extract_views(args.video, wanted, None, vw, vh)  # full frame: the status bar can matter
+    extract_views(args.video, wanted, None, vw, vh,  # full frame: the status bar can matter
+                  stream=info["vindex"])
     sheets = contact_sheets(
-        [(path, f"#{k} {p.t:.3f}s\n{'+'.join(p.reasons)} {p.dwell:.2f}s") for k, p, path in rows],
+        [(path, f"#{k} {p.t:.3f}s\n{'+'.join(p.reasons)} {_shown_for(p, label=True)}")
+         for k, p, path in rows],
         out, args.per_sheet, vw, vh)
 
+    iv_file = {}
+    omitted = 0
+    for iv in intervals:
+        if iv.kind == "black":
+            path = wanted.get(iv.frame_pts)
+            iv_file[id(iv)] = path.relative_to(out) if path else None
+            omitted += path is None
+
+    def iv_why(iv):
+        why = detectors[iv.kind]
+        if not iv.end_observed:
+            why += (f"; end not observed: still {iv.kind} when the analysed span ended "
+                    "(real end unknown, end_s is a lower bound)")
+            if iv.kind != "silence" and not vspan.proven:
+                why += f"; {vspan.note}"
+        if iv.kind == "black" and iv_file[id(iv)] is None:
+            why += f"; no image: --max-frames {args.max_frames} reached"
+        return why
+
+    tsv = [(p.t, 0, [str(k), f"{p.t:.3f}", _shown_for(p, tsv=True), "+".join(p.reasons),
+                     str(path.relative_to(out)), "frame", ""]) for k, p, path in rows]
+    tsv += [(iv.start, 1, ["", f"{iv.start:.3f}", "", iv_why(iv),
+                           str(iv_file.get(id(iv)) or ""), iv.kind, f"{iv.end:.3f}"])
+            for iv in intervals]
     with open(out / "timeline.tsv", "w") as fh:
-        fh.write("idx\ttime_s\tshown_for_s\twhy\tfile\n")
-        for k, p, path in rows:
-            fh.write(f"{k}\t{p.t:.3f}\t{p.dwell:.3f}\t{'+'.join(p.reasons)}\t"
-                     f"{path.relative_to(out)}\n")
+        fh.write("idx\ttime_s\tshown_for_s\twhy\tfile\tkind\tend_s\n")
+        for _, _, fields in sorted(tsv, key=lambda r: (r[0], r[1])):
+            fh.write("\t".join(fields) + "\n")
 
     audio_note = "none"
     if info["has_audio"]:
@@ -340,6 +464,7 @@ def cmd_bug(args) -> int:
     for _, p, _ in rows:
         for r in p.reasons:
             counts[r] = counts.get(r, 0) + 1
+    n_kind = {k: sum(iv.kind == k for iv in intervals) for k in ("freeze", "black", "silence")}
     tokens = token_estimate(sheets) if sheets else None
     lines = [
         f"# Bug-report frames: {Path(args.video).name}", "",
@@ -351,11 +476,18 @@ def cmd_bug(args) -> int:
         + (f"; {dropped} more dropped by --max-frames {args.max_frames}" if dropped else ""),
         f"- a 'state' stayed on screen >= {args.min_dwell} s; 'motion' = one frame per "
         f"{args.interval} s of continuous change; 'brief' = a change that lasted <= "
-        f"{args.brief_max} s (flash, glitch, very quick transition)",
+        f"{args.brief_max} s (flash, glitch, very quick transition); 'black' = the first "
+        "frame of a black interval",
+        f"- triage: {n_kind['freeze']} freeze, {n_kind['black']} black, "
+        + (f"{n_kind['silence']} silence" if info["has_audio"]
+           else "silence not checked (no audio stream)")
+        + " (see \"Freeze, black and silence\")",
         f"- audio: {audio_note}",
         f"- saved frames are {vw}x{vh}, i.e. x{vw / info['width']:.3f} of the source; "
         f"--roi takes source pixels (divide frame coordinates by {vw / info['width']:.3f})",
     ]
+    if not vspan.proven:
+        lines.append(f"- video end from container duration (not proven): {vspan.note}")
     if info.get("creation_time"):
         lines.append(f"- container creation_time: {info['creation_time']} (meaning varies by "
                      "recorder: start or end of the recording; low confidence for log alignment)")
@@ -372,16 +504,61 @@ def cmd_bug(args) -> int:
     lines += ["", "## Timeline", "", "| # | time | shown for | why | file |",
               "|---|------|-----------|-----|------|"]
     for k, p, path in rows:
-        lines.append(f"| {k} | {p.t:.3f} s | {p.dwell:.2f} s | {'+'.join(p.reasons)} | "
+        lines.append(f"| {k} | {p.t:.3f} s | {_shown_for(p)} | {'+'.join(p.reasons)} | "
                      f"{path.relative_to(out)} |")
     if dropped:
         lines += ["", f"Warning: {dropped} picks were dropped. Narrow with --range, or raise "
                   "--interval / --min-dwell, rather than raising --max-frames."]
     if len(times) <= 1:
-        lines += ["", "Nothing on screen changed in the analysed region."]
+        lines += ["", "Nothing on screen changed in the analysed region."
+                  + (" (by mpdecimate's measure; blackdetect still found the black frames "
+                     "listed below)" if n_kind["black"] else "")]
+
+    lines += ["", "## Freeze, black and silence", "",
+              f"- detectors on {region}: {detectors['freeze']}; {detectors['black']} "
+              f"(black runs shorter than --black-min {args.black_min:g} s are left out when "
+              "their end was observed); "
+              + (detectors["silence"] or "silence not checked (no audio stream)"),
+              f"- freeze = no change above freezedetect's noise floor ({FREEZE_NOISE}) in the "
+              f"analysed region for >= {args.freeze_min:g} s; a small change such as a toggled "
+              "checkbox can sit inside a freeze (the frame picks still show it); a hang only "
+              "if the frames show the user acting, otherwise just a still screen; "
+              f"black = >= {BLACK_PIC_TH:.0%} of the pixels near black (a dark screen counts "
+              f"too); silence = audio below {SILENCE_NOISE} for >= {SILENCE_MIN:g} s",
+              "- an end shown as \"≥ … (span ended)\" was not observed: the state was still on "
+              "when the analysed span (for silence: the audio) ended", ""]
+    if intervals:
+        lines += ["| kind | start | end | duration | frame |",
+                  "|------|-------|-----|----------|-------|"]
+        for iv in intervals:
+            end, dur = _end_cell(iv)
+            if iv.kind != "black":
+                frame = "—"
+            else:
+                frame = str(iv_file[id(iv)] or "— (no image: --max-frames)")
+            lines.append(f"| {iv.kind} | {iv.start:.3f} s | {end} | {dur} | {frame} |")
+    else:
+        lines.append("- none found")
+    if omitted:
+        lines += ["", f"Warning: {omitted} black intervals have no image (--max-frames "
+                  f"{args.max_frames} reached). All are listed above and in timeline.tsv; "
+                  "narrow with --range around them to see their frames."]
     (out / "summary.md").write_text("\n".join(lines) + "\n")
-    _write_run_json(out, "bug", args, info, {"picks": len(rows), "dropped": dropped,
-                                             "sheets": [str(s.relative_to(out)) for s in sheets]})
+    _write_run_json(out, "bug", args, info, {
+        "picks": len(rows), "dropped": dropped, "cap_hit": dropped > 0,
+        "black_images_omitted": omitted,
+        "sheets": [str(s.relative_to(out)) for s in sheets],
+        "video_end_s": round(vspan.end_t, 6) if vspan.proven else None,
+        "video_end_proven": vspan.proven,
+        "video_end_note": vspan.note or None,
+        "detectors": detectors,
+        "intervals": [{
+            "kind": iv.kind, "start_s": round(iv.start, 6), "end_s": round(iv.end, 6),
+            "end_observed": iv.end_observed, "duration_s": round(iv.duration, 6),
+            "frame_time_s": None if iv.frame_t is None else round(iv.frame_t, 6),
+            "file": (str(iv_file[id(iv)]) if iv_file.get(id(iv)) else None),
+        } for iv in intervals],
+    })
     print(f"SUMMARY: {out / 'summary.md'}")
     return 0
 
@@ -413,7 +590,7 @@ def cmd_anim(args) -> int:
             end_t = min(end_t, b)
         if crop:
             head.append(crop)
-        kept = kept_frames(args.video, head, args.decimate)
+        kept = kept_frames(args.video, head, args.decimate, stream=info["vindex"])
         times = [t for _, t in kept]
         segs = core.motion_segments(times, args.gap)
         for si, (first, last) in enumerate(segs):
@@ -443,11 +620,12 @@ def cmd_anim(args) -> int:
         seg_dir = out / label
         (seg_dir / "frames").mkdir(parents=True)
         frames = decode_gray(args.video, f"trim=start={a - 1e-4:.6f}:end={b + 1e-4:.6f}",
-                             crop, aw, ah)
+                             crop, aw, ah, stream=info["vindex"])
         if pre_pts is not None and (not frames or frames[0][1] >= t_first - 1e-6):
             # variable-frame-rate recordings emit no frames while the screen is still,
             # so the still picture before the motion can lie outside the window
-            pre = decode_gray(args.video, f"select='eq(pts,{pre_pts})'", crop, aw, ah)
+            pre = decode_gray(args.video, f"select='eq(pts,{pre_pts})'", crop, aw, ah,
+                              stream=info["vindex"])
             frames = pre[:1] + [f for f in frames if f[0] != pre_pts]
         if len(frames) < 3:
             results.append({"label": label, "error": "fewer than 3 frames in the window",
@@ -482,7 +660,7 @@ def cmd_anim(args) -> int:
             wanted[pts] = path
             rel = (t - t_start) / args.time_scale
             items.append((path, f"f{i:03d} {t:.3f}s\n{rel * 1000:+.0f}ms"))
-        extract_views(args.video, wanted, crop, vw, vh)
+        extract_views(args.video, wanted, crop, vw, vh, stream=info["vindex"])
         res["view_files"] = {i: str((seg_dir / "frames" / f"f{i:03d}_{frames[i][1]:.3f}s.png")
                                     .relative_to(out)) for i in idx}
         res["sheets"] = [str(s.relative_to(out)) for s in
@@ -768,6 +946,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--per-sheet", type=int, default=8)
     p.add_argument("--view-size", type=int, default=1000, help="long edge of saved frames, px")
     p.add_argument("--extract-audio", action="store_true", help="also write audio.wav (16 kHz)")
+    p.add_argument("--freeze-min", type=float, default=2.0,
+                   help="no visible change for this long (s) is a freeze row")
+    p.add_argument("--black-min", type=float, default=0.0,
+                   help="shortest black run (s) to report; 0 = every black frame")
     p.set_defaults(func=cmd_bug)
 
     p = sub.add_parser("anim", help="timing and easing of animations")

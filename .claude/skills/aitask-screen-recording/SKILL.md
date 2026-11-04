@@ -78,6 +78,28 @@ kept frame is how long that picture stayed on screen ("shown for"). Picks:
   flash, a glitch frame or a very quick transition. These are often the bug, so
   look at them.
 
+- **black:** the first frame of each black interval (below), even one that
+  change detection dropped as a near-duplicate. It ranks below start/end and
+  above every other pick under `--max-frames`.
+
+The summary's **Freeze, black and silence** section lists every interval
+ffmpeg's detectors found, also in `timeline.tsv` (`kind` freeze / black /
+silence, `time_s`–`end_s`) and `run.json` (`intervals`):
+
+- **freeze:** no change above freezedetect's noise floor for `--freeze-min`
+  (2 s). Small changes such as a toggled checkbox can sit inside one. It is a
+  hang only if the frames show the user acting and nothing answering; otherwise
+  it is just a still screen. Never call it a hang without that evidence.
+- **black:** ≥ 98 % of pixels near black, any length (`--black-min` 0). A dark
+  screen counts too, so look at the interval's frame first.
+- **silence:** audio below −60 dB for 2 s, only when there is an audio track.
+- An end shown as `≥ … (span ended)` (`end_observed: false`) was not observed:
+  the state was still on when the analysed span ended, so the duration is a
+  lower bound. Report it as such.
+
+Cite intervals like frames (`freeze 2.000–4.500 s`, `black at 5.000 s,
+frames/04_5.000s.png`).
+
 When you report, reconstruct the flow as numbered steps, each citing time and
 frame (`#4 at 5.50 s, frames/04_5.500s.png: the checkbox becomes checked`).
 Separate what is visible from what you infer about the cause. A frame shows what
@@ -92,6 +114,8 @@ ask for the recording's start time if precise alignment matters.
 | Only part of the screen matters | `--roi X,Y,W,H` in source pixels (the summary gives the frame-to-source factor) |
 | A small change (toggle, badge) is not detected | more sensitive detection: `--decimate hi=256:lo=128:frac=0.1` |
 | "N more dropped by --max-frames" | narrow with `--range` rather than raising the cap |
+| "N black intervals have no image" | every interval is still listed; rerun with `--range` around the listed times to see their frames |
+| A clock in the status bar breaks every freeze | `--crop-top <px>`: the detectors use the same region as change detection |
 
 ## Anim mode
 
