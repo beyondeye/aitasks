@@ -1,0 +1,788 @@
+# Monitor status protocol — one producer, many clients
+
+`ait monitor`, `ait minimonitor` and applink each used to build their own
+`TmuxMonitor` and scan every tmux pane on their own timer. The shared monitor
+status server replaces that with **one producer per (tmux server, framework
+`VERSION`)** whose output every client subscribes to. This document is the wire
+between that server and its clients: newline-delimited JSON over a Unix socket,
+a snapshot followed by per-generation deltas, a handful of requests, and a
+recording format that doubles as the parity fixture for the Go monitor.
+
+Read this when you edit `.aitask-scripts/monitor/status_protocol.py` or
+`.aitask-scripts/monitor/status_recording.py`, the recorded fixtures under
+`tests/fixtures/monitor_status/`, or the status server, its client, or anything
+that speaks this protocol in another language.
+
+Read together with:
+
+- `aidocs/framework/monitor_idle_and_prompt_detection.md` — what `is_idle`,
+  `awaiting_input` and `awaiting_input_kind` mean, and the "verbatim
+  reproduction" rule the fixtures obey.
+- `aidocs/applink/protocol.md` — the mobile wire protocol. applink stays the
+  remote path; this protocol is local only. The additive-versioning rule below
+  is the same one.
+- `aidocs/framework/tmux_gateway.md` — the server's tmux calls go through the
+  gateways like every other caller.
+
+The member tables in this document are pinned to the Python codec's schema
+tables by `tests/test_monitor_status_protocol.py` (each table is preceded by a
+`schema:` marker comment). Change a table and the codec together.
+
+## Scope
+
+- **Local only.** A Unix stream socket, no TCP, no TLS, no pairing. Server and
+  clients run as the same user on the same host.
+- **One server per (tmux server/socket, framework `VERSION`).** Prompt patterns
+  change between releases, and several framework versions can share one tmux
+  server, so a client only ever talks to the server of its own version.
+- **What the server owns:** the producer (`TmuxMonitor`) — discovery and the
+  session→project map, capture, ANSI stripping, prompt classification and
+  `agent_key`, the idle clock, shadow pairing (`@aitask_shadow_target`), the
+  completed set and the discovery facts.
+- **What stays client-side:** the client's own pane and the multi-session `M`
+  filter, the parked placeholder substitution, the minimonitor review loop's
+  raw-tail captures, every action (send-keys, kill, pick, shadow spawn), the TUI
+  switcher. See [Client-side settings](#client-side-settings).
+
+## Transport and framing
+
+- A Unix **stream** socket carrying UTF-8 JSON, **one object per line**, each
+  line terminated by `\n`. A message is complete only when its `\n` arrives.
+- Encoders write compact JSON with **sorted keys**, `ensure_ascii` off, and never
+  NaN or Infinity. Lone UTF-16 surrogates in a string are replaced with U+FFFD
+  before writing. Control characters (including the ESC of ANSI sequences)
+  appear as JSON `\u` escapes, so no line ever contains a raw newline or ESC.
+- Integers are JSON numbers **without a fraction or exponent**. A number that a
+  member declares as an integer and is written `1.0` or `1e2` is malformed (a Go
+  `int64` field refuses it too). Numbers declared as seconds may be integers or
+  fractions; senders round them to milliseconds. Receivers range-check a number
+  as the exact value it denotes — a 400-digit integer is out of range, never an
+  overflow.
+- **Line limits** (the terminating `\n` not counted): 64 KiB client→server,
+  64 MiB server→client. A record's `content` is capped at 4 MiB characters;
+  lists and maps at 4096 items.
+- Each connection is ordered: the server writes one ordered outbound sequence per
+  connection (see [Ordering](#ordering)).
+
+## Envelope
+
+Every message is an object with a `type` member naming its kind. Other members
+depend on the type.
+
+- Client requests may carry an `id`: a string of at most 128 characters, or an
+  integer `0 … 2^53−1`. A `result`, an `error`, and a `snapshot` sent as a reply
+  echo it.
+- Every server message carries `ts`: wall-clock epoch seconds, rounded to
+  milliseconds.
+
+Message types by direction:
+
+<!-- schema:list types-client -->
+- `hello`
+- `subscribe`
+- `set_content`
+- `set_pins`
+- `refresh`
+- `set_compare_mode`
+- `cycle_compare_mode`
+- `capture`
+
+<!-- schema:list types-server -->
+- `welcome`
+- `snapshot`
+- `delta`
+- `result`
+- `error`
+
+<!-- schema:list types-recording -->
+- `recording`
+- `welcome`
+- `snapshot`
+- `delta`
+
+## Versioning
+
+- `proto` is an integer **major** version. This document defines `1`.
+- `VERSION` equality (the framework version) is what makes a server "the right
+  server" for a client. `proto` is what a codec, a recording and a replayer
+  check.
+- **Additive changes do not bump `proto`:** new optional members, new request
+  types, new error codes, new values of an open string.
+- **Open strings** — receivers must accept values they do not know:
+  `awaiting_input_kind` (one value per prompt pattern; adding a pattern adds a
+  value), `control_state`, and an error's `code`. *Renaming or removing* a value
+  is the breaking edit, because a client keyed on that value silently stops
+  matching.
+- **Closed enums** — a new value requires a `proto` bump, because renderers
+  branch on them:
+
+<!-- schema:list category -->
+- `agent`
+- `tui`
+- `other`
+
+<!-- schema:list compare_mode -->
+- `stripped`
+- `raw`
+
+- **Unknown members are ignored** at every level — top-level, inside records,
+  inside `pane`, inside results. The Python decoder drops them from its
+  normalized output.
+- **Unknown message types:** a client ignores a server message type it does not
+  know. A server answers an unknown request type with
+  `error{code:"unknown_type"}` and keeps the connection.
+
+## Malformed input
+
+A line is **malformed** if it:
+
+- is not valid UTF-8, not JSON, or not a JSON object;
+- is empty;
+- has a duplicated member name at any level;
+- is missing `type` or a required member;
+- has a member of the wrong type — a bool is not an integer, and neither is any
+  number with a fraction or exponent;
+- has a number out of range, or a pane id that is not, as a whole string, `%`
+  followed by 1–10 ASCII digits (`"%1\n"` and `"%\u0661"` are malformed);
+- has a closed-enum member with a value outside its list, or an oversize string
+  or list;
+- has a `pane` member whose `pane_id` (in `panes`) or `shadow_target` (in
+  `shadows`) does not equal the map key;
+- is a message type that is not valid in its direction (a client sending
+  `snapshot`, a `recording` header on a socket).
+
+A malformed client line **within the size limit** is answered with
+`error{code:"bad_message"}` and the connection is kept, as applink does — except
+before the handshake, where the server answers and closes. A malformed server
+line is a protocol violation: the client disconnects and reconnects or falls
+back to in-process scanning.
+
+**Error replies stay correlated and bounded.** When the offending line is a JSON
+object whose `id` is itself a valid id, the error reply echoes that `id` — even
+though the rest of the request is malformed or its type unknown — so a client
+with several requests outstanding can match the error to its request. Likewise
+the object's `type` is echoed as `request` when it is a string of at most 64
+characters. An invalid `id` and an over-long `type` are never echoed, and the
+`message` diagnostic is capped at 4096 characters: an error reply must never
+itself fail to encode.
+
+### Oversized lines
+
+A line longer than the receiver's limit is a **framing error**, not a malformed
+message, because it cannot be re-framed safely: once the limit is crossed, the
+rest of that line — which may arrive in later fragments — would otherwise be
+parsed as a message of its own. So the receiver never tries to resynchronize
+inside the stream:
+
+- a server sends `error{code:"too_long"}` and **closes** the connection;
+- a client closes the connection and reconnects or falls back.
+
+This holds whether the oversized line arrives in one write or in fragments, and
+requests that follow it on the same connection are never answered. An
+unterminated tail at EOF is discarded, never parsed.
+
+Python note: `asyncio.StreamReader.readline()` raises `ValueError` at the
+reader's limit and, for a fragmented line, clears its buffer mid-line — exactly
+the desync this rule avoids. `status_protocol.read_line()` treats that error as
+terminal (`FramingError`), and both the replayer and the recorder use it.
+
+## Handshake
+
+The client speaks first. Before a `welcome`, any other request is answered with
+an error and the connection is closed.
+
+<!-- schema:message hello -->
+| Member | Type | Required | Meaning |
+|---|---|---|---|
+| `proto` | integer | yes | The client's protocol major version. |
+| `version` | string | yes | The client's framework `VERSION`. |
+| `client` | object | yes | Who is connecting (below). Informational: logs and diagnostics. |
+
+<!-- schema:object hello.client -->
+| Member | Type | Required | Meaning |
+|---|---|---|---|
+| `kind` | string | yes | `monitor`, `minimonitor`, `applink`, `recorder`, … (open). |
+| `pane` | pane id | no | The client's own tmux pane, when it has one. |
+| `pid` | integer | no | The client's process id. |
+
+The server answers with a `welcome`, or with an `error` and then closes:
+`proto_mismatch` (carrying `server_proto`) or `version_mismatch` (carrying
+`server_version`). A client that gets either falls back to in-process scanning
+— it is talking to the wrong server.
+
+<!-- schema:message welcome -->
+| Member | Type | Required | Meaning |
+|---|---|---|---|
+| `ts` | seconds | yes | Server wall clock. |
+| `proto` | integer | yes | The server's protocol major version. |
+| `version` | string | yes | The server's framework `VERSION`. A replayer echoes the client's. |
+| `server` | object | yes | Which implementation answered (below). |
+| `replay` | object | no | Present only when a replayer answered (below). |
+
+<!-- schema:object welcome.server -->
+| Member | Type | Required | Meaning |
+|---|---|---|---|
+| `impl` | string | yes | `python`, `go`, `replay`, `scenario`, … (open). |
+| `pid` | integer | no | The server's process id. |
+
+<!-- schema:object welcome.replay -->
+| Member | Type | Required | Meaning |
+|---|---|---|---|
+| `recorded_version` | string | yes | The `version` of the recording being replayed. |
+| `source` | string | yes | The recording header's `source`. |
+
+A replayer is a fixture server, not "the wrong server": it **echoes the
+client's `version`** so any client of any version can replay any recording, and
+marks itself with `replay`.
+
+## Subscription and generations
+
+<!-- schema:message subscribe -->
+| Member | Type | Required | Meaning |
+|---|---|---|---|
+| `id` | id | no | Echoed by the reply snapshot. |
+| `content` | selection | no | Whose `content` this client receives: `"all"` (default), `"none"`, or an array of pane ids. See [Content selection](#content-selection). |
+| `include_shadows` | bool | no | Whether shadow records are sent (default `true`). |
+| `pins` | pins | no | This client's capture pins (default none): `"all"` or an array of `[session, window]` pairs. See [Client-side settings](#client-side-settings). |
+
+There is no session filter: the multi-session `M` toggle is client view state
+and the client filters by session itself.
+
+The reply is a `snapshot` with every member present:
+
+<!-- schema:message snapshot -->
+| Member | Type | Required | Meaning |
+|---|---|---|---|
+| `ts` | seconds | yes | Wall clock of the generation it describes. |
+| `gen` | integer | yes | That generation. |
+| `id` | id | no | The request's `id`, when the snapshot is a reply that carried one. |
+| `panes` | map pane id → record | yes | Every agent-facing pane, full records. |
+| `shadows` | map pane id → record | yes | Shadow records keyed by the **followed** pane id. |
+| `completed` | array of pane ids | yes | Panes whose task is finished (below). |
+| `sessions` | map name → session | yes | The session→project map. |
+| `parked` | array of pairs | yes | The global parked set, `[session, window]` pairs. |
+| `discovery` | object | yes | The producer's discovery facts for this generation. |
+| `control_state` | string | yes | The producer's tmux control-channel state (open string). |
+
+After it, the server sends **one `delta` per producer commit** — a tick, or the
+effects of a `refresh`:
+
+<!-- schema:message delta -->
+| Member | Type | Required | Meaning |
+|---|---|---|---|
+| `ts` | seconds | yes | Wall clock of this generation. |
+| `gen` | integer | yes | This generation: the previous one plus one. |
+| `panes` | map pane id → record or patch | no | Panes added (full record) or changed (patch). |
+| `removed` | array of pane ids | no | Panes gone this generation. |
+| `shadows` | map pane id → record or patch | no | Shadows added or changed, keyed by the followed pane id. |
+| `shadows_removed` | array of pane ids | no | Followed pane ids whose shadow is gone. |
+| `completed` | array of pane ids | no | Replaces the completed set. |
+| `sessions` | map name → session | no | Replaces the session→project map. |
+| `parked` | array of pairs | no | Replaces the global parked set. |
+| `discovery` | object | no | Replaces the discovery facts. |
+| `control_state` | string | no | Replaces the control state. |
+
+- A delta is sent **even when nothing changed** — it is also the heartbeat that
+  keeps `gen` contiguous.
+- One message describes exactly one generation; every member it carries is a
+  fact of that generation. A pane whose capture failed in a tick is absent from
+  that generation (it is `removed`, and comes back as a full record when it is
+  captured again), exactly as it is absent from that tick's in-process snapshot
+  dict.
+
+### Generation rules
+
+- `gen` counts per server process. Each connection starts with a fresh client
+  state, so a restarted server resetting `gen` does no harm.
+- A delta with `gen ≤ state.gen` is stale and is dropped.
+- A delta with `gen == state.gen + 1` applies.
+- A larger `gen` is a **gap**: the client sends `subscribe` again and gets a
+  fresh snapshot.
+- A delta that arrives before any snapshot is an error.
+- A snapshot replaces the client's state wholesale.
+
+### Initial and repeated subscription
+
+The first `subscribe` on a connection starts that connection's **one** stream. A
+later `subscribe` on the same connection is a **resync**:
+
+- it changes `content` / `include_shadows` / `pins` when it carries them;
+- it is answered with a snapshot of the **current** state — the state at the
+  `gen` of the last delta already sent on this connection;
+- the one existing stream then continues from `gen + 1`.
+
+It never starts a second stream, never replays history, and never rewinds.
+`set_content` follows the same rule.
+
+### Ordering
+
+Each connection has exactly one ordered outbound sequence. A reply snapshot (to
+`subscribe` or `set_content`) is placed in that sequence **between two
+deltas**: every delta before it was encoded under the old selection, its `gen`
+equals the last delta sent, and every delta after it is encoded under the new
+selection. The server never sends a delta whose `gen` is not the reply
+snapshot's `gen + 1`. `result` and `error` replies go into the same sequence, so
+`result{request:"refresh", gen}` always arrives after the delta that carries that
+`gen`.
+
+### Patches
+
+- An entry in `panes` or `shadows` for an id the client does not hold must be a
+  **full record**.
+- For an id the client holds, the entry is a **patch**: each member present
+  replaces the stored member wholesale. `pane` is one member — there is no deep
+  merge. A patch cannot remove a member.
+- `removed` / `shadows_removed` delete entries.
+- The other top-level members, when present, replace the stored value wholesale.
+
+### Content selection
+
+- Selection affects **only** the `content` member of pane records and shadow
+  records. Every pane, and every other member, is sent whatever the selection —
+  status metadata is independent of it. A shadow's content follows its
+  **followed** pane id.
+- A record for an unselected pane carries no `content`; clients treat it as
+  `""`. A patch that would carry only unselected content is not sent at all (the
+  delta itself still is).
+- `set_content` is answered with a fresh snapshot under the new selection, so
+  newly selected panes arrive with their current content.
+
+## Records
+
+A pane record and a shadow record have the same shape. A **full record** has
+every required member; a **patch** is any subset.
+
+<!-- schema:object record -->
+| Member | Type | Required | From (`PaneSnapshot` unless noted) |
+|---|---|---|---|
+| `pane` | object | yes | `pane` — every `TmuxPaneInfo` field (below). |
+| `content` | string | no | `content`: the raw capture **with ANSI escapes** (`capture-pane -p -e -S -<capture_lines>`, scrollback plus the visible pane). Absent for an unselected pane; `""` for a parked or frozen placeholder. |
+| `idle_seconds` | seconds | yes | `idle_seconds`: seconds since the content last changed, as of `ts`. `0` for a parked or frozen placeholder. |
+| `is_idle` | bool | yes | `is_idle`: `idle_seconds` above the session's idle threshold (agent panes only). `false` means *no verdict* on a placeholder. |
+| `awaiting_input` | bool | yes | `awaiting_input`. |
+| `awaiting_input_kind` | string | yes | `awaiting_input_kind`: the first matching prompt pattern's name, or `""`. Open string. |
+| `agent_key` | string | yes | `agent_key`: the resolved agent (`claude`, `codex`, `opencode`), or `""`. |
+| `scoped` | bool | yes | `scoped`: matching was narrowed to that agent's patterns. `false` means the kind came from the unscoped list. |
+| `parked` | bool | yes | `parked`: a placeholder for a pane the producer deliberately did not capture. |
+| `frozen` | bool | yes | `frozen`: a frozen agent's stand-in viewer. Takes precedence over `parked`. |
+| `frozen_record_id` | string | yes | `frozen_record_id`: the store record id when `frozen`, else `""`. |
+| `compare_mode` | enum | yes | Producer: `get_compare_mode(pane)` — `stripped` or `raw`. |
+| `compare_override` | bool | yes | Producer: `is_compare_mode_overridden(pane)`. |
+| `last_change` | seconds or null | yes | Producer: `get_last_change_wall(pane)` — wall clock of the last content change, or `null` if none was ever observed. |
+
+<!-- schema:object pane -->
+| Member | Type | Required | From `TmuxPaneInfo` |
+|---|---|---|---|
+| `window_index` | string | yes | `window_index` |
+| `window_name` | string | yes | `window_name` |
+| `pane_index` | string | yes | `pane_index` |
+| `pane_id` | pane id | yes | `pane_id` |
+| `pane_pid` | integer | yes | `pane_pid` |
+| `current_command` | string | yes | `current_command` |
+| `width` | integer | yes | `width` |
+| `height` | integer | yes | `height` |
+| `category` | enum | yes | `category.value` — `agent`, `tui` or `other` |
+| `session_name` | string | yes | `session_name` |
+| `shadow_target` | pane id or `""` | yes | `shadow_target`: on a shadow record, the followed pane id (equal to its key) |
+| `history_size` | integer or null | yes | `history_size` |
+| `frozen_record` | string | yes | `frozen_record` (`@aitask_frozen`) |
+| `record_id` | string | yes | `record_id` (`@aitask_record`) |
+| `standin_ready` | string | yes | `standin_ready` (`@aitask_standin_ready`) |
+| `pane_dead` | bool | yes | `pane_dead` |
+
+Not on the wire:
+
+- `PaneSnapshot.timestamp` — it is process-local monotonic time. A receiver
+  stamps its own when it converts a record (`pane_snapshot(record,
+  timestamp=…)`).
+- The `@aitask_monitor_kind` and scratchpad discovery columns — companion and
+  scratchpad panes never reach a snapshot.
+
+## Top-level members
+
+- **`shadows`** — the producer's shadow snapshots (`get_shadow_snapshot`), keyed
+  by the followed pane id; each record's `pane.shadow_target` equals its key.
+- **`completed`** — sorted pane ids of AGENT panes that are neither parked nor
+  frozen and whose task (resolved from the window name, `agent-(pick|qa|resume)-<id>`)
+  is `Done` or already archived. This is the clients' `_compute_completed_panes`
+  rule (`is_task_completed`), moved server-side.
+- **`sessions`** — the session→project map (`get_session_to_project_mapping`):
+
+<!-- schema:object session -->
+| Member | Type | Required | Meaning |
+|---|---|---|---|
+| `project_root` | string | yes | The session's project root. |
+| `project_name` | string | yes | The project's display name. |
+
+- **`parked`** — the **global** parked set: `agent_marks.parked_session_windows`
+  of the per-user marks store and the session→root map, as sorted
+  `[session, window]` pairs. It is the same for every client.
+- **`discovery`** — the producer's discovery facts of this generation. Clients
+  use them to tell "the agent is gone" from "its capture failed this tick" (the
+  mark purge and the minimonitor's own-agent check fail closed without them).
+
+<!-- schema:object discovery -->
+| Member | Type | Required | Meaning |
+|---|---|---|---|
+| `enumerated` | array of strings | yes | `last_enumerated_sessions()`: the sessions scanned this generation. Not the same as the keys of `sessions`. |
+| `agents` | array of pairs | yes | `last_discovered_agents()`: `[session, window]` of every agent window listed, captured or not. |
+| `windows` | array of windows | yes | `last_discovered_panes()`: every pane of every agent window, helper panes included. |
+
+<!-- schema:object discovery.window -->
+| Member | Type | Required | Meaning |
+|---|---|---|---|
+| `session` | string | yes | Session name. |
+| `window` | string | yes | Window name. |
+| `panes` | array of panes | yes | The window's panes, sorted by pane number. |
+
+<!-- schema:object discovery.pane -->
+| Member | Type | Required | Meaning |
+|---|---|---|---|
+| `id` | pane id | yes | Pane id. |
+| `pid` | integer | yes | The pane's process id. |
+| `dead` | bool | yes | `#{pane_dead}`. |
+
+- **`control_state`** — `TmuxMonitor.control_state`: today one of `connected`,
+  `reconnecting`, `fallback`, `stopped`. Open string; display it as given.
+
+## Requests
+
+Every request may carry an `id`. Each is answered with a `result` (or, for
+`set_content`, a `snapshot`) or with an `error`.
+
+<!-- schema:message set_content -->
+| Member | Type | Required | Meaning |
+|---|---|---|---|
+| `id` | id | no | Echoed by the reply snapshot. |
+| `content` | selection | yes | The new selection. Answered with a snapshot under it. |
+
+<!-- schema:message set_pins -->
+| Member | Type | Required | Meaning |
+|---|---|---|---|
+| `id` | id | no | Echoed by the result. |
+| `pins` | pins | yes | This client's capture pins, replacing the previous ones. |
+
+<!-- schema:message refresh -->
+| Member | Type | Required | Meaning |
+|---|---|---|---|
+| `id` | id | no | Echoed by the result. |
+| `panes` | array of pane ids | no | Panes to capture and commit now (the monitor's fast preview path). |
+| `shadows` | array of pane ids | no | Followed pane ids whose shadow to refresh now. |
+
+With neither member, a full tick runs now (the keypress refresh sites). With
+them, single-pane classified captures and commits run. Either way the effects are
+broadcast as a delta to every subscriber — there is one idle clock — and the
+request is then answered with `result{request:"refresh", gen}`.
+
+<!-- schema:message set_compare_mode -->
+| Member | Type | Required | Meaning |
+|---|---|---|---|
+| `id` | id | no | Echoed by the result. |
+| `pane` | pane id | yes | The pane. |
+| `mode` | enum or null | yes | `stripped`, `raw`, or `null` to follow the default again. |
+
+<!-- schema:message cycle_compare_mode -->
+| Member | Type | Required | Meaning |
+|---|---|---|---|
+| `id` | id | no | Echoed by the result. |
+| `pane` | pane id | yes | The pane. |
+
+The compare-mode override is **shared**: the change is visible to every client,
+in the pane record of the next delta.
+
+<!-- schema:message capture -->
+| Member | Type | Required | Meaning |
+|---|---|---|---|
+| `id` | id | no | Echoed by the result. |
+| `pane` | pane id | yes | The pane to read. |
+| `lines` | integer | yes | How many lines, `1 … 10000`. |
+
+`capture` is a raw-ANSI **one-off read**: it does not touch the idle clock and
+commits nothing.
+
+### Results and errors
+
+<!-- schema:message result -->
+| Member | Type | Required | Meaning |
+|---|---|---|---|
+| `ts` | seconds | yes | Server wall clock. |
+| `id` | id | no | The request's `id`. |
+| `request` | string | yes | The request type this answers. |
+
+Members per request, beyond those three:
+
+<!-- schema:result set_pins -->
+No further members.
+
+<!-- schema:result refresh -->
+| Member | Type | Required | Meaning |
+|---|---|---|---|
+| `gen` | integer | yes | The generation that carries the refresh's effects. |
+
+<!-- schema:result set_compare_mode -->
+| Member | Type | Required | Meaning |
+|---|---|---|---|
+| `mode` | enum | yes | The pane's effective compare mode now. |
+| `following_default` | bool | yes | Whether it follows the default (no override). |
+
+<!-- schema:result cycle_compare_mode -->
+| Member | Type | Required | Meaning |
+|---|---|---|---|
+| `mode` | enum | yes | The pane's effective compare mode now. |
+| `following_default` | bool | yes | Whether it follows the default (no override). |
+
+<!-- schema:result capture -->
+| Member | Type | Required | Meaning |
+|---|---|---|---|
+| `pane` | pane id | yes | The pane read. |
+| `content` | string | yes | Its last `lines` lines, raw ANSI. |
+
+<!-- schema:message error -->
+| Member | Type | Required | Meaning |
+|---|---|---|---|
+| `ts` | seconds | yes | Server wall clock. |
+| `id` | id | no | The failing request's `id`, when it had one. |
+| `code` | string | yes | Error code (open string; below). |
+| `message` | string | yes | Human-readable detail. |
+| `request` | string | no | The failing request's type. |
+| `server_proto` | integer | no | Sent with `proto_mismatch`. |
+| `server_version` | string | no | Sent with `version_mismatch`. |
+
+Error codes this version defines:
+
+<!-- schema:list error-codes -->
+- `bad_message`
+- `too_long`
+- `unknown_type`
+- `proto_mismatch`
+- `version_mismatch`
+- `not_subscribed`
+- `not_found`
+- `unavailable`
+- `internal`
+
+`too_long`, `proto_mismatch` and `version_mismatch` close the connection; so
+does any error before the handshake completes. The others keep it.
+
+## Client-side settings
+
+Four per-client settings were taken out of the producer (t2034_2). Each one has
+a rule, and each rule has a consequence for this protocol.
+
+| Setting | Rule | Protocol consequence |
+|---|---|---|
+| Own pane | The producer excludes nothing and never reads `$TMUX_PANE`. Each client drops its own pane with `client_view_snapshots(own_pane=…)`. | Never reaches the server. `hello.client.pane` is informational only. |
+| Multi-session (`M`) | The producer always scans every aitasks session. `M` is client view state. | No session filter in `subscribe`; the client filters with `client_view_snapshots(home_session=…, multi_session=…)`. |
+| Parked agents | *Which* agents are parked is global. *What* is still captured depends on every subscriber's capture **pins**: a minimonitor pins the agent it follows, and pins everything while its identity is unconfirmed. | Clients send pins (`subscribe.pins`, `set_pins`), never a skip set. The server computes the skip set itself: `parked_capture_skip(global parked set, [every subscriber's pins])`. The global set is in the stream as `parked`. |
+| Compare-mode override | One shared per-pane setting owned by the producer, so there is one idle clock. | `set_compare_mode` / `cycle_compare_mode` act for everyone. Overrides are reaped by producer discovery only. |
+
+- **Parked placeholders are substituted client-side.** A parked agent pinned by
+  *another* subscriber arrives as a live record. Each client turns a live record
+  of a parked agent it does not pin into the parked placeholder with
+  `client_view_snapshots(parked_pairs=<parked>, pins=<own pins>)`. Frozen takes
+  precedence over parked.
+- **Single-pane routes project too.** Every write of a record into a client's
+  view goes through the same projection as the bulk path — including the
+  monitor's fast preview route (`_project_snapshots`), whose `refresh` result is
+  live whenever another subscriber pins that agent.
+- **Behaviour change of a shared compare mode.** `d` in one client, or applink's
+  `cycle_compare_mode`, changes that pane's idle verdict for every client.
+- **applink's own pane.** applink never marks its own pane, so on every
+  cache-backed route it treats it as the cache miss it used to be: roster and
+  explicit subscribe drop it, push and history skip it, `restart_task` answers
+  `not_found`, `focus` answers `ok:false`, and kill takes the cache-miss route
+  that still sweeps bound helpers. The key verbs are unaffected.
+
+## Timing fields and parity comparisons
+
+`ts`, `idle_seconds` and `last_change` are **timing fields**. They depend on
+when a stream was produced, so parity comparisons — a Go server's stream against
+the Python server's, or the Go monitor's goldens against the Textual twin's —
+ignore them or compare them only for order. Everything else in a record is
+expected to match exactly.
+
+## Recording format
+
+A recording is a `.jsonl` file. Line 1 is a header, a message type that exists
+only in files:
+
+<!-- schema:message recording -->
+| Member | Type | Required | Meaning |
+|---|---|---|---|
+| `rev` | integer | yes | Recording format revision (`1`). |
+| `proto` | integer | yes | Protocol major version of the stream. |
+| `version` | string | yes | Framework `VERSION` of the server that produced it. |
+| `source` | string | yes | Where it came from: `connect:<socket>`, `scenario:<name>`, … |
+| `created` | seconds | yes | When it was recorded. |
+| `note` | string | no | Free text. |
+
+After the header comes the stream exactly as a subscriber received it: the
+`welcome`, the `snapshot`, then the `delta` messages with contiguous `gen`. Every
+line is a valid protocol message, so a conformance test in any language only has
+to decode each line and apply it.
+
+**A recording always carries full content.** It is recorded with
+`content:"all"` and `include_shadows:true`, and every full record in it — the
+snapshot's records and each first appearance of a pane or shadow in a delta —
+carries `content`. That is what lets a replay subscriber select any pane later
+and get its real terminal text. There is no restricted-selection recording: the
+recorder has no content option, and both the recorder and `check` reject a full
+record without `content`. Selection is purely a replay-subscriber concern.
+
+## Recorder and replayer
+
+`status_recording.py` is a module with a CLI (framework Python; stdlib only
+beyond the codec):
+
+```bash
+python3 .aitask-scripts/monitor/status_recording.py check FILE
+python3 .aitask-scripts/monitor/status_recording.py replay FILE --socket SOCK [--speed X] [--exit-at-end]
+python3 .aitask-scripts/monitor/status_recording.py record --connect SOCK --out FILE [--duration S] [--max-deltas N]
+```
+
+**`check`** validates a recording: the order, every line, the version gates
+below, the stream applied with contiguous `gen`, and the full-content rule. It
+exits 0 and prints a summary, or exits 1 naming the first bad line.
+
+**Version gates.** A recording is refused when its header's `rev` is not a
+revision this codec reads, its `proto` is not one this codec speaks, or its
+header does not describe its welcome (the welcome's `proto` and `version` must
+equal the header's). The recorded *framework* version itself may be anything —
+replaying an old recording is what a fixture is for.
+
+**`record`** connects to a server, sends `hello` and
+`subscribe{content:"all", include_shadows:true}`, and writes the header, the
+`welcome`, the `snapshot` and every delta verbatim to `<out>.partial`.
+
+- It holds the server to the handshake: a `welcome` whose `proto` is not the
+  recorder's, or whose `version` is not the version the recorder sent, stops
+  it. A live server answers for its own version, so only the right server
+  passes; a replayer echoes the client's version, so a replayed recording of any
+  framework version still records (its recorded version travels in
+  `welcome.replay`).
+- It stops on `--duration`, on `--max-deltas` (deltas counted **after** the
+  snapshot, so a count stop can never fall before it), on EOF, or on
+  cancellation.
+- **Every stop path passes through one completion guard.** `<out>.partial` is
+  promoted to `<out>` only if a `welcome` and then an initial `snapshot` were
+  received and every delta applied cleanly. Otherwise the partial file is
+  deleted, nothing is published, and the recorder reports
+  `no usable recording captured: <reason>`; the CLI exits non-zero.
+- A malformed line, a framing error, a stream gap, a full record without
+  `content`, or any unexpected error stops it the same way — nothing is
+  published after malformed input, whatever was captured before it. A
+  server-initiated second snapshot ends the recording cleanly at that point.
+
+**`replay`** serves a recording on a Unix socket (it refuses to replace an
+existing path). It validates the **whole** recording before serving it — the
+same checks as `check`, stream included, also for a `Recording` object handed to
+`ReplayServer` directly — so a gap or a stale delta is refused at start-up, not
+discovered by a waiting client. Should playback still fail, the connection gets
+`error{code:"internal"}` and is closed.
+
+- Each connection gets its own playback. The first `subscribe` sends the recorded
+  snapshot (projected for that subscriber) and starts the deltas, paced by their
+  `ts` differences divided by `--speed` (`0` = no waiting). The speed must be a
+  finite number ≥ 0; anything else is refused at start-up, before the socket
+  is opened.
+- A repeated `subscribe` and every `set_content` answer with a snapshot of that
+  connection's **current** reconstructed state and never restart playback (see
+  [Initial and repeated subscription](#initial-and-repeated-subscription)).
+- Replay is read-only: `refresh` and `set_pins` answer `result` and change
+  nothing; `set_compare_mode` / `cycle_compare_mode` answer
+  `error{code:"unavailable"}`; `capture` answers from the content of the
+  reconstructed record whose `pane.pane_id` is the requested pane — an ordinary
+  pane or a shadow (shadows are keyed by the followed pane, so they are matched
+  on their own id).
+- At the end of the recording the connection stays open, like a quiet server,
+  unless `--exit-at-end` is given.
+
+Until the status server exists (t2037), live recording is exercised against the
+replayer: the tests record a replayed stream and require the result to equal the
+source.
+
+## Fixtures
+
+| Fixture | What it is |
+|---|---|
+| `tests/fixtures/monitor_status/basic.jsonl` | Synthetic: header, welcome, snapshot at gen 1, deltas to gen 6. |
+
+**The committed fixture is synthetic.** It is generated by
+`tests/lib/monitor_status_scenarios.py` (`basic_frames()`) from hand-built
+`PaneSnapshot` frames, through the same `StreamEncoder` a server uses. It is
+deterministic — a fixed clock (2026-01-01T00:00:00Z, 3 s ticks) and the fixed
+version string `synthetic`, so a release bump never changes it — and
+`tests/test_monitor_status_recording.py` regenerates it and requires the result
+to be byte-identical to the committed file. Regenerate it only when the scenario
+or the wire format changes on purpose:
+
+```bash
+python3 tests/lib/monitor_status_scenarios.py --write
+```
+
+Coverage of `basic.jsonl`:
+
+| State | Where |
+|---|---|
+| Two sessions | `aitasks`, `aitasks_go` |
+| Active pane | `%1` — new content and `history_size` every generation |
+| Idle pane crossing the threshold, with a raw compare-mode override | `%2` |
+| Awaiting input, four kinds | `%3` plan approval, `%4` a question (cleared mid-stream), `%5` a permission (`codex`, scoped), `%6` a question with `scoped=false` |
+| Completed | `%7` from the start; `%4` from gen 5 |
+| Shadow bound to a pane | `%12` → `%1`, appearing at gen 2 |
+| TUI and OTHER panes | `%10`, `%11` |
+| Parked placeholder and the global parked set | `%8` |
+| Frozen stand-in | `%9` |
+| Removal and appearance | `%7` removed at gen 5; `%13` appears at gen 4 |
+| Control-state change | `reconnecting` at gen 3 |
+| Discovery changes, a helper pane | `%12` and the companion `%14` in `agent-pick-101`'s window |
+
+Pane content is prose-shaped, SGR-coloured text that names the state it stands
+for. **It reproduces no dialog's line geometry.** A fixture that did would be
+that dialog as far as captured text is concerned, and a pane displaying the file
+would be flagged as awaiting input (see "A verbatim reproduction is
+indistinguishable" in `monitor_idle_and_prompt_detection.md`). The recording
+tests enforce it: every content string of every reconstructed state, and every
+raw line of the file, is classified against every prompt pattern and must match
+none, with a captured dialog as the negative control.
+
+## Lifecycle and socket path
+
+Owned by the server task (t2037_1), which documents it in this section. The
+shape it implements: one socket per (tmux socket, `VERSION`) under
+`$XDG_RUNTIME_DIR/aitasks/` (`~/.aitask/run/` where that is unset), directory
+mode 0700; the first client starts the server under a file lock; the server exits
+after a grace period with no subscribers or on the control client's `%exit`, and
+a client that cannot reach or start it falls back to in-process `TmuxMonitor`.
+
+## Python codec reference
+
+`.aitask-scripts/monitor/status_protocol.py`:
+
+| Name | What it does |
+|---|---|
+| `decode(line, direction=…)` / `encode(msg, direction=…)` | One line ⇄ one validated, normalized message (known members only). Directions: `CLIENT`, `SERVER`, `RECORDING`. |
+| `validate(msg, direction=…)` | The schema check `decode` and `encode` share. |
+| `read_line(reader)` | One complete line from an asyncio stream; `FramingError` past the reader's limit; `None` at EOF. |
+| `ProtocolError`, `UnknownMessageType`, `FramingError`, `StreamError`, `StreamGap` | Errors; `.code` is the wire error code. |
+| `pane_record(snap, …)` / `monitor_pane_record(monitor, snap)` / `pane_snapshot(record, timestamp=…)` | `PaneSnapshot` ⇄ record. `monitor_pane_record` reads compare mode, override and last change from a `TmuxMonitor`. |
+| `sessions_member(mapping)` / `discovery_member(enumerated, agents, panes_by_window)` | Build those members from the producer's shapes. |
+| `StreamFrame` | One generation's wire-shaped state. |
+| `StreamEncoder` | Server side: `update(frame, ts=…)` → the next delta; `snapshot(…)` → the current state. Encodes full content. |
+| `filter_message(msg, content=…, include_shadows=…)` | One subscriber's projection of a shared snapshot or delta. |
+| `snapshot_message(frame, gen=…, ts=…, …)` | A snapshot of a frame for one subscriber. |
+| `StreamState` | Client side: `apply(msg)` with the generation and patch rules; `snapshots()`, `shadow_snapshots()`, `completed`, `parked`, `sessions`, `discovery`, `control_state`. |
+
+`.aitask-scripts/monitor/status_recording.py`: `read_recording`,
+`check_recording`, `record_connect`, `ReplayServer`, `replay_delays`, and the CLI
+above.
+
+## Known limits
+
+- The delta and patch semantics are proven encoder-to-state and against the
+  replayer, not yet against the real producer's tick-to-tick behaviour; the
+  server task may find a producer behaviour that needs a clarification here.
+- `idle_seconds` is as of the message's `ts`. Clients display it as given; this
+  version defines no extrapolation between deltas.
+- A shadow's content selection follows its followed pane id; there is no way to
+  select a shadow's content without its followed pane's.
