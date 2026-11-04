@@ -3,11 +3,10 @@ priority: medium
 effort: high
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [brainstorming, task_relations, task-workflow, backlog]
 gates: [risk_evaluated]
-created_at: 2026-10-14 12:17
-updated_at: 2026-11-04 08:11
+assigned_to: dario-e@beyond-eye.com
 attachments:
   - hash: sha256:d941bbfcddc2a7d87dd3aff6ad7f1d6f9242cfa4bef073d6dc4926378f842e85
     name: task_relations_proposal.md
@@ -19,6 +18,8 @@ artifacts:
   - handle: art:trail-task-relations-and-premise
     kind: implementation_trail
     name: Task relations, obsolescence and premise staleness
+created_at: 2026-10-14 12:17
+updated_at: 2026-11-04 09:14
 ---
 
 Design a **task-relations layer** for the aitasks framework. Background agents
