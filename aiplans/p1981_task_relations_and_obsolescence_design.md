@@ -913,3 +913,11 @@ orphaned-parent path when its last child lands.
 - **Key decisions:** the four settled with the user at planning (D1 orphan branch, D5 off by default, D6 wait on t2192, D8 hybrid), plus the four Change Request 1 fixes.
   - The review flagged one residual against the D6 decision. t1981_4, and transitively t1981_8/9/10, wait on t2192 through t1981_2. The approved plan states this deliberately: no automatic triggers before real candidates and the D13.2 replay exist. The store, worker, consumption, obsolescence and TUI children do not wait.
 - **Upstream defects identified:** None
+- **Coordination notes sent (Step 8e, user-selected, all `NOTE_APPENDED`, `LIVE_NONE:unlocked`):**
+  - `aitasks_go#93`, note `2026-11-04T13:38:00Z.77f7dcce2a8337d942db8366`: what D6 needs from the engine verbs.
+  - t2192, note `2026-11-04T13:37:48Z.fb0f0ac669702e7e849fa9f2`: the boundary, Step 8e and store-first.
+  - t1663_4, note `2026-11-04T13:37:51Z.f0739597daea67d9faa6f041`: the stale "Check 6" numbering.
+- **Decomposition:** 10 children, t1981_1 to t1981_10, matching the doc's implementation tree. They were created with `--no-sibling-dep` and explicit `--deps`; `aitask_ls.sh -v --children 1981` confirms every edge.
+  - The child plans are in `aiplans/p1981/`. Each opens with a Reality-check step.
+  - The parent is reverted to Ready and unlocked, with `children_to_implement` listing all ten.
+  - Only t1981_1 is unblocked.
