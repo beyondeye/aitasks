@@ -335,3 +335,40 @@ the plan separately. Then do the gate run and archival in Step 9.
 
 ### Planned mitigations
 - timing: pre-phase | name: characterize_legacy_mode_gitignore | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: repair adding data rules in a legacy-mode project | desc: Add the legacy-mode no-data-rules assertions (H2, case K) and run them green on the unmodified code before changing the repair
+
+## Final Implementation Notes
+- **Actual work done:**
+  - `_ait_add_gitignore_rules` writes with `echo "" && echo "# $comment" && printf …`, in both the append and the create branch, and matches a rule in its LF or CRLF form in both the presence check and the read-back.
+  - New `data` group in `_ait_gitignore_group`.
+  - `setup_data_branch` Step 7 writes the task-data rules through the per-rule writer from that group. The rendered-skill block stays on t2185's `_ait_ensure_gitignore_block`. `_ait_gitignore_has_data_block` was removed.
+  - `setup_data_gitignore_symlink_safe` runs the rewrite and then, only when `.aitask-data/.git` exists, adds missing anchored rules. It reports "Added …", or warns through `_ait_warn_gitignore_rules_failed`.
+  - Docs: one sentence in `setup-install.md` (`ait upgrade` step 5).
+  - Tests:
+    - repair route: Case H (H1, H1b, H2, H3, H4, H4b, H5, H5b) and D4b in `test_gitignore_data_symlinks.sh`;
+    - Step 7: 12c/12d, plus the Test 40/40b updates, in `test_data_branch_setup.sh`;
+    - upgrade route: case K's legacy-mode assertions and cases L/L2 in `test_install_upgrade_dirty_baseline.sh`;
+    - shared writer: 27m/27n in `test_setup_git.sh`.
+- **Deviations from plan:**
+  - t2185 landed (253608e67) during planning, so the pre-edit gate was dropped and the work rebased onto the landed code, as the plan's re-check required.
+  - Added **H4b**: branch mode, a read-only `.gitignore` with no legacy line that lacks a rule. While reviewing the diff I found that the repair's "already symlink-safe and root-anchored" line printed whenever `add_rc != 0`, so a failed add (rc 2) printed it next to "Could not add …". The condition is now `add_rc == 1`: legacy mode, or nothing missing. A mutant run with the old condition prints the contradictory line, so H4b guards it.
+  - The H4b and Test 40 assertions name **every** rule of the group in the failure line ("Could not add /.aitask-data /aitasks /aiplans …"), because `_ait_warn_gitignore_rules_failed` reports the whole group, as 27f pins for the other groups.
+- **Issues encountered:**
+  - My first H1 expected bytes were missing the blank separator line. The fixture file ends in a newline, so `echo ""` adds an empty line. Fixed in the test.
+  - My first H4b assertion named only the missing rule. Fixed, as above.
+  - New SC2154 infos in `test_setup_git.sh`, for variables set by the sourced script, are silenced with scoped disables.
+- **Key decisions:**
+  - Data rules use the per-rule writer. The block has no `!` negations, so t2185's ordering argument only applies to the rendered-skill block.
+  - The branch-mode predicate is `.aitask-data/.git` (`-d` or `-f`), the same one `setup_data_branch`, `task_utils` and `install.sh` use.
+  - Step 7's data-rule failure warning now offers "re-run 'ait setup'". That is true because the repair retries in branch mode, and Test 40 proves it by clearing each fault and running the repair.
+  - A `.gitignore` created from nothing now starts with the data comment, not a blank line. No test pins that byte.
+- **Red proof (durable record):**
+  - `git worktree add --detach <scratchpad>/red aa67dd50e` (pre-t2188 HEAD, t2185 included), copy the 4 edited test files into it, run each suite there, then `git worktree remove --force <scratchpad>/red`.
+  - Results on the pre-fix code:
+    - `test_gitignore_data_symlinks`: 15 FAIL (D4b, H1×5, H1b×2, H3×3, H4, H5b×3). H2 passes.
+    - `test_setup_git`: 27m×4 and 27n×6 FAIL, then it aborts at the binding with `unknown .gitignore rule group: data`.
+    - `test_data_branch_setup`: 25 FAIL (12c×4; Test 40 readonly/directory/fifo × data-rule warning and re-run checks).
+    - `test_install_upgrade_dirty_baseline`: 5 FAIL (L×4, L2×1). K's legacy-mode assertions pass.
+  - Before the writer fix, the in-place 27n run showed the reviewer's reproduction: `rc=0 partial=` with `keep-me#` glued.
+  - After the change: 182/182, 680/680, 501/501, 162/162; also `test_data_branch_migration`, `test_init_data`, `test_install_create_data_dirs`, `test_applink_setup_gitignore` and `test_agent_instructions` pass. The setup script's shellcheck findings by code are identical to HEAD.
+- **Upstream defects identified:**
+  - `.aitask-scripts/aitask_setup.sh:_ait_warn_gitignore_rules_failed` — every caller passes the group's full rule list (`${_ait_gi_rules[@]}`), not the missing subset, so for a multi-rule group (`worktrees`, now `data`) the rc-2 warning and its "Fix by hand: add the lines …" tell the user to add rules the file already has.
