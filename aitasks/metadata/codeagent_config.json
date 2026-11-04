@@ -17,6 +17,7 @@
     "brainstorm-module_merger": "claudecode/opus5_5",
     "brainstorm-module_syncer": "claudecode/opus5_5",
     "work-report": "claudecode/sonnet5_5",
-    "trail": "claudecode/opus5_5"
+    "trail": "claudecode/opus5_5",
+    "sitrep": "claudecode/opus5_5"
   }
 }
