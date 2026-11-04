@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: medium
 effort: medium
 depends: [t2175_3]
 issue_type: feature
@@ -65,3 +67,5 @@ Child of t2175. Depends on the writer, harvest and refresh children.
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-11-04T07:54:39Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-11-04T12:06:46Z status=pass attempt=1 type=human
