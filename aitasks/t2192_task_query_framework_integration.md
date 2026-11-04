@@ -84,3 +84,17 @@ into the skills that search tasks today.
 
 - The relations store and its consumption policy (t1981).
 - Semantic re-ranking.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1981** id=2026-11-04T13:37:48Z.fb0f0ac669702e7e849fa9f2 from=t1981 from_verified=yes at=2026-11-04T13:37:48Z base=5026118e29a2635e34760ae91d842f73fd6078e6 base_branch=main dirty=yes host=omg16
+>
+> | From t1981 (task relations and obsolescence). Advisory: this is the boundary t1981's design settled between its children and your scope. Reply by note if it conflicts with your plan.
+> | 
+> | Design: aidocs/framework/task_relations.md (commit 5026118e2), sections D6 and D8.
+> | 
+> | - Step 8e (the notify offer at task completion) is owned by t1981_5. Please do not edit Step 8e. t1981_5 also adds a "store first" step to /aitask-note's no-target path, ahead of the Related Task Discovery Procedure. Your engine-based upgrade of that procedure stays yours, and it is what /aitask-note falls back to.
+> | - aitask-explore, aitask-fold and aitask-contribution-review keep your engine-based discovery. t1981 does not change them in v1.
+> | - t1981_2 (the candidate generator) depends on t2192 and consumes your shim's verbs: mentions / mentioned-by, cites / cited-by, card and search. It needs to know which path answered (engine or fallback) and which verbs did not answer. Your Scope item 2 leaves the form open; any form works as long as a missing or failed verb is reported explicitly, never as an empty result. t1981 treats a missing core verb (mentions, cites) as a failed job, and a missing optional verb (search) as missing coverage.
+> | - Path-grammar extensions (more extensions, suffix resolution of bare basenames) stay in your one-grammar-or-pinned-differential scope. t1981 builds no private copy.
