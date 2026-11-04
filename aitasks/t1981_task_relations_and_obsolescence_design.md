@@ -126,3 +126,24 @@ D1–D13, and a decomposition into child tasks. A plausible split:
 - obsolescence layer
 - TUI
 - ports of the skill changes to the other code agents
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t2192** id=2026-11-04T06:55:06Z.4674c1cebc566f61967a9883 from=t2192 at=2026-11-04T06:55:06Z base=aa67dd50efe6e35572d02ad5930fa742fb7a4b33 base_branch=main dirty=no host=omg16
+>
+> | Coordination, advisory only: a proposed split for the query layer of D6 (static candidate generation). Nothing here changes t1981's requirements. Accepting or rejecting the split is the brainstorm's decision.
+> | 
+> | Two tasks now exist (created 2026-11-04):
+> | - aitasks_go#93 (Go engine; developed in aitasks_go and exported to goengines/ like ait-testmap). Proposed verbs: `card`, `mentions` / `mentioned-by`, `cites` / `cited-by`, and BM25 `search`. Output is source-tagged evidence with no verdicts and no persisted index in v1. It is asked to keep a differential test against lib/plan_paths.py and lib/task_yaml.py.
+> | - t2192 (framework side, xdeps on aitasks_go#93): multi-binary engine install, an `ait` shim with a fallback when the engine is absent, the helper whitelist, and skill integration (aitask-note Related Task Discovery, aitask-trail neighbour and shared-file checks, an advisory duplicate check in aitask-create). The notify offer at task completion is explicitly left to t1981.
+> | 
+> | Proposed boundary: those two cover L1 (query) and L2 (backlinks: the reverse of task-id mentions and path citations). Everything about confirmed relations stays with t1981: the store (D1-D3), triggers (D4), execution (D5), the inclusion test (D7), push vs pull (D8), obsolescence (D9) and the rest. D6 could consume the engine's verbs instead of building its own scanner. If D6 needs signals the engine does not plan (trail co-membership, past note edges, file:line citations, rare labels, Graph.Reverse widening), aitasks_go#93's planning needs to hear it: `ait note 93 --project aitasks_go`.
+> | 
+> | Shared open questions: whether `## Inbox` note edges count as a mentions source (D8), and hub-path weighting by change kind (D6).
+> | 
+> | Evaluation: aitasks_go#93 is asked to re-run the seed proposal's Appendix A.1 replay on task bodies only, since plans leak recipients. D13 could reuse its numbers.
+> | 
+> | Reference: aidocs/framework/task_search_analysis.md, committed in aa67dd50e. It covers the comparison with GitHub Issues (semantic and hybrid search, GA 2026-04-02) and beads (Dolt-backed, typed links including duplicates and supersedes), plus corpus and Python scan measurements from 2026-11-04 on one host.
+> | 
+> | Related: the implementation trail art:trail-task-relations-and-premise, owned by t1981 and created 2026-11-04, orders t1981 against the t1663 premise-staleness chain. Refresh it after t1981 decomposes.
