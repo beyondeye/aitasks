@@ -445,5 +445,32 @@ class MonitorKillPathGateTests(unittest.TestCase):
         self.assertNotEqual(rc, 0)
 
 
+
+class SitrepWindowTests(unittest.TestCase):
+    """t2175_4: the sitrep agent's own window grammar and the key-file classifier."""
+
+    def test_sitrep_window_names(self):
+        for name in ("agent-sitrep", "agent-sitrep-2", "agent-sitrep-17"):
+            self.assertTrue(H.is_sitrep_window(name), name)
+
+    def test_near_misses_are_ordinary_agents(self):
+        for name in ("agent-sitrepx", "agent-pick-sitrep", "agent-sitrep-0",
+                     "agent-sitrep-", "xagent-sitrep", "agent-sitrep-2a",
+                     "agent-sitrep\n", "", None, 42):
+            self.assertFalse(H.is_sitrep_window(name), repr(name))
+
+    def test_window_base_matches_its_own_regex(self):
+        self.assertTrue(H.is_sitrep_window(H.SITREP_WINDOW_BASE))
+
+    def test_capture_file_kind_reads_the_writers_headers(self):
+        """The classifier and the four key writers share one set of constants."""
+        self.assertEqual(H.capture_file_kind(H.key_run("a" * 16, "b") .split("\n")[0]), "key")
+        self.assertEqual(H.capture_file_kind(H.key_complete("42", "abc1234").split("\n")[0]), "key")
+        self.assertEqual(H.capture_file_kind(H.key_passage("deadbeef", b"x", 1).split("\n")[0]), "key")
+        self.assertEqual(H.capture_file_kind(H.BANNER_FILE_HEADER + "\n"), "banner")
+        for line in ("● Done. Pushed main.", "sitrep banner v2", "sitrep wrap-up run v3", ""):
+            self.assertEqual(H.capture_file_kind(line), "passage", line)
+
+
 if __name__ == "__main__":
     unittest.main()

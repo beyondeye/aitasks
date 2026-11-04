@@ -23,7 +23,7 @@ source "$SCRIPT_DIR/lib/agent_string.sh"
 # get_cli_model_id, require_jq come from lib/agent_string.sh.
 
 DEFAULT_COAUTHOR_DOMAIN="aitasks.io"
-SUPPORTED_OPERATIONS=(pick explain batch-review qa explore explore-relay raw shadow learn work-report trail discuss)
+SUPPORTED_OPERATIONS=(pick explain batch-review qa explore explore-relay raw shadow learn work-report trail discuss sitrep)
 
 # CODEX_TUI_OVERRIDES (the `-c` pairs every Codex launch carries: no composer
 # starfield, animations otherwise on so the working timer ticks, inline rather
@@ -467,6 +467,12 @@ build_invoke_command() {
     if [[ "$operation" == "explore-relay" && "$PARSED_AGENT" != "claudecode" ]]; then
         die "explore-relay is not yet supported for $PARSED_AGENT (Claude Code only; port tracked as a follow-up task)"
     fi
+    # sitrep (t2175_4): the skill renders for every agent, but only its Claude
+    # Code run has been verified (nested skill calls, tool use); the codex and
+    # opencode ports lift this gate.
+    if [[ "$operation" == "sitrep" && "$PARSED_AGENT" != "claudecode" ]]; then
+        die "sitrep is not yet supported for $PARSED_AGENT (Claude Code only; port tracked as a follow-up task)"
+    fi
 
     # Argument-bearing skill launches flatten argv into one slash-command
     # string. Empty elements disappear and whitespace-bearing elements split
@@ -530,6 +536,10 @@ build_invoke_command() {
                 discuss)
                     # claude --model <id> "/aitask-brainstorm-discuss <task_num> <node_id>..."
                     CMD+=("/aitask-brainstorm-discuss ${args[*]}")
+                    ;;
+                sitrep)
+                    # claude --model <id> "/aitask-sitrep" (no arguments)
+                    CMD+=("/aitask-sitrep")
                     ;;
                 batch-review)
                     # Interactive by default (no billing surcharge); opt into
@@ -764,7 +774,9 @@ Options:
   -h, --help             Show this help
 
 Operations: pick, explain, batch-review, qa, explore, explore-relay, raw,
-            shadow, learn, work-report, trail, discuss
+            shadow, learn, work-report, trail, discuss, sitrep
+  sitrep: the repository's sitrep steward (claudecode only); `ait sitrep`
+  opens it in its own tmux window.
   explore-relay: chat-native explore spawned by the chatlink gateway
   (claudecode only). Requires --headless plus CHATLINK_RELAY_DIR and
   CHATLINK_BUG_REPORT_FILE in the environment.

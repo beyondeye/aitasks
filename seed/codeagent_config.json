@@ -10,6 +10,7 @@
     "shadow": "codex/gpt6_1_sol",
     "learn": "claudecode/opus5_5",
     "discuss": "codex/gpt6_1_sol",
-    "trail": "claudecode/opus5_5"
+    "trail": "claudecode/opus5_5",
+    "sitrep": "claudecode/opus5_5"
   }
 }

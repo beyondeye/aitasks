@@ -24,6 +24,8 @@
 #  16  acceptance: harvest -> drop -> every pointer still SOURCE_OK and readable
 #  17  explore Created: lines and trail handles
 #  18  argument validation
+#  19  the sitrep agent's own window is never harvested (t2175_4); near-miss
+#      window names are harvested normally
 #
 # Bodies run in the main shell (no subshell asserts), so the plain counters
 # are enough.
@@ -557,6 +559,33 @@ harvest banner --task notanid </dev/null
 assert_eq "18 bad task id: exit 2" "2" "$RC"
 harvest frobnicate
 assert_eq "18 unknown verb: exit 2" "2" "$RC"
+
+# --- 19. the sitrep agent's own record (t2175_4) ----------------------------------
+# Its screen only echoes the store; a harvest would feed the store back into
+# itself. The skip still writes the receipt, so drop/purge are not blocked.
+echo "--- 19. sitrep agent window"
+R19="$(new_repo r19)"
+ID19="$(make_record "$R19" agent-sitrep "" raw "$FIX/pick_complete_followups.txt")"
+harvest record "$ID19"
+assert_eq "19 sitrep window: exit 0" "0" "$RC"
+assert_contains "19 HARVEST_NONE sitrep_agent" "HARVEST_NONE:$ID19|sitrep_agent" "$OUT"
+assert_not_contains "19 no item harvested" "HARVEST_ITEM:" "$OUT"
+assert_eq "19 no store created" "absent" "$([[ -e "$(store_of "$R19")" ]] && echo present || echo absent)"
+assert_file_exists "19 receipt written" "$(cap_of "$ID19").harvested"
+RC=0; OUT="$("$SESS" drop "$ID19" 2>&1)" || RC=$?
+assert_eq "19 store drop passes the receipt gate" "0" "$RC"
+ID19B="$(make_record "$R19" agent-sitrep-2 "" raw "$FIX/pick_complete_followups.txt")"
+harvest all --root "$R19"
+assert_contains "19 all: agent-sitrep-2 skipped too" "HARVEST_NONE:$ID19B|sitrep_agent" "$OUT"
+assert_eq "19 all: still no store" "absent" "$([[ -e "$(store_of "$R19")" ]] && echo present || echo absent)"
+# Controls: the regex is anchored, so near-miss names are ordinary agents.
+for win in agent-sitrepx agent-pick-sitrep agent-sitrep-0; do
+    R19C="$(new_repo "r19_$win")"
+    ID19C="$(make_record "$R19C" "$win" "" raw "$FIX/pick_complete_followups.txt")"
+    harvest record "$ID19C"
+    assert_contains "19 control $win is harvested" "HARVESTED:$ID19C|" "$OUT"
+    assert_not_contains "19 control $win not skipped" "sitrep_agent" "$OUT"
+done
 
 echo ""
 echo "==============================="

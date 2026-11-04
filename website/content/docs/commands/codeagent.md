@@ -60,6 +60,7 @@ Each operation maps to a different use case with its own default model:
 | `qa` | Test coverage analysis | `claudecode/sonnet5_5` |
 | `shadow` | Advisory companion agent for a followed session | `codex/gpt6_1_sol` |
 | `discuss` | Advisory discussion of brainstorm proposals (compare, explain, question, risk-check) | `codex/gpt6_1_sol` |
+| `sitrep` | The repository's sitrep steward, opened by `ait sitrep` (Claude Code only) | `claudecode/opus5_5` |
 | `learn` | Learning a new skill from source material | `claudecode/opus5_5` |
 | `raw` | Direct/ad-hoc invocations (passthrough) | `claudecode/sonnet5_5` |
 

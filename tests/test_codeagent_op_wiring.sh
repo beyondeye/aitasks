@@ -48,10 +48,14 @@ TOTAL=0
 # or a special launch, not a skill-backed op:
 #   batch-review / raw  — argv is handed to the agent verbatim;
 #   explore-relay       — claudecode-only headless launch gated on env vars
-#                         (CHATLINK_*), which refuses before composing.
+#                         (CHATLINK_*), which refuses before composing;
+#   sitrep              — claudecode-only until its codex/opencode ports land
+#                         (t2175_4): the other agents refuse before composing.
+#                         Its claudecode prompt and the refusals are pinned by
+#                         test_codeagent.sh Test 11d5.
 # The list is asserted to be a subset of the parsed operations below, so a
 # renamed or removed operation cannot silently turn it into a blanket exemption.
-EXEMPT_OPS=(batch-review raw explore-relay)
+EXEMPT_OPS=(batch-review raw explore-relay sitrep)
 
 # Agents whose arms fail OPEN for an unwired operation (codex fails closed and
 # is covered by test_codeagent.sh Test 11d4).

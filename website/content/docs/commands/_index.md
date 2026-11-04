@@ -55,6 +55,7 @@ description: "Complete CLI reference for all ait subcommands"
 
 | Command | Description |
 |---------|-------------|
+| [`ait sitrep`](../workflows/sitrep/) | Open the repository's sitrep agent window — one persisted todo list per repository |
 | [`ait crew`](crew/) | Initialize and run multi-agent crews — `init`, `addwork`, `setmode`, `status`, `command`, `runner`, `report`, `cleanup`, `dashboard`, `logview` (see [Agentcrews](../concepts/agentcrews/)) |
 
 ### Gates

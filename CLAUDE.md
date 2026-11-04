@@ -409,6 +409,14 @@ skill files.
 > agent (capture → context-fetch → skill) spawned beside a followed agent and
 > bound to it via the `@aitask_shadow_target` pane option.
 >
+> **Read `aidocs/framework/sitrep.md`** when editing the `aitask-sitrep` skill,
+> the sitrep helpers (`aitask_sitrep_todo.sh`, `aitask_sitrep_harvest.sh`,
+> `aitask_sitrep_refresh.sh`, `aitask_sitrep.sh`), the sitrep window spawn
+> (`monitor_core.spawn_sitrep`), or any drop/purge path that consults harvest
+> receipts. Sitrep is the advisory per-repo steward of one persisted todo list
+> (`.aitask-sitrep/`), written only through its locked writer, running in its
+> own `agent-sitrep` window stamped `@aitask_sitrep_root`.
+>
 > **Read `aidocs/framework/manual_verification_staleness.md`** when editing the
 > staleness pre-check in `manual-verification.md`, the `verification_baseline:`
 > field, or `file_references:` on a `manual_verification` task. The check is

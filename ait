@@ -80,6 +80,7 @@ Tools:
   engine         Build, test, cross-build and prune the test map engine binaries;
                  report or migrate the legacy per-user home (engine home)
   skillrun       Launch a code agent with a profile-aware aitask skill
+  sitrep         Open the repo's sitrep agent window (its persisted todo list)
   explain-runs     Manage aitask-explain run directories
   explain-cleanup  Remove stale aitask-explain run directories
   zip-old        Archive old completed tasks
@@ -247,6 +248,7 @@ case "${1:-help}" in
     lock)         shift; exec "$SCRIPTS_DIR/aitask_lock.sh" "$@" ;;
     sync)         shift; exec "$SCRIPTS_DIR/aitask_sync.sh" "$@" ;;
     codeagent)    shift; exec "$SCRIPTS_DIR/aitask_codeagent.sh" "$@" ;;
+    sitrep)       shift; exec "$SCRIPTS_DIR/aitask_sitrep.sh" "$@" ;;
     testmap)      shift; exec "$SCRIPTS_DIR/aitask_testmap.sh" "$@" ;;
     engine)       shift; exec "$SCRIPTS_DIR/aitask_engine.sh" "$@" ;;
     crew)

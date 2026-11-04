@@ -102,6 +102,11 @@ class NegativeControlTests(_Fixture):
         must treat `default_profiles.brainstorm-discuss` as editable."""
         self.assertIn("brainstorm-discuss", VALID_PROFILE_SKILLS)
 
+    def test_sitrep_is_a_known_skill(self):
+        """t2175_4: the sitrep skill resolves a profile under the key `sitrep`
+        (its stub's resolver key), so `default_profiles.sitrep` is editable."""
+        self.assertIn("sitrep", VALID_PROFILE_SKILLS)
+
 
 class SavePathTests(_Fixture):
     def test_unknown_key_survives_save(self):

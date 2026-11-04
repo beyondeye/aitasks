@@ -66,6 +66,13 @@ SCRATCHPAD_TARGET_OPTION = "@aitask_scratchpad_target"
 #: repository-local.
 SCRATCHPAD_STORE_OPTION = "@aitask_scratchpad_store"
 
+#: The canonical absolute project root a sitrep agent pane serves (t2175_4).
+#: Set by `monitor_core.spawn_sitrep` on the agent pane of the repository's one
+#: `agent-sitrep` window; read ONLY by its one-per-root duplicate lookup. It is
+#: NOT a helper marker: the sitrep pane is a code agent and must stay in agent
+#: lists, so it is deliberately absent from the tuple below.
+SITREP_ROOT_OPTION = "@aitask_sitrep_root"
+
 #: Every pane option whose non-empty value marks a pane as a bound helper. The
 #: ORDER is the field order of every format built from it; the tuple is closed —
 #: add a kind here, never a parallel list elsewhere.

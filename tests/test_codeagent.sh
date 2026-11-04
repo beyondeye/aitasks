@@ -324,6 +324,21 @@ for index in "${!codex_operations[@]}"; do
     assert_contains_ci "codex $operation keeps representative argv" "probe" "$output"
 done
 
+# Test 11d5: sitrep (t2175_4) composes the argument-less /aitask-sitrep prompt
+# for Claude Code and fails closed, before composing, for every other agent
+# until its ports land.
+echo "--- Test 11d5: sitrep is Claude Code only ---"
+output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" --agent-string claudecode/opus5 --dry-run invoke sitrep 2>&1)
+assert_contains_ci "claudecode sitrep composes the skill prompt" "/aitask-sitrep" "$output"
+assert_contains_ci "claudecode sitrep is a dry run" "DRY_RUN:" "$output"
+for agent in codex/gpt5_4 opencode/openai_gpt_5_4; do
+    assert_exit_nonzero "${agent%%/*} sitrep refuses" \
+        bash -c "cd '$TMPDIR_TEST' && bash '$CODEAGENT' --agent-string '$agent' --dry-run invoke sitrep"
+    output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" --agent-string "$agent" --dry-run invoke sitrep 2>&1 || true)
+    assert_contains_ci "${agent%%/*} sitrep refusal names the cause" "sitrep is not yet supported" "$output"
+    assert_not_contains_ci "${agent%%/*} sitrep refusal composes nothing" "DRY_RUN:" "$output"
+done
+
 # Test 11e: every Codex launch carries the shared TUI overrides — no composer
 # starfield (t1797) with animations otherwise ON so the Working timer ticks
 # (t1944), and inline rather than alternate-screen mode (t1900, t1902) — for skill composers, explore, and the batch-review/raw passthroughs,

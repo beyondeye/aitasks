@@ -28,6 +28,7 @@
 #   HARVEST_WARN:<src>|<reason>
 #   final:  HARVESTED:<src>|added=<a>|existing=<e>
 #         | HARVEST_NONE:<src>|no_capture|nothing_found|already_harvested
+#                                  |sitrep_agent
 #         | HARVEST_FAILED:<src>|<reason>
 # Exit codes: 0 success (incl. NONE), 1 at least one harvest failed, 2 usage.
 #
@@ -65,8 +66,15 @@
 # `<store>/.harvest.lockd` (lib/registry_lock.sh). The writer's own `.lockd` is
 # separate; the writer subprocesses never wait on this one.
 #
-# NOT SKILL-INVOKED except `banner`, which workflow-end.md runs; that is why
-# this helper has the code-agent allow-list entries (see
+# THE SITREP AGENT IS NEVER HARVESTED (t2175_4). A record whose window is the
+# sitrep window (`agent-sitrep`, `agent-sitrep-<n>`) gets its receipt and
+# `HARVEST_NONE:<id>|sitrep_agent`: its screen only echoes the store, so a
+# harvest would feed the store back into itself. The receipt keeps drop and
+# purge unblocked.
+#
+# SKILL-INVOKED by `banner` (workflow-end.md) and by the sitrep skill, which
+# runs `all --root <repo>` on start; that is why this helper has the
+# code-agent allow-list entries (see
 # aidocs/framework/aitasks_extension_points.md). It issues no raw tmux.
 #
 # TEST SEAMS (test-only). AITASK_SITREP_HARVEST_PAUSE_FIFO: once the mutex is

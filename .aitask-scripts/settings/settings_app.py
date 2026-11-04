@@ -149,6 +149,7 @@ OPERATION_DESCRIPTIONS: dict[str, str] = {
     "explore": "Model used for interactive codebase exploration (launched via TUI switcher shortcut 'x')",
     "shadow": "Model used for the shadow companion agent (launched from minimonitor with 'e' to explain/interrogate a followed agent's output)",
     "discuss": "Model used for the brainstorm discuss agent (launched from the brainstorm TUI to compare, explain, question and risk-check proposals — advisory only)",
+    "sitrep": "Model used for the sitrep steward agent (opened with `ait sitrep` in its own window; keeps the repository's todo list — advisory only, Claude Code only)",
     "brainstorm-explorer": "Model for exploring solution space in brainstorming sessions",
     "brainstorm-comparator": "Model for comparing and analyzing design proposals",
     "brainstorm-synthesizer": "Model for merging and synthesizing design proposals",
@@ -278,7 +279,7 @@ PROJECT_CONFIG_SCHEMA: dict[str, dict[str, str]] = {
         "type": "mapping",
         "detail": (
             "Maps skill names to profile names (without .yaml). "
-            "Valid skills: pick, fold, review, pr-import, revert, explore, pickrem, pickweb, qa, shadow, brainstorm-discuss. "
+            "Valid skills: pick, fold, review, pr-import, revert, explore, pickrem, pickweb, qa, shadow, brainstorm-discuss, sitrep. "
             "Any other key is shown read-only and preserved on save (the profile "
             "resolver reads it, so it must not be dropped) — edit it in the YAML. "
             "Users can override in userconfig.yaml. The --profile argument overrides both."
@@ -289,7 +290,7 @@ PROJECT_CONFIG_SCHEMA: dict[str, dict[str, str]] = {
 VALID_PROFILE_SKILLS = {
     "pick", "fold", "review", "pr-import", "revert",
     "explore", "pickrem", "pickweb", "qa", "shadow",
-    "brainstorm-discuss",
+    "brainstorm-discuss", "sitrep",
 }
 
 TMUX_CONFIG_SCHEMA: dict[str, dict[str, str]] = {

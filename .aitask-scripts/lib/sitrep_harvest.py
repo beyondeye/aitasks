@@ -41,6 +41,11 @@ The canonical banner (fields re-rendered, whitespace collapsed) is used only to
 link related triage items and as the marker's consistency check, never as the
 identity itself.
 
+THE SITREP AGENT'S OWN RECORD (t2175_4) is never harvested: a record whose
+window matches SITREP_WINDOW_RE gets its receipt and `HARVEST_NONE:<id>|
+sitrep_agent`. Its screen only echoes the store, so harvesting it would feed
+the store back into itself; the receipt keeps drop/purge unblocked.
+
 Exit codes: 0 success, 1 harvest failed (nothing promised; no receipt), 2 usage.
 """
 
@@ -113,6 +118,64 @@ XREF_TOKEN_RE = re.compile(r"^([A-Za-z0-9][A-Za-z0-9._-]*)#t?(" + TASK_ID + r")$
 RECORD_RE = re.compile(r"^[0-9a-f]{8}$")
 RUN_RE = re.compile(r"^[0-9a-f]{16}$")
 
+#: Line 1 of each retained file harvest writes beside a passage. The canonical
+#: banner and the three identity-key kinds; `capture_file_kind` is the one
+#: classifier of them (the sitrep skill's `ait sitrep triage` reads it).
+BANNER_FILE_HEADER = "sitrep banner v1"
+KEY_RUN_HEADER = "sitrep wrap-up run v2"
+KEY_COMPLETE_HEADER = "sitrep wrap-up complete v1"
+KEY_PASSAGE_HEADER = "sitrep wrap-up passage v1"
+KEY_FILE_HEADERS = (KEY_RUN_HEADER, KEY_COMPLETE_HEADER, KEY_PASSAGE_HEADER)
+
+
+def capture_file_kind(first_line: str) -> str:
+    """``banner`` | ``key`` | ``passage`` for a retained file's first line.
+
+    Anything that is not a harvest-written header is passage text (a closing
+    message, a Created-line window) -- the content a context pointer is for.
+    """
+    line = first_line.rstrip("\n")
+    if line == BANNER_FILE_HEADER:
+        return "banner"
+    if line in KEY_FILE_HEADERS:
+        return "key"
+    return "passage"
+
+#: The sitrep agent's own window (t2175_4): `monitor_core.spawn_sitrep` names it
+#: SITREP_WINDOW_BASE, or `<base>-<n>` when the session already holds one
+#: (`agent_launch_utils.unique_window_name`). Anchored on both ends: a near-miss
+#: (`agent-sitrepx`, `agent-pick-sitrep`) is an ordinary agent and IS harvested.
+SITREP_WINDOW_BASE = "agent-sitrep"
+SITREP_WINDOW_RE = re.compile(r"\Aagent-sitrep(?:-[1-9][0-9]*)?\Z")
+
+
+def spawn_test_pause(point: str) -> None:
+    """Test seam of `monitor_core.spawn_sitrep` (test-only).
+
+    AITASK_SITREP_SPAWN_PAUSE_FIFO=<fifo> writes ``point`` to ``<fifo>.reached``
+    and blocks reading one line from the fifo, so a test can hold one spawn
+    inside its lock and prove a second one waits (the `AITASK_SITREP_PAUSE_FIFO`
+    pattern of the store writer). Kept here, with the window grammar, so the
+    monitor core itself writes no files.
+    """
+    fifo = os.environ.get("AITASK_SITREP_SPAWN_PAUSE_FIFO", "")
+    if not fifo:
+        return
+    with open(fifo + ".reached", "w", encoding="utf-8") as fh:
+        fh.write(point + "\n")
+    with open(fifo, encoding="utf-8") as fh:
+        fh.readline()
+
+
+def is_sitrep_window(name) -> bool:
+    """True when ``name`` is a sitrep agent window name (the exact grammar).
+
+    Harvest skips such records: the sitrep agent never runs workflow-end, and
+    its screen only ECHOES the store (banners it is triaging, trail handles it
+    reports), so harvesting it would feed the store back into itself.
+    """
+    return isinstance(name, str) and SITREP_WINDOW_RE.match(name) is not None
+
 
 class HarvestFailure(Exception):
     """Harvest cannot complete. The message is the wire reason."""
@@ -138,7 +201,7 @@ class Banner:
         marker consistency check only -- never an identity key."""
         def c(v):
             return re.sub(r"\s+", " ", v).strip()
-        lines = ["sitrep banner v1", f"kind={self.kind}", f"task=t{self.task}",
+        lines = [BANNER_FILE_HEADER, f"kind={self.kind}", f"task=t{self.task}",
                  f"name={self.name}"]
         for label in FIELD_LABELS:
             if label in self.fields:
@@ -268,16 +331,16 @@ def hex16(data: bytes) -> str:
 
 
 def key_run(run_id: str, banner_hex: str) -> str:
-    return f"sitrep wrap-up run v2\nrun={run_id}\nbanner={banner_hex}\n"
+    return f"{KEY_RUN_HEADER}\nrun={run_id}\nbanner={banner_hex}\n"
 
 
 def key_complete(task: str, commit: str) -> str:
-    return f"sitrep wrap-up complete v1\ntask=t{task}\ncommit={commit}\n"
+    return f"{KEY_COMPLETE_HEADER}\ntask=t{task}\ncommit={commit}\n"
 
 
 def key_passage(record: str, passage: bytes, seq: int) -> str:
     sha = hashlib.sha256(passage).hexdigest()
-    return f"sitrep wrap-up passage v1\nrecord={record}\nsha={sha}\nseq={seq}\n"
+    return f"{KEY_PASSAGE_HEADER}\nrecord={record}\nsha={sha}\nseq={seq}\n"
 
 
 # --- repository roots -------------------------------------------------------
@@ -918,6 +981,17 @@ def cmd_plan(args) -> int:
             path, data = read_capture(rec)
             if not data:
                 return _final(f"HARVEST_NONE:{args.id}|no_capture")
+            if is_sitrep_window(rec.get("window")):
+                # The sitrep agent's own screen echoes the store (t2175_4):
+                # nothing in it is new information. The receipt still records
+                # that the text was read, so store `drop` and `purge` are not
+                # blocked by a capture that is deliberately never harvested.
+                try:
+                    root, _ = canonical_root(rec.get("root") or "")
+                except HarvestFailure:
+                    root = rec.get("root") or ""
+                write_receipt(path, data, os.path.join(root, STORE_NAME))
+                return _final(f"HARVEST_NONE:{args.id}|sitrep_agent")
             if not has_content(data):
                 # Nothing to write anywhere: the receipt alone records that the
                 # text was read. The store path is informative; use the record
