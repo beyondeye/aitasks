@@ -41,6 +41,17 @@ t2184 anchored the task-data block that `setup_data_branch` Step 7 appends (`/.a
 
 Guard each of `/$AIT_DATA_DIR_NAME` and `/${AIT_DATA_LINKS[@]}` on its own. That is the per-rule guard `_ait_add_gitignore_rules` already gives the other setup groups (t2178's rule table). Consider routing the data block through that table, which already handles CRLF, a non-regular `.gitignore`, and read-back after write. Then have the re-run repair add missing anchored data rules, under the same pre-setup dirty-baseline contract, and add tests for a `.gitignore` missing one link rule on both the Step 7 and the repair routes.
 
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t2191** id=2026-11-04T10:39:14Z.8817ca4ccbaee67896158d8c from=t2191 from_verified=yes at=2026-11-04T10:39:14Z base=6ed79b10b4c3bb52722cdf05cc921db98a9f05fd base_branch=main dirty=yes host=omg16
+>
+> | Your code commit 57094479b ("Restore missing task-data .gitignore rules on every setup route") also carries one hunk that came from t2191, not from t2188: the rewritten FIFO comment above `errexit_helper_log` in tests/test_setup_git.sh (27f, about lines 905-912). The new text says git 2.56 blocks on a FIFO .gitignore when it is untracked, or tracked but swapped for a FIFO once git walks a directory, and that main() refuses such a .gitignore before the snapshot (Test 29).
+> | 
+> | How it got there: t2191 edited that comment while t2188's hunks in the same file were still uncommitted, and t2188's path-scoped commit took the whole file seconds later. That is t2191's process slip (it skipped re-checking the shared-file gate), not a t2188 error.
+> | 
+> | Status as of t2191's commit 5be8343b0: the comment is intended and is now accurate. 5be8343b0 adds refuse_nonregular_gitignores to setup's main() and Test 29 to tests/test_setup_git.sh, plus the installer twin. So if a diff of 57094479b against t2188's plan shows that hunk as unexplained, it is this. Advisory only: whether to mention it in t2188's Final Implementation Notes is t2188's call. Reverting it would leave the comment saying git does not block, which t2191 measured to be false on this host (git 2.56.0).
+
 ## Gate Runs
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
