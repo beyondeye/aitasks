@@ -359,3 +359,66 @@ Step 9. Commit code by explicit paths only, after `edit_guard.sh check` passes f
   (the pre-bucket flat format), so every model prints `runs 0, avg 0`. Pre-existing, and
   the file has another session's uncommitted hunks. This goes in the "Upstream defects
   identified" bullet for a Step 8b follow-up.
+
+## Final Implementation Notes
+- **Actual work done:** Implemented the plan as approved, steps 0–7.
+  - **Shared helper:** new `lib/model_stats_windows.py` (`current_periods`,
+    `resolve_windows`, `recent_aggregate`, `stats_key_for_operation`,
+    `STATS_KEY_BY_OPERATION = {"batch-review": "review"}`).
+  - **`stats_data`:** the copy of `recent_aggregate` is gone; it is re-exported from the
+    helper. Both loaders take `today`, store resolved windows, and sum them across
+    providers, replacing the first-seen-period grouping. `aitask_stats.main()` passes its
+    `today`.
+  - **Picker:** modes are `top_all_ops` / `top_usage` / `all` / per-agent. All stats
+    lookups use `stats_key`. `_format_op_stats(today=)` is date-correct. Empty top lists
+    show a short row plus the wrapping `#picker_empty_hint` label.
+  - **`settings_app`:** `_aggregate_verifiedstats(today=)` sums resolved windows and now
+    includes prev_month. The Agent Defaults labels and the non-default list use the
+    stats key.
+  - **Tests:** new `tests/test_model_stats_windows.py` (17) and
+    `tests/test_settings_verifiedstats_windows.py` (5). Rewrote
+    `tests/test_agent_model_picker.py` (14). Extended `tests/test_agent_model_picker_narrow.py`
+    (+3 visibility), `tests/test_aitask_stats_py.py` (+4 windows, +1 usage class) and
+    `tests/test_stats_data.sh` (+3).
+  - **Docs:** settings `_index.md` / `reference.md`, `skills/verified-scores.md`,
+    `aidocs/framework/adding_a_new_codeagent.md`.
+- **Deviations from plan:**
+  - Added `prev_month` to the schema JSON example in `reference.md` for consistency
+    with the new table row.
+  - The empty-state probes and the edit guard are scratch-only; nothing extra is in the repo.
+  - Real-data numbers at verification time were 310 / 295 / 316, not the planned
+    307 / 292 / 313: other sessions recorded picks meanwhile.
+- **Issues encountered:**
+  - The pre-phase gate failed at first: t2175_4's sitrep hunks were still uncommitted.
+    I did all non-overlapping work, then stopped and asked. After the user reported
+    "2175_4 landed", the gate passed: (a) clean vs HEAD with nothing staged; (b) all
+    three lines in HEAD, introduced by
+    `bdef300b0 feature: Add the sitrep skill and its own agent window (t2175_4)`.
+    `settings_app.py` was edited only after that.
+  - As predicted, `test_all_providers_aggregation_month` failed by wall clock until
+    `today` was pinned.
+  - My first HEAD-control harness for the settings tests imported the live module
+    (the test re-inserts the settings dir on `sys.path`). I fixed it by pre-loading
+    HEAD's copy.
+- **Key decisions:**
+  - The batch-review fix is reader-side only, so recorded data and skills are unchanged.
+  - The top lists show no verified scores; scores stay in the per-agent lists and the
+    settings tabs.
+  - The hint is a separate Label, because `FuzzyOption` is one row high.
+  - The ISO week matches the writers (verified against GNU `date +%G-W%V`).
+- **Verification evidence:**
+  - Every new test fails under a mutant or against HEAD: picker date-blind mutant 4/6;
+    stats_data period-blind `resolve_windows` 5/5; settings tests vs HEAD's
+    `settings_app.py` 3 failures + 2 errors of 5; hint forced to `height: 1` 2/2
+    (narrow on wrap height, wide on 15 missing words).
+  - Full Python suite on the final tree: `PYTHON SUITE: PASSED (runner=pytest, exit=0)`.
+  - `test_stats_data.sh` 9/9, `test_stats_verified_rankings.sh` and
+    `test_no_lib_to_tui_import.sh` OK, `website/check_links.py --build` SWEEP: PASSED.
+  - The edit-guard chain reported `check` OK on all 15 paths before commit.
+- **Upstream defects identified:**
+  - `.aitask-scripts/aitask_codeagent.sh:337` — `ait codeagent list-models` STATS line
+    reads `.value.runs` / `.value.score_sum` (the pre-bucket flat format) instead of
+    `.value.all_time.*`, so every model prints `runs 0, avg 0`.
+- **Observed, not fixed:** the two screenshots under the picker paragraph in
+  `website/content/docs/tuis/settings/_index.md` predate this change. They show an old
+  two-step agent→model flow with the caption "(via Browse all models)".
