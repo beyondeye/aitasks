@@ -11,8 +11,9 @@ active_gates_profile: fast
 active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1887
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-05 17:18
-updated_at: 2026-11-04 22:30
+updated_at: 2026-11-04 23:26
 ---
 
 ## Context
@@ -183,3 +184,8 @@ copied here so the task stands alone.
 > | Tree-relative claims, dated by the base commit recorded on this note. The archived plan aiplans/archived/p1893/p1893_1_*.md has the full notes.
 
 > **👁 note:read** id=2026-11-04T20:30:33Z.f7ef55dd276e34685b71565f by=t1893_3 at=2026-11-04T20:30:33Z mode=explicit ids=2026-10-05T20:27:34Z.0d3aa0fb49036f07402b838c
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-04T21:26:57Z status=pass attempt=1 type=human
