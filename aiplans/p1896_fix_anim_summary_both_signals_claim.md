@@ -83,3 +83,10 @@ None identified.
 
 ### Goal-achievement risk: low
 None identified.
+
+## Final Implementation Notes
+- **Actual work done:** `_write_anim_summary()` (`video_prep.py:709`) now branches on `r.get("p_edge") is not None` — the same value `_write_curve_tsv()`'s `opt()` uses to blank the `p_edge` column — and prints "(both signals are in curve.tsv)" only when an edge track exists, otherwise "(p_blend in curve.tsv; no edge track, so p_edge is blank)". Tests: new `AnimMode.curve_rows()` helper (csv.DictReader over `curve.tsv`); `test_fade_uses_blend_signal` pins the fixture precondition (every `p_edge` blank, every `p_blend` filled) and asserts the new wording plus the absence of "both signals are in curve.tsv"; `test_slide_right_ease_out` pins the positive branch (every `p_edge` filled, "edge (both signals are in curve.tsv)" present).
+- **Deviations from plan:** None.
+- **Issues encountered:** None. Red proof as planned: with only the test edits applied, the fade test failed on the old summary text (its precondition assertions passed, confirming the synthetic fade has no edge track) while the slide test passed; after the fix `tests/test_screen_recording_cli.py` 20/20 OK and `tests/test_screen_recording_core.py` 32/32 OK.
+- **Key decisions:** The fade test asserts the curve.tsv precondition before the summary text, so a future fixture change that gives the fade an edge track fails loudly instead of silently exercising the other branch. No doc change — a repo-wide grep found no doc quoting the summary line (docs were already corrected in t1893_1).
+- **Upstream defects identified:** None
