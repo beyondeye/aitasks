@@ -19,6 +19,7 @@ TESTS_DIR = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = os.path.dirname(TESTS_DIR)
 LIB_DIR = os.path.join(REPO_ROOT, ".aitask-scripts", "lib")
 sys.path.insert(0, LIB_DIR)
+sys.path.insert(0, TESTS_DIR)  # sibling test_parallel_admission (t2195)
 
 import parallel_admission as pa            # noqa: E402
 import parallel_admission_vocab as vocab   # noqa: E402

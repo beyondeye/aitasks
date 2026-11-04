@@ -48,6 +48,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / ".aitask-scripts"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # tests/review_loop_fixtures.py (t2195)
 
 import review_loop_fixtures as fx  # noqa: E402
 from monitor.ansi_utils import strip_ansi  # noqa: E402

@@ -26,7 +26,7 @@ from unittest.mock import patch
 
 PROJECT_DIR = Path(__file__).resolve().parents[1]
 SCRIPTS = PROJECT_DIR / ".aitask-scripts"
-for _p in (str(SCRIPTS), str(SCRIPTS / "lib")):
+for _p in (str(SCRIPTS), str(SCRIPTS / "lib"), str(PROJECT_DIR / "tests")):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 

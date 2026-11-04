@@ -50,6 +50,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO_ROOT / "tests"))  # sibling test_board_bytrail_view (t2195)
 sys.path.insert(0, str(REPO_ROOT / "tests" / "lib"))
 sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts" / "board"))
 sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts" / "lib"))
