@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1887
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-04 18:08
-updated_at: 2026-11-04 18:30
+updated_at: 2026-11-04 18:52
 ---
 
 ## Origin
@@ -51,3 +52,8 @@ In `cmd_anim`, take `end_t` from `core.video_span(video_packets(args.video,
 info["vindex"]), info["start_time"], ...)`, as `cmd_bug` does. Add an anim
 regression with `synth.encode(..., ts_offset=5)` and one with a longer audio
 track.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-04T16:52:49Z status=pass attempt=1 type=human
