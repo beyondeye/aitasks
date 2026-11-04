@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
@@ -15,7 +17,7 @@ anchor: 1887
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5_5
 created_at: 2026-10-05 23:27
-updated_at: 2026-11-04 12:19
+updated_at: 2026-11-04 12:20
 ---
 
 ## Origin
@@ -38,3 +40,5 @@ Print the parenthetical only when `p_edge` is available (`r.get("p_edge") is not
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-11-04T10:19:49Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-11-04T10:39:05Z status=pass attempt=1 type=human
