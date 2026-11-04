@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2175
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-03 23:18
-updated_at: 2026-11-03 23:24
+updated_at: 2026-11-04 09:56
 ---
 
 ## Origin
@@ -37,3 +38,8 @@ t2175_3 resolved its own case with a narrow, user-approved exemption: ARCHIVED r
 ## Suggested fix
 
 Either give t20–t22 valid YAML frontmatter inside the bundle (a one-time data migration of `_b0/old0.tar.zst`, which needs the archive tooling), or teach `archive_iter.parse_archived_frontmatter` to recognise the two pre-frontmatter shapes as "no metadata" rather than a failure — then t2175_3's local exemption can be dropped in favour of the shared rule.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-04T07:56:33Z status=pass attempt=1 type=human
