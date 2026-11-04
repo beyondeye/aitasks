@@ -982,7 +982,7 @@ class KeyDispatchTests(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
-        self.root = Path(self._tmp.name) / "repo"
+        self.root = Path(os.path.realpath(self._tmp.name)) / "repo"
         self.root.mkdir()
 
     def _instrument(self, app, seen):
