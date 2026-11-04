@@ -105,3 +105,27 @@ The replay mode (child 2) feeds the Textual twin of the Go monitor parity demo
 > | 
 > | Pinned by tests/test_monitor_client_agnostic.py, including a two-client
 > | shared-producer simulation that drives a second client's real _fast_preview_refresh.
+
+> **✉ note:t2034_3** id=2026-11-04T10:41:12Z.944636c21b9fda495d8a10c5 from=t2034_3 from_verified=yes at=2026-11-04T10:41:12Z base=6ed79b10b4c3bb52722cdf05cc921db98a9f05fd base_branch=main dirty=yes host=omg16
+>
+> | Advisory handoff from t2034_3. The protocol your server and client speak landed in commit 7b99d8584. Paths are as of that commit; nothing here binds your design.
+> | 
+> | - Spec: aidocs/framework/monitor_status_protocol.md. Its "Lifecycle and socket path" section is a placeholder for t2037_1 to fill in; it restates the parent's shape. The Go twin (aitasks_go#47_1) mirrors whatever you write there.
+> | - Reuse from .aitask-scripts/monitor/status_protocol.py:
+> |   - **For the server (t2037_1):**
+> |     - `StreamEncoder`: one per server, encoding full content.
+> |     - `filter_message(msg, content=…, include_shadows=…)`: projects each subscriber's view.
+> |     - `monitor_pane_record(monitor, snap)`: maps compare mode, override and last change from the producer.
+> |     - `sessions_member` / `discovery_member`: build those members from the producer's shapes.
+> |     - `read_line(reader)`: open the reader with `limit=MAX_CLIENT_LINE_BYTES`. A `FramingError` is terminal: send error too_long, then close.
+> |     - `decode` / `encode` with `direction=CLIENT` / `SERVER`.
+> |   - **For the client (t2037_2):** `StreamState`. `Applied.changed` tells a renderer which cards changed.
+> | - Server duties, per the spec:
+> |   - one delta per commit, even when empty;
+> |   - one ordered outbound queue per connection, and a lock held across "read state + enqueue". `_ReplayConnection` in .aitask-scripts/monitor/status_recording.py is a working model of this;
+> |   - compute `completed` (the clients' `_compute_completed_panes` rule);
+> |   - compute the global `parked` set (`agent_marks.parked_session_windows`) and the skip set (`parked_capture_skip` over all subscribers' pins);
+> |   - keep compare-mode overrides shared;
+> |   - a pane whose capture failed is absent from that generation (encoded as `removed`).
+> | - Replay mode (t2037_2): run `ReplayServer` (status_recording.py) on a temporary socket and connect normally. It validates the recording first and echoes the client's version. Fixture: tests/fixtures/monitor_status/basic.jsonl (synthetic).
+> | - Known limit, recorded in the spec: the delta/patch semantics are proven encoder-to-state and against the replayer, not yet against the real producer's tick-to-tick behaviour. If you hit a producer behaviour that needs a clarification, the spec is the place to record it.
