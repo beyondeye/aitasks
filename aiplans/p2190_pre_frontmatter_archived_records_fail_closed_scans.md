@@ -178,3 +178,216 @@ the sha equals `EXPECTED_SHA`.
 (Post-inline reassessment: the levels are unchanged. Code-health stays medium
 because the rewrite is still a data mutation, and the pre-phase only
 guarantees a rollback for it.)
+
+## Final Implementation Notes
+- **Actual work done:**
+  - Pre-phase `bundle_matches_committed_blob`: the working-tree blob equalled
+    `HEAD:aitasks/archived/_b0/old0.tar.zst` (`155ed18218d17b344308455dcd2553e1c54aa21d`,
+    data branch), and `_b0/` was clean, so git held a rollback copy before the rewrite.
+  - Migrated `aitasks/archived/_b0/old0.tar.zst` with the one-time script below
+    (dry run, then `--write`). Result:
+    `OLD_SHA:883ee79b652ff53052f2a4013ac79668942b26e797af457507c2e252870f431c`,
+    `NEW_SHA:3e5a98bf4452fac67c4a87094935a56d119f98c47e60a7f8f322ecc444c709ef`, and
+    `VERIFIED:members=82 changed=3`. The three targets are exactly
+    `b"---\n{}\n---\n" + old bytes`. The other 79 members keep the same header
+    tuple and bytes, in the same order, and the GNU `tar -tf` listing is identical.
+  - Removed the sitrep exemption (`_pre_frontmatter`, `_LEGACY_INLINE_HEADER_RE`
+    and the `rank > 0` branch in `_build_folds.take`), and documented in the
+    docstring that a headerless record is a scan error, active or archived.
+  - `tests/test_sitrep_refresh.py`: `PreFrontmatterArchive` → `HeaderlessArchivedRecords`
+    (a baseline-clean control; headerless archived records fail the scan, one
+    subTest per shape, each naming its record; a headerless task itself stays
+    unknown; migrated records complete the scan; a migrated task is never done;
+    the five strictness tests are kept, now against a t30-bearing baseline).
+- **Deviations from plan:** none in scope. One added control test
+  (`test_the_baseline_scan_is_clean`), so that every "fold scan" error in the
+  class is shown to come from the record under test.
+- **Issues encountered:**
+  - The whole-archive yield count went up by 4, not 3, between the planning probe
+    and the post-migration scan. The bundle alone accounts for exactly +3
+    (75 → 78 parsable members; the old HEAD blob reported the 3 errors, the new
+    bundle reports none). The extra record is outside the bundle:
+    `aitasks/archived/t2185_…`, archived by another session at
+    2026-11-03 23:52, after the planning probe.
+  - The worktree is shared with in-flight sitrep work by other sessions. The
+    diffs of `sitrep_refresh.py` / `test_sitrep_refresh.py` were checked to hold
+    only this task's hunks. The new `aidocs/framework/sitrep.md` (untracked,
+    another session) does not mention the exemption, so no doc changed.
+- **Key decisions:**
+  - Approach A (data migration), chosen by the user over a shared shape rule in
+    `archive_iter`. The reader contract stays strict (the existing `t3_none.md`
+    "headerless is reported" test is unchanged).
+  - Prefix `---\n{}\n---\n`, measured across parsers: task_yaml gives `({}, old text)`.
+    The stats_data flat scanner gives `{}`, with a body that differs from its
+    pre-migration view only by the trailing newline its line-joiner always drops.
+    Bash `read_yaml_field` now searches only the empty block; before, it searched
+    the whole file, whose only `key:`-shaped body lines were `COMPLETED: …`.
+    This prefix is exactly `task_yaml.serialize_frontmatter({}, body, [])`.
+    `---\n---\n` was rejected because task_yaml raises on it (the later `---` is
+    taken as the closer).
+  - No metadata was invented. Afterwards sitrep reports t20–t22 as
+    `unknown "archived with status (none)"` / `unverifiable`, never done.
+- **Verification evidence:**
+  - Verifier mutants (dry run only; the bundle sha was unchanged afterwards): a
+    changed non-target byte → `FAIL:./t23_rewrite_clear_old_skill.md: non-target member changed`.
+    The `---\n---\n` prefix → `FAIL:./t20_skill_creating_aitask.md: not PREFIX + old bytes`.
+  - Red proof: an isolated scratch tree with HEAD `sitrep_refresh.py` (exemption
+    present) plus the new test file → only `test_headerless_archived_records_fail_the_scan`
+    fails (1 failed, 9 passed).
+  - Real repo: `iter_archived_frontmatter(errors=…)` errors 3 → 0. The
+    `TaskIndex(".")` fold scan: `_fold_errors == []`, 42 folded ids (the same as
+    t2175_3's measurement with the exemption). `trail_links.py export`:
+    `scan_errors: []`, `unreadable: []`, 14 trails.
+  - Suites: `test_sitrep_refresh.py` 69 OK; `test_sitrep_refresh.sh` 120/120;
+    the archive_iter consolidated and characterization suites OK;
+    `test_stats_split_frontmatter.py` OK; full Python suite
+    `PYTHON SUITE: PASSED (runner=pytest, exit=0)`.
+- **Upstream defects identified:** None
+- **Migration script (verbatim, run from the repo root; closure evidence):**
+
+```python
+#!/usr/bin/env python3
+"""One-time t2190 data migration: give archived t20-t22 an empty YAML
+frontmatter block inside aitasks/archived/_b0/old0.tar.zst.
+
+Run from the repo root. Default is a dry run (build + verify a temp bundle,
+then delete it); --write swaps it in after a compare-and-swap on the sha.
+Every member other than the three targets is copied header-for-header and
+byte-for-byte; each target becomes exactly PREFIX + its old bytes.
+"""
+import copy
+import hashlib
+import io
+import os
+import subprocess
+import sys
+import tarfile
+from pathlib import Path
+
+sys.path.insert(0, ".aitask-scripts/lib")
+import archive_iter  # noqa: E402
+import task_yaml  # noqa: E402
+
+BUNDLE = Path("aitasks/archived/_b0/old0.tar.zst")
+TMP = BUNDLE.with_name(".t2190-old0.tar.zst")   # outside the _b*/old*.tar.zst glob
+EXPECTED_SHA = "883ee79b652ff53052f2a4013ac79668942b26e797af457507c2e252870f431c"
+TARGETS = {
+    "./t20_skill_creating_aitask.md",
+    "./t21_rewrite_aitask_create_as_script.md",
+    "./t22_task_attributes_in_task_create.md",
+}
+PREFIX = b"---\n{}\n---\n"   # == task_yaml.serialize_frontmatter({}, body, [])
+
+
+def die(msg):
+    print(f"FAIL:{msg}")
+    sys.exit(1)
+
+
+def sha256(path):
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def run(argv, data=None):
+    proc = subprocess.run(argv, input=data, capture_output=True)
+    if proc.returncode != 0:
+        die(f"{argv[0]} exited {proc.returncode}: {proc.stderr.decode(errors='replace').strip()}")
+    return proc.stdout
+
+
+def members(raw_zst):
+    tar = run(["zstd", "-dc"], raw_zst)
+    out = []
+    with tarfile.open(fileobj=io.BytesIO(tar), mode="r:") as tf:
+        for m in tf.getmembers():
+            out.append((m, tf.extractfile(m).read() if m.isfile() else None))
+    return out
+
+
+def header(m):
+    return (m.name, m.type, m.mode, m.uid, m.gid, m.uname, m.gname, m.mtime, m.linkname)
+
+
+def gnu_listing(raw_zst):
+    return run(["tar", "-tf", "-"], run(["zstd", "-dc"], raw_zst)).decode().splitlines()
+
+
+def build(old):
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w", format=tarfile.GNU_FORMAT) as tf:
+        for m, data in old:
+            info = copy.copy(m)
+            if m.name in TARGETS:
+                data = PREFIX + data
+                info.size = len(data)
+            tf.addfile(info, io.BytesIO(data) if data is not None else None)
+    return run(["zstd", "-q", "-c"], buf.getvalue())
+
+
+def verify(old_raw, old, new_raw):
+    run(["zstd", "-t", "-q", str(TMP)])
+    if gnu_listing(old_raw) != gnu_listing(new_raw):
+        die("GNU tar listing differs")
+    errs = []
+    names = [n for n, _ in archive_iter.iter_archive_file(TMP, errors=errs)]
+    if errs:
+        die(f"production reader reported {errs}")
+    new = members(new_raw)
+    if len(new) != len(old):
+        die(f"member count {len(old)} -> {len(new)}")
+    if names != [os.path.basename(m.name) for m, d in new if m.isfile() and m.name.endswith(".md")]:
+        die("production reader member sequence differs")
+    changed = 0
+    for (om, od), (nm, nd) in zip(old, new):
+        if header(om) != header(nm):
+            die(f"header differs: {header(om)} vs {header(nm)}")
+        if om.name in TARGETS:
+            if nd != PREFIX + od:
+                die(f"{om.name}: not PREFIX + old bytes")
+            parsed = task_yaml.parse_frontmatter(nd.decode("utf-8"))
+            if parsed != ({}, od.decode("utf-8"), []):
+                die(f"{om.name}: parses as {parsed!r:.80}")
+            changed += 1
+        elif om.size != nm.size or od != nd:
+            die(f"{om.name}: non-target member changed")
+    if changed != len(TARGETS):
+        die(f"changed {changed} targets, expected {len(TARGETS)}")
+    return len(new), changed
+
+
+def main():
+    write = "--write" in sys.argv[1:]
+    if sha256(BUNDLE) != EXPECTED_SHA:
+        die(f"bundle sha {sha256(BUNDLE)} != expected")
+    old_raw = BUNDLE.read_bytes()
+    old = members(old_raw)
+    present = {m.name for m, _ in old}
+    if TARGETS - present:
+        die(f"missing targets {sorted(TARGETS - present)}")
+    for m, data in old:
+        if m.name in TARGETS and data.startswith(b"---\n"):
+            die(f"{m.name} already starts with a frontmatter opener")
+    new_raw = build(old)
+    try:
+        with open(TMP, "wb") as fh:
+            fh.write(new_raw)
+            fh.flush()
+            os.fsync(fh.fileno())
+        count, changed = verify(old_raw, old, new_raw)
+        print(f"VERIFIED:members={count} changed={changed}")
+        if not write:
+            print("DRY_RUN:temp bundle removed, bundle untouched")
+            return
+        if sha256(BUNDLE) != EXPECTED_SHA:          # compare-and-swap
+            die("bundle changed under us; not swapping")
+        os.replace(TMP, BUNDLE)
+        print(f"OLD_SHA:{EXPECTED_SHA}")
+        print(f"NEW_SHA:{sha256(BUNDLE)}")
+    finally:
+        if TMP.exists():
+            TMP.unlink()
+
+
+if __name__ == "__main__":
+    main()
+```
