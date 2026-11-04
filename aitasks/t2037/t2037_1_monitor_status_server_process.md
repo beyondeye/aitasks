@@ -5,10 +5,14 @@ depends: [t2034_3]
 issue_type: feature
 status: Implementing
 labels: [monitor, tmux]
+active_gates: [risk_evaluated]
+active_gates_filtered: []
+active_gates_profile: fast
+active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2034
 created_at: 2026-10-16 08:11
-updated_at: 2026-11-04 15:59
+updated_at: 2026-11-04 16:00
 ---
 
 The status server process and its lifecycle (parent: Python monitor status
