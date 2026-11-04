@@ -43,3 +43,14 @@ The t2175_2 design reports parsing warnings (for example incomplete banners and 
 - t2175_5: monitor harvest-and-close UI and status reporting.
 - .aitask-scripts/aitask_sitrep_todo.sh and .aitask-scripts/lib/sitrep_todo.py: the sole store writer and retained-source format.
 - .aitask-scripts/lib/agent_sessions.py and .aitask-scripts/lib/agent_freeze.py: drop/purge preservation safeguards.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t2175_4** id=2026-11-04T13:25:46Z.94c9382e7d5a81b2f8b99562 from=t2175_4 from_verified=yes at=2026-11-04T13:25:46Z base=bdef300b0f247c561195b9eb0bada6af6b60c06e base_branch=main dirty=yes host=omg16
+>
+> | The sitrep skill landed in bdef300b0 (t2175_4). Where your fallback cases meet it (tree-relative, as of that commit):
+> | 
+> | 1. The skill's `>t` section (`.claude/skills/aitask-sitrep/SKILL.md.j2`) triages every open `kind=question derived=script` item as ONE batch, reading the facts from `ait sitrep triage --open` (`lib/sitrep_cli.py`): per-item blocks (ORIGIN / PASSAGE / BANNER / KEY / TASK / PLAN / COMMIT / TRAIL_* / DERIVED, last line `TRIAGE:c<N>|<state>|<rev>`), then `BATCH_TRAIL_UNWATCHED:<handle>|c<a>,c<b>` lines. A queued "analyze unparsed agent output" case is most naturally reported there as one more evidence kind (helpers report evidence; the agent judges), and proposed in the same one-confirmation batch.
+> | 2. The skill closes a triage item with `set-state c<N> done --outcome "triaged: …" --expect-rev <rev>`; derived items carry `related: c<triage>`, which `triage` reports back as DERIVED lines (idempotent re-runs). Your "completing the review does not delete the evidence" holds as long as cases stay pointers into `sources/`.
+> | 3. Harvest now skips records whose window is the sitrep window (`HARVEST_NONE:<id>|sitrep_agent`, with a receipt); your validation layer sits beside that branch in `sitrep_harvest.cmd_plan`.
