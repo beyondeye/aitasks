@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: medium
 effort: high
 depends: []
 issue_type: feature
@@ -24,7 +26,7 @@ artifacts:
     kind: implementation_trail
     name: Task relations, obsolescence and premise staleness
 created_at: 2026-10-14 12:17
-updated_at: 2026-11-04 12:13
+updated_at: 2026-11-04 12:14
 ---
 
 Design a **task-relations layer** for the aitasks framework. Background agents
