@@ -3,13 +3,13 @@ priority: medium
 effort: medium
 depends: [t2175_4]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [sitrep]
+assigned_to: dario-e@beyond-eye.com
 anchor: 2175
 created_at: 2026-10-31 19:58
-updated_at: 2026-11-01 17:40
+updated_at: 2026-11-04 15:36
 ---
-
 
 # Monitor key: harvest-and-close
 
