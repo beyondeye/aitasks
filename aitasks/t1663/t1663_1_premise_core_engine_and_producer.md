@@ -89,6 +89,8 @@ First child of t1663 (advisory task premise staleness). Design fixed in `aidocs/
 > | SUGGESTED SEQUENCE (advisory)
 > | Pick t1663_1. Let verify mode re-check p1663_1 against the current tree and the corrected decision record. Then refresh the trail with `/aitask-trail --refresh art:trail-task-relations-and-premise --deep`; the changed plan hash shows as drift and gets re-read.
 
+> **👁 note:read** id=2026-11-04T16:03:32Z.303ed59467e929d9a1cd18ab by=t1663_1 at=2026-11-04T16:03:32Z mode=explicit ids=2026-11-04T15:00:10Z.bdd0bfd934fe2276bc8c211d
+
 ## Gate Runs
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
