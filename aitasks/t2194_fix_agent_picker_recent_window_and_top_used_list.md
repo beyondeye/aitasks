@@ -11,8 +11,9 @@ active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-04 11:58
-updated_at: 2026-11-04 12:00
+updated_at: 2026-11-04 12:52
 ---
 
 ## Problem
@@ -140,3 +141,8 @@ EOF
   readers. Both tasks edit the same functions, so whichever lands second must
   rebase onto the other's reader. If this task adds a shared,
   date-correct window helper, t1912's shared read path should reuse it.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-04T10:52:31Z status=pass attempt=1 type=human
