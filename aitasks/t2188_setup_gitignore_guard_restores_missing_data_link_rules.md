@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2179
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-03 19:04
-updated_at: 2026-11-03 19:12
+updated_at: 2026-11-04 09:22
 ---
 
 ## Origin
@@ -36,3 +37,8 @@ t2184 anchored the task-data block that `setup_data_branch` Step 7 appends (`/.a
 ## Suggested fix
 
 Guard each of `/$AIT_DATA_DIR_NAME` and `/${AIT_DATA_LINKS[@]}` on its own. That is the per-rule guard `_ait_add_gitignore_rules` already gives the other setup groups (t2178's rule table). Consider routing the data block through that table, which already handles CRLF, a non-regular `.gitignore`, and read-back after write. Then have the re-run repair add missing anchored data rules, under the same pre-setup dirty-baseline contract, and add tests for a `.gitignore` missing one link rule on both the Step 7 and the repair routes.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-04T07:22:17Z status=pass attempt=1 type=human
