@@ -11,8 +11,9 @@ active_gates_profile: fast
 active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2034
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-16 08:11
-updated_at: 2026-11-04 16:00
+updated_at: 2026-11-04 18:47
 ---
 
 The status server process and its lifecycle (parent: Python monitor status
@@ -38,3 +39,8 @@ protocol.
 
 Tests: single start under concurrent `ensure`, idle exit, stale-socket
 recovery, per-version isolation, per-session config, delta ordering by `gen`.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-04T16:47:29Z status=pass attempt=1 type=human
