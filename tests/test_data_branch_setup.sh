@@ -270,19 +270,27 @@ if [[ "$_wt" == 1 && "$_list" == 1 ]]; then
 fi
 SHIM
                     ;;
-                cp_ok_then_drop_worktree)
-                    # Copy aiplans for real, then make the whole data worktree
-                    # vanish, and report success. This is the only fixture that
-                    # reaches Step 4 with a missing .aitask-data, which is what
-                    # exercises that subshell's `cd ... || exit 1` guard.
+                grep_last_readback_drop_worktree)
+                    # Run grep for real; once Step 3's LAST rule read-back (the
+                    # applink rule, found in .aitask-data/.gitignore) succeeds,
+                    # make the whole data worktree vanish and report that
+                    # success. Step 3 checks its own writes (t2197), so a
+                    # worktree that vanishes any earlier is caught there; this
+                    # is the only fixture that reaches Step 4 with a missing
+                    # .aitask-data, which is what exercises that subshell's
+                    # `cd ... || exit 1` guard.
                     cat <<'SHIM'
-_dst="${!#}"
-if [[ "$_dst" == */.aitask-data/aiplans/* || "$_dst" == */.aitask-data/aiplans/ ]]; then
-    "$real" "$@" 2>/dev/null
-    _wt="${_dst%%/.aitask-data/*}/.aitask-data"
-    PATH="$AIT_TEST_REAL_PATH" rm -rf "$_wt"
-    exit 0
+"$real" "$@"
+_rc=$?
+_rule=0; _file=""
+for a in "$@"; do
+    [[ "$a" == "aitasks/metadata/applink_sessions/" ]] && _rule=1
+    [[ "$a" == */.aitask-data/.gitignore ]] && _file="$a"
+done
+if [[ "$_rc" -eq 0 && "$_rule" == 1 && -n "$_file" ]]; then
+    PATH="$AIT_TEST_REAL_PATH" rm -rf "${_file%/.gitignore}"
 fi
+exit "$_rc"
 SHIM
                     ;;
                 cp_partial_ok_aitasks)
@@ -1737,7 +1745,7 @@ head_before_32=$(git -C "$TMPDIR_32/local" rev-parse HEAD)
 # developer happens to have in progress into the data-branch commit.
 echo "work in progress" > "$TMPDIR_32/local/stray_uncommitted.txt"
 
-shim_install cp:cp_ok_then_drop_worktree
+shim_install grep:grep_last_readback_drop_worktree
 out_32=$(cd "$TMPDIR_32/local" && setup_data_branch </dev/null 2>&1)
 shim_remove
 
@@ -2458,6 +2466,241 @@ assert_contains "40b partial: hand fix starts with the incomplete line" \
 rm -f "$t40b_log"
 chmod -R u+w "$T40B" 2>/dev/null
 rm -rf "$T40B"
+
+# --- Test 41: Step 3's data-worktree .gitignore is written checked (t2197) ---
+# Step 3 appended six blocks to .aitask-data/.gitignore with bare `>>` echo
+# groups. An existing aitask-data branch (remote or local) decides what that
+# file is, and git stores symlinks: a symlink to a FIFO hung setup, one to an
+# unwritable file aborted it under main()'s errexit with a half-built worktree
+# "already configured" for good. Worse, git does not follow a symlinked
+# .gitignore at all, so even a writable link that lists every rule keeps
+# nothing out of Step 4's blanket `git add .` — on migration, the user's
+# userconfig and applink secrets cp just copied in. Step 3 now refuses a
+# symlinked or non-regular file and stops on any failed rule write, both
+# before Step 4, through abort_data_branch_setup.
+echo "--- Test 41: Step 3 data-worktree .gitignore writes (t2197) ---"
+t41_log="$(mktemp)"
+# t41_run <dir> [<echo-arg-to-fail>] -> status (124 = did not return in time).
+# A non-empty second argument shadows echo inside the child so that one exact
+# write fails (the 27n pattern in tests/test_setup_git.sh).
+t41_run() {
+    run_bounded 30 "$t41_log" env HOME="$1/home-scratch" T41_FAIL_LINE="${2:-}" bash -c '
+        source "$1" --source-only
+        [[ $- == *e* ]] && echo ERREXIT_ON
+        if [[ -n "${T41_FAIL_LINE:-}" ]]; then
+            # shellcheck disable=SC2329  # shadows the builtin the writer calls
+            echo() { if [[ "$*" == "$T41_FAIL_LINE" ]]; then return 1; fi; builtin echo "$@"; }
+        fi
+        SCRIPT_DIR="$2/.aitask-scripts"
+        cd "$2" || exit 1
+        setup_data_branch
+        echo SURVIVED' _ "$PROJECT_DIR/.aitask-scripts/aitask_setup.sh" "$1"
+}
+# t41_seed_branch <dir> symlink <target> | regular <file> | directory
+# Pre-creates a local aitask-data branch whose only entry is .gitignore, as
+# an existing (e.g. fetched) data branch would carry it.
+t41_seed_branch() {
+    local d="$1" kind="$2" arg="${3:-}" blob tree sub commit
+    case "$kind" in
+        symlink)
+            blob="$(printf '%s' "$arg" | git -C "$d" hash-object -w --stdin)"
+            tree="$(printf '120000 blob %s\t.gitignore\n' "$blob" | git -C "$d" mktree)" ;;
+        regular)
+            blob="$(git -C "$d" hash-object -w -- "$arg")"
+            tree="$(printf '100644 blob %s\t.gitignore\n' "$blob" | git -C "$d" mktree)" ;;
+        directory)
+            blob="$(printf 'x\n' | git -C "$d" hash-object -w --stdin)"
+            sub="$(printf '100644 blob %s\tkeep\n' "$blob" | git -C "$d" mktree)"
+            tree="$(printf '040000 tree %s\t.gitignore\n' "$sub" | git -C "$d" mktree)" ;;
+    esac
+    commit="$(echo "seed aitask-data" | git -C "$d" commit-tree "$tree")"
+    git -C "$d" update-ref refs/heads/aitask-data "$commit"
+}
+# t41_add_legacy_data <dir> — a legacy-layout project with per-user files that
+# Step 3's rules exist to keep out of the data branch.
+t41_add_legacy_data() {
+    mkdir -p "$1/aitasks/metadata/applink_sessions"
+    echo "---" > "$1/aitasks/t1_example.md"
+    echo "email: me@example.com" > "$1/aitasks/metadata/userconfig.yaml"
+    echo "secret" > "$1/aitasks/metadata/applink_sessions/tls_key.pem"
+    git -C "$1" add aitasks/t1_example.md
+    git -C "$1" commit -q -m "legacy task" -- aitasks/t1_example.md
+}
+# The bytes the old Step 3 echo blocks wrote on a fresh worktree (captured by
+# running the pre-t2197 code); the per-rule writer must write exactly these.
+t41_expected="$(mktemp)"
+cat > "$t41_expected" <<'EOF'
+# Draft tasks (local, not committed)
+aitasks/new/
+
+# Per-user config (local, not shared)
+aitasks/metadata/userconfig.yaml
+
+# Per-user overrides (*.local.json files, not shared)
+aitasks/metadata/*.local.json
+
+# Per-user execution profiles (local, not shared)
+aitasks/metadata/profiles/local/
+
+# chatlink runtime state (per-PC: bot token + relay spools)
+aitasks/metadata/chatlink_sessions/
+
+# applink runtime state (per-PC: TLS cert/key + active bearer sessions)
+aitasks/metadata/applink_sessions/
+EOF
+t41_rule_lines="$(grep -v -e '^#' -e '^$' "$t41_expected")"
+# t41_assert_stopped <case> <dir> <rc> <tip-before|fresh> [migration]
+# Setup stopped before Step 4: bounded, survived errexit, no data commit, no
+# symlinks, the worktree torn down, and nothing private on the data branch.
+t41_assert_stopped() {
+    local c="$1" d="$2" rc="$3" tip="$4" mig="${5:-}" out tree
+    out="$(cat "$t41_log")"
+    assert_eq "41 $c: child returns 0 within 30s (124 = hung)" "0" "$rc"
+    assert_contains "41 $c: child shell has errexit (control)" "ERREXIT_ON" "$out"
+    assert_contains "41 $c: survives setup's errexit" "SURVIVED" "$out"
+    assert_not_contains "41 $c: not reported as configured" \
+        "Task data branch configured successfully" "$out"
+    assert_eq "41 $c: data worktree torn down" "no" \
+        "$([[ -e "$d/.aitask-data" || -L "$d/.aitask-data" ]] && echo yes || echo no)"
+    assert_not_symlink "41 $c: aitasks not turned into a symlink" "$d/aitasks"
+    if [[ "$tip" == fresh ]]; then
+        assert_eq "41 $c: data branch holds only its init commit (no Step 4 commit)" \
+            "ait: Initialize aitask-data branch" "$(git -C "$d" log -1 --format=%s aitask-data)"
+    else
+        assert_eq "41 $c: data branch tip unchanged (no Step 4 commit)" "$tip" \
+            "$(git -C "$d" rev-parse aitask-data)"
+    fi
+    tree="$(git -C "$d" ls-tree -r --name-only aitask-data)"
+    assert_not_contains "41 $c: userconfig.yaml not on the data branch" \
+        "aitasks/metadata/userconfig.yaml" "$tree"
+    assert_not_contains "41 $c: applink secret not on the data branch" "tls_key.pem" "$tree"
+    if [[ -n "$mig" ]]; then
+        assert_contains "41 $c: says nothing was removed" \
+            "Nothing was removed from the current branch" "$out"
+        assert_eq "41 $c: legacy userconfig.yaml still in place" "email: me@example.com" \
+            "$(cat "$d/aitasks/metadata/userconfig.yaml" 2>/dev/null)"
+        assert_eq "41 $c: legacy applink secret still in place" "secret" \
+            "$(cat "$d/aitasks/metadata/applink_sessions/tls_key.pem" 2>/dev/null)"
+        assert_eq "41 $c: legacy task still tracked on the code branch" "aitasks/t1_example.md" \
+            "$(git -C "$d" ls-files -- aitasks/t1_example.md)"
+    else
+        assert_contains "41 $c: says no symlinks were created" "No symlinks were created" "$out"
+    fi
+}
+t41_new_project() {
+    local d
+    d="$(setup_local_repo)"
+    mkdir -p "$d/.aitask-scripts" "$d/home-scratch"
+    echo "$d"
+}
+
+# (clean) no fault, fresh branch: the no-fault control. Byte-identical to the
+# old echo blocks, and git really ignores what each rule names.
+d="$(t41_new_project)"
+rc=0; t41_run "$d" || rc=$?
+out="$(cat "$t41_log")"
+assert_eq "41 clean: returns 0" "0" "$rc"
+assert_contains "41 clean: survives" "SURVIVED" "$out"
+assert_contains "41 clean: configured" "Task data branch configured successfully" "$out"
+assert_exit_zero "41 clean: .aitask-data/.gitignore byte-identical to the old blocks" \
+    cmp -s "$t41_expected" "$d/.aitask-data/.gitignore"
+for p in aitasks/new/x.md aitasks/metadata/userconfig.yaml aitasks/metadata/x.local.json \
+         aitasks/metadata/profiles/local/x.yaml aitasks/metadata/chatlink_sessions/x \
+         aitasks/metadata/applink_sessions/x; do
+    assert_exit_zero "41 clean: git ignores $p" git -C "$d/.aitask-data" check-ignore -q -- "$p"
+done
+assert_eq "41 clean: git does not ignore labels.txt (negative control)" "1" \
+    "$(git -C "$d/.aitask-data" check-ignore -q -- aitasks/metadata/labels.txt; echo $?)"
+rm -rf "$d"
+
+# (regular) an existing branch with a regular .gitignore: only missing rules
+# are added, each once, and the separator ends an unterminated last line.
+d="$(t41_new_project)"
+printf 'aitasks/metadata/userconfig.yaml\nkeep-me' > "$d/seed_gitignore"
+t41_seed_branch "$d" regular "$d/seed_gitignore"
+rc=0; t41_run "$d" || rc=$?
+out="$(cat "$t41_log")"
+gi="$d/.aitask-data/.gitignore"
+assert_eq "41 regular: returns 0" "0" "$rc"
+assert_contains "41 regular: configured" "Task data branch configured successfully" "$out"
+assert_gitignore_line "41 regular: 'keep-me' kept as its own line" "$gi" "keep-me"
+assert_eq "41 regular: comment not glued onto 'keep-me'" "0" \
+    "$(grep -c '^keep-me#' "$gi" | tr -d ' ')"
+while IFS= read -r rule; do
+    assert_eq "41 regular: exactly one '$rule'" "1" "$(grep -cxF -- "$rule" "$gi" | tr -d ' ')"
+done <<<"$t41_rule_lines"
+assert_eq "41 regular: the already-present rule's comment is not added" "0" \
+    "$(grep -cxF -- '# Per-user config (local, not shared)' "$gi" | tr -d ' ')"
+rm -rf "$d"
+
+# (writable-symlink + migration) the high-severity case: a writable link that
+# already lists every rule. Premise control first — on this git a symlinked
+# .gitignore really ignores nothing, while the same bytes as a regular file do.
+d="$(t41_new_project)"
+t41_target_dir="$(mktemp -d)"
+cp "$t41_expected" "$t41_target_dir/shared_gitignore"
+cp "$t41_target_dir/shared_gitignore" "$t41_target_dir/shared_gitignore.before"
+t41_premise="$(mktemp -d)"
+git -C "$t41_premise" init -q
+ln -s "$t41_target_dir/shared_gitignore" "$t41_premise/.gitignore"
+assert_eq "41 symlink premise: git ignores nothing through a symlinked .gitignore" "1" \
+    "$(git -C "$t41_premise" check-ignore -q -- aitasks/metadata/userconfig.yaml; echo $?)"
+rm "$t41_premise/.gitignore"; cp "$t41_expected" "$t41_premise/.gitignore"
+assert_eq "41 symlink premise: the same bytes as a regular file do ignore it (control)" "0" \
+    "$(git -C "$t41_premise" check-ignore -q -- aitasks/metadata/userconfig.yaml; echo $?)"
+rm -rf "$t41_premise"
+t41_add_legacy_data "$d"
+t41_seed_branch "$d" symlink "$t41_target_dir/shared_gitignore"
+tip="$(git -C "$d" rev-parse aitask-data)"
+rc=0; t41_run "$d" || rc=$?
+t41_assert_stopped "writable-symlink" "$d" "$rc" "$tip" migration
+out="$(cat "$t41_log")"
+assert_contains "41 writable-symlink: reason names the symlink" "$AIT_DATA_DIR_NAME/.gitignore is a symlink" "$out"
+assert_contains "41 writable-symlink: reason says git does not follow it" "git does not follow" "$out"
+assert_exit_zero "41 writable-symlink: link target byte-identical" \
+    cmp -s "$t41_target_dir/shared_gitignore.before" "$t41_target_dir/shared_gitignore"
+rm -rf "$d"
+
+# (fifo-symlink) the old code blocked on the open-for-append; bounded here.
+d="$(t41_new_project)"
+mkfifo "$t41_target_dir/fifo"
+t41_seed_branch "$d" symlink "$t41_target_dir/fifo"
+tip="$(git -C "$d" rev-parse aitask-data)"
+rc=0; t41_run "$d" || rc=$?
+t41_assert_stopped "fifo-symlink" "$d" "$rc" "$tip"
+assert_eq "41 fifo-symlink: the FIFO is still a FIFO" "yes" \
+    "$([[ -p "$t41_target_dir/fifo" ]] && echo yes)"
+rm -rf "$d"
+
+# (directory) a `.gitignore/` tree entry checks out as a directory.
+d="$(t41_new_project)"
+t41_seed_branch "$d" directory
+tip="$(git -C "$d" rev-parse aitask-data)"
+rc=0; t41_run "$d" || rc=$?
+t41_assert_stopped "directory" "$d" "$rc" "$tip"
+assert_contains "41 directory: reason says not a regular file" "is not a regular file" "$(cat "$t41_log")"
+rm -rf "$d"
+
+# (late write fault + migration) a real write failure on a regular in-worktree
+# file AFTER earlier groups landed: the fourth group's comment write fails,
+# after its separator. Binding: the shadowed literal is that group's comment.
+_ait_gitignore_group data_local_profiles
+# shellcheck disable=SC2154  # _ait_gi_* are set by the sourced aitask_setup.sh table
+assert_eq "41 late-fault binding: the shadowed comment is data_local_profiles'" \
+    "Per-user execution profiles (local, not shared)" "$_ait_gi_comment"
+d="$(t41_new_project)"
+t41_add_legacy_data "$d"
+rc=0; t41_run "$d" "# $_ait_gi_comment" || rc=$?
+t41_assert_stopped "late-fault" "$d" "$rc" fresh migration
+out="$(cat "$t41_log")"
+assert_contains "41 late-fault: names the failed rule and the data .gitignore" \
+    "Could not add aitasks/metadata/profiles/local/ to $AIT_DATA_DIR_NAME/.gitignore" "$out"
+assert_contains "41 late-fault: says the write stopped part-way" "the write stopped part-way" "$out"
+assert_not_contains "41 late-fault: no unchanged claim" "left unchanged" "$out"
+rm -rf "$d"
+
+rm -rf "$t41_target_dir"
+rm -f "$t41_log" "$t41_expected"
 
 # --- Summary ---
 echo ""

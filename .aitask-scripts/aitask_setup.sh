@@ -1917,59 +1917,58 @@ setup_data_branch() {
             "$project_dir/.aitask-scripts/gates_reference.yaml"
     fi
 
-    # Add aitasks/new/ to data branch .gitignore
-    local data_gitignore="$project_dir/.aitask-data/.gitignore"
-    if [[ ! -f "$data_gitignore" ]] || ! grep -qxF "aitasks/new/" "$data_gitignore" 2>/dev/null; then
-        {
-            echo "# Draft tasks (local, not committed)"
-            echo "aitasks/new/"
-        } >> "$data_gitignore"
+    # The data worktree's own .gitignore rules (t2197). They are what keeps
+    # per-user and per-PC files out of Step 4's blanket `git add .` — on
+    # migration, the userconfig.yaml, *.local.json and chatlink/applink secrets
+    # cp has just copied in — so a rule that is not in effect stops setup HERE,
+    # before Step 4, through abort_data_branch_setup: it leaves the legacy
+    # layout, which the next `ait setup` retries from scratch. Warning and
+    # carrying on would commit and push exactly those files.
+    #
+    # The file must be a regular, non-symlink file. An existing aitask-data
+    # branch decides what it is, and git stores symlinks — but git does not
+    # follow a symlinked .gitignore in the working tree, so its rules take no
+    # effect however well they are written or read back through the link (and
+    # a link to a FIFO blocked the old `>>`). t2191's refuse_nonregular_gitignores
+    # cannot cover this file: on a fresh setup .aitask-data/ does not exist yet
+    # when main() runs it. Nothing is rewritten to "fix" a link: replacing it
+    # with a regular file would silently change the branch's tracked .gitignore
+    # in Step 4's commit.
+    #
+    # The rules go through the per-rule writer, from the table's groups
+    # (_ait_gitignore_group): checked writes, a read-back, and no unchecked `>>`
+    # under main()'s errexit (as t2185/t2188 for the main .gitignore). Each rule
+    # counts as present only as a whole line (LF or CRLF); the old guards for
+    # *.local.json and profiles/local/ matched any line containing the text,
+    # their own comment line included.
+    local data_gitignore="$project_dir/$AIT_DATA_DIR_NAME/.gitignore" gi_group gi_rc gi_state
+    gi_state=""
+    if [[ -L "$data_gitignore" ]]; then
+        gi_state="is a symlink — git does not follow a symlinked .gitignore, so its rules would not keep private files out of the data branch commit"
+    elif [[ -e "$data_gitignore" && ! -f "$data_gitignore" ]]; then
+        gi_state="is not a regular file"
     fi
-
-    # Add userconfig.yaml to data branch .gitignore (per-user, not shared)
-    if ! grep -qxF "aitasks/metadata/userconfig.yaml" "$data_gitignore" 2>/dev/null; then
-        {
-            echo ""
-            echo "# Per-user config (local, not shared)"
-            echo "aitasks/metadata/userconfig.yaml"
-        } >> "$data_gitignore"
+    if [[ -n "$gi_state" ]]; then
+        abort_data_branch_setup "$project_dir" "$branch_exists" "$needs_migration" \
+            "$AIT_DATA_DIR_NAME/.gitignore $gi_state (it comes from the existing aitask-data branch). Stopping before the data branch commit. Fix: replace .gitignore on the aitask-data branch with a regular file ('git show aitask-data:.gitignore' shows what it is now), then re-run 'ait setup'."
+        return
     fi
-
-    # Add *.local.json to data branch .gitignore (per-user overrides, not shared)
-    if ! grep -qF "*.local.json" "$data_gitignore" 2>/dev/null; then
-        {
-            echo ""
-            echo "# Per-user overrides (*.local.json files, not shared)"
-            echo "aitasks/metadata/*.local.json"
-        } >> "$data_gitignore"
-    fi
-
-    # Add profiles/local/ to data branch .gitignore (per-user profiles, not shared)
-    if ! grep -qF "profiles/local/" "$data_gitignore" 2>/dev/null; then
-        {
-            echo ""
-            echo "# Per-user execution profiles (local, not shared)"
-            echo "aitasks/metadata/profiles/local/"
-        } >> "$data_gitignore"
-    fi
-
-    # Add chatlink_sessions/ to data branch .gitignore (per-PC secrets: bot token + relay spools)
-    if ! grep -qxF "aitasks/metadata/chatlink_sessions/" "$data_gitignore" 2>/dev/null; then
-        {
-            echo ""
-            echo "# chatlink runtime state (per-PC: bot token + relay spools)"
-            echo "aitasks/metadata/chatlink_sessions/"
-        } >> "$data_gitignore"
-    fi
-
-    # Add applink_sessions/ to data branch .gitignore (per-PC secrets: TLS cert/key + bearer sessions)
-    if ! grep -qxF "aitasks/metadata/applink_sessions/" "$data_gitignore" 2>/dev/null; then
-        {
-            echo ""
-            echo "# applink runtime state (per-PC: TLS cert/key + active bearer sessions)"
-            echo "aitasks/metadata/applink_sessions/"
-        } >> "$data_gitignore"
-    fi
+    for gi_group in drafts data_userconfig data_local_json data_local_profiles \
+                    data_chatlink data_applink; do
+        _ait_gitignore_group "$gi_group"
+        gi_rc=0
+        _ait_add_gitignore_rules "$data_gitignore" "$_ait_gi_comment" \
+            "${_ait_gi_rules[@]}" || gi_rc=$?
+        if [[ "$gi_rc" -eq 2 ]]; then
+            gi_state="the write failed — left unchanged"
+            if [[ -n "$_ait_gitignore_partial" ]]; then
+                gi_state="the write stopped part-way"
+            fi
+            abort_data_branch_setup "$project_dir" "$branch_exists" "$needs_migration" \
+                "Could not add ${_ait_gi_rules[*]} to $AIT_DATA_DIR_NAME/.gitignore ($gi_state). Stopping before the data branch commit, which would otherwise commit them: $_ait_gi_what."
+            return
+        fi
+    done
 
     # --- Step 4: Commit and push on data branch ---
     #
@@ -3489,6 +3488,34 @@ _ait_gitignore_group() {
             for link in "${AIT_DATA_LINKS[@]}"; do _ait_gi_rules+=("/$link"); done
             _ait_gi_what="The root task-data entries"
             _ait_gi_label="task data" ;;
+        # The data worktree's own .gitignore ($AIT_DATA_DIR_NAME/.gitignore),
+        # with `drafts` above: written only by setup_data_branch Step 3, never
+        # to the main .gitignore and never by the upgrade loop (t2197).
+        data_userconfig)
+            _ait_gi_comment="Per-user config (local, not shared)"
+            _ait_gi_rules=("aitasks/metadata/userconfig.yaml")
+            _ait_gi_what="per-user config (userconfig.yaml)"
+            _ait_gi_label="per-user config" ;;
+        data_local_json)
+            _ait_gi_comment="Per-user overrides (*.local.json files, not shared)"
+            _ait_gi_rules=("aitasks/metadata/*.local.json")
+            _ait_gi_what="per-user override files (*.local.json)"
+            _ait_gi_label="per-user overrides" ;;
+        data_local_profiles)
+            _ait_gi_comment="Per-user execution profiles (local, not shared)"
+            _ait_gi_rules=("aitasks/metadata/profiles/local/")
+            _ait_gi_what="per-user execution profiles"
+            _ait_gi_label="per-user profiles" ;;
+        data_chatlink)
+            _ait_gi_comment="chatlink runtime state (per-PC: bot token + relay spools)"
+            _ait_gi_rules=("aitasks/metadata/chatlink_sessions/")
+            _ait_gi_what="chatlink runtime state (bot token, relay spools)"
+            _ait_gi_label="chatlink runtime state" ;;
+        data_applink)
+            _ait_gi_comment="applink runtime state (per-PC: TLS cert/key + active bearer sessions)"
+            _ait_gi_rules=("aitasks/metadata/applink_sessions/")
+            _ait_gi_what="applink runtime state (TLS cert/key, bearer sessions)"
+            _ait_gi_label="applink runtime state" ;;
         *) die "unknown .gitignore rule group: $1" ;;
     esac
 }

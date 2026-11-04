@@ -21,25 +21,37 @@ FAIL_COUNT=0
 pass() { PASS_COUNT=$((PASS_COUNT + 1)); echo "ok - $1"; }
 fail() { FAIL_COUNT=$((FAIL_COUNT + 1)); echo "FAIL - $1"; }
 
-# --- Part 1: source guard — setup_data_branch seeds the applink block --------
-# The exact defect (t1132) was the absence of this block; if it is ever removed,
-# fresh installs regress. Assert both the idempotency guard and the append line.
-if grep -qE 'grep -qxF "aitasks/metadata/applink_sessions/"' "$SETUP" \
-   && grep -qE 'echo "aitasks/metadata/applink_sessions/"' "$SETUP"; then
-    pass "aitask_setup.sh seeds the applink_sessions/ gitignore block"
+# setup_data_branch writes its data-worktree rules from the shared rule table
+# (_ait_gitignore_group, t2197), so read the table rather than the source text.
+# shellcheck source=/dev/null
+source "$SETUP" --source-only
+set +euo pipefail
+
+# --- Part 1: source guard — setup_data_branch seeds the applink rule ---------
+# The exact defect (t1132) was the absence of this rule; if it is ever removed,
+# fresh installs regress. Assert the table group and that Step 3 writes it.
+_ait_gitignore_group data_applink
+# shellcheck disable=SC2154  # _ait_gi_rules is set by the sourced table
+if [ "${#_ait_gi_rules[@]}" -eq 1 ] \
+   && [ "${_ait_gi_rules[0]}" = "aitasks/metadata/applink_sessions/" ]; then
+    pass "the data_applink group holds the applink_sessions/ rule"
 else
-    fail "aitask_setup.sh does NOT seed the applink_sessions/ gitignore block"
+    fail "the data_applink group does NOT hold exactly the applink_sessions/ rule"
+fi
+if declare -f setup_data_branch | grep -qw data_applink; then
+    pass "setup_data_branch writes the data_applink group"
+else
+    fail "setup_data_branch does NOT write the data_applink group"
 fi
 
 # --- Part 2: behavioural check-ignore + negative control ---------------------
-# Parse the ignore path the script actually seeds (don't re-hardcode it), write
-# it into a fresh git repo's .gitignore, and confirm it ignores the applink
-# secrets — and nothing more.
-SEEDED_PATH="$(grep -oE 'echo "aitasks/metadata/applink_sessions/[^"]*"' "$SETUP" \
-    | head -1 | sed -E 's/^echo "//; s/"$//')"
+# Take the ignore path the script actually seeds from the table (don't
+# re-hardcode it), write it into a fresh git repo's .gitignore, and confirm it
+# ignores the applink secrets — and nothing more.
+SEEDED_PATH="${_ait_gi_rules[0]}"
 
 if [ -z "$SEEDED_PATH" ]; then
-    fail "could not parse the seeded applink ignore path from aitask_setup.sh"
+    fail "could not read the seeded applink ignore path from the rule table"
 else
     TMP="$(mktemp -d)"
     trap 'rm -rf "$TMP"' EXIT
