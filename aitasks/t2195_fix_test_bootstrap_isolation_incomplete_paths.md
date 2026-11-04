@@ -47,3 +47,8 @@ Give each of the five files its own complete bootstrap: insert every directory i
 from (`tests/`, `tests/lib/`, `.aitask-scripts/lib/`, …) at the top, following the
 pattern in `tests/test_monitor_status_recording.py`. Then re-run the isolation test until
 it reports 10/10.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-04T13:55:29Z status=pass attempt=1 type=human
