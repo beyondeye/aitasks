@@ -1378,6 +1378,173 @@ assert_eq "28c: destination addition still staged" "yes" "$(has_line "$staged" "
 AIT_SETUP_BASELINE_ARMED=0
 rm -rf "$d"
 
+# --- Test 29: a non-regular .gitignore is refused before any git probe (t2191) ---
+# git reads .gitignore files on every untracked-file walk, and opening a FIFO
+# blocks until a writer appears: snapshot_pre_setup_dirty's `ls-files --others
+# --exclude-standard` hung `ait setup` on one (untracked, or tracked but swapped
+# for a FIFO once git walks a directory; git 2.56). main() refuses every
+# .gitignore the framework writes that is not a regular file (or a symlink to
+# one) before its first git command. Every child is bounded (124 = hung): a
+# regression here hangs rather than fails.
+echo "--- Test 29: non-regular .gitignore refused before any git probe (t2191) ---"
+t29_log="$(mktemp)"
+
+# (a) the predicate, shape by shape. Stat-only: the FIFOs are never opened.
+T29="$(mktemp -d)"
+printf 'r\n' > "$T29/regular"
+ln -s regular "$T29/link-regular"
+mkfifo "$T29/fifo"
+mkdir "$T29/dir"
+ln -s missing-target "$T29/dangling"
+ln -s fifo "$T29/link-fifo"
+rc=0
+run_bounded 15 "$t29_log" bash -c '
+    source "$1" --source-only
+    for n in absent regular link-regular fifo dir dangling link-fifo; do
+        rc=0; out="$(_ait_gitignore_nonregular_kind "$2/$n")" || rc=$?
+        printf "%s|%s|%s\n" "$n" "$rc" "$out"
+    done' _ "$PROJECT_DIR/.aitask-scripts/aitask_setup.sh" "$T29" || rc=$?
+assert_eq "29a: predicate child returns within 15s (124 = hung)" "0" "$rc"
+assert_eq "29a: predicate table (regular files and symlinks to them pass)" \
+"absent|1|
+regular|1|
+link-regular|1|
+fifo|0|a FIFO (named pipe)
+dir|0|a directory
+dangling|0|a dangling symlink
+link-fifo|0|a symlink to something that is not a regular file" "$(cat "$t29_log")"
+rm -rf "$T29"
+
+# (b) through the real main(), one case per protected location, so a wrapper
+# that checks only part of its list fails here. The early steps with effects
+# outside the fixture are stubbed, and setup_data_branch — the first step after
+# the snapshot — exits: a run the precondition lets through ends there
+# (REACHED_DATA_BRANCH) instead of carrying on into the rest of setup.
+# t29_main <dir> -> status (124 = hung); output in $t29_log.
+t29_main() {
+    run_bounded 30 "$t29_log" env HOME="$1/home-scratch" bash -c '
+        source "$1" --source-only
+        SCRIPT_DIR="$2/.aitask-scripts"
+        detect_os() { OS=linux; }
+        install_cli_tools() { :; }
+        check_bash_version() { :; }
+        setup_data_branch() { echo REACHED_DATA_BRANCH; exit 0; }
+        main' _ "$PROJECT_DIR/.aitask-scripts/aitask_setup.sh" "$1"
+}
+# A committed project with a tracked root .gitignore and a tracked
+# .aitask-scripts/.gitignore (setup_fake_project creates none of its own).
+t29_repo() {
+    local d
+    d="$(new_gitignore_repo)"
+    echo "# scripts ignore" > "$d/.aitask-scripts/.gitignore"
+    git -C "$d" add .aitask-scripts/.gitignore
+    git -C "$d" commit -q -m "scripts .gitignore" -- .aitask-scripts/.gitignore
+    echo "$d"
+}
+# t29_refused <label> <dir> <shape> <commits-before> <relpath>... — the run
+# refused, naming exactly the given paths and no other, each still the shape
+# <shape> names: -p (a FIFO) or -d (a directory). Paths are tested one argument
+# at a time, so a fixture dir with spaces in it stays one word.
+t29_refused() {
+    local label="$1" d="$2" shape="$3" before="$4"
+    shift 4
+    local rc=0 out rel kind
+    case "$shape" in
+        -p) kind="a FIFO (named pipe)" ;;
+        -d) kind="a directory" ;;
+        *) echo "t29_refused: unknown shape '$shape'" >&2; return 1 ;;
+    esac
+    t29_main "$d" || rc=$?
+    out="$(cat "$t29_log")"
+    assert_eq "29b $label: refuses with 1 within 30s (124 = hung)" "1" "$rc"
+    assert_contains "29b $label: says why" "Cannot run setup: a .gitignore is not a regular file" "$out"
+    for rel in "$@"; do
+        assert_eq "29b $label: names $rel" "yes" "$(has_line "$out" "  $rel is $kind")"
+        assert_eq "29b $label: $rel left in place" "yes" \
+            "$(test "$shape" "$d/$rel" && echo yes || echo no)"
+    done
+    assert_eq "29b $label: names nothing else" "$#" \
+        "$(grep -cE '^  [^ ]+ is (a |not )' <<<"$out" | tr -d ' ')"
+    assert_not_contains "29b $label: stops before the data-branch step" "REACHED_DATA_BRANCH" "$out"
+    assert_eq "29b $label: no commit" "$before" "$(commit_count "$d")"
+}
+
+# root .gitignore, untracked FIFO: the repo never tracked a .gitignore.
+d="$(setup_fake_project)"
+(cd "$d" && git init --quiet && git config user.email "t@t.com" && git config user.name "T" \
+    && git add -A && git commit -m "init" --quiet)
+mkfifo "$d/.gitignore"
+t29_refused "root untracked FIFO" "$d" -p "$(commit_count "$d")" .gitignore
+rm -rf "$d"
+
+# root .gitignore, tracked but swapped for a FIFO.
+d="$(t29_repo)"
+rm "$d/.gitignore"; mkfifo "$d/.gitignore"
+t29_refused "root tracked FIFO" "$d" -p "$(commit_count "$d")" .gitignore
+rm -rf "$d"
+
+# root .gitignore, a directory.
+d="$(t29_repo)"
+rm "$d/.gitignore"; mkdir "$d/.gitignore"
+t29_refused "root directory" "$d" -d "$(commit_count "$d")" .gitignore
+rm -rf "$d"
+
+# the data worktree's .gitignore, in a real linked worktree, so the
+# data-baseline probe (the snapshot's first) is the one that reads it.
+d="$(t29_repo)"
+git -C "$d" branch -q aitask-data
+git -C "$d" worktree add -q "$d/.aitask-data" aitask-data
+assert_eq "29b data FIFO precondition: .aitask-data is a linked worktree" "yes" \
+    "$([[ -f "$d/.aitask-data/.git" ]] && echo yes || echo no)"
+rm "$d/.aitask-data/.gitignore"; mkfifo "$d/.aitask-data/.gitignore"
+t29_refused "data worktree FIFO" "$d" -p "$(commit_count "$d")" .aitask-data/.gitignore
+rm -rf "$d"
+
+# .aitask-scripts/.gitignore, tracked but swapped for a FIFO: .aitask-scripts/
+# is a snapshot pathspec git walks.
+d="$(t29_repo)"
+rm "$d/.aitask-scripts/.gitignore"; mkfifo "$d/.aitask-scripts/.gitignore"
+t29_refused "scripts FIFO" "$d" -p "$(commit_count "$d")" .aitask-scripts/.gitignore
+rm -rf "$d"
+
+# Two at once: one refusal naming both, so the wrapper does not stop at the first.
+d="$(t29_repo)"
+rm "$d/.gitignore" "$d/.aitask-scripts/.gitignore"
+mkfifo "$d/.gitignore" "$d/.aitask-scripts/.gitignore"
+t29_refused "root and scripts FIFOs" "$d" -p "$(commit_count "$d")" \
+    .gitignore .aitask-scripts/.gitignore
+rm -rf "$d"
+
+# Controls: a regular .gitignore and a symlink to one get past the
+# precondition, ensure_git_repo and the snapshot — so each refusal above is the
+# precondition's doing, not the harness's.
+for shape in regular symlink; do
+    d="$(t29_repo)"
+    if [[ "$shape" == symlink ]]; then
+        mv "$d/.gitignore" "$d/shared.gitignore"
+        ln -s shared.gitignore "$d/.gitignore"
+    fi
+    rc=0
+    t29_main "$d" || rc=$?
+    out="$(cat "$t29_log")"
+    assert_eq "29b control $shape: runs on (0 within 30s)" "0" "$rc"
+    assert_contains "29b control $shape: reaches the data-branch step" "REACHED_DATA_BRANCH" "$out"
+    assert_not_contains "29b control $shape: no refusal" "not a regular file" "$out"
+    rm -rf "$d"
+done
+rm -f "$t29_log"
+
+# (c) structural: the precondition precedes main()'s first side effect and its
+# first git commands.
+main_body="$(declare -f main)"
+t29_line() { printf '%s\n' "$main_body" | grep -n -- "$1" | head -1 | cut -d: -f1; }
+refuse_line="$(t29_line refuse_nonregular_gitignores)"
+for step in install_cli_tools ensure_git_repo snapshot_pre_setup_dirty; do
+    step_line="$(t29_line "$step")"
+    assert_eq "29c: main() refuses a non-regular .gitignore before $step" "yes" \
+        "$([[ -n "$refuse_line" && -n "$step_line" && "$refuse_line" -lt "$step_line" ]] && echo yes || echo no)"
+done
+
 # Disarm the baseline for anything later; the sourced setup functions read these.
 # shellcheck disable=SC2034
 {

@@ -33,6 +33,8 @@ TOTAL=0
 
 # Shared assertion helpers (see tests/lib/asserts.sh)
 . "$PROJECT_DIR/tests/lib/asserts.sh"
+# run_bounded, for the cases that could hang (see tests/lib/proc_fixtures.sh)
+. "$PROJECT_DIR/tests/lib/proc_fixtures.sh"
 # sed_inplace (BSD/GNU portable in-place sed)
 . "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh"
 
@@ -93,6 +95,20 @@ run_install() {
     OUT="$(HOME="$FAKE_HOME" AITASKS_HOME="$TMP/aitasks_home" AIT_TESTMAP_FETCH=0 \
         GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=diff.renames GIT_CONFIG_VALUE_0=true \
         bash "$INSTALL_SH" "$@" --dir "$dir" --local-tarball "$tarball" </dev/null 2>&1)" || RC=$?
+}
+
+# run_install_bounded <secs> <dir> <tarball> [args] -> sets OUT and RC, with RC
+# 124 when the installer had to be killed: for the cases where a regression
+# hangs instead of failing (run_bounded also closes stdin).
+run_install_bounded() {
+    local secs="$1" dir="$2" tarball="$3" log="$TMP/bounded_install.log"
+    shift 3
+    RC=0
+    run_bounded "$secs" "$log" env HOME="$FAKE_HOME" AITASKS_HOME="$TMP/aitasks_home" \
+        AIT_TESTMAP_FETCH=0 GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=diff.renames \
+        GIT_CONFIG_VALUE_0=true \
+        bash "$INSTALL_SH" "$@" --dir "$dir" --local-tarball "$tarball" || RC=$?
+    OUT="$(cat "$log")"
 }
 
 g() { git -C "$PROJECT_UNDER_TEST" "$@"; }
@@ -544,6 +560,116 @@ PARITY="$(
     fi
 )"
 assert_eq "P path lists agree" "same" "$PARITY"
+
+# ==============================================================================
+# A .gitignore that is not a regular file stops the installer before any git
+# probe (t2191). git reads .gitignore files on every untracked-file walk, and
+# opening a FIFO blocks until a writer appears, so snapshot_pre_install_dirty's
+# `ls-files --others --exclude-standard` hung the upgrade. Each location the
+# installer protects runs through the real installer: case P2 below only shows
+# the two predicates agree, not that the wrapper checks every path. Bounded
+# (124 = hung); a refusal must come before extraction, so the old VERSION and
+# `ait` (no upgrade marker) and HEAD all survive, as does the offending path.
+#
+# n_case <label> <dir> <relpath> — upgrade <dir> and check the refusal.
+n_case() {
+    local label="$1" dir="$2" rel="$3" head_before ver_before
+    head_before="$(git -C "$dir" rev-parse HEAD)"
+    ver_before="$(cat "$dir/.aitask-scripts/VERSION")"
+    run_install_bounded 30 "$dir" "$TARBALL_NEW" --force
+    assert_eq "$label upgrade refuses (1; 124 = hung)" "1" "$RC"
+    assert_contains "$label says why" "is not a regular file" "$OUT"
+    assert_eq "$label names $rel" "yes" "$(has_line "$OUT" "  $rel is a FIFO (named pipe)")"
+    assert_eq "$label names nothing else" "1" \
+        "$(grep -cE '^  [^ ]+ is (a |not )' <<<"$OUT" | tr -d ' ')"
+    assert_eq "$label nothing extracted: VERSION unchanged" "$ver_before" \
+        "$(cat "$dir/.aitask-scripts/VERSION")"
+    assert_eq "$label nothing extracted: ait has no upgrade marker" "no" \
+        "$(grep -qF 't1964 upgrade marker' "$dir/ait" && echo yes || echo no)"
+    assert_eq "$label HEAD unchanged" "$head_before" "$(git -C "$dir" rev-parse HEAD)"
+    assert_eq "$label $rel left in place" "yes" "$([[ -p "$dir/$rel" ]] && echo yes || echo no)"
+}
+
+echo ""
+echo "=== N1: an untracked FIFO .gitignore stops the upgrade (t2191) ==="
+make_project "$TMP/N1"
+if g ls-files --error-unmatch -- .gitignore >/dev/null 2>&1; then
+    g rm -q -- .gitignore
+    gcommit "$TMP/N1" -m "fixture: untrack .gitignore"
+fi
+rm -f "$TMP/N1/.gitignore"
+mkfifo "$TMP/N1/.gitignore"
+n_case N1 "$TMP/N1" .gitignore
+
+echo ""
+echo "=== N2: a tracked .gitignore swapped for a FIFO stops the upgrade (t2191) ==="
+make_project "$TMP/N2"
+printf 'node_modules/\n' > "$TMP/N2/.gitignore"
+g add .gitignore; gcommit "$TMP/N2" -m "plain gitignore"
+rm "$TMP/N2/.gitignore"
+mkfifo "$TMP/N2/.gitignore"
+n_case N2 "$TMP/N2" .gitignore
+
+echo ""
+echo "=== N3: a FIFO data-worktree .gitignore stops the upgrade (t2191) ==="
+# The production branch-mode layout, so the data-baseline probe — the first
+# one snapshot_pre_install_dirty runs — is the one that reads it.
+make_project "$TMP/N3"
+to_branch_mode "$TMP/N3"
+printf 'node_modules/\n/.aitask-data\n/aitasks\n/aiplans\n' > "$TMP/N3/.gitignore"
+g add .gitignore; gcommit "$TMP/N3" -m "branch mode"
+assert_eq "N3 precondition: the data worktree exists" "yes" \
+    "$([[ -e "$TMP/N3/.aitask-data/.git" ]] && echo yes || echo no)"
+rm -f "$TMP/N3/.aitask-data/.gitignore"
+mkfifo "$TMP/N3/.aitask-data/.gitignore"
+n_case N3 "$TMP/N3" .aitask-data/.gitignore
+
+echo ""
+echo "=== N4: a FIFO .aitask-scripts/.gitignore stops the upgrade (t2191) ==="
+# The installed seed is tracked; it is also the file extraction copies onto.
+make_project "$TMP/N4"
+assert_eq "N4 precondition: .aitask-scripts/.gitignore is tracked" "yes" \
+    "$(g ls-files --error-unmatch -- .aitask-scripts/.gitignore >/dev/null 2>&1 && echo yes || echo no)"
+rm "$TMP/N4/.aitask-scripts/.gitignore"
+mkfifo "$TMP/N4/.aitask-scripts/.gitignore"
+n_case N4 "$TMP/N4" .aitask-scripts/.gitignore
+
+# ==============================================================================
+# The installer cannot source setup before extraction, so it carries a copy of
+# setup's non-regular .gitignore predicate and path list; they must agree on
+# every shape (t2191). Each side runs in its own bounded child (the shapes
+# include FIFOs, which neither predicate may open).
+echo ""
+echo "=== P2: install.sh and setup agree on the non-regular .gitignore check ==="
+P2S="$TMP/p2shapes"
+mkdir -p "$P2S"
+printf 'r\n' > "$P2S/regular"
+ln -s regular "$P2S/link-regular"
+mkfifo "$P2S/fifo"
+mkdir "$P2S/dir"
+ln -s missing-target "$P2S/dangling"
+ln -s fifo "$P2S/link-fifo"
+# p2_table <script> <kind-fn> <list-fn> <log> -> status; table + path list in <log>
+p2_table() {
+    run_bounded 15 "$4" bash -c '
+        # shellcheck source=/dev/null
+        source "$1" --source-only
+        for n in absent regular link-regular fifo dir dangling link-fifo; do
+            rc=0; out="$("$2" "$4/$n")" || rc=$?
+            printf "%s|%s|%s\n" "$n" "$rc" "$out"
+        done
+        "$3" /project' _ "$1" "$2" "$3" "$P2S"
+}
+p2_rc_i=0; p2_rc_s=0
+p2_table "$INSTALL_SH" _install_gitignore_nonregular_kind _install_framework_gitignores \
+    "$TMP/p2_install.log" || p2_rc_i=$?
+p2_table "$PROJECT_DIR/.aitask-scripts/aitask_setup.sh" _ait_gitignore_nonregular_kind \
+    _ait_framework_gitignores "$TMP/p2_setup.log" || p2_rc_s=$?
+assert_eq "P2 install child returns 0 within 15s" "0" "$p2_rc_i"
+assert_eq "P2 setup child returns 0 within 15s" "0" "$p2_rc_s"
+assert_eq "P2 table has every shape and path (7 + 3 lines)" "10" \
+    "$(wc -l < "$TMP/p2_setup.log" | tr -d ' ')"
+assert_eq "P2 install.sh and setup agree" "$(cat "$TMP/p2_setup.log")" "$(cat "$TMP/p2_install.log")"
 
 echo ""
 echo "Tests: $TOTAL, Passed: $PASS, Failed: $FAIL"

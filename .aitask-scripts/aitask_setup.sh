@@ -1095,6 +1095,58 @@ install_global_shim() {
     }
 }
 
+# --- Non-regular .gitignore precondition (t2191) ---
+# git reads .gitignore files on every untracked-file walk (`ls-files --others
+# --exclude-standard`, `status`, `add`), and opening one that is a FIFO blocks
+# until a writer appears. Measured on git 2.56.0: an untracked FIFO, and a
+# tracked one swapped for a FIFO once git walks a directory, hang
+# snapshot_pre_setup_dirty — main()'s first git walk, which runs before any
+# helper that guards its own open. So main() refuses up front, before its first
+# git command. The predicate is the .gitignore helpers' own gate: the path
+# exists (-e or -L) and is not -f, so a regular file or a symlink to one passes.
+# Stat-only: nothing here opens the path.
+# Scope: the .gitignore files the framework writes, which are also the ones its
+# first probes read. Nested user .gitignore files, .git/info/exclude and
+# core.excludesFile are git's own reads of files setup never writes.
+# Mirrored by _install_framework_gitignores / _install_gitignore_nonregular_kind
+# in install.sh — change both (tests/test_install_upgrade_dirty_baseline.sh P2).
+_ait_framework_gitignores() {
+    local d="$1"
+    printf '%s\n' "$d/.gitignore" "$d/.aitask-data/.gitignore" "$d/.aitask-scripts/.gitignore"
+}
+
+# _ait_gitignore_nonregular_kind <path> -> 0, printing what the path is, when it
+# exists but is not a regular file (or a symlink to one); 1 otherwise.
+_ait_gitignore_nonregular_kind() {
+    local p="$1"
+    [[ -e "$p" || -L "$p" ]] || return 1
+    [[ -f "$p" ]] && return 1
+    if [[ -L "$p" && ! -e "$p" ]]; then echo "a dangling symlink"
+    elif [[ -L "$p" ]]; then echo "a symlink to something that is not a regular file"
+    elif [[ -p "$p" ]]; then echo "a FIFO (named pipe)"
+    elif [[ -d "$p" ]]; then echo "a directory"
+    else echo "not a regular file"
+    fi
+    return 0
+}
+
+# Refuse to run when a framework .gitignore is not a regular file, naming every
+# one. MUST run in main() before any git command (see above).
+refuse_nonregular_gitignores() {
+    local project_dir="$SCRIPT_DIR/.." p kind found=""
+    while IFS= read -r p; do
+        kind="$(_ait_gitignore_nonregular_kind "$p")" || continue
+        found="$found"$'\n'"  ${p#"$project_dir/"} is $kind"
+    done < <(_ait_framework_gitignores "$project_dir")
+    [[ -z "$found" ]] && return 0
+    die "Cannot run setup: a .gitignore is not a regular file:$found
+git reads these files on every status and add, and cannot read one that is not
+a regular file — a FIFO or a device blocks it indefinitely — so setup stops
+before running any git command.
+Fix: move each one aside (e.g. 'mv .gitignore .gitignore.bak'), put a regular
+file back ('git checkout -- .gitignore' if it is tracked), then re-run 'ait setup'."
+}
+
 # --- Ensure git repository exists (init only, no commit) ---
 ensure_git_repo() {
     local project_dir="$SCRIPT_DIR/.."
@@ -4873,7 +4925,9 @@ _ait_data_branch_exclude_re() {
 }
 
 # Snapshot the pre-setup dirty framework-path state. MUST run from main()
-# after ensure_git_repo and before any setup step writes a framework file —
+# after refuse_nonregular_gitignores (its untracked-file walk reads .gitignore,
+# and a FIFO there blocks git, t2191), after ensure_git_repo, and before any
+# setup step writes a framework file —
 # commit_framework_files/commit_framework_data_files subtract this baseline
 # so foreign in-progress work is never swept into a framework commit.
 #
@@ -5757,6 +5811,10 @@ main() {
     echo ""
     info "aitask framework setup"
     echo ""
+
+    # Before the first side effect and the first git command: git blocks on a
+    # FIFO .gitignore, and snapshot_pre_setup_dirty below is a git walk (t2191).
+    refuse_nonregular_gitignores
 
     detect_os
     info "Detected OS: $OS"

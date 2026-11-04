@@ -122,6 +122,54 @@ fi
 # Resolve INSTALL_DIR to absolute path
 INSTALL_DIR="$(cd "$INSTALL_DIR" 2>/dev/null && pwd)" || die "Directory does not exist: $INSTALL_DIR"
 
+# --- Non-regular .gitignore precondition (t2191) ---
+# git reads .gitignore files on every untracked-file walk, and opening one that
+# is a FIFO blocks until a writer appears, so snapshot_pre_install_dirty's
+# `ls-files --others --exclude-standard` hangs on one. main() refuses up front,
+# before any git command and before the download: the predicate is "exists
+# (-e or -L) and is not -f" — a regular file or a symlink to one passes — and is
+# stat-only, so nothing here opens the path.
+# Mirrors _ait_framework_gitignores / _ait_gitignore_nonregular_kind in
+# .aitask-scripts/aitask_setup.sh, which this installer cannot source before
+# extraction — change both (tests/test_install_upgrade_dirty_baseline.sh P2).
+_install_framework_gitignores() {
+    local d="$1"
+    printf '%s\n' "$d/.gitignore" "$d/.aitask-data/.gitignore" "$d/.aitask-scripts/.gitignore"
+}
+
+# _install_gitignore_nonregular_kind <path> -> 0, printing what the path is,
+# when it exists but is not a regular file (or a symlink to one); 1 otherwise.
+_install_gitignore_nonregular_kind() {
+    local p="$1"
+    [[ -e "$p" || -L "$p" ]] || return 1
+    [[ -f "$p" ]] && return 1
+    if [[ -L "$p" && ! -e "$p" ]]; then echo "a dangling symlink"
+    elif [[ -L "$p" ]]; then echo "a symlink to something that is not a regular file"
+    elif [[ -p "$p" ]]; then echo "a FIFO (named pipe)"
+    elif [[ -d "$p" ]]; then echo "a directory"
+    else echo "not a regular file"
+    fi
+    return 0
+}
+
+# Refuse to install when a framework .gitignore in INSTALL_DIR is not a regular
+# file, naming every one. MUST run in main() before any git command.
+refuse_nonregular_gitignores_install() {
+    local p kind found=""
+    while IFS= read -r p; do
+        kind="$(_install_gitignore_nonregular_kind "$p")" || continue
+        found="$found"$'\n'"  ${p#"$INSTALL_DIR/"} is $kind"
+    done < <(_install_framework_gitignores "$INSTALL_DIR")
+    [[ -z "$found" ]] && return 0
+    die "Cannot install: a .gitignore is not a regular file:$found
+git reads these files on every status and add, and cannot read one that is not
+a regular file — a FIFO or a device blocks it indefinitely — so the installer
+stops before running any git command.
+Fix: move each one aside (e.g. 'mv .gitignore .gitignore.bak'), put a regular
+file back ('git checkout -- .gitignore' if it is tracked), then re-run the
+install / upgrade."
+}
+
 # --- Prerequisites check ---
 check_prerequisites() {
     if ! command -v tar &>/dev/null; then
@@ -1731,6 +1779,10 @@ main() {
     echo ""
     info "aitask framework installer"
     echo ""
+
+    # Before the download and the first git command: git blocks on a FIFO
+    # .gitignore, and snapshot_pre_install_dirty is a git walk (t2191).
+    refuse_nonregular_gitignores_install
 
     check_prerequisites
     check_existing_install
