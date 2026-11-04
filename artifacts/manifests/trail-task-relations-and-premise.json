@@ -1,0 +1,10 @@
+{
+  "backend": "local",
+  "created_at": 1793772700,
+  "current": "sha256:04c86876164139875eddcb3ea6db9fe535989859f9af5b344e6a01391b861029",
+  "handle": "art:trail-task-relations-and-premise",
+  "updated_at": 1793772700,
+  "versions": [
+    "sha256:04c86876164139875eddcb3ea6db9fe535989859f9af5b344e6a01391b861029"
+  ]
+}

@@ -1,0 +1,364 @@
+{
+  "schema_version": "1.1.0",
+  "trail_id": "trail-task-relations-and-premise",
+  "title": "Task relations, obsolescence and premise staleness",
+  "owner": "aitasks#1981",
+  "scope": {
+    "kind": "ad_hoc",
+    "topics": ["aitasks#1538", "aitasks#1569", "aitasks#1981"],
+    "selection_note": "User-chosen set: t1981 (task-relations and obsolescence design) plus t1663 and its six children (advisory premise staleness), widened with t1655 (roadmap adopts the shared premise engine) after a lite draft was found to be born stale. Gathered with --scope task 1981 1663 1655. t1981 had no children or topic members, so a task-only trail would have held one entry. Owner t1981 chosen by the user."
+  },
+  "generation": {
+    "generated_at": "2026-11-04T06:09:12Z",
+    "generator": {
+      "agent_string": "claudecode/opus5_5",
+      "skill": "aitask-trail"
+    },
+    "project_revision": {"aitasks": "253608e67"},
+    "input_digest": "2a39e34ff270bede",
+    "inputs": [
+      {"kind": "plan_file", "ref": "aitasks:aiplans/p1663/p1663_1_premise_core_engine_and_producer.md"},
+      {"kind": "task_file", "ref": "aitasks#1655"},
+      {"kind": "task_file", "ref": "aitasks#1663"},
+      {"kind": "task_file", "ref": "aitasks#1663_1"},
+      {"kind": "task_file", "ref": "aitasks#1663_2"},
+      {"kind": "task_file", "ref": "aitasks#1663_3"},
+      {"kind": "task_file", "ref": "aitasks#1663_4"},
+      {"kind": "task_file", "ref": "aitasks#1663_5"},
+      {"kind": "task_file", "ref": "aitasks#1663_6"},
+      {"kind": "task_file", "ref": "aitasks#1981"}
+    ]
+  },
+  "freshness": {
+    "state": "current",
+    "checked_at": "2026-11-04T06:09:12Z"
+  },
+  "narrative": {
+    "problem_statement": "There is no tool yet that flags obsolete backlog tasks or that picks note recipients at task completion from evidence rather than agent judgement. t1981 designs both; t1663 builds the neighbouring premise-staleness check that t1981 must coordinate with rather than duplicate, and t1655 moves the roadmap onto that same check. Which landing order gives the least rework?",
+    "recommendation_summary": "Pick t1981 now: it is design-only and can run beside t1663_1, which only adds new files. Then land the rest of the t1663 chain in its fixed order, ahead of t1981's future implementation children where they meet on aitask_create.sh and task-workflow. t1655 comes last because it hard-depends on the whole t1663 tree.",
+    "overview": "Start with t1981. It is the one task that designs both the notify-recipient store and the obsolete score, and nothing downstream can be planned until its D1-D13 are settled and it decomposes. t1663_1 is the only other unblocked member with no shared edit surface, so it can run in parallel; having its verdict engine exist makes it easier for t1981's D9/D11 to reuse it instead of building a second drift scanner. The remaining t1663 children are a strict depends chain. Two of them meet t1981's future work: t1663_3 edits aitask_create.sh's batch-commit path (t1981's D4 creation triggers), and t1663_4 adds a pick-time prompt to task-workflow (t1981's D8 pick-time surfacing). Landing those first lets t1981's children plan against settled code. t1663_2 adds a flag to aitask_update.sh while the in-flight t1555_2 also edits that file, so check t1555_2's state before picking t1663_2. t1655 is last: it depends on the t1663 parent, which closes only after the optional t1663_6 retrospective, although its stated need is the t1663_1 engine. Narrowing that depends edge is your call; this trail does not change it. None of the nine members is in flight. t1981 has no children yet: refresh this trail once it decomposes so they join and the shared-surface ordering becomes concrete.",
+    "method_note": "Deep depth. Read: the gatherer snapshot with --with-inflight, every member task file (descriptions and key-file lists), t1981's full body, t1655's problem/goal/scope, and the opening lines of all eleven excluded neighbours. Checked that lib/task_premise.py and aitask_premise_stale.sh do not exist yet and that lib/roadmap_premise.py still does. NOT read or verified: t1981's attached task_relations_proposal.md, the content of plan p1663_1 (last touched 2026-09-01), aidocs/framework/task_premise_staleness.md, and aidocs/framework/manual_verification_staleness.md. The in-flight surface for t1555_2 is description-derived (task_declared), so the aitask_update.sh overlap is an overlap, not a graded conflict. The shared-surface claims about t1981's future children are inferred from t1981's D4/D8 text, not from any plan, since those children do not exist yet. generator.agent_string is self-detected because AITASK_AGENT_STRING still named the model from before the /model switch.",
+    "caveats": [
+      "Observed facts: depends edges, statuses, in-flight records and file existence come from the gatherer and direct checks. Agent judgement: wave boundaries, classifications, the shared-surface ordering against t1981's not-yet-existing children, and the reading that t1655 needs only the t1663_1 engine."
+    ]
+  },
+  "waves": [
+    {
+      "wave_id": "w1",
+      "ordinal": 1,
+      "title": "Settle the relations design; land the premise engine",
+      "purpose": "t1981's output is a design document plus a child decomposition, and t1663_1 adds only new files (lib/task_premise.py, aitask_premise_stale.sh). They share no edit surface and can run side by side, covering the two missing axes: still worth doing / who to notify, and needs refresh.",
+      "why_now": "Both are unblocked, and t1981 is the long pole: every relations or obsolescence implementation task waits on its decomposition.",
+      "consequence_of_delay": "Step 8e keeps choosing note recipients by judgement alone, and there is still no obsolescence signal for the backlog.",
+      "entries": [
+        {
+          "entry_id": "w1-t1981",
+          "task": "aitasks#1981",
+          "topic": "aitasks#1981",
+          "position": 1,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "high",
+            "depends": [],
+            "gates_pending": ["risk_evaluated"]
+          },
+          "rationale": "The only task that designs both the store that would feed Step 8e's notify list and the backlog obsolete score. No implementation exists until its D1-D13 are settled and it decomposes into children. No depends edges; the seed proposal is attached.",
+          "expected_outcome": "aidocs/framework/task_relations.md and a set of child tasks, which a refresh of this trail will pull in.",
+          "confidence": "high",
+          "evidence_refs": ["snapshot", "t1981-file"]
+        },
+        {
+          "entry_id": "w1-t1663-1",
+          "task": "aitasks#1663_1",
+          "topic": "aitasks#1538",
+          "position": 2,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "high",
+            "depends": ["aitasks#1561", "aitasks#1673"],
+            "gates_pending": ["risk_evaluated"]
+          },
+          "rationale": "Head of the premise chain and its only link with no shared edit surface (new files only, both confirmed absent). t1981's D9/D11 can build on this verdict engine instead of duplicating it, and t1655 swaps the roadmap onto it. Hard deps t1561 and t1673 are done; plan p1663_1 exists but was not re-verified.",
+          "why_order_matters": "Every later t1663 child consumes the producer's output protocol.",
+          "confidence": "medium",
+          "evidence_refs": ["snapshot", "t1663-1-file", "premise-files-check"]
+        }
+      ]
+    },
+    {
+      "wave_id": "w2",
+      "ordinal": 2,
+      "title": "Premise baseline field and creation-time seeding",
+      "purpose": "Gives the engine something to read: the premise_baseline field and its stamping at creation. Without seeding, Check 6 would SKIP on every task.",
+      "why_now": "t1663_3 edits aitask_create.sh's batch-commit path, the same sites t1981's D4 names as relation triggers. Landing it first lets t1981's trigger child plan against the settled serializer.",
+      "entries": [
+        {
+          "entry_id": "w2-t1663-2",
+          "task": "aitasks#1663_2",
+          "topic": "aitasks#1538",
+          "position": 1,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "medium",
+            "depends": ["aitasks#1663_1"],
+            "gates_pending": ["risk_evaluated"]
+          },
+          "rationale": "Adds the field end to end (aitask_update.sh writer, aitask_merge.py merge rule). Hard-depends on t1663_1 and is required by t1663_3. Its aitask_update.sh edit overlaps the in-flight t1555_2.",
+          "confidence": "medium",
+          "caveats": ["Check whether t1555_2 has landed before picking this; see observation obs-update-sh-overlap."],
+          "evidence_refs": ["snapshot-inflight", "t1663-2-file"]
+        },
+        {
+          "entry_id": "w2-t1663-3",
+          "task": "aitasks#1663_3",
+          "topic": "aitasks#1538",
+          "position": 2,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "low",
+            "depends": ["aitasks#1663_2", "aitasks#1673"],
+            "gates_pending": ["risk_evaluated"]
+          },
+          "rationale": "Seeding on --file-ref / --verifies is the only organic coverage path for the check. It also touches aitask_create.sh, which t1981's creation-trigger work will touch, so it should land before that work is planned.",
+          "confidence": "medium",
+          "evidence_refs": ["t1663-3-file", "t1981-file"]
+        }
+      ]
+    },
+    {
+      "wave_id": "w3",
+      "ordinal": 3,
+      "title": "Pick-time check and docs",
+      "purpose": "Wires the advisory Check 6 into task-workflow Step 3 and documents the shipped behaviour.",
+      "why_now": "If t1981's D8 chooses pick-time surfacing of relations or obsolete scores, that consumption sits next to Check 6. Designing against a shipped Check 6 is cheaper than landing two new pick-time prompts together.",
+      "entries": [
+        {
+          "entry_id": "w3-t1663-4",
+          "task": "aitasks#1663_4",
+          "topic": "aitasks#1538",
+          "position": 1,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "high",
+            "depends": ["aitasks#1663_3"],
+            "gates_pending": ["risk_evaluated"]
+          },
+          "rationale": "The user-visible half of premise staleness: a new procedure file plus renders and goldens on task-workflow, the skill t1981's notify and pick-time consumers will also edit.",
+          "confidence": "medium",
+          "evidence_refs": ["t1663-4-file", "t1981-file"]
+        },
+        {
+          "entry_id": "w3-t1663-5",
+          "task": "aitasks#1663_5",
+          "topic": "aitasks#1538",
+          "position": 2,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "low",
+            "depends": ["aitasks#1663_4"],
+            "gates_pending": ["risk_evaluated"]
+          },
+          "rationale": "Website docs written from what children 1-4 actually shipped, so it has to follow them.",
+          "confidence": "high",
+          "evidence_refs": ["snapshot"]
+        }
+      ]
+    },
+    {
+      "wave_id": "w4",
+      "ordinal": 4,
+      "title": "Retrospective and tree closure",
+      "purpose": "Measures the premise check after real use and closes the t1663 parent.",
+      "consequence_of_delay": "t1655 stays blocked, because it depends on the t1663 parent.",
+      "entries": [
+        {
+          "entry_id": "w4-t1663-6",
+          "task": "aitasks#1663_6",
+          "topic": "aitasks#1538",
+          "position": 1,
+          "classification": "optional",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "low",
+            "effort": "low",
+            "depends": ["aitasks#1663_5"],
+            "gates_pending": ["risk_evaluated"]
+          },
+          "rationale": "Needs at least 4 weeks or 20 seeded-task picks of live data, so it cannot follow wave 3 immediately; an audit-only outcome is a valid result.",
+          "confidence": "medium",
+          "evidence_refs": ["snapshot"]
+        },
+        {
+          "entry_id": "w4-t1663",
+          "task": "aitasks#1663",
+          "topic": "aitasks#1538",
+          "position": 2,
+          "classification": "coordination_only",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "high",
+            "depends": ["aitasks#1561"],
+            "gates_pending": ["risk_evaluated"]
+          },
+          "rationale": "Parent container with no work of its own; it archives when its children finish, and that is the event t1655 waits on.",
+          "confidence": "high",
+          "evidence_refs": ["snapshot"]
+        }
+      ]
+    },
+    {
+      "wave_id": "w5",
+      "ordinal": 5,
+      "title": "Roadmap adopts the shared premise engine",
+      "purpose": "Retires the deliberately temporary lib/roadmap_premise.py by moving the background-work roadmap onto t1663_1's engine, so the framework keeps one premise-staleness mechanism.",
+      "why_now": "Its depends edge on t1663 places it after the whole tree; the observation obs-t1655-depends-parent explains why it could move earlier.",
+      "entries": [
+        {
+          "entry_id": "w5-t1655",
+          "task": "aitasks#1655",
+          "topic": "aitasks#1569",
+          "position": 1,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "medium",
+            "depends": ["aitasks#1561", "aitasks#1569_5", "aitasks#1663"],
+            "gates_pending": [],
+            "followup_kind": "carry_over"
+          },
+          "rationale": "Without it the roadmap keeps a second staleness mechanism, which its own PublicSurfaceTests guard exists to stop becoming permanent. roadmap_premise.py is still present, so the premise holds.",
+          "confidence": "medium",
+          "evidence_refs": ["t1655-file", "premise-files-check"]
+        }
+      ]
+    }
+  ],
+  "relations": [
+    {"from": "aitasks#1663_1", "to": "aitasks#1663_2", "type": "hard_depends", "provenance": "fact"},
+    {"from": "aitasks#1663_2", "to": "aitasks#1663_3", "type": "hard_depends", "provenance": "fact"},
+    {"from": "aitasks#1663_3", "to": "aitasks#1663_4", "type": "hard_depends", "provenance": "fact"},
+    {"from": "aitasks#1663_4", "to": "aitasks#1663_5", "type": "hard_depends", "provenance": "fact"},
+    {"from": "aitasks#1663_5", "to": "aitasks#1663_6", "type": "hard_depends", "provenance": "fact"},
+    {"from": "aitasks#1663", "to": "aitasks#1655", "type": "hard_depends", "provenance": "fact"},
+    {"from": "aitasks#1981", "to": "aitasks#1663", "type": "coordinates_with", "provenance": "fact", "note": "t1981's Related tasks section: premise staleness is the needs-refresh axis; coordinate, do not duplicate."},
+    {"from": "aitasks#1663_1", "to": "aitasks#1981", "type": "informs", "provenance": "advisory", "note": "The verdict engine is a reuse candidate for t1981's D9 obsolete-score evidence and D11 freshness."},
+    {"from": "aitasks#1663_1", "to": "aitasks#1655", "type": "informs", "provenance": "fact", "note": "t1663_1's description says its core generalizes roadmap_premise.py so that t1655 can swap onto it."},
+    {"from": "aitasks#1981", "to": "aitasks#1663_1", "type": "advisory_precedes", "provenance": "advisory", "note": "Mild preference: both can run in parallel; t1981 first because it is the long pole."}
+  ],
+  "observations": [
+    {
+      "observation_id": "obs-update-sh-overlap",
+      "kind": "in_flight_conflict",
+      "statement": "t1555_2 (manual-verification staleness seeding) is in flight per the lock source, and its task-declared surface includes .aitask-scripts/aitask_update.sh. t1663_2 adds a --premise-baseline flag to the same file, modelled on --verification-baseline. The surface is description-derived, so this is an overlap rather than a graded conflict; check t1555_2's state before picking t1663_2.",
+      "affects": ["aitasks#1663_2", "aitasks#1555_2"],
+      "evidence_refs": ["snapshot-inflight", "t1663-2-file"]
+    },
+    {
+      "observation_id": "obs-t1655-depends-parent",
+      "kind": "other",
+      "statement": "t1655 depends on the t1663 parent, which closes only after the optional t1663_6 retrospective (which needs at least 4 weeks of live data). Its stated need is the t1663_1 engine that generalizes roadmap_premise.py's baseline_for and check. Narrowing the edge to t1663_1 would let it land in wave 2 or 3; that is the user's decision and this trail does not change it.",
+      "affects": ["aitasks#1655", "aitasks#1663", "aitasks#1663_1"],
+      "evidence_refs": ["t1655-file", "t1663-1-file"]
+    },
+    {
+      "observation_id": "obs-no-t1981-children",
+      "kind": "stale_premise",
+      "statement": "t1981 has not decomposed, so the shared-surface ordering against its future children (aitask_create.sh triggers, task-workflow Step 8e and pick-time surfacing) is inferred from its D4/D8 text. Refresh this trail after t1981 decomposes.",
+      "affects": ["aitasks#1981", "aitasks#1663_3", "aitasks#1663_4"],
+      "evidence_refs": ["t1981-file"]
+    }
+  ],
+  "exclusions": [
+    {"task": "aitasks#1553", "reason_code": "unrelated", "reason": "Bug in aitask_revert_analyze.sh's change surface; it shares topic 1538 only."},
+    {"task": "aitasks#1555", "reason_code": "non_blocking", "reason": "Manual-verification staleness pre-check, a sibling mechanism on verification_baseline. t1663 keeps its own field and runs Check 6 for Ready tasks only, so neither blocks the other."},
+    {"task": "aitasks#1555_2", "reason_code": "non_blocking", "reason": "In flight; its only touch point with this trail is the aitask_update.sh overlap recorded as obs-update-sh-overlap."},
+    {"task": "aitasks#1555_3", "reason_code": "non_blocking", "reason": "Wires the manual-verification pre-check into that procedure; no edge to any member."},
+    {"task": "aitasks#1555_4", "reason_code": "non_blocking", "reason": "Manual verification of the t1555 tree; no edge to any member."},
+    {"task": "aitasks#1569", "reason_code": "non_blocking", "reason": "Background-work roadmap parent. t1655's prerequisite t1569_5 is already archived; only a manual-verification child remains."},
+    {"task": "aitasks#1569_7", "reason_code": "non_blocking", "reason": "Manual verification of the roadmap; t1655 does not depend on it."},
+    {"task": "aitasks#1634", "reason_code": "non_blocking", "reason": "Fold-candidate clustering for the roadmap. t1981 lists it as a likely producer or consumer of duplicate-type relations; re-evaluate when t1981 decomposes."},
+    {"task": "aitasks#1635", "reason_code": "non_blocking", "reason": "Normalizes verifies: id shapes. t1663_3's Tier B seeding uses --verifies at creation and t1981's candidate generation reads cross-references, but neither depends on it."},
+    {"task": "aitasks#1649", "reason_code": "unrelated", "reason": "Availability time-series follow-up for the parallel_admission checker (t1643); shares topic 1569 only."},
+    {"task": "aitasks#1827", "reason_code": "unrelated", "reason": "Claim-time bracket follow-up for t1824's task_declared precision study; shares topic 1569 only."}
+  ],
+  "evidence": [
+    {
+      "evidence_id": "snapshot",
+      "source_type": "command_output",
+      "ref": "./.aitask-scripts/aitask_trail_gather.sh snapshot --scope task --owner 1981 1981 1663 1655",
+      "observed_at": "2026-11-04T06:09:12Z",
+      "summary": "9 members, all Ready; the t1663 children form a strict depends chain; t1655 depends on t1561, t1569_5 and t1663; t1981 has no depends and no children; DIGEST 2a39e34ff270bede."
+    },
+    {
+      "evidence_id": "snapshot-inflight",
+      "source_type": "command_output",
+      "ref": "./.aitask-scripts/aitask_trail_gather.sh snapshot --with-inflight --scope task --owner 1981 1981 1663 1655",
+      "observed_at": "2026-11-04T06:09:12Z",
+      "summary": "Gate and lock sources ok (lock cache age 29785 s). No member is in flight. t1555_2 is in flight (lock) with a task_declared surface that includes .aitask-scripts/aitask_update.sh."
+    },
+    {
+      "evidence_id": "premise-files-check",
+      "source_type": "command_output",
+      "ref": "ls .aitask-scripts/lib/task_premise.py .aitask-scripts/aitask_premise_stale.sh .aitask-scripts/lib/roadmap_premise.py",
+      "observed_at": "2026-11-04T06:09:12Z",
+      "summary": "task_premise.py and aitask_premise_stale.sh do not exist; roadmap_premise.py does."
+    },
+    {
+      "evidence_id": "t1981-file",
+      "source_type": "task_file",
+      "ref": "aitasks/t1981_task_relations_and_obsolescence_design.md",
+      "observed_at": "2026-11-04T06:09:12Z",
+      "summary": "Design task: relations store as the notify-list source, obsolete score, D1-D13 open; D4 triggers include aitask_create.sh commit sites; D8 push vs pick-time pull; coordinate with t1663."
+    },
+    {
+      "evidence_id": "t1663-1-file",
+      "source_type": "task_file",
+      "ref": "aitasks/t1663/t1663_1_premise_core_engine_and_producer.md",
+      "observed_at": "2026-11-04T06:09:12Z",
+      "summary": "New pure core lib/task_premise.py generalizing roadmap_premise.py so t1655 can swap onto it, plus the producer aitask_premise_stale.sh."
+    },
+    {
+      "evidence_id": "t1663-2-file",
+      "source_type": "task_file",
+      "ref": "aitasks/t1663/t1663_2_premise_baseline_field_end_to_end.md",
+      "observed_at": "2026-11-04T06:09:12Z",
+      "summary": "Key files include aitask_update.sh (--premise-baseline, modelled on --verification-baseline) and board/aitask_merge.py."
+    },
+    {
+      "evidence_id": "t1663-3-file",
+      "source_type": "task_file",
+      "ref": "aitasks/t1663/t1663_3_creation_time_seeding_and_carryover.md",
+      "observed_at": "2026-11-04T06:09:12Z",
+      "summary": "Seeds premise_baseline in aitask_create.sh's --batch --commit path on --file-ref or --verifies."
+    },
+    {
+      "evidence_id": "t1663-4-file",
+      "source_type": "task_file",
+      "ref": "aitasks/t1663/t1663_4_workflow_check6_premise_procedure.md",
+      "observed_at": "2026-11-04T06:09:12Z",
+      "summary": "Adds Check 6 to task-workflow Step 3 with a new premise-staleness.md procedure file, renders and goldens."
+    },
+    {
+      "evidence_id": "t1655-file",
+      "source_type": "task_file",
+      "ref": "aitasks/t1655_adopt_t1561_staleness_in_roadmap_premise.md",
+      "observed_at": "2026-11-04T06:09:12Z",
+      "summary": "Replace roadmap_premise.py's baseline_for and check with the shared mechanism and delete the module; depends on 1561, t1569_5 and 1663."
+    }
+  ],
+  "rendering_hints": {"depth": "deep"}
+}
