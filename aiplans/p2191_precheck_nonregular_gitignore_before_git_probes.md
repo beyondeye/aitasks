@@ -32,6 +32,29 @@ and checks only the last status, so a failed separator glues the comment onto a
 last line with no newline (`keep-me` → `keep-me# comment`, rc 0, "Added"). That's
 the same defect t2185 fixed in `_ait_ensure_gitignore_block` with `&&`.
 
+## Rebase on t2188 (landed mid-implementation, commit 57094479b)
+
+t2188 was implemented concurrently in this checkout and committed right after
+this plan was approved. That commit changes three things for this plan:
+
+- **The second bullet has landed there.** `_ait_add_gitignore_rules` now chains
+  `echo "" && echo "# $comment" && printf …` (append branch) and
+  `echo "# $comment" && printf …` (create branch). Its regression test is
+  `tests/test_setup_git.sh` 27n: a no-fault control, separator fault, comment
+  fault and create-branch fault. **Step 3 and Test 27m below are therefore
+  dropped**: re-doing them would duplicate t2188's code and test, and "27m" is
+  now t2188's CRLF case. Before archival, verify that 27n passes and covers the
+  `keep-me` gluing.
+- **The 27f FIFO comment rewrite (step 5) landed in t2188's commit.** It was
+  edited here before the shared-file gate was re-checked, and t2188's path-scoped
+  commit absorbed it. It cites `main()`'s refusal and Test 29, which become true
+  once this task lands. Nothing further to edit there.
+- **Fixtures:** installer case N3 reuses t2188's `to_branch_mode` helper (an
+  orphan `aitask-data` branch at `.aitask-data/`, the production layout) instead
+  of a hand-rolled `git worktree add`. Line numbers in `aitask_setup.sh` moved
+  (`_ait_add_gitignore_rules` now ≈ `:3197`). Insert the new helpers near
+  `ensure_git_repo` (≈ `:1099`), away from t2188's `.gitignore`-table edits.
+
 ## Design decisions
 
 - **Predicate = the helpers' own gate.** A path "exists" when `-e || -L`. It is
@@ -169,7 +192,7 @@ with one line: "main() has already refused a non-regular .gitignore
 (refuse_nonregular_gitignores)". `--hooks-only` and `--help` exit earlier and
 run no untracked-file walk, so they are left unguarded.
 
-### 3. `aitask_setup.sh` — chain `_ait_add_gitignore_rules` (`:3184-3200`)
+### 3. ~~`aitask_setup.sh` — chain `_ait_add_gitignore_rules`~~ (landed in t2188, see above)
 
 Append branch: `{ echo "" && echo "# $comment" && printf '%s\n' "${missing[@]}"; }`.
 Create branch: `{ echo "# $comment" && printf '%s\n' "${missing[@]}"; }`.
@@ -190,7 +213,7 @@ fine in 3.2, no namerefs, no `mapfile`.
 
 ### 5. Tests — `tests/test_setup_git.sh`
 
-- **Test 27m — per-rule writer chain (t2191).** Direct calls to
+- ~~**Test 27m — per-rule writer chain (t2191).**~~ Dropped: t2188's 27n covers it. Original text kept for the record: Direct calls to
   `_ait_add_gitignore_rules` in `$( )` subshells. Inside each, a counter `echo`
   shadow fails only call N
   (`echo() { _n=$((_n+1)); (( _n == N )) && return 1; builtin echo "$@"; }`).
@@ -263,9 +286,8 @@ fine in 3.2, no namerefs, no `mapfile`.
   `refuse_nonregular_gitignores_install` iterates every path:
   - N1: `make_project`, then an untracked FIFO `.gitignore`.
   - N2: `make_project`, commit a regular `.gitignore`, then `rm` + `mkfifo`.
-  - N3: `make_project`, then a real linked data worktree
-    (`git branch aitask-data` + `git worktree add .aitask-data aitask-data`),
-    then `mkfifo .aitask-data/.gitignore`. The worktree is real so the data
+  - N3: `make_project`, then `to_branch_mode` (t2188's fixture), commit main
+    with a regular `.gitignore`, then `mkfifo .aitask-data/.gitignore`. The worktree is real so the data
     baseline probe — the first one `snapshot_pre_install_dirty` runs — actually
     reaches it pre-fix.
   - N4: `make_project` (its install committed the seeded
@@ -321,3 +343,24 @@ separately, run the gate orchestrator / build verification, archive via
 - The precondition covers only the `.gitignore` files the framework writes; a FIFO nested user `.gitignore`, `.git/info/exclude` or `core.excludesFile` still blocks git · severity: low · → mitigation: none (documented boundary — user-owned files setup never writes)
 - `snapshot_pre_install_dirty`'s hang is unmeasured; a shape that does not hang pre-fix would weaken that case's red proof · severity: low · → mitigation: none (addressed in plan: measured in step 1, the case stays a refusal test either way)
 - `ait upgrade` downloads the target release's install.sh, so the install.sh guard protects only upgrades to releases that contain it · severity: low · → mitigation: none (inherent to the upgrade design)
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-04 10:30)
+- **Requested by user:** `t29_refused` (tests/test_setup_git.sh) ran its shape check as an unquoted command string (`$($shape && …)`, callers passing `"test -p $d/.gitignore"`). With spaces in TMPDIR, word splitting gave `test` extra arguments and falsely failed all six preservation assertions (reviewer reproduced 729 passed / 6 failed). Pass the shape operation and paths as separate arguments and quote each path.
+- **Changes made:** `t29_refused <label> <dir> <-p|-d> <commits-before> <relpath>...` — the shape is a `test` operator argument, each relative path is checked with `test "$shape" "$d/$rel"` (one quoted word), and the expected `"  <rel> is <kind>"` refusal line is derived from the same shape (so callers no longer hand-write both). The multi-path case now checks each path's preservation separately (735 → 736 checks). Verified: `test_setup_git.sh` 736/736 with a normal TMPDIR and with `TMPDIR` containing spaces; `test_install_upgrade_dirty_baseline.sh` 200/200 with a spaced TMPDIR (its new N/P2 cases already quote every path).
+- **Files affected:** tests/test_setup_git.sh
+
+## Final Implementation Notes
+- **Actual work done:** One early precondition in both entry points. `aitask_setup.sh` gains `_ait_framework_gitignores` (`:1113`), `_ait_gitignore_nonregular_kind` and `refuse_nonregular_gitignores` (`:1135`), called in `main()` (`:5817`) right after the banner and before `detect_os`, so ahead of `install_cli_tools`, `ensure_git_repo` and `snapshot_pre_setup_dirty`. `install.sh` gains the mirrored `_install_framework_gitignores`, `_install_gitignore_nonregular_kind` and `refuse_nonregular_gitignores_install` (`:157`), called first in `main()` (`:1785`), before the download and `snapshot_pre_install_dirty`. Both refuse (`die`) when the root, `.aitask-data/` or `.aitask-scripts/` `.gitignore` exists but is not a regular file (or a symlink to one). They name every offending path with its kind and give a non-destructive fix (`mv` aside, `git checkout --`, re-run). Tests: `tests/test_setup_git.sh` Test 29 — (a) the predicate table over 7 shapes; (b) one real-`main()` case per protected location (root untracked FIFO, root tracked→FIFO, root directory, `.aitask-data/.gitignore` FIFO in a real linked worktree, `.aitask-scripts/.gitignore` tracked→FIFO), a two-file accumulation case, and regular / symlink→regular controls; (c) structural order in `main()`. `tests/test_install_upgrade_dirty_baseline.sh` gains `run_install_bounded`, cases N1–N4 (one per location, through the real installer: refusal named, VERSION / `ait` / HEAD unchanged, FIFO kept), and P2 (setup/install predicate and path-list parity over every shape).
+- **Deviations from plan:** (1) The second bullet (chain `_ait_add_gitignore_rules`' writes) and its regression test were **not** done here. t2188, implemented concurrently in this checkout, landed both in commit `57094479b` (chained writes in both branches, Test 27n: control, separator, comment and create-branch faults). Duplicating them would have repeated t2188's code and test, and "27m" is t2188's CRLF case. 27n passes in this task's final run (736/736). (2) The planned 27f comment rewrite landed inside t2188's commit `57094479b`, not this task's. It was edited here before the shared-file gate was re-checked, and t2188's path-scoped commit of `tests/test_setup_git.sh` absorbed it seconds later. It cites `main()`'s refusal and Test 29, both true as of this task's commit. (3) Helpers were inserted beside `ensure_git_repo` rather than near the `.gitignore` table, to stay clear of t2188's edits there. (4) N3 reuses t2188's `to_branch_mode` fixture.
+- **Issues encountered:** Concurrent session t2188 had uncommitted hunks in `aitask_setup.sh` and three of the four test files when implementation began (the session-start `git status` was clean). After it committed, the gate (`git diff --quiet HEAD -- <file>`) was re-run before every first edit. One review change: `t29_refused` executed a command string through unquoted `$shape`, which broke under a TMPDIR with spaces (Change Request 1). A stray backgrounded `git status` against the full-flow fixture's FIFO `.gitignore` blocked as expected and was killed (12s; pid checked before the kill).
+- **Key decisions:** The predicate is the `.gitignore` helpers' own gate (`-e || -L`, then `-f`), not "only shapes that block git". It holds whatever a given git version does (git <2.32 follows symlinks, so a symlink to a FIFO blocks there). It deliberately changes behaviour for a directory or dangling-symlink `.gitignore`: full setup / upgrade now stop up front instead of finishing with per-helper rc-2 warnings. Direct helper calls (Tests 27f/40) are unchanged. Covered paths are the `.gitignore` files the framework writes. Nested user `.gitignore` files, `.git/info/exclude`, `core.excludesFile` and the git root's `.gitignore` for a subdirectory install are out of scope (documented in the helper comment). install.sh refuses on fresh installs too: the `ait setup` that must follow would refuse anyway. `ait upgrade` runs the *target* release's install.sh, so the installer guard protects only upgrades to a release containing it.
+- **Measurements (git 2.56.0, one host — omg16; bounded at 30s):** Red, pre-fix:
+  - setup `main()` (stubbed early steps): root untracked FIFO **124**, root tracked→FIFO **124**, `.aitask-data/.gitignore` FIFO **124**, root+scripts FIFOs **124**; root directory rc 0 and `.aitask-scripts/.gitignore` tracked→FIFO rc 0 — both ran on to the data-branch step, the scripts FIFO did **not** hang in setup's minimal fixture.
+  - pre-fix installer (`git show HEAD:install.sh`), N1–N4: all **124**, each stopping right after the changelog, i.e. in `snapshot_pre_install_dirty` — including N4, the `.aitask-scripts/.gitignore` FIFO, in a real installed tree.
+  - P2: 127 (helper absent).
+
+  Green, post-fix: `test_setup_git.sh` 736/736 (6s vs 2m06s pre-fix), also under a TMPDIR with spaces; `test_install_upgrade_dirty_baseline.sh` 200/200 (also with spaces); `test_data_branch_setup.sh` 501/501; `test_gitignore_data_symlinks.sh` 0 failed; `test_setup_help_flag.sh` 23/23. Full flow: real `install.sh --local-tarball` into a scratch repo, `mkfifo .gitignore`, bounded `./ait setup` → rc 1 in <1s, naming `.gitignore`, FIFO kept. `shellcheck` finds nothing in the new lines (27 findings vs HEAD's 28, all pre-existing).
+- **Upstream defects identified:**
+  - `.aitask-scripts/aitask_setup.sh:1921 — setup_data_branch's fresh-worktree writes to .aitask-data/.gitignore are unchecked `>>` appends and unguarded greps under main()'s errexit, the shape t2185/t2188 hardened for the main .gitignore; a FIFO there is now refused up front, but a write failure (e.g. a umask that strips owner write on the fresh checkout) would abort setup — not probed`
