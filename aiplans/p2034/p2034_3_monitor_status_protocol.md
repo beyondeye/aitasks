@@ -716,3 +716,77 @@ paces them by `ts` differences divided by `speed`.
 - timing: pre-phase | name: baseline_affected_tests | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: pre-existing failures misattributed | desc: run protocol-adjacent tests on the current tree before editing and record failures that already exist
 - timing: post-phase | name: fixture_prompt_self_scan | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: fixture content tripping prompt detection | desc: classify every fixture content string and raw line with all prompt patterns; assert no match, with a live-capture negative control
 - timing: post-phase | name: spec_codec_constants_pin | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: spec/codec drift splitting the Go and Python implementations | desc: parse the spec's member, enum and error-code tables and assert they equal the codec's schema
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-04 10:40)
+- **Requested by user:** six blocking findings, each verified against the code before it was fixed:
+  - (1) `ReplayServer` served recordings that only `read_recording` had checked (a gen 1→4 jump was accepted), and a playback failure left the client waiting;
+  - (2) recording `rev`/`proto` and header↔welcome consistency were not enforced, and the recorder accepted a welcome with a foreign proto or version;
+  - (3) a 400-digit number reached `float()` and raised `OverflowError`, and the recorder then published the prefix it had captured;
+  - (4) `capture` ignored shadow records, which are keyed by the followed pane;
+  - (5) echoed error fields were unbounded, so a 65-character unknown type made the error reply itself fail to encode;
+  - (6) error replies dropped a readable request `id`.
+- **Changes made:**
+  - (1) `ReplayServer.__init__` runs `check_recording` on every source, `Recording` objects included. Playback runs under a guard that sends `error{code:"internal"}` and closes the connection. A `closing` event stops the reader; the same event serves `exit_at_end`.
+  - (2) `_check_versions` (rev, proto, welcome proto and version equal to the header's) runs in both `parse_recording` and `check_recording`. The recorder refuses a welcome whose proto is not its own, or whose version is not the one it sent; a replayer echoes the client's version, so the replay exception still holds.
+  - (3) `_v_num` range-checks the exact value before converting. `validate()` turns any `OverflowError` / `RecursionError` / `ValueError` from a validator into a `ProtocolError`. The recorder treats any unexpected exception as an error, so it publishes nothing.
+  - (4) `_record_by_pane_id` looks up pane records first, then shadows by their own `pane.pane_id`.
+  - (5) `_send_error` caps `message` at 4096 characters and echoes `request` only when it is 64 characters or fewer. `UnknownMessageType` and the duplicate-key diagnostics are clipped.
+  - (6) `ProtocolError` carries `request_id` / `request_type`, filled by `validate()` from a readable `id` / `type`. The replayer echoes both.
+  - The spec documents each rule: error correlation and bounds, exact number range checks, recording version gates, validate-before-serve, the recorder's handshake gates, and shadow capture.
+  - 14 regression tests were added.
+  - In an isolated copy, reverting each fix on its own turns its test red (9 of 9). The original 9 mutants are still all caught.
+- **Files affected:** `.aitask-scripts/monitor/status_protocol.py`, `.aitask-scripts/monitor/status_recording.py`, `aidocs/framework/monitor_status_protocol.md`, `tests/test_monitor_status_protocol.py`, `tests/test_monitor_status_recording.py`.
+
+### Change Request 2 (2026-11-04 11:05)
+- **Requested by user:** three low-severity findings. (1) The pane-id validators used `re.match` with `$`, which also accepts `"%1\n"` (in `shadow_target` too) — blocking. (2) The replay connection's reader started `read_line` and `closing.wait()` child tasks with no `finally`, so a server shutdown cancelled the connection and left them pending. (3) A negative or non-finite `--speed` started a server that then failed every subscriber. (2) and (3) were proposed as follow-ups; each was a few lines inside this task's own new code, so they were fixed inline instead of spawned.
+- **Changes made:** (1) `_PANE_ID_RE.fullmatch` in `_v_pane_id` / `_v_shadow_target`. Regression rows cover a trailing or leading escaped newline, a non-ASCII digit, a selection id, `shadow_target`, and a map key. (2) `_ReplayConnection._next_line()` creates named child tasks, cancels them and awaits both in a `finally`; three server lifecycles in one loop leave no `replay-*` task pending. (3) `check_speed()` (finite, ≥ 0, not bool) is called by `ReplayServer.__init__`, `replay_delays` and the CLI `--speed` type, so a bad speed exits with status 2 before any socket exists. The spec now states the full-string pane-id rule and the speed rule. In an isolated copy, reverting each fix turns its test red (3/3).
+- **Files affected:** `.aitask-scripts/monitor/status_protocol.py`, `.aitask-scripts/monitor/status_recording.py`, `aidocs/framework/monitor_status_protocol.md`, `tests/test_monitor_status_protocol.py`, `tests/test_monitor_status_recording.py`.
+
+## Final Implementation Notes
+
+- **Actual work done:**
+  - **Spec** — `aidocs/framework/monitor_status_protocol.md`. Sections: transport and framing; envelope; versioning (closed and open enums); malformed input and oversized lines; handshake; subscription and generations (initial versus repeated subscribe, ordering, patches, content selection); records; top-level members; requests, results and errors; the t2034_2 client-side settings; timing fields; recording format; recorder and replayer; fixtures; a lifecycle placeholder owned by t2037_1; codec reference; known limits. Every member table carries a `<!-- schema:… -->` marker. `SpecPinTests` parses the tables and asserts they equal the codec's schema tables.
+  - **Codec** — `.aitask-scripts/monitor/status_protocol.py`: `decode`/`encode`/`validate`, which return the normalized dict with unknown members dropped; `read_line`, the terminal framing rule; `pane_record` / `monitor_pane_record` / `pane_snapshot`; `StreamFrame`; `sessions_member` / `discovery_member`; `snapshot_message` / `filter_message`, the per-subscriber projection, where selection touches only `content`; `StreamEncoder`; `StreamState`. The error classes carry `code`, `request_id` and `request_type`.
+  - **Recorder, replayer and checker** — `.aitask-scripts/monitor/status_recording.py`: `parse_recording` / `read_recording` / `check_recording`, with order, version gates, stream and full-content checks; `record_connect`, which has no content option, passes every stop through the `_finalize` guard and writes `<out>.partial` before promoting it; `ReplayServer`, which validates before serving, runs one playback per connection over a single outbound queue and lock, and treats a repeated subscribe or `set_content` as a resync of the current state; `replay_delays` / `check_speed`; the CLI verbs `check`, `replay` and `record`.
+  - **Fixture** — the synthetic `basic.jsonl` (8 lines, gen 1–6), generated by `tests/lib/monitor_status_scenarios.py`.
+  - **Tests** — `tests/test_monitor_status_protocol.py` (44) and `tests/test_monitor_status_recording.py` (53).
+- **Deviations from plan:**
+  - (1) The `CLAUDE.md` pointer (plan step 7) was **not** added. Another live session holds an uncommitted sitrep pointer in the same block of `CLAUDE.md`, and the user chose "skip it, follow-up task" (shared-file rule: gate before the edit). A follow-up task carries it.
+  - (2) `read_line` lives in `status_protocol.py`, not `status_recording.py`, so the server and client tasks reuse it from the codec.
+  - (3) The scenario functions are named `basic_frames()` / `render_basic()`; the plan said `scenario_basic`.
+  - (4) `validate()` and `check_speed()` are public. `parse_recording()` exists alongside `read_recording()`.
+  - (5) Two change requests from review (logged above) added the version gates, validate-before-serve, error correlation and bounds, exact number range checks, shadow capture, full-string pane-id matching, reader-task cleanup and speed validation.
+- **Issues encountered:**
+  - `asyncio.StreamReader.readline()` clears its buffer mid-line for a fragmented over-limit line. That is why framing is terminal: confirmed against `/usr/lib/python3.14/asyncio/streams.py`.
+  - Integer members must reject every float (`1.0`, `1e2`), because a Go `int64` refuses them too.
+  - `float()` of a 400-digit JSON integer overflows, so validators range-check the exact value first.
+  - The working tree holds other sessions' uncommitted work in `CLAUDE.md`, `monitor_core.py` and `monitor_shared.py`, among others. This task touches none of them: all 7 of its files are new, and they are committed by path. To prove the new files stand alone, they were tested in a detached worktree at `HEAD` (97 passed).
+  - The full Python suite in that worktree finished with 14 failures. 13 are identical with this task's files removed, so they are environmental to a fresh worktree; the 14th, `test_codebrowser_startup_focus`, passes 3 of 3 times serially, a load flake. The step-0 baseline recorded `test_python_bootstrap_isolation.sh` already failing on the same 5 files before any edit.
+  - Mutation evidence, all in an isolated copy: 9 guard mutants, then 9 change-request-1 fix reversions, then 3 change-request-2 fix reversions. Every one turns its test red.
+- **Key decisions:**
+  - The fixture is synthetic, a user choice: deterministic, regenerated byte-identically by a test, self-scanned against every prompt pattern with a captured-dialog negative control.
+  - Content selection is per client, also a user choice; status metadata never depends on it, and a selection change is answered with a fresh snapshot.
+  - Deltas are sent on every commit, as a heartbeat that keeps `gen` contiguous.
+  - Patches replace members wholesale, with no deep merge; `pane` is one member.
+  - Shadows are keyed by the followed pane id.
+  - A recording always carries full content.
+  - The replayer echoes the client's version; the protocol, not the framework version, is what it gates on.
+  - Error replies echo a readable `id` and `type`, bounded.
+- **Upstream defects identified:**
+  - `tests/test_python_bootstrap_isolation.sh:1 — fails before and after this task on 5 test files whose own sys.path bootstrap is incomplete (test_parallel_admission_vocab.py, test_prompt_detection.py, test_stats_backlog_panes_live.py, test_stats_focus_cycle_and_pane_selector_live.py, test_trails_app.py); they pass only because another module put the directory on sys.path first`
+- **Notes for sibling tasks:**
+  - **t2034_6 (classifier cross-check):**
+    - The committed fixture's content is synthetic prose that matches **no** prompt pattern; it is deliberately not a classifier corpus. Its `awaiting_input_kind` values are asserted, not classified.
+    - Use `tests/test_prompt_detection.py` / `tests/review_loop_fixtures.py` for corpus inputs. Use recorded live streams only once t2037 can record them, and keep them out of the repo unless redacted.
+  - **t2037_1 (server):**
+    - Reuse `StreamEncoder` (one per server, full content), `filter_message` per subscriber, `monitor_pane_record` (the producer-accessor mapping), `sessions_member` / `discovery_member`, `read_line` (set the reader `limit` to `MAX_CLIENT_LINE_BYTES`) and `decode` / `encode` with `direction=CLIENT` / `SERVER`.
+    - Copy the replayer's per-connection pattern: one outbound queue drained by one writer task, and one lock held across "read state + enqueue". That ordering is what the spec's Ordering rule requires.
+    - The server owns `completed` (`is_task_completed` over `TaskInfoCache`), the global `parked` set (`agent_marks.parked_session_windows`) and the skip set (`parked_capture_skip` over every subscriber's pins).
+    - Fill in the spec's "Lifecycle and socket path" section.
+    - A pane whose capture failed is simply absent from that generation (encoded as `removed`).
+  - **t2037_2 (client / replay mode):**
+    - `StreamState` is the client-side state. `Applied.changed` tells a renderer which cards changed.
+    - Replay mode can start `ReplayServer` on a temp socket and connect normally. The fixture lives at `tests/fixtures/monitor_status/basic.jsonl`.
+  - **aitasks_go#16 / #47:** each line of a recording is one protocol message. Decode with integer members strict (no fraction or exponent) and pane ids full-string. The member tables in the spec are authoritative and pinned to the Python schema.
