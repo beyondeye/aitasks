@@ -334,7 +334,21 @@ cmd_list_models() {
         jq -r "$jq_filter"'
             | "MODEL:\(.name) CLI_ID:\(.cli_id) STATUS:\(.status // "active") NOTES:\(.notes) VERIFIED:\((.verified // {}) | to_entries | map("\(.key)=\(.value)") | join(","))"
               + (
-                    ((.verifiedstats // {}) | to_entries | map("\(.key)(runs \(.value.runs // 0), avg \(if (.value.runs // 0) > 0 then ((.value.score_sum // 0) / (.value.runs // 0) | round) else 0 end))") | join(",")) as $stats
+                    # Each op is bucketed ({all_time, month, prev_month, week});
+                    # all_time is what runs/avg report. A flat {runs, score_sum}
+                    # entry is the pre-bucket format, still accepted as in
+                    # lib/stats_data.py.
+                    ((.verifiedstats // {}) | to_entries
+                      | map(
+                          (.value
+                            | if type == "object" then
+                                (if has("all_time") then (.all_time // {})
+                                 elif has("runs") then .
+                                 else {} end)
+                              else {} end) as $b
+                          | ($b.runs // 0) as $r
+                          | "\(.key)(runs \($r), avg \(if $r > 0 then (($b.score_sum // 0) / $r | round) else 0 end))")
+                      | join(",")) as $stats
                     | if $stats == "" then "" else "\nSTATS:\($stats)" end
                 )
         ' "$models_file"

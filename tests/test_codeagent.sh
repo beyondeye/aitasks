@@ -126,6 +126,41 @@ assert_contains_ci "list-models codex shows gpt-5.6-sol cli_id" "CLI_ID:gpt-5.6-
 echo "--- Test 4: list-models invalid agent ---"
 assert_exit_nonzero "list-models with invalid agent" bash -c "cd '$TMPDIR_TEST' && bash '$CODEAGENT' list-models notanagent"
 
+# Test 4b: list-models STATS reads the bucketed all_time stats (t2200).
+# Synthetic fixture: the month bucket differs from all_time on purpose, so the
+# line pins WHICH bucket is read, not only that one is. The flat model keeps the
+# pre-bucket {runs, score_sum} shape, still accepted as a fallback.
+echo "--- Test 4b: list-models STATS from bucketed verifiedstats ---"
+STATS_ENV="$(setup_test_env)"
+cat > "$STATS_ENV/aitasks/metadata/models_claudecode.json" <<'EOF'
+{
+  "models": [
+    {"name": "bucketed", "cli_id": "b-1", "notes": "n", "verified": {"pick": 95},
+     "verifiedstats": {"pick": {"all_time": {"runs": 4, "score_sum": 380},
+                                "month": {"period": "2026-11", "runs": 1, "score_sum": 100}}}},
+    {"name": "flat", "cli_id": "f-1", "notes": "n", "verified": {"pick": 75},
+     "verifiedstats": {"pick": {"runs": 2, "score_sum": 150}}},
+    {"name": "mixed", "cli_id": "m-1", "notes": "n", "verified": {},
+     "verifiedstats": {"pick": {"all_time": {"runs": 4, "score_sum": 380}},
+                       "wrap": {"runs": 1, "score_sum": 80}}},
+    {"name": "nostats", "cli_id": "n-1", "notes": "n", "verified": {}}
+  ]
+}
+EOF
+output=$(cd "$STATS_ENV" && bash "$STATS_ENV/.aitask-scripts/aitask_codeagent.sh" list-models claudecode 2>&1)
+stats_after() { printf '%s\n' "$output" | grep -A1 "^MODEL:$1 " | sed -n 2p; }
+assert_eq "bucketed model reads all_time, not month" \
+    "STATS:pick(runs 4, avg 95)" "$(stats_after bucketed)"
+assert_eq "flat (pre-bucket) model still reads runs/score_sum" \
+    "STATS:pick(runs 2, avg 75)" "$(stats_after flat)"
+assert_eq "bucketed and flat ops on one model" \
+    "STATS:pick(runs 4, avg 95),wrap(runs 1, avg 80)" "$(stats_after mixed)"
+assert_not_contains "no model with stats reports zero runs" "runs 0" "$output"
+assert_eq "model without verifiedstats prints no STATS line" \
+    "" "$(stats_after nostats | grep '^STATS:' || true)"
+unset -f stats_after
+cleanup_test_env "$STATS_ENV"
+
 # Test 5: resolve pick returns the SEEDED default — derived, never pinned.
 # The fixture installs seed/codeagent_config.json as the project config, so that
 # file is what these resolutions read.
