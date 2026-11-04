@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: []
 issue_type: performance
-status: Ready
+status: Implementing
 labels: [monitor, minimonitor, performance]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 2034
 created_at: 2026-11-03 17:02
-updated_at: 2026-11-03 17:02
+updated_at: 2026-11-04 16:53
 ---
 
 ## Context
