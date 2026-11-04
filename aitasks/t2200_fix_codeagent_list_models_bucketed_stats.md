@@ -3,13 +3,14 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [model_selection, verifiedstats, codeagent]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 2194
 followup_kind: upstream_defect
 created_at: 2026-11-04 16:06
-updated_at: 2026-11-04 16:06
+updated_at: 2026-11-04 16:59
 ---
 
 ## Origin
