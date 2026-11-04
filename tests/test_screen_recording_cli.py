@@ -206,6 +206,55 @@ class AnimMode(_VideoCase):
         self.assertEqual(fits, [])
         self.assertIn("0 motion segment(s)", (out / "summary.md").read_text())
 
+    # A segment's window ends --pad (0.25 s) after its last change, clamped to the end
+    # of the video. These clips settle at 0.8 s and end at 0.9 s, so the clamp decides.
+    SLIDE_TO_END_S = 0.9
+
+    def slide_to_end(self):
+        return self.video("slide_to_end", lambda: synth.card_frames(
+            synth.tween(synth.EASE_OUT, 0.5, 0.3), self.SLIDE_TO_END_S, "right"))
+
+    def anim_run(self, video, out_name, *extra):
+        out = self.tmp / out_name
+        self.cli_ok("anim", video, "--out", out, *extra)
+        fits = [json.loads(p.read_text()) for p in sorted(out.glob("*/fit.json"))]
+        return fits, json.loads((out / "run.json").read_text())
+
+    def test_window_end_is_clamped_to_the_video_end(self):
+        # premise control: start_time 0 and no audio, so the container end is the video
+        # end too; this passes with or without the normalised end
+        video = self.slide_to_end()
+        # fixture guard: mpdecimate (as scan() runs it) keeps a change late enough that
+        # the pad alone would run past the last frame
+        cp = subprocess.run(["ffmpeg", "-hide_banner", "-nostdin", "-i", str(video), "-an",
+                             "-vf", "mpdecimate,showinfo", "-fps_mode", "passthrough",
+                             "-f", "null", "-"], capture_output=True, text=True, check=True)
+        last_kept = float(cp.stderr.split(" pts_time:")[-1].split()[0])
+        self.assertGreater(last_kept + 0.25, self.SLIDE_TO_END_S + 0.02,
+                           "fixture no longer reaches the video end")
+        (fit,), run = self.anim_run(video, "slide-to-end-out")
+        self.assertAlmostEqual(run["video"]["start_time"], 0.0, delta=1e-6)
+        self.assertAlmostEqual(fit["window_s"][1], self.SLIDE_TO_END_S, delta=0.002)
+
+    def test_nonzero_start_time_window_end(self):
+        path = self.tmp / "slide_to_end_ts5.mp4"
+        synth.encode(path, synth.card_frames(synth.tween(synth.EASE_OUT, 0.5, 0.3),
+                                             self.SLIDE_TO_END_S, "right"), ts_offset=5)
+        (fit,), run = self.anim_run(path, "slide-to-end-ts5")
+        self.assertAlmostEqual(run["video"]["start_time"], 5.0, delta=0.05)  # fixture guard
+        self.assertAlmostEqual(fit["window_s"][1], self.SLIDE_TO_END_S, delta=0.002)
+        # --range still bounds the window once the video end is past it
+        (fit,), _ = self.anim_run(path, "slide-to-end-ts5-ranged", "--range", "0-0.85")
+        self.assertAlmostEqual(fit["window_s"][1], 0.85, delta=1e-6)
+
+    def test_window_end_ignores_longer_audio(self):
+        video = synth.mux_tone(self.slide_to_end(), self.tmp / "slide_to_end_long_audio.mp4",
+                               duration=3, shortest=False)
+        (fit,), run = self.anim_run(video, "slide-to-end-long-audio")
+        # fixture guard: the container duration is the 3 s audio track's
+        self.assertAlmostEqual(run["video"]["duration"], 3.0, delta=0.05)
+        self.assertAlmostEqual(fit["window_s"][1], self.SLIDE_TO_END_S, delta=0.002)
+
 
 @unittest.skipUnless(HAVE_FFMPEG, "ffmpeg/ffprobe not installed")
 class BugMode(_VideoCase):

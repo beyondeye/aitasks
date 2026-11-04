@@ -572,7 +572,6 @@ def cmd_anim(args) -> int:
     aw, ah = analysis_size(cw, ch, args.analysis_pixels)
     scale_px = cw / aw
     vw, vh = view_size(cw, ch, args.view_size)
-    end_t = info["start_time"] + info["duration"]
     nominal_dt = 1.0 / info["avg_fps"] if info["avg_fps"] else 1 / 60
 
     window = parse_span(args.window, "--window") if args.window else None
@@ -587,12 +586,18 @@ def cmd_anim(args) -> int:
         if span:
             a, b = span
             head.append(f"trim=start={a:.6f}:end={b:.6f}")
-            end_t = min(end_t, b)
         if crop:
             head.append(crop)
         kept = kept_frames(args.video, head, args.decimate, stream=info["vindex"])
         times = [t for _, t in kept]
         segs = core.motion_segments(times, args.gap)
+        # the video's own end, on the kept frames' (normalised) timeline: the container
+        # end is raw (start_time not subtracted) and can be a longer audio track's
+        end_t = core.video_span(
+            video_packets(args.video, info["vindex"]), info["start_time"],
+            range_end=span[1] if span else None, ranged=span is not None,
+            first_kept_t=times[0], last_kept_t=times[-1],
+            container_end=info["duration"]).end_t if segs else None
         for si, (first, last) in enumerate(segs):
             if last - first + 1 < args.min_frames and first > 0:
                 cuts.append(times[first])
