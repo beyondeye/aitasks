@@ -662,8 +662,8 @@ and nested-skill invocation on that agent).
   real refresh; `ISOLATION:manifest_unchanged` (real store and receipts
   byte-identical before/after).
 - **Upstream defects identified:**
-  - `.claude/settings.local.json:1 — aitask_gate_record.sh (invoked by task-workflow gate-recording.md) has no allow entry (touchpoint 1 MISSING per aitask_audit_wrappers.sh audit-helper-whitelist)`
-  - `seed/opencode_config.seed.json:1 — aitask_parallel_admission.sh (invoked by task-workflow parallel-admission.md) is missing from all five permission touchpoints (.claude/settings.local.json, .codex/rules/default.rules, seed/claude_settings.local.json, seed/codex_rules.default.rules, seed/opencode_config.seed.json)`
+  - `.claude/settings.local.json:40 — aitask_gate_record.sh (invoked by task-workflow gate-recording.md) has no allow entry in the repo's own Claude settings (present in the other four touchpoints)`
+  - `seed/opencode_config.seed.json:33 — the aitask_parallel_admission allow entries (all five touchpoints) name the stem without `.sh` while task-workflow parallel-admission.md runs ./.aitask-scripts/aitask_parallel_admission.sh; under opencode's `<cmd> *` glob and codex's token prefix_rule they likely never match (Claude's `:*` prefix may) — UNVERIFIED per agent; the audit reports it MISSING`
 - **Notes for sibling tasks:**
   - t2175_5 (monitor key): call `monitor_core.spawn_sitrep(monitor,
     target_root=, session=, select_window=, agent_string=)`; statuses
