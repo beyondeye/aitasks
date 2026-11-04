@@ -34,7 +34,19 @@ Two artifacts, both under `--out-dir`:
 `scroll_end(immediate=True, force=True)`) so the fixture can be shown to
 reproduce the drift before it is trusted to show the fix. The replica is
 test-local and used only as a negative control, so it cannot produce a false
-PASS of the real path.
+PASS of the real path. It is paired with ``AIT_T2183_FULL_REBUILD=1``: the
+pre-fix world remounted every card on every tick.
+
+LIST ROUTE (t2183). By default the harness runs the PRODUCTION list path: the
+per-tick churn below changes every card's line count, so most ticks take the
+in-place ``layout=True`` route, and the agent removal every 7th tick takes the
+full rebuild. ``AIT_T2183_FULL_REBUILD=1`` turns the in-place path off (the
+``_IN_PLACE_LIST_UPDATES`` seam). ``AIT_T2183_NO_INPLACE_PIN=1`` is the
+in-place path's own negative control: it clears ``MiniPaneList._anchored``
+every tick — the anchor the compositor re-pins from, which is the ONLY thing
+holding a pinned list on that path (``_restore_list_scroll`` returns early for
+a pinned list) — and adds no compensating snapshot. Each tick record carries
+the ``route`` the tick took, so the test can prove which path a run exercised.
 
 Usage (the test drives this; see tests/test_minimonitor_bottom_pin_live.py):
 
@@ -65,8 +77,9 @@ from monitor import minimonitor_app as mm  # noqa: E402
 #: run collects the 10+ post-drag ticks the acceptance criteria ask for.
 TICK_SECONDS = 0.5
 
-#: Card-height churn. `_agent_card_text` output is remounted every tick, and a
-#: `height: auto` card grows with it, so cycling the line count reproduces the
+#: Card-height churn. `_agent_card_text` output is re-rendered every tick (in
+#: place, or by a rebuild when the set changes), and a `height: auto` card grows
+#: with it, so cycling the line count reproduces the
 #: task/gate/concern rows coming and going that made `max_scroll_y` swing
 #: 67 -> 73 -> 88 WITHIN a tick in the original trace.
 #:
@@ -87,10 +100,18 @@ ASYNC_CHURN_SECONDS = 0.17
 class LiveHarnessApp(sp._RefreshHost):
     """`_RefreshHost` plus tracing, a self-driven tick, and card-height churn."""
 
-    def __init__(self, out_dir: Path, agents: int, legacy: bool) -> None:
+    def __init__(self, out_dir: Path, agents: int, legacy: bool,
+                 full_rebuild: bool = False,
+                 no_inplace_pin: bool = False) -> None:
         super().__init__([f"%{i}" for i in range(agents)])
         self._out_dir = out_dir
         self._legacy = legacy
+        # Instance attribute shadows `_ListHost`'s class-level `False`, which
+        # pins the headless t1539/t1653 modules to the full-rebuild path. This
+        # harness exists to cover the PRODUCTION path in a real terminal.
+        self._IN_PLACE_LIST_UPDATES = not full_rebuild
+        self._no_inplace_pin = no_inplace_pin
+        self._last_route: str | None = None
         self._tick = 0
         self._geometry_written = False
         self._grabbed_seen = False
@@ -194,6 +215,20 @@ class LiveHarnessApp(sp._RefreshHost):
         # `_async_content_churn` needs a stable base to grow from.
         self._base_text[snap.pane.pane_id] = text
         return text
+
+    # -- route tracing -------------------------------------------------------
+
+    def _plan_in_place_list_update(self, entries):
+        updates = super()._plan_in_place_list_update(entries)
+        if updates is None:
+            self._last_route = "rebuild"
+        elif any(layout for _card, _text, layout in updates):
+            self._last_route = "inplace_layout"
+        elif updates:
+            self._last_route = "inplace"
+        else:
+            self._last_route = "unchanged"
+        return updates
 
     # -- the pre-fix replica (negative control only) -------------------------
 
@@ -315,7 +350,12 @@ class LiveHarnessApp(sp._RefreshHost):
         except Exception:
             container = None
 
-        if container is not None and self._legacy:
+        if container is not None and (self._legacy or self._no_inplace_pin):
+            # `_no_inplace_pin` (t2183) removes the same anchor on the in-place
+            # path WITHOUT the legacy snapshot replica: with `_anchored` gone,
+            # nothing else holds a pinned list there, so this control must
+            # drift — if it does not, something other than the anchor is
+            # pinning and the comparison below measures nothing.
             # The negative control must undo BOTH halves of the fix, not just the
             # app's capture/restore. `MiniPaneList.on_mount` now calls `anchor()`,
             # and while `_anchored` is true the compositor re-pins the offset in
@@ -349,6 +389,9 @@ class LiveHarnessApp(sp._RefreshHost):
                 "virtual_h": int(container.virtual_size.height),
                 "is_anchored": bool(container.is_anchored),
                 "anchor_released": bool(getattr(container, "_anchor_released", None)),
+                # The list route the PREVIOUS tick took (t2183) — the state
+                # sampled here is the one that tick left behind.
+                "route": self._last_route,
             })
 
         self._tick += 1
@@ -366,7 +409,10 @@ def main() -> None:
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     legacy = os.environ.get("AIT_T1653_LEGACY_PIN") == "1"
-    LiveHarnessApp(out_dir, args.agents, legacy).run()
+    full_rebuild = os.environ.get("AIT_T2183_FULL_REBUILD") == "1"
+    no_inplace_pin = os.environ.get("AIT_T2183_NO_INPLACE_PIN") == "1"
+    LiveHarnessApp(out_dir, args.agents, legacy, full_rebuild=full_rebuild,
+                   no_inplace_pin=no_inplace_pin).run()
 
 
 if __name__ == "__main__":

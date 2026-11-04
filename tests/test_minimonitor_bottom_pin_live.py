@@ -32,7 +32,29 @@ of which had first presented as "the fix does not work":
 * a press row scaled by `thumb_size` misses when the churn resizes the thumb
   between reading the geometry and sending the press (1 failure / 12).
 
-THE NEGATIVE CONTROL IS EXECUTABLE. `AIT_T1653_LEGACY_PIN=1` restores the pre-fix
+THREE RUNS (t2183). The list now has two update paths — in place for an
+unchanged card set (most ticks here, since the churn changes every card's line
+count), and the full rebuild when the set changes (an agent leaves every 7th
+tick). So the module boots three runs, each in its own tmux server:
+
+* `current` — the PRODUCTION path, in place by default. `test_5` holds it.
+* `inplace_control` — `AIT_T2183_NO_INPLACE_PIN=1`: the in-place path with its
+  pin mechanism removed. On that path a pinned list is held by Textual's anchor
+  alone (`_restore_list_scroll` returns early when pinned), so the control clears
+  `_anchored` every tick and adds nothing in its place. `test_4b` requires it to
+  drift. A control that removed only the app-side capture/restore would leave the
+  anchor holding the list, report a zero gap, and make the comparison vacuous.
+* `legacy` — the historical t1653 control, below, on the full-rebuild path it was
+  written for (`AIT_T2183_FULL_REBUILD=1`). `test_4` requires it to drift.
+
+`test_3c` reads each tick's recorded `route` and proves every run took the path it
+claims — a `current` run that silently fell back to rebuilding every tick would
+otherwise pass `test_5` while covering nothing new. Only `inplace_layout` ticks
+count as in-place evidence (a plain `inplace` tick changes no geometry), and
+`test_4b` takes the control's drift from those ticks alone: drift on a rebuild
+tick says nothing about the in-place path.
+
+THE HISTORICAL NEGATIVE CONTROL IS EXECUTABLE. `AIT_T1653_LEGACY_PIN=1` restores the pre-fix
 world: the `at_bottom` geometry snapshot applied once via
 `scroll_end(immediate=True, force=True)`, AND `_anchored` cleared so Textual's
 anchor is not holding the offset. Both halves are required — a control that
@@ -105,13 +127,22 @@ def _tmux(socket, *args, check=True):
                           capture_output=True, text=True, check=check)
 
 
+#: The three runs (see the module docstring): name -> (socket tag, extra env).
+VARIANTS = {
+    "current": ("cur", ""),
+    "inplace_control": ("inp", "AIT_T2183_NO_INPLACE_PIN=1"),
+    "legacy": ("leg", "AIT_T1653_LEGACY_PIN=1 AIT_T2183_FULL_REBUILD=1"),
+}
+
+
 class _PaneRun:
     """One harness run in its own tmux server; a context manager."""
 
-    def __init__(self, out_dir: Path, legacy: bool) -> None:
+    def __init__(self, out_dir: Path, variant: str) -> None:
         self.out_dir = out_dir
-        self.legacy = legacy
-        self.socket = f"ait_t1653_{'leg' if legacy else 'cur'}_{os.getpid()}"
+        self.variant = variant
+        tag, self.extra_env = VARIANTS[variant]
+        self.socket = f"ait_t1653_{tag}_{os.getpid()}"
         self.pane = None
 
     def __enter__(self):
@@ -127,8 +158,8 @@ class _PaneRun:
         # then lands somewhere else. Measured: 6 errors under `pytest`, 0 when the
         # same file was run directly, until these were unset.
         envs = f"-u COLUMNS -u LINES AITASKS_TMUX_SOCKET={self.socket}"
-        if self.legacy:
-            envs += " AIT_T1653_LEGACY_PIN=1"
+        if self.extra_env:
+            envs += f" {self.extra_env}"
         # A second pane is mandatory, not cosmetic: minimonitor auto-closes when
         # it is alone in its window.
         #
@@ -181,7 +212,7 @@ class _PaneRun:
                     return last
             time.sleep(POLL_INTERVAL_S)
         raise AssertionError(
-            f"{'legacy' if self.legacy else 'current'} run never published "
+            f"{self.variant} run never published "
             f"geometry matching the {PANE_W}-column pane within "
             f"{BOOT_TIMEOUT_S}s (last={last}). The harness records why it could "
             f"not: {self._deferrals()}")
@@ -271,11 +302,16 @@ The press row is offset from the thumb's TOP, not from its middle, and
         return events, samples
 
 
-def _run_one(out_dir: Path, legacy: bool):
-    with _PaneRun(out_dir, legacy) as run:
+def _run_one(out_dir: Path, variant: str):
+    started = time.monotonic()
+    with _PaneRun(out_dir, variant) as run:
         run.await_geometry()
         pre_mark, post_mark, geometry, before = run.drag_thumb_to_the_end()
         events, samples = run.observe(pre_mark, post_mark)
+    # Wall time per run, on stderr: the module sits in the serial carve-out and
+    # a third run is the cost of covering the production path live.
+    print(f"[t2183] {variant} run: {time.monotonic() - started:.1f}s",
+          file=sys.stderr)
     return geometry, events, samples, before
 
 
@@ -298,8 +334,10 @@ class BottomPinLiveTests(unittest.TestCase):
         import tempfile
         cls._tmp = tempfile.TemporaryDirectory(prefix="t1653_live_")
         root = Path(cls._tmp.name)
-        cls.cur = _run_one(root / "current", legacy=False)
-        cls.legacy = _run_one(root / "legacy", legacy=True)
+        cls.runs = {name: _run_one(root / name, name) for name in VARIANTS}
+        cls.cur = cls.runs["current"]
+        cls.inplace_control = cls.runs["inplace_control"]
+        cls.legacy = cls.runs["legacy"]
 
     @classmethod
     def tearDownClass(cls):
@@ -309,8 +347,7 @@ class BottomPinLiveTests(unittest.TestCase):
     # -- the assertions, in order; each gates the next --------------------
 
     def test_1_the_fixture_overflows(self):
-        for label, (geometry, _e, _s, before) in (("current", self.cur),
-                                                  ("legacy", self.legacy)):
+        for label, (geometry, _e, _s, before) in self.runs.items():
             self.assertEqual(
                 before, 0,
                 f"{label}: the list was not at the top when the gesture was "
@@ -327,8 +364,7 @@ class BottomPinLiveTests(unittest.TestCase):
                 "spaces do not match and the gesture cannot be aimed")
 
     def test_2_the_press_hit_the_thumb(self):
-        for label, (geometry, events, _s, _b) in (("current", self.cur),
-                                                  ("legacy", self.legacy)):
+        for label, (geometry, events, _s, _b) in self.runs.items():
             x, y, _w, _h = geometry["scrollbar_region"]
             self.assertIn(
                 "grab", events,
@@ -340,22 +376,45 @@ class BottomPinLiveTests(unittest.TestCase):
                 f"without a real drag proves nothing about the pin. "
                 f"Events seen: {events}")
 
-    def test_3_the_two_runs_are_comparable(self):
+    def test_3_the_runs_are_comparable(self):
         keys = ("list_region", "scrollbar_region", "window_size", "agents")
         cur = {k: self.cur[0][k] for k in keys}
-        legacy = {k: self.legacy[0][k] for k in keys}
-        self.assertEqual(
-            cur, legacy,
-            "the fixed and control runs did not get the same geometry, so any "
-            "difference between them could be the fixture rather than the fix")
+        for label in ("inplace_control", "legacy"):
+            other = {k: self.runs[label][0][k] for k in keys}
+            self.assertEqual(
+                cur, other,
+                f"the fixed and {label} runs did not get the same geometry, so "
+                "any difference between them could be the fixture rather than "
+                "the fix")
+
+    def test_3c_each_run_took_its_intended_list_route(self):
+        """The fixed run must actually exercise the in-place path (t2183), and
+        the historical control must actually rebuild every tick — otherwise
+        `test_5` / `test_4` say nothing about the path they are named for."""
+        for label, (_g, _e, samples, _b) in self.runs.items():
+            routes = [s.get("route") for s in samples[SETTLE_SAMPLES:]]
+            # Only `inplace_layout` counts: a plain `inplace` tick changes no
+            # geometry, so it cannot exercise (or threaten) the pin at all.
+            in_place = [r for r in routes if r == "inplace_layout"]
+            if label == "legacy":
+                self.assertEqual(
+                    sorted(set(routes)), ["rebuild"],
+                    f"legacy: the historical control did not rebuild on every "
+                    f"tick, so it no longer replicates the pre-fix world: "
+                    f"{routes}")
+            else:
+                self.assertGreaterEqual(
+                    len(in_place), MIN_SAMPLES // 2,
+                    f"{label}: too few settled ticks took the geometry-changing "
+                    f"in-place route ({len(in_place)} of {len(routes)}) — the "
+                    f"run does not cover the production path: {routes}")
 
     def test_3b_the_gesture_actually_scrolled_the_list(self):
         """A press that misses the thumb, or a drag tmux swallowed, leaves the
         list exactly where it was — which looks identical to "the pin was lost"
         in the trace. Separating the two is the difference between a fixture
         fault and a product fault, and this fixture has produced both."""
-        for label, (_g, _e, samples, before) in (("current", self.cur),
-                                                 ("legacy", self.legacy)):
+        for label, (_g, _e, samples, before) in self.runs.items():
             moved = [s for s in samples if s["scroll_y"] != before]
             self.assertTrue(
                 moved,
@@ -378,6 +437,31 @@ class BottomPinLiveTests(unittest.TestCase):
             "the PRE-FIX control held the bottom pin, so this fixture does not "
             "reproduce the reported bug and the fixed run below proves nothing. "
             f"gaps={gaps}")
+
+    def test_4b_the_inplace_control_drifts(self):
+        """The in-place path's own control (t2183): with the anchor removed and
+        nothing in its place, the pin must be lost ON IN-PLACE TICKS — proving
+        that what holds the fixed run on that path is the mechanism this module
+        claims to test.
+
+        The drift evidence is taken from `inplace_layout` samples only. The
+        control also rebuilds (an agent leaves every 7th tick), and drift on a
+        rebuild tick says nothing about the in-place path: a run whose only
+        drift came from rebuilds would otherwise pass here while the in-place
+        path went untested."""
+        _g, _e, samples, _b = self.inplace_control
+        steady = [s for s in samples[SETTLE_SAMPLES:]
+                  if s.get("route") == "inplace_layout"]
+        self.assertGreaterEqual(
+            len(steady), MIN_SAMPLES // 2,
+            f"in-place control produced only {len(steady)} steady-state "
+            "inplace_layout samples")
+        gaps = [s["max_scroll_y"] - s["scroll_y"] for s in steady]
+        self.assertGreater(
+            max(gaps), 1,
+            "the in-place control held the bottom pin on every in-place tick "
+            "without its anchor, so something else is pinning on that path and "
+            f"the fixed run below proves nothing about the anchor. gaps={gaps}")
 
     def test_5_the_pin_holds_across_every_settled_tick(self):
         """AC1 and AC2: the pin survives card-height churn AND agents coming and

@@ -627,6 +627,63 @@ class MiniPaneCard(Static, can_focus=True):
         self.pane_id = pane_id
 
 
+class _ListEntry(NamedTuple):
+    """One widget of the general list, before it is mounted (t2183).
+
+    ``key`` identifies the widget across ticks: the pane id for a ``card``, the
+    rendered text for a ``divider`` or the ``header``. A changed divider or
+    ``other (N)`` text is therefore a changed list SHAPE, which rebuilds.
+    """
+
+    kind: str          # "card" | "divider" | "header"
+    key: str
+    text: str
+    classes: str = ""
+
+
+class _ListRecord(NamedTuple):
+    """What the last full rebuild mounted: the ``(kind, key)`` shape and the
+    widgets, in mount order (t2183). Card TEXT is deliberately not recorded —
+    ``Static.content`` is the truth of what each card shows, including an
+    update that did not come from the tick."""
+
+    keys: tuple
+    widgets: tuple
+
+
+def _fits_width(text: str, width: int) -> bool:
+    """Every line of ``text`` fits ``width`` cells, so ``Static`` will not wrap it.
+
+    Parsed with ``Content.from_markup`` — what ``Static`` itself does with a
+    ``str`` (``textual.visual.visualize``) — so the cell count is the rendered
+    one, not the markup's.
+    """
+    return all(line.cell_length <= width
+               for line in Content.from_markup(text).split("\n"))
+
+
+def card_height_stable(old, new: str, width: int) -> bool:
+    """True only when replacing ``old`` with ``new`` provably keeps a card's
+    height, i.e. ``update(layout=False)`` is safe (t2183).
+
+    ``MiniPaneCard`` is ``height: auto`` and ``Static`` WRAPS, so an equal
+    newline count is not the proof: the row budgets clip to the CONFIGURED
+    ``_target_width``, and the real pane can be narrower (see the budget block
+    at the top of this module). So both texts must also fit the card's ACTUAL
+    content ``width``. Anything unprovable — an unlaid-out card, non-string
+    content, unparseable markup — answers False, which costs one layout pass
+    and never a stale height.
+    """
+    if width <= 0 or not isinstance(old, str):
+        return False
+    if old.count("\n") != new.count("\n"):
+        return False
+    try:
+        return _fits_width(old, width) and _fits_width(new, width)
+    except Exception:
+        return False
+
+
 class MiniPaneScrollBar(ScrollBar):
     """The list's own vertical scrollbar, so "a thumb drag just ended" is a state
     this app OWNS rather than one it has to infer (t1653).
@@ -682,7 +739,8 @@ class MiniPaneScrollBar(ScrollBar):
 class MiniPaneList(VerticalScroll):
     """The agent list's scroller, with the two seams the restore needs (t1539).
 
-    ``_rebuild_pane_list`` tears every card down and remounts it each tick. While
+    ``_rebuild_pane_list`` tears every card down and remounts it whenever the card
+    set changes (an unchanged set is updated in place, t2183). While
     the container is childless its ``max_scroll_y`` is 0, so ``validate_scroll_y``
     clamps ``scroll_y`` to 0 — measured live: ``scroll_y`` goes ``8.0 -> 0``
     between the ``remove_children()`` and the end of ``mount_all()``. Restoring
@@ -1102,6 +1160,14 @@ class MiniMonitorApp(
     # Fail-safe release, well inside the default 3 s refresh interval.
     _SCROLL_LOCK_TIMEOUT = 0.5
 
+    # In-place list updates (t2183): an unchanged card set is diffed against what
+    # each card shows and only changed cards are updated; the full rebuild runs
+    # when the set changes. ``True`` in production. A class attribute so a test
+    # host can pin the full-rebuild path: the t1539/t1653 modules reproduce their
+    # bugs by re-ticking an UNCHANGED set, which this path would otherwise skip
+    # (see ``_ListHost`` in tests/test_minimonitor_scroll_preservation.py).
+    _IN_PLACE_LIST_UPDATES = True
+
     # Configured width of the companion column, mirrored as a CLASS attribute
     # for the same reason as the scroll state above (t1566). It used to be read
     # only inside `_own_agent_identity_text`'s has-a-task branch, so a
@@ -1402,6 +1468,11 @@ class MiniMonitorApp(
         # pane spawned at this width drifts wider; on_resize re-pins it.
         self._target_width = target_width
         self._snapshots: dict[str, PaneSnapshot] = {}
+        # What the last full rebuild mounted (t2183) and the last session-bar
+        # text rendered. Both are read with `getattr` defaults, because many
+        # tests build this app with `__new__` and never run `__init__`.
+        self._list_record: _ListRecord | None = None
+        self._session_bar_text: str | None = None
         self._focused_pane_id: str | None = None
         self._monitor: TmuxMonitor | None = None
         self._refresh_timer: Timer | None = None
@@ -1800,8 +1871,10 @@ class MiniMonitorApp(
             if self._monitor is None:
                 return
 
-            # Save focus state before rebuild
-            saved_pane_id = self._focused_pane_id
+            # No focus snapshot here (t2183): the selection is read when it is
+            # restored, after every await below. A click during the capture
+            # updates `_focused_pane_id` (`on_descendant_focus`), and restoring a
+            # snapshot taken now would revert it (the t2201 symptom).
 
             # Everything the parked set is derived from resolves BEFORE the
             # capture (t1685). The set published below decides which agents this
@@ -1874,28 +1947,51 @@ class MiniMonitorApp(
             # `_is_marked` reads, and after the build so there is a card to update.
             self._refresh_own_live_state()
 
-            # Scroll preservation (t1539). Capture BEFORE the rebuild — that is where
-            # `validate_scroll_y` clamps the offset to 0 — then hold the lock across
-            # it so Textual's own scrolls (the focus restore and its deferred
-            # variants) cannot land while the anchor restore is pending.
-            self._capture_list_scroll()
-            gen = self._scroll_restore_gen = self._scroll_restore_gen + 1
-            self._list_scroll_lock = True
-            # The fail-safe is armed HERE, on the acquisition line, and not inside
-            # the restore. `Screen._invoke_and_clear_callbacks` has no per-callback
-            # try, so an exception raised by an EARLIER callback in the same batch
-            # drops every remaining one — including the restore. A release scheduled
-            # from within the restore would then never run and the lock would stick,
-            # silently killing scroll-into-view for the rest of the session.
-            self._stop_scroll_lock_timer()
-            self._scroll_lock_timer = self.set_timer(
-                self._SCROLL_LOCK_TIMEOUT, lambda: self._abandon_scroll_restore(gen)
-            )
+            # The general list (t2183). Build this tick's entries, then let the
+            # planner choose: nothing / changed cards in place / full rebuild.
+            entries = self._build_list_entries()
+            updates = self._plan_in_place_list_update(entries)
+            if updates is not None and not any(lay for _c, _t, lay in updates):
+                # Nothing is torn down and no card can change height, so the
+                # offset cannot move: no scroll capture, lock or restore. Focus
+                # was never lost either, so whatever is focused NOW — including a
+                # card clicked during this tick's awaits — stands. Only a fully
+                # unfocused app (after a blur) gets the restore, from the
+                # selection as it is now.
+                self._apply_list_updates(updates)
+                if self.focused is None:
+                    self._restore_focus(self._focused_pane_id)
+            else:
+                # Scroll preservation (t1539). Capture BEFORE the rebuild — that
+                # is where `validate_scroll_y` clamps the offset to 0 — then hold
+                # the lock across it so Textual's own scrolls (the focus restore
+                # and its deferred variants) cannot land while the anchor restore
+                # is pending. An in-place update that may change a card's height
+                # takes this path too: the anchor has to survive the reflow.
+                self._capture_list_scroll()
+                gen = self._scroll_restore_gen = self._scroll_restore_gen + 1
+                self._list_scroll_lock = True
+                # The fail-safe is armed HERE, on the acquisition line, and not
+                # inside the restore. `Screen._invoke_and_clear_callbacks` has no
+                # per-callback try, so an exception raised by an EARLIER callback
+                # in the same batch drops every remaining one — including the
+                # restore. A release scheduled from within the restore would then
+                # never run and the lock would stick, silently killing
+                # scroll-into-view for the rest of the session.
+                self._stop_scroll_lock_timer()
+                self._scroll_lock_timer = self.set_timer(
+                    self._SCROLL_LOCK_TIMEOUT,
+                    lambda: self._abandon_scroll_restore(gen),
+                )
 
-            await self._rebuild_pane_list()
+                if updates is None:
+                    await self._rebuild_pane_list(entries)
+                else:
+                    self._apply_list_updates(updates)
 
-            self._restore_focus(saved_pane_id)
-            self.call_after_refresh(self._restore_list_scroll, gen, 0)
+                # The selection as it is NOW, after every await of the tick.
+                self._restore_focus(self._focused_pane_id)
+                self.call_after_refresh(self._restore_list_scroll, gen, 0)
 
             # Trailing maintenance — the proactive concern auto-offer (t1037_4) and
             # the mark expiry / liveness sweep (t1326). DISPATCHED, not awaited: the
@@ -2347,7 +2443,7 @@ class MiniMonitorApp(
                     card.focus(scroll_visible=False)
                     # Widget.focus() is deferred, so on_descendant_focus may
                     # not fire before the next refresh cycle. Set directly to
-                    # avoid a stale saved_pane_id on the next tick.
+                    # avoid the next tick restoring a stale `_focused_pane_id`.
                     self._focused_pane_id = card.pane_id
                     return
         # Fallback: select the first general-list agent (the followed agent
@@ -2500,13 +2596,16 @@ class MiniMonitorApp(
                 s.pane.session_name for s in agents if s.pane.session_name
             }
             n = len(sessions) if sessions else 1
-            bar.update(f"multi: {n}s · {total}a{awaiting_str}{done_str}{idle_str}{parked_str}{frozen_str}{desync}{state_badge}")
+            text = f"multi: {n}s · {total}a{awaiting_str}{done_str}{idle_str}{parked_str}{frozen_str}{desync}{state_badge}"
         else:
-            bar.update(
-                # The session name is tmux-side user input, followed by two
-                # spaces — never by a tag — so `markup_literal` is exact (t2017).
-                f"{markup_literal(self._session)}  {total} agent{'s' if total != 1 else ''}{awaiting_str}{done_str}{idle_str}{parked_str}{frozen_str}{desync}{state_badge}"
-            )
+            # The session name is tmux-side user input, followed by two spaces —
+            # never by a tag — so `markup_literal` is exact (t2017).
+            text = f"{markup_literal(self._session)}  {total} agent{'s' if total != 1 else ''}{awaiting_str}{done_str}{idle_str}{parked_str}{frozen_str}{desync}{state_badge}"
+        # `Static.update` re-parses and re-lays-out the screen even for the same
+        # string, so an unchanged bar is not re-rendered (t2183).
+        if text != getattr(self, "_session_bar_text", None):
+            self._session_bar_text = text
+            bar.update(text)
 
     def _compute_completed_panes(self) -> frozenset[str]:
         """Pane ids whose task is finished, for THIS refresh tick (t1322).
@@ -2535,7 +2634,7 @@ class MiniMonitorApp(
 
     def _agent_card_text(self, snap: PaneSnapshot) -> str:
         """Build the compact card text (status line + optional task title) for
-        a general-list agent row (``_rebuild_pane_list`` is the only caller).
+        a general-list agent row (``_build_list_entries`` is the only caller).
 
         NOT used by the docked followed-agent panel — that renders via
         ``_own_agent_identity_text`` and is static by design: no live status
@@ -3016,12 +3115,13 @@ class MiniMonitorApp(
         self._own_card = card
         self._own_panel_built = True
 
-    async def _rebuild_pane_list(self) -> None:
-        container = self.query_one("#mini-pane-list", VerticalScroll)
-        # Clear existing content and wait for the prune to complete before
-        # mounting new cards — otherwise focus restoration can race removal.
-        await container.remove_children()
+    def _build_list_entries(self) -> list[_ListEntry]:
+        """This tick's general list as entries, in mount order (t2183).
 
+        Pure with respect to the DOM: it decides WHAT the list shows, and the
+        two consumers decide HOW — `_plan_in_place_list_update` diffs it against
+        the mounted widgets, `_rebuild_pane_list` mounts it from scratch.
+        """
         # Two sections, mirroring MonitorApp._rebuild_pane_list: AGENT panes
         # first, then uncategorized (OTHER) ones under their own header (t1382).
         # Without the second section a window renamed off the `agent-` prefix
@@ -3061,10 +3161,10 @@ class MiniMonitorApp(
         others.sort(key=sort_key)
 
         multi_mode = bool(self._monitor and self._multi_session)
-        widgets: list = []
+        entries: list[_ListEntry] = []
 
         def append_group(snaps: list[PaneSnapshot], text_fn) -> None:
-            """Mount one section's cards, with a session divider per group.
+            """Emit one section's card entries, with a session divider per group.
 
             Shared by both sections rather than copied: the divider rule (multi
             mode only, emitted when the session changes) has to stay identical
@@ -3075,25 +3175,92 @@ class MiniMonitorApp(
                 if multi_mode and snap.pane.session_name != current_session:
                     current_session = snap.pane.session_name
                     label = current_session or "?"
-                    widgets.append(Static(
-                        format_session_divider(label),
-                        classes="mini-session-divider",
-                    ))
-                widgets.append(MiniPaneCard(snap.pane.pane_id, text_fn(snap)))
+                    divider = format_session_divider(label)
+                    entries.append(_ListEntry(
+                        "divider", divider, divider, "mini-session-divider"))
+                pane_id = snap.pane.pane_id
+                entries.append(_ListEntry("card", pane_id, text_fn(snap)))
 
         append_group(agents, self._agent_card_text)
         if others:
             # Only the OTHER section is headed. The agent section deliberately
             # has none \u2014 minimonitor never had one, and the session bar already
             # carries the agent count.
-            widgets.append(Static(
-                format_section_header(f"other ({len(others)})"),
-                classes="mini-section-header",
-            ))
+            header = format_section_header(f"other ({len(others)})")
+            entries.append(_ListEntry(
+                "header", header, header, "mini-section-header"))
             append_group(others, self._other_card_text)
+        return entries
 
+    async def _rebuild_pane_list(self, entries: list[_ListEntry] | None = None) -> None:
+        """Tear the list down and mount ``entries`` (built now when omitted).
+
+        Runs when the card set changed (t2183) — and from callers and tests that
+        want the full rebuild directly. Records what it mounted so the next tick
+        can be planned against it.
+        """
+        container = self.query_one("#mini-pane-list", VerticalScroll)
+        if entries is None:
+            entries = self._build_list_entries()
+        # Clear existing content and wait for the prune to complete before
+        # mounting new cards — otherwise focus restoration can race removal.
+        await container.remove_children()
+        widgets = [
+            MiniPaneCard(e.key, e.text) if e.kind == "card"
+            else Static(e.text, classes=e.classes)
+            for e in entries
+        ]
         if widgets:
             await container.mount_all(widgets)
+        self._list_record = _ListRecord(
+            tuple((e.kind, e.key) for e in entries), tuple(widgets))
+
+    def _plan_in_place_list_update(self, entries: list[_ListEntry]):
+        """Plan this tick's list update against what is mounted (t2183).
+
+        Returns ``None`` when only a full rebuild is correct, otherwise a list of
+        ``(card, text, layout)`` updates — empty when nothing changed. ``None``
+        when the seam is off, nothing was recorded yet, the ``(kind, key)`` shape
+        differs (an agent added/removed/reordered, a divider or ``other (N)``
+        change, the `P` filter, multi-session), or any recorded widget is no
+        longer mounted in the list — someone removed it out from under the
+        record, and `_FakeContainer` test widgets were never mounted at all.
+
+        A card is updated only when its text differs from ``card.content``, and
+        ``layout`` is False only when `card_height_stable` proves its height
+        cannot change.
+        """
+        record = getattr(self, "_list_record", None)
+        if not self._IN_PLACE_LIST_UPDATES or record is None:
+            return None
+        if tuple((e.kind, e.key) for e in entries) != record.keys:
+            return None
+        try:
+            container = self.query_one("#mini-pane-list", VerticalScroll)
+        except NoMatches:
+            return None
+        if not all(w.is_attached and w.parent is container
+                   for w in record.widgets):
+            return None
+        updates = []
+        for entry, widget in zip(entries, record.widgets):
+            if entry.kind != "card":
+                continue          # keyed by its text: equal key, equal text
+            old = widget.content
+            if old == entry.text:
+                continue
+            stable = self._card_height_stable(widget, old, entry.text)
+            updates.append((widget, entry.text, not stable))
+        return updates
+
+    def _card_height_stable(self, card: MiniPaneCard, old, new: str) -> bool:
+        """`card_height_stable` at this card's ACTUAL content width."""
+        return card_height_stable(old, new, card.content_size.width)
+
+    @staticmethod
+    def _apply_list_updates(updates) -> None:
+        for card, text, layout in updates:
+            card.update(text, layout=layout)
 
     # -- Key handling ----------------------------------------------------------
 

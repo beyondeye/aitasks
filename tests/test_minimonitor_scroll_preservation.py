@@ -1,7 +1,9 @@
 """Tests for minimonitor's list scroll preservation across refresh ticks (t1539).
 
 `MiniMonitorApp._rebuild_pane_list` tears every `MiniPaneCard` down and remounts
-it on every status tick. While the container is childless its `max_scroll_y` is
+it whenever the card set changes — and, on `_ListHost`, which pins that path
+(see `_IN_PLACE_LIST_UPDATES` there), on every status tick. While the container
+is childless its `max_scroll_y` is
 0, so Textual's `validate_scroll_y` clamps `scroll_y` to 0 and the user's
 mouse-wheel / scrollbar position is discarded. Measured live in a real 40-column
 tmux pane before the fix — `scroll_y` went `8.0 -> 0` between the
@@ -256,6 +258,17 @@ class _ListHost(mm.MiniMonitorApp):
 
     # Wall-clock out of the fixture (t1774) — see `_NON_BINDING_SCROLL_LOCK_TIMEOUT`.
     _SCROLL_LOCK_TIMEOUT = _NON_BINDING_SCROLL_LOCK_TIMEOUT
+
+    # The FULL-REBUILD path, pinned (t2183). Production updates an unchanged
+    # card set in place and skips the scroll capture/restore when no geometry can
+    # change. The cases here and in `tests/test_minimonitor_bottom_pin.py`
+    # reproduce the t1539/t1653 bugs by re-ticking an UNCHANGED set, so on the
+    # in-place path they would pass without exercising the rebuild at all, and
+    # their documented negative controls would stop failing. The rebuild still
+    # runs in production on every structural change (an agent added, removed or
+    # reordered). `tests/test_minimonitor_incremental_list.py` covers the
+    # in-place path, and the live harness turns this back on.
+    _IN_PLACE_LIST_UPDATES = False
 
     def __init__(self) -> None:
         super().__init__(session="t1539", project_root=REPO_ROOT)
