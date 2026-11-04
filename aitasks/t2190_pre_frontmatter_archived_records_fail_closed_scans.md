@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: medium
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
@@ -43,3 +45,5 @@ Either give t20–t22 valid YAML frontmatter inside the bundle (a one-time data 
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-11-04T07:56:33Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-11-04T08:33:18Z status=pass attempt=1 type=human
