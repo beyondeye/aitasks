@@ -74,3 +74,14 @@ than *all* agents, without breaking scroll/focus preservation:
   the serial carve-out.
 - Before/after CPU tables are recorded in the plan at the same N, with py-spy
   coverage reported.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t2201** id=2026-11-04T15:02:01Z.24c6b90cd39091510b90ba35 from=t2201 at=2026-11-04T15:02:01Z base=c0a6bbd4015d48cca47bfd7b1deba187cfb4c66f base_branch=main dirty=yes host=omg16
+>
+> | Advisory context from exploring t2201 (minimonitor click selection reverted by refresh), 2026-11-04:
+> | 
+> | - MiniMonitorApp._refresh_data snapshots saved_pane_id at the TOP of the tick and restores it after the full teardown/rebuild via a deferred card.focus(); a click during the tick's awaits is reverted. t2201 owns the fix (read the user's current intent at restore time, synchronous set_focus) plus a regression test that clicks while capture_all_async is suspended.
+> | - Whatever incremental update t2183 designs must keep that test green: an in-place card update must never re-focus a stale pane id over a click, and the "card set changed" full-rebuild path still needs the t2201 behaviour.
+> | - Load evidence measured live that day (one host, one moment, not a benchmark): 46 minimonitors + 5 monitors = 50 control-mode clients on one tmux -L ait server, 111 panes / 5 sessions; tmux server at 40-73% of a core; display-message RTT 3-119 ms; a shell-loop capture-pane sweep of all 111 panes 0.9-4.4 s. Your Context cites 38 minimonitors from t2034_1; the count has grown.
