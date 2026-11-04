@@ -151,8 +151,49 @@ DECISION:<FRESH|ASK_STALE|SKIP>
   `SKIP`.
 - Probes run against **committed trees, never the worktree** (`git cat-file
   -e "<rev>:<path>"` + `git log <sha>..<rev> -- ":(literal)<path>"`), so a
-  dirty worktree is invisible by construction. `%`-then-`|` injective
-  encoding; `:(literal)` pathspec guard on every history query.
+  dirty worktree is invisible by construction. `:(literal)` pathspec guard on
+  every history query.
+- **`FRESH` is a positive claim, never the absence of a failure.** It requires
+  every scope path to be present at both ends and to carry a *successful*
+  history query, with the commit count attested from the producer to the core.
+  A failed `git log` is `UNKNOWN:<path>|history_unavailable`, never an empty
+  history, and a malformed or missing evidence row can only add evidence or
+  turn the verdict into `SKIP`.
+- **The baseline must be an immutable commit id.** The reader accepts only a
+  full 40- or 64-hex object id and checks it before any git probe; a symbolic
+  or abbreviated value (`HEAD`, a branch name, `abc1234`) reads
+  `SKIP`/`invalid_baseline`. `HEAD` is an ancestor of every checked revision, so
+  `HEAD..<rev>` is empty — comparing it would read `FRESH` over a real change.
+  Task files are hand-editable, so the writer's validation is not the only
+  guard.
+- Encoding of every variable path field: `%` → `%25` first, then `|` → `%7C`,
+  LF → `%0A`, CR → `%0D` (decode in reverse, `%25` last), so a filename holding
+  `|` or a newline stays one field on one line. The Tier-B origin surface is
+  read through `aitask_revert_analyze.sh --batch-map --encode-paths` for the
+  same reason — the default batch-map output writes paths raw into
+  newline-framed records.
+- **Scope is read as YAML and its completeness is attested.** `premise_baseline:`
+  and `file_references:` are read through the framework's YAML reader
+  (`task_yaml.parse_frontmatter`), never by splitting the flow list on commas,
+  so a quoted entry such as `"a,b.py"` stays one path; frontmatter that does not
+  parse reads `SKIP`/`invalid_frontmatter`. Only a string entry is a path: YAML
+  turns unquoted `null`, `on` and `010` into `None`, `True` and `8`, so every
+  non-string entry — and any value holding a NUL byte, which bash would silently
+  drop — is an `invalid_reference` (counted, uncheckable, `ASK_STALE`), never
+  skipped or coerced. A non-string or NUL-bearing `premise_baseline:` reads
+  `SKIP`/`invalid_baseline`. Every scope source states its own
+  size — the fields reader's `FIELD_END` count, and in `--encode-paths` mode the
+  batch map's per-id `TASKFILES_COUNT` rows, its final `END` record count, and
+  exactly one `STATUS` per requested origin — and a source that fails its own
+  count reads `SKIP`/`scope_error`. A dropped row can therefore never shrink the
+  scope into a `FRESH`.
+- `CHECKED:NONE` when no revision was pinned (the SKIPs reached before it:
+  no Python, not a repository, unreadable fields, no or invalid stored
+  baseline). The closed SKIP and `UNKNOWN` reason vocabularies live in
+  `lib/task_premise.py`; a failed Tier-B subprocess reads `SKIP`/`scope_error`.
+- `FINGERPRINT:` digests a structured (JSON) serialization of its tuple, so list
+  boundaries are unambiguous — the scope `["a,b"]` never collides with
+  `["a", "b"]`.
 
 **`CHECKED:<sha>`** records the revision the evidence was evaluated against
 (HEAD at check time). Every later baseline advance writes **that** sha, never

@@ -247,6 +247,45 @@ ts="$(grep '^COMMIT:src/p.py|' <<<"$map" | cut -d'|' -f3)"
 assert_eq "commit index carries an integer committed_at" "numeric" "$( [[ "$ts" =~ ^[0-9]+$ ]] && echo numeric || echo "not-numeric:$ts" )"
 
 # --------------------------------------------------------------------------
+# 11. --encode-paths reaches the emitter; the default stays raw (t1663_1).
+#     A filename holding a newline splits its record in the default output and
+#     can forge a TASKFILES: line; encoded, it is one record.
+# --------------------------------------------------------------------------
+fx="$(new_repo)"
+forged="$(printf 'x\nTASKFILES:80|keep.py')"
+( cd "$fx" && printf 'k\n' > keep.py && printf 'f\n' > "$forged" && printf 'p\n' > 'a|b.py' \
+    && git add -A && git commit -qm "feature: hostile names (t80)" ) >/dev/null 2>&1
+raw="$(ra "$fx" --batch-map --ids-from <(printf '80\n') 2>/dev/null)"
+enc="$(ra "$fx" --batch-map --encode-paths --ids-from <(printf '80\n') 2>/dev/null)"
+# (Its TASKFILES: and TRACKED: records both split, so the forged row appears
+# more than once next to the real one.)
+assert_eq "negative control: the default output carries a forged TASKFILES: row" "forged" \
+    "$( [[ "$(grep -cx 'TASKFILES:80|keep.py' <<<"$raw")" -gt 1 ]] && echo forged || echo clean )"
+assert_eq "encoded: keep.py appears exactly once" "1" "$(grep -cx 'TASKFILES:80|keep.py' <<<"$enc")"
+assert_contains "encoded: the forged name is one encoded record" \
+    'TASKFILES:80|x%0ATASKFILES:80%7Ckeep.py' "$enc"
+assert_contains "encoded: '|' is encoded in TASKFILES:" 'TASKFILES:80|a%7Cb.py' "$enc"
+assert_contains "encoded: COMMIT: paths are encoded too" 'COMMIT:a%7Cb.py|' "$enc"
+assert_contains "encoded: TRACKED: paths are encoded too" 'TRACKED:x%0ATASKFILES:80%7Ckeep.py' "$enc"
+assert_contains "default: '|' stays raw (pre-change shape)" 'TASKFILES:80|a|b.py' "$raw"
+assert_eq "encoded: every line is a known record" "0" \
+    "$(grep -cvE '^(TASKFILES|TASKFILES_COUNT|COMMIT|TRACKED|STATUS|END):' <<<"$enc")"
+# Completeness attestation (encode mode only): one TASKFILES_COUNT per queried
+# id matching its rows, and END = the number of records before it, as the last line.
+assert_eq "encoded: TASKFILES_COUNT matches the rows" "TASKFILES_COUNT:80|$(grep -c '^TASKFILES:80|' <<<"$enc")" \
+    "$(grep '^TASKFILES_COUNT:80|' <<<"$enc")"
+assert_eq "encoded: END is last and counts the records before it" "END:$(( $(wc -l <<<"$enc") - 1 ))" \
+    "$(tail -n1 <<<"$enc" | tr -d ' ')"
+assert_eq "default: no attestation records" "0" "$(grep -cE '^(TASKFILES_COUNT|END):' <<<"$raw")"
+
+# A path that is not valid UTF-8 fails the encoded map (exit 2), never emitted raw.
+fx="$(new_repo)"
+( cd "$fx" && printf 'b\n' > "$(printf 'bad\377.py')" && git add -A \
+    && git commit -qm "feature: bad bytes (t81)" ) >/dev/null 2>&1
+rc=0; ra "$fx" --batch-map --encode-paths --ids-from <(printf '81\n') >/dev/null 2>&1 || rc=$?
+assert_eq "encoded map refuses a non-UTF-8 path" "2" "$rc"
+
+# --------------------------------------------------------------------------
 echo ""
 echo "Results: $PASS passed, $FAIL failed (of $TOTAL)"
 [[ "$FAIL" -eq 0 ]]

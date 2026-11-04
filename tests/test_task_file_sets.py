@@ -313,5 +313,83 @@ class RecoveredExpansionTests(unittest.TestCase):
         self.assertNotIn("42", tfs.children_from_commits({"42": {"c.py"}}))
 
 
+class EncodePathsTests(unittest.TestCase):
+    """`--encode-paths` (t1663_1): the OUTPUT framing, which NUL input framing
+    does not protect. A raw newline in any path splits its record -- or forges a
+    `TASKFILES:` line for another id -- so a consumer that must not be fooled
+    opts into encoding every path field."""
+
+    HOSTILE = [b"keep.py", b"keep.py\nnoise", b"x\nTASKFILES:42|keep.py", b"a|b%c.py",
+               b"cr\rname"]
+
+    def setUp(self):
+        self.records = tfs.parse_log_stream(
+            record(SHA_A, b"100", b"feature: hostile names (t42)", self.HOSTILE))
+        self.tracked = [tfs._decode(p) for p in self.HOSTILE]
+
+    def emit(self, encode):
+        return tfs._emit(self.records, self.tracked, {}, {"42"}, False, encode_paths=encode)
+
+    def test_every_record_is_one_line_and_decodes_to_its_path(self):
+        import task_premise
+        lines = self.emit(True)
+        for line in lines:
+            self.assertNotIn("\n", line)
+            self.assertNotIn("\r", line)
+        taskfiles = [l for l in lines if l.startswith("TASKFILES:")]
+        self.assertEqual(len(taskfiles), len(self.HOSTILE))
+        decoded = sorted(task_premise.decode_field(l.split("|", 1)[1]) for l in taskfiles)
+        self.assertEqual(decoded, sorted(tfs._decode(p) for p in self.HOSTILE))
+
+    def test_the_forged_name_yields_no_extra_record(self):
+        joined = "\n".join(self.emit(True))
+        self.assertEqual(joined.count("TASKFILES:42|keep.py\n"), 1)  # the real one only
+        self.assertIn("TASKFILES:42|x%0ATASKFILES:42%7Ckeep.py", joined)
+
+    def test_negative_control_the_default_output_is_forgeable(self):
+        """Proves the fixture is hostile: raw output DOES split and forge records."""
+        joined = "\n".join(self.emit(False)).split("\n")
+        self.assertGreater(sum(1 for l in joined if l == "TASKFILES:42|keep.py"), 1)
+        self.assertIn("noise", joined)
+
+    def test_default_output_shape_is_unchanged(self):
+        plain = tfs.parse_log_stream(record(SHA_A, b"100", b"feature: (t42)", [b"src/a.py"]))
+        raw = tfs._emit(plain, ["src/a.py"], {}, {"42"}, False)
+        encoded = tfs._emit(plain, ["src/a.py"], {}, {"42"}, False, encode_paths=True)
+        attest = ("TASKFILES_COUNT:", "END:")
+        self.assertEqual(raw, [l for l in encoded if not l.startswith(attest)])
+        self.assertFalse([l for l in raw if l.startswith(attest)],
+                         "the default output gains no attestation records")
+        piped = tfs.parse_log_stream(record(SHA_A, b"100", b"feature: (t42)", [b"a|b.py"]))
+        self.assertIn("TASKFILES:42|a|b.py", tfs._emit(piped, [], {}, {"42"}, False))
+        self.assertIn("COMMIT:a|b.py|" + "a" * 40 + "|100|42",
+                      tfs._emit(piped, [], {}, {"42"}, False))
+
+    def test_encode_mode_attests_its_own_completeness(self):
+        """Per-id TASKFILES_COUNT (zero included) and a final END record count, so a
+        consumer can detect a dropped row instead of trusting what it parsed."""
+        lines = tfs._emit(self.records, self.tracked, {}, {"42", "77"}, False, encode_paths=True)
+        self.assertEqual(lines[-1], "END:%d" % (len(lines) - 1))
+        self.assertIn("TASKFILES_COUNT:42|%d" % len(self.HOSTILE), lines)
+        self.assertIn("TASKFILES_COUNT:77|0", lines)
+        self.assertIn("STATUS:77|UNKNOWN_HISTORY", lines)
+        for tid in ("42", "77"):
+            count = [l for l in lines if l.startswith("TASKFILES_COUNT:%s|" % tid)]
+            self.assertEqual(len(count), 1)
+            rows = [l for l in lines if l.startswith("TASKFILES:%s|" % tid)]
+            self.assertEqual(int(count[0].rsplit("|", 1)[1]), len(rows))
+
+    def test_encoding_matches_task_premise(self):
+        import task_premise
+        for raw in self.HOSTILE + [b"%0A", b"%7C", b"%25", b"tail\n"]:
+            value = tfs._decode(raw)
+            self.assertEqual(tfs.encode_field(value), task_premise.encode_field(value))
+
+    def test_a_non_utf8_path_is_refused_in_encode_mode(self):
+        bad = tfs.parse_log_stream(record(SHA_A, b"100", b"feature: (t42)", [b"\xff.py"]))
+        with self.assertRaises(tfs.UnencodablePath):
+            tfs._emit(bad, [], {}, {"42"}, False, encode_paths=True)
+
+
 if __name__ == "__main__":
     unittest.main()

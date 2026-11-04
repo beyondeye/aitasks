@@ -9,8 +9,9 @@ reaches for the filesystem, the clock or a subprocess, that requirement breaks
 and a second definition of "safe" grows back in the roadmap.
 
 The same guard covers t1569_5's own pure modules -- `roadmap_policy` and
-`roadmap_premise` -- because the machinery (an AST scan plus an import with the
-forbidden names poisoned) is generic and duplicating it would give two lists
+`roadmap_premise` -- and t1663_1's premise-staleness core `task_premise`,
+because the machinery (an AST scan plus an import with the forbidden names
+poisoned) is generic and duplicating it would give two lists
 that can disagree about what "pure" means. The file keeps its
 parallel-admission name: renaming it would break every reference in the landed
 t1569_3 plan and its commit trail for no behavioural gain. Its scope is this
@@ -33,7 +34,8 @@ sys.path.insert(0, LIB_DIR)
 
 PURE_MODULES = ("parallel_admission", "parallel_admission_vocab",
                 "parallel_admission_sweep",
-                "roadmap_policy", "roadmap_premise")
+                "roadmap_policy", "roadmap_premise",
+                "task_premise")
 PURE_SOURCES = tuple(os.path.join(LIB_DIR, m + ".py") for m in PURE_MODULES)
 
 # The impure half is allowed all of these; the pure half is allowed none.
@@ -80,6 +82,14 @@ class PoisonedNamespaceTests(unittest.TestCase):
         pa = _fresh_import("parallel_admission")
         self.assertTrue(hasattr(pa, "decide"))
         self.assertTrue(hasattr(vocab, "format_reason"))
+
+    def test_every_pure_module_imports_with_subprocess_poisoned(self):
+        """Listing a module in PURE_MODULES must buy the poisoned import too, not
+        only the AST scan (t1663_1: the check above names two modules by hand)."""
+        self._poison()
+        for name in PURE_MODULES:
+            with self.subTest(module=name):
+                self.assertIsNotNone(_fresh_import(name))
 
     def test_decide_still_emits_the_golden_bytes_while_poisoned(self):
         # Build the golden with a normal import first...

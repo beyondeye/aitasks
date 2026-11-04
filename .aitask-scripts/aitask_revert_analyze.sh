@@ -16,6 +16,7 @@ TASK_ID=""
 LIMIT=20
 IDS_FROM=""
 WITH_RECOVERED=0
+ENCODE_PATHS=0
 BATCH_TMPDIR=""
 
 # --- Helpers ---
@@ -40,6 +41,7 @@ Options:
                           the map discovers.
   --with-recovered        --batch-map: additionally emit the opt-in
                           RECOVERED_* lines (see below)
+  --encode-paths          --batch-map: encode every path field (see below)
   --help, -h              Show this help
 
 Output formats:
@@ -77,6 +79,17 @@ Output formats:
   uncheckable cause or caveat a verdict, and may never assert a conflict or
   move a verdict toward CLEAR. Consumers must not substitute RECOVERED_* for
   TASKFILES:/STATUS:.
+
+--encode-paths (opt-in): every path field above is written raw by default, and
+  the records are newline-framed, so a filename containing a newline splits its
+  record (or forges one). With this flag every path field -- TASKFILES:,
+  COMMIT:, TRACKED:, RECOVERED_TASKFILES: -- is encoded: '%' -> '%25' first,
+  then '|' -> '%7C', LF -> '%0A', CR -> '%0D'; decode '%0D', '%0A', '%7C', then
+  '%25'. A path that is not valid UTF-8 then fails the map (exit 2). The mode
+  also attests completeness: TASKFILES_COUNT:<task_id>|<n> follows each queried
+  id's TASKFILES: rows, and the last line is END:<n>, the number of records
+  before it -- a consumer verifies both instead of trusting what survived its
+  parse. Used by aitask_premise_stale.sh (t1663_1).
 EOF
 }
 
@@ -109,6 +122,7 @@ parse_args() {
                 [[ $# -lt 2 ]] && die "--ids-from requires a file path or '-'"
                 IDS_FROM="$2"; shift 2 ;;
             --with-recovered) WITH_RECOVERED=1; shift ;;
+            --encode-paths) ENCODE_PATHS=1; shift ;;
             --limit)
                 [[ $# -lt 2 ]] && die "--limit requires a number"
                 LIMIT="$2"; shift 2 ;;
@@ -518,6 +532,8 @@ cmd_batch_map() {
 
     local -a rec_args=()
     [[ "$WITH_RECOVERED" -eq 1 ]] && rec_args=(--with-recovered)
+    local -a enc_args=()
+    [[ "$ENCODE_PATHS" -eq 1 ]] && enc_args=(--encode-paths)
 
     git -C "$toplevel" ls-files -z > "$tmpdir/tracked.z"
 
@@ -528,7 +544,8 @@ cmd_batch_map() {
         | "$py" "$SCRIPT_DIR/lib/task_file_sets.py" \
             --root "$toplevel" \
             --tracked-file "$tmpdir/tracked.z" \
-            "${ids_args[@]+"${ids_args[@]}"}" "${rec_args[@]+"${rec_args[@]}"}"
+            "${ids_args[@]+"${ids_args[@]}"}" "${rec_args[@]+"${rec_args[@]}"}" \
+            "${enc_args[@]+"${enc_args[@]}"}"
 }
 
 cmd_find_task() {

@@ -36,12 +36,29 @@ load-bearing and each one is a silent-wrong-answer bug if dropped:
    must resolve to `UNKNOWN_HISTORY`, never to a silently richer file set. The
    commit-derived expansion is still available via `children_from_commits`, but
    only ever as the separately-named, opt-in `RECOVERED_*` product.
+
+The NUL framing protects the INPUT only. The output records are newline-framed
+and, by default, carry paths raw -- so a filename containing a newline splits
+its record and can even forge a `TASKFILES:` line for another id. The default
+shape is kept for its existing consumers; a consumer that must not be fooled by
+a hostile filename passes `--encode-paths` (t1663_1), which encodes every path
+field with `encode_field`: `%` -> `%25` first, then `|` -> `%7C`, LF -> `%0A`,
+CR -> `%0D` (decode in reverse, `%25` last). The mode also ATTESTS its own
+completeness, so a consumer can tell a whole map from a truncated or filtered
+one: after each queried id's `TASKFILES:` rows comes `TASKFILES_COUNT:<id>|<n>`,
+and the last line is `END:<n>`, the number of records before it. In that mode a
+path that is not
+valid UTF-8 is refused outright (exit 2, `UNENCODABLE_PATH:` on stderr) rather
+than written raw -- the default mode leaves it to the interpreter's stdout error
+handler, which is strict under a UTF-8 locale but `surrogateescape` under C.
 """
 
 import glob
 import os
 import re
 import sys
+
+from parallel_admission_vocab import encode_path as _encode_pct_pipe
 
 # Literal `(t<id>)` -- the exact form `--fixed-strings --grep="(t<id>)"` matches.
 TASK_ID_RE = re.compile(rb"\(t(\d+(?:_\d+)?)\)")
@@ -298,21 +315,45 @@ def discovered_ids(own, kids):
 # emit no map at all, not a truncated one.
 
 
-def _emit(records, tracked, kids_disk, queried, with_recovered):
+def encode_field(path):
+    """`--encode-paths` encoding: `%`/`|` (parallel_admission_vocab), then LF, CR.
+
+    The same rule as `task_premise.encode_field`; restated here rather than
+    imported so the batch map never depends on the premise engine.
+    `tests/test_task_file_sets.py` pins the two as identical.
+    """
+    if _SURROGATE_RE.search(path):
+        raise UnencodablePath(path)
+    return _encode_pct_pipe(path).replace("\n", "%0A").replace("\r", "%0D")
+
+
+#: A non-UTF-8 byte survives `_decode` as a lone surrogate (surrogateescape).
+_SURROGATE_RE = re.compile("[\udc80-\udcff]")
+
+
+class UnencodablePath(ValueError):
+    """`--encode-paths` met a path that is not valid UTF-8."""
+
+
+def _emit(records, tracked, kids_disk, queried, with_recovered, encode_paths=False):
     """Build the protocol lines. Returns a list of strings (no trailing \\n)."""
+    enc = encode_field if encode_paths else (lambda path: path)
     own = bucket_own_paths(records)
     seen = matched_ids(records)
     ids = sorted(queried) if queried is not None else sorted(discovered_ids(own, kids_disk))
 
     out = []
     for tid in ids:
-        for path in sorted(paths_for(tid, own, kids_disk)):
-            out.append("TASKFILES:%s|%s" % (tid, path))
+        id_paths = sorted(paths_for(tid, own, kids_disk))
+        for path in id_paths:
+            out.append("TASKFILES:%s|%s" % (tid, enc(path)))
+        if encode_paths:
+            out.append("TASKFILES_COUNT:%s|%d" % (tid, len(id_paths)))
     for path, entries in sorted(commit_index(records).items()):
         for sha, committed_at, task_ids in entries:
-            out.append("COMMIT:%s|%s|%d|%s" % (path, sha, committed_at, ",".join(task_ids)))
+            out.append("COMMIT:%s|%s|%d|%s" % (enc(path), sha, committed_at, ",".join(task_ids)))
     for path in sorted(tracked):
-        out.append("TRACKED:%s" % path)
+        out.append("TRACKED:%s" % enc(path))
     for tid in ids:
         out.append("STATUS:%s|%s" % (tid, status_for(tid, own, kids_disk, seen)))
 
@@ -322,12 +363,14 @@ def _emit(records, tracked, kids_disk, queried, with_recovered):
         for tid in ids:
             rec_paths = paths_for(tid, own, kids_rec)
             for path in sorted(rec_paths):
-                out.append("RECOVERED_TASKFILES:%s|%s" % (tid, path))
+                out.append("RECOVERED_TASKFILES:%s|%s" % (tid, enc(path)))
         for tid in ids:
             out.append("RECOVERED_STATUS:%s|%s" % (tid, status_for(tid, own, kids_rec, seen)))
         for tid in ids:
             extra = paths_for(tid, own, kids_rec) - paths_for(tid, own, kids_disk)
             out.append("RECOVERED_DIVERGES:%s|%d" % (tid, len(extra)))
+    if encode_paths:
+        out.append("END:%d" % len(out))
     return out
 
 
@@ -358,6 +401,8 @@ def main(argv):
     parser.add_argument("--tracked-file", default=None, help="NUL-separated `git ls-files -z` output")
     parser.add_argument("--ids-file", default=None, help="newline-separated ids to report STATUS for")
     parser.add_argument("--with-recovered", action="store_true")
+    parser.add_argument("--encode-paths", action="store_true",
+                        help="encode every path field (%%, |, LF, CR) -- see module doc")
     args = parser.parse_args(argv)
 
     raw = sys.stdin.buffer.read()
@@ -369,13 +414,19 @@ def main(argv):
         sys.stderr.write("FRAMING_ERROR:%d %s\n" % (exc.token_index, exc.detail))
         return 2
 
-    lines = _emit(
-        records,
-        _read_nul_file(args.tracked_file),
-        children_from_disk(args.root, args.task_dir, args.archived_dir),
-        _read_ids_file(args.ids_file),
-        args.with_recovered,
-    )
+    try:
+        lines = _emit(
+            records,
+            _read_nul_file(args.tracked_file),
+            children_from_disk(args.root, args.task_dir, args.archived_dir),
+            _read_ids_file(args.ids_file),
+            args.with_recovered,
+            encode_paths=args.encode_paths,
+        )
+    except UnencodablePath as exc:
+        # Fail closed, like a framing error: no partial map.
+        sys.stderr.write("UNENCODABLE_PATH:%r\n" % (exc.args[0],))
+        return 2
     sys.stdout.write("".join(line + "\n" for line in lines))
     return 0
 
