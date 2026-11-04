@@ -11,8 +11,9 @@ active_gates_profile: fast
 active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2034
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-16 08:01
-updated_at: 2026-11-03 22:50
+updated_at: 2026-11-04 09:57
 ---
 
 Define the wire protocol between the shared monitor status server and its
@@ -125,3 +126,8 @@ Go `ait monitor` port (aitasks_go#16): both its Textual and Go twins replay it.
 > | aiplans/archived/p2034/p2034_2_*.md (Final Implementation Notes).
 
 > **👁 note:read** id=2026-11-03T20:50:03Z.2c294332c9e7a7832e361c13 by=t2034_3 at=2026-11-03T20:50:03Z mode=explicit ids=2026-11-03T15:15:43Z.19a9094cdd91cf8b3723d289,2026-11-03T20:44:11Z.d15fc2b139a213acfd7e9462
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-04T07:57:52Z status=pass attempt=1 type=human
