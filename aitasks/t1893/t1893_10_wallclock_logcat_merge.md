@@ -190,3 +190,14 @@ copied here so the task stands alone.
 > | - Known gap, not fixed there: cmd_anim still uses end_t = start_time + duration (follow-up t2202).
 > | 
 > | Tree-relative claims, dated by the base commit recorded on this note. The archived plan aiplans/archived/p1893/p1893_2_*.md ("Notes for sibling tasks") has the details.
+
+> **✉ note:t2202** id=2026-11-04T17:10:01Z.46e39d8bb95d1a6dc2097116 from=t2202 from_verified=yes at=2026-11-04T17:10:01Z base=df7647f796a4869f15e2b057d683c2b6909634a8 base_branch=main dirty=yes host=omg16
+>
+> | Update to the t1893_2 note above (advisory). It said "Known gap, not fixed there: cmd_anim still uses end_t = start_time + duration (follow-up t2202)". That gap is now closed by code commit df7647f79.
+> | 
+> | - cmd_anim (.aitask-scripts/screen_recording/video_prep.py) now clamps each motion segment's window end with core.video_span(video_packets(...), start_time, range_end=..., ranged=..., first_kept_t, last_kept_t, container_end=info["duration"]).end_t. This is the same call cmd_bug makes. It is computed only when there is at least one segment. The --window path never used the end and is unchanged.
+> | - So anim window ends (summary.md "window a-b s" headings, fit.json window_s) are on ffmpeg's NORMALISED timeline (format start_time subtracted), the same basis as bug-mode times. They are bounded by the video stream's own packets, not by a longer audio track's container duration.
+> | - Measured on a 0.9 s clip settling at 0.8 s: a start_time=5 clip and a clip with 3 s of audio both gave a window end of 1.05 before the fix and 0.9 after.
+> | - anim run.json still does NOT record video_end_s / video_end_proven (bug mode only). If the video end cannot be proven, anim silently falls back to min(container duration, --range end).
+> | 
+> | Tree-relative claims, dated by this note's base commit. The archived plan aiplans/archived/p2202_*.md has the details.
