@@ -1,10 +1,11 @@
 {
   "backend": "local",
   "created_at": 1793786623,
-  "current": "sha256:becea24a250e9e2b744b1eee057e54487652a666c4a218d6e2695d984ffb9b0b",
+  "current": "sha256:8b3b783a06e6710eb26e3d3159b8eef55df1167f257d4391f014b33afa494ec7",
   "handle": "art:trail-screen-recording-expansion",
-  "updated_at": 1793786623,
+  "updated_at": 1793809293,
   "versions": [
-    "sha256:becea24a250e9e2b744b1eee057e54487652a666c4a218d6e2695d984ffb9b0b"
+    "sha256:becea24a250e9e2b744b1eee057e54487652a666c4a218d6e2695d984ffb9b0b",
+    "sha256:8b3b783a06e6710eb26e3d3159b8eef55df1167f257d4391f014b33afa494ec7"
   ]
 }

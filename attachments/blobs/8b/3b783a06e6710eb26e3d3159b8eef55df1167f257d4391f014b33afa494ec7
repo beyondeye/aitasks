@@ -1,0 +1,494 @@
+{
+  "schema_version": "1.1.0",
+  "trail_id": "trail-screen-recording-expansion",
+  "title": "Screen-recording skill expansion",
+  "owner": "aitasks#1893",
+  "scope": {
+    "kind": "topic",
+    "topics": [
+      "aitasks#1887"
+    ],
+    "selection_note": "Topic trail over root t1887 (the archived task that added the aitask-screen-recording skill). Members: t1893, its open children t1893_2..t1893_14, and t1896. t1165 (bug-video evidence pipeline) was considered and left out by the user: it is outside the topic and only overlaps in subject. The owner is t1893 (chosen by the user) because the topic root is archived."
+  },
+  "generation": {
+    "generated_at": "2026-11-04T16:20:06Z",
+    "generator": {
+      "agent_string": "claudecode/opus5_5",
+      "skill": "aitask-trail"
+    },
+    "project_revision": {
+      "aitasks": "604277980"
+    },
+    "input_digest": "329bc6a270f1fcf2",
+    "inputs": [
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1893"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1893_10"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1893_11"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1893_12"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1893_13"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1893_14"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1893_3"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1893_4"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1893_5"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1893_6"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1893_7"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1893_8"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1893_9"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#2202"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#2203"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#2204"
+      }
+    ]
+  },
+  "freshness": {
+    "state": "current",
+    "checked_at": "2026-11-04T16:20:06Z"
+  },
+  "narrative": {
+    "problem_statement": "The aitask-screen-recording skill shipped in t1887. Its docs (t1893_1), the anim-summary fix (t1896) and the freeze/black/silence triage rows (t1893_2) have landed. Sixteen tasks in the topic are open: the t1893 parent, 12 remaining children and three follow-ups t1893_2 spawned (t2202, t2203, t2204). In what order should they land?",
+    "recommendation_summary": "t1893_3 is now the unblocked head of the main chain; follow the recorded chain 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 10 -> 11 one task at a time. Alongside it, land t2202 (anim end fix) before t1893_7, and t1893_13 when convenient; run t2203 (real-recording check) whenever recordings are available. Fold t2204 into t1893_8 or land it just before. Finish with the t1893_14 retrospective and the t1893 parent.",
+    "overview": "t1893_2 and t1896 have landed. With t1893_2 done, t1893_3 (the frames subcommand) is the unblocked head of the main chain. The parent deliberately chains 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 10 -> 11, so that edits to video_prep.py, SKILL.md and the docs pages happen one at a time. Keep that serial.\n\nt1893_2 spawned three follow-ups:\n- t2202 (bug, low effort) fixes anim mode's end time, which still uses the container's start_time + duration rather than the video stream's own coverage on ffmpeg's normalised timeline. Land it before t1893_7, which reworks anim-mode code in the same file.\n- t2203 (manual verification) checks the new detector thresholds on real recordings. It blocks nothing, but its findings are evidence the t1893_14 retrospective asks for.\n- t2204 (low-priority performance) merges the silence and peak-volume audio decodes. Do it with t1893_8 (or fold it into t1893_8), since that task builds on the same bug-mode audio handling.\n\nt1893_13 (missing-dependency hints) is still free to go early. It edits video_prep.py (run(), main(), the preflight), so do not land it concurrently with a chain member. t1893_12 (cross-agent image reading) can start once the picker (t1893_5) lands; it edits the shared tool-mapping files, so give it a wider review. t1893_9 is a low-priority side branch off t1893_7. t1893_10 (wall-clock/logcat merge) has a note in its inbox from t1893_2 about the normalised timeline.\n\nt1893_14, the retrospective on the deferred candidates, waits for 9, 11, 12 and 13, and the t1893 parent closes last. Out of scope: E8 (Chatlink attachments) belongs to t1165 Phase 3.",
+    "method_note": "Lite depth, refreshed from version sha256:becea24a after drift reported t1893_2 and t1896 completed and t2202/t2203/t2204 new in the topic. Membership and depends edges come only from the gatherer snapshot (topic aitasks#1887, owner aitasks#1893, digest 329bc6a270f1fcf2). The new entries' rationale comes from their task descriptions, plus a grep of sibling task bodies for overlap (t1893_7 anim code, t1893_8 audio extraction). Not verified: in-flight work and locks (no --with-inflight); the follow-up/verifies hand sweep (skipped at lite); plan files (none recorded); line numbers inside task bodies; whether t2204 is better folded into t1893_8, which is a judgement for whoever picks t1893_8."
+  },
+  "waves": [
+    {
+      "wave_id": "w1",
+      "ordinal": 1,
+      "title": "Unblocked starts and t1893_2 follow-ups",
+      "purpose": "t1896 and t1893_2 have landed. What remains here is the off-chain dependency hints (t1893_13) and two follow-ups t1893_2 spawned: the anim end-time fix (t2202) and a real-recording check of the new detector thresholds (t2203).",
+      "why_now": "None of them has a prerequisite. t2202 fixes a timeline-origin defect in cmd_anim that t1893_7's anim work would otherwise build on.",
+      "consequence_of_delay": "t1893_7 would extend anim windows that still clamp to the container end, and the t1893_14 retrospective would lack real-recording evidence on the triage thresholds.",
+      "entries": [
+        {
+          "entry_id": "e1896",
+          "task": "aitasks#1896",
+          "topic": "aitasks#1887",
+          "position": 1,
+          "classification": "preferred_predecessor",
+          "snapshot": {
+            "status": "Done",
+            "priority": "medium",
+            "effort": "low",
+            "depends": [],
+            "gates_pending": [],
+            "followup_kind": "upstream_defect"
+          },
+          "rationale": "Landed (archived Done): the anim summary now claims both signals only when p_edge exists. Removes misleading output text that the docs already correct. It touches _write_anim_summary in video_prep.py, which t1893_7 will also change, so landing it first keeps the fix a one-liner.",
+          "confidence": "medium"
+        },
+        {
+          "entry_id": "e1893-2",
+          "task": "aitasks#1893_2",
+          "topic": "aitasks#1887",
+          "position": 2,
+          "classification": "core",
+          "snapshot": {
+            "status": "Done",
+            "priority": "high",
+            "effort": "low",
+            "depends": [
+              "aitasks#1893_1"
+            ],
+            "gates_pending": []
+          },
+          "rationale": "Landed (archived Done): bug mode now emits freeze/black/silence rows with evidence-based ends and a detector-qualified frame per black interval. It spawned t2202, t2203 and t2204 and unblocked t1893_3. Head of the main chain and high value for small effort. Bug recordings that show a hang or a black flash currently get no labelled rows, and t1893_3 waits on this task.",
+          "confidence": "high"
+        },
+        {
+          "entry_id": "e1893-13",
+          "task": "aitasks#1893_13",
+          "topic": "aitasks#1887",
+          "position": 3,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "low",
+            "effort": "low",
+            "depends": [
+              "aitasks#1893_1"
+            ],
+            "gates_pending": []
+          },
+          "rationale": "Replaces the bare 'ffprobe not found' error with per-OS install hints and an ffmpeg >= 5.1 check. It is off-chain but edits video_prep.py, so land it next to t1893_2 rather than at the same time. The retrospective waits on it.",
+          "confidence": "medium"
+        },
+        {
+          "entry_id": "e2202",
+          "task": "aitasks#2202",
+          "topic": "aitasks#1887",
+          "position": 4,
+          "classification": "preferred_predecessor",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "low",
+            "depends": [],
+            "gates_pending": [
+              "risk_evaluated"
+            ],
+            "followup_kind": "upstream_defect"
+          },
+          "rationale": "Upstream defect found by t1893_2: cmd_anim sets end_t = start_time + duration, but its windows are on ffmpeg's normalised timeline, and the container duration can be a longer audio track's. The fix reuses core.video_span() from t1893_2 (low effort). Land it before t1893_7, which reworks anim-mode code in the same file.",
+          "confidence": "medium"
+        },
+        {
+          "entry_id": "e2203",
+          "task": "aitasks#2203",
+          "topic": "aitasks#1887",
+          "position": 5,
+          "classification": "optional",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "low",
+            "depends": [],
+            "gates_pending": [],
+            "followup_kind": "risk_mitigation"
+          },
+          "rationale": "Risk-mitigation follow-up of t1893_2 (manual verification): check the freeze/black/silence rows on real device recordings (dark mode, a real hang, a black flash, an audio gap). It needs a person with recordings and blocks nothing, but its findings are input to the t1893_14 retrospective and may adjust thresholds before more docs build on them.",
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "wave_id": "w2",
+      "ordinal": 2,
+      "title": "Image-sequence foundation",
+      "purpose": "Build the extract -> edit -> feed flow: exact full-resolution frames with a geometry/hash manifest, then sheets from any image folder.",
+      "why_now": "The picker and folder-input children both consume the frames manifest and the shared filename-timestamp parser.",
+      "entries": [
+        {
+          "entry_id": "e1893-3",
+          "task": "aitasks#1893_3",
+          "topic": "aitasks#1887",
+          "position": 1,
+          "classification": "hard_prerequisite",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "high",
+            "effort": "medium",
+            "depends": [
+              "aitasks#1893_2"
+            ],
+            "gates_pending": []
+          },
+          "rationale": "Introduces the frames subcommand, ms-named files and frames.tsv. The filename-timestamp parser it adds to vp_core.py is reused by sheet, the picker and folder input.",
+          "confidence": "high"
+        },
+        {
+          "entry_id": "e1893-4",
+          "task": "aitasks#1893_4",
+          "topic": "aitasks#1887",
+          "position": 2,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "high",
+            "effort": "low",
+            "depends": [
+              "aitasks#1893_3"
+            ],
+            "gates_pending": []
+          },
+          "rationale": "Lets user-edited images be fed back as labelled sheets, which completes the flow the user asked for. The picker uses it to make a sheet of just the selection.",
+          "confidence": "high"
+        }
+      ]
+    },
+    {
+      "wave_id": "w3",
+      "ordinal": 3,
+      "title": "Picker, folder input, other agents",
+      "purpose": "Ship the visual frame picker, let bug/anim mode run on a curated image folder, and make sure Codex, OpenCode and agy can actually view the images.",
+      "why_now": "All three depend on t1893_5, and the folder-input child must come before the animation-signal work in the chain.",
+      "entries": [
+        {
+          "entry_id": "e1893-5",
+          "task": "aitasks#1893_5",
+          "topic": "aitasks#1887",
+          "position": 1,
+          "classification": "hard_prerequisite",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "high",
+            "effort": "medium",
+            "depends": [
+              "aitasks#1893_4"
+            ],
+            "gates_pending": []
+          },
+          "rationale": "The user's explicit request for a serverless HTML picker. It adds the 'pick frames?' AskUserQuestion step that t1893_12 has to validate on other agents.",
+          "confidence": "high"
+        },
+        {
+          "entry_id": "e1893-6",
+          "task": "aitasks#1893_6",
+          "topic": "aitasks#1887",
+          "position": 2,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "medium",
+            "depends": [
+              "aitasks#1893_5"
+            ],
+            "gates_pending": []
+          },
+          "rationale": "Accepts an image folder as input to bug/anim mode and makes gap detection explicit, so timing from a sequence with deleted frames is not reported as native-frame accurate.",
+          "confidence": "high"
+        },
+        {
+          "entry_id": "e1893-12",
+          "task": "aitasks#1893_12",
+          "topic": "aitasks#1887",
+          "position": 3,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "medium",
+            "depends": [
+              "aitasks#1893_5"
+            ],
+            "gates_pending": []
+          },
+          "rationale": "Fixes a known gap: the Codex wrapper reads images with cat, so it cannot view the sheets. It edits tool-mapping files shared by every skill, so the change needs a cross-skill impact check. It is a side branch, not part of the chain.",
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "wave_id": "w4",
+      "ordinal": 4,
+      "title": "Animation signals",
+      "purpose": "Add the shift signal for full-screen push/slide transitions, then the optional spring initial-velocity fit on top of it.",
+      "why_now": "t1893_7 is next in the chain, and both t1893_8 and t1893_9 depend on it.",
+      "entries": [
+        {
+          "entry_id": "e1893-7",
+          "task": "aitasks#1893_7",
+          "topic": "aitasks#1887",
+          "position": 1,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "high",
+            "effort": "medium",
+            "depends": [
+              "aitasks#1893_6"
+            ],
+            "gates_pending": []
+          },
+          "rationale": "Push/slide is the most common transition, and today's signals both fail on it, falling back to the blend proxy. It changes how the summary names the chosen signal, which is why t1896 should land first.",
+          "confidence": "high"
+        },
+        {
+          "entry_id": "e1893-9",
+          "task": "aitasks#1893_9",
+          "topic": "aitasks#1887",
+          "position": 2,
+          "classification": "optional",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "low",
+            "effort": "medium",
+            "depends": [
+              "aitasks#1893_7"
+            ],
+            "gates_pending": []
+          },
+          "rationale": "The user asked for this at low priority. It must keep the zero-velocity results unchanged, and only the retrospective waits on it, so it can slip without blocking the chain.",
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "wave_id": "w5",
+      "ordinal": 5,
+      "title": "Timeline enrichment and output home",
+      "purpose": "Merge what was said (whisper transcript) and what was logged (logcat with labelled wall-clock confidence) into the timeline, then move outputs to a gitignored repo work dir with a clean subcommand.",
+      "why_now": "This is the tail of the main chain. t1893_11 also touches aitask_setup.sh, so it comes last, after the video_prep.py churn has settled.",
+      "entries": [
+        {
+          "entry_id": "e2204",
+          "task": "aitasks#2204",
+          "topic": "aitasks#1887",
+          "position": 1,
+          "classification": "optional",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "low",
+            "effort": "medium",
+            "depends": [],
+            "gates_pending": [
+              "risk_evaluated"
+            ],
+            "followup_kind": "review_finding"
+          },
+          "rationale": "Review-finding follow-up of t1893_2: collect silence and peak volume in one audio decode. It is low priority, but t1893_8 adds a transcription pass to the same bug-mode audio handling, so do it just before t1893_8 or fold it into t1893_8, rather than letting the two edit the audio passes separately.",
+          "confidence": "low"
+        },
+        {
+          "entry_id": "e1893-8",
+          "task": "aitasks#1893_8",
+          "topic": "aitasks#1887",
+          "position": 2,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "medium",
+            "depends": [
+              "aitasks#1893_7"
+            ],
+            "gates_pending": []
+          },
+          "rationale": "Narrated recordings happen only occasionally, which is why the user placed this after push/slide. It is optional at runtime and only runs when whisper-cli is detected. t1893_10 waits on it.",
+          "confidence": "high"
+        },
+        {
+          "entry_id": "e1893-10",
+          "task": "aitasks#1893_10",
+          "topic": "aitasks#1887",
+          "position": 3,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "high",
+            "effort": "medium",
+            "depends": [
+              "aitasks#1893_8"
+            ],
+            "gates_pending": []
+          },
+          "rationale": "High value for Android bugs: logcat rows interleaved with frames, with every wall-clock inference labelled by confidence. It goes after the transcript because both add rows to the same timeline writer.",
+          "confidence": "high"
+        },
+        {
+          "entry_id": "e1893-11",
+          "task": "aitasks#1893_11",
+          "topic": "aitasks#1887",
+          "position": 4,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "low",
+            "depends": [
+              "aitasks#1893_10"
+            ],
+            "gates_pending": []
+          },
+          "rationale": "Moves outputs to .aitask-screen-recording/, checked with git check-ignore, and adds an idempotent setup gitignore rule. Read aidocs/framework/aitasks_extension_points.md before editing aitask_setup.sh.",
+          "confidence": "high"
+        }
+      ]
+    },
+    {
+      "wave_id": "w6",
+      "ordinal": 6,
+      "title": "Retrospective and close-out",
+      "purpose": "Re-evaluate the deferred candidates against real usage, then close the umbrella.",
+      "why_now": "t1893_14 depends on 9, 11, 12 and 13 and needs evidence from real use, and the parent closes after its children.",
+      "entries": [
+        {
+          "entry_id": "e1893-14",
+          "task": "aitasks#1893_14",
+          "topic": "aitasks#1887",
+          "position": 1,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "low",
+            "effort": "low",
+            "depends": [
+              "aitasks#1893_11",
+              "aitasks#1893_12",
+              "aitasks#1893_13",
+              "aitasks#1893_9"
+            ],
+            "gates_pending": []
+          },
+          "rationale": "Records an evidence-backed decision on each of E6 and E10-E13, and checks how t1165 is doing. It is not meant to create speculative tasks, so it is pointless before the skill has seen real use.",
+          "confidence": "high"
+        },
+        {
+          "entry_id": "e1893",
+          "task": "aitasks#1893",
+          "topic": "aitasks#1887",
+          "position": 2,
+          "classification": "coordination_only",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "high",
+            "depends": [],
+            "gates_pending": []
+          },
+          "rationale": "The umbrella parent. It holds the decision table and the rules every child follows (docs are part of each child's deliverable), and it closes once its children land.",
+          "confidence": "high"
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    {
+      "evidence_id": "ev-snapshot",
+      "source_type": "command_output",
+      "ref": "./.aitask-scripts/aitask_trail_gather.sh snapshot --scope topic --owner aitasks#1893 --allow-archived-owner aitasks#1887",
+      "observed_at": "2026-11-04T16:20:06Z",
+      "summary": "Topic aitasks#1887, owner aitasks#1893: 16 Ready members (t1893, t1893_3..t1893_14, t2202, t2203, t2204); t1893_2 and t1896 archived Done; no plan files; digest 329bc6a270f1fcf2. Gates declared: t2202 and t2204 (risk_evaluated)."
+    }
+  ],
+  "rendering_hints": {
+    "depth": "lite"
+  }
+}
