@@ -1005,6 +1005,91 @@ assert_eq_trim "12b: HEAD carries the anchored form" "1" \
 
 rm -rf "$TMPDIR_12B"
 
+# --- Test 12c: Step 7 restores a lost link rule (t2188) ---
+# Step 7 used to key the whole task-data block on its `/.aitask-data` line
+# alone. A .gitignore that kept that line but lost `/aitasks` (a hand edit) got
+# nothing back, and the root aitasks symlink showed as untracked, exposed to a
+# broad `git add -A`. Each anchored rule is now checked on its own, so exactly
+# the missing one is added, and committed with the branch switch.
+echo "--- Test 12c: Step 7 restores a lost link rule ---"
+
+TMPDIR_12C="$(setup_repo_with_remote)"
+SCRIPT_DIR="$TMPDIR_12C/local/.aitask-scripts"
+mkdir -p "$SCRIPT_DIR" "$TMPDIR_12C/local/seed"
+cp "$PROJECT_DIR/seed/aitasks_agent_instructions.seed.md" "$TMPDIR_12C/local/seed/"
+cp "$PROJECT_DIR/seed/project_config.yaml" "$TMPDIR_12C/local/seed/"
+T12C_LOST="${AIT_DATA_LINKS[0]}"
+(
+    cd "$TMPDIR_12C/local" || exit 1
+    {
+        echo "node_modules/"
+        echo ""
+        echo "# Task data (lives on aitask-data branch, accessed via symlinks)"
+        echo "/$AIT_DATA_DIR_NAME"
+        for name in "${AIT_DATA_LINKS[@]}"; do
+            [[ "$name" == "$T12C_LOST" ]] || echo "/$name"
+        done
+    } > .gitignore
+    git add .gitignore
+    git commit -m "init gitignore missing a link rule" --quiet
+    git push --quiet 2>/dev/null
+)
+assert_eq_trim "12c: precondition: HEAD carries /$AIT_DATA_DIR_NAME" "1" \
+    "$(git -C "$TMPDIR_12C/local" show HEAD:.gitignore | grep -cxF -- "/$AIT_DATA_DIR_NAME" | tr -d ' ')"
+assert_eq_trim "12c: precondition: HEAD lacks /$T12C_LOST" "0" \
+    "$(git -C "$TMPDIR_12C/local" show HEAD:.gitignore | grep -cxF -- "/$T12C_LOST" | tr -d ' ')"
+
+(cd "$TMPDIR_12C/local" && setup_data_branch </dev/null >/dev/null 2>&1)
+
+for name in "$AIT_DATA_DIR_NAME" "${AIT_DATA_LINKS[@]}"; do
+    assert_eq_trim "12c: exactly one anchored '/$name' line" "1" \
+        "$(grep -cxF -- "/$name" "$TMPDIR_12C/local/.gitignore" 2>/dev/null | tr -d ' ')"
+done
+assert_data_symlinks_ignored "12c: repaired .gitignore" "$TMPDIR_12C/local/.gitignore"
+assert_symlink "12c: root $T12C_LOST is the data symlink" "$TMPDIR_12C/local/$T12C_LOST"
+assert_eq_trim "12c: root $T12C_LOST symlink not untracked" "" \
+    "$(git -C "$TMPDIR_12C/local" status --porcelain -- "$T12C_LOST")"
+assert_eq_trim "12c: .gitignore committed (not left dirty)" "" \
+    "$(git -C "$TMPDIR_12C/local" status --porcelain -- .gitignore)"
+assert_eq_trim "12c: HEAD carries /$T12C_LOST" "1" \
+    "$(git -C "$TMPDIR_12C/local" show HEAD:.gitignore | grep -cxF -- "/$T12C_LOST" | tr -d ' ')"
+
+rm -rf "$TMPDIR_12C"
+
+# --- Test 12d: a complete CRLF task-data block is left alone (t2188) ---
+# A core.autocrlf=true checkout carries CRLF lines. Git strips the CR before
+# matching, so `/aitasks\r` already ignores the symlink; the per-rule check
+# must count it as present rather than append an LF duplicate.
+echo "--- Test 12d: a complete CRLF task-data block is left alone ---"
+
+TMPDIR_12D="$(setup_repo_with_remote)"
+SCRIPT_DIR="$TMPDIR_12D/local/.aitask-scripts"
+mkdir -p "$SCRIPT_DIR" "$TMPDIR_12D/local/seed"
+cp "$PROJECT_DIR/seed/aitasks_agent_instructions.seed.md" "$TMPDIR_12D/local/seed/"
+cp "$PROJECT_DIR/seed/project_config.yaml" "$TMPDIR_12D/local/seed/"
+(
+    cd "$TMPDIR_12D/local" || exit 1
+    {
+        printf 'node_modules/\r\n'
+        printf '# Task data (lives on aitask-data branch, accessed via symlinks)\r\n'
+        for name in "$AIT_DATA_DIR_NAME" "${AIT_DATA_LINKS[@]}"; do printf '/%s\r\n' "$name"; done
+    } > .gitignore
+    git add .gitignore
+    git commit -m "init CRLF gitignore" --quiet
+    git push --quiet 2>/dev/null
+)
+
+(cd "$TMPDIR_12D/local" && setup_data_branch </dev/null >/dev/null 2>&1)
+
+for name in "$AIT_DATA_DIR_NAME" "${AIT_DATA_LINKS[@]}"; do
+    assert_eq_trim "12d: '/$name' counted once (CR-tolerant)" "1" \
+        "$(grep -cxF -e "/$name" -e "/$name"$'\r' -- "$TMPDIR_12D/local/.gitignore" 2>/dev/null | tr -d ' ')"
+done
+assert_eq_trim "12d: no second task-data block" "1" \
+    "$(grep -cF "# Task data (lives on aitask-data branch" "$TMPDIR_12D/local/.gitignore" 2>/dev/null | tr -d ' ')"
+
+rm -rf "$TMPDIR_12D"
+
 # --- Test 13: setup_worktree_dirs_gitignore (t1616) ---
 #
 # The framework creates two worktree trees inside the project — aiwork/<task>
@@ -2150,6 +2235,9 @@ rm -rf "$T39B"
 # fails is the fault's doing.
 echo "--- Test 40: Step 7 survives a .gitignore it cannot write (t2185) ---"
 t40_log="$(mktemp)"
+# The anchored task-data rules, space-separated, as the per-rule writer names
+# them in its messages (t2188).
+t40_data_rules="/$AIT_DATA_DIR_NAME$(printf ' /%s' "${AIT_DATA_LINKS[@]}")"
 # t40_run <dir> -> status (124 = did not return in time); output in $t40_log.
 t40_run() {
     run_bounded 30 "$t40_log" env HOME="$1/home-scratch" bash -c '
@@ -2200,14 +2288,20 @@ for fault in clean readonly directory fifo; do
             "$(git -C "$d" show --name-only --format='' HEAD)"
         assert_not_contains "40 clean: no failure warning" "Could not add" "$out"
     else
-        assert_contains "40 $fault: data block reported, nothing written" \
-            "Could not add the task data entries to .gitignore — left unchanged" "$out"
+        # The task-data rules go through the per-rule writer (t2188): its
+        # warning names every rule and offers re-running setup, which is true —
+        # in branch mode the re-run repair adds missing data rules (checked
+        # below, once the fault is cleared).
+        assert_contains "40 $fault: data rules reported, nothing written" \
+            "Could not add $t40_data_rules to .gitignore — left unchanged" "$out"
+        assert_contains "40 $fault: data rules' hand fix names the data line" "'/$AIT_DATA_DIR_NAME'" "$out"
+        assert_contains "40 $fault: data rules' remedy offers the re-run" "or re-run 'ait setup'" "$out"
         assert_contains "40 $fault: rendered-skill block reported, nothing written" \
             "Could not add the rendered-skill entries to .gitignore — left unchanged" "$out"
-        # Step 7 never runs again once the data worktree exists, so re-running
-        # setup is no remedy: the warning must say so and give the lines.
-        assert_contains "40 $fault: no false re-run remedy" "does not retry this step" "$out"
-        assert_contains "40 $fault: hand fix names the data line" "    /$AIT_DATA_DIR_NAME" "$out"
+        # The rendered-skill block is written by Step 7 alone, which never runs
+        # again once the data worktree exists, so re-running setup is no remedy
+        # for it: its warning must say so and give the lines.
+        assert_contains "40 $fault: no false re-run remedy for the skill block" "does not retry this step" "$out"
         assert_contains "40 $fault: hand fix names the skill pattern" "    .claude/skills/*-/" "$out"
         assert_eq "40 $fault: no new commit" "$before" "$(git -C "$d" rev-list --count HEAD)"
         case "$fault" in
@@ -2216,6 +2310,24 @@ for fault in clean readonly directory fifo; do
                 "$([[ -d "$d/.gitignore" && ! -L "$d/.gitignore" ]] && echo yes)" ;;
             fifo) assert_eq "40 fifo: still a FIFO" "yes" "$([[ -p "$d/.gitignore" ]] && echo yes)" ;;
         esac
+        # The re-run remedy is real: clear the fault, then run the repair a
+        # later `ait setup` (and `ait upgrade`) runs. The data worktree now
+        # exists, so it adds every missing anchored data rule.
+        case "$fault" in
+            readonly) chmod 644 "$d/.gitignore" ;;
+            directory) rmdir "$d/.gitignore"; : > "$d/.gitignore" ;;
+            fifo) rm -f "$d/.gitignore"; : > "$d/.gitignore" ;;
+        esac
+        t40_saved_script_dir="$SCRIPT_DIR"
+        SCRIPT_DIR="$d/.aitask-scripts"
+        rerun_out="$(setup_data_gitignore_symlink_safe 2>&1)"
+        SCRIPT_DIR="$t40_saved_script_dir"
+        assert_contains "40 $fault: the re-run repair adds the data rules" \
+            "Added $t40_data_rules to .gitignore" "$rerun_out"
+        for name in "$AIT_DATA_DIR_NAME" "${AIT_DATA_LINKS[@]}"; do
+            assert_eq_trim "40 $fault: re-run leaves exactly one /$name" "1" \
+                "$(grep -cxF -- "/$name" "$d/.gitignore" 2>/dev/null | tr -d ' ')"
+        done
     fi
     chmod -R u+w "$d" 2>/dev/null
     rm -rf "$d"
@@ -2225,38 +2337,40 @@ rm -f "$t40_log"
 # --- Test 40b: the Step 7 block writer, case by case (t2185) ---
 # _ait_ensure_gitignore_block <gitignore> <guard> <line>... -> 0 appended,
 # 1 already present, 2 could not inspect or write. Pins the success bytes (the
-# old Step 7 echo blocks: a blank line, then the block), both guards, and the
-# two deliberate edge changes: an unreadable regular file and a dangling
+# old Step 7 echo blocks: a blank line, then the block), the skill guard, and
+# the two deliberate edge changes: an unreadable regular file and a dangling
 # symlink now get a warning instead of a blind append / a created target.
+# The writer's own contract is guard-agnostic; Step 7 now passes it the skill
+# guard only (its task-data rules moved to the per-rule writer, t2188), so the
+# line-guard cases below use t40b_guard, a whole-line test-local stand-in.
 echo "--- Test 40b: _ait_ensure_gitignore_block contract (t2185) ---"
 T40B="$(mktemp -d)"
 mkdir -p "$T40B/home-scratch"
 t40b_block=("# Test block" "/$AIT_DATA_DIR_NAME" "/aitasks")
+# t40b_guard <file>: grep's status for a whole `/.aitask-data` line, LF or CRLF.
+t40b_guard() {
+    grep -qxF -e "/$AIT_DATA_DIR_NAME" -e "/$AIT_DATA_DIR_NAME"$'\r' -- "$1" 2>/dev/null
+}
 
 # Append to an existing file, then find it on the second call.
 printf 'base-rule\n' > "$T40B/gi"
-rc=0; _ait_ensure_gitignore_block "$T40B/gi" _ait_gitignore_has_data_block "${t40b_block[@]}" || rc=$?
+rc=0; _ait_ensure_gitignore_block "$T40B/gi" t40b_guard "${t40b_block[@]}" || rc=$?
 assert_eq "40b: append returns 0" "0" "$rc"
 assert_eq "40b: exact bytes appended (blank line, then the block)" \
     "$(printf 'base-rule\n\n# Test block\n/%s\n/aitasks\n' "$AIT_DATA_DIR_NAME"; echo .)" \
     "$(cat "$T40B/gi"; echo .)"
-rc=0; _ait_ensure_gitignore_block "$T40B/gi" _ait_gitignore_has_data_block "${t40b_block[@]}" || rc=$?
+rc=0; _ait_ensure_gitignore_block "$T40B/gi" t40b_guard "${t40b_block[@]}" || rc=$?
 assert_eq "40b: second call finds the block (1)" "1" "$rc"
 assert_eq "40b: block not duplicated" "1" "$(grep -cxF "/$AIT_DATA_DIR_NAME" "$T40B/gi")"
 
 # No .gitignore at all: created, with the same leading blank line as before.
-rc=0; _ait_ensure_gitignore_block "$T40B/new" _ait_gitignore_has_data_block "${t40b_block[@]}" || rc=$?
+rc=0; _ait_ensure_gitignore_block "$T40B/new" t40b_guard "${t40b_block[@]}" || rc=$?
 assert_eq "40b: absent file — created (0)" "0" "$rc"
 assert_eq "40b: absent file — exact bytes" \
     "$(printf '\n# Test block\n/%s\n/aitasks\n' "$AIT_DATA_DIR_NAME"; echo .)" \
     "$(cat "$T40B/new"; echo .)"
 
-# The data guard still accepts a CRLF line; the skill guard is a substring match.
-printf 'foo\r\n/%s\r\n' "$AIT_DATA_DIR_NAME" > "$T40B/crlf"
-cp "$T40B/crlf" "$T40B/crlf.before"
-rc=0; _ait_ensure_gitignore_block "$T40B/crlf" _ait_gitignore_has_data_block "${t40b_block[@]}" || rc=$?
-assert_eq "40b: CRLF data line found (1)" "1" "$rc"
-assert_exit_zero "40b: CRLF file byte-identical" cmp -s "$T40B/crlf.before" "$T40B/crlf"
+# The skill guard is a substring match (a CRLF line still contains it).
 printf '.claude/skills/*-/\r\n' > "$T40B/skill"
 rc=0; _ait_ensure_gitignore_block "$T40B/skill" _ait_gitignore_has_skill_block ".claude/skills/*-/" || rc=$?
 assert_eq "40b: skill guard finds its pattern (1)" "1" "$rc"
@@ -2269,7 +2383,7 @@ assert_eq "40b: skill guard finds its pattern (1)" "1" "$rc"
 # separator write) inside the substitution's subshell. Control first: with no
 # fault, `keep-me` stays a line of its own.
 printf 'keep-me' > "$T40B/nonl-ok"
-rc=0; _ait_ensure_gitignore_block "$T40B/nonl-ok" _ait_gitignore_has_data_block "${t40b_block[@]}" || rc=$?
+rc=0; _ait_ensure_gitignore_block "$T40B/nonl-ok" t40b_guard "${t40b_block[@]}" || rc=$?
 assert_eq "40b no-newline control: append returns 0" "0" "$rc"
 assert_exit_zero "40b no-newline control: 'keep-me' still a whole line" grep -qxF "keep-me" "$T40B/nonl-ok"
 printf 'keep-me' > "$T40B/nonl"
@@ -2278,7 +2392,7 @@ sep_out="$(
     # shellcheck disable=SC2329  # shadows the builtin the helper calls
     echo() { return 1; }
     rc=0
-    _ait_ensure_gitignore_block "$T40B/nonl" _ait_gitignore_has_data_block "${t40b_block[@]}" || rc=$?
+    _ait_ensure_gitignore_block "$T40B/nonl" t40b_guard "${t40b_block[@]}" || rc=$?
     printf 'rc=%s partial=%s' "$rc" "$_ait_gitignore_partial"
 )"
 assert_eq "40b separator fault: reported as a failure, nothing partial" "rc=2 partial=" "$sep_out"
@@ -2291,7 +2405,7 @@ chmod 200 "$T40B/wo"
 if [[ -r "$T40B/wo" ]]; then
     echo "SKIP: 40b write-only (mode ignored for this user)"
 else
-    rc=0; _ait_ensure_gitignore_block "$T40B/wo" _ait_gitignore_has_data_block "${t40b_block[@]}" || rc=$?
+    rc=0; _ait_ensure_gitignore_block "$T40B/wo" t40b_guard "${t40b_block[@]}" || rc=$?
     assert_eq "40b: unreadable file reports 2" "2" "$rc"
     chmod 600 "$T40B/wo"
     assert_eq "40b: unreadable file unchanged" "base-rule" "$(cat "$T40B/wo")"
@@ -2300,7 +2414,7 @@ fi
 # A dangling symlink: refused, the link left as it is, its target not created.
 # The old Step 7 created the target and committed the link (t2185 pre-phase probe).
 ln -s gi-missing-target "$T40B/.gitignore"
-rc=0; _ait_ensure_gitignore_block "$T40B/.gitignore" _ait_gitignore_has_data_block "${t40b_block[@]}" || rc=$?
+rc=0; _ait_ensure_gitignore_block "$T40B/.gitignore" t40b_guard "${t40b_block[@]}" || rc=$?
 assert_eq "40b dangling: reports 2" "2" "$rc"
 assert_eq "40b dangling: nothing partial" "" "$_ait_gitignore_partial"
 assert_eq "40b dangling: still a symlink" "yes" "$([[ -L "$T40B/.gitignore" ]] && echo yes)"
@@ -2319,10 +2433,11 @@ t40b_log="$(mktemp)"
 rc=0
 run_bounded 15 "$t40b_log" env HOME="$T40B/home-scratch" bash -c '
     source "$1" --source-only
+    t40b_guard() { grep -qxF -e "/$AIT_DATA_DIR_NAME" -- "$1" 2>/dev/null; }
     { trap "" XFSZ; ulimit -f 1
       block=("# Task data (lives on aitask-data branch, accessed via symlinks)" "/$AIT_DATA_DIR_NAME" "/aitasks" "/aiplans")
       blk=0
-      _ait_ensure_gitignore_block "$2" _ait_gitignore_has_data_block "${block[@]}" || blk=$?
+      _ait_ensure_gitignore_block "$2" t40b_guard "${block[@]}" || blk=$?
       echo "BLK_RC=$blk"
       [[ "$blk" -ne 2 ]] || _ait_warn_gitignore_block_failed "task data" "The task data symlinks" "${block[@]}"
       echo SURVIVED; } 2>&1 | cat' _ "$PROJECT_DIR/.aitask-scripts/aitask_setup.sh" "$T40B/partial" || rc=$?

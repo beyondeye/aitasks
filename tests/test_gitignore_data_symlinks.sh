@@ -275,6 +275,27 @@ assert_contains "D4: repair step warns it could not rewrite" "Could not rewrite"
 assert_not_contains "D4: repair step does not claim already-safe" "already symlink-safe" "$d4_out"
 assert_eq "D4: the FIFO is left in place" "yes" "$([[ -p "$D4_PROJ/.gitignore" ]] && echo yes)"
 rm -f "$D4_PROJ/.gitignore"
+
+# D4b: the same FIFO in BRANCH mode (t2188), where the repair also tries to add
+# missing anchored data rules after the rewrite. That add half must refuse the
+# FIFO too, not block on it, and must not claim it added anything.
+mkdir -p "$D4_PROJ/$AIT_DATA_DIR_NAME/.git"
+mkfifo "$D4_PROJ/.gitignore"
+rc=0
+run_bounded 15 "$WORK/d4b.log" env HOME="$D4_PROJ/home-scratch" bash -c '
+    source "$1" --source-only
+    [[ $- == *e* ]] && echo ERREXIT_ON
+    SCRIPT_DIR="$2/.aitask-scripts"
+    setup_data_gitignore_symlink_safe
+    echo SURVIVED' _ "$PROJECT_DIR/.aitask-scripts/aitask_setup.sh" "$D4_PROJ" || rc=$?
+d4_out="$(cat "$WORK/d4b.log")"
+assert_eq "D4b: branch-mode FIFO — child returns 0 within 15s (124 = hung)" "0" "$rc"
+assert_contains "D4b: child shell has errexit (control)" "ERREXIT_ON" "$d4_out"
+assert_contains "D4b: repair step survives setup's errexit" "SURVIVED" "$d4_out"
+assert_contains "D4b: the add half reports it could not add" "Could not add" "$d4_out"
+assert_not_contains "D4b: no 'Added' claim" "Added " "$d4_out"
+assert_eq "D4b: the FIFO is left in place" "yes" "$([[ -p "$D4_PROJ/.gitignore" ]] && echo yes)"
+rm -f "$D4_PROJ/.gitignore"
 SCRIPT_DIR="$SETUP_SCRIPT_DIR_SAVED"
 
 # --- Case E: the repair keeps the file's mode and writes through a symlink ----
@@ -483,6 +504,157 @@ out="$(_ait_report_unhidden_nested_data_paths "$G6" 2>&1)"
 assert_eq "G7: ten paths shown" "10" "$(listed_lines "$out" | grep -cv '^… and ')"
 assert_contains "G7: remainder counts distinct directories only" "… and 1190 more" "$out"
 unset -f git
+
+# --- Case H: the repair restores missing anchored rules, in branch mode only --
+# setup_data_branch Step 7 runs once, on first configuration, so the re-run
+# repair is the only route that reaches an existing install. Before t2188 it
+# rewrote legacy lines but never ADDED a missing one: a .gitignore that kept
+# `/.aitask-data` but lost `/aitasks` left the root symlink untracked forever.
+# The add half runs only when the project has a data worktree
+# (.aitask-data/.git): in legacy mode aitasks/ is tracked task data, and
+# ignoring it would hide every new task file (H2).
+echo "--- Case H: repair restores missing data rules (branch mode only) ---"
+H_SAVED_SCRIPT_DIR="$SCRIPT_DIR"
+H_LINK="${AIT_DATA_LINKS[0]}"
+H_COMMENT="# Task data (lives on aitask-data branch, accessed via symlinks)"
+
+# h_proj <dir> <branch|legacy> <gitignore-body>: a project whose repair target
+# is <dir>/.gitignore. "branch" adds the .aitask-data/.git marker the repair
+# keys on; "legacy" leaves it out. Points SCRIPT_DIR at it.
+h_proj() {
+    mkdir -p "$1/.aitask-scripts"
+    [[ "$2" == branch ]] && mkdir -p "$1/$AIT_DATA_DIR_NAME/.git"
+    printf '%s' "$3" > "$1/.gitignore"
+    SCRIPT_DIR="$1/.aitask-scripts"
+}
+# h_count <file> <name>: lines equal to /<name>, LF or CRLF.
+h_count() { grep -cxF -e "/$2" -e "/$2"$'\r' -- "$1" 2>/dev/null | tr -d ' '; }
+# run_h -> H_RC / H_OUT from the user-facing re-run step.
+run_h() { H_RC=0; H_OUT="$(setup_data_gitignore_symlink_safe 2>&1)" || H_RC=$?; }
+
+# Every anchored data rule except /<H_LINK>.
+h_missing_link=""
+for name in "${NAMES[@]}"; do
+    [[ "$name" == "$H_LINK" ]] || h_missing_link+="/$name"$'\n'
+done
+
+# H1: branch mode, one link rule missing: exactly that rule is added, under the
+# block comment, and the result ignores every root symlink.
+H1="$WORK/h1"
+h_proj "$H1" branch "node_modules/"$'\n'"$h_missing_link"
+run_h
+assert_eq "H1: repair stays non-fatal" "0" "$H_RC"
+assert_contains "H1: reports the added rule" "Added /$H_LINK to .gitignore" "$H_OUT"
+assert_not_contains "H1: no 'already safe' claim beside the add" "already symlink-safe" "$H_OUT"
+assert_eq "H1: exact bytes — the missing rule appended under the block comment" \
+    "$(printf 'node_modules/\n%s\n\n%s\n/%s\n' "${h_missing_link%$'\n'}" "$H_COMMENT" "$H_LINK"; echo .)" \
+    "$(cat "$H1/.gitignore"; echo .)"
+for name in "${NAMES[@]}"; do
+    assert_eq "H1: exactly one /$name" "1" "$(h_count "$H1/.gitignore" "$name")"
+done
+check_gitignore "H1" "$H1/.gitignore"
+cp "$H1/.gitignore" "$WORK/h1.after"
+run_h
+assert_contains "H1: second run reports already safe" "already symlink-safe" "$H_OUT"
+assert_not_contains "H1: second run adds nothing" "Added " "$H_OUT"
+assert_exit_zero "H1: second run byte-identical" cmp -s "$WORK/h1.after" "$H1/.gitignore"
+
+# H1b: only the data-dir rule is missing: it alone is added and the link rules
+# are not duplicated (the pre-t2188 Step 7 guard re-appended the whole block).
+H1B="$WORK/h1b"
+h_body=""
+for name in "${AIT_DATA_LINKS[@]}"; do h_body+="/$name"$'\n'; done
+h_proj "$H1B" branch "$h_body"
+run_h
+assert_contains "H1b: reports the added data-dir rule" "Added /$AIT_DATA_DIR_NAME to .gitignore" "$H_OUT"
+for name in "${NAMES[@]}"; do
+    assert_eq "H1b: exactly one /$name" "1" "$(h_count "$H1B/.gitignore" "$name")"
+done
+
+# H2: the same file in LEGACY mode (no data worktree) is never touched.
+H2="$WORK/h2"
+h_proj "$H2" legacy "node_modules/"$'\n'"$h_missing_link"
+cp "$H2/.gitignore" "$WORK/h2.before"
+run_h
+assert_eq "H2: legacy mode — repair stays non-fatal" "0" "$H_RC"
+assert_exit_zero "H2: legacy mode — .gitignore byte-identical" cmp -s "$WORK/h2.before" "$H2/.gitignore"
+assert_not_contains "H2: legacy mode — no 'Added' claim" "Added " "$H_OUT"
+assert_contains "H2: legacy mode — still reports already safe" "already symlink-safe" "$H_OUT"
+
+# H3: legacy-form lines plus a missing rule: the rewrite runs first, so each
+# name ends up anchored exactly once (never a legacy line beside an added one).
+H3="$WORK/h3"
+h_body="$AIT_DATA_DIR_NAME/"$'\n'
+for name in "${AIT_DATA_LINKS[@]:1}"; do h_body+="$name/"$'\n'; done
+h_proj "$H3" branch "$h_body"
+run_h
+assert_contains "H3: reports the rewrite" "Rewrote legacy data entries" "$H_OUT"
+assert_contains "H3: reports the added rule" "Added /$H_LINK to .gitignore" "$H_OUT"
+for name in "${NAMES[@]}"; do
+    assert_eq "H3: exactly one /$name" "1" "$(h_count "$H3/.gitignore" "$name")"
+    assert_eq "H3: no legacy '$name/' left" "0" \
+        "$(grep -cxF -- "$name/" "$H3/.gitignore" | tr -d ' ')"
+done
+check_gitignore "H3" "$H3/.gitignore"
+
+# H4: branch mode, .gitignore is a directory: non-fatal, reported, nothing
+# claimed as added.
+H4="$WORK/h4"
+mkdir -p "$H4/.aitask-scripts" "$H4/$AIT_DATA_DIR_NAME/.git" "$H4/.gitignore"
+SCRIPT_DIR="$H4/.aitask-scripts"
+run_h
+assert_eq "H4: directory .gitignore — repair stays non-fatal" "0" "$H_RC"
+assert_contains "H4: the add half reports it could not add" "Could not add" "$H_OUT"
+assert_not_contains "H4: no 'Added' claim" "Added " "$H_OUT"
+assert_eq "H4: still a directory" "yes" \
+    "$([[ -d "$H4/.gitignore" && ! -L "$H4/.gitignore" ]] && echo yes)"
+
+# H4b: branch mode, a read-only .gitignore that has no legacy line but lacks a
+# rule. The rewrite has nothing to do (1) while the add fails (2), so the
+# repair must report the failure and must NOT also call the file "already
+# symlink-safe and root-anchored" — the rule it lacks is the whole problem.
+H4B="$WORK/h4b"
+h_proj "$H4B" branch "$h_missing_link"
+chmod 444 "$H4B/.gitignore"
+if [[ -w "$H4B/.gitignore" ]]; then
+    echo "NOTE: H4b skipped — running as a user that can write a mode-444 file (root)"
+else
+    cp "$H4B/.gitignore" "$WORK/h4b.before"
+    run_h
+    assert_eq "H4b: read-only .gitignore — repair stays non-fatal" "0" "$H_RC"
+    # The failure line names every rule of the group, as for every other
+    # group (test_setup_git.sh 27f), and says nothing was written.
+    assert_contains "H4b: the add half reports it could not add, unchanged" \
+        "Could not add /$AIT_DATA_DIR_NAME$(printf ' /%s' "${AIT_DATA_LINKS[@]}") to .gitignore — left unchanged" "$H_OUT"
+    assert_not_contains "H4b: no 'already safe' claim beside the failed add" "already symlink-safe" "$H_OUT"
+    assert_not_contains "H4b: no 'Added' claim" "Added " "$H_OUT"
+    assert_exit_zero "H4b: read-only file byte-identical" cmp -s "$WORK/h4b.before" "$H4B/.gitignore"
+fi
+chmod 644 "$H4B/.gitignore"
+
+# H5: CRLF (core.autocrlf=true checkouts). A CRLF anchored line counts as
+# present — git strips the CR before matching (Case F) — so a complete CRLF
+# file is left byte-identical, and a missing rule is added once.
+H5="$WORK/h5"
+h_body="foo/"$'\r\n'
+for name in "${NAMES[@]}"; do h_body+="/$name"$'\r\n'; done
+h_proj "$H5" branch "$h_body"
+cp "$H5/.gitignore" "$WORK/h5.before"
+run_h
+assert_exit_zero "H5: complete CRLF file byte-identical" cmp -s "$WORK/h5.before" "$H5/.gitignore"
+assert_contains "H5: complete CRLF file reports already safe" "already symlink-safe" "$H_OUT"
+assert_not_contains "H5: complete CRLF file — no 'Added' claim" "Added " "$H_OUT"
+H5B="$WORK/h5b"
+h_body="foo/"$'\r\n'
+for name in "${NAMES[@]}"; do [[ "$name" == "$H_LINK" ]] || h_body+="/$name"$'\r\n'; done
+h_proj "$H5B" branch "$h_body"
+run_h
+assert_contains "H5b: CRLF file missing a rule — reports the add" "Added /$H_LINK to .gitignore" "$H_OUT"
+for name in "${NAMES[@]}"; do
+    assert_eq "H5b: exactly one /$name (CR-tolerant)" "1" "$(h_count "$H5B/.gitignore" "$name")"
+done
+check_gitignore "H5b" "$H5B/.gitignore"
+SCRIPT_DIR="$H_SAVED_SCRIPT_DIR"
 
 echo
 echo "=== Results ==="

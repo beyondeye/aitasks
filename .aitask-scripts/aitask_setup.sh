@@ -2020,33 +2020,30 @@ setup_data_branch() {
         *) warn "Could not rewrite legacy data entries in .gitignore (left unchanged) — 'ait setup' retries it" ;;
     esac
 
-    # Both blocks go through _ait_ensure_gitignore_block: an unchecked `>>`
-    # hung on a FIFO and aborted setup under errexit on a read-only file or a
-    # directory (t2185). A block it cannot write is reported with the exact
-    # lines to add by hand and is never claimed as written; the rest of the
-    # data-branch setup carries on.
-    local blk_rc link data_names="/$AIT_DATA_DIR_NAME"
+    # Both writes below are checked and never fatal: an unchecked `>>` hung on a
+    # FIFO and aborted setup under errexit on a read-only file or a directory
+    # (t2185). A rule or block that cannot be written is reported and never
+    # claimed as written; the rest of the data-branch setup carries on.
+    local blk_rc
 
-    # After the rewrite above, a legacy `.aitask-data/` or `.aitask-data` line
-    # has become `/.aitask-data`, so the guard checks the one form setup writes
-    # (LF or CRLF). On a failed rewrite it appends the anchored block anyway,
-    # which ignores the root entries whatever the legacy lines still say.
-    local data_block=(
-        "# Task data (lives on aitask-data branch, accessed via symlinks)"
-        "/$AIT_DATA_DIR_NAME"
-    )
-    for link in "${AIT_DATA_LINKS[@]}"; do
-        data_block+=("/$link")
-        data_names+=", /$link"
-    done
+    # The task-data rules go through the per-rule writer, from the table's
+    # `data` group: each anchored rule is checked on its own (LF or CRLF), so a
+    # .gitignore that kept `/.aitask-data` but lost `/aitasks` gets exactly
+    # `/aitasks` back, and one that lost only `/.aitask-data` does not have the
+    # link rules duplicated (t2188). The block has no `!` re-includes, so adding
+    # only the missing rules cannot reorder anything. After the rewrite above, a
+    # legacy line has become its anchored form and counts as present; on a
+    # failed rewrite the missing anchored rules are added anyway, which ignores
+    # the root entries whatever the legacy lines still say. The failure warning
+    # offers re-running setup, and that holds: in branch mode the re-run repair
+    # (setup_data_gitignore_symlink_safe) adds missing data rules on every run.
     blk_rc=0
-    _ait_ensure_gitignore_block "$gitignore" _ait_gitignore_has_data_block \
-        "${data_block[@]}" || blk_rc=$?
+    _ait_gitignore_group data
+    _ait_add_gitignore_rules "$gitignore" "$_ait_gi_comment" "${_ait_gi_rules[@]}" || blk_rc=$?
     case "$blk_rc" in
         0) gitignore_changed=true ;;
         1) ;;
-        *) _ait_warn_gitignore_block_failed "task data" \
-               "The task data symlinks ($data_names)" "${data_block[@]}" ;;
+        *) _ait_warn_gitignore_rules_failed "$_ait_gi_what" "${_ait_gi_rules[@]}" ;;
     esac
 
     # Install per-profile rendered-skill-closure ignore patterns so a consumer's
@@ -3066,6 +3063,14 @@ _ait_report_unhidden_nested_data_paths() {
 # sits behind its "already configured" early return, so on every later
 # `ait setup` only this reaches the file.
 #
+# Two halves, in this order. The rewrite turns legacy data lines into their
+# root-anchored form. Then, in BRANCH mode only, every anchored data rule still
+# missing is added through the per-rule writer (the table's `data` group) — a
+# hand edit that dropped `/aitasks` otherwise left the root symlink untracked
+# for good (t2188). Rewrite first, so a legacy `aitasks/` becomes `/aitasks`
+# instead of gaining a duplicate beside it. Never in legacy mode: there
+# aitasks/ is tracked task data, and ignoring it would hide every new task file.
+#
 # It deliberately commits nothing. main() calls it LAST, immediately before
 # commit_framework_files, which commits .gitignore minus the pre-setup dirty
 # baseline. The other .gitignore helpers commit their own rule (through
@@ -3078,17 +3083,36 @@ _ait_report_unhidden_nested_data_paths() {
 # before commit_installed_files, under the same baseline contract.
 setup_data_gitignore_symlink_safe() {
     local project_dir="$SCRIPT_DIR/.."
-    local rc=0 anchored
+    local rc=0 add_rc=1 anchored
     anchored="$(printf '/%s, ' "$AIT_DATA_DIR_NAME" "${AIT_DATA_LINKS[@]}")"
     anchored="${anchored%, }"
     _ait_rewrite_data_gitignore_lines "$project_dir/.gitignore" || rc=$?
+    # add_rc stays 1 ("nothing added") in legacy mode, where nothing is tried.
+    # Branch mode is the predicate setup_data_branch's "already configured"
+    # check and task_utils' data-worktree resolver use: .aitask-data/.git.
+    if [[ -d "$project_dir/$AIT_DATA_DIR_NAME/.git" || -f "$project_dir/$AIT_DATA_DIR_NAME/.git" ]]; then
+        add_rc=0
+        _ait_gitignore_group data
+        _ait_add_gitignore_rules "$project_dir/.gitignore" \
+            "$_ait_gi_comment" "${_ait_gi_rules[@]}" || add_rc=$?
+    fi
     case "$rc" in
         0) success "Rewrote legacy data entries in .gitignore to the root-anchored form ($anchored)"
            _ait_report_unhidden_nested_data_paths "$project_dir" ;;
-        1) success "Data entries in .gitignore already symlink-safe and root-anchored" ;;
+        # "already" only when no anchored rule was missing either (add_rc 1,
+        # which legacy mode always reports): beside an "Added" line or a failed
+        # add it would claim a state the file is not in.
+        1) [[ "$add_rc" -ne 1 ]] || success "Data entries in .gitignore already symlink-safe and root-anchored" ;;
         *) warn "Could not rewrite legacy data entries in .gitignore — left unchanged."
            warn "  A trailing-slash entry leaves linked task worktrees showing '?? $AIT_DATA_DIR_NAME' (worktree cleanup then keeps them); a bare one also ignores every nested directory of that name."
            warn "  Fix by hand: change '$AIT_DATA_DIR_NAME/' or '$AIT_DATA_DIR_NAME' to '/$AIT_DATA_DIR_NAME' (likewise aitasks and aiplans), or re-run 'ait setup'." ;;
+    esac
+    # Reported after the rewrite line; nothing in between touches the writer's
+    # _ait_gitignore_added / _ait_gitignore_partial state.
+    case "$add_rc" in
+        0) success "Added $_ait_gitignore_added to .gitignore (missing task-data rules)" ;;
+        1) ;;
+        *) _ait_warn_gitignore_rules_failed "$_ait_gi_what" "${_ait_gi_rules[@]}" ;;
     esac
     return 0
 }
@@ -3143,9 +3167,10 @@ setup_sitrep_store_gitignore() {
 # Every setup .gitignore helper writes through _ait_add_gitignore_rules, by way
 # of _ait_setup_gitignore_group, and both routes take their comment and rule
 # strings from the one group table, _ait_gitignore_group (t2178).
-# setup_data_branch Step 7 writes whole blocks through
-# _ait_ensure_gitignore_block instead (below the per-rule writer): its guards
-# are per block, and its `!` re-includes must stay after its broad patterns.
+# setup_data_branch Step 7 writes its task-data rules through the per-rule
+# writer too (the `data` group, t2188), but its rendered-skill block through
+# _ait_ensure_gitignore_block (below the per-rule writer): that block's guard
+# is per block, and its `!` re-includes must stay after its broad patterns.
 
 # _ait_add_gitignore_rules <gitignore> <comment> <rule>...
 #   -> 0 added, 1 every rule already present, 2 could not inspect or write
@@ -3159,6 +3184,14 @@ setup_sitrep_store_gitignore() {
 # The write is several write()s, so one that fails after the first leaves bytes
 # behind: on rc 2, _ait_gitignore_partial is "yes" unless the file provably did
 # not change (_ait_gitignore_note_partial), and the warning says which.
+# The writes are chained with `&&`, never newlines: a group's status is its LAST
+# command's, so a failed separator or comment would be lost behind a later
+# write that succeeded. The separator is also what ends a last line with no
+# newline, so the comment would be glued onto the user's rule (`keep-me# ...`)
+# while the rule read-back below still passed (t2188, as
+# _ait_ensure_gitignore_block, t2185).
+# A rule counts as present in its LF or CRLF form: git strips a trailing CR
+# before matching, so a CRLF `aiwork/` already ignores aiwork/ (t2188).
 _ait_gitignore_added=""
 _ait_gitignore_partial=""
 _ait_add_gitignore_rules() {
@@ -3174,7 +3207,7 @@ _ait_add_gitignore_rules() {
         [[ -f "$gitignore" ]] || return 2
         for rule in "$@"; do
             rc=0
-            grep -qxF -- "$rule" "$gitignore" 2>/dev/null || rc=$?
+            grep -qxF -e "$rule" -e "$rule"$'\r' -- "$gitignore" 2>/dev/null || rc=$?
             case "$rc" in
                 0) ;;
                 1) missing+=("$rule") ;;
@@ -3184,9 +3217,7 @@ _ait_add_gitignore_rules() {
         [[ ${#missing[@]} -gt 0 ]] || return 1
         before="$(wc -c < "$gitignore" 2>/dev/null)" || before=""
         if ! {
-            echo ""
-            echo "# $comment"
-            printf '%s\n' "${missing[@]}"
+            echo "" && echo "# $comment" && printf '%s\n' "${missing[@]}"
         } 2>/dev/null >> "$gitignore"; then
             _ait_gitignore_note_partial "$gitignore" "$before"
             return 2
@@ -3195,15 +3226,14 @@ _ait_add_gitignore_rules() {
         missing=("$@")
         before="absent"
         if ! {
-            echo "# $comment"
-            printf '%s\n' "${missing[@]}"
+            echo "# $comment" && printf '%s\n' "${missing[@]}"
         } 2>/dev/null > "$gitignore"; then
             _ait_gitignore_note_partial "$gitignore" "$before"
             return 2
         fi
     fi
     for rule in "${missing[@]}"; do
-        if ! grep -qxF -- "$rule" "$gitignore" 2>/dev/null; then
+        if ! grep -qxF -e "$rule" -e "$rule"$'\r' -- "$gitignore" 2>/dev/null; then
             _ait_gitignore_note_partial "$gitignore" "$before"
             return 2
         fi
@@ -3248,17 +3278,15 @@ _ait_warn_gitignore_rules_failed() {
 }
 
 # --- setup_data_branch Step 7's whole-block writer (t2185) ---
-# Step 7 writes two blocks to the main .gitignore, each behind ONE guard of its
-# own: the data block is present when its `/.aitask-data` line is (LF or CRLF),
-# the rendered-skill block when `.claude/skills/*-/` appears anywhere. The
-# per-rule writer above does not fit either: it would add each missing rule on
-# its own, and an appended broad `*-/` pattern that lands after an existing `!`
+# Step 7 writes its rendered-skill block to the main .gitignore behind ONE
+# guard: the block is present when `.claude/skills/*-/` appears anywhere. The
+# per-rule writer above does not fit it: it would add each missing rule on its
+# own, and an appended broad `*-/` pattern that lands after an existing `!`
 # re-include silently cancels it — the negations only win when they follow.
+# (Step 7's task-data rules have no negations; they use the per-rule writer,
+# so a lost link rule is restored on its own, t2188.)
 
-# Step 7's block guards: grep's status, 0 present, 1 absent, 2 unreadable.
-_ait_gitignore_has_data_block() {
-    grep -qxF -e "/$AIT_DATA_DIR_NAME" -e "/$AIT_DATA_DIR_NAME"$'\r' -- "$1" 2>/dev/null
-}
+# Step 7's block guard: grep's status, 0 present, 1 absent, 2 unreadable.
 _ait_gitignore_has_skill_block() {
     grep -qF -e ".claude/skills/*-/" -- "$1" 2>/dev/null
 }
@@ -3397,6 +3425,18 @@ _ait_gitignore_group() {
             _ait_gi_rules=("aiwork/" ".aitask-crews/")
             _ait_gi_what="Task and crew worktrees"
             _ait_gi_label="framework worktree directories" ;;
+        data)
+            # Branch mode only: setup_data_branch Step 7 and the re-run repair
+            # (setup_data_gitignore_symlink_safe) write it, never the upgrade
+            # store loop — in legacy mode aitasks/ is tracked task data (t2188).
+            # Root-anchored (t2184); the names come from data_symlinks.sh, the
+            # one definition the rewriter and ait_link_worktree_data read.
+            local link
+            _ait_gi_comment="Task data (lives on aitask-data branch, accessed via symlinks)"
+            _ait_gi_rules=("/$AIT_DATA_DIR_NAME")
+            for link in "${AIT_DATA_LINKS[@]}"; do _ait_gi_rules+=("/$link"); done
+            _ait_gi_what="The root task-data entries"
+            _ait_gi_label="task data" ;;
         *) die "unknown .gitignore rule group: $1" ;;
     esac
 }

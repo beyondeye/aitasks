@@ -200,6 +200,15 @@ for rule in "${UPGRADE_RULES[@]}"; do
 done
 assert_eq "K .gitignore clean after upgrade" "" "$(g status --porcelain -- .gitignore)"
 assert_eq "K upgrade commit carries .gitignore" "yes" "$(has_line "$(upgrade_commit_files)" ".gitignore")"
+# A legacy-mode project (no .aitask-data worktree) keeps its task data on the
+# code branch, so the repair must never add the task-data rules: `/aitasks`
+# there would hide every new task file from git (t2188).
+assert_eq "K precondition: legacy mode (no .aitask-data)" "no" \
+    "$([[ -e "$TMP/K/.aitask-data" ]] && echo yes || echo no)"
+for rule in /.aitask-data /aitasks /aiplans; do
+    assert_eq "K legacy mode gains no task-data rule $rule" "no" \
+        "$(has_line "$(cat "$TMP/K/.gitignore")" "$rule")"
+done
 for rule in "${UPGRADE_RULES[@]}"; do
     mkdir -p "$TMP/K/${rule}sub"
     echo '{}' > "$TMP/K/${rule}sub/file.json"
@@ -237,6 +246,81 @@ upgrade
 assert_eq "K3 upgrade exits 0" "0" "$RC"
 assert_eq "K3 HEAD .gitignore has aiwork/" "yes" "$(has_line "$(g show HEAD:.gitignore)" "aiwork/")"
 assert_eq "K3 .aitask-crews/ is not duplicated" "1" "$(grep -cxF ".aitask-crews/" "$TMP/K3/.gitignore")"
+
+# ==============================================================================
+# A branch-mode project whose .gitignore lost a task-data rule regains it
+# through the upgrade route (t2188). setup_data_branch's Step 7 never runs again
+# once the data worktree exists, and `ait upgrade` never runs setup, so the
+# re-run repair setup_data_gitignore_symlink_safe — which install.sh calls for
+# existing installs — is the only route that reaches the file. Same
+# dirty-baseline contract as cases A/B.
+#
+# to_branch_mode <dir>: convert an installed project into the production
+# branch-mode layout — an orphan aitask-data branch checked out at
+# .aitask-data/, the task data moved there and committed, the root aitasks/ and
+# aiplans/ untracked on main (staged) and replaced by .aitask-data/<name>
+# symlinks. The orphan-branch recipe is tests/test_install_create_data_dirs.sh
+# make_branch_mode's. The caller writes .gitignore and commits main.
+to_branch_mode() {
+    local dir="$1" empty_tree commit name
+    empty_tree="$(git -C "$dir" mktree </dev/null)"
+    commit="$(echo "init data" | git -C "$dir" commit-tree "$empty_tree")"
+    git -C "$dir" update-ref refs/heads/aitask-data "$commit"
+    git -C "$dir" worktree add --quiet .aitask-data aitask-data
+    for name in aitasks aiplans; do
+        git -C "$dir" rm -r -q --cached --ignore-unmatch -- "$name"
+        if [[ -d "$dir/$name" && ! -L "$dir/$name" ]]; then
+            mv "$dir/$name" "$dir/.aitask-data/$name"
+        else
+            mkdir -p "$dir/.aitask-data/$name"
+        fi
+        ln -s ".aitask-data/$name" "$dir/$name"
+    done
+    git -C "$dir/.aitask-data" add -A
+    gcommit "$dir/.aitask-data" -m "fixture: task data"
+}
+# l_project <dir>: an installed branch-mode project whose committed .gitignore
+# kept /.aitask-data and /aiplans but lost /aitasks.
+l_project() {
+    make_project "$1"
+    to_branch_mode "$1"
+    printf 'node_modules/\n/.aitask-data\n/aiplans\n' > "$1/.gitignore"
+    g add .gitignore; gcommit "$1" -m "branch mode; /aitasks rule lost"
+    # Fixture preconditions: a fixture mistake must not pass as a red test.
+    assert_eq "$2 precondition: aitasks is the data symlink" "yes" \
+        "$([[ -L "$1/aitasks" && -d "$1/aitasks/metadata" ]] && echo yes)"
+    assert_eq "$2 precondition: the data worktree exists" "yes" \
+        "$([[ -e "$1/.aitask-data/.git" ]] && echo yes)"
+    assert_contains "$2 precondition: the root aitasks symlink shows as untracked" \
+        "?? aitasks" "$(g status --porcelain)"
+}
+
+echo ""
+echo "=== L: branch mode — a lost /aitasks rule is restored and committed ==="
+l_project "$TMP/L" L
+upgrade
+assert_eq "L upgrade exits 0" "0" "$RC"
+assert_eq "L disk has exactly one /aitasks" "1" "$(grep -cxF -- /aitasks "$TMP/L/.gitignore")"
+for rule in /.aitask-data /aiplans; do
+    assert_eq "L $rule is not duplicated" "1" "$(grep -cxF -- "$rule" "$TMP/L/.gitignore")"
+done
+assert_eq "L HEAD .gitignore has /aitasks" "yes" "$(has_line "$(g show HEAD:.gitignore)" /aitasks)"
+assert_eq "L .gitignore clean after upgrade" "" "$(g status --porcelain -- .gitignore)"
+assert_eq "L upgrade commit carries .gitignore" "yes" "$(has_line "$(upgrade_commit_files)" ".gitignore")"
+assert_eq "L the root aitasks symlink is no longer untracked" "" "$(g status --porcelain -- aitasks)"
+assert_contains "L output reports the added rule" "Added /aitasks to .gitignore" "$OUT"
+
+echo ""
+echo "=== L2: branch mode, dirty .gitignore — restored on disk, never committed ==="
+l_project "$TMP/L2" L2
+echo "user-rule.log" >> "$TMP/L2/.gitignore"
+upgrade
+assert_eq "L2 upgrade exits 0" "0" "$RC"
+assert_eq "L2 disk has exactly one /aitasks" "1" "$(grep -cxF -- /aitasks "$TMP/L2/.gitignore")"
+assert_eq "L2 disk keeps the user rule" "yes" "$(has_line "$(cat "$TMP/L2/.gitignore")" "user-rule.log")"
+assert_eq "L2 HEAD .gitignore still lacks /aitasks" "no" "$(has_line "$(g show HEAD:.gitignore)" /aitasks)"
+assert_eq "L2 .gitignore still modified" " M .gitignore" "$(g status --porcelain -- .gitignore)"
+assert_eq "L2 upgrade commit lacks .gitignore" "no" "$(has_line "$(upgrade_commit_files)" ".gitignore")"
 
 # ==============================================================================
 # Regression control: the pre-fix installer listed only untracked + modified

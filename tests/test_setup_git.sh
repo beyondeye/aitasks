@@ -905,9 +905,11 @@ rm -rf "$d"
 # a peer appears, for read (grep) and for write (>>) alike. Nothing unbounded may
 # touch it, so that case runs only in the bounded child — and skips
 # snapshot_pre_setup_dirty too: its `git ls-files --others --exclude-standard`
-# reads .gitignore (git 2.56 does not block on a FIFO there, but the fixture
-# should not depend on that). An unarmed baseline is the direct-call default,
-# and the failure path never reaches the commit.
+# reads .gitignore, and git 2.56 blocks on a FIFO there when it is untracked,
+# or tracked but swapped for a FIFO once git walks a directory (t2191). main()
+# refuses such a .gitignore before the snapshot (Test 29); these are direct
+# helper calls. An unarmed baseline is the direct-call default, and the failure
+# path never reaches the commit.
 errexit_helper_log="$(mktemp)"
 # errexit_helper_run <dir> <helper> -> status (124 = did not return in time);
 # output in $errexit_helper_log.
@@ -1188,6 +1190,94 @@ for helper in setup_gate_logs_gitignore upgrade_store_gitignore_rules; do
     rm -rf "$d"
 done
 rm -f "$partial_log"
+
+# (m) a CRLF line counts as present (t2188). A core.autocrlf=true checkout
+# carries CRLF .gitignore lines; git strips the CR before matching, so
+# `aiwork/\r` already ignores aiwork/ (test_gitignore_data_symlinks.sh Case F
+# asks git). The per-rule writer must not append an LF duplicate beside it.
+d="$(new_gitignore_repo)"
+SCRIPT_DIR="$d/.aitask-scripts"
+printf 'base-rule\r\n# Framework worktrees (local, per-task and per-crew branches)\r\naiwork/\r\n.aitask-crews/\r\n' \
+    > "$d/.gitignore"
+git -C "$d" commit -q -m "CRLF .gitignore" -- .gitignore
+crlf_before="$(mktemp)"
+cp "$d/.gitignore" "$crlf_before"
+snapshot_pre_setup_dirty
+before="$(commit_count "$d")"
+out="$(setup_worktree_dirs_gitignore </dev/null 2>&1)"
+assert_contains "27m: CRLF rules count as present" "Worktree directory rules already in .gitignore" "$out"
+assert_not_contains "27m: no 'Added' claim" "Added " "$out"
+assert_exit_zero "27m: CRLF .gitignore byte-identical" cmp -s "$crlf_before" "$d/.gitignore"
+assert_eq "27m: no commit" "$before" "$(commit_count "$d")"
+rm -f "$crlf_before"
+rm -rf "$d"
+
+# (n) a failed write is never lost behind a later one (t2188). The append
+# writes a separator, the comment and the rules; a `{ … }` group's status is
+# its LAST command's, so unchained writes lose an earlier failure. The
+# separator is also what ends a last line with no newline: lost, the comment is
+# glued onto the user's rule (`keep-me# …`, which changes what it ignores) and
+# the rule read-back still passes. Faults are injected by shadowing echo (the
+# separator and comment writes) inside a command substitution's subshell. The
+# literals are the task-data block the per-rule writer carries for Step 7 and
+# the re-run repair; the binding below ties them to the table.
+t27n_comment="Task data (lives on aitask-data branch, accessed via symlinks)"
+t27n_rules=(/.aitask-data /aitasks /aiplans)
+T27N="$(mktemp -d)"
+# Control: no fault. One separator newline ends `keep-me`, so no blank line.
+printf 'keep-me' > "$T27N/ok"
+rc=0; _ait_add_gitignore_rules "$T27N/ok" "$t27n_comment" "${t27n_rules[@]}" || rc=$?
+assert_eq "27n control: append returns 0" "0" "$rc"
+assert_eq "27n control: exact bytes (the separator only ends 'keep-me')" \
+    "$(printf 'keep-me\n# %s\n' "$t27n_comment"; printf '%s\n' "${t27n_rules[@]}"; echo .)" \
+    "$(cat "$T27N/ok"; echo .)"
+# Separator fault: the very first write fails, so nothing may be written.
+printf 'keep-me' > "$T27N/sep"
+cp "$T27N/sep" "$T27N/sep.before"
+sep_out="$(
+    # shellcheck disable=SC2329  # shadows the builtin the writer calls
+    echo() { if [[ $# -eq 1 && -z "$1" ]]; then return 1; fi; builtin echo "$@"; }
+    rc=0
+    _ait_add_gitignore_rules "$T27N/sep" "$t27n_comment" "${t27n_rules[@]}" || rc=$?
+    # shellcheck disable=SC2154  # set by the sourced aitask_setup.sh writer
+    printf 'rc=%s partial=%s' "$rc" "$_ait_gitignore_partial"
+)"
+assert_eq "27n separator fault: reported as a failure, nothing partial" "rc=2 partial=" "$sep_out"
+assert_exit_zero "27n separator fault: file byte-identical" cmp -s "$T27N/sep.before" "$T27N/sep"
+assert_eq "27n separator fault: 'keep-me' not glued to the comment" "0" \
+    "$(grep -c '^keep-me#' "$T27N/sep" | tr -d ' ')"
+# Comment fault: the separator landed, so the failure is reported as partial —
+# and no rule is written without its comment.
+printf 'keep-me' > "$T27N/cmt"
+cmt_out="$(
+    # shellcheck disable=SC2329  # shadows the builtin the writer calls
+    echo() { if [[ "${1:-}" == "# "* ]]; then return 1; fi; builtin echo "$@"; }
+    rc=0
+    _ait_add_gitignore_rules "$T27N/cmt" "$t27n_comment" "${t27n_rules[@]}" || rc=$?
+    # shellcheck disable=SC2154  # set by the sourced aitask_setup.sh writer
+    printf 'rc=%s partial=%s' "$rc" "$_ait_gitignore_partial"
+)"
+assert_eq "27n comment fault: reported as a partial failure" "rc=2 partial=yes" "$cmt_out"
+assert_eq "27n comment fault: no rule written after the failed comment" "0" \
+    "$(grep -cxF -- /aitasks "$T27N/cmt" | tr -d ' ')"
+# Create branch (no .gitignore yet): a failed comment write is a failure too.
+crt_out="$(
+    # shellcheck disable=SC2329  # shadows the builtin the writer calls
+    echo() { if [[ "${1:-}" == "# "* ]]; then return 1; fi; builtin echo "$@"; }
+    rc=0
+    _ait_add_gitignore_rules "$T27N/absent" "$t27n_comment" "${t27n_rules[@]}" || rc=$?
+    printf 'rc=%s' "$rc"
+)"
+assert_eq "27n create-branch comment fault: reported as a failure" "rc=2" "$crt_out"
+# Binding: the table's data group is exactly the block tested above, so the
+# faults cover what Step 7 and the re-run repair actually write.
+_ait_gitignore_group data
+# shellcheck disable=SC2154  # _ait_gi_* are set by the sourced aitask_setup.sh table
+assert_eq "27n binding: the data group's comment is the one under test" "$t27n_comment" "$_ait_gi_comment"
+# shellcheck disable=SC2154
+assert_eq "27n binding: the data group's rules are the ones under test" \
+    "${t27n_rules[*]}" "${_ait_gi_rules[*]}"
+rm -rf "$T27N"
 
 # --- Test 28: each baseline is gated on its own committer's predicate (t1972) ---
 # The data committer has no main-repo guard and the main committer needs no
