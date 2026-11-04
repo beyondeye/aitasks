@@ -152,3 +152,5 @@ copied here so the task stands alone.
 > | - Verification used in t1893_1, which may be reusable: a per-command-line, per-mode flag check against `<mode> --help` (catches e.g. `info ... --out`), plus checking claims against the writer code in video_prep.py rather than --help alone. Anything time-related under --time-scale should state its time basis (durations/fits are converted; timestamps, curve.tsv, window_s, frame names and --window/--range stay in recording time).
 > | 
 > | Tree-relative claims, dated by the base commit recorded on this note. The archived plan aiplans/archived/p1893/p1893_1_*.md has the full notes.
+
+> **👁 note:read** id=2026-11-04T11:56:13Z.e021d9a940baebd66d8d23d2 by=t1893_2 at=2026-11-04T11:56:13Z mode=explicit ids=2026-10-05T20:27:32Z.09e7240951f4083f2e303fbb
