@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: medium
 depends: [t2034_2]
 issue_type: feature
@@ -13,7 +15,7 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 2034
 implemented_with: claudecode/opus5_5
 created_at: 2026-10-16 08:01
-updated_at: 2026-11-04 09:57
+updated_at: 2026-11-04 09:58
 ---
 
 Define the wire protocol between the shared monitor status server and its
@@ -131,3 +133,5 @@ Go `ait monitor` port (aitasks_go#16): both its Textual and Go twins replay it.
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-11-04T07:57:52Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-11-04T10:22:44Z status=pass attempt=1 type=human
