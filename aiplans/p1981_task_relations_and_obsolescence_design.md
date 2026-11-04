@@ -868,3 +868,48 @@ orphaned-parent path when its last child lands.
 
 ### Planned mitigations
 - timing: post-phase | name: independent_design_review | type: documentation | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement: the design doc may leave a direction unsettled or carry wrong facts into the children | desc: fresh-context agent reviews the written doc against the seed proposal, premises and user decisions, samples 10+ code-fact claims; findings fixed before the doc commit
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-04 13:40)
+- **Requested by user:** four concerns on the written `aidocs/framework/task_relations.md`.
+  1. `--allowedTools` grants permission and does not restrict; the doc needs an explicit read-only available tool set and control of inherited MCP tools.
+  2. A newer plan can be published without its approval record, so completeness must be tied to evidence identifying the implemented plan's approval.
+  3. Removing a `SUPERSEDED` outbox entry by path can delete a concurrent rewrite; every removal path needs content-conditional, synchronized cleanup.
+  4. The detached stamp publish plus `--approved-here` could accept an old stamp after a re-approval; the doc needs a local write before detaching, or an expected identity.
+- **Changes made:**
+  - **D5:** the operation is read-only by construction: `--tools "Read,Glob,Grep"`, `--strict-mcp-config` with no MCP config, `--disallowedTools` as a second layer, and a never-prompt, never-bypass mode. t1981_3 re-verifies the flags and hook behaviour and adds a no-tool test.
+  - **D2 / D4 / D8:** a new synchronous `ait relations stamp`. It writes the stamp to the local outbox before returning, prints `STAMP:<plan_sha256>`, and detaches only the publish and the enqueue.
+    - Completeness requires `--expect-plan <sha>`: the Step 7 stamp digest, or, on Re-entry Routing's `IMPLEMENT` route, `plan-digest` of the committed plan the session follows.
+    - A visible stamp must equal it (`stamp_mismatch` / `no_expected_identity` otherwise). This replaces the `--approved-here` and gate-ledger rule.
+  - **D1:** every outbox removal (published and superseded) is content-conditional, under one `flock` (`outbox.lock`) shared by producers and flushers and never held across network steps. t1981_1 tests the interleaving.
+  - The child drafts (t1981_1, _3, _4, _5) were updated to match.
+- **Files affected:** `aidocs/framework/task_relations.md`; the child descriptions and plans, not created yet.
+
+## Final Implementation Notes
+- **Actual work done:** wrote `aidocs/framework/task_relations.md` (commit `5026118e2`, 1175 lines). It settles D1–D13 and holds the implementation tree of 10 children. The coordination notes and the decomposition (plan steps 4–5) follow this commit in the same session.
+- **Deviations from plan:** the design changed in substance during the plan review and the doc reviews. All of these changes are reflected in the doc.
+  - D8 completeness uses an expected plan identity (`--expect-plan`), checked against a synchronously written approval stamp. This replaces the plan's local `approvals.jsonl`.
+  - The retained later review was deferred, with a stated precondition: one resolution identity shared by the immediate and the later path.
+  - Stage-2 inputs are the current body plus the stamped plan.
+  - Identity is `(id, created_at)`.
+  - The `landed` trigger fires only for completed work, and `plan-approved-stop.md` fires only on stop reasons that keep the plan approved.
+  - The `landed` trigger and `--obsolete` moved into t1981_6.
+  - t1981_5 depends on t1981_3 (for `analysis-state`).
+- **Issues encountered:** the inline post-phase `independent_design_review` ran three rounds against the doc.
+  - Round 1: about 40 findings across (a) undecided directions, (b) premise conflicts, (c) missing user requirements, (d) wrong code facts and (e) internal inconsistencies.
+  - Round 2: 6 new problems, introduced by the round-1 fixes.
+  - Round 3: 4 small new problems plus 2 caveats.
+
+  All of them were fixed in the doc before the user's review. The user's Step 8 review then raised 4 more concerns (Change Request 1), also fixed before the commit.
+  - Code facts the review found wrong in the first draft, now corrected:
+    - the lock and id scripts build flat trees with `hash-object` + `mktree`;
+    - `find_suffix_references` finds references but does not canonicalize;
+    - `inflight_overlap` rows come from declared surfaces, not uncommitted diffs;
+    - `aitask_fold_mark.sh` changes only frontmatter;
+    - `plan-approved-stop.md` has five stop reasons, three of which invalidate the plan;
+    - the issue-import amend touches frontmatter only;
+    - child numbers can be reused.
+- **Key decisions:** the four settled with the user at planning (D1 orphan branch, D5 off by default, D6 wait on t2192, D8 hybrid), plus the four Change Request 1 fixes.
+  - The review flagged one residual against the D6 decision. t1981_4, and transitively t1981_8/9/10, wait on t2192 through t1981_2. The approved plan states this deliberately: no automatic triggers before real candidates and the D13.2 replay exist. The store, worker, consumption, obsolescence and TUI children do not wait.
+- **Upstream defects identified:** None
