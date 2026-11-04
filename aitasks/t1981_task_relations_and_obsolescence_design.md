@@ -12,7 +12,7 @@ active_gates: [risk_evaluated]
 active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
-children_to_implement: [t1981_1, t1981_2, t1981_3, t1981_4, t1981_5, t1981_6, t1981_7]
+children_to_implement: [t1981_1, t1981_2, t1981_3, t1981_4, t1981_5, t1981_6, t1981_7, t1981_8]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus5_5
 attachments:
