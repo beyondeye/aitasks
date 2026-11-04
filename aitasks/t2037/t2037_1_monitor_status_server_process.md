@@ -1,13 +1,14 @@
 ---
 priority: medium
 effort: high
-depends: [2034_3]
+depends: [t2034_3]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [monitor, tmux]
+assigned_to: dario-e@beyond-eye.com
 anchor: 2034
 created_at: 2026-10-16 08:11
-updated_at: 2026-10-16 08:11
+updated_at: 2026-11-04 15:59
 ---
 
 The status server process and its lifecycle (parent: Python monitor status
