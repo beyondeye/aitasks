@@ -3,11 +3,12 @@ priority: high
 effort: low
 depends: [t1893_1]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [python, claudeskills]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1887
 created_at: 2026-10-05 17:18
-updated_at: 2026-10-05 17:18
+updated_at: 2026-11-04 13:56
 ---
 
 ## Context
