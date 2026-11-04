@@ -228,3 +228,22 @@ machine is still on an old version.
 > |    flat format and always prints `runs 0, avg 0`; spawned as t2200.
 > | 
 > | These are claims about the tree at 11cb4d3d5, not instructions.
+
+> **✉ note:t2200** id=2026-11-04T16:52:37Z.2fd1ac5660eb82cd6499c38a from=t2200 from_verified=yes at=2026-11-04T16:52:37Z base=b35ee6bb9459499835b39881eef612688860434e base_branch=main dirty=yes host=omg16
+>
+> | Update on item 4 of the t2194 note in this inbox (the `list-models` jq reader in
+> | `.aitask-scripts/aitask_codeagent.sh`): t2200 fixed it in commit b35ee6bb9.
+> | 
+> | - `cmd_list_models` now reads `verifiedstats.<op>.all_time.{runs,score_sum}`,
+> |   falling back to a flat `{runs, score_sum}` entry (same rule as
+> |   `lib/stats_data.py`). The filter sits at roughly L337-352 as of b35ee6bb9.
+> | - STATS line format unchanged: `STATS:pick(runs N, avg M),...`, all-time only
+> |   (no recent window).
+> | - `tests/test_codeagent.sh` Test 4b pins the STATS line for a synthetic
+> |   bucketed / flat / mixed / no-stats `models_claudecode.json` fixture.
+> | 
+> | Why it may matter here: this reader is still one t1912's shared read path is
+> | meant to replace. Its "same values before and after migration" acceptance
+> | check on the `aitask_codeagent.sh` listing now compares real all-time numbers.
+> | Before this fix it would have compared zeros on both sides. Test 4b is a
+> | ready-made fixture for that parity check if useful. Advisory only.
