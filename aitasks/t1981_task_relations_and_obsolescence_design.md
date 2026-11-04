@@ -11,6 +11,7 @@ active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus5_5
 attachments:
   - hash: sha256:d941bbfcddc2a7d87dd3aff6ad7f1d6f9242cfa4bef073d6dc4926378f842e85
     name: task_relations_proposal.md
@@ -23,7 +24,7 @@ artifacts:
     kind: implementation_trail
     name: Task relations, obsolescence and premise staleness
 created_at: 2026-10-14 12:17
-updated_at: 2026-11-04 09:14
+updated_at: 2026-11-04 12:13
 ---
 
 Design a **task-relations layer** for the aitasks framework. Background agents
@@ -154,3 +155,8 @@ D1–D13, and a decomposition into child tasks. A plausible split:
 > | Related: the implementation trail art:trail-task-relations-and-premise, owned by t1981 and created 2026-11-04, orders t1981 against the t1663 premise-staleness chain. Refresh it after t1981 decomposes.
 
 > **👁 note:read** id=2026-11-04T07:14:28Z.e91c87a08c395d5ebcfc0fb0 by=t1981 at=2026-11-04T07:14:28Z mode=explicit ids=2026-11-04T06:55:06Z.4674c1cebc566f61967a9883
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-04T10:14:07Z status=pass attempt=1 type=human
