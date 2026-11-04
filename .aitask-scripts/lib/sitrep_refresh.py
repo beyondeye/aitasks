@@ -346,8 +346,9 @@ class TaskIndex:
         lookup falls back to it per id), then the legacy ``old.tar.*``. A stale archived copy of an active task, or a copy
         in some other bundle, is never read as a fold relationship.
 
-        Any read or parse failure of a task-named record (a missing frontmatter
-        delimiter, malformed YAML) is a scan error: an incomplete scan cannot
+        Any read or parse failure of a task-named record is a scan error --
+        malformed YAML, a missing closing delimiter, and a record with no
+        frontmatter at all, active or archived alike: an incomplete scan cannot
         prove where a task went, so the lookup answers unknown."""
         from archive_iter import (archive_path_for_id, archived_markdown_sources,
                                   checked_glob, iter_archive_file,
@@ -362,13 +363,6 @@ class TaskIndex:
                 return
             tid = m.group(1)
             if tid in best and best[tid][0] <= rank:
-                return
-            if rank > 0 and _pre_frontmatter(text):
-                # An ARCHIVED record from before frontmatter existed declares no
-                # fold relationship. It still counts as the authoritative record
-                # (precedence), and it is never a verdict about the task itself:
-                # `_lookup` of that id stays "unparseable" -> unknown.
-                best[tid] = (rank, {})
                 return
             try:
                 meta = _meta_of(text)
@@ -430,29 +424,6 @@ class TaskIndex:
                 folds.setdefault(_bare(f), []).append(tid)
         self._folds = folds
         self._fold_errors = errors
-
-
-# A legacy inline header (the pre-YAML task format): line 1 is `---` followed by
-# key:value tokens, e.g. `--- effort:med pri:hi`.
-_LEGACY_INLINE_HEADER_RE = re.compile(r"^---[ \t]+(?:[A-Za-z_][A-Za-z0-9_-]*:\S*[ \t]*)+\Z")
-
-
-def _pre_frontmatter(text: str) -> bool:
-    """A record in one of the two shapes that predate YAML frontmatter, so it
-    cannot declare `folded_tasks`. Decided by the owner's grammar:
-    `task_yaml.FRONTMATTER_RE` only recognises frontmatter at `\\A---\\n`.
-
-    * historical prose -- line 1 does not start with `---` (a later `---` is a
-      markdown rule, not frontmatter);
-    * legacy inline header -- line 1 is `---` plus key:value tokens.
-
-    Everything else that fails to parse -- a modern `---` opener with no close
-    or malformed YAML, or any other `---`-prefixed first line -- is NOT one of
-    these shapes and stays a scan error."""
-    first = text.split("\n", 1)[0].rstrip("\r")
-    if not first.startswith("---"):
-        return True
-    return bool(_LEGACY_INLINE_HEADER_RE.match(first))
 
 
 @dataclasses.dataclass

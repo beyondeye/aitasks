@@ -265,38 +265,73 @@ class FoldIndex(TreeCase):
         self.assertEqual(self.verdict("12").state, "unknown")    # legacy parse error
 
 
-# The real shapes of this repo's pre-frontmatter archive records t20-t22
-# (_b0/old0.tar.zst): prose (with a later markdown `---` rule) and the legacy
-# inline header `--- effort:… pri:…` with a closing `---` further down.
+# The shapes this repo's archived t20-t22 (_b0/old0.tar.zst) had before t2190
+# gave them an empty frontmatter block: prose (with a later markdown `---`
+# rule) and the legacy inline header `--- effort:… pri:…` with a `---` further
+# down. MIGRATED is the block t2190 prepended -- exactly what
+# `task_yaml.serialize_frontmatter({}, body, [])` writes.
 T20_SHAPE = ("there is already a skill of handling aitask selection\n"
              "## the new aitask-create skill\nthe skill should\n---\nmore prose\n")
 T21_SHAPE = ("--- effort:med pri:med\nI want to rewrite the aitask-create slash command\n\n"
              "---\nCOMPLETED: 2026-02-01 11:33\n")
 T22_SHAPE = ("--- effort:med pri:hi\n\nI would like to modify the task creation scripts\n\n"
              "---\nCOMPLETED: 2026-02-01 14:33\n")
+HEADERLESS = {"20": T20_SHAPE, "21": T21_SHAPE, "22": T22_SHAPE}
+MIGRATED = "---\n{}\n---\n"
 
 
-class PreFrontmatterArchive(TreeCase):
-    """Archived records that predate YAML frontmatter declare no folds; every
-    other unparseable record still fails the scan closed."""
+class HeaderlessArchivedRecords(TreeCase):
+    """A record with no frontmatter fails the fold scan closed, archived or
+    active alike; the same records given an empty frontmatter block (the t2190
+    migration) complete it without ever making the historical task done."""
 
     def setUp(self):
         super().setUp()
-        self.tree.bundle({"t20_skill.md": T20_SHAPE, "t21_rewrite.md": T21_SHAPE,
-                          "t22_attrs.md": T22_SHAPE,
-                          "t30_x.md": _task_text("Done", folded_tasks="[12]")})
+        self._bundle_with({})     # t30 (Done) lists t12 in folded_tasks
 
-    def test_t20_to_t22_shapes_do_not_break_the_fold_scan(self):
+    def _bundle_with(self, records: dict):
+        files = {f"t{tid}_x.md": text for tid, text in records.items()}
+        files["t30_x.md"] = _task_text("Done", folded_tasks="[12]")
+        self.tree.bundle(files)
+        self.idx = sr.TaskIndex(self.tree.root)
+
+    def test_the_baseline_scan_is_clean(self):
+        """Control: every scan error below is caused by the record under test."""
+        self.assertEqual(self.verdict("12"),
+                         sr.Verdict("done", "folded into t30 (t30: archived)"))
+        self.assertEqual(self.idx._fold_errors, [])
+
+    def test_headerless_archived_records_fail_the_scan(self):
+        for tid, shape in HEADERLESS.items():
+            with self.subTest(tid=tid):
+                self.tree.cleanup()
+                self.tree = Tree()
+                self._bundle_with({tid: shape})
+                self.assertScanError()
+                self.assertEqual(len(self.idx._fold_errors), 1)
+                self.assertIn(f"t{tid}_x.md: unparseable frontmatter",
+                              self.idx._fold_errors[0])
+
+    def test_headerless_archived_task_itself_stays_unknown(self):
+        self._bundle_with(HEADERLESS)
+        for tid in HEADERLESS:
+            v = self.verdict(tid)
+            self.assertEqual(v.state, "unknown", tid)
+            self.assertIn("unparseable frontmatter", v.outcome)
+            self.assertEqual(sr.landed_state(tid, self.idx.lookup)[0], "unverifiable")
+
+    def test_migrated_records_complete_the_scan(self):
+        self._bundle_with({tid: MIGRATED + shape for tid, shape in HEADERLESS.items()})
         self.assertEqual(self.verdict("12"),
                          sr.Verdict("done", "folded into t30 (t30: archived)"))
         self.assertEqual(self.idx._fold_errors, [])
         self.assertEqual(sr.landed_state("12", self.idx.lookup), ("landed", ["12", "30"]))
 
-    def test_the_historical_task_itself_is_never_made_done(self):
-        for tid in ("20", "21", "22"):
-            v = self.verdict(tid)
-            self.assertEqual(v.state, "unknown", tid)
-            self.assertIn("unparseable frontmatter", v.outcome)
+    def test_a_migrated_historical_task_is_never_made_done(self):
+        self._bundle_with({tid: MIGRATED + shape for tid, shape in HEADERLESS.items()})
+        for tid in HEADERLESS:
+            self.assertEqual(self.verdict(tid),
+                             sr.Verdict("unknown", "archived with status (none)"), tid)
             self.assertEqual(sr.landed_state(tid, self.idx.lookup)[0], "unverifiable")
 
     def assertScanError(self):
