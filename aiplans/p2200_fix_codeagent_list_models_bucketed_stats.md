@@ -78,3 +78,10 @@ None identified.
 
 ### Goal-achievement risk: low
 None identified.
+
+## Final Implementation Notes
+- **Actual work done:** `cmd_list_models` (`.aitask-scripts/aitask_codeagent.sh`) now resolves each `verifiedstats.<op>` entry to its `all_time` bucket, falling back to a flat `{runs, score_sum}` entry (same rule as `lib/stats_data.py`); non-object values read as empty. STATS line format unchanged. Added Test 4b to `tests/test_codeagent.sh` with a synthetic `models_claudecode.json` (bucketed whose `month` differs from `all_time`, flat, mixed, no-stats) pinning each STATS line exactly.
+- **Deviations from plan:** None.
+- **Issues encountered:** None. Live check: `ait codeagent list-models claudecode` now prints `STATS:pick(runs 36, avg 100),changelog(runs 7, avg 100),…` for opus5_5 (was `runs 0, avg 0`).
+- **Key decisions:** All-time only, with no recent window (out of scope; it would need `lib/model_stats_windows.py`). Negative control: the new test, run in a scratch copy of the tree with `git show HEAD:.aitask-scripts/aitask_codeagent.sh` swapped in, failed 3 of its 5 assertions (bucketed, mixed, no-zero-runs) with `got 'STATS:pick(runs 0, avg 0)'`; the flat-fallback assertion passes on both, as expected. Full file: 271/271 with the fix.
+- **Upstream defects identified:** None
