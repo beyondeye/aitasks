@@ -1571,18 +1571,18 @@
         },
         "explore": {
           "all_time": {
-            "runs": 7
+            "runs": 8
           },
           "prev_month": {
-            "period": "",
-            "runs": 0
-          },
-          "month": {
             "period": "2026-10",
             "runs": 7
           },
+          "month": {
+            "period": "2026-11",
+            "runs": 1
+          },
           "week": {
-            "period": "2026-W43",
+            "period": "2026-W45",
             "runs": 1
           }
         }
