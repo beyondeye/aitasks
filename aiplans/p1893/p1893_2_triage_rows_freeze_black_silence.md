@@ -494,3 +494,73 @@ paths were checked in the FFmpeg `release/5.1` source):**
 
 ### Planned mitigations
 - timing: after | name: real_recording_triage_check | type: manual_verification | priority: medium | effort: low | inline_risk: low | added_complexity: medium | addresses: detector thresholds unvalidated on real device recordings (goal-achievement) | desc: Run bug mode on 2-3 real recordings (dark-mode app, a real hang, a black flash, audio with a gap) and check each freeze/black/silence row against the frames; record threshold adjustments as a follow-up if they misfire
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-04 17:20)
+- **Requested by user:** four review findings:
+  1. (medium, blocking) `video_packets` hard-coded `v:0`, while ffmpeg decoded its own default video track. A file whose default track is not the first got packet coverage from the wrong track (reproduced: `video_end_s=1` for a 3 s default track).
+  2. (low, blocking) `--black-min nan` passed validation and silently dropped every observed black run.
+  3. (low, blocking) the new `workflows/_index.md` link used a hand-written relative path instead of `relref`.
+  4. (low, follow-up) the silence and peak-volume audio passes decode the audio twice.
+- **Changes made:**
+  - `probe()` resolves one video stream (the default-disposition track, else the first) and records `vindex` / `video_streams`. Every video ffmpeg call (`scan`, `kept_frames`, `decode_gray`, `extract_views`, in both bug and anim) maps `0:<vindex>`, and `video_packets` selects the same index. `video_line` names the stream when there are several.
+  - `--freeze-min` / `--black-min` reject non-finite values with `math.isfinite`.
+  - The link was converted to `relref`.
+  - Finding 4 was left for a follow-up task, as its disposition asks.
+  - Added regressions:
+    - `TriageRows.test_one_video_stream_for_every_measurement`: a 1 s still first track plus a 3 s default second track with a trailing black run. A fixture guard checks the stream layout. The test asserts `vindex=1`, `video_end_s=3.0` proven, the black run 0.5–3.0 unobserved with its frame decoded from track 1, and the summary note;
+    - `nan` / `inf` bad-input cases.
+  - Mutants 8 (packets from `v:0`) and 9 (no `isfinite`) both turned the new tests red, and both were reverted.
+- **Files affected:** `.aitask-scripts/screen_recording/video_prep.py`, `tests/test_screen_recording_cli.py`, `website/content/docs/workflows/_index.md`, `website/content/docs/skills/aitask-screen-recording.md`.
+
+## Final Implementation Notes
+- **Actual work done:**
+  - `bug` mode runs `freezedetect` and `blackdetect` (`d=0`), each followed by `metadata=mode=print`, in the existing mpdecimate pass. When the video has audio it runs `silencedetect` + `ametadata=mode=print` in a separate audio pass.
+  - Pure `vp_core` adds:
+    - `parse_metadata_print`;
+    - `triage_intervals`: an end is observed only from a frame/sample metadata key; otherwise the end is a lower bound at the analysed-span end, and for silence it is the audio EOF value;
+    - `parse_packets` and `video_span`: video coverage from the maximum-presentation-pts packet, normalised by the format `start_time` and confirmed against the first kept frame, fail-closed;
+    - `Mark`, plus `Pick.ref` / `Pick.dwell_basis`;
+    - `"black": 3.5` in the ranking.
+  - Each black interval's representative is the detector's own first black frame (exact pts). It is merged into a kept pick, or inserted with the black run as its duration.
+  - Outputs:
+    - `timeline.tsv` gains appended `kind` and `end_s` columns, plus interval rows;
+    - `summary.md` gains a triage line and a "Freeze, black and silence" section with `≥ … (span ended)` cells and the black-omitted warning;
+    - `run.json` gains `intervals`, `detectors`, `video_end_s` / `_proven` / `_note`, `cap_hit` and `black_images_omitted`.
+  - New flags: `--freeze-min` (2) and `--black-min` (0); both reject non-finite values.
+  - `probe()` resolves one video stream (default disposition, else the first), and every video ffmpeg/ffprobe call in bug and anim maps it.
+  - Docs:
+    - a new walkthrough `workflows/screen-recordings/hang-black-silence.md`, listed in both indexes;
+    - the reference tables, the bug-report page and the SKILL.md bug section are updated.
+- **Deviations from plan:**
+  - freezedetect, and potentially silencedetect, put the start **and** end keys on one frame when the frame that proves duration `d` also ends the state. The pairing loop therefore opens before it closes. The existing `bug_frames` fixture exposed this: a 4.5–6.5 s freeze had read as open.
+  - The `black_flash_frames` fixture was changed from a moving bar to a still screen. With motion only, black frames competed only with `motion` picks, so a black-below-state mutant stayed green end to end.
+  - The trailing-silence fixture uses a 2.5 s muted tail: a tail of exactly `d` (2.0 s) is not reported.
+  - The video-stream resolution (review round 4) also covers anim mode's decode calls, since they share the helpers.
+- **Issues encountered:**
+  - Three plan-review rounds, six findings, all reproduced locally and fixed in the design:
+    - a predecessor frame used as the black image;
+    - EOF-proximity end inference;
+    - container vs video duration;
+    - inserted-frame dwell;
+    - the packet timestamp origin;
+    - B-frame packet order.
+  - One implementation review: the multi-track stream mismatch, NaN thresholds and a `relref` link were fixed; the audio double-decode was split off as a follow-up.
+  - The full Python suite had one failure, `tests/test_sitrep_window.py::MatcherTests::test_booting_companion_without_a_marker_does_not_match` (t2175_4's module). It passes in isolation and this change does not touch it, so it is load-dependent.
+- **Key decisions:**
+  - The user chose `--black-min 0` and the ranking start/end > black > state > brief > motion.
+  - `cap_hit` means `dropped > 0`; `black_images_omitted` is reported separately.
+  - Truncated runs are always kept: nothing proves they are short.
+  - Kept-frame picks keep their mpdecimate dwell. Only inserted black frames use the black-run duration, marked `(black run)`.
+  - Verification used 9 mutants, each scratch-edited and reverted with Edit, each turning its own test red. Every new CLI fixture has a guard asserting that its hazard is present.
+- **Upstream defects identified:**
+  - `.aitask-scripts/screen_recording/video_prep.py:575` — `cmd_anim` sets `end_t = start_time + duration`. Its windows are on ffmpeg's normalised timeline (format `start_time` subtracted), and the container duration can be a longer audio track's. So anim segment windows clamp to the wrong end for a nonzero `start_time` or when the audio outlasts the video.
+- **Notes for sibling tasks:**
+  - ffmpeg detector evidence: use `metadata=mode=print` / `ametadata=mode=print` right after the detector. They give the exact pts of the frame carrying each key. EOF and `--range` closures appear only as log lines, never as metadata.
+  - Timelines:
+    - showinfo, metadata and `trim` all use ffmpeg's normalised time (format `start_time` subtracted), while ffprobe packet times are raw;
+    - ffprobe lists packets in demux order; take the max pts;
+    - map the stream explicitly (`probe()["vindex"]`, `_vmap()`) for any new decode path.
+  - Fixtures that encode their own premise (`dark_flash_frames`, `tail_frames`, the B-frame and `ts_offset` encodes) should keep their guards. The `encode()` keyword arguments `ts_offset=` and `x264_params=` are available.
+  - New outputs go in the reference tables and use cases in workflow subpages, per t1893_1. The `workflows/_index.md` entries should use `relref`.
