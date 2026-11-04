@@ -284,6 +284,14 @@ All runs are sequential:
      per-run and per-pid. Update the module docstring: three runs, what each
      control removes, and why a control that removes only the app-side
      capture/restore would be vacuous.
+   - **Review fix:** `test_3c` counts only `inplace_layout` ticks as in-place
+     evidence (at least `MIN_SAMPLES // 2` in the `current` and
+     `inplace_control` runs). `test_4b` takes the control's drift only from
+     `inplace_layout` samples, so a run whose only drift came from rebuild ticks
+     no longer passes. Checked against synthetic traces: the reviewer's
+     counterexample (no `inplace_layout` ticks, drift on one rebuild tick)
+     fails both tests; drift on rebuild ticks only fails `test_4b`; drift on
+     `inplace_layout` ticks passes.
    - Record each run's wall time. The module stays in the serial carve-out.
      CLAUDE.md's list is unchanged, since there is no new module.
 
@@ -363,3 +371,263 @@ flow.
 ### Planned mitigations
 - timing: post-phase | name: incremental_list_negative_controls | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — a wrong "height unchanged" or focus decision | desc: five single mutations of the planner, fit check, layout flag, attachment check and focus branch, each proven to fail a named new test
 - timing: post-phase | name: live_pin_control_on_inplace_path | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — the live pin test must exercise the production in-place path | desc: three live runs (current in-place, in-place control without the anchor, historical legacy full-path control); never fall back to the full path
+
+## Implementation log
+
+### Step 1 — baseline (2026-11-04 18:37–19:05, omg16, load 8.4–14.2)
+
+Unmodified `minimonitor_app.py` for t2183. The file did carry t2175_5's
+uncommitted sitrep-key hunks (bindings, mixin), which add no per-tick work. Its
+sha256 prefix was `00be6165a6c4` for every run. HEAD moved
+604277980 → b35ee6bb9 mid-series (t2200: `aitask_codeagent.sh` only). All 10
+runs passed PRECHECK (one session `t2183scale`, exactly N agents, socket
+`ait_t2183_scale`) and stayed alive. py-spy 0.4.3 `--gil` was re-probed on
+CPython 3.14.9 with `burst_waits.py`: burn_a:burn_b = 330:156 ≈ 68:32 (70:30
+expected).
+
+**Steady per-instance CPU** (`servercost N 1`, two 60 s `cpurate` windows, %
+of one core):
+
+| N | active w1 / w2 | idle w1 / w2 |
+|---|---|---|
+| 1 | 0.25 / 0.27 | 0.27 / 0.23 |
+| 4 | 0.82 / 0.83 | 0.83 / 0.83 |
+| 12 | 1.55 / 1.43 | 1.60 / 1.50 |
+
+**Profiles** (`profile N`, 100 Hz `--gil`, 120 s including startup; % of
+GIL-held non-idle samples):
+
+| run | samples | coverage | producer | app | textual.render | textual.dispatch | render+dispatch |
+|---|---|---|---|---|---|---|---|
+| active N=1 | 52 | 43 % (0.52 s / 1.22 s) | 15.4 | 21.2 | 11.5 | 42.3 | 53.8 |
+| active N=4 | 133 | 68 % (1.33 s / 1.97 s) | 15.0 | 15.0 | 33.1 | 36.1 | 69.2 |
+| active N=12 | 219 | 79 % (2.19 s / 2.78 s) | 17.8 | 13.7 | 38.4 | 28.8 | 67.2 |
+| idle N=12 | 174 | 69 % (1.74 s / 2.54 s) | 17.8 | 13.2 | 40.2 | 28.2 | 68.4 |
+
+**Decision rule (N = 12):**
+- (a) render + dispatch: 67.2 % active, 68.4 % idle;
+- (b) builder-inclusive (`_agent_card_text` + `_other_card_text`): 6.4 %
+  active, 3.5 % idle.
+
+(b) < (a), so **continue**. For comparison, only 11.9 % (active) and 9.3 %
+(idle) of samples have `_rebuild_pane_list` as an ancestor. The deferred Textual
+work runs outside it, as the review predicted.
+
+### Step 6 — red runs before the fix
+
+`ClickDuringTickTests` on today's code fails both cases:
+- `test_click_during_suspended_capture_survives_in_place_tick`:
+  `AssertionError: '%0' != '%1' : the tick reverted the recorded selection`;
+- `test_click_during_suspended_capture_survives_full_rebuild`: same assertion.
+
+In both, the precondition `landed` passed: the click focused `%1` before the
+tick resumed.
+
+### Deviation
+
+The planner compares each new text with `card.content` (`Static.content`, the
+text last set), not with a texts record. The headless `_regrow_cards` helper and
+the live harness's out-of-band churn update cards directly, so a separate record
+would go stale.
+
+### Steps 2–5 — implementation (`minimonitor_app.py`)
+
+**Shared-file gate.** t2175_5 had uncommitted hunks in this file, so no edit
+was made until the user reported that it had landed. The gate was then
+re-checked:
+- `git diff --quiet HEAD` and `--cached` were both clean;
+- all four t2175_5 marker hunks were present in `HEAD:` (52b8b65dc).
+
+Every write ran under a sha256 chain: the file's sha must equal the last
+accepted value before writing, and the new sha is accepted afterwards.
+
+**Edits:**
+- Module level:
+  - `_ListEntry` and `_ListRecord`;
+  - `_fits_width` (`Content.from_markup`, the parse `Static` itself uses);
+  - `card_height_stable(old, new, width)`: same newline count AND both texts
+    fit the actual width. An unlaid-out card, non-`str` content or a parse
+    error gives False.
+- `MiniMonitorApp`:
+  - the `_IN_PLACE_LIST_UPDATES = True` seam;
+  - `__init__` state (`_list_record`, `_session_bar_text`);
+  - `_build_list_entries` (today's filter/sort/group logic, now emitting
+    entries);
+  - `_rebuild_pane_list(entries=None)`, which records what it mounted;
+  - `_plan_in_place_list_update`;
+  - `_card_height_stable(card, …)`, which reads `card.content_size.width`;
+  - `_apply_list_updates`.
+- `_refresh_data`:
+  - the top-of-tick `saved_pane_id` snapshot is removed;
+  - an unchanged or same-height tick skips capture/lock/restore, and
+    restores focus only when nothing is focused;
+  - a geometry-changing tick (an in-place `layout=True` update or a rebuild)
+    runs the unchanged t1539/t1653 sequence;
+  - both paths restore `self._focused_pane_id`, read after every await.
+- Session bar: `bar.update` only when the text changed.
+- Comments describe the current behaviour: the `MiniPaneList` docstring, the
+  `_agent_card_text` caller note, and the `_restore_focus` comment.
+
+### Step 6 — headless tests
+
+`tests/test_minimonitor_incremental_list.py`: 14 tests, all green. Three
+first-draft fixture faults were found and fixed, each a fixture fault rather
+than a product fault:
+- the anchor row assumed y=6, but multi mode puts a session divider at y=0;
+- `_multi_session` already defaults to True, so assigning True was a no-op.
+  The test now flips it, and points `_session` at `s1`, because single-session
+  mode projects to the app's own session;
+- card identity used `id()`, which CPython reuses for the new cards after a
+  rebuild frees the old ones. The tests now hold the objects and compare with
+  `is`.
+
+Existing modules, all green:
+- minimonitor: scroll_preservation 33, bottom_pin 8, focus_in_click 7,
+  other_section 25, own_mark 26, row_budget 16, top_chrome_render 28,
+  startup_input_latency 18, auto_close_guard 28, own_header_session 28,
+  pick_next_characterization 19, pick_by_number 143, concern_action 255;
+- monitor: frozen_filter 73, parked_filter 29, session_divider 23,
+  pane_sort_order 39, markup_escape 10, shadow_status 19, completed_status 29,
+  agent_marks 24, modal_space_dispatch 7, focus_switch 3, shadow_pick 54,
+  client_agnostic 30, parked_capture 24, agent_marks_action 28,
+  pick_launch_sites 35, monitor_concern_action 95;
+- other: shadow_phase_restamp 10, brainstorm_session_tab 16, and
+  `test_multi_session_minimonitor.sh` 42/42.
+
+### Post-phase 1 — `incremental_list_negative_controls` (run, file restored to the accepted sha)
+
+| mutant | failing tests | assertion |
+|---|---|---|
+| (a) planner returns `[]` | same_height_change, line_count_change, narrow_pane_wrap, bottom_pinned_grows | `[] != [('%3', False)]`, `[] != [('%1', True)]`, `[] != [('%3', True)]`, `content did not grow` |
+| (b) no fit check | narrow_pane_wrap_change_uses_layout | `[('%3', False)] != [('%3', True)]` |
+| (c) `layout=False` always | line_count_change, narrow_pane_wrap, bottom_pinned_grows | `[('%1', False)] != [('%1', True)]`, … |
+| (d) no attachment check | externally_removed_card_forces_a_full_rebuild | cards survived a structural change |
+| (e) in-place branch restores the top-of-tick snapshot | click_during_suspended_capture_survives_in_place_tick | `'%0' != '%1'` |
+
+### Step 7 / post-phase 2 — `live_pin_control_on_inplace_path`
+
+`tests/test_minimonitor_bottom_pin_live.py`: 8/8 OK, at 11.7 s per run. A
+second, recording pass of the three variants (settled samples after the
+release) gave:
+
+| run | routes | gaps (max − scroll) |
+|---|---|---|
+| current (in place, production) | 14 `inplace_layout`, 3 `rebuild` | 0 on all 17 |
+| inplace_control (no anchor) | 14 `inplace_layout`, 3 `rebuild` | `inplace_layout` ticks: 15, 0, 0, 15, 0, 30, 0, 15, 30, 24, 73, 56, 132, 64 |
+| legacy (full path + pre-fix replica) | 17 `rebuild` | 0 ×10, then 24, 73, 56, 132, 64, 100, 66 |
+
+The in-place control drifts on in-place ticks, so the anchor is what holds the
+production path. No fallback to the full path was needed.
+`tests/test_minimonitor_width_pin_live.py`: 2/2 OK.
+
+### Full suite (`bash tests/run_all_python_tests.sh`, pytest lane, 9 m 32 s)
+
+Verdict line: `PYTHON SUITE: FAILED (runner=pytest, exit=1)`, with 11 failed,
+10735 passed, 6 skipped and 1 error. Every failure traces to t2037_1's
+in-flight, **untracked** status-server files
+(`.aitask-scripts/monitor/status_server.py`,
+`tests/test_monitor_status_server{,_live}.py`; p2037_1 names them 13 times):
+- `status_server.py:52` imports `SESSION_CONFIG_KEYS` from `monitor_core`,
+  which the working tree does not define yet. As a result
+  `test_monitor_status_server.py` errors at collection, and the 7
+  `test_monitor_status_server_live.py` cases fail;
+- `test_no_zero_collection` (2) and `test_collection_parity` (1) report that
+  same module;
+- `test_metadata_writer_inventory` reports `status_server.py` as an
+  unclassified writer.
+
+None of the failures involve `minimonitor_app.py` or a t2183 test.
+
+### Step 8 — after measurement (2026-11-04 19:49–20:18, same harness, load 5.7–8.5)
+
+Edited `minimonitor_app.py` (sha256 prefix `5544543eb9be`, equal to the
+accepted chain value, for every run) at HEAD 52b8b65dc. All 10 runs passed
+PRECHECK and stayed alive.
+
+**Steady per-instance CPU, % of one core** (mean of the two 60 s windows; the
+raw windows are in brackets):
+
+| N | active before → after | idle before → after |
+|---|---|---|
+| 1 | 0.26 [0.25/0.27] → 0.18 [0.18/0.18] (−31 %) | 0.25 [0.27/0.23] → 0.18 [0.18/0.18] (−28 %) |
+| 4 | 0.83 [0.82/0.83] → 0.28 [0.30/0.25] (−67 %) | 0.83 [0.83/0.83] → 0.40 [0.37/0.42] (−52 %) |
+| 12 | 1.49 [1.55/1.43] → 0.49 [0.50/0.48] (−67 %) | 1.55 [1.60/1.50] → 0.79 [0.82/0.75] (−49 %) |
+
+**Profiles after** (100 Hz `--gil`, 120 s including startup; % of GIL-held
+non-idle samples, with the before value in brackets):
+
+| run | samples | coverage | producer | app | textual.render | textual.dispatch | render+dispatch samples |
+|---|---|---|---|---|---|---|---|
+| active N=1 | 55 [52] | 48 % (0.55 s / 1.15 s) | 9.1 [15.4] | 25.5 [21.2] | 10.9 [11.5] | 40.0 [42.3] | 28 [28] |
+| active N=4 | 64 [133] | 52 % (0.64 s / 1.22 s) | 23.4 [15.0] | 23.4 [15.0] | 12.5 [33.1] | 35.9 [36.1] | 31 [92] |
+| active N=12 | 80 [219] | 51 % (0.80 s / 1.56 s) | 40.0 [17.8] | 23.8 [13.7] | 12.5 [38.4] | 18.8 [28.8] | 25 [147] |
+| idle N=12 | 137 [174] | 71 % (1.37 s / 1.93 s) | 27.7 [17.8] | 20.4 [13.2] | 27.7 [40.2] | 21.9 [28.2] | 68 [119] |
+
+**Reading.**
+- At N = 12 active, Textual render+dispatch fell from 147 to 25 GIL-held
+  samples (−83 %).
+- Per-instance CPU growth with N mostly flattens for active agents: +0.10 %
+  of a core from N=1 to N=12, against +1.23 % before. The producer
+  (`tickcount`: 0.37 % of a core at N = 12, unchanged) is now the largest
+  bucket.
+- The idle worst case still roughly halves. There, every card's
+  `IDLE <n>s` counter changes on every tick, so every card is updated in
+  place, but with `layout=False` and no remount.
+- Coverage is lower after the change (≈50 %) because GIL-released syscall
+  time is a larger share of a smaller total. This is the caveat t2034_1
+  stated, so the shares above are indicative only.
+
+**Confounds, stated rather than corrected:**
+- Host load was lower during the after series (5.7–8.5 against 8.4–14.2).
+- The producer cost (`tickcount` precheck, in % of a core) was comparable
+  between the two series: active N=12 0.385 → 0.369, idle N=12 0.400 →
+  0.356. So the machine did similar producer work per tick, but this does not
+  remove the load difference.
+- One host, one evening. The figures bound what was measured here and are not
+  a fleet-wide claim.
+
+## Final Implementation Notes
+
+- **Actual work done:** as planned.
+  - Each minimonitor tick builds `_ListEntry`s, and
+    `_plan_in_place_list_update` chooses nothing, in-place updates of changed
+    cards, or the full rebuild.
+  - `layout=False` is used only when `card_height_stable` proves the height
+    cannot change: same newline count, and both texts fit the card's actual
+    content width.
+  - Scroll capture/restore runs only when geometry can change.
+  - Focus is restored from `_focused_pane_id` read after every await, never
+    from a top-of-tick snapshot.
+  - The session bar is re-rendered only when its text changes.
+  - Measured result at N = 12: per-instance CPU −67 % (active) and −49 %
+    (idle, the worst case). Textual render+dispatch samples 147 → 25
+    (active). Tables are in the Step 8 log above.
+- **Deviations from plan:**
+  1. The planner diffs against `card.content` (`Static.content`) instead of
+     a recorded texts list. The headless `_regrow_cards` helper and the live
+     harness update cards directly, so a separate record would go stale.
+  2. There is no `_focus_is_on` helper: the in-place branch restores only when
+     `self.focused is None`, which is what the revised plan's code block says.
+  3. The live-test review fix: `test_3c` and `test_4b` count only
+     `inplace_layout` ticks. Checked against synthetic traces.
+- **Issues encountered:**
+  - t2175_5 held uncommitted hunks in `minimonitor_app.py`. All other work was
+    done first, and the file was edited only after the handover was verified
+    (clean vs HEAD, its hunks in HEAD 52b8b65dc), with every write under a
+    sha256 chain.
+  - Three first-draft fixture faults in the new module (divider offset,
+    `_multi_session` default plus the single-session projection, `id()` reuse
+    after a rebuild) were fixed in the fixtures.
+  - The full suite is red only from t2037_1's untracked `status_server.py`
+    (missing `SESSION_CONFIG_KEYS`).
+- **Key decisions:**
+  - Diff on the rendered text, not on protocol deltas. This is
+    source-agnostic, so t2037_3's `MonitorClient` needs no extra plumbing.
+  - The `_IN_PLACE_LIST_UPDATES` class seam pins the t1539/t1653 headless
+    modules to the full path. The live harness runs the production path with
+    its own anchor-removal control, and keeps the historical control on the
+    full path.
+  - This task adopts the "current intent at restore time" half of t2201's fix
+    direction. The deferred `card.focus()` race, a click between
+    `remove_children` and `mount_all`, and the card-0 cases stay with t2201.
+- **Upstream defects identified:** None.
