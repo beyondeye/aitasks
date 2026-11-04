@@ -496,3 +496,187 @@ and nested-skill invocation on that agent).
 ### Planned mitigations
 - timing: post-phase | name: sitrep_guard_mutants | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — harvest skip on the drop/purge path and the spawn guard | desc: one mutant per guard (lookup failure, frozen-first, canonical root, stamp-or-remove, lock, anchored window regex, harvest skip branch, name+cwd fallback, helper exclusion, stamp-first passes, triage watch counting, trail source in the trail-watch example) must turn its named test red
 - timing: post-phase | name: sitrep_live_store_smoke | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement — prose skill vs. the real writer and store | desc: in an isolated scratch repo (own main worktree) with a copy of this repo's real store, a scratch HOME/sessions file and one synthetic record, run the skill's documented Step 0, triage-write (incl. a trail watch), situation and qa commands, assert every result line, and prove the real store and receipts unchanged
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-04 12:05)
+- **Requested by user:** verify and address three review findings: (1)
+  `lib/sitrep_cli.py` put the monitor package on `sys.path` to import
+  `monitor_core`, failing `tests/test_no_lib_to_tui_import.sh` (layer
+  inversion); (2) batch triage read every pending item before any write, so two
+  pending wrap-ups naming one trail both reported it unwatched and the recipe
+  created two watches (empty-ref items have no writer dedup); (3)
+  `spawn_sitrep` called `maybe_spawn_minimonitor` with `explicit=True` only, so
+  a `companion_window_prefixes` config excluding `agent-` dropped the required
+  companion. All three verified in the code.
+- **Changes made:** (1) `open` moved to `monitor/sitrep_open.py` (the
+  executable side of `spawn_sitrep`, in the monitor package);
+  `lib/sitrep_cli.py` keeps only the stdlib `root` / `triage` verbs;
+  `aitask_sitrep.sh` routes `open` there. (2) `ait sitrep triage --open` prints
+  every open triage item's block, then ONE `BATCH_TRAIL_UNWATCHED:<handle>|c<a>,c<b>`
+  line per uncovered trail (`NO_TRIAGE` when none is open); the skill reads the
+  batch with it and proposes one watch per BATCH line, `related:` every item it
+  names (`<TRIAGES>` in the trail-watch example). (3) the companion is
+  `explicit=True, force_companion=True` (prefix / TUI-name filtering bypassed;
+  occupancy, pane-count and lock gates kept).
+- **Tests:** contract c2 — two wrap-ups naming one trail, both pending before
+  the first write: one BATCH line naming both, one watch written, both blocks
+  then report it watched and derived, exactly one watch item, `NO_TRIAGE` after
+  closing; unit: `force_companion` asserted, `triage` id/`--open` usage; live C:
+  companion spawned under a config with `auto_spawn: false` and
+  `companion_window_prefixes: [create-]`. New mutants `batch_not_coalesced`,
+  `companion_not_forced`. Layering guard green.
+- **Files affected:** `.aitask-scripts/lib/sitrep_cli.py`,
+  `.aitask-scripts/monitor/sitrep_open.py` (new), `.aitask-scripts/aitask_sitrep.sh`,
+  `.aitask-scripts/monitor/monitor_core.py`, `.claude/skills/aitask-sitrep/SKILL.md.j2`
+  + goldens, `tests/test_sitrep_skill_contract.sh`, `tests/test_sitrep_window.py`,
+  `tests/test_sitrep_window_live.sh`, `aidocs/framework/sitrep.md`,
+  `website/content/docs/workflows/sitrep.md`.
+
+### Change Request 2 (2026-11-04 12:44)
+- **Requested by user:** verify and address two review findings: (1)
+  `aitask_sitrep.sh` checked `--root` only in the `--root P` spelling, while
+  the Python parsers also accepted `--root=P` (and argparse abbreviations such
+  as `--roo P`, and an empty `--root=`), so `a/../b` reached
+  canonicalization; (2) the existing-window branch of `spawn_sitrep` ignored
+  `switch_to_pane_anywhere`'s result and always returned `focused`. Both
+  verified (probe: the `=` / abbreviated / empty spellings exited 0).
+- **Changes made:** (1) one check, inside the parsers: `sitrep_cli.root_arg`
+  is the argparse `type` of every `--root` (here and in
+  `monitor/sitrep_open.py`), refusing an empty value or a `..` segment with
+  exit 2 before anything reads the path; option abbreviations are disabled;
+  the wrapper's partial copy of the check was removed. (2) with
+  `select_window`, a failed switch returns
+  `SitrepSpawn("focus_failed", <pane>, "", "focus_failed")`, printed as
+  `SITREP_FOCUS_FAILED:<pane>` (exit 1); `--no-select` still reuses the pane
+  without switching.
+- **Tests:** CLI: six bad spellings (`--root a/../b`, `--root=a/../b`,
+  `--root ""`, `--root=`, `--root=..`, `--roo a/../b`) x three verbs ->
+  exit 2, no stdout; abbreviations rejected even for a valid path; a valid
+  `--root=<dir>` works; spawn: a failed focus is reported (`focus_failed`,
+  pane kept, no launch), `--no-select` never consults the switch;
+  `sitrep_open` maps focus_failed / focused / spawned (+ warning) / refused to
+  their wire lines and exit codes, and passes `--no-select` through. Mutants
+  `root_dotdot_unchecked`, `root_abbrev_allowed`, `focus_result_ignored`:
+  RED (the abbreviation mutant first stayed GREEN because `root_arg` covers
+  abbreviated spellings too; the documented "no abbreviations" behaviour got its
+  own test).
+- **Files affected:** `.aitask-scripts/lib/sitrep_cli.py`,
+  `.aitask-scripts/monitor/sitrep_open.py`, `.aitask-scripts/aitask_sitrep.sh`,
+  `.aitask-scripts/monitor/monitor_core.py`, `tests/test_sitrep_window.py`,
+  `aidocs/framework/sitrep.md`.
+
+## Final Implementation Notes
+- **Actual work done:**
+  - Skill `/aitask-sitrep`: Claude stub + `SKILL.md.j2` (single entry file,
+    resolver key `sitrep`, profile-invariant), the three Claude goldens, and the
+    codex / opencode skill + command stubs (required by `aitask_skill_verify.sh`).
+    Step 0 = `ait sitrep root` → `harvest all --root .` → `refresh --root .` →
+    `list` / `read todo` → greeting from the Capabilities section. Shortcodes
+    `>s >t >w >q >tr >p >x >r >?`; fenced, marker-delimited example blocks
+    (push, trail-watch, close, situation, qa, dismiss) that the contract test
+    fills and runs.
+  - Window: `monitor_core.spawn_sitrep` → `SitrepSpawn(status, pane, window,
+    detail)`; `@aitask_sitrep_root` stamp (`lib/helper_panes.py`, not a helper
+    marker); live lookup `find_sitrep_pane_status` / `match_sitrep_pane`
+    (frozen / dead / helper rows skipped via the extracted shared
+    `pane_is_helper`, stamp-first then name+cwd fallback, refuse on rc≠0);
+    per-server flock `_sitrep_spawn_lock` (reuses `_flock_until`); companion
+    `explicit=True, force_companion=True`; `focus_failed` when switching fails.
+  - `ait sitrep`: `aitask_sitrep.sh` (dispatcher verb + help line) →
+    `open` in `monitor/sitrep_open.py`, `root` / `triage <id>|--open` in
+    `lib/sitrep_cli.py`; `--root` validated once by `sitrep_cli.root_arg`.
+  - `sitrep` codeagent operation (Claude Code only; codex/opencode fail closed),
+    `defaults.sitrep = claudecode/opus5_5` (project + seed config), settings TUI
+    (`OPERATION_DESCRIPTIONS`, `VALID_PROFILE_SKILLS`).
+  - Harvest: `SITREP_WINDOW_RE` / `is_sitrep_window`, `HARVEST_NONE:<id>|sitrep_agent`
+    with a receipt; key-file header constants + `capture_file_kind`;
+    `spawn_test_pause` seam.
+  - Permissions: `aitask_sitrep_todo.sh`, `aitask_sitrep_refresh.sh`,
+    `aitask_sitrep.sh` in the five touchpoints.
+  - Docs: `aidocs/framework/sitrep.md`, CLAUDE.md pointer, tmux_gateway.md
+    option row, website `workflows/sitrep.md`, `skills/aitask-sitrep.md`, index
+    rows (skills, workflows, commands) and the codeagent Operations row.
+  - Tests: `test_skill_render_aitask_sitrep.sh` (114), `test_sitrep_skill_contract.sh`
+    (55), `test_sitrep_window.py` (38), `test_sitrep_window_live.sh` (22),
+    harvest e2e case 19 + `SitrepWindowTests`, codeagent Test 11d5, op-wiring
+    exemption, settings pin.
+- **Deviations from plan:**
+  - Plan review rounds (before approval): the `ait sitrep triage` evidence verb
+    (dedup counts only `kind=watch` items), stamp-precedence cases, an isolated
+    smoke (see Plan review rounds 1–2 in Context).
+  - Post-review CR1: `open` moved to `monitor/sitrep_open.py` (layering guard);
+    `triage --open` batch with `BATCH_TRAIL_UNWATCHED` coalescing; forced
+    companion. CR2: `root_arg` in the parsers (every spelling, no
+    abbreviations); `focus_failed`.
+  - The spawn pause seam lives in `sitrep_harvest.py`, not `monitor_core.py`:
+    `tests/test_metadata_writer_inventory.py`'s file-scoped tripwire flags a
+    module that both names a metadata path and opens a file for writing;
+    pinning the 4800-line monitor core would have blinded it.
+  - The live test stubs the companion's pane-died cleanup hook (no agent exits
+    there; the hook script is the one tmux caller outside the gateway) and uses
+    a companion stand-in whose argv carries `minimonitor`, plus a live marker.
+- **Issues encountered:**
+  - The first lock mutant removed only the refusal (the flock was still taken)
+    and the live concurrency case was a race; fixed with a real
+    `lock_not_taken` mutant and the deterministic `AITASK_SITREP_SPAWN_PAUSE_FIFO`
+    seam (`spawn:after_lookup`).
+  - The abbreviation mutant stayed green because `root_arg` covers abbreviated
+    spellings too; the documented "no abbreviations" behaviour got its own test.
+  - `tests/test_cleanup_rule_parity.sh` refuses to run inside tmux by design and
+    was NOT run; the `pane_is_helper` extraction is verbatim and covered by
+    `ClassifyParityTests` and the existing classify tests (Python suite green).
+- **Key decisions:** stamp authoritative + name+cwd fallback for new-window
+  restores; frozen sitrep never blocks; helpers excluded by the one shared rule;
+  per-server lock; triage facts as helper output (the agent judges); one
+  confirmation per triage batch; one watch per trail across the batch; Claude
+  Code only until the ports; harvest never collects the sitrep window.
+- **Verification:** Python suite PASSED (runner=pytest); bash suites above
+  green, plus test_sitrep_harvest.sh (139), test_sitrep_todo.sh,
+  test_sitrep_refresh.sh, test_codeagent.sh (266), test_codeagent_op_wiring.sh,
+  test_skill_verify.sh, test_skill_dispatch_contract.sh, test_opencode_setup.sh,
+  test_audit_wrappers_render_opencode_command.sh, test_no_raw_tmux.sh,
+  test_no_lib_to_tui_import.sh, test_website_doc_lists.sh,
+  test_setup_agent_config_seeds.sh, test_skill_render.sh; shellcheck clean;
+  `check_links.py --build` SWEEP: PASSED; `aitask_skill_verify.sh` OK.
+- **Mutants (sitrep_guard_mutants):** 19 mutants, each in a fresh `mktemp -d`
+  copy, all RED on every named test; unmutated control GREEN on unit, hunit,
+  he2e, live, contract: lookup_failure_as_none (unit), frozen_not_skipped
+  (unit, live), root_not_canonical (live), stamp_result_ignored (unit),
+  lock_refusal_ignored (unit), lock_not_taken (live), window_re_prefix_only
+  (hunit, he2e, unit), harvest_skip_removed (he2e), fallback_removed (unit,
+  live), helper_exclusion_removed (unit, live), single_pass (unit, live),
+  triage_counts_question (contract), triage_counts_non_watch (contract),
+  batch_not_coalesced (contract), companion_not_forced (unit, live),
+  root_dotdot_unchecked (unit), root_abbrev_allowed (unit),
+  focus_result_ignored (unit), template_trail_line_dropped (contract).
+- **live_store_smoke:** isolated repo + copy of the real store + scratch
+  HOME/sessions file: 22/22. Observed: `ROOT:<S>` / `CWD_OK`;
+  `HARVESTED:f542b831|added=1|existing=0`; refresh
+  `REFRESHED:checked=5|changed=5|stale=0|kept=0|unknown=5` (the scratch repo has
+  no task files, so task items read unknown); `triage c17` → one
+  `TRAIL_UNWATCHED:art:trail-smoke-plan`, `triage c1` (real) → PASSAGE/BANNER/KEY
+  lines; `ADDED:c18`, `ADDED:c19`, `STATE:c1|done|1561`, `STATE:c17|done|1562`,
+  `SITUATION:smoke|set`, `QA:2026-11-04T08:21:07Z`; check-sources 47 ok / 0
+  missing; refresh selects the watch; the action line byte-identical after a
+  real refresh; `ISOLATION:manifest_unchanged` (real store and receipts
+  byte-identical before/after).
+- **Upstream defects identified:**
+  - `.claude/settings.local.json:1 — aitask_gate_record.sh (invoked by task-workflow gate-recording.md) has no allow entry (touchpoint 1 MISSING per aitask_audit_wrappers.sh audit-helper-whitelist)`
+  - `seed/opencode_config.seed.json:1 — aitask_parallel_admission.sh (invoked by task-workflow parallel-admission.md) is missing from all five permission touchpoints (.claude/settings.local.json, .codex/rules/default.rules, seed/claude_settings.local.json, seed/codex_rules.default.rules, seed/opencode_config.seed.json)`
+- **Notes for sibling tasks:**
+  - t2175_5 (monitor key): call `monitor_core.spawn_sitrep(monitor,
+    target_root=, session=, select_window=, agent_string=)`; statuses
+    `spawned|focused|focus_failed|refused` (detail = reason or
+    `companion_not_spawned`); `ait sitrep` wire lines in `aitask_sitrep.sh`'s
+    header. The sitrep window is `SITREP_WINDOW_RE` (`agent-sitrep[-<n>]`),
+    pane option `@aitask_sitrep_root`. Harvest's `record`/`all` skip sitrep
+    windows, but the `capture --agent <window>` verb does NOT consult the window
+    name: a live-pane harvest-and-close must skip sitrep windows itself (or pass
+    the record path).
+  - t2175_6 (fallback corpus): the skill's `>t` section and `ait sitrep triage
+    --open` are where queued analysis cases get read; a new case kind should be
+    reported there as evidence, the agent judging.
+  - codex / opencode ports: lift the `sitrep` gate in `aitask_codeagent.sh`,
+    drop `sitrep` from `EXEMPT_OPS`, verify nested skill calls
+    (`/aitask-trail`, `/aitask-backlog-roadmap`) and AskUserQuestion mapping.
