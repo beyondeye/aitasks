@@ -707,7 +707,10 @@ def _write_anim_summary(out, args, info, region, adims, scale_px, results, cuts,
                          f"{track.magnitude * scale_px:.0f} source px{spread}"
                          + ("" if track.exact else " (approximate near the ends)"))
         if r.get("signal"):
-            lines.append(f"- fitted signal: {r['signal']} (both signals are in curve.tsv)")
+            # same predicate _write_curve_tsv uses to blank the p_edge column
+            where = ("both signals are in curve.tsv" if r.get("p_edge") is not None
+                     else "p_blend in curve.tsv; no edge track, so p_edge is blank")
+            lines.append(f"- fitted signal: {r['signal']} ({where})")
         if r.get("visible_duration") is not None:
             fm, lm = r["first_moving"], r["last_moving"]
             lines.append(

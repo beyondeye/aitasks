@@ -71,6 +71,11 @@ class AnimMode(_VideoCase):
         fits = [json.loads(p.read_text()) for p in sorted(out.glob("*/fit.json"))]
         return out, fits
 
+    @staticmethod
+    def curve_rows(out, label):
+        with open(out / label / "curve.tsv", newline="") as fh:
+            return list(csv.DictReader(fh, delimiter="\t"))
+
     def assert_tween(self, fit, name, dur_ms, *, frame_ms=FRAME_MS, fit_tol=12.0):
         # The visible change can miss the faint first/last frames of slow-in/slow-out
         # curves (they move < 1 px or change < 2 %), so it may read up to 2 frames
@@ -98,6 +103,10 @@ class AnimMode(_VideoCase):
         summary = (out / "summary.md").read_text()
         self.assertIn("| s01 |", summary)
         self.assertTrue((out / "s01" / "curve.tsv").exists())
+        # an edge track exists, so curve.tsv carries both signals and the summary says so
+        rows = self.curve_rows(out, "s01")
+        self.assertTrue(all(row["p_edge"] for row in rows), rows[:3])
+        self.assertIn("- fitted signal: edge (both signals are in curve.tsv)", summary)
         if HAVE_MAGICK:
             self.assertTrue((out / "s01" / "sheet_01.png").exists())
             self.assertTrue((out / "s01" / "plot.png").exists())
@@ -115,10 +124,20 @@ class AnimMode(_VideoCase):
         self.assert_tween(fits[0], "linear", 250)
 
     def test_fade_uses_blend_signal(self):
-        _, fits = self.anim("fade", synth.card_frames(
+        out, fits = self.anim("fade", synth.card_frames(
             synth.tween(synth.EASE_IN_OUT, 0.5, 0.3), 1.4, "fade"))
         self.assertEqual((fits[0]["kind"], fits[0]["signal"]), ("fade/blend", "blend"))
         self.assert_tween(fits[0], "CSS ease-in-out / iOS easeInOut", 300)
+        # a fade has no edge track: p_edge is blank in every row, and the summary
+        # must not claim curve.tsv holds both signals
+        rows = self.curve_rows(out, "s01")
+        self.assertTrue(rows)
+        self.assertEqual({row["p_edge"] for row in rows}, {""})
+        self.assertTrue(all(row["p_blend"] for row in rows), rows[:3])
+        summary = (out / "summary.md").read_text()
+        self.assertIn("- fitted signal: blend (p_blend in curve.tsv; no edge track, so "
+                      "p_edge is blank)", summary)
+        self.assertNotIn("both signals are in curve.tsv", summary)
 
     def test_spring_with_overshoot(self):
         _, fits = self.anim("spring", synth.card_frames(
