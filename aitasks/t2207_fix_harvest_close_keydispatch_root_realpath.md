@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2175
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-04 22:56
-updated_at: 2026-11-04 23:02
+updated_at: 2026-11-04 23:06
 ---
 
 ## Origin
@@ -34,3 +35,8 @@ Note: system `python3` lacks textual on this machine; the file needs the venv in
 ## Suggested fix
 
 Canonicalize the fixture root at line 985, e.g. `self.root = Path(os.path.realpath(self._tmp.name)) / "repo"` (mirroring line 779), and confirm the 66 tests pass on macOS; keep the expectation strict (do not loosen the assertion to accept either spelling).
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-04T21:06:38Z status=pass attempt=1 type=human
