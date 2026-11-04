@@ -15,9 +15,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 risk_mitigation_tasks: [1673]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1538
-implemented_with: claudecode/opus5
+implemented_with: claudecode/opus5_5
 created_at: 2026-09-01 15:18
-updated_at: 2026-11-04 18:03
+updated_at: 2026-11-04 19:11
 ---
 
 Build the premise-staleness verdict engine: the pure core `lib/task_premise.py` and the impure git-facing producer `.aitask-scripts/aitask_premise_stale.sh`.
@@ -96,3 +96,5 @@ First child of t1663 (advisory task premise staleness). Design fixed in `aidocs/
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-09-01T15:07:39Z status=pass attempt=1 type=human
+
+> **✅ gate:plan_approved** run=2026-11-04T17:11:02Z status=pass attempt=2 type=human
