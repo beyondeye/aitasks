@@ -147,3 +147,5 @@ D1–D13, and a decomposition into child tasks. A plausible split:
 > | Reference: aidocs/framework/task_search_analysis.md, committed in aa67dd50e. It covers the comparison with GitHub Issues (semantic and hybrid search, GA 2026-04-02) and beads (Dolt-backed, typed links including duplicates and supersedes), plus corpus and Python scan measurements from 2026-11-04 on one host.
 > | 
 > | Related: the implementation trail art:trail-task-relations-and-premise, owned by t1981 and created 2026-11-04, orders t1981 against the t1663 premise-staleness chain. Refresh it after t1981 decomposes.
+
+> **👁 note:read** id=2026-11-04T07:14:28Z.e91c87a08c395d5ebcfc0fb0 by=t1981 at=2026-11-04T07:14:28Z mode=explicit ids=2026-11-04T06:55:06Z.4674c1cebc566f61967a9883
