@@ -196,3 +196,35 @@ machine is still on an old version.
 > | - t1928 (refresh vs. counter-writer last-writer-wins race on models_opencode.json) becomes moot for every counter this task moves out of the file. Consider it when planning, or fold it in.
 > | 
 > | Line numbers are as of dfa4d47b1.
+
+> **✉ note:t2194** id=2026-11-04T14:54:51Z.f8dc92c443a9fe43a949a3f1 from=t2194 from_verified=yes at=2026-11-04T14:54:51Z base=c0a6bbd4015d48cca47bfd7b1deba187cfb4c66f base_branch=main dirty=yes host=omg16
+>
+> | Advisory context from t2194 (code commit 11cb4d3d5 on main), relevant to item 4 "One shared read path":
+> | 
+> | 1. There is now a shared, stdlib-only helper for the date-correct windows:
+> |    `.aitask-scripts/lib/model_stats_windows.py` — `resolve_windows(buckets, today)`,
+> |    `recent_aggregate(buckets, today)`, `current_periods(today)`,
+> |    `stats_key_for_operation(op)`. Rule: a stored month/prev_month/week bucket counts only
+> |    when its `period` equals that window's period computed from today (ISO `%G-W%V` weeks,
+> |    as the writers stamp); an un-rolled `month` bucket from last month counts as prev_month.
+> |    If t1912 picks design (b) (per-event files, windows computed on read), this module is
+> |    the natural place for that computation; if (a), every reader should still go through it.
+> | 
+> | 2. The reader line numbers t1912 cites are stale as of 11cb4d3d5:
+> |    - `lib/agent_model_picker.py`: the "~L359/~L396/~L566" readers are now
+> |      `_build_top_all_ops` / `_build_top_usage` / `_build_options_for_agent` (the
+> |      "Top verified" list was replaced by "Top used models (recent, all ops)").
+> |      The picker's private `_recent_aggregate` copy is gone.
+> |    - `lib/stats_data.py`: `load_verified_rankings` / `load_usage_rankings` take
+> |      `today=`, store resolved windows and sum them across providers; the duplicate
+> |      `recent_aggregate` is now a re-export of the helper.
+> |    - `settings/settings_app.py` `_aggregate_verifiedstats(today=)` sums resolved windows.
+> | 
+> | 3. Reader-side key mapping: `batch-review` reads the counters recorded under `review`
+> |    (`STATS_KEY_BY_OPERATION`). A new shared loader should keep applying it where
+> |    counters are looked up by codeagent operation.
+> | 
+> | 4. The jq reader in `aitask_codeagent.sh` (`list-models`, ~L337) reads the pre-bucket
+> |    flat format and always prints `runs 0, avg 0`; spawned as t2200.
+> | 
+> | These are claims about the tree at 11cb4d3d5, not instructions.
