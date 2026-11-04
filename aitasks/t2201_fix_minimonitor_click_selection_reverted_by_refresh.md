@@ -1,14 +1,29 @@
 ---
 priority: high
 effort: medium
-depends: []
+depends: [2183, t2037_3]
 issue_type: bug
 status: Ready
 labels: [minimonitor, tui, monitor]
 gates: [risk_evaluated]
 created_at: 2026-11-04 17:01
-updated_at: 2026-11-04 17:01
+updated_at: 2026-11-04 17:45
 ---
+
+## Sequencing decision (user request, 2026-11-04)
+
+Defer this task until t2183 (incremental UI updates, rendering only changed
+cards) and t2037_3 (monitor/minimonitor subscribe to the shared status server)
+are complete. t2037_3 includes the server and client prerequisites; unrelated
+applink migration is not a prerequisite for this fix.
+
+After those improvements land, reproduce the selection race against the new
+update paths before choosing a fix. The analysis and fix direction below
+describe the pre-improvement code and must be reassessed. Preserve the user's
+latest selection with the smallest necessary change; avoid adding focus
+machinery for teardown paths that t2183 removes. If the prerequisite work
+already fixes the issue, verify that behavior and record the outcome without
+adding redundant code.
 
 ## Symptom (user report, 2026-11-04)
 
@@ -113,7 +128,8 @@ correctness bug at any load; load only widens the window.
 
 ## Coordination
 
-t2183 will replace the per-tick teardown with in-place card updates; its design
-must keep the user's click authoritative too. Send t2183 an `ait note` with the
-result of this fix (which value the restore reads, and the regression test
-name) so its incremental rebuild keeps passing it.
+t2183 owns the incremental rendering changes and t2037_3 owns migration to the
+shared status server. This task follows both: inspect their final update and
+rebuild paths, reuse their selection-preservation behavior, and test only the
+remaining race. The earlier advisory note to t2183 described the original
+proposal; it does not make t2183 depend on this task.
