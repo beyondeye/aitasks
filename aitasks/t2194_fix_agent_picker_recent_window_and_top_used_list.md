@@ -3,11 +3,12 @@ priority: medium
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [model_selection, verifiedstats, codeagent, stats_ui]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-11-04 11:58
-updated_at: 2026-11-04 11:58
+updated_at: 2026-11-04 11:59
 ---
 
 ## Problem
