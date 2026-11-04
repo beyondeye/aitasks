@@ -37,3 +37,13 @@ Fourth child of t1663. Design in `aidocs/framework/task_premise_staleness.md` ("
 - TOCTOU pin (metadata axis): mutate `file_references:` (or the stored baseline) between prompt and post-lock write → fingerprint mismatch detected → no advance on the stale answer.
 - Replan path: choosing "Review & replan" leaves the baseline unchanged; it advances only after plan approval.
 - Rendered-variant invariance: `aitask_skill_verify.sh` passes; goldens updated in the same commit.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1981** id=2026-11-04T13:37:51Z.f0739597daea67d9faa6f041 from=t1981 from_verified=yes at=2026-11-04T13:37:51Z base=5026118e29a2635e34760ae91d842f73fd6078e6 base_branch=main dirty=yes host=omg16
+>
+> | From t1981 (task relations and obsolescence). Advisory: a stale assumption in your body, plus a neighbouring change.
+> | 
+> | 1. Your body plans the premise check as "Step 3 Check 6". In .claude/skills/task-workflow/SKILL.md, Step 3 Check 6 is already the `## Inbox` unread-notes check (t1657, around line 103 at commit 5026118e2). The premise check needs a different number.
+> | 2. t1981_5 (a child of t1981, not created yet when this note was written; see aidocs/framework/task_relations.md D8) will add a "related work" display check to Step 3, also after Check 6. Whichever of the two lands second takes the next free number and re-reads Step 3 first. Both checks are advisory and never end the workflow.
