@@ -7,7 +7,10 @@ The module is Textual-dependent but has no settings_app dependency.
 Public API:
 - AgentModelPickerScreen — ModalScreen with a single fuzzy list that cycles
   through six modes via Shift+Left / Shift+Right:
-    top, top_usage, all, codex, opencode, claudecode
+    top_all_ops, top_usage, all, codex, opencode, claudecode
+  The two top lists rank by recorded usage in the date-correct recent window
+  (current + previous calendar month, see model_stats_windows); the per-agent
+  lists also show verified scores.
 - FuzzySelect / FuzzyOption — reusable fuzzy-search list widget
 - MODEL_FILES — {provider: Path} map of models_*.json files
 - load_all_models(project_root) — load every models_*.json into a dict
@@ -15,6 +18,7 @@ Public API:
 from __future__ import annotations
 
 import sys
+from datetime import date
 from pathlib import Path
 
 from textual.app import ComposeResult
@@ -39,6 +43,11 @@ from config_utils import (  # noqa: E402,F401
     load_all_models,
     metadata_dir,
 )
+from model_stats_windows import (  # noqa: E402
+    recent_aggregate,
+    resolve_windows,
+    stats_key_for_operation,
+)
 
 
 METADATA_DIR = metadata_dir()
@@ -52,37 +61,25 @@ def _bucket_avg(bucket: dict) -> int:
     return round(bucket.get("score_sum", 0) / runs)
 
 
-def _recent_aggregate(op_buckets: dict) -> tuple[int, int]:
-    """Return (runs, score_sum) summed across month + prev_month buckets."""
-    month = op_buckets.get("month", {})
-    prev = op_buckets.get("prev_month", {})
-    runs = month.get("runs", 0) + prev.get("runs", 0)
-    sum_ = month.get("score_sum", 0) + prev.get("score_sum", 0)
-    return runs, sum_
-
-
-def _recent_avg(op_buckets: dict) -> int:
-    runs, sum_ = _recent_aggregate(op_buckets)
-    if runs <= 0:
-        return 0
-    return round(sum_ / runs)
-
-
-def _format_op_stats(buckets: dict, compact: bool = False) -> str:
+def _format_op_stats(buckets: dict, compact: bool = False,
+                     today: date | None = None) -> str:
     """Format verifiedstats buckets for one operation into a display string.
 
     compact=True: '96 (9 runs, 2 this mo)' — for Agent Defaults labels
     compact=False: '96 (9 runs, 2 this month)' — for Models tab
+
+    The "this month" / "last month" counts are resolved against `today`
+    (default: the wall clock), so a bucket no run has rolled over yet is
+    shown under the month it really holds, or not at all.
     """
     at = buckets.get("all_time", {})
     runs = at.get("runs", 0)
     if runs <= 0:
         return ""
     avg = _bucket_avg(at)
-    mo = buckets.get("month", {})
-    pm = buckets.get("prev_month", {})
-    mo_runs = mo.get("runs", 0)
-    pm_runs = pm.get("runs", 0)
+    windows = resolve_windows(buckets, today)
+    mo_runs = windows["month"]["runs"]
+    pm_runs = windows["prev_month"]["runs"]
     mo_label = "mo" if compact else "month"
     pm_label = "prev mo" if compact else "last month"
     parts = [f"{runs} runs"]
@@ -287,18 +284,48 @@ class AgentModelPickerScreen(GuardedModalScreen):
 
     Lists are switched with Shift+Left / Shift+Right. The fuzzy-search Input
     inside the FuzzySelect remains usable for letter-based filtering.
+
+    The two top lists rank models by recorded usage (usagestats) in the
+    date-correct recent window — the current plus the previous calendar month,
+    resolved against `today` by model_stats_windows:
+      - top_all_ops: summed across every recorded op, so it is populated for
+        ops that never record usage of their own (raw, shadow, discuss, ...);
+      - top_usage: this op only (looked up under stats_key_for_operation).
+    Only skills that run the Satisfaction Feedback procedure record usage.
+    When a top list is empty, a wrapping hint (#picker_empty_hint) says why.
     """
 
     # (mode_key, header_label). Per-agent mode keys must match MODEL_FILES
     # so _build_options_for_agent can look up the JSON file directly.
     _MODES: list[tuple[str, str]] = [
-        ("top",        "Top verified models (recent)"),
-        ("top_usage",  "Top by usage (recent)"),
-        ("all",        "All models"),
-        ("codex",      "All codex models"),
-        ("opencode",   "All opencode models"),
-        ("claudecode", "All Claude models"),
+        ("top_all_ops", "Top used models (recent, all ops)"),
+        ("top_usage",   "Top by usage (recent, this op)"),
+        ("all",         "All models"),
+        ("codex",       "All codex models"),
+        ("opencode",    "All opencode models"),
+        ("claudecode",  "All Claude models"),
     ]
+
+    # Shown in the one-row placeholder option of an empty top list. Kept short:
+    # FuzzyOption is `height: 1`, so a longer text is clipped at every width.
+    _EMPTY_ROW: dict[str, str] = {
+        "top_all_ops": "(no recent usage)",
+        "top_usage":   "(no recent usage for this op)",
+    }
+    # The explanation for an empty top list, in the wrapping #picker_empty_hint.
+    _EMPTY_HINT: dict[str, str] = {
+        "top_all_ops": "Nothing recorded for any op this month or last month.",
+        "top_usage": (
+            "Nothing recorded for this op this month or last month. Only skills "
+            "that run satisfaction feedback record usage, so ops such as raw, "
+            "shadow and discuss stay empty here."
+        ),
+    }
+
+    # Pinned "today" for the date-correct windows; None means the wall clock.
+    # A class attribute so instances built without __init__ (ad-hoc probes)
+    # still resolve it.
+    _today: date | None = None
 
     DEFAULT_CSS = """
     #picker_dialog {
@@ -310,6 +337,13 @@ class AgentModelPickerScreen(GuardedModalScreen):
         padding: 1 2;
     }
     #picker_step_label { padding: 0 0 1 1; color: $accent; }
+    #picker_empty_hint {
+        width: 100%;
+        height: auto;
+        padding: 0 0 1 1;
+        color: $text-muted;
+        display: none;
+    }
     FuzzySelect { height: auto; max-height: 20; }
     FuzzySelect VerticalScroll { height: auto; max-height: 15; }
     FuzzyOption { height: 1; width: 100%; padding: 0 1; }
@@ -336,7 +370,8 @@ class AgentModelPickerScreen(GuardedModalScreen):
     def __init__(self, operation: str, current_agent: str = "",
                  current_model: str = "",
                  all_models: dict[str, dict] | None = None,
-                 narrow: bool = False):
+                 narrow: bool = False,
+                 today: date | None = None):
         super().__init__()
         self.operation = operation
         self.current_agent = current_agent
@@ -347,46 +382,20 @@ class AgentModelPickerScreen(GuardedModalScreen):
         # on_mount adds the `narrow` CSS class that widens the dialog so option
         # rows are not clipped after the long "claudecode/" agent prefix.
         self._narrow = narrow
+        self._today = today
 
-    def _build_top_verified(self) -> list[dict]:
-        """Build ranked list of top verified models, recent window."""
-        candidates = []
-        for agent, pdata in self.all_models.items():
-            for m in pdata.get("models", []):
-                if m.get("status", "active") == "unavailable":
-                    continue
-                name = m.get("name", "?")
-                vs = m.get("verifiedstats", {})
-                op_buckets = vs.get(self.operation, {})
-                recent_runs, recent_sum = _recent_aggregate(op_buckets)
-                if recent_runs <= 0:
-                    score = m.get("verified", {}).get(self.operation, 0)
-                    if score > 0:
-                        candidates.append({
-                            "agent": agent, "name": name,
-                            "score": score,
-                            "has_recent": False,
-                            "detail": f"score: {score} (no recent data)",
-                        })
-                    continue
-                avg = round(recent_sum / recent_runs)
-                detail = f"{avg} ({recent_runs} runs recent)"
-                candidates.append({
-                    "agent": agent, "name": name,
-                    "score": avg, "has_recent": True, "detail": detail,
-                })
-        candidates.sort(
-            key=lambda c: (
-                not c["has_recent"],
-                -c["score"],
-                c["agent"],
-                c["name"],
-            )
-        )
-        return candidates[:5]
+    @property
+    def stats_key(self) -> str:
+        """The usagestats / verifiedstats key holding this operation's runs.
 
-    def _build_top_usage(self) -> list[dict]:
-        """Build ranked list of top-used models, recent window."""
+        Differs from `operation` only where the launched skill records under
+        another name (batch-review -> review). Only stats lookups use it; the
+        dismiss result keeps `operation` as its key.
+        """
+        return stats_key_for_operation(self.operation)
+
+    def _build_top_all_ops(self) -> list[dict]:
+        """Build ranked list of top-used models across every op, recent window."""
         candidates = []
         for agent, pdata in self.all_models.items():
             for m in pdata.get("models", []):
@@ -394,8 +403,40 @@ class AgentModelPickerScreen(GuardedModalScreen):
                     continue
                 name = m.get("name", "?")
                 us = m.get("usagestats", {})
-                op_buckets = us.get(self.operation, {})
-                recent_runs, _ = _recent_aggregate(op_buckets)
+                if not isinstance(us, dict):
+                    continue
+                total = 0
+                op_runs = 0
+                for op, op_buckets in us.items():
+                    runs, _ = recent_aggregate(op_buckets, self._today)
+                    total += runs
+                    if op == self.stats_key:
+                        op_runs = runs
+                if total <= 0:
+                    continue
+                detail = f"{total} runs recent, all ops"
+                if op_runs > 0:
+                    detail += f" · {op_runs} this op"
+                candidates.append({
+                    "agent": agent, "name": name,
+                    "runs": total, "detail": detail,
+                })
+        candidates.sort(key=lambda c: (-c["runs"], c["agent"], c["name"]))
+        return candidates[:5]
+
+    def _build_top_usage(self) -> list[dict]:
+        """Build ranked list of top-used models for this op, recent window."""
+        candidates = []
+        for agent, pdata in self.all_models.items():
+            for m in pdata.get("models", []):
+                if m.get("status", "active") == "unavailable":
+                    continue
+                name = m.get("name", "?")
+                us = m.get("usagestats", {})
+                if not isinstance(us, dict):
+                    continue
+                op_buckets = us.get(self.stats_key, {})
+                recent_runs, _ = recent_aggregate(op_buckets, self._today)
                 if recent_runs <= 0:
                     continue
                 at_runs = op_buckets.get("all_time", {}).get("runs", 0)
@@ -417,6 +458,9 @@ class AgentModelPickerScreen(GuardedModalScreen):
                 id="picker_title",
             )
             yield Label("", id="picker_step_label")
+            # Why an empty top list is empty. A wrapping Label rather than the
+            # placeholder option: FuzzyOption rows are one line high.
+            yield Label("", id="picker_empty_hint")
             # FuzzySelect is mounted in on_mount via _apply_mode so the
             # initial list reflects the active mode.
 
@@ -438,7 +482,7 @@ class AgentModelPickerScreen(GuardedModalScreen):
         if not event.value:
             return  # placeholder rows ("(no models found)", etc.)
         mode_key = self._MODES[self._mode_idx][0]
-        if mode_key in ("top", "top_usage", "all"):
+        if mode_key in ("top_all_ops", "top_usage", "all"):
             self.dismiss({"key": self.operation, "value": event.value})
         else:
             self.dismiss({
@@ -465,6 +509,7 @@ class AgentModelPickerScreen(GuardedModalScreen):
             pass
         options = self._build_options_for_mode(mode_key)
         placeholder = self._placeholder_for_mode(mode_key)
+        self._update_empty_hint(mode_key, options)
         try:
             fs = self.query_one("#model_picker", FuzzySelect)
             fs.update_options(options, placeholder=placeholder)
@@ -476,58 +521,58 @@ class AgentModelPickerScreen(GuardedModalScreen):
                 id="model_picker",
             ))
 
+    def _update_empty_hint(self, mode_key: str, options: list[dict]) -> None:
+        """Show the mode's explanation only while its list is the placeholder."""
+        is_placeholder = len(options) == 1 and not options[0].get("value")
+        text = self._EMPTY_HINT.get(mode_key, "") if is_placeholder else ""
+        try:
+            hint = self.query_one("#picker_empty_hint", Label)
+        except Exception:
+            return
+        hint.update(text)
+        hint.display = bool(text)
+
     @staticmethod
     def _placeholder_for_mode(mode_key: str) -> str:
-        if mode_key == "top":
-            return "Type to filter top-verified models..."
+        if mode_key == "top_all_ops":
+            return "Type to filter top-used models (all ops)..."
         if mode_key == "top_usage":
-            return "Type to filter top-used models..."
+            return "Type to filter top-used models (this op)..."
         if mode_key == "all":
             return "Type agent/model..."
         return f"Type {mode_key} model name..."
 
     def _build_options_for_mode(self, mode_key: str) -> list[dict]:
-        if mode_key == "top":
-            return self._build_options_top()
+        if mode_key == "top_all_ops":
+            return self._build_options_top_all_ops()
         if mode_key == "top_usage":
             return self._build_options_top_usage()
         if mode_key == "all":
             return self._build_options_all()
         return self._build_options_for_agent(mode_key)
 
-    def _build_options_top(self) -> list[dict]:
-        out: list[dict] = []
-        for c in self._build_top_verified():
-            val = f"{c['agent']}/{c['name']}"
-            out.append({
-                "value": val,
-                "display": val,
+    def _ranked_options(self, mode_key: str, ranked: list[dict]) -> list[dict]:
+        out = [
+            {
+                "value": f"{c['agent']}/{c['name']}",
+                "display": f"{c['agent']}/{c['name']}",
                 "description": c["detail"],
-            })
+            }
+            for c in ranked
+        ]
         if not out:
             out.append({
                 "value": "",
-                "display": "(no top-verified models for this op)",
+                "display": self._EMPTY_ROW[mode_key],
                 "description": "",
             })
         return out
 
+    def _build_options_top_all_ops(self) -> list[dict]:
+        return self._ranked_options("top_all_ops", self._build_top_all_ops())
+
     def _build_options_top_usage(self) -> list[dict]:
-        out: list[dict] = []
-        for c in self._build_top_usage():
-            val = f"{c['agent']}/{c['name']}"
-            out.append({
-                "value": val,
-                "display": val,
-                "description": c["detail"],
-            })
-        if not out:
-            out.append({
-                "value": "",
-                "display": "(no recent usage for this op)",
-                "description": "",
-            })
-        return out
+        return self._ranked_options("top_usage", self._build_top_usage())
 
     def _build_options_all(self) -> list[dict]:
         out: list[dict] = []
@@ -564,19 +609,20 @@ class AgentModelPickerScreen(GuardedModalScreen):
             name = m.get("name", "?")
             notes = m.get("notes", "")
             vs = m.get("verifiedstats", {})
-            op_buckets = vs.get(self.operation, {})
+            op_buckets = vs.get(self.stats_key, {})
             at = op_buckets.get("all_time", {})
             if at.get("runs", 0) > 0:
-                detail = _format_op_stats(op_buckets, compact=True)
+                detail = _format_op_stats(op_buckets, compact=True,
+                                          today=self._today)
                 sort_score = _bucket_avg(at)
                 score_str = f"[{detail}]"
             else:
                 verified = m.get("verified", {})
-                op_score = verified.get(self.operation, 0)
+                op_score = verified.get(self.stats_key, 0)
                 if op_score:
                     sort_score = op_score
                     score_str = f"[score: {op_score}]"
-                elif self.operation in verified:
+                elif self.stats_key in verified:
                     sort_score, score_str = 0, "(not verified)"
                 else:
                     sort_score, score_str = -1, ""

@@ -824,7 +824,7 @@ def main(argv: Sequence[str]) -> int:
     )
     print(report, end="")
 
-    vdata = load_verified_rankings()
+    vdata = load_verified_rankings(today=today)
     if vdata.operations:
         print(render_verified_rankings(vdata), end="")
 

@@ -109,6 +109,57 @@ else
     assert_pass "ait stats --help no longer advertises --plot"
 fi
 
+# 5. One shared recent-window helper (t2194): stats_data re-exports the
+#    model_stats_windows implementation, and the picker's old copy is gone.
+if python3 - <<'PY'
+import sys
+sys.path.insert(0, ".aitask-scripts/lib")
+import model_stats_windows
+import stats_data
+assert stats_data.recent_aggregate is model_stats_windows.recent_aggregate
+PY
+then
+    assert_pass "stats_data.recent_aggregate is the shared model_stats_windows helper"
+else
+    assert_fail "stats_data.recent_aggregate is the shared model_stats_windows helper" "not the same object"
+fi
+
+if grep -q "def _recent_aggregate\|def recent_aggregate" \
+        .aitask-scripts/lib/agent_model_picker.py .aitask-scripts/lib/stats_data.py; then
+    assert_fail "no private copy of recent_aggregate remains" "a copy is still defined"
+else
+    assert_pass "no private copy of recent_aggregate remains"
+fi
+
+# 6. Stale buckets are not "recent" (t2194): months-old month/prev_month/week
+#    buckets keep counting all-time only.
+STALE_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/test_stats_data_stale_XXXXXX")
+trap 'rm -f "$CSV_OUT"; rm -rf "$STALE_ROOT"' EXIT
+mkdir -p "$STALE_ROOT/aitasks/metadata"
+cat > "$STALE_ROOT/aitasks/metadata/models_claudecode.json" <<'JSON'
+{"models": [{"name": "opus4_8", "cli_id": "claude-opus-4-8", "usagestats": {"pick": {
+  "all_time": {"runs": 303},
+  "month": {"period": "2026-07", "runs": 47},
+  "prev_month": {"period": "2026-06", "runs": 220},
+  "week": {"period": "2026-W30", "runs": 27}}}}]}
+JSON
+if python3 - "$STALE_ROOT" <<'PY'
+import sys
+from datetime import date
+from pathlib import Path
+sys.path.insert(0, ".aitask-scripts/lib")
+from stats_data import load_usage_rankings
+w = load_usage_rankings(Path(sys.argv[1]), today=date(2026, 11, 4)).by_window["pick"]["claudecode"]
+assert [e.runs for e in w["all_time"]] == [303], w["all_time"]
+for win in ("recent", "month", "prev_month", "week"):
+    assert w[win] == [], (win, w[win])
+PY
+then
+    assert_pass "load_usage_rankings drops stale buckets from the dated windows"
+else
+    assert_fail "load_usage_rankings drops stale buckets from the dated windows" "stale bucket counted"
+fi
+
 echo
 echo "Total: $((PASS + FAIL))   Passed: $PASS   Failed: $FAIL"
 [ "$FAIL" -eq 0 ]

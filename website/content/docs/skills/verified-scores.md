@@ -31,15 +31,18 @@ Feedback collection is controlled by the `enableFeedbackQuestions` field in [exe
 
 ## Time Windows
 
-Scores are stored in three time-windowed buckets so recent performance is visible alongside the historical average:
+Scores are stored in time-windowed buckets so recent performance is visible alongside the historical average:
 
 | Bucket | Period key | Description |
 |--------|-----------|-------------|
 | `all_time` | (none) | Cumulative across all ratings |
-| `month` | `YYYY-MM` | Current calendar month; resets when the month changes |
-| `week` | `YYYY-Www` | Current ISO 8601 week; resets when the week changes |
+| `month` | `YYYY-MM` | Calendar month of the latest recorded run |
+| `prev_month` | `YYYY-MM` | The calendar month before it |
+| `week` | `YYYY-Www` | ISO 8601 week of the latest recorded run |
 
 Each bucket tracks `runs` (number of ratings) and `score_sum` (sum of mapped scores). The all-time average is also stored in the flat `verified` field for backward compatibility.
+
+The buckets roll over only when the next run for that model and skill is recorded. A model that has not been used for months still holds its old buckets, so every reader checks the `period` against today. A bucket counts as this month, the previous month or this week only when its period is that month or week, and a `month` bucket from last month that has not rolled over yet counts as the previous month. "Recent" means this month plus the previous month.
 
 ## Provider-Specific vs All-Providers
 
@@ -48,13 +51,13 @@ The same LLM can be available through different providers (e.g., `openai/gpt-5.4
 1. Strip the `provider/` prefix from each model's CLI ID to get the normalized model name
 2. Group entries with the same normalized name across all `models_*.json` files
 3. Sum `runs` and `score_sum` from matching buckets across the group
-4. For `month` and `week`, only aggregate entries with the same period value
+4. For `month`, `prev_month` and `week`, first resolve each provider's buckets against today (see [Time Windows](#time-windows)), then sum them
 
 This aggregation is performed at read time -- no duplicate values are stored. `ait settings` and `ait stats` both implement this aggregation.
 
 ## Where Scores Appear
 
-- **[Settings TUI]({{< relref "/docs/tuis/settings" >}})** -- The Agent Defaults tab shows verified score context next to each model (`[96 (9 runs, 2 this mo)]`). The model picker opens with a Top Verified list. The Models tab shows per-operation scores with run counts and all-providers summaries
+- **[Settings TUI]({{< relref "/docs/tuis/settings" >}})** -- The Agent Defaults tab shows verified score context next to each model (`[96 (9 runs, 2 this mo)]`). In the model picker, the per-agent lists show each model's score for the selected operation; the two top lists rank models by recent usage instead. The Models tab shows per-operation scores with run counts and all-providers summaries. The `batch-review` operation reads the scores that `/aitask-review` records under `review`
 - **[`ait stats`]({{< relref "/docs/skills/aitask-stats" >}})** -- Prints verified model score rankings per skill with all-providers aggregation and time-windowed display
 - **[`ait stats-tui`]({{< relref "/docs/tuis/stats" >}})** -- Renders verified score ranking bar charts per skill alongside the other stats panes
 

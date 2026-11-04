@@ -383,18 +383,19 @@ MODEL_FILES = {
 
 # 2. AgentModelPickerScreen._MODES — per-agent fuzzy-list tab
 _MODES: list[tuple[str, str]] = [
-    ("top",        "Top verified models (recent)"),
-    ("top_usage",  "Top by usage (recent)"),
-    ("all",        "All models"),
-    ("codex",      "All codex models"),
-    ("opencode",   "All opencode models"),
-    ("claudecode", "All Claude models"),
-    ("<new>",      "All <Display> models"),             # NEW
+    ("top_all_ops", "Top used models (recent, all ops)"),
+    ("top_usage",   "Top by usage (recent, this op)"),
+    ("all",         "All models"),
+    ("codex",       "All codex models"),
+    ("opencode",    "All opencode models"),
+    ("claudecode",  "All Claude models"),
+    ("<new>",       "All <Display> models"),            # NEW
 ]
 ```
 
-Update the module docstring's mode-count line too (`...cycles through
-seven modes...`).
+Update the module and class docstrings' mode lists too (`...cycles through
+seven modes...`). The two top lists need no per-agent change: they iterate
+every loaded `models_*.json`.
 
 ---
 

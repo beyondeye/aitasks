@@ -218,6 +218,7 @@ Each model in `models_<agent>.json`:
     "pick": {
       "all_time": {"runs": 5, "score_sum": 400},
       "month": {"period": "2026-03", "runs": 2, "score_sum": 180},
+      "prev_month": {"period": "2026-02", "runs": 1, "score_sum": 80},
       "week": {"period": "2026-W11", "runs": 1, "score_sum": 100}
     }
   }
@@ -236,15 +237,20 @@ Each model in `models_<agent>.json`:
 
 > See [Verified Scores]({{< relref "/docs/skills/verified-scores" >}}) for a user-facing overview of how these scores are collected and what they mean.
 
-Each skill entry in `verifiedstats` contains three time-windowed buckets:
+Each skill entry in `verifiedstats` contains these buckets:
 
 | Bucket | Period Key | Description |
 |--------|-----------|-------------|
 | `all_time` | (none) | Cumulative stats across all ratings |
-| `month` | `YYYY-MM` | Stats for the current calendar month; resets when the month changes |
-| `week` | `YYYY-Www` | Stats for the current ISO 8601 calendar week; resets when the week changes |
+| `month` | `YYYY-MM` | Stats for the calendar month of the latest recorded run |
+| `prev_month` | `YYYY-MM` | Stats for the calendar month before it |
+| `week` | `YYYY-Www` | Stats for the ISO 8601 week of the latest recorded run |
 
 Each bucket contains `runs` (number of ratings) and `score_sum` (sum of mapped scores, where raw 1-5 maps to 20-100).
+
+The buckets roll over only when the next run for that model and skill is recorded, so a model that has not been used for a while keeps its old buckets. Readers therefore compare each bucket's `period` with today: a bucket counts as "this month", "previous month" or "this week" only when its period is that month or week. A `month` bucket from last month that has not rolled over yet counts as the previous month. "Recent" means this month plus the previous month.
+
+`usagestats` has the same buckets with `runs` only. Its counts go up on every task completion, whether or not a satisfaction rating is collected. The model picker's top lists rank by it.
 
 The `verified.<skill>` field is always the rounded average of `all_time` and is maintained automatically for backward compatibility.
 
@@ -259,11 +265,11 @@ To compute cross-provider stats for the same underlying LLM model:
 1. Extract the model portion from each entry's `cli_id` by stripping the `provider/` prefix (e.g., `openai/gpt-5.4` and `opencode/gpt-5.4` both normalize to `gpt-5.4`)
 2. Group entries with identical normalized model IDs across all `models_*.json` files
 3. For each skill, sum `runs` and `score_sum` from the matching bucket across the group
-4. For `month` and `week` buckets, only aggregate entries with the same `period` value
+4. For the `month`, `prev_month` and `week` windows, first resolve each provider's buckets against today (see above), then sum the resolved windows
 
 This aggregation is performed at read time by consumers — no duplicate aggregate values are stored.
 
-`ait settings` implements this aggregation in the Models tab (cross-provider summary lines), the Agent Defaults tab (all-providers hints), and the model picker (Top Verified ranking).
+`ait settings` implements this aggregation in the Models tab (cross-provider summary lines) and the Agent Defaults tab (all-providers hints).
 
 ## Export Bundle Format
 

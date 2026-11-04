@@ -16,8 +16,10 @@ Run: python3 -m pytest tests/test_agent_model_picker_narrow.py -v
 from __future__ import annotations
 
 import asyncio
+import re
 import sys
 import unittest
+from datetime import date
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -37,9 +39,14 @@ _CLAUDE_ROW = "claudecode/opus4_8"
 
 
 class _PickerHost(App):
-    def __init__(self, narrow: bool) -> None:
+    def __init__(self, narrow: bool, operation: str = "pick",
+                 all_models: dict | None = None,
+                 today: date | None = None) -> None:
         super().__init__()
         self._narrow = narrow
+        self._operation = operation
+        self._all_models = _ALL_MODELS if all_models is None else all_models
+        self._today = today
 
     def compose(self) -> ComposeResult:
         yield Label("host")
@@ -47,11 +54,34 @@ class _PickerHost(App):
     def on_mount(self) -> None:
         self.push_screen(
             AgentModelPickerScreen(
-                "pick",
-                all_models=_ALL_MODELS,
+                self._operation,
+                all_models=self._all_models,
                 narrow=self._narrow,
+                today=self._today,
             )
         )
+
+
+# t2194 empty-state fixture: one model with current `pick` usage only, so the
+# all-ops list is populated and the `raw` this-op list is genuinely empty.
+_TODAY = date(2026, 11, 4)
+_PICK_ONLY_MODELS = {"claudecode": {"models": [{
+    "name": "opus5_5",
+    "usagestats": {"pick": {
+        "all_time": {"runs": 3},
+        "month": {"period": "2026-11", "runs": 3},
+    }},
+}]}}
+
+
+def _screen_words(app) -> set[str]:
+    """Every alphabetic word the exported screen shows. Per word, not per
+    phrase: a wrapped label splits phrases across lines."""
+    svg = app.export_screenshot()
+    text = " ".join(
+        part.replace("&#160;", " ") for part in re.findall(r">([^<]*)<", svg)
+    )
+    return set(re.findall(r"[A-Za-z]+", text))
 
 
 class _CommandHost(App):
@@ -114,7 +144,7 @@ class AgentModelPickerNarrowTests(unittest.TestCase):
                 await pilot.pause()
                 # Switch to the "all" mode (index 2), which renders from the
                 # passed all_models rather than reading real models_*.json.
-                app.screen.action_next_list()  # top -> top_usage
+                app.screen.action_next_list()  # top_all_ops -> top_usage
                 app.screen.action_next_list()  # top_usage -> all
                 await pilot.pause()
                 await pilot.pause()
@@ -188,6 +218,83 @@ class AgentModelPickerNarrowTests(unittest.TestCase):
                 text = label.render().plain
                 self.assertIn("Shift", text)
                 self.assertNotIn("\n", text)
+
+        self._run(runner())
+
+
+class EmptyStateHintVisibilityTests(unittest.TestCase):
+    """t2194: an empty top list must SAY why it is empty, legibly.
+
+    FuzzyOption rows are one line high, so the explanation lives in the
+    wrapping #picker_empty_hint label; the placeholder row stays short. A long
+    placeholder was measured clipped at both 40 and 120 cols.
+    """
+
+    def _run(self, coro):
+        return asyncio.run(coro)
+
+    def _assert_raw_this_op_hint_visible(self, narrow: bool, size: tuple[int, int]):
+        async def runner():
+            app = _PickerHost(narrow=narrow, operation="raw",
+                              all_models=_PICK_ONLY_MODELS, today=_TODAY)
+            async with app.run_test(size=size) as pilot:
+                await pilot.pause()
+                await pilot.pause()
+                screen = app.screen
+                hint = screen.query_one("#picker_empty_hint", Label)
+
+                # Negative control: the all-ops list has an entry, so no hint.
+                self.assertEqual(
+                    [o.option_value for o in screen.query(FuzzyOption)],
+                    ["claudecode/opus5_5"],
+                )
+                self.assertFalse(hint.display)
+
+                screen.action_next_list()  # top_all_ops -> top_usage
+                await pilot.pause()
+                await pilot.pause()
+
+                expected = AgentModelPickerScreen._EMPTY_HINT["top_usage"]
+                self.assertTrue(hint.display)
+                self.assertEqual(hint.render().plain, expected)
+                dialog = screen.query_one("#picker_dialog")
+                self.assertTrue(
+                    dialog.region.contains_region(hint.region),
+                    f"hint {hint.region} not inside dialog {dialog.region}",
+                )
+                if narrow:
+                    self.assertGreaterEqual(hint.region.height, 2)  # it wrapped
+                missing = [w for w in re.findall(r"[A-Za-z]+", expected)
+                           if w not in _screen_words(app)]
+                self.assertEqual(missing, [], f"hint words not on screen at {size}")
+
+                rows = list(screen.query(FuzzyOption))
+                self.assertEqual(len(rows), 1)
+                row = rows[0]
+                self.assertEqual(row.display_text, "(no recent usage for this op)")
+                self.assertLessEqual(len("    " + row.display_text), row.region.width)
+
+        self._run(runner())
+
+    def test_hint_visible_narrow(self):
+        self._assert_raw_this_op_hint_visible(narrow=True, size=(40, 50))
+
+    def test_hint_visible_wide(self):
+        self._assert_raw_this_op_hint_visible(narrow=False, size=(120, 40))
+
+    def test_hint_hidden_again_on_a_populated_list(self):
+        async def runner():
+            app = _PickerHost(narrow=True, operation="raw",
+                              all_models=_PICK_ONLY_MODELS, today=_TODAY)
+            async with app.run_test(size=(40, 50)) as pilot:
+                await pilot.pause()
+                screen = app.screen
+                screen.action_next_list()  # -> top_usage (empty)
+                await pilot.pause()
+                self.assertTrue(screen.query_one("#picker_empty_hint", Label).display)
+                screen.action_next_list()  # -> all (populated)
+                await pilot.pause()
+                self.assertFalse(screen.query_one("#picker_empty_hint", Label).display)
 
         self._run(runner())
 

@@ -15,7 +15,7 @@ import sys
 import tempfile
 import time
 from collections.abc import Callable
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 
 import yaml
@@ -48,6 +48,10 @@ from agent_model_picker import (  # noqa: E402
     MODEL_FILES,
     _bucket_avg,
     _format_op_stats,
+)
+from model_stats_windows import (  # noqa: E402
+    resolve_windows,
+    stats_key_for_operation,
 )
 
 from config_utils import (  # noqa: E402
@@ -552,10 +556,16 @@ def _normalize_model_id(cli_id: str) -> str:
 
 def _aggregate_verifiedstats(
     all_models: dict[str, dict], target_cli_id: str,
+    today: date | None = None,
 ) -> dict[str, dict]:
     """Aggregate verifiedstats across all providers for the same underlying LLM.
 
-    Returns {operation: {all_time: {runs, score_sum}, month: {...}, week: {...}}}.
+    Returns {operation: {all_time: {runs, score_sum}, month: {...},
+    prev_month: {...}, week: {...}}}. Each provider's dated buckets are first
+    resolved against `today` (default: the wall clock) by model_stats_windows,
+    so a bucket no run has rolled over yet counts under the month it really
+    holds, or not at all. The resolved windows all carry the current periods,
+    so they simply sum, and `_format_op_stats` reads the result unchanged.
     """
     norm = _normalize_model_id(target_cli_id)
     result: dict[str, dict] = {}
@@ -567,35 +577,22 @@ def _aggregate_verifiedstats(
             for op, buckets in vs.items():
                 if not isinstance(buckets, dict):
                     continue
+                windows = resolve_windows(buckets, today)
                 if op not in result:
-                    result[op] = {
-                        "all_time": {"runs": 0, "score_sum": 0},
-                        "month": {"period": "", "runs": 0, "score_sum": 0},
-                        "week": {"period": "", "runs": 0, "score_sum": 0},
-                    }
+                    result[op] = {"all_time": {"runs": 0, "score_sum": 0}}
+                    for win in ("month", "prev_month", "week"):
+                        result[op][win] = {
+                            "period": windows[win]["period"],
+                            "runs": 0, "score_sum": 0,
+                        }
                 agg = result[op]
                 # all_time: always sum
                 at = buckets.get("all_time", {})
                 agg["all_time"]["runs"] += at.get("runs", 0)
                 agg["all_time"]["score_sum"] += at.get("score_sum", 0)
-                # month: sum only matching periods
-                mo = buckets.get("month", {})
-                mo_period = mo.get("period", "")
-                if mo_period and mo.get("runs", 0) > 0:
-                    if not agg["month"]["period"]:
-                        agg["month"]["period"] = mo_period
-                    if agg["month"]["period"] == mo_period:
-                        agg["month"]["runs"] += mo.get("runs", 0)
-                        agg["month"]["score_sum"] += mo.get("score_sum", 0)
-                # week: sum only matching periods
-                wk = buckets.get("week", {})
-                wk_period = wk.get("period", "")
-                if wk_period and wk.get("runs", 0) > 0:
-                    if not agg["week"]["period"]:
-                        agg["week"]["period"] = wk_period
-                    if agg["week"]["period"] == wk_period:
-                        agg["week"]["runs"] += wk.get("runs", 0)
-                        agg["week"]["score_sum"] += wk.get("score_sum", 0)
+                for win in ("month", "prev_month", "week"):
+                    agg[win]["runs"] += windows[win]["runs"]
+                    agg[win]["score_sum"] += windows[win]["score_sum"]
     return result
 
 
@@ -2639,21 +2636,24 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
             return ""
         agent, model_name = agent_model.split("/", 1)
         provider_data = self.config_mgr.models.get(agent, {})
+        # The counters live under the skill name the launched skill records
+        # with (batch-review -> review), not always under the operation key.
+        stats_key = stats_key_for_operation(operation)
         for m in provider_data.get("models", []):
             if m.get("name") == model_name:
                 # Try verifiedstats first for richer display
                 vs = m.get("verifiedstats", {})
-                op_buckets = vs.get(operation, {})
+                op_buckets = vs.get(stats_key, {})
                 at = op_buckets.get("all_time", {})
                 if at.get("runs", 0) > 0:
                     detail = _format_op_stats(op_buckets, compact=True)
                     return f" [dim][{detail}][/dim]"
                 # Fall back to flat verified dict
                 verified = m.get("verified", {})
-                op_score = verified.get(operation, 0)
+                op_score = verified.get(stats_key, 0)
                 if op_score:
                     return f" [dim][score: {op_score}][/dim]"
-                elif operation in verified:
+                elif stats_key in verified:
                     return " [dim](not verified)[/dim]"
                 return ""
         return ""
@@ -2664,19 +2664,20 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
             return ""
         agent, model_name = agent_model.split("/", 1)
         provider_data = self.config_mgr.models.get(agent, {})
+        stats_key = stats_key_for_operation(operation)
         cli_id = ""
         provider_runs = 0
         for m in provider_data.get("models", []):
             if m.get("name") == model_name:
                 cli_id = m.get("cli_id", "")
                 vs = m.get("verifiedstats", {})
-                at = vs.get(operation, {}).get("all_time", {})
+                at = vs.get(stats_key, {}).get("all_time", {})
                 provider_runs = at.get("runs", 0)
                 break
         if not cli_id:
             return ""
         agg = _aggregate_verifiedstats(self.config_mgr.models, cli_id)
-        op_agg = agg.get(operation, {})
+        op_agg = agg.get(stats_key, {})
         agg_at = op_agg.get("all_time", {})
         agg_runs = agg_at.get("runs", 0)
         if agg_runs <= 0 or agg_runs == provider_runs:
@@ -2697,6 +2698,10 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
             | set(project_defaults.keys())
             | set(local_defaults.keys())
         )
+        # An operation's counters may be recorded under another skill name
+        # (batch-review -> review). Those are shown under the operation, so
+        # they are not a "skill without defaults".
+        default_keys |= {stats_key_for_operation(k) for k in default_keys}
 
         skill_candidates: dict[str, list[dict]] = {}
 

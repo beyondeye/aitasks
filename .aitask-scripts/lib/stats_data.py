@@ -46,6 +46,15 @@ from gate_ledger import (  # noqa: E402
 # inside resolve_category, so this adds no eager dependency here.
 from task_category import has_invalid_followup_kind, resolve_category  # noqa: E402
 
+# Date-correct month / prev_month / week / recent windows over the per-model
+# usagestats / verifiedstats buckets (t2194). `recent_aggregate` is re-exported:
+# `aitask_stats.py` lists it among its public names.
+from model_stats_windows import (  # noqa: E402,F401
+    WINDOW_NAMES as _RESOLVED_WINDOWS,
+    recent_aggregate,
+    resolve_windows,
+)
+
 # Honor the framework-wide TASK_DIR override via the canonical resolver rather
 # than hardcoding "aitasks": a caller that scans one task tree for membership
 # must not silently read a different tree's archive for completion history.
@@ -249,21 +258,6 @@ def bucket_avg(runs: int, score_sum: int) -> int:
     if runs <= 0:
         return 0
     return round(score_sum / runs)
-
-
-def recent_aggregate(buckets: dict) -> Tuple[int, int]:
-    """Return (runs, score_sum) summed across month + prev_month buckets.
-
-    Mirrors agent_model_picker._recent_aggregate. Duplicated rather than
-    extracted: picker uses Path-based module loading without stats_data
-    dependency; the one-line helper is cheaper to duplicate than to wire
-    a cross-module import.
-    """
-    mo = buckets.get("month", {})
-    pm = buckets.get("prev_month", {})
-    runs = mo.get("runs", 0) + pm.get("runs", 0)
-    sum_ = mo.get("score_sum", 0) + pm.get("score_sum", 0)
-    return runs, sum_
 
 
 def week_start_for(d: date, week_start_dow: int) -> date:
@@ -524,16 +518,23 @@ def load_model_cli_ids(project_root: Optional[Path] = None) -> Dict[Tuple[str, s
     return result
 
 
-def load_verified_rankings(project_root: Optional[Path] = None) -> VerifiedRankingData:
+def load_verified_rankings(
+    project_root: Optional[Path] = None,
+    today: Optional[date] = None,
+) -> VerifiedRankingData:
     """Load verifiedstats from all models_*.json and build rankings.
 
     Returns rankings by operation, provider, and time window, plus
     all_providers aggregation using canonical_model_id() normalization.
+    The month / prev_month / week / recent windows are resolved against
+    `today` (default: the wall clock) by `model_stats_windows`, so a bucket a
+    writer has not rolled over yet never counts as recent.
     """
     _, _, metadata_dir = _paths_for(project_root)
     agents = ("claudecode", "codex", "opencode")
 
-    # Collect raw verifiedstats: {(agent, cli_id): {op: {window: {runs, score_sum, period?}}}}
+    # Collect raw verifiedstats: {(agent, cli_id): {op: {window: {runs, score_sum}}}},
+    # the dated windows already resolved against `today`.
     raw: Dict[Tuple[str, str], Dict[str, Dict[str, dict]]] = {}
     cli_id_set: Dict[Tuple[str, str], str] = {}  # (agent, cli_id) -> cli_id for display
 
@@ -569,9 +570,7 @@ def load_verified_rankings(project_root: Optional[Path] = None) -> VerifiedRanki
                     continue
                 raw[key][op] = {
                     "all_time": {"runs": at_runs, "score_sum": at.get("score_sum", 0)},
-                    "prev_month": buckets.get("prev_month", {}),
-                    "month": buckets.get("month", {}),
-                    "week": buckets.get("week", {}),
+                    **resolve_windows(buckets, today),
                 }
 
     if not raw:
@@ -597,27 +596,20 @@ def load_verified_rankings(project_root: Optional[Path] = None) -> VerifiedRanki
             by_window[op][agent]["all_time"].append(
                 VerifiedModelEntry(cli_id, display, agent, bucket_avg(at["runs"], at["score_sum"]), at["runs"])
             )
-            for win in ("month", "prev_month", "week"):
-                wb = buckets.get(win, {})
-                w_runs = wb.get("runs", 0)
-                if w_runs > 0:
+            for win in _RESOLVED_WINDOWS:
+                wb = buckets[win]
+                if wb["runs"] > 0:
                     by_window[op][agent][win].append(
-                        VerifiedModelEntry(cli_id, display, agent, bucket_avg(w_runs, wb.get("score_sum", 0)), w_runs)
+                        VerifiedModelEntry(cli_id, display, agent, bucket_avg(wb["runs"], wb["score_sum"]), wb["runs"])
                     )
-            r_runs, r_sum = recent_aggregate(buckets)
-            if r_runs > 0:
-                by_window[op][agent]["recent"].append(
-                    VerifiedModelEntry(cli_id, display, agent, bucket_avg(r_runs, r_sum), r_runs)
-                )
 
-    # All-providers aggregation: group by canonical_model_id
+    # All-providers aggregation: group by canonical_model_id. Every resolved
+    # window already carries today's period, so the providers' windows simply
+    # sum — no per-period matching is needed.
     for op in sorted(all_ops):
-        # Collect per-canonical: {canonical: {window: {runs, score_sum, period?}}}
+        # Collect per-canonical: {canonical: {window: {runs, score_sum}}}
         grouped: Dict[str, Dict[str, dict]] = defaultdict(lambda: {
-            "all_time": {"runs": 0, "score_sum": 0},
-            "month": {"runs": 0, "score_sum": 0, "period": ""},
-            "prev_month": {"runs": 0, "score_sum": 0, "period": ""},
-            "week": {"runs": 0, "score_sum": 0, "period": ""},
+            w: {"runs": 0, "score_sum": 0} for w in ("all_time",) + _RESOLVED_WINDOWS
         })
         canonical_display: Dict[str, str] = {}
         canonical_cli: Dict[str, str] = {}
@@ -629,37 +621,13 @@ def load_verified_rankings(project_root: Optional[Path] = None) -> VerifiedRanki
                 canonical_display[canon] = model_display_from_cli_id(cli_id)
                 canonical_cli[canon] = cli_id
             buckets = entry_ops[op]
-            at = buckets["all_time"]
-            grouped[canon]["all_time"]["runs"] += at["runs"]
-            grouped[canon]["all_time"]["score_sum"] += at["score_sum"]
-            for win in ("month", "prev_month", "week"):
-                wb = buckets.get(win, {})
-                w_runs = wb.get("runs", 0)
-                w_period = wb.get("period", "")
-                if w_runs <= 0 or not w_period:
-                    continue
-                g = grouped[canon][win]
-                if not g["period"]:
-                    g["period"] = w_period
-                if g["period"] == w_period:
-                    g["runs"] += w_runs
-                    g["score_sum"] += wb.get("score_sum", 0)
+            for win, g in grouped[canon].items():
+                g["runs"] += buckets[win]["runs"]
+                g["score_sum"] += buckets[win]["score_sum"]
 
         ap_entries: Dict[str, List[VerifiedModelEntry]] = {w: [] for w in WINDOW_KEYS}
         for canon, windows in grouped.items():
-            at = windows["all_time"]
-            if at["runs"] > 0:
-                ap_entries["all_time"].append(
-                    VerifiedModelEntry(
-                        canonical_cli.get(canon, canon),
-                        canonical_display.get(canon, canon),
-                        "all_providers",
-                        bucket_avg(at["runs"], at["score_sum"]),
-                        at["runs"],
-                    )
-                )
-            for win in ("month", "prev_month", "week"):
-                wb = windows[win]
+            for win, wb in windows.items():
                 if wb["runs"] > 0:
                     ap_entries[win].append(
                         VerifiedModelEntry(
@@ -670,20 +638,6 @@ def load_verified_rankings(project_root: Optional[Path] = None) -> VerifiedRanki
                             wb["runs"],
                         )
                     )
-            mo = windows["month"]
-            pm = windows["prev_month"]
-            r_runs = mo["runs"] + pm["runs"]
-            r_sum = mo["score_sum"] + pm["score_sum"]
-            if r_runs > 0:
-                ap_entries["recent"].append(
-                    VerifiedModelEntry(
-                        canonical_cli.get(canon, canon),
-                        canonical_display.get(canon, canon),
-                        "all_providers",
-                        bucket_avg(r_runs, r_sum),
-                        r_runs,
-                    )
-                )
         by_window[op]["all_providers"] = ap_entries
 
     # Sort all entry lists: score desc, display_name asc
@@ -698,12 +652,17 @@ def load_verified_rankings(project_root: Optional[Path] = None) -> VerifiedRanki
     return VerifiedRankingData(by_window=by_window, operations=sorted(all_ops))
 
 
-def load_usage_rankings(project_root: Optional[Path] = None) -> UsageRankingData:
+def load_usage_rankings(
+    project_root: Optional[Path] = None,
+    today: Optional[date] = None,
+) -> UsageRankingData:
     """Load usagestats from all models_*.json and build rankings.
 
     Mirrors load_verified_rankings shape (by_window[op][provider][window]),
     but reads usagestats and carries no score field. Window keys match
-    WINDOW_KEYS — recent is synthesized from month + prev_month.
+    WINDOW_KEYS. The dated windows are resolved against `today` (default: the
+    wall clock) by `model_stats_windows`, and recent is the resolved current
+    plus previous month.
     """
     _, _, metadata_dir = _paths_for(project_root)
     agents = ("claudecode", "codex", "opencode")
@@ -735,9 +694,7 @@ def load_usage_rankings(project_root: Optional[Path] = None) -> UsageRankingData
                     continue
                 raw[key][op] = {
                     "all_time": {"runs": at_runs},
-                    "prev_month": buckets.get("prev_month", {}),
-                    "month": buckets.get("month", {}),
-                    "week": buckets.get("week", {}),
+                    **resolve_windows(buckets, today),
                 }
 
     if not raw:
@@ -761,27 +718,17 @@ def load_usage_rankings(project_root: Optional[Path] = None) -> UsageRankingData
             by_window[op][agent]["all_time"].append(
                 UsageModelEntry(cli_id, display, agent, at["runs"])
             )
-            for win in ("month", "prev_month", "week"):
-                wb = buckets.get(win, {})
-                w_runs = wb.get("runs", 0)
+            for win in _RESOLVED_WINDOWS:
+                w_runs = buckets[win]["runs"]
                 if w_runs > 0:
                     by_window[op][agent][win].append(
                         UsageModelEntry(cli_id, display, agent, w_runs)
                     )
-            mo = buckets.get("month", {})
-            pm = buckets.get("prev_month", {})
-            r_runs = mo.get("runs", 0) + pm.get("runs", 0)
-            if r_runs > 0:
-                by_window[op][agent]["recent"].append(
-                    UsageModelEntry(cli_id, display, agent, r_runs)
-                )
 
-        # All-providers aggregation by canonical model id
-        grouped: Dict[str, Dict[str, dict]] = defaultdict(lambda: {
-            "all_time": {"runs": 0},
-            "month": {"runs": 0, "period": ""},
-            "prev_month": {"runs": 0, "period": ""},
-            "week": {"runs": 0, "period": ""},
+        # All-providers aggregation by canonical model id. The resolved
+        # windows all carry today's period, so they simply sum.
+        grouped: Dict[str, Dict[str, int]] = defaultdict(lambda: {
+            w: 0 for w in ("all_time",) + _RESOLVED_WINDOWS
         })
         canonical_display: Dict[str, str] = {}
         canonical_cli: Dict[str, str] = {}
@@ -793,54 +740,21 @@ def load_usage_rankings(project_root: Optional[Path] = None) -> UsageRankingData
                 canonical_display[canon] = model_display_from_cli_id(cli_id)
                 canonical_cli[canon] = cli_id
             buckets = entry_ops[op]
-            grouped[canon]["all_time"]["runs"] += buckets["all_time"]["runs"]
-            for win in ("month", "prev_month", "week"):
-                wb = buckets.get(win, {})
-                w_runs = wb.get("runs", 0)
-                w_period = wb.get("period", "")
-                if w_runs <= 0 or not w_period:
-                    continue
-                g = grouped[canon][win]
-                if not g["period"]:
-                    g["period"] = w_period
-                if g["period"] == w_period:
-                    g["runs"] += w_runs
+            for win in grouped[canon]:
+                grouped[canon][win] += buckets[win]["runs"]
 
         ap_entries: Dict[str, List[UsageModelEntry]] = {w: [] for w in WINDOW_KEYS}
         for canon, windows in grouped.items():
-            at = windows["all_time"]
-            if at["runs"] > 0:
-                ap_entries["all_time"].append(
-                    UsageModelEntry(
-                        canonical_cli.get(canon, canon),
-                        canonical_display.get(canon, canon),
-                        "all_providers",
-                        at["runs"],
-                    )
-                )
-            for win in ("month", "prev_month", "week"):
-                wb = windows[win]
-                if wb["runs"] > 0:
+            for win, runs in windows.items():
+                if runs > 0:
                     ap_entries[win].append(
                         UsageModelEntry(
                             canonical_cli.get(canon, canon),
                             canonical_display.get(canon, canon),
                             "all_providers",
-                            wb["runs"],
+                            runs,
                         )
                     )
-            mo = windows["month"]
-            pm = windows["prev_month"]
-            r_runs = mo["runs"] + pm["runs"]
-            if r_runs > 0:
-                ap_entries["recent"].append(
-                    UsageModelEntry(
-                        canonical_cli.get(canon, canon),
-                        canonical_display.get(canon, canon),
-                        "all_providers",
-                        r_runs,
-                    )
-                )
         by_window[op]["all_providers"] = ap_entries
 
     def _sort_key(e: UsageModelEntry) -> Tuple[int, str]:

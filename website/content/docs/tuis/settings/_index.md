@@ -27,13 +27,20 @@ Shows the default agent/model for each operation (`task-pick`, `explain`, `batch
 
 - The current value (e.g., `claudecode/opus4_6`)
 - A layer badge: **[PROJECT]** (green) for project-level defaults or **[USER]** (amber) for per-user overrides
-- **[Verified score]({{< relref "/docs/skills/verified-scores" >}}) context** -- score, run count, and recency (e.g., `[96 (9 runs, 2 this mo)]`)
+- **[Verified score]({{< relref "/docs/skills/verified-scores" >}}) context** -- score, run count, and recency (e.g., `[96 (9 runs, 2 this mo, 5 prev mo)]`). "this mo" and "prev mo" count only runs from the current and the previous calendar month
 - When the same underlying LLM has scores from multiple providers, an **all providers** summary appears below (e.g., `all providers: 96 (12 runs, 3 this mo)`)
 - A description of what the operation does
 
 Press **Enter** on any operation to change its agent/model through the model picker.
 
-The picker opens with a **Top Verified** list showing the highest-scoring models for the selected operation across all providers. Select a model directly or choose **Browse all models** to use the full agent/model browser.
+The picker shows one list at a time; **Shift+Left** / **Shift+Right** cycles through them, and typing filters the current list:
+
+1. **Top used models (recent, all ops)** -- the models with the most recorded runs in the current and previous calendar month, summed across every operation. It has entries even for operations that record no usage of their own, such as `raw`, `shadow` and `discuss`
+2. **Top by usage (recent, this op)** -- the same ranking, counting only the selected operation. Only skills that run the satisfaction-feedback step record usage, so some operations stay empty here; the picker says so in a note above the list
+3. **All models** -- every available model of every code agent
+4. **All codex models**, **All opencode models**, **All Claude models** -- one code agent's models, with their verified scores for the selected operation
+
+`batch-review` reads the counters that `/aitask-review` records under `review`.
 
 {{< static-img src="imgs/aitasks_settings_select_model_step1_codeagent.svg" alt="Step 1: Select code agent" caption="Step 1: Choose which code agent to use (via Browse all models)" >}}
 

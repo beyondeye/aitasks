@@ -486,11 +486,14 @@ class TestVerifiedRankings(unittest.TestCase):
         self.assertEqual(codex_entry[0].score, 80)  # round((240+160)/5) = 80
 
     def test_all_providers_aggregation_month(self):
-        vdata = stats.load_verified_rankings()
+        # The fixture's buckets are 2026-03 / 2026-W10: resolve them as of then.
+        vdata = stats.load_verified_rankings(today=_RANKINGS_TODAY)
         ap_mo = vdata.by_window["pick"]["all_providers"]["month"]
         codex_mo = [e for e in ap_mo if "5.3" in e.display_name]
         self.assertEqual(len(codex_mo), 1)
         self.assertEqual(codex_mo[0].runs, 2)  # 1 + 1 (same period)
+        ap_wk = vdata.by_window["pick"]["all_providers"]["week"]
+        self.assertEqual(sorted(e.runs for e in ap_wk), [1, 2])  # gpt-5.4, opus 4.6
 
     def test_rankings_sorted_by_score_desc(self):
         vdata = stats.load_verified_rankings()
@@ -541,6 +544,98 @@ class TestVerifiedRankings(unittest.TestCase):
         self.assertEqual(stats.bucket_avg(0, 0), 0)
         self.assertEqual(stats.bucket_avg(3, 240), 80)
         self.assertEqual(stats.bucket_avg(10, 960), 96)
+
+    # --- t2194: windows resolved against "today", not trusted by slot name ---
+
+    def test_stale_buckets_leave_only_all_time(self):
+        vdata = stats.load_verified_rankings(today=date(2026, 11, 4))
+        for provider in ("all_providers", "claudecode", "codex", "opencode"):
+            windows = vdata.by_window["pick"][provider]
+            self.assertTrue(windows["all_time"], provider)
+            for win in ("month", "prev_month", "week", "recent"):
+                self.assertEqual(windows[win], [], f"{provider}/{win}")
+
+    def test_unrolled_month_slot_counts_as_prev_month(self):
+        # 2026-04-02: the stored 2026-03 `month` buckets are last month's data.
+        vdata = stats.load_verified_rankings(today=date(2026, 4, 2))
+        cc = vdata.by_window["pick"]["claudecode"]
+        self.assertEqual(cc["month"], [])
+        self.assertEqual([(e.cli_id, e.runs, e.score) for e in cc["prev_month"]],
+                         [("claude-opus-4-6", 4, 100)])
+        self.assertEqual([e.runs for e in cc["recent"]], [4])
+        self.assertEqual(cc["week"], [])
+
+    def test_mixed_periods_across_providers_split_by_window(self):
+        # opencode's gpt-5.3-codex ran this month; codex's last month. The old
+        # first-seen-period grouping kept one of them and dropped the other.
+        metadata = self.base / "aitasks" / "metadata"
+        (metadata / "models_opencode.json").write_text(json.dumps({"models": [{
+            "name": "openai_gpt_5_3_codex", "cli_id": "openai/gpt-5.3-codex",
+            "verifiedstats": {"pick": {
+                "all_time": {"runs": 2, "score_sum": 160},
+                "month": {"period": "2026-04", "runs": 1, "score_sum": 80},
+            }},
+        }]}), encoding="utf-8")
+        vdata = stats.load_verified_rankings(today=date(2026, 4, 10))
+        ap = vdata.by_window["pick"]["all_providers"]
+
+        def runs53(win):
+            return [e.runs for e in ap[win] if "5.3" in e.display_name]
+
+        self.assertEqual(runs53("month"), [1])       # opencode, 2026-04
+        self.assertEqual(runs53("prev_month"), [1])  # codex, 2026-03 month slot
+        self.assertEqual(runs53("recent"), [2])
+        self.assertEqual(runs53("all_time"), [5])
+
+    def test_render_this_month_column_is_date_correct(self):
+        then = stats.render_verified_rankings(stats.load_verified_rankings(today=_RANKINGS_TODAY))
+        now = stats.render_verified_rankings(stats.load_verified_rankings(today=date(2026, 11, 4)))
+        opus_then = next(line for line in then.splitlines() if line.startswith("| Opus 4.6"))
+        opus_now = next(line for line in now.splitlines() if line.startswith("| Opus 4.6"))
+        self.assertTrue(opus_then.endswith("| 100 (4) |"), opus_then)
+        self.assertTrue(opus_now.endswith("| - |"), opus_now)
+
+
+_RANKINGS_TODAY = date(2026, 3, 5)  # ISO 2026-W10: TestVerifiedRankings' periods are current
+
+
+class TestUsageRankings(unittest.TestCase):
+    """t2194: usage windows are resolved against today, like verified ones."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        metadata = self.root / "aitasks" / "metadata"
+        metadata.mkdir(parents=True)
+        (metadata / "models_claudecode.json").write_text(json.dumps({"models": [
+            {"name": "opus5_5", "cli_id": "claude-opus-5-5", "usagestats": {"pick": {
+                "all_time": {"runs": 313},
+                "month": {"period": "2026-11", "runs": 16},
+                "prev_month": {"period": "2026-10", "runs": 276},
+                "week": {"period": "2026-W45", "runs": 13},
+            }}},
+            {"name": "opus4_8", "cli_id": "claude-opus-4-8", "usagestats": {"pick": {
+                "all_time": {"runs": 303},
+                "month": {"period": "2026-07", "runs": 47},
+                "prev_month": {"period": "2026-06", "runs": 220},
+                "week": {"period": "2026-W30", "runs": 27},
+            }}},
+        ]}), encoding="utf-8")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_stale_model_is_absent_from_every_dated_window(self):
+        udata = stats_data_mod.load_usage_rankings(self.root, today=date(2026, 11, 4))
+        for provider in ("claudecode", "all_providers"):
+            w = udata.by_window["pick"][provider]
+            self.assertEqual([(e.cli_id, e.runs) for e in w["all_time"]],
+                             [("claude-opus-5-5", 313), ("claude-opus-4-8", 303)])
+            self.assertEqual([(e.cli_id, e.runs) for e in w["recent"]],
+                             [("claude-opus-5-5", 292)])
+            self.assertEqual([e.runs for e in w["month"]], [16])
+            self.assertEqual([e.runs for e in w["prev_month"]], [276])
+            self.assertEqual([e.runs for e in w["week"]], [13])
 
 
 # --------------------------------------------------------------------------
