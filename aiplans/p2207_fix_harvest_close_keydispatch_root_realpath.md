@@ -60,3 +60,10 @@ None identified.
 
 ### Goal-achievement risk: low
 None identified.
+
+## Final Implementation Notes
+- **Actual work done:** `tests/test_monitor_sitrep_harvest_close.py` `KeyDispatchTests.setUp` now builds `self.root = Path(os.path.realpath(self._tmp.name)) / "repo"`, mirroring `SitrepNowCounterTests` (line 779). Assertions unchanged and strict (`str(self.root)`).
+- **Deviations from plan:** Commit subject uses `bug:` (the task's `issue_type`), not the `test:` the plan's Step 9 note suggested — the commit convention keys on `issue_type`.
+- **Issues encountered:** None. Pre-fix control (venv interpreter): `KeyDispatchTests` → `Ran 2 tests … FAILED (failures=4)`, diffs exactly `/private/var/…` vs `/var/…`. Post-fix: `KeyDispatchTests` → `OK`; whole module → `Ran 66 tests … OK`.
+- **Key decisions:** Canonicalize at the fixture source rather than at the assertion, so the `_KeyMonitor` session→project mapping, the app's `project_root`, and the expectation all share one spelling. The `marks.json` tempdir path is not asserted on and was left as is.
+- **Upstream defects identified:** None
