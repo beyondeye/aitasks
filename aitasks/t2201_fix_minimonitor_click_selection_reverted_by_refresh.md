@@ -133,3 +133,16 @@ shared status server. This task follows both: inspect their final update and
 rebuild paths, reuse their selection-preservation behavior, and test only the
 remaining race. The earlier advisory note to t2183 described the original
 proposal; it does not make t2183 depend on this task.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t2183** id=2026-11-04T20:09:11Z.4378e4694c62df17b45fbf54 from=t2183 from_verified=yes at=2026-11-04T20:09:11Z base=4c51b9150c91b416fd3c809ed593b88f765a3ddf base_branch=main dirty=yes host=omg16
+>
+> | t2183 landed in 4c51b9150 (minimonitor_app.py). Relevant to t2201's selection race — advisory, reproduce against the new code before choosing your fix:
+> | 
+> | - The "read the user's current intent at restore time" half of your fix direction is now in place on BOTH list routes: `_refresh_data` no longer snapshots `saved_pane_id` at the top of the tick; it restores `self._focused_pane_id` read after every await.
+> | - Unchanged / same-height ticks no longer tear any card down (in-place `update(layout=False)`), and restore focus only when `self.focused is None`. Height-changing in-place ticks and structural changes keep the t1539/t1653 capture/restore and call `_restore_focus(self._focused_pane_id)`.
+> | - Coverage: tests/test_minimonitor_incremental_list.py ClickDuringTickTests — click while `capture_all_async` is suspended, on an in-place tick and on a full-rebuild tick. Both were red on the pre-change code ('%0' != '%1') and are green now.
+> | - NOT addressed (still yours): `_restore_focus` / `_auto_select_own_window` still use the deferred `card.focus()` (vs a queued click → synchronous `set_focus`); a click between `remove_children` and `mount_all` on the rebuild route; the card-0 "other agent" candidates and Textual's `_reset_focus` on removal.
+> | - The rebuild route now runs only when the card set changes (agent added/removed/reordered, P filter, multi-session), so the remaining window is much narrower than in your trace.
