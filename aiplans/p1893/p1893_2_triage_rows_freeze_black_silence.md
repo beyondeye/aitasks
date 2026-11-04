@@ -486,14 +486,14 @@ paths were checked in the FFmpeg `release/5.1` source):**
     encoders or the always-on status bar could suppress freezes.
   - The docs and the summary label these rows as detector candidates and state
     their settings, but real-world accuracy is unverified.
-  · severity: medium · → mitigation: real_recording_triage_check
+  · severity: medium · → mitigation: t2203
 - The metadata-based evidence depends on detector behaviour verified on ffmpeg
   9.0.2 runs and on the FFmpeg `release/5.1` source. Versions in between are
   assumed to match; the `release/5.1` source shows the same code paths
   · severity: low · → mitigation: none
 
 ### Planned mitigations
-- timing: after | name: real_recording_triage_check | type: manual_verification | priority: medium | effort: low | inline_risk: low | added_complexity: medium | addresses: detector thresholds unvalidated on real device recordings (goal-achievement) | desc: Run bug mode on 2-3 real recordings (dark-mode app, a real hang, a black flash, audio with a gap) and check each freeze/black/silence row against the frames; record threshold adjustments as a follow-up if they misfire
+- timing: after | name: real_recording_triage_check | type: manual_verification | priority: medium | effort: low | inline_risk: low | added_complexity: medium | addresses: detector thresholds unvalidated on real device recordings (goal-achievement) | desc: Run bug mode on 2-3 real recordings (dark-mode app, a real hang, a black flash, audio with a gap) and check each freeze/black/silence row against the frames; record threshold adjustments as a follow-up if they misfire | created: t2203
 
 ## Post-Review Changes
 
