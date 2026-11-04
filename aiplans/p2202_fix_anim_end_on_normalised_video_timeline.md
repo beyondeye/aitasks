@@ -113,3 +113,35 @@ None identified.
 
 ### Goal-achievement risk: low
 None identified.
+
+## Final Implementation Notes
+- **Actual work done:** In `cmd_anim` (`.aitask-scripts/screen_recording/video_prep.py`), the
+  raw-timeline `end_t = start_time + duration` and its `--range` `min()` are removed. In the scan
+  branch, `end_t` now comes from `core.video_span(video_packets(...), info["start_time"],
+  range_end=..., ranged=..., first_kept_t=times[0], last_kept_t=times[-1],
+  container_end=info["duration"]).end_t`, computed only when `segs` is non-empty. Three
+  `AnimMode` regressions were added to `tests/test_screen_recording_cli.py`:
+  `test_window_end_is_clamped_to_the_video_end` (premise control, guarded),
+  `test_nonzero_start_time_window_end` (also checks `--range 0-0.85`) and
+  `test_window_end_ignores_longer_audio`.
+- **Deviations from plan:** None. A shared `SLIDE_TO_END_S = 0.9` constant and
+  `slide_to_end()` / `anim_run()` helpers keep the three tests on one fixture.
+- **Issues encountered:** None.
+- **Key decisions:** No new summary.md / run.json output for an unproven video end. In anim
+  mode the end only clamps the window/trim bound, while bug mode's end feeds dwell times and
+  interval lower bounds, which is why bug mode reports it.
+- **Red proof (durable record):** the HEAD `video_prep.py` (`git show HEAD:…` into the
+  scratchpad, next to the unchanged `vp_core.py`) and the fixed one were run with `anim` on
+  `card_frames(tween(EASE_OUT, 0.5, 0.3), 0.9, "right")`, encoded three ways:
+
+  | clip | start_time | duration | pre-fix window end | fixed window end |
+  |------|-----------:|---------:|-------------------:|-----------------:|
+  | base | 0.000 | 0.900 | 0.9000 | 0.9000 |
+  | `ts_offset=5` | 5.000 | 0.900 | 1.0500 | 0.9000 |
+  | + 3 s AAC tone (`shortest=False`) | 0.000 | 3.000 | 1.0500 | 0.9000 |
+
+  The script: `synth.encode` / `synth.mux_tone` as in the tests, then
+  `python3 <video_prep.py> anim <clip> --out <dir>` and `fit.json["window_s"][1]`.
+- **Verification:** `python3 tests/test_screen_recording_cli.py` passes (33 tests, OK) and
+  `python3 tests/test_screen_recording_core.py` passes (55 tests, OK).
+- **Upstream defects identified:** None
