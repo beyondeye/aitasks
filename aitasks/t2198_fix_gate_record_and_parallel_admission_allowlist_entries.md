@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2175
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-04 15:18
-updated_at: 2026-11-04 15:32
+updated_at: 2026-11-04 16:05
 ---
 
 ## Origin
@@ -33,3 +34,8 @@ While adding the sitrep helpers' permission entries (t2175_4), `./.aitask-script
 ## Suggested fix
 
 Add `"Bash(./.aitask-scripts/aitask_gate_record.sh:*)",` to `.claude/settings.local.json`. For parallel admission: determine per agent whether the stem entry matches `aitask_parallel_admission.sh`; where it does not, add (or replace with) the exact `.sh` entry in all five touchpoints so `audit-helper-whitelist` reports clean. Consider a test that every helper `discover-helpers` reports is allow-listed in all five files.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-04T14:05:35Z status=pass attempt=1 type=human
