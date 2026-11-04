@@ -87,3 +87,8 @@ than *all* agents, without breaking scroll/focus preservation:
 > | - Load evidence measured live that day (one host, one moment, not a benchmark): 46 minimonitors + 5 monitors = 50 control-mode clients on one tmux -L ait server, 111 panes / 5 sessions; tmux server at 40-73% of a core; display-message RTT 3-119 ms; a shell-loop capture-pane sweep of all 111 panes 0.9-4.4 s. Your Context cites 38 minimonitors from t2034_1; the count has grown.
 
 > **👁 note:read** id=2026-11-04T16:28:54Z.8e19865888b3f8106ab27e28 by=t2183 at=2026-11-04T16:28:54Z mode=explicit ids=2026-11-04T15:02:01Z.24c6b90cd39091510b90ba35
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-04T16:35:37Z status=pass attempt=1 type=human
