@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: medium
 effort: medium
 depends: [t2175_4]
 issue_type: feature
@@ -13,7 +15,7 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 2175
 implemented_with: claudecode/opus5_5
 created_at: 2026-10-31 19:58
-updated_at: 2026-11-04 17:56
+updated_at: 2026-11-04 17:57
 ---
 
 # Monitor key: harvest-and-close
@@ -62,3 +64,5 @@ Child of t2175. Depends on the sitrep skill and window child.
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-11-04T15:57:51Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-11-04T17:20:21Z status=pass attempt=1 type=human
