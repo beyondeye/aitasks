@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2173
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-04 12:36
-updated_at: 2026-11-04 12:52
+updated_at: 2026-11-04 15:53
 ---
 
 ## Origin
@@ -67,3 +68,8 @@ read-back, and the rc-2 warning. Do it the way t2188 routed the main task-data
 rules (`_ait_gitignore_group data`). Add a bounded regression case with a write
 fault, like `tests/test_setup_git.sh` 27n's echo shadow, plus a no-fault
 control.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-04T13:53:30Z status=pass attempt=1 type=human
