@@ -5,9 +5,9 @@ depends: []
 issue_type: feature
 status: Ready
 labels: [ait_monitor, aitask_monitormini, sitrep]
-children_to_implement: [t2175_5, t2175_6]
+children_to_implement: [t2175_6]
 created_at: 2026-10-31 19:58
-updated_at: 2026-11-04 15:26
+updated_at: 2026-11-04 19:22
 ---
 
 # Sitrep: a per-repo, persisted todo list with pointer-based context
