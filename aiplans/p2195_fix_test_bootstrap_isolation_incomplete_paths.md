@@ -65,3 +65,11 @@ None identified.
 
 ### Goal-achievement risk: low
 None identified.
+
+## Final Implementation Notes
+- **Actual work done:** Added the `tests/` directory to the sys.path bootstrap of the five files exactly as planned — one `sys.path.insert` line in `test_parallel_admission_vocab.py`, `test_prompt_detection.py`, `test_trails_app.py`; the existing guarded loop tuple extended in `test_stats_backlog_panes_live.py` and `test_stats_focus_cycle_and_pane_selector_live.py`.
+- **Deviations from plan:** None.
+- **Issues encountered:** None. All five failures had a single cause: a sibling module imported from `tests/` (`test_parallel_admission`, `review_loop_fixtures`, `test_stats_backlog_panes`, `test_stats_backlog_panes_live`, `test_board_bytrail_view`) with `tests/` not on the file's own path. `test_parallel_admission_vocab.py`'s import sits inside `_fixtures()`, but that is called at module level (`_FIXTURES = _fixtures()`), so it fails at import time too.
+- **Key decisions:** Checked that no top-level `tests/*.py` name collides with a `.aitask-scripts/` or `.aitask-scripts/*/` module before prepending `tests/`, so insert order cannot shadow an import. The `test_stats_focus_cycle…` fix relies on `test_stats_backlog_panes_live` being fixed too (it imports that module, which then imports `test_stats_backlog_panes`).
+- **Verification:** `bash tests/test_python_bootstrap_isolation.sh` → `Results: 10 passed, 0 failed, 10 total` (baseline 9/1, same five files listed). `pytest -q` over the five modules → `147 passed`.
+- **Upstream defects identified:** None
