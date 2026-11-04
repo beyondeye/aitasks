@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [ait_setup, git]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -17,7 +17,8 @@ anchor: 2179
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5_5
 created_at: 2026-11-03 19:04
-updated_at: 2026-11-04 09:22
+updated_at: 2026-11-04 10:07
+completed_at: 2026-11-04 10:07
 ---
 
 ## Origin
@@ -46,3 +47,14 @@ Guard each of `/$AIT_DATA_DIR_NAME` and `/${AIT_DATA_LINKS[@]}` on its own. That
 > **✅ gate:plan_approved** run=2026-11-04T07:22:17Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-11-04T08:01:47Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-11-04T08:07:56Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:3f3518845d3fdc9f
+
+> **✅ gate:risk_evaluated** run=2026-11-04T08:07:56Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/2188/risk_evaluated_2026-11-04T08:07:56Z-risk_evaluated-a1.log`
