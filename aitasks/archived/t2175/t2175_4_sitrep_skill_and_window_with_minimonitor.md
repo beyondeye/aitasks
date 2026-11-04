@@ -5,7 +5,7 @@ risk_goal_achievement: medium
 effort: medium
 depends: [t2175_3]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [sitrep]
 active_gates: [risk_evaluated]
 active_gates_filtered: []
@@ -15,7 +15,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 2175
 implemented_with: claudecode/opus5_5
 created_at: 2026-10-31 19:58
-updated_at: 2026-11-04 09:54
+updated_at: 2026-11-04 15:26
+completed_at: 2026-11-04 15:26
 ---
 
 # The sitrep skill and window (with minimonitor companion)
@@ -69,3 +70,14 @@ Child of t2175. Depends on the writer, harvest and refresh children.
 > **✅ gate:plan_approved** run=2026-11-04T07:54:39Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-11-04T12:06:46Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-11-04T13:26:31Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:d00fac305cac99f0
+
+> **✅ gate:risk_evaluated** run=2026-11-04T13:26:31Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/2175_4/risk_evaluated_2026-11-04T13:26:31Z-risk_evaluated-a1.log`
