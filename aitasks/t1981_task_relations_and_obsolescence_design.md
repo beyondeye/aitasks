@@ -12,6 +12,7 @@ active_gates: [risk_evaluated]
 active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
+children_to_implement: [t1981_1]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus5_5
 attachments:
@@ -26,7 +27,7 @@ artifacts:
     kind: implementation_trail
     name: Task relations, obsolescence and premise staleness
 created_at: 2026-10-14 12:17
-updated_at: 2026-11-04 12:14
+updated_at: 2026-11-04 15:39
 ---
 
 Design a **task-relations layer** for the aitasks framework. Background agents
