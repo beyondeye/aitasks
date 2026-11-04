@@ -48,6 +48,47 @@ First child of t1663 (advisory task premise staleness). Design fixed in `aidocs/
 - Negative controls: forced failure per scope tier (a deliberately broken input must NOT read `FRESH`).
 - Purity: module import with `subprocess` poisoned + AST scan (existing purity-suite pattern).
 
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1981** id=2026-11-04T15:00:10Z.bdd0bfd934fe2276bc8c211d from=t1981 at=2026-11-04T15:00:10Z base=c0a6bbd4015d48cca47bfd7b1deba187cfb4c66f base_branch=main dirty=yes host=omg16
+>
+> | From t1981's session (task relations and obsolescence). Advisory: a relevance and plan-coherence check the user asked for. Nothing here is a decision; re-verify it at pick time.
+> | 
+> | THE USER'S CONCERN
+> | t1663 was planned on 2026-09-01. Is it still relevant, and is its plan still coherent with the code and with the implementation trail art:trail-task-relations-and-premise? That trail was refreshed on 2026-11-04 (deep, version sha256:304b689b) after t1981 decomposed into ten children.
+> | 
+> | WHAT A READ-ONLY CHECK FOUND
+> | Code main at 5026118e2, 2026-11-04. Commit counts are relative to that tree. The inbox readings are moment-relative and may already be stale.
+> | 
+> | 1. The goal is still unmet, and another task now consumes it.
+> |    - lib/task_premise.py and aitask_premise_stale.sh do not exist.
+> |    - lib/roadmap_premise.py, the temporary stand-in, still exists.
+> |    - t1981's committed design (aidocs/framework/task_relations.md, D9) consumes `aitask_premise_stale.sh check` as one evidence row in its obsolescence layer (t1981_6), shown as "unavailable" until this task lands. The boundary is unchanged: t1663 owns "needs refresh", and t1981 owns "still worth doing".
+> |    - If this task changes the producer's output protocol (the DECISION/verdict lines), please note t1981_6.
+> | 2. Your plan has never been verified.
+> |    - p1663_1 was last committed on 2026-09-01. `aitask_plan_verified.sh decide` reports TOTAL:0 and DECISION:VERIFY, so the fast profile enters verify mode at pick.
+> |    - The decision record aidocs/framework/task_premise_staleness.md was corrected by t1673 on 2026-09-02 (594c5875b: "Correct the Tier-B reachability and eligibility claims"). That is after your plan's last commit, so verify the plan against the corrected record.
+> |    - `aitask_risk_mitigation_landed.sh` reports FORCE_VERIFY:0, so the automatic risk-mitigation re-verify will not point you at t1673. Read it deliberately.
+> | 3. Your own inputs have not moved. roadmap_premise.py, followup_origin.py, tests/test_roadmap_premise.py and aitask_verification_stale.sh have no commits since 2026-09-01.
+> | 4. Surfaces of later siblings have moved since 2026-09-01. Siblings plan from current code when picked, so this matters less for you, but it shapes the chain:
+> |    - .claude/skills/task-workflow/SKILL.md (9 commits) and planning.md (4), for t1663_4;
+> |    - aitask_create.sh (5), aitask_update.sh (4) and board/aitask_merge.py (3, now sharing the ## Inbox schema), for t1663_2 and t1663_3;
+> |    - board/aitask_board.py (28; the board was split into a package of board_* modules).
+> | 5. Unread notes on siblings, as of this writing:
+> |    - t1663_2, from t1794_9 (the board split);
+> |    - t1663_4, from t1981 (Step 3 Check 6 is already the Inbox check, and t1981_5 adds a related-work check after it);
+> |    - t1663_5, from t1687.
+> | 6. Stale prose. The t1663 parent body still says creation-time seeding uses --followup-of. t1673 and t1663_3 corrected that (seeding happens on --file-ref / --verifies only).
+> | 7. Trail coherence. The trail's drift check sees only structure (status, depends, new tasks, plan hashes), and its t1663 rationales were carried over without being re-read. These are the claims about this chain to confirm or correct:
+> |    - t1663_1 touches only new files and shares no edit surface (wave 1, beside t1981_1);
+> |    - t1663_3 should land before t1981_4 (both edit aitask_create.sh's batch-commit sites);
+> |    - t1663_4 should land before t1981_5 (both add a Step 3 check);
+> |    - t1655 depends on the t1663 parent but needs only this task's engine. Narrowing that edge is the user's call.
+> | 
+> | SUGGESTED SEQUENCE (advisory)
+> | Pick t1663_1. Let verify mode re-check p1663_1 against the current tree and the corrected decision record. Then refresh the trail with `/aitask-trail --refresh art:trail-task-relations-and-premise --deep`; the changed plan hash shows as drift and gets re-read.
+
 ## Gate Runs
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
