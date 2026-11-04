@@ -79,10 +79,14 @@ go on `website/content/docs/skills/aitask-screen-recording.md`; walkthroughs go 
     `t ≤ T`; `--range` picks frames with `A ≤ t < B`.
   - Enumeration's `trim` is widened by 1 ms on each side only to bound the
     decode; the exact filter decides.
-  - Consequence (documented): a name's ms is rounded to nearest, so passing a
-    name that rounded *down* back as `--at` (e.g. `t00000033` for 33.33 ms)
-    selects the previous frame. To re-extract a named frame, add 1 ms. The
-    summary and run.json show each request's resolved exact time (6 decimals).
+  - Consequence (documented as a limit, with no shortcut offered): a name's ms
+    and every displayed time are rounded. They are labels, not exact selectors.
+    Passing a rounded time back as `--at` can select a neighbouring frame
+    (`t00000033` for 33.33 ms selects the 16.67 ms frame). No fixed offset is
+    safe: "+1 ms" picks the next frame at ≥ 1000 fps, and can cross the video
+    end on the last frame. The task does not require round-trip extraction from
+    rounded names, so no mechanism is added. The summary and run.json show each
+    request's resolved time, also rounded and labelled as such.
 
 - **Layout.** Every directory of frames carries a `frames.tsv` describing its own
   images (`file` is the basename):
