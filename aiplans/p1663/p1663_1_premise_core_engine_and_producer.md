@@ -662,3 +662,79 @@ are closed with red-capable fixtures. Still, the derived-scope tier ships
 dormant, and t1655 substitutability is proven only by a test-local adapter.
 No new mitigation candidates are proposed: the new risks are designed into the
 main steps, each with its own test.
+
+## Final Implementation Notes
+
+- **Actual work done:** all five plan sections landed as written:
+  - `lib/task_premise.py`: pure core; strict row integrity with count attestation; the immutable-baseline re-check; LF/CR-aware `encode_field`/`decode_field`.
+  - `aitask_premise_stale.sh`: producer; explicit `git log` status; reader grammar for the baseline; Tier B through `--batch-map --encode-paths`; structural validator; fail-open SKIPs.
+  - `--encode-paths` in `lib/task_file_sets.py` + `aitask_revert_analyze.sh`.
+  - The purity-suite loop and the record's protocol bullets.
+  - Tests: `tests/test_task_premise.py` (60), `tests/test_premise_stale.sh` (210 assertions), plus `EncodePathsTests` (7) and batch section 11 (12).
+- **Deviations from plan:**
+  - `--encode-paths` refuses a non-UTF-8 path **explicitly** (`UnencodablePath`, exit 2, `UNENCODABLE_PATH:` on stderr). The plan assumed `sys.stdout.write` refuses surrogates in either mode. Measured: true under a UTF-8 locale, but under `LC_ALL=C` Python's stdout uses `surrogateescape` and writes the raw bytes. The explicit check makes encode mode deterministic.
+  - Every `git log` call passes `--no-show-signature`, so `log.showSignature=true` cannot inject gpg lines into the LOG rows. Those lines would read as `malformed_row`, which is fail-closed, but they are noise.
+  - `file_references:` is read through `refs=$(get_file_references …) || rc` rather than a process substitution, so a read failure is `scope_error` and not an empty Tier A.
+  - A missing verb prints usage to stderr and dies; `help`/`-h` exit 0. The template prints usage and exits 0 for a missing verb.
+  - `tests/lib/test_scaffold.sh` is not sourced: nothing in the suite scaffolds a fake tree.
+  - A `TASKFILES:` row with no `|` now fails the whole map (`scope_error`) rather than becoming `PATH:<raw>|invalid_reference`: with the emitter's count attestation (post-review change 1), an unattributable row is a seam failure, not a scope entry.
+  - The `git` PATH-shim fallback for the failed-history fixture was not needed. `log.date=invalid-date-mode` leaves `merge-base`, `rev-parse` and `cat-file` working, as the reviewer measured.
+  - DISPLAY renders an `UNKNOWN_HISTORY` origin as `origin t<id>`.
+- **Red proofs (scratch copies, not committed):**
+  - The core with the attested-count check removed (`if entry["malformed"]:` only) fails 4 RowIntegrityTests.
+  - The producer with the template's `log_out=$(git log …) || log_out=""` reads `DECISION:FRESH` on the `log.date=invalid-date-mode` fixture with a genuinely changed file; the real producer reads `ASK_STALE` + `UNKNOWN:lib/a.sh|history_unavailable`.
+  - The producer without `--encode-paths` loses the newline-named file. The foreign `noise` line trips the seam guard, giving `SKIP`/`scope_error` with `FILES:0`; the real producer gives `CHANGED:lib/keep.py%0Anoise|1|43`.
+  - The default batch-map output carries the forged `TASKFILES:80|keep.py` row more than once: it is the negative control in test section 11.
+- **Issues encountered:** the shared allowlist files are still dirty with t2198's hunks; untouched, as planned. Registration is handed to t1663_4 via a Step 8e note. The full Python suite failed on 20 tests plus 1 collection error. All are attributable to other sessions' uncommitted monitor/sitrep work (untracked `monitor/status_server.py` + `tests/test_monitor_status_server*.py` and `tests/test_minimonitor_incremental_list.py`; `test_sitrep_window` failed on t2175_5's then-uncommitted `monitor_core.py` and passes alone after 52b8b65dc). None of the failing tests imports a file this task changed.
+- **Key decisions:** the batch map keeps its default output for its existing consumers; everything this task needs from it (encoding, completeness attestation) is opt-in behind `--encode-paths`.
+- **Upstream defects identified:**
+  - `.aitask-scripts/lib/task_utils.sh:3381 — get_file_references() splits the flow list on commas, ignoring YAML quoting, so the valid entry "a,b.py" becomes the two paths "a" and "b.py"; aitask_verification_stale.sh (t1555) still reads its scope this way.`
+  - `.aitask-scripts/lib/task_utils.sh:2530 — format_yaml_list() writes file_references: (and other lists) as an unquoted flow list, so an entry containing ",", "[", "]" or a leading ":" is written as invalid or differently-parsed YAML.`
+- **Notes for sibling tasks:**
+  - t1663_4 consumes `aitask_premise_stale.sh check`. Branch on the last line. `CHECKED:` is `NONE` on precondition SKIPs, so only ASK_STALE/FRESH carry a sha to advance to. Decode path fields `%0D`, `%0A`, `%7C`, then `%25`.
+  - t1663_2's writer must store a full 40/64-hex sha (`git rev-parse --verify <rev>^{commit}`); anything else reads `SKIP`/`invalid_baseline`.
+  - t1655 can feed `check()` rows from its COMMIT index exactly as `SubstitutabilityTests.adapt` does. It must send `TIER:`, and hex shas.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-04 20:55)
+- **Requested by user:** three blocking review findings, each confirmed by a reproduction before changing anything.
+  1. `fingerprint()` comma-joined encoded paths, but `encode_field` does not escape commas, so the scope `["a,b"]` collided with `["a", "b"]`.
+  2. Tier A read `file_references:` through `get_file_references()`, which comma-splits quoted YAML. `["a,b.py"]` with unchanged `a` and `b.py` read `FILES:2`, `FRESH` after a change to `a,b.py`.
+  3. Tier-B counts described only the rows that survived parsing. Dropping `STATUS:99|UNKNOWN_HISTORY` from a two-origin map, or the `TASKFILES:` row of a changed file, at exit 0, read `FRESH`.
+- **Changes made:**
+  1. `fingerprint()` now digests a JSON serialization (`ensure_ascii=True`, so lone surrogates still encode). Regression: `FingerprintTests.test_list_boundaries_are_unambiguous` + `test_the_comma_collision_through_check`.
+  2. A new pure `task_premise.task_fields(metadata)` plus the producer's `_FIELDS_GLUE` read both `premise_baseline:` and `file_references:` through `task_yaml.parse_frontmatter`. The output is count-attested (`FIELD_END:<n>`), and its vocabulary `FIELD_PREFIXES` is disjoint from the other two. Unparseable frontmatter reads `SKIP`/`invalid_frontmatter` (new `SCOPE_REASONS` member), and any other reader failure or count mismatch reads `scope_error`. `read_yaml_field` and `get_file_references` are no longer used by the producer. Range suffixes are stripped from the encoded entry; the suffix alphabet never overlaps an escape. YAML-hostile fixture entries (`":12"`, `"docs/a[bc].md"`) are now quoted, as YAML requires; `tests/test_premise_stale.sh` pins the unquoted bracket case as `invalid_frontmatter`.
+  3. In `--encode-paths` mode, `task_file_sets._emit` emits `TASKFILES_COUNT:<id>|<n>` after each queried id's rows and a final `END:<n_records>`; the default output is unchanged. Before deriving any core row, the producer requires:
+     - every record recognized and nothing after `END`, with `END` equal to the record count;
+     - every `TASKFILES`/`STATUS`/`TASKFILES_COUNT` id to be a requested origin (origin ids deduped);
+     - exactly one `STATUS` and one `TASKFILES_COUNT` per origin, the count equal to the rows seen;
+     - `FILES` ⇔ count > 0.
+
+     Any failure reads `SKIP`/`scope_error`.
+- **Red proofs (the pre-review copy kept in scratch vs now):** comma file `FILES:2 FRESH` → `FILES:1 ASK_STALE`; dropped `STATUS:99` `FRESH` → `SKIP`; dropped `TASKFILES:42|lib/b.sh` `FRESH` → `SKIP`. Fingerprint collision confirmed `True` on the old core.
+- **Files affected:**
+  - `.aitask-scripts/lib/task_premise.py`
+  - `.aitask-scripts/aitask_premise_stale.sh`
+  - `.aitask-scripts/lib/task_file_sets.py`
+  - `.aitask-scripts/aitask_revert_analyze.sh` (usage text)
+  - `aidocs/framework/task_premise_staleness.md`
+  - `tests/test_task_premise.py` (+9 tests)
+  - `tests/test_premise_stale.sh` (+34 assertions: comma fixture, invalid YAML, fields-reader faults, dropped STATUS/TASKFILES/COUNT/END faults with unchanged controls)
+  - `tests/test_task_file_sets.py`
+  - `tests/test_revert_analyze_batch.sh`
+
+### Change Request 2 (2026-11-04 21:20)
+- **Requested by user:** two blocking findings and one optional cleanup, all confirmed before changing anything.
+  1. `task_fields()` dropped `None` entries and stringified other scalars. `[good.py, null]` read `FILES:1`, `FRESH`; YAML 1.1 turns unquoted `on`/`010` into `True`/`8`, so with unchanged files `True` and `8`, changes to `on` and `010` were missed.
+  2. `encode_field()` passes NUL through. A valid YAML `"a\0.py"` reached bash, whose `$( )` dropped the byte, with an `ignored null byte` warning on stderr, and read the unchanged `a.py` → `FRESH`.
+  3. `_Rows.path_order` was written but never read (optional cleanup).
+- **Changes made:**
+  1. Only a non-empty string free of NUL is a `FIELD_REF`. Every other entry (null, bool, int, float, date, containers, NUL strings, `""`) is a counted `FIELD_BADREF` whose payload is a `repr` diagnostic (`<invalid file_references entry: True>`), so it is never coerced into a real file name. The producer tags its dedupe keys (`0:` valid, `1:` invalid), so an invalid entry is never deduped away behind a valid entry with the same text.
+  2. NUL is rejected at the Python-to-bash boundary, in `task_fields`, for references and the baseline alike. `repr` escapes it, so no NUL and no bash warning crosses. A non-string `premise_baseline:` is likewise passed on as a diagnostic that fails the commit-id grammar (`invalid_baseline`).
+  3. `path_order` removed.
+- **Tests:**
+  - `TaskFieldsTests` gains 5 tests (the YAML premise asserted first in each: `None`/`True`/`8` and the NUL really arrive).
+  - `tests/test_premise_stale.sh` gains 19 assertions in two tests: `[good.py, null]`, unquoted `[on, 010]` with decoy files `True`/`8`, the NUL reference and the NUL baseline, each with a quoted/clean control and an empty-stderr check.
+- **Red proofs:** with round 1's `task_fields` shadowed in through `PYTHONPATH`, all three fixtures read `DECISION:FRESH`, and the NUL one printed bash's `ignored null byte` warning; the fixed core reads `ASK_STALE` with empty stderr.
+- **Files affected:** `.aitask-scripts/lib/task_premise.py`, `.aitask-scripts/aitask_premise_stale.sh`, `aidocs/framework/task_premise_staleness.md`, `tests/test_task_premise.py`, `tests/test_premise_stale.sh`.
