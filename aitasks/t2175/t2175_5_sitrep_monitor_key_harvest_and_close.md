@@ -40,3 +40,13 @@ Child of t2175. Depends on the sitrep skill and window child.
 > | 1. Put the harvest `all` job BEFORE `_maybe_refresh_sitrep()` in `_maintenance()` (a comment marks the spot), so items harvested in a pass are refreshed in the same pass.
 > | 2. If the monitor shows an indicator: the script prints REFRESH_ITEM:/REFRESHED:/REFRESH_NONE:/REFRESH_FAILED: lines (wire contract in its header); exit 1 means nothing was written.
 > | 3. `_run_marks_cmd`'s timeout kills only the direct child. For the refresh that is covered (its worker process group is killed at its own deadline, and a parent-death watchdog kills the group if the parent is killed from outside), but keep it in mind for a harvest job run through the same runner.
+
+> **✉ note:t2175_4** id=2026-11-04T13:25:31Z.fb2c95ecc2a1da5e37f4385c from=t2175_4 from_verified=yes at=2026-11-04T13:25:31Z base=bdef300b0f247c561195b9eb0bada6af6b60c06e base_branch=main dirty=yes host=omg16
+>
+> | The sitrep skill and window landed in bdef300b0 (t2175_4). What the monitor key needs (tree-relative, as of that commit):
+> | 
+> | 1. Spawn/focus: call `monitor_core.spawn_sitrep(monitor, target_root=, session=, select_window=, agent_string=None)` (duck-typed on `monitor.tmux_run`). It returns `SitrepSpawn(status, pane, window, detail)`: status `spawned` (detail empty or `companion_not_spawned`), `focused`, `focus_failed` (a sitrep exists, switching failed), or `refused` (detail = reason: `lookup_failed`, `lock_busy`, `root:<why>`, `no_command`, `window_list_failed`, `launch:<why>`, `stamp:<…>`). Pass `select_window=False` from `ait monitor` to keep focus. Never read TMUX_PANE inside; the caller names the session.
+> | 2. CLI equivalent: `ait sitrep [open] [--no-select]` (wire lines in `.aitask-scripts/aitask_sitrep.sh`'s header; `open` runs `monitor/sitrep_open.py`).
+> | 3. Identity: window `agent-sitrep[-<n>]` (`sitrep_harvest.SITREP_WINDOW_RE` / `is_sitrep_window`), agent pane option `@aitask_sitrep_root=<canonical root>` (NOT a helper marker; the pane stays an agent). Indicator idea: `aitask_sitrep_todo.sh list` lines with group=now and state=open.
+> | 4. Harvest-and-close: `aitask_sitrep_harvest.sh record`/`all` skip sitrep windows (`HARVEST_NONE:<id>|sitrep_agent` + receipt), but the `capture --agent <window>` verb does NOT consult the window name. A live-pane harvest-and-close must skip sitrep windows itself, or the sitrep screen (which echoes banners and trail handles) is fed back into the store.
+> | 5. Codeagent op `sitrep` is Claude Code only for now (codex/opencode refuse before composing).
