@@ -5,7 +5,7 @@ risk_goal_achievement: medium
 effort: high
 depends: []
 issue_type: feature
-status: Implementing
+status: Ready
 labels: [brainstorming, task_relations, task-workflow, backlog]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -13,7 +13,6 @@ active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 children_to_implement: [t1981_1, t1981_2, t1981_3, t1981_4, t1981_5, t1981_6, t1981_7, t1981_8, t1981_9, t1981_10]
-assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus5_5
 attachments:
   - hash: sha256:d941bbfcddc2a7d87dd3aff6ad7f1d6f9242cfa4bef073d6dc4926378f842e85
