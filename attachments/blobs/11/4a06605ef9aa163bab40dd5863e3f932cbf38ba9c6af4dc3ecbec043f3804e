@@ -1,0 +1,519 @@
+{
+  "schema_version": "1.1.0",
+  "trail_id": "trail-monitor-status-server",
+  "title": "Shared monitor status server (aitasks)",
+  "owner": "aitasks#2034",
+  "scope": {
+    "kind": "ad_hoc",
+    "topics": [
+      "aitasks#2034"
+    ],
+    "selection_note": "Ad-hoc set chosen for the monitor/minimonitor port: the t2034 topic with its split-out parents t2037/t2038, cross-repo prerequisites named in the narrative instead of included as members. The pre-port bug t1689 has landed; its entry stays in W1, and its topic is no longer tracked. Widened on the 2026-11-04 refresh with the topic-2034 follow-ups t2183, t2189, t2195 and t2196 (user-confirmed)."
+  },
+  "generation": {
+    "generated_at": "2026-11-04T13:39:31Z",
+    "generator": {
+      "agent_string": "claudecode/opus5_5",
+      "skill": "aitask-trail"
+    },
+    "inputs": [
+      {
+        "kind": "task_file",
+        "ref": "aitasks#2034"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#2034_6"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#2037"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#2037_1"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#2037_2"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#2037_3"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#2037_4"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#2038"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#2038_1"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#2038_2"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#2038_3"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#2038_4"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#2183"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#2189"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#2195"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#2196"
+      }
+    ],
+    "input_digest": "57d5a5c15cd78659"
+  },
+  "freshness": {
+    "state": "current",
+    "checked_at": "2026-11-04T13:39:31Z"
+  },
+  "narrative": {
+    "problem_statement": "In what order should the shared monitor status server work (t2034 and its split-out parents t2037/t2038) land, given the one open high-priority monitor-family bug and the cross-repo dependencies on the Go port in aitasks_go?",
+    "recommendation_summary": "Pick t2037_1 next, then t2037_2 → t2037_3 → t2037_4. Land t2189 before t2037_4; sequence t2183 with t2037_3 because they share minimonitor_app.py. The Go server now lives in aitasks_go#47, and t2034_6 waits on it cross-repo.",
+    "overview": "Pick next: t2037_1 (server process and lifecycle). t2034_3 landed, which unblocks t2037 and t2037_1. Its spec, aidocs/framework/monitor_status_protocol.md, leaves the 'Lifecycle and socket path' section for t2037_1 to write, and a handoff note on t2037 lists the codec pieces to reuse (StreamEncoder, filter_message, StreamState, read_line, monitor_pane_record). After that, the recorded order is t2037_2 → t2037_3 → t2037_4, and t2037 closes with them.\n\nSmall follow-ups can land any time alongside that chain. Land t2189 (applink pusher test crash) before t2037_4, so the applink migration starts from a test run that reaches its end. t2196 (CLAUDE.md pointer to the protocol doc) waits only on another session committing its CLAUDE.md edit. t2195 (test bootstrap isolation) is already Implementing in another session.\n\nt2183 targets the largest remaining per-client CPU cost that t2034_1 measured: minimonitor re-rendering every card on every tick. Its own description estimates about 1.2 cores across 38 minimonitors, which is more than the server removes. It is independent of the server but edits minimonitor_app.py like t2037_3, so run the two one after the other, never in parallel. It is placed after t2037_3 so it can key off the stream's per-pane change sets.\n\nChanges since the last version:\n- t1689, t2034_1, t2034_2 and t2034_3 landed.\n- The Go status server t2038 and its four children were re-homed to aitasks_go#47 (#47_1–#47_4) and are Postponed here. Do not pick them.\n- t2034_6 no longer depends locally on t2038; it xdeps on aitasks_go#47.\n- Topic t1689 is no longer tracked.\n\nCross-repo: aitasks_go#16_2, #47 and #47_1 xdep on t2034_3, which is now Done. Handoff notes with the spec, codec and fixture paths went to aitasks_go#16, #16_2, #47 and #47_1. aitasks_go#16_5 still waits on t2037_2's replay mode, and the Go tmux package aitasks_go#17 is tracked by the aitasks_go trail.\n\nOut of scope, but worth weighing before the matching wave (medium priority, not added as dependencies):\n- t1628: tmux gateway run_async cancellation orphans a child. It matters for a long-lived server process (t2037_1).\n- t1554 and t1798: stale or undetected prompt patterns. They change what aitasks_go#47_3 ports and what t2034_6 compares.\n- Possible shared-surface overlaps, not verified: t1118's applink shadow work vs t2037_4, and the minimonitor review-loop tasks t1159/t1503 (board column now) vs t2037_3 and t2183.",
+    "method_note": "Lite refresh, built from one gatherer snapshot over the trail's still-active recorded members plus the four topic-2034 follow-ups confirmed for membership. Landed entries (t1689, t2034_1, t2034_2, t2034_3) stay in their waves with status Done. Archived tasks are not snapshot inputs, so their other snapshot fields are as last recorded. Cross-repo edges (xdeps on aitasks_go#47, #16_2, #16_5, #17) are stated in prose; the gatherer's depends field does not carry xdeps. The re-homing of t2038 to aitasks_go#47 rests on t2034_6's inbox notes and t2038's Postponed status; the aitasks_go side was read only for the dependent list. NOT verified: in-flight work and file-level conflicts beyond t2195's Implementing status (no --with-inflight run). The t2183/t2037_3 shared file comes from their task descriptions, not from a diff. The 1.2-core figure is quoted from t2183's description, not re-measured."
+  },
+  "waves": [
+    {
+      "wave_id": "w1",
+      "ordinal": 1,
+      "title": "Pre-port fix and baseline measurement",
+      "purpose": "Land the one open high-priority monitor/minimonitor bug before any port work, and measure the cost the server is meant to remove. Landed: t1689 and t2034_1 are archived.",
+      "why_now": "t1689's fix changes the tmux gateway's spawn PATH handling — the exact code the Go tmux package (aitasks_go#17) ports — so landing it first means the Go side ports the fixed behaviour once.",
+      "entries": [
+        {
+          "entry_id": "e1689",
+          "task": "aitasks#1689",
+          "topic": "aitasks#1689",
+          "position": 1,
+          "classification": "hard_prerequisite",
+          "snapshot": {
+            "status": "Done",
+            "depends": [],
+            "gates_pending": [
+              "risk_evaluated"
+            ],
+            "priority": "high",
+            "effort": "medium"
+          },
+          "rationale": "Only open high-priority bug touching the monitor family: agent panes spawned through tmux inherit the spawning client's PATH. Its primary fix lands in lib/tmux_exec.py, which aitasks_go#17 (Go tmux package) ports — aitasks_go#17 and #17_1 carry an xdep on it. Its declared risk_evaluated gate is still pending.",
+          "confidence": "high"
+        },
+        {
+          "entry_id": "e2034-1",
+          "task": "aitasks#2034_1",
+          "topic": "aitasks#2034",
+          "position": 2,
+          "classification": "core",
+          "snapshot": {
+            "status": "Done",
+            "depends": [],
+            "gates_pending": [],
+            "priority": "medium",
+            "effort": "low"
+          },
+          "rationale": "Measures how much minimonitor/monitor CPU is scanning vs Textual rendering. Independent of t1689, so it can run alongside it; its numbers decide how much the Go server (t2038) is worth.",
+          "confidence": "high"
+        }
+      ]
+    },
+    {
+      "wave_id": "w2",
+      "ordinal": 2,
+      "title": "Client-agnostic producer and protocol",
+      "purpose": "Make one TmuxMonitor producer able to serve many clients, then fix the wire protocol and recorded-stream format. Landed: t2034_2 (client-agnostic producer) and t2034_3 (spec aidocs/framework/monitor_status_protocol.md, codec, recorder/replayer, synthetic fixture) are archived.",
+      "why_now": "The protocol is the seam both repositories build against: aitasks_go#16_2 (Go monitor shell) xdeps on t2034_3, and its recorded stream is the parity fixture format.",
+      "entries": [
+        {
+          "entry_id": "e2034-2",
+          "task": "aitasks#2034_2",
+          "topic": "aitasks#2034",
+          "position": 1,
+          "classification": "core",
+          "snapshot": {
+            "status": "Done",
+            "depends": [
+              "aitasks#2034_1"
+            ],
+            "gates_pending": [],
+            "priority": "medium",
+            "effort": "medium"
+          },
+          "rationale": "Moves the four per-instance settings (exclude_pane, multi-session, parked agents, compare-mode) out of the producer; two semantics are open decisions for the user, so planning needs them settled before the protocol is frozen.",
+          "confidence": "medium"
+        },
+        {
+          "entry_id": "e2034-3",
+          "task": "aitasks#2034_3",
+          "topic": "aitasks#2034",
+          "position": 2,
+          "classification": "core",
+          "snapshot": {
+            "status": "Done",
+            "depends": [
+              "aitasks#2034_2"
+            ],
+            "gates_pending": [],
+            "priority": "medium",
+            "effort": "medium"
+          },
+          "rationale": "Spec + codec + recorder/replayer. Unblocks both t2037 here and the Go monitor shell in aitasks_go, which is why it should land as early as the chain allows.",
+          "confidence": "high"
+        }
+      ]
+    },
+    {
+      "wave_id": "w2b",
+      "ordinal": 3,
+      "title": "Small follow-ups (any time, in parallel)",
+      "purpose": "Low-effort follow-ups spawned by the landed producer and protocol work. None blocks the server chain, and each can land alongside it.",
+      "why_now": "t2189 repairs the applink pusher test that t2037_4's migration needs as a green baseline; the other two are cheap and already scoped.",
+      "entries": [
+        {
+          "entry_id": "e2189",
+          "task": "aitasks#2189",
+          "topic": "aitasks#2034",
+          "position": 1,
+          "classification": "preferred_predecessor",
+          "snapshot": {
+            "status": "Ready",
+            "depends": [],
+            "gates_pending": [],
+            "priority": "medium",
+            "effort": "low",
+            "followup_kind": "upstream_defect"
+          },
+          "rationale": "test_applink_pusher.sh crashes after 98 checks (FakePane lacks current_command), so every later check never runs. Land it before t2037_4 so the applink migration starts from a baseline that actually runs to the end.",
+          "confidence": "high"
+        },
+        {
+          "entry_id": "e2195",
+          "task": "aitasks#2195",
+          "topic": "aitasks#2034",
+          "position": 2,
+          "classification": "optional",
+          "snapshot": {
+            "status": "Implementing",
+            "depends": [],
+            "gates_pending": [
+              "risk_evaluated"
+            ],
+            "priority": "medium",
+            "effort": "low",
+            "followup_kind": "upstream_defect"
+          },
+          "rationale": "Five older test files lack their own sys.path bootstrap, which keeps test_python_bootstrap_isolation.sh red. It is already Implementing in another session; listed here only so the topic stays complete.",
+          "confidence": "high"
+        },
+        {
+          "entry_id": "e2196",
+          "task": "aitasks#2196",
+          "topic": "aitasks#2034",
+          "position": 3,
+          "classification": "optional",
+          "snapshot": {
+            "status": "Ready",
+            "depends": [],
+            "gates_pending": [
+              "risk_evaluated"
+            ],
+            "priority": "low",
+            "effort": "low",
+            "followup_kind": "carry_over"
+          },
+          "rationale": "Adds the CLAUDE.md pointer to the protocol doc that t2034_3 skipped. It waits only on another session committing its own CLAUDE.md edit; its body carries the shared-file gate.",
+          "confidence": "high"
+        }
+      ]
+    },
+    {
+      "wave_id": "w3",
+      "ordinal": 4,
+      "title": "Python status server",
+      "purpose": "Ship the shared server in Python, reusing monitor_core unchanged, and move every scanner onto it.",
+      "why_now": "t2034_3 has landed, so the chain is unblocked: this is where the repeated-scan cost actually disappears. The Go server later only replaces the implementation behind the same protocol.",
+      "entries": [
+        {
+          "entry_id": "e2037-1",
+          "task": "aitasks#2037_1",
+          "topic": "aitasks#2034",
+          "position": 1,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "depends": [
+              "aitasks#2034_3"
+            ],
+            "gates_pending": [],
+            "priority": "medium",
+            "effort": "high"
+          },
+          "rationale": "Server process and lifecycle (per tmux socket + VERSION, ensure under lock, idle exit, stale-socket recovery). Everything else in t2037 talks to it. Unblocked now that t2034_3 landed. It also writes the spec's 'Lifecycle and socket path' section, which the Go twin aitasks_go#47_1 mirrors.",
+          "confidence": "high"
+        },
+        {
+          "entry_id": "e2037-2",
+          "task": "aitasks#2037_2",
+          "topic": "aitasks#2034",
+          "position": 2,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "depends": [
+              "aitasks#2037_1"
+            ],
+            "gates_pending": [],
+            "priority": "medium",
+            "effort": "medium"
+          },
+          "rationale": "MonitorClient with in-process fallback and a replay mode; the replay mode is the cross-repo prerequisite of aitasks_go#16_5 (parity demo).",
+          "confidence": "high"
+        },
+        {
+          "entry_id": "e2037-3",
+          "task": "aitasks#2037_3",
+          "topic": "aitasks#2034",
+          "position": 3,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "depends": [
+              "aitasks#2037_2"
+            ],
+            "gates_pending": [],
+            "priority": "medium",
+            "effort": "medium"
+          },
+          "rationale": "Switches monitor and minimonitor to the client — the step that removes the N-squared scanning. Re-runs t2034_1's measurement for the before/after.",
+          "confidence": "medium"
+        },
+        {
+          "entry_id": "e2183",
+          "task": "aitasks#2183",
+          "topic": "aitasks#2034",
+          "position": 4,
+          "classification": "optional",
+          "snapshot": {
+            "status": "Ready",
+            "depends": [],
+            "gates_pending": [
+              "risk_evaluated"
+            ],
+            "priority": "medium",
+            "effort": "medium"
+          },
+          "rationale": "Minimonitor re-renders every card on every tick. t2034_1 measured that rendering, not scanning, is the largest remaining per-client cost, and the server does not remove it. Independent of the server, but it edits minimonitor_app.py like t2037_3: sequence the two, never run them in parallel. Placed after t2037_3 so it can use the stream's per-pane change sets.",
+          "confidence": "medium"
+        },
+        {
+          "entry_id": "e2037-4",
+          "task": "aitasks#2037_4",
+          "topic": "aitasks#2034",
+          "position": 5,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "depends": [
+              "aitasks#2037_3"
+            ],
+            "gates_pending": [],
+            "priority": "medium",
+            "effort": "medium"
+          },
+          "rationale": "Switches applink, which also uses TmuxMonitor as an action/content gateway; per-call routing is decided here.",
+          "confidence": "medium"
+        },
+        {
+          "entry_id": "e2037",
+          "task": "aitasks#2037",
+          "topic": "aitasks#2034",
+          "position": 6,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "depends": [
+              "aitasks#2034_3"
+            ],
+            "gates_pending": [],
+            "priority": "medium",
+            "effort": "high"
+          },
+          "rationale": "Parent of the four server children above; closes when they land.",
+          "confidence": "high"
+        }
+      ]
+    },
+    {
+      "wave_id": "w4",
+      "ordinal": 5,
+      "title": "Go status server — re-homed to aitasks_go#47",
+      "purpose": "Kept as Postponed placeholders. The Go server is now developed in aitasks_go as #47 (children #47_1–#47_4) behind the same protocol; the Python server stays the default.",
+      "why_now": "Nothing to pick here: progress on the Go server is tracked by the aitasks_go trail, and the gate in the next wave waits on aitasks_go#47 directly.",
+      "entries": [
+        {
+          "entry_id": "e2038-1",
+          "task": "aitasks#2038_1",
+          "topic": "aitasks#2034",
+          "position": 1,
+          "classification": "coordination_only",
+          "snapshot": {
+            "status": "Postponed",
+            "depends": [
+              "aitasks#2037"
+            ],
+            "gates_pending": [],
+            "priority": "medium",
+            "effort": "medium"
+          },
+          "rationale": "Postponed: re-homed to aitasks_go#47_1 (binary skeleton, Go codec + lifecycle). Do not pick here.",
+          "confidence": "high"
+        },
+        {
+          "entry_id": "e2038-2",
+          "task": "aitasks#2038_2",
+          "topic": "aitasks#2034",
+          "position": 2,
+          "classification": "coordination_only",
+          "snapshot": {
+            "status": "Postponed",
+            "depends": [
+              "aitasks#2038_1"
+            ],
+            "gates_pending": [],
+            "priority": "medium",
+            "effort": "medium"
+          },
+          "rationale": "Postponed: re-homed to aitasks_go#47_2 (discovery + capture). Do not pick here.",
+          "confidence": "high"
+        },
+        {
+          "entry_id": "e2038-3",
+          "task": "aitasks#2038_3",
+          "topic": "aitasks#2034",
+          "position": 3,
+          "classification": "coordination_only",
+          "snapshot": {
+            "status": "Postponed",
+            "depends": [
+              "aitasks#2038_2"
+            ],
+            "gates_pending": [],
+            "priority": "medium",
+            "effort": "high"
+          },
+          "rationale": "Postponed: re-homed to aitasks_go#47_3 (classifier port, the RE2 vs Python re risk). Do not pick here.",
+          "confidence": "high"
+        },
+        {
+          "entry_id": "e2038-4",
+          "task": "aitasks#2038_4",
+          "topic": "aitasks#2034",
+          "position": 4,
+          "classification": "coordination_only",
+          "snapshot": {
+            "status": "Postponed",
+            "depends": [
+              "aitasks#2038_3"
+            ],
+            "gates_pending": [],
+            "priority": "medium",
+            "effort": "medium"
+          },
+          "rationale": "Postponed: re-homed to aitasks_go#47_4 (state + end-to-end stream comparison). Do not pick here.",
+          "confidence": "high"
+        },
+        {
+          "entry_id": "e2038",
+          "task": "aitasks#2038",
+          "topic": "aitasks#2034",
+          "position": 5,
+          "classification": "coordination_only",
+          "snapshot": {
+            "status": "Postponed",
+            "depends": [
+              "aitasks#2037"
+            ],
+            "gates_pending": [],
+            "priority": "medium",
+            "effort": "high"
+          },
+          "rationale": "Postponed parent of the four placeholders above; the live work is aitasks_go#47.",
+          "confidence": "high"
+        }
+      ]
+    },
+    {
+      "wave_id": "w5",
+      "ordinal": 6,
+      "title": "Default switch gate and close",
+      "purpose": "Prove the two classifiers agree before the Go server becomes the default, then close the topic.",
+      "entries": [
+        {
+          "entry_id": "e2034-6",
+          "task": "aitasks#2034_6",
+          "topic": "aitasks#2034",
+          "position": 1,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "depends": [],
+            "gates_pending": [],
+            "priority": "medium",
+            "effort": "medium"
+          },
+          "rationale": "Python-vs-Go classifier differential; only when it passes does the default switch to Go. It no longer has a local depends; it xdeps on aitasks_go#47 (the re-homed Go server), so it waits cross-repo. The committed protocol fixture is synthetic prose and is not a classifier corpus.",
+          "confidence": "high"
+        },
+        {
+          "entry_id": "e2034",
+          "task": "aitasks#2034",
+          "topic": "aitasks#2034",
+          "position": 2,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "depends": [],
+            "gates_pending": [],
+            "priority": "medium",
+            "effort": "high"
+          },
+          "rationale": "Topic root; closes with its last child, t2034_6, once the follow-ups in this topic have landed.",
+          "confidence": "high"
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    {
+      "evidence_id": "ev-snapshot",
+      "source_type": "command_output",
+      "ref": "./.aitask-scripts/aitask_trail_gather.sh snapshot --scope task --owner aitasks#2034 --allow-archived-owner aitasks#2034 aitasks#2034_6 aitasks#2037 aitasks#2037_1 aitasks#2037_2 aitasks#2037_3 aitasks#2037_4 aitasks#2038 aitasks#2038_1 aitasks#2038_2 aitasks#2038_3 aitasks#2038_4 aitasks#2183 aitasks#2189 aitasks#2195 aitasks#2196",
+      "observed_at": "2026-11-04T13:39:31Z",
+      "summary": "Gatherer snapshot: 16 active members, digest 57d5a5c15cd78659."
+    }
+  ],
+  "rendering_hints": {
+    "depth": "lite"
+  }
+}
