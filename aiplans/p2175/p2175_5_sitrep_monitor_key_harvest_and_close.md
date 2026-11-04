@@ -341,3 +341,145 @@ live `capture` writes no receipt.
 ### Planned mitigations
 - timing: post-phase | name: harvest_close_guard_mutants | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — close/kill path and runner; goal-achievement — refusal gate and sitrep skip | desc: one mutant per guard (confirm on failure, callback ignores ok, ok ignores rc, sitrep skip removed, capture failure harvests, pane id from focus, kill-state recheck bypassed, unguarded kill, guard drops pid, identity not rechecked, frozen record unchecked, category guard removed, child-only kill, cancel leaks group, harvest after refresh) must turn its named test red
 - timing: after | name: harvest_close_live_smoke | type: test | priority: medium | effort: medium | inline_risk: low | added_complexity: medium | addresses: goal-achievement — unit tests mock tmux and harvest | desc: isolated-tmux live test (require_clean_ait_server + require_isolated_tmux, scratch repo/HOME) driving real capture, real `harvest capture` and the real guarded kill: items stored and pane killed; failing harvest keeps the pane; sitrep-named window writes nothing; a `respawn-pane -k` between harvest and confirm makes the guarded kill report `changed` and leave the new process running
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-04)
+- **Requested by user:** verify and address two review findings: (1)
+  `kill_agent_run_guarded` chose `kill-window` from the CACHED window
+  (`_collapse_window_for`) but dispatched `kill-window -t <pane>`, i.e. the
+  pane's CURRENT window — a pane moved into another agent's window before
+  discovery refreshed would take that window (and the unharvested agent) with
+  it; (2) the test probe `_gone` read an unreadable `/proc` as "gone", so on
+  macOS surviving children would pass the group-kill assertions. Both verified.
+- **Changes made:** (1) `TmuxMonitor._live_collapse_target(pane_id)` reads the
+  pane's live `#{window_id}` and lists THAT window by id; a window kill pins
+  `#{window_id}` and `#{window_panes}` (the listing's row count) in the
+  `if-shell` condition (`run_identity_condition(..., extra=)`) and targets
+  `kill-window -t @N`; every undecidable read is a pane-only kill. The cached
+  `_collapse_window_for` now serves only `kill_agent_pane_smart`. (2) `_gone`
+  falls back to `ps -o stat=` without `/proc` and treats an unknown state as
+  alive.
+- **Tests:** live `test_kill_agent_run_guarded.sh` case 6 (join-pane the
+  harvested pane into another agent's window with the cache still naming the
+  source: only the pane dies, the destination window and agent survive, both
+  routes); unit: live-window pin, moved pane judged by its live window (the
+  cached window never listed), five undecidable reads → pane kill; `_gone`
+  without `/proc`, without `/proc` and `ps`, and an exited process. New mutants
+  `collapse_from_cache` (the reported bug: live + unit RED),
+  `window_pin_dropped`, `gone_unknown_is_gone` — all RED.
+- **Files affected:** `.aitask-scripts/monitor/monitor_core.py`,
+  `.aitask-scripts/lib/helper_panes.py`, `tests/test_kill_agent_run_guarded.sh`,
+  `tests/test_monitor_sitrep_harvest_close.py`, `aidocs/framework/sitrep.md`.
+
+### Change Request 2 (2026-11-04)
+- **Requested by user:** verify and address: CR1's window pin (`#{window_id}` +
+  `#{window_panes}`) still does not prove the window's OTHER occupants — one
+  `swap-pane` exchanging the checked helper with an unrelated agent leaves
+  every emitted condition true, so `kill-window` would destroy that agent
+  unharvested. Verified: an `if-shell -F` condition is evaluated in the target
+  pane's context only and cannot see other panes' identities.
+- **Changes made:** `kill_agent_run_guarded` never kills a window: one guarded
+  `kill-pane` (unfrozen + pane_pid + server pid), the read-back, then the
+  guarded bound-helper sweep. A companion minimonitor closes itself once it is
+  verifiably alone (`MiniMonitorApp._check_auto_close`), matching the "kill the
+  companion only, never the window" rule. CR1's `_live_collapse_target` and the
+  `run_identity_condition(extra=)` parameter were removed; the second element
+  of the result is always False.
+- **Tests:** live case 5 now asserts the last agent's window and companion stay;
+  case 6 (moved pane) kept; new case 7: `swap-pane` of the harvested agent's
+  bound helper with an unrelated agent after the identity read — the incoming
+  agent survives, the harvested pane and its helper die; unit: no
+  `kill-window` is ever dispatched and the window is never listed, even when
+  the cache shows the pane alone with helpers. Mutant `window_kill_reintroduced`
+  (a cached-collapse `kill-window` branch) RED on the live and the unit test;
+  CR1's `collapse_from_cache` / `window_pin_dropped` retired with the code they
+  targeted.
+- **Files affected:** `.aitask-scripts/monitor/monitor_core.py`,
+  `.aitask-scripts/lib/helper_panes.py`, `.aitask-scripts/monitor/minimonitor_app.py`,
+  `tests/test_kill_agent_run_guarded.sh`,
+  `tests/test_monitor_sitrep_harvest_close.py`, `aidocs/framework/sitrep.md`.
+
+## Final Implementation Notes
+- **Actual work done:**
+  - `monitor/sitrep_close.py` (new): `run_owned_group` (own process group,
+    group kill on timeout AND cancellation, cancellation re-raised),
+    `HarvestReport` / `parse_harvest_output`, `item_titles`,
+    `SitrepNowCounter` (sha256 content key), `HarvestResultDialog`
+    (`GuardedModalScreen`, no confirm button on a failed report), and
+    `SitrepCloseMixin` (`h`: agent-card guard, state/root checks, run identity
+    before+after, frozen `record --force` / live gateway capture → `capture`,
+    sitrep-window skip, confirm re-check, frozen record match → `_drop_frozen`,
+    live `_guarded_close`; `S`: `ait sitrep open --root --session`).
+  - `monitor/monitor_core.py`: `RunIdentity`, `RUN_IDENTITY_FORMAT`,
+    `parse_run_identity`; `_collapse_window_for` extracted (tri-state) from
+    `_kill_agent_pane`; `kill_agent_run_guarded` (one pane-only `if-shell -F`
+    gated on unfrozen + pane_pid + server pid, read-back →
+    killed/changed/unknown/failed, then the guarded helper sweep).
+  - `lib/helper_panes.py`: `all_of` (nested `&&`), `run_identity_condition`
+    (target-pane halves only),
+    `READBACK_FORMAT`, `readback_state`; the helper sweep uses them.
+  - `monitor/monitor_shared.py`: `_run_sitrep_harvest` seam,
+    `_maybe_harvest_sitrep` (global `harvest all`) before `_maybe_refresh_sitrep`.
+  - Apps: `h` / `S` bindings in both; per-app `_close_live_after_harvest`;
+    monitor session-bar `sitrep N now`; minimonitor key hints.
+  - `lib/tui_switcher.py`: `S` quick-jump (`shortcut_sitrep`) + async runner.
+  - `monitor/sitrep_open.py` / `aitask_sitrep.sh`: `--session <name>` (validated,
+    exact `has-session`); `lib/sitrep_cli.py`: shared `sitrep_open_message`.
+  - Docs: `aidocs/framework/sitrep.md` (The monitor surface, tests rows);
+    website monitor reference, minimonitor index, TUIs index, workflows/sitrep.
+- **Deviations from plan:**
+  - The flow lives in a new `monitor/sitrep_close.py` rather than growing the
+    6000-line `monitor_shared.py`; the runner seam and maintenance job stay on
+    `AgentMarksMixin`.
+  - `sitrep_open_message` lives in `lib/sitrep_cli.py` so the switcher (lib/,
+    must not import monitor/) and the monitor share one wording.
+  - Minimonitor hints: `h`/`S` cost two wrapped rows at (15, 30) (measured 31 >
+    29); paid back by `I:info (followed)` and `d:detect ≈strip =raw`
+    (measured 29).
+  - `_collapse_window_for` returns `None` when undecidable so the smart kill
+    keeps its exact old behaviour (plain pane kill, no record drop) on a cache
+    miss or failed listing. It is NOT shared with the guarded kill (plan step
+    2i said it would be): after CR2 the guarded kill never kills a window.
+  - Added `tests/test_kill_agent_run_guarded.sh` (private tmux server, both
+    routes): proves the guard condition against a real server now; the spawned
+    `harvest_close_live_smoke` still owns the end-to-end capture → harvest →
+    close run.
+  - The switcher's hint row is unchanged (`S` unadvertised there, like `i`/`f`;
+    documented in the TUIs index).
+- **Issues encountered:** a test fixture's backgrounded grandchild inherited
+  stdout (communicate waited for its EOF) — redirected; the monitor sorts cards,
+  so the key test focuses the card by pane id.
+- **Mutants (harvest_close_guard_mutants):** 18 mutants after CR2, each in a fresh
+  `mktemp -d` copy of `.aitask-scripts` + `tests`; unmutated control GREEN; all
+  RED on their named test: dialog_confirm_on_failure, callback_ignores_ok,
+  ok_ignores_rc, sitrep_skip_removed, capture_failure_harvests,
+  pane_id_from_focus, kill_state_recheck_bypassed, kill_unguarded_monitor,
+  kill_unguarded_minimonitor, guard_drops_pid (unit AND the live shell test),
+  identity_not_rechecked, frozen_record_unchecked, category_guard_removed,
+  runner_kills_child_only, cancel_leaks_group, harvest_after_refresh;
+  CR1: gone_unknown_is_gone; CR2: window_kill_reintroduced (live + unit).
+  (CR1's collapse_from_cache / window_pin_dropped were RED too, and retired
+  in CR2 with the window-kill code they targeted.)
+- **Verification:** Python suite PASSED (runner=pytest, exit=0);
+  `test_monitor_sitrep_harvest_close.py` 62 passed; `test_sitrep_window.py` 42;
+  bash: test_no_raw_tmux, test_sitrep_harvest, test_kill_agent_pane_smart,
+  test_kill_agent_run_guarded, test_sitrep_window_live (22), test_website_doc_lists,
+  test_no_lib_to_tui_import — all green; shellcheck clean (warning level);
+  `check_links.py --build` SWEEP: PASSED. `test_cleanup_rule_parity.sh` not run
+  (refuses inside tmux by design; `pane_is_helper` untouched).
+- **Upstream defects identified:** None
+- **Key decisions:** capture → show → confirm, never confirm on a failed
+  report (no affirmative button + callback re-check); live close = capture the
+  pane then a guarded PANE-ONLY kill (never a window: other occupants cannot be
+  proved at dispatch); run identity bound at harvest, record match before a
+  frozen drop; harvest in its own process group (timeout + cancel kill the
+  group); `S` everywhere through `ait sitrep open --root --session`.
+- **Notes for sibling tasks:**
+  - t2175_6 (fallback corpus): the result dialog renders `parse_harvest_output`
+    (`monitor/sitrep_close.py`); a new "preserved, awaiting review" outcome
+    needs its own `final_kind` / `verdict()` wording there, distinct from
+    `HARVEST_FAILED` (which blocks the close). Live `capture` writes no receipt,
+    so `h` gates the close on the report alone.
+  - The live smoke follow-up (`harvest_close_live_smoke`) can reuse
+    `tests/test_kill_agent_run_guarded.sh`'s fixture shape for the kill half.
