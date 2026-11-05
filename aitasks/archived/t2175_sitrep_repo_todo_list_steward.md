@@ -3,11 +3,11 @@ priority: medium
 effort: high
 depends: []
 issue_type: feature
-status: Ready
+status: Done
 labels: [ait_monitor, aitask_monitormini, sitrep]
-children_to_implement: [t2175_6]
 created_at: 2026-10-31 19:58
-updated_at: 2026-11-04 19:22
+updated_at: 2026-11-05 14:23
+completed_at: 2026-11-05 14:23
 ---
 
 # Sitrep: a per-repo, persisted todo list with pointer-based context

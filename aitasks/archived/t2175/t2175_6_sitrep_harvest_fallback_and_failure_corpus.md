@@ -5,7 +5,7 @@ risk_goal_achievement: medium
 effort: medium
 depends: [t2175_5]
 issue_type: enhancement
-status: Implementing
+status: Done
 labels: [sitrep]
 active_gates: [risk_evaluated]
 active_gates_filtered: []
@@ -16,7 +16,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 2175
 implemented_with: claudecode/opus5_5
 created_at: 2026-11-03 08:25
-updated_at: 2026-11-05 12:55
+updated_at: 2026-11-05 14:23
+completed_at: 2026-11-05 14:23
 ---
 
 # Sitrep harvest fallback: preserve uncertain output and queue agent analysis
@@ -80,3 +81,14 @@ The t2175_2 design reports parsing warnings (for example incomplete banners and 
 > **✅ gate:plan_approved** run=2026-11-05T07:01:27Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-11-05T10:39:19Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-11-05T12:23:03Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:e967a621ef75a398
+
+> **✅ gate:risk_evaluated** run=2026-11-05T12:23:03Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/2175_6/risk_evaluated_2026-11-05T12:23:03Z-risk_evaluated-a1.log`
