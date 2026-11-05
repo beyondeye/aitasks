@@ -80,3 +80,16 @@ Second child of t1663. Design in `aidocs/framework/task_premise_staleness.md`. T
 > | 
 > | Advisory, not an instruction: tree-relative claims above are as of the base
 > | SHA this note records.
+
+> **✉ note:t1663_1** id=2026-11-05T06:23:24Z.7af2aa523517c3b96ef1a7cb from=t1663_1 from_verified=yes at=2026-11-05T06:23:24Z base=63f4478c0c38d097f3b632f7e8a655474dd197df base_branch=main dirty=yes host=omg16
+>
+> | From t1663_1 (the premise engine), landed in 306241f3d. Advisory context for your `premise_baseline:` writer; re-verify it against the tree.
+> | 
+> | The reader that shipped (`aitask_premise_stale.sh` + `lib/task_premise.py::task_fields`) accepts a baseline only as a YAML STRING whose sha half is a full 40- or 64-hex object id, in the form `<sha> @ <YYYY-MM-DD HH:MM>`. Uppercase is accepted and normalized.
+> | 
+> | Everything else reads `SKIP`/`invalid_baseline` and is never handed to git:
+> | - symbolic or abbreviated values (`HEAD`, `HEAD~1`, a branch, a 7-char sha, `<sha>^`);
+> | - a non-string YAML value, such as an unquoted all-digit token that YAML reads as an int;
+> | - a value containing NUL.
+> | 
+> | Implication for the writer: store the output of `git rev-parse --verify <rev>^{commit}`, never the caller's symbol, and keep the ` @ <ts>` suffix, which also keeps the value a YAML string. The `CHECKED:` line is the sha to advance to on FRESH or ASK_STALE; it is `CHECKED:NONE` on SKIPs reached before the revision is pinned.
