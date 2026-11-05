@@ -553,3 +553,74 @@ set -o pipefail; bash tests/run_all_python_tests.sh 2>&1 | tail -3   # read the 
   sites, the async compare-mode variants, `AITASKS_MONITOR_SERVER=0` for
   both-mode tests, and the CLI-override caveat: in server mode the server uses
   each session's `project_config.yaml`, not the app's command-line overrides.
+
+## Final Implementation Notes
+
+- **Actual work done:** as planned, in these files:
+  - `.aitask-scripts/monitor/status_client.py` (new): `MonitorClient`, `ClientMode`, `_Link`, `GATEWAY_NAMES` / `READ_SURFACE_NAMES`, `ConnectionLost` / `RequestFailed` / `ReplayReadOnly`, `pins_to_wire`;
+  - `monitor_core.py`: the additive `TmuxMonitor.seed_pane_cache(panes)` seam, whose docstring records the caller-owned release;
+  - spec: a new "Python client" section in `aidocs/framework/monitor_status_protocol.md`, the reading list, and the codec reference;
+  - three new test files:
+    - `tests/test_monitor_client_surface.py` [inventory_monitor_surface];
+    - `tests/test_monitor_status_client.py` (34 tests);
+    - `tests/test_monitor_status_client_live.py` [live_client_reconnect].
+- **Deviations from plan:**
+  - **`discover_panes` is served from the subscription.** The pre-phase tripwire found that `applink/router.py` calls `getattr(self._monitor, "discover_panes", None)` (the empty-subscribe expansion), which the plan's grep inventory had missed. In subscribed modes it returns the agent-facing panes of the current state. It is in `READ_SURFACE_NAMES`.
+  - **Scanned files.** `monitor/review_loop.py` is pure and never touches the monitor, so the tripwire does not scan it. `applink/server.py` uses `self._monitor` and is scanned instead.
+  - **The live test runs the client in a driver subprocess, not in-process with `patch.dict(os.environ)`.** `agent_launch_utils._TMUX` is a module-level `TmuxClient` that resolves its socket at import. An in-process client would therefore aim its fallback session discovery at whatever tmux server the test process started under, possibly the user's. The driver starts with the scratch environment, and the test only reads its JSON event lines and signals the server, after the `cmdline` ownership check.
+  - **`set_parked_agents` always reaches the local instance**, in every mode, rather than "ignored in server mode". The skip set only affects local captures, and keeping it current makes a fallback's first capture skip parked agents correctly. The server computes its own skip set from pins.
+  - Added `capture(pane_id, lines)` (the wire `capture`) and `shadow_snapshots()`. `RequestFailed` is raised by the async compare-mode variants on an `error` reply.
+- **Issues encountered:**
+  - `TmuxMonitor()` needs a `session` argument, so the tests use `TmuxMonitor(session=…)`.
+  - The full Python suite timed out once at 590 s, at 46%, under machine load (load average about 25). It was re-run with no timeout.
+  - The third full-suite run (after review round 2) failed in two modules, neither caused by this change:
+    - `tests/test_shortcut_scopes.py` hit `ImportError: cannot import name 'join_keys'`. A concurrent session's half-applied `minimonitor_app.py` / `minimonitor_keys.py` edit was caught mid-write; it passes 11/11 on re-run.
+    - `tests/test_minimonitor_bottom_pin_live.py` gave `geometry_deferred … max_scroll_y=0`. It still fails in the shared worktree, but passes 8/8 in a scratch worktree at HEAD with only this task's `monitor_core.py` diff and `status_client.py` applied. So the cause is that session's uncommitted minimonitor changes; nothing here touches minimonitor.
+
+    The two earlier full-suite runs passed.
+- **Key decisions:**
+  - The initial snapshot of a (re)connect is signalled through the mode listener, not the update listener. The reader applies it while the mode is still `CONNECTING`/`FALLBACK`, and the cache is seeded on entering the subscribed mode.
+  - A replay that loses its link keeps its last state and stays `REPLAY`. There is no fallback in replay.
+  - Mutant check (a scratch in-memory runner, not committed): 12 mutants of `status_client.py`, one per guard. All of them are killed by their named test except `mode_switch_no_bump`. That one is equivalent in every reachable order:
+    - a FALLBACK → SERVER switch is always preceded by the reconnect snapshot being applied, which bumps the token in `_on_applied`;
+    - a SERVER → FALLBACK switch cannot straddle a capture, because the server-mode classify path has no `await` before its commit.
+
+    The tripwire was mutant-checked too: removing `discover_panes` and `kill_window` makes it fail and name both.
+- **Review round 1 (user findings, all five confirmed and fixed):**
+  1. **Control-client start cancelled mid-`to_thread(backend.start)`.** The cancelled coroutine never ran its stale-generation `backend.stop`, so the backend stayed live. The client now never cancels a local start. It tracks the starts in `_control_starts` and calls `close_control_client()`, which bumps the generation. `close()` waits up to `control_drain_timeout` (15 s), shielded, for each start to retire its own backend. Tests: `ControlStartTests` (the real `start_control_client` over a blocking `FakeBackend`), covering reconnect during a start and close during a start.
+  2. **Fallback discovery writing the cache after the seed.** In-flight local ops are counted (`_local_op`). Entering a subscribed mode waits for them to drain, then re-checks link ownership and switches and seeds with no `await` in between. Round 2 replaced this round's re-seed backstop with a strict invariant (see below). Tests: `DiscoveryOverlapTests` (real discovery through a paused `_tmux_async` stub): the switch waits, and the backstop re-seed after a drain timeout. `test_capture_straddling_a_mode_switch_commits_nothing` now asserts the switch waits for the blocked capture.
+  3. **A gap right behind the resync reply snapshot.** `_resync` loops while `_resyncing` is set again after its own reply, so every paused state owns a live, bounded request. Test: `ResyncRaceTests` (snapshot gen 5 immediately followed by delta gen 7 leads to a second subscribe).
+  4. **The send was outside the request deadline.** `_Link.request` now runs the write lock, write, `drain()` and reply under one `wait_for`. Tests: `BlockedSendTests`, a blocked `drain` on the ping and on the resync.
+  5. **The handshake socket was invisible to `close()` and leaked on cancellation.** Links are tracked in `_connecting` from open to adoption. `_connect` closes a non-adopted link in a `finally` (cancellation included), synchronously via `close_now()`. `start()` runs its body as an owned `_start_task`, which `close()` cancels and awaits. When that cancellation came from `close()`, `start()` returns True rather than raising into the app. Tests: `HandshakeCleanupTests`, covering close during an unanswered hello and a cancelled start. A recording `_Link` subclass keeps each link referenced, so `StreamWriter.__del__` cannot close the socket on the client's behalf; the first version of the test was masked exactly that way.
+
+  Mutants re-run: 20 total, one per guard, with the five original bugs reintroduced. All are killed except two equivalent ones. `mode_switch_no_bump` is explained above. `close_ignores_connecting` is equivalent because `close()` also cancels `_start_task` and the reconnect task, whose `_connect` `finally` closes the socket, and every connect runs inside one of them.
+- **Review round 2 (user findings, both confirmed and fixed):**
+  1. **The server lost during local teardown left no retry path.** The handshake awaited `close_control_client()` after switching to SERVER and then returned True unconditionally. `_lost`'s `_ensure_reconnect` saw the reconnect task (the current task) still running and started nothing, so the loop exited on that stale success. The switch is now split into a sync `_switch_subscribed` and an async `_retire_local_control`. The attempt returns `self._link is link and self._mode is mode` after the await, and the reconnect loop also keeps going while the mode is still FALLBACK. Test: `TeardownLossTests` (teardown paused on a gate, server dropped, the retry reaches the server again). Each of the two layers alone prevents the bug, so each single-layer mutant survives. The combined mutant (both reverted) fails the test.
+  2. **The drain timeout let SERVER coexist with a suspended local op.** The round-1 re-seed backstop restored the cache only once the whole op ended, so stale metadata was visible in between. It is replaced by a strict invariant: a subscribed mode never coexists with an in-flight local capture.
+     - New local captures are refused while `_switch_pending`: they return a superseded token and the local producer is untouched.
+     - Running ones must drain within `local_drain_timeout`, or the attach is abandoned (`local capture did not drain`). The client stays in FALLBACK and the reconnect loop retries.
+     - `get_session_to_project_mapping_async` is no longer a counted local op, because it never touches the pane cache.
+
+     Tests: `DiscoveryOverlapTests`, where real discovery is paused either before its cache write (list-panes) or after it (the offloaded classification):
+     - cache consistency is asserted *while* the op is suspended;
+     - the drain timeout abandons the attach, then a retry succeeds;
+     - new captures are refused while the switch is pending.
+
+  Mutants: 23 total, all killed except the explained equivalents (`mode_switch_no_bump`, `close_ignores_connecting`) and the two-layer teardown pair above.
+- **Review round 3 (user findings, all three confirmed and fixed):**
+  1. **`_lost` released the cache unconditionally**, including for a reconnect lost while still in FALLBACK (snapshot received, local captures draining). That cache held valid fallback discovery, and bookkeeping never repopulates it. The release now runs only when the mode is SERVER, i.e. when the cache is subscription-owned. Test: `DiscoveryOverlapTests.test_reconnect_lost_during_the_drain_keeps_the_fallback_cache` (real discovery paused in classification; server dropped while `_switch_pending`; the cached pane object survives the loss and the capture's completion).
+  2. **`_record_for` copied the record maps on every lookup.** It now uses a per-generation index (shadows by their own pane id, agent panes winning), invalidated with the snapshot caches. Test: `SubscriptionTests.test_record_lookups_build_one_index_per_generation` (33 lookups, one `records()` copy; a delta re-indexes).
+  3. **The replay test helper turned an explicit `None` local into a `FakeLocal`.** `ClientCase.client` now uses an `...` sentinel for "omitted", and the replay test asserts `c._local is None`.
+
+  Mutants: 25 total. Each round-3 fix is killed by its new test. The survivors are the explained ones: `mode_switch_no_bump`, `close_ignores_connecting`, and the two-layer teardown pair.
+- **Upstream defects identified:** None
+- **Notes for sibling tasks (t2037_3, t2037_4):**
+  - Swap in `MonitorClient(TmuxMonitor(...), kind="monitor"|"minimonitor"|"applink", own_pane=…, session=…, project_root=…)`. Keep building the local `TmuxMonitor` exactly as today, because it is the fallback producer. `start_control_client()` / `close_control_client()` are the client's start and close, so the existing mount and unmount workers drive it.
+  - Wire `AgentMarksMixin._publish_parked_agents` to also call `self._monitor.set_capture_pins(self._capture_pins())` when the monitor has that method. Without it, a minimonitor in server mode never pins its followed parked agent.
+  - The keypress refresh sites should `await self._monitor.request_refresh()`. `capture_all_*` only reads the state.
+  - Switch the `d` / compare-mode call sites to `await cycle_compare_mode_async(...)`. The sync form is a prediction in server mode.
+  - Optional: render on push via `add_update_listener` (the `Applied.changed` ids) and `add_mode_listener`.
+  - Use `AITASKS_MONITOR_SERVER=0` (or `enabled=False`) for the fallback leg of the both-modes tests.
+  - In server mode the server applies each session's `project_config.yaml`, not an app's command-line overrides such as `--interval` or capture lines.
+  - `tests/test_monitor_client_surface.py` fails when an app starts using a monitor attribute the client does not serve. Add it to `MonitorClient` (producer state) or to `GATEWAY_NAMES` (an action or config).
+  - For applink (t2037_4): `discover_panes`, `get_pane`, `capture_all_async` and `get_session_to_project_mapping` are served. `capture_pane`, `capture_pane_content_async` and `capture_cursor_async` stay local gateway calls. `capture()` is the wire alternative.
