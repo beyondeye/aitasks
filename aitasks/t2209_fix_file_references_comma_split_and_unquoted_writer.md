@@ -3,13 +3,14 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [task-workflow, verification]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1538
 followup_kind: upstream_defect
 created_at: 2026-11-05 08:21
-updated_at: 2026-11-05 08:21
+updated_at: 2026-11-05 08:33
 ---
 
 ## Origin
