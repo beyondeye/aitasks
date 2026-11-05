@@ -255,7 +255,7 @@ in the last mode, `H` opens the help at 40 and ~24 columns and closes with Esc/H
 
 ### Code-health risk: medium
 - `_refresh_short_mode` is load-bearing and its no-oscillation argument changes: if `get_content_height` turned out to depend on the `.short` max-height or on scrollbar state, the class could feed its own input · severity: medium (residual — the predicate change is red-proven on real code by inline pre-phase red_proof_t1574_floor; no-feedback covered in-plan by the desired-rows-identical-with-short-on/off test + the existing convergence test) · → mitigation: inline pre-phase red_proof_t1574_floor
-- `userconfig_persist` is read-modify-write with no lock; two minimonitors toggling at once, or a toggle racing the shortcut editor's save, can drop the other writer's change (pre-existing pattern shared with `shortcut_persist`, now reachable from one more key) · severity: low · → mitigation: userconfig_write_lock
+- `userconfig_persist` is read-modify-write with no lock; two minimonitors toggling at once, or a toggle racing the shortcut editor's save, can drop the other writer's change (pre-existing pattern shared with `shortcut_persist`, now reachable from one more key) · severity: low · → mitigation: t2213
 - The band becomes table-rendered and lines 1–2 change; nine test files read the band text and the (15,30) ≤ 29 budget is tight (layout A measures 28) · severity: low · → mitigation: TBD (in-plan: measured, existing tests rerun)
 
 ### Goal-achievement risk: low
@@ -265,7 +265,7 @@ in the last mode, `H` opens the help at 40 and ~24 columns and closes with Esc/H
 
 ### Planned mitigations
 - timing: pre-phase | name: red_proof_t1574_floor | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: short-mode predicate change / t1574 floor proof | desc: write the narrow-width floor test first and confirm it fails on the unmodified predicate
-- timing: after | name: userconfig_write_lock | type: bug | priority: low | effort: medium | inline_risk: medium | added_complexity: medium | addresses: unlocked read-modify-write in userconfig_persist | desc: serialize userconfig_persist load+dump with a file lock so concurrent writers (minimonitor toggles, shortcut editor saves) cannot drop each other's changes
+- timing: after | name: userconfig_write_lock | type: bug | priority: low | effort: medium | inline_risk: medium | added_complexity: medium | addresses: unlocked read-modify-write in userconfig_persist | desc: serialize userconfig_persist load+dump with a file lock so concurrent writers (minimonitor toggles, shortcut editor saves) cannot drop each other's changes | created: t2213
 
 ## Final Implementation Notes
 
