@@ -216,3 +216,91 @@ the standard workflow.
 - The task's stated cause (argv) differs from the measured one (inherited export).
   The fix targets the measured mechanism, and the test reproduces the reported
   failure set exactly, so the defect as observed is covered · severity: low · → mitigation: none
+
+## Implementation progress
+
+- [x] A1/A2 `_label_reads_as_string` + `sanitize_label` rejection (`lib/task_utils.sh`).
+- [x] A3 interactive create: normalization factored into `_set_selected_labels`
+  (`aitask_create.sh`) — a named seam so the test's pre-fix control can override
+  it with a plain join instead of embedding the whole legacy picker. "Add new
+  label" empty-result warnings in create and update; interactive update warns on
+  `AIT_LABELS_DROPPED`.
+- [x] A4 docs (`task-management.md`); `check_links.py --build` → SWEEP: PASSED.
+- [x] B5 `_artifact_gitbranch_list_tip` (file-buffered listing); B6 `local +x lines`;
+  B7 `local +x src_list dst_list missing`.
+- [x] C8 `tests/test_label_yaml_words.sh` — 34/34. C9 lib test — 50/50. C10
+  gitbranch §18 hostile env + new §18b — 298/298 plain and with `env out=x`
+  (was 290/294 under `out=x` before the fix).
+
+### Mutation controls (isolated scratch copies of `.aitask-scripts/` + `tests/`)
+- m1 old buffered `out` in `artifact_gitbranch_list` → 292/298 (§18 ×4, §18b ×2).
+- m2 `local src_list dst_list missing` (no `+x`) → 292/298 (§18 ×4, §18b ×2).
+- m3 `local lines` (no `+x`) → 295/298 — **§18b only**, so 18b is the guard-specific signal.
+- m4 bool-word `case` removed → label test red in A, B, C (`[True, 'ui', None]`), D.
+- `missing` (`local +x`) has no separate control: it is empty except on a failed copy (residual, as planned).
+
+### Deviations
+- None from the approved scope. Shellcheck: per-file findings identical to HEAD for
+  all five touched scripts; the new test carries only the SC1091 infos its
+  siblings also carry.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-05 23:59)
+- **Requested by user:** `tests/test_label_yaml_words.sh` handed section C/D counters
+  back through `counts_c`/`counts_d` files written only at each subshell's tail, so an
+  early subshell exit lost its failures and the file could exit 0 ("28 passed, 0
+  failed" with an injected failure). CLAUDE.md (t1207) requires the shared
+  file-backed counters for subshell test bodies.
+- **Changes made:** switched to `assert_counters_init` (after sourcing asserts) +
+  `assert_counters_load` (footer); EXIT trap also removes the counter file; removed the
+  manual `counts_*` handoff; added `section_exit <name> <rc>` after each section
+  subshell, recording a pass on rc 0 and printing `FAIL: section <X> body exited early`
+  + `assert_record_fail` otherwise. Now 36/36.
+- **Negative control:** scratch copy with an injected failing assert + `exit 1` before
+  section C's end → `FAIL: INJECTED failure`, `FAIL: section C body exited early (rc=1)`,
+  "35 passed, 2 failed", exit 1.
+- **Files affected:** tests/test_label_yaml_words.sh
+
+### Change Request 2 (2026-11-06 00:06)
+- **Requested by user:** (1) `assert_counters_init` ran before the PyYAML skip probe,
+  but the cleanup trap was armed after it, so the SKIP exit leaked an
+  `ait_assert_counters_*` file. (2) `section_exit` duplicated
+  `assert_exit_zero_rc` from `tests/lib/asserts.sh`.
+- **Changes made:** moved `assert_counters_init` below the skip probe, immediately
+  followed by the TMP allocation and the EXIT trap that removes both. Replaced
+  `section_exit` with `assert_exit_zero_rc "section C (batch create / update) body ran
+  to completion" $?`, and the same for section D.
+- **Verification:** 36/36. `TMPDIR=<empty scratch> AIT_PYTHON=/bin/false` → SKIP, exit 0,
+  0 files left. The injected early-exit control still fails (35 passed, 2 failed, exit 1).
+- **Files affected:** tests/test_label_yaml_words.sh
+
+## Final Implementation Notes
+- **Actual work done:** Labels: `_label_reads_as_string` + rejection in `sanitize_label`
+  (`lib/task_utils.sh`). The interactive create picker normalizes its whole selection
+  through `_set_selected_labels` (`aitask_create.sh`), covering the previous-labels and
+  vocabulary routes that replay stored values. Interactive update warns on
+  `AIT_LABELS_DROPPED`. Both "Add new label" prompts warn on an empty sanitize result.
+  One docs clause in `task-management.md`. gitbranch: the listing goes through a file
+  (`_artifact_gitbranch_list_tip`), and `local +x` is used for `lines` (CAS) and for
+  `src_list dst_list missing` (`aitask_artifact.sh`). Tests: new
+  `tests/test_label_yaml_words.sh` (PyYAML differential, pinned cases, batch round
+  trip, interactive picker routes with a pre-fix control; file-backed counters);
+  additions to `tests/test_label_vocabulary_lib.sh`; gitbranch §18 under a hostile
+  exported env, plus a new §18b (partial destination → big `lines`).
+- **Deviations from plan:** The picker normalization is a named helper
+  (`_set_selected_labels`) instead of inline code. The test's pre-fix control
+  overrides it with a plain join, so the control never expires. Two post-review rounds
+  hardened the new test's counters (see Post-Review Changes).
+- **Issues encountered:** The task's diagnosis (argv) was wrong. The measured cause is
+  that a bash `local` inherits the export flag of a caller-exported name, so a
+  store-sized value reaches every child's environment (> 128 KiB per string). It was
+  reproduced exactly with `env out=x` (290/294, the same four asserts and line-524
+  message t2209 reported).
+- **Key decisions:** Reject rather than quote (labels are a controlled vocabulary,
+  `format_yaml_list` stays unquoted for id/gate lists, and every caller already treats
+  an empty sanitize result as dropped). The rule is measured against both PyYAML
+  loaders. Over-rejections (25, e.g. `y`, `n`, `08`) are deliberate and pinned
+  exactly. Pre-existing on-disk labels are not rewritten (existing data; this change
+  adds no new route to it).
+- **Upstream defects identified:** None
