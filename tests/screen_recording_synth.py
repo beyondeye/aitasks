@@ -286,3 +286,83 @@ def mux_tone(video, out, *, duration, silent=None, shortest=True):
     cmd += [str(out)]
     subprocess.run(cmd, check=True)
     return out
+
+
+# --------------------------------------------------------------------------- #
+# frames-mode scenes. Each frame draws its own code as 8 horizontal bands (bit b
+# set -> band b dark), so a test can tell from an extracted image exactly which
+# source frame it is, independently of its file name.
+
+CODE_BITS, CODE_ON, CODE_OFF = 8, 40, 220
+
+
+def code_frame(code, *, w=W, h=H):
+    c = Canvas(w, h, bg=CODE_OFF)
+    bh = h // 10
+    for b in range(CODE_BITS):
+        if code >> b & 1:
+            c.rect(0, b * bh, w, (b + 1) * bh, CODE_ON)
+    return c.bytes()
+
+
+def numbered_frames(n, *, w=W, h=H):
+    """n frames at FPS, frame i showing code i (i < 256): frame i is presented at
+    i / FPS in a constant-frame-rate encode."""
+    return [code_frame(i, w=w, h=h) for i in range(n)]
+
+
+def decode_code(gray, w, h):
+    """The code drawn by code_frame, read from the band centres of a w x h image."""
+    bh = h // 10
+    code = 0
+    for b in range(CODE_BITS):
+        row = gray[(b * bh + bh // 2) * w:(b * bh + bh // 2 + 1) * w]
+        if sum(row[w // 4:3 * w // 4]) / (w // 2 or 1) < (CODE_ON + CODE_OFF) / 2:
+            code |= 1 << b
+    return code
+
+
+# code k is held for NUMBERED_HOLDS[k] frames at FPS; a vfr encode drops the
+# repeats, so the frame showing code k is presented at NUMBERED_STARTS[k] / FPS,
+# which is not k times any constant interval
+NUMBERED_HOLDS = [1, 1, 5, 2, 9, 1, 3, 1, 1, 7, 2, 4]
+NUMBERED_STARTS = [sum(NUMBERED_HOLDS[:k]) for k in range(len(NUMBERED_HOLDS))]
+
+
+def held_numbered_frames():
+    return [code_frame(k) for k, n in enumerate(NUMBERED_HOLDS) for _ in range(n)]
+
+
+# 6 x 6 dark squares at odd positions: a one-pixel shift of a crop moves each
+# square's centroid by one pixel in that axis
+MARKERS = [(101, 203), (157, 331), (229, 189), (63, 517), (285, 655)]
+MARKER = 6
+
+
+def marker_frames(n=6, *, slide=False, fps=FPS):
+    """n frames of the markers on BG. slide=True adds a 40 x 50 card moving right
+    across y 250-300 from 0.25 s for 0.3 s (inside a ROI that holds the first three
+    markers, clear of them), so anim has a motion to analyse."""
+    frames = []
+    move = tween(LINEAR, 0.25, 0.3)
+    for i in range(n):
+        c = Canvas()
+        for x, y in MARKERS:
+            c.rect(x, y, x + MARKER, y + MARKER, 20)
+        if slide:
+            p = min(1.0, max(0.0, move(i / fps))) if i / fps >= 0.25 else 0.0
+            x = 60 + 120 * p
+            c.rect(x, 250, x + 40, 300, FG)
+        frames.append(c.bytes())
+    return frames
+
+
+def dark_centroid(gray, w, h, cx, cy, radius=10):
+    """Centroid (x, y) of the dark pixels within radius of (cx, cy), weighted by
+    darkness against BG; None when nothing dark is there."""
+    sx = sy = sw = 0.0
+    for y in range(max(0, int(cy) - radius), min(h, int(cy) + radius + 1)):
+        for x in range(max(0, int(cx) - radius), min(w, int(cx) + radius + 1)):
+            wgt = max(0, BG - 30 - gray[y * w + x])
+            sx, sy, sw = sx + wgt * x, sy + wgt * y, sw + wgt
+    return None if not sw else (sx / sw, sy / sw)

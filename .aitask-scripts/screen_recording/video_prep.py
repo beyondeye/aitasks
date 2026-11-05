@@ -5,30 +5,35 @@ coding agent can read (Claude Code cannot open video files).
   aitask_screen_recording.sh info VIDEO
   aitask_screen_recording.sh bug  VIDEO [--out DIR] [--crop-top PX] [--min-dwell S] ...
   aitask_screen_recording.sh anim VIDEO [--out DIR] [--roi X,Y,W,H] [--window A-B] ...
+  aitask_screen_recording.sh frames VIDEO (--range A-B | --at T[,T...]) [--roi X,Y,W,H] ...
 
 Entry point of the aitask-screen-recording skill; the measurement model is
 documented in .claude/skills/aitask-screen-recording/references/animation.md.
 
-Every run writes <out>/summary.md (read it first) and <out>/run.json, then prints
-"SUMMARY: <path>". Needs ffmpeg/ffprobe >= 5.1. ImageMagick 7 (`magick`) is
-optional: without it there are no contact sheets or plots, only frames and data.
+Every bug/anim/frames run writes <out>/summary.md (read it first) and
+<out>/run.json, then prints "SUMMARY: <path>" as its last stdout line. Every
+frames/ directory carries a frames.tsv manifest (time, pts, geometry, SHA-256 of
+each image). Needs ffmpeg/ffprobe >= 5.1. ImageMagick 7 (`magick`) is optional:
+without it there are no contact sheets or plots, only frames and data.
 """
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import os
 import shutil
 import subprocess
 import sys
+from fractions import Fraction
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import vp_core as core  # noqa: E402
 
 SHEET_MAX_EDGE = 1600      # keeps a sheet under Claude's per-image downscale limit
-TOKEN_TILE = 28            # image tokens ~= ceil(w/28) * ceil(h/28)
+# image token cost and reader limits: core.TOKEN_TILE / core.image_budget
 
 # bug-mode triage detectors (ffmpeg defaults except blackdetect's d, which we
 # apply ourselves through --black-min: its metadata marks every run regardless)
@@ -105,8 +110,9 @@ def probe(video: str) -> dict:
     }
 
 
-def crop_filter(args, info) -> tuple[str | None, int, int, str]:
-    """ffmpeg crop for the analysed region, its size, and a human description."""
+def region_box(args, info) -> tuple[int, int, int, int]:
+    """(x, y, w, h) of the region --roi / --crop-top / --crop-bottom select, in
+    display pixels (after rotation); the whole frame when none is given."""
     W, H = info["width"], info["height"]
     if getattr(args, "roi", None):
         try:
@@ -115,14 +121,27 @@ def crop_filter(args, info) -> tuple[str | None, int, int, str]:
             raise PrepError("--roi takes X,Y,W,H in display pixels") from exc
         if w <= 0 or h <= 0 or x < 0 or y < 0 or x + w > W or y + h > H:
             raise PrepError(f"--roi {args.roi} is outside the {W}x{H} frame")
-        return f"crop={w}:{h}:{x}:{y}", w, h, f"roi {w}x{h} at ({x},{y})"
+        return x, y, w, h
     top, bottom = args.crop_top or 0, args.crop_bottom or 0
     if top < 0 or bottom < 0 or top + bottom >= H:
         raise PrepError("--crop-top/--crop-bottom leave nothing of the frame")
-    if top or bottom:
-        return (f"crop=iw:ih-{top + bottom}:0:{top}", W, H - top - bottom,
-                f"full width, minus {top} px top / {bottom} px bottom")
-    return None, W, H, "full frame"
+    return 0, top, W, H - top - bottom
+
+
+def crop_filter(args, info) -> tuple[str | None, int, int, str]:
+    """ffmpeg crop for the analysed region, its size, and a human description.
+
+    exact=1: without it ffmpeg rounds an odd offset down to the chroma grid of
+    subsampled formats (yuv420p crop=5:5:1:1 comes out 4x4 from (0,0)), so the
+    region analysed and written would not be the one requested and recorded."""
+    x, y, w, h = region_box(args, info)
+    if (x, y, w, h) == (0, 0, info["width"], info["height"]):
+        return None, w, h, "full frame"
+    filt = f"crop={w}:{h}:{x}:{y}:exact=1"
+    if getattr(args, "roi", None):
+        return filt, w, h, f"roi {w}x{h} at ({x},{y})"
+    bottom = info["height"] - y - h
+    return filt, w, h, f"full width, minus {y} px top / {bottom} px bottom"
 
 
 def parse_span(text: str, flag: str) -> tuple[float, float]:
@@ -189,28 +208,147 @@ def decode_gray(video, head: str, crop: str | None, aw: int, ah: int, *,
     return [(pts, t, out[i * size:(i + 1) * size]) for i, (_, pts, t) in enumerate(info)]
 
 
-def extract_views(video, wanted: dict[int, Path], crop: str | None, vw: int, vh: int, *,
-                  stream: int | None = None):
-    """Write the frames whose pts are keys of `wanted` to the mapped PNG paths."""
+def extract_views(video, wanted: dict[int, Path], crop: str | None, vw: int | None,
+                  vh: int | None, *, stream: int | None = None, head: str | None = None):
+    """Write the frames whose pts are keys of `wanted` to the mapped PNG paths.
+
+    vw/vh None keeps the native size. `head` (a trim) only bounds the decode.
+    A crop runs on RGB, so an odd box is whole-pixel exact in every channel
+    (subsampled chroma cannot start on an odd pixel).
+
+    Returns {pts: (native size, size leaving the filter chain)}, read from a
+    showinfo before and after the crop/scale: a stream that changes size mid-way
+    is rescaled by ffmpeg *after* the chain, so callers compare both with what
+    they expect before recording any geometry."""
     if not wanted:
-        return
+        return {}
     tmp = next(iter(wanted.values())).parent / ".extract_tmp"
     tmp.mkdir(parents=True, exist_ok=True)
     try:
         expr = "+".join(f"eq(pts,{p})" for p in sorted(wanted))
-        vf = ",".join(x for x in [f"select='{expr}'", crop, f"scale={vw}:{vh}:flags=area",
-                                  "showinfo"] if x)
+        vf = ",".join(x for x in [
+            head, f"select='{expr}'", "showinfo", "format=rgb24" if crop else None, crop,
+            f"scale={vw}:{vh}:flags=area" if vw else None, "showinfo"] if x)
         _, err = ffmpeg(["-i", video, *_vmap(stream), "-an", "-vf", vf, "-fps_mode", "passthrough",
                          str(tmp / "%05d.png")])
-        got = core.parse_showinfo(err)
-        for k, (_, pts, _) in enumerate(got, start=1):
-            if pts in wanted:
-                (tmp / f"{k:05d}.png").replace(wanted[pts])
+        shown = core.parse_showinfo_frames(err)
+        instances = sorted({s.instance for s in shown if s.instance is not None})
+        if len(instances) != 2:
+            raise PrepError("could not tell ffmpeg's two showinfo reports apart")
+        native = {s.pts: s.size for s in shown if s.instance == instances[0]}
+        sizes = {}
+        got = [s for s in shown if s.instance == instances[1]]
+        for k, s in enumerate(got, start=1):
+            if s.pts in wanted:
+                (tmp / f"{k:05d}.png").replace(wanted[s.pts])
+                sizes[s.pts] = (native.get(s.pts), s.size)
         missing = [p for p, path in wanted.items() if not path.exists()]
         if missing:
             raise PrepError(f"could not extract frames with pts {missing[:5]}")
+        return sizes
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
+
+
+def geometry_problem(sizes: dict, src: tuple[int, int], out: tuple[int, int]) -> str | None:
+    """Why the extracted frames' geometry cannot be recorded, or None: every frame
+    must have the probed native size and leave the chain at the expected size."""
+    for pts, (native, outsz) in sorted(sizes.items()):
+        if native != src:
+            got = f"{native[0]}x{native[1]}" if native else "of unreported size"
+            return (f"a frame (pts {pts}) is {got}, but the video was probed as "
+                    f"{src[0]}x{src[1]}: the frame size changes mid-stream")
+        if outsz != out:
+            return (f"a frame (pts {pts}) left the filter chain at {outsz}, not the "
+                    f"expected {out[0]}x{out[1]}")
+    return None
+
+
+class Frame:
+    """One decoded frame: exact time t (pts x time_base, a Fraction), its name ms
+    (rounded), where the time came from, its native size, and its exact end
+    (t + its own duration) when the stream reports a duration."""
+    __slots__ = ("pts", "t", "ms", "time_source", "size", "end")
+
+    def __init__(self, pts: int, t: Fraction, ms: int, time_source: str,
+                 size: tuple[int, int] | None, end: Fraction | None):
+        self.pts, self.t, self.ms, self.time_source = pts, t, ms, time_source
+        self.size, self.end = size, end
+
+
+def enumerate_frames(video, head: str | None, *, stream: int | None = None) -> list[Frame]:
+    """Every frame the decoder emits after `head` (a trim), sorted by presentation
+    time, with exact times and native sizes. Without showinfo's time base line the
+    printed pts_time is used instead and labelled as such (older ffmpeg prints it
+    with 6 significant digits, so ms are exact only below 1000 s)."""
+    vf = ",".join(x for x in [head, "showinfo"] if x)
+    _, err = ffmpeg(["-i", video, *_vmap(stream), "-an", "-vf", vf, "-fps_mode", "passthrough",
+                     "-f", "null", "-"])
+    tb = core.parse_showinfo_timebase(err)
+    frames = []
+    for si in core.parse_showinfo_frames(err):
+        if tb is not None:
+            t, src = si.pts * tb, "pts*time_base"
+            end = t + si.duration * tb if si.duration else None
+        else:
+            t, src, end = Fraction(si.pts_time), "pts_time", None
+        if t < 0:
+            raise PrepError(f"a frame has a negative time ({float(t):.6f} s); its name "
+                            "cannot carry it")
+        frames.append(Frame(si.pts, t, core.ms_round(t), src, si.size, end))
+    return sorted(frames, key=lambda f: f.t)
+
+
+def size_change(frames, expected: tuple[int, int]) -> str | None:
+    """Why these frames cannot be written at the probed size, or None. ffmpeg
+    rescales every later frame to the first one's size when the stream changes
+    size mid-way, so their pixels and any recorded geometry would be wrong."""
+    for f in frames:
+        if f.size != expected:
+            got = f"{f.size[0]}x{f.size[1]}" if f.size else "of unreported size"
+            return (f"the frame at {float(f.t):.6f} s is {got}, but the video was probed as "
+                    f"{expected[0]}x{expected[1]}: the frame size changes mid-stream")
+    return None
+
+
+MANIFEST_COLUMNS = ["file", "t_ms", "pts", "time_source", "src_w", "src_h", "crop_x", "crop_y",
+                    "crop_w", "crop_h", "out_w", "out_h", "scale_x", "scale_y", "sha256"]
+
+
+def sha256_file(path: Path) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for block in iter(lambda: fh.read(1 << 20), b""):
+            h.update(block)
+    return h.hexdigest()
+
+
+def write_frame_manifest(frames_dir: Path, rows: list[tuple[Path, int, int, str]], info: dict,
+                         box: tuple[int, int, int, int]) -> list[dict]:
+    """frames.tsv beside the images: per file its time, pts and the geometry that
+    maps image pixels to source pixels (src = crop offset + px * crop / out),
+    bound to the SHA-256 of the image as written. rows: (path, t_ms, pts,
+    time_source). The output size is read from each file, never assumed."""
+    x, y, w, h = box
+    records = []
+    for path, t_ms, pts, src in rows:
+        with open(path, "rb") as fh:
+            size = core.png_size(fh.read(24))
+        if size is None:
+            raise PrepError(f"{path.name}: not a PNG; cannot record its geometry")
+        ow, oh = size
+        records.append({
+            "file": path.name, "t_ms": t_ms, "pts": pts, "time_source": src,
+            "src_w": info["width"], "src_h": info["height"],
+            "crop_x": x, "crop_y": y, "crop_w": w, "crop_h": h, "out_w": ow, "out_h": oh,
+            "scale_x": f"{ow / w:.6f}", "scale_y": f"{oh / h:.6f}",
+            "sha256": sha256_file(path),
+        })
+    with open(frames_dir / "frames.tsv", "w") as fh:
+        fh.write("\t".join(MANIFEST_COLUMNS) + "\n")
+        for r in records:
+            fh.write("\t".join(str(r[c]) for c in MANIFEST_COLUMNS) + "\n")
+    return records
 
 
 def view_size(cw: int, ch: int, long_edge: int) -> tuple[int, int]:
@@ -274,8 +412,7 @@ def token_estimate(paths: list[Path]) -> int | None:
         size = image_size(p)
         if size is None:
             return None
-        w, h = size
-        total += math.ceil(w / TOKEN_TILE) * math.ceil(h / TOKEN_TILE)
+        total += core.image_tokens(*size)
     return total
 
 
@@ -324,6 +461,254 @@ def cmd_info(args) -> int:
     info = probe(args.video)
     print(json.dumps(info, indent=2))
     print(video_line(info), file=sys.stderr)
+    return 0
+
+
+# --------------------------------------------------------------------------- #
+# frames mode: exact native frames at full resolution
+
+def _parse_at(text: str) -> list[tuple[str, Fraction]]:
+    try:
+        return [(v.strip(), core.seconds_exact(v)) for v in text.split(",")]
+    except ValueError as exc:
+        raise PrepError("--at takes T[,T...] in seconds, e.g. 7.04,9.5") from exc
+
+
+def _parse_exact_span(text: str) -> tuple[str, str, Fraction, Fraction]:
+    try:
+        a_txt, b_txt = (v.strip() for v in text.split("-", 1))
+        a, b = core.seconds_exact(a_txt), core.seconds_exact(b_txt)
+    except ValueError as exc:
+        raise PrepError("--range takes START-END in seconds, e.g. 1.5-3.2") from exc
+    if b <= a:
+        raise PrepError("--range: END must be after START")
+    return a_txt, b_txt, a, b
+
+
+def _secs(t: Fraction | float) -> str:
+    return f"{float(t):.6f}"
+
+
+BUDGET_WARNINGS = {
+    "standard": "each frame is over the standard tier's limit (long edge {px} px, {tok} "
+                "visual tokens): models before Claude 4.7 see it downscaled. Crop to the "
+                "detail with --roi to keep it sharp",
+    "high-resolution (Claude 4.7+)": "each frame is over the high-resolution tier's limit too "
+                                     "(long edge {px} px, {tok} visual tokens): every model sees "
+                                     "it downscaled. Crop with --roi",
+    "many-image": "frames are over {px} px on a side: a request that carries more than 20 "
+                  "images (earlier images in the conversation count) rejects them under the "
+                  "many-image limit. Crop with --roi, or read only a few",
+}
+
+
+def _budget_warnings(budget: dict) -> list[str]:
+    limits = {name: (px, tok) for name, px, tok in core.READER_TIERS}
+    limits["many-image"] = (core.MANY_IMAGE_SAFE_PX, None)
+    return [BUDGET_WARNINGS[k].format(px=limits[k][0], tok=limits[k][1])
+            for k in budget["exceeds"]]
+
+
+def cmd_frames(args) -> int:
+    if args.max_frames < 1:
+        raise PrepError("--max-frames must be at least 1")
+    at = _parse_at(args.at) if args.at is not None else None
+    span = _parse_exact_span(args.range) if args.range is not None else None
+    info = probe(args.video)
+    crop, _, _, region = crop_filter(args, info)
+    box = region_box(args, info)
+    stream = info["vindex"]
+
+    requested: list[dict] = []
+    vspan = None
+    if span is not None:
+        a_txt, b_txt, a, b = span
+        # the trim only bounds the decode; the exact comparison below selects
+        head = f"trim=start={max(0.0, float(a) - 1e-3):.6f}:end={float(b) + 1e-3:.6f}"
+        listed = [f for f in enumerate_frames(args.video, head, stream=stream) if a <= f.t < b]
+        if not listed:
+            raise PrepError(f"no frame is presented in {args.range} s (a variable-frame-rate "
+                            "recording writes none while the screen is still); --at "
+                            f"{a_txt} gives the picture on screen at {a_txt} s")
+        chosen = listed[:args.max_frames]
+    else:
+        # decoding to 1 ms past the latest T lists every frame presented up to it
+        head = f"trim=end={float(max(t for _, t in at)) + 1e-3:.6f}"
+        listed = enumerate_frames(args.video, head, stream=stream)
+        if not listed:
+            raise PrepError("no frames decoded")
+        packets = video_packets(args.video, stream)
+        vspan = core.video_span(packets, info["start_time"], range_end=None, ranged=False,
+                                first_kept_t=float(listed[0].t),
+                                last_kept_t=float(listed[-1].t),
+                                container_end=info["duration"])
+        # a later frame is known to exist past t when a packet presents after it (packet
+        # times are printed to 6 decimals, hence the margin); that packets show *no*
+        # later frame is known only when every packet has a time on a confirmed origin
+        margin = Fraction(2, 10**6)
+        packets_complete = vspan.max_pts is not None and all(p is not None for p, _ in packets)
+        picked: dict[int, Frame] = {}
+        for text, t in at:
+            on = [f for f in listed if f.t <= t]      # exact: the frame on screen at t
+            if not on:
+                raise PrepError(f"--at {text}: no frame is on screen yet (the first frame is "
+                                f"presented at {_secs(listed[0].t)} s)")
+            f = on[-1]
+            later = f is not listed[-1] or (vspan.max_pts is not None
+                                             and Fraction(vspan.max_pts) > t + margin)
+            proven, why = True, None
+            if later:
+                pass                           # the next frame replaces it after t
+            elif f.end is not None:
+                # its own exact end, from showinfo's duration field (ffmpeg 9 prints it,
+                # 5.1 does not)
+                if t >= f.end:
+                    if not packets_complete:
+                        proven = False
+                        why = ("it may be past the video end: whether a later frame exists "
+                               "is not known (packet timestamps are missing or on an "
+                               "unconfirmed origin)")
+                    else:
+                        raise PrepError(f"--at {text} is past the video end: the last frame "
+                                        f"is presented at {_secs(f.t)} s until {_secs(f.end)} s")
+            elif vspan.proven:
+                # no frame duration from showinfo (ffmpeg 5.1 prints none): the video's
+                # end from its packets, proven but known only to 6 decimals
+                end = Fraction(vspan.end_t)
+                if t >= end + margin:
+                    raise PrepError(f"--at {text} is past the video end: the last frame is "
+                                    f"presented at {_secs(f.t)} s until "
+                                    f"{vspan.end_t:.6f} s (from the video's packets)")
+                if t + margin >= end:
+                    proven = False
+                    why = ("it is within 2 µs of the video end, which the packets give only "
+                           f"to 6 decimals ({vspan.end_t:.6f} s)")
+            else:
+                proven = False
+                why = ("the video end is not proven: the last frame's duration is unknown"
+                       if packets_complete else
+                       "it may be past the video end: whether a later frame exists is not "
+                       "known (packet timestamps are missing or on an unconfirmed origin)")
+            picked[f.pts] = f
+            requested.append({"at": text, "frame_pts": f.pts, "frame_t_s": _secs(f.t),
+                              "on_screen_proven": proven, "unproven_because": why})
+        listed = sorted(picked.values(), key=lambda f: f.t)
+        chosen = listed[:args.max_frames]
+    omitted = listed[len(chosen):]
+    # ffmpeg would rescale frames of another size to the first one's: refuse rather
+    # than write them at the wrong size with a geometry that does not describe them
+    problem = size_change(chosen, (info["width"], info["height"]))
+    if problem:
+        raise PrepError(f"{problem}. frames writes full-resolution frames with a recorded "
+                        "geometry, which this recording cannot have; it is not supported")
+    ms_seen: dict[int, Frame] = {}
+    for f in chosen:
+        if f.ms in ms_seen:
+            raise PrepError(f"frames at {_secs(ms_seen[f.ms].t)} s and {_secs(f.t)} s round to "
+                            "the same millisecond, so their names would collide (a recording "
+                            "above ~1000 fps); request fewer frames with --at")
+        ms_seen[f.ms] = f
+
+    out = make_out_dir(args.out, args.video, "frames")
+    fdir = out / "frames"
+    fdir.mkdir()
+    wanted = {f.pts: fdir / core.frames_name(f.ms) for f in chosen}
+    sizes = extract_views(args.video, wanted, crop, None, None, stream=stream, head=head)
+    problem = geometry_problem(sizes, (info["width"], info["height"]), (box[2], box[3]))
+    if problem:
+        raise PrepError(f"{problem}; the frames in {fdir} have no manifest and may be rescaled")
+    records = write_frame_manifest(
+        fdir, [(wanted[f.pts], f.ms, f.pts, f.time_source) for f in chosen], info, box)
+    for r in requested:
+        path = wanted.get(r["frame_pts"])
+        r["file"] = f"frames/{path.name}" if path else None
+    sources = sorted({f.time_source for f in chosen})
+    ow = max(r["out_w"] for r in records)
+    oh = max(r["out_h"] for r in records)
+    budget = core.image_budget(ow, oh)
+    budget["total_tokens"] = sum(core.image_tokens(r["out_w"], r["out_h"]) for r in records)
+    warnings = _budget_warnings(budget)
+
+    lines = [f"# Exact frames: {Path(args.video).name}", "",
+             f"- video: {video_line(info)}"]
+    if span is not None:
+        lines.append(f"- request: --range {args.range}: every native frame presented from "
+                     f"{span[0]} s up to (not including) {span[1]} s, decoded with -fps_mode "
+                     "passthrough (no frame dropped or repeated)")
+    else:
+        lines.append(f"- request: --at {args.at}: the frame on screen at each time (the "
+                     "latest frame presented at or before it)")
+    lines += [
+        f"- region: {region}; written at full resolution (scale 1)",
+        f"- wrote {len(chosen)} frames to frames/ as t<ms>.png, ms = the frame's presentation "
+        "time rounded to the nearest millisecond (a label: times are compared exactly, so a "
+        "rounded time passed back as --at can select a neighbouring frame)",
+    ]
+    if sources == ["pts*time_base"]:
+        lines.append("- times: each frame's pts x the stream time base (exact)")
+    else:
+        lines.append("- times: from showinfo's printed pts_time (no time base line in the ffmpeg "
+                     "log): ms are exact only while ffmpeg prints enough digits, which older "
+                     "versions do not past 1000 s")
+    if omitted:
+        if span is not None:
+            # restart strictly after the last written frame, no later than the first omitted
+            start = core.decimal_between(chosen[-1].t, omitted[0].t)
+            cont = (f"Continue with --range {start}-{span[1]}, or narrow the range; raise "
+                    "--max-frames only if you need them all at once." if start else
+                    "No decimal start with up to 9 places separates the last written frame "
+                    "from the first omitted one, so no --range continues exactly; raise "
+                    "--max-frames instead.")
+            lines += ["", f"Warning: --max-frames {args.max_frames} reached: {len(omitted)} more "
+                      f"frames presented from {_secs(omitted[0].t)} s to {_secs(omitted[-1].t)} s "
+                      f"were not written. {cont}"]
+        else:
+            lines += ["", f"Warning: --max-frames {args.max_frames} reached: {len(omitted)} "
+                      "requested frames (the latest ones) were not written; request them in "
+                      "a second run."]
+    lines += ["", "## Image budget", "",
+              f"- each frame is {ow}x{oh}, about {budget['tokens']} image tokens "
+              f"(ceil(w/{core.TOKEN_TILE}) x ceil(h/{core.TOKEN_TILE})); all {len(chosen)} "
+              f"together about {budget['total_tokens']}"]
+    lines += [f"- Warning: {w}" for w in warnings]
+    lines += ["", "## Frames", ""]
+    if span is not None:
+        lines += ["| file | time (s, rounded) |", "|------|-------------------|"]
+        lines += [f"| frames/{core.frames_name(f.ms)} | {_secs(f.t)} |" for f in chosen]
+    else:
+        lines += ["| requested | file | frame time (s, rounded) | note |",
+                  "|-----------|------|-------------------------|------|"]
+        for r in requested:
+            note = ("" if r["on_screen_proven"] else
+                    f"on screen at {r['at']} s not proven: {r['unproven_because']}")
+            if r["file"] is None:
+                note = f"not written: --max-frames {args.max_frames} reached"
+            lines.append(f"| {r['at']} s | {r['file'] or '—'} | {r['frame_t_s']} | {note} |")
+    lines += ["", "## Geometry (frames/frames.tsv)", "",
+              "- one row per image: t_ms, pts and time_source; the source size src_w x src_h "
+              "(display orientation, the pixels --roi takes); the crop box crop_x, crop_y, "
+              "crop_w, crop_h in source pixels; the written size out_w x out_h (read from the "
+              "file) and scale_x / scale_y = out / crop. Source px = crop offset + image px / "
+              "scale",
+              "- sha256 is each image's hash as written. The geometry is valid only while the "
+              "image still has that hash: once a frame is cropped, resized or otherwise edited, "
+              "its geometry is unknown"]
+    (out / "summary.md").write_text("\n".join(lines) + "\n")
+    extra = {
+        "frames": len(chosen), "cap_hit": bool(omitted), "omitted": len(omitted),
+        "omitted_from_s": _secs(omitted[0].t) if omitted else None,
+        "omitted_to_s": _secs(omitted[-1].t) if omitted else None,
+        "time_source": sources[0] if len(sources) == 1 else sources,
+        "image_budget": budget, "manifest": "frames/frames.tsv",
+    }
+    if at is not None:
+        extra["requested"] = [{k: v for k, v in r.items() if k != "frame_pts"} for r in requested]
+        extra["video_end_s"] = round(vspan.end_t, 6)
+        extra["video_end_proven"] = vspan.proven
+    _write_run_json(out, "frames", args, info, extra)
+    print(f"frames: {len(chosen)} written, {ow}x{oh}, about {budget['tokens']} image tokens each"
+          + (f"; over the {', '.join(budget['exceeds'])} limit" if budget["exceeds"] else ""))
+    print(f"SUMMARY: {out / 'summary.md'}")
     return 0
 
 
@@ -405,14 +790,19 @@ def cmd_bug(args) -> int:
     frames_dir = out / "frames"
     frames_dir.mkdir()
     vw, vh = view_size(info["width"], info["height"], args.view_size)
-    wanted, rows = {}, []
+    wanted, rows, manifest_rows = {}, [], []
     for k, p in enumerate(picks, start=1):
         pts = kept[p.index][0] if p.index is not None else p.ref
-        path = frames_dir / f"{k:02d}_{p.t:.3f}s.png"
+        path = frames_dir / core.bug_frame_name(k, p.t)
         wanted[pts] = path
         rows.append((k, p, path))
-    extract_views(args.video, wanted, None, vw, vh,  # full frame: the status bar can matter
-                  stream=info["vindex"])
+        manifest_rows.append((path, core.time_ms(p.t), pts, "pts_time"))
+    sizes = extract_views(args.video, wanted, None, vw, vh,  # full frame: the status bar can matter
+                          stream=info["vindex"])
+    no_manifest = geometry_problem(sizes, (info["width"], info["height"]), (vw, vh))
+    if not no_manifest:
+        write_frame_manifest(frames_dir, manifest_rows, info,
+                             (0, 0, info["width"], info["height"]))
     sheets = contact_sheets(
         [(path, f"#{k} {p.t:.3f}s\n{'+'.join(p.reasons)} {_shown_for(p, label=True)}")
          for k, p, path in rows],
@@ -488,6 +878,9 @@ def cmd_bug(args) -> int:
     ]
     if not vspan.proven:
         lines.append(f"- video end from container duration (not proven): {vspan.note}")
+    if no_manifest:
+        lines.append(f"- Warning: no frames/frames.tsv (no geometry is recorded): {no_manifest}; "
+                     "the saved frames may be rescaled")
     if info.get("creation_time"):
         lines.append(f"- container creation_time: {info['creation_time']} (meaning varies by "
                      "recorder: start or end of the recording; low confidence for log alignment)")
@@ -546,6 +939,8 @@ def cmd_bug(args) -> int:
     (out / "summary.md").write_text("\n".join(lines) + "\n")
     _write_run_json(out, "bug", args, info, {
         "picks": len(rows), "dropped": dropped, "cap_hit": dropped > 0,
+        "manifest": None if no_manifest else "frames/frames.tsv",
+        "manifest_note": no_manifest,
         "black_images_omitted": omitted,
         "sheets": [str(s.relative_to(out)) for s in sheets],
         "video_end_s": round(vspan.end_t, 6) if vspan.proven else None,
@@ -578,6 +973,8 @@ def cmd_anim(args) -> int:
     span = parse_span(args.range, "--range") if args.range else None
     windows = []   # (label, pre_pts or None, start, end, note, first change time)
     cuts = []
+    skipped, first_skipped = 0, None
+    box = region_box(args, info)
     if window:
         a, b = window
         windows.append(("w01", None, a, b, "given window", a))
@@ -614,7 +1011,10 @@ def cmd_anim(args) -> int:
         if len(windows) > args.max_segments:
             extra = windows[args.max_segments:]
             windows = windows[:args.max_segments]
-            cuts_note = f"{len(extra)} later segments skipped (--max-segments {args.max_segments})"
+            skipped, first_skipped = len(extra), extra[0][5]
+            cuts_note = (f"{skipped} later segments skipped (--max-segments {args.max_segments}; "
+                         f"the first starts at {first_skipped:.3f} s): narrow with --range or "
+                         "raise --max-segments")
         else:
             cuts_note = ""
         windows = [(f"s{k:02d}", *rest) for k, (_, *rest) in enumerate(windows, start=1)]
@@ -645,11 +1045,14 @@ def cmd_anim(args) -> int:
         # rest of the pad only anchors the fit), thinned evenly when long
         fm, lm = res.get("first_moving"), res.get("last_moving")
         if fm is None:
-            idx = [0, len(frames) - 1]
+            idx = [0, len(frames) - 1]   # the start and end pictures, by design
+            res["view_frames_total"] = len(idx)
         else:
             lo_v = max(0, fm - 2)
             hi_v = min(len(frames) - 1, (lm if lm is not None else fm) + 3)
             idx = list(range(lo_v, hi_v + 1))
+            res["view_frames_total"] = len(idx)
+            res["view_span_s"] = (frames[lo_v][1], frames[hi_v][1])
             if len(idx) > args.max_view_frames:
                 must = {lo_v, hi_v, fm, max(0, fm - 1)}
                 if lm is not None:
@@ -658,15 +1061,24 @@ def cmd_anim(args) -> int:
                 idx = sorted(must | {idx[int(k * step)] for k in range(args.max_view_frames)})
         t_start = ts[res["first_moving"]] - res["frame_interval"] \
             if res.get("first_moving") is not None else ts[0]
-        wanted, items = {}, []
+        res["view_frames_saved"] = len(idx)
+        wanted, items, manifest_rows = {}, [], []
         for i in idx:
             pts, t, _ = frames[i]
-            path = seg_dir / "frames" / f"f{i:03d}_{t:.3f}s.png"
+            path = seg_dir / "frames" / core.anim_frame_name(i, t)
             wanted[pts] = path
+            manifest_rows.append((path, core.time_ms(t), pts, "pts_time"))
             rel = (t - t_start) / args.time_scale
             items.append((path, f"f{i:03d} {t:.3f}s\n{rel * 1000:+.0f}ms"))
-        extract_views(args.video, wanted, crop, vw, vh, stream=info["vindex"])
-        res["view_files"] = {i: str((seg_dir / "frames" / f"f{i:03d}_{frames[i][1]:.3f}s.png")
+        sizes = extract_views(args.video, wanted, crop, vw, vh, stream=info["vindex"])
+        res["manifest_note"] = geometry_problem(sizes, (info["width"], info["height"]), (vw, vh))
+        if res["manifest_note"]:
+            res.setdefault("warnings", []).append(
+                f"no frames/frames.tsv (no geometry is recorded): {res['manifest_note']}")
+        else:
+            write_frame_manifest(seg_dir / "frames", manifest_rows, info, box)
+            res["manifest"] = f"{label}/frames/frames.tsv"
+        res["view_files"] = {i: str((seg_dir / "frames" / core.anim_frame_name(i, frames[i][1]))
                                     .relative_to(out)) for i in idx}
         res["sheets"] = [str(s.relative_to(out)) for s in
                          contact_sheets(items, seg_dir, args.per_sheet, vw, vh)]
@@ -677,8 +1089,20 @@ def cmd_anim(args) -> int:
 
     _write_anim_summary(out, args, info, region, (aw, ah), scale_px, results, cuts,
                         "" if args.window else cuts_note, vw, vh, cw)
-    _write_run_json(out, "anim", args, info, {"segments": [r["label"] for r in results],
-                                              "cuts": cuts})
+    thinned = [{"segment": r["label"], "saved": r["view_frames_saved"],
+                "of": r["view_frames_total"], "range": core.range_arg(*r["view_span_s"])}
+               for r in results if "error" not in r
+               and r["view_frames_saved"] < r["view_frames_total"]]
+    _write_run_json(out, "anim", args, info, {
+        "segments": [r["label"] for r in results], "cuts": cuts,
+        "cap_hit": bool(skipped or thinned),
+        "caps": {
+            "max_segments": {"limit": args.max_segments, "skipped": skipped,
+                             "first_skipped_s": first_skipped},
+            "max_view_frames": {"limit": args.max_view_frames, "thinned": thinned},
+        },
+        "manifests": [r["manifest"] for r in results if "manifest" in r],
+    })
     print(f"SUMMARY: {out / 'summary.md'}")
     return 0
 
@@ -830,6 +1254,15 @@ def _region_offset(args) -> str:
     return f"y+{args.crop_top}" if args.crop_top else "none"
 
 
+def _region_flags(args) -> str:
+    """The region flags of this run, to repeat in a suggested `frames` command."""
+    if args.roi:
+        return f" --roi {args.roi}"
+    parts = [f" --crop-top {args.crop_top}" if args.crop_top else "",
+             f" --crop-bottom {args.crop_bottom}" if args.crop_bottom else ""]
+    return "".join(parts)
+
+
 def _write_anim_summary(out, args, info, region, adims, scale_px, results, cuts, cuts_note,
                         vw, vh, cw):
     ts_note = ("" if args.time_scale == 1 else
@@ -878,6 +1311,12 @@ def _write_anim_summary(out, args, info, region, adims, scale_px, results, cuts,
             files.append(f"{r['label']}/{r['plot']}")
         files += [f"{r['label']}/curve.tsv", f"{r['label']}/fit.json"]
         lines.append("- files: " + ", ".join(files))
+        if r["view_frames_saved"] < r["view_frames_total"]:
+            lines.append(
+                f"- saved frames: {r['view_frames_saved']} of {r['view_frames_total']} (thinned "
+                f"by --max-view-frames {args.max_view_frames}); every native frame at full "
+                f"resolution: frames {args.video} --range "
+                f"{core.range_arg(*r['view_span_s'])}{_region_flags(args)}")
         if r.get("note"):
             lines.append(f"- note: {r['note']}")
         track = r.get("track")
@@ -975,6 +1414,21 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--analysis-pixels", type=int, default=160_000,
                    help="pixel budget per frame for measuring (more = finer, slower)")
     p.set_defaults(func=cmd_anim)
+
+    p = sub.add_parser("frames", help="exact native frames at full resolution, for close "
+                                      "inspection or editing by hand")
+    p.add_argument("video")
+    p.add_argument("--out", help="output directory (default $TMPDIR/video-prep/<name>-frames)")
+    which = p.add_mutually_exclusive_group(required=True)
+    which.add_argument("--range", help="START-END seconds: every frame presented from START "
+                                       "up to (not including) END, e.g. 7-7.5")
+    which.add_argument("--at", help="T[,T...] seconds: the frame on screen at each time")
+    p.add_argument("--roi", help="X,Y,W,H region (display px): write only this part")
+    p.add_argument("--crop-top", type=int, default=0, help="cut this many px off the top")
+    p.add_argument("--crop-bottom", type=int, default=0, help="cut this many px off the bottom")
+    p.add_argument("--max-frames", type=int, default=60,
+                   help="write at most this many frames (the earliest); the rest are reported")
+    p.set_defaults(func=cmd_frames)
     return ap
 
 

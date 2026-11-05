@@ -26,6 +26,7 @@ recording.mp4 ──▶ aitask_screen_recording.sh bug|anim ──▶ summary.md
 | A clip of a bug | What happened, step by step, with the glitch frame | `bug` | [Bug Report from a Recording]({{< relref "/docs/workflows/screen-recordings/bug-report" >}}) |
 | A prototype or competitor clip | The duration and easing to implement | `anim` | [Animation from a Prototype Recording]({{< relref "/docs/workflows/screen-recordings/animation" >}}) |
 | A glitch inside an animation | Both | `bug`, then `anim --window` | Start with the bug report |
+| A moment you have already found | Its exact frames at full resolution, to inspect or to edit by hand | `frames` | [Extract Exact Frames for Close Inspection]({{< relref "/docs/workflows/screen-recordings/exact-frames" >}}) |
 
 ## Read the results in order
 
@@ -49,6 +50,7 @@ ffmpeg and ffprobe 5.1 or later must be on `PATH`; `ait setup` does not install 
 - [Bug Report from a Recording]({{< relref "/docs/workflows/screen-recordings/bug-report" >}}) — key screens, brief glitch frames, and a report that cites them
 - [Spot a Hang, a Black Flash or a Silent Gap]({{< relref "/docs/workflows/screen-recordings/hang-black-silence" >}}) — the freeze, black and silence rows, and why every black interval is represented
 - [Animation from a Prototype Recording]({{< relref "/docs/workflows/screen-recordings/animation" >}}) — measured duration, easing and spring fits, translated to code
+- [Extract Exact Frames for Close Inspection]({{< relref "/docs/workflows/screen-recordings/exact-frames" >}}) — the frame on screen at an exact time, or every frame of a span, at full resolution, with a manifest of where each image came from
 - [Recording Tips]({{< relref "/docs/workflows/screen-recordings/recording-tips" >}}) — capture a recording that analyses well on Android, iOS and desktop
 
 ## More use cases

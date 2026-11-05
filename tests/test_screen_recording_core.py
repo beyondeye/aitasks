@@ -8,6 +8,7 @@ from __future__ import annotations
 import math
 import sys
 import unittest
+from fractions import Fraction
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / ".aitask-scripts"
@@ -534,6 +535,163 @@ class AnalyzeFrames(unittest.TestCase):
     def test_still(self):
         ts, fr = self.frames(lambda t: 0.0)
         self.assertEqual(core.analyze_frames(ts, fr, 80, 24)["kind"], "still")
+
+
+class FrameNames(unittest.TestCase):
+    def test_three_forms_carry_exact_milliseconds(self):
+        self.assertEqual(core.parse_frame_name("t00007040.png"),
+                         core.FrameName(7040, "frames", None))
+        self.assertEqual(core.parse_frame_name("04_5.500s.png"), core.FrameName(5500, "bug", 4))
+        self.assertEqual(core.parse_frame_name("f013_0.483s.png"),
+                         core.FrameName(483, "anim", 13))
+        self.assertEqual(core.parse_frame_name("123_1234.567s.png").ms, 1234567)
+        self.assertEqual(core.parse_frame_name("t123456789.JPG").ms, 123456789)
+        self.assertEqual(core.parse_frame_name("t00000017.webp").ms, 17)
+
+    def test_formatters_keep_the_existing_names(self):
+        # the bug/anim names are cited by SKILL.md and the docs: byte for byte unchanged
+        self.assertEqual(core.bug_frame_name(4, 5.5), "04_5.500s.png")
+        self.assertEqual(core.bug_frame_name(123, 0.0), "123_0.000s.png")
+        self.assertEqual(core.anim_frame_name(13, 0.483333), "f013_0.483s.png")
+        self.assertEqual(core.frames_name(7040), "t00007040.png")
+
+    def test_formatter_parser_round_trip(self):
+        for t in (0.0, 0.016667, 0.0175, 1.0049999, 7.04, 59.999, 1234.5675):
+            with self.subTest(t=t):
+                self.assertEqual(core.parse_frame_name(core.bug_frame_name(7, t)).ms,
+                                 core.time_ms(t))
+                self.assertEqual(core.parse_frame_name(core.anim_frame_name(7, t)).ms,
+                                 core.time_ms(t))
+        for ms in (0, 17, 7040, 99_999_999, 123_456_789):
+            self.assertEqual(core.parse_frame_name(core.frames_name(ms)).ms, ms)
+
+    def test_garbage_is_rejected_not_misread(self):
+        for name in ["t7040.png", "t0000704.png", "01_5.5s.png", "01_5.5000s.png", "1_5.500s.png",
+                     "f13_0.483s.png", "x01_5.500s.png", "sheet_01.png", "frames.tsv",
+                     "t00007040.txt", "t00007040.gif", "t00007040", " t00007040.png",
+                     "t00007040.png.bak", "01_-1.000s.png", "t0000704O.png", "t-0007040.png",
+                     "IMG_20260101_120000.png", "frame_0001.png", "04_5.500.png",
+                     "t00007040_edited.png", ".png", "t00007040..png"]:
+            with self.subTest(name=name):
+                self.assertIsNone(core.parse_frame_name(name))
+
+
+class ExactTimes(unittest.TestCase):
+    def test_pts_times_time_base_is_exact(self):
+        tb = Fraction(1, 15360)
+        self.assertEqual(core.pts_ms(256, tb), 17)        # 16.667 ms
+        self.assertEqual(core.pts_ms(512, tb), 33)        # 33.333 ms
+        self.assertEqual(core.pts_ms(108134, tb), 7040)   # 7.0399739... s
+        # a time beyond 1000 s keeps its milliseconds (pts_time printed with 6
+        # significant digits would lose them)
+        self.assertEqual(core.pts_ms(1234567 * 15360 // 1000, tb), 1234567)
+
+    def test_halves_round_up_and_negatives_raise(self):
+        self.assertEqual(core.ms_round(Fraction(1, 2000)), 1)
+        self.assertEqual(core.ms_round(Fraction(3, 2000)), 2)
+        with self.assertRaises(ValueError):
+            core.ms_round(Fraction(-1, 1000))
+
+    def test_time_ms_matches_the_printed_name(self):
+        for t in (0.0, 0.0165, 0.0175, 2.0005, 5.5, -0.017):
+            with self.subTest(t=t):
+                s = f"{t:.3f}"
+                self.assertEqual(core.time_ms(t), round(float(s) * 1000))
+
+    def test_seconds_exact(self):
+        self.assertEqual(core.seconds_exact("0.033"), Fraction(33, 1000))
+        self.assertEqual(core.seconds_exact(" 7 "), Fraction(7))
+        # the exact value separates the 1/30 s frame from a request at 33 ms, which
+        # rounded milliseconds would not
+        self.assertLess(core.seconds_exact("0.033"), Fraction(1, 30))
+        self.assertEqual(core.ms_round(Fraction(1, 30)), 33)
+        for bad in ["-1", "1e3", "nan", "inf", "", ".5", "1.", "0x10", "1,5"]:
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                core.seconds_exact(bad)
+
+    def test_decimal_between_restarts_strictly_after_the_last_frame(self):
+        # flooring the next frame's time to ms (0.001) would land before the written
+        # 0.00149 s frame, and the same continuation would repeat forever
+        lo, hi = Fraction(149, 100000), Fraction(151, 100000)
+        d = core.decimal_between(lo, hi)
+        self.assertEqual(d, "0.0015")
+        self.assertTrue(lo < core.seconds_exact(d) <= hi)
+        self.assertEqual(core.decimal_between(Fraction(0), Fraction(1, 60)), "0.001")
+        self.assertEqual(core.decimal_between(Fraction(1, 60), Fraction(2, 60)), "0.017")
+        # the upper end is inclusive: the first omitted frame itself
+        self.assertEqual(core.decimal_between(Fraction(1, 1000), Fraction(2, 1000)), "0.002")
+        self.assertEqual(core.decimal_between(Fraction(7), Fraction(8)), "7.001")
+        # no decimal with <= 9 places fits between two frames 1e-10 s apart
+        self.assertIsNone(core.decimal_between(Fraction(1, 3), Fraction(1, 3) + Fraction(1, 10**10)))
+
+    def test_range_arg_contains_both_frames(self):
+        self.assertEqual(core.range_arg(0.016667, 0.983333), "0.016-0.984")
+        a, b = (float(v) for v in core.range_arg(1.5, 2.0).split("-"))
+        self.assertLessEqual(a, 1.5)
+        self.assertGreater(b, 2.0)
+
+
+class ShowinfoTimebase(unittest.TestCase):
+    def test_reads_the_input_time_base(self):
+        log = ("[Parsed_showinfo_1 @ 0x7fe5] config in time_base: 1/15360, frame_rate: 60/1\n"
+               "[Parsed_showinfo_1 @ 0x7fe5] config out time_base: 0/0, frame_rate: 0/0\n"
+               "[Parsed_showinfo_1 @ 0x7fe5] n:   0 pts:  74074 pts_time:1234.566667 "
+               "duration:      1\n")
+        self.assertEqual(core.parse_showinfo_timebase(log), Fraction(1, 15360))
+        (f,) = core.parse_showinfo_frames(log)
+        self.assertEqual((f.instance, f.pts, f.pts_time, f.size, f.duration),
+                         (1, 74074, "1234.566667", None, 1))
+
+    def test_frames_carry_instance_size_and_duration(self):
+        # two showinfo filters in one chain (native size before a crop, output size
+        # after it); a stream that changes size reports the new size natively
+        log = ("[Parsed_showinfo_1 @ 0x7f1] n:   0 pts:      0 pts_time:0       duration:    512 "
+               "duration_time:0.0333333 fmt:yuv420p cl:left sar:1/1 s:64x48 i:P iskey:1\n"
+               "[Parsed_showinfo_3 @ 0x7f2] n:   0 pts:      0 pts_time:0       duration:    512 "
+               "duration_time:0.0333333 fmt:rgb24 sar:1/1 s:32x24 i:P iskey:1\n"
+               "[Parsed_showinfo_1 @ 0x7f3] n:   0 pts:    512 pts_time:0.0333333 duration:      0 "
+               "duration_time:0 fmt:yuv420p sar:1/1 s:96x64 i:P iskey:1\n")
+        got = [(f.instance, f.pts, f.size, f.duration) for f in core.parse_showinfo_frames(log)]
+        self.assertEqual(got, [(1, 0, (64, 48), 512), (3, 0, (32, 24), 512),
+                               (1, 512, (96, 64), None)])
+
+    def test_missing_or_unset_is_none(self):
+        self.assertIsNone(core.parse_showinfo_timebase(
+            "[Parsed_showinfo_1 @ 0x1] n:   0 pts:      0 pts_time:0\n"))
+        self.assertIsNone(core.parse_showinfo_timebase(
+            "[Parsed_showinfo_1 @ 0x1] config in time_base: 0/0, frame_rate: 0/0\n"))
+        # another filter's line is not showinfo's
+        self.assertIsNone(core.parse_showinfo_timebase(
+            "[Parsed_trim_0 @ 0x1] config in time_base: 1/60\n"))
+
+
+class PngSize(unittest.TestCase):
+    def test_ihdr(self):
+        head = (b"\x89PNG\r\n\x1a\n" + (13).to_bytes(4, "big") + b"IHDR"
+                + (201).to_bytes(4, "big") + (243).to_bytes(4, "big"))
+        self.assertEqual(core.png_size(head), (201, 243))
+
+    def test_not_a_png(self):
+        self.assertIsNone(core.png_size(b"\xff\xd8\xff\xe0" + b"\0" * 20))
+        self.assertIsNone(core.png_size(b"\x89PNG\r\n\x1a\n"))
+
+
+class ImageBudget(unittest.TestCase):
+    def test_phone_frame_is_downscaled_on_the_standard_tier_only(self):
+        b = core.image_budget(1080, 2400)
+        self.assertEqual(b["tokens"], 39 * 86)   # 3354
+        self.assertEqual(b["exceeds"], ["standard"])
+
+    def test_tiers(self):
+        self.assertEqual(core.image_budget(360, 800)["exceeds"], [])
+        self.assertEqual(core.image_budget(1092, 1092)["tokens"], 1521)   # Vision page table
+        self.assertEqual(core.image_budget(2576, 1449)["exceeds"], ["standard"])
+        self.assertEqual(core.image_budget(2577, 1000)["exceeds"],
+                         ["standard", "high-resolution (Claude 4.7+)"])
+        self.assertEqual(core.image_budget(3200, 1000)["exceeds"],
+                         ["standard", "high-resolution (Claude 4.7+)", "many-image"])
+        # token limit alone (long edge within both tiers)
+        self.assertEqual(core.image_budget(1500, 1500)["exceeds"], ["standard"])
 
 
 if __name__ == "__main__":

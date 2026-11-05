@@ -25,6 +25,7 @@ standard; the measurements can.
 | what happened, a bug reproduced, a flow described | `bug` |
 | how something moves (duration, easing, spring), usually to implement it | `anim` |
 | a bug *in* an animation | `bug` first, then `anim --window` around that moment |
+| a close look at an exact moment at full resolution, or frames to edit by hand | `frames` (usually after `bug`/`anim` has pointed at the moment) |
 
 `info` only probes the file (size, frame rate, duration, audio).
 
@@ -33,6 +34,7 @@ standard; the measurements can.
 ```bash
 ./.aitask-scripts/aitask_screen_recording.sh bug  rec.mp4 --out <scratchpad>/video-prep/rec-bug
 ./.aitask-scripts/aitask_screen_recording.sh anim rec.mp4 --out <scratchpad>/video-prep/rec-anim
+./.aitask-scripts/aitask_screen_recording.sh frames rec.mp4 --at 5.5 --out <scratchpad>/video-prep/rec-frames
 ```
 
 Run it from the repository root; `<mode> --help` lists every option.
@@ -189,6 +191,44 @@ Ask the user to confirm suspicious numbers. If every duration looks two to ten
 times too long, the device may have had a non-default animator duration scale
 during recording.
 
+When a segment's line says `saved frames: N of M (thinned by
+--max-view-frames …)`, the sheet skips frames. The line gives the `frames …
+--range` command that writes every native frame of the segment.
+
+## Frames mode
+
+`frames` writes exact native frames at **full resolution**, for a close look or
+for the user to edit by hand (crop, annotate, delete) and hand back.
+
+- `--range A-B`: every frame presented from A up to, not including, B, up to
+  `--max-frames` (60). The earliest frames are kept; the summary says what was
+  left out and gives the `--range` that continues.
+- `--at T[,T…]`: the frame on screen at each time, meaning the latest frame
+  presented at or before it. A time past the proven end of the video is an
+  error. When the end cannot be proven, the frame is written but marked "not
+  proven" in the summary (`on_screen_proven: false` in `run.json`). Say so
+  when you cite it.
+- A recording whose frame size changes partway through is refused for frames
+  of another size than the probed one. `bug` and `anim` then write no
+  `frames.tsv` and say why.
+- `--roi X,Y,W,H` or `--crop-top`/`--crop-bottom` crop the written image.
+  In `bug` the same flags only steer change detection.
+- Files are `frames/t<ms>.png`, where ms is the frame's presentation time
+  (pts × time base) rounded to the nearest millisecond. Treat that ms as a
+  label: selection compares exact times, so a rounded time passed back as
+  `--at` can select the neighbouring frame.
+- `frames/frames.tsv` has one row per image: `t_ms`, `pts`, the source size,
+  the crop box, the written size, the scale, and the image's `sha256`.
+  Source px = crop offset + image px / scale. **Trust the geometry only while
+  the image still has that hash**; an edited frame has none. `bug` and `anim`
+  write the same manifest beside their frames.
+- **Image budget.** The summary and stdout give each frame's token cost
+  (⌈w/28⌉·⌈h/28⌉) and warn when frames are over a reader's limit. A
+  1080×2400 phone frame is about 3354 tokens and is downscaled for models
+  before Claude 4.7. A frame over 3000 px on a side is rejected once a
+  request carries more than 20 images. Read full-resolution frames
+  sparingly, and crop with `--roi` to the detail that matters.
+
 ## More detail
 
 - `.claude/skills/aitask-screen-recording/references/animation.md`: how progress is measured (the edge and blend
@@ -214,6 +254,13 @@ CLI. They cover:
 - a variable-frame-rate encode and a slowed-down (5×) capture;
 - two segments in one clip and status-bar cropping;
 - a bug flow with a push transition, a scroll, a checkbox toggle and a
-  one-frame flash.
+  one-frame flash;
+- `frames` on clips whose frames carry their own number in pixels:
+  - names from real pts on a variable-frame-rate clip;
+  - exact `--at`/`--range` boundaries;
+  - odd `--roi`/crop boxes in both axes;
+  - a rotated recording;
+  - the `--max-frames` cap and the image budget;
+- the `frames.tsv` manifests of bug and anim, and anim's `cap_hit`.
 
 Run them after changing anything under `.aitask-scripts/screen_recording/`.

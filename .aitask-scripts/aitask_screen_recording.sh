@@ -5,7 +5,7 @@ set -euo pipefail
 # sheets, a timeline and animation timing data an agent can read (Claude Code
 # cannot open video files). Backs the aitask-screen-recording skill.
 #
-# Usage: ./.aitask-scripts/aitask_screen_recording.sh info|bug|anim VIDEO [options]
+# Usage: ./.aitask-scripts/aitask_screen_recording.sh info|bug|anim|frames VIDEO [options]
 #        ./.aitask-scripts/aitask_screen_recording.sh <mode> --help
 #
 # Needs ffmpeg/ffprobe >= 5.1 on PATH. ImageMagick 7 (`magick`) is optional:

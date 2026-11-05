@@ -11,6 +11,151 @@ import math
 import re
 import statistics
 from dataclasses import dataclass, field
+from fractions import Fraction
+
+# --------------------------------------------------------------------------- #
+# image budgets
+#
+# Claude vision limits, from platform.claude.com "Vision" ("Resolution and token
+# cost", "Request limits"), checked 2026-11-04. An image larger than a tier's long
+# edge or token limit is downscaled before the model sees it. A request carrying
+# more than 20 images applies a stricter per-image dimension limit to all of them
+# and rejects images over it; neither dimension above 3000 px is safe everywhere.
+
+TOKEN_TILE = 28            # visual tokens = ceil(w / 28) * ceil(h / 28)
+READER_TIERS = (("standard", 1568, 1568),
+                ("high-resolution (Claude 4.7+)", 2576, 4784))  # name, long edge, tokens
+MANY_IMAGE_SAFE_PX = 3000
+
+
+def image_tokens(w: int, h: int) -> int:
+    return math.ceil(w / TOKEN_TILE) * math.ceil(h / TOKEN_TILE)
+
+
+def image_budget(w: int, h: int) -> dict:
+    """Token cost of one w x h image and the reader limits it crosses."""
+    tokens = image_tokens(w, h)
+    long_edge = max(w, h)
+    exceeds = [name for name, px, tok in READER_TIERS if long_edge > px or tokens > tok]
+    if long_edge > MANY_IMAGE_SAFE_PX:
+        exceeds.append("many-image")
+    return {"width": w, "height": h, "tokens": tokens, "long_edge": long_edge,
+            "exceeds": exceeds}
+
+
+def png_size(head: bytes) -> tuple[int, int] | None:
+    """(width, height) from a PNG file's first 24 bytes, or None if not a PNG."""
+    if len(head) < 24 or head[:8] != b"\x89PNG\r\n\x1a\n" or head[12:16] != b"IHDR":
+        return None
+    w, h = int.from_bytes(head[16:20], "big"), int.from_bytes(head[20:24], "big")
+    return (w, h) if w > 0 and h > 0 else None
+
+
+# --------------------------------------------------------------------------- #
+# exact frame times and file names
+#
+# A frame's time is pts x time_base, exact as a Fraction. Comparisons (which
+# frame is on screen at T, which frames fall in a range) use that exact value;
+# integer milliseconds are rounded and serve only as names and labels.
+
+_DECIMAL = re.compile(r"\d+(?:\.\d+)?")
+
+
+def seconds_exact(text: str) -> Fraction:
+    """A non-negative decimal number of seconds, exactly ("0.033" -> 33/1000)."""
+    text = text.strip()
+    if not _DECIMAL.fullmatch(text):
+        raise ValueError(f"not a non-negative decimal number of seconds: {text!r}")
+    return Fraction(text)
+
+
+def ms_round(t: Fraction) -> int:
+    """Nearest integer millisecond, halves rounded up. ValueError when negative."""
+    if t < 0:
+        raise ValueError(f"negative time {float(t):.6f} s")
+    return math.floor(t * 1000 + Fraction(1, 2))
+
+
+def pts_ms(pts: int, tb: Fraction) -> int:
+    return ms_round(pts * tb)
+
+
+def time_ms(t: float) -> int:
+    """The milliseconds that f"{t:.3f}" prints (the bug/anim file-name time)."""
+    s = f"{t:.3f}"
+    sign = -1 if s.startswith("-") else 1
+    whole, frac = s.lstrip("-").split(".")
+    return sign * (int(whole) * 1000 + int(frac))
+
+
+def frames_name(ms: int) -> str:
+    return f"t{ms:08d}.png"
+
+
+def bug_frame_name(k: int, t: float) -> str:
+    return f"{k:02d}_{t:.3f}s.png"
+
+
+def anim_frame_name(i: int, t: float) -> str:
+    return f"f{i:03d}_{t:.3f}s.png"
+
+
+IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".webp")
+
+
+@dataclass(frozen=True)
+class FrameName:
+    ms: int                 # integer milliseconds carried by the name (rounded)
+    form: str               # "frames" (t<ms>), "bug" (NN_<s>s), "anim" (fNNN_<s>s)
+    index: int | None       # the bug pick number / anim frame index
+
+
+_NAME_FORMS = (
+    ("frames", re.compile(r"t(\d{8,})")),
+    ("bug", re.compile(r"(\d{2,})_(\d+)\.(\d{3})s")),
+    ("anim", re.compile(r"f(\d{3,})_(\d+)\.(\d{3})s")),
+)
+
+
+def parse_frame_name(name: str) -> FrameName | None:
+    """The time a frame file name carries, or None when the name carries none.
+
+    Accepts exactly the names this helper writes (t00007040.png, 04_5.500s.png,
+    f013_0.483s.png) with a png/jpg/jpeg/webp extension; anything else is
+    rejected rather than guessed at."""
+    stem, dot, ext = name.rpartition(".")
+    if not dot or f".{ext.lower()}" not in IMAGE_EXTS:
+        return None
+    for form, rx in _NAME_FORMS:
+        m = rx.fullmatch(stem)
+        if not m:
+            continue
+        if form == "frames":
+            return FrameName(int(m.group(1)), form, None)
+        return FrameName(int(m.group(2)) * 1000 + int(m.group(3)), form, int(m.group(1)))
+    return None
+
+
+def decimal_between(lo: Fraction, hi: Fraction, max_digits: int = 9) -> str | None:
+    """The shortest decimal d (at least 3 places) with lo < d <= hi, as text, or
+    None when no decimal with up to max_digits places fits. Used to restart a
+    range strictly after one frame and no later than the next."""
+    for k in range(3, max_digits + 1):
+        scale = 10 ** k
+        d = Fraction(math.floor(lo * scale) + 1, scale)
+        if d <= hi:
+            whole, frac = divmod(d.numerator * (scale // d.denominator), scale)
+            return f"{whole}.{frac:0{k}d}"
+    return None
+
+
+def range_arg(t_lo: float, t_hi: float) -> str:
+    """A --range START-END (ms precision) that contains both frame times: START
+    rounded down, END one ms past t_hi rounded up (END is exclusive)."""
+    a = math.floor(t_lo * 1000) / 1000
+    b = (math.floor(t_hi * 1000) + 1) / 1000
+    return f"{a:.3f}-{b:.3f}"
+
 
 # --------------------------------------------------------------------------- #
 # ffmpeg log parsing
@@ -18,6 +163,7 @@ from dataclasses import dataclass, field
 _SHOWINFO = re.compile(
     r"\bn:\s*(\d+)\s+pts:\s*(-?\d+)\s+pts_time:\s*(-?\d+(?:\.\d+)?(?:e[-+]?\d+)?)"
 )
+_SHOWINFO_TB = re.compile(r"\bconfig in time_base:\s*(\d+)/(\d+)")
 
 
 def parse_showinfo(log: str) -> list[tuple[int, int, float]]:
@@ -30,6 +176,54 @@ def parse_showinfo(log: str) -> list[tuple[int, int, float]]:
         if m:
             frames.append((int(m.group(1)), int(m.group(2)), float(m.group(3))))
     return frames
+
+
+_SHOWINFO_TAG = re.compile(r"^\[Parsed_showinfo_(\d+) @")
+_SHOWINFO_SIZE = re.compile(r"\bs:(\d+)x(\d+)\b")
+_SHOWINFO_DUR = re.compile(r"\bduration:\s*(-?\d+)\b")
+
+
+@dataclass(frozen=True)
+class ShowinfoFrame:
+    instance: int | None          # N of "Parsed_showinfo_N": which showinfo in the chain
+    pts: int
+    pts_time: str                 # as printed, for exact arithmetic
+    size: tuple[int, int] | None  # the frame's size where this showinfo sits
+    duration: int | None          # frame duration in the time base, when reported
+
+
+def parse_showinfo_frames(log: str) -> list[ShowinfoFrame]:
+    """Every showinfo frame line with its instance, pts, printed pts_time, frame
+    size and duration. With two showinfo filters in one chain the instance number
+    tells them apart (the lower one sits earlier in the chain)."""
+    out = []
+    for line in log.splitlines():
+        if "showinfo" not in line:
+            continue
+        m = _SHOWINFO.search(line)
+        if not m:
+            continue
+        tag = _SHOWINFO_TAG.search(line)
+        size = _SHOWINFO_SIZE.search(line)
+        dur = _SHOWINFO_DUR.search(line)
+        out.append(ShowinfoFrame(
+            int(tag.group(1)) if tag else None, int(m.group(2)), m.group(3),
+            (int(size.group(1)), int(size.group(2))) if size else None,
+            int(dur.group(1)) if dur and int(dur.group(1)) > 0 else None))
+    return out
+
+
+def parse_showinfo_timebase(log: str) -> Fraction | None:
+    """The input time base showinfo reports ("config in time_base: 1/15360"); None
+    when it is absent or 0/0."""
+    for line in log.splitlines():
+        if "showinfo" not in line:
+            continue
+        m = _SHOWINFO_TB.search(line)
+        if m:
+            num, den = int(m.group(1)), int(m.group(2))
+            return Fraction(num, den) if num and den else None
+    return None
 
 
 # --------------------------------------------------------------------------- #

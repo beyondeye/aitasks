@@ -8,20 +8,29 @@ Run: python3 tests/test_screen_recording_cli.py
 """
 from __future__ import annotations
 
+import contextlib
 import csv
+import functools
+import hashlib
+import io
 import json
+import re
 import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
+from fractions import Fraction
+from unittest import mock
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 SCRIPT = HERE.parent / ".aitask-scripts" / "screen_recording" / "video_prep.py"
 WRAPPER = HERE.parent / ".aitask-scripts" / "aitask_screen_recording.sh"
 sys.path.insert(0, str(HERE))
+sys.path.insert(0, str(SCRIPT.parent))
 import screen_recording_synth as synth  # noqa: E402
+import vp_core as core  # noqa: E402
 
 HAVE_FFMPEG = bool(shutil.which("ffmpeg") and shutil.which("ffprobe"))
 HAVE_MAGICK = bool(shutil.which("magick"))
@@ -528,6 +537,546 @@ class TriageRows(_VideoCase):
                       (out / "summary.md").read_text())
 
 
+@functools.lru_cache(maxsize=None)
+def showinfo_prints_duration() -> bool:
+    """Whether this ffmpeg's showinfo reports frame durations (ffmpeg 9 does, 5.1
+    does not), which decides how exactly the end of a video is known."""
+    log = subprocess.run(["ffmpeg", "-hide_banner", "-nostdin", "-f", "lavfi", "-i",
+                          "testsrc=size=16x16:rate=10:duration=0.3", "-vf", "showinfo",
+                          "-f", "null", "-"], capture_output=True, text=True).stderr
+    frames = core.parse_showinfo_frames(log)
+    assert frames, log[-500:]
+    return any(f.duration for f in frames)
+
+
+def png_gray(png: Path) -> tuple[bytes, int, int]:
+    """The 8-bit gray pixels of a PNG, with its size (read from the file)."""
+    w, h = core.png_size(png.read_bytes()[:24])
+    raw = subprocess.run(["ffmpeg", "-v", "error", "-i", str(png), "-f", "rawvideo",
+                          "-pix_fmt", "gray", "-"], capture_output=True, check=True).stdout
+    assert len(raw) == w * h, (png, len(raw), w, h)
+    return raw, w, h
+
+
+def mad(a: bytes, b: bytes) -> float:
+    return sum(abs(x - y) for x, y in zip(a, b)) / len(a)
+
+
+def region(gray: bytes, w: int, box) -> bytes:
+    x, y, cw, ch = box
+    return b"".join(gray[(y + r) * w + x:(y + r) * w + x + cw] for r in range(ch))
+
+
+def rot90(gray: bytes, w: int, h: int, clockwise: bool) -> bytes:
+    """gray (w x h) turned a quarter turn: the result is h x w."""
+    out = bytearray(w * h)
+    for yy in range(w):
+        for xx in range(h):
+            src = (h - 1 - xx) * w + yy if clockwise else xx * w + (w - 1 - yy)
+            out[yy * h + xx] = gray[src]
+    return bytes(out)
+
+
+def read_manifest(frames_dir: Path) -> list[dict]:
+    with open(frames_dir / "frames.tsv", newline="") as fh:
+        return list(csv.DictReader(fh, delimiter="\t"))
+
+
+def size_changing_video(tmp: Path) -> Path:
+    """A stream whose frames change size mid-way (160x96 for 0.1 s, then 200x120),
+    the probe reporting only the first size."""
+    path = tmp / "size_change.mp4"
+    if not path.exists():
+        parts = []
+        for i, (w, h) in enumerate([(160, 96), (200, 120)]):
+            part = tmp / f"size_part{i}.h264"
+            # no B-frames: a raw stream's generated timestamps then follow decode order
+            synth.encode(part, [synth.code_frame(k + 6 * i, w=w, h=h) for k in range(6)],
+                         w=w, h=h, x264_params="bframes=0")
+            parts.append(part.read_bytes())
+        joined = tmp / "size_change.h264"
+        joined.write_bytes(b"".join(parts))
+        subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-r", "60",
+                        "-i", str(joined), "-c", "copy", str(path)], check=True)
+    return path
+
+
+class _ManifestChecks:
+    def assert_manifest_binds_files(self, frames_dir: Path, rows: list[dict], *, src, box):
+        """Every row names a written PNG whose size, hash and name time it records."""
+        self.assertTrue(rows)
+        for r in rows:
+            path = frames_dir / r["file"]
+            data = path.read_bytes()
+            ow, oh = core.png_size(data[:24])
+            self.assertEqual(r["sha256"], hashlib.sha256(data).hexdigest(), r["file"])
+            self.assertEqual((int(r["out_w"]), int(r["out_h"])), (ow, oh), r["file"])
+            self.assertEqual((int(r["src_w"]), int(r["src_h"])), src)
+            self.assertEqual(tuple(int(r[k]) for k in ("crop_x", "crop_y", "crop_w", "crop_h")),
+                             box)
+            self.assertEqual(r["scale_x"], f"{ow / box[2]:.6f}")
+            self.assertEqual(r["scale_y"], f"{oh / box[3]:.6f}")
+            self.assertEqual(core.parse_frame_name(r["file"]).ms, int(r["t_ms"]), r["file"])
+
+
+@unittest.skipUnless(HAVE_FFMPEG, "ffmpeg/ffprobe not installed")
+class FramesMode(_VideoCase, _ManifestChecks):
+    """`frames`: every native frame (or the frame on screen at T) at full resolution.
+    Each fixture frame carries its own code in pixels, so which source frame an
+    image is never depends on its file name."""
+
+    def numbered(self):
+        return self.video("numbered", lambda: synth.numbered_frames(120))
+
+    def held_vfr(self):
+        return self.video("held_vfr", synth.held_numbered_frames, vfr=True)
+
+    def frames(self, video, out_name, *extra):
+        out = self.tmp / out_name
+        cp = self.cli_ok("frames", video, "--out", out, *extra)
+        return out, read_manifest(out / "frames"), json.loads((out / "run.json").read_text()), cp
+
+    def codes(self, out, rows):
+        return [synth.decode_code(*png_gray(out / "frames" / r["file"])) for r in rows]
+
+    def test_range_writes_every_native_frame_named_by_its_pts(self):
+        out, rows, run, cp = self.frames(self.numbered(), "fr-range", "--range", "0.5-1.0")
+        self.assertEqual(len(rows), 30)
+        codes = self.codes(out, rows)
+        self.assertEqual(codes, list(range(30, 60)))          # every frame, in order
+        for r, code in zip(rows, codes):
+            ms = core.ms_round(Fraction(code, synth.FPS))
+            self.assertEqual((int(r["t_ms"]), r["file"]), (ms, core.frames_name(ms)))
+            self.assertEqual(r["time_source"], "pts*time_base")
+        self.assertEqual((rows[0]["file"], rows[-1]["file"]), ("t00000500.png", "t00000983.png"))
+        # the pixels are the generator's frame, not a neighbour's
+        for r, code in list(zip(rows, codes))[::7]:
+            gray, _, _ = png_gray(out / "frames" / r["file"])
+            self.assertLess(mad(gray, synth.code_frame(code)), 3, r["file"])
+            self.assertGreater(mad(gray, synth.code_frame(code - 1)), 10)
+            self.assertGreater(mad(gray, synth.code_frame(code + 1)), 10)
+        self.assert_manifest_binds_files(out / "frames", rows, src=(360, 800),
+                                         box=(0, 0, 360, 800))
+        self.assertFalse(run["cap_hit"])
+        self.assertEqual((run["frames"], run["omitted"]), (30, 0))
+        self.assertEqual(run["manifest"], "frames/frames.tsv")
+        self.assertIn("about 377 image tokens each", cp.stdout)
+
+    def test_vfr_names_carry_real_pts_not_index_times_rate(self):
+        video = self.held_vfr()
+        info = json.loads(run_cli("info", video).stdout)
+        starts = [Fraction(s, synth.FPS) for s in synth.NUMBERED_STARTS]
+        # fixture guard: index x the average frame interval misplaces some frames
+        self.assertTrue(any(abs(k / info["avg_fps"] - float(s)) > 1 / synth.FPS
+                            for k, s in enumerate(starts)), info["avg_fps"])
+        out, rows, _, _ = self.frames(video, "fr-vfr", "--range", "0-1")
+        codes = self.codes(out, rows)
+        self.assertEqual(codes, list(range(len(starts))))
+        for r, code in zip(rows, codes):
+            self.assertEqual(int(r["t_ms"]), core.ms_round(starts[code]), r)
+            self.assertEqual(core.parse_frame_name(r["file"]).ms, core.ms_round(starts[code]))
+
+    def test_at_resolves_the_frame_on_screen(self):
+        # code 4 is presented at 9/60 = 0.15 s and held to 0.3 s; code 3 from 7/60 s
+        out, rows, run, _ = self.frames(self.held_vfr(), "fr-at", "--at", "0.2,0.15,0.1499,0.2")
+        self.assertEqual(self.codes(out, rows), [3, 4])
+        self.assertEqual([r["file"] for r in rows], ["t00000117.png", "t00000150.png"])
+        self.assertEqual([(q["at"], q["file"]) for q in run["requested"]], [
+            ("0.2", "frames/t00000150.png"), ("0.15", "frames/t00000150.png"),
+            ("0.1499", "frames/t00000117.png"), ("0.2", "frames/t00000150.png")])
+        self.assertTrue(all(q["on_screen_proven"] for q in run["requested"]))
+
+    def test_exact_time_boundaries_not_rounded_milliseconds(self):
+        video = self.numbered()
+        # the 1/30 s frame's name rounds to 33 ms, but it is not on screen at 0.033 s
+        out, rows, _, _ = self.frames(video, "fr-b033", "--at", "0.033")
+        self.assertEqual((self.codes(out, rows), rows[0]["file"]), ([1], "t00000017.png"))
+        out, rows, _, _ = self.frames(video, "fr-b034", "--at", "0.034")
+        self.assertEqual(self.codes(out, rows), [2])
+        # 1/60 s (16.667 ms) is before 0.017: excluded, although its name says 17
+        out, rows, _, _ = self.frames(video, "fr-brange", "--range", "0.017-0.034")
+        self.assertEqual(self.codes(out, rows), [2])
+
+    def test_video_end_is_exclusive_and_only_a_proven_end_rejects(self):
+        video = self.video("numbered_1s", lambda: synth.numbered_frames(60))   # ends at 1.000 s
+        # on any ffmpeg: well inside the last frame is proven, well past the end rejected
+        out, rows, run, _ = self.frames(video, "fr-end-in", "--at", "0.99")
+        self.assertEqual(self.codes(out, rows), [59])
+        self.assertTrue(run["requested"][0]["on_screen_proven"])
+        cp = run_cli("frames", video, "--at", "1.5", "--out", self.tmp / "fr-end-far")
+        self.assertEqual(cp.returncode, 1, cp.stderr)
+        self.assertIn("is past the video end: the last frame is presented at 0.983333 s until "
+                      "1.000000 s", cp.stderr)
+        self.assertFalse((self.tmp / "fr-end-far").exists())
+        if not showinfo_prints_duration():
+            # the end is known only from packets, to 6 decimals: these are undecided
+            # (ShowinfoWithoutDuration pins that band on every host)
+            for i, t in enumerate(("0.999999", "1", "1.0000005")):
+                with self.subTest(at=t):
+                    _, _, run, _ = self.frames(video, f"fr-end-band{i}", "--at", t)
+                    self.assertFalse(run["requested"][0]["on_screen_proven"])
+            return
+        # the last frame's own exact duration decides, its end exclusive
+        _, _, run, _ = self.frames(video, "fr-end-just-in", "--at", "0.999999")
+        self.assertTrue(run["requested"][0]["on_screen_proven"])
+        for t in ("1", "1.0000005"):
+            with self.subTest(at=t):
+                cp = run_cli("frames", video, "--at", t, "--out", self.tmp / "fr-end-past")
+                self.assertEqual(cp.returncode, 1, cp.stderr)
+                self.assertIn("is past the video end: the last frame is presented at "
+                              "0.983333 s until 1.000000 s", cp.stderr)
+                self.assertFalse((self.tmp / "fr-end-past").exists())
+
+    def test_unproven_end_is_labelled_never_used_to_reject(self):
+        raw = self.tmp / "numbered_1s.h264"
+        if not raw.exists():
+            subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i",
+                            str(self.video("numbered_1s", lambda: synth.numbered_frames(60))),
+                            "-c", "copy", "-bsf:v", "h264_mp4toannexb", str(raw)], check=True)
+        # fixture guard: a raw stream has no container duration and no packet times
+        fmt = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                              "-of", "csv=p=0", str(raw)], capture_output=True, text=True)
+        self.assertEqual(fmt.stdout.strip(), "N/A")
+        out, rows, run, _ = self.frames(raw, "fr-raw", "--at", "0.2,5")
+        self.assertEqual(len(rows), 2)
+        inside, past = run["requested"]
+        self.assertTrue(inside["on_screen_proven"])          # within its own duration
+        self.assertFalse(past["on_screen_proven"])           # not provably past the end either
+        self.assertIn("whether a later frame exists is not known", past["unproven_because"])
+        self.assertIn("on screen at 5 s not proven", (out / "summary.md").read_text())
+
+    def test_mid_stream_size_change_is_refused_not_rescaled(self):
+        video = size_changing_video(self.tmp)
+        info = json.loads(run_cli("info", video).stdout)
+        self.assertEqual((info["width"], info["height"]), (160, 96))      # fixture guard
+        log = subprocess.run(["ffmpeg", "-hide_banner", "-nostdin", "-i", str(video), "-vf",
+                              "showinfo", "-f", "null", "-"], capture_output=True, text=True)
+        self.assertIn("s:200x120", log.stderr)                             # fixture guard
+        out = self.tmp / "fr-sizechg"
+        cp = run_cli("frames", video, "--range", "0-1", "--out", out)
+        self.assertEqual(cp.returncode, 1, cp.stderr)
+        self.assertIn("is 200x120, but the video was probed as 160x96: the frame size changes "
+                      "mid-stream", cp.stderr)
+        self.assertFalse(out.exists())
+        # frames from before the change are still fine
+        out, rows, _, _ = self.frames(video, "fr-sizechg-early", "--range", "0-0.05")
+        self.assertEqual(self.codes(out, rows), [0, 1, 2])
+        self.assert_manifest_binds_files(out / "frames", rows, src=(160, 96), box=(0, 0, 160, 96))
+
+    def marker_centroids(self, png: Path, box):
+        gray, w, h = png_gray(png)
+        x0, y0, cw, ch = box
+        got = []
+        for mx, my in synth.MARKERS:
+            if x0 <= mx and mx + synth.MARKER <= x0 + cw and y0 <= my and my + synth.MARKER <= y0 + ch:
+                want = (mx - x0 + 2.5, my - y0 + 2.5)
+                got.append((want, synth.dark_centroid(gray, w, h, *want)))
+        return (w, h), got
+
+    def assert_centroids(self, got, n):
+        self.assertEqual(len(got), n)
+        for want, c in got:
+            self.assertIsNotNone(c, want)
+            self.assertAlmostEqual(c[0], want[0], delta=0.3, msg=(want, c))
+            self.assertAlmostEqual(c[1], want[1], delta=0.3, msg=(want, c))
+
+    def test_odd_roi_and_crop_are_pixel_exact(self):
+        video = self.video("markers", synth.marker_frames)
+        # premise: uncropped, every marker sits where it was drawn
+        out, rows, _, _ = self.frames(video, "fr-mk-full", "--at", "0")
+        size, got = self.marker_centroids(out / "frames" / rows[0]["file"], (0, 0, 360, 800))
+        self.assertEqual(size, (360, 800))
+        self.assert_centroids(got, len(synth.MARKERS))
+        # an odd offset and an odd size in both axes
+        box = (37, 151, 201, 243)
+        out, rows, _, _ = self.frames(video, "fr-mk-roi", "--at", "0", "--roi",
+                                      ",".join(map(str, box)))
+        size, got = self.marker_centroids(out / "frames" / rows[0]["file"], box)
+        self.assertEqual(size, (201, 243))
+        self.assert_centroids(got, 3)
+        self.assert_manifest_binds_files(out / "frames", rows, src=(360, 800), box=box)
+        self.assertEqual((rows[0]["scale_x"], rows[0]["scale_y"]), ("1.000000", "1.000000"))
+        # odd crop flags
+        out, rows, _, _ = self.frames(video, "fr-mk-crop", "--at", "0", "--crop-top", "23",
+                                      "--crop-bottom", "11")
+        size, got = self.marker_centroids(out / "frames" / rows[0]["file"], (0, 23, 360, 766))
+        self.assertEqual(size, (360, 766))
+        self.assert_centroids(got, len(synth.MARKERS))
+        self.assert_manifest_binds_files(out / "frames", rows, src=(360, 800),
+                                         box=(0, 23, 360, 766))
+
+    def test_max_frames_truncation_sets_cap_hit(self):
+        out, rows, run, _ = self.frames(self.numbered(), "fr-cap", "--range", "0-1",
+                                        "--max-frames", "10")
+        self.assertEqual([r["file"] for r in rows], [core.frames_name(core.ms_round(
+            Fraction(i, synth.FPS))) for i in range(10)])
+        self.assertTrue(run["cap_hit"])
+        self.assertEqual((run["frames"], run["omitted"]), (10, 50))
+        self.assertEqual((run["omitted_from_s"], run["omitted_to_s"]), ("0.166667", "0.983333"))
+        summary = (out / "summary.md").read_text()
+        self.assertIn("50 more frames presented from 0.166667 s to 0.983333 s", summary)
+        # the shortest decimal after the last written frame (0.150) and no later than
+        # the first omitted one (0.1667)
+        self.assertIn("Continue with --range 0.151-1", summary)
+
+    def test_continuation_range_always_moves_past_the_written_frames(self):
+        # three frames 0, 1.49 and 1.51 ms apart-ish, with distinct ms names
+        video = self.tmp / "close_pts.mp4"
+        if not video.exists():
+            subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi",
+                            "-i", "testsrc=size=64x64:rate=100", "-frames:v", "3", "-vf",
+                            "settb=1/100000,setpts='if(eq(N\\,0)\\,0\\,if(eq(N\\,1)\\,149\\,151))'",
+                            "-fps_mode", "passthrough", "-enc_time_base", "1/100000",
+                            "-video_track_timescale", "100000", "-c:v", "libx264", "-bf", "0",
+                            str(video)], check=True)
+        pk = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "packet=pts", "-of",
+                             "csv=p=0", str(video)], capture_output=True, text=True, check=True)
+        self.assertEqual(pk.stdout.split(), ["0", "149", "151"])   # fixture guard
+        rng, written = "0-0.01", []
+        for i in range(5):
+            out, rows, _, _ = self.frames(video, f"fr-cont{i}", "--range", rng,
+                                          "--max-frames", "1")
+            written += [int(r["pts"]) for r in rows]
+            m = re.search(r"Continue with --range (\S+)", (out / "summary.md").read_text())
+            if not m:
+                break
+            rng = m.group(1).rstrip(",")
+        self.assertEqual(written, [0, 149, 151])        # each frame once, then it stops
+
+    def test_image_budget_for_a_phone_frame(self):
+        video = self.tmp / "phone.mp4"     # self.video() encodes at the default size only
+        if not video.exists():
+            synth.encode(video, synth.numbered_frames(3, w=1080, h=2400), w=1080, h=2400)
+        out, rows, run, cp = self.frames(video, "fr-phone", "--at", "0")
+        self.assertEqual(self.codes(out, rows), [0])
+        self.assertEqual((run["image_budget"]["tokens"], run["image_budget"]["exceeds"]),
+                         (3354, ["standard"]))
+        summary = (out / "summary.md").read_text()
+        self.assertIn("each frame is 1080x2400, about 3354 image tokens", summary)
+        self.assertIn("over the standard tier's limit (long edge 1568 px, 1568 visual tokens)",
+                      summary)
+        self.assertNotIn("high-resolution tier's limit", summary)
+        self.assertNotIn("many-image", summary)
+        self.assertIn("about 3354 image tokens each; over the standard limit", cp.stdout)
+
+    def test_rotated_recording_geometry_is_in_display_orientation(self):
+        src = self.numbered()
+        rot = self.tmp / "numbered_rot90.mp4"
+        if not rot.exists():
+            cp = subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+                                 "-display_rotation", "90", "-i", str(src), "-c", "copy",
+                                 str(rot)], capture_output=True, text=True)
+            if cp.returncode:
+                self.skipTest(f"this ffmpeg cannot write a display matrix: {cp.stderr[-200:]}")
+        info = json.loads(run_cli("info", rot).stdout)
+        if info["rotation"] % 180 == 0:
+            self.skipTest("no rotation side data in the remuxed file")
+        self.assertEqual((info["width"], info["height"]), (800, 360))   # display orientation
+        out, rows, _, _ = self.frames(rot, "fr-rot", "--at", "0.05")
+        self.assertEqual(int(rows[0]["t_ms"]), 50)                       # same time as unrotated
+        gray, w, h = png_gray(out / "frames" / rows[0]["file"])
+        self.assertEqual((w, h), (800, 360))
+        turns = {cw: rot90(synth.code_frame(3), 360, 800, cw) for cw in (True, False)}
+        cw = min(turns, key=lambda k: mad(gray, turns[k]))
+        self.assertLess(mad(gray, turns[cw]), 3)                         # frame 3, turned
+        self.assertGreater(mad(gray, rot90(synth.code_frame(2), 360, 800, cw)), 10)
+        self.assert_manifest_binds_files(out / "frames", rows, src=(800, 360),
+                                         box=(0, 0, 800, 360))
+        # a ROI in display coordinates, odd in both axes
+        box = (101, 37, 203, 151)
+        out, rows, _, _ = self.frames(rot, "fr-rot-roi", "--at", "0.05", "--roi",
+                                      ",".join(map(str, box)))
+        crop, cw_, ch_ = png_gray(out / "frames" / rows[0]["file"])
+        self.assertEqual((cw_, ch_), (203, 151))
+        self.assertLess(mad(crop, region(turns[cw], 800, box)), 3)
+        self.assert_manifest_binds_files(out / "frames", rows, src=(800, 360), box=box)
+
+
+@unittest.skipUnless(HAVE_FFMPEG, "ffmpeg/ffprobe not installed")
+class ShowinfoWithoutDuration(_VideoCase):
+    """ffmpeg 5.1, the oldest supported version, prints no `duration:` field in
+    showinfo (release/5.1 libavfilter/vf_showinfo.c). That format is simulated by
+    removing the field from the real log through the module's own ffmpeg() call,
+    so the end of the video must come from its packets instead."""
+
+    def run_stripped(self, *args):
+        import video_prep as vp
+        logs = []
+        orig = vp.ffmpeg
+
+        def stripped(a, **kw):
+            out, err = orig(a, **kw)
+            # a no-op on an ffmpeg that already prints no duration (5.1)
+            new = re.sub(r"duration:\s*-?\d+ duration_time:\S+ ", "", err)
+            logs.append(new)
+            return out, new
+        err = io.StringIO()
+        with mock.patch.object(vp, "ffmpeg", stripped), \
+                contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
+            rc = vp.main([str(a) for a in args])
+        # premise: the code saw showinfo frame lines, none of them with a duration
+        shown = [f for log in logs for f in core.parse_showinfo_frames(log)]
+        self.assertTrue(shown)
+        self.assertTrue(all(f.duration is None for f in shown))
+        return rc, err.getvalue()
+
+    def test_packet_end_is_used_when_frames_carry_no_duration(self):
+        video = self.video("numbered_1s", lambda: synth.numbered_frames(60))   # ends at 1.000 s
+        out = self.tmp / "d51-in"
+        rc, err = self.run_stripped("frames", video, "--at", "0.99", "--out", out)
+        self.assertEqual(rc, 0, err)
+        (q,) = json.loads((out / "run.json").read_text())["requested"]
+        self.assertTrue(q["on_screen_proven"])
+        out = self.tmp / "d51-past"
+        rc, err = self.run_stripped("frames", video, "--at", "2", "--out", out)
+        self.assertEqual(rc, 1, err)
+        self.assertIn("is past the video end: the last frame is presented at 0.983333 s until "
+                      "1.000000 s (from the video's packets)", err)
+        self.assertFalse(out.exists())
+        # the packets give the end to 6 decimals: a time that close is not decided
+        for i, t in enumerate(("0.999999", "1", "1.0000005")):
+            with self.subTest(at=t):
+                out = self.tmp / f"d51-edge{i}"
+                rc, err = self.run_stripped("frames", video, "--at", t, "--out", out)
+                self.assertEqual(rc, 0, err)
+                (q,) = json.loads((out / "run.json").read_text())["requested"]
+                self.assertFalse(q["on_screen_proven"])
+                self.assertIn("within 2 µs of the video end", q["unproven_because"])
+
+    def test_genuinely_unknown_end_stays_unproven(self):
+        raw = self.tmp / "numbered_1s.h264"
+        if not raw.exists():
+            subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i",
+                            str(self.video("numbered_1s", lambda: synth.numbered_frames(60))),
+                            "-c", "copy", "-bsf:v", "h264_mp4toannexb", str(raw)], check=True)
+        out = self.tmp / "d51-raw"
+        rc, err = self.run_stripped("frames", raw, "--at", "0.2,5", "--out", out)
+        self.assertEqual(rc, 0, err)
+        _, past = json.loads((out / "run.json").read_text())["requested"]
+        self.assertFalse(past["on_screen_proven"])
+        self.assertIn("whether a later frame exists is not known", past["unproven_because"])
+
+
+@unittest.skipUnless(HAVE_FFMPEG, "ffmpeg/ffprobe not installed")
+class ManifestsAndCaps(_VideoCase, _ManifestChecks):
+    """bug and anim write the same frames.tsv for the frames they save, and anim
+    reports what --max-segments / --max-view-frames left out."""
+
+    def test_bug_manifest_matches_the_written_frames(self):
+        video = self.video("bug", synth.bug_frames)
+        out = self.tmp / "bug-manifest"
+        self.cli_ok("bug", video, "--out", out, "--view-size", "400")
+        rows = read_manifest(out / "frames")
+        with open(out / "timeline.tsv") as fh:
+            files = [r["file"] for r in csv.DictReader(fh, delimiter="\t") if r["kind"] == "frame"]
+        self.assertEqual(sorted(f"frames/{r['file']}" for r in rows), sorted(files))
+        self.assert_manifest_binds_files(out / "frames", rows, src=(360, 800),
+                                         box=(0, 0, 360, 800))
+        self.assertEqual({(r["out_w"], r["out_h"], r["scale_x"]) for r in rows},
+                         {("180", "400", "0.500000")})
+        self.assertEqual(json.loads((out / "run.json").read_text())["manifest"],
+                         "frames/frames.tsv")
+
+    def test_size_change_mid_stream_records_no_geometry(self):
+        video = size_changing_video(self.tmp)
+        out = self.tmp / "bug-sizechg"
+        self.cli_ok("bug", video, "--out", out)
+        run = json.loads((out / "run.json").read_text())
+        self.assertIsNone(run["manifest"])
+        self.assertIn("the frame size changes mid-stream", run["manifest_note"])
+        self.assertFalse((out / "frames" / "frames.tsv").exists())
+        self.assertIn("- Warning: no frames/frames.tsv (no geometry is recorded): ",
+                      (out / "summary.md").read_text())
+        # premise control: the same check passes on a constant-size clip (see
+        # test_bug_manifest_matches_the_written_frames), so this is the size change
+        out = self.tmp / "anim-sizechg"
+        self.cli_ok("anim", video, "--out", out)
+        run = json.loads((out / "run.json").read_text())
+        # fixture guard: every frame differs, so the one motion segment spans the size
+        # change (from 0.1 s) and its saved frames include frames of both sizes
+        self.assertEqual(run["segments"], ["s01"])
+        saved = sorted((out / "s01" / "frames").glob("f*.png"))
+        times = [core.parse_frame_name(p.name).ms for p in saved]
+        self.assertTrue(min(times) < 100 <= max(times), times)
+        # that segment is refused: no manifest, a warning naming the change, not listed
+        self.assertFalse((out / "s01" / "frames" / "frames.tsv").exists())
+        fit = json.loads((out / "s01" / "fit.json").read_text())
+        self.assertTrue(any(w.startswith("no frames/frames.tsv (no geometry is recorded): ")
+                            and "the frame size changes mid-stream" in w
+                            for w in fit["warnings"]), fit["warnings"])
+        self.assertEqual(run["manifests"], [])
+
+    def test_anim_manifest_box_is_the_odd_roi_and_pixel_exact(self):
+        video = self.video("markers_slide", lambda: synth.marker_frames(60, slide=True))
+        out = self.tmp / "anim-markers"
+        box = (37, 151, 201, 243)
+        self.cli_ok("anim", video, "--out", out, "--roi", ",".join(map(str, box)))
+        rows = read_manifest(out / "s01" / "frames")
+        self.assert_manifest_binds_files(out / "s01" / "frames", rows, src=(360, 800), box=box)
+        first = min(rows, key=lambda r: int(r["t_ms"]))
+        gray, w, h = png_gray(out / "s01" / "frames" / first["file"])
+        self.assertEqual((w, h), (201, 243))
+        n = 0
+        for mx, my in synth.MARKERS[:3]:
+            want = (mx - box[0] + 2.5, my - box[1] + 2.5)
+            c = synth.dark_centroid(gray, w, h, *want)
+            self.assertAlmostEqual(c[0], want[0], delta=0.3, msg=(want, c))
+            self.assertAlmostEqual(c[1], want[1], delta=0.3, msg=(want, c))
+            n += 1
+        self.assertEqual(n, 3)
+        run = json.loads((out / "run.json").read_text())
+        self.assertEqual(run["manifests"], ["s01/frames/frames.tsv"])
+        # the analysis path crops yuv420p directly (no RGB step), so this is what
+        # proves its region is the requested one: the card sweeps x [60, 220) and
+        # y [250, 300) in the source, i.e. 23..182 x 99..148 (inclusive) in the ROI
+        with open(out / "s01" / "curve.tsv", newline="") as fh:
+            first = next(csv.DictReader(fh, delimiter="\t"))
+        self.assertEqual(first["bbox_vs_end"], "23,99,182,148")
+
+    def slide_right(self):
+        return self.video("slide_right", lambda: synth.card_frames(
+            synth.tween(synth.EASE_OUT, 0.5, 0.3), 1.4, "right"))
+
+    def anim_run(self, video, name, *extra):
+        out = self.tmp / name
+        self.cli_ok("anim", video, "--out", out, *extra)
+        return out, json.loads((out / "run.json").read_text())
+
+    def test_default_run_is_not_capped(self):
+        _, run = self.anim_run(self.slide_right(), "cap-none")
+        self.assertFalse(run["cap_hit"])
+        self.assertEqual(run["caps"]["max_segments"]["skipped"], 0)
+        self.assertEqual(run["caps"]["max_view_frames"]["thinned"], [])
+
+    def test_thinned_view_frames_set_cap_hit_and_give_the_frames_range(self):
+        out, run = self.anim_run(self.slide_right(), "cap-view", "--max-view-frames", "5")
+        self.assertTrue(run["cap_hit"])
+        (th,) = run["caps"]["max_view_frames"]["thinned"]
+        self.assertEqual(th["segment"], "s01")
+        self.assertLess(th["saved"], th["of"])
+        self.assertEqual(len(read_manifest(out / "s01" / "frames")), th["saved"])
+        summary = (out / "summary.md").read_text()
+        self.assertIn(f"- saved frames: {th['saved']} of {th['of']} (thinned by "
+                      "--max-view-frames 5)", summary)
+        self.assertIn(f"--range {th['range']}", summary)
+        a, b = (float(v) for v in th["range"].split("-"))
+        self.assertLess(a, 0.5)          # the motion starts at 0.5 s
+        self.assertGreater(b, 0.8)       # and settles by 0.8 s
+
+    def test_skipped_segments_set_cap_hit(self):
+        progress = synth.chain(synth.tween(synth.EASE_OUT, 0.5, 0.3),
+                               synth.tween(synth.LINEAR, 1.5, 0.3))
+        video = self.video("two", lambda: synth.card_frames(lambda t: progress(t) / 2, 2.4,
+                                                              "right"))
+        out, run = self.anim_run(video, "cap-seg", "--max-segments", "1")
+        self.assertTrue(run["cap_hit"])
+        segs = run["caps"]["max_segments"]
+        self.assertEqual(segs["skipped"], 1)
+        self.assertAlmostEqual(segs["first_skipped_s"], 1.517, delta=0.02)
+        self.assertIn("narrow with --range or raise --max-segments",
+                      (out / "summary.md").read_text())
+
+
 @unittest.skipUnless(HAVE_FFMPEG, "ffmpeg/ffprobe not installed")
 class InfoAndErrors(_VideoCase):
     def test_info(self):
@@ -560,6 +1109,19 @@ class InfoAndErrors(_VideoCase):
             # argparse's float() accepts these; nan would silently drop every black run
             (("bug", video, "--black-min", "nan"), 1, "--black-min must be a number"),
             (("bug", video, "--black-min", "inf"), 1, "--black-min must be a number"),
+            (("frames", video), 2, "one of the arguments --range --at is required"),
+            (("frames", video, "--range", "0-1", "--at", "0"), 2, "not allowed with argument"),
+            (("frames", video, "--at", "0", "--max-frames", "0"), 1,
+             "--max-frames must be at least 1"),
+            (("frames", video, "--at", "x"), 1, "--at takes T[,T...] in seconds"),
+            (("frames", video, "--at", "-1"), 1, "--at takes T[,T...] in seconds"),
+            (("frames", video, "--at", "0,nan"), 1, "--at takes T[,T...] in seconds"),
+            (("frames", video, "--range", "2-1"), 1, "END must be after START"),
+            (("frames", video, "--range", "a-1"), 1, "--range takes START-END"),
+            (("frames", video, "--range", "5-6"), 1, "no frame is presented in 5-6 s"),
+            (("frames", video, "--at", "5"), 1, "is past the video end"),
+            (("frames", video, "--at", "0", "--roi", "300,0,100,100"), 1,
+             "outside the 360x800 frame"),
         ]
         for args, code, msg in cases:
             with self.subTest(args=args[2:]):
