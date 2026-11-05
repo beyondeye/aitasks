@@ -187,6 +187,14 @@ class PaneCategory(Enum):
 DEFAULT_AGENT_PREFIXES = ["agent-"]
 DEFAULT_TUI_NAMES = TUI_NAMES
 
+#: The ``tmux.monitor`` keys a per-session config published to a
+#: ``TmuxMonitor`` may carry — exactly the :func:`load_monitor_config` shape
+#: (t2037_1, ``TmuxMonitor.set_session_configs``).
+SESSION_CONFIG_KEYS = (
+    "capture_lines", "idle_threshold", "agent_prefixes", "tui_names",
+    "compare_mode_default",
+)
+
 
 def match_agent_prefix(window_name: str, prefixes) -> str | None:
     """The agent prefix ``window_name`` starts with — the FIRST in list order,
@@ -1487,6 +1495,10 @@ class TmuxControlClient:
         self._capturing: Optional[tuple[int, list[str], bool]] = None
         self._write_lock = asyncio.Lock()
         self._alive = False
+        #: Set when tmux sent ``%exit`` (t2037_1): the server went away, or the
+        #: attached session was destroyed. Read by the backend supervisor and
+        #: the shared status server, which tells the two apart by probing.
+        self.saw_exit = False
 
     @property
     def is_alive(self) -> bool:
@@ -1569,7 +1581,8 @@ class TmuxControlClient:
                     deliver = (int(m.group(3)) & 1) != 0
                     self._capturing = (int(m.group(2)), [], deliver)
                 elif _EXIT_RE.match(line):
-                    break  # tmux server is going away
+                    self.saw_exit = True
+                    break  # tmux server (or the attached session) is going away
                 # Any other %-line outside a Capturing block is an async
                 # event (filtered to `no-output`-only by the spawn flags,
                 # but tmux can still emit %sessions-changed, %client-detached,
@@ -1736,10 +1749,20 @@ class TmuxControlBackend:
         self._state_lock = threading.Lock()
         self._reconnect_task: Optional[asyncio.Task] = None
         self._stop_requested: bool = False
+        # Sticky: some client of this backend saw `%exit` (t2037_1). The
+        # supervisor swaps `_client` on reconnect, so the flag is copied here
+        # before the dead client is replaced.
+        self._exit_seen = threading.Event()
 
     @property
     def is_alive(self) -> bool:
         return self._client is not None and self._client.is_alive
+
+    @property
+    def exit_seen(self) -> bool:
+        """Whether any client of this backend received ``%exit``."""
+        client = self._client
+        return self._exit_seen.is_set() or (client is not None and client.saw_exit)
 
     @property
     def state(self) -> TmuxControlState:
@@ -1832,6 +1855,8 @@ class TmuxControlBackend:
                     return
 
                 # Phase 2: client is dead. Try to reconnect with backoff.
+                if self._client is not None and self._client.saw_exit:
+                    self._exit_seen.set()
                 self._set_state(TmuxControlState.RECONNECTING)
                 attempts = 0
                 reconnected = False
@@ -2210,6 +2235,16 @@ class TmuxMonitor:
         self._full_shadow_seq: tuple[int, int] | None = None
         self._sessions_cache: tuple[float, list[AitasksSession]] | None = None
         self._compare_mode_overrides: dict[str, str] = {}
+        # Per-session `tmux.monitor` config (t2037_1). Empty for every
+        # in-process client, so each lookup falls back to the instance
+        # attributes above; only the shared status server publishes it (one
+        # producer, many projects). See `set_session_configs` / `_cfg`.
+        self._session_configs: dict[str, dict] = {}
+        # pane id -> session name for EVERY discovered pane, agents and shadows
+        # alike (t2037_1), so `get_compare_mode(pane_id)` resolves a session's
+        # default without widening its id-only signature. Shadows are not in
+        # `_pane_cache` (cache-boundary invariant), hence a separate map.
+        self._pane_sessions: dict[str, str] = {}
         self._backend: TmuxControlBackend | None = None
         #: Bumped by every `close_control_client`, so a `start_control_client`
         #: suspended in its `to_thread` hop can tell that the app tore down
@@ -2261,6 +2296,13 @@ class TmuxMonitor:
     def has_control_client(self) -> bool:
         return self._backend is not None and self._backend.is_alive
 
+    def control_exit_seen(self) -> bool:
+        """Whether the current control backend received tmux's ``%exit``
+        (t2037_1). ``False`` with no backend; a backend started after
+        :meth:`close_control_client` starts clear."""
+        backend = self._backend
+        return backend is not None and backend.exit_seen
+
     def control_state(self) -> TmuxControlState:
         """Backend channel state, or `STOPPED` if no backend is attached."""
         if self._backend is None:
@@ -2299,6 +2341,35 @@ class TmuxMonitor:
         capture of every already-parked agent on every launch.
         """
         self._parked_agents = frozenset(pairs or ())
+
+    #: See the module-level :data:`SESSION_CONFIG_KEYS`.
+    SESSION_CONFIG_KEYS = SESSION_CONFIG_KEYS
+
+    def set_session_configs(self, configs) -> None:
+        """Publish per-session ``tmux.monitor`` config (t2037_1).
+
+        ``configs`` maps a tmux session name to a :func:`load_monitor_config`
+        dict for that session's project. A session absent from the map — and
+        every session when nothing was ever published, which is every
+        in-process client — uses the instance attributes, so this seam changes
+        nothing until the shared status server publishes it. Only
+        :data:`SESSION_CONFIG_KEYS` are read; other keys are ignored.
+
+        **Rebinds, never mutates in place** — the same publish-down shape as
+        :meth:`set_parked_agents`, so a reader keeps a coherent view of the
+        tick it started in.
+        """
+        self._session_configs = dict(configs or {})
+
+    def _cfg(self, session_name: str | None, key: str):
+        """``key``'s value for ``session_name``: its published session config,
+        else the instance attribute. An empty or unknown session falls
+        through."""
+        if session_name:
+            cfg = self._session_configs.get(session_name)
+            if cfg is not None and key in cfg:
+                return cfg[key]
+        return getattr(self, key)
 
     def _is_parked_pane(self, pane: "TmuxPaneInfo") -> bool:
         """Whether this pane is an agent the App asked us not to capture."""
@@ -2651,10 +2722,15 @@ class TmuxMonitor:
         sessions = await self._discover_sessions_cached_async()
         return {s.session: s.project_root for s in sessions}
 
-    def classify_pane(self, window_name: str) -> PaneCategory:
-        if match_agent_prefix(window_name, self.agent_prefixes) is not None:
+    def classify_pane(
+        self, window_name: str, session_name: str | None = None,
+    ) -> PaneCategory:
+        """The window's category under ``session_name``'s config (t2037_1);
+        with no published session config, the instance prefixes/TUI names."""
+        prefixes = self._cfg(session_name, "agent_prefixes")
+        if match_agent_prefix(window_name, prefixes) is not None:
             return PaneCategory.AGENT
-        if window_name in self.tui_names:
+        if window_name in self._cfg(session_name, "tui_names"):
             return PaneCategory.TUI
         if window_name.startswith(BRAINSTORM_PREFIX):
             return PaneCategory.TUI
@@ -2835,6 +2911,7 @@ class TmuxMonitor:
             if not is_frozen and scratch_target:
                 continue    # scratchpad helper: dropped, NEVER routed to `shadows`
             if not is_frozen and is_shadow_target(parts[8]):
+                self._pane_sessions[pane_id] = session_name
                 # Category forced to AGENT: a shadow IS a coding-agent CLI, so
                 # the prompt scan + idle bookkeeping must apply regardless of
                 # its window name (a same-window shadow shares the agent's).
@@ -2860,7 +2937,7 @@ class TmuxMonitor:
                     pane_dead=pane_dead,
                 ))
                 continue
-            category = self.classify_pane(window_name)
+            category = self.classify_pane(window_name, session_name)
             # Filter companion panes (minimonitor/monitor). UNCONDITIONAL by
             # process identity (t1382), like the shadow-helper filter above and
             # unlike the former `category == AGENT and …` form: renaming a window
@@ -2899,6 +2976,7 @@ class TmuxMonitor:
             )
             panes.append(pane)
             self._pane_cache[pane_id] = pane
+            self._pane_sessions[pane_id] = session_name
         self._evict_companion_memo(session_name, seen)
         return panes, shadows
 
@@ -3062,7 +3140,7 @@ class TmuxMonitor:
                 current_command=parts[5],
                 width=width,
                 height=height,
-                category=self.classify_pane(window_name),
+                category=self.classify_pane(window_name, self.session),
                 session_name=self.session,
             )
             panes.append(pane)
@@ -3115,14 +3193,19 @@ class TmuxMonitor:
     def get_compare_mode(self, pane_id: str) -> str:
         """Effective idle-detection compare mode for a pane.
 
-        Returns the per-pane override if set, otherwise the global default.
+        Returns the per-pane override if set, otherwise the default of the
+        pane's session (published session config, t2037_1), falling back to
+        ``compare_mode_default``.
 
         The override is ONE shared per-pane setting (t2034_2): every client of
         this producer reads the same value, because there is one idle clock. It
         is reaped only when the producer's own discovery loses the pane
         (`_clean_stale`), never because a client's view hides it.
         """
-        return self._compare_mode_overrides.get(pane_id, self.compare_mode_default)
+        return self._compare_mode_overrides.get(
+            pane_id,
+            self._cfg(self._pane_sessions.get(pane_id), "compare_mode_default"),
+        )
 
     def is_compare_mode_overridden(self, pane_id: str) -> bool:
         return pane_id in self._compare_mode_overrides
@@ -3183,7 +3266,7 @@ class TmuxMonitor:
         last_change = self._last_change_time.get(pane_id, now)
         idle_seconds = now - last_change
         is_idle = (
-            idle_seconds > self.idle_threshold
+            idle_seconds > self._cfg(pane.session_name, "idle_threshold")
             if pane.category == PaneCategory.AGENT
             else False
         )
@@ -3222,9 +3305,11 @@ class TmuxMonitor:
         return self._apply_bookkeeping(pane, content, result, now)
 
     def _capture_args(
-        self, pane_id: str, capture_lines: int | None = None
+        self, pane_id: str, capture_lines: int | None = None,
+        session_name: str | None = None,
     ) -> list[str]:
-        n = self.capture_lines if capture_lines is None else capture_lines
+        n = (self._cfg(session_name, "capture_lines")
+             if capture_lines is None else capture_lines)
         return [
             "capture-pane", "-p", "-e", "-t", pane_id,
             "-S", f"-{n}",
@@ -3236,7 +3321,8 @@ class TmuxMonitor:
         pane = self._pane_cache.get(pane_id)
         if pane is None:
             return None
-        rc, content = self.tmux_run(self._capture_args(pane_id, capture_lines))
+        rc, content = self.tmux_run(
+            self._capture_args(pane_id, capture_lines, pane.session_name))
         if rc != 0:
             return None
         return self._finalize_capture(pane, content)
@@ -3261,6 +3347,12 @@ class TmuxMonitor:
         so a stale value is never returned.
         """
         return self._shadow_snapshots.get(followed_pane_id)
+
+    def shadow_snapshots(self) -> dict[str, "PaneSnapshot"]:
+        """Every live shadow snapshot, keyed by the FOLLOWED pane id — a shallow
+        copy, so the caller cannot mutate the producer's map (t2037_1). The
+        status server's frame builder is the consumer."""
+        return dict(self._shadow_snapshots)
 
     async def refresh_shadow_snapshot(
         self, followed_pane_id: str
@@ -3397,7 +3489,8 @@ class TmuxMonitor:
         if pane is None:
             return None
         gen = self._next_generation()
-        rc, content = await self._tmux_async(self._capture_args(pane_id, capture_lines))
+        rc, content = await self._tmux_async(
+            self._capture_args(pane_id, capture_lines, pane.session_name))
         if rc != 0:
             return None
         mode = self.get_compare_mode(pane_id)
@@ -3430,7 +3523,8 @@ class TmuxMonitor:
             pane = self._pane_cache.get(pane_id)
         if pane is None:
             return None
-        rc, content = await self._tmux_async(self._capture_args(pane_id, capture_lines))
+        rc, content = await self._tmux_async(
+            self._capture_args(pane_id, capture_lines, pane.session_name))
         if rc != 0:
             return None
         return pane, content
@@ -3529,6 +3623,8 @@ class TmuxMonitor:
         for pid in list(self._compare_mode_overrides):
             if pid not in current_ids:
                 self._compare_mode_overrides.pop(pid, None)
+        for pid in [p for p in self._pane_sessions if p not in current_ids]:
+            del self._pane_sessions[pid]
 
     def capture_all(self) -> dict[str, PaneSnapshot]:
         """Synchronous all-pane capture (debug CLI `tmux_monitor.py` only).
@@ -5047,6 +5143,26 @@ def spawn_sitrep(monitor, *, target_root, session: str, select_window: bool,
 
 _TASK_ID_RE = re.compile(
     r'^agent-(?P<operation>pick|qa|resume)-(?P<task_id>\d+(?:_\d+)?)$')
+
+
+def is_task_completed(info) -> bool:
+    """True when a pane's resolved task is finished (t1322).
+
+    Accepts a ``TaskInfo`` or ``None``. Both signals are checked because
+    ``aitask_archive.sh`` sets ``status: Done`` *before* it moves the file into
+    ``aitasks/archived/``, so a monitor tick can land between the two and see
+    either one alone.
+
+    Lives here, beside ``TaskInfoCache``, so the headless status server
+    (t2037_1) can apply the same rule without importing Textual;
+    ``monitor_shared`` re-exports it for the TUIs.
+    """
+    if info is None:
+        return False
+    if str(getattr(info, "status", "")).strip() == "Done":
+        return True
+    abs_path = str(getattr(info, "task_file_abs", "") or "")
+    return "/archived/" in abs_path.replace(os.sep, "/")
 
 
 def task_id_from_window_name(window_name: str) -> str | None:

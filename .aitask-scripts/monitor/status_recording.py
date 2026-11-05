@@ -393,14 +393,8 @@ async def _sleep_pacer(_index: int, delay: float) -> None:
         await asyncio.sleep(delay)
 
 
-def _tail(content: str, lines: int) -> str:
-    """The last ``lines`` lines of a capture. Splits on ``\\n`` only (never
-    ``splitlines()``, which also splits on other separators — a Go twin would
-    disagree), and keeps a trailing newline as the line terminator it is."""
-    terminated = content.endswith("\n")
-    body = content[:-1] if terminated else content
-    tail = "\n".join(body.split("\n")[-lines:])
-    return tail + "\n" if terminated else tail
+#: The ``capture`` tail rule, shared with the status server (t2037_1).
+_tail = sp.tail_lines
 
 
 class _ReplayConnection:

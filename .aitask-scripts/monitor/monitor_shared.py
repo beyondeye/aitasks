@@ -52,6 +52,8 @@ from monitor.monitor_core import (  # noqa: E402,F401
     CAPTURE_PIN_ALL,
     client_view_snapshots,
     parked_capture_skip,
+    # Moved to monitor_core (t2037_1) so the headless status server shares it.
+    is_task_completed,
 )
 
 from typing import TYPE_CHECKING, NamedTuple, Sequence
@@ -128,22 +130,6 @@ def format_compare_mode_glyph(mode: str, is_override: bool) -> str:
     glyph = COMPARE_MODE_ICONS.get(mode, "?")
     color = "yellow" if is_override else "dim"
     return f"[{color}]{glyph}[/]"
-
-
-def is_task_completed(info) -> bool:
-    """True when a pane's resolved task is finished (t1322).
-
-    Accepts a ``TaskInfo`` or ``None``. Both signals are checked because
-    ``aitask_archive.sh`` sets ``status: Done`` *before* it moves the file into
-    ``aitasks/archived/``, so a monitor tick can land between the two and see
-    either one alone.
-    """
-    if info is None:
-        return False
-    if str(getattr(info, "status", "")).strip() == "Done":
-        return True
-    abs_path = str(getattr(info, "task_file_abs", "") or "")
-    return "/archived/" in abs_path.replace(os.sep, "/")
 
 
 # Agent-state markup styles. Named here (t1453) because the DONE style was

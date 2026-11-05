@@ -712,6 +712,18 @@ async def read_line(reader: asyncio.StreamReader) -> bytes | None:
     return line
 
 
+def tail_lines(content: str, lines: int) -> str:
+    """The last ``lines`` lines of a capture — the ``capture`` result's content.
+
+    Splits on ``\\n`` only (never ``splitlines()``, which also splits on other
+    separators — a Go twin would disagree), and keeps a trailing newline as the
+    line terminator it is."""
+    terminated = content.endswith("\n")
+    body = content[:-1] if terminated else content
+    tail = "\n".join(body.split("\n")[-lines:])
+    return tail + "\n" if terminated else tail
+
+
 # ---------------------------------------------------------------------------
 # Records: PaneSnapshot <-> wire record
 # ---------------------------------------------------------------------------

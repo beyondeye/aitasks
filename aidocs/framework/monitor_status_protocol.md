@@ -402,10 +402,13 @@ Not on the wire:
 
 - **`shadows`** — the producer's shadow snapshots (`get_shadow_snapshot`), keyed
   by the followed pane id; each record's `pane.shadow_target` equals its key.
-- **`completed`** — sorted pane ids of AGENT panes that are neither parked nor
-  frozen and whose task (resolved from the window name, `agent-(pick|qa|resume)-<id>`)
-  is `Done` or already archived. This is the clients' `_compute_completed_panes`
-  rule (`is_task_completed`), moved server-side.
+- **`completed`** — sorted pane ids of AGENT panes whose task (resolved from the
+  window name, `agent-(pick|qa|resume)-<id>`) is `Done` or already archived.
+  Excluded are panes that are parked or frozen in their record, **and** panes
+  whose `[session, window]` is in the global parked set even when another
+  subscriber's pin had them captured live. That keeps the set identical for every
+  client. This is the clients' `_compute_completed_panes` rule
+  (`is_task_completed`), moved server-side.
 - **`sessions`** — the session→project map (`get_session_to_project_mapping`):
 
 <!-- schema:object session -->
@@ -697,9 +700,9 @@ discovered by a waiting client. Should playback still fail, the connection gets
 - At the end of the recording the connection stays open, like a quiet server,
   unless `--exit-at-end` is given.
 
-Until the status server exists (t2037), live recording is exercised against the
-replayer: the tests record a replayed stream and require the result to equal the
-source.
+The tests record a replayed stream and require the result to equal the source.
+They also record the status server's own stream, both in-process and against a
+live tmux server, and require `check` to accept it.
 
 ## Fixtures
 
@@ -748,12 +751,157 @@ none, with a captured dialog as the negative control.
 
 ## Lifecycle and socket path
 
-Owned by the server task (t2037_1), which documents it in this section. The
-shape it implements: one socket per (tmux socket, `VERSION`) under
-`$XDG_RUNTIME_DIR/aitasks/` (`~/.aitask/run/` where that is unset), directory
-mode 0700; the first client starts the server under a file lock; the server exits
-after a grace period with no subscribers or on the control client's `%exit`, and
-a client that cannot reach or start it falls back to in-process `TmuxMonitor`.
+The Python server is `.aitask-scripts/monitor/status_server.py`:
+
+```bash
+python3 .aitask-scripts/monitor/status_server.py ensure [--version V] [--session S] [--grace G] [--deadline D]
+python3 .aitask-scripts/monitor/status_server.py serve --socket SOCK [--lock-fd N] [--version V] [--tmux-socket-path P] [--session S] [--project-root R] [--grace G] [--interval I]
+python3 .aitask-scripts/monitor/status_server.py path [--version V]
+```
+
+A client calls `ensure_server()`, or the `ensure` CLI. A client that gets
+`UNAVAILABLE` falls back to its own in-process `TmuxMonitor`.
+
+### Socket path
+
+- **Directory.** `$XDG_RUNTIME_DIR/aitasks/` when `XDG_RUNTIME_DIR` names an
+  existing directory, else `~/.aitask/run/`. It is created with mode 0700 and
+  re-checked with `lstat`: it must be a real directory owned by the user, with no
+  group or other bits. A directory the user owns with loose bits is tightened to
+  0700. Anything else is refused (`unsafe_runtime_dir`).
+- **Key.** The answering tmux server is asked for its own socket path
+  (`list-sessions -F '#{socket_path}'`, through the gateway). Every way of naming
+  a server therefore converges on one key: `-L`, `AITASKS_TMUX_SOCKET`,
+  `TMUX_TMPDIR`, ambient `$TMUX`. The key is the first 16 hex digits of that
+  path's SHA-256. When no tmux server answers, `ensure` reports
+  `no_tmux_server`: there is nothing to monitor.
+- **Version.** `VERSION` is used verbatim when it matches
+  `[A-Za-z0-9._+-]{1,64}`. Otherwise it is `v` followed by 12 hex digits of its
+  SHA-256.
+- **Files.** In the directory:
+  - `monitor-<key>-<version>.sock` — the socket, mode 0600;
+  - `monitor-<key>-<version>.lock` — the lock;
+  - `monitor-<key>-<version>.log` — the server's stderr, truncated at each
+    start.
+
+  A socket path longer than 103 bytes, the macOS `sun_path` limit, is refused
+  (`socket_path_too_long`).
+
+### The lock means "a server is alive"
+
+An exclusive `flock` on the `.lock` file is held for the server's whole life.
+`ensure` takes it first, then spawns the server with that lock file descriptor
+inherited. The child shares the open file description, so the lock stays held
+after `ensure` closes its own descriptor. Process exit releases it. Nothing ever
+calls `LOCK_UN`: on a shared description that would release the server's lock
+too.
+
+So whoever holds the lock knows no server is alive. A leftover `.sock` is then
+stale and is removed, but only after `lstat` shows it is a socket the user owns
+(`unsafe_socket_path` otherwise). Double start is impossible. A hung but alive
+server keeps its lock and is never replaced, and clients fall back in-process.
+`serve` started by hand without `--lock-fd` takes the lock itself. It exits with
+status 3 (`ALREADY_RUNNING`) when another server holds the lock or already
+answers.
+
+### `ensure`
+
+`ensure_server()` is synchronous, for a client's worker thread. It returns one of
+three states:
+
+| State | Meaning |
+|---|---|
+| `RUNNING:<sock>\|<pid>` | A server answered a `hello` probe with this version. |
+| `STARTED:<sock>\|<pid>` | This call started it. |
+| `UNAVAILABLE:<reason>` | Fall back in-process. Reasons: `no_tmux_server`, `unsafe_runtime_dir`, `socket_path_too_long`, `lock_failed:<e>`, `lock_timeout`, `unsafe_socket_path`, `spawn_failed:<e>`, `server_failed:<last log line>`, `start_timeout`. |
+
+The CLI prints exactly one of those lines and exits 0 or 1.
+
+The steps:
+
+1. Probe. A probe sends `hello` with `client.kind:"probe"` and never subscribes,
+   so it never counts as a subscriber.
+2. Take the lock non-blocking, retried for up to `--deadline` (default 10 s).
+   Each retry probes again, because another caller may be starting the server.
+3. With the lock held, remove a stale socket.
+4. Spawn `serve` detached: `start_new_session`, so there is no controlling
+   terminal, and stdio goes to the log.
+5. Poll the probe every 50 ms until the server's `welcome` arrives. The server
+   binds its socket before it starts the tmux control client, so readiness does
+   not wait for the control channel.
+
+A server still starting at the deadline is left running. If it comes up and
+nobody subscribes, its idle grace ends it.
+
+`serve` refuses to start when the tmux server it would talk to has a different
+socket path from the one it was keyed under (`--tmux-socket-path`, exit 4).
+
+### Ticks
+
+- **Producer.** The server builds one `TmuxMonitor` with default config. Each
+  tick publishes every session's project `tmux.monitor` config to it with
+  `set_session_configs`, via `load_monitor_config` through the session→project
+  map. Prefixes, TUI names, capture lines, idle threshold and compare default are
+  therefore per session.
+- **When ticks run.** Only while at least one connection is subscribed. With no
+  subscriber the producer does not scan.
+- **Interval.** Each mapped project contributes its `tmux.monitor.refresh_seconds`.
+  The value counts when it is a finite number above 0; a missing or invalid value
+  counts as 3, as in `ait monitor`. The interval is the minimum over the mapped
+  projects, clamped to [1, 60] seconds, and 3 when nothing is mapped.
+- **Full scans keep their cadence.** The schedule counts from the last **full**
+  tick. A partial `refresh` commits a generation but discovers nothing, so a
+  client refreshing one pane fast never postpones discovery of the rest.
+- **Fresh snapshots.** A `subscribe`, first or resync, that arrives when the last
+  full tick is older than one interval runs a tick first. The reply therefore
+  describes the current state, not the state before an idle period. That tick's
+  delta reaches an already subscribed connection under its **old** selection;
+  the new selection applies from the reply snapshot on.
+- **Serialization.** One producer lock serializes ticks, `refresh`,
+  `set_compare_mode` / `cycle_compare_mode`, `set_pins`, and control-client
+  restarts. A compare-mode change therefore lands strictly between two captures
+  and never between a capture and its commit, so a compare-mode `result` can wait
+  up to one tick. `capture` neither reserves a generation nor changes a capture
+  input, so it does not take the lock.
+- **Skip set.** The skip set, `parked_capture_skip` of the global parked set and
+  every subscribed connection's pins, is republished before **every** capture:
+  each tick and each partial `refresh`. It is also republished whenever pins
+  change, including when a connection closes. A pin therefore takes effect on the
+  next capture.
+- **A failed tick** is logged and commits nothing, and `gen` does not advance.
+  The next attempt waits one interval, so a persistent failure is retried at the
+  tick cadence rather than in a loop. The server keeps running.
+- **Oversized values.** A `refresh_seconds` integer of any size is compared as an
+  integer, and capped at the 60 s clamp before conversion.
+
+### Connections
+
+- A connection that has not completed `hello` within 10 s gets
+  `error{code:"bad_message"}` and is closed.
+- `set_pins` before `subscribe` is stored. Pins count only once the connection
+  subscribes.
+- Each connection has one outbound queue, bounded at 128 messages. A subscriber
+  that falls further behind is disconnected, and it reconnects and resyncs.
+
+### Exit
+
+A watchdog checks every 0.5 s. The server exits:
+
+- **Idle.** No subscriber for the grace period: `--grace`, default 30 s, counted
+  from start and from each time the last subscriber leaves.
+- **Socket replaced.** The socket path no longer has the inode it bound, because
+  someone removed or replaced it, so the server no longer owns the address. It
+  exits without touching the new file.
+- **`%exit`.** The control client saw `%exit`. tmux sends that both when the
+  server goes away and when only the attached session is destroyed, so the server
+  probes the tmux server:
+  - Gone, or answering with a different socket path → the server exits.
+  - Still there → it was a session detach. The server restarts the control client
+    on a live aitasks session; with none, it stays on the subprocess fallback.
+- **Signal.** SIGTERM or SIGINT.
+
+On exit it closes every connection and the control client, then removes the
+socket only if it still has the inode the server bound.
 
 ## Python codec reference
 
@@ -773,15 +921,30 @@ a client that cannot reach or start it falls back to in-process `TmuxMonitor`.
 | `snapshot_message(frame, gen=…, ts=…, …)` | A snapshot of a frame for one subscriber. |
 | `StreamState` | Client side: `apply(msg)` with the generation and patch rules; `snapshots()`, `shadow_snapshots()`, `completed`, `parked`, `sessions`, `discovery`, `control_state`. |
 
+`tail_lines(content, lines)` is the `capture` tail rule (split on `\n` only),
+shared by the replayer and the server.
+
 `.aitask-scripts/monitor/status_recording.py`: `read_recording`,
 `check_recording`, `record_connect`, `ReplayServer`, `replay_delays`, and the CLI
 above.
 
+`.aitask-scripts/monitor/status_server.py`:
+- `ensure_server` / `EnsureResult`;
+- `probe` / `probe_async`;
+- `StatusServer`;
+- `server_paths` / `runtime_dir` / `tmux_socket_path`;
+- `ProjectConfigCache` / `tick_interval`;
+- the CLI in [Lifecycle and socket path](#lifecycle-and-socket-path).
+
 ## Known limits
 
-- The delta and patch semantics are proven encoder-to-state and against the
-  replayer, not yet against the real producer's tick-to-tick behaviour; the
-  server task may find a producer behaviour that needs a clarification here.
+- The delta and patch semantics are proven encoder-to-state, against the
+  replayer, and against the server's real producer on a live tmux server
+  (content changes, a shadow binding, a pane appearing and one disappearing).
+  The live proof covers one host and those transitions only.
+- A partial `refresh` (`panes` / `shadows`) recaptures only the named panes. In
+  the generation it commits, every other record keeps the values of its last
+  capture, including `idle_seconds`, even though the message's `ts` is new.
 - `idle_seconds` is as of the message's `ts`. Clients display it as given; this
   version defines no extrapolation between deltas.
 - A shadow's content selection follows its followed pane id; there is no way to

@@ -184,6 +184,12 @@ PINNED_FILES = frozenset(
     # Flagged because the path literal and the write primitives sit in one file,
     # not because anything under aitasks/metadata is written.
     ".aitask-scripts/lib/agent_freeze.py",
+    # Stats each session's `aitasks/metadata/project_config.yaml` to cache its
+    # `tmux.monitor` config (read-only, through `load_monitor_config` /
+    # `load_project_tmux_config`). Its only writes are its own runtime files —
+    # the status socket, lock and log under `$XDG_RUNTIME_DIR/aitasks/`, which
+    # is what the `.unlink(` hits are (t2037_1).
+    ".aitask-scripts/monitor/status_server.py",
     ".aitask-scripts/lib/artifact_backends/dir.sh",
     ".aitask-scripts/lib/gate_verifier_lib.sh",
     ".aitask-scripts/lib/userconfig_persist.py",
