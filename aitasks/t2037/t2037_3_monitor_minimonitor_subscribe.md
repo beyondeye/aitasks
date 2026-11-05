@@ -53,3 +53,5 @@ monitor status server task).
 > | - In server mode the server applies each session's project_config.yaml, not an app's CLI overrides (--interval, capture lines).
 > | - tests/test_monitor_client_surface.py fails if an app starts using a monitor attribute the client neither serves nor allowlists (GATEWAY_NAMES).
 > | - Optional: render on push via add_update_listener (Applied.changed) / add_mode_listener.
+
+> **👁 note:read** id=2026-11-05T22:20:38Z.5d4de543ba547b4980a55e0e by=t2037_3 at=2026-11-05T22:20:38Z mode=explicit ids=2026-11-04T20:09:14Z.518d4636c5eb9849ba8afc32,2026-11-05T22:06:07Z.a07bd73c9ff71ed79f810a47
