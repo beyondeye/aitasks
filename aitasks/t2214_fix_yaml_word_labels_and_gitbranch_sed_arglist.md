@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
@@ -55,3 +57,5 @@ and on the t2209 tree (`/usr/bin/sed: Argument list too long` at gitbranch.sh li
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-11-05T13:34:04Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-11-05T22:16:35Z status=pass attempt=1 type=human
