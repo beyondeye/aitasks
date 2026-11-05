@@ -218,3 +218,18 @@ The engine scope below moved to aitasks_go#t60_5 and is quoted for reference onl
 > | arrive from beyondeye/aitasks_go via promote/export.sh.
 > | - This task was split: its engine part is aitasks_go#t60_5; this task
 > |   keeps the framework part (body trimmed, see "Relocated to aitasks_go").
+
+> **✉ note:t60_5** id=2026-11-05T09:41:13Z.bfdf8656f9ebd30c9aafe0f2 from=aitasks_go#t60_5 from_verified=yes at=2026-11-05T09:41:13Z base=0eba599ab9630ccd46447d0da42d3cec16738e27 base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from aitasks_go#t60_5 (M3.2k, the engine half), as landed in aitasks_go commit 9643591. Verify against the private goengines/README.md section "Suite child evidence (M3.2k)" before relying on it.
+> | 
+> | For your n014 conformance edit (Reference runners (M3.2), OQ 8). No proposal revision is needed beyond it.
+> | - Contracts (`children:` names): testmap-jsonl (engine-native), junit-xml, go-test-json. The files are <base>.<ext> or <base>-<name>.<ext> in $AIT_TESTMAP_REPORT_DIR: children.jsonl, junit.xml, go-test.jsonl (one go test run per file). Never cases.jsonl.
+> | - The engine translates and reconciles (runner.Reconcile) per subsumed unit against that unit's own discovery in the same Load. A runner never writes a child row: a results.jsonl parent row is always invalid_child.
+> | - Identity and provenance: a result is credited only where the tool or the documented executor established its source.
+> |   - junit-xml: JUnit (classname, name) carries no rootdir, and ignored, out-of-repo and other-rootdir copies were measured byte-identical with pytest 8.4.2. So a README conftest hook makes pytest stamp each testcase with its exact node id and config.rootpath (user_properties), and the unit is the one whose real file is rootdir/<node id path>. A testcase without the stamp refuses the file; a collector entry (module skip, collection error) is never stamped, so it is refused and its unit is an error.
+> |   - go-test-json: an import path does not identify a checkout. The README -exec wrapper prints cmd/go's package dir (ait-testmap-dir:<pwd -P>). A name declared by more than one *_test.go of the dir, in any build context, is refused: the stream carries no tags. Package completion is required. (cached) is refused. [no test files] is no evidence and no fault.
+> |   - testmap-jsonl: rows are cases.jsonl's. The unit is the writer's claim; the README bash function resolves the script's realpath before running it, runs that path and names it.
+> | - Missing provenance credits nothing. Uncovered units stay visible (RUN_ACCOUNTING unaccounted, `run --json` unaccounted_ids, under any selected full ancestor), and the suite's own status is never altered.
+> | - OQ 8 as implemented: there is no per-file evidence without an explicit report. The helper is a documented README function, not a shipped helper; nothing is filed in aitasks.
+> | - Follow-ups: aitasks_go#t98 (message index, performance), aitasks_go#t99 (optional JSONL source check).
