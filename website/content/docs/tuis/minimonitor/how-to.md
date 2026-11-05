@@ -102,6 +102,8 @@ All keyboard actions documented below remain available.
 ### How to Navigate the Agent List
 
 - **Up** / **Down** — Move focus between agent cards within the list.
+- **Shift+Up** / **Shift+Down** — Jump to the previous / next project's agents — see [How to Jump Between Projects](#how-to-jump-between-projects).
+- **Shift+Left** / **Shift+Right** — Narrow the list to one workflow phase or to parked / frozen agents — see [How to Filter the List by Phase or State](#how-to-filter-the-list-by-phase-or-state).
 - The key-hint band at the bottom summarizes the navigation and action keys — see [How to Collapse the Key Hints or Open the Full Key Help](#how-to-collapse-the-key-hints-or-open-the-full-key-help).
 
 When minimonitor is shown as a side split next to an agent, it auto-selects the card for that agent whenever the minimonitor pane regains terminal focus — so the focused card always reflects the neighbor you are working with, unless you explicitly moved focus somewhere else.
@@ -418,6 +420,34 @@ When the multi-session view is ON, agents are grouped under `── <session_nam
 
 For the full cross-TUI story (auto-discovery, rendering details, cross-session focus from the main monitor), see [Multi-session view]({{< relref "/docs/tuis/monitor/reference" >}}#multi-session-view) in the monitor reference.
 
+### How to Jump Between Projects
+
+Each project's agents sit together under their own `── <session_name> ──` divider in the multi-session view. With many agents the list is longer than the pane, so press **Shift+Down** to jump to the next project and **Shift+Up** to jump to the previous one. The list scrolls so that project's divider sits at the top, and its first agent card is selected — ready for **s**, **i** or another jump.
+
+- The jump **wraps around**: Shift+Down on the last project goes to the first, and Shift+Up on the first goes to the last.
+- "The current project" is the one whose card is selected. With no card selected, it is the project at the top of the visible list.
+- Only the agent section's projects are jump targets. The **other** section below them is not.
+- When the whole list already fits in the pane there is nothing to scroll, and the keys do nothing. They also do nothing in the single-session view, which has only one project.
+- A jump counts as scrolling away from the bottom, so it releases the bottom pin described under [Mouse Support](#mouse-support), exactly as the scroll wheel does.
+
+### How to Filter the List by Phase or State
+
+Press **Shift+Right** to narrow the list to one kind of agent, and press it again to move on to the next kind:
+
+`all` → `PLAN` → `IMPLEMENT` → `POSTIMPL` → `parked` → `frozen` → back to `all`
+
+**Shift+Left** walks the same cycle backwards, so from `all` it goes straight to `frozen`.
+
+- **`PLAN` / `IMPLEMENT` / `POSTIMPL`** show only the live agents whose task is in that [workflow phase](#how-to-read-the-agent-list). An agent whose phase cannot be told (`unknown`), or that has no task, matches none of them, and neither do parked or frozen agents. The phase is **advisory**: the filter narrows what you see and never changes what any key does.
+- **`parked`** shows only parked agents and **`frozen`** only frozen ones. An agent that is both is shown under `frozen`, the same way its card reads `frozen`. These two show their agents even while **P** is hiding parked and frozen agents — the filter you picked wins.
+- Under any filter other than `all`, the **other** section is hidden, since those panes have no phase or state.
+
+While a filter is active, a line just above the list names it together with the keys that change it — `filter: IMPLEMENT  ⇧←→`. At `all` the line disappears and the list gets its row back. Each change also shows a short notice.
+
+Changing the filter selects the first agent of the new list and scrolls it into view, even if you were scrolled far down or pinned to the bottom before.
+
+The filter is in-memory only: a new minimonitor always starts at `all`, so a filter you forgot about can never hide agents after a restart. It is separate from **P**, which keeps its own on/off state.
+
 ### How to Collapse the Key Hints or Open the Full Key Help
 
 Minimonitor has no footer: the band at the bottom of the pane lists every key, and it costs about ten rows of a short companion pane. Press **x** to collapse it to a single line that names only the two keys you need to get it back — `x:keys H:help` — and the agent list takes the rows. Press **x** again to bring the full band back.
@@ -485,6 +515,7 @@ All actions below are also available via mouse — see [Mouse Support](#mouse-su
 | `L` | Arm or disarm the [auto-recheck loop](#how-to-run-the-auto-recheck-loop) — minimonitor asks the shadow for a fresh review round once the followed agent settles |
 | `Space` | Cycle the mark on the **followed** agent (the one pinned at the top): unmarked → `★` prioritized → `P` parked → unmarked. Shared across all your projects |
 | `P` | Hide or show parked **and frozen** agents in the scrollable list |
+| `Shift+Left` / `Shift+Right` | [Filter the list](#how-to-filter-the-list-by-phase-or-state) by workflow phase (`PLAN`, `IMPLEMENT`, `POSTIMPL`) or to parked / frozen agents; cycles both ways and wraps |
 | `f` | Freeze the **followed** agent — its process ends, its output is captured (confirms first) |
 | `Z` | Freeze every agent on this machine, across all projects (confirms, naming the count) |
 | `h` | Harvest the **followed** agent's wrap-up into the sitrep todo list, show what was captured, then offer to close the agent |
@@ -493,6 +524,7 @@ All actions below are also available via mouse — see [Mouse Support](#mouse-su
 | `j` | Open the TUI switcher |
 | `m` | Switch to the full [monitor]({{< relref "/docs/tuis/monitor" >}}) with this agent focused |
 | `M` | Toggle the multi-session view ON/OFF |
+| `Shift+Up` / `Shift+Down` | [Jump](#how-to-jump-between-projects) to the previous / next project's agents (multi-session view, list longer than the pane); wraps |
 | `x` | [Collapse the key-hint band](#how-to-collapse-the-key-hints-or-open-the-full-key-help) to one line, or expand it again (remembered per user) |
 | `H` | Open the [full key help](#how-to-collapse-the-key-hints-or-open-the-full-key-help) — every key with a short explanation |
 | `?` | Open the shortcut editor to rebind any of these keys |

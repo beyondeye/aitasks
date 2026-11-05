@@ -512,7 +512,10 @@ class KeyHintsTests(unittest.TestCase):
     def test_hints_say_the_key_targets_the_followed_agent(self):
         hints = self._hints()
         self.assertIn("space:mark", hints)
-        self.assertIn("followed agent", hints)
+        # "(followed)", the band's idiom for the followed agent (as on
+        # `I:info (followed)`) — t2217 shortened it to buy back a wrapped row
+        # at width 15 (see FULL_HINT_LINES' measurement table).
+        self.assertIn("mark ★ (followed)", hints)
 
     def test_hints_stay_within_the_width_budget(self):
         too_wide = [ln for ln in self._hints().split("\n")

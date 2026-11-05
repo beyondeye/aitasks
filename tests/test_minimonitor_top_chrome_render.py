@@ -84,11 +84,17 @@ LOOP_TEXT = "⟳ recheck #12 sent — waiting for shadow"
 #: default and the banners now cap at 1 + 2): with the banners the chrome
 #: occupies 6 rows (6 + 10 hint rows + a 3-row list floor > 18, so the hints
 #: yield); without them it occupies 3 (3 + 10 + 3 <= 18, so they do not).
+#: t2217's one-row filter line rides with the banners (7 rows), which only
+#: widens the "yield" side's margin.
 #: 20 no longer discriminates — BOTH cases stay off there — which is exactly
 #: the way a stale probe height turns a pair of tests into a tautology.
 SHORT_PROBE_HEIGHT = 18
 
 STALE_PROBE = "shadow feedback is stale"
+#: The filter the fixture activates with the banners (t2217) — the longest
+#: phase stop, so the one-row line is probed at its widest default text.
+FILTER_VALUE = "IMPLEMENT"
+FILTER_PROBE = "filter: IMPLEMENT ⇧←→"
 #: Kept inside the panel's 36-column name budget (see
 #: test_minimonitor_own_mark.CompositedWidthTests) — a longer name is
 #: truncated on screen and the probe could never match.
@@ -253,6 +259,19 @@ class _ChromeFixture(unittest.TestCase):
         if banners:
             app._set_shadow_stale_banner(STALE_TEXT)
             app._set_loop_banner(LOOP_TEXT)
+            # The filter line (t2217) through its real write site. No refresh
+            # runs in this fixture, so the list itself is unaffected.
+            app._status_filter = FILTER_VALUE
+            app._set_filter_banner()
+        await pilot.pause()
+        # A SECOND frame, for short mode to land (t2217). Each reveal schedules
+        # `_refresh_short_mode` after layout, so the first frame is laid out
+        # un-compacted; with the filter line that frame overflows at width 22
+        # (12 chrome + 21 band rows > 30) and the screen briefly grows a
+        # scrollbar. Production settles on the next frame — measured: the extra
+        # pause turns an order-dependent failure (4/4 in the key-hints +
+        # chrome combined run) into 3/3 passes. Asserting on the first frame
+        # would test Textual's scheduling, not the layout.
         await pilot.pause()
 
     def _run(self, size, *, banners=True, own=True, session=True, after=None,
@@ -294,7 +313,7 @@ class TopChromeGeometryTests(_ChromeFixture):
         # Every one of the four is checked — never filtered to "the visible
         # ones", or the test would degenerate to a tautology the moment one of
         # them is hidden, which is the very failure being guarded.
-        self.assertEqual(len(CHROME_IDS), 4)
+        self.assertEqual(len(CHROME_IDS), 5)
         ordered = [(sel, r[sel]) for sel in CHROME_IDS]
         for (earlier_id, earlier), (later_id, later) in zip(
             ordered, ordered[1:]
@@ -316,6 +335,7 @@ class TopChromeGeometryTests(_ChromeFixture):
             ("session bar", SESSION_TEXT),
             ("staleness banner", STALE_PROBE),
             ("loop banner", "recheck #12 sent"),
+            ("filter line", FILTER_PROBE),
             ("own-agent panel", OWN_WINDOW),
         ):
             self.assertIn(
@@ -638,7 +658,7 @@ class CollapseToggleContractTests(_ChromeFixture):
         seen = {}
 
         collapsible = ("#mini-session-bar", "#mini-shadow-stale",
-                       "#mini-loop-status")
+                       "#mini-loop-status", "#mini-filter-status")
 
         async def after(app, pilot, result):
             seen["set"] = {
@@ -647,6 +667,8 @@ class CollapseToggleContractTests(_ChromeFixture):
             seen["set_flat"] = _flatten(app)
             app._set_shadow_stale_banner("")
             app._set_loop_banner("")
+            app._status_filter = "all"
+            app._set_filter_banner()
             # The bar's "clear" is the config flag going off, applied by the
             # same production site that turned it on.
             app._session_bar_enabled = False
@@ -663,6 +685,7 @@ class CollapseToggleContractTests(_ChromeFixture):
         self.assertIn(STALE_PROBE, seen["set_flat"])
         self.assertIn("recheck #12 sent", seen["set_flat"])
         self.assertIn(SESSION_TEXT, seen["set_flat"])
+        self.assertIn(FILTER_PROBE, seen["set_flat"])
 
         for sel, height in seen["cleared"].items():
             self.assertEqual(
@@ -671,6 +694,7 @@ class CollapseToggleContractTests(_ChromeFixture):
         self.assertNotIn(STALE_PROBE, seen["cleared_flat"])
         self.assertNotIn("recheck #12 sent", seen["cleared_flat"])
         self.assertNotIn(SESSION_TEXT, seen["cleared_flat"])
+        self.assertNotIn(FILTER_PROBE, seen["cleared_flat"])
 
 
 class OwnPanelSizingTests(_ChromeFixture):
@@ -927,12 +951,12 @@ class PaneListFloorTests(_ChromeFixture):
 
     #: Lowest pane height at which the list still keeps a row, in the WORST
     #: configuration: session bar enabled, own panel at its full cap (a folding
-    #: window name), and both banners live.
+    #: window name), both banners live, and a filter active (t2217).
     #:
-    #:     chrome = _MAX_CHROME_ROWS                  = 11
+    #:     chrome = _MAX_CHROME_ROWS                  = 12
     #:     hints  = _SHORT_HINT_ROWS                  =  2
     #:                                                  --
-    #:                                                  13  -> 1 row left at 14
+    #:                                                  14  -> 1 row left at 15
     #:
     #: Derived, never a second literal — a raised cap moves this automatically
     #: and the sweep re-probes the new boundary. Below it there is nothing left
@@ -1010,7 +1034,8 @@ class PaneListFloorTests(_ChromeFixture):
         self.assertEqual(
             mm._MAX_CHROME_ROWS,
             mm._SESSION_BAR_ROWS + mm._OWN_PANEL_MAX_ROWS
-            + mm._SHADOW_STALE_ROWS + mm._LOOP_STATUS_ROWS,
+            + mm._SHADOW_STALE_ROWS + mm._LOOP_STATUS_ROWS
+            + mm._FILTER_STATUS_ROWS,
         )
         # And the ceiling must describe the SCREEN, not just the arithmetic: in
         # the worst configuration the four widgets really do occupy it. A

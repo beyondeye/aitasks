@@ -3216,13 +3216,22 @@ class ReviewLoopPresenceTests(unittest.TestCase):
         # Executable audit for the recorded show=False exception (review
         # rounds 5+7): minimonitor has no Footer, so EVERY binding — mixin
         # included — must appear in the #mini-key-hints text.
+        # Matched per SEGMENT, as rendered: a segment's keys are joined, and
+        # the shift-arrow pairs fold into one word (`⇧↑↓:project`, t2217), so a
+        # raw key name is no longer a substring of the band.
+        from monitor import minimonitor_keys as mk
         hints = mm.KEY_HINTS_TEXT
-        keys = {b.key for b in mm.MiniMonitorApp.BINDINGS}
-        self.assertIn("?", keys)  # the mixin binding is part of the surface
-        for key in sorted(keys):
-            forms = (f"{key}:", f"{key}/", f"/{key}")
-            self.assertTrue(any(f in hints for f in forms),
-                            f"binding '{key}' not surfaced in key hints")
+        keymap = mk.binding_keymap(mm.MiniMonitorApp.BINDINGS)
+        segs = {a: mk._render_seg(seg, keymap)
+                for _sep, line in mk.FULL_HINT_LINES for seg in line
+                for a in seg.actions}
+        actions = {b.action for b in mm.MiniMonitorApp.BINDINGS}
+        self.assertIn("open_shortcuts_editor", actions)  # the mixin binding
+        for b in mm.MiniMonitorApp.BINDINGS:
+            self.assertIn(b.action, segs,
+                          f"binding '{b.key}' not surfaced in key hints")
+            self.assertIn(segs[b.action], hints)
+            self.assertIn(mk.key_display(b.key)[-1], segs[b.action])
 
     def test_pane_replacement_resets_the_baseline(self):
         app, mon, _ = self._armed()

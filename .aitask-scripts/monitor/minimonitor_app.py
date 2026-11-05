@@ -108,6 +108,8 @@ from monitor.minimonitor_keys import (  # noqa: E402  (key surface, t2212)
     FULL_HINT_LINES,
     KeyHelpModal,
     binding_keymap,
+    join_keys,
+    key_display,
     render_collapsed,
     render_hints,
 )
@@ -139,6 +141,7 @@ from textual.geometry import Offset  # noqa: E402
 from textual.screen import ModalScreen  # noqa: E402
 from textual.scrollbar import ScrollBar, ScrollTo  # noqa: E402
 from textual.timer import Timer  # noqa: E402
+from textual.widget import Widget  # noqa: E402
 from textual.widgets import Static  # noqa: E402
 
 
@@ -1035,7 +1038,7 @@ _BOARD_COLUMN_CMD_TIMEOUT = 20.0
 # (tests/test_minimonitor_key_hints_modes.py). KEY_HINTS_TEXT — the default-key
 # rendering every test reads — is derived below the class.
 
-# Top-chrome layout budget (t1499). These four flow above #mini-pane-list in
+# Top-chrome layout budget (t1499). These five flow above #mini-pane-list in
 # compose order; #mini-key-hints is docked bottom. When the chrome's occupied
 # height leaves the list less than _PANE_LIST_FLOOR_ROWS, the hints compact to
 # _SHORT_HINT_ROWS rather than letting the flow overrun the docked band and
@@ -1050,6 +1053,7 @@ _TOP_CHROME = (
     "#mini-own-agent",
     "#mini-shadow-stale",
     "#mini-loop-status",
+    "#mini-filter-status",
 )
 # Worst-case rendered height of #mini-own-agent, summed row-by-row from what
 # _maybe_build_own_agent_panel actually mounts rather than guessed (t1566). Every
@@ -1071,14 +1075,27 @@ _OWN_PANEL_MAX_ROWS = (
 _SHADOW_STALE_ROWS = 1   # one-row contract (t1566) — see SHADOW_STALE_NARROW
 _LOOP_STATUS_ROWS = 2    # longest real literal is 39 cells => 2 rows at 38
 _SESSION_BAR_ROWS = 1    # `height: 1`, and only when the config enables it
+_FILTER_STATUS_ROWS = 1  # `height: 1`, no wrap; only while a filter is active (t2217)
 # Ceiling the pane list is sized against. The floor it buys is stated once, in
 # test_pane_list_keeps_a_row_under_full_live_chrome: at 40 columns this plus the
 # compacted hints leaves the list a row down to pane height 12. A cap raised
 # without raising this fails there instead of silently eating the list.
 _MAX_CHROME_ROWS = (
     _SESSION_BAR_ROWS + _OWN_PANEL_MAX_ROWS
-    + _SHADOW_STALE_ROWS + _LOOP_STATUS_ROWS
+    + _SHADOW_STALE_ROWS + _LOOP_STATUS_ROWS + _FILTER_STATUS_ROWS
 )
+
+# The status/phase filter's cycle (t2217), in `shift+right` order; `shift+left`
+# walks it backwards and both wrap. The three phases are `workflow_phase.PHASES`
+# minus UNKNOWN — an agent whose phase does not resolve matches no phase stop.
+# `parked` / `frozen` are marks/states, not phases: those rows are never
+# captured, so they never compute a phase and only these two stops show them.
+_STATUS_FILTERS = ("all", "PLAN", "IMPLEMENT", "POSTIMPL", "parked", "frozen")
+_PHASE_FILTERS = frozenset({"PLAN", "IMPLEMENT", "POSTIMPL"})
+
+# "No precomputed phase" inside `_agent_card_text` (t2217): `None` is a real
+# phase value there (it renders no phase half of the row).
+_PHASE_UNSET = object()
 # The full band's AUTHORED line count — its rendered height at 40 columns, where
 # no default line wraps (pinned by test_minimonitor_top_chrome_render.py). It is
 # NOT what the short-mode predicate reads: below ~24 columns the band word-wraps
@@ -1174,6 +1191,24 @@ class MiniMonitorApp(
     # it into "record unreadable".
     _own_sessions_view: "agent_sessions.SessionsView | None" = None
 
+    # Status/phase filter (t2217) — `shift+left` / `shift+right` cycle it.
+    # In-memory per instance, like `_hide_inactive`: a forgotten filter must not
+    # hide agents across restarts. CLASS defaults for the `__new__`-built-test
+    # reason above.
+    #
+    # `_entries_filter` is the filter the LAST `_build_list_entries` call built
+    # with, and `_filter_nav_target` the filter a keypress asked to navigate to.
+    # A filter change is consumed as NAVIGATION only by a tick whose entries
+    # were built under that same filter — see `_consume_filter_navigation`.
+    _status_filter: str = "all"
+    _entries_filter: str = "all"
+    _filter_nav_target: str | None = None
+    # The target `_maybe_retick_for_filter` already re-ticked for (one-shot).
+    _filter_retick_for: str | None = None
+    # `{pane_id: (task info, phase)}` for the build in progress only — see
+    # `_agent_card_text`.
+    _build_phases: dict = {}
+
     CSS = """
     /* Top chrome. NEVER re-add `dock:` to any of these four (t1499). Textual
        places same-edge docked siblings at the SAME offset instead of stacking
@@ -1187,16 +1222,18 @@ class MiniMonitorApp(
        order and #mini-pane-list (1fr) takes the rest.
 
        Compose order is #mini-session-bar, #mini-own-agent, #mini-shadow-stale,
-       #mini-loop-status (t1566): the followed agent is this pane's primary
-       identity surface, so the advisory banners flow BELOW it. _TOP_CHROME
-       carries the same order.
+       #mini-loop-status, #mini-filter-status (t1566, t2217): the followed
+       agent is this pane's primary identity surface, so the advisory banners
+       flow BELOW it, and the filter line sits last — directly above the list
+       it describes. _TOP_CHROME carries the same order.
 
        `display: none` below is LOAD-BEARING, not cosmetic: an empty Static
        with `height: auto` resolves to ONE row, not zero, so without it the
-       four collapsible widgets would cost 4 permanent rows in a 40-column
+       five collapsible widgets would cost 5 permanent rows in a 40-column
        companion pane. Each write site turns display back on when it has
        something to show — see _set_shadow_stale_banner, _set_loop_banner,
-       _maybe_build_own_agent_panel and _rebuild_session_bar.
+       _set_filter_banner, _maybe_build_own_agent_panel and
+       _rebuild_session_bar.
 
        The `max-height` caps are load-bearing too: undocked chrome GROWS, and
        unbounded it overruns the bottom-docked #mini-key-hints and paints the
@@ -1245,6 +1282,22 @@ class MiniMonitorApp(
         height: auto;
         max-height: 2;
         background: $warning;
+        color: $text;
+        padding: 0 1;
+        text-style: bold;
+    }
+
+    /* Active status/phase filter (t2217). Hidden while the filter is `all`;
+       _set_filter_banner reveals it. Exactly ONE row, structurally: the line
+       carries user-rebindable keys, so its length is not ours to promise —
+       a long rebind loses its tail to the ellipsis instead of costing the
+       list a row. Keep in sync with _FILTER_STATUS_ROWS. */
+    #mini-filter-status {
+        display: none;
+        height: 1;
+        text-wrap: nowrap;
+        text-overflow: ellipsis;
+        background: $panel;
         color: $text;
         padding: 0 1;
         text-style: bold;
@@ -1397,6 +1450,15 @@ class MiniMonitorApp(
         # apps never give one key two meanings (test-pinned).
         Binding("x", "toggle_key_hints", "Collapse key hints", show=False),
         Binding("H", "show_key_help", "Key help", show=False),
+        # Project jump and status filter (t2217). Plain up/down stay card
+        # navigation (handled in on_key); the shift pairs are App bindings so
+        # they are rebindable like every other key. The action ids are
+        # persisted override keys (tests/test_shortcut_overrides_survive.py) —
+        # never rename them.
+        Binding("shift+up", "jump_project_prev", "Previous project", show=False),
+        Binding("shift+down", "jump_project_next", "Next project", show=False),
+        Binding("shift+left", "filter_prev", "Previous filter", show=False),
+        Binding("shift+right", "filter_next", "Next filter", show=False),
         # `k` keeps its live-row meaning and branches on the frozen state
         # INSIDE the action. Restore and re-pick are the frozen-agent viewer's
         # own `R` / `P`, reached with Tab into the stand-in pane (t2054).
@@ -1593,6 +1655,8 @@ class MiniMonitorApp(
         yield Static("", id="mini-shadow-stale")
         # Auto-recheck loop status (t1159_2); empty ⇒ 0 rows.
         yield Static("", id="mini-loop-status")
+        # Active status/phase filter (t2217); `all` ⇒ 0 rows.
+        yield Static("", id="mini-filter-status")
         # MiniPaneList, not a bare VerticalScroll: it carries the scroll seams
         # the per-tick restore needs (t1539). `query_one(..., VerticalScroll)`
         # still resolves it, so no lookup site had to change.
@@ -2033,7 +2097,12 @@ class MiniMonitorApp(
             # planner choose: nothing / changed cards in place / full rebuild.
             entries = self._build_list_entries()
             updates = self._plan_in_place_list_update(entries)
-            if updates is not None and not any(lay for _c, _t, lay in updates):
+            if self._consume_filter_navigation():
+                # A filter change (t2217) swaps the result set: navigation,
+                # not a passive refresh — no anchor capture, no restore. See
+                # `_cycle_status_filter`.
+                await self._navigate_list_after_filter(entries)
+            elif updates is not None and not any(lay for _c, _t, lay in updates):
                 # Nothing is torn down and no card can change height, so the
                 # offset cannot move: no scroll capture, lock or restore. Focus
                 # was never lost either, so whatever is focused NOW — including a
@@ -2083,6 +2152,26 @@ class MiniMonitorApp(
             self._dispatch_refresh_maintenance()
         finally:
             self._refresh_inflight = False
+            self._maybe_retick_for_filter()
+
+    def _maybe_retick_for_filter(self) -> None:
+        """Re-run the refresh once when a filter change missed this tick (t2217).
+
+        A keypress landing while a tick is in flight has its own
+        `call_later(self._refresh_data)` turned away by the re-entrancy guard,
+        and this tick built its entries under the OLD filter — so without this
+        the list would lag a whole refresh interval behind the indicator. One
+        re-tick per target, never more: a tick that returns before building
+        entries cannot spin this into a loop.
+        """
+        target = self._filter_nav_target
+        if (target is None or target == self._entries_filter
+                or target == self._filter_retick_for):
+            return
+        self._filter_retick_for = target
+        with contextlib.suppress(Exception):
+            self.call_later(self._refresh_data)
+
     async def _check_auto_close(self) -> None:
         """Exit only on a POSITIVELY OBSERVED empty window (t1446).
 
@@ -2721,6 +2810,14 @@ class MiniMonitorApp(
         NOT used by the docked followed-agent panel — that renders via
         ``_own_agent_identity_text`` and is static by design: no live status
         dot, no compare-mode glyph, and no shadow-status glyph (t1133).
+
+        The task info and advisory phase are read from ``_build_phases``
+        (t2217) — the values ``_build_list_entries`` already resolved for this
+        build's filter — so a tick resolves each agent's task and phase ONCE.
+        Outside a build (a direct caller) the map is empty and both are
+        resolved here exactly as before. A map
+        rather than a parameter: test hosts override this method with the
+        one-argument signature, and a build must keep driving them.
         """
         if snap.frozen:
             # Checked BEFORE parked: the two can both be true of one pane
@@ -2785,30 +2882,40 @@ class MiniMonitorApp(
         name = self._row_name(snap, prefix, PANE_STATUS_MAX_CELLS)
         line1 = f"{prefix}{name}  {status}"
 
-        # Optional task title line
-        task_id = self._task_cache.get_task_id_for_pane(snap.pane)
-        if task_id:
-            info = self._task_cache.get_task_info(task_id, snap.pane.session_name)
-            if info:
-                line1 += self._title_row(info)
-                # Gate summary + advisory phase share ONE row (t1479): they
-                # describe one thing between them, and two rows of a four-row
-                # card is too much of this pane to spend on it. Either half may
-                # be empty (ungated task / unresolvable phase); the row is
-                # omitted only when both are. The phase leads with its own
-                # glyph and colour, the counts stay dim (t2128).
-                merged = format_gate_phase_markup(
-                    self._phase_for_snap(snap, info),
-                    self._gate_cache.summary_for(info) or "",
-                    _detail_budget(self._target_width),
-                )
-                if merged:
-                    # `[/dim]` closes the span `_title_row` (always emitted just
-                    # above) deliberately leaves open: inside it the phase's
-                    # colour would be painted dimmed — the one thing this row's
-                    # styling exists to prevent. Safe against a title ending in
-                    # a backslash: the newline sits between it and the tag.
-                    line1 += f"\n  [/dim]{merged}"
+        # Optional task title line. Inside a build the task info AND phase were
+        # already resolved for the filter (t2217): reuse both, so a displayed
+        # agent costs one task-file stat per tick, not two.
+        resolved = getattr(self, "_build_phases", {}).get(snap.pane.pane_id)
+        if resolved is not None:
+            info, phase = resolved
+        else:
+            info, phase = None, _PHASE_UNSET
+            task_id = self._task_cache.get_task_id_for_pane(snap.pane)
+            if task_id:
+                info = self._task_cache.get_task_info(
+                    task_id, snap.pane.session_name)
+        if info:
+            line1 += self._title_row(info)
+            # Gate summary + advisory phase share ONE row (t1479): they
+            # describe one thing between them, and two rows of a four-row
+            # card is too much of this pane to spend on it. Either half may
+            # be empty (ungated task / unresolvable phase); the row is
+            # omitted only when both are. The phase leads with its own
+            # glyph and colour, the counts stay dim (t2128).
+            if phase is _PHASE_UNSET:
+                phase = self._phase_for_snap(snap, info)
+            merged = format_gate_phase_markup(
+                phase,
+                self._gate_cache.summary_for(info) or "",
+                _detail_budget(self._target_width),
+            )
+            if merged:
+                # `[/dim]` closes the span `_title_row` (always emitted just
+                # above) deliberately leaves open: inside it the phase's
+                # colour would be painted dimmed — the one thing this row's
+                # styling exists to prevent. Safe against a title ending in
+                # a backslash: the newline sits between it and the tag.
+                line1 += f"\n  [/dim]{merged}"
         return line1
 
     def _title_row(self, info) -> str:
@@ -2850,6 +2957,26 @@ class MiniMonitorApp(
         """
         room = _name_room(prefix, reserve, self._target_width)
         return markup_literal(_clip(self._display_name(snap), room))
+
+    def _live_task_phase(self, snap: PaneSnapshot):
+        """``(task info, advisory phase)`` for a LIVE agent row (t2217).
+
+        The exact lookup ``_agent_card_text`` makes for its title and
+        gate/phase rows — task id from the window name, task info, then
+        ``_phase_for_snap`` — resolved once so the filter and the card read one
+        value and the task file is stat'ed once per tick. ``(None, None)`` when
+        the row has no task (no id, or no readable task file): such a row
+        renders no title or phase and matches no phase filter. Parked and frozen
+        rows never reach here; they are not captured, so nothing
+        capture-derived may be computed for them.
+        """
+        task_id = self._task_cache.get_task_id_for_pane(snap.pane)
+        if not task_id:
+            return None, None
+        info = self._task_cache.get_task_info(task_id, snap.pane.session_name)
+        if not info:
+            return None, None
+        return info, self._phase_for_snap(snap, info)
 
     def _phase_for_snap(self, snap: PaneSnapshot, info) -> "workflow_phase.PhaseSignal":
         """Advisory phase for one pane: cached ledger half + this tick's live
@@ -3224,19 +3351,51 @@ class MiniMonitorApp(
         # as the tiebreak for two windows sharing a name. Both are string fields
         # off the tmux gateway, so a plain comparison ordered agent 10 before
         # agent 2 (t1659).
+        #
+        # The status/phase filter (t2217) is applied here too. It is a DISPLAY
+        # use of the advisory phase — it narrows what is listed and never gates
+        # an action (aidocs/framework/shadow_agent.md). Each live agent's task
+        # info and phase are resolved ONCE per tick, in `phases` (pane id ->
+        # (info, phase)), and handed to the card text.
+        status_filter = self._status_filter
+        self._entries_filter = status_filter
         own_snap = self._find_own_window_snapshot()
         own_pane_id = own_snap.pane.pane_id if own_snap else None
         agents: list[PaneSnapshot] = []
         others: list[PaneSnapshot] = []
+        phases: dict[str, tuple] = {}
         for s in self._snapshots.values():
             if s.pane.pane_id == own_pane_id:
                 continue
             if s.pane.category == PaneCategory.AGENT:
-                if self._hide_inactive and (s.parked or s.frozen):
-                    continue  # `P` filter (t1685 parked, t1705_7 frozen)
+                inactive = s.parked or s.frozen
+                if status_filter == "frozen":
+                    # Frozen wins over parked, as on the card itself: a pane
+                    # that is both renders `frozen`. An explicit filter shows
+                    # its rows even while `P` hides inactive agents.
+                    if not s.frozen:
+                        continue
+                elif status_filter == "parked":
+                    if not s.parked or s.frozen:
+                        continue
+                elif inactive:
+                    if status_filter != "all" or self._hide_inactive:
+                        # A phase filter: inactive rows have no phase. `all`:
+                        # the `P` filter (t1685 parked, t1705_7 frozen).
+                        continue
+                else:
+                    info, phase = self._live_task_phase(s)
+                    phases[s.pane.pane_id] = (info, phase)
+                    if status_filter in _PHASE_FILTERS and (
+                        phase is None or phase.phase != status_filter
+                    ):
+                        continue
                 agents.append(s)
             elif s.pane.category == PaneCategory.OTHER:
-                others.append(s)
+                if status_filter == "all":
+                    # OTHER panes have no phase or state: hidden under any
+                    # filter, header included.
+                    others.append(s)
 
         sort_key = lambda s: pane_sort_key(s.pane)  # noqa: E731
         agents.sort(key=sort_key)
@@ -3263,7 +3422,13 @@ class MiniMonitorApp(
                 pane_id = snap.pane.pane_id
                 entries.append(_ListEntry("card", pane_id, text_fn(snap)))
 
-        append_group(agents, self._agent_card_text)
+        # Build-scoped, never left behind: a stale map would hand a later
+        # direct caller last build's phase.
+        self._build_phases = phases
+        try:
+            append_group(agents, self._agent_card_text)
+        finally:
+            self._build_phases = {}
         if others:
             # Only the OTHER section is headed. The agent section deliberately
             # has none \u2014 minimonitor never had one, and the session bar already
@@ -3388,6 +3553,217 @@ class MiniMonitorApp(
             return
         new_idx = max(0, min(len(cards) - 1, idx + direction))
         cards[new_idx].focus()
+
+    # -- Status/phase filter (t2217) -------------------------------------------
+
+    def action_filter_next(self) -> None:
+        self._cycle_status_filter(1)
+
+    def action_filter_prev(self) -> None:
+        self._cycle_status_filter(-1)
+
+    def _cycle_status_filter(self, direction: int) -> None:
+        """Step the filter through `_STATUS_FILTERS`, wrapping both ways.
+
+        A filter change swaps the whole result set, so it is NAVIGATION, not a
+        passive refresh: `_filter_nav_target` asks the next tick built under
+        this filter to drop the old view's scroll anchor and bottom pin and to
+        select the first result (see `_consume_filter_navigation`). Left to the
+        passive restore, two disjoint result sets have no surviving anchor, so
+        `_restore_list_scroll` falls back to `max_scroll_y` while
+        `_restore_focus` focuses card 0 without scrolling — the selection lands
+        off-screen.
+        """
+        try:
+            idx = _STATUS_FILTERS.index(self._status_filter)
+        except ValueError:
+            idx = 0
+        new = _STATUS_FILTERS[(idx + direction) % len(_STATUS_FILTERS)]
+        self._status_filter = new
+        # The newest press wins: a second press before the tick lands simply
+        # retargets the navigation.
+        self._filter_nav_target = new
+        self.notify(f"Filter: {new}", timeout=3)
+        self._set_filter_banner()
+        self.call_later(self._refresh_data)
+
+    def _filter_banner_text(self) -> Content | str:
+        """The filter line's text, DOM-free; ``""`` while the filter is `all`.
+
+        A ``Content``, never a markup string: the keys are user-rebindable, and
+        a key rebound to ``[`` would be parsed as a tag. The keys come from the
+        App's COMPOSED bindings, so a rebind reaches this line.
+        """
+        status_filter = getattr(self, "_status_filter", "all")
+        if status_filter == "all":
+            return ""
+        keymap = self._active_keymap()
+        keys = join_keys(
+            key_display(keymap.get(a, ""))
+            for a in ("filter_prev", "filter_next") if keymap.get(a)
+        )
+        return Content(f"filter: {status_filter}  {keys}".rstrip())
+
+    def _set_filter_banner(self) -> None:
+        """Show or hide `#mini-filter-status` for the current filter.
+
+        Suppressed for the same reason as the other banner setters: unit tests
+        drive the write site against apps with no DOM.
+        """
+        text = self._filter_banner_text()
+        with contextlib.suppress(Exception):
+            widget = self.query_one("#mini-filter-status", Static)
+            widget.update(text)
+            widget.display = bool(text)
+        self._schedule_short_mode_refresh()
+
+    def _consume_filter_navigation(self) -> bool:
+        """True exactly once per filter change: on the first tick whose entries
+        were built under the filter the keypress asked for.
+
+        Keyed on the filter the ENTRIES were built with, not on "a refresh
+        ran": a tick already in flight when the key was pressed built its
+        entries under the OLD filter, and consuming the navigation there would
+        spend it on the wrong result set. That tick leaves the target alone;
+        the next one — built under the new filter — consumes it.
+        """
+        target = self._filter_nav_target
+        if target is None or target != self._entries_filter:
+            return False
+        self._filter_nav_target = None
+        self._filter_retick_for = None
+        return True
+
+    async def _navigate_list_after_filter(self, entries) -> None:
+        """Mount a filter's new result set as navigation (t2217).
+
+        Retires any restore an earlier tick left pending and releases the
+        bottom pin BEFORE the rebuild — an armed pin would let the compositor
+        carry the old view's bottom position into the new results. Then it
+        takes the same lock / generation / fail-safe timer as the passive path,
+        so Textual's own scrolls during the rebuild are still refused, focuses
+        the FIRST result and hands the viewport to
+        `_finish_filter_navigation`.
+        """
+        self._abandon_scroll_restore()
+        container = self.query_one("#mini-pane-list", VerticalScroll)
+        with contextlib.suppress(Exception):
+            container.release_anchor()
+        gen = self._scroll_restore_gen = self._scroll_restore_gen + 1
+        self._list_scroll_lock = True
+        self._stop_scroll_lock_timer()
+        self._scroll_lock_timer = self.set_timer(
+            self._SCROLL_LOCK_TIMEOUT,
+            lambda: self._abandon_scroll_restore(gen),
+        )
+        await self._rebuild_pane_list(entries)
+        first = self._first_list_card()
+        if first is None:
+            self._focused_pane_id = None
+        else:
+            first.focus(scroll_visible=False)
+            self._focused_pane_id = first.pane_id
+        self.call_after_refresh(self._finish_filter_navigation, gen, 0)
+
+    def _finish_filter_navigation(self, gen: int, attempt: int = 0) -> None:
+        """Bring the selected first result into view, then unlock.
+
+        Mirrors `_restore_list_scroll`: the same superseded-generation guard
+        and the same layout-readiness retry, because a target computed before
+        the rebuilt list has geometry reads 0 for everything. The target is
+        the top of the list when the first card fits the viewport from there
+        (it keeps its session divider in view), else the card's own row.
+        """
+        if gen != self._scroll_restore_gen:
+            return          # a newer tick, or the user, owns the list now
+        try:
+            container = self.query_one("#mini-pane-list", VerticalScroll)
+        except NoMatches:
+            self._abandon_scroll_restore(gen)
+            return
+        cards = [c for c in container.query(MiniPaneCard)
+                 if hasattr(c, "pane_id")]
+        if (attempt < self._SCROLL_RESTORE_MAX_ATTEMPTS
+                and list_layout_pending([c.virtual_region.y for c in cards])):
+            self.call_after_refresh(self._finish_filter_navigation, gen,
+                                    attempt + 1)
+            return
+        try:
+            target = 0
+            if cards:
+                region = cards[0].virtual_region
+                if region.bottom > container.size.height:
+                    target = region.y
+            container.scroll_to(
+                y=target, animate=False, immediate=True, force=True)
+        finally:
+            self._stop_scroll_lock_timer()
+            self.call_after_refresh(self._release_list_scroll_lock, gen)
+
+    # -- Project jump (t2217) --------------------------------------------------
+
+    def action_jump_project_next(self) -> None:
+        self._jump_project(1)
+
+    def action_jump_project_prev(self) -> None:
+        self._jump_project(-1)
+
+    def _agent_groups(self, container) -> list[tuple[Widget, list[MiniPaneCard]]]:
+        """The agent section's session groups, in list order.
+
+        A `.mini-session-divider` starts a group and the cards after it belong
+        to it; the walk stops at the OTHER section's header, so only agent
+        groups are jump targets. Dividers exist only in multi-session mode, so
+        single-session mode yields no groups at all.
+        """
+        groups: list[tuple[Widget, list[MiniPaneCard]]] = []
+        for child in container.children:
+            if child.has_class("mini-section-header"):
+                break
+            if child.has_class("mini-session-divider"):
+                groups.append((child, []))
+            elif isinstance(child, MiniPaneCard) and groups:
+                groups[-1][1].append(child)
+        return [g for g in groups if g[1]]
+
+    def _jump_project(self, direction: int) -> None:
+        """Scroll the next/previous project's group to the top and select it.
+
+        A true no-op when the list already fits (nothing to scroll), or when
+        there are fewer than two agent groups. Wraps at both ends.
+
+        The scroll goes through `scroll_to` WITHOUT `force` — the
+        `MiniPaneList._scroll_to` funnel every user gesture takes (t1539) — so
+        it retires any pending restore instead of being overwritten by it, and
+        `scroll_to` releases the bottom pin like any scroll away (t1653). It is
+        never `scroll_to_region`, which the rebuild lock refuses as uninvited.
+        Focus then moves without a second scroll (`scroll_visible=False`).
+        """
+        try:
+            container = self.query_one("#mini-pane-list", VerticalScroll)
+        except NoMatches:
+            return
+        if container.max_scroll_y <= 0:
+            return
+        groups = self._agent_groups(container)
+        if len(groups) < 2:
+            return
+        current: int | None = None
+        focused = self.focused
+        if isinstance(focused, MiniPaneCard):
+            for i, (_div, cards) in enumerate(groups):
+                if focused in cards:
+                    current = i
+                    break
+        if current is None:
+            current = 0
+            for i, (divider, _cards) in enumerate(groups):
+                if divider.virtual_region.y <= container.scroll_y:
+                    current = i
+        divider, cards = groups[(current + direction) % len(groups)]
+        container.scroll_to(y=divider.virtual_region.y, animate=False)
+        cards[0].focus(scroll_visible=False)
+        self._focused_pane_id = cards[0].pane_id
 
     def _find_sibling_pane_id(self) -> str | None:
         """Return the pane_id of the agent this minimonitor follows.

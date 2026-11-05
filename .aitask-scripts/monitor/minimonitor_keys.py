@@ -70,14 +70,17 @@ HintLine = tuple[str, tuple[HintSeg, ...]]
 # row at every pane height, which test_minimonitor_top_chrome_render pins.
 #
 # So MEASURE, never eyeball: render the app at (15, 30) and read
-# `#mini-key-hints`'s region height. It must stay ≤ 29. Rich WORD-wraps, so
-# word lengths decide, not character counts — which is why the labels are terse
-# and why single spaces appear on several lines. Measured for t2212's layout:
+# `#mini-key-hints`'s region height with the `short` class removed (short mode
+# clips it to 2 rows at that size; `_key_hints_desired_rows()` reads the same
+# number). It must stay ≤ 29. Rich WORD-wraps, so word lengths decide, not
+# character counts — which is why the labels are terse and why single spaces
+# appear on several lines. Measured per layout:
 #
 #     width        15   18   22   40
 #     before       28   22   18   10
-#     this table   28   22   19   10
+#     t2212        28   22   19   10
 #     with ?:rebind 31  22   19   10   (over budget — `?` stays `?:keys`)
+#     t2217        29   23   21   10
 #
 # History the labels encode:
 # * `x`/`H` (t2212) sit on line 1 so they stay visible when short mode clips
@@ -95,6 +98,11 @@ HintLine = tuple[str, tuple[HintSeg, ...]]
 #   differ only in case read correctly side by side.
 # * `o` (t2073_4) sits beside `e/E`: both open a helper bound to the followed
 #   agent.
+# * t2217 added `⇧↑↓:project` and `⇧←→:filter` to the two lines with room at 40
+#   columns (36 and 32 cells), and paid for one of the two wrapped rows they
+#   cost at width 15 with "mark ★ (followed)" for "(followed agent)". That
+#   leaves width 15 at exactly the 29-row budget — the next addition must buy
+#   its rows back first.
 FULL_HINT_LINES: tuple[HintLine, ...] = (
     (" ", (
         HintSeg(("toggle_key_hints",), "hide"),
@@ -109,9 +117,11 @@ FULL_HINT_LINES: tuple[HintLine, ...] = (
     ("  ", (
         HintSeg(("switch_to",), "switch", suffix="/↑↓"),
         HintSeg(("send_enter_to_sibling",), "send"),
+        HintSeg(("jump_project_prev", "jump_project_next"), "project"),
     )),
     ("  ", (
         HintSeg(("cycle_compare_mode",), "detect ≈strip =raw"),
+        HintSeg(("filter_prev", "filter_next"), "filter"),
     )),
     ("  ", (
         HintSeg(("tui_switcher",), "switcher"),
@@ -140,7 +150,7 @@ FULL_HINT_LINES: tuple[HintLine, ...] = (
         HintSeg(("open_sitrep",), "sitrep"),
     )),
     ("  ", (
-        HintSeg(("toggle_mark",), "mark ★ (followed agent)"),
+        HintSeg(("toggle_mark",), "mark ★ (followed)"),
     )),
 )
 
@@ -150,6 +160,10 @@ COLLAPSED_HINT_LINE: HintLine = (" ", (
     HintSeg(("toggle_key_hints",), "keys"),
     HintSeg(("show_key_help",), "help"),
 ))
+
+
+_ARROW_GLYPHS = {"up": "↑", "down": "↓", "left": "←", "right": "→"}
+_SHIFT_GLYPH = "⇧"
 
 
 def key_display(key: str) -> str:
@@ -163,18 +177,50 @@ def key_display(key: str) -> str:
     ``ctrl+shift+f12`` → ``shift+^f12``); other modifiers stay ``+``-joined
     (``alt+x``). Override keys are arbitrary ``event.key`` names captured by the
     shortcut editor, so this is what keeps a rebound chord short.
+
+    Arrow keys (t2217) render as ``↑ ↓ ← →``, the same glyphs Textual uses, and
+    an arrow whose ONLY modifier is ``shift`` renders as ``⇧↑``. Every other
+    chord keeps the rules above (``ctrl+up`` → ``^↑``, ``alt+shift+up`` →
+    ``alt+shift+↑``), so a rebind still shows exactly what to press.
     """
     if not key:
         return ""
     modifiers, base = Binding(key, "").parse_key()
     if not base:  # a bare "+" splits to ["", ""]
         return key
-    char = key_to_character(base)
-    shown = char if char and char.isprintable() and not char.isspace() else base
+    if base in _ARROW_GLYPHS:
+        # Arrow bases render as their glyph, exactly as Textual's own
+        # `get_key_display` does (`shift+up` -> `shift+↑`) — and a LONE shift
+        # on an arrow compacts further to `⇧↑` (t2217): the band is 38 cells
+        # wide, and `shift+↑/shift+↓` would cost a wrapped row at width 15.
+        shown = _ARROW_GLYPHS[base]
+        if modifiers == ["shift"]:
+            return f"{_SHIFT_GLYPH}{shown}"
+    else:
+        char = key_to_character(base)
+        shown = char if char and char.isprintable() and not char.isspace() else base
     if "ctrl" in modifiers:
         modifiers = [m for m in modifiers if m != "ctrl"]
         shown = f"^{shown}"
     return "+".join([*modifiers, shown])
+
+
+def join_keys(displays) -> str:
+    """Join displayed keys for one hint segment or help entry (t2217).
+
+    ``/``-joined (``e/E``), except that two or more ``⇧``-prefixed single-glyph
+    keys fold into one prefix — ``⇧↑`` + ``⇧↓`` → ``⇧↑↓`` — which is what keeps
+    the shift-arrow pairs to one short word. A rebind that breaks the pattern
+    (``alt+x``, a plain ``↑``) falls back to the ``/`` join, so the text always
+    names the keys actually bound.
+    """
+    displays = list(displays)
+    if len(displays) >= 2 and all(
+        d.startswith(_SHIFT_GLYPH) and cell_len(d[len(_SHIFT_GLYPH):]) == 1
+        for d in displays
+    ):
+        return _SHIFT_GLYPH + "".join(d[len(_SHIFT_GLYPH):] for d in displays)
+    return "/".join(displays)
 
 
 def binding_keymap(bindings) -> dict[str, str]:
@@ -189,7 +235,7 @@ def binding_keymap(bindings) -> dict[str, str]:
 
 
 def _render_seg(seg: HintSeg, keymap: dict[str, str]) -> str:
-    keys = "/".join(key_display(keymap[a]) for a in seg.actions)
+    keys = join_keys(key_display(keymap[a]) for a in seg.actions)
     return f"{keys}{seg.suffix}:{seg.label}"
 
 
@@ -225,7 +271,7 @@ def render_collapsed(keymap: dict[str, str], content_width: int | None) -> str:
         return labelled
     _sep, segs = COLLAPSED_HINT_LINE
     return " ".join(
-        "/".join(key_display(keymap[a]) for a in seg.actions) for seg in segs
+        join_keys(key_display(keymap[a]) for a in seg.actions) for seg in segs
     )
 
 
@@ -292,11 +338,26 @@ KEY_HELP: tuple[HelpEntry, ...] = (
               "Sends one Enter keystroke to the agent pane beside minimonitor, "
               "unblocking an agent that waits for it, while tmux focus stays "
               "here."),
+    # Source: how-to.md — "How to Jump Between Projects"
+    HelpEntry(("jump_project_prev", "jump_project_next"),
+              "Jump to the previous / next project",
+              "Scrolls the list so the previous or next project's agents start "
+              "at the top, and selects that project's first agent. Wraps around "
+              "at either end. Needs the multi-session view (more than one "
+              "project) and a list taller than the pane; otherwise it does "
+              "nothing."),
     # Source: how-to.md — "Key Bindings Quick Reference" (`d` row)
     HelpEntry(("cycle_compare_mode",), "Idle-detection mode",
               "Cycles how minimonitor decides an agent is idle: ≈ compares "
               "the pane output with colour codes stripped, = compares it "
               "exactly."),
+    # Source: how-to.md — "How to Filter the List by Phase or State"
+    HelpEntry(("filter_prev", "filter_next"), "Filter by phase or state",
+              "Cycles which agents the list shows: all, then only PLAN, "
+              "IMPLEMENT or POSTIMPL agents, then only parked, then only frozen "
+              "agents, and back to all — in either direction. A line above the "
+              "list names the active filter. The phase is advisory, and the "
+              "filter is not remembered when minimonitor restarts."),
     # Source: how-to.md — "How to Jump to Another TUI"
     HelpEntry(("tui_switcher",), "TUI switcher",
               "Opens the TUI switcher overlay to jump to board, monitor, "
@@ -395,7 +456,7 @@ def help_entry_keys(entry: HelpEntry, keymap: dict[str, str]) -> str:
     """The key text a help entry is headed by."""
     if entry.literal_keys:
         return entry.literal_keys
-    return "/".join(key_display(keymap[a]) for a in entry.actions)
+    return join_keys(key_display(keymap[a]) for a in entry.actions)
 
 
 class KeyHelpModal(GuardedModalScreen):

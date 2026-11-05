@@ -31,6 +31,8 @@ Minimonitor is the persistent sidebar companion of a code agent pane. It gives y
 | Preview zone with keystroke forwarding | Yes | No |
 | Gate summary and workflow phase | Both, appended to the agent card's status row (`gates: …  phase: …`) | Both, merged onto one line below the task title (`◕ IMPLEMENT ⏸ · 1/4 1p`), the phase led by its own symbol and colour; the pinned card shows the phase only |
 | Multi-session toggle | `M` (in-memory, per-TUI) | `M` (in-memory, per-TUI) |
+| Jump between projects | — | `Shift+Up` / `Shift+Down` scroll the previous / next project's agents to the top |
+| Filter by phase or state | `P` hides parked and frozen agents | `P` too, plus `Shift+Left` / `Shift+Right` to show only one workflow phase, or only parked or frozen agents |
 | Session grouping | `── session ──` dividers + inline `[project]` tag on each row | `── session ──` dividers only |
 | Frozen agents | Listed as `F <name>  frozen`; `f` freezes the focused card, `R` / `p` / `k` revive or drop it | Listed the same way; `f` freezes the **followed** agent, `R` / `p` / `k` act on it |
 | Sitrep | `h` harvests the focused card and offers to close it; `S` opens or switches to the sitrep window; the title bar shows `sitrep N now` while the list has open **Pick now** items | `h` and `S` act on the **followed** agent's repository; no title-bar count |

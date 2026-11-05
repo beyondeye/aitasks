@@ -196,10 +196,47 @@ class TableParityTests(unittest.TestCase):
 
 
 class KeyDisplayTests(unittest.TestCase):
+    #: The default keys that deliberately do NOT render as their own name: the
+    #: shift-arrow pairs (t2217) compact to `⇧<glyph>`. Pinned explicitly so a
+    #: new binding cannot slip into this exception silently.
+    ARROW_CHORDS = {
+        "shift+up": "⇧↑", "shift+down": "⇧↓",
+        "shift+left": "⇧←", "shift+right": "⇧→",
+    }
+
     def test_default_keys_render_as_their_names(self):
         for b in mm.MiniMonitorApp.BINDINGS:
             with self.subTest(key=b.key):
-                self.assertEqual(mk.key_display(b.key), b.key)
+                self.assertEqual(mk.key_display(b.key),
+                                 self.ARROW_CHORDS.get(b.key, b.key))
+
+    def test_arrow_keys_render_as_glyphs(self):
+        app = App()
+        # Plain arrows match Textual's own rendering ...
+        for key in ("up", "down", "left", "right"):
+            with self.subTest(key=key):
+                self.assertEqual(
+                    mk.key_display(key), app.get_key_display(Binding(key, "a")))
+        # ... a LONE shift compacts; every other chord keeps the usual rules.
+        self.assertEqual(mk.key_display("shift+up"), "⇧↑")
+        self.assertEqual(mk.key_display("ctrl+up"), "^↑")
+        self.assertEqual(mk.key_display("alt+shift+left"), "alt+shift+←")
+        self.assertEqual(mk.key_display("shift+tab"), "shift+tab")
+
+    def test_join_keys_folds_only_shift_glyph_pairs(self):
+        self.assertEqual(mk.join_keys(["⇧↑", "⇧↓"]), "⇧↑↓")
+        self.assertEqual(mk.join_keys(["⇧←", "⇧→"]), "⇧←→")
+        # A rebind that breaks the pattern falls back to the `/` join, so the
+        # text always names the keys actually bound.
+        self.assertEqual(mk.join_keys(["⇧↑", "alt+x"]), "⇧↑/alt+x")
+        self.assertEqual(mk.join_keys(["↑", "⇧↓"]), "↑/⇧↓")
+        self.assertEqual(mk.join_keys(["⇧f1", "⇧f2"]), "⇧f1/⇧f2")
+        self.assertEqual(mk.join_keys(["e", "E"]), "e/E")
+        self.assertEqual(mk.join_keys(["⇧↑"]), "⇧↑")
+
+    def test_band_names_the_shift_pairs_compactly(self):
+        self.assertIn("⇧↑↓:project", mm.KEY_HINTS_TEXT)
+        self.assertIn("⇧←→:filter", mm.KEY_HINTS_TEXT)
 
     def test_modifier_chords_match_textual(self):
         app = App()
