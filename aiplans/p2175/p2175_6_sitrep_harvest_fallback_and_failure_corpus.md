@@ -342,3 +342,246 @@ children left.
 - timing: post-phase | name: fallback_guard_mutants | type: test | priority: medium | effort: medium | inline_risk: low | added_complexity: low | addresses: code-health — receipt/case-write path and the new writer/check-sources guards | desc: one mutant per guard in fresh copies, each RED on its named test, control GREEN
 - timing: post-phase | name: large_capture_budget | type: performance | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — large-capture harvest budget | desc: time a 50,000-line ~12 MB review-triggering harvest; slowest run under 30 s or switch to retain-raw --from <file>
 - timing: after | name: sitrep_review_live_smoke | type: test | priority: medium | effort: medium | inline_risk: low | added_complexity: medium | addresses: goal-achievement — agent-side review depends on skill prose | desc: run the real /aitask-sitrep skill against a scratch store seeded with a joined-banner case; check it recovers the missed follow-up via the writer, records a case review, closes the item, and leaves raw/ evidence intact
+
+## Final Implementation Notes
+- **Actual work done:**
+  - `lib/sitrep_harvest.py`: joined-banner grammar (`ACCEPT_JOINED_BANNER`,
+    `JOINED_RE`, `_split_joined`; `PARSER_REV = 2`); the confidence check
+    `assess` / `classify` / `needs_apply` with `Reason`; the shared identity
+    pairing `pair_markers` / `find_marker_at` / `passage_bytes`, used by both
+    `Harvest.run` and `assess`; `HARVEST_CERT = 2` in `receipt_text`; case
+    headers and `capture_file_kind` kinds `case` / `analysis` / `review`;
+    `cmd_apply` records the case before the receipt and emits
+    `HARVEST_REVIEW:` plus `HARVESTED:…|review=c<N>`; `fault_point` seam;
+    `Harvest.item_ids` / `new_ids`; a `__main__` alias so the lazily imported
+    corpus module shares one `HarvestFailure` class.
+  - New `lib/sitrep_corpus.py`: file formats, `record_case`, `retain_raw`
+    (sha / NUL / cap guards), `scan_cases`, `DryStore`, `dry_harvest`, and the
+    CLI verbs `list` / `show` / `read` / `review` / `replay [--apply]` /
+    `export` / `check-fixture` (plus a hidden `lockroot`).
+  - `lib/sitrep_todo.py` + `aitask_sitrep_todo.sh`: the `retain-raw` verb
+    (`raw/<hex>.txt`, cap 64 MiB, test seam `AITASK_SITREP_RAW_MAX`);
+    `check-sources` follows case origins to the raw input; `raw/` counts as a
+    post-init store artifact.
+  - `lib/agent_sessions.py`: `HARVEST_RECEIPT_CERT`; `capture_harvested`
+    requires the cert.
+  - `aitask_sitrep_harvest.sh`: `with_harvest_lock` (factored out of
+    `locked_apply`) and the `case` verb (`replay --apply` runs under the
+    mutex); header contract updated. `aitask_sitrep.sh case` forwards to it.
+  - `lib/sitrep_cli.py`: `CASE` / `ANALYSIS` / `REVIEW` labels and the
+    `REVIEW_CASE:<hex>|<codes>` triage fact.
+  - `monitor/sitrep_close.py`: `HarvestReview`, `HarvestReport.reviews`, the
+    "output kept for sitrep review" verdict and body line (`ok` unchanged).
+  - Skill `SKILL.md.j2`: review handling in `>t` (step 2b, `case-review`
+    example), the `>c` capability, `case review` as a sanctioned write, and
+    the greeting count. Three goldens regenerated; the contract test gained
+    section e.
+  - Docs: `aidocs/framework/sitrep.md` ("Unparsed output: the review corpus",
+    components, monitor report, tests), the website workflow and skill pages,
+    and the fixtures README (corpus section).
+  - Tests: new `test_sitrep_corpus.sh` (184), `test_sitrep_corpus.py` (35),
+    `test_sitrep_corpus_fixtures.py` (2); monitor tests +3; contract section e;
+    `test_agent_freeze.py` receipts built by one cert-aware helper. Fixtures:
+    `joined_banner.txt` and `corpus/joined_banner/`.
+- **Deviations from plan:**
+  - Detection baseline: the draft `Created: aitasks/new/draft_*.md` line in
+    `explore_created.txt` fired `created_unparsed`. Drafts have no task id, so
+    `NEAR_CREATED_RE` excludes `aitasks/new/` (negative unit case added).
+  - The review item is counted as a harvested item (`HARVEST_ITEM` line and
+    `added=`), so the `h` dialog lists it.
+  - Origin files carry no harvest timestamp; `captured_at` is the record's
+    `frozen_at`, else `-`.
+  - The monitor needed no new `final_kind`: the final line stays `HARVESTED`
+    (the case is saved before the receipt), so `agent_freeze._harvest_record`
+    and `HarvestReport.ok` stay correct; `reviews` drives the wording.
+- **Issues encountered:**
+  - The lazy `import sitrep_corpus` from `sitrep_harvest` running as
+    `__main__` loaded a second `sitrep_harvest`, whose `HarvestFailure` was
+    not caught (e2e 9 traceback). Fixed with the `sys.modules` alias.
+  - A `replay --apply` newness bug (all ids real) was fixed by recording
+    newness in `Harvest`.
+  - The `--recovered "c1, c2"` spacing needed `strip()`.
+  - Under `pipefail`, `assert_contains` over a whole 60 KB file fails with
+    SIGPIPE; the premise check now counts with `grep -c`.
+- **Measurements:**
+  - detection_baseline: 21 local frozen captures give 17 reliable, 4 empty and
+    0 review; fixtures give 9 reliable, 1 empty, and 1 review
+    (`truncated_banner`: banner_incomplete), counted after the draft fix.
+  - large_capture_budget: a synthetic 12,150,005-byte / 50,000-line capture
+    with a joined banner and a cut-off banner harvested in 8.23 s, 7.89 s and
+    7.53 s (slowest 8.2 s < 30 s; load average 17–20 on 24 cores while the
+    mutants ran). The raw copy was byte-identical each run, so no
+    `--from <file>` path was needed.
+- **Mutants (fallback_guard_mutants):** 15 mutants, each in a fresh
+  `mktemp -d` copy of `.aitask-scripts` + `tests`. The unmutated control was
+  GREEN on e2e, unit, fixtures and monitor, and every mutant was RED on its
+  named assertion:
+  - `receipt_despite_case_failure` (e2e 7)
+  - `key_identity_bypassed` (3b)
+  - `key_per_origin` (1)
+  - `review_reopens_closed` (5)
+  - `check_sources_skips_raw` (4)
+  - `raw_sha_unchecked` (unit RawRetention)
+  - `joined_flag_ignored` (fixtures + unit)
+  - `monitor_ignores_review` (monitor)
+  - `needs_apply_ignores_reasons` (1)
+  - `unresolved_xref_is_reason` (unit Negative)
+  - `legacy_receipt_accepted_by_store` (0)
+  - `legacy_receipt_short_circuits` (0)
+  - `marker_claimed_by_any_banner` (3)
+  - `created_checked_per_line` (3)
+  - `banner_coverage_by_range` (3)
+  - `origin_skipped_when_key_owned` (3b)
+- **Upstream defects identified:**
+  - `tests/test_codeagent.sh:372` — `output=$(cd "$TMPDIR_TEST" && bash … || true)`
+    fails `tests/test_cd_guard_lint.sh` ("unconfined-andchain"); it came in
+    with t2175_4 (`bdef300b0`). The lint's other failure is another session's
+    untracked `tests/test_premise_baseline_field.sh`.
+- **Key decisions:** cert-versioned receipts invalidate legacy certificates
+  everywhere; per-occurrence pairing that reuses the identity pairing; one
+  review item per input, provenance per origin; the raw input is kept verbatim
+  or the harvest fails closed (never truncated); the review item is written
+  last; cases are found by scanning `sources/`; replay writes nothing unless
+  `--apply`; export refuses unresolved cases; the skill never exports.
+- **Notes for sibling / follow-up tasks:**
+  - t2182 (other agents' captures): banners from other agents' layouts now
+    land in the corpus as `banner_unparsed` cases with their raw input, which
+    are ready-made fixtures.
+  - The spawned after-mitigation `sitrep_review_live_smoke` exercises the
+    skill's review flow live.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-05 10:30)
+- **Requested by user:** five confirmed concerns:
+  1. forged case-record headers in harvested `sources/` passages could alter a
+     case (`scan_cases` trusted any first line);
+  2. `case review` recorded before the expected-rev close, and a record alone
+     made the case "reviewed" (STALE exited 0);
+  3. `DryStore.add` did not index capture owners, so a replay previewed
+     repeated commit, run and passage identities as new;
+  4. a cached `already_harvested` result dropped the review, so `h` showed
+     "Nothing to harvest";
+  5. `_split_joined` absorbed duplicate labels and classified the banner
+     reliable.
+- **Changes made:**
+  1. A trusted namespace `cases/<hex>.txt`, written only by the new writer
+     verb `retain-case` (case-record headers only; `CASE_RECORD_HEADERS` in
+     `sitrep_todo`). Origin, analysis and key are written to `cases/` and to a
+     byte-identical `sources/` copy for context pointers; review and replay
+     analysis records go to `cases/` only. `scan_cases`, `case_origin_input`
+     (`check-sources`) and `sitrep_cli._review_case` / `_capture_kind` read
+     only `cases/` (a `sources/` file counts as a record only with a trusted
+     twin). Identity counts only review items (`is_review_item`). The excerpt
+     gets its own header line, so it can never equal a record. `raw/` and
+     `cases/` count as post-init store artifacts.
+  2. `Case.status` comes from the item state only (open means pending, even
+     with records). `cmd_review` prints `REVIEW_NOT_CLOSED:c<N>|stale:<rev>`,
+     `|not_closed` or `|<failure>` and exits 1 unless the writer printed
+     `STATE:c<N>|done|`. New fault point `review:close`.
+  3. `DryStore.add` parses the context and indexes its capture and trail
+     pointers and the item, as the real reload does.
+  4. `cmd_plan`'s receipt short-circuit prints
+     `sitrep_corpus.cached_review_line` (`HARVEST_REVIEW:…|exists|…`) before
+     `already_harvested`. `HarvestReport.verdict` for `HARVEST_NONE` with a
+     review reads "Nothing new to harvest (…) — output kept for sitrep review
+     (c<N>)".
+  5. `_joined_ambiguous` marks a joined banner with any repeated label
+     incomplete; its fields are kept.
+  - Tests:
+    - e2e: 5b covers forged review and analysis headers via a Created window
+      and a post-prompt passage (the listing is unchanged, there is no forged
+      REVIEW, one REVIEW_CASE), a stale rev, a failed close, and a retry; 5c
+      covers a cached result plus the monitor verdict; assertions updated for
+      `cases/`.
+    - unit: excerpt-never-equals-a-record; trusted triage facts; a
+      `sources/`-only scan finds nothing; duplicate labels; dry-vs-real parity
+      over repeated commit, passage, run and follow-up inputs.
+    - monitor: cached-review verdict.
+    - contract: the `cases/` path.
+  - Skill: `REVIEW_NOT_CLOSED` handling; goldens regenerated. Docs: the
+    framework doc's trust, status and cached-result text, the harvest header,
+    and the website store line.
+- **Files affected:**
+  - `.aitask-scripts/lib/sitrep_todo.py`, `.aitask-scripts/aitask_sitrep_todo.sh`
+  - `.aitask-scripts/lib/sitrep_corpus.py`, `.aitask-scripts/lib/sitrep_harvest.py`,
+    `.aitask-scripts/lib/sitrep_cli.py`
+  - `.aitask-scripts/monitor/sitrep_close.py`, `.aitask-scripts/aitask_sitrep_harvest.sh`
+  - `.claude/skills/aitask-sitrep/SKILL.md.j2` and its three goldens
+  - `aidocs/framework/sitrep.md`, `website/content/docs/workflows/sitrep.md`
+  - `tests/test_sitrep_corpus.sh`, `tests/test_sitrep_corpus.py`,
+    `tests/test_monitor_sitrep_harvest_close.py`, `tests/test_sitrep_skill_contract.sh`
+- **Verification after Change Request 1:**
+  - Suites: corpus e2e 202/202; corpus unit + fixtures 41; monitor + harvest +
+    freeze + todo-format 366; todo e2e 248; harvest e2e 139; contract 64;
+    render 114. `aitask_skill_verify.sh` OK; `check_links.py --build` PASSED.
+  - Mutants: the full set was re-run (23) with the unmutated control GREEN on
+    e2e, unit, fixtures and monitor. All 23 were RED, including the 8 new ones:
+    - `scan_reads_sources` (e2e 5b)
+    - `review_record_certifies` (5b)
+    - `stale_close_exit_zero` (5b)
+    - `cached_review_dropped` (5c)
+    - `dry_owners_not_indexed` (unit dry-vs-real parity)
+    - `duplicate_labels_ignored` (unit)
+    - `triage_trusts_sources` (unit)
+    - the retargeted `key_identity_bypassed` (now `review_owners`)
+
+### Change Request 2 (2026-11-05 11:40)
+- **Requested by user:**
+  1. review ownership depended on the editable title, so a renamed review
+     made the case look incomplete and a re-harvest created a second review;
+  2. status read "resolved" from any historical record, even a failed
+     attempt, and that check came before dismissal;
+  3. the framework doc still said cases are found by scanning `sources/`.
+- **Changes made:**
+  1. `is_review_owner(item, ctx, store_dir, case, keyhex)`: a script-derived
+     question whose context points at the case key AND at a trusted origin or
+     analysis of the same case (both with `cases/` twins). The title is never
+     consulted. `Store` keeps `contexts` (and `DryStore` mirrors them);
+     `review_owners` and `scan_cases` use the predicate.
+  2. `Case.accepted_outcome()` reads the item's writer-stored outcome
+     (`reviewed: <outcome>`, written only by a successful close). Status is
+     pending (open), then dismissed (always wins), then resolved or reviewed
+     from the accepted outcome; review records are history only.
+     `case review` on a done item now re-closes it with the new accepted
+     outcome (e.g. a later `resolved`); on a dismissed item it only adds the
+     record (`REVIEW_ITEM_KEPT`).
+  3. The doc's lifecycle paragraph is rewritten (`cases/` discovery,
+     provenance ownership, accepted-outcome status).
+  - Tests (e2e):
+    - 5d renames open, done and dismissed reviews via `update --title`: the
+      case listing is unchanged, a `--force` re-harvest finds the review
+      (`exists`), no second question is created, and the state is kept;
+    - 5e: a stale `resolved` attempt (exit 1), then `unrecoverable`, gives
+      reviewed with both records kept as history; a later `resolved` re-close
+      gives resolved; a dismissal then gives dismissed.
+- **Not mutant-testable by construction:** the provenance half of
+  `is_review_owner` (key pointer + trusted origin/analysis) beyond the key
+  pointer itself cannot be reached by any input, because no non-review item
+  can point at a case key file (no retained passage is byte-identical to a
+  record). It is defense in depth, not a tested guard.
+- **Files affected:**
+  - `.aitask-scripts/lib/sitrep_corpus.py`
+  - `.aitask-scripts/lib/sitrep_harvest.py` (`Store.contexts`)
+  - `aidocs/framework/sitrep.md`
+  - `tests/test_sitrep_corpus.sh`
+- **Verification after Change Request 2:**
+  - Corpus e2e 222/222. Related Python suites (harvest, monitor, refresh,
+    window) 228; contract 64; harvest e2e 139; `check_links.py --build` PASSED;
+    shellcheck clean.
+  - Mutants: the full set (26) with the control GREEN on e2e, unit, fixtures
+    and monitor; all RED, including `owner_by_title` (5d), `status_from_records`
+    (5e) and `resolved_before_dismissed`.
+  - The first run of `resolved_before_dismissed` was RED only on a flaky
+    `assert_contains` (case 8; the text was present). 5e then gained a
+    dismissal WITHOUT `--outcome` (the item keeps `reviewed: resolved`), and
+    the re-run is RED on exactly that assertion.
+  - The suite now defines pipe-free `assert_contains` / `assert_not_contains`
+    (here-strings) locally.
+- **Upstream defects identified (addendum):**
+  - `tests/lib/asserts.sh:179-196` — `assert_contains` / `assert_not_contains`
+    use `printf '%s' "$haystack" | grep -qF`. Under a caller's
+    `set -o pipefail`, a haystack larger than one write makes `grep -q` exit
+    early, printf gets SIGPIPE, and a present needle is reported missing
+    (observed twice in `tests/test_sitrep_corpus.sh`; worked around locally
+    with here-strings).
