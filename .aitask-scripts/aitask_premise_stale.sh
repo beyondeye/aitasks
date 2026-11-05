@@ -82,9 +82,9 @@
 #   anywhere in history could split a record or forge a TASKFILES: line.
 #
 # SCOPE IS READ AS YAML, AND ITS COMPLETENESS IS ATTESTED. file_references: is
-# parsed by task_yaml, never comma-split: get_file_references() turns the valid
-# entry "a,b.py" into `a` and `b.py`, and when those exist unchanged a change to
-# a,b.py reads FRESH. Every scope source states its own size -- FIELD_END for the
+# parsed by task_yaml, never comma-split: a comma-splitting reader turns the
+# valid entry "a,b.py" into `a` and `b.py`, and when those exist unchanged a
+# change to a,b.py reads FRESH. Every scope source states its own size -- FIELD_END for the
 # fields reader, TASKFILES_COUNT/END for the batch map -- and the TIER counts the
 # core checks are derived only after those attestations hold.
 #
@@ -206,8 +206,10 @@ sys.stdout.write("\n".join(task_premise.check(sys.stdin).lines) + "\n")
 
 # The task-fields reader: premise_baseline: and file_references: as the
 # framework's YAML reader parses them (task_yaml.parse_frontmatter), NEVER by
-# splitting the flow list on commas -- get_file_references() turns the valid
-# entry "a,b.py" into the two paths `a` and `b.py`. argv[1] = lib dir,
+# splitting the flow list on commas, which turns the valid entry "a,b.py" into
+# the two paths `a` and `b.py`. The string-only rule is
+# task_yaml.file_reference_entries, shared with the shell reader
+# get_file_references() (lib/task_utils.sh). argv[1] = lib dir,
 # argv[2] = task file. A file whose frontmatter does not parse prints
 # FIELD_INVALID (-> SKIP invalid_frontmatter); any other failure exits non-zero.
 _FIELDS_GLUE='

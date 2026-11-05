@@ -108,12 +108,224 @@ _yaml_emit() {
     return 0
 }
 
+# --- Flow-sequence extent scanner (t2209) ---
+#
+# The ONE definition of "where does a flow sequence end", shared by
+# join_yaml_flow_lists, read_yaml_list's capture loop and yaml_field_block, so
+# the three cannot disagree (the t1609 one-definition pattern).
+#
+# A record is a flow sequence only when its value -- after leading spaces, any
+# `- ` block-sequence indicators and an optional `key:` -- begins with `[`.
+# Any other record is a single physical line: brackets in a plain scalar such
+# as `title: a [b` are literal text and never pull the next line in.
+#
+# Inside a flow sequence, brackets count only OUTSIDE quoted scalars and
+# comments. A plain bracket count (the pre-t2209 rule) read the valid
+# `file_references: ["a[.py"]` as unterminated and swallowed every following
+# frontmatter line into that one record. The scanner's grammar is the subset of
+# YAML flow syntax that moves the depth:
+#   - `"` / `'` open a quoted scalar ONLY at a scalar start: after `[`, `{`
+#     or `,`, or after `:` plus whitespace. The apostrophe in `[it's, x]` is
+#     plain-scalar text.
+#   - double-quoted: `\` escapes the next char; `"` closes.
+#   - single-quoted: `''` is an escaped quote; a lone `'` closes.
+#   - `#` at line start or after whitespace, outside quotes, comments out the
+#     rest of that physical line.
+#   - quote state carries across physical lines; comment state does not.
+# Only `[` / `]` move the depth, exactly as the plain count did, so a line with
+# no quote and no `#` (the FAST PATH, counted without a per-char loop) yields
+# the same depth as before. tests/test_file_refs_yaml.sh pins the extents
+# against PyYAML's own top-level keys.
+#
+# A VALID flow sequence always closes, so the scanner's extent is exact for
+# valid YAML -- including a quoted scalar continued on a line that looks like
+# `key: x` or `---suffix`. Only when the input ENDS with a record still open
+# (malformed YAML: a lone `"` in `il: ["]` opens a quote that never closes) is
+# that record's extent re-decided by the pre-scanner plain bracket count
+# (_yaml_flow_plain_len), and the lines after it are scanned afresh. That keeps
+# the t1609 tolerance -- read_yaml_list returns `il: ["]` as the item `"`,
+# pinned by tests/test_yaml_utils.sh -- without a heuristic that could cut a
+# valid record short. A line that is exactly `---` counts as the end of input
+# for an open record: it is the frontmatter delimiter, which valid frontmatter
+# can never contain (task_yaml splits on it first, and YAML forbids a document
+# marker inside a scalar) -- so a malformed record cannot run on into the body.
+# `---suffix` is ordinary text. Lines are buffered only while a record is open,
+# so the common path still streams.
+#
+# State lives in caller-declared locals (bash dynamic scoping): _yfs_depth,
+# _yfs_q (""|dq|sq) and _yfs_prev (the previous significant char).
+
+# _yaml_flow_plain_len <line>... -> sets _yfr_len to the number of leading lines
+# the pre-scanner plain count spans (all of them if it never closes).
+_yaml_flow_plain_len() {
+    local depth=0 j=0 line opens closes
+    for line in "$@"; do
+        j=$(( j + 1 ))
+        opens="${line//[^\[]/}"
+        closes="${line//[^\]]/}"
+        depth=$(( depth + ${#opens} - ${#closes} ))
+        if [[ $depth -le 0 ]]; then _yfr_len=$j; return 0; fi
+    done
+    _yfr_len=$#
+}
+
+# _yaml_flow_record_len <line>... -> sets _yfr_len to the length of the flow
+# record that starts at the first line: the scanner's extent, or the plain
+# count's when the scanner never closes it within the given lines.
+_yaml_flow_record_len() {
+    local _yfs_depth=0 _yfs_q="" _yfs_prev="" j=0 line
+    for line in "$@"; do
+        j=$(( j + 1 ))
+        _yaml_flow_advance "$line"
+        if [[ $_yfs_depth -le 0 ]]; then _yfr_len=$j; return 0; fi
+    done
+    _yaml_flow_plain_len "$@"
+}
+
+# _yaml_flow_value_begins <line> -> 0 when the line's value opens a flow sequence
+_yaml_flow_value_begins() {
+    local v="$1"
+    v="${v#"${v%%[![:space:]]*}"}"
+    while [[ "$v" == "- "* ]]; do
+        v="${v#- }"
+        v="${v#"${v%%[![:space:]]*}"}"
+    done
+    if [[ "$v" =~ ^[A-Za-z0-9_.-]+:([[:space:]].*)?$ ]]; then
+        v="${BASH_REMATCH[1]}"
+        v="${v#"${v%%[![:space:]]*}"}"
+    fi
+    [[ "$v" == "["* ]]
+}
+
+# _yaml_flow_advance <physical line> -> updates _yfs_depth/_yfs_q/_yfs_prev
+_yaml_flow_advance() {
+    local s="$1" c i n ws=1 opens closes t
+    if [[ -z "$_yfs_q" && "$s" != *[\"\'#]* ]]; then
+        opens="${s//[^\[]/}"
+        closes="${s//[^\]]/}"
+        _yfs_depth=$(( _yfs_depth + ${#opens} - ${#closes} ))
+        t="${s%"${s##*[![:space:]]}"}"
+        [[ -n "$t" ]] && _yfs_prev="${t:${#t}-1:1}"
+        return 0
+    fi
+    n=${#s}
+    for (( i = 0; i < n; i++ )); do
+        c="${s:i:1}"
+        if [[ "$_yfs_q" == dq ]]; then
+            if [[ "$c" == "\\" ]]; then
+                i=$(( i + 1 ))
+            elif [[ "$c" == '"' ]]; then
+                _yfs_q=""; _yfs_prev='"'; ws=0
+            fi
+            continue
+        fi
+        if [[ "$_yfs_q" == sq ]]; then
+            if [[ "$c" == "'" ]]; then
+                if [[ "${s:i+1:1}" == "'" ]]; then
+                    i=$(( i + 1 ))
+                else
+                    _yfs_q=""; _yfs_prev="'"; ws=0
+                fi
+            fi
+            continue
+        fi
+        case "$c" in
+            ' '|$'\t'|$'\r')
+                ws=1; continue ;;
+            '#')
+                [[ $ws -eq 1 ]] && break ;;
+            '[')
+                _yfs_depth=$(( _yfs_depth + 1 )) ;;
+            ']')
+                _yfs_depth=$(( _yfs_depth - 1 )) ;;
+            '"'|"'")
+                if [[ "$_yfs_prev" == '[' || "$_yfs_prev" == '{' || "$_yfs_prev" == ',' ]] \
+                    || [[ "$_yfs_prev" == ':' && $ws -eq 1 ]]; then
+                    if [[ "$c" == '"' ]]; then _yfs_q=dq; else _yfs_q=sq; fi
+                    ws=0
+                    continue
+                fi ;;
+        esac
+        _yfs_prev="$c"; ws=0
+    done
+    return 0
+}
+
+# yaml_field_block <field>
+# Reads YAML text (a task file's frontmatter) on stdin and prints the
+# <field>'s ORIGINAL physical lines verbatim: the `<field>:` line, then -- for a
+# flow sequence -- every continuation line up to the one that closes it, or --
+# for an empty value -- the block-sequence / indented lines that follow it.
+# Prints nothing when the field is absent. Used to pass a field through a
+# whole-frontmatter rewrite byte-identically: a space-joined value (what
+# join_yaml_flow_lists produces) is NOT the same YAML when a quoted scalar spans
+# lines, because YAML folds that line break differently.
+yaml_field_block() {
+    # See "THE OTHER HALF: BEING KILLED" in the header.
+    if [[ ${BASH_SUBSHELL:-0} -gt 0 ]]; then trap '' PIPE; fi
+    _yaml_field_block_impl "$@"
+}
+
+_yaml_field_block_impl() {
+    local field="$1" line mode="" rest _yfr_len=0 k
+    local -a pend=()
+    local _yfs_depth=0 _yfs_q="" _yfs_prev=""
+    local _yaml_guard_writes=""; _yaml_init_write_guard
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        case "$mode" in
+            "")
+                [[ "$line" == "${field}:"* ]] || continue
+                if _yaml_flow_value_begins "$line"; then
+                    _yaml_flow_advance "$line"
+                    if [[ $_yfs_depth -le 0 ]]; then
+                        _yaml_emit "$line" || return 0
+                        return 0
+                    fi
+                    pend=("$line")
+                    mode=flow
+                else
+                    _yaml_emit "$line" || return 0
+                    rest="${line#"${field}":}"
+                    rest="${rest#"${rest%%[![:space:]]*}"}"
+                    # A non-empty scalar (or a trailing comment) is one line.
+                    [[ -z "$rest" || "$rest" == "#"* ]] || return 0
+                    mode=block
+                fi
+                ;;
+            flow)
+                [[ "$line" == "---" ]] && break       # delimiter = end of input
+                pend+=("$line")
+                _yaml_flow_advance "$line"
+                if [[ $_yfs_depth -le 0 ]]; then
+                    for k in "${pend[@]}"; do _yaml_emit "$k" || return 0; done
+                    return 0
+                fi
+                ;;
+            block)
+                # The block sequence (`- x`, possibly at the key's own
+                # indentation) and any more-indented continuation lines.
+                [[ "$line" == "-"* || "$line" == [[:space:]]* ]] || return 0
+                _yaml_emit "$line" || return 0
+                ;;
+        esac
+    done
+    if [[ "$mode" == flow ]]; then
+        # Input ended inside the record: malformed -- plain-count extent.
+        _yaml_flow_plain_len "${pend[@]}"
+        for (( k = 0; k < _yfr_len; k++ )); do
+            _yaml_emit "${pend[k]}" || return 0
+        done
+    fi
+    return 0
+}
+
 # Join YAML flow-sequence values that wrap across multiple physical lines.
-# Reads YAML text on stdin; emits it with any "key: [ ... ]" whose brackets
-# span multiple physical lines collapsed onto a single line. Continuation
-# lines are appended with a separating space (harmless — list parsers strip
-# all whitespace). Bracket depth is tracked, so a wrap of any length folds
-# back to one line.
+# Reads YAML text on stdin; emits it with any flow sequence ("key: [ ... ]")
+# that spans multiple physical lines collapsed onto a single line.
+# Continuation lines are appended with a separating space (harmless for the
+# list parsers, which trim each item). The extent of each sequence comes from
+# the shared scanner above, so a wrap of any length folds back to one line and
+# a bracket inside a quoted scalar or a comment never extends it.
 #
 # PyYAML's yaml.dump (used by the board via lib/task_yaml.py) wraps a flow list
 # once it exceeds ~80 columns. The line-by-line frontmatter parsers below
@@ -134,29 +346,71 @@ join_yaml_flow_lists() {
 }
 
 _join_yaml_flow_lists_impl() {
-    local line buffer="" depth=0 opens closes
+    local line _yfr_len=0
+    local -a pend=()
+    local _yfs_depth=0 _yfs_q="" _yfs_prev=""
     local _yaml_guard_writes=""; _yaml_init_write_guard
     while IFS= read -r line || [[ -n "$line" ]]; do
-        if [[ $depth -gt 0 ]]; then
-            buffer+=" $line"
-        else
-            buffer="$line"
+        if [[ ${#pend[@]} -gt 0 && "$line" == "---" ]]; then
+            _yaml_join_replay || return 0
+            pend=()
         fi
-        # Count unbalanced brackets across the accumulated buffer.
-        opens="${buffer//[^\[]/}"
-        closes="${buffer//[^\]]/}"
-        depth=$(( ${#opens} - ${#closes} ))
-        if [[ $depth -le 0 ]]; then
-            # Closed-pipe stop — see the write contract at the top of this file.
-            _yaml_emit "$buffer" || return 0
-            buffer=""
-            depth=0
+        if [[ ${#pend[@]} -gt 0 ]]; then
+            pend+=("$line")
+            _yaml_flow_advance "$line"
+            if [[ $_yfs_depth -le 0 ]]; then
+                # Closed-pipe stop — see the write contract at the top of this file.
+                _yaml_join_emit "${pend[@]}" || return 0
+                pend=()
+            fi
+            continue
+        fi
+        _yfs_depth=0; _yfs_q=""; _yfs_prev=""
+        if _yaml_flow_value_begins "$line"; then
+            _yaml_flow_advance "$line"
+            if [[ $_yfs_depth -gt 0 ]]; then
+                pend=("$line")
+                continue
+            fi
+        fi
+        _yaml_emit "$line" || return 0
+    done
+    _yaml_join_replay || return 0
+    return 0
+}
+
+# _yaml_join_replay -> the joiner's input ended (EOF or `---`) inside a record,
+# which is malformed (a valid one closes). Replays the caller's buffered `pend`
+# lines: the first record's extent falls back to the plain count, and every
+# later line is scanned afresh within the buffer. Returns 1 on a closed pipe.
+_yaml_join_replay() {
+    local i n
+    n=${#pend[@]}
+    i=0
+    while [[ $i -lt $n ]]; do
+        if _yaml_flow_value_begins "${pend[i]}"; then
+            if [[ $i -eq 0 ]]; then
+                _yaml_flow_plain_len "${pend[@]}"
+            else
+                _yaml_flow_record_len "${pend[@]:i}"
+            fi
+            _yaml_join_emit "${pend[@]:i:_yfr_len}" || return 1
+            i=$(( i + _yfr_len ))
+        else
+            _yaml_emit "${pend[i]}" || return 1
+            i=$(( i + 1 ))
         fi
     done
-    if [[ -n "$buffer" ]]; then
-        _yaml_emit "$buffer" || return 0
-    fi
     return 0
+}
+
+# _yaml_join_emit <line>... -> emits the lines joined by single spaces
+_yaml_join_emit() {
+    local out="$1"
+    shift
+    local l
+    for l in "$@"; do out+=" $l"; done
+    _yaml_emit "$out"
 }
 
 # read_yaml_field <file> <field>
@@ -290,23 +544,31 @@ _read_yaml_list_impl() {
     local _yaml_item=""
 
     # Capture the field's value, joining a flow list wrapped across multiple
-    # physical lines (PyYAML wraps past ~80 columns) onto a single line.
-    local value="" capturing=false depth=0 fline opens closes
+    # physical lines (PyYAML wraps past ~80 columns) onto a single line. The
+    # extent comes from the shared flow scanner (see its header above).
+    local value="" capturing=false closed=false fline _yfr_len=0 k
+    local -a pend=()
+    local _yfs_depth=0 _yfs_q="" _yfs_prev=""
     local _yaml_guard_writes=""; _yaml_init_write_guard
     while IFS= read -r fline; do
         if [[ "$capturing" == false ]]; then
             [[ "$fline" == "${field}:"* ]] || continue
             capturing=true
-            value="${fline#"${field}":}"
+            pend=("$fline")
+            _yaml_flow_value_begins "$fline" || { closed=true; break; }
         else
-            value="$value $fline"
+            [[ "$fline" == "---" ]] && break     # delimiter = end of input
+            pend+=("$fline")
         fi
-        opens="${value//[^\[]/}"
-        closes="${value//[^\]]/}"
-        depth=$(( ${#opens} - ${#closes} ))
-        [[ $depth -le 0 ]] && break
+        _yaml_flow_advance "$fline"
+        if [[ $_yfs_depth -le 0 ]]; then closed=true; break; fi
     done < "$file"
     [[ "$capturing" == false ]] && return 0
+    # Input ended inside the record: malformed -- plain-count extent.
+    _yfr_len=${#pend[@]}
+    [[ "$closed" == true ]] || _yaml_flow_plain_len "${pend[@]}"
+    value="${pend[0]#"${field}":}"
+    for (( k = 1; k < _yfr_len; k++ )); do value+=" ${pend[k]}"; done
 
     # Strip whitespace left by the "${field}:" prefix removal, and by the
     # line itself. Trailing matters (t1609): the flow-list guard below anchors

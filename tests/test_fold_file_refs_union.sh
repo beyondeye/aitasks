@@ -237,6 +237,46 @@ test_syntax_check() {
     fi
 }
 
+test_quoted_comma_entry_unions_as_one() {
+    echo "=== Test: a quoted comma entry unions as ONE path (t2209) ==="
+    setup_project
+
+    write_task aitasks/t10_primary.md "file_references: [a.py]"
+    write_task aitasks/t20_folded.md 'file_references: ["a,b.py", "x y.py"]'
+    git add -A
+    git commit -m "Setup quoted union" --quiet
+
+    local output
+    output=$(bash .aitask-scripts/aitask_fold_mark.sh --commit-mode none 10 20 2>&1)
+    assert_contains "primary updated" "PRIMARY_UPDATED:10" "$output"
+    assert_eq "quoted entries stay whole and quoted" '[a.py, "a,b.py", "x y.py"]' \
+        "$(read_frontmatter_field aitasks/t10_primary.md file_references)"
+
+    teardown
+}
+
+test_unreadable_folded_scope_refuses_fold() {
+    echo "=== Test: an unreadable folded scope refuses the fold, nothing mutated (t2209) ==="
+    setup_project
+
+    write_task aitasks/t10_primary.md "file_references: [a.py]"
+    # Unquoted on / 010 are a bool and an int, not paths.
+    write_task aitasks/t20_folded.md "file_references: [on, 010]"
+    git add -A
+    git commit -m "Setup unreadable union" --quiet
+
+    local before_p before_f rc=0 output
+    before_p="$(cat aitasks/t10_primary.md)"
+    before_f="$(cat aitasks/t20_folded.md)"
+    output=$(bash .aitask-scripts/aitask_fold_mark.sh --commit-mode none 10 20 2>&1) || rc=$?
+    assert_eq "fold exits non-zero" "1" "$([[ $rc -ne 0 ]] && echo 1 || echo 0)"
+    assert_contains "the refusal names the cause" "cannot be read as a list of path strings" "$output"
+    assert_eq "primary untouched" "$before_p" "$(cat aitasks/t10_primary.md)"
+    assert_eq "folded task untouched" "$before_f" "$(cat aitasks/t20_folded.md)"
+
+    teardown
+}
+
 teardown_all() {
     local d
     for d in "${CLEANUP_DIRS[@]}"; do
@@ -250,6 +290,8 @@ test_dedup_exact_match
 test_transitive_union
 test_empty_union_leaves_primary_untouched
 test_primary_only_preserved
+test_quoted_comma_entry_unions_as_one
+test_unreadable_folded_scope_refuses_fold
 test_syntax_check
 
 echo ""

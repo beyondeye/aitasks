@@ -98,6 +98,15 @@ reality. No new machinery — the plumbing already exists:
 So a manual-verification task's frontmatter reads `verifies:` = which **tasks**,
 `file_references:` = which **files**.
 
+The field is read **as YAML**: the staleness helper uses the count-attested batch
+reader behind `get_file_references()` (`task_yaml.parse_frontmatter`, one Python
+call), so a quoted `"a,b.py"` is one path. Only a string entry is a path
+(`task_yaml.file_reference_entries`). An unquoted `on` / `null` / `010` is kept
+as an `invalid_reference` (`UNKNOWN`, so `ASK_STALE`), never dropped.
+Frontmatter that does not parse, or no usable PyYAML, reads `SKIP` with its own
+reason. The writers (`aitask_create.sh`, `aitask_update.sh`) emit the list with
+`format_yaml_path_list`, which quotes any entry YAML would misread.
+
 Two accepted costs:
 
 - On other issue types the field means "context files relevant to this task", so

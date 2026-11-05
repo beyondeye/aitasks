@@ -584,7 +584,7 @@ create_child_task_file() {
         # Only write file_references if present
         if [[ -n "$file_references" ]]; then
             local file_refs_yaml
-            file_refs_yaml=$(format_yaml_list "$file_references")
+            file_refs_yaml=$(format_yaml_path_list "$file_references") || return 1
             echo "file_references: $file_refs_yaml"
         fi
         # Only write anchor (topic group key) if present
@@ -721,7 +721,7 @@ create_draft_file() {
         fi
         if [[ -n "$file_references" ]]; then
             local file_refs_yaml
-            file_refs_yaml=$(format_yaml_list "$file_references")
+            file_refs_yaml=$(format_yaml_path_list "$file_references") || return 1
             echo "file_references: $file_refs_yaml"
         fi
         echo "draft: true"
@@ -1883,7 +1883,9 @@ get_timestamp() {
 }
 
 # Deduplicate a bash array of file-reference strings by exact-string match,
-# preserving order of first occurrence. Prints a comma-separated string.
+# preserving order of first occurrence. Prints them NEWLINE-separated: an entry
+# may legally contain a comma ("a,b.py"), so a comma-joined carrier would split
+# it. format_yaml_path_list consumes this form.
 dedup_file_refs() {
     local -n arr_ref=$1
     local -A seen=()
@@ -1895,8 +1897,8 @@ dedup_file_refs() {
             unique+=("$item")
         fi
     done
-    local IFS=','
-    echo "${unique[*]}"
+    [[ ${#unique[@]} -gt 0 ]] || return 0
+    printf '%s\n' "${unique[@]}"
 }
 
 # run_auto_merge_if_needed <new_id> <new_file>
@@ -1919,9 +1921,16 @@ run_auto_merge_if_needed() {
     [[ -f "$new_file" ]] || return 0
 
     # Collect distinct path-only portions from the new task's file_references.
+    # Read with an explicit status check: auto-merge is best-effort, so an
+    # unreadable field skips it with a warning rather than reading as "no refs".
     local -a paths=()
     local -A seen_paths=()
-    local entry entry_path
+    local entry entry_path refs_out refs_rc=0
+    refs_out="$(get_file_references "$new_file")" || refs_rc=$?
+    if [[ $refs_rc -ne 0 ]]; then
+        warn "auto-merge skipped: file_references of $new_file could not be read (status $refs_rc)" >&2
+        return 0
+    fi
     while IFS= read -r entry; do
         [[ -z "$entry" ]] && continue
         entry_path="${entry%%:*}"
@@ -1930,7 +1939,7 @@ run_auto_merge_if_needed() {
             seen_paths[$entry_path]=1
             paths+=("$entry_path")
         fi
-    done < <(get_file_references "$new_file")
+    done <<< "$refs_out"
 
     [[ ${#paths[@]} -eq 0 ]] && return 0
 
@@ -2114,7 +2123,7 @@ create_task_file() {
         # Only write file_references if present
         if [[ -n "$file_references" ]]; then
             local file_refs_yaml
-            file_refs_yaml=$(format_yaml_list "$file_references")
+            file_refs_yaml=$(format_yaml_path_list "$file_references") || return 1
             echo "file_references: $file_refs_yaml"
         fi
         # Only write assigned_to if present

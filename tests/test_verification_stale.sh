@@ -348,7 +348,7 @@ test_glob_chars_in_path_do_not_match_neighbours() {
     # Touch ONLY the neighbour, which the pathspec glob `a[bc].md` matches.
     commit_file "$d" docs/ab.md "two" "bug: touch neighbour only (t999)"
 
-    mk_task "$d/t.md" "$base @ $TS" 'docs/a[bc].md'
+    mk_task "$d/t.md" "$base @ $TS" '"docs/a[bc].md"'
     out=$(run_check "$d" t.md)
 
     # `git log -- <path>` matches a PATHSPEC, and a pathspec containing *, ? or
@@ -370,7 +370,7 @@ test_glob_chars_do_not_contaminate_real_evidence() {
     commit_file "$d" docs/ab.md "two" "bug: touch neighbour only (t999)"
     commit_file "$d" 'docs/a[bc].md' "two" "bug: touch the literal file (t888)"
 
-    mk_task "$d/t.md" "$base @ $TS" 'docs/a[bc].md'
+    mk_task "$d/t.md" "$base @ $TS" '"docs/a[bc].md"'
     out=$(run_check "$d" t.md)
 
     # The genuine change IS detected either way (git matches a literal path
@@ -398,12 +398,82 @@ test_deleted_glob_path_names_its_own_culprit() {
     remove_file "$d" 'docs/a[bc].md' "chore: drop the literal file (t998)"
     remove_file "$d" docs/ab.md "chore: drop neighbour (t997)"
 
-    mk_task "$d/t.md" "$base @ $TS" 'docs/a[bc].md'
+    mk_task "$d/t.md" "$base @ $TS" '"docs/a[bc].md"'
     out=$(run_check "$d" t.md)
 
     assert_eq "deleted glob-shaped path => ASK_STALE" "ASK_STALE" "$(decision_of "$out")"
     assert_contains "culprit is its own deletion commit" "DELETED:docs/a[bc].md|998|" "$out"
     assert_not_contains "not the neighbour's deletion commit" "997" "$out"
+}
+
+test_quoted_comma_entry_is_one_path() {
+    echo "=== A: file_references: [\"a,b.py\"] is ONE path, never 'a' + 'b.py' (t2209) ==="
+    local d base out
+    d=$(new_repo)
+    commit_file "$d" 'a,b.py' "one" "documentation: add comma file (t105)"
+    commit_file "$d" a "one" "documentation: add a (t106)"
+    commit_file "$d" b.py "one" "documentation: add b.py (t107)"
+    base=$(git -C "$d" rev-parse HEAD)
+    # Change ONLY the comma-named file. A comma-splitting reader scopes the task
+    # to the untouched `a` and `b.py` and reports a false FRESH.
+    commit_file "$d" 'a,b.py' "two" "bug: touch the comma file (t888)"
+    mk_task "$d/t.md" "$base @ $TS" '"a,b.py"'
+    out=$(run_check "$d" t.md)
+    assert_eq "quoted comma entry changed => ASK_STALE" "ASK_STALE" "$(decision_of "$out")"
+    assert_contains "scope is the one quoted path" "FILES:1" "$out"
+    assert_contains "evidence names the comma file" "CHANGED:a,b.py|1|888" "$out"
+}
+
+test_non_string_entry_is_never_fresh() {
+    echo "=== A: an unquoted on/010 entry is not a path: UNKNOWN, never dropped (t2209) ==="
+    local d base out
+    d=$(new_repo)
+    commit_file "$d" lib/a.sh "one" "feature: add a (t105)"
+    base=$(git -C "$d" rev-parse HEAD)
+    # lib/a.sh untouched; `on` reads as a boolean, `010` as an int. Dropping them
+    # would leave a FRESH scope of one untouched file.
+    mk_task "$d/t.md" "$base @ $TS" 'lib/a.sh, on, 010'
+    out=$(run_check "$d" t.md)
+    assert_eq "non-string entries => ASK_STALE" "ASK_STALE" "$(decision_of "$out")"
+    assert_contains "all three entries are counted" "FILES:3" "$out"
+    assert_eq "each non-string entry is an invalid_reference" "2" \
+        "$(count_matches "$out" '^UNKNOWN:.*\|invalid_reference$')"
+}
+
+test_invalid_unit_survives_a_lookalike_filename() {
+    echo "=== A: an invalid unit never dedupes away behind a real file named like it (t2209) ==="
+    local d base out order
+    d=$(new_repo)
+    # A real, legal filename spelled exactly like the invalid-entry diagnostic
+    # for YAML `true`. It stays untouched, so a lost invalid unit reads FRESH.
+    commit_file "$d" '<invalid file_references entry: True>' "one" "documentation: add lookalike (t105)"
+    base=$(git -C "$d" rev-parse HEAD)
+    for order in path-first bool-first; do
+        if [[ "$order" == path-first ]]; then
+            mk_task "$d/t.md" "$base @ $TS" '"<invalid file_references entry: True>", true'
+        else
+            mk_task "$d/t.md" "$base @ $TS" 'true, "<invalid file_references entry: True>"'
+        fi
+        out=$(run_check "$d" t.md)
+        assert_eq "[$order] the boolean is still an invalid unit => ASK_STALE" "ASK_STALE" "$(decision_of "$out")"
+        assert_contains "[$order] both entries are counted" "FILES:2" "$out"
+        assert_eq "[$order] exactly one invalid_reference" "1" \
+            "$(count_matches "$out" '^UNKNOWN:.*\|invalid_reference$')"
+    done
+}
+
+test_unparseable_frontmatter_skips() {
+    echo "=== A: unparseable file_references: => SKIP, never FRESH (t2209) ==="
+    local d base out
+    d=$(new_repo)
+    commit_file "$d" 'docs/a[bc].md' "one" "documentation: add literal (t105)"
+    base=$(git -C "$d" rev-parse HEAD)
+    # Unquoted, `[docs/a[bc].md]` is invalid YAML (a nested flow sequence that
+    # never closes): no reader can attest the scope.
+    mk_task "$d/t.md" "$base @ $TS" 'docs/a[bc].md'
+    out=$(run_check "$d" t.md)
+    assert_eq "unparseable scope => SKIP" "SKIP" "$(decision_of "$out")"
+    assert_contains "the skip says why" "could not be read" "$out"
 }
 
 test_ranged_reference_unchanged_is_fresh() {
@@ -903,6 +973,10 @@ test_percent_encoding_is_lossless
 test_glob_chars_in_path_do_not_match_neighbours
 test_glob_chars_do_not_contaminate_real_evidence
 test_deleted_glob_path_names_its_own_culprit
+test_quoted_comma_entry_is_one_path
+test_non_string_entry_is_never_fresh
+test_invalid_unit_survives_a_lookalike_filename
+test_unparseable_frontmatter_skips
 test_ranged_reference_unchanged_is_fresh
 test_ranged_reference_changed_reports_stripped_path
 test_multi_range_reference_is_stripped

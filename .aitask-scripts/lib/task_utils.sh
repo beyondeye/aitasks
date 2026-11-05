@@ -3373,42 +3373,277 @@ extract_pr_url() {
     echo ""
 }
 
-# Extract file_references entries from a task file's YAML frontmatter
-# Input: task file path
-# Output: one entry per line (newline-separated), empty if missing/empty
-# Each entry is returned verbatim: "path", "path:N", "path:N-M",
-# or compact multi-range "path:N-M^N-M^...".
-get_file_references() {
-    local file_path="$1"
-    local in_yaml=false
+# --- file_references: (t2209) ---
+#
+# The field is a YAML flow list, so it is READ WITH THE YAML READER and only a
+# string entry is a path. Splitting it on commas turned the valid `["a,b.py"]`
+# into the two paths `a` and `b.py`, which let aitask_verification_stale.sh
+# report a false FRESH. Entries are carried between the shell helpers
+# NEWLINE-separated, never comma-joined, and written by format_yaml_path_list,
+# which quotes whatever YAML would otherwise misread.
 
+# The reader glue. argv[1] = lib dir (APPENDED to sys.path; cwd entries are
+# dropped, as in aitask_premise_stale.sh's glues), argv[2..] = task files.
+# Single-quoted: nothing is interpolated into it. Output (UTF-8 bytes):
+#   FILE:<index>            one block per file, in argument order
+#   REF:<entry>             a string entry (task_yaml.file_reference_entries)
+#   BAD:<ascii repr>        a non-string / empty / NUL entry, or one holding a
+#                           LF / CR / unencodable char (it cannot be one line)
+#   INVALID:frontmatter     instead of REF/BAD: unreadable / undecodable /
+#                           unparseable frontmatter
+#   END:<n REF+BAD lines>
+#   DONE:<n files>
+# Exit 3 when task_yaml (PyYAML) cannot be imported.
+_AIT_FILE_REFS_GLUE='
+import sys
+sys.path = [p for p in sys.path if p not in ("", ".")]
+sys.path.append(sys.argv[1])
+try:
+    import task_yaml
+except Exception:
+    sys.exit(3)
+out = []
+files = sys.argv[2:]
+for index, path in enumerate(files):
+    out.append("FILE:%d" % index)
+    meta = None
+    invalid = False
+    try:
+        with open(path, encoding="utf-8") as fh:
+            text = fh.read()
+        parsed = task_yaml.parse_frontmatter(text)
+        if parsed is not None:
+            meta = parsed[0]
+        elif text.startswith("---"):
+            invalid = True
+    except Exception:
+        invalid = True
+    if invalid or (meta is not None and not isinstance(meta, dict)):
+        out.append("INVALID:frontmatter")
+        out.append("END:0")
+        continue
+    n = 0
+    for ok, item in task_yaml.file_reference_entries(meta):
+        if ok and "\n" not in item and "\r" not in item:
+            try:
+                item.encode("utf-8")
+            except UnicodeEncodeError:
+                ok = False
+        else:
+            ok = False
+        out.append(("REF:" + item) if ok else ("BAD:" + ascii(item)))
+        n += 1
+    out.append("END:%d" % n)
+out.append("DONE:%d" % len(files))
+sys.stdout.buffer.write(("\n".join(out) + "\n").encode("utf-8"))
+'
+
+# read_file_references_batch <task_file>...
+# Reads file_references: from every file in ONE python call and prints the
+# validated block protocol above on stdout. All-or-nothing: the output is
+# printed only after the framing checks pass -- exactly one block per file, in
+# order, each END count matching its lines, and a final DONE count -- so a
+# truncated or malformed read can never reach a consumer as a shorter list.
+# Exit: 0 ok | 2 framing failure, python error, or a path holding a newline |
+#       3 no usable python (none resolved, or task_yaml/PyYAML missing).
+read_file_references_batch() {
+    local lib_dir py out rc=0 f
+    [[ $# -gt 0 ]] || { printf 'DONE:0\n'; return 0; }
+    for f in "$@"; do
+        [[ "$f" == *$'\n'* ]] && return 2
+    done
+    lib_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)" || return 2
+    py="$(resolve_python)"
+    [[ -n "$py" ]] || return 3
+    # -B: importing task_yaml must not drop a __pycache__/ into lib/ -- a read
+    # helper leaves no files behind (it would dirty a scaffolded test repo).
+    out="$("$py" -B -c "$_AIT_FILE_REFS_GLUE" "$lib_dir" "$@")" || rc=$?
+    [[ $rc -eq 3 ]] && return 3
+    [[ $rc -eq 0 ]] || return 2
+
+    # Digits are regex-bounded before any arithmetic (a 20-digit count would
+    # wrap). After DONE nothing may follow.
+    local line want=0 in_block=false lines=0 invalid=false n done=false
     while IFS= read -r line; do
-        if [[ "$line" == "---" ]]; then
-            if [[ "$in_yaml" == true ]]; then break
-            else in_yaml=true; continue; fi
+        [[ "$done" == true ]] && return 2
+        if [[ "$in_block" == false ]]; then
+            if [[ "$line" == "FILE:$want" ]]; then
+                in_block=true; lines=0; invalid=false
+            elif [[ "$line" =~ ^DONE:([0-9]{1,9})$ ]]; then
+                n="${BASH_REMATCH[1]}"
+                [[ $n -eq $# && $want -eq $# ]] || return 2
+                done=true
+            else
+                return 2
+            fi
+            continue
         fi
-        if [[ "$in_yaml" == true && "$line" =~ ^file_references:[[:space:]]*(.*) ]]; then
-            local raw="${BASH_REMATCH[1]}"
-            raw="${raw#\[}" ; raw="${raw%\]}"
-            if [[ -z "$raw" ]]; then return; fi
-            while IFS=',' read -ra items; do
-                for item in "${items[@]}"; do
-                    item=$(echo "$item" | sed 's/^[[:space:]"]*//;s/[[:space:]"]*$//')
-                    [[ -n "$item" ]] && echo "$item"
-                done
-            done <<< "$raw"
-            return
+        case "$line" in
+            REF:*|BAD:*)
+                [[ "$invalid" == false ]] || return 2
+                lines=$(( lines + 1 )) ;;
+            INVALID:frontmatter)
+                [[ "$invalid" == false && $lines -eq 0 ]] || return 2
+                invalid=true ;;
+            END:*)
+                n="${line#END:}"
+                [[ "$n" =~ ^[0-9]{1,9}$ && $n -eq $lines ]] || return 2
+                in_block=false
+                want=$(( want + 1 ))
+                ;;
+            *) return 2 ;;
+        esac
+    done <<< "$out"
+    [[ "$done" == true ]] || return 2
+    printf '%s\n' "$out"
+    return 0
+}
+
+# get_file_references <task_file>
+# Prints the file_references: entries, one per line, each exactly as YAML reads
+# it: "path", "path:N", "path:N-M" or compact multi-range "path:N-M^N-M^...".
+# ONLY A STRING IS A PATH (task_yaml.file_reference_entries): an unquoted
+# `null` / `on` / `010` is not one, and neither is an entry holding a line
+# break. Exit status -- check it; never read empty output as "no references":
+#   0  the field is absent or empty, or every entry is a path string
+#   2  unreadable / unparseable frontmatter, any non-path entry, or a read
+#      failure -- NOTHING is printed (never a partial list)
+#   3  no usable python (PyYAML) to read the field with
+get_file_references() {
+    local out rc=0 line
+    out="$(read_file_references_batch "$1")" || rc=$?
+    [[ $rc -eq 0 ]] || return "$rc"
+    case $'\n'"$out" in
+        *$'\n'BAD:*|*$'\n'INVALID:*) return 2 ;;
+    esac
+    while IFS= read -r line; do
+        [[ "$line" == REF:* ]] && printf '%s\n' "${line#REF:}"
+    done <<< "$out"
+    return 0
+}
+
+# _yaml_path_is_plain <entry> -> 0 when the entry may be written as a plain
+# flow scalar and every YAML reader still reads back the identical string.
+# Conservative by construction (over-quoting is harmless): ASCII path chars
+# only, so no flow indicator `,[]{}?#`, no space and no quote; the first char is
+# a letter, `_` or `/` (or `.` + letter), because every YAML 1.1 implicit
+# non-string -- int, float, sexagesimal, timestamp -- starts with a digit, `+`,
+# `-` or `.digit`; and none of the bool / null / .inf / .nan words. A trailing
+# `:` is a mapping indicator in flow context. tests/test_file_refs_yaml.sh
+# checks every corpus entry against both PyYAML loaders.
+_yaml_path_is_plain() {
+    local e="$1"
+    [[ "$e" =~ ^[A-Za-z_/][A-Za-z0-9_./^:-]*$ || "$e" =~ ^\.[A-Za-z_][A-Za-z0-9_./^:-]*$ ]] \
+        || return 1
+    [[ "$e" == *: ]] && return 1
+    case "$e" in
+        [Yy]|[Nn]|[Yy][Ee][Ss]|[Nn][Oo]|[Tt][Rr][Uu][Ee]|[Ff][Aa][Ll][Ss][Ee]) return 1 ;;
+        [Oo][Nn]|[Oo][Ff][Ff]|[Nn][Uu][Ll][Ll]|.[Ii][Nn][Ff]|.[Nn][Aa][Nn]) return 1 ;;
+    esac
+    return 0
+}
+
+# _yaml_dq_escape <entry> -> sets _yaml_dq to the double-quoted YAML scalar.
+# MUST run under LC_ALL=C (format_yaml_path_list guarantees it): every rule is a
+# byte-sequence substitution, so the output is identical under every locale.
+# Escapes, measured against PyYAML (both SafeLoader and task_yaml's loader):
+#   `\` and `"`                      the double-quoted syntax itself
+#   C0 0x01-0x1F, DEL 0x7F           non-printable (ReaderError) or folded
+#   C1 U+0080-U+009F as `\xNN`       non-printable; a literal U+0085 (NEL) is a
+#                                    YAML line break and is FOLDED to a space
+#   U+2028 `\L`, U+2029 `\P`         YAML 1.1 line breaks
+#   U+FEFF, U+FFFE, U+FFFF `\uXXXX`  BOM / non-printable
+# The source is valid UTF-8 (validate_file_ref, or the YAML reader), so each
+# multi-byte pattern can only match a whole character.
+_yaml_dq_escape() {
+    local s="$1" i hex b
+    s="${s//\\/\\\\}"
+    s="${s//\"/\\\"}"
+    for (( i = 1; i < 32; i++ )); do
+        printf -v hex '%02X' "$i"
+        # shellcheck disable=SC2059  # the format IS the byte escape being built
+        printf -v b "\\x$hex"
+        [[ "$s" == *"$b"* ]] && s="${s//"$b"/\\x$hex}"
+    done
+    b=$'\x7f'; [[ "$s" == *"$b"* ]] && s="${s//"$b"/\\x7F}"
+    if [[ "$s" == *$'\xc2'* ]]; then
+        for (( i = 128; i < 160; i++ )); do
+            printf -v hex '%02X' "$i"
+            # shellcheck disable=SC2059  # the format IS the byte escape being built
+            printf -v b "\\xc2\\x$hex"
+            [[ "$s" == *"$b"* ]] && s="${s//"$b"/\\x$hex}"
+        done
+    fi
+    s="${s//$'\xe2\x80\xa8'/\\L}"
+    s="${s//$'\xe2\x80\xa9'/\\P}"
+    s="${s//$'\xef\xbb\xbf'/\\uFEFF}"
+    s="${s//$'\xef\xbf\xbe'/\\uFFFE}"
+    s="${s//$'\xef\xbf\xbf'/\\uFFFF}"
+    _yaml_dq="\"$s\""
+}
+
+# format_yaml_path_list [<entries>]
+# Formats NEWLINE-separated entries (argument, or stdin when no argument is
+# given) as a YAML flow list for file_references: -- `[a.py, "a,b.py"]`;
+# empty input -> `[]`. Each entry is written plain when _yaml_path_is_plain
+# allows it, else double-quoted by _yaml_dq_escape, so every entry reads back
+# as the identical string. Not format_yaml_list: that one writes id / label /
+# gate lists and stays unquoted. Returns 1 (message on stderr) for an entry
+# holding a CR -- unreachable from validated input, and a written `\r` would be
+# an entry the reader refuses.
+format_yaml_path_list() {
+    local input
+    if [[ $# -gt 0 ]]; then input="$1"; else input="$(cat)"; fi
+    ( export LC_ALL=C; _format_yaml_path_list_impl "$input" )
+}
+
+_format_yaml_path_list_impl() {
+    local input="$1" entry out="" sep="" _yaml_dq=""
+    while IFS= read -r entry; do
+        [[ -z "$entry" ]] && continue
+        if [[ "$entry" == *$'\r'* ]]; then
+            echo "format_yaml_path_list: refusing an entry that holds a carriage return" >&2
+            return 1
         fi
-    done < "$file_path"
+        if _yaml_path_is_plain "$entry"; then
+            out+="$sep$entry"
+        else
+            _yaml_dq_escape "$entry"
+            out+="$sep$_yaml_dq"
+        fi
+        sep=", "
+    done <<< "$input"
+    printf '[%s]\n' "$out"
 }
 
 # Validate a single file_reference entry string.
 # Accepted: "path" | "path:N" | "path:N-M" | "path:N-M^N-M^..."
 # Line numbers are 1-indexed. Die with a clear error on malformed input.
+# The byte checks run under LC_ALL=C so they agree under every locale
+# (`[[:cntrl:]]` does not: under LC_ALL=C a UTF-8 U+0085 is two non-control
+# bytes, under a UTF-8 locale it is one control char). Rejected: C0 controls
+# and DEL (a newline would split the entry on the newline carrier), and bytes
+# that are not valid UTF-8 (checked with Python's strict decoder, never a
+# hand-written table; a pure-ASCII ref never needs Python). Valid non-ASCII,
+# U+0085 included, is accepted -- format_yaml_path_list escapes what YAML
+# cannot carry literally.
 validate_file_ref() {
-    local ref="$1"
+    local ref="$1" py
     if [[ -z "$ref" ]]; then
         die "Empty file reference"
+    fi
+    # The `x` sentinel: $( ) strips trailing newlines, so a ref whose only
+    # control char is a newline would otherwise leave nothing and pass.
+    local ctl
+    ctl="$(printf '%s' "$ref" | LC_ALL=C tr -dc '\001-\037\177'; printf x)"
+    if [[ "$ctl" != "x" ]]; then
+        die "Invalid file reference: it contains a control character (newline, tab, ...)"
+    fi
+    if [[ -n "$(printf '%s' "$ref" | LC_ALL=C tr -d '\001-\177')" ]]; then
+        py="$(resolve_python)"
+        [[ -n "$py" ]] || die "Invalid file reference: it holds non-ASCII bytes and no Python is available to verify they are UTF-8"
+        printf '%s' "$ref" | "$py" -c 'import sys; sys.stdin.buffer.read().decode("utf-8")' 2>/dev/null \
+            || die "Invalid file reference: it is not valid UTF-8"
     fi
     if [[ ! "$ref" =~ ^[^:]+(:[0-9]+(-[0-9]+)?(\^[0-9]+(-[0-9]+)?)*)?$ ]]; then
         die "Invalid file reference: '$ref' (expected PATH[:N[-M][^N[-M]]...])"
@@ -3417,41 +3652,41 @@ validate_file_ref() {
 
 # union_file_references <primary_file> [<folded_file> ...]
 # Reads file_references from primary first, then each folded file in
-# argument order. Dedupes by first-occurrence exact-string match.
-# Prints the unioned list as CSV on stdout (empty if nothing to emit).
+# argument order, in ONE batch read. Dedupes by first-occurrence exact-string
+# match. Prints the unioned list NEWLINE-separated on stdout (empty if nothing
+# to emit). Missing / empty-named files are skipped, as before.
+# Returns non-zero -- printing nothing -- when any existing source cannot be
+# read as a list of path strings (2) or there is no usable python (3):
+# silently dropping a folded task's scope would lose it.
 union_file_references() {
-    local primary_file="$1"
-    shift
+    local -a files=()
+    local f
+    for f in "$@"; do
+        [[ -n "$f" && -f "$f" ]] && files+=("$f")
+    done
+    [[ ${#files[@]} -gt 0 ]] || return 0
+
+    local out rc=0
+    out="$(read_file_references_batch "${files[@]}")" || rc=$?
+    [[ $rc -eq 0 ]] || return "$rc"
+    case $'\n'"$out" in
+        *$'\n'BAD:*|*$'\n'INVALID:*) return 2 ;;
+    esac
+
     local -a merged=()
     declare -A seen=()
-    local entry f
+    local line entry
+    while IFS= read -r line; do
+        [[ "$line" == REF:* ]] || continue
+        entry="${line#REF:}"
+        if [[ -z "${seen[$entry]:-}" ]]; then
+            seen[$entry]=1
+            merged+=("$entry")
+        fi
+    done <<< "$out"
 
-    if [[ -n "$primary_file" && -f "$primary_file" ]]; then
-        while IFS= read -r entry; do
-            [[ -z "$entry" ]] && continue
-            if [[ -z "${seen[$entry]:-}" ]]; then
-                seen[$entry]=1
-                merged+=("$entry")
-            fi
-        done < <(get_file_references "$primary_file")
-    fi
-
-    for f in "$@"; do
-        [[ -z "$f" || ! -f "$f" ]] && continue
-        while IFS= read -r entry; do
-            [[ -z "$entry" ]] && continue
-            if [[ -z "${seen[$entry]:-}" ]]; then
-                seen[$entry]=1
-                merged+=("$entry")
-            fi
-        done < <(get_file_references "$f")
-    done
-
-    if [[ ${#merged[@]} -eq 0 ]]; then
-        return 0
-    fi
-    local IFS=','
-    echo "${merged[*]}"
+    [[ ${#merged[@]} -gt 0 ]] || return 0
+    printf '%s\n' "${merged[@]}"
 }
 
 # Extract related issue URLs from a task file's YAML frontmatter

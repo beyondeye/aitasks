@@ -631,7 +631,7 @@ parse_yaml_frontmatter() {
                 folded_into) CURRENT_FOLDED_INTO="$value" ;;
                 implemented_with) CURRENT_IMPLEMENTED_WITH="$value" ;;
                 file_references)
-                    CURRENT_FILE_REFERENCES=$(parse_yaml_list "$value")
+                    # Captured below from the UNJOINED text, verbatim.
                     ;;
                 verification_baseline) CURRENT_VERIFICATION_BASELINE="$value" ;;
                 plan_approved_at) CURRENT_PLAN_APPROVED_AT="$value" ;;
@@ -639,6 +639,21 @@ parse_yaml_frontmatter() {
             esac
         fi
     done < <(printf '%s\n' "$yaml_content" | join_yaml_flow_lists)
+
+    # file_references: is carried as its ORIGINAL physical lines (t2209), so an
+    # update that does not touch file refs leaves it byte-identical -- quoting,
+    # wrapping and comments included. Re-serializing it from a parsed value used
+    # to strip quotes and spaces (`["a,b.py"]` -> `[a, b.py]`). A field whose
+    # value is empty or `[]` is still dropped, as before.
+    CURRENT_FILE_REFERENCES=$(printf '%s\n' "$yaml_content" | yaml_field_block file_references)
+    if [[ "$CURRENT_FILE_REFERENCES" != *$'\n'* ]]; then
+        local _fr_value="${CURRENT_FILE_REFERENCES#file_references:}"
+        _fr_value="${_fr_value#"${_fr_value%%[![:space:]]*}"}"
+        _fr_value="${_fr_value%"${_fr_value##*[![:space:]]}"}"
+        if [[ -z "$_fr_value" || "$_fr_value" =~ ^\[[[:space:]]*\]$ ]]; then
+            CURRENT_FILE_REFERENCES=""
+        fi
+    fi
 
     # Extract description (everything after YAML block)
     local total_lines
@@ -861,11 +876,11 @@ write_task_file() {
             risk_mitigation_yaml=$(format_yaml_list "$risk_mitigation_tasks")
             echo "risk_mitigation_tasks: $risk_mitigation_yaml"
         fi
-        # Only write file_references if present
+        # Only write file_references if present. The argument is the complete
+        # field text (t2209): the original lines passed through, or a freshly
+        # formatted `file_references: [...]` line -- printed as-is.
         if [[ -n "$file_references" ]]; then
-            local file_references_yaml
-            file_references_yaml=$(format_yaml_list "$file_references")
-            echo "file_references: $file_references_yaml"
+            printf '%s\n' "$file_references"
         fi
         # Only write children_to_implement if present
         if [[ -n "$children_to_implement" ]]; then
@@ -1141,6 +1156,8 @@ process_children_operations() {
 
 # --- File References Management ---
 
+# process_file_references_operations <current-entries> <add-array> <remove-array>
+# Entries are NEWLINE-separated in and out (an entry may hold a comma).
 process_file_references_operations() {
     local current_refs="$1"
     local -n add_refs_ref=$2
@@ -1148,8 +1165,11 @@ process_file_references_operations() {
 
     # Convert current to array
     local -a refs_array=()
+    local _line
     if [[ -n "$current_refs" ]]; then
-        IFS=',' read -ra refs_array <<< "$current_refs"
+        while IFS= read -r _line; do
+            [[ -n "$_line" ]] && refs_array+=("$_line")
+        done <<< "$current_refs"
     fi
 
     # Append (exact-string dedup)
@@ -1188,8 +1208,8 @@ process_file_references_operations() {
         refs_array=("${new_array[@]}")
     fi
 
-    local IFS=','
-    echo "${refs_array[*]}"
+    [[ ${#refs_array[@]} -gt 0 ]] || return 0
+    printf '%s\n' "${refs_array[@]}"
 }
 
 # Handle child task completion - update parent's children_to_implement
@@ -2284,9 +2304,26 @@ run_batch_mode() {
         new_implemented_with="$BATCH_IMPLEMENTED_WITH"
     fi
 
-    # Process file_references
-    local new_file_references
-    new_file_references=$(process_file_references_operations "$CURRENT_FILE_REFERENCES" BATCH_ADD_FILE_REFS BATCH_REMOVE_FILE_REFS)
+    # Process file_references. Untouched -> the original lines pass through.
+    # With --file-ref / --remove-file-ref the current list is read AS YAML
+    # (get_file_references) and refused when it cannot be: re-writing a list we
+    # could not read would silently drop or mangle entries.
+    local new_file_references="$CURRENT_FILE_REFERENCES"
+    if [[ ${#BATCH_ADD_FILE_REFS[@]} -gt 0 || ${#BATCH_REMOVE_FILE_REFS[@]} -gt 0 ]]; then
+        local current_refs refs_rc=0 new_refs
+        current_refs="$(get_file_references "$file_path")" || refs_rc=$?
+        if [[ $refs_rc -ne 0 ]]; then
+            local refs_why="it is not a list of path strings, or the frontmatter does not parse"
+            [[ $refs_rc -eq 3 ]] && refs_why="no usable python (PyYAML) is available to read it"
+            die "file_references: in $file_path cannot be read ($refs_why); fix it by hand before --file-ref/--remove-file-ref"
+        fi
+        new_refs=$(process_file_references_operations "$current_refs" BATCH_ADD_FILE_REFS BATCH_REMOVE_FILE_REFS)
+        new_file_references=""
+        if [[ -n "$new_refs" ]]; then
+            new_file_references="file_references: $(format_yaml_path_list "$new_refs")" \
+                || die "could not format file_references for $file_path"
+        fi
+    fi
 
     # Validate parent completion (cannot complete parent with pending children)
     validate_parent_completion "$BATCH_TASK_NUM" "$new_status" "$new_children"

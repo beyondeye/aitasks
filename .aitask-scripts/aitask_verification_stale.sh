@@ -34,6 +34,8 @@
 # ORDERED EVALUATION -- the order is normative:
 #   1. not a git repo, or no HEAD                 -> SKIP
 #   2. file_references: empty/absent              -> SKIP   (precondition)
+#      file_references: unreadable / no python     -> SKIP
+#      (a non-string entry is NOT a skip: it is an UNKNOWN invalid_reference)
 #   3. verification_baseline: absent              -> SKIP   (precondition)
 #   4. baseline not an ancestor of HEAD           -> SKIP   (history rewritten)
 #   5. classify each curated path
@@ -196,25 +198,61 @@ cmd_check() {
     # entries actually accounted for. The `seen` membership test is delimited by
     # NEWLINE, not '|': a path may legally contain '|', and a '|'-delimited test
     # would then false-positive ("a|b" recorded makes a bare "a" look seen). A
-    # path can never contain a newline -- it came from one YAML flow-list line.
+    # path can never contain a newline -- read_file_references_batch() reports
+    # any entry holding one as BAD, never as a path.
+    #
+    # The scope is read AS YAML (a quoted "a,b.py" is one path) through the
+    # count-attested batch reader, and its status is checked. Unreadable or
+    # unparseable frontmatter is SKIP with its own reason -- never an empty
+    # scope. An entry that is not a path string (unquoted `on` / `null` / `010`)
+    # is kept as an invalid unit, so it is reported UNKNOWN and the task reads
+    # ASK_STALE: dropping it would shrink the scope toward a false FRESH.
+    local refs_out refs_rc=0
+    refs_out="$(read_file_references_batch "$task_file")" || refs_rc=$?
+    if [[ $refs_rc -eq 3 ]]; then
+        _emit_skip "BASELINE:NONE" 0 "no usable python (PyYAML) to read file_references: with"
+        return 0
+    elif [[ $refs_rc -ne 0 || "$refs_out" == *$'\n'INVALID:* ]]; then
+        _emit_skip "BASELINE:NONE" 0 "file_references: could not be read (unparseable frontmatter)"
+        return 0
+    fi
+    # Valid paths and invalid units dedupe in SEPARATE namespaces: no printable
+    # key can keep an invalid unit apart from a real filename (a file may be
+    # named exactly like any diagnostic), and an invalid unit that dedupes away
+    # behind a real path would shrink the scope toward FRESH. A non-path (BAD)
+    # entry is never deduped at all -- each one is its own uncheckable unit.
     local -a units=() unit_invalid=()
-    local seen=$'\n'
-    local raw stripped key inv
-    while IFS= read -r raw; do
+    local seen=$'\n' seen_inv=$'\n'
+    local raw stripped line
+    while IFS= read -r line; do
+        case "$line" in
+            REF:*) raw="${line#REF:}" ;;
+            BAD:*)
+                # Same diagnostic shape as task_premise's FIELD_BADREF.
+                units+=("<invalid file_references entry: ${line#BAD:}>")
+                unit_invalid+=(1)
+                continue
+                ;;
+            *) continue ;;
+        esac
         [[ -z "$raw" ]] && continue
         stripped=$(_strip_ranges "$raw")
         if [[ -z "$stripped" ]]; then
-            key="$raw"; inv=1
+            case "$seen_inv" in
+                *$'\n'"$raw"$'\n'*) continue ;;
+            esac
+            seen_inv="${seen_inv}${raw}"$'\n'
+            units+=("$raw")
+            unit_invalid+=(1)
         else
-            key="$stripped"; inv=0
+            case "$seen" in
+                *$'\n'"$stripped"$'\n'*) continue ;;
+            esac
+            seen="${seen}${stripped}"$'\n'
+            units+=("$stripped")
+            unit_invalid+=(0)
         fi
-        case "$seen" in
-            *$'\n'"$key"$'\n'*) continue ;;
-        esac
-        seen="${seen}${key}"$'\n'
-        units+=("$key")
-        unit_invalid+=("$inv")
-    done < <(get_file_references "$task_file")
+    done <<< "$refs_out"
 
     local files_n=${#units[@]}
     if [[ $files_n -eq 0 ]]; then

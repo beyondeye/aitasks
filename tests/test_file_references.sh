@@ -273,6 +273,165 @@ assert_contains "Pre-seeded foo.py:10-20 flows through interactive path" "foo.py
 assert_contains "Pre-seeded bar.py flows through interactive path" "bar.py" "$seed_refs"
 rm -rf "$TMPDIR_12"
 
+# --- Test 14: unrelated updates leave file_references byte-identical ---
+# Characterization (t2209 pre-phase): green on the pre-t2209 tree and must stay
+# green. aitask_update.sh rewrites the whole frontmatter on every update, so a
+# change to how it carries file_references must not perturb the plain form.
+echo "--- Test 14: unrelated updates keep file_references byte-identical ---"
+TMPDIR_14="$(setup_project)"
+(cd "$TMPDIR_14/local" && \
+    ./.aitask-scripts/aitask_create.sh --batch --commit --name "keep" \
+        --desc "keep refs" --file-ref "a.py" --file-ref "b.py:10-20" >/dev/null 2>&1)
+task14=$(ls "$TMPDIR_14/local/aitasks"/t*_keep.md 2>/dev/null | head -1)
+task14_num=$(basename "$task14" | grep -oE '^t[0-9]+' | sed 's/t//')
+for upd14 in "--status Implementing" "--priority high" "--add-label x"; do
+    # shellcheck disable=SC2086  # word-split the flag/value pair on purpose
+    (cd "$TMPDIR_14/local" && \
+        ./.aitask-scripts/aitask_update.sh --batch "$task14_num" $upd14 >/dev/null 2>&1)
+    assert_eq "After $upd14: file_references line unchanged" \
+        "file_references: [a.py, b.py:10-20]" "$(read_file_refs_line "$task14")"
+done
+(cd "$TMPDIR_14/local" && \
+    ./.aitask-scripts/aitask_update.sh --batch "$task14_num" --remove-file-ref "a.py" >/dev/null 2>&1 && \
+    ./.aitask-scripts/aitask_update.sh --batch "$task14_num" --remove-file-ref "b.py:10-20" >/dev/null 2>&1)
+assert_eq "Removing every ref drops the field" "" "$(read_file_refs_line "$task14")"
+rm -rf "$TMPDIR_14"
+
+# --- t2209: the field is YAML end to end ---------------------------------
+# Helpers: make a committed task, then hand-write its file_references line
+# (and optionally extra frontmatter) the way a person or another tool might.
+mk_task_t2209() {   # <repo> <name> -> prints "<num> <path>"
+    local repo="$1" name="$2" f n
+    (cd "$repo" && ./.aitask-scripts/aitask_create.sh --batch --commit --name "$name" \
+        --desc "t2209 fixture" --file-ref "seed.py" >/dev/null 2>&1)
+    f=$(ls "$repo/aitasks"/t*_"$name".md 2>/dev/null | head -1)
+    n=$(basename "$f" | grep -oE '^t[0-9]+' | sed 's/t//')
+    printf '%s %s' "$n" "$f"
+}
+set_refs_block() {   # <file> <replacement lines for the file_references: line>
+    # Any other frontmatter line whose key the block redefines is dropped, so
+    # the result never carries a duplicate key.
+    local f="$1" block="$2"
+    python3 - "$f" "$block" <<'PY'
+import re, sys
+path, block = sys.argv[1], sys.argv[2]
+new = block.split("\n")
+keys = {m.group(1) for m in (re.match(r"([a-z_]+):", l) for l in new) if m}
+lines = open(path, encoding="utf-8").read().split("\n")
+end = lines.index("---", 1)
+i = next(k for k, l in enumerate(lines) if l.startswith("file_references:"))
+out = []
+for k, l in enumerate(lines):
+    if k == i:
+        out.extend(new)
+    elif 0 < k < end and (m := re.match(r"([a-z_]+):", l)) and m.group(1) in keys:
+        continue
+    else:
+        out.append(l)
+open(path, "w", encoding="utf-8").write("\n".join(out))
+PY
+}
+fm_of() {   # <file> -> the frontmatter text between the --- lines
+    awk 'NR==1 && $0=="---" {f=1; next} f && $0=="---" {exit} f' "$1"
+}
+yaml_fields_minus() {   # <file> -> sorted key=repr lines of the frontmatter, minus status/updated_at/assigned_to
+    local py
+    py="$(bash -c 'source "$1/.aitask-scripts/lib/python_resolve.sh"; resolve_python' _ "$PROJECT_DIR")"
+    fm_of "$1" | "$py" -c '
+import sys, yaml
+d = yaml.safe_load(sys.stdin.read())
+for k in sorted(d):
+    if k not in ("status", "updated_at", "assigned_to"):
+        print("%s=%r" % (k, d[k]))'
+}
+
+echo "--- Test 15: --file-ref with a comma writes one quoted entry ---"
+TMPDIR_15="$(setup_project)"
+(cd "$TMPDIR_15/local" && ./.aitask-scripts/aitask_create.sh --batch --name "comma" \
+    --desc "comma" --file-ref "a,b.py" --file-ref "lib/x.py:3-5" >/dev/null 2>&1)
+assert_eq "comma entry is quoted, plain entry stays plain" \
+    'file_references: ["a,b.py", lib/x.py:3-5]' \
+    "$(read_file_refs_line "$(draft_path "$TMPDIR_15/local" comma)")"
+rej_rc=0
+(cd "$TMPDIR_15/local" && ./.aitask-scripts/aitask_create.sh --batch --name "nl" \
+    --desc "nl" --file-ref $'a\nb' >/dev/null 2>&1) || rej_rc=$?
+assert_eq "--file-ref holding a newline is rejected" "1" "$([[ $rej_rc -ne 0 ]] && echo 1 || echo 0)"
+rm -rf "$TMPDIR_15"
+
+echo "--- Test 16: unrelated update keeps a quoted list byte-identical; ops read it as YAML ---"
+TMPDIR_16="$(setup_project)"
+read -r n16 f16 <<< "$(mk_task_t2209 "$TMPDIR_16/local" quoted)"
+set_refs_block "$f16" 'file_references: ["a,b.py", "my file.py"]'
+(cd "$TMPDIR_16/local" && ./.aitask-scripts/aitask_update.sh --batch "$n16" --status Implementing >/dev/null 2>&1)
+assert_eq "--status leaves the quoted list byte-identical" \
+    'file_references: ["a,b.py", "my file.py"]' "$(read_file_refs_line "$f16")"
+(cd "$TMPDIR_16/local" && ./.aitask-scripts/aitask_update.sh --batch "$n16" --file-ref "x.py" >/dev/null 2>&1)
+assert_eq "--file-ref appends and keeps both quoted entries whole" \
+    'file_references: ["a,b.py", "my file.py", x.py]' "$(read_file_refs_line "$f16")"
+# find_by_file only reports Ready/Editing tasks.
+find16="$(cd "$TMPDIR_16/local" && \
+    ./.aitask-scripts/aitask_update.sh --batch "$n16" --status Ready >/dev/null 2>&1; \
+    ./.aitask-scripts/aitask_find_by_file.sh "a,b.py" 2>&1)"
+assert_contains "find_by_file matches the quoted comma path" "TASK:${n16}:" "$find16"
+rm -rf "$TMPDIR_16"
+
+echo "--- Test 17: an unreadable field refuses file-ref ops and is left untouched ---"
+TMPDIR_17="$(setup_project)"
+read -r n17 f17 <<< "$(mk_task_t2209 "$TMPDIR_17/local" bad)"
+set_refs_block "$f17" 'file_references: [on, 010]'
+before17="$(cat "$f17")"
+ops_rc=0
+(cd "$TMPDIR_17/local" && ./.aitask-scripts/aitask_update.sh --batch "$n17" --file-ref "y.py" >/dev/null 2>&1) || ops_rc=$?
+assert_eq "--file-ref on a non-path list dies" "1" "$([[ $ops_rc -ne 0 ]] && echo 1 || echo 0)"
+assert_eq "...and the task file is untouched" "$before17" "$(cat "$f17")"
+rm -rf "$TMPDIR_17"
+
+echo "--- Test 18: a quoted bracket does not swallow the following fields (review finding 1) ---"
+TMPDIR_18="$(setup_project)"
+read -r n18 f18 <<< "$(mk_task_t2209 "$TMPDIR_18/local" brk)"
+set_refs_block "$f18" $'file_references: ["a[.py"]\nverification_baseline: 0123456789abcdef0123456789abcdef01234567 @ 2026-01-01 10:00\nlabels: [ui]'
+fields18_before="$(yaml_fields_minus "$f18")"
+(cd "$TMPDIR_18/local" && ./.aitask-scripts/aitask_update.sh --batch "$n18" --status Implementing >/dev/null 2>&1)
+assert_eq "file_references line byte-identical after --status" 'file_references: ["a[.py"]' "$(read_file_refs_line "$f18")"
+assert_eq "verification_baseline still its own line" \
+    "verification_baseline: 0123456789abcdef0123456789abcdef01234567 @ 2026-01-01 10:00" \
+    "$(grep '^verification_baseline:' "$f18")"
+assert_eq "labels still its own line" "labels: [ui]" "$(grep '^labels:' "$f18")"
+assert_eq "every other key parses to the same value" "$fields18_before" "$(yaml_fields_minus "$f18")"
+(cd "$TMPDIR_18/local" && ./.aitask-scripts/aitask_update.sh --batch "$n18" --file-ref "b.py" >/dev/null 2>&1)
+assert_eq "ops path: appended and still quoted" 'file_references: ["a[.py", b.py]' "$(read_file_refs_line "$f18")"
+assert_eq "ops path: following fields intact" "labels: [ui]" "$(grep '^labels:' "$f18")"
+rm -rf "$TMPDIR_18"
+
+echo "--- Test 19: U+0085 under LC_ALL=C is escaped and round-trips (review finding 2) ---"
+TMPDIR_19="$(setup_project)"
+(cd "$TMPDIR_19/local" && LC_ALL=C ./.aitask-scripts/aitask_create.sh --batch --commit --name "nel" \
+    --desc "nel" --file-ref $'a\xc2\x85b.py' >/dev/null 2>&1)
+f19=$(ls "$TMPDIR_19/local/aitasks"/t*_nel.md 2>/dev/null | head -1)
+assert_eq "written as an escape, never the literal byte pair" 'file_references: ["a\x85b.py"]' "$(read_file_refs_line "$f19")"
+got19="$(cd "$TMPDIR_19/local" && bash -c 'source .aitask-scripts/lib/task_utils.sh && get_file_references "$1"' _ "$f19" | od -An -tx1 | tr -d ' \n')"
+assert_eq "reader returns the original bytes" "61c28562 2e7079" "${got19:0:8} ${got19:8:6}"
+rm -rf "$TMPDIR_19"
+
+echo "--- Test 20: a quoted entry continued on a key-like / ---suffix line survives an update ---"
+# Valid YAML: PyYAML reads each as ONE path ("a ---suffix.py", "a name: part.py").
+for cont20 in 'name: part.py' '---suffix.py'; do
+    TMPDIR_20="$(setup_project)"
+    read -r n20 f20 <<< "$(mk_task_t2209 "$TMPDIR_20/local" cont)"
+    set_refs_block "$f20" $'file_references: ["a\n'"$cont20"$'"]\nlabels: [ui]'
+    block20_before="$(sed -n '/^file_references:/,/"\]$/p' "$f20")"
+    fields20_before="$(yaml_fields_minus "$f20")"
+    upd20_rc=0
+    (cd "$TMPDIR_20/local" && ./.aitask-scripts/aitask_update.sh --batch "$n20" --status Implementing >/dev/null 2>&1) || upd20_rc=$?
+    assert_eq "[$cont20] update succeeds" "0" "$upd20_rc"
+    assert_eq "[$cont20] both physical lines of the entry kept verbatim" "$block20_before" \
+        "$(sed -n '/^file_references:/,/"\]$/p' "$f20")"
+    assert_eq "[$cont20] every other key parses to the same value" "$fields20_before" "$(yaml_fields_minus "$f20")"
+    got20="$(cd "$TMPDIR_20/local" && bash -c 'source .aitask-scripts/lib/task_utils.sh && get_file_references "$1"' _ "$f20")"
+    assert_eq "[$cont20] reader sees the one folded path" "a $cont20" "$got20"
+    rm -rf "$TMPDIR_20"
+done
+
 # --- Test 13: Syntax check on all touched scripts ---
 echo "--- Test 13: Syntax check ---"
 TOTAL=$((TOTAL + 1))

@@ -131,6 +131,33 @@ def _normalize_task_ids(ids_list):
     return [_normalize_task_id(item) for item in ids_list]
 
 
+def file_reference_entries(metadata):
+    """The ``file_references:`` entries of parsed frontmatter, each classified.
+
+    Returns ``[(ok, item), ...]`` in field order. ONLY A STRING IS A PATH: an
+    entry is ``ok`` iff it is a non-empty ``str`` without NUL. YAML 1.1 resolves
+    unquoted ``null`` / ``on`` / ``010`` to ``None`` / ``True`` / ``8``; those
+    are returned with ``ok=False`` -- never dropped (that would shrink a scope
+    silently) and never ``str()``-coerced (that would name files ``True`` and
+    ``8``). A missing / null / empty field is ``[]``; a bare scalar is a
+    one-entry list. ``metadata`` that is not a mapping yields ``[]`` -- callers
+    that must tell "no frontmatter" apart check that themselves.
+
+    The single definition shared by ``task_premise.task_fields`` and the shell
+    reader ``get_file_references()`` (lib/task_utils.sh), so the two cannot
+    disagree about what a path is.
+    """
+    if not isinstance(metadata, dict):
+        return []
+    refs = metadata.get("file_references")
+    if refs is None or refs == "":
+        return []
+    if not isinstance(refs, list):
+        refs = [refs]
+    return [(isinstance(item, str) and bool(item) and "\x00" not in item, item)
+            for item in refs]
+
+
 def parse_frontmatter(raw_text: str):
     """Parse YAML frontmatter from raw task file text.
 

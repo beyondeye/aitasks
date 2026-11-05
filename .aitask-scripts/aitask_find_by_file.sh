@@ -18,6 +18,8 @@
 # Exit codes:
 #   0  success (including no matches — output is silent)
 #   1  argument error
+#   2  file_references could not be read (no usable python/PyYAML, or a
+#      read failure) -- never reported as "no matches"
 
 set -euo pipefail
 
@@ -65,6 +67,7 @@ Output:
 Exit codes:
   0   success (silent when no matches)
   1   missing or invalid argument
+  2   file_references could not be read (no usable python/PyYAML)
 EOF
 }
 
@@ -92,46 +95,73 @@ extract_task_id() {
     echo "$base" | sed -E 's/^t([0-9]+(_[0-9]+)?)_.*$/\1/'
 }
 
-# For a task file, check whether its file_references contain an entry
-# whose path-only portion equals the target. Emit a TASK: line on match.
-check_task_file() {
-    local file="$1"
-    [[ -f "$file" ]] || return 0
-
-    local status
+# Is this task file a candidate? Ready/Editing only, and it must carry a
+# `file_references:` key at all (a file without that line has no references,
+# which is also the only set the pre-YAML reader could ever match).
+is_candidate() {
+    local file="$1" status
+    [[ -f "$file" ]] || return 1
     status=$(read_task_status "$file")
     case "$status" in
         Ready|Editing) ;;
-        *) return 0 ;;
+        *) return 1 ;;
     esac
-
-    local entry entry_path
-    while IFS= read -r entry; do
-        [[ -z "$entry" ]] && continue
-        # Strip everything from the first ':' onward to get the path-only portion.
-        entry_path="${entry%%:*}"
-        if [[ "$entry_path" == "$target_path" ]]; then
-            local task_id
-            task_id=$(extract_task_id "$file")
-            echo "TASK:${task_id}:${file}"
-            return 0
-        fi
-    done < <(get_file_references "$file")
+    grep -q '^file_references:' "$file"
 }
 
-# Scan parent task files in $TASK_DIR (non-recursive, skip new/ and archived/).
+# Collect candidates: parent task files in $TASK_DIR (non-recursive, skip new/
+# and archived/), then child task files one level deep -- the emit order.
+candidates=()
 shopt -s nullglob
 for f in "$TASK_DIR"/t*.md; do
-    check_task_file "$f"
+    if is_candidate "$f"; then candidates+=("$f"); fi
 done
-
-# Scan child task files in $TASK_DIR/t*/ (one level deep).
 for d in "$TASK_DIR"/t*/; do
     [[ -d "$d" ]] || continue
     for f in "$d"t*_*.md; do
-        check_task_file "$f"
+        if is_candidate "$f"; then candidates+=("$f"); fi
     done
 done
 shopt -u nullglob
+
+[[ ${#candidates[@]} -gt 0 ]] || exit 0
+
+# ONE YAML read for every candidate (lib/task_utils.sh). The field is read as
+# YAML -- a quoted "a,b.py" is one path -- and a failed read is an error, never
+# "no matches".
+refs_rc=0
+refs_out="$(read_file_references_batch "${candidates[@]}")" || refs_rc=$?
+if [[ $refs_rc -ne 0 ]]; then
+    reason="read failure"
+    [[ $refs_rc -eq 3 ]] && reason="no usable python/PyYAML"
+    echo "Error: could not read file_references (status $refs_rc: $reason)" >&2
+    exit 2
+fi
+
+idx=-1
+matched=false
+warned=false
+while IFS= read -r line; do
+    case "$line" in
+        FILE:*)
+            idx="${line#FILE:}"; matched=false; warned=false ;;
+        REF:*)
+            [[ "$matched" == true ]] && continue
+            entry="${line#REF:}"
+            # Strip everything from the first ':' onward to get the path-only portion.
+            if [[ "${entry%%:*}" == "$target_path" ]]; then
+                file="${candidates[$idx]}"
+                echo "TASK:$(extract_task_id "$file"):${file}"
+                matched=true
+            fi
+            ;;
+        BAD:*|INVALID:*)
+            if [[ "$warned" == false ]]; then
+                echo "Warning: ${candidates[$idx]}: file_references: is not a list of path strings; only its readable entries were matched" >&2
+                warned=true
+            fi
+            ;;
+    esac
+done <<< "$refs_out"
 
 exit 0

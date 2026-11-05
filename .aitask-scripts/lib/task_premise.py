@@ -334,15 +334,15 @@ def task_fields(metadata):
     elif not isinstance(base, str) or _NUL in base:
         base = "<invalid premise_baseline: %r>" % (base,)
 
-    refs = metadata.get("file_references")
-    if refs is None or refs == "":
-        refs = []
-    elif not isinstance(refs, list):
-        refs = [refs]      # a bare scalar is a one-entry list (and is checked below)
+    # The string-only rule has ONE definition, shared with the shell reader
+    # get_file_references(). Imported here rather than at module top: this
+    # function's only callers (the producer's fields glue and the tests) already
+    # load task_yaml, while the core check() path must not grow a yaml import.
+    from task_yaml import file_reference_entries
 
     lines = ["FIELD_BASELINE:" + encode_field(base)]
-    for item in refs:
-        if isinstance(item, str) and item and _NUL not in item:
+    for ok, item in file_reference_entries(metadata):
+        if ok:
             lines.append("FIELD_REF:" + encode_field(item))
         else:
             lines.append("FIELD_BADREF:" + encode_field(

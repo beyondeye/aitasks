@@ -238,17 +238,24 @@ done
 # Passing primary first preserves its existing entries and order; folded entries
 # are appended in fold-argument order via process_file_references_operations'
 # exact-string dedup in aitask_update.sh.
-union_csv=$(union_file_references "$primary_file" \
+# The union is read AS YAML and is NEWLINE-separated (an entry may hold a
+# comma). An unreadable source refuses the fold here, before the transaction
+# boundary below -- nothing has been mutated yet -- rather than silently
+# dropping that task's scope.
+union_rc=0
+union_refs=$(union_file_references "$primary_file" \
     ${folded_files[@]+"${folded_files[@]}"} \
-    ${transitive_files[@]+"${transitive_files[@]}"})
+    ${transitive_files[@]+"${transitive_files[@]}"}) || union_rc=$?
+if [[ $union_rc -ne 0 ]]; then
+    die "cannot fold: a file_references: field among t${primary_id} and the folded tasks cannot be read as a list of path strings (status $union_rc); fix it by hand and retry"
+fi
 
 file_ref_args=()
-if [[ -n "$union_csv" ]]; then
-    IFS=',' read -ra union_entries <<< "$union_csv"
-    for entry in "${union_entries[@]}"; do
+if [[ -n "$union_refs" ]]; then
+    while IFS= read -r entry; do
         [[ -z "$entry" ]] && continue
         file_ref_args+=(--file-ref "$entry")
-    done
+    done <<< "$union_refs"
 fi
 
 # Step 3b: union verifies lists from primary + directly folded tasks.

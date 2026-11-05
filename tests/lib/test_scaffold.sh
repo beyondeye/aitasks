@@ -62,6 +62,13 @@ if [[ -z "${_AIT_TEST_SCAFFOLD_LOADED:-}" ]]; then
         # exists to prevent.
         copy_py_closure_from "$PROJECT_DIR/.aitask-scripts/lib" \
                              "$repo_dir/.aitask-scripts/lib" followup_kinds
+        # task_yaml.py is the runtime sibling of lib/task_utils.sh's
+        # file_references reader (t2209): get_file_references() and its batch
+        # reader shell out to it, so -- the same bridge rule as followup_kinds --
+        # every scaffold that copies task_utils.sh needs it, or each
+        # --file-ref / fold / find-by-file path fails closed (status 3).
+        copy_py_closure_from "$PROJECT_DIR/.aitask-scripts/lib" \
+                             "$repo_dir/.aitask-scripts/lib" task_yaml
         # stale_lock.sh is sourced at startup by aitask_create.sh and
         # aitask_gate.sh (t1496 — the shared child/gate mutex), and since t1725_1
         # by lib/task_utils.sh itself for the data-worktree pull mutex — so every
