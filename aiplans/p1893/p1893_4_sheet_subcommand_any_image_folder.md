@@ -485,3 +485,143 @@ Step 9. The final notes for siblings cover: `allow_suffix`, `plan_sheet`,
 - The same overlap can occur in bug/anim `contact_sheets` with very narrow
   tiles. That is out of scope here and is recorded in the final notes as an
   upstream observation if it reproduces · severity: low · → mitigation: none
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-05)
+- **Requested by user:** three review findings. Each was confirmed before fixing.
+  1. `tiles.tsv` passed every value through the control-character translation,
+     the `file` column included. `t00000000_a\nb.png` was recorded as
+     `t00000000_a?b.png`, a file that does not exist, and could collide with a
+     real one.
+  2. `make_out_dir` named the default output after `Path(dir).stem`, so
+     `edited.v2` defaulted to `edited-sheet`.
+  3. `chunk_sheets` restarted at `min(N, remaining)` and rescanned each rejected
+     prefix. 10000 boxes with `--per-sheet 10000` took about 50 s.
+- **Changes made:**
+  1. The `file` column is the exact name. Tabs, newlines and quotes get
+     standard csv quoting, and the file is written with UTF-8
+     `surrogateescape`, so non-UTF-8 bytes stay byte-exact. Labels and the
+     Markdown table are still display-sanitized. `summary.md` is written with
+     `errors="replace"`, because otherwise an undecodable name would crash the
+     run.
+  2. `make_out_dir(..., name=)`. `sheet` passes the folder's full
+     `resolve().name` (`"folder"` if that is empty). Video naming is unchanged.
+  3. `chunk_sheets` takes per-tile label widths (a list, or one int):
+     - each sheet tries at most `sheet_capacity_bound()` tiles, which is
+       `⌊max/(need_w+8)⌋ · ⌊max/(1+label_h+8)⌋` and holds for any box size;
+     - running prefix maxima are kept in arrays, so a rejected count costs one
+       layout call.
+
+     The CLI passes the widths, no longer a rescanning lambda.
+  - Docs: the `tiles.tsv` `file` row states the exact-name and quoting rule.
+- **Verification:**
+  - New tests:
+    - `test_tiles_tsv_keeps_exact_file_names`: `\n`, `?`, tab, quotes and a
+      non-UTF-8 byte all round-trip to `os.listdir`, with no collision;
+    - `test_default_output_keeps_a_dotted_folder_name`;
+    - core `test_matches_the_plain_algorithm`: 60 random cases, equal to the
+      plain algorithm;
+    - `test_capacity_bound_holds`;
+    - `test_a_huge_request_is_fast`: 10000 tiles in under 5 s.
+  - Mutants. Red:
+    - sanitized `file` column;
+    - stem-based name;
+    - wrong bound width.
+
+    Bound removed alone and rescan alone each stay green, because each
+    optimisation covers for the other. Both removed together (the original
+    code): 45.75 s, red. All mutants were reverted with checksums.
+  - Core 93 OK; CLI 67 OK; `check_links.py --build` PASSED.
+
+## Final Implementation Notes
+- **Actual work done:**
+  - `aitask_screen_recording.sh sheet DIR [--per-sheet N] [--out DIR]` (`cmd_sheet`
+    in `video_prep.py`). It reads the top level of a folder of png/jpg/jpeg/webp
+    images and writes `sheet_NN.png`, `tiles.tsv`, `summary.md` and `run.json`,
+    plus a `tokens:` line before `SUMMARY:`.
+  - Pipeline:
+    1. stage the inputs under safe symlink names in a temp dir;
+    2. fully decode each one with `magick <f> -format "%w %h\n" info:`; this
+       gives one line per frame, and failures are recorded as unreadable;
+    3. `plan_sheet` on the readable names only;
+    4. compare against `frames.tsv` hashes;
+    5. measure line 2 of every label in one batched `label:` call;
+    6. `chunk_sheets` → `label_safe_layout` per sheet;
+    7. measure name lines and middle-truncate them to the cell;
+    8. montage with `[0]` inputs;
+    9. fail closed if a sheet comes out over 1600 px.
+  - `vp_core` additions:
+    - `parse_frame_name(..., allow_suffix=True)` and `FrameName.suffix`;
+    - `natural_key`;
+    - `SheetItem` / `SheetPlan` / `plan_sheet`, and `GAP_FACTOR = 1.5`;
+    - `im_label`, `truncate_middle`;
+    - `MIN_TILE_PX = 64` and `MAX_ENLARGE = 4`;
+    - `label_safe_layout`, `sheet_capacity_bound`, `chunk_sheets`.
+  - `make_out_dir(..., name=)`, and `main()` validates `dir` for `sheet`.
+  - Docs:
+    - skill page: usage, Modes row, `### sheet`, the sheet layout,
+      `### tiles.tsv`, nine warning rows, Requirements and Workflows;
+    - new walkthrough `workflows/screen-recordings/hand-edited-images.md`,
+      listed in both indexes;
+    - `exact-frames.md`: the edit-name rule now allows a suffix, and links the
+      walkthrough;
+    - `SKILL.md`: a Sheet mode section, a mode row and a run example.
+- **Deviations from plan:**
+  - Plan review: four rounds, all incorporated before implementation:
+    - readable-first ordering;
+    - labels measured to fit their cells;
+    - `[0]` for animated images;
+    - `--per-sheet` as an upper bound with a split;
+    - a relative tile floor;
+    - the overflow warning only on a real reduction.
+  - Code review (Change Request 1):
+    - the `file` column keeps exact names;
+    - the default output keeps a dotted folder name;
+    - `chunk_sheets` uses a capacity bound and prefix maxima (10000 tiles:
+      50 s → well under 5 s).
+  - `frames.tsv` is not reported as "ignored", because sheet reads it.
+  - Staging uses a system temp dir, not `<out>/.stage`, so a run whose images
+    are all unreadable leaves no output directory.
+  - The `im_label` escape mutant is caught by the core `ImLabel` test, not by a
+    CLI assertion; the CLI cannot see rendered text.
+- **Issues encountered:**
+  - montage labels wider than their cell overlap the neighbours and never
+    widen the cell. That is why labels are measured with IM's own `label:` and
+    checked by a border-pixel test with a premise control.
+  - Each of the two `chunk_sheets` optimisations alone keeps 10000 tiles fast,
+    so the timing test only catches removing both (45.75 s).
+- **Key decisions:**
+  - Suffixed names are accepted only through `allow_suffix=True` (a user
+    decision); the strict parser is unchanged for t1893_5/6.
+  - Δ comes from the rounded name ms (±1 ms).
+  - Gaps are labelled heuristic.
+  - A tile's fit scale is montage's fit both ways (it may enlarge), recorded per
+    tile.
+  - An oversized sheet is a `PrepError`, never shrunk.
+  - ASCII-only labels (host fonts vary).
+- **Upstream defects identified:**
+  - `.aitask-scripts/screen_recording/video_prep.py:372 — sheet_layout()/contact_sheets() (bug and anim sheets) size cells from the image alone, so a narrow --roi gives cells narrower than their labels and labels overlap neighbouring tiles (e.g. anim --roi on a 40x800 strip, 30 per sheet: 45 px cells vs a 69 px "f013 0.483s" label). Layout-level probe only; not run end to end. The sheet-mode fix (core.label_safe_layout + measure_labels) could be reused.`
+- **Notes for sibling tasks:**
+  - **t1893_5 (pick) / t1893_6 (folder input):**
+    - `parse_frame_name` is still strict by default. `allow_suffix=True` is the
+      edited-name variant.
+    - `plan_sheet` orders a folder the way sheet does.
+    - `frames.tsv` trust is a hash match by file name: `sha256_file` vs the
+      `sha256` column.
+  - **ImageMagick hygiene:**
+    - stage user files under safe names, because IM parses `[..]`, `fmt:` and
+      `%` in file names;
+    - escape label text with `core.im_label` (`%` → `%%`, `\` → `\\`);
+    - never start a label with `@`;
+    - pass `<file>[0]` for animated inputs;
+    - `measure_labels` gives rendered widths with the host font.
+  - **Machine-readable files** keep exact names (csv quoting, UTF-8
+    `surrogateescape`). Only display text is sanitized.
+  - **t1893_13 (dependency hints):** sheet's "magick missing" error is raised
+    before anything is written, from `cmd_sheet`; add the install hint there.
+  - **Test fixtures:**
+    - `write_png` (stdlib gray PNG writer), `square_png`, `sheet_gray`,
+      `label_width`, `dirty_borders` (overlap detector) in
+      `tests/test_screen_recording_cli.py`;
+    - `SheetMode` needs only `magick`, not ffmpeg.
