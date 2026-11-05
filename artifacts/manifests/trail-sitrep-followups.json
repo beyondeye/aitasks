@@ -1,0 +1,10 @@
+{
+  "backend": "local",
+  "created_at": 1793884418,
+  "current": "sha256:b14916c417bee9f0ee2110448343cc054576a83a091ed8011c3467c73cba8062",
+  "handle": "art:trail-sitrep-followups",
+  "updated_at": 1793884418,
+  "versions": [
+    "sha256:b14916c417bee9f0ee2110448343cc054576a83a091ed8011c3467c73cba8062"
+  ]
+}

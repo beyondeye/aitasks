@@ -1,0 +1,229 @@
+{
+  "schema_version": "1.1.0",
+  "trail_id": "trail-sitrep-followups",
+  "title": "Sitrep follow-ups (topic t2175)",
+  "owner": "aitasks#2211",
+  "scope": {
+    "kind": "topic",
+    "topics": [
+      "aitasks#2175"
+    ],
+    "selection_note": "Whole topic t2175 (root archived 2026-11-05 with its last child t2175_6); owned by t2211, the largest in-flight member, chosen by the user."
+  },
+  "generation": {
+    "generated_at": "2026-11-05T13:13:24Z",
+    "generator": {
+      "agent_string": "claudecode/opus5_5",
+      "skill": "aitask-trail"
+    },
+    "input_digest": "fd778ba6468706a5",
+    "inputs": [
+      {
+        "ref": "aitasks#2182",
+        "kind": "task_file"
+      },
+      {
+        "ref": "aitasks#2199",
+        "kind": "task_file"
+      },
+      {
+        "ref": "aitasks#2206",
+        "kind": "task_file"
+      },
+      {
+        "ref": "aitasks#2208",
+        "kind": "task_file"
+      },
+      {
+        "ref": "aitasks#2211",
+        "kind": "task_file"
+      },
+      {
+        "ref": "aitasks#2215",
+        "kind": "task_file"
+      },
+      {
+        "ref": "aitasks#2216",
+        "kind": "task_file"
+      }
+    ]
+  },
+  "freshness": {
+    "state": "current",
+    "checked_at": "2026-11-05T13:13:24Z"
+  },
+  "narrative": {
+    "problem_statement": "t2175's children are all archived and seven follow-ups remain on the sitrep topic. In which order should they land to avoid rework while t2211 reshapes the sitrep window and slims the sitrep skill?",
+    "recommendation_summary": "Land t2211 and close out t2206 now, with the two independent fixes t2215 and t2208 alongside; then t2216 against the slimmed skill; then the other-agent work, t2199 and lastly t2182.",
+    "overview": "t2211 is the pivot: it moves the deterministic sitrep work (list, details, harvest+refresh, dismiss) into a TUI beside the agent and slims /aitask-sitrep. Two follow-ups target the skill and are best done after it: t2216 live-tests the agent's unparsed-output review flow (specified against today's skill), and t2199 ports the skill to codex/opencode (t2211 says the port consumes the slimmed skill). t2206's code is already on main (6a6544175); only its task close-out is pending, and this snapshot was read from a local task-data branch that is behind origin. t2215 is cheap and independent of t2211: it fixes the pipefail flake in tests/lib/asserts.sh, which the new live tests will lean on, and turns the cd-guard lint green; it also edits tests/test_codeagent.sh, which t2199 touches later. t2208 sits on the topic only through t2198, is not sitrep work, and can land at any point. t2182 is low priority and waits on real codex/opencode captures; since t2175_6 the harvest keeps unparsed ones as banner_unparsed review cases, so waiting gives it fixtures.",
+    "method_note": "Lite trail. Ordering comes only from the gatherer snapshot and the member task descriptions; no member has a hard depends edge, so every ordering here is advisory. Not verified: t2211's plan (none externalized yet), t2206's state on origin (the local aitask-data branch is behind it), whether real codex/opencode captures exist for t2182, and file-level overlap beyond what the task descriptions name."
+  },
+  "waves": [
+    {
+      "wave_id": "w1",
+      "ordinal": 1,
+      "title": "Now: finish in-flight work, plus independent fixes",
+      "purpose": "Close the work already started and clear the harness defects that later waves' live tests rely on.",
+      "entries": [
+        {
+          "entry_id": "w1-2211",
+          "task": "aitasks#2211",
+          "topic": "aitasks#2175",
+          "position": 1,
+          "classification": "core",
+          "snapshot": {
+            "status": "Implementing",
+            "priority": "medium",
+            "effort": "high",
+            "depends": [],
+            "gates_pending": [
+              "risk_evaluated"
+            ]
+          },
+          "rationale": "In flight; reshapes the sitrep window and skill, which every skill-facing follow-up below builds on.",
+          "confidence": "high"
+        },
+        {
+          "entry_id": "w1-2206",
+          "task": "aitasks#2206",
+          "topic": "aitasks#2175",
+          "position": 2,
+          "classification": "core",
+          "snapshot": {
+            "status": "Implementing",
+            "priority": "medium",
+            "effort": "medium",
+            "depends": [],
+            "gates_pending": [
+              "risk_evaluated"
+            ],
+            "followup_kind": "risk_mitigation"
+          },
+          "rationale": "Its live harvest-and-close smoke is already committed on main (6a6544175); only the task close-out remains.",
+          "confidence": "medium"
+        },
+        {
+          "entry_id": "w1-2215",
+          "task": "aitasks#2215",
+          "topic": "aitasks#2175",
+          "position": 3,
+          "classification": "preferred_predecessor",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "low",
+            "depends": [],
+            "gates_pending": [
+              "risk_evaluated"
+            ],
+            "followup_kind": "upstream_defect"
+          },
+          "rationale": "Low effort and file-disjoint from t2211: fixes the pipefail flake in assert_contains before more live tests (t2211, t2216) depend on it, and turns the cd-guard lint green.",
+          "confidence": "high"
+        },
+        {
+          "entry_id": "w1-2208",
+          "task": "aitasks#2208",
+          "topic": "aitasks#2175",
+          "position": 4,
+          "classification": "optional",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "low",
+            "depends": [],
+            "gates_pending": [],
+            "followup_kind": "upstream_defect"
+          },
+          "rationale": "Not sitrep work (helper-whitelist audit, via t2198); independent of every other member, so it can land whenever convenient.",
+          "confidence": "high"
+        }
+      ]
+    },
+    {
+      "wave_id": "w2",
+      "ordinal": 2,
+      "title": "After t2211: verify the agent's review flow",
+      "purpose": "Prove live that the sitrep agent turns a preserved unparsed-output case into recovered items and a recorded review, against the skill as t2211 leaves it.",
+      "why_now": "Doing it before t2211 lands would test a skill that is about to change.",
+      "entries": [
+        {
+          "entry_id": "w2-2216",
+          "task": "aitasks#2216",
+          "topic": "aitasks#2175",
+          "position": 1,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "medium",
+            "depends": [],
+            "gates_pending": [
+              "risk_evaluated"
+            ],
+            "followup_kind": "risk_mitigation"
+          },
+          "rationale": "Specified against today's skill; t2211 slims it and may move startup harvest/refresh into the TUI, so landing after t2211 avoids writing the live test twice.",
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "wave_id": "w3",
+      "ordinal": 3,
+      "title": "Then: other code agents",
+      "purpose": "Extend sitrep beyond Claude Code once the Claude flow is settled and proven.",
+      "entries": [
+        {
+          "entry_id": "w3-2199",
+          "task": "aitasks#2199",
+          "topic": "aitasks#2175",
+          "position": 1,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "low",
+            "effort": "medium",
+            "depends": [],
+            "gates_pending": [
+              "risk_evaluated"
+            ]
+          },
+          "rationale": "t2211 states the port consumes the slimmed skill, and after t2216 the Claude flow is proven live; porting earlier would be churn.",
+          "confidence": "medium"
+        },
+        {
+          "entry_id": "w3-2182",
+          "task": "aitasks#2182",
+          "topic": "aitasks#2175",
+          "position": 2,
+          "classification": "optional",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "low",
+            "effort": "low",
+            "depends": [],
+            "gates_pending": [
+              "risk_evaluated"
+            ],
+            "followup_kind": "risk_mitigation"
+          },
+          "rationale": "Needs real codex/opencode captures; the corpus from t2175_6 now preserves unparsed ones as banner_unparsed cases, so waiting gives it ready-made fixtures.",
+          "confidence": "medium"
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    {
+      "evidence_id": "ev-snapshot",
+      "source_type": "command_output",
+      "ref": "./.aitask-scripts/aitask_trail_gather.sh snapshot --scope topic --owner 2211 2175",
+      "observed_at": "2026-11-05T13:13:24Z",
+      "summary": "Seven active members of topic t2175, owner aitasks#2211, digest fd778ba6468706a5; no member has a hard depends edge."
+    }
+  ],
+  "rendering_hints": {
+    "depth": "lite"
+  }
+}
