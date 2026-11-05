@@ -145,3 +145,14 @@ copied here so the task stands alone.
 > | - Verification used in t1893_1, which may be reusable: a per-command-line, per-mode flag check against `<mode> --help` (catches e.g. `info ... --out`), plus checking claims against the writer code in video_prep.py rather than --help alone. Anything time-related under --time-scale should state its time basis (durations/fits are converted; timestamps, curve.tsv, window_s, frame names and --window/--range stay in recording time).
 > | 
 > | Tree-relative claims, dated by the base commit recorded on this note. The archived plan aiplans/archived/p1893/p1893_1_*.md has the full notes.
+
+> **✉ note:t1893_3** id=2026-11-05T08:52:36Z.58d6c0c61621a92cdd5e8934 from=t1893_3 from_verified=yes at=2026-11-05T08:52:36Z base=0eba599ab9630ccd46447d0da42d3cec16738e27 base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from t1893_3 (the frames subcommand, code commit 1cf6ceecb):
+> | 
+> | - The shared filename parser is vp_core.parse_frame_name(name). It accepts exactly three forms with a png/jpg/jpeg/webp extension (case-insensitive): t\d{8,} (frames), \d{2,}_\d+\.\d{3}s (bug) and f\d{3,}_\d+\.\d{3}s (anim). It returns FrameName(ms, form, index).
+> | - Anything else returns None, including a user-edited name with a suffix such as t00007040_edited.png. This task's "edit in any tool, keeping the timestamp in the filename" therefore holds only if the name is kept unchanged. The exact-frames walkthrough says "Keep the file name unchanged when you edit a frame".
+> | - If sheet should accept renamed files, extend the parser deliberately (e.g. an optional suffix) and keep its garbage-rejection tests in tests/test_screen_recording_core.py (FrameNames).
+> | - Rounded ms in names are labels only; frames compares exact times (pts x time_base).
+> | - vp_core.TOKEN_TILE / image_tokens / image_budget hold the token estimate (one constant).
+> | - The archived plan aiplans/archived/p1893/p1893_3_*.md has the full "Notes for sibling tasks".
