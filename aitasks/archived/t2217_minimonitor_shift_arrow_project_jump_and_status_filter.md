@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: feature
-status: Implementing
+status: Done
 labels: [minimonitor, monitor, keybindings, tui]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -15,7 +15,8 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus5_5
 created_at: 2026-11-05 14:43
-updated_at: 2026-11-05 15:14
+updated_at: 2026-11-06 00:15
+completed_at: 2026-11-06 00:15
 ---
 
 ## Goal
@@ -137,3 +138,14 @@ how-to.
 > **✅ gate:plan_approved** run=2026-11-05T13:14:10Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-11-05T22:09:11Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-11-05T22:15:50Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:4322ed3396a8300a
+
+> **✅ gate:risk_evaluated** run=2026-11-05T22:15:50Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/2217/risk_evaluated_2026-11-05T22:15:50Z-risk_evaluated-a1.log`
