@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2034
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-05 08:28
-updated_at: 2026-11-05 09:12
+updated_at: 2026-11-05 11:56
 ---
 
 ## Origin
@@ -38,3 +39,8 @@ Spawned from t2037_1 during the Step 8b review.
 ## Suggested fix
 
 Before the assertions, wait until the mount-time refresh has finished: wait for `app._refresh_inflight` to be false, or await the `first_refresh` worker, then call `_refresh_data()`. Alternatively, poll the asserted condition with a bounded deadline instead of pausing once. Keep the assertions themselves unchanged.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-05T09:56:47Z status=pass attempt=1 type=human
