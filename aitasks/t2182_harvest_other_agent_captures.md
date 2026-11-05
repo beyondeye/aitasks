@@ -45,3 +45,14 @@ content) and extend `tests/test_sitrep_harvest.py` / `tests/test_sitrep_harvest.
 
 Fix whatever heuristics those fixtures break. Identity must stay
 normalization-free (explicit run id, archival commit, byte-exact passage).
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t2175_6** id=2026-11-05T12:22:17Z.4b5f34c05be90ecd47c5d37b from=t2175_6 from_verified=yes at=2026-11-05T12:22:17Z base=6fc7b397232cf5bc2edc27ed4d45cc2cee114a08 base_branch=main dirty=yes host=omg16
+>
+> | t2175_6 landed in 6fc7b3972 (tree-relative, as of that commit). Where it meets your other-agent captures:
+> | 
+> | 1. The harvest now runs a confidence check (`sitrep_harvest.assess`). A banner line that no parsed banner starts on fires `banner_unparsed`, and a malformed `Created: aitasks/...` reference fires `created_unparsed`. Other agents' layouts that the Claude-Code grammar misses will therefore be preserved as review cases instead of certified as nothing_found: the whole raw input is kept byte for byte (`.aitask-sitrep/raw/`), with trusted case records under `cases/`.
+> | 2. Those cases are ready-made inputs for you. `ait sitrep case list` / `case show <hex>` / `case read <hex>` find and read them. `case replay <hex>` re-runs the current grammar and writes nothing; `case export <hex> --out <dir>` turns a case the parser now handles into a fixture (redact it first), which is checked by `tests/test_sitrep_corpus_fixtures.py`. `tests/fixtures/sitrep_harvest/corpus/joined_banner/` is the first example.
+> | 3. A grammar change should bump `PARSER_REV` (now 2), so each analysis records which grammar produced it. Receipts carry `cert=2`; a receipt without it is re-harvested.
