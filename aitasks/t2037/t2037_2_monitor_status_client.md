@@ -55,3 +55,8 @@ fixture.
 > | Re-check the dependent list first (grep xdeps in aitasks_go).
 
 > **👁 note:read** id=2026-11-05T07:42:50Z.7bd46b39f84b07a53e4d4be2 by=t2037_2 at=2026-11-05T07:42:50Z mode=explicit ids=2026-11-03T15:15:59Z.471e83035fa5e9f0ad08a163
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-05T09:56:43Z status=pass attempt=1 type=human
