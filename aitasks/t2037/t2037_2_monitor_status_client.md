@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: medium
+risk_goal_achievement: low
 effort: medium
 depends: [t2037_1]
 issue_type: feature
@@ -11,8 +13,9 @@ active_gates_profile: fast
 active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2034
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-16 08:11
-updated_at: 2026-11-05 09:43
+updated_at: 2026-11-05 11:57
 ---
 
 The Python `MonitorClient` (parent: Python monitor status server task).
@@ -60,3 +63,5 @@ fixture.
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-11-05T09:56:43Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-11-05T22:02:41Z status=pass attempt=1 type=human
