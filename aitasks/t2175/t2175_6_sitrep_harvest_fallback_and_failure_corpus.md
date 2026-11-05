@@ -11,11 +11,12 @@ active_gates: [risk_evaluated]
 active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
+risk_mitigation_tasks: [2216]
 assigned_to: dario-e@beyond-eye.com
 anchor: 2175
 implemented_with: claudecode/opus5_5
 created_at: 2026-11-03 08:25
-updated_at: 2026-11-05 09:01
+updated_at: 2026-11-05 12:55
 ---
 
 # Sitrep harvest fallback: preserve uncertain output and queue agent analysis
