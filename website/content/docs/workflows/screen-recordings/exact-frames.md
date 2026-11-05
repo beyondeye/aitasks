@@ -57,7 +57,7 @@ It also records the image's `sha256`.
 
 A point in the image maps back to the source as `crop_x + x / scale_x`, and the same for y. That is how a region you read off a frame becomes a `--roi` for another run. `bug` and `anim` write the same manifest beside the frames they save. Their frames are downscaled, so their scale is below 1.
 
-**The geometry is valid only for an unedited frame.** It describes the file whose hash is `sha256`. Once you crop, resize, annotate or otherwise edit a frame, its hash no longer matches and its geometry is unknown. The frame is still fine to look at, but nothing should map its pixels back to the source through this record. Keep the file name unchanged when you edit a frame, so its time stays readable from it.
+**The geometry is valid only for an unedited frame.** It describes the file whose hash is `sha256`. Once you crop, resize, annotate or otherwise edit a frame, its hash no longer matches and its geometry is unknown. The frame is still fine to look at, but nothing should map its pixels back to the source through this record. When you edit a frame, keep its time at the start of the file name, so the time stays readable from it. To hand edited frames back to the agent as labelled contact sheets, see [Prepare Images by Hand, Then Feed Them to the Agent]({{< relref "/docs/workflows/screen-recordings/hand-edited-images" >}}).
 
 ## 5. Past the cap
 

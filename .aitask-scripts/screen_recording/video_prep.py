@@ -6,19 +6,22 @@ coding agent can read (Claude Code cannot open video files).
   aitask_screen_recording.sh bug  VIDEO [--out DIR] [--crop-top PX] [--min-dwell S] ...
   aitask_screen_recording.sh anim VIDEO [--out DIR] [--roi X,Y,W,H] [--window A-B] ...
   aitask_screen_recording.sh frames VIDEO (--range A-B | --at T[,T...]) [--roi X,Y,W,H] ...
+  aitask_screen_recording.sh sheet  DIR [--per-sheet N] [--out DIR]
 
 Entry point of the aitask-screen-recording skill; the measurement model is
 documented in .claude/skills/aitask-screen-recording/references/animation.md.
 
-Every bug/anim/frames run writes <out>/summary.md (read it first) and
+Every bug/anim/frames/sheet run writes <out>/summary.md (read it first) and
 <out>/run.json, then prints "SUMMARY: <path>" as its last stdout line. Every
 frames/ directory carries a frames.tsv manifest (time, pts, geometry, SHA-256 of
 each image). Needs ffmpeg/ffprobe >= 5.1. ImageMagick 7 (`magick`) is optional:
-without it there are no contact sheets or plots, only frames and data.
+without it there are no contact sheets or plots, only frames and data, and
+`sheet` (contact sheets from a folder of images) refuses to run.
 """
 from __future__ import annotations
 
 import argparse
+import csv
 import hashlib
 import json
 import math
@@ -26,6 +29,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 from fractions import Fraction
 from pathlib import Path
 
@@ -416,9 +420,11 @@ def token_estimate(paths: list[Path]) -> int | None:
     return total
 
 
-def make_out_dir(arg: str | None, video: str, mode: str) -> Path:
+def make_out_dir(arg: str | None, video: str, mode: str, *, name: str | None = None) -> Path:
+    """--out, or $TMPDIR/video-prep/<name>-<mode> (name: the video's stem unless
+    given); a non-empty directory is never reused."""
     base = Path(arg) if arg else (Path(os.environ.get("TMPDIR", "/tmp")) / "video-prep"
-                                  / f"{Path(video).stem}-{mode}")
+                                  / f"{name if name is not None else Path(video).stem}-{mode}")
     d, k = base, 2
     while d.exists() and any(d.iterdir()):
         d = base.with_name(f"{base.name}-{k}")
@@ -1353,6 +1359,281 @@ def _write_anim_summary(out, args, info, region, adims, scale_px, results, cuts,
     (out / "summary.md").write_text("\n".join(lines) + "\n")
 
 
+# --------------------------------------------------------------------------- #
+# sheet mode: contact sheets from any folder of images
+
+SHEET_POINTSIZE = 15
+SHEET_LABEL_H = 40         # two label lines at SHEET_POINTSIZE, as contact_sheets assumes
+SHEET_LABEL_MARGIN = 6     # px kept free beside the widest label line in a cell
+_CONTROL = dict.fromkeys(range(32), "?")
+
+
+def measure_labels(texts: list[str]) -> list[tuple[int, int]]:
+    """Rendered (width, height) of each one-line label, with the default font
+    and SHEET_POINTSIZE that montage uses, in one magick call."""
+    if not texts:
+        return []
+    cmd = ["magick", "-pointsize", str(SHEET_POINTSIZE)]
+    cmd += [f"label:{core.im_label(t)}" for t in texts]
+    out, _ = run(cmd + ["-format", "%w %h\\n", "info:"])
+    lines = out.splitlines()
+    try:
+        sizes = [(int(a), int(b)) for a, b in (ln.split() for ln in lines)]
+    except ValueError:
+        sizes = []
+    if len(sizes) != len(texts):
+        raise PrepError(f"could not measure the sheet labels ({len(lines)} sizes for "
+                        f"{len(texts)} labels)")
+    return sizes
+
+
+def _frames_in(path: Path) -> list[tuple[int, int]] | None:
+    """(width, height) of every frame of an image, decoding it fully; None when
+    ImageMagick cannot read it."""
+    try:
+        out, _ = run(["magick", str(path), "-format", "%w %h\\n", "info:"])
+        sizes = [(int(a), int(b)) for a, b in (ln.split() for ln in out.splitlines())]
+    except (PrepError, ValueError):
+        return None
+    return sizes or None
+
+
+def _manifest_hashes(folder: Path) -> dict[str, str]:
+    path = folder / "frames.tsv"
+    if not path.is_file():
+        return {}
+    try:
+        with open(path, newline="") as fh:
+            return {r["file"]: r["sha256"] for r in csv.DictReader(fh, delimiter="\t")
+                    if r.get("file") and r.get("sha256")}
+    except (OSError, csv.Error, KeyError, UnicodeDecodeError):
+        return {}
+
+
+def _fit_names(lines: list[str], cell_w: int) -> list[str]:
+    """Name lines narrowed (middle '...') until each renders within the cell."""
+    room = cell_w - SHEET_LABEL_MARGIN
+    out = list(lines)
+    widths = [w for w, _ in measure_labels(out)]
+    for _ in range(3):
+        over = [i for i, w in enumerate(widths) if w > room]
+        if not over:
+            return out
+        for i in over:
+            n = min(len(out[i]) - 1, int(len(out[i]) * room / widths[i]))
+            out[i] = core.truncate_middle(lines[i], max(1, n))
+        for i, (w, _) in zip(over, measure_labels([out[i] for i in over])):
+            widths[i] = w
+    # still too wide after three rounds: keep just the tile number
+    return [ln if w <= room else ln.split(" ", 1)[0] for ln, w in zip(out, widths)]
+
+
+def _n(k: int, word: str) -> str:
+    return f"{k} {word}{'' if k == 1 else 's'}"
+
+
+def _md_cell(text) -> str:
+    return str(text).translate(_CONTROL).replace("|", "\\|")
+
+
+def cmd_sheet(args) -> int:
+    if args.per_sheet < 1:
+        raise PrepError("--per-sheet must be at least 1")
+    if not have_magick():
+        raise PrepError("sheet needs ImageMagick 7 (`magick`) on PATH to draw the contact "
+                        "sheets, and it was not found")
+    folder = Path(args.dir)
+    images, ignored = [], []
+    for p in sorted(folder.iterdir(), key=lambda p: core.natural_key(p.name)):
+        if p.name == "frames.tsv":
+            continue                        # read below, for the edited markers
+        if (p.name.startswith(".") or not p.is_file()
+                or p.suffix.lower() not in core.IMAGE_EXTS):
+            ignored.append(p.name + ("/" if p.is_dir() else ""))
+        else:
+            images.append(p)
+    if not images:
+        raise PrepError(f"{folder}: no png, jpg or webp images (only the top level is read)")
+
+    with tempfile.TemporaryDirectory(prefix="vp-sheet-") as stage_dir:
+        # stage under safe names: ImageMagick parses [..], 'fmt:' and '%' in file names
+        stage = {}
+        for i, p in enumerate(images, start=1):
+            s = Path(stage_dir) / f"{i:04d}{p.suffix.lower()}"
+            try:
+                os.symlink(p.resolve(), s)
+            except OSError:
+                shutil.copyfile(p, s)
+            stage[p.name] = s
+        frames_of, unreadable = {}, []
+        for p in images:
+            sizes = _frames_in(stage[p.name])
+            if sizes is None:
+                unreadable.append(p.name)
+            else:
+                frames_of[p.name] = sizes
+        if not frames_of:
+            raise PrepError(f"{folder}: none of the {len(images)} images could be read: "
+                            + ", ".join(unreadable[:5]))
+
+        # the plan is made from the readable images only, so order and deltas
+        # describe exactly the tiles that are drawn
+        plan = core.plan_sheet(list(frames_of))
+        known = _manifest_hashes(folder)
+        prov = {}
+        for it in plan.items:
+            if it.name in known:
+                prov[it.name] = ("match" if sha256_file(folder / it.name) == known[it.name]
+                                 else "edited")
+            else:
+                prov[it.name] = ""
+
+        def line2(it):
+            if it.ms is None:
+                text = "no time in name"
+            else:
+                text = f"{it.ms / 1000:.3f} s " + ("first" if it.delta_ms is None
+                                                    else f"+{it.delta_ms} ms")
+            return text + (" edited" if prov[it.name] == "edited" else "")
+
+        seconds = [line2(it) for it in plan.items]
+        widths = [w for w, _ in measure_labels(seconds)]
+        boxes = [frames_of[it.name][0] for it in plan.items]
+        try:
+            chunks = core.chunk_sheets(
+                boxes, args.per_sheet, [w + SHEET_LABEL_MARGIN for w in widths],
+                SHEET_MAX_EDGE, SHEET_LABEL_H)
+        except ValueError as exc:
+            raise PrepError(str(exc)) from exc
+
+        out = make_out_dir(args.out, str(folder), "sheet",
+                           name=folder.resolve().name or "folder")  # edited.v2 stays whole
+        sheets, tiles = [], []
+        for n_sheet, (start, count, _reduced, (cols, cell_w, th, _s)) in enumerate(chunks, 1):
+            chunk = plan.items[start:start + count]
+            names = _fit_names([f"#{it.order} {it.name.translate(_CONTROL)}" for it in chunk],
+                               cell_w)
+            path = out / f"sheet_{n_sheet:02d}.png"
+            cmd = ["magick", "montage", "-background", "#1e1e1e", "-fill", "#f2f2f2",
+                   "-pointsize", str(SHEET_POINTSIZE)]
+            for k, it in enumerate(chunk):
+                label = f"{names[k]}\n{seconds[start + k]}"
+                cmd += ["-label", core.im_label(label), f"{stage[it.name]}[0]"]
+                w, h = boxes[start + k]
+                tiles.append({
+                    "sheet": path.name, "tile": k + 1, "row": k // cols + 1,
+                    "col": k % cols + 1, "order": it.order, "file": it.name,
+                    "t_ms": "" if it.ms is None else it.ms,
+                    "delta_ms": "" if it.delta_ms is None else it.delta_ms,
+                    "time_from": f"name:{it.form}" if it.form else "none",
+                    "frames_tsv": prov[it.name], "img_w": w, "img_h": h,
+                    "frames_in_file": len(frames_of[it.name]), "cell_w": cell_w,
+                    "fit_scale": f"{min(cell_w / w, th / h):.6f}",
+                    "label": f"{names[k]} | {seconds[start + k]}",
+                })
+            cmd += ["-tile", f"{cols}x", "-geometry", f"{cell_w}x{th}+4+4", str(path)]
+            run(cmd)
+            with open(path, "rb") as fh:
+                size = core.png_size(fh.read(24))
+            if size is None or max(size) > SHEET_MAX_EDGE:
+                raise PrepError(f"{path.name} came out {size}, over the {SHEET_MAX_EDGE} px "
+                                "sheet limit; the montage layout was not as modelled")
+            sheets.append((path, start, count, size))
+
+    columns = ["sheet", "tile", "row", "col", "order", "file", "t_ms", "delta_ms", "time_from",
+               "frames_tsv", "img_w", "img_h", "frames_in_file", "cell_w", "fit_scale", "label"]
+    # machine-readable: the file column is the exact name (csv quoting for tabs,
+    # newlines and quotes; undecodable bytes written back as they were)
+    with open(out / "tiles.tsv", "w", newline="", encoding="utf-8",
+              errors="surrogateescape") as fh:
+        wr = csv.writer(fh, delimiter="\t", lineterminator="\n")
+        wr.writerow(columns)
+        for t in tiles:
+            wr.writerow([t[c] if c == "file" else str(t[c]).translate(_CONTROL)
+                         for c in columns])
+
+    tokens = sum(core.image_tokens(*s) for _, _, _, s in sheets)
+    reduced = any(c[2] for c in chunks)
+    largest = max(c[1] for c in chunks)
+    animated = [it.name for it in plan.items if len(frames_of[it.name]) > 1]
+    edited = [n for n, v in prov.items() if v == "edited"]
+    lines = [f"# Contact sheets: {folder.name}/", "",
+             f"- folder: {folder.resolve()} (top level only)",
+             f"- {_n(len(plan.items), 'image')} on {_n(len(sheets), 'sheet')}, "
+             f"at most {args.per_sheet} a "
+             "sheet; ordered by the time in their names, then the ones without a time by name",
+             "- labels: `#order name` / `time s +N ms`, where +N is the time since the previous "
+             "timed image (from the rounded ms in the names, so +-1 ms); `first` = the first "
+             "timed image; `no time in name` = untimed; `edited` = differs from frames.tsv"]
+    if known:
+        n_match = sum(v == "match" for v in prov.values())
+        lines.append(f"- frames.tsv: recorded SHA-256 matches for {n_match} (geometry valid), "
+                     f"differs for {len(edited)} (edited: geometry unknown); no row for the "
+                     f"other {len(plan.items) - n_match - len(edited)}")
+    if len(plan.forms) > 1:
+        lines.append(f"- Warning: names of different kinds ({', '.join(plan.forms)}): their "
+                     "times compare only if the images come from the same recording")
+    if plan.untimed:
+        lines.append(f"- Warning: {len(plan.untimed)} images carry no time in their names "
+                     "and come last, in name order, labelled by index only (a name carries a time "
+                     "when it starts with t<8+ digits>, NN_<s.mmm>s or fNNN_<s.mmm>s, optionally "
+                     "followed by _ - . space or '(' and more): "
+                     + ", ".join(plan.untimed[:5]) + (" ..." if len(plan.untimed) > 5 else ""))
+    if unreadable:
+        lines.append(f"- Warning: {len(unreadable)} images could not be read and are left "
+                     "out (order and +N skip them): " + ", ".join(unreadable[:5])
+                     + (" ..." if len(unreadable) > 5 else ""))
+    if animated:
+        lines.append(f"- animated: first frame used for {', '.join(animated[:5])}"
+                     + (" ..." if len(animated) > 5 else ""))
+    if ignored:
+        lines.append(f"- ignored {len(ignored)} {'entry' if len(ignored) == 1 else 'entries'} "
+                     "that are not png/jpg/webp images, are "
+                     "hidden, or are directories: " + ", ".join(ignored[:5])
+                     + (" ..." if len(ignored) > 5 else ""))
+    if reduced:
+        lines.append(f"- Warning: --per-sheet {args.per_sheet} does not fit with readable labels "
+                     f"(at most {largest} tiles a sheet here); wrote {_n(len(sheets), 'sheet')}")
+    lines += ["", "## Contact sheets (read these)", ""]
+    for path, start, count, size in sheets:
+        lines.append(f"- {path.name}: tiles #{start + 1}-#{start + count} ({size[0]}x{size[1]})")
+    lines.append(f"- all sheets together cost roughly {tokens} image tokens")
+    lines += ["", "## Gaps (heuristic)", ""]
+    if plan.gaps:
+        lines.append(f"Time steps over {core.GAP_FACTOR:g}x the median step "
+                     f"({plan.median_delta_ms:g} ms): a deleted image, or a screen that held "
+                     "still in a variable-frame-rate recording.")
+        lines.append("")
+        lines += [f"- #{it.order} {it.name}: +{it.delta_ms} ms" for it in plan.gaps]
+    else:
+        lines.append("- none" + ("" if sum(it.ms is not None for it in plan.items) >= 3
+                                 else " (fewer than 3 timed images)"))
+    lines += ["", "## Tiles", "", "| # | file | time | +ms | sheet |",
+              "|---|------|------|-----|-------|"]
+    for t in tiles:
+        tm = f"{t['t_ms'] / 1000:.3f} s" if t["t_ms"] != "" else "—"
+        lines.append(f"| {t['order']} | {_md_cell(t['file'])} | {tm} | "
+                     f"{t['delta_ms'] if t['delta_ms'] != '' else '—'} | {t['sheet']} |")
+    lines += ["", "Every tile's row, column, label, size and fit scale: tiles.tsv"]
+    with open(out / "summary.md", "w", encoding="utf-8", errors="replace") as fh:
+        fh.write("\n".join(lines) + "\n")
+    (out / "run.json").write_text(json.dumps({
+        "mode": "sheet", "options": {k: v for k, v in vars(args).items() if k != "func"},
+        "dir": str(folder.resolve()), "images": len(plan.items),
+        "untimed": plan.untimed, "unreadable": unreadable, "ignored": ignored,
+        "animated": animated, "forms": plan.forms,
+        "gaps": [{"file": it.name, "delta_ms": it.delta_ms} for it in plan.gaps],
+        "median_delta_ms": plan.median_delta_ms,
+        "per_sheet_requested": args.per_sheet,
+        "tiles_per_sheet": [c[1] for c in chunks], "per_sheet_reduced": reduced,
+        "sheets": [p.name for p, _, _, _ in sheets], "tiles": "tiles.tsv",
+        "tokens": tokens,
+    }, indent=2, default=str))
+    print(f"tokens: {_n(len(sheets), 'sheet')}, roughly {tokens} image tokens together")
+    print(f"SUMMARY: {out / 'summary.md'}")
+    return 0
+
+
 def _write_run_json(out: Path, mode: str, args, info: dict, extra: dict):
     opts = {k: v for k, v in vars(args).items() if k not in ("func",)}
     (out / "run.json").write_text(json.dumps(
@@ -1429,6 +1710,14 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--max-frames", type=int, default=60,
                    help="write at most this many frames (the earliest); the rest are reported")
     p.set_defaults(func=cmd_frames)
+
+    p = sub.add_parser("sheet", help="labelled contact sheets from any folder of images "
+                                     "(for example frames edited by hand)")
+    p.add_argument("dir", help="folder of png/jpg/webp images (top level only)")
+    p.add_argument("--per-sheet", type=int, default=8,
+                   help="at most this many images a sheet; fewer when labels would not fit")
+    p.add_argument("--out", help="output directory (default $TMPDIR/video-prep/<folder>-sheet)")
+    p.set_defaults(func=cmd_sheet)
     return ap
 
 
@@ -1437,8 +1726,11 @@ def main(argv=None) -> int:
     if getattr(args, "time_scale", 1.0) <= 0:
         print("error: --time-scale must be positive", file=sys.stderr)
         return 2
-    if not Path(args.video).is_file():
+    if hasattr(args, "video") and not Path(args.video).is_file():
         print(f"error: {args.video}: no such file", file=sys.stderr)
+        return 2
+    if hasattr(args, "dir") and not Path(args.dir).is_dir():
+        print(f"error: {args.dir}: no such directory", file=sys.stderr)
         return 2
     try:
         return args.func(args)

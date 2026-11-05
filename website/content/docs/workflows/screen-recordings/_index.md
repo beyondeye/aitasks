@@ -27,6 +27,7 @@ recording.mp4 ──▶ aitask_screen_recording.sh bug|anim ──▶ summary.md
 | A prototype or competitor clip | The duration and easing to implement | `anim` | [Animation from a Prototype Recording]({{< relref "/docs/workflows/screen-recordings/animation" >}}) |
 | A glitch inside an animation | Both | `bug`, then `anim --window` | Start with the bug report |
 | A moment you have already found | Its exact frames at full resolution, to inspect or to edit by hand | `frames` | [Extract Exact Frames for Close Inspection]({{< relref "/docs/workflows/screen-recordings/exact-frames" >}}) |
+| A folder of frames you cropped, annotated or thinned out | Labelled contact sheets of them, with each frame's time and the gap since the previous one | `sheet` | [Prepare Images by Hand, Then Feed Them to the Agent]({{< relref "/docs/workflows/screen-recordings/hand-edited-images" >}}) |
 
 ## Read the results in order
 
@@ -51,6 +52,7 @@ ffmpeg and ffprobe 5.1 or later must be on `PATH`; `ait setup` does not install 
 - [Spot a Hang, a Black Flash or a Silent Gap]({{< relref "/docs/workflows/screen-recordings/hang-black-silence" >}}) — the freeze, black and silence rows, and why every black interval is represented
 - [Animation from a Prototype Recording]({{< relref "/docs/workflows/screen-recordings/animation" >}}) — measured duration, easing and spring fits, translated to code
 - [Extract Exact Frames for Close Inspection]({{< relref "/docs/workflows/screen-recordings/exact-frames" >}}) — the frame on screen at an exact time, or every frame of a span, at full resolution, with a manifest of where each image came from
+- [Prepare Images by Hand, Then Feed Them to the Agent]({{< relref "/docs/workflows/screen-recordings/hand-edited-images" >}}) — extract, edit in any tool, and hand the folder back as contact sheets labelled with each frame's time and the gap since the previous one
 - [Recording Tips]({{< relref "/docs/workflows/screen-recordings/recording-tips" >}}) — capture a recording that analyses well on Android, iOS and desktop
 
 ## More use cases

@@ -108,32 +108,190 @@ class FrameName:
     ms: int                 # integer milliseconds carried by the name (rounded)
     form: str               # "frames" (t<ms>), "bug" (NN_<s>s), "anim" (fNNN_<s>s)
     index: int | None       # the bug pick number / anim frame index
+    suffix: str = ""        # text after the canonical name (allow_suffix only)
 
 
 _NAME_FORMS = (
-    ("frames", re.compile(r"t(\d{8,})")),
-    ("bug", re.compile(r"(\d{2,})_(\d+)\.(\d{3})s")),
-    ("anim", re.compile(r"f(\d{3,})_(\d+)\.(\d{3})s")),
+    ("frames", r"t(\d{8,})"),
+    ("bug", r"(\d{2,})_(\d+)\.(\d{3})s"),
+    ("anim", r"f(\d{3,})_(\d+)\.(\d{3})s"),
 )
+_SUFFIX = r"(?P<sfx>[-_ .(].*)?"
+_NAME_RX = {False: [(f, re.compile(rx)) for f, rx in _NAME_FORMS],
+            True: [(f, re.compile(rx + _SUFFIX, re.S)) for f, rx in _NAME_FORMS]}
 
 
-def parse_frame_name(name: str) -> FrameName | None:
+def parse_frame_name(name: str, *, allow_suffix: bool = False) -> FrameName | None:
     """The time a frame file name carries, or None when the name carries none.
 
     Accepts exactly the names this helper writes (t00007040.png, 04_5.500s.png,
     f013_0.483s.png) with a png/jpg/jpeg/webp extension; anything else is
-    rejected rather than guessed at."""
+    rejected rather than guessed at. With allow_suffix, such a name may go on
+    after a separator (_ - . space or '('), as an editor's "save as" leaves it:
+    t00007040_annotated.png, f013_0.483s (1).png."""
     stem, dot, ext = name.rpartition(".")
     if not dot or f".{ext.lower()}" not in IMAGE_EXTS:
         return None
-    for form, rx in _NAME_FORMS:
+    for form, rx in _NAME_RX[allow_suffix]:
         m = rx.fullmatch(stem)
         if not m:
             continue
+        sfx = (m.groupdict().get("sfx") or "")
         if form == "frames":
-            return FrameName(int(m.group(1)), form, None)
-        return FrameName(int(m.group(2)) * 1000 + int(m.group(3)), form, int(m.group(1)))
+            return FrameName(int(m.group(1)), form, None, sfx)
+        return FrameName(int(m.group(2)) * 1000 + int(m.group(3)), form, int(m.group(1)), sfx)
     return None
+
+
+# --------------------------------------------------------------------------- #
+# sheet mode: any folder of images, ordered by the time in their names
+
+_DIGITS = re.compile(r"(\d+)")
+
+
+def natural_key(name: str) -> tuple:
+    """Digit-aware sort key: b2 before b10. Ties fall back to the plain name."""
+    parts = _DIGITS.split(name)
+    return (tuple((0, int(p), "") if i % 2 else (1, 0, p) for i, p in enumerate(parts)), name)
+
+
+@dataclass(frozen=True)
+class SheetItem:
+    name: str
+    order: int                  # 1-based position on the sheets
+    ms: int | None              # time from the name; None = the name carries none
+    form: str | None            # frames / bug / anim, None when untimed
+    suffix: str
+    delta_ms: int | None        # ms since the previous timed image; None for the first
+
+
+@dataclass
+class SheetPlan:
+    items: list[SheetItem]
+    untimed: list[str]
+    forms: list[str]
+    gaps: list[SheetItem]       # heuristic: delta > GAP_FACTOR x the median delta
+    median_delta_ms: float | None
+
+
+GAP_FACTOR = 1.5
+
+
+def plan_sheet(names: list[str]) -> SheetPlan:
+    """Order images for contact sheets: those whose names carry a time first, by
+    time (ties by natural name order), then the rest by natural name order with
+    no time. delta_ms is from the previous timed image, from the rounded ms the
+    names carry (so +-1 ms)."""
+    timed, untimed = [], []
+    for n in names:
+        fn = parse_frame_name(n, allow_suffix=True)
+        (timed if fn else untimed).append((n, fn))
+    timed.sort(key=lambda r: (r[1].ms, natural_key(r[0])))
+    untimed.sort(key=lambda r: natural_key(r[0]))
+    items, prev = [], None
+    for n, fn in timed:
+        items.append(SheetItem(n, len(items) + 1, fn.ms, fn.form, fn.suffix,
+                               None if prev is None else fn.ms - prev))
+        prev = fn.ms
+    for n, _ in untimed:
+        items.append(SheetItem(n, len(items) + 1, None, None, "", None))
+    deltas = [it.delta_ms for it in items if it.delta_ms]
+    median = statistics.median(deltas) if deltas else None
+    gaps = ([it for it in items if it.delta_ms is not None and it.delta_ms > GAP_FACTOR * median]
+            if median is not None and len(timed) >= 3 else [])
+    return SheetPlan(items, [n for n, _ in untimed],
+                     sorted({fn.form for _, fn in timed}), gaps, median)
+
+
+def im_label(text: str) -> str:
+    """Text for ImageMagick's -label / label:, shown literally: IM expands
+    %-escapes and a backslash-n in it."""
+    return text.replace("\\", "\\\\").replace("%", "%%")
+
+
+def truncate_middle(text: str, n: int) -> str:
+    """At most n characters, keeping the head and the tail around '...'."""
+    if len(text) <= n:
+        return text
+    if n <= 3:
+        return text[:n]
+    keep = n - 3
+    head = (keep + 1) // 2
+    tail = keep - head
+    return text[:head] + "..." + (text[-tail:] if tail else "")
+
+
+MIN_TILE_PX = 64     # a tile's image keeps at least this long edge (tiny originals: 4x theirs)
+MAX_ENLARGE = 4.0    # the enlargement cap sheet_layout uses too
+
+
+def label_safe_layout(n: int, w: int, h: int, need_w: int, max_edge: int,
+                      label_h: int = 40, border: int = 8):
+    """(cols, cell_w, th, scale) for n tiles of a w x h box on one sheet, with
+    every cell at least need_w wide so its label fits, or None when no column
+    count fits. Cells wider than the image letterbox it."""
+    floor_px = min(MIN_TILE_PX, MAX_ENLARGE * max(w, h))
+    best = None
+    for cols in range(1, n + 1):
+        if cols * (need_w + border) > max_edge:
+            break
+        rows = math.ceil(n / cols)
+        s = min((max_edge - border * cols) / (cols * w),
+                (max_edge - (label_h + border) * rows) / (rows * h), MAX_ENLARGE)
+        if s <= 0:
+            continue
+        iw, th = max(1, int(w * s)), max(1, int(h * s))
+        cell_w = max(need_w, iw)
+        if (s * max(w, h) + 1e-9 < floor_px or cols * (cell_w + border) > max_edge
+                or rows * (th + label_h + border) > max_edge):
+            continue
+        if best is None or s > best[3] + 1e-9:
+            best = (cols, cell_w, th, s)
+    return best
+
+
+def sheet_capacity_bound(need_w: int, max_edge: int, label_h: int = 40,
+                         border: int = 8) -> int:
+    """No sheet holds more tiles than this, whatever their size: each column is at
+    least need_w + border wide, each row at least 1 + label_h + border high."""
+    return max(1, (max_edge // (need_w + border)) * (max_edge // (1 + label_h + border)))
+
+
+def chunk_sheets(boxes: list[tuple[int, int]], per_sheet: int, need_w, max_edge: int,
+                 label_h: int = 40) -> list[tuple[int, int, bool, tuple]]:
+    """Split tiles into sheets of at most per_sheet, fewer where labels and the
+    sheet size would not fit. Returns (start, count, reduced, layout) per sheet;
+    reduced means the layout, not running out of tiles, cut the sheet short.
+    need_w: the label width each tile needs (a list, one per box), or one int.
+
+    Each sheet tries at most sheet_capacity_bound() tiles first (a larger count
+    can never fit), and the running maxima of the candidate prefix are kept in
+    arrays, so a rejected count costs one layout call and no rescan."""
+    if per_sheet < 1:
+        raise ValueError("per_sheet must be at least 1")
+    needs = [need_w] * len(boxes) if isinstance(need_w, int) else list(need_w)
+    if len(needs) != len(boxes):
+        raise ValueError("need_w must give one width per box")
+    out, i = [], 0
+    while i < len(boxes):
+        want = min(per_sheet, len(boxes) - i)
+        top = min(want, sheet_capacity_bound(needs[i], max_edge, label_h))
+        pw, ph, pn = [], [], []           # prefix maxima of width, height, label width
+        for b, nw in zip(boxes[i:i + top], needs[i:i + top]):
+            pw.append(max(b[0], pw[-1]) if pw else b[0])
+            ph.append(max(b[1], ph[-1]) if ph else b[1])
+            pn.append(max(nw, pn[-1]) if pn else nw)
+        k = top
+        while True:
+            lay = label_safe_layout(k, pw[k - 1], ph[k - 1], pn[k - 1], max_edge, label_h)
+            if lay is not None:
+                break
+            if k == 1:
+                raise ValueError(f"a label {pn[0]} px wide does not fit a {max_edge} px sheet")
+            k -= 1
+        out.append((i, k, k < want, lay))
+        i += k
+    return out
 
 
 def decimal_between(lo: Fraction, hi: Fraction, max_digits: int = 9) -> str | None:

@@ -26,6 +26,7 @@ standard; the measurements can.
 | how something moves (duration, easing, spring), usually to implement it | `anim` |
 | a bug *in* an animation | `bug` first, then `anim --window` around that moment |
 | a close look at an exact moment at full resolution, or frames to edit by hand | `frames` (usually after `bug`/`anim` has pointed at the moment) |
+| a folder of images the user already has, for example frames they edited by hand | `sheet DIR` |
 
 `info` only probes the file (size, frame rate, duration, audio).
 
@@ -35,6 +36,7 @@ standard; the measurements can.
 ./.aitask-scripts/aitask_screen_recording.sh bug  rec.mp4 --out <scratchpad>/video-prep/rec-bug
 ./.aitask-scripts/aitask_screen_recording.sh anim rec.mp4 --out <scratchpad>/video-prep/rec-anim
 ./.aitask-scripts/aitask_screen_recording.sh frames rec.mp4 --at 5.5 --out <scratchpad>/video-prep/rec-frames
+./.aitask-scripts/aitask_screen_recording.sh sheet <folder> --out <scratchpad>/video-prep/edited-sheet
 ```
 
 Run it from the repository root; `<mode> --help` lists every option.
@@ -49,7 +51,8 @@ Run it from the repository root; `<mode> --help` lists every option.
   video-capable model API) unless the user explicitly agrees for that file.
 - **Requirements:** ffmpeg 5.1+ on PATH (not installed by `ait setup`; if it is
   missing, tell the user to install it). ImageMagick 7 (`magick`) is needed for
-  sheets and plots; without it you still get frames and data.
+  sheets and plots; without it you still get frames and data, and `sheet`
+  refuses to run.
 
 ## Read the results in this order
 
@@ -229,6 +232,33 @@ for the user to edit by hand (crop, annotate, delete) and hand back.
   request carries more than 20 images. Read full-resolution frames
   sparingly, and crop with `--roi` to the detail that matters.
 
+## Sheet mode
+
+`sheet DIR` turns a folder of png/jpg/webp images (top level only) into
+labelled contact sheets: the way back in for frames the user extracted with
+`frames`, then cropped, annotated or deleted by hand.
+
+- **Order and times come from the file names.** A name carries a time when it
+  starts with a name this helper writes (`t00007040`, `04_5.500s`,
+  `f013_0.483s`), optionally followed by `_`, `-`, `.`, a space or `(` and
+  anything else (`t00007040_annotated.png`). Those come first, by time; the
+  rest come last in name order with no time, and the summary warns about them.
+- **Labels:** `#order name` over `time s +N ms`. `+N` is the time since the
+  previous timed image, from the rounded milliseconds in the names (±1 ms), so
+  a **deleted frame shows up as a larger +N**. The first timed image says
+  `first`; an untimed one says `no time in name`; `edited` means the image no
+  longer matches the SHA-256 in the folder's `frames.tsv`, so its geometry is
+  unknown. The summary's **Gaps** list names steps over 1.5× the median; that
+  is a heuristic (a deleted image, or a still screen in a variable-frame-rate
+  recording), so say which it is only when you know.
+- Images of different sizes are letterboxed into equal cells, never stretched;
+  `tiles.tsv` gives each tile's fit scale. Labels always fit their cell, so a
+  sheet may hold fewer than `--per-sheet` (8) images; the summary says when.
+- Images ImageMagick cannot read are left out and listed, and `+N` skips them.
+  An animated image contributes its first frame only.
+- Read `summary.md`, then the sheets. `tiles.tsv` maps each tile (sheet, row,
+  column) to its file.
+
 ## More detail
 
 - `.claude/skills/aitask-screen-recording/references/animation.md`: how progress is measured (the edge and blend
@@ -261,6 +291,10 @@ CLI. They cover:
   - odd `--roi`/crop boxes in both axes;
   - a rotated recording;
   - the `--max-frames` cap and the image budget;
-- the `frames.tsv` manifests of bug and anim, and anim's `cap_hit`.
+- the `frames.tsv` manifests of bug and anim, and anim's `cap_hit`;
+- `sheet` on folders of generated images (no ffmpeg; needs `magick`): order
+  and `+N` with a deleted frame, untimed and suffixed names, letterboxing,
+  unreadable and animated files, labels that fit narrow cells, and the
+  `--per-sheet` split.
 
 Run them after changing anything under `.aitask-scripts/screen_recording/`.

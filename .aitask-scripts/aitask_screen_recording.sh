@@ -6,6 +6,7 @@ set -euo pipefail
 # cannot open video files). Backs the aitask-screen-recording skill.
 #
 # Usage: ./.aitask-scripts/aitask_screen_recording.sh info|bug|anim|frames VIDEO [options]
+#        ./.aitask-scripts/aitask_screen_recording.sh sheet DIR [--per-sheet N] [--out DIR]
 #        ./.aitask-scripts/aitask_screen_recording.sh <mode> --help
 #
 # Needs ffmpeg/ffprobe >= 5.1 on PATH. ImageMagick 7 (`magick`) is optional:

@@ -1141,5 +1141,340 @@ class InfoAndErrors(_VideoCase):
         self.assertIn(str(self.tmp / "reuse-2"), cp.stdout)
 
 
+# --------------------------------------------------------------------------- #
+# sheet: contact sheets from any folder of images (no ffmpeg needed)
+
+def write_png(path, w, h, pixels=None, *, fill=255):
+    """An 8-bit grayscale PNG; pixels is a bytes of w*h values (default: fill)."""
+    import struct
+    import zlib
+    data = pixels if pixels is not None else bytes([fill]) * (w * h)
+    raw = b"".join(b"\x00" + data[y * w:(y + 1) * w] for y in range(h))
+
+    def chunk(kind, body):
+        return (struct.pack(">I", len(body)) + kind + body
+                + struct.pack(">I", zlib.crc32(kind + body) & 0xFFFFFFFF))
+    Path(path).write_bytes(b"\x89PNG\r\n\x1a\n"
+                           + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 0, 0, 0, 0))
+                           + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b""))
+
+
+def square_png(path, w, h, x, y, side):
+    px = bytearray([255]) * (w * h)
+    for yy in range(y, y + side):
+        px[yy * w + x:yy * w + x + side] = bytes(side)
+    write_png(path, w, h, bytes(px))
+
+
+def sheet_gray(path):
+    """(w, h, bytes) of a sheet as 8-bit gray."""
+    with open(path, "rb") as fh:
+        w, h = core.png_size(fh.read(24))
+    out = subprocess.run(["magick", str(path), "-colorspace", "gray", "-depth", "8", "gray:-"],
+                         capture_output=True, check=True).stdout
+    return w, h, out
+
+
+def label_width(text):
+    out = subprocess.run(["magick", "-pointsize", "15", f"label:{core.im_label(text)}",
+                          "-format", "%w", "info:"], capture_output=True, text=True, check=True)
+    return int(out.stdout)
+
+
+def dirty_borders(path, cell_w, cols):
+    """Cell boundaries (x) where anything brighter than the background lies in the
+    8 px border between two cells: only an overflowing label can put it there."""
+    w, h, g = sheet_gray(path)
+    bad = []
+    for k in range(1, cols):
+        x0 = k * (cell_w + 8)
+        if any(g[y * w + x] > 60 for x in range(x0 - 3, x0 + 3) for y in range(h)):
+            bad.append(x0)
+    return bad
+
+
+@unittest.skipUnless(HAVE_MAGICK, "ImageMagick (magick) not installed")
+class SheetMode(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="vp-sheet-test-"))
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def folder(self, name="in"):
+        d = self.tmp / name
+        d.mkdir()
+        return d
+
+    def sheet(self, folder, *extra, out="out"):
+        cp = run_cli("sheet", folder, "--out", self.tmp / out, *extra)
+        self.assertEqual(cp.returncode, 0, cp.stderr)
+        lines = cp.stdout.strip().splitlines()
+        self.assertTrue(lines[-1].startswith("SUMMARY: "), cp.stdout)
+        self.assertTrue(lines[-2].startswith("tokens: "), cp.stdout)
+        o = self.tmp / out
+        with open(o / "tiles.tsv", newline="", encoding="utf-8",
+                  errors="surrogateescape") as fh:
+            tiles = list(csv.DictReader(fh, delimiter="\t"))
+        return (o, tiles, (o / "summary.md").read_text(),
+                json.loads((o / "run.json").read_text()))
+
+    def assert_sheets_within_limit(self, out, run):
+        for s in run["sheets"]:
+            with open(out / s, "rb") as fh:
+                self.assertLessEqual(max(core.png_size(fh.read(24))), 1600, s)
+
+    def test_folder_order_deltas_gap_and_letterbox(self):
+        d = self.folder()
+        for ms in (0, 33, 67, 133, 167):              # t00000100 deleted
+            write_png(d / f"t{ms:08d}.png", 360, 800)
+        square_png(d / "t00000200_crop.png", 200, 100, 10, 10, 50)
+        write_png(self.tmp / "src.png", 360, 800)
+        subprocess.run(["magick", self.tmp / "src.png", d / "t00000233.jpg"], check=True)
+        subprocess.run(["magick", self.tmp / "src.png", d / "t00000267.webp"], check=True)
+        out, tiles, summary, run = self.sheet(d, "--per-sheet", "4")
+
+        self.assertEqual(run["sheets"], ["sheet_01.png", "sheet_02.png"])
+        self.assertEqual([t["file"] for t in tiles],
+                         ["t00000000.png", "t00000033.png", "t00000067.png", "t00000133.png",
+                          "t00000167.png", "t00000200_crop.png", "t00000233.jpg",
+                          "t00000267.webp"])
+        self.assertEqual([t["order"] for t in tiles], [str(i) for i in range(1, 9)])
+        self.assertEqual([t["delta_ms"] for t in tiles],
+                         ["", "33", "34", "66", "34", "33", "33", "34"])
+        self.assertTrue(tiles[0]["label"].endswith("0.000 s first"))
+        self.assertTrue(tiles[3]["label"].endswith("0.133 s +66 ms"), tiles[3]["label"])
+        self.assertIn("- #4 t00000133.png: +66 ms", summary.split("## Gaps")[1])
+        crop = tiles[5]
+        self.assertEqual((crop["img_w"], crop["img_h"]), ("200", "100"))
+        th_by_full = float(tiles[4]["fit_scale"]) * 800        # same sheet, full-size tile
+        self.assertAlmostEqual(float(crop["fit_scale"]),
+                               min(int(crop["cell_w"]) / 200, round(th_by_full) / 100), places=2)
+        self.assert_sheets_within_limit(out, run)
+        self.assertEqual(run["tokens"], sum(core.image_tokens(*core.png_size(
+            (out / s).read_bytes()[:24])) for s in run["sheets"]))
+
+        # letterboxed, not stretched: the square stays square on the sheet
+        w, h, g = sheet_gray(out / "sheet_02.png")
+        dark = [(i % w, i // w) for i, v in enumerate(g) if v < 10]
+        self.assertTrue(dark, "premise: the square is on sheet 2")
+        xs, ys = [p[0] for p in dark], [p[1] for p in dark]
+        bw, bh = max(xs) - min(xs) + 1, max(ys) - min(ys) + 1
+        self.assertGreater(bw, 50, "the crop was enlarged to fit its cell")
+        self.assertLessEqual(abs(bw - bh), 1, (bw, bh))
+
+    def test_untimed_names_come_last_with_index_labels(self):
+        d = self.folder()
+        for n in ("a.png", "b10.png", "b2.png", "t00000050.png"):
+            write_png(d / n, 40, 40)
+        out, tiles, summary, run = self.sheet(d)
+        self.assertEqual([t["file"] for t in tiles],
+                         ["t00000050.png", "a.png", "b2.png", "b10.png"])
+        for t in tiles[1:]:
+            self.assertTrue(t["label"].endswith("no time in name"), t)
+            self.assertEqual((t["t_ms"], t["delta_ms"], t["time_from"]), ("", "", "none"))
+        self.assertIn("Warning: 3 images carry no time in their names", summary)
+        self.assertEqual(run["untimed"], ["a.png", "b2.png", "b10.png"])
+
+    def test_frames_tsv_marks_edited_images(self):
+        d = self.folder()
+        write_png(d / "t00000000.png", 40, 40)
+        write_png(d / "t00000033.png", 40, 40, fill=128)
+        good = hashlib.sha256((d / "t00000000.png").read_bytes()).hexdigest()
+        (d / "frames.tsv").write_text("file\tt_ms\tsha256\n"
+                                      f"t00000000.png\t0\t{good}\n"
+                                      f"t00000033.png\t33\t{'0' * 64}\n")
+        _, tiles, summary, run = self.sheet(d)
+        self.assertEqual([t["frames_tsv"] for t in tiles], ["match", "edited"])
+        self.assertFalse(tiles[0]["label"].endswith("edited"))
+        self.assertTrue(tiles[1]["label"].endswith("+33 ms edited"), tiles[1]["label"])
+        self.assertIn("recorded SHA-256 matches for 1 (geometry valid), differs for 1", summary)
+        self.assertNotIn("frames.tsv", run["ignored"])
+
+    def test_hostile_names_are_staged_and_shown_safely(self):
+        d = self.folder()
+        names = ["t00000100_" + "x" * 80 + ".png", "t00000200 50%.png", "-x.png",
+                 "t00000300[1].png", "a\\b.png"]
+        for n in names:
+            write_png(d / n, 60, 60)
+        _, tiles, _, run = self.sheet(d)
+        self.assertEqual(sorted(t["file"] for t in tiles), sorted(names))
+        long = next(t for t in tiles if t["file"].startswith("t00000100_"))
+        self.assertIn("...", long["label"].split(" | ")[0])
+        self.assertLessEqual(label_width(long["label"].split(" | ")[0]),
+                             int(long["cell_w"]) - 6)
+        self.assertEqual(next(t for t in tiles if "[1]" in t["file"])["time_from"], "none")
+        self.assertEqual(next(t for t in tiles if "50%" in t["file"])["t_ms"], "200")
+
+    def test_tiles_tsv_keeps_exact_file_names(self):
+        import os
+        d = self.folder()
+        names = ["t00000000_a\nb.png", "t00000000_a?b.png", "t00000033_tab\there.png",
+                 't00000067_"quoted".png', os.fsdecode(b"t00000100_\xff.png")]
+        for n in names:
+            write_png(d / n, 30, 30)
+        out, _, summary, run = self.sheet(d)
+        with open(out / "tiles.tsv", newline="", encoding="utf-8",
+                  errors="surrogateescape") as fh:
+            files = [r["file"] for r in csv.DictReader(fh, delimiter="\t")]
+        self.assertEqual(sorted(files), sorted(os.listdir(d)))
+        self.assertEqual(len(set(files)), len(names), "two names collapsed into one")
+        for f in files:
+            self.assertTrue((d / f).is_file(), repr(f))
+        self.assertNotIn("\nb.png", summary)            # display text stays one line
+
+    def test_default_output_keeps_a_dotted_folder_name(self):
+        d = self.folder("edited.v2")
+        write_png(d / "t00000000.png", 30, 30)
+        tmpdir = self.tmp / "tmpdir"
+        tmpdir.mkdir()
+        import os
+        cp = subprocess.run([sys.executable, str(SCRIPT), "sheet", str(d)],
+                            capture_output=True, text=True,
+                            env={**os.environ, "TMPDIR": str(tmpdir)})
+        self.assertEqual(cp.returncode, 0, cp.stderr)
+        expected = tmpdir / "video-prep" / "edited.v2-sheet" / "summary.md"
+        self.assertEqual(cp.stdout.strip().splitlines()[-1], f"SUMMARY: {expected}")
+        self.assertTrue(expected.is_file())
+
+    def test_unreadable_image_is_left_out_before_ordering(self):
+        d = self.folder()
+        write_png(d / "t00000000.png", 360, 800)
+        (d / "t00000033.png").write_bytes(bytes(range(256)) * 4)    # not an image
+        write_png(d / "t00000066.png", 360, 800)
+        out, tiles, summary, run = self.sheet(d)
+        self.assertEqual([(t["file"], t["order"], t["delta_ms"]) for t in tiles],
+                         [("t00000000.png", "1", ""), ("t00000066.png", "2", "66")])
+        self.assertTrue(tiles[1]["label"].endswith("0.066 s +66 ms"))
+        self.assertIn("could not be read", summary)
+        self.assertIn("t00000033.png", summary)
+        self.assertEqual(run["unreadable"], ["t00000033.png"])
+        cols = max(int(t["col"]) for t in tiles)
+        with open(out / "sheet_01.png", "rb") as fh:
+            sw, _ = core.png_size(fh.read(24))
+        self.assertEqual(sw, cols * (int(tiles[0]["cell_w"]) + 8))
+        self.assertEqual(cols, 2)
+
+    def test_narrow_tiles_keep_labels_inside_their_cells(self):
+        d = self.folder()
+        for i in range(8):
+            write_png(d / f"t{i * 33:08d}_annotated_by_hand.png", 40, 800)
+        out, tiles, _, run = self.sheet(d)
+        self.assertEqual(run["sheets"], ["sheet_01.png"])
+        cell_w, cols = int(tiles[0]["cell_w"]), max(int(t["col"]) for t in tiles)
+        self.assertGreater(cols, 1)
+        for t in tiles:
+            name_line, time_line = t["label"].split(" | ")
+            self.assertGreaterEqual(cell_w - 6, label_width(time_line), t)
+            self.assertGreaterEqual(cell_w - 6, label_width(name_line), t)
+        self.assertEqual(dirty_borders(out / "sheet_01.png", cell_w, cols), [])
+
+        # premise: the check sees an overflowing label (cells as narrow as the
+        # images, labels as long as the real ones)
+        bad = self.tmp / "bad.png"
+        subprocess.run(["magick", "montage", "-background", "#1e1e1e", "-fill", "#f2f2f2",
+                        "-pointsize", "15",
+                        *[a for i in range(3) for a in ("-label", "#1 t00000000_annotated_by_hand"
+                                                        ".png\n0.000 s first", d / sorted(
+                                                            p.name for p in d.iterdir())[i])],
+                        "-tile", "3x", "-geometry", "30x600+4+4", bad], check=True)
+        self.assertNotEqual(dirty_borders(bad, 30, 3), [])
+
+    def test_animated_webp_gives_one_tile(self):
+        d = self.folder()
+        write_png(d / "t00000000.png", 50, 50)
+        write_png(d / "t00000033.png", 50, 50)
+        subprocess.run(["magick", "-delay", "10", "-size", "50x50", "xc:white", "xc:black",
+                        d / "t00000066.webp"], check=True)
+        frames = subprocess.run(["magick", "identify", d / "t00000066.webp"],
+                                capture_output=True, text=True, check=True).stdout
+        self.assertEqual(len(frames.splitlines()), 2, "premise: a 2-frame webp")
+        out, tiles, summary, run = self.sheet(d)
+        self.assertEqual(len(tiles), 3)
+        self.assertEqual(tiles[2]["frames_in_file"], "2")
+        self.assertIn("first frame used for t00000066.webp", summary)
+        # the sheet itself shows no second (black) frame: one file, one tile
+        _, _, g = sheet_gray(out / "sheet_01.png")
+        self.assertGreaterEqual(min(g), 10, "the webp's second frame was drawn as a tile")
+
+    def test_too_many_per_sheet_is_split_with_a_warning(self):
+        texts = ["0.000 s first"] + [f"{i * 10 / 1000:.3f} s +10 ms" for i in range(1, 400)]
+        out = subprocess.run(["magick", "-pointsize", "15", *[f"label:{t}" for t in texts],
+                              "-format", "%w\\n", "info:"],
+                             capture_output=True, text=True, check=True).stdout
+        w_min = min(int(x) for x in out.split())
+        # 20x20 tiles: floor 64 px, so at most 1600 // (64 + 40 + 8) = 14 rows
+        cap_upper = (1600 // (w_min + 6 + 8)) * (1600 // (64 + 40 + 8))
+        count = cap_upper + 1
+        self.assertLessEqual(count, 400, "premise: w_min was measured over these labels")
+        self.assertGreater(count, cap_upper)
+        d = self.folder()
+        for i in range(count):
+            write_png(d / f"t{i * 10:08d}.png", 20, 20)
+        out, tiles, summary, run = self.sheet(d, "--per-sheet", str(count))
+        self.assertGreater(len(run["sheets"]), 1)
+        self.assertEqual([t["file"] for t in tiles], [f"t{i * 10:08d}.png" for i in range(count)])
+        self.assertIn(f"Warning: --per-sheet {count} does not fit with readable labels", summary)
+        self.assertTrue(run["per_sheet_reduced"])
+        self.assertEqual(sum(run["tiles_per_sheet"]), count)
+        self.assert_sheets_within_limit(out, run)
+        for s in run["sheets"]:
+            rows = [t for t in tiles if t["sheet"] == s]
+            self.assertEqual(dirty_borders(out / s, int(rows[0]["cell_w"]),
+                                           max(int(t["col"]) for t in rows)), [], s)
+
+    def test_a_short_last_sheet_is_not_a_reduction(self):
+        d = self.folder()
+        for i in range(9):
+            write_png(d / f"t{i * 33:08d}.png", 360, 800)
+        _, _, summary, run = self.sheet(d, "--per-sheet", "8")
+        self.assertEqual(run["tiles_per_sheet"], [8, 1])
+        self.assertFalse(run["per_sheet_reduced"])
+        self.assertNotIn("does not fit", summary)
+
+    def test_tiny_crop_is_included(self):
+        d = self.folder()
+        write_png(d / "t00000100.png", 10, 10)
+        out, tiles, _, run = self.sheet(d)
+        self.assertEqual((run["sheets"], len(tiles)), (["sheet_01.png"], 1))
+        self.assertEqual(tiles[0]["fit_scale"], "4.000000")
+        self.assertGreaterEqual(int(tiles[0]["cell_w"]) - 6,
+                                label_width(tiles[0]["label"].split(" | ")[1]))
+        self.assert_sheets_within_limit(out, run)
+
+    def test_bad_inputs_fail_cleanly(self):
+        empty = self.folder("empty")
+        (empty / "notes.txt").write_text("x")
+        cases = [(("sheet", self.tmp / "missing"), 2, "no such directory"),
+                 (("sheet", empty), 1, "no png, jpg or webp images"),
+                 (("sheet", empty, "--per-sheet", "0"), 1, "--per-sheet must be at least 1")]
+        bad = self.folder("bad")
+        (bad / "t00000000.png").write_bytes(b"not a png")
+        cases.append((("sheet", bad), 1, "none of the 1 images could be read"))
+        for args, code, msg in cases:
+            with self.subTest(args=args[1:]):
+                cp = run_cli(*args, "--out", self.tmp / "err-out")
+                self.assertEqual(cp.returncode, code, cp.stderr)
+                self.assertIn(msg, cp.stderr)
+                self.assertFalse((self.tmp / "err-out").exists())
+
+
+class SheetWithoutMagick(unittest.TestCase):
+    def test_refuses_before_writing_anything(self):
+        import video_prep
+        tmp = Path(tempfile.mkdtemp(prefix="vp-sheet-nomagick-"))
+        try:
+            write_png(tmp / "t00000000.png", 10, 10)
+            err = io.StringIO()
+            with mock.patch.object(video_prep, "have_magick", return_value=False), \
+                    contextlib.redirect_stderr(err):
+                rc = video_prep.main(["sheet", str(tmp), "--out", str(tmp / "out")])
+            self.assertEqual(rc, 1)
+            self.assertIn("ImageMagick 7", err.getvalue())
+            self.assertFalse((tmp / "out").exists())
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+
 if __name__ == "__main__":
     unittest.main()

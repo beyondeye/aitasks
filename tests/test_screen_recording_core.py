@@ -575,6 +575,194 @@ class FrameNames(unittest.TestCase):
             with self.subTest(name=name):
                 self.assertIsNone(core.parse_frame_name(name))
 
+    def test_suffix_variant_reads_edited_names(self):
+        ok = {"t00007040_edited.png": (7040, "frames", "_edited"),
+              "f013_0.483s (1).png": (483, "anim", " (1)"),
+              "04_5.500s-crop.JPG": (5500, "bug", "-crop"),
+              "t00007040.v2.webp": (7040, "frames", ".v2"),
+              "t00007040.png": (7040, "frames", "")}
+        for name, (ms, form, sfx) in ok.items():
+            with self.subTest(name=name):
+                fn = core.parse_frame_name(name, allow_suffix=True)
+                self.assertEqual((fn.ms, fn.form, fn.suffix), (ms, form, sfx))
+        for name in ["t00007040x.png", "t0000704_e.png", "sheet_01.png", "IMG_20260101_120000.png",
+                     "t00007040[1].png", "x_t00007040.png", "t00007040_edited.txt",
+                     "01_5.5s_x.png", "f13_0.483s_x.png"]:
+            with self.subTest(name=name):
+                self.assertIsNone(core.parse_frame_name(name, allow_suffix=True))
+        # the strict default is unchanged: suffixed names carry no time there
+        for name in ["t00007040_edited.png", "f013_0.483s (1).png", "04_5.500s-crop.JPG"]:
+            self.assertIsNone(core.parse_frame_name(name))
+
+
+class SheetPlan(unittest.TestCase):
+    def test_order_by_time_with_deltas_and_a_gap(self):
+        names = ["t00000133.png", "t00000000.png", "t00000067.png", "t00000033.png",
+                 "t00000167.png"]          # t00000100 deleted
+        plan = core.plan_sheet(names)
+        self.assertEqual([it.name for it in plan.items], sorted(names))
+        self.assertEqual([it.delta_ms for it in plan.items], [None, 33, 34, 66, 34])
+        self.assertEqual([it.order for it in plan.items], [1, 2, 3, 4, 5])
+        self.assertEqual([it.name for it in plan.gaps], ["t00000133.png"])
+        self.assertEqual(plan.untimed, [])
+        self.assertEqual(plan.forms, ["frames"])
+
+    def test_equal_times_give_zero_delta_and_natural_tie_break(self):
+        plan = core.plan_sheet(["t00000040_v10.png", "t00000040_v2.png", "t00000040.png"])
+        self.assertEqual([it.name for it in plan.items],
+                         ["t00000040.png", "t00000040_v2.png", "t00000040_v10.png"])
+        self.assertEqual([it.delta_ms for it in plan.items], [None, 0, 0])
+
+    def test_untimed_come_last_in_natural_order_without_a_time(self):
+        plan = core.plan_sheet(["b10.png", "t00000100.png", "a.png", "b2.png", "t00000050.png"])
+        self.assertEqual([it.name for it in plan.items],
+                         ["t00000050.png", "t00000100.png", "a.png", "b2.png", "b10.png"])
+        self.assertEqual([it.ms for it in plan.items], [50, 100, None, None, None])
+        self.assertEqual([it.delta_ms for it in plan.items], [None, 50, None, None, None])
+        self.assertEqual(plan.untimed, ["a.png", "b2.png", "b10.png"])
+
+    def test_all_untimed(self):
+        plan = core.plan_sheet(["img10.png", "img9.png", "img1.png"])
+        self.assertEqual([it.name for it in plan.items], ["img1.png", "img9.png", "img10.png"])
+        self.assertTrue(all(it.ms is None and it.delta_ms is None for it in plan.items))
+        self.assertEqual((plan.gaps, plan.forms), ([], []))
+
+    def test_mixed_forms_are_reported(self):
+        plan = core.plan_sheet(["t00001000.png", "02_0.500s.png", "f001_0.750s.png"])
+        self.assertEqual(plan.forms, ["anim", "bug", "frames"])
+        self.assertEqual([it.ms for it in plan.items], [500, 750, 1000])
+
+    def test_no_gap_with_fewer_than_three_timed_images(self):
+        self.assertEqual(core.plan_sheet(["t00000000.png", "t00001000.png"]).gaps, [])
+
+
+class ImLabel(unittest.TestCase):
+    def test_escapes_percent_and_backslash(self):
+        self.assertEqual(core.im_label("50% a\\nb"), "50%% a\\\\nb")
+        self.assertEqual(core.im_label("line1\nline2"), "line1\nline2")  # a real newline stays
+
+    def test_truncate_middle_keeps_head_and_tail(self):
+        self.assertEqual(core.truncate_middle("t00007040_annotated_final.png", 15),
+                         "t00007...al.png")
+        self.assertEqual(core.truncate_middle("short.png", 15), "short.png")
+        self.assertEqual(len(core.truncate_middle("x" * 100, 20)), 20)
+        self.assertEqual(core.truncate_middle("abcdef", 3), "abc")
+
+
+class LabelSafeLayout(unittest.TestCase):
+    def test_narrow_tiles_get_room_for_their_labels(self):
+        cols, cell_w, th, s = core.label_safe_layout(8, 200, 4000, 125, 1600)
+        self.assertGreaterEqual(cell_w, 125)
+        self.assertLessEqual(cols * (cell_w + 8), 1600)
+        self.assertLessEqual(math.ceil(8 / cols) * (th + 48), 1600)
+
+    def test_matches_sheet_layout_when_labels_need_no_room(self):
+        sys.path.insert(0, str(Path(core.__file__).parent))
+        import video_prep  # noqa: E402
+        for n, w, h in [(8, 360, 800), (30, 200, 120), (4, 1080, 2400)]:
+            with self.subTest(n=n, w=w, h=h):
+                cols, cell_w, th, _ = core.label_safe_layout(n, w, h, 1, 1600)
+                self.assertEqual((cols, cell_w, th), video_prep.sheet_layout(n, w, h))
+
+    def test_infeasible_requests_return_none(self):
+        self.assertIsNone(core.label_safe_layout(1, 100, 100, 1600, 1600))
+        self.assertIsNone(core.label_safe_layout(1000, 360, 800, 125, 1600))
+
+    def test_one_tile_always_fits(self):
+        sizes = [1, 2, 10, 15, 16, 17, 40, 63, 64, 300, 1000, 1567, 1600, 2400, 4000]
+        for need_w in (60, 125, 400):
+            for w in sizes:
+                for h in sizes:
+                    lay = core.label_safe_layout(1, w, h, need_w, 1600)
+                    self.assertIsNotNone(lay, (w, h, need_w))
+                    self.assertLessEqual(lay[1] + 8, 1600)
+                    self.assertLessEqual(lay[2] + 48, 1600)
+
+
+class ChunkSheets(unittest.TestCase):
+    def check(self, boxes, per_sheet, need_w):
+        chunks = core.chunk_sheets(boxes, per_sheet, need_w, 1600)
+        starts = [c[0] for c in chunks]
+        self.assertEqual(sum(c[1] for c in chunks), len(boxes))
+        self.assertEqual(starts, [sum(c[1] for c in chunks[:i]) for i in range(len(chunks))])
+        for start, count, _, lay in chunks:
+            part = boxes[start:start + count]
+            W, H = max(b[0] for b in part), max(b[1] for b in part)
+            self.assertEqual(lay, core.label_safe_layout(count, W, H, need_w, 1600))
+            self.assertIsNotNone(lay)
+        return chunks
+
+    def test_an_oversized_request_is_split_not_dropped(self):
+        chunks = self.check([(360, 800)] * 1000, 1000, 125)
+        cap = (1600 // (125 + 8)) * (1600 // (core.MIN_TILE_PX + 48))
+        self.assertGreater(len(chunks), 1)
+        self.assertTrue(all(c[1] <= cap for c in chunks))
+        self.assertTrue(chunks[0][2], "the first sheet was cut short by the layout")
+
+    def test_no_false_reduction(self):
+        chunks = self.check([(360, 800)] * 8, 4, 100)
+        self.assertEqual([(c[1], c[2]) for c in chunks], [(4, False), (4, False)])
+
+    def test_a_remainder_is_not_a_reduction(self):
+        chunks = self.check([(360, 800)] * 9, 8, 100)
+        self.assertEqual([(c[1], c[2]) for c in chunks], [(8, False), (1, False)])
+
+    def test_tiny_originals_are_placed(self):
+        (start, count, reduced, lay), = self.check([(10, 10)], 8, 125)
+        self.assertEqual((count, reduced), (1, False))
+        cols, cell_w, th, s = lay
+        self.assertEqual((s, th, cell_w), (4.0, 40, 125))
+        chunks = self.check([(1, 2000), (10, 10)], 8, 125)
+        self.assertEqual(sum(c[1] for c in chunks), 2)
+
+    def test_per_sheet_must_be_positive(self):
+        with self.assertRaises(ValueError):
+            core.chunk_sheets([(10, 10)], 0, 100, 1600)
+
+    @staticmethod
+    def reference(boxes, per_sheet, needs, max_edge=1600):
+        """The plain algorithm: try min(N, remaining), drop one tile at a time,
+        rescanning the prefix every time."""
+        out, i = [], 0
+        while i < len(boxes):
+            want = k = min(per_sheet, len(boxes) - i)
+            while True:
+                part = boxes[i:i + k]
+                lay = core.label_safe_layout(k, max(b[0] for b in part), max(b[1] for b in part),
+                                             max(needs[i:i + k]), max_edge)
+                if lay is not None:
+                    break
+                k -= 1
+            out.append((i, k, k < want, lay))
+            i += k
+        return out
+
+    def test_matches_the_plain_algorithm(self):
+        import random
+        rng = random.Random(1893)
+        for trial in range(60):
+            n = rng.randint(1, 120)
+            boxes = [(rng.choice([1, 10, 40, 200, 360, 1080, 2400]),
+                      rng.choice([1, 10, 100, 800, 2400, 4000])) for _ in range(n)]
+            needs = [rng.choice([60, 90, 125, 300]) for _ in range(n)]
+            per_sheet = rng.choice([1, 4, 8, 50, 1000])
+            with self.subTest(trial=trial):
+                self.assertEqual(core.chunk_sheets(boxes, per_sheet, needs, 1600),
+                                 self.reference(boxes, per_sheet, needs))
+
+    def test_capacity_bound_holds(self):
+        for need_w in (1, 60, 125, 400):
+            bound = core.sheet_capacity_bound(need_w, 1600)
+            self.assertIsNone(core.label_safe_layout(bound + 1, 1, 1, need_w, 1600))
+
+    def test_a_huge_request_is_fast(self):
+        import time
+        t0 = time.perf_counter()
+        chunks = core.chunk_sheets([(360, 800)] * 10000, 10000, 125, 1600)
+        elapsed = time.perf_counter() - t0
+        self.assertEqual(sum(c[1] for c in chunks), 10000)
+        self.assertLess(elapsed, 5.0, "rejected tile counts must not be rescanned")
+
 
 class ExactTimes(unittest.TestCase):
     def test_pts_times_time_base_is_exact(self):

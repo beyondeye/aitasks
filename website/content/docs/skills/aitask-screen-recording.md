@@ -20,6 +20,7 @@ You rarely invoke the skill by name: it triggers when you mention or attach a re
 ./.aitask-scripts/aitask_screen_recording.sh bug  VIDEO [--out DIR] [options]
 ./.aitask-scripts/aitask_screen_recording.sh anim VIDEO [--out DIR] [options]
 ./.aitask-scripts/aitask_screen_recording.sh frames VIDEO (--range START-END | --at T[,T...]) [options]
+./.aitask-scripts/aitask_screen_recording.sh sheet DIR [--per-sheet N] [--out DIR]
 ./.aitask-scripts/aitask_screen_recording.sh <mode> --help
 ```
 
@@ -29,7 +30,7 @@ For end-to-end walkthroughs of the two use cases, see the [Screen Recordings wor
 
 ## Step-by-Step
 
-This is the flow for `bug` and `anim`. `info` is a one-shot probe: it prints the video's properties and writes no directory and no `summary.md`. `frames` is the drill-down once you know the moment: it writes exact native frames at full resolution (see [Frames](#frames)).
+This is the flow for `bug` and `anim`. `info` is a one-shot probe: it prints the video's properties and writes no directory and no `summary.md`. `frames` is the drill-down once you know the moment: it writes exact native frames at full resolution (see [Frames](#frames)). `sheet` is the way back in for images you prepared yourself: it turns a folder of them into labelled contact sheets (see [Sheet](#sheet)).
 
 1. **Pick a mode** — `bug` for what happened, `anim` for how something moves (see [Modes](#modes))
 2. **Run the helper** — with `--out` pointing at a scratch location outside the repository
@@ -47,6 +48,7 @@ This is the flow for `bug` and `anim`. `info` is a one-shot probe: it prints the
 | `bug` | You want to know what happened: a bug reproduced, a flow described | Picks the key screens — every screen that stayed up, brief flashes, samples of long motion — and writes them as frames, sheets and a timeline. Also lists every freeze, black interval and silent gap the ffmpeg detectors find, with a frame for each black interval |
 | `anim` | You want to know how something moves, usually to implement it | Finds each motion, measures its progress frame by frame, and fits named easing curves, a custom cubic-bezier and a spring |
 | `frames` | You want a close look at an exact moment, or frames to edit by hand and hand back | Writes every native frame of a range, or the frame on screen at given times, at full resolution, named by each frame's presentation time, with a `frames.tsv` manifest of their geometry |
+| `sheet` | You have a folder of images, for example frames you cropped, annotated or thinned out by hand | Builds labelled contact sheets from every png, jpg and webp image in the folder, ordered by the time in their file names, each labelled with that time and the time since the previous image. Needs ImageMagick |
 
 For a bug *inside* an animation, run `bug` first to find the moment, then `anim --window START-END` around it. For detail too small to read in a sheet, run `frames --at T` at the time `bug` or `anim` reported.
 
@@ -117,11 +119,33 @@ In `frames` the crop flags crop the *written image*. In `bug` the same flags onl
 
 Selection compares each frame's exact presentation time (pts × the stream's time base) with the requested times. The milliseconds in a file name, and every time the summary prints, are rounded, so they are labels rather than selectors: a rounded time passed back as `--at` can select the neighbouring frame.
 
+### `sheet`
+
+`sheet` takes a folder instead of a video and shares no option with the other modes.
+
+| Flag | Default | Effect |
+|------|---------|--------|
+| `DIR` | — | The folder to read. Only its top level is read; hidden files, subfolders and files other than `.png`, `.jpg`, `.jpeg` and `.webp` (any case) are ignored and counted in the summary |
+| `--per-sheet N` | 8 | At most this many images on one sheet. A sheet holds fewer when the labels would not otherwise fit their cells; the summary says so |
+| `--out DIR` | `$TMPDIR/video-prep/<folder>-sheet` | Output directory |
+
+**Which names carry a time.** A file name carries a time when it starts with one of the names the helper writes — `t00007040` (`frames`), `04_5.500s` (`bug`) or `f013_0.483s` (`anim`) — followed either by the extension or by `_`, `-`, `.`, a space or `(` and anything else. So `t00007040.png`, `t00007040_annotated.png` and `t00007040 (1).jpg` all carry 7.040 s; `t7040.png`, `IMG_0042.png` and `t00007040x.png` carry none. Images with a time come first, ordered by it (equal times by name). Images without one come last, in name order with numbers compared as numbers (`b2` before `b10`), and are labelled by index only; nothing assigns them a time.
+
+**What a label says.** Each tile is labelled `#order name` over `time s +N ms`:
+
+- `+N ms` is the time since the previous image that has a time, so a deleted frame shows up as a larger step. It comes from the rounded milliseconds in the names, so it is accurate to ±1 ms.
+- `first` marks the first image with a time, and `no time in name` an image without one.
+- `edited` marks an image whose SHA-256 no longer matches its row in the folder's `frames.tsv` (see [`frames.tsv`](#framestsv)): its pixels changed, so its recorded geometry no longer applies.
+
+The summary's **Gaps** list names every step over 1.5 times the median step, when there are at least three images with a time. It is a heuristic: a large step is a deleted image, or a screen that stayed still in a variable-frame-rate recording.
+
+**Layout.** Images of different sizes are letterboxed into equal cells, never stretched: each keeps its aspect ratio and is scaled to fit its cell, up or down. Each cell is at least as wide as its widest label, measured with the font ImageMagick uses on your machine, and a file name too long for its cell is shortened in the middle with `...`. Sheets stay within 1600 px on a side. An image ImageMagick cannot read is left out and listed in the summary; the order and `+N` skip it. An animated image contributes its first frame.
+
 ## Output layout
 
-Every `bug` and `anim` run writes a directory and prints its summary path as the last line of stdout: `SUMMARY: <path>`.
+Every `bug`, `anim`, `frames` and `sheet` run writes a directory and prints its summary path as the last line of stdout: `SUMMARY: <path>`.
 
-The default location is `$TMPDIR/video-prep/<name>-<mode>` (`/tmp/video-prep/…` when `TMPDIR` is unset), where `<name>` is the video's file name without extension. `--out` overrides it. An existing non-empty directory is never overwritten: the helper writes to `<dir>-2`, `<dir>-3`, and so on instead.
+The default location is `$TMPDIR/video-prep/<name>-<mode>` (`/tmp/video-prep/…` when `TMPDIR` is unset), where `<name>` is the video's file name without extension, or the folder's name for `sheet`. `--out` overrides it. An existing non-empty directory is never overwritten: the helper writes to `<dir>-2`, `<dir>-3`, and so on instead.
 
 **`bug`:**
 
@@ -180,6 +204,18 @@ The summary names a thinned segment on its own line and gives that `frames` comm
 
 A file name carries the frame's presentation time in integer milliseconds, rounded to the nearest one: `t00007040.png` is the frame presented at 7.040 s. With `--at`, `run.json` lists each requested time under `requested`: the `frame_t_s` it resolved to, the `file`, `on_screen_proven` and, when that is false, `unproven_because`. A frame is proven to be on screen at T when a later frame exists, or when T falls inside the frame's own duration; that duration's end is exclusive. A time at or past the end of the last frame is an error only when the video's packets prove that frame is the last one. When ffmpeg reports no frame durations (5.1 does not), the end comes from the video's packets, which give it to 6 decimals, so a time within 2 µs of it is left unproven rather than decided. When they cannot (a raw stream without timestamps, for example), the frame is written and labelled unproven instead. `cap_hit` is set when `--max-frames` left frames out; `omitted`, `omitted_from_s` and `omitted_to_s` say which.
 
+**`sheet`:**
+
+```
+<out>/
+├── summary.md          # read first: sheets, warnings, gaps, one row per tile
+├── run.json            # options, folder, untimed / unreadable / ignored files, sheets, tokens
+├── tiles.tsv           # one row per tile: where it is, which file, its time and label
+└── sheet_01.png …      # labelled contact sheets
+```
+
+The line before `SUMMARY:` on stdout gives the number of sheets and their approximate image-token cost. `run.json` also records `per_sheet_requested`, `tiles_per_sheet` (the tiles on each sheet) and `per_sheet_reduced`, which is true when a sheet holds fewer than `--per-sheet` images because the labels would not otherwise fit. A last sheet that is short because the images ran out does not count.
+
 A recording whose frame size changes partway through is refused by `frames` when any requested frame has a size other than the probed one: ffmpeg would rescale those frames to the first frame's size, so neither their pixels nor their geometry would be true. `bug` and `anim` still run on such a recording, but write no `frames.tsv` and say why (see [Warnings and limits](#warnings-and-limits)).
 
 ### `frames.tsv`
@@ -201,6 +237,25 @@ Every `frames/` directory, in `bug`, `anim` and `frames` alike, carries a `frame
 To map a point in the image back to the source: source x = `crop_x` + image x / `scale_x`, and the same for y.
 
 **The geometry is valid only for an unedited image.** It describes the file whose hash is `sha256`. Once a frame is cropped, resized, annotated or otherwise edited, its hash changes and its geometry is unknown. A tool that maps points through this record must check the hash first.
+
+### `tiles.tsv`
+
+`sheet` writes one row per tile drawn:
+
+| Column | Meaning |
+|--------|---------|
+| `sheet`, `tile`, `row`, `col` | Where the tile is: the sheet file, its position on that sheet, and its row and column (from 1) |
+| `order` | Its number in the overall order, the `#` on its label |
+| `file` | The image's exact file name in the folder. A name containing a tab, a newline or a double quote is written in double quotes, with inner quotes doubled (standard CSV quoting with a tab delimiter), and bytes that are not UTF-8 are written unchanged, so the column always names the real file. Labels and `summary.md` show tabs, newlines and other control characters as `?` |
+| `t_ms` | The time its name carries, in ms; empty when it carries none |
+| `delta_ms` | Milliseconds since the previous image with a time; empty for the first and for untimed images |
+| `time_from` | `name:frames`, `name:bug` or `name:anim` (which name form carried the time), or `none` |
+| `frames_tsv` | `match` when the image's SHA-256 equals its row in the folder's `frames.tsv`, `edited` when it differs, empty when there is no such row |
+| `img_w`, `img_h` | The image's size (its first frame's, for an animated image) |
+| `frames_in_file` | How many frames the file holds; only the first is drawn |
+| `cell_w` | The width of the tiles on that sheet, in px |
+| `fit_scale` | The factor the image was scaled by to fit its cell, keeping its aspect ratio |
+| `label` | The label as drawn, its two lines joined by ` \| ` |
 
 ### Time basis under `--time-scale`
 
@@ -246,6 +301,15 @@ Each line below is printed in `summary.md` (anim warnings also appear in `fit.js
 | anim | `fewer than 3 frames in the window` (segment table) | The segment or `--window` is too short to measure | Widen `--window`, or check the frame rate |
 | anim | `single-frame changes (instant cuts, clock ticks, cursor blinks; not analysed)` | Changes lasting one frame are listed, not measured | Usually noise; crop the status bar if they are clock ticks |
 | anim | `nothing changed between the first and last frame of the window` | The `--window` span has no net change | Move the window onto the motion |
+| sheet | `Warning: N images carry no time in their names …` | Their names do not start with a name the helper writes; they come last, labelled by index only | Rename them to keep the time at the start, e.g. `t00007040_notes.png` |
+| sheet | `Warning: names of different kinds (…)` | The folder mixes `frames`, `bug` and `anim` names | Fine when they come from one recording; times from different recordings do not compare |
+| sheet | `Warning: N images could not be read and are left out …` | ImageMagick cannot decode them (damaged, or not really an image) | Re-export them; the order and `+N` skip them meanwhile |
+| sheet | `animated: first frame used for …` | An animated image is drawn as its first frame | Export the frames you want as separate images |
+| sheet | `ignored N entries …` | Hidden files, subfolders and non-image files are not read | Move the images to the top level of the folder |
+| sheet | `Warning: --per-sheet N does not fit with readable labels …` | The labels need wider cells than N images per sheet leave room for, so more sheets were written | Nothing to do; lower `--per-sheet` to choose the split yourself |
+| sheet | ``sheet needs ImageMagick 7 (`magick`) on PATH …`` (error) | `sheet` draws sheets and has nothing else to offer without ImageMagick | Install ImageMagick 7 |
+| sheet | `…: no png, jpg or webp images (only the top level is read)` (error) | Nothing to draw | Check the folder; images in subfolders are not read |
+| sheet | `…: none of the N images could be read: …` (error) | ImageMagick could decode none of the images | Re-export them as png, jpg or webp |
 
 Other known limits:
 
@@ -260,7 +324,8 @@ Other known limits:
 ## Requirements
 
 - **ffmpeg and ffprobe 5.1 or later** on `PATH` — required. They are not installed by `ait setup`; install them with your system's package manager.
-- **ImageMagick 7** (`magick`) — optional. Without it there are no contact sheets and the animation plot is written as `plot.svg` only; frames and data files are unaffected.
+- **ImageMagick 7** (`magick`) — optional. Without it there are no contact sheets and the animation plot is written as `plot.svg` only; frames and data files are unaffected. `sheet` needs it and stops with an error when it is missing.
+- `sheet` alone needs no ffmpeg.
 - The helper itself is Python standard library only and runs on the framework's interpreter.
 
 ## Privacy
@@ -278,6 +343,7 @@ Recordings often show personal data.
 - [Spot a Hang, a Black Flash or a Silent Gap]({{< relref "/docs/workflows/screen-recordings/hang-black-silence" >}})
 - [Animation from a Prototype Recording]({{< relref "/docs/workflows/screen-recordings/animation" >}})
 - [Extract Exact Frames for Close Inspection]({{< relref "/docs/workflows/screen-recordings/exact-frames" >}})
+- [Prepare Images by Hand, Then Feed Them to the Agent]({{< relref "/docs/workflows/screen-recordings/hand-edited-images" >}})
 - [Recording Tips]({{< relref "/docs/workflows/screen-recordings/recording-tips" >}})
 
 ## Related
