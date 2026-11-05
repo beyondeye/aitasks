@@ -1466,6 +1466,8 @@ get_labels_interactive() {
                     label=$(sanitize_label "$new_label") || true
                     if [[ -n "$label" ]]; then
                         add_label_to_file "$label"
+                    else
+                        warn "'$new_label' is not a valid label (no usable characters, or a word YAML reads as a non-string such as on / null / 010)"
                     fi
                 fi
             else
@@ -1492,16 +1494,31 @@ get_labels_interactive() {
         fi
     done
 
-    # Set result in global variable
-    if [[ ${#selected_labels[@]} -gt 0 ]]; then
-        local IFS=','
-        SELECTED_LABELS="${selected_labels[*]}"
-    else
-        SELECTED_LABELS=""
-    fi
+    # Set result in global variable (normalized; see _set_selected_labels).
+    _set_selected_labels ${selected_labels[@]+"${selected_labels[@]}"}
 
     # Re-enable exit-on-error
     set -e
+}
+
+# _set_selected_labels [<label>...] -- set SELECTED_LABELS to the normalized CSV
+# of the picker's selection, warning about any dropped token. This normalizes the
+# WHOLE selection because two picker routes replay stored values without
+# sanitize_label: the "previous task" labels from userconfig.yaml, and an
+# existing labels.txt entry. A legacy vocabulary may hold a word YAML misreads
+# (`on`, `null`, `010`). This is the one point every route passes through before
+# set_last_used_labels and the unquoted draft writer see the value.
+_set_selected_labels() {
+    SELECTED_LABELS=""
+    (( $# > 0 )) || return 0
+    local csv dropped
+    csv="$(IFS=','; printf '%s' "$*")"
+    dropped=$(normalize_labels_csv "$csv" 2>&1 >/dev/null)
+    SELECTED_LABELS=$(normalize_labels_csv "$csv" 2>/dev/null)
+    if [[ -n "$dropped" ]]; then
+        warn "dropped invalid label(s): ${dropped#DROPPED:}"
+    fi
+    return 0
 }
 
 select_dependencies() {

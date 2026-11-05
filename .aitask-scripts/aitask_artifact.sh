@@ -1241,7 +1241,11 @@ _artifact_gitbranch_migrate_txn() {
         txn_retain "branch '${to}' advanced to ${new_tip:0:12} by the catch-up copy (INCOMPLETE until the migration record is committed)"
     fi
     # 7. Verify: every fenced blob is on <to>, which is a published store.
-    local src_list dst_list missing
+    # +x: these hold full store listings while _artifact_gitbranch_missing_hashes
+    # execs sed/sort/comm. A caller-exported name would otherwise be inherited
+    # and put the listing into every child's environment ("Argument list too
+    # long"; see _artifact_gitbranch_missing_entries in lib/artifact_backends/gitbranch.sh).
+    local +x src_list dst_list missing
     export ARTIFACT_GITBRANCH_BRANCH="$from" ARTIFACT_GITBRANCH_STORE_ID="$sid"
     src_list="$(artifact_gitbranch_list)" \
         || die "ait artifact gitbranch-migrate: could not list '${from}' (see error above)"

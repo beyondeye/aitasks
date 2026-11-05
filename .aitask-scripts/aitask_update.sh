@@ -1548,6 +1548,8 @@ interactive_update_labels() {
                     # picker; it is still selected and echoed.
                     labels_array+=("$sanitized")
                     success "Added: $sanitized" >&2
+                else
+                    warn "'$new_label' is not a valid label (no usable characters, or a word YAML reads as a non-string such as on / null / 010)"
                 fi
             fi
         else
@@ -1764,6 +1766,12 @@ run_interactive_mode() {
                 # visible here and labels.txt can be staged with the task.
                 add_labels_csv_to_file "$new_labels"
                 new_labels="$AIT_LABELS_NORMALIZED"
+                # The picker replays existing vocabulary entries and the task's
+                # current labels unsanitized, so normalization can drop a legacy
+                # word YAML misreads. Say so instead of dropping it silently.
+                if (( ${#AIT_LABELS_DROPPED[@]} > 0 )); then
+                    warn "dropped invalid label(s): $(IFS=','; printf '%s' "${AIT_LABELS_DROPPED[*]}")"
+                fi
                 if (( ${#AIT_LABELS_ADDED[@]} > 0 )); then
                     # Sticky-OR: the menu loops, and an earlier iteration may
                     # already have appended.

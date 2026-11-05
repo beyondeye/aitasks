@@ -79,6 +79,10 @@ assert_eq "sanitize_label collapses runs of _" "a_b" "$(sanitize_label 'a  !! b'
 assert_eq "sanitize_label trims edge _" "core" "$(sanitize_label '__core__')"
 assert_eq "sanitize_label keeps hyphens" "aitask-create" "$(sanitize_label 'aitask-create')"
 assert_eq "sanitize_label of all-invalid is empty" "" "$(sanitize_label '!!!')"
+# A word YAML reads as a non-string is rejected (t2214; the full differential
+# against PyYAML lives in tests/test_label_yaml_words.sh).
+assert_eq "sanitize_label rejects a YAML bool word" "" "$(sanitize_label 'on')"
+assert_eq "sanitize_label rejects a YAML octal int" "" "$(sanitize_label '010')"
 
 # Control characters must be folded BEFORE the line-oriented stages. sed works
 # one line at a time, so an embedded newline used to survive the whole pipeline
@@ -143,6 +147,13 @@ assert_eq "rich return names the dropped token" "!!!" "${AIT_LABELS_DROPPED[*]}"
 assert_contains "vocabulary gained fresh_one" "fresh_one" "$(cat "$VOCAB")"
 assert_contains "vocabulary gained ui_stuff" "ui_stuff" "$(cat "$VOCAB")"
 assert_eq "pre-existing label not duplicated" "1" "$(grep -c '^existing$' "$VOCAB")"
+
+# A YAML word is dropped and reported, never registered. This is the function
+# the interactive update route (aitask_update.sh labels menu) relies on.
+add_labels_csv_to_file 'on,existing'
+assert_eq "YAML word dropped from the normalized CSV" "existing" "$AIT_LABELS_NORMALIZED"
+assert_eq "YAML word named as dropped" "on" "${AIT_LABELS_DROPPED[*]}"
+assert_eq "YAML word not added to the vocabulary" "0" "$(grep -c '^on$' "$VOCAB")"
 
 # Re-registering the same CSV adds nothing.
 add_labels_csv_to_file 'existing,fresh_one'

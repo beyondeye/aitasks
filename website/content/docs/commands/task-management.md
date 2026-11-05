@@ -18,7 +18,7 @@ Create new task files with YAML frontmatter metadata. Supports standalone and pa
 3. **Effort** — Select via fzf: low, medium, high
 4. **Issue type** — Select via fzf from `aitasks/metadata/task_types.txt` (bug, chore, documentation, enhancement, feature, manual_verification, performance, refactor, style, test)
 5. **Status** — Select via fzf: Ready, Editing, Implementing, Postponed
-6. **Labels** — Iterative loop: pick from existing labels in `aitasks/metadata/labels.txt`, add a new label (auto-sanitized to lowercase alphanumeric + hyphens/underscores), or finish. New labels are persisted to the labels file for future use
+6. **Labels** — Iterative loop: pick from existing labels in `aitasks/metadata/labels.txt`, add a new label (auto-sanitized to lowercase alphanumeric + hyphens/underscores; words YAML would read as something other than text, such as `yes`, `on`, `null`, `010` or a date like `2026-11-05`, are rejected), or finish. New labels are persisted to the labels file for future use
 7. **Dependencies** — fzf multi-select from all open tasks. For child tasks, sibling tasks appear at the top of the list. Select "None" or press Enter with nothing selected to skip
 8. **Sibling dependency** (child tasks only, when child number > 1) — Prompted whether to depend on the previous sibling (e.g., t10_1). Defaults to suggesting "Yes"
 9. **Task name** — Free text entry, auto-sanitized: lowercase, spaces to underscores, special chars removed, max 60 characters. Preview shows `draft_*_<name>.md` (real ID is assigned during finalization)

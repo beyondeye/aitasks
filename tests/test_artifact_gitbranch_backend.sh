@@ -672,35 +672,66 @@ assert_eq "(b) third run: no commit anywhere" "$h_b|$o_b|$n_b" "$(git -C "$W/A" 
 
 # ── 18. Migrating a store larger than the per-string exec limit ──────────────
 echo "=== 18. large store migration ==="
-new_world big
-printf 'seed\n' > "$W/A/seed.txt"
-art A create 5 seed.txt --kind report --handle art:t5-seed >/dev/null 2>&1
-mkdir -p "$W/bulk"
-for i in $(seq 1 2500); do printf 'bulk blob %d\n' "$i" > "$W/bulk/$i"; done
-big_tip="$( cd "$W/A" || exit 1
-    git fetch -q origin "+refs/heads/$BR:refs/remotes/origin/$BR" 2>/dev/null
-    find "$W/bulk" -type f > "$W/bulk.paths"
-    git hash-object -w --stdin-paths < "$W/bulk.paths" > "$W/bulk.oids"
-    "$PY" -c 'import hashlib,sys
+
+# mk_big_store -- in a fresh world, publish a store of 2501 blobs (a seed
+# artifact plus 2500 bulk blobs) whose name list exceeds the 128 KiB per-string
+# exec limit.
+mk_big_store() {
+    printf 'seed\n' > "$W/A/seed.txt"
+    art A create 5 seed.txt --kind report --handle art:t5-seed >/dev/null 2>&1
+    mkdir -p "$W/bulk"
+    local i big_tip
+    for i in $(seq 1 2500); do printf 'bulk blob %d\n' "$i" > "$W/bulk/$i"; done
+    big_tip="$( cd "$W/A" || exit 1
+        git fetch -q origin "+refs/heads/$BR:refs/remotes/origin/$BR" 2>/dev/null
+        find "$W/bulk" -type f > "$W/bulk.paths"
+        git hash-object -w --stdin-paths < "$W/bulk.paths" > "$W/bulk.oids"
+        "$PY" -c 'import hashlib,sys
 for p in open(sys.argv[1]).read().split("\n"):
     if p: print(hashlib.sha256(open(p,"rb").read()).hexdigest())' "$W/bulk.paths" > "$W/bulk.hashes"
-    paste "$W/bulk.oids" "$W/bulk.hashes" \
-        | awk '{ printf "100644 blob %s\tblobs/%s/%s\n", $1, substr($2, 1, 2), substr($2, 3) }' > "$W/bulk.idx"
-    export GIT_INDEX_FILE="$W/bigidx"
-    git read-tree "origin/$BR" && git update-index --add --index-info < "$W/bulk.idx" \
-        && t="$(git write-tree)" && echo bulk | git commit-tree "$t" -p "origin/$BR" )"
-git -C "$W/A" push -q origin "$big_tip:refs/heads/$BR" 2>/dev/null
+        paste "$W/bulk.oids" "$W/bulk.hashes" \
+            | awk '{ printf "100644 blob %s\tblobs/%s/%s\n", $1, substr($2, 1, 2), substr($2, 3) }' > "$W/bulk.idx"
+        export GIT_INDEX_FILE="$W/bigidx"
+        git read-tree "origin/$BR" && git update-index --add --index-info < "$W/bulk.idx" \
+            && t="$(git write-tree)" && echo bulk | git commit-tree "$t" -p "origin/$BR" )"
+    git -C "$W/A" push -q origin "$big_tip:refs/heads/$BR" 2>/dev/null
+}
+
+# hostile_art <clone> <args...> -- `art`, with the names of every local the
+# migration uses for store-sized data EXPORTED by the caller. A bash `local` of
+# an exported name inherits the export flag, so without `local +x` (or a file)
+# the listing lands in every child's environment and the next exec fails with
+# "Argument list too long" (t2214: an exported `out` broke this exact section).
+hostile_art() {
+    ( export out=x lines=x src_list=x dst_list=x missing=x; art "$@" )
+}
+
+new_world big
+mk_big_store
 nbig="$(rblobs "$BR" | wc -l | tr -d ' ')"
 assert_eq "fixture: 2501 blobs on the store" "2501" "$nbig"
 assert_eq "fixture: the name list exceeds the 128 KiB per-string exec limit" "1" \
     "$(( $(rblobs "$BR" | wc -c) > 131072 ? 1 : 0 ))"
-out="$(art A gitbranch-migrate --from "$BR" --to new-art 2>&1)"; rc=$?
+out="$(hostile_art A gitbranch-migrate --from "$BR" --to new-art 2>&1)"; rc=$?
 assert_exit_zero_rc "a large store migrates" "$rc"
 assert_not_contains "no exec-limit failure" "Argument list too long" "$out"
 assert_eq "every blob of the large store is on the new branch" "2501" "$(rblobs new-art | wc -l | tr -d ' ')"
-out="$(art A gitbranch-migrate --from "$BR" --to new-art 2>&1)"; rc=$?
+out="$(hostile_art A gitbranch-migrate --from "$BR" --to new-art 2>&1)"; rc=$?
 assert_exit_zero_rc "a large store's rerun succeeds (store-to-store compare)" "$rc"
 assert_contains "large store rerun is ALREADY_MIGRATED" "ALREADY_MIGRATED:" "$out"
+
+# 18b. Into an EXISTING same-store destination that has no blobs, so the copy
+# takes the missing-entries path: the CAS holds all 2501 ls-tree lines in
+# `lines` before it builds the commit.
+echo "=== 18b. large store migration into a partial destination ==="
+new_world bigpartial
+mk_big_store
+mk_marked_branch A partial-art "$(record_id A)"
+assert_eq "fixture: the partial destination holds no blobs" "0" "$(rblobs partial-art | wc -l | tr -d ' ')"
+out="$(hostile_art A gitbranch-migrate --from "$BR" --to partial-art 2>&1)"; rc=$?
+assert_exit_zero_rc "a large store migrates into a partial destination" "$rc"
+assert_not_contains "partial destination: no exec-limit failure" "Argument list too long" "$out"
+assert_eq "partial destination: every blob arrives" "2501" "$(rblobs partial-art | wc -l | tr -d ' ')"
 
 # ── 19. Confirmed remote absence is never overridden by a stale tracking ref ──
 echo "=== 19. stale tracking ref ==="

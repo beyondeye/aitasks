@@ -299,6 +299,13 @@ _artifact_gitbranch_publish() {
 # every blobs/ entry of <src> that <dst> lacks. Both listings go through files,
 # never an argument or environment string: a store of a few thousand blobs
 # exceeds the kernel's per-string exec limit. Every step is checked.
+#
+# "Environment" includes a plain `local`. A local whose NAME the caller's
+# environment exports (e.g. `out=… some-harness`) inherits the export flag, so a
+# store-sized value held in it is copied into every child's environment. The
+# next exec then fails with "Argument list too long" (t2214). A local that has
+# to hold store-sized data is therefore declared `local +x`, or the data stays
+# in files as it does here.
 _artifact_gitbranch_missing_entries() {
     (
         tmpd="$(mktemp -d "${TMPDIR:-/tmp}/ait-gitbranch-diff.XXXXXX")" || exit 1
@@ -342,7 +349,10 @@ _artifact_gitbranch_cas_noop() {
 #   retire <to>                add the migration fence
 _artifact_gitbranch_cas() {
     local op="$1"; shift
-    local b="$ARTIFACT_GITBRANCH_BRANCH" attempt=0 lines seed msg c prc moid have p
+    local b="$ARTIFACT_GITBRANCH_BRANCH" attempt=0 seed msg c prc moid have p
+    # +x: a migrate holds every missing ls-tree entry here, then execs git via
+    # _artifact_gitbranch_build (see _artifact_gitbranch_missing_entries).
+    local +x lines
     # Commits of ours whose push failed while origin moved on: each may still
     # have landed (lost acknowledgement), possibly with another writer's commit
     # on top. After every fresh refresh, one that is now an ancestor of the tip
@@ -515,13 +525,25 @@ _artifact_gitbranch_delete_body() {
 
 # artifact_gitbranch_list -- print every stored hash (sha256:<hex>).
 artifact_gitbranch_list() {
-    local out
     _artifact_gitbranch_probe read
     _artifact_gitbranch_check read
     [[ -n "$_AGB_TIP" ]] || return 0
-    out="$(git ls-tree -r --name-only "$_AGB_TIP" -- blobs/)" \
+    _artifact_gitbranch_list_tip "$_AGB_TIP" \
         || die "artifact_gitbranch_list: could not list branch '$ARTIFACT_GITBRANCH_BRANCH'"
-    printf '%s\n' "$out" | sed -n 's|^blobs/\([0-9a-f]\{2\}\)/\([0-9a-f]\{62\}\)$|sha256:\1\2|p'
+}
+
+# _artifact_gitbranch_list_tip <tip> -- print the sha256:<hex> of every blob at
+# <tip>. The listing goes through a file and never through a shell variable: a
+# store-sized value in an inherited-export local breaks the next exec (see
+# _artifact_gitbranch_missing_entries). Prints nothing unless ls-tree succeeded.
+_artifact_gitbranch_list_tip() {
+    (
+        tmpd="$(mktemp -d "${TMPDIR:-/tmp}/ait-gitbranch-list.XXXXXX")" || exit 1
+        # shellcheck disable=SC2064  # expand now: tmpd is this subshell's
+        trap "rm -rf '$tmpd'" EXIT   # archive-sweep: subshell-local
+        git ls-tree -r --name-only "$1" -- blobs/ > "$tmpd/names" || exit 1
+        sed -n 's|^blobs/\([0-9a-f]\{2\}\)/\([0-9a-f]\{62\}\)$|sha256:\1\2|p' "$tmpd/names" || exit 1
+    )
 }
 
 # artifact_gitbranch_init -- create (or publish) the store eagerly; optional,

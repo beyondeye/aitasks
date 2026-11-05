@@ -2568,10 +2568,41 @@ labels_file_path() {
 # frontmatter and the vocabulary disagreed, and labels.txt is itself
 # line-delimited. Folding to "_" rather than deleting keeps the two halves
 # distinguishable ("alpha_beta", not "alphabeta").
+#
+# A token that YAML would read as something other than a string sanitizes to ""
+# (rejected): see _label_reads_as_string. Labels are written unquoted by
+# format_yaml_list, which stays unquoted on purpose because it also writes id and
+# gate lists where integers must stay plain. So without this check `on` reached
+# every Python reader as True, `null` as None, and `010` as 8.
 sanitize_label() {
-    local label="$1"
-    printf '%s' "$label" | tr '[:cntrl:]' '_' | tr '[:upper:]' '[:lower:]' \
-        | sed -e 's/[^a-z0-9_-]/_/g' -e 's/__*/_/g' -e 's/^_//' -e 's/_$//'
+    local label="$1" clean
+    clean=$(printf '%s' "$label" | tr '[:cntrl:]' '_' | tr '[:upper:]' '[:lower:]' \
+        | sed -e 's/[^a-z0-9_-]/_/g' -e 's/__*/_/g' -e 's/^_//' -e 's/_$//')
+    _label_reads_as_string "$clean" || clean=""
+    printf '%s' "$clean"
+}
+
+# _label_reads_as_string <sanitized-label> -> 0 when the token, written as a
+# plain flow scalar (`labels: [tok]`), reads back as the identical string. The
+# input is sanitize_label's output, so it holds only ASCII [a-z0-9_-]. Within
+# that charset the YAML 1.1 implicit non-strings are the bool/null words, ints
+# (decimal, octal, `1_000`, 0b binary, 0x hex) and dates. A float, `.inf`/`.nan`,
+# a sexagesimal or a timestamp with a time part needs `.` or `:`, which the
+# charset cannot hold.
+# Measured against PyYAML (yaml.SafeLoader and task_yaml._TaskSafeLoader) over
+# every string of length 1-3 drawn from a probe alphabet, plus known YAML words:
+# no misread string is accepted. The over-rejection set (strings PyYAML would
+# read as strings anyway, such as `y`, `n`, `08`, `0b`) is deliberate,
+# conservative, and pinned exactly by tests/test_label_yaml_words.sh.
+_label_reads_as_string() {
+    local l="$1"
+    case "$l" in
+        y|n|yes|no|true|false|on|off|null) return 1 ;;
+    esac
+    [[ "$l" =~ ^[-+]?[0-9][0-9_]*$ ]] && return 1
+    [[ "$l" =~ ^[-+]?0[bx][0-9a-f_]*$ ]] && return 1
+    [[ "$l" =~ ^[0-9]{4}-[0-9]{1,2}-[0-9]{1,2}$ ]] && return 1
+    return 0
 }
 
 ensure_labels_file() {
