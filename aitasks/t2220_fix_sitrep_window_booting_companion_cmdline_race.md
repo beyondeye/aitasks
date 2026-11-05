@@ -3,13 +3,14 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [sitrep, tests, monitor]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 2217
 followup_kind: upstream_defect
 created_at: 2026-11-06 00:14
-updated_at: 2026-11-06 00:14
+updated_at: 2026-11-06 00:21
 ---
 
 ## Origin
