@@ -93,3 +93,5 @@ Second child of t1663. Design in `aidocs/framework/task_premise_staleness.md`. T
 > | - a value containing NUL.
 > | 
 > | Implication for the writer: store the output of `git rev-parse --verify <rev>^{commit}`, never the caller's symbol, and keep the ` @ <ts>` suffix, which also keeps the value a YAML string. The `CHECKED:` line is the sha to advance to on FRESH or ASK_STALE; it is `CHECKED:NONE` on SKIPs reached before the revision is pinned.
+
+> **👁 note:read** id=2026-11-05T07:04:09Z.68698d4544bc42416a41402c by=t1663_2 at=2026-11-05T07:04:09Z mode=explicit ids=2026-09-22T06:10:13Z.53ce91263516a7128172fae8,2026-11-05T06:23:24Z.7af2aa523517c3b96ef1a7cb
