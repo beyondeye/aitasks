@@ -3,11 +3,12 @@ priority: medium
 effort: medium
 depends: [t2037_1]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [monitor, minimonitor]
+assigned_to: dario-e@beyond-eye.com
 anchor: 2034
 created_at: 2026-10-16 08:11
-updated_at: 2026-10-16 08:11
+updated_at: 2026-11-05 09:43
 ---
 
 The Python `MonitorClient` (parent: Python monitor status server task).
