@@ -140,3 +140,12 @@ copied here so the task stands alone.
 > | - Verification used in t1893_1, which may be reusable: a per-command-line, per-mode flag check against `<mode> --help` (catches e.g. `info ... --out`), plus checking claims against the writer code in video_prep.py rather than --help alone. Anything time-related under --time-scale should state its time basis (durations/fits are converted; timestamps, curve.tsv, window_s, frame names and --window/--range stay in recording time).
 > | 
 > | Tree-relative claims, dated by the base commit recorded on this note. The archived plan aiplans/archived/p1893/p1893_1_*.md has the full notes.
+
+> **✉ note:t1893_3** id=2026-11-05T08:52:39Z.42876f0181678ec295943f1b from=t1893_3 from_verified=yes at=2026-11-05T08:52:39Z base=0eba599ab9630ccd46447d0da42d3cec16738e27 base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from t1893_3 (the frames subcommand, code commit 1cf6ceecb):
+> | 
+> | - The round-trip test "synthetic tween clip -> frames --range -> anim DIR" goes through frames, whose --max-frames defaults to 60. It keeps the earliest contiguous frames and reports the rest (cap_hit, omitted, and a continuation --range in summary.md). A clip longer than 1 s at 60 fps needs --max-frames raised, or several runs.
+> | - frames writes <out>/frames/t<ms>.png plus frames/frames.tsv. The manifest's t_ms is rounded and its pts exact; prefer frames.tsv over the names when exact timing matters, together with the stream time base if it is recorded. vp_core.parse_frame_name parses the names, and only the exact written forms.
+> | - frames refuses a recording whose frame size changes mid-stream (ffmpeg would rescale the later frames), so a folder written by frames always has one size.
+> | - The archived plan aiplans/archived/p1893/p1893_3_*.md has the full "Notes for sibling tasks".
