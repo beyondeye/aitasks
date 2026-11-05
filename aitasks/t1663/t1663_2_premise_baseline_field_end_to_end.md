@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1538
+implemented_with: claudecode/opus5_5
 created_at: 2026-09-01 15:19
-updated_at: 2026-11-05 09:04
+updated_at: 2026-11-05 09:20
 ---
 
 Add the `premise_baseline:` frontmatter field end-to-end: writer flag, merge rule, extension-point sweep, contract test, and documentation surfaces.
@@ -100,3 +101,8 @@ Second child of t1663. Design in `aidocs/framework/task_premise_staleness.md`. T
 > | Implication for the writer: store the output of `git rev-parse --verify <rev>^{commit}`, never the caller's symbol, and keep the ` @ <ts>` suffix, which also keeps the value a YAML string. The `CHECKED:` line is the sha to advance to on FRESH or ASK_STALE; it is `CHECKED:NONE` on SKIPs reached before the revision is pinned.
 
 > **👁 note:read** id=2026-11-05T07:04:09Z.68698d4544bc42416a41402c by=t1663_2 at=2026-11-05T07:04:09Z mode=explicit ids=2026-09-22T06:10:13Z.53ce91263516a7128172fae8,2026-11-05T06:23:24Z.7af2aa523517c3b96ef1a7cb
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-05T07:20:47Z status=pass attempt=1 type=human
