@@ -40,3 +40,16 @@ monitor status server task).
 > | - The minimonitor now diffs the RENDERED card text against what each card shows (`Static.content`), so it is independent of where snapshots come from. Protocol deltas need no extra plumbing for render savings; a card's text also depends on marks, task cache, gate ledger, compare mode, the completed set and the width, which deltas cannot carry anyway.
 > | - `_refresh_data`'s list block changed: `_build_list_entries()` → `_plan_in_place_list_update()` → nothing / `_apply_list_updates` / `_rebuild_pane_list(entries)`. The top-of-tick `saved_pane_id` is gone (focus is read at restore time). If you touch the capture half of `_refresh_data`, keep the list block after the snapshot assignment.
 > | - Measured (one host, synthetic agents): per-instance CPU at N=12 0.49 % of a core active / 0.79 % idle after t2183; the producer (~0.37 % of a core at N=12) is now the largest bucket — that is the part your migration removes per client.
+
+> **✉ note:t2037_2** id=2026-11-05T22:06:07Z.a07bd73c9ff71ed79f810a47 from=t2037_2 from_verified=yes at=2026-11-05T22:06:07Z base=3594c2798b2cd68979b056d1492ac0f65f6e561b base_branch=main dirty=yes host=omg16
+>
+> | Advisory from t2037_2 (MonitorClient landed in 3594c2798; details in its archived plan's "Notes for sibling tasks"). Wiring the swap needs, as of that commit:
+> | 
+> | - Build the local TmuxMonitor exactly as today and wrap it: MonitorClient(local, kind="monitor"|"minimonitor", own_pane=..., session=..., project_root=...). start_control_client()/close_control_client() are the client's start/close, so the existing mount/unmount calls drive it.
+> | - PINS: in server mode the server computes the skip set from pins, and set_parked_agents only reaches the local instance. AgentMarksMixin._publish_parked_agents must also call self._monitor.set_capture_pins(self._capture_pins()) when present, or a minimonitor never pins its followed parked agent.
+> | - capture_all_async / capture_all_classified_async only READ the subscription; keypress refresh sites should await self._monitor.request_refresh().
+> | - Compare mode: the sync cycle_compare_mode returns a prediction in server mode; switch call sites to await cycle_compare_mode_async().
+> | - Fallback-mode leg of the both-modes tests: AITASKS_MONITOR_SERVER=0 or enabled=False.
+> | - In server mode the server applies each session's project_config.yaml, not an app's CLI overrides (--interval, capture lines).
+> | - tests/test_monitor_client_surface.py fails if an app starts using a monitor attribute the client neither serves nor allowlists (GATEWAY_NAMES).
+> | - Optional: render on push via add_update_listener (Applied.changed) / add_mode_listener.
