@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1538
+implemented_with: claudecode/opus5_5
 created_at: 2026-09-01 15:19
-updated_at: 2026-11-05 12:25
+updated_at: 2026-11-05 15:45
 ---
 
 Seed `premise_baseline` at task creation when scope is derivable, and make carry-over tasks inherit their origin's baseline.
@@ -43,3 +44,8 @@ Third child of t1663. Design in `aidocs/framework/task_premise_staleness.md` ("S
 - Creation with none of `--file-ref` / `--verifies` / `--followup-of` → field absent.
 - Carryover from a task carrying a baseline → identical value in the new task (not re-stamped); carryover from a task without one → field absent.
 - Seeding must not break `--parent` child creation or draft mode (`aitasks/new/` path is not seeded — no commit exists to anchor to yet; seeding happens only on the committed path).
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-05T13:45:14Z status=pass attempt=1 type=human
