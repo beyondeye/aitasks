@@ -565,3 +565,53 @@ output.
 ### Planned mitigations
 - timing: pre-phase | name: pin_producer_defaults | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — per-session config seams on TmuxMonitor hot paths | desc: characterization test pinning TmuxMonitor's no-config behaviour before the seam edits, re-run unchanged after
 - timing: post-phase | name: record_live_server_stream | type: test | priority: medium | effort: medium | inline_risk: low | added_complexity: low | addresses: goal-achievement — delta semantics unproven against the real producer | desc: live test recording the real server's stream over several ticks with removal/appearance/shadow changes, check_recording + state equality
+
+## Final Implementation Notes
+
+- **Actual work done:** as planned, in these files:
+  - `.aitask-scripts/monitor/status_server.py` (new): paths and key, lock, `ensure_server`, `probe`, `StatusServer`, `_Connection`, `ProjectConfigCache` / `tick_interval`, and the `serve` / `ensure` / `path` CLI;
+  - `monitor_core.py` seams: `SESSION_CONFIG_KEYS`, `set_session_configs` / `_cfg`, session-aware `classify_pane` / idle verdict / `_capture_args` / `get_compare_mode` via `_pane_sessions` (reaped in `_clean_stale`), `shadow_snapshots()`, `TmuxControlClient.saw_exit` → backend `exit_seen` → `TmuxMonitor.control_exit_seen()`, and `is_task_completed` moved in;
+  - `monitor_shared.py`: re-exports `is_task_completed` and keeps its own copy no longer;
+  - `status_protocol.tail_lines`, with `status_recording._tail` aliased to it;
+  - spec: the "Lifecycle and socket path" section, the `completed` global-parked clause, known limits, and the codec reference;
+  - three test files.
+- **Deviations from plan:**
+  - `_Connection.close_now()` also aborts the transport, and the reader's cleanup waits for the writer for at most `writer_close_timeout` (2 s). Without this, a client that stops reading would leave the writer stuck in `drain()` and the connection task waiting on it forever. The slow-subscriber test exercises it.
+  - `tests/test_metadata_writer_inventory.py` gained a `PINNED_FILES` entry for `status_server.py`. Its tripwire flags the read-only `project_config.yaml` stat plus the socket `os.unlink` calls; the entry gives that reason, in the `agent_freeze.py` style.
+  - Added two per-guard tests, `test_set_pins_republishes_before_any_capture` and `test_partial_refresh_republishes_a_marks_change`. An in-memory mutant showed the end-to-end pins test is masked: `set_pins` republishes as well, so it passes without the partial-refresh republish. Each new test now fails under its own guard's mutant (scratch script run at implementation time: baseline 0/3; each mutant 1/3).
+- **Issues encountered:**
+  - `monitor_core.py` and `monitor_shared.py` had uncommitted t2175_5 hunks when I started. I made three seam edits before noticing, then reverted them, leaving only t2175_5's hunks. I did all the non-overlapping work, and applied the seams only after t2175_5 committed (`52b8b65dc`) and both files were clean against HEAD and the index. A sha256 chain was then kept on every file I touched.
+  - Two in-process test bugs (an unread refresh result, a skipped delta apply) were fixed in the tests; the server was not at fault.
+- **Key decisions:**
+  - `get_compare_mode(pane_id)` keeps its id-only signature (about 10 fakes and both apps call it). The session is resolved from `_pane_sessions`, which also covers shadows.
+  - A partial-refresh generation leaves untouched records as last captured; the spec documents this.
+- **Upstream defects identified:** None
+- **Notes for sibling tasks (t2037_2–4):**
+  - Call `status_server.ensure_server()` from a worker thread. It is synchronous and uses `asyncio.run` for its probes, so it must not run on a loop thread. `probe_async` exists for loop-side use.
+  - `UNAVAILABLE:*` means fall back in-process.
+  - The server's `welcome.server.impl` is `python`.
+  - Compare-mode results can wait up to one tick, because they are serialized with captures.
+  - Pins take effect on the next capture, including a partial `refresh`.
+  - Clients must still apply `client_view_snapshots(...)` to every record they store.
+- **Verification:** all green:
+  - `test_monitor_producer_seams.py` (24, including the unedited pre-phase pin class);
+  - `test_monitor_status_server.py` (35);
+  - `test_monitor_status_server_live.py` (7, real isolated tmux; exit reasons asserted from the server log);
+  - `test_monitor_status_protocol.py`, `test_monitor_status_recording.py`, `test_monitor_client_agnostic.py`;
+  - `test_no_raw_tmux.sh`;
+  - the full Python suite. Its one failure was the inventory tripwire, fixed as above. The parallel lane ran the live module with no carve-out needed.
+
+### Review round 1 (user findings, all confirmed and fixed)
+
+- **Full-scan cadence.** The schedule now counts from `_last_full_tick`, which only a successful full tick sets. Partial refreshes commit but no longer postpone discovery.
+- **Resync order.** In `_subscribe`, the new `content` / `include_shadows` is applied only after the prerequisite tick. Pins still apply before it.
+- **Failed ticks.** A failed or superseded full tick sets `_retry_at = now + interval`. Both the scheduler and `_stale()` respect it, and `gen` never advances on failure.
+- **Oversized integers.** `refresh_seconds_of` compares an integer `refresh_seconds` as an integer, capped at `MAX_REFRESH` before conversion.
+- **Extra fix found by the new test.** The tick loop slept `min(wait, interval)`, so a lowered interval took effect only after the old one. It now sleeps in chunks of at most `MIN_REFRESH`.
+- **New tests:**
+  - `SchedulingTests`: partial refreshes don't starve full scans; the resync delta uses the old selection; failed ticks are paced and the loop stays responsive (the failing fake yields once, so an unpaced loop shows as a counted burst, not a hang);
+  - `IntervalTests.test_an_oversized_integer_clamps_instead_of_overflowing`.
+
+  An in-memory mutant of each pre-fix behaviour fails its test, and the baseline passes.
+- **Spec.** The full-scan cadence, the old-selection rule for the resync tick's delta, failed-tick pacing, and oversized values are all documented.
+- **Known flake, not caused here.** `tests/test_monitor_shadow_zone.py::MountedShadowColumnTests` fails intermittently: 2 of 30 runs at a clean HEAD worktree, 6 of 30 on HEAD plus this diff, interleaved, which is not significant. Its assertions follow a single `pilot.pause()` after `_refresh_data()`, which returns early while the mount-time refresh worker is in flight. The test stubs discovery and capture, so none of the changed producer paths run.
