@@ -13,7 +13,8 @@ User-facing pages: `website/content/docs/workflows/sitrep.md` and
 | Piece | Entry point | Core | Role |
 |---|---|---|---|
 | store + writer | `.aitask-scripts/aitask_sitrep_todo.sh` | `lib/sitrep_todo.py` | the ONLY writer of `.aitask-sitrep/` (mutex, atomic writes, rolling backup, CAS by store-wide rev) |
-| harvest | `.aitask-scripts/aitask_sitrep_harvest.sh` | `lib/sitrep_harvest.py` | finished agents' wrap-ups → triage, task and trail items + retained passages; receipts gate `drop` / `purge` |
+| harvest | `.aitask-scripts/aitask_sitrep_harvest.sh` | `lib/sitrep_harvest.py` | finished agents' wrap-ups → triage, task and trail items + retained passages; the confidence check; receipts gate `drop` / `purge` |
+| review corpus | `aitask_sitrep_harvest.sh case` (= `ait sitrep case`) | `lib/sitrep_corpus.py` | uncertain output kept verbatim with diagnostics and one review item; list / show / read / review / replay / export |
 | refresh | `.aitask-scripts/aitask_sitrep_refresh.sh` | `lib/sitrep_refresh.py` | deterministic re-check of task, push and trail items (Part 1 only) |
 | window + facts | `ait sitrep` → `.aitask-scripts/aitask_sitrep.sh` | `open`: `monitor/sitrep_open.py` → `monitor/monitor_core.py` `spawn_sitrep`; `root` / `triage`: `lib/sitrep_cli.py` (stdlib; lib/ never imports the monitor package) | opens the sitrep agent in its own window; read-only facts for the skill |
 | agent | `/aitask-sitrep` | `.claude/skills/aitask-sitrep/SKILL.md.j2` | triage, situation text, answers from the sources, dismissals, Q&A log |
@@ -31,7 +32,9 @@ Part 1 (situation text per theme; items grouped Pick now / Next / Waiting /
 Recently done / Dismissed) and Part 2 (one context entry per item: a **map, not a
 summary** — background, origin, source pointers, related items). `qa.md` is the
 dated Q&A log. `sources/<hex>.txt` are retained, content-addressed passages, so a
-pointer survives the frozen capture being dropped.
+pointer survives the frozen capture being dropped. `raw/<hex>.txt` are whole
+raw inputs of review cases (below), kept byte for byte; `cases/<hex>.txt` are
+the trusted review-case records.
 
 One store per repository: every helper maps its root to the main worktree
 (`sitrep_harvest.canonical_root`; a linked or removed `aiwork/<task>` worktree
@@ -94,6 +97,95 @@ spelling, abbreviations disabled).
 
 All tmux goes through the gateways (`aidocs/framework/tmux_gateway.md`).
 
+## Unparsed output: the review corpus
+
+The harvest certifies a capture for deletion only after a **confidence check**
+(`sitrep_harvest.assess`). Each expected occurrence must be claimed by its own
+success, never by "any success in scope":
+
+| Reason | Fires for |
+|---|---|
+| `banner_incomplete` | a recognised banner first line whose fields are missing or invalid |
+| `bad_followup` | a follow-ups token outside the grammar (an *unresolved* cross-repo token is valid) |
+| `passage_truncated` | a closing passage clipped to the retain cap |
+| `banner_unparsed` | a banner first line no parsed banner starts on (also one quoted inside a field) |
+| `created_unparsed` | a `Created: aitasks/…` reference with no grammar match at its offset (drafts under `aitasks/new/` excepted) |
+| `marker_without_banner` | a `⎿ HARVEST_RUN:<id>` tool line no banner claims, by the same `pair_markers` the run identity uses |
+| `pipe_without_banner` | a non-blank `banner` pipe with no banner |
+
+No banner at all (an agent frozen mid-work) is **not** a reason. With a reason,
+`apply` still writes every item it found, then `sitrep_corpus.record_case`
+preserves the case **before the receipt**:
+
+- `raw/<hex>.txt`: the input byte for byte (`retain-raw`, any non-NUL bytes up
+  to 64 MiB). Above the cap, or when the writer's sha differs, the harvest fails
+  and the capture stays protected. Nothing is truncated.
+- One **origin** record per source identity (record / run / source mode /
+  agent / task / capture path / capture time; no harvest timestamp, so a retry
+  is a no-op), one **analysis** per origin and parser revision (class, reasons
+  with raw line ranges, warnings, the partial items) and the case **key**.
+  They live in the **trusted namespace `cases/`**, written only by the writer's
+  `retain-case` (which accepts nothing but case-record headers). Their
+  byte-identical `sources/` copies exist only because context pointers must be
+  `sources/`. An **excerpt** around the first reason (its own header line, so
+  it can never equal a record) is a plain `sources/` passage.
+- **Trust.** `sources/` also holds harvested passages whose text an agent
+  controls, so nothing reads a case from there by header. `scan_cases` reads
+  `cases/` only. `triage` labels a pointer `CASE` / `ANALYSIS` / `REVIEW`, and
+  emits `REVIEW_CASE`, only when its `cases/` twin exists. `check-sources`
+  follows only a trusted origin, and identity counts only review items.
+- ONE review item, `Analyze unparsed agent output …` (`kind=question
+  derived=script group=now`), added last and only when no item owns the key yet.
+  An existing item, in any state, is reported `exists` and never reopened, but
+  a new origin's files are still written.
+
+**Receipt contract.** Deletion is allowed after reliable extraction, or after
+raw evidence plus a durable review item. Any failure before that is
+`HARVEST_FAILED` with no receipt (fault seam `AITASK_SITREP_HARVEST_FAULT`).
+Receipts carry `cert=2` (`HARVEST_CERT` = `agent_sessions.HARVEST_RECEIPT_CERT`).
+A legacy receipt without it fails both `receipt_valid` (so `record`
+re-harvests) and `capture_harvested` (so `drop` refuses and `purge` keeps), and
+the re-harvest's identity keys make the old items `exists`.
+`HARVEST_REVIEW:<src>|c<N>|added|exists|case=<hex>|<codes>` and
+`HARVESTED:…|review=c<N>` report it; a cached `already_harvested` result
+prints the same `HARVEST_REVIEW:…|exists|` line (a lock-free read), because the
+automatic post-freeze or maintenance harvest usually runs first. `h` shows
+"kept for sitrep review", which is still ok (`HarvestReport.reviews`).
+
+**Lifecycle.** The sitrep agent finds the reviews in `triage --open`
+(`REVIEW_CASE:<hex>|<codes>`, `CASE:` / `ANALYSIS:` labels), reads them with
+`case show` / `case read`, writes the missed items through the writer, then runs
+`case review --item`. That adds an append-only review record, then closes the
+item. Status (`case list`) comes from the review ITEM: pending (open, also
+when a record exists but the close was stale or failed:
+`REVIEW_NOT_CLOSED:c<N>|<why>`, exit 1), dismissed (the user's dismissal always
+wins), resolved or reviewed. Those last two come from the item's **accepted**
+outcome (`reviewed: <outcome>`, which only a successful close writes). Review
+records are history, so a failed `resolved` attempt never shows as resolved.
+`case review` on a done item re-closes it with a new accepted outcome; on a
+dismissed one it only adds the record. A case without an item is incomplete.
+Cases are found by scanning the trusted `cases/` namespace, never `sources/`
+and never through item contexts. The review item is recognised by
+**provenance**, never by its (editable) title: a script-derived question whose
+context points at the case key and at a trusted origin or analysis of the same
+case. Nothing prunes `raw/`, `cases/` or `sources/`.
+
+**Improving the parser.** `case replay <hex>` re-runs the current grammar over
+the kept input through a write-nothing `DryStore` (it mirrors the real store's
+identity index as it simulates adds, so a repeated commit, run or passage key
+matches exactly as it would for real): `REPLAY_ITEM:…|new` lines
+show what it would recover, and `REPLAY_RESOLVED:` lines show the reasons a
+change fixed. `--apply` (under the harvest mutex) writes the items and a new
+`origin=replay` analysis and leaves the review item alone. `case export <hex>
+--out <dir>` refuses a case the parser still classifies `review`, and writes
+`input.txt` plus `case.json` (expected class, refs and kind counts). Redact the
+input, then commit it under `tests/fixtures/sitrep_harvest/corpus/`.
+`tests/test_sitrep_corpus_fixtures.py` runs `check-fixture` over every committed
+fixture. The first one is the **joined banner** (displayed without its fence,
+fields inline; `ACCEPT_JOINED_BANNER`, `PARSER_REV` 2). It is synthetic, built
+from workflow-end.md's fence rule. `tests/test_sitrep_corpus.sh` case 8 proves
+the fixture fails against a copy with the flag off.
+
 ## The agent never harvests itself
 
 Harvest skips any session record whose window matches `SITREP_WINDOW_RE`:
@@ -125,7 +217,9 @@ was captured, then offer the close.
   `agent-sitrep[-n]` window is never captured or harvested (`capture` does not
   consult the window name); its report is `skipped`, which is ok.
 - **Report.** `parse_harvest_output` reads the helper's lines; ok only when the
-  exit is 0 AND the last final line is `HARVESTED` / `HARVEST_NONE`. Titles come
+  exit is 0 AND the last final line is `HARVESTED` / `HARVEST_NONE`.
+  `HARVEST_REVIEW:` lines become `reviews` (verdict "output kept for sitrep
+  review"; still ok, since the case was saved before the receipt). Titles come
   from a lock-free store read (`item_titles`, display only).
 - **Dialog.** `HarvestResultDialog` (a `GuardedModalScreen`, its own CSS, plain
   Content for every harvested string). A failed report renders only **Close** —
@@ -231,6 +325,7 @@ against the rendered skill.
 |---|---|
 | `tests/test_sitrep_todo.sh`, `tests/test_sitrep_todo_format.py` | writer, format, recovery |
 | `tests/test_sitrep_harvest.sh`, `tests/test_sitrep_harvest.py` | harvest, receipts, the drop/purge gates, the self-harvest skip |
+| `tests/test_sitrep_corpus.sh`, `tests/test_sitrep_corpus.py`, `tests/test_sitrep_corpus_fixtures.py` | the confidence check (every reason, per-occurrence pairing, negatives), legacy receipts, case files and provenance, faults, the replay / export loop, committed fixtures |
 | `tests/test_sitrep_refresh.sh`, `tests/test_sitrep_refresh.py`, `tests/test_monitor_sitrep_refresh.py` | refresh and its monitor tick |
 | `tests/test_sitrep_window.py` | lookup matcher, spawn decisions, the CLI (mocks) |
 | `tests/test_sitrep_window_live.sh` | the spawn against a private tmux server |

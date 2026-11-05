@@ -16,6 +16,10 @@
 #   store.init            written LAST by the one-time initialization
 #   next_id, next_rev     the item-id and revision high-water marks
 #   sources/<hex>.txt     retained passages (content-addressed, immutable)
+#   raw/<hex>.txt         verbatim raw inputs of harvest review cases (t2175_6;
+#                         content-addressed, immutable, never pruned)
+#   cases/<hex>.txt       the TRUSTED review-case records (origin, analysis,
+#                         review, key); never harvested text
 #   recovered/            damaged files preserved by `restore`
 #   .lockd/               the registry_lock.sh mutex for the whole store
 #
@@ -99,6 +103,12 @@
 #   upsert-context <id>             stdin -> CONTEXT:c<N>|created|replaced|unchanged
 #   retain                          stdin passage (<=64 KiB) ->
 #                                   RETAINED:sources/<hex>.txt#L1-L<n>
+#   retain-raw                      stdin raw input, verbatim (any non-NUL bytes,
+#                                   <=64 MiB; a harvest review case, t2175_6) ->
+#                                   RETAINED_RAW:raw/<hex>.txt|<sha256>|<bytes>
+#   retain-case                     stdin TRUSTED review-case record (line 1 a
+#                                   case-record header; <=64 KiB) ->
+#                                   RETAINED_CASE:cases/<hex>.txt
 #   qa [--items c4,c5]              stdin -> QA:<timestamp>
 #   restore todo|qa                 RESTORED:<file>|recovered/<name>
 #                                   | RESTORED:<file>|no-damaged-copy
@@ -109,7 +119,10 @@
 #                                   contain `|`) | NO_ITEMS
 #   context <id>                    the entry block | NO_CONTEXT:c<N>
 #   check-sources                   SOURCE_OK:c<N>|<ptr> | SOURCE_MISSING:c<N>|<ptr>
-#                                   per retained capture | NO_SOURCES
+#                                   per retained capture, plus one line per raw
+#                                   input a TRUSTED case origin names
+#                                   (raw/<hex>.txt; a sha mismatch is MISSING)
+#                                   | NO_SOURCES
 #   path                            the canonical absolute store dir
 #
 # Exit codes:
@@ -161,6 +174,8 @@ Usage: aitask_sitrep_todo.sh add --kind K --title T [--ref R] [--group G] [--sta
        aitask_sitrep_todo.sh situation <theme>        (text on stdin)
        aitask_sitrep_todo.sh upsert-context <id>      (entry on stdin)
        aitask_sitrep_todo.sh retain                   (passage on stdin)
+       aitask_sitrep_todo.sh retain-raw               (raw input on stdin)
+       aitask_sitrep_todo.sh retain-case              (case record on stdin)
        aitask_sitrep_todo.sh qa [--items c4,c5]       (text on stdin)
        aitask_sitrep_todo.sh restore todo|qa
        aitask_sitrep_todo.sh read [all|todo|context|qa]
@@ -535,6 +550,58 @@ cmd_retain() {
     print_results "$res"
 }
 
+# retain-raw: the whole raw input of a harvest review case (t2175_6), kept
+# verbatim under raw/ (any non-NUL bytes; cap in lib/sitrep_todo.py).
+cmd_retain_raw() {
+    [ $# -eq 0 ] || usage
+    read_stdin
+    precheck retain-raw
+    lock_or_busy
+    ensure_store none
+    mkdir -p "$STORE_DIR/raw" 2>/dev/null \
+        || err_store "cannot create '$STORE_DIR/raw'"
+    local res rc=0 target
+    res="$(py retain-raw --store "$STORE_DIR")" || rc=$?
+    case "$rc" in
+        0) ;;
+        2) release; exit 2 ;;
+        *) exit 4 ;;
+    esac
+    target="$(directive TARGET "$res")"
+    if [[ -n "$target" ]]; then
+        ait_atomic_render "$STORE_DIR/$target" _render_buf \
+            || err_store "could not write '$STORE_DIR/$target'"
+    fi
+    release
+    print_results "$res"
+}
+
+# retain-case: one TRUSTED review-case record (t2175_6) under cases/ -- only
+# records whose first line is a case-record header (checked by the core).
+cmd_retain_case() {
+    [ $# -eq 0 ] || usage
+    read_stdin
+    precheck retain-case
+    lock_or_busy
+    ensure_store none
+    mkdir -p "$STORE_DIR/cases" 2>/dev/null \
+        || err_store "cannot create '$STORE_DIR/cases'"
+    local res rc=0 target
+    res="$(py retain-case --store "$STORE_DIR")" || rc=$?
+    case "$rc" in
+        0) ;;
+        2) release; exit 2 ;;
+        *) exit 4 ;;
+    esac
+    target="$(directive TARGET "$res")"
+    if [[ -n "$target" ]]; then
+        ait_atomic_render "$STORE_DIR/$target" _render_buf \
+            || err_store "could not write '$STORE_DIR/$target'"
+    fi
+    release
+    print_results "$res"
+}
+
 cmd_restore() {
     [ $# -eq 1 ] || usage
     local kind="$1" live bak preserved="" name
@@ -608,6 +675,8 @@ main() {
         situation)      cmd_situation "$@" ;;
         upsert-context) cmd_upsert_context "$@" ;;
         retain)         cmd_retain "$@" ;;
+        retain-raw)     cmd_retain_raw "$@" ;;
+        retain-case)    cmd_retain_case "$@" ;;
         qa)             cmd_qa "$@" ;;
         restore)        cmd_restore "$@" ;;
         read)

@@ -148,6 +148,16 @@ _HELPER_FINALS = ("HARVESTED", "HARVEST_NONE", "HARVEST_FAILED")
 
 
 @dataclass(frozen=True)
+class HarvestReview:
+    """A `HARVEST_REVIEW:` line (t2175_6): uncertain output kept verbatim in
+    the store with one review item for the sitrep agent."""
+    cid: str
+    status: str      # added | exists
+    case: str
+    codes: str
+
+
+@dataclass(frozen=True)
 class HarvestReport:
     final_kind: str
     reason: str = ""
@@ -156,6 +166,7 @@ class HarvestReport:
     warns: tuple = ()
     added: int = 0
     existing: int = 0
+    reviews: tuple = ()
 
     @property
     def ok(self) -> bool:
@@ -184,7 +195,15 @@ class HarvestReport:
         if not self.ok:
             return f"HARVEST FAILED: {self.reason or 'unknown'} — the agent is kept"
         if self.final_kind == "HARVESTED":
-            return f"Harvested: {self.added} added, {self.existing} existing"
+            base = f"Harvested: {self.added} added, {self.existing} existing"
+            if self.reviews:
+                cids = ", ".join(r.cid for r in self.reviews)
+                return f"{base} — output kept for sitrep review ({cids})"
+            return base
+        if self.reviews:
+            cids = ", ".join(r.cid for r in self.reviews)
+            return (f"Nothing new to harvest ({self.reason or 'none'}) — output "
+                    f"kept for sitrep review ({cids})")
         return f"Nothing to harvest ({self.reason or 'none'})"
 
 
@@ -196,6 +215,7 @@ def parse_harvest_output(rc: int, out: str) -> HarvestReport:
     """
     items: list = []
     warns: list = []
+    reviews: list = []
     final_kind, reason = "missing", ""
     added = existing = 0
     runner_error = ""
@@ -214,6 +234,11 @@ def parse_harvest_output(rc: int, out: str) -> HarvestReport:
         elif head == "HARVEST_WARN":
             _src, _, why = rest.partition("|")
             warns.append(why or rest)
+        elif head == "HARVEST_REVIEW":
+            parts = rest.split("|", 4)
+            if len(parts) == 5 and parts[3].startswith("case="):
+                reviews.append(HarvestReview(parts[1], parts[2],
+                                             parts[3][len("case="):], parts[4]))
         elif head in _HELPER_FINALS:
             final_kind = head
             _src, _, tail = rest.partition("|")
@@ -228,7 +253,7 @@ def parse_harvest_output(rc: int, out: str) -> HarvestReport:
     elif rc != 0 and final_kind != "HARVEST_FAILED":
         reason = runner_error or f"exit {rc}"
     return HarvestReport(final_kind, reason, rc, tuple(items), tuple(warns),
-                         added, existing)
+                         added, existing, tuple(reviews))
 
 
 def _int(value) -> int:
@@ -365,6 +390,9 @@ class HarvestResultDialog(GuardedModalScreen):
             lines.append("No new items.")
         for why in self._report.warns:
             lines.append(f"warning: {why}")
+        for rv in self._report.reviews:
+            lines.append(f"review {rv.cid} ({rv.status}): {rv.codes} — the full "
+                         "output is saved in the sitrep store for review")
         if self._state == "live" and self._still_active and self._report.ok:
             lines.append("The agent still looks active: output after this "
                          "capture is not kept.")

@@ -17,6 +17,8 @@
 #   c2 two wrap-ups naming one trail, BOTH pending before the first write:
 #      `triage --open` coalesces them into ONE BATCH_TRAIL_UNWATCHED line, and
 #      the documented watch (related to both) covers both afterwards
+#   e  an unparsed-output review (t2175_6): triage reports REVIEW_CASE, the
+#      case reads back, and the case-review example closes the item
 #   d  the advisory sentences are present, and every paragraph naming a
 #      repository-writing action is a prohibition
 #   m  each of a, b, c (trail source) and d is red against a broken copy
@@ -309,6 +311,33 @@ done
 assert_eq "nothing left to triage" "NO_TRIAGE" "$(cd "$S" && "$SR" triage --open 2>/dev/null)"
 RC=0; (cd "$S" && "$SR" triage >/dev/null 2>&1) || RC=$?
 assert_eq "triage with neither an id nor --open: exit 2" "2" "$RC"
+
+# =============================================================================
+echo "=== e: an unparsed-output review, from the harvest to the review record ==="
+# t2175_6: a cut-off banner is preserved as a review case; `triage --open`
+# reports it (REVIEW_CASE), `case show` / `case read` read it, and the skill's
+# case-review example records the review and closes the item.
+S="$(new_repo s_review)"
+"$HV" capture --root "$S" --agent agent-pick-88 --task 88 --operation pick \
+    < "$PROJECT_DIR/tests/fixtures/sitrep_harvest/truncated_banner.txt" >/dev/null 2>&1
+ALL="$(cd "$S" && "$SR" triage --open 2>/dev/null)"
+RV="$(grep '^REVIEW_CASE:' <<<"$ALL")"
+assert_contains "the review item is reported with its case and codes" "|banner_incomplete" "$RV"
+assert_contains "the case origin is classified" "CASE:sources/" "$ALL"
+assert_contains "the analysis is classified" "ANALYSIS:sources/" "$ALL"
+CASEHEX="$(sed 's/^REVIEW_CASE:\([0-9a-f]*\)|.*/\1/' <<<"$RV")"
+SHOWN="$(cd "$S" && "$SR" case show "$CASEHEX" 2>/dev/null)"
+assert_contains "case show names a reason with its line range" "REASON:banner_incomplete|L" "$SHOWN"
+assert_contains "case read returns the raw input" "aitask workflow complete" \
+    "$(cd "$S" && "$SR" case read "$CASEHEX" 2>/dev/null)"
+TR="$(sed -n 's/^TRIAGE:\(c[0-9]*\)|.*/\1/p' <<<"$ALL" | tail -1)"
+export SX_CASE="$CASEHEX" SX_OUTCOME=nothing_missed SX_GAP="banner cut off by the capture" \
+    SX_NEW_IDS="" SX_TRIAGE="$TR" SX_REV; SX_REV="$(rev_of "$TR")"
+run_example "$SKILL" case-review
+assert_eq "case-review example accepted" "0" "$RC"
+assert_contains "the review is recorded" "REVIEW_RECORDED:cases/" "$OUT"
+assert_contains "the review item is closed" "STATE:$TR|done|" "$OUT"
+assert_contains "the case is now reviewed" "|reviewed|" "$(cd "$S" && "$SR" case list 2>/dev/null)"
 
 # =============================================================================
 echo "=== m: each check is red against a broken copy ==="

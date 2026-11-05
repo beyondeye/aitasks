@@ -8,6 +8,7 @@
 #   ait sitrep root [--root <path>]
 #   ait sitrep triage <id> [--root <path>]
 #   ait sitrep triage --open [--root <path>]
+#   ait sitrep case <verb> ...      (the review-case corpus; t2175_6)
 #
 # open (the default verb) focuses the repository's sitrep agent, or launches it
 # in its OWN tmux window `agent-sitrep` (`-<n>` when the session already holds
@@ -38,10 +39,15 @@
 # naming the trail. The full line contract is in lib/sitrep_cli.py. NOT_FOUND /
 # NOT_TRIAGE exit 2; an unreadable store exits 4.
 #
+# case <verb> ... is `aitask_sitrep_harvest.sh case`: the harvest's review cases
+# (uncertain output kept verbatim with its diagnostics) -- list, show, read,
+# review, replay [--apply], export, check-fixture. Its contract is in
+# lib/sitrep_corpus.py.
+#
 # Exit codes: 0 ok, 1 refused, 2 usage (incl. a `..` path; nothing read),
 # 4 store unusable.
 #
-# Callers: users (`ait sitrep`), the sitrep skill (`root`, `triage`; hence the
+# Callers: users (`ait sitrep`), the sitrep skill (`root`, `triage`, `case`; hence the
 # code-agent allow-list entries, aidocs/framework/aitasks_extension_points.md),
 # and t2175_5's TUI keys (`S` in monitor / minimonitor / TUI switcher), which
 # run `open --root <r> --session <s>`. All tmux goes through the gateways
@@ -67,12 +73,14 @@ usage() {
     echo "Usage: ait sitrep [open] [--agent-string <a>] [--no-select] [--root <path>] [--session <name>]" >&2
     echo "       ait sitrep root [--root <path>]" >&2
     echo "       ait sitrep triage <id>|--open [--root <path>]" >&2
+    echo "       ait sitrep case list|show|read|review|replay|export|check-fixture ..." >&2
     exit 2
 }
 
 verb="open"
 case "${1:-}" in
     open|root|triage) verb="$1"; shift ;;
+    case) shift; exec "$SCRIPT_DIR/aitask_sitrep_harvest.sh" case "$@" ;;
     -h|--help) usage ;;
     ""|--*) ;;
     *) printf 'Error: unknown verb %s\n' "$1" >&2; usage ;;

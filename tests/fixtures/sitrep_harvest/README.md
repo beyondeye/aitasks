@@ -28,6 +28,25 @@ captures (`~/.config/aitasks/frozen/<id>/capture.txt`, November 2026):
 | `truncated_top.txt` | the capture starts mid-message (no `●` line before the banner) |
 | `truncated_banner.txt` | the capture ends after the banner's first line |
 | `trail_mention.txt` | trail handles inside and outside a wrap-up passage |
+| `joined_banner.txt` | a Complete banner shown WITHOUT its text fence: fields joined onto the first line, terminal-wrapped (t2175_6; parsed since `PARSER_REV` 2) |
+
+## `corpus/` — promoted review cases (t2175_6)
+
+Each `corpus/<name>/` is a harvest review case promoted from a local sitrep
+store with `ait sitrep case export <case> --out <dir>`: `input.txt` (the raw
+input) and `case.json` (what the current parser must extract: `expect_class`,
+`expect_refs`, `expect_kinds`; plus `reasons_before`, the `gap` it illustrates
+and the fixing `parser` revision). `tests/test_sitrep_corpus_fixtures.py` runs
+`case check-fixture` over every directory.
+
+Raw cases stay in the git-ignored store (`.aitask-sitrep/raw/`). A case is
+committed here only after review and redaction: remove other projects' content
+and conversation text from `input.txt`, then re-run `check-fixture` on the
+redacted copy.
+
+| case | gap |
+|---|---|
+| `corpus/joined_banner/` | banner shown without its text fence (synthetic, from workflow-end.md's fence rule) |
 
 `harvest_other_agent_captures` (a follow-up of t2175_2) replaces the
 Claude-Code-only assumptions with fixtures for other code agents once finished

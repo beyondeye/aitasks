@@ -19,6 +19,11 @@ contract of every verb is also in `aitask_sitrep.sh`'s header.
         PASSAGE:<ptr>          the first `capture:` source (the closing passage)
         BANNER:<ptr>           a retained canonical banner (identity, not prose)
         KEY:<ptr>              a retained identity key (never point items at it)
+        CASE:/ANALYSIS:/REVIEW:<ptr>  a review case's origin, analysis and
+                               review records (t2175_6)
+        REVIEW_CASE:<hex>|<codes>     the item is an "Analyze unparsed agent
+                               output" review of that case: read it with
+                               `ait sitrep case show <hex>` / `case read`
         CAPTURE:<ptr>          another retained passage
         TASK:/PLAN:/COMMIT:<v> the copied pointers
         TRAIL_WATCHED:<handle>|c<M>|<state>   a kind=watch item (any state)
@@ -125,10 +130,38 @@ def _capture_kind(store_dir: str, pointer: str) -> str:
             first = f.readline()
     except OSError:
         return "passage"
-    return sh.capture_file_kind(first)
+    kind = sh.capture_file_kind(first)
+    if kind in ("case", "analysis", "review") and _trusted_text(store_dir, pointer) is None:
+        # Harvested text that merely starts with a case-record header: it has
+        # no trusted cases/ twin, so it is plain passage text (t2175_6).
+        return "passage"
+    return kind
 
 
-_KIND_LABEL = {"banner": "BANNER", "key": "KEY", "passage": "CAPTURE"}
+def _trusted_text(store_dir: str, pointer: str):
+    """The TRUSTED cases/ record a sources/ pointer is a copy of, or None."""
+    name = os.path.basename(pointer.split("#", 1)[0])
+    return st.read_case_record(store_dir, name[:-4] if name.endswith(".txt") else "")
+
+
+_KIND_LABEL = {"banner": "BANNER", "key": "KEY", "passage": "CAPTURE",
+               "case": "CASE", "analysis": "ANALYSIS", "review": "REVIEW"}
+
+
+def _review_case(store_dir: str, pointers: list) -> str:
+    """``<case hex>|<reason codes>`` when one of ``pointers`` is a review case's
+    TRUSTED analysis (t2175_6; its cases/ twin exists), else ``""``. Facts
+    only: the codes are the analysis's own reason lines."""
+    import sitrep_corpus as sc  # noqa: E402 - lazy: sitrep_corpus imports this module
+    for ptr in pointers:
+        text = _trusted_text(store_dir, ptr)
+        if text is None:
+            continue
+        head, first, multi = sc.parse_kv(text)
+        if head == sh.CASE_ANALYSIS_HEADER and first.get("case"):
+            codes = dict.fromkeys(v.split("|", 1)[0] for v in multi.get("reason", []))
+            return f"{first['case']}|{','.join(codes) or '-'}"
+    return ""
 
 
 def is_triage(item) -> bool:
@@ -157,6 +190,9 @@ def triage_block(store, store_dir: str, num: int) -> tuple:
         out.append(f"PASSAGE:{captures[0]}")
     for ptr in captures[1:]:
         out.append(f"{_KIND_LABEL[_capture_kind(store_dir, ptr)]}:{ptr}")
+    review = _review_case(store_dir, captures[1:])
+    if review:
+        out.append(f"REVIEW_CASE:{review}")
     for kind in ("task", "plan", "commit"):
         out.extend(f"{kind.upper()}:{p}" for t, p in ctx.sources if t == kind)
     unwatched = []

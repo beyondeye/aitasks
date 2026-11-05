@@ -65,6 +65,14 @@ _REAL_CODEX_OBSERVE = agent_sessions.codex_observe_pid
 STANDIN_PID = 8888
 
 
+def _harvest_receipt_text(data: bytes, store: str) -> str:
+    """A receipt as a successful CURRENT harvest leaves it (sha, store, cert;
+    lib/sitrep_harvest.py receipt_text). A legacy receipt without `cert=`
+    authorises no drop since t2175_6."""
+    return (f"sha256={hashlib.sha256(data).hexdigest()}\nstore={store}\n"
+            f"cert={agent_sessions.HARVEST_RECEIPT_CERT}\n")
+
+
 def _reaped_pid() -> int:
     """A pid that is provably gone: spawned, exited, and reaped."""
     proc = subprocess.Popen([sys.executable, "-c", ""])
@@ -518,8 +526,7 @@ class _FreezeTestCase(unittest.TestCase):
                     and os.path.isfile(rec.capture_txt):
                 data = Path(rec.capture_txt).read_bytes()
                 Path(rec.capture_txt + agent_sessions.HARVEST_RECEIPT_SUFFIX
-                     ).write_text(f"sha256={hashlib.sha256(data).hexdigest()}\n"
-                                  "store=stub\n")
+                     ).write_text(_harvest_receipt_text(data, "stub"))
             return ok, why
 
         self._patch(agent_freeze, "_harvest_record", _harvest)
@@ -3858,7 +3865,7 @@ class DropObservedDuringHarvestTests(_FreezeTestCase):
         rec = self.store.sf.by_id(self.rid)
         data = Path(rec.capture_txt).read_bytes()
         Path(rec.capture_txt + agent_sessions.HARVEST_RECEIPT_SUFFIX).write_text(
-            f"sha256={hashlib.sha256(data).hexdigest()}\nstore=x\n")
+            _harvest_receipt_text(data, "x"))
         result = {}
         worker = threading.Thread(
             target=lambda: result.setdefault("line", agent_freeze.drop_record(self.rid)))

@@ -119,6 +119,42 @@ class ParseHarvestOutputTests(unittest.TestCase):
         self.assertFalse(r.ok)
         self.assertEqual(r.reason, "exit 1")
 
+    def test_a_preserved_review_is_ok_and_named(self):
+        # t2175_6: uncertain output kept verbatim with a review item IS a
+        # successful harvest (the receipt was written after the case), and the
+        # verdict must say so -- distinct from both a plain harvest and a
+        # failure.
+        out = ("HARVEST_ITEM:abcd1234|c3|added|question|-\n"
+               "HARVEST_REVIEW:abcd1234|c3|added|case=0123456789abcdef|banner_unparsed\n"
+               "HARVESTED:abcd1234|added=1|existing=0|review=c3\n")
+        r = sc.parse_harvest_output(0, out)
+        self.assertTrue(r.ok)
+        self.assertEqual((r.added, r.existing), (1, 0))
+        self.assertEqual(r.reviews, (sc.HarvestReview("c3", "added", "0123456789abcdef",
+                                                      "banner_unparsed"),))
+        self.assertIn("kept for sitrep review (c3)", r.verdict())
+        plain = sc.parse_harvest_output(0, "HARVESTED:a|added=1|existing=0\n")
+        self.assertNotIn("review", plain.verdict())
+
+    def test_a_cached_result_still_names_its_review(self):
+        # An earlier automatic harvest already certified the capture: the
+        # cached result must still say the output is kept for review.
+        out = ("HARVEST_REVIEW:abcd1234|c3|exists|case=0123456789abcdef|banner_incomplete\n"
+               "HARVEST_NONE:abcd1234|already_harvested\n")
+        r = sc.parse_harvest_output(0, out)
+        self.assertTrue(r.ok)
+        self.assertEqual(r.verdict(), "Nothing new to harvest (already_harvested) — "
+                                      "output kept for sitrep review (c3)")
+        plain = sc.parse_harvest_output(0, "HARVEST_NONE:a|already_harvested\n")
+        self.assertEqual(plain.verdict(), "Nothing to harvest (already_harvested)")
+
+    def test_a_review_line_under_a_failure_is_still_a_failure(self):
+        out = ("HARVEST_REVIEW:a|c3|added|case=0123456789abcdef|x\n"
+               "HARVEST_FAILED:a|fault:receipt\n")
+        r = sc.parse_harvest_output(1, out)
+        self.assertFalse(r.ok)
+        self.assertTrue(r.verdict().startswith("HARVEST FAILED"))
+
     def test_a_runner_error_is_not_ok(self):
         r = sc.parse_harvest_output(
             1, "ERROR:aitask_sitrep_harvest.sh timed out after 150s")
@@ -940,6 +976,15 @@ class HarvestResultDialogTests(unittest.TestCase):
         seen, results = self._run(d, press="escape")
         self.assertEqual(seen["labels"], ["Close agent", "Keep"])
         self.assertEqual(results, [False])
+
+    def test_a_review_is_listed_in_the_body(self):
+        report = sc.parse_harvest_output(
+            0, "HARVEST_REVIEW:a|c3|exists|case=0123456789abcdef|bad_followup\n"
+               "HARVESTED:a|added=0|existing=1|review=c3")
+        d = sc.HarvestResultDialog("agent-x", "frozen", report)
+        self.assertIn("review c3 (exists): bad_followup", d.body_text())
+        seen, _results = self._run(d)
+        self.assertEqual(seen["labels"], ["Drop", "Keep"])
 
     def test_markup_in_harvested_text_renders_literally(self):
         report = sc.parse_harvest_output(

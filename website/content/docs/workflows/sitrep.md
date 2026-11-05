@@ -49,6 +49,22 @@ Every finished agent run arrives as a triage item — "Triage wrap-up of t42 …
 
 It shows all proposals in one list and asks once before writing anything. A trail that several wrap-ups point at gets one watch, linked to all of them. Follow-up tasks a run created are already in the list as task items, so they are not proposed again.
 
+## Output the harvest could not read
+
+Sometimes an agent's wrap-up cannot be read reliably: the banner is cut off or rendered without its fence, a follow-up id is malformed, the closing message is too long, or a run's workflow ended but no banner followed. Then the harvest still writes every item it did find, and it also **keeps the agent's whole output** in the list's store, together with what went wrong and where. It adds one item, "Analyze unparsed agent output …", for sitrep. An agent that was simply frozen mid-work, with no banner at all, is not such a case.
+
+During triage (`>t`), sitrep reads the kept output around each problem, proposes the follow-up tasks and actions the harvest missed, and records what it found. Closing or dismissing that item never deletes the kept output: the cases form a local record that parser fixes can be checked against.
+
+```bash
+ait sitrep case list                  # every kept case and its review state
+ait sitrep case show <case>           # where it came from, what went wrong, what was found
+ait sitrep case read <case> --lines 40-60
+ait sitrep case replay <case>         # what the current parser would now find (writes nothing)
+ait sitrep case export <case> --out <dir>   # a test fixture, once a parser fix resolves it
+```
+
+The kept output stays in the git-ignored store and is never pruned automatically. An exported fixture is a verbatim capture: remove other projects' content and conversation text before committing it.
+
 ## Asking questions
 
 Ask in your own words — "is main pushed?", "what did the t2175 runs leave open?", "what is this trail waiting for?". Sitrep answers from the sources the items point at: task and plan files, the agents' retained closing output, commits, trails. When an answer relies on an item that was last checked more than an hour ago, it says so and offers to refresh. Every question and answer is kept in a dated log next to the list.
@@ -72,6 +88,7 @@ Ask sitrep to dismiss an item you do not want to track (`>x c4 not needed`). Onl
 | `>q` | Ask anything (or just ask in your own words) |
 | `>tr` | Report trail progress, and offer to refresh a stale trail |
 | `>p` | What to pick next |
+| `>c` | List the kept unparsed-output cases, or replay one against the current parser |
 | `>x c<N> [reason]` | Dismiss an item |
 | `>r` | Collect new wrap-ups and re-check the list |
 | `>?` | Show the menu again |
@@ -81,7 +98,10 @@ Ask sitrep to dismiss an item you do not want to track (`>x c4 not needed`). Onl
 In [`ait monitor`]({{< relref "/docs/tuis/monitor" >}}) or a [minimonitor]({{< relref "/docs/tuis/minimonitor" >}}), press **`h`** on a finished agent:
 
 1. The agent's terminal output is collected into the list first — the whole screen of a live agent, or the kept capture of a [frozen]({{< relref "/docs/workflows/freeze-and-restore-agents" >}}) one.
-2. A dialog shows what was captured: each new or already-known item, any warnings about a wrap-up that looked incomplete, and the outcome.
+2. A dialog shows what was captured: each new or already-known item, any warnings about a wrap-up that looked incomplete, and the outcome. There are three outcomes:
+   - **Harvested** — the output was read and its items are in the list.
+   - **Harvested — output kept for sitrep review** — part of the output could not be read reliably, so the whole output was saved in the store with a review item (see [Output the harvest could not read](#output-the-harvest-could-not-read)). Closing is safe.
+   - **Harvest failed** — nothing was certified, so the agent and its output are kept and no close is offered.
 3. Only then does it offer to close the agent: **Close agent** for a live agent, **Drop** for a frozen one (which also deletes its kept capture), or **Keep**.
 
 If the output could not be captured or collected, the dialog says why and offers no close — the agent stays. The close also applies only to the agent that was harvested: if the pane was frozen, restored or restarted while the dialog was open, nothing is closed and you are asked to press `h` again. A live sitrep window is never harvested; `h` on it just offers to close it.
@@ -92,7 +112,7 @@ While the monitor is open it also collects, every few minutes, any frozen agent 
 
 ## Where the list lives
 
-The list is stored per repository in `.aitask-sitrep/`, which is git-ignored and never committed. It is not rebuildable — your dismissals, the agent's derived items and the Q&A log exist nowhere else — so it is written only by one locked writer with a rolling backup. If a file is ever damaged, sitrep says so and offers to restore it from that backup.
+The list is stored per repository in `.aitask-sitrep/`, which is git-ignored and never committed. Kept unparsed output lives there too, in `raw/`, with its case records in `cases/`. It is not rebuildable — your dismissals, the agent's derived items and the Q&A log exist nowhere else — so it is written only by one locked writer with a rolling backup. If a file is ever damaged, sitrep says so and offers to restore it from that backup.
 
 Sitrep's own window is never collected into the list: its screen only shows the list back to you.
 

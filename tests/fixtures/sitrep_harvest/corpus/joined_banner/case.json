@@ -1,0 +1,18 @@
+{
+  "case": "15d0c690d80cfcb2",
+  "expect_class": "reliable",
+  "expect_kinds": {
+    "question": 1,
+    "task": 1
+  },
+  "expect_refs": [
+    "t62"
+  ],
+  "format": 1,
+  "gap": "joined banner: displayed without its text fence, markdown joined its lines into one paragraph (fields inline, terminal-wrapped)",
+  "parser": 2,
+  "piped": false,
+  "reasons_before": [
+    "banner_unparsed:L6"
+  ]
+}

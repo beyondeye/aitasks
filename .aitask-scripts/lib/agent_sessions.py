@@ -269,6 +269,11 @@ def ensure_capture_dir(record_id: str) -> Path:
 #: (`<capture.txt>.harvested`) and dies with it. Written by
 #: `aitask_sitrep_harvest.sh` (lib/sitrep_harvest.py RECEIPT_SUFFIX must match).
 HARVEST_RECEIPT_SUFFIX = ".harvested"
+#: The receipt's certification version (t2175_6; lib/sitrep_harvest.py
+#: HARVEST_CERT must match, tested). A cert-2 receipt is issued only after the
+#: harvest's confidence check, with uncertain output preserved for review; an
+#: older receipt (no `cert=` line) authorises no deletion until re-harvested.
+HARVEST_RECEIPT_CERT = 2
 
 
 def capture_harvested(rec: "SessionRecord") -> bool:
@@ -276,7 +281,10 @@ def capture_harvested(rec: "SessionRecord") -> bool:
 
     True when there is no text to lose (no `capture_txt`, a missing or empty
     file) or when the sitrep harvest receipt names the CURRENT text's sha256 --
-    a re-freeze that rewrites capture.txt invalidates an older receipt. An
+    a re-freeze that rewrites capture.txt invalidates an older receipt -- AND
+    carries certification `cert=HARVEST_RECEIPT_CERT` (t2175_6): a legacy
+    receipt from before the confidence check certified output that may still
+    need review, so it authorises nothing until a current harvest runs. An
     unreadable capture or receipt fails closed (False). A file read and a hash,
     with no lock and no subprocess, so the destructive routes that consult it
     (`drop`, `purge`) stay within their callers' time budgets.
@@ -299,7 +307,7 @@ def capture_harvested(rec: "SessionRecord") -> bool:
             receipt = fh.read().splitlines()
     except (OSError, UnicodeDecodeError):
         return False
-    return want in receipt
+    return want in receipt and f"cert={HARVEST_RECEIPT_CERT}" in receipt
 
 
 def remove_captures(record_id: str) -> None:

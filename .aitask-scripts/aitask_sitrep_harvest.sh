@@ -21,12 +21,19 @@
 #                             capture harvest uses it to recognise this run.
 #   capture --root <path> [--agent W] [--task T] [--operation op]
 #                             a capture on stdin (t2175_5's live-pane path)
+#   case list|show|read|review|replay|export|check-fixture ...
+#                             the review-case corpus (lib/sitrep_corpus.py,
+#                             t2175_6); `replay --apply` runs under the mutex
 #
 # Wire lines (stdout, one per event):
 #   HARVEST_RUN:<16 hex>                       banner only, first line
 #   HARVEST_ITEM:<src>|c<N>|added|exists|<kind>|<ref or ->
 #   HARVEST_WARN:<src>|<reason>
-#   final:  HARVESTED:<src>|added=<a>|existing=<e>
+#   HARVEST_REVIEW:<src>|c<N>|added|exists|case=<16 hex>|<reason codes>
+#                                              uncertain output kept for review
+#                                              (also before a cached
+#                                              already_harvested)
+#   final:  HARVESTED:<src>|added=<a>|existing=<e>[|review=c<N>]
 #         | HARVEST_NONE:<src>|no_capture|nothing_found|already_harvested
 #                                  |sitrep_agent
 #         | HARVEST_FAILED:<src>|<reason>
@@ -40,10 +47,24 @@
 # => HARVEST_FAILED:store_not_ignorable. A non-git root needs no rule. Nothing
 # at all is written (no store, no exclude line) when the parse finds nothing.
 #
-# RECEIPTS AND THE DESTRUCTIVE ROUTES. A successful `record` harvest (including
-# nothing_found) writes `<capture.txt>.harvested` = sha256 of the capture text +
-# the store path. lib/agent_sessions.py `capture_harvested()` checks it, and the
-# two library routes that delete a frozen agent's text refuse without it:
+# CONFIDENCE AND REVIEW CASES (t2175_6). Before any receipt, the parse is
+# checked (lib/sitrep_harvest.py `assess`): an incomplete banner, a malformed
+# follow-up token, a truncated passage, a banner line no parsed banner starts,
+# a malformed `Created:` reference, a harvest marker no banner claims, or a
+# piped message without a banner -- each occurrence on its own. Any reason
+# keeps the WHOLE raw input verbatim (`raw/<hex>.txt`) with its diagnostics and
+# ONE durable "Analyze unparsed agent output" review item (lib/sitrep_corpus.py)
+# -- all before the receipt. Useful partial items are still written. No banner
+# at all (an agent frozen mid-work) or an unresolved foreign task is no reason.
+#
+# RECEIPTS AND THE DESTRUCTIVE ROUTES. Deletion is allowed after reliable
+# extraction, or after raw evidence plus a durable review item were recorded:
+# only then does a `record` harvest (including nothing_found) write
+# `<capture.txt>.harvested` = sha256 of the capture text + the store path +
+# `cert=2` (the certification version; a failed case write withholds it).
+# lib/agent_sessions.py `capture_harvested()` checks sha AND cert -- a legacy
+# receipt without `cert=2` authorises nothing, and `record` re-harvests it --
+# and the two library routes that delete a frozen agent's text refuse without it:
 #   drop    -> HARVEST_REQUIRED:<id>, exit 9 (aitask_agent_sessions.sh drop;
 #              reached by aitask_frozen.sh drop and the monitor kill path).
 #              `--skip-harvest` is the explicit discard.
@@ -80,7 +101,9 @@
 # TEST SEAMS (test-only). AITASK_SITREP_HARVEST_PAUSE_FIFO: once the mutex is
 # held the verb writes `apply:locked` to `<fifo>.reached`, then blocks reading
 # one line from the fifo. AITASK_SITREP_HARVEST_RUN_ID (16 hex) pins the run id
-# `banner` would otherwise draw at random.
+# `banner` would otherwise draw at random. AITASK_SITREP_HARVEST_FAULT=<point>
+# (case:raw, case:files, case:item, receipt) fails the harvest at that point;
+# AITASK_SITREP_RAW_MAX lowers the raw-input cap (bytes).
 
 set -euo pipefail
 
@@ -93,6 +116,7 @@ source "$SCRIPT_DIR/lib/registry_lock.sh"
 source "$SCRIPT_DIR/lib/python_resolve.sh"
 
 CORE="$SCRIPT_DIR/lib/sitrep_harvest.py"
+CORPUS="$SCRIPT_DIR/lib/sitrep_corpus.py"
 LOCK_TIMEOUT="${AITASK_SITREP_HARVEST_LOCK_TIMEOUT:-20}"
 EXCLUDE_RULE=".aitask-sitrep/"
 
@@ -105,6 +129,7 @@ Usage: aitask_sitrep_harvest.sh record <id> [--force]
        aitask_sitrep_harvest.sh all [--root <path>]
        aitask_sitrep_harvest.sh banner --task <id> [--skill <name>]   (text on stdin)
        aitask_sitrep_harvest.sh capture --root <path> [--agent W] [--task T] [--operation op]
+       aitask_sitrep_harvest.sh case list|show|read|review|replay|export|check-fixture ...
 EOF
     exit 2
 }
@@ -164,10 +189,12 @@ ensure_ignored() {
     git -C "$root" check-ignore -q ".aitask-sitrep/todo.md" 2>/dev/null
 }
 
-# Run `apply` for one source with the store's harvest mutex held.
-#   locked_apply <src> <root> <stdin? 0|1> <apply args...>
-locked_apply() {
-    local src="$1" root="$2" use_stdin="$3"; shift 3
+# Run a command with the store's harvest mutex held (the store made
+# git-ignored and writable first). Every identity check (does this run or
+# input already have an item?) runs under it.
+#   with_harvest_lock <src> <root> <cmd...>
+with_harvest_lock() {
+    local src="$1" root="$2"; shift 2
     local store="$root/.aitask-sitrep" lockdir rc=0
     if ! ensure_ignored "$root"; then
         echo "HARVEST_FAILED:$src|store_not_ignorable"
@@ -187,13 +214,23 @@ locked_apply() {
         return 1
     fi
     pause_seam apply:locked
-    if [[ "$use_stdin" == 1 ]]; then
-        feed | "$PY" "$CORE" apply "$@" --root-canonical "$root" || rc=$?
-    else
-        "$PY" "$CORE" apply "$@" --root-canonical "$root" </dev/null || rc=$?
-    fi
+    "$@" || rc=$?
     registry_lock_release "$lockdir"
     return "$rc"
+}
+
+apply_from_buf() { feed | "$PY" "$CORE" apply "$@"; }
+apply_no_stdin() { "$PY" "$CORE" apply "$@" </dev/null; }
+
+# Run `apply` for one source with the store's harvest mutex held.
+#   locked_apply <src> <root> <stdin? 0|1> <apply args...>
+locked_apply() {
+    local src="$1" root="$2" use_stdin="$3"; shift 3
+    if [[ "$use_stdin" == 1 ]]; then
+        with_harvest_lock "$src" "$root" apply_from_buf "$@" --root-canonical "$root"
+    else
+        with_harvest_lock "$src" "$root" apply_no_stdin "$@" --root-canonical "$root"
+    fi
 }
 
 # plan, then (if there is work) apply. Prints every line but `WORK:`.
@@ -324,6 +361,29 @@ cmd_capture() {
     run_source capture 1 capture --root "$root" --agent "$agent" --task "$task" --operation "$op"
 }
 
+# case <verb> ...: the review-case corpus (lib/sitrep_corpus.py, t2175_6).
+# `replay --apply` writes items like a harvest, so it runs under the harvest
+# mutex of its store; every other verb is a read or a plain writer call.
+cmd_case() {
+    [[ $# -ge 1 ]] || usage
+    need_python case
+    local a apply=0 out root rc=0
+    for a in "$@"; do
+        [[ "$a" == "--apply" ]] && apply=1
+    done
+    if [[ "$1" != "replay" || "$apply" == 0 ]]; then
+        exec "$PY" "$CORPUS" "$@"
+    fi
+    out="$("$PY" "$CORPUS" lockroot "$@")" || rc=$?
+    if [[ "$rc" -ne 0 ]]; then
+        [[ -z "$out" ]] || printf '%s\n' "$out"
+        return "$rc"
+    fi
+    root="${out#LOCK_ROOT:}"
+    [[ "$out" == LOCK_ROOT:* && -n "$root" ]] || { echo "REPLAY_FAILED:case|lock_root"; return 1; }
+    with_harvest_lock "case" "$root" "$PY" "$CORPUS" "$@" --root-canonical "$root" </dev/null
+}
+
 main() {
     [[ $# -ge 1 ]] || usage
     [[ "$LOCK_TIMEOUT" =~ ^[0-9]+$ ]] \
@@ -334,6 +394,7 @@ main() {
         all)     cmd_all "$@" ;;
         banner)  cmd_banner "$@" ;;
         capture) cmd_capture "$@" ;;
+        case)    cmd_case "$@" ;;
         -h|--help) usage ;;
         *) err_usage "unknown verb: $verb" ;;
     esac

@@ -41,6 +41,19 @@ The canonical banner (fields re-rendered, whitespace collapsed) is used only to
 link related triage items and as the marker's consistency check, never as the
 identity itself.
 
+CONFIDENCE (t2175_6). `assess` pairs every expected OCCURRENCE with its own
+success -- a recognised banner with complete fields, each follow-up token, a
+passage within the retain cap, each banner first line with a parsed banner
+starting there, each `Created:` reference with a CREATED_RE match at its
+offset, each harvest marker with the banner the identity pairing gives it
+(`pair_markers`), a piped message with a banner. Any reason classifies the
+input `review`: `apply` still writes every item it found, then preserves the
+raw input with its diagnostics and one review item (lib/sitrep_corpus.py)
+BEFORE the receipt. The receipt carries `cert=HARVEST_CERT`; a receipt
+without it (from before the check) is never trusted, so that text is
+re-harvested. JOINED banners (no text fence, fields inline) are parsed since
+PARSER_REV 2 -- the corpus's first resolved gap.
+
 THE SITREP AGENT'S OWN RECORD (t2175_4) is never harvested: a record whose
 window matches SITREP_WINDOW_RE gets its receipt and `HARVEST_NONE:<id>|
 sitrep_agent`. Its screen only echoes the store, so harvesting it would feed
@@ -63,6 +76,11 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# Run as a script, this module is `__main__`; register it under its import name
+# too, so a module importing `sitrep_harvest` (lazily, below) gets THIS module --
+# one HarvestFailure class, one set of constants -- not a second copy.
+if __name__ == "__main__":
+    sys.modules.setdefault("sitrep_harvest", sys.modules[__name__])
 
 import sitrep_todo as st  # noqa: E402
 
@@ -74,6 +92,14 @@ PROJECTS_SH = os.path.join(SCRIPTS_DIR, "aitask_projects.sh")
 STORE_NAME = ".aitask-sitrep"
 #: Must equal agent_sessions.HARVEST_RECEIPT_SUFFIX (tested).
 RECEIPT_SUFFIX = ".harvested"
+#: The receipt's certification version (t2175_6). 2 = issued only after the
+#: confidence check, with any uncertain output preserved as a review case. A
+#: receipt without it (written by the t2175_2 harvest, which certified every
+#: parse) authorises nothing: receipt_valid refuses it, so the capture is
+#: re-harvested, and agent_sessions.capture_harvested refuses it, so drop and
+#: purge keep the text until then. Must equal
+#: agent_sessions.HARVEST_RECEIPT_CERT (tested).
+HARVEST_CERT = 2
 
 MAX_PASSAGE_LINES = 200
 MARKER_LOOKBACK = 80
@@ -106,9 +132,42 @@ PICKWEB_OUTCOME_RE = re.compile(
     r"\(run aitask-web-merge\)$")
 PUSHED_SPLIT = " · pushed: "
 
+#: The JOINED banner (t2175_6): a banner displayed without its ```text fence,
+#: whose lines markdown rendering joined into one paragraph (the reason
+#: workflow-end.md requires the fence). The first line then carries the fields
+#: inline, in template order, possibly terminal-wrapped onto continuation lines.
+#: The flag exists so a test can build the PRE-fix parser (a copy with it set
+#: to False) and prove a corpus case the old grammar missed; PARSER_REV names
+#: the grammar a harvest analysis was produced with.
+ACCEPT_JOINED_BANNER = True
+PARSER_REV = 2
+JOINED_RE = re.compile(
+    r"^(?P<ind>[ \t]*)(?:[●⏺][ \t]+)?(?P<glyph>[✔■]) aitask workflow "
+    r"(?P<kind>complete|stopped) — t(?P<task>" + TASK_ID + r")"
+    r"(?: (?P<name>(?!outcome:)\S+))? (?P<rest>outcome: .*?)[ \t]*$")
+JOINED_LABELS = {COMPLETE_KIND: ("outcome", "follow-ups created"),
+                 STOPPED_KIND: ("outcome", "reason", "next")}
+
 MSG_RE = re.compile(r"^[●⏺] ")
 PROMPT_RE = re.compile(r"^(?:❯|>) ")
 MARKER_RE = re.compile(r"HARVEST_RUN:([0-9a-f]{16})\b")
+
+# --- confidence signals (t2175_6) -------------------------------------------
+#: Every occurrence of a banner first line, parsed or not. A parsed banner's
+#: own first line accounts for exactly one occurrence on its line.
+NEAR_BANNER_RE = re.compile(r"[✔■]\s*aitask workflow (?:complete|stopped)\b")
+#: Every occurrence of a `Created:` reference. It is valid only when a
+#: CREATED_RE match starts at the same offset (\s covers NBSP). A draft
+#: (`aitasks/new/draft_*.md`, aitask_create.sh without --commit) has no task id
+#: yet, so it is deliberately not an item and not a reason (measured on the
+#: explore fixture by the t2175_6 detection baseline).
+NEAR_CREATED_RE = re.compile(r"Created:\s*aitasks/(?!new/)")
+#: The banner pipe's first output line as the tool-call display shows it --
+#: evidence that workflow-end ran, so a banner must follow and claim it.
+TOOL_MARKER_RE = re.compile(r"^\s*⎿\s+HARVEST_RUN:([0-9a-f]{16})\s*$")
+REASON_CODES = ("banner_incomplete", "bad_followup", "passage_truncated",
+                "banner_unparsed", "created_unparsed", "marker_without_banner",
+                "pipe_without_banner")
 CREATED_RE = re.compile(
     r"Created: (?P<path>aitasks/(?:t(?P<p1>[1-9][0-9]*(?:_[1-9][0-9]*)?)_[^\s/]+\.md"
     r"|t(?P<par>[1-9][0-9]*)/t(?P<p2>[1-9][0-9]*_[1-9][0-9]*)_[^\s/]+\.md))(?=\s|$)")
@@ -125,20 +184,35 @@ BANNER_FILE_HEADER = "sitrep banner v1"
 KEY_RUN_HEADER = "sitrep wrap-up run v2"
 KEY_COMPLETE_HEADER = "sitrep wrap-up complete v1"
 KEY_PASSAGE_HEADER = "sitrep wrap-up passage v1"
-KEY_FILE_HEADERS = (KEY_RUN_HEADER, KEY_COMPLETE_HEADER, KEY_PASSAGE_HEADER)
+#: The identity of a review case (t2175_6): one per raw input sha256.
+KEY_CASE_HEADER = st.CASE_KEY_HEADER
+KEY_FILE_HEADERS = (KEY_RUN_HEADER, KEY_COMPLETE_HEADER, KEY_PASSAGE_HEADER,
+                    KEY_CASE_HEADER)
+#: The other retained files of a review case (t2175_6, lib/sitrep_corpus.py).
+CASE_ORIGIN_HEADER = st.CASE_ORIGIN_HEADER
+CASE_ANALYSIS_HEADER = st.CASE_ANALYSIS_HEADER
+CASE_REVIEW_HEADER = st.CASE_REVIEW_HEADER
 
 
 def capture_file_kind(first_line: str) -> str:
-    """``banner`` | ``key`` | ``passage`` for a retained file's first line.
+    """``banner`` | ``key`` | ``case`` | ``analysis`` | ``review`` |
+    ``passage`` for a retained file's first line.
 
     Anything that is not a harvest-written header is passage text (a closing
-    message, a Created-line window) -- the content a context pointer is for.
+    message, a Created-line window, a review case's excerpt) -- the content a
+    context pointer is for.
     """
     line = first_line.rstrip("\n")
     if line == BANNER_FILE_HEADER:
         return "banner"
     if line in KEY_FILE_HEADERS:
         return "key"
+    if line == CASE_ORIGIN_HEADER:
+        return "case"
+    if line == CASE_ANALYSIS_HEADER:
+        return "analysis"
+    if line == CASE_REVIEW_HEADER:
+        return "review"
     return "passage"
 
 #: The sitrep agent's own window (t2175_4): `monitor_core.spawn_sitrep` names it
@@ -209,6 +283,74 @@ class Banner:
         return "\n".join(lines) + "\n"
 
 
+def _split_joined(kind: str, rest: str) -> dict:
+    """The fields of a joined banner's inline remainder.
+
+    Labels must appear in template order, each EXACTLY once; the first
+    occurrence of each label after the previous one wins. A missing label
+    leaves the fields partial, so `_interpret` marks the banner incomplete (a
+    review reason); a repeated label is ambiguous (see `_joined_ambiguous`)."""
+    labels = JOINED_LABELS[kind]
+    starts = []
+    pos = 0
+    for n, label in enumerate(labels):
+        if n == 0:
+            if not rest.startswith(label + ":"):
+                break
+            k, tok = 0, label + ":"
+        else:
+            tok = f" {label}:"
+            k = rest.find(tok, pos)
+            if k < 0:
+                break
+        starts.append((label, k, k + len(tok)))
+        pos = k + len(tok)
+    fields = {}
+    for n, (label, _k, vstart) in enumerate(starts):
+        end = starts[n + 1][1] if n + 1 < len(starts) else len(rest)
+        fields[label] = rest[vstart:end].strip()
+    return fields
+
+
+def _joined_ambiguous(kind: str, rest: str) -> bool:
+    """Does any template label occur more than once in a joined remainder?
+    Then which occurrence is the field is a guess, so the banner is
+    classified incomplete (its useful fields are still extracted)."""
+    for label in JOINED_LABELS[kind]:
+        n = rest.count(f" {label}:") + (1 if rest.startswith(f"{label}:") else 0)
+        if n > 1:
+            return True
+    return False
+
+
+def _joined_banner(lines: list, i: int, m) -> Banner:
+    b = Banner(kind=m.group("kind"), task=m.group("task"),
+               name=m.group("name") or "", start=i, end=i + 1)
+    first_ind = len(m.group("ind").expandtabs())
+    rest = m.group("rest")
+    j = i + 1
+    cont = 0
+    while j < len(lines) and cont < MAX_CONTINUATION:
+        line = lines[j]
+        if (not line.strip() or FENCE_RE.match(line) or FIRST_RE.match(line)
+                or JOINED_RE.match(line) or MSG_RE.match(line)
+                or PROMPT_RE.match(line)):
+            break
+        ind = len(line) - len(line.lstrip(" \t"))
+        if ind < first_ind:
+            break
+        rest = rest + " " + line.strip()
+        cont += 1
+        j += 1
+    b.end = j
+    rest = re.sub(r"[ \t]+$", "", rest)
+    b.fields = _split_joined(b.kind, rest)
+    _interpret(b)
+    if _joined_ambiguous(b.kind, rest):
+        b.complete_fields = False
+    return b
+
+
 def parse_banners(lines: list) -> list:
     """Every banner in `lines` (a capture or a piped message), in order."""
     out = []
@@ -216,6 +358,12 @@ def parse_banners(lines: list) -> list:
     while i < len(lines):
         m = FIRST_RE.match(lines[i])
         if not m:
+            jm = JOINED_RE.match(lines[i]) if ACCEPT_JOINED_BANNER else None
+            if jm:
+                b = _joined_banner(lines, i, jm)
+                out.append(b)
+                i = b.end
+                continue
             i += 1
             continue
         b = Banner(kind=m.group("kind"), task=m.group("task"),
@@ -289,17 +437,122 @@ def passage_bounds(lines: list, b: Banner, floor: int) -> int:
     return lo
 
 
-def find_marker(lines: list, start: int, floor: int) -> str:
-    """The nearest `HARVEST_RUN:<id>` before a passage, bounded by the previous
-    banner and by a user prompt (a new turn)."""
+def find_marker_at(lines: list, start: int, floor: int) -> tuple:
+    """``(run id, line index)`` of the nearest `HARVEST_RUN:<id>` before a
+    passage, bounded by the previous banner and by a user prompt (a new
+    turn); ``("", None)`` when there is none."""
     lo = max(floor, start - MARKER_LOOKBACK)
     for k in range(start - 1, lo - 1, -1):
         if PROMPT_RE.match(lines[k]):
-            return ""
+            return "", None
         m = MARKER_RE.search(lines[k])
         if m:
-            return m.group(1)
-    return ""
+            return m.group(1), k
+    return "", None
+
+
+def find_marker(lines: list, start: int, floor: int) -> str:
+    """The nearest `HARVEST_RUN:<id>` before a passage (see find_marker_at)."""
+    return find_marker_at(lines, start, floor)[0]
+
+
+@dataclass(frozen=True)
+class Pairing:
+    """One banner with its passage start and the marker it claims."""
+    banner: Banner
+    start: int
+    marker: str
+    marker_line: object   # int line index, or None
+
+
+def pair_markers(lines: list, banners: list, piped: bool) -> list:
+    """The ONE passage/marker pairing, shared by the harvest (run identity)
+    and the confidence check (a marker no banner claims), so the two can
+    never disagree about which run a marker belongs to."""
+    out = []
+    floor = 0
+    for b in banners:
+        start = floor if piped else passage_bounds(lines, b, floor)
+        run, k = ("", None) if piped else find_marker_at(lines, start, floor)
+        out.append(Pairing(b, start, run, k))
+        floor = b.end
+    return out
+
+
+def passage_bytes(lines: list, p: Pairing) -> tuple:
+    """``(passage bytes, truncated?)`` -- the exact bytes the harvest retains."""
+    passage = ("\n".join(lines[p.start:p.banner.end]) + "\n").encode("utf-8")
+    if len(passage) > MAX_RETAIN:
+        passage = passage[-MAX_RETAIN:]
+        passage = passage[passage.find(b"\n") + 1:]
+        return passage, True
+    return passage, False
+
+
+@dataclass(frozen=True)
+class Reason:
+    """Why a harvest is not reliable: a code from REASON_CODES, a detail
+    token, and the 1-based line range of the raw input it concerns."""
+    code: str
+    detail: str
+    a: int
+    b: int
+
+    def label(self) -> str:
+        return f"{self.code}:{self.detail}" if self.detail else self.code
+
+
+def assess(lines: list, banners: list, piped: bool) -> list:
+    """The confidence check: every reason this input is not reliably parsed.
+
+    Each rule pairs every OCCURRENCE of what it expects with its own success,
+    never "any success in scope": a marker is claimed only by the banner the
+    shared pairing gives it, a `Created:` reference only by a CREATED_RE
+    match at its own offset, a banner first line only by a parsed banner
+    starting on that line. Not reasons: no banner at all (an agent frozen
+    mid-work), an unresolved foreign task, a missing task file.
+    """
+    out = []
+    pairs = pair_markers(lines, banners, piped)
+    for p in pairs:
+        b = p.banner
+        if not b.complete_fields:
+            out.append(Reason("banner_incomplete", f"t{b.task}", b.start + 1, b.end))
+        for tok in b.bad_followups:
+            out.append(Reason("bad_followup", _one_line(tok), b.start + 1, b.end))
+        if passage_bytes(lines, p)[1]:
+            out.append(Reason("passage_truncated", f"t{b.task}", p.start + 1, b.end))
+    starts = {b.start for b in banners}
+    claimed = {p.marker_line for p in pairs if p.marker_line is not None}
+    for i, line in enumerate(lines):
+        n = len(NEAR_BANNER_RE.findall(line)) - (1 if i in starts else 0)
+        if n > 0:
+            out.append(Reason("banner_unparsed", f"L{i + 1}", i + 1, i + 1))
+        if "Created:" in line:
+            valid = {m.start() for m in CREATED_RE.finditer(line)}
+            for m in NEAR_CREATED_RE.finditer(line):
+                if m.start() not in valid:
+                    out.append(Reason("created_unparsed", f"L{i + 1}", i + 1, i + 1))
+        if not piped:
+            tm = TOOL_MARKER_RE.match(line)
+            if tm and i not in claimed:
+                out.append(Reason("marker_without_banner", tm.group(1), i + 1, i + 1))
+    if piped and not banners and any(ln.strip() for ln in lines):
+        out.append(Reason("pipe_without_banner", "", 1, max(1, len(lines))))
+    return out
+
+
+def classify(data: bytes, piped: bool) -> tuple:
+    """``(class, reasons)``: ``review`` when any reason fires, else
+    ``reliable`` when there is content, else ``empty``."""
+    text = data.decode("utf-8", "replace")
+    lines = text.split("\n")
+    banners = parse_banners(lines)
+    reasons = assess(lines, banners, piped)
+    if reasons:
+        return "review", reasons
+    content = bool(banners or created_tasks(lines) or trail_handles(text))
+    return ("reliable" if content else "empty"), reasons
 
 
 def created_tasks(lines: list) -> list:
@@ -455,6 +708,7 @@ class Store:
         self.capture_owners = {}     # hex -> [item nums]
         self.trails = set()
         self.items = {}
+        self.contexts = {}
 
     def load(self) -> None:
         try:
@@ -462,6 +716,7 @@ class Store:
         except st.FormatError as e:
             raise HarvestFailure(f"writer:store_unusable:{_one_line(str(e))}") from None
         self.items = dict(todo.items)
+        self.contexts = dict(todo.contexts)
         self.capture_owners = {}
         self.trails = set()
         for num, ctx in todo.contexts.items():
@@ -595,6 +850,11 @@ class Harvest:
         self.lines_out = []
         self.added = 0
         self.existing = 0
+        #: [(cid num, kind, ref)] of every item this harvest added or found,
+        #: in order -- the partial items a review case links (t2175_6).
+        self.item_ids = []
+        self.new_ids = set()
+        self.reasons = []
 
     # wire output
     def emit(self, line: str) -> None:
@@ -603,8 +863,11 @@ class Harvest:
     def item(self, num: int, new: bool, kind: str, ref: str) -> None:
         if new:
             self.added += 1
+            self.new_ids.add(num)
         else:
             self.existing += 1
+        if (num, kind, ref or "") not in self.item_ids:
+            self.item_ids.append((num, kind, ref or ""))
         self.emit(f"HARVEST_ITEM:{self.src.label}|c{num}|"
                   f"{'added' if new else 'exists'}|{kind}|{ref or '-'}")
 
@@ -623,27 +886,23 @@ class Harvest:
         lines = text.split("\n")
         banners = parse_banners(lines)
         passage_ranges = []
-        floor = 0
         seq_count = {}
-        for b in banners:
+        for p in pair_markers(lines, banners, self.src.piped):
+            b, start = p.banner, p.start
             for tok in b.bad_followups:
                 self.emit(f"HARVEST_WARN:{self.src.label}|bad_followup:{_one_line(tok)}")
             if not b.complete_fields:
                 self.emit(f"HARVEST_WARN:{self.src.label}|banner_incomplete:t{b.task}")
-            start = floor if self.src.piped else passage_bounds(lines, b, floor)
-            marker = "" if self.src.piped else find_marker(lines, start, floor)
-            passage = ("\n".join(lines[start:b.end]) + "\n").encode("utf-8")
-            if len(passage) > MAX_RETAIN:
-                passage = passage[-MAX_RETAIN:]
-                passage = passage[passage.find(b"\n") + 1:]
+            passage, truncated = passage_bytes(lines, p)
+            if truncated:
                 self.emit(f"HARVEST_WARN:{self.src.label}|passage_truncated:t{b.task}")
             passage_ranges.append((start, b.end))
             sha = hashlib.sha256(passage).hexdigest()
             seq_count[sha] = seq_count.get(sha, 0) + 1
-            self.wrapup(b, passage, marker, seq_count[sha], start)
-            floor = b.end
+            self.wrapup(b, passage, p.marker, seq_count[sha], start)
         self.created(lines)
         self.trails(lines, passage_ranges)
+        self.reasons = assess(lines, banners, self.src.piped)
 
     # -- per banner
     def wrapup(self, b: Banner, passage: bytes, marker: str, seq: int,
@@ -837,10 +1096,17 @@ class Harvest:
 
 
 def has_content(data: bytes) -> bool:
-    """Is there anything to harvest? (decides whether a store is touched)"""
+    """Is there anything to extract? (items only; see needs_apply)"""
     text = data.decode("utf-8", "replace")
     lines = text.split("\n")
     return bool(parse_banners(lines) or created_tasks(lines) or trail_handles(text))
+
+
+def needs_apply(data: bytes, piped: bool) -> bool:
+    """Must `apply` run (and touch a store)? Content to extract, OR a
+    confidence reason: a near-miss-only capture has no items but must still
+    be preserved for review, never certified as `nothing_found`."""
+    return classify(data, piped)[0] != "empty"
 
 
 # --- records and receipts ---------------------------------------------------
@@ -897,7 +1163,8 @@ def read_capture(rec: dict):
 
 
 def receipt_text(data: bytes, store_dir: str) -> str:
-    return f"sha256={hashlib.sha256(data).hexdigest()}\nstore={store_dir}\n"
+    return (f"sha256={hashlib.sha256(data).hexdigest()}\nstore={store_dir}\n"
+            f"cert={HARVEST_CERT}\n")
 
 
 def receipt_valid(path: str, data: bytes, store_dir: str) -> bool:
@@ -924,6 +1191,14 @@ def write_receipt(path: str, data: bytes, store_dir: str) -> None:
         except OSError:
             pass
         raise HarvestFailure(f"receipt_unwritable:{e.strerror or e}") from None
+
+
+def fault_point(point: str) -> None:
+    """Test seam (test-only): AITASK_SITREP_HARVEST_FAULT=<point> fails the
+    harvest at that point, so a test proves a partial case write withholds
+    the receipt. Points: case:raw, case:files, case:item, receipt."""
+    if os.environ.get("AITASK_SITREP_HARVEST_FAULT", "") == point:
+        raise HarvestFailure(f"fault:{point}")
 
 
 def _today() -> str:
@@ -992,9 +1267,10 @@ def cmd_plan(args) -> int:
                     root = rec.get("root") or ""
                 write_receipt(path, data, os.path.join(root, STORE_NAME))
                 return _final(f"HARVEST_NONE:{args.id}|sitrep_agent")
-            if not has_content(data):
-                # Nothing to write anywhere: the receipt alone records that the
-                # text was read. The store path is informative; use the record
+            if not needs_apply(data, piped=False):
+                # Nothing to write anywhere -- no items AND no confidence
+                # reason (t2175_6): the receipt alone records that the text
+                # was read. The store path is informative; use the record
                 # root's canonical form when it resolves, else the raw root.
                 try:
                     root, _ = canonical_root(rec.get("root") or "")
@@ -1003,7 +1279,15 @@ def cmd_plan(args) -> int:
                 write_receipt(path, data, os.path.join(root, STORE_NAME))
                 return _final(f"HARVEST_NONE:{args.id}|nothing_found")
             root, _ = canonical_root(rec.get("root") or "")
-            if not args.force and receipt_valid(path, data, os.path.join(root, STORE_NAME)):
+            store_dir = os.path.join(root, STORE_NAME)
+            if not args.force and receipt_valid(path, data, store_dir):
+                # A cached result still names the preserved-output review of
+                # this input (t2175_6), so `h` and the drop show it instead of
+                # "nothing to harvest". Read-only; nothing is re-extracted.
+                import sitrep_corpus  # noqa: E402 - lazy: it imports this module
+                line = sitrep_corpus.cached_review_line(store_dir, data, args.id)
+                if line:
+                    print(line)
                 return _final(f"HARVEST_NONE:{args.id}|already_harvested")
             return _final(_work(root))
         if args.source == "all":
@@ -1024,7 +1308,7 @@ def cmd_plan(args) -> int:
         # banner / capture: stdin
         data = sys.stdin.buffer.read()
         label = f"run-{args.run}" if args.source == "banner" else "capture"
-        if not has_content(data):
+        if not needs_apply(data, piped=args.source == "banner"):
             return _final(f"HARVEST_NONE:{label}|nothing_found")
         base = args.root if args.source == "capture" else os.getcwd()
         root, _ = canonical_root(os.path.abspath(base))
@@ -1041,6 +1325,7 @@ def cmd_apply(args) -> int:
     try:
         root = os.path.realpath(args.root_canonical)
         store = Store(root, os.path.join(root, STORE_NAME))
+        capture_path, captured_at = "", ""
         if args.source == "record":
             rec = load_record(args.id)
             if rec is None:
@@ -1049,6 +1334,8 @@ def cmd_apply(args) -> int:
             if not data:
                 return _final(f"HARVEST_NONE:{label}|no_capture")
             src = record_source(rec, data, root)
+            capture_path = path
+            captured_at = rec.get("frozen_at") or rec.get("state_at") or ""
         else:
             data = sys.stdin.buffer.read()
             if args.source == "banner":
@@ -1065,14 +1352,28 @@ def cmd_apply(args) -> int:
                              skill=args.operation or "", date=_today())
         store.load()
         h = Harvest(src, store)
+        review = ""
         try:
             h.run()
+            if h.reasons:
+                # Uncertain output (t2175_6): preserve it verbatim with its
+                # diagnostics and ONE durable review item BEFORE anything can
+                # certify it. A failure here raises -> HARVEST_FAILED, no
+                # receipt, the capture stays protected; a retry completes it.
+                import sitrep_corpus  # noqa: E402 - lazy: it imports this module
+                num, new, case = sitrep_corpus.record_case(
+                    store, src, h, capture_path=capture_path, captured_at=captured_at)
+                h.item(num, new, "question", "")
+                review = f"|review=c{num}"
+                h.emit(f"HARVEST_REVIEW:{label}|c{num}|{'added' if new else 'exists'}"
+                       f"|case={case}|" + ",".join(dict.fromkeys(r.code for r in h.reasons)))
         finally:
             for line in h.lines_out:
                 print(line)
+        fault_point("receipt")
         if args.source == "record":
             write_receipt(path, data, store.dir)
-        return _final(f"HARVESTED:{label}|added={h.added}|existing={h.existing}")
+        return _final(f"HARVESTED:{label}|added={h.added}|existing={h.existing}{review}")
     except HarvestFailure as e:
         return _final(f"HARVEST_FAILED:{label}|{e}", 1)
 

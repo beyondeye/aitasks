@@ -26,6 +26,13 @@ FILES (all under the store root):
   Agent captures under ``~/.config/aitasks/frozen/`` are deleted by drop,
   re-registration and freeze_abort, so a ``capture:`` source may only point
   here.
+* ``raw/<16 hex>.txt`` -- whole raw inputs kept VERBATIM for a harvest review
+  case (``retain-raw``, t2175_6; content-addressed, immutable, never pruned).
+* ``cases/<16 hex>.txt`` -- the TRUSTED review-case records (origin, analysis,
+  review, key; ``retain-case``, which accepts only those headers). Context
+  pointers reach them through byte-identical ``sources/`` copies;
+  ``check-sources`` follows a pointer to the raw input only when the trusted
+  origin record exists.
 * ``recovered/`` -- damaged files preserved by ``restore``.
 
 STRICT FORMAT. Line 1 of every data file is a fixed generated-file banner and
@@ -133,6 +140,23 @@ MAX_CONTEXT_BYTES = 2000
 MAX_SITUATION_BYTES = 1200
 MAX_QA_BYTES = 4000
 MAX_RETAIN_BYTES = 64 * 1024
+#: Cap of one verbatim raw input (`retain-raw`, t2175_6): a whole agent capture
+#: kept for review. Above it the harvest fails closed (the capture stays
+#: protected) -- a raw input is never truncated.
+MAX_RAW_BYTES = 64 * 1024 * 1024
+RAW_RE = re.compile(r"^raw/([0-9a-f]{16})\.txt\Z")
+#: Line 1 of each TRUSTED harvest review-case record (t2175_6). These live in
+#: their own namespace, ``cases/<16 hex>.txt``, written only by `retain-case`
+#: (which refuses any other first line). ``sources/`` also holds harvested
+#: passages whose text an agent controls, so nothing about a case is ever
+#: read from there by header: a forged passage beginning with a header has no
+#: `cases/` twin and stays plain passage text.
+CASE_ORIGIN_HEADER = "sitrep harvest case origin v1"
+CASE_ANALYSIS_HEADER = "sitrep harvest analysis v1"
+CASE_REVIEW_HEADER = "sitrep harvest review v1"
+CASE_KEY_HEADER = "sitrep harvest case key v1"
+CASE_RECORD_HEADERS = (CASE_ORIGIN_HEADER, CASE_ANALYSIS_HEADER,
+                       CASE_REVIEW_HEADER, CASE_KEY_HEADER)
 
 # Value grammars end in \Z, never `$`: Python's `$` also matches just before a
 # final newline, so "2026-11-01T10:00:00Z\n" would pass and forge a line break.
@@ -931,7 +955,7 @@ def store_state(store_dir: str) -> str:
 
     Data is only ever written after `store.init` exists, so a store without the
     marker holds no data UNLESS a post-init artifact (next_id, sources/,
-    recovered/) or a non-template data file says otherwise -- then the marker
+    raw/, cases/, recovered/) or a non-template data file says otherwise -- then the marker
     was lost, not never written, and a missing data file is DAMAGE, never
     something to re-initialize over.
     """
@@ -939,7 +963,7 @@ def store_state(store_dir: str) -> str:
     marker = os.path.isfile(j("store.init"))
     established = (marker or os.path.exists(j("next_id"))
                    or os.path.exists(j("next_rev")))
-    for d in ("sources", "recovered"):
+    for d in ("sources", "raw", "cases", "recovered"):
         if not established and os.path.isdir(j(d)) and os.listdir(j(d)):
             established = True
     # Content is inspected only when no decisive artifact settled it -- i.e.
@@ -1238,6 +1262,135 @@ def op_retain(args, _text):
     print(f"RETAINED:{rel}#L1-L{nlines}")
 
 
+def _raw_max() -> int:
+    """MAX_RAW_BYTES, or a SMALLER test-only override (AITASK_SITREP_RAW_MAX)."""
+    v = os.environ.get("AITASK_SITREP_RAW_MAX", "")
+    if v.isdigit() and 0 < int(v) < MAX_RAW_BYTES:
+        return int(v)
+    return MAX_RAW_BYTES
+
+
+def op_retain_raw(args, _text):
+    """Retain one raw input VERBATIM under raw/<16 hex>.txt (t2175_6).
+
+    Unlike `retain` (a passage: UTF-8, <= 64 KiB) the bytes are any non-NUL
+    bytes up to MAX_RAW_BYTES: a review case keeps the whole capture, never a
+    truncated or re-encoded copy. Content-addressed and immutable like
+    sources/; the reported sha256 lets the caller prove the bytes arrived
+    unchanged (bash cannot carry NUL, so NUL is refused rather than lost)."""
+    data = sys.stdin.buffer.read()
+    if not data:
+        raise RequestError("no raw input on stdin")
+    if len(data) > _raw_max():
+        raise RequestError(f"raw input is larger than {_raw_max()} bytes")
+    if b"\0" in data:
+        raise RequestError("raw input contains NUL bytes")
+    if args.check_only:
+        return
+    digest = hashlib.sha256(data).hexdigest()
+    rel = f"raw/{digest[:16]}.txt"
+    path = os.path.join(args.store, rel)
+    if os.path.lexists(path):
+        if os.path.islink(path) or not os.path.isfile(path):
+            raise FormatError(path, 0, "retained raw path is not a regular file")
+        with open(path, "rb") as fh:
+            if fh.read() != data:
+                raise FormatError(path, 0, "hash collision: a different raw input "
+                                  "is retained under this name")
+    else:
+        print(f"@TARGET:{rel}")
+    print(f"RETAINED_RAW:{rel}|{digest}|{len(data)}")
+
+
+def op_retain_case(args, _text):
+    """Retain one TRUSTED review-case record under cases/<16 hex>.txt (t2175_6).
+
+    Content-addressed and immutable like sources/, but a separate namespace:
+    only harvest-built records (line 1 one of CASE_RECORD_HEADERS) can land
+    here, so harvested text can never pose as case metadata."""
+    data = sys.stdin.buffer.read()
+    if not data:
+        raise RequestError("no case record on stdin")
+    if len(data) > MAX_RETAIN_BYTES:
+        raise RequestError(f"case record is larger than {MAX_RETAIN_BYTES} bytes")
+    try:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError:
+        raise RequestError("case record is not valid UTF-8") from None
+    if "\0" in text or "\r" in text:
+        raise RequestError("case record contains NUL or CR")
+    if text.split("\n", 1)[0] not in CASE_RECORD_HEADERS:
+        raise RequestError("case record must start with a case record header")
+    if args.check_only:
+        return
+    hexname = hashlib.sha256(data).hexdigest()[:16]
+    rel = f"cases/{hexname}.txt"
+    path = os.path.join(args.store, rel)
+    if os.path.lexists(path):
+        if os.path.islink(path) or not os.path.isfile(path):
+            raise FormatError(path, 0, "case record path is not a regular file")
+        with open(path, "rb") as fh:
+            if fh.read() != data:
+                raise FormatError(path, 0, "hash collision: a different case "
+                                  "record is retained under this name")
+    else:
+        print(f"@TARGET:{rel}")
+    print(f"RETAINED_CASE:{rel}")
+
+
+def read_case_record(store_dir: str, hexname: str):
+    """The text of the TRUSTED record cases/<hexname>.txt, or None."""
+    if not re.fullmatch(r"[0-9a-f]{16}", hexname or ""):
+        return None
+    path = os.path.join(store_dir, "cases", f"{hexname}.txt")
+    try:
+        if os.path.islink(path):
+            return None
+        with open(path, "rb") as fh:
+            data = fh.read(MAX_RETAIN_BYTES + 1)
+    except OSError:
+        return None
+    text = data.decode("utf-8", "replace")
+    return text if text.split("\n", 1)[0] in CASE_RECORD_HEADERS else None
+
+
+def case_origin_input(store_dir: str, hexname: str):
+    """``(raw rel path, sha256)`` named by the TRUSTED case origin record
+    cases/<hexname>.txt, or None (a sources/ passage that merely starts with
+    the origin header has no trusted twin and is never followed)."""
+    path = os.path.join(store_dir, "cases", f"{hexname}.txt")
+    try:
+        if os.path.islink(path):
+            return None
+        with open(path, "rb") as fh:
+            data = fh.read(MAX_RETAIN_BYTES + 1)
+    except OSError:
+        return None
+    lines = data.decode("utf-8", "replace").split("\n")
+    if not lines or lines[0] != CASE_ORIGIN_HEADER:
+        return None
+    vals = dict(ln.partition("=")[::2] for ln in lines[1:] if "=" in ln)
+    rel, sha = vals.get("input", ""), vals.get("input_sha256", "")
+    if not RAW_RE.match(rel) or not re.fullmatch(r"[0-9a-f]{64}", sha):
+        return None
+    return rel, sha
+
+
+def raw_input_ok(store_dir: str, rel: str, sha: str) -> bool:
+    """Is the raw input there, a regular file, with exactly that sha256?"""
+    path = os.path.join(store_dir, rel)
+    if os.path.islink(path) or not os.path.isfile(path):
+        return False
+    h = hashlib.sha256()
+    try:
+        with open(path, "rb") as fh:
+            for chunk in iter(lambda: fh.read(1 << 20), b""):
+                h.update(chunk)
+    except OSError:
+        return False
+    return h.hexdigest() == sha
+
+
 def load_todo_for_read(store_dir: str) -> TodoStore:
     """load_todo for the read-only verbs: a never-initialized store is empty,
     a missing todo.md in an established store is damage (exit 4)."""
@@ -1267,10 +1420,15 @@ def op_context(args, _text):
 
 
 def op_check_sources(args, _text):
-    """Retained-capture pointers only: task/plan/file targets move on archival."""
+    """Retained-capture pointers only: task/plan/file targets move on archival.
+
+    A pointer at a review case ORIGIN file (t2175_6) is followed one step: the
+    raw input it names must exist with its recorded sha256, reported as its
+    own SOURCE_OK / SOURCE_MISSING line (a mismatch is missing)."""
     store = load_todo_for_read(args.store)
     out = []
     for num in sorted(store.contexts):
+        raws = []
         for stype, ptr in store.contexts[num].sources:
             if stype != "capture":
                 continue
@@ -1279,6 +1437,14 @@ def op_check_sources(args, _text):
                 out.append(f"SOURCE_OK:c{num}|{ptr}")
             except RequestError:
                 out.append(f"SOURCE_MISSING:c{num}|{ptr}")
+                continue
+            m = CAPTURE_RE.match(ptr)
+            raw = case_origin_input(args.store, m.group(1)) if m else None
+            if raw and raw not in raws:
+                raws.append(raw)
+        for rel, sha in raws:
+            ok = raw_input_ok(args.store, rel, sha)
+            out.append(f"{'SOURCE_OK' if ok else 'SOURCE_MISSING'}:c{num}|{rel}")
     _emit(out or ["NO_SOURCES"])
 
 
@@ -1379,6 +1545,8 @@ def _build_parser() -> argparse.ArgumentParser:
     sp = mk("qa", op_qa, True, True)
     sp.add_argument("--items", default="")
     mk("retain", op_retain, True)
+    mk("retain-raw", op_retain_raw, True)
+    mk("retain-case", op_retain_case, True)
     mk("list", op_list)
     sp = mk("context", op_context)
     sp.add_argument("id")

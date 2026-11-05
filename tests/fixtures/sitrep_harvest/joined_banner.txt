@@ -1,0 +1,16 @@
+● Bash(./.aitask-scripts/aitask_archive.sh 61)
+  ⎿  COMMITTED:6a1b2c3
+
+● t61 is archived. The review found one gap in the export path, so I created t62 for it; pick it before the next release.                             
+                                                                                                                                                      
+✔ aitask workflow complete — t61 example_joined_banner outcome: archived (commit 6a1b2c3) · pushed: yes follow-ups                                    
+  created: t62                                                                                                                                        
+
+✻ Cooked for 4m 2s · done 3:10 PM
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  [Opus 5.5 | Max] ███░░░░░░░ 31% | ░░░░░░░░░░
+  example git:(main)
+  ⏵⏵ auto mode on (shift+tab to cycle)
