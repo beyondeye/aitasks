@@ -20,15 +20,22 @@ the un-fixed code:
 
 All ordering is deterministic through the injectable ``_run_offloaded`` seam —
 no sleep-based timing (per ``aidocs/framework/testing_conventions.md``).
+Mounted tests drain the UI work a refresh or ``focus()`` defers
+(``call_after_refresh`` callbacks, ``call_later`` focus, the exclusive preview
+render workers) with ``_settle`` — an ordering sentinel, never a bare
+``pilot.pause()``, which only waits for CPU idleness and so stops covering the
+deferred work under load (t2210).
 """
 
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import os
 import sys
 import unittest
 from pathlib import Path
+from unittest import mock
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts"))
@@ -47,6 +54,7 @@ from monitor.monitor_app import (  # noqa: E402
     SHADOW_MIN_AGENT_COLS,
     ZONE_ORDER,
     MonitorApp,
+    PaneCard,
     Zone,
 )
 from monitor.monitor_core import (  # noqa: E402
@@ -56,6 +64,7 @@ from monitor.monitor_core import (  # noqa: E402
     TmuxPaneInfo,
 )
 from monitor.prompt_patterns import all_patterns  # noqa: E402
+from textual.worker import WorkerState  # noqa: E402
 
 _AGENT_CONTENT = "agent output line\nworking..."
 _SHADOW_CONTENT = "shadow analysis line\nthinking..."
@@ -143,7 +152,141 @@ def _make_app(mon) -> MonitorApp:
     app._consume_focus_request = _no_focus_request
     app._read_attached_session = _no_attached
     mon.get_session_to_project_mapping_async = _no_mapping
+    # The trailing maintenance (marks/session purge, sitrep harvest + refresh)
+    # is real subprocess work against REPO_ROOT; nothing here asserts it, and
+    # its own docstring names this seam as the one tests stub.
+    app._dispatch_refresh_maintenance = lambda: None
+
+    # Record every preview render worker the app starts, so `_settle` can
+    # drain them — including exclusive replacements and workers that already
+    # left `app.workers` (Textual drops finished workers from the manager).
+    app._test_render_workers = []
+    real_run_worker = app.run_worker
+
+    def _recording_run_worker(work, *args, **kwargs):
+        worker = real_run_worker(work, *args, **kwargs)
+        if kwargs.get("group") in _RENDER_GROUPS:
+            app._test_render_workers.append(worker)
+        return worker
+
+    app.run_worker = _recording_run_worker
     return app
+
+
+# -- Deferred-work draining (t2210) --------------------------------------------
+#
+# One `_refresh_data()` defers most of what the mounted tests assert on:
+# `_restore_focus` and `_apply_shadow_visibility` via call_after_refresh, the
+# preview/shadow renders as exclusive workers, and `Widget.focus()` itself via
+# call_later. `pilot.pause()` waits only for CPU idleness, so under load one
+# pause does not cover them and the assertions read a half-applied state.
+
+_SETTLE_TIMEOUT = 10.0
+_RENDER_GROUPS = frozenset({"preview", "shadow-preview"})
+_TERMINAL = frozenset(
+    {WorkerState.SUCCESS, WorkerState.CANCELLED, WorkerState.ERROR}
+)
+
+
+async def _until(pilot, predicate, what, *, timeout=_SETTLE_TIMEOUT,
+                 deadline=None):
+    """Pump the app until `predicate()` holds, all within the budget.
+
+    The budget is `timeout` seconds from now, or an absolute loop-time
+    `deadline` shared with a caller (`_settle` passes its whole-call deadline,
+    so several waits draw on one budget). It bounds each pump as well as the
+    loop: `pilot.pause()` can block for up to 30s on its own
+    (`Pilot._wait_for_screen`), so an unbounded pump would overrun the
+    deadline, and a predicate turning true during it would report success
+    after the budget had already been spent. A success observed past the
+    deadline is therefore rejected too.
+    """
+    loop = asyncio.get_running_loop()
+    start = loop.time()
+    if deadline is None:
+        deadline = start + timeout
+
+    def _late(reason: str) -> AssertionError:
+        return AssertionError(
+            f"{reason} after {loop.time() - start:.3f}s "
+            f"(budget left at entry {deadline - start:.3f}s) waiting for {what}")
+
+    while True:
+        if predicate():
+            if loop.time() > deadline:
+                raise _late("condition held only past the deadline")
+            return
+        remaining = deadline - loop.time()
+        if remaining <= 0:
+            raise _late("timed out")
+        try:
+            await asyncio.wait_for(pilot.pause(), remaining)
+        except asyncio.TimeoutError:
+            raise _late("pilot.pause() overran the remaining budget") from None
+
+
+def _worker_done(worker) -> bool:
+    """Terminal state, OR a cancellation that landed before `_run` began.
+
+    Textual 8.2.7: `Worker._start` sets RUNNING and only then schedules
+    `_run`. An exclusive replacement's `cancel()` arriving first cancels the
+    task before `_run`'s CancelledError handler exists, so the task finishes
+    cancelled while `state` stays RUNNING for good. Only the task tells the
+    truth then. Any other finished-but-RUNNING shape raises, so a future
+    Textual change fails loudly instead of hanging or passing.
+    """
+    if worker.state in _TERMINAL:
+        return True
+    task = getattr(worker, "_task", None)
+    if task is None or not task.done():
+        return False  # PENDING (not started), or still running
+    if task.cancelled() or worker.is_cancelled:
+        return True  # superseded before it ran
+    raise AssertionError(
+        f"worker {worker.name!r} finished in state {worker.state} — "
+        "Textual worker internals changed?")
+
+
+async def _settle(app, pilot, *, rounds=3, timeout=_SETTLE_TIMEOUT):
+    """Drain what a refresh / focus() deferred — by ordering, not by time.
+
+    Each round waits until every preview render worker the app ever started
+    is done (a superseded one counts as done; a failed one is reported), then
+    posts a sentinel through call_after_refresh and pumps until it fires.
+    `call_later` messages and after-refresh callbacks are both FIFO in
+    Textual, so everything queued earlier has run by then. Several rounds
+    cover one deferred step queueing the next (refresh -> _restore_focus ->
+    render worker -> scroll callback). One deadline bounds the whole call.
+    """
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
+    log = app._test_render_workers
+
+    for _ in range(rounds):
+        await _until(pilot, lambda: all(_worker_done(w) for w in log),
+                     "preview render workers to finish", deadline=deadline)
+        failed = [w for w in log if w.state is WorkerState.ERROR]
+        if failed:
+            raise AssertionError(
+                f"preview render worker failed: {failed[0].error!r}")
+        fired: list[bool] = []
+        app.call_after_refresh(fired.append, True)
+        await _until(pilot, lambda: bool(fired), "deferred callbacks to run",
+                     deadline=deadline)
+
+
+@contextlib.contextmanager
+def _no_tmux_env():
+    """Mount on the not-inside-tmux path for this run, whatever another module
+    left in the environment. Inside tmux, `on_mount` replaces the stubbed
+    monitor with a real `TmuxMonitor` and starts `first_refresh` + the timer."""
+    with mock.patch.dict(os.environ):
+        os.environ.pop("TMUX", None)
+        os.environ.pop("TMUX_PANE", None)
+        yield
+
+
+_STUB_REPLACED = "on_mount replaced the stubbed monitor (TMUX set at mount?)"
 
 
 def _run_mounted(check, *, panes, shadows, content, size=(120, 30)):
@@ -158,10 +301,12 @@ def _run_mounted(check, *, panes, shadows, content, size=(120, 30)):
         mon = _make_monitor(panes, shadows, content)
         app = _make_app(mon)
         async with app.run_test(size=size) as pilot:
-            await pilot.pause()
+            await _settle(app, pilot)
+            assert app._monitor is mon, _STUB_REPLACED
             await check(app, pilot, mon)
 
-    asyncio.run(runner())
+    with _no_tmux_env():
+        asyncio.run(runner())
 
 
 def _one_agent_one_shadow(shadow_width: int = 40):
@@ -283,7 +428,7 @@ class KeyTargetingTests(unittest.TestCase):
         async def wrapped(app, pilot, mon):
             app._focused_pane_id = "%1"
             await app._refresh_data()
-            await pilot.pause()
+            await _settle(app, pilot)
             spy = _ForwardSpy(app, mon)
             await check(app, pilot, mon, spy)
 
@@ -383,7 +528,7 @@ class TailFollowTests(unittest.TestCase):
         async def wrapped(app, pilot, mon):
             app._focused_pane_id = "%1"
             await app._refresh_data()
-            await pilot.pause()
+            await _settle(app, pilot)
             app.notify = lambda *a, **kw: None
             scheduled: list[str] = []
             app.call_later = lambda cb, *a, **kw: scheduled.append(
@@ -657,16 +802,18 @@ class MountedShadowColumnTests(unittest.TestCase):
             )
             app = _make_app(mon)
             async with app.run_test(size=size) as pilot:
-                await pilot.pause()
+                await _settle(app, pilot)
+                assert app._monitor is mon, _STUB_REPLACED
                 await coro_factory(app, pilot, mon)
 
-        asyncio.run(runner())
+        with _no_tmux_env():
+            asyncio.run(runner())
 
     def test_shadow_column_shown_and_sized_from_real_pane_width(self):
         async def check(app, pilot, mon):
             app._focused_pane_id = "%1"
             await app._refresh_data()
-            await pilot.pause()
+            await _settle(app, pilot)
             col = app.query_one("#shadow-col")
             self.assertTrue(col.display)
             # width == shadow pane width + 1 gutter
@@ -679,7 +826,7 @@ class MountedShadowColumnTests(unittest.TestCase):
             mon._shadow_snapshots.clear()
             app._focused_pane_id = "%1"
             app._apply_shadow_visibility(None)
-            await pilot.pause()
+            await _settle(app, pilot)
             self.assertFalse(app.query_one("#shadow-col").display)
 
         self._run(check)
@@ -701,13 +848,13 @@ class MountedShadowColumnTests(unittest.TestCase):
         async def check(app, pilot, mon):
             app._focused_pane_id = "%1"
             await app._refresh_data()
-            await pilot.pause()
+            await _settle(app, pilot)
             app._active_zone = Zone.SHADOW
             app._shadow_zone_agent_id = "%1"
             app.query_one("#shadow-preview").focus()
-            await pilot.pause()
+            await _settle(app, pilot)
             await app._refresh_data()
-            await pilot.pause()
+            await _settle(app, pilot)
             self.assertEqual(app._active_zone, Zone.SHADOW)
             self.assertEqual(app.focused.id, "shadow-preview")
 
@@ -720,19 +867,60 @@ class MountedShadowColumnTests(unittest.TestCase):
         async def check(app, pilot, mon):
             app._focused_pane_id = "%1"
             await app._refresh_data()
-            await pilot.pause()
+            await _settle(app, pilot)
             preview = app.query_one("#shadow-preview")
             self.assertIn("shadow analysis line", preview.render().plain)
 
             # Move the selection to the second agent by focusing its real card,
             # so _restore_focus does not revert _focused_pane_id underneath us.
             app._pane_cards["%2"].focus()
-            await pilot.pause()
+            await _settle(app, pilot)
+            # Precondition, not the assertion: the selection must have moved
+            # BEFORE the refresh saves it. Focus lands via call_later plus a
+            # bubbled DescendantFocus, which is not ordered against the
+            # sentinel, so wait for its effect explicitly.
+            await _until(pilot, lambda: app._focused_pane_id == "%2",
+                         "focus to land on %2's card")
             await app._refresh_data()
-            await pilot.pause()
-            await pilot.pause()
+            await _settle(app, pilot)
             self.assertEqual(app._focused_pane_id, "%2")
             self.assertIn("shadow TWO content", preview.render().plain)
+
+        self._run(check)
+
+    def test_refresh_rerenders_the_shadow_column_without_a_selection_change(self):
+        """The 3s refresh itself must re-render the shadow column.
+
+        The test above cannot show that: a selection change renders the column
+        through on_descendant_focus -> _update_zone_indicators, whatever the
+        refresh does. Here the selection never moves and only the captured
+        shadow text changes, so the new text can only arrive by the refresh.
+        """
+
+        async def check(app, pilot, mon):
+            app._focused_pane_id = "%1"
+            await app._refresh_data()
+            await _settle(app, pilot)
+            preview = app.query_one("#shadow-preview")
+            self.assertIn("shadow analysis line", preview.render().plain)
+
+            real_capture = mon.capture_pane_content_async
+
+            async def _refreshed_shadow(pane_id, capture_lines=None, pane=None):
+                result = await real_capture(pane_id, capture_lines, pane)
+                if pane_id == "%9" and result is not None:
+                    return result[0], "shadow REFRESHED content"
+                return result
+
+            mon.capture_pane_content_async = _refreshed_shadow
+            await app._refresh_data()
+            await _settle(app, pilot)
+
+            # The selection did not move — asserted, not assumed.
+            self.assertEqual(app._focused_pane_id, "%1")
+            self.assertIsInstance(app.focused, PaneCard)
+            self.assertEqual(app.focused.pane_id, "%1")
+            self.assertIn("shadow REFRESHED content", preview.render().plain)
 
         self._run(check)
 
@@ -744,11 +932,11 @@ class MountedShadowColumnTests(unittest.TestCase):
         async def check(app, pilot, mon):
             app._focused_pane_id = "%1"
             await app._refresh_data()
-            await pilot.pause()
+            await _settle(app, pilot)
             app._active_zone = Zone.SHADOW
             app._shadow_zone_agent_id = "%1"
             app.query_one("#shadow-preview").focus()
-            await pilot.pause()
+            await _settle(app, pilot)
 
             async def _no_shadows(*, enum_sink=None):
                 if enum_sink is not None:
@@ -759,7 +947,7 @@ class MountedShadowColumnTests(unittest.TestCase):
 
             mon.discover_panes_with_shadows_async = _no_shadows
             await app._refresh_data()  # first absent tick → HOLD
-            await pilot.pause()
+            await _settle(app, pilot)
 
             self.assertEqual(app._active_zone, Zone.SHADOW)
             self.assertTrue(app.query_one("#shadow-col").display)
@@ -784,11 +972,11 @@ class MountedShadowColumnTests(unittest.TestCase):
         async def check(app, pilot, mon):
             app._focused_pane_id = "%1"
             await app._refresh_data()
-            await pilot.pause()
+            await _settle(app, pilot)
             app._active_zone = Zone.SHADOW
             app._shadow_zone_agent_id = "%1"
             app.query_one("#shadow-preview").focus()
-            await pilot.pause()
+            await _settle(app, pilot)
 
             async def _no_shadows(*, enum_sink=None):
                 if enum_sink is not None:
@@ -801,14 +989,13 @@ class MountedShadowColumnTests(unittest.TestCase):
 
             # ONE absent full refresh — inside the grace window.
             await app._refresh_data()
-            await pilot.pause()
+            await _settle(app, pilot)
             self.assertEqual(app._active_zone, Zone.SHADOW)
 
             # Resize while still holding, staying comfortably wide enough that
             # the split itself still fits.
             await pilot.resize_terminal(118, 30)
-            await pilot.pause()
-            await pilot.pause()
+            await _settle(app, pilot)
 
             self.assertEqual(
                 app._active_zone, Zone.SHADOW,
@@ -827,14 +1014,14 @@ class MountedShadowColumnTests(unittest.TestCase):
         async def check(app, pilot, mon):
             app._focused_pane_id = "%1"
             await app._refresh_data()
-            await pilot.pause()
+            await _settle(app, pilot)
             # Column hidden after the restore was queued.
             app._apply_shadow_visibility(None)
-            await pilot.pause()
+            await _settle(app, pilot)
             self.assertFalse(app._shadow_split_ok)
 
             app._restore_focus("%1", Zone.SHADOW, False)
-            await pilot.pause()
+            await _settle(app, pilot)
 
             self.assertEqual(app._active_zone, Zone.PREVIEW)
             self.assertNotEqual(app.focused.id, "shadow-preview")
@@ -856,7 +1043,7 @@ class MountedShadowColumnTests(unittest.TestCase):
         async def check(app, pilot, mon):
             app._focused_pane_id = "%1"
             await app._refresh_data()
-            await pilot.pause()
+            await _settle(app, pilot)
             app._active_zone = Zone.SHADOW
             app._shadow_zone_agent_id = "%1"
 
@@ -880,7 +1067,7 @@ class MountedShadowColumnTests(unittest.TestCase):
             mon.discover_panes_with_shadows_async = _no_shadows
             for _ in range(SHADOW_ABSENT_GRACE_TICKS):
                 await app._refresh_data()
-                await pilot.pause()
+                await _settle(app, pilot)
 
             self.assertEqual(app._active_zone, Zone.PREVIEW)
             # The LAST refresh is the one whose reconcile fired the fallback.
@@ -906,11 +1093,13 @@ class NarrowFallbackTests(unittest.TestCase):
             mon = _make_monitor([agent], [shadow1], content)
             app = _make_app(mon)
             async with app.run_test(size=(200, 30)) as pilot:
-                await pilot.pause()
+                await _settle(app, pilot)
+                assert app._monitor is mon, _STUB_REPLACED
                 row = app.query_one("#preview-row")
                 result["chrome"] = 200 - row.content_region.width
 
-        asyncio.run(runner())
+        with _no_tmux_env():
+            asyncio.run(runner())
         return result["chrome"], 40
 
     def test_split_flips_at_the_derived_boundary(self):
@@ -927,10 +1116,11 @@ class NarrowFallbackTests(unittest.TestCase):
             mon = _make_monitor([agent], [shadow1], content)
             app = _make_app(mon)
             async with app.run_test(size=(width, 30)) as pilot:
-                await pilot.pause()
+                await _settle(app, pilot)
+                assert app._monitor is mon, _STUB_REPLACED
                 app._focused_pane_id = "%1"
                 await app._refresh_data()
-                await pilot.pause()
+                await _settle(app, pilot)
                 observed[key] = (
                     app.query_one("#shadow-col").display,
                     app.query_one("#agent-col").size.width,
@@ -939,7 +1129,8 @@ class NarrowFallbackTests(unittest.TestCase):
         for width, key in (
             (threshold - 1, "below"), (threshold, "at"), (threshold + 1, "above")
         ):
-            asyncio.run(runner(width, key))
+            with _no_tmux_env():
+                asyncio.run(runner(width, key))
 
         self.assertFalse(observed["below"][0], "must not split below threshold")
         self.assertTrue(observed["at"][0], "must split at threshold")
@@ -963,7 +1154,8 @@ class NarrowFallbackTests(unittest.TestCase):
             mon = _make_monitor([agent], [shadow1], content)
             app = _make_app(mon)
             async with app.run_test(size=(threshold + 20, 30)) as pilot:
-                await pilot.pause()
+                await _settle(app, pilot)
+                assert app._monitor is mon, _STUB_REPLACED
                 app._focused_pane_id = "%1"
                 # Default preset is a FIXED one, not "agents:N".
                 spec = app._preview_size_idx
@@ -971,16 +1163,16 @@ class NarrowFallbackTests(unittest.TestCase):
                     str(spec).startswith("agents:"),
                 )
                 await app._refresh_data()
-                await pilot.pause()
+                await _settle(app, pilot)
                 seen["wide"] = app.query_one("#shadow-col").display
                 # Narrow past the threshold — no _refresh_data in between, so
                 # only on_resize can flip it.
                 await pilot.resize_terminal(threshold - 5, 30)
-                await pilot.pause()
-                await pilot.pause()
+                await _settle(app, pilot)
                 seen["narrow"] = app.query_one("#shadow-col").display
 
-        asyncio.run(runner())
+        with _no_tmux_env():
+            asyncio.run(runner())
         self.assertTrue(seen["wide"])
         self.assertFalse(seen["narrow"], "resize must re-decide the split")
 
