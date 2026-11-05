@@ -3,12 +3,13 @@ priority: medium
 effort: high
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [sitrep, tui, monitor, tmux]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 2175
 created_at: 2026-11-05 08:36
-updated_at: 2026-11-05 08:36
+updated_at: 2026-11-05 12:23
 ---
 
 # Sitrep window: add a Python sitrep TUI beside the sitrep agent
