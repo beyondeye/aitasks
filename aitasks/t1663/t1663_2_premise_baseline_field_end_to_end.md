@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: [t1663_1]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [task-workflow]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1538
 created_at: 2026-09-01 15:19
-updated_at: 2026-09-01 15:19
+updated_at: 2026-11-05 09:04
 ---
 
 Add the `premise_baseline:` frontmatter field end-to-end: writer flag, merge rule, extension-point sweep, contract test, and documentation surfaces.
