@@ -400,6 +400,13 @@ fi
 # approval; the primary keeps its own, and the folded file is deleted at
 # archival anyway.
 
+# premise_baseline (t1663_2) is a scalar recording the commit at which THIS
+# task's premise was last known valid, so it follows the same rule: NOT
+# unioned/merged on fold, and the fold never writes one. A folded task's
+# baseline describes a different premise; adopting it would claim the primary's
+# premise was reviewed at a commit nobody reviewed it at. The primary keeps its
+# own (or none), and the folded file is deleted at archival anyway.
+
 # === Transaction boundary (t1668) ============================================
 # Everything below this line mutates. The fold's own file set and a snapshot of
 # every path in it are assembled FIRST, so any abort from here through Step 6

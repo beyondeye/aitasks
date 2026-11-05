@@ -64,13 +64,19 @@ commit", which is a different statement with a different review transaction.
 t1561's own constraints forbid the widening.
 
 Written by `aitask_update.sh --premise-baseline` (update-path only, like
-`plan_approved_at`; empty string clears). Merge rule:
+`plan_approved_at`; empty string clears). The writer accepts
+`<oid> @ <YYYY-MM-DD HH:MM>` or a bare `<oid>`, which it stamps with the current
+time. `<oid>` must be a full 40- or 64-hex id that names a commit in the
+repository (`git cat-file -e <oid>^{commit}`), and it is stored lowercase. A
+symbolic revision is rejected rather than resolved, so callers pass the
+`CHECKED:` sha. A rejected value leaves the task file untouched. Merge rule:
 `_BASE_AWARE_FIELDS` in `board/aitask_merge.py` with `deletion_aware=True` —
 the same two documented failure modes apply verbatim (a presence-based merge
 resurrects a dismissed baseline after sync; an `updated_at`-newer merge lets
-an unrelated `--status` edit win a field it never touched). This is the third
-user of `_normalize_opaque_scalar`, which its own comment says promotes the
-helper out of copy-paste.
+an unrelated `--status` edit win a field it never touched), and divergent
+advances on both sides resolve to PARTIAL. It compares through
+`lib/opaque_scalar.py:normalize_opaque_scalar`, the helper it shares with
+`verification_baseline` and `plan_approved_at`.
 
 ### Scope and baseline are orthogonal axes
 

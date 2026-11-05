@@ -957,8 +957,7 @@ class TestMergeVerificationBaseline(unittest.TestCase):
         self.assertNotIn("verification_baseline", aitask_merge._LIST_UNION_FIELDS)
 
     def test_opaque_scalar_normalizer_semantics(self):
-        import aitask_merge
-        norm = aitask_merge._normalize_opaque_scalar
+        from opaque_scalar import normalize_opaque_scalar as norm
         # absent / None / non-string / blank all read as absent
         self.assertEqual(norm(None), "")
         self.assertEqual(norm(""), "")
@@ -1078,6 +1077,144 @@ class TestMergePlanApprovedAt(unittest.TestCase):
                         "clear serializes as `plan_approved_at: null`")
         self.assertNotIn("plan_approved_at", aitask_merge._KEEP_LOCAL_FIELDS)
         self.assertNotIn("plan_approved_at", aitask_merge._LIST_UNION_FIELDS)
+
+
+class TestMergePremiseBaseline(unittest.TestCase):
+    """`premise_baseline` (t1663_2) resolves base-aware, like plan_approved_at.
+
+    The field records the commit at which a task's premise was last known
+    valid. It advances when someone reviews a premise-staleness prompt and is
+    CLEARED by removing the key. Both generic merge rules get it wrong:
+
+      * one-sided presence resolves first and unconditionally, so a stale
+        checkout still carrying the old baseline would beat a checkout that
+        cleared it -- a revoked review would resurrect on sync;
+      * `updated_at` is task-wide, so an unrelated `--status` edit on a stale
+        checkout would win a field it never touched.
+
+    Two different advances are two separate review claims, so they must fail
+    closed to PARTIAL rather than be guessed between.
+    """
+
+    V1 = "1" * 40 + " @ 2026-11-01 09:00"
+    V2 = "a" * 40 + " @ 2026-11-03 10:30"
+    V3 = "b" * 40 + " @ 2026-11-04 08:15"
+
+    def _merge(self, local, remote, base=None):
+        return merge_frontmatter(local, remote, batch=True, base_meta=base)
+
+    # --- (a) a clear is never resurrected, either way round --------------
+    def test_local_clear_beats_stale_remote_carrier(self):
+        merged, unresolved = self._merge(
+            {}, {"premise_baseline": self.V1},
+            base={"premise_baseline": self.V1})
+        # ABSENT, not present-as-None: serialize_frontmatter gates on key
+        # membership, so a None would be written as `premise_baseline: null`.
+        self.assertNotIn("premise_baseline", merged)
+        self.assertNotIn("premise_baseline", unresolved)
+
+    def test_remote_clear_beats_stale_local_carrier(self):
+        merged, unresolved = self._merge(
+            {"premise_baseline": self.V1}, {},
+            base={"premise_baseline": self.V1})
+        self.assertNotIn("premise_baseline", merged)
+        self.assertNotIn("premise_baseline", unresolved)
+
+    def test_stale_carrier_with_unrelated_edit_does_not_resurrect(self):
+        """One PC clears the baseline while another only edits status."""
+        merged, unresolved = self._merge(
+            {"premise_baseline": self.V1, "status": "Editing"},
+            {"status": "Implementing"},
+            base={"premise_baseline": self.V1, "status": "Ready"})
+        self.assertNotIn("premise_baseline", merged)
+        self.assertNotIn("premise_baseline", unresolved)
+
+    # --- (b) an unrelated newer edit does not win the field ---------------
+    def test_stale_unrelated_edit_does_not_win(self):
+        """Local never touched the baseline but carries a NEWER task-wide
+        timestamp from an unrelated `--status` edit; remote advanced it."""
+        merged, unresolved = self._merge(
+            {"premise_baseline": self.V1, "status": "Postponed",
+             "updated_at": "2026-11-05 09:00"},
+            {"premise_baseline": self.V2, "status": "Ready",
+             "updated_at": "2026-11-03 10:30"},
+            base={"premise_baseline": self.V1, "status": "Ready"})
+        self.assertEqual(merged["premise_baseline"], self.V2)
+        self.assertNotIn("premise_baseline", unresolved)
+
+    def test_advance_beats_unchanged_side(self):
+        merged, unresolved = self._merge(
+            {"premise_baseline": self.V2}, {"premise_baseline": self.V1},
+            base={"premise_baseline": self.V1})
+        self.assertEqual(merged["premise_baseline"], self.V2)
+        self.assertNotIn("premise_baseline", unresolved)
+
+    def test_first_stamp_beats_side_that_never_had_it(self):
+        merged, unresolved = self._merge(
+            {}, {"premise_baseline": self.V1}, base={})
+        self.assertEqual(merged["premise_baseline"], self.V1)
+        self.assertNotIn("premise_baseline", unresolved)
+
+    # --- (c) divergent advances fail closed --------------------------------
+    def test_divergent_advances_are_unresolved(self):
+        merged, unresolved = self._merge(
+            {"premise_baseline": self.V2}, {"premise_baseline": self.V3},
+            base={"premise_baseline": self.V1})
+        self.assertIn("premise_baseline", unresolved)
+
+    def test_clear_versus_advance_is_unresolved(self):
+        """A clear and an advance are both edits: neither side is stale."""
+        merged, unresolved = self._merge(
+            {}, {"premise_baseline": self.V2},
+            base={"premise_baseline": self.V1})
+        self.assertIn("premise_baseline", unresolved)
+
+    def test_no_base_available_is_unresolved(self):
+        """An add/add conflict has no stage-1 base -> fail closed to PARTIAL."""
+        merged, unresolved = self._merge(
+            {"premise_baseline": self.V1}, {"premise_baseline": self.V2},
+            base=None)
+        self.assertIn("premise_baseline", unresolved)
+
+    def test_identical_sides_are_not_a_conflict(self):
+        merged, unresolved = self._merge(
+            {"premise_baseline": self.V1}, {"premise_baseline": self.V1},
+            base={"premise_baseline": self.V1})
+        self.assertEqual(merged["premise_baseline"], self.V1)
+        self.assertNotIn("premise_baseline", unresolved)
+
+    # --- guards -----------------------------------------------------------
+    def test_premise_baseline_is_base_aware_and_deletion_aware(self):
+        import aitask_merge
+        self.assertIn("premise_baseline", aitask_merge._BASE_AWARE_FIELDS)
+        _normalize, deletion_aware = \
+            aitask_merge._BASE_AWARE_FIELDS["premise_baseline"]
+        self.assertTrue(deletion_aware,
+                        "a tombstone-less field must be deletion_aware, or a "
+                        "clear serializes as `premise_baseline: null`")
+        self.assertNotIn("premise_baseline", aitask_merge._KEEP_LOCAL_FIELDS)
+        self.assertNotIn("premise_baseline", aitask_merge._LIST_UNION_FIELDS)
+
+    def test_opaque_fields_share_the_promoted_normalizer(self):
+        """All three opaque fields compare through the ONE shared helper."""
+        import aitask_merge
+        import opaque_scalar
+        for field in ("verification_baseline", "plan_approved_at",
+                      "premise_baseline"):
+            with self.subTest(field=field):
+                normalize, _ = aitask_merge._BASE_AWARE_FIELDS[field]
+                self.assertIs(normalize, opaque_scalar.normalize_opaque_scalar)
+
+    def test_merge_driver_defines_no_local_copy(self):
+        """The promotion is not undone by a re-added private copy."""
+        import ast
+        import aitask_merge
+        with open(aitask_merge.__file__, encoding="utf-8") as fh:
+            tree = ast.parse(fh.read())
+        local = [n.name for n in ast.walk(tree)
+                 if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+                 and "opaque_scalar" in n.name]
+        self.assertEqual(local, [])
 
 
 if __name__ == "__main__":

@@ -99,6 +99,8 @@ BATCH_VERIFICATION_BASELINE=""
 BATCH_VERIFICATION_BASELINE_SET=false
 BATCH_PLAN_APPROVED_AT=""
 BATCH_PLAN_APPROVED_AT_SET=false
+BATCH_PREMISE_BASELINE=""
+BATCH_PREMISE_BASELINE_SET=false
 BATCH_BOARDCOL=""
 BATCH_BOARDCOL_SET=false
 BATCH_BOARDIDX=""
@@ -158,6 +160,7 @@ CURRENT_IMPLEMENTED_WITH=""
 CURRENT_FILE_REFERENCES=""
 CURRENT_VERIFICATION_BASELINE=""
 CURRENT_PLAN_APPROVED_AT=""
+CURRENT_PREMISE_BASELINE=""
 
 # --- Helper Functions ---
 
@@ -219,6 +222,17 @@ Deferred-plan marker (batch mode):
                          `ait ls -v` / --plan-approved and by the planning
                          step's existing-plan prompt. Display and prompting
                          only -- it never routes the workflow.
+
+Premise baseline (batch mode):
+  --premise-baseline VALUE
+                         Commit at which the task's premise was last known
+                         valid, as "<sha> @ <YYYY-MM-DD HH:MM>". A bare <sha>
+                         is stamped with the current time; "" clears. <sha>
+                         must be a full 40- or 64-hex commit id that exists in
+                         this repository -- symbolic revisions (HEAD, a branch,
+                         an abbreviation) are rejected, never resolved; pass
+                         the output of `git rev-parse --verify <rev>^{commit}`.
+                         Read by aitask_premise_stale.sh.
 
 Label options (batch mode):
   --labels, -l LABELS    Labels (comma-separated, replaces all existing labels).
@@ -391,6 +405,7 @@ parse_args() {
             --followup-kind) BATCH_FOLLOWUP_KIND="$2"; BATCH_FOLLOWUP_KIND_SET=true; shift 2 ;;
             --verification-baseline) BATCH_VERIFICATION_BASELINE="$2"; BATCH_VERIFICATION_BASELINE_SET=true; shift 2 ;;
             --plan-approved-at) BATCH_PLAN_APPROVED_AT="$2"; BATCH_PLAN_APPROVED_AT_SET=true; shift 2 ;;
+            --premise-baseline) BATCH_PREMISE_BASELINE="$2"; BATCH_PREMISE_BASELINE_SET=true; shift 2 ;;
             --boardcol) BATCH_BOARDCOL="$2"; BATCH_BOARDCOL_SET=true; shift 2 ;;
             --boardidx) BATCH_BOARDIDX="$2"; BATCH_BOARDIDX_SET=true; shift 2 ;;
             --boardgroup) BATCH_BOARDGROUP="$2"; BATCH_BOARDGROUP_SET=true; shift 2 ;;
@@ -508,6 +523,7 @@ parse_yaml_frontmatter() {
     CURRENT_FILE_REFERENCES=""
     CURRENT_VERIFICATION_BASELINE=""
     CURRENT_PLAN_APPROVED_AT=""
+    CURRENT_PREMISE_BASELINE=""
 
     # Read entire file content
     local file_content
@@ -619,6 +635,7 @@ parse_yaml_frontmatter() {
                     ;;
                 verification_baseline) CURRENT_VERIFICATION_BASELINE="$value" ;;
                 plan_approved_at) CURRENT_PLAN_APPROVED_AT="$value" ;;
+                premise_baseline) CURRENT_PREMISE_BASELINE="$value" ;;
             esac
         fi
     done < <(printf '%s\n' "$yaml_content" | join_yaml_flow_lists)
@@ -722,6 +739,10 @@ write_task_file() {
     # `--plan-approved-at ""` removes the key, and an absent key is exactly
     # "no deferred approved plan".
     local plan_approved_at="${35:-}"
+    # Appended for the same reason (t1663_2). Same no-tombstone shape:
+    # `--premise-baseline ""` removes the key, and an absent key is exactly "no
+    # stored premise baseline" (aitask_premise_stale.sh reads SKIP).
+    local premise_baseline="${36:-}"
 
     # Preserve the `attachments:` (t1030) and `artifacts:` (t1076_2) blocks
     # verbatim: write_task_file rebuilds frontmatter from a fixed field set and
@@ -826,6 +847,12 @@ write_task_file() {
         # Omit-by-default, no tombstone: clearing removes the key.
         if [[ -n "$plan_approved_at" ]]; then
             echo "plan_approved_at: $plan_approved_at"
+        fi
+        # Only write premise_baseline if present (t1663_2). The commit at which
+        # the task's premise was last known valid, as "<sha> @ <ts>" -- the value
+        # main() validated. Omit-by-default, no tombstone: clearing removes the key.
+        if [[ -n "$premise_baseline" ]]; then
+            echo "premise_baseline: $premise_baseline"
         fi
         # Only write risk_mitigation_tasks if present (list; omitted by default,
         # dropped on fold by aitask_fold_mark.sh)
@@ -1225,6 +1252,7 @@ handle_child_task_completion() {
     local saved_implemented_with="$CURRENT_IMPLEMENTED_WITH"
     local saved_verification_baseline="$CURRENT_VERIFICATION_BASELINE"
     local saved_plan_approved_at="$CURRENT_PLAN_APPROVED_AT"
+    local saved_premise_baseline="$CURRENT_PREMISE_BASELINE"
 
     parse_yaml_frontmatter "$parent_file"
 
@@ -1245,7 +1273,8 @@ handle_child_task_completion() {
         "$CURRENT_BOARDGROUP" "$CURRENT_BOARDGROUP_PRESENT" \
         "$CURRENT_FOLLOWUP_KIND" \
         "$CURRENT_VERIFICATION_BASELINE" \
-        "$CURRENT_PLAN_APPROVED_AT"
+        "$CURRENT_PLAN_APPROVED_AT" \
+        "$CURRENT_PREMISE_BASELINE"
 
     if [[ -z "$new_children" ]]; then
         success "All children of t$parent_num are complete! Parent can now be completed."
@@ -1287,6 +1316,7 @@ handle_child_task_completion() {
     CURRENT_IMPLEMENTED_WITH="$saved_implemented_with"
     CURRENT_VERIFICATION_BASELINE="$saved_verification_baseline"
     CURRENT_PLAN_APPROVED_AT="$saved_plan_approved_at"
+    CURRENT_PREMISE_BASELINE="$saved_premise_baseline"
 }
 
 # Validate that parent cannot be completed with pending children
@@ -1782,7 +1812,8 @@ run_interactive_mode() {
         "$CURRENT_BOARDGROUP" "$CURRENT_BOARDGROUP_PRESENT" \
         "$CURRENT_FOLLOWUP_KIND" \
         "$CURRENT_VERIFICATION_BASELINE" \
-        "$CURRENT_PLAN_APPROVED_AT"
+        "$CURRENT_PLAN_APPROVED_AT" \
+        "$CURRENT_PREMISE_BASELINE"
 
     # Handle child task completion
     if [[ "$new_status" == "Done" ]]; then
@@ -1910,6 +1941,7 @@ run_batch_mode() {
     [[ "$BATCH_FOLLOWUP_KIND_SET" == true ]] && has_update=true
     [[ "$BATCH_VERIFICATION_BASELINE_SET" == true ]] && has_update=true
     [[ "$BATCH_PLAN_APPROVED_AT_SET" == true ]] && has_update=true
+    [[ "$BATCH_PREMISE_BASELINE_SET" == true ]] && has_update=true
     [[ "$BATCH_BOARDCOL_SET" == true ]] && has_update=true
     [[ "$BATCH_BOARDIDX_SET" == true ]] && has_update=true
     [[ "$BATCH_BOARDGROUP_SET" == true ]] && has_update=true
@@ -2176,6 +2208,14 @@ run_batch_mode() {
         fi
     fi
 
+    # Process premise_baseline (t1663_2). main() already validated and
+    # canonicalised the flag value (normalize_premise_baseline), so it is taken
+    # as-is here. Clearing is key removal, like plan_approved_at.
+    local new_premise_baseline="$CURRENT_PREMISE_BASELINE"
+    if [[ "$BATCH_PREMISE_BASELINE_SET" == true ]]; then
+        new_premise_baseline="$BATCH_PREMISE_BASELINE"
+    fi
+
     # Cross-field invariant on the RESULTING pair (t1468_1). It MUST be checked
     # here rather than beside the flag validation in main(): new_type is not
     # computed until this function runs, so a check up there cannot see the
@@ -2280,7 +2320,8 @@ run_batch_mode() {
         "$new_boardgroup" "$new_boardgroup_present" \
         "$new_followup_kind" \
         "$new_verification_baseline" \
-        "$new_plan_approved_at"
+        "$new_plan_approved_at" \
+        "$new_premise_baseline"
 
     # Handle child task completion (update parent if needed)
     if [[ "$new_status" == "Done" ]]; then
@@ -2336,6 +2377,39 @@ validate_active_tuple_flags() {
     if [[ "$BATCH_CLEAR_ACTIVE_GATES" == true && $n -gt 0 ]]; then
         die "--clear-active-gates cannot be combined with the --active-gates* tuple flags — task file unchanged"
     fi
+}
+
+# Validate and canonicalise --premise-baseline in place (t1663_2). Sets
+# BATCH_PREMISE_BASELINE to "<lowercase oid> @ <YYYY-MM-DD HH:MM>" or dies.
+# Call it as a plain statement, never inside $( ): die must end the process.
+#
+# The value is checked, not accepted. aitask_premise_stale.sh reads anything but
+# a full commit id as SKIP/invalid_baseline, and it reads a full id that names no
+# commit as SKIP/history_rewritten -- either way the task would be silently never
+# checked. A symbolic revision is rejected rather than resolved: callers must
+# write the revision the evidence was checked against (the CHECKED: sha), never
+# whatever HEAD happens to be at write time.
+normalize_premise_baseline() {
+    local raw="$BATCH_PREMISE_BASELINE"
+    local oid_re='^([0-9a-fA-F]{40}|[0-9a-fA-F]{64})$'
+    local ts_re='^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}$'
+    local oid ts
+    if [[ "$raw" == *" @ "* ]]; then
+        oid="${raw%% @ *}"
+        ts="${raw#* @ }"
+        [[ "$ts" =~ $ts_re ]] || oid=""
+    else
+        oid="$raw"
+        ts=$(get_timestamp)
+    fi
+    if [[ ! "$oid" =~ $oid_re ]]; then
+        die "Invalid --premise-baseline value: '$raw' (expected a full 40- or 64-hex commit id, optionally followed by ' @ YYYY-MM-DD HH:MM', or \"\" to clear; resolve a revision with: git rev-parse --verify <rev>^{commit})"
+    fi
+    oid=$(printf '%s' "$oid" | tr 'A-F' 'a-f')
+    if ! git cat-file -e "${oid}^{commit}" 2>/dev/null; then
+        die "Invalid --premise-baseline value: '$oid' is not a commit in this repository"
+    fi
+    BATCH_PREMISE_BASELINE="$oid @ $ts"
 }
 
 main() {
@@ -2441,6 +2515,14 @@ main() {
         if ! is_valid_followup_kind "$BATCH_FOLLOWUP_KIND"; then
             die "Invalid followup_kind: $BATCH_FOLLOWUP_KIND (must be one of: $(followup_kinds_pipe 2>/dev/null | tr '|' ' '))"
         fi
+    fi
+
+    # Validate --premise-baseline (t1663_2). Same placement rule as above: after
+    # parse_args, before any file (task file or labels.txt) is touched, so a
+    # rejected value changes nothing. `--premise-baseline ""` clears the field
+    # and skips validation.
+    if [[ "$BATCH_PREMISE_BASELINE_SET" == true && -n "$BATCH_PREMISE_BASELINE" ]]; then
+        normalize_premise_baseline
     fi
 
     # Validate --boardcol against the configured columns (t1377_1). An unknown

@@ -202,6 +202,9 @@ followup_kind: risk_mitigation   # auto-spawned follow-up provenance; absent ⇒
 plan_approved_at: 2026-02-01 14:30   # plan approved, implementation deliberately
                                  # deferred; absent ⇒ no such plan. Workflow-written
                                  # only; display/prompt signal, never routing.
+premise_baseline: <sha> @ 2026-02-01 14:30   # commit the premise was last known
+                                 # valid at (full commit id; `ait update
+                                 # --premise-baseline`); absent ⇒ premise unchecked
 issue: https://...        # linked issue tracker URL
 gates: [risk_evaluated]   # declared gate set (intent; [] = opt-out)
 active_gates: [risk_evaluated]   # + _filtered/_profile/_digest: framework-derived

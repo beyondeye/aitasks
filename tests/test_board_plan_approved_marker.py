@@ -325,15 +325,15 @@ class PlanApprovedMarkerBoundaryTests(_MarkerTestBase, unittest.TestCase):
                 self.assertEqual(self._marker(line), "set (unreadable)")
 
     def test_it_is_not_normalize_opaque_scalar(self):
-        """The deliberate divergence from `board/aitask_merge.py:151`.
+        """The deliberate divergence from `lib/opaque_scalar.py`.
 
         That helper answers `""` for every non-`str` — right for comparison,
         wrong for rendering, because it would hide a datetime-parsed marker that
         `ait ls` (a bash frontmatter parse, blind to YAML types) still shows.
         """
-        from aitask_merge import _normalize_opaque_scalar
+        from opaque_scalar import normalize_opaque_scalar
         raw = self._meta("plan_approved_at: 2026-02-01 14:30:05")["plan_approved_at"]
-        self.assertEqual(_normalize_opaque_scalar(raw), "",
+        self.assertEqual(normalize_opaque_scalar(raw), "",
                          "precondition: the merge helper drops this value")
         self.assertEqual(self.ab._plan_approved_marker(
             {"plan_approved_at": raw}), "2026-02-01 14:30",

@@ -566,7 +566,7 @@ def _plan_approved_marker(metadata):
     marker" structurally distinct from "a marker that happens to look odd", so
     every call site is a single `if marker:`.
 
-    **Not** `_normalize_opaque_scalar` (`board/aitask_merge.py:151`), despite
+    **Not** `normalize_opaque_scalar` (`lib/opaque_scalar.py`), despite
     the overlapping input space. That one answers `""` for *every* non-`str`,
     which is right for **comparison** — a merge must not treat a hand-edited
     list as a distinguishing value — and wrong for **rendering**: it would hide

@@ -34,6 +34,11 @@ Creates a task using `aitask_create.sh` in batch mode.
 > Never pass the `active_gates*` fields at creation — they form a
 > framework-derived tuple written only by `aitask_gate.sh materialize-active`
 > at pick/claim time (t635_33), not user- or caller-authored metadata.
+>
+> `premise_baseline` is not a creation input either: there is no creation flag
+> for it. It is set on an existing task with `aitask_update.sh --batch <id>
+> --premise-baseline "<sha> @ <YYYY-MM-DD HH:MM>"` (a full commit id; `""`
+> clears it).
 
 ## Output
 

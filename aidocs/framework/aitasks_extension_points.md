@@ -295,6 +295,35 @@ approved, implementation deliberately deferred". Shape-identical to
   affordance on the board: `plan_approved_at` is written and cleared by the
   task-workflow alone.
 
+**Worked example — `premise_baseline` (t1663_2):** the commit at which a task's
+premise was last known valid, read by `aitask_premise_stale.sh` (design:
+`task_premise_staleness.md`). Shape-identical to `plan_approved_at` again —
+update-only, no tombstone, `_BASE_AWARE_FIELDS` with `deletion_aware=True`,
+fold = no-op comment. Three things differ:
+
+- **The comparison helper was promoted.** It is the third field that compares
+  through the opaque-scalar rule, so `aitask_merge.py`'s private copy became
+  `lib/opaque_scalar.py:normalize_opaque_scalar`, shared by all three. The
+  vocabulary normalizers with the same body (`normalize_followup_kind`,
+  `normalize_group_slug`) deliberately stay separate, because each one's
+  contract is its vocabulary's.
+- **The writer validates against the repository, not only a grammar.** The
+  reader skips anything that is not a full commit id, and it also skips a full id
+  that names no commit, so a value the writer accepted could leave the task
+  silently never checked. `--premise-baseline` therefore requires a full 40/64-hex
+  id that `git cat-file -e <oid>^{commit}` resolves. It lowercases the id, and it
+  stamps the current time when the ` @ <ts>` half is omitted. A symbolic revision
+  is **rejected, not resolved**, because the correct value is the revision the
+  evidence was checked against, never write-time HEAD. Validation runs in
+  `main()` before any file is touched.
+- **No board layer 3.** The design record defers read surfaces (an `ait ls -v`
+  marker, a board badge). The board must only *preserve* the field, which
+  `tests/test_premise_baseline_board_roundtrip.py` pins.
+  `tests/test_premise_baseline_field.sh` pins the write path: durability on
+  every `write_task_file` call site, rejection with the file byte-unchanged, the
+  sites that must **not** write it, and the writer's output read back through
+  the shipped reader.
+
 ## Adding a code-agent session hook
 
 A **SessionStart hook** is how the framework learns a code agent's own session

@@ -41,6 +41,7 @@ from task_yaml import (  # noqa: E402
 )
 from board_groups import normalize_group_slug  # noqa: E402
 from followup_kinds import normalize_followup_kind  # noqa: E402
+from opaque_scalar import normalize_opaque_scalar  # noqa: E402
 # gate_ledger supplies this merger's ONE registered section spec (header,
 # comment, namespace). It is no longer a leaf module — it imports
 # lib/ledger_block.py (t1657_1) — but both are still stdlib-only, and the
@@ -156,23 +157,9 @@ _ACTIVE_TUPLE_FIELDS = ("active_gates", "active_gates_filtered",
                         "active_gates_profile", "active_gates_digest")
 
 
-def _normalize_opaque_scalar(raw) -> str:
-    """Comparison-only normalizer for a scalar with no vocabulary of its own.
-
-    An absent key, an explicit ``None``, a non-string (a hand-edited list) and an
-    empty string all read as *absent*, so a side that deleted the key and a side
-    that never had it compare equal. A real value is returned **verbatim, not
-    stripped** — it is an identity key, and trimming would make two genuinely
-    different values compare equal.
-
-    Deliberately not ``normalize_followup_kind`` despite an identical body: that
-    one lives in the follow-up-kind *vocabulary* module and its contract is about
-    that vocabulary. A third such field should promote this helper rather than
-    add a fourth copy.
-    """
-    if isinstance(raw, str):
-        return raw if raw.strip() else ""
-    return ""
+# The opaque-scalar fields below (`verification_baseline`, `plan_approved_at`,
+# `premise_baseline`) compare through `normalize_opaque_scalar` from
+# lib/opaque_scalar.py, the one shared definition. Do not re-add a local copy.
 
 
 # Base-aware fields (t1243_8): resolved by comparing each side against the MERGE
@@ -232,13 +219,29 @@ def _normalize_opaque_scalar(raw) -> str:
 #     and on consumption, while `updated_at` moves on every unrelated edit.
 # `deletion_aware=True`: clearing removes the key, as above.
 #
+# `premise_baseline` (t1663_2) has the same shape again: the commit at which the
+# task's premise was last known valid, advanced when a user reviews a premise
+# staleness prompt and cleared by key removal.
+#   * Base comparison, not presence: the one-sided branch would let a stale
+#     checkout still carrying the old baseline beat a checkout that cleared it,
+#     so a revoked review would resurrect on sync.
+#   * Base comparison, not `updated_at`: the baseline moves only when a premise
+#     is reviewed, while `updated_at` moves on every unrelated edit, so a
+#     newer-timestamp rule would let a stale checkout's `--status` edit win a
+#     field it never touched.
+#   * Both sides advanced to different commits -> unresolved/PARTIAL. Each value
+#     is a separate claim about which commit a person reviewed the premise at,
+#     and neither can be inferred from the other.
+# `deletion_aware=True`: clearing removes the key, as above.
+#
 # field -> (comparison normalizer, deletion_aware). Membership (`key in
 # _BASE_AWARE_FIELDS`) and iteration both still yield the field names.
 _BASE_AWARE_FIELDS = {
     "boardgroup": (normalize_group_slug, False),
     "followup_kind": (normalize_followup_kind, True),
-    "verification_baseline": (_normalize_opaque_scalar, True),
-    "plan_approved_at": (_normalize_opaque_scalar, True),
+    "verification_baseline": (normalize_opaque_scalar, True),
+    "plan_approved_at": (normalize_opaque_scalar, True),
+    "premise_baseline": (normalize_opaque_scalar, True),
 }
 
 

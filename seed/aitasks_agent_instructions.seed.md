@@ -30,6 +30,10 @@ plan_approved_at: 2026-02-01 14:30   # plan approved, implementation deliberatel
                                  # deferred ("Approve and stop here"); absent ⇒ no
                                  # such plan. Set/cleared by the workflow only —
                                  # visible via `ait ls -v` / --plan-approved.
+premise_baseline: <sha> @ 2026-02-01 14:30   # commit the task's premise was last
+                                 # known valid at (full commit id); read by the
+                                 # advisory premise-staleness check. Set with
+                                 # `ait update --premise-baseline`; absent ⇒ unchecked.
 issue: https://...        # linked issue tracker URL
 gates: [risk_evaluated]   # declared gate set (intent; [] = opt-out)
 active_gates: [risk_evaluated]      # framework-derived enforced set — never hand-edit
