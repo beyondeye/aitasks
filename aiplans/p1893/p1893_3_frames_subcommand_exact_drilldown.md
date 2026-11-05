@@ -424,3 +424,130 @@ API, the manifest columns and mapping, the time_base rule, and the 3000 px fact.
 
 ### Planned mitigations
 - timing: post-phase | name: rotated_geometry_test | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: geometry under a rotated recording unverified | desc: Rotated-recording fixture asserting display-orientation manifest geometry, PNG dims and content for frames and frames --roi
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-05 08:47)
+- **Requested by user:** three review findings, each verified (reproduced locally) before fixing:
+  1. A stream that changes frame size mid-way: ffmpeg rescales later frames to the first one's size after the filter chain, and the manifest recorded the probed size for all of them.
+  2. The end check compared against `vspan.end_t` whether or not it was proven, with a 1 µs tolerance. `--at 1` / `--at 1.0000005` on a 1 s clip resolved with `on_screen_proven: true`, and a raw H.264 stream rejected `--at 0.2` against an unproven 0 s end.
+  3. The continuation `--range` floored the first omitted frame to ms. With frames at 0, 1.49 ms and 1.51 ms and `--max-frames 1`, it repeated `0.001-…` forever.
+- **Changes made:**
+  1. `parse_showinfo_frames` (instance, pts, printed pts_time, `s:` size, duration) replaces `parse_showinfo_raw`. `enumerate_frames` records each frame's native size and exact end, and sorts by time; decode order can differ from presentation order.
+     - `frames` refuses (before writing) any chosen frame whose size differs from the probe.
+     - `extract_views` puts a showinfo before and after the crop/scale and returns `{pts: (native, out)}`; `geometry_problem` checks both.
+     - `frames` errors on a mismatch. `bug`/`anim` skip `frames.tsv` and write the reason: `manifest: null` + `manifest_note` in bug's run.json and a summary warning; a segment warning in anim.
+  2. A frame is proven on screen at T when a later frame exists (a listed later frame, or a packet presented more than 2 µs after T), or when T < its own exact end (pts + duration, from showinfo). A time at or past the last frame's end is an error only when packets are complete on a confirmed origin. Otherwise the frame is written with `on_screen_proven: false` and an `unproven_because` reason.
+  3. `core.decimal_between(lo, hi)` gives the shortest decimal (3–9 places) with lo < d ≤ hi. The continuation starts there, or the warning says no such decimal exists.
+  - Docs (skill page, walkthrough, SKILL.md) describe the size-change refusal, the end semantics and the continuation guarantee. An unverified "when the device rotates" example was dropped.
+- **Files affected:** `.aitask-scripts/screen_recording/video_prep.py`, `vp_core.py`, `tests/test_screen_recording_cli.py`, `tests/test_screen_recording_core.py`, `.claude/skills/aitask-screen-recording/SKILL.md`, `website/content/docs/skills/aitask-screen-recording.md`, `website/content/docs/workflows/screen-recordings/exact-frames.md`
+- **Verification:**
+  - New tests:
+    - `test_mid_stream_size_change_is_refused_not_rescaled`
+    - `test_size_change_mid_stream_records_no_geometry`
+    - `test_video_end_is_exclusive_and_only_a_proven_end_rejects`
+    - `test_unproven_end_is_labelled_never_used_to_reject`
+    - `test_continuation_range_always_moves_past_the_written_frames`
+    - core `decimal_between` / `parse_showinfo_frames`
+  - Each fixture carries a guard asserting its premise.
+  - Mutants, each red and then restored (module checksum matched before and after):
+    - size checks disabled → both size tests red;
+    - `later = True` → both end tests red;
+    - the old floor → the continuation test wrote `[0, 149, 149, 149, 149]`.
+  - Core 72 OK; CLI 51 OK; `check_links.py --build` PASSED; hugo build OK.
+- **Not root-caused:** with a B-frame size-change fixture, one test run saw `magick failed (1)` in bug mode. It did not reproduce outside the test, and the fixture was switched to `bframes=0` (raw-stream timestamps then follow decode order).
+
+### Change Request 2 (2026-11-05)
+- **Requested by user:** two findings, both verified.
+  1. FFmpeg 5.1, the documented minimum, prints no `duration:` in showinfo; confirmed from `release/5.1` `libavfilter/vf_showinfo.c`. `f.end` was then always None, so `--at 2` on a 1 s clip was written as unproven while run.json reported `video_end_proven: true`.
+  2. The anim half of the size-change test skipped any segment that had a `frames.tsv`, so returning `None` from anim's geometry check stayed green.
+- **Changes made:**
+  1. With no frame duration, the end comes from `vspan` when it is proven (complete packet times on a confirmed origin, plus the last packet's duration).
+     - T ≥ end + 2 µs is an error (`(from the video's packets)` in the message).
+     - T within ±2 µs is unproven, since packets print 6 decimals.
+     - Otherwise T is proven.
+
+     A genuinely unknown end (incomplete packets, or no duration anywhere) stays unproven with its reason.
+  2. The test now:
+     - asserts the fixture's only segment (`s01`) spans the size change (saved frames before and after 0.1 s);
+     - asserts `s01` has no `frames.tsv` and carries the warning;
+     - asserts `run.json` `manifests == []`.
+  - New class `ShowinfoWithoutDuration` simulates 5.1 by patching the module's `ffmpeg()` to remove the field from the real log, asserting the removal happened. It covers the packet-proven end (0.99 proven, 2 rejected, 1 undecided) and a raw stream whose end is unknown.
+  - Docs: the skill page says where the end comes from when ffmpeg reports no frame durations. An unverified "before 6.0" claim was reworded to the verified "5.1 does not".
+- **Verification:**
+  - mutant `elif vspan.proven` → `elif False`: the packet-end test red, the unknown-end test green (as it should be);
+  - mutant anim `manifest_note = None`: the size-change test red;
+  - both reverted (0 `MUTANT` markers);
+  - core OK, CLI 53 OK, link check PASSED.
+
+### Change Request 3 (2026-11-05)
+- **Requested by user:** test portability. `run_stripped` required that it had removed a `duration:` field, which fails on an FFmpeg whose showinfo already prints none (5.1). The FramesMode end test hard-coded the exact-duration outcomes (0.999999 proven; 1 and 1.0000005 rejected), which contradicts the packet-end uncertainty band on such a runtime. Verified by reading both tests; no production change.
+- **Changes made:**
+  - `run_stripped` asserts the intended format itself: the code saw showinfo frame lines and none carries a duration. The substitution is a no-op where the field is absent.
+  - New `showinfo_prints_duration()` probe (cached).
+  - The end test asserts what holds on every FFmpeg (0.99 proven, 1.5 rejected), then branches on the probe:
+    - exact per-frame durations: 0.999999 proven, 1 and 1.0000005 rejected;
+    - packets only: all three unproven.
+  - `ShowinfoWithoutDuration` pins that band (0.999999 / 1 / 1.0000005) on every host.
+- **Verification:**
+  - A PATH-shim `ffmpeg` (scratchpad) removes showinfo's duration fields from stderr. It passes through failures (exit 254 for a missing input) and makes the probe return False.
+  - The full CLI file passes natively (53/53) and under the shim (53 ok, none skipped); core OK.
+
+## Final Implementation Notes
+- **Actual work done:**
+  - `frames VIDEO (--range A-B | --at T[,T…]) [--roi | --crop-top/--crop-bottom] [--max-frames 60] [--out]` writes full-resolution native frames to `<out>/frames/t<ms>.png`, together with `frames.tsv`, `summary.md` and `run.json`.
+  - Times are exact (`pts × time_base` as a `Fraction`, from showinfo's `config in time_base` line, with a labelled `pts_time` fallback). Selection compares exact times; rounded ms are only names and labels.
+  - Every `frames/` directory (bug, anim, frames) carries `frames.tsv`: `file t_ms pts time_source src_w src_h crop_x crop_y crop_w crop_h out_w out_h scale_x scale_y sha256`. `out_*` is read from the PNG header, and the hash is taken of the file as written.
+  - `crop_filter` emits `exact=1` everywhere, and `extract_views` converts to RGB before cropping.
+  - anim reports `cap_hit` plus `caps` (`max_segments` skipped and first-skipped time; `max_view_frames` thinned segments with a `frames --range` hint). bug's `cap_hit` is unchanged.
+  - Image budget: `vp_core.TOKEN_TILE` (moved; still one constant), `READER_TIERS`, `MANY_IMAGE_SAFE_PX`, `image_budget()`, with summary and stdout warnings.
+  - Shared pure helpers in `vp_core`:
+    - `parse_frame_name` / `FrameName` and the formatters `frames_name`, `bug_frame_name`, `anim_frame_name`;
+    - `seconds_exact`, `ms_round`, `pts_ms`, `time_ms`;
+    - `parse_showinfo_frames` / `ShowinfoFrame`, `parse_showinfo_timebase`;
+    - `png_size`, `decimal_between`, `range_arg`.
+  - Docs:
+    - the skill page gains a `### frames` options table, the frames output layout, a `### frames.tsv` column table, warning rows and the image-budget numbers;
+    - new walkthrough `workflows/screen-recordings/exact-frames.md`, listed in both indexes;
+    - SKILL.md gains a Frames mode section.
+- **Deviations from plan:**
+  - Plan review, before implementation:
+    - added `exact=1` and RGB-before-crop, plus the odd-geometry fixture;
+    - switched selection to exact times, plus the 0.033/0.034 boundary tests;
+    - removed the "+1 ms" retry shortcut from the docs.
+  - Code review (Change Requests 1–3):
+    - refuse or skip-manifest when the frame size changes mid-stream (native vs output size from two showinfo instances);
+    - an exclusive, evidence-based video end: a later frame, the frame's own duration, or the packet end when showinfo has no duration (FFmpeg 5.1). Only a proven end rejects; otherwise the frame is labelled unproven;
+    - the continuation `--range` starts strictly after the last written frame;
+    - tests made independent of whether showinfo prints durations.
+  - The `exact=1` mutant was green for the extracted frames, because the RGB step already makes them exact. An anim analysis-path bbox assertion (`23,99,182,148`) was added, which catches it.
+  - Frames are sorted by presentation time, since decode order can differ.
+- **Issues encountered:**
+  - The no-RGB mutant stays green: gray fixtures only test luma, so chroma alignment at odd offsets is not covered by a test.
+  - One `magick failed (1)` in bug mode on a B-frame size-change fixture was not reproducible outside the test. The fixture now uses `bframes=0`.
+  - The full Python suite passed once (`PYTHON SUITE: PASSED`, 10841 + 15) before the review rounds. Those rounds touched only screen-recording files, which pass natively and under a durationless-ffmpeg shim.
+- **Key decisions:**
+  - `--max-frames` keeps the earliest contiguous frames and never thins.
+  - A mid-stream size change is refused for `frames` (fail closed). bug/anim still run but write no manifest, with `manifest: null` and `manifest_note`.
+  - Unproven end → label, never error.
+  - The many-image limit uses 3000 px (Vision page, 2026-11-04), not the task's stale 2000 px.
+- **Upstream defects identified:** None
+- **Notes for sibling tasks:**
+  - **Parser (t1893_4/5/6):**
+    - `vp_core.parse_frame_name(name)` accepts exactly `t\d{8,}`, `\d{2,}_\d+\.\d{3}s` and `f\d{3,}_\d+\.\d{3}s` with a png/jpg/jpeg/webp extension. It rejects anything else, including user suffixes such as `t00007040_edited.png`.
+    - If `sheet`/folder input should accept edited names, extend the parser deliberately and keep the garbage-rejection tests.
+  - **Geometry (t1893_5):**
+    - Trust a `frames.tsv` row only while `sha256(file) == sha256`.
+    - Source px = `crop_x + img_x / scale_x` (and the same for y). `src_*` are display-orientation pixels, which is what `--roi` takes.
+    - Rotated input is tested.
+  - **Times:**
+    - Compare exact `Fraction`s (`seconds_exact` for user input, `pts × time_base` for frames). Never compare rounded ms.
+    - FFmpeg 5.1's showinfo has no `duration:` field; ffmpeg 9 prints it.
+    - ffmpeg rescales frames of a new size after the filter chain. Detect that with a showinfo before the crop (see `extract_views`' return value and `geometry_problem`).
+  - **Continuations:** `decimal_between(lo, hi)` gives the shortest decimal strictly after one frame and at or before the next.
+  - **Test fixtures:**
+    - `synth.code_frame` / `numbered_frames` / `decode_code`: each frame identifies itself from its pixels.
+    - `held_numbered_frames` + `NUMBERED_STARTS`: VFR with known starts.
+    - `marker_frames` + `dark_centroid`: odd-coordinate geometry.
+    - `size_changing_video(tmp)`, and the `ShowinfoWithoutDuration` patch pattern.
+  - **Docs:** new outputs go in the skill page's reference tables, and how-tos go in workflow subpages listed in both indexes (relref).
