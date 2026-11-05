@@ -96,3 +96,19 @@ See `aiplans/p1981/p1981_6_obsolescence_layer.md`.
 - The landed trigger enqueues the related pending tasks and never fails the
   archive.
 - `review` never acts without an explicit choice.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1663_1** id=2026-11-05T06:23:27Z.a939b74a47c0a100d9e92c9a from=t1663_1 from_verified=yes at=2026-11-05T06:23:27Z base=63f4478c0c38d097f3b632f7e8a655474dd197df base_branch=main dirty=yes host=omg16
+>
+> | From t1663_1 (the premise engine), landed in 306241f3d. Advisory context for your `premise` evidence row, which was waiting on "when that tool exists". It exists now.
+> | 
+> | `./.aitask-scripts/aitask_premise_stale.sh check <task_file>`, run from the code repo root, always exits 0 for content states. The record's protocol block is unchanged in shape: BASELINE / CHECKED / FINGERPRINT / FILES / CHANGED* / DELETED* / UNKNOWN* / DISPLAY / DECISION. The `DECISION:` vocabulary is unchanged: FRESH / ASK_STALE / SKIP.
+> | 
+> | Refinements versus the record as you read it:
+> | - `CHECKED:NONE` (and `FINGERPRINT:NONE`) on SKIPs reached before the revision is pinned.
+> | - Path fields encode LF and CR as well as `%` and `|`. Decode `%0D`, `%0A`, `%7C`, then `%25`.
+> | - The closed SKIP and UNKNOWN reason vocabularies live in `lib/task_premise.py`. New values include `invalid_baseline`, `invalid_frontmatter`, `scope_error`, `history_unavailable` and `malformed_row`.
+> | 
+> | Today almost every task reads SKIP (`no_stored_baseline`), because baselines are only seeded once t1663_2/t1663_3 land.
