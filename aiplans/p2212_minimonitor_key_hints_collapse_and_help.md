@@ -266,3 +266,38 @@ in the last mode, `H` opens the help at 40 and ~24 columns and closes with Esc/H
 ### Planned mitigations
 - timing: pre-phase | name: red_proof_t1574_floor | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: short-mode predicate change / t1574 floor proof | desc: write the narrow-width floor test first and confirm it fails on the unmodified predicate
 - timing: after | name: userconfig_write_lock | type: bug | priority: low | effort: medium | inline_risk: medium | added_complexity: medium | addresses: unlocked read-modify-write in userconfig_persist | desc: serialize userconfig_persist load+dump with a file lock so concurrent writers (minimonitor toggles, shortcut editor saves) cannot drop each other's changes
+
+## Final Implementation Notes
+
+- **Actual work done:** all plan steps 1–5 as written. New `.aitask-scripts/monitor/minimonitor_keys.py`
+  (hint table, `key_display`, `render_hints` / `render_collapsed`, `KEY_HELP`, `KeyHelpModal`);
+  `minimonitor_app.py` binds `x` / `H`, derives `KEY_HINTS_TEXT` / `KEY_HINTS_COLLAPSED_TEXT` from
+  the table after the class, measures the band's desired height (`_key_hints_desired_rows`), re-renders
+  it per width (`_sync_key_hints_text`, called at the top of `_refresh_short_mode`), carries the
+  `.collapsed` one-row CSS backstop, and reads the persisted mode in `main()` only;
+  `userconfig_persist.py` gains `get_/set_minimonitor_key_hints_collapsed`; the minimonitor how-to gains
+  the new section and the `x` / `H` / `h` / `S` quick-reference rows.
+- **Pre-phase `red_proof_t1574_floor` (done before the fix):** `test_pane_list_keeps_a_row_at_narrow_widths`
+  FAILED on the unmodified predicate. Measured regions (own panel full, no banners, no session bar):
+  (18, 28) → list `(y=7, h=1)` under hints `(y=2, h=26)`; (22, 24) → list `(y=7, h=1)` under hints
+  `(y=4, h=20)`; `short` never engaged. A wider sweep found the same break at every height ≤ 28 (w18)
+  and ≤ 24 (w22) with no banners. Passes after the fix; the in-suite mutant control
+  (`test_the_narrow_cases_need_the_measured_height`) pins that the cases discriminate.
+- **Deviations from plan:**
+  - `on_mount` also schedules the short-mode refresh (before the TMUX early return), so a collapsed
+    band fits its measured width at startup even without a resize event.
+  - The help-modal footer is a `Content`, not a markup string — a key rebound to `[` would otherwise be
+    parsed as a tag.
+  - `HelpEntry`'s paragraph field is `description`, not the planned `body`: `tests/test_concern_body_display_contract.py` audits every `.body` read in the monitor package
+    and allows no per-site exemptions; a help paragraph is not a concern body, so the field was
+    renamed rather than adding `HelpEntry` to the guard's `NON_CONCERN_TYPES` allowlist.
+- **Issues encountered:** the first full-suite run failed 3 `test_concern_body_display_contract` cases
+  (the `.body` read above — fixed by the rename) and `test_monitor_shadow_zone::test_restore_focus_refuses_a_hidden_shadow_column`, which passed 3/3 in isolation and does not touch
+  minimonitor (parallel-lane flake). Verified with three in-process mutants (no file edits) that
+  the new tests catch: (a) `render_collapsed` always returning the labelled rung → 6 failures across
+  the rung matrix and resize tests; (b) the `.collapsed` CSS rule removed → the backstop test and its
+  control fail; (c) the modal ignoring its close key → close and dispatch tests fail.
+- **Key decisions:** keys come from the composed `self.BINDINGS` (never `resolve_key`), so shared-scope
+  overrides (`?`, `j`, `q`) show too; `_KEY_HINTS_ROWS` stays the authored line count (40-column height)
+  for the existing pins, while the predicate measures.
+- **Upstream defects identified:** None.
