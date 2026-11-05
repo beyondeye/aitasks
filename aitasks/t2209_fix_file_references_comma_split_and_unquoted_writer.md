@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1538
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-05 08:21
-updated_at: 2026-11-05 08:33
+updated_at: 2026-11-05 09:21
 ---
 
 ## Origin
@@ -41,3 +42,8 @@ Other things worth knowing:
 - Reader: make `get_file_references()` parse the field as YAML (e.g. shell out to `task_yaml`, as `aitask_premise_stale.sh`'s `_FIELDS_GLUE` does), or retire it in favour of a shared reader. Then re-run `tests/test_verification_stale.sh` with a quoted-comma fixture.
 - Writer: quote list entries that YAML would mis-read in `format_yaml_list()` (or emit via a YAML serializer), with round-trip tests for `,` `[` `]` `:` `#` `on` `null` `010` and leading/trailing spaces.
 - Check the other `format_yaml_list` callers (labels, depends, verifies, …) for behaviour changes.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-05T07:21:21Z status=pass attempt=1 type=human
