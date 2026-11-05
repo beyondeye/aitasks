@@ -11,8 +11,9 @@ active_gates_profile: fast
 active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2175
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-03 08:25
-updated_at: 2026-11-05 07:47
+updated_at: 2026-11-05 09:01
 ---
 
 # Sitrep harvest fallback: preserve uncertain output and queue agent analysis
@@ -69,3 +70,8 @@ The t2175_2 design reports parsing warnings (for example incomplete banners and 
 > | 3. The maintenance pass now runs `aitask_sitrep_harvest.sh all` before the refresh (monitor_shared `_maybe_harvest_sitrep`), so queued cases are created there too, every ~10 minutes, from any open monitor.
 
 > **👁 note:read** id=2026-11-05T05:46:55Z.478f3aa0369606aa1a4e760f by=t2175_6 at=2026-11-05T05:46:55Z mode=explicit ids=2026-11-04T13:25:46Z.94c9382e7d5a81b2f8b99562,2026-11-04T17:21:59Z.19b8790fd6746a30aba16c43
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-05T07:01:27Z status=pass attempt=1 type=human
