@@ -246,3 +246,40 @@ paths, plan commit via `aitask_task_commit.sh`, gates, archival.
 
 ### Goal-achievement risk: low
 - Writer and reader grammars could drift (the writer accepting a value the reader reads as `invalid_baseline`) · severity: low · → mitigation: none (covered in-plan by test 6a Part F, writer→shipped reader end to end)
+
+## Final Implementation Notes
+- **Actual work done:** All six plan sections landed as written.
+  - `lib/opaque_scalar.py` (new): `normalize_opaque_scalar`. `aitask_merge.py` imports it for all three opaque fields, and its private copy is removed.
+  - `premise_baseline` added to `_BASE_AWARE_FIELDS` (deletion-aware), with its rationale paragraph.
+  - `aitask_update.sh`: `--premise-baseline` and positional 36, threaded through all three `write_task_file` call sites and the child-completion save/restore block. `normalize_premise_baseline` runs in `main()` before any write.
+  - The fold no-op comment.
+  - Doc surfaces: the seed plus its regenerated `AGENTS.md`, `.codex/instructions.md` and `.opencode/instructions.md`; `CLAUDE.md`; the website field table and its person-settable sentence; the `task-creation-batch.md` note with its three goldens; both aidocs records.
+  - Tests: `tests/test_premise_baseline_field.sh` (71 assertions), `tests/test_premise_baseline_board_roundtrip.py` (4 tests) and `TestMergePremiseBaseline` (13 tests). The two existing tests that named the old private helper now import the shared one.
+- **Deviations from plan:**
+  - The `task-creation-batch.md` edit also required re-rendering three **committed** remote prerenders: `.claude/skills/task-workflow-remote-/`, `.agents/skills/task-workflow-remote-codex-/` and `.opencode/skills/task-workflow-remote-/` `task-creation-batch.md`. `aitask_skill_verify.sh` flagged them as stale. They were refreshed by rendering only the `aitask-pickrem` / `aitask-pickweb` remote closures (3 agents), not `aitask_skill_rerender.sh remote`, so other sessions' uncommitted skill sources were not swept into tracked prerenders. Each diff is exactly the note.
+  - Test 6a gained cases beyond the plan:
+    - a rejected value plus `--add-label` leaves `labels.txt` untouched (proves validate-before-mutation);
+    - a non-repo cwd is refused;
+    - a positive SHA-256 repository case (a 64-hex id is accepted);
+    - `HEAD~1`, a leading space and a `T`-separated timestamp are rejected.
+  - Merge tests gained cases beyond the plan: "clear vs advance → unresolved" and "first stamp beats a side that never had it".
+- **Issues encountered:**
+  - The board round-trip test's first non-vacuity edit used `status: Editing`. The merge driver deliberately leaves a non-`Implementing` status conflict unresolved, so the test now uses `Implementing`. This was a test-setup error, not a field defect.
+  - The full Python suite reads `PYTHON SUITE: FAILED`, with 3 failures, all in `tests/test_concern_body_display_contract.py`. That test scans the `monitor/` package, which another session is editing uncommitted (`minimonitor_app.py`, `sitrep_close.py`, new `minimonitor_keys.py`). It imports no file this task changed.
+  - `tests/test_fold_file_refs_union.sh` fails 4/13 in the shared worktree. It passes 13/13 on a `git archive HEAD` export, including with this task's `aitask_update.sh` and `aitask_fold_mark.sh` overlaid. On the current tree with only this task's two scripts reverted to HEAD, the same 4 still fail. The cause is another session's uncommitted `lib/task_utils.sh` / `lib/yaml_utils.sh` / `tests/lib/test_scaffold.sh` edits.
+- **Red proofs (scratch copies, not committed):**
+  - The child-completion call site without the positional fails 2 assertions: the parent case reads `''`, and the forwarding pin reads 2 of 3.
+  - Without `git cat-file -e`, 11 assertions fail: the missing-40/64-hex, tree-oid and non-repo cases are accepted and the file is rewritten.
+  - With `premise_baseline` removed from `_BASE_AWARE_FIELDS`, 8 of 13 merge tests fail, including (a) clear-not-resurrected and (b) stale-unrelated-edit.
+- **Key decisions:**
+  - Symbolic revisions are rejected, never resolved, so no caller can store write-time HEAD.
+  - A bare oid is stamped with `get_timestamp`, which keeps one timestamp home, as with `--plan-approved-at now`.
+  - `normalize_followup_kind` and `normalize_group_slug` keep their own bodies. Their contracts are their vocabularies', and rewiring `followup_kinds.py` would change a bridge-sourced module's import graph.
+- **Upstream defects identified:** None
+- **Notes for sibling tasks:**
+  - t1663_3 (seeding/carryover):
+    - Store `git rev-parse --verify HEAD^{commit}` output, lowercased, with ` @ <ts>`. A bare oid through `aitask_update.sh --premise-baseline <oid>` gets the stamp for free.
+    - `tests/test_premise_baseline_field.sh` Part E pins `aitask_update.sh` as the **only** shell file emitting `premise_baseline:`. Adding seeding to `aitask_create.sh` / `aitask_archive.sh` must extend that pin deliberately.
+    - The `task-creation-batch.md` note says there is no creation flag. Keep that true, or update the note and its goldens and the three remote prerenders.
+  - t1663_4 (Check 6): advance by `aitask_update.sh --batch <id> --premise-baseline "<CHECKED sha>"`. The writer verifies the commit exists and refuses symbols. A rejected value exits non-zero with the file untouched.
+  - The merge driver resolves divergent advances to PARTIAL by design.
