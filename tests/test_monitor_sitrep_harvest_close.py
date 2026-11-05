@@ -10,7 +10,8 @@ The contract under test, in order:
 * what is closed is the agent RUN that was harvested: its identity is read
   before and after the harvest, a frozen record must still match at confirm
   time, and a live close is the guarded run kill (the real-server half of that
-  is `tests/test_kill_agent_run_guarded.sh`);
+  is `tests/test_kill_agent_run_guarded.sh`; the whole live flow, real capture
+  and real harvest included, is `tests/test_monitor_harvest_close_live.sh`);
 * the harvest runs in its own process group, killed as a group on timeout AND
   on cancellation;
 * the maintenance `harvest all` pass runs before the sitrep refresh.
@@ -981,7 +982,7 @@ class KeyDispatchTests(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
-        self.root = Path(self._tmp.name) / "repo"
+        self.root = Path(os.path.realpath(self._tmp.name)) / "repo"
         self.root.mkdir()
 
     def _instrument(self, app, seen):
