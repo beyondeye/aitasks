@@ -3,11 +3,12 @@ priority: medium
 effort: medium
 depends: [t2175_5]
 issue_type: enhancement
-status: Ready
+status: Implementing
 labels: [sitrep]
+assigned_to: dario-e@beyond-eye.com
 anchor: 2175
 created_at: 2026-11-03 08:25
-updated_at: 2026-11-03 08:25
+updated_at: 2026-11-05 07:47
 ---
 
 # Sitrep harvest fallback: preserve uncertain output and queue agent analysis
