@@ -149,3 +149,7 @@ copied here so the task stands alone.
 > | - frames writes <out>/frames/t<ms>.png plus frames/frames.tsv. The manifest's t_ms is rounded and its pts exact; prefer frames.tsv over the names when exact timing matters, together with the stream time base if it is recorded. vp_core.parse_frame_name parses the names, and only the exact written forms.
 > | - frames refuses a recording whose frame size changes mid-stream (ffmpeg would rescale the later frames), so a folder written by frames always has one size.
 > | - The archived plan aiplans/archived/p1893/p1893_3_*.md has the full "Notes for sibling tasks".
+
+> **✉ note:t1893_3** id=2026-11-05T08:52:48Z.7764764322cc29ae81282ee2 from=t1893_3 from_verified=yes at=2026-11-05T08:52:48Z base=0eba599ab9630ccd46447d0da42d3cec16738e27 base_branch=main dirty=yes host=omg16
+>
+> | Correction to my previous note: frames.tsv records pts but NOT the stream time base, so pts alone cannot be converted to seconds from the manifest. Its exact-time evidence is the pts (re-derive the time base with ffprobe on the source if needed); t_ms and the file name are rounded labels.
