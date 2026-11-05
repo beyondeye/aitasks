@@ -411,3 +411,179 @@ offered as an upstream-defect follow-up at Step 8b, not fixed here.
 ### Planned mitigations
 - timing: pre-phase | name: update_passthrough_characterization | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: aitask_update.sh verbatim pass-through on every update | desc: pin byte-identical file_references across unrelated batch updates, green before the change
 - timing: post-phase | name: scaffold_consumer_sweep | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: new python dependency breaking scaffolded tests | desc: run every create/update/fold/find_by_file/task_utils test vs a HEAD worktree baseline and fix new failures
+
+## Implementation progress
+
+- [x] Pre-phase `update_passthrough_characterization` — Test 14 in
+  `tests/test_file_references.sh`; green on the unmodified tree (27/27) before any
+  `aitask_update.sh` change, and green after.
+- [x] §1 classifier, §2 reader, §2b scanner, §3 writer/validator, §4 carriers, §5
+  scaffold, §6 docs.
+- [x] Shared-file gate: `aitask_update.sh`, `aitask_fold_mark.sh` and
+  `website/content/docs/development/task-format.md` carried uncommitted t1663_2
+  hunks. All non-overlapping work was done first. Those three files were edited only
+  after t1663_2 landed in 08939395e, verified as clean vs HEAD with its hunks
+  present in HEAD. t1663_2's commit took none of t2209's files.
+
+## Deviations from the plan
+
+- **task_premise → task_yaml import is function-local.** The plan said `task_yaml`
+  was "already a dependency" of `task_premise`; it was not. `_PREMISE_GLUE` imports
+  only `task_premise`, and the producer's tests use a PYTHONPATH shadow seam. So
+  `task_fields` imports `file_reference_entries` inside the function: its only
+  callers (`_FIELDS_GLUE`, the tests) already load `task_yaml`.
+- **verification_stale: a non-string entry is UNKNOWN, not SKIP.** The plan mapped
+  every reader failure to SKIP. That would have silenced a hand-written `[on]` that
+  used to surface as ASK_STALE, and it diverged from the t1663_1 producer, which
+  counts non-string entries as uncheckable. The helper now reads the batch protocol
+  directly:
+  - `INVALID` (unparseable frontmatter) → SKIP;
+  - no PyYAML → SKIP;
+  - each `BAD:` entry → an `invalid_reference` unit (UNKNOWN → ASK_STALE), keyed as
+    `<invalid file_references entry: …>` so it cannot collide with a real path.
+- **Scanner tolerance `_yaml_flow_quote_breaks`.** `tests/test_yaml_utils.sh` pins
+  t1609's tolerance for the malformed `il: ["]` (read as the item `"`). The quote
+  scanner would have swallowed the following lines.
+  - Rule: an OPEN quoted scalar never crosses a column-0 `key:` or `---` line.
+  - Measured on PyYAML: column-0 continuations of an unquoted list are valid
+    (`labels: [a,\nb]`), so the narrower "no column-0 continuation" rule was
+    rejected.
+  - Only a contrived multi-line quoted scalar whose continuation is a column-0
+    `key:` is cut short.
+- **`python -B`** for the reader glue. Importing `task_yaml` dropped a
+  `__pycache__/` into scaffolded repos (`test_draft_finalize.sh` caught it).
+- **`validate_file_ref` sentinel.** `$( )` strips trailing newlines, so a ref whose
+  only control char was a newline passed the `tr -dc` check. It now appends an `x`
+  sentinel (caught by the new section D).
+- **`yaml_field_block` also passes a block-sequence form through verbatim**
+  (`file_references:` + `- a` lines). The old update path dropped that form.
+- **`find_by_file`.** A file with a `BAD`/`INVALID` block still matches its
+  readable entries, with a warning. A failed batch read is exit 2, never "no
+  matches".
+- **Glob-shaped fixtures in `tests/test_verification_stale.sh` are written quoted.**
+  Unquoted, `[docs/a[bc].md]` is invalid YAML. The new test pins that it reads SKIP.
+
+## Red proof (HEAD code, new/modified tests copied in)
+
+- `test_verification_stale.sh`:
+  - quoted-comma task → `FRESH` (the defect);
+  - unparseable scope → `FRESH`;
+  - 6 FAIL.
+- `test_file_references.sh`: `["a,b.py"]` written as `[a, b.py]`; a status update
+  mangled it, and `my file.py` became `myfile.py`; `["a[.py"]` swallowed
+  `verification_baseline:` and `labels:`; NEL dropped; 14 FAIL.
+- `test_fold_file_refs_union.sh`: the quoted entry split, and an unreadable scope
+  folded silently; 5 FAIL.
+
+## Post-phase `scaffold_consumer_sweep` result
+
+The sweep ran every `tests/test_*.sh` that names
+`aitask_create|update|fold_mark|find_by_file.sh` or `task_utils.sh` (128 files):
+once in a HEAD scratch worktree, once on the implemented tree. Every file that
+passed at baseline still passes, so there are no new failures.
+
+- Pre-existing, not t2209: `test_artifact_gitbranch_backend.sh` fails identically in
+  both runs, with `.aitask-scripts/lib/artifact_backends/gitbranch.sh: line 524:
+  /usr/bin/sed: Argument list too long` on the "large store migrates" cases.
+- Baseline-only failure: `test_plan_approved_marker_contract.sh` reports "missing
+  rendered surface …" because the scratch worktree has no rendered
+  `.claude/skills/*-default-/` files. It passes on the real tree.
+
+Both scratch worktrees were removed afterwards.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-05)
+
+**Requested by user:** two blocking findings, both reproduced before fixing.
+
+1. `aitask_verification_stale.sh`: the BAD-entry key shared the `seen` dedupe set
+   with real paths. A real file named `<invalid file_references entry: True>`
+   (unchanged) plus a YAML `true` entry lost the invalid unit and read `FILES:1` /
+   `FRESH`.
+2. `yaml_utils.sh` `_yaml_flow_quote_breaks` cut a valid quoted scalar short when
+   its continuation line looked like `name: part.py` or `---suffix.py`. An unrelated
+   `ait update --status` then wrote an unterminated quoted list.
+
+**Changes made:**
+
+1. Valid paths and invalid units now dedupe in separate namespaces (`seen` /
+   `seen_inv`), and BAD entries are never deduped. Test
+   `test_invalid_unit_survives_a_lookalike_filename` covers both entry orders.
+2. The heuristic is removed. The scanner's extent is exact for valid YAML, because
+   a valid record always closes.
+   - The pre-scanner plain bracket count applies to a record only when the input
+     ends with that record still open: malformed YAML, the t1609 `il: ["]` case.
+   - A line that is exactly `---` counts as end of input. Valid frontmatter cannot
+     contain one, so a malformed record cannot run into the body; `---suffix` is
+     ordinary text.
+   - Lines are buffered only while a record is open, so the common path still
+     streams.
+   - Shared helpers `_yaml_flow_plain_len`, `_yaml_flow_record_len` and
+     `_yaml_join_replay` are used by the joiner, the `read_yaml_list` capture and
+     `yaml_field_block`.
+   - Tests:
+     - scanner cases `dq_dashdash`, `dq_keylike`, `sq_keylike` (keys == PyYAML),
+       plus `yaml_field_block` preservation;
+     - a malformed record followed by `---` and a body (no run-on;
+       `read_yaml_list` still returns `"`);
+     - Test 20 in `test_file_references.sh`: `--status` on both valid continuations
+       succeeds, keeps both physical lines verbatim and leaves every other key
+       unchanged, and the reader returns the one folded path.
+
+**Files affected:** `.aitask-scripts/aitask_verification_stale.sh`,
+`.aitask-scripts/lib/yaml_utils.sh`, `tests/test_verification_stale.sh`,
+`tests/test_file_refs_yaml.sh`, `tests/test_file_references.sh`.
+
+## Final Implementation Notes
+
+- **Actual work done:** `file_references:` is YAML end to end on the shell side.
+  - **Classifier.** `task_yaml.file_reference_entries` is the one string-only rule,
+    shared with `task_premise.task_fields`.
+  - **Reader.** `read_file_references_batch` (`lib/task_utils.sh`) makes one
+    `python -B` call with a count-attested FILE/REF/BAD/INVALID/END/DONE protocol and
+    all-or-nothing framing. `get_file_references` (exit 0/2/3) and
+    `union_file_references` (newline output) sit on top of it.
+  - **Writer.** `format_yaml_path_list` uses a conservative plain predicate and
+    otherwise double-quotes, escaping byte-exactly under `LC_ALL=C` (C0, DEL, C1
+    including NEL, LS/PS, BOM, U+FFFE/FFFF).
+  - **Validation.** `validate_file_ref` is locale-independent: it rejects C0 and DEL
+    with `tr` byte ranges, and invalid UTF-8 through Python's strict decoder.
+  - **Scanner.** The quote-aware flow scanner in `lib/yaml_utils.sh` is shared by
+    `join_yaml_flow_lists`, `read_yaml_list` and the new `yaml_field_block`.
+  - **Carriers.**
+    - `aitask_update.sh` passes the field through verbatim (original physical lines)
+      unless `--file-ref` / `--remove-file-ref` is given; then it reads the field as
+      YAML or refuses.
+    - `aitask_create.sh` uses a newline carrier plus the new formatter.
+    - `aitask_fold_mark.sh` refuses the fold before the transaction boundary on an
+      unreadable scope.
+    - `aitask_find_by_file.sh` makes one batch read and exits 2 when it fails.
+    - `aitask_verification_stale.sh` reads the batch protocol: INVALID or no PyYAML →
+      SKIP; a BAD entry → an `invalid_reference` unit in its own namespace.
+  - **Scaffold.** `setup_fake_aitask_repo` copies `task_yaml` through the closure
+    copier.
+  - **Docs.** `manual_verification_staleness.md` and `task-format.md`.
+- **Deviations from plan:** see "Deviations from the plan" and "Post-Review
+  Changes" above.
+- **Issues encountered:**
+  - The concurrent t1663_2 edited `aitask_update.sh`, `aitask_fold_mark.sh` and
+    `task-format.md`. Those files were gated until t1663_2 committed (08939395e), and
+    the handover was verified.
+  - `$( )` stripping trailing newlines defeated the control-char check (fixed with a
+    sentinel).
+  - `__pycache__` was written into scaffolds (fixed with `-B`).
+  - The t1609 lone-quote tolerance needed the end-of-input plain-count fallback.
+  - Review found an invalid-unit/real-path dedupe collision and a heuristic that cut
+    valid quoted continuations; both were fixed.
+- **Key decisions:**
+  - Read with the real YAML parser (Python), never a bash lexer. The bash scanner
+    decides only record EXTENT, and it is pinned against PyYAML's key sets.
+  - `format_yaml_list` is left unchanged, so the id / label / gate lists see no
+    behaviour change.
+  - Over-quote rather than under-quote.
+  - Valid YAML is never handled by a heuristic. Malformed-input tolerance applies
+    only at end of input or at an exact `---`.
+- **Upstream defects identified:**
+  - `.aitask-scripts/lib/task_utils.sh:2571 — sanitize_label() admits YAML 1.1 words such as on / null / yes / 010, and format_yaml_list() (task_utils.sh:2530) writes them unquoted, so every Python reader (board, task_yaml) reads the label as True / None / 8 instead of the string`
+  - `.aitask-scripts/lib/artifact_backends/gitbranch.sh:524 — sed invoked with a store-sized argument list fails with "Argument list too long" on large stores; tests/test_artifact_gitbranch_backend.sh fails at HEAD on the "large store migrates" cases`
