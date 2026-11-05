@@ -3,7 +3,7 @@ priority: medium
 effort: high
 depends: []
 issue_type: feature
-status: Implementing
+status: Ready
 labels: [sitrep, tui, monitor, tmux]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -11,7 +11,6 @@ active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 children_to_implement: [t2211_1, t2211_2, t2211_3, t2211_4, t2211_5, t2211_6]
-assigned_to: dario-e@beyond-eye.com
 anchor: 2175
 artifacts:
   - handle: art:trail-sitrep-followups

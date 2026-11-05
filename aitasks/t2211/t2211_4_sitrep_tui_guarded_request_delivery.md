@@ -1,7 +1,7 @@
 ---
 priority: medium
 effort: high
-depends: [t2211_3]
+depends: [t2211_3, t2037_2]
 issue_type: feature
 status: Ready
 labels: [sitrep, tui, tmux]

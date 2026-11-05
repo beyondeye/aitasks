@@ -1,14 +1,14 @@
 ---
 priority: medium
 effort: high
-depends: [t2211_1]
+depends: [t2211_1, t2037_2]
 issue_type: feature
 status: Ready
 labels: [sitrep, monitor, tmux]
 gates: [risk_evaluated]
 anchor: 2175
 created_at: 2026-11-05 15:35
-updated_at: 2026-11-05 15:35
+updated_at: 2026-11-05 15:37
 ---
 
 ## Context
