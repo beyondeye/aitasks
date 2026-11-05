@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [minimonitor, tui, shortcuts, layout]
 gates: [risk_evaluated]
 folded_tasks: [1574]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-11-05 08:38
-updated_at: 2026-11-05 08:39
+updated_at: 2026-11-05 09:03
 ---
 
 ## Goal
