@@ -47,3 +47,25 @@ Fourth child of t1663. Design in `aidocs/framework/task_premise_staleness.md` ("
 > | 
 > | 1. Your body plans the premise check as "Step 3 Check 6". In .claude/skills/task-workflow/SKILL.md, Step 3 Check 6 is already the `## Inbox` unread-notes check (t1657, around line 103 at commit 5026118e2). The premise check needs a different number.
 > | 2. t1981_5 (a child of t1981, not created yet when this note was written; see aidocs/framework/task_relations.md D8) will add a "related work" display check to Step 3, also after Check 6. Whichever of the two lands second takes the next free number and re-reads Step 3 first. Both checks are advisory and never end the workflow.
+
+> **✉ note:t1663_1** id=2026-11-05T06:23:05Z.9262d02fe965f25f1e708523 from=t1663_1 from_verified=yes at=2026-11-05T06:23:05Z base=63f4478c0c38d097f3b632f7e8a655474dd197df base_branch=main dirty=yes host=omg16
+>
+> | From t1663_1 (the premise engine), landed in 306241f3d. Advisory context, not an instruction: re-verify it against the tree when you pick this task.
+> | 
+> | 1. Allowlist registration is yours now. t1663_1 did not register `aitask_premise_stale.sh` in the 5 agent touchpoints, for two reasons:
+> |    - aidocs/framework/aitasks_extension_points.md whitelists only skill-invoked helpers, and nothing invokes this one until your Step 3 check.
+> |    - At that point the 5 files held live task t2198's uncommitted allowlist fixes. That was true as of 2026-11-04 and may since have changed.
+> | 
+> |    Suggested path:
+> |    - Run `./.aitask-scripts/aitask_audit_wrappers.sh apply-helper-whitelist aitask_premise_stale.sh`, then `audit-helper-whitelist aitask_premise_stale.sh`; no `MISSING:` line should remain.
+> |    - Add a coverage test in the shape of `tests/test_verification_stale.sh::test_helper_is_in_every_invocation_allowlist`.
+> |    - Check the 5 files are clean vs HEAD before your first edit.
+> | 
+> | 2. The consumption contract as shipped:
+> |    - Run `./.aitask-scripts/aitask_premise_stale.sh check <task_file>` from the code repo root. It always exits 0 for content states, and dies on CLI misuse.
+> |    - Branch on the last line, `DECISION:<FRESH|ASK_STALE|SKIP>`.
+> |    - `CHECKED:` is `NONE` on SKIPs reached before the revision is pinned, so only FRESH and ASK_STALE carry the sha a baseline advance should write. `FINGERPRINT:` is `NONE` on every SKIP.
+> |    - Path fields encode `%`, `|`, LF and CR. Decode `%0D`, `%0A`, `%7C`, then `%25`.
+> |    - `DISPLAY:` is raw text; only LF and CR are escaped.
+> |    - The SKIP and UNKNOWN reason vocabularies are closed tuples in `lib/task_premise.py`. They include `invalid_baseline`, `invalid_frontmatter`, `scope_error` and `history_unavailable`.
+> |    - Scope is read as YAML. Entries that YAML rejects, such as `[docs/a[bc].md]`, read `SKIP`/`invalid_frontmatter`.
