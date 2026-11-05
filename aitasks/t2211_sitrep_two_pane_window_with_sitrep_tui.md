@@ -10,7 +10,7 @@ active_gates: [risk_evaluated]
 active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
-children_to_implement: [t2211_1, t2211_2]
+children_to_implement: [t2211_1, t2211_2, t2211_3]
 assigned_to: dario-e@beyond-eye.com
 anchor: 2175
 artifacts:
@@ -18,7 +18,7 @@ artifacts:
     kind: implementation_trail
     name: Sitrep follow-ups (topic t2175)
 created_at: 2026-11-05 08:36
-updated_at: 2026-11-05 15:35
+updated_at: 2026-11-05 15:36
 ---
 
 # Sitrep window: add a Python sitrep TUI beside the sitrep agent
