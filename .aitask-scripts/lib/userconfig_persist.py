@@ -2,7 +2,7 @@
 
 This module is the canonical home for reading and writing top-level keys of
 `aitasks/metadata/userconfig.yaml` (`email`, `last_used_labels`, `shortcuts`,
-…). `shortcut_persist` and the bash `last_used_labels` helpers both go through
+`minimonitor_key_hints`, …). `shortcut_persist` and the bash `last_used_labels` helpers both go through
 the `_load_full` / `_atomic_dump` round-trip defined here, so no two writers can
 disagree on the file's representation.
 
@@ -149,6 +149,41 @@ def set_last_used_labels(labels: list[str]) -> None:
     """Persist last_used_labels, round-tripping the whole file safely."""
     data = _load_full()
     data["last_used_labels"] = list(labels)
+    _atomic_dump(data)
+
+
+#: Top-level key holding minimonitor's key-hint band mode (t2212):
+#: ``collapsed`` or ``full``. Any other value — or none — means full.
+_MINIMONITOR_KEY_HINTS_KEY = "minimonitor_key_hints"
+
+
+def get_minimonitor_key_hints_collapsed() -> bool:
+    """Whether a newly started minimonitor should open with collapsed hints.
+
+    Fail-soft: a missing, unreadable or malformed userconfig — or an
+    unrecognised value — yields ``False`` (the full band), so a broken config
+    can never hide the key surface.
+    """
+    try:
+        val = _load_full().get(_MINIMONITOR_KEY_HINTS_KEY)
+    except MalformedUserConfigError as exc:
+        sys.stderr.write(
+            f"userconfig_persist: ignoring malformed config: {exc}\n"
+        )
+        return False
+    except OSError:
+        return False
+    return val == "collapsed"
+
+
+def set_minimonitor_key_hints_collapsed(collapsed: bool) -> None:
+    """Persist the key-hint band mode, round-tripping the whole file safely.
+
+    Raises ``MalformedUserConfigError`` on a corrupt file rather than
+    overwriting it (the caller keeps the toggle for its session).
+    """
+    data = _load_full()
+    data[_MINIMONITOR_KEY_HINTS_KEY] = "collapsed" if collapsed else "full"
     _atomic_dump(data)
 
 

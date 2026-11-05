@@ -31,7 +31,9 @@ import asyncio
 import os
 import re
 import sys
+import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -179,20 +181,27 @@ class _ChromeFixture(unittest.TestCase):
 
     def setUp(self):
         self._saved_env = {
-            k: os.environ.pop(k, None) for k in ("TMUX", "TMUX_PANE")
+            k: os.environ.pop(k, None) for k in ("TMUX", "TMUX_PANE", "TASK_DIR")
         }
+        # The `x` toggle persists its mode to userconfig.yaml (t2212): point
+        # every write at a scratch file, never the developer's real one.
+        self._tmp = tempfile.TemporaryDirectory()
+        os.environ["TASK_DIR"] = self._tmp.name
 
     def tearDown(self):
+        os.environ.pop("TASK_DIR", None)
         for key, value in self._saved_env.items():
             if value is not None:
                 os.environ[key] = value
+        self._tmp.cleanup()
 
-    def _app(self, width=40):
+    def _app(self, width=40, collapsed=False):
         return mm.MiniMonitorApp(
             session="probe-session",
             project_root=REPO_ROOT,
             refresh_seconds=999,
             target_width=width,
+            key_hints_collapsed=collapsed,
         )
 
     async def _populate(self, app, pilot, *, banners=True, own=True,
@@ -248,12 +257,12 @@ class _ChromeFixture(unittest.TestCase):
 
     def _run(self, size, *, banners=True, own=True, session=True, after=None,
              window=OWN_WINDOW, own_category=mm.PaneCategory.AGENT,
-             phase_sig=None):
+             phase_sig=None, collapsed=False):
         """Boot, populate, and hand the live app to ``after``."""
         result = {}
 
         async def runner():
-            app = self._app(width=size[0])
+            app = self._app(width=size[0], collapsed=collapsed)
             async with app.run_test(size=size) as pilot:
                 await self._populate(app, pilot, banners=banners, own=own,
                                      session=session, window=window,
@@ -528,6 +537,98 @@ class KeyHintsBudgetTests(_ChromeFixture):
             "a hint line wraps at 40 columns — _KEY_HINTS_ROWS no longer "
             "describes the rendered height",
         )
+
+    def test_desired_rows_track_the_rendered_height_at_every_width(self):
+        """t1574: the predicate's input is the WRAPPED height, at any width.
+
+        A tall pane, so the band fits on screen and its region is its real
+        height. Below 24 columns the band wraps far past `_KEY_HINTS_ROWS`,
+        which is exactly what a newline count could not see.
+        """
+        seen = {}
+        for width in (18, 22, 24, 30, 40):
+            with self.subTest(width=width):
+
+                async def after(app, pilot, result):
+                    result["desired"] = app._key_hints_desired_rows()
+                    # No feedback: `.short` only clamps the box, never the
+                    # content height the predicate reads.
+                    app.set_class(True, "short")
+                    await pilot.pause()
+                    result["desired_short"] = app._key_hints_desired_rows()
+                    result["clamped"] = app.query_one("#mini-key-hints").region.height
+
+                out = self._run((width, 60), banners=False, own=False,
+                                session=False, after=after)
+                height = out["regions"]["#mini-key-hints"].height
+                self.assertEqual(out["desired"], height)
+                self.assertEqual(out["desired_short"], out["desired"])
+                self.assertEqual(out["clamped"], mm._SHORT_HINT_ROWS)
+                seen[width] = height
+        self.assertGreater(seen[18], mm._KEY_HINTS_ROWS,
+                           "the band no longer wraps at 18 — the sweep is moot")
+
+
+class CollapsedKeyHintsTests(_ChromeFixture):
+    """The `x` toggle's collapsed band, on the real chrome (t2212)."""
+
+    def test_collapsed_band_is_one_row_and_gives_the_rows_to_the_list(self):
+        full = self._run((40, 30), banners=False, own=False, session=False)
+        for width in (40, 22):
+            with self.subTest(width=width):
+                r = self._run((width, 30), banners=False, own=False,
+                              session=False, collapsed=True)["regions"]
+                self.assertEqual(r["#mini-key-hints"].height, 1)
+        r = self._run((40, 30), banners=False, own=False, session=False,
+                      collapsed=True)["regions"]
+        self.assertEqual(
+            r["#mini-pane-list"].height,
+            full["regions"]["#mini-pane-list"].height + mm._KEY_HINTS_ROWS - 1,
+        )
+
+    def test_toggle_round_trips(self):
+        seen = []
+
+        async def after(app, pilot, result):
+            for _ in range(2):
+                await pilot.press("x")
+                await pilot.pause()
+                await pilot.pause()
+                seen.append(app.query_one("#mini-key-hints").region.height)
+
+        self._run((40, 30), banners=False, own=False, session=False, after=after)
+        self.assertEqual(seen, [1, mm._KEY_HINTS_ROWS])
+
+    def test_collapsed_band_through_short_mode(self):
+        """Short mode is moot while collapsed; expanding re-engages it."""
+        seen = {}
+
+        async def after(app, pilot, result):
+            hints = app.query_one("#mini-key-hints")
+            seen["collapsed"] = (hints.region.height, "short" in app.classes)
+            app._set_shadow_stale_banner("")
+            app._set_loop_banner("")
+            await pilot.pause()
+            await pilot.pause()
+            seen["cleared"] = hints.region.height
+            app._set_shadow_stale_banner(STALE_TEXT)
+            app._set_loop_banner(LOOP_TEXT)
+            await pilot.pause()
+            await pilot.press("x")   # expand while the banners are live
+            await pilot.pause()
+            await pilot.pause()
+            seen["expanded"] = (hints.region.height, "short" in app.classes)
+            await pilot.press("x")   # and collapse again
+            await pilot.pause()
+            await pilot.pause()
+            seen["recollapsed"] = (hints.region.height, "short" in app.classes)
+
+        self._run((40, SHORT_PROBE_HEIGHT), session=False, collapsed=True,
+                  after=after)
+        self.assertEqual(seen["collapsed"], (1, False))
+        self.assertEqual(seen["cleared"], 1)
+        self.assertEqual(seen["expanded"], (mm._SHORT_HINT_ROWS, True))
+        self.assertEqual(seen["recollapsed"], (1, False))
 
 
 class CollapseToggleContractTests(_ChromeFixture):
@@ -862,6 +963,42 @@ class PaneListFloorTests(_ChromeFixture):
                     f"pane list {lst} ran into the docked hints {hints} at "
                     f"height {height}",
                 )
+
+    #: t1574: below ~24 columns the hint band word-wraps (22 rows at width 18,
+    #: 18 at width 22), so a short-mode predicate that believes the band is
+    #: `_KEY_HINTS_ROWS` tall never engages and the docked band is laid over the
+    #: list. Measured on the pre-fix predicate: at (18, 28) the hints sat at
+    #: y=2 over a 1-row list at y=7; at (22, 24) at y=4 over a list at y=7. Only
+    #: the followed-agent panel is live — no banners, no session bar.
+    NARROW_FLOOR_CASES = ((18, 28), (22, 24))
+
+    def _assert_narrow_floor(self, size):
+        r = self._run(size, own="full", banners=False, session=False)["regions"]
+        lst, hints = r["#mini-pane-list"], r["#mini-key-hints"]
+        self.assertGreaterEqual(lst.height, 1, f"pane list vanished at {size}")
+        self.assertLessEqual(
+            lst.y + lst.height, hints.y,
+            f"pane list {lst} ran into the docked hints {hints} at {size} — "
+            "the short-mode predicate under-measured the wrapped band (t1574)",
+        )
+
+    def test_pane_list_keeps_a_row_at_narrow_widths(self):
+        for size in self.NARROW_FLOOR_CASES:
+            with self.subTest(size=size):
+                self._assert_narrow_floor(size)
+
+    def test_the_narrow_cases_need_the_measured_height(self):
+        """MUTANT CONTROL: with the pre-t1574 newline count the cases break.
+
+        Proves NARROW_FLOOR_CASES discriminate — a size where the old predicate
+        also held would make the test above pass for the wrong reason.
+        """
+        with mock.patch.object(mm.MiniMonitorApp, "_key_hints_desired_rows",
+                               lambda self: mm._KEY_HINTS_ROWS):
+            for size in self.NARROW_FLOOR_CASES:
+                with self.subTest(size=size):
+                    with self.assertRaises(AssertionError):
+                        self._assert_narrow_floor(size)
 
     def test_worst_case_chrome_fits_the_documented_ceiling(self):
         """Pins the ceiling the floor above was computed from.

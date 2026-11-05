@@ -102,7 +102,7 @@ All keyboard actions documented below remain available.
 ### How to Navigate the Agent List
 
 - **Up** / **Down** — Move focus between agent cards within the list.
-- The footer hint summarizes the navigation and action keys for the current layout.
+- The key-hint band at the bottom summarizes the navigation and action keys — see [How to Collapse the Key Hints or Open the Full Key Help](#how-to-collapse-the-key-hints-or-open-the-full-key-help).
 
 When minimonitor is shown as a side split next to an agent, it auto-selects the card for that agent whenever the minimonitor pane regains terminal focus — so the focused card always reflects the neighbor you are working with, unless you explicitly moved focus somewhere else.
 
@@ -418,6 +418,18 @@ When the multi-session view is ON, agents are grouped under `── <session_nam
 
 For the full cross-TUI story (auto-discovery, rendering details, cross-session focus from the main monitor), see [Multi-session view]({{< relref "/docs/tuis/monitor/reference" >}}#multi-session-view) in the monitor reference.
 
+### How to Collapse the Key Hints or Open the Full Key Help
+
+Minimonitor has no footer: the band at the bottom of the pane lists every key, and it costs about ten rows of a short companion pane. Press **x** to collapse it to a single line that names only the two keys you need to get it back — `x:keys H:help` — and the agent list takes the rows. Press **x** again to bring the full band back.
+
+The choice is remembered per user, as `minimonitor_key_hints: collapsed` (or `full`) in `aitasks/metadata/userconfig.yaml`, so every minimonitor you open afterwards — including the ones auto-spawned beside new agents — starts the same way. If that file cannot be written (for example, it is not valid YAML), the band still collapses for this minimonitor and a warning says the choice was not saved.
+
+Press **H** (Shift+h) to open the full key help: a scrollable list of every minimonitor key, each with a short explanation. Scroll it with the arrow keys or Page Up / Page Down, and close it with **Esc**, **q** or **H**. It fits the narrow companion pane, down to about 24 columns.
+
+Both keys can be rebound like any other with **?**, the shortcut editor. The band, the collapsed line and the help list always show the keys you actually bound. A long rebind such as `ctrl+y` is shown in the compact `^y` form, and when even that does not fit the collapsed line beside its labels, the line shows the two keys alone.
+
+When a pane is short and the advisory banners above the list need room, the full band compacts to its first two rows on its own. The band lists `x` and `H` first, so with the default keys they stay visible when it does.
+
 ### How to Quit
 
 Press **q** to quit minimonitor manually. The pane running minimonitor closes; the rest of your tmux session is unaffected. Because auto-despawn already closes minimonitor whenever its companion agent exits, manual quit is mainly useful when you want to reclaim the sidebar column while the agent is still running.
@@ -475,10 +487,14 @@ All actions below are also available via mouse — see [Mouse Support](#mouse-su
 | `P` | Hide or show parked **and frozen** agents in the scrollable list |
 | `f` | Freeze the **followed** agent — its process ends, its output is captured (confirms first) |
 | `Z` | Freeze every agent on this machine, across all projects (confirms, naming the count) |
+| `h` | Harvest the **followed** agent's wrap-up into the sitrep todo list, show what was captured, then offer to close the agent |
+| `S` | Open, or switch to, the sitrep window of the followed agent's repository |
 | `d` | Cycle the idle-detection compare mode (`≈` ANSI-stripped, `=` strict) |
 | `j` | Open the TUI switcher |
 | `m` | Switch to the full [monitor]({{< relref "/docs/tuis/monitor" >}}) with this agent focused |
 | `M` | Toggle the multi-session view ON/OFF |
+| `x` | [Collapse the key-hint band](#how-to-collapse-the-key-hints-or-open-the-full-key-help) to one line, or expand it again (remembered per user) |
+| `H` | Open the [full key help](#how-to-collapse-the-key-hints-or-open-the-full-key-help) — every key with a short explanation |
 | `?` | Open the shortcut editor to rebind any of these keys |
 | `q` | Quit minimonitor |
 

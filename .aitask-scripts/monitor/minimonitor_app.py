@@ -102,6 +102,15 @@ from tui_switcher import TuiSwitcherMixin  # noqa: E402
 from tmux_exec import TmuxClient  # noqa: E402
 from shortcuts_mixin import ShortcutsMixin  # noqa: E402
 from tui_clipboard import copy_to_system_clipboard  # noqa: E402
+import userconfig_persist  # noqa: E402  (collapsed key-hint mode, t2212)
+from monitor.minimonitor_keys import (  # noqa: E402  (key surface, t2212)
+    COLLAPSED_HINT_LINE,
+    FULL_HINT_LINES,
+    KeyHelpModal,
+    binding_keymap,
+    render_collapsed,
+    render_hints,
+)
 from agent_launch_utils import (  # noqa: E402
     DEFAULT_TMUX_SESSION,
     load_tmux_defaults,
@@ -1016,66 +1025,15 @@ _BOARD_COLUMN_CMD_TIMEOUT = 20.0
 
 # -- Main app -----------------------------------------------------------------
 
-# The complete key surface of the app. Minimonitor renders no Footer — its
-# 40-column companion layout surfaces EVERY binding here instead (the
-# tui_conventions.md "surface the hint in the pane's own text" exception).
-# Module-level so tests can pin hints/BINDINGS parity executably: a binding
-# added without a hint line fails the audit test, keeping the convention's
-# all-operations requirement true by construction (t1159_2 review round 7).
-KEY_HINTS_TEXT = (
-    "i:info  q:quit  tab:agent\n"
-    # t2175_5 bought the two rows `h` and `S` cost here: "(followed)" for
-    # "(followed agent)" and the glyph-first detect line ("\u2248strip =raw"
-    # still names both modes) each save one wrapped row at (15, 30), measured.
-    "I:info (followed)\n"
-    "s/\u2191\u2193:switch  enter:send\n"
-    "d:detect \u2248strip =raw\n"
-    # Shortened by t1705_7 to pay for the three keys added below. At width 15
-    # this was the most expensive line in the band — four wrapped rows — so
-    # trimming it buys back more than the new keys cost.
-    "j:switcher  m:monitor\n"
-    # `o` (t2073_4) sits beside `e/E`: both open a helper bound to the followed
-    # agent. Measured at (15, 30): every line it could join costs one wrapped
-    # row there (28 -> 29, the budget); none was free.
-    "k:kill  n:next  e/E:shadow  o:notes\n"
-    # `P` shares this line with `p` deliberately (t1685): they are unrelated
-    # actions that differ only in case, and putting them side by side is what
-    # makes that legible. It also keeps the hints at TEN rows — an eleventh
-    # would cost the pane list a row at every pane height, which
-    # test_minimonitor_top_chrome_render pins.
-    #
-    # t1705_7 added three keys (`f`, `Z`, `R`) and widened `P`'s label, still
-    # within TEN rows. t2054 removed `R` again: restore and re-pick are the
-    # frozen-agent viewer's own keys, reached with `tab`.
-    #
-    # The budget is not only the row COUNT — it is the WRAPPED height. This band
-    # is docked bottom, so at narrow widths a longer line costs a whole extra
-    # rendered row and squeezes `#mini-own-agent`;
-    # `test_own_header_names_the_session_without_clipping_at_any_width` measures
-    # that down to width 15, where every line over 30 cells wraps to three. So
-    # The budget is not the row COUNT but the RENDERED height at a NARROW width,
-    # and it is sharper than it looks. This band is `height: auto` and docked
-    # bottom, so at width 15 it overflows the screen, gains a scrollbar, loses
-    # another column to it, and re-wraps WIDER than a naive measurement predicts
-    # — then paints over row 0 and swallows `#mini-own-agent`, which
-    # `test_own_header_names_the_session_without_clipping_at_any_width` catches.
-    #
-    # So MEASURE, never eyeball: render the app at (15, 30) and read
-    # `#mini-key-hints`'s region height. It must stay ≤ 29. Rich WORD-wraps, so
-    # word lengths decide, not character counts — which is why the labels are
-    # terse and why single spaces appear on the `L:` line.
-    #
-    # The three keys t1705_7 added are paid for by shortening the `j:`/`m:` line
-    # above, which was the band's most expensive at that width. That headroom is
-    # spent on naming BOTH states in `P:parked/frozen` rather than on a shorter
-    # label: this band is the minimonitor's only binding surface (it renders no
-    # Footer), so a user hunting for "how do I show parked agents again?" has
-    # nowhere else to look.
-    "c:concerns  p:pick  P:parked/frozen\n"
-    "f:freeze  Z:all  h:harvest\n"
-    "L:loop ?:keys M:multi S:sitrep\n"
-    "space:mark ★ (followed agent)"
-)
+# The complete key surface of the app lives in monitor/minimonitor_keys.py
+# (t2212): FULL_HINT_LINES / COLLAPSED_HINT_LINE name ACTIONS, and the keys
+# come from the App's composed BINDINGS, so the band, the collapsed line and
+# the H help modal all follow a user's rebinds. Minimonitor renders no Footer
+# — its 40-column companion layout surfaces EVERY binding in that band (the
+# tui_conventions.md "surface the hint in the pane's own text" exception); a
+# binding added without a table entry fails the parity audit
+# (tests/test_minimonitor_key_hints_modes.py). KEY_HINTS_TEXT — the default-key
+# rendering every test reads — is derived below the class.
 
 # Top-chrome layout budget (t1499). These four flow above #mini-pane-list in
 # compose order; #mini-key-hints is docked bottom. When the chrome's occupied
@@ -1121,11 +1079,12 @@ _MAX_CHROME_ROWS = (
     _SESSION_BAR_ROWS + _OWN_PANEL_MAX_ROWS
     + _SHADOW_STALE_ROWS + _LOOP_STATUS_ROWS
 )
-# Derived, never a second literal: a hint line added to KEY_HINTS_TEXT must not
-# require editing a count here too. Pinned against the rendered height at 40
-# columns by test_minimonitor_top_chrome_render.py, so a line long enough to
-# wrap invalidates this loudly instead of silently shifting the threshold.
-_KEY_HINTS_ROWS = KEY_HINTS_TEXT.count("\n") + 1
+# The full band's AUTHORED line count — its rendered height at 40 columns, where
+# no default line wraps (pinned by test_minimonitor_top_chrome_render.py). It is
+# NOT what the short-mode predicate reads: below ~24 columns the band word-wraps
+# (22 rows at width 18), so `_refresh_short_mode` measures the band's desired
+# height at the current width instead (`_key_hints_desired_rows`, t1574).
+_KEY_HINTS_ROWS = len(FULL_HINT_LINES)
 _SHORT_HINT_ROWS = 2
 _PANE_LIST_FLOOR_ROWS = 3
 
@@ -1380,6 +1339,16 @@ class MiniMonitorApp(
     MiniMonitorApp.short #mini-key-hints {
         max-height: 2;
     }
+
+    /* Collapsed key hints (t2212): exactly ONE row, structurally. The line
+       holds user-rebindable keys, so its length is not ours to promise —
+       render_collapsed keeps both active keys visible whenever they fit, and
+       this rule keeps the band one row when they do not. */
+    #mini-key-hints.collapsed {
+        height: 1;
+        text-wrap: nowrap;
+        text-overflow: ellipsis;
+    }
     """
 
     BINDINGS = [
@@ -1422,6 +1391,12 @@ class MiniMonitorApp(
         # repository's sitrep window. Same keys as the full monitor.
         Binding("h", "harvest_close", "Harvest followed agent", show=False),
         Binding("S", "open_sitrep", "Sitrep window", show=False),
+        # Key-hint modes (t2212): `x` collapses / expands the band, `H` opens
+        # the full key help (`?` stays the shortcut editor). Both are free in
+        # the full monitor too and deliberately left unbound there, so the two
+        # apps never give one key two meanings (test-pinned).
+        Binding("x", "toggle_key_hints", "Collapse key hints", show=False),
+        Binding("H", "show_key_help", "Key help", show=False),
         # `k` keeps its live-row meaning and branches on the frozen state
         # INSIDE the action. Restore and re-pick are the frozen-agent viewer's
         # own `R` / `P`, reached with Tab into the stand-in pane (t2054).
@@ -1440,9 +1415,13 @@ class MiniMonitorApp(
         target_width: int = 40,
         mark_pane: bool = False,
         session_bar: bool = False,
+        key_hints_collapsed: bool = False,
     ) -> None:
         super().__init__()
         self.current_tui_name = "minimonitor"
+        # Collapsed key-hint band (t2212). Read from userconfig by main() only,
+        # so an App a test constructs never reads the real userconfig.
+        self._key_hints_collapsed = bool(key_hints_collapsed)
         # Shadows the class attribute above; see it for why the default lives
         # there rather than here.
         self._session_bar_enabled = session_bar
@@ -1618,10 +1597,21 @@ class MiniMonitorApp(
         # the per-tick restore needs (t1539). `query_one(..., VerticalScroll)`
         # still resolves it, so no lookup site had to change.
         yield MiniPaneList(id="mini-pane-list")
-        yield Static(KEY_HINTS_TEXT, id="mini-key-hints")
+        # No width yet, so the collapsed line takes its labelled rung here;
+        # _sync_key_hints_text re-picks it for the measured width after layout.
+        yield Static(
+            self._key_hints_text(),
+            id="mini-key-hints",
+            classes="collapsed" if self._hints_collapsed() else "",
+        )
 
     def on_mount(self) -> None:
         self._mount_time = time.monotonic()
+        # Fit the key-hint band to the measured width once layout exists —
+        # compose had no width, so a collapsed line took its labelled rung
+        # there (t2212). Before the TMUX check: the not-inside-tmux path below
+        # returns early and must still show a fitted band.
+        self._schedule_short_mode_refresh()
 
         if not os.environ.get("TMUX"):
             bar = self.query_one("#mini-session-bar", Static)
@@ -1710,22 +1700,114 @@ class MiniMonitorApp(
         "is any collapsible widget shown?" is true almost always, and a 22-row
         pane with no banners would needlessly lose eight hint lines.
 
+        The hints' height it compares against is their *desired* height at the
+        CURRENT width (``_key_hints_desired_rows``, t1574) — the content height
+        of the current mode's text, not a newline count: below ~24 columns the
+        full band word-wraps to twice its authored lines, and a count let the
+        docked band overrun the list there while the predicate saw room.
+
         Converges in one pass and cannot oscillate: chrome heights depend on
-        width and content only, never on the hints' height, and the comparison
-        uses ``_KEY_HINTS_ROWS`` — the hints' *desired* height — rather than
-        their current rendered height, so the class never feeds back into its
-        own input. Always scheduled via ``call_after_refresh`` so the region
+        width and content only, never on the hints' height; and the desired
+        height is the text's content height at the current width, which
+        ``.short`` cannot change — the class only sets ``max-height``, which
+        clamps the box, not the content — so the class never feeds back into
+        its own input. Always scheduled via ``call_after_refresh`` so the region
         reads happen after layout; called before it, every region is 0.
+
+        First re-renders the band for the current width
+        (``_sync_key_hints_text``), so after a resize the collapsed line has
+        re-picked its rung before anything is measured.
         """
         with contextlib.suppress(Exception):
+            self._sync_key_hints_text()
             chrome = sum(
                 self.query_one(sel).region.height for sel in _TOP_CHROME
             )
             self.set_class(
-                chrome + _KEY_HINTS_ROWS + _PANE_LIST_FLOOR_ROWS
+                chrome + self._key_hints_desired_rows() + _PANE_LIST_FLOOR_ROWS
                 > self.size.height,
                 "short",
             )
+
+    # -- Key-hint modes (t2212) ------------------------------------------------
+
+    def _hints_collapsed(self) -> bool:
+        # getattr: several tests drive `compose()` on an App built with
+        # `__new__`, which never ran __init__.
+        return bool(getattr(self, "_key_hints_collapsed", False))
+
+    def _active_keymap(self) -> dict[str, str]:
+        """``{action: key}`` from the COMPOSED bindings — overrides included.
+
+        ``self.BINDINGS`` on an instance is the post-override list
+        ``ShortcutsMixin`` built (shared-scope actions such as ``?``, ``j`` and
+        ``q`` included); on an App built with ``__new__`` it is the class's
+        defaults.
+        """
+        return binding_keymap(self.BINDINGS)
+
+    def _key_hints_text(self, content_width: int | None = None) -> str:
+        keymap = self._active_keymap()
+        if self._hints_collapsed():
+            return render_collapsed(keymap, content_width)
+        return render_hints(FULL_HINT_LINES, keymap)
+
+    def _key_hints_content_width(self, hints) -> int:
+        return max(1, self.size.width - hints.styles.gutter.width)
+
+    def _sync_key_hints_text(self) -> None:
+        """Bring the band's text and ``collapsed`` class in line with the mode.
+
+        The collapsed rung depends on the measured width, so this runs before
+        every short-mode decision (after each resize) as well as on a toggle.
+        ``update`` only when the text changed — an unchanged ``update`` still
+        costs a layout pass.
+        """
+        hints = self.query_one("#mini-key-hints", Static)
+        collapsed = self._hints_collapsed()
+        hints.set_class(collapsed, "collapsed")
+        text = self._key_hints_text(self._key_hints_content_width(hints))
+        if str(hints.content) != text:
+            hints.update(text)
+
+    def _key_hints_desired_rows(self) -> int:
+        """The band's desired height at the current width (t1574).
+
+        The content height of the text it currently holds, measured at its
+        content width — independent of the ``.short`` max-height, which clamps
+        the box and not the content. Falls back to the authored line count if
+        Textual cannot measure (it would rather under- than over-compact).
+        """
+        hints = self.query_one("#mini-key-hints", Static)
+        try:
+            return hints.get_content_height(
+                self.size, self.size, self._key_hints_content_width(hints)
+            )
+        except Exception:
+            return str(hints.content).count("\n") + 1
+
+    def action_toggle_key_hints(self) -> None:
+        """``x`` — collapse the band to one line, or expand it again."""
+        self._key_hints_collapsed = not self._hints_collapsed()
+        with contextlib.suppress(NoMatches):
+            self._sync_key_hints_text()
+        self._schedule_short_mode_refresh()
+        try:
+            userconfig_persist.set_minimonitor_key_hints_collapsed(
+                self._key_hints_collapsed
+            )
+        except Exception as exc:  # noqa: BLE001 — fail-soft by design
+            # The toggle stands for this session either way; only the memory
+            # for the next minimonitor is lost. A malformed userconfig raises
+            # here BEFORE anything is written, so it is never overwritten.
+            self.notify(f"Key-hint mode not saved: {exc}", severity="warning")
+
+    def action_show_key_help(self) -> None:
+        """``H`` — every key with a paragraph each, in a scrollable modal."""
+        keymap = self._active_keymap()
+        self.push_screen(
+            KeyHelpModal(keymap, close_keys=(keymap.get("show_key_help", ""),))
+        )
 
     def _maybe_pin_width(self, width: int) -> None:
         """Clamp this minimonitor's companion pane back to its target width.
@@ -5990,6 +6072,18 @@ class MiniMonitorApp(
                 self.notify("new-window failed", severity="error")
 
 
+# The bands rendered with the DEFAULT keys — what the existing suites read, and
+# the substring audit `test_key_hints_surface_every_binding` runs over. Derived
+# from the same table and the class's bindings the App renders from, never a
+# second literal (t2212).
+KEY_HINTS_TEXT = render_hints(
+    FULL_HINT_LINES, binding_keymap(MiniMonitorApp.BINDINGS)
+)
+KEY_HINTS_COLLAPSED_TEXT = render_hints(
+    (COLLAPSED_HINT_LINE,), binding_keymap(MiniMonitorApp.BINDINGS)
+)
+
+
 def _detect_tmux_session() -> str | None:
     """Auto-detect the current tmux session name, or None if not inside tmux."""
     if not os.environ.get("TMUX"):
@@ -6053,6 +6147,9 @@ def main() -> None:
         target_width=target_width,
         mark_pane=True,   # production launcher only — see MiniMonitorApp.__init__
         session_bar=session_bar,
+        # Per-user, fail-soft (t2212): a missing or malformed userconfig opens
+        # the full band.
+        key_hints_collapsed=userconfig_persist.get_minimonitor_key_hints_collapsed(),
     )
     app.run()
 
