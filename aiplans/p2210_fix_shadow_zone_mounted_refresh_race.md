@@ -300,3 +300,60 @@ Step 9 of the task workflow (current-branch mode, no merge).
 
 ### Planned mitigations
 - timing: post-phase | name: measure_loaded_flake_rate | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement — rare flake not provably absent | desc: blocking loaded interleaved 40+40 flake measurement before commit; any fixed-side failure is diagnosed and fixed first
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-05)
+- **Requested by user:** [timeout enforcement] `_until` checked its deadline only before an unbounded `await pilot.pause()`. Textual's `Pilot.pause` → `_wait_for_screen(timeout=30.0)` can block past the helper's 10s budget, and a predicate turning true during that await returned success with the budget already spent (reviewer probe: success after 0.103s with timeout=0.010s).
+- **Changes made:** `_until` now bounds every pump with `asyncio.wait_for(pilot.pause(), remaining)`, rejects a success observed past the deadline, and reports elapsed time plus the budget left at entry in each failure (`timed out` / `pilot.pause() overran the remaining budget` / `condition held only past the deadline`). It also takes an absolute `deadline=`, which `_settle` passes in place of `timeout=remaining()`. Otherwise a near-zero remaining timeout would mark an already-true predicate as "past the deadline" spuriously.
+- **Verification:** probes with a real pilot whose `_wait_for_screen` was delayed:
+  - 0.1s delay, 0.01s budget, predicate flipped during the pump → RAISED at 0.010s;
+  - 5s delay, 0.05s budget → RAISED at 0.050s;
+  - 0.01s delay, 2s budget → SUCCESS.
+
+  The supersession and failure probes were re-run and still pass (cancelled-before-start shape drained in 0.094s; failure still reported). Module: 41 passed (pytest and script). Loaded re-check of the fixed module: 0/20 failures, 12 burners.
+- **Files affected:** `tests/test_monitor_shadow_zone.py`
+
+## Final Implementation Notes
+- **Actual work done:** All of it is in `tests/test_monitor_shadow_zone.py`, as planned.
+  - Added `_until`, `_worker_done` and `_settle`, which drain deferred work by ordering. A `run_worker` spy in `_make_app` logs every `preview`/`shadow-preview` worker the app starts.
+  - Stubbed `_dispatch_refresh_maintenance`.
+  - Added a per-run `_no_tmux_env()` scrub and the `app._monitor is mon` mount assertion (`_STUB_REPLACED`) in `_run_mounted`, `MountedShadowColumnTests._run` and the three `NarrowFallbackTests` runners.
+  - Replaced all 32 mounted-test `pilot.pause()` calls with `_settle`; three double pauses collapsed into one each.
+  - Added the focus precondition wait in `test_full_refresh_renders…`.
+  - Added `test_refresh_rerenders_the_shadow_column_without_a_selection_change`.
+  - Updated the module docstring.
+  - No production code changed, and no existing assertion was weakened.
+- **Deviations from plan:**
+  - The loaded measurement used 12 CPU burners (`nproc`/2), not `cpu_count`. The box was already at load 6–10 from concurrent agents, and 24 burners would have starved them. Measured load during the runs reached 18–27.
+  - The baseline was a detached scratch worktree at HEAD `0eba599ab`, with this checkout's uncommitted `.aitask-scripts/` files (other sessions' work) copied in. Both sides therefore ran identical production code and differed only in the test file (checked with `diff -rq`).
+  - The Post-Review Change Request 1 hardening of `_until` is recorded above.
+- **Issues encountered:**
+  - The task's diagnosis (mount-time `first_refresh` holding `_refresh_inflight`) does not apply under a plain run. The module pops `TMUX` at import, so `on_mount` takes the not-inside-tmux early return and `first_refresh` never starts.
+  - The observed failure (`'%1' != '%2'`) and the `col.display` False failure both come from deferred `call_after_refresh` / `call_later` / exclusive-worker work that one CPU-idle `pilot.pause()` does not cover. The `TMUX`-replaces-the-stub exposure is guarded and asserted, but it was never observed.
+  - Two design flaws caught in plan review were confirmed against Textual 8.2.7 and fixed:
+    - `Worker.wait()` raises `WorkerCancelled` for a superseded exclusive worker.
+    - A worker cancelled before `_run` begins stays `state=RUNNING` with `task.cancelled()`; the supersession probe hit exactly this shape.
+- **Key decisions:**
+  - The render-worker drain polls a spy log rather than calling `wait()` or snapshotting `app.workers`, which drops finished workers.
+  - The new test separates refresh rendering from selection rendering: `on_descendant_focus` → `_update_zone_indicators` → `_update_shadow_preview` (`monitor_app.py:2745`) renders the shadow column whatever the refresh does.
+  - `_until` takes an absolute `deadline=`, so `_settle`'s waits share one budget.
+- **Verification evidence (durable):**
+  - **Loaded, interleaved, 12 burners:** baseline 3/40 failed, fixed 0/40.
+    - Baseline failures: run 7 `NarrowFallbackTests::test_on_resize_re_evaluates_on_a_fixed_preset` (False is not true); run 21 `MountedShadowColumnTests::test_grace_fallback_hands_the_post_fallback_zone_to_restore_focus` (PANE_LIST != PREVIEW); run 31 `test_on_resize…` again.
+    - Two of the three were outside `MountedShadowColumnTests`, which justifies extending `_settle` to the module's other mounted classes.
+  - **Unloaded repro before the fix:** 1/20 class runs failed, `'%1' != '%2'`.
+  - **After Change Request 1:** loaded, fixed-only, 0/20.
+  - **Supersession probe:** a logged worker reached `RUNNING`, `is_cancelled=True`, `task.cancelled()=True`, and `_settle` drained in 0.09s.
+  - **Failure probe:** `_settle` raised `preview render worker failed: RuntimeError('probe')`.
+  - **`_until` deadline probes (delayed `_wait_for_screen`):**
+    - 0.1s delay against a 0.01s budget raised at 0.010s.
+    - A 5s pump against a 0.05s budget raised at 0.050s.
+    - An in-budget run succeeded.
+  - **Negative controls (scratch copy):**
+    - `_schedule_shadow_fit_check` made a no-op: `test_shadow_column_shown…` failed at `assertTrue(col.display)`.
+    - Both PANE_LIST-path `_update_shadow_preview()` calls removed (`monitor_app.py:1204`, `:1667`): the new test failed at `'shadow REFRESHED content' not found`, and `test_full_refresh_renders…` passed, as predicted.
+    - The `_restore_focus` t545 branch replaced with `if False:`: the whole module passed (41/41). That branch is **uncovered** by any test in the repo.
+  - **Full Python suite:** `PYTHON SUITE: FAILED (runner=pytest, exit=1)`, with the single failure `tests/test_board_footer_multirow.py::BoardMultiRowFooterTests::test_fixture_facts` ("fixture must render footer keys"). It is unrelated: it passes alone and its whole module passes (10/10).
+- **Upstream defects identified:**
+  - `tests/test_board_footer_multirow.py:85 — test_fixture_facts asserts footer keys after a single pilot.pause(); under suite load the footer is not yet rendered (failed once in the full xdist suite, passes alone) — same CPU-idle single-pause race class as t2210`
