@@ -3,12 +3,13 @@ priority: medium
 effort: high
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [task_relations, git]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1981
 created_at: 2026-11-04 15:39
-updated_at: 2026-11-04 15:39
+updated_at: 2026-11-05 12:25
 ---
 
 ## Context
