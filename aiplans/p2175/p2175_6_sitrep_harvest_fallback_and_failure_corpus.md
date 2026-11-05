@@ -335,13 +335,13 @@ children left.
 ### Goal-achievement risk: medium
 - The detection signals are heuristic, and no real failing capture exists locally (21 measured, 0 triggers), so the policy is validated only on synthetic inputs. False positives from other agents' layouts or dev sessions that echo banners are possible (cheap and evidence-preserving, but noisy) · severity: medium · → mitigation: inline pre-phase detection_baseline
 - The demonstration gap (joined banner) is synthetic and not observed. The "fails against prior behaviour" proof uses a flag-flipped copy, not historical code · severity: low · → mitigation: none (accepted; stated in docs and Final Implementation Notes)
-- The agent-side review (recovering items, recording the gap) depends on skill prose that only the contract test checks mechanically · severity: low · → mitigation: sitrep_review_live_smoke
+- The agent-side review (recovering items, recording the gap) depends on skill prose that only the contract test checks mechanically · severity: low · → mitigation: t2216 (sitrep_review_live_smoke)
 
 ### Planned mitigations
 - timing: pre-phase | name: detection_baseline | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement — heuristic detection false positives | desc: measure assess() over every local frozen capture and fixture before building the corpus; tighten any rule that misfires
 - timing: post-phase | name: fallback_guard_mutants | type: test | priority: medium | effort: medium | inline_risk: low | added_complexity: low | addresses: code-health — receipt/case-write path and the new writer/check-sources guards | desc: one mutant per guard in fresh copies, each RED on its named test, control GREEN
 - timing: post-phase | name: large_capture_budget | type: performance | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — large-capture harvest budget | desc: time a 50,000-line ~12 MB review-triggering harvest; slowest run under 30 s or switch to retain-raw --from <file>
-- timing: after | name: sitrep_review_live_smoke | type: test | priority: medium | effort: medium | inline_risk: low | added_complexity: medium | addresses: goal-achievement — agent-side review depends on skill prose | desc: run the real /aitask-sitrep skill against a scratch store seeded with a joined-banner case; check it recovers the missed follow-up via the writer, records a case review, closes the item, and leaves raw/ evidence intact
+- timing: after | name: sitrep_review_live_smoke | type: test | priority: medium | effort: medium | inline_risk: low | added_complexity: medium | addresses: goal-achievement — agent-side review depends on skill prose | desc: run the real /aitask-sitrep skill against a scratch store seeded with a joined-banner case; check it recovers the missed follow-up via the writer, records a case review, closes the item, and leaves raw/ evidence intact | created: t2216
 
 ## Final Implementation Notes
 - **Actual work done:**
