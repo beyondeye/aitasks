@@ -5,14 +5,14 @@ depends: []
 issue_type: feature
 status: Ready
 labels: [claudeskills, skills, python, website]
-children_to_implement: [t1893_4, t1893_5, t1893_6, t1893_7, t1893_8, t1893_9, t1893_10, t1893_11, t1893_12, t1893_13, t1893_14]
+children_to_implement: [t1893_5, t1893_6, t1893_7, t1893_8, t1893_9, t1893_10, t1893_11, t1893_12, t1893_13, t1893_14]
 anchor: 1887
 artifacts:
   - handle: art:trail-screen-recording-expansion
     kind: implementation_trail
     name: Screen-recording skill expansion
 created_at: 2026-10-05 17:18
-updated_at: 2026-11-05 10:53
+updated_at: 2026-11-05 15:34
 ---
 
 ## Goal
