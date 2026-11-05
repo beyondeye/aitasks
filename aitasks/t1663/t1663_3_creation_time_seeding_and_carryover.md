@@ -3,12 +3,13 @@ priority: medium
 effort: low
 depends: [t1663_2, 1673]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [task-workflow]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1538
 created_at: 2026-09-01 15:19
-updated_at: 2026-09-02 10:05
+updated_at: 2026-11-05 12:25
 ---
 
 Seed `premise_baseline` at task creation when scope is derivable, and make carry-over tasks inherit their origin's baseline.
