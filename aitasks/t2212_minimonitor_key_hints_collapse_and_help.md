@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 folded_tasks: [1574]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-05 08:38
-updated_at: 2026-11-05 09:03
+updated_at: 2026-11-05 09:29
 ---
 
 ## Goal
@@ -117,3 +118,8 @@ case at widths 18/22 that fails today.
 The following existing tasks have been folded into this task. Their requirements are incorporated in the description above. These references exist only for post-implementation cleanup.
 
 - **t1574** (`t1574_minimonitor_key_hints_rendered_height.md`)
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-05T07:29:16Z status=pass attempt=1 type=human
