@@ -163,3 +163,8 @@ copied here so the task stands alone.
 > | - The archived plan aiplans/archived/p1893/p1893_3_*.md has the full "Notes for sibling tasks".
 
 > **👁 note:read** id=2026-11-05T09:53:17Z.9cba90831e340f5076b9090f by=t1893_4 at=2026-11-05T09:53:17Z mode=explicit ids=2026-10-05T20:27:36Z.656a153fdecbd3092cf27a3f,2026-11-05T08:52:36Z.58d6c0c61621a92cdd5e8934
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-05T10:49:48Z status=pass attempt=1 type=human
