@@ -3,11 +3,12 @@ priority: medium
 effort: medium
 depends: [t2037_2]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [monitor, minimonitor, performance]
+assigned_to: dario-e@beyond-eye.com
 anchor: 2034
 created_at: 2026-10-16 08:11
-updated_at: 2026-10-16 08:11
+updated_at: 2026-11-06 00:21
 ---
 
 Switch `ait monitor` and `ait minimonitor` to the client (parent: Python
