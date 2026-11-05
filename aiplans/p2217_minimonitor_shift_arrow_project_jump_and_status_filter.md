@@ -242,3 +242,34 @@ measurement and tests); goal-achievement stays low._
 ### Planned mitigations
 - timing: pre-phase | name: measure_band_baseline | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: key band / chrome row budget | desc: Measure #mini-key-hints heights at widths 15/18/22/40 before editing and compare after
 - timing: post-phase | name: jump_restore_regression_test | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: jump vs scroll restore / bottom pin | desc: Regression tests for jump-during-pending-restore and pin release, with a force=True mutant control
+
+## Implementation progress
+
+- [x] Pre-phase `measure_band_baseline`: measured `#mini-key-hints` (short class
+  removed) at width 15/18/22/40, height 30 → 28/22/19/10 (matches the table).
+- [x] `minimonitor_keys.py`: arrow glyphs + `⇧` for lone shift; `join_keys`;
+  `⇧↑↓:project` / `⇧←→:filter` segments; "mark ★ (followed)"; two help
+  entries. Re-measured: 29/23/21/10 (≤ 29 at width 15, 10 rows at 40).
+- [x] `minimonitor_app.py`: bindings, filter state + cycle, filter-as-navigation
+  (`_consume_filter_navigation`, `_navigate_list_after_filter`,
+  `_finish_filter_navigation`, one-shot `_maybe_retick_for_filter`), one phase per
+  tick, `#mini-filter-status` chrome row, project jump.
+- [x] Website how-to + `_index.md`; `check_links.py --build` SWEEP: PASSED.
+- [x] Tests (one new module `tests/test_minimonitor_filter_and_jump.py`, 24 cases)
+  + updated chrome/key-hint/own-mark/concern-action tests.
+- [x] Post-phase `jump_restore_regression_test`: in the new module, with the
+  `force=True` negative control.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-05 16:00)
+- **Requested by user:** review finding (low, efficiency) — `_live_phase` resolved task info for the filter and `_agent_card_text` resolved it again, so each displayed live task cost two `get_task_info` calls (each a file-identity `os.stat` even on a cache hit) per refresh.
+- **Changes made:** verified (one stat per `TaskInfoCache.get_task_info` call). `_live_phase` became `_live_task_phase` returning `(info, phase)`; the build-scoped `_build_phases` map now carries that pair and the card text reuses both. New test `test_task_info_is_resolved_once_per_live_agent_per_build` (mutant control: map disabled ⇒ fails).
+- **Files affected:** .aitask-scripts/monitor/minimonitor_app.py, tests/test_minimonitor_filter_and_jump.py
+
+## Final Implementation Notes
+- **Actual work done:** shift+↑/↓ project jump (agent-section session groups, divider scrolled to the top, first card focused, wraps, true no-op when the list fits / <2 groups) and shift+←/→ status/phase filter (`all → PLAN → IMPLEMENT → POSTIMPL → parked → frozen`, wraps both ways; explicit parked/frozen stops override `P`; OTHER hidden under any filter; in-memory only). One-row `#mini-filter-status` chrome line (`filter: IMPLEMENT  ⇧←→`, active keys from composed BINDINGS) added to `_TOP_CHROME` / `_MAX_CHROME_ROWS`. Key band + `H` help entries; `key_display` renders arrows as glyphs and a lone shift on an arrow as `⇧`; `join_keys` folds `⇧↑`+`⇧↓` → `⇧↑↓`. Website how-to (two sections, quick-reference rows, navigation bullets) and `_index.md` comparison rows.
+- **Deviations from plan:** (1) A filter change is handled as navigation (plan revision after review): `_consume_filter_navigation` (consumed only by a tick whose entries were built under the target filter), `_navigate_list_after_filter` (retire pending restore, release pin, forced rebuild, focus first result), `_finish_filter_navigation` (readiness retry, scroll to 0 or to the card's own row when divider+card do not fit). (2) Added a one-shot `_maybe_retick_for_filter` so a keypress landing during an in-flight tick does not lag a full interval. (3) The precomputed phase travels through a build-scoped `_build_phases` map instead of an `_agent_card_text` parameter — test hosts override that method with the one-argument signature. Post-review it carries `(info, phase)` so the card reuses the task info too (one task-file stat per agent per tick). (4) Tests live in ONE module, `tests/test_minimonitor_filter_and_jump.py` (shared host fixture), not two.
+- **Issues encountered:** (a) Band budget: at width 15 the two new segments cost two wrapped rows; paid one back with "mark ★ (followed)" → 29 rows, exactly at the ≤29 budget (measured 28/22/19/10 → 29/23/21/10 at widths 15/18/22/40). (b) `test_minimonitor_top_chrome_render.py` failed deterministically only when run after the key-hints module: the extra chrome row made the first, pre-short-mode frame overflow at width 22 (12 + 21 > 30); production settles next frame, so the fixture now waits one more frame (documented). (c) The full-suite run flaked once in `test_sitrep_window.py::test_booting_companion_without_a_marker_does_not_match` (subprocess cmdline race under load; passes alone on both the working tree and a clean HEAD export; unrelated to minimonitor). (d) Existing audits updated: concern-action's every-binding audit now matches per rendered segment; own-mark asserts "mark ★ (followed)"; the default-key-name test has an explicit arrow-chord table.
+- **Key decisions:** jump scope = agent section only; jump target row = the group's divider (keeps the project name visible); parked/frozen stops exclusive by displayed state (frozen wins); no `unknown` filter stop; no session-bar mirror and no `P` indicator; full-monitor parity left out of scope.
+- **Upstream defects identified:** tests/test_sitrep_window.py:169 — `test_booting_companion_without_a_marker_does_not_match` classifies a just-`Popen`ed process by its cmdline and fails intermittently under a loaded parallel suite (cmdline not yet exec'd); observed once in this session's full run, passes in isolation.
