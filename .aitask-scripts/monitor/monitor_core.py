@@ -3338,6 +3338,30 @@ class TmuxMonitor:
         """
         return self._pane_cache.get(pane_id)
 
+    def seed_pane_cache(self, panes) -> None:
+        """Replace the pane cache wholesale with ``panes`` (``pane_id -> TmuxPaneInfo``).
+
+        For ONE caller only: a subscription-backed client (``status_client.
+        MonitorClient``, t2037_2) whose producer runs elsewhere and which uses
+        this instance purely as its action gateway. That instance never
+        discovers, so without a seed every cache-backed action — the window
+        collapse of :meth:`kill_agent_pane_smart`, :meth:`switch_to_pane`,
+        :meth:`get_running_tuis`, the ``capture_pane*`` lookups — would take its
+        cache-miss route and quietly behave differently. Rebinds, never mutates
+        in place, like :meth:`set_parked_agents`.
+
+        Pass agent-facing panes only, never shadows (the cache-boundary
+        invariant), and never mix a seed with this instance's own discovery.
+
+        **The caller owns the release.** :meth:`_clean_stale` does NOT reap a
+        seeded entry: it picks stale ids from ``_last_content``, which a seeded
+        pane never entered. So a caller that stops seeding and lets this instance
+        discover again must first call ``seed_pane_cache({})`` — otherwise a pane
+        that vanished in between stays visible to every cache-backed accessor.
+        In-process monitors never call this; their behaviour is unchanged.
+        """
+        self._pane_cache = dict(panes)
+
     def get_shadow_snapshot(self, followed_pane_id: str) -> "PaneSnapshot | None":
         """Latest snapshot of the shadow bound to ``followed_pane_id`` (t1133).
 

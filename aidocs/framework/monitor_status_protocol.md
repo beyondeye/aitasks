@@ -8,10 +8,11 @@ between that server and its clients: newline-delimited JSON over a Unix socket,
 a snapshot followed by per-generation deltas, a handful of requests, and a
 recording format that doubles as the parity fixture for the Go monitor.
 
-Read this when you edit `.aitask-scripts/monitor/status_protocol.py` or
-`.aitask-scripts/monitor/status_recording.py`, the recorded fixtures under
-`tests/fixtures/monitor_status/`, or the status server, its client, or anything
-that speaks this protocol in another language.
+Read this when you edit `.aitask-scripts/monitor/status_protocol.py`,
+`.aitask-scripts/monitor/status_recording.py`,
+`.aitask-scripts/monitor/status_client.py`, the recorded fixtures under
+`tests/fixtures/monitor_status/`, or the status server, or anything that speaks
+this protocol in another language.
 
 Read together with:
 
@@ -903,6 +904,165 @@ A watchdog checks every 0.5 s. The server exits:
 On exit it closes every connection and the control client, then removes the
 socket only if it still has the inode the server bound.
 
+## Python client
+
+`.aitask-scripts/monitor/status_client.py` holds `MonitorClient`, the stand-in an
+app uses in place of its `TmuxMonitor`. It wraps the `TmuxMonitor` the app
+already builds (the *local* instance) and offers the same read surface. Its
+`start_control_client()` / `close_control_client()` are the client's own start and
+close, so an app's existing mount and unmount calls drive it.
+
+### Modes
+
+| Mode | Where reads come from | The local instance |
+|---|---|---|
+| `server` | The subscription (`StreamState`). | Action gateway only: no scan, no control client. |
+| `fallback` | Delegated to the local instance: the in-process code. | The producer, with its own control client. |
+| `replay` | A recording served by a `ReplayServer` on a temporary socket. | None. Actions raise `ReplayReadOnly`. |
+
+`server` and `replay` are the *subscribed* modes. While the first attempt is still
+`connecting`, async reads wait for its outcome, so an app's first refresh never
+reads an empty state.
+
+- **Starting.** `ensure_server()` runs in a worker thread with a short deadline
+  (3 s by default). Any failure — `UNAVAILABLE`, a refused handshake
+  (`version_mismatch`, `proto_mismatch`), an error reply, a malformed line, a
+  timeout — means `fallback`.
+- **`AITASKS_MONITOR_SERVER=0`** keeps the client in `fallback` for good. It
+  never calls `ensure`.
+- **Reconnect.** In `fallback` a reconnect loop calls `ensure` again, which starts
+  a new server when the old one is gone. Its delays are 0, 0.5, 1, 2, 4, 8, 16 and
+  then 30 s, repeating the last. When a server answers, the client subscribes,
+  returns to `server` and closes the local control client.
+- **Losing the server.** EOF, a protocol violation or framing error, a failed
+  resync, or a failed `set_content` all go through one loss path, in this order:
+  1. Fail every pending request.
+  2. Close the socket.
+  3. Release the seeded pane cache (below).
+  4. Switch to `fallback` and start the local control client.
+  5. Start the reconnect loop.
+
+  A replay keeps its last state and reports the disconnect instead.
+- **Liveness.** After 10 s with no server message the client sends `set_pins`
+  with its current pins, as an idempotent ping. With no reply within 10 s the
+  connection counts as lost. This detects a hung but alive server whatever the
+  tick interval is.
+
+### Requests and replies
+
+Every request carries an integer `id`. The reader resolves it on a `result` or
+an `error`, and on a `snapshot` with that `id`, because that is how
+`subscribe` and `set_content` are answered. A reply snapshot is applied before
+its request resolves, so a caller returns with the state already current.
+
+One deadline covers the whole exchange: the write lock, the write, `drain()` (which
+blocks under socket backpressure) and the reply. A stuck send therefore reaches the
+same failure handling as a missing reply.
+
+A request answered by a snapshot fails the connection when it gets an `error`
+instead, or misses its deadline. The server may already have switched the
+connection's selection: an unencodable reply arrives as `error{internal}` on a
+connection that stays open. Fallback, reconnect and a clean resubscribe are then
+the only way back to a known state.
+
+**Gap recovery.** A delta that skips a generation starts a resync. That is an
+ordinary `subscribe` request with its own deadline (10 s), sent from a task
+other than the reader. The reader has to stay free to read the reply.
+
+- Deltas that arrive before the reply snapshot are dropped, because the snapshot
+  supersedes them.
+- An `error` reply or a missed deadline is a lost connection. Ongoing traffic and
+  successful pings never extend the drop window.
+- The resync task keeps resubscribing for as long as a gap is pending. A gap that
+  arrives right behind the reply snapshot finds the task still running, so the
+  task, not a new one, sends the next `subscribe`. Every paused state therefore
+  owns a live, bounded request.
+
+### Connection setup and the local control client
+
+- `start()` runs its work as a task the client owns. `close()` closes every socket
+  still in its handshake, then cancels that task and the reconnect loop. A
+  connection attempt that ends without being adopted, cancellation included, closes
+  its own socket.
+- **A local control-client start is never cancelled.**
+  `TmuxMonitor.start_control_client` runs `backend.start` in a worker thread. If
+  the coroutine were cancelled at that point, it would never reach the
+  stale-generation `backend.stop`, and the backend the thread goes on to start
+  would stay live. Entering a subscribed mode, and `close()`, call
+  `close_control_client()` instead. That bumps the generation, and each in-flight
+  start retires its own backend when it finishes. `close()` waits up to 15 s for
+  that.
+
+### Reads
+
+- **`capture_all_async()` reads the current state.** It never asks the server to
+  scan. `request_refresh(panes=…, shadows=…)` does that: the keypress refresh
+  sites. The fast-preview pair `capture_pane_classified_async` /
+  `refresh_shadow_snapshot` sends `refresh` with `panes` / `shadows` and returns
+  the refreshed record.
+- **Generations.** `capture_generation` is the client's own token. It is bumped
+  by every capture call, every applied message and every mode switch. A capture
+  payload whose token is no longer current commits `None`, which is the
+  "superseded, skip" contract the apps already honour.
+- **Projection stays with the app.** The client returns producer-equivalent,
+  unprojected snapshots. `client_view_snapshots(…)` still applies.
+- **Compare mode.** `cycle_compare_mode_async` / `set_compare_mode_async` return
+  the server's answer. The synchronous `cycle_compare_mode` / `set_compare_mode`
+  send the request and return a prediction from the record, and the next delta
+  carries the server's value.
+- **Pins and content.** `set_capture_pins()` sends `set_pins` only when the pins
+  changed. Every (re)subscribe carries the current pins and selection.
+  `set_parked_agents()` always goes to the local instance: the server computes
+  its own skip set. `set_content()` is sent in both subscribed modes, replay
+  included.
+
+### The gateway's pane cache
+
+The local instance's actions read its pane cache: the window collapse in
+`kill_agent_pane_smart`, `switch_to_pane`, `get_running_tuis`, the
+`capture_pane*` lookups. In a subscribed mode the client therefore seeds that
+cache from the subscription's agent-facing panes after every applied message
+(`TmuxMonitor.seed_pane_cache`). Shadows are never seeded.
+
+**A subscribed mode never coexists with an in-flight local capture.** A fallback
+capture still running when the server comes back would otherwise write its
+discovery into the cache after the seed. So the client counts its in-flight local
+captures, and entering a subscribed mode works like this:
+
+1. New local captures are refused while the switch is pending. They answer as
+   superseded, which the apps already skip.
+2. The captures already running must drain, within 5 s. Past that deadline the
+   attach is abandoned: the client stays in `fallback` and the reconnect loop
+   retries.
+3. The client then switches mode and seeds the cache, with no `await` between the
+   two.
+
+After the switch, the client checks again that it still owns the connection and
+that the mode is unchanged. Retiring the local control client awaits, and the
+server can drop during that await. In that case the attempt reports failure, so
+the reconnect loop keeps retrying instead of exiting on a stale success.
+
+The cache then holds only seeded entries. The client releases it, as
+`seed_pane_cache({})`, when it leaves a subscribed mode and on close. It releases
+only a cache the subscription owns. A reconnect that is lost while still in
+`fallback` (for example, while waiting for local captures to drain) never seeded
+the cache, so the fallback producer's discovery stays in place. That release
+is required: `_clean_stale` picks stale ids from the last-content map, which a
+seeded pane never entered, so it would never reap them. Until the first fallback
+discovery the cache is empty, as on a cold in-process start. Cache-backed actions
+then take their cache-miss route, which is the fail-safe one: a plain pane kill,
+never a window collapse.
+
+### Delegation
+
+Names the client does not define are delegated to the local instance in
+`fallback`. In `server` mode only the action gateway is delegated
+(`GATEWAY_NAMES`): actions, raw-tail captures, `tmux_run` and the instance
+config. Any other name raises `AttributeError`, instead of silently answering
+from the empty local producer. `tests/test_monitor_client_surface.py` keeps the
+list complete. It extracts every monitor attribute that monitor, minimonitor and
+applink use, and requires each one to be served or allowlisted.
+
 ## Python codec reference
 
 `.aitask-scripts/monitor/status_protocol.py`:
@@ -935,6 +1095,14 @@ above.
 - `server_paths` / `runtime_dir` / `tmux_socket_path`;
 - `ProjectConfigCache` / `tick_interval`;
 - the CLI in [Lifecycle and socket path](#lifecycle-and-socket-path).
+
+`.aitask-scripts/monitor/status_client.py`:
+- `MonitorClient` and `ClientMode`;
+- `GATEWAY_NAMES` / `READ_SURFACE_NAMES`;
+- `ConnectionLost`, `RequestFailed`, `ReplayReadOnly`;
+- `pins_to_wire`.
+
+See [Python client](#python-client).
 
 ## Known limits
 
