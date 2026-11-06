@@ -12,8 +12,9 @@ active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2034
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-05 15:03
-updated_at: 2026-11-05 15:41
+updated_at: 2026-11-06 07:56
 ---
 
 ## Origin
@@ -33,3 +34,8 @@ Spawned from t2210 during Step 8b review.
 ## Suggested fix
 
 Replace the single pause before the precondition queries with a bounded wait on the precondition: poll `list(app.query(FooterKey))`, bounding each `pilot.pause()` with `asyncio.wait_for` and rejecting a late success, as t2210's `_until` does. Do this for the whole class if the other tests share the pattern. Keep the assertions unchanged. Check the class's other single-pause sites for the same exposure.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-06T05:56:55Z status=pass attempt=1 type=human
