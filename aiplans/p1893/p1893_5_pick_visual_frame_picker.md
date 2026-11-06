@@ -721,3 +721,48 @@ confirm that each one changes its target output):
 
 ### Planned mitigations
 - timing: post-phase | name: headless_ui_smoke | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: interactive UI wiring unproven by unit tests | desc: Headless-chromium self-test that dispatches real DOM events and compares the rendered copy block with the Python reference, plus a storage-throwing run
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-06)
+- **Requested by user:** two review findings, both confirmed in chromium/by direct check before fixing.
+  1. `pick_ui.js` keydown handling used the internal `focus` index, never synchronized when browser focus moved without a click (Tab, a script), and intercepted Space on the action buttons: Space with DOM focus on card 2 toggled card 1; Space on the focused Copy button changed the selection and suppressed the button's native activation.
+  2. `PickFolder.chromium_dom` turned `subprocess.TimeoutExpired` (and an empty result) into `skipTest`, so a picker regression that hangs chromium left the suite green.
+- **Changes made:**
+  1. Each card's `focus` event makes it the active frame (preview and highlight follow); keydown on a card acts on that card; Space/Enter on any other focused control (buttons, links) is left to the browser, while arrows and the letter shortcuts keep working there. Self-test gained `focusCard`, `focusButton` and `clickButton` steps and records per step whether the key was cancelled, the status text and the active element.
+  2. `chromium_unusable()` (cached) proves the browser renders a trivial page; only that decides a skip. On the picker page a timeout or an empty DOM is now `self.fail`.
+- **Files affected:** `.aitask-scripts/screen_recording/pick_ui.js`, `tests/test_screen_recording_cli.py`
+- **Verification:** new headless scenario — click card 1, focus card 3 without a click, Space toggles card 3, ArrowRight + `s` marks card 4, Space on the focused Copy button is not cancelled and changes nothing, Copy's click sets a status. Pre-fix controls: focus sync removed → red; Space on buttons intercepted again → red; a simulated chromium hang on the picker page → failure (not skip). Earlier UI mutants (shift range exclusive, `s` disabled) still red. PickFolder + core OK.
+
+## Final Implementation Notes
+- **Actual work done:**
+  - `aitask_screen_recording.sh pick <run-dir|frames-dir|folder> [--open] [--out DIR]` (`cmd_pick` in `video_prep.py` delegates to the new `vp_pick.py`; `PickError` → `PrepError`, exit 1). Writes `index.html` (self-contained), `src/` (snapshot), `pick.json` (the embedded data), `summary.md`, `run.json`; stdout `pick: …`, `OPEN: …`, `PAGE: …`, `SUMMARY: …`.
+  - Page assets are sibling files inlined at build time: `pick_page.html` (markup/CSS, placeholders `@DATA@`, `/*@LOGIC@*/`, `/*@UI@*/`, replaced in one regex pass), `pick_logic.js` (pure: `copyBlock`, `roiToSource`, `normRect`, `sanitizeNote`, `seconds`, `storageKey`), `pick_ui.js` (DOM + `#selftest=` hook).
+  - Every copy-block sentence lives in `vp_pick.TEXT` and is embedded as `data.text`; JS only concatenates. Per frame, Python precomputes `display_name`, `label`, `window_start`/`window_end`, `geom` or `roi_disabled`.
+  - Resolution: run layouts first (run.json mode bug/frames → `frames/`; anim → `[sw]\d{2,}/frames`; sheet/pick refused), then the same shapes without run.json, then a plain image folder (its run found at `..` / `../..`).
+  - Snapshot: `allocate_names` (kept safe names reserved case-folded, others `renamed_NNNN<ext>`), exclusive create (`open(dest, "xb")`), hash and PNG size from the copy.
+  - Geometry trusted only when a `frames.tsv` row parses, its sha256 equals the snapshot's and `(out_w,out_h)` equals the PNG size. ROI mapping exact integer, rounded outward, clamped, always valid for `region_box`.
+  - `--window` only from explicit marks; bounds `(ms∓0.5)/1000` written exactly (≤4 decimals).
+  - Embedded JSON: `json.dumps(ensure_ascii=True)` then `<`, `>`, `&` → their JSON `\uXXXX` escapes (built with `chr(92)`), with a final assertion.
+  - Opener table (`darwin` open, `linux` xdg-open, `wsl` wslview / explorer.exe+wslpath); SSH or Linux without DISPLAY/WAYLAND_DISPLAY → not opened, exit 0.
+  - `_write_run_json` (bug/anim/frames) adds `video_abspath` + `video_size`; pick names the recording only from those (size-checked), never re-resolving a relative `options.video`.
+  - Docs: skill page (usage, Modes row, `### pick`, `### No display`, pick output layout, run.json provenance paragraph, 10 warning rows, 2 limits, Requirements, Workflows); new walkthrough `workflows/screen-recordings/pick-frames.md` listed in both indexes; SKILL.md mode row, run example, "Pick frames visually" section (AskUserQuestion spec, Codex/OpenCode mapping, reading the block, how to judge a marked window from anim's diagnostics), Tests list.
+- **Deviations from plan:**
+  - The floor/ceil-swap mutant stays green on the scaled-marker CLI test (a ±4 px rectangle still contains the 6 px marker when rounded inward); it is caught by the core coverage property `test_roi_always_passes_region_box`.
+  - The duplicated-frame fixture needed a lossless encode (`crf=0`): consecutive frames of a lossy static encode differ by compression noise.
+  - SKILL.md's endpoint check was reworded after measuring anim: the first changed frame is always index ≥1, so the useful signs are "first changed = the window's second frame" (motion already under way) and "settled = its last frame" (motion may continue). Verified on a cut window (0.6–0.7 s) vs a good one (0.4–1.0 s).
+  - `pick` opener outcomes print `OPEN: not requested (--open not given)` when `--open` is absent.
+- **Issues encountered:**
+  - Write/Edit tool parameters decode `\uXXXX` sequences (a `✓` and the planned `<` arrived as literal characters); Bash heredocs keep them. The escapes are built with `chr(92)` and asset files were checked ASCII-only.
+  - Review round 1: focus not synchronized with DOM focus and Space intercepted on buttons; chromium timeouts turned into skips. Fixed (see Post-Review Changes) with pre-fix controls.
+- **Key decisions:**
+  - Python is the reference for the copy block; JS parity is enforced by a node test (skipped without node) and by the headless-chromium test against independently written expectations.
+  - Retention/cleanup of pick output dirs is left to t1893_11 (make_out_dir never reuses a non-empty dir).
+  - `pick` needs neither ffmpeg nor ImageMagick.
+- **Upstream defects identified:** None
+- **Notes for sibling tasks:**
+  - **t1893_6 (folder input) / t1893_12 (other agents):** copy-block format above (tab-separated frame lines; `# --window A-B  (user-marked endpoints (unverified): …)`; `# --roi …  (… SHA-256 verified)`; `# rectangle … own pixels …`; `# source: …`). The window rule assumes names within ±0.5 ms of the exact time and frame intervals > ~1.2 ms. t1893_12 should validate the "Pick frames" question on Codex `request_user_input` and OpenCode `ask`, and that agents read the pasted absolute paths.
+  - **t1893_11 (work dir + clean):** pick's default out is `make_out_dir(..., "pick", name=<run or folder name>)`; it owns everything under `<out>` (index.html, src/, pick.json).
+  - **run.json provenance:** `video_abspath`/`video_size` are now in every bug/anim/frames run.json; any consumer that needs the recording should use them, never re-resolve `options.video`.
+  - **anim:** no explicit warning when a `--window` cuts the motion; the signs are the visible-change line as above (a possible enhancement, not filed).
+  - **Test fixtures:** `write_frames_dir` (hand-made frames dir + matching frames.tsv), `parse_page` (HTML tokenizer view of scripts, body attrs, cards, `#copy-text`), `chromium_unusable()` probe + `chromium_argv`, the `#selftest` step vocabulary (`click`/`shift`, `key`, `note`, `drag`, `focusCard`, `focusButton`, `clickButton`, `nostorage`), `pick_scenarios()` for Python/JS parity.
