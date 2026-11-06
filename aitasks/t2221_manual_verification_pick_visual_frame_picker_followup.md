@@ -5,6 +5,10 @@ depends: [t1893_5]
 issue_type: manual_verification
 status: Implementing
 labels: [verification, manual]
+active_gates: []
+active_gates_filtered: []
+active_gates_profile: fast
+active_gates_digest: 4a36c12bb96d.681bafac2cb9.08c6f06389cd
 verifies: [t1893_5]
 premise_baseline: e4619f8ff052d8c06ea4253ec773c832edf59f20 @ 2026-11-06 11:03
 assigned_to: dario-e@beyond-eye.com
