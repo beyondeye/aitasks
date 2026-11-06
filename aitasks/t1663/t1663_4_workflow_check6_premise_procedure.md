@@ -3,12 +3,13 @@ priority: medium
 effort: high
 depends: [t1663_3]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [task-workflow, skills]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1538
 created_at: 2026-09-01 15:19
-updated_at: 2026-09-01 15:19
+updated_at: 2026-11-06 10:53
 ---
 
 Wire the advisory premise check into task-workflow as Step 3 Check 6, backed by a new procedure file, with renders and goldens.
