@@ -196,3 +196,35 @@ None identified. Changes stay in one test file: one test body, one module helper
 None identified. The race mechanism was measured directly (table above), and the
 handshake removed it in 400/400 loaded trials. The stress control in Verification
 step 1 shows it on the real test.
+
+## Final Implementation Notes
+
+- **Actual work done:** `tests/test_sitrep_window.py` only. It adds the `select`,
+  `signal` and `time` imports, the module constant `READY_DEADLINE_S = 20.0`, and the
+  module helper `await_announcement()` (exactly as planned). In `MatcherTests`, the
+  booting-companion test now spawns a stand-in that announces itself and waits for
+  it with the bounded helper before classifying. Two regression tests pin the
+  deadline exit (a child that stops itself before printing) and the EOF exit (a
+  child that exits without printing).
+- **Deviations from plan:** the spawn plus its `stdout.close / wait / kill` cleanups
+  and the `SIGALRM` guard moved into two small `MatcherTests` methods,
+  `spawn_standin()` and `alarm_guard()`, shared by the three tests instead of
+  repeated in each. The behaviour is the one planned.
+- **Pre-fix control (current tree before the edit, all cores busy):**
+  `FAILS 102/300` with the stress harness in Verification step 1 (`MatcherTests`).
+- **Post-fix (all cores busy):** `FAILS 0/300`.
+- **Mutant control:** with `await_announcement` monkeypatched to a bare
+  `proc.stdout.readline()`, the stopped-child test failed through the alarm guard
+  (`AssertionError: blocked for more than 10s`, elapsed 10.0 s) instead of
+  hanging, and no stand-in process was left behind.
+- **Suites:** `pytest tests/test_sitrep_window.py`: 44 passed, serially and under
+  `-n 4 --dist loadfile`. `python3 -m unittest tests.test_sitrep_window`: 44 OK.
+- **Issues encountered:** none. Plan review caught that `readline()` is unbounded
+  for a live child that never writes; a planning probe confirmed it (rc 124 under
+  `timeout 5`), and the fix carries the bounded helper.
+- **Key decisions:** keep the real-process integration (no seam injection); the
+  readiness signal comes from the child itself, never from the classifier under
+  test. Production `_is_companion_process` stays unchanged: an empty cmdline only
+  occurs mid-exec, which pane classification never observes for a real companion
+  pane. This is a deliberate judgement, not a defect.
+- **Upstream defects identified:** None
