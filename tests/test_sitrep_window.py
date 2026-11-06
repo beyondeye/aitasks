@@ -19,9 +19,12 @@ from __future__ import annotations
 
 import fcntl
 import os
+import select
+import signal
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -72,6 +75,34 @@ def render(fmt: str, panes: list[dict]) -> str:
 
 def canon_identity(path: str) -> str:
     return path
+
+
+#: A generous ceiling, far above interpreter start-up on a loaded box. It turns a
+#: wedged stand-in into a failure instead of a hang, and it is never a sleep.
+READY_DEADLINE_S = 20.0
+
+
+def await_announcement(proc, deadline_s: float, token: bytes = b"ready\n") -> str | None:
+    """Wait, bounded, for ``proc`` to write ``token`` on its stdout pipe.
+
+    None on success, else why not. Three exits: the token arrives, EOF (the
+    child exited), or the deadline passes (the child is alive but stopped or
+    wedged before writing). A bare ``readline()`` only ends on the first two, so
+    it hangs on the third. Raw ``os.read`` on the fd, never the buffered reader,
+    so ``select`` never misses bytes held in a userspace buffer.
+    """
+    fd, buf = proc.stdout.fileno(), b""
+    deadline = time.monotonic() + deadline_s
+    while b"\n" not in buf:
+        left = deadline - time.monotonic()
+        if left <= 0 or not select.select([fd], [], [], left)[0]:
+            return (f"stand-in did not announce itself within {deadline_s}s "
+                    f"(read so far: {buf!r})")
+        chunk = os.read(fd, 64)
+        if not chunk:
+            return f"stand-in exited before announcing itself (read so far: {buf!r})"
+        buf += chunk
+    return None if buf == token else f"unexpected announcement {buf!r}"
 
 
 class FakeMon:
@@ -166,14 +197,57 @@ class MatcherTests(unittest.TestCase):
         self.assertIsNone(self.match([companion, frozen_agent]))
         self.assertIsNone(self.match([frozen_agent, companion]))
 
-    def test_booting_companion_without_a_marker_does_not_match(self):
-        """No marker yet: the cmdline fallback of the shared rule classifies it."""
-        proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)",
-                                 "minimonitor"])
+    def spawn_standin(self, code: str):
+        """A real child running ``code`` with argv ``minimonitor``, reaped at cleanup."""
+        proc = subprocess.Popen([sys.executable, "-c", code, "minimonitor"],
+                                stdout=subprocess.PIPE)
+        self.addCleanup(proc.stdout.close)   # LIFO: runs last
         self.addCleanup(proc.wait)
         self.addCleanup(proc.kill)
+        return proc
+
+    def alarm_guard(self, seconds: int):
+        """Fail, rather than hang, if a blocking read outlives ``seconds``."""
+        def on_alarm(signum, frame):
+            raise AssertionError(f"blocked for more than {seconds}s")
+        previous = signal.signal(signal.SIGALRM, on_alarm)
+        self.addCleanup(signal.signal, signal.SIGALRM, previous)
+        self.addCleanup(signal.alarm, 0)
+        signal.alarm(seconds)
+
+    def test_booting_companion_without_a_marker_does_not_match(self):
+        """No marker yet: the cmdline fallback of the shared rule classifies it.
+
+        `Popen` returning does not mean the child's new argv is readable: the
+        parent resumes mid-exec, while `/proc/<pid>/cmdline` is still empty or
+        the parent's argv (t2220). The child announces itself from its own Python
+        code, which runs only after exec has completed, so the cmdline rung reads
+        the real `minimonitor` argv rather than racing the exec.
+        """
+        proc = self.spawn_standin(
+            "import time; print('ready', flush=True); time.sleep(30)")
+        problem = await_announcement(proc, READY_DEADLINE_S)
+        if problem:
+            self.fail(problem)
         companion = pane(id="%9", pid=proc.pid, window="agent-sitrep", cwd=self.ROOT)
         self.assertIsNone(self.match([companion]))
+
+    def test_await_announcement_is_bounded_for_a_stopped_child(self):
+        """Alive but stopped before writing: the deadline ends the wait, not EOF."""
+        self.alarm_guard(10)
+        proc = self.spawn_standin(
+            "import os, signal; os.kill(os.getpid(), signal.SIGSTOP); "
+            "print('ready', flush=True)")
+        started = time.monotonic()
+        problem = await_announcement(proc, 0.5)
+        self.assertLess(time.monotonic() - started, 5.0)
+        self.assertIn("did not announce itself", problem or "")
+
+    def test_await_announcement_reports_a_child_that_exits_silently(self):
+        self.alarm_guard(10)
+        proc = self.spawn_standin("pass")
+        problem = await_announcement(proc, READY_DEADLINE_S)
+        self.assertIn("exited before announcing itself", problem or "")
 
     def test_live_stamped_sitrep_listed_after_its_companion(self):
         companion = pane(id="%9", kind=f"minimonitor:{LIVE_PID}", window="agent-sitrep",
