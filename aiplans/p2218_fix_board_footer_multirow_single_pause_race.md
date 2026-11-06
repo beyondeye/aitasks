@@ -324,3 +324,32 @@ four tests that only check `BINDINGS`.
 
 ### Planned mitigations
 - timing: post-phase | name: measure_loaded_flake_rate | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement — unreproduced flake / unproven readiness coverage | desc: blocking loaded, interleaved 30+30 baseline-vs-fixed measurement before commit
+
+## Final Implementation Notes
+- **Actual work done:** Implemented the plan as written, in `tests/test_board_footer_multirow.py` only. Additions:
+  - a verbatim copy of t2210's `_until`;
+  - `_counting_recompose`, a class-level `mock.patch.object` over `MultiRowFooter.recompose` (installed in `setUp` and removed in `addCleanup`) that counts recompose starts and completions;
+  - `_footer_ready` (quiet rounds via a footer-pump sentinel, plus the trigger witness, plus non-empty keys in the settled state, with a live-state `footer not ready (...)` diagnostic on every timeout route);
+  - a `_FooterReadinessBase` with `_board_ready` (task cards mounted, then startup focus landed, then the footer ready) and `_focus_and_settle`;
+  - the bytopic view-switch sequence (snapshot, then `_set_base_filter`, then wait for the refocus to land on a card inside a `TopicColumn`, then `_footer_ready(since=snap)`);
+  - a new `FooterReadinessHelperTests` class with two tests (populated-to-empty is rejected; the helper stays pending while the bindings update is withheld, then completes once it is released).
+
+  Six exposed tests had their single pauses replaced. `test_the_board_mounts_the_multi_row_footer` is unchanged. Every original assertion line is byte-identical.
+- **Deviations from plan:** None. `self.ab.TopicColumn` exists, as the plan required. The probe found no `_test_recompose_*` or `_on_pending` names anywhere in the `MultiRowFooter` MRO.
+- **Issues encountered:**
+  - The loaded measurement (24 `while 1: pass` burners on a 24-core host that was already at load average ~20; 30 baseline runs interleaved with 30 fixed runs, serial pytest per module) gave **BASELINE_FAILS=0/30, FIXED_FAILS=0/30**. The before/after contrast was **not reproduced**, so none is claimed. The original failure was seen only in a full xdist run.
+  - The deterministic evidence is the helper tests and the negative controls. Each control ran in a scratch detached worktree with the fixed test file copied in:
+    - `move_to_column` with `show=False` fails at the original `assertIn(action, rendered)`, line 321.
+    - `check_action` allowing `move_to_column` in bytopic fails at the bytopic `assertNotIn`, line 374, right after `_footer_ready(since=snap)`.
+    - An empty `MultiRowFooter.compose` makes `test_fixture_facts` fail in `_board_ready` with `keys=False`.
+    - Removing the witness makes the withheld test fail with "readiness returned while the update was withheld". This held at normal pace and with every `Pilot.pause` slowed by 0.6s, and the unmutated helpers pass at the slowed pace.
+    - Removing the timeout translation makes the emptied test fail on its regex, because the bare `_until` message surfaces instead.
+    - Checking non-empty before settling makes the emptied test fail with "AssertionError not raised".
+  - The full suite (`bash tests/run_all_python_tests.sh`, xdist lane) reported `PYTHON SUITE: FAILED`. The footer module was 12/12 PASSED there. The two failures belong to other sessions' uncommitted work in the shared checkout and are unrelated to this file:
+    - `test_metadata_writer_inventory` flags the untracked `.aitask-scripts/lib/relations_store.py`;
+    - `test_screen_recording_cli::PickFromRuns::test_turning_point…` runs against a locally modified test file.
+- **Key decisions:**
+  - `_until` stays a local copy rather than being extracted to `tests/lib`, to avoid editing t2210's module.
+  - The withheld-update test coordinates the producer explicitly (an `_on_pending` observer, then the release) instead of a timer. Plan review showed that timer-based controls lose their discrimination under slow pumping.
+  - Bytopic correctness rests on `check_action(move_to_column)` reading only `base_filter` in that view (`aitask_board.py:2661`).
+- **Upstream defects identified:** None
