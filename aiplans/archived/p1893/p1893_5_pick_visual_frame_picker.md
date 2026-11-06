@@ -766,3 +766,4 @@ confirm that each one changes its target output):
   - **run.json provenance:** `video_abspath`/`video_size` are now in every bug/anim/frames run.json; any consumer that needs the recording should use them, never re-resolve `options.video`.
   - **anim:** no explicit warning when a `--window` cuts the motion; the signs are the visible-change line as above (a possible enhancement, not filed).
   - **Test fixtures:** `write_frames_dir` (hand-made frames dir + matching frames.tsv), `parse_page` (HTML tokenizer view of scripts, body attrs, cards, `#copy-text`), `chromium_unusable()` probe + `chromium_argv`, the `#selftest` step vocabulary (`click`/`shift`, `key`, `note`, `drag`, `focusCard`, `focusButton`, `clickButton`, `nostorage`), `pick_scenarios()` for Python/JS parity.
+- **Manual-verification failure:** item "Light and dark themes are readable; the layout holds at phone width" failed; follow-up task t2222.
