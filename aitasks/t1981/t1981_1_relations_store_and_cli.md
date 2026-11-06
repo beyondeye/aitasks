@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1981
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-04 15:39
-updated_at: 2026-11-05 12:25
+updated_at: 2026-11-06 07:53
 ---
 
 ## Context
@@ -142,3 +143,8 @@ never the real store. Cases:
 
 Run `shellcheck` on the new script and `bash tests/run_all_python_tests.sh
 --test-dir <dir>` for the Python tests.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-06T05:53:22Z status=pass attempt=1 type=human
