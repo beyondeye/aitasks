@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2217
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-06 00:14
-updated_at: 2026-11-06 00:21
+updated_at: 2026-11-06 08:00
 ---
 
 ## Origin
@@ -30,3 +31,8 @@ The test spawns `python -c "import time; time.sleep(30)" minimonitor` and immedi
 
 ## Suggested fix
 Wait until the child's `/proc/<pid>/cmdline` actually contains `minimonitor` (bounded poll) before classifying — or inject the cmdline through the classifier's seam rather than racing a real process.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-06T06:00:08Z status=pass attempt=1 type=human
