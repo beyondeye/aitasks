@@ -69,3 +69,5 @@ Fourth child of t1663. Design in `aidocs/framework/task_premise_staleness.md` ("
 > |    - `DISPLAY:` is raw text; only LF and CR are escaped.
 > |    - The SKIP and UNKNOWN reason vocabularies are closed tuples in `lib/task_premise.py`. They include `invalid_baseline`, `invalid_frontmatter`, `scope_error` and `history_unavailable`.
 > |    - Scope is read as YAML. Entries that YAML rejects, such as `[docs/a[bc].md]`, read `SKIP`/`invalid_frontmatter`.
+
+> **👁 note:read** id=2026-11-06T08:52:40Z.928e1ded095aae70c00b5f4c by=t1663_4 at=2026-11-06T08:52:40Z mode=explicit ids=2026-11-04T13:37:51Z.f0739597daea67d9faa6f041,2026-11-05T06:23:05Z.9262d02fe965f25f1e708523
