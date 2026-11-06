@@ -440,6 +440,11 @@ skill files.
 > any test that boots a Textual TUI under `App.run_test` and can reach a `@work`
 > worker, which fails the *enclosing* test if it is still in flight at block exit.
 >
+> **Read `aidocs/framework/task_relations.md`** when editing the relations store,
+> worker, triggers or consumers (`lib/relations_*.py`, `lib/orphan_ref_store.py`,
+> `aitask_relations.sh`) — records live on the `aitask-relations` orphan branch,
+> never in task files; its "Store API" section is the contract later children build on.
+>
 > **Read `aidocs/framework/code_conventions.md`** when adding a constant or dict that
 > holds user-facing help text condensed from another canonical file
 > (language-agnostic — bash, Python, etc.). Shell-specific portability

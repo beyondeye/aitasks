@@ -190,6 +190,11 @@ PINNED_FILES = frozenset(
     # the status socket, lock and log under `$XDG_RUNTIME_DIR/aitasks/`, which
     # is what the `.unlink(` hits are (t2037_1).
     ".aitask-scripts/monitor/status_server.py",
+    # Reads `<TASK_DIR>/metadata/project_config.yaml` for `relations.enabled`
+    # (read-only, through `config_utils.load_yaml_config`). Its only writes are
+    # the relations store's runtime files under `<git-common-dir>/aitask-relations/`
+    # (outbox entries, `.err` sidecars, `fetched_at`) and git refs (t1981_1).
+    ".aitask-scripts/lib/relations_store.py",
     ".aitask-scripts/lib/artifact_backends/dir.sh",
     ".aitask-scripts/lib/gate_verifier_lib.sh",
     ".aitask-scripts/lib/userconfig_persist.py",

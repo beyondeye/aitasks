@@ -51,6 +51,7 @@ Task Management:
   note           Send a durable note to another task's inbox (--project: another repo)
   attach         Manage task file attachments (ls/add/get/rm/gc; move pending)
   artifact       Manage versioned task artifacts (create/update/move/rm/ls/get/versions)
+  relations      Task-relations store: show/why/status/flush/gc (aitask-relations branch)
 
 Gates:
   gates run      Run the gate orchestrator for a task
@@ -195,9 +196,10 @@ check_for_updates() {
 # Check for updates (skip for meta-commands, upgrade, and git passthrough).
 # `testmap` is skipped because its stdout is the engine's line protocol (the
 # notice would corrupt it) and a gate run must never perform a network fetch;
-# `engine` because its stdout is line protocol too.
+# `engine` because its stdout is line protocol too, and `relations` because
+# every output must START with its RELATIONS_STATE:/STORE: state lines.
 case "${1:-help}" in
-    help|--help|-h|--version|-v|upgrade|setup|git|sync|lock|codeagent|crew|brainstorm|settings|monitor|minimonitor|ide|syncer|skillrun|projects|frozenagent|scratchpad|testmap|engine) ;;
+    help|--help|-h|--version|-v|upgrade|setup|git|sync|lock|codeagent|crew|brainstorm|settings|monitor|minimonitor|ide|syncer|skillrun|projects|frozenagent|scratchpad|testmap|engine|relations) ;;
     *) check_for_updates ;;
 esac
 
@@ -212,6 +214,7 @@ case "${1:-help}" in
     attach)       shift; exec "$SCRIPTS_DIR/aitask_attach.sh" "$@" ;;
     note)         shift; exec "$SCRIPTS_DIR/aitask_note.sh" "$@" ;;
     artifact)     shift; exec "$SCRIPTS_DIR/aitask_artifact.sh" "$@" ;;
+    relations)    shift; exec "$SCRIPTS_DIR/aitask_relations.sh" "$@" ;;
     board)        shift; exec "$SCRIPTS_DIR/aitask_board.sh" "$@" ;;
     trails)       shift; exec "$SCRIPTS_DIR/aitask_trails.sh" "$@" ;;
     chatlink)     shift; exec "$SCRIPTS_DIR/aitask_chatlink.sh" "$@" ;;

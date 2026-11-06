@@ -163,29 +163,116 @@ goes through a temporary index instead.
 Those two scripts stay untouched. Whether they adopt the shared module is a
 question for the retrospective.
 
+### Store API
+
+The contract the worker (t1981_3), the consumers (t1981_5) and the
+obsolescence layer build on. Module: `lib/relations_store.py`, class `Store`
+(one instance per invocation; it fetches at most once, and every `read()`
+recomputes the local view, so writes made since are always visible).
+
+- **Project identity.** `Store(repo)` takes the local project's logical name
+  from `project.name` in `project_config.yaml`, which `ait setup` seeds. That
+  is the same source the trails use. A missing or invalid name raises
+  `ProjectUnresolved`; the CLI prints `PROJECT_UNRESOLVED` and exits 1. No name
+  is ever assumed, because records written under a guessed name would not match
+  the other clones' records.
+- **Refs.** A bare id is qualified with the local name. A `<project>#<id>` ref
+  keeps its own project and is parsed by the shared
+  `cross_repo_notation.parse_ref` (grammar `[a-z0-9_-]+`, as for `ait note`).
+- **Another project's end** is shown with its qualification. It is never
+  canonicalized through the local index. Its freshness is
+  `unverified:target_baseline`, and `ANALYSIS:` for it is
+  `unknown(other_project)`. A record whose own task belongs to another project
+  is refused at write (`PROJECT_MISMATCH:`) and reported at read (`CORRUPT:`).
+- **Validation on read.** Every blob is schema-validated before it is
+  consumed, compared or rendered. An invalid one is reported as
+  `CORRUPT:<path>|<reason>`, always loses to a valid record, and is never
+  deletion-eligible.
+
+| Function | Contract |
+|---|---|
+| `write(path, record, flush=True)` | Validates first (nothing is written on `SchemaError`). Refuses `IDENTITY_MISMATCH:<path>` when the record's `task_created_at` is not the live task's. Refuses `STALE_RUN:<path>` when the visible version wins under `wins()`. Otherwise writes the outbox entry atomically (`OUTBOX:<path>`), then flushes unless `flush=False`, which is the stamp's synchronous-write mode |
+| `flush()` | Publishes every outbox entry in one commit. Reports `PUBLISHED:<n>`, `SUPERSEDED:<path>`, `UPGRADED:<n>`, `UPGRADE_INCOMPLETE:`, `RETAINED:<n>\|<reason>` or `NOTHING_TO_FLUSH` |
+| `read(no_fetch=False)` | A `Snapshot` (`state`, `base`, `files`, `pending`, `corrupt`). `state` is the `STORE:` value |
+| `relations(task, snap)` | forward ∪ reverse (D3), folded ends canonicalized, identity-checked, each `Rel` carrying `direction`, `freshness` and `pending_push` |
+| `freshness(rel, record, snap)` | `fresh`, `stale:source_changed`, `stale:target_changed`, `unverified:source_baseline` or `unverified:target_baseline` (D11) |
+| `analysis_line(task, snap)` | the `ANALYSIS:` value (D1) |
+| `relations_state()` | `enabled`, `disabled` or `host_off` |
+| `gc(dry_run=False)` | `GC_REMOVED:<path>\|task_gone\|identity_mismatch`, `GC_KEPT:<path>\|revalidated`, `GC_NONE` or `GC_REFUSED:<reason>` |
+| `relations_store.job_state(task)` | the spool hook for `pending(..)` / `failed(..)`. It returns None until t1981_3 replaces it |
+| `relations_schema.digests(task_text, plan_text)` | the one D2 normalization |
+| `relations_schema.wins(kind, new, old, live_created_at)` | the one comparison: identity first, then `(stage, at)` |
+
+`aitask_relations.sh` (`ait relations`) exposes `show`, `why`, `status`,
+`flush` and `gc`. Its exit status is 3 for `RETAINED:` or `GC_REFUSED:`.
+
 ### Modes
 
 - **Remote mode:** the repository has the remote that `aitask-locks` uses.
 - **Local-only mode:** no remote is configured. This is the `aitask-ids`
   precedent: the store is the local branch `refs/heads/aitask-relations`.
 
+### Refs
+
+- **`refs/heads/aitask-relations` (L) is the clone's durable, latest-known
+  store in both modes.**
+  - It only moves forward:
+    - local-only writes commit on top of it;
+    - in remote mode every remote commit, fetched or just pushed, enters it
+      through `integrate()`, which fast-forwards or makes a local *absorb*
+      merge `(remote, L)`.
+  - So L holds every record the clone observed or published, plus its
+    unpublished work.
+  - It survives a failed fetch, `--no-fetch` and `git remote remove`, which
+    deletes `refs/remotes/origin/*`. That is why the remote-tracking ref is
+    never read or written.
+- **`refs/aitask-relations/observed`** is advisory only: the last remote tip
+  seen, used to mark `pending_push`.
+- **Fetches land in a private temporary ref.** Each operation works on the
+  immutable commit ids it resolved. L is resolved *before* the remote tip is
+  pinned, so an L that came from the remote is always an ancestor of the pin.
+  "Local work pending" is then exactly "L is not an ancestor of the remote
+  tip".
+- **Every push is leased** (`--force-with-lease=refs/heads/aitask-relations:<base>`,
+  with an empty base when the branch must not exist). A remote that moved since
+  the pin is a conflict, whatever the new commit's other parents contain.
+- **Merges are three-way** over `merge-base --all`. Unrelated histories count
+  as one synthetic empty base. Every path goes through one total rule:
+
+  | Case | Result |
+  |---|---|
+  | both sides agree | that value |
+  | local untouched (equal to every base) | remote, so a remote deletion is never resurrected |
+  | remote untouched, local present | local |
+  | remote untouched, local deleted | deleted only if the record is still deletion-eligible |
+  | both changed, both present | `wins()` |
+  | remote deleted, local changed | local only if it matches the live identity |
+  | local deleted, remote changed | deleted only if the remote record is itself deletion-eligible |
+
+  *Deletion-eligible* is gc's rule: the id exists nowhere, or the record's
+  `task_created_at` differs from the live task's.
+
 ### Reader refresh
 
-- **One fetch per reader invocation, at most.** The fetch is
-  `git fetch --no-tags origin +refs/heads/aitask-relations:refs/remotes/origin/aitask-relations`,
-  bounded by a timeout and non-interactive: it must not wait on a credential or
-  SSH prompt. `--no-fetch` exists for tests and for a second read within the
-  same workflow step.
-- **After a successful fetch**, the reader stores the time in
+- **One fetch per reader invocation, at most.** It is an `ls-remote` probe
+  (a fetch of an absent branch fails, so the probe is what tells "absent" from
+  "unreachable"), then, when the branch is present, a fetch into a private
+  temporary ref. Both are bounded by a timeout (`AIT_RELATIONS_FETCH_TIMEOUT`,
+  default 20 s) and non-interactive through `lib/bounded_run.py`: they must not
+  wait on a credential or SSH prompt. `--no-fetch` exists for tests and for a
+  second read within the same workflow step.
+- **After a successful fetch**, the reader integrates the fetched commit into
+  the local branch (see "Refs"), stores the time in
   `<git-common-dir>/aitask-relations/fetched_at` and reports
   `STORE:fresh@<ts>`.
-- **After a failed fetch**, the reader falls back to the last fetched
-  remote-tracking ref and reports `STORE:stale:<reason>@<last fetched_at>`. If
-  this clone has never fetched the branch successfully, there is no data at all,
-  and it reports `STORE:unreachable:<reason>`.
-- **`STORE:empty`** means a fetch **succeeded** and the remote has no
-  `aitask-relations` branch: nothing has ever been written. It is never used for
-  a fetch that failed.
+- **After a failed fetch**, the reader falls back to the local branch, the
+  latest known store, and reports `STORE:stale:<reason>@<last fetched_at>`.
+  That is `@never` when the clone has never fetched but holds local-only data.
+  With no local branch at all there is no data, and it reports
+  `STORE:unreachable:<reason>`.
+- **`STORE:empty`** means a fetch **succeeded**, the remote has no
+  `aitask-relations` branch, and this clone holds nothing either: nothing has
+  ever been written. It is never used for a fetch that failed.
 - **In local-only mode**, the reader reads the local branch and reports
   `STORE:local_only`.
 - **Every read overlays the outbox** (below). Records this clone has written but
@@ -223,17 +310,23 @@ spool and `fetched_at` are the same for the primary checkout and for every
    `os.replace`). The outbox entry is the durable intent.
 3. **Publish.** Every publish flushes **all** outbox entries in one commit.
    - **Remote mode:**
-     1. Fetch.
-     2. For each path, apply newest-wins against the remote version. An entry
-        that loses is reported `SUPERSEDED:<path>`. It is removed by the
+     1. Resolve the local branch, then probe and fetch the remote tip.
+     2. Integrate the remote tip into the local branch (see "Refs").
+     3. For each path, apply newest-wins against the integrated version. An
+        entry that loses is reported `SUPERSEDED:<path>`. It is removed by the
         conditional removal below.
-     3. Build the tree and `commit-tree -p <remote tip>`.
-     4. Push as CAS. A non-fast-forward rejection retries from the fetch, up to
-        8 attempts with jitter.
-   - **Local-only mode:** the same flush, with
+     4. Build the commit on the local branch, which now contains the remote
+        tip.
+     5. Push, leased on the pinned tip. A conflict retries from step 1, up to 8
+        attempts with jitter.
+     6. Integrate the pushed commit into the local branch.
+   - **Local-only mode:** the same flush, committed on the local branch with
      `update-ref refs/heads/aitask-relations <new> <old>` as the CAS.
-   - **On success**, the published entries are removed by the conditional
-     removal below.
+   - **Clearing.** The published and superseded entries are removed by the
+     conditional removal below, and **only after** the local branch provably
+     contains their result. When integrating the pushed or fetched commit
+     fails, they stay (`RETAINED:<n>|integrate_failed`). The next flush finds
+     them already published, builds no commit, and clears them.
    - **Every outbox removal is content-conditional and synchronized.**
      - Producers (entry writes) and flushers (removals of superseded and
        published entries) take one shared local lock:
@@ -252,14 +345,23 @@ spool and `fetched_at` are the same for the primary checkout and for every
      worker start publishes the outbox first.
    - `ait relations status` lists every retained entry with its age and its
      last error.
-5. **Upgrade from local-only.** On the first publish after a remote appears:
-   - If the remote branch does not exist, push the local branch as it is (the
-     `aitask-ids` precedent).
-   - Otherwise, re-apply every path whose local content differs from the
-     remote one, newest-wins, as one commit on the remote tip. Then reset the
-     local branch to that commit and report `UPGRADED:<n>`.
-6. **Newest-wins.** A record replaces an existing one only if its
-   `(stage, at)` is greater or equal.
+5. **Upgrade from local-only.** Unpublished local work is any commit on the
+   local branch that is not on the remote. That covers a local-only history,
+   local commits made while the remote was unreachable, and a local descendant
+   of the remote tip whose outbox has already drained.
+   - If the remote branch does not exist, push the local branch as it is,
+     leased on its absence (the `aitask-ids` precedent).
+   - Otherwise, integrate the remote tip first: a three-way absorb merge,
+     whose merge base keeps deletions made on either side since. Then push the
+     local branch, which now descends from the remote tip.
+   - Either way report `UPGRADED:<n>`. After it, the local tip is an ancestor
+     of every later remote tip, so nothing is replayed twice.
+6. **Newest-wins, identity first** (`relations_schema.wins`).
+   - When one side's `task_created_at` is the live task's and the other's is
+     not, the live incarnation wins, whatever the stage or time. A deleted
+     child's record never outranks the record of the task that reuses its id.
+   - Otherwise a record replaces an existing one only if its `(stage, at)` is
+     greater or equal.
    - The stage is decided by **which inputs the run analysed**, never by the
      trigger:
      - **Stage 2:** the run analysed the task's **current** body together with
@@ -333,7 +435,9 @@ it (D13).
 - **Refs** are canonical `<project>#<id>` from the start (D12).
 - **Identity.** The record carries `task_created_at` (the task's `created_at`
   frontmatter), and every `inputs.candidates[]` entry carries its candidate's
-  `created_at`.
+  `created_at`. **Every kind carries `task_created_at`**: the obsolescence
+  record, the dismissal and the approval stamp too, so newest-wins and gc can
+  tell incarnations apart on every path.
   - Child numbers are allocated as the highest existing child number plus one
     (`get_next_child_number` in `aitask_create.sh`). Deleting the
     highest-numbered child therefore frees its number for reuse.
@@ -407,6 +511,7 @@ A basis anchor makes a relation mechanically checkable later.
 ### The obsolescence record
 
 `obsolescence/t<id>.json`:
+- `task`, `task_created_at`;
 - `run`, and `inputs`: the source digests plus an `evidence_digest` over the
   evidence rows;
 - `evidence[]`: `{id, kind, detail, source}`;
@@ -417,13 +522,13 @@ A basis anchor makes a relation mechanically checkable later.
 
 ### The dismissal
 
-`dismissals/t<id>.json`: `{task, at, by, evidence_digest, note}`. It is written
-by a human through `ait obsolete dismiss`.
+`dismissals/t<id>.json`: `{task, task_created_at, at, by, evidence_digest,
+note}`. It is written by a human through `ait obsolete dismiss`.
 
 ### The approval stamp
 
-`approvals/t<id>.json`: `{task, approved_at, data_commit, body_sha256,
-plan_sha256}`. `approved_at` is UTC ISO 8601.
+`approvals/t<id>.json`: `{task, task_created_at, approved_at, data_commit,
+body_sha256, plan_sha256}`. `approved_at` is UTC ISO 8601.
 
 - **When it is written.** At every plan approval that keeps the plan approved
   (D4), whenever the project has analysis enabled.
@@ -1058,6 +1163,14 @@ retrospective.
     task has one, otherwise the current normalized plan digest. Plan edits
     during implementation (progress marks, implementation notes) therefore never
     make relations look stale. Only a re-approval does.
+  - **Archived tasks are compared like active ones.** Their baselines come from
+    the archive text, whether the file is loose, in a numbered
+    `_bN/oldM.tar.zst` bundle or in the legacy `old.tar.zst`, for the task file
+    and the plan alike. A relation that was stale before archival stays stale
+    after it.
+  - **A baseline that cannot be read is never "fresh".** For example, a corrupt
+    bundle. The marker is then `unverified:source_baseline` or
+    `unverified:target_baseline`.
 - **Identity at read.** A relation end whose recorded `created_at` differs from
   the live task's `created_at` names a deleted task whose id was reused. It is
   dropped at read, never attributed to the new task.
@@ -1072,10 +1185,17 @@ retrospective.
 - **Folded tasks** are canonicalized to the primary at read. The fold trigger
   re-analyses the primary.
 - **Deleted tasks.** `ait relations gc` removes records, assessments, dismissals
-  and approval stamps for ids that exist nowhere: not active, not archived, and
-  not inside an `old.tar.zst` bundle (resolved through
-  `aitask_query_files.sh`). Relations that point at a deleted id are filtered at
-  read. This is the single-writer exception named in D1.
+  and approval stamps for ids that exist nowhere: not active, not archived, not
+  inside a numbered or legacy bundle, and not folded into a task that exists.
+  Relations that point at a deleted id are filtered at read. This is the
+  single-writer exception named in D1.
+  - **Two independent negatives** are required before a delete: a complete
+    index scan (any read error refuses with `GC_REFUSED:scan_incomplete`), and
+    `NOT_FOUND` from `aitask_query_files.sh` for that id.
+  - **Eligibility is decided on the exact tree the deletion is built from**:
+    the integrated local branch plus the outbox, re-checked on every attempt.
+    A valid replacement found there, whether from the remote, a local-only
+    commit or the outbox, is kept and reported `GC_KEPT:<path>|revalidated`.
 - **Renumbering and id reuse.**
   - No renumbering operation exists, and parent ids are monotonic
     (`aitask_claim_id.sh`).
@@ -1089,7 +1209,9 @@ retrospective.
 
 - Refs are canonical `<project>#<id>` from the start.
 - Candidates and relations stay inside the local project in v1. Cross-project
-  relations are deferred, and the schema already allows them.
+  relations are deferred, and the schema already allows them. A cross-project
+  end the store does meet keeps its qualification, and is reported as
+  unverifiable rather than rewritten as local (D1 "Store API").
 - **Revisit trigger:** the retrospective counts cross-project notes (`ait note
   --project`) and `xdeps` edges that touch analysed tasks. If cross-project
   traffic is a real share of the notes sent, cross-project candidates become a
