@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: medium
+risk_goal_achievement: low
 effort: low
 depends: [t1663_2, 1673]
 issue_type: feature
@@ -49,3 +51,5 @@ Third child of t1663. Design in `aidocs/framework/task_premise_staleness.md` ("S
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-11-05T13:45:14Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-11-06T05:50:53Z status=pass attempt=1 type=human
