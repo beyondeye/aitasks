@@ -63,8 +63,16 @@ on a `manual_verification` task that field means "the checklist matches this
 commit", which is a different statement with a different review transaction.
 t1561's own constraints forbid the widening.
 
-Written by `aitask_update.sh --premise-baseline` (update-path only, like
-`plan_approved_at`; empty string clears). The writer accepts
+Written in three places. Creation-time seeding (see "Seeding") stamps it. A
+carry-over task inherits it through `aitask_create.sh`'s internal
+`--premise-baseline` creation flag. That flag requires `--commit`, overrides the
+seed, and treats `""` as "none". It accepts only the stored grammar
+`<40|64-hex> @ <YYYY-MM-DD HH:MM>`, lowercased, and it **does not** look the
+commit up, because an inherited value may name a commit that a history rewrite
+removed. The reader reports that state as `history_rewritten`, and the
+carry-over must inherit it rather than abort archival. A person or the workflow
+sets or clears it with `aitask_update.sh --premise-baseline` (empty string
+clears). That update writer accepts
 `<oid> @ <YYYY-MM-DD HH:MM>` or a bare `<oid>`, which it stamps with the current
 time. `<oid>` must be a full 40- or 64-hex id that names a commit in the
 repository (`git cat-file -e <oid>^{commit}`), and it is stored lowercase. A
@@ -266,16 +274,43 @@ enters — see below.)
 
 ### Seeding
 
-`aitask_create.sh` stamps `premise_baseline` = HEAD at creation **when the
-new task has a derivable scope** — `--file-ref` (Tier A) or `--verifies`
-(Tier B; the only input that yields an `exact` origin). **`--followup-of` alone
-does not seed**: it writes only `anchor:`, which Tier B refuses by contract, so
-a baseline stamped on that trigger could never resolve a scope and would read
-`SKIP` forever. A task with no derivable scope is not
-seeded; the field would be dead weight. Carry-over tasks
-(`create_carryover_task` in `aitask_archive.sh`) **inherit** the origin
-task's baseline rather than re-stamping — the carried-over premise is as old
-as its source, exactly the t1555 carryover rule.
+`aitask_create.sh` stamps `premise_baseline` = HEAD **at the task's commit
+point when the new task has a derivable scope** — a `file_references:` list
+(Tier A) or a `verifies:` list (Tier B; the only input that yields an `exact`
+origin). **`--followup-of` alone does not seed**: it writes only `anchor:`,
+which Tier B refuses by contract, so a baseline stamped on that trigger could
+never resolve a scope and would read `SKIP` forever. A task with no derivable
+scope is not seeded; the field would be dead weight.
+
+There are two commit points, and both seed:
+
+- **`--batch --commit`** (parent and `--parent` child): seeded when the
+  invocation carries `--file-ref` or `--verifies` — exactly the inputs whose
+  lines the serializer writes. The value is written by the creation serializer
+  (`create_task_file` / `create_child_task_file`), so it lands in the
+  task-creation commit.
+- **`finalize_draft`** (`--finalize`, `--finalize-all`, and the interactive
+  "Finalize" menu): the finalized file is read through the YAML parser
+  (`read_premise_seed_fields` in `lib/task_utils.sh`), so a hand-edited
+  block-style list counts as well as a flow one, and the line is inserted
+  before the commit. A draft that already carries the key — even with an empty
+  value — is left as it is. This path matters in practice: codebrowser's
+  create-task action, the live Tier-A producer, runs the *interactive*
+  `aitask_create.sh --file-ref`, which writes a draft and commits it here.
+
+Drafts themselves are never seeded; the commit point is what anchors the value.
+HEAD is resolved in the working directory (the repository root), the same
+repository the reader checks. When there is no HEAD commit (an unborn branch),
+the task is still created, unseeded, with a warning; absent reads `SKIP`, which
+is the designed legacy behaviour. Carry-over tasks (`create_carryover_task` in
+`aitask_archive.sh`) **inherit** the origin task's baseline rather than
+re-stamping — the carried-over premise is as old as its source, exactly the
+t1555 carryover rule. The origin's value is read through YAML, so a quoted
+scalar is inherited without its quotes. It is passed to the creation call
+(`--premise-baseline <value>`, or `""` when the origin has none, which
+suppresses the `--verifies` seed). A malformed origin value is not inherited:
+the carry-over is created without it, with a warning, because malformed and
+absent both read `SKIP` and an advisory field must not block archival.
 
 Seeding at creation is premise-correct even for "before"-timed
 risk-mitigation follow-ups (created before their origin lands) **that carry a
@@ -384,11 +419,13 @@ rollout t1561's constraints asked for.
 
 | Event | `premise_baseline` |
 |---|---|
-| task created with `--file-ref` or `--verifies` | seeded to HEAD at creation |
+| task created with `--file-ref` or `--verifies` (`--batch --commit`) | seeded to HEAD at creation |
+| draft finalized with a `file_references:` or `verifies:` list | seeded to HEAD at finalize (a value already in the draft is kept) |
+| draft written (no commit) | not written |
 | task created with `--followup-of` only | **not written** — no Tier-A/B-resolvable scope |
 | task created without derivable scope | not written |
 | scope acquired after creation (`aitask_update.sh --file-ref`/`--verifies`, fold union) | not written — the task resolves a scope but has no baseline, so it reads `SKIP` |
-| carry-over task created at archival | **inherited** from the origin task |
+| carry-over task created at archival | **inherited** from the origin task, in the creation commit; absent stays absent; a malformed origin value is dropped with a warning |
 | "Proceed — premise still valid" | advance to the `CHECKED:` sha (post-lock, fingerprint-gated) |
 | "Review & replan" chosen, plan later approved | advance to the `CHECKED:` sha at the Step 7 post-approval writes |
 | "Review & replan" chosen, plan not approved (abort/stop) | unchanged |
@@ -452,6 +489,9 @@ exactly as plan-review freshness chose.
   as fresh. Both directions persist at any scope quality.
 - **Product/purpose drift is out of scope.** `FRESH` never means "still worth
   doing".
+- **A draft is stamped when it is finalized, not when it was written.** A draft
+  left in `aitasks/new/` for days is seeded with HEAD at finalization, so a
+  change that landed between writing and finalizing is not reported.
 - **A silent-skip precondition can mask a broken implementation.** Only the
   end-to-end exercise (seed → change a scope file → prompt fires → dismiss →
   advance → no re-fire) distinguishes "correctly quiet" from "never runs";

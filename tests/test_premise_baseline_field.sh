@@ -258,12 +258,14 @@ assert_eq "every write_task_file call site forwards premise_baseline" \
 assert_eq "aitask_update.sh has exactly one premise_baseline: emit" "1" \
     "$(grep -cF 'echo "premise_baseline: ' "$UPD")"
 
-# The only shell writer of the field. A new write site (e.g. creation-time
-# seeding) must be added here deliberately.
+# The only shell writers of the field: the update path, and creation-time
+# seeding in aitask_create.sh (t1663_3; its own pins live in
+# tests/test_premise_baseline_seeding.sh Part G). A new write site must be added
+# here deliberately.
 writers="$(grep -lE 'echo "premise_baseline: ' "$SCRIPTS"/*.sh "$SCRIPTS"/lib/*.sh 2>/dev/null \
     | sed "s|^$SCRIPTS/||" | sort | tr '\n' ' ')"
-assert_eq "aitask_update.sh is the only shell writer of premise_baseline" \
-    "aitask_update.sh " "$writers"
+assert_eq "aitask_create.sh and aitask_update.sh are the only shell writers of premise_baseline" \
+    "aitask_create.sh aitask_update.sh " "$writers"
 
 # ============================================================
 # Part F - writer output through the shipped reader

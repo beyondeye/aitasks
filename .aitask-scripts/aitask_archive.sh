@@ -702,6 +702,40 @@ create_carryover_task() {
         create_args+=(--verifies "$orig_verifies")
     fi
 
+    # Inherit premise_baseline (t1663_3) -- the same t1555 rule as
+    # verification_baseline below: the carried premise is as old as its source,
+    # so it is never re-stamped to HEAD. It travels through the CREATION call,
+    # not a later aitask_update.sh, for two reasons. --verifies above would
+    # otherwise seed HEAD at creation, so the creation commit would briefly
+    # carry the wrong value. And the update writer's commit-existence check
+    # would abort archival for an origin whose baseline names a commit a history
+    # rewrite removed (the reader reports that state as history_rewritten, and
+    # the carry-over should inherit it). The flag is ALWAYS passed: "" is what
+    # keeps an origin without a baseline from producing a carry-over with one.
+    #
+    # Read through YAML (read_premise_seed_fields), never read_yaml_field: that
+    # keeps a quoted scalar's quotes, so a valid '"<oid> @ <ts>"' would fail the
+    # grammar and silently drop the inheritance.
+    local orig_premise="" premise_out="" premise_rc=0 premise_line
+    premise_out="$(read_premise_seed_fields "$orig_file")" || premise_rc=$?
+    if [[ $premise_rc -ne 0 ]]; then
+        warn "carry-over: origin premise_baseline unreadable (status $premise_rc); not inherited"
+    else
+        premise_line="$(printf '%s\n' "$premise_out" | head -n1)"
+        case "$premise_line" in
+            BASELINE:?*)
+                if ! orig_premise="$(premise_baseline_canonical "${premise_line#BASELINE:}")"; then
+                    orig_premise=""
+                    warn "carry-over: origin premise_baseline is malformed; not inherited"
+                fi
+                ;;
+            BASELINE_INVALID|INVALID:frontmatter)
+                warn "carry-over: origin premise_baseline is malformed; not inherited"
+                ;;
+        esac
+    fi
+    create_args+=(--premise-baseline "$orig_premise")
+
     local new_file
     new_file=$(./.aitask-scripts/aitask_create.sh "${create_args[@]}")
     if [[ -z "$new_file" || ! -f "$new_file" ]]; then

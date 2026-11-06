@@ -3553,6 +3553,121 @@ get_file_references() {
     return 0
 }
 
+# --- premise_baseline creation-time seeding (t1663_3) -------------------------
+# Design: aidocs/framework/task_premise_staleness.md ("Seeding"). Consumers:
+# aitask_create.sh (finalize_draft seeding, the --premise-baseline flag) and
+# aitask_archive.sh (carry-over inheritance).
+
+# premise_baseline_canonical <raw>
+# Prints "<lowercase oid> @ <YYYY-MM-DD HH:MM>" and returns 0 when <raw> is a
+# full 40- or 64-hex id followed by " @ YYYY-MM-DD HH:MM" -- the stored grammar
+# the reader (aitask_premise_stale.sh) accepts. Prints nothing and returns 1
+# otherwise. GRAMMAR ONLY, deliberately no repository lookup: an inherited value
+# may name a commit that a history rewrite removed, which the reader reports as
+# history_rewritten, and a carry-over must inherit that state rather than lose
+# it. (aitask_update.sh --premise-baseline is the stricter person-facing writer:
+# it also stamps a bare oid and requires the commit to exist.)
+premise_baseline_canonical() {
+    local raw="$1" oid ts
+    local oid_re='^([0-9a-fA-F]{40}|[0-9a-fA-F]{64})$'
+    local ts_re='^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}$'
+    [[ "$raw" == *" @ "* ]] || return 1
+    oid="${raw%% @ *}"
+    ts="${raw#* @ }"
+    [[ "$oid" =~ $oid_re && "$ts" =~ $ts_re ]] || return 1
+    printf '%s @ %s\n' "$(printf '%s' "$oid" | tr 'ABCDEF' 'abcdef')" "$ts"
+}
+
+# The glue for read_premise_seed_fields. Imports only task_yaml (which
+# setup_fake_aitask_repo copies), never task_premise: that module pulls in the
+# parallel-admission vocabulary, a dependency a creation path must not grow.
+_AIT_PREMISE_SEED_GLUE='
+import sys
+sys.path = [p for p in sys.path if p not in ("", ".")]
+sys.path.append(sys.argv[1])
+try:
+    import task_yaml
+except Exception:
+    sys.exit(3)
+try:
+    with open(sys.argv[2], encoding="utf-8") as fh:
+        text = fh.read()
+except Exception:
+    sys.exit(2)
+try:
+    parsed = task_yaml.parse_frontmatter(text)
+except Exception:
+    parsed = None
+meta = parsed[0] if parsed else None
+if not isinstance(meta, dict):
+    print("INVALID:frontmatter")
+    sys.exit(0)
+out = []
+if "premise_baseline" not in meta:
+    out.append("BASELINE_ABSENT")
+else:
+    base = meta["premise_baseline"]
+    if base is None:
+        base = ""
+    if not isinstance(base, str) or any(c in base for c in "\r\n\0"):
+        out.append("BASELINE_INVALID")
+    else:
+        out.append("BASELINE:" + base)
+out.append("REFS:%d" % len(task_yaml.file_reference_entries(meta)))
+v = meta.get("verifies")
+if v is None or v == "":
+    nv = 0
+elif isinstance(v, (list, tuple)):
+    nv = len(v)
+else:
+    nv = 1
+out.append("VERIFIES:%d" % nv)
+out.append("END:3")
+print("\n".join(out))
+'
+
+# read_premise_seed_fields <task_file>
+# The two file-derived inputs of premise_baseline seeding, read through the
+# framework YAML parser (task_yaml.parse_frontmatter) -- NEVER read_yaml_field,
+# which keeps a quoted scalar's quotes (so a valid '"<oid> @ <ts>"' would fail
+# the grammar) and returns nothing for a block-style list (`verifies:` followed
+# by `  - 1`), which would leave an eligible task unseeded. Prints exactly:
+#   BASELINE_ABSENT | BASELINE:<YAML-decoded string, "" for null> | BASELINE_INVALID
+#   REFS:<file_references entries, usable or not -- the reader evaluates all>
+#   VERIFIES:<verifies entries; a bare scalar counts as one, null/"" as none>
+#   END:3
+# or the single line INVALID:frontmatter. BASELINE_INVALID is a key that is
+# present but not a string, or holds a line break or NUL.
+# Exit status -- check it; never read a failure as "absent":
+#   0  one of the two shapes above
+#   2  unreadable file, or output of any other shape -- NOTHING is printed
+#   3  no usable python (PyYAML)
+read_premise_seed_fields() {
+    local file="$1" lib_dir py out rc=0
+    [[ "$file" == *$'\n'* ]] && return 2
+    lib_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)" || return 2
+    py="$(resolve_python)"
+    [[ -n "$py" ]] || return 3
+    out="$("$py" -B -c "$_AIT_PREMISE_SEED_GLUE" "$lib_dir" "$file" 2>/dev/null)" || rc=$?
+    [[ $rc -eq 3 ]] && return 3
+    [[ $rc -eq 0 ]] || return 2
+    if [[ "$out" == "INVALID:frontmatter" ]]; then
+        printf '%s\n' "$out"
+        return 0
+    fi
+    local -a lines=()
+    local line
+    while IFS= read -r line; do lines+=("$line"); done <<< "$out"
+    [[ ${#lines[@]} -eq 4 ]] || return 2
+    [[ "${lines[0]}" == BASELINE_ABSENT || "${lines[0]}" == BASELINE_INVALID \
+        || "${lines[0]}" == BASELINE:* ]] || return 2
+    [[ "${lines[1]}" =~ ^REFS:[0-9]{1,9}$ ]] || return 2
+    [[ "${lines[2]}" =~ ^VERIFIES:[0-9]{1,9}$ ]] || return 2
+    [[ "${lines[3]}" == "END:3" ]] || return 2
+    printf '%s\n' "$out"
+    return 0
+}
+
 # _yaml_path_is_plain <entry> -> 0 when the entry may be written as a plain
 # flow scalar and every YAML reader still reads back the identical string.
 # Conservative by construction (over-quoting is harmless): ASCII path chars

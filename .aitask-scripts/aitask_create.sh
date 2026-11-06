@@ -58,6 +58,11 @@ BATCH_CONTRIBUTOR=""
 BATCH_CONTRIBUTOR_EMAIL=""
 BATCH_FILE_REFS=()
 BATCH_AUTO_MERGE=false
+# Explicit premise_baseline for the new task (t1663_3). Internal: carry-over
+# inheritance passes it so the origin's value -- or "" for none -- overrides the
+# creation-time seed. _SET distinguishes an explicit "" from "not passed".
+BATCH_PREMISE_BASELINE=""
+BATCH_PREMISE_BASELINE_SET=false
 
 # Draft/finalize mode variables
 BATCH_FINALIZE=""
@@ -70,6 +75,10 @@ MAX_PARENT_ID_CLAIM_RETRIES=5
 # create_*_file emitters read this global. Stays "" in interactive mode (no
 # anchor emitted), so the emit is always safe.
 RESOLVED_ANCHOR=""
+
+# The premise_baseline value resolve_premise_seed() decided for the task being
+# written ("" = none). Set immediately before each serializer call.
+PREMISE_SEED=""
 
 # --- Helper Functions ---
 
@@ -129,6 +138,11 @@ Batch mode (for automation):
   --file-ref REF         Append a file reference; repeatable. REF format:
                          PATH | PATH:N | PATH:N-M | PATH:N-M^N-M^...
                          (^ joins multiple ranges on the same path).
+  --premise-baseline VALUE
+                         Internal (carry-over inheritance): the new task's
+                         premise_baseline, overriding creation-time seeding;
+                         "" means none. Requires --commit. VALUE is
+                         '<full commit id> @ YYYY-MM-DD HH:MM'.
   --auto-merge           When used with --file-ref and --commit, fold any
                          pending Ready/Editing task that already references
                          the same file path(s) into the new task. Reuses
@@ -148,6 +162,8 @@ Draft workflow:
   Drafts use timestamp-based names and have no real task number.
   Use --finalize or --finalize-all to assign real IDs and commit.
   The --commit flag auto-finalizes immediately (requires network).
+  A committed task that carries --file-ref or --verifies (or a finalized draft
+  with a file_references/verifies list) is seeded with premise_baseline = HEAD.
 
 Examples:
   # Interactive mode (supports draft management)
@@ -193,6 +209,7 @@ parse_args() {
             --xdeps) BATCH_XDEPS="$2"; shift 2 ;;
             --xdeprepo) BATCH_XDEPREPO="$2"; shift 2 ;;
             --verifies) BATCH_VERIFIES="$2"; shift 2 ;;
+            --premise-baseline) BATCH_PREMISE_BASELINE="$2"; BATCH_PREMISE_BASELINE_SET=true; shift 2 ;;
             --gates) BATCH_GATES="$2"; shift 2 ;;
             --also-blocks-dependents) BATCH_ALSO_BLOCKS_DEPENDENTS="$2"; shift 2 ;;
             --parent|-P) BATCH_PARENT="$2"; shift 2 ;;
@@ -517,6 +534,9 @@ create_child_task_file() {
     local contributor_email="${14:-}"
     local file_references="${15:-}"
     local verifies="${16:-}"
+    # premise_baseline (t1663_3): the value resolve_premise_seed() decided --
+    # the creation-time seed, an explicit --premise-baseline, or "" for none.
+    local premise_baseline="${17:-}"
 
     local child_dir="$TASK_DIR/t${parent_num}"
     mkdir -p "$child_dir"
@@ -586,6 +606,11 @@ create_child_task_file() {
             local file_refs_yaml
             file_refs_yaml=$(format_yaml_path_list "$file_references") || return 1
             echo "file_references: $file_refs_yaml"
+        fi
+        # Only write premise_baseline if present (t1663_3). Right after the
+        # scope lines it is seeded from; the serializer emits it verbatim.
+        if [[ -n "$premise_baseline" ]]; then
+            echo "premise_baseline: $premise_baseline"
         fi
         # Only write anchor (topic group key) if present
         if [[ -n "$RESOLVED_ANCHOR" ]]; then
@@ -839,6 +864,80 @@ _register_task_labels() {
     return 0
 }
 
+# resolve_premise_seed <has_scope: true|false>
+# Decide the premise_baseline of the task about to be written and leave it in
+# PREMISE_SEED ("" = none). Design: aidocs/framework/task_premise_staleness.md
+# ("Seeding"). Called directly, never inside $( ), and never dies -- an advisory
+# field must not block creation.
+#   - an explicit --premise-baseline (already canonicalised by run_batch_mode)
+#     wins, "" included, unless the second argument is ignore_override (the
+#     finalize path, which never takes the flag -- defence in depth behind the
+#     main()/run_batch_mode refusals): that is how a carry-over inherits its origin's value, or
+#     the origin's absence, instead of a fresh HEAD;
+#   - no derivable scope (no file_references, no verifies) -> none. That covers
+#     --followup-of alone, which writes only anchor:, never an exact origin;
+#   - otherwise HEAD of the working directory -- the repository root, which is
+#     the repository aitask_premise_stale.sh checks -- stamped with the time.
+#     No HEAD commit (an unborn branch) -> none, with a warning; absent reads
+#     SKIP, the designed legacy behaviour.
+resolve_premise_seed() {
+    local has_scope="$1" override="${2:-honor_override}" rev=""
+    PREMISE_SEED=""
+    if [[ "$override" == honor_override && "$BATCH_PREMISE_BASELINE_SET" == true ]]; then
+        PREMISE_SEED="$BATCH_PREMISE_BASELINE"
+        return 0
+    fi
+    [[ "$has_scope" == true ]] || return 0
+    rev="$(git rev-parse --verify --quiet 'HEAD^{commit}' 2>/dev/null)" || rev=""
+    if [[ ! "$rev" =~ ^([0-9a-f]{40}|[0-9a-f]{64})$ ]]; then
+        warn "premise_baseline not seeded: no HEAD commit"
+        return 0
+    fi
+    PREMISE_SEED="$rev @ $(get_timestamp)"
+    return 0
+}
+
+# seed_finalized_premise_baseline <task_file>
+# The finalize_draft half of creation-time seeding: a draft is never seeded (it
+# is not committed), so the commit point that finalizes it is where the value is
+# stamped. This is the path codebrowser's create-task action takes -- it runs
+# the INTERACTIVE create, which writes a draft and finalizes it here.
+# Both inputs are read through YAML (read_premise_seed_fields): a hand-edited
+# draft may hold a block-style list that the line-oriented readers miss. A draft
+# that already carries the key -- even null -- is left alone, so a second
+# premise_baseline: key is never written. Any read or write failure leaves the
+# task unseeded with a warning and lets finalization continue.
+seed_finalized_premise_baseline() {
+    local filepath="$1" out="" rc=0 refs verifies has_scope=false
+    out="$(read_premise_seed_fields "$filepath")" || rc=$?
+    if [[ $rc -ne 0 || "$out" == "INVALID:frontmatter" ]]; then
+        warn "premise_baseline not seeded: frontmatter of $filepath unreadable"
+        return 0
+    fi
+    [[ "$(sed -n 1p <<< "$out")" == BASELINE_ABSENT ]] || return 0
+    refs="$(sed -n 's/^REFS://p' <<< "$out")"
+    verifies="$(sed -n 's/^VERIFIES://p' <<< "$out")"
+    if (( refs > 0 || verifies > 0 )); then
+        has_scope=true
+    fi
+    resolve_premise_seed "$has_scope" ignore_override
+    [[ -n "$PREMISE_SEED" ]] || return 0
+    # The value is [0-9a-f], " @ ", digits, "-" and ":" only, so it is safe in
+    # awk -v (no backslash escapes to interpret). Inserted just before the
+    # frontmatter's closing ---; exit 1 if there was none to insert before.
+    _ait_seed_premise_body() {
+        awk -v line="premise_baseline: $PREMISE_SEED" '
+            !done && $0 == "---" { n++; if (n == 2) { print line; done = 1 } }
+            { print }
+            END { if (!done) exit 1 }
+        ' "$filepath" || return 1
+    }
+    if ! ait_atomic_render "$filepath" _ait_seed_premise_body; then
+        warn "premise_baseline not seeded: could not rewrite $filepath"
+    fi
+    return 0
+}
+
 finalize_draft() {
     local draft_path="$1"
     local silent="${2:-false}"
@@ -876,6 +975,7 @@ finalize_draft() {
         # Copy content, remove draft-specific fields
         sed '/^draft: true$/d; /^parent: .*$/d' "$draft_path" > "$filepath"
         enforce_manual_verification_gate_invariant "$filepath"
+        seed_finalized_premise_baseline "$filepath"
         _register_task_labels "$filepath"
         # Did THIS draft append to the shared vocabulary? Read per-call, right after
         # the registration that produced it (t1599_4 / t1662).
@@ -942,6 +1042,7 @@ finalize_draft() {
         # Copy content, remove draft field
         sed '/^draft: true$/d' "$draft_path" > "$filepath"
         enforce_manual_verification_gate_invariant "$filepath"
+        seed_finalized_premise_baseline "$filepath"
         _register_task_labels "$filepath"
         # Per-call, read immediately after the registration (t1599_4 / t1662).
         local _stage_labels=false
@@ -2077,6 +2178,9 @@ create_task_file() {
     local contributor_email="${14:-}"
     local file_references="${15:-}"
     local verifies="${16:-}"
+    # premise_baseline (t1663_3): the value resolve_premise_seed() decided --
+    # the creation-time seed, an explicit --premise-baseline, or "" for none.
+    local premise_baseline="${17:-}"
 
     local filename="t${task_num}_${task_name}.md"
     local filepath="$TASK_DIR/$filename"
@@ -2143,6 +2247,11 @@ create_task_file() {
             file_refs_yaml=$(format_yaml_path_list "$file_references") || return 1
             echo "file_references: $file_refs_yaml"
         fi
+        # Only write premise_baseline if present (t1663_3). Right after the
+        # scope lines it is seeded from; the serializer emits it verbatim.
+        if [[ -n "$premise_baseline" ]]; then
+            echo "premise_baseline: $premise_baseline"
+        fi
         # Only write assigned_to if present
         if [[ -n "$assigned_to" ]]; then
             echo "assigned_to: $assigned_to"
@@ -2191,6 +2300,15 @@ create_task_file() {
 # --- Batch Mode ---
 
 run_batch_mode() {
+    # --premise-baseline is a creation input of --commit only. A finalize seeds
+    # from the draft's own fields, and a draft is never seeded; refusing here,
+    # before either finalize branch returns, keeps the flag from being silently
+    # ignored.
+    if [[ "$BATCH_PREMISE_BASELINE_SET" == true \
+          && ( "$BATCH_COMMIT" != true || "$BATCH_FINALIZE_ALL" == true || -n "$BATCH_FINALIZE" ) ]]; then
+        die "--premise-baseline requires --commit and cannot be combined with --finalize/--finalize-all (drafts are never seeded)"
+    fi
+
     # Handle finalize operations first (don't require --name/--desc)
     if [[ "$BATCH_FINALIZE_ALL" == true ]]; then
         finalize_all_drafts "$BATCH_SILENT"
@@ -2270,6 +2388,18 @@ run_batch_mode() {
         # taking the bug/feature workflow. The converse is NOT required -- an MV
         # task may legitimately be a carry_over.
         enforce_manual_verification_kind_invariant "$BATCH_TYPE" "$BATCH_FOLLOWUP_KIND"
+    fi
+
+    # Validate --premise-baseline (t1663_3) BEFORE the id claim and the label
+    # registration, so a rejection burns no id and writes nothing. Grammar only
+    # (premise_baseline_canonical): the flag carries an inherited value, which may
+    # name a commit a history rewrite removed.
+    if [[ "$BATCH_PREMISE_BASELINE_SET" == true && -n "$BATCH_PREMISE_BASELINE" ]]; then
+        local _pb_canon
+        if ! _pb_canon="$(premise_baseline_canonical "$BATCH_PREMISE_BASELINE")"; then
+            die "Invalid --premise-baseline value: '$BATCH_PREMISE_BASELINE' (expected '<full 40- or 64-hex commit id> @ YYYY-MM-DD HH:MM', or \"\" for none)"
+        fi
+        BATCH_PREMISE_BASELINE="$_pb_canon"
     fi
 
     # Resolve the topic-anchor (--anchor/--followup-of/--parent) into
@@ -2376,11 +2506,17 @@ run_batch_mode() {
 
             local deduped_file_refs
             deduped_file_refs=$(dedup_file_refs BATCH_FILE_REFS)
+            # Seed on exactly the two inputs whose lines the serializer writes.
+            if [[ -n "$deduped_file_refs" || -n "$BATCH_VERIFIES" ]]; then
+                resolve_premise_seed true
+            else
+                resolve_premise_seed false
+            fi
             filepath=$(create_child_task_file "$BATCH_PARENT" "$child_num" "$task_name" \
                 "$BATCH_PRIORITY" "$BATCH_EFFORT" "$BATCH_DEPS" "$BATCH_DESC" \
                 "$BATCH_TYPE" "$BATCH_STATUS" "$BATCH_LABELS" "$BATCH_ISSUE" \
                 "$BATCH_PULL_REQUEST" "$BATCH_CONTRIBUTOR" "$BATCH_CONTRIBUTOR_EMAIL" \
-                "$deduped_file_refs" "$BATCH_VERIFIES")
+                "$deduped_file_refs" "$BATCH_VERIFIES" "$PREMISE_SEED")
 
             task_id="t${BATCH_PARENT}_${child_num}"
             update_parent_children_to_implement "$BATCH_PARENT" "$task_id"
@@ -2416,10 +2552,16 @@ run_batch_mode() {
             # registration, so a failed claim leaves the vocabulary untouched.
             local deduped_file_refs
             deduped_file_refs=$(dedup_file_refs BATCH_FILE_REFS)
+            # Seed on exactly the two inputs whose lines the serializer writes.
+            if [[ -n "$deduped_file_refs" || -n "$BATCH_VERIFIES" ]]; then
+                resolve_premise_seed true
+            else
+                resolve_premise_seed false
+            fi
             filepath=$(create_task_file "$claimed_id" "$task_name" "$BATCH_PRIORITY" "$BATCH_EFFORT" \
                 "$BATCH_DEPS" "$BATCH_DESC" "$BATCH_TYPE" "$BATCH_STATUS" "$BATCH_LABELS" "$BATCH_ASSIGNED_TO" "$BATCH_ISSUE" \
                 "$BATCH_PULL_REQUEST" "$BATCH_CONTRIBUTOR" "$BATCH_CONTRIBUTOR_EMAIL" \
-                "$deduped_file_refs" "$BATCH_VERIFIES")
+                "$deduped_file_refs" "$BATCH_VERIFIES" "$PREMISE_SEED")
 
             if [[ -n "$BATCH_ASSIGNED_TO" ]]; then
                 add_email_to_file "$BATCH_ASSIGNED_TO"
@@ -2553,6 +2695,15 @@ main() {
     fi
 
     parse_args "$@"
+
+    # --premise-baseline is a --batch --commit creation input only, and is
+    # validated in run_batch_mode. Refuse it BEFORE the mode split: the
+    # interactive flow never reaches that validation, and its finalize would
+    # otherwise commit an unvalidated value (e.g. a symbolic "HEAD", which the
+    # reader rejects, silently disabling the check).
+    if [[ "$BATCH_PREMISE_BASELINE_SET" == true && "$BATCH_MODE" != true ]]; then
+        die "--premise-baseline requires --batch --commit (it is an internal creation input; drafts are never seeded)"
+    fi
 
     # Handle batch mode
     if [[ "$BATCH_MODE" == true ]]; then

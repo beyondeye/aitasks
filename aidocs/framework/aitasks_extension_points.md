@@ -297,9 +297,21 @@ approved, implementation deliberately deferred". Shape-identical to
 
 **Worked example — `premise_baseline` (t1663_2):** the commit at which a task's
 premise was last known valid, read by `aitask_premise_stale.sh` (design:
-`task_premise_staleness.md`). Shape-identical to `plan_approved_at` again —
-update-only, no tombstone, `_BASE_AWARE_FIELDS` with `deletion_aware=True`,
-fold = no-op comment. Three things differ:
+`task_premise_staleness.md`). Shape-identical to `plan_approved_at` on the update
+side — no tombstone, `_BASE_AWARE_FIELDS` with `deletion_aware=True`, fold =
+no-op comment. Four things differ:
+
+- **It is written at creation too (t1663_3), with no person-facing creation
+  flag.** `aitask_create.sh` seeds it with HEAD when a committed task carries
+  `--file-ref` or `--verifies`. Two serializers write it
+  (`create_task_file` / `create_child_task_file`, positional 17), and
+  `finalize_draft` inserts it for a finalized draft whose YAML-parsed
+  `file_references:` / `verifies:` list is non-empty. A carry-over inherits its
+  origin's value through the internal `--premise-baseline` creation flag
+  (`--commit` only, grammar-checked, no commit lookup), so the inherited value
+  is in the creation commit. `create_draft_file` never writes it.
+  `tests/test_premise_baseline_seeding.sh` pins the trigger set, each write
+  site, and the round trip into the reader.
 
 - **The comparison helper was promoted.** It is the third field that compares
   through the opaque-scalar rule, so `aitask_merge.py`'s private copy became

@@ -923,6 +923,110 @@ test_carryover_inherits_baseline() {
     teardown_update_project
 }
 
+# A deferred-item manual-verification origin with `verifies:` (which makes the
+# carry-over's own creation call a seeding trigger) and the given extra lines.
+write_carryover_origin() { # write_carryover_origin <id> <name> [frontmatter lines...]
+    local id="$1" name="$2"
+    shift 2
+    {
+        echo "---"
+        echo "priority: medium"
+        echo "effort: low"
+        echo "depends: []"
+        echo "issue_type: manual_verification"
+        echo "status: Implementing"
+        echo "labels: []"
+        echo "verifies: [1]"
+        local extra
+        for extra in "$@"; do
+            echo "$extra"
+        done
+        echo "created_at: 2026-04-21 10:00"
+        echo "updated_at: 2026-04-21 10:00"
+        echo "---"
+        echo
+        echo "Body."
+        echo
+        echo "## Verification Checklist"
+        echo
+        echo "- [defer] deferred item preserved in carry-over"
+        echo "- [x] terminal item stays behind"
+    } > "aitasks/t${id}_${name}.md"
+}
+
+# Archive <id> with carry-over; print the carry-over file path ("" if none).
+archive_with_carryover() { # archive_with_carryover <id> <name>
+    bash .aitask-scripts/aitask_archive.sh --with-deferred-carryover "$1" \
+        >"$PREMISE_ARCHIVE_LOG" 2>&1 || echo "archive of t$1 failed: $(cat "$PREMISE_ARCHIVE_LOG")" >&2
+    ls aitasks/t*_"$2"_carryover.md 2>/dev/null | head -1 || true
+}
+
+test_carryover_inherits_premise_baseline() {
+    echo "=== C: a carry-over task INHERITS premise_baseline at creation, never seeds HEAD ==="
+    setup_archive_project
+
+    PREMISE_ARCHIVE_LOG="$(mktemp)"
+    CLEANUP_DIRS+=("$PREMISE_ARCHIVE_LOG")
+    # The origin's baseline names the pre-HEAD setup commit, so a re-stamp to
+    # HEAD at carry-over creation is distinguishable from inheritance.
+    local origin_sha ts="2026-08-17 19:04"
+    origin_sha="$(git rev-parse HEAD)"
+    local value="$origin_sha @ $ts"
+    local gone="0123456789abcdef0123456789abcdef01234567 @ $ts"
+
+    write_carryover_origin 210 pb_plain "premise_baseline: $value"
+    write_carryover_origin 211 pb_none
+    write_carryover_origin 212 pb_bad "premise_baseline: HEAD @ $ts"
+    write_carryover_origin 213 pb_gone "premise_baseline: $gone"
+    write_carryover_origin 214 pb_dq "premise_baseline: \"$value\""
+    write_carryover_origin 215 pb_sq "premise_baseline: '$value'"
+    git add -A && git commit -m "setup" --quiet
+
+    # Non-vacuity for the quoted cases: the line-oriented reader keeps the
+    # quotes, so inheritance through it would fail the grammar.
+    assert_contains "quoted origin: read_yaml_field keeps the quotes (the hard case)" \
+        "\"$value\"" "$(SCRIPT_DIR="$PWD/.aitask-scripts" && . .aitask-scripts/lib/task_utils.sh && read_yaml_field aitasks/t214_pb_dq.md premise_baseline)"
+
+    local stale="$PROJECT_DIR/.aitask-scripts/aitask_premise_stale.sh"
+    local origin_row
+    origin_row="$(bash "$stale" check aitasks/t214_pb_dq.md 2>/dev/null | grep '^BASELINE:' | head -1)"
+    assert_contains "quoted origin: the reader decodes the baseline" "BASELINE:$origin_sha|" "$origin_row"
+
+    local co
+    co="$(archive_with_carryover 210 pb_plain)"
+    assert_eq "plain origin: carry-over inherits the identical value" \
+        "$value" "$(read_fm_field "$co" premise_baseline)"
+
+    co="$(archive_with_carryover 211 pb_none)"
+    assert_eq "origin without a baseline: carry-over has none (no HEAD seed despite verifies)" \
+        "" "$(read_fm_field "$co" premise_baseline)"
+    assert_eq "origin without a baseline: the carry-over really carries verifies" \
+        "[1]" "$(read_fm_field "$co" verifies)"
+
+    co="$(archive_with_carryover 212 pb_bad)"
+    assert_eq "malformed origin value: carry-over still created, field absent" \
+        "" "$(read_fm_field "$co" premise_baseline)"
+    assert_contains "malformed origin value: warned" "not inherited" "$(cat "$PREMISE_ARCHIVE_LOG")"
+    TOTAL=$((TOTAL + 1))
+    if [[ -n "$co" && -f "$co" ]]; then PASS=$((PASS + 1)); else FAIL=$((FAIL + 1)); echo "FAIL: malformed origin: carry-over missing"; fi
+
+    co="$(archive_with_carryover 213 pb_gone)"
+    assert_eq "history-rewritten origin: inherited verbatim" \
+        "$gone" "$(read_fm_field "$co" premise_baseline)"
+
+    co="$(archive_with_carryover 214 pb_dq)"
+    assert_eq "double-quoted origin: inherited, unquoted" \
+        "$value" "$(read_fm_field "$co" premise_baseline)"
+    assert_eq "double-quoted origin: the reader sees the same baseline row" \
+        "$origin_row" "$(bash "$stale" check "$co" 2>/dev/null | grep '^BASELINE:' | head -1)"
+
+    co="$(archive_with_carryover 215 pb_sq)"
+    assert_eq "single-quoted origin: inherited, unquoted" \
+        "$value" "$(read_fm_field "$co" premise_baseline)"
+
+    teardown_update_project
+}
+
 # =============================================================================
 # Section D — post-phase risk mitigation: assert_allowlist_coverage
 # =============================================================================
@@ -991,6 +1095,7 @@ test_baseline_survives_parent_rewrite_path
 test_every_write_task_file_call_site_is_wired
 
 test_carryover_inherits_baseline
+test_carryover_inherits_premise_baseline
 
 test_helper_is_in_every_invocation_allowlist
 
