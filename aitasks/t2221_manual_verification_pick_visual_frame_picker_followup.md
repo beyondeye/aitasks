@@ -7,11 +7,11 @@ status: Implementing
 labels: [verification, manual]
 verifies: [t1893_5]
 premise_baseline: e4619f8ff052d8c06ea4253ec773c832edf59f20 @ 2026-11-06 11:03
-assigned_to: daelyasy@hotmail.com
+assigned_to: dario-e@beyond-eye.com
 anchor: 1887
 followup_kind: manual_verification
 created_at: 2026-11-06 11:03
-updated_at: 2026-11-06 11:14
+updated_at: 2026-11-06 11:15
 ---
 
 ## Manual Verification Task
