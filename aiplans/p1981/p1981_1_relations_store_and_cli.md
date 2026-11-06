@@ -737,3 +737,211 @@ stay medium.
 
 Post-implementation per task-workflow Step 9: the archival and lock release of
 this child.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-06 11:00)
+- **Requested by user:** six review findings, verify and address. Each was
+  reproduced before it was fixed.
+  1. `TaskIndex._add` read missing frontmatter as empty metadata, so gc could
+     delete a folded child's record as `task_gone`.
+  2. `_atomic_write` ignored short `os.write` returns.
+  3. `Store.read` cached the whole snapshot.
+  4. Decoded records were not schema-validated (a `KeyError` in
+     `analysis_line`).
+  5. The CLI chose a symmetric relation's `other` from the direction prose.
+  6. `visible_no_lock` read every blob while holding the outbox lock.
+- **Changes made:**
+  1. Unreadable, missing, malformed or non-mapping frontmatter, and an
+     unreadable `folded_tasks` / `folded_into`, now append to `index.errors`.
+     That makes the scan incomplete: gc refuses, and `exists()` turns
+     "unknown".
+  2. `_atomic_write` loops until every byte is written. A 0 return or an error
+     unlinks the temp file and raises, so the prior entry survives.
+  3. `read()` caches only the refresh outcome (`_refresh`). The L + outbox view
+     is recomputed on every call, and `empty` vs `fresh` is decided at view
+     time.
+  4. One `_decode(path, data)` (JSON plus `rs.validate`) and one `_replaces()`
+     are now the only way any consumer or merge reads a record. Invalid blobs
+     are reported as `CORRUPT:<path>|<reason>`, are never consumed, always lose
+     to a valid record, and are never deletion-eligible. A damaged outbox entry
+     is neither published nor cleared.
+  5. `Rel.other` is computed from the queried task's canonical id. The CLI
+     prints it.
+  6. `orphan_ref_store.read_file()` reads one blob (one `ls-tree` of the path
+     plus one blob read).
+- **Tests:**
+  - `ReviewFindingTests` adds 6 cases. Each is red-proven by reverting its fix
+    in a scratch copy, and each fails on its assertion, not on an error.
+  - The CLI test gains a symmetric-reverse check.
+  - All 11 earlier guard mutants are still killed.
+  - A full `TaskIndex` scan of this repository: 3128 tasks, 0 errors, 0
+    duplicates, 43 folded ids, 1.4 s. The stricter rule does not make gc refuse
+    spuriously here.
+- **Files affected:** `.aitask-scripts/lib/relations_store.py`,
+  `.aitask-scripts/lib/orphan_ref_store.py`, `.aitask-scripts/lib/relations_cli.py`,
+  `tests/test_relations_store.py`, `tests/test_relations_cli.sh`.
+
+### Change Request 2 (2026-11-06 11:40)
+- **Requested by user:** three review findings, verify and address. All three
+  were confirmed.
+  1. `TaskIndex._add` iterated a non-list `folded_tasks: "22"` as `["2","2"]`
+     (task_yaml passes non-lists through by design), so gc removed t22 as
+     `task_gone`.
+  2. The CLI built `Store(os.getcwd())` with a hardcoded `aitasks` project, so
+     `mobile#1 -> mobile#2` showed as `aitasks#...`.
+  3. `relations_schema.parse_ref` used its own grammar, not
+     `cross_repo_notation.parse_ref`. It rejected `_mobile#1` / `-mobile#1`
+     and accepted dotted names.
+- **Changes made:**
+  1. `folded_tasks` must be a list of int/str ids, and `folded_into` a str/int
+     scalar. Anything else (string, mapping, nested list, bool) appends to
+     `index.errors`, so the scan is incomplete and gc refuses.
+  2. `Store(repo, project=None)` resolves `project.name` through the new
+     `local_project_name()` (TASK_DIR-aware; same source as
+     `trail_gather.local_project_name`). A missing or invalid name raises
+     `ProjectUnresolved`, which the CLI reports as `PROJECT_UNRESOLVED`, exit 1.
+     Every end is now a qualified ref:
+     - only local refs go through the index and the fold map;
+     - foreign ends keep their project, get `unverified:target_baseline`, and
+       read `unknown(other_project)` in `ANALYSIS:`;
+     - a record whose own task is foreign gets `PROJECT_MISMATCH:` at write and
+       `CORRUPT:...|foreign_task_project` at read;
+     - `show` / `why` accept bare or qualified ids, and `--json` carries
+       `project`.
+  3. `rs.parse_ref` delegates to `cross_repo_notation.parse_ref`.
+     `rs.canon_ref` requires the local project. `rs.qref` normalizes qualified
+     refs.
+  - The design doc's Store API and D12 now state the project rules.
+- **Tests:**
+  - `ReviewRound2Tests` adds 4 cases. The grammar case checks our parser
+    against the shared one over 13 inputs.
+  - The CLI test adds the `mobile` project and `PROJECT_UNRESOLVED` checks.
+  - All three fixes were red-proven by reverting each in a scratch copy. R7
+    reproduces the reported `GC_REMOVED:records/t22.json|task_gone`.
+  - All 11 original guard mutants and the 6 round-1 red proofs still fail as
+    expected.
+- **Files affected:** `.aitask-scripts/lib/relations_store.py`,
+  `.aitask-scripts/lib/relations_schema.py`, `.aitask-scripts/lib/relations_cli.py`,
+  `tests/test_relations_store.py`, `tests/test_relations_cli.sh`,
+  `aidocs/framework/task_relations.md`.
+
+### Change Request 3 (2026-11-06 11:55)
+- **Requested by user:** an optional cleanup, confirmed:
+  `orphan_ref_store.commit_tree_from_files` duplicated `build_commit`'s
+  temporary-index and commit sequence.
+- **Changes made:** it now delegates to `build_commit(repo, None, files,
+  message, extra_parents=parents)`. With `base=None`, the only parents are
+  `extra_parents`, in order. The interface is unchanged, and a value of `None`
+  (a deletion, which has no meaning here) is refused.
+- **Verification:** all store tests pass. A direct check confirms a two-parent
+  merge keeps its parent order and exact tree.
+- **Files affected:** `.aitask-scripts/lib/orphan_ref_store.py`.
+
+## Final Implementation Notes
+- **Actual work done:** everything in the approved plan landed. It covers the
+  pre-phase probe, steps 2–7 and the post-phase doc step, plus the three review
+  rounds above.
+  - New modules:
+    - `lib/orphan_ref_store.py`: plumbing. Leased push, `cas_local`,
+      `advance_ref`, `fetch_pinned` into a temp ref, `merge_bases`, a
+      temp-index `build_commit`, and the single-blob `read_file`.
+    - `lib/relations_schema.py`: four kinds, each carrying
+      `task_created_at`; the closed vocabulary; the impact-basis rule; the
+      digest normalization; identity-first `wins()`; ref parsing through
+      `cross_repo_notation`.
+    - `lib/relations_store.py`: `Store` and `TaskIndex`.
+    - `lib/relations_cli.py` and `aitask_relations.sh`: show / why / status /
+      flush / gc.
+  - Changed files:
+    - `ait`: routing, a help line, and `relations` added to the update-check
+      skip list.
+    - The five helper-whitelist touchpoints, via `aitask_audit_wrappers.sh`.
+    - `CLAUDE.md`: a pointer.
+    - `aidocs/framework/task_relations.md`: a "Store API" section, a "Refs"
+      section with the merge table, and amendments to D1, D2, D11 and D12.
+    - `tests/test_metadata_writer_inventory.py`: `relations_store.py` pinned,
+      with its reason.
+  - Tests:
+    - `tests/test_relations_store.py`: 47 cases, all deterministic, with
+      interleavings driven by hook barriers.
+    - `tests/test_relations_cli.sh`: 34 assertions.
+- **Deviations from plan:**
+  - Probe results (git 2.56.0):
+    - a CAS miss in `update-ref` exits 128, like any other failure, so
+      `cas_local` classifies it by re-reading the ref;
+    - push conflicts show up as `!` porcelain lines reading `(stale info)` or
+      `(non-fast-forward)`.
+  - The flush always runs `integrate(R)` **before** building the publish. So
+    the "two-parent merge on R" shape of M4 happens inside `integrate`'s
+    absorb commit, never as a separate publish commit, and the pushed commit
+    is always L or a child of L (a fast-forward of R).
+  - Body digests strip edge blank lines. Cutting a framework section leaves
+    its separating blank line behind.
+  - `ait relations` skips the update check: every output must *start* with
+    the state lines.
+  - Review rounds 1–3 (see Post-Review Changes) added:
+    - `_decode`-gated reads;
+    - a refresh cache instead of a snapshot cache;
+    - a full-write loop in `_atomic_write`;
+    - incomplete-scan errors for unreadable or malformed metadata;
+    - project identity from `project.name` (`ProjectUnresolved` /
+      `PROJECT_MISMATCH`);
+    - the shared ref grammar;
+    - `Rel.other`;
+    - one-blob reads under the outbox lock;
+    - `commit_tree_from_files` delegating to `build_commit`.
+- **Issues encountered:**
+  - The full Python suite flagged `relations_store.py` in the metadata-writer
+    tripwire. It is a read-only config reader whose writes are runtime state
+    under `<git-common-dir>/aitask-relations/`, so it was pinned with that
+    reason; the regex was not evaded. The config read now honours `TASK_DIR`.
+  - The first R1 red proof produced a syntax error, not a failure, and was
+    redone with a `pass` body.
+  - After every fix the full Python suite passes.
+- **Key decisions:**
+  - `refs/heads/aitask-relations` is the durable latest-known store in both
+    modes. The tracking ref is unused, because `git remote remove` deletes it.
+  - Every outbox clear waits for `integrate()` to return INTEGRATED.
+  - gc requires two negatives (a complete index scan with zero errors, plus
+    `aitask_query_files.sh` NOT_FOUND) and decides on the effective tree.
+  - An unreadable baseline is `unverified:*`, never `fresh`.
+  - On this repository: a full index scan finds 3128 tasks, 0 errors and 43
+    folded ids in 1.4 s, and `ait relations show <id> --no-fetch` takes about
+    1.2 s.
+- **Upstream defects identified:**
+  - `tests/test_codeagent.sh:372` — `$(cd … && … || true)`, an unconfined
+    and-chain cd that `tests/test_cd_guard_lint.sh` flags.
+  - `tests/test_file_references.sh:372` — unconfined and-chain cd, flagged by
+    the cd-guard lint.
+  - `tests/test_premise_baseline_field.sh:24` — unguarded `cd /`, and no
+    `enter_scratch_cwd` call.
+  - `tests/test_premise_baseline_seeding.sh:32` — unguarded `cd /`, and no
+    `enter_scratch_cwd` call.
+  - `tests/test_label_yaml_words.sh:138` — changes cwd without calling
+    `enter_scratch_cwd` first.
+
+  These five make `test_cd_guard_lint.sh` fail at HEAD, independently of this
+  task.
+- **Notes for sibling tasks:**
+  - Build only on the Store API (design doc D1 "Store API"):
+    - `write(path, record, flush=False)` is the synchronous stamp write for
+      t1981_3;
+    - replace `relations_store.job_state` to report `pending(..)` /
+      `failed(..)`;
+    - read records only through `Store.read()` / `relations()`. Snapshot files
+      are already schema-validated.
+  - Every record needs `task_created_at` from the live task's `created_at`.
+    Candidate `created_at` values must match too, or the end is dropped.
+  - Build records with refs from `Store.ref()`. Never hardcode `aitasks#`:
+    the project comes from `project.name`.
+  - Use `relations_schema.digests()` for every digest. The plan digest
+    ignores the YAML header and the Final Implementation Notes / Post-Review
+    Changes sections.
+  - `ANALYSIS:` can now also read `unknown(other_project)`, and freshness can
+    read `unverified:*`. Consumers (t1981_5) must render both.
+  - Tests:
+    - use the `Env` / `record()` / `HookPlan` helpers in
+      `tests/test_relations_store.py`;
+    - every scratch repo needs `project.name` in its `project_config.yaml`;
+    - never chdir.
