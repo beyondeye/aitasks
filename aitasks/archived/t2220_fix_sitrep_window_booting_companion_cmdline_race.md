@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [sitrep, tests, monitor]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -17,7 +17,8 @@ anchor: 2217
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5_5
 created_at: 2026-11-06 00:14
-updated_at: 2026-11-06 08:00
+updated_at: 2026-11-06 10:50
+completed_at: 2026-11-06 10:50
 ---
 
 ## Origin
@@ -40,3 +41,14 @@ Wait until the child's `/proc/<pid>/cmdline` actually contains `minimonitor` (bo
 > **✅ gate:plan_approved** run=2026-11-06T06:00:08Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-11-06T08:47:38Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-11-06T08:50:42Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:c6d1f301a7163ea1
+
+> **✅ gate:risk_evaluated** run=2026-11-06T08:50:42Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/2220/risk_evaluated_2026-11-06T08:50:42Z-risk_evaluated-a1.log`
