@@ -320,3 +320,58 @@ paths, plan commit via `aitask_task_commit.sh`, gates, archival.
 
 ### Planned mitigations
 - timing: post-phase | name: seeding_red_proofs | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: missed write site leaves a path silently unseeded | desc: mutate each seeding site in scratch copies and confirm a new test turns red
+
+## Final Implementation Notes
+- **Actual work done:** All five plan sections and the post-phase landed as written.
+  - `lib/task_utils.sh`: `premise_baseline_canonical` (grammar only, lowercases) and `read_premise_seed_fields` with its `_AIT_PREMISE_SEED_GLUE`. The glue imports only `task_yaml`, its output is count-attested, and it prints nothing on any deviation (exit 2 bad shape / 3 no python).
+  - `aitask_create.sh`:
+    - the internal `--premise-baseline` flag (`--commit` only, refused with `--finalize`/`--finalize-all` and without `--commit`, validated before the id claim);
+    - `resolve_premise_seed` (explicit flag wins, `""` included; no scope means none; otherwise HEAD of the cwd plus a timestamp; an unborn HEAD gets a warning and is not seeded);
+    - positional 17 plus an emit after `file_references:` in `create_task_file` / `create_child_task_file`;
+    - both `--commit` call sites seed iff `deduped_file_refs` or `BATCH_VERIFIES` is non-empty;
+    - `seed_finalized_premise_baseline` in both `finalize_draft` branches. It reads YAML, skips a draft that already has the key, and inserts before the closing `---` through `ait_atomic_render`. Every failure warns and continues.
+  - `aitask_archive.sh` `create_carryover_task`: reads the origin through YAML, canonicalises, warns and drops a malformed or unreadable value, and **always** passes `--premise-baseline` (`""` suppresses the `--verifies` seed).
+  - Docs: the design record ("Field", "Seeding", lifecycle table, Known limits), the extension-points worked example, the website `task-format.md` row, and the `task-creation-batch.md` note. The note's three goldens and three committed remote prerenders were regenerated; each diff is exactly the note.
+  - Tests:
+    - `tests/test_premise_baseline_seeding.sh` (new, 91 assertions, parts A–G);
+    - `test_carryover_inherits_premise_baseline` in `tests/test_verification_stale.sh` (plain, absent, malformed, history-rewritten, double- and single-quoted origins, plus reader-row parity);
+    - the `tests/test_premise_baseline_field.sh` Part E writer pin, extended to `aitask_create.sh aitask_update.sh`.
+- **Deviations from plan:**
+  - The finalize insertion warns and continues on a render failure instead of dying, so an advisory field never aborts a finalize.
+  - The new test's fixture also copies `aitask_query_files.sh`: `--followup-of` validates its target through `normalize_anchor_id` → `aitask_query_files.sh task-status`. Without it the `--followup-of` case died before creating anything, and the "not seeded" assertion passed vacuously. The planned non-vacuity check (`anchor:` really written) is what caught it.
+  - `task_utils.sh` sources its siblings via `$SCRIPT_DIR`, so every test subshell that sources it sets `SCRIPT_DIR` to the fixture's `.aitask-scripts` first.
+- **Issues encountered:**
+  - `aitask_create.sh` and `lib/task_utils.sh` held t2214's uncommitted label-sanitizing hunks when implementation began. The non-shared work (archive, tests, docs, goldens) went first. The two files were edited only after t2214 landed (b70a70e9e: both clean vs HEAD, HEAD containing `_label_reads_as_string()` / `_set_selected_labels()`), under a self-tested last-accepted-state guard (begin / accept / check: sha, `HEAD:path`, nothing staged) on every write.
+  - Plan review (user) found two blocking defects in the first plan: `read_yaml_field` keeps a quoted scalar's quotes, and it misses block-style lists. Both are fixed by `read_premise_seed_fields` and pinned by fixtures.
+- **Red proofs (seeding_red_proofs post-phase; scratch mirror of `.aitask-scripts` + tests, control run green 0/0; counts = failing seeding-test assertions / failing carry-over premise assertions):**
+  - (a) drop `"$PREMISE_SEED"` at the parent `create_task_file` call → 14 / 5 (the carry-over is a parent create);
+  - (b) disable the `create_child_task_file` emit → 2 / 0;
+  - (c) `seed_finalized_premise_baseline` returns immediately → 9 / 0;
+  - (d) pass `--premise-baseline` only when non-empty → 0 / 2;
+  - (e) route the finalize and carry-over reads back through `read_yaml_field`/`parse_yaml_list` → 6 / 3.
+- **Key decisions:**
+  - Seed at both commit points (`--batch --commit` and `finalize_draft`; drafts never). The live Tier-A producer, codebrowser, runs interactive create, so it goes draft → finalize.
+  - Carry-over inheritance goes through a creation flag, not a post-create update. That leaves no interim HEAD-stamped commit and no commit-existence check that could abort archival on a history-rewritten origin.
+  - The creation flag is grammar-only. `aitask_update.sh` is not rewired onto `premise_baseline_canonical`, because its contract adds bare-oid stamping and the commit-existence check.
+  - A key already present in a draft, even null, is never duplicated.
+- **Upstream defects identified:** None
+- **Notes for sibling tasks:**
+  - t1663_4 (Check 6): new tasks with `--file-ref`/`--verifies` now leave creation with a baseline, so its end-to-end fixture can create one with `aitask_create.sh --batch --commit --file-ref …` rather than hand-writing the field. `tests/test_premise_baseline_seeding.sh` Part F shows the seeded FRESH → ASK_STALE path through the reader.
+  - t1663_5 (docs): the opt-in wording holds — seeded at creation (or draft finalize) when the task carries `file_references`/`verifies`; `--followup-of` alone does not seed. `aitask_create.sh --premise-baseline` is internal (carry-over) and deliberately undocumented on the website. The `task-format.md` row already states creation seeding and carry-over inheritance.
+  - t1663_6 (retrospective): MV tasks created by `aitask_create_manual_verification.sh` are now seeded (`--verifies`), but Check 3 routes them away, so split them out when counting the seeded population.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-06)
+- **Requested by user:** (review finding, confirmed by repro) `--premise-baseline` was validated only in `run_batch_mode`. The interactive flow (no `--batch`) never reaches that validation, and its `finalize_draft` → `seed_finalized_premise_baseline` → `resolve_premise_seed` trusted the unvalidated override, so `aitask_create.sh --premise-baseline HEAD` committed `premise_baseline: HEAD`. The reader rejects that value, which silently disables the check.
+- **Changes made:**
+  - `main()` refuses `--premise-baseline` without `--batch`, right after `parse_args` and before the mode split.
+  - Defence in depth: `resolve_premise_seed` takes a second argument, and the finalize seeder passes `ignore_override`, so the finalize path never honours the flag.
+  - Regression cases in `tests/test_premise_baseline_seeding.sh`:
+    - the interactive route is refused with the specific message (the message assertion keeps it from passing vacuously on a box without fzf), with no commit and no draft;
+    - a lifted-function unit shows the finalize resolver seeds HEAD while the batch resolver honours the override;
+    - a structural pin that the finalize seeder passes `ignore_override`.
+  - Test now 97/97. Red proofs (scratch mirror, control 0/0):
+    - (f) remove the `main()` refusal → 1 failing;
+    - (g) drop `ignore_override` at the finalize call → 1 failing.
+- **Files affected:** `.aitask-scripts/aitask_create.sh`, `tests/test_premise_baseline_seeding.sh`
