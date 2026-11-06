@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: [t1663_2, 1673]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [task-workflow]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -16,7 +16,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1538
 implemented_with: claudecode/opus5_5
 created_at: 2026-09-01 15:19
-updated_at: 2026-11-05 15:45
+updated_at: 2026-11-06 07:51
+completed_at: 2026-11-06 07:51
 ---
 
 Seed `premise_baseline` at task creation when scope is derivable, and make carry-over tasks inherit their origin's baseline.
@@ -53,3 +54,14 @@ Third child of t1663. Design in `aidocs/framework/task_premise_staleness.md` ("S
 > **✅ gate:plan_approved** run=2026-11-05T13:45:14Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-11-06T05:50:53Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-11-06T05:51:17Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:06397ce53de61370
+
+> **✅ gate:risk_evaluated** run=2026-11-06T05:51:17Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1663_3/risk_evaluated_2026-11-06T05:51:17Z-risk_evaluated-a1.log`
