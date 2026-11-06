@@ -11,8 +11,9 @@ active_gates_profile: fast
 active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2034
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-16 08:11
-updated_at: 2026-11-06 00:21
+updated_at: 2026-11-06 11:01
 ---
 
 Switch `ait monitor` and `ait minimonitor` to the client (parent: Python
@@ -60,3 +61,8 @@ monitor status server task).
 > | - Optional: render on push via add_update_listener (Applied.changed) / add_mode_listener.
 
 > **👁 note:read** id=2026-11-05T22:20:38Z.5d4de543ba547b4980a55e0e by=t2037_3 at=2026-11-05T22:20:38Z mode=explicit ids=2026-11-04T20:09:14Z.518d4636c5eb9849ba8afc32,2026-11-05T22:06:07Z.a07bd73c9ff71ed79f810a47
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-06T09:02:01Z status=pass attempt=1 type=human
