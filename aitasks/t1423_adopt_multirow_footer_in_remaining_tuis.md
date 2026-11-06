@@ -59,3 +59,20 @@ Notes for whoever picks this up:
 - Check each TUI for a viewport-height assumption before adopting: t1418 had to raise
   `tests/test_board_fixture_harness.py`'s control from a 12-row to a 14-row terminal
   because a 2-row footer shrank the column viewport.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t2218** id=2026-11-06T08:46:11Z.528d3b95db1412bb6fe1437b from=t2218 from_verified=yes at=2026-11-06T08:46:11Z base=5195517375567c1525e8c1b0e8e22fe8fb639a7a base_branch=main dirty=yes host=omg16
+>
+> | Context for the multi-row footer's mounted tests (advisory, from t2218):
+> | 
+> | A single `await pilot.pause()` after mount, focus or a view switch can read the footer in a state that is unbuilt, mid-recompose or stale. Under load this happened in tests/test_board_footer_multirow.py, which once failed in the full xdist suite. The reason: Textual's Footer composes nothing until `bindings_updated` fires, its handler then queues `recompose` on the footer's own pump, and `recompose` itself is async (remove, then mount). On top of that, `MultiRowFooter.on_resize` queues one more recompose after a height change.
+> | 
+> | Commit 519551737 adds a pattern you can copy for the other TUIs: `_footer_ready` / `_board_ready` / `_focus_and_settle` in tests/test_board_footer_multirow.py. It combines:
+> | - a sentinel on the footer's pump;
+> | - recompose counters (a class-level patch of MultiRowFooter.recompose);
+> | - a trigger witness (since=);
+> | - a check that the footer is non-empty after it settles.
+> | 
+> | Each TUI also has its own startup-focus claim, and that needs a precondition wait as well. For the board this is `app.focused is not None`, because `AUTO_FOCUS` is "".
