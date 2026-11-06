@@ -27,6 +27,7 @@ standard; the measurements can.
 | a bug *in* an animation | `bug` first, then `anim --window` around that moment |
 | a close look at an exact moment at full resolution, or frames to edit by hand | `frames` (usually after `bug`/`anim` has pointed at the moment) |
 | a folder of images the user already has, for example frames they edited by hand | `sheet DIR` |
+| the user wants to choose the frames you read, by eye | `pick` on the run (see Pick frames visually) |
 
 `info` only probes the file (size, frame rate, duration, audio).
 
@@ -37,6 +38,7 @@ standard; the measurements can.
 ./.aitask-scripts/aitask_screen_recording.sh anim rec.mp4 --out <scratchpad>/video-prep/rec-anim
 ./.aitask-scripts/aitask_screen_recording.sh frames rec.mp4 --at 5.5 --out <scratchpad>/video-prep/rec-frames
 ./.aitask-scripts/aitask_screen_recording.sh sheet <folder> --out <scratchpad>/video-prep/edited-sheet
+./.aitask-scripts/aitask_screen_recording.sh pick <run-dir> --open --out <scratchpad>/video-prep/rec-pick
 ```
 
 Run it from the repository root; `<mode> --help` lists every option.
@@ -52,7 +54,7 @@ Run it from the repository root; `<mode> --help` lists every option.
 - **Requirements:** ffmpeg 5.1+ on PATH (not installed by `ait setup`; if it is
   missing, tell the user to install it). ImageMagick 7 (`magick`) is needed for
   sheets and plots; without it you still get frames and data, and `sheet`
-  refuses to run.
+  refuses to run. `pick` needs only a browser.
 
 ## Read the results in this order
 
@@ -259,6 +261,80 @@ labelled contact sheets: the way back in for frames the user extracted with
 - Read `summary.md`, then the sheets. `tiles.tsv` maps each tile (sheet, row,
   column) to its file.
 
+## Pick frames visually
+
+`pick` builds a static page (`<out>/index.html`, no server) from a run's frames.
+The user selects frames in the browser, may mark a start and an end frame or
+drag a rectangle, presses Copy and pastes a plain-text block back to you.
+
+**When to ask.** After an extraction that wrote frames (`bug`, `anim` or
+`frames`), ask once per recording whether the user wants to pick frames, unless
+they already said which frames matter. Use AskUserQuestion, with everything
+needed to answer inside the widget:
+
+- Question: "I extracted <N> frames from <video> (<run dir>). Do you want to
+  pick the ones that matter yourself? A page opens in your browser: click
+  frames (shift-click for a range), optionally mark a start and an end frame or
+  drag a rectangle, press Copy, and paste the text back here."
+- Header: "Pick frames"
+- Options: "Pick them in the browser" (description: "Open the picker page; I
+  wait for the pasted selection") / "Let the agent choose" (description: "I
+  choose the frames myself from the summary and sheets").
+
+On agents whose question tool is `request_user_input` (Codex CLI: up to 3
+questions with 4 options each) or `ask` (OpenCode), ask the same two-option
+question. It is the user's decision, so ask it in default mode too.
+
+**On "Pick them in the browser":**
+
+```bash
+./.aitask-scripts/aitask_screen_recording.sh pick <run-dir> --open --out <scratchpad>/video-prep/<name>-pick
+```
+
+- `OPEN: opened (...)`: tell the user to paste the copied block here, then
+  stop and wait for it.
+- `OPEN: not opened: <reason>` (an SSH session, no display, no opener): give
+  the user the `PAGE:` path in case they can open it in a browser elsewhere,
+  then choose the frames yourself. A missing display is never a failure.
+
+**On "Let the agent choose":** choose the frames yourself as usual.
+
+`pick` accepts a run directory (`bug`/`frames`: its `frames/`; `anim`: every
+`sNN/frames/` or `w01/frames/`), a `frames/` directory, or any image folder.
+It copies every image into `<out>/src/` and hashes it there first, so the
+block's paths point at exactly what the user saw.
+
+**Reading the pasted block:**
+
+- **Frame lines** are tab-separated: the absolute path (read these files),
+  `t=<ms> ms`, the step since the previous selected frame, and any `note:`.
+- **`# viewing range:`** is where the user looked, not a measurement window.
+  The picker checks no pixels and never calls a frame still or settled.
+- **`# --window A-B (user-marked endpoints (unverified): ...)`** appears only
+  when the user marked a start and an end frame. Its bounds sit 0.5 ms outside
+  the two frames' times, so `anim --window` starts and ends on exactly those
+  frames. It is **unverified**:
+  - run `anim <video> --window A-B`, keeping the source run's `--roi`/crop
+    flags;
+  - trust the window only if anim's endpoint diagnostics agree (`curve.tsv`
+    lists the window's frames with their times). On the "visible change" line
+    the first changed frame must not be the window's second frame (the motion
+    was already under way at the start frame), and the settled frame must not
+    be the window's last frame (the motion may go on past it). The segment must
+    not report "nothing changed" or "returns to where it started";
+  - otherwise say the marks cut the motion, and widen the window or let anim
+    find the segments.
+- **`# --roi X,Y,W,H (source-video pixels, ... SHA-256 verified)`** is safe to
+  pass to `anim`/`bug`/`frames`. A `# rectangle ... in <file>'s own pixels`
+  line is **not** a `--roi`: the frame had no trusted `frames.tsv` geometry (no
+  manifest, or the image changed since extraction). Use it only to describe
+  where to look in that image.
+- **`# source:`** names the recording when the run recorded a proven path
+  (`video_abspath` + `video_size` in run.json). `<VIDEO>` means it could not
+  (the reason follows); ask the user for the path before rerunning anything.
+- `# no --window: <reason>` means the marks were incomplete or invalid; ask
+  the user if a measured span was intended.
+
 ## More detail
 
 - `.claude/skills/aitask-screen-recording/references/animation.md`: how progress is measured (the edge and blend
@@ -296,5 +372,14 @@ CLI. They cover:
   and `+N` with a deleted frame, untimed and suffixed names, letterboxing,
   unreadable and animated files, labels that fit narrow cells, and the
   `--per-sheet` split.
+- `pick` (no ffmpeg needed for most): run layouts before root images (a bug
+  run's sheets, `anim --window`'s `w01`), the snapshot and its hashes,
+  collision-free snapshot names, JSON that cannot break out of its script
+  element, the source video only from a proven path, geometry refused for
+  same-size edits, outward-rounded `--roi` checked against drawn markers,
+  viewing range versus marked `--window` (a round trip through `anim
+  --window`), the opener with and without a display, the page's JS against
+  the Python reference under node, and the page driven by real events in
+  headless chromium.
 
 Run them after changing anything under `.aitask-scripts/screen_recording/`.

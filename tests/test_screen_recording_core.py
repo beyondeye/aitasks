@@ -5,16 +5,23 @@ Run: python3 tests/test_screen_recording_core.py
 """
 from __future__ import annotations
 
+import argparse
+import json
 import math
+import random
+import shutil
+import subprocess
 import sys
 import unittest
 from fractions import Fraction
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / ".aitask-scripts"
-                       / "screen_recording"))
+SR_DIR = Path(__file__).resolve().parents[1] / ".aitask-scripts" / "screen_recording"
+sys.path.insert(0, str(SR_DIR))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import vp_core as core  # noqa: E402
+import vp_pick as pick  # noqa: E402
+import video_prep  # noqa: E402
 from screen_recording_synth import Canvas  # noqa: E402
 
 
@@ -880,6 +887,345 @@ class ImageBudget(unittest.TestCase):
                          ["standard", "high-resolution (Claude 4.7+)", "many-image"])
         # token limit alone (long edge within both tiers)
         self.assertEqual(core.image_budget(1500, 1500)["exceeds"], ["standard"])
+
+
+
+# --------------------------------------------------------------------------- #
+# pick: the frame picker's rules (vp_pick.py) and their JS mirror (pick_logic.js)
+
+GEOM_HALF = {"src_w": 240, "src_h": 400, "crop_x": 0, "crop_y": 0, "crop_w": 240, "crop_h": 400,
+             "out_w": 120, "out_h": 200}
+GEOM_CROP = {"src_w": 360, "src_h": 800, "crop_x": 37, "crop_y": 151, "crop_w": 201,
+             "crop_h": 243, "out_w": 201, "out_h": 243}
+
+
+def pick_frame(rel, ms, *, geom=None, why="no frames.tsv beside the image", w=120, h=200,
+               ts="pts*time_base", group=""):
+    ws, we = pick.window_bounds(ms) if ms is not None else (None, None)
+    return {"rel": rel, "name": rel.rsplit("/", 1)[-1], "display_name": rel.rsplit("/", 1)[-1],
+            "group": group, "order": 1, "ms": ms, "delta_ms": None, "label": "",
+            "path": f"/out/src/{rel}", "url": f"src/{rel}", "sha256": "0" * 64, "w": w, "h": h,
+            "geom": geom, "roi_disabled": None if geom else why, "time_source": ts,
+            "window_start": ws, "window_end": we}
+
+
+def pick_data(frames, *, source_line="# source: <VIDEO> (no run.json found for these frames)"):
+    return {"version": pick.PICK_VERSION, "page": "/out/index.html", "out": "/out",
+            "fingerprint": "1a2b3c4d5e6f7a8b", "text": pick.TEXT, "frames": frames,
+            "source_line": source_line, "groups": [{"label": "", "frames": len(frames)}]}
+
+
+def pick_scenarios():
+    """(name, data, state) cases shared by the Python rule tests and the JS parity test."""
+    frames = [pick_frame("t00000000.png", 0, geom=GEOM_HALF),
+              pick_frame("t00000017.png", 17, geom=GEOM_HALF),
+              pick_frame("t00000033.png", 33, geom=GEOM_HALF, ts="pts_time"),
+              pick_frame("t00000050.png", 50),
+              pick_frame("notime.png", None)]
+    d = pick_data(frames)
+    crop = pick_data([pick_frame("t00000100.png", 100, geom=GEOM_CROP, w=201, h=243)],
+                     source_line="# source: frames run of /rec/clip.mp4")
+    sel = ["t00000000.png", "t00000017.png", "t00000033.png"]
+    return [
+        ("empty", d, {}),
+        ("view_only", d, {"selected": sel}),
+        ("both_marks", d, {"selected": sel, "marks": {"start": "t00000000.png",
+                                                      "end": "t00000017.png"}}),
+        ("pts_time_end", d, {"selected": sel, "marks": {"start": "t00000017.png",
+                                                        "end": "t00000033.png"}}),
+        ("reversed_marks", d, {"selected": sel, "marks": {"start": "t00000033.png",
+                                                          "end": "t00000000.png"}}),
+        ("same_frame", d, {"selected": sel, "marks": {"start": "t00000017.png",
+                                                      "end": "t00000017.png"}}),
+        ("untimed_mark", d, {"selected": ["notime.png"], "marks": {"start": "t00000000.png",
+                                                                   "end": "notime.png"}}),
+        ("one_mark", d, {"selected": sel, "marks": {"start": "t00000000.png", "end": None}}),
+        ("proto_mark", d, {"selected": sel, "marks": {"start": "__proto__",
+                                                      "end": "t00000017.png"}}),
+        ("rect_geom", d, {"selected": sel, "rect": {"rel": "t00000000.png", "x0": 10, "y0": 30,
+                                                     "x1": 20, "y1": 50}}),
+        ("rect_reversed_clamped", d, {"selected": sel, "rect": {"rel": "t00000017.png",
+                                                                 "x0": 500, "y0": 7, "x1": 101,
+                                                                 "y1": -9}}),
+        ("rect_empty", d, {"selected": sel, "rect": {"rel": "t00000017.png", "x0": 5, "y0": 5,
+                                                      "x1": 5, "y1": 9}}),
+        ("rect_no_geom", d, {"selected": ["t00000050.png"],
+                             "rect": {"rel": "t00000050.png", "x0": 1, "y0": 2, "x1": 31,
+                                      "y1": 42}}),
+        ("rect_crop", crop, {"selected": ["t00000100.png"],
+                             "rect": {"rel": "t00000100.png", "x0": 3, "y0": 4, "x1": 201,
+                                      "y1": 243}}),
+        ("rect_text_ints", d, {"selected": sel, "rect": {"rel": "t00000000.png", "x0": " 4",
+                                                          "y0": "+6", "x1": 9.9, "y1": True}}),
+        ("notes", d, {"selected": sel + ["notime.png"],
+                      "notes": {"t00000017.png": "  edge\tstarts\nhere  ",
+                                "notime.png": "x" * 250, "t00000000.png": " \u0007 "}}),
+        ("untimed_only", d, {"selected": ["notime.png"]}),
+        ("bad_types", d, {"selected": "t00000000.png", "marks": [], "notes": "x", "rect": []}),
+        ("non_string_selected", d, {"selected": [1, None, "t00000050.png"]}),
+    ]
+
+
+class PickRules(unittest.TestCase):
+    def block(self, name):
+        data, state = next((d, s) for n, d, s in pick_scenarios() if n == name)
+        return pick.copy_block(data, state)
+
+    def test_window_bounds_bracket_the_rounded_name_time(self):
+        self.assertEqual(pick.window_bounds(483), ("0.4825", "0.4835"))
+        self.assertEqual(pick.window_bounds(0), ("0", "0.0005"))
+        self.assertEqual(pick.window_bounds(17), ("0.0165", "0.0175"))
+        self.assertEqual(pick.window_bounds(1000), ("0.9995", "1.0005"))
+        # every exact time a name's ms can stand for lies inside its own bounds
+        for k in range(0, 600):
+            t = Fraction(k, 60)                       # 60 fps CFR times
+            ms = core.ms_round(t)
+            a, b = (Fraction(x) for x in pick.window_bounds(ms))
+            self.assertLessEqual(a, t * 1000 / 1000)
+            self.assertGreaterEqual(b, t)
+
+    def test_viewing_range_by_default_and_no_window(self):
+        b = self.block("view_only")
+        self.assertIn("# viewing range: 0.000-0.033 s (first to last selected frame; a viewing "
+                      "range, not a measurement window)", b)
+        self.assertNotIn("--window", b)
+        self.assertNotIn("settled", b)
+        self.assertNotIn("still", b)
+        lines = b.splitlines()
+        self.assertEqual(lines[2], "/out/src/t00000000.png\tt=0 ms\tfirst")
+        self.assertEqual(lines[3], "/out/src/t00000017.png\tt=17 ms\t+17 ms")
+        self.assertEqual(lines[-1], "# source: <VIDEO> (no run.json found for these frames)")
+
+    def test_marked_endpoints_emit_an_unverified_window(self):
+        b = self.block("both_marks")
+        self.assertIn("# --window 0-0.0175  (user-marked endpoints (unverified): start "
+                      "t00000000.png at 0 ms, end t00000017.png at 17 ms; check the anim run's "
+                      "own endpoint diagnostics before trusting it)", b)
+        self.assertIn("pts_time", self.block("pts_time_end"))
+
+    def test_invalid_marks_say_why_there_is_no_window(self):
+        for name, why in (("reversed_marks", pick.TEXT["why_order"]),
+                          ("same_frame", pick.TEXT["why_same"]),
+                          ("untimed_mark", pick.TEXT["why_untimed"]),
+                          ("one_mark", pick.TEXT["why_one_mark"]),
+                          ("proto_mark", pick.TEXT["why_one_mark"])):
+            b = self.block(name)
+            self.assertIn(f"# no --window: {why}", b, name)
+            self.assertNotIn("# --window", b, name)
+
+    def test_rectangles(self):
+        self.assertIn("# --roi 20,60,20,40  (source-video pixels, mapped through the frames.tsv "
+                      "geometry of t00000000.png, SHA-256 verified)", self.block("rect_geom"))
+        # reversed corners are ordered and clamped to the 120x200 image
+        self.assertIn("# --roi 202,0,38,14 ", self.block("rect_reversed_clamped"))
+        self.assertNotIn("--roi", self.block("rect_empty"))
+        b = self.block("rect_no_geom")
+        self.assertIn("# rectangle 1,2,30,40 in t00000050.png's own pixels, not source-video "
+                      "pixels (source --roi disabled: no frames.tsv beside the image)", b)
+        self.assertNotIn("# --roi", b)
+        self.assertIn("# --roi 40,155,198,239 ", self.block("rect_crop"))
+
+    def test_notes_are_one_line(self):
+        b = self.block("notes")
+        self.assertIn("\tt=17 ms\t+17 ms\tnote: edge starts here\n", b)
+        self.assertIn("note: " + "x" * 200 + "\n", b)
+        self.assertNotIn("x" * 201, b)
+        self.assertEqual(len(b.splitlines()), 2 + 4 + 1)
+        self.assertIn("/out/src/t00000000.png\tt=0 ms\tfirst\n", b)   # an all-control note drops
+
+    def test_empty_and_untimed(self):
+        self.assertEqual(self.block("empty"), "# no frames selected in /out/index.html\n")
+        self.assertIn("# viewing range: unknown (the selected names carry no time)",
+                      self.block("untimed_only"))
+        self.assertIn("/out/src/notime.png\tt=unknown", self.block("untimed_only"))
+
+    def test_roi_always_passes_region_box(self):
+        rng = random.Random(1893)
+        for _ in range(3000):
+            sw, sh = rng.randint(1, 900), rng.randint(1, 900)
+            cw, ch = rng.randint(1, sw), rng.randint(1, sh)
+            g = {"src_w": sw, "src_h": sh, "crop_x": rng.randint(0, sw - cw),
+                 "crop_y": rng.randint(0, sh - ch), "crop_w": cw, "crop_h": ch,
+                 "out_w": rng.randint(1, 1200), "out_h": rng.randint(1, 1200)}
+            x0, y0 = rng.randint(0, g["out_w"] - 1), rng.randint(0, g["out_h"] - 1)
+            r = (x0, y0, rng.randint(x0 + 1, g["out_w"]), rng.randint(y0 + 1, g["out_h"]))
+            x, y, w, h = pick.roi_to_source(r, g)
+            args = argparse.Namespace(roi=f"{x},{y},{w},{h}", crop_top=0, crop_bottom=0)
+            self.assertEqual(video_prep.region_box(args, {"width": sw, "height": sh}),
+                             (x, y, w, h))
+            # it covers the rectangle's source pixels (rounded outward)
+            self.assertLessEqual(x, g["crop_x"] + Fraction(r[0] * cw, g["out_w"]))
+            self.assertGreaterEqual(x + w, min(sw, g["crop_x"] + Fraction(r[2] * cw, g["out_w"])))
+
+    def test_sanitize_note(self):
+        self.assertEqual(pick.sanitize_note(" a\tb\r\nc "), "a b  c")
+        self.assertEqual(pick.sanitize_note(None), "")
+        self.assertEqual(pick.sanitize_note("y" * 300), "y" * 200)
+
+    def test_fingerprint_follows_the_bytes(self):
+        def snap(rel, sha):
+            return pick.Snap("", rel, rel, rel, Path("/x") / rel, Path("/y"), sha, None)
+        a = [snap("a.png", "1" * 64), snap("b.png", "2" * 64)]
+        self.assertEqual(pick.fingerprint(a), pick.fingerprint(list(reversed(a))))
+        b = [snap("a.png", "1" * 64), snap("b.png", "3" * 64)]
+        self.assertNotEqual(pick.fingerprint(a), pick.fingerprint(b))
+        self.assertEqual(len(pick.fingerprint(a)), 16)
+
+    def test_geometry_reasons(self):
+        sha = "ab" * 32
+        snap = pick.Snap("", "t00000000.png", "t00000000.png", "t00000000.png", Path("/s"),
+                         Path("/o"), sha, (120, 200))
+        row = {"file": "t00000000.png", "sha256": sha, **{k: str(v) for k, v in GEOM_HALF.items()}}
+        self.assertEqual(pick.geometry(snap, {"t00000000.png": row}, None), (GEOM_HALF, None))
+        cases = [
+            (None, "no frames.tsv beside the image", "no frames.tsv"),
+            ({}, None, "has no row for t00000000.png"),
+            ({"t00000000.png": {**row, "crop_w": "x"}}, None, "is malformed"),
+            ({"t00000000.png": {**row, "crop_x": "200"}}, None, "is malformed"),
+            ({"t00000000.png": {**row, "sha256": "cd" * 32}}, None,
+             "the image changed since extraction: its SHA-256 abababababab differs from "
+             "frames.tsv cdcdcdcdcdcd"),
+            ({"t00000000.png": {**row, "out_w": "121"}}, None, "differs from frames.tsv 121x200"),
+        ]
+        for rows, err, want in cases:
+            geom, why = pick.geometry(snap, rows, err if rows is None else None)
+            self.assertIsNone(geom, want)
+            self.assertIn(want, why)
+        jpg = pick.Snap("", "t00000000.png", "t00000000.png", "t00000000.png", Path("/s"),
+                        Path("/o"), sha, None)
+        self.assertEqual(pick.geometry(jpg, {"t00000000.png": row}, None), (None, "not a PNG"))
+
+    def test_allocate_names_never_collides(self):
+        names = ["renamed_0001.png", "RENAMED_0002.png", "a b\n.png", "-x.png",
+                 "t00000100?.png", "A.png", "a.png", "ok name (1).png"]
+        got = pick.allocate_names(names)
+        self.assertEqual(set(got), set(names))
+        dests = [d.casefold() for d in got.values()]
+        self.assertEqual(len(dests), len(set(dests)))
+        self.assertEqual(got["renamed_0001.png"], "renamed_0001.png")
+        self.assertEqual(got["RENAMED_0002.png"], "RENAMED_0002.png")
+        self.assertEqual(got["ok name (1).png"], "ok name (1).png")
+        self.assertEqual(got["A.png"], "A.png")
+        self.assertTrue(got["a.png"].startswith("renamed_"))   # case-folded clash with A.png
+        for n in ("a b\n.png", "-x.png", "t00000100?.png"):
+            self.assertRegex(got[n], r"^renamed_\d{4}\.png$")
+
+    def test_script_json_is_inert_in_html(self):
+        data = {"path": "/a</script>b/x.png", "amp": "&amp;<img src=x>", "ls": "a" + chr(0x2028)}
+        payload = pick.script_json(data)
+        self.assertFalse(any(c in payload for c in "<>&"))
+        self.assertTrue(payload.isascii())
+        self.assertEqual(json.loads(payload), data)
+
+
+NODE = shutil.which("node")
+NODE_RUNNER = r"""
+const fs = require("fs"), vm = require("vm");
+const ctx = {}; ctx.globalThis = ctx;
+vm.createContext(ctx);
+vm.runInContext(fs.readFileSync(process.argv[1], "utf8"), ctx);
+const cases = JSON.parse(fs.readFileSync(0, "utf8"));
+const out = cases.map(c => ({
+  block: ctx.VPPick.copyBlock(c.data, c.state),
+  key: ctx.VPPick.storageKey(c.data),
+  rois: c.rois.map(r => ctx.VPPick.roiToSource(r[0], r[1])),
+  notes: c.notes.map(n => ctx.VPPick.sanitizeNote(n)),
+}));
+process.stdout.write(JSON.stringify(out));
+"""
+
+
+@unittest.skipUnless(NODE, "node not installed")
+class PickLogicJs(unittest.TestCase):
+    """pick_logic.js must produce exactly what the Python reference does."""
+
+    def test_js_matches_the_python_reference(self):
+        rng = random.Random(5)
+        rois = []
+        for _ in range(400):
+            g = dict(GEOM_CROP if rng.random() < 0.5 else GEOM_HALF)
+            g["out_w"], g["out_h"] = rng.randint(1, 999), rng.randint(1, 999)
+            x0, y0 = rng.randint(0, g["out_w"] - 1), rng.randint(0, g["out_h"] - 1)
+            rois.append([[x0, y0, rng.randint(x0 + 1, g["out_w"]), rng.randint(y0 + 1, g["out_h"])],
+                         g])
+        notes = [" a\tb ", "x" * 230, "\u00e9\u0085z", " ", "a" + chr(0x2029) + "b", None, 7]
+        cases = [{"name": n, "data": d, "state": s, "rois": rois, "notes": notes}
+                 for n, d, s in pick_scenarios()]
+        cp = subprocess.run([NODE, "-e", NODE_RUNNER, str(SR_DIR / "pick_logic.js")],
+                            input=json.dumps(cases), capture_output=True, text=True)
+        self.assertEqual(cp.returncode, 0, cp.stderr)
+        got = json.loads(cp.stdout)
+        for c, g in zip(cases, got):
+            self.assertEqual(g["block"], pick.copy_block(c["data"], c["state"]), c["name"])
+            self.assertEqual(g["key"], pick.storage_key(c["data"]))
+        self.assertEqual([tuple(r) for r in got[0]["rois"]],
+                         [pick.roi_to_source(tuple(r), geom) for r, geom in rois])
+        self.assertEqual(got[0]["notes"], [pick.sanitize_note(n) for n in notes])
+
+    def test_ui_script_parses(self):
+        cp = subprocess.run([NODE, "--check", str(SR_DIR / "pick_ui.js")],
+                            capture_output=True, text=True)
+        self.assertEqual(cp.returncode, 0, cp.stderr)
+
+
+class PickOpener(unittest.TestCase):
+    def opener(self, *, env, platform="linux", tools=("xdg-open", "open"), proc="Linux 6.1",
+               rc=0, wslpath="C:\\x\\index.html"):
+        calls = []
+
+        def spawn(argv):
+            calls.append(argv)
+            return rc
+        got = pick.open_page("/p/index.html", env=env, platform=platform,
+                             which=lambda n: f"/usr/bin/{n}" if n in tools else None,
+                             proc_version=proc, spawn=spawn, wslpath=lambda p: wslpath)
+        return got, calls
+
+    def test_linux_needs_a_display(self):
+        (ok, why), calls = self.opener(env={})
+        self.assertFalse(ok)
+        self.assertIn("no display", why)
+        self.assertEqual(calls, [])
+        (ok, what), calls = self.opener(env={"DISPLAY": ":0"})
+        self.assertTrue(ok)
+        self.assertEqual(calls, [["xdg-open", "/p/index.html"]])
+        (ok, _), calls = self.opener(env={"WAYLAND_DISPLAY": "wayland-1"})
+        self.assertTrue(ok)
+
+    def test_ssh_session_never_opens(self):
+        for platform, proc in (("linux", "Linux"), ("darwin", None),
+                               ("linux", "Linux 5.15 microsoft-standard-WSL2")):
+            (ok, why), calls = self.opener(env={"SSH_CONNECTION": "1 2 3 4", "DISPLAY": ":0"},
+                                           platform=platform, proc=proc,
+                                           tools=("xdg-open", "open", "wslview"))
+            self.assertFalse(ok, platform)
+            self.assertIn("SSH", why)
+            self.assertEqual(calls, [])
+
+    def test_macos_and_wsl(self):
+        (ok, _), calls = self.opener(env={}, platform="darwin")
+        self.assertTrue(ok)
+        self.assertEqual(calls, [["open", "/p/index.html"]])
+        wsl = "Linux 5.15 Microsoft-standard-WSL2"
+        (ok, _), calls = self.opener(env={}, proc=wsl, tools=("wslview",))
+        self.assertEqual(calls, [["wslview", "/p/index.html"]])
+        # explorer.exe exits 1 even when it opens the page: its status is ignored
+        (ok, _), calls = self.opener(env={}, proc=wsl, tools=("explorer.exe", "wslpath"), rc=1)
+        self.assertTrue(ok)
+        self.assertEqual(calls, [["explorer.exe", "C:\\x\\index.html"]])
+
+    def test_missing_or_failing_opener(self):
+        (ok, why), calls = self.opener(env={"DISPLAY": ":0"}, tools=())
+        self.assertFalse(ok)
+        self.assertIn("not on PATH", why)
+        (ok, why), _ = self.opener(env={"DISPLAY": ":0"}, rc=3)
+        self.assertFalse(ok)
+        self.assertIn("status 3", why)
+        (ok, _), _ = self.opener(env={"DISPLAY": ":0"}, rc=None)   # still running: opened
+        self.assertTrue(ok)
+        (ok, why), _ = self.opener(env={}, platform="win32")
+        self.assertFalse(ok)
+        self.assertIn("win32", why)
 
 
 if __name__ == "__main__":

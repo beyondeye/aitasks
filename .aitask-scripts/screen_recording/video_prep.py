@@ -7,16 +7,18 @@ coding agent can read (Claude Code cannot open video files).
   aitask_screen_recording.sh anim VIDEO [--out DIR] [--roi X,Y,W,H] [--window A-B] ...
   aitask_screen_recording.sh frames VIDEO (--range A-B | --at T[,T...]) [--roi X,Y,W,H] ...
   aitask_screen_recording.sh sheet  DIR [--per-sheet N] [--out DIR]
+  aitask_screen_recording.sh pick   <frames-dir|run-dir> [--open] [--out DIR]
 
 Entry point of the aitask-screen-recording skill; the measurement model is
 documented in .claude/skills/aitask-screen-recording/references/animation.md.
 
-Every bug/anim/frames/sheet run writes <out>/summary.md (read it first) and
+Every bug/anim/frames/sheet/pick run writes <out>/summary.md (read it first) and
 <out>/run.json, then prints "SUMMARY: <path>" as its last stdout line. Every
 frames/ directory carries a frames.tsv manifest (time, pts, geometry, SHA-256 of
 each image). Needs ffmpeg/ffprobe >= 5.1. ImageMagick 7 (`magick`) is optional:
 without it there are no contact sheets or plots, only frames and data, and
-`sheet` (contact sheets from a folder of images) refuses to run.
+`sheet` (contact sheets from a folder of images) refuses to run. `pick` (a static
+page for choosing frames by eye, vp_pick.py) needs neither, only a browser.
 """
 from __future__ import annotations
 
@@ -1635,9 +1637,26 @@ def cmd_sheet(args) -> int:
 
 
 def _write_run_json(out: Path, mode: str, args, info: dict, extra: dict):
+    """run.json. video_abspath and video_size are the recording's provenance:
+    `video` and options.video hold the argument as given, which may be relative
+    to a working directory nobody recorded, so a later reader (pick) names the
+    recording only from the absolute path and the size it had here."""
     opts = {k: v for k, v in vars(args).items() if k not in ("func",)}
+    src = Path(args.video).resolve()
     (out / "run.json").write_text(json.dumps(
-        {"mode": mode, "options": opts, "video": info, **extra}, indent=2, default=str))
+        {"mode": mode, "options": opts, "video": info, "video_abspath": str(src),
+         "video_size": src.stat().st_size, **extra}, indent=2, default=str))
+
+
+# --------------------------------------------------------------------------- #
+# pick: a static page for choosing frames by eye (vp_pick.py)
+
+def cmd_pick(args) -> int:
+    import vp_pick
+    try:
+        return vp_pick.cmd_pick(args, make_out_dir=make_out_dir)
+    except vp_pick.PickError as exc:
+        raise PrepError(str(exc)) from exc
 
 
 # --------------------------------------------------------------------------- #
@@ -1718,6 +1737,15 @@ def build_parser() -> argparse.ArgumentParser:
                    help="at most this many images a sheet; fewer when labels would not fit")
     p.add_argument("--out", help="output directory (default $TMPDIR/video-prep/<folder>-sheet)")
     p.set_defaults(func=cmd_sheet)
+
+    p = sub.add_parser("pick", help="a static HTML page to choose frames by eye and copy them "
+                                    "back to the agent (no server)")
+    p.add_argument("dir", help="a frames/ directory, a bug/frames/anim run directory, or any "
+                               "folder of png/jpg/webp images")
+    p.add_argument("--open", action="store_true",
+                   help="open the page in the default browser when there is a display")
+    p.add_argument("--out", help="output directory (default $TMPDIR/video-prep/<name>-pick)")
+    p.set_defaults(func=cmd_pick)
     return ap
 
 

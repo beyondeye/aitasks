@@ -7,10 +7,12 @@ set -euo pipefail
 #
 # Usage: ./.aitask-scripts/aitask_screen_recording.sh info|bug|anim|frames VIDEO [options]
 #        ./.aitask-scripts/aitask_screen_recording.sh sheet DIR [--per-sheet N] [--out DIR]
+#        ./.aitask-scripts/aitask_screen_recording.sh pick DIR [--open] [--out DIR]
 #        ./.aitask-scripts/aitask_screen_recording.sh <mode> --help
 #
 # Needs ffmpeg/ffprobe >= 5.1 on PATH. ImageMagick 7 (`magick`) is optional:
 # without it there are no contact sheets or plots, only frames and data.
+# `pick` (a static page to choose frames by eye) needs neither, only a browser.
 # Python stdlib only — runs on the framework venv interpreter.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

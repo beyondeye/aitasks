@@ -10,10 +10,13 @@ from __future__ import annotations
 
 import contextlib
 import csv
+import html.parser
+import os
 import functools
 import hashlib
 import io
 import json
+import math
 import re
 import shutil
 import subprocess
@@ -31,6 +34,7 @@ sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(SCRIPT.parent))
 import screen_recording_synth as synth  # noqa: E402
 import vp_core as core  # noqa: E402
+import vp_pick as pick  # noqa: E402
 
 HAVE_FFMPEG = bool(shutil.which("ffmpeg") and shutil.which("ffprobe"))
 HAVE_MAGICK = bool(shutil.which("magick"))
@@ -1474,6 +1478,729 @@ class SheetWithoutMagick(unittest.TestCase):
             self.assertFalse((tmp / "out").exists())
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
+
+
+
+# --------------------------------------------------------------------------- #
+# pick: the visual frame picker (vp_pick.py, pick_page.html, pick_*.js)
+
+PICK_GEOM_COLS = ["file", "t_ms", "pts", "time_source", "src_w", "src_h", "crop_x", "crop_y",
+                  "crop_w", "crop_h", "out_w", "out_h", "scale_x", "scale_y", "sha256"]
+CHROMIUM = next((shutil.which(n) for n in ("chromium", "chromium-browser", "google-chrome",
+                                            "google-chrome-stable") if shutil.which(n)), None)
+
+
+def chromium_argv(profile: Path, url: str) -> list[str]:
+    return [CHROMIUM, "--headless=new", "--disable-gpu", "--no-sandbox", f"--user-data-dir={profile}",
+            "--allow-file-access-from-files", "--virtual-time-budget=5000", "--dump-dom", url]
+
+
+@functools.lru_cache(maxsize=None)
+def chromium_unusable() -> str | None:
+    """Why headless chromium cannot be used on this host, or None when it renders a
+    trivial page. Established independently of the picker, so that a picker page
+    that hangs or crashes the browser fails its test instead of skipping it."""
+    if not CHROMIUM:
+        return "no chromium / google-chrome for the headless page test"
+    tmp = Path(tempfile.mkdtemp(prefix="vp-chrome-probe-"))
+    try:
+        page = tmp / "probe.html"
+        page.write_text('<!doctype html><title>probe</title><body data-probe="ok"></body>')
+        try:
+            cp = subprocess.run(chromium_argv(tmp / "profile", page.as_uri()),
+                                capture_output=True, text=True, timeout=90)
+        except subprocess.TimeoutExpired:
+            return "headless chromium did not render a trivial page within 90 s"
+        if 'data-probe="ok"' not in cp.stdout:
+            return f"headless chromium cannot render a trivial page: {cp.stderr.strip()[-300:]}"
+        return None
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def run_cli_in(cwd, *args, env=None):
+    return subprocess.run([sys.executable, str(SCRIPT), *map(str, args)], capture_output=True,
+                          text=True, cwd=str(cwd), env=env)
+
+
+def gradient(w, h, seed=0):
+    """Gray pixels that differ everywhere, so any crop or shift changes the bytes."""
+    return bytes(((x * 7 + y * 13 + seed * 31) % 251) for y in range(h) for x in range(w))
+
+
+def write_frames_dir(folder: Path, times_ms, *, w=120, h=200, src=(240, 400), skip=(),
+                     time_source="pts*time_base") -> list[Path]:
+    """t<ms>.png gray images and a frames.tsv binding each to a whole-frame
+    geometry scaled by w/src (rows for `skip` names are left out)."""
+    folder.mkdir(parents=True, exist_ok=True)
+    paths, rows = [], []
+    for k, ms in enumerate(times_ms):
+        path = folder / core.frames_name(ms)
+        write_png(path, w, h, gradient(w, h, k))
+        paths.append(path)
+        if path.name in skip:
+            continue
+        rows.append([path.name, ms, ms, time_source, src[0], src[1], 0, 0, src[0], src[1], w, h,
+                     f"{w / src[0]:.6f}", f"{h / src[1]:.6f}",
+                     hashlib.sha256(path.read_bytes()).hexdigest()])
+    with open(folder / "frames.tsv", "w", newline="") as fh:
+        wr = csv.writer(fh, delimiter="\t", lineterminator="\n")
+        wr.writerow(PICK_GEOM_COLS)
+        wr.writerows(rows)
+    return paths
+
+
+class _PageScripts(html.parser.HTMLParser):
+    """The raw text of every <script> as the HTML tokenizer splits it, plus a
+    few attributes of interest, so tests see the page the way a browser parses it."""
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.scripts, self.body, self.pre, self.cards, self._in, self._pre = [], {}, "", 0, None, False
+
+    def handle_starttag(self, tag, attrs):
+        a = dict(attrs)
+        if tag == "script":
+            self._in = len(self.scripts)
+            self.scripts.append([a.get("id"), ""])
+        elif tag == "body":
+            self.body = a
+        elif tag == "pre" and a.get("id") == "copy-text":
+            self._pre = True
+        elif tag == "button" and "card" in (a.get("class") or "").split():
+            self.cards += 1
+
+    def handle_data(self, data):
+        if self._in is not None:
+            self.scripts[self._in][1] += data
+        if self._pre:
+            self.pre += data
+
+    def handle_endtag(self, tag):
+        if tag == "script":
+            self._in = None
+        elif tag == "pre":
+            self._pre = False
+
+
+def parse_page(text: str) -> _PageScripts:
+    p = _PageScripts()
+    p.feed(text)
+    p.close()
+    return p
+
+
+class _PickCase(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = Path(tempfile.mkdtemp(prefix="vp-pick-"))
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def pick_ok(self, target, out_name, *extra, cwd=None, env=None):
+        out = self.tmp / out_name
+        cp = run_cli_in(cwd or HERE.parent, "pick", target, "--out", out, *extra, env=env)
+        self.assertEqual(cp.returncode, 0, cp.stderr)
+        lines = cp.stdout.splitlines()
+        self.assertTrue(lines[-1].startswith("SUMMARY: "), cp.stdout)
+        self.assertTrue(lines[-2].startswith("PAGE: "), cp.stdout)
+        data = json.loads((out / "pick.json").read_text())
+        return out, data, cp
+
+    @staticmethod
+    def block(data, rels, **state):
+        return pick.copy_block(data, {"selected": list(rels), **state})
+
+
+class PickFolder(_PickCase):
+    """pick on folders made by the test (no ffmpeg needed)."""
+
+    def test_manifest_snapshot_and_embedded_data(self):
+        folder = self.tmp / "plain"
+        write_frames_dir(folder, [0, 33, 66, 133])
+        out, data, cp = self.pick_ok(folder, "plain-pick")
+        self.assertIn("OPEN: not requested", cp.stdout)
+        plan = core.plan_sheet([p.name for p in folder.glob("*.png")])
+        self.assertEqual([f["name"] for f in data["frames"]], [it.name for it in plan.items])
+        self.assertEqual([f["ms"] for f in data["frames"]], [0, 33, 66, 133])
+        self.assertEqual([f["delta_ms"] for f in data["frames"]], [None, 33, 33, 67])
+        self.assertEqual([f["label"] for f in data["frames"]],
+                         ["0.000 s first", "0.033 s +33 ms", "0.066 s +33 ms", "0.133 s +67 ms"])
+        for f in data["frames"]:
+            snap = Path(f["path"])
+            self.assertTrue(snap.is_absolute())
+            self.assertEqual(snap.parent, (out / "src").resolve())
+            self.assertEqual(f["sha256"], hashlib.sha256(snap.read_bytes()).hexdigest())
+            self.assertEqual(f["geom"], {"src_w": 240, "src_h": 400, "crop_x": 0, "crop_y": 0,
+                                         "crop_w": 240, "crop_h": 400, "out_w": 120,
+                                         "out_h": 200})
+            self.assertEqual((f["w"], f["h"]), (120, 200))
+        page = parse_page((out / "index.html").read_text())
+        ids = [i for i, _ in page.scripts]
+        self.assertEqual(ids, ["vp-data", None, None])
+        self.assertEqual(json.loads(page.scripts[0][1]), data)
+        self.assertEqual(page.scripts[1][1], (SCRIPT.parent / "pick_logic.js").read_text())
+        self.assertEqual(page.scripts[2][1], (SCRIPT.parent / "pick_ui.js").read_text())
+        run = json.loads((out / "run.json").read_text())
+        self.assertEqual((run["mode"], run["frames"], run["roi_trusted"]), ("pick", 4, 4))
+        self.assertEqual(run["fingerprint"], data["fingerprint"])
+
+    def test_no_geometry_record_disables_the_source_roi(self):
+        bare = self.tmp / "bare"
+        write_frames_dir(bare, [0, 33])
+        (bare / "frames.tsv").unlink()
+        _, data, _ = self.pick_ok(bare, "bare-pick")
+        self.assertEqual({f["roi_disabled"] for f in data["frames"]},
+                         {"no frames.tsv beside the image"})
+        self.assertTrue(all(f["geom"] is None for f in data["frames"]))
+        partial = self.tmp / "partial"
+        write_frames_dir(partial, [0, 33], skip=("t00000033.png",))
+        out, data, _ = self.pick_ok(partial, "partial-pick")
+        by = {f["name"]: f for f in data["frames"]}
+        self.assertIsNotNone(by["t00000000.png"]["geom"])
+        self.assertEqual(by["t00000033.png"]["roi_disabled"],
+                         "frames.tsv has no row for t00000033.png")
+        self.assertIn("t00000033.png: frames.tsv has no row", (out / "summary.md").read_text())
+        b = self.block(data, ["t00000033.png"],
+                       rect={"rel": "t00000033.png", "x0": 1, "y0": 1, "x1": 9, "y1": 9})
+        self.assertIn("# rectangle 1,1,8,8 in t00000033.png's own pixels", b)
+        self.assertNotIn("# --roi", b)
+
+    def test_same_dimension_edits_lose_the_geometry(self):
+        folder = self.tmp / "edited"
+        w, h = 120, 200
+        paths = write_frames_dir(folder, [0, 33, 66])
+        px = gradient(w, h, 1)
+        # (a) crop to the middle, then resize back to the same size (nearest neighbour)
+        cx, cy, cw, ch = 20, 30, 80, 140
+        crop_back = bytes(px[(cy + y * ch // h) * w + cx + x * cw // w]
+                          for y in range(h) for x in range(w))
+        # (b) the same picture shifted by (3, 2) inside the canvas
+        shifted = bytes(px[(y - 2) * w + (x - 3)] if x >= 3 and y >= 2 else 255
+                        for y in range(h) for x in range(w))
+        for edit in (crop_back, shifted):
+            self.assertEqual(len(edit), w * h)          # premise: same dimensions
+            self.assertNotEqual(edit, px)              # premise: different pixels
+        write_png(paths[1], w, h, crop_back)
+        write_png(paths[2], w, h, shifted)
+        self.assertEqual(core.png_size(paths[1].read_bytes()[:24]), (w, h))
+        _, data, _ = self.pick_ok(folder, "edited-pick")
+        by = {f["name"]: f for f in data["frames"]}
+        self.assertIsNotNone(by["t00000000.png"]["geom"])
+        for name in ("t00000033.png", "t00000066.png"):
+            self.assertIsNone(by[name]["geom"], name)
+            self.assertIn("SHA-256", by[name]["roi_disabled"])
+            self.assertIn("changed since extraction", by[name]["roi_disabled"])
+            b = self.block(data, [name], rect={"rel": name, "x0": 0, "y0": 0, "x1": 5, "y1": 5})
+            self.assertNotIn("# --roi", b)
+            self.assertIn("own pixels", b)
+
+    def test_snapshot_is_what_gets_hashed_and_trusted(self):
+        import video_prep
+        folder = self.tmp / "racy"
+        paths = write_frames_dir(folder, [0, 33])
+        originals = {p.name: p.read_bytes() for p in paths}
+        real_copy = pick._copy_file
+
+        def copy_then_rewrite(src, dest):
+            real_copy(src, dest)
+            write_png(src, 120, 200, gradient(120, 200, 9))     # a concurrent rewrite
+        out = self.tmp / "racy-pick"
+        with mock.patch.object(pick, "_copy_file", copy_then_rewrite), \
+                contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(video_prep.main(["pick", str(folder), "--out", str(out)]), 0)
+        data = json.loads((out / "pick.json").read_text())
+        for f in data["frames"]:
+            snap = Path(f["path"]).read_bytes()
+            self.assertEqual(snap, originals[f["name"]])
+            self.assertEqual(f["sha256"], hashlib.sha256(snap).hexdigest())
+            now = (folder / f["name"]).read_bytes()
+            self.assertNotEqual(hashlib.sha256(now).hexdigest(), f["sha256"])   # premise
+            self.assertIsNotNone(f["geom"])        # decided on the snapshot, which matches
+
+    def test_snapshot_names_never_collide(self):
+        folder = self.tmp / "names"
+        folder.mkdir()
+        names = ["renamed_0001.png", "RENAMED_0002.png", "a b\n.png", "-x.png", "t00000100?.png"]
+        want = {}
+        for k, n in enumerate(names):
+            write_png(folder / n, 8, 8, bytes([k * 40]) * 64)
+            want[n] = hashlib.sha256((folder / n).read_bytes()).hexdigest()
+        out, data, _ = self.pick_ok(folder, "names-pick")
+        snaps = [Path(f["path"]) for f in data["frames"]]
+        self.assertEqual(len(set(snaps)), len(names))
+        self.assertEqual(len(list((out / "src").iterdir())), len(names))
+        for f in data["frames"]:
+            self.assertEqual(hashlib.sha256(Path(f["path"]).read_bytes()).hexdigest(),
+                             want[f["name"]], f["name"])
+        by = {f["name"]: Path(f["path"]).name for f in data["frames"]}
+        self.assertEqual(by["renamed_0001.png"], "renamed_0001.png")
+        self.assertEqual((out / "src" / "renamed_0001.png").read_bytes(),
+                         (folder / "renamed_0001.png").read_bytes())
+        generated = [by[n] for n in names[2:]]
+        self.assertFalse({g.casefold() for g in generated}
+                         & {"renamed_0001.png", "renamed_0002.png"})
+        b = self.block(data, [f["rel"] for f in data["frames"]])
+        self.assertEqual(sum(1 for ln in b.splitlines() if ln.startswith("/")), len(names))
+
+    def test_script_breaking_data_stays_inside_the_json(self):
+        base = self.tmp / "a<" / "script>b"            # ".../a</script>b": a real path
+        write_frames_dir(base / "frames", [0, 33],
+                         time_source="</script><img src=x onerror=alert(1)>&amp;")
+        evil_video = self.tmp / "x<" / "script>y" / "clip.mp4"
+        evil_video.parent.mkdir(parents=True)
+        evil_video.write_bytes(b"not really a video")
+        (base / "run.json").write_text(json.dumps({"mode": "frames",
+                                                   "options": {"video": str(evil_video)}}))
+        out, data, _ = self.pick_ok(base, "a</script>b/out-pick")   # the out dir under it too
+        self.assertIn("</script>", data["page"])                        # premise: it got in
+        self.assertIn("</script>", data["frames"][0]["time_source"])
+        self.assertIn(str(evil_video), data["source_line"])
+        self.assertIn("recorded path, unverified", data["source_line"])
+        text = (out / "index.html").read_text()
+        start = text.index('<script type="application/json" id="vp-data">') + 46
+        payload = text[start:text.index("</script>", start)]
+        self.assertFalse(any(c in payload for c in "<>&"))
+        page = parse_page(text)
+        self.assertEqual([i for i, _ in page.scripts], ["vp-data", None, None])
+        self.assertEqual(json.loads(page.scripts[0][1]), data)
+        self.assertEqual(text.count("<script"), 3)
+        template = (SCRIPT.parent / "pick_page.html").read_text()
+        self.assertEqual(text.count("<img"), template.count("<img"))   # none from the data
+        b = self.block(data, [f["rel"] for f in data["frames"]])
+        self.assertEqual(sum(1 for ln in b.splitlines() if ln.startswith("/")), 2)
+        # premise control: the same page without the escaping step is cut short
+        with mock.patch.object(pick, "script_json", lambda d: json.dumps(d)):
+            raw = parse_page(pick.render_page(data))
+        with self.assertRaises(ValueError):
+            if json.loads(raw.scripts[0][1]) != data:
+                raise ValueError("data changed")
+
+    def _stub_env(self, name, display):
+        bindir = self.tmp / f"{name}-bin"
+        bindir.mkdir()
+        log = self.tmp / f"{name}-opener.log"
+        stub = bindir / "xdg-open"
+        stub.write_text(f'#!/bin/sh\nprintf "%s\\n" "$@" >> "{log}"\n')
+        stub.chmod(0o755)
+        env = {k: v for k, v in os.environ.items()
+               if k not in ("DISPLAY", "WAYLAND_DISPLAY", "SSH_CONNECTION", "SSH_CLIENT",
+                            "SSH_TTY")}
+        env["PATH"] = f"{bindir}{os.pathsep}{env.get('PATH', '')}"
+        if display:
+            env["DISPLAY"] = display
+        return env, log
+
+    @unittest.skipUnless(sys.platform.startswith("linux") and "microsoft" not in
+                         Path("/proc/version").read_text(errors="replace").lower()
+                         if Path("/proc/version").exists() else False, "Linux (not WSL) only")
+    def test_open_with_and_without_a_display(self):
+        folder = self.tmp / "opener"
+        write_frames_dir(folder, [0, 33])
+        env, log = self._stub_env("nodisplay", None)
+        out, _, cp = self.pick_ok(folder, "opener-none", "--open", env=env)
+        self.assertIn("OPEN: not opened: no display", cp.stdout)
+        self.assertFalse(log.exists())
+        self.assertIn("not opened", (out / "summary.md").read_text())
+        env, log = self._stub_env("display", ":99")
+        out, _, cp = self.pick_ok(folder, "opener-yes", "--open", env=env)
+        self.assertIn("OPEN: opened (xdg-open)", cp.stdout)
+        self.assertEqual(log.read_text().splitlines(), [str((out / "index.html").resolve())])
+        self.assertTrue(json.loads((out / "run.json").read_text())["opened"])
+
+    def test_bad_inputs_fail_cleanly(self):
+        empty = self.tmp / "empty-pick-in"
+        empty.mkdir()
+        (empty / "notes.txt").write_text("x")
+        for args, code, msg in ((("pick", self.tmp / "missing"), 2, "no such directory"),
+                                (("pick", empty), 1, "no png, jpg or webp images")):
+            with self.subTest(args=args):
+                cp = run_cli(*args, "--out", self.tmp / "err-pick-out")
+                self.assertEqual(cp.returncode, code, cp.stderr)
+                self.assertIn(msg, cp.stderr)
+                self.assertFalse((self.tmp / "err-pick-out").exists())
+
+    def test_legacy_relative_video_is_never_re_resolved(self):
+        a, b = self.tmp / "cwdA", self.tmp / "cwdB"
+        for d, size in ((a, 100), (b, 300)):
+            d.mkdir()
+            (d / "clip.mp4").write_bytes(b"v" * size)
+        run_dir = self.tmp / "legacy-run"
+        write_frames_dir(run_dir / "frames", [0, 33])
+        (run_dir / "run.json").write_text(json.dumps({
+            "mode": "frames", "options": {"video": "clip.mp4"}, "video": {"path": "clip.mp4"}}))
+        out, data, _ = self.pick_ok(run_dir, "legacy-pick", cwd=b)
+        self.assertEqual(data["source_line"], "# source: frames run of <VIDEO> (recorded as "
+                         "'clip.mp4' relative to an unknown directory)")
+        self.assertNotIn(str(b), (out / "pick.json").read_text())
+        self.assertNotIn(str(b), self.block(data, [f["rel"] for f in data["frames"]]))
+        # an absolute legacy path is a hint, never the source
+        (run_dir / "run.json").write_text(json.dumps({
+            "mode": "frames", "options": {"video": str(b / "clip.mp4")}}))
+        _, data, _ = self.pick_ok(run_dir, "legacy-abs-pick", cwd=a)
+        self.assertEqual(data["source"]["video"], None)
+        self.assertIn(f"recorded path, unverified: {b / 'clip.mp4'}", data["source_line"])
+        self.assertNotIn(f"frames run of {b}", data["source_line"])
+
+    def test_run_layouts_win_over_root_images(self):
+        def layout(name, *, run=None, root_sheet=False, segs=("frames",)):
+            d = self.tmp / f"lay-{name}"
+            for s in segs:
+                write_frames_dir(d / s if s == "frames" else d / s / "frames", [0, 33])
+            if root_sheet:
+                write_png(d / "sheet_01.png", 40, 40)
+            if run is not None:
+                (d / "run.json").write_text(json.dumps(run))
+            return d
+        bug = layout("bug", run={"mode": "bug"}, root_sheet=True)
+        _, data, _ = self.pick_ok(bug, "lay-bug-pick")
+        self.assertEqual({f["name"] for f in data["frames"]}, {"t00000000.png", "t00000033.png"})
+        self.assertEqual(data["layout"], "bug run: frames/")
+        no_run = layout("bug-norun", root_sheet=True)
+        _, data, _ = self.pick_ok(no_run, "lay-bug-norun-pick")
+        self.assertNotIn("sheet_01.png", {f["name"] for f in data["frames"]})
+        win = layout("win", run={"mode": "anim"}, segs=("w01",))
+        _, data, _ = self.pick_ok(win, "lay-win-pick")
+        self.assertEqual({f["group"] for f in data["frames"]}, {"w01"})
+        self.assertTrue(all(f["rel"].startswith("w01/") for f in data["frames"]))
+        segs = layout("segs", run={"mode": "anim"}, segs=("s02", "s01"))
+        _, data, _ = self.pick_ok(segs, "lay-segs-pick")
+        self.assertEqual([g["label"] for g in data["groups"]], ["s01", "s02"])
+        sheet = layout("sheetout", run={"mode": "sheet", "dir": "/somewhere/frames"})
+        cp = run_cli("pick", sheet, "--out", self.tmp / "lay-sheet-pick")
+        self.assertEqual(cp.returncode, 1)
+        self.assertIn("pick the folder it was made from (/somewhere/frames)", cp.stderr)
+        broken = self.tmp / "lay-broken"
+        broken.mkdir()
+        write_png(broken / "sheet_01.png", 40, 40)
+        (broken / "run.json").write_text(json.dumps({"mode": "bug"}))
+        cp = run_cli("pick", broken, "--out", self.tmp / "lay-broken-pick")
+        self.assertEqual(cp.returncode, 1)
+        self.assertIn(f"{broken / 'frames'} is missing", cp.stderr)
+        self.assertFalse((self.tmp / "lay-broken-pick").exists())
+        plain = self.tmp / "lay-plain"
+        write_frames_dir(plain, [0])
+        _, data, _ = self.pick_ok(plain, "lay-plain-pick")
+        self.assertEqual(data["layout"], "image folder")
+
+    # ---- post-phase [headless_ui_smoke] ----------------------------------------
+
+    def chromium_dom(self, page: Path, hash_spec, name):
+        profile = self.tmp / f"chrome-{name}"
+        url = page.resolve().as_uri()
+        if hash_spec is not None:
+            from urllib.parse import quote
+            url += "#selftest=" + quote(json.dumps(hash_spec))
+        # the browser itself is known to work here (chromium_unusable), so a hang or an
+        # empty result on the picker page is the page's failure, never a skip
+        try:
+            cp = subprocess.run(chromium_argv(profile, url), capture_output=True, text=True,
+                                timeout=90)
+        except subprocess.TimeoutExpired:
+            self.fail(f"headless chromium hung on the picker page ({name}) for 90 s, while it "
+                      "renders a trivial page")
+        if not cp.stdout.strip():
+            self.fail(f"headless chromium returned no DOM for the picker page ({name}), exit "
+                      f"{cp.returncode}: {cp.stderr.strip()[-300:]}")
+        return parse_page(cp.stdout)
+
+    def test_page_drives_in_headless_chromium(self):
+        why = chromium_unusable()
+        if why:
+            self.skipTest(why)
+        folder = self.tmp / "ui"
+        write_frames_dir(folder, [0, 33, 66, 99, 132, 165])
+        out, data, _ = self.pick_ok(folder, "ui-pick")
+        page = out / "index.html"
+        rel = [f["rel"] for f in data["frames"]]
+
+        # premise: without the self-test the page renders its cards and an empty block
+        dom = self.chromium_dom(page, None, "plain")
+        self.assertEqual(dom.cards, 6)
+        self.assertEqual(dom.pre, pick.copy_block(data, {}))
+
+        steps, expected = [], []
+        st = {"selected": [], "marks": {"start": None, "end": None}, "notes": {}, "rect": None}
+
+        def step(action, **change):
+            steps.append(action)
+            for k, v in change.items():
+                st[k] = v
+            expected.append(pick.copy_block(data, json.loads(json.dumps(st))))
+        # the oracle is written down here, from the event script alone
+        step({"click": 0}, selected=[rel[0]])
+        step({"click": 2, "shift": True}, selected=rel[0:3])           # inclusive range
+        step({"key": "ArrowRight"})                                     # focus card 4
+        step({"key": " "}, selected=rel[0:4])                           # toggles card 4
+        step({"key": "Home"})
+        step({"key": "s"}, marks={"start": rel[0], "end": None})
+        step({"key": "ArrowRight"})
+        step({"key": "ArrowRight"})
+        step({"key": "e"}, marks={"start": rel[0], "end": rel[2]})
+        step({"key": "ArrowLeft"})
+        step({"note": "edge starts"}, notes={rel[1]: "edge starts"})
+        step({"key": "Home"})
+        step({"drag": [10, 30, 19, 49]},
+             rect={"rel": rel[0], "x0": 10, "y0": 30, "x1": 20, "y1": 50})
+        dom = self.chromium_dom(page, {"steps": steps}, "steps")
+        self.assertEqual(dom.body.get("data-selftest"), "done",
+                         (dom.body.get("data-selftest"), dom.body.get("data-state")))
+        self.assertEqual(dom.cards, 6)
+        trace = json.loads(dom.body["data-trace"])
+        self.assertEqual(len(trace), len(steps))
+        for k, (got, want) in enumerate(zip(trace, expected)):
+            self.assertEqual(got, want, f"after step {k + 1} {steps[k]}; ui state "
+                                        f"{dom.body.get('data-state')}")
+        frame_lines = [ln for ln in trace[1].splitlines() if ln.startswith("/")]
+        self.assertEqual([Path(ln.split(chr(9))[0]).name for ln in frame_lines],
+                         [Path(r).name for r in rel[0:3]])
+        self.assertIn("# --window 0-0.0665  (user-marked endpoints (unverified)", trace[8])
+        self.assertIn("note: edge starts", trace[10])
+        self.assertIn("# --roi 20,60,20,40  (source-video pixels", trace[-1])
+        self.assertEqual(dom.pre, expected[-1])
+
+        # focus that moves without a click, and Space on an action button
+        steps = [{"click": 0},                  # select card 1
+                 {"focusCard": 2},              # DOM focus to card 3, no click
+                 {"key": " "},                  # toggles card 3, not card 1
+                 {"key": "ArrowRight"},         # from card 3 to card 4
+                 {"key": "s"},                  # marks card 4
+                 {"focusButton": "btn-copy"},
+                 {"key": " "},                  # the button's own key: nothing selected
+                 {"clickButton": "btn-copy"}]   # the activation Space would cause
+        want = [{"selected": [rel[0]]},
+                {"selected": [rel[0]]},
+                {"selected": [rel[0], rel[2]]},
+                {"selected": [rel[0], rel[2]]},
+                {"selected": [rel[0], rel[2], rel[3]], "marks": {"start": rel[3]}}]
+        want += [want[-1]] * 3
+        dom = self.chromium_dom(page, {"steps": steps}, "focus")
+        self.assertEqual(dom.body.get("data-selftest"), "done", dom.body.get("data-selftest"))
+        trace = json.loads(dom.body["data-trace"])
+        events = json.loads(dom.body["data-events"])
+        for k, (got, st) in enumerate(zip(trace, want)):
+            self.assertEqual(got, pick.copy_block(data, st), f"after step {k + 1} {steps[k]}")
+        self.assertEqual([e["active"] for e in events[:5]],
+                         ["card:0", "card:2", "card:2", "card:3", "card:3"])
+        self.assertEqual(events[6]["active"], "btn-copy")
+        self.assertIs(events[6]["cancelled"], False)     # native activation is left alone
+        self.assertEqual(events[6]["status"], "")
+        self.assertNotEqual(events[7]["status"], "")     # Copy ran: copied, or the fallback
+
+        # storage that throws: the page still renders and works
+        dom = self.chromium_dom(page, {"nostorage": True, "steps": [{"click": 1}]}, "nostorage")
+        self.assertEqual(dom.body.get("data-selftest"), "done", dom.body.get("data-selftest"))
+        self.assertEqual(json.loads(dom.body["data-trace"]),
+                         [pick.copy_block(data, {"selected": [rel[1]]})])
+
+
+
+@unittest.skipUnless(HAVE_FFMPEG, "ffmpeg/ffprobe not installed")
+class PickFromRuns(_VideoCase):
+    """pick on real bug / frames / anim runs of synthetic recordings."""
+
+    def pick(self, target, name, *, cwd=None):
+        out = self.tmp / name
+        cp = run_cli_in(cwd or HERE.parent, "pick", target, "--out", out)
+        self.assertEqual(cp.returncode, 0, cp.stderr)
+        return out, json.loads((out / "pick.json").read_text())
+
+    def markers(self):
+        return self.video("markers", synth.marker_frames)
+
+    def slide_right(self):
+        return self.video("slide_right", lambda: synth.card_frames(
+            synth.tween(synth.EASE_OUT, 0.5, 0.3), 1.4, "right"))
+
+    def slide_right_vfr(self):
+        return self.video("slide_right_vfr", lambda: synth.card_frames(
+            synth.tween(synth.EASE_OUT, 0.5, 0.3), 1.4, "right"), vfr=True)
+
+    def assert_roi_finds_markers(self, data, box, scale):
+        """Around each marker the snapshot shows, a +-4 px rectangle in image pixels maps
+        to a source --roi that contains the marker as drawn, centred on it within 1 px."""
+        f = data["frames"][0]
+        self.assertIsNotNone(f["geom"], f["roi_disabled"])
+        gray, w, h = png_gray(Path(f["path"]))
+        n = 0
+        for mx, my in synth.MARKERS:
+            if not (box[0] <= mx and mx + 6 <= box[0] + box[2] and box[1] <= my
+                    and my + 6 <= box[1] + box[3]):
+                continue
+            guess = ((mx - box[0] + 2.5) * scale, (my - box[1] + 2.5) * scale)
+            c = synth.dark_centroid(gray, w, h, *guess)
+            self.assertIsNotNone(c, (mx, my))
+            ex, ey = c[0] + 0.5, c[1] + 0.5               # pixel-edge coordinates
+            rect = (math.floor(ex - 4), math.floor(ey - 4), math.ceil(ex + 4), math.ceil(ey + 4))
+            x, y, rw, rh = pick.roi_to_source(rect, f["geom"])
+            self.assertLessEqual(x, mx, (mx, my, x, rw))
+            self.assertGreaterEqual(x + rw, mx + 6, (mx, my, x, rw))
+            self.assertLessEqual(y, my, (mx, my, y, rh))
+            self.assertGreaterEqual(y + rh, my + 6, (mx, my, y, rh))
+            self.assertAlmostEqual(x + rw / 2, mx + 3, delta=1.0)
+            self.assertAlmostEqual(y + rh / 2, my + 3, delta=1.0)
+            n += 1
+        return n
+
+    def test_roi_maps_to_source_through_a_cropped_geometry(self):
+        box = (37, 151, 201, 243)
+        out = self.tmp / "pk-roi-crop"
+        self.cli_ok("frames", self.markers(), "--at", "0", "--roi", ",".join(map(str, box)),
+                    "--out", out)
+        _, data = self.pick(out, "pk-roi-crop-pick")
+        self.assertEqual(data["layout"], "frames run: frames/")
+        self.assertEqual(self.assert_roi_finds_markers(data, box, 1.0), 3)
+
+    def test_roi_maps_to_source_through_a_scaled_geometry(self):
+        out = self.tmp / "pk-roi-scaled"
+        self.cli_ok("bug", self.markers(), "--view-size", "400", "--out", out)
+        _, data = self.pick(out, "pk-roi-scaled-pick")
+        g = data["frames"][0]["geom"]
+        self.assertEqual((g["out_w"], g["crop_w"]), (180, 360))          # premise: scale 0.5
+        self.assertEqual(self.assert_roi_finds_markers(data, (0, 0, 360, 800), 0.5),
+                         len(synth.MARKERS))
+
+    @unittest.skipUnless(HAVE_MAGICK, "magick draws the bug run's contact sheets")
+    def test_bug_run_with_sheets_picks_the_frames(self):
+        out = self.tmp / "pk-bug"
+        self.cli_ok("bug", self.markers(), "--out", out)
+        self.assertTrue((out / "sheet_01.png").is_file())                # premise
+        _, data = self.pick(out, "pk-bug-pick")
+        rows = {r["file"]: r for r in read_manifest(out / "frames")}
+        self.assertEqual({f["name"] for f in data["frames"]}, set(rows))
+        self.assertFalse(any(f["name"].startswith("sheet_") for f in data["frames"]))
+        for f in data["frames"]:
+            self.assertEqual(f["ms"], int(rows[f["name"]]["t_ms"]))
+            self.assertIsNotNone(f["geom"], f["roi_disabled"])
+
+    def test_pick_after_an_anim_window(self):
+        out = self.tmp / "pk-anim-window"
+        self.cli_ok("anim", self.slide_right(), "--window", "0.2-0.9", "--out", out)
+        self.assertTrue((out / "w01" / "frames").is_dir())               # premise
+        self.assertFalse((out / "s01").exists())
+        _, data = self.pick(out, "pk-anim-window-pick")
+        self.assertEqual([g["label"] for g in data["groups"]], ["w01"])
+        self.assertEqual({f["name"] for f in data["frames"]},
+                         {r["file"] for r in read_manifest(out / "w01" / "frames")})
+        self.assertTrue(all(f["geom"] for f in data["frames"]))
+
+    @staticmethod
+    def certifies_nothing(test, data, block):
+        test.assertIn("# viewing range: ", block)
+        test.assertNotIn("--window", block)
+        for word in ("settled", "still"):
+            test.assertNotIn(word, block)
+            test.assertNotIn(word, json.dumps(data))
+
+    def anim_run(self, video, name, *extra):
+        out = self.tmp / name
+        self.cli_ok("anim", video, "--out", out, *extra)
+        return out
+
+    def test_mid_motion_selection_is_a_viewing_range(self):
+        out = self.anim_run(self.slide_right(), "pk-mid")
+        m = re.search(r"first changed frame ([\d.]+) s, settled at ([\d.]+) s",
+                      (out / "summary.md").read_text())
+        lo, hi = float(m.group(1)) * 1000, float(m.group(2)) * 1000
+        _, data = self.pick(out, "pk-mid-pick")
+        mid = [f["rel"] for f in data["frames"] if lo < f["ms"] < hi]
+        self.assertGreaterEqual(len(mid), 2)                              # premise
+        self.certifies_nothing(self, data, pick.copy_block(data, {"selected": mid}))
+
+    def test_turning_point_and_duplicate_frames_are_never_certified(self):
+        spring = self.video("spring", lambda: synth.card_frames(
+            synth.spring_progress(400.0, 0.5, 0.5), 2.0, "right"))
+        out = self.anim_run(spring, "pk-spring")
+        with open(out / "s01" / "curve.tsv", newline="") as fh:
+            rows = list(csv.DictReader(fh, delimiter="\t"))
+        prog = [float(r["p_fitted_signal"]) for r in rows]
+        peak = max(range(len(prog)), key=prog.__getitem__)
+        self.assertGreater(prog[peak], 1.05)                              # premise: overshoot
+        self.assertGreater(prog[peak], prog[peak + 2])                    # ...and it turns back
+        # curve.tsv names each saved frame relative to the run dir (s01/frames/<name>)
+        files = [Path(rows[i]["file"]).name for i in range(peak - 3, peak + 4) if rows[i]["file"]]
+        self.assertGreaterEqual(len(files), 3)
+        _, data = self.pick(out, "pk-spring-pick")
+        rels = [f"s01/{n}" for n in files]
+        self.assertTrue(set(rels) <= {f["rel"] for f in data["frames"]})
+        self.certifies_nothing(self, data, pick.copy_block(data, {"selected": rels}))
+
+        # a duplicated capture frame: lossless, so the repeated picture decodes identically
+        dup = self.tmp / "markers_lossless.mp4"
+        if not dup.exists():
+            synth.encode(dup, synth.marker_frames(6), crf=0)
+        held = self.tmp / "pk-held"
+        self.cli_ok("frames", dup, "--range", "0-0.1", "--out", held)
+        _, data = self.pick(held, "pk-held-pick")
+        a, b = (png_gray(Path(f["path"]))[0] for f in data["frames"][:2])
+        self.assertEqual(a, b)                                            # premise: duplicates
+        self.certifies_nothing(self, data, pick.copy_block(
+            data, {"selected": [f["rel"] for f in data["frames"]]}))
+
+    def window_round_trip(self, video, name):
+        out = self.anim_run(video, name)
+        _, data = self.pick(out, f"{name}-pick")
+        frames = [f for f in data["frames"] if f["group"] == "s01"]
+
+        def exact(f):          # 60 fps: the frame presented at k/60 s carries round(k/60 s)
+            return Fraction(round(f["ms"] * 60 / 1000), 60)
+        start = next(f for f in frames if exact(f) * 1000 < f["ms"])     # premise: below its ms
+        end = next(f for f in frames if f["ms"] - start["ms"] >= 80)
+        block = pick.copy_block(data, {"selected": [start["rel"], end["rel"]],
+                                       "marks": {"start": start["rel"], "end": end["rel"]}})
+        m = re.search(r"^# --window (\S+)  \(user-marked endpoints \(unverified\)", block, re.M)
+        self.assertIsNotNone(m, block)
+        again = self.anim_run(video, f"{name}-again", "--window", m.group(1))
+        with open(again / "w01" / "curve.tsv", newline="") as fh:
+            times = [float(r["time_s"]) for r in csv.DictReader(fh, delimiter="\t")]
+        self.assertAlmostEqual(times[0], float(exact(start)), delta=2e-4, msg=m.group(1))
+        self.assertAlmostEqual(times[-1], float(exact(end)), delta=2e-4, msg=m.group(1))
+        return times, exact(start), exact(end)
+
+    def test_marked_window_selects_exactly_the_marked_frames(self):
+        times, a, b = self.window_round_trip(self.slide_right(), "pk-win")
+        self.assertEqual(len(times), int((b - a) * 60) + 1)               # CFR: every frame
+        self.window_round_trip(self.slide_right_vfr(), "pk-win-vfr")
+
+    def test_source_video_comes_only_from_a_proven_path(self):
+        a, b = self.tmp / "srcA", self.tmp / "srcB"
+        a.mkdir()
+        b.mkdir()
+        shutil.copyfile(self.markers(), a / "clip.mp4")
+        shutil.copyfile(self.video("numbered", lambda: synth.numbered_frames(120)),
+                        b / "clip.mp4")
+        self.assertNotEqual((a / "clip.mp4").stat().st_size, (b / "clip.mp4").stat().st_size)
+        run = self.tmp / "pk-src-run"
+        cp = run_cli_in(a, "frames", "clip.mp4", "--at", "0", "--out", run)
+        self.assertEqual(cp.returncode, 0, cp.stderr)
+        rj = json.loads((run / "run.json").read_text())
+        self.assertEqual(rj["options"]["video"], "clip.mp4")                # premise: relative
+        self.assertEqual(rj["video_abspath"], str((a / "clip.mp4").resolve()))
+        self.assertEqual(rj["video_size"], (a / "clip.mp4").stat().st_size)
+        _, data = self.pick(run, "pk-src-pick", cwd=b)
+        self.assertEqual(data["source_line"],
+                         f"# source: frames run of {(a / 'clip.mp4').resolve()}")
+        self.assertNotIn(str(b), json.dumps(data))
+        shutil.copyfile(b / "clip.mp4", a / "clip.mp4")                   # replaced in place
+        _, data = self.pick(run, "pk-src-pick-changed", cwd=b)
+        self.assertIsNone(data["source"]["video"])
+        self.assertIn("<VIDEO>", data["source_line"])
+        self.assertIn("changed since extraction", data["source_line"])
+        (a / "clip.mp4").unlink()
+        _, data = self.pick(run, "pk-src-pick-gone", cwd=b)
+        self.assertIn("<VIDEO>", data["source_line"])
+        self.assertIn("is missing", data["source_line"])
+
+    def test_run_json_records_the_video_provenance(self):
+        video = self.video("markers_slide", lambda: synth.marker_frames(60, slide=True))
+        for mode, extra in (("bug", ()), ("anim", ()), ("frames", ("--at", "0"))):
+            out = self.tmp / f"pk-prov-{mode}"
+            self.cli_ok(mode, video, "--out", out, *extra)
+            rj = json.loads((out / "run.json").read_text())
+            self.assertEqual(rj["video_abspath"], str(video.resolve()), mode)
+            self.assertEqual(rj["video_size"], video.stat().st_size, mode)
 
 
 if __name__ == "__main__":

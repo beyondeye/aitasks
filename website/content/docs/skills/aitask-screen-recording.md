@@ -21,6 +21,7 @@ You rarely invoke the skill by name: it triggers when you mention or attach a re
 ./.aitask-scripts/aitask_screen_recording.sh anim VIDEO [--out DIR] [options]
 ./.aitask-scripts/aitask_screen_recording.sh frames VIDEO (--range START-END | --at T[,T...]) [options]
 ./.aitask-scripts/aitask_screen_recording.sh sheet DIR [--per-sheet N] [--out DIR]
+./.aitask-scripts/aitask_screen_recording.sh pick DIR [--open] [--out DIR]
 ./.aitask-scripts/aitask_screen_recording.sh <mode> --help
 ```
 
@@ -30,7 +31,7 @@ For end-to-end walkthroughs of the two use cases, see the [Screen Recordings wor
 
 ## Step-by-Step
 
-This is the flow for `bug` and `anim`. `info` is a one-shot probe: it prints the video's properties and writes no directory and no `summary.md`. `frames` is the drill-down once you know the moment: it writes exact native frames at full resolution (see [Frames](#frames)). `sheet` is the way back in for images you prepared yourself: it turns a folder of them into labelled contact sheets (see [Sheet](#sheet)).
+This is the flow for `bug` and `anim`. `info` is a one-shot probe: it prints the video's properties and writes no directory and no `summary.md`. `frames` is the drill-down once you know the moment: it writes exact native frames at full resolution (see [Frames](#frames)). `sheet` is the way back in for images you prepared yourself: it turns a folder of them into labelled contact sheets (see [Sheet](#sheet)). `pick` lets you choose the frames yourself: it builds a page you open in a browser and copy your selection back from (see [Pick](#pick)).
 
 1. **Pick a mode** — `bug` for what happened, `anim` for how something moves (see [Modes](#modes))
 2. **Run the helper** — with `--out` pointing at a scratch location outside the repository
@@ -49,6 +50,7 @@ This is the flow for `bug` and `anim`. `info` is a one-shot probe: it prints the
 | `anim` | You want to know how something moves, usually to implement it | Finds each motion, measures its progress frame by frame, and fits named easing curves, a custom cubic-bezier and a spring |
 | `frames` | You want a close look at an exact moment, or frames to edit by hand and hand back | Writes every native frame of a range, or the frame on screen at given times, at full resolution, named by each frame's presentation time, with a `frames.tsv` manifest of their geometry |
 | `sheet` | You have a folder of images, for example frames you cropped, annotated or thinned out by hand | Builds labelled contact sheets from every png, jpg and webp image in the folder, ordered by the time in their file names, each labelled with that time and the time since the previous image. Needs ImageMagick |
+| `pick` | You want to choose the frames the agent reads yourself, by eye | Builds a static page (no server) of every frame of a `bug`, `frames` or `anim` run, or of a folder of images. You select frames, may mark a start and an end frame and drag a rectangle, then copy a plain-text block of the frames' absolute paths back to the agent. Needs only a browser |
 
 For a bug *inside* an animation, run `bug` first to find the moment, then `anim --window START-END` around it. For detail too small to read in a sheet, run `frames --at T` at the time `bug` or `anim` reported.
 
@@ -141,11 +143,57 @@ The summary's **Gaps** list names every step over 1.5 times the median step, whe
 
 **Layout.** Images of different sizes are letterboxed into equal cells, never stretched: each keeps its aspect ratio and is scaled to fit its cell, up or down. Each cell is at least as wide as its widest label, measured with the font ImageMagick uses on your machine, and a file name too long for its cell is shortened in the middle with `...`. Sheets stay within 1600 px on a side. An image ImageMagick cannot read is left out and listed in the summary; the order and `+N` skip it. An animated image contributes its first frame.
 
+### `pick`
+
+`pick` takes a run directory or a folder and shares no option with the other modes.
+
+| Flag | Default | Effect |
+|------|---------|--------|
+| `DIR` | — | A `bug`, `frames` or `anim` run directory, a `frames/` directory, or any folder of png, jpg and webp images |
+| `--open` | off | Open the page in the default browser when there is a display to show it on (see [No display](#no-display)) |
+| `--out DIR` | `$TMPDIR/video-prep/<name>-pick` | Output directory |
+
+**What it reads.** A run directory is recognised before anything else, by its `run.json` or by its shape:
+
+- a `bug` or `frames` run gives its `frames/` directory. A `bug` run's contact sheets in the run root are never taken for frames;
+- an `anim` run gives every `sNN/frames/` (`w01/frames/` after `--window`), one group per segment.
+
+Anything else is read as a folder of images, top level only. A `sheet` or `pick` output is refused, with the folder it was made from when that is known. Frames are ordered as `sheet` orders them: by the time in their names, then the untimed ones by name.
+
+**Snapshot first.** Every image is copied into `<out>/src/` and hashed there before anything else is read, so the page shows exactly the bytes that were hashed, even if the originals change meanwhile. A name the copy block could not carry on one line (control characters, `?`, a leading `-` or `.`, and the like) is copied as `renamed_NNNN.<ext>`, never over another snapshot, and the summary lists the renames.
+
+**The copy block.** The page builds a plain-text block for the agent and copies it to the clipboard. Where the browser refuses, it selects the text for you to copy.
+
+```
+# 3 frames picked in /tmp/video-prep/rec-anim-pick/index.html (set 1a2b3c4d)
+# viewing range: 0.483-0.517 s (first to last selected frame; a viewing range, not a measurement window)
+/tmp/video-prep/rec-anim-pick/src/s01/f013_0.483s.png	t=483 ms	first
+/tmp/video-prep/rec-anim-pick/src/s01/f014_0.500s.png	t=500 ms	+17 ms	note: button starts to move
+/tmp/video-prep/rec-anim-pick/src/s01/f015_0.517s.png	t=517 ms	+17 ms
+# --window 0.4825-0.5175  (user-marked endpoints (unverified): start f013_0.483s.png at 483 ms, end f015_0.517s.png at 517 ms; check the anim run's own endpoint diagnostics before trusting it)
+# --roi 37,151,201,243  (source-video pixels, mapped through the frames.tsv geometry of f013_0.483s.png, SHA-256 verified)
+# source: anim run of /home/me/rec.mp4
+```
+
+- **Frame lines** are tab-separated. Each gives the snapshot's absolute path, the time its name carries, the step since the previous *selected* frame (`first` for the first) and your note, if any.
+- **The viewing range** runs from the first to the last selected time. It is only that: the picker looks at no pixels, so it never calls a frame still or settled.
+- **`--window`** appears only when you mark a start frame and an end frame, and it is labelled `user-marked endpoints (unverified)`. Its bounds are 0.5 ms before the start frame's time and 0.5 ms after the end frame's. A name's time is within 0.5 ms of the frame's exact presentation time, so `anim --window` then starts at the start frame and ends at the end frame. With marks that cannot make a window (only one, the same frame twice, an end before the start, a frame with no time in its name), the block says `# no --window:` and why.
+- **`--roi`** appears for a rectangle drawn on a frame whose snapshot has the SHA-256 recorded in its `frames.tsv` row. It is mapped to source-video pixels through that row (see [`frames.tsv`](#framestsv)), rounded outward to whole pixels. Without such a row the block gives the rectangle in the image's own pixels, says so, and names the reason, and the page shows the same reason under the preview.
+- **The `# source:` line** names the recording only from the absolute path and size the run recorded (`video_abspath`, `video_size` in its `run.json`). Otherwise it reads `<VIDEO>`, with the reason.
+
+**Remembered selection.** The browser remembers the selection, marks, notes and rectangle for these exact images: the storage key is a fingerprint of the snapshot's bytes, so a page rebuilt from changed images starts empty. The page works when the browser blocks storage.
+
+### No display
+
+With `--open`, `pick` opens the page with `xdg-open` (Linux), `open` (macOS), or `wslview` on WSL (`explorer.exe` when `wslview` is missing). It does not try in an SSH session, or on Linux when neither `DISPLAY` nor `WAYLAND_DISPLAY` is set, or when no opener is on `PATH`. Then it prints `OPEN: not opened: …` with the reason and exits 0. The page is written either way, and `PAGE: <path>` names it.
+
 ## Output layout
 
-Every `bug`, `anim`, `frames` and `sheet` run writes a directory and prints its summary path as the last line of stdout: `SUMMARY: <path>`.
+Every `bug`, `anim`, `frames`, `sheet` and `pick` run writes a directory and prints its summary path as the last line of stdout: `SUMMARY: <path>`.
 
-The default location is `$TMPDIR/video-prep/<name>-<mode>` (`/tmp/video-prep/…` when `TMPDIR` is unset), where `<name>` is the video's file name without extension, or the folder's name for `sheet`. `--out` overrides it. An existing non-empty directory is never overwritten: the helper writes to `<dir>-2`, `<dir>-3`, and so on instead.
+The default location is `$TMPDIR/video-prep/<name>-<mode>` (`/tmp/video-prep/…` when `TMPDIR` is unset), where `<name>` is the video's file name without extension, the folder's name for `sheet`, or the run directory's or folder's name for `pick`. `--out` overrides it. An existing non-empty directory is never overwritten: the helper writes to `<dir>-2`, `<dir>-3`, and so on instead.
+
+The `run.json` of every `bug`, `anim` and `frames` run records the recording's provenance. `video_abspath` is its absolute path, resolved in the directory the helper ran in. `video_size` is its size in bytes. The `video` and `options.video` fields keep the path as it was given, which may be relative.
 
 **`bug`:**
 
@@ -215,6 +263,19 @@ A file name carries the frame's presentation time in integer milliseconds, round
 ```
 
 The line before `SUMMARY:` on stdout gives the number of sheets and their approximate image-token cost. `run.json` also records `per_sheet_requested`, `tiles_per_sheet` (the tiles on each sheet) and `per_sheet_reduced`, which is true when a sheet holds fewer than `--per-sheet` images because the labels would not otherwise fit. A last sheet that is short because the images ran out does not count.
+
+**`pick`:**
+
+```
+<out>/
+├── summary.md          # read first: input, frames with and without a trusted geometry, renames
+├── run.json            # options, input_layout, source, roi_trusted, roi_disabled, fingerprint, opened
+├── index.html          # the page: open it in any browser (static, no server)
+├── pick.json           # the data embedded in the page, for tools
+└── src/                # the snapshot: every image as the page shows it (src/s01/… per anim segment)
+```
+
+Stdout ends with `pick: N frames, …`, then `OPEN: …` (`opened`, `not opened: <reason>` or `not requested`), then `PAGE: <path>`, then `SUMMARY: <path>`.
 
 A recording whose frame size changes partway through is refused by `frames` when any requested frame has a size other than the probed one: ffmpeg would rescale those frames to the first frame's size, so neither their pixels nor their geometry would be true. `bug` and `anim` still run on such a recording, but write no `frames.tsv` and say why (see [Warnings and limits](#warnings-and-limits)).
 
@@ -310,6 +371,16 @@ Each line below is printed in `summary.md` (anim warnings also appear in `fit.js
 | sheet | ``sheet needs ImageMagick 7 (`magick`) on PATH …`` (error) | `sheet` draws sheets and has nothing else to offer without ImageMagick | Install ImageMagick 7 |
 | sheet | `…: no png, jpg or webp images (only the top level is read)` (error) | Nothing to draw | Check the folder; images in subfolders are not read |
 | sheet | `…: none of the N images could be read: …` (error) | ImageMagick could decode none of the images | Re-export them as png, jpg or webp |
+| pick | `OPEN: not opened: no display: …` | An SSH session, or Linux with neither `DISPLAY` nor `WAYLAND_DISPLAY` set. The page is written anyway | Open the `PAGE:` path in a browser on a machine that can show it, or let the agent choose the frames |
+| pick | `OPEN: not opened: no opener found …` | `xdg-open`, `open` or `wslview` is not on `PATH` | Open the `PAGE:` path by hand |
+| pick | `source --roi disabled: no frames.tsv beside the image` / `frames.tsv has no row for …` (page and block) | Nothing records where the image came from, so a rectangle cannot be mapped to the recording | Use the rectangle as image pixels, or pick from the run's own frames |
+| pick | `source --roi disabled: the image changed since extraction: its SHA-256 … differs from frames.tsv …` | The image was edited after extraction. Even a crop resized back to the same size, or a shift inside the same canvas, changes the hash. No corrected transform is accepted for an edited image | Draw the rectangle on an unedited frame, or extract the region with `frames --roi` |
+| pick | `# --window A-B  (user-marked endpoints (unverified): …)` (block) | You marked a start and an end frame. Nothing checked that they are still frames | Run `anim VIDEO --window A-B` and trust it only if its endpoint diagnostics agree |
+| pick | `# no --window: …` (block) | The marks cannot make a window: only one mark, the same frame twice, an end before the start, or a frame with no time in its name | Mark a start and a later end frame, both with times |
+| pick | `# source: … <VIDEO> (…)` (block) | The recording cannot be named from a proven path: the run predates the recorded provenance, the file is missing, or its size changed | Give the agent the recording's path yourself |
+| pick | `… is a sheet output; pick the folder it was made from (…)` (error) | `pick` reads frames, not contact sheets | Run `pick` on the folder named |
+| pick | `… is a bug run, but …/frames is missing` (error) | The run's `run.json` names a mode whose frames directory is gone | Pick from a complete run |
+| pick | `no png, jpg or webp images in …` (error) | Nothing to show | Check the path |
 
 Other known limits:
 
@@ -318,6 +389,8 @@ Other known limits:
 - **A fade combined with movement** — fit `--signal blend` for the opacity, and `--roi` with `--signal edge` for the motion, and report both.
 - **Low frame rate or dropped frames** (a large frame interval in the summary) make the timing coarser. Precision is ±1 frame: ±17 ms at 60 fps. A slowed capture with `--time-scale` gives proportionally more samples.
 - **Tiny motion** (a few pixels) is quantised. A tight `--roi` raises the analysis resolution, and so does `--analysis-pixels 400000`.
+- **A marked `--window` at very high frame rates.** The window's 0.5 ms margins keep the neighbouring frames out while frames are more than about 1.2 ms apart (below about 800 fps). Above that, a neighbour can fall inside the window.
+- **Edited images keep no geometry.** `pick` maps a rectangle to the recording only through an unedited frame's `frames.tsv` row; it accepts no corrected transform for an image you cropped or resized.
 - **Material 3 emphasized easing** is a path, not a cubic-bezier, so it cannot be fitted; expect it to land between M3 standard and the custom fit.
 - **Image budgets.** An image costs about ⌈width / 28⌉ × ⌈height / 28⌉ visual tokens. Claude models before Claude 4.7 downscale an image whose long edge is over 1568 px or whose cost is over 1568 tokens. Claude 4.7 and later models downscale above 2576 px or 4784 tokens. A request that carries more than 20 images rejects any image over 3000 px on a side. Contact sheets are sized to stay under the standard limits, and the summary estimates their token cost. A `bug` or `anim` frame costs about as much as a sheet. A full-resolution `frames` frame can cost far more: a 1080×2400 phone frame is about 3354 tokens, and the summary warns about each limit it crosses. Read frames selectively, and crop with `--roi`.
 
@@ -326,6 +399,7 @@ Other known limits:
 - **ffmpeg and ffprobe 5.1 or later** on `PATH` — required. They are not installed by `ait setup`; install them with your system's package manager.
 - **ImageMagick 7** (`magick`) — optional. Without it there are no contact sheets and the animation plot is written as `plot.svg` only; frames and data files are unaffected. `sheet` needs it and stops with an error when it is missing.
 - `sheet` alone needs no ffmpeg.
+- `pick` needs neither ffmpeg nor ImageMagick, only a browser to open the page in.
 - The helper itself is Python standard library only and runs on the framework's interpreter.
 
 ## Privacy
@@ -344,6 +418,7 @@ Recordings often show personal data.
 - [Animation from a Prototype Recording]({{< relref "/docs/workflows/screen-recordings/animation" >}})
 - [Extract Exact Frames for Close Inspection]({{< relref "/docs/workflows/screen-recordings/exact-frames" >}})
 - [Prepare Images by Hand, Then Feed Them to the Agent]({{< relref "/docs/workflows/screen-recordings/hand-edited-images" >}})
+- [Pick Frames Visually and Hand Them to the Agent]({{< relref "/docs/workflows/screen-recordings/pick-frames" >}})
 - [Recording Tips]({{< relref "/docs/workflows/screen-recordings/recording-tips" >}})
 
 ## Related
