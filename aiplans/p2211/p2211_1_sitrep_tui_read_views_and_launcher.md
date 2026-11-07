@@ -318,3 +318,94 @@ that details screens are snapshots (t2211_3 may refresh them after writes).
   calendar dates in `checked_at` or the clock seam) and age labels that go stale
   on an idle store · severity: low · → mitigation: none (never-raising
   `age_text` / `resolve_now`, per-tick age refresh without reparse, tests)
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-07 18:50)
+- **Requested by user:** (1) Q&A entry identity — `open_qa_entry` resolved a
+  positional index against the CURRENT log while the listing screens kept options
+  from an older snapshot; reproduced with the real writer (`restore qa` + a new
+  `qa` append reuses the position, so the listed 12:00 answer opened the 13:00
+  one). (2) The browsing screens (item details, Q&A log, Q&A entry) had no
+  footer-visible binding for their primary Enter: the focused OptionList's own
+  `enter` (`select`, show=False) shadowed it (`tui_conventions.md` "TUI footer
+  must surface every operation").
+- **Changes made:**
+  - `open_qa_entry(entry)` now takes the selected `QaEntry` object from the
+    listing screen's own snapshot (log listing and item backlinks alike); the
+    entry screen says "no longer in the current log" when exact field equality
+    no longer finds it. Item links stay id-based: the writer never reuses item
+    ids, not even across a restore (documented on `open_item`).
+  - `_OpenLinkMixin` + a `priority` `enter` → `open_link` ("Open") binding on
+    the three browsing screens; active only while the links list is focused
+    with a selectable option, so Enter over the text pane falls through; it
+    fires the list's own `select`, keeping one OptionSelected path.
+  - Tests: `QaIdentityTests` (restore-plus-append through the real writer, for
+    the log listing and for an item backlink, plus a no-stale-note control) and
+    `FooterTests` (Open shown and enabled on all three screens; Enter over the
+    text pane opens nothing). Mutants: positional re-resolution → both identity
+    tests red; Open binding removed → footer test red.
+- **Files affected:** `.aitask-scripts/sitrep_tui/sitrep_tui_app.py`,
+  `tests/test_sitrep_tui_app.py`
+
+## Final Implementation Notes
+- **Actual work done:** `ait sitrep tui [--root P]` (`tui` verb in
+  `aitask_sitrep.sh` → new `aitask_sitrep_tui.sh` → `sitrep_tui/sitrep_tui_app.py`).
+  New package `.aitask-scripts/sitrep_tui/`: `sitrep_tui_model.py` (no Textual:
+  hashed-bytes snapshots, grouping, never-raising ages, Q&A ordering/back-links,
+  read-only pointer followers, case raw input, review-case line) and
+  `sitrep_tui_app.py` (`SitrepTuiApp` + `ItemDetailScreen`,
+  `PointerViewerScreen`, `QaLogScreen`, `QaEntryScreen`). Small public additions:
+  `sitrep_todo.load_qa_for_read`; `sitrep_cli.capture_kind` / `review_case` /
+  `KIND_LABEL` aliases. Scope entry in `lib/shortcut_scopes.py` (scopes
+  `sitrep_tui`, `.detail`, `.viewer`, `.qa`, `.qa_entry`). 42 tests in
+  `tests/test_sitrep_tui_app.py`.
+- **Deviations from plan:** (1) list rows put the age column BEFORE the title
+  and are cut to one line by `#st-list { text-wrap: nowrap; text-overflow:
+  ellipsis; }` — the live render showed two-line rows, and `OptionList` ignores
+  `Text.no_wrap` (the pin measures rendered height, not the attribute); (2) the
+  App's `enter` is `priority=True`, because the focused list's hidden `enter`
+  hid "Details" from the footer; (3) Q&A entries are carried as objects, and the
+  browsing screens got a priority `Open` binding (review round 1, see
+  Post-Review Changes); (4) a separate `sitrep_tui.qa_entry` scope (two screens
+  must not share one scope's binding set); (5) `checked: never` is shown without
+  the redundant `(never)`.
+- **Issues encountered:** none blocking. Measured with mutants in a scratch copy:
+  each guard (age refresh on an unchanged tick, invalid-date fallback, the
+  split text/links layout, selection keep, seam fallback, one-line rows,
+  Q&A identity, Open binding) turns its test red.
+- **Key decisions:** the store is `<canonical root>/.aitask-sitrep` (what every
+  read-side consumer uses; only the writer honours `AITASK_SITREP_DIR`). No
+  `TUI_REGISTRY` row: `TUI_NAMES` is a window-name registry whose consumers
+  (`monitor_core.spawn_tui` / applink allow-list → `ait <name>`,
+  `get_missing_tuis`, `detect_target_activity`) would mis-treat a pane-only TUI.
+  `ait` untouched (another session's hunks; not needed — the TUI takes the
+  alternate screen). Reload is an awaited `set_interval` callback (no worker),
+  pointer follows are screen workers that never raise.
+- **Upstream defects identified:**
+  - `tests/test_monitor_sitrep_harvest_close.py:891-896 — test_S_is_a_registered_quick_jump fails when run after tests/test_shortcut_scopes.py in the same process (the scope sweep resets keybinding_registry; tui_switcher's import-time shared-scope registration is not replayed). Reproduced on a pristine HEAD copy; passes alone and in the full suite's current worker split.`
+- **Notes for sibling tasks:**
+  - **t2211_2 (window/spawn):** launch the pane with `ait sitrep tui --root <R>`;
+    exit 2 = bad `--root` spelling, exit 1 + `ROOT_FAILED:<why>` on stderr =
+    unresolvable root; the app `chdir`s to the canonical root. Its tmux pane
+    title/stamp is yours to set — the app sets nothing on tmux.
+  - **t2211_3 (actions):** hooks are `SitrepTuiApp._selected_cid()`,
+    `check_action` (main-only actions gated by `_MAIN_ACTIONS` + an
+    `isinstance(self.screen, _SitrepScreen)` check — add new main actions there),
+    `_poll_store()` (call after a write for an immediate reload) and
+    `_apply()`. Details screens are SNAPSHOTS of `app.store` at open time;
+    refresh or re-push them after a write. Writer calls must run with
+    `cwd=<root>` and WITHOUT `AITASK_SITREP_DIR` in env, so they hit the store
+    this TUI reads. The "store unusable" banner text names
+    `aitask_sitrep_todo.sh restore todo|qa` — replace with the restore key.
+    Item ids are never reused (safe to re-resolve); Q&A entries have no id —
+    carry the object.
+  - **t2211_4 (requests):** put `AGENT_REQUESTS` in `sitrep_tui_app.py` (the
+    module `KNOWN_BINDING_SOURCES` lists); new screens there are swept
+    automatically, new modules need a manifest entry.
+  - **t2211_6 (docs):** the TUI is not in `TUI_REGISTRY`/switcher — list it by
+    hand. Keys: main `⏎` Details, `d` Done/dismissed, `l` Q&A log, `s`
+    Situation, `q`, `j`, `?`; browsing screens `⏎` Open, `tab` Text/links,
+    `esc` Back. Pointer kinds and refusals: `..` / absolute / `~` / `\` /
+    symlink escape out of the repo, `-`-leading or whitespace handles, capture
+    outside `sources/`, raw input with a sha mismatch.
