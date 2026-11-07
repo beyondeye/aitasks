@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: medium
 effort: medium
 depends: [t1893_5]
 issue_type: feature
@@ -166,3 +168,5 @@ copied here so the task stands alone.
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-11-07T17:37:16Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-11-07T20:16:59Z status=pass attempt=1 type=human
