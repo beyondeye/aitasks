@@ -4,7 +4,7 @@ effort: low
 depends: []
 issue_type: bug
 status: Ready
-labels: [sitrep, tui]
+labels: [tui, keybindings, test_infrastructure]
 gates: [risk_evaluated]
 anchor: 2175
 followup_kind: upstream_defect
