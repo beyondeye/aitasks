@@ -107,12 +107,17 @@ class _FakeContainer:
         self.mounted = list(widgets)
 
 
-def _mk_list_app(snapshots, *, own_window_index=None, multi_session=False):
-    """MiniMonitorApp stubbed down to what `_rebuild_pane_list` touches."""
+def _mk_list_app(snapshots, *, own_members=(), multi_session=False):
+    """MiniMonitorApp stubbed down to what `_rebuild_pane_list` touches.
+
+    ``own_members`` are the pane ids sharing this minimonitor's window — the
+    identity source since t2227 (no own window by default).
+    """
     container = _FakeContainer()
     app = mm.MiniMonitorApp.__new__(mm.MiniMonitorApp)
     app.query_one = lambda *a, **k: container
-    app._own_window_index = own_window_index
+    app._own_window_pane_ids = frozenset(own_members)
+    app._own_identity_confirmed = True
     app._session = "s1"
     app._snapshots = {s.pane.pane_id: s for s in snapshots}
     app._task_cache = SimpleNamespace(
@@ -196,7 +201,7 @@ class OtherSectionRenderTests(unittest.TestCase):
                 _snap("%3", window_index="8", window_name="scratch",
                       category=PaneCategory.OTHER, command="bash"),
             ],
-            own_window_index="7",
+            own_members=("%2",),
         )
         asyncio.run(app._rebuild_pane_list())
 
@@ -327,11 +332,17 @@ class OtherRowCompositedTests(unittest.TestCase):
 class OwnWindowResolverTests(unittest.TestCase):
     """The identity seam vs the action seam."""
 
-    def _app(self, snapshots, own_window_index="7"):
+    def _app(self, snapshots, own_members=None):
+        """``own_members`` defaults to every snapshot's pane — "all of these
+        share this minimonitor's window" (t2227: identity is pane-id
+        membership, confirmed this tick)."""
         app = mm.MiniMonitorApp.__new__(mm.MiniMonitorApp)
         app._snapshots = {s.pane.pane_id: s for s in snapshots}
         app._session = "s1"
-        app._own_window_index = own_window_index
+        app._own_window_pane_ids = (
+            frozenset(app._snapshots) if own_members is None
+            else frozenset(own_members))
+        app._own_identity_confirmed = True
         return app
 
     def test_agent_seam_still_refuses_in_a_renamed_window(self):
@@ -371,15 +382,19 @@ class OwnWindowResolverTests(unittest.TestCase):
         ])
         self.assertEqual(app._find_own_window_snapshot().pane.pane_id, "%2")
 
-    def test_window_seam_is_session_scoped(self):
+    def test_window_seam_ignores_a_non_member_at_the_same_index(self):
+        """What the old session scope approximated, now exact (t2227): a pane
+        at this window's index in ANOTHER session — or in a neighbouring window
+        after a renumber — is not a member, so it is never resolved."""
         app = self._app([_snap("%2", window_index="7", window_name="noam_bugs",
-                               category=PaneCategory.OTHER, session="other")])
+                               category=PaneCategory.OTHER, session="other")],
+                        own_members=("%9",))
         self.assertIsNone(app._find_own_window_snapshot())
 
-    def test_no_own_window_index_returns_none(self):
+    def test_no_known_membership_returns_none(self):
         app = self._app([_snap("%2", window_index="7", window_name="noam_bugs",
                                category=PaneCategory.OTHER)],
-                        own_window_index=None)
+                        own_members=())
         self.assertIsNone(app._find_own_window_snapshot())
 
 
@@ -401,13 +416,15 @@ class _FakePanel:
 
 
 class OwnAgentPanelTests(unittest.TestCase):
-    def _app(self, snapshots, own_window_index="7"):
+    def _app(self, snapshots):
         panel = _FakePanel()
         app = mm.MiniMonitorApp.__new__(mm.MiniMonitorApp)
         app.query_one = lambda *a, **k: panel
         app._snapshots = {s.pane.pane_id: s for s in snapshots}
         app._session = "s1"
-        app._own_window_index = own_window_index
+        # Every fixture pane shares this window (t2227 pane-id membership).
+        app._own_window_pane_ids = frozenset(app._snapshots)
+        app._own_identity_confirmed = True
         app._own_panel_built = False
         app._own_card = None
         app._own_identity_text = ""
@@ -611,7 +628,8 @@ class SharedMarkGuardTests(unittest.TestCase):
         app = self._stub(mm.MiniMonitorApp, other)
         app._snapshots = {"%1": followed, "%2": other}
         app._session = "s1"
-        app._own_window_index = "7"
+        app._own_window_pane_ids = frozenset({"%1"})
+        app._own_identity_confirmed = True
 
         asyncio.run(app.action_toggle_mark())
 

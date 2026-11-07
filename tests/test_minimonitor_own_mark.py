@@ -68,6 +68,9 @@ SESSION = "demo"
 OTHER_SESSION = "other"
 OWN_WINDOW_INDEX = "1"
 OWN_WINDOW = "agent-followed"
+#: Pane ids sharing this minimonitor's window (t2227): the followed agent `%1`
+#: and the minimonitor itself `%9` (dropped from `_snapshots` by the client view).
+OWN_MEMBERS = ("%1", "%9")
 LIST_WINDOW = "agent-in-the-list"
 
 # `#mini-key-hints` carries `padding: 0 1`, leaving this many usable columns.
@@ -193,14 +196,17 @@ class _StoreFixture(unittest.TestCase):
 
 class _ResolutionFixture(_StoreFixture):
     def app(self, *, snaps=None, mapping=None, reply=(0, "MARKED:x|y"),
-            own_window_index=OWN_WINDOW_INDEX):
+            own_members=OWN_MEMBERS):
         app = MiniMonitorApp.__new__(MiniMonitorApp)
         app._project_root = self.here
         app._monitor = _FakeMonitor(
             mapping if mapping is not None else self.mapping()
         )
         app._session = SESSION
-        app._own_window_index = own_window_index
+        app._own_window_index = OWN_WINDOW_INDEX
+        # Identity is pane-id membership confirmed this tick (t2227).
+        app._own_window_pane_ids = frozenset(own_members)
+        app._own_identity_confirmed = True
         app._snapshots = {
             s.pane.pane_id: s
             for s in (snaps if snaps is not None
@@ -306,7 +312,7 @@ class ResolutionTests(_ResolutionFixture):
         )
 
     def test_no_followed_agent_warns_and_never_writes(self):
-        app = self.app(snaps=[list_snapshot()], own_window_index=None)
+        app = self.app(snaps=[list_snapshot()], own_members=())
         self.press_space(app, focused=None)
 
         self.assertEqual(app.spy_calls, [])
@@ -348,14 +354,16 @@ class ResolutionTests(_ResolutionFixture):
 # ---------------------------------------------------------------------------
 
 class PanelRenderTests(_StoreFixture):
-    def app(self, snaps, *, own_window_index=OWN_WINDOW_INDEX):
+    def app(self, snaps, *, own_members=OWN_MEMBERS):
         panel = _FakePanel()
         app = MiniMonitorApp.__new__(MiniMonitorApp)
         app.query_one = lambda *a, **k: panel
         app._project_root = self.here
         app._monitor = _FakeMonitor(self.mapping())
         app._session = SESSION
-        app._own_window_index = own_window_index
+        app._own_window_index = OWN_WINDOW_INDEX
+        app._own_window_pane_ids = frozenset(own_members)
+        app._own_identity_confirmed = True
         app._target_width = 40
         app._task_cache = _FakeTaskCache()
         app._snapshots = {s.pane.pane_id: s for s in snaps}
@@ -560,7 +568,13 @@ class RefreshCycleWiringTests(_StoreFixture):
         app._session = SESSION
         app._own_window_index = OWN_WINDOW_INDEX
         app._own_window_id = None
-        async def _noop_window_info(): return None
+        # The stubbed query never runs, so the membership a real tick would
+        # have validated is stated here (t2227); the panel is a display path
+        # and reads it without this tick's confirmation.
+        app._own_window_pane_ids = frozenset(OWN_MEMBERS)
+        # Reports a CONFIRMED tick, as the real query would on success: `space`
+        # is an action, and actions refuse on an unconfirmed identity (t2227).
+        async def _noop_window_info(): return True
         app._update_own_window_info = _noop_window_info
         app._maybe_offer_concerns = _noop_async
         app._marks_view = agent_marks.MarksView(self.store)
@@ -895,11 +909,15 @@ class OwnAgentStaysCapturedTests(_StoreFixture):
 
 
 class OwnWindowInfoConfirmationTests(unittest.TestCase):
-    """`_update_own_window_info` must REPORT whether it confirmed a name.
+    """`_update_own_window_info` must REPORT whether it confirmed the identity.
 
     Every one of its failure paths leaves the previous fields standing, which is
-    right for display and wrong for the parked subtraction — so the caller needs
-    a signal, not a `is not None` check on a field that survives failure.
+    right for display and wrong for the parked subtraction and for every action
+    that resolves the followed agent — so the caller needs a signal, not a
+    `is not None` check on a field that survives failure.
+
+    The query is one `list-panes -t $TMUX_PANE` (t2227): one record per pane in
+    this pane's window, `pane_id<TAB>window_id<TAB>window_index<TAB>name`.
     """
 
     def app(self, reply):
@@ -907,9 +925,14 @@ class OwnWindowInfoConfirmationTests(unittest.TestCase):
         app._own_window_id = None
         app._own_window_index = None
         app._own_window_name = "agent-stale"
-        app._monitor = SimpleNamespace(
-            tmux_run_async=lambda *a, **k: _immediate(reply)
-        )
+        app._own_window_pane_ids = frozenset({"%old"})
+        app.spy_calls: list[list[str]] = []
+
+        def run(args, **kw):
+            app.spy_calls.append(list(args))
+            return _immediate(reply)
+
+        app._monitor = SimpleNamespace(tmux_run_async=run)
         return app
 
     def _run(self, app):
@@ -917,9 +940,19 @@ class OwnWindowInfoConfirmationTests(unittest.TestCase):
             return asyncio.run(app._update_own_window_info())
 
     def test_a_full_reply_confirms(self):
-        app = self.app((0, "@1\t3\tagent-fresh"))
+        app = self.app((0, "%6\t@1\t3\tagent-fresh\n%7\t@1\t3\tagent-fresh\n"))
         self.assertTrue(self._run(app))
         self.assertEqual(app._own_window_name, "agent-fresh")
+        self.assertEqual(app._own_window_index, "3")
+        self.assertEqual(app._own_window_id, "@1")
+        self.assertEqual(app._own_window_pane_ids, frozenset({"%6", "%7"}))
+
+    def test_the_query_targets_this_pane_not_a_window_index(self):
+        """The listing is anchored on `$TMUX_PANE`, which tmux resolves to the
+        window the pane is in NOW — the property the whole fix rests on."""
+        app = self.app((0, "%7\t@1\t3\tagent-fresh\n"))
+        self._run(app)
+        self.assertEqual(app.spy_calls[0][:3], ["list-panes", "-t", "%7"])
 
     def test_a_failed_query_does_not_confirm_and_leaves_the_stale_name(self):
         app = self.app((1, ""))
@@ -929,20 +962,41 @@ class OwnWindowInfoConfirmationTests(unittest.TestCase):
             "the field is deliberately left alone — which is exactly why the "
             "return value, not the field, is what the subtraction may trust",
         )
+        self.assertEqual(app._own_window_pane_ids, frozenset({"%old"}))
 
     def test_an_empty_reply_does_not_confirm(self):
         self.assertFalse(self._run(self.app((0, "   "))))
 
-    def test_a_truncated_reply_does_not_confirm(self):
-        """Two fields: index refreshed, NAME NOT. The stale name survives, so
-        this must report unconfirmed even though the call 'succeeded'."""
-        app = self.app((0, "@1\t3"))
+    def test_a_truncated_record_does_not_confirm_and_touches_nothing(self):
+        """A record short of fields: the listing proves nothing, so NOTHING is
+        refreshed — stricter than the old display-message reply, which still
+        wrote the index from a two-field answer."""
+        app = self.app((0, "%7\t@1\t3\n"))
         self.assertFalse(self._run(app))
-        self.assertEqual(app._own_window_index, "3")
+        self.assertIsNone(app._own_window_index)
         self.assertEqual(app._own_window_name, "agent-stale")
+        self.assertEqual(app._own_window_pane_ids, frozenset({"%old"}))
+
+    def test_a_listing_without_this_pane_does_not_confirm(self):
+        app = self.app((0, "%6\t@1\t3\tagent-fresh\n"))
+        self.assertFalse(self._run(app))
+        self.assertEqual(app._own_window_pane_ids, frozenset({"%old"}))
+
+    def test_a_listing_spanning_two_windows_does_not_confirm(self):
+        app = self.app((0, "%6\t@2\t4\tother\n%7\t@1\t3\tagent-fresh\n"))
+        self.assertFalse(self._run(app))
+
+    def test_a_malformed_pane_id_does_not_confirm(self):
+        app = self.app((0, "x6\t@1\t3\tagent\n%7\t@1\t3\tagent\n"))
+        self.assertFalse(self._run(app))
+
+    def test_a_tab_inside_the_name_stays_in_the_name(self):
+        app = self.app((0, "%7\t@1\t3\tagent\twith tab\n"))
+        self.assertTrue(self._run(app))
+        self.assertEqual(app._own_window_name, "agent\twith tab")
 
     def test_no_tmux_pane_does_not_confirm(self):
-        app = self.app((0, "@1\t3\tagent-fresh"))
+        app = self.app((0, "%7\t@1\t3\tagent-fresh\n"))
         with patch.dict(os.environ, {}, clear=False):
             os.environ.pop("TMUX_PANE", None)
             self.assertFalse(asyncio.run(app._update_own_window_info()))

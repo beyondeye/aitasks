@@ -1065,6 +1065,9 @@ class KeyDispatchTests(unittest.TestCase):
             window="agent-pick-7", pane_id="%2", window_index="2")}
         app._session = SESSION
         app._own_window_index = "1"
+        # `%1` is the followed agent: pane-id membership, confirmed (t2227).
+        app._own_window_pane_ids = frozenset({"%1"})
+        app._own_identity_confirmed = True
         app._kill_target_state = lambda pane_id: "live"
         app._dispatch_harvest_close = (
             lambda snap, state, root: seen.append(

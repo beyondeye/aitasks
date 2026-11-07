@@ -88,13 +88,19 @@ class _FakeTaskCache:
         return _task_info(task_id)
 
 
-def _mk_app(snapshots, pane_to_task, own_window_index="1"):
-    """Real MiniMonitorApp with only the collaborators these actions touch."""
+def _mk_app(snapshots, pane_to_task, own_members=("%own",)):
+    """Real MiniMonitorApp with only the collaborators these actions touch.
+
+    The followed agent is resolved by pane-id membership confirmed this tick
+    (t2227), so the fixture states which panes share this minimonitor's window.
+    """
     app = mm.MiniMonitorApp.__new__(mm.MiniMonitorApp)
     app._snapshots = {s.pane.pane_id: s for s in snapshots}
     app._task_cache = _FakeTaskCache(pane_to_task)
     app._session = "s1"
-    app._own_window_index = own_window_index
+    app._own_window_index = "1"
+    app._own_window_pane_ids = frozenset(own_members)
+    app._own_identity_confirmed = True
     app.spy_notify: list = []
     app.spy_pushed: list = []
     app.notify = lambda msg, **kw: app.spy_notify.append(
@@ -169,7 +175,7 @@ class TestShowOwnTaskInfo(unittest.TestCase):
 
     def test_warns_when_no_followed_agent(self):
         other = _snap("%other", window_index="7")
-        app = _mk_app([other], {"%other": "999"}, own_window_index="1")
+        app = _mk_app([other], {"%other": "999"})
         app.action_show_own_task_info()
         self.assertEqual(app.spy_pushed, [])
         self.assertEqual(

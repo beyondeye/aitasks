@@ -615,8 +615,14 @@ def _real_core_monitor(frozen_record: str):
             return (0, "")
         if args[0] == "display-message":
             return (0, "%7")
-        # `list-panes` answers no other agent in the window, so the smart kill
-        # takes its whole-window branch — the one that retires the record.
+        # `list-panes` answers the pane alone in its window (no other agent),
+        # so the smart kill takes its whole-window branch — the one that
+        # retires the record. The listing must name `%7` itself: one that does
+        # not is not a description of its window, and the collapse decision
+        # treats it as undecidable (t2227). FROZEN_AWARE_PANE_FORMAT order:
+        # id, pid, shadow target, monitor kind, frozen, dead, scratch target.
+        if args[0] == "list-panes":
+            return (0, "%7\t1\t\t\t\t0\t\n")
         return (0, "")
 
     mon.tmux_run = tmux_run

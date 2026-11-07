@@ -251,7 +251,7 @@ class _FakeContainer:
         self.mounted = list(widgets)
 
 
-def _mk_list_app(snapshots, *, own_window_index=None, multi_session=False):
+def _mk_list_app(snapshots, *, own_members=(), multi_session=False):
     """MiniMonitorApp stubbed down to what `_rebuild_pane_list` touches.
 
     Same harness shape as ``tests/test_minimonitor_other_section.py``.
@@ -259,7 +259,9 @@ def _mk_list_app(snapshots, *, own_window_index=None, multi_session=False):
     container = _FakeContainer()
     app = mm.MiniMonitorApp.__new__(mm.MiniMonitorApp)
     app.query_one = lambda *a, **k: container
-    app._own_window_index = own_window_index
+    # Pane ids sharing this minimonitor's window (t2227); none by default.
+    app._own_window_pane_ids = frozenset(own_members)
+    app._own_identity_confirmed = True
     app._session = "s1"
     app._snapshots = {s.pane.pane_id: s for s in snapshots}
     app._task_cache = SimpleNamespace(
@@ -369,7 +371,8 @@ class MiniMonitorDividerTests(unittest.TestCase):
         app._snapshots = {"%4": _snap("%4", window_index="7",
                                       window_name="agent-pick-42")}
         app._session = "s1"
-        app._own_window_index = "7"
+        app._own_window_pane_ids = frozenset({"%4"})
+        app._own_identity_confirmed = True
         app._own_panel_built = False
         app._own_card = None
         app._own_identity_text = ""

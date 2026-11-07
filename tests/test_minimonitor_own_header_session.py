@@ -333,17 +333,17 @@ class MountedHeaderTests(unittest.TestCase):
     def _build(self, snap, app_session="probe-session"):
         """`app_session` is `self._session`, and it is a parameter on purpose.
 
-        `_find_own_window_snapshot` resolves the followed pane with
-        `session_name in ("", self._session)`, so the two values are not
-        independent: the fallback case below needs them to DIFFER, and every
-        other case needs them to agree or no panel is built at all.
+        `_find_own_window_snapshot` resolves the followed pane by pane-id
+        membership (t2227), not by session, so the two values are independent:
+        the fallback case below can make them DIFFER and still build a panel.
         """
         panel = _FakePanel()
         app = mm.MiniMonitorApp.__new__(mm.MiniMonitorApp)
         app.query_one = lambda *a, **k: panel
         app._snapshots = {snap.pane.pane_id: snap}
         app._session = app_session
-        app._own_window_index = "7"
+        app._own_window_pane_ids = frozenset({snap.pane.pane_id})
+        app._own_identity_confirmed = True
         app._own_panel_built = False
         app._own_card = None
         app._own_identity_text = ""

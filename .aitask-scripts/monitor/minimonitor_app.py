@@ -175,6 +175,53 @@ _UNKNOWN_RECENCY = ReadRecency(None, None)
 AUTO_CLOSE_CONFIRMATIONS = 2
 
 
+#: The per-tick own-window query (t2227), issued as ``list-panes -t $TMUX_PANE``.
+#: ``window_name`` is LAST so a tab inside a name stays inside the name
+#: (:func:`parse_own_window_listing` splits each record at most three times).
+OWN_WINDOW_LISTING_FORMAT = (
+    "#{pane_id}\t#{window_id}\t#{window_index}\t#{window_name}"
+)
+
+
+def parse_own_window_listing(
+    stdout: str, own_pane: str,
+) -> tuple[str, str, str, frozenset[str]] | None:
+    """Validate an :data:`OWN_WINDOW_LISTING_FORMAT` listing as a whole.
+
+    Returns ``(window_id, window_index, window_name, pane_ids)`` — the window
+    fields read from **this pane's own record** — or ``None`` when the listing
+    does not prove what it claims. Validation is all-or-nothing, because the
+    membership set it yields decides which pane the minimonitor's actions
+    target: a listing that is empty, has a short or malformed record, spans two
+    windows, or does not contain ``own_pane`` at all is not evidence of the
+    window this pane is in, so none of it is used.
+
+    Records are split on newlines with no whole-buffer strip, so a name ending
+    in whitespace survives. Blank lines are not records.
+    """
+    if not own_pane:
+        return None
+    pane_ids: set[str] = set()
+    window_ids: set[str] = set()
+    own_fields: tuple[str, str, str] | None = None
+    for line in stdout.splitlines():
+        if not line.strip():
+            continue
+        parts = line.split("\t", 3)
+        if len(parts) != 4:
+            return None
+        pane_id, window_id, window_index, window_name = parts
+        if not pane_id.startswith("%") or not window_id.startswith("@"):
+            return None
+        pane_ids.add(pane_id)
+        window_ids.add(window_id)
+        if pane_id == own_pane:
+            own_fields = (window_id, window_index, window_name)
+    if own_fields is None or len(window_ids) != 1:
+        return None
+    return own_fields[0], own_fields[1], own_fields[2], frozenset(pane_ids)
+
+
 # -- Row width budget ---------------------------------------------------------
 #
 # The one place this pane's column arithmetic lives (t1479, t1351). Every value
@@ -1537,15 +1584,32 @@ class MiniMonitorApp(
         # AUTO_CLOSE_CONFIRMATIONS and _check_auto_close.
         self._empty_window_streak: int = 0
         self._own_window_id: str | None = None
+        # Display / diagnostics only (t2227). `renumber-windows` shifts it
+        # whenever an earlier window closes, so NO identity decision may read
+        # it — the followed agent is resolved by pane id, below.
         self._own_window_index: str | None = None
         self._own_window_name: str | None = None
-        # Whether THIS tick's `_update_own_window_info` confirmed the window
-        # name (t1685). Reset at the top of every `_refresh_data`; read only by
-        # `_parked_agent_pairs`, which fails safe without it.
+        # The identity source (t2227): pane ids of the window holding
+        # `$TMUX_PANE`, from the last listing `_update_own_window_info`
+        # VALIDATED. Pane ids never change for a pane's lifetime, so matching
+        # snapshots against this set cannot land on a neighbouring window after
+        # a renumber the way the old `window_index` match did. Kept across a
+        # failed query — but a kept set is display-grade only:
+        # `swap-pane` / `join-pane` / `break-pane` move ids between windows, so
+        # actions additionally require `_own_identity_confirmed` (see
+        # `_find_own_agent_snapshot`).
+        self._own_window_pane_ids: frozenset[str] | None = None
+        # Whether THIS tick's `_update_own_window_info` validated the own
+        # window's name AND pane membership (t1685, t2227). Reset at the top of
+        # every `_refresh_data`; gates the parked-capture pin and every action
+        # that resolves the followed agent, both of which fail safe without it.
         self._own_identity_confirmed: bool = False
-        # The followed-agent docked panel is built once (static identity, no
-        # per-cycle status refresh) — see _maybe_build_own_agent_panel.
+        # The followed-agent docked panel is built once per resolved pane
+        # (static identity, no per-cycle status refresh) — see
+        # _maybe_build_own_agent_panel. `_own_panel_pane_id` is the pane it was
+        # built for; a different resolved pane rebuilds it (t2227).
         self._own_panel_built: bool = False
+        self._own_panel_pane_id: str | None = None
         # The docked card widget and the identity string frozen at build time,
         # so the per-tick repaint (t1383/t1420, _refresh_own_live_state) never needs a
         # snapshot it may no longer have.
@@ -2054,6 +2118,16 @@ class MiniMonitorApp(
                 self._scan_rerun = True   # re-dispatched by that tick's finally
             return
         self._refresh_inflight = True
+        # Withdraw the previous tick's identity confirmation NOW — after the
+        # re-entrancy guard admitted this refresh, before its first await
+        # (t2227). The confirmation says "the last own-window listing validated
+        # the membership"; once a new refresh is under way, that listing is
+        # about to be re-checked, and every await before the query below (the
+        # session mapping first) is a window in which `k` / `n` / Enter would
+        # otherwise still act on a membership a `swap-pane` may have changed.
+        # Actions refuse until this tick's query answers — the fail-safe
+        # direction, costing at most one refresh's latency.
+        self._own_identity_confirmed = False
         try:
             if self._monitor is None:
                 return
@@ -2085,13 +2159,13 @@ class MiniMonitorApp(
             # nothing changed. Must run before the pane list renders, and is what
             # makes a mark set in another repo appear here within one tick.
             self._refresh_marks()
-            # Keep window index fresh (handles tmux renumber-windows). Moved
-            # above the capture (t1685): `_parked_agent_pairs` subtracts the
-            # followed agent by name, and it must be THIS tick's name. Reset the
-            # flag first so a failed query can only ever make the publication
-            # more conservative, never leave a previous tick's confirmation
-            # standing.
-            self._own_identity_confirmed = False
+            # Re-read this pane's window — id, index, name and pane membership
+            # (handles renumber-windows, renames and pane moves). Above the
+            # capture (t1685): `_parked_agent_pairs` subtracts the followed
+            # agent by name, and it must be THIS tick's name. The flag was
+            # already withdrawn at the top of this refresh (t2227), so a failed
+            # query can only ever make the publication and every action more
+            # conservative, never leave a previous tick's confirmation standing.
             self._own_identity_confirmed = await self._update_own_window_info()
             self._publish_parked_agents()
             # A user action under a shared server (t2037_3): with THIS tick's
@@ -2310,42 +2384,46 @@ class MiniMonitorApp(
             self._own_window_name = parts[2]
 
     async def _update_own_window_info(self) -> bool:
-        """Re-query own window index/name (handles tmux renumber-windows and
-        window renames). Returns whether THIS call confirmed a window name.
+        """Re-read this pane's window: id, index, name AND the pane ids in it.
+        Returns whether THIS call validated all of them.
 
-        Every failure path returns without touching the fields, so the
-        **previous** values survive — which is right for display (a stale index
-        still beats none) and wrong for anything that must not act on a stale
-        identity. The parked-capture subtraction is exactly that: it removes the
-        followed agent's pair from the set published to `TmuxMonitor`, and a
-        stale name subtracts the wrong pair, leaving the real followed agent
-        parked and uncaptured while its docked panel silently freezes.
+        One ``list-panes -t $TMUX_PANE`` round trip (t2227) — the same call
+        count as the ``display-message`` it replaced. tmux resolves a pane id
+        given as the window target to the window that pane is in *now*, so the
+        listing describes the current window even across a ``renumber-windows``
+        shift, a ``swap-pane`` or a ``break-pane``. The membership it yields is
+        the identity source: ``_find_own_agent_snapshot`` matches snapshots by
+        pane id against it, never by ``window_index`` (which is what let a
+        minimonitor started as its origin window was killed freeze the origin
+        agent's name in its docked panel).
 
-        Hence a return value rather than a `_own_window_name is not None` check
-        at the call site: "absent" is not the only unsafe state, "unconfirmed" is
-        — and after a rename the name is present and wrong.
+        The listing is validated whole by :func:`parse_own_window_listing`
+        before any field is touched. Every failure path returns without touching
+        the fields, so the **previous** values survive — which is right for
+        display (a stale name still beats none) and wrong for anything that must
+        not act on a stale identity. Two consumers are exactly that: the
+        parked-capture subtraction (a stale name subtracts the wrong pair,
+        leaving the real followed agent parked and its panel frozen), and every
+        action that resolves the followed agent (a stale membership set can name
+        a pane that has since moved out of this window). Both read the return
+        value through ``_own_identity_confirmed``, never the surviving fields:
+        "absent" is not the only unsafe state, "unconfirmed" is.
         """
         own_pane = os.environ.get("TMUX_PANE", "")
         if not own_pane or self._monitor is None:
             return False
         rc, stdout = await self._monitor.tmux_run_async(
-            ["display-message", "-p", "-t", own_pane,
-             "#{window_id}\t#{window_index}\t#{window_name}"],
+            ["list-panes", "-t", own_pane, "-F", OWN_WINDOW_LISTING_FORMAT],
             timeout=2,
         )
-        if rc != 0 or not stdout.strip():
+        if rc != 0:
             return False
-        parts = stdout.strip().split("\t")
-        if len(parts) >= 1:
-            self._own_window_id = parts[0]
-        if len(parts) >= 2:
-            self._own_window_index = parts[1]
-        if len(parts) >= 3:
-            self._own_window_name = parts[2]
-            return True
-        # Fewer than three fields: the name was NOT refreshed, so whatever is in
-        # `_own_window_name` is from an earlier query and may predate a rename.
-        return False
+        parsed = parse_own_window_listing(stdout, own_pane)
+        if parsed is None:
+            return False
+        (self._own_window_id, self._own_window_index,
+         self._own_window_name, self._own_window_pane_ids) = parsed
+        return True
 
     def _capture_pins(self):
         """Parked agents this minimonitor needs captured live: the one it follows.
@@ -2374,28 +2452,61 @@ class MiniMonitorApp(
             return CAPTURE_PIN_ALL
         return frozenset({(self._session, self._own_window_name)})
 
-    def _find_own_agent_snapshot(self) -> PaneSnapshot | None:
+    def _own_members(self, confirmed_only: bool) -> frozenset[str] | None:
+        """The own window's pane ids, or ``None`` when they may not be used.
+
+        ``confirmed_only`` is the action gate (t2227): it additionally requires
+        that THIS tick's ``_update_own_window_info`` validated the listing, so a
+        set kept across a failed query — which may predate a ``swap-pane`` or
+        ``break-pane`` — can never steer a kill, a keystroke or a launch. Display
+        callers pass ``False`` and accept the last validated set, so one failed
+        tick does not blank the docked panel. ``getattr`` defaults because many
+        tests build the app with ``__new__``.
+        """
+        members = getattr(self, "_own_window_pane_ids", None)
+        if not members:
+            return None
+        if confirmed_only and not getattr(self, "_own_identity_confirmed", False):
+            return None
+        return members
+
+    def _find_own_agent_snapshot(
+        self, *, confirmed_only: bool = True,
+    ) -> PaneSnapshot | None:
         """Return the snapshot of the AGENT pane sharing this minimonitor's
         tmux window (the agent it follows), or None if not detected.
 
-        Matches on window_index scoped to the own session — the same match
-        used to auto-select the followed agent. Multi-session: two sessions
-        could both have a pane at the same window_index, so the session scope
-        prevents resolving a cross-session agent. Empty session_name is
-        preserved to cover legacy snapshot paths.
+        Matches by **pane id** against the own window's membership
+        (``_own_window_pane_ids``), never by ``window_index`` (t2227). The index
+        and the snapshots are read at different moments, and
+        ``renumber-windows`` shifts the index whenever an earlier window closes
+        — so an index match could pair this tick's index with a scan that still
+        had the *neighbouring* window at it (the symptom: starting a pick from a
+        window while killing that window froze the origin agent in the new
+        minimonitor's docked panel). Pane ids never change, and they are
+        server-unique, so the old session scope is subsumed: a pane in another
+        session can never be a member.
+
+        **This is the action seam, so the default is ``confirmed_only=True``:**
+        it refuses (returns ``None``) unless this tick validated the membership.
+        Only the presentation paths opt out (see ``_find_own_window_snapshot``
+        and ``_refresh_own_live_state``). First match in discovery order, which
+        is pane-index order within a window (``pane_sort_key``).
         """
-        if not self._own_window_index:
+        members = self._own_members(confirmed_only)
+        if members is None:
             return None
         for snap in self._snapshots.values():
             if (
                 snap.pane.category == PaneCategory.AGENT
-                and snap.pane.window_index == self._own_window_index
-                and snap.pane.session_name in ("", self._session)
+                and snap.pane.pane_id in members
             ):
                 return snap
         return None
 
-    def _find_own_window_snapshot(self) -> PaneSnapshot | None:
+    def _find_own_window_snapshot(
+        self, *, confirmed_only: bool = False,
+    ) -> PaneSnapshot | None:
         """The pane this minimonitor sits beside, agent or not (t1382).
 
         The **identity / presentation** seam, deliberately NOT the action seam.
@@ -2408,20 +2519,26 @@ class MiniMonitorApp(
 
         Prefers the AGENT match, so a window holding both an agent and a stray
         shell still resolves to the agent; otherwise falls back to the
-        lowest-``pane_index`` pane of the same window and session, which is
-        deterministic across ticks. The fallback cannot pick a helper: shadow and
-        companion panes never reach ``_snapshots``, and this minimonitor's own
-        pane is dropped by the client view (``_project_snapshots``).
+        lowest-``pane_index`` member pane, which is deterministic across ticks.
+        The fallback cannot pick a helper: shadow and companion panes never
+        reach ``_snapshots``, and this minimonitor's own pane is dropped by the
+        client view (``_project_snapshots``). Membership is by pane id, exactly
+        as in ``_find_own_agent_snapshot`` (t2227).
+
+        **Defaults to ``confirmed_only=False``** — presentation may use the last
+        validated membership so a single failed tick does not tear the panel
+        down. A caller that ACTS on the result (``_find_sibling_pane_id``) must
+        pass ``confirmed_only=True``.
         """
-        agent = self._find_own_agent_snapshot()
+        agent = self._find_own_agent_snapshot(confirmed_only=confirmed_only)
         if agent is not None:
             return agent
-        if not self._own_window_index:
+        members = self._own_members(confirmed_only)
+        if members is None:
             return None
         candidates = [
             snap for snap in self._snapshots.values()
-            if snap.pane.window_index == self._own_window_index
-            and snap.pane.session_name in ("", self._session)
+            if snap.pane.pane_id in members
         ]
         if not candidates:
             return None
@@ -3233,10 +3350,14 @@ class MiniMonitorApp(
 
         Only the glyph tracks reality: the identity text stays frozen through a
         rename, per ``_maybe_build_own_agent_panel``'s one-shot contract.
+
+        A display path, so it reads the last *validated* membership
+        (``confirmed_only=False``, t2227): one failed tmux query must not blank
+        the glyph and phase for a tick. It never acts on the result.
         """
         if self._own_card is None:
             return
-        snap = self._find_own_agent_snapshot()
+        snap = self._find_own_agent_snapshot(confirmed_only=False)
         mark_kind = self._mark_kind(snap) if snap is not None else None
         frozen_at = self._own_frozen_at(snap)
         # A frozen agent has no phase: the process is gone, so any value here
@@ -3312,12 +3433,21 @@ class MiniMonitorApp(
 
     async def _maybe_build_own_agent_panel(self) -> None:
         """Populate the docked panel for the agent this minimonitor follows —
-        ONCE. The followed agent is fixed for the minimonitor's lifetime, so its
-        identity panel is static: it is not rebuilt on each refresh cycle and
-        carries no live status badge (per the followed-agent UX).
+        ONCE PER RESOLVED PANE. Its identity panel is static: it is not rebuilt
+        on each refresh cycle and carries no live status badge (per the
+        followed-agent UX).
 
-        Retries each cycle only until the own-window snapshot first resolves
-        (tmux window-index detection can lag the first data refresh).
+        Retries each cycle until the own-window snapshot first resolves (the
+        membership listing lands with the first refresh tick, not at mount).
+
+        **Checked every tick against the pane the current lookup resolves to
+        (t2227).** The panel records the pane id it was built for; when the
+        lookup resolves a *different* pane, the panel is rebuilt. Without that,
+        one tick that resolved the wrong pane froze the wrong name for the
+        minimonitor's lifetime — while the phase line, repainted from the
+        current lookup, already showed the right agent. A lookup that resolves
+        nothing leaves the built panel alone: a transient miss is not a
+        different pane.
 
         Resolves through ``_find_own_window_snapshot`` (t1382), so a minimonitor
         started in a window renamed off the ``agent-`` prefix builds its panel at
@@ -3325,15 +3455,18 @@ class MiniMonitorApp(
         and the panel was never built. The header then reads "this window"
         instead of "this agent", so the uncategorized state is legible rather
         than looking like a missing agent. A window renamed *after* the panel
-        built keeps the old header and name: the panel is one-shot by design and
-        is not re-read. The prioritized-mark glyph is the sole exception — it is
-        repainted per tick by ``_refresh_own_live_state`` (t1383, t1420).
+        built keeps the old header and name — for the SAME pane the panel is
+        one-shot by design and is not re-read. The prioritized-mark glyph is the
+        sole exception — it is repainted per tick by ``_refresh_own_live_state``
+        (t1383, t1420).
         """
-        if self._own_panel_built:
-            return
         own_snap = self._find_own_window_snapshot()
         if own_snap is None:
-            return  # not resolved yet — try again next cycle
+            return  # not resolved yet (or a transient miss) — try next cycle
+        if (self._own_panel_built
+                and own_snap.pane.pane_id
+                == getattr(self, "_own_panel_pane_id", None)):
+            return  # same pane: the identity stays as built, through renames
         is_agent = own_snap.pane.category == PaneCategory.AGENT
         label = "this agent" if is_agent else "this window"
         # The repo signal for the followed agent, mirroring the pane list's
@@ -3374,6 +3507,7 @@ class MiniMonitorApp(
         self._schedule_short_mode_refresh()
         self._own_card = card
         self._own_panel_built = True
+        self._own_panel_pane_id = own_snap.pane.pane_id
 
     def _build_list_entries(self) -> list[_ListEntry]:
         """This tick's general list as entries, in mount order (t2183).
@@ -3831,8 +3965,11 @@ class MiniMonitorApp(
         helper-blind by construction — and a frozen stand-in, which discovery
         keeps, is selectable.
 
-        **Rung 2 — a raw ``list-panes`` of the own window** when no snapshot
-        resolves (e.g. the window id is known before the first refresh lands).
+        **Rung 2 — a raw ``list-panes -t $TMUX_PANE``** when no confirmed
+        snapshot resolves (before the first confirmed refresh, or on a tick
+        whose own-window query failed). It refuses unless the listing contains
+        this pane's own record (t2227) — so it confirms the window for itself
+        rather than trusting a cached or seeded window id.
         It used to take the first pane that was not this minimonitor, so a
         shadow could receive the Enter keystroke (t1388). It now classifies the
         window with :func:`classify_window_panes` — the ONE definition shared
@@ -3844,27 +3981,35 @@ class MiniMonitorApp(
         the agent, never skipped. **Decision (t1388): companions ARE filtered**,
         so a second minimonitor in the window is never chosen.
         """
-        own_snap = self._find_own_window_snapshot()
+        # An ACTION seam (Tab focus, Enter send), so rung 1 requires this tick's
+        # confirmed membership (t2227); an unconfirmed tick falls to rung 2,
+        # which confirms for itself.
+        own_snap = self._find_own_window_snapshot(confirmed_only=True)
         if own_snap is not None:
             return own_snap.pane.pane_id
         own_pane = os.environ.get("TMUX_PANE", "")
         if not own_pane or self._monitor is None:
             self.notify("Not inside tmux", severity="warning")
             return None
-        if not self._own_window_id:
-            # Split out from the refusal above (t1622). The window id is seeded
-            # by a worker off the mount path, so "not detected yet" is a real,
-            # transient state — and reporting it as "not inside tmux" sends the
-            # user looking for a problem they do not have. Same wording
-            # `action_switch_to_monitor` has always used for this exact state.
-            self.notify("Own window not detected yet", severity="warning")
-            return None
+        # Rung 2 targets `$TMUX_PANE`, NOT the cached / mount-seeded
+        # `_own_window_id` (t2227): tmux resolves a pane id given as a window
+        # target to the window that pane is in NOW, so a seeded id from another
+        # socket, or a window this pane has since been moved out of, cannot
+        # steer the keystroke.
         rc, stdout = self._monitor.tmux_run([
-            "list-panes", "-t", self._own_window_id,
+            "list-panes", "-t", own_pane,
             "-F", FROZEN_AWARE_PANE_FORMAT,
         ])
         if rc != 0:
             self.notify("tmux list-panes failed", severity="error")
+            return None
+        # And the listing must independently confirm it is OUR window: one of
+        # its raw records is this pane. Checked on the raw records, not on
+        # `classify_window_panes`' output, which silently drops a malformed row
+        # — and a dropped own row is exactly the unconfirmed case.
+        if not any(line.split("\t", 1)[0] == own_pane
+                   for line in stdout.splitlines()):
+            self.notify("Own window not confirmed", severity="warning")
             return None
         # Unstripped on purpose: `classify_window_panes` must see the final
         # record's empty trailing field (see its docstring).

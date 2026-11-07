@@ -4003,15 +4003,19 @@ class TmuxMonitor:
         ):
             return switch_to_pane_anywhere(pane_id)
         # Same-session: existing companion-aware path.
+        #
+        # Every window target here is the PANE ID, never the cached
+        # `pane.window_index` (t2227). The cache is a scan old, and
+        # `renumber-windows` shifts indexes whenever an earlier window closes,
+        # so `=session:<cached index>` can name the neighbouring window. tmux
+        # resolves a pane id given as a window target to the window that pane
+        # is in now — the same form `kill_window` has always used.
         target_session = pane.session_name or self.session
-        self.tmux_run([
-            "select-window", "-t",
-            tmux_window_target(target_session, pane.window_index),
-        ])
+        self.tmux_run(["select-window", "-t", pane_id])
         target_pane = pane_id
         if prefer_companion:
             companion = self.find_companion_pane_id(
-                pane.window_index, target_session
+                pane.window_index, target_session, window_target=pane_id,
             )
             if companion:
                 target_pane = companion
@@ -4019,7 +4023,8 @@ class TmuxMonitor:
         return rc == 0
 
     def find_companion_pane_id(
-        self, window_index: str, session: str | None = None
+        self, window_index: str, session: str | None = None, *,
+        window_target: str | None = None,
     ) -> str | None:
         """Find the minimonitor/companion pane ID in a given window.
 
@@ -4028,12 +4033,18 @@ class TmuxMonitor:
         second. Without the marker rung a companion restarted inside an
         interactive shell was unfindable, so ``prefer_companion`` silently fell
         back to the agent pane.
+
+        ``window_target``, when given, is used verbatim as the ``-t`` (t2227):
+        pass a pane id to list the window that pane is in *now*. The positional
+        ``(window_index, session)`` form remains for callers holding a fresh
+        index; a cached snapshot's index is not fresh (see ``switch_to_pane``).
         """
-        target_session = session if session is not None else self.session
+        if window_target is None:
+            target_session = session if session is not None else self.session
+            window_target = tmux_window_target(target_session, window_index)
         fmt = f"#{{pane_id}}\t#{{pane_pid}}\t#{{{MONITOR_KIND_OPTION}}}"
         rc, stdout = self.tmux_run([
-            "list-panes", "-t",
-            tmux_window_target(target_session, window_index), "-F", fmt,
+            "list-panes", "-t", window_target, "-F", fmt,
         ])
         if rc != 0:
             return None
@@ -4132,21 +4143,27 @@ class TmuxMonitor:
         pane kill. `kill_agent_pane_smart`'s decision only: the guarded run
         kill (:meth:`kill_agent_run_guarded`) never kills a window.
         """
-        pane = self._pane_cache.get(pane_id)
-        if pane is None:
+        if self._pane_cache.get(pane_id) is None:
             return None
-        # Use the pane's own session so cross-session kills target the right
-        # window; fall back to self.session for legacy single-session paths.
-        target_session = pane.session_name or self.session
-        window_target = tmux_window_target(target_session, pane.window_index)
+        # List the window the pane is in NOW: the pane id as the window target
+        # (t2227), never `=session:<cached window_index>`. The cache is a scan
+        # old and `renumber-windows` shifts indexes when an earlier window
+        # closes, so the cached index could list the NEIGHBOURING window — and
+        # a neighbour holding no other agent reads as "collapse", turning `k`
+        # into `kill-window` on a window that still has a live agent in it. The
+        # pane id also carries the session, so cross-session kills stay exact.
         rc, stdout = self.tmux_run([
-            "list-panes", "-t", window_target, "-F", FROZEN_AWARE_PANE_FORMAT,
+            "list-panes", "-t", pane_id, "-F", FROZEN_AWARE_PANE_FORMAT,
         ])
         if rc != 0:
             return None
+        panes = classify_window_panes(stdout)
+        if not any(wp.pane_id == pane_id for wp in panes):
+            # A listing that does not contain the pane it was asked about is not
+            # a description of that pane's window: undecidable, plain pane kill.
+            return None
         others = count_other_real_agents(
-            [(wp.pane_id, wp.is_helper) for wp in classify_window_panes(stdout)],
-            pane_id,
+            [(wp.pane_id, wp.is_helper) for wp in panes], pane_id,
         )
         return others == 0
 

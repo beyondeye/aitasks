@@ -575,13 +575,15 @@ class PublishBeforeScanTests(ServerCase):
             "%1": fx.snap(a, "a-live"), "%2": fx.snap(b, "b-old")})
         client = self.server_client(pins=CAPTURE_PIN_ALL)
         app = self.mini()
-        identity = {"name": "agent-a", "index": "1", "ok": True}
+        identity = {"name": "agent-a", "index": "1", "pane": "%1", "ok": True}
 
         async def own_info():
             if not identity["ok"]:
                 return False
             app._own_window_name = identity["name"]
             app._own_window_index = identity["index"]
+            # The validated membership a real tick reports (t2227).
+            app._own_window_pane_ids = frozenset({identity["pane"]})
             return True
 
         result: dict = {}
@@ -592,7 +594,8 @@ class PublishBeforeScanTests(ServerCase):
             await app._refresh_data(scan=False)        # tick 1: following agent-a
             await self.drain(app, pilot)
             # Between ticks: the followed window is now the PARKED agent-b.
-            identity.update(name="agent-b", index="2", ok=confirm_on_scan)
+            identity.update(name="agent-b", index="2", pane="%2",
+                            ok=confirm_on_scan)
             fake.snaps["%2"] = fx.snap(b, "b-fresh")
             fake.calls.clear()
             await app._refresh_data()                  # a user action

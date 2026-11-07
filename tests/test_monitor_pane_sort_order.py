@@ -307,8 +307,8 @@ class WithinWindowOrderInvarianceTests(unittest.TestCase):
     The key orders panes ACROSS windows; it must never reorder the panes
     *within* one. That invariance is what every discovery-order consumer
     silently relies on — above all `MiniMonitorApp._find_own_agent_snapshot`,
-    which filters `self._snapshots` to one `(window_index, session)` and takes
-    the FIRST match. It is the resolution seam for the `e` / `E` shadow triggers
+    which filters `self._snapshots` to the own window's pane-id membership
+    (t2227; it was `(window_index, session)` before) and takes the FIRST match. It is the resolution seam for the `e` / `E` shadow triggers
     and the review loop, and "first" only means "lowest pane index" because
     discovery is sorted.
 
@@ -521,7 +521,7 @@ class _FakeContainer:
         self.mounted = list(widgets)
 
 
-def _mk_list_app(snapshots, *, own_window_index=None, multi_session=False):
+def _mk_list_app(snapshots, *, own_members=(), multi_session=False):
     """Real `MiniMonitorApp`, stubbed down to what `_rebuild_pane_list` touches.
 
     Same harness shape as `tests/test_monitor_session_divider.py`.
@@ -529,7 +529,9 @@ def _mk_list_app(snapshots, *, own_window_index=None, multi_session=False):
     container = _FakeContainer()
     app = mm.MiniMonitorApp.__new__(mm.MiniMonitorApp)
     app.query_one = lambda *a, **k: container
-    app._own_window_index = own_window_index
+    # Pane ids sharing this minimonitor's window (t2227); none by default.
+    app._own_window_pane_ids = frozenset(own_members)
+    app._own_identity_confirmed = True
     app._session = "s1"
     app._snapshots = {s.pane.pane_id: s for s in snapshots}
     app._task_cache = SimpleNamespace(
@@ -651,7 +653,7 @@ class MiniMonitorOrderTests(unittest.TestCase):
                 _snap("%2", window_index="7", pane_index="2",
                       window_name="scratch", category=PaneCategory.OTHER),
             ],
-            own_window_index="7",
+            own_members=("%10", "%2"),
         )
         self.assertEqual(app._find_own_window_snapshot().pane.pane_id, "%2")
 

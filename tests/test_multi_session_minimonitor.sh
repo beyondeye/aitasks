@@ -6,7 +6,8 @@
 #   * MiniMonitorApp registers the `M` binding (and preserves lowercase `m`)
 #   * action_toggle_multi_session flips the app view flag, not the producer (t2034_2)
 #   * _start_monitoring no longer pins multi_session=False
-#   * _auto_select_own_window narrowing predicate (own-session vs cross)
+#   * followed-agent resolution by pane-id membership (t2227), driven through
+#     the real `_find_own_agent_snapshot` / docked-panel / switcher methods
 #   * _rebuild_pane_list emits session divider rows in multi mode only
 #   * _rebuild_session_bar renders compact multi-mode title
 #
@@ -116,10 +117,23 @@ class RecMon:
     def __init__(self, **kwargs):
         recorded.update(kwargs)
 
-# Patch the name that _start_monitoring references.
+# Patch the names that _start_monitoring references. `build_monitor_client`
+# is the documented construction seam since t2037_3 (monitor_shared.py); the
+# recorder keeps this tier off the real MonitorClient.
 mm.TmuxMonitor = RecMon
+mm.build_monitor_client = lambda local, **kw: local
 
 app = mm.MiniMonitorApp.__new__(mm.MiniMonitorApp)
+# Attributes `_start_monitoring` reads since t2037_3. Missing, this tier raised
+# AttributeError and — under `set -e` — aborted the whole file before any
+# summary, so every later tier silently never ran (found during t2227).
+app._monitor_server = False
+app._own_pane_id = None
+app._project_root = None
+app._own_identity_confirmed = False
+app._own_window_name = None
+# `log` is a read-only Textual property returning `_logger`.
+app._logger = lambda *a, **k: None
 app._session = "x"
 app._capture_lines = 30
 app._idle_threshold = 5.0
@@ -135,37 +149,26 @@ app.run_worker = lambda c, *a, **k: c.close()
 
 app._start_monitoring()
 
+# Witness: the patched constructor really ran, so the two assertions below
+# are about the real call's kwargs — not vacuously true of an empty dict.
+print("CONSTRUCTED:" + str(recorded.get("session") == "x"))
 print("HAS_FALSE_PIN:" + str(recorded.get("multi_session") is False))
 print("NOT_PASSED:"  + str("multi_session" not in recorded))
 PY
 )
+assert_contains "_start_monitoring really constructed the monitor" \
+    "CONSTRUCTED:True" "$out"
 assert_contains "_start_monitoring does NOT pin multi_session=False" \
     "HAS_FALSE_PIN:False" "$out"
 assert_contains "_start_monitoring does NOT pass multi_session explicitly" \
     "NOT_PASSED:True" "$out"
 
-# --- Tier 1d: _auto_select_own_window predicate ---
-# The real method uses Textual queries which are fragile in unit tests, so
-# exercise the core (window_index, session_name) matching predicate directly.
-
-out=$(PYTHONPATH="$PYPATH" "$AITASK_PYTHON" <<'PY'
-def would_match(own_window_index, own_session, snap_window_index, snap_session):
-    # Mirror of the guard in MiniMonitorApp._auto_select_own_window.
-    return (
-        snap_window_index == own_window_index
-        and snap_session in ("", own_session)
-    )
-
-print("OWN:"          + str(would_match("1", "sA", "1", "sA")))
-print("CROSS:"        + str(would_match("1", "sA", "1", "sB")))
-print("LEGACY_EMPTY:" + str(would_match("1", "sA", "1", "")))
-print("DIFF_INDEX:"   + str(would_match("1", "sA", "2", "sA")))
-PY
-)
-assert_contains "own-session + matching index → True"       "OWN:True"          "$out"
-assert_contains "cross-session + matching index → False"    "CROSS:False"       "$out"
-assert_contains "legacy empty session_name still matches"   "LEGACY_EMPTY:True" "$out"
-assert_contains "matching session but different index fails" "DIFF_INDEX:False" "$out"
+# (Tier 1d — a locally redefined copy of an `_auto_select_own_window`
+# predicate — was removed in t2227/t1693: it asserted the copy, not the source,
+# and that predicate no longer exists. The real `_auto_select_own_window` is
+# driven headlessly by tests/test_minimonitor_focus_in_click.py, and the
+# followed-agent match it used to approximate is covered against the real
+# methods in Tier 1g below and tests/test_minimonitor_own_identity_renumber.py.)
 
 # --- Tier 1e: _rebuild_pane_list emits dividers in multi mode ---
 
@@ -193,8 +196,8 @@ container = FakeContainer()
 app = mm.MiniMonitorApp.__new__(mm.MiniMonitorApp)
 app.query_one = lambda *a, **k: container
 # No followed agent in this scenario — _rebuild_pane_list resolves the own
-# agent via _find_own_agent_snapshot (which reads _own_window_index/_session).
-app._own_window_index = None
+# pane by pane-id membership (t2227), and there is none.
+app._own_window_pane_ids = None
 app._session = "sA"
 app._task_cache = SimpleNamespace(
     get_task_id=lambda w: None,
@@ -351,7 +354,10 @@ def make_app(containers):
     # Route query_one by selector to the right fake container.
     app.query_one = lambda sel, *a, **k: containers[sel]
     app._session = "sA"
-    app._own_window_index = "1"   # we live in window 1 of session sA
+    # We share a window with `%1` (pane-id membership confirmed this tick,
+    # t2227); `%9` is this minimonitor itself.
+    app._own_window_pane_ids = frozenset({"%1", "%9"})
+    app._own_identity_confirmed = True
     app._own_panel_built = False
     app._task_cache = SimpleNamespace(
         get_task_id=lambda w: None,
@@ -385,7 +391,8 @@ app = make_app({})
 own = app._find_own_agent_snapshot()
 print("OWN_RESOLVED:" + str(own is not None and own.pane.pane_id == "%1"))
 
-# Cross-session agent at the same window index is NOT resolved.
+# A cross-session agent at the same window index is NOT resolved: it is not a
+# member of this window, whatever its index.
 app._snapshots["%3"] = mk_snap("sB", "1", "0", "%3", "agent-cross")
 own = app._find_own_agent_snapshot()
 print("OWN_NOT_CROSS:" + str(own.pane.pane_id == "%1"))
@@ -425,7 +432,7 @@ print("PANEL_BUILD_ONCE:" + str(panel.mounted == "SENTINEL"))
 # No followed agent → panel is not built (nothing mounted, flag stays False).
 panel2 = FakeContainer()
 app = make_app({"#mini-own-agent": panel2})
-app._own_window_index = None
+app._own_window_pane_ids = None
 asyncio.run(app._maybe_build_own_agent_panel())
 print("PANEL_NOT_BUILT:" + str(
     not hasattr(panel2, "mounted") and app._own_panel_built is False
@@ -466,7 +473,10 @@ def mk_snap(sess, wi, pid):
 
 app = mm.MiniMonitorApp.__new__(mm.MiniMonitorApp)
 app._session = "sA"
-app._own_window_index = "1"            # followed agent lives in window 1 of sA
+# The followed agent `%1` shares this minimonitor's window (pane-id
+# membership confirmed this tick, t2227).
+app._own_window_pane_ids = frozenset({"%1"})
+app._own_identity_confirmed = True
 app._snapshots = {
     "%1": mk_snap("sA", "1", "%1"),    # the followed agent
     "%2": mk_snap("sA", "2", "%2"),    # a general-list agent
@@ -477,14 +487,14 @@ app._get_focused_pane_id = lambda: "%2"
 print("DEFAULT_FOLLOWED:" + str(app._switcher_selected_session() == "sA"))
 
 # No followed agent → None (switcher falls back to the attached session).
-app._own_window_index = None
+app._own_window_pane_ids = None
 print("DEFAULT_NONE:" + str(app._switcher_selected_session() is None))
 PY
 )
 assert_contains "switcher defaults to the followed agent's session" "DEFAULT_FOLLOWED:True" "$out"
 assert_contains "no followed agent → switcher default is None"      "DEFAULT_NONE:True"     "$out"
 
-# --- Tier 1g: cross-repo mark isolation (t1326) ---
+# --- Tier 1i: cross-repo mark isolation (t1326) ---
 # Two sessions mapping to two DIFFERENT project roots, each running a window
 # with the SAME name. This is the real collision: an unconfigured repo's tmux
 # session falls back to the literal name "aitasks", so window names like

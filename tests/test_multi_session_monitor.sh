@@ -249,6 +249,7 @@ pane = TmuxPaneInfo(
 )
 
 captured_targets = []
+killed = []
 
 def fake_tmux_run(cmd, *args, **kwargs):
     # Capture the list-panes -t target argument.
@@ -256,9 +257,12 @@ def fake_tmux_run(cmd, *args, **kwargs):
         idx = cmd.index("-t")
         captured_targets.append(cmd[idx + 1])
         # Simulate one sibling agent pane so we go through kill_pane path
-        # (not kill_window). Keep the third field empty: it is the shadow
-        # target marker, and non-empty values are classified as helpers.
-        return 0, "%99\t1234\t\n%9\t999\t\n"
+        # (not kill_window). Rows are full FROZEN_AWARE_PANE_FORMAT records
+        # (id, pid, shadow target, monitor kind, frozen, dead, scratch
+        # target): `classify_window_panes` drops a short row, and the old
+        # 3-field rows were silently dropped — so the sibling never counted.
+        return 0, "%99\t1234\t\t\t\t0\t\n%9\t999\t\t\t\t0\t\n"
+    killed.append(list(cmd))
     return 0, ""
 
 with patch.object(tm, "_is_companion_process", return_value=False), \
@@ -267,13 +271,24 @@ with patch.object(tm, "_is_companion_process", return_value=False), \
     mon._pane_cache["%9"] = pane
     mon.kill_agent_pane_smart("%9")
 
-# The list-panes target MUST reference other_sess, not self_sess.
+# The window listing targets the PANE ID (t2227): tmux resolves it to the
+# window the pane is in now, inside its own session — so a cross-session kill
+# can never list `self_sess`, and a renumber cannot redirect it to the
+# neighbouring window the way the cached `=other_sess:3` index could.
 for t in captured_targets:
     print("TARGET:" + t)
+print("KILL_PANE:" + str(["kill-pane", "-t", "%9"] in killed))
+print("NO_KILL_WINDOW:" + str(not any(c[0] == "kill-window" for c in killed)))
 PY
 )
-assert_contains "kill_agent_pane_smart uses pane's own session" \
-    "TARGET:=other_sess:3" "$out"
+assert_contains "kill_agent_pane_smart lists the pane's own window by pane id" \
+    "TARGET:%9" "$out"
+assert_not_contains "kill_agent_pane_smart never lists the caller's session" \
+    "TARGET:=self_sess" "$out"
+assert_contains "a sibling agent keeps the kill to the one pane" \
+    "KILL_PANE:True" "$out"
+assert_contains "a sibling agent never collapses the window" \
+    "NO_KILL_WINDOW:True" "$out"
 assert_not_contains "kill_agent_pane_smart does NOT use self.session" \
     "=self_sess:3" "$out"
 

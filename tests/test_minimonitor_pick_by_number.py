@@ -185,6 +185,10 @@ def _mk_app(infos, snapshots=(), pane_to_task=None, monitor=True):
     app._task_cache = _FakeTaskCache(infos, pane_to_task)
     app._session = "s1"
     app._own_window_index = "1"
+    # The followed agent is `%own`: identity is pane-id membership confirmed
+    # this tick (t2227), not the window index above (kept for display only).
+    app._own_window_pane_ids = frozenset({"%own"})
+    app._own_identity_confirmed = True
     app._project_root = Path("/proj/fallback")
     app._focused_pane_id = None
     app._monitor = _FakeMonitor() if monitor else None

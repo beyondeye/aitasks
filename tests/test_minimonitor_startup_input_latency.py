@@ -1318,16 +1318,22 @@ class OwnWindowNotYetSeededTests(unittest.TestCase):
     def test_the_sibling_refusal_names_the_real_reason(self):
         """"Not inside tmux" sent users after the wrong problem (t1622).
 
-        The two refusals are distinct states and must read as distinct.
+        The two refusals are distinct states and must read as distinct. Since
+        t2227 the fallback no longer reads the seeded window id at all — it
+        lists `$TMUX_PANE`'s window and refuses unless that listing contains
+        this pane — so the unconfirmed-window refusal is what an unseeded
+        window now reads as (the recording monitor's listing names other panes
+        only).
         """
         async def body(app, mon, notes):
             _in_tmux(self)
             app._find_sibling_pane_id()
             self.assertIn(
-                "Own window not detected yet", notes,
-                f"the unseeded-window refusal still reports a tmux problem: "
+                "Own window not confirmed", notes,
+                f"the unconfirmed-window refusal is not the one shown: "
                 f"{notes!r}",
             )
+            self.assertNotIn("Not inside tmux", notes)
 
         asyncio.run(self._app(body))
 

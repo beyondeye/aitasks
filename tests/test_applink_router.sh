@@ -275,7 +275,12 @@ def _real_tmux(args, timeout=5.0):
     real_calls.append(list(args))
     if args[0] == "display-message":
         return (0, "%2")
-    return (0, "")   # empty option; list-panes => no other agent
+    if args[0] == "list-panes":
+        # `%2` alone in its window (no other agent). The listing must name the
+        # pane itself, or the collapse decision is undecidable (t2227).
+        # FROZEN_AWARE_PANE_FORMAT: id, pid, shadow, kind, frozen, dead, scratch.
+        return (0, "%2\t1\t\t\t\t0\t\n")
+    return (0, "")   # empty option
 real.tmux_run = _real_tmux
 real._drop_session_record = lambda rid: real_dropped.append(rid) or True
 real_router = FrameRouter(st, gate, real, pair_profile="monitor_control")

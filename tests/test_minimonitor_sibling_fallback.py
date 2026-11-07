@@ -3,8 +3,10 @@
 `tab` focuses, and `enter` types into, the pane `_find_sibling_pane_id`
 returns. It resolves in two rungs:
 
-1. the followed-pane snapshot (`_find_own_window_snapshot`);
-2. when no snapshot resolves, a raw `list-panes` of the own window.
+1. the followed-pane snapshot (`_find_own_window_snapshot`), resolved by
+   pane-id membership confirmed this tick (t2227);
+2. when no confirmed snapshot resolves, a raw `list-panes -t $TMUX_PANE`,
+   which must contain this pane's own record (t2227).
 
 Rung 2 used to take the first pane that was not the minimonitor itself, so a
 shadow — or now a scratchpad — sharing the window could receive the Enter
@@ -87,11 +89,15 @@ class _FormatDrivenMonitor:
         return 0, "\n".join(rows) + "\n"
 
 
-def _app(monitor, snapshots=None) -> "mm.MiniMonitorApp":
+def _app(monitor, snapshots=None, members=()) -> "mm.MiniMonitorApp":
     app = mm.MiniMonitorApp.__new__(mm.MiniMonitorApp)
     app._monitor = monitor
     app._own_window_id = WINDOW
     app._own_window_index = "1"
+    # The own window's pane ids, as a confirmed tick would have validated them
+    # (t2227). Rung 1 resolves through this set.
+    app._own_window_pane_ids = frozenset(members)
+    app._own_identity_confirmed = bool(members)
     app._session = "demo"
     app._snapshots = snapshots if snapshots is not None else {}
     app.notes = []
@@ -109,7 +115,7 @@ def _rung2(panes, *, blank_frozen: bool = False):
     if blank_frozen:
         panes = [{**p, "@aitask_frozen": ""} for p in panes]
     app = _app(_FormatDrivenMonitor(panes))
-    app._find_own_window_snapshot = lambda: None
+    app._find_own_window_snapshot = lambda **kw: None
     with patch.dict(os.environ, {"TMUX_PANE": MM_PANE}), _no_cmdline_companions():
         return app._find_sibling_pane_id(), app
 
@@ -157,9 +163,12 @@ class Rung2HelperFilterTests(unittest.TestCase):
                 self.assertEqual(_pre_fix_rung2(_window(opts)), HELPER)
 
     def test_requests_the_shared_classifier_format(self):
+        """Targets `$TMUX_PANE`, never the cached / seeded window id (t2227):
+        tmux resolves the pane id to the window this pane is in NOW."""
         _found, app = _rung2(_window(SCRATCHPAD))
         (call,) = app._monitor.calls
-        self.assertEqual(call[:3], ["list-panes", "-t", WINDOW])
+        self.assertEqual(call[:3], ["list-panes", "-t", MM_PANE])
+        self.assertNotIn(WINDOW, call)
         self.assertEqual(call[call.index("-F") + 1],
                          mm.FROZEN_AWARE_PANE_FORMAT)
 
@@ -229,7 +238,8 @@ def _rung1_end_to_end(panes) -> str | None:
 
     The monitor stub answers nothing, so a result can only come from rung 1.
     """
-    app = _app(_FormatDrivenMonitor([]), _snapshots_from_discovery(panes))
+    app = _app(_FormatDrivenMonitor([]), _snapshots_from_discovery(panes),
+               members={p["pane_id"] for p in panes})
     with patch.dict(os.environ, {"TMUX_PANE": MM_PANE}), _no_cmdline_companions():
         return app._find_sibling_pane_id()
 

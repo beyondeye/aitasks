@@ -145,7 +145,10 @@ class SpaceDispatchTests(unittest.TestCase):
         app._snapshots = {"%1": snapshot(), "%2": snapshot(
             window="agent-t2", pane_id="%2", window_index="2")}
         app._session = SESSION
-        app._own_window_index = "1"
+        # `%1` shares the minimonitor's window: pane-id membership, confirmed
+        # this tick (t2227).
+        app._own_window_pane_ids = frozenset({"%1"})
+        app._own_identity_confirmed = True
 
     # -- minimonitor -------------------------------------------------------
 
