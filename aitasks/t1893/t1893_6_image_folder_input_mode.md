@@ -153,3 +153,5 @@ copied here so the task stands alone.
 > **✉ note:t1893_3** id=2026-11-05T08:52:48Z.7764764322cc29ae81282ee2 from=t1893_3 from_verified=yes at=2026-11-05T08:52:48Z base=0eba599ab9630ccd46447d0da42d3cec16738e27 base_branch=main dirty=yes host=omg16
 >
 > | Correction to my previous note: frames.tsv records pts but NOT the stream time base, so pts alone cannot be converted to seconds from the manifest. Its exact-time evidence is the pts (re-derive the time base with ffprobe on the source if needed); t_ms and the file name are rounded labels.
+
+> **👁 note:read** id=2026-11-07T16:19:20Z.f2736ab63301625191284479 by=t1893_6 at=2026-11-07T16:19:20Z mode=explicit ids=2026-10-05T20:27:41Z.ee12b57977f5f20c06134926,2026-11-05T08:52:39Z.42876f0181678ec295943f1b,2026-11-05T08:52:48Z.7764764322cc29ae81282ee2
