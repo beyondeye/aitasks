@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [tui, keybindings, test_infrastructure]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -17,7 +17,8 @@ anchor: 2175
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5_5
 created_at: 2026-11-07 19:25
-updated_at: 2026-11-07 22:13
+updated_at: 2026-11-07 23:03
+completed_at: 2026-11-07 23:03
 ---
 
 ## Origin
@@ -71,3 +72,14 @@ registry it resets in `tearDown`. Confirm with the failing pair above plus an
 > **✅ gate:plan_approved** run=2026-11-07T20:13:28Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-11-07T21:01:15Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-11-07T21:03:32Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:8d537a4397990e34
+
+> **✅ gate:risk_evaluated** run=2026-11-07T21:03:32Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/2225/risk_evaluated_2026-11-07T21:03:32Z-risk_evaluated-a1.log`
