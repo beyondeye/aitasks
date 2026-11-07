@@ -525,10 +525,10 @@ This test covers the task's "one capture pass per tick with N clients" and
   producer's full-scan count. A live check of several mounted apps over real
   intervals against the real server's scan count is deferred as a follow-up ·
   severity: medium (residual: low after the unit-level app-timer check) ·
-  → mitigation: apps_timer_shared_scan_live
+  → mitigation: t2223
 - In server mode the timer reads the subscription, so a card can be up to one
   server tick staler than with an in-process scan. Render on push would close
-  this, but it is out of scope · severity: low · → mitigation: monitor_render_on_push
+  this, but it is out of scope · severity: low · → mitigation: t2224
 - The re-measurement depends on re-running t2034_1's archived scripts on this
   host. The numbers are one host at one moment and are not a gate ·
   severity: low · → mitigation: none
@@ -536,7 +536,7 @@ This test covers the task's "one capture pass per tick with N clients" and
 ### Planned mitigations
 - timing: post-phase | name: suite_spawns_no_status_server | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: unit test reaching ensure_server against the live tmux | desc: snapshot status-server pids/sockets around one full Python suite run and confirm none was left outside a scratch path
 - timing: after | name: apps_timer_shared_scan_live | type: test | priority: medium | effort: medium | inline_risk: medium | added_complexity: medium | addresses: an app timer that requests a full server scan per client would pass every in-plan check below the app | desc: live test that mounts several real monitor/minimonitor apps on an isolated tmux server sharing one real status server and counts that server's full scans over several intervals (needs a scan counter the server exposes, e.g. in the welcome or a stats request), excluding startup and intentional refresh actions | created: t2223
-- timing: after | name: monitor_render_on_push | type: enhancement | priority: low | effort: medium | inline_risk: medium | added_complexity: medium | addresses: up to one server tick of extra staleness in server mode | desc: re-render monitor/minimonitor on subscription updates via add_update_listener (Applied.changed) instead of only on the timer
+- timing: after | name: monitor_render_on_push | type: enhancement | priority: low | effort: medium | inline_risk: medium | added_complexity: medium | addresses: up to one server tick of extra staleness in server mode | desc: re-render monitor/minimonitor on subscription updates via add_update_listener (Applied.changed) instead of only on the timer | created: t2224
 
 ## Step 9 (Post-Implementation)
 
