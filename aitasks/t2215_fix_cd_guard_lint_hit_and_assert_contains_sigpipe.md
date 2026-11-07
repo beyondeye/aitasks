@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2175
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-05 12:54
-updated_at: 2026-11-07 18:09
+updated_at: 2026-11-07 18:53
 ---
 
 ## Origin
@@ -48,3 +49,8 @@ Spawned from t2175_6 during Step 8b review.
 > | The lint summary at that moment was "90 passed, 2 failed". All of the hits above belong to those two failing checks. Re-run the lint before relying on this list: other sessions may have touched these files since.
 > | 
 > | None of these files were touched by t1981_1. Its new tests/test_relations_cli.sh is clean under `tests/lib/cd_guard_scan.py --check`.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-07T16:53:21Z status=pass attempt=1 type=human
