@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1538
+implemented_with: claudecode/opus5_5
 created_at: 2026-09-01 15:19
-updated_at: 2026-11-06 10:53
+updated_at: 2026-11-07 19:11
 ---
 
 Wire the advisory premise check into task-workflow as Step 3 Check 6, backed by a new procedure file, with renders and goldens.
@@ -76,3 +77,8 @@ Fourth child of t1663. Design in `aidocs/framework/task_premise_staleness.md` ("
 > |    - Scope is read as YAML. Entries that YAML rejects, such as `[docs/a[bc].md]`, read `SKIP`/`invalid_frontmatter`.
 
 > **👁 note:read** id=2026-11-06T08:52:40Z.928e1ded095aae70c00b5f4c by=t1663_4 at=2026-11-06T08:52:40Z mode=explicit ids=2026-11-04T13:37:51Z.f0739597daea67d9faa6f041,2026-11-05T06:23:05Z.9262d02fe965f25f1e708523
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-07T17:11:47Z status=pass attempt=1 type=human
