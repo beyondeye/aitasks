@@ -453,7 +453,7 @@ Step 9 of task-workflow: commit code and docs (`feature: … (t1893_6)`), plan v
   measured on ffmpeg n9.0.2. The documented minimum is 5.1, which was not run. The
   enumeration guard fails closed if timing differs, so a wrong timing is never
   reported, but on an older ffmpeg the feature could refuse to run. · severity:
-  medium · → mitigation: validate_image_input_ffmpeg51
+  medium · → mitigation: t2229
 - The gap heuristic flags VFR still pauses as "frames may be missing", and cannot
   see deletion of every second frame. Both are labelled heuristic and documented;
   that is accepted, not mitigated. · severity: low · → mitigation: none
@@ -461,7 +461,7 @@ Step 9 of task-workflow: commit code and docs (`feature: … (t1893_6)`), plan v
 ### Planned mitigations
 - timing: pre-phase | name: capture_video_baseline | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: video-path regression from the _ffin plumbing | desc: capture bug/anim outputs on fixed synthetic videos with the pre-change code
 - timing: post-phase | name: diff_video_baseline | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: video-path regression from the _ffin plumbing | desc: re-run on the same videos and diff; only the new input / visible_duration_uncertainty_ms keys may differ
-- timing: after | name: validate_image_input_ffmpeg51 | type: test | priority: medium | effort: medium | inline_risk: low | added_complexity: medium | addresses: concat option framerate / -itsoffset measured only on ffmpeg n9.0.2 | desc: run the ImageFolderInput tests under FFmpeg 5.1 and one 6.x/7.x static build via a PATH shim; confirm the behaviour or document the real minimum for image input
+- timing: after | name: validate_image_input_ffmpeg51 | type: test | priority: medium | effort: medium | inline_risk: low | added_complexity: medium | addresses: concat option framerate / -itsoffset measured only on ffmpeg n9.0.2 | desc: run the ImageFolderInput tests under FFmpeg 5.1 and one 6.x/7.x static build via a PATH shim; confirm the behaviour or document the real minimum for image input | created: t2229
 
 ## Post-Review Changes
 
