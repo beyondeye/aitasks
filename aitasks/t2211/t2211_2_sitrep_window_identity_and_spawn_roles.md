@@ -6,10 +6,14 @@ issue_type: feature
 status: Implementing
 labels: [sitrep, monitor, tmux]
 gates: [risk_evaluated]
+active_gates: [risk_evaluated]
+active_gates_filtered: []
+active_gates_profile: fast
+active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2175
 created_at: 2026-11-05 15:35
-updated_at: 2026-11-07 21:52
+updated_at: 2026-11-07 21:53
 ---
 
 ## Context
