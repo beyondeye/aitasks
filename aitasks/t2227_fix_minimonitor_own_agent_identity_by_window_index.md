@@ -3,12 +3,13 @@ priority: high
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [minimonitor, tui, tmux]
 gates: [risk_evaluated]
 folded_tasks: [1693]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-11-07 19:34
-updated_at: 2026-11-07 19:34
+updated_at: 2026-11-07 19:36
 ---
 
 ## Symptom (observed live, 2026-11-07)
