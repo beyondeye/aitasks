@@ -891,8 +891,30 @@ class SwitcherSitrepTests(unittest.TestCase):
         import tui_switcher as ts
         keys = {b.key: b.action for b in ts._QUICK_JUMP_BINDINGS}
         self.assertEqual(keys.get("S"), "shortcut_sitrep")
-        from keybinding_registry import resolve_key
-        self.assertEqual(resolve_key(ts._TUI_SWITCHER_SCOPE, "shortcut_sitrep"),
+
+        # The registry is process-global, and other modules' tests clear it
+        # (keybinding_registry._reset_for_tests) without replaying
+        # tui_switcher's import-time registration — so this assertion must not
+        # depend on whatever state an earlier test left behind (t2225).
+        # Snapshot, start clean with no user overrides, re-execute the module's
+        # real registration through the sweep the `?` editor uses (it runs the
+        # module body under a probe name, leaving `ts` untouched), then restore.
+        import keybinding_registry as kr
+        import shortcut_scopes
+        saved_defaults = dict(kr._DEFAULTS)
+        saved_overrides = kr._OVERRIDES_CACHE
+
+        def _restore():
+            kr._DEFAULTS.clear()
+            kr._DEFAULTS.update(saved_defaults)
+            kr._OVERRIDES_CACHE = saved_overrides
+        self.addCleanup(_restore)
+
+        kr._reset_for_tests()
+        kr._OVERRIDES_CACHE = {}  # hermetic: ignore the real userconfig.yaml
+        failed = shortcut_scopes.register_scope_bindings("shared.tui_switcher")
+        self.assertEqual(failed, [], f"sweep import failures: {failed}")
+        self.assertEqual(kr.resolve_key(ts._TUI_SWITCHER_SCOPE, "shortcut_sitrep"),
                          "S")
 
     def test_the_action_dispatches_the_selected_root_and_session(self):
