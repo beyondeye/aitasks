@@ -3,13 +3,14 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [tui, keybindings, test_infrastructure]
 gates: [risk_evaluated]
+assigned_to: daelyasy@hotmail.com
 anchor: 2175
 followup_kind: upstream_defect
 created_at: 2026-11-07 19:25
-updated_at: 2026-11-07 19:25
+updated_at: 2026-11-07 21:45
 ---
 
 ## Origin
