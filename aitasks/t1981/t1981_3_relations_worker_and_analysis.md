@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1981
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-04 15:39
-updated_at: 2026-11-07 18:48
+updated_at: 2026-11-07 22:20
 ---
 
 ## Context
@@ -223,3 +224,8 @@ Run `shellcheck` on the scripts.
 > | Read t1981_1's archived plan "Final Implementation Notes / Notes for sibling tasks" for the full list.
 
 > **👁 note:read** id=2026-11-07T16:48:26Z.db2b4a4ee7d873dad8cf7a86 by=t1981_3 at=2026-11-07T16:48:26Z mode=explicit ids=2026-11-07T16:10:54Z.b20f561290a4db5202538fb1
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-07T20:20:36Z status=pass attempt=1 type=human
