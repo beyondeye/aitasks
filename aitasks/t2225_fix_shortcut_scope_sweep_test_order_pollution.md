@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2175
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-07 19:25
-updated_at: 2026-11-07 21:45
+updated_at: 2026-11-07 22:13
 ---
 
 ## Origin
@@ -61,3 +62,8 @@ Make the test independent of registry state left by other modules: have
 re-importing under the sweep), or have `test_shortcut_scopes.py` restore the
 registry it resets in `tearDown`. Confirm with the failing pair above plus an
 `AIT_TEST_PARALLEL=0` run.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-07T20:13:28Z status=pass attempt=1 type=human
