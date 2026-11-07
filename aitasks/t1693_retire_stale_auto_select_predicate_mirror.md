@@ -3,13 +3,14 @@ priority: medium
 effort: low
 depends: [1683]
 issue_type: bug
-status: Ready
+status: Folded
 labels: [tui, minimonitor]
 gates: [risk_evaluated]
+folded_into: 2227
 anchor: 1683
 followup_kind: upstream_defect
 created_at: 2026-09-02 17:07
-updated_at: 2026-09-02 17:07
+updated_at: 2026-11-07 19:34
 ---
 
 ## Origin
