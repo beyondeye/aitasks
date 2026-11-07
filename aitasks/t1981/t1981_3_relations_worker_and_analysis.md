@@ -216,3 +216,5 @@ Run `shellcheck` on the scripts.
 > | - Test helpers: `Env` / `record()` / `HookPlan` / `set_config()` in tests/test_relations_store.py. Every scratch repo needs `project.name`.
 > | 
 > | Read t1981_1's archived plan "Final Implementation Notes / Notes for sibling tasks" for the full list.
+
+> **👁 note:read** id=2026-11-07T16:48:26Z.db2b4a4ee7d873dad8cf7a86 by=t1981_3 at=2026-11-07T16:48:26Z mode=explicit ids=2026-11-07T16:10:54Z.b20f561290a4db5202538fb1
