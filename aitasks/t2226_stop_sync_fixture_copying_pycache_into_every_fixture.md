@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2175
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-07 19:32
-updated_at: 2026-11-07 22:28
+updated_at: 2026-11-07 23:44
 ---
 
 ## Origin
@@ -34,3 +35,8 @@ From t2215's post-phase sweep (archived plan `aiplans/archived/p2215_*`):
 ## Suggested fix
 - sync_fixture: copy the scripts without the caches, e.g. `git -C "$PROJECT_DIR" ls-files -z .aitask-scripts | …` / `tar --exclude=__pycache__`, or `cp -r` followed by pruning `__pycache__` (and `*.pyc`). Check the other fixture helpers that `cp -r "$PROJECT_DIR/.aitask-scripts"` for the same issue (grep `tests/lib/` and `tests/`). Add a regression check that a fixture's `.aitask-scripts` has no `__pycache__`.
 - test_goengines_build: let the build's stderr through, or capture it and print it on failure, so a broken toolchain shows up as a named FAIL rather than a silent rc 1.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-07T21:44:18Z status=pass attempt=1 type=human
