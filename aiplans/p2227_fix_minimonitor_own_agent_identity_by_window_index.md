@@ -424,3 +424,164 @@ and delete the folded t1693 file during archival.
 
 ### Planned mitigations
 - name: probe_pane_id_window_targets · timing: inline pre-phase · inline_risk: low · added_complexity: low
+
+## Final Implementation Notes
+
+- **Actual work done:**
+  - `minimonitor_app.py`:
+    - New module-level `OWN_WINDOW_LISTING_FORMAT` and
+      `parse_own_window_listing()`, which validates the whole listing.
+    - `_update_own_window_info` makes one `list-panes -t $TMUX_PANE` call
+      (replacing the `display-message`) and records `_own_window_pane_ids`.
+    - New `_own_members(confirmed_only)` helper.
+    - `_find_own_agent_snapshot(confirmed_only=True)` is the action seam;
+      `_find_own_window_snapshot(confirmed_only=False)` is the display seam.
+      Both match by pane id. The window_index and session predicates are gone.
+    - `_refresh_own_live_state` reads the display seam.
+    - `_maybe_build_own_agent_panel` records `_own_panel_pane_id` and rebuilds
+      when the resolved pane changes. A same-pane rename still keeps the
+      header.
+    - `_find_sibling_pane_id`: rung 1 is confirmed-only. Rung 2 lists
+      `-t $TMUX_PANE` (never the cached or seeded `_own_window_id`) and refuses
+      with "Own window not confirmed" unless a raw record is this pane.
+  - `monitor_core.py`:
+    - `_collapse_window_for` lists `-t <pane_id>` and returns None
+      (undecidable) when the listing lacks that pane.
+    - `switch_to_pane` runs `select-window -t <pane_id>`.
+    - `find_companion_pane_id` gained a keyword-only `window_target`. The
+      positional form and `GATEWAY_NAMES` are unchanged.
+- **Pre-phase probe `probe_pane_id_window_targets`:** passed, on the scratch
+  socket `tmux -L t2227probe -f /dev/null`, which was killed afterwards:
+  - windows w0/w1/w2 were created, with panes `%2`/`%3` in w2, then
+    `kill-window w0`;
+  - `list-panes -t %2` returned `%2 @2 1 w2` and `%3 @2 1 w2`, the
+    post-renumber index;
+  - `select-window -t %2` moved the active window from w1 to w2 (rc 0);
+  - the companion-format listing `-t %2` returned rc 0.
+- **Live evidence (2026-11-07), read-only:** this pick's own window
+  `aitasks:10` (`@227`) has minimonitor `%514`, whose panel read
+  `☆ agent-explore-1`. That window no longer exists in `aitasks`. The user
+  confirmed the trigger: launching a pick from a window while killing that
+  window.
+- **Pre-fix control (baseline worktree at HEAD a00121816):** the new test file
+  was copied into the worktree's `tests/` and run with
+  `AITASK_TEST_ASSERT_BASELINE`; the module-origin guard passed. All 18 cases
+  fail there:
+  - **Behavioural reds, each an `AssertionError` naming the neighbour or the
+    stale target:**
+    - (a) panel name `☆ agent-pick-1893_6` (fixture A) and `☆ agent-explore-1`
+      (fixture B, the exact live symptom);
+    - (b) `%20 != %9` and `%400 != %513`;
+    - (b2) kill `['%20']` / `['%400']`, Enter `('%20')` / `('%400')`;
+    - (d) the panel kept `1893_6`;
+    - collapse: `True is not False`, and kill-window was issued instead of
+      kill-pane;
+    - switch: `select-window -t =s1:4`.
+  - **New-semantics cases:**
+    - (c): the old code resolved `%20` after a failed first query, because the
+      seeded index pointed at the neighbour;
+    - the old fallback listed `-t @5`;
+    - the old fallback dispatched to `%9` without confirming that this pane
+      was in the listing;
+    - (c2) and (e) fail at their first identity assertion (the wrong panel
+      name).
+  - **Invalid as controls:** the 5 parser cases fail with `AttributeError`
+    (new API).
+  - After the run, the worktree was removed with `git worktree remove`.
+- **Deviations from plan:**
+  - Fixtures in `test_monitor_pick_launch_sites.py`, `test_applink_router.sh`
+    and `test_multi_session_monitor.sh` answered `list-panes` with an empty or
+    short listing. The old code read that as "alone in its window"; it is not
+    a realistic listing. They now return full `FROZEN_AWARE_PANE_FORMAT` rows
+    that include the pane. The `test_multi_session_monitor.sh` Tier 1f stub had
+    3-field rows, so its "sibling → kill-pane" path never actually ran; it now
+    does, and the tier asserts it.
+  - `test_minimonitor_startup_input_latency.py`: the unseeded-window refusal
+    now reads "Own window not confirmed", because the fallback no longer
+    consults the seeded id.
+- **t1693 audit of `tests/test_multi_session_minimonitor.sh`:**
+  - **1a:** reads the real `BINDINGS` and checks `hasattr` on the real class.
+    Real.
+  - **1b:** calls the real `action_toggle_multi_session`. Real.
+  - **1c:** calls the real `_start_monitoring` with `TmuxMonitor` patched. It
+    was **crashing** (`AttributeError: _monitor_server`, since t2037_3). Under
+    `set -e` that aborted the whole file before its summary, so no tier had run
+    since then. Repaired the stub, patched the documented
+    `build_monitor_client` seam, and added a `CONSTRUCTED:` witness so the two
+    kwarg assertions can't pass vacuously.
+  - **1d:** deleted, as a self-mirroring copy of a predicate that no longer
+    exists. Superseded by `tests/test_minimonitor_focus_in_click.py` and the
+    new renumber file.
+  - **1e, 1f, 1g:** call the real `_rebuild_pane_list` /
+    `_rebuild_session_bar` / lookups / `_maybe_build_own_agent_panel`. Real.
+    The 1e and 1g fixtures moved to membership.
+  - **1h:** calls the real `_switcher_selected_session`. Real; moved to
+    membership.
+  - **1i** (was a second "1g"): calls the real `_agent_card_text`. Real.
+  - Result: 39/39 pass.
+- **Not run here:** the live-tmux tests `test_cleanup_rule_parity.sh`,
+  `test_frozen_standin_spike.sh`, `test_scratchpad_spawn_live.sh` and
+  `test_freeze_engine_live.sh` refuse to run inside a tmux session, by design.
+  Run them from a terminal outside tmux.
+- **Upstream defects identified:**
+  - `.aitask-scripts/lib/tui_switcher.py:1532` — passes a listing-time
+    `target.window_index` into `agent_launch_utils` companion spawning and
+    `select-window` (`agent_launch_utils.py:2537`, `:2695-2874`). It is the
+    same stale-index class as this task, in the switcher/launcher subsystem; a
+    renumber between the listing and the action can spawn the companion into,
+    or select, the neighbouring window.
+  - `tests/test_board_movement.py:1291` —
+    `IsolationNegativeControlTests.test_in_process_task_dir_override_reads_the_real_repo`
+    asserts against the live repo's active task list. It fails at pure HEAD
+    whenever an unexpected task file such as `t2226_*` is present, so it is not
+    hermetic.
+- **Issues encountered:**
+  - `tests/test_multi_session_minimonitor.sh` Tier 1c had been crashing since
+    t2037_3. Under `set -e` it aborted the file before its summary, so no tier
+    in that file had run. Repaired here.
+  - Several kill-path fixtures used empty or short `list-panes` replies, which
+    the old collapse decision read as "alone"; they now return realistic rows.
+- **Key decisions:**
+  - Pane-id membership instead of adding `window_id` to `TmuxPaneInfo` and the
+    status protocol: no protocol versioning, same guarantee.
+  - The single per-tick `_own_identity_confirmed` flag gates both the capture
+    pin and every action. It is withdrawn as soon as a refresh is admitted.
+  - Display paths use the last validated membership; actions never do.
+  - The Tab/Enter fallback confirms the window independently via
+    `-t $TMUX_PANE`.
+  - The collapse decision treats a listing without the target pane as
+    undecidable, so it falls back to a plain pane kill.
+- **Operational note:** minimonitors that are already running keep the old
+  code. Restart them, or the windows, to pick up the fix.
+- **Review round: confirmation-reset ordering (CONFIRMED, fixed).**
+  - **The bug:** `_refresh_data` awaited `get_session_to_project_mapping_async`
+    before resetting `_own_identity_confirmed`. So during a suspended refresh,
+    `k` and Enter still acted on the previous tick's confirmation, after a
+    `swap-pane` had already moved the followed pane out.
+  - **The fix:** the reset now runs right after the re-entrancy guard admits
+    the refresh (`_refresh_inflight = True`), before the first await. The
+    redundant in-tick reset before `_update_own_window_info` is removed.
+  - **The test:**
+    `RefreshWithdrawsConfirmationTests.test_an_action_during_a_suspended_refresh_refuses`
+    holds the REAL `_refresh_data` in its session-mapping await. It asserts
+    that the flag is withdrawn, that `k` dispatches nothing, that Enter
+    dispatches nothing, and that the cancelled refresh does not strand
+    `_refresh_inflight`.
+  - **Mutant control:** in an isolated worktree at HEAD with the working
+    sources, the reset was moved back after the await. Exactly this test then
+    failed (`True is not false : the previous tick's confirmation survived into
+    the suspended refresh`); the other 18 passed. The worktree was removed.
+- **Full Python suite (before this round's fix):**
+  `PYTHON SUITE: FAILED (runner=pytest, exit=1)`, with 6 failures, none caused
+  by t2227:
+  - 4 in `test_sitrep_window.py` and 1 in `test_metadata_writer_inventory.py`.
+    All pass in an isolated worktree at HEAD with only my two monitor sources
+    applied, so they come from other sessions' uncommitted edits in the shared
+    tree (`helper_panes.py`, `sitrep_*`, `sitrep_open.py`, …).
+  - 1 in `test_board_movement.py`
+    (`test_in_process_task_dir_override_reads_the_real_repo`). It fails
+    identically at pure HEAD, because it reads the live repo's task data.
+- **After this round's fix:** 1554 passed in the affected Python set (every
+  module touching the changed seams or `_refresh_data`); the only failures were
+  the same 4 `test_sitrep_window` cases. The touched shell tests all pass.
+- **Code commit:** 434b9d306 (`bug: Resolve the minimonitor's followed agent by pane id, not window index (t2227)`).
