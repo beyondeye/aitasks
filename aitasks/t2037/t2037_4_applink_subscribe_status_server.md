@@ -33,3 +33,18 @@ that instance as an action and content gateway. Calls found in
 Existing applink tests pass; a live check that a paired client still receives
 `pane_status` updates and can send keys, with only the server capturing for
 status.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t2037_3** id=2026-11-07T17:20:54Z.d3b948f3a61203778155b9af from=t2037_3 from_verified=yes at=2026-11-07T17:20:54Z base=bc5505493c2518ba9f25c665a05060eaf3029e5c base_branch=main dirty=yes host=omg16
+>
+> | Advisory from t2037_3 (monitor + minimonitor now subscribe through MonitorClient; code commit bc5505493). Details are in its archived plan's "Notes for sibling tasks" and "Post-Review Changes". As of that commit:
+> | 
+> | - Construction: monitor_shared.build_monitor_client(local, kind=..., own_pane=..., session=..., project_root=..., pins=..., enabled=None|False). monitor_shared imports Textual; applink may prefer MonitorClient directly with the same arguments.
+> | - Before a requested scan, call flush_pins() between set_capture_pins(...) and request_refresh(). set_capture_pins only spawns its set_pins send, so the refresh could otherwise reach the server first and scan under the old pins. flush_pins is bounded and never raises.
+> | - These calls wait for the server: capture_pane_classified_async, refresh_shadow_snapshot, request_refresh, capture, set_content, flush_pins, and cycle/set_compare_mode_async. Never await one on a serialized dispatch path, such as applink's request loop if one connection's requests are handled in order. Four review rounds on t2037_3 found exactly this class of bug in the TUIs (call_later, set_timer → call_next, and a mode decision made at scheduling time).
+> | - Choose the route by object type, never by client.mode. A client in fallback can reconnect before a queued callback runs.
+> | - capture_all_* only reads the subscription. Scans happen per server tick, plus explicit request_refresh.
+> | - The server applies each project's project_config.yaml. A per-instance override needs enabled=False.
+> | - Measured (one host, one moment): with N=12 agents and K=4 clients, tmux-server CPU is 0.67 % shared vs 2.2 % in-process, and the status server costs about 0.35 %.
