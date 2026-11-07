@@ -224,3 +224,77 @@ pass first).
 ### Planned mitigations
 - timing: pre-phase | name: byte_exact_pins | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health (shared-helper semantic drift) | desc: write the pipefail/byte-exactness test first and prove it against the unmodified helpers
 - timing: post-phase | name: pipefail_caller_sweep | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement (exposed false passes) | desc: run the 141 pipefail callers of the shared contains helpers in three buckets (pass / refused-skipped / failed), attribute each failure per assertion (failing-description sets, exit status, TOTAL, abort point) by re-running it alone against a baseline that differs only in asserts.sh and whose helper logs MASKED matches, route only confirmed exposed false passes to their owner, and stop on any unresolved difference
+
+## Final Implementation Notes
+- **Actual work done:** All planned steps landed as written.
+  - Pre-phase `byte_exact_pins`: `tests/test_asserts_pipefail.sh` was written FIRST and run
+    against the unmodified helpers. Result 22 passed / 6 failed: exactly the 6 pipefail cases
+    failed, while the old-pipe control (misreports on this fixture), the byte-exactness pins,
+    the no-pipefail sanity case and the mode cases all passed.
+  - Step 1: the six contains helpers in `tests/lib/asserts.sh` now use
+    `grep -q… -- "$x" < <(printf '%s' "$haystack" 2>/dev/null)`, and the header comment gives
+    the reason (t2215). After the change the file passes 28/28.
+  - Steps 2 and 4-7 as planned: the sitrep_corpus overrides were removed and its comment
+    reworded; `test_codeagent.sh:372` and `test_file_references.sh:372` now confine the cd in
+    a subshell (the latter keeps the old `;` tolerance through `|| true`); the two premise
+    files and `test_label_yaml_words.sh` call `enter_scratch_cwd`.
+- **Verification:** `test_cd_guard_lint.sh` passes 92/92, re-run after other sessions added
+  untracked tests. Every edited file passes (asserts_pipefail 28, asserts_counters 23,
+  sitrep_corpus 222, codeagent 271, file_references 50, premise_baseline_field 71,
+  premise_baseline_seeding 97, label_yaml_words 36). Red proofs via `AIT_ASSERTS_LIB`: each
+  mutant turns red only its own cases: old pipe → 1a-1f; here-string → 3a-3d; `-qiF`→`-qF`
+  → 1c,1d,5a,5b; `_re` `-qE`→`-qF` → 1e,1f,5e,5f,5m; plain `-qF`→`-qE` → 5g-5j; `_ci`
+  `-qiF`→`-qiE` → 5k,5l. Shellcheck matches HEAD except one extra SC1091 (info) per file
+  that gained the scratch_cwd `source`, the same kind those files already carry for their
+  other sources. The new file has a file-wide SC2016 disable with its reason.
+- **Post-phase `pipefail_caller_sweep` (144 files selected; 141 at planning time, plus the
+  new test and files added since):**
+  - executed-pass: 130 (rc 0). `test_aitasks_home` passed but printed 2 partial
+    `SKIP (not landed)` lines; `test_goengines_export_integrity` printed 1 `SKIP:` line
+    (and failed, see below).
+  - refused, so this coverage did NOT run: 4. `test_freeze_engine_live`,
+    `test_frozen_agents_acceptance`, `test_restore_flows_live` and
+    `test_scratchpad_spawn_live` exited 2 because `require_clean_ait_server` refuses inside
+    tmux (`$TMUX` is set). `AIT_LIVE_TMUX_TEST_FORCE` was deliberately not used.
+  - failed under `-P4`: 10. Each was re-run alone on a baseline worktree at f78e2b8d5, with
+    `git diff HEAD -- . ':!tests/lib/asserts.sh'` applied and the untracked files copied in.
+    Its `asserts.sh` was HEAD's, instrumented to log `MASKED:` without changing verdicts;
+    the instrumentation's self-check logged all 6 masked fixture cases and kept 22/6.
+    - pre-existing, identical on both sides (same failing-description set, rc, Results):
+      `test_goengines_build` (rc 1, no output), `test_testmap_shim` (86/1),
+      `test_goengines_export_integrity` (182/8) and `test_install_engine_binary` (219/9).
+      All four share one machine-local cause: `compile: version "go1.27.3" does not match
+      go tool version "go1.27.3-X:nodwarf5"`.
+    - load/quota flakes, passing on both sides when run alone: `test_task_push`,
+      `test_sync_guarded_merge` (147/0), `test_sync_rebase_gate` (38/0),
+      `test_sync_fetch_exclusion` (59/0) and `test_verified_update` (233/0). Every one of
+      their `-P4` logs contains `Disk quota exceeded`.
+    - one difference found: `test_sync_deferral_and_quarantine` failed alone on the new side
+      twice (a 4096-byte truncated log, `Disk quota exceeded`) while the baseline passed
+      139/0. Measured `/tmp` growth was 2060 MB on the new side and 1065 MB on the baseline.
+      Cause: `tests/lib/sync_fixture.sh:96` copies `.aitask-scripts` into every fixture, and
+      the real checkout carries ~11 MB of gitignored `__pycache__` (24 MB vs 13 MB). Proof:
+      after copying the same ignored caches into the baseline, the OLD-helper baseline grew
+      by 2030 MB, hit the quota and truncated at the same point (Test 37) as the new side's
+      run that started first. This is attributed to the environment (the per-user tmpfs
+      `usrquota` plus that cache copy), not to this change.
+  - `MASKED:` records across all baseline runs: 0. The old pipe hid no match in any failing
+    file, so no exposed old false pass was found, nothing was routed to an owner, and no
+    unresolved difference remains.
+  - The baseline worktree was removed.
+- **Deviations from plan:** (1) The sweep selection was 144 files, not 141; the extra files
+  are the new test and tests other sessions added. (2) In the baseline, the gitignored
+  `__pycache__` dirs had to be copied in as well before the trees were really equivalent;
+  `git diff` does not carry ignored files. (3) The first alone re-run was stopped and
+  restarted because `T2215_MASKED_LOG` had not been passed to the baseline side. Only the
+  restarted run counts.
+- **Issues encountered:** The per-user tmpfs quota on `/tmp` (`usrquota`), shared with other
+  sessions, is the common cause of every sync-test failure in the sweep.
+- **Key decisions:** I used process substitution rather than the here-string the task
+  suggested, because I measured that a here-string flips two verdicts (an empty needle on
+  an empty haystack; `^$` on a haystack ending in a newline). The lint was fixed for all 5
+  hits, not just the named one, because their owning tasks are all archived and the lint
+  is one shared gate.
+- **Upstream defects identified:**
+  - `tests/lib/sync_fixture.sh:96 — cp -r "$PROJECT_DIR/.aitask-scripts" copies the gitignored __pycache__ dirs (~11 MB) into every fixture; test_sync_deferral_and_quarantine.sh then writes ~2 GB to /tmp from a real checkout (vs ~1 GB from a clean tree) and exhausts the per-user tmpfs quota, truncating logs and failing sync tests under parallel load`
+  - `tests/test_goengines_build.sh:54 — the build.sh call discards stderr under set -euo pipefail, so a toolchain failure makes the test exit 1 with no output at all (no FAIL line, no Results line)`
