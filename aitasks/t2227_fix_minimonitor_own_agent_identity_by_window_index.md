@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 folded_tasks: [1693]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-07 19:34
-updated_at: 2026-11-07 19:36
+updated_at: 2026-11-07 22:16
 ---
 
 ## Symptom (observed live, 2026-11-07)
@@ -182,3 +183,8 @@ Depends on t1683 (the behaviour change that exposed this).
 The following existing tasks have been folded into this task. Their requirements are incorporated in the description above. These references exist only for post-implementation cleanup.
 
 - **t1693** (`t1693_retire_stale_auto_select_predicate_mirror.md`)
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-07T20:16:55Z status=pass attempt=1 type=human
