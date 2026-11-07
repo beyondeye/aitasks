@@ -45,29 +45,6 @@ PASS=0
 FAIL=0
 TOTAL=0
 
-# Pipe-free overrides of the shared helpers: under `pipefail`, the shared
-# `printf | grep -q` fails with SIGPIPE when grep exits before a larger
-# haystack is fully written (seen as a flake on `case show` output). A
-# here-string has no pipe.
-assert_contains() {
-    local desc="$1" needle="$2" haystack="$3"
-    if grep -qF -- "$needle" <<<"$haystack"; then
-        assert_record_pass
-    else
-        assert_record_fail
-        echo "FAIL: $desc (expected output containing '$needle', got '$haystack')"
-    fi
-}
-assert_not_contains() {
-    local desc="$1" needle="$2" haystack="$3"
-    if ! grep -qF -- "$needle" <<<"$haystack"; then
-        assert_record_pass
-    else
-        assert_record_fail
-        echo "FAIL: $desc (expected output NOT containing '$needle', got '$haystack')"
-    fi
-}
-
 SCRIPTS="${AIT_CORPUS_TEST_SCRIPTS:-$PROJECT_DIR/.aitask-scripts}"
 HV="$SCRIPTS/aitask_sitrep_harvest.sh"
 WR="$SCRIPTS/aitask_sitrep_todo.sh"
@@ -581,8 +558,7 @@ mkdir -p "$OLD"
 cp -r "$PROJECT_DIR/.aitask-scripts" "$OLD/"
 sed -i 's/^ACCEPT_JOINED_BANNER = True$/ACCEPT_JOINED_BANNER = False/; s/^PARSER_REV = 2$/PARSER_REV = 1/' \
     "$OLD/.aitask-scripts/lib/sitrep_harvest.py"
-# Counted, not assert_contains over the whole file: under pipefail a large
-# haystack makes `printf | grep -q` fail with SIGPIPE once grep exits early.
+# Counted: both pre-fix lines must be present.
 assert_eq "8 premise: the copy has the pre-fix grammar" "2" \
     "$(grep -cE '^(ACCEPT_JOINED_BANNER = False|PARSER_REV = 1)$' "$OLD/.aitask-scripts/lib/sitrep_harvest.py")"
 R8="$(new_repo r8)"

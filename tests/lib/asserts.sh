@@ -175,10 +175,20 @@ assert_eq_trim() {
 # suite and the safest (no regex-metacharacter surprises). Use the _ci variant
 # for case-insensitive matching and the _re variant for extended-regex.
 # All carry the t920 `--` end-of-options guard.
+#
+# The haystack reaches grep through process substitution, never a pipe (t2215).
+# `printf | grep -q` fails under a caller's `set -o pipefail` once the haystack
+# outgrows the pipe buffer: grep -q exits at its first match, printf dies of
+# SIGPIPE, and the pipeline reports "no match" for a needle that IS present (so
+# assert_not_contains passes silently). `< <(printf …)` keeps the writer out of
+# the status. A here-string would also avoid the pipe, but it appends a newline,
+# which changes what an empty needle or a `^$` pattern matches; process
+# substitution gives grep the exact bytes. printf's stderr is dropped for an
+# environment that ignores SIGPIPE, where it gets EPIPE and would print an error.
 
 assert_contains() {
     local desc="$1" needle="$2" haystack="$3"
-    if printf '%s' "$haystack" | grep -qF -- "$needle"; then
+    if grep -qF -- "$needle" < <(printf '%s' "$haystack" 2>/dev/null); then
         assert_record_pass
     else
         assert_record_fail
@@ -188,7 +198,7 @@ assert_contains() {
 
 assert_not_contains() {
     local desc="$1" needle="$2" haystack="$3"
-    if printf '%s' "$haystack" | grep -qF -- "$needle"; then
+    if grep -qF -- "$needle" < <(printf '%s' "$haystack" 2>/dev/null); then
         assert_record_fail
         echo "FAIL: $desc (expected output NOT containing '$needle', got '$haystack')"
     else
@@ -199,7 +209,7 @@ assert_not_contains() {
 # Case-insensitive (fixed-string) variants.
 assert_contains_ci() {
     local desc="$1" needle="$2" haystack="$3"
-    if printf '%s' "$haystack" | grep -qiF -- "$needle"; then
+    if grep -qiF -- "$needle" < <(printf '%s' "$haystack" 2>/dev/null); then
         assert_record_pass
     else
         assert_record_fail
@@ -209,7 +219,7 @@ assert_contains_ci() {
 
 assert_not_contains_ci() {
     local desc="$1" needle="$2" haystack="$3"
-    if printf '%s' "$haystack" | grep -qiF -- "$needle"; then
+    if grep -qiF -- "$needle" < <(printf '%s' "$haystack" 2>/dev/null); then
         assert_record_fail
         echo "FAIL: $desc (expected output NOT containing (ci) '$needle', got '$haystack')"
     else
@@ -220,7 +230,7 @@ assert_not_contains_ci() {
 # Extended-regex (case-sensitive) variants.
 assert_contains_re() {
     local desc="$1" pattern="$2" haystack="$3"
-    if printf '%s' "$haystack" | grep -qE -- "$pattern"; then
+    if grep -qE -- "$pattern" < <(printf '%s' "$haystack" 2>/dev/null); then
         assert_record_pass
     else
         assert_record_fail
@@ -230,7 +240,7 @@ assert_contains_re() {
 
 assert_not_contains_re() {
     local desc="$1" pattern="$2" haystack="$3"
-    if printf '%s' "$haystack" | grep -qE -- "$pattern"; then
+    if grep -qE -- "$pattern" < <(printf '%s' "$haystack" 2>/dev/null); then
         assert_record_fail
         echo "FAIL: $desc (expected output NOT matching /$pattern/, got '$haystack')"
     else

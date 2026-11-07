@@ -28,6 +28,9 @@ set -u
 
 TEST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$TEST_DIR/.." && pwd)"
+# shellcheck source=lib/scratch_cwd.sh
+. "$PROJECT_DIR/tests/lib/scratch_cwd.sh"
+enter_scratch_cwd
 LIB="$PROJECT_DIR/.aitask-scripts/lib"
 
 . "$PROJECT_DIR/tests/lib/asserts.sh"

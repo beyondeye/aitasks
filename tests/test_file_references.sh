@@ -369,9 +369,9 @@ assert_eq "--status leaves the quoted list byte-identical" \
 assert_eq "--file-ref appends and keeps both quoted entries whole" \
     'file_references: ["a,b.py", "my file.py", x.py]' "$(read_file_refs_line "$f16")"
 # find_by_file only reports Ready/Editing tasks.
-find16="$(cd "$TMPDIR_16/local" && \
-    ./.aitask-scripts/aitask_update.sh --batch "$n16" --status Ready >/dev/null 2>&1; \
-    ./.aitask-scripts/aitask_find_by_file.sh "a,b.py" 2>&1)"
+(cd "$TMPDIR_16/local" && \
+    ./.aitask-scripts/aitask_update.sh --batch "$n16" --status Ready >/dev/null 2>&1) || true
+find16="$(cd "$TMPDIR_16/local" && ./.aitask-scripts/aitask_find_by_file.sh "a,b.py" 2>&1)"
 assert_contains "find_by_file matches the quoted comma path" "TASK:${n16}:" "$find16"
 rm -rf "$TMPDIR_16"
 

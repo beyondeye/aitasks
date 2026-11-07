@@ -369,7 +369,7 @@ assert_contains_ci "claudecode sitrep is a dry run" "DRY_RUN:" "$output"
 for agent in codex/gpt5_4 opencode/openai_gpt_5_4; do
     assert_exit_nonzero "${agent%%/*} sitrep refuses" \
         bash -c "cd '$TMPDIR_TEST' && bash '$CODEAGENT' --agent-string '$agent' --dry-run invoke sitrep"
-    output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" --agent-string "$agent" --dry-run invoke sitrep 2>&1 || true)
+    output=$( (cd "$TMPDIR_TEST" && bash "$CODEAGENT" --agent-string "$agent" --dry-run invoke sitrep) 2>&1 || true)
     assert_contains_ci "${agent%%/*} sitrep refusal names the cause" "sitrep is not yet supported" "$output"
     assert_not_contains_ci "${agent%%/*} sitrep refusal composes nothing" "DRY_RUN:" "$output"
 done
