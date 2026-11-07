@@ -5,7 +5,7 @@ risk_goal_achievement: medium
 effort: medium
 depends: [t2037_2]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [monitor, minimonitor, performance]
 active_gates: [risk_evaluated]
 active_gates_filtered: []
@@ -16,7 +16,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 2034
 implemented_with: claudecode/opus5_5
 created_at: 2026-10-16 08:11
-updated_at: 2026-11-07 19:15
+updated_at: 2026-11-07 19:21
+completed_at: 2026-11-07 19:21
 ---
 
 Switch `ait monitor` and `ait minimonitor` to the client (parent: Python
@@ -71,3 +72,14 @@ monitor status server task).
 > **✅ gate:plan_approved** run=2026-11-06T09:02:01Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-11-07T17:14:36Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-11-07T17:21:06Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:7c8ac18598b1771d
+
+> **✅ gate:risk_evaluated** run=2026-11-07T17:21:06Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/2037_3/risk_evaluated_2026-11-07T17:21:06Z-risk_evaluated-a1.log`
