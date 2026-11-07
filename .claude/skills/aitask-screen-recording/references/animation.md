@@ -101,6 +101,19 @@ Force one with `--signal edge` or `--signal blend`.
     decelerate lose 1–2 frames, sometimes more.
 - **Fitted duration** comes from the model. It accounts for those tails, and it
   is the number to implement.
+- **The fitter's onset search** reaches 8 frame intervals before the first
+  changed frame (`ONSET_SEARCH_INTERVALS` in `vp_core.py`). In a recording
+  the onset is always within one frame of it. In an image folder with frames
+  missing just before the motion, the true start can lie further back; the
+  fit then comes out short with a low rmse, so `anim DIR` marks such fits
+  unreliable (`fits_reliable: false`) and the visible duration is the number to
+  use.
+- **Image folders** (`anim DIR`): the frame interval is the native one,
+  estimated from the shortest steps between images (the mean of the steps up
+  to 1.5× their lower quartile, so names rounded to whole ms still give
+  16.7 ms at 60 fps). The visible duration's ± is the longest of one interval
+  and the steps into the first changed and the settled image, so a gap at
+  either end widens it (`visible_duration_uncertainty_ms` in `fit.json`).
 
 ## 5. Fitting models
 
@@ -173,5 +186,6 @@ Everything that locates a moment in the recording stays in recording time:
 | Fade combined with movement | spread warning; early frames below the threshold | fit `--signal blend` for the opacity and `--roi` + `--signal edge` for the motion; report both |
 | Element moves and returns (press feedback, shake, ripple) | kind `returns`, no curve | read the sheet; visible duration is still given |
 | Low frame rate or dropped frames (large frame interval in the summary) | coarse timing | re-record (references/recording.md); slowed capture with `--time-scale` |
+| Image folder with frames deleted (`anim DIR`, gap warning) | widened ± at the motion's ends; fits marked unreliable when the gap before the motion exceeds the onset search | quote the visible duration with its ±; re-extract the span without deleting frames around the motion |
 | Tiny motion (a few px) | quantised progress | `--roi` tight around the element (raises analysis resolution); `--analysis-pixels 400000` |
 | Video starts mid-motion | note in the summary; progress relative to frame 0 | re-record with a still second before the animation |

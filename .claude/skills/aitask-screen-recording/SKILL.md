@@ -27,6 +27,7 @@ standard; the measurements can.
 | a bug *in* an animation | `bug` first, then `anim --window` around that moment |
 | a close look at an exact moment at full resolution, or frames to edit by hand | `frames` (usually after `bug`/`anim` has pointed at the moment) |
 | a folder of images the user already has, for example frames they edited by hand | `sheet DIR` |
+| the bug review or the animation measurement of a curated folder of images (frames kept after deleting some, or screenshots) | `bug DIR` / `anim DIR` (see Image folder input) |
 | the user wants to choose the frames you read, by eye | `pick` on the run (see Pick frames visually) |
 
 `info` only probes the file (size, frame rate, duration, audio).
@@ -37,6 +38,7 @@ standard; the measurements can.
 ./.aitask-scripts/aitask_screen_recording.sh bug  rec.mp4 --out <scratchpad>/video-prep/rec-bug
 ./.aitask-scripts/aitask_screen_recording.sh anim rec.mp4 --out <scratchpad>/video-prep/rec-anim
 ./.aitask-scripts/aitask_screen_recording.sh frames rec.mp4 --at 5.5 --out <scratchpad>/video-prep/rec-frames
+./.aitask-scripts/aitask_screen_recording.sh anim <frames-folder> --out <scratchpad>/video-prep/curated-anim
 ./.aitask-scripts/aitask_screen_recording.sh sheet <folder> --out <scratchpad>/video-prep/edited-sheet
 ./.aitask-scripts/aitask_screen_recording.sh pick <run-dir> --open --out <scratchpad>/video-prep/rec-pick
 ```
@@ -261,6 +263,39 @@ labelled contact sheets: the way back in for frames the user extracted with
 - Read `summary.md`, then the sheets. `tiles.tsv` maps each tile (sheet, row,
   column) to its file.
 
+## Image folder input
+
+`bug DIR` and `anim DIR` run the same analysis on a folder of images as on a
+recording (top level only; png/jpg/jpeg/webp; hidden files and `frames.tsv`
+are ignored). Use it when the user curated frames — usually `frames --range …
+--max-frames N` (default cap 60), then deleted or retouched some — or has only
+screenshots.
+
+- **Timing:** every name must carry a time, as `sheet` reads names
+  (`t00007040.png`, `t00007040_note.png`, `04_5.500s.png`, `f013_0.483s.png`),
+  to the millisecond. For names with no time, `--fps N` times them in natural
+  name order; say that this timing is assumed, as the summary does. The tool
+  refuses partly timed folders, duplicate times and `--fps` on timed names;
+  relay the message, which names the files.
+- **Report times in recording time.** They are the times the names carry, so
+  `--window`, `--range` and the times you cite match the recording.
+- **Gaps:** a step over 1.5× the estimated frame interval is a gap (a deleted
+  frame, or a still screen in a variable-frame-rate recording — do not claim
+  which unless you know). When gaps are listed, the timing is not native-frame
+  accurate there: quote the visible duration **with its ±**, which grows to
+  the longest step at the motion's ends.
+- **`unreliable (gap before the motion)`** in the segment table (and
+  `fits_reliable: false` in `fit.json`) means frames are missing just before
+  the motion, further back than the fitter's onset search. Do **not**
+  recommend those fitted durations or curves; give the visible duration and
+  its ±, and suggest re-extracting that span without deletions.
+- **Sizes and formats:** `anim` needs one image size and names the odd ones;
+  `bug` letterboxes mixed sizes (no `frames.tsv`, no `--roi`). Mixed pixel
+  formats are normalised so the detectors see one stream. There is no audio.
+- **Provenance:** `run.json` has `input: images`, `input_dir_abspath`,
+  `timing`, `gaps`, `sizes`, `letterboxed` and `normalized`; `video_abspath`
+  is null, so `pick` on such a run names the folder, not a video.
+
 ## Pick frames visually
 
 `pick` builds a static page (`<out>/index.html`, no server) from a run's frames.
@@ -372,6 +407,12 @@ CLI. They cover:
   and `+N` with a deleted frame, untimed and suffixed names, letterboxing,
   unreadable and animated files, labels that fit narrow cells, and the
   `--per-sheet` split.
+- `bug DIR` / `anim DIR`: a `frames` → `anim DIR` round trip against the
+  video result, every third frame deleted (gap warning, widened ±, same
+  curve), frames missing before the motion (fits marked unreliable), `--fps` on
+  untimed names, mixed sizes (anim refuses, bug letterboxes), alternating
+  gray/RGB images that keep the freeze detector's state, the concat time
+  guard, and the refusals.
 - `pick` (no ffmpeg needed for most): run layouts before root images (a bug
   run's sheets, `anim --window`'s `w01`), the snapshot and its hashes,
   collision-free snapshot names, JSON that cannot break out of its script

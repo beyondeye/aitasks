@@ -60,6 +60,7 @@ Hand your agent a screen recording instead of describing it: reproduce a bug fro
 - [Extract Exact Frames for Close Inspection]({{< relref "/docs/workflows/screen-recordings/exact-frames" >}}) — Full-resolution native frames at an exact time or over a span, with a geometry manifest.
 - [Prepare Images by Hand, Then Feed Them to the Agent]({{< relref "/docs/workflows/screen-recordings/hand-edited-images" >}}) — Edit extracted frames in any tool and hand the folder back as labelled contact sheets.
 - [Pick Frames Visually and Hand Them to the Agent]({{< relref "/docs/workflows/screen-recordings/pick-frames" >}}) — Choose frames on a page in your browser and paste the selection back to the agent.
+- [Review or Measure a Curated Image Sequence]({{< relref "/docs/workflows/screen-recordings/image-sequences" >}}) — Run the bug review or the animation measurement on a folder of images.
 - [Recording Tips](screen-recordings/recording-tips/) — Capture a recording that analyses well on Android, iOS and desktop.
 
 ## Git

@@ -344,6 +344,12 @@ def source_info(run: dict | None) -> dict:
                 "hint": None}
     mode = run.get("mode") if isinstance(run.get("mode"), str) else None
     out = {"mode": mode, "video": None, "why": None, "hint": None}
+    if run.get("input") == "images":
+        # bug/anim on a folder of images: there is no recording to name
+        folder = run.get("input_dir_abspath")
+        out["why"] = ("the run read a folder of images"
+                      + (f" ({folder})" if isinstance(folder, str) else "") + ", not a video")
+        return out
     ab, size = run.get("video_abspath"), run.get("video_size")
     if isinstance(ab, str) and os.path.isabs(ab):
         p = Path(ab)

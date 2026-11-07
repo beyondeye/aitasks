@@ -2203,5 +2203,458 @@ class PickFromRuns(_VideoCase):
             self.assertEqual(rj["video_size"], video.stat().st_size, mode)
 
 
+# --------------------------------------------------------------------------- #
+# bug DIR / anim DIR: a curated folder of images through the same pipelines
+
+def write_rgb_png(path, w, h, fill=128):
+    """An 8-bit RGB PNG (color type 2) of one gray level, so its pixels equal
+    write_png's gray image of the same fill while its decoded pixel format differs."""
+    import struct
+    import zlib
+    raw = b"".join(b"\x00" + bytes([fill]) * (3 * w) for _ in range(h))
+
+    def chunk(kind, body):
+        return (struct.pack(">I", len(body)) + kind + body
+                + struct.pack(">I", zlib.crc32(kind + body) & 0xFFFFFFFF))
+    Path(path).write_bytes(b"\x89PNG\r\n\x1a\n"
+                           + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0))
+                           + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b""))
+
+
+def png_color_type(path) -> int:
+    return Path(path).read_bytes()[25]
+
+
+_SEG_START = re.compile(r"^\| s01 \| ([\d.]+) s \|", re.M)
+_FIRST_CHANGED = re.compile(r"first changed frame ([\d.]+) s")
+
+
+@unittest.skipUnless(HAVE_FFMPEG, "ffmpeg/ffprobe not installed")
+class ImageFolderInput(_VideoCase):
+    """bug DIR / anim DIR: a folder of images (times from the names, or --fps)
+    goes through the same ffmpeg pipelines as a recording (t1893_6)."""
+
+    def slide_right(self):     # CSS ease-out, 300 ms from 0.5 s, 60 fps
+        return self.video("slide_right", lambda: synth.card_frames(
+            synth.tween(synth.EASE_OUT, 0.5, 0.3), 1.4, "right"))
+
+    def slide_left_400(self):  # FastOutSlowIn, 400 ms from 0.5 s
+        return self.video("slide_left_400", lambda: synth.card_frames(
+            synth.tween(synth.FAST_OUT_SLOW_IN, 0.5, 0.4), 1.5, "left"))
+
+    def frames_dir(self, video, rng, name):
+        out = self.tmp / name
+        if not out.exists():
+            self.cli_ok("frames", video, "--range", rng, "--max-frames", "200", "--out", out)
+        return out / "frames"
+
+    def anim_run(self, target, name, *extra):
+        out = self.tmp / name
+        self.cli_ok("anim", target, "--out", out, *extra)
+        fits = sorted(out.glob("*/fit.json"))
+        self.assertEqual(len(fits), 1, fits)
+        return (out, json.loads(fits[0].read_text()), json.loads((out / "run.json").read_text()),
+                (out / "summary.md").read_text())
+
+    def copy_images(self, src_dir, name, keep):
+        d = self.tmp / name
+        d.mkdir()
+        for k, p in enumerate(sorted(src_dir.glob("*.png"))):
+            if keep(k, p):
+                shutil.copy(p, d / p.name)
+        return d
+
+    def mixed_sizes(self):
+        d = self.tmp / "mixed"
+        if not d.exists():
+            d.mkdir()
+            write_png(d / "t00000000.png", 64, 48, fill=200)
+            write_png(d / "t00001000.png", 48, 64, fill=60)
+            write_png(d / "t00002000.png", 64, 48, fill=120)
+        return d
+
+    def pixel_formats(self, name, kinds):
+        """Identical 32x32 mid-gray pictures at 0/1/2/3 s, written as RGB or gray."""
+        d = self.tmp / name
+        if not d.exists():
+            d.mkdir()
+            for k, kind in enumerate(kinds):
+                path = d / core.frames_name(1000 * k)
+                (write_rgb_png if kind == "rgb" else write_png)(path, 32, 32, fill=128)
+                self.assertEqual(png_color_type(path), 2 if kind == "rgb" else 0)
+        return d
+
+    # -- timing -----------------------------------------------------------
+
+    def test_round_trip_matches_the_video(self):
+        video = self.slide_right()
+        _, vfit, _, vsum = self.anim_run(video, "rt-video")
+        folder = self.frames_dir(video, "0.3-1.1", "rt-frames")
+        self.assertEqual(len(list(folder.glob("*.png"))), 48)   # every native frame of the span
+        out, fit, run, summary = self.anim_run(folder, "rt-images")
+        vb, ib = best_named_tween(vfit), best_named_tween(fit)
+        self.assertEqual((ib["name"], vb["name"]), ("CSS ease-out", "CSS ease-out"))
+        self.assertAlmostEqual(ib["duration_ms"], vb["duration_ms"], delta=12.0)
+        self.assertAlmostEqual(ib["duration_ms"], 300, delta=12.0)
+        self.assertAlmostEqual(fit["visible_duration_ms"], vfit["visible_duration_ms"],
+                               delta=FRAME_MS)
+        self.assertTrue(fit["fits_reliable"])
+        self.assertEqual((run["input"], run["timing"]["source"], run["gaps"]),
+                         ("images", "filenames", []))
+        self.assertEqual(run["input_dir_abspath"], str(folder.resolve()))
+        self.assertIsNone(run["video_abspath"])
+        self.assertIsNone(run["normalized"])
+        # recording time (-itsoffset), not time since the first image
+        img_start = float(_SEG_START.search(summary).group(1))
+        self.assertAlmostEqual(img_start, float(_SEG_START.search(vsum).group(1)), delta=0.0015)
+        self.assertGreater(img_start, 0.3)
+        rows = read_manifest(out / "s01" / "frames")
+        self.assertTrue(rows)
+        self.assertEqual({r["time_source"] for r in rows}, {"filename"})
+        self.assertIn("- gaps: none", summary)
+
+    def test_every_third_frame_deleted_warns_and_widens_the_uncertainty(self):
+        folder = self.frames_dir(self.slide_right(), "0.3-1.1", "rt-frames")
+        # every third frame from index 1: the 2-frame steps outnumber the 1-frame
+        # ones, so a median-based interval would read 2 frames and find no gap
+        third = self.copy_images(folder, "third", lambda k, p: k % 3 != 1)
+        kept_ms = sorted(core.parse_frame_name(p.name).ms for p in third.glob("*.png"))
+        self.assertEqual(len(kept_ms), 32)
+        steps = [b - a for a, b in zip(kept_ms, kept_ms[1:])]
+        self.assertGreater(sum(st > 25 for st in steps), sum(st <= 25 for st in steps))  # premise
+        _, fit, run, summary = self.anim_run(third, "third-images")
+        self.assertTrue(run["gaps"])
+        self.assertEqual({g["est_missing"] for g in run["gaps"]}, {1})
+        self.assertIn("gap(s) in the sequence", summary)
+        self.assertIn(f"after {run['gaps'][0]['after']} at", summary)
+        # the uncertainty is the widest of one frame and the steps around the motion's ends
+        m = re.search(r"first changed frame ([\d.]+) s, settled at ([\d.]+) s", summary)
+        first, settled = (round(float(v) * 1000) for v in m.groups())
+        before = first - max(t for t in kept_ms if t < first)
+        into = settled - max(t for t in kept_ms if t < settled)
+        base_ms = run["timing"]["base_interval_s"] * 1000
+        expected = max(base_ms, before, into)
+        self.assertGreater(expected, core.GAP_FACTOR * base_ms)       # premise: a gap at an end
+        self.assertAlmostEqual(fit["visible_duration_uncertainty_ms"], expected, delta=0.6)
+        self.assertIn("duration uncertainty widened to", summary)
+        self.assertEqual(fit["fits"][0]["family"], "tween")
+        best = best_named_tween(fit)
+        self.assertEqual(best["name"], "CSS ease-out")
+        self.assertAlmostEqual(best["duration_ms"], 300, delta=12.0)
+        self.assertTrue(fit["fits_reliable"])
+
+    def long_gap_folder(self):
+        """The 400 ms slide's frames with the first 10 moving images deleted, so
+        the step before the first changed image exceeds the fitter's onset search."""
+        long_dir = self.tmp / "long"
+        if long_dir.exists():
+            return long_dir
+        folder = self.frames_dir(self.slide_left_400(), "0.3-1.2", "long-frames")
+        _, full, _, full_sum = self.anim_run(folder, "long-full")
+        self.assertTrue(full["fits_reliable"])
+        self.assertNotIn("unreliable", full_sum)
+        first_ms = round(float(_FIRST_CHANGED.search(full_sum).group(1)) * 1000)
+        names = sorted(p.name for p in folder.glob("*.png"))
+        moving = [n for n in names if core.parse_frame_name(n).ms >= first_ms]
+        drop = set(moving[:10])
+        self.copy_images(folder, "long", lambda k, p: p.name not in drop)
+        kept_ms = [core.parse_frame_name(n).ms for n in names if n not in drop]
+        prev = max(m for m in kept_ms if m < first_ms)
+        nxt = min(m for m in kept_ms if m > first_ms)
+        self.assertGreater(nxt - prev, core.ONSET_SEARCH_INTERVALS * FRAME_MS)   # premise
+        return long_dir
+
+    def test_frames_missing_before_the_motion_mark_the_fits_unreliable(self):
+        long_dir = self.long_gap_folder()
+        _, fit, run, summary = self.anim_run(long_dir, "long-images")
+        self.assertFalse(fit["fits_reliable"])
+        self.assertIn("beyond the fitter's onset search", fit["fits_unreliable_reason"])
+        self.assertIn("unreliable (gap before the motion)", summary)
+        self.assertIn("- warning: fitted durations are unreliable:", summary)
+        self.assertTrue(fit["fits"])   # kept for inspection
+        # the true 400 ms lies within the widened visible-duration bounds
+        vis, unc = fit["visible_duration_ms"], fit["visible_duration_uncertainty_ms"]
+        self.assertLessEqual(vis - unc, 400 + FRAME_MS, fit)
+        self.assertGreaterEqual(vis + unc, 400 - 2 * FRAME_MS, fit)
+
+    def test_recommended_uncertainty_is_in_real_time_under_time_scale(self):
+        long_dir = self.long_gap_folder()
+        _, fit1, _, _ = self.anim_run(long_dir, "long-ts1")
+        _, fit5, _, summary = self.anim_run(long_dir, "long-ts5", "--time-scale", "5")
+        u1, u5 = fit1["visible_duration_uncertainty_ms"], fit5["visible_duration_uncertainty_ms"]
+        self.assertGreater(u1, 100)                                   # premise: a widened ±
+        self.assertAlmostEqual(u5, u1 / 5, delta=0.6)
+        shown = f"±{u5:.0f}"
+        self.assertIn(f"({shown}) |", summary)                        # the segment table
+        self.assertIn(f"use the visible duration {shown} ms instead", fit5["fits_unreliable_reason"])
+        self.assertIn(f"duration uncertainty widened to {shown} ms by a", summary)
+        self.assertIn("ms step (recording time) before the first changed image", summary)
+        self.assertNotIn(f"±{u1:.0f} ms", summary)
+        self.assertNotIn("(recording time)", fit1["fits_unreliable_reason"])
+
+    def test_fps_times_untimed_names_in_natural_order(self):
+        folder = self.frames_dir(self.slide_right(), "0.3-1.1", "rt-frames")
+        d = self.tmp / "fps"
+        d.mkdir()
+        for k, p in enumerate(sorted(folder.glob("*.png")), start=1):
+            shutil.copy(p, d / f"img{k}.png")
+        names = [p.name for p in d.glob("*.png")]
+        self.assertNotEqual(sorted(names), sorted(names, key=core.natural_key))   # premise
+        out, fit, run, summary = self.anim_run(d, "fps-images", "--fps", "60")
+        best = best_named_tween(fit)
+        self.assertEqual(best["name"], "CSS ease-out")
+        self.assertAlmostEqual(best["duration_ms"], 300, delta=12.0)
+        self.assertIn("timing assumed from --fps 60, not measured", summary)
+        self.assertEqual((run["timing"]["source"], run["timing"]["fps"]), ("fps", "60"))
+        self.assertEqual({r["time_source"] for r in read_manifest(out / "s01" / "frames")},
+                         {"fps"})
+
+    # -- sizes and pixel formats --------------------------------------------
+
+    def test_anim_refuses_mixed_sizes_naming_the_odd_file(self):
+        out = self.tmp / "mixed-anim"
+        cp = run_cli("anim", self.mixed_sizes(), "--out", out)
+        self.assertEqual(cp.returncode, 1, cp.stderr)
+        self.assertIn("anim needs images of one size: most are 64x48", cp.stderr)
+        self.assertIn("t00001000.png 48x64", cp.stderr)
+        self.assertFalse(out.exists())
+
+    def test_bug_letterboxes_mixed_sizes(self):
+        out = self.tmp / "mixed-bug"
+        self.cli_ok("bug", self.mixed_sizes(), "--out", out)
+        run = json.loads((out / "run.json").read_text())
+        self.assertEqual(run["letterboxed"], "64x64")
+        self.assertEqual(run["sizes"], {"64x48": 2, "48x64": 1})
+        self.assertIsNone(run["manifest"])
+        self.assertIn("letterboxed onto a 64x64 canvas", run["manifest_note"])
+        self.assertFalse((out / "frames" / "frames.tsv").exists())
+        saved = sorted((out / "frames").glob("*.png"))
+        self.assertEqual(len(saved), 3)
+        for p in saved:
+            with open(p, "rb") as fh:
+                self.assertEqual(core.png_size(fh.read(24)), (64, 64))
+        if HAVE_MAGICK:
+            self.assertTrue(list(out.glob("sheet_*.png")))
+        cp = run_cli("bug", self.mixed_sizes(), "--roi", "0,0,10,10", "--out", self.tmp / "m-roi")
+        self.assertEqual(cp.returncode, 1)
+        self.assertIn("need images of one size", cp.stderr)
+
+    def test_pixel_format_changes_keep_the_detector_state(self):
+        results = {}
+        for name, kinds in (("pf-mixed", ["rgb", "gray", "rgb", "gray"]),
+                            ("pf-rgb", ["rgb"] * 4)):
+            out = self.tmp / f"{name}-bug"
+            self.cli_ok("bug", self.pixel_formats(name, kinds), "--freeze-min", "1.5",
+                        "--out", out)
+            run = json.loads((out / "run.json").read_text())
+            freezes = [iv for iv in run["intervals"] if iv["kind"] == "freeze"]
+            results[name] = (run["picks"], [iv["start_s"] for iv in freezes], run["normalized"])
+        self.assertEqual(results["pf-mixed"][:2], (1, [0.0]))
+        self.assertEqual(results["pf-rgb"][:2], (1, [0.0]))
+        self.assertEqual(results["pf-mixed"][2]["pix_fmt"], "rgb24")
+        self.assertIsNone(results["pf-rgb"][2])
+
+    def test_anim_on_alternating_pixel_formats_still_fits(self):
+        folder = self.frames_dir(self.slide_right(), "0.3-1.1", "rt-frames")
+        d = self.tmp / "pf-anim"
+        d.mkdir()
+        for k, p in enumerate(sorted(folder.glob("*.png"))):
+            if k % 2:
+                subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-i", str(p),
+                                "-pix_fmt", "gray", "-y", str(d / p.name)], check=True)
+                self.assertEqual(png_color_type(d / p.name), 0)
+            else:
+                shutil.copy(p, d / p.name)
+        _, fit, run, _ = self.anim_run(d, "pf-anim-out")
+        self.assertIsNotNone(run["normalized"])
+        best = best_named_tween(fit)
+        self.assertEqual(best["name"], "CSS ease-out")
+        self.assertAlmostEqual(best["duration_ms"], 300, delta=12.0)
+
+    def test_mixed_codecs_are_staged_as_png(self):
+        # concat decodes every file with the first one's codec, so a jpeg among
+        # pngs is converted in the stage; the folder itself is left untouched
+        d = self.tmp / "codecs"
+        d.mkdir()
+        write_png(d / "t00000000.png", 32, 32, fill=40)
+        subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i",
+                        "color=white:s=32x32", "-frames:v", "1", "-y", str(d / "t00001000.jpg")],
+                       check=True)
+        write_png(d / "t00002000.png", 32, 32, fill=40)
+        before = {p.name: p.read_bytes() for p in d.iterdir()}
+        out = self.tmp / "codecs-bug"
+        self.cli_ok("bug", d, "--out", out)
+        run = json.loads((out / "run.json").read_text())
+        self.assertEqual(run["images"], 3)
+        self.assertEqual(run["picks"], 3)
+        self.assertEqual({p.name: p.read_bytes() for p in d.iterdir()}, before)
+        self.assertIn("(jpeg, png)", (out / "summary.md").read_text())
+
+    def test_animated_image_beside_other_codecs_is_refused(self):
+        # a non-PNG among PNGs is converted to one PNG frame in the stage; its
+        # frames must be counted before that, or an animation's later frames vanish
+        d = self.tmp / "anim-webp"
+        d.mkdir()
+        write_png(d / "t00000000.png", 32, 32, fill=200)
+        webp = d / "t00001000.webp"
+        cp = subprocess.run(
+            ["ffmpeg", "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i",
+             "color=red:s=32x32:d=0.2:r=10", "-vf",
+             "drawbox=x=0:y=0:w=16:h=16:color=blue@1:t=fill:enable='gte(t,0.1)'",
+             "-loop", "0", "-c:v", "libwebp_anim", str(webp)], capture_output=True, text=True)
+        if cp.returncode != 0:
+            self.skipTest(f"this ffmpeg cannot write an animated webp: {cp.stderr[-200:]}")
+        frames = subprocess.run(["ffprobe", "-v", "error", "-count_frames", "-show_entries",
+                                 "stream=nb_read_frames", "-of", "csv=p=0", str(webp)],
+                                capture_output=True, text=True).stdout.strip()
+        # encoding and decoding differ: some builds (FFmpeg 5.1) write animated webp
+        # but cannot decode its animation, so the fixture means nothing there
+        if frames != "2":
+            self.skipTest(f"this ffmpeg cannot decode an animated webp (counted {frames!r})")
+        self.assertEqual(frames, "2")                                  # premise: animated
+        for mode in ("bug", "anim"):
+            with self.subTest(mode=mode):
+                cp = run_cli(mode, d, "--out", self.tmp / f"anim-webp-{mode}")
+                self.assertEqual(cp.returncode, 1, cp.stderr)
+                self.assertIn("t00001000.webp decodes to more than one frame", cp.stderr)
+
+    # -- bug mode on a uniform folder -----------------------------------------
+
+    def test_bug_on_a_uniform_folder(self):
+        folder = self.tmp / "bug-folder"
+        write_frames_dir(folder, [500, 1500, 1700, 1717, 4000])
+        out = self.tmp / "bug-folder-out"
+        self.cli_ok("bug", folder, "--out", out)
+        with open(out / "timeline.tsv", newline="") as fh:
+            rows = [r for r in csv.DictReader(fh, delimiter="\t") if r["kind"] == "frame"]
+        self.assertEqual(rows[0]["time_s"], "0.500")
+        self.assertLessEqual({r["time_s"] for r in rows},
+                             {"0.500", "1.500", "1.700", "1.717", "4.000"})
+        self.assertEqual({r["time_source"] for r in read_manifest(out / "frames")}, {"filename"})
+        summary = (out / "summary.md").read_text()
+        self.assertIn("silence not checked (no audio: image folder)", summary)
+        self.assertIn("- input: 5 images in", summary)
+        run = json.loads((out / "run.json").read_text())
+        self.assertEqual(run["input"], "images")
+        cp = run_cli("bug", folder, "--extract-audio", "--out", self.tmp / "bug-audio")
+        self.assertEqual(cp.returncode, 1)
+        self.assertIn("has no audio", cp.stderr)
+
+    # -- refusals ---------------------------------------------------------------
+
+    def test_bad_folders_fail_cleanly(self):
+        def case(name, files):
+            d = self.tmp / "bad" / name
+            d.mkdir(parents=True)
+            for fname, kind in files:
+                if kind == "dir":
+                    (d / fname).mkdir()
+                elif kind == "text":
+                    (d / fname).write_text("not an image")
+                else:
+                    write_png(d / fname, 16, 16, fill=100)
+            return d
+        cases = [
+            (case("empty", [("frames", "dir")]), [], "no png/jpg/jpeg/webp images",
+             "pass that"),
+            (case("one", [("t00000000.png", "png")]), [], "need at least 2 images", None),
+            (case("fake", [("t00000000.png", "png"), ("t00000017.png", "text")]), [],
+             "t00000017.png: not a png, jpeg or webp image", None),
+            (case("partial", [("t00000000.png", "png"), ("shot.png", "png"),
+                              ("t00000033.png", "png")]), [], "carry no time: shot.png", None),
+            (case("dup", [("t00000017.png", "png"), ("t00000017_b.png", "png")]), [],
+             "carry the same time (17 ms)", None),
+            (case("timed-fps", [("t00000000.png", "png"), ("t00000017.png", "png")]),
+             ["--fps", "60"], "--fps is only for images whose names carry no time", None),
+        ]
+        for d, extra, msg, msg2 in cases:
+            for mode in ("bug", "anim"):
+                with self.subTest(folder=d.name, mode=mode):
+                    cp = run_cli(mode, d, *extra, "--out", self.tmp / "bad-out" / f"{d.name}-{mode}")
+                    self.assertEqual(cp.returncode, 1, cp.stderr)
+                    self.assertIn(msg, cp.stderr)
+                    if msg2:
+                        self.assertIn(msg2, cp.stderr)
+                    self.assertNotIn("Traceback", cp.stderr)
+        video = self.slide_right()
+        cp = run_cli("anim", video, "--fps", "60", "--out", self.tmp / "bad-out" / "fps-video")
+        self.assertEqual(cp.returncode, 1)
+        self.assertIn("--fps applies only to a folder of images", cp.stderr)
+        cp = run_cli("anim", self.mixed_sizes(), "--fps", "0")
+        self.assertEqual(cp.returncode, 2)
+        self.assertIn("must be a positive decimal number", cp.stderr)
+        for mode, extra in (("info", []), ("frames", ["--at", "0"])):
+            cp = run_cli(mode, self.mixed_sizes(), *extra)
+            self.assertEqual(cp.returncode, 2, mode)
+            self.assertIn("no such file", cp.stderr)
+        cp = run_cli("bug", self.tmp / "nowhere")
+        self.assertEqual(cp.returncode, 2)
+        self.assertIn("no such file or folder", cp.stderr)
+
+    # -- the concat input itself --------------------------------------------------
+
+    def test_concat_script_names_only_generated_files_and_is_removed(self):
+        import video_prep
+        folder = self.mixed_sizes()
+        with video_prep.ImageInput(folder, None, "bug") as src:
+            text = (src.stage / "list.ffconcat").read_text()
+            stage = src.stage
+            self.assertEqual(src.ffin[src.ffin.index("-safe") + 1], "0")
+            self.assertTrue(stage.exists())
+        files = re.findall(r"^file '(.*)'$", text, re.M)
+        self.assertEqual(len(files), 3)
+        for f in files:
+            self.assertRegex(f, r"^img_\d{6}\.png$")
+        self.assertEqual(text.count(f"option framerate {video_prep.STAGE_RATE}\n"), 3)
+        self.assertFalse(stage.exists())
+
+    def test_a_concat_demuxer_that_loses_the_times_is_refused(self):
+        import video_prep
+        orig, hit = video_prep.ImageInput._use_list, []
+
+        def without_option(self_, files, list_name):
+            orig(self_, files, list_name)
+            path = self_.stage / list_name
+            text = path.read_text()
+            self.assertIn("option framerate", text)
+            path.write_text(text.replace(f"option framerate {video_prep.STAGE_RATE}\n", ""))
+            hit.append(list_name)
+
+        with mock.patch.object(video_prep.ImageInput, "_use_list", without_option):
+            with self.assertRaises(video_prep.PrepError) as cm:
+                with video_prep.ImageInput(self.mixed_sizes(), None, "bug"):
+                    pass
+        self.assertTrue(hit)
+        self.assertIn("does not keep the image times", str(cm.exception))
+
+    def test_normalisation_that_leaves_two_configurations_is_refused(self):
+        import video_prep
+
+        def no_op(self_, fmts, configs):
+            self_.normalized = {"pix_fmt": "rgb24", "reason": "test", "formats_seen": [],
+                                "note": None}
+
+        folder = self.pixel_formats("pf-mixed", ["rgb", "gray", "rgb", "gray"])
+        with mock.patch.object(video_prep.ImageInput, "_normalize", no_op):
+            with self.assertRaises(video_prep.PrepError) as cm:
+                with video_prep.ImageInput(folder, None, "bug"):
+                    pass
+        self.assertIn("could not give the images one uniform format", str(cm.exception))
+
+    # -- consumers ------------------------------------------------------------------
+
+    def test_pick_names_the_image_folder_not_a_video(self):
+        folder = self.frames_dir(self.slide_right(), "0.3-1.1", "rt-frames")
+        run_dir = self.tmp / "pick-src"
+        self.cli_ok("anim", folder, "--out", run_dir)
+        out = self.tmp / "pick-images"
+        cp = run_cli("pick", run_dir, "--out", out)
+        self.assertEqual(cp.returncode, 0, cp.stderr)
+        data = json.loads((out / "pick.json").read_text())
+        self.assertIsNone(data["source"]["video"])
+        self.assertIn(f"the run read a folder of images ({folder.resolve()}), not a video",
+                      data["source_line"])
+
+
 if __name__ == "__main__":
     unittest.main()

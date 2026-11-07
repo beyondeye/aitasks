@@ -3,8 +3,9 @@
 coding agent can read (Claude Code cannot open video files).
 
   aitask_screen_recording.sh info VIDEO
-  aitask_screen_recording.sh bug  VIDEO [--out DIR] [--crop-top PX] [--min-dwell S] ...
-  aitask_screen_recording.sh anim VIDEO [--out DIR] [--roi X,Y,W,H] [--window A-B] ...
+  aitask_screen_recording.sh bug  VIDEO|IMAGE_DIR [--out DIR] [--crop-top PX] [--min-dwell S] ...
+  aitask_screen_recording.sh anim VIDEO|IMAGE_DIR [--out DIR] [--roi X,Y,W,H] [--window A-B] ...
+  (IMAGE_DIR: a folder of images timed by their names, or by --fps N)
   aitask_screen_recording.sh frames VIDEO (--range A-B | --at T[,T...]) [--roi X,Y,W,H] ...
   aitask_screen_recording.sh sheet  DIR [--per-sheet N] [--out DIR]
   aitask_screen_recording.sh pick   <frames-dir|run-dir> [--open] [--out DIR]
@@ -23,15 +24,19 @@ page for choosing frames by eye, vp_pick.py) needs neither, only a browser.
 from __future__ import annotations
 
 import argparse
+import bisect
+import contextlib
 import csv
 import hashlib
 import json
 import math
 import os
+import re
 import shutil
 import subprocess
 import sys
 import tempfile
+from collections import Counter
 from fractions import Fraction
 from pathlib import Path
 
@@ -160,6 +165,11 @@ def parse_span(text: str, flag: str) -> tuple[float, float]:
     return a, b
 
 
+def _ffin(src) -> list[str]:
+    """ffmpeg input arguments: a recording's path, or an ImageInput's concat input."""
+    return list(src.ffin) if isinstance(src, ImageInput) else ["-i", str(src)]
+
+
 def _vmap(stream: int | None) -> list[str]:
     """-map for the resolved video stream (probe()["vindex"]); empty = ffmpeg's choice."""
     return [] if stream is None else ["-map", f"0:{stream}"]
@@ -172,7 +182,7 @@ def scan(video, head: list[str], decimate: str | None, pre: list[str] = (), *,
     the ffmpeg log)."""
     md = "mpdecimate" + (f"={decimate}" if decimate else "")
     vf = ",".join([*head, *pre, md, "showinfo"])
-    _, err = ffmpeg(["-i", video, *_vmap(stream), "-an", "-vf", vf, "-fps_mode", "passthrough",
+    _, err = ffmpeg([*_ffin(video), *_vmap(stream), "-an", "-vf", vf, "-fps_mode", "passthrough",
                      "-f", "null", "-"])
     return [(pts, t) for _, pts, t in core.parse_showinfo(err)], err
 
@@ -205,7 +215,7 @@ def decode_gray(video, head: str, crop: str | None, aw: int, ah: int, *,
     """Decode frames as aw x ah grayscale: [(pts, time, bytes)]."""
     vf = ",".join(x for x in [head, crop, f"scale={aw}:{ah}:flags=area", "format=gray",
                               "showinfo"] if x)
-    out, err = ffmpeg(["-i", video, *_vmap(stream), "-an", "-vf", vf, "-fps_mode", "passthrough",
+    out, err = ffmpeg([*_ffin(video), *_vmap(stream), "-an", "-vf", vf, "-fps_mode", "passthrough",
                        "-f", "rawvideo", "-pix_fmt", "gray", "pipe:1"], binary=True)
     info = core.parse_showinfo(err)
     size = aw * ah
@@ -235,7 +245,7 @@ def extract_views(video, wanted: dict[int, Path], crop: str | None, vw: int | No
         vf = ",".join(x for x in [
             head, f"select='{expr}'", "showinfo", "format=rgb24" if crop else None, crop,
             f"scale={vw}:{vh}:flags=area" if vw else None, "showinfo"] if x)
-        _, err = ffmpeg(["-i", video, *_vmap(stream), "-an", "-vf", vf, "-fps_mode", "passthrough",
+        _, err = ffmpeg([*_ffin(video), *_vmap(stream), "-an", "-vf", vf, "-fps_mode", "passthrough",
                          str(tmp / "%05d.png")])
         shown = core.parse_showinfo_frames(err)
         instances = sorted({s.instance for s in shown if s.instance is not None})
@@ -460,6 +470,375 @@ def audio_peak_db(video: str) -> float | None:
 
 def fmt_ms(seconds: float) -> str:
     return f"{seconds * 1000:.0f} ms"
+
+
+# --------------------------------------------------------------------------- #
+# image-folder input: bug DIR / anim DIR
+#
+# The folder is fed to the same ffmpeg pipelines as a recording, through a
+# generated ffconcat script in a private stage directory: one `file` entry per
+# image, `option framerate 1000000` (time base 1/1e6 s, so every pts is the exact
+# cumulative duration in microseconds; without it the image demuxer's 1/25 s time
+# base would quantise the times to 40 ms) and its `duration`. -itsoffset puts the
+# first image at the time its name carries. The `option` directive needs
+# -safe 0; the script names only generated relative files (img_000001.png).
+#
+# Stateful detectors (mpdecimate, freezedetect, blackdetect) must see one
+# uninterrupted filter graph, but the ffmpeg CLI rebuilds the graph whenever a
+# decoded frame's size or pixel format changes. An enumeration pass therefore
+# counts the graph configurations; more than one means the images are first
+# rendered to uniform PNGs (one pixel format; bug letterboxes mixed sizes), and
+# the result must then configure once.
+
+STAGE_RATE = 1_000_000          # concat `option framerate`: pts in microseconds
+LETTERBOX_COLOR = "0x808080"    # mid-grey, so padding never reads as black
+_STAGE_NAME = re.compile(r"(?:norm/)?(?:img_)?(\d{6})\.(?:png|jpg|webp)")
+
+
+def sniff_image(path: Path) -> str | None:
+    """png / jpeg / webp from the file's first bytes, None for anything else."""
+    try:
+        with open(path, "rb") as fh:
+            head = fh.read(12)
+    except OSError:
+        return None
+    if head.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "png"
+    if head.startswith(b"\xff\xd8\xff"):
+        return "jpeg"
+    if head[:4] == b"RIFF" and head[8:12] == b"WEBP":
+        return "webp"
+    return None
+
+
+def _us(n: int) -> str:
+    """Integer microseconds as exact decimal seconds."""
+    sign = "-" if n < 0 else ""
+    n = abs(n)
+    return f"{sign}{n // 1_000_000}.{n % 1_000_000:06d}"
+
+
+class ImageInput:
+    """A folder of images as one ffmpeg input (see the section comment).
+
+    After __enter__: ffin (ffmpeg input arguments), info (probe()-shaped dict),
+    names / times (presentation order, seconds), base (frame interval), gaps,
+    span_end, last_t, time_source, letterboxed, normalized; run_extra() for
+    run.json and describe() for summaries. The stage directory is removed on
+    exit."""
+
+    def __init__(self, folder: Path, fps: Fraction | None, mode: str, *,
+                 region_given: bool = False):
+        self.folder = Path(folder).resolve()
+        self.fps, self.mode, self.region_given = fps, mode, region_given
+        self.stage: Path | None = None
+        self.letterboxed: tuple[int, int] | None = None
+        self.normalized: dict | None = None
+
+    def __enter__(self):
+        try:
+            self._open()
+        except BaseException:
+            self.close()
+            raise
+        return self
+
+    def __exit__(self, *exc):
+        self.close()
+
+    def close(self):
+        if self.stage is not None:
+            shutil.rmtree(self.stage, ignore_errors=True)
+            self.stage = None
+
+    # -- set-up -------------------------------------------------------------
+
+    def _open(self):
+        folder = self.folder
+        names = sorted(p.name for p in folder.iterdir()   # hidden files are ignored, as by sheet
+                       if p.suffix.lower() in core.IMAGE_EXTS and not p.name.startswith(".")
+                       and p.is_file())
+        if not names:
+            hint = " (it has a frames/ folder: pass that)" if (folder / "frames").is_dir() else ""
+            raise PrepError(f"{folder}: no png/jpg/jpeg/webp images at its top level{hint}")
+        try:
+            plan = core.plan_image_sequence(names, self.fps)
+        except ValueError as exc:
+            raise PrepError(f"{folder}: {exc}") from exc
+        self.plan = plan
+        self.names = [im.name for im in plan.images]
+        kinds = []
+        for name in self.names:
+            kind = sniff_image(folder / name)
+            if kind is None:
+                raise PrepError(f"{folder / name}: not a png, jpeg or webp image")
+            kinds.append(kind)
+        self.kinds = kinds
+        self.starts = core.concat_starts_us([im.t for im in plan.images])
+        self.base = core.base_interval([im.t for im in plan.images])
+        last_us = max(1, round(self.base * 1_000_000))
+        self.durations = [b - a for a, b in zip(self.starts, self.starts[1:])] + [last_us]
+        self.stage = Path(tempfile.mkdtemp(prefix="vp-images-"))
+        mixed_codecs = len(set(kinds)) > 1
+        files = []
+        for k, (name, kind) in enumerate(zip(self.names, kinds), start=1):
+            if mixed_codecs and kind != "png":
+                # concat decodes every file with the first one's codec. Count the
+                # original's frames first: the one-frame conversion below would
+                # otherwise hide an animated image from the enumeration guard.
+                self._require_one_frame(folder / name)
+                dest = f"img_{k:06d}.png"
+                self._ffmpeg(["-i", str(folder / name), "-frames:v", "1", "-update", "1",
+                              str(self.stage / dest)])
+            else:
+                dest = f"img_{k:06d}.{'jpg' if kind == 'jpeg' else kind}"
+                os.symlink(folder / name, self.stage / dest)
+            files.append(dest)
+        self._use_list(files, "list.ffconcat")
+        frames, configs = self._enumerate()
+        self.sizes = [f.size for f in frames]
+        fmts = [f.fmt for f in frames]
+        counts = Counter(self.sizes)
+        if len(counts) > 1:
+            (common, n_common), = counts.most_common(1)
+            odd = [f"{n} {w}x{h}" for n, (w, h) in zip(self.names, self.sizes)
+                   if (w, h) != common]
+            shown = ", ".join(odd[:10]) + (", ..." if len(odd) > 10 else "")
+            if self.mode == "anim":
+                raise PrepError(
+                    f"anim needs images of one size: most are {common[0]}x{common[1]} "
+                    f"({n_common} images), these differ: {shown}. Crop or scale them to one "
+                    "size, or review them with bug (which letterboxes mixed sizes)")
+            if self.region_given:
+                raise PrepError(f"--roi / --crop-top / --crop-bottom need images of one size; "
+                                f"most are {common[0]}x{common[1]}, these differ: {shown}")
+            self.letterboxed = (max(w for w, _ in counts), max(h for _, h in counts))
+        if configs > 1 or self.letterboxed:
+            self._normalize(fmts, configs)
+            frames, configs = self._enumerate()
+            if configs != 1:
+                raise PrepError(
+                    "could not give the images one uniform format: ffmpeg still configured "
+                    f"its filters {configs} times over the normalised images")
+        w, h = self.letterboxed or self.sizes[0]
+        self.size_counts = {f"{a}x{b}": n for (a, b), n in counts.items()}
+        self.times = [s / 1_000_000 for s in self.starts]
+        self.last_t = self.times[-1]
+        self.span_end = (self.starts[-1] + self.durations[-1]) / 1_000_000
+        self.gaps = core.sequence_gaps([im.t for im in plan.images], self.base)
+        self.time_source = "filename" if plan.source == "filenames" else "fps"
+        self.info = {
+            "path": str(folder), "width": w, "height": h, "rotation": 0,
+            "duration": self.span_end - self.times[0], "start_time": 0.0,
+            "avg_fps": 1 / self.base, "r_fps": 1 / self.base, "nb_frames": len(self.names),
+            "codec": "png" if self.normalized or len(set(kinds)) > 1 else kinds[0],
+            "has_audio": False, "vindex": None, "video_streams": 1, "creation_time": None,
+            "input": "images",
+        }
+
+    def _require_one_frame(self, path: Path):
+        # two frames decide it (0 / 1 / more), so a long animation is not decoded whole
+        _, err = self._ffmpeg(["-i", str(path), "-an", "-vf", "showinfo", "-fps_mode",
+                               "passthrough", "-frames:v", "2", "-f", "null", "-"])
+        n = len(core.parse_showinfo_frames(err))
+        if n > 1:
+            raise PrepError(f"{path.name} decodes to more than one frame (an animated image?); "
+                            "keep still images only")
+        if n < 1:
+            raise PrepError(f"ffmpeg decoded no frame from {path.name}")
+
+    def _use_list(self, files: list[str], list_name: str):
+        lines = ["ffconcat version 1.0"]
+        for f, d in zip(files, self.durations):
+            lines += [f"file '{f}'", f"option framerate {STAGE_RATE}", f"duration {_us(d)}"]
+        path = self.stage / list_name
+        path.write_text("\n".join(lines) + "\n")
+        self.files = files
+        self.ffin = ["-itsoffset", _us(self.starts[0]), "-f", "concat", "-safe", "0",
+                     "-i", str(path)]
+
+    def _ffmpeg(self, args: list[str]):
+        try:
+            return ffmpeg(args)
+        except PrepError as exc:
+            raise PrepError(self._explain(str(exc))) from exc
+
+    def _explain(self, msg: str) -> str:
+        """ffmpeg's messages name the staged files; name the user's instead."""
+        def sub(m):
+            k = int(m.group(1)) - (0 if m.group(0).startswith("norm/") else 1)
+            return self.names[k] if 0 <= k < len(self.names) else m.group(0)
+        return _STAGE_NAME.sub(sub, msg)
+
+    def _enumerate(self):
+        """One showinfo pass: every frame, checked against the planned times.
+        Returns (frames, number of filter-graph configurations)."""
+        _, err = self._ffmpeg([*self.ffin, "-an", "-vf", "showinfo", "-fps_mode", "passthrough",
+                               "-f", "null", "-"])
+        frames = core.parse_showinfo_frames(err)
+        n = len(self.names)
+        if len(frames) > n:
+            per = Counter(max(0, bisect.bisect_right(self.starts, f.pts) - 1)
+                          for f in frames)
+            many = [self.names[k] for k, c in sorted(per.items()) if c > 1]
+            raise PrepError(f"{', '.join(many[:5]) or 'an image'} decodes to more than one frame "
+                            "(an animated image?); keep still images only")
+        if len(frames) < n:
+            raise PrepError(f"ffmpeg decoded {len(frames)} of the {n} images")
+        tb = core.parse_showinfo_timebase(err)
+        for k, f in enumerate(frames):
+            if tb != Fraction(1, STAGE_RATE) or f.pts != self.starts[k]:
+                got = f"{float(f.pts * tb):.6f} s" if tb else f"pts {f.pts}"
+                raise PrepError(
+                    "this ffmpeg's concat demuxer does not keep the image times: "
+                    f"{self.names[k]} came out at {got}, not {_us(self.starts[k])} s "
+                    "(it needs the concat `option` directive)")
+            if f.size is None:
+                raise PrepError(f"{self.names[k]}: ffmpeg reported no frame size")
+        return frames, core.count_showinfo_configs(err)
+
+    def _normalize(self, fmts: list[str | None], configs: int):
+        target = "rgba" if any(core.has_alpha(f) for f in fmts) else "rgb24"
+        seen = sorted({f for f in fmts if f})
+        vf = []
+        why = []
+        if self.letterboxed:
+            W, H = self.letterboxed
+            vf.append(f"pad={W}:{H}:(ow-iw)/2:(oh-ih)/2:color={LETTERBOX_COLOR}")
+            why.append(f"mixed sizes ({', '.join(sorted(self.size_counts_raw()))}) letterboxed "
+                       f"onto {W}x{H}")
+        if len(seen) > 1:
+            why.append(f"decoded pixel formats {', '.join(seen)}")
+        elif not self.letterboxed:
+            why.append("the decoded frame properties change between images")
+        vf.append(f"format={target}")
+        norm = self.stage / "norm"
+        norm.mkdir()
+        self._ffmpeg([*self.ffin, "-an", "-vf", ",".join(vf), "-fps_mode", "passthrough",
+                      "-start_number", "0", str(norm / "%06d.png")])
+        out = sorted(p.name for p in norm.iterdir())
+        if len(out) != len(self.names):
+            raise PrepError(f"normalising the images wrote {len(out)} of {len(self.names)} frames")
+        deep = [f for f in seen if any(d in f for d in ("16", "48", "64", "p10", "p12"))]
+        self.normalized = {
+            "pix_fmt": target, "reason": "; ".join(why), "formats_seen": seen,
+            "note": (f"{', '.join(deep)} reduced to 8 bits per channel" if deep else None),
+        }
+        self._use_list([f"norm/{n}" for n in out], "norm.ffconcat")
+
+    def size_counts_raw(self) -> list[str]:
+        return [f"{w}x{h}" for w, h in Counter(self.sizes)]
+
+    # -- reporting ------------------------------------------------------------
+
+    def describe(self) -> str:
+        n = len(self.names)
+        w, h = self.info["width"], self.info["height"]
+        size = (f"{w}x{h}" if not self.letterboxed else
+                f"mixed sizes ({', '.join(f'{k}: {v}' for k, v in self.size_counts.items())}) "
+                f"letterboxed onto {w}x{h}")
+        timing = ("times from the file names (1 ms resolution)" if self.time_source == "filename"
+                  else f"timing assumed from --fps {self.fps}, not measured")
+        return (f"{n} images in {self.folder} ({', '.join(sorted(set(self.kinds)))}), {size}, "
+                f"{self.times[0]:.3f}-{self.last_t:.3f} s, {timing}; frame interval about "
+                f"{self.base * 1000:.1f} ms (the last image is assumed shown for one interval); "
+                "audio: none")
+
+    def summary_notes(self) -> list[str]:
+        lines = []
+        if self.letterboxed:
+            lines.append(f"- {self.normalized['reason']}, padded in mid-grey and converted to "
+                         f"{self.normalized['pix_fmt']}; the padding is part of what change "
+                         "and black detection see")
+        elif self.normalized:
+            lines.append(f"- normalised to {self.normalized['pix_fmt']} before analysis "
+                         f"({self.normalized['reason']}), so the detectors see one uninterrupted "
+                         "stream")
+        if self.normalized and self.normalized.get("note"):
+            lines.append(f"- precision: {self.normalized['note']}")
+        return lines
+
+    def gap_lines(self, limit: int = 10) -> list[str]:
+        if not self.gaps:
+            return [f"- gaps: none (no step longer than {core.GAP_FACTOR:g} x the "
+                    f"{self.base * 1000:.1f} ms frame interval)"]
+        shown = "; ".join(
+            f"after {self.names[g.index - 1]} at {g.at:.3f} s, step {g.delta * 1000:.0f} ms "
+            f"(about {g.est_missing} missing)" for g in self.gaps[:limit])
+        more = f"; {len(self.gaps) - limit} more in run.json" if len(self.gaps) > limit else ""
+        return [f"- warning: {len(self.gaps)} gap(s) in the sequence, steps longer than "
+                f"{core.GAP_FACTOR:g} x the {self.base * 1000:.1f} ms frame interval (heuristic: "
+                "frames may be missing, deleted or never emitted while the screen was still); "
+                f"timing is not native-frame accurate there: {shown}{more}"]
+
+    def run_extra(self) -> dict:
+        return {
+            "input": "images", "input_dir_abspath": str(self.folder), "images": len(self.names),
+            "timing": {
+                "source": "filenames" if self.time_source == "filename" else "fps",
+                "fps": None if self.fps is None else str(self.fps),
+                "resolution_ms": 1 if self.time_source == "filename" else None,
+                "base_interval_s": round(self.base, 6),
+                "last_image_assumed_s": round(self.durations[-1] / 1_000_000, 6),
+            },
+            "gaps": [{"after": self.names[g.index - 1], "before": self.names[g.index],
+                      "at_s": round(g.at, 6), "delta_s": round(g.delta, 6),
+                      "est_missing": g.est_missing} for g in self.gaps],
+            "sizes": self.size_counts,
+            "letterboxed": (f"{self.letterboxed[0]}x{self.letterboxed[1]}"
+                            if self.letterboxed else None),
+            "normalized": self.normalized,
+        }
+
+    def span(self, span: tuple[float, float] | None) -> core.Span:
+        """The analysed span's end, as core.video_span reports it for a video."""
+        range_end = span[1] if span else None
+        if range_end is not None and range_end <= self.last_t:
+            return core.Span(range_end, range_end, True, self.last_t)
+        end = self.span_end if range_end is None else min(self.span_end, range_end)
+        return core.Span(end, self.last_t, False, self.last_t,
+                         "image folder: the last image's display time is assumed (one frame "
+                         "interval)")
+
+
+def _fps_arg(text: str) -> Fraction:
+    try:
+        v = core.seconds_exact(text)
+    except ValueError:
+        v = Fraction(0)
+    if v <= 0:
+        raise argparse.ArgumentTypeError("must be a positive decimal number, e.g. 60 or 29.97")
+    return v
+
+
+@contextlib.contextmanager
+def open_input(args, mode: str):
+    """(source, info) for bug/anim: an ImageInput for a folder, else the
+    recording's path and its probe."""
+    path = Path(args.video)
+    if path.is_dir():
+        region = bool(getattr(args, "roi", None) or args.crop_top or args.crop_bottom)
+        with ImageInput(path, getattr(args, "fps", None), mode, region_given=region) as src:
+            yield src, src.info
+        return
+    if getattr(args, "fps", None) is not None:
+        raise PrepError("--fps applies only to a folder of images")
+    yield args.video, probe(args.video)
+
+
+def _span_of(src, info, span, times) -> core.Span:
+    if isinstance(src, ImageInput):
+        return src.span(span)
+    return core.video_span(video_packets(src, info["vindex"]), info["start_time"],
+                           range_end=span[1] if span else None, ranged=span is not None,
+                           first_kept_t=times[0], last_kept_t=times[-1],
+                           container_end=info["duration"])
+
+
+def _out_name(args) -> str | None:
+    """Default output name: a folder's full name (a dotted one keeps its dot)."""
+    p = Path(args.video)
+    return (p.resolve().name or "folder") if p.is_dir() else None
 
 
 # --------------------------------------------------------------------------- #
@@ -748,7 +1127,14 @@ def cmd_bug(args) -> int:
         raise PrepError("--freeze-min must be a positive number of seconds")
     if not math.isfinite(args.black_min) or args.black_min < 0:
         raise PrepError("--black-min must be a number of seconds, 0 or more")
-    info = probe(args.video)
+    if args.extract_audio and Path(args.video).is_dir():
+        raise PrepError("--extract-audio: a folder of images has no audio")
+    with open_input(args, "bug") as (src, info):
+        return _cmd_bug(args, src, info)
+
+
+def _cmd_bug(args, src, info) -> int:
+    images = isinstance(src, ImageInput)
     crop, cw, ch, region = crop_filter(args, info)
     span = parse_span(args.range, "--range") if args.range else None
     head = []
@@ -762,16 +1148,13 @@ def cmd_bug(args) -> int:
         "silence": (f"silencedetect=n={SILENCE_NOISE}:d={SILENCE_MIN:g}"
                     if info["has_audio"] else None),
     }
-    kept, vlog = scan(args.video, head, args.decimate,
+    kept, vlog = scan(src, head, args.decimate,
                       [detectors["freeze"], detectors["black"], "metadata=mode=print"],
                       stream=info["vindex"])
     if not kept:
         raise PrepError("no frames decoded (check --range)")
     times = [t for _, t in kept]
-    vspan = core.video_span(video_packets(args.video, info["vindex"]), info["start_time"],
-                            range_end=span[1] if span else None, ranged=span is not None,
-                            first_kept_t=times[0], last_kept_t=times[-1],
-                            container_end=info["duration"])
+    vspan = _span_of(src, info, span, times)
     end_t = vspan.end_t
     alog = silence_log(args.video, span) if info["has_audio"] else ""
     intervals = core.triage_intervals(vlog, alog, vspan.interval_end, black_min=args.black_min)
@@ -794,7 +1177,7 @@ def cmd_bug(args) -> int:
         times, end_t, min_dwell=args.min_dwell, interval=args.interval,
         brief_max=args.brief_max, max_frames=args.max_frames, marks=marks)
 
-    out = make_out_dir(args.out, args.video, "bug")
+    out = make_out_dir(args.out, args.video, "bug", name=_out_name(args))
     frames_dir = out / "frames"
     frames_dir.mkdir()
     vw, vh = view_size(info["width"], info["height"], args.view_size)
@@ -804,10 +1187,14 @@ def cmd_bug(args) -> int:
         path = frames_dir / core.bug_frame_name(k, p.t)
         wanted[pts] = path
         rows.append((k, p, path))
-        manifest_rows.append((path, core.time_ms(p.t), pts, "pts_time"))
-    sizes = extract_views(args.video, wanted, None, vw, vh,  # full frame: the status bar can matter
+        manifest_rows.append((path, core.time_ms(p.t), pts,
+                              src.time_source if images else "pts_time"))
+    sizes = extract_views(src, wanted, None, vw, vh,  # full frame: the status bar can matter
                           stream=info["vindex"])
     no_manifest = geometry_problem(sizes, (info["width"], info["height"]), (vw, vh))
+    if images and src.letterboxed:
+        no_manifest = (f"mixed image sizes letterboxed onto a {info['width']}x{info['height']} "
+                       "canvas: frame pixels map to no single source geometry")
     if not no_manifest:
         write_frame_manifest(frames_dir, manifest_rows, info,
                              (0, 0, info["width"], info["height"]))
@@ -845,7 +1232,7 @@ def cmd_bug(args) -> int:
         for _, _, fields in sorted(tsv, key=lambda r: (r[0], r[1])):
             fh.write("\t".join(fields) + "\n")
 
-    audio_note = "none"
+    audio_note = "none (image folder)" if images else "none"
     if info["has_audio"]:
         peak = audio_peak_db(args.video)
         if peak is None or peak < -50:
@@ -866,7 +1253,7 @@ def cmd_bug(args) -> int:
     tokens = token_estimate(sheets) if sheets else None
     lines = [
         f"# Bug-report frames: {Path(args.video).name}", "",
-        f"- video: {video_line(info)}",
+        f"- input: {src.describe()}" if images else f"- video: {video_line(info)}",
         f"- change detection: mpdecimate on {region}"
         + (f", range {args.range} s" if args.range else ""),
         f"- picked {len(rows)} frames ("
@@ -878,15 +1265,22 @@ def cmd_bug(args) -> int:
         "frame of a black interval",
         f"- triage: {n_kind['freeze']} freeze, {n_kind['black']} black, "
         + (f"{n_kind['silence']} silence" if info["has_audio"]
+           else "silence not checked (no audio: image folder)" if images
            else "silence not checked (no audio stream)")
         + " (see \"Freeze, black and silence\")",
         f"- audio: {audio_note}",
         f"- saved frames are {vw}x{vh}, i.e. x{vw / info['width']:.3f} of the source; "
         f"--roi takes source pixels (divide frame coordinates by {vw / info['width']:.3f})",
     ]
-    if not vspan.proven:
+    if images:
+        lines += src.summary_notes()
+        if not vspan.proven:
+            lines.append(f"- end of the analysed span assumed (not proven): {vspan.note}")
+    elif not vspan.proven:
         lines.append(f"- video end from container duration (not proven): {vspan.note}")
-    if no_manifest:
+    if no_manifest and images and src.letterboxed:
+        lines.append(f"- no frames/frames.tsv (no geometry is recorded): {no_manifest}")
+    elif no_manifest:
         lines.append(f"- Warning: no frames/frames.tsv (no geometry is recorded): {no_manifest}; "
                      "the saved frames may be rescaled")
     if info.get("creation_time"):
@@ -919,7 +1313,8 @@ def cmd_bug(args) -> int:
               f"- detectors on {region}: {detectors['freeze']}; {detectors['black']} "
               f"(black runs shorter than --black-min {args.black_min:g} s are left out when "
               "their end was observed); "
-              + (detectors["silence"] or "silence not checked (no audio stream)"),
+              + (detectors["silence"] or ("silence not checked (no audio: image folder)"
+                                          if images else "silence not checked (no audio stream)")),
               f"- freeze = no change above freezedetect's noise floor ({FREEZE_NOISE}) in the "
               f"analysed region for >= {args.freeze_min:g} s; a small change such as a toggled "
               "checkbox can sit inside a freeze (the frame picks still show it); a hang only "
@@ -946,6 +1341,7 @@ def cmd_bug(args) -> int:
                   "narrow with --range around them to see their frames."]
     (out / "summary.md").write_text("\n".join(lines) + "\n")
     _write_run_json(out, "bug", args, info, {
+        **(src.run_extra() if images else {}),
         "picks": len(rows), "dropped": dropped, "cap_hit": dropped > 0,
         "manifest": None if no_manifest else "frames/frames.tsv",
         "manifest_note": no_manifest,
@@ -970,7 +1366,53 @@ def cmd_bug(args) -> int:
 # anim mode
 
 def cmd_anim(args) -> int:
-    info = probe(args.video)
+    with open_input(args, "anim") as (src, info):
+        return _cmd_anim(args, src, info)
+
+
+def _image_segment_checks(res, ts, src, names_by_time, time_scale: float = 1.0) -> None:
+    """Image input only: widen the visible-duration uncertainty to the steps
+    around the motion's ends, flag gaps inside it, and mark the fitted durations
+    unreliable when frames are missing before the motion beyond the fitter's onset
+    search. A video is left alone: there the recorder emits a frame as soon as
+    the picture changes, so the onset is within one native frame.
+
+    The recommended ± is a duration, so it is given in real time (divided by
+    --time-scale) like the summary table and fit.json; the steps are
+    observations and stay in recording time."""
+    fm, lm = res.get("first_moving"), res.get("last_moving")
+    if fm is None or res.get("visible_duration") is None:
+        return
+    base, dt = src.base, res["frame_interval"]
+    settled = min(lm + 1, len(ts) - 1)
+    start_step = ts[fm] - ts[fm - 1] if fm > 0 else 0.0
+    end_step = ts[settled] - ts[settled - 1] if settled > 0 else 0.0
+    res["duration_uncertainty"] = max(dt, start_step, end_step)
+    unc_ms = res["duration_uncertainty"] * 1000 / time_scale        # real time, as reported
+    rec = "" if time_scale == 1 else " (recording time)"
+    warn = res.setdefault("warnings", [])
+    for where, step in (("before the first changed image", start_step),
+                        ("into the settled image", end_step)):
+        if step > core.GAP_FACTOR * base:
+            warn.append(f"duration uncertainty widened to ±{unc_ms:.0f} ms by a "
+                        f"{step * 1000:.0f} ms step{rec} {where} (frames may be missing there)")
+    inside = [g for g in src.gaps if ts[fm] - 1e-9 <= g.at < ts[lm] - 1e-9]
+    if inside:
+        at = ", ".join(f"{g.at:.3f} s" for g in inside[:5]) + (", ..." if len(inside) > 5 else "")
+        warn.append(f"{len(inside)} gap(s) inside this motion (after {at}): fewer points there, "
+                    "the fit is less constrained")
+    if res.get("fits") and fm > 0 and not core.fit_onset_reachable(ts[fm - 1], ts[fm], dt):
+        name = names_by_time.get(round(ts[fm], 6), f"{ts[fm]:.3f} s")
+        res["fits_reliable"] = False
+        res["fits_unreliable_reason"] = (
+            f"the motion may have started up to {start_step * 1000:.0f} ms{rec} before the "
+            f"first changed image ({name}), beyond the fitter's onset search "
+            f"({core.ONSET_SEARCH_INTERVALS} frame intervals); use the visible duration "
+            f"±{unc_ms:.0f} ms instead")
+
+
+def _cmd_anim(args, src, info) -> int:
+    images = isinstance(src, ImageInput)
     crop, cw, ch, region = crop_filter(args, info)
     aw, ah = analysis_size(cw, ch, args.analysis_pixels)
     scale_px = cw / aw
@@ -993,16 +1435,12 @@ def cmd_anim(args) -> int:
             head.append(f"trim=start={a:.6f}:end={b:.6f}")
         if crop:
             head.append(crop)
-        kept = kept_frames(args.video, head, args.decimate, stream=info["vindex"])
+        kept = kept_frames(src, head, args.decimate, stream=info["vindex"])
         times = [t for _, t in kept]
         segs = core.motion_segments(times, args.gap)
         # the video's own end, on the kept frames' (normalised) timeline: the container
         # end is raw (start_time not subtracted) and can be a longer audio track's
-        end_t = core.video_span(
-            video_packets(args.video, info["vindex"]), info["start_time"],
-            range_end=span[1] if span else None, ranged=span is not None,
-            first_kept_t=times[0], last_kept_t=times[-1],
-            container_end=info["duration"]).end_t if segs else None
+        end_t = _span_of(src, info, span, times).end_t if segs else None
         for si, (first, last) in enumerate(segs):
             if last - first + 1 < args.min_frames and first > 0:
                 cuts.append(times[first])
@@ -1027,17 +1465,18 @@ def cmd_anim(args) -> int:
             cuts_note = ""
         windows = [(f"s{k:02d}", *rest) for k, (_, *rest) in enumerate(windows, start=1)]
 
-    out = make_out_dir(args.out, args.video, "anim")
+    out = make_out_dir(args.out, args.video, "anim", name=_out_name(args))
+    names_by_time = ({round(t, 6): n for t, n in zip(src.times, src.names)} if images else {})
     results = []
     for label, pre_pts, a, b, note, t_first in windows:
         seg_dir = out / label
         (seg_dir / "frames").mkdir(parents=True)
-        frames = decode_gray(args.video, f"trim=start={a - 1e-4:.6f}:end={b + 1e-4:.6f}",
+        frames = decode_gray(src, f"trim=start={a - 1e-4:.6f}:end={b + 1e-4:.6f}",
                              crop, aw, ah, stream=info["vindex"])
         if pre_pts is not None and (not frames or frames[0][1] >= t_first - 1e-6):
             # variable-frame-rate recordings emit no frames while the screen is still,
             # so the still picture before the motion can lie outside the window
-            pre = decode_gray(args.video, f"select='eq(pts,{pre_pts})'", crop, aw, ah,
+            pre = decode_gray(src, f"select='eq(pts,{pre_pts})'", crop, aw, ah,
                               stream=info["vindex"])
             frames = pre[:1] + [f for f in frames if f[0] != pre_pts]
         if len(frames) < 3:
@@ -1046,8 +1485,13 @@ def cmd_anim(args) -> int:
             continue
         ts = [f[1] for f in frames]
         res = core.analyze_frames(ts, [f[2] for f in frames], aw, ah, signal=args.signal,
-                                  nominal_dt=nominal_dt)
+                                  nominal_dt=nominal_dt,
+                                  frame_interval=src.base if images else None)
         res.update(label=label, window=(a, b), note=note, times=ts)
+        res["duration_uncertainty"] = res.get("frame_interval")
+        res["fits_reliable"] = True
+        if images:
+            _image_segment_checks(res, ts, src, names_by_time, args.time_scale)
 
         # frames to look at: the motion plus two frames of context on each side (the
         # rest of the pad only anchors the fit), thinned evenly when long
@@ -1075,10 +1519,11 @@ def cmd_anim(args) -> int:
             pts, t, _ = frames[i]
             path = seg_dir / "frames" / core.anim_frame_name(i, t)
             wanted[pts] = path
-            manifest_rows.append((path, core.time_ms(t), pts, "pts_time"))
+            manifest_rows.append((path, core.time_ms(t), pts,
+                                  src.time_source if images else "pts_time"))
             rel = (t - t_start) / args.time_scale
             items.append((path, f"f{i:03d} {t:.3f}s\n{rel * 1000:+.0f}ms"))
-        sizes = extract_views(args.video, wanted, crop, vw, vh, stream=info["vindex"])
+        sizes = extract_views(src, wanted, crop, vw, vh, stream=info["vindex"])
         res["manifest_note"] = geometry_problem(sizes, (info["width"], info["height"]), (vw, vh))
         if res["manifest_note"]:
             res.setdefault("warnings", []).append(
@@ -1096,12 +1541,14 @@ def cmd_anim(args) -> int:
         (seg_dir / "fit.json").write_text(json.dumps(_fit_json(res, args, scale_px), indent=2))
 
     _write_anim_summary(out, args, info, region, (aw, ah), scale_px, results, cuts,
-                        "" if args.window else cuts_note, vw, vh, cw)
+                        "" if args.window else cuts_note, vw, vh, cw,
+                        src=src if images else None)
     thinned = [{"segment": r["label"], "saved": r["view_frames_saved"],
                 "of": r["view_frames_total"], "range": core.range_arg(*r["view_span_s"])}
                for r in results if "error" not in r
                and r["view_frames_saved"] < r["view_frames_total"]]
     _write_run_json(out, "anim", args, info, {
+        **(src.run_extra() if images else {}),
         "segments": [r["label"] for r in results], "cuts": cuts,
         "cap_hit": bool(skipped or thinned),
         "caps": {
@@ -1136,6 +1583,12 @@ def _fit_json(res, args, scale_px):
                                 if res.get("visible_duration") is not None else None),
         "frame_interval_ms": (round(res["frame_interval"] * 1000, 2)
                               if res.get("frame_interval") else None),
+        "visible_duration_uncertainty_ms": (
+            round(res["duration_uncertainty"] * 1000 / args.time_scale, 2)
+            if res.get("visible_duration") is not None and res.get("duration_uncertainty")
+            else None),
+        "fits_reliable": res.get("fits_reliable", True),
+        "fits_unreliable_reason": res.get("fits_unreliable_reason"),
         "travel_source_px": round(track.magnitude * scale_px, 1) if track else None,
         "travel_spread": track.spread if track else None,
         "overshoot": res.get("overshoot"),
@@ -1272,17 +1725,19 @@ def _region_flags(args) -> str:
 
 
 def _write_anim_summary(out, args, info, region, adims, scale_px, results, cuts, cuts_note,
-                        vw, vh, cw):
+                        vw, vh, cw, *, src=None):
     ts_note = ("" if args.time_scale == 1 else
                f" — all durations divided by --time-scale {args.time_scale:g}")
     lines = [f"# Animation timing: {Path(args.video).name}", "",
-             f"- video: {video_line(info)}",
+             f"- input: {src.describe()}" if src else f"- video: {video_line(info)}",
              f"- analysed region: {region}, measured at {adims[0]}x{adims[1]} px "
              f"(1 analysis px = {scale_px:.2f} source px)",
              f"- time scale: {args.time_scale:g}{ts_note}",
              f"- saved frames show the analysed region at {vw}x{vh} (x{vw / cw:.3f}); for "
              f"--roi divide frame coordinates by {vw / cw:.3f} and add the region's offset "
              f"({_region_offset(args)})"]
+    if src:
+        lines += src.summary_notes() + src.gap_lines()
     if args.window:
         lines.append(f"- window given: {args.window} s (first frame = start picture, last "
                      "frame = end picture)")
@@ -1303,12 +1758,14 @@ def _write_anim_summary(out, args, info, region, adims, scale_px, results, cuts,
         best = fits[0] if fits else None
         start = r["times"][r["first_moving"]] if r.get("first_moving") is not None else None
         vis = (f"{fmt_ms(r['visible_duration'] / args.time_scale)} "
-               f"(±{r['frame_interval'] * 1000 / args.time_scale:.0f})"
+               f"(±{r['duration_uncertainty'] * 1000 / args.time_scale:.0f})"
                if r.get("visible_duration") is not None else "—")
+        reliable = r.get("fits_reliable", True)
         lines.append(
             f"| {r['label']} | {f'{start:.3f} s' if start is not None else '—'} | {vis} | "
             f"{r.get('kind')} | "
-            + (f"{best.name}, {fmt_ms(best.duration)}" if best else "—")
+            + ((f"{best.name}, {fmt_ms(best.duration)}" if reliable
+                else "unreliable (gap before the motion)") if best else "—")
             + f" | {f'{best.rmse:.3f}' if best else '—'} |")
     for r in results:
         if "error" in r:
@@ -1319,7 +1776,12 @@ def _write_anim_summary(out, args, info, region, adims, scale_px, results, cuts,
             files.append(f"{r['label']}/{r['plot']}")
         files += [f"{r['label']}/curve.tsv", f"{r['label']}/fit.json"]
         lines.append("- files: " + ", ".join(files))
-        if r["view_frames_saved"] < r["view_frames_total"]:
+        if r["view_frames_saved"] < r["view_frames_total"] and src:
+            lines.append(
+                f"- saved frames: {r['view_frames_saved']} of {r['view_frames_total']} (thinned "
+                f"by --max-view-frames {args.max_view_frames}); the originals of this span "
+                f"({core.range_arg(*r['view_span_s'])} s) are in {src.folder}")
+        elif r["view_frames_saved"] < r["view_frames_total"]:
             lines.append(
                 f"- saved frames: {r['view_frames_saved']} of {r['view_frames_total']} (thinned "
                 f"by --max-view-frames {args.max_view_frames}); every native frame at full "
@@ -1350,6 +1812,9 @@ def _write_anim_summary(out, args, info, region, adims, scale_px, results, cuts,
         if r.get("overshoot", 0) > 0.02:
             lines.append(f"- overshoot: {r['overshoot']:.0%} past the end position (spring-like)")
         fits = _real_fits(r, args.time_scale)
+        if fits and not r.get("fits_reliable", True):
+            lines.append(f"- warning: fitted durations are unreliable: "
+                         f"{r['fits_unreliable_reason']}")
         if fits:
             lines += ["", "| fit | curve | duration | rmse |", "|-----|-------|----------|------|"]
             for f in fits[:6]:
@@ -1643,9 +2108,12 @@ def _write_run_json(out: Path, mode: str, args, info: dict, extra: dict):
     recording only from the absolute path and the size it had here."""
     opts = {k: v for k, v in vars(args).items() if k not in ("func",)}
     src = Path(args.video).resolve()
+    if src.is_dir():   # an image folder: its own provenance is in extra (input_dir_abspath)
+        prov = {"video_abspath": None, "video_size": None}
+    else:
+        prov = {"input": "video", "video_abspath": str(src), "video_size": src.stat().st_size}
     (out / "run.json").write_text(json.dumps(
-        {"mode": mode, "options": opts, "video": info, "video_abspath": str(src),
-         "video_size": src.stat().st_size, **extra}, indent=2, default=str))
+        {"mode": mode, "options": opts, "video": info, **prov, **extra}, indent=2, default=str))
 
 
 # --------------------------------------------------------------------------- #
@@ -1671,8 +2139,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(func=cmd_info)
 
     def common(p):
-        p.add_argument("video")
+        p.add_argument("video", help="the recording, or a folder of images whose names carry "
+                                     "their times (t<ms>.png as `frames` writes them)")
         p.add_argument("--out", help="output directory (default $TMPDIR/video-prep/<name>-<mode>)")
+        p.add_argument("--fps", type=_fps_arg,
+                       help="image folder whose names carry no times: time the images "
+                            "(natural name order) at N per second, an assumption")
         p.add_argument("--crop-top", type=int, default=0,
                        help="ignore this many px at the top (status bar) when detecting change")
         p.add_argument("--crop-bottom", type=int, default=0,
@@ -1755,8 +2227,13 @@ def main(argv=None) -> int:
         print("error: --time-scale must be positive", file=sys.stderr)
         return 2
     if hasattr(args, "video") and not Path(args.video).is_file():
-        print(f"error: {args.video}: no such file", file=sys.stderr)
-        return 2
+        if args.mode in ("bug", "anim"):
+            if not Path(args.video).is_dir():
+                print(f"error: {args.video}: no such file or folder", file=sys.stderr)
+                return 2
+        else:
+            print(f"error: {args.video}: no such file", file=sys.stderr)
+            return 2
     if hasattr(args, "dir") and not Path(args.dir).is_dir():
         print(f"error: {args.dir}: no such directory", file=sys.stderr)
         return 2

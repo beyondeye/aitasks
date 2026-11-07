@@ -339,6 +339,7 @@ def parse_showinfo(log: str) -> list[tuple[int, int, float]]:
 _SHOWINFO_TAG = re.compile(r"^\[Parsed_showinfo_(\d+) @")
 _SHOWINFO_SIZE = re.compile(r"\bs:(\d+)x(\d+)\b")
 _SHOWINFO_DUR = re.compile(r"\bduration:\s*(-?\d+)\b")
+_SHOWINFO_FMT = re.compile(r"\bfmt:(\w+)")
 
 
 @dataclass(frozen=True)
@@ -348,6 +349,7 @@ class ShowinfoFrame:
     pts_time: str                 # as printed, for exact arithmetic
     size: tuple[int, int] | None  # the frame's size where this showinfo sits
     duration: int | None          # frame duration in the time base, when reported
+    fmt: str | None = None        # the frame's pixel format where this showinfo sits
 
 
 def parse_showinfo_frames(log: str) -> list[ShowinfoFrame]:
@@ -364,11 +366,22 @@ def parse_showinfo_frames(log: str) -> list[ShowinfoFrame]:
         tag = _SHOWINFO_TAG.search(line)
         size = _SHOWINFO_SIZE.search(line)
         dur = _SHOWINFO_DUR.search(line)
+        fmt = _SHOWINFO_FMT.search(line)
         out.append(ShowinfoFrame(
             int(tag.group(1)) if tag else None, int(m.group(2)), m.group(3),
             (int(size.group(1)), int(size.group(2))) if size else None,
-            int(dur.group(1)) if dur and int(dur.group(1)) > 0 else None))
+            int(dur.group(1)) if dur and int(dur.group(1)) > 0 else None,
+            fmt.group(1) if fmt else None))
     return out
+
+
+def count_showinfo_configs(log: str) -> int:
+    """How many times a showinfo filter was configured: one "config in time_base"
+    line per filter-graph configuration. The ffmpeg CLI rebuilds the graph when a
+    decoded frame's properties change (size, pixel format, ...), which resets
+    every stateful filter in it (mpdecimate, freezedetect, blackdetect)."""
+    return sum(1 for line in log.splitlines()
+               if "showinfo" in line and _SHOWINFO_TB.search(line))
 
 
 def parse_showinfo_timebase(log: str) -> Fraction | None:
@@ -990,6 +1003,19 @@ def _pattern_search(fn, x0, steps, lower, upper, min_scale=1 / 32, max_evals=150
     return x, best
 
 
+# how far before the first changed frame fit_motion looks for the motion's onset,
+# in frame intervals; fit_onset_reachable tells callers when that is not enough
+ONSET_SEARCH_INTERVALS = 8
+
+
+def fit_onset_reachable(t_prev: float, t_first: float, dt: float) -> bool:
+    """Whether fit_motion's onset search reaches back to t_prev, the last frame
+    known to show the start picture. When it does not (frames missing before the
+    motion), the motion may have begun before anything the fitter can place it at,
+    and the fitted durations may come out short with a low rmse."""
+    return t_first - t_prev <= ONSET_SEARCH_INTERVALS * dt + 1e-9
+
+
 def fit_motion(ts, ps, *, t_first, t_settled, dt, families=("tween", "spring")):
     """Fit named tweens, a free cubic-bezier and a spring to progress samples.
 
@@ -1005,7 +1031,7 @@ def fit_motion(ts, ps, *, t_first, t_settled, dt, families=("tween", "spring")):
     t_vis = max(dt, t_settled - (t_first - dt))
     t0_grid = [t_first - dt * j / 4 for j in range(1, 25)]           # 6 frames back
     T_grid = [t_vis * (0.6 + 1.9 * j / 49) for j in range(50)]       # 0.6x .. 2.5x
-    t0_lo, t0_hi = t_first - 8 * dt, t_first
+    t0_lo, t0_hi = t_first - ONSET_SEARCH_INTERVALS * dt, t_first
     T_lo, T_hi = max(dt / 2, 0.3 * t_vis), 3.0 * t_vis
 
     def rmse(sse):
@@ -1078,12 +1104,17 @@ def analysis_threshold(maxd: int) -> int:
     return int(min(40, max(8, round(0.3 * maxd))))
 
 
-def analyze_frames(times, frames, w, h, *, signal="auto", nominal_dt=1 / 60):
+def analyze_frames(times, frames, w, h, *, signal="auto", nominal_dt=1 / 60,
+                   frame_interval: float | None = None):
     """Measure one motion window. frames[0] must be the still picture before the
     motion and frames[-1] the settled picture after it.
 
     Returns a dict with per-frame measurements, the chosen progress signal,
     visible timing and fits; see video_prep.py for how it is reported.
+
+    frame_interval: the native frame interval when the caller knows it better
+    than the window's own median (an image folder with frames missing); None
+    measures it from the window, as for a video.
     """
     n = len(frames)
     S, E = frames[0], frames[-1]
@@ -1105,7 +1136,8 @@ def analyze_frames(times, frames, w, h, *, signal="auto", nominal_dt=1 / 60):
     if se.count == 0:
         # Ends where it started: press feedback, a shake, a ripple. No progress curve.
         lm = max(i for i in range(n) if ms[i].count > 0) if any(m.count for m in ms) else fm
-        dt = _frame_interval(times, fm, lm + 1 if lm + 1 < n else lm, nominal_dt)
+        dt = frame_interval or _frame_interval(times, fm, lm + 1 if lm + 1 < n else lm,
+                                               nominal_dt)
         out.update(kind="returns", signal=None, progress=None, fits=[], first_moving=fm,
                    last_moving=lm, frame_interval=dt,
                    visible_duration=(times[min(lm + 1, n - 1)] - (times[fm] - dt)))
@@ -1115,7 +1147,7 @@ def analyze_frames(times, frames, w, h, *, signal="auto", nominal_dt=1 / 60):
 
     lm = max(i for i in range(n) if me[i].count > 0 or me[i].mad / se.mad > 0.02)
     lm = min(lm, n - 2)
-    dt = _frame_interval(times, fm, lm + 1, nominal_dt)
+    dt = frame_interval or _frame_interval(times, fm, lm + 1, nominal_dt)
     p_blend = [1.0 - m.mad / se.mad for m in me]
     tracks = edge_tracks(out["bbox_s"], out["bbox_e"], se.bbox, w, h)
     track = tracks[0] if tracks else None
@@ -1160,3 +1192,114 @@ def _frame_interval(times, a, b, nominal):
     gaps = [times[k + 1] - times[k] for k in range(a, b) if times[k + 1] > times[k]]
     gaps = [g for g in gaps if g < 0.1]
     return statistics.median(gaps) if gaps else nominal
+
+
+# --------------------------------------------------------------------------- #
+# image-folder input (bug DIR / anim DIR): order, timing and gaps of a curated
+# sequence of images, fed to ffmpeg as one stream by video_prep.py
+
+ALPHA_PIX_FMT_PREFIXES = ("rgba", "bgra", "argb", "abgr", "ya", "yuva", "gbrap")
+
+
+def has_alpha(fmt: str | None) -> bool:
+    """Whether an ffmpeg pixel format name carries alpha (pal8 may)."""
+    return bool(fmt) and (fmt == "pal8" or fmt.startswith(ALPHA_PIX_FMT_PREFIXES))
+
+
+@dataclass(frozen=True)
+class SeqImage:
+    name: str
+    t: Fraction             # seconds, exact: the name's ms / 1000, or k / fps
+    form: str | None        # frames / bug / anim, None when timed by --fps
+
+
+@dataclass
+class ImageSeqPlan:
+    images: list[SeqImage]  # in presentation order
+    source: str             # "filenames" | "fps"
+    fps: Fraction | None
+    forms: list[str]
+
+
+def plan_image_sequence(names: list[str], fps: Fraction | None = None) -> ImageSeqPlan:
+    """Order and time a folder's images, or raise ValueError saying why not.
+
+    Without fps every name must carry a time (parse_frame_name with
+    allow_suffix, as `sheet` reads them, so an edited t00007040_note.png keeps its
+    time); two images at one time are refused. With fps no name may carry a time
+    (a time in a name is evidence that --fps would silently discard); the images
+    are taken in natural name order at k / fps."""
+    if len(names) < 2:
+        raise ValueError(f"need at least 2 images, found {len(names)}")
+    parsed = [(n, parse_frame_name(n, allow_suffix=True)) for n in names]
+    timed = [(n, fn) for n, fn in parsed if fn is not None]
+    untimed = sorted((n for n, fn in parsed if fn is None), key=natural_key)
+    if fps is not None:
+        if fps <= 0:
+            raise ValueError("--fps must be a positive number")
+        if timed:
+            raise ValueError(
+                f"--fps is only for images whose names carry no time, but {len(timed)} of "
+                f"{len(names)} do (e.g. {timed[0][0]}); drop --fps to use their times")
+        order = sorted(names, key=natural_key)
+        return ImageSeqPlan([SeqImage(n, Fraction(k) / fps, None) for k, n in enumerate(order)],
+                            "fps", fps, [])
+    if not timed:
+        raise ValueError("the image names carry no times (t<ms>.png, NN_<s>s.png or "
+                         "fNNN_<s>s.png); give --fps N to time them in natural name order")
+    if untimed:
+        shown = ", ".join(untimed[:10]) + (", ..." if len(untimed) > 10 else "")
+        raise ValueError(f"{len(untimed)} of {len(names)} image names carry no time: {shown}; "
+                         "rename them like the others (t<ms>.png) or move them out")
+    timed.sort(key=lambda r: (r[1].ms, natural_key(r[0])))
+    for (a, fa), (b, fb) in zip(timed, timed[1:]):
+        if fa.ms == fb.ms:
+            raise ValueError(f"{a} and {b} carry the same time ({fa.ms} ms); keep one of them")
+    return ImageSeqPlan([SeqImage(n, Fraction(fn.ms, 1000), fn.form) for n, fn in timed],
+                        "filenames", None, sorted({fn.form for _, fn in timed}))
+
+
+def base_interval(times) -> float | None:
+    """The native frame interval of a sequence that may have frames missing.
+
+    The lower quartile of the positive steps (the smallest one below 4 steps)
+    finds the native cluster; the result is the mean of the steps in that cluster
+    (those up to GAP_FACTOR x the quartile), so names rounded to whole ms (60 fps
+    reads 16, 17, 17 ms) give 16.67 ms rather than 16. The median would not do:
+    with every third frame deleted the steps alternate 1 and 2 frames, the median
+    is 1.5 frames and a 2-frame step stays under 1.5 x it. Only a sequence where
+    fewer than a quarter of the steps are native, such as one with every second
+    frame deleted, reads as a slower native rate."""
+    d = sorted(float(b - a) for a, b in zip(times, times[1:]) if b > a)
+    if not d:
+        return None
+    q = d[0] if len(d) < 4 else statistics.quantiles(d, n=4, method="inclusive")[0]
+    return statistics.fmean(x for x in d if x <= GAP_FACTOR * q)
+
+
+@dataclass(frozen=True)
+class Gap:
+    index: int              # the image right after the gap
+    at: float               # time of the image right before it, s
+    delta: float            # the step across the gap, s
+    est_missing: int        # about how many frames are missing
+
+
+def sequence_gaps(times, base: float | None) -> list[Gap]:
+    """Steps longer than GAP_FACTOR x the base interval (heuristic: frames were
+    deleted, or the recorder emitted none while the screen was still)."""
+    if not base:
+        return []
+    out = []
+    for i in range(1, len(times)):
+        d = float(times[i] - times[i - 1])
+        if d > GAP_FACTOR * base:
+            out.append(Gap(i, float(times[i - 1]), d, max(1, round(d / base) - 1)))
+    return out
+
+
+def concat_starts_us(times) -> list[int]:
+    """Each image's start in integer microseconds, rounded from its exact time.
+    The concat script's durations are differences of these, so the cumulative
+    start of image k is exactly round(t_k), with no drift over a long sequence."""
+    return [math.floor(Fraction(t) * 1_000_000 + Fraction(1, 2)) for t in times]

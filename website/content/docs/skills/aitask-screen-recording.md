@@ -17,8 +17,8 @@ You rarely invoke the skill by name: it triggers when you mention or attach a re
 ```
 /aitask-screen-recording                      # or just mention/attach a recording
 ./.aitask-scripts/aitask_screen_recording.sh info VIDEO
-./.aitask-scripts/aitask_screen_recording.sh bug  VIDEO [--out DIR] [options]
-./.aitask-scripts/aitask_screen_recording.sh anim VIDEO [--out DIR] [options]
+./.aitask-scripts/aitask_screen_recording.sh bug  VIDEO|IMAGE_DIR [--out DIR] [options]
+./.aitask-scripts/aitask_screen_recording.sh anim VIDEO|IMAGE_DIR [--out DIR] [options]
 ./.aitask-scripts/aitask_screen_recording.sh frames VIDEO (--range START-END | --at T[,T...]) [options]
 ./.aitask-scripts/aitask_screen_recording.sh sheet DIR [--per-sheet N] [--out DIR]
 ./.aitask-scripts/aitask_screen_recording.sh pick DIR [--open] [--out DIR]
@@ -52,6 +52,8 @@ This is the flow for `bug` and `anim`. `info` is a one-shot probe: it prints the
 | `sheet` | You have a folder of images, for example frames you cropped, annotated or thinned out by hand | Builds labelled contact sheets from every png, jpg and webp image in the folder, ordered by the time in their file names, each labelled with that time and the time since the previous image. Needs ImageMagick |
 | `pick` | You want to choose the frames the agent reads yourself, by eye | Builds a static page (no server) of every frame of a `bug`, `frames` or `anim` run, or of a folder of images. You select frames, may mark a start and an end frame and drag a rectangle, then copy a plain-text block of the frames' absolute paths back to the agent. Needs only a browser |
 
+`bug` and `anim` also take a folder of images in place of the recording, for example frames you extracted and then thinned out or edited (see [Image folder input](#image-folder-input)).
+
 For a bug *inside* an animation, run `bug` first to find the moment, then `anim --window START-END` around it. For detail too small to read in a sheet, run `frames --at T` at the time `bug` or `anim` reported.
 
 ## Options
@@ -70,6 +72,7 @@ These do not apply to `info`.
 | `--roi X,Y,W,H` | — | Analyse only this region instead |
 | `--range START-END` | whole video | Analyse only this span, e.g. `3-9.5` |
 | `--decimate OPTS` | ffmpeg defaults | Change-detection sensitivity, passed to ffmpeg's `mpdecimate`, e.g. `hi=256:lo=128:frac=0.1` |
+| `--fps N` | — | Image folder only, when the names carry no times: take the images in natural name order (`img2` before `img10`) at N per second. The timing is an assumption, and the summary says so |
 
 `--roi` takes source pixels in display orientation (after any rotation), and takes precedence over `--crop-top` / `--crop-bottom`. The summary prints the factor between saved-frame and source coordinates, so you can read a region off a frame and convert it.
 
@@ -187,13 +190,36 @@ Anything else is read as a folder of images, top level only. A `sheet` or `pick`
 
 With `--open`, `pick` opens the page with `xdg-open` (Linux), `open` (macOS), or `wslview` on WSL (`explorer.exe` when `wslview` is missing). It does not try in an SSH session, or on Linux when neither `DISPLAY` nor `WAYLAND_DISPLAY` is set, or when no opener is on `PATH`. Then it prints `OPEN: not opened: …` with the reason and exits 0. The page is written either way, and `PAGE: <path>` names it.
 
+## Image folder input
+
+`bug DIR` and `anim DIR` run the same analysis on a folder of images as on a recording. The images are fed to ffmpeg as one stream in a private temporary directory; nothing is written into the folder.
+
+- **What is read:** the png, jpg, jpeg and webp files at the folder's top level. Hidden files, subfolders and other files (such as `frames.tsv`) are ignored. At least 2 images are needed.
+- **Timing from the names:** every name must carry a time, in one of the forms the helper writes (`t00007040.png`, `04_5.500s.png`, `f013_0.483s.png`), optionally followed by a suffix as an editor's "save as" leaves it (`t00007040_annotated.png`). The images are ordered by that time, which is in whole milliseconds. Two images with the same time, or a folder where only some names carry a time, are refused.
+- **Timing from `--fps N`:** for a folder where no name carries a time. Image k is placed at k / N seconds. `--fps` is refused when any name carries a time.
+- **The last image** is assumed to stay on screen for one frame interval, so the end of the analysed span is never proven.
+- **Frame interval and gaps:** the frame interval is estimated from the shortest steps between images, so it stays the native one when frames were deleted. A step longer than 1.5 times it is reported as a gap, with an estimate of the frames missing. This is a heuristic: a gap is either frames that were deleted or a still screen in a variable-frame-rate recording. When every second frame is gone, the sequence looks like a recording at half the rate, and no gap is found.
+- **Timing around gaps (`anim`):** the visible duration's ± grows to the longest step at either end of the motion. When the step before the first changed image is longer than the fitter's onset search (8 frame intervals), the fitted durations are marked unreliable: the summary shows `unreliable (gap before the motion)` in place of the best fit, and `fit.json` sets `fits_reliable: false` with the reason.
+- **Sizes:** `anim` needs images of one size and names the ones that differ. `bug` letterboxes mixed sizes, centred and unscaled, onto a canvas as large as the largest width and height, padded in mid-grey. A letterboxed run writes no `frames.tsv`, and refuses `--roi` and the crop flags.
+- **Pixel formats:** when the images decode to different pixel formats (gray and RGB, for example), they are converted to one format first, so change, freeze and black detection see one uninterrupted stream. The summary says when this happened.
+- **No audio:** there is no silence detection, and `--extract-audio` is refused.
+
 ## Output layout
 
 Every `bug`, `anim`, `frames`, `sheet` and `pick` run writes a directory and prints its summary path as the last line of stdout: `SUMMARY: <path>`.
 
 The default location is `$TMPDIR/video-prep/<name>-<mode>` (`/tmp/video-prep/…` when `TMPDIR` is unset), where `<name>` is the video's file name without extension, the folder's name for `sheet`, or the run directory's or folder's name for `pick`. `--out` overrides it. An existing non-empty directory is never overwritten: the helper writes to `<dir>-2`, `<dir>-3`, and so on instead.
 
-The `run.json` of every `bug`, `anim` and `frames` run records the recording's provenance. `video_abspath` is its absolute path, resolved in the directory the helper ran in. `video_size` is its size in bytes. The `video` and `options.video` fields keep the path as it was given, which may be relative.
+The `run.json` of every `bug`, `anim` and `frames` run records the recording's provenance. `video_abspath` is its absolute path, resolved in the directory the helper ran in. `video_size` is its size in bytes. The `video` and `options.video` fields keep the path as it was given, which may be relative. `bug` and `anim` also record `input`: `video`, or `images` for a folder.
+
+A `bug` or `anim` run on a folder of images has `video_abspath` and `video_size` set to null and records instead:
+
+- `input_dir_abspath` and `images` (the count);
+- `timing`: `source` (`filenames` or `fps`), `fps`, `resolution_ms` (1 for names), `base_interval_s` (the estimated frame interval) and `last_image_assumed_s`;
+- `gaps`: one entry per gap, with the images `after` and `before` it, `at_s`, `delta_s` and `est_missing`;
+- `sizes` (images per size), `letterboxed` (the canvas, or null) and `normalized` (the pixel format converted to and why, or null).
+
+The frames' `frames.tsv` rows give `time_source` `filename` or `fps`.
 
 **`bug`:**
 
@@ -226,9 +252,11 @@ The `run.json` of every `bug`, `anim` and `frames` run records the recording's p
     ├── frames/frames.tsv          # time, pts, geometry and SHA-256 of each frame
     ├── sheet_01.png …             # labelled contact sheets (needs ImageMagick)
     ├── curve.tsv       # every decoded frame: progress signals, bounding boxes
-    ├── fit.json        # kind, durations, travel, overshoot, all fits, warnings
+    ├── fit.json        # kind, durations and their ±, travel, overshoot, all fits, reliability, warnings
     └── plot.png        # measured progress with the best fits (plot.svg without ImageMagick)
 ```
+
+`fit.json` gives the visible duration's uncertainty as `visible_duration_uncertainty_ms`: one frame interval for a recording, or wider for a folder of images with gaps at the motion's ends. `fits_reliable` is false, with `fits_unreliable_reason`, when the fitted durations cannot be trusted (see [Image folder input](#image-folder-input)).
 
 `anim` frames show the analysed region (after `--roi` or the crop flags). `bug` frames always show the full screen, because the status bar can matter to a bug report even when it is excluded from change detection.
 
@@ -324,8 +352,8 @@ To map a point in the image back to the source: source x = `crop_x` + image x / 
 
 | Converted to real time (÷ N; spring stiffness × N²) | Left in recording time |
 |---|---|
-| `summary.md`: the visible duration and its ± frame interval in the segment table, the result after `->` on the "visible change" line, and every fit row (tween duration, spring settle time, stiffness, Compose preset, SwiftUI response) | `summary.md`: the "starts" column, the window in each segment heading, the first-changed and settled timestamps and the frame interval on the "visible change" line, and the cut times |
-| `fit.json`: `visible_duration_ms` and every `fits[]` entry (`duration_ms`, spring parameters, `compose`, `swiftui_response_s`) | `fit.json`: `window_s`, `frame_interval_ms` |
+| `summary.md`: the visible duration and its ± frame interval in the segment table, the result after `->` on the "visible change" line, every fit row (tween duration, spring settle time, stiffness, Compose preset, SwiftUI response), and the ± an image-folder warning recommends | `summary.md`: the "starts" column, the window in each segment heading, the first-changed and settled timestamps and the frame interval on the "visible change" line, the cut times, and the step lengths in image-folder warnings (marked `(recording time)` when N is not 1) |
+| `fit.json`: `visible_duration_ms`, `visible_duration_uncertainty_ms` and every `fits[]` entry (`duration_ms`, spring parameters, `compose`, `swiftui_response_s`) | `fit.json`: `window_s`, `frame_interval_ms` |
 | Sheet labels: the second line, the ± ms offset from the motion start | Sheet labels: the first line, the `<t>s` timestamp |
 | The plot's time axis ("ms since fitted start (real time, /N)") | `curve.tsv`: both `time_s` and `t_rel_ms` |
 | | Frame file names (`f013_0.483s.png`), and the `--window` / `--range` values you pass |
@@ -350,6 +378,26 @@ Each line below is printed in `summary.md` (anim warnings also appear in `fit.js
 | anim | `note: video starts mid-motion: …` | The recording starts during the motion, so progress is relative to frame 0 | Re-record with a still second before the animation |
 | anim | `N later segments skipped (--max-segments N; the first starts at T s): …` | More motion segments than the cap | Narrow with `--range`, or raise `--max-segments` |
 | anim | `saved frames: N of M (thinned by --max-view-frames K); every native frame at full resolution: frames … --range A-B` | The segment's saved frames and sheet skip frames | Run the `frames` command the line gives |
+| anim | `warning: N gap(s) in the sequence, steps longer than 1.5 x the F ms frame interval (heuristic: …); timing is not native-frame accurate there: after … at T s, step S ms (about K missing); …` | An image folder has steps much longer than its frame interval: frames were deleted, or the screen held still in a variable-frame-rate recording | Check the listed places; the timing there is coarser |
+| anim | `duration uncertainty widened to ±X ms by a S ms step before the first changed image (frames may be missing there)` (or `into the settled image`; `S ms step (recording time)` under `--time-scale`, where ±X is real time) | In an image folder, the motion's start or end falls in a gap, so it is known only within that step | Use the ± given; extract every frame of the span again if you need native precision |
+| anim | `N gap(s) inside this motion (after …): fewer points there, the fit is less constrained` | Frames are missing during the motion itself | Compare the fits' rmse; prefer the visible duration if they disagree |
+| anim | `unreliable (gap before the motion)` (segment table) and `warning: fitted durations are unreliable: the motion may have started up to X ms before the first changed image (…), beyond the fitter's onset search (8 frame intervals); use the visible duration ±X ms instead` | Frames are missing just before the motion, further back than the fitter searches for its start, so a fitted duration can come out too short with a low rmse | Use the visible duration and its ±; the fits stay in `fit.json` for inspection only |
+| bug | `mixed sizes (…) letterboxed onto WxH, padded in mid-grey and converted to …; the padding is part of what change and black detection see` | The folder's images have different sizes | A black image on grey padding may not count as black; review those frames by eye |
+| bug | `no frames/frames.tsv (no geometry is recorded): mixed image sizes letterboxed onto a WxH canvas: …` | Letterboxed frames do not map to one source geometry | Expected; `pick` cannot map a rectangle on them |
+| bug, anim | `normalised to rgb24 before analysis (…), so the detectors see one uninterrupted stream` (or `rgba`) | The images decode to different pixel formats | Nothing to do; precision beyond 8 bits per channel is reduced, and the summary says so |
+| bug | `end of the analysed span assumed (not proven): image folder: the last image's display time is assumed (one frame interval)` | An image has no duration of its own | A freeze or black run still going at the last image has the last image's time as its lower bound |
+| anim | `anim needs images of one size: most are WxH (N images), these differ: … Crop or scale them to one size, or review them with bug (which letterboxes mixed sizes)` (error) | Measuring motion needs one geometry | Crop or scale the odd images, or use `bug` |
+| bug | `--roi / --crop-top / --crop-bottom need images of one size; …` (error) | A region would be in letterboxed canvas pixels | Drop the region flags, or use images of one size |
+| bug, anim | `the image names carry no times (…); give --fps N to time them in natural name order` (error) | No name carries a time | Rename them, or give `--fps` |
+| bug, anim | `N of M image names carry no time: …; rename them like the others (t<ms>.png) or move them out` (error) | Only some names carry a time | Rename or remove the listed images |
+| bug, anim | `… and … carry the same time (N ms); keep one of them` (error) | Two images, often an original and its edited copy, claim one moment | Keep one of them in the folder |
+| bug, anim | `--fps is only for images whose names carry no time, but …` (error) | `--fps` would discard the times the names carry | Drop `--fps` |
+| bug, anim | `--fps applies only to a folder of images` (error) | `--fps` was given with a recording | Drop `--fps`; a recording carries its own times |
+| bug, anim | `… decodes to more than one frame (an animated image?); keep still images only` (error) | An animated image would add frames at no named time | Export the frames you want as separate images |
+| bug, anim | `this ffmpeg's concat demuxer does not keep the image times: …` (error) | This ffmpeg places the images at other times than their names give; the run stops rather than mis-time them | Check `ffmpeg -version` and try a current release, or analyse the original recording instead |
+| bug, anim | `could not give the images one uniform format: …` (error) | Converting the images to one format still left ffmpeg rebuilding its filters | Convert the images to one format and size yourself |
+| bug, anim | `…: no png/jpg/jpeg/webp images at its top level` (error; `(it has a frames/ folder: pass that)` when there is one) | Nothing to analyse; subfolders are not read | Pass the `frames/` folder itself |
+| bug | `--extract-audio: a folder of images has no audio` (error) | There is no audio track | Drop `--extract-audio` |
 | frames | `Warning: --max-frames N reached: K more frames presented from A s to B s were not written. Continue with --range …` | The range has more frames than the cap; the earliest N were written. The continuation starts strictly after the last written frame and no later than the first omitted one, so repeating it never writes a frame twice or skips one | Run the `--range` it gives for the rest, or narrow the range. When no decimal with up to 9 places fits between the two frames, the warning says so and suggests raising `--max-frames` |
 | frames | `the frame at T s is WxH, but the video was probed as W0xH0: the frame size changes mid-stream …` (error) | A requested frame has another size than the probed one, and ffmpeg would rescale it | Request frames from before the change; later ones are not supported |
 | bug, anim | `no frames/frames.tsv (no geometry is recorded): … the frame size changes mid-stream …` | The saved frames include one of another size, so their geometry cannot be recorded; `run.json` has `manifest: null` and the reason in `manifest_note` (anim: in the segment's warnings) | Treat those frames as possibly rescaled |
@@ -377,7 +425,7 @@ Each line below is printed in `summary.md` (anim warnings also appear in `fit.js
 | pick | `source --roi disabled: the image changed since extraction: its SHA-256 … differs from frames.tsv …` | The image was edited after extraction. Even a crop resized back to the same size, or a shift inside the same canvas, changes the hash. No corrected transform is accepted for an edited image | Draw the rectangle on an unedited frame, or extract the region with `frames --roi` |
 | pick | `# --window A-B  (user-marked endpoints (unverified): …)` (block) | You marked a start and an end frame. Nothing checked that they are still frames | Run `anim VIDEO --window A-B` and trust it only if its endpoint diagnostics agree |
 | pick | `# no --window: …` (block) | The marks cannot make a window: only one mark, the same frame twice, an end before the start, or a frame with no time in its name | Mark a start and a later end frame, both with times |
-| pick | `# source: … <VIDEO> (…)` (block) | The recording cannot be named from a proven path: the run predates the recorded provenance, the file is missing, or its size changed | Give the agent the recording's path yourself |
+| pick | `# source: … <VIDEO> (…)` (block) | The recording cannot be named from a proven path: the run predates the recorded provenance, the file is missing, or its size changed. A run on a folder of images says `the run read a folder of images (…), not a video` | Give the agent the recording's path yourself; for a folder run, the folder named is the source |
 | pick | `… is a sheet output; pick the folder it was made from (…)` (error) | `pick` reads frames, not contact sheets | Run `pick` on the folder named |
 | pick | `… is a bug run, but …/frames is missing` (error) | The run's `run.json` names a mode whose frames directory is gone | Pick from a complete run |
 | pick | `no png, jpg or webp images in …` (error) | Nothing to show | Check the path |
@@ -387,6 +435,7 @@ Other known limits:
 - **Several video tracks in one file:** only one is analysed, the default-disposition track, or the first when none is marked default. The summary's video line names it (`video stream #N of M`).
 - **Several elements animating at once** give a mixed curve. Run once per element with `--roi`.
 - **A fade combined with movement** — fit `--signal blend` for the opacity, and `--roi` with `--signal edge` for the motion, and report both.
+- **Image folders are timed to the millisecond** their names carry, or by an assumed `--fps`; they are never more precise than that, and a gap's position is only as good as the names around it.
 - **Low frame rate or dropped frames** (a large frame interval in the summary) make the timing coarser. Precision is ±1 frame: ±17 ms at 60 fps. A slowed capture with `--time-scale` gives proportionally more samples.
 - **Tiny motion** (a few pixels) is quantised. A tight `--roi` raises the analysis resolution, and so does `--analysis-pixels 400000`.
 - **A marked `--window` at very high frame rates.** The window's 0.5 ms margins keep the neighbouring frames out while frames are more than about 1.2 ms apart (below about 800 fps). Above that, a neighbour can fall inside the window.
@@ -398,7 +447,7 @@ Other known limits:
 
 - **ffmpeg and ffprobe 5.1 or later** on `PATH` — required. They are not installed by `ait setup`; install them with your system's package manager.
 - **ImageMagick 7** (`magick`) — optional. Without it there are no contact sheets and the animation plot is written as `plot.svg` only; frames and data files are unaffected. `sheet` needs it and stops with an error when it is missing.
-- `sheet` alone needs no ffmpeg.
+- `sheet` alone needs no ffmpeg. `bug` and `anim` on a folder of images do need it: they rely on the concat demuxer's per-file `option` directive, and stop with an error rather than mis-time the images when an ffmpeg does not keep the times.
 - `pick` needs neither ffmpeg nor ImageMagick, only a browser to open the page in.
 - The helper itself is Python standard library only and runs on the framework's interpreter.
 
@@ -419,6 +468,7 @@ Recordings often show personal data.
 - [Extract Exact Frames for Close Inspection]({{< relref "/docs/workflows/screen-recordings/exact-frames" >}})
 - [Prepare Images by Hand, Then Feed Them to the Agent]({{< relref "/docs/workflows/screen-recordings/hand-edited-images" >}})
 - [Pick Frames Visually and Hand Them to the Agent]({{< relref "/docs/workflows/screen-recordings/pick-frames" >}})
+- [Review or Measure a Curated Image Sequence]({{< relref "/docs/workflows/screen-recordings/image-sequences" >}})
 - [Recording Tips]({{< relref "/docs/workflows/screen-recordings/recording-tips" >}})
 
 ## Related

@@ -10,6 +10,7 @@ import json
 import math
 import random
 import shutil
+import statistics
 import subprocess
 import sys
 import unittest
@@ -1226,6 +1227,118 @@ class PickOpener(unittest.TestCase):
         (ok, why), _ = self.opener(env={}, platform="win32")
         self.assertFalse(ok)
         self.assertIn("win32", why)
+
+
+
+class ImageSequencePlan(unittest.TestCase):
+    """bug DIR / anim DIR: ordering, timing and refusals (core.plan_image_sequence)."""
+
+    def test_timed_and_suffixed_names_in_time_order(self):
+        plan = core.plan_image_sequence(
+            ["t00000033.png", "f001_0.017s (1).png", "t00000000_note.png", "05_0.050s.jpg"])
+        self.assertEqual([i.name for i in plan.images],
+                         ["t00000000_note.png", "f001_0.017s (1).png", "t00000033.png",
+                          "05_0.050s.jpg"])
+        self.assertEqual([i.t for i in plan.images],
+                         [Fraction(0), Fraction(17, 1000), Fraction(33, 1000), Fraction(50, 1000)])
+        self.assertEqual((plan.source, plan.forms), ("filenames", ["anim", "bug", "frames"]))
+
+    def test_refusals_name_the_files(self):
+        cases = [
+            (["t00000000.png"], None, "need at least 2 images"),
+            (["a.png", "b.png"], None, "give --fps N"),
+            (["t00000000.png", "shot.png", "t00000017.png"], None, "1 of 3 image names carry no "
+                                                                     "time: shot.png"),
+            (["t00000017.png", "t00000017_edit.png"], None,
+             "t00000017.png and t00000017_edit.png carry the same time (17 ms)"),
+            (["t00000000.png", "b.png"], Fraction(60), "--fps is only for images whose names"),
+            (["a.png", "b.png"], Fraction(0), "--fps must be a positive number"),
+        ]
+        for names, fps, msg in cases:
+            with self.subTest(names=names, fps=fps):
+                with self.assertRaises(ValueError) as cm:
+                    core.plan_image_sequence(names, fps)
+                self.assertIn(msg, str(cm.exception))
+
+    def test_fps_uses_natural_order_and_exact_times(self):
+        names = [f"img{k}.png" for k in (10, 2, 1, 3)]
+        plan = core.plan_image_sequence(names, Fraction(30000, 1001))
+        self.assertEqual([i.name for i in plan.images], ["img1.png", "img2.png", "img3.png",
+                                                         "img10.png"])
+        self.assertEqual(plan.images[3].t, Fraction(3 * 1001, 30000))
+        self.assertEqual(plan.source, "fps")
+
+
+class SequenceGaps(unittest.TestCase):
+    @staticmethod
+    def names_60fps(n):
+        # the times `frames` writes for a 60 fps clip: whole milliseconds
+        return [Fraction(round(k * 1000 / 60), 1000) for k in range(n)]
+
+    def test_base_interval_is_the_native_one_despite_ms_rounding(self):
+        t = self.names_60fps(40)
+        self.assertEqual(sorted({float(b - a) for a, b in zip(t, t[1:])}), [0.016, 0.017])
+        self.assertAlmostEqual(core.base_interval(t), 1 / 60, delta=2e-4)
+        self.assertEqual(core.sequence_gaps(t, core.base_interval(t)), [])
+
+    def test_every_third_frame_deleted_is_found_where_a_median_would_not(self):
+        t = [x for k, x in enumerate(self.names_60fps(40)) if k % 3 != 2]
+        base = core.base_interval(t)
+        self.assertAlmostEqual(base, 1 / 60, delta=1e-3)
+        gaps = core.sequence_gaps(t, base)
+        self.assertEqual(len(gaps), 13)
+        self.assertEqual({g.est_missing for g in gaps}, {1})
+        self.assertEqual(gaps[0].index, 2)
+        self.assertAlmostEqual(gaps[0].at, 0.017)
+        # premise control: the median of the steps (1.5 native frames) misses them all
+        median = statistics.median([float(b - a) for a, b in zip(t, t[1:])])
+        self.assertEqual(core.sequence_gaps(t, median), [])
+
+    def test_long_gap_estimates_the_missing_frames(self):
+        t = [x for k, x in enumerate(self.names_60fps(40)) if not 10 <= k < 20]
+        (gap,) = core.sequence_gaps(t, core.base_interval(t))
+        self.assertEqual((gap.index, gap.est_missing), (10, 10))
+
+    def test_concat_starts_do_not_drift(self):
+        starts = core.concat_starts_us([Fraction(k, 30) for k in range(3001)])
+        self.assertEqual(starts[3000], 100_000_000)
+        self.assertEqual(starts[1], 33_333)
+        self.assertEqual(starts[2], 66_667)
+        durations = [b - a for a, b in zip(starts, starts[1:])]
+        self.assertEqual(sum(durations), 100_000_000)
+
+    def test_onset_reachability_matches_the_fitter_search(self):
+        self.assertEqual(core.ONSET_SEARCH_INTERVALS, 8)
+        dt = 1 / 60
+        self.assertTrue(core.fit_onset_reachable(1.0 - 8 * dt, 1.0, dt))
+        self.assertFalse(core.fit_onset_reachable(1.0 - 9 * dt, 1.0, dt))
+
+    def test_alpha_pixel_formats(self):
+        for fmt in ("rgba", "bgra", "ya8", "yuva420p", "gbrap", "pal8", "rgba64be"):
+            self.assertTrue(core.has_alpha(fmt), fmt)
+        for fmt in ("rgb24", "gray", "yuvj420p", "rgb48be", None):
+            self.assertFalse(core.has_alpha(fmt), fmt)
+
+    def test_showinfo_configurations_are_counted(self):
+        cfg = "[Parsed_showinfo_0 @ 0x1] config in time_base: 1/1000000, frame_rate: 1000000/1\n"
+        frame = ("[Parsed_showinfo_0 @ 0x1] n:   0 pts:      0 pts_time:0       duration:      1 "
+                 "fmt:gray cl:unspecified sar:0/1 s:32x32 i:P\n")
+        self.assertEqual(core.count_showinfo_configs(cfg + frame + cfg + frame), 2)
+        self.assertEqual(core.parse_showinfo_frames(frame)[0].fmt, "gray")
+
+
+class AnalyzeFrameInterval(unittest.TestCase):
+    def test_frame_interval_override(self):
+        w, h = 32, 8
+        still = bytes(w * h)
+        moved = bytes([255] * 8 + [0] * (w - 8)) * h
+        frames = [still, still, moved, moved]
+        times = [0.0, 0.1, 0.2, 0.3]
+        own = core.analyze_frames(times, frames, w, h)
+        given = core.analyze_frames(times, frames, w, h, frame_interval=0.05)
+        self.assertAlmostEqual(given["frame_interval"], 0.05)
+        self.assertNotAlmostEqual(own["frame_interval"], 0.05)
+        self.assertAlmostEqual(given["visible_duration"], 0.2 - (0.2 - 0.05))
 
 
 if __name__ == "__main__":
