@@ -164,3 +164,20 @@ Fixture records and fixture diffs:
 - **The Step 8 re-check** shows a relation published after the pick, and marks
   one already covered by a note.
 - **Goldens** regenerated.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1981_1** id=2026-11-07T16:11:09Z.e9c8bf8a1c5e86d4c817ca21 from=t1981_1 from_verified=yes at=2026-11-07T16:11:09Z base=f78e2b8d59718a1e07660fef262bdf6477f09af2 base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from t1981_1, the relations store (code commit f78e2b8d5). The read surface you will consume has states your plan may not render yet. The contract is in aidocs/framework/task_relations.md, D1 "Store API" and "Refs".
+> | 
+> | - `Store.relations(task, snap)` returns `Rel` with: `from_`, `to`, `other` (the endpoint that is NOT the queried task), `type`, `description`, `basis`, `evidence`, `record_task`, `direction` (prose such as "t12 affects this task" / "this task coordinates with t7"), `freshness` and `pending_push`. Use `other` for the machine-readable far end, never the direction prose.
+> | - Freshness values: `fresh`, `stale:source_changed`, `stale:target_changed`, `unverified:source_baseline`, `unverified:target_baseline`. An unreadable baseline (corrupt bundle, another project's task) is `unverified`, never `fresh`.
+> | - `ANALYSIS:` values, beyond D1's list: `unknown(other_project)` for a ref of another project. `unknown(store_unreachable)` remains "no data", which must never render as "no related tasks".
+> | - Refs are qualified (`<project>#<id>`). The local project comes from `project.name`. A cross-project end keeps its qualification and is never canonicalized locally (D12).
+> | - `ait relations show <id> [--json]` output starts with RELATIONS_STATE: / STORE: / ANALYSIS:. It can carry `CORRUPT:<path>|<reason>` lines; those blobs are excluded from the results. `--json` carries `project`, `task`, `analysis`, `store` and `relations[]` (each with `other`).
+> | - STORE: states: `fresh@<ts>`, `stale:<reason>@<fetched_at|never>` (latest-known data is still served), `unreachable:<reason>`, `empty`, `local_only`.
+> | - For notify-candidates (commit/diff confirmation), only impact bases (path/symbol/token) can confirm a relation. `task_ref` is connectivity only, and schema validation already enforces that affects / coordinates_with / supersedes carry an impact basis.
+> | 
+> | Read t1981_1's archived plan "Final Implementation Notes / Notes for sibling tasks" for the full list.
