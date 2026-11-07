@@ -9,6 +9,7 @@
 #   ait sitrep triage <id> [--root <path>]
 #   ait sitrep triage --open [--root <path>]
 #   ait sitrep case <verb> ...      (the review-case corpus; t2175_6)
+#   ait sitrep tui [--root <path>]  (the sitrep TUI; t2211_1)
 #
 # open (the default verb) focuses the repository's sitrep agent, or launches it
 # in its OWN tmux window `agent-sitrep` (`-<n>` when the session already holds
@@ -44,6 +45,9 @@
 # review, replay [--apply], export, check-fixture. Its contract is in
 # lib/sitrep_corpus.py.
 #
+# tui is `aitask_sitrep_tui.sh`: the read-only sitrep TUI over the same store
+# (grouped items, details with the context map, pointer following, Q&A log).
+#
 # Exit codes: 0 ok, 1 refused, 2 usage (incl. a `..` path; nothing read),
 # 4 store unusable.
 #
@@ -74,6 +78,7 @@ usage() {
     echo "       ait sitrep root [--root <path>]" >&2
     echo "       ait sitrep triage <id>|--open [--root <path>]" >&2
     echo "       ait sitrep case list|show|read|review|replay|export|check-fixture ..." >&2
+    echo "       ait sitrep tui [--root <path>]" >&2
     exit 2
 }
 
@@ -81,6 +86,7 @@ verb="open"
 case "${1:-}" in
     open|root|triage) verb="$1"; shift ;;
     case) shift; exec "$SCRIPT_DIR/aitask_sitrep_harvest.sh" case "$@" ;;
+    tui) shift; exec "$SCRIPT_DIR/aitask_sitrep_tui.sh" "$@" ;;
     -h|--help) usage ;;
     ""|--*) ;;
     *) printf 'Error: unknown verb %s\n' "$1" >&2; usage ;;

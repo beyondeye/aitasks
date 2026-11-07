@@ -1400,6 +1400,16 @@ def load_todo_for_read(store_dir: str) -> TodoStore:
     return load_todo(store_dir)
 
 
+def load_qa_for_read(store_dir: str) -> QaLog:
+    """load_qa for read-only consumers (the sitrep TUI, t2211_1): a
+    never-initialized store has an empty log, a missing qa.md in an
+    established store is damage (exit 4)."""
+    if not os.path.exists(os.path.join(store_dir, "qa.md")):
+        _require_not_damaged(store_dir, "qa")
+        return QaLog()
+    return load_qa(store_dir)
+
+
 def op_list(args, _text):
     store = load_todo_for_read(args.store)
     if not store.items:

@@ -164,6 +164,13 @@ def _review_case(store_dir: str, pointers: list) -> str:
     return ""
 
 
+#: Public names (t2211_1): the sitrep TUI labels the same capture pointers and
+#: finds the same review case, so it calls these rather than re-deriving trust.
+capture_kind = _capture_kind
+review_case = _review_case
+KIND_LABEL = _KIND_LABEL
+
+
 def is_triage(item) -> bool:
     return item.kind == "question" and item.derived == "script"
 

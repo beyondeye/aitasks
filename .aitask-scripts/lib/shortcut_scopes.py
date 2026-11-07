@@ -60,6 +60,9 @@ KNOWN_BINDING_SOURCES: list[tuple[str, str, tuple[str, ...]]] = [
     ("frozenagent_app", "frozenagent/frozenagent_app.py", ("frozenagent",)),
     ("scratchpad_app", "scratchpad/scratchpad_app.py", ("scratchpad",)),
     ("stats_app", "stats/stats_app.py", ("stats",)),
+    ("sitrep_tui_app", "sitrep_tui/sitrep_tui_app.py",
+     ("sitrep_tui", "sitrep_tui.detail", "sitrep_tui.viewer", "sitrep_tui.qa",
+      "sitrep_tui.qa_entry")),  # t2211_1
     # Shared, cross-TUI dialogs (reused by several Apps) — their scopes live
     # under "shared.*" so every TUI's `?` editor surfaces them.
     ("agent_command_screen", "lib/agent_command_screen.py", ("shared.agent_cmd",)),
