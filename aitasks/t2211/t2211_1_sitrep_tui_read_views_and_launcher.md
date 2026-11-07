@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2175
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-05 15:35
-updated_at: 2026-11-06 11:16
+updated_at: 2026-11-07 18:20
 ---
 
 ## Context
@@ -139,3 +140,8 @@ Confirm `git diff HEAD -- <files you edit>` is empty before the first edit.
   venv.
 - `shellcheck .aitask-scripts/aitask_sitrep.sh .aitask-scripts/aitask_sitrep_tui.sh`.
 - Manual: `./ait sitrep tui` in this repo shows the real store.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-07T16:20:21Z status=pass attempt=1 type=human
