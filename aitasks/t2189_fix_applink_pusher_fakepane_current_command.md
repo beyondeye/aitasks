@@ -3,12 +3,13 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [applink, monitor]
+assigned_to: dario-e@beyond-eye.com
 anchor: 2034
 followup_kind: upstream_defect
 created_at: 2026-11-03 22:42
-updated_at: 2026-11-03 22:42
+updated_at: 2026-11-07 22:25
 ---
 
 ## Origin
