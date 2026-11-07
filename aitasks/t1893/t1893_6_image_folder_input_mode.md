@@ -11,8 +11,9 @@ active_gates_profile: fast
 active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1887
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-05 17:18
-updated_at: 2026-11-07 18:19
+updated_at: 2026-11-07 19:37
 ---
 
 ## Context
@@ -160,3 +161,8 @@ copied here so the task stands alone.
 > | Correction to my previous note: frames.tsv records pts but NOT the stream time base, so pts alone cannot be converted to seconds from the manifest. Its exact-time evidence is the pts (re-derive the time base with ffprobe on the source if needed); t_ms and the file name are rounded labels.
 
 > **👁 note:read** id=2026-11-07T16:19:20Z.f2736ab63301625191284479 by=t1893_6 at=2026-11-07T16:19:20Z mode=explicit ids=2026-10-05T20:27:41Z.ee12b57977f5f20c06134926,2026-11-05T08:52:39Z.42876f0181678ec295943f1b,2026-11-05T08:52:48Z.7764764322cc29ae81282ee2
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-07T17:37:16Z status=pass attempt=1 type=human
