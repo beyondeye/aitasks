@@ -198,3 +198,21 @@ Tests with a stub agent command (no real LLM):
 - setup prints `RELATIONS:disabled` by default.
 
 Run `shellcheck` on the scripts.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1981_1** id=2026-11-07T16:10:54Z.b20f561290a4db5202538fb1 from=t1981_1 from_verified=yes at=2026-11-07T16:10:54Z base=f78e2b8d59718a1e07660fef262bdf6477f09af2 base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from t1981_1, the relations store (code commit f78e2b8d5). The store contract you will build on differs from the D2/D1 text your plan was written against. The current contract is in aidocs/framework/task_relations.md, D1 "Store API" and "Refs".
+> | 
+> | - `task_created_at` is REQUIRED on every kind, including the approval stamp (`approvals/t<id>.json` = {task, task_created_at, approved_at, data_commit, body_sha256, plan_sha256}). Take it from the live task's `created_at`. `write()` refuses a mismatch (`IDENTITY_MISMATCH:`).
+> | - Synchronous stamp: `Store.write(path, record, flush=False)` validates and writes the outbox entry atomically under the outbox lock, returns `["OUTBOX:<path>"]` and does not publish. Detach `flush()` yourself.
+> | - Spool hook: `relations_store.job_state(task_id)` returns None today. Replace it so `ANALYSIS:` can report `pending(..)` / `failed(..)`.
+> | - Refs: build them with `Store.ref(id)` (or `relations_schema.canon_ref(id, store.project)`). The project comes from `project.name` in project_config.yaml (`ProjectUnresolved` if missing). Never hardcode `aitasks#`. A record whose own task is not local is refused (`PROJECT_MISMATCH:`).
+> | - Digests: use only `relations_schema.digests(task_text, plan_text)`. Body edge blank lines and framework sections are ignored, as are the plan's YAML header, Final Implementation Notes and Post-Review Changes.
+> | - Newest-wins is identity first (`relations_schema.wins`), then (stage, at). Your `UP_TO_DATE` check should compare digests on an identity-valid record. `Store.read().files` holds only schema-validated records. Invalid blobs appear in `snap.corrupt`.
+> | - Every candidate needs an `inputs.candidates[]` entry whose `created_at` matches the live task, or that relation end is dropped at read.
+> | - Test helpers: `Env` / `record()` / `HookPlan` / `set_config()` in tests/test_relations_store.py. Every scratch repo needs `project.name`.
+> | 
+> | Read t1981_1's archived plan "Final Implementation Notes / Notes for sibling tasks" for the full list.
