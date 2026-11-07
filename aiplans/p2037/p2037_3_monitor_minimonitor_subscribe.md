@@ -547,3 +547,283 @@ commit the code with
 the standard Step 9 archival of the child. t2037_4 (applink) stays pending, so
 the parent is not archived and its cross-repo handoff note to aitasks_go#47 is
 not due yet.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-07)
+- **Requested by user:** the full monitor's fast-preview callbacks
+  (`_fast_preview_refresh` / `_fast_shadow_refresh`) now wait for a server
+  `refresh` reply, but `_forward_key_to_tmux`, the scroll re-attach in
+  `_record_scroll_for` and `action_scroll_preview_tail` still scheduled them with
+  `call_later`, which runs them on the App message pump. A held reply stopped the
+  next key from dispatching. The user confirmed this with a ScriptedServer probe.
+  Move those waits off the pump, preserving the target and generation guards,
+  and add full-monitor input-dispatch coverage.
+- **Changes made:**
+  - **`MonitorApp._dispatch_fast_refresh(refresh)`.** Under a client that is
+    not in `FALLBACK`, it runs the same refresh method in a `fast-refresh`
+    worker, coalesced per column: one round in flight, plus at most one more
+    round for requests made after that round sent its request. In fallback, and
+    with test doubles, it is the old `call_later`. The three `call_later`
+    sites now call it.
+  - **Guards preserved.** The pinned-pane, generation and focus-identity guards
+    live inside the refresh methods, which are unchanged.
+  - **Audit.** An `ast` audit of both apps found no other pump-reachable await
+    on a server-backed client call. The 0.3 s zone timer runs in its own timer
+    task. **Correction (Change Request 2):** this audit originally said the
+    delayed refresh does too. It does not: Textual's `set_timer` wraps its
+    callback in `call_next`, which runs it on the App pump; only `set_interval`
+    passes its callback unwrapped.
+  - **Tests.**
+    - New `MonitorFastRefreshDispatchTests` in
+      `tests/test_minimonitor_startup_input_latency.py`. Four cases cover:
+      forwarding a key to the preview; forwarding a key to the shadow; `t`; and
+      a scroll re-attach. Each held request is checked for the right
+      `panes` / `shadows` target, then the next key must dispatch.
+    - One more case tests coalescing.
+    - **Positive controls.** A plain `call_later` dispatcher fails all four
+      dispatch cases by turn exhaustion. An uncoalesced worker-per-call fails
+      the coalescing case.
+    - The shared fixture moved to `_ServerDispatchBase`.
+  - The spec's "Consumers" bullet now names the fast-refresh path.
+- **Files affected:** `.aitask-scripts/monitor/monitor_app.py`,
+  `tests/test_minimonitor_startup_input_latency.py`,
+  `aidocs/framework/monitor_status_protocol.md`.
+- **Verification:**
+  - all `tests/test_monitor*.py` / `tests/test_minimonitor*.py` non-live modules:
+    1982 passed;
+  - the three status-server live modules: 10 passed;
+  - no status server was left behind.
+
+### Change Request 2 (2026-11-07)
+- **Requested by user:** Enter in the pane-list zone calls
+  `_schedule_delayed_refresh()`, which is `set_timer(0.3, _fire_delayed_refresh)`.
+  That callback awaited `_fast_preview_refresh()` directly. Installed Textual's
+  `MessagePump.set_timer` wraps the callback in `partial(self.call_next, callback)`,
+  which returns it to the App pump. The user confirmed with a probe that a held
+  `refresh` reply blocked the next key. Route the callback through the
+  dispatcher, add a stalled-reply test through the Enter / delayed-timer path,
+  and correct the audit statement.
+- **Changes made:**
+  - **The fix.** `MonitorApp._fire_delayed_refresh` is now a sync callback that
+    calls `self._dispatch_fast_refresh(self._fast_preview_refresh)`. It never
+    awaits.
+  - **Checked against the installed source.** `set_timer` wraps its callback in
+    `call_next`; `set_interval` does not.
+  - **Other `set_timer` callbacks.** The only others in either app are the two
+    synchronous minimonitor scroll-lock releases.
+  - **New test, `test_enter_in_the_pane_list_never_holds_input`.** It sends a
+    real `enter` Key event through the driver. Once the server holds the
+    delayed refresh's `refresh`, the next key must dispatch.
+  - **Test fixture fix.** `_stalled_refresh_then_key` now clears the key spy
+    after the held request arrives. A trigger that is itself a key would
+    otherwise satisfy the dispatch observation on its own.
+  - **Positive controls.**
+    - Reverting `_fire_delayed_refresh` to `await self._fast_preview_refresh()`
+      fails the Enter test by turn exhaustion.
+    - The plain `call_later` dispatcher still fails all five dispatch cases.
+  - The audit statement in Change Request 1 is corrected above.
+- **Files affected:** `.aitask-scripts/monitor/monitor_app.py`,
+  `tests/test_minimonitor_startup_input_latency.py`.
+
+### Change Request 3 (2026-11-07)
+- **Requested by user:** `_dispatch_fast_refresh` chose the route when it
+  scheduled the refresh. In `FALLBACK` it queued `call_later(refresh)`, but the
+  client can reconnect to `SERVER` before that callback runs. The queued
+  refresh then waited for the server's reply on the App pump. The user
+  confirmed this with a probe: real fallback, a fast refresh queued behind a
+  held App callback, the actual `_attempt` / subscription transition, then
+  release. Recheck at execution time, or keep client fast refreshes off the
+  pump in both modes, and add a fallback-to-server queued-callback regression
+  test.
+- **Changes made:**
+  - **The fix.** `_dispatch_fast_refresh` now sends ANY `MonitorClient` fast
+    refresh to the coalesced worker, whatever its mode. In fallback the worker
+    runs the in-process capture off the pump. Only a non-client monitor (test
+    doubles) keeps `call_later`. No route decision is made at scheduling time,
+    so none can go stale.
+  - **Other route decisions, re-checked for the same race:**
+    - `_refresh_data` decides when the callback itself runs, and its inline
+      fallback path never waits on the server: after a mid-refresh reconnect
+      it only reads state.
+    - `d`'s follow-up `call_later(self._refresh_data)` re-decides in
+      `_refresh_data`.
+    - `d` itself and the scan worker are always workers.
+  - **New test,
+    `test_a_refresh_queued_in_fallback_never_holds_input_after_a_reconnect`.**
+    It follows the user's probe:
+    1. a real `FALLBACK` start (`ensure` answers `UNAVAILABLE`);
+    2. the App pump held by a queued callback;
+    3. a fast refresh scheduled;
+    4. the real `client._attempt()` and subscription, to `SERVER`;
+    5. release.
+
+    The next key must dispatch, and the scheduled refresh must actually have
+    run.
+  - **Positive control.** Gating the dispatcher on the current mode fails the
+    test by turn exhaustion.
+  - The spec bullet says the route is chosen for any client.
+- **Files affected:** `.aitask-scripts/monitor/monitor_app.py`,
+  `tests/test_minimonitor_startup_input_latency.py`,
+  `aidocs/framework/monitor_status_protocol.md`.
+
+### Change Request 4 (2026-11-07)
+- **Requested by user:** the reconnect regression test held the App pump on
+  `gate.wait()`, but released the gate only after the subscribe exchange and
+  the reconnect assertions. A failed or timed-out exchange left `run_test`'s
+  teardown waiting on the held pump. The user's injected subscription
+  disconnect hung past a 6 s timeout. Release the gate unconditionally in a
+  `finally`. This is test-harness hardening only.
+- **Changes made:**
+  - **The fix.** Everything after the hold is queued now runs inside
+    `try/finally`. The `finally` sets the gate and cancels a still-pending
+    `_attempt()` task.
+  - **Re-checked with the user's injection.** A scripted disconnect on the
+    subscribe reply now fails the test in 0.1 s instead of hanging.
+  - **Same treatment for three app-test events.** In
+    `tests/test_monitor_apps_subscribe.py` the held-request events of
+    `test_a_user_refresh_returns_at_once_and_scans_in_order`, the coalescing
+    test and the replaced-monitor test are released in `finally` as well. They
+    never hung, because their drain is bounded, but a failure no longer leaves
+    a worker blocked until the bound.
+- **Files affected:** `tests/test_minimonitor_startup_input_latency.py`,
+  `tests/test_monitor_apps_subscribe.py`.
+- **Verification:** monitor and minimonitor non-live modules: 1984 passed.
+
+## Final Implementation Notes
+
+- **Actual work done:**
+  - **`status_client.py`, additive.** `set_capture_pins` keeps its send task.
+    New `flush_pins()` waits for it, bounded by the request timeout, and never
+    raises for the send's outcome.
+  - **`monitor_shared.py`.**
+    - `build_monitor_client(...)` is the one construction seam.
+    - `_publish_parked_agents` also calls `set_capture_pins(self._capture_pins())`.
+    - The off-pump user-refresh machinery: `_wants_offpump_scan`,
+      `_dispatch_scan_refresh`, `_scan_refresh_worker`, `_request_server_scan`
+      and `_maybe_rerun_refresh`, plus class-level flags.
+    - `_cycle_compare_mode_async`, the `d` worker.
+  - **Both apps.**
+    - They build their `TmuxMonitor` as before and wrap it.
+    - The first refresh and the interval (`_tick_refresh`) pass `scan=False`.
+    - `_refresh_data(scan=True)` under a client not in `FALLBACK` dispatches
+      the worker and returns. The worker runs one ordinary guarded round
+      (`_request_scan=True`):
+      1. publish (after this tick's identity check in the minimonitor);
+      2. `flush_pins`;
+      3. `request_refresh`;
+      4. read.
+    - `main()` passes `monitor_server=False` for an explicit `--interval`
+      (both) or `--lines` (monitor).
+  - **Monitor only.** `_dispatch_fast_refresh` routes every fast
+    preview/shadow refresh of any `MonitorClient` through a coalesced worker.
+    That covers forwarded keys, scroll re-attach, `t` and Enter's
+    `set_timer` delayed refresh.
+  - **Docs.** The spec's "Python client" section gets a `flush_pins` sentence
+    and a "Consumers: monitor and minimonitor" subsection. The website monitor
+    reference gets the `AITASKS_MONITOR_SERVER` row and the
+    `--interval`/`--lines` note.
+- **Deviations from plan:**
+  - **Fast preview path.** The plan covered only full refreshes. Review rounds
+    1–3 extended the off-pump rule to the monitor's fast preview path: the
+    `call_later` sites, the `set_timer` delayed refresh, and the route
+    decided by object type rather than by mode at scheduling time. See
+    Post-Review Changes.
+  - `READ_SURFACE_NAMES` was not extended. The surface test only needs class
+    members.
+  - The live test runs its clients in a driver subprocess, as
+    `test_monitor_status_client_live` does.
+  - App-timer checks run monitor and minimonitor sequentially against one
+    server: one Textual app per `run_test`.
+- **Issues encountered:**
+  - **A wrong pump audit.** My first audit cleared the `set_timer` callback.
+    Installed Textual wraps `set_timer` callbacks in `call_next`, so they run
+    on the pump; only `set_interval` doesn't (Change Request 2).
+  - **The coalescing test's first version** expected a second round for
+    keystrokes that landed before the first round had sent its request. Those
+    are correctly covered by that round.
+  - **A wrong delta generation** in a scripted test caused a stream gap. Fixed
+    with consecutive generations.
+  - **Live use from the shared checkout.** A real minimonitor spawned in this
+    repo at 2026-11-06 11:14 ran the uncommitted code and started a real status
+    server, pid 3870908. That is production use, not a test leak. It was the
+    only server present both before and after the full suite.
+- **Key decisions:**
+  - Route by type, never by mode, for anything queued (Change Request 3).
+  - Keep fallback inline behaviour for full refreshes, decided at callback
+    execution, where the inline path never waits on the server.
+  - `_request_server_scan` treats a non-client monitor as a plain read.
+- **Verification:**
+  - **Full suite:** `PYTHON SUITE: PASSED (runner=pytest, exit=0)`, with 11175
+    passed and 6 skipped, plus 15 serial, before the review rounds. After the
+    rounds, every `tests/test_monitor*.py` / `tests/test_minimonitor*.py`
+    non-live module passed (1984), and the three status-server live modules
+    passed (10).
+  - **Positive controls,** each failing its test:
+    - the inline server wait;
+    - request before publish;
+    - the timer back to `scan=True`;
+    - publish without pins;
+    - notifying the prediction;
+    - no off-pump dispatch;
+    - a no-op `flush_pins`;
+    - `call_later` fast dispatch;
+    - uncoalesced fast dispatch;
+    - mode-gated fast dispatch;
+    - the delayed refresh awaiting.
+  - **Post-phase `suite_spawns_no_status_server`: PASS.**
+    - Before the suite: one server, pid 3870908 on `/tmp/tmux-1000/ait`, from
+      the live minimonitor above, with the runtime dir
+      `/run/user/1000/aitasks/monitor-2d0b888256e321e6-0.40.1.{lock,log,sock}`.
+    - After: the identical pid and files. No new server and no new socket.
+- **Measurement — t2034_1's controlled server-cost comparison re-run.**
+  - Setup: N = 12 fake agents on an isolated `-L ait_t2034_1_scale` server.
+    Each row is two 60 s `cpurate` windows after a 20 s warm-up, on omg16 at
+    2026-11-06 11:27–11:42. The 1-min load was 12.7 at the start, falling to
+    2.4; other agents were running. Scripts are t2034_1's appendix copies.
+  - **Script changes (deviations, all additive):**
+    - `cpurate.sh` classifies `status_server.py` before `*tmux*`, so the
+      server's `--tmux-socket-path` argument does not count it as the tmux
+      server.
+    - `scale.sh` passes `AITASKS_MONITOR_SERVER=${MS:-1}` to the companion
+      minimonitors, includes the scratch socket's status-server pid in
+      `cpurate`, and on teardown SIGTERMs only status servers whose cmdline
+      names the scratch socket.
+    - Every teardown left no status server behind.
+
+  | K minimonitors | mode | tmux server % of a core | status server % | minimonitors total % |
+  |---|---|---|---|---|
+  | 0 | — | 0.03 / 0.03 | — | — |
+  | 1 | shared server | 0.65 / 0.55 | 0.37 / 0.33 | 0.3 / 0.2 |
+  | 4 | shared server | 0.68 / 0.65 | 0.33 / 0.35 | 1.0 / 1.0 |
+  | 1 | in-process (`AITASKS_MONITOR_SERVER=0`) | 0.57 / 0.50 | — | 0.4 / 0.4 |
+  | 4 | in-process | 2.22 / 2.13 | — | 1.8 / 1.6 |
+
+  - **The difference.** With the shared server, tmux-server CPU no longer
+    grows with K: 0.6 → 0.67 % from K = 1 to 4, against 0.54 → 2.18 %
+    in-process. At K = 4 that is about −70 %; one shared scanner predicts
+    (K − 1)/K = 75 %.
+  - **System total at K = 4:** about 3.9 % in-process, against about 2.0 %
+    shared (tmux 0.67 + status server 0.34 + minimonitors 1.0).
+  - **Minimonitor CPU.** Per-minimonitor CPU is also lower in server mode, at
+    about 0.25 % against 0.43 % each at K = 4, because the producer moved out.
+  - **Against t2034_1.** Its K = 4 in-process figure was 2.62–2.73 %; this run
+    measured 2.13–2.22 % on the same harness, after t2183's render diff. The
+    numbers are one host and one moment, and not a gate.
+- **Upstream defects identified:** None
+- **Notes for sibling tasks:**
+  - **t2037_4 (applink).**
+    - Construct through `monitor_shared.build_monitor_client` (`kind="applink"`),
+      or `MonitorClient` directly if pulling in Textual is unwanted.
+      `monitor_shared` imports Textual widgets.
+    - **Before any requested scan,** call `flush_pins()` between
+      `set_capture_pins` and `request_refresh`.
+    - **Never await a server-backed call** (`capture_pane_classified_async`,
+      `refresh_shadow_snapshot`, `request_refresh`, `capture`, `set_content`,
+      the `*_async` compare calls) on a serialized dispatch path.
+    - **Decide routes by type, not by `mode`.** The mode can change between
+      scheduling and execution.
+    - The server applies project config. An instance override needs
+      `enabled=False`.
+  - **Follow-ups.** `apps_timer_shared_scan_live` and `monitor_render_on_push`
+    are spawned at Step 8d.
