@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: medium
+risk_goal_achievement: medium
 effort: medium
 depends: [t2037_2]
 issue_type: feature
@@ -13,7 +15,7 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 2034
 implemented_with: claudecode/opus5_5
 created_at: 2026-10-16 08:11
-updated_at: 2026-11-06 11:01
+updated_at: 2026-11-06 11:02
 ---
 
 Switch `ait monitor` and `ait minimonitor` to the client (parent: Python
@@ -66,3 +68,5 @@ monitor status server task).
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-11-06T09:02:01Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-11-07T17:14:36Z status=pass attempt=1 type=human
