@@ -1011,7 +1011,11 @@ other than the reader. The reader has to stay free to read the reply.
   send the request and return a prediction from the record, and the next delta
   carries the server's value.
 - **Pins and content.** `set_capture_pins()` sends `set_pins` only when the pins
-  changed. Every (re)subscribe carries the current pins and selection.
+  changed, without waiting for the reply. `flush_pins()` waits, bounded by the
+  request timeout, for that reply. Because the server handles one connection's
+  requests in order and answers `set_pins` only after applying it, a request
+  sent after `flush_pins()` returns runs under the new pins. Every
+  (re)subscribe carries the current pins and selection.
   `set_parked_agents()` always goes to the local instance: the server computes
   its own skip set. `set_content()` is sent in both subscribed modes, replay
   included.
@@ -1062,6 +1066,40 @@ config. Any other name raises `AttributeError`, instead of silently answering
 from the empty local producer. `tests/test_monitor_client_surface.py` keeps the
 list complete. It extracts every monitor attribute that monitor, minimonitor and
 applink use, and requires each one to be served or allowlisted.
+
+### Consumers: monitor and minimonitor
+
+Both TUIs build their `TmuxMonitor` as before and wrap it with
+`monitor_shared.build_monitor_client`.
+
+- **Reads and scans.** The interval tick and the first refresh only read the
+  subscription, so N clients cost one scan per server tick. A user action
+  (refresh, kill, pick, a mark, `M`, `d`) also asks the server to scan. It does
+  so from a coalesced `scan-refresh` worker, never on the App message pump,
+  because the action's `call_later` callback runs inline on the queue that
+  dispatches keys. A stalled server therefore never holds input. The monitor's
+  one-column fast refresh (typing into the preview or shadow, re-attaching a
+  scrolled column, `t`, Enter's delayed refresh) sends `refresh{panes|shadows}`,
+  and it too runs in a worker, coalesced per column, keeping its pinned-pane,
+  generation and focus-identity guards. That route is chosen for any client
+  whatever its current mode. A decision made at scheduling time would go stale:
+  a client in `fallback` can reconnect before a queued callback runs.
+- **Order inside a scan round.** A scan round is one ordinary guarded refresh:
+  1. resolve marks and, in the minimonitor, this tick's own-window identity;
+  2. publish the skip set and the pins;
+  3. `flush_pins()`;
+  4. `request_refresh()`;
+  5. read.
+
+  So the scan runs under this tick's pins. A followed agent that is parked is
+  captured live, and an unconfirmed identity scans under `CAPTURE_PIN_ALL`.
+- **Pins** are published every tick, alongside the local skip set.
+- **`d`** uses `cycle_compare_mode_async` in a worker and reports the server's
+  answer.
+- **In-process instances.** An explicit `--interval` (both TUIs) or `--lines`
+  (monitor) keeps that instance in-process: the server applies each project's
+  `project_config.yaml` and cannot honour a per-instance override.
+  `AITASKS_MONITOR_SERVER=0` does the same for every instance.
 
 ## Python codec reference
 

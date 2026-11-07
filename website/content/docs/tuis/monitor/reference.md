@@ -232,6 +232,8 @@ All of these can be edited interactively via [`ait settings`]({{< relref "/docs/
 
 `ait ide` always passes `--session` with the configured default, which is why it never triggers the Session Rename Dialog.
 
+Monitor and minimonitor normally share one background status server per tmux server, which scans every agent pane once per tick for all of them. Passing `--interval` or `--lines` makes that one instance scan on its own instead, because the shared server uses each project's `project_config.yaml` settings.
+
 ### Session-Name Fallback Dialog
 
 When monitor starts, it resolves which tmux session to watch using this decision logic:
@@ -258,6 +260,7 @@ When monitor starts, it resolves which tmux session to watch using this decision
 |----------|---------|
 | `TMUX` | Set by tmux when inside a session. Monitor reads it to detect the current session name. Without it, monitor refuses to launch outside of a tmux context. |
 | `PYTHON` | Optional override for the Python interpreter used by the launcher (defaults to the shared `ait setup` venv). |
+| `AITASKS_MONITOR_SERVER` | Set to `0` to make monitor and minimonitor scan the panes themselves instead of sharing the background status server. If that server cannot be reached, they scan themselves anyway. |
 
 ### Related Commands and TUIs
 

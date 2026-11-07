@@ -350,6 +350,8 @@ class MonitorClient:
         self._start_task: asyncio.Task | None = None
         self._reconnect_task: asyncio.Task | None = None
         self._bg: set = set()
+        #: The last ``set_pins`` send (see :meth:`flush_pins`).
+        self._pins_send: asyncio.Task | None = None
         self._update_listeners: list = []
         self._mode_listeners: list = []
         self._replay_server = None
@@ -876,10 +878,11 @@ class MonitorClient:
             with contextlib.suppress(Exception):
                 self._log_cb(message)
 
-    def _spawn(self, coro) -> None:
+    def _spawn(self, coro) -> asyncio.Task:
         task = asyncio.create_task(coro)
         self._bg.add(task)
         task.add_done_callback(self._bg.discard)
+        return task
 
     # -- state views ---------------------------------------------------------
 
@@ -1184,7 +1187,26 @@ class MonitorClient:
             return
         self._pins = pins
         if self._link is not None and self._mode in _SUBSCRIBED:
-            self._spawn(self._quiet_request({"type": "set_pins", "pins": pins_to_wire(pins)}))
+            self._pins_send = self._spawn(
+                self._quiet_request({"type": "set_pins", "pins": pins_to_wire(pins)}))
+
+    async def flush_pins(self) -> None:
+        """Wait until the last ``set_pins`` this client sent is answered.
+
+        :meth:`set_capture_pins` sends without waiting, so a request sent right
+        after it could reach the server first. Awaiting this before
+        :meth:`request_refresh` makes the requested scan run under the new
+        pins: the server handles one connection's requests in order and
+        answers ``set_pins`` only after applying it and republishing the skip
+        set. Bounded by the request timeout; never raises for the send's
+        outcome; a no-op when nothing is pending."""
+        task = self._pins_send
+        if task is None or task.done():
+            return
+        # `asyncio.wait`, not `wait_for(shield(task))`: it never cancels the
+        # send on timeout and never re-raises the send's own cancellation (a
+        # `close()` cancels it) into this caller.
+        await asyncio.wait({task}, timeout=self._request_timeout)
 
     async def set_content(self, selection) -> bool:
         """Change whose ``content`` this client receives (``"all"``, ``"none"`` or

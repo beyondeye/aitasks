@@ -784,6 +784,63 @@ class CaptureTests(ClientCase):
         c.set_capture_pins(frozenset())
         await wait_until(lambda: fake.skip == {(SESSION, "agent-p7")})
 
+    async def test_flush_pins_holds_the_next_request_until_set_pins_is_answered(self):
+        """`flush_pins` orders a scan request after the pins it must run under
+        (t2037_3): `set_capture_pins` only spawns its send, so without the
+        flush a `refresh` could reach the server first."""
+        srv = await self.scripted()
+        srv.answer_pings = False             # hold every set_pins result back
+        c = self.client()
+        await self.started_scripted(c, srv)
+        c.set_capture_pins({(SESSION, "agent-b")})
+
+        async def flush_then_refresh():
+            await c.flush_pins()
+            return await c.request_refresh()
+
+        task = asyncio.create_task(flush_then_refresh())
+        held = await srv.expect("set_pins")
+        await asyncio.sleep(0.2)
+        self.assertEqual([m["type"] for m in srv.drain()], [],
+                         "a request went out before set_pins was answered")
+        srv.write({"type": "result", "ts": 1.0, "request": "set_pins", "id": held["id"]})
+        ref = await srv.expect("refresh")
+        srv.write(delta(2))
+        srv.write({"type": "result", "ts": 1.0, "request": "refresh", "id": ref["id"],
+                   "gen": 2})
+        self.assertEqual(await asyncio.wait_for(task, 3.0), 2)
+
+    async def test_flush_pins_is_bounded_and_never_raises(self):
+        srv = await self.scripted()
+        srv.answer_pings = False
+        c = self.client(request_timeout=0.3)
+        await self.started_scripted(c, srv)
+        await c.flush_pins()                 # nothing pending: immediate no-op
+        c.set_capture_pins(CAPTURE_PIN_ALL)
+        await srv.expect("set_pins")
+        start = time.monotonic()
+        await asyncio.wait_for(c.flush_pins(), 3.0)
+        self.assertLess(time.monotonic() - start, 1.5)
+
+    async def test_flushed_pins_govern_the_requested_scans_skip_set(self):
+        """Effect on the real server: the skip set published right before the
+        requested scan's capture is computed from the flushed pins."""
+        _, fake, marks = await self.real_server({"%1": fx.snap(fx.pane("%1"), "one")})
+        root = os.path.realpath(str(self.root))
+        marks.parked = {(root, "agent-a"), (root, "agent-b")}
+        c = self.client(pins={(SESSION, "agent-a")})
+        await c.start()
+        fake.calls.clear()
+        c.set_capture_pins({(SESSION, "agent-b")})
+        await c.flush_pins()
+        await c.request_refresh()
+        capture_at = len(fake.calls) - 1 - fake.calls[::-1].index("capture")
+        skips = [e for e in fake.calls[:capture_at] if isinstance(e, tuple)
+                 and e[0] == "skip"]
+        self.assertTrue(skips, fake.calls)
+        self.assertEqual(skips[-1][1], {(SESSION, "agent-a")},
+                         "the requested scan did not run under the flushed pins")
+
     async def test_compare_mode(self):
         _, fake, _ = await self.real_server({"%1": fx.snap(fx.pane("%1"), "one")})
         c = self.client()

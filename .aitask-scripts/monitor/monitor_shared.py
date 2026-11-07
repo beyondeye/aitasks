@@ -6,6 +6,7 @@ and the mini monitor. Extracted to avoid code duplication.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import os
 import shlex
 import re
@@ -55,6 +56,29 @@ from monitor.monitor_core import (  # noqa: E402,F401
     # Moved to monitor_core (t2037_1) so the headless status server shares it.
     is_task_completed,
 )
+# The subscription-backed `TmuxMonitor` stand-in both TUIs read through
+# (t2037_3). Imported by its package path so `isinstance` checks here, in the
+# apps and in the tests all see ONE class object.
+from monitor.status_client import ClientMode, MonitorClient  # noqa: E402
+
+
+def build_monitor_client(local, *, kind: str, own_pane, session: str,
+                         project_root, pins, enabled=None, log=None) -> MonitorClient:
+    """Wrap an app's own ``TmuxMonitor`` in a :class:`MonitorClient` (t2037_3).
+
+    ``local`` is built exactly as the app always built it: it is the in-process
+    producer in fallback and the action gateway in server mode.
+
+    ``enabled`` — ``None`` follows ``AITASKS_MONITOR_SERVER`` (``0`` opts out);
+    ``False`` keeps this instance permanently in-process, never touching the
+    server (the apps pass it for an explicit ``--interval`` / ``--lines``, which
+    the shared server, applying each project's ``project_config.yaml``, cannot
+    honour). The single construction seam: tests patch this, not the client.
+    """
+    return MonitorClient(
+        local, kind=kind, own_pane=own_pane, session=session or "",
+        project_root=project_root, pins=pins, enabled=enabled, log=log,
+    )
 
 from typing import TYPE_CHECKING, NamedTuple, Sequence
 
@@ -605,6 +629,12 @@ class AgentMarksMixin:
     _sitrep_refresh_due_at: float = 0.0
     _sitrep_harvest_inflight: bool = False
     _sitrep_harvest_due_at: float = 0.0
+    #: The off-pump user-refresh worker (t2037_3, `_dispatch_scan_refresh`):
+    #: one in flight, `_scan_again` asks it for one more round, and
+    #: `_scan_rerun` re-dispatches it after a round the refresh guard turned away.
+    _scan_inflight: bool = False
+    _scan_again: bool = False
+    _scan_rerun: bool = False
 
     #: Whether INACTIVE agents — parked (t1685) or frozen (t1705_7) — are hidden
     #: from the pane list. Per-app-instance and in-memory by design: it is a view
@@ -892,12 +922,119 @@ class AgentMarksMixin:
         """
         monitor = getattr(self, "_monitor", None)
         setter = getattr(monitor, "set_parked_agents", None)
-        if setter is None:
+        if setter is not None:
+            try:
+                setter(self._parked_agent_pairs())
+            except Exception:  # noqa: BLE001 - advisory data must never break a tick
+                pass
+        # Under a shared server (t2037_3) the skip set above only reaches the
+        # local instance; the server derives its own from every subscriber's
+        # pins, so this client's pins must be published too, every tick.
+        pins_setter = getattr(monitor, "set_capture_pins", None)
+        if pins_setter is not None:
+            try:
+                pins_setter(self._capture_pins())
+            except Exception:  # noqa: BLE001 - advisory data must never break a tick
+                pass
+
+    # -- user-driven refresh off the App message pump (t2037_3) ------------
+
+    def _wants_offpump_scan(self) -> bool:
+        """Whether a user-driven refresh must go through the scan worker.
+
+        True for a :class:`MonitorClient` in any mode but ``FALLBACK``: there a
+        refresh first asks the server to scan, a wait that must never run on the
+        App message pump — ``call_later`` awaits its callback inline on the same
+        queue that dispatches keys (t1598), and a connected but stalled server
+        would hold input for the request timeout. In ``FALLBACK`` (and with any
+        test double) a refresh stays inline exactly as before.
+        """
+        monitor = getattr(self, "_monitor", None)
+        return isinstance(monitor, MonitorClient) and monitor.mode is not ClientMode.FALLBACK
+
+    def _dispatch_scan_refresh(self) -> None:
+        """Start the user-refresh worker, or ask the running one for one more
+        round. Sync and never awaits: safe from a `call_later` callback."""
+        if self._scan_inflight:
+            self._scan_again = True
             return
+        self._scan_inflight = True
+        self._scan_again = False
+        self.run_worker(
+            self._scan_refresh_worker(),
+            group="scan-refresh",
+            exclusive=False,
+            exit_on_error=False,
+        )
+
+    async def _scan_refresh_worker(self) -> None:
+        """Run guarded refresh rounds that each request a server scan.
+
+        Each round is ONE ordinary `_refresh_data` call with `_request_scan`:
+        it resolves marks and (minimonitor) this tick's identity, publishes the
+        skip set and pins, flushes the pins to the server, and only THEN asks
+        for the scan and reads it — the publish-before-capture order, so a
+        newly followed parked agent is scanned live and an unconfirmed identity
+        scans under `CAPTURE_PIN_ALL` (t2034_2). Rounds repeat while
+        `_dispatch_scan_refresh` asked for another during the previous one.
+        """
         try:
-            setter(self._parked_agent_pairs())
-        except Exception:  # noqa: BLE001 - advisory data must never break a tick
-            pass
+            while True:
+                self._scan_again = False
+                await self._refresh_data(scan=False, _request_scan=True)
+                if not self._scan_again:
+                    break
+        finally:
+            self._scan_inflight = False
+
+    async def _request_server_scan(self, monitor) -> bool:
+        """Inside a `_request_scan` round, after the publish and before the
+        capture: flush this tick's pins, then ask the server to scan. Returns
+        False when the monitor was replaced meanwhile (teardown / re-entry) —
+        the round must then stop without reading the old client."""
+        if not isinstance(monitor, MonitorClient):
+            # Replaced by a non-client before this queued round started: a plain
+            # in-process read, exactly what a fallback refresh does.
+            return True
+        await monitor.flush_pins()
+        if self._monitor is not monitor:
+            return False
+        await monitor.request_refresh()
+        return self._monitor is monitor
+
+    async def _cycle_compare_mode_async(self, pane_id: str, label: str) -> None:
+        """`d` through a :class:`MonitorClient` (t2037_3): run as a worker.
+
+        The server owns the one shared compare-mode override, so the answer to
+        notify is ITS answer (`cycle_compare_mode_async`), not the sync path's
+        prediction. Awaited off the App pump — a hung server must not hold
+        input — and the follow-up refresh goes through the scan worker for the
+        same reason (`call_later` would put it back on the pump)."""
+        monitor = self._monitor
+        try:
+            new_mode, is_default = await monitor.cycle_compare_mode_async(pane_id)
+        except Exception as exc:  # noqa: BLE001 - RequestFailed/ConnectionLost/timeout
+            self.notify(f"{label}: request failed ({exc.__class__.__name__})",
+                        severity="warning")
+            return
+        suffix = " (default)" if is_default else " (override)"
+        self.notify(f"{label}: {new_mode}{suffix}", timeout=3)
+        if self._monitor is not monitor:
+            return
+        if self._wants_offpump_scan():
+            self._dispatch_scan_refresh()
+        else:
+            self.call_later(self._refresh_data)
+
+    def _maybe_rerun_refresh(self) -> None:
+        """From each refresh's ``finally``: re-dispatch the scan worker once if
+        this refresh turned a scan round away (the user's action still needs
+        its scan). One re-dispatch per turn-away, never a loop."""
+        if not self._scan_rerun:
+            return
+        self._scan_rerun = False
+        with contextlib.suppress(Exception):
+            self._dispatch_scan_refresh()
 
     # -- read path ---------------------------------------------------------
 

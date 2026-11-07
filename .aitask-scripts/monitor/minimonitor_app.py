@@ -84,6 +84,7 @@ from monitor.monitor_shared import (  # noqa: E402
     format_shadow_stale_banner, format_staleness_detail, markup_literal,
     phase_mark,
     uncertified_round_block_msg, unparsed_concerns_msg,
+    MonitorClient, build_monitor_client,
 )
 from monitor.concern_parser import (  # noqa: E402
     block_head_truncated, block_region, build_clipboard_payload,
@@ -1478,6 +1479,7 @@ class MiniMonitorApp(
         mark_pane: bool = False,
         session_bar: bool = False,
         key_hints_collapsed: bool = False,
+        monitor_server: bool | None = None,
     ) -> None:
         super().__init__()
         self.current_tui_name = "minimonitor"
@@ -1492,6 +1494,10 @@ class MiniMonitorApp(
         # $TMUX_PANE — from stamping @aitask_monitor_kind on a live pane, the
         # same hazard the monitor's rename_window flag exists for (t1240/t1451).
         self._mark_pane = mark_pane
+        # Whether this instance may subscribe to the shared status server
+        # (t2037_3): None follows AITASKS_MONITOR_SERVER, False keeps it
+        # in-process (main() passes False for an explicit --interval).
+        self._monitor_server = monitor_server
         self._session = session
         self._refresh_seconds = refresh_seconds
         self._capture_lines = capture_lines
@@ -1515,7 +1521,9 @@ class MiniMonitorApp(
         self._list_record: _ListRecord | None = None
         self._session_bar_text: str | None = None
         self._focused_pane_id: str | None = None
-        self._monitor: TmuxMonitor | None = None
+        # A `MonitorClient` wrapping this app's own `TmuxMonitor` (t2037_3);
+        # tests hand-set fakes of either shape.
+        self._monitor: TmuxMonitor | MonitorClient | None = None
         self._refresh_timer: Timer | None = None
         self._project_root = project_root
         self._task_cache = TaskInfoCache(project_root)
@@ -1936,17 +1944,29 @@ class MiniMonitorApp(
         if self._tui_names is not None:
             kwargs["tui_names"] = self._tui_names
 
-        self._monitor = TmuxMonitor(
+        local = TmuxMonitor(
             session=self._session,
             capture_lines=self._capture_lines,
             idle_threshold=self._idle_threshold,
             compare_mode_default=self._compare_mode_default,
             **kwargs,
         )
+        if self._monitor_server is False:
+            self.log("monitor status server off: explicit --interval; scanning in-process")
+        # Initial pins: `CAPTURE_PIN_ALL` until a tick confirms this pane's
+        # identity — the fail-safe direction (see `_capture_pins`).
+        self._monitor = build_monitor_client(
+            local, kind="minimonitor", own_pane=self._own_pane_id,
+            session=self._session, project_root=self._project_root,
+            pins=self._capture_pins(), enabled=self._monitor_server, log=self.log,
+        )
+        monitor = self._monitor
 
         async def _connect_control_client() -> None:
+            # The client's start: the shared server, else the in-process
+            # producer with its own control client (the old behaviour).
             try:
-                ok = await self._monitor.start_control_client()
+                ok = await monitor.start_control_client()
                 if not ok:
                     self.log("tmux control mode unavailable; using subprocess fallback")
             except Exception as exc:
@@ -1972,16 +1992,24 @@ class MiniMonitorApp(
         # `set_interval` below is already safe: it passes the callback
         # unwrapped, so Timer._tick runs it in the timer's own task, which is
         # exactly why ticks 2+ never stalled input.
+        #
+        # The first refresh and every interval tick only READ (`scan=False`):
+        # under a shared server they read the subscription, so N clients never
+        # cause N scans. User actions get the scan (`_refresh_data`'s default).
         self.run_worker(
-            self._refresh_data(),
+            self._refresh_data(scan=False),
             name="first_refresh",
             group="refresh-init",
             exclusive=False,
             exit_on_error=False,
         )
         self._refresh_timer = self.set_interval(
-            self._refresh_seconds, self._refresh_data
+            self._refresh_seconds, self._tick_refresh
         )
+
+    async def _tick_refresh(self) -> None:
+        """The interval tick: a refresh that reads, never requests a scan."""
+        await self._refresh_data(scan=False)
 
     async def on_unmount(self) -> None:
         # Clear our pane marker on the normal-exit path. An abnormal exit is
@@ -1998,7 +2026,18 @@ class MiniMonitorApp(
 
     # -- Data refresh ----------------------------------------------------------
 
-    async def _refresh_data(self) -> None:
+    async def _refresh_data(self, *, scan: bool = True,
+                            _request_scan: bool = False) -> None:
+        # `scan` (t2037_3): the default is what every user-action
+        # `call_later(self._refresh_data)` site gets — under a shared status
+        # server those refreshes must also ask the server to scan. That wait
+        # never runs here when this is a `call_later` callback (it is awaited
+        # inline on the App message pump): hand it to the scan worker, which
+        # comes back as `_request_scan` — an ordinary guarded round below. The
+        # timer and the first refresh pass `scan=False` and only read.
+        if scan and self._wants_offpump_scan():
+            self._dispatch_scan_refresh()
+            return
         # Re-entrancy guard (t1598). The first refresh now runs in its own task
         # rather than on the App pump, so it can overlap the first interval tick
         # and the keypress-driven `call_later(self._refresh_data)` sites.
@@ -2011,11 +2050,14 @@ class MiniMonitorApp(
         # returns below would strand the flag on the ORDINARY path. A stranded
         # flag makes the TUI stop refreshing permanently.
         if self._refresh_inflight:
+            if _request_scan:
+                self._scan_rerun = True   # re-dispatched by that tick's finally
             return
         self._refresh_inflight = True
         try:
             if self._monitor is None:
                 return
+            monitor = self._monitor
 
             # No focus snapshot here (t2183): the selection is read when it is
             # restored, after every await below. A click during the capture
@@ -2052,6 +2094,14 @@ class MiniMonitorApp(
             self._own_identity_confirmed = False
             self._own_identity_confirmed = await self._update_own_window_info()
             self._publish_parked_agents()
+            # A user action under a shared server (t2037_3): with THIS tick's
+            # identity confirmed (or not — then the pins are CAPTURE_PIN_ALL)
+            # and the skip set and pins published, flush the pins and THEN
+            # request the scan, so the scan captures the followed agent live
+            # even if it is parked. Off the App pump — only the scan worker
+            # passes `_request_scan`.
+            if _request_scan and not await self._request_server_scan(monitor):
+                return
 
             # capture_all_async returns None when a newer overlapping refresh
             # superseded this one (t1111_4). Skip the stale cycle — a newer refresh
@@ -2153,6 +2203,7 @@ class MiniMonitorApp(
         finally:
             self._refresh_inflight = False
             self._maybe_retick_for_filter()
+            self._maybe_rerun_refresh()
 
     def _maybe_retick_for_filter(self) -> None:
         """Re-run the refresh once when a filter change missed this tick (t2217).
@@ -6284,6 +6335,14 @@ class MiniMonitorApp(
                 "Idle detection applies to agent panes only", severity="warning"
             )
             return
+        if getattr(self._monitor, "cycle_compare_mode_async", None) is not None:
+            # The client (t2037_3): the authoritative answer comes from the
+            # server, so wait for it in a worker — never on the App pump.
+            self.run_worker(
+                self._cycle_compare_mode_async(pane_id, "Idle detect"),
+                group="compare-mode", exclusive=False, exit_on_error=False,
+            )
+            return
         new_mode, is_default = self._monitor.cycle_compare_mode(pane_id)
         suffix = " (default)" if is_default else " (override)"
         self.notify(f"Idle detect: {new_mode}{suffix}", timeout=3)
@@ -6497,6 +6556,10 @@ def main() -> None:
             session = configured_session
 
     refresh_seconds = args.interval if args.interval is not None else tmux_config.get("monitor", {}).get("refresh_seconds", 3)
+    # The shared status server (t2037_3) ticks at the projects' configured
+    # interval and cannot honour a per-instance override, so an explicit
+    # --interval keeps THIS instance in-process.
+    monitor_server = False if args.interval is not None else None
 
     # Same config key the spawner reads (agent_launch_utils.maybe_spawn_minimonitor);
     # the app re-pins its pane to this width on resize.
@@ -6526,6 +6589,7 @@ def main() -> None:
         # Per-user, fail-soft (t2212): a missing or malformed userconfig opens
         # the full band.
         key_hints_collapsed=userconfig_persist.get_minimonitor_key_hints_collapsed(),
+        monitor_server=monitor_server,
     )
     app.run()
 

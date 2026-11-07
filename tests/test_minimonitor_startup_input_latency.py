@@ -77,6 +77,20 @@ Positive controls (run by hand; each must FAIL this suite):
 | a bare `TmuxClient()` in `_seed_own_window_info` | `test_the_seed_queries_the_ambient_server_for_its_own_pane` |
 | drop the `is None` guards from `_seed_own_window_info` | `test_the_seed_never_overwrites_a_field_the_tick_already_set` |
 | re-merge the two `_find_sibling_pane_id` refusals | `test_the_sibling_refusal_names_the_real_reason` |
+| `_refresh_data`'s off-pump dispatch replaced by an inline `await self._monitor.request_refresh()` (t2037_3) | `test_a_keypress_is_dispatched_while_a_server_refresh_request_is_stalled`, by TURN EXHAUSTION |
+| `_cycle_compare_mode_async`'s follow-up back to `self.call_later(self._refresh_data)` with the inline await above | `test_a_keypress_is_dispatched_while_the_compare_mode_follow_up_scan_is_stalled`, by TURN EXHAUSTION |
+| `MonitorApp._dispatch_fast_refresh` back to a plain `self.call_later(refresh)` (t2037_3) | every `MonitorFastRefreshDispatchTests` dispatch case, by TURN EXHAUSTION |
+| `MonitorApp._dispatch_fast_refresh` gated on the client's CURRENT mode (`if not self._wants_offpump_scan(): self.call_later(refresh)`) | `test_a_refresh_queued_in_fallback_never_holds_input_after_a_reconnect`, by TURN EXHAUSTION |
+| `MonitorApp._fire_delayed_refresh` back to `await self._fast_preview_refresh()` | `test_enter_in_the_pane_list_never_holds_input`, by TURN EXHAUSTION (`set_timer` wraps its callback in `call_next`, so it runs on the App pump) |
+
+**Every `_start_monitoring` here runs in-process** (`AITASKS_MONITOR_SERVER=0`,
+set for the module by `setUpModule`, t2037_3). The apps now wrap their
+`TmuxMonitor` in a `MonitorClient`, whose start would otherwise run
+`ensure_server` against whatever tmux the developer runs and leave a status
+server scanning real sessions. The fallback client delegates every call to the
+fake, so the dispatch assertions are unchanged; the first test also pins the
+wrap itself. The server-refresh tests build their own client on a scripted
+socket and never touch `ensure_server`.
 
 **The two `on_mount` rows are not interchangeable, and neither is redundant.** The
 `subprocess.run` mutation never lets the stalled fake be consulted, so `entered` is
@@ -107,6 +121,7 @@ import threading
 import time
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts"))
@@ -115,6 +130,8 @@ sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts" / "board"))
 
 os.environ.pop("TMUX", None)
 os.environ.pop("TMUX_PANE", None)
+if str(REPO_ROOT / "tests") not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT / "tests"))
 
 import monitor.minimonitor_app as mm  # noqa: E402
 from monitor.minimonitor_app import MiniMonitorApp  # noqa: E402
@@ -130,6 +147,21 @@ from textual import events  # noqa: E402
 from tmux_exec import (  # noqa: E402
     AIT_DEDICATED_SOCKET, TMUX_SOCKET_ENV, tmux_socket_args,
 )
+from unittest import mock  # noqa: E402
+from monitor.status_client import ClientMode, MonitorClient  # noqa: E402
+from monitor import status_server as ss  # noqa: E402
+import test_monitor_status_client as cx  # noqa: E402  (module alias only)
+
+_ENV_PATCH = mock.patch.dict(os.environ, {"AITASKS_MONITOR_SERVER": "0"})
+
+
+def setUpModule() -> None:   # noqa: N802 - unittest's hook name
+    # In-process for every app this module mounts (see the module docstring).
+    _ENV_PATCH.start()
+
+
+def tearDownModule() -> None:   # noqa: N802
+    _ENV_PATCH.stop()
 
 SESSION = "demo"
 
@@ -275,6 +307,11 @@ class FirstRefreshDispatchTests(unittest.TestCase):
                     mm.TmuxMonitor = real_ctor
                 app._refresh_timer.stop()     # no second tick mid-assertion
                 await asyncio.wait_for(mon.entered.wait(), timeout=5)
+                # The app wraps its monitor (t2037_3); in-process here, so the
+                # client delegates the stalled capture to the fake.
+                self.assertIsInstance(app._monitor, MonitorClient)
+                self.assertIs(app._monitor.mode, ClientMode.FALLBACK)
+                self.assertIs(app._monitor._local, mon)
 
                 # try/finally around every assertion: on failure the gate must
                 # STILL be released, or `run_test`'s teardown waits forever on
@@ -517,6 +554,369 @@ class ControlClientLifecycleTests(unittest.TestCase):
 
         asyncio.run(scenario())
 
+
+
+class _ServerDispatchBase(unittest.TestCase):
+    """Shared fixture: an app mounted on a scripted, subscribed client (t2037_3)."""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+
+    def _app(self) -> MiniMonitorApp:
+        return MiniMonitorApp(
+            session=SESSION, project_root=Path(self._tmp.name),
+            refresh_seconds=999,
+        )
+
+    async def _subscribed_client(self, srv, local=None) -> MonitorClient:
+        client = MonitorClient(
+            local or cx.FakeLocal(), kind="minimonitor", version=cx.VERSION,
+            ensure=cx.FakeEnsure(srv.path), enabled=True, request_timeout=30.0,
+            connect_deadline=1.0, backoff=(30.0,), ping_after=30.0,
+        )
+        start = asyncio.create_task(client.start())
+        sub = await srv.expect("subscribe")
+        srv.write(cx.snapshot(
+            1, {"%1": cx.rec("%1", "agent-pick-1")}, id=sub["id"],
+            shadows={"%1": cx.rec("%5", "agent-pick-1", "shadow", shadow_target="%1")}))
+        await asyncio.wait_for(start, 3.0)
+        self.assertIs(client.mode, ClientMode.SERVER)
+        return client
+
+    async def _stalled_refresh_then_key(self, app, pilot, srv, handled, trigger,
+                                        expect=None):
+        """Run `trigger`, wait until the server holds its `refresh`, then press
+        `j` and return the dispatch turn. Releases the refresh afterwards.
+        `expect(msg)` checks the held request (e.g. which pane it targets)."""
+        trigger()
+        ref = await srv.expect("refresh", timeout=5.0)
+        if expect is not None:
+            expect(ref)
+        # A trigger that is itself a key (Enter) was recorded too: only the
+        # key sent below may satisfy the dispatch observation.
+        handled.clear()
+        try:
+            turn = await _press_and_observe(app, "j", handled)
+            _log_dispatch(self.id().rsplit(".", 1)[-1], turn)
+        finally:
+            srv.write(cx.delta(2))
+            srv.write({"type": "result", "ts": 1.0, "request": "refresh",
+                       "id": ref["id"], "gen": 2})
+            await pilot.pause()
+        return turn
+
+    def _scenario(self, body, *, app=None, local=None):
+        async def scenario():
+            nonlocal app
+            srv = cx.ScriptedServer(Path(self._tmp.name) / "s.sock")
+            await srv.start()
+            app = app or self._app()
+            try:
+                async with app.run_test(size=(60, 24)) as pilot:
+                    handled: list[str] = []
+                    original = app.on_event
+
+                    async def spy(event):
+                        if event.__class__.__name__ == "Key":
+                            handled.append(getattr(event, "key", "?"))
+                        return await original(event)
+
+                    app.on_event = spy
+                    client = await self._subscribed_client(srv, local)
+                    app._monitor = client
+                    try:
+                        await body(app, pilot, srv, handled)
+                        # Drain the worker inside the block: a worker in flight
+                        # at `run_test` exit fails the enclosing test.
+                        for _ in range(200):
+                            if (not app._scan_inflight and not app._refresh_inflight
+                                    and not getattr(app, "_fast_inflight", None)):
+                                break
+                            await pilot.pause(0.01)
+                        self.assertFalse(app._scan_inflight,
+                                         "the scan worker never finished")
+                        self.assertFalse(app._refresh_inflight,
+                                         "the scan round never completed")
+                        await pilot.pause()
+                    finally:
+                        app._monitor = None
+                        await client.close()
+            finally:
+                await srv.close()
+
+        asyncio.run(scenario())
+
+
+class ServerRefreshDispatchTests(_ServerDispatchBase):
+    """A user refresh under a shared server must not wait on the App pump (t2037_3).
+
+    Every `call_later(self._refresh_data)` site is awaited INLINE on the App's
+    message pump. Under a server, such a refresh also asks the server to scan —
+    and a connected but stalled server never answers. The scan request must
+    therefore run in the `scan-refresh` worker, so input keeps flowing while it
+    is outstanding. The server here is a scripted socket that answers the
+    handshake, the subscribe and any `set_pins`, and then never answers
+    `refresh` until the test releases it.
+    """
+
+    def test_a_keypress_is_dispatched_while_a_server_refresh_request_is_stalled(self):
+        async def body(app, pilot, srv, handled):
+            # The production route of every user-action refresh site.
+            turn = await self._stalled_refresh_then_key(
+                app, pilot, srv, handled,
+                lambda: app.call_later(app._refresh_data))
+            self.assertIsNotNone(
+                turn,
+                f"the keypress never reached App.on_event within {_DISPATCH_TURNS} "
+                f"event-loop turns while a server refresh request was outstanding "
+                f"— the scan wait is back on the message pump",
+            )
+            self.assertIn("j", handled)
+
+        self._scenario(body)
+
+    def test_a_keypress_is_dispatched_while_the_compare_mode_follow_up_scan_is_stalled(self):
+        async def body(app, pilot, srv, handled):
+            await app._refresh_data(scan=False)     # a card for %1 to focus
+            app._focused_pane_id = "%1"
+
+            def press_d():
+                app.action_cycle_compare_mode()
+
+            async def answer_cycle():
+                req = await srv.expect("cycle_compare_mode", timeout=5.0)
+                srv.write({"type": "result", "ts": 1.0, "request": "cycle_compare_mode",
+                           "id": req["id"], "mode": "raw", "following_default": False})
+
+            answering = asyncio.create_task(answer_cycle())
+            turn = await self._stalled_refresh_then_key(app, pilot, srv, handled, press_d)
+            await asyncio.wait_for(answering, 3.0)
+            self.assertIsNotNone(
+                turn,
+                "the keypress never reached App.on_event while the compare-mode "
+                "follow-up scan was outstanding — it is back on the message pump",
+            )
+
+        self._scenario(body)
+
+
+class _ForwardingLocal(cx.FakeLocal):
+    """The gateway's `forward_key`: accepted, so the monitor schedules its fast
+    refresh exactly as it does after a real keystroke."""
+
+    def forward_key(self, pane_id, key, character):
+        self.calls.append(("forward_key", pane_id, key))
+        return True
+
+    async def tmux_run_async(self, args, timeout=5.0):
+        return 1, ""        # no focus request, no tmux
+
+    def tmux_run(self, args, timeout=5.0):
+        return 1, ""
+
+
+class MonitorFastRefreshDispatchTests(_ServerDispatchBase):
+    """The full monitor's one-column fast refresh, off the App pump (t2037_3).
+
+    Typing into the preview / shadow column, re-attaching a scrolled column and
+    `t` (tail) each schedule `_fast_preview_refresh` / `_fast_shadow_refresh`.
+    Under a server those send `refresh{panes|shadows}` and wait for the reply.
+    Each trigger runs as a `call_later` callback here — on the App pump, as the
+    key and scroll handlers do — and the next key must still be dispatched while
+    the server holds that reply.
+    """
+
+    def _monitor_app(self) -> MonitorApp:
+        return MonitorApp(session=SESSION, project_root=Path(self._tmp.name),
+                          refresh_seconds=999)
+
+    def _run(self, trigger_factory, expect):
+        async def body(app, pilot, srv, handled):
+            await app._refresh_data(scan=False)
+            app._focused_pane_id = "%1"
+            turn = await self._stalled_refresh_then_key(
+                app, pilot, srv, handled,
+                lambda: app.call_later(trigger_factory(app)), expect=expect)
+            self.assertIsNotNone(
+                turn,
+                f"the keypress never reached App.on_event within {_DISPATCH_TURNS} "
+                f"event-loop turns while a fast-refresh request was outstanding — "
+                f"it is back on the message pump",
+            )
+
+        self._scenario(body, app=self._monitor_app(), local=_ForwardingLocal())
+
+    def _pane_refresh(self, msg):
+        self.assertEqual(msg.get("panes"), ["%1"], msg)
+
+    def _shadow_refresh(self, msg):
+        self.assertEqual(msg.get("shadows"), ["%1"], msg)
+
+    def test_forwarding_a_key_to_the_preview_never_holds_input(self):
+        key = SimpleNamespace(key="a", character="a")
+        self._run(lambda app: (lambda: app._forward_key_to_tmux(key)), self._pane_refresh)
+
+    def test_forwarding_a_key_to_the_shadow_never_holds_input(self):
+        key = SimpleNamespace(key="a", character="a")
+        self._run(lambda app: (lambda: app._forward_key_to_tmux(key, target_pane_id="%5")),
+                  self._shadow_refresh)
+
+    def test_enter_in_the_pane_list_never_holds_input(self):
+        """Enter sends Enter to the agent and schedules the 0.3 s delayed preview
+        refresh. Textual's `set_timer` runs its callback through `call_next` —
+        on the App pump — so that callback must hand off, never await."""
+        def trigger(app):
+            def send_enter():
+                event = events.Key("enter", "\r")
+                event.set_sender(app)
+                app._driver.send_message(event)
+            return send_enter
+        self._run(trigger, self._pane_refresh)
+
+    def test_a_refresh_queued_in_fallback_never_holds_input_after_a_reconnect(self):
+        """The dispatch route must not be decided at scheduling time.
+
+        A fast refresh scheduled while the client is in FALLBACK, queued behind
+        a busy App pump, then the client reconnects to the server (the real
+        `_attempt` and subscription) before the queue drains. Were the refresh a
+        `call_later` callback chosen because the mode WAS fallback, it would now
+        wait for the server's `refresh` reply on the pump.
+        """
+        async def scenario():
+            srv = cx.ScriptedServer(Path(self._tmp.name) / "s.sock")
+            await srv.start()
+            ensure = cx.FakeEnsure(srv.path)
+            ensure.results = [ss.EnsureResult("UNAVAILABLE", reason="no_tmux_server")]
+            local = _ForwardingLocal()
+            client = MonitorClient(
+                local, kind="monitor", version=cx.VERSION, ensure=ensure, enabled=True,
+                request_timeout=30.0, connect_deadline=1.0, backoff=(30.0,),
+                ping_after=30.0)
+            app = self._monitor_app()
+            try:
+                async with app.run_test(size=(60, 24)) as pilot:
+                    handled: list[str] = []
+                    original = app.on_event
+
+                    async def spy(event):
+                        if event.__class__.__name__ == "Key":
+                            handled.append(getattr(event, "key", "?"))
+                        return await original(event)
+
+                    app.on_event = spy
+                    await client.start()
+                    self.assertIs(client.mode, ClientMode.FALLBACK)
+                    app._monitor = client
+                    app._focused_pane_id = "%1"
+
+                    # Hold the App pump with a queued callback.
+                    gate, entered = asyncio.Event(), asyncio.Event()
+
+                    async def hold():
+                        entered.set()
+                        await gate.wait()
+
+                    app.call_later(hold)
+                    attempt = None
+                    # The gate is released on EVERY path once the hold is queued:
+                    # a failed or timed-out reconnect below would otherwise leave
+                    # `run_test`'s teardown waiting on the held pump forever,
+                    # turning a red test into a hang (the rule this file states
+                    # for every gated scenario).
+                    try:
+                        await asyncio.wait_for(entered.wait(), 5.0)
+                        # Scheduled while in fallback, behind the busy pump.
+                        app._dispatch_fast_refresh(app._fast_preview_refresh)
+                        # The real reconnect: attempt, handshake, subscription.
+                        attempt = asyncio.create_task(client._attempt())
+                        sub = await srv.expect("subscribe")
+                        srv.write(cx.snapshot(1, {"%1": cx.rec("%1", "agent-pick-1")},
+                                              id=sub["id"]))
+                        self.assertTrue(await asyncio.wait_for(attempt, 5.0))
+                        self.assertIs(client.mode, ClientMode.SERVER)
+                    finally:
+                        gate.set()
+                        if attempt is not None and not attempt.done():
+                            attempt.cancel()
+                    held = None
+                    try:
+                        held = await srv.expect("refresh", timeout=0.5)
+                    except (AssertionError, asyncio.TimeoutError):
+                        pass            # the refresh already ran, off the pump
+                    handled.clear()
+                    try:
+                        turn = await _press_and_observe(app, "j", handled)
+                    finally:
+                        if held is not None:
+                            srv.write(cx.delta(2))
+                            srv.write({"type": "result", "ts": 1.0, "request": "refresh",
+                                       "id": held["id"], "gen": 2})
+                        for _ in range(200):
+                            if not app._fast_inflight:
+                                break
+                            await asyncio.sleep(0.01)
+                        await pilot.pause()
+                    self.assertIsNotNone(
+                        turn,
+                        "the keypress never reached App.on_event after a reconnect: "
+                        "a fast refresh queued in fallback waited for the server on "
+                        "the message pump",
+                    )
+                    self.assertIn(("capture_one", "%1"), local.calls,
+                                  "the scheduled refresh never ran")
+                    app._monitor = None
+            finally:
+                await client.close()
+                await srv.close()
+
+        asyncio.run(scenario())
+
+    def test_tail_follow_never_holds_input(self):
+        self._run(lambda app: app.action_scroll_preview_tail, self._pane_refresh)
+
+    def test_keystrokes_during_a_held_refresh_coalesce_into_one_more_round(self):
+        """One fast refresh in flight per column, plus ONE more round for every
+        request made meanwhile — never one request per keystroke."""
+        async def body(app, pilot, srv, handled):
+            await app._refresh_data(scan=False)
+            app._focused_pane_id = "%1"
+            key = SimpleNamespace(key="a", character="a")
+            app._forward_key_to_tmux(key)
+            first = await srv.expect("refresh", timeout=5.0)
+            # Two more keystrokes while that request is held: they need ONE
+            # more round between them (keystrokes that land before a round
+            # sends its request are already covered by that round).
+            app._forward_key_to_tmux(key)
+            app._forward_key_to_tmux(key)
+            await pilot.pause()
+            self.assertEqual([m for m in srv.drain() if m["type"] == "refresh"], [],
+                             "a second refresh went out while the first was held")
+            for gen, ref in ((2, first), (3, None)):
+                if ref is None:
+                    ref = await srv.expect("refresh", timeout=5.0)
+                srv.write(cx.delta(gen))        # consecutive: no stream gap
+                srv.write({"type": "result", "ts": 1.0, "request": "refresh",
+                           "id": ref["id"], "gen": gen})
+            for _ in range(200):
+                if not app._fast_inflight:
+                    break
+                await pilot.pause(0.01)
+            await pilot.pause(0.1)
+            self.assertEqual([m for m in srv.drain() if m["type"] == "refresh"], [],
+                             "more than one extra round for the coalesced keystrokes")
+
+        self._scenario(body, app=self._monitor_app(), local=_ForwardingLocal())
+
+    def test_re_attaching_a_scrolled_preview_never_holds_input(self):
+        def trigger(app):
+            def reattach():
+                # A detached record for the focused pane, then the scroll
+                # recorder sees the column back at the bottom: re-attach.
+                app._preview_scroll_state["%1"] = (False, None)
+                app._record_preview_scroll()
+            return reattach
+        self._run(trigger, self._pane_refresh)
 
 
 # ---------------------------------------------------------------------------

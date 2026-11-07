@@ -56,6 +56,7 @@ from monitor.monitor_shared import (  # noqa: E402
     format_session_divider, format_shadow_glyph, format_state_dot,
     is_task_completed, uncertified_round_block_msg, unparsed_concerns_msg,
     format_staleness_detail, markup_literal,
+    MonitorClient, build_monitor_client,
 )
 from monitor.concern_parser import (  # noqa: E402
     _SENTINEL_SAFE_COLS, block_head_truncated, block_region,
@@ -586,6 +587,7 @@ class MonitorApp(
         compare_mode_default: str = "stripped",
         rename_window: bool = False,
         mark_pane: bool = False,
+        monitor_server: bool | None = None,
     ) -> None:
         super().__init__()
         self.current_tui_name = "monitor"
@@ -599,6 +601,10 @@ class MonitorApp(
         # marker the single-instance guards read (t1451): a run_test() mount
         # inherits the agent's $TMUX_PANE and must not stamp a live pane.
         self._mark_pane = mark_pane
+        # Whether this instance may subscribe to the shared status server
+        # (t2037_3): None follows AITASKS_MONITOR_SERVER, False keeps it
+        # in-process (main() passes False for an explicit --interval/--lines).
+        self._monitor_server = monitor_server
         self._session = session
         self._expected_session = expected_session
         self._refresh_seconds = refresh_seconds
@@ -691,7 +697,14 @@ class MonitorApp(
         self._concern_pick_task_id: str | None = None
         self._pane_cards: dict[str, PaneCard] = {}
         self._selected_card_pane_id: str | None = None
-        self._monitor: TmuxMonitor | None = None
+        # A `MonitorClient` wrapping this app's own `TmuxMonitor` (t2037_3) —
+        # the same read surface, served by the shared status server or
+        # in-process. Tests hand-set fakes of either shape.
+        self._monitor: TmuxMonitor | MonitorClient | None = None
+        # Fast-refresh workers in flight / asked for one more round, by
+        # refresh name (`_dispatch_fast_refresh`, t2037_3).
+        self._fast_inflight: set[str] = set()
+        self._fast_again: set[str] = set()
         self._active_zone: Zone = Zone.PANE_LIST
         self._preview_timer: Timer | None = None
         self._delayed_refresh_timer: Timer | None = None
@@ -870,17 +883,27 @@ class MonitorApp(
         if self._tui_names is not None:
             kwargs["tui_names"] = self._tui_names
 
-        self._monitor = TmuxMonitor(
+        local = TmuxMonitor(
             session=self._session,
             capture_lines=self._capture_lines,
             idle_threshold=self._idle_threshold,
             compare_mode_default=self._compare_mode_default,
             **kwargs,
         )
+        if self._monitor_server is False:
+            self.log("monitor status server off: explicit --interval/--lines; scanning in-process")
+        self._monitor = build_monitor_client(
+            local, kind="monitor", own_pane=self._own_pane_id,
+            session=self._session, project_root=self._project_root,
+            pins=self._capture_pins(), enabled=self._monitor_server, log=self.log,
+        )
+        monitor = self._monitor
 
         async def _connect_control_client() -> None:
+            # The client's start: the shared server, else the in-process
+            # producer with its own control client (the old behaviour).
             try:
-                ok = await self._monitor.start_control_client()
+                ok = await monitor.start_control_client()
                 if not ok:
                     self.log("tmux control mode unavailable; using subprocess fallback")
             except Exception as exc:
@@ -898,16 +921,24 @@ class MonitorApp(
         # runs the first refresh INLINE on the App's message pump, ahead of
         # every queued keypress; `run_worker` is asyncio.create_task, the only
         # dispatch that escapes every pump.
+        #
+        # The first refresh and every interval tick only READ (`scan=False`):
+        # under a shared server they read the subscription, so N clients never
+        # cause N scans. User actions get the scan (`_refresh_data`'s default).
         self.run_worker(
-            self._refresh_data(),
+            self._refresh_data(scan=False),
             name="first_refresh",
             group="refresh-init",
             exclusive=False,
             exit_on_error=False,
         )
         self._refresh_timer = self.set_interval(
-            self._refresh_seconds, self._refresh_data
+            self._refresh_seconds, self._tick_refresh
         )
+
+    async def _tick_refresh(self) -> None:
+        """The interval tick: a refresh that reads, never requests a scan."""
+        await self._refresh_data(scan=False)
 
     def _wire_preview_hooks(self) -> None:
         """Attach the preview columns' scroll + resize callbacks.
@@ -1018,7 +1049,7 @@ class MonitorApp(
 
         # Re-attach → pull a fresh snapshot so tail-follow resumes on latest output.
         if was_detached and at_bottom:
-            self.call_later(refresh)
+            self._dispatch_fast_refresh(refresh)
 
     # -- Cross-session project-root resolution ---------------------------------
 
@@ -1038,18 +1069,32 @@ class MonitorApp(
 
     # -- Data refresh ----------------------------------------------------------
 
-    async def _refresh_data(self) -> None:
+    async def _refresh_data(self, *, scan: bool = True,
+                            _request_scan: bool = False) -> None:
+        # `scan` (t2037_3): the default is what every user-action
+        # `call_later(self._refresh_data)` site gets — under a shared status
+        # server those refreshes must also ask the server to scan. That wait
+        # never runs here when this is a `call_later` callback (it is awaited
+        # inline on the App message pump): hand it to the scan worker, which
+        # comes back as `_request_scan` — an ordinary guarded round below. The
+        # timer and the first refresh pass `scan=False` and only read.
+        if scan and self._wants_offpump_scan():
+            self._dispatch_scan_refresh()
+            return
         # Re-entrancy guard (t1598) — the first refresh now runs in its own
         # task, so it can overlap the first interval tick and the keypress-driven
         # `call_later(self._refresh_data)` sites. The reset is in a `finally`
         # because every await here can raise and CancelledError propagates on
         # shutdown; a stranded flag stops the TUI refreshing permanently.
         if self._refresh_inflight:
+            if _request_scan:
+                self._scan_rerun = True   # re-dispatched by that tick's finally
             return
         self._refresh_inflight = True
         try:
             if self._monitor is None:
                 return
+            monitor = self._monitor
 
             # Save focus state before rebuild
             saved_pane_id = self._focused_pane_id
@@ -1075,6 +1120,12 @@ class MonitorApp(
             self._set_session_root_map(session_roots)
             self._refresh_marks()
             self._publish_parked_agents()
+            # A user action under a shared server (t2037_3): with this tick's
+            # skip set and pins published, flush the pins and THEN request the
+            # scan, so the scan runs under them. Off the App pump — only the
+            # scan worker passes `_request_scan`.
+            if _request_scan and not await self._request_server_scan(monitor):
+                return
 
             # Two-phase capture (t1111_4): offload the strip/prompt-regex CPU work,
             # then commit under the monitor-owned generation guard. If a newer refresh
@@ -1227,6 +1278,8 @@ class MonitorApp(
             self._dispatch_refresh_maintenance()
         finally:
             self._refresh_inflight = False
+            self._maybe_rerun_refresh()
+
     async def _offer_concerns(self) -> None:
         """Toast the SELECTED agent once per verified block.
 
@@ -1425,6 +1478,48 @@ class MonitorApp(
         if pane_id == self._focused_pane_id:  # focus-identity guard
             self._update_shadow_preview()
 
+    def _dispatch_fast_refresh(self, refresh) -> None:
+        """Schedule a one-column fast refresh from a key, scroll or timer callback.
+
+        ``refresh`` is ``_fast_preview_refresh`` or ``_fast_shadow_refresh``.
+        Under a :class:`MonitorClient` in server mode (t2037_3) each one sends a
+        ``refresh`` request and waits for the reply — a wait that must not run
+        via ``call_later``, which awaits its callback INLINE on the App message
+        pump (the queue that dispatches keys, t1598): a stalled server would hold
+        every following keystroke. So for ANY client it runs in a worker,
+        coalesced per column — one in flight, plus at most one more round for
+        any request made meanwhile — and the refresh keeps its own pinned-id,
+        generation and focus-identity guards.
+
+        Deliberately not gated on the client's CURRENT mode: a decision made
+        here, at scheduling time, goes stale — a client in fallback can
+        reconnect to the server before a queued ``call_later`` runs, and the
+        callback would then wait for the server on the pump. In fallback the
+        worker just runs the in-process capture off the pump. Only a non-client
+        monitor (test doubles) keeps the old ``call_later``.
+        """
+        if not isinstance(self._monitor, MonitorClient):
+            self.call_later(refresh)
+            return
+        name = getattr(refresh, "__name__", repr(refresh))
+        if name in self._fast_inflight:
+            self._fast_again.add(name)
+            return
+        self._fast_inflight.add(name)
+
+        async def _run() -> None:
+            try:
+                while True:
+                    self._fast_again.discard(name)
+                    await refresh()
+                    if name not in self._fast_again:
+                        break
+            finally:
+                self._fast_inflight.discard(name)
+
+        self.run_worker(_run(), group="fast-refresh", exclusive=False,
+                        exit_on_error=False)
+
     def _schedule_delayed_refresh(self, delay: float = 0.3) -> None:
         """Schedule a one-shot preview refresh after *delay* seconds.
 
@@ -1436,10 +1531,15 @@ class MonitorApp(
             delay, self._fire_delayed_refresh
         )
 
-    async def _fire_delayed_refresh(self) -> None:
-        """Fire the delayed refresh and clear the timer reference."""
+    def _fire_delayed_refresh(self) -> None:
+        """Fire the delayed refresh and clear the timer reference.
+
+        Never awaits the refresh: Textual's ``set_timer`` (unlike
+        ``set_interval``) wraps its callback in ``call_next``, so this runs on the
+        App message pump, and under a shared server the refresh waits for a
+        ``refresh`` reply (t2037_3). Hand it to the fast-refresh dispatcher."""
         self._delayed_refresh_timer = None
-        await self._fast_preview_refresh()
+        self._dispatch_fast_refresh(self._fast_preview_refresh)
 
     async def _consume_focus_request(self) -> str | None:
         """Read the `AITASK_MONITOR_FOCUS_WINDOW` tmux session env var.
@@ -2991,7 +3091,7 @@ class MonitorApp(
         """
         target = target_pane_id or self._focused_pane_id
         if self._monitor.forward_key(target, event.key, event.character):
-            self.call_later(
+            self._dispatch_fast_refresh(
                 self._fast_shadow_refresh if target_pane_id
                 else self._fast_preview_refresh
             )
@@ -3131,7 +3231,7 @@ class MonitorApp(
         if key is not None:
             state[key] = (True, None)
             # Pull fresh content so tail-follow resumes on the latest output.
-            self.call_later(refresh)
+            self._dispatch_fast_refresh(refresh)
         self.notify("Tail follow")
 
     def on_resize(self, event) -> None:
@@ -3178,6 +3278,14 @@ class MonitorApp(
         pane_id = self._get_focused_pane_id()
         if not pane_id:
             self.notify("Focus an agent pane first", severity="warning")
+            return
+        if getattr(self._monitor, "cycle_compare_mode_async", None) is not None:
+            # The client (t2037_3): the authoritative answer comes from the
+            # server, so wait for it in a worker — never on the App pump.
+            self.run_worker(
+                self._cycle_compare_mode_async(pane_id, "Idle detect mode"),
+                group="compare-mode", exclusive=False, exit_on_error=False,
+            )
             return
         new_mode, is_default = self._monitor.cycle_compare_mode(pane_id)
         suffix = " (default)" if is_default else " (override)"
@@ -4086,6 +4194,10 @@ def main() -> None:
 
     refresh_seconds = args.interval if args.interval is not None else tmux_config.get("monitor", {}).get("refresh_seconds", 3)
     capture_lines = args.lines if args.lines is not None else config.get("capture_lines", 200)
+    # The shared status server (t2037_3) scans with each project's
+    # project_config.yaml and cannot honour a per-instance override, so an
+    # explicit --interval / --lines keeps THIS instance in-process.
+    monitor_server = False if (args.lines is not None or args.interval is not None) else None
 
     app = MonitorApp(
         session=session,
@@ -4099,6 +4211,7 @@ def main() -> None:
         compare_mode_default=config.get("compare_mode_default", "stripped"),
         rename_window=True,
         mark_pane=True,   # production launcher only — see MonitorApp.__init__
+        monitor_server=monitor_server,
     )
     app.run()
 
