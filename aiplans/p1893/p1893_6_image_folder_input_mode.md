@@ -462,3 +462,84 @@ Step 9 of task-workflow: commit code and docs (`feature: … (t1893_6)`), plan v
 - timing: pre-phase | name: capture_video_baseline | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: video-path regression from the _ffin plumbing | desc: capture bug/anim outputs on fixed synthetic videos with the pre-change code
 - timing: post-phase | name: diff_video_baseline | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: video-path regression from the _ffin plumbing | desc: re-run on the same videos and diff; only the new input / visible_duration_uncertainty_ms keys may differ
 - timing: after | name: validate_image_input_ffmpeg51 | type: test | priority: medium | effort: medium | inline_risk: low | added_complexity: medium | addresses: concat option framerate / -itsoffset measured only on ffmpeg n9.0.2 | desc: run the ImageFolderInput tests under FFmpeg 5.1 and one 6.x/7.x static build via a PATH shim; confirm the behaviour or document the real minimum for image input
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-07)
+- **Requested by user:** two review findings, both reproduced locally before fixing.
+  1. Mixed-codec staging converted every non-PNG input with `-frames:v 1` *before* the enumeration guard counted frames, so an animated WebP among PNGs lost its later frames silently. A WebP-only folder was already refused. Reproduced: a 2-frame WebP plus a PNG ran with exit 0.
+  2. `_image_segment_checks` formatted the recommended ± in the widening warning and in `fits_unreliable_reason` without `--time-scale`, while the summary table and `visible_duration_uncertainty_ms` divide by it (with `--time-scale 5`: table ±50, warning ±250).
+- **Changes made:**
+  1. `ImageInput._require_one_frame`: a showinfo pass over each original that is about to be converted. More than 1 frame → "<name> decodes to more than one frame (an animated image?)"; 0 frames → an error.
+  2. `_image_segment_checks(..., time_scale)`: the recommended ± is in real time (÷ N), and the observed steps stay in recording time, marked "(recording time)" when N ≠ 1.
+  - The skill page's time-basis table and widening-warning row state the units.
+- **Files affected:** `.aitask-scripts/screen_recording/video_prep.py`, `tests/test_screen_recording_cli.py`, `website/content/docs/skills/aitask-screen-recording.md`
+- **Verification:**
+  - New tests:
+    - `test_animated_image_beside_other_codecs_is_refused` (bug and anim; premise: ffprobe counts 2 frames; skips when the ffmpeg cannot write an animated webp);
+    - `test_recommended_uncertainty_is_in_real_time_under_time_scale` (the long-gap folder at N=5: JSON ± = N=1's ÷ 5, with the same ± in the table, the reason and the warning; steps marked as recording time).
+  - Mutants M9 (per-file count removed) and M10 (unscaled ±) both red, the source restored by checksum.
+  - Core OK, CLI 104 OK. The video-path baseline diff was re-run: no differences. `check_links.py --build` PASSED.
+
+### Change Request 2 (2026-11-07)
+- **Requested by user:** two findings.
+  1. (Plausible, from source) the animated-WebP test skipped only when encoding failed. FFmpeg 5.1 has `libwebp_anim` but its WebP decoder does not implement animation, so the 2-frame premise would fail before the application is tested.
+  2. (Confirmed, follow-up) `_require_one_frame` decoded the whole animation (60 frames in the reviewer's probe) when 2 frames already decide.
+- **Changes made:**
+  1. The test skips, naming the count, when ffprobe does not count 2 frames. The two-frame assertion still holds on capable builds.
+  2. `-frames:v 2` on the check's showinfo pass. A 2 s, 30 fps animated webp now decodes 3 frames, not 60 (the output limit lets one more through showinfo); the 0 / 1 / more decisions are unchanged.
+- **Files affected:** `.aitask-scripts/screen_recording/video_prep.py`, `tests/test_screen_recording_cli.py`
+- **Verification:** the animated-WebP and mixed-codec tests pass, and M9 is still red. `ImageFolderInput` passes in full.
+
+## Final Implementation Notes
+- **Actual work done:**
+  - `bug DIR` / `anim DIR` (`video_prep.ImageInput`, `open_input`, `_ffin`, `_span_of`, `_out_name`). The folder is staged as symlinks `img_NNNNNN.<fmt>` in a private temp dir; non-PNG images are converted to PNG when codecs are mixed. A generated ffconcat list carries, per image, `option framerate 1000000` and its µs `duration`; the input is `-itsoffset <t0> -f concat -safe 0 -i list`.
+  - An enumeration pass guards the input. It requires exactly N frames, a 1/1e6 time base and pts equal to the planned µs starts (otherwise "does not keep the image times"), and it names an animated image. It counts graph configurations; more than one triggers normalisation (a `pad` letterbox for bug's mixed sizes, plus `format=rgb24|rgba`) and a re-enumeration that must show one.
+  - The `--fps N` flag (`_fps_arg`, exact `Fraction`). `main()` accepts a folder for bug/anim only.
+  - anim, image input only:
+    - the base interval is passed to `analyze_frames(frame_interval=)`;
+    - `duration_uncertainty` = max(base, step before the first changed image, step into the settled image);
+    - warnings for gaps at the ends and inside the motion;
+    - the fitted-duration reliability guard (`core.fit_onset_reachable`, shared `ONSET_SEARCH_INTERVALS`) marks `fits_reliable: false` with a reason, and the summary cell reads `unreliable (gap before the motion)`.
+  - bug, image input: letterbox notes, no manifest when letterboxed, the no-audio wording, and an assumed span end.
+  - run.json: `input` (both input kinds), and for image runs `input_dir_abspath`, `images`, `timing`, `gaps`, `sizes`, `letterboxed`, `normalized`, with `video_abspath`/`video_size` null. fit.json: `visible_duration_uncertainty_ms`, `fits_reliable`, `fits_unreliable_reason`.
+  - `vp_core`: `plan_image_sequence`, `base_interval`, `sequence_gaps`/`Gap`, `concat_starts_us`, `count_showinfo_configs`, `has_alpha`, `ShowinfoFrame.fmt`, `ONSET_SEARCH_INTERVALS` (replacing the literal 8 in `fit_motion`), and `fit_onset_reachable`.
+  - `vp_pick.source_info`: an image run says "the run read a folder of images (<dir>), not a video".
+  - Docs:
+    - the skill page gains usage, a Modes note, an `--fps` row, a new "Image folder input" section, run.json/fit.json fields, time-basis rows, 22 warning rows, a limit, a requirement and the Workflows link;
+    - new walkthrough `workflows/screen-recordings/image-sequences.md`, listed in both indexes;
+    - SKILL.md gains an "Image folder input" section, a mode row, a run example and the Tests list;
+    - `references/animation.md` gains the onset search, image-folder timing and a limits row.
+- **Deviations from plan:**
+  - **fit.json gains 3 keys, not 1:** `fits_reliable` and `fits_unreliable_reason` sit beside `visible_duration_uncertainty_ms`, for one schema across both input kinds. The post-phase diff allowed exactly these three, and checked uncertainty == `frame_interval_ms` and `fits_reliable: true` on video.
+  - **`base_interval`** is the mean of the steps up to 1.5 × the lower quartile, not the bare quartile. Names rounded to whole ms (16/17 ms at 60 fps) made the quartile read 16.0 ms.
+  - **The every-third CLI fixture deletes `k % 3 == 1`.** `k % 3 == 2` leaves 16 one-frame steps against 15 two-frame steps, so a median also found the gaps; that fixture matched the assumption under test (mutant M1 stayed green on it). The test now asserts that premise.
+  - **The every-third test asserts the exact expected ±.** It is computed from the image times around the first changed and settled frames. A comparison against the gap-free run let mutant M2 pass.
+  - Hidden files are ignored, as in `sheet`.
+  - An extra test covers mixed codecs (png + jpeg staged as PNG), with its own mutant.
+- **Issues encountered:** none beyond the plan-review findings (`-safe 0`, pixel-format reinit, fitted durations across a gap before the motion), all addressed before implementation.
+- **Key decisions:**
+  - one analysis path: images go through the same ffmpeg pipelines via concat, with no Python re-implementation of the detectors;
+  - fail closed on any timing or configuration anomaly;
+  - gap detection stays heuristic and image-input only; the video path is unchanged.
+- **Verification:**
+  - Pre-phase baseline + post-phase diff: 18 files from 4 video runs (anim, anim `--window`, bug, bug triage) on the same sha256-checked videos showed 0 differences beyond the allowed keys. A negative control (a perturbed `timeline.tsv` and `fit.json`) was flagged.
+  - Mutants, all red, the source restored by checksum:
+    - M1 median base;
+    - M2 no boundary widening;
+    - M3 time guard off;
+    - M4 reliability guard always true;
+    - M5 configuration count ignored (4 picks, no freeze: the review's probe reproduced);
+    - M6 re-enumeration check removed;
+    - M7 `-itsoffset` dropped;
+    - M8 mixed-codec conversion off ("ffmpeg decoded 2 of the 3 images");
+  - M9 / M10: see Post-Review Changes.
+  - Tests: core 123 OK; CLI 104 OK (17 new in `ImageFolderInput`, after Change Request 1).
+  - `aitask_skill_verify.sh` OK; `check_links.py --build` PASSED; `hugo build --gc --minify` OK.
+  - `bug --help` / `anim --help` both list `--fps`. The walkthrough's sample lines were re-checked against current output.
+- **Upstream defects identified:**
+  - `tests/test_board_movement.py:1291 — IsolationNegativeControlTests.test_in_process_task_dir_override_reads_the_real_repo asserts no real task file ends in `_fixture.md`, but the live tree now holds t2226_stop_sync_fixture_copying_pycache_into_every_fixture.md (added in 92559489d by another session), so the control fails on every run regardless of the code under test (reproduced alone: 1 failed in 0.36s)`
+- **Notes for sibling tasks:**
+  - `ImageInput` is the reusable seam for any mode that should read a folder (`frames DIR` is not supported). Pass it wherever a video path went; `_ffin(src)` builds the input arguments.
+  - t1893_12 (other agents): the image-folder warnings and the `unreliable (gap before the motion)` cell are what an agent must relay. The SKILL.md section says not to recommend those fits.
+  - t1893_11 (work dir + clean): image runs default to `make_out_dir(..., name=<folder name>)`. The stage dir lives in the system temp and is removed on exit.
