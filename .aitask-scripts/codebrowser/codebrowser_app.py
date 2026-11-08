@@ -30,7 +30,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 from agent_command_screen import AgentCommandScreen, resolve_skill_profile
 from agent_launch_utils import find_terminal as _find_terminal, spawn_in_terminal, resolve_dry_run_command, resolve_agent_string, TmuxLaunchConfig, launch_in_tmux, maybe_spawn_minimonitor, _lookup_window_name, tmux_session_target
-from tmux_exec import TmuxClient
+from tmux_exec import TMUX_CLIENT_FLAGS, TmuxClient, tmux_text_kwargs
 from editor_argv import resolve_editor_argv
 from tui_clipboard import copy_to_system_clipboard
 from tui_layout import NARROW, NORMAL, WIDE, terminal_tier
@@ -481,8 +481,8 @@ class CodeBrowserApp(TuiSwitcherMixin, ShortcutsMixin, App):
             return None
         try:
             result = subprocess.run(
-                ["tmux", "display-message", "-p", "#S"],
-                capture_output=True, text=True, timeout=5,
+                ["tmux", *TMUX_CLIENT_FLAGS, "display-message", "-p", "#S"],
+                capture_output=True, timeout=5, **tmux_text_kwargs(),
             )
             if result.returncode == 0 and result.stdout.strip():
                 return result.stdout.strip()
@@ -502,9 +502,9 @@ class CodeBrowserApp(TuiSwitcherMixin, ShortcutsMixin, App):
         pane = os.environ.get("TMUX_PANE", "")
         try:
             result = subprocess.run(
-                ["tmux", "display-message", "-p",
+                ["tmux", *TMUX_CLIENT_FLAGS, "display-message", "-p",
                  *(["-t", pane] if pane else []), "#{window_index}"],
-                capture_output=True, text=True, timeout=5,
+                capture_output=True, timeout=5, **tmux_text_kwargs(),
             )
             if result.returncode == 0 and result.stdout.strip():
                 return result.stdout.strip()

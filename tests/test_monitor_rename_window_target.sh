@@ -50,7 +50,7 @@ line2=$(printf '%s\n' "$out" | sed -n '2p')
 line3=$(printf '%s\n' "$out" | sed -n '3p')
 
 assert_eq "pane set -> rename targets that pane" \
-    "tmux rename-window -t %7 monitor" "$line1"
+    "tmux -u rename-window -t %7 monitor" "$line1"
 assert_eq "pane None -> no rename (empty argv, fail safe)" \
     "" "$line2"
 assert_eq "pane empty -> no rename (empty argv, fail safe)" \

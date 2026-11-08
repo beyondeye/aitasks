@@ -83,11 +83,13 @@ chmod +x "$FIXTURE_DIR/bin/ait"
 cat > "$SHIM/tmux" <<STUB
 #!/usr/bin/env bash
 printf '%s\n' "\$*" >> "$FIXTURE_DIR/shim.log"
-if [ -n "\${FAIL_CMD:-}" ] && [ "\$1" = "\$FAIL_CMD" ]; then
-    echo "shim: injected failure of \$1" >&2
+# The verb follows the client flag every gateway call leads with (\`-u\`, t2236).
+verb="\$1"; [ "\$verb" = -u ] && verb="\${2:-}"
+if [ -n "\${FAIL_CMD:-}" ] && [ "\$verb" = "\$FAIL_CMD" ]; then
+    echo "shim: injected failure of \$verb" >&2
     exit 1
 fi
-if [ "\${FAKE_SET_OPTION:-}" = 1 ] && [ "\$1" = set-option ]; then
+if [ "\${FAKE_SET_OPTION:-}" = 1 ] && [ "\$verb" = set-option ]; then
     exit 0
 fi
 exec "$REAL_TMUX" "\$@"

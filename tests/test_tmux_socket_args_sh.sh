@@ -56,6 +56,18 @@ assert_eq "non-empty value resolves verbatim" "mysock" "$(emit_args mysock ait_t
 
 assert_eq "set-but-empty resolves to empty (no-flag escape hatch)" "" "$(emit_args "" ait_tmux_socket_name)"
 
+# --- ait_tmux_client_args (t2236): client flags, then the socket flag --------
+
+assert_eq "client args: unset env emits -u then the ait socket" "-u|-L|ait" "$(emit_args __UNSET__ ait_tmux_client_args)"
+
+assert_eq "client args: non-empty value" "-u|-L|mysock" "$(emit_args mysock ait_tmux_client_args)"
+
+assert_eq "client args: set-but-empty keeps -u (a client flag, not a socket flag)" "-u" "$(emit_args "" ait_tmux_client_args)"
+
+# A blanked flags array (the pre-fix control) emits no stray empty line.
+assert_eq "client args: blanked flags emit only the socket flag" "-L|ait" \
+    "$(env -u AITASKS_TMUX_SOCKET bash -c "source '$GATEWAY'; AIT_TMUX_CLIENT_FLAGS=(); ait_tmux_client_args | paste -sd'|' -")"
+
 # --- Python-mirror parity ----------------------------------------------------
 # The two gateways must agree on every spelling of the knob. Compare the shell
 # emitter against tmux_exec.tmux_socket_args for each case.
@@ -71,11 +83,23 @@ if command -v "$PYTHON_BIN" >/dev/null 2>&1; then
                 "import sys; sys.path.insert(0, '$PROJECT_DIR/.aitask-scripts/lib'); import tmux_exec; print('|'.join(tmux_exec.tmux_socket_args()))"
         fi
     }
+    # The client-args emitter mirrors [*TMUX_CLIENT_FLAGS, *tmux_socket_args()].
+    py_client_args() {
+        local spec="$1" code
+        code="import sys; sys.path.insert(0, '$PROJECT_DIR/.aitask-scripts/lib'); import tmux_exec; print('|'.join([*tmux_exec.TMUX_CLIENT_FLAGS, *tmux_exec.tmux_socket_args()]))"
+        if [[ "$spec" == "__UNSET__" ]]; then
+            env -u AITASKS_TMUX_SOCKET "$PYTHON_BIN" -c "$code"
+        else
+            AITASKS_TMUX_SOCKET="$spec" "$PYTHON_BIN" -c "$code"
+        fi
+    }
     for spec in __UNSET__ mysock default "" "   "; do
         label="${spec:-<empty>}"
         [[ "$spec" == "__UNSET__" ]] && label="<unset>"
         assert_eq "shell/python parity for $label" \
             "$(py_args "$spec")" "$(emit_args "$spec" ait_tmux_socket_args)"
+        assert_eq "shell/python client-args parity for $label" \
+            "$(py_client_args "$spec")" "$(emit_args "$spec" ait_tmux_client_args)"
     done
 else
     echo "SKIP: $PYTHON_BIN not available — parity cases skipped"

@@ -87,10 +87,12 @@ command -v tmux >/dev/null || die "tmux is not installed. Install it first, then
 # Socket flag for the `exec tmux ...` sites below. A shell function cannot be
 # exec'd (and exec must keep the `\;` separator intact), so the ait_tmux
 # wrapper is unusable there — capture the emitter's args once instead.
-# `-L ait` by default (the dedicated ait socket, t953); empty only when the
-# legacy no-flag escape hatch is active (AITASKS_TMUX_SOCKET set but empty).
+# The client-args emitter: `-u` (UTF-8 client, t2236 — without it a client with
+# no locale draws every non-ASCII glyph of the TUIs as `_`), then `-L ait` by
+# default (the dedicated ait socket, t953); the socket flag is absent only when
+# the legacy no-flag escape hatch is active (AITASKS_TMUX_SOCKET set but empty).
 _IDE_SOCK_ARGS=()
-while IFS= read -r _line; do _IDE_SOCK_ARGS+=("$_line"); done < <(ait_tmux_socket_args)
+while IFS= read -r _line; do _IDE_SOCK_ARGS+=("$_line"); done < <(ait_tmux_client_args)
 _IDE_SOCK_NAME="$(ait_tmux_socket_name)"
 
 # die with the reason a session claim was refused (t1922). <rc> is the
@@ -203,7 +205,7 @@ if [[ -n "$_IDE_SOCK_NAME" && "$_IDE_SOCK_NAME" != "default" ]] \
         printf 'Attach to it instead? [y/N] ' >&2
         read -r _legacy_answer || _legacy_answer=""
         if [[ "$_legacy_answer" =~ ^[Yy]$ ]]; then
-            _IDE_LEGACY_ARGS=()
+            _IDE_LEGACY_ARGS=(${AIT_TMUX_CLIENT_FLAGS[@]+"${AIT_TMUX_CLIENT_FLAGS[@]}"})
             while IFS= read -r _line; do _IDE_LEGACY_ARGS+=("$_line"); done < <(ait_tmux_legacy_socket_args)
             exec tmux "${_IDE_LEGACY_ARGS[@]}" attach -t "$SESSION_T"
         fi

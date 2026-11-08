@@ -10,6 +10,11 @@
 #     set-but-empty => no flag (legacy escape hatch, follows $TMUX — used by
 #     the test isolation harness).
 #   * targets are exact-match `=session` / `=session:window`.
+#   * every tmux client passes `-u` (AIT_TMUX_CLIENT_FLAGS, t2236): a client
+#     with no UTF-8 locale rewrites every non-printable / non-ASCII byte of its
+#     output to `_` — the TAB separator of a -F format, `ó` in a path. Shell
+#     callers get no locale coercion, so they hit it whenever the locale is
+#     unset. Bytes pass through the shell undecoded; nothing else is needed.
 #   * every tmux client carries ait_spawn_path_normalize of the caller's PATH
 #     (lib/spawn_path.sh): tmux copies the issuing client's PATH into a new
 #     pane, so this is what makes a pane's PATH independent of its spawner
@@ -21,8 +26,12 @@
 #     ait_tmux has-session -t "$(ait_tmux_session_target "$s")"
 #     # exec / compound-command sites cannot use the function form (a shell
 #     # function cannot be exec'd, and the wrapper must not mangle the `\;`
-#     # separator) — use the emitter instead:
-#     exec tmux $(ait_tmux_socket_args) attach -t "$t" \; select-window -t "$w"
+#     # separator) — use the client-args emitter instead (client flags + socket
+#     # flag; never the bare socket emitter, which omits `-u`):
+#     exec tmux $(ait_tmux_client_args) attach -t "$t" \; select-window -t "$w"
+#     # A -F format's TAB separator must be a REAL byte: tmux keeps a
+#     # single-quoted `\t` as a literal backslash-t.
+#     ait_tmux list-sessions -F "#{session_name}"$'\t'"#{session_id}"
 #
 # Depends on terminal_compat.sh for die/warn/info (sourced below, one-way).
 # terminal_compat.sh in turn pulls THIS file in lazily inside
@@ -49,6 +58,13 @@ source "$(dirname "${BASH_SOURCE[0]}")/spawn_path.sh"
 # env var is unset (t953). Mirrored verbatim in lib/tmux_exec.py.
 AIT_DEDICATED_SOCKET="ait"
 
+# Client flags every tmux invocation carries, ahead of the socket flag (t2236).
+# Mirrored verbatim in lib/tmux_exec.py (TMUX_CLIENT_FLAGS). `-u` is a CLIENT
+# flag: unlike forcing LC_CTYPE it never leaks into the panes tmux creates, and
+# it needs no installed C.UTF-8 locale (macOS has none). An array so a test can
+# blank it (`AIT_TMUX_CLIENT_FLAGS=()`) for a pre-fix control.
+AIT_TMUX_CLIENT_FLAGS=(-u)
+
 # ait_tmux_socket_args
 # Emit the socket flag for every tmux invocation, from one source (mirror of
 # tmux_exec.py::tmux_socket_args). One argument per line (t953 semantics):
@@ -70,6 +86,20 @@ ait_tmux_socket_args() {
     sock="${sock%"${sock##*[![:space:]]}"}"
     [[ -n "$sock" ]] && printf '%s\n' "-L" "$sock"
     return 0
+}
+
+# ait_tmux_client_args
+# Emit the client flags (`-u`), then the socket flag — one argument per line —
+# for `exec` / compound `\;` sites that cannot use the ait_tmux function form.
+# The *_socket_args emitters stay pure (parity-pinned with Python's
+# tmux_socket_args); this is the one an exec site uses.
+ait_tmux_client_args() {
+    # Guarded: `printf '%s\n'` with no operands still prints one empty line,
+    # which a reader would take for an empty argument.
+    if (( ${#AIT_TMUX_CLIENT_FLAGS[@]} )); then
+        printf '%s\n' "${AIT_TMUX_CLIENT_FLAGS[@]}"
+    fi
+    ait_tmux_socket_args
 }
 
 # ait_tmux_socket_name
@@ -95,25 +125,27 @@ ait_tmux_socket_name() {
 # raw-tmux lint guard (tests/test_no_raw_tmux.sh) keeps a single allowlisted
 # home for raw spawns.
 ait_tmux_legacy() {
-    command tmux -L default "$@"
+    command tmux ${AIT_TMUX_CLIENT_FLAGS[@]+"${AIT_TMUX_CLIENT_FLAGS[@]}"} -L default "$@"
 }
 
 # ait_tmux_legacy_socket_args
 # Emitter form of ait_tmux_legacy for `exec tmux ... attach \; ...` sites
-# (a shell function cannot be exec'd). One argument per line.
+# (a shell function cannot be exec'd). One argument per line. Socket flag only:
+# the exec site prepends "${AIT_TMUX_CLIENT_FLAGS[@]}" itself.
 ait_tmux_legacy_socket_args() {
     printf '%s\n' "-L" "default"
 }
 
 # ait_tmux <args...>
-# Function form: run `tmux` with the socket flag prepended. For captured /
+# Function form: run `tmux` with the client flags (`-u`) and the socket flag
+# prepended. For captured /
 # plain call sites. Returns tmux's exit code. (exec / compound sites use the
 # ait_tmux_socket_args emitter instead — see header.) The tmux client runs with
 # the normalized spawn PATH when that differs from ours — but it is still the
 # tmux binary OUR PATH resolves (ait_spawn_exe), so the reorder can never swap
 # in a different tmux.
 ait_tmux() {
-    local -a _argv=(tmux)
+    local -a _argv=(tmux ${AIT_TMUX_CLIENT_FLAGS[@]+"${AIT_TMUX_CLIENT_FLAGS[@]}"})
     local _line
     while IFS= read -r _line; do _argv+=("$_line"); done < <(ait_tmux_socket_args)
     _argv+=("$@")

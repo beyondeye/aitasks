@@ -92,6 +92,7 @@ from agent_launch_utils import (  # noqa: E402
     tmux_session_scope_target,
 )
 from config_utils import load_yaml_config  # noqa: E402
+from tmux_exec import tmux_os_path  # noqa: E402  (policy 5: tmux path -> OS path)
 from monitor.ansi_utils import strip_ansi  # noqa: E402
 from monitor.monitor_core import (  # noqa: E402
     FROZEN_AWARE_PANE_FORMAT,
@@ -239,6 +240,10 @@ def _walk_up_to_project(path: str) -> str:
     root, and a wrong-but-stable root produces a record that reconcile can find
     and purge, whereas no root at all loses the agent entirely.
     """
+    # ``path`` is a tmux ``#{pane_current_path}`` read: into the OS
+    # representation before the filesystem walk (identity on a UTF-8 host;
+    # tmux_gateway.md policy 5, t2236).
+    path = tmux_os_path(path) if path else path
     try:
         current = Path(os.path.realpath(path or os.getcwd()))
     except OSError:

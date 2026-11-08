@@ -35,7 +35,7 @@ class DefaultCallUnchangedTests(unittest.TestCase):
         self._tmpdir = tempfile.TemporaryDirectory()
         self.tmp = Path(self._tmpdir.name)
         # Pin the module-level gateway singleton to NO socket flag: the mocks
-        # below prefix-match argv[:2] == ["tmux", "list-sessions"], but since
+        # below prefix-match argv[:3] == ["tmux", "-u", "list-sessions"], but since
         # t953 a default-constructed TmuxClient carries `-L ait`. Swapping the
         # singleton (rather than setting the env var pre-import) stays correct
         # under run_all_python_tests.sh, where another module may import
@@ -59,9 +59,9 @@ class DefaultCallUnchangedTests(unittest.TestCase):
         proj = _make_fake_project(self.tmp / "live_proj")
 
         def _fake_tmux(argv, *a, **k):
-            if argv[:2] == ["tmux", "list-sessions"]:
+            if argv[:3] == ["tmux", "-u", "list-sessions"]:
                 return mock.Mock(returncode=0, stdout="live_sess\n", stderr="")
-            if argv[:2] == ["tmux", "list-panes"]:
+            if argv[:3] == ["tmux", "-u", "list-panes"]:
                 return mock.Mock(returncode=0, stdout=f"{proj}\n", stderr="")
             return mock.Mock(returncode=1, stdout="", stderr="")
 

@@ -45,12 +45,12 @@ class DetectTmuxWindowTests(unittest.TestCase):
         result, calls = self._detect({"TMUX": "/tmp/s,1,0", "TMUX_PANE": "%7"})
         self.assertEqual("4", result)
         self.assertEqual(
-            [["tmux", "display-message", "-p", "-t", "%7", "#{window_index}"]], calls)
+            [["tmux", "-u", "display-message", "-p", "-t", "%7", "#{window_index}"]], calls)
 
     def test_without_a_pane_id_the_read_stays_untargeted(self):
         result, calls = self._detect({"TMUX": "/tmp/s,1,0"})
         self.assertEqual("4", result)
-        self.assertEqual([["tmux", "display-message", "-p", "#{window_index}"]], calls)
+        self.assertEqual([["tmux", "-u", "display-message", "-p", "#{window_index}"]], calls)
 
     def test_outside_tmux_nothing_runs(self):
         result, calls = self._detect({"TMUX_PANE": "%7"})

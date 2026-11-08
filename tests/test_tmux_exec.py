@@ -152,7 +152,7 @@ class TestRunContract(unittest.TestCase):
         self.assertEqual(out, "out\n")
         self.assertEqual(
             captured["argv"],
-            ["tmux", "-L", "sock", "list-sessions", "-F", "#{session_name}"],
+            ["tmux", "-u", "-L", "sock", "list-sessions", "-F", "#{session_name}"],
         )
 
     def test_no_socket_when_empty(self):
@@ -165,7 +165,9 @@ class TestRunContract(unittest.TestCase):
         client = TmuxClient(socket_args=[])
         with patch.object(subprocess, "run", side_effect=fake_run):
             client.run(["kill-server"])
-        self.assertEqual(captured["argv"], ["tmux", "kill-server"])
+        # `-u` (policy 5) is a client flag, not a socket flag: it stays when
+        # the socket args are empty.
+        self.assertEqual(captured["argv"], ["tmux", "-u", "kill-server"])
 
     def test_file_not_found_is_minus_one(self):
         client = TmuxClient(socket_args=[])
@@ -292,7 +294,7 @@ class TestSetClipboard(unittest.TestCase):
             ok = client.set_clipboard("payload text")
         self.assertTrue(ok)
         self.assertEqual(
-            captured["argv"], ["tmux", "-L", "sock", "load-buffer", "-w", "-"]
+            captured["argv"], ["tmux", "-u", "-L", "sock", "load-buffer", "-w", "-"]
         )
         self.assertEqual(captured["input"], "payload text")
 
@@ -339,7 +341,7 @@ class TestSpawn(unittest.TestCase):
                          stderr=subprocess.DEVNULL)
         self.assertEqual(
             captured["argv"],
-            ["tmux", "-L", "sock", "switch-client", "-t", "=sess"],
+            ["tmux", "-u", "-L", "sock", "switch-client", "-t", "=sess"],
         )
         self.assertIn("stderr", captured["kwargs"])
 
@@ -378,7 +380,8 @@ class TestNewSessionArgv(unittest.TestCase):
         argv = self._build(server_running=True)
         self.assertEqual(
             argv,
-            ["tmux", "new-session", "-d", "-s", "testsess", "-n", "win", "echo hi"],
+            ["tmux", "-u", "new-session", "-d", "-s", "testsess", "-n", "win",
+             "echo hi"],
         )
 
     def test_no_server_with_systemd_wraps_in_session_slice(self):
@@ -389,31 +392,31 @@ class TestNewSessionArgv(unittest.TestCase):
         self.assertIn("--property=KillMode=none", argv)
         self.assertIn("--collect", argv)
         tail = argv[argv.index("--") + 1:]
-        self.assertEqual(tail[:3], ["tmux", "new-session", "-d"])
+        self.assertEqual(tail[:4], ["tmux", "-u", "new-session", "-d"])
         self.assertIn("-c", tail)
 
     def test_no_server_no_systemd_with_setsid(self):
         argv = self._build(setsid="/usr/bin/setsid")
         self.assertEqual(argv[0], "setsid")
-        self.assertEqual(argv[1:4], ["tmux", "new-session", "-d"])
+        self.assertEqual(argv[1:5], ["tmux", "-u", "new-session", "-d"])
         self.assertIn("-c", argv)
 
     def test_no_server_no_systemd_no_setsid_is_plain_with_cwd(self):
         argv = self._build()
-        self.assertEqual(argv[:3], ["tmux", "new-session", "-d"])
+        self.assertEqual(argv[:4], ["tmux", "-u", "new-session", "-d"])
         self.assertNotIn("systemd-run", argv)
         self.assertNotIn("setsid", argv)
         self.assertIn("-c", argv)
 
     def test_socket_flag_injected_after_tmux_on_attach(self):
         argv = self._build(socket_args=["-L", "sock"], server_running=True)
-        self.assertEqual(argv[:3], ["tmux", "-L", "sock"])
+        self.assertEqual(argv[:4], ["tmux", "-u", "-L", "sock"])
         self.assertIn("new-session", argv)
 
     def test_socket_flag_injected_in_wrapped_creation(self):
         argv = self._build(socket_args=["-L", "sock"], setsid="/usr/bin/setsid")
         tail = argv[argv.index("setsid") + 1:]
-        self.assertEqual(tail[:3], ["tmux", "-L", "sock"])
+        self.assertEqual(tail[:4], ["tmux", "-u", "-L", "sock"])
 
 
 class _FakeBackend:
@@ -553,6 +556,210 @@ class TestMonitorResizePane(unittest.TestCase):
         self.assertEqual(monitor._backend.sync_calls, [])
 
 
+# --- Client UTF-8 and the tmux text model (policy 5, t2236) ----------------
+
+#: What `tmux -u` writes for a session name, a TAB, an accented path and a
+#: path segment holding a byte that is not valid UTF-8 (format output passes
+#: it through raw).
+_TMUX_BYTES = b"w\xc3\xafn\tpr\xc3\xb3j/b\xffd\n"
+#: The single str every decoding route must produce from it: readable Unicode,
+#: the invalid byte as a lone surrogate that round-trips.
+_TMUX_TEXT = "wïn\tprój/b\udcffd\n"
+_REAL_RUN = subprocess.run
+_REAL_EXEC = asyncio.create_subprocess_exec
+
+
+def _emit_argv(data: bytes) -> list[str]:
+    """A real child process that writes ``data`` verbatim to stdout and stderr."""
+    code = ("import sys; d = bytes.fromhex(%r); "
+            "sys.stdout.buffer.write(d); sys.stderr.buffer.write(d)" % data.hex())
+    return [sys.executable, "-c", code]
+
+
+class _Codec:
+    """Emulate one filesystem codec for ``os.fsencode`` / ``os.fsdecode``.
+
+    ``surrogateescape`` is what CPython pairs with every non-UTF-8 fs encoding
+    on POSIX. Patching the codec, not the locale, keeps the table independent
+    of the platform (macOS always reports UTF-8) and of installed locales.
+    """
+
+    def __init__(self, name: str):
+        self.name = name
+
+    def __enter__(self):
+        enc = lambda s: os.fspath(s).encode(self.name, "surrogateescape")  # noqa: E731
+        dec = lambda b: b.decode(self.name, "surrogateescape")  # noqa: E731
+        self._patches = [patch.object(tmux_exec.os, "fsencode", side_effect=enc),
+                         patch.object(tmux_exec.os, "fsdecode", side_effect=dec)]
+        for p in self._patches:
+            p.start()
+        return self
+
+    def __exit__(self, *exc):
+        for p in reversed(self._patches):
+            p.stop()
+
+
+class TestTextModelDecoding(unittest.TestCase):
+    """Every subprocess route decodes tmux output as UTF-8 + surrogateescape.
+
+    Real child processes write the bytes, so the decode is the one Python's
+    subprocess machinery performs with the kwargs the gateway passes — not a
+    fake that never decodes anything.
+    """
+
+    def _run_via(self, method: str):
+        def fake_run(argv, **kwargs):
+            self.assertNotIn("text", kwargs, "text=True decodes with the locale codec")
+            self.assertEqual((kwargs.get("encoding"), kwargs.get("errors")),
+                             ("utf-8", "surrogateescape"))
+            return _REAL_RUN(_emit_argv(_TMUX_BYTES), **kwargs)
+
+        with patch.object(subprocess, "run", side_effect=fake_run):
+            return getattr(TmuxClient(socket_args=[]), method)(["list-sessions"])
+
+    def test_run_decodes_utf8_with_surrogateescape(self):
+        rc, out = self._run_via("run")
+        self.assertEqual((rc, out), (0, _TMUX_TEXT))
+        self.assertEqual(out.encode("utf-8", "surrogateescape"), _TMUX_BYTES)
+
+    def test_run_checked_decodes_stdout_and_stderr(self):
+        res = self._run_via("run_checked")
+        self.assertEqual((res.outcome, res.stdout, res.stderr),
+                         ("ok", _TMUX_TEXT, _TMUX_TEXT))
+
+    def test_run_async_decodes_the_same_text(self):
+        async def fake_exec(*argv, **kwargs):
+            return await _REAL_EXEC(*_emit_argv(_TMUX_BYTES), **kwargs)
+
+        with patch.object(asyncio, "create_subprocess_exec", side_effect=fake_exec):
+            rc, out = asyncio.run(TmuxClient(socket_args=[]).run_async(["x"]))
+        self.assertEqual((rc, out), (0, _TMUX_TEXT))
+
+    def test_decode_helper(self):
+        self.assertEqual(tmux_exec.decode_tmux_output(_TMUX_BYTES), _TMUX_TEXT)
+
+    def test_set_clipboard_sends_utf8_stdin(self):
+        seen = {}
+
+        def fake_run(argv, **kwargs):
+            seen.update(kwargs)
+            return _FakeRunResult(0, "", "")
+
+        with patch.object(subprocess, "run", side_effect=fake_run):
+            TmuxClient(socket_args=[]).set_clipboard("prój")
+        self.assertNotIn("text", seen)
+        self.assertEqual((seen["encoding"], seen["errors"], seen["input"]),
+                         ("utf-8", "surrogateescape", "prój"))
+
+
+class TestTextModelEncoding(unittest.TestCase):
+    """``encode_tmux_wire`` / ``encode_tmux_argv`` per filesystem codec.
+
+    Rule: an argument goes out in its native OS bytes (``os.fsencode``) unless
+    the OS codec cannot represent it; only then UTF-8 + surrogateescape.
+    """
+
+    OS_PATH = b"/tmp/pr\xc3\xb3j"  # native bytes of a non-ASCII directory
+
+    def test_utf8_codec_keeps_every_element_str(self):
+        with _Codec("utf-8"):
+            argv = ["tmux", "-u", "has-session", "-t", "=wïn",
+                    os.fsdecode(self.OS_PATH), "€wn"]
+            self.assertEqual(tmux_exec.encode_tmux_argv(argv), argv)
+
+    def test_ascii_codec(self):
+        with _Codec("ascii"):
+            os_path = "/tmp/pr\udcc3\udcb3j"  # what os.getcwd() returns there
+            self.assertEqual(tmux_exec.encode_tmux_wire(os_path), self.OS_PATH)
+            self.assertEqual(tmux_exec.encode_tmux_wire("wïn"), b"w\xc3\xafn")
+            # A mixed string: tmux text + an OS-path surrogate, both right.
+            self.assertEqual(tmux_exec.encode_tmux_wire("wïn " + os_path),
+                             b"w\xc3\xafn " + self.OS_PATH)
+            out = tmux_exec.encode_tmux_argv(["-c", os_path, "-t", "=wïn"])
+            self.assertEqual(out, ["-c", os_path, "-t", b"=w\xc3\xafn"])
+
+    def test_latin1_codec_documented_limitation(self):
+        # Pinned so a change in the policy-5 limitation is noticed: OS paths
+        # stay native, in-repertoire tmux text goes out in the locale codec,
+        # out-of-repertoire text falls back to UTF-8.
+        with _Codec("latin-1"):
+            os_path = self.OS_PATH.decode("latin-1")  # 'prÃ³j', as Python sees it
+            self.assertEqual(tmux_exec.encode_tmux_wire(os_path), self.OS_PATH)
+            self.assertEqual(tmux_exec.encode_tmux_wire("wïn"), b"w\xefn")
+            self.assertEqual(tmux_exec.encode_tmux_wire("€wn"),
+                             "€wn".encode("utf-8"))
+
+    def test_bytes_elements_pass_through(self):
+        self.assertEqual(tmux_exec.encode_tmux_argv([b"\xff", "x"]), [b"\xff", "x"])
+
+    def test_tmux_os_path(self):
+        text = "/tmp/prój"  # as decoded from tmux's UTF-8
+        with _Codec("utf-8"):
+            self.assertEqual(tmux_exec.tmux_os_path(text), text)
+            self.assertEqual(tmux_exec.tmux_os_path("/b\udcffd"), "/b\udcffd")
+        for codec in ("ascii", "latin-1"):
+            with self.subTest(codec=codec), _Codec(codec):
+                self.assertEqual(os.fsencode(tmux_exec.tmux_os_path(text)),
+                                 self.OS_PATH)
+
+
+class TestControlLineParity(unittest.TestCase):
+    """The control route sends each argument as its subprocess wire bytes."""
+
+    OS_PATH = b"/tmp/pr\xc3\xb3j"
+
+    def _args(self, codec):
+        return ["set-option", "-t", "=€:", "@aitask_project_root",
+                self.OS_PATH.decode(codec, "surrogateescape")]
+
+    def test_per_argument_bytes_match_argv(self):
+        from monitor.monitor_core import _control_line, _quote_arg
+        for codec in ("utf-8", "ascii", "latin-1"):
+            with self.subTest(codec=codec), _Codec(codec):
+                args = self._args(codec)
+                line = _control_line(args)
+                self.assertTrue(line.endswith(b"\n"))
+                wire = [a if isinstance(a, bytes) else os.fsencode(a)
+                        for a in tmux_exec.encode_tmux_argv(args)]
+                expected = b" ".join(
+                    b'"' + w.replace(b"\\", b"\\\\").replace(b'"', b'\\"') + b'"'
+                    for w in wire) + b"\n"
+                self.assertEqual(line, expected)
+                self.assertIn(b'"' + self.OS_PATH + b'"', line)
+                # quoting is ASCII-only, so it commutes with the encoding
+                self.assertEqual(tmux_exec.encode_tmux_wire(_quote_arg(args[-1])),
+                                 b'"' + self.OS_PATH + b'"')
+
+    def test_control_whole_line_encoding_would_corrupt_the_path(self):
+        # Negative control for the bug class the per-argument rule prevents:
+        # one non-encodable argument (`=€:`) pushes a whole-line encode to
+        # UTF-8 and re-encodes the native Latin-1-decoded path beside it.
+        from monitor.monitor_core import _quote_arg
+        with _Codec("latin-1"):
+            args = self._args("latin-1")
+            joined = " ".join(_quote_arg(a) for a in args) + "\n"
+            whole = tmux_exec.encode_tmux_wire(joined)
+        self.assertNotIn(b'"' + self.OS_PATH + b'"', whole)
+        self.assertIn(b'"/tmp/pr\xc3\x83\xc2\xb3j"', whole)
+
+
+class TestClientFlag(unittest.TestCase):
+    """``-u`` comes first, ahead of the socket flag, on every argv builder."""
+
+    def test_flag_value(self):
+        self.assertEqual(tmux_exec.TMUX_CLIENT_FLAGS, ("-u",))
+
+    def test_client_argv(self):
+        self.assertEqual(TmuxClient(socket_args=["-L", "s"])._argv(["x"])[:4],
+                         ["tmux", "-u", "-L", "s"])
+
+    def test_attach_argv(self):
+        c = TmuxControlClient(session="s", socket_args=["-L", "s"])
+        self.assertEqual(c._attach_argv()[:4], ["tmux", "-u", "-L", "s"])
+
+
 class TestControlAttachArgv(unittest.TestCase):
     """The `tmux -C attach` argv threads the socket flag (t952_3)."""
 
@@ -560,7 +767,7 @@ class TestControlAttachArgv(unittest.TestCase):
         c = TmuxControlClient(session="mysess", socket_args=["-L", "sock"])
         self.assertEqual(
             c._attach_argv(),
-            ["tmux", "-L", "sock", "-C", "attach", "-t", "mysess",
+            ["tmux", "-u", "-L", "sock", "-C", "attach", "-t", "mysess",
              "-f", "no-output,ignore-size"],
         )
 
@@ -568,14 +775,14 @@ class TestControlAttachArgv(unittest.TestCase):
         c = TmuxControlClient(session="mysess", socket_args=[])
         self.assertEqual(
             c._attach_argv(),
-            ["tmux", "-C", "attach", "-t", "mysess",
+            ["tmux", "-u", "-C", "attach", "-t", "mysess",
              "-f", "no-output,ignore-size"],
         )
 
     def test_socket_args_default_from_env(self):
         with patch.dict(os.environ, {TMUX_SOCKET_ENV: "envsock"}, clear=False):
             c = TmuxControlClient(session="s")
-        self.assertEqual(c._attach_argv()[:3], ["tmux", "-L", "envsock"])
+        self.assertEqual(c._attach_argv()[:4], ["tmux", "-u", "-L", "envsock"])
 
 
 @unittest.skipIf(shutil.which("tmux") is None, "tmux not installed")
@@ -618,7 +825,8 @@ class TestGatewayIntegration(unittest.TestCase):
         # Create a detached session via the gateway argv builder, on the
         # isolated socket.
         argv = self.client.new_session_argv(self.SESSION, "w0", "sleep 30")
-        proc = subprocess.Popen(argv, stderr=subprocess.PIPE)
+        proc = subprocess.Popen(tmux_exec.encode_tmux_argv(argv),
+                                stderr=subprocess.PIPE)
         _, stderr = proc.communicate()  # drain pipe (closes the reader)
         self.assertEqual(proc.returncode, 0, (stderr or b"").decode())
         # The isolated server now lists exactly our session.
@@ -630,9 +838,9 @@ class TestGatewayIntegration(unittest.TestCase):
         # Sanity: the gateway argv carries our test socket, so nothing here can
         # reach the user's default server.
         argv = self.client.new_session_argv(self.SESSION, "w0", "sleep 1")
-        # The tmux token is followed by our -L socket in every rung.
+        # The tmux token is followed by `-u` then our -L socket in every rung.
         tmux_idx = argv.index("tmux")
-        self.assertEqual(argv[tmux_idx + 1:tmux_idx + 3], ["-L", self.SOCK])
+        self.assertEqual(argv[tmux_idx + 1:tmux_idx + 4], ["-u", "-L", self.SOCK])
 
 
 # --- Pane PATH (policy 4, t1689) ------------------------------------------

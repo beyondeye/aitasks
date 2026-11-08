@@ -1,7 +1,7 @@
 """tmux_exec - The single Python gateway for spawning ``tmux`` processes.
 
 `TmuxClient` is intended to become the **only** place in the Python side of the
-framework that launches a raw ``tmux`` process. It owns four cross-cutting
+framework that launches a raw ``tmux`` process. It owns five cross-cutting
 policies that are currently implicit and duplicated across call sites (t952):
 
 1. **Socket selection.** The framework runs its tmux sessions on a dedicated
@@ -41,6 +41,19 @@ policies that are currently implicit and duplicated across call sites (t952):
    (``tmux``, ``setsid``, ``systemd-run``) stay the ones the caller's PATH
    resolves (:func:`resolve_spawn_exe`). Shell mirror: ``lib/spawn_path.sh``.
 
+5. **Client UTF-8 and the tmux text model (t2236).** A tmux client with no
+   UTF-8 locale rewrites every non-printable / non-ASCII output byte to ``_``
+   (the TAB separator of a ``-F`` format included), so every client launched
+   here passes ``-u`` (:data:`TMUX_CLIENT_FLAGS`). tmux then speaks UTF-8 both
+   ways whatever the locale, so the bytes crossing the gateway are converted by
+   one rule, not by the locale codec: output is decoded UTF-8 +
+   ``surrogateescape`` (:func:`decode_tmux_output` / :func:`tmux_text_kwargs`);
+   every argument goes out in its native OS bytes, falling back to UTF-8 only
+   when the OS codec cannot represent it (:func:`encode_tmux_wire` /
+   :func:`encode_tmux_argv`); and a path read from tmux reaches the filesystem
+   through :func:`tmux_os_path`. Scope and the single-byte-locale limitation:
+   ``aidocs/framework/tmux_gateway.md`` policy 5.
+
 The spawn primitives (:meth:`TmuxClient.run` / :meth:`run_async`) are the sole
 owner of the ``(rc, stdout)`` contract — ``(-1, "")`` on ``FileNotFoundError`` /
 ``OSError`` / timeout — and serve as the subprocess fallback for the control-mode
@@ -55,7 +68,7 @@ Usage::
     client = TmuxClient()
     rc, out = client.run(["list-sessions", "-F", "#{session_name}"])
     argv = client.new_session_argv("aitasks", "monitor", "ait monitor")
-    subprocess.Popen(argv)
+    subprocess.Popen(encode_tmux_argv(argv), env=client.spawn_env())
 """
 from __future__ import annotations
 
@@ -80,7 +93,106 @@ TMUX_SOCKET_ENV = "AITASKS_TMUX_SOCKET"
 # Mirrored verbatim in ``lib/tmux_exec.sh`` (AIT_DEDICATED_SOCKET).
 AIT_DEDICATED_SOCKET = "ait"
 
+# Client flags every tmux invocation carries, ahead of the socket flag (policy
+# 5, t2236). ``-u`` tells the CLIENT to treat the terminal and its own output as
+# UTF-8 whatever the locale. Without it a client whose LC_ALL / LC_CTYPE / LANG
+# names no UTF-8 locale rewrites every non-printable or non-ASCII byte of
+# command output to ``_`` — the TAB in a ``-F`` format, ``ó`` in a path, a
+# non-ASCII session name. The CLIENT's locale decides it, not the server's.
+# A client flag, unlike forcing LC_CTYPE: it never leaks into the panes tmux
+# creates and needs no installed C.UTF-8 locale. Kept separate from the socket
+# args (``TmuxClient(socket_args=[])`` means "no socket flag", not "no -u"),
+# and read at call time so a test can blank it for a pre-fix control. Mirrored
+# in ``lib/tmux_exec.sh`` (AIT_TMUX_CLIENT_FLAGS).
+TMUX_CLIENT_FLAGS: tuple[str, ...] = ("-u",)
+
+# The tmux text codec (policy 5). With ``-u`` tmux reads and writes UTF-8 bytes;
+# ``surrogateescape`` lets a genuinely invalid byte (possible in a path or an
+# option value — format output passes it through raw; ``capture-pane`` already
+# substitutes U+FFFD) survive a decode → encode round trip unchanged.
+TMUX_ENCODING = "utf-8"
+TMUX_ERRORS = "surrogateescape"
+
 _DEFAULT_TIMEOUT = 5.0
+
+
+def tmux_text_kwargs() -> dict:
+    """``subprocess.run`` kwargs for text-mode tmux I/O (policy 5).
+
+    Use instead of ``text=True``, which decodes with the LOCALE codec: under
+    ``LC_ALL=C`` with Python's UTF-8 mode off that is ASCII, and the UTF-8 that
+    ``tmux -u`` writes raises an uncaught ``UnicodeDecodeError``.
+    """
+    return {"encoding": TMUX_ENCODING, "errors": TMUX_ERRORS}
+
+
+def decode_tmux_output(data: bytes) -> str:
+    """Decode bytes tmux wrote (stdout / stderr / a control-mode line)."""
+    return data.decode(TMUX_ENCODING, TMUX_ERRORS)
+
+
+def encode_tmux_wire(s: str) -> bytes:
+    """The bytes one tmux argument is sent as — on every route (policy 5).
+
+    ``os.fsencode(s)`` when the OS codec can represent ``s``, else
+    ``s.encode("utf-8", "surrogateescape")``:
+
+    * UTF-8 filesystem encoding: identical bytes either way (today's argv).
+    * ``ascii`` filesystem encoding (``LC_ALL=C`` with Python's UTF-8 mode and
+      locale coercion off): an OS string — ASCII plus surrogates, as
+      ``os.getcwd()`` returns it — keeps its native bytes, and tmux text such
+      as ``wïn`` (decoded from tmux's UTF-8) falls back to UTF-8. A string
+      mixing both comes out right too: UTF-8 + surrogateescape maps every
+      surrogate back to its raw byte.
+    * a single-byte named locale (Latin-1): OS paths keep their native bytes,
+      but tmux text whose characters all lie in that codec's repertoire is
+      sent in the locale codec — the documented limitation (policy 5).
+
+    The control client applies this per ARGUMENT, never to a joined command
+    line: one non-encodable argument must not re-encode its neighbours.
+    """
+    try:
+        return os.fsencode(s)
+    except UnicodeEncodeError:
+        return s.encode(TMUX_ENCODING, TMUX_ERRORS)
+
+
+def encode_tmux_argv(argv) -> list:
+    """``argv`` ready for ``subprocess`` / ``asyncio`` (policy 5).
+
+    A ``bytes`` element passes through. A ``str`` element stays ``str`` when its
+    wire bytes are what ``subprocess`` would produce from it anyway
+    (``os.fsencode``) — always, on a UTF-8 host, so the argv there is exactly
+    the caller's. Otherwise it becomes its :func:`encode_tmux_wire` bytes;
+    ``subprocess`` accepts mixed str / bytes argv on POSIX. A caller that
+    ``Popen``s a gateway-built argv itself (``new_session_argv``) wraps it here.
+    """
+    out: list = []
+    for a in argv:
+        if isinstance(a, (bytes, bytearray)):
+            out.append(a)
+            continue
+        wire = encode_tmux_wire(a)
+        try:
+            native = os.fsencode(a)
+        except UnicodeEncodeError:
+            native = None
+        out.append(a if wire == native else wire)
+    return out
+
+
+def tmux_os_path(s: str) -> str:
+    """A path read from tmux, in Python's OS representation (policy 5).
+
+    tmux output is decoded as UTF-8 text; the filesystem expects the native
+    bytes in the *filesystem* encoding. ``os.fsdecode`` of the original bytes
+    reconciles the two: the identity under any UTF-8 filesystem encoding, and
+    under ``ascii`` / a single-byte locale the string whose ``os.fsencode`` is
+    exactly the bytes tmux reported. Apply it before ``Path(…)`` / ``open`` /
+    ``is_dir`` on any tmux-sourced path; values that only go back to tmux or
+    into records / display stay as tmux text.
+    """
+    return os.fsdecode(s.encode(TMUX_ENCODING, TMUX_ERRORS))
 
 
 def tmux_socket_args() -> list[str]:
@@ -395,8 +507,9 @@ class TmuxClient:
         return list(self._socket_args)
 
     def _argv(self, args: list[str]) -> list[str]:
-        """Build the full process argv: ``tmux`` + socket flag + caller args."""
-        return ["tmux", *self._socket_args, *args]
+        """Build the full process argv: ``tmux`` + client flags (``-u``,
+        policy 5) + socket flag + caller args."""
+        return ["tmux", *TMUX_CLIENT_FLAGS, *self._socket_args, *args]
 
     @staticmethod
     def spawn_env(base=None) -> dict | None:
@@ -430,9 +543,9 @@ class TmuxClient:
         argv = self._argv(args)
         env = self.spawn_env(src)
         if env is None:
-            return argv, {}
+            return encode_tmux_argv(argv), {}
         argv[0] = resolve_spawn_exe("tmux", src.get("PATH"), env["PATH"], cwd)
-        return argv, {"env": env}
+        return encode_tmux_argv(argv), {"env": env}
 
     def run(
         self, args: list[str], timeout: float = _DEFAULT_TIMEOUT
@@ -446,7 +559,8 @@ class TmuxClient:
         argv, extra = self._launch(args)
         try:
             result = subprocess.run(
-                argv, capture_output=True, text=True, timeout=timeout, **extra,
+                argv, capture_output=True, timeout=timeout,
+                **tmux_text_kwargs(), **extra,
             )
         except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
             return (-1, "")
@@ -467,7 +581,8 @@ class TmuxClient:
         argv, extra = self._launch(args)
         try:
             result = subprocess.run(
-                argv, capture_output=True, text=True, timeout=timeout, **extra,
+                argv, capture_output=True, timeout=timeout,
+                **tmux_text_kwargs(), **extra,
             )
         except FileNotFoundError:
             return TmuxResult("no_tmux", -1, "", "")
@@ -495,8 +610,8 @@ class TmuxClient:
         argv, extra = self._launch(["load-buffer", "-w", "-"])
         try:
             result = subprocess.run(
-                argv, input=text, capture_output=True, text=True,
-                timeout=timeout, **extra,
+                argv, input=text, capture_output=True,
+                timeout=timeout, **tmux_text_kwargs(), **extra,
             )
         except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
             return False
@@ -531,7 +646,7 @@ class TmuxClient:
             with contextlib.suppress(Exception):
                 await proc.wait()
             return (-1, "")
-        return (proc.returncode or 0, stdout_bytes.decode("utf-8", errors="replace"))
+        return (proc.returncode or 0, decode_tmux_output(stdout_bytes))
 
     def spawn(self, args: list[str], **popen_kwargs) -> subprocess.Popen:
         """Fire-and-forget spawn of ``tmux <args>``. Returns the ``Popen``.
@@ -708,9 +823,11 @@ class TmuxClient:
         socket flag is injected into the ``tmux`` portion in all rungs.
 
         Faithful port of ``agent_launch_utils._new_session_tmux_argv``; the
-        returned argv is meant to be passed straight to ``subprocess.Popen``
-        **with** ``env=client.spawn_env()`` — the setsid / plain rungs hand the
-        new pane the launching process's PATH (policy 4).
+        returned argv (``str`` elements, ``-u`` ahead of the socket flag) is
+        meant to be passed to ``subprocess.Popen`` as
+        ``Popen(encode_tmux_argv(argv), env=client.spawn_env())`` — the setsid /
+        plain rungs hand the new pane the launching process's PATH (policy 4),
+        and the wrap sends each argument as its tmux wire bytes (policy 5).
         """
         cwd_args = cwd_args or []
         # The caller Popens this with env=spawn_env(): every launcher token is
@@ -722,7 +839,8 @@ class TmuxClient:
                 return name
             return resolve_spawn_exe(name, os.environ.get("PATH"), env["PATH"])
 
-        base = [exe("tmux"), *self._socket_args, "new-session", "-d",
+        base = [exe("tmux"), *TMUX_CLIENT_FLAGS, *self._socket_args,
+                "new-session", "-d",
                 "-s", session, "-n", window]
         if self._server_running():
             # Server already running → new-session attaches a session (no server

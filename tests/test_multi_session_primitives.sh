@@ -72,7 +72,7 @@ def fake_run(cmd, *args, **kwargs):
     result = MagicMock()
     result.returncode = 0
     # display-message calls read the format string from position 4.
-    if len(cmd) >= 4 and cmd[1] == "display-message":
+    if len(cmd) >= 4 and cmd[1:3] == ["-u", "display-message"]:
         fmt = cmd[-1]
         if fmt == "#{session_name}":
             result.stdout = "mysess\n"

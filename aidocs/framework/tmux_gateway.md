@@ -2,7 +2,8 @@
 
 The framework talks to tmux through a **single command gateway per language**.
 The gateway is the only sanctioned place a raw `tmux` process is spawned, and it
-owns four cross-cutting policies (socket, targeting, exec strategy, pane PATH)
+owns five cross-cutting policies (socket, targeting, exec strategy, pane PATH,
+client UTF-8 and the tmux text model)
 that used to be scattered and duplicated across ~45–50 call sites. New code that touches tmux
 — in any script or TUI, not just the obvious ones — must route through it.
 
@@ -26,16 +27,22 @@ raw `tmux` process; everything else goes through them.
   - `resize_pane` — sole owner of the `resize-pane` verb.
   - `new_session_argv` — builds the socket-aware, persistence-wrapped
     `new-session` argv (mirrors `terminal_compat.sh`'s persistence ladder).
+  - The text model (policy 5): `TMUX_CLIENT_FLAGS` (`-u`), `TMUX_ENCODING` /
+    `TMUX_ERRORS`, and `tmux_text_kwargs`, `decode_tmux_output`,
+    `encode_tmux_wire`, `encode_tmux_argv`, `tmux_os_path`.
   - Module functions `tmux_socket_args`, `session_target`,
     `session_scope_target`, `window_target`, `normalize_spawn_path`,
     `resolve_spawn_exe`, `creates_pane`, and `TmuxClient.spawn_env` (see
     *Pane PATH*).
 - **Shell** — `.aitask-scripts/lib/tmux_exec.sh`. Source it, then use:
-  - `ait_tmux <args…>` — function form, socket flag auto-prepended, for captured
-    / plain call sites.
-  - `ait_tmux_socket_args` — emitter (one arg per line) for `exec` / compound
-    `\;` sites, where a shell function can't be used:
-    `exec tmux $(ait_tmux_socket_args) attach -t "$t" \; select-window -t "$w"`.
+  - `ait_tmux <args…>` — function form, client flags (`-u`) and socket flag
+    auto-prepended, for captured / plain call sites.
+  - `ait_tmux_client_args` — emitter (one arg per line: `AIT_TMUX_CLIENT_FLAGS`,
+    then the socket flag) for `exec` / compound `\;` sites, where a shell
+    function can't be used:
+    `exec tmux $(ait_tmux_client_args) attach -t "$t" \; select-window -t "$w"`.
+  - `ait_tmux_socket_args` — the socket flag alone (parity-pinned with Python's
+    `tmux_socket_args`). Not for `exec` sites: it omits `-u`.
   - `ait_tmux_session_target` / `ait_tmux_window_target` — exact-match `-t`
     targets (see *Target formatting*).
   - `ait_tmux_socket_name` — the resolved socket name, for callers comparing
@@ -49,7 +56,7 @@ raw `tmux` process; everything else goes through them.
     **default** server, for the migration window only (detect a pre-dedicated-socket
     session so a mid-flight user is not stranded). Not for general use.
 
-## The four centralized policies
+## The five centralized policies
 
 ### 1. Socket selection (dedicated `-L ait` socket)
 
@@ -200,6 +207,112 @@ Panes created outside the framework (the user's own key bindings, a hand-typed
 `tests/test_tmux_spawn_path_live.sh` reproduces the hazard with a bounded fake
 wrapper on a private server and drives every route above against it.
 
+### 5. Client UTF-8 and the tmux text model (`tmux -u`)
+
+tmux rewrites every non-printable or non-ASCII byte of command output to `_`
+when the **client** process has no UTF-8 locale (no `LC_ALL` / `LC_CTYPE` /
+`LANG` naming UTF-8). The client's locale decides it, not the server's.
+Measured on tmux 3.8 against private sockets (3.4 and 3.6a behave the same):
+
+| client env | TAB | `ó` | `\x1f` |
+|---|---|---|---|
+| none / `LANG=C` / `LC_ALL=C` | `_` | `_` | `_` |
+| `LANG=C.UTF-8` / `LC_CTYPE=C.UTF-8` | kept | kept | kept |
+| no locale + `tmux -u` | kept | kept | kept |
+| control mode (`-C attach`), no locale | `_` | `_` | — |
+| control mode with `-u`, no locale | kept | kept | — |
+
+The TAB in `_SESSION_LIST_FORMAT` turns into `_`, every session name gains a
+trailing `_`, and discovery finds nothing. Python sees this under `LC_ALL=C` /
+`POSIX` or a non-UTF-8 named locale (with no locale at all, PEP 538 coercion
+hides it). Shell callers see it whenever the locale is unset.
+
+**The rule: every tmux client the framework spawns passes `-u`.** That covers
+`TmuxClient._argv`, `new_session_argv`, the control-mode `_attach_argv`, the
+Python ambient `$TMUX` probes, `ait_tmux`, `ait_tmux_legacy`,
+`ait_tmux_client_args` and the persistence ladder. `-u` is better than forcing
+`LC_CTYPE` because it is a *client* flag: it never leaks into the panes tmux
+creates, and it does not need an installed `C.UTF-8` locale (macOS has none).
+On an interactive `attach` it makes the client assume a UTF-8 terminal, which
+is what every framework TUI already emits.
+
+**Python: `-u` alone is not enough.** With `-u`, tmux speaks UTF-8 in both
+directions whatever the locale. Before, a client with no locale got only ASCII
+`_` back, so no Python decoder ever saw a high byte. Measured:
+
+| observation | consequence |
+|---|---|
+| `text=True` decodes with the *locale* codec | under `LC_ALL=C PYTHONUTF8=0 PYTHONCOERCECLOCALE=0` (fs encoding `ascii`), `run` / `run_checked` raise an uncaught `UnicodeDecodeError` on `prój` |
+| format output passes invalid UTF-8 through raw | a cwd or option `b\xffd` comes back as `/b\377d` |
+| `capture-pane -p` substitutes U+FFFD for invalid bytes | captured screen text is always valid UTF-8 |
+| `os.fsdecode` under an `ascii` fs encoding turns *valid* UTF-8 into surrogates | text consumers crash (`concern_block_signature` encodes the text as UTF-8; the control channel strict-encoded its line), so `fsdecode` is the wrong decoder for tmux output |
+
+So strings read from tmux are **tmux text** — real Unicode — and the gateway
+converts at three boundaries:
+
+- **Decode** (tmux → Python): UTF-8 + `surrogateescape`, via
+  `tmux_text_kwargs()` (for `subprocess.run`, in place of `text=True`) and
+  `decode_tmux_output()` (`run_async`, the control reader, raw readers). Valid
+  UTF-8 always reads as Unicode, and an invalid byte becomes a lone surrogate
+  that round-trips.
+- **Encode** (Python → tmux): `encode_tmux_wire(s)` is `os.fsencode(s)` when
+  the OS codec can represent `s`, otherwise UTF-8 + `surrogateescape`. An OS
+  string such as `os.getcwd()` therefore keeps its native bytes, and tmux text
+  falls back to UTF-8 only where the OS codec cannot hold it.
+  - `encode_tmux_argv` applies this per argv element and keeps an element as
+    `str` whenever that is what `subprocess` would send anyway (always, on a
+    UTF-8 host). The control client applies it **per argument** (`monitor_core._control_line`),
+    never to the joined line: one non-encodable argument must not re-encode a
+    native OS-path argument beside it.
+  - `set_clipboard` stdin is buffer content, so it is always UTF-8.
+- **Filesystem**: a path read from tmux (`#{pane_current_path}`, the
+  `@aitask_project_root` / `@aitask_sitrep_root` / `@aitask_sitrep_tui_root` /
+  `@aitask_scratchpad_store` stamps, `AITASKS_PROJECT_<s>`) goes through
+  `tmux_os_path()` before `Path(…)` / `open` / `is_dir` or a comparison with an
+  OS path. It is the identity on any UTF-8 host. Values that only go back to
+  tmux or into records / display stay as tmux text.
+
+**Scope of support (user decision, t2236).**
+
+- **Fully supported**: UTF-8 locales, and C/POSIX with or without Python's
+  UTF-8 mode or locale coercion. Names, paths, captured text and the control
+  channel all round-trip.
+- **Single-byte named locales** (e.g. ISO-8859-1) are **partially** supported:
+  - The TAB separator, ASCII content and captured screen text work.
+  - OS paths keep their native bytes in both directions: `-c <dir>` and
+    path-valued options go out natively, and read-back paths reach the OS via
+    `tmux_os_path`.
+  - **Limitation:** a non-ASCII *tmux-text* argument, such as a session or
+    window name read back from tmux, whose characters all lie in the locale
+    codec's repertoire (`wïn` under Latin-1) is sent in the locale codec rather
+    than UTF-8. So it does not round-trip into a `-t` target, `has-session` or
+    a control request.
+  - Characters outside the repertoire (`€`, CJK) cannot be `fsencode`d, so they
+    are sent as UTF-8 and do round-trip.
+  - **Consequence for discovery:** pane-vote discovery issues
+    `list-panes -t =wïn:`; tmux answers "can't find session", which
+    `discover_aitasks_sessions_checked` classifies as gone. Such a session is
+    therefore **silently absent**, with `complete=True`, and a control attach
+    to it fails. A stamped session is still discovered (its root comes with
+    `list-sessions`) but cannot be targeted by its name.
+  - Cause: a `str` reaching the gateway does not say whether it is a native OS
+    path or tmux text. Full support means typing the OS-path inputs at their
+    builders as native bytes (see the follow-up task linked in the t2236
+    archived plan).
+  - Evidence: the codec behaviour is pinned by the codec-patched table in
+    `tests/test_tmux_exec.py`. The live lane in
+    `tests/test_tmux_utf8_client_live.sh` runs only where `locale -a` lists a
+    single-byte locale.
+
+**Not covered:** `aitask_companion_cleanup.sh` stays raw by design. It reads
+only pane ids and empty / non-empty option values with a `|` separator, so
+mangling cannot change any decision it makes. Its call shapes are pinned by
+`test_cleanup_rule_parity.sh`.
+
+`tests/test_tmux_utf8_client_live.sh` reproduces the defect on a private server
+in probe-selected locale lanes, with pre-fix controls (blanked `-u`, the old
+decoders) proving each lane triggers what it claims to test.
+
 ## The enforcement guard
 
 `tests/test_no_raw_tmux.sh` greps `.aitask-scripts/` for raw `tmux` spawns and
@@ -227,8 +340,16 @@ backends that already reach the gateway socket — not as an escape hatch.
 4. Never hand tmux a PATH yourself, and never send a pane-creating verb over the
    control client — the gateway owns the pane PATH (see *Pane PATH*). A caller
    that `Popen`s a gateway-built argv passes `env=client.spawn_env()`.
-5. Don't add yourself to the `test_no_raw_tmux.sh` allowlist.
-6. Run `bash tests/test_no_raw_tmux.sh` before committing.
+5. Never `text=True`, `.decode()` or `.encode()` on tmux I/O — use
+   `tmux_text_kwargs()` / `decode_tmux_output()` / `encode_tmux_wire()`. Convert
+   a tmux-sourced path with `tmux_os_path()` before the filesystem sees it. A
+   caller that `Popen`s a gateway-built argv wraps it:
+   `Popen(encode_tmux_argv(argv), env=client.spawn_env())`. A shell `exec` site
+   uses `ait_tmux_client_args`, never the bare socket emitter. A `-F` format's
+   TAB separator is a real byte (`$'\t'` in shell): tmux keeps a single-quoted
+   `\t` literally (see *Client UTF-8*).
+6. Don't add yourself to the `test_no_raw_tmux.sh` allowlist.
+7. Run `bash tests/test_no_raw_tmux.sh` before committing.
 
 ## Multiple real agents per window — state keyed by `pane_id`
 

@@ -82,7 +82,7 @@ class RenameGateTests(unittest.IsolatedAsyncioTestCase):
         calls = await self._mount_and_capture(FAKE_TMUX_ENV, rename_window=True)
         self.assertEqual(
             self._rename_calls(calls),
-            [["tmux", "rename-window", "-t", "%99", "monitor"]],
+            [["tmux", "-u", "rename-window", "-t", "%99", "monitor"]],
         )
 
     async def test_production_flag_without_pane_is_failsafe(self):

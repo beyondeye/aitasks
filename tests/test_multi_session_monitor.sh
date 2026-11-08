@@ -616,7 +616,7 @@ with patch.object(alu.subprocess, "Popen", side_effect=fake_popen), \
         cwd="/tmp/projB",
     )
     alu.launch_in_tmux("claude", cfg)
-nw = next((c for c in captured if c[1] == "new-window"), None)
+nw = next((c for c in captured if c[1:3] == ["-u", "new-window"]), None)
 print("NW_HAS_C:" + str(nw is not None and "-c" in nw and "/tmp/projB" in nw))
 
 # split-window + cwd (post-t675 uses subprocess.run for split-window)
@@ -628,7 +628,7 @@ with patch.object(alu.subprocess, "Popen", side_effect=fake_popen), \
         cwd="/tmp/projC",
     )
     alu.launch_in_tmux("claude", cfg)
-sw = next((c for c in captured if c[1] == "split-window"), None)
+sw = next((c for c in captured if c[1:3] == ["-u", "split-window"]), None)
 print("SW_HAS_C:" + str(sw is not None and "-c" in sw and "/tmp/projC" in sw))
 
 # cwd=None → no -c
@@ -639,7 +639,7 @@ with patch.object(alu.subprocess, "Popen", side_effect=fake_popen), \
         session="s", window="w", new_session=False, new_window=True,
     )
     alu.launch_in_tmux("claude", cfg)
-nw_default = next((c for c in captured if c[1] == "new-window"), None)
+nw_default = next((c for c in captured if c[1:3] == ["-u", "new-window"]), None)
 print("DEFAULT_NO_C:" + str(nw_default is not None and "-c" not in nw_default))
 PY
 )

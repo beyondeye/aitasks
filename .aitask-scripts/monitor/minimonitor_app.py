@@ -100,7 +100,7 @@ from monitor.desync_summary import (  # noqa: E402
     get_desync_summary_cached as _get_desync_summary_cached,
 )
 from tui_switcher import TuiSwitcherMixin  # noqa: E402
-from tmux_exec import TmuxClient  # noqa: E402
+from tmux_exec import TMUX_CLIENT_FLAGS, TmuxClient, tmux_text_kwargs  # noqa: E402
 from shortcuts_mixin import ShortcutsMixin  # noqa: E402
 from tui_clipboard import copy_to_system_clipboard  # noqa: E402
 import userconfig_persist  # noqa: E402  (collapsed key-hint mode, t2212)
@@ -6676,8 +6676,8 @@ def _detect_tmux_session() -> str | None:
         return None
     try:
         result = subprocess.run(
-            ["tmux", "display-message", "-p", "#S"],
-            capture_output=True, text=True, timeout=5,
+            ["tmux", *TMUX_CLIENT_FLAGS, "display-message", "-p", "#S"],
+            capture_output=True, timeout=5, **tmux_text_kwargs(),
         )
         if result.returncode == 0 and result.stdout.strip():
             return result.stdout.strip()

@@ -39,7 +39,15 @@ for _extra_path in (_SCRIPTS_DIR / "lib",):
     if str(_extra_path) not in sys.path:
         sys.path.insert(0, str(_extra_path))
 from tui_registry import BRAINSTORM_PREFIX, TUI_NAMES  # noqa: E402
-from tmux_exec import TmuxClient, tmux_socket_args  # noqa: E402  (gateway: exec-strategy dispatch + socket flag)
+from tmux_exec import (  # noqa: E402  (gateway: exec-strategy dispatch + socket flag + text model)
+    TMUX_CLIENT_FLAGS,
+    TmuxClient,
+    decode_tmux_output,
+    encode_tmux_argv,
+    encode_tmux_wire,
+    tmux_os_path,
+    tmux_socket_args,
+)
 from agent_launch_utils import (  # noqa: E402
     AitasksSession,
     TmuxLaunchConfig,
@@ -1480,6 +1488,21 @@ def _quote_arg(arg: str) -> str:
     return '"' + arg.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
+def _control_line(args: list[str]) -> bytes:
+    """The control-mode wire line for one command (policy 5, t2236).
+
+    Each argument is quoted, then encoded ON ITS OWN with
+    :func:`tmux_exec.encode_tmux_wire` — the exact bytes it would get as a
+    subprocess argv element, so the control route and the subprocess route of
+    ``run_via_control`` send the same command. Encoding the joined line once is
+    wrong: a single argument the OS codec cannot represent (``=€:`` under a
+    Latin-1 locale) would push the whole line to UTF-8 and re-encode an
+    unrelated native OS-path argument beside it. ``_quote_arg`` adds only ASCII
+    quote / backslash characters, which encode identically under any codec.
+    """
+    return b" ".join(encode_tmux_wire(_quote_arg(a)) for a in args) + b"\n"
+
+
 class TmuxControlClient:
     """Single persistent `tmux -C` control client."""
 
@@ -1524,8 +1547,8 @@ class TmuxControlClient:
         a method so the argv is unit-testable without spawning a process.
         """
         return [
-            "tmux", *self._socket_args, "-C", "attach", "-t", self.session,
-            "-f", "no-output,ignore-size",
+            "tmux", *TMUX_CLIENT_FLAGS, *self._socket_args, "-C", "attach",
+            "-t", self.session, "-f", "no-output,ignore-size",
         ]
 
     async def start(self) -> bool:
@@ -1539,7 +1562,7 @@ class TmuxControlClient:
             return self._alive
         try:
             self._proc = await asyncio.create_subprocess_exec(
-                *self._attach_argv(),
+                *encode_tmux_argv(self._attach_argv()),
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.DEVNULL,
@@ -1569,7 +1592,7 @@ class TmuxControlClient:
                 line_bytes = await self._proc.stdout.readline()
                 if not line_bytes:
                     break  # EOF
-                line = line_bytes.decode("utf-8", errors="replace")
+                line = decode_tmux_output(line_bytes)
                 if line.endswith("\n"):
                     line = line[:-1]
 
@@ -1636,7 +1659,7 @@ class TmuxControlClient:
         if not self._alive or self._proc is None or self._proc.stdin is None:
             return (-1, "")
 
-        cmd_line = " ".join(_quote_arg(a) for a in args) + "\n"
+        cmd_line = _control_line(args)
         fut: asyncio.Future = asyncio.get_running_loop().create_future()
 
         async with self._write_lock:
@@ -1644,7 +1667,7 @@ class TmuxControlClient:
                 return (-1, "")
             self._pending.append(fut)
             try:
-                self._proc.stdin.write(cmd_line.encode("utf-8"))
+                self._proc.stdin.write(cmd_line)
                 await self._proc.stdin.drain()
             except (BrokenPipeError, ConnectionResetError, OSError):
                 self._teardown_pending()
@@ -4753,6 +4776,8 @@ def match_scratchpad_pane(out: str, followed_pane: str,
             continue
         parts = (line.split("\t") + ["", "", "", ""])[:4]
         pane_id, target, store, frozen = (p.strip() for p in parts)
+        # The store key is a canonical OS path (policy 5, t2236).
+        store = tmux_os_path(store)
         if not pane_id or frozen:
             continue
         if (store_key and store == store_key) or (
@@ -5087,8 +5112,12 @@ def _sitrep_rows(out: str):
             pid = int(pid_str)
         except ValueError:
             continue
+        # The two root stamps and the cwd are PATHS compared against a
+        # canonical OS root: read them into Python's OS representation
+        # (identity on a UTF-8 host; policy 5, t2236).
         yield _SitrepRow(pane_id, pid, shadow, monitor_kind, frozen, dead,
-                         scratch, tui_root, stamp, window, cwd)
+                         scratch, tmux_os_path(tui_root), tmux_os_path(stamp),
+                         window, tmux_os_path(cwd))
 
 
 def match_sitrep_pane(out: str, root: str,

@@ -38,6 +38,7 @@ from textual.widget import Widget  # noqa: E402
 from textual.widgets import Footer, Header, Label, ListItem, ListView, Static  # noqa: E402
 
 from lib.tui_switcher import TuiSwitcherMixin  # noqa: E402  (also adds lib/ to sys.path)
+from tmux_exec import TMUX_CLIENT_FLAGS, tmux_text_kwargs  # noqa: E402  (policy 5)
 from shortcuts_mixin import ShortcutsMixin  # noqa: E402
 from agent_launch_utils import (  # noqa: E402
     PROJECT_GROUP_UNGROUPED_LABEL,
@@ -244,8 +245,9 @@ class StatsApp(TuiSwitcherMixin, ShortcutsMixin, App):
             try:
                 import subprocess
                 result = subprocess.run(
-                    ["tmux", "display-message", "-p", "#{session_name}"],
-                    capture_output=True, text=True, timeout=2,
+                    ["tmux", *TMUX_CLIENT_FLAGS, "display-message", "-p",
+                     "#{session_name}"],
+                    capture_output=True, timeout=2, **tmux_text_kwargs(),
                 )
                 if result.returncode == 0:
                     attached_name = result.stdout.strip() or None

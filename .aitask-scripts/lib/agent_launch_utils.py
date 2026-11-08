@@ -28,7 +28,14 @@ from typing import NamedTuple
 
 from artifact_manifest import HANDLE_RE
 from tui_registry import TUI_NAMES as _DEFAULT_TUI_NAMES
-from tmux_exec import TmuxClient, session_scope_target, tmux_stderr_is
+from tmux_exec import (
+    TmuxClient,
+    decode_tmux_output,
+    encode_tmux_argv,
+    session_scope_target,
+    tmux_os_path,
+    tmux_stderr_is,
+)
 # The monitor pane marker: rule + classification live in monitor_marker (one
 # implementation, also exec'd by aitask_minimonitor.sh); the writers live here,
 # where the tmux gateway client is. Re-exported so callers have a single import.
@@ -685,7 +692,7 @@ def _registry_entry_from_output(out: str) -> Path | None:
     value = value.strip()
     if not value:
         return None
-    path = Path(value)
+    path = Path(tmux_os_path(value))  # tmux env value -> OS path (policy 5)
     if not (path / "aitasks" / "metadata" / "project_config.yaml").is_file():
         return None
     return path
@@ -1317,7 +1324,9 @@ def _registered_root(value: str) -> Path | None:
     """
     if not value:
         return None
-    path = Path(value)
+    # A tmux option value: into the OS representation before the filesystem
+    # sees it (identity on a UTF-8 host; tmux_gateway.md policy 5, t2236).
+    path = Path(tmux_os_path(value))
     if not (path / "aitasks" / "metadata" / "project_config.yaml").is_file():
         return None
     return path
@@ -1344,7 +1353,8 @@ def _pane_vote(pane_paths: list[str]) -> Path | None:
     for raw_path in pane_paths:
         if not raw_path:
             continue
-        candidate = _walk_up_to_aitasks(Path(raw_path))
+        # ``#{pane_current_path}`` is tmux text; the walk-up is filesystem.
+        candidate = _walk_up_to_aitasks(Path(tmux_os_path(raw_path)))
         if candidate is None:
             continue
         key = _root_key(candidate)
@@ -2125,11 +2135,11 @@ def launch_in_tmux(command: str, config: TmuxLaunchConfig) -> tuple[int | None, 
         tmux_cmd = _TMUX.new_session_argv(
             config.session, config.window, command, cwd_args, config.cwd,
         )
-        proc = subprocess.Popen(tmux_cmd, stderr=subprocess.PIPE,
-                                env=_TMUX.spawn_env())
+        proc = subprocess.Popen(encode_tmux_argv(tmux_cmd),
+                                stderr=subprocess.PIPE, env=_TMUX.spawn_env())
         proc.wait()
         if proc.returncode != 0:
-            stderr = proc.stderr.read().decode() if proc.stderr else ""
+            stderr = decode_tmux_output(proc.stderr.read()) if proc.stderr else ""
             return None, f"tmux new-session failed: {stderr}"
         pane_pid = _query_first_pane_pid(config.session, config.window)
         # Try to switch client (works if we're inside tmux)

@@ -202,9 +202,10 @@ ait_tmux_new_session_persistent() {
     _tc_lib_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
     # shellcheck source=tmux_exec.sh disable=SC1091
     source "$_tc_lib_dir/tmux_exec.sh"
+    # Client flags (`-u`, t2236) + socket flag, via the client-args emitter.
     local -a sock=()
     local _line
-    while IFS= read -r _line; do sock+=("$_line"); done < <(ait_tmux_socket_args)
+    while IFS= read -r _line; do sock+=("$_line"); done < <(ait_tmux_client_args)
     # The first window's PATH must not depend on ours (t1689): tmux copies the
     # issuing client's PATH into it, and under systemd-run the client runs in
     # the user manager's environment instead, so that rung is handed the PATH

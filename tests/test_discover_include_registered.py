@@ -60,7 +60,7 @@ class IncludeRegisteredTests(unittest.TestCase):
         self._tmpdir = tempfile.TemporaryDirectory()
         self.tmp = Path(self._tmpdir.name)
         # Pin the module-level gateway singleton to NO socket flag: _fake_run
-        # prefix-matches argv[:2] == ["tmux", "list-sessions"], but since t953
+        # prefix-matches argv[:3] == ["tmux", "-u", "list-sessions"], but since t953
         # a default-constructed TmuxClient carries `-L ait`. Swapping the
         # singleton (rather than setting the env var pre-import) stays correct
         # under run_all_python_tests.sh, where another module may import
@@ -220,9 +220,9 @@ class IncludeRegisteredTests(unittest.TestCase):
             side_effect=lambda p: live_only_project if p == live_only_project else None,
         ):
             def _fake_tmux(argv, *a, **k):
-                if argv[:2] == ["tmux", "list-sessions"]:
+                if argv[:3] == ["tmux", "-u", "list-sessions"]:
                     return mock.Mock(returncode=0, stdout="live_sess\n", stderr="")
-                if argv[:2] == ["tmux", "list-panes"]:
+                if argv[:3] == ["tmux", "-u", "list-panes"]:
                     return mock.Mock(returncode=0, stdout=f"{live_only_project}\n", stderr="")
                 if argv[0] == "tmux":
                     return mock.Mock(returncode=1, stdout="", stderr="")
@@ -254,9 +254,9 @@ class IncludeRegisteredTests(unittest.TestCase):
             # Fake tmux to return one live session whose pane walks up
             # to <proj>.
             def _fake_tmux(argv, *a, **k):
-                if argv[:2] == ["tmux", "list-sessions"]:
+                if argv[:3] == ["tmux", "-u", "list-sessions"]:
                     return mock.Mock(returncode=0, stdout="live_sess\n", stderr="")
-                if argv[:2] == ["tmux", "list-panes"]:
+                if argv[:3] == ["tmux", "-u", "list-panes"]:
                     return mock.Mock(returncode=0, stdout=f"{proj}\n", stderr="")
                 if argv[0] == "tmux":
                     return mock.Mock(returncode=1, stdout="", stderr="")
@@ -335,10 +335,10 @@ class NonUtf8DiscoveryTests(unittest.TestCase):
 
     def _fake_run(self, argv, *args, **kwargs):
         # A running server: no sessions, or one live session on live_root.
-        if argv[:2] == ["tmux", "list-sessions"]:
+        if argv[:3] == ["tmux", "-u", "list-sessions"]:
             out = "live_sess\n" if self.live_root is not None else ""
             return mock.Mock(returncode=0, stdout=out, stderr="")
-        if argv[:2] == ["tmux", "list-panes"] and self.live_root is not None:
+        if argv[:3] == ["tmux", "-u", "list-panes"] and self.live_root is not None:
             return mock.Mock(returncode=0, stdout=f"{self.live_root}\n", stderr="")
         if argv and argv[0] == "tmux":
             return mock.Mock(returncode=1, stdout="", stderr="")

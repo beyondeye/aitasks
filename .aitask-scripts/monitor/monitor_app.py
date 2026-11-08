@@ -83,7 +83,7 @@ from tui_clipboard import copy_to_system_clipboard  # noqa: E402
 import subprocess  # noqa: E402
 from agent_launch_utils import resolve_dry_run_command, resolve_agent_string, TmuxLaunchConfig, launch_in_tmux, maybe_spawn_minimonitor, mark_monitor_pane, tmux_session_target, unmark_monitor_pane, load_tmux_defaults  # noqa: E402
 from agent_command_screen import AgentCommandScreen, build_pick_screen  # noqa: E402
-from tmux_exec import TmuxClient  # noqa: E402
+from tmux_exec import TMUX_CLIENT_FLAGS, TmuxClient, tmux_text_kwargs  # noqa: E402
 
 # Gateway client for the Layer-A backend calls below (has-session /
 # rename-session target the ait backend session by name, so they must reach
@@ -113,7 +113,7 @@ def _rename_window_argv(pane: str | None) -> list[str]:
     """
     if not pane:
         return []
-    return ["tmux", "rename-window", "-t", pane, "monitor"]
+    return ["tmux", *TMUX_CLIENT_FLAGS, "rename-window", "-t", pane, "monitor"]
 
 
 # -- Zone model ---------------------------------------------------------------
@@ -4137,8 +4137,8 @@ def _detect_tmux_session() -> str | None:
         return None
     try:
         result = subprocess.run(
-            ["tmux", "display-message", "-p", "#S"],
-            capture_output=True, text=True, timeout=5,
+            ["tmux", *TMUX_CLIENT_FLAGS, "display-message", "-p", "#S"],
+            capture_output=True, timeout=5, **tmux_text_kwargs(),
         )
         if result.returncode == 0 and result.stdout.strip():
             return result.stdout.strip()
