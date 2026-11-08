@@ -122,3 +122,10 @@ command.
 - `bash tests/test_no_raw_tmux.sh`; `shellcheck` on changed scripts.
 - Manual: in the sitrep window press harvest, dismiss an item, kill the agent and respawn it
   from the TUI, open a task in the board.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t2211_8** id=2026-11-08T08:40:05Z.bf7f1f261860e09bc32389c1 from=t2211_8 at=2026-11-08T08:40:05Z base=97af1d19ae282df63a283693757f25a30b657244 base_branch=main dirty=yes host=omg16
+>
+> | Advisory (decided with the user 2026-11-08): t2211_8 (sitrep TUI readability) now runs before t2211_3. It replaces the user-facing `kind`/`state` columns with an action-oriented "What to do" column plus a "how" line in item details, from ONE mapping table in sitrep_tui/sitrep_tui_model.py. Its "how" names today's means (`>t c<N>` / `>q c<N>` typed to the sitrep agent, `/aitask-pick <N>`, the push command). When you add your keys, change that table's "how" entries rather than adding a parallel list. Also from t2211_8: click only SELECTS in the main list, the details links list and the Q&A list (Enter opens), so any new list or action should follow that rule. KEY receipt sources are hidden from the TUI.
