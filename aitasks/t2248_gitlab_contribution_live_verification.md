@@ -79,21 +79,36 @@ Script all of it, re-runnable, and tear it down at the end. Never echo a token: 
 3. Give each account its own glab configuration (`GLAB_CONFIG_DIR=<dir>/<user>`, `glab auth login --hostname localhost:<port> --stdin`, `api_protocol http`).
 4. Write a non-interactive driver that sources `.aitask-scripts/aitask_contribute.sh` and calls `gitlab_create_issue "<root>/aitask-ct" <title> <body-with-metadata> false`. The body comes from `aitask_contribute.sh --dry-run`. `/aitask-contribute` itself is interactive, so it can't be used here.
 
+### Part B record (2026-11-08, run from the t2241 follow-up session)
+
+- Versions: `gitlab/gitlab-ce:19.4.5-ce.0` (API reports 19.4.5, revision 2c6f5521891, CE) and `gitlab/gitlab-runner:alpine-v19.5.3`; rootless podman 6.1.4 (runc, netavark).
+- Server settings: published on `127.0.0.1:8929` with `external_url 'http://localhost:8929'`, 2 Puma workers, Sidekiq concurrency 5, Prometheus/KAS/registry off. Ready after about 9 minutes, using about 3.5 GB.
+- Root token: seeded with `gitlab-rails runner` (`personal_access_tokens.build(...).set_token(ENV["SEED_TOKEN"])`, scopes api and admin_mode). User tokens: `POST /users/:id/personal_access_tokens`.
+- Project: `maint/aitask-ct`, public, labels `contribution` and `area:scripts`, with `guest` added at access level 10.
+- glab: **pass `--insecure-storage` to `glab auth login`**. Without it, glab 1.126 stores the token in the OS keyring keyed by host, and every per-account `GLAB_CONFIG_DIR` then shares the last login.
+- Driver: a `bash -c` that sources `.aitask-scripts/aitask_contribute.sh` and calls `gitlab_create_issue "http://localhost:8929/maint/aitask-ct" <title> <body> false`. The body comes from `_glab_stub_metadata` (`tests/lib/glab_contribution_stub.sh`).
+- Runner: registered with `POST /user/runners`, `config.toml` written by hand, container started with `--network host -v /run/user/1000/podman/podman.sock:/var/run/docker.sock`. The project holds `.gitlab-ci.yml` (the template), `.aitask-scripts/aitask_contribution_check.sh` and `.aitask-scripts/lib/`, with CI variable `GITLAB_TOKEN` (masked).
+- **Defect D1 (t2241, shipped):** `_gitlab_verify_contribution_label` (`.aitask-scripts/aitask_contribute.sh`) matches `https://[^[:space:]]+/-/issues/[0-9]+`. That fails in two ways:
+  - glab 1.126 prints `http://localhost:8929/maint/aitask-ct/-/work_items/1`;
+  - REST `web_url` is `/-/work_items/<iid>` both locally and on gitlab.com (`gitlab-org/cli` #8724), and `http://` self-managed hosts never match.
+
+  The result is that the "label was silently dropped" warning never fires; contributors always get "Could not verify". The unit tests did not catch it because their fake glab output prints `/-/issues/77`. Fix: match `https?://[^[:space:]]+/-/(issues|work_items)/[0-9]+`, and switch the test fixture to the real `work_items` output.
+
 ## Verification Checklist
 
 - [x] Job script under real Alpine BusyBox ash and date — scheduled scan, failure paths, trigger mode, legacy-cutoff control — PASS 2026-11-08 auto: Part A1 (recorded from the t2241 follow-up session, not from a pick of this task)
 - [x] glab `:id` resolution and `--paginate` output, plus REST paging, against real gitlab.com responses — PASS 2026-11-08 auto: Part A2, anonymous. Finding: glab prints one array per page (see the stub item below)
 - [ ] Switch the default of `tests/lib/glab_contribution_stub.sh` to one array per page (the real glab 1.126 output), and keep the merged form behind a knob. Adjust Test 28/28b in `tests/test_contribution_check.sh` so the default leg models real glab.
-- [ ] Part B: `outsider` (a non-member) creates an issue through the driver. The issue exists without `contribution`, and stderr contains "not members of" and "silently dropped".
-- [ ] Part B: `maint` (and `guest`, if added) create issues. The label is kept and nothing is printed on stderr.
-- [ ] Part B, glab path: in a checkout whose `origin` points at the local project, with `outsider`'s glab config and no `--repo`, `aitask_contribution_review.sh list-issues` lists the unlabeled issue with `HAS_METADATA:true`.
-- [ ] Part B, curl path: with `CI_API_V4_URL=http://localhost:<port>/api/v4` and `GITLAB_TOKEN` set to `maint`'s token, `aitask_contribution_check.sh <iid> --platform gitlab --repo root/aitask-ct --dry-run` scores the unlabeled issue against a second contribution issue that shares a file.
-- [ ] Part B, runner:
+- [x] Part B: `outsider` (a non-member) creates an issue through the driver, and the issue exists without `contribution` — PASS 2026-11-08 auto: #1 rc=0 `labels=[]` (GitLab CE 19.4.5). Separate sub-check, **FAIL**: stderr was "Could not verify that the 'contribution' label was applied to the new issue.", not the dropped-label warning. See Part B record, defect D1
+- [x] Part B: `maint` and `guest` create issues and the label is kept — PASS 2026-11-08 auto: #3 (maint, Owner) and #2 (guest, Guest) carry `contribution`. Stderr showed the same D1 "Could not verify" warning instead of nothing
+- [x] Part B, glab path: `list-issues --platform gitlab` from a checkout whose origin is the local project, with outsider's glab config and `GITLAB_TOKEN` unset — PASS 2026-11-08 auto: listed #3, #2, #1, all `HAS_METADATA:true`, including unlabeled #1; ordinary #4 not listed. The curl path cannot run without a token, so `:id` was resolved by glab
+- [x] Part B, curl path: `aitask_contribution_check.sh 1 --platform gitlab --repo maint/aitask-ct --dry-run` with `CI_API_V4_URL` and maint's token — PASS 2026-11-08 auto: #3 scored 8 (high, same file) and #2 scored 5 (likely)
+- [x] Part B, runner: pinned `gitlab/gitlab-runner:alpine-v19.5.3`, Docker executor on the rootless podman socket, `network_mode=host`; schedule played through the API — PASS 2026-11-08 auto: pipeline 1 succeeded in 25 s on job image `alpine:latest`. The trace shows `--- Checking issue #3/#2/#1 ---` (3 checks) and no `date:` line; #4 got 0 comments
   - Start `gitlab/gitlab-runner` (pinned) with the Docker executor on `unix:///run/user/$UID/podman/podman.sock`, registered via `POST /user/runners`.
   - Commit the template as `.gitlab-ci.yml` plus `.aitask-scripts/` to `aitask-ct`, and set the `GITLAB_TOKEN` CI variable.
   - Create and play a pipeline schedule (`POST /projects/:id/pipeline_schedules`, then `.../play`).
   - Read the job log (`GET /projects/:id/jobs/:job_id/trace`): it shows `--- Checking issue #<iid> ---` for the unlabeled contribution, checks no ordinary issue, and has no `date` error.
-- [ ] Part B teardown: remove the containers and volumes, and delete the token files.
+- [x] Part B teardown — PASS 2026-11-08: containers and volumes removed (0 left), tokens shredded, glab configs deleted. Images are kept for re-runs; remove them with `podman rmi docker.io/gitlab/gitlab-ce:19.4.5-ce.0 docker.io/gitlab/gitlab-runner:alpine-v19.5.3`
 
 ## Part C — optional one-time gitlab.com confirmation
 
