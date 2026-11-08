@@ -5,7 +5,7 @@ risk_goal_achievement: medium
 effort: high
 depends: [t1981_1, t1981_3]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [task_relations, task-workflow, skills]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -17,7 +17,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1981
 implemented_with: claudecode/opus5_5
 created_at: 2026-11-04 15:39
-updated_at: 2026-11-08 15:26
+updated_at: 2026-11-08 15:39
+completed_at: 2026-11-08 15:39
 ---
 
 ## Context
@@ -230,3 +231,14 @@ Fixture records and fixture diffs:
 > **✅ gate:plan_approved** run=2026-11-08T10:38:45Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-11-08T13:25:19Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-11-08T13:39:44Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:4b8c0a81e8bd8452
+
+> **✅ gate:risk_evaluated** run=2026-11-08T13:39:44Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1981_5/risk_evaluated_2026-11-08T13:39:44Z-risk_evaluated-a1.log`
