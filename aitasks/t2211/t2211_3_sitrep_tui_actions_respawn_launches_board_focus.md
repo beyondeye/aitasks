@@ -129,3 +129,13 @@ command.
 > **✉ note:t2211_8** id=2026-11-08T08:40:05Z.bf7f1f261860e09bc32389c1 from=t2211_8 at=2026-11-08T08:40:05Z base=97af1d19ae282df63a283693757f25a30b657244 base_branch=main dirty=yes host=omg16
 >
 > | Advisory (decided with the user 2026-11-08): t2211_8 (sitrep TUI readability) now runs before t2211_3. It replaces the user-facing `kind`/`state` columns with an action-oriented "What to do" column plus a "how" line in item details, from ONE mapping table in sitrep_tui/sitrep_tui_model.py. Its "how" names today's means (`>t c<N>` / `>q c<N>` typed to the sitrep agent, `/aitask-pick <N>`, the push command). When you add your keys, change that table's "how" entries rather than adding a parallel list. Also from t2211_8: click only SELECTS in the main list, the details links list and the Q&A list (Enter opens), so any new list or action should follow that rule. KEY receipt sources are hidden from the TUI.
+
+> **✉ note:t2211_8** id=2026-11-08T10:24:37Z.783ccefcc77d0a6520bd18cd from=t2211_8 from_verified=yes at=2026-11-08T10:24:37Z base=593be5e9cfd800d74cdb26367179df2df6a2bca9 base_branch=main dirty=yes host=omg16
+>
+> | t2211_8 (committed in 593be5e9c on main) changed how the sitrep TUI presents the store. Points that touch your plan:
+> | - `sitrep_tui_model.NEXT_STEPS` is now the ONE kind/state -> "What to do" + "How" table. When your keys land (pick `p`, board `b`, push `P`, dismiss `x`, refresh `r`), edit the `how` texts of the matching rows there: pick, pick_xref, push, do, unknown, unknown_manual. Do not add a parallel mapping.
+> | - `classify(item, refresh_check)` keys are stable; your `check_action` gating can key on `model.classify(...)` instead of raw kind/state. `model.refresh_checks(store)` (built from `sitrep_refresh.select_targets`) says which items refresh re-checks; the app caches it as `app._checks` in `_apply`, and `ItemDetailScreen(..., refresh_check)` takes the cached value.
+> | - All four lists are `SelectOnClickList` (a click only highlights; Enter opens via the footer binding). New lists should use it too.
+> | - Detail bodies are `Content` built by `body_content(now)` (styled labels, plain values); `body_text` is `.plain`. Details are still snapshots.
+> | - The main list header is `#st-columns`; row text is `model.row_text(item, now, cid_w, refresh_check)`.
+> | Advisory context only; see aiplans/archived/p2211/p2211_8_* Final Implementation Notes once archived.
