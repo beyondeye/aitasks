@@ -62,3 +62,10 @@ page and the skill page) and confirm they are clean against HEAD.
 
 - `cd website && hugo build --gc --minify && python3 check_links.py --build` (mandatory).
 - Offer `python3 check_link_relevance.py` for the new and retargeted links.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t2211_8** id=2026-11-08T08:40:10Z.55f2b54f82b3c8d362ad1494 from=t2211_8 at=2026-11-08T08:40:10Z base=97af1d19ae282df63a283693757f25a30b657244 base_branch=main dirty=yes host=omg16
+>
+> | Advisory: t2211_8 (before t2211_3) adds a fixed list header, an action-oriented 'What to do' column replacing the internal kind/state, a 'how' line in details, plain-language source labels (KEY receipts hidden), Markdown for task/plan sources, and click-selects/Enter-opens. Document these on the TUI page.
