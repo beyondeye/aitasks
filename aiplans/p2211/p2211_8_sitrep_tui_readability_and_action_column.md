@@ -418,3 +418,96 @@ Send these as `ait note`s at Step 8e.
 - "Readable without docs" is subjective; the wording of the What-to-do/How texts may still not land for the user · severity: medium · → mitigation: none (the user's manual check on the real store in Verification; the texts live in one table, so revisions are one-line edits; t2211_7 re-checks)
 - Guidance that promises more than refresh does (watches and `unknown` items refresh never checks) · severity: medium · → mitigation: none (in-plan: guidance keyed on `sitrep_refresh.select_targets` itself — no copied rule — with per-case tests and a `{}` control)
 - The How lines name today's agent codes (`>t` batch, `>q`, `>r`, `>x`), which t2211_4/t2211_5 will change; deviates from the task's `>t c<N>` wording because per-item triage does not exist yet · severity: low · → mitigation: none (siblings told via notes to edit `NEXT_STEPS`)
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-08)
+- **Requested by user:** three verified findings.
+  - (1) `source_label` compared the whole first line to `EXCERPT_HEADER`, but
+    the real producer `sitrep_corpus.excerpt_bytes` writes
+    `<header> lines=<a>-<b>`, so real excerpts were labelled "Closing message".
+    The test masked this with a bare header the producer never emits.
+  - (2) `age_cell` passed `age_text` through unchanged, and ages of 1000 days or
+    more (`1042d ago`, 9 cells) overflowed the 8-cell column and shifted the
+    "What to do" text off its header.
+  - (3) every `ItemDetailScreen` re-ran `refresh_checks(store)` although the
+    app already caches the same generation's map.
+- **Changes made:**
+  - (1) The excerpt header matches exactly or followed by a space. The test now
+    builds the excerpt with `C.excerpt_bytes`.
+  - (2) Added `AGE_CELL_W` (used by `COLUMNS`). `age_cell` compacts an
+    over-wide `Nd ago` to `Ny ago`, else `long ago`. The details keep the full
+    `age_text`. New boundary test: 999 / 1000 / 1042 days and year 0001, with
+    row/header alignment checked at 999 and 1042 days.
+  - (3) `ItemDetailScreen` takes `refresh_check`, and `open_item` passes
+    `self._checks.get(num)`. That map is set in `_apply` from the same
+    `self.store` the screen receives. A test patches `refresh_checks` to raise
+    and opens details.
+  - Pre-fix controls in an isolated copy: reverting each fix turns its new
+    test red.
+- **Files affected:** `.aitask-scripts/sitrep_tui/sitrep_tui_model.py`,
+  `.aitask-scripts/sitrep_tui/sitrep_tui_app.py`, `tests/test_sitrep_tui_app.py`
+
+## Final Implementation Notes
+- **Actual work done:** presentation only. Nothing changed in the store
+  format, the writer, `lib/sitrep_*.py`, `shortcut_scopes.py` or the docs.
+  - `sitrep_tui_model.py`:
+    - `NEXT_STEPS` is the one kind/state → "What to do" + "How" table, with
+      `classify(item, refresh_check)`, `next_step`, and `refresh_checks(store)`
+      built from `sitrep_refresh.select_targets`;
+    - `COLUMNS`, `header_text`, `row_text(item, now, cid_w, refresh_check)`,
+      `cid_width`, `age_cell` (compacted to `AGE_CELL_W`);
+    - `about_text`, `source_label` (KEY → hidden), `ORIGIN_LABELS`,
+      `markdown_source`;
+    - `PointerView.markdown`.
+  - `sitrep_tui_app.py`:
+    - `SelectOnClickList` (click selects, Enter opens) on all four lists;
+    - the fixed `#st-columns` header;
+    - `ItemDetailScreen.body_content` (styled labels via `Content.assemble`,
+      plain values), with plain link labels;
+    - the `PointerViewerScreen` Markdown branch (`open_links=False`, `m`
+      Rendered/raw).
+  - `tests/test_sitrep_tui_app.py`: 66 tests (24 new) plus fixture shapes
+    (triage with BANNER/KEY, push ref, xref, trail watch, unknown task, three
+    status tasks, hostile Markdown task file).
+- **Deviations from plan:**
+  - (1) The triage/review How says `>t` (batch), not `>t c<N>`: per-item
+    triage does not exist yet.
+  - (2) Review round 1 added the excerpt-header prefix match, the age-cell
+    compaction and the cached refresh check (see Post-Review Changes).
+  - (3) A refresh-check failure yields `{}` (manual guidance), as planned.
+- **Issues encountered:**
+  - Task items dedupe by ref (`EXISTS:c1`), so the fixture's unknown task uses
+    its own ref (`t20`).
+  - The live store moves while the TUI is read (c49 left the open list between
+    planning and implementation); headless checks on the real store must not
+    assume item ids.
+- **Key decisions:**
+  - Guidance follows refresh's own rule (`select_targets`): a watch without a
+    trail and an `unknown` item refresh cannot check get `>q`/`>x` guidance and
+    no `>r` promise.
+  - The pick row carries the outcome's status verbatim.
+  - Header alignment is pinned by `content_region.x` equality, not by a fixed
+    offset.
+  - Mutant checks (isolated copy) turned each target test red:
+    `prevent_default` removed, header inset, KEY filter, markup labels,
+    `open_links`, table key, status pinned to Ready, watch by kind alone, plus
+    the three round-1 pre-fix controls.
+- **Upstream defects identified:** None
+- **Notes for sibling tasks:**
+  - **t2211_3 / t2211_4:**
+    - Edit `sitrep_tui_model.NEXT_STEPS`, the single table: replace the `how`
+      texts of triage / review / decide / pick / pick_xref / push / do /
+      watch_manual / unknown_manual with your keys.
+    - `classify` keys are stable, and `refresh_checks` is the "does refresh
+      check it" source.
+    - `ItemDetailScreen` takes `refresh_check` from `app._checks` (set in
+      `_apply` with the store).
+    - New lists should be `SelectOnClickList`.
+    - Details are still snapshots.
+  - **t2211_6** (docs; none written here): cover the "What to do" column, the
+    plain source labels (KEY receipts hidden), the Markdown viewer's `m`, and
+    click-selects / Enter-opens.
+  - **t2211_7:** checklist items: a readable header, click selects / Enter
+    opens on all lists, task/plan sources render as Markdown, and c1 shows
+    "Closing message" + "Workflow result" with no KEY lines.
