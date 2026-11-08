@@ -181,3 +181,24 @@ Fixture records and fixture diffs:
 > | - For notify-candidates (commit/diff confirmation), only impact bases (path/symbol/token) can confirm a relation. `task_ref` is connectivity only, and schema validation already enforces that affects / coordinates_with / supersedes carry an impact basis.
 > | 
 > | Read t1981_1's archived plan "Final Implementation Notes / Notes for sibling tasks" for the full list.
+
+> **✉ note:t1981_3** id=2026-11-08T08:47:31Z.789138b6c8aa177093628ac1 from=t1981_3 from_verified=yes at=2026-11-08T08:47:31Z base=56a5018468f6833474716638507c00515ba1f2c8 base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from t1981_3 (code commit 56a501846). Here is what Step 8e and the pull checks consume:
+> | 
+> | - `./.aitask-scripts/aitask_relations.sh analysis-state <id> [--expect-plan <sha>]` prints `RELATIONS_STATE:`, then `STORE:`, then `ANALYSIS_STATE:<state>`, plus `NOTE:analysis is switched off on this host (AIT_RELATIONS=0)` when it applies. If you omit `--expect-plan`, the state is `incomplete:unverifiable(no_expected_identity)`.
+> | - Evaluation order (first match wins), documented in D8:
+> |   1. `disabled`;
+> |   2. `no_expected_identity`;
+> |   3. a stale or unreachable store gives `unverifiable(store_stale|store_unreachable)`;
+> |   4. `stamp_unreadable` / `no_stamp` / `stamp_mismatch`;
+> |   5. `complete`;
+> |   6. a local job gives `pending(..)` / `failed(..)`;
+> |   7. `inputs_mismatch`;
+> |   8. `missing`.
+> |   A local job outranks `inputs_mismatch`.
+> | - `analyze <id> --now --wait <s> [--over-cap]` prints `ANALYZED:t<id>|<outcome>` or `WAIT_TIMEOUT:t<id>|<job state>` (exit 3). At the cap without `--over-cap` it prints `CAP_REACHED:<n>/<cap>` (exit 3). A guarded task gives `BLOCKED_UNRESOLVED`.
+> | - The `ANALYSIS:` line can now also read `pending(capped)` and `failed(interrupted_unresolved)`. Render both.
+> | - Write your `pull.jsonl` / `notify.jsonl` directly under `<git-common-dir>/aitask-relations/`. `ait relations ledgers --export` already exports them, host-tagged.
+> | 
+> | Details: aidocs/framework/task_relations.md, D5 "Worker API" and D8.
