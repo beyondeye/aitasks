@@ -3,10 +3,12 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Done
 labels: [git-integration, contribution]
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-08 21:44
 updated_at: 2026-11-08 21:44
+completed_at: 2026-11-08 21:44
 ---
 
 `_gitlab_verify_contribution_label` (`.aitask-scripts/aitask_contribute.sh`) only recognised `https://…/-/issues/<iid>` links in `glab issue create` output. GitLab now links new issues as `/-/work_items/<iid>`: glab 1.126 prints it, and the REST `web_url` uses it on gitlab.com too. Self-managed instances may also serve plain `http`. The read-back therefore never found the issue, the "label was silently dropped" warning added by t2241 never fired, and contributors always got "Could not verify".
