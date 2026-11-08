@@ -312,3 +312,66 @@ mitigation is created at Step 8d.
 ### Planned mitigations
 - timing: post-phase | name: refresh_installed_contribution_workflow | type: feature | priority: medium | effort: medium | inline_risk: medium | added_complexity: medium | addresses: existing installs keep the labeled-only trigger | desc: ait setup refreshes an installed contribution-check.yml that matches a previously shipped template
 - timing: after | name: gitlab_contribution_label_visibility | type: bug | priority: medium | effort: medium | inline_risk: medium | added_complexity: medium | addresses: GitLab may silently drop non-member labels too | desc: Verify GitLab label-drop behaviour for non-members and, if confirmed, make the GitLab listing and CI job identify contribution issues by metadata
+
+## Implementation Progress
+- [x] 1. Listing — paginated REST scan, label-or-metadata filter, limit after filtering
+- [x] 2. Workflow — `opened`+`labeled`, job-level concurrency, opened-run auto-label; `.github` copy byte-identical to the template (checkout@v6)
+- [x] 3. Templates moved `seed/ci` → `.aitask-scripts/ci_templates` (git mv); `setup_contribution_check` reads them there
+- [x] 4. `github_create_issue` label read-back (`_github_verify_contribution_label`) + reworded fallback
+- [x] 5. Tests: check / review / contribute additions, shared `tests/lib/gh_contribution_stub.sh`, `tests/test_contribution_workflow_contract.py`, `tests/test_setup_contribution_workflow.sh`; pre-fix controls all red against HEAD (`git archive HEAD` scratch tree)
+- [x] 6. Docs — contribution-flow.md; `check_links.py --build` SWEEP: PASSED
+- [x] 7. Lint/run — all touched tests pass; no new shellcheck warnings (setup: 2 warning-level findings before and after)
+- [x] Post-phase P1 refresh_installed_contribution_workflow — `_CONTRIBUTION_WORKFLOW_SHIPPED_SHA256` + `_contribution_workflow_state`
+
+### Deviations
+- Setup's own `warn()` prints to stdout (`aitask_setup.sh:184`), so the setup test matches warnings against stdout+stderr.
+- The missing-templates warning names no remedy verb: `ait setup` cannot restore a file that ships only in the release tarball, so "run ait setup to repair" (as planned) would mislead.
+- `tests/test_setup_contribution_workflow.sh` calls `enter_scratch_cwd` (required by `tests/test_cd_guard_lint.sh`).
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-08 12:10)
+- **Requested by user:** verify and address three review findings — (1) the new `opened` trigger lets any issue author get arbitrary existing repo labels applied via author-controlled `auto_labels`; (2) `gh api` loses the GitHub Enterprise host that `gh issue list` resolved; (3) a git-clean CRLF checkout (core.autocrlf=true) of an old template is classified `customized` and never refreshed.
+- **Verified:** all three confirmed — (1) `main()` applied every `auto_labels` entry that existed as a repo label, and HEAD reproduces `approved` / `priority:high` being applied; (2) `gh api` defaults to github.com without `--hostname`/`GH_HOST`, and a qualified `--repo HOST/OWNER/REPO` built a malformed `repos/HOST/OWNER/REPO` path; (3) raw-byte `cmp` and the LF-only hashes never match CRLF bytes.
+- **Changes made:**
+  1. `aitask_contribution_check.sh`: `CONTRIBUTION_AUTO_APPLY_PREFIXES=("area:" "scope:")` + `_is_auto_applicable_label` — only labels in the `/aitask-contribute` classification namespaces that the maintainer already created are applied; other suggestions stay in the comment. This applies to all platforms (shared `main`).
+  2. `github_list_contribution_issues` resolves the repository through `gh repo view [-R …] --json url` (same resolution as the `gh issue` commands), validates host and OWNER/REPO, and calls `gh api --hostname <host> … repos/<owner>/<repo>/issues`; an unparseable URL fails closed.
+  3. `aitask_setup.sh`: `_contribution_workflow_lf` (awk, CRLF→LF only) applied to both the installed file and the template before the `current` comparison and the hash lookup.
+  - Tests: check Test 25 (Enterprise host, qualified `-R`, local-remote resolution, fail-closed URL) and Test 26 (hostile `auto_labels`: only `area:scripts`/`scope:bug` applied, bare prefixes rejected); setup (b2) a real git-clean `core.autocrlf=true` CRLF checkout of the oldest template is refreshed, (d2) CRLF current = up to date and untouched, (c2) an edited CRLF old template stays customized. Stub logging made IFS-independent (`main` sets `IFS=','`). Pre-fix controls: Tests 25/26 red against HEAD's check script; the CRLF classifier without normalisation returns `customized` (fixed: `stale`).
+  - Docs: contribution-flow.md states the `area:`/`scope:` auto-apply rule.
+- **Files affected:** `.aitask-scripts/aitask_contribution_check.sh`, `.aitask-scripts/aitask_setup.sh`, `tests/lib/gh_contribution_stub.sh`, `tests/test_contribution_check.sh`, `tests/test_setup_contribution_workflow.sh`, `website/content/docs/workflows/contribute-and-manage/contribution-flow.md`
+
+### Change Request 2 (2026-11-08 12:45)
+- **Requested by user:** verify and address three further findings — (1) persistent template delivery newly activates raw appends into existing GitLab/Bitbucket configs (duplicate top-level `pipelines:`, a job in an undeclared `test` stage), both reported as success; (2) the GitHub refresh copies over the file after the `[Y/n]` prompt without re-checking it, so an edit made while the prompt was open is lost; (3) the workflow's opened-branch matches the bare name `aitask-contribute-metadata` instead of the `<!-- aitask-contribute-metadata` header that the check script parses.
+- **Verified:** all three confirmed — (1) HEAD's append logic pointed at `ci_templates` turned `pipelines: {default: …}` into a file with 2 top-level `pipelines:` keys and no surviving `default`; (2) classification and copy were separated by the prompt with no recheck; (3) `contains(…, 'aitask-contribute-metadata')` vs `*"<!-- aitask-contribute-metadata"*` in `parse_contribute_metadata`.
+- **Changes made:**
+  1. `_install_contribution_ci_workflow`: an existing non-empty `.gitlab-ci.yml` / `bitbucket-pipelines.yml` is never edited — warn with the manual-merge path (GitLab: names `stage: test`); an absent or empty file is created as before (re-checked after the prompt).
+  2. Prompt extracted to `_contribution_ci_confirm` (seam). Stale refresh snapshots the classified file, stages the template beside it, and `mv`s only if the file still matches the snapshot after the prompt; otherwise warn and leave it. A fresh install refuses if the file appeared during the prompt.
+  3. Workflow `if:` matches `'<!-- aitask-contribute-metadata'`; header comment and contract test updated; `.github` copy re-synced (byte-identical).
+  - Tests: setup (g) edit during the update prompt kept + warning + no staged leftover, control (same seam, no edit → refreshed), file created during install prompt kept; (h) GitLab `stages: [build, deploy]` config and Bitbucket `pipelines.default` config byte-unchanged with warnings, absent configs created. Pre-fix control: HEAD append logic on the Bitbucket fixture → 2 `pipelines:` keys, `default` lost.
+  - Docs: contribution-flow.md Automatic Setup states the GitLab/Bitbucket create-only rule and the `stage: test` requirement.
+- **Files affected:** `.aitask-scripts/aitask_setup.sh`, `.aitask-scripts/ci_templates/github/contribution-check.yml`, `.github/workflows/contribution-check.yml`, `tests/test_contribution_workflow_contract.py`, `tests/test_setup_contribution_workflow.sh`, `website/content/docs/workflows/contribute-and-manage/contribution-flow.md`
+
+### Change Request 3 (2026-11-08 13:20)
+- **Requested by user:** verify and address four findings — (1) the Manual Setup docs still said to *append* the Bitbucket template, which duplicates the top-level `pipelines:` key; (2) the setup test needed git history and indexed an empty `OLD_VERSIONS` in a shallow clone (bad array subscript); (3) the GitLab cases inherited a real `glab` from PATH; (4) the refresh writer hand-rolled staging and left `*.ait-new.*` behind when `mv` failed.
+- **Verified:** all four confirmed by reading the doc/test/code paths named in the findings.
+- **Changes made:**
+  1. contribution-flow.md Manual Setup rewritten per platform: GitHub copy; GitLab copy-when-absent or add the job (stage note); Bitbucket copy-when-absent, otherwise add only the `contribution-check:` entry under `pipelines: → custom:` keeping `default:`/`branches:` (example included). The GitLab and Bitbucket template header comments say the same.
+  2. `tests/fixtures/contribution_workflow_history/{1_39c812ef2,2_e98f58128,3_197f7b8fd,4_5b853d0ee}.yml` (+README) are byte-exact earlier templates; (b)/(b2)/(g) use them, and `OLDEST` is guarded. (e) checks every fixture's hash always, plus every reachable git-history version, with a NOTE when none is reachable. Verified in a single-commit tree: 45/45 pass with the NOTE.
+  3. A `glab` stub sits on the fixture PATH next to `gh`; (h) asserts `label create contribution` reached the stub.
+  4. The refresh uses `lib/atomic_write.sh` (`ait_atomic_resolve` / `ait_atomic_tmp` / `ait_atomic_commit` / `ait_atomic_discard`), keeping the snapshot comparison after the prompt. New case: `mv` failure → file unchanged, "Could not replace" warning, no `.contribution-check.yml.*` leftover.
+- **Files affected:** `.aitask-scripts/aitask_setup.sh`, `.aitask-scripts/ci_templates/{gitlab,bitbucket}/*.yml`, `tests/test_setup_contribution_workflow.sh`, `tests/fixtures/contribution_workflow_history/*`, `website/content/docs/workflows/contribute-and-manage/contribution-flow.md`
+
+### Change Request 4 (2026-11-08 13:35)
+- **Requested by user:** add the reverse fixture-completeness check — every hash in `_CONTRIBUTION_WORKFLOW_SHIPPED_SHA256` must have a committed fixture (the README promises the test fails when the fixture is omitted).
+- **Verified:** confirmed — (e) only checked fixture → listed and history → listed.
+- **Changes made:** (e) now also asserts listed → fixture. Negative control: withholding `4_5b853d0ee.yml` fails with "listed hash dd024196… has no fixture" (49/50), restored after the run; normal run 53/53.
+- **Files affected:** `tests/test_setup_contribution_workflow.sh`
+
+## Final Implementation Notes
+- **Actual work done:** GitHub contribution issues are now identified by the `contribution` label OR the `<!-- aitask-contribute-metadata` block. The shared listing (`github_list_contribution_issues`) runs a paginated REST scan of all open issues, resolves host and OWNER/REPO through `gh repo view` (Enterprise-safe), excludes PRs and applies `--limit` after filtering; the overlap check and `list-issues` both get this. The workflow triggers on `issues.opened` (metadata header, not yet labeled; auto-labels) and `issues.labeled`, with job-level concurrency. CI templates moved `seed/ci` → `.aitask-scripts/ci_templates` so `ait setup` reaches installed projects (`install.sh` deletes `seed/`). Setup refreshes an unmodified older GitHub template (hash list, EOL-insensitive, re-validated after the prompt, staged via `lib/atomic_write.sh`) and never edits an existing GitLab/Bitbucket config. `github_create_issue` reads the label back and warns when GitHub dropped it. Author-controlled `auto_labels` are auto-applied only within `area:`/`scope:`.
+- **Deviations from plan:** four review rounds widened the scope (see Post-Review Changes 1–4): the `auto_labels` trust boundary, Enterprise host resolution, CRLF recognition, no edits to existing GitLab/Bitbucket configs, the post-prompt recheck, the metadata-header predicate, the Manual Setup merge guidance, committed history fixtures, the `glab` stub, atomic staging and reverse fixture completeness. The missing-templates warning names no remedy verb, because `ait setup` cannot restore a file that ships only in the release tarball.
+- **Issues encountered:** setup's own `warn()` prints to stdout (`aitask_setup.sh:184`), not stderr like `terminal_compat.sh`'s. `main()` sets `IFS=','` around its label loop, which broke `$*`-joined stub logging, so the stub now logs IFS-independently. The new setup test needed `enter_scratch_cwd` to satisfy `tests/test_cd_guard_lint.sh`.
+- **Key decisions:** a paginated full scan over the search API (search indexing of HTML comments is unverifiable offline). Job-level rather than workflow-level concurrency. Structural workflow assertions rather than a bespoke expression evaluator or scheduler simulator, with live behaviour left to manual verification. Prefix plus existing-label gating for auto-labels. Create-only for GitLab/Bitbucket configs.
+- **Upstream defects identified:**
+  - `tests/test_premise_check_workflow.sh:154,487` — `unconfined-andchain` cd-guard violations (committed in 620039d7b, t1663_4) keep `tests/test_cd_guard_lint.sh` red.
