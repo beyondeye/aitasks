@@ -3,12 +3,13 @@ priority: medium
 effort: low
 depends: [t1663_4]
 issue_type: documentation
-status: Ready
+status: Implementing
 labels: [task-workflow, documentation]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1538
 created_at: 2026-09-01 15:20
-updated_at: 2026-09-02 10:05
+updated_at: 2026-11-08 12:53
 ---
 
 Document the advisory premise-staleness check in the website docs.
