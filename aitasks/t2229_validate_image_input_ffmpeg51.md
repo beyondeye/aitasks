@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1887
 followup_kind: risk_mitigation
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-07 22:18
-updated_at: 2026-11-08 08:58
+updated_at: 2026-11-08 09:52
 ---
 
 ## Origin
@@ -42,3 +43,8 @@ Run the image-folder input (`bug DIR` / `anim DIR`, added by t1893_6 in commit a
 - On FFmpeg 5.1 the animated-WebP fixture skips (its decoder lacks animation); confirm it skips and does not fail.
 
 Key files: `.aitask-scripts/screen_recording/video_prep.py` (`ImageInput`), `tests/test_screen_recording_cli.py` (`ImageFolderInput`), `website/content/docs/skills/aitask-screen-recording.md` (Requirements). The archived plan `aiplans/archived/p1893/p1893_6_*.md` has the design and the measured spike.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-08T07:52:33Z status=pass attempt=1 type=human
