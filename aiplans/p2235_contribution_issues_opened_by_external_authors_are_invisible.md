@@ -311,7 +311,7 @@ mitigation is created at Step 8d.
 
 ### Planned mitigations
 - timing: post-phase | name: refresh_installed_contribution_workflow | type: feature | priority: medium | effort: medium | inline_risk: medium | added_complexity: medium | addresses: existing installs keep the labeled-only trigger | desc: ait setup refreshes an installed contribution-check.yml that matches a previously shipped template
-- timing: after | name: gitlab_contribution_label_visibility | type: bug | priority: medium | effort: medium | inline_risk: medium | added_complexity: medium | addresses: GitLab may silently drop non-member labels too | desc: Verify GitLab label-drop behaviour for non-members and, if confirmed, make the GitLab listing and CI job identify contribution issues by metadata
+- timing: after | name: gitlab_contribution_label_visibility | type: bug | priority: medium | effort: medium | inline_risk: medium | added_complexity: medium | addresses: GitLab may silently drop non-member labels too | desc: Verify GitLab label-drop behaviour for non-members and, if confirmed, make the GitLab listing and CI job identify contribution issues by metadata | created: t2241
 
 ## Implementation Progress
 - [x] 1. Listing — paginated REST scan, label-or-metadata filter, limit after filtering
