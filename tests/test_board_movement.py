@@ -1263,33 +1263,45 @@ class HarnessDiscriminationTests(_ScenarioBase):
 
 
 class IsolationNegativeControlTests(unittest.TestCase):
-    """Read-only proof that the in-process variant would read the REAL tree."""
+    """Proof that an in-process ``TASK_DIR`` override would NOT isolate the board.
 
-    def test_in_process_task_dir_override_reads_the_real_repo(self):
+    ``aitask_board.TASKS_DIR`` is a cwd-relative module constant fixed at
+    import, so overriding ``TASK_DIR`` afterwards changes nothing: the board
+    would read whatever ``aitasks/`` sits under the cwd. Shown on two
+    controlled temp roots with distinct sentinels, never the live repository,
+    so the result cannot depend on which tasks happen to exist (t2230).
+    """
+
+    def test_in_process_task_dir_override_reads_the_cwd_tree(self):
         import aitask_board  # already cached here, as in a full-suite run
 
-        tmp = Path(tempfile.mkdtemp(prefix="aitask_board_negctrl_"))
-        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
-        (tmp / "aitasks").mkdir()
-        prev = os.environ.get("TASK_DIR")
+        cwd_root = Path(tempfile.mkdtemp(prefix="aitask_board_negctrl_cwd_"))
+        override_root = Path(tempfile.mkdtemp(prefix="aitask_board_negctrl_ovr_"))
+        for root in (cwd_root, override_root):
+            self.addCleanup(shutil.rmtree, root, ignore_errors=True)
+            (root / "aitasks").mkdir()
+        (cwd_root / "aitasks" / "t1_cwd_sentinel.md").write_text("cwd\n")
+        (override_root / "aitasks" / "t2_override_sentinel.md").write_text("override\n")
 
+        prev = os.environ.get("TASK_DIR")
         # patch.dict restores the prior value (or its absence) even on failure.
         # The full suite runs in ONE interpreter, so a leaked TASK_DIR would
         # point later tests and their subprocesses at a deleted temp tree.
-        with mock.patch.dict(os.environ, {"TASK_DIR": str(tmp / "aitasks")}):
+        with mock.patch.dict(os.environ, {"TASK_DIR": str(override_root / "aitasks")}):
             # 1. the override is a no-op against the cached module constant
             self.assertEqual(aitask_board.TASKS_DIR, Path("aitasks"))
-            # 2. ... and it is genuinely a different root
-            self.assertNotEqual(
-                Path(os.environ["TASK_DIR"]).resolve(),
-                (REPO_ROOT / aitask_board.TASKS_DIR).resolve(),
-            )
-            # 3. ... which would have enumerated the real repo's tasks.
-            #    Read-only: no TaskManager is constructed and nothing is written.
-            real = sorted(p.name for p in (REPO_ROOT / aitask_board.TASKS_DIR).glob("*.md"))
-            self.assertTrue(real, "the real aitasks/ tree must be non-empty for this control")
-            self.assertEqual([n for n in real if n.endswith("_fixture.md")], [],
-                             "the real tree must contain none of the fixture files")
+            # 2. ... which is relative, so the board resolves it under its cwd.
+            #    `cwd_root` stands in for that cwd: no process chdir is needed
+            #    to prove where a relative path lands, and none is allowed
+            #    here (test_board_fixture_harness's live-tree sweep).
+            self.assertFalse(aitask_board.TASKS_DIR.is_absolute())
+            read_root = (cwd_root / aitask_board.TASKS_DIR).resolve()
+            self.assertNotEqual(read_root, Path(os.environ["TASK_DIR"]).resolve())
+            # 3. ... so the board would enumerate the cwd's tasks, never the
+            #    override's. Read-only: no TaskManager is constructed.
+            seen = sorted(p.name for p in read_root.glob("*.md"))
+            self.assertEqual(seen, ["t1_cwd_sentinel.md"])
+            self.assertEqual((read_root / seen[0]).read_text(), "cwd\n")
 
         self.assertEqual(os.environ.get("TASK_DIR"), prev, "TASK_DIR must be restored")
 

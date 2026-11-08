@@ -61,7 +61,6 @@ from agent_launch_utils import (  # noqa: E402
     disambiguate_labels,
     discover_aitasks_sessions,
     gateway_pane_window,
-    get_tmux_windows,
     group_members,
     group_sessions,
     load_tmux_defaults,
@@ -79,6 +78,33 @@ from shortcut_labels import display_form, render_label  # noqa: E402
 # at construction from AITASKS_TMUX_SOCKET (unset → dedicated `-L ait` socket,
 # t953).
 _TMUX = TmuxClient()
+
+_WINDOW_ID_RE = re.compile(r"@\d+")
+
+
+def _session_windows(session: str) -> list[tuple[str, str, str]]:
+    """``(window_id, window_index, name)`` for each of ``session``'s windows.
+
+    The window id (``@N``) is what a row acts on, never the index: an index
+    read when the overlay was populated can belong to another window by the
+    time Enter is pressed, because ``renumber-windows`` closes the gap a closed
+    window leaves (t2230, the switcher twin of t2227). An id is never reused
+    within a server's lifetime, so a window that has gone simply fails to
+    select. Best-effort like the listing it replaces: ``[]`` when tmux cannot
+    be asked, and a row without a well-formed id is left out.
+    """
+    rc, out = _TMUX.run(
+        ["list-windows", "-t", tmux_session_target(session),
+         "-F", "#{window_id}\t#{window_index}\t#{window_name}"]
+    )
+    if rc != 0:
+        return []
+    rows = []
+    for line in out.splitlines():
+        parts = line.split("\t", 2)
+        if len(parts) == 3 and _WINDOW_ID_RE.fullmatch(parts[0]):
+            rows.append((parts[0], parts[1], parts[2]))
+    return rows
 
 
 def _format_desync_lines(lines_output: str) -> str:
@@ -426,10 +452,11 @@ class _TuiListItem(ListItem):
 class _WindowListItem(ListItem):
     """A list item representing a non-TUI tmux window."""
 
-    def __init__(self, window_name: str, window_index: str) -> None:
+    def __init__(self, window_name: str, window_id: str) -> None:
         super().__init__()
         self.window_name = window_name
-        self.window_index = window_index
+        # The tmux window id (``@N``), never the index (t2230).
+        self.window_id = window_id
 
     def compose(self):
         yield Static(f" [{TUI_RUNNING_STYLE}]\u25cf[/]  {self.window_name}")
@@ -467,10 +494,14 @@ _COMPANION_INELIGIBLE_HOSTS = frozenset({"monitor", "minimonitor"})
 
 
 class _CompanionTarget(NamedTuple):
-    """The host TUI's own window, where the companion key would split."""
+    """The host TUI's own pane, beside which the companion key would split.
 
-    session: str
-    window_index: str
+    Only the pane id is carried, never the window's session or index: the
+    window is re-resolved from the pane when the key is pressed, because a
+    ``renumber-windows`` shift while the overlay is open can hand the
+    mount-time index to a neighbouring window (t2230).
+    """
+
     pane: str
     project_root: Path
 
@@ -703,10 +734,11 @@ class TuiSwitcherOverlay(ModalScreen):
     def _resolve_companion_target(self) -> _CompanionTarget | None:
         """The host TUI's own window, when a companion may be offered there.
 
-        The window is ``$TMUX_PANE``'s, verified against the gateway server and
-        addressed by index — independent of the session being browsed with
-        Left/Right. Fails closed: an ineligible host, an unverifiable pane, or a
-        probe that could not tell (None) all hide the option.
+        The window is ``$TMUX_PANE``'s, verified against the gateway server —
+        independent of the session being browsed with Left/Right. Only the pane
+        is kept; :meth:`action_spawn_minimonitor` re-resolves its window. Fails
+        closed: an ineligible host, an unverifiable pane, or a probe that could
+        not tell (None) all hide the option.
         """
         if (not self._current_tui
                 or self._current_tui in _COMPANION_INELIGIBLE_HOSTS):
@@ -717,7 +749,7 @@ class TuiSwitcherOverlay(ModalScreen):
             return None
         if companion_present(pane) is not False:   # present, or unknown
             return None
-        return _CompanionTarget(location[0], location[1], pane, Path.cwd())
+        return _CompanionTarget(pane, Path.cwd())
 
     def _handle_stale_selection(self) -> bool:
         """If the SELECTED session is a STALE registry entry, push the
@@ -1028,8 +1060,8 @@ class TuiSwitcherOverlay(ModalScreen):
         (otherwise the user is browsing a different session and no item
         in that session is "the one I'm attached to right now").
         """
-        running_windows = get_tmux_windows(session)
-        self._running_names = {name for _, name in running_windows}
+        running_windows = _session_windows(session)
+        self._running_names = {name for _, _, name in running_windows}
         is_attached_session = session == self._attached_session
 
         list_view = self.query_one("#switcher_list", _WrappingListView)
@@ -1081,34 +1113,34 @@ class TuiSwitcherOverlay(ModalScreen):
         # --- Classify non-TUI windows ---
         agents = []
         others = []
-        for win_idx, win_name in running_windows:
+        for win_id, _win_idx, win_name in running_windows:
             cat = _classify_window(win_name)
             # Already listed in the TUI group above, brainstorm-<n> included.
             if cat == "tui":
                 continue
             if cat == "agent":
-                agents.append((win_idx, win_name))
+                agents.append((win_id, win_name))
             else:
-                others.append((win_idx, win_name))
+                others.append((win_id, win_name))
 
         # --- Agent Group ---
         if agents:
             list_view.append(_GroupHeader("Code Agents"))
             item_idx += 1
-            for win_idx, win_name in agents:
+            for win_id, win_name in agents:
                 if first_selectable_idx is None:
                     first_selectable_idx = item_idx
-                list_view.append(_WindowListItem(win_name, win_idx))
+                list_view.append(_WindowListItem(win_name, win_id))
                 item_idx += 1
 
         # --- Other Group ---
         if others:
             list_view.append(_GroupHeader("Other"))
             item_idx += 1
-            for win_idx, win_name in others:
+            for win_id, win_name in others:
                 if first_selectable_idx is None:
                     first_selectable_idx = item_idx
-                list_view.append(_WindowListItem(win_name, win_idx))
+                list_view.append(_WindowListItem(win_name, win_id))
                 item_idx += 1
 
         if first_selectable_idx is not None:
@@ -1202,7 +1234,7 @@ class TuiSwitcherOverlay(ModalScreen):
                 return
             self._switch_to(item.tui_name, item.running)
         elif isinstance(item, _WindowListItem):
-            self._switch_to(item.window_name, True, item.window_index)
+            self._switch_to(item.window_name, True, item.window_id)
 
     def on_list_view_selected(self, event: ListView.Selected) -> None:
         item = event.item
@@ -1211,7 +1243,7 @@ class TuiSwitcherOverlay(ModalScreen):
                 return
             self._switch_to(item.tui_name, item.running)
         elif isinstance(item, _WindowListItem):
-            self._switch_to(item.window_name, True, item.window_index)
+            self._switch_to(item.window_name, True, item.window_id)
 
     def _shortcut_switch(self, target_name: str) -> None:
         """Switch directly to a specific TUI by name, launching if not running.
@@ -1522,14 +1554,28 @@ class TuiSwitcherOverlay(ModalScreen):
         The mount-time probe only decides whether to offer it; the locked check
         in maybe_spawn_minimonitor decides whether it happens, and arms the
         cleanup hook on the TUI pane (explicit ``agent_pane``).
+
+        The pane id is the identity. Its window is resolved here, at key time,
+        not at mount: a window closed while the overlay was open renumbers the
+        ones after it (t2230). maybe_spawn_minimonitor's own check that the
+        window's listing contains ``agent_pane`` closes what is left of that
+        race fail-closed.
         """
         target = self._companion_target
         if target is None:
             return
+        location = gateway_pane_window(target.pane, os.environ.get("TMUX", ""))
+        if location is None:
+            self.app.notify(
+                "Minimonitor not added: this TUI's pane could not be located",
+                severity="warning",
+            )
+            return
+        session, window_index = location
         from agent_launch_utils import maybe_spawn_minimonitor
         companion = maybe_spawn_minimonitor(
-            target.session, self._current_tui,
-            window_index=target.window_index, force_companion=True,
+            session, self._current_tui,
+            window_index=window_index, force_companion=True,
             explicit=True, project_root=target.project_root,
             agent_pane=target.pane,
         )
@@ -1542,7 +1588,7 @@ class TuiSwitcherOverlay(ModalScreen):
             return
         self.dismiss(None)
 
-    def _switch_to(self, name: str, running: bool, window_index: str | None = None) -> None:
+    def _switch_to(self, name: str, running: bool, window_id: str | None = None) -> None:
         # If the selected entry is a STALE registry row (t826_10), push
         # the StaleEntryModal up-front so the user can prune/repoint
         # without burning a failing bootstrap subprocess first.
@@ -1554,13 +1600,21 @@ class TuiSwitcherOverlay(ModalScreen):
             return
         try:
             if running:
+                # A window row targets its id (`=<session>:@N`); a TUI row its
+                # name. Wait for the answer: when the window has gone since the
+                # overlay listed it, the teleport below must NOT run — it would
+                # land the client on that session's active window, a different
+                # window than the one chosen (t2230).
                 target = tmux_window_target(
-                    self._session, window_index if window_index else name
+                    self._session, window_id if window_id else name
                 )
-                _TMUX.spawn(
-                    ["select-window", "-t", target],
-                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                )
+                rc, _ = _TMUX.run(["select-window", "-t", target])
+                if rc != 0:
+                    self.app.notify(
+                        f"Window {_markup_literal(name)} is no longer there",
+                        severity="warning",
+                    )
+                    return
             elif name == "git":
                 self._launch_git_with_companion()
             else:

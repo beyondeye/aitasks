@@ -484,7 +484,7 @@ class TuiSwitcherPaintingTests(_CompositedCase):
                 yield ListView(
                     ts._TuiListItem("monitor", "MONITOR", running=True,
                                     is_current=False),
-                    ts._WindowListItem("shellwin", "3"),
+                    ts._WindowListItem("shellwin", "@3"),
                 )
                 yield Static(f"[{TUI_KEY_HINT_STYLE}]{_REF_LIVE}[/]")
                 yield Static(f"[{TUI_RUNNING_STYLE}]ZZRUN[/]")

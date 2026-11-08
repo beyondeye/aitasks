@@ -136,7 +136,7 @@ class SwitcherPilotTests(unittest.TestCase):
                 with patch.object(
                     ts, "discover_aitasks_sessions", return_value=sessions
                 ), patch.object(
-                    ts, "get_tmux_windows", return_value=[]
+                    ts, "_session_windows", return_value=[]
                 ), patch.object(
                     ts.TuiSwitcherOverlay, "_compute_desync_summary",
                     return_value="",

@@ -15,7 +15,12 @@ Three layers are pinned here:
 3. **The overlay**: the key is never offered in monitor / minimonitor, it
    targets `$TMUX_PANE`'s window and not the browsed session, and its hint
    spells `Shift+M` — `render_label` would otherwise show `(M)`, the same as
-   monitor's `m`.
+   monitor's `m`. The window is resolved from the pane when the key is pressed,
+   never carried from mount (t2230).
+
+4. **Window rows act on the window id** (t2230): `_session_windows` lists
+   `@N` ids, a row selects `=<session>:@N`, and a select that fails (the
+   window closed while the overlay was open) neither teleports nor dismisses.
 
 The tmux gateway is faked wholesale, so no tmux call leaves the test.
 
@@ -339,7 +344,7 @@ def _overlay(current_tui: str = "board", multi_mode: bool = False):
     return overlay, capture
 
 
-_TARGET = ts._CompanionTarget("s1", "4", "%9", Path("/host/project"))
+_TARGET = ts._CompanionTarget("%9", Path("/host/project"))
 
 
 class ResolveCompanionTargetTests(unittest.TestCase):
@@ -376,9 +381,13 @@ class ResolveCompanionTargetTests(unittest.TestCase):
 
     def test_offered_for_the_host_pane_window_when_absent(self):
         target, calls = self._resolve("brainstorm-42", probe=False)
-        self.assertEqual(("s1", "4", "%9"), target[:3])
+        self.assertEqual("%9", target.pane)
         self.assertEqual(Path.cwd(), target.project_root)
         self.assertEqual(["%9"], calls)
+
+    def test_the_target_carries_no_window_index(self):
+        """Nothing mount-time about the window survives to the key press."""
+        self.assertEqual(("pane", "project_root"), ts._CompanionTarget._fields)
 
 
 class CompanionHintTests(unittest.TestCase):
@@ -429,7 +438,7 @@ class CompanionHintTests(unittest.TestCase):
 
 class SpawnActionTests(unittest.TestCase):
 
-    def _run(self, *, target, result="%77"):
+    def _run(self, *, target, result="%77", location=("s1", "4")):
         overlay, _capture = _overlay("board")
         overlay._companion_target = target
         # Browse to ANOTHER session: the spawn must still target the host's.
@@ -444,13 +453,20 @@ class SpawnActionTests(unittest.TestCase):
         overlay.dismiss = lambda value=None: dismissed.append(value)
         app = unittest.mock.MagicMock()
         app.notify = lambda *a, **k: notified.append((a, k))
-        with unittest.mock.patch.object(
-                agent_launch_utils, "maybe_spawn_minimonitor",
-                lambda *a, **k: calls.append((a, k)) or result), \
+        located: list[tuple[str, str]] = []
+        env = {"TMUX_PANE": "%9", "TMUX": "/tmp/sock,1,0"}
+        with unittest.mock.patch.dict(os.environ, env), \
+                unittest.mock.patch.object(
+                    ts, "gateway_pane_window",
+                    lambda pane, tmux: located.append((pane, tmux)) or location), \
+                unittest.mock.patch.object(
+                    agent_launch_utils, "maybe_spawn_minimonitor",
+                    lambda *a, **k: calls.append((a, k)) or result), \
                 unittest.mock.patch.object(
                     ts.TuiSwitcherOverlay, "app",
                     new_callable=unittest.mock.PropertyMock, return_value=app):
             overlay.action_spawn_minimonitor()
+        self.located = located
         return calls, dismissed, notified
 
     def test_no_target_is_a_no_op(self):
@@ -464,11 +480,30 @@ class SpawnActionTests(unittest.TestCase):
         self.assertEqual(("s1", "board"), args)
         self.assertEqual("4", kwargs["window_index"])
         self.assertEqual("%9", kwargs["agent_pane"])
+        self.assertEqual([("%9", "/tmp/sock,1,0")], self.located)
         self.assertEqual(Path("/host/project"), kwargs["project_root"])
         self.assertIs(True, kwargs["force_companion"])
         self.assertIs(True, kwargs["explicit"])
         self.assertEqual([None], dismissed)
         self.assertEqual([], notified)
+
+    def test_the_window_is_resolved_from_the_pane_at_key_time(self):
+        """t2230: a window closed while the overlay was open renumbers the host
+        window from 4 to 2. The spawn must use the index the pane is at NOW."""
+        calls, dismissed, _notified = self._run(target=_TARGET,
+                                                location=("s1", "2"))
+        args, kwargs = calls[0]
+        self.assertEqual(("s1", "board"), args)
+        self.assertEqual("2", kwargs["window_index"])
+        self.assertEqual("%9", kwargs["agent_pane"])
+        self.assertEqual([None], dismissed)
+
+    def test_a_pane_that_cannot_be_located_spawns_nothing(self):
+        calls, dismissed, notified = self._run(target=_TARGET, location=None)
+        self.assertEqual([], calls)
+        self.assertEqual([], dismissed)
+        self.assertEqual(1, len(notified))
+        self.assertEqual("warning", notified[0][1].get("severity"))
 
     def test_a_refused_spawn_warns_and_keeps_the_overlay(self):
         calls, dismissed, notified = self._run(target=_TARGET, result=None)
@@ -476,6 +511,142 @@ class SpawnActionTests(unittest.TestCase):
         self.assertEqual([], dismissed)
         self.assertEqual(1, len(notified))
         self.assertEqual("warning", notified[0][1].get("severity"))
+
+
+class _FakeSwitcherTmux:
+    """Stands in for `tui_switcher._TMUX`: scripted `list-windows` answers and a
+    `select-window` that succeeds only for a window that still exists."""
+
+    def __init__(self, windows):
+        # (window_id, window_index, name) as the CURRENT server would list them.
+        self.windows = list(windows)
+        self.list_rc = 0
+        self.runs: list[list[str]] = []
+        self.spawns: list[list[str]] = []
+
+    def run(self, args, timeout=None):
+        self.runs.append(list(args))
+        if args[0] == "list-windows":
+            if self.list_rc != 0:
+                return self.list_rc, ""
+            return 0, "".join(f"{i}\t{x}\t{n}\n" for i, x, n in self.windows)
+        if args[0] == "select-window":
+            window = args[args.index("-t") + 1].split(":", 1)[1]
+            known = ({i for i, _x, _n in self.windows}
+                     | {x for _i, x, _n in self.windows}
+                     | {n for _i, _x, n in self.windows})
+            return (0, "") if window in known else (1, "")
+        return 0, ""
+
+    def spawn(self, args, **_kwargs):
+        self.spawns.append(list(args))
+        return unittest.mock.MagicMock()
+
+    def selects(self):
+        return [r for r in self.runs if r[0] == "select-window"]
+
+
+class SessionWindowsParserTests(unittest.TestCase):
+
+    def _list(self, out, rc=0):
+        fake = unittest.mock.MagicMock()
+        fake.run.return_value = (rc, out)
+        with unittest.mock.patch.object(ts, "_TMUX", fake):
+            rows = ts._session_windows("s1")
+        return rows, fake.run.call_args.args[0]
+
+    def test_rows_carry_the_window_id_and_keep_tabbed_names_whole(self):
+        rows, argv = self._list("@5\t1\tagent-a\n@7\t2\tname\twith\ttabs\n")
+        self.assertEqual([("@5", "1", "agent-a"), ("@7", "2", "name\twith\ttabs")], rows)
+        self.assertEqual(["list-windows", "-t", ts.tmux_session_target("s1"),
+                          "-F", "#{window_id}\t#{window_index}\t#{window_name}"], argv)
+
+    def test_rows_without_a_well_formed_id_are_left_out(self):
+        rows, _argv = self._list("5\t1\tno-at\n@x\t2\tbad-id\n@9\t3\n@4\t4\tok\n")
+        self.assertEqual([("@4", "4", "ok")], rows)
+
+    def test_a_failed_listing_is_empty(self):
+        rows, _argv = self._list("@5\t1\tagent-a\n", rc=1)
+        self.assertEqual([], rows)
+
+
+class WindowRowsActOnIdTests(unittest.TestCase):
+    """t2230: a window row selects by id, and a failed select changes nothing."""
+
+    def _populated(self, fake, session="s1"):
+        overlay = ts.TuiSwitcherOverlay(session=session, current_tui="")
+        overlay._attached_session = "s1"
+        appended = []
+        list_view = unittest.mock.MagicMock()
+        list_view.append = appended.append
+        overlay.query_one = lambda *a, **k: list_view
+        with unittest.mock.patch.object(ts, "_TMUX", fake), \
+                unittest.mock.patch.object(ts, "_build_tui_list", return_value=[]), \
+                unittest.mock.patch.object(
+                    ts, "_discover_brainstorm_sessions", return_value=[]):
+            overlay._populate_list_for(session)
+        rows = {i.window_name: i for i in appended
+                if isinstance(i, ts._WindowListItem)}
+        return overlay, rows
+
+    def _enter(self, overlay, item, fake, *, attached="s1"):
+        overlay._attached_session = attached
+        dismissed, notified = [], []
+        overlay.dismiss = lambda value=None: dismissed.append(value)
+        app = unittest.mock.MagicMock()
+        app.notify = lambda *a, **k: notified.append((a, k))
+        with unittest.mock.patch.object(ts, "_TMUX", fake), \
+                unittest.mock.patch.object(
+                    ts.TuiSwitcherOverlay, "app",
+                    new_callable=unittest.mock.PropertyMock, return_value=app):
+            overlay._switch_to(item.window_name, True, item.window_id)
+        return dismissed, notified
+
+    def test_enter_after_a_renumber_selects_the_listed_window_by_id(self):
+        fake = _FakeSwitcherTmux([("@3", "0", "board"), ("@5", "1", "agent-a"),
+                                  ("@7", "2", "agent-b")])
+        overlay, rows = self._populated(fake)
+        self.assertEqual("@7", rows["agent-b"].window_id)
+        # agent-a closes while the overlay is open; renumber-windows moves
+        # agent-b from 2 to 1, and index 2 now names nothing (or a newcomer).
+        fake.windows = [("@3", "0", "board"), ("@7", "1", "agent-b"),
+                        ("@9", "2", "agent-c")]
+        dismissed, notified = self._enter(overlay, rows["agent-b"], fake)
+        self.assertEqual([["select-window", "-t", "=s1:@7"]], fake.selects())
+        self.assertEqual(["agent-b"], dismissed)
+        self.assertEqual([], notified)
+
+    def test_a_closed_window_neither_teleports_nor_dismisses(self):
+        for attached in ("s1", "s0"):            # same-session and cross-session
+            with self.subTest(attached=attached):
+                fake = _FakeSwitcherTmux([("@5", "1", "agent-a")])
+                overlay, rows = self._populated(fake)
+                fake.windows = []                # agent-a closed meanwhile
+                dismissed, notified = self._enter(
+                    overlay, rows["agent-a"], fake, attached=attached)
+                self.assertEqual([["select-window", "-t", "=s1:@5"]], fake.selects())
+                self.assertEqual([], [s for s in fake.spawns
+                                      if s[0] == "switch-client"])
+                self.assertEqual([], dismissed)
+                self.assertEqual(1, len(notified))
+                self.assertEqual("warning", notified[0][1].get("severity"))
+
+    def test_a_live_cross_session_window_selects_then_teleports(self):
+        fake = _FakeSwitcherTmux([("@5", "1", "agent-a")])
+        overlay, rows = self._populated(fake)
+        dismissed, _notified = self._enter(overlay, rows["agent-a"], fake,
+                                           attached="s0")
+        self.assertEqual([["select-window", "-t", "=s1:@5"]], fake.selects())
+        self.assertEqual([["switch-client", "-t", "=s1"]],
+                         [s for s in fake.spawns if s[0] == "switch-client"])
+        self.assertEqual(["agent-a"], dismissed)
+
+    def test_a_window_name_containing_markup_is_shown_literally(self):
+        fake = _FakeSwitcherTmux([("@5", "1", "agent-[b]x")])
+        overlay, rows = self._populated(fake)
+        fake.windows = []
+        _dismissed, notified = self._enter(overlay, rows["agent-[b]x"], fake)
+        self.assertIn(ts._markup_literal("agent-[b]x"), notified[0][0][0])
 
 
 class BindingTableTests(unittest.TestCase):

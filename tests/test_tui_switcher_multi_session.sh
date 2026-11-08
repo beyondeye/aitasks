@@ -6,8 +6,10 @@
 #   * _init_multi_state: single-session vs multi-session multi_mode computation
 #   * _cycle_session: Left/Right cycles _session (operating/selected), leaves
 #     _attached_session untouched; SkipAction when not in multi mode
-#   * _switch_to: same-session (regression, 1 Popen) vs cross-session (2 Popens,
-#     select-window then switch-client)
+#   * _switch_to: same-session (1 awaited select-window, no Popen) vs
+#     cross-session (awaited select-window, then a switch-client Popen); a
+#     window row targets its id (=<session>:@N), and a failed select (the
+#     window closed meanwhile) neither teleports nor dismisses (t2230)
 #   * Shortcut keys act on the SELECTED session (not attached) — confirms the
 #     user-clarified inversion of the task description's Step 4
 #   * _teleport_if_cross: 0 calls when same, 1 call when cross
@@ -177,11 +179,14 @@ except SkipAction:
 ov = make_overlay(session="s1")
 ov._running_names = {"board"}
 ov.dismiss = MagicMock()
-with patch("tui_switcher.subprocess.Popen") as mock_popen:
-    ov._switch_to("board", running=True, window_index="2")
+with patch("tui_switcher.subprocess.Popen") as mock_popen, \
+     patch.object(ts._TMUX, "run", return_value=(0, "")) as mock_run:
+    ov._switch_to("board", running=True, window_id="@2")
     calls = [c.args[0] for c in mock_popen.call_args_list]
+    runs = [c.args[0] for c in mock_run.call_args_list]
 print("SAME_POPEN_COUNT:" + str(len(calls)))
-print("SAME_POPEN_0:" + " ".join(calls[0]))
+print("SAME_RUN_0:" + " ".join(runs[0]))
+print("SAME_DISMISSED:" + str(ov.dismiss.call_count))
 
 
 # --- _switch_to cross-session running=True ---
@@ -194,12 +199,39 @@ ov._all_sessions = [
 ov._selected_key = "/p2"            # browsed to s2 (identity is the root key)
 ov._running_names = {"board"}
 ov.dismiss = MagicMock()
-with patch("tui_switcher.subprocess.Popen") as mock_popen:
-    ov._switch_to("board", running=True, window_index="2")
+with patch("tui_switcher.subprocess.Popen") as mock_popen, \
+     patch.object(ts._TMUX, "run", return_value=(0, "")) as mock_run:
+    ov._switch_to("board", running=True, window_id="@2")
     calls = [c.args[0] for c in mock_popen.call_args_list]
+    runs = [c.args[0] for c in mock_run.call_args_list]
+print("CROSS_RUN_RUN_0:" + " ".join(runs[0]))
 print("CROSS_RUN_POPEN_COUNT:" + str(len(calls)))
 print("CROSS_RUN_POPEN_0:" + " ".join(calls[0]))
-print("CROSS_RUN_POPEN_1:" + " ".join(calls[1]))
+
+
+# --- _switch_to on a window that closed while the overlay was open (t2230) ---
+
+for label, attached_key in (("SAME_GONE", "/p1"), ("CROSS_GONE", "/p2")):
+    ov = make_overlay(session="s1")
+    ov._all_sessions = [
+        AitasksSession("s1", Path("/p1"), "p1"),
+        AitasksSession("s2", Path("/p2"), "p2"),
+    ]
+    ov._selected_key = attached_key
+    ov.dismiss = MagicMock()
+    app = MagicMock()
+    with patch("tui_switcher.subprocess.Popen") as mock_popen, \
+         patch.object(ts._TMUX, "run", return_value=(1, "")) as mock_run, \
+         patch.object(ts.TuiSwitcherOverlay, "app",
+                      new_callable=PropertyMock, return_value=app):
+        ov._switch_to("agent-pick-7", running=True, window_id="@9")
+        calls = [c.args[0] for c in mock_popen.call_args_list]
+        runs = [c.args[0] for c in mock_run.call_args_list]
+    print(label + "_RUN_0:" + " ".join(runs[0]))
+    print(label + "_POPEN_COUNT:" + str(len(calls)))
+    print(label + "_DISMISSED:" + str(ov.dismiss.call_count))
+    print(label + "_NOTIFY_SEVERITY:" + str(app.notify.call_args.kwargs.get("severity")
+                                             if app.notify.call_args else None))
 
 
 # --- _switch_to cross-session running=False (new window) ---
@@ -280,12 +312,14 @@ ov._all_sessions = [
 ov._selected_key = "/p2"            # browsed to s2 (identity is the root key)
 ov._running_names = {"board"}       # board running in s2
 ov.dismiss = MagicMock()
-with patch("tui_switcher.subprocess.Popen") as mock_popen:
+with patch("tui_switcher.subprocess.Popen") as mock_popen, \
+     patch.object(ts._TMUX, "run", return_value=(0, "")) as mock_run:
     ov.action_shortcut_board()
     calls = [c.args[0] for c in mock_popen.call_args_list]
+    runs = [c.args[0] for c in mock_run.call_args_list]
 print("SHORTCUT_B_POPEN_COUNT:" + str(len(calls)))
+print("SHORTCUT_B_RUN_0:" + " ".join(runs[0]))
 print("SHORTCUT_B_POPEN_0:" + " ".join(calls[0]))
-print("SHORTCUT_B_POPEN_1:" + " ".join(calls[1]))
 
 
 # --- Shortcut `n` (new task) acts on SELECTED session ---
@@ -331,11 +365,12 @@ ov._all_sessions = [
 ov._selected_key = "/p2"            # browsed to s2 (identity is the root key)
 ov._running_names = {"board"}       # board also running in s2
 ov.dismiss = MagicMock()
-with patch("tui_switcher.subprocess.Popen") as mock_popen:
+with patch("tui_switcher.subprocess.Popen") as mock_popen, \
+     patch.object(ts._TMUX, "run", return_value=(0, "")):
     ov.action_shortcut_board()
     calls = [c.args[0] for c in mock_popen.call_args_list]
 print("BROWSED_SAMENAME_COUNT:" + str(len(calls)))
-if len(calls) >= 2:
+if calls:
     print("BROWSED_SAMENAME_LAST:" + " ".join(calls[-1]))
 PY
 )
@@ -377,12 +412,21 @@ assert_eq "cycle wrap (+1 twice from s1 via s2) returns to s1" "s1" "${R[CYCLE_W
 assert_eq "_cycle_session raises SkipAction when _multi_mode=False" "yes" "${R[CYCLE_SINGLE_RAISED]:-}"
 assert_eq "_cycle_session raises SkipAction when query_one fails" "yes" "${R[CYCLE_NOWIDGET_RAISED]:-}"
 
-assert_eq "same-session Enter: 1 Popen call (regression)" "1" "${R[SAME_POPEN_COUNT]:-}"
-assert_contains "same-session Enter uses select-window with =s1:2" "select-window -t =s1:2" "${R[SAME_POPEN_0]:-}"
+assert_eq "same-session Enter: no Popen (the select is awaited)" "0" "${R[SAME_POPEN_COUNT]:-}"
+assert_eq "same-session Enter selects the window id =s1:@2" "select-window -t =s1:@2" "${R[SAME_RUN_0]:-}"
+assert_eq "same-session Enter dismisses" "1" "${R[SAME_DISMISSED]:-}"
 
-assert_eq "cross-session Enter running=True: 2 Popen calls" "2" "${R[CROSS_RUN_POPEN_COUNT]:-}"
-assert_contains "cross Enter 1st = select-window =s2:2" "select-window -t =s2:2" "${R[CROSS_RUN_POPEN_0]:-}"
-assert_contains "cross Enter 2nd = switch-client =s2" "switch-client -t =s2" "${R[CROSS_RUN_POPEN_1]:-}"
+assert_eq "cross Enter selects the window id =s2:@2 first" "select-window -t =s2:@2" "${R[CROSS_RUN_RUN_0]:-}"
+assert_eq "cross-session Enter running=True: 1 Popen (switch-client)" "1" "${R[CROSS_RUN_POPEN_COUNT]:-}"
+assert_contains "cross Enter then switch-client =s2" "switch-client -t =s2" "${R[CROSS_RUN_POPEN_0]:-}"
+
+for g in SAME_GONE:s1 CROSS_GONE:s2; do
+    sess="${g#*:}"; g="${g%%:*}"
+    assert_eq "$g: the select targeted the listed id" "select-window -t =${sess}:@9" "${R[${g}_RUN_0]:-}"
+    assert_eq "$g: no switch-client after a failed select" "0" "${R[${g}_POPEN_COUNT]:-}"
+    assert_eq "$g: overlay stays open" "0" "${R[${g}_DISMISSED]:-}"
+    assert_eq "$g: the user is warned" "warning" "${R[${g}_NOTIFY_SEVERITY]:-}"
+done
 
 assert_eq "cross-session Enter new-window: 2 Popen calls" "2" "${R[CROSS_NEW_POPEN_COUNT]:-}"
 assert_contains "cross new 1st = new-window -t =s2:" "new-window -t =s2:" "${R[CROSS_NEW_POPEN_0]:-}"
@@ -401,9 +445,9 @@ assert_eq "_teleport_if_cross same-session: 0 Popen" "0" "${R[TELEPORT_SAME_COUN
 assert_eq "_teleport_if_cross cross: 1 Popen" "1" "${R[TELEPORT_CROSS_COUNT]:-}"
 assert_contains "_teleport_if_cross cross uses switch-client =s2" "switch-client -t =s2" "${R[TELEPORT_CROSS_ARGS]:-}"
 
-assert_eq "shortcut 'b' browsed to s2 (running): 2 Popen calls" "2" "${R[SHORTCUT_B_POPEN_COUNT]:-}"
-assert_contains "shortcut 'b' routes to s2, NOT attached s1" "select-window -t =s2:board" "${R[SHORTCUT_B_POPEN_0]:-}"
-assert_contains "shortcut 'b' teleports to s2" "switch-client -t =s2" "${R[SHORTCUT_B_POPEN_1]:-}"
+assert_eq "shortcut 'b' browsed to s2 (running): 1 Popen (switch-client)" "1" "${R[SHORTCUT_B_POPEN_COUNT]:-}"
+assert_eq "shortcut 'b' routes to s2, NOT attached s1" "select-window -t =s2:board" "${R[SHORTCUT_B_RUN_0]:-}"
+assert_contains "shortcut 'b' teleports to s2" "switch-client -t =s2" "${R[SHORTCUT_B_POPEN_0]:-}"
 
 assert_contains "shortcut 'n' browsed to s2: new-window targets =s2:" "new-window -t =s2:" "${R[SHORTCUT_N_POPEN_0]:-}"
 assert_contains "shortcut 'n' browsed to s2: passes -c /p2 (t649)" "-c /p2" "${R[SHORTCUT_N_POPEN_0]:-}"

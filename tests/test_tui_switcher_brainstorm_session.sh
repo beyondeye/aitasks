@@ -96,7 +96,7 @@ with tempfile.TemporaryDirectory() as tmp:
     ov._selected_key = ov._all_sessions[1].key
     print("SELECTED_SESSION:" + ov._session)
     ov.query_one = MagicMock(return_value=MagicMock())
-    with patch("tui_switcher.get_tmux_windows", return_value=[]), \
+    with patch("tui_switcher._session_windows", return_value=[]), \
          patch("tui_switcher._build_tui_list", return_value=[]), \
          patch("tui_switcher._GroupHeader", MagicMock()), \
          patch("tui_switcher._discover_brainstorm_sessions",
@@ -113,15 +113,16 @@ with tempfile.TemporaryDirectory() as tmp:
     ov._selected_key = ov._all_sessions[0].key
     list_view = MagicMock()
     ov.query_one = MagicMock(return_value=list_view)
-    with patch("tui_switcher.get_tmux_windows", return_value=[
-            ("1", "stats"), ("2", "brainstorm-7"), ("3", "agent-pick-7")]), \
+    with patch("tui_switcher._session_windows", return_value=[
+            ("@1", "1", "stats"), ("@2", "2", "brainstorm-7"),
+            ("@3", "3", "agent-pick-7")]), \
          patch("tui_switcher._build_tui_list", return_value=[]), \
          patch("tui_switcher._discover_brainstorm_sessions", return_value=[]), \
          patch("tui_switcher._GroupHeader", lambda label: ("HDR", label)), \
          patch("tui_switcher._TuiListItem",
                lambda name, *a, **k: MagicMock(row=("TUI", name))), \
          patch("tui_switcher._WindowListItem",
-               lambda name, idx: ("WIN", name)):
+               lambda name, window_id: ("WIN", name)):
         ov._populate_list_for("s1")
     rows = [c.args[0] for c in list_view.append.call_args_list]
     rows = [r.row if isinstance(r, MagicMock) else r for r in rows]
