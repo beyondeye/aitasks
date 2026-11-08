@@ -3,13 +3,14 @@ priority: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [contribution, worktree, workflow]
+assigned_to: dario-e@beyond-eye.com
 issue: https://github.com/beyondeye/aitasks/issues/15
 contributor: beyondeye
 contributor_email: 5619462+beyondeye@users.noreply.github.com
 created_at: 2026-11-08 09:30
-updated_at: 2026-11-08 09:30
+updated_at: 2026-11-08 09:31
 ---
 
 Issue created: 2026-08-14 00:47:52, last updated: 2026-08-14 00:48:04
