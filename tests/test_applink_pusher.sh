@@ -58,6 +58,11 @@ class FakePane:
         self.window_name = "agent-pick-100"
         self.session_name = "aitasks"
         self.category = FakeCategory()
+        # Fields the real TmuxPaneInfo carries and capture_pane_async reads
+        # (agent_key_from_pane, t1467). "claude" resolves on rung 1, and the
+        # falsy pid keeps the pid rungs (pgrep/ps) from ever running in a test.
+        self.current_command = "claude"
+        self.pane_pid = 0
 
 
 class FakeSnap:
