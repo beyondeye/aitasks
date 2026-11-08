@@ -57,6 +57,7 @@ codexcli
 concepts
 concern_format
 concurrency
+contribution
 crash_recovery
 cross_repo
 custom_shortcuts
