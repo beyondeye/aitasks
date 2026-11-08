@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: high
 depends: [t2211_1, t2037_2]
 issue_type: feature
@@ -217,3 +219,5 @@ agent. `kill_agent_run_guarded` stays pane-only.
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-11-07T20:26:25Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-11-08T07:02:05Z status=pass attempt=1 type=human
