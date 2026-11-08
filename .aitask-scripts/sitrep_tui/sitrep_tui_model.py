@@ -32,7 +32,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import sitrep_cli
+import sitrep_refresh
 import sitrep_todo as st
+from sitrep_corpus import EXCERPT_HEADER, REVIEW_TITLE_PREFIX
 
 SCRIPTS_DIR = Path(__file__).resolve().parent.parent
 
@@ -152,12 +154,332 @@ def age_text(checked_at: str, now: _dt.datetime) -> str:
     return f"{int(secs // 86400)}d ago"
 
 
-def row_text(item: "st.Item", now: _dt.datetime) -> str:
-    """One list row. The age sits BEFORE the title: rows are cut to one line
-    with an ellipsis, so only the free text at the end may be lost."""
-    outcome = f" — {item.outcome}" if item.outcome else ""
-    return (f"{item.cid:<5} {item.kind:<8} {item.state:<9} "
-            f"{age_text(item.checked_at, now):<10} {item.title}{outcome}")
+#: Width of the list's "Checked" cell (COLUMNS[1]); every age_cell fits it.
+AGE_CELL_W = 8
+
+
+def age_cell(checked_at: str, now: _dt.datetime) -> str:
+    """The list's "Checked" cell: ``age_text`` compacted to AGE_CELL_W cells,
+    so the "What to do" column never shifts off the header (``1042d ago`` is
+    nine cells: it becomes ``2y ago``). The details keep the full
+    ``age_text``. Never raises."""
+    text = age_text(checked_at, now)
+    if text == "never":
+        return "—"
+    if text.endswith("(invalid date)"):
+        return "invalid"
+    if text == "in the future":
+        return "future"
+    if len(text) <= AGE_CELL_W:
+        return text
+    m = re.match(r"^([0-9]+)d ago\Z", text)
+    if m:
+        years = f"{int(m.group(1)) // 365}y ago"
+        if len(years) <= AGE_CELL_W:
+            return years
+    return "long ago"
+
+
+# --- what to do (t2211_8) ----------------------------------------------------
+#
+# The store classifies an item by kind/state; those are internal words. The
+# user sees what to do about the item and how. NEXT_STEPS is the ONE table of
+# that mapping: t2211_3 / t2211_4 edit the "how" texts here when their keys
+# land, never a copy elsewhere.
+
+@dataclass(frozen=True)
+class NextStep:
+    key: str    # the NEXT_STEPS row (internal; stable)
+    what: str   # the "What to do" cell and details line (one line)
+    how: str    # the details "How" line
+
+
+#: classification key -> ("What to do" template, "How" template). Templates
+#: are filled with ``str.format(**fields)``: store text is only ever a format
+#: ARGUMENT, so braces in a title stay literal.
+NEXT_STEPS = {
+    "triage": (
+        "Triage {task}'s wrap-up: decide which closing notes become actions or watches",
+        "In the sitrep agent pane (beside this one) type  >t  — it triages every "
+        "open wrap-up, this one included."),
+    "review": (
+        "Review unparsed agent output{rest}",
+        "In the sitrep agent pane type  >t  — open reviews are handled with the triage."),
+    "decide": (
+        "Decide: {title}",
+        "Ask the sitrep agent: type  >q {cid} <your question or decision>  in its pane."),
+    "pick": (
+        "Pick {ref}{status}: {rest}",
+        "Run  /aitask-pick {pick_id}  in a code-agent window (or open it with  ait board)."),
+    "pick_xref": (
+        "Pick {ref}{status}: {rest}",
+        "It lives in project {project}: run  /aitask-pick {pick_id}  there."),
+    "pick_noref": (
+        "Pick: {title}{status}",
+        "The title names the task; pick it with  /aitask-pick <id>."),
+    "push": (
+        "Do: {title}",
+        "Push branch {branch} (commit {sha}) yourself; refresh marks this done once "
+        "the commit is on the remote. Shown only — the TUI never runs it."),
+    "do": (
+        "Do: {title}",
+        "Do it yourself; when it is done or no longer needed, dismiss it (in the "
+        "agent pane:  >x {cid} <reason>)."),
+    "watch": (
+        "Waiting on: {title} — nothing to do now{outcome}",
+        "A refresh re-checks its trail (in the agent pane:  >r ); the outcome "
+        "shows what changed."),
+    "watch_manual": (
+        "Waiting on: {title} — nothing to do now{outcome}",
+        "Refresh does not check this one (it has no trail to follow). To see where "
+        "it stands, ask the sitrep agent:  >q {cid} <question>  — it reads the "
+        "item's sources."),
+    "done": ("Done: {title}{outcome}", "Nothing to do."),
+    "dismissed": ("Dismissed: {title}{outcome}", "Nothing to do."),
+    "unknown": (
+        "Unknown — needs a re-check: {title}",
+        "Refresh re-checks it: in the agent pane type  >r ."),
+    "unknown_manual": (
+        "Unknown — needs a re-check: {title}",
+        "Refresh has no automatic check for this item. Ask the sitrep agent to look "
+        "at its sources ( >q {cid} <question> ), or dismiss it ( >x {cid} <reason> )."),
+    "raw": (
+        "{kind} / {state}: {title}",
+        "No guidance for this kind of item — read its context below."),
+}
+
+_TRIAGE_PREFIX = "Triage wrap-up of "
+_TRIAGE_RE = re.compile(r"^Triage wrap-up of (t[0-9]+(?:_[0-9]+)?)\b")
+_LOCAL_REF_RE = re.compile(r"^t([0-9]+(?:_[0-9]+)?)\Z")
+_XREF_RE = re.compile(r"^([^#\s]+)#([0-9]+(?:_[0-9]+)?)\Z")
+
+
+def refresh_checks(store: "st.TodoStore | None") -> dict:
+    """``{item num: check}`` for the items refresh re-checks (task / push /
+    trail), from ``sitrep_refresh.select_targets`` -- the refresh's OWN rule,
+    so the guidance never promises a check refresh does not make. A failure is
+    ``{}``: every watch / unknown item then gets the manual guidance."""
+    if store is None:
+        return {}
+    try:
+        return {t.num: t.check for t in sitrep_refresh.select_targets(store)}
+    except Exception:  # noqa: BLE001 - guidance is decoration
+        return {}
+
+
+def classify(item: "st.Item", refresh_check: "str | None" = None) -> str:
+    """The NEXT_STEPS key for ``item``. ``refresh_check`` is the item's entry
+    in ``refresh_checks`` (None: refresh does not check it)."""
+    if item.state in ("done", "dismissed"):
+        return item.state
+    if item.state == "unknown":
+        return "unknown" if refresh_check else "unknown_manual"
+    if item.state != "open":
+        return "raw"
+    if item.kind == "question":
+        if item.title.startswith(REVIEW_TITLE_PREFIX):
+            return "review"
+        if sitrep_cli.is_triage(item) and item.title.startswith(_TRIAGE_PREFIX):
+            return "triage"
+        return "decide"
+    if item.kind == "task":
+        if _LOCAL_REF_RE.match(item.ref or ""):
+            return "pick"
+        if _XREF_RE.match(item.ref or ""):
+            return "pick_xref"
+        return "pick_noref"
+    if item.kind == "action":
+        return "push" if st.parse_push_ref(item.ref) else "do"
+    if item.kind == "watch":
+        return "watch" if refresh_check == "trail" else "watch_manual"
+    return "raw"
+
+
+def _fields(item: "st.Item") -> dict:
+    title, ref, outcome = item.title, item.ref or "", item.outcome or ""
+    m = _TRIAGE_RE.match(title)
+    rest = title
+    if title.startswith(REVIEW_TITLE_PREFIX):
+        rest = title[len(REVIEW_TITLE_PREFIX):]
+    elif ref and title.startswith(ref + " "):
+        rest = title[len(ref) + 1:]
+    pick_id = project = ""
+    lm, xm = _LOCAL_REF_RE.match(ref), _XREF_RE.match(ref)
+    if lm:
+        pick_id = lm.group(1)
+    elif xm:
+        project, pick_id = xm.group(1), xm.group(2)
+    push = st.parse_push_ref(ref)
+    if outcome.startswith("status:"):
+        status = f" ({outcome})"          # the task's live status, verbatim
+    else:
+        status = f" — {outcome}" if outcome else ""
+    return {
+        "title": title, "cid": item.cid, "kind": item.kind, "state": item.state,
+        "task": m.group(1) if m else "this run", "rest": rest, "ref": ref,
+        "pick_id": pick_id, "project": project, "status": status,
+        "outcome": f" — {outcome}" if outcome else "",
+        "branch": push[0] if push else "", "sha": push[1][:12] if push else "",
+    }
+
+
+def next_step(item: "st.Item", refresh_check: "str | None" = None) -> NextStep:
+    """What to do about ``item`` and how. Never raises (render time): any
+    failure falls back to the raw row."""
+    try:
+        key = classify(item, refresh_check)
+        what, how = NEXT_STEPS[key]
+        fields = _fields(item)
+        return NextStep(key, what.format(**fields), how.format(**fields))
+    except Exception:  # noqa: BLE001
+        what, how = NEXT_STEPS["raw"]
+        fields = {"kind": getattr(item, "kind", "?"), "state": getattr(item, "state", "?"),
+                  "title": getattr(item, "title", "")}
+        return NextStep("raw", what.format(**fields), how)
+
+
+# --- the list's columns --------------------------------------------------------
+
+#: (heading, width) of the main list's columns; the last one takes the rest.
+#: header_text and row_text both build from it, so they align by construction.
+COLUMNS = (("Item", 5), ("Checked", AGE_CELL_W), ("What to do", 0))
+
+
+def cid_width(store: "st.TodoStore | None") -> int:
+    if store is None or not store.items:
+        return COLUMNS[0][1]
+    return max(COLUMNS[0][1], max(len(f"c{n}") for n in store.items))
+
+
+def header_text(cid_w: int = COLUMNS[0][1]) -> str:
+    return f"{COLUMNS[0][0]:<{cid_w}} {COLUMNS[1][0]:<{COLUMNS[1][1]}} {COLUMNS[2][0]}"
+
+
+def row_text(item: "st.Item", now: _dt.datetime, cid_w: int = COLUMNS[0][1],
+             refresh_check: "str | None" = None) -> str:
+    """One list row: item id, checked age, what to do. Rows are cut to one line
+    with an ellipsis, so the free text sits last."""
+    return (f"{item.cid:<{cid_w}} {age_cell(item.checked_at, now):<{COLUMNS[1][1]}} "
+            f"{next_step(item, refresh_check).what}")
+
+
+# --- plain-language labels -------------------------------------------------------
+
+#: An origin key -> its details label (an unknown key is shown as itself).
+ORIGIN_LABELS = {"agent": "Agent", "task": "Task", "commit": "Commit",
+                 "date": "Date", "skill": "Skill", "pane": "Pane"}
+
+_CAPTURE_LABELS = {
+    "banner": "Workflow result",
+    "passage": "Closing message",
+    "case": "Review case: origin record",
+    "analysis": "Review case: parser analysis",
+    "review": "Review case: review record",
+}
+_TASK_FILE_RE = re.compile(r"^t([0-9]+(?:_[0-9]+)?)_")
+_PLAN_FILE_RE = re.compile(r"^p([0-9]+(?:_[0-9]+)?)_")
+
+
+def about_text(ref: str) -> str:
+    """The item's ``ref`` -- the one thing it is about -- in words; '' if none."""
+    if not ref:
+        return ""
+    push = st.parse_push_ref(ref)
+    if push:
+        return f"push of branch {push[0]} (commit {push[1][:12]})"
+    xm = _XREF_RE.match(ref)
+    if xm:
+        return f"task {xm.group(2)} in project {xm.group(1)}"
+    return ref
+
+
+def _range_text(frag: str, single: str = "line") -> str:
+    m = _FRAG_RE.match(frag or "")
+    if not m:
+        return ""
+    if m.group(2) and m.group(2) != m.group(1):
+        return f", lines {m.group(1)}–{m.group(2)}"
+    return f", {single} {m.group(1)}"
+
+
+def _first_line(store_dir: str, ptr: str) -> str:
+    try:
+        with open(os.path.join(store_dir, ptr.split("#", 1)[0]),
+                  encoding="utf-8", errors="replace") as fh:
+            return fh.readline().rstrip("\n")
+    except OSError:
+        return ""
+
+
+def _file_label(kind: str, regex, ptr: str) -> str:
+    path = ptr.partition("#")[0]
+    m = regex.match(os.path.basename(path))
+    if not m:
+        return f"{kind} file {path}"
+    noun = "Task" if kind == "Task" else "Plan of"
+    archived = " (archived)" if "/archived/" in f"/{path}" else ""
+    return f"{noun} t{m.group(1)}{archived}"
+
+
+def source_label(store_dir: str, stype: str, ptr: str) -> "str | None":
+    """A context source in plain words, or None when the TUI hides it (KEY
+    receipts: dedupe / consumed-proof bookkeeping the store keeps). No store
+    handles (hex names) in a label. Never raises."""
+    try:
+        if stype == "capture":
+            kind = "?"
+            if st.CAPTURE_RE.match(ptr or ""):
+                try:
+                    kind = sitrep_cli.capture_kind(store_dir, ptr)
+                except Exception:  # noqa: BLE001
+                    kind = "?"
+            if kind == "key":
+                return None
+            label = _CAPTURE_LABELS.get(kind, "Retained text")
+            # The producer (sitrep_corpus.excerpt_bytes) writes the header
+            # followed by " lines=<a>-<b>".
+            first = _first_line(store_dir, ptr)
+            if kind == "passage" and (first == EXCERPT_HEADER
+                                      or first.startswith(EXCERPT_HEADER + " ")):
+                label = "Excerpt of the unparsed output"
+            return label + _range_text(ptr.partition("#")[2], "line")
+        if stype == "task":
+            return _file_label("Task", _TASK_FILE_RE, ptr)
+        if stype == "plan":
+            return _file_label("Plan", _PLAN_FILE_RE, ptr)
+        if stype == "file":
+            path, _, frag = ptr.partition("#")
+            return f"File {path}{_range_text(frag)}"
+        if stype == "commit":
+            return f"Commit {ptr[:12]}"
+        if stype == "trail":
+            return f"Trail {ptr}"
+        if stype == "artifact":
+            return f"Artifact {ptr}"
+        if stype == "url":
+            return f"Web link {ptr} (shown, never opened)"
+        return f"{stype}: {ptr}"
+    except Exception:  # noqa: BLE001 - a label is decoration
+        return f"{stype}: {ptr}"
+
+
+def markdown_source(text: str) -> str:
+    """``text`` for the Markdown widget: a leading YAML front matter becomes a
+    fenced ``yaml`` block (it would otherwise render as a rule and a run-on
+    paragraph). The fence is longer than any backtick run inside it."""
+    if not text.startswith("---\n"):
+        return text
+    end = text.find("\n---\n", 3)
+    if end < 0:
+        if text.endswith("\n---"):
+            end = len(text) - 4
+        else:
+            return text
+    front = text[4:end + 1]
+    body = text[end + 5:]
+    runs = [len(r) for r in re.findall(r"`+", front)]
+    fence = "`" * max(3, max(runs, default=0) + 1)
+    return f"{fence}yaml\n{front}{fence}\n\n{body}"
 
 
 def qa_newest_first(log: "st.QaLog | None") -> list:
@@ -196,6 +518,9 @@ class PointerView:
     note: str = ""
     first_line: int = 1
     focus_line: "int | None" = None
+    #: Render as Markdown (task / plan files, `.md` file pointers) -- the
+    #: viewer still offers the raw text with line numbers.
+    markdown: bool = False
 
 
 def _inside(root_real: str, path_real: str) -> bool:
@@ -297,8 +622,10 @@ def capture_label(store_dir: str, ptr: str) -> str:
 def _follow_path(root: str, stype: str, ptr: str) -> PointerView:
     full, a, _b = safe_repo_path(root, ptr)
     text, size = _read_text(full)
+    markdown = stype in ("task", "plan") or (
+        stype == "file" and ptr.partition("#")[0].lower().endswith(".md"))
     return PointerView(f"{stype}: {ptr}", text, note=_truncated_note(size),
-                       focus_line=a)
+                       focus_line=a, markdown=markdown)
 
 
 def _follow_capture(store_dir: str, ptr: str) -> PointerView:

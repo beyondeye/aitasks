@@ -16,6 +16,10 @@ Rules this module keeps:
   text (``rich.text.Text`` option prompts, ``Static(Content(...))``,
   ``TextArea``), never parsed as markup (t2017), and every pointer is
   re-validated by ``sitrep_tui_model.follow_pointer`` before it is followed.
+* **Readable, not internal.** Rows and details say what to do about an item
+  and how (``sitrep_tui_model.NEXT_STEPS``, the one mapping), never the
+  store's kind/state words; sources carry plain labels, KEY receipts hidden.
+  A click only selects a row; Enter opens it (``SelectOnClickList``).
 * **Reload by content.** An interval timer hashes ``todo.md`` / ``qa.md`` off
   the event loop; only a changed digest reparses. An unchanged tick still
   refreshes the time-dependent age labels, without reparsing. A store that
@@ -40,12 +44,13 @@ for _p in (str(_SCRIPTS_DIR), str(_SCRIPTS_DIR / "lib")):
         sys.path.insert(0, _p)
 
 from rich.text import Text  # noqa: E402
+from textual import events  # noqa: E402
 from textual.app import App, ComposeResult  # noqa: E402
 from textual.binding import Binding  # noqa: E402
 from textual.containers import VerticalScroll  # noqa: E402
 from textual.content import Content  # noqa: E402
 from textual.screen import Screen  # noqa: E402
-from textual.widgets import OptionList, Static, TextArea  # noqa: E402
+from textual.widgets import Markdown, OptionList, Static, TextArea  # noqa: E402
 from textual.widgets.option_list import Option  # noqa: E402
 
 import sitrep_cli  # noqa: E402
@@ -78,6 +83,40 @@ def _row(label: str) -> Text:
 def _text(value: str) -> Content:
     """Plain store text as a Static renderable — never parsed as markup."""
     return Content(value)
+
+
+class SelectOnClickList(OptionList):
+    """An OptionList where a mouse click only SELECTS (highlights) a row.
+
+    Opening is Enter's job -- the footer-visible "Details" / "Open" binding,
+    which fires the list's own ``action_select`` -- so ``OptionSelected``
+    stays the one open path and a stray click never opens anything.
+    ``OptionList._on_click`` highlights AND selects; ``prevent_default`` stops
+    Textual's MRO walk before it runs (t2211_8)."""
+
+    async def _on_click(self, event: events.Click) -> None:
+        event.prevent_default()
+        idx = event.style.meta.get("option")
+        if idx is None or not 0 <= idx < self.option_count:
+            return
+        if not self.get_option_at_index(idx).disabled:
+            self.highlighted = idx
+
+
+#: Width of a details label column ("What to do  ").
+_LABEL_W = 12
+
+
+def _section(name: str) -> Content:
+    return Content.assemble((name, "bold underline"))
+
+
+def _field(label: str, value: str, indent: str = "") -> Content:
+    """``label`` styled, ``value`` plain: store text is a plain-text part of
+    ``Content.assemble``, never markup (t2017)."""
+    if not value:
+        return Content.assemble((f"{indent}{label}", "bold"))
+    return Content.assemble((f"{indent}{label}".ljust(_LABEL_W), "bold"), value)
 
 
 #: The browsing screens' Enter. `priority`: the focused list's own `enter`
@@ -151,7 +190,7 @@ class ItemDetailScreen(_OpenLinkMixin, ShortcutsMixin, GuardedDismissMixin, Scre
     BINDINGS = list(_SPLIT_BINDINGS)
 
     def __init__(self, store: st.TodoStore, qa: "st.QaLog | None", num: int,
-                 root: str, store_dir: str) -> None:
+                 root: str, store_dir: str, refresh_check: "str | None" = None) -> None:
         super().__init__()
         self._store = store
         self._qa = qa
@@ -160,6 +199,9 @@ class ItemDetailScreen(_OpenLinkMixin, ShortcutsMixin, GuardedDismissMixin, Scre
         self._store_dir = store_dir
         self._item = store.items[num]
         self._ctx = store.contexts.get(num)
+        # The app's refresh-check map of the SAME store generation (both are
+        # set together in `_apply`), passed in rather than re-scanned per open.
+        self._step = model.next_step(self._item, refresh_check)
 
     # composition -----------------------------------------------------------
 
@@ -167,66 +209,70 @@ class ItemDetailScreen(_OpenLinkMixin, ShortcutsMixin, GuardedDismissMixin, Scre
         yield Static(_text(f"{self._item.cid} · {self._item.title}"),
                      classes="sp-title", id="sd-title")
         with VerticalScroll(classes="sp-text", id="sd-text"):
-            yield Static(_text(self.body_text(model.resolve_now())), id="sd-body")
-        yield OptionList(*self._link_options(), classes="sp-links", id="sd-links")
+            yield Static(self.body_content(model.resolve_now()), id="sd-body")
+        yield SelectOnClickList(*self._link_options(), classes="sp-links", id="sd-links")
         yield _footer()
 
     def on_mount(self) -> None:
         self.query_one("#sd-links", OptionList).focus()
 
-    def body_text(self, now: _dt.datetime) -> str:
-        it = self._item
-        lines = [
-            f"Item {it.cid} (rev {it.rev})",
-            f"kind: {it.kind}   state: {it.state}   group: {it.group}   "
-            f"derived: {it.derived}",
-            f"ref: {it.ref or '—'}",
-            "checked: never" if it.checked_at in ("", "never") else
-            f"checked: {it.checked_at} ({model.age_text(it.checked_at, now)})",
-            f"outcome: {it.outcome or '—'}",
-            f"title: {it.title}",
-            "",
-        ]
+    def body_content(self, now: _dt.datetime) -> Content:
+        """The item in labelled sections: styled labels, plain values."""
+        it, step = self._item, self._step
+        lines = [_section("Item"),
+                 _field("What to do", step.what),
+                 _field("How", step.how)]
+        about = model.about_text(it.ref)
+        if about:
+            lines.append(_field("About", about))
+        lines.append(_field("Checked", "never" if it.checked_at in ("", "never") else
+                            f"{it.checked_at} ({model.age_text(it.checked_at, now)})"))
+        lines.append(_field("Outcome", it.outcome or "—"))
+        lines.append(Content(""))
         ctx = self._ctx
         if ctx is None:
-            lines.append("No context entry.")
+            lines.append(Content("No context entry."))
         else:
-            lines.append("Context")
-            lines.append(f"background: {ctx.background or '—'}")
+            lines.append(_section("Context"))
+            lines.append(_field("Background", ctx.background or "—"))
             if ctx.origin:
-                lines.append("origin: " + " ".join(f"{k}={v}" for k, v in ctx.origin))
+                lines.append(_field("Origin", ""))
+                for key, value in ctx.origin:
+                    lines.append(_field(model.ORIGIN_LABELS.get(key, key), value, "  "))
             if ctx.theme:
-                lines.append(f"theme: {ctx.theme}")
+                lines.append(_field("Theme", ctx.theme))
             review = model.review_line(self._store_dir, ctx)
             if review:
-                lines.append(review)
-        return "\n".join(lines)
+                lines.append(Content(review))
+        return Content("\n").join(lines)
+
+    def body_text(self, now: _dt.datetime) -> str:
+        return self.body_content(now).plain
 
     def _link_options(self) -> list:
         opts = []
         ctx = self._ctx
         if ctx is not None:
             for i, (stype, ptr) in enumerate(ctx.sources):
-                if stype == "capture":
-                    label = f"capture [{model.capture_label(self._store_dir, ptr)}]: {ptr}"
-                else:
-                    label = f"{stype}: {ptr}"
+                label = model.source_label(self._store_dir, stype, ptr)
+                if label is None:   # a KEY receipt: store bookkeeping, hidden
+                    continue
                 opts.append(Option(Text(label), id=f"src:{i}"))
                 if stype == "capture" and model.case_extras(self._store_dir, ptr):
-                    rel, _sha = model.case_extras(self._store_dir, ptr)
-                    opts.append(Option(Text(f"  raw input: {rel}"), id=f"raw:{i}"))
+                    opts.append(Option(Text("  Raw input (review case)"), id=f"raw:{i}"))
             for n in ctx.related:
                 other = self._store.items.get(n)
                 if other is None:
-                    opts.append(Option(Text(f"related c{n} (not in store)"),
+                    opts.append(Option(Text(f"Related: item c{n} (no longer in the store)"),
                                        id=f"relx:{n}", disabled=True))
                 else:
-                    opts.append(Option(Text(f"related c{n}: {other.title}"), id=f"rel:{n}"))
+                    opts.append(Option(Text(f"Related: item c{n} — {other.title}"),
+                                       id=f"rel:{n}"))
         for n in model.referenced_by(self._store, self._num):
-            opts.append(Option(Text(f"referenced by c{n}: {self._store.items[n].title}"),
+            opts.append(Option(Text(f"Mentioned by item c{n} — {self._store.items[n].title}"),
                                id=f"ref:{n}"))
         for idx, entry in model.qa_backlinks(self._qa, self._num):
-            opts.append(Option(Text(f"asked about in Q&A {entry.ts}"), id=f"qa:{idx}"))
+            opts.append(Option(Text(f"Q&A entry {entry.ts}"), id=f"qa:{idx}"))
         if not opts:
             opts.append(Option(Text("No sources or links"), id="none", disabled=True))
         return opts
@@ -235,7 +281,7 @@ class ItemDetailScreen(_OpenLinkMixin, ShortcutsMixin, GuardedDismissMixin, Scre
 
     def refresh_ages(self, now: _dt.datetime) -> None:
         """The clock moved: re-render the age line (the snapshot is unchanged)."""
-        self.query_one("#sd-body", Static).update(_text(self.body_text(now)))
+        self.query_one("#sd-body", Static).update(self.body_content(now))
 
     def action_close(self) -> None:
         self.dismiss()
@@ -276,7 +322,10 @@ class ItemDetailScreen(_OpenLinkMixin, ShortcutsMixin, GuardedDismissMixin, Scre
 # -- the pointer viewer ----------------------------------------------------------
 
 class PointerViewerScreen(ShortcutsMixin, GuardedDismissMixin, Screen):
-    """What one pointer resolved to: read-only text with line numbers."""
+    """What one pointer resolved to: read-only text with line numbers, or --
+    for task / plan files and `.md` file pointers -- rendered Markdown, with
+    `m` switching to the raw text. A pointer with a `#L` line starts raw (the
+    line is what it points at). Markdown links are never opened."""
 
     _shortcuts_scope = "sitrep_tui.viewer"
     DEFAULT_CSS = """
@@ -284,28 +333,60 @@ class PointerViewerScreen(ShortcutsMixin, GuardedDismissMixin, Screen):
     PointerViewerScreen #pv-note { padding: 0 1; height: auto; color: $warning; }
     PointerViewerScreen #pv-note.hidden { display: none; }
     PointerViewerScreen #pv-text { height: 1fr; }
+    PointerViewerScreen #pv-md { height: 1fr; padding: 0 1; }
+    PointerViewerScreen #pv-md:focus { background: $boost 40%; }
     """
-    BINDINGS = [Binding("escape", "close", "Back")]
+    BINDINGS = [Binding("escape", "close", "Back"),
+                Binding("m", "toggle_markdown", "Rendered/raw")]
 
     def __init__(self, view: model.PointerView) -> None:
         super().__init__()
         self.view = view
+        #: Showing the rendered Markdown (only possible for a markdown view).
+        self.rendered = bool(view.markdown and not view.error and not view.focus_line)
 
     def compose(self) -> ComposeResult:
         yield Static(_text(self.view.title), id="pv-title")
         note = "\n".join(x for x in (self.view.error, self.view.note) if x)
         yield Static(_text(note), id="pv-note", classes="" if note else "hidden")
+        if self._has_markdown():
+            with VerticalScroll(id="pv-md"):
+                # open_links=False: a link in a repo file is shown, never opened.
+                yield Markdown(model.markdown_source(self.view.text), open_links=False)
         yield TextArea(self.view.text, read_only=True, show_line_numbers=True,
                        line_number_start=max(1, self.view.first_line), id="pv-text")
         yield _footer()
 
+    def _has_markdown(self) -> bool:
+        return bool(self.view.markdown and not self.view.error)
+
     def on_mount(self) -> None:
         area = self.query_one("#pv-text", TextArea)
-        area.focus()
         if self.view.focus_line:
             row = min(max(0, self.view.focus_line - self.view.first_line),
                       max(0, area.document.line_count - 1))
             area.move_cursor((row, 0), center=True)
+        self._show()
+
+    def _show(self) -> None:
+        area = self.query_one("#pv-text", TextArea)
+        if self._has_markdown():
+            md = self.query_one("#pv-md", VerticalScroll)
+            md.display = self.rendered
+            area.display = not self.rendered
+            (md if self.rendered else area).focus()
+        else:
+            area.focus()
+
+    def check_action(self, action: str, parameters: tuple) -> "bool | None":
+        if action == "toggle_markdown":
+            return self._has_markdown()
+        return super().check_action(action, parameters)
+
+    def action_toggle_markdown(self) -> None:
+        if self._has_markdown():
+            self.rendered = not self.rendered
+            self._show()
 
     def action_close(self) -> None:
         self.dismiss()
@@ -344,7 +425,7 @@ class QaLogScreen(_OpenLinkMixin, ShortcutsMixin, GuardedDismissMixin, Screen):
                                     f"{model.qa_first_line(entry)}"), id=f"qa:{idx}"))
         if not opts:
             opts.append(Option(Text("No Q&A entries"), id="none", disabled=True))
-        yield OptionList(*opts, id="ql-list")
+        yield SelectOnClickList(*opts, id="ql-list")
         yield _footer()
 
     def on_mount(self) -> None:
@@ -395,7 +476,7 @@ class QaEntryScreen(_OpenLinkMixin, ShortcutsMixin, GuardedDismissMixin, Screen)
                                    disabled=True))
         if not opts:
             opts.append(Option(Text("This entry names no items"), id="none", disabled=True))
-        yield OptionList(*opts, classes="sp-links", id="qe-links")
+        yield SelectOnClickList(*opts, classes="sp-links", id="qe-links")
         yield _footer()
 
     def on_mount(self) -> None:
@@ -432,6 +513,10 @@ class SitrepTuiApp(TuiSwitcherMixin, ShortcutsMixin, App):
     #st-banner.visible { display: block; }
     #st-situation { height: auto; max-height: 6; padding: 0 1; }
     #st-situation.hidden { display: none; }
+    /* The column header: outside the list so it never scrolls; the left inset
+       is the list's border + padding, so its columns sit over the rows'. */
+    #st-columns { height: 1; padding: 0 1 0 2; text-style: bold; text-wrap: nowrap;
+                  text-overflow: ellipsis; }
     /* One line per row, cut with an ellipsis (OptionList wraps by default and
        ignores Text.no_wrap): a short pane shows twice the rows. */
     #st-list { height: 1fr; text-wrap: nowrap; text-overflow: ellipsis; }
@@ -469,6 +554,10 @@ class SitrepTuiApp(TuiSwitcherMixin, ShortcutsMixin, App):
         #: Visible item cids in list order, and the label each row shows.
         self._order: list = []
         self._row_labels: dict = {}
+        #: Width of the Item column, and refresh's per-item checks (the
+        #: "What to do" guidance follows what refresh really re-checks).
+        self._cid_w = model.COLUMNS[0][1]
+        self._checks: dict = {}
 
     # composition -----------------------------------------------------------
 
@@ -477,7 +566,8 @@ class SitrepTuiApp(TuiSwitcherMixin, ShortcutsMixin, App):
         yield Static("", id="st-banner")
         with VerticalScroll(id="st-situation"):
             yield Static("", id="st-situation-text")
-        yield OptionList(id="st-list")
+        yield Static(_text(model.header_text()), id="st-columns")
+        yield SelectOnClickList(id="st-list")
         yield _footer()
 
     def get_default_screen(self) -> Screen:
@@ -525,6 +615,7 @@ class SitrepTuiApp(TuiSwitcherMixin, ShortcutsMixin, App):
             self.store = snap.store
         if snap.qa is not None:
             self.qa = snap.qa
+        self._checks = model.refresh_checks(self.store)
         self._loaded_at = _dt.datetime.now().strftime("%H:%M:%S")
         self._render_header()
         self._render_banner()
@@ -587,12 +678,15 @@ class SitrepTuiApp(TuiSwitcherMixin, ShortcutsMixin, App):
         prev_pos = self._order.index(prev) if prev in self._order else None
         now = model.resolve_now()
         options, order, labels = [], [], {}
+        self._cid_w = model.cid_width(self.store)
+        self._main().query_one("#st-columns", Static).update(
+            _text(model.header_text(self._cid_w)))
         if self.store is not None:
             for slot, heading, items in model.group_items(self.store, self._show_closed):
                 options.append(Option(Text(f"{heading} ({len(items)})", style="bold"),
                                       id=f"hdr:{slot}", disabled=True))
                 for it in items:
-                    label = model.row_text(it, now)
+                    label = model.row_text(it, now, self._cid_w, self._checks.get(it.num))
                     options.append(Option(_row(label), id=it.cid))
                     order.append(it.cid)
                     labels[it.cid] = label
@@ -620,7 +714,7 @@ class SitrepTuiApp(TuiSwitcherMixin, ShortcutsMixin, App):
             item = self.store.items.get(int(cid[1:]))
             if item is None:
                 continue
-            label = model.row_text(item, now)
+            label = model.row_text(item, now, self._cid_w, self._checks.get(item.num))
             if label != self._row_labels.get(cid):
                 ol.replace_option_prompt(cid, _row(label))
                 self._row_labels[cid] = label
@@ -638,7 +732,7 @@ class SitrepTuiApp(TuiSwitcherMixin, ShortcutsMixin, App):
             self.notify(f"c{num} is not in the store", severity="warning", markup=False)
             return
         self.push_screen(ItemDetailScreen(self.store, self.qa, num, self.root,
-                                          self.store_dir))
+                                          self.store_dir, self._checks.get(num)))
 
     def open_qa_entry(self, entry: st.QaEntry) -> None:
         """Open the entry the user SELECTED -- the object from the listing

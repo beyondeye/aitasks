@@ -115,6 +115,8 @@ def build_fixture(base: Path) -> dict:
     (root / "aitasks" / "t10_demo.md").write_text("# t10 demo task\nbody\n")
     (root / "aiplans" / "p10_demo.md").write_text("# p10 demo plan\n")
     (root / "docs" / "notes.md").write_text("".join(f"note line {i}\n" for i in range(1, 6)))
+    (root / "aitasks" / "t11_hostile.md").write_text(
+        f"---\nstatus: Ready\nlabels: [sitrep]\n---\n# Hostile task\n\n{HOSTILE}\n")
     (outside / "secret.txt").write_text("SECRET OUTSIDE THE REPO\n")
     os.symlink(outside / "secret.txt", root / "escape.md")
     _git(root, "init", "-q")
@@ -178,6 +180,44 @@ def build_fixture(base: Path) -> dict:
     long_sources = [("file", f"docs/notes.md#L{i}") for i in range(1, 51)]
     writer(root, "upsert-context", f"c{ids['long']}", stdin=_context(
         "Long background. " * 22, long_sources))
+    # t2211_8: the shapes the "What to do" mapping and the plain source labels
+    # distinguish. Retained BANNER / KEY files are what harvest keeps for a
+    # finished run beside its closing message.
+    banner = _ptr(writer(root, "retain", stdin=f"{H.BANNER_FILE_HEADER}\nkind=complete\n"
+                                                "task=t10\n"), "RETAINED:")
+    key_complete = _ptr(writer(root, "retain", stdin=f"{H.KEY_COMPLETE_HEADER}\n"
+                                                     "task=t10\n"), "RETAINED:")
+    key_run = _ptr(writer(root, "retain", stdin=f"{H.KEY_RUN_HEADER}\nrun=1\n"),
+                   "RETAINED:")
+    ids["triage"] = _added(writer(root, "add", "--kind", "question", "--title",
+                                  "Triage wrap-up of t10 demo: turn its closing notes "
+                                  "into action/watch items", "--group", "now"))
+    writer(root, "upsert-context", f"c{ids['triage']}", stdin=_context(
+        "Closing message and banner of the t10 run.",
+        [("capture", passage), ("capture", banner), ("capture", key_complete),
+         ("capture", key_run), ("task", "aitasks/t10_demo.md"),
+         ("plan", "aiplans/p10_demo.md"), ("commit", sha)]))
+    ids["pushref"] = _added(writer(root, "add", "--kind", "action", "--title",
+                                   "Push the fixture commit", "--ref", f"push:main@{sha}",
+                                   "--group", "next", "--derived", "agent"))
+    ids["xref"] = _added(writer(root, "add", "--kind", "task", "--title",
+                                "other#7 shared fix", "--ref", "other#7", "--group", "next"))
+    ids["trailwatch"] = _added(writer(root, "add", "--kind", "watch", "--title",
+                                      "Trail wave 2", "--group", "waiting"))
+    writer(root, "upsert-context", f"c{ids['trailwatch']}", stdin=_context(
+        "Watches a trail.", [("trail", "art:trail-demo")]))
+    ids["unknowntask"] = _added(writer(root, "add", "--kind", "task", "--title",
+                                       "t20 recheck", "--ref", "t20", "--group", "waiting",
+                                       "--state", "unknown"))
+    for status in ("Ready", "Postponed", "Implementing"):
+        num = _added(writer(root, "add", "--kind", "task", "--title",
+                            f"t1{len(status)} {status.lower()} task",
+                            "--ref", f"t1{len(status)}", "--group", "next"))
+        writer(root, "set-state", f"c{num}", "open", "--checked-at",
+               "2026-11-05T11:55:00Z", "--outcome", f"status: {status}")
+        ids[f"status_{status.lower()}"] = num
+    writer(root, "upsert-context", f"c{ids['hostile']}", stdin=_context(
+        "A hostile item.", [("task", "aitasks/t11_hostile.md")]))
     writer(root, "situation", "sitrep", stdin="Harvest is next.\n")
     writer(root, "situation", "board", stdin="Board work is idle.\n")
     writer(root, "qa", "--items", f"c{ids['task']}",
@@ -187,6 +227,7 @@ def build_fixture(base: Path) -> dict:
            stdin="".join(f"answer line {i} of a long answer\n" for i in range(1, 61)),
            now="2026-11-05T12:00:00Z")
     return {"ids": ids, "sha": sha, "passage": passage, "origin_ptr": origin_ptr,
+            "banner": banner, "keys": (key_complete, key_run),
             "analysis_ptr": analysis_ptr, "raw_rel": raw_rel, "raw_sha": raw_sha}
 
 
@@ -282,6 +323,230 @@ class SnapshotTests(_Case, unittest.TestCase):
         self.assertEqual(back, ["2026-11-05T12:00:00Z"])
         self.assertEqual(model.referenced_by(snap.store, self.ids["question"]),
                          [self.ids["task"]])
+
+
+def _item(**kw) -> st.Item:
+    base = dict(num=900, rev=1, kind="question", state="open", group="now",
+                checked_at="never", ref="", derived="agent", outcome="", title="T")
+    base.update(kw)
+    return st.Item(**base)
+
+
+class NextStepTests(_Case, unittest.TestCase):
+    """The ONE kind/state -> "What to do" + "How" table (t2211_8), per row,
+    through the real fixture store and the refresh's own target rule."""
+
+    def setUp(self):
+        self.make_copy()
+        self.addCleanup(self.drop_copy)
+        self.store = model.load_snapshot(self.store_dir).store
+        self.checks = model.refresh_checks(self.store)
+
+    def step(self, name: str) -> model.NextStep:
+        num = self.ids[name]
+        return model.next_step(self.store.items[num], self.checks.get(num))
+
+    def cid(self, name: str) -> str:
+        return f"c{self.ids[name]}"
+
+    def test_every_row_of_the_table(self):
+        sha = self.facts["sha"]
+        cases = {
+            "triage": ("triage", "Triage t10's wrap-up: decide which closing notes "
+                                 "become actions or watches", [">t"]),
+            "review": ("review", "Review unparsed agent output", [">t"]),
+            "task": ("pick", "Pick t10: Harvest parser", ["/aitask-pick 10 ", "ait board"]),
+            "xref": ("pick_xref", "Pick other#7: shared fix",
+                     ["project other", "/aitask-pick 7 "]),
+            "hostile": ("pick_noref", f"Pick: {HOSTILE}", ["/aitask-pick <id>"]),
+            "pushref": ("push", "Do: Push the fixture commit",
+                        ["branch main", f"commit {sha[:12]}", "never runs it"]),
+            "push": ("do", "Do: Push main", [f">x {self.cid('push')} <reason>"]),
+            "trailwatch": ("watch", "Waiting on: Trail wave 2 — nothing to do now", [">r"]),
+            "watch": ("watch_manual", "Waiting on: CI on sitrep — nothing to do now",
+                      ["does not check", f">q {self.cid('watch')} "]),
+            "done": ("done", "Done: Deployed — pushed and deployed", ["Nothing to do"]),
+            "dismissed": ("dismissed", "Dismissed: Old follow-up — user: duplicate",
+                          ["Nothing to do"]),
+            "unknowntask": ("unknown", "Unknown — needs a re-check: t20 recheck", [">r"]),
+            "question": ("unknown_manual", "Unknown — needs a re-check: Should refresh run?",
+                         ["no automatic check", f">q {self.cid('question')} ",
+                          f">x {self.cid('question')} "]),
+        }
+        seen = set()
+        for name, (key, what, hows) in cases.items():
+            with self.subTest(item=name):
+                step = self.step(name)
+                self.assertEqual(step.key, key)
+                self.assertEqual(step.what, what)
+                for how in hows:
+                    self.assertIn(how, step.how)
+                seen.add(key)
+        decide = model.next_step(_item(title="Ship on Friday?"))
+        self.assertEqual((decide.key, decide.what), ("decide", "Decide: Ship on Friday?"))
+        self.assertIn(">q c900 ", decide.how)
+        seen.add(decide.key)
+        for kw in ({"kind": "mystery"}, {"state": "weird"}):
+            with self.subTest(raw=kw):
+                raw = model.next_step(_item(title="Odd", **kw))
+                self.assertEqual(raw.key, "raw")
+                self.assertEqual(raw.what, f"{kw.get('kind', 'question')} / "
+                                           f"{kw.get('state', 'open')}: Odd")
+                seen.add(raw.key)
+        self.assertEqual(seen, set(model.NEXT_STEPS),
+                         "every table row is reachable and every key is in the table")
+
+    def test_watch_and_unknown_guidance_follow_what_refresh_checks(self):
+        self.assertEqual(self.checks.get(self.ids["trailwatch"]), "trail")
+        self.assertNotIn(self.ids["watch"], self.checks)
+        self.assertNotIn(">r", self.step("watch").how,
+                         "refresh never checks a watch without a trail")
+        # Control: the same trail watch with no refresh check is manual -- the
+        # key follows refresh's rule, not the kind alone.
+        item = self.store.items[self.ids["trailwatch"]]
+        self.assertEqual(model.next_step(item, None).key, "watch_manual")
+        self.assertEqual(model.refresh_checks(None), {})
+        with mock.patch.object(model.sitrep_refresh, "select_targets",
+                               side_effect=RuntimeError("boom")):
+            self.assertEqual(model.refresh_checks(self.store), {})
+
+    def test_pick_carries_the_live_status_verbatim(self):
+        statuses = ("Ready", "Postponed", "Implementing")
+        for status in statuses:
+            with self.subTest(status=status):
+                what = self.step(f"status_{status.lower()}").what
+                self.assertIn(f"(status: {status}): ", what)
+                for other in statuses:
+                    if other != status:
+                        self.assertNotIn(other, what)
+        self.assertEqual(model.next_step(_item(kind="task", ref="t5", title="t5 x",
+                                               outcome="archived")).what,
+                         "Pick t5 — archived: x")
+        self.assertEqual(self.step("task").what, "Pick t10: Harvest parser")
+
+    def test_store_braces_are_literal(self):
+        title = "{0} {title} {cid} {"
+        self.assertEqual(model.next_step(_item(title=title)).what, f"Decide: {title}")
+
+    def test_next_step_never_raises(self):
+        broken = _item(title=None)
+        self.assertEqual(model.next_step(broken).key, "raw")
+
+
+class ColumnAndLabelTests(_Case, unittest.TestCase):
+    def setUp(self):
+        self.make_copy()
+        self.addCleanup(self.drop_copy)
+        self.now = model._parse_ts(NOW)
+
+    def test_header_and_row_columns_align(self):
+        for cid_w in (5, 7):
+            with self.subTest(cid_w=cid_w):
+                header = model.header_text(cid_w)
+                item = _item(num=12, kind="watch", title="CI",
+                             checked_at="2026-11-05T11:55:00Z")
+                row = model.row_text(item, self.now, cid_w)
+                self.assertTrue(row.startswith("c12 "))
+                self.assertTrue(row[header.index("Checked"):].startswith("5m ago "))
+                self.assertTrue(row[header.index("What to do"):]
+                                .startswith("Waiting on: CI"))
+
+    def test_cid_width_grows_with_the_store(self):
+        store = model.load_snapshot(self.store_dir).store
+        self.assertEqual(model.cid_width(store), 5)
+        store.items[123456] = _item(num=123456)
+        self.assertEqual(model.cid_width(store), 7)
+        self.assertEqual(model.cid_width(None), 5)
+
+    def test_long_ages_are_compacted_to_the_column(self):
+        def ago(days):
+            return (self.now - model._dt.timedelta(days=days)).strftime(model._TS_FORMAT)
+        for days, cell in ((999, "999d ago"), (1000, "2y ago"), (1042, "2y ago")):
+            with self.subTest(days=days):
+                self.assertEqual(model.age_cell(ago(days), self.now), cell)
+                self.assertEqual(model.age_text(ago(days), self.now), f"{days}d ago",
+                                 "the details keep the full age")
+        self.assertEqual(model.age_cell("0001-01-01T00:00:00Z", self.now), "long ago")
+        header = model.header_text()
+        for days in (999, 1042):
+            row = model.row_text(_item(kind="watch", title="CI", checked_at=ago(days)),
+                                 self.now)
+            self.assertEqual(row.index("Waiting on: CI"), header.index("What to do"),
+                             f"a {days}-day age keeps the action under its header")
+
+    def test_age_cell_table(self):
+        for value, want in (("never", "—"), ("", "—"), (IMPOSSIBLE, "invalid"),
+                            ("2026-11-06T12:00:00Z", "future"),
+                            ("2026-11-05T11:55:00Z", "5m ago"),
+                            ("2026-11-05T12:00:00Z", "just now")):
+            with self.subTest(value=value):
+                cell = model.age_cell(value, self.now)
+                self.assertEqual(cell, want)
+                self.assertLessEqual(len(cell), model.COLUMNS[1][1])
+
+    def test_about_text(self):
+        self.assertEqual(model.about_text(""), "")
+        self.assertEqual(model.about_text("t2182"), "t2182")
+        self.assertEqual(model.about_text("other#7"), "task 7 in project other")
+        sha = "a" * 40
+        self.assertEqual(model.about_text(f"push:main@{sha}"),
+                         f"push of branch main (commit {sha[:12]})")
+
+    def test_source_labels(self):
+        sd = self.store_dir
+        f = self.facts
+        self.assertIsNone(model.source_label(sd, "capture", f["keys"][0]))
+        self.assertIsNone(model.source_label(sd, "capture", f["keys"][1]))
+        self.assertEqual(model.source_label(sd, "capture", f["banner"]),
+                         "Workflow result, lines 1–3")
+        self.assertEqual(model.source_label(sd, "capture", f["passage"]),
+                         "Closing message, lines 1–3")
+        self.assertEqual(model.source_label(sd, "capture", f["analysis_ptr"]),
+                         f"Review case: parser analysis, lines 1–"
+                         f"{f['analysis_ptr'].rsplit('-L', 1)[1]}")
+        # The excerpt exactly as the real producer writes it: the header line
+        # carries " lines=<a>-<b>" after the header text.
+        data = C.excerpt_bytes(b"out 1\nout 2\nout 3\n", H.Reason("banner_unparsed", "L2", 2, 2))
+        self.assertTrue(data.decode().startswith(f"{C.EXCERPT_HEADER} lines="))
+        excerpt = _ptr(writer(self.root, "retain", stdin=data.decode()), "RETAINED:")
+        self.assertEqual(model.source_label(sd, "capture", excerpt),
+                         "Excerpt of the unparsed output, lines 1–"
+                         + excerpt.rsplit("-L", 1)[1])
+        self.assertEqual(model.source_label(sd, "capture", "sources/zz.txt"), "Retained text")
+        for stype, ptr, want in (
+                ("task", "aitasks/t10_demo.md", "Task t10"),
+                ("task", "aitasks/archived/t2175/t2175_2_x.md", "Task t2175_2 (archived)"),
+                ("task", "aitasks/README.md", "Task file aitasks/README.md"),
+                ("plan", "aiplans/archived/p2175/p2175_2_x.md", "Plan of t2175_2 (archived)"),
+                ("plan", "notes/x.md", "Plan file notes/x.md"),
+                ("file", "docs/notes.md", "File docs/notes.md"),
+                ("file", "docs/notes.md#L3-L9", "File docs/notes.md, lines 3–9"),
+                ("commit", "d0c48e88d", "Commit d0c48e88d"),
+                ("commit", "a" * 40, "Commit " + "a" * 12),
+                ("trail", "art:trail-x", "Trail art:trail-x"),
+                ("artifact", "art:y", "Artifact art:y"),
+                ("url", "https://x", "Web link https://x (shown, never opened)"),
+                ("weird", "v", "weird: v")):
+            with self.subTest(stype=stype, ptr=ptr):
+                self.assertEqual(model.source_label(sd, stype, ptr), want)
+
+    def test_markdown_source(self):
+        self.assertEqual(model.markdown_source("# T\nbody\n"), "# T\nbody\n")
+        self.assertEqual(model.markdown_source("---\na: 1\n---\n# T\n"),
+                         "```yaml\na: 1\n```\n\n# T\n")
+        self.assertEqual(model.markdown_source("---\na: ````x\n---\nB\n"),
+                         "`````yaml\na: ````x\n`````\n\nB\n")
+        self.assertEqual(model.markdown_source("---\nno end\n"), "---\nno end\n")
+
+    def test_markdown_flag_on_followed_pointers(self):
+        for stype, ptr, want in (("task", "aitasks/t10_demo.md", True),
+                                 ("plan", "aiplans/p10_demo.md", True),
+                                 ("file", "docs/notes.md#L2", True),
+                                 ("capture", self.facts["passage"], False),
+                                 ("url", "https://x", False)):
+            with self.subTest(stype=stype):
+                view = model.follow_pointer(self.root, self.store_dir, stype, ptr)
+                self.assertEqual(view.markdown, want)
 
 
 class AgeTests(unittest.TestCase):
@@ -506,18 +771,17 @@ class MainScreenTests(_AppCase):
             self.assertEqual([i for i in ids if i.startswith("hdr:")],
                              ["hdr:now", "hdr:next", "hdr:waiting"])
             self.assertNotIn(f"c{self.ids['done']}", ids)
-            self.assertIn("Pick now (3)", self.label(ol, "hdr:now"))
+            self.assertIn("Pick now (4)", self.label(ol, "hdr:now"))
             row = self.label(ol, f"c{self.ids['task']}")
-            self.assertIn("task", row)
-            self.assertIn("Harvest parser", row)
-            self.assertIn(" never ", row)
+            self.assertIn("Pick t10: Harvest parser", row)
+            self.assertIn(" — ", row, "checked never is a dash in the list")
             # Rendered, not just configured: the long-title row is wider than
             # the pane, and every option still takes exactly one line.
             self.assertGreater(len(self.label(ol, f"c{self.ids['long']}")), SIZE[0])
             self.assertEqual(ol.virtual_size.height, ol.option_count,
                              "rows are one line, cut with an ellipsis")
-            self.assertLess(row.index("never"), row.index("Harvest parser"),
-                            "the age precedes the title, so truncation spares it")
+            self.assertLess(row.index("—"), row.index("Harvest parser"),
+                            "the age precedes the free text, so truncation spares it")
             self.assertIs(app.focused, ol)
             enter = app.screen.active_bindings.get("enter")
             self.assertIsNotNone(enter)
@@ -542,14 +806,14 @@ class MainScreenTests(_AppCase):
             await pilot.pause()
             ol = self.main_list(app)
             self.assertIn(HOSTILE, self.label(ol, f"c{self.ids['hostile']}"))
-            self.assertIn("(invalid date)", self.label(ol, f"c{self.ids['baddate']}"))
+            self.assertIn(" invalid ", self.label(ol, f"c{self.ids['baddate']}"))
             screen = await self.open_details(app, pilot, self.ids["hostile"])
             self.assertIn(HOSTILE, str(screen.query_one("#sd-title", Static).content))
             await pilot.press("escape")
             await pilot.pause()
             screen = await self.open_details(app, pilot, self.ids["baddate"])
             body = str(screen.query_one("#sd-body", Static).content)
-            self.assertIn(f"checked: {IMPOSSIBLE} (at {IMPOSSIBLE} (invalid date))", body)
+            self.assertIn(f"Checked     {IMPOSSIBLE} (at {IMPOSSIBLE} (invalid date))", body)
             self.assertTrue(app.is_running)
 
 
@@ -560,18 +824,26 @@ class DetailTests(_AppCase):
             await pilot.pause()
             screen = await self.open_details(app, pilot, self.ids["task"])
             body = str(screen.query_one("#sd-body", Static).content)
-            for want in ("kind: task", "ref: t10", "checked: never\n",
-                         "background: Turns finished-agent",
-                         "origin: agent=agent-pick-10 date=2026-11-01", "theme: sitrep"):
+            for want in ("What to do  Pick t10: Harvest parser\n",
+                         "How         Run  /aitask-pick 10 ", "About       t10\n",
+                         "Checked     never\n", "Background  Turns finished-agent",
+                         "Origin\n  Agent     agent-pick-10\n  Date      2026-11-01\n",
+                         "Theme       sitrep"):
                 self.assertIn(want, body)
+            for internal in ("kind", "state:", "derived", "rev ", "group"):
+                self.assertNotIn(internal, body, "internal store words stay internal")
             links = screen.query_one("#sd-links", OptionList)
             labels = [str(links.get_option_at_index(i).prompt)
                       for i in range(links.option_count)]
-            self.assertIn(f"capture [CAPTURE]: {self.facts['passage']}", labels)
-            self.assertIn("url: https://example.com/x", labels)
-            self.assertTrue(any(lb.startswith(f"related c{self.ids['question']}:")
+            self.assertIn("Closing message, lines 1–3", labels)
+            self.assertIn("Web link https://example.com/x (shown, never opened)", labels)
+            self.assertIn("Task t10", labels)
+            self.assertIn("Plan of t10", labels)
+            self.assertIn("File docs/notes.md, line 3", labels)
+            self.assertIn(f"Commit {self.facts['sha'][:12]}", labels)
+            self.assertTrue(any(lb.startswith(f"Related: item c{self.ids['question']} — ")
                                 for lb in labels))
-            self.assertIn("asked about in Q&A 2026-11-05T12:00:00Z", labels)
+            self.assertIn("Q&A entry 2026-11-05T12:00:00Z", labels)
             self.assertIs(app.focused, links)
             await self.assert_no_workers(app)
 
@@ -614,7 +886,10 @@ class DetailTests(_AppCase):
             body = str(screen.query_one("#sd-body", Static).content)
             self.assertIn(f"Review case {'ab' * 8}", body)
             links = screen.query_one("#sd-links", OptionList)
-            self.assertIn("[CASE]", str(links.get_option("src:1").prompt))
+            self.assertEqual(str(links.get_option("src:1").prompt),
+                             "Review case: origin record, lines 1–3")
+            self.assertEqual(str(links.get_option("raw:1").prompt).strip(),
+                             "Raw input (review case)")
             await self.choose_link(app, pilot, "raw:1")
             self.assertIsInstance(app.screen, appmod.PointerViewerScreen)
             self.assertEqual(app.screen.query_one("#pv-text", TextArea).text,
@@ -900,6 +1175,271 @@ class ScrollTests(_AppCase):
             await pilot.press("enter")
             await pilot.pause()
             self.assertIsInstance(app.screen, appmod.ItemDetailScreen)
+
+
+# -- readability (t2211_8) --------------------------------------------------------
+
+def _row_y(ol: OptionList, index: int) -> int:
+    """The content row (0 = first visible) that renders option ``index`` --
+    found from the rendered strip's own ``option`` meta, never assumed."""
+    for y in range(ol.content_region.height):
+        for seg in ol.render_line(y):
+            if seg.style is not None and seg.style.meta.get("option") == index:
+                return y
+    raise AssertionError(f"option {index} is not on screen")
+
+
+async def _click_option(pilot, ol: OptionList, index: int) -> None:
+    dx = ol.content_region.x - ol.region.x
+    dy = ol.content_region.y - ol.region.y
+    await pilot.click(ol, offset=(dx + 2, dy + _row_y(ol, index)))
+    await pilot.pause()
+
+
+class HeaderTests(_AppCase):
+    async def test_a_fixed_header_names_the_columns_over_the_rows(self):
+        app = self.make_app()
+        async with app.run_test(size=SIZE) as pilot:
+            await pilot.pause()
+            main = app.screen_stack[0]
+            header = main.query_one("#st-columns", Static)
+            ol = self.main_list(app)
+            text = str(header.content)
+            self.assertEqual(text, model.header_text(model.cid_width(app.store)))
+            for col in ("Item", "Checked", "What to do"):
+                self.assertIn(col, text)
+            self.assertNotIn(header, list(ol.children))
+            self.assertEqual(header.content_region.x, ol.content_region.x,
+                             "header columns sit over the row columns")
+            self.assertLess(header.region.y, ol.region.y)
+            before = header.region
+            ol.highlighted = ol.option_count - 1
+            await pilot.pause()
+            self.assertGreater(ol.scroll_y, 0, "the fixture must scroll the list")
+            self.assertEqual(header.region, before, "the header does not scroll")
+            self.assertTrue(header.display)
+            triage = self.label(ol, f"c{self.ids['triage']}")
+            self.assertIn("Triage t10's wrap-up", triage)
+            for internal in ("question", " open "):
+                self.assertNotIn(internal, triage)
+            await self.assert_no_workers(app)
+
+
+class ClickSelectsTests(_AppCase):
+    """A click only selects; Enter opens -- on all four lists."""
+
+    async def test_main_list(self):
+        app = self.make_app()
+        async with app.run_test(size=SIZE) as pilot:
+            await pilot.pause()
+            ol = self.main_list(app)
+            target = 2                       # hdr:now, first item, second item
+            self.assertNotEqual(ol.highlighted, target)
+            await _click_option(pilot, ol, target)
+            self.assertEqual(ol.highlighted, target)
+            self.assertEqual(len(app.screen_stack), 1, "a click opens nothing")
+            await pilot.press("enter")
+            await pilot.pause()
+            self.assertIsInstance(app.screen, appmod.ItemDetailScreen)
+            self.assertEqual(f"c{app.screen._num}", ol.get_option_at_index(target).id)
+            await self.assert_no_workers(app)
+
+    async def test_details_links(self):
+        app = self.make_app()
+        async with app.run_test(size=SIZE) as pilot:
+            await pilot.pause()
+            screen = await self.open_details(app, pilot, self.ids["task"])
+            links = screen.query_one("#sd-links", OptionList)
+            self.assertEqual(links.highlighted, 0)
+            await _click_option(pilot, links, 1)
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+            self.assertEqual(links.highlighted, 1)
+            self.assertIs(app.screen, screen, "a click follows no pointer")
+            await pilot.press("enter")
+            await pilot.pause()
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+            self.assertIsInstance(app.screen, appmod.PointerViewerScreen)
+            await self.assert_no_workers(app)
+
+    async def test_qa_log_and_entry_links(self):
+        app = self.make_app()
+        async with app.run_test(size=SIZE) as pilot:
+            await pilot.pause()
+            await pilot.press("l")
+            await pilot.pause()
+            log = app.screen
+            ql = log.query_one("#ql-list", OptionList)
+            await _click_option(pilot, ql, 1)
+            self.assertEqual(ql.highlighted, 1)
+            self.assertIs(app.screen, log)
+            await _click_option(pilot, ql, 0)
+            await pilot.press("enter")
+            await pilot.pause()
+            self.assertIsInstance(app.screen, appmod.QaEntryScreen)
+            entry = app.screen
+            links = entry.query_one("#qe-links", OptionList)
+            await _click_option(pilot, links, 1)
+            self.assertEqual(links.highlighted, 1)
+            self.assertIs(app.screen, entry)
+            await pilot.press("enter")
+            await pilot.pause()
+            self.assertIsInstance(app.screen, appmod.ItemDetailScreen)
+            await self.assert_no_workers(app)
+
+    async def test_control_a_plain_option_list_click_selects(self):
+        """The click above really reaches the list: the stock OptionList posts
+        OptionSelected for the same click, so "nothing opened" is not vacuous."""
+        from textual.app import App
+        from textual.widgets.option_list import Option
+
+        selected = []
+
+        class Plain(App):
+            def compose(self):
+                yield OptionList(*[Option(f"row {i}", id=f"r{i}") for i in range(5)])
+
+            def on_option_list_option_selected(self, event):
+                selected.append(event.option.id)
+
+        app = Plain()
+        async with app.run_test(size=SIZE) as pilot:
+            await pilot.pause()
+            await _click_option(pilot, app.query_one(OptionList), 2)
+            self.assertEqual(selected, ["r2"])
+
+
+class LabelledDetailsTests(_AppCase):
+    LABELS = {"Item", "Context", "What to do", "How", "About", "Checked", "Outcome",
+              "Background", "Origin", "Agent", "Date", "Theme"}
+
+    async def test_labels_are_styled_and_values_stay_plain(self):
+        app = self.make_app()
+        async with app.run_test(size=SIZE) as pilot:
+            await pilot.pause()
+            for name in ("hostile", "task"):
+                screen = await self.open_details(app, pilot, self.ids[name])
+                content = screen.body_content(model.resolve_now())
+                plain = content.plain
+                if name == "hostile":
+                    self.assertIn(HOSTILE, plain)
+                    self.assertIn(HOSTILE, str(screen.query_one("#sd-body", Static).content))
+                styled = [plain[s.start:s.end].strip() for s in content.spans]
+                self.assertTrue(styled)
+                for text in styled:
+                    self.assertIn(text, self.LABELS, "only labels carry a style")
+                await pilot.press("escape")
+                await pilot.pause()
+            self.assertTrue(app.is_running)
+            await self.assert_no_workers(app)
+
+    async def test_details_reuse_the_apps_refresh_checks(self):
+        app = self.make_app()
+        async with app.run_test(size=SIZE) as pilot:
+            await pilot.pause()
+            self.assertEqual(app._checks.get(self.ids["trailwatch"]), "trail")
+            with mock.patch.object(model, "refresh_checks",
+                                   side_effect=AssertionError("re-scanned")):
+                screen = await self.open_details(app, pilot, self.ids["trailwatch"])
+            self.assertEqual(screen._step.key, "watch", "the cached check is used")
+            self.assertIn(">r", screen.body_text(model.resolve_now()))
+            await self.assert_no_workers(app)
+
+    async def test_about_and_mentioned_by(self):
+        app = self.make_app()
+        async with app.run_test(size=SIZE) as pilot:
+            await pilot.pause()
+            screen = await self.open_details(app, pilot, self.ids["triage"])
+            self.assertNotIn("About", screen.body_text(model.resolve_now()),
+                             "an item without a ref has no About line")
+            await pilot.press("escape")
+            await pilot.pause()
+            screen = await self.open_details(app, pilot, self.ids["question"])
+            labels = [str(o.prompt) for o in
+                      screen.query_one("#sd-links", OptionList)._options]
+            task_title = app.store.items[self.ids["task"]].title
+            self.assertIn(f"Mentioned by item c{self.ids['task']} — {task_title}", labels)
+            await self.assert_no_workers(app)
+
+    async def test_sources_show_plain_labels_and_hide_key_receipts(self):
+        app = self.make_app()
+        async with app.run_test(size=SIZE) as pilot:
+            await pilot.pause()
+            screen = await self.open_details(app, pilot, self.ids["triage"])
+            links = screen.query_one("#sd-links", OptionList)
+            labels = [str(links.get_option_at_index(i).prompt)
+                      for i in range(links.option_count)]
+            self.assertEqual(labels[:5], [
+                "Closing message, lines 1–3", "Workflow result, lines 1–3",
+                "Task t10", "Plan of t10", f"Commit {self.facts['sha'][:12]}"])
+            ids = [links.get_option_at_index(i).id for i in range(links.option_count)]
+            self.assertNotIn("src:2", ids)          # the two KEY receipts
+            self.assertNotIn("src:3", ids)
+            joined = "\n".join(labels)
+            self.assertNotIn("KEY", joined)
+            self.assertNotIn("sources/", joined)
+            self.assertNotRegex(joined, r"[0-9a-f]{16}")
+            await self.choose_link(app, pilot, "src:4")     # ids stay source-indexed
+            self.assertIn("aitasks/t10_demo.md",
+                          str(app.screen.query_one("#pv-title", Static).content))
+            await self.assert_no_workers(app)
+
+
+class MarkdownViewerTests(_AppCase):
+    async def test_task_pointer_renders_markdown_literally_and_toggles(self):
+        from textual.widgets import Markdown
+        from textual.widgets._markdown import MarkdownFence, MarkdownParagraph
+
+        app = self.make_app()
+        async with app.run_test(size=SIZE) as pilot:
+            await pilot.pause()
+            await self.open_details(app, pilot, self.ids["hostile"])
+            await self.choose_link(app, pilot, "src:0")   # task: aitasks/t11_hostile.md
+            viewer = app.screen
+            self.assertIsInstance(viewer, appmod.PointerViewerScreen)
+            md_pane = viewer.query_one("#pv-md")
+            area = viewer.query_one("#pv-text", TextArea)
+            md = viewer.query_one(Markdown)
+            self.assertFalse(md._open_links, "links in a repo file are never opened")
+            self.assertTrue(md_pane.display)
+            self.assertFalse(area.display)
+            self.assertIs(app.focused, md_pane)
+            paragraphs = [p._content.plain for p in md.query(MarkdownParagraph)]
+            self.assertIn(HOSTILE, paragraphs, "store text is not parsed as markup")
+            self.assertTrue(md.query(MarkdownFence), "front matter is a fenced block")
+            toggle = viewer.active_bindings.get("m")
+            self.assertTrue(toggle is not None and toggle.enabled and toggle.binding.show)
+            await pilot.press("m")
+            await pilot.pause()
+            self.assertFalse(md_pane.display)
+            self.assertTrue(area.display)
+            self.assertIs(app.focused, area)
+            self.assertIn(HOSTILE, area.text)
+            await pilot.press("m")
+            await pilot.pause()
+            self.assertTrue(md_pane.display)
+            await self.assert_no_workers(app)
+
+    async def test_line_pointer_starts_raw_and_capture_has_no_markdown(self):
+        app = self.make_app()
+        async with app.run_test(size=SIZE) as pilot:
+            await pilot.pause()
+            await self.open_details(app, pilot, self.ids["task"])
+            await self.choose_link(app, pilot, "src:2")   # file: docs/notes.md#L3
+            viewer = app.screen
+            self.assertFalse(viewer.query_one("#pv-md").display)
+            area = viewer.query_one("#pv-text", TextArea)
+            self.assertTrue(area.display)
+            self.assertEqual(area.cursor_location[0], 2)
+            await pilot.press("escape")
+            await pilot.pause()
+            await self.choose_link(app, pilot, "src:3")   # capture
+            viewer = app.screen
+            self.assertFalse(viewer.query("#pv-md"))
+            toggle = viewer.active_bindings.get("m")
+            self.assertFalse(toggle is not None and toggle.enabled)
+            await self.assert_no_workers(app)
 
 
 # -- the launcher ----------------------------------------------------------------
