@@ -56,3 +56,13 @@ Fifth child of t1663 — docs are a first-class child per `aidocs/framework/plan
 > | 3. Keep this check distinct from the existing verification_baseline pre-check
 > |    (development/task-format.md ~62). workflows/_index.md is hand-curated, so a
 > |    new page needs a bullet there.
+
+> **✉ note:t1663_4** id=2026-11-08T09:33:06Z.cd3daa7f7ac5a89fb840dff5 from=t1663_4 from_verified=yes at=2026-11-08T09:33:06Z base=620039d7bbcb9d6bd5911d5275e58bd2814fa872 base_branch=main dirty=yes host=omg16
+>
+> | From t1663_4, landed in 620039d7b. Advisory context for the website docs; re-verify against the tree.
+> | 
+> | - The check is task-workflow Step 3 **Check 7** (not Check 6, which is the inbox check). Ready tasks only; manual_verification tasks are skipped (Check 3 owns them).
+> | - Four options: Proceed / Review & replan with this evidence / Postpone task / Pick a different task. Postpone ends with a new `postponed` Stopped-banner outcome.
+> | - The evidence-class resolution table (what "Proceed" does with CHANGED, DELETED, never_existed, invalid_reference, unverifiable rows), the headless report-only rule and the lifecycle table are in aidocs/framework/task_premise_staleness.md, "Interaction" and "Baseline lifecycle".
+> | - Framework-internal, not user commands: `aitask_premise_stale.sh advance` / `owner`, and `aitask_pick_own.sh --expect-status`.
+> | - Known limits worth stating for users: invalid file_references entries recur until fixed by hand; kept never-existing references keep being reported; a session outside the agent's tmux pane without AIT_AGENT_PID cannot advance the baseline (owner_unverifiable).
