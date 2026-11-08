@@ -3,13 +3,14 @@ priority: medium
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [git-integration, contribution]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 2235
 followup_kind: risk_mitigation
 created_at: 2026-11-08 15:24
-updated_at: 2026-11-08 15:24
+updated_at: 2026-11-08 15:39
 ---
 
 ## Origin
