@@ -84,3 +84,5 @@ Fourth child of t1663. Design in `aidocs/framework/task_premise_staleness.md` ("
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-11-07T17:11:47Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-11-08T09:27:36Z status=pass attempt=1 type=human
