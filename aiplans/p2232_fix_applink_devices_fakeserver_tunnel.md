@@ -63,3 +63,24 @@ None identified. (Test-only change in one file; no production code touched.)
 
 ### Goal-achievement risk: low
 None identified. (Root cause reproduced; fix mirrors the real server's default.)
+
+## Final Implementation Notes
+
+- **Actual work done:** All plan steps done, in `tests/test_applink_devices.sh` only:
+  `FakeServer.tunnel = None`; `import tunnel as T` and `Static`; three new checks
+  (`status line shows listener state`, `no tunnel segment when server.tunnel is None`,
+  `tunnel status segment shown when a tunnel is up` using a real `T.QuickTunnel(8765)`
+  forced to `STATE_UP`); tunnel reset to None before the revoke block; header comment updated.
+- **Deviations from plan:** None. The "up" check matches the segment with its surrounding
+  `— … —` separators so it pins placement in the status line, not just presence.
+- **Verification:** `bash tests/test_applink_devices.sh` → 13 `ok -` lines, `ALL PASSED`, rc=0.
+  Controls, each in a throwaway scratch copy of `.aitask-scripts/` + the test (shared tree untouched):
+  (m1) `_refresh` tunnel_part forced to `""` → rc=1 on "tunnel status segment shown when a tunnel is up";
+  (m2) tunnel_part forced to `" — Tunnel: off"` regardless of None → rc=1 on "no tunnel segment when server.tunnel is None";
+  (m3) fixture without `self.tunnel = None` (pre-fix) → rc=1 with the original `AttributeError`.
+  Sibling sweep: all 15 `tests/test_applink_*.sh` exit 0.
+  `shellcheck` reports only the pre-existing SC1091 info on the unchanged `source` line.
+- **Issues encountered:** None.
+- **Upstream defects identified:** None
+- **Key decisions:** Used the real `QuickTunnel.status_line()` rather than a stub so the
+  check follows the shared TUI/headless wording if it changes.
