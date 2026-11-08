@@ -254,6 +254,38 @@ t1981_1 note has been acknowledged.
 
    The flag set used in step 4 is the one this probe proved.
 
+   **Done (2026-11-07, claude 2.1.319, model claude-haiku-5-5).** Every
+   variant used the same base flags: `--print --output-format json
+   --no-session-persistence --disable-slash-commands --permission-mode
+   dontAsk --strict-mcp-config --tools Read,Glob,Grep --disallowedTools
+   Bash,Edit,Write,NotebookEdit,WebFetch,WebSearch`. Each took its prompt on
+   stdin with no positional argument. A scratch git repo had a project
+   `.claude/settings.json` with `SessionStart` and `UserPromptSubmit` hooks
+   that each touched a marker file.
+
+   | Variant | Extra flags | rc | Hook markers | result |
+   |---|---|---|---|---|
+   | A | none | 0 | **2** | `OK` |
+   | B | `--setting-sources ""` | 0 | 0 | `OK` |
+   | C | `--setting-sources user` | 0 | 0 | `OK` |
+   | D | `--settings '{"disableAllHooks":true}'` | 0 | 0 | `OK` |
+   | E | B + D | 0 | 0 | `OK` |
+
+   - **Stdin prompt input works.**
+   - **Project hooks run by default under `--print`**, so a restriction is
+     required.
+   - Authentication still works with no setting sources (variant E).
+   - **Chosen: E**, `--setting-sources "" --settings
+     '{"disableAllHooks":true}'`: no user, project or local settings, so no
+     inherited permission rules or hooks, plus an explicit hook kill as a
+     second layer.
+   - **JSON result keys:** `type`, `subtype` (`success`), `is_error`, `result`
+     (text), `usage` {`input_tokens`, `cache_creation_input_tokens`,
+     `cache_read_input_tokens`, `output_tokens`, …}, `total_cost_usd`,
+     `duration_ms`, `num_turns`, `permission_denials`, `stop_reason`, and
+     others.
+   - Usage mapping: `input_tokens` = input + cache_creation + cache_read.
+
 ### Main steps
 
 0. **Candidate contract: `lib/relation_candidates_contract.py`** (new,
@@ -911,3 +943,278 @@ archival via `aitask_archive.sh 1981_3`).
 Pre-commit release check (schema rollout): `git tag --contains f78e2b8d5` must
 be empty. If not, stop: a release shipped the closed `aitask-relations/1`
 reader, and `screening_sha256` must move to a schema-version bump instead.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-08 00:30)
+- **Requested by user:** four confirmed review findings:
+  - **(high)** queued work ran after an opt-out, because no switch was
+    re-checked before paid admission;
+  - **(high)** a killed `--dry-run` left its agent running with no ownership
+    record, and a second dry run launched;
+  - **(medium)** `evidence.section` was emitted raw into the pipe-delimited text
+    protocol (`|`, a newline or `-` broke framing);
+  - **(medium)** `usage` `jobs=` counted only no-call jobs, so a successful
+    paid job read `jobs=0|calls=1`.
+- **Changes made:**
+  - `relations_worker.switched_off()` re-reads `relations.enabled` and
+    `AIT_RELATIONS=0` at job start and again immediately before `admit()`.
+    `JobSkipped` ends the job as `SKIPPED:disabled|host_off`, with a
+    `results/` entry, a `kind:"job"` row and a log line. Dry runs are exempt.
+  - Dry runs now write `previews/<call_id>.json`: the owner pid and strong
+    identity, plus `call_id` / `spawning` / `agent`. The entry is removed once
+    the agent ends. `recover_previews()` runs at every worker start and at every
+    dry-run start:
+    - a preview whose owner is alive is left alone;
+    - a dead owner's agent is ended (group kill) before the entry is released;
+    - an invocation that cannot be established becomes an unresolved guard,
+      settled `unresolved`.
+  - The text protocol JSON-encodes `evidence.section` (as it already did for
+    details and cards); absence is a bare `-`. `parse_text` uses a JSON-aware
+    evidence parser.
+  - Every terminal job outcome writes exactly one `kind:"job"` row: analysed,
+    up-to-date, empty, excluded, stale-run, skipped, failed, interrupted, and
+    dry runs (`dry_run: true`). Held and requeued jobs write none, so a
+    timeout-retried job is 1 job and 2 calls. The CLI test assertion is now
+    `jobs=1|calls=1`.
+  - Docs ("Worker API"): the switch re-check, previews, the job/call counters,
+    and the text encoding.
+  - New tests:
+    - `SwitchTests`: disabled or host-off after queueing, and flipped mid-job
+      before admission (0 launches, 0 calls, visible outcome); dry-run
+      exception;
+    - `DryRunRecoveryTests`: SIGKILLed preview CLI; the second dry run ends the
+      orphan group first (the replacement stub verifies the old pids are dead);
+      worker-start recovery; spawn-gap preview with a dead owner → guard +
+      `BLOCKED_UNRESOLVED`, worker job held; a live preview is left alone;
+    - `UsageCountTests`;
+    - contract `test_text_round_trip_of_awkward_optional_fields`.
+- **Files affected:** `.aitask-scripts/lib/relations_worker.py`,
+  `relations_spool.py`, `relations_cli.py`, `relation_candidates_contract.py`,
+  `aidocs/framework/task_relations.md`, `tests/test_relations_worker.py`,
+  `tests/test_relations_analysis_cli.py`,
+  `tests/test_relation_candidates_contract.py`.
+
+### Change Request 2 (2026-11-08 08:10)
+- **Requested by user:** three confirmed findings:
+  - **(high)** preview recovery ran only at worker or dry-run startup, so a
+    preview alive at startup that lost its CLI during candidate gathering
+    could leave its agent alive while the worker launched another;
+  - **(medium)** concurrent recoverers acted on the same preview snapshot (two
+    terminal job rows for one preview);
+  - **(medium)** `tests/test_setup_relations.sh` used `cp -R` of
+    `.aitask-scripts`, which `tests/test_framework_copy.sh` (t2226) rejects
+    for tracked tests. The t2226 session also sent this as an advisory inbox
+    note.
+- **Changes made:**
+  - `analyse()` calls `recover_previews(sp, task=tid)` at the shared
+    pre-admission boundary, before the guard check. This covers worker jobs
+    and dry runs, and live previews are still left alone.
+  - `recover_previews` holds `spool/recovery.lock` for each entry's whole
+    transition and re-reads the entry under it, skipping it if it is already
+    released.
+  - `Spool.settle_call` is idempotent per `call_id`, and `Spool.log_job(...,
+    invocation=)` is idempotent per invocation; both check and append under
+    `usage.lock`.
+  - The setup test sources `tests/lib/framework_copy.sh` and uses
+    `copy_framework_tree "$PROJECT_DIR/.aitask-scripts" "$t/.aitask-scripts"`.
+    The guard's own pattern finds no hit in the new tests, and the control (the
+    old line) still matches.
+  - Docs ("Worker API"): the pre-admission reconcile, the recovery lock and
+    idempotency.
+  - New tests:
+    - `test_preview_dying_after_startup_is_reconciled_before_admission`. The
+      preview owner is killed in the worker's `after_snapshot`; no launch
+      happens while the agent lives. A mutant without the pre-admission call
+      fails this test.
+    - `test_concurrent_recoverers_act_once`: a barrier subprocess holds a stale
+      listing while a second recoverer settles; exactly one job row and one
+      outcome row result.
+    - `test_accounting_is_idempotent_per_invocation`.
+- **Files affected:** `.aitask-scripts/lib/relations_worker.py`,
+  `relations_spool.py`, `aidocs/framework/task_relations.md`,
+  `tests/test_relations_worker.py`, `tests/test_setup_relations.sh`.
+
+### Change Request 3 (2026-11-08 09:20)
+- **Requested by user:** two confirmed findings:
+  - **(high)** a single guard file per `(op, task)` let a second unresolved
+    invocation overwrite the first one's protection, so ending only the second
+    agent cleared the guard while the first stayed unresolved;
+  - **(low)** `parse_text` split on `str.splitlines()`, so a valid section
+    containing U+0085, U+2028 or U+2029 (kept raw by `ensure_ascii=False`)
+    failed to round-trip.
+- **Changes made:**
+  - Guards are stored per invocation:
+    `spool/unresolved/<op>__t<id>/<invocation>.json`, keyed by `call_id`,
+    or a generated id for a corrupt running entry. `guard()` returns every
+    outstanding invocation and `has_guard()` whether any remains.
+    `clear_guard(op, tid, inv)` clears one; the directory goes when it is empty.
+    - The pre-admission check, `recover_running`, `job_state`, `reset_holds`,
+      `status` and `unblock` evaluate each invocation on its own evidence.
+    - A task stays blocked while any invocation remains: worker-originated and
+      preview-originated alike. `unblock` succeeds only when none remains,
+      and otherwise prints `remaining=<n>`.
+  - `parse_text` splits on `"\n"` only, and strips only the two-space indent.
+  - New tests:
+    - `test_every_unresolved_invocation_must_be_resolved`: a spawn-gap
+      preview, a weak-identity live preview and a worker spawn gap. After only
+      the weak one's agent ends, the task stays blocked (0 launches, dry run
+      refused, `remaining=2`) until a forced unblock. A one-guard-per-task
+      mutant fails this test.
+    - The contract round-trip now covers U+0085, U+2028, U+2029, VT, FF and FS
+      in sections, details, cards and the provider detail.
+- **Files affected:** `.aitask-scripts/lib/relations_spool.py`,
+  `relations_worker.py`, `relations_cli.py`, `relation_candidates_contract.py`,
+  `aidocs/framework/task_relations.md`, `tests/test_relations_worker.py`,
+  `tests/test_relation_candidates_contract.py`.
+
+### Change Request 4 (2026-11-08 10:05)
+- **Requested by user:** **(medium)** a guard admission race. The final guard
+  read and `admit()` were not coordinated with guard writers (`write_guard`
+  takes `spool.lock`, `admit` only `usage.lock`), so a guard created between
+  the pre-admission scan and the reservation was missed and an agent launched.
+- **Changes made:**
+  - New `Spool.admit_unguarded()`: under `spool.lock`, it raises `Blocked`
+    when any guard exists for the key, else calls `admit()` (`usage.lock`
+    nested). Lock order is spool → usage; no path takes them the other way.
+  - `analyse()` keeps the liveness cleanup (`recover_previews` and
+    per-invocation `agent_ended`) outside, then calls `admit_unguarded`.
+    `Blocked` holds the job as `blocked_unresolved`, or refuses a dry run with
+    `BLOCKED_UNRESOLVED`. A new `before_admit` test-hook point sits between
+    the scan and the reservation.
+  - New tests: a guard written at `before_admit` blocks a worker job (no call,
+    no launch, no record, request resolved `BLOCKED_UNRESOLVED`), and blocks a
+    dry-run CLI (subprocess barrier, exit 3). A mutant using plain `admit()`
+    fails.
+- **Files affected:** `.aitask-scripts/lib/relations_spool.py`,
+  `relations_worker.py`, `aidocs/framework/task_relations.md`,
+  `tests/test_relations_worker.py`.
+
+## Final Implementation Notes
+- **Actual work done:** everything in the approved plan, plus four review
+  rounds (Change Requests 1-4 above).
+  - New modules:
+    - `lib/relation_candidates_contract.py`: provider contract, JSON/text
+      renderings, snapshot manifest, screening digest;
+    - `lib/relations_config.py`: loader; surgical, read-back-guarded YAML
+      edits; the project-name rule;
+    - `lib/relations_spool.py`: spool, coalescing, admission and ledger,
+      per-invocation guards, previews;
+    - `lib/relations_worker.py`: per-job pipeline, worker loop, recovery,
+      stamp, enqueue/stamp-publish entry points.
+  - New files:
+    - `aitask_relations_enqueue.sh`;
+    - `.aitask-scripts/relations/prompts/relations_analysis.md`.
+  - Changed files:
+    - `aitask_codeagent.sh`: `relations` / `obsolescence` ops;
+    - `relations_cli.py` and `aitask_relations.sh`: 9 new verbs;
+    - `relations_store.py`: `job_state` hook;
+    - `relations_schema.py`: optional `inputs.screening_sha256`;
+    - `bounded_run.py`: `on_start`, `kill_process_group_by_id`;
+    - `aitask_setup.sh`: `ask_relations_activation`,
+      `report_relations_state`;
+    - the seed and project `codeagent_config.json` / `project_config.yaml`;
+    - `settings_app.py`: descriptions;
+    - the `ait` help line;
+    - website codeagent table;
+    - the design doc "Worker API" section, plus D2 "Screening identity" /
+      "Schema compatibility", D5 headless-flag outcome, D6 contract pointer,
+      and D8 evaluation order;
+    - the metadata-writer inventory pin;
+    - `EXEMPT_OPS`.
+  - Tests:
+    - `test_relations_worker.py` (53), `test_relations_analysis_cli.py` (24),
+      `test_relation_candidates_contract.py` (10), `test_relations_config.py`
+      (17), `test_relations_store.py` (+1);
+    - `test_relations_enqueue.sh` (19), `test_codeagent_relations.sh` (49, plus
+      an opt-in live block), `test_setup_relations.sh` (13);
+    - fixtures, a reference provider and a stub agent in
+      `tests/fixtures/relation_candidates/`.
+- **Deviations from plan:**
+  - The analysis-state and verb tests are Python, through the CLI subprocess,
+    rather than the planned `.sh`; only the enqueue helper's
+    no-stdout/exit-0 contract is a bash test.
+  - `usage.jsonl` lives directly under `aitask-relations/`, as the design doc
+    places the ledgers, not under `spool/`.
+  - A new enqueue re-opens a `capped` hold; a `blocked_unresolved` hold
+    follows only its guard.
+  - The provider contract also carries `truncated.inputs` echoes, because
+    truncated candidates get record entries too.
+  - Review rounds added: switch re-check before admission, `SKIPPED:*`
+    outcomes; dry-run ownership (`previews/`) and its recovery at
+    worker start, dry-run start and the pre-admission boundary; serialized,
+    idempotent recovery (`recovery.lock`, per-`call_id` outcome, per-invocation
+    job row); one terminal job row per job; per-invocation guards;
+    `admit_unguarded` (atomic final guard check plus reservation); JSON-encoded
+    evidence sections; newline-only text framing.
+- **Issues encountered:**
+  - The CLI and registry helpers resolve their interpreter under a scratch
+    `HOME`, so tests pin `AIT_PYTHON`.
+  - A killed child of the test process lingers as a zombie, so group-kill tests
+    use orphaned sleepers (init reaps them).
+  - The bash enqueue test raced its own detached parts until each case waited
+    for its log line.
+  - `codeagent` resolves models from the repo root, so the live check runs the
+    `--dry-run` launch line from a scratch dir.
+- **Key decisions:**
+  - **Live probe results (claude 2.1.319):**
+    - project hooks DO run under `--print` unless settings are restricted;
+    - chosen: `--setting-sources ""` plus `--settings
+      '{"disableAllHooks":true}'`, the prompt on stdin, `--permission-mode
+      dontAsk`, `--tools Read,Glob,Grep`, `--strict-mcp-config`, and
+      `--disallowedTools Bash,Edit,Write,NotebookEdit,WebFetch,WebSearch`.
+  - **Live read-only check** (`RUN_LIVE_RELATIONS=1`, claudecode/haiku5_5,
+    2026-11-07): the model-reported tools were exactly `Glob,Grep,Read`; no
+    file was written, no shell command ran, no project hook ran.
+  - Analysis-state evaluation order: a local job outranks `inputs_mismatch`
+    (documented in D8).
+  - Schema rollout: f78e2b8d5 is in no release tag, so the extended reader
+    ships with the first writer; this was re-checked at commit time.
+  - `enable` project-name rule (user decision): keep a valid name; else exactly
+    one complete registry binding; else refuse with a how-to.
+- **Upstream defects identified:**
+  - `.aitask-scripts/aitask_setup.sh:5915-5967` — `ensure_*` writes are
+    committed at :5915 but the venv (PyYAML) is only set up afterwards, so any
+    setup question that writes YAML through Python must commit itself (this
+    task's `ask_relations_activation` calls `_flush_metadata_batch`
+    directly). Not a bug in itself; an ordering constraint worth knowing.
+- **Notes for sibling tasks:**
+  - **t1981_2 (generator):**
+    - Conform to `lib/relation_candidates_contract.py`: one JSON object on
+      stdout with `--json`, diagnostics on stderr, and `--snapshot <manifest>`
+      honoured (stamped plans from `data_commit`, deterministic cards and
+      plan-derived evidence, digest echoes via `relations_schema.digests`).
+    - Render the text output through `to_text` and add `UNCONFIRMED:` there.
+    - Run `tests/test_relation_candidates_contract.py` with
+      `AIT_CANDIDATES_UNDER_TEST`.
+    - `reference_provider.py` is the behavioural reference.
+    - The worker calls `aitask_relation_candidates.sh` and reports
+      `CANDIDATES_UNAVAILABLE:no_provider` until it exists. The seam is
+      `AIT_RELATIONS_CANDIDATES_CMD`.
+    - `analyze --dry-run` works while analysis is disabled and is
+      cap-admitted.
+  - **t1981_4 (triggers):**
+    - `aitask_relations_enqueue.sh <op> <trigger> <id>` never prints and always
+      exits 0.
+    - `ait relations stamp <id>` prints `STAMP:<sha>|STAMP:disabled|STAMP_ERROR:<r>`.
+      It writes the stamp synchronously (outbox) and detaches the publish and
+      the `plan_approved` enqueue.
+    - `plan-digest <id>` prints `PLAN_DIGEST:<sha>` or
+      `PLAN_DIGEST_ERROR:<r>`.
+    - `obsolescence` is accepted by the helper but logged
+      `SKIPPED:op_unimplemented`.
+  - **t1981_5 (consumption):**
+    - `analysis-state <id> [--expect-plan <sha>]` prints `ANALYSIS_STATE:`
+      after `RELATIONS_STATE:` / `STORE:`, with the D8 order. `ANALYSIS:` can
+      now read `pending(capped)` and `failed(interrupted_unresolved)`.
+    - Write `pull.jsonl` / `notify.jsonl` under `<git-common-dir>/aitask-relations/`.
+      `ledgers --export` already picks them up.
+  - **t1981_6:** the `obsolescence` op name is reserved in `aitask_codeagent.sh`.
+    Add `OPS_IMPLEMENTED` and a job path in `relations_worker.py`, and reuse
+    `admit_unguarded`, previews and guards.
+  - **Every launch path** must go through `analyse()`'s pre-admission
+    sequence: switch re-check, `recover_previews(task=)`, the per-invocation
+    guard scan, then `admit_unguarded`. Ownership records go in the running
+    entry or a preview.
+  - Tests: reuse `tests/test_relations_worker.py::WBase`, `orphan_sleeper()`,
+    and the barrier seam `AIT_RELATIONS_TEST_BARRIER`.
