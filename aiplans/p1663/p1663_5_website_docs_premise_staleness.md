@@ -103,3 +103,13 @@ None identified. Docs-only change, adding one page and small prose edits to five
 
 ### Goal-achievement risk: low
 - Prose could describe behaviour that differs from what shipped, e.g. claiming a check that has not landed, as already happened with the manual-verification pre-check. · severity: low · → mitigation: covered by plan step 7 (claim audit against source)
+
+## Final Implementation Notes
+
+- **Actual work done:** New page `website/content/docs/workflows/premise-staleness.md` (sections 1-10 as planned: when it runs, what it compares, evidence table, four-answer table, opt in/out, unattended runs, limits, `verification_baseline` distinction, related). Cross-links added to `workflows/_index.md` (Tasks section, after Task Notes), `workflows/manual-verification.md` (reverse link, under "Running a Manual-Verification Task"), `development/task-format.md` (`premise_baseline` row → relref), `skills/aitask-pick/_index.md` (step 4, full evidence wording), and `workflows/create-tasks-from-code.md` (step 7, stamping sentence).
+- **Deviations from plan:** None in scope. Plan-review corrections applied before approval: "always asked" is qualified to interactive profiles on the shared workflow, unattended runs are split into headless-profile (report-only) and pickrem/pickweb (not run), and every "asks when" statement uses the full evidence definition (changes plus unresolved scope or history).
+- **Issues encountered:** The manual-verification staleness pre-check (t1555_3) has not shipped, but the `verification_baseline` row in task-format.md already describes it as live. The new docs do not repeat that claim. A note was sent to t1555_3 (NOTE_APPENDED 2026-11-08T11:14:37Z.272b84400fd910498b7d7894).
+- **Key decisions:** The page goes under "Tasks" in the workflows index (weight 62, next to Task Notes) because it concerns backlog tasks at pick time. The opt-in example resolves `HEAD` with `git rev-parse` because the writer rejects symbolic revisions.
+- **Upstream defects identified:** None.
+- **Verification:** `hugo build --gc --minify` exit 0 (scratch output dir); `python3 check_links.py --build` → `SWEEP: PASSED`; rendered page has all in-page anchors; manual-verification, task-format and workflows index all link to the new page; no agent product names on the new page.
+- **Notes for sibling tasks:** t1663_6 (retrospective) owns the deferred surfaces. If read-surface markers or the computed-baseline profile key ship, update this page's "When it runs" and "Limits".
