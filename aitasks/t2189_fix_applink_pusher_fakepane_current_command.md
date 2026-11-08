@@ -12,8 +12,9 @@ active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2034
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-03 22:42
-updated_at: 2026-11-07 22:25
+updated_at: 2026-11-08 08:48
 ---
 
 ## Origin
@@ -54,3 +55,8 @@ Give the test's `FakePane` the fields the real `TmuxPaneInfo` carries that
 `capture_pane_async` now reads (`current_command`, `pane_pid`), or build the fixture from a
 real `TmuxPaneInfo`; then confirm the script runs to its `ALL PASSED` line and that the
 previously skipped checks pass.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-08T06:48:26Z status=pass attempt=1 type=human
