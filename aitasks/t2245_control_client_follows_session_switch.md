@@ -37,3 +37,8 @@ So the same cross-project symptom t2242 fixed for attach still exists for an alr
 ## Suggested fix
 
 Either set the option per-client at attach (for example, a `set-option -t =<session> detach-on-destroy on` sent over the control channel right after attach — but it is a session option, so it also changes the user's own interactive clients on that session, and `-g` would change the whole server), or have `_reader_loop` treat `%session-changed` / `%client-session-changed` to a session other than `self.session` as death (set `saw_exit`/teardown), so the supervisor's exact-match reconnect takes over. Add a live regression that leaves `detach-on-destroy off` in effect, destroys the target while `<S>_mob` runs, and asserts the backend never answers from the decoy. Include a pre-fix control.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-08T20:16:28Z status=pass attempt=1 type=human
