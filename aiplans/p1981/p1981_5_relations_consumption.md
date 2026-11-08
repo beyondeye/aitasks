@@ -275,3 +275,98 @@ These are notes to sibling tasks, sent after this task's own commit:
 ## Step 9
 
 Post-implementation per task-workflow Step 9: commit, archive, merge. The ports to the other agent trees are t1981_9.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-08 13:30)
+- **Requested by user:** five verified review findings:
+  1. Step 8e and `/aitask-note` passed the qualified `aitasks#11` ref to `/aitask-note`, which only accepts bare ids;
+  2. an unreadable change set (`--diff no-such-ref..HEAD`) with a complete record still printed `PUSH_NONE:complete` / "no affected targets";
+  3. `archived_plan_path` missed plans that exist only inside archive bundles;
+  4. a disabled `related-work --point review` without `--since` ran `aitask_lock.sh --check`, which fetches;
+  5. `_hunks` attributed a deletion's lines to `/dev/null` and mishandled git-quoted paths.
+- **Changes made:**
+  1. Every `ITEM:` / `PUSH:` row is now followed by `NOTE_TARGET:<id>` (`<id>|project=<name>` for another project's task, via `note_target()`). Step 8e and `/aitask-note` send to that value, and keep the qualified ref for `notify-outcome` and the ledgers.
+  2. The all-clear needs a complete analysis **and** a readable, non-empty change set: `PUSH_NONE:changeset_unreadable` / `PUSH_NONE:changeset_empty` otherwise, with "unknown" in `SUMMARY:`. The analysis verdict is kept separately in `ANALYSIS_STATE:`, and the ledger summary records `changeset_error`.
+  3. Bundled plans are found in `_find_plan`'s order (loose, numbered, legacy) and extracted to `<git-common-dir>/aitask-relations/archived-plans/`; the extracted path is reported.
+  4. `read_lock_time` reads `refs/remotes/origin/aitask-locks:t<id>_lock.yaml` locally (never a fetch).
+  5. `_hunks` keeps the old path when `+++` is `/dev/null`, C-unquotes quoted names and drops git's trailing header TAB.
+  - Skill / procedure / design-doc text was updated; the goldens and remote prerenders were regenerated.
+- **Files affected:** `lib/relations_consume.py`, `lib/relations_cli.py`, `task-workflow/SKILL.md`, `related-work-check.md`, `aitask-note/SKILL.md`, `aidocs/framework/task_relations.md`, `tests/test_relations_consume.py` (+8 tests, 45 total; mutants for the change-set guard and the deletion path both go red), the goldens and the remote prerenders.
+
+### Change Request 2 (2026-11-08 13:50)
+- **Requested by user:**
+  - an active task with `status: Done` was still classified `landed`, contrary to "archived, Done, no `archived_reason`";
+  - bundled-plan extraction ran for rows that were then filtered out or capped (the note view created an extracted plan while printing `RELATED_WORK:0`).
+- **Changes made:**
+  - `end_state` classifies closed states for archived tasks only; an active Done task reads `pending:Done` (so it is neither pull-`landed` nor push-`target_closed`).
+  - `related_work` locates and extracts archived plans only for the rows it actually returns, after filtering and the 8-item cap.
+  - Two regression tests (each red under its mutant), with controls: archiving the task makes it `landed`, and the pick view extracts the plan.
+- **Files affected:** `lib/relations_consume.py`, `tests/test_relations_consume.py` (47 tests).
+
+## Final Implementation Notes
+- **Actual work done:** every main step of the approved plan, both inline post-phases, and two review rounds (Post-Review Changes above).
+  - **New module** `lib/relations_consume.py`:
+    - change sets from `(t<id>)`-subject commits (`--rev`) or a `--diff` range, with the rename map, deletion- and quote-aware hunk parsing;
+    - the shared `confirm()`;
+    - `end_state()`: `landed` = archived and Done with no `archived_reason`; `dropped`; `implementing`; `plan_holder`; `pending`;
+    - the D8 push rules: rule 0 `relations_disabled`, then the seven reasons in order;
+    - `related_work()`, with three points, groups, the 8-item cap, `covered_by_note` read through `note_inbox`, and bundled-plan extraction for the rows shown;
+    - `plain_summary()` / `plain_analysis_state()`, `note_target()`, the line-protocol encoding, and the O_APPEND ledgers.
+  - **Verbs** `related-work`, `notify-candidates` and `notify-outcome` in `lib/relations_cli.py`.
+  - **Skills:**
+    - task-workflow `SKILL.md`:
+      - Step 3 Check 8;
+      - the Step 8 review-time re-check;
+      - Step 8e "Relations-derived offers" as the A → B → C → D flow, with the profile-resolved / headless option rendering;
+      - three Context Requirements rows (`relations_check_at`, `related_work`, `relations_expected_plan`);
+      - a Procedures-index entry.
+    - The new `related-work-check.md`.
+    - `planning.md`: a related-work bullet.
+    - `profiles.md`: the `relations_incomplete_action` row.
+    - `aitask-note`: the store-first step for the no-target path.
+  - **Profile key:** `relations_incomplete_action` in the shipped and seed profiles (`default` / `fast` `ask`, `remote` `proceed`) and in the settings `profile_editor.py` schema (a "Task Relations" group).
+  - **Design doc:** the D8 "Consumer API" section and the D10 surface row.
+  - **Generated files:** the goldens (`tests/golden/procs/task-workflow/SKILL-*`, `planning-*`) and the remote prerenders (`.claude/`, `.agents/` and `.opencode/` `task-workflow-remote*`).
+  - **Tests:** `tests/test_relations_consume.py`, 47 cases.
+- **Deviations from plan:**
+  - The **covered-by-note** check uses `lib/note_inbox.py`'s validated parser directly, not `aitask_query_files.sh inbox`, because the latter lists unread notes only and an acknowledged note still covers a relation.
+  - The **lock reference time** is read from the local `origin/aitask-locks` ref, not through `aitask_lock.sh --check`, which fetches (review round 1).
+  - **`PUSH_NONE:`** has two values the plan did not name, `changeset_unreadable` and `changeset_empty`: the all-clear requires a readable, non-empty change set (review round 1).
+  - **Every `ITEM:` / `PUSH:` row** carries `NOTE_TARGET:` (the bare id `aitask_note.sh` accepts), because qualified refs are rejected by the writer (review round 1).
+  - **An active task with `status: Done`** is `pending:Done`, not landed (review round 2).
+  - **`aitask-qa` / `aitask-review`** were not changed: they already route note offers through `/aitask-note`, which now reads the store first.
+- **Issues encountered:**
+  - The first disabled-rule mutant hit `plain_summary`'s identical `if` first; it was retargeted to the push rule, which then went red.
+  - The incomplete-state wording first contained the phrase "no affected targets" inside a negation, and the guard test caught it.
+  - `git mv` needs the destination directory, and git ends `---`/`+++` headers with a TAB for names containing a space; both were fixed in fixture or parser.
+  - The full Python suite reported 8 failures, all in tmux/discovery/codebrowser/monitor tests. They are caused by another concurrent session's **uncommitted** `lib/tmux_exec.py` change (`TMUX_CLIENT_FLAGS = ("-u",)`), whose test expectations lack `-u`. None of those modules touches relations; every relations suite passes (`test_relations_consume.py` 47, `test_relations_store.py`, `test_relations_analysis_cli.py`, `test_profile_editor_shadow_tier.py`).
+  - Skill checks: `aitask_skill_verify.sh` passes, as do `test_skill_render_task_workflow.sh` (365/365) and every `test_skill_render_*.sh`.
+- **Key decisions:**
+  - **Timing ([pick_cost_guard]).** `related-work 1981_5 --point pick` on this repository (disabled, 2882 code commits) has a median of 0.38 s. On the enabled scratch project (8 relations, 4 landed tasks, ~2000 filler commits) the medians are: `related-work` pick 0.166 s, review 0.164 s, `notify-candidates` 0.136 s. The per-id `(t<L>)` history walk on this repository takes 0.02 s. No optimisation and no persistent cache.
+  - **Mutation proofs.** Each of these guards turns its test red when removed:
+    - the disabled rule;
+    - the direction guard;
+    - the current-citation check;
+    - the incoming-edge filter;
+    - the change-set all-clear;
+    - the deletion path;
+    - active-Done;
+    - deferred extraction.
+  - **Pull confirmation for landed tasks** is computed against `(t<L>)` commits reachable from HEAD.
+- **Upstream defects identified:** None
+- **Notes for sibling tasks:**
+  - **t1981_4:**
+    - Step 8e already consumes `relations_expected_plan`, and its Context Requirements row exists in `SKILL.md`. Set it from `STAMP:` (Step 7) and from `PLAN_DIGEST:` (the Re-entry `IMPLEMENT` route); do not add a second row.
+    - Until it is set, Step 8e reads `unverifiable(no_expected_identity)`.
+  - **t1981_2:**
+    - Step 8e probes `aitask_relation_candidates.sh` and calls `--fallback-push --changed-file <file>`. The file is the decoded `CHANGED_FILE:` lines of `notify-candidates`, one path per line.
+    - It expects `UNCONFIRMED:<to>|<sources>|<changed paths cited>` rows.
+  - **t1981_6:**
+    - `end_state()` already treats any `archived_reason` (e.g. `obsolete`) as `dropped`.
+    - `related-work` is the pull surface the obsolescence band will join at pick time.
+  - **t1981_8:** document the verbs, the `relations_incomplete_action` key, Step 3 Check 8 and the Step 8 re-check.
+  - **t1981_9:** port these files:
+    - `task-workflow/SKILL.md` (Check 8, the Step 8 re-check, Step 8e) and the new `related-work-check.md`;
+    - `planning.md`, `profiles.md` and `aitask-note/SKILL.md`.
+  - **Consumers** must use `NOTE_TARGET:`, never the qualified `<other>`/`<to>` ref, when calling `/aitask-note`.
