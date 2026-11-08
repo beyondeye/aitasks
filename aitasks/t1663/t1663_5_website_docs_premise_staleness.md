@@ -66,3 +66,5 @@ Fifth child of t1663 — docs are a first-class child per `aidocs/framework/plan
 > | - The evidence-class resolution table (what "Proceed" does with CHANGED, DELETED, never_existed, invalid_reference, unverifiable rows), the headless report-only rule and the lifecycle table are in aidocs/framework/task_premise_staleness.md, "Interaction" and "Baseline lifecycle".
 > | - Framework-internal, not user commands: `aitask_premise_stale.sh advance` / `owner`, and `aitask_pick_own.sh --expect-status`.
 > | - Known limits worth stating for users: invalid file_references entries recur until fixed by hand; kept never-existing references keep being reported; a session outside the agent's tmux pane without AIT_AGENT_PID cannot advance the baseline (owner_unverifiable).
+
+> **👁 note:read** id=2026-11-08T10:53:11Z.e452e7caa7935a64af57b007 by=t1663_5 at=2026-11-08T10:53:11Z mode=explicit ids=2026-09-10T18:36:40Z.59bd5f09eff34c23e8a9fb5f,2026-11-08T09:33:06Z.cd3daa7f7ac5a89fb840dff5
