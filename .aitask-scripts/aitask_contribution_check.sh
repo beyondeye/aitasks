@@ -22,6 +22,14 @@ ARG_DRY_RUN=false
 ARG_SILENT=false
 OVERLAP_CHECK_VERSION=1
 
+# auto_labels come from the issue body, which the issue AUTHOR controls — and
+# the CI workflow runs on issues opened by anyone. They are applied
+# automatically only inside the classification namespaces /aitask-contribute
+# generates (`area:<name>`, `scope:<type>`), and only when the maintainer has
+# already created that label in the repository. Every other suggested label
+# stays a non-authoritative suggestion in the analysis comment.
+CONTRIBUTION_AUTO_APPLY_PREFIXES=("area:" "scope:")
+
 # --- Help ---
 
 show_help() {
@@ -37,7 +45,9 @@ Arguments:
 Options:
   --platform PLATFORM      Source platform: github, gitlab, bitbucket (auto-detected)
   --repo OWNER/REPO        Repository (for cross-repo operation; GitHub uses -R flag)
-  --limit N                Max issues to scan (default: 50)
+  --limit N                Max contribution issues to return (default: 50);
+                           on GitHub all open issues are scanned and the
+                           limit applies after filtering
   --dry-run                Print comment to stdout instead of posting
   --silent                 Suppress informational output
   --help, -h               Show this help
@@ -115,9 +125,37 @@ github_fetch_issue() {
 }
 
 github_list_contribution_issues() {
+    # GitHub silently drops labels supplied by issue authors without push
+    # access, so a contribution issue is one that carries the 'contribution'
+    # label OR the aitask-contribute-metadata marker. Scan every open issue
+    # (paginated) and apply the limit only AFTER filtering, so newer ordinary
+    # issues cannot crowd an older contribution out of the result.
     local repo_flag=()
     [[ -n "$ARG_REPO" ]] && repo_flag=(-R "$ARG_REPO")
-    gh issue list "${repo_flag[@]}" --state open --label "contribution" --limit "$ARG_LIMIT" --json number,title,body,labels,url
+    # Resolve host and OWNER/REPO the way the `gh issue` commands do (qualified
+    # -R HOST/OWNER/REPO, GH_HOST, the local git remote). A bare `gh api` would
+    # default to github.com and miss a GitHub Enterprise repository.
+    local repo_url host nwo
+    repo_url=$(gh repo view "${repo_flag[@]}" --json url --jq .url) || return 1
+    host="${repo_url#*://}"
+    host="${host%%/*}"
+    nwo="${repo_url#*://"$host"/}"
+    if ! [[ "$host" =~ ^[A-Za-z0-9.-]+(:[0-9]+)?$ && "$nwo" =~ ^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$ ]]; then
+        warn "Unexpected repository URL from gh repo view: $repo_url"
+        return 1
+    fi
+    local pages
+    pages=$(gh api --hostname "$host" --paginate "repos/$nwo/issues?state=open&per_page=100") || return 1
+    # --paginate prints one JSON array per page; -s + add concatenates them.
+    # Pages go through stdin, never --argjson: Linux caps one argument at 128 KB.
+    printf '%s\n' "$pages" | jq -s --argjson limit "$ARG_LIMIT" '
+        [ (add // [])[]
+          | select(.pull_request == null)
+          | select(any(.labels[]?; .name == "contribution")
+                   or ((.body // "") | contains("<!-- aitask-contribute-metadata")))
+          | {number, title, body: (.body // ""),
+             labels: [.labels[]? | {name}], url: .html_url} ]
+        | unique_by(.number) | sort_by(-.number) | .[:$limit]'
 }
 
 github_post_comment() {
@@ -655,6 +693,19 @@ No overlapping contribution issues found for #${target_num}.
 # LABEL RESOLUTION
 # ============================================================
 
+# _is_auto_applicable_label <label> — 0 when the label lies in one of
+# CONTRIBUTION_AUTO_APPLY_PREFIXES with a non-empty value (see that constant
+# for why author-supplied labels are otherwise never applied).
+_is_auto_applicable_label() {
+    local label="$1" prefix
+    for prefix in "${CONTRIBUTION_AUTO_APPLY_PREFIXES[@]}"; do
+        if [[ "$label" == "$prefix"?* ]]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
 # Match auto_labels from fingerprint against existing repo labels
 # Sets: LABEL_SUGGESTIONS
 resolve_label_suggestions() {
@@ -827,6 +878,7 @@ main() {
                 local IFS=','
                 for label in $target_auto_labels; do
                     [[ -n "$label" ]] || continue
+                    _is_auto_applicable_label "$label" || continue
                     if [[ -n "${repo_label_map[$label]:-}" ]]; then
                         source_add_label "$ARG_ISSUE" "$label"
                         [[ "$ARG_SILENT" != true ]] && info "Applied label: $label"

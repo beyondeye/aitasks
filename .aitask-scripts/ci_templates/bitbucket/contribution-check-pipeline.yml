@@ -1,6 +1,9 @@
 # Contribution Overlap Check - Bitbucket Pipelines
 # Installed by: ait setup
-# Merge this into your bitbucket-pipelines.yml.
+# Use this file as-is only when the repository has no bitbucket-pipelines.yml.
+# Otherwise do NOT append it — a second top-level 'pipelines:' key replaces
+# your existing pipelines. Copy just the 'contribution-check:' entry under
+# 'pipelines: -> custom:' in your file, keeping default/branches as they are.
 #
 # Bitbucket has no issue event triggers, so this runs as a custom pipeline.
 # Schedule it via the Bitbucket UI (Repository Settings > Pipelines > Schedules).

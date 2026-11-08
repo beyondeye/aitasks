@@ -1,0 +1,33 @@
+# Contribution Overlap Check - GitHub Actions
+# Installed by: ait setup
+# Runs when an issue with the 'contribution' label is opened or labeled.
+# Calls aitask_contribution_check.sh to detect overlapping contribution issues
+# and posts an analysis comment on the issue.
+name: Contribution Check
+
+on:
+  issues:
+    types: [opened, labeled]
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  check-contribution:
+    if: contains(github.event.issue.labels.*.name, 'contribution')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install jq
+        run: command -v jq >/dev/null 2>&1 || sudo apt-get install -y jq
+
+      - name: Check for overlapping contributions
+        run: |
+          ./.aitask-scripts/aitask_contribution_check.sh \
+            "${{ github.event.issue.number }}" \
+            --platform github \
+            --repo "${{ github.repository }}"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

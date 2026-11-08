@@ -1,6 +1,8 @@
 # Contribution Overlap Check - GitLab CI
 # Installed by: ait setup
 # Copy this into your .gitlab-ci.yml or include via 'include: local'.
+# The job uses 'stage: test': keep that stage in your 'stages:' list (or change
+# the job's stage to one you declare).
 #
 # Two modes:
 #   1. Trigger mode: Set pipeline variable ISSUE_IID to check a specific issue.

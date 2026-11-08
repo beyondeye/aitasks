@@ -46,6 +46,8 @@ This metadata is embedded automatically by `/aitask-contribute` and parsed by do
 
 When CI/CD is configured (via `ait setup` or manually), a workflow runs automatically on new contribution issues. It compares the incoming issue's fingerprint against all other open contribution issues.
 
+A contribution issue is any open issue that carries the `aitask-contribute-metadata` block or the `contribution` label. GitHub silently drops labels supplied by issue authors without push access, so an external contributor's issue usually arrives unlabeled. The overlap check and the review listing therefore scan all open issues for the metadata block rather than relying on the label, and the GitHub workflow applies the label itself when such an issue is opened.
+
 ### Scoring Formula
 
 Each pair of issues is scored based on fingerprint similarity:
@@ -70,7 +72,7 @@ Each pair of issues is scored based on fingerprint similarity:
 The CI/CD workflow posts a comment on the contribution issue with:
 
 - A table of the top 5 overlapping issues with scores and links
-- Suggested labels based on the issue's `auto_labels` field
+- Suggested labels based on the issue's `auto_labels` field. Because the issue author writes that field, only labels in the `area:` and `scope:` namespaces that already exist in the repository are applied automatically; any other suggested label is listed in the comment only.
 - A machine-readable block for programmatic consumption:
 
 ```html
@@ -143,11 +145,16 @@ Running `ait setup` in your repository automatically:
 - Creates a `contribution` label on the repository
 - Installs the appropriate CI/CD workflow template
 
+On GitHub, if `.github/workflows/contribution-check.yml` already exists, `ait setup` updates it when it is an unmodified earlier version of the shipped template. A workflow you have edited is left unchanged with a warning — merge the current template into it by hand.
+
+On GitLab and Bitbucket, `ait setup` creates `.gitlab-ci.yml` / `bitbucket-pipelines.yml` only when the file does not exist yet. An existing CI configuration is never edited: setup warns and leaves the merge to you (see [Manual Setup](#manual-setup)). For GitLab, the job uses `stage: test`, so that stage must be in your `stages:` list.
+
 ### Per-Platform Configuration
 
 #### GitHub Actions
 
-- **Trigger:** `issues.labeled` event when the `contribution` label is applied
+- **Trigger:** `issues.opened` when the body carries the `aitask-contribute-metadata` block and the issue is not yet labeled (the run also applies the `contribution` label), or `issues.labeled` when the `contribution` label is applied
+- **Concurrency:** runs for the same issue are queued one after another; events that do not qualify never enter the queue
 - **Token:** `$GITHUB_TOKEN` is auto-provided by GitHub Actions — no extra setup needed
 - **CLI:** `gh` is pre-installed on GitHub-hosted runners
 
@@ -168,13 +175,22 @@ No additional configuration required.
 
 ### Manual Setup
 
-If not using `ait setup`, the CI/CD templates are available in `seed/ci/`:
+If not using `ait setup`, or when your project already has a CI configuration, the CI/CD templates are available in `.aitask-scripts/ci_templates/`:
 
-```
-seed/ci/github/contribution-check.yml        → .github/workflows/contribution-check.yml
-seed/ci/gitlab/contribution-check-job.yml     → append to .gitlab-ci.yml
-seed/ci/bitbucket/contribution-check-pipeline.yml → append to bitbucket-pipelines.yml
-```
+- **GitHub** — copy `.aitask-scripts/ci_templates/github/contribution-check.yml` to `.github/workflows/contribution-check.yml`. It is a complete workflow of its own.
+- **GitLab** — with no `.gitlab-ci.yml` yet, copy `.aitask-scripts/ci_templates/gitlab/contribution-check-job.yml` to `.gitlab-ci.yml`. Otherwise add its `contribution-check:` job to your existing file, and check that the job's `stage: test` is in your `stages:` list (or change the job's stage to one you declare).
+- **Bitbucket** — with no `bitbucket-pipelines.yml` yet, copy `.aitask-scripts/ci_templates/bitbucket/contribution-check-pipeline.yml` to `bitbucket-pipelines.yml`. Otherwise do **not** append the template: it starts with its own top-level `pipelines:` key, and a second one replaces your existing pipelines. Instead, add only its `contribution-check:` entry under `pipelines:` → `custom:` in your file (create `custom:` if needed), keeping your `default:`, `branches:` and other sections as they are:
+
+  ```yaml
+  pipelines:
+    default:            # your existing pipelines stay unchanged
+      - step:
+          script: [make]
+    custom:
+      contribution-check:
+        - step:
+            # ... copied from the template
+  ```
 
 Create the `contribution` label manually on your platform (GitHub/GitLab only — Bitbucket has no label support).
 
@@ -182,8 +198,8 @@ Create the `contribution` label manually on your platform (GitHub/GitLab only �
 
 | Feature | GitHub | GitLab | Bitbucket |
 |---------|--------|--------|-----------|
-| Issue label filtering | Yes | Yes | No (scans all issues) |
-| Event-driven triggers | Yes (`issues.labeled`) | Yes (webhook pipeline) | No |
+| Contribution issue discovery | Label or metadata (scans all open issues) | Label filtering | Metadata (scans all issues) |
+| Event-driven triggers | Yes (`issues.opened`, `issues.labeled`) | Yes (webhook pipeline) | No |
 | Scheduled scans | Optional | Yes (6-hour interval) | Yes (recommended) |
 | CLI tool | `gh` (pre-installed) | `glab` + curl fallback | curl only |
 | Token source | `$GITHUB_TOKEN` (auto) | `$GITLAB_TOKEN` (manual) | `$BITBUCKET_API_USER` + `$BITBUCKET_API_TOKEN` (manual) |

@@ -1,8 +1,17 @@
+# Contribution Overlap Check - GitHub Actions
+# Installed by: ait setup (template: .aitask-scripts/ci_templates/github/)
+# Runs when a contribution issue is opened, or when the 'contribution' label is
+# added to an issue. GitHub silently drops labels supplied by issue authors
+# without push access, so an opened issue whose body carries the
+# `<!-- aitask-contribute-metadata` block header (the same marker the check
+# script parses) is checked (and labeled) even when it arrives unlabeled.
+# Calls aitask_contribution_check.sh to detect overlapping contribution
+# issues and posts an analysis comment on the issue.
 name: Contribution Check
 
 on:
   issues:
-    types: [labeled]
+    types: [opened, labeled]
 
 permissions:
   issues: write
@@ -10,13 +19,36 @@ permissions:
 
 jobs:
   check-contribution:
-    if: github.event.label.name == 'contribution'
+    # Opened-with-label issues also emit 'labeled'; the opened branch skips
+    # them so they are checked once. The issue body is only read here, inside
+    # the expression, and never interpolated into a run script.
+    if: >-
+      (github.event.action == 'labeled' && github.event.label.name == 'contribution') ||
+      (github.event.action == 'opened' &&
+       contains(github.event.issue.body, '<!-- aitask-contribute-metadata') &&
+       !contains(github.event.issue.labels.*.name, 'contribution'))
+    # Job-level, not workflow-level: an event skipped by the 'if' above never
+    # enters the group, so unrelated label events cannot displace a pending
+    # contribution check.
+    concurrency:
+      group: contribution-check-${{ github.event.issue.number }}
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
 
       - name: Install jq
         run: command -v jq >/dev/null 2>&1 || sudo apt-get install -y jq
+
+      - name: Label unlabeled contribution issue
+        if: github.event.action == 'opened'
+        run: |
+          gh issue edit "${{ github.event.issue.number }}" \
+            -R "${{ github.repository }}" \
+            --add-label contribution \
+            || echo "::warning::could not apply the 'contribution' label"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Check for overlapping contributions
         run: |

@@ -271,6 +271,91 @@ fi
 # Restore: unset mock
 unset -f gh
 
+# --- Tests 20-24: unlabeled external contributions are visible (t2235) ---
+# GitHub silently drops labels from authors without push access, so the
+# listing must find contribution issues by label OR metadata, across every
+# page of open issues, and apply --limit only after filtering.
+. "$PROJECT_DIR/tests/lib/gh_contribution_stub.sh"
+T2235_DIR="$(mktemp -d)"
+gh_contribution_stub_install "$T2235_DIR"
+ARG_REPO="o/r"
+ARG_LIMIT=50
+
+echo "--- Test 20: listing finds unlabeled metadata issues past newer ordinary ones ---"
+listed=$(github_list_contribution_issues)
+assert_eq "listing exits 0" "0" "$?"
+assert_eq "labeled + unlabeled-metadata issues, newest first; no ordinary issue, PR or plain #14" \
+    "101,100,15,12" "$(printf '%s' "$listed" | jq -r '[.[].number] | join(",")')"
+assert_eq "output keeps the gh issue list shape (url from html_url)" \
+    "https://github.com/o/r/issues/100" \
+    "$(printf '%s' "$listed" | jq -r '.[] | select(.number == 100) | .url')"
+assert_eq "labels normalised to {name} objects" '[{"name":"contribution"}]' \
+    "$(printf '%s' "$listed" | jq -c '.[] | select(.number == 15) | .labels')"
+assert_contains "scan is paginated" "--paginate" "$(cat "$T2235_DIR/api_calls")"
+assert_contains "scan targets the --repo issues endpoint" "repos/o/r/issues?state=open" \
+    "$(cat "$T2235_DIR/api_calls")"
+
+echo "--- Test 21: --limit applies after filtering ---"
+ARG_LIMIT=2
+assert_eq "limit 2 keeps the two newest contributions" "101,100" \
+    "$(github_list_contribution_issues | jq -r '[.[].number] | join(",")')"
+ARG_LIMIT=50
+
+echo "--- Test 22: listing failure propagates ---"
+GH_STUB_API_FAIL=1 github_list_contribution_issues >/dev/null 2>&1
+assert_eq "gh api failure returns non-zero" "1" "$?"
+
+echo "--- Test 23: overlap check reports the unlabeled overlapping contribution ---"
+overlap_out=$(main 100 --platform github --repo o/r --dry-run --silent 2>&1)
+assert_contains "unlabeled #101 is reported" "[#101]" "$overlap_out"
+assert_contains "#101 scores 8 (high)" "| 8 (high) |" "$overlap_out"
+assert_contains "labeled control #15 still reported" "[#15]" "$overlap_out"
+assert_contains "#15 scores 5 (likely)" "| 5 (likely) |" "$overlap_out"
+assert_not_contains "PR #300 never scored" "[#300]" "$overlap_out"
+
+echo "--- Test 24: self-test: the stub hides contributions from a pre-filter limit ---"
+# Guards the fixture itself: without --paginate (or with a pre-filter cap) the
+# contributions are unreachable, which is the failure Test 20 must catch.
+assert_eq "page 1 alone holds no contribution issue" "0" \
+    "$(jq '[.[] | select(.pull_request == null) | select((.body | contains("aitask-contribute-metadata")) or any(.labels[]?; .name == "contribution"))] | length' "$T2235_DIR/page1.json")"
+
+echo "--- Test 25: listing resolves the repository host (GitHub Enterprise) ---"
+: > "$T2235_DIR/api_calls"; : > "$T2235_DIR/repo_calls"
+ARG_REPO="github.example.com/o/r"
+GH_STUB_REPO_URL="https://github.example.com/o/r" github_list_contribution_issues >/dev/null
+assert_contains "host resolved via gh repo view with the qualified -R" "repo view -R github.example.com/o/r" "$(cat "$T2235_DIR/repo_calls")"
+assert_contains "REST scan targets the Enterprise host" "--hostname github.example.com" "$(cat "$T2235_DIR/api_calls")"
+assert_contains "REST path uses OWNER/REPO only" "repos/o/r/issues?state=open" "$(cat "$T2235_DIR/api_calls")"
+: > "$T2235_DIR/repo_calls"
+ARG_REPO=""
+github_list_contribution_issues >/dev/null
+assert_eq "no --repo: gh repo view resolves from the local remote (no -R)" "repo view --json url --jq .url" "$(cat "$T2235_DIR/repo_calls")"
+GH_STUB_REPO_URL="not a url" github_list_contribution_issues >/dev/null 2>&1
+assert_eq "unparseable repo URL fails closed" "1" "$?"
+ARG_REPO="o/r"
+
+echo "--- Test 26: author-controlled auto_labels apply only area:/scope: labels ---"
+# The workflow now runs on issues opened by anyone, with issues:write. A hostile
+# body must not get arbitrary existing repo labels applied.
+jq --arg al "auto_labels: area:scripts,approved,priority:high,scope:bug,area:,scope:" \
+    '.body |= sub("auto_labels: [^\n]*"; $al)' "$T2235_DIR/issue100.json" > "$T2235_DIR/i.json" &&
+    mv "$T2235_DIR/i.json" "$T2235_DIR/issue100.json"
+: > "$T2235_DIR/edit_calls"
+GH_STUB_REPO_LABELS='[{"name":"area:scripts"},{"name":"approved"},{"name":"priority:high"},{"name":"scope:bug"},{"name":"area:"},{"name":"scope:"}]' \
+    main 100 --platform github --repo o/r --silent >/dev/null 2>&1
+edits=$(cat "$T2235_DIR/edit_calls")
+assert_contains "area:scripts applied" "--add-label area:scripts" "$edits"
+assert_contains "scope:bug applied" "--add-label scope:bug" "$edits"
+assert_not_contains "approved never applied" "--add-label approved" "$edits"
+assert_not_contains "priority:high never applied" "--add-label priority:high" "$edits"
+assert_not_contains "empty-value area: never applied" "--add-label area: " "$edits "
+assert_eq "exactly two labels applied" "2" "$(grep -c -- '--add-label' <<< "$edits")"
+assert_eq "_is_auto_applicable_label rejects a bare prefix" "1" "$(_is_auto_applicable_label "scope:"; echo $?)"
+
+unset -f gh
+rm -rf "$T2235_DIR"
+ARG_REPO=""
+
 # --- Summary ---
 echo ""
 echo "==============================="

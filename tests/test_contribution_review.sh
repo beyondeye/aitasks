@@ -322,6 +322,30 @@ assert_contains "Issue 11 title" "TITLE:Add logging" "$result"
 eval "$_orig_source_list_contribution_issues"
 echo ""
 
+# --- Test 21b: cmd_list_issues through the real GitHub listing (t2235) ---
+# Unlabeled metadata issues (GitHub dropped the external author's label) must be
+# listed; plain issues must not; labeled issues without metadata stay visible.
+echo "--- Test 21b: cmd_list_issues lists unlabeled external contributions ---"
+. "$PROJECT_DIR/tests/lib/gh_contribution_stub.sh"
+T2235_DIR="$(mktemp -d)"
+gh_contribution_stub_install "$T2235_DIR"
+_saved_platform="$CHECK_PLATFORM"; _saved_repo="$ARG_REPO"; _saved_limit="$ARG_LIMIT"
+CHECK_PLATFORM="github"; ARG_REPO="o/r"; ARG_LIMIT=50
+
+result=$(cmd_list_issues)
+assert_contains "unlabeled #100 listed" "@@@ISSUE:100@@@" "$result"
+assert_contains "unlabeled #101 listed" "@@@ISSUE:101@@@" "$result"
+assert_contains "#100 has metadata" "$(printf '@@@ISSUE:100@@@\nTITLE:[Contribution] external A\nHAS_METADATA:true')" "$result"
+assert_contains "labeled #12 listed without metadata" "$(printf '@@@ISSUE:12@@@\nTITLE:Labeled without metadata\nHAS_METADATA:false')" "$result"
+assert_not_contains "plain #14 not listed" "@@@ISSUE:14@@@" "$result"
+assert_not_contains "PR #300 not listed" "@@@ISSUE:300@@@" "$result"
+assert_not_contains "no NO_ISSUES" "NO_ISSUES" "$result"
+
+unset -f gh
+rm -rf "$T2235_DIR"
+CHECK_PLATFORM="$_saved_platform"; ARG_REPO="$_saved_repo"; ARG_LIMIT="$_saved_limit"
+echo ""
+
 # --- Test 22: cmd_list_issues - empty result ---
 echo "--- Test 22: cmd_list_issues empty ---"
 

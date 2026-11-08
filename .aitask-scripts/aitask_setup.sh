@@ -4742,10 +4742,72 @@ _create_contribution_label() {
     esac
 }
 
+# sha256 of every PREVIOUSLY shipped GitHub workflow template, oldest first
+# (git log -- seed/ci/github/contribution-check.yml, then the file's current
+# home .aitask-scripts/ci_templates/github/). An installed workflow that matches
+# one of these is an unmodified older template, so `ait setup` may refresh it;
+# anything else is a local customization and is never overwritten.
+# When you edit the template, append the OUTGOING version's hash here —
+# tests/test_setup_contribution_workflow.sh fails until you do.
+_CONTRIBUTION_WORKFLOW_SHIPPED_SHA256=(
+    77832b69e479f1f8451b3fade4b1df1ba98ab95cf4a341d6d2150b456faa89d3  # 39c812ef2 (t355_4)
+    efc623833421955cc7b29205b6e7f7a52f14f619b6b0196fae36fd22437ad7a4  # e98f58128 (t381)
+    d45bc66162937391370be7dad11caee776a78157c48e47c77ee67d2192a60e19  # 197f7b8fd (t381)
+    dd0241966d18c04f22885f4a9c0e727b08711451edfdf9abb706216d0bd6d98a  # 5b853d0ee (t387)
+)
+
+# _contribution_workflow_lf <file> <out> — copy <file> to <out> with every
+# CRLF line ending turned into LF (and a missing final newline supplied). A
+# lone CR elsewhere is kept: only line endings are normalised, never content.
+_contribution_workflow_lf() {
+    awk '{ sub(/\r$/, ""); print }' "$1" > "$2"
+}
+
+# _contribution_workflow_state <installed_file> <template_file>
+# Prints one word: current (the template, up to line endings), stale (an
+# unmodified previously shipped template, up to line endings) or customized
+# (anything else, including a file that could not be read or hashed — failing
+# to compare never licenses an overwrite). Line endings are ignored because a
+# Windows checkout with core.autocrlf=true holds a git-clean CRLF copy.
+_contribution_workflow_state() {
+    local installed="$1" template="$2"
+    local tmp_inst tmp_tmpl
+    tmp_inst=$(mktemp) || { echo "customized"; return; }
+    tmp_tmpl=$(mktemp) || { rm -f "$tmp_inst"; echo "customized"; return; }
+    if ! _contribution_workflow_lf "$installed" "$tmp_inst" ||
+       ! _contribution_workflow_lf "$template" "$tmp_tmpl"; then
+        rm -f "$tmp_inst" "$tmp_tmpl"
+        echo "customized"
+        return
+    fi
+    if cmp -s "$tmp_inst" "$tmp_tmpl"; then
+        rm -f "$tmp_inst" "$tmp_tmpl"
+        echo "current"
+        return
+    fi
+    local hex="" known
+    if [[ -f "$SCRIPT_DIR/lib/artifact_utils.sh" ]]; then
+        # shellcheck source=lib/artifact_utils.sh
+        source "$SCRIPT_DIR/lib/artifact_utils.sh"
+        hex=$(artifact_sha256 "$tmp_inst" 2>/dev/null) || hex=""
+        hex="${hex#sha256:}"
+    fi
+    rm -f "$tmp_inst" "$tmp_tmpl"
+    if [[ -n "$hex" ]]; then
+        for known in "${_CONTRIBUTION_WORKFLOW_SHIPPED_SHA256[@]}"; do
+            if [[ "$hex" == "$known" ]]; then
+                echo "stale"
+                return
+            fi
+        done
+    fi
+    echo "customized"
+}
+
 _install_contribution_ci_workflow() {
     local platform="$1"
     local project_dir="$2"
-    local seed_ci_dir="$3"
+    local ci_template_dir="$3"
 
     local src_file=""
     local dest_file=""
@@ -4753,16 +4815,16 @@ _install_contribution_ci_workflow() {
 
     case "$platform" in
         github)
-            src_file="$seed_ci_dir/github/contribution-check.yml"
+            src_file="$ci_template_dir/github/contribution-check.yml"
             dest_dir="$project_dir/.github/workflows"
             dest_file="$dest_dir/contribution-check.yml"
             ;;
         gitlab)
-            src_file="$seed_ci_dir/gitlab/contribution-check-job.yml"
+            src_file="$ci_template_dir/gitlab/contribution-check-job.yml"
             dest_file="$project_dir/.gitlab-ci.yml"
             ;;
         bitbucket)
-            src_file="$seed_ci_dir/bitbucket/contribution-check-pipeline.yml"
+            src_file="$ci_template_dir/bitbucket/contribution-check-pipeline.yml"
             dest_file="$project_dir/bitbucket-pipelines.yml"
             ;;
         "")
@@ -4773,90 +4835,165 @@ _install_contribution_ci_workflow() {
     esac
 
     if [[ ! -f "$src_file" ]]; then
-        warn "Seed CI template not found: $src_file"
+        warn "CI template not found: $src_file"
         return
     fi
 
-    # Idempotency: check if already installed
+    # Idempotency: an installed GitHub workflow is left alone unless it is an
+    # unmodified older template, which is refreshed to the current one.
+    local refresh=0 snapshot=""
     if [[ "$platform" == "github" && -f "$dest_file" ]]; then
-        success "GitHub Actions contribution check workflow already installed"
-        return
+        case "$(_contribution_workflow_state "$dest_file" "$src_file")" in
+            current)
+                success "GitHub Actions contribution check workflow already installed (up to date)"
+                return
+                ;;
+            stale)
+                info "Installed contribution check workflow is an older shipped template."
+                refresh=1
+                # Snapshot what was classified: the prompt below can stay open
+                # for a long time, and the file must not change under it.
+                snapshot=$(mktemp) && cp "$dest_file" "$snapshot" || {
+                    rm -f "$snapshot"
+                    warn "Could not snapshot .github/workflows/contribution-check.yml — left it unchanged."
+                    return
+                }
+                ;;
+            *)
+                warn "Left .github/workflows/contribution-check.yml unchanged: it differs from every shipped template (local changes). The current template also runs on issues.opened, so contribution issues from authors without push access are checked — merge it from .aitask-scripts/ci_templates/github/contribution-check.yml."
+                return
+                ;;
+        esac
     fi
     if [[ "$platform" != "github" && -f "$dest_file" ]]; then
         if grep -q "contribution-check" "$dest_file" 2>/dev/null; then
             success "Contribution check job already present in $(basename "$dest_file")"
             return
         fi
+        # An existing CI configuration is never edited. Appending the template
+        # would add a second top-level 'pipelines:' key (Bitbucket, which drops
+        # the original pipelines) or a job whose stage the project may not
+        # declare (GitLab) — and both would still look like a success.
+        if [[ -s "$dest_file" ]]; then
+            local stage_note=""
+            [[ "$platform" == gitlab ]] && stage_note=" (its job uses stage: test — make sure that stage is in your stages: list)"
+            warn "Left $(basename "$dest_file") unchanged: setup does not edit an existing CI configuration. To enable the contribution check, merge .aitask-scripts/ci_templates/$platform/$(basename "$src_file") into it by hand${stage_note}."
+            return
+        fi
     fi
 
-    if [[ -t 0 ]]; then
-        printf "  Install contribution check CI/CD workflow? [Y/n] "
-        read -r answer
-        case "${answer:-Y}" in
-            [Yy]*|"") ;;
-            *)
-                info "Skipped contribution check workflow installation."
-                return
-                ;;
-        esac
-    else
-        info "(non-interactive: auto-accepting contribution check workflow)"
+    if ! _contribution_ci_confirm "$refresh"; then
+        [[ -n "$snapshot" ]] && rm -f "$snapshot"
+        info "Skipped contribution check workflow installation."
+        return
     fi
 
     case "$platform" in
         github)
             mkdir -p "$dest_dir"
-            cp "$src_file" "$dest_file"
-            success "Installed contribution check workflow: .github/workflows/contribution-check.yml"
-            ;;
-        gitlab)
-            if [[ -f "$dest_file" ]]; then
-                echo "" >> "$dest_file"
-                echo "# --- Contribution overlap check (installed by ait setup) ---" >> "$dest_file"
-                cat "$src_file" >> "$dest_file"
-                success "Appended contribution check job to .gitlab-ci.yml"
+            if [[ "$refresh" == 1 ]]; then
+                # Stage beside the file (lib/atomic_write.sh: same directory,
+                # same mode, temp removed on any failure), then re-validate
+                # after the prompt: an edit made while it was open turns the
+                # file into a customization, which is never overwritten.
+                # shellcheck source=lib/atomic_write.sh
+                source "$SETUP_LIB_DIR/atomic_write.sh"
+                local resolved staged
+                if ! resolved=$(ait_atomic_resolve "$dest_file") ||
+                   ! staged=$(ait_atomic_tmp "$resolved"); then
+                    rm -f "$snapshot"
+                    warn "Could not stage the updated workflow — left .github/workflows/contribution-check.yml unchanged."
+                    return
+                fi
+                if ! cp "$src_file" "$staged"; then
+                    ait_atomic_discard "$staged"
+                    rm -f "$snapshot"
+                    warn "Could not stage the updated workflow — left .github/workflows/contribution-check.yml unchanged."
+                    return
+                fi
+                if ! cmp -s "$dest_file" "$snapshot"; then
+                    ait_atomic_discard "$staged"
+                    rm -f "$snapshot"
+                    warn "Left .github/workflows/contribution-check.yml unchanged: it changed while the update prompt was open. Re-run 'ait setup' to re-check it."
+                    return
+                fi
+                rm -f "$snapshot"
+                if ! ait_atomic_commit "$staged" "$resolved"; then
+                    warn "Could not replace .github/workflows/contribution-check.yml — left it unchanged."
+                    return
+                fi
+                success "Updated contribution check workflow — commit .github/workflows/contribution-check.yml"
             else
-                {
-                    echo "# .gitlab-ci.yml — auto-generated by ait setup"
-                    echo ""
-                    cat "$src_file"
-                } > "$dest_file"
-                success "Created .gitlab-ci.yml with contribution check job"
+                if [[ -e "$dest_file" ]]; then
+                    warn "Left .github/workflows/contribution-check.yml unchanged: it appeared while the install prompt was open. Re-run 'ait setup' to re-check it."
+                    return
+                fi
+                cp "$src_file" "$dest_file"
+                success "Installed contribution check workflow: .github/workflows/contribution-check.yml"
             fi
             ;;
-        bitbucket)
-            if [[ -f "$dest_file" ]]; then
-                echo "" >> "$dest_file"
-                echo "# --- Contribution overlap check (installed by ait setup) ---" >> "$dest_file"
-                cat "$src_file" >> "$dest_file"
-                success "Appended contribution check pipeline to bitbucket-pipelines.yml"
+        gitlab|bitbucket)
+            local cfg_name
+            cfg_name=$(basename "$dest_file")
+            # Only an absent or empty file is written (see above); re-check
+            # after the prompt in case one appeared meanwhile.
+            if [[ -s "$dest_file" ]]; then
+                warn "Left $cfg_name unchanged: it gained content while the install prompt was open. Re-run 'ait setup' to re-check it."
+                return
+            fi
+            {
+                echo "# $cfg_name — auto-generated by ait setup"
+                echo ""
+                cat "$src_file"
+            } > "$dest_file"
+            if [[ "$platform" == gitlab ]]; then
+                success "Created .gitlab-ci.yml with contribution check job"
             else
-                {
-                    echo "# bitbucket-pipelines.yml — auto-generated by ait setup"
-                    echo ""
-                    cat "$src_file"
-                } > "$dest_file"
                 success "Created bitbucket-pipelines.yml with contribution check pipeline"
             fi
             ;;
     esac
 }
 
+# _contribution_ci_confirm <refresh 0|1> — returns 0 to go ahead. Asks [Y/n]
+# on a terminal and auto-accepts otherwise. Kept separate so the window
+# between the question and the write can be exercised by tests.
+_contribution_ci_confirm() {
+    local answer
+    if [[ -t 0 ]]; then
+        if [[ "$1" == 1 ]]; then
+            printf "  Update contribution check CI/CD workflow to the current template? [Y/n] "
+        else
+            printf "  Install contribution check CI/CD workflow? [Y/n] "
+        fi
+        read -r answer
+        case "${answer:-Y}" in
+            [Yy]*) return 0 ;;
+            *) return 1 ;;
+        esac
+    fi
+    info "(non-interactive: auto-accepting contribution check workflow)"
+    return 0
+}
+
 setup_contribution_check() {
     local project_dir="$SCRIPT_DIR/.."
-    local seed_ci_dir="$project_dir/seed/ci"
+    # The templates live under .aitask-scripts/, not seed/: install.sh deletes
+    # seed/ after every install and upgrade, so a template kept there would
+    # never reach an installed project.
+    local ci_template_dir="$SCRIPT_DIR/ci_templates"
     local platform
     platform=$(_detect_git_platform)
 
-    # Skip if no seed CI templates available
-    if [[ ! -d "$seed_ci_dir" ]]; then
+    if [[ ! -d "$ci_template_dir" ]]; then
+        warn "Contribution check CI templates not found at .aitask-scripts/ci_templates (incomplete framework install) — skipping the 'contribution' label and CI workflow."
         return
     fi
 
     info "Contribution overlap check CI/CD integration"
 
     _create_contribution_label "$platform"
-    _install_contribution_ci_workflow "$platform" "$project_dir" "$seed_ci_dir"
+    _install_contribution_ci_workflow "$platform" "$project_dir" "$ci_template_dir"
 }
 
 # --- Pre-setup dirty-state baseline ---

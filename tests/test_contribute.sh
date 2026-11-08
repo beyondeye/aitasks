@@ -748,6 +748,77 @@ output=$(cd "$PROJECT_MASTER_DIR" && ./.aitask-scripts/aitask_contribute.sh \
     --scope bug_fix --merge-approach "clean merge" 2>&1)
 assert_contains "master-default dry-run shows diff content" "return True" "$output"
 
+# --- Tests 40-43: github_create_issue surfaces a silently dropped label (t2235) ---
+# GitHub drops labels supplied by authors without push access and
+# `gh issue create` still exits 0; the contributor must be told.
+# _t2235_create <mode> <no_label> -> runs github_create_issue in a subshell with
+# a gh stub; stdout -> $T2235_DIR/out, stderr -> $T2235_DIR/err, calls -> calls.
+#   mode=dropped   create ignores --label, view reports no labels
+#   mode=kept      create applies the label, view reports it
+#   mode=fallback  labeled create fails (exit 1), unlabeled create succeeds
+#   mode=viewfail  create succeeds, view fails
+T2235_DIR="$(mktemp -d)"
+_t2235_create() {
+    local mode="$1" no_label="$2"
+    : > "$T2235_DIR/calls"
+    (
+        # shellcheck source=/dev/null
+        source "$PROJECT_DIR/.aitask-scripts/aitask_contribute.sh"
+        set +e
+        gh() {
+            printf '%s\n' "$*" >> "$T2235_DIR/calls"
+            case "$1 $2" in
+                "issue create")
+                    if [[ "$mode" == fallback && " $* " == *" --label "* ]]; then
+                        echo "could not add label: 'contribution' not found"
+                        return 1
+                    fi
+                    echo "https://github.com/o/r/issues/77"
+                    ;;
+                "issue view")
+                    case "$mode" in
+                        kept) printf '%s\n' "bug" "contribution" ;;
+                        viewfail) return 1 ;;
+                        *) : ;;
+                    esac
+                    ;;
+            esac
+        }
+        github_create_issue "o/r" "[Contribution] t" "body" "$no_label"
+    ) > "$T2235_DIR/out" 2> "$T2235_DIR/err"
+    echo "$?" > "$T2235_DIR/rc"
+}
+
+echo "--- Test 40: dropped label is surfaced, URL still returned ---"
+_t2235_create dropped false
+assert_eq "dropped: exit 0" "0" "$(cat "$T2235_DIR/rc")"
+assert_eq "dropped: stdout is the URL" "https://github.com/o/r/issues/77" "$(cat "$T2235_DIR/out")"
+assert_contains "dropped: warns about silently dropped label" "silently dropped" "$(cat "$T2235_DIR/err")"
+assert_contains "dropped: label read back from the created issue" "issue view https://github.com/o/r/issues/77" "$(cat "$T2235_DIR/calls")"
+
+echo "--- Test 41: applied label stays silent (control) ---"
+_t2235_create kept false
+assert_eq "kept: exit 0" "0" "$(cat "$T2235_DIR/rc")"
+assert_eq "kept: stdout is the URL" "https://github.com/o/r/issues/77" "$(cat "$T2235_DIR/out")"
+assert_eq "kept: no warning" "" "$(cat "$T2235_DIR/err")"
+
+echo "--- Test 42: fallback path is not reported as a clean success ---"
+_t2235_create fallback false
+assert_eq "fallback: exit 0" "0" "$(cat "$T2235_DIR/rc")"
+assert_eq "fallback: stdout is the URL" "https://github.com/o/r/issues/77" "$(cat "$T2235_DIR/out")"
+assert_contains "fallback: names the permission cause" "lack permission to set labels" "$(cat "$T2235_DIR/err")"
+assert_contains "fallback: says the issue is unlabeled" "created unlabeled" "$(cat "$T2235_DIR/err")"
+
+echo "--- Test 43: unverifiable label warns; --no-label never checks ---"
+_t2235_create viewfail false
+assert_eq "viewfail: stdout is the URL" "https://github.com/o/r/issues/77" "$(cat "$T2235_DIR/out")"
+assert_contains "viewfail: cannot-verify warning" "Could not verify" "$(cat "$T2235_DIR/err")"
+_t2235_create dropped true
+assert_eq "no-label: stdout is the URL" "https://github.com/o/r/issues/77" "$(cat "$T2235_DIR/out")"
+assert_eq "no-label: no warning" "" "$(cat "$T2235_DIR/err")"
+assert_not_contains "no-label: no label read-back" "issue view" "$(cat "$T2235_DIR/calls")"
+rm -rf "$T2235_DIR"
+
 # --- Summary ---
 echo ""
 echo "Results: $PASS passed, $FAIL failed out of $TOTAL tests"
