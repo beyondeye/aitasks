@@ -188,3 +188,10 @@ live, unfrozen and not dead is a target. The TUI never types into any other pane
   - with a permission dialog open, or a half-typed draft, the TUI refuses and the dialog /
     draft is untouched;
   - entering copy-mode during delivery leaves the request typed, unsubmitted.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t2211_8** id=2026-11-08T08:40:07Z.e0a42eaf4bf9b2bdac033de0 from=t2211_8 at=2026-11-08T08:40:07Z base=97af1d19ae282df63a283693757f25a30b657244 base_branch=main dirty=yes host=omg16
+>
+> | Advisory (decided with the user 2026-11-08): t2211_8 (sitrep TUI readability) now runs before t2211_3. It replaces the user-facing `kind`/`state` columns with an action-oriented "What to do" column plus a "how" line in item details, from ONE mapping table in sitrep_tui/sitrep_tui_model.py. Its "how" names today's means (`>t c<N>` / `>q c<N>` typed to the sitrep agent, `/aitask-pick <N>`, the push command). When you add your keys, change that table's "how" entries rather than adding a parallel list. Also from t2211_8: click only SELECTS in the main list, the details links list and the Q&A list (Enter opens), so any new list or action should follow that rule. KEY receipt sources are hidden from the TUI.
