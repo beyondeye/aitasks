@@ -306,7 +306,7 @@ mitigation is created at Step 8d.
 
 ### Goal-achievement risk: medium
 - `ait setup` never overwrites an installed `.github/workflows/contribution-check.yml`, so repos that already have it keep the `labeled`-only trigger · severity: low (residual — addressed by inline post-phase refresh_installed_contribution_workflow; locally modified installs still need a manual merge, and setup warns about them) · → mitigation: inline post-phase refresh_installed_contribution_workflow
-- GitLab may drop labels from non-members in the same silent way, and its listing still filters on the label · severity: medium · → mitigation: gitlab_contribution_label_visibility
+- GitLab may drop labels from non-members in the same silent way, and its listing still filters on the label · severity: medium · → mitigation: t2241
 - Live workflow semantics (event payload labels, `GITHUB_TOKEN` events not re-triggering runs, the real concurrency queue) are checked only structurally here, not by GitHub · severity: low · → mitigation: none (manual-verification candidate at Step 8c)
 
 ### Planned mitigations
