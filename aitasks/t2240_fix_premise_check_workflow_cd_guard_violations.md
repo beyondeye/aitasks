@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2235
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-08 15:08
-updated_at: 2026-11-08 15:39
+updated_at: 2026-11-08 16:05
 ---
 
 ## Origin
@@ -40,3 +41,8 @@ The file has had no uncommitted changes since 620039d7b (t1663_4). The guard (t1
 ## Suggested fix
 
 Rewrite both sites into an accepted form, e.g. `( cd "$d" || exit 1; … )`. Then confirm `bash tests/test_cd_guard_lint.sh` is green and `bash tests/test_premise_check_workflow.sh` still passes. See `aidocs/framework/testing_conventions.md` ("Every cd in a bash test is exit-guarded").
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-08T14:05:25Z status=pass attempt=1 type=human
