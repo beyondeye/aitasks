@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2236
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-08 15:24
-updated_at: 2026-11-08 15:58
+updated_at: 2026-11-08 17:33
 ---
 
 ## Origin
@@ -32,3 +33,8 @@ While adding `-u` to `_attach_argv` in t2236 (the control-mode client now builds
 ## Suggested fix
 
 Use `session_target(self.session)` in `_attach_argv`. Update the argv-pinning tests in `tests/test_tmux_exec.py` (`TestControlAttachArgv`, which expect `"-t", "mysess"`). Add a live regression: with only `aitasks_mob` running, a control client for `aitasks` must fail `start()` rather than attach. Verify against the reconnect path too.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-08T15:33:40Z status=pass attempt=1 type=human
