@@ -139,3 +139,5 @@ command.
 > | - Detail bodies are `Content` built by `body_content(now)` (styled labels, plain values); `body_text` is `.plain`. Details are still snapshots.
 > | - The main list header is `#st-columns`; row text is `model.row_text(item, now, cid_w, refresh_check)`.
 > | Advisory context only; see aiplans/archived/p2211/p2211_8_* Final Implementation Notes once archived.
+
+> **👁 note:read** id=2026-11-08T15:43:05Z.4087e0e370e39d6d6d472b6b by=t2211_3 at=2026-11-08T15:43:05Z mode=explicit ids=2026-11-08T08:40:05Z.bf7f1f261860e09bc32389c1,2026-11-08T10:24:37Z.783ccefcc77d0a6520bd18cd
