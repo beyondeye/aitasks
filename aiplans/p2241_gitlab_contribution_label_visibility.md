@@ -309,7 +309,7 @@ The docs describe the current state only.
 
 ### Planned mitigations
 - timing: after | name: gitlab_contribution_live_verification | type: manual_verification | priority: medium | effort: low | inline_risk: low | added_complexity: medium | addresses: the drop and the glab --paginate/:id behaviour were not tested on a live GitLab | desc: Using a non-member account on a GitLab test project, file via /aitask-contribute; confirm the dropped-label warning, that both the glab and curl listing paths find the issue, and that the scheduled CI job (alpine runtime) computes a valid 6-hour cutoff and checks it | created: t2248
-- timing: after | name: gitlab_stale_ci_job_hint | type: enhancement | priority: low | effort: low | inline_risk: low | added_complexity: medium | addresses: existing installs keep the label-filtered scheduled scan | desc: ait setup warns when an existing .gitlab-ci.yml still contains the old labels=contribution contribution-check scheduled scan and says to copy the template again
+- timing: after | name: gitlab_stale_ci_job_hint | type: enhancement | priority: low | effort: low | inline_risk: low | added_complexity: medium | addresses: existing installs keep the label-filtered scheduled scan | desc: ait setup warns when an existing .gitlab-ci.yml still contains the old labels=contribution contribution-check scheduled scan and says to copy the template again | created: t2249
 
 ## Step 9 (Post-Implementation)
 
