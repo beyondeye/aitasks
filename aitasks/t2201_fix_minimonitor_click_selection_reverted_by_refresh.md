@@ -3,11 +3,11 @@ priority: high
 effort: medium
 depends: [2183, t2037_3]
 issue_type: bug
-status: Ready
+status: Postponed
 labels: [minimonitor, tui, monitor]
 gates: [risk_evaluated]
 created_at: 2026-11-04 17:01
-updated_at: 2026-11-04 17:45
+updated_at: 2026-11-08 22:13
 ---
 
 ## Sequencing decision (user request, 2026-11-04)
