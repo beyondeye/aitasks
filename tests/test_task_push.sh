@@ -8,6 +8,7 @@ PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 . "$PROJECT_DIR/tests/lib/scratch_cwd.sh"
 enter_scratch_cwd
 . "$PROJECT_DIR/tests/lib/asserts.sh"
+. "$PROJECT_DIR/tests/lib/framework_copy.sh"
 
 # shellcheck source=lib/test_scaffold.sh
 . "$PROJECT_DIR/tests/lib/test_scaffold.sh"
@@ -2445,7 +2446,7 @@ pushd "$TEST_LOCAL" > /dev/null || exit 1
 
 # The whole tree, as tests/test_sync.sh does: the merge driver lives under
 # board/ and imports from lib/, so the itemized scaffold cannot supply it.
-cp -r "$PROJECT_DIR/.aitask-scripts" ./.aitask-scripts
+copy_framework_tree "$PROJECT_DIR/.aitask-scripts" ./.aitask-scripts
 mkdir -p aitasks aiplans
 seed_sample_task
 advance_remote_task now "[ui]" "2026-01-01 10:00"

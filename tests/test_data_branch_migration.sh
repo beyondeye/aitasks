@@ -18,6 +18,7 @@ TOTAL=0
 
 # Shared assertion helpers (see tests/lib/asserts.sh)
 . "$PROJECT_DIR/tests/lib/asserts.sh"
+. "$PROJECT_DIR/tests/lib/framework_copy.sh"
 
 
 
@@ -70,8 +71,7 @@ setup_migrated_project() {
 
         # Mirror the full .aitask-scripts/ tree so transitive deps are present.
         # Hand-curated copy lists drift silently as new sources/imports are added.
-        cp -R "$PROJECT_DIR/.aitask-scripts" .aitask-scripts
-        find .aitask-scripts -type d -name __pycache__ -prune -exec rm -rf {} +
+        copy_framework_tree "$PROJECT_DIR/.aitask-scripts" .aitask-scripts
         chmod +x .aitask-scripts/aitask_create.sh .aitask-scripts/aitask_ls.sh .aitask-scripts/aitask_update.sh
         chmod +x .aitask-scripts/aitask_claim_id.sh .aitask-scripts/aitask_setup.sh
 

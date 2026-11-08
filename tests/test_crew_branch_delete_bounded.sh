@@ -23,6 +23,7 @@ enter_scratch_cwd
 
 # Shared core helpers (assert_eq, assert_contains, …) live in tests/lib/asserts.sh.
 . "$PROJECT_DIR/tests/lib/asserts.sh"
+. "$PROJECT_DIR/tests/lib/framework_copy.sh"
 # shellcheck source=lib/venv_python.sh
 . "$PROJECT_DIR/tests/lib/venv_python.sh"
 
@@ -62,8 +63,7 @@ new_repo() {
     git -C "$REPO" init --quiet
     git -C "$REPO" config user.email "test@test.com"
     git -C "$REPO" config user.name "Test"
-    cp -R "$PROJECT_DIR/.aitask-scripts" "$REPO/.aitask-scripts"
-    find "$REPO/.aitask-scripts" -type d -name __pycache__ -prune -exec rm -rf {} +
+    copy_framework_tree "$PROJECT_DIR/.aitask-scripts" "$REPO/.aitask-scripts"
     echo "email: test@test.com" > "$REPO/aitasks/metadata/userconfig.yaml"
     # brainstorm crew init looks up an agent_string per role here.
     cp "$PROJECT_DIR/aitasks/metadata/codeagent_config.json" "$REPO/aitasks/metadata/"

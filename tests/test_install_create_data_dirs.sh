@@ -29,6 +29,7 @@ PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 enter_scratch_cwd
 # shellcheck source=lib/asserts.sh
 . "$PROJECT_DIR/tests/lib/asserts.sh"
+. "$PROJECT_DIR/tests/lib/framework_copy.sh"
 
 TESTROOT="$(mktemp -d)"
 trap 'rm -rf "$TESTROOT"' EXIT
@@ -291,7 +292,7 @@ echo ""
 echo "--- Test 11: install.sh --local-tarball with dangling symlinks in the tarball ---"
 STAGING="$TESTROOT/staging"
 mkdir -p "$STAGING"
-cp -r "$PROJECT_DIR/.aitask-scripts" "$STAGING/"
+copy_framework_tree "$PROJECT_DIR/.aitask-scripts" "$STAGING/.aitask-scripts"
 cp "$PROJECT_DIR/ait" "$STAGING/"
 [[ -d "$PROJECT_DIR/seed" ]] && cp -r "$PROJECT_DIR/seed" "$STAGING/"
 [[ -d "$PROJECT_DIR/packaging" ]] && cp -r "$PROJECT_DIR/packaging" "$STAGING/"

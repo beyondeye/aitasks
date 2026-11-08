@@ -29,6 +29,7 @@ FAIL=0
 TOTAL=0
 
 . "$PROJECT_DIR/tests/lib/asserts.sh"
+. "$PROJECT_DIR/tests/lib/framework_copy.sh"
 
 # Report a file's `boardgroup` as "<type>:<repr>" using the REAL loader, so an
 # assertion pins presence AND type. A bare `boardgroup:` parses to None, which
@@ -92,7 +93,7 @@ setup_repos() {
         git push -q 2>/dev/null
         cp "$PROJECT_DIR/ait" ./ait
         chmod +x ./ait
-        cp -r "$PROJECT_DIR/.aitask-scripts" ./.aitask-scripts
+        copy_framework_tree "$PROJECT_DIR/.aitask-scripts" ./.aitask-scripts
         git add -A
         git commit -q -m "framework"
         git push -q 2>/dev/null

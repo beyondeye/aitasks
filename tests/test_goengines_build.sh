@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # test_goengines_build.sh - goengines/build.sh: asset names, build identity,
-# the release matrix and its sums file, and usage refusals (t1852_3).
+# the release matrix and its sums file, and usage refusals (t1852_3); a failed
+# build is a named FAIL with its stderr, never a silent exit (t2226).
 # Run: bash tests/test_goengines_build.sh
 # Needs a Go toolchain; without one it prints SKIP and passes.
 
@@ -8,6 +9,9 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+# Absolute, and taken BEFORE enter_scratch_cwd: BASH_SOURCE[0] is relative under
+# the documented `bash tests/test_goengines_build.sh`, and section 0 re-runs it.
+SELF="$SCRIPT_DIR/$(basename "${BASH_SOURCE[0]}")"
 . "$PROJECT_DIR/tests/lib/scratch_cwd.sh"
 enter_scratch_cwd
 
@@ -16,7 +20,9 @@ FAIL=0
 TOTAL=0
 . "$PROJECT_DIR/tests/lib/asserts.sh"
 
-BUILD="$PROJECT_DIR/goengines/build.sh"
+# AIT_TEST_GOENGINES_BUILD is this file's own seam: section 0 re-runs the file
+# with a failing stub here to prove a failed build is reported, not swallowed.
+BUILD="${AIT_TEST_GOENGINES_BUILD:-$PROJECT_DIR/goengines/build.sh}"
 
 if ! command -v go >/dev/null 2>&1; then
     echo "SKIP: go not found on PATH"
@@ -41,6 +47,24 @@ done
 N=${#CMDS[@]}
 assert_contains "ait-testmap is among the executables" " ait-testmap " " ${CMDS[*]} "
 
+# run_build <desc> <build.sh> <args...>: run one build, stdout into $out. A
+# failing build is a named FAIL carrying its stderr, and the run stops there:
+# every later case executes the binaries, and under errexit that would kill the
+# script with no output at all -- the silent rc 1 this replaced (t2226).
+run_build() {
+    local desc="$1" bin="$2" rc=0
+    shift 2
+    out="$("$bin" "$@" 2>"$TMP/build.err")" || rc=$?
+    if [[ "$rc" -ne 0 ]]; then
+        assert_record_fail
+        echo "FAIL: $desc: build.sh exited $rc"
+        sed 's/^/    stderr: /' "$TMP/build.err"
+        echo ""
+        echo "Results: $PASS passed, $FAIL failed, $TOTAL total"
+        exit 1
+    fi
+}
+
 # built_lines <dir> <version> <target>: the BUILT lines one target prints.
 built_lines() {
     local c lines=""
@@ -50,8 +74,27 @@ built_lines() {
     printf '%s' "${lines%$'\n'}"
 }
 
+# --- 0. a failing build is a named FAIL ---------------------------------------
+# A healthy toolchain only ever exercises run_build's success path, so prove the
+# failure report directly -- first, so it holds whether or not the real build
+# works here. Re-run this file with a build stub that fails, and check the inner
+# run names the case, passes the build's stderr through, prints its Results
+# line and exits non-zero. Skipped inside that inner run.
+if [[ -z "${AIT_TEST_GOENGINES_BUILD:-}" ]]; then
+    stub="$TMP/failing_build.sh"
+    printf '#!/usr/bin/env bash\necho "STUB_STDERR_MARKER: compile: version mismatch" >&2\nexit 1\n' > "$stub"
+    chmod +x "$stub"
+    rc=0
+    inner="$(AIT_TEST_GOENGINES_BUILD="$stub" bash "$SELF" 2>&1)" || rc=$?
+    assert_eq "failing build: the run exits 1" "1" "$rc"
+    assert_contains "failing build: the case is named" "FAIL: host build: build.sh exited 1" "$inner"
+    assert_contains "failing build: the build's stderr is shown" "STUB_STDERR_MARKER: compile: version mismatch" "$inner"
+    assert_contains "failing build: a Results line is printed" "Results: " "$inner"
+    assert_contains "failing build: the Results line counts the failure" " 1 failed" "$inner"
+fi
+
 # --- 1. host build with an explicit identity ---------------------------------
-out="$("$BUILD" --version 9.9.9-test --commit abc123 --out "$TMP/h" 2>/dev/null)"
+run_build "host build" "$BUILD" --version 9.9.9-test --commit abc123 --out "$TMP/h"
 assert_eq "host build prints one BUILT line per executable" \
     "$(built_lines "$TMP/h" 9.9.9-test "${GOOS_HOST}_${GOARCH_HOST}")" "$out"
 for c in "${CMDS[@]}"; do
@@ -63,7 +106,7 @@ assert_contains "version --json carries --commit" '"commit":"abc123"' "$json"
 assert_eq "host build writes no sums file" "" "$(find "$TMP/h" -name '*SHA256SUMS*')"
 
 # --- 2. default version is .aitask-scripts/VERSION ----------------------------
-out="$("$BUILD" --commit abc123 --out "$TMP/d" 2>/dev/null)"
+run_build "default-version build" "$BUILD" --commit abc123 --out "$TMP/d"
 assert_eq "default version comes from VERSION" \
     "$(built_lines "$TMP/d" "$VERSION_FILE" "${GOOS_HOST}_${GOARCH_HOST}")" "$out"
 
@@ -104,7 +147,7 @@ assert_matrix() {
 }
 
 # --- 3. the release matrix ----------------------------------------------------
-out="$("$BUILD" --version 1.2.3 --commit abc123 --out "$TMP/all" all 2>/dev/null)"
+run_build "release matrix build" "$BUILD" --version 1.2.3 --commit abc123 --out "$TMP/all" all
 assert_matrix "$TMP/all" 1.2.3 "$out" "${CMDS[@]}"
 assert_eq "the matrix holds the binaries and sums files only" "$((5 * N))" \
     "$(find "$TMP/all" -type f | wc -l | tr -d ' ')"
@@ -175,14 +218,14 @@ EOF
 done
 printf 'notes, no Go source\n' > "$fake/goengines/cmd/notes/README"
 CMDS=(alpha beta)
-out="$("$fake/goengines/build.sh" --version 7.7.7 --commit def456 --out "$TMP/mh" 2>/dev/null)"
+run_build "two-executable host build" "$fake/goengines/build.sh" --version 7.7.7 --commit def456 --out "$TMP/mh"
 assert_eq "two executables: one host BUILT line each" \
     "$(built_lines "$TMP/mh" 7.7.7 "${GOOS_HOST}_${GOARCH_HOST}")" "$out"
 for c in alpha beta; do
     assert_eq "$c carries its own --version / --commit" "$c 7.7.7 def456" \
         "$("$TMP/mh/${c}_7.7.7_${GOOS_HOST}_${GOARCH_HOST}")"
 done
-out="$("$fake/goengines/build.sh" --version 7.7.7 --commit def456 --out "$TMP/ma" all 2>/dev/null)"
+run_build "two-executable release matrix" "$fake/goengines/build.sh" --version 7.7.7 --commit def456 --out "$TMP/ma" all
 assert_matrix "$TMP/ma" 7.7.7 "$out" alpha beta
 assert_eq "nothing is built for a cmd/ directory without Go source" "" "$(find "$TMP/ma" -name 'notes*')"
 

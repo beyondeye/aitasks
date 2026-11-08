@@ -23,6 +23,7 @@ TOTAL=0
 
 # Shared assertion helpers (see tests/lib/asserts.sh)
 . "$PROJECT_DIR/tests/lib/asserts.sh"
+. "$PROJECT_DIR/tests/lib/framework_copy.sh"
 # run_bounded, for the Step 7 cases that could hang (see tests/lib/proc_fixtures.sh)
 . "$PROJECT_DIR/tests/lib/proc_fixtures.sh"
 
@@ -879,7 +880,7 @@ mkdir -p "$SCRIPT_DIR"
 # aitask_claim_id.sh and lib/ resolve via the script's own SCRIPT_DIR — copy
 # them into the test repo so they are reachable when setup_id_counter shells out.
 cp "$PROJECT_DIR/.aitask-scripts/aitask_claim_id.sh" "$SCRIPT_DIR/"
-cp -r "$PROJECT_DIR/.aitask-scripts/lib" "$SCRIPT_DIR/"
+copy_framework_tree "$PROJECT_DIR/.aitask-scripts/lib" "$SCRIPT_DIR/lib"
 
 # Run setup in the post-fix order: data branch first, THEN counter init.
 (cd "$TMPDIR_11/pc2" && setup_data_branch </dev/null >/dev/null 2>&1)

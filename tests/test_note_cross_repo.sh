@@ -32,6 +32,7 @@ PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 . "$PROJECT_DIR/tests/lib/scratch_cwd.sh"
 enter_scratch_cwd
 . "$PROJECT_DIR/tests/lib/asserts.sh"
+. "$PROJECT_DIR/tests/lib/framework_copy.sh"
 # Also exports AITASKS_TMUX_SOCKET at a socket nothing serves: the resolver's
 # tmux tier therefore sees a DEFINITE "no server", never the user's sessions.
 . "$PROJECT_DIR/tests/lib/sync_fixture.sh"
@@ -83,7 +84,7 @@ git clone -q "$BASE/leg.git" "$LEG" 2>/dev/null
     git config user.email t@t; git config user.name T; git config commit.gpgsign false
     mkdir -p aitasks/metadata; : > aitasks/metadata/project_config.yaml
     task_md t700 > aitasks/t700_x.md
-    cp -r "$PROJECT_DIR/.aitask-scripts" ./.aitask-scripts
+    copy_framework_tree "$PROJECT_DIR/.aitask-scripts" ./.aitask-scripts
     git add -A; git commit -q -m init; git branch -M main; git push -q -u origin main
     ./.aitask-scripts/aitask_lock.sh --init
 ) >/dev/null 2>&1

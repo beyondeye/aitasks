@@ -10,6 +10,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 # Start from an empty read-only dir, never the invoking one (t1826).
 . "$PROJECT_DIR/tests/lib/scratch_cwd.sh"
+. "$PROJECT_DIR/tests/lib/framework_copy.sh"
 enter_scratch_cwd
 ORIG_DIR="$(pwd)"
 
@@ -49,8 +50,7 @@ setup_test_repo() {
         git config user.email "test@test.com"
         git config user.name "Test"
         mkdir -p aitasks/metadata
-        cp -R "$PROJECT_DIR/.aitask-scripts" .aitask-scripts
-        find .aitask-scripts -type d -name __pycache__ -prune -exec rm -rf {} +
+        copy_framework_tree "$PROJECT_DIR/.aitask-scripts" .aitask-scripts
         chmod +x .aitask-scripts/aitask_crew_init.sh .aitask-scripts/aitask_crew_addwork.sh
         echo "email: test@test.com" > aitasks/metadata/userconfig.yaml
         git add -A

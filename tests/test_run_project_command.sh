@@ -31,6 +31,7 @@ PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 . "$PROJECT_DIR/tests/lib/scratch_cwd.sh"
 enter_scratch_cwd
 . "$PROJECT_DIR/tests/lib/asserts.sh"
+. "$PROJECT_DIR/tests/lib/framework_copy.sh"
 . "$PROJECT_DIR/tests/lib/fixture_root.sh"
 
 PASS=0
@@ -363,7 +364,7 @@ DRIVER
         chmod +x "$dd/driver.sh"
         mkdir -p "$dd/.aitask-scripts"
         cp "$HELPER" "$dd/.aitask-scripts/"
-        cp -r "$PROJECT_DIR/.aitask-scripts/lib" "$dd/.aitask-scripts/"
+        copy_framework_tree "$PROJECT_DIR/.aitask-scripts/lib" "$dd/.aitask-scripts/lib"
         res="$( cd "$dd" && ./driver.sh 2>/dev/null )"
         # An errexit regression kills the driver before REACHED_END, which is
         # exactly the failure this row must surface rather than swallow.
@@ -405,7 +406,7 @@ DRIVER
     chmod +x "$driver"
     mkdir -p "$d/.aitask-scripts"
     cp "$HELPER" "$d/.aitask-scripts/"
-    cp -r "$PROJECT_DIR/.aitask-scripts/lib" "$d/.aitask-scripts/"
+    copy_framework_tree "$PROJECT_DIR/.aitask-scripts/lib" "$d/.aitask-scripts/lib"
     out="$( cd "$d" && ./driver.sh 2>/dev/null )"
     assert_contains "flow(skip-then-fail): driver survived" "REACHED_END" "$out"
     assert_contains "flow(skip-then-fail): a skip does not hide a later fail" \
@@ -424,7 +425,7 @@ DRIVER
     chmod +x "$d/bad_driver.sh"
     mkdir -p "$d/.aitask-scripts"
     cp "$HELPER" "$d/.aitask-scripts/"
-    cp -r "$PROJECT_DIR/.aitask-scripts/lib" "$d/.aitask-scripts/"
+    copy_framework_tree "$PROJECT_DIR/.aitask-scripts/lib" "$d/.aitask-scripts/lib"
     out="$( cd "$d" && ./bad_driver.sh 2>/dev/null )"
     assert_not_contains "flow(negative control): the rejected capture shape DOES die on a skip" \
         "REACHED_END" "$out"

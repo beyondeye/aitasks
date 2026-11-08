@@ -19,6 +19,7 @@ TOTAL=0
 # trimmed whitespace (xargs) and assert_contains was regex (grep -q, case-
 # sensitive); call sites are remapped to assert_eq_trim / assert_contains_re.
 . "$PROJECT_DIR/tests/lib/asserts.sh"
+. "$PROJECT_DIR/tests/lib/framework_copy.sh"
 
 # Developer git config never reaches this file (t1987, the leak t1792 closed in
 # sync_fixture.sh); the per-repo user.* the fixtures set still applies. After the
@@ -65,7 +66,7 @@ Sample task" > aitasks/t1_sample.md
 
     # Copy project scripts into local clone
     cp "$PROJECT_DIR/ait" "$tmpdir/local/ait"
-    cp -r "$PROJECT_DIR/.aitask-scripts" "$tmpdir/local/.aitask-scripts"
+    copy_framework_tree "$PROJECT_DIR/.aitask-scripts" "$tmpdir/local/.aitask-scripts"
     chmod +x "$tmpdir/local/ait"
 
     echo "$tmpdir"
@@ -92,7 +93,7 @@ Sample task" > aitasks/t1_sample.md
 
     # Copy project scripts
     cp "$PROJECT_DIR/ait" "$tmpdir/ait"
-    cp -r "$PROJECT_DIR/.aitask-scripts" "$tmpdir/.aitask-scripts"
+    copy_framework_tree "$PROJECT_DIR/.aitask-scripts" "$tmpdir/.aitask-scripts"
     chmod +x "$tmpdir/ait"
 
     echo "$tmpdir"
@@ -547,7 +548,7 @@ echo "--- Test 15: AUTOMERGED - concurrent gate-runs appends union ---"
 
 TMPDIR_15="$(setup_sync_repos)"
 # pc2 needs the scripts too so it can run the REAL append path.
-cp -r "$PROJECT_DIR/.aitask-scripts" "$TMPDIR_15/pc2/.aitask-scripts"
+copy_framework_tree "$PROJECT_DIR/.aitask-scripts" "$TMPDIR_15/pc2/.aitask-scripts"
 
 # Stage only the task file path — the copied .aitask-scripts/ dirs are untracked
 # in both clones; committing them would make the other clone's pull abort on

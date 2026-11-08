@@ -15,6 +15,7 @@ enter_scratch_cwd
 # this shell (no `( … )` test bodies), so the in-process counters are enough.
 # shellcheck source=lib/asserts.sh disable=SC1091
 . "$PROJECT_DIR/tests/lib/asserts.sh"
+. "$PROJECT_DIR/tests/lib/framework_copy.sh"
 PASS=0
 FAIL=0
 TOTAL=0
@@ -32,10 +33,9 @@ trap 'rm -rf "$TMP"' EXIT
 FIX="$TMP/repo"
 mkdir -p "$FIX/.aitask-scripts" "$FIX/aitasks/t995" "$FIX/.git"
 cp "$PROJECT_DIR/.aitask-scripts/aitask_brainstorm_context.sh" "$FIX/.aitask-scripts/"
-cp -r "$PROJECT_DIR/.aitask-scripts/lib" "$FIX/.aitask-scripts/"
-cp -r "$PROJECT_DIR/.aitask-scripts/brainstorm" "$FIX/.aitask-scripts/"
-cp -r "$PROJECT_DIR/.aitask-scripts/agentcrew" "$FIX/.aitask-scripts/"
-find "$FIX/.aitask-scripts" -name __pycache__ -type d -prune -exec rm -rf {} +
+copy_framework_tree "$PROJECT_DIR/.aitask-scripts/lib" "$FIX/.aitask-scripts/lib"
+copy_framework_tree "$PROJECT_DIR/.aitask-scripts/brainstorm" "$FIX/.aitask-scripts/brainstorm"
+copy_framework_tree "$PROJECT_DIR/.aitask-scripts/agentcrew" "$FIX/.aitask-scripts/agentcrew"
 HELPER="$FIX/.aitask-scripts/aitask_brainstorm_context.sh"
 
 echo "task" > "$FIX/aitasks/t999_topic.md"

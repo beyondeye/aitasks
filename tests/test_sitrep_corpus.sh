@@ -40,6 +40,7 @@ PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 . "$PROJECT_DIR/tests/lib/scratch_cwd.sh"
 enter_scratch_cwd
 . "$PROJECT_DIR/tests/lib/asserts.sh"
+. "$PROJECT_DIR/tests/lib/framework_copy.sh"
 
 PASS=0
 FAIL=0
@@ -555,7 +556,7 @@ done
 echo "--- 8. old parser misses, replay recovers, export -> fixture"
 OLD="$TMP/oldcopy"
 mkdir -p "$OLD"
-cp -r "$PROJECT_DIR/.aitask-scripts" "$OLD/"
+copy_framework_tree "$PROJECT_DIR/.aitask-scripts" "$OLD/.aitask-scripts"
 sed -i 's/^ACCEPT_JOINED_BANNER = True$/ACCEPT_JOINED_BANNER = False/; s/^PARSER_REV = 2$/PARSER_REV = 1/' \
     "$OLD/.aitask-scripts/lib/sitrep_harvest.py"
 # Counted: both pre-fix lines must be present.

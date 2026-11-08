@@ -24,6 +24,7 @@ TOTAL=0
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=lib/asserts.sh
 . "$PROJECT_DIR/tests/lib/asserts.sh"
+. "$PROJECT_DIR/tests/lib/framework_copy.sh"
 # Start from an empty read-only dir, never the invoking one (t1826).
 . "$PROJECT_DIR/tests/lib/scratch_cwd.sh"
 enter_scratch_cwd
@@ -70,7 +71,7 @@ make_proj() {
     local dir="$TESTROOT/$1"
     mkdir -p "$dir/.aitask-scripts" "$dir/aitasks/metadata" "$TESTROOT/home_$1"
     cp "$PROJECT_DIR/.aitask-scripts/aitask_setup.sh" "$dir/.aitask-scripts/"
-    cp -r "$PROJECT_DIR/.aitask-scripts/lib" "$dir/.aitask-scripts/lib"
+    copy_framework_tree "$PROJECT_DIR/.aitask-scripts/lib" "$dir/.aitask-scripts/lib"
     cp "$PROJECT_DIR/.aitask-scripts/VERSION" "$dir/.aitask-scripts/VERSION"
     cp "$SEED" "$dir/aitasks/metadata/claude_settings.hooks.json"
     (cd "$dir" && git init -q && git add -A && git commit -qm init) >/dev/null 2>&1

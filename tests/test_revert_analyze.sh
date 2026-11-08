@@ -8,6 +8,7 @@ PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 . "$PROJECT_DIR/tests/lib/scratch_cwd.sh"
 enter_scratch_cwd
 . "$PROJECT_DIR/tests/lib/asserts.sh"
+. "$PROJECT_DIR/tests/lib/framework_copy.sh"
 ANALYZE_SCRIPT="$PROJECT_DIR/.aitask-scripts/aitask_revert_analyze.sh"
 
 PASS=0
@@ -45,8 +46,7 @@ setup_test_repo() {
     # Mirror the full .aitask-scripts/ tree so transitive deps (e.g.
     # lib/archive_scan.sh) are present. Hand-curated copy lists drift
     # silently as new sources/imports are added.
-    cp -R "$PROJECT_DIR/.aitask-scripts" "$tmpdir/.aitask-scripts"
-    find "$tmpdir/.aitask-scripts" -type d -name __pycache__ -prune -exec rm -rf {} +
+    copy_framework_tree "$PROJECT_DIR/.aitask-scripts" "$tmpdir/.aitask-scripts"
     chmod +x "$tmpdir/.aitask-scripts/"*.sh
 
     (

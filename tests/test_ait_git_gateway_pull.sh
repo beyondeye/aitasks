@@ -17,6 +17,7 @@ PROJECT_DIR="$(cd "$TEST_SCRIPT_DIR/.." && pwd)"
 . "$PROJECT_DIR/tests/lib/scratch_cwd.sh"
 enter_scratch_cwd
 . "$PROJECT_DIR/tests/lib/asserts.sh"
+. "$PROJECT_DIR/tests/lib/framework_copy.sh"
 
 PASS=0
 FAIL=0
@@ -75,7 +76,7 @@ make_fixture() {
     # The framework is copied, not committed: the cases are about the data
     # branch, and the code branch's status plays no part in them.
     cp "$PROJECT_DIR/ait" "$FX_LOCAL/ait"
-    cp -r "$PROJECT_DIR/.aitask-scripts" "$FX_LOCAL/.aitask-scripts"
+    copy_framework_tree "$PROJECT_DIR/.aitask-scripts" "$FX_LOCAL/.aitask-scripts"
     chmod +x "$FX_LOCAL/ait"
     printf '/ait\n/.aitask-scripts/\n' >> "$FX_LOCAL/.git/info/exclude"
     SCRIPT_DIR="$FX_LOCAL/.aitask-scripts"

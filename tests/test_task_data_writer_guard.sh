@@ -29,6 +29,7 @@ enter_scratch_cwd
 export PROJECT_DIR
 
 . "$PROJECT_DIR/tests/lib/asserts.sh"
+. "$PROJECT_DIR/tests/lib/framework_copy.sh"
 . "$PROJECT_DIR/tests/lib/sync_fixture.sh"
 
 assert_counters_init
@@ -141,7 +142,7 @@ LEG="$(mktemp -d)"
   git init -q .
   git config user.email t@t; git config user.name t
   mkdir -p aitasks/metadata aiplans .aitask-scripts/lib
-  cp -r "$PROJECT_DIR/.aitask-scripts/lib/." .aitask-scripts/lib/
+  copy_framework_tree "$PROJECT_DIR/.aitask-scripts/lib" .aitask-scripts/lib
   echo x > f; git add -A; git -c user.email=t@t -c user.name=t commit -qm init
 ) >/dev/null 2>&1
 mkdir -p "$LEG/.git/rebase-merge"

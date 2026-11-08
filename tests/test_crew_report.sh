@@ -21,6 +21,7 @@ PY="$(require_ait_python)"
 
 # Shared assertion helpers (see tests/lib/asserts.sh)
 . "$PROJECT_DIR/tests/lib/asserts.sh"
+. "$PROJECT_DIR/tests/lib/framework_copy.sh"
 
 # Test bodies run in `( … )` subshells, so the shared helpers' in-process
 # counters cannot survive to the footer — opt into the file-backed record.
@@ -44,8 +45,7 @@ setup_test_repo() {
         # Mirror the full .aitask-scripts/ tree so transitive deps (e.g.
         # lib/launch_modes_sh.sh) are present. Hand-curated copy lists drift
         # silently as new sources/imports are added.
-        cp -R "$PROJECT_DIR/.aitask-scripts" .aitask-scripts
-        find .aitask-scripts -type d -name __pycache__ -prune -exec rm -rf {} +
+        copy_framework_tree "$PROJECT_DIR/.aitask-scripts" .aitask-scripts
         chmod +x .aitask-scripts/aitask_crew_init.sh .aitask-scripts/aitask_crew_addwork.sh
         chmod +x .aitask-scripts/aitask_crew_cleanup.sh .aitask-scripts/aitask_crew_report.sh
 

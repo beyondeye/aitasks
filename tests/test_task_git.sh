@@ -19,6 +19,7 @@ TOTAL=0
 # trimmed whitespace (xargs) and assert_contains was case-insensitive (grep -qi),
 # so call sites are remapped to assert_eq_trim / assert_contains_ci below.
 . "$PROJECT_DIR/tests/lib/asserts.sh"
+. "$PROJECT_DIR/tests/lib/framework_copy.sh"
 
 # --- Setup helpers ---
 
@@ -153,7 +154,7 @@ TMPDIR_6="$(setup_repo_with_remote)"
 
 # Copy ait and aiscripts to test repo
 cp "$PROJECT_DIR/ait" "$TMPDIR_6/local/ait"
-cp -r "$PROJECT_DIR/.aitask-scripts" "$TMPDIR_6/local/.aitask-scripts"
+copy_framework_tree "$PROJECT_DIR/.aitask-scripts" "$TMPDIR_6/local/.aitask-scripts"
 chmod +x "$TMPDIR_6/local/ait"
 
 (
@@ -181,7 +182,7 @@ TMPDIR_7="$(setup_repo_with_remote)"
 
 # Copy ait and aiscripts
 cp "$PROJECT_DIR/ait" "$TMPDIR_7/local/ait"
-cp -r "$PROJECT_DIR/.aitask-scripts" "$TMPDIR_7/local/.aitask-scripts"
+copy_framework_tree "$PROJECT_DIR/.aitask-scripts" "$TMPDIR_7/local/.aitask-scripts"
 chmod +x "$TMPDIR_7/local/ait"
 
 (cd "$TMPDIR_7/local" && git add -A && git commit -m "add scripts" --quiet && git push --quiet 2>/dev/null)

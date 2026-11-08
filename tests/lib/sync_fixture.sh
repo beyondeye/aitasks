@@ -25,6 +25,7 @@
 # anything it appends to a list would be lost with that subshell — every fixture
 # therefore nests under this base and one trap removes the lot. Each repo carries
 # a full copy of .aitask-scripts, so a leaking suite is measured in gigabytes.
+. "$PROJECT_DIR/tests/lib/framework_copy.sh"
 _SYNC_FIXTURE_BASE="$(mktemp -d)"
 _sync_fixture_cleanup() { [[ -n "${_SYNC_FIXTURE_BASE:-}" ]] && rm -rf "$_SYNC_FIXTURE_BASE"; }
 trap _sync_fixture_cleanup EXIT
@@ -93,7 +94,9 @@ HOSTEOF
 
         cp "$PROJECT_DIR/ait" ./ait
         chmod +x ./ait
-        cp -r "$PROJECT_DIR/.aitask-scripts" ./.aitask-scripts
+        # Without the bytecode caches: they are half the tree in a working
+        # checkout and `git add -A` below would commit them too (t2226).
+        copy_framework_tree "$PROJECT_DIR/.aitask-scripts" ./.aitask-scripts
         git add -A 2>/dev/null; git commit -q -m "framework" 2>/dev/null; git push -q 2>/dev/null
 
         # The lock branch must exist before plant_lock can extend it.

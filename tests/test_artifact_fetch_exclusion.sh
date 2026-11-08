@@ -20,6 +20,7 @@ PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$PROJECT_DIR/tests/lib/scratch_cwd.sh"
 enter_scratch_cwd
 . "$PROJECT_DIR/tests/lib/asserts.sh"
+. "$PROJECT_DIR/tests/lib/framework_copy.sh"
 . "$PROJECT_DIR/tests/lib/git_config_isolation.sh"
 sync_isolate_git_config
 PASS=0; FAIL=0; TOTAL=0
@@ -256,7 +257,7 @@ git -C "$W/B" fetch -q --all --prune 2>/dev/null
 assert_eq "cross-clone: B fetched no store-b objects" "no" "$(has_obj B "$(rtip store-b)")"
 assert_eq "cross-clone: B fetched no retired-store objects" "no" "$(has_obj B "$(rtip "$BR")")"
 clone_into Z --single-branch -b main
-cp -r "$PROJECT_DIR/.aitask-scripts" "$W/Z/.aitask-scripts"
+copy_framework_tree "$PROJECT_DIR/.aitask-scripts" "$W/Z/.aitask-scripts"
 ( source "$W/Z/.aitask-scripts/aitask_setup.sh" --source-only && setup_artifact_fetch_exclusion ) >/dev/null 2>&1
 assert_contains "fresh clone + setup: retired branch excluded" "^refs/heads/$BR" "$(fetchvals Z origin)"
 assert_contains "fresh clone + setup: store branch excluded" "^refs/heads/store-b" "$(fetchvals Z origin)"

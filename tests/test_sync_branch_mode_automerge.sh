@@ -54,6 +54,7 @@ FAIL=0
 TOTAL=0
 
 . "$PROJECT_DIR/tests/lib/asserts.sh"
+. "$PROJECT_DIR/tests/lib/framework_copy.sh"
 
 # Developer git config never reaches this file (t1987, the leak t1792 closed in
 # sync_fixture.sh); the per-repo user.* the fixtures set still applies. After the
@@ -116,7 +117,7 @@ TASKEOF
 
         cp "$PROJECT_DIR/ait" ./ait
         chmod +x ./ait
-        cp -r "$PROJECT_DIR/.aitask-scripts" ./.aitask-scripts
+        copy_framework_tree "$PROJECT_DIR/.aitask-scripts" ./.aitask-scripts
         git add -A 2>/dev/null
         git commit -q -m "framework" 2>/dev/null
         git push -q 2>/dev/null

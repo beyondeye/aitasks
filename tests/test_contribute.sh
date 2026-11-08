@@ -21,6 +21,7 @@ TOTAL=0
 
 # Shared core helpers (assert_eq, assert_contains, …) live in tests/lib/asserts.sh.
 . "$PROJECT_DIR/tests/lib/asserts.sh"
+. "$PROJECT_DIR/tests/lib/framework_copy.sh"
 
 # --- Setup ---
 
@@ -424,7 +425,7 @@ mkdir -p "$CODEMAP_DIR/.aitask-scripts" "$CODEMAP_DIR/aitasks/metadata"
 # Copy scripts needed by codemap
 cp "$PROJECT_DIR/.aitask-scripts/aitask_codemap.sh" "$CODEMAP_DIR/.aitask-scripts/"
 cp "$PROJECT_DIR/.aitask-scripts/aitask_codemap.py" "$CODEMAP_DIR/.aitask-scripts/"
-cp -r "$PROJECT_DIR/.aitask-scripts/lib" "$CODEMAP_DIR/.aitask-scripts/"
+copy_framework_tree "$PROJECT_DIR/.aitask-scripts/lib" "$CODEMAP_DIR/.aitask-scripts/lib"
 chmod +x "$CODEMAP_DIR/.aitask-scripts/aitask_codemap.sh"
 # Create some tracked files
 echo "code" > "$CODEMAP_DIR/src/backend/auth/login.py"
