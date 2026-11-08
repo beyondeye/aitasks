@@ -316,3 +316,41 @@ The docs describe the current state only.
 Work happens on the current branch (profile `fast`). Code and the plan are
 committed separately (`bug: … (t2241)` and `ait: Update plan for t2241`), then
 the task is archived through the standard Step 9 flow.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-08 16:05)
+- **Requested by user:** The scheduled-scan loop in `contribution-check-job.yml` had no page cap or progress check. Unlike `_gitlab_rest_all_pages`, it could run until the CI timeout if a server or proxy kept returning a full page (PLAUSIBLE, low).
+- **Changes made:** The job loop now has `MAX_PAGES=1000`, matching the helper, and fails closed when it reaches the cap. Both the job loop and `_gitlab_rest_all_pages` gained a progress check: a page whose first iid equals the previous page's first iid means `page` is being ignored, so they fail at once instead of at the cap. The stub gained `GLAB_STUB_CURL_REPEAT_PAGE=1`, which ignores `page=`. New tests:
+  - the helper returns 1 with no partial list after exactly 2 requests;
+  - the job exits non-zero with "repeats page 1" after 2 curl calls and checks nothing;
+  - a structural assertion on the job's page cap.
+- **Files affected:** `.aitask-scripts/ci_templates/gitlab/contribution-check-job.yml`, `.aitask-scripts/aitask_contribution_check.sh`, `tests/lib/glab_contribution_stub.sh`, `tests/test_contribution_check.sh`, `tests/test_gitlab_contribution_job.py`
+
+## Final Implementation Notes
+- **Actual work done:** Implemented as planned.
+  - The GitLab listing in `aitask_contribution_check.sh` is now a paginated scan of all open issues on both the glab path (`glab api --paginate projects/:id/issues?state=opened&per_page=100`) and the curl path (`_gitlab_rest_all_pages`). It keeps issues with the label OR the metadata block, through `_gitlab_select_contribution_issues`, and applies the limit after filtering.
+  - `gitlab_create_issue` reads the label back through `_gitlab_verify_contribution_label`. The fallback branch uses the GitHub wording plus the "created unlabeled" notice.
+  - The CI job's scheduled scan computes its cutoff with jq, paginates with a 1000-page cap and a repeated-page check, filters on label OR metadata, and fails closed.
+  - The website doc is updated.
+- **Deviations from plan:**
+  - Plan-review concern: BusyBox `date` cannot compute the cutoff on `alpine:latest`. The job now uses jq instead, and a BusyBox-modelling `date` stub, POSIX-shell runs and a legacy-cutoff control cover it.
+  - Post-review CR1: the page cap and repeated-page check described above.
+  - `dash` is not installed on this host, so the job test drops that leg. It runs `sh`, which is bash in POSIX mode here, and `bash --posix`.
+  - Fixture URLs use `gitlab.example`.
+- **Issues encountered:**
+  - The pre-fix control in a scratch worktree of HEAD (helper-only copy of the new tests and stub, removed afterwards) gave these results:
+    - `test_contribution_check.sh` 19 failed / 94 passed, the failures being every GitLab listing, limit, fail-closed and overlap assertion;
+    - `test_contribution_review.sh` 2 failed (unlabeled #100 and #101 not listed);
+    - `test_contribute.sh` 5 failed (dropped and viewfail warnings, read-back, fallback wording);
+    - the job test 5 of 6 failed (scheduled set `['15','12']`, cutoff called date, listing failure exited 0, structure).
+  - The controls passed on the baseline: fixture self-test 32, the kept/no-label cases, trigger mode and the legacy-cutoff stub control.
+  - The baseline also showed that the old curl path ran with an empty token header when `GITLAB_TOKEN` was unset: `die` inside `$(…)` only exits the subshell. The new helper computes the header once with `|| return 1`.
+- **Key decisions:**
+  - The stub models GitLab server-side, applying `labels=` filtering on the server, so pre-fix code reproduces the bug.
+  - glab `--paginate` output is parsed with `jq -s add`, which accepts one merged array (glab 1.126) or one array per page.
+  - The CI job checks only label-or-metadata issues, because the check script comments on any issue it is given.
+  - Evidence for the GitLab drop comes from gitlab-org/gitlab `a8f1a2df276b` (Issuable::Callbacks::Labels, issue_policy.rb, and the role YAMLs guest vs public_authenticated). It is recorded in Step 1.
+- **Upstream defects identified:**
+  - `.aitask-scripts/aitask_contribution_check.sh:185-215 — every remaining GitLab curl call (fetch_issue, post_comment, add_label, list_repo_labels, has_overlap_comment) still passes "$(_gitlab_token_header)" inline, so a missing GITLAB_TOKEN sends an empty header instead of failing (die only exits the command substitution)`
+  - `.aitask-scripts/ci_templates/bitbucket/contribution-check-pipeline.yml:30-33 — scheduled scan fetches one unpaginated page (pagelen=50) of open issues and runs the check script on every one, so non-contribution issues get a "no fingerprint" comment and older contributions beyond 50 are missed`
