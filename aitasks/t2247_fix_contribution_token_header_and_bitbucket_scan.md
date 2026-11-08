@@ -3,13 +3,14 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [git-integration, contribution]
 gates: [risk_evaluated]
+assigned_to: daelyasy@hotmail.com
 anchor: 2235
 followup_kind: upstream_defect
 created_at: 2026-11-08 18:16
-updated_at: 2026-11-08 18:16
+updated_at: 2026-11-08 18:24
 ---
 
 ## Origin
