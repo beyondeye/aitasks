@@ -151,8 +151,9 @@ padv() {   # padv <repo> <task> [args...] -- as the OWNER, holding the task's lo
     local d="$1" t="$2" id
     shift 2
     id=$(task_id_of "$t")
-    ( cd "$d" && { ./.aitask-scripts/aitask_lock.sh --check "$id" >/dev/null 2>&1 \
-        || ./.aitask-scripts/aitask_lock.sh --lock "$id" --email "$OWNER" >/dev/null 2>&1; } )
+    ( cd "$d" || exit 1
+      ./.aitask-scripts/aitask_lock.sh --check "$id" >/dev/null 2>&1 \
+        || ./.aitask-scripts/aitask_lock.sh --lock "$id" --email "$OWNER" >/dev/null 2>&1 )
     ( cd "$d" && ./.aitask-scripts/aitask_premise_stale.sh advance "$t" --owner "$OWNER" "$@" 2>&1 )
 }
 dec() { printf '%s\n' "$1" | sed -n 's/^DECISION://p' | tail -n1; }
@@ -484,7 +485,8 @@ TW5=$(mk_task "$P" 606 "lib/m.sh")
 ( cd "$P" && ./.aitask-scripts/aitask_lock.sh --lock 606 --email "$OWNER" >/dev/null 2>&1 )
 check "J5: this session's own lock -> OWNER_OK" "OWNER_OK" "$(pown "$TW5" --owner "$OWNER")"
 sleep 600 & FORCER=$!
-( cd "$P" && ./.aitask-scripts/aitask_lock.sh --unlock 606 >/dev/null 2>&1
+( cd "$P" || exit 1
+  ./.aitask-scripts/aitask_lock.sh --unlock 606 >/dev/null 2>&1
   AIT_AGENT_PID=$FORCER ./.aitask-scripts/aitask_lock.sh --lock 606 --email "$OWNER" >/dev/null 2>&1 )
 check "J5: after another session's force-claim -> NOT_OWNER" "1" \
     "$(pown "$TW5" --owner "$OWNER" | grep -c "^NOT_OWNER:held by another session of $OWNER on .* (pid $FORCER)\$")"
