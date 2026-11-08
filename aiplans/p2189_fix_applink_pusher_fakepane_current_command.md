@@ -95,4 +95,4 @@ None identified.
   measure (the pusher reads `category.value`). The falsy `pane_pid` means
   `agent_key_from_pane` never starts `pgrep`/`ps`, so the test stays deterministic.
 - **Upstream defects identified:**
-  - `tests/test_applink_devices.sh:63 — FakeServer lacks a tunnel attribute, so the devices-screen mount crashes in applink_app.py:491 (_refresh reads server.tunnel.status_line(), added by t1061_3 0c0111627) and the script exits 1`
+  - `tests/test_applink_devices.sh:41 — FakeServer (embedded-script traceback line 63) lacks a tunnel attribute, so the devices-screen mount crashes in applink_app.py:491 (_refresh reads server.tunnel.status_line(), added by t1061_3 0c0111627) and the script exits 1`
