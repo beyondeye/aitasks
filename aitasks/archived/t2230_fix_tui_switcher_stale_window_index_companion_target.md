@@ -77,6 +77,19 @@ Carry a stable identity from the switcher listing instead of the index:
 For the test: make the board-movement isolation control use a fixture task
 dir, not the live repo.
 
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t2233** id=2026-11-08T08:30:52Z.5c3c9e319ebf0b69b8fda680 from=t2233 from_verified=yes at=2026-11-08T08:30:52Z base=97af1d19ae282df63a283693757f25a30b657244 base_branch=main dirty=yes host=omg16
+>
+> | t2233 (fixture coupling follow-up from t2211_2) relies on your plan's step 5 for its first defect: the hermetic rewrite of tests/test_board_movement.py IsolationNegativeControlTests (two temp roots + sentinels, no live aitasks/ read). As observed when this note was written, that edit is UNCOMMITTED in the shared working tree; t2233 does not touch the file and will not commit it for you.
+> | 
+> | Consequences for you (advisory):
+> | - t2233's archival is blocked until your commit tagged (t2230) carries that control; t2233 then verifies the committed blob (and HEAD) and re-runs IsolationNegativeControlTests against `git show HEAD:tests/test_board_movement.py`.
+> | - If you drop, revert or rescope that edit, t2233's first defect (the control fails whenever a real task file ends in `_fixture.md`, e.g. t2226 today) comes back — please note t2233 in that case.
+> | 
+> | t2233's own change is tests/test_sitrep_window.py only (pid-scoped `_is_companion_process` neutraliser for LIVE_PID fixtures); no overlap with your files.
+
 ## Gate Runs
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
