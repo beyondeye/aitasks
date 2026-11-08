@@ -235,3 +235,60 @@ untouched.
   committed-SHA + committed-version re-run condition) · → mitigation: none. It
   is handled within the plan by steps 5–6, and t2233 never takes ownership of
   t2230's file.
+
+## Final Implementation Notes
+- **Actual work done:** Steps 1–6 as planned, all in `tests/test_sitrep_window.py`:
+  - reworded the `LIVE_PID` comment;
+  - added the `_REAL_RUNG` import-time capture and the
+    `runner_pid_is_not_a_companion()` pid-scoped patch;
+  - applied the patch in `MatcherTests.setUp`, `ClassifyParityTests.setUp` and
+    `_SpawnFixture.setUp` (stopped by the existing `patch.stopall` cleanup);
+  - noted in the booting stand-in test's docstring that its cmdline rung stays
+    real;
+  - added `ArgvIndependenceTests.test_fixtures_pass_under_a_minimonitor_argv`
+    (child interpreter with `minimonitor` in argv, `COUPLED:1` witness).
+
+  `tests/test_board_movement.py` was not touched.
+- **Deviations from plan:** none in code. The child-script witness wraps the rung in `bool()` before `int()`.
+- **Issues encountered:**
+  - The first blast-radius probe errored on import, because the script's dir
+    rather than the repo was on `sys.path`. Fixed by inserting cwd, then re-run.
+  - The full suite exceeded the 600 s foreground timeout and finished in the
+    background. Verdict below.
+- **Key decisions:** Scoped the neutraliser to the runner's own pid instead of
+  an all-`False` patch. That keeps the real cmdline rung exercised by the
+  booting stand-in test with no carve-out.
+- **Verification evidence:**
+  - Scratch probe `tests.test_sitrep_window minimonitor`: pre-fix
+    `run=79 fail=22`, post-fix `run=80 fail=0` (plain argv: `run=80 fail=0`).
+  - `python -m unittest tests.test_sitrep_window tests.test_minimonitor_sibling_fallback`
+    → `Ran 92 tests … OK` (pre-fix: `FAILED (failures=22)`). Module alone →
+    `Ran 80 tests … OK`.
+  - Isolated mutant: a scratch copy with the `.aitask-scripts` and `tests/lib`
+    symlinks, and the neutraliser reduced to `return real(pid)`. Its
+    `ArgvIndependenceTests` → FAIL with `COUPLED:1` and
+    `RAN:49 FAILED:22`. The unmutated copy in the same layout → OK. Mutant
+    deleted.
+  - `bash tests/run_all_python_tests.sh --test-dir tests` → rc=0, last line
+    `PYTHON SUITE: PASSED (runner=pytest, exit=0)`.
+  - Blast-radius probe: 15 other modules gave identical results with and
+    without `minimonitor` in argv:
+    - agent_sessions_contract_call_sites, agent_sessions_transitions,
+      agent_sessions_identity, agent_sessions_lease, agent_sessions;
+    - agent_freeze, agent_keys, agent_restore;
+    - list_panes_arity_characterization, frozenagent_app,
+      minimonitor_concern_smoke, minimonitor_sibling_fallback;
+    - monitor_sitrep_harvest_close, monitor_companion_filter,
+      monitor_status_server.
+- **Defect 1 completion ledger (step 6 — PASSED):**
+  - Note to t2230: `NOTE_APPENDED:2026-11-08T08:30:52Z.5c3c9e319ebf0b69b8fda680`
+    (`LIVE_NONE:unlocked`). t2230 had been archived by then.
+  - Committed: `dc5811dede606751c6047b568b00905c31a8a86f` — `bug: Act on
+    window ids, not listing-time indexes, in the TUI switcher (t2230)`. Its
+    blob has `def test_in_process_task_dir_override_reads_the_cwd_tree` ×1 and
+    `the real tree must contain none of the fixture files` ×0.
+  - HEAD: the same greps give 1 / 0, and the working-tree file is clean.
+  - Re-run against `git show HEAD:tests/test_board_movement.py` in an isolated
+    scratch copy (symlinked `.aitask-scripts`, `tests/lib`):
+    `pytest -k IsolationNegativeControl` → `1 passed, 33 deselected`.
+- **Upstream defects identified:** None
