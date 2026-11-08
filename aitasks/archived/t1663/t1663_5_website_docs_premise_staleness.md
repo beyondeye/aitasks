@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: [t1663_4]
 issue_type: documentation
-status: Implementing
+status: Done
 labels: [task-workflow, documentation]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -16,7 +16,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1538
 implemented_with: claudecode/opus5_5
 created_at: 2026-09-01 15:20
-updated_at: 2026-11-08 13:13
+updated_at: 2026-11-08 13:19
+completed_at: 2026-11-08 13:19
 ---
 
 Document the advisory premise-staleness check in the website docs.
@@ -83,3 +84,14 @@ Fifth child of t1663 — docs are a first-class child per `aidocs/framework/plan
 > **✅ gate:plan_approved** run=2026-11-08T11:13:10Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-11-08T11:17:05Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-11-08T11:19:27Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:5f991302e824cf55
+
+> **✅ gate:risk_evaluated** run=2026-11-08T11:19:27Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1663_5/risk_evaluated_2026-11-08T11:19:27Z-risk_evaluated-a1.log`
