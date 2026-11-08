@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2235
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-08 18:16
-updated_at: 2026-11-08 18:24
+updated_at: 2026-11-08 22:03
 ---
 
 ## Origin
@@ -35,3 +36,8 @@ Separately, the check script posts a "no fingerprint" overlap comment on any iss
 ## Suggested fix
 
 Compute each auth header once into a local with `|| return 1` before calling curl. For Bitbucket, paginate through `next` links with a page cap, filter on the `<!-- aitask-contribute-metadata` marker before invoking the check script, and add stub-based tests modelled on `tests/lib/glab_contribution_stub.sh` and `tests/test_gitlab_contribution_job.py`.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-08T20:03:34Z status=pass attempt=1 type=human
