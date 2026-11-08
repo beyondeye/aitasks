@@ -110,3 +110,24 @@ See `aiplans/p1981/p1981_4_relations_triggers.md`.
 - `sweep` honours the budget and the cap.
 
 The skill-change ports to the other agent trees are t1981_9.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1981_3** id=2026-11-08T08:47:28Z.24a223c617b64cdc8056a7b4 from=t1981_3 from_verified=yes at=2026-11-08T08:47:28Z base=56a5018468f6833474716638507c00515ba1f2c8 base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from t1981_3 (code commit 56a501846). These are the line protocols your trigger sites call:
+> | 
+> | - `./.aitask-scripts/aitask_relations_enqueue.sh <op> <trigger> <id>`:
+> |   - NEVER prints and always exits 0;
+> |   - all checks (`relations.enabled`, `triggers.<t>`, `AIT_RELATIONS=0`) and the spool write happen in a detached part, which logs to `<git-common-dir>/aitask-relations/spool/enqueue.log`;
+> |   - `relations plan_approved` also writes the approval stamp there, which depends on `enabled` only;
+> |   - `obsolescence` is accepted but logged `SKIPPED:op_unimplemented` (t1981_6).
+> | - `./.aitask-scripts/aitask_relations.sh stamp <id>`:
+> |   - prints exactly one line: `STAMP:<plan_sha256>`, `STAMP:disabled`, or `STAMP_ERROR:<reason>` (exit 1, e.g. `plan_not_committed`);
+> |   - the stamp is in the local outbox before the line is printed; the publish and the `plan_approved` enqueue are detached;
+> |   - keep the sha as `relations_expected_plan`.
+> | - `./.aitask-scripts/aitask_relations.sh plan-digest <id>` prints `PLAN_DIGEST:<sha>` (the plan committed at the task-data HEAD) or `PLAN_DIGEST_ERROR:<reason>`. Re-entry Routing uses it.
+> | - Both read the plan as committed at the task-data HEAD, so stamp only after the plan commit.
+> | 
+> | Details: aidocs/framework/task_relations.md, D5 "Worker API".
