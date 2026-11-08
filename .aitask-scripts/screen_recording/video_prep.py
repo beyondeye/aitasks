@@ -482,6 +482,9 @@ def fmt_ms(seconds: float) -> str:
 # base would quantise the times to 40 ms) and its `duration`. -itsoffset puts the
 # first image at the time its name carries. The `option` directive needs
 # -safe 0; the script names only generated relative files (img_000001.png).
+# These timings, -safe 0 and the single-configuration rule below behave the
+# same on FFmpeg 5.1.1, 7.0.2 and 9.0.2 (measured, t2229), so image input has
+# the same 5.1 minimum as video input.
 #
 # Stateful detectors (mpdecimate, freezedetect, blackdetect) must see one
 # uninterrupted filter graph, but the ffmpeg CLI rebuilds the graph whenever a

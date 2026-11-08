@@ -2507,8 +2507,9 @@ class ImageFolderInput(_VideoCase):
         frames = subprocess.run(["ffprobe", "-v", "error", "-count_frames", "-show_entries",
                                  "stream=nb_read_frames", "-of", "csv=p=0", str(webp)],
                                 capture_output=True, text=True).stdout.strip()
-        # encoding and decoding differ: some builds (FFmpeg 5.1) write animated webp
-        # but cannot decode its animation, so the fixture means nothing there
+        # encoding and decoding differ: FFmpeg 5.1.1 and 7.0.2 write animated webp
+        # but cannot decode its animation (measured, t2229), so the fixture means
+        # nothing there; the CLI then stops on ffmpeg's decode error instead
         if frames != "2":
             self.skipTest(f"this ffmpeg cannot decode an animated webp (counted {frames!r})")
         self.assertEqual(frames, "2")                                  # premise: animated
