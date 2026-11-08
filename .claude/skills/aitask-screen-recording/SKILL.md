@@ -64,7 +64,8 @@ Run it from the repository root; `<mode> --help` lists every option.
    warnings.
 2. **Contact sheets** (`sheet_*.png`). One Read each; they are sized to stay
    under the image downscale limit, and the summary gives their approximate
-   token cost.
+   token cost. Every label fits its cell, so a sheet may hold fewer than
+   `--per-sheet` frames; the summary lists the frames on each sheet.
 3. **Single frames**, only the ones you need in detail. Each costs roughly as
    much as a sheet, so don't read them all.
 4. **Data:** `timeline.tsv` (bug), `curve.tsv` and `fit.json` (anim) when you
@@ -407,6 +408,8 @@ CLI. They cover:
   and `+N` with a deleted frame, untimed and suffixed names, letterboxing,
   unreadable and animated files, labels that fit narrow cells, and the
   `--per-sheet` split.
+- bug/anim sheets: labels that fit a narrow `anim --roi` strip, and a sheet
+  cut short so its labels fit, with the summary's per-sheet frame ranges.
 - `bug DIR` / `anim DIR`: a `frames` → `anim DIR` round trip against the
   video result, every third frame deleted (gap warning, widened ±, same
   curve), frames missing before the motion (fits marked unreliable), `--fps` on

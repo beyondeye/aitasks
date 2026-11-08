@@ -222,7 +222,7 @@ def truncate_middle(text: str, n: int) -> str:
 
 
 MIN_TILE_PX = 64     # a tile's image keeps at least this long edge (tiny originals: 4x theirs)
-MAX_ENLARGE = 4.0    # the enlargement cap sheet_layout uses too
+MAX_ENLARGE = 4.0    # the enlargement cap of every sheet layout
 
 
 def label_safe_layout(n: int, w: int, h: int, need_w: int, max_edge: int,

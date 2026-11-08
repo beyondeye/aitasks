@@ -124,6 +124,73 @@ class AnimMode(_VideoCase):
             self.assertTrue((out / "s01" / "sheet_01.png").exists())
             self.assertTrue((out / "s01" / "plot.png").exists())
 
+    def strip_run(self, *extra):
+        """anim on a 40x800 --roi strip the card crosses (one segment)."""
+        out, fits = self.anim("strip_down", lambda: synth.card_frames(
+            synth.tween(synth.EASE_OUT, 0.5, 0.3), 1.3, "down"),
+            "--roi", "160,0,40,800", *extra,
+            out_name="strip_down" + "".join(extra).replace("-", "_"))
+        self.assertEqual(len(fits), 1)
+        frames = sorted((out / "s01" / "frames").glob("f*.png"))
+        return out, json.loads((out / "run.json").read_text()), frames
+
+    @staticmethod
+    def pre_t2219_layout(n, w, h, label_h=40, edge=1600):
+        """(cols, cell_w, cell_h) the bug/anim sheets used before t2219: sized
+        from the image alone, whatever the labels (the removed sheet_layout)."""
+        best = None
+        for cols in range(1, n + 1):
+            rows = math.ceil(n / cols)
+            s = min((edge - 8 * cols) / (cols * w), (edge - (label_h + 8) * rows) / (rows * h),
+                    4.0)
+            if best is None or s > best[0] + 1e-9:
+                best = (s, cols)
+        s, cols = best
+        return cols, max(1, int(w * s)), max(1, int(h * s))
+
+    @unittest.skipUnless(HAVE_MAGICK, "ImageMagick (magick) not installed")
+    def test_narrow_roi_sheet_labels_stay_inside_their_cells(self):
+        """A 40 px --roi strip at the default --per-sheet: the image-only layout
+        made cells narrower than the 'fNNN 0.000s' labels, which then spilled
+        over their neighbours; cells now widen to the labels."""
+        out, run, frames = self.strip_run()
+        (t,) = run["sheet_tiles"]                     # every saved frame on one sheet
+        self.assertEqual(t["count"], len(frames))
+        self.assertGreater(t["cols"], 1)
+        self.assertEqual(dirty_borders(out / t["sheet"], t["cell_w"], t["cols"]), [], t)
+
+        # premise: the layout the old code computed for this many frames, drawn
+        # with these frames and their real first label line, does overflow
+        cols, tw, th = self.pre_t2219_layout(len(frames), 40, 800)
+        self.assertGreater(cols, 1)
+        self.assertLess(tw, t["cell_w"])
+        labels = []
+        for f in frames:
+            m = re.fullmatch(r"(f\d{3})_(\d+\.\d{3})s\.png", f.name)
+            labels += ["-label", f"{m[1]} {m[2]}s\n+0ms", f]
+        bad = self.tmp / "strip-old-layout.png"
+        subprocess.run(["magick", "montage", "-background", "#1e1e1e", "-fill", "#f2f2f2",
+                        "-pointsize", "15", *labels, "-tile", f"{cols}x",
+                        "-geometry", f"{tw}x{th}+4+4", bad], check=True)
+        self.assertNotEqual(dirty_borders(bad, tw, cols), [])
+
+    @unittest.skipUnless(HAVE_MAGICK, "ImageMagick (magick) not installed")
+    def test_narrow_roi_sheets_list_the_frames_they_hold(self):
+        out, run, frames = self.strip_run("--per-sheet", "7")
+        tiles = run["sheet_tiles"]
+        self.assertGreaterEqual(len(tiles), 2)
+        # the ranges cut the frames actually saved, in order, sheet by sheet
+        saved = [int(f.name[1:4]) for f in frames]
+        self.assertEqual(sum(t["count"] for t in tiles), len(saved))
+        k = 0
+        for t in tiles:
+            self.assertEqual((t["first"], t["last"]), (saved[k], saved[k + t["count"] - 1]), t)
+            k += t["count"]
+            self.assertEqual(dirty_borders(out / t["sheet"], t["cell_w"], t["cols"]), [], t)
+        summary = (out / "summary.md").read_text()
+        self.assertIn("- sheets: " + ", ".join(
+            f"{t['sheet']} f{t['first']:03d}-f{t['last']:03d}" for t in tiles) + "\n", summary)
+
     def test_slide_left_fast_out_slow_in(self):
         _, fits = self.anim("slide_left", synth.card_frames(
             synth.tween(synth.FAST_OUT_SLOW_IN, 0.5, 0.4), 1.5, "left"))
@@ -291,11 +358,68 @@ class BugMode(_VideoCase):
         self.assert_matches_expected(rows)
         for _, _, f in rows:
             self.assertTrue((out / f).exists(), f)
+        summary = (out / "summary.md").read_text()
         if HAVE_MAGICK:
             self.assertTrue((out / "sheet_01.png").exists())
-        summary = (out / "summary.md").read_text()
+            run = json.loads((out / "run.json").read_text())
+            self.assertEqual([(t["sheet"], t["first"], t["last"]) for t in run["sheet_tiles"]],
+                             [("sheet_01.png", 1, 7)])
+            self.assertIn("- sheet_01.png: frames #1-#7\n", summary)
+            self.assertFalse(run["per_sheet_reduced"])
         self.assertIn("picked 7 frames", summary)
         self.assertIn("audio: none", summary)
+
+    @unittest.skipUnless(HAVE_MAGICK, "ImageMagick (magick) not installed")
+    def test_layout_reduced_sheets_list_the_frames_they_hold(self):
+        """A sheet cut short so its labels fit: the summary and run.json give the
+        frames each sheet really holds, not --per-sheet arithmetic. ffmpeg cannot
+        extract the ~130+ frames a 1600 px sheet needs before it must reduce (its
+        select expression fails past ~110 picks), so the real bug pipeline runs
+        in-process with a 500 px sheet edge: the layout, montage and summary code
+        are the shipped ones, only the size budget is smaller."""
+        import video_prep as vp
+        video = self.video("slide_linear_2s", lambda: synth.card_frames(
+            synth.tween(synth.LINEAR, 0.0, 2.0), 2.0, "right"))
+        out = self.tmp / "bug-reduced"
+        per_sheet = 40
+        with mock.patch.object(vp, "SHEET_MAX_EDGE", 500), \
+                contextlib.redirect_stdout(io.StringIO()):
+            rc = vp.main([str(a) for a in (
+                "bug", video, "--out", out, "--interval", "0.05", "--max-frames", "40",
+                "--per-sheet", per_sheet, "--view-size", "100")])
+        self.assertEqual(rc, 0)
+        run = json.loads((out / "run.json").read_text())
+        summary = (out / "summary.md").read_text()
+        tiles = run["sheet_tiles"]
+        n = len(self.timeline(out))
+        saved = sorted((out / "frames").glob("*.png"))
+        # premise: every pick saved, and all of them requested on one sheet
+        self.assertEqual((len(saved), run["picks"]), (n, n))
+        self.assertLessEqual(n, per_sheet)
+        self.assertTrue(run["per_sheet_reduced"])
+        self.assertGreaterEqual(len(tiles), 2)
+        self.assertTrue(all(t["count"] < per_sheet for t in tiles), tiles)
+        self.assertEqual(run["sheets"], [t["sheet"] for t in tiles])
+        # every summary range is its sheet's real range, one line per sheet, in order
+        listed = re.findall(r"^- (sheet_\d+\.png): frames #(\d+)-#(\d+)$", summary, re.M)
+        self.assertEqual([(s, int(a), int(b)) for s, a, b in listed],
+                         [(t["sheet"], t["first"], t["last"]) for t in tiles])
+        # the ranges partition #1..#n, the frames actually saved
+        self.assertEqual(tiles[0]["first"], 1)
+        self.assertEqual(tiles[-1]["last"], n)
+        for prev, nxt in zip(tiles, tiles[1:]):
+            self.assertEqual(nxt["first"], prev["last"] + 1, tiles)
+        for t in tiles:
+            self.assertEqual(t["count"], t["last"] - t["first"] + 1, t)
+            path = out / t["sheet"]
+            with open(path, "rb") as fh:
+                w, _ = core.png_size(fh.read(24))
+            # the tile count actually drawn per row, and no label over a border
+            self.assertEqual(w, min(t["count"], t["cols"]) * (t["cell_w"] + 8), t)
+            self.assertEqual(dirty_borders(path, t["cell_w"], t["cols"]), [], t)
+        self.assertIn(f"- note: --per-sheet {per_sheet} does not fit with readable labels "
+                      f"(at most {max(t['count'] for t in tiles)} frames a sheet here)\n",
+                      summary)
 
     def test_status_bar_clock_needs_crop(self):
         video = self.video("bug_clock", lambda: synth.bug_frames(clock=True))
@@ -1195,6 +1319,42 @@ def dirty_borders(path, cell_w, cols):
         if any(g[y * w + x] > 60 for x in range(x0 - 3, x0 + 3) for y in range(h)):
             bad.append(x0)
     return bad
+
+
+@unittest.skipUnless(HAVE_MAGICK, "ImageMagick (magick) not installed")
+class ContactSheets(unittest.TestCase):
+    """contact_sheets(), the bug/anim sheet writer, at the real sheet size."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="vp-contact-test-"))
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_too_many_frames_for_readable_labels_reduce_each_sheet(self):
+        import video_prep
+        n, per_sheet = 260, 400            # more than one 1600 px sheet can hold
+        items = []
+        for k in range(1, n + 1):
+            path = self.tmp / f"{k:04d}.png"
+            write_png(path, 45, 100)
+            items.append((path, f"#{k} {k * 0.05:.3f}s\nmotion {0.05:.2f}s"))
+        sheets = video_prep.contact_sheets(items, self.tmp, per_sheet, 45, 100)
+        self.assertGreater(len(sheets), 1)
+        self.assertTrue(any(s[3] for s in sheets))
+        start = 0
+        for path, s_start, count, _reduced, cols, cell_w in sheets:
+            self.assertEqual(s_start, start)
+            self.assertLessEqual(count, per_sheet)
+            start += count
+            w, h = video_prep.checked_sheet_size(path)
+            self.assertLessEqual(max(w, h), video_prep.SHEET_MAX_EDGE)
+            self.assertEqual(w, min(count, cols) * (cell_w + 8))
+            self.assertEqual(dirty_borders(path, cell_w, cols), [], path.name)
+        self.assertEqual(start, n)
+        self.assertEqual(video_prep.per_sheet_note(sheets, per_sheet),
+                         f"- note: --per-sheet {per_sheet} does not fit with readable labels "
+                         f"(at most {max(s[2] for s in sheets)} frames a sheet here)")
 
 
 @unittest.skipUnless(HAVE_MAGICK, "ImageMagick (magick) not installed")

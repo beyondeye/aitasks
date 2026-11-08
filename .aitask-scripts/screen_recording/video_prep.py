@@ -381,36 +381,91 @@ def have_magick() -> bool:
     return shutil.which("magick") is not None
 
 
-def sheet_layout(n: int, w: int, h: int, label_h: int = 40):
-    best = None
-    for cols in range(1, n + 1):
-        rows = math.ceil(n / cols)
-        s = min((SHEET_MAX_EDGE - 8 * cols) / (cols * w),
-                (SHEET_MAX_EDGE - (label_h + 8) * rows) / (rows * h), 4.0)
-        if best is None or s > best[0] + 1e-9:
-            best = (s, cols)
-    s, cols = best
-    return cols, max(1, int(w * s)), max(1, int(h * s))
+SHEET_POINTSIZE = 15
+SHEET_LABEL_H = 40         # two label lines at SHEET_POINTSIZE
+SHEET_LABEL_MARGIN = 6     # px kept free beside the widest label line in a cell
+
+
+def measure_labels(texts: list[str]) -> list[tuple[int, int]]:
+    """Rendered (width, height) of each one-line label, with the default font
+    and SHEET_POINTSIZE that montage uses, in one magick call."""
+    if not texts:
+        return []
+    cmd = ["magick", "-pointsize", str(SHEET_POINTSIZE)]
+    cmd += [f"label:{core.im_label(t)}" for t in texts]
+    out, _ = run(cmd + ["-format", "%w %h\\n", "info:"])
+    lines = out.splitlines()
+    try:
+        sizes = [(int(a), int(b)) for a, b in (ln.split() for ln in lines)]
+    except ValueError:
+        sizes = []
+    if len(sizes) != len(texts):
+        raise PrepError(f"could not measure the sheet labels ({len(lines)} sizes for "
+                        f"{len(texts)} labels)")
+    return sizes
+
+
+def checked_sheet_size(path: Path) -> tuple[int, int]:
+    """(width, height) of a drawn sheet; PrepError when it is over SHEET_MAX_EDGE,
+    i.e. montage did not lay it out as modelled."""
+    with open(path, "rb") as fh:
+        size = core.png_size(fh.read(24))
+    if size is None or max(size) > SHEET_MAX_EDGE:
+        raise PrepError(f"{path.name} came out {size}, over the {SHEET_MAX_EDGE} px "
+                        "sheet limit; the montage layout was not as modelled")
+    return size
 
 
 def contact_sheets(items: list[tuple[Path, str]], out_dir: Path, per_sheet: int,
-                   w: int, h: int, prefix: str = "sheet") -> list[Path]:
-    """Labelled grids of frames. Labels must not contain '%' (ImageMagick escapes)."""
+                   w: int, h: int, prefix: str = "sheet") -> list[tuple]:
+    """Labelled grids of w x h frames, as (path, start, count, reduced, cols,
+    cell_w) per sheet; start indexes items. A sheet holds at most per_sheet
+    frames, fewer where the labels would not fit (reduced): every cell is at
+    least as wide as its widest label line, and a frame narrower than its cell
+    is letterboxed. A '%' in a label is drawn as 'pct'."""
     if not items or not have_magick():
         return []
+    labels = [label.replace("%", "pct") for _, label in items]
+    split = [lab.split("\n") for lab in labels]
+    widths = iter(w for w, _ in measure_labels([ln for ls in split for ln in ls if ln]))
+    need = []
+    for ls in split:
+        line_w = [next(widths) for ln in ls if ln]
+        need.append(max(line_w, default=0) + SHEET_LABEL_MARGIN)
+    try:
+        chunks = core.chunk_sheets([(w, h)] * len(items), per_sheet, need,
+                                   SHEET_MAX_EDGE, SHEET_LABEL_H)
+    except ValueError as exc:
+        raise PrepError(str(exc)) from exc
     sheets = []
-    for s in range(0, len(items), per_sheet):
-        chunk = items[s:s + per_sheet]
-        cols, tw, th = sheet_layout(len(chunk), w, h)
-        out = out_dir / f"{prefix}_{s // per_sheet + 1:02d}.png"
+    for n, (start, count, reduced, (cols, cell_w, th, _s)) in enumerate(chunks, 1):
+        out = out_dir / f"{prefix}_{n:02d}.png"
         cmd = ["magick", "montage", "-background", "#1e1e1e", "-fill", "#f2f2f2",
-               "-pointsize", "15"]
-        for path, label in chunk:
-            cmd += ["-label", label.replace("%", "pct"), str(path)]
-        cmd += ["-tile", f"{cols}x", "-geometry", f"{tw}x{th}+4+4", str(out)]
+               "-pointsize", str(SHEET_POINTSIZE)]
+        for (path, _), label in zip(items[start:start + count], labels[start:start + count]):
+            cmd += ["-label", core.im_label(label), str(path)]
+        cmd += ["-tile", f"{cols}x", "-geometry", f"{cell_w}x{th}+4+4", str(out)]
         run(cmd)
-        sheets.append(out)
+        checked_sheet_size(out)
+        sheets.append((out, start, count, reduced, cols, cell_w))
     return sheets
+
+
+def sheet_tiles(sheets: list[tuple], root: Path, ids: list) -> list[dict]:
+    """run.json rows for contact_sheets() output: the first and last frame id
+    (ids[k] names items[k]) each sheet holds, and its grid."""
+    return [{"sheet": str(path.relative_to(root)), "first": ids[start],
+             "last": ids[start + count - 1], "count": count, "cols": cols, "cell_w": cell_w}
+            for path, start, count, _, cols, cell_w in sheets]
+
+
+def per_sheet_note(sheets: list[tuple], per_sheet: int) -> str | None:
+    """Summary line for sheets that hold fewer than --per-sheet frames so the
+    labels fit; None when none does."""
+    if not any(s[3] for s in sheets):
+        return None
+    return (f"- note: --per-sheet {per_sheet} does not fit with readable labels (at most "
+            f"{max(s[2] for s in sheets)} frames a sheet here)")
 
 
 def image_size(path: Path) -> tuple[int, int] | None:
@@ -1253,7 +1308,8 @@ def _cmd_bug(args, src, info) -> int:
         for r in p.reasons:
             counts[r] = counts.get(r, 0) + 1
     n_kind = {k: sum(iv.kind == k for iv in intervals) for k in ("freeze", "black", "silence")}
-    tokens = token_estimate(sheets) if sheets else None
+    tokens = token_estimate([s[0] for s in sheets]) if sheets else None
+    tiles = sheet_tiles(sheets, out, [k for k, _, _ in rows])
     lines = [
         f"# Bug-report frames: {Path(args.video).name}", "",
         f"- input: {src.describe()}" if images else f"- video: {video_line(info)}",
@@ -1291,10 +1347,11 @@ def _cmd_bug(args, src, info) -> int:
                      "recorder: start or end of the recording; low confidence for log alignment)")
     lines += ["", "## Contact sheets (read these first)", ""]
     if sheets:
-        for s_i, s in enumerate(sheets):
-            a = s_i * args.per_sheet + 1
-            b = min(len(rows), a + args.per_sheet - 1)
-            lines.append(f"- {s.relative_to(out)}: frames #{a}-#{b}")
+        for t in tiles:
+            lines.append(f"- {t['sheet']}: frames #{t['first']}-#{t['last']}")
+        note = per_sheet_note(sheets, args.per_sheet)
+        if note:
+            lines.append(note)
         if tokens:
             lines.append(f"- all sheets together cost roughly {tokens} image tokens")
     else:
@@ -1349,7 +1406,8 @@ def _cmd_bug(args, src, info) -> int:
         "manifest": None if no_manifest else "frames/frames.tsv",
         "manifest_note": no_manifest,
         "black_images_omitted": omitted,
-        "sheets": [str(s.relative_to(out)) for s in sheets],
+        "sheets": [t["sheet"] for t in tiles],
+        "sheet_tiles": tiles, "per_sheet_reduced": any(s[3] for s in sheets),
         "video_end_s": round(vspan.end_t, 6) if vspan.proven else None,
         "video_end_proven": vspan.proven,
         "video_end_note": vspan.note or None,
@@ -1536,8 +1594,10 @@ def _cmd_anim(args, src, info) -> int:
             res["manifest"] = f"{label}/frames/frames.tsv"
         res["view_files"] = {i: str((seg_dir / "frames" / core.anim_frame_name(i, frames[i][1]))
                                     .relative_to(out)) for i in idx}
-        res["sheets"] = [str(s.relative_to(out)) for s in
-                         contact_sheets(items, seg_dir, args.per_sheet, vw, vh)]
+        made = contact_sheets(items, seg_dir, args.per_sheet, vw, vh)
+        res["sheet_tiles"] = sheet_tiles(made, out, list(idx))
+        res["sheets"] = [t["sheet"] for t in res["sheet_tiles"]]
+        res["sheets_note"] = per_sheet_note(made, args.per_sheet)
         _write_curve_tsv(seg_dir / "curve.tsv", res, out)
         res["plot"] = _write_plot(seg_dir, res, args.time_scale)
         results.append(res)
@@ -1553,6 +1613,7 @@ def _cmd_anim(args, src, info) -> int:
     _write_run_json(out, "anim", args, info, {
         **(src.run_extra() if images else {}),
         "segments": [r["label"] for r in results], "cuts": cuts,
+        "sheet_tiles": [t for r in results for t in r.get("sheet_tiles", [])],
         "cap_hit": bool(skipped or thinned),
         "caps": {
             "max_segments": {"limit": args.max_segments, "skipped": skipped,
@@ -1779,6 +1840,11 @@ def _write_anim_summary(out, args, info, region, adims, scale_px, results, cuts,
             files.append(f"{r['label']}/{r['plot']}")
         files += [f"{r['label']}/curve.tsv", f"{r['label']}/fit.json"]
         lines.append("- files: " + ", ".join(files))
+        if r.get("sheet_tiles"):
+            lines.append("- sheets: " + ", ".join(
+                f"{t['sheet']} f{t['first']:03d}-f{t['last']:03d}" for t in r["sheet_tiles"]))
+        if r.get("sheets_note"):
+            lines.append(r["sheets_note"])
         if r["view_frames_saved"] < r["view_frames_total"] and src:
             lines.append(
                 f"- saved frames: {r['view_frames_saved']} of {r['view_frames_total']} (thinned "
@@ -1832,29 +1898,7 @@ def _write_anim_summary(out, args, info, region, adims, scale_px, results, cuts,
 # --------------------------------------------------------------------------- #
 # sheet mode: contact sheets from any folder of images
 
-SHEET_POINTSIZE = 15
-SHEET_LABEL_H = 40         # two label lines at SHEET_POINTSIZE, as contact_sheets assumes
-SHEET_LABEL_MARGIN = 6     # px kept free beside the widest label line in a cell
 _CONTROL = dict.fromkeys(range(32), "?")
-
-
-def measure_labels(texts: list[str]) -> list[tuple[int, int]]:
-    """Rendered (width, height) of each one-line label, with the default font
-    and SHEET_POINTSIZE that montage uses, in one magick call."""
-    if not texts:
-        return []
-    cmd = ["magick", "-pointsize", str(SHEET_POINTSIZE)]
-    cmd += [f"label:{core.im_label(t)}" for t in texts]
-    out, _ = run(cmd + ["-format", "%w %h\\n", "info:"])
-    lines = out.splitlines()
-    try:
-        sizes = [(int(a), int(b)) for a, b in (ln.split() for ln in lines)]
-    except ValueError:
-        sizes = []
-    if len(sizes) != len(texts):
-        raise PrepError(f"could not measure the sheet labels ({len(lines)} sizes for "
-                        f"{len(texts)} labels)")
-    return sizes
 
 
 def _frames_in(path: Path) -> list[tuple[int, int]] | None:
@@ -2003,12 +2047,7 @@ def cmd_sheet(args) -> int:
                 })
             cmd += ["-tile", f"{cols}x", "-geometry", f"{cell_w}x{th}+4+4", str(path)]
             run(cmd)
-            with open(path, "rb") as fh:
-                size = core.png_size(fh.read(24))
-            if size is None or max(size) > SHEET_MAX_EDGE:
-                raise PrepError(f"{path.name} came out {size}, over the {SHEET_MAX_EDGE} px "
-                                "sheet limit; the montage layout was not as modelled")
-            sheets.append((path, start, count, size))
+            sheets.append((path, start, count, checked_sheet_size(path)))
 
     columns = ["sheet", "tile", "row", "col", "order", "file", "t_ms", "delta_ms", "time_from",
                "frames_tsv", "img_w", "img_h", "frames_in_file", "cell_w", "fit_scale", "label"]

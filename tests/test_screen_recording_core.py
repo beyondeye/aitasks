@@ -664,13 +664,15 @@ class LabelSafeLayout(unittest.TestCase):
         self.assertLessEqual(cols * (cell_w + 8), 1600)
         self.assertLessEqual(math.ceil(8 / cols) * (th + 48), 1600)
 
-    def test_matches_sheet_layout_when_labels_need_no_room(self):
-        sys.path.insert(0, str(Path(core.__file__).parent))
-        import video_prep  # noqa: E402
-        for n, w, h in [(8, 360, 800), (30, 200, 120), (4, 1080, 2400)]:
+    def test_labels_that_need_no_room_keep_the_image_only_layout(self):
+        # the layouts bug and anim drew before their labels were measured (t2219):
+        # labels that already fit the image change nothing
+        for (n, w, h), want in [((8, 360, 800), (4, 338, 752)),
+                                ((30, 200, 120), (5, 312, 187)),
+                                ((4, 1080, 2400), (4, 392, 871))]:
             with self.subTest(n=n, w=w, h=h):
                 cols, cell_w, th, _ = core.label_safe_layout(n, w, h, 1, 1600)
-                self.assertEqual((cols, cell_w, th), video_prep.sheet_layout(n, w, h))
+                self.assertEqual((cols, cell_w, th), want)
 
     def test_infeasible_requests_return_none(self):
         self.assertIsNone(core.label_safe_layout(1, 100, 100, 1600, 1600))
