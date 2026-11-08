@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
@@ -13,8 +15,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1887
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-08 10:47
-updated_at: 2026-11-08 10:58
+updated_at: 2026-11-08 11:31
 ---
 
 ## Origin
@@ -44,3 +47,5 @@ Catch the decode failure in `_require_one_frame` / `_enumerate` and re-raise it 
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-11-08T09:31:44Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-11-08T10:26:18Z status=pass attempt=1 type=human
