@@ -569,6 +569,23 @@ def sniff_image(path: Path) -> str | None:
     return None
 
 
+def _many_frames(names: str) -> PrepError:
+    return PrepError(f"{names} decodes to more than one frame (an animated image?); "
+                     "keep still images only")
+
+
+def webp_animated(path: Path) -> bool:
+    """True when the file is a WebP whose VP8X header sets the animation flag.
+    That says the file declares animation, not that any ffmpeg can decode it."""
+    try:
+        with open(path, "rb") as fh:
+            head = fh.read(21)
+    except OSError:
+        return False
+    return (len(head) == 21 and head[:4] == b"RIFF" and head[8:12] == b"WEBP"
+            and head[12:16] == b"VP8X" and bool(head[20] & 0x02))
+
+
 def _us(n: int) -> str:
     """Integer microseconds as exact decimal seconds."""
     sign = "-" if n < 0 else ""
@@ -644,7 +661,7 @@ class ImageInput:
                 # concat decodes every file with the first one's codec. Count the
                 # original's frames first: the one-frame conversion below would
                 # otherwise hide an animated image from the enumeration guard.
-                self._require_one_frame(folder / name)
+                self._require_one_frame(folder / name, kind)
                 dest = f"img_{k:06d}.png"
                 self._ffmpeg(["-i", str(folder / name), "-frames:v", "1", "-update", "1",
                               str(self.stage / dest)])
@@ -694,16 +711,49 @@ class ImageInput:
             "input": "images",
         }
 
-    def _require_one_frame(self, path: Path):
-        # two frames decide it (0 / 1 / more), so a long animation is not decoded whole
+    def _decode_two(self, path: Path) -> int:
+        """Frames one original image decodes to, counting at most two (0 / 1 / more),
+        so a long animation is not decoded whole. PrepError when ffmpeg fails."""
         _, err = self._ffmpeg(["-i", str(path), "-an", "-vf", "showinfo", "-fps_mode",
                                "passthrough", "-frames:v", "2", "-f", "null", "-"])
-        n = len(core.parse_showinfo_frames(err))
+        return len(core.parse_showinfo_frames(err))
+
+    def _undecodable(self, path: Path, kind: str, detail: str | None) -> PrepError:
+        """The error for an image this ffmpeg could not decode, naming it. Says
+        only what is known: whether the file declares animation (its own header),
+        and that the decode failed; ffmpeg's own error follows as detail."""
+        msg = f"{path.name}: this ffmpeg could not decode it"
+        if kind == "webp" and webp_animated(path):
+            msg += " (an animated WebP: its header declares animation); keep still images only"
+        return PrepError(f"{msg}\n{detail}" if detail else msg)
+
+    def _require_one_frame(self, path: Path, kind: str):
+        try:
+            n = self._decode_two(path)
+        except PrepError as exc:
+            raise self._undecodable(path, kind, str(exc)) from exc
         if n > 1:
-            raise PrepError(f"{path.name} decodes to more than one frame (an animated image?); "
-                            "keep still images only")
+            raise _many_frames(path.name)
         if n < 1:
-            raise PrepError(f"ffmpeg decoded no frame from {path.name}")
+            raise self._undecodable(path, kind, "ffmpeg decoded no frame from it")
+
+    def _find_undecodable(self) -> PrepError | None:
+        """After a failed or short pass over the whole folder: the error naming
+        the first original image that does not decode to exactly one frame on its
+        own, or None when each does (the failure was then not one image's). An
+        animation counts: concat can decode it to no frame while it decodes to
+        several alone."""
+        for name, kind in zip(self.names, self.kinds):
+            path = self.folder / name
+            try:
+                n = self._decode_two(path)
+            except PrepError as exc:
+                return self._undecodable(path, kind, str(exc))
+            if n < 1:
+                return self._undecodable(path, kind, "ffmpeg decoded no frame from it")
+            if n > 1:
+                return _many_frames(name)
+        return None
 
     def _use_list(self, files: list[str], list_name: str):
         lines = ["ffconcat version 1.0"]
@@ -730,17 +780,27 @@ class ImageInput:
 
     def _enumerate(self):
         """One showinfo pass: every frame, checked against the planned times.
-        Returns (frames, number of filter-graph configurations)."""
-        _, err = self._ffmpeg([*self.ffin, "-an", "-vf", "showinfo", "-fps_mode", "passthrough",
-                               "-f", "null", "-"])
+        Returns (frames, number of filter-graph configurations). A failed pass is
+        re-checked image by image, so the error names the one that will not decode."""
+        try:
+            _, err = self._ffmpeg([*self.ffin, "-an", "-vf", "showinfo", "-fps_mode",
+                                   "passthrough", "-f", "null", "-"])
+        except PrepError as exc:
+            culprit = self._find_undecodable()
+            if culprit is not None:
+                raise culprit from exc
+            raise
         frames = core.parse_showinfo_frames(err)
         n = len(self.names)
+        if len(frames) < n:
+            culprit = self._find_undecodable()
+            if culprit is not None:
+                raise culprit
         if len(frames) > n:
             per = Counter(max(0, bisect.bisect_right(self.starts, f.pts) - 1)
                           for f in frames)
             many = [self.names[k] for k, c in sorted(per.items()) if c > 1]
-            raise PrepError(f"{', '.join(many[:5]) or 'an image'} decodes to more than one frame "
-                            "(an animated image?); keep still images only")
+            raise _many_frames(", ".join(many[:5]) or "an image")
         if len(frames) < n:
             raise PrepError(f"ffmpeg decoded {len(frames)} of the {n} images")
         tb = core.parse_showinfo_timebase(err)

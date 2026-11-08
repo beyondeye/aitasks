@@ -1287,6 +1287,29 @@ def write_png(path, w, h, pixels=None, *, fill=255):
                            + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b""))
 
 
+def write_bad_webp(path, *, animated=True, w=32, h=32):
+    """A WebP no ffmpeg decodes: a VP8X header (animation flag set or not), then
+    VP8L frames whose bitstream is garbage (in two ANMF chunks when animated).
+    n9.0.2, 5.1.1 and 7.0.2 all fail to decode it (measured, t2238)."""
+    import struct
+
+    def chunk(tag, body):
+        return tag + struct.pack("<I", len(body)) + body + (b"\0" if len(body) % 2 else b"")
+
+    def u24(n):
+        return n.to_bytes(3, "little")
+    frame = chunk(b"VP8L", b"\x2f" + b"\xff" * 40)        # VP8L signature, garbage after it
+    body = b"WEBP" + chunk(b"VP8X", bytes([0x02 if animated else 0, 0, 0, 0])
+                           + u24(w - 1) + u24(h - 1))
+    if animated:
+        anmf = chunk(b"ANMF", u24(0) + u24(0) + u24(w - 1) + u24(h - 1) + u24(100) + b"\0"
+                     + frame)
+        body += chunk(b"ANIM", struct.pack("<IH", 0, 0)) + anmf + anmf
+    else:
+        body += frame
+    Path(path).write_bytes(b"RIFF" + struct.pack("<I", len(body)) + body)
+
+
 def square_png(path, w, h, x, y, side):
     px = bytearray([255]) * (w * h)
     for yy in range(y, y + side):
@@ -2669,15 +2692,85 @@ class ImageFolderInput(_VideoCase):
                                 capture_output=True, text=True).stdout.strip()
         # encoding and decoding differ: FFmpeg 5.1.1 and 7.0.2 write animated webp
         # but cannot decode its animation (measured, t2229), so the fixture means
-        # nothing there; the CLI then stops on ffmpeg's decode error instead
+        # nothing there; the CLI then stops on ffmpeg's decode error instead, which
+        # test_undecodable_animated_webp_is_named covers on every ffmpeg
         if frames != "2":
             self.skipTest(f"this ffmpeg cannot decode an animated webp (counted {frames!r})")
         self.assertEqual(frames, "2")                                  # premise: animated
-        for mode in ("bug", "anim"):
-            with self.subTest(mode=mode):
-                cp = run_cli(mode, d, "--out", self.tmp / f"anim-webp-{mode}")
-                self.assertEqual(cp.returncode, 1, cp.stderr)
-                self.assertIn("t00001000.webp decodes to more than one frame", cp.stderr)
+        # one codec, so no per-file check: concat decodes the animation to no frame
+        # (n9.0.2) and the search after that short pass must still name it
+        webps = self.tmp / "anim-webp-only"
+        webps.mkdir()
+        self.still_webp(webps / "t00000000.webp")
+        shutil.copy(webp, webps / webp.name)
+        for folder in (d, webps):
+            for mode in ("bug", "anim"):
+                with self.subTest(folder=folder.name, mode=mode):
+                    cp = run_cli(mode, folder, "--out", self.tmp / f"{folder.name}-{mode}")
+                    self.assertEqual(cp.returncode, 1, cp.stderr)
+                    self.assertIn("error: t00001000.webp decodes to more than one frame",
+                                  cp.stderr)
+
+    def still_webp(self, path):
+        """A real one-frame WebP from ffmpeg's libwebp encoder; the premise is
+        checked with raw ffprobe, never with the code under test."""
+        cp = subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-f", "lavfi",
+                             "-i", "color=white:s=32x32", "-frames:v", "1", "-c:v", "libwebp",
+                             "-y", str(path)], capture_output=True, text=True)
+        if cp.returncode != 0:
+            self.skipTest(f"this ffmpeg cannot write a webp: {cp.stderr[-200:]}")
+        frames = subprocess.run(["ffprobe", "-v", "error", "-count_frames", "-show_entries",
+                                 "stream=nb_read_frames", "-of", "csv=p=0", str(path)],
+                                capture_output=True, text=True).stdout.strip()
+        if frames != "1":
+            self.skipTest(f"this ffmpeg does not read back its own still webp ({frames!r})")
+
+    def test_undecodable_animated_webp_is_named(self):
+        # an image this ffmpeg cannot decode is named, in both routes: the per-file
+        # check of a non-PNG among PNGs, and the search after a failed pass over a
+        # one-codec folder, which must skip a still WebP that decodes and blame
+        # the later file that does not
+        mixed = self.tmp / "undecodable-mixed"
+        mixed.mkdir()
+        write_png(mixed / "t00000000.png", 32, 32, fill=200)
+        write_bad_webp(mixed / "t00001000.webp")
+        webps = self.tmp / "undecodable-webps"
+        webps.mkdir()
+        self.still_webp(webps / "t00000000.webp")
+        write_bad_webp(webps / "t00001000.webp")
+        for folder in (mixed, webps):
+            for mode in ("bug", "anim"):
+                with self.subTest(folder=folder.name, mode=mode):
+                    out = self.tmp / f"{folder.name}-{mode}"
+                    cp = run_cli(mode, folder, "--out", out)
+                    self.assertEqual(cp.returncode, 1, cp.stderr)
+                    self.assertIn("error: t00001000.webp: this ffmpeg could not decode it (an "
+                                  "animated WebP: its header declares animation); keep still "
+                                  "images only", cp.stderr)
+                    self.assertIn("ffmpeg failed", cp.stderr)        # ffmpeg's own error kept
+                    self.assertNotIn("t00000000.webp: this ffmpeg could not decode", cp.stderr)
+                    self.assertFalse(out.exists())                     # fails closed
+
+    def test_undecodable_still_webp_is_named_without_animation_claim(self):
+        d = self.tmp / "undecodable-still"
+        d.mkdir()
+        write_png(d / "t00000000.png", 32, 32, fill=200)
+        write_bad_webp(d / "t00001000.webp", animated=False)
+        cp = run_cli("bug", d, "--out", self.tmp / "undecodable-still-bug")
+        self.assertEqual(cp.returncode, 1, cp.stderr)
+        self.assertIn("error: t00001000.webp: this ffmpeg could not decode it\n", cp.stderr)
+        self.assertNotIn("animated", cp.stderr.split("\n", 1)[0])
+
+    def test_webp_animated_reads_the_vp8x_flag(self):
+        import video_prep as vp
+        write_bad_webp(self.tmp / "anim.webp")
+        write_bad_webp(self.tmp / "still.webp", animated=False)
+        write_png(self.tmp / "img.png", 4, 4)
+        (self.tmp / "short.webp").write_bytes(b"RIFF\0\0\0\0WEBPVP8X")
+        self.assertTrue(vp.webp_animated(self.tmp / "anim.webp"))
+        for name in ("still.webp", "img.png", "short.webp", "missing.webp"):
+            with self.subTest(name=name):
+                self.assertFalse(vp.webp_animated(self.tmp / name))
 
     # -- bug mode on a uniform folder -----------------------------------------
 
