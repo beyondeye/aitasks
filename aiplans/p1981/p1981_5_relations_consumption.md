@@ -256,14 +256,14 @@ Two constraints from the design are load-bearing:
 - **Pick-time cost.** Every pick pays the `related-work` call. A slow index load or an accidental fetch in a disabled project would tax every session · severity: medium · → mitigation: inline post-phase pick_cost_guard
 
 ### Goal-achievement risk: medium
-- **Dependencies that have not landed.** t1981_4 provides `relations_expected_plan` and t1981_2 provides the static fallback. Until both land, an enabled Step 8e always reads `unverifiable(no_expected_identity)` and the fallback is "unavailable", so the complete-path push flow is exercised only by fixtures, not end to end in a real session · severity: medium · → mitigation: relations_consumption_live_verification
+- **Dependencies that have not landed.** t1981_4 provides `relations_expected_plan` and t1981_2 provides the static fallback. Until both land, an enabled Step 8e always reads `unverifiable(no_expected_identity)` and the fallback is "unavailable", so the complete-path push flow is exercised only by fixtures, not end to end in a real session · severity: medium · → mitigation: t2243
 - **Change-set derivation by subject.** The change set comes from `(t<S>)` subjects. A task whose commits omit the tag (a hand-made commit) gets an empty change set, and every relation is demoted to PULL. That is safe but would otherwise be silent, so the plan prints `WARN:` · severity: low · → mitigation: none (handled by the `WARN:` line)
 - **Time-zone comparisons.** Local naive times are compared with UTC record times. A wrong time-zone assumption would shift the "since" windows · severity: low · → mitigation: none (one shared parser, unit-tested)
 
 ### Planned mitigations
 - timing: post-phase | name: pick_cost_guard | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: pick-time cost | desc: Prove the disabled fast path never fetches; measure related-work on this repo and on an enabled scratch project (8 relations, 4 landed tasks, ~2000 commits); optimise in-invocation only past 2 s, no persistent cache
 - timing: post-phase | name: protocol_roundtrip_test | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: line-protocol encoding slip | desc: Byte-exact encode/decode round trip for ITEM/PUSH/EVIDENCE rows with hostile characters
-- timing: after | name: relations_consumption_live_verification | type: manual_verification | priority: medium | effort: medium | inline_risk: high | added_complexity: medium | addresses: unlanded t1981_4/t1981_2 dependencies leave the complete-path flow fixture-only | desc: After t1981_4 and t1981_2 land, verify pick check, Step 8e complete path, PUSH offer, wait and fallback in an enabled scratch project
+- timing: after | name: relations_consumption_live_verification | type: manual_verification | priority: medium | effort: medium | inline_risk: high | added_complexity: medium | addresses: unlanded t1981_4/t1981_2 dependencies leave the complete-path flow fixture-only | desc: After t1981_4 and t1981_2 land, verify pick check, Step 8e complete path, PUSH offer, wait and fallback in an enabled scratch project | created: t2243
 
 ## Notes to send at Step 8e
 
