@@ -214,3 +214,83 @@ via the workflow's Step 9.
   inside a 40 px strip · severity: low · → mitigation: none needed. Step 4
   probes the synth mode and x position first, and the unit test covers the
   layout independently of segment detection.
+
+## Final Implementation Notes
+
+- **Actual work done:** all five plan steps landed as written:
+  - `contact_sheets()` measures every label line, lays out with
+    `core.chunk_sheets`, and returns `(path, start, count, reduced, cols,
+    cell_w)`;
+  - new helpers `checked_sheet_size()` (shared with `cmd_sheet`),
+    `sheet_tiles()` and `per_sheet_note()`;
+  - `sheet_layout()` removed;
+  - bug and anim list each sheet's real frame range in the summary, plus the
+    reduction note, and write `sheet_tiles` to `run.json` (bug also writes
+    `per_sheet_reduced`);
+  - one skill-doc sentence and one test-coverage bullet.
+- **Deviations from plan:** the bug reduction integration test runs
+  in-process with `SHEET_MAX_EDGE` patched to 500, not as a CLI run with
+  about 250 frames.
+  - Bisected on ffmpeg n9.0.2: the CLI cannot reach a layout-driven
+    reduction in bug mode. Extraction works at 100 picks and fails at 120
+    (see the upstream defect), while a 1600 px sheet only reduces past about
+    126–224 tall tiles.
+  - The image-folder fallback uses the same extraction, so it does not help
+    either.
+  - The test runs the shipped bug pipeline (`vp.main`) with the smaller edge
+    and gets a real 20 / 17 split. It checks every summary range against
+    `sheet_tiles` one to one, the contiguous partition of `#1…#N` = the
+    timeline rows = `frames/*.png`, the sheet PNG widths, `dirty_borders`,
+    and the note.
+  - The real 1600 px reduction is covered by the direct `ContactSheets` unit
+    test (260 tiles).
+- **Issues encountered:**
+  - A 2 s clip gives 37 picks, not 40. The premise now asserts that every pick
+    is requested on one sheet, instead of an exact count.
+  - `main` advanced mid-task: t2229 `111838f20` made a comment-only change
+    to `video_prep.py`, unrelated to this task.
+- **Key decisions:**
+  - `run.json["sheets"]` keeps its list-of-paths shape for `vp_pick` and the
+    tests; `sheet_tiles` is added beside it.
+  - Pre-fix control (not committed): the new bug test ran against a scratch
+    copy of `video_prep.py` with the old `s_i * per_sheet` arithmetic, and
+    failed: the summary listed `#1-#37` and `#41-#37` where the sheets hold
+    `#1-#20` and `#21-#37`.
+  - The anim strip test carries its own premise control: the old image-only
+    geometry on the same frames gives dirty borders.
+  - Verification:
+    - `python3 tests/test_screen_recording_core.py`: 123 OK.
+    - `python3 tests/test_screen_recording_cli.py`: 107 OK.
+    - Original repro by hand: anim `--roi 160,0,40,800` gives 11 cols of
+      75 px cells (45 px before) with labels inside their cells.
+- **Upstream defects identified:**
+  - `.aitask-scripts/screen_recording/video_prep.py:244 — extract_views()
+    builds one select expression with an eq(pts,…) term per wanted frame;
+    ffmpeg (n9.0.2) fails with "Cannot allocate memory" somewhere between 100
+    and 120 terms, so `bug --max-frames` above ~110 (and any extraction that
+    large) aborts the run.`
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-08 11:30)
+- **Requested by user:** the narrow-ROI anim test used `--per-sheet 7`. For
+  seven 40x800 frames the old image-only layout already gives 77 px cells, so
+  the 69 px caption fits and the test proved nothing about the overlap. Its
+  control forced 40x800 cells, not the layout the old code would choose.
+  Keep the multi-sheet range coverage, and also exercise the default
+  `--per-sheet` (30) case, with a premise showing that the old computed layout
+  overlaps for the actual saved frame count.
+- **Changes made:**
+  - Split the test in two, sharing a `strip_run()` helper:
+    - `test_narrow_roi_sheet_labels_stay_inside_their_cells` runs at the
+      default `--per-sheet`. All saved frames (22) sit on one sheet with clean
+      borders. Its premise recomputes the pre-t2219 image-only layout
+      (`pre_t2219_layout`, a copy of the removed `sheet_layout`) for the
+      actual saved count: 22 cols of 64 px. It draws the real frames with
+      their real first label line (from the file names) and asserts dirty
+      borders. Verified by hand: all 21 borders are dirty under the old
+      layout, none under the new one.
+    - `test_narrow_roi_sheets_list_the_frames_they_hold` keeps the
+      `--per-sheet 7` multi-sheet range check.
+  - Re-ran: CLI 108 OK, core 123 OK.
+- **Files affected:** `tests/test_screen_recording_cli.py`
