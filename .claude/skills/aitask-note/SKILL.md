@@ -44,16 +44,46 @@ inferred from the content.
 is named, so ask nothing. This is what makes the skill usable headlessly and
 callable from another skill.
 
-**No target given** — execute the **Related Task Discovery Procedure** (see
-`.claude/skills/task-workflow/related-task-discovery.md`) with:
+**No target given** — first ask the relations store, then fall back to
+discovery.
 
-- `matching_context` — the finding or context you are about to send
-- `purpose_text` — "receive this note as advisory context"
-- `min_eligible` — `1`
-- `selection_mode` — `ai_filtered`
+1. **Relations of the sender first** (task relations,
+   `aidocs/framework/task_relations.md` D8). Only when there is a sender — the
+   `--from` value, else the task this session is implementing:
 
-Use the task it returns. Do not reinvent task matching; that procedure is
-shared with `aitask-explore`, `aitask-fold` and `aitask-contribution-review`.
+   ```bash
+   ./.aitask-scripts/aitask_relations.sh related-work <sender> --point note --log
+   ```
+
+   Display its `SUMMARY:` line verbatim (the same plain words Step 3 Check 8
+   and Step 8e use — "relations analysis is disabled in this project — no
+   relation data", "not analysed yet", "the relations store could not be read
+   — related work is unknown, not none", …). Each `ITEM:` line is a task related
+   to the sender that has not landed —
+   `ITEM:<group>|<direction>|<type>|<other>|<freshness>|<confirmation>|<end state>|-`,
+   the description on the next line, then `NOTE_TARGET:<id>` (or
+   `NOTE_TARGET:<id>|project=<name>` for a task of another project); fields are
+   percent-encoded (decode `%0D`, `%0A`, `%7C`, then `%25`). When there are
+   items, offer them with
+   `AskUserQuestion` (label `t<other>`, description: direction, type and
+   description; paginate at 3 plus "Show more"), plus "None — search further".
+   A picked task is the target, named by its `NOTE_TARGET:` value — never by
+   the qualified `<other>` ref, which the writer rejects. A `|project=<name>`
+   value is a target in another repository: continue with **Target in another
+   repository** below, `--project <name>` and the id both explicit. Otherwise, or when there is no item, no sender,
+   or the call fails, continue with step 2. An unreachable store, a disabled
+   project or an incomplete analysis means "unknown", **never** "no related
+   tasks".
+2. Execute the **Related Task Discovery Procedure** (see
+   `.claude/skills/task-workflow/related-task-discovery.md`) with:
+
+   - `matching_context` — the finding or context you are about to send
+   - `purpose_text` — "receive this note as advisory context"
+   - `min_eligible` — `1`
+   - `selection_mode` — `ai_filtered`
+
+   Use the task it returns. Do not reinvent task matching; that procedure is
+   shared with `aitask-explore`, `aitask-fold` and `aitask-contribution-review`.
 
 If `--from` is not supplied, use the id of the task the current session is
 implementing. `--from` is a **claim** about the sender, and the writer proves it

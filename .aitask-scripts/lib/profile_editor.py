@@ -89,6 +89,7 @@ PROFILE_SCHEMA: dict[str, tuple[str, list[str] | None]] = {
         "enum",
         ["quick", "default", "advanced", "deep"],
     ),
+    "relations_incomplete_action": ("enum", ["ask", "wait", "fallback", "proceed"]),
 }
 
 _UNSET = "(unset)"
@@ -400,6 +401,16 @@ PROFILE_FIELD_INFO: dict[str, tuple[str, str]] = {
         "  default_profiles:\n"
         "    shadow: <this profile's name>",
     ),
+    "relations_incomplete_action": (
+        "Step 8e option when the relations analysis is incomplete",
+        "Used by task-workflow Step 8e (relations-derived note offers) when the\n"
+        "task-relations analysis for the plan is incomplete.\n"
+        "  'ask'      — prompt (default; a headless profile proceeds instead)\n"
+        "  'wait'     — run the analysis now and wait (never over the daily cap)\n"
+        "  'fallback' — static discovery fallback (no LLM)\n"
+        "  'proceed'  — use the rows from whatever record exists\n"
+        "  (unset): same as 'ask'",
+    ),
 }
 
 # Logical grouping of profile fields for display
@@ -424,6 +435,7 @@ PROFILE_FIELD_GROUPS: list[tuple[str, list[str]]] = [
     ]),
     ("QA Analysis", ["qa_mode", "qa_run_tests", "qa_tier"]),
     ("Shadow Review", ["shadow_impl_review_tier"]),
+    ("Task Relations", ["relations_incomplete_action"]),
     ("Exploration", ["explore_auto_continue", "explore_label_confirm"]),
     ("Review", ["review_default_modes", "review_auto_continue"]),
     ("Lock Management", ["force_unlock_stale"]),

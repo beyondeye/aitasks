@@ -33,17 +33,20 @@ if _LIB not in sys.path:
     sys.path.insert(0, _LIB)
 
 import relations_config as rcfg  # noqa: E402
+import relations_consume as rc  # noqa: E402
 import relations_schema as rs  # noqa: E402
 import relations_spool as rsp  # noqa: E402
 import relations_store as rst  # noqa: E402
 import relations_worker as rw  # noqa: E402
 
 VERBS = ("show", "why", "status", "flush", "gc", "analyze", "stamp", "plan-digest",
-         "analysis-state", "usage", "ledgers", "unblock", "enable", "disable")
+         "analysis-state", "usage", "ledgers", "unblock", "enable", "disable",
+         "related-work", "notify-candidates", "notify-outcome")
 # Verbs that construct their own Store (or none): a disabled project without
 # project.name must still answer STAMP:disabled / disabled, never PROJECT_UNRESOLVED.
 NO_STORE_VERBS = ("analyze", "stamp", "plan-digest", "analysis-state", "usage", "ledgers",
-                  "unblock", "enable", "disable")
+                  "unblock", "enable", "disable", "related-work", "notify-candidates",
+                  "notify-outcome")
 USAGE = """usage: ait relations <verb> [args]
 
   show <id> [--json] [--no-fetch]   relations of a task (forward + reverse)
@@ -61,6 +64,13 @@ USAGE = """usage: ait relations <verb> [args]
   ledgers --export                  this host's ledgers as host-tagged JSON lines
   unblock <id> [--kill] [--force]   clear an unresolved-invocation guard
   enable | disable                  switch background analysis on/off (commits)
+  related-work <id> --point pick|review|note [--since <ts>] [--log] [--json]
+                                    the display-only related-work check (D8 pull)
+  notify-candidates <id> [--rev <rev> | --diff <range>] [--expect-plan <sha>]
+      [--option <opt>] [--log] [--json]
+                                    Step 8e PUSH/PULL rows against the task's own change
+  notify-outcome <id> --run <id> --to <ref> --type <type> --outcome sent|declined|not_offered
+      [--note-id <id>]              record one Step 8e offer outcome (notify.jsonl)
 """
 
 
@@ -500,6 +510,204 @@ def cmd_enable(root, args, value):
               "per-token rate; it is capped per host per day (relations.max_jobs_per_day)")
     return 0 if rc in (0, 2) and not line.startswith(("FAILED", "REFUSED")) else 1
 
+# ================================================================ t1981_5
+
+def _consumer_store(root):
+    """``(store, None)``, or ``(None, lines)`` for a disabled project with no project.name."""
+    try:
+        return rst.Store(root), None
+    except rst.ProjectUnresolved:
+        if not rcfg.load(root).enabled:
+            return None, ["RELATIONS_STATE:disabled", "STORE:unreachable:project_unresolved",
+                          f"SUMMARY:{rc.DISABLED_TEXT}"]
+        raise
+
+
+def _snap(store, relations_state):
+    # A disabled project never pays a network fetch: local data only.
+    return store.read(no_fetch=(relations_state == "disabled"))
+
+
+def cmd_related_work(root, args):
+    store, early = _consumer_store(root)
+    if store is None:
+        print("\n".join(early + ["RELATED_WORK:0"]))
+        return 0
+    since = None
+    if args.since is not None:
+        since = rc.parse_time(args.since)
+        if since is None:
+            sys.stderr.write(f"ait relations related-work: unparseable --since {args.since!r}\n")
+            return 1
+    tid = store.ref(args.id)
+    state = store.relations_state()
+    snap = _snap(store, state)
+    local = store.local_id(store.canonical_ref(tid))
+    checked = rc.now_utc()
+    ref_ts, ref_src = (since, "since") if since is not None else (None, "n/a")
+    if args.point != "note" and local is not None:
+        ref_ts, ref_src = rc.reference_time(
+            store, snap, local, args.point, since,
+            lock_reader=lambda t: rc.read_lock_time(root, t))
+    changes = rc.Changes(root)
+    items, more, before = rc.related_work(store, snap, tid, args.point, ref_ts, changes,
+                                          extract_dir=os.path.join(store.state_dir, "archived-plans"))
+    analysis = store.analysis_line(tid, snap, state)
+    summary = rc.plain_summary(state, snap.state, analysis)
+    if args.log and (state != "disabled" or items):
+        base = rc.ledger_base(store, tid)
+        for it in items:
+            row = dict(base, point=args.point, group=it.group, relation=rc._rel_key(it.rel),
+                       freshness=it.rel.freshness, confirmation=it.confirmation,
+                       end=it.end.label(), outcome="shown")
+            if it.covered_by_note:
+                row["covered_by_note"] = it.covered_by_note
+            rc.append_ledger(store.state_dir, "pull", row)
+        rc.append_ledger(store.state_dir, "pull", dict(
+            base, kind="summary", point=args.point, relations_state=state, store=snap.state,
+            analysis=analysis, shown=len(items), more=more, reference=rc.iso(ref_ts)))
+    if args.json:
+        print(json.dumps({
+            "relations_state": state, "store": snap.state, "analysis": analysis,
+            "summary": summary, "checked_at": rc.iso(checked),
+            "reference": {"at": rc.iso(ref_ts) if ref_ts else None, "source": ref_src},
+            "task": store.canonical_ref(tid), "corrupt": snap.corrupt,
+            "items": [rc.item_dict(it, store) for it in items], "more": more,
+            "before_reference": before}, indent=2, sort_keys=True, ensure_ascii=False))
+        return 0
+    lines = _state_lines(store, snap, [tid], state)
+    lines += [f"SUMMARY:{summary}", f"CHECKED_AT:{rc.iso(checked)}",
+              f"REFERENCE:{rc.iso(ref_ts) if ref_ts else 'unknown'}|{ref_src}"]
+    for it in items:
+        lines += rc.item_lines(it, store)
+    if more:
+        lines.append(f"MORE:{more}")
+    if before:
+        lines.append(f"BEFORE_REFERENCE:{before}")
+    if not items:
+        lines.append("RELATED_WORK:0")
+    print("\n".join(lines))
+    return 0
+
+
+def cmd_notify_candidates(root, args):
+    store, early = _consumer_store(root)
+    run_id = uuid.uuid4().hex
+    if store is None:
+        print("\n".join(early + ["ANALYSIS_STATE:disabled", f"RUN_ID:{run_id}",
+                                 "PUSH_NONE:disabled"]))
+        return 0
+    tid = store.ref(args.id)
+    local = store.local_id(store.canonical_ref(tid))
+    if local is None:
+        sys.stderr.write("ait relations notify-candidates: the source must be a task of this project\n")
+        return 1
+    state, snap = analysis_state(store, local, args.expect_plan)
+    rstate = store.relations_state()
+    if snap is None:
+        snap = _snap(store, rstate)
+    rec = snap.files.get(rs.store_path("records", local))
+    if isinstance(rec, dict) and rec.get("analysed") and store._record_identity_ok(rec):
+        try:
+            fresh = store._end_freshness(local, rec["inputs"]["source"], snap)
+            record_line = f"RECORD:stage={rec['run']['stage']}|source={fresh}"
+            record_stage = rec["run"]["stage"]
+        except (KeyError, TypeError):
+            record_line, record_stage = "RECORD:none", None
+    else:
+        record_line, record_stage = "RECORD:none", None
+    warn = []
+    try:
+        if args.diff is not None:
+            cs = rc.changeset_for_range(root, args.diff)
+        else:
+            commits = rc.commits_for(root, local, args.rev)
+            cs = rc.changeset_for_commits(root, commits, f"commits:{args.rev}")
+    except (ValueError, rst.ors.GitError) as exc:
+        cs = rc.ChangeSet(f"diff:{args.diff}" if args.diff is not None else f"commits:{args.rev}",
+                          [], {}, [], error=str(exc).splitlines()[0][:200])
+        warn.append(f"WARN:the change set could not be read ({cs.error}) -- no relation can be confirmed")
+    if cs.error is None and cs.empty:
+        warn.append(f"WARN:no change found ({cs.origin}) -- no relation can be confirmed; "
+                    f"check that the code commits carry (t{local})")
+    rows = rc.notify_candidates(store, snap, tid, cs, rstate)
+    pushes = [r for r in rows if r.kind == "PUSH"]
+    # The all-clear needs BOTH a complete analysis AND a readable, non-empty
+    # change set: with no change to confirm against, an empty list is unknown.
+    if rstate == "disabled":
+        none_line = "PUSH_NONE:disabled"
+    elif cs.error:
+        none_line = "PUSH_NONE:changeset_unreadable"
+    elif cs.empty:
+        none_line = "PUSH_NONE:changeset_empty"
+    elif state == "complete":
+        none_line = "PUSH_NONE:complete"
+    else:
+        none_line = f"PUSH_NONE:{state}"
+    summary = (rc.DISABLED_TEXT if rstate == "disabled"
+               else f"{rc.plain_summary(rstate, snap.state, store.analysis_line(tid, snap, rstate))}"
+                    f"; {rc.plain_analysis_state(state)}")
+    if rstate != "disabled" and cs.error:
+        summary += "; the change set could not be read — whether any task is affected is unknown"
+    elif rstate != "disabled" and cs.empty:
+        summary += "; no change found to confirm against — whether any task is affected is unknown"
+    elif state == "complete" and not pushes and rstate != "disabled":
+        summary += "; no affected targets"
+    if args.log:
+        base = rc.ledger_base(store, tid)
+        for r in rows:
+            rc.append_ledger(store.state_dir, "notify", dict(
+                base, run_id=run_id, kind=r.kind.lower(), relation=rc._rel_key(r.rel),
+                recipient=r.recipient, reason=r.reason or None, freshness=r.rel.freshness,
+                confirmation=r.confirmation, analysis_state=state,
+                outcome="offered" if r.kind == "PUSH" else "shown"))
+        rc.append_ledger(store.state_dir, "notify", dict(
+            base, run_id=run_id, kind="summary", analysis_state=state,
+            relations_state=rstate, option=args.option, record_stage=record_stage,
+            changeset=cs.origin, changeset_error=cs.error, commits=len(cs.commits),
+            push=len(pushes),
+            pull=len(rows) - len(pushes)))
+    if args.json:
+        print(json.dumps({
+            "relations_state": rstate, "store": snap.state, "analysis_state": state,
+            "record": record_line[len("RECORD:"):], "summary": summary, "run_id": run_id,
+            "changeset": {"origin": cs.origin, "commits": cs.commits, "error": cs.error,
+                          "files": sorted(cs.paths)},
+            "warnings": [w[len("WARN:"):] for w in warn],
+            "rows": [rc.row_dict(r, store) for r in rows],
+            "push_none": None if pushes else none_line[len("PUSH_NONE:"):]},
+            indent=2, sort_keys=True, ensure_ascii=False))
+        return 0
+    lines = _state_lines(store, snap, [tid], rstate)
+    lines += [f"ANALYSIS_STATE:{state}", record_line, f"SUMMARY:{summary}",
+              f"CHANGESET:{len(cs.commits)}|{rc.enc(cs.origin)}"]
+    lines += warn
+    lines += [f"CHANGED_FILE:{rc.enc(p)}" for p in sorted(cs.paths)]
+    lines.append(f"RUN_ID:{run_id}")
+    for r in rows:
+        lines += rc.row_lines(r, store)
+    if not pushes:
+        lines.append(none_line)
+    print("\n".join(lines))
+    return 0
+
+
+def cmd_notify_outcome(root, args):
+    store, early = _consumer_store(root)
+    if store is None:
+        sdir = rw.state_dir(root)
+        task = f"t{_tid(args.id)}"
+    else:
+        sdir, task = store.state_dir, store.canonical_ref(args.id)
+    row = {"at": rc.iso(rc.now_utc()), "host": socket.gethostname(), "task": task,
+           "run_id": args.run, "kind": "outcome", "recipient": args.to, "type": args.type,
+           "outcome": args.outcome}
+    if args.note_id:
+        row["note_id"] = args.note_id
+    rc.append_ledger(sdir, "notify", row)
+    print(f"RECORDED:{args.outcome}|{args.to}")
+    return 0
+
 
 def build_parser():
     parser = argparse.ArgumentParser(prog="ait relations", add_help=True, allow_abbrev=False)
@@ -538,6 +746,28 @@ def build_parser():
     p.add_argument("--force", action="store_true")
     sub.add_parser("enable", allow_abbrev=False)
     sub.add_parser("disable", allow_abbrev=False)
+    p = sub.add_parser("related-work", allow_abbrev=False)
+    p.add_argument("id")
+    p.add_argument("--point", required=True, choices=rc.POINTS)
+    p.add_argument("--since", default=None)
+    p.add_argument("--log", action="store_true")
+    p.add_argument("--json", action="store_true")
+    p = sub.add_parser("notify-candidates", allow_abbrev=False)
+    p.add_argument("id")
+    g = p.add_mutually_exclusive_group()
+    g.add_argument("--rev", default="HEAD")
+    g.add_argument("--diff", default=None)
+    p.add_argument("--expect-plan", default=None)
+    p.add_argument("--option", default=None, choices=rc.OPTIONS)
+    p.add_argument("--log", action="store_true")
+    p.add_argument("--json", action="store_true")
+    p = sub.add_parser("notify-outcome", allow_abbrev=False)
+    p.add_argument("id")
+    p.add_argument("--run", required=True)
+    p.add_argument("--to", required=True)
+    p.add_argument("--type", required=True, choices=tuple(rs.TYPES) + ("unconfirmed",))
+    p.add_argument("--outcome", required=True, choices=rc.OUTCOMES)
+    p.add_argument("--note-id", default=None)
     return parser
 
 
@@ -560,7 +790,10 @@ def main(argv=None) -> int:
                 return cmd_enable(root, args, args.verb == "enable")
             return {"analyze": cmd_analyze, "stamp": cmd_stamp, "plan-digest": cmd_plan_digest,
                     "analysis-state": cmd_analysis_state, "usage": cmd_usage,
-                    "ledgers": cmd_ledgers, "unblock": cmd_unblock}[args.verb](root, args)
+                    "ledgers": cmd_ledgers, "unblock": cmd_unblock,
+                    "related-work": cmd_related_work,
+                    "notify-candidates": cmd_notify_candidates,
+                    "notify-outcome": cmd_notify_outcome}[args.verb](root, args)
         store = rst.Store(os.getcwd())
         return {"show": cmd_show, "why": cmd_why, "status": cmd_status,
                 "flush": cmd_flush, "gc": cmd_gc}[args.verb](store, args)

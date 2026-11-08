@@ -26,6 +26,9 @@ This skill is invoked by other skills (e.g., aitask-pick, aitask-explore, aitask
 | `detected_agent_string` | string/null | Agent string (e.g., `claudecode/opus4_6`). Set by either the verify-path append in `planning.md` Step 6.1 or by Agent Attribution in Step 7. Consumed by Agent Attribution (fast-path) and by Satisfaction Feedback in Step 9b to skip re-detection. Initialized to `null`. |
 | `inbox_surfaced` | boolean | Whether the calling skill already displayed and resolved this task's unread `## Inbox` notes. Step 3 Check 6 skips when `true`, so notes are not shown twice — and so a user who just answered "Keep unread" is not asked again. Initialized to `false`. |
 | `premise_decision` | object/null | The answer to Step 3 Check 7's premise prompt, pending until ownership is held: `choice` (`proceed` \| `replan` \| `postpone`), `checked`, `fingerprint` and `protocol` (the complete check output). Set by `premise-staleness.md` `## Check`; read by Step 4, `planning.md` and Step 7. Initialized to `null` (the common case: the check was silent). |
+| `relations_check_at` | string/null | ISO UTC instant of Step 3 Check 8's related-work check (its `CHECKED_AT:` line). The Step 8 re-check passes it as `--since`, so it shows only what landed or was published after the pick. Set by `related-work-check.md` `## Pick-time check`. Initialized to `null` (the re-check then falls back to the task lock's `locked_at`). |
+| `related_work` | array/null | The items Check 8 displayed, handed to planning as context (`planning.md` §6.1). Advisory, never an instruction. Initialized to `null`. |
+| `relations_expected_plan` | string/null | The plan digest this session implements — `STAMP:<sha>` from the Step 7 `ait relations stamp` call, or `PLAN_DIGEST:<sha>` from Re-entry Routing's `ait relations plan-digest` (both wired by t1981_4). Step 8e passes it as `analysis-state --expect-plan`. Initialized to `null`; while it is null, Step 8e reads `incomplete:unverifiable(no_expected_identity)`, never `complete`. |
 
 ## Workflow
 
@@ -142,6 +145,15 @@ Has the code this task's premise depends on changed since the premise was last k
 - Execute the **Premise Staleness Procedure** (see `premise-staleness.md`) section **`## Check`** with `task_file` and `task_id`. It is silent for `FRESH` and `SKIP` (every legacy task without a stored baseline). On `ASK_STALE` it asks once and records the answer in `premise_decision` — **writing nothing**: the task is not claimed yet, so every write waits for Step 4. "Pick a different task" returns to the calling skill's task selection with nothing changed.
 
 This check never ends the workflow on its own. Continue to Step 4.
+
+**Check 8 - Related work (advisory, display only):**
+
+What related tasks have landed, are in flight, or were dropped since this task was planned (task relations, `aidocs/framework/task_relations.md` D8 pull)?
+
+- **Skip entirely** under the same condition as Check 7: unless the task's `status` is `Ready` and its `issue_type` is not `manual_verification`.
+- Otherwise execute the **Related-Work Check Procedure** (see `related-work-check.md`) section **`## Pick-time check`** with `task_id`. It displays its `SUMMARY:` line verbatim and at most 8 items, sets `relations_check_at` and `related_work`, and **writes no task data** — the task is not claimed yet (its only write is the local `pull.jsonl` ledger, which is runtime state). It never prompts, so headless profiles run it unchanged.
+
+This check never ends the workflow and never blocks. Continue to Step 4.
 
 If none of the checks trigger, proceed to Step 4 as normal.
 
@@ -649,6 +661,8 @@ keep iterating. There is no upper bound on iterations.
 
 After implementation is complete, the user MUST be given the opportunity to review and test changes before any commits are made.
 
+- **Related work during this implementation (display only):** execute the **Related-Work Check Procedure** (see `related-work-check.md`) section **`## Review-time re-check`** with `task_id` and `relations_check_at`. It shows relations whose other side landed after the pick and relations published after the pick-time check, marking any already covered by a note. It never prompts, never writes task data and never sends a note — continue below in every case.
+
 - **Show change summary:**
   ```bash
   git status
@@ -763,6 +777,75 @@ Entered from Step 8d (or from Step 8c when 8d did not render). Step 8b and 8c
 offer to create *new* tasks; this is the other half of the same moment — a
 finding that belongs to a task that **already exists**, which is the repo's
 standing "hand findings to the owning task, not the current one" convention.
+
+#### Relations-derived offers (task relations, D8 push)
+
+Runs first, on every path, after the Step 8 commit and before the Step 9 merge.
+It is one flow, **A → B → C → D**: every option ends in **D**, so the offers and
+the `notify.jsonl` outcome logging happen exactly once per path. An incomplete,
+unverifiable or disabled analysis is **never** presented as "no affected
+targets" — only `PUSH_NONE:complete` may be worded that way.
+
+Bind the shared arguments once and reuse them in every call below. Run every
+call from the **main repository root** (in worktree mode the task data is not
+visible from inside `aiwork/<task_name>`):
+
+- `EXPECT` = `--expect-plan <relations_expected_plan>` when that context variable is set; otherwise empty (the state then reads `incomplete:unverifiable(no_expected_identity)`).
+- `REV` = `--rev aitask/<task_name>` in worktree mode (the commits are on the task branch, which Step 9 merges); otherwise empty, meaning `HEAD`.
+
+**A. State.**
+
+```bash
+./.aitask-scripts/aitask_relations.sh analysis-state <task_id> $EXPECT
+```
+
+Bind `state` from the `ANALYSIS_STATE:` line. Show any `NOTE:` line.
+
+**B. Option.**
+
+- `state` = `complete` → `option=complete`.
+- `state` = `disabled` → `option=disabled`. Say "relations analysis is disabled in this project" — the offers below are judgement-based only. If `./.aitask-scripts/aitask_relation_candidates.sh` exists, offer the static discovery fallback as an optional evidence aid (yes/no); a yes sets `fallback_aid=true`. If it does not exist, say the static fallback is unavailable.
+- `state` = `incomplete:*` → say it in plain words, naming the state, then choose:
+  - Use `AskUserQuestion`:
+    - Question: "Relations analysis for t\<task_id\> is incomplete (\<state\>). An empty notify list would NOT mean no affected tasks. How should Step 8e proceed?"
+    - Header: "Relations"
+    - Options:
+      - "Run analysis now and wait" (description: "Run the analysis synchronously and use its result; counts against the daily cap")
+      - "Static discovery fallback" (description: "Static, no-LLM discovery of in-flight tasks citing changed paths; you judge each row")
+      - "Proceed with what exists" (description: "Use the rows from whatever record exists; the incomplete state is logged")
+    - Map to `option=wait` / `fallback` / `proceed`.
+
+**C. Option-specific work** (before the candidates are computed):
+
+- **wait** → read `relations.job_timeout_s` from `aitasks/metadata/project_config.yaml` (default 600) and run:
+  ```bash
+  ./.aitask-scripts/aitask_relations.sh analyze <task_id> --now --wait <job_timeout_s>
+  ```
+  - `CAP_REACHED:<n>/<cap>` → when the user chose "wait" interactively, ask a **second, explicit** confirmation that names the cap ("The daily analysis cap is reached (\<n\>/\<cap\>). Run anyway, over the cap?"); on yes re-run with `--over-cap` and handle its output the same way; on no, set `option=wait_refused_cap`. A profile-chosen `wait` **never** passes `--over-cap`: set `option=wait_refused_cap`.
+  - `ANALYZED:t<id>|<outcome>` whose outcome does not start with `FAILED` / `BLOCKED` → **re-run A** (same `$EXPECT`) and keep `option=wait`; D recomputes and logs the post-wait state, complete or not.
+  - `WAIT_TIMEOUT:`, a failed outcome, `BLOCKED_UNRESOLVED`, `DISABLED:` or `HOST_OFF:` → say so and set `option=wait_failed` (D then uses the rows from what exists).
+- **fallback** → if `./.aitask-scripts/aitask_relation_candidates.sh` does not exist, say "static fallback unavailable (its generator, t1981_2, has not landed)" and set `option=fallback_unavailable`. Otherwise set `option=fallback` and `fallback_aid=true` — the fallback itself runs inside D, once the change set exists.
+- **complete / disabled / proceed** → nothing.
+
+**D. Compute, offer and log** (the single convergence point):
+
+1. Run, **once**:
+   ```bash
+   ./.aitask-scripts/aitask_relations.sh notify-candidates <task_id> $EXPECT $REV --option <option> --log
+   ```
+   It is the only producer of `RUN_ID:`, the `CHANGED_FILE:` lines, the `PUSH:` / `PULL:` rows and the summary ledger row, and it recomputes the analysis state itself, so the ledger records the real final state. Display its `SUMMARY:` line verbatim, and any `WARN:` line (e.g. no `(t<task_id>)` commit found — then nothing can be confirmed). Field values are percent-encoded: decode `%0D`, `%0A`, `%7C`, then `%25`.
+2. When `fallback_aid` is true, write the decoded `CHANGED_FILE:` values (one per line) to a scratch file and run `./.aitask-scripts/aitask_relation_candidates.sh <task_id> --fallback-push --changed-file <file>`. Judge each `UNCONFIRMED:` row against the diff — they are **evidence, not relations**. A task you judge affected joins the offers below as a judgement row (logged with `--type unconfirmed`).
+3. **Offers.** With `option=disabled` the verb prints no `PUSH:` row (`PUSH_NONE:disabled`): no relation-derived offer is made from a disabled project's stored records — only judged fallback rows (when the aid was chosen) and the judgement offer below remain. Otherwise, for each `PUSH:<to>|<type>|<bases>|<description>` row (with its `NOTE_TARGET:` and `EVIDENCE:` lines), first check that the stored description still matches what actually landed, and rewrite it where it does not.
+   Then offer them with a **multi-select** `AskUserQuestion` (never automatic; paginate at 4 options per call, accumulating selections) — Question: "These tasks are affected by what t\<task_id\> just landed (confirmed against its diff). Send a note to which?", Header: "Notify", one option per row (label `t<to>`, description: the description plus the matched evidence). For each selected row, send it through `/aitask-note <target> --from <task_id>` — `<target>` is the row's `NOTE_TARGET:` value, the **bare** id the note writer accepts (`<to>` is a qualified `<project>#<id>` ref, which it rejects); a `NOTE_TARGET:<id>|project=<name>` value means `/aitask-note <id> --project <name> --from <task_id>` — with a body built from the description and the `EVIDENCE:` lines, written as an advisory claim, then record:
+   `./.aitask-scripts/aitask_relations.sh notify-outcome <task_id> --run <RUN_ID> --to <to> --type <type> --outcome sent --note-id <note-id>`
+   For each row not selected, record `--outcome declined` (no `--note-id`).
+   Keep the qualified `<to>` for `notify-outcome --to`: relation identity and the ledgers use the qualified ref.
+   When there is no `PUSH:` row, report the `PUSH_NONE:` value as it is: `complete` is "no affected targets" — the only all-clear, and it needs a complete analysis **and** a readable, non-empty change set; `changeset_unreadable` / `changeset_empty` are "the change could not be read / no `(t<task_id>)` commit was found — whether any task is affected is unknown"; `incomplete:<…>` is "analysis incomplete — an empty list is not an all-clear"; `disabled` is "disabled".
+4. **`PULL:` rows** stay available through pull (each target's own pick-time and Step 8 checks): show one count line per reason. List `reverse_direction` rows by name under "this task's own relations (direction does not push)".
+
+#### Judgement-based offers
+
+These cover findings relations cannot derive — review findings, decisions made in conversation — and they apply whatever the relations state was. A target already sent a note above needs no second one.
 
 If the work surfaced context an existing task needs — a stale assumption in its
 body, a wider blast radius than it records, a decision here that changes its
@@ -1069,6 +1152,7 @@ The following procedures are in individual files — read on demand when referen
 - **Batch Task Creation Procedure** (`task-creation-batch.md`) — Canonical command templates for creating tasks via `aitask_create.sh --batch`. Referenced from planning.md and multiple skills (explore, review, qa, wrap, pr-import, revert).
 - **Workflow End Banner Procedure** (`workflow-end.md`) — The run's fixed-format closing message: `## Complete` at Step 10, `## Stopped` (closed `outcome` vocabulary) at every early or alternate exit. User-facing only; nothing reads it. Referenced from Step 3, Step 4, Re-entry Routing, Steps 6, 7, 9 and 10, and from every shared exit procedure (`plan-approved-stop.md`, `task-abort.md`, `merge-broker.md`, `merge-target-sync.md`, `manual-verification.md`, `planning.md`, `cross-repo-child-assignment.md`, `parallel-assessment.md`) and `aitask-pickrem` / `aitask-pickweb`.
 - **Premise Staleness Procedure** (`premise-staleness.md`) — The advisory premise check for `Ready` tasks: `## Check` asks once and writes nothing (Step 3 Check 7); `## Post-lock` applies the answer once ownership is held (Step 4); `## Advance after an approved replan` advances the baseline after a renewed plan is approved (Step 7, `planning.md`'s "Approve and stop here"). Backed by `aitask_premise_stale.sh` (`check` / `advance`).
+- **Related-Work Check Procedure** (`related-work-check.md`) — The display-only pull of task relations: `## Pick-time check` (Step 3 Check 8, hands `related_work` to planning) and `## Review-time re-check` (Step 8, "related work during this implementation"). Never prompts, never writes task data, never sends a note. Backed by `aitask_relations.sh related-work`; Step 8e's push side uses `notify-candidates` / `notify-outcome`.
 
 ---
 

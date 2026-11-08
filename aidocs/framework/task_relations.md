@@ -1312,6 +1312,59 @@ to Related Task Discovery (as t2192 upgrades it).
 - Whether `aitask-fold` should consume `duplicates` relations (with t1634) is a
   retrospective question.
 
+### Consumer API
+
+Module `lib/relations_consume.py`, behind three `ait relations` verbs. All three
+are read-only except for the local ledgers, and none writes task data, commits
+or sends a note: offers are made, and notes sent, by the agent through
+`/aitask-note`.
+
+- **One plain-words summary.** Every surface (Step 3 Check 8, the Step 8
+  re-check, Step 8e, `/aitask-note`) displays the verbs' `SUMMARY:` line
+  verbatim. It is rendered by one function from the state lines, so "disabled",
+  "not analysed yet", "analysed, 0 relations" and "the store could not be read —
+  unknown, not none" read the same everywhere.
+- **Disabled projects never fetch** (the store is read with `no_fetch`) and
+  never push. A previously enabled project keeps its stored records, and those
+  are still shown, but every one of them is `PULL …|relations_disabled`.
+- **`related-work <id> --point pick|review|note [--since <ts>] [--log]`.**
+  - Output: the state lines, then `SUMMARY:`, `CHECKED_AT:`, `REFERENCE:<iso>|<source>`;
+  - per item, `ITEM:<group>|<direction>|<type>|<other>|<freshness>|<confirmation>|<end state>|<archived plan>[|covered_by_note=<id>]`,
+    with the description on the next line;
+  - then `MORE:<n>`, `BEFORE_REFERENCE:<n>`, or `RELATED_WORK:0`, which always follows `SUMMARY:`.
+  - The groups are `landed`, `dropped`, `late` (review only), `in_flight`, `own` and `pending`, capped at 8 items in that priority.
+  - **The reference time.** At `pick` it is `plan_approved_at`, else the visible stamp's `approved_at`, else `created_at`. At `review` it is `--since`, else the lock's `locked_at`, else `created_at`.
+  - Naive task and lock times are local time; record times are UTC; an unparseable time is shown (fail-open), never hidden.
+  - The lock time is read from the local `origin/aitask-locks` ref as last fetched, never through `aitask_lock.sh --check` (which fetches): no related-work call ever pays a network round trip in a disabled project.
+  - A landed item's archived plan is reported repo-relative when loose. A plan that exists only inside a numbered or legacy bundle is extracted to `<git-common-dir>/aitask-relations/archived-plans/` and that path is reported.
+- **Note targets.** Every `ITEM:` and `PUSH:` row is followed by `NOTE_TARGET:<id>` (or `<id>|project=<name>`): the bare id `aitask_note.sh` accepts. The qualified ref stays the relation identity and the ledger key.
+- **Covered by note.** A review item is `covered_by_note=<id>` when the task's
+  `## Inbox` holds a note from the other task's `t<id>` after `--since`, read or
+  unread alike. It is checked with `lib/note_inbox.py`'s validated parser, not
+  with `aitask_query_files.sh inbox`, which lists unread notes only.
+- **`notify-candidates <S> [--rev <rev> | --diff <range>] [--expect-plan <sha>] [--option <opt>] [--log]`.**
+  - Output: the state lines, `ANALYSIS_STATE:` (recomputed, never trusted from the caller), `RECORD:stage=<n>|source=<fresh|stale|unverified>` or `RECORD:none`, `SUMMARY:`, `CHANGESET:<n>|<origin>`, any `WARN:`, `CHANGED_FILE:<path>…` and `RUN_ID:<uuid>`;
+  - then `PUSH:<to>|<type>|<matched bases>|<description>` rows, each with `  EVIDENCE:<kind>:<value>|<commit>|<file>`, and `PULL:<to>|<type>|<reason>` rows;
+  - and when there is no PUSH row, `PUSH_NONE:complete|disabled|changeset_unreadable|changeset_empty|incomplete:<…>`. Only `complete` may be worded "no affected targets", and it needs both a complete analysis and a readable, non-empty change set.
+- **The worktree rule.** The change set is the `(t<S>)`-subject commits reachable from `--rev` (default `HEAD`). In worktree mode Step 8e passes `--rev aitask/<task_name>` and runs from the main repository root, because the task data is not visible inside the worktree.
+- **The PULL reasons, in rule order** (the first failing rule wins):
+
+  | Reason | Rule that failed |
+  |---|---|
+  | `relations_disabled` | the project has analysis disabled |
+  | `type_not_pushed` | the type is not `affects` or `coordinates_with` |
+  | `reverse_direction` | an `affects` edge whose `from` is not S |
+  | `other_project` | the recipient belongs to another project |
+  | `target_closed` | the recipient has landed or been dropped |
+  | `unconfirmed_impact` | no impact basis is confirmed by the change set (the task-ref-only case included) |
+  | `target_state` | the recipient is neither Implementing nor a plan holder |
+  | `target_moved` | the recipient's current body or plan cites none of the confirmed bases |
+- **`notify-outcome <S> --run <id> --to <ref> --type <type|unconfirmed> --outcome sent|declined|not_offered [--note-id <id>]`** records one Step 8e offer outcome.
+- **The ledgers** (`pull.jsonl`, `notify.jsonl`) are written one JSON line per `O_APPEND` write.
+  - Each row carries `at`, `host`, `task`, the relation `{from, to, type, record_task}`, `freshness`, `confirmation` and `outcome` (`shown` / `offered` / `sent` / `declined` / `not_offered`).
+  - Summary rows carry the point or the Step 8e `analysis_state` and `option`.
+  - `ledgers --export` emits them, tagged with the host.
+
 ### Deliberately deferred: a retained later review
 
 A relation published after both its source and its target have landed reaches no
@@ -1393,7 +1446,7 @@ retrospective.
 
 | Surface | What |
 |---|---|
-| `ait relations` | `show <id>`, `why <a> <b>`, `status`, `flush`, `gc`, `analyze <id> [--now --wait <s>] [--over-cap] [--dry-run]`, `analysis-state <id> --expect-plan <sha>`, `stamp <id>`, `plan-digest <id>`, `sweep`, `usage`, `ledgers --export`, `notify-candidates <id> [--diff <range>]`, `enable`, `disable` |
+| `ait relations` | `show <id>`, `why <a> <b>`, `status`, `flush`, `gc`, `analyze <id> [--now --wait <s>] [--over-cap] [--dry-run]`, `analysis-state <id> --expect-plan <sha>`, `stamp <id>`, `plan-digest <id>`, `sweep`, `usage`, `ledgers --export`, `notify-candidates <id> [--rev <rev> \| --diff <range>] [--expect-plan <sha>] [--option <opt>] [--log]`, `notify-outcome <id> --run <id> --to <ref> --type <type> --outcome <o>`, `related-work <id> --point pick\|review\|note [--since <ts>] [--log]`, `enable`, `disable` |
 | `ait obsolete` | `ls`, `show`, `evidence`, `dismiss`, `review`, `sweep` |
 | Agent surfaces | the pick-time related-work check, planning context, the target's Step 8 re-check, Step 8e, `/aitask-note` with no target, t1634 (`duplicates`), trails (relations as gather input, later) |
 | TUI (later) | a read-only Textual `ait relations` with two tabs: **Relations** (per task: type, description, evidence, freshness, neighbourhood) and **Obsolete** (sorted by band, with reasons and actions). Registered in `KNOWN_TUIS`; the board's detail screen gets a "Relations: n (k stale)" field |

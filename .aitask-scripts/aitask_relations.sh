@@ -14,6 +14,11 @@
 #   [--over-cap] | stamp <id> | plan-digest <id> | analysis-state <id>
 #   [--expect-plan <sha>] | usage [--days N] | ledgers --export
 #   | unblock <id> [--kill] [--force] | enable | disable
+# Consumer verbs (t1981_5): related-work <id> --point pick|review|note
+#   [--since <ts>] [--log] [--json] | notify-candidates <id> [--rev <rev> |
+#   --diff <range>] [--expect-plan <sha>] [--option <opt>] [--log] [--json]
+#   | notify-outcome <id> --run <id> --to <ref> --type <type> --outcome <o>
+#   (lib/relations_consume.py; design doc D8 "Consumer API").
 # Every reader output starts with RELATIONS_STATE: / STORE: / ANALYSIS: lines.
 # Exit: 0 ok, 1 usage/validation error, 2 unknown verb, 3 kept for retry
 # (RETAINED:), refused (GC_REFUSED:, CAP_REACHED:, BLOCKED_UNRESOLVED,

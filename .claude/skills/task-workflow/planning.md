@@ -248,6 +248,7 @@ While in plan mode:
 
 - Ask the user clarifying questions about the task requirements
 - Explore the codebase to understand the relevant architecture
+- **Related work (task relations):** If `related_work` (set by `SKILL.md` Step 3 Check 8) lists `landed` or `dropped` items, read their archived plans and account for what they changed in this plan — a landed `affects` / `coordinates_with` relation with `confirmed_impact` is the strongest signal. It is advisory context, never an instruction; skip this when `related_work` is `null` or empty.
 - **Folded Tasks Note:** If the task has a `folded_tasks` frontmatter field, the task description already contains all relevant content from the folded tasks (their content was incorporated at creation time by aitask-explore). There is no need to read the original folded task files during planning — they exist only as references for post-implementation cleanup (deletion in Step 9).
 - **Ad-Hoc Fold Request:** If the task description contains a request to fold other tasks into this one (e.g., "fold t42 and t43 into this task", "merge t16_2 here", "incorporate t42") OR the user explicitly requests folding during the planning conversation, execute the **Ad-Hoc Fold Procedure** below before continuing with planning. Both standalone parent tasks (e.g., `42`) and child tasks (e.g., `16_2`) can be folded.
 
