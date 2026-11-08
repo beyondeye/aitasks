@@ -209,3 +209,75 @@ adds verification and changes no code path.
 ### Planned mitigations
 - timing: post-phase | name: affected_suite_sweep | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: mechanical conversion changes a site's copy semantics | desc: Run every converted and sync_fixture-consuming test, attributing failures against HEAD per assertion
 - timing: after | name: macos_tar_exclusion_check | type: test | priority: low | effort: low | inline_risk: low | added_complexity: medium | addresses: GNU tar vs bsdtar exclusion semantics | desc: Run tests/test_framework_copy.sh on macOS to confirm bsdtar's unanchored --exclude drops nested __pycache__ and *.pyc
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-08 00:20)
+- **Requested by user:** (1) the guard used newline-delimited `git ls-files`, so
+  git's C-quoting of unusual names (e.g. `tests/test_café.sh`) made line 135 skip
+  the file silently, contrary to the plan's `-z`; (2) a redundant
+  `find … __pycache__ -prune` survived in `test_brainstorm_context_helper.sh:39`
+  (the conversion script matched only the `-type d -name` argument order).
+- **Changes made:** section 3 now goes through `guard_hits <root>`. It runs
+  `git ls-files -z` into a temp file and reads it with `read -d ''`; it returns 2
+  on an ls-files failure or an empty enumeration. Added synthetic-repo checks:
+  a tracked `tests/test_café.sh` is flagged by file:line, an untracked file is
+  ignored, a clean tracked file is not flagged, and an empty repo refuses with 2.
+  Pre-fix control (the newline enumeration in a scratch copy) fails exactly the
+  café check (33/34). Removed the leftover `find`; grepped every converted file
+  for prune lines next to a copy, and none remain. test_framework_copy 34/34;
+  test_brainstorm_context_helper passes.
+- **Files affected:** tests/test_framework_copy.sh, tests/test_brainstorm_context_helper.sh
+
+### Change Request 2 (2026-11-08 00:35)
+- **Requested by user:** `guard_hits` spliced each raw filename into
+  `sed "s|^|$f:|"`. A tracked `tests/test_pipe|name.sh` or a name with a
+  newline broke the expression, `|| true` swallowed the sed error, and the
+  violation read as a clean scan.
+- **Changes made:** the prefix is printed literally (`printf '%s:%s\n' "$f"`
+  per grep line). A grep exit >= 2 (the file could not be scanned) now makes
+  `guard_hits` return 2 and name the file, instead of being swallowed. Added
+  checks: a tracked `|` name and a newline name are each flagged by line, the
+  count of reported copies is 3, and an unreadable tracked file (chmod 000,
+  skipped as root) fails with rc 2 naming it. Pre-fix control (the sed prefix
+  restored in a scratch copy): 5 of the new checks fail (35/40). Real tree:
+  40/40.
+- **Files affected:** tests/test_framework_copy.sh
+
+## Final Implementation Notes
+- **Actual work done:** Added `tests/lib/framework_copy.sh` (`copy_framework_tree`:
+  tar-based, excludes `__pycache__`/`*.pyc`, copies contents into dst, `-m` for
+  cp-like mtimes, PIPESTATUS-checked). Converted 26 files: `tests/lib/sync_fixture.sh`,
+  14 full-tree and 8 lib/package `cp -r` sites, and 9 `cp -R` + `find -prune`
+  pairs (crew tests, data_branch_migration, revert_analyze). Made
+  `test_goengines_build.sh` report a failed build as a named FAIL with stderr and
+  a Results line (`run_build`), plus a self-check that re-runs the file against a
+  failing stub. Added `tests/test_framework_copy.sh` (40 checks: helper contract,
+  setup_repo on a cache-planted synthetic project, guard over tracked tests with
+  synthetic-repo checks of the guard itself).
+- **Deviations from plan:** (1) The goengines self-check is section **0** (before
+  case 1), not section 7. In the planned position it only ran after a successful
+  real build, so it could never run on a host with a broken toolchain, this one
+  included (the go binary itself is built `X:nodwarf5`; no env override fixes
+  it). It now runs wherever `go` exists. (2) The guard is a `guard_hits <root>`
+  function, so it can be tested against synthetic repositories (post-review
+  CR1/CR2).
+- **Issues encountered:** The first inventory grep matched only lowercase `cp -r`
+  and missed the 9 `cp -R` sites (caught at plan review; the inventory now uses
+  the guard's own regex). The conversion script matched one `find` argument
+  order and left a redundant prune in test_brainstorm_context_helper.sh (CR1).
+  The guard's first version mishandled unusual filenames (CR1: C-quoting without
+  -z; CR2: the sed-spliced prefix plus `|| true`). Each fix has a pre-fix control
+  run in a scratchpad mirror.
+- **Key decisions:** tar exclusion rather than `git ls-files` (untracked in-flight
+  modules must still reach fixtures). The guard selects tracked files only
+  (untracked files belong to their writing session). Foreign untracked
+  `tests/test_setup_relations.sh:43` (`cp -R`, no prune) was still untracked at
+  commit time and left untouched; a note goes to its likely owner.
+- **Evidence:** a sync fixture is 22 MB instead of 46 MB (`.aitask-scripts` 12 MB
+  instead of 24 MB, 0 cache dirs instead of 21); `test_sync_deferral_and_quarantine`
+  passes in 61s. Affected-suite sweep (post-phase `affected_suite_sweep`): 40/40
+  files pass at -P2, no `Disk quota` lines, so no HEAD attribution was needed.
+  `test_goengines_build.sh` still exits 1 on this host, now as a named FAIL with
+  the compile-mismatch stderr (environmental, as the task notes).
+- **Upstream defects identified:** None
