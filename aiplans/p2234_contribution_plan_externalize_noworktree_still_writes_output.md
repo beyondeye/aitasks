@@ -104,3 +104,10 @@ None identified. (No code is changed.)
 None identified. The reported scenario (fast profile, `--no-worktree`, non-primary
 checkout, fresh and stale-frontmatter sources) is reproduced against a pre-fix
 control and shown fixed on the current tree.
+
+## Final Implementation Notes
+- **Actual work done:** No code change. Verified that the reported bug (issue #15, framework 0.32.0) was already fixed by t2124 (commit `6b3161606`, first shipped in v0.40.0): outside worktree mode `aitask_plan_externalize.sh` records the checked-out branch in both `Base branch:` and `Output branch:` (detected primary only on a detached HEAD), on both the fresh-header and the existing-frontmatter splice paths, and drops a stale `Worktree:` line. Evidence: `tests/test_plan_externalize.sh` 326/326 green (Test 17 C1/C11 pin the scenario) plus the pre-fix-controlled repro recorded above (current → `dev`, `6b3161606^` → `main`).
+- **Deviations from plan:** None.
+- **Issues encountered:** None.
+- **Key decisions:** Closed as already-fixed rather than adding a duplicate test; Test 17 already covers the contributor's exact scenario (fast-style `--no-worktree` on a non-primary checkout, fresh and stale-frontmatter sources).
+- **Upstream defects identified:** None
