@@ -297,7 +297,7 @@ converts at three boundaries:
     `list-sessions`) but cannot be targeted by its name.
   - Cause: a `str` reaching the gateway does not say whether it is a native OS
     path or tmux text. Full support means typing the OS-path inputs at their
-    builders as native bytes (see the follow-up task linked in the t2236
+    builders as native bytes (follow-up t2244; see also the t2236
     archived plan).
   - Evidence: the codec behaviour is pinned by the codec-patched table in
     `tests/test_tmux_exec.py`. The live lane in
