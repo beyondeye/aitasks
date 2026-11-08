@@ -6,7 +6,7 @@ issue_type: bug
 status: Implementing
 labels: [git-integration, contribution]
 gates: [risk_evaluated]
-assigned_to: daelyasy@hotmail.com
+assigned_to: dario-e@beyond-eye.com
 anchor: 2235
 followup_kind: upstream_defect
 created_at: 2026-11-08 18:16
