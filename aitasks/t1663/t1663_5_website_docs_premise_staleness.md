@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: low
 depends: [t1663_4]
 issue_type: documentation
@@ -14,7 +16,7 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1538
 implemented_with: claudecode/opus5_5
 created_at: 2026-09-01 15:20
-updated_at: 2026-11-08 13:12
+updated_at: 2026-11-08 13:13
 ---
 
 Document the advisory premise-staleness check in the website docs.
@@ -79,3 +81,5 @@ Fifth child of t1663 — docs are a first-class child per `aidocs/framework/plan
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-11-08T11:13:10Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-11-08T11:17:05Z status=pass attempt=1 type=human
