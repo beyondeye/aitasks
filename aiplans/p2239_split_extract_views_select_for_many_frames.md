@@ -204,3 +204,58 @@ Commit the code as `bug: … (t2239)`, then archive with the standard Step 9 flo
 
 ### Goal-achievement risk: low
 None identified.
+
+## Final Implementation Notes
+- **Actual work done:** As planned. `video_prep.py` gained `EXTRACT_BATCH = 1000`, `select_expr()` (balanced sum, depth ceil(log2 n)), `_batch_end_pts()`, the private `_Unbounded` signal and `_extract_batch(..., bounded)`; `extract_views()` now sorts, batches, tries each batch bounded (`trim=end_pts=max+1` directly before `select`) and retries it once unbounded on `_Unbounded`. Callers and CLI defaults unchanged. Tests: `SelectExpr` (shape/depth/exactness + flat-form control) and `ExtractViewsMany` (150 frames, 22-batch byte-identical differential, bounded decode count, both fallback routes, strict error after retry, `bug --max-frames 150` via the real CLI); stale docstring of `test_layout_reduced_sheets_list_the_frames_they_hold` corrected.
+- **Deviations from plan:** The bounded pass checks "every wanted pts reported by the second showinfo" *before* moving any file (a subset check), so the half-cut fallback test exercises that check rather than the post-move `path.exists()` missing-frame check; the post-move check also raises `_Unbounded` in bounded mode as a backstop. `select_expr([])` raises `ValueError` (unreachable from `extract_views`, which returns early on empty input).
+- **Issues encountered:** Measured decoder overshoot on the synth mp4: a bounded pass whose last wanted frame is index 12 decodes 17 frames (index 100 → 105); the decode-count test allows last+1+32.
+- **Key decisions:** Root cause is ffmpeg's ~100-level expression nesting cap, not string length (flat 100 terms OK / 101 fail; 98 nested parens OK / 99 fail; balanced 6000 terms OK). Batching is retained only for Linux's 128 KiB single-argument limit (131071 B OK, 131072 B E2BIG). The early-stop bound came from review; its fallback treats every bounded-pass validation failure (no reports, wrong instance count, missing pts) as "retry unbounded", while ffmpeg non-zero exits are not retried.
+- **Red proof (verbatim, durable):** script `red_proof.py`, run in-process (not via `run_cli`, whose subprocess would not see the mock) against a 5 s `synth.card_frames(synth.tween(synth.LINEAR,0,5),5.0,'right')` video:
+  ```python
+  """t2239 red proof: run extract_views and bug in-process with the old flat select."""
+  import contextlib, io, shutil, sys
+  from pathlib import Path
+  from unittest import mock
+  sys.path.insert(0, ".aitask-scripts/screen_recording")
+  import video_prep as vp
+
+  S = Path(sys.argv[1])
+  video = str(S / "slide5.mp4")
+  pts = [f.pts for f in vp.enumerate_frames(video, None)][::2][:150]
+
+  def flat(p):
+      return "+".join(f"eq(pts,{x})" for x in p)
+
+  def attempt(label):
+      d = S / f"rp_{label}"
+      shutil.rmtree(d, ignore_errors=True); d.mkdir()
+      try:
+          sizes = vp.extract_views(video, {p: d / f"{p}.png" for p in pts}, None, None, None)
+          print(f"{label} extract_views: OK, {len(sizes)} frames")
+      except vp.PrepError as e:
+          print(f"{label} extract_views: PrepError: {str(e).splitlines()[-1][:120]}")
+      out = S / f"rp_{label}_bug"
+      shutil.rmtree(out, ignore_errors=True)
+      err = io.StringIO()
+      with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
+          try:
+              rc = vp.main(["bug", video, "--out", str(out), "--interval", "0.01",
+                            "--per-sheet", "400", "--view-size", "100", "--max-frames", "150"])
+          except vp.PrepError as e:
+              rc = f"PrepError: {e}"
+      print(f"{label} bug --max-frames 150: rc={rc} {err.getvalue().strip().splitlines()[-1][:120] if err.getvalue().strip() else ''}")
+
+  with mock.patch.object(vp, "select_expr", flat):
+      attempt("old_flat")
+  attempt("fixed")
+  ```
+  Output (ffmpeg n9.0.2):
+  ```
+  old_flat extract_views: PrepError: Error opening output files: Cannot allocate memory
+  old_flat bug --max-frames 150: rc=1 Error opening output files: Cannot allocate memory
+  fixed extract_views: OK, 150 frames
+  fixed bug --max-frames 150: rc=0
+  ```
+  Manual repro: `bug --interval 0.01 --per-sheet 400 --view-size 100 --max-frames 150|250` → rc 0, 150/250 picks saved.
+- **Verification:** `pytest tests/test_screen_recording_cli.py tests/test_screen_recording_core.py -n 4` → 243 passed.
+- **Upstream defects identified:** None
