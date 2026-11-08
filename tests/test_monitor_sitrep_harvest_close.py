@@ -73,8 +73,9 @@ def snapshot(window="agent-pick-42", pane_id="%1", *, frozen=False,
     return snap
 
 
-def ident_line(pane="%1", pid="4242", server="99", frozen=""):
-    return f"{pane}\t{pid}\t{server}\t{frozen}"
+def ident_line(pane="%1", pid="4242", server="99", frozen="", tui=""):
+    """One `RUN_IDENTITY_FORMAT` answer (5 fields since t2211_2's TUI stamp)."""
+    return f"{pane}\t{pid}\t{server}\t{frozen}\t{tui}"
 
 
 # -- the report parser --------------------------------------------------------
@@ -634,12 +635,21 @@ class AppLiveCloseTests(unittest.TestCase):
 
 # -- the guarded run kill, against a fake gateway -----------------------------
 
+def fa_row(pane_id: str, pid: str, shadow: str = "") -> str:
+    """One `FROZEN_AWARE_PANE_FORMAT` record rendered from the format itself, so
+    a field appended to it cannot silently drop the row (t2211_2)."""
+    values = {"#{pane_id}": pane_id, "#{pane_pid}": pid, "#{pane_dead}": "0",
+              f"#{{{mc.SHADOW_TARGET_OPTION}}}": shadow}
+    return "\t".join(values.get(spec, "")
+                     for spec in mc.FROZEN_AWARE_PANE_FORMAT.split("\t")) + "\n"
+
+
 class _FakeTmux:
     """The guarded kill's reads: the pane's live window, that window's panes,
     the read-back after the dispatch, and the helper sweep's listing."""
 
-    OTHER_AGENT = "%7\t4242\t\t\t\t0\t\n%8\t5555\t\t\t\t0\t\n"
-    ALONE = "%7\t4242\t\t\t\t0\t\n%9\t6666\t%7\t\t\t0\t\n"
+    OTHER_AGENT = fa_row("%7", "4242") + fa_row("%8", "5555")
+    ALONE = fa_row("%7", "4242") + fa_row("%9", "6666", shadow="%7")
 
     def __init__(self, readback, window=(0, "%7\t@3"), listing=(0, OTHER_AGENT)):
         self.readback = readback
@@ -739,6 +749,11 @@ class RunIdentityParseTests(unittest.TestCase):
         self.assertIsNone(mc.parse_run_identity(0, ident_line(pane="%2"), "%1"))
         self.assertIsNone(mc.parse_run_identity(0, ident_line(pid="x"), "%1"))
         self.assertIsNone(mc.parse_run_identity(0, "%1\t4242", "%1"))
+        # t2211_2: the sitrep TUI stamp is the fifth field; a 4-field answer
+        # (the pre-TUI format) is not a complete identity.
+        self.assertEqual(mc.parse_run_identity(0, ident_line(tui="/repo"), "%1"),
+                         RunIdentity("%1", "4242", "99", "", "/repo"))
+        self.assertIsNone(mc.parse_run_identity(0, "%1\t4242\t99\t", "%1"))
 
 
 # -- maintenance --------------------------------------------------------------

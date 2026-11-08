@@ -56,6 +56,7 @@ from monitor.monitor_core import (  # noqa: E402
     PaneCategory,
     SCRATCHPAD_TARGET_OPTION,
     SHADOW_TARGET_OPTION,
+    SITREP_TUI_ROOT_OPTION,
     TmuxPaneInfo,
     TmuxMonitor,
 )
@@ -650,7 +651,7 @@ class KillAgentPaneSmartTests(unittest.TestCase):
     @staticmethod
     def _line(pane_id: str, pid: int, shadow: str = "",
               monitor_kind: str = "", frozen: str = "", dead: str = "0",
-              scratch: str = "") -> str:
+              scratch: str = "", tui: str = "") -> str:
         """One `FROZEN_AWARE_PANE_FORMAT` row, BUILT FROM that format.
 
         Deriving the row instead of hard-coding a tab count is what stops this
@@ -669,6 +670,7 @@ class KillAgentPaneSmartTests(unittest.TestCase):
             f"#{{{FROZEN_OPTION}}}": frozen,
             "#{pane_dead}": dead,
             f"#{{{SCRATCHPAD_TARGET_OPTION}}}": scratch,
+            f"#{{{SITREP_TUI_ROOT_OPTION}}}": tui,
         }
         return "\t".join(values[spec]
                          for spec in FROZEN_AWARE_PANE_FORMAT.split("\t"))

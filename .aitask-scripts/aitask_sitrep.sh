@@ -13,19 +13,26 @@
 #
 # open (the default verb) focuses the repository's sitrep agent, or launches it
 # in its OWN tmux window `agent-sitrep` (`-<n>` when the session already holds
-# that name) with a minimonitor companion. One sitrep per repository: the agent
-# pane is stamped `@aitask_sitrep_root=<canonical root>`, and a live lookup under
-# a per-server lock refuses rather than spawn a second one. Needs tmux; the new
-# window goes into the session holding $TMUX_PANE, or into `--session <name>`
-# (which must exist; the TUIs pass the selected agent's session).
-#   SITREP_SPAWNED:<pane>|<session>:<window>   (+ SITREP_WARN:companion_not_spawned)
+# that name): the agent, the sitrep TUI under it, and a full-height minimonitor
+# companion. One agent AND one TUI per repository: the panes are stamped
+# `@aitask_sitrep_root` / `@aitask_sitrep_tui_root` = <canonical root>, and a
+# live lookup under a per-server lock repairs a missing role rather than spawn a
+# second one. Needs tmux; the new window goes into the session holding
+# $TMUX_PANE, or into `--session <name>` (which must exist; the TUIs pass the
+# selected agent's session). <pane> is always the agent's pane.
+#   SITREP_SPAWNED:<pane>|<session>:<window>          new window
+#   SITREP_ADDED_TUI:<pane>|<session>:<window>        the TUI was missing
+#   SITREP_RESPAWNED_AGENT:<pane>|<session>:<window>  the agent was missing
 #   SITREP_FOCUSED:<pane>
+#   SITREP_WARN:<item>    0+ lines after an exit-0 line: companion_not_spawned,
+#                         tui_not_spawned:<why>, tui_moved, tui_not_moved,
+#                         focus_failed, focus_not_restored
 #   SITREP_FOCUS_FAILED:<pane>                 exit 1 (it exists; switching to it
 #                                              failed; --no-select never switches)
 #   SITREP_REFUSED:<reason>                    exit 1
 #     reasons: not_in_tmux, no_session (also an unknown --session), root:<why>,
 #     lock_busy, lookup_failed, no_command, window_list_failed, launch:<why>,
-#     stamp:<exited|removed|stuck>
+#     stamp:<exited|removed|stuck>, place_unreadable, tui:<why>
 #
 # root prints the canonical project root (a linked or removed `aiwork/` worktree
 # maps to the main worktree), then whether the cwd is it:

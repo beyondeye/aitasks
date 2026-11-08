@@ -109,7 +109,14 @@ class TmuxLaunchConfig:
     # rows for a vertical one). Both default to no-op so every other caller's
     # split behavior is unchanged.
     split_before: bool = False
-    split_size: int | None = None
+    # Rows/columns, or a tmux percentage string such as ``"40%"`` (t2211_2).
+    split_size: int | str | None = None
+    # Split branch only: add tmux ``-d`` so the new pane does NOT become the
+    # window's active pane. ``select_window=False`` alone does not do that — it
+    # only skips the later ``select-window`` — so a caller that must leave the
+    # user's focus where it was (the sitrep window's repair splits, t2211_2)
+    # sets this. Defaults to no-op so every other caller's argv is unchanged.
+    split_detached: bool = False
     # When set, split this specific pane (``-t <pane_id>``) instead of the
     # window's active pane. Required when the caller is itself a narrow pane in
     # the target window (e.g. minimonitor spawning a shadow): splitting the
@@ -2182,6 +2189,8 @@ def _split_window_argv(command: str, config: TmuxLaunchConfig,
     split_target = (config.split_target_pane
                     or tmux_window_target(config.session, config.window))
     split_args = ["split-window", "-P", "-F", fmt, split_flag]
+    if config.split_detached:
+        split_args.append("-d")
     if config.split_before:
         split_args.append("-b")
     if config.split_size is not None:
@@ -2582,6 +2591,9 @@ class _CompanionScan:
     window_panes: frozenset[str]
     #: Panes carrying a monitor marker whose process is gone.
     stale_marked: tuple[str, ...]
+    #: The companions that make ``present`` true (live-marked or booting), in
+    #: listing order (t2211_2: the sitrep respawn arms its hook with one).
+    companion_panes: tuple[str, ...] = ()
 
 
 def _scan_companion_window(out: str) -> _CompanionScan:
@@ -2619,6 +2631,7 @@ def _scan_companion_window(out: str) -> _CompanionScan:
     real_panes = 0
     window_panes: set[str] = set()
     stale_marked: list[str] = []
+    companions: list[str] = []
     for line in out.strip().splitlines():
         pane_id, _, rest = line.partition("|")
         window_panes.add(pane_id)
@@ -2636,6 +2649,7 @@ def _scan_companion_window(out: str) -> _CompanionScan:
         if marker:
             if monitor_marker_alive(marker):
                 present = True
+                companions.append(pane_id)
             else:
                 stale_marked.append(pane_id)
             # A monitor pane is a helper either way — never counted below.
@@ -2643,11 +2657,12 @@ def _scan_companion_window(out: str) -> _CompanionScan:
         if start_command.strip() == _COMPANION_START_COMMAND:
             if dead.strip() != "1":
                 present = True               # a companion is already booting
+                companions.append(pane_id)
             continue                         # a dead companion is a helper too
         if not is_bound_helper(*helper_targets):
             real_panes += 1
     return _CompanionScan(present, real_panes, frozenset(window_panes),
-                          tuple(stale_marked))
+                          tuple(stale_marked), tuple(companions))
 
 
 def companion_present(pane: str) -> bool | None:
@@ -2676,12 +2691,32 @@ def companion_present(pane: str) -> bool | None:
     return scan.present
 
 
+def window_companion_pane(pane: str) -> str | None:
+    """The first companion (live-marked or booting) in ``pane``'s window, or None.
+
+    Read-only, the :func:`companion_present` read and rule. None also when the
+    window cannot be listed or the listing does not contain ``pane`` — a caller
+    arming a cleanup hook then simply arms none (t2211_2).
+    """
+    if not pane:
+        return None
+    rc, out = _TMUX.run(["list-panes", "-t", pane, "-F", _companion_pane_format()])
+    if rc != 0:
+        return None
+    scan = _scan_companion_window(out)
+    if pane not in scan.window_panes or not scan.companion_panes:
+        return None
+    return scan.companion_panes[0]
+
+
 def _companion_check_and_split(
     session: str,
     win_index: str,
     agent_pane: str | None,
     width: int,
     project_root: Path | None,
+    *,
+    full_height: bool = False,
 ) -> tuple[bool, str | None, str]:
     """The eligibility read and the split: ``(split_ran, companion_pane, agent_pane)``.
 
@@ -2730,9 +2765,14 @@ def _companion_check_and_split(
         )
         agent_pane = active_pane.strip() if rc_active == 0 else ""
 
-    # Spawn minimonitor as a right split, capturing the new pane id
-    split_argv = ["split-window", "-h", "-P", "-F", "#{pane_id}",
-                  "-l", str(width)]
+    # Spawn minimonitor as a right split, capturing the new pane id. With
+    # `full_height` (the sitrep window, t2211_2) tmux `-f` makes it span the
+    # whole window height instead of only the agent's cell, so it stays a right
+    # column beside an agent that has a pane split under it.
+    split_argv = ["split-window", "-h"]
+    if full_height:
+        split_argv.append("-f")
+    split_argv += ["-P", "-F", "#{pane_id}", "-l", str(width)]
     if project_root is not None:
         split_argv += ["-c", str(project_root)]
     split_argv += ["-t", split_target, *_COMPANION_ARGV]
@@ -2751,6 +2791,7 @@ def maybe_spawn_minimonitor(
     explicit: bool = False,
     project_root: Path | None = None,
     agent_pane: str | None = None,
+    full_height: bool = False,
 ) -> str | None:
     """Spawn a minimonitor split pane if conditions are met.
 
@@ -2786,6 +2827,10 @@ def maybe_spawn_minimonitor(
             the launch and this call cannot hand the companion to the wrong
             pane. It must be one of the window's panes: when it is not, or the
             pane list cannot be read, nothing is spawned.
+        full_height: add tmux ``-f`` so the companion spans the full window
+            height as a right column (the sitrep window, whose agent has the
+            sitrep TUI split under it — t2211_2). Every other caller keeps the
+            split of the agent's own cell.
 
     Returns the new companion pane id (e.g. `%42`) on success, or None if
     no spawn happened (disabled, rejected by a gate, tmux error, etc.).
@@ -2857,7 +2902,8 @@ def maybe_spawn_minimonitor(
         if not held:
             return None
         split_ran, companion_pane, agent_pane = _companion_check_and_split(
-            session, win_index, agent_pane, width, project_root)
+            session, win_index, agent_pane, width, project_root,
+            full_height=full_height)
     if not split_ran:
         return None
     # Arm the pane-died cleanup hook so the companion is despawned when the

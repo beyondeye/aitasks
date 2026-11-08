@@ -257,11 +257,13 @@ def fake_tmux_run(cmd, *args, **kwargs):
         idx = cmd.index("-t")
         captured_targets.append(cmd[idx + 1])
         # Simulate one sibling agent pane so we go through kill_pane path
-        # (not kill_window). Rows are full FROZEN_AWARE_PANE_FORMAT records
-        # (id, pid, shadow target, monitor kind, frozen, dead, scratch
-        # target): `classify_window_panes` drops a short row, and the old
-        # 3-field rows were silently dropped — so the sibling never counted.
-        return 0, "%99\t1234\t\t\t\t0\t\n%9\t999\t\t\t\t0\t\n"
+        # (not kill_window). Rows are full FROZEN_AWARE_PANE_FORMAT records,
+        # rendered from the format itself: `classify_window_panes` drops a
+        # short row, and the old 3-field rows were silently dropped — so the
+        # sibling never counted (and a hand-counted row broke again when
+        # t2211_2 appended a field).
+        return 0, ("\t".join({"#{pane_id}": '%99', "#{pane_pid}": '1234', "#{pane_dead}": "0"}.get(s, "") for s in tm.FROZEN_AWARE_PANE_FORMAT.split("\t")) + "\n"
+                   + "\t".join({"#{pane_id}": '%9', "#{pane_pid}": '999', "#{pane_dead}": "0"}.get(s, "") for s in tm.FROZEN_AWARE_PANE_FORMAT.split("\t")) + "\n")
     killed.append(list(cmd))
     return 0, ""
 

@@ -51,25 +51,78 @@ select_window=, agent_string=)` is the one implementation. The TUIs' `S` key
 runs it through the CLI, `ait sitrep open --root <r> --session <s>`, naming the
 selected agent's (or switcher session's) session; `--session` must name an
 existing session (exact `has-session -t =<s>`), else `SITREP_REFUSED:no_session`.
-It returns `SitrepSpawn(status, pane, window, detail)` with status
-`spawned`, `focused`, `focus_failed` (a sitrep exists but switching to it failed
-— reported, never claimed as focused; `--no-select` / `select_window=False`
-reuses it without switching) or `refused`. `--root` is validated once, inside the
-Python parsers (`sitrep_cli.root_arg`: empty or a `..` segment → exit 2, every
-spelling, abbreviations disabled).
+It returns `SitrepSpawn(status, pane, window, detail, tui)` with status
+`spawned`, `added_tui`, `respawned_agent`, `focused`, `focus_failed` (a sitrep
+exists but switching to it failed — reported, never claimed as focused;
+`--no-select` / `select_window=False` reuses it without switching) or `refused`.
+`pane` is always the agent's pane; `detail` is a comma-joined warning list
+(`companion_not_spawned`, `tui_not_spawned:<why>`, `tui_moved`, `tui_not_moved`,
+`focus_failed`, `focus_not_restored`), one `SITREP_WARN:` line each. `--root` is
+validated once, inside the Python parsers (`sitrep_cli.root_arg`: empty or a `..`
+segment → exit 2, every spelling, abbreviations disabled).
 
 - **Placement.** Its own window `agent-sitrep` (`-<n>` when the session already
   holds that name; `SITREP_WINDOW_RE` in `lib/sitrep_harvest.py`), cwd = the
-  canonical root, plus a minimonitor companion
-  (`maybe_spawn_minimonitor(..., agent_pane=, explicit=True,
-  force_companion=True)`): the sitrep window always gets one, whatever
-  `tmux.minimonitor.auto_spawn` or `companion_window_prefixes` say (the
-  occupancy, pane-count and lock gates still apply). The `agent-` prefix keeps
-  it a normal agent for the monitor.
+  canonical root, holding two **roles** and a companion:
+
+  ```
+  +----------------+------+
+  | sitrep agent   | mini |
+  +----------------+ mon  |
+  | sitrep TUI 40% |      |
+  +----------------+------+
+  ```
+
+  The TUI (`ait sitrep tui --root <root>`, `monitor_core.sitrep_tui_command`) is
+  a detached `split-window -v -l 40%` under the agent; the minimonitor is
+  `maybe_spawn_minimonitor(..., agent_pane=, explicit=True,
+  force_companion=True, full_height=True)` — tmux `-f`, so it is a full-height
+  right column rather than a split of the agent's cell. The sitrep window always
+  gets one, whatever `tmux.minimonitor.auto_spawn` or
+  `companion_window_prefixes` say (the occupancy, pane-count and lock gates
+  still apply). The `agent-` prefix keeps the agent a normal agent for the
+  monitor.
+- **Four-way spawn** (`find_sitrep_roles` → `(ok, agent, tui)`, one
+  `list-panes -a` read; a TUI stamped for the root counts in ANY window):
+
+  | agent | TUI | action | status |
+  |---|---|---|---|
+  | live | live | focus the agent | `focused` / `focus_failed` |
+  | — | — | new window: agent, then the TUI (a TUI failure is a warning) | `spawned` |
+  | live | — | split the TUI under the agent | `added_tui` |
+  | — | live, agent slot empty | `split-window -v -b -l 60%` above the TUI | `respawned_agent` |
+  | — | live, slot occupied | new window with the agent; `join-pane -d` moves the TUI under it | `spawned` + `tui_moved` |
+
+  The agent slot is empty when the TUI's window holds nothing but the TUI and
+  helpers (`classify_window_panes`). A **frozen** sitrep agent is an occupant
+  (frozen first), and so are a dead pane or a user's shell: the replacement is
+  never split over them. The frozen session stays untouched in its window with
+  its companion, the one TUI moves to the new agent, and each window then lists
+  exactly one agent pane — so each window's minimonitor follows the right one.
+  A respawned agent gets the companion cleanup hook (`window_companion_pane`).
+- **Focus.** Every role split is detached (`TmuxLaunchConfig.split_detached`,
+  tmux `-d`). On `added_tui` / `respawned_agent` the window's active pane is
+  read first; with `select_window` the client then switches to the agent,
+  without it the original active pane is reselected if the companion spawn moved
+  it (`focus_not_restored` when that fails).
+- **Agent exit.** The TUI is a real sibling for the cleanup hook, so a dead
+  agent pane is removed and the TUI and minimonitor stay (the minimonitor is
+  not alone, so it does not auto-close). The next `ait sitrep` respawns the agent
+  above the TUI.
 - **Identity.** The agent pane is stamped `@aitask_sitrep_root=<canonical root>`
   (`lib/helper_panes.py` `SITREP_ROOT_OPTION`). It is **not** a helper marker and
   never joins `BOUND_HELPER_TARGET_OPTIONS`: the pane must stay in agent lists. A
   pane that cannot be stamped is removed (`_stamp_or_remove`).
+- **The TUI's two predicates.** The TUI pane is stamped
+  `@aitask_sitrep_tui_root=<canonical root>` (`SITREP_TUI_ROOT_OPTION`). It is
+  **not an agent** for anything that lists agents — discovery drops it (like a
+  scratchpad), the agent matcher skips it in both passes, the minimonitor never
+  follows it (`WindowPane.is_sitrep_tui`), and `h` refuses it at the identity
+  read (`RunIdentity.sitrep_tui_root` → `not_an_agent`, which also covers a
+  status server older than this rule). It is **a real occupant** for retention —
+  `is_helper` is unchanged, so the cleanup hook, smart kill / collapse, the freeze
+  coordinator, the companion occupancy scan and auto-close all count it. Frozen
+  first on every read (`is_sitrep_tui_pane`).
 - **One per root — the live lookup** (`find_sitrep_pane_status` /
   `match_sitrep_pane`):
   - a query that cannot be answered **refuses** (`lookup_failed`), never reads
@@ -84,9 +137,10 @@ spelling, abbreviations disabled).
     row order never decides. The fallback exists because a restore into a NEW
     window recreates the pane without custom options; a same-pane restore keeps
     the stamp.
-- **Races.** Lookup, launch and stamp run under a per-server `flock` beside the
-  tmux socket (`_sitrep_spawn_lock`, the `_companion_spawn_lock` shape), so two
-  concurrent `ait sitrep` calls leave one window. Not held → `lock_busy`. The
+- **Races.** Lookup, launches, the TUI move and both stamps run under a
+  per-server `flock` beside the tmux socket (`_sitrep_spawn_lock`, the
+  `_companion_spawn_lock` shape), so concurrent `ait sitrep` calls leave one
+  agent and one TUI per root, whatever the starting state. Not held → `lock_busy`. The
   test seam `AITASK_SITREP_SPAWN_PAUSE_FIFO` (`sitrep_harvest.spawn_test_pause`,
   point `spawn:after_lookup`) holds a spawn inside the lock, so the live test
   proves a second spawn waits rather than racing it.

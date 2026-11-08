@@ -57,13 +57,14 @@ os.environ.pop("TMUX_PANE", None)
 
 from monitor.monitor_core import TmuxMonitor  # noqa: E402
 
-#: The arity `_LIST_PANES_FORMAT` currently emits. 16 since t2073_3 appended
-#: `@aitask_scratchpad_target` to t1705_4's 15 (which had appended
+#: The arity `_LIST_PANES_FORMAT` currently emits. 17 since t2211_2 appended
+#: `@aitask_sitrep_tui_root` to t2073_3's 16 (which had appended
+#: `@aitask_scratchpad_target` to t1705_4's 15, which had appended
 #: `@aitask_frozen`, `@aitask_record`, `@aitask_standin_ready` and
 #: `#{pane_dead}` to t1686's 11). THE one literal in this file — every other
 #: expectation is derived from the format at runtime, so this is the single
 #: line to update when the format grows.
-CURRENT_ARITY = 16
+CURRENT_ARITY = 17
 
 #: Indices the helper/frozen cases below write. Looked up from the format
 #: rather than hard-coded, so a reordering fails here by name.

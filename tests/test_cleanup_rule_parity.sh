@@ -123,6 +123,8 @@ window_index_of() { "$REAL_TMUX" display-message -p -t "$1" '#{window_index}'; }
 #   frozen_scratch  `@aitask_frozen` + `@aitask_scratchpad_target=<first pane>`
 #              -> REAL agent: frozen first beats the retained helper target
 #   dead       process exited under `remain-on-exit`
+#   sitrep_tui `@aitask_sitrep_tui_root=/repo` (the sitrep TUI, t2211_2)
+#              -> REAL occupant: never a helper, so the window stays
 build_window() {
     local window="$1"; shift
     local roles=("$@")
@@ -160,6 +162,8 @@ build_window() {
                 # rung must win in job 2 AND job 1 must not kill it (t2073_3).
                 stamp "$pane" @aitask_frozen 7f3a2c1d
                 stamp "$pane" @aitask_scratchpad_target "$first" ;;
+            sitrep_tui)
+                stamp "$pane" @aitask_sitrep_tui_root /repo ;;
             dead)
                 "$REAL_TMUX" set-option -p -t "$pane" remain-on-exit on
                 "$REAL_TMUX" respawn-pane -k -t "$pane" "true"
@@ -368,6 +372,12 @@ row "agent + frozen(marked) + companion"   pane   0 agent frozen_marked companio
 # A dead pane carries no markers, so BOTH sides count it as a real sibling.
 # That is what parity means here: the rule is shared, not independently guessed.
 row "agent + dead + companion"             pane   0 agent dead companion
+
+# t2211_2: the sitrep TUI is not an agent for listings, but it IS a real
+# occupant here — the agent exiting must leave the TUI and its companion.
+row "agent + sitrep_tui + companion"       pane   0 agent sitrep_tui companion
+row "sitrep_tui + agent + companion, agent dies" \
+                                           pane   1 sitrep_tui agent companion
 
 # t1705_4 rule (a): the DYING pane is the stand-in — abstain entirely.
 row "frozen dies -> abstain"               abstain 0 frozen agent companion

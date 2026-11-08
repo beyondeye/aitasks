@@ -6,10 +6,17 @@ because it orchestrates the tmux launch stack (lib/ must not reach up into a TUI
 package: tests/test_no_lib_to_tui_import.sh). The read-only verbs `root` and
 `triage` stay in `lib/sitrep_cli.py`. Wire lines (also in `aitask_sitrep.sh`):
 
-    SITREP_SPAWNED:<pane>|<session>:<window>   (+ SITREP_WARN:companion_not_spawned)
+    SITREP_SPAWNED:<pane>|<session>:<window>          new window (agent + TUI)
+    SITREP_ADDED_TUI:<pane>|<session>:<window>        the TUI was missing; added
+    SITREP_RESPAWNED_AGENT:<pane>|<session>:<window>  the agent was missing; respawned
     SITREP_FOCUSED:<pane>
+    SITREP_WARN:<item>                         0+ lines after an exit-0 line, e.g.
+                                               companion_not_spawned, tui_moved,
+                                               tui_not_spawned:<why>, focus_failed
     SITREP_FOCUS_FAILED:<pane>                 exit 1 (it exists; switching failed)
     SITREP_REFUSED:<reason>                    exit 1
+
+`<pane>` is always the sitrep AGENT's pane (t2211_2).
 
 Needs tmux; the new window goes into the session holding $TMUX_PANE, or into
 `--session <name>` when the caller names one (the monitor, minimonitor and TUI
@@ -48,6 +55,14 @@ def session_arg(value: str) -> str:
     return value
 
 
+#: `spawn_sitrep` statuses that changed the window, and their wire line head.
+_OPENED = {
+    "spawned": "SITREP_SPAWNED",
+    "added_tui": "SITREP_ADDED_TUI",
+    "respawned_agent": "SITREP_RESPAWNED_AGENT",
+}
+
+
 class _Gateway:
     """The `monitor.tmux_run` duck type over the tmux gateway (`lib/tmux_exec`)."""
 
@@ -84,10 +99,11 @@ def main(argv=None) -> int:
     res = monitor_core.spawn_sitrep(
         gateway, target_root=os.path.abspath(args.root), session=session,
         select_window=not args.no_select, agent_string=args.agent_string)
-    if res.status == "spawned":
-        print(f"SITREP_SPAWNED:{res.pane}|{res.window}")
-        if res.detail:
-            print(f"SITREP_WARN:{res.detail}")
+    head = _OPENED.get(res.status)
+    if head:
+        print(f"{head}:{res.pane}|{res.window}")
+        for item in (res.detail.split(",") if res.detail else ()):
+            print(f"SITREP_WARN:{item}")
         return 0
     if res.status == "focused":
         print(f"SITREP_FOCUSED:{res.pane}")

@@ -64,6 +64,17 @@ if _BASELINE:
 SESSION = "aitasks"
 
 
+def fa_row(pane_id: str, pid: int, *, shadow: str = "") -> str:
+    """One `FROZEN_AWARE_PANE_FORMAT` record, rendered field by field from the
+    format (every other field empty, `#{pane_dead}` "0"), so a field appended to
+    the format cannot silently shift these rows out of the classifier's arity
+    guard (t2211_2 appended the sitrep TUI stamp)."""
+    values = {"#{pane_id}": pane_id, "#{pane_pid}": str(pid), "#{pane_dead}": "0",
+              f"#{{{mc.SHADOW_TARGET_OPTION}}}": shadow}
+    return "\t".join(values.get(spec, "")
+                     for spec in mm.FROZEN_AWARE_PANE_FORMAT.split("\t")) + "\n"
+
+
 def snap(pane_id: str, window_index: str, window_name: str, *,
          pane_index: str = "0",
          category: PaneCategory = PaneCategory.AGENT) -> PaneSnapshot:
@@ -107,8 +118,8 @@ class _Tmux:
             if target not in members and target != wid:
                 return 1, ""
             if fmt == mm.FROZEN_AWARE_PANE_FORMAT:
-                # id, pid, shadow, kind, frozen, dead, scratch — all plain.
-                return 0, "".join(f"{p}\t4000\t\t\t\t0\t\n" for p in members)
+                # Every pane plain: no helper, frozen or TUI marker.
+                return 0, "".join(fa_row(p, 4000) for p in members)
             fields = {"#{pane_id}": None, "#{window_id}": wid,
                       "#{window_index}": widx, "#{window_name}": wname}
             rows = []
@@ -318,7 +329,7 @@ class UnconfirmedIdentityTests(unittest.TestCase):
         # A listing that answers but does not contain %10: not OUR window.
         app._monitor.window = ("@5", "11", "agent-pick-1981_3", ["%9"])
         app._monitor.tmux_run = lambda args, timeout=None: (
-            0, "%9\t4000\t\t\t\t0\t\n")
+            0, fa_row("%9", 4000))
         self.assertEqual(press_enter(app), [])
         self.assertIn("Own window not confirmed", app.notes)
 
@@ -492,9 +503,9 @@ class CollapseDecisionRenumberTests(unittest.TestCase):
             if args[0] == "list-panes":
                 target = args[args.index("-t") + 1]
                 if target == "%7":                 # its real window, now
-                    return 0, "%7\t1\t\t\t\t0\t\n%8\t2\t\t\t\t0\t\n"
+                    return 0, fa_row("%7", 1) + fa_row("%8", 2)
                 if target == "=s1:4":              # the neighbour, post-renumber
-                    return 0, "%50\t3\t%51\t\t\t0\t\n"
+                    return 0, fa_row("%50", 3, shadow="%51")
                 return 1, ""
             return 0, ""
 

@@ -73,6 +73,23 @@ SCRATCHPAD_STORE_OPTION = "@aitask_scratchpad_store"
 #: lists, so it is deliberately absent from the tuple below.
 SITREP_ROOT_OPTION = "@aitask_sitrep_root"
 
+#: The canonical absolute project root the sitrep TUI pane serves (t2211_2).
+#: Set by `monitor_core.spawn_sitrep` on the `ait sitrep tui` pane beside the
+#: sitrep agent; the one-TUI-per-root lookup reads it. The pane sits between the
+#: two classes above, so it has its own predicate (:func:`is_sitrep_tui_pane`):
+#:
+#: * it is NOT an agent for anything that LISTS agents — discovery, the sitrep
+#:   agent matcher's name+cwd fallback, the minimonitor's sibling to follow, the
+#:   `h` harvest target — although its window is `agent-sitrep` and its cwd is
+#:   the root;
+#: * it IS a real occupant for anything that decides whether a window still
+#:   holds one — the companion cleanup hook, smart kill / collapse, the freeze
+#:   coordinator, the companion occupancy scan, the minimonitor's auto-close.
+#:
+#: So it is deliberately NOT in `BOUND_HELPER_TARGET_OPTIONS`: joining it would
+#: make the retention rule collapse the window under a live TUI.
+SITREP_TUI_ROOT_OPTION = "@aitask_sitrep_tui_root"
+
 #: Every pane option whose non-empty value marks a pane as a bound helper. The
 #: ORDER is the field order of every format built from it; the tuple is closed —
 #: add a kind here, never a parallel list elsewhere.
@@ -87,6 +104,17 @@ def is_bound_helper(*targets: str) -> bool:
     Does NOT consult the frozen marker — callers apply frozen precedence first.
     """
     return any(t.strip() for t in targets)
+
+
+def is_sitrep_tui_pane(frozen: str, tui_root: str) -> bool:
+    """True when already-read values mark a pane as the sitrep TUI (t2211_2).
+
+    Frozen FIRST, like every helper rule: a `@aitask_frozen` stand-in is a
+    frozen agent, whatever `@aitask_sitrep_tui_root` its pane retained. The
+    listing consumers skip such a pane; the retention rule never consults this
+    (see :data:`SITREP_TUI_ROOT_OPTION`).
+    """
+    return not frozen.strip() and bool(tui_root.strip())
 
 
 # --- the direct-kill sweep (t2088) -------------------------------------------

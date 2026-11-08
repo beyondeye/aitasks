@@ -278,8 +278,9 @@ def _real_tmux(args, timeout=5.0):
     if args[0] == "list-panes":
         # `%2` alone in its window (no other agent). The listing must name the
         # pane itself, or the collapse decision is undecidable (t2227).
-        # FROZEN_AWARE_PANE_FORMAT: id, pid, shadow, kind, frozen, dead, scratch.
-        return (0, "%2\t1\t\t\t\t0\t\n")
+        # Rendered from FROZEN_AWARE_PANE_FORMAT itself, so an appended field
+        # cannot drop the row (t2211_2).
+        return (0, "\t".join({"#{pane_id}": '%2', "#{pane_pid}": '1', "#{pane_dead}": "0"}.get(s, "") for s in mc.FROZEN_AWARE_PANE_FORMAT.split("\t")) + "\n")
     return (0, "")   # empty option
 real.tmux_run = _real_tmux
 real._drop_session_record = lambda rid: real_dropped.append(rid) or True

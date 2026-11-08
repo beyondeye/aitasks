@@ -81,6 +81,16 @@ def root_arg(value: str) -> str:
     return value
 
 
+#: The exit-0 `open` wire lines and their toast wording (t2211_2 added the two
+#: repair outcomes of the agent + TUI window).
+_OPEN_SUCCESS = {
+    "SITREP_SPAWNED": "Sitrep window opened",
+    "SITREP_FOCUSED": "Switched to the sitrep window",
+    "SITREP_ADDED_TUI": "Sitrep TUI added to the sitrep window",
+    "SITREP_RESPAWNED_AGENT": "Sitrep agent restarted beside its TUI",
+}
+
+
 def sitrep_open_message(rc: int, out: str) -> "tuple[str, str]":
     """``(message, severity)`` for `aitask_sitrep.sh open` output (t2175_5).
 
@@ -88,13 +98,12 @@ def sitrep_open_message(rc: int, out: str) -> "tuple[str, str]":
     monitor and minimonitor `S` key and the TUI switcher's `S` quick-jump.
     """
     lines = [ln.strip() for ln in out.splitlines() if ln.strip()]
-    warn = next((ln.partition(":")[2] for ln in lines
-                 if ln.startswith("SITREP_WARN:")), "")
+    warn = ", ".join(ln.partition(":")[2] for ln in lines
+                     if ln.startswith("SITREP_WARN:"))
     for ln in lines:
         head, _, rest = ln.partition(":")
-        if head in ("SITREP_SPAWNED", "SITREP_FOCUSED"):
-            msg = ("Sitrep window opened" if head == "SITREP_SPAWNED"
-                   else "Switched to the sitrep window")
+        if head in _OPEN_SUCCESS:
+            msg = _OPEN_SUCCESS[head]
             if warn:
                 return f"{msg} ({warn})", "warning"
             return msg, "information"

@@ -54,6 +54,7 @@ from agent_launch_utils import (  # noqa: E402
     tmux_session_scope_target,
     tmux_window_target,
     unique_window_name,
+    window_companion_pane,
     # The one bounded-flock primitive (`_companion_spawn_lock`'s), reused by the
     # sitrep spawn lock rather than re-implemented (t2175_4).
     _flock_until,
@@ -73,9 +74,11 @@ from helper_panes import (  # noqa: E402,F401  (re-export)
     SCRATCHPAD_TARGET_OPTION,
     SHADOW_TARGET_OPTION,
     SITREP_ROOT_OPTION,
+    SITREP_TUI_ROOT_OPTION,
     bound_helper_sweep_format,
     helpers_bound_to,
     is_bound_helper,
+    is_sitrep_tui_pane,
     kill_bound_helpers,
     READBACK_FORMAT,
     readback_state,
@@ -1103,13 +1106,16 @@ def combine_staleness(read: bool | None, block: BlockAge) -> bool | None:
 #: `classify_window_panes` and nowhere else. Keep the two in step.
 #:
 #: The scratchpad target (t2073_3) is APPENDED, so the shadow field keeps its
-#: index. Both are bound-helper targets (`lib/helper_panes.py`).
+#: index. Both are bound-helper targets (`lib/helper_panes.py`). The sitrep TUI
+#: stamp (t2211_2) is APPENDED after it for the same reason; it is NOT a helper
+#: marker — it feeds `WindowPane.is_sitrep_tui`, which only the agent-LISTING
+#: callers read.
 FROZEN_AWARE_PANE_FORMAT = "\t".join([
     "#{pane_id}", "#{pane_pid}", f"#{{{SHADOW_TARGET_OPTION}}}",
     f"#{{{MONITOR_KIND_OPTION}}}", f"#{{{FROZEN_OPTION}}}", "#{pane_dead}",
-    f"#{{{SCRATCHPAD_TARGET_OPTION}}}",
+    f"#{{{SCRATCHPAD_TARGET_OPTION}}}", f"#{{{SITREP_TUI_ROOT_OPTION}}}",
 ])
-_FROZEN_AWARE_ARITY = 7
+_FROZEN_AWARE_ARITY = 8
 
 
 @dataclass
@@ -1121,8 +1127,12 @@ class WindowPane:
     frozen_record: str
     dead: bool
     #: True when this pane does NOT keep the window alive (companion, or a bound
-    #: helper: shadow / scratchpad).
+    #: helper: shadow / scratchpad). The retention rule.
     is_helper: bool
+    #: True for the sitrep TUI pane (t2211_2, frozen first). It keeps the window
+    #: alive (`is_helper` is False) but is never an agent: callers that pick an
+    #: agent out of a window skip it; callers that count occupants must not.
+    is_sitrep_tui: bool = False
 
 
 def pane_is_helper(frozen: str, shadow_target: str, monitor_kind: str,
@@ -1180,7 +1190,7 @@ def classify_window_panes(stdout: str) -> list[WindowPane]:
         if len(parts) != _FROZEN_AWARE_ARITY:
             continue
         (pane_id, pid_str, shadow_target, monitor_kind, frozen, dead,
-         scratch_target) = parts
+         scratch_target, tui_root) = parts
         try:
             pid = int(pid_str)
         except ValueError:
@@ -1190,6 +1200,7 @@ def classify_window_panes(stdout: str) -> list[WindowPane]:
         panes.append(WindowPane(
             pane_id=pane_id, pane_pid=pid, frozen_record=frozen.strip(),
             dead=dead.strip() == "1", is_helper=is_helper,
+            is_sitrep_tui=is_sitrep_tui_pane(frozen, tui_root),
         ))
     return panes
 
@@ -2821,9 +2832,13 @@ class TmuxMonitor:
         # Scratchpad bound-helper target (t2073_3); "" when unset. APPENDED for
         # the same reason as every field above it.
         f"#{{{SCRATCHPAD_TARGET_OPTION}}}",
+        # Sitrep TUI stamp (t2211_2); "" when unset. APPENDED likewise. Not a
+        # helper marker: the pane is dropped from discovery, never routed.
+        f"#{{{SITREP_TUI_ROOT_OPTION}}}",
     ])
 
-    #: Accepted `list-panes` record arities. 16 = current (t2073_3 scratchpad
+    #: Accepted `list-panes` record arities. 17 = current (t2211_2 sitrep TUI
+    #: stamp); 16 = pre-TUI (t2073_3 scratchpad
     #: target); 15 = pre-scratchpad (t1705_4's four frozen fields); 11 =
     #: pre-frozen (t1686 marker); 10 = pre-marker; 9 = pre-`history_size`
     #: (t1159_2). The set is CLOSED on purpose: an unexpected
@@ -2835,7 +2850,7 @@ class TmuxMonitor:
     #: one: every record parses to a rejected arity, discovery returns nothing,
     #: and monitor / minimonitor / board show no agents at all rather than
     #: erroring. Pinned by `test_list_panes_arity_characterization.py`.
-    _LIST_PANES_ARITIES = (9, 10, 11, 15, 16)
+    _LIST_PANES_ARITIES = (9, 10, 11, 15, 16, 17)
 
     def _parse_list_panes(
         self, stdout: str, session_name: str
@@ -2856,7 +2871,9 @@ class TmuxMonitor:
         Scratchpad panes (t2073_3) are the other bound helper and are dropped
         ENTIRELY — returned in neither list. Routing them into ``shadows`` would
         make ``commit_snapshots`` treat them as the bound agent's shadow, where
-        they would compete with the real one.
+        they would compete with the real one. The sitrep TUI pane (t2211_2) is
+        dropped the same way: it is not a helper, but it is not an agent either,
+        and its `agent-sitrep` window would otherwise list it as one.
 
         **Frozen precedence (t2073_3).** None of the helper branches — the
         scratchpad drop, the shadow routing, the companion filter — fires on a
@@ -2904,10 +2921,14 @@ class TmuxMonitor:
             pane_dead = (parts[14].strip() == "1") if len(parts) > 14 else False
             # "" on a pre-t2073_3 record, and on every pane that is not a pad.
             scratch_target = parts[15].strip() if len(parts) > 15 else ""
+            # "" on a pre-t2211_2 record, and on every pane that is not the TUI.
+            tui_root = parts[16] if len(parts) > 16 else ""
             window_name = parts[1]
             seen.add(pane_id)
             # Frozen first: a stand-in is never a helper (see the docstring).
             is_frozen = bool(frozen_record)
+            if is_sitrep_tui_pane(frozen_record, tui_root):
+                continue    # the sitrep TUI: never an agent card (t2211_2)
             if not is_frozen and scratch_target:
                 continue    # scratchpad helper: dropped, NEVER routed to `shadows`
             if not is_frozen and is_shadow_target(parts[8]):
@@ -4953,20 +4974,23 @@ def spawn_scratchpad(
     return pad
 
 
-# -- Sitrep window (t2175_4) ---------------------------------------------------
+# -- Sitrep window (t2175_4, two roles since t2211_2) -------------------------
 #
-# One sitrep agent per repository, in its OWN window (`agent-sitrep`) with a
-# minimonitor companion — not a split beside another agent like the shadow. The
-# agent pane carries `@aitask_sitrep_root` = the canonical project root; that
-# stamp is the authoritative identity. The lookup that guards against a second
-# spawn follows the shadow/scratchpad rules (aidocs/framework/sitrep.md):
+# One sitrep agent AND one sitrep TUI per repository, in their OWN window
+# (`agent-sitrep`) with a full-height minimonitor companion — not a split beside
+# another agent like the shadow. The agent pane carries `@aitask_sitrep_root`,
+# the TUI pane `@aitask_sitrep_tui_root`, both = the canonical project root;
+# those stamps are the authoritative identities. The lookup that guards against
+# a second spawn follows the shadow/scratchpad rules (aidocs/framework/sitrep.md):
 # refuse on an unverifiable query, skip frozen and dead panes, skip helper panes
-# by the shared `pane_is_helper` rule, and match the stamp before the name+cwd
-# fallback (a restore into a new window recreates the pane without the stamp).
+# by the shared `pane_is_helper` rule, never take the TUI for the agent, and
+# match the stamp before the name+cwd fallback (a restore into a new window
+# recreates the pane without the stamp).
 
-#: :data:`FROZEN_AWARE_PANE_FORMAT`'s fields, then the sitrep stamp, the window
-#: name and the pane's cwd. The cwd is LAST: the matcher splits off a fixed
-#: number of fields and keeps the remainder whole, so a tab in a path is data.
+#: :data:`FROZEN_AWARE_PANE_FORMAT`'s fields (the TUI stamp among them), then the
+#: agent stamp, the window name and the pane's cwd. The cwd is LAST: the matcher
+#: splits off a fixed number of fields and keeps the remainder whole, so a tab in
+#: a path is data.
 SITREP_PANE_FORMAT = "\t".join([
     FROZEN_AWARE_PANE_FORMAT, f"#{{{SITREP_ROOT_OPTION}}}", "#{window_name}",
     "#{pane_current_path}",
@@ -4976,26 +5000,65 @@ _SITREP_PANE_ID_RE = re.compile(r"%[0-9]+")
 _SITREP_LOCK_SUFFIX = ".aitask-sitrep-spawn.lock"
 #: How long a spawn waits for another spawn on the same tmux server.
 SITREP_LOCK_TIMEOUT = 5.0
+#: The TUI's share of the agent column, and the agent's when it is respawned
+#: above a surviving TUI (measured: both orders give the same rows, t2211_2).
+SITREP_TUI_SIZE = "40%"
+SITREP_AGENT_SIZE = "60%"
+#: One `display-message` read of where a pane lives.
+_SITREP_PLACE_FORMAT = "#{session_name}\t#{window_id}\t#{window_index}\t#{window_name}"
 
 
 class SitrepSpawn(NamedTuple):
     """The outcome of :func:`spawn_sitrep`."""
 
-    #: ``spawned`` | ``focused`` | ``focus_failed`` (a sitrep exists, but
-    #: switching to it failed) | ``refused``.
+    #: ``spawned`` (a new window) | ``added_tui`` (the agent was live, its TUI
+    #: was added) | ``respawned_agent`` (the TUI was live, the agent was
+    #: respawned above it) | ``focused`` | ``focus_failed`` (both exist, but
+    #: switching failed) | ``refused``.
     status: str
-    #: The sitrep agent's pane id (``None`` when refused).
+    #: The sitrep AGENT's pane id, on every status (``None`` when refused).
     pane: str | None
-    #: The window the pane lives in, ``<session>:<window>`` when spawned.
+    #: The window the agent lives in, ``<session>:<window>``, when the spawn
+    #: changed it.
     window: str
     #: Refusal reason (``lookup_failed``, ``lock_busy``, ``root:<why>`` …) or,
-    #: for ``spawned``, ``companion_not_spawned`` / empty.
+    #: otherwise, a comma-joined warning list (``companion_not_spawned``,
+    #: ``tui_not_spawned:<why>``, ``tui_moved``, ``tui_not_moved``,
+    #: ``focus_failed``, ``focus_not_restored``) — empty when clean.
     detail: str
+    #: The sitrep TUI's pane id, when one is known to exist.
+    tui: str | None = None
+
+
+class _SitrepRow(NamedTuple):
+    pane_id: str
+    pid: int
+    shadow: str
+    monitor_kind: str
+    frozen: str
+    dead: str
+    scratch: str
+    tui_root: str
+    stamp: str
+    window: str
+    cwd: str
+
+
+class _SitrepPlace(NamedTuple):
+    session: str
+    window_id: str
+    window_index: str
+    window_name: str
 
 
 def sitrep_query_args() -> list[str]:
     """tmux argv listing every pane's :data:`SITREP_PANE_FORMAT` row."""
     return ["list-panes", "-a", "-F", SITREP_PANE_FORMAT]
+
+
+def sitrep_tui_command(root: str) -> str:
+    """The sitrep TUI pane's command (patchable, like `resolve_dry_run_command`)."""
+    return f"ait sitrep tui --root {shlex.quote(root)}"
 
 
 def _sitrep_canon(path: str) -> str | None:
@@ -5007,29 +5070,15 @@ def _sitrep_canon(path: str) -> str | None:
         return None
 
 
-def match_sitrep_pane(out: str, root: str,
-                      canon: Callable[[str], str | None],
-                      is_helper: Callable[..., bool] | None = None) -> str | None:
-    """The sitrep agent pane serving ``root`` in a ``sitrep_query_args`` listing.
-
-    Pure: ``canon`` (path -> canonical root) and ``is_helper`` are injected.
-    Rows that are frozen, dead or helpers never match — the sitrep window holds
-    its own minimonitor companion (same window, same cwd, no stamp), which must
-    never pass for the agent, also when the agent beside it is frozen. Then two
-    passes, so row order never decides: a pane stamped for ``root`` wins over
-    any name+cwd fallback candidate (an unstamped pane in a sitrep-named window
-    whose cwd maps to ``root``).
-    """
-    from sitrep_harvest import is_sitrep_window
-    helper = is_helper or pane_is_helper
-    fallback: str | None = None
+def _sitrep_rows(out: str):
+    """The well-formed rows of a ``sitrep_query_args`` listing."""
     for line in out.splitlines():
         if not line.strip():
             continue
         parts = line.split("\t", _SITREP_SPLIT)
         if len(parts) != _SITREP_SPLIT + 1:
             continue
-        (pane_id, pid_str, shadow, monitor_kind, frozen, dead, scratch,
+        (pane_id, pid_str, shadow, monitor_kind, frozen, dead, scratch, tui_root,
          stamp, window, cwd) = parts
         pane_id = pane_id.strip()
         if not _SITREP_PANE_ID_RE.fullmatch(pane_id):
@@ -5038,35 +5087,82 @@ def match_sitrep_pane(out: str, root: str,
             pid = int(pid_str)
         except ValueError:
             continue
-        if frozen.strip() or dead.strip() == "1":
+        yield _SitrepRow(pane_id, pid, shadow, monitor_kind, frozen, dead,
+                         scratch, tui_root, stamp, window, cwd)
+
+
+def match_sitrep_pane(out: str, root: str,
+                      canon: Callable[[str], str | None],
+                      is_helper: Callable[..., bool] | None = None) -> str | None:
+    """The sitrep agent pane serving ``root`` in a ``sitrep_query_args`` listing.
+
+    Pure: ``canon`` (path -> canonical root) and ``is_helper`` are injected.
+    Rows that are frozen, dead, helpers or the sitrep TUI never match — the
+    sitrep window holds its own minimonitor companion and its TUI (same window,
+    same cwd, no agent stamp), neither of which may pass for the agent, also
+    when the agent beside them is frozen or gone. Then two passes, so row order
+    never decides: a pane stamped for ``root`` wins over any name+cwd fallback
+    candidate (an unstamped pane in a sitrep-named window whose cwd maps to
+    ``root``).
+    """
+    from sitrep_harvest import is_sitrep_window
+    helper = is_helper or pane_is_helper
+    fallback: str | None = None
+    for row in _sitrep_rows(out):
+        if row.frozen.strip() or row.dead.strip() == "1":
             continue
-        if helper(frozen, shadow, monitor_kind, scratch, pid):
+        if is_sitrep_tui_pane(row.frozen, row.tui_root):
             continue
-        stamp = stamp.strip()
+        if helper(row.frozen, row.shadow, row.monitor_kind, row.scratch, row.pid):
+            continue
+        stamp = row.stamp.strip()
         if stamp:
             if stamp == root:
-                return pane_id
+                return row.pane_id
             continue
-        if fallback is None and is_sitrep_window(window.strip()) and cwd \
-                and canon(cwd) == root:
-            fallback = pane_id
+        if fallback is None and is_sitrep_window(row.window.strip()) and row.cwd \
+                and canon(row.cwd) == root:
+            fallback = row.pane_id
     return fallback
+
+
+def match_sitrep_tui_pane(out: str, root: str) -> str | None:
+    """The live sitrep TUI pane serving ``root`` — by its stamp only, any window.
+
+    Pure. Frozen and dead panes never match. No name or cwd fallback: an
+    unstamped TUI is not one this repository can prove it owns.
+    """
+    for row in _sitrep_rows(out):
+        if row.frozen.strip() or row.dead.strip() == "1":
+            continue
+        if row.tui_root.strip() == root:
+            return row.pane_id
+    return None
+
+
+def find_sitrep_roles(monitor, root: str, canon=None
+                      ) -> tuple[bool, str | None, str | None]:
+    """Live role lookup for a sitrep spawn: ``(ok, agent_pane, tui_pane)``.
+
+    ONE ``list-panes -a`` read. ``ok`` is False when the query could not be
+    answered — a create decision must refuse then, never read it as "no
+    sitrep" (the :func:`find_shadow_pane_status` rule). Duck-typed on
+    ``tmux_run`` only.
+    """
+    if monitor is None:
+        return False, None, None
+    rc, out = monitor.tmux_run(sitrep_query_args(), timeout=2)
+    if rc != 0:
+        return False, None, None
+    return (True, match_sitrep_pane(out, root, canon or _sitrep_canon),
+            match_sitrep_tui_pane(out, root))
 
 
 def find_sitrep_pane_status(monitor, root: str, canon=None
                             ) -> tuple[bool, str | None]:
-    """Live duplicate lookup for a sitrep spawn: ``(ok, pane)``.
-
-    ``ok`` is False when the query could not be answered — a create decision
-    must refuse then, never read it as "no sitrep" (the
-    :func:`find_shadow_pane_status` rule). Duck-typed on ``tmux_run`` only.
-    """
-    if monitor is None:
-        return False, None
-    rc, out = monitor.tmux_run(sitrep_query_args(), timeout=2)
-    if rc != 0:
-        return False, None
-    return True, match_sitrep_pane(out, root, canon or _sitrep_canon)
+    """The agent half of :func:`find_sitrep_roles`: ``(ok, agent_pane)``."""
+    ok, agent, _tui = find_sitrep_roles(monitor, root, canon)
+    return ok, agent
 
 
 @contextlib.contextmanager
@@ -5074,10 +5170,11 @@ def _sitrep_spawn_lock(monitor, session: str, timeout: float):
     """Serialize sitrep lookup -> launch -> stamp on one tmux server.
 
     Yields held: bool. Inside it, a second spawn re-reads AFTER the first one
-    stamped its pane, so two concurrent `ait sitrep` calls leave one window. One
-    lock file per server beside its socket, the `_companion_spawn_lock` shape
-    (never deleted; a dead holder's flock is dropped by the kernel). FAILS
-    CLOSED: no socket path, an unopenable file or the deadline -> False.
+    stamped its panes, so concurrent `ait sitrep` calls leave one agent and one
+    TUI per root. One lock file per server beside its socket, the
+    `_companion_spawn_lock` shape (never deleted; a dead holder's flock is
+    dropped by the kernel). FAILS CLOSED: no socket path, an unopenable file or
+    the deadline -> False.
     """
     rc, out = monitor.tmux_run(
         ["display-message", "-p", "-t", tmux_session_scope_target(session),
@@ -5104,80 +5201,274 @@ def _sitrep_spawn_lock(monitor, session: str, timeout: float):
         os.close(fd)
 
 
+def _sitrep_place(monitor, pane: str) -> "_SitrepPlace | None":
+    """Where ``pane`` lives now, or None when that cannot be read in full."""
+    rc, out = monitor.tmux_run(
+        ["display-message", "-p", "-t", pane, _SITREP_PLACE_FORMAT])
+    if rc != 0:
+        return None
+    parts = [f.strip() for f in (out.splitlines() or [""])[0].split("\t")]
+    if len(parts) != 4 or not all(parts):
+        return None
+    return _SitrepPlace(*parts)
+
+
+def _sitrep_active_pane(monitor, window_id: str) -> str | None:
+    """The active pane of window ``window_id``, or None when unreadable."""
+    if not window_id:
+        return None
+    rc, out = monitor.tmux_run(
+        ["display-message", "-p", "-t", window_id, "#{pane_id}"])
+    pane = out.strip() if rc == 0 else ""
+    return pane if _SITREP_PANE_ID_RE.fullmatch(pane) else None
+
+
+def _sitrep_pane_window(monitor, pane: str) -> str | None:
+    """The id of the window ``pane`` is in NOW, or None when unreadable/gone."""
+    rc, out = monitor.tmux_run(
+        ["display-message", "-p", "-t", pane, "#{pane_id}\t#{window_id}"])
+    if rc != 0:
+        return None
+    found, _, window_id = (out.splitlines() or [""])[0].partition("\t")
+    window_id = window_id.strip()
+    return window_id if found.strip() == pane and window_id.startswith("@") else None
+
+
+def _sitrep_split_role(monitor, command: str, anchor: str, place: _SitrepPlace,
+                       *, before: bool, size: str, root: str, option: str
+                       ) -> tuple[str | None, str]:
+    """Split one sitrep role beside ``anchor`` and stamp it: ``(pane, why)``.
+
+    Vertical, DETACHED (tmux ``-d``: the new pane never becomes the window's
+    active pane), cwd = root. A pane that cannot be stamped is removed
+    (:func:`_stamp_or_remove`) — an unstamped role would evade the lookup.
+    ``why`` is empty on success, else ``launch:<err>`` / ``launch:exited`` /
+    ``launch:unclassified`` / ``stamp:<outcome>``.
+    """
+    cfg = TmuxLaunchConfig(
+        session=place.session, window=place.window_name, new_session=False,
+        new_window=False, split_direction="vertical", split_before=before,
+        split_size=size, split_target_pane=anchor, cwd=root,
+        select_window=False, split_detached=True)
+    pane, pid, err = launch_split_pane(command, cfg)
+    if err:
+        return None, f"launch:{err}"
+    if not pane:
+        state, pane = _recover_launched_pane(monitor, pid)
+        if state == "exited":
+            return None, "launch:exited"
+        if state != "found" or not pane:
+            return None, "launch:unclassified"
+    outcome = _stamp_or_remove(monitor, pane, option, root)
+    if outcome != "ok":
+        return None, f"stamp:{outcome}"
+    return pane, ""
+
+
+def _sitrep_agent_slot_occupied(monitor, tui: str) -> bool | None:
+    """Does the TUI's window hold anything but the TUI and helpers?
+
+    An occupant — a FROZEN sitrep agent (frozen first: never a helper), a dead
+    pane, a user's shell — means a respawn must not be split over it. None when
+    the window cannot be listed, or the listing does not contain the TUI.
+    """
+    rc, out = monitor.tmux_run(
+        ["list-panes", "-t", tui, "-F", FROZEN_AWARE_PANE_FORMAT])
+    if rc != 0:
+        return None
+    panes = classify_window_panes(out)
+    if not any(p.pane_id == tui for p in panes):
+        return None
+    return any(p.pane_id != tui and not p.is_helper and not p.is_sitrep_tui
+               for p in panes)
+
+
+def _sitrep_launch_agent_window(monitor, root: str, session: str,
+                                select_window: bool, agent_string: str | None
+                                ) -> tuple[str | None, str, str]:
+    """The agent in a new `agent-sitrep[-n]` window: ``(pane, window, why)``."""
+    full_cmd = resolve_dry_run_command(Path(root), "sitrep",
+                                       agent_string=agent_string)
+    if not full_cmd:
+        return None, "", "no_command"
+    rc, out = monitor.tmux_run(
+        ["list-windows", "-t", tmux_session_scope_target(session),
+         "-F", "#{window_name}"])
+    if rc != 0:
+        return None, "", "window_list_failed"
+    from sitrep_harvest import SITREP_WINDOW_BASE
+    names = {line.strip() for line in out.splitlines() if line.strip()}
+    window = unique_window_name(names, SITREP_WINDOW_BASE)
+    cfg = TmuxLaunchConfig(session=session, window=window,
+                           new_session=False, new_window=True,
+                           cwd=root, select_window=select_window)
+    pane, pid, err = launch_window_pane(full_cmd, cfg)
+    if err:
+        return None, "", f"launch:{err}"
+    if not pane:
+        state, pane = _recover_launched_pane(monitor, pid)
+        if state == "exited":
+            return None, "", "launch:exited"
+        if state != "found" or not pane:
+            return None, "", "launch:unclassified"
+    outcome = _stamp_or_remove(monitor, pane, SITREP_ROOT_OPTION, root)
+    if outcome != "ok":
+        return None, "", f"stamp:{outcome}"
+    return pane, window, ""
+
+
 def spawn_sitrep(monitor, *, target_root, session: str, select_window: bool,
                  agent_string: str | None = None,
                  lock_timeout: float | None = None) -> SitrepSpawn:
-    """Focus the repository's sitrep agent, or launch it in its own window.
+    """Focus the repository's sitrep window, or create / repair it.
 
     ``target_root`` may be any path in the repository: it is mapped to the main
     worktree (`sitrep_harvest.canonical_root`), the one store's root. Under the
-    per-server lock: the live lookup (refuse when it cannot be answered), then
-    focus an existing pane, or launch `agent-sitrep` (``-<n>`` when the session
-    already holds that name) with cwd = root, stamp `@aitask_sitrep_root` (a pane
-    that cannot be stamped is removed — an unstamped one would evade the
-    lookup), and finally add the minimonitor companion. The companion is
-    ``explicit`` and ``force_companion``: the sitrep window always gets one,
-    whatever the auto-spawn setting or the configured companion window prefixes.
+    per-server lock, the live role lookup (refuse when it cannot be answered),
+    then one of (aidocs/framework/sitrep.md "The sitrep window"):
+
+    * agent and TUI live -> focus the agent;
+    * neither -> a new `agent-sitrep[-n]` window, cwd = root: the agent, then
+      the TUI split under it (a TUI that fails is a warning, the agent stands);
+    * agent only -> the TUI split under it (``added_tui``);
+    * TUI only, its window otherwise empty -> the agent split above it
+      (``respawned_agent``);
+    * TUI only, its window holding an occupant (a frozen agent, a dead pane, a
+      shell) -> a new window with the agent, and the TUI MOVED under it
+      (``join-pane -d``) — never a split over the frozen session, never a
+      second TUI.
+
+    Every new pane is stamped; one that cannot be is removed. Outside the lock,
+    the minimonitor companion — ``explicit``, ``force_companion`` and
+    ``full_height``: the sitrep window always gets one, as a full-height right
+    column, whatever the auto-spawn setting or the configured companion window
+    prefixes. Repairs keep the user's focus: role splits are detached, and
+    without ``select_window`` the window's active pane is restored if the
+    companion spawn moved it.
 
     **Never reads ``TMUX_PANE``** — the caller names the session. Duck-typed on
     ``monitor.tmux_run``.
     """
-    from sitrep_harvest import (SITREP_WINDOW_BASE, HarvestFailure,
-                                canonical_root, spawn_test_pause)
+    from sitrep_harvest import HarvestFailure, canonical_root, spawn_test_pause
     try:
         root, _ = canonical_root(str(target_root))
     except HarvestFailure as e:
         return SitrepSpawn("refused", None, "", f"root:{e}")
     wait = SITREP_LOCK_TIMEOUT if lock_timeout is None else lock_timeout
+    warns: list[str] = []
+    place: _SitrepPlace | None = None
+    original_active: str | None = None
     with _sitrep_spawn_lock(monitor, session, wait) as held:
         if not held:
             return SitrepSpawn("refused", None, "", "lock_busy")
-        ok, existing = find_sitrep_pane_status(monitor, root)
+        ok, agent, tui = find_sitrep_roles(monitor, root)
         if not ok:
             return SitrepSpawn("refused", None, "", "lookup_failed")
-        if existing:
+        if agent and tui:
             # A pane can vanish between the lookup and the switch, and the
             # selection itself can fail: report it rather than claim the focus.
             # --no-select (select_window False) reuses the pane without moving.
-            if select_window and not switch_to_pane_anywhere(existing):
-                return SitrepSpawn("focus_failed", existing, "", "focus_failed")
-            return SitrepSpawn("focused", existing, "", "")
+            if select_window and not switch_to_pane_anywhere(agent):
+                return SitrepSpawn("focus_failed", agent, "", "focus_failed", tui)
+            return SitrepSpawn("focused", agent, "", "", tui)
+        occupied = False
+        if tui and not agent:
+            occupied = _sitrep_agent_slot_occupied(monitor, tui)
+            if occupied is None:
+                return SitrepSpawn("refused", None, "", "lookup_failed")
         # Test seam (inert unless AITASK_SITREP_SPAWN_PAUSE_FIFO is set).
         spawn_test_pause("spawn:after_lookup")
-        full_cmd = resolve_dry_run_command(Path(root), "sitrep",
-                                           agent_string=agent_string)
-        if not full_cmd:
-            return SitrepSpawn("refused", None, "", "no_command")
-        rc, out = monitor.tmux_run(
-            ["list-windows", "-t", tmux_session_scope_target(session),
-             "-F", "#{window_name}"])
-        if rc != 0:
-            return SitrepSpawn("refused", None, "", "window_list_failed")
-        names = {line.strip() for line in out.splitlines() if line.strip()}
-        window = unique_window_name(names, SITREP_WINDOW_BASE)
-        cfg = TmuxLaunchConfig(session=session, window=window,
-                               new_session=False, new_window=True,
-                               cwd=root, select_window=select_window)
-        pane, pid, err = launch_window_pane(full_cmd, cfg)
-        if err:
-            return SitrepSpawn("refused", None, "", f"launch:{err}")
-        if not pane:
-            state, pane = _recover_launched_pane(monitor, pid)
-            if state == "exited":
-                return SitrepSpawn("refused", None, "", "launch:exited")
-            if state != "found" or not pane:
-                return SitrepSpawn("refused", None, "", "launch:unclassified")
-        outcome = _stamp_or_remove(monitor, pane, SITREP_ROOT_OPTION, root)
-        if outcome != "ok":
-            return SitrepSpawn("refused", None, "", f"stamp:{outcome}")
-    # Forced AND explicit: the sitrep window always gets its companion, whatever
-    # `tmux.minimonitor.auto_spawn` or `companion_window_prefixes` say. The
-    # occupancy, pane-count and lock gates still apply.
-    companion = maybe_spawn_minimonitor(session, window, agent_pane=pane,
-                                        project_root=Path(root), explicit=True,
-                                        force_companion=True)
-    return SitrepSpawn("spawned", pane, f"{session}:{window}",
-                       "" if companion else "companion_not_spawned")
+        if agent or (tui and not occupied):
+            # A repair in place: read where, and the window's focus, first.
+            place = _sitrep_place(monitor, agent or tui)
+            if place is None:
+                return SitrepSpawn("refused", None, "", "place_unreadable")
+            if not select_window:
+                original_active = _sitrep_active_pane(monitor, place.window_id)
+        if agent:
+            tui, why = _sitrep_split_role(
+                monitor, sitrep_tui_command(root), agent, place, before=False,
+                size=SITREP_TUI_SIZE, root=root, option=SITREP_TUI_ROOT_OPTION)
+            if not tui:
+                return SitrepSpawn("refused", None, "", f"tui:{why}")
+            status = "added_tui"
+        elif tui and not occupied:
+            full_cmd = resolve_dry_run_command(Path(root), "sitrep",
+                                               agent_string=agent_string)
+            if not full_cmd:
+                return SitrepSpawn("refused", None, "", "no_command")
+            agent, why = _sitrep_split_role(
+                monitor, full_cmd, tui, place, before=True,
+                size=SITREP_AGENT_SIZE, root=root, option=SITREP_ROOT_OPTION)
+            if not agent:
+                return SitrepSpawn("refused", None, "", why)
+            status = "respawned_agent"
+        else:
+            agent, window, why = _sitrep_launch_agent_window(
+                monitor, root, session, select_window, agent_string)
+            if not agent:
+                return SitrepSpawn("refused", None, "", why)
+            status = "spawned"
+            if tui:
+                # The TUI's window holds the frozen session (or another
+                # occupant): move the one TUI here instead of a second one.
+                rc, _ = monitor.tmux_run(
+                    ["join-pane", "-d", "-v", "-l", SITREP_TUI_SIZE,
+                     "-s", tui, "-t", agent])
+                warns.append("tui_moved" if rc == 0 else "tui_not_moved")
+            else:
+                tui, why = _sitrep_split_role(
+                    monitor, sitrep_tui_command(root), agent,
+                    _SitrepPlace(session, "", "", window), before=False,
+                    size=SITREP_TUI_SIZE, root=root,
+                    option=SITREP_TUI_ROOT_OPTION)
+                if not tui:
+                    warns.append(f"tui_not_spawned:{why}")
+    if status == "spawned":
+        # Forced AND explicit: the sitrep window always gets its companion,
+        # whatever `tmux.minimonitor.auto_spawn` or `companion_window_prefixes`
+        # say. The occupancy, pane-count and lock gates still apply.
+        companion = maybe_spawn_minimonitor(
+            session, window, agent_pane=agent, project_root=Path(root),
+            explicit=True, force_companion=True, full_height=True)
+        if not companion:
+            warns.append("companion_not_spawned")
+        return SitrepSpawn("spawned", agent, f"{session}:{window}",
+                           ",".join(warns), tui)
+    # A repair: the companion restores the full-height column if it is gone,
+    # and is a no-op (its "present" gate) when it survived.
+    companion = maybe_spawn_minimonitor(
+        place.session, place.window_name, window_index=place.window_index,
+        agent_pane=agent, project_root=Path(root), explicit=True,
+        force_companion=True, full_height=True)
+    if not companion:
+        # None is either "already present" (the common repair) or "required
+        # but not spawned" (a failed split, a refusing gate): ask the window.
+        existing = window_companion_pane(agent)
+        if not existing:
+            warns.append("companion_not_spawned")
+        elif status == "respawned_agent":
+            # The surviving companion armed its hook on the OLD agent: arm one
+            # on the new agent too, so its exit is cleaned up the same way.
+            attach_companion_cleanup_hook(agent, existing)
+    if select_window:
+        if not switch_to_pane_anywhere(agent):
+            warns.append("focus_failed")
+    elif original_active is None:
+        if companion:
+            warns.append("focus_not_restored")   # the one mover; no original
+    elif _sitrep_active_pane(monitor, place.window_id) != original_active:
+        # Restore only into the repaired window: the original pane may have
+        # been moved meanwhile, and selecting it would then change the focus
+        # of ANOTHER window while leaving this one unrestored.
+        if _sitrep_pane_window(monitor, original_active) != place.window_id:
+            warns.append("focus_not_restored")
+        else:
+            rc, _ = monitor.tmux_run(["select-pane", "-t", original_active])
+            if rc != 0:
+                warns.append("focus_not_restored")
+    return SitrepSpawn(status, agent, f"{place.session}:{place.window_name}",
+                       ",".join(warns), tui)
 
 
 # -- Task context --------------------------------------------------------------
@@ -5240,10 +5531,16 @@ class RunIdentity:
     pane_pid: str
     server_pid: str
     frozen_record: str
+    #: The pane's `@aitask_sitrep_tui_root` (t2211_2): non-empty on an unfrozen
+    #: pane means the sitrep TUI, which `h` must refuse — at the identity read,
+    #: so a snapshot that still lists the TUI (a status server older than the
+    #: discovery rule) cannot get it harvested-and-closed.
+    sitrep_tui_root: str = ""
 
 
 #: One `display-message -p -t <pane>` read of a :class:`RunIdentity`.
-RUN_IDENTITY_FORMAT = f"#{{pane_id}}\t#{{pane_pid}}\t#{{pid}}\t#{{{FROZEN_OPTION}}}"
+RUN_IDENTITY_FORMAT = (f"#{{pane_id}}\t#{{pane_pid}}\t#{{pid}}\t#{{{FROZEN_OPTION}}}"
+                       f"\t#{{{SITREP_TUI_ROOT_OPTION}}}")
 
 
 def parse_run_identity(rc: int, out: str, pane_id: str) -> "RunIdentity | None":
@@ -5257,13 +5554,13 @@ def parse_run_identity(rc: int, out: str, pane_id: str) -> "RunIdentity | None":
     if rc != 0:
         return None
     fields = (out.splitlines() or [""])[0].split("\t")
-    if len(fields) != 4:
+    if len(fields) != 5:
         return None
     pid_ok = re.compile(r"[0-9]+").fullmatch
-    found, pane_pid, server_pid, frozen = (f.strip() for f in fields)
+    found, pane_pid, server_pid, frozen, tui_root = (f.strip() for f in fields)
     if found != pane_id or not (pid_ok(pane_pid) and pid_ok(server_pid)):
         return None
-    return RunIdentity(pane_id, pane_pid, server_pid, frozen)
+    return RunIdentity(pane_id, pane_pid, server_pid, frozen, tui_root)
 
 
 def task_ref_from_window_name(window_name: str) -> tuple[str, str] | None:

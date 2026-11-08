@@ -3979,7 +3979,9 @@ class MiniMonitorApp(
         companion identity (marker, then cmdline) and the frozen-first
         precedence: a frozen stand-in carrying a retained helper marker is still
         the agent, never skipped. **Decision (t1388): companions ARE filtered**,
-        so a second minimonitor in the window is never chosen.
+        so a second minimonitor in the window is never chosen. The sitrep TUI
+        (``WindowPane.is_sitrep_tui``, t2211_2) is skipped too: it shares the
+        sitrep agent's window but is not an agent.
         """
         # An ACTION seam (Tab focus, Enter send), so rung 1 requires this tick's
         # confirmed membership (t2227); an unconfirmed tick falls to rung 2,
@@ -4014,7 +4016,11 @@ class MiniMonitorApp(
         # Unstripped on purpose: `classify_window_panes` must see the final
         # record's empty trailing field (see its docstring).
         for pane in classify_window_panes(stdout):
-            if pane.pane_id != own_pane and not pane.is_helper:
+            # The sitrep TUI keeps the window alive but is never the agent to
+            # follow (t2211_2) — so it is skipped here, unlike in the occupancy
+            # counts that share this classifier.
+            if (pane.pane_id != own_pane and not pane.is_helper
+                    and not pane.is_sitrep_tui):
                 return pane.pane_id
         self.notify("No agent pane in this window", severity="warning")
         return None

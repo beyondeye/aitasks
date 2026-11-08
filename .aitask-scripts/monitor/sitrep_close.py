@@ -494,6 +494,11 @@ class SitrepCloseMixin:
         before = await self._read_run_identity(pane_id)
         if before is None:
             return HarvestReport.failed("agent_unreadable"), None
+        if not before.frozen_record and before.sitrep_tui_root:
+            # The sitrep TUI (t2211_2): an `agent-sitrep` card that is not an
+            # agent. Discovery never lists it; a snapshot that still does (an
+            # older status server) is refused here, at the identity read.
+            return HarvestReport.failed("not_an_agent"), before
         if state == "frozen":
             record_id = snap.frozen_record_id
             if before.frozen_record != record_id:

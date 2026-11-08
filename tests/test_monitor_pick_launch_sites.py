@@ -619,10 +619,11 @@ def _real_core_monitor(frozen_record: str):
         # so the smart kill takes its whole-window branch — the one that
         # retires the record. The listing must name `%7` itself: one that does
         # not is not a description of its window, and the collapse decision
-        # treats it as undecidable (t2227). FROZEN_AWARE_PANE_FORMAT order:
-        # id, pid, shadow target, monitor kind, frozen, dead, scratch target.
+        # treats it as undecidable (t2227). The row is rendered from
+        # FROZEN_AWARE_PANE_FORMAT itself (every field empty but id, pid and
+        # dead), so a field appended to the format cannot drop it (t2211_2).
         if args[0] == "list-panes":
-            return (0, "%7\t1\t\t\t\t0\t\n")
+            return (0, "\t".join({"#{pane_id}": '%7', "#{pane_pid}": '1', "#{pane_dead}": "0"}.get(s, "") for s in mc.FROZEN_AWARE_PANE_FORMAT.split("\t")) + "\n")
         return (0, "")
 
     mon.tmux_run = tmux_run
