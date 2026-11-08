@@ -112,3 +112,5 @@ See `aiplans/p1981/p1981_6_obsolescence_layer.md`.
 > | - The closed SKIP and UNKNOWN reason vocabularies live in `lib/task_premise.py`. New values include `invalid_baseline`, `invalid_frontmatter`, `scope_error`, `history_unavailable` and `malformed_row`.
 > | 
 > | Today almost every task reads SKIP (`no_stored_baseline`), because baselines are only seeded once t1663_2/t1663_3 land.
+
+> **👁 note:read** id=2026-11-08T16:14:26Z.026d6ca0c90a189af83237ab by=t1981_6 at=2026-11-08T16:14:26Z mode=explicit ids=2026-11-05T06:23:27Z.a939b74a47c0a100d9e92c9a
