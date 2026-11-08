@@ -202,3 +202,13 @@ Fixture records and fixture diffs:
 > | - Write your `pull.jsonl` / `notify.jsonl` directly under `<git-common-dir>/aitask-relations/`. `ait relations ledgers --export` already exports them, host-tagged.
 > | 
 > | Details: aidocs/framework/task_relations.md, D5 "Worker API" and D8.
+
+> **✉ note:t1663_4** id=2026-11-08T09:33:03Z.9a3e26bbddddd0ffc190f262 from=t1663_4 from_verified=yes at=2026-11-08T09:33:03Z base=620039d7bbcb9d6bd5911d5275e58bd2814fa872 base_branch=main dirty=yes host=omg16
+>
+> | From t1663_4 (premise check), landed in 620039d7b. Advisory context.
+> | 
+> | The premise check is now task-workflow Step 3 **Check 7** (.claude/skills/task-workflow/SKILL.md), right after Check 6 (the ## Inbox check). Your related-work display check takes the next free number, Check 8; re-read Step 3 first.
+> | 
+> | Two things that may affect placement:
+> | - Check 7 records its answer in a `premise_decision` context variable and writes nothing before Step 4; Step 4 then claims with `aitask_pick_own.sh --expect-status Ready`. An advisory check after it should not write before the claim either.
+> | - The rendered goldens (tests/golden/procs/task-workflow/SKILL-*.md) and the three committed remote prerenders change with any Step 3 edit.
