@@ -157,3 +157,57 @@ Implementation Notes (durable closure evidence).
 - The crafted garbage WebP stands in for a real animated WebP that an old ffmpeg rejects; it exercises the same code route but not the same decoder message · severity: low · → mitigation: inline post-phase real-repro-under-shims
 
 Confirmed mitigations (user, "Apply recommended dispositions"): shared-file-gate → inline pre-phase; real-repro-under-shims → inline post-phase. Reassessed with both inlined: code-health low, goal-achievement low.
+
+## Final Implementation Notes
+- **Actual work done:** `video_prep.py`: `webp_animated()` (VP8X animation flag from
+  the file's own bytes); `_many_frames()` (the shared "decodes to more than one
+  frame" refusal); `ImageInput._decode_two()` (the 2-frame showinfo decode, shared),
+  `_undecodable()` (names the file; adds "(an animated WebP: its header declares
+  animation); keep still images only" only when the flag is set; keeps ffmpeg's
+  error as detail), `_require_one_frame(path, kind)` (catches the decode failure),
+  `_find_undecodable()` (failure-only per-original search), and `_enumerate()` runs
+  that search on a failed or short concat pass. Tests in
+  `tests/test_screen_recording_cli.py`: `write_bad_webp()` fixture (VP8X + garbage
+  VP8L, animated or still), `ImageFolderInput.still_webp()` (raw libwebp write +
+  raw ffprobe premise, skip otherwise), `test_undecodable_animated_webp_is_named`
+  (mixed and all-webp-with-a-valid-still-first × bug/anim),
+  `test_undecodable_still_webp_is_named_without_animation_claim`,
+  `test_webp_animated_reads_the_vp8x_flag`.
+- **Deviations from plan:** (1) `_find_undecodable()` also returns the
+  "decodes to more than one frame" refusal when an original decodes to >1 frame
+  on its own. Found by the post-phase real repro: on native n9.0.2 a folder of a
+  still WebP + a real `libwebp_anim` WebP gave the unnamed pre-existing
+  `ffmpeg decoded 1 of the 2 images` (HEAD identical) — concat decodes the
+  animation to zero frames while it decodes to 2 alone.
+  `test_animated_image_beside_other_codecs_is_refused` was extended with that
+  all-webp folder (it keeps its decoder-premise skip on 5.1.1/7.0.2).
+  (2) The `n < 1` per-file case passes "ffmpeg decoded no frame from it" as the
+  detail rather than None, so the message still says what ffmpeg did.
+- **Issues encountered:** t2219 (live session) held uncommitted hunks in both
+  files at plan time; the shared-file gate waited until its commit c9cd13f9a
+  landed (HEAD blob contains `def measure_labels` / `def sheet_tiles`, both
+  files clean vs HEAD, t2219 archived), then a sha256 last-accepted-state chain
+  guarded every later write.
+- **Key decisions:** wording states only what is established (declared
+  animation + decode failure), never a decoder limitation — the garbage fixture
+  fails on n9.0.2 too, which does decode real animation (review round 1). No
+  ffmpeg version named. The search runs only after a failure; the success path
+  keeps one concat pass.
+- **Verification evidence (2026-11-08):**
+  - Red proof (scratch tree from `git archive HEAD` + the new test file): all
+    three new tests fail on HEAD code with the raw `error: ffmpeg failed (69): …`
+    tail; the extended all-webp case fails on HEAD with
+    `error: ffmpeg decoded 1 of the 2 images`.
+  - Mutation control (scratch copy, `_find_undecodable()` returning the first
+    entry): `test_undecodable_animated_webp_is_named` fails —
+    `error: t00000000.webp: this ffmpeg could not decode…` instead of t00001000.
+  - Native n9.0.2: `test_screen_recording_cli.py` + `test_screen_recording_core.py`
+    234 passed (`-n 4 --dist loadfile`); ImageFolderInput 20 passed.
+  - Shims 5.1.1 / 7.0.2 (t2229 static builds): ImageFolderInput 19 passed,
+    1 skipped each (the pre-existing decoder-premise skip).
+  - Real repro (PNG + native `libwebp_anim` 2-frame `t00001000.webp`; and still
+    libwebp `t00000000.webp` + that file), `bug` and `anim`, all rc=1, no output dir:
+    - n9.0.2, both folders: `error: t00001000.webp decodes to more than one frame (an animated image?); keep still images only`
+    - 5.1.1, both folders: `error: t00001000.webp: this ffmpeg could not decode it (an animated WebP: its header declares animation); keep still images only` / `ffmpeg failed (1):`
+    - 7.0.2, both folders: same first line / `ffmpeg failed (69):`
+- **Upstream defects identified:** None
