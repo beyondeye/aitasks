@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [tmux, robustness]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -17,7 +17,8 @@ anchor: 2236
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5_5
 created_at: 2026-11-08 15:24
-updated_at: 2026-11-08 17:33
+updated_at: 2026-11-08 18:03
+completed_at: 2026-11-08 18:03
 ---
 
 ## Origin
@@ -42,3 +43,14 @@ Use `session_target(self.session)` in `_attach_argv`. Update the argv-pinning te
 > **✅ gate:plan_approved** run=2026-11-08T15:33:40Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-11-08T15:46:47Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-11-08T16:03:26Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:2fcebdae25231306
+
+> **✅ gate:risk_evaluated** run=2026-11-08T16:03:26Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/2242/risk_evaluated_2026-11-08T16:03:26Z-risk_evaluated-a1.log`
