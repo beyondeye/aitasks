@@ -38,3 +38,8 @@ parallel_admission: "off"
 # (display; prompt only on a graded overlap or an unusable checker) or "ask"
 # (always prompt) to opt in. A headless profile never prompts in either mode.
 parallel_assessment: "off"
+
+# Step 8e: which option to take when the relations analysis is incomplete
+# (ask | wait | fallback | proceed). `wait` never passes --over-cap; a headless
+# profile cannot ask, so `ask` there means proceed.
+relations_incomplete_action: proceed
