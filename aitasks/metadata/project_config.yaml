@@ -69,3 +69,16 @@ tmux:
   prefer_tmux: true
   git_tui: lazygit
   shadow_pane_width: 60
+# Background task-relations analysis (aidocs/framework/task_relations.md D5).
+# `enabled` is deliberately absent: off until `ait setup` asks or
+# `ait relations enable` sets it.
+relations:
+  max_jobs_per_day: 40
+  job_timeout_s: 600
+  settle_s: 120
+  candidate_cap: 25
+  triggers:
+    created: true
+    plan_approved: true
+    fold: true
+    landed: true

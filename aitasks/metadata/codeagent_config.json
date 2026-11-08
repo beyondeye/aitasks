@@ -18,6 +18,8 @@
     "brainstorm-module_syncer": "claudecode/opus5_5",
     "work-report": "claudecode/sonnet5_5",
     "trail": "claudecode/opus5_5",
-    "sitrep": "claudecode/opus5_5"
+    "sitrep": "claudecode/opus5_5",
+    "relations": "claudecode/sonnet5_5",
+    "obsolescence": "claudecode/sonnet5_5"
   }
 }
