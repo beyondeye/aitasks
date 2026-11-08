@@ -441,11 +441,11 @@ task-workflow Step 9.
 - The `encode_tmux_argv` mixed str/bytes argv depends on POSIX `subprocess` semantics · severity: low · → mitigation: covered by the L2 live lane, which exercises it through real `subprocess` and `asyncio` spawns
 
 ### Goal-achievement risk: medium
-- Under single-byte named locales, non-ASCII tmux-text arguments (names read back from tmux) do not round-trip. This is a deliberate partial delivery of the task's "non-UTF-8 named locale" case, decided by the user. OS paths, the separator and captured text are covered · severity: medium · → mitigation: full_native_byte_tmux_typing
+- Under single-byte named locales, non-ASCII tmux-text arguments (names read back from tmux) do not round-trip. This is a deliberate partial delivery of the task's "non-UTF-8 named locale" case, decided by the user. OS paths, the separator and captured text are covered · severity: medium · → mitigation: t2244
 - No single-byte locale is installed here, so the L3 lane cannot run on this host; that behaviour is pinned only by the codec-patched unit table · severity: low · → mitigation: covered by plan step 8 (codec-patched `encode_tmux_wire` table) plus the probe-gated L3 lane wherever such a locale exists
 
 ### Planned mitigations
-- timing: after | name: full_native_byte_tmux_typing | type: enhancement | priority: low | effort: medium | inline_risk: high | added_complexity: high | addresses: single-byte-locale tmux-text round trip | desc: Type the OS-path inputs to the tmux gateway at their builders (launcher argv[0], `-c <dir>`, pane shell commands, path-valued options/env such as @aitask_project_root and AITASKS_PROJECT_<s>) as native bytes, and send all other tmux text as UTF-8, so that non-ASCII names round-trip under single-byte named locales too (removes the policy-5 limitation from t2236)
+- timing: after | name: full_native_byte_tmux_typing | type: enhancement | priority: low | effort: medium | inline_risk: high | added_complexity: high | addresses: single-byte-locale tmux-text round trip | desc: Type the OS-path inputs to the tmux gateway at their builders (launcher argv[0], `-c <dir>`, pane shell commands, path-valued options/env such as @aitask_project_root and AITASKS_PROJECT_<s>) as native bytes, and send all other tmux text as UTF-8, so that non-ASCII names round-trip under single-byte named locales too (removes the policy-5 limitation from t2236) | created: t2244
 
 ## Post-Review Changes
 
