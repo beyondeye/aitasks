@@ -92,7 +92,7 @@ Script all of it, re-runnable, and tear it down at the end. Never echo a token: 
   - glab 1.126 prints `http://localhost:8929/maint/aitask-ct/-/work_items/1`;
   - REST `web_url` is `/-/work_items/<iid>` both locally and on gitlab.com (`gitlab-org/cli` #8724), and `http://` self-managed hosts never match.
 
-  The result is that the "label was silently dropped" warning never fires; contributors always get "Could not verify". The unit tests did not catch it because their fake glab output prints `/-/issues/77`. Fix: match `https?://[^[:space:]]+/-/(issues|work_items)/[0-9]+`, and switch the test fixture to the real `work_items` output.
+  The result is that the "label was silently dropped" warning never fires; contributors always get "Could not verify". The unit tests did not catch it because their fake glab output prints `/-/issues/77`. Fix: match `https?://[^[:space:]]+/-/(issues|work_items)/[0-9]+`, and switch the test fixture to the real `work_items` output. **Fixed by t2250 (`b40f13b69`)**, unit-tested against the captured Part B output. To confirm it live, re-run Part B: outsider's create must then print the dropped-label warning instead of "Could not verify".
 
 ## Verification Checklist
 
