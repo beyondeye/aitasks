@@ -46,7 +46,7 @@ This metadata is embedded automatically by `/aitask-contribute` and parsed by do
 
 When CI/CD is configured (via `ait setup` or manually), a workflow runs automatically on new contribution issues. It compares the incoming issue's fingerprint against all other open contribution issues.
 
-A contribution issue is any open issue that carries the `aitask-contribute-metadata` block or the `contribution` label. GitHub silently drops labels supplied by issue authors without push access, so an external contributor's issue usually arrives unlabeled. The overlap check and the review listing therefore scan all open issues for the metadata block rather than relying on the label, and the GitHub workflow applies the label itself when such an issue is opened.
+A contribution issue is any open issue that carries the `aitask-contribute-metadata` block or the `contribution` label. GitHub silently drops labels supplied by issue authors without push access, and GitLab silently drops labels supplied by authors who are not members of the project, so an external contributor's issue usually arrives unlabeled. The overlap check and the review listing therefore scan all open issues for the metadata block rather than relying on the label. The GitHub workflow applies the label itself when such an issue is opened, and the GitLab scheduled scan picks up unlabeled contribution issues by their metadata block.
 
 ### Scoring Formula
 
@@ -99,7 +99,7 @@ The overlap check can also be run manually:
 
 ## Finding contribution issues
 
-Do not rely on the `contribution` label alone to find contributions. GitHub silently drops labels from issue authors without push access, so an external contributor's issue can be open without it, and `label:contribution` in the GitHub UI or `gh issue list --label contribution` will not show it.
+Do not rely on the `contribution` label alone to find contributions. GitHub silently drops labels from issue authors without push access, and GitLab drops them from authors who are not project members, so an external contributor's issue can be open without it. On GitHub, `label:contribution` in the UI and `gh issue list --label contribution` will not show it. On GitLab, the label filter in the issue list, `glab issue list --label contribution` and the `labels=contribution` API filter will not show it either.
 
 To list every open contribution issue, run `/aitask-contribution-review` without an issue number, or call its helper directly:
 
@@ -109,7 +109,7 @@ To list every open contribution issue, run `/aitask-contribution-review` without
 
 The listing reads all open issues and keeps those that have the `contribution` label **or** contain the `<!-- aitask-contribute-metadata` block. Each entry reports `HAS_METADATA:true|false`; only entries with metadata can be imported.
 
-The label filter is a reasonable shortcut once the GitHub workflow is installed, because the workflow labels each contribution issue when it is opened. It still misses issues opened before the workflow was installed and issues whose labeling step failed (the workflow logs a warning and continues), so use the listing when completeness matters. A GitHub search for the marker text is not a reliable substitute: the marker sits inside an HTML comment, and search may not index it.
+On GitHub, the label filter is a reasonable shortcut once the workflow is installed, because the workflow labels each contribution issue when it is opened. It still misses issues opened before the workflow was installed and issues whose labeling step failed (the workflow logs a warning and continues), so use the listing when completeness matters. A GitHub search for the marker text is not a reliable substitute: the marker sits inside an HTML comment, and search may not index it. On GitLab nothing applies the label afterwards, so the listing is the only complete view.
 
 ## Reviewing with `/aitask-contribution-review`
 
@@ -176,7 +176,7 @@ No additional configuration required.
 
 #### GitLab CI
 
-- **Trigger:** Webhook-triggered pipeline (via `$ISSUE_IID` variable) or scheduled scan (every 6 hours, queries recently updated issues)
+- **Trigger:** Webhook-triggered pipeline (via `$ISSUE_IID` variable) or scheduled scan (every 6 hours). The scan reads open issues updated in the last 6 hours and checks those that carry the `contribution` label or the `aitask-contribute-metadata` block
 - **Token:** Requires a **project access token** with `api` scope, stored as `$GITLAB_TOKEN` CI/CD variable. `CI_JOB_TOKEN` does **not** have access to issues/notes/labels API endpoints.
 - **CLI:** Uses `glab` CLI if available, with curl + REST API fallback
 
@@ -212,7 +212,7 @@ Create the `contribution` label manually on your platform (GitHub/GitLab only â€
 
 | Feature | GitHub | GitLab | Bitbucket |
 |---------|--------|--------|-----------|
-| Contribution issue discovery | Label or metadata (scans all open issues) | Label filtering | Metadata (scans all issues) |
+| Contribution issue discovery | Label or metadata (scans all open issues) | Label or metadata (scans all open issues) | Metadata (scans all issues) |
 | Event-driven triggers | Yes (`issues.opened`, `issues.labeled`) | Yes (webhook pipeline) | No |
 | Scheduled scans | Optional | Yes (6-hour interval) | Yes (recommended) |
 | CLI tool | `gh` (pre-installed) | `glab` + curl fallback | curl only |

@@ -287,13 +287,45 @@ gitlab_create_issue() {
     result=$(glab issue create -R "$repo" --title "$title" --description "$body" -l "contribution" 2>&1) || exit_code=$?
 
     if [[ "$exit_code" -eq 0 ]]; then
+        # GitLab silently drops labels supplied by authors who are not project
+        # members and `glab issue create` still exits 0, so read the label back.
+        _gitlab_verify_contribution_label "$repo" "$result"
         echo "$result"
         return 0
     fi
 
     # Label failed — retry without label
-    warn "Could not apply 'contribution' label (it may not exist on the target repo). Creating issue without label."
-    glab issue create -R "$repo" --title "$title" --description "$body" 2>&1
+    warn "Could not apply the 'contribution' label: it may not exist on $repo, or you lack permission to set labels there. Creating the issue without it."
+    exit_code=0
+    result=$(glab issue create -R "$repo" --title "$title" --description "$body" 2>&1) || exit_code=$?
+    echo "$result"
+    if [[ "$exit_code" -eq 0 ]]; then
+        warn "The issue was created unlabeled. Maintainers' tooling still finds it by its aitask-contribute-metadata block."
+    fi
+    return "$exit_code"
+}
+
+# _gitlab_verify_contribution_label <repo> <glab issue create output>
+# Warns (stderr) when the created issue does not carry the 'contribution'
+# label, or when that cannot be verified. Never fails: the issue exists and
+# the caller needs its URL.
+_gitlab_verify_contribution_label() {
+    local repo="$1" create_output="$2" url iid view labels
+    url=$(printf '%s\n' "$create_output" | grep -Eo 'https://[^[:space:]]+/-/issues/[0-9]+' | tail -1) || url=""
+    if [[ -z "$url" ]]; then
+        warn "Could not verify that the 'contribution' label was applied to the new issue."
+        return 0
+    fi
+    iid="${url##*/}"
+    if ! view=$(glab issue view "$iid" -R "$repo" -F json 2>/dev/null) ||
+        ! labels=$(printf '%s' "$view" | jq -r '.labels[]?' 2>/dev/null); then
+        warn "Could not verify that the 'contribution' label was applied to $url."
+        return 0
+    fi
+    if ! printf '%s\n' "$labels" | grep -qxF "contribution"; then
+        warn "GitLab did not apply the 'contribution' label to $url — labels from authors who are not members of $repo are silently dropped. The issue was created; maintainers' tooling finds it by its aitask-contribute-metadata block."
+    fi
+    return 0
 }
 
 # --- Bitbucket Backend ---

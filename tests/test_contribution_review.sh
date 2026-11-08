@@ -346,6 +346,33 @@ rm -rf "$T2235_DIR"
 CHECK_PLATFORM="$_saved_platform"; ARG_REPO="$_saved_repo"; ARG_LIMIT="$_saved_limit"
 echo ""
 
+# --- Test 21c: cmd_list_issues through the real GitLab listing (t2241) ---
+# GitLab drops labels from authors who are not project members: unlabeled
+# metadata issues must be listed, plain issues must not.
+echo "--- Test 21c: cmd_list_issues lists unlabeled GitLab contributions ---"
+. "$PROJECT_DIR/tests/lib/glab_contribution_stub.sh"
+T2241_DIR="$(mktemp -d)"
+glab_contribution_stub_install "$T2241_DIR"
+_saved_platform="$CHECK_PLATFORM"; _saved_repo="$ARG_REPO"; _saved_limit="$ARG_LIMIT"
+_saved_path="$PATH"; _saved_token="${GITLAB_TOKEN-}"
+PATH="$T2241_DIR/bin:$PATH"; export GITLAB_TOKEN="test-token"
+CHECK_PLATFORM="gitlab"; ARG_REPO="o/r"; ARG_LIMIT=50
+
+result=$(cmd_list_issues)
+assert_contains "gitlab: unlabeled #100 listed" "@@@ISSUE:100@@@" "$result"
+assert_contains "gitlab: unlabeled #101 listed" "@@@ISSUE:101@@@" "$result"
+assert_contains "gitlab: #100 has metadata" "$(printf '@@@ISSUE:100@@@\nTITLE:[Contribution] external A\nHAS_METADATA:true')" "$result"
+assert_contains "gitlab: labeled #12 listed without metadata" "$(printf '@@@ISSUE:12@@@\nTITLE:Labeled without metadata\nHAS_METADATA:false')" "$result"
+assert_not_contains "gitlab: plain #14 not listed" "@@@ISSUE:14@@@" "$result"
+assert_not_contains "gitlab: ordinary #299 not listed" "@@@ISSUE:299@@@" "$result"
+assert_not_contains "gitlab: no NO_ISSUES" "NO_ISSUES" "$result"
+
+PATH="$_saved_path"
+if [[ -n "$_saved_token" ]]; then GITLAB_TOKEN="$_saved_token"; else unset GITLAB_TOKEN; fi
+rm -rf "$T2241_DIR"
+CHECK_PLATFORM="$_saved_platform"; ARG_REPO="$_saved_repo"; ARG_LIMIT="$_saved_limit"
+echo ""
+
 # --- Test 22: cmd_list_issues - empty result ---
 echo "--- Test 22: cmd_list_issues empty ---"
 

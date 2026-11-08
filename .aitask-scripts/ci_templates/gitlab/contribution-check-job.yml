@@ -7,8 +7,14 @@
 # Two modes:
 #   1. Trigger mode: Set pipeline variable ISSUE_IID to check a specific issue.
 #      Create a project webhook (Issues events) that triggers this pipeline.
-#   2. Scheduled mode: Scans issues updated in the last 6 hours.
+#   2. Scheduled mode: Scans open issues updated in the last 6 hours that carry
+#      the 'contribution' label OR the `<!-- aitask-contribute-metadata` block
+#      header. GitLab silently drops labels supplied by authors who are not
+#      project members, so an external contribution usually arrives unlabeled.
 #      Create a pipeline schedule (e.g., every 6 hours).
+#
+# The script runs under the image's /bin/sh (BusyBox on Alpine), so it is
+# POSIX sh and computes the cutoff with jq rather than a GNU/BSD-only `date`.
 #
 # Required CI/CD variables:
 #   GITLAB_TOKEN - Project access token with 'api' scope.
@@ -30,14 +36,43 @@ contribution-check:
         bash ./.aitask-scripts/aitask_contribution_check.sh "$ISSUE_IID" \
           --platform gitlab --repo "$CI_PROJECT_PATH"
       else
-        # Scheduled mode: scan issues updated in last 6 hours
-        SINCE=$(date -u -d '6 hours ago' '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null \
-          || date -u -v-6H '+%Y-%m-%dT%H:%M:%SZ')
+        # Scheduled mode: scan contribution issues updated in the last 6 hours
+        SINCE=$(jq -nr 'now - 21600 | strftime("%Y-%m-%dT%H:%M:%SZ")') \
+          || { echo "ERROR: could not compute the 6-hour cutoff" >&2; exit 1; }
+        case "$SINCE" in
+          [0-9][0-9][0-9][0-9]-[0-1][0-9]-[0-3][0-9]T[0-2][0-9]:[0-5][0-9]:[0-5][0-9]Z) ;;
+          *) echo "ERROR: invalid cutoff '$SINCE'" >&2; exit 1 ;;
+        esac
         PROJECT_ID=$(printf '%s' "$CI_PROJECT_PATH" | sed 's|/|%2F|g')
         API_BASE="${CI_API_V4_URL:-https://gitlab.com/api/v4}"
-        ISSUES=$(curl -sf --header "PRIVATE-TOKEN: $GITLAB_TOKEN" \
-          "$API_BASE/projects/$PROJECT_ID/issues?state=opened&labels=contribution&updated_after=$SINCE&per_page=50" \
-          | jq -r '.[].iid')
+        PAGE=1
+        MAX_PAGES=1000
+        PREV_FIRST=""
+        ISSUES=""
+        while :; do
+          BODY=$(curl -sf --header "PRIVATE-TOKEN: $GITLAB_TOKEN" \
+            "$API_BASE/projects/$PROJECT_ID/issues?state=opened&updated_after=$SINCE&per_page=100&page=$PAGE") \
+            || { echo "ERROR: could not list issues (page $PAGE)" >&2; exit 1; }
+          COUNT=$(printf '%s' "$BODY" | jq -e 'if type == "array" then length else error("not an array") end') \
+            || { echo "ERROR: unexpected issue list response (page $PAGE)" >&2; exit 1; }
+          # A page that starts where the previous one did means the server is
+          # ignoring 'page': stop instead of looping until the CI timeout.
+          FIRST=$(printf '%s' "$BODY" | jq -r '.[0].iid // empty') || exit 1
+          if [ -n "$FIRST" ] && [ "$FIRST" = "$PREV_FIRST" ]; then
+            echo "ERROR: issue list page $PAGE repeats page $((PAGE - 1))" >&2; exit 1
+          fi
+          PREV_FIRST=$FIRST
+          FOUND=$(printf '%s' "$BODY" | jq -r '.[]
+            | select(any(.labels[]?; . == "contribution")
+                     or ((.description // "") | contains("<!-- aitask-contribute-metadata")))
+            | .iid') || exit 1
+          ISSUES="$ISSUES $FOUND"
+          [ "$COUNT" -lt 100 ] && break
+          if [ "$PAGE" -ge "$MAX_PAGES" ]; then
+            echo "ERROR: issue list exceeded $MAX_PAGES pages; refusing a partial scan" >&2; exit 1
+          fi
+          PAGE=$((PAGE + 1))
+        done
         for iid in $ISSUES; do
           echo "--- Checking issue #$iid ---"
           bash ./.aitask-scripts/aitask_contribution_check.sh "$iid" \

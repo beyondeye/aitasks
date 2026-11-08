@@ -244,28 +244,72 @@ gitlab_fetch_issue() {
     fi
 }
 
-gitlab_list_contribution_issues() {
-    local api_base project_id
+# _gitlab_select_contribution_issues — stdin: one or more JSON arrays of raw
+# GitLab REST issues (one merged array or one array per page). stdout: the
+# contribution issues in the shape github_list_contribution_issues returns,
+# newest first, limited to $ARG_LIMIT AFTER filtering. The issues endpoint
+# never returns merge requests, so there is no pull-request filter.
+_gitlab_select_contribution_issues() {
+    jq -s --argjson limit "$ARG_LIMIT" '
+        [ (add // [])[]
+          | select(any(.labels[]?; . == "contribution")
+                   or ((.description // "") | contains("<!-- aitask-contribute-metadata")))
+          | {number: .iid, title, body: (.description // ""),
+             labels: [.labels[]? | {name: .}], url: .web_url} ]
+        | unique_by(.number) | sort_by(-.number) | .[:$limit]'
+}
+
+# _gitlab_rest_all_pages <projects/...?query> — prints every page of a GitLab
+# REST list endpoint, one JSON array per line. Returns non-zero, having
+# printed pages the caller must discard, when any page fails, is not a JSON
+# array, or the page cap is reached: callers capture the output and check the
+# status before using any of it.
+_gitlab_rest_all_pages() {
+    local path="$1" api_base hdr page=1 body count first prev_first=""
+    local per_page=100 max_pages=1000
     api_base=$(_gitlab_api_base)
-    project_id=$(_gitlab_project_id)
+    hdr=$(_gitlab_token_header) || return 1
+    while (( page <= max_pages )); do
+        body=$(curl -sf --header "$hdr" \
+            "$api_base/$path&per_page=$per_page&page=$page") || return 1
+        count=$(printf '%s' "$body" | jq -e 'if type == "array" then length else error("not an array") end' 2>/dev/null) || {
+            warn "Unexpected GitLab API response for page $page of $path"
+            return 1
+        }
+        # A page that starts where the previous one did means the server is
+        # ignoring 'page': fail now rather than at the page cap.
+        first=$(printf '%s' "$body" | jq -r '.[0].iid // empty') || return 1
+        if [[ -n "$first" && "$first" == "$prev_first" ]]; then
+            warn "GitLab issue listing page $page repeats page $((page - 1)) of $path"
+            return 1
+        fi
+        prev_first="$first"
+        printf '%s\n' "$body"
+        (( count < per_page )) && return 0
+        page=$((page + 1))
+    done
+    warn "GitLab issue listing exceeded $max_pages pages; refusing a partial result"
+    return 1
+}
+
+gitlab_list_contribution_issues() {
+    # GitLab drops labels supplied by authors who are not project members,
+    # silently: the issue is created without them and no error is returned
+    # (Issuable::Callbacks::Labels skips labels unless the author may
+    # set_issue_metadata, which a new issue grants only from the Guest role
+    # up). So a contribution issue is one that carries the 'contribution'
+    # label OR the aitask-contribute-metadata marker. Scan every open issue
+    # (paginated) and apply the limit only AFTER filtering, so newer ordinary
+    # issues cannot crowd an older contribution out of the result.
+    local pages project_id
     if _gitlab_has_glab && [[ -z "$ARG_REPO" ]]; then
-        glab issue list --label "contribution" --all --output json | jq '[.[] | {
-            number: .iid,
-            title: .title,
-            body: (.description // ""),
-            labels: [.labels[] | {name: .}],
-            url: .web_url
-        }]' | jq ".[:$ARG_LIMIT]"
+        pages=$(glab api --paginate "projects/:id/issues?state=opened&per_page=100") || return 1
     else
-        curl -sf --header "$(_gitlab_token_header)" \
-            "$api_base/projects/$project_id/issues?state=opened&labels=contribution&per_page=$ARG_LIMIT" | jq '[.[] | {
-            number: .iid,
-            title: .title,
-            body: (.description // ""),
-            labels: [.labels[] | {name: .}],
-            url: .web_url
-        }]'
+        project_id=$(_gitlab_project_id)
+        pages=$(_gitlab_rest_all_pages "projects/$project_id/issues?state=opened") || return 1
     fi
+    # Pages go through stdin, never --argjson: Linux caps one argument at 128 KB.
+    printf '%s\n' "$pages" | _gitlab_select_contribution_issues
 }
 
 gitlab_post_comment() {

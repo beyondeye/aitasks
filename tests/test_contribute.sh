@@ -819,6 +819,77 @@ assert_eq "no-label: no warning" "" "$(cat "$T2235_DIR/err")"
 assert_not_contains "no-label: no label read-back" "issue view" "$(cat "$T2235_DIR/calls")"
 rm -rf "$T2235_DIR"
 
+# --- Tests 44-47: gitlab_create_issue surfaces a silently dropped label (t2241) ---
+# GitLab drops labels supplied by authors who are not project members and
+# `glab issue create` still exits 0; the contributor must be told.
+# _t2241_create <mode> <no_label> -> runs gitlab_create_issue in a subshell with
+# a glab stub; stdout -> $T2241_DIR/out, stderr -> err, calls -> calls.
+#   mode=dropped   create ignores -l, view reports no labels
+#   mode=kept      create applies the label, view reports it
+#   mode=fallback  labeled create fails (exit 1), unlabeled create succeeds
+#   mode=viewfail  create succeeds, view fails
+T2241_DIR="$(mktemp -d)"
+_t2241_create() {
+    local mode="$1" no_label="$2"
+    : > "$T2241_DIR/calls"
+    (
+        # shellcheck source=/dev/null
+        source "$PROJECT_DIR/.aitask-scripts/aitask_contribute.sh"
+        set +e
+        glab() {
+            printf '%s\n' "$*" >> "$T2241_DIR/calls"
+            case "$1 $2" in
+                "issue create")
+                    if [[ "$mode" == fallback && " $* " == *" -l "* ]]; then
+                        echo "could not add label"
+                        return 1
+                    fi
+                    printf '%s\n' "Creating issue in o/r" "https://gitlab.com/o/r/-/issues/77"
+                    ;;
+                "issue view")
+                    case "$mode" in
+                        kept) echo '{"iid":77,"labels":["bug","contribution"]}' ;;
+                        viewfail) return 1 ;;
+                        *) echo '{"iid":77,"labels":[]}' ;;
+                    esac
+                    ;;
+            esac
+        }
+        gitlab_create_issue "o/r" "[Contribution] t" "body" "$no_label"
+    ) > "$T2241_DIR/out" 2> "$T2241_DIR/err"
+    echo "$?" > "$T2241_DIR/rc"
+}
+
+echo "--- Test 44: GitLab dropped label is surfaced, URL still returned ---"
+_t2241_create dropped false
+assert_eq "gitlab dropped: exit 0" "0" "$(cat "$T2241_DIR/rc")"
+assert_contains "gitlab dropped: stdout carries the URL" "https://gitlab.com/o/r/-/issues/77" "$(cat "$T2241_DIR/out")"
+assert_contains "gitlab dropped: warns about silently dropped label" "not members of o/r are silently dropped" "$(cat "$T2241_DIR/err")"
+assert_contains "gitlab dropped: label read back from the created issue" "issue view 77 -R o/r -F json" "$(cat "$T2241_DIR/calls")"
+
+echo "--- Test 45: GitLab applied label stays silent (control) ---"
+_t2241_create kept false
+assert_eq "gitlab kept: exit 0" "0" "$(cat "$T2241_DIR/rc")"
+assert_contains "gitlab kept: stdout carries the URL" "https://gitlab.com/o/r/-/issues/77" "$(cat "$T2241_DIR/out")"
+assert_eq "gitlab kept: no warning" "" "$(cat "$T2241_DIR/err")"
+
+echo "--- Test 46: GitLab fallback path is not reported as a clean success ---"
+_t2241_create fallback false
+assert_eq "gitlab fallback: exit 0" "0" "$(cat "$T2241_DIR/rc")"
+assert_contains "gitlab fallback: stdout carries the URL" "https://gitlab.com/o/r/-/issues/77" "$(cat "$T2241_DIR/out")"
+assert_contains "gitlab fallback: names the permission cause" "lack permission to set labels" "$(cat "$T2241_DIR/err")"
+assert_contains "gitlab fallback: says the issue is unlabeled" "created unlabeled" "$(cat "$T2241_DIR/err")"
+
+echo "--- Test 47: GitLab unverifiable label warns; --no-label never checks ---"
+_t2241_create viewfail false
+assert_contains "gitlab viewfail: stdout carries the URL" "https://gitlab.com/o/r/-/issues/77" "$(cat "$T2241_DIR/out")"
+assert_contains "gitlab viewfail: cannot-verify warning" "Could not verify" "$(cat "$T2241_DIR/err")"
+_t2241_create dropped true
+assert_contains "gitlab no-label: stdout carries the URL" "https://gitlab.com/o/r/-/issues/77" "$(cat "$T2241_DIR/out")"
+assert_eq "gitlab no-label: no warning" "" "$(cat "$T2241_DIR/err")"
+assert_not_contains "gitlab no-label: no label read-back" "issue view" "$(cat "$T2241_DIR/calls")"
+rm -rf "$T2241_DIR"
+
 # --- Summary ---
 echo ""
 echo "Results: $PASS passed, $FAIL failed out of $TOTAL tests"

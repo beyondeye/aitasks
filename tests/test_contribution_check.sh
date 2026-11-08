@@ -356,6 +356,99 @@ unset -f gh
 rm -rf "$T2235_DIR"
 ARG_REPO=""
 
+# --- Tests 27-32: unlabeled external contributions are visible on GitLab (t2241) ---
+# GitLab silently drops labels supplied by authors who are not project members,
+# so the GitLab listing must find contribution issues by label OR metadata,
+# across every page of open issues, on both the glab and the curl path.
+. "$PROJECT_DIR/tests/lib/glab_contribution_stub.sh"
+T2241_DIR="$(mktemp -d)"
+glab_contribution_stub_install "$T2241_DIR"
+_t2241_saved_path="$PATH"
+PATH="$T2241_DIR/bin:$PATH"
+_t2241_saved_token="${GITLAB_TOKEN-}"
+export GITLAB_TOKEN="test-token"
+ARG_LIMIT=50
+_t2241_numbers() { jq -r '[.[].number] | join(",")'; }
+
+echo "--- Test 27: curl path finds unlabeled metadata issues past newer ordinary ones ---"
+ARG_REPO="o/r"
+: > "$T2241_DIR/curl_calls"
+listed=$(gitlab_list_contribution_issues)
+assert_eq "curl listing exits 0" "0" "$?"
+assert_eq "curl: labeled + unlabeled-metadata issues, newest first; no ordinary or plain #14" \
+    "101,100,15,12" "$(printf '%s' "$listed" | _t2241_numbers)"
+assert_eq "curl: output keeps the listing shape (url from web_url)" \
+    "https://gitlab.example/o/r/-/issues/100" \
+    "$(printf '%s' "$listed" | jq -r '.[] | select(.number == 100) | .url')"
+assert_eq "curl: body from description" "true" \
+    "$(printf '%s' "$listed" | jq '.[] | select(.number == 100) | .body | contains("aitask-contribute-metadata")')"
+assert_eq "curl: labels normalised to {name} objects" '[{"name":"contribution"}]' \
+    "$(printf '%s' "$listed" | jq -c '.[] | select(.number == 15) | .labels')"
+curl_calls=$(cat "$T2241_DIR/curl_calls")
+assert_contains "curl: second page requested" "page=2" "$curl_calls"
+assert_contains "curl: scans open issues of --repo" "projects/o%2Fr/issues?state=opened" "$curl_calls"
+assert_not_contains "curl: no server-side label filter" "labels=" "$curl_calls"
+
+echo "--- Test 28: glab path finds the same issues ---"
+ARG_REPO=""
+: > "$T2241_DIR/glab_calls"
+listed=$(gitlab_list_contribution_issues)
+assert_eq "glab listing exits 0" "0" "$?"
+assert_eq "glab: same contribution set" "101,100,15,12" "$(printf '%s' "$listed" | _t2241_numbers)"
+glab_calls=$(cat "$T2241_DIR/glab_calls")
+assert_contains "glab: paginated REST scan of open issues" "api --paginate projects/:id/issues?state=opened" "$glab_calls"
+assert_not_contains "glab: label-filtered issue list not used" "issue list" "$glab_calls"
+listed=$(GLAB_STUB_PAGINATE_FORMAT=concat gitlab_list_contribution_issues)
+assert_eq "glab: one-array-per-page output parsed too" "101,100,15,12" "$(printf '%s' "$listed" | _t2241_numbers)"
+
+echo "--- Test 29: --limit applies after filtering (both paths) ---"
+ARG_LIMIT=2
+ARG_REPO="o/r"
+assert_eq "curl: limit 2 keeps the two newest contributions" "101,100" \
+    "$(gitlab_list_contribution_issues | _t2241_numbers)"
+ARG_REPO=""
+assert_eq "glab: limit 2 keeps the two newest contributions" "101,100" \
+    "$(gitlab_list_contribution_issues | _t2241_numbers)"
+ARG_LIMIT=50
+
+echo "--- Test 30: listing failures fail closed ---"
+ARG_REPO="o/r"
+out=$(GLAB_STUB_CURL_FAIL_PAGE=2 gitlab_list_contribution_issues 2>/dev/null)
+assert_eq "curl: page-2 failure returns non-zero" "1" "$?"
+assert_eq "curl: page-2 failure prints no partial list" "" "$out"
+: > "$T2241_DIR/curl_calls"
+out=$(GLAB_STUB_CURL_REPEAT_PAGE=1 gitlab_list_contribution_issues 2>/dev/null)
+assert_eq "curl: a server repeating page 1 returns non-zero" "1" "$?"
+assert_eq "curl: repeated page prints no partial list" "" "$out"
+assert_eq "curl: repeated page detected on the second request" "2" "$(wc -l < "$T2241_DIR/curl_calls" | tr -d ' ')"
+out=$(GITLAB_TOKEN="" gitlab_list_contribution_issues 2>/dev/null)
+assert_eq "curl: missing GITLAB_TOKEN returns non-zero" "1" "$?"
+assert_eq "curl: missing GITLAB_TOKEN prints nothing" "" "$out"
+ARG_REPO=""
+out=$(GLAB_STUB_API_FAIL=1 gitlab_list_contribution_issues 2>/dev/null)
+assert_eq "glab: api failure returns non-zero" "1" "$?"
+assert_eq "glab: api failure prints nothing" "" "$out"
+
+echo "--- Test 31: overlap check reports the unlabeled overlapping contribution ---"
+overlap_out=$(main 100 --platform gitlab --repo o/r --dry-run --silent 2>&1)
+assert_contains "gitlab: unlabeled #101 is reported" "[#101]" "$overlap_out"
+assert_contains "gitlab: #101 scores 8 (high)" "| 8 (high) |" "$overlap_out"
+assert_contains "gitlab: labeled control #15 still reported" "[#15]" "$overlap_out"
+assert_contains "gitlab: #15 scores 5 (likely)" "| 5 (likely) |" "$overlap_out"
+
+echo "--- Test 32: self-test: the stub models the dropped label ---"
+# Guards the fixture itself: page 1 holds no contribution, and the server-side
+# label filter returns only the labeled issues — the pre-t2241 view.
+assert_eq "page 1 holds no contribution issue" "0" \
+    "$(jq '.[0:100] | [.[] | select((.description | contains("aitask-contribute-metadata")) or any(.labels[]; . == "contribution"))] | length' "$T2241_DIR/all.json")"
+assert_eq "labels=contribution returns only #15 and #12" "15,12" \
+    "$(curl -sf "https://gitlab.example/api/v4/projects/o%2Fr/issues?state=opened&labels=contribution&per_page=100" | jq -r '[.[].iid] | join(",")')"
+
+PATH="$_t2241_saved_path"
+if [[ -n "$_t2241_saved_token" ]]; then GITLAB_TOKEN="$_t2241_saved_token"; else unset GITLAB_TOKEN; fi
+rm -rf "$T2241_DIR"
+ARG_REPO=""
+
 # --- Summary ---
 echo ""
 echo "==============================="
