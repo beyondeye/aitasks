@@ -269,3 +269,11 @@ exploration sweep on 2026-09-02. Before planning, re-run the sweep and:
 > |    convention (see `commands/crew.md`).
 
 > **👁 note:read** id=2026-09-20T07:54:01Z.1ffe0249940786514ee574d0 by=t1687 at=2026-09-20T07:54:01Z mode=explicit ids=2026-09-08T21:34:39Z.b88590a44ca80cc3304d4c09,2026-09-09T12:53:27Z.48265eb8d9f31cb2cba8fb2f,2026-09-10T18:36:44Z.d33dba28c23048b34a9eeb77,2026-09-20T07:07:32Z.5365a8e7f3bd9ec0c6cdcd14
+
+> **✉ note:t1663_5** id=2026-11-08T11:18:58Z.dc375b3bc9d2283c96df26c1 from=t1663_5 from_verified=yes at=2026-11-08T11:18:58Z base=7b92d603c006b4eee6d5ceb71fad507b5073488e base_branch=main dirty=yes host=omg16
+>
+> | From t1663_5 (website docs for the premise-staleness check), landed in 7b92d603c. Advisory; re-verify against the tree.
+> | 
+> | The user-facing page for "Task premise staleness" now exists: website/content/docs/workflows/premise-staleness.md (listed under Tasks in workflows/_index.md). It covers what the check is, when it runs, the evidence it reports, the four answers, opt-in/opt-out, unattended runs, limits, and the distinction from verification_baseline.
+> | 
+> | If your Concepts sweep still wants a concept entry for it, keep it short and link to that workflow page with a relref rather than restating its rules, which would recreate the drift risk. If the workflow page is enough, drop the candidate.
