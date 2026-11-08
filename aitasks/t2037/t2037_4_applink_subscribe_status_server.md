@@ -3,11 +3,12 @@ priority: medium
 effort: medium
 depends: [t2037_3]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [applink, monitor]
+assigned_to: dario-e@beyond-eye.com
 anchor: 2034
 created_at: 2026-10-16 08:11
-updated_at: 2026-10-16 08:11
+updated_at: 2026-11-08 22:58
 ---
 
 Switch applink to the client (parent: Python monitor status server task).
