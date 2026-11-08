@@ -24,6 +24,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import textwrap
 import time
 import unittest
 from pathlib import Path
@@ -57,14 +58,42 @@ _SPEC_KEYS = {
     "#{pane_current_path}": "cwd",
 }
 
-#: A pid that is NOT a companion process (this test runner).
+#: This test runner's pid, in two roles: a LIVE pid for ``minimonitor:<pid>``
+#: companion markers (the marker rung only checks the pid is alive), and the
+#: default pane pid of an ordinary "agent" row. Its cmdline is the runner's own,
+#: so a fixture whose row reaches the cmdline rung (`_is_companion_process`) is
+#: classified by how the suite was invoked unless it goes through
+#: :func:`runner_pid_is_not_a_companion` (t2233).
 LIVE_PID = os.getpid()
+
+#: The unpatched cmdline rung, captured at import so a witness can read the real
+#: verdict even while a test has the rung patched.
+_REAL_RUNG = mc._is_companion_process
 
 
 def pane(pid=LIVE_PID, **kw) -> dict:
     row = {"pid": str(pid)}
     row.update(kw)
     return row
+
+
+def runner_pid_is_not_a_companion():
+    """Patch the cmdline rung so THIS runner's pid is never a companion.
+
+    Only LIVE_PID is answered ``False``; every other pid still reaches the real
+    ``/proc`` (or ``ps``) read, so a stand-in spawned with a ``minimonitor``
+    argv is still classified for real. Without it the verdicts depend on how the
+    suite was invoked: a runner whose argv names ``minimonitor`` or
+    ``monitor_app`` (e.g. ``unittest tests.test_sitrep_window
+    tests.test_minimonitor_sibling_fallback``) turns every LIVE_PID agent
+    fixture into a companion (t2233).
+    """
+    real = mc._is_companion_process
+
+    def rung(pid):
+        return False if str(pid) == str(LIVE_PID) else real(pid)
+
+    return patch.object(mc, "_is_companion_process", rung)
 
 
 def render(fmt: str, panes: list[dict]) -> str:
@@ -191,6 +220,11 @@ class FakeMon:
 class MatcherTests(unittest.TestCase):
     ROOT = "/repo"
 
+    def setUp(self):
+        rung = runner_pid_is_not_a_companion()
+        rung.start()
+        self.addCleanup(rung.stop)
+
     def match(self, panes, root=ROOT, canon=canon_identity):
         return mc.match_sitrep_pane(render(mc.SITREP_PANE_FORMAT, panes), root, canon)
 
@@ -262,7 +296,9 @@ class MatcherTests(unittest.TestCase):
         parent resumes mid-exec, while `/proc/<pid>/cmdline` is still empty or
         the parent's argv (t2220). The child announces itself from its own Python
         code, which runs only after exec has completed, so the cmdline rung reads
-        the real `minimonitor` argv rather than racing the exec.
+        the real `minimonitor` argv rather than racing the exec. The stand-in's
+        pid is not LIVE_PID, so the class-wide `runner_pid_is_not_a_companion`
+        patch leaves its cmdline rung real (t2233).
         """
         proc = self.spawn_standin(
             "import time; print('ready', flush=True); time.sleep(30)")
@@ -312,6 +348,11 @@ class MatcherTests(unittest.TestCase):
 class ClassifyParityTests(unittest.TestCase):
     """`classify_window_panes` keeps its verdicts after the `pane_is_helper` lift."""
 
+    def setUp(self):
+        rung = runner_pid_is_not_a_companion()
+        rung.start()
+        self.addCleanup(rung.stop)
+
     def test_classify_uses_the_shared_rule(self):
         out = render(mc.FROZEN_AWARE_PANE_FORMAT, [
             pane(id="%1"),
@@ -352,6 +393,7 @@ class _SpawnFixture(TmuxSocketContainmentMixin, unittest.TestCase):
                                             return_value=None).start()
         self.hook = patch.object(mc, "attach_companion_cleanup_hook",
                                  return_value="installed").start()
+        runner_pid_is_not_a_companion().start()
         self.addCleanup(patch.stopall)
 
     def spawn(self, mon, **kw):
@@ -1189,6 +1231,44 @@ class ConsumerTableTests(unittest.TestCase):
                     asyncio.run(app._check_auto_close())
         self.assertEqual(exits, [])
         self.assertEqual(app._empty_window_streak, 0)
+
+
+class ArgvIndependenceTests(unittest.TestCase):
+    """The fixtures' verdicts do not depend on the runner's argv (t2233).
+
+    The LIVE_PID fixtures once failed whenever the runner's own cmdline carried
+    a companion keyword. This re-runs them in a child interpreter whose argv
+    names ``minimonitor`` (so the child's LIVE_PID is a companion by cmdline),
+    after the child attests that its real cmdline rung does see it that way.
+    """
+
+    CLASSES = ("MatcherTests", "ClassifyParityTests", "SpawnTests", "RoleSpawnTests")
+
+    CHILD = textwrap.dedent('''
+        import sys, unittest
+        here, names = sys.argv[1], sys.argv[2].split(",")
+        sys.argv = sys.argv[:1]
+        sys.path.insert(0, here)
+        import test_sitrep_window as m
+        # the condition must really hold, or this test proves nothing
+        print("COUPLED:%d" % int(bool(m._REAL_RUNG(m.LIVE_PID))), flush=True)
+        suite = unittest.TestSuite(
+            unittest.defaultTestLoader.loadTestsFromTestCase(getattr(m, n))
+            for n in names)
+        r = unittest.TextTestRunner(stream=sys.stderr, verbosity=1).run(suite)
+        print("RAN:%d FAILED:%d" % (r.testsRun, len(r.failures) + len(r.errors)))
+        sys.exit(0 if r.wasSuccessful() else 1)
+    ''')
+
+    def test_fixtures_pass_under_a_minimonitor_argv(self):
+        res = subprocess.run(
+            [sys.executable, "-c", self.CHILD, str(Path(__file__).resolve().parent),
+             ",".join(self.CLASSES), "minimonitor"],
+            capture_output=True, text=True, timeout=120, cwd=REPO_ROOT)
+        detail = res.stdout + res.stderr[-4000:]
+        self.assertIn("COUPLED:1", res.stdout, detail)
+        self.assertEqual(res.returncode, 0, detail)
+        self.assertRegex(res.stdout, r"RAN:[1-9]\d* FAILED:0")
 
 
 if __name__ == "__main__":
