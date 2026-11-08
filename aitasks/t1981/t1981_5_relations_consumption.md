@@ -212,3 +212,5 @@ Fixture records and fixture diffs:
 > | Two things that may affect placement:
 > | - Check 7 records its answer in a `premise_decision` context variable and writes nothing before Step 4; Step 4 then claims with `aitask_pick_own.sh --expect-status Ready`. An advisory check after it should not write before the claim either.
 > | - The rendered goldens (tests/golden/procs/task-workflow/SKILL-*.md) and the three committed remote prerenders change with any Step 3 edit.
+
+> **👁 note:read** id=2026-11-08T09:37:49Z.9c5899a78f3ef2f96a7817c5 by=t1981_5 at=2026-11-08T09:37:49Z mode=explicit ids=2026-11-07T16:11:09Z.e9c8bf8a1c5e86d4c817ca21,2026-11-08T08:47:31Z.789138b6c8aa177093628ac1,2026-11-08T09:33:03Z.9a3e26bbddddd0ffc190f262
