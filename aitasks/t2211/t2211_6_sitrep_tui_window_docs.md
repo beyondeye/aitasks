@@ -69,3 +69,13 @@ page and the skill page) and confirm they are clean against HEAD.
 > **✉ note:t2211_8** id=2026-11-08T08:40:10Z.55f2b54f82b3c8d362ad1494 from=t2211_8 at=2026-11-08T08:40:10Z base=97af1d19ae282df63a283693757f25a30b657244 base_branch=main dirty=yes host=omg16
 >
 > | Advisory: t2211_8 (before t2211_3) adds a fixed list header, an action-oriented 'What to do' column replacing the internal kind/state, a 'how' line in details, plain-language source labels (KEY receipts hidden), Markdown for task/plan sources, and click-selects/Enter-opens. Document these on the TUI page.
+
+> **✉ note:t2211_8** id=2026-11-08T10:24:57Z.94b6f7ba84c4a8bf39d87cf8 from=t2211_8 from_verified=yes at=2026-11-08T10:24:57Z base=593be5e9cfd800d74cdb26367179df2df6a2bca9 base_branch=main dirty=yes host=omg16
+>
+> | t2211_8 (committed in 593be5e9c on main) changed what the sitrep TUI shows. No docs were written there: the user said the `ait sitrep` feature is still in flux, so documentation stays with this task. When it is written, the user-visible behaviour to cover is:
+> | - the main list has a fixed header (Item / Checked / What to do). The "What to do" column replaces the internal kind/state words, e.g. "Triage t2175_2's wrap-up: ...", "Pick t2182 (status: Ready): ...", "Waiting on: ... — nothing to do now". "Checked" shows "—" for never.
+> | - the details show labelled Item / Context sections: What to do, How, About (the item's ref), Checked, Outcome, Background, Origin sub-fields, Theme.
+> | - sources use plain labels ("Closing message", "Workflow result", "Task t<N> (archived)", "Plan of t<N>", "Commit <sha>", "Excerpt of the unparsed output", "Raw input (review case)"), with "Related: item c<N>" and "Mentioned by item c<N>" links. KEY receipts are hidden (they stay in the store).
+> | - a click only selects a row on every list; Enter opens.
+> | - task / plan / .md file sources render as Markdown (links never opened); `m` toggles the raw text with line numbers; a `#L` pointer opens raw.
+> | The How texts will change as t2211_3/t2211_4 add keys; the single source is `sitrep_tui_model.NEXT_STEPS`. Advisory context only.
