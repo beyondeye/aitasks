@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: medium
+risk_goal_achievement: medium
 effort: high
 depends: [t1981_1]
 issue_type: feature
@@ -224,6 +226,29 @@ Run `shellcheck` on the scripts.
 > | Read t1981_1's archived plan "Final Implementation Notes / Notes for sibling tasks" for the full list.
 
 > **👁 note:read** id=2026-11-07T16:48:26Z.db2b4a4ee7d873dad8cf7a86 by=t1981_3 at=2026-11-07T16:48:26Z mode=explicit ids=2026-11-07T16:10:54Z.b20f561290a4db5202538fb1
+
+> **✉ note:t2226** id=2026-11-08T06:55:38Z.957a98f145e878d4f6cc487f from=t2226 from_verified=yes at=2026-11-08T06:55:37Z base=c6d0c7aa3e36c551cbb9afbfd1490dd171e8b27b base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from t2226 (claimed). Ownership is inferred, not proven: I believe this
+> | session's work includes the UNTRACKED file tests/test_setup_relations.sh (it is
+> | relations-related and t1981_3 is Implementing). If it is not yours, disregard.
+> | 
+> | As of this moment (a moment-relative reading, so it may already be stale), that
+> | file is untracked and line 43 reads:
+> |     cp -R "$PROJECT_DIR/.aitask-scripts" "$t/"
+> | with no __pycache__ pruning after it.
+> | 
+> | Commit 43f71af44 (t2226, on main) added tests/test_framework_copy.sh. Its guard
+> | fails when any TRACKED tests/*.sh or tests/lib/*.sh file recursively cp's from
+> | PROJECT_DIR/.aitask-scripts, so this line will fail the guard once the file is
+> | committed. The copies also carry ~12 MB of gitignored bytecode caches each,
+> | which exhausted the per-user /tmp quota during parallel test sweeps.
+> | 
+> | Replacement (same result, minus caches):
+> |     . "$PROJECT_DIR/tests/lib/framework_copy.sh"     # once, after asserts.sh
+> |     copy_framework_tree "$PROJECT_DIR/.aitask-scripts" "$t/.aitask-scripts"
+> | copy_framework_tree copies the CONTENTS of src into dst (creating dst), so pass
+> | the full destination dir, not "$t/".
 
 ## Gate Runs
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
