@@ -3,12 +3,13 @@ priority: medium
 effort: high
 depends: [t1981_3, t1981_5]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [task_relations, backlog]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1981
 created_at: 2026-11-04 15:39
-updated_at: 2026-11-04 15:39
+updated_at: 2026-11-08 18:14
 ---
 
 ## Context
