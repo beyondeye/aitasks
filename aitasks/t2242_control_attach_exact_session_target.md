@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
@@ -38,3 +40,5 @@ Use `session_target(self.session)` in `_attach_argv`. Update the argv-pinning te
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-11-08T15:33:40Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-11-08T15:46:47Z status=pass attempt=1 type=human
