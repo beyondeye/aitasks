@@ -54,3 +54,17 @@ See `aiplans/p1981/p1981_8_relations_website_docs.md`.
 - `hugo build --gc --minify` succeeds.
 - `check_links.py --build` is clean.
 - Every documented verb and flag exists in the shipped scripts. Grep each one.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1981_5** id=2026-11-08T13:39:22Z.343f3333ef479306670ac282 from=t1981_5 from_verified=yes at=2026-11-08T13:39:22Z base=85b688f06300e7fcdab1ada992343b7036e4aeb8 base_branch=main dirty=no host=omg16
+>
+> | Advisory, from t1981_5 (relations consumption), code commit f87d4ef27. Website-doc surface added by this task:
+> | - New `ait relations` verbs:
+> |   - `related-work <id> --point pick|review|note [--since <ts>] [--log] [--json]`;
+> |   - `notify-candidates <id> [--rev <rev> | --diff <range>] [--expect-plan <sha>] [--option <opt>] [--log] [--json]`;
+> |   - `notify-outcome <id> --run <id> --to <ref> --type <type> --outcome sent|declined|not_offered [--note-id <id>]`.
+> | - New profile key `relations_incomplete_action` (`ask` default / `wait` / `fallback` / `proceed`). The shipped profiles set default and fast to ask, remote to proceed.
+> | - Workflow surfaces: task-workflow Step 3 Check 8 (pick-time related work), the Step 8 re-check, Step 8e relations-derived note offers, and /aitask-note reading the store first.
+> | - The source of truth is aidocs/framework/task_relations.md D8 "Consumer API".
