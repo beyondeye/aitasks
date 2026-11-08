@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1981
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-04 15:39
-updated_at: 2026-11-08 11:38
+updated_at: 2026-11-08 12:38
 ---
 
 ## Context
@@ -219,3 +220,8 @@ Fixture records and fixture diffs:
 > | - The rendered goldens (tests/golden/procs/task-workflow/SKILL-*.md) and the three committed remote prerenders change with any Step 3 edit.
 
 > **👁 note:read** id=2026-11-08T09:37:49Z.9c5899a78f3ef2f96a7817c5 by=t1981_5 at=2026-11-08T09:37:49Z mode=explicit ids=2026-11-07T16:11:09Z.e9c8bf8a1c5e86d4c817ca21,2026-11-08T08:47:31Z.789138b6c8aa177093628ac1,2026-11-08T09:33:03Z.9a3e26bbddddd0ffc190f262
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-08T10:38:45Z status=pass attempt=1 type=human
