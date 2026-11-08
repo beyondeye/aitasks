@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2034
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-08 08:55
-updated_at: 2026-11-08 08:59
+updated_at: 2026-11-08 09:42
 ---
 
 ## Origin
@@ -57,3 +58,8 @@ Give `FakeServer` `self.tunnel = None` (the real server's no-tunnel state, which
 `_refresh` already handles), then confirm the script exits 0 and that the
 previously-skipped checks pass. Consider whether any devices-screen check should also
 cover a non-None tunnel status line.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-08T07:42:24Z status=pass attempt=1 type=human
