@@ -446,3 +446,57 @@ task-workflow Step 9.
 
 ### Planned mitigations
 - timing: after | name: full_native_byte_tmux_typing | type: enhancement | priority: low | effort: medium | inline_risk: high | added_complexity: high | addresses: single-byte-locale tmux-text round trip | desc: Type the OS-path inputs to the tmux gateway at their builders (launcher argv[0], `-c <dir>`, pane shell commands, path-valued options/env such as @aitask_project_root and AITASKS_PROJECT_<s>) as native bytes, and send all other tmux text as UTF-8, so that non-ASCII names round-trip under single-byte named locales too (removes the policy-5 limitation from t2236)
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-08 12:25)
+- **Requested by user:** `tests/test_tmux_utf8_client_live.sh` built the invalid-UTF-8 `b\xffd` directory unconditionally. APFS (macOS) rejects such a file name, so `set -e` aborted setup before any locale probe or Unicode check ran. Probe for invalid-byte filename support and drop only `rawb` and its dependent expectations and counts, keeping the valid-Unicode checks; invalid-byte codec coverage stays in the unit tests.
+- **Changes made:**
+  - A `mkdir` probe sets `HAVE_RAWB`. Without support the test prints `SKIP-PART: rawb`, omits the `rawb` session, passes an empty `T_RAWB`, and the Python side drops `rawb` from `NAMES` / `ROOTS`.
+  - The shell row count becomes `5 + HAVE_RAWB`, and `GENERIC_CHECKS` becomes `35 + 4 * HAVE_RAWB`.
+  - New self-check knob `T_FORCE_NO_RAWB=1` emulates the rejection on Linux.
+  - Verified: normal run 131/131; `T_FORCE_NO_RAWB=1` 119/119; plus `T_FORCE_FS_PROBE=utf-8` 117/117.
+- **Files affected:** `tests/test_tmux_utf8_client_live.sh`
+
+## Final Implementation Notes
+- **Actual work done:**
+  - **Every framework tmux client passes `-u`.** Python: `TMUX_CLIENT_FLAGS` in `TmuxClient._argv` (so `run` / `run_checked` / `run_async` / `spawn` / `set_clipboard` / `resize_pane` all get it), `new_session_argv` (all three rungs), the control-mode `_attach_argv`, and the ambient `$TMUX` probes in `codebrowser_app.py` (`#S`, `#{window_index}`), `stats_app.py`, `minimonitor_app.py` and `monitor_app.py` (`#S`, `rename-window`). Shell: `AIT_TMUX_CLIENT_FLAGS` in `ait_tmux` and `ait_tmux_legacy`, plus the new `ait_tmux_client_args` emitter, used by the `aitask_ide.sh` exec sites, the legacy-attach array, and all three rungs of the `terminal_compat.sh` new-session ladder.
+  - **The Python text model** (`tmux_exec.py`): `tmux_text_kwargs()` / `decode_tmux_output()` (UTF-8 + surrogateescape); `encode_tmux_wire()` (`os.fsencode`, falling back to UTF-8 + surrogateescape only when the OS codec cannot represent the string); `encode_tmux_argv()` (a `str` element stays `str` unless the encodings differ); `tmux_os_path()`.
+  - **The control client** builds its wire line per argument (`monitor_core._control_line`) and decodes with `decode_tmux_output`.
+  - **Converted consumer sites** (the plan's step-3 audit result):
+    - `agent_launch_utils.py`: `_registered_root`, `_pane_vote`, `_registry_entry_from_output` (`tmux_os_path`); the `new-session` Popen (`encode_tmux_argv`); its stderr decode (`decode_tmux_output`).
+    - `agent_freeze.py` `_walk_up_to_project` (`tmux_os_path` on the pane-cwd fact).
+    - `monitor_core.py`: `_sitrep_rows` (sitrep root and TUI-root stamps, cwd) and `match_scratchpad_pane` (store key), both via `tmux_os_path`.
+    - **Left as tmux text by design:** `_Observed.path` (never read), the `RunIdentity` TUI root (emptiness check only), `aitask_companion_cleanup.sh` (pane ids and emptiness only).
+    - Other `text=True` / `.decode(` sites near these files are non-tmux subprocesses (ps, shell helpers), so they are out of scope.
+  - **Doc:** `aidocs/framework/tmux_gateway.md` gains policy 5, gateway-surface entries, checklist item 5, the companion-cleanup exception, and the single-byte-locale limitation and its discovery consequence.
+- **Deviations from plan:**
+  - The audit turned up two more path consumers that the plan had not listed: the sitrep root / TUI-root / cwd matcher, and the scratchpad store-key matcher. Both compare a tmux-read path with a canonical OS root, so they were converted too; without that, L2 would mis-match them.
+  - The live test does **not** use a separate `€wn`-style sibling argument inside one `set-option`, because tmux's `set-option` takes exactly option + value. It uses the reviewer's own shape instead: the target `=€wn:` (non-encodable under Latin-1) beside a native OS-path value, in one control command.
+  - The fixture uses `set-option -t =<s>:`. On tmux 3.8 `set-option`'s `-t` is pane-typed, and a bare `=<s>` fails with "no such session" (the framework's bootstrap already uses `=<s>:`).
+  - Post-review: the APFS probe for `rawb` (see Post-Review Changes).
+- **Issues encountered:**
+  - `python -I` / `-E` ignore `PYTHONUTF8` / `PYTHONCOERCECLOCALE`, so the first fs-encoding probe misreported L2 as `utf-8`. The probe now runs plain `python -c` in the empty scratch cwd.
+  - The new test initially lacked `PASS=0 FAIL=0 TOTAL=0`. An unset `FAIL` makes `[[ "$FAIL" -eq 0 ]]` pass even after failures; this was caught by the empty count in the summary.
+  - `printf '%s\n'` with no operands prints an empty line, so the emitter guards an emptied `AIT_TMUX_CLIENT_FLAGS`.
+  - Ten test files matched tmux's exact argv or positional verb (`argv[:2] == ["tmux", "list-sessions"]`, `cmd[1] == "display-message"`, a shell shim's `$1`). All were updated shape-only: `test_tmux_exec.py`, `test_discover_include_registered.py`, `test_discover_default_unchanged.py`, `test_codebrowser_detect_tmux_window.py`, `test_monitor_rename_gate.py`, `test_monitor_rename_window_target.sh`, `test_multi_session_monitor.sh`, `test_multi_session_primitives.sh`, `test_session_claim.sh` and `test_tmux_socket_args_sh.sh` (extended).
+- **Verification:**
+  - **New live test:** `test_tmux_utf8_client_live.sh` passes 131/131 (L0/L1/L2, L2 at fs `ascii`; L3 is SKIP-LANE because no Latin-1 locale is installed). It also passes 129/129 with `T_FORCE_FS_PROBE=utf-8`, 119/119 with `T_FORCE_NO_RAWB=1`, and 117/117 with both.
+  - **Mutants**, each in an isolated scratch copy of the repo, all detected:
+    - `TMUX_CLIENT_FLAGS = ()`: 38 failures;
+    - no `tmux_os_path` in `_pane_vote`: 3;
+    - `tmux_text_kwargs` → `text=True`: the lanes crash;
+    - whole-line control encoding: the lanes crash;
+    - shell `AIT_TMUX_CLIENT_FLAGS=()`: 4.
+  - **In-process unit mutants** (4) were all detected. `test_tmux_exec.py` passes 100/100.
+  - **Python suite:** final run is `PYTHON SUITE: FAILED`, with one failure: `test_contribution_workflow_contract`. A concurrent session was editing `.github/workflows/contribution-check.yml` during the run; the test passes 6/6 in isolation, and this change touches no `.github` file.
+  - **Shell sweep** over every `tests/*.sh` that mentions tmux: 76 OK. Not run: 9 tests that refuse to run inside a tmux session (`test_cleanup_rule_parity`, `test_freeze_engine_live`, `test_frozen_agents_acceptance`, `test_frozen_standin_spike`, `test_monitor_harvest_close_live`, `test_monitor_shadow_spawn_live`, `test_restore_flows_live`, `test_scratchpad_spawn_live`, `test_sitrep_window_hook_live`).
+  - **Unrelated failure:** `test_note_with_live_composition` checks rendered task-workflow skill text, which this change does not touch; another session has uncommitted edits to `.claude/skills/task-workflow/`.
+  - The `run_all_python_tests.sh` entry in the sweep timed out under the sweep's 240 s cap; it was run separately, as above.
+- **Key decisions:**
+  - `-u` rather than `LC_CTYPE`.
+  - tmux text is real Unicode, never `os.fsdecode` (it breaks text consumers).
+  - Encoding is per argument, native-first.
+  - Scope (user decision): UTF-8 and C/POSIX fully supported; single-byte named locales partially supported, with a documented limitation and a follow-up (planned mitigation `full_native_byte_tmux_typing`, created at Step 8d).
+  - Interactive `attach` also gets `-u`.
+- **Upstream defects identified:** None
