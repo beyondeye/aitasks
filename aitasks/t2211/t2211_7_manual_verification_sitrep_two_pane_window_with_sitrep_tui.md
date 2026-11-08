@@ -36,3 +36,10 @@ archived; Defer is allowed but creates a carry-over task.
 - [ ] [t2211_4] Entering tmux copy-mode in the agent pane during delivery leaves the request typed and unsubmitted; clipboard not clobbered
 - [ ] [t2211_5] Fresh `ait sitrep`: the agent greets without running harvest/refresh; its menu no longer lists >s, >r, >x; a TUI-typed `>q c<N> ...` is answered and logged
 - [ ] [t2211_6] Website: the new Sitrep TUI page is reachable from the TUIs index, and the sitrep workflow / skill pages describe the three-pane window accurately
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t2211_8** id=2026-11-08T08:40:12Z.25b2cdeb75a68d6750ca811e from=t2211_8 at=2026-11-08T08:40:12Z base=97af1d19ae282df63a283693757f25a30b657244 base_branch=main dirty=yes host=omg16
+>
+> | Advisory: new child t2211_8 (sitrep TUI readability) needs checklist items: the list header is readable without docs, every 'What to do' row says how to act, click only selects (Enter opens) on all three lists, labels are distinct from values in details, task/plan sources render as Markdown, KEY receipts are hidden.
