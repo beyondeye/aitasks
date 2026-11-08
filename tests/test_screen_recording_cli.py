@@ -372,11 +372,11 @@ class BugMode(_VideoCase):
     @unittest.skipUnless(HAVE_MAGICK, "ImageMagick (magick) not installed")
     def test_layout_reduced_sheets_list_the_frames_they_hold(self):
         """A sheet cut short so its labels fit: the summary and run.json give the
-        frames each sheet really holds, not --per-sheet arithmetic. ffmpeg cannot
-        extract the ~130+ frames a 1600 px sheet needs before it must reduce (its
-        select expression fails past ~110 picks), so the real bug pipeline runs
-        in-process with a 500 px sheet edge: the layout, montage and summary code
-        are the shipped ones, only the size budget is smaller."""
+        frames each sheet really holds, not --per-sheet arithmetic. A 1600 px sheet
+        must reduce only past ~130 frames, so to keep the test fast the real bug
+        pipeline runs in-process with a 500 px sheet edge, which reduces at 40:
+        the layout, montage and summary code are the shipped ones, only the size
+        budget is smaller."""
         import video_prep as vp
         video = self.video("slide_linear_2s", lambda: synth.card_frames(
             synth.tween(synth.LINEAR, 0.0, 2.0), 2.0, "right"))
@@ -445,6 +445,144 @@ class BugMode(_VideoCase):
         self.cli_ok("bug", video, "--out", out)
         rows = self.timeline(out)
         self.assertEqual([(t, why) for t, why, _ in rows], [(0.0, {"start", "state", "end"})])
+
+
+def _expr_depth(expr: str) -> int:
+    """Nesting depth of a select_expr result, failing unless it has the balanced
+    shape: a bare eq(pts,N), or (A+B) split at its one top-level '+'."""
+    if re.fullmatch(r"eq\(pts,-?\d+\)", expr):
+        return 0
+    if not (expr.startswith("(") and expr.endswith(")")):
+        raise AssertionError(f"not a bare term or a (A+B) pair: {expr[:60]}")
+    body, level, split = expr[1:-1], 0, []
+    for i, ch in enumerate(body):
+        level += {"(": 1, ")": -1}.get(ch, 0)
+        if ch == "+" and level == 0:
+            split.append(i)
+    if len(split) != 1:
+        raise AssertionError(f"{len(split)} top-level '+' in one pair: {expr[:60]}")
+    a, b = body[:split[0]], body[split[0] + 1:]
+    return 1 + max(_expr_depth(a), _expr_depth(b))
+
+
+class SelectExpr(unittest.TestCase):
+    """The select expression nests ceil(log2 n) deep: ffmpeg n9 refuses an
+    expression nested ~100 deep, which a flat a+b+c reaches at ~100 frames."""
+
+    def test_balanced_complete_and_exact(self):
+        import video_prep as vp
+        for n in (1, 2, 3, 7, 100, 101, 1000, 4097):
+            pts = [-7 + 3 * k * 1_000_003 for k in range(n)]  # negative and large values
+            expr = vp.select_expr(pts)
+            self.assertLessEqual(_expr_depth(expr), math.ceil(math.log2(n)), n)
+            self.assertEqual(sorted(int(x) for x in re.findall(r"eq\(pts,(-?\d+)\)", expr)),
+                             pts, n)
+            py = eval("lambda pts: " + re.sub(r"eq\(pts,(-?\d+)\)", r"(pts==\1)", expr))
+            if n <= 101:  # evaluating the 4097-term lambda per value is slow, not wrong
+                self.assertTrue(all(py(p) == 1 for p in pts), n)
+                self.assertTrue(all(py(p + 1) == 0 for p in pts), n)
+
+    def test_flat_sum_is_rejected_by_the_shape_check(self):
+        """Control: the pre-fix flat form fails the shape check, so the test above
+        tells the two apart."""
+        with self.assertRaises(AssertionError):
+            _expr_depth("+".join(f"eq(pts,{p})" for p in range(5)))
+
+
+@unittest.skipUnless(HAVE_FFMPEG, "ffmpeg/ffprobe not installed")
+class ExtractViewsMany(_VideoCase):
+    """More frames than one flat select expression could carry (t2239)."""
+
+    def setUp(self):
+        import video_prep as vp
+        self.vp = vp
+        self.src = str(self.video("slide_linear_5s", lambda: synth.card_frames(
+            synth.tween(synth.LINEAR, 0.0, 5.0), 5.0, "right")))
+        frames = vp.enumerate_frames(self.src, None)
+        self.native = frames[0].size
+        self.all_pts = [f.pts for f in frames]
+        self.pts = self.all_pts[::2][:150]
+
+    def extract(self, name, pts=None):
+        out = self.tmp / name
+        shutil.rmtree(out, ignore_errors=True)
+        out.mkdir()
+        wanted = {p: out / f"{p}.png" for p in (pts or self.pts)}
+        sizes = self.vp.extract_views(self.src, wanted, None, None, None)
+        return wanted, sizes
+
+    def digests(self, wanted):
+        return {p: hashlib.sha256(path.read_bytes()).hexdigest() for p, path in wanted.items()}
+
+    def vf_calls(self, spy):
+        return [c.args[0][c.args[0].index("-vf") + 1] for c in spy.call_args_list]
+
+    def test_more_than_120_frames_in_one_call(self):
+        wanted, sizes = self.extract("many")
+        self.assertEqual(len(wanted), 150)
+        self.assertTrue(all(p.exists() for p in wanted.values()))
+        self.assertEqual(set(sizes), set(wanted))
+        self.assertTrue(all(s == (self.native, self.native) for s in sizes.values()), sizes)
+
+    def test_batches_match_one_call_byte_for_byte(self):
+        wanted, sizes = self.extract("one-call")
+        with mock.patch.object(self.vp, "EXTRACT_BATCH", 7), \
+                mock.patch.object(self.vp, "ffmpeg", wraps=self.vp.ffmpeg) as spy:
+            batched, bsizes = self.extract("batched")
+        self.assertEqual(spy.call_count, math.ceil(150 / 7))
+        self.assertEqual(bsizes, sizes)
+        self.assertEqual(self.digests(batched), self.digests(wanted))
+
+    def test_bounded_pass_stops_decoding_at_the_last_wanted_frame(self):
+        with mock.patch.object(self.vp, "EXTRACT_BATCH", 7), \
+                mock.patch.object(self.vp, "ffmpeg", wraps=self.vp.ffmpeg) as spy:
+            self.extract("bounded")
+        vf = self.vf_calls(spy)[0]
+        self.assertIn("trim=end_pts=", vf)
+        err = subprocess.run(["ffmpeg", "-hide_banner", "-nostdin", "-v", "verbose", "-i", self.src,
+                              "-an", "-vf", vf, "-f", "null", "-"],
+                             capture_output=True, text=True).stderr
+        decoded = [int(n) for n in re.findall(r"(\d+) frames decoded", err)]
+        self.assertEqual(len(decoded), 1, err[-500:])
+        last = self.all_pts.index(self.pts[6])  # the first batch's last wanted frame
+        self.assertLessEqual(decoded[0], last + 1 + 32, decoded)
+        self.assertLess(decoded[0], len(self.all_pts) // 2, decoded)
+
+    def assert_falls_back(self, end_pts, name):
+        wanted, sizes = self.extract(f"{name}-ref")
+        with mock.patch.object(self.vp, "_batch_end_pts", end_pts), \
+                mock.patch.object(self.vp, "ffmpeg", wraps=self.vp.ffmpeg) as spy:
+            got, gsizes = self.extract(name)
+        vfs = self.vf_calls(spy)
+        self.assertEqual(len(vfs), 2, vfs)
+        self.assertIn("trim=end_pts=", vfs[0])
+        self.assertNotIn("trim=end_pts=", vfs[1])
+        self.assertEqual(gsizes, sizes)
+        self.assertEqual(self.digests(got), self.digests(wanted))
+
+    def test_bound_that_cuts_every_frame_falls_back(self):
+        """ffmpeg exits 0 with no showinfo report at all: the instance guard."""
+        self.assert_falls_back(lambda pts: min(pts), "cut-all")
+
+    def test_bound_that_cuts_some_frames_falls_back(self):
+        self.assert_falls_back(lambda pts: sorted(pts)[len(pts) // 2], "cut-half")
+
+    def test_unbounded_retry_keeps_the_strict_missing_frame_error(self):
+        bogus = max(self.all_pts) + 10 ** 9
+        with mock.patch.object(self.vp, "_batch_end_pts", lambda pts: min(pts)), \
+                mock.patch.object(self.vp, "ffmpeg", wraps=self.vp.ffmpeg) as spy:
+            with self.assertRaisesRegex(self.vp.PrepError, "could not extract frames with pts"):
+                self.extract("bogus", self.pts + [bogus])
+        self.assertEqual(spy.call_count, 2)
+
+    def test_bug_max_frames_above_120(self):
+        """The task's repro through the real CLI."""
+        out = self.tmp / "bug-150"
+        self.cli_ok("bug", self.src, "--out", out, "--interval", "0.01", "--per-sheet", "400",
+                    "--view-size", "100", "--max-frames", "150")
+        run = json.loads((out / "run.json").read_text())
+        self.assertGreater(run["picks"], 120)
+        self.assertEqual(len(list((out / "frames").glob("*.png"))), run["picks"])
 
 
 def gray_mean(png: Path) -> float:

@@ -52,6 +52,9 @@ FREEZE_NOISE = "-60dB"
 BLACK_PIC_TH, BLACK_PIX_TH = 0.98, 0.10
 SILENCE_NOISE, SILENCE_MIN = "-60dB", 2.0
 
+EXTRACT_BATCH = 1000  # wanted frames per extraction ffmpeg call: keeps the -vf
+                      # argument far below Linux's 128 KiB per-argument limit
+
 
 class PrepError(RuntimeError):
     pass
@@ -235,31 +238,91 @@ def extract_views(video, wanted: dict[int, Path], crop: str | None, vw: int | No
     Returns {pts: (native size, size leaving the filter chain)}, read from a
     showinfo before and after the crop/scale: a stream that changes size mid-way
     is rescaled by ffmpeg *after* the chain, so callers compare both with what
-    they expect before recording any geometry."""
+    they expect before recording any geometry.
+
+    The pts go to ffmpeg in batches of EXTRACT_BATCH, one ffmpeg call each. Every
+    call decodes from the start of the input (there is no seek) but stops at its
+    batch's last wanted frame, so n frames cost ceil(n / EXTRACT_BATCH) partial
+    decodes. A batch whose bounded pass comes back incomplete is redone once
+    with a full decode, which keeps the strict checks."""
     if not wanted:
         return {}
+    order = sorted(wanted)
+    sizes = {}
+    for i in range(0, len(order), EXTRACT_BATCH):
+        batch = {p: wanted[p] for p in order[i:i + EXTRACT_BATCH]}
+        args = (video, batch, crop, vw, vh)
+        try:
+            got = _extract_batch(*args, stream=stream, head=head, bounded=True)
+        except _Unbounded:
+            got = _extract_batch(*args, stream=stream, head=head, bounded=False)
+        sizes.update(got)
+    return sizes
+
+
+class _Unbounded(Exception):
+    """A bounded extraction pass came back incomplete: redo it without the bound."""
+
+
+def select_expr(pts) -> str:
+    """select expression true exactly on these pts, as a balanced sum. ffmpeg
+    refuses expressions nested about 100 deep, and a flat a+b+c parses one level
+    per term, so a flat sum fails past about 100 frames. Pairing level by level
+    nests ceil(log2 n) deep."""
+    terms = [f"eq(pts,{p})" for p in pts]
+    if not terms:
+        raise ValueError("select_expr needs at least one pts")
+    while len(terms) > 1:
+        nxt = [f"({terms[i]}+{terms[i + 1]})" for i in range(0, len(terms) - 1, 2)]
+        if len(terms) % 2:
+            nxt.append(terms[-1])
+        terms = nxt
+    return terms[0]
+
+
+def _batch_end_pts(pts) -> int:
+    """First pts a bounded pass need not decode: one past the batch's last frame."""
+    return max(pts) + 1
+
+
+def _extract_batch(video, wanted: dict[int, Path], crop: str | None, vw: int | None,
+                   vh: int | None, *, stream: int | None, head: str | None, bounded: bool):
+    """One ffmpeg call of extract_views. `bounded` adds a trim that ends the decode
+    after the last wanted pts; a frame emitted out of pts order can then be cut
+    off, so in that mode an incomplete result raises _Unbounded instead of
+    PrepError, before any file is moved."""
     tmp = next(iter(wanted.values())).parent / ".extract_tmp"
     tmp.mkdir(parents=True, exist_ok=True)
     try:
-        expr = "+".join(f"eq(pts,{p})" for p in sorted(wanted))
+        order = sorted(wanted)
+        # the trim sits directly before select, so both read the same pts: every
+        # head here is a bare trim, which keeps the stream's own pts
+        bound = f"trim=end_pts={_batch_end_pts(order)}" if bounded else None
         vf = ",".join(x for x in [
-            head, f"select='{expr}'", "showinfo", "format=rgb24" if crop else None, crop,
+            head, bound, f"select='{select_expr(order)}'", "showinfo",
+            "format=rgb24" if crop else None, crop,
             f"scale={vw}:{vh}:flags=area" if vw else None, "showinfo"] if x)
         _, err = ffmpeg([*_ffin(video), *_vmap(stream), "-an", "-vf", vf, "-fps_mode", "passthrough",
                          str(tmp / "%05d.png")])
         shown = core.parse_showinfo_frames(err)
         instances = sorted({s.instance for s in shown if s.instance is not None})
         if len(instances) != 2:
+            if bounded:
+                raise _Unbounded()
             raise PrepError("could not tell ffmpeg's two showinfo reports apart")
         native = {s.pts: s.size for s in shown if s.instance == instances[0]}
-        sizes = {}
         got = [s for s in shown if s.instance == instances[1]]
+        if bounded and not set(wanted) <= {s.pts for s in got}:
+            raise _Unbounded()
+        sizes = {}
         for k, s in enumerate(got, start=1):
             if s.pts in wanted:
                 (tmp / f"{k:05d}.png").replace(wanted[s.pts])
                 sizes[s.pts] = (native.get(s.pts), s.size)
         missing = [p for p, path in wanted.items() if not path.exists()]
         if missing:
+            if bounded:
+                raise _Unbounded()
             raise PrepError(f"could not extract frames with pts {missing[:5]}")
         return sizes
     finally:
