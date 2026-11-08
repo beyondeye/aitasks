@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2235
 followup_kind: risk_mitigation
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-08 15:24
-updated_at: 2026-11-08 15:39
+updated_at: 2026-11-08 17:34
 ---
 
 ## Origin
@@ -43,3 +44,8 @@ Steps:
 2. If confirmed, mirror the t2235 GitHub design: list all open issues (paginated), keep label OR metadata header, and limit after filtering. Drop the label filter from the CI job's scheduled scan. Make `gitlab_create_issue` read the label back and warn, as `_github_verify_contribution_label` does.
 3. Tests: reuse the stub pattern in `tests/lib/gh_contribution_stub.sh` (a glab/curl analogue), with crowding and label-dropped cases and pre-fix controls.
 4. If not confirmed, record the evidence and close the task.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-08T15:34:00Z status=pass attempt=1 type=human
