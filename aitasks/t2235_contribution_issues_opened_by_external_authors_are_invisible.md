@@ -11,11 +11,12 @@ active_gates: [risk_evaluated]
 active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
+risk_mitigation_tasks: [2241]
 assigned_to: dario-e@beyond-eye.com
 issue: https://github.com/beyondeye/aitasks/issues/16
 implemented_with: claudecode/opus5_5
 created_at: 2026-11-08 09:49
-updated_at: 2026-11-08 12:25
+updated_at: 2026-11-08 15:24
 ---
 
 Issue created: 2026-10-22 03:35:52
