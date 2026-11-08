@@ -234,3 +234,86 @@ Post-implementation: commit code (`bug: … (t2230)`), plan via
 
 ### Planned mitigations
 - timing: pre-phase | name: probe_window_id_target | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement (tmux `=session:@N` target assumption) | desc: scratch `tmux -L` probe of window-id targeting across renumber-windows, with an index-based control
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented as planned. `tui_switcher.py` gained
+  `_session_windows()` (`#{window_id}\t#{window_index}\t#{window_name}`, rows
+  without a well-formed `@N` id dropped, `[]` on failure) and no longer imports
+  `get_tmux_windows`. `_WindowListItem` carries `window_id`; `_switch_to(...,
+  window_id=)` targets `=<session>:@N` and now awaits `select-window` via
+  `_TMUX.run` — on rc≠0 it warns (window name markup-escaped) and returns before
+  `_teleport_if_cross()`/`dismiss`. That gate covers name-targeted TUI rows too.
+  `_CompanionTarget` is `(pane, project_root)`; `action_spawn_minimonitor`
+  re-resolves `gateway_pane_window(pane, $TMUX)` at key time (warn + keep the
+  overlay on None). `agent_launch_utils.py` untouched (t2211_2's uncommitted
+  hunks are still there). Board control rebuilt on two temp roots + chdir.
+- **Deviations from plan:** (1) "Confirm HEAD fails today with t2226 present" was
+  no longer reproducible: t2226 was archived mid-session (7a915eed3), so HEAD's
+  control passed again. That flip is itself the non-hermeticity; the new test's
+  red proof is a mutant instead (read root := `TASK_DIR`) → fails on the
+  read-root assertion. (2) Three more `_switch_to` callers in
+  `test_tui_switcher_multi_session.sh` (shortcut `b` cross-session and
+  browsed-same-name) also needed the `_TMUX.run` patch, since the select is no
+  longer a Popen.
+  (3) The board control does **not** chdir after all: the first full-suite run
+  failed `test_board_fixture_harness.py::LiveTreeSweepTests` (2 tests) — its
+  live-tree sweep forbids `os.chdir` in board test modules. Rather than pin the
+  chdir in `CHDIR_ALLOWED`, the control asserts `TASKS_DIR` is relative and
+  resolves it against the controlled `cwd_root` directly; same proof, no process
+  state touched, and the chdir-leak risk is gone.
+- **Issues encountered:** The first pre-fix control errored at setup (HEAD lists
+  via the real `get_tmux_windows`, so no rows) — not a red proof. The shim was
+  changed to feed HEAD the same fake listing; then it failed on behaviour.
+- **Key decisions:** Gate on the select's exit status rather than re-listing
+  before teleport (one round trip, and tmux itself is the arbiter). The
+  companion path keeps passing an index to `maybe_spawn_minimonitor` (its API is
+  in the dirty shared file), but the index is read at key time and the existing
+  `agent_pane` membership check fails closed on the residual race.
+- **Upstream defects identified:** None.
+
+### Pre-phase probe_window_id_target (closure evidence)
+Script (scratch, `-S` socket in the scratchpad, `env -u TMUX tmux -f /dev/null`):
+new-session `s` (`a`), `renumber-windows on`, new-window `b`, `c`; kill `a` by id.
+Output (tmux 3.8):
+```
+--- listing before kill
+@0	0	a
+@1	1	b
+@2	2	c
+a=@0 c=@2 c_idx=2 c_pane=%2
+--- listing after kill (renumbered)
+@1	0	b
+@2	1	c
+--- (a) select by id =s:@2
+rc=0
+active=c
+--- (b) control: select by stale index =s:2
+can't find window: 2
+rc=1
+active=b
+--- (c) select by killed id =s:@0
+can't find window: @0
+rc=1
+active=b
+--- (d) pane id resolves to post-renumber window
+s	1	c
+```
+
+### Pre-fix controls (new tests against HEAD's tui_switcher.py)
+- `WindowRowsActOnIdTests.test_enter_after_a_renumber_selects_the_listed_window_by_id`
+  → `AssertionError: '@7' != '2'` (HEAD carries the stale index).
+- `SpawnActionTests.test_the_window_is_resolved_from_the_pane_at_key_time`
+  → `AssertionError: '2' != '4'` (HEAD uses the mount-time index).
+- `test_a_closed_window_neither_teleports_nor_dismisses` / live cross-session /
+  markup → fail: HEAD never awaits the select and never warns.
+- Cross-session gone window, HEAD `_switch_to("agent-pick-7", True, "9")` with
+  select failing: `HEAD_POPENS: ['select-window -t =s2:9', 'switch-client -t =s2']`,
+  `HEAD_DISMISSED: 1` — the wrong-window teleport.
+
+### Verification
+- `tests/test_tui_switcher_companion_spawn.py` 43 OK; group-nav + markup +
+  open-key-collision + companion: 96 passed.
+- `tests/test_tui_switcher_multi_session.sh` 61/61, `tests/test_tui_switcher_brainstorm_session.sh` 10/10.
+- `tests/test_board_movement.py` 32 passed, 2 skipped; `IsolationNegativeControlTests` + `test_board_fixture_harness.py` 54 passed; mutant of the new control (read root := `TASK_DIR`, scratch copy) fails.
+- `tests/test_no_raw_tmux.sh` ALL TESTS PASSED.
