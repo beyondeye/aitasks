@@ -97,6 +97,20 @@ The overlap check can also be run manually:
 | `--dry-run` | Print comment to stdout instead of posting |
 | `--silent` | Suppress informational output |
 
+## Finding contribution issues
+
+Do not rely on the `contribution` label alone to find contributions. GitHub silently drops labels from issue authors without push access, so an external contributor's issue can be open without it, and `label:contribution` in the GitHub UI or `gh issue list --label contribution` will not show it.
+
+To list every open contribution issue, run `/aitask-contribution-review` without an issue number, or call its helper directly:
+
+```bash
+./.aitask-scripts/aitask_contribution_review.sh list-issues
+```
+
+The listing reads all open issues and keeps those that have the `contribution` label **or** contain the `<!-- aitask-contribute-metadata` block. Each entry reports `HAS_METADATA:true|false`; only entries with metadata can be imported.
+
+The label filter is a reasonable shortcut once the GitHub workflow is installed, because the workflow labels each contribution issue when it is opened. It still misses issues opened before the workflow was installed and issues whose labeling step failed (the workflow logs a warning and continues), so use the listing when completeness matters. A GitHub search for the marker text is not a reliable substitute: the marker sits inside an HTML comment, and search may not index it.
+
 ## Reviewing with `/aitask-contribution-review`
 
 The [`/aitask-contribution-review`](../../../skills/aitask-contribution-review/) skill is the maintainer's primary tool for reviewing and importing contribution issues. It orchestrates the full review process:
