@@ -3,13 +3,14 @@ priority: medium
 effort: medium
 depends: []
 issue_type: test
-status: Ready
+status: Implementing
 labels: [python, claudeskills]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1887
 followup_kind: risk_mitigation
 created_at: 2026-11-07 22:18
-updated_at: 2026-11-07 22:18
+updated_at: 2026-11-08 08:58
 ---
 
 ## Origin
