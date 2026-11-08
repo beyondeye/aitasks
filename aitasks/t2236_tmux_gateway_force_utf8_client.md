@@ -10,8 +10,9 @@ active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-08 10:20
-updated_at: 2026-11-08 11:08
+updated_at: 2026-11-08 12:38
 ---
 
 ## Origin
@@ -82,3 +83,8 @@ whenever the locale is unset.
 
 The Go change is `goengines/tmux/exec.go` (`utf8Flag`) and `goengines/tmux/doc.go` in aitasks_go,
 commit tagged `(t103)`.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-08T10:38:42Z status=pass attempt=1 type=human
