@@ -194,3 +194,205 @@ current-branch mode, so there is no worktree.
 - The video-mode tests may fail on 5.1.1 for reasons outside this task. · severity: medium
   · → mitigation: none needed. Step 4(C) hands them to a follow-up or note instead of
   widening this task.
+
+## Final Implementation Notes
+
+- **Outcome: A.** Every claim the image-folder input depends on holds on FFmpeg 5.1.1, 7.0.2 and the native n9.0.2. The documented "ffmpeg 5.1 or later" minimum is now **verified for image input too**, so no docs, Requirements or skill page change was needed. Steps 4(B)/(C) did not apply: no capability probe, no skip gate and no refusal class was added, and no mutation control was needed.
+- **Actual work done:**
+  - `video_prep.py`: a comment-only addition to the section comment above `STAGE_RATE` naming the measured versions.
+  - `tests/test_screen_recording_cli.py`: comment-only. The animated-WebP skip comment said "some builds (FFmpeg 5.1)", but 7.0.2 also cannot decode the animation, so the comment now names both.
+- **Builds** (johnvansickle.com static amd64; no checksum is published for these, so the sha256 is recorded here as provenance; on PATH shims in the session scratchpad, never installed):
+
+  | build | archive | sha256 | `-version` | webp encoders |
+  |---|---|---|---|---|
+  | 5.1.1 | old-releases/ffmpeg-5.1.1-amd64-static.tar.xz (40971084 B) | 2d848c37f7f276be0262d9123a84fbfe72bb159921ffcce3bd7106f143d29f42 | ffmpeg version 5.1.1-static | libwebp_anim, libwebp |
+  | 7.0.2 | releases/ffmpeg-release-amd64-static.tar.xz (41888096 B, Last-Modified 2024-08-24) | abda8d77ce8309141f83ab8edf0596834087c52467f6badf376a6a2a4c87cf67 | ffmpeg version 7.0.2-static | libwebp_anim, libwebp |
+  | native | /usr/bin/ffmpeg | — | ffmpeg version n9.0.2 | (system) |
+
+- **Per-claim probe** (`probe_concat.py` below; same results on all three builds):
+
+  | claim | 5.1.1 | 7.0.2 | n9.0.2 |
+  |---|---|---|---|
+  | a: `option framerate 1000000` → tb 1/1000000, pts 0/7000/23700 | PASS | PASS | PASS |
+  | a-control: without the option → tb 1/25, pts 0/0/1 | OK | OK | OK |
+  | b: `-itsoffset 7.040000` → 7040000/7047000/7063700 | PASS | PASS | PASS |
+  | c: `-safe 0` accepts `option` | PASS | PASS | PASS |
+  | c-control: default safe refuses ("option not allowed if safe") | OK (rc 1) | OK (rc 183) | OK (rc 183) |
+  | d1: rgb24/gray alternation → 4 `config in time_base` lines | PASS | PASS | PASS |
+  | d2: normalise argv (`format=rgb24`, `-start_number 0`) → 000000..000003.png | PASS | PASS | PASS |
+  | d3: list over `norm/` → exactly 1 config, exact pts | PASS | PASS | PASS |
+  | e1: `-frames:v 1 -update 1` jpeg → png | PASS | PASS | PASS |
+  | e2: `-frames:v 2 -f null` counts 1 frame | PASS | PASS | PASS |
+
+- **Suite runs** (`python3 -m unittest -v`, PATH shim first):
+
+  | scope | n9.0.2 | 5.1.1 | 7.0.2 |
+  |---|---|---|---|
+  | `ImageFolderInput` (17) | OK, 0 skipped | OK, 1 skipped | OK, 1 skipped |
+  | whole `test_screen_recording_cli.py` (104) | OK, 0 skipped | OK, 2 skipped | OK, 1 skipped |
+  | `test_screen_recording_core` (123, no ffmpeg) | OK | — | — |
+
+  The skipped set, by test id; failures and errors were empty on every build:
+  - `ImageFolderInput.test_animated_image_beside_other_codecs_is_refused` is skipped on 5.1.1 **and** 7.0.2 with "this ffmpeg cannot decode an animated webp (counted 'N/A')". It skips and does not fail, as the task required.
+  - `FramesMode.test_rotated_recording_geometry_is_in_display_orientation` is skipped on 5.1.1 only, with "cannot write a display matrix: Unrecognized option 'display_rotation'". This is fixture-side: the test's own encoder flag, not production code.
+  - The same ImageFolderInput results repeated after the comment edits.
+- **Deviations from plan:** none. 6.0.1 was not needed: the release build is 7.x and 5.1.1 passed.
+- **Issues encountered / observation (not fixed; outside the timing contract):** on 5.1.1 and 7.0.2 an animated WebP in a folder fails closed (rc 1, no output dir written). The message is ffmpeg's raw log tail, though: "error: ffmpeg failed (1): … image data not found" on 5.1.1, "failed (69): … Decode error rate 1 exceeds maximum" on 7.0.2. It does not name the user's file and does not say "animated image". Offered as a follow-up at review.
+- **Upstream defects identified:**
+  - `.aitask-scripts/screen_recording/video_prep.py:642-651` — `ImageInput._require_one_frame` (and `_enumerate` for an all-WebP folder) surfaces ffmpeg's raw decode-failure tail when this ffmpeg cannot decode an animated WebP (5.1.1, 7.0.2). It fails closed but never names the user's file or says the image is animated.
+- **Key decisions:** the user's plan review made the outcome-B skip gate independent of `ImageInput` (raw ffmpeg probe, three states, mutation control). It went unused because outcome A held. That lesson is kept as a memory.
+
+### probe_concat.py (verbatim)
+
+```python
+#!/usr/bin/env python3
+"""t2229: per-claim probe of the ffmpeg behaviours video_prep.ImageInput relies on.
+
+Runs ImageInput's argv shapes (copied from _use_list / _enumerate / _normalize /
+the mixed-codec conversion / _require_one_frame) against whatever `ffmpeg` is
+first on PATH, and parses the logs with the real vp_core showinfo parsers.
+Prints one PASS/FAIL line per claim, plus one CONTROL line per negative
+control (a control must show the property *failing*, proving the claim's check
+can fail). Exit 0 iff every claim passed and every control behaved.
+
+Usage: PATH=<shim>:$PATH python3 probe_concat.py <repo root>
+"""
+import struct
+import subprocess
+import sys
+import tempfile
+import zlib
+from pathlib import Path
+
+REPO = Path(sys.argv[1]).resolve()
+sys.path.insert(0, str(REPO / ".aitask-scripts" / "screen_recording"))
+import vp_core as core  # noqa: E402
+
+FF = ["ffmpeg", "-hide_banner", "-nostdin", "-nostats", "-loglevel", "info"]
+ok = True
+
+
+def png(path: Path, w: int, h: int, *, rgb: bool, fill: int = 128):
+    """A minimal 8-bit PNG: gray (color type 0) or RGB (color type 2)."""
+    ch = 3 if rgb else 1
+    raw = b"".join(b"\x00" + bytes([fill]) * (w * ch) for _ in range(h))
+
+    def chunk(t, d):
+        return struct.pack(">I", len(d)) + t + d + struct.pack(">I", zlib.crc32(t + d))
+    ihdr = struct.pack(">IIBBBBB", w, h, 8, 2 if rgb else 0, 0, 0, 0)
+    path.write_bytes(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", ihdr)
+                     + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b""))
+
+
+def run(args):
+    cp = subprocess.run([*FF, *args], capture_output=True, text=True)
+    return cp.returncode, cp.stderr
+
+
+def report(kind, name, cond, detail):
+    global ok
+    good = cond if kind == "CLAIM" else cond   # a control's cond = "behaved as expected"
+    if not good:
+        ok = False
+    label = ("PASS" if cond else "FAIL") if kind == "CLAIM" else ("OK" if cond else "BAD")
+    print(f"{kind} {label:4} {name}: {detail}")
+
+
+def write_list(d: Path, files, durs_us, *, option=True, name="list.ffconcat"):
+    lines = ["ffconcat version 1.0"]
+    for f, us in zip(files, durs_us):
+        lines.append(f"file '{f}'")
+        if option:
+            lines.append("option framerate 1000000")
+        lines.append(f"duration {us // 1_000_000}.{us % 1_000_000:06d}")
+    p = d / name
+    p.write_text("\n".join(lines) + "\n")
+    return p
+
+
+def enumerate_pass(lst: Path, offset: str = "0.000000", safe: str | None = "0"):
+    ffin = ["-itsoffset", offset, "-f", "concat"]
+    if safe is not None:
+        ffin += ["-safe", safe]
+    rc, err = run([*ffin, "-i", str(lst), "-an", "-vf", "showinfo", "-fps_mode", "passthrough",
+                   "-f", "null", "-"])
+    frames = core.parse_showinfo_frames(err)
+    return rc, err, core.parse_showinfo_timebase(err), [f.pts for f in frames], \
+        core.count_showinfo_configs(err)
+
+
+with tempfile.TemporaryDirectory(prefix="t2229-probe-") as tmp:
+    d = Path(tmp)
+    files = []
+    for k in range(3):
+        name = f"img_{k + 1:06d}.png"
+        png(d / name, 16, 16, rgb=True, fill=40 + 60 * k)
+        files.append(name)
+    durs = [7000, 16700, 33300]
+
+    # (a) option framerate -> tb 1/1e6, exact µs pts
+    lst = write_list(d, files, durs)
+    rc, err, tb, pts, _ = enumerate_pass(lst)
+    report("CLAIM", "a option-framerate-exact-us", rc == 0 and str(tb) == "1/1000000"
+           and pts == [0, 7000, 23700], f"rc={rc} tb={tb} pts={pts}")
+    lst0 = write_list(d, files, durs, option=False, name="noopt.ffconcat")
+    rc0, _, tb0, pts0, _ = enumerate_pass(lst0)
+    report("CONTROL", "a without-option-loses-times", not (str(tb0) == "1/1000000"
+           and pts0 == [0, 7000, 23700]), f"rc={rc0} tb={tb0} pts={pts0}")
+
+    # (b) -itsoffset puts the first image at its named time
+    rc, err, tb, pts, _ = enumerate_pass(lst, offset="7.040000")
+    report("CLAIM", "b itsoffset-shifts-first-image", rc == 0 and str(tb) == "1/1000000"
+           and pts == [7040000, 7047000, 7063700], f"rc={rc} tb={tb} pts={pts}")
+
+    # (c) -safe 0 accepts the option lines; default safe refuses them
+    rc, err, tb, pts, _ = enumerate_pass(lst)
+    report("CLAIM", "c safe0-accepts-option", rc == 0 and len(pts) == 3, f"rc={rc} n={len(pts)}")
+    rcs, errs, _, ptss, _ = enumerate_pass(lst, safe=None)
+    refused = rcs != 0 and "option not allowed if safe" in errs
+    report("CONTROL", "c default-safe-refuses-option", refused,
+           f"rc={rcs} n={len(ptss)} msg={'yes' if 'option not allowed' in errs else 'no'}")
+
+    # (d) single-configuration rule
+    pf = d / "pf"
+    pf.mkdir()
+    pfiles = []
+    for k, rgb in enumerate([True, False, True, False]):
+        name = f"img_{k + 1:06d}.png"
+        png(pf / name, 32, 32, rgb=rgb, fill=128)
+        pfiles.append(name)
+    plst = write_list(pf, pfiles, [1_000_000] * 4)
+    rc, err, tb, pts, configs = enumerate_pass(plst)
+    fmts = [f.fmt for f in core.parse_showinfo_frames(err)]
+    report("CLAIM", "d1 pixfmt-alternation-reconfigures", rc == 0 and configs > 1 and len(pts) == 4,
+           f"rc={rc} configs={configs} fmts={fmts}")
+    norm = pf / "norm"
+    norm.mkdir()
+    rc, err = run(["-itsoffset", "0.000000", "-f", "concat", "-safe", "0", "-i", str(plst),
+                   "-an", "-vf", "format=rgb24", "-fps_mode", "passthrough",
+                   "-start_number", "0", str(norm / "%06d.png")])
+    out = sorted(p.name for p in norm.iterdir())
+    report("CLAIM", "d2 normalise-writes-from-000000", rc == 0 and out == [f"{i:06d}.png" for i in range(4)],
+           f"rc={rc} out={out}")
+    nlst = write_list(pf, [f"norm/{n}" for n in out], [1_000_000] * 4, name="norm.ffconcat")
+    rc, err, tb, pts, configs = enumerate_pass(nlst)
+    report("CLAIM", "d3 normalised-list-configures-once", rc == 0 and configs == 1
+           and pts == [0, 1_000_000, 2_000_000, 3_000_000], f"rc={rc} configs={configs} pts={pts}")
+
+    # (e) mixed-codec conversion and the one-frame check
+    jpg = d / "src.jpg"
+    rc, err = run(["-f", "lavfi", "-i", "color=c=gray:s=16x16:d=0.04", "-frames:v", "1", str(jpg)])
+    if rc != 0:
+        report("CLAIM", "e0 jpeg-fixture", False, f"rc={rc} {err[-200:]}")
+    rc, err = run(["-i", str(jpg), "-frames:v", "1", "-update", "1", str(d / "conv.png")])
+    report("CLAIM", "e1 frames1-update1-to-png", rc == 0 and (d / "conv.png").exists(), f"rc={rc}")
+    rc, err = run(["-i", str(d / files[0]), "-an", "-vf", "showinfo", "-fps_mode", "passthrough",
+                   "-frames:v", "2", "-f", "null", "-"])
+    n = len(core.parse_showinfo_frames(err))
+    report("CLAIM", "e2 frames2-null-counts-one", rc == 0 and n == 1, f"rc={rc} frames={n}")
+
+v = subprocess.run(["ffmpeg", "-version"], capture_output=True, text=True).stdout.splitlines()[0]
+print(f"FFMPEG: {v}")
+print("PROBE:", "ALL_OK" if ok else "SOME_FAILED")
+sys.exit(0 if ok else 1)
+```
