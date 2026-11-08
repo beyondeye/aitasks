@@ -311,7 +311,10 @@ gitlab_create_issue() {
 # the caller needs its URL.
 _gitlab_verify_contribution_label() {
     local repo="$1" create_output="$2" url iid view labels
-    url=$(printf '%s\n' "$create_output" | grep -Eo 'https://[^[:space:]]+/-/issues/[0-9]+' | tail -1) || url=""
+    # GitLab links a new issue as /-/work_items/<iid> (glab 1.126 output and the
+    # REST web_url, gitlab.com included); older instances use /-/issues/<iid>.
+    # Self-managed instances may serve plain http.
+    url=$(printf '%s\n' "$create_output" | grep -Eo 'https?://[^[:space:]]+/-/(issues|work_items)/[0-9]+' | tail -1) || url=""
     if [[ -z "$url" ]]; then
         warn "Could not verify that the 'contribution' label was applied to the new issue."
         return 0
