@@ -384,3 +384,117 @@ the TUI stamp constant. For t2211_6: the new wire lines and layout.
 - timing: pre-phase | name: sitrep_tui_consumer_table_characterization | type: test | priority: medium | effort: medium | inline_risk: low | added_complexity: low | addresses: second-predicate wiring per consumer | desc: table-driven consumer tests fed a TUI-stamped pane, red rows recorded before production edits (confirmed at parent planning)
 - timing: pre-phase | name: arity_fixture_sweep | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: format arity change | desc: inventory and convert every fixed-arity reader/fake of the three grown formats in the same change
 - timing: pre-phase | name: layout_geometry_spike | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: tmux -f / percentage -l layout assumptions | desc: measure pane coordinates of the exact planned argv for all spawn orders on an isolated server before coding
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-08)
+- **Requested by user:** three review findings — (1) on `added_tui` a missing
+  required companion was reported as a clean success; (2) the no-select focus
+  restore selected the original pane without checking it is still in the
+  repaired window; (3) the live test fired the raw-tmux cleanup hook without
+  `require_clean_ait_server`.
+- **Changes made:** (1) after a no-spawn companion result, BOTH repair paths ask
+  `window_companion_pane` and warn `companion_not_spawned` when none is present;
+  the hook re-arm stays specific to `respawned_agent`. (2) new
+  `_sitrep_pane_window`; the restore runs only when the original pane is still in
+  `place.window_id`, else `focus_not_restored`. (3) the real-hook scenario moved
+  to a guarded runner, `tests/test_sitrep_window_hook_live.sh`
+  (`require_clean_ait_server` first, then `require_isolated_tmux`; K1 first agent
+  exits, K2 respawned agent exits). The main live test now stubs the hook on both
+  import paths and asserts the logged `(agent, companion)` arming instead. Unit
+  tests `test_a_repair_reports_a_required_companion_that_is_missing` and
+  `test_a_moved_original_pane_is_not_selected_elsewhere`; each turns red with its
+  fix reverted (measured in scratch copies).
+- **Files affected:** `.aitask-scripts/monitor/monitor_core.py`,
+  `tests/test_sitrep_window.py`, `tests/test_sitrep_window_live.sh`,
+  `tests/test_sitrep_window_hook_live.sh` (new).
+- **Verification:** main live test 79/79; hook runner refused (exit 2) beside the
+  live `-L ait` server — NOT run in this session (its K1 checks passed earlier
+  inside the main runner before the split; K2 is new).
+
+## Final Implementation Notes
+
+- **Actual work done:** the sitrep window holds two stamped roles. New stamp
+  `@aitask_sitrep_tui_root` (`helper_panes.SITREP_TUI_ROOT_OPTION`) with the
+  frozen-first predicate `is_sitrep_tui_pane`. Appended to
+  `FROZEN_AWARE_PANE_FORMAT` (arity 8, `WindowPane.is_sitrep_tui`), to
+  `_LIST_PANES_FORMAT` (arity 17, discovery drops the TUI like a scratchpad) and to
+  `RUN_IDENTITY_FORMAT` (5 fields, `RunIdentity.sitrep_tui_root`; `h` fails
+  `not_an_agent`). `match_sitrep_pane` skips the TUI; new `match_sitrep_tui_pane`,
+  `find_sitrep_roles`; `find_sitrep_pane_status` is now a wrapper. `spawn_sitrep`
+  is four-way plus relocate (see aidocs/framework/sitrep.md table).
+  `agent_launch_utils`: `TmuxLaunchConfig.split_detached` (-d), `split_size`
+  accepts `"40%"`, `full_height` (-f) on `maybe_spawn_minimonitor` /
+  `_companion_check_and_split`, `_CompanionScan.companion_panes`,
+  `window_companion_pane`. Wire lines `SITREP_ADDED_TUI:` / `SITREP_RESPAWNED_AGENT:`
+  plus one `SITREP_WARN:` per item; `sitrep_cli._OPEN_SUCCESS` wording. Docs:
+  `aidocs/framework/sitrep.md` window section, `tmux_gateway.md` option row,
+  `aitask_sitrep.sh` header, `sitrep_open.py` docstring.
+- **Deviations from plan:** (1) constant named `SITREP_TUI_ROOT_OPTION`, not
+  `TUI_ROOT_OPTION` (monitor_core already has a TUI category). (2) review round 1
+  added the empty-slot rule + relocate path (frozen agent beside a live TUI) and
+  detached splits + no-select focus restore. (3) `_SpawnFixture` base in
+  `tests/test_sitrep_window.py` (`NoInheritedTestDuplication` forbids a test class
+  inheriting tests from a same-module base). (4) Parity rows are added but the
+  parity test was NOT run (see Issues).
+- **Pre-phase 1 (consumer table) — measured before any production edit:** RED =
+  discovery (TUI listed: `['%1','%3']`), matcher fallback (`'%3'`), minimonitor
+  rung 2 (`'%3'`), `h` (`skipped sitrep_agent`, ok=True → close offered). GREEN =
+  discovery keeps a frozen stamped pane, companion scan (present False, real 2),
+  classify/count (TUI real), freeze coordinator (1), auto-close (no exit). All
+  green after.
+- **Pre-phase 2 (arity sweep) inventory:** production — classify guard, matcher
+  unpack, `_LIST_PANES_ARITIES`, `parse_run_identity`; tests —
+  `CURRENT_ARITY` 16→17, `test_monitor_companion_filter._line` strict dict,
+  `ident_line`, `_SPEC_KEYS`. **Missed by the first sweep** (hand-counted
+  literal rows; caught by the full suite): `test_minimonitor_own_identity_renumber.py`
+  (4 sites, landed by t2227 after the sweep), `test_monitor_pick_launch_sites.py`,
+  `test_monitor_sitrep_harvest_close.py` `_FakeTmux`, `test_applink_router.sh`,
+  `test_multi_session_monitor.sh` — all now render rows from the format itself.
+  Not affected: 15-field legacy discovery builders (still in the arity set),
+  8-field window formats, format-driven fakes, the cleanup script's own `-F`.
+- **Pre-phase 3 (geometry spike, tmux 3.8, 200x50, exact planned argv):**
+  cold A(0,0,159x29) TUI(0,30,159x20) MM(160,0,40x50); add-TUI same, MM stayed
+  active through `-d`; respawn with companion A(159x30) TUI(top 31, 19 rows) MM
+  full height, MM stayed active; respawn without companion: TUI stayed active
+  through `-d`, the companion spawn + refocus made the agent active (→ restore
+  needed); relocate: `join-pane` rc 0, the TUI stamp travelled, old window =
+  frozen(159x50) + MM. All invariants held; argv unchanged.
+- **Mutant checks (live test, isolated scratch copies):** slot-never-occupied → 9
+  H failures; discovery-lists-TUI → I/L/H discovery failures; no-restore → M
+  active-pane failure; `-f` dropped → X control red. `no_detach` (role splits
+  without `-d`) is NOT caught by the live test — the no-select restore re-selects
+  the original pane, so focus is preserved either way; `-d` is pinned by the
+  unit test `test_every_role_split_is_detached`.
+- **Issues encountered:** t2227 / t2225 held uncommitted hunks in
+  `monitor_core.py`, `minimonitor_app.py` and the harvest test at the start of
+  implementation; the edits to those files waited for both to land (handover
+  verified against `434b9d306` / `091acd11d`). `tests/test_cleanup_rule_parity.sh`
+  refused to run (the real `-L ait` server was up with live agents); it must be
+  run from a terminal outside tmux with that server stopped — and so must the
+  new `tests/test_sitrep_window_hook_live.sh` (review round 1, below).
+  `tests/test_board_movement.py::IsolationNegativeControlTests` fails because the
+  real tree now holds `t2226_stop_sync_fixture_copying_pycache_into_every_fixture.md`,
+  a fixture filename — environmental, independent of this change.
+  Running a test module whose path contains `minimonitor` in the same Python
+  process as `test_sitrep_window.py` makes the runner's own pid match the
+  companion cmdline rung (pre-existing hazard of the LIVE_PID fixtures).
+- **Upstream defects identified:**
+  - `tests/test_board_movement.py:1292 — IsolationNegativeControlTests asserts the REAL aitasks/ tree contains none of its fixture filenames, so it fails whenever a real task shares one (today t2226_stop_sync_fixture_copying_pycache_into_every_fixture.md); the control should use fixture names that cannot collide with real task files.`
+  - `tests/test_sitrep_window.py:61 — LIVE_PID = os.getpid() is used as a "not a companion" pid in matcher/classify fixtures that reach the real /proc cmdline rung, so they fail when the test process argv contains "minimonitor" (e.g. a pytest run naming tests/test_minimonitor_*.py in the same invocation); those fixtures should patch _is_companion_process like ConsumerTableTests does.`
+- **Key decisions:** the TUI is not a helper (retention unchanged), it has its
+  own listing predicate; `h` refuses at the identity read so an older status
+  server's snapshot is covered too; a relocate MOVES the TUI rather than spawning
+  a second one; refusal iff the call's primary action failed (`tui:<why>` on
+  `added_tui`, a warning on a cold spawn).
+- **Notes for sibling tasks:**
+  - **t2211_3 (respawn key):** call `spawn_sitrep` (status `respawned_agent` or,
+    when a frozen agent occupies the window, `spawned` + `tui_moved` — the TUI pane
+    then lives in a NEW window); `find_sitrep_roles(monitor, root)` is the role
+    lookup; `SitrepSpawn.tui`; stamp `SITREP_TUI_ROOT_OPTION`. The TUI pane is not
+    in discovery, so "agent not running" must come from `find_sitrep_roles`.
+  - **t2211_4 (guarded delivery):** the agent target is `find_sitrep_roles`'
+    agent; never a pane with `is_sitrep_tui`.
+  - **t2211_6 (docs):** new wire lines `SITREP_ADDED_TUI:` /
+    `SITREP_RESPAWNED_AGENT:`, multi-line `SITREP_WARN:`, the layout diagram, the
+    relocate behaviour (aidocs/framework/sitrep.md has the canonical text).
