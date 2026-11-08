@@ -3,8 +3,9 @@
 #
 # Drives DevicesScreen through Textual's run_test harness against a fake server:
 # the device table renders one row per session (with name/platform/state/paired/
-# last-seen/location), sorts by pairing time, and the 'x' revoke action removes
-# the highlighted device. No sockets/tmux — a stub server stands in.
+# last-seen/location), sorts by pairing time, the status line carries the
+# auto-tunnel segment only when a tunnel exists (t1061_3), and the 'x' revoke
+# action removes the highlighted device. No sockets/tmux — a stub server stands in.
 # Run: bash tests/test_applink_devices.sh
 
 set -e
@@ -33,15 +34,19 @@ sys.path.insert(0, str(root / ".aitask-scripts"))
 sys.path.insert(0, str(root / ".aitask-scripts" / "applink"))
 
 import applink_app as A
+import tunnel as T
 from sessions import Session
 from textual.app import App
-from textual.widgets import DataTable
+from textual.widgets import DataTable, Static
 
 
 class FakeServer:
     def __init__(self):
         now = time.time()
         self.error = None
+        # AppLinkServer.tunnel's no-tunnel state (server.py; a QuickTunnel only
+        # when auto-tunnel is on). DevicesScreen._refresh reads it on mount.
+        self.tunnel = None
         self._sessions = [
             Session(bearer="b2", profile="read_only", device_name="iPad", platform="ios",
                     created_at=now - 3600, last_seen=now - 1800, state="Suspended"),
@@ -100,6 +105,28 @@ async def main():
         check("location shown when provided", pixel[5] == "Berlin, DE")
         ipad = table.get_row_at(0)
         check("missing location renders as dash", ipad[5] == "—")
+
+        def status_text():
+            return str(screen.query_one("#devices_status", Static).render())
+
+        server = app.runtime.server
+        check("status line shows listener state",
+              "state: Connected" in status_text())
+        check("no tunnel segment when server.tunnel is None",
+              "Tunnel" not in status_text())
+
+        # a live tunnel: the real QuickTunnel (construction spawns nothing)
+        tun = T.QuickTunnel(8765)
+        tun.state = T.STATE_UP
+        tun.url = "https://abc-def.trycloudflare.com"
+        server.tunnel = tun
+        screen._refresh()
+        await pilot.pause()
+        check("tunnel status segment shown when a tunnel is up",
+              "— Tunnel: up — abc-def.trycloudflare.com —" in status_text())
+        server.tunnel = None
+        screen._refresh()
+        await pilot.pause()
 
         # revoke the highlighted (Pixel) device
         table.move_cursor(row=1)
