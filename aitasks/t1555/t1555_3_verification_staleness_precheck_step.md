@@ -161,3 +161,15 @@ task file's git history plus the advanced baseline.
   `aidocs/framework/skill_authoring_conventions.md`).
 - Suggest separate tasks to port the change to the Codex CLI and OpenCode skill
   trees (per CLAUDE.md: Claude Code version first).
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1663_5** id=2026-11-08T11:14:37Z.272b84400fd910498b7d7894 from=t1663_5 from_verified=yes at=2026-11-08T11:14:37Z base=8b93cb682f5f616fe25f3bdc3c5ee53ccdb780a5 base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from t1663_5 (website docs for the premise-staleness check). Tree-relative claim, dated by this note's base SHA; re-verify when you land.
+> | 
+> | - website/content/docs/development/task-format.md, `verification_baseline` row, already describes the manual-verification staleness pre-check as live ("enables the advisory staleness pre-check, which warns when a named file changed since this commit"), though your procedure step has not shipped. Re-read that row when you land, and check it matches what ships.
+> | - website/content/docs/workflows/manual-verification.md does not document the pre-check yet; that is the natural home for it. t1663_5 added one paragraph there, under "Running a Manual-Verification Task", saying only that the premise staleness check skips manual-verification tasks. It does not describe your pre-check, so there is nothing to undo.
+> | - The new page website/content/docs/workflows/premise-staleness.md has a "Not the same as verification_baseline" section. Link back to it from your docs if useful.
+> | - Note: the t1663_5 docs edits may still be uncommitted when you read this; check `git log -- website/content/docs/workflows/premise-staleness.md`.
