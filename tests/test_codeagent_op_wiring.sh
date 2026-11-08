@@ -53,9 +53,13 @@ TOTAL=0
 #                         (t2175_4): the other agents refuse before composing.
 #                         Its claudecode prompt and the refusals are pinned by
 #                         test_codeagent.sh Test 11d5.
+#   relations / obsolescence — claudecode-only headless analysis ops (t1981_3):
+#                         the prompt goes on stdin, never a slash command;
+#                         other agents refuse with UNSUPPORTED_AGENT. Pinned
+#                         by tests/test_codeagent_relations.sh.
 # The list is asserted to be a subset of the parsed operations below, so a
 # renamed or removed operation cannot silently turn it into a blanket exemption.
-EXEMPT_OPS=(batch-review raw explore-relay sitrep)
+EXEMPT_OPS=(batch-review raw explore-relay sitrep relations obsolescence)
 
 # Agents whose arms fail OPEN for an unwired operation (codex fails closed and
 # is covered by test_codeagent.sh Test 11d4).

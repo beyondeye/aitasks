@@ -119,6 +119,11 @@ KNOWN_UNCOMMITTED: dict[str, str] = {
     ".aitask-scripts/lib/config_utils.py::_save_json": "primitive; callers commit",
     ".aitask-scripts/lib/config_utils.py::import_all_configs": "primitive; settings _handle_import commits",
     ".aitask-scripts/lib/board_columns.py::create_column": "pure lib; aitask_board_column.sh commits",
+    # Surgical, read-back-guarded edit of project_config.yaml (relations.enabled,
+    # project.name). Callers commit through aitask_metadata_commit.sh:
+    # `ait relations enable|disable` (relations_cli._commit_config) and setup's
+    # ask_relations_activation (_flush_metadata_batch) (t1981_3).
+    ".aitask-scripts/lib/relations_config.py::_guarded_write": "primitive; relations_cli enable/disable and setup commit",
     ".aitask-scripts/chatlink/config_write.py::write_config": "pure writer; wizard._do_save commits",
     # Deliberate human review.
     ".aitask-scripts/lib/gate_registry_sync.py::sync_registry":

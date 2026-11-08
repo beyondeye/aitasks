@@ -199,7 +199,7 @@ recomputes the local view, so writes made since are always visible).
 | `analysis_line(task, snap)` | the `ANALYSIS:` value (D1) |
 | `relations_state()` | `enabled`, `disabled` or `host_off` |
 | `gc(dry_run=False)` | `GC_REMOVED:<path>\|task_gone\|identity_mismatch`, `GC_KEPT:<path>\|revalidated`, `GC_NONE` or `GC_REFUSED:<reason>` |
-| `relations_store.job_state(task)` | the spool hook for `pending(..)` / `failed(..)`. It returns None until t1981_3 replaces it |
+| `relations_store.job_state(task, state_dir)` | the spool hook for `pending(settling\|queued\|running\|capped)` / `failed(<reason>)`, read from this clone's spool (`relations_spool`, "Worker API"); None when the task has no job |
 | `relations_schema.digests(task_text, plan_text)` | the one D2 normalization |
 | `relations_schema.wins(kind, new, old, live_created_at)` | the one comparison: identity first, then `(stage, at)` |
 
@@ -469,6 +469,21 @@ it (D13).
   with its outcome (`related`, `unrelated` or `unreadable`). The `unrelated`
   entries let a sweep skip a candidate whose digest is unchanged while the
   source's is unchanged too. All entries give D13 the data to measure screening.
+- **Screening identity.** `inputs.screening_sha256` (optional) is the digest of
+  the provider's screening inputs: the provider path, coverage, cards, evidence
+  and truncation. `UP_TO_DATE` requires it to be equal, so changed evidence is
+  re-analysed even when every digest is unchanged ("Worker API").
+- **Schema compatibility.** The validators are closed: an unknown key makes a
+  record `CORRUPT` for every reader that does not know it. So after the first
+  release that carries a schema, any new field needs a schema-version bump,
+  with readers that accept both versions shipped one release before any writer
+  emits the new one.
+  - `inputs.screening_sha256` is part of `aitask-relations/1` from its **first
+    release**. The t1981_1 store (f78e2b8d5) was unreleased when t1981_3
+    extended it, and t1981_3 ships the only record writer together with the
+    extended reader, so no deployed reader can meet the key.
+  - `tests/test_relations_store.py` pins the boundary: the f78e2b8d5 reader
+    rejects the key, and the current one accepts records with and without it.
 - **Coverage.** When the candidate provider answered only part of the sources
   (D6), the record carries `coverage.missing_sources`, and readers report it as
   `partial`.
@@ -750,10 +765,21 @@ modelled on `explore-relay`:
     Write, NotebookEdit, WebFetch) as a second layer;
   - a permission mode that never prompts and never bypasses.
 
-  The worker performs every write. t1981_3 re-verifies these flags against the
-  installed CLI, including whether settings-sourced hooks run in the session
-  (if they do, it restricts `--setting-sources`). Its test proves that a prompt
-  asking for a write, a shell command or an MCP call finds no such tool.
+  - **No settings, no hooks.** Settings-sourced hooks DO run under `--print`:
+    verified on claude 2.1.319, where a project `.claude/settings.json` hook
+    fired. So the op passes `--setting-sources ""`, which loads no user,
+    project or local settings, and therefore no inherited permission rule or
+    hook. It also passes `--settings '{"disableAllHooks":true}'` as a second
+    layer.
+  - The prompt goes on **stdin**, so no variadic flag can swallow a positional
+    argument.
+  - `--no-session-persistence` and `--disable-slash-commands` are passed as
+    well.
+
+  The worker performs every write. `tests/test_codeagent_relations.sh` pins the
+  argv. Its opt-in live check (`RUN_LIVE_RELATIONS=1`) proves that a prompt
+  asking for a write, a shell command and an MCP call finds no such tool, and
+  that a project hook does not run.
 - The seed `codeagent_config.json` default for both is `claudecode/sonnet5_5`.
 - The prompts are framework files, not skills:
   `.aitask-scripts/relations/prompts/relations_analysis.md` and
@@ -768,6 +794,207 @@ modelled on `explore-relay`:
   operation and trigger.
 - Revisiting the default is a retrospective decision, made on that data. It is
   never automatic.
+
+### Worker API
+
+The contract the triggers (t1981_4), the consumers (t1981_5) and the candidate
+generator (t1981_2) build on. Modules: `lib/relations_worker.py` (jobs, worker,
+stamp), `lib/relations_spool.py` (spool, admission, ledgers),
+`lib/relations_config.py` (the `relations:` block) and
+`lib/relation_candidates_contract.py` (the provider contract).
+
+**Spool layout.** Everything is per clone, under
+`<git-common-dir>/aitask-relations/spool/`:
+- `jobs/<op>__t<id>.json`: one queued job per `(op, task)`;
+- `running/`: the job the worker holds;
+- `failed/`: a failed job with its `reason`;
+- `unresolved/<op>__t<id>/<invocation>.json`: guards (below), one per
+  unresolved invocation;
+- `results/<request_id>.json`: the outcome a `--wait` caller polls;
+- `previews/<call_id>.json`: the ownership record of a running dry run (below);
+- `work/<run_id>/`: the job's `snapshot.json`, `inputs/`, `prompt.md` and the
+  agent's raw output. Kept for the last 20 jobs.
+- `spool.lock`, `worker.lock`, `usage.lock` and `recovery.lock` (flock), and
+  `enqueue.log`.
+
+The ledger `usage.jsonl` sits directly under `aitask-relations/`, next to
+t1981_5's `pull.jsonl` and `notify.jsonl`.
+
+**Coalescing.** An enqueue merges into the existing job for the key:
+- the trigger with the higher stage priority is kept (`plan_approved` over the
+  rest);
+- `not_before` = now + `settle_s` (debounce);
+- `now` and `over_cap` are sticky, and `request_id`s are unioned;
+- a `failed/` entry for the key is removed, and a `capped` hold is re-opened;
+- an `unresolved/` guard is **never** removed by an enqueue.
+
+**Fresh state per job.** Every job builds a new config, a new `Store` (and
+`TaskIndex`), and takes exactly **one** `store.read()` snapshot. Source,
+candidates, stamps, `UP_TO_DATE` and identity all use that snapshot. Nothing
+carries over between jobs, because the index caches task text and plans.
+
+**The worker loop:**
+1. Take `flock -n worker.lock`, else exit.
+2. `recover_running()`.
+3. Re-open capped jobs; unblock jobs whose guard is gone.
+4. Flush the outbox.
+5. Drain ready jobs, sleeping through settle windows.
+6. **Shutdown handoff:** release the lock, then re-scan for *any* job that is
+   not held, ready or still settling. If there is one, re-acquire and loop. A
+   failed re-acquire means another worker owns the job.
+
+Capped and blocked jobs never keep a worker alive. They wait for the next worker
+start (the next enqueue, `ait relations analyze`, or a later trigger); there is
+no scheduler.
+
+**The opt-out switches are re-read before paid work.** A worker job re-reads
+`relations.enabled` and `AIT_RELATIONS=0` when it starts and again immediately
+before admission, so work queued before an opt-out (or a switch flipped while
+the job gathered candidates) never launches an agent. Such a job ends with the
+visible outcome `SKIPPED:disabled` / `SKIPPED:host_off`: in its `results/`
+entry, a `kind:"job"` ledger row and `enqueue.log`. `--dry-run` is the
+deliberate exception, an explicit, cap-admitted preview.
+
+**Admission and accounting.** Every real agent call, retries and `--dry-run`
+included, reserves its slot **before** the call. `admit()` counts today's (UTC)
+`kind:"call"` rows and appends a new one under `usage.lock`, so two callers can
+never both take the last slot. A reservation consumes allowance whatever happens
+next. `settle_call()` appends a `kind:"outcome"` row: `ok`, `timeout`,
+`agent_error`, `invalid_output`, `interrupted`, `unresolved` or `error`. A
+token or cost the agent did not report is `null` (unknown), never 0. Every job also writes exactly
+one `kind:"job"` row for its **terminal** outcome: `ANALYSED(..)`,
+`UP_TO_DATE`, `ANALYSED_EMPTY`, `EXCLUDED`, `STALE_RUN`, `SKIPPED:..` or
+`FAILED:<reason>`. Dry runs do too, with `dry_run: true`. A held or requeued
+job writes none, so a job retried after a timeout is one job and two calls.
+Job rows never count against the cap; only calls do.
+
+**Crash recovery.** Holding the worker lock proves only that the previous
+*worker* is gone, not that its agent ended. The running entry records:
+- `call_id` once admitted;
+- `spawning` just before `Popen`;
+- `agent` (`pgid`, the leader pid and its strong identity from
+  `lib/pid_anchor.sh`) right after, through `bounded_run`'s `on_start` hook.
+
+**Dry runs own their invocation the same way.** A preview writes
+`previews/<call_id>.json`, holding its owner process (pid and strong identity)
+and the same `spawning` / `agent` phases, and removes it once its agent has
+ended. `recover_previews()` runs at every worker start and at the start of every
+dry run, **and at the shared pre-admission boundary of every paid launch**
+(scoped to the task about to launch), so a preview that was alive at startup
+but lost its CLI afterwards is accounted for before a replacement starts. A
+preview whose owner is provably alive is left alone. One whose
+owner died is settled exactly like an orphaned running entry: retired only once
+its agent provably ended (killing the group if needed), otherwise turned into an
+unresolved guard for the task. Recovery is **serialized**: the whole
+transition of one entry (re-read, decide, kill, settle, account, release) runs
+under `spool/recovery.lock`, with the entry re-read under the lock, so
+concurrent recoverers act on it at most once. Outcome rows (per `call_id`) and
+recovery job rows (per `invocation`) are idempotent besides. A preview never
+writes relation results.
+
+`recover_running()` settles every orphaned entry:
+- an admitted entry that never spawned is retried;
+- a spawned one is retried only once the old invocation provably **ended**:
+  - the leader pid is gone and `killpg(pgid, 0)` answers ESRCH, or the leader
+    pid now carries a different strong identity;
+  - otherwise the group is killed (bounded) and the end is re-verified;
+- the second interruption of a job fails it as `INTERRUPTED`.
+
+Anything that cannot be established writes an **unresolved guard**: a weak
+identity, EPERM, a group still alive after the kill, or a `spawning` marker
+without an `agent` record. The job fails as `INTERRUPTED_UNRESOLVED`. The guard
+is stored **per invocation**, so a second unresolved invocation of the same task
+(a worker job's or a preview's) never overwrites the first one's protection.
+The task is blocked while **any** invocation remains, and each one is cleared
+only on its own evidence. The final guard check and the paid reservation are
+**one critical section** (`admit_unguarded`, under `spool.lock`, the lock every
+guard write takes, then `usage.lock`), so a guard written after the launch's
+earlier liveness scan blocks the launch instead of racing it. While it is blocked, every new launch for its
+`(op, task)` is refused:
+- queued requests and later enqueues are held as `blocked_unresolved`, and
+  their requests resolve `BLOCKED_UNRESOLVED`;
+- `--dry-run` refuses.
+
+The guard clears only when a later evaluation finds the invocation ended (every
+worker start re-checks it), or through `ait relations unblock <id> [--kill]
+[--force]`. `--force` is the human assertion for the spawn gap, and it is logged.
+
+**The candidate provider contract** (`relation_candidates_contract.py`). The
+worker runs `aitask_relation_candidates.sh <id> --json --cap <N> --snapshot
+<manifest>`. `--json` writes **exactly one JSON object** to stdout, and
+diagnostics go to stderr. Shape `aitask-relation-candidates/1`:
+- `source`;
+- `provider {path, detail}`, where `path` is what the text output's
+  `PROVIDER:` line carries;
+- `coverage {answered, missing_sources}`, and `cap`;
+- `source_inputs {body_sha256, plan_sha256}`;
+- `candidates[] {ref, sources, card, evidence[] {source, detail, section?,
+  line?}, inputs}`;
+- `truncated {count, by_class, inputs}`.
+
+`validate()` checks every field and type and the closed D6 tag vocabulary.
+- **Missing coverage, malformed output, or a core source (`mention_in`,
+  `mention_out`, `cites`) not answered fails the job**, and is never read as zero
+  candidates. The reasons are:
+  - `CANDIDATES_UNAVAILABLE:no_provider|core_missing:<srcs>`;
+  - `PROVIDER_ERROR:exit_<n>|malformed:<reason>|timeout`.
+- **One result, two renderings.** `to_json` / `to_text` (`parse_text` reads the
+  text one back) carry the same provider, evidence, coverage and truncation
+  information. In the text rendering every free-text field (cards, evidence
+  details and sections, the provider detail) is a JSON string literal, and an
+  absent optional field is a bare `-`, so no value can split a record or pass
+  for an absent field. t1981_2 adds its `UNCONFIRMED:` rows to the same renderer.
+- **The screening snapshot.** The manifest (`aitask-relation-snapshot/1`) lists
+  every identity-valid stamp of the job's snapshot. Under the D5 rule (bodies
+  current; a stamped task's plan at its stamp's `data_commit`; other plans from
+  the working tree), cards and plan-derived evidence come only from that
+  content, and deterministically. The result **echoes the digests** of what it
+  screened. A mismatch with the worker's digests re-runs the provider once, then
+  fails the job as `SNAPSHOT_MISMATCH:<ref>`.
+- The skip identity covers screening: `inputs.screening_sha256` is the digest of
+  the provider path, coverage, cards, evidence and truncation.
+- Shared fixtures, a reference provider and a reusable contract test (with the
+  `AIT_CANDIDATES_UNDER_TEST` hook): `tests/fixtures/relation_candidates/` and
+  `tests/test_relation_candidates_contract.py`.
+
+**Line protocols** (`ait relations`; exit 3 = refused, retained or timed out):
+- `stamp <id>` prints `STAMP:<plan_sha256>`, `STAMP:disabled` or
+  `STAMP_ERROR:<reason>` (exit 1). The stamp is in the outbox before the line is
+  printed; the publish and the `plan_approved` enqueue are detached.
+- `plan-digest <id>` prints `PLAN_DIGEST:<sha>` or `PLAN_DIGEST_ERROR:<reason>`.
+- `analysis-state <id> [--expect-plan <sha>]` prints `RELATIONS_STATE:`, then
+  `STORE:`, then `ANALYSIS_STATE:<state>`, plus `NOTE:` under `AIT_RELATIONS=0`.
+- `analyze <id>` prints `ENQUEUED:t<id>`:
+  - `--now --wait <s>` prints `ANALYZED:t<id>|<outcome>` or
+    `WAIT_TIMEOUT:t<id>|<job state>`;
+  - `--dry-run` prints the validated record JSON, or `CAP_REACHED:<n>/<cap>`,
+    `BLOCKED_UNRESOLVED` or `FAILED:<reason>`.
+  - Without `--dry-run`, analysis must be enabled and the host not switched off:
+    `DISABLED:` / `HOST_OFF:`. `--dry-run` works while analysis is disabled.
+- `usage [--days N]` prints `USAGE:local|<op>|<trigger>|jobs=|calls=|failed_calls=|unsettled=|in=|out=|cost=|wall=`,
+  where `jobs` counts terminal job outcomes (paid or not, dry runs included)
+  and `calls` counts agent invocations (each retry is one),
+  and `USAGE:store|<op>|<trigger>|records=|…`. A total with unknown
+  contributions reads `<sum>+unknown(<n>)`.
+- `ledgers --export` prints JSON lines tagged `{host, ledger}`. A corrupt line
+  becomes `{…, corrupt_line: n}` and is never skipped.
+- `unblock <id>` prints `UNBLOCKED:t<id>|ended|forced` (only when every
+  invocation is resolved), `STILL_UNRESOLVED:t<id>|<why>|remaining=<n>` or
+  `NO_GUARD:t<id>`.
+- `enable` prints `PROJECT_NAME:kept|seeded:<name>`, `ENABLED_SET:`,
+  `COMMIT:<metadata-commit line>` and `RELATIONS:enabled(<agent>, cap <N>/day)`.
+  It refuses with `PROJECT_UNRESOLVED:`.
+- `disable` prints `ENABLED_SET:false` and `RELATIONS:disabled`.
+
+**The project-name rule of `enable`.** Keep an existing valid `project.name`.
+Otherwise seed it only from **one** unambiguous registry binding of this
+repository root (`aitask_project_resolve.sh bindings`, complete). Otherwise
+refuse and explain how to set it. Setup's "yes" applies the same rule, and on a
+refusal leaves `relations.enabled` absent, so the question returns.
+
+**Test seams** (never set in production): `AIT_RELATIONS_CANDIDATES_CMD`,
+`AIT_RELATIONS_AGENT_CMD`, `AIT_RELATIONS_AGENT_STRING`, and
+`AIT_RELATIONS_TEST_BARRIER=<point>[,…]:<dir>`.
 
 ## D6 — Static candidate generation
 
@@ -816,6 +1043,11 @@ generator itself adds only framework-side signals.
   - A missing optional verb, such as `search` behind `token`, is recorded as
     `coverage.missing_sources`.
   - Neither case can produce a false "analysed, 0 relations".
+- **The output contract** (the exact `--json` shape, one object on stdout,
+  diagnostics on stderr, the screening snapshot and its digest echoes) is fixed
+  in D5's "Worker API". It is owned by `lib/relation_candidates_contract.py` and
+  checked by `tests/test_relation_candidates_contract.py`, which this generator
+  must pass.
 - **Not in v1.** File-to-dependents widening through the testmap engine's
   `Graph.Reverse` is not part of v1. The retrospective revisits it if replays
   show misses it would catch.
@@ -957,6 +1189,21 @@ task-workflow Step 8e. It reports one of:
 | `incomplete:failed(<reason>)` | the job failed |
 | `incomplete:missing` | a stamp exists, but there is no matching record and no local job (for example, the approving host has not published yet) |
 | `disabled` | analysis is disabled in this project |
+
+**Evaluation order** (first match wins):
+1. `disabled`;
+2. `unverifiable(no_expected_identity)`;
+3. a stale or unreachable store gives `unverifiable(store_stale|store_unreachable)`;
+4. a corrupt stamp gives `unverifiable(stamp_unreadable)`; a missing or
+   identity-mismatched stamp gives `unverifiable(no_stamp)`; a stamp whose plan
+   digest differs from the expected one gives `unverifiable(stamp_mismatch)`;
+5. `complete`;
+6. a job for S in this clone's spool gives `pending(..)` / `failed(..)`;
+7. a record for other inputs gives `inputs_mismatch`;
+8. `missing`.
+
+A local job outranks `inputs_mismatch`, because it names the action already
+under way.
 
 With `AIT_RELATIONS=0` on this host, the states are computed the same way. A
 missing record then reads `incomplete:missing`, with the note that analysis is

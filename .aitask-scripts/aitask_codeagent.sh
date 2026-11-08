@@ -23,7 +23,7 @@ source "$SCRIPT_DIR/lib/agent_string.sh"
 # get_cli_model_id, require_jq come from lib/agent_string.sh.
 
 DEFAULT_COAUTHOR_DOMAIN="aitasks.io"
-SUPPORTED_OPERATIONS=(pick explain batch-review qa explore explore-relay raw shadow learn work-report trail discuss sitrep)
+SUPPORTED_OPERATIONS=(pick explain batch-review qa explore explore-relay raw shadow learn work-report trail discuss sitrep relations obsolescence)
 
 # CODEX_TUI_OVERRIDES (the `-c` pairs every Codex launch carries: no composer
 # starfield, animations otherwise on so the working timer ticks, inline rather
@@ -43,7 +43,8 @@ OPT_DRY_RUN=false
 # plain `--dry-run` output is unchanged for every consumer that parses it.
 OPT_WITH_AGENT_ENV=false
 # Opt-in headless mode. Affects `claudecode batch-review` (appends `--print`;
-# default interactive) and is REQUIRED for `explore-relay` (headless-only —
+# default interactive) and is REQUIRED for `explore-relay`, `relations` and
+# `obsolescence` (headless-only —
 # refuses without it); a no-op for every other agent/operation. Opt-in,
 # because Claude Code bills headless print mode at a higher per-token rate.
 OPT_HEADLESS=false
@@ -64,6 +65,21 @@ OPT_RESUME_SESSION=""
 # the skill also passes the per-call timeout parameter — belt and braces).
 EXPLORE_RELAY_TOOL_TIMEOUT_MS=630000
 EXPLORE_RELAY_ALLOWED_TOOLS="Bash,Read,Write,Glob,Grep"
+
+# --- relations / obsolescence constants (t1981_3) ---
+# Background analysis ops of the task-relations layer
+# (aidocs/framework/task_relations.md D5 "The headless operation"). READ-ONLY BY
+# CONSTRUCTION, never by permission grants: --tools sets the only built-ins
+# that EXIST in the session (--allowedTools would merely pre-approve), and
+# --strict-mcp-config without --mcp-config loads no MCP server. Settings are
+# not loaded at all (--setting-sources ""), so no inherited permission rule or
+# hook applies, and disableAllHooks is passed as a second layer: the t1981_3
+# probe (claude 2.1.319) showed project hooks DO run under --print otherwise.
+# The worker (lib/relations_worker.py) performs every write.
+RELATIONS_TOOLS="Read,Glob,Grep"
+RELATIONS_DISALLOWED_TOOLS="Bash,Edit,Write,NotebookEdit,WebFetch,WebSearch"
+RELATIONS_SETTINGS='{"disableAllHooks":true}'
+
 
 # Resolve the agent string for an operation using the resolution chain:
 # 1. --agent-string flag
@@ -487,6 +503,22 @@ build_invoke_command() {
     if [[ "$operation" == "sitrep" && "$PARSED_AGENT" != "claudecode" ]]; then
         die "sitrep is not yet supported for $PARSED_AGENT (Claude Code only; port tracked as a follow-up task)"
     fi
+    # relations / obsolescence (t1981_3): Claude Code only until another agent
+    # has a verified read-only headless branch. Machine-readable token (exit 2),
+    # the RESUME_UNSUPPORTED pattern, so the worker can tell it from a failure.
+    if [[ "$operation" == "relations" || "$operation" == "obsolescence" ]]; then
+        if [[ "$PARSED_AGENT" != "claudecode" ]]; then
+            echo "Error: UNSUPPORTED_AGENT:$PARSED_AGENT" >&2
+            exit 2
+        fi
+        # Exactly <prompt_file> <input_dir>, both existing (checked under
+        # --dry-run too, so the refusals are unit-testable).
+        if [[ ${#args[@]} -ne 2 ]]; then
+            die "$operation takes exactly <prompt_file> <input_dir>"
+        fi
+        [[ -f "${args[0]}" ]] || die "$operation prompt file not found: ${args[0]}"
+        [[ -d "${args[1]}" ]] || die "$operation input directory not found: ${args[1]}"
+    fi
 
     # Argument-bearing skill launches flatten argv into one slash-command
     # string. Empty elements disappear and whitespace-bearing elements split
@@ -595,6 +627,25 @@ build_invoke_command() {
                         "$binary" "$model_flag" "$cli_id"
                         "--print" "/aitask-explorechat"
                         "--allowedTools" "$EXPLORE_RELAY_ALLOWED_TOOLS")
+                    ;;
+                relations|obsolescence)
+                    # Headless-only (no terminal user), like explore-relay.
+                    if [[ "$OPT_HEADLESS" != true ]]; then
+                        die "$operation is headless-only; pass --headless to accept Claude Code's headless billing surcharge"
+                    fi
+                    # The prompt goes on stdin (INVOKE_STDIN): no positional,
+                    # so no variadic flag can swallow it, and no argv size
+                    # limit applies. JSON output carries usage and cost.
+                    CMD+=("--print" "--output-format" "json"
+                          "--no-session-persistence" "--disable-slash-commands"
+                          "--permission-mode" "dontAsk"
+                          "--strict-mcp-config"
+                          "--setting-sources" ""
+                          "--settings" "$RELATIONS_SETTINGS"
+                          "--add-dir" "${args[1]}"
+                          "--tools" "$RELATIONS_TOOLS"
+                          "--disallowedTools" "$RELATIONS_DISALLOWED_TOOLS")
+                    INVOKE_STDIN="${args[0]}"
                     ;;
                 raw)
                     # `--resume <sid>` goes AFTER the model flag (already
@@ -710,6 +761,7 @@ cmd_invoke() {
 
     local CMD=()
     local INVOKE_AGENT_STRING=""
+    local INVOKE_STDIN=""
     build_invoke_command "$operation" "$@"
 
     # The agent string CMD was built from -- never a second resolution: the
@@ -724,6 +776,8 @@ cmd_invoke() {
         fi
         printf ' %q' "${CMD[@]}"
         printf '\n'
+        # A prompt fed on stdin (relations / obsolescence) is part of the launch.
+        [[ -z "$INVOKE_STDIN" ]] || printf 'PROMPT_STDIN:%s\n' "$INVOKE_STDIN"
         return
     fi
 
@@ -741,6 +795,9 @@ cmd_invoke() {
     ait_spawn_path_normalize "${PATH-}"
     [[ "$AIT_SPAWN_PATH" == "${PATH-}" ]] || export PATH="$AIT_SPAWN_PATH"
 
+    if [[ -n "$INVOKE_STDIN" ]]; then
+        exec "${CMD[@]}" < "$INVOKE_STDIN"
+    fi
     exec "${CMD[@]}"
 }
 
@@ -773,8 +830,9 @@ Options:
                          real invoke exports. For callers that launch the
                          printed command themselves.
   --headless             Run claudecode batch-review non-interactively (adds
-                         --print); REQUIRED for explore-relay, which is
-                         headless-only and refuses without it. No-op for
+                         --print); REQUIRED for explore-relay, relations and
+                         obsolescence, which are headless-only and refuse
+                         without it. No-op for
                          other agents/operations. Default is interactive
                          (avoids Claude Code's headless billing surcharge).
   --resume-session SID   Resume an existing agent session instead of starting a
@@ -788,7 +846,13 @@ Options:
   -h, --help             Show this help
 
 Operations: pick, explain, batch-review, qa, explore, explore-relay, raw,
-            shadow, learn, work-report, trail, discuss, sitrep
+            shadow, learn, work-report, trail, discuss, sitrep, relations,
+            obsolescence
+  relations / obsolescence: background task-relations analysis, run by the
+  relations worker (claudecode only; other agents: UNSUPPORTED_AGENT, exit 2).
+  `invoke relations <prompt_file> <input_dir>` requires --headless; the prompt
+  goes on stdin, and the session is read-only by construction (Read, Glob and
+  Grep only; no MCP servers, settings or hooks).
   sitrep: the repository's sitrep steward (claudecode only); `ait sitrep`
   opens it in its own tmux window.
   explore-relay: chat-native explore spawned by the chatlink gateway

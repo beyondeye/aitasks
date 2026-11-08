@@ -61,6 +61,8 @@ Each operation maps to a different use case with its own default model:
 | `shadow` | Advisory companion agent for a followed session | `codex/gpt6_1_sol` |
 | `discuss` | Advisory discussion of brainstorm proposals (compare, explain, question, risk-check) | `codex/gpt6_1_sol` |
 | `sitrep` | The repository's sitrep steward, opened by `ait sitrep` (Claude Code only) | `claudecode/opus5_5` |
+| `relations` | Background task-relations analysis, run headless and read-only by the relations worker (Claude Code only) | `claudecode/sonnet5_5` |
+| `obsolescence` | Reserved for the backlog obsolescence assessment of the task-relations layer (Claude Code only) | `claudecode/sonnet5_5` |
 | `learn` | Learning a new skill from source material | `claudecode/opus5_5` |
 | `raw` | Direct/ad-hoc invocations (passthrough) | `claudecode/sonnet5_5` |
 

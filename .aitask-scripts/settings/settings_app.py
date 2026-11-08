@@ -154,6 +154,8 @@ OPERATION_DESCRIPTIONS: dict[str, str] = {
     "shadow": "Model used for the shadow companion agent (launched from minimonitor with 'e' to explain/interrogate a followed agent's output)",
     "discuss": "Model used for the brainstorm discuss agent (launched from the brainstorm TUI to compare, explain, question and risk-check proposals — advisory only)",
     "sitrep": "Model used for the sitrep steward agent (opened with `ait sitrep` in its own window; keeps the repository's todo list — advisory only, Claude Code only)",
+    "relations": "Model used by the background task-relations analysis (headless, read-only; runs only when `ait relations enable` is on — Claude Code only)",
+    "obsolescence": "Model reserved for the backlog obsolescence assessment of the task-relations layer (headless, read-only — Claude Code only)",
     "brainstorm-explorer": "Model for exploring solution space in brainstorming sessions",
     "brainstorm-comparator": "Model for comparing and analyzing design proposals",
     "brainstorm-synthesizer": "Model for merging and synthesizing design proposals",

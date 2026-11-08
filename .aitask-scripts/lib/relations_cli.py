@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
-"""relations_cli.py - ``ait relations`` store verbs (t1981_1).
+"""relations_cli.py - ``ait relations`` (t1981_1 store verbs, t1981_3 analysis verbs).
 
-Verbs: ``show <id> [--json] [--no-fetch]``, ``why <a> <b> [--no-fetch]``,
-``status``, ``flush``, ``gc [--dry-run]``. The worker child (t1981_3) adds the
-analysis verbs here.
+Store verbs: ``show <id> [--json] [--no-fetch]``, ``why <a> <b> [--no-fetch]``,
+``status``, ``flush``, ``gc [--dry-run]``.
+Analysis verbs (t1981_3): ``analyze <id> [--dry-run] [--now [--wait <s>]]
+[--over-cap]``, ``stamp <id>``, ``plan-digest <id>``, ``analysis-state <id>
+[--expect-plan <sha>]``, ``usage [--days N]``, ``ledgers --export``,
+``unblock <id> [--kill] [--force]``, ``enable``, ``disable``. Line protocols:
+aidocs/framework/task_relations.md "Worker API".
 
 Every reader output starts with the state lines of
 aidocs/framework/task_relations.md D1 -- ``RELATIONS_STATE:``, ``STORE:`` and,
@@ -18,23 +22,45 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import socket
+import subprocess
 import sys
+import time
+import uuid
 
 _LIB = os.path.dirname(os.path.abspath(__file__))
 if _LIB not in sys.path:
     sys.path.insert(0, _LIB)
 
+import relations_config as rcfg  # noqa: E402
 import relations_schema as rs  # noqa: E402
+import relations_spool as rsp  # noqa: E402
 import relations_store as rst  # noqa: E402
+import relations_worker as rw  # noqa: E402
 
-VERBS = ("show", "why", "status", "flush", "gc")
+VERBS = ("show", "why", "status", "flush", "gc", "analyze", "stamp", "plan-digest",
+         "analysis-state", "usage", "ledgers", "unblock", "enable", "disable")
+# Verbs that construct their own Store (or none): a disabled project without
+# project.name must still answer STAMP:disabled / disabled, never PROJECT_UNRESOLVED.
+NO_STORE_VERBS = ("analyze", "stamp", "plan-digest", "analysis-state", "usage", "ledgers",
+                  "unblock", "enable", "disable")
 USAGE = """usage: ait relations <verb> [args]
 
   show <id> [--json] [--no-fetch]   relations of a task (forward + reverse)
   why <a> <b> [--no-fetch]          the relations between two tasks
-  status                            store state and the outbox (age, last error)
+  status                            store state, the outbox, and the analysis spool
   flush                             publish the outbox
   gc [--dry-run]                    remove files of tasks that exist nowhere
+  analyze <id> [--dry-run] [--now [--wait <s>]] [--over-cap]
+                                    queue (or, with --dry-run, run and print) an analysis
+  stamp <id>                        record the plan-approval stamp (prints STAMP:<sha>)
+  plan-digest <id>                  digest of the plan committed at the task-data HEAD
+  analysis-state <id> [--expect-plan <sha>]
+                                    Step 8e completeness verdict (ANALYSIS_STATE:)
+  usage [--days N]                  jobs, calls, tokens, cost, wall time
+  ledgers --export                  this host's ledgers as host-tagged JSON lines
+  unblock <id> [--kill] [--force]   clear an unresolved-invocation guard
+  enable | disable                  switch background analysis on/off (commits)
 """
 
 
@@ -104,6 +130,16 @@ def cmd_status(store, _args):
     print(f"STORE:{snap.state}")
     print(f"MODE:{store.mode()}")
     print("\n".join(store.status()))
+    sp = rsp.Spool(rw.state_dir(store.root))
+    for sub, tag in (("running", "RUNNING"), ("jobs", "JOB")):
+        for job in sp.list_jobs(sub):
+            print(f"{tag}:{job.get('op')}|t{job.get('task')}|trigger={job.get('trigger')}"
+                  f"|state={job.get('state') or ('now' if job.get('now') else 'queued')}")
+    for job in sp.list_jobs("failed"):
+        print(f"FAILED:{job.get('op')}|t{job.get('task')}|{job.get('reason')}")
+    for guard in sp.guards():
+        agent = guard.get("agent") or {}
+        print(f"UNRESOLVED:{guard['_key']}|{guard['_inv']}|{guard.get('why')}|pgid={agent.get('pgid', '-')}")
     return 0
 
 
@@ -118,6 +154,351 @@ def cmd_flush(store, _args):
 
 def cmd_gc(store, args):
     return _emit(store.gc(dry_run=args.dry_run))
+
+
+# ================================================================ t1981_3
+
+def _root():
+    return rst.ors.toplevel(os.getcwd())
+
+
+def _tid(value):
+    return rs.norm_id(value)
+
+
+def cmd_analyze(root, args):
+    cfg = rcfg.load(root)
+    sp = rsp.Spool(rw.state_dir(root))
+    tid = _tid(args.id)
+    if args.wait is not None and not args.now:
+        sys.stderr.write("ait relations analyze: --wait requires --now\n")
+        return 1
+    if args.dry_run:
+        if not args.over_cap and sp.cap_reached(rw.OP, cfg.max_jobs_per_day):
+            print(f"CAP_REACHED:{sp.calls_today(rw.OP)}/{cfg.max_jobs_per_day}")
+            return 3
+        job = {"op": rw.OP, "task": tid, "trigger": "manual", "over_cap": bool(args.over_cap)}
+
+        def log(msg):
+            sys.stderr.write(msg + "\n")
+        # A preview killed earlier may have left its agent running: account for
+        # it (end it, or guard the task) before this run can start a new one.
+        rw.recover_previews(sp, log=log)
+
+        def job_row(outcome):
+            sp.log_job(rw.OP, tid, "manual", outcome, dry_run=True)
+        try:
+            outcome, rec = rw.analyse(root, sp, job, dry_run=True, log=log)
+        except rw.Refused as exc:
+            print(str(exc))
+            return 3
+        except rw.JobFailed as exc:
+            job_row(f"FAILED:{exc.reason}"[:200])
+            print(f"FAILED:{exc.reason}")
+            return 1
+        except rw.JobRetry:
+            job_row("FAILED:TIMEOUT")
+            print("FAILED:TIMEOUT")
+            return 1
+        job_row(outcome)
+        if rec is None:
+            print(f"ANALYSIS_SKIPPED:{outcome}")
+            return 0
+        print(json.dumps(rec, indent=2, sort_keys=True, ensure_ascii=False))
+        return 0
+    state = rcfg.load(root)
+    if not state.enabled:
+        print("DISABLED:relations analysis is disabled in this project (ait relations enable)")
+        return 1
+    if os.environ.get("AIT_RELATIONS") == "0":
+        print("HOST_OFF:AIT_RELATIONS=0 switches analysis off on this host")
+        return 1
+    if args.now and not args.over_cap and sp.cap_reached(rw.OP, cfg.max_jobs_per_day):
+        print(f"CAP_REACHED:{sp.calls_today(rw.OP)}/{cfg.max_jobs_per_day}")
+        return 3
+    rid = uuid.uuid4().hex if args.wait is not None else None
+    rw.enqueue_job(root, rw.OP, "manual", tid, now=bool(args.now), over_cap=bool(args.over_cap),
+                   request_id=rid, respect_switches=False)
+    if rid is None:
+        print(f"ENQUEUED:t{tid}")
+        return 0
+    deadline = time.monotonic() + max(0.0, args.wait)
+    while True:
+        res = sp.result(rid)
+        if res is not None:
+            outcome = res.get("outcome", "")
+            print(f"ANALYZED:t{tid}|{outcome}")
+            return 3 if outcome.startswith(("FAILED", "CAP_REACHED", "BLOCKED")) else 0
+        if time.monotonic() >= deadline:
+            print(f"WAIT_TIMEOUT:t{tid}|{sp.job_state(tid) or 'none'}")
+            return 3
+        time.sleep(0.2)
+
+
+def cmd_stamp(root, args):
+    tid = _tid(args.id)
+    try:
+        sha = rw.write_stamp(root, tid)
+    except rw.StampError as exc:
+        print(f"STAMP_ERROR:{exc}")
+        return 1
+    if sha is None:
+        print("STAMP:disabled")
+        return 0
+    print(f"STAMP:{sha}")
+    sys.stdout.flush()
+    try:  # the network publish and the plan_approved enqueue never block the caller
+        rw.detach(["stamp-publish", root, tid], root)
+    except OSError as exc:
+        sys.stderr.write(f"ait relations stamp: could not detach the publish: {exc}\n")
+    return 0
+
+
+def cmd_plan_digest(root, args):
+    try:
+        sha = rw.plan_digest(root, _tid(args.id))
+    except rw.JobFailed as exc:
+        print(f"PLAN_DIGEST_ERROR:{exc.reason.lower()}")
+        return 1
+    if sha is None:
+        print("PLAN_DIGEST_ERROR:no_plan")
+        return 1
+    print(f"PLAN_DIGEST:{sha}")
+    return 0
+
+
+def analysis_state(store, tid, expect):
+    """The D8 Step-8e verdict; evaluation order in the design doc's "Worker API"."""
+    if store.relations_state() == "disabled":
+        return "disabled", None
+    if not expect:
+        return "incomplete:unverifiable(no_expected_identity)", None
+    snap = store.read()
+    if snap.state.startswith("stale"):
+        return "incomplete:unverifiable(store_stale)", snap
+    if snap.state.startswith("unreachable"):
+        return "incomplete:unverifiable(store_unreachable)", snap
+    spath = rs.store_path("approvals", tid)
+    if any(c.split("|", 1)[0] in (spath, f"outbox/{spath}") for c in snap.corrupt):
+        return "incomplete:unverifiable(stamp_unreadable)", snap
+    stamp = snap.files.get(spath)
+    live = store.index.live_created_at(tid)
+    if stamp is None or live is None or stamp.get("task_created_at") != live:
+        return "incomplete:unverifiable(no_stamp)", snap
+    if stamp.get("plan_sha256") != expect:
+        return "incomplete:unverifiable(stamp_mismatch)", snap
+    rec = snap.files.get(rs.store_path("records", tid))
+    rec_ok = isinstance(rec, dict) and rec.get("analysed") and store._record_identity_ok(rec)
+    if rec_ok:
+        try:
+            src = rec["inputs"]["source"]
+            if (rec["run"]["stage"] == 2 and src.get("plan_sha256") == expect
+                    and src.get("body_sha256") == store.index.body_digest(tid)):
+                return "complete", snap
+        except (KeyError, TypeError):
+            rec_ok = False
+    job = rst.job_state(tid, store.state_dir)
+    if job:
+        return f"incomplete:{job}", snap
+    if rec_ok:
+        return "incomplete:inputs_mismatch", snap
+    return "incomplete:missing", snap
+
+
+def cmd_analysis_state(root, args):
+    tid = _tid(args.id)
+    try:
+        store = rst.Store(root)
+    except rst.ProjectUnresolved as exc:
+        if not rcfg.load(root).enabled:
+            print("RELATIONS_STATE:disabled")
+            print("ANALYSIS_STATE:disabled")
+            return 0
+        raise exc
+    state, snap = analysis_state(store, tid, args.expect_plan)
+    print(f"RELATIONS_STATE:{store.relations_state()}")
+    if snap is not None:
+        print(f"STORE:{snap.state}")
+    print(f"ANALYSIS_STATE:{state}")
+    if os.environ.get("AIT_RELATIONS") == "0" and state != "disabled":
+        print("NOTE:analysis is switched off on this host (AIT_RELATIONS=0)")
+    return 0
+
+
+def _fmt(total, unknown, digits=None):
+    val = round(total, digits) if digits is not None else total
+    return f"{val}+unknown({unknown})" if unknown else f"{val}"
+
+
+def _agg(rows_by_call, outcomes, jobs, key_of):
+    groups = {}
+
+    def group(k):
+        return groups.setdefault(k, {"jobs": 0, "calls": 0, "failed_calls": 0, "unsettled": 0,
+                                     "in": [0, 0], "out": [0, 0], "cost": [0.0, 0], "wall": [0.0, 0]})
+    for row in jobs:
+        group(key_of(row))["jobs"] += 1
+    for cid, call in rows_by_call.items():
+        g = group(key_of(call))
+        g["calls"] += 1
+        out = outcomes.get(cid)
+        if out is None:
+            g["unsettled"] += 1
+            for f in ("in", "out", "cost", "wall"):
+                g[f][1] += 1
+            continue
+        if out.get("outcome") != "ok":
+            g["failed_calls"] += 1
+        for f, src in (("in", "input_tokens"), ("out", "output_tokens"),
+                       ("cost", "cost_usd"), ("wall", "wall_s")):
+            v = out.get(src)
+            if isinstance(v, (int, float)) and not isinstance(v, bool):
+                g[f][0] += v
+            else:
+                g[f][1] += 1
+    return groups
+
+
+def cmd_usage(root, args):
+    sp = rsp.Spool(rw.state_dir(root))
+    cutoff = rsp.utc_iso(time.time() - args.days * 86400)
+    rows, corrupt = sp.read_ledger()
+    calls = {r["call_id"]: r for r in rows if r.get("kind") == "call" and r.get("call_id")
+             and str(r.get("at", "")) >= cutoff}
+    outcomes = {r["call_id"]: r for r in rows if r.get("kind") == "outcome" and r.get("call_id")}
+    jobs = [r for r in rows if r.get("kind") == "job" and str(r.get("at", "")) >= cutoff]
+    groups = _agg(calls, outcomes, jobs, lambda r: (r.get("op", "-"), r.get("trigger", "-")))
+    print(f"USAGE_WINDOW:days={args.days}|since={cutoff}")
+    for (op, trig), g in sorted(groups.items()):
+        print(f"USAGE:local|{op}|{trig}|jobs={g['jobs']}|calls={g['calls']}"
+              f"|failed_calls={g['failed_calls']}|unsettled={g['unsettled']}"
+              f"|in={_fmt(*g['in'])}|out={_fmt(*g['out'])}|cost={_fmt(*g['cost'], 6)}"
+              f"|wall={_fmt(*g['wall'], 3)}")
+    if corrupt:
+        print(f"LEDGER_CORRUPT:usage.jsonl|{len(corrupt)}")
+    try:
+        store = rst.Store(root)
+        snap = store.read()
+    except rst.ProjectUnresolved:
+        print("USAGE:store|unavailable|project_unresolved")
+        return 0
+    per = {}
+    for path, rec in snap.files.items():
+        parsed = rs.parse_store_path(path)
+        if not parsed or parsed[0] not in ("records", "obsolescence"):
+            continue
+        run = rec.get("run", {})
+        if str(run.get("at", "")) < cutoff:
+            continue
+        op = "relations" if parsed[0] == "records" else "obsolescence"
+        g = per.setdefault((op, run.get("trigger", "-")),
+                           {"records": 0, "in": [0, 0], "out": [0, 0], "cost": [0.0, 0], "wall": [0.0, 0]})
+        g["records"] += 1
+        usage = rec.get("usage") or {}
+        for f, src in (("in", "input_tokens"), ("out", "output_tokens"),
+                       ("cost", "cost_usd"), ("wall", "wall_s")):
+            v = usage.get(src)
+            if isinstance(v, (int, float)) and not isinstance(v, bool):
+                g[f][0] += v
+            else:
+                g[f][1] += 1
+    print(f"STORE:{snap.state}")
+    for (op, trig), g in sorted(per.items()):
+        print(f"USAGE:store|{op}|{trig}|records={g['records']}|in={_fmt(*g['in'])}"
+              f"|out={_fmt(*g['out'])}|cost={_fmt(*g['cost'], 6)}|wall={_fmt(*g['wall'], 3)}")
+    return 0
+
+
+def cmd_ledgers(root, args):
+    if not args.export:
+        sys.stderr.write("ait relations ledgers: only --export is supported\n")
+        return 1
+    sd = rw.state_dir(root)
+    sp = rsp.Spool(sd)
+    host = socket.gethostname()
+    for name in ("usage", "pull", "notify"):
+        path = os.path.join(sd, f"{name}.jsonl")
+        if not os.path.exists(path):
+            continue
+        rows, corrupt = sp.read_ledger(path)
+        for row in rows:
+            out = {"host": host, "ledger": name}
+            out.update(row)
+            print(json.dumps(out, sort_keys=True))
+        for n in corrupt:
+            print(json.dumps({"host": host, "ledger": name, "corrupt_line": n}, sort_keys=True))
+    return 0
+
+
+def cmd_unblock(root, args):
+    """Resolve a task's unresolved invocations; it unblocks only when NONE remains."""
+    sp = rsp.Spool(rw.state_dir(root))
+    tid = _tid(args.id)
+    entries = sp.guard(rw.OP, tid)
+    if not entries:
+        print(f"NO_GUARD:t{tid}")
+        return 0
+    if args.force:
+        for entry in entries:
+            sp.clear_guard(rw.OP, tid, entry["_inv"])
+            sp.log_unblock(rw.OP, tid, f"forced:{entry['_inv']}")
+        sp.log(f"UNBLOCKED:t{tid}|forced (human assertion) {len(entries)} invocation(s)")
+        print(f"UNBLOCKED:t{tid}|forced")
+        rw.start_worker_detached(root, sp)
+        return 0
+    remaining = []
+    for entry in entries:
+        agent = entry.get("agent")
+        if not agent:
+            remaining.append((entry, "no_pgid (use --force once you know it ended)"))
+            continue
+        verdict, why = (rw.end_or_kill(agent) if args.kill else rw.agent_ended(agent))
+        if verdict == "ended":
+            sp.clear_guard(rw.OP, tid, entry["_inv"])
+            sp.log_unblock(rw.OP, tid, f"ended:{why}:{entry['_inv']}")
+        else:
+            remaining.append((entry, f"{why}|pgid={agent.get('pgid')}"))
+    if not remaining:
+        sp.log(f"UNBLOCKED:t{tid}|ended")
+        print(f"UNBLOCKED:t{tid}|ended")
+        rw.start_worker_detached(root, sp)
+        return 0
+    print(f"STILL_UNRESOLVED:t{tid}|{remaining[0][1]}|remaining={len(remaining)}")
+    return 3
+
+
+def _commit_config(root):
+    rel = os.path.join(os.environ.get("TASK_DIR", "aitasks"), "metadata", "project_config.yaml")
+    script = os.path.join(rw.SCRIPTS, "aitask_metadata_commit.sh")
+    proc = subprocess.run([script, rel], cwd=root, capture_output=True, text=True)
+    line = (proc.stdout.strip().splitlines() or [""])[-1]
+    return proc.returncode, line
+
+
+def _state_line(root):
+    cfg = rcfg.load(root)
+    if not cfg.enabled:
+        return "RELATIONS:disabled"
+    return f"RELATIONS:enabled({rw.agent_string(root) or 'unresolved'}, cap {cfg.max_jobs_per_day}/day)"
+
+
+def cmd_enable(root, args, value):
+    try:
+        lines = rcfg.enable(root) if value else (rcfg.set_enabled(root, False) or ["ENABLED_SET:false"])
+    except rcfg.ProjectUnresolved as exc:
+        print(f"PROJECT_UNRESOLVED:{exc}")
+        return 1
+    except rcfg.ConfigWriteError as exc:
+        print(f"WRITE_FAILED:{exc}")
+        return 1
+    print("\n".join(lines))
+    rc, line = _commit_config(root)
+    print(f"COMMIT:{line or 'none'}")
+    print(_state_line(root))
+    if value:
+        print("NOTE:background analysis runs headless Claude print mode, which bills at a higher "
+              "per-token rate; it is capped per host per day (relations.max_jobs_per_day)")
+    return 0 if rc in (0, 2) and not line.startswith(("FAILED", "REFUSED")) else 1
 
 
 def build_parser():
@@ -135,6 +516,28 @@ def build_parser():
     sub.add_parser("flush", allow_abbrev=False)
     p = sub.add_parser("gc", allow_abbrev=False)
     p.add_argument("--dry-run", action="store_true")
+    p = sub.add_parser("analyze", allow_abbrev=False)
+    p.add_argument("id")
+    p.add_argument("--dry-run", action="store_true")
+    p.add_argument("--now", action="store_true")
+    p.add_argument("--wait", type=float, default=None)
+    p.add_argument("--over-cap", action="store_true")
+    for verb in ("stamp", "plan-digest"):
+        p = sub.add_parser(verb, allow_abbrev=False)
+        p.add_argument("id")
+    p = sub.add_parser("analysis-state", allow_abbrev=False)
+    p.add_argument("id")
+    p.add_argument("--expect-plan", default=None)
+    p = sub.add_parser("usage", allow_abbrev=False)
+    p.add_argument("--days", type=int, default=7)
+    p = sub.add_parser("ledgers", allow_abbrev=False)
+    p.add_argument("--export", action="store_true")
+    p = sub.add_parser("unblock", allow_abbrev=False)
+    p.add_argument("id")
+    p.add_argument("--kill", action="store_true")
+    p.add_argument("--force", action="store_true")
+    sub.add_parser("enable", allow_abbrev=False)
+    sub.add_parser("disable", allow_abbrev=False)
     return parser
 
 
@@ -151,6 +554,13 @@ def main(argv=None) -> int:
     except SystemExit as exc:
         return 1 if exc.code else 0
     try:
+        if args.verb in NO_STORE_VERBS:
+            root = _root()
+            if args.verb in ("enable", "disable"):
+                return cmd_enable(root, args, args.verb == "enable")
+            return {"analyze": cmd_analyze, "stamp": cmd_stamp, "plan-digest": cmd_plan_digest,
+                    "analysis-state": cmd_analysis_state, "usage": cmd_usage,
+                    "ledgers": cmd_ledgers, "unblock": cmd_unblock}[args.verb](root, args)
         store = rst.Store(os.getcwd())
         return {"show": cmd_show, "why": cmd_why, "status": cmd_status,
                 "flush": cmd_flush, "gc": cmd_gc}[args.verb](store, args)

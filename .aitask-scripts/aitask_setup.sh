@@ -2904,6 +2904,64 @@ report_testmap_state() {
     return 0
 }
 
+# --- Task relations activation (t1981_3) ---
+# aidocs/framework/task_relations.md D5 "Activation is visible". Background
+# analysis spends tokens (headless Claude print mode bills at a higher rate),
+# so it is OFF until answered: an absent `relations.enabled` means "never
+# asked", which is the only state in which the interactive question fires. Batch
+# (non-tty) setup never asks and leaves the key absent. Both helpers need the
+# venv (PyYAML), so they run after setup_python_venv.
+_relations_config_state() {
+    local py
+    py="$(resolve_python 2>/dev/null)" || py=""
+    [[ -n "$py" ]] || return 1
+    "$py" "$SCRIPT_DIR/lib/relations_config.py" state "$SCRIPT_DIR/.." 2>/dev/null
+}
+
+ask_relations_activation() {
+    [[ -t 0 ]] || return 0
+    local state py answer value out rc=0
+    state="$(_relations_config_state)" || return 0
+    [[ "$state" == *"RELATIONS_KEY:absent"* ]] || return 0
+    py="$(resolve_python 2>/dev/null)" || py=""
+    [[ -n "$py" ]] || return 0
+    info "Task relations: background analysis records how tasks relate (shown at pick time and before review)."
+    info "  It runs headless Claude print mode, which bills at a higher per-token rate, capped per host per day."
+    printf "  Enable background task-relations analysis? [y/N] "
+    answer=""
+    read -r answer || answer=""
+    case "${answer:-N}" in
+        [Yy]*) value=true ;;
+        *)     value=false ;;
+    esac
+    out="$("$py" "$SCRIPT_DIR/lib/relations_config.py" set-enabled "$SCRIPT_DIR/.." "$value" 2>&1)" || rc=$?
+    if [[ $rc -ne 0 ]]; then
+        # A "yes" that cannot resolve project.name leaves the key absent, so
+        # the question is asked again once the name is set.
+        warn "Task relations not enabled: ${out#*:}"
+        info "  Set project.name, then run: ait relations enable"
+        return 0
+    fi
+    _flush_metadata_batch 0 "aitasks/metadata/project_config.yaml"
+    return 0
+}
+
+report_relations_state() {
+    local state cap agent
+    state="$(_relations_config_state)" || state=""
+    if [[ "$state" == *"RELATIONS_KEY:true"* ]]; then
+        cap="$(printf '%s\n' "$state" | sed -n 's/^RELATIONS_CAP://p')"
+        agent="$(cd "$SCRIPT_DIR/.." && "$SCRIPT_DIR/aitask_codeagent.sh" resolve relations 2>/dev/null \
+            | sed -n 's/^AGENT_STRING://p')" || agent=""
+        echo "RELATIONS:enabled(${agent:-unresolved}, cap ${cap:-40}/day)"
+        info "Background task-relations analysis is on (headless Claude print mode bills at a higher per-token rate). Disable with: ait relations disable"
+    else
+        echo "RELATIONS:disabled"
+        info "Background task-relations analysis is off. Enable with: ait relations enable (headless Claude print mode bills at a higher per-token rate; capped per host per day)."
+    fi
+    return 0
+}
+
 # --- Test map scratch gitignore rule (t1852_5) ---
 # .aitask-testmap/ holds per-checkout runs, the cost ledger and onboarding
 # scratch; it must never be committed.
@@ -5965,6 +6023,8 @@ main() {
 
     install_engine_binary ${engine_args[@]+"${engine_args[@]}"}
     report_testmap_state
+    ask_relations_activation
+    report_relations_state
     echo ""
 
     setup_code_agents

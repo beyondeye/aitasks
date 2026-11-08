@@ -51,7 +51,7 @@ Task Management:
   note           Send a durable note to another task's inbox (--project: another repo)
   attach         Manage task file attachments (ls/add/get/rm/gc; move pending)
   artifact       Manage versioned task artifacts (create/update/move/rm/ls/get/versions)
-  relations      Task-relations store: show/why/status/flush/gc (aitask-relations branch)
+  relations      Task relations: store (show/why/status/flush/gc) and analysis (analyze/stamp/analysis-state/usage/enable)
 
 Gates:
   gates run      Run the gate orchestrator for a task

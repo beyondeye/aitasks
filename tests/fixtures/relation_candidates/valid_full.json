@@ -1,0 +1,53 @@
+{
+  "candidates": [
+    {
+      "card": "t11: change the shared helper\nsecond line | with a pipe",
+      "evidence": [
+        {
+          "detail": "t11 body, line 3",
+          "line": 3,
+          "section": "description",
+          "source": "mention_in"
+        },
+        {
+          "detail": "lib/x/shared.py",
+          "source": "cites"
+        }
+      ],
+      "inputs": {
+        "body_sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+        "plan_sha256": null
+      },
+      "ref": "aitasks#11",
+      "sources": [
+        "mention_in",
+        "cites"
+      ]
+    }
+  ],
+  "cap": 25,
+  "coverage": {
+    "answered": [
+      "mention_in",
+      "mention_out",
+      "cites",
+      "token"
+    ],
+    "missing_sources": []
+  },
+  "provider": {
+    "detail": "fixture",
+    "path": "fallback"
+  },
+  "schema": "aitask-relation-candidates/1",
+  "source": "aitasks#10",
+  "source_inputs": {
+    "body_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+    "plan_sha256": "2222222222222222222222222222222222222222222222222222222222222222"
+  },
+  "truncated": {
+    "by_class": {},
+    "count": 0,
+    "inputs": {}
+  }
+}

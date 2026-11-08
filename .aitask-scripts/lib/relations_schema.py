@@ -238,8 +238,14 @@ def validate_relations_record(rec):
     _require(isinstance(rec["analysed"], bool), "record.analysed: expected a boolean")
     _validate_run(rec["run"], "record.run")
     inputs = rec["inputs"]
-    _keys(inputs, "record.inputs", ("source", "candidates"))
+    # screening_sha256 (t1981_3): digest of the provider's screening inputs
+    # (cards, evidence, coverage, truncation), so UP_TO_DATE also sees evidence
+    # changes. Optional, and part of aitask-relations/1 from its first release
+    # (D2 "Schema compatibility").
+    _keys(inputs, "record.inputs", ("source", "candidates"), ("screening_sha256",))
     _validate_digest_pair(inputs["source"], "record.inputs.source")
+    if "screening_sha256" in inputs:
+        _sha(inputs["screening_sha256"], "record.inputs.screening_sha256")
     _require(isinstance(inputs["candidates"], list), "record.inputs.candidates: expected a list")
     cand_refs = set()
     for i, cand in enumerate(inputs["candidates"]):

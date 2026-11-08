@@ -108,12 +108,14 @@ def _test_hook(point: str, **ctx) -> None:
     """
 
 
-def job_state(task_id):
-    """Spool state of a task's analysis job: ``pending(..)`` / ``failed(..)``.
+def job_state(task_id, state_dir=None):
+    """Spool state of a task's analysis job: ``pending(..)`` / ``failed(..)`` / None.
 
-    Returns None here; t1981_3 (worker and spool) replaces it.
+    Reads this clone's spool (``relations_spool``, t1981_3); None when the task
+    has no job, or the spool does not exist yet.
     """
-    return None
+    import relations_spool
+    return relations_spool.job_state(state_dir, rs.norm_id(task_id))
 
 
 def _now() -> str:
@@ -1157,7 +1159,7 @@ class Store:
                 return f"analysed:{len(rec['relations'])}({','.join(flags)})"
             except (KeyError, TypeError):
                 pass
-        job = job_state(tid)
+        job = job_state(tid, self.state_dir)
         if job:
             return job
         state = relations_state or self.relations_state()

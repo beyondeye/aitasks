@@ -156,6 +156,41 @@ def kill_process_group(proc: subprocess.Popen, grace: float) -> None:
     proc.wait()
 
 
+def kill_process_group_by_id(pgid: int, grace: float, settle: float = 3.0) -> bool:
+    """Terminate a process group this process did NOT start (no Popen handle).
+
+    For a group orphaned by a dead owner (t1981_3's interrupted-job recovery):
+    SIGTERM + SIGCONT, SIGKILL after ``grace`` seconds, then poll up to
+    ``settle`` more seconds. True only once ``killpg(pgid, 0)`` answers ESRCH --
+    the group provably ended; False when it is still there or cannot be probed
+    (EPERM). Orphaned members are reaped by init, so no zombie keeps it alive.
+    """
+    _signal_group(pgid, signal.SIGTERM)
+    _signal_group(pgid, signal.SIGCONT)
+
+    def gone() -> bool:
+        try:
+            os.killpg(pgid, 0)
+        except ProcessLookupError:
+            return True
+        except PermissionError:
+            return False
+        return False
+
+    deadline = time.monotonic() + grace
+    while time.monotonic() < deadline:
+        if gone():
+            return True
+        time.sleep(_POLL_SECONDS)
+    _signal_group(pgid, signal.SIGKILL)
+    deadline = time.monotonic() + settle
+    while time.monotonic() < deadline:
+        if gone():
+            return True
+        time.sleep(_POLL_SECONDS)
+    return gone()
+
+
 # Signals deferred while a process group is being killed.
 _DEFERRED_SIGNALS = (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)
 
@@ -243,7 +278,7 @@ def _read(fh) -> str:
 
 
 def run_bounded(cmd, timeout, *, env=None, stop_grace=0.0, cwd=None,
-                cancelled=None) -> BoundedResult:
+                cancelled=None, on_start=None) -> BoundedResult:
     """Run ``cmd`` (capturing text output), killing its process group after ``timeout`` s.
 
     Raises ``subprocess.TimeoutExpired`` once the group is dead (subprocess.run's
@@ -258,6 +293,11 @@ def run_bounded(cmd, timeout, *, env=None, stop_grace=0.0, cwd=None,
     (KeyboardInterrupt, a signal turned into an exception) also kills the group
     before propagating, and signals arriving during that cleanup are deferred
     until it is done (_shielded_kill).
+
+    ``on_start(proc)``, when given, is called right after the child starts --
+    before any waiting -- so a caller can durably record the process group it
+    owns (``proc.pid`` leads it). An exception raised there kills the group and
+    propagates.
     """
     grace = effective_grace()
     child_env = dict(os.environ if env is None else env)
@@ -267,6 +307,8 @@ def run_bounded(cmd, timeout, *, env=None, stop_grace=0.0, cwd=None,
                                 env=child_env, cwd=cwd, **_child_isolation())
         stopped = False
         try:
+            if on_start is not None:
+                on_start(proc)
             try:
                 _wait(proc, timeout, cancelled)
             except subprocess.TimeoutExpired:

@@ -1,0 +1,13 @@
+{
+  "invalid_core_listed_missing.json": "both answered and missing",
+  "invalid_core_missing.json": "core_missing:cites",
+  "invalid_duplicate_ref.json": "duplicate or self ref aitasks#11",
+  "invalid_missing_coverage.json": "missing key(s) ['coverage']",
+  "invalid_missing_echo.json": "missing key(s) ['inputs']",
+  "invalid_missing_source_echo.json": "missing key(s) ['source_inputs']",
+  "invalid_not_json.txt": "invalid JSON",
+  "invalid_schema.json": "schema: expected",
+  "invalid_truncation_count.json": "truncated.count: 5",
+  "invalid_two_objects.txt": "trailing data",
+  "invalid_unknown_tag.json": "unknown source tag 'gossip'"
+}

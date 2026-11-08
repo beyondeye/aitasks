@@ -286,6 +286,41 @@ class SchemaTests(Base):
             with self.subTest(kind=kind), self.assertRaises(rs.SchemaError):
                 rs.validate(kind, f"{kind}/t1.json", bad)
 
+    def test_screening_digest_mixed_version_boundary(self):
+        """inputs.screening_sha256 (t1981_3) against the closed t1981_1 reader.
+
+        The landed reader (f78e2b8d5) rejects the key, so the rollout rule is
+        "readers ship no later than the first writer" (D2 "Schema
+        compatibility"). This pins both sides of that boundary.
+        """
+        with_key = self.rec()
+        with_key["inputs"]["screening_sha256"] = "e" * 64
+        rs.validate("records", "records/t1.json", with_key)    # the current reader accepts it
+        rs.validate("records", "records/t1.json", self.rec())  # ... and records without it
+        bad = self.rec()
+        bad["inputs"]["screening_sha256"] = "not-a-sha"
+        with self.assertRaises(rs.SchemaError):
+            rs.validate("records", "records/t1.json", bad)
+        # A pre-extension record (no key) is consumed by a current Store.read().
+        S(self.root).write(rs.store_path("records", "1"), self.rec())
+        self.assertIn(rs.store_path("records", "1"), S(self.root).read(no_fetch=True).files)
+        # The t1981_1 reader, loaded from history, rejects a screening-bearing record.
+        repo = Path(__file__).resolve().parents[1]
+        old_src = subprocess.run(["git", "-C", str(repo), "show",
+                                  "f78e2b8d5:.aitask-scripts/lib/relations_schema.py"],
+                                 capture_output=True, text=True)
+        if old_src.returncode != 0:
+            self.skipTest("commit f78e2b8d5 is not in this clone's history")
+        import importlib.util
+        old_path = Path(self.tmp) / "relations_schema_f78e2b8d5.py"
+        old_path.write_text(old_src.stdout)
+        spec = importlib.util.spec_from_file_location("relations_schema_f78e2b8d5", old_path)
+        old = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(old)
+        old.validate("records", "records/t1.json", self.rec())
+        with self.assertRaisesRegex(old.SchemaError, r"record.inputs: unknown key\(s\) \['screening_sha256'\]"):
+            old.validate("records", "records/t1.json", with_key)
+
     def test_wins_identity_first(self):
         old = {"task_created_at": C1, "run": {"stage": 2, "at": "2026-12-01"}}
         new = {"task_created_at": C2, "run": {"stage": 1, "at": "2026-01-01"}}
