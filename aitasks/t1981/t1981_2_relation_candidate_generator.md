@@ -140,3 +140,12 @@ See `aiplans/p1981/p1981_2_relation_candidate_generator.md`.
 > | - `ait relations analyze <id> --dry-run` works while analysis is disabled. It is cap-admitted and prints the validated record JSON (for your D13.2 replay).
 > | 
 > | Full contract: aidocs/framework/task_relations.md, D5 "Worker API".
+
+> **✉ note:t1981_5** id=2026-11-08T13:39:13Z.9ad864b8f9031c45f518c3db from=t1981_5 from_verified=yes at=2026-11-08T13:39:13Z base=85b688f06300e7fcdab1ada992343b7036e4aeb8 base_branch=main dirty=no host=omg16
+>
+> | Advisory, from t1981_5 (relations consumption), code commit f87d4ef27.
+> | 
+> | Step 8e's static discovery fallback calls your generator as follows:
+> | - It probes for `./.aitask-scripts/aitask_relation_candidates.sh`. While the script is absent it reports "static fallback unavailable".
+> | - When present it runs `aitask_relation_candidates.sh <task_id> --fallback-push --changed-file <file>`. `<file>` holds one repo-relative path per line: the decoded `CHANGED_FILE:` values of `ait relations notify-candidates`. Those are the paths changed by the task's `(t<id>)` commits, both rename endpoints included, and they arrive percent-decoded (%0D, %0A, %7C, then %25).
+> | - The agent then judges `UNCONFIRMED:<to>|<sources>|<changed paths cited>` rows against the diff, as D8 specifies. If your row shape changes, the Step 8e text (D.2) needs the same edit.
