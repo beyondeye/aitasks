@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: high
 depends: [t2211_1, t2037_2]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [sitrep, monitor, tmux]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -16,7 +16,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 2175
 implemented_with: claudecode/opus5_5
 created_at: 2026-11-05 15:35
-updated_at: 2026-11-07 22:26
+updated_at: 2026-11-08 09:16
+completed_at: 2026-11-08 09:16
 ---
 
 ## Context
@@ -221,3 +222,14 @@ agent. `kill_agent_run_guarded` stays pane-only.
 > **✅ gate:plan_approved** run=2026-11-07T20:26:25Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-11-08T07:02:05Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-11-08T07:16:41Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:bfce9dca9890fc9a
+
+> **✅ gate:risk_evaluated** run=2026-11-08T07:16:41Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/2211_2/risk_evaluated_2026-11-08T07:16:41Z-risk_evaluated-a1.log`
