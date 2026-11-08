@@ -48,3 +48,5 @@ status.
 > | - capture_all_* only reads the subscription. Scans happen per server tick, plus explicit request_refresh.
 > | - The server applies each project's project_config.yaml. A per-instance override needs enabled=False.
 > | - Measured (one host, one moment): with N=12 agents and K=4 clients, tmux-server CPU is 0.67 % shared vs 2.2 % in-process, and the status server costs about 0.35 %.
+
+> **👁 note:read** id=2026-11-08T20:57:27Z.e388d902948ce1cfc8109407 by=t2037_4 at=2026-11-08T20:57:27Z mode=explicit ids=2026-11-07T17:20:54Z.d3b948f3a61203778155b9af
