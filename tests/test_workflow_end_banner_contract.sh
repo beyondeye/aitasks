@@ -73,7 +73,7 @@ DESC_RE = re.compile(r'\(description: "[^"]*("\)|$)')
 ITEM_RE = re.compile(r"^(\s*)(?:[-*]|\d+\.)\s")
 REF_RE = re.compile(r"workflow-end\.md")
 OUT_RE = re.compile(
-    r"outcome=(?:in-flight|ready|aborted|split|unchanged)\b|state-derived")
+    r"outcome=(?:in-flight|ready|aborted|split|unchanged|postponed)\b|state-derived")
 
 
 def indent(line):
@@ -202,7 +202,7 @@ check "complete first-line key" "1" \
     "$(grep -cF '✔ aitask workflow complete — t<task_id> <task_name>' "$PROC")"
 check "stopped first-line key" "1" \
     "$(grep -cF '■ aitask workflow stopped — t<task_id> <task_name>' "$PROC")"
-for v in in-flight ready aborted split unchanged; do
+for v in in-flight ready aborted split unchanged postponed; do
     check "outcome '$v' defined in the vocabulary table" "1" \
         "$(grep -cE "^\| \`$v\` \|" "$PROC")"
 done

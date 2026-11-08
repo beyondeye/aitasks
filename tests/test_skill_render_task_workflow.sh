@@ -125,6 +125,13 @@ WRAPPED_FILES_INVARIANT=(
     # conditional and ships no knob -- an unset `resource_admission_command` is
     # the opt-out.
     "resource-admission.md"
+    # The advisory premise check (t1663_4). Profile-invariant by design: the
+    # question, the post-lock writes and the replan advance are the same under
+    # every profile -- the one profile split (a headless profile only REPORTS)
+    # lives in SKILL.md's Check 7 dispatch, mirroring Check 6. No Jinja at all,
+    # so Test 0 does not require the listing; the golden pins it anyway, since
+    # every pick that hits ASK_STALE reads this file.
+    "premise-staleness.md"
 )
 PROFILES=(default fast remote)
 AGENTS=(claude codex opencode)

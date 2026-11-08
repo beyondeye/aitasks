@@ -20,8 +20,10 @@ tests pin must survive the swap: the landing-commit baseline
 silent ``SKIP`` with distinct reasons, purity.
 
 THE GOVERNING INVARIANT. ``FRESH`` is a *positive* claim, never the absence of a
-failure. It requires every scope path to be present at both ends AND to carry a
-successful history query whose commit count the producer attested. Every probe
+failure. It requires every non-retired scope path to be present at both ends AND
+to carry a successful history query whose commit count the producer attested,
+and at least one such positively checked path (a retired path checks nothing,
+so an all-retired scope is ``SKIP``, never ``FRESH``). Every probe
 failure, every malformed or missing row, every baseline that is not an
 immutable commit id maps to evidence (``ASK_STALE``) or to ``SKIP`` -- never to
 the no-evidence branch.
@@ -33,7 +35,7 @@ INTERCHANGE ROWS (producer -> core), one per line, blank lines ignored::
     TIER:<A|B|NONE>|<n_paths>|<n_origins>       counts attest the rows below
     ORIGIN:<id>|<FILES|NO_FILES|UNKNOWN_HISTORY>
     PATH:<enc path>|ok|<n_log>                  n_log attests its LOG rows
-    PATH:<enc path>|<deleted|absent_at_baseline|history_unavailable|invalid_reference|no_index_history>
+    PATH:<enc path>|<deleted|absent_at_baseline|never_existed|retired|history_unavailable|invalid_reference|no_index_history>
     LOG:<enc path>|<oid>|<task-ids csv>
     GONE:<enc path>|<culprit>|<sanitized subject>
 
@@ -69,6 +71,16 @@ frontmatter mapping the framework's YAML reader parsed into
 ``FIELD_BASELINE:`` / ``FIELD_REF:`` / ``FIELD_BADREF:`` lines closed by a
 ``FIELD_END:<n>`` count, or ``FIELD_INVALID:frontmatter``. ``file_references:``
 is read as YAML, never comma-split: the valid entry ``"a,b.py"`` is one path.
+
+RETIRED PATHS (t1663_4). A scope path absent at BOTH ends whose history
+reachable from the baseline proves it once existed, with zero commits touching
+it inside the window, is ``retired``: it was deleted at or before the baseline,
+which is exactly the state a confirmed ``DELETED`` leaves behind once the
+baseline advances past the deletion. A retired path is not evidence and is not
+*positively checked*, so it can neither prompt again nor carry a ``FRESH``: a
+scope whose every path is retired reads ``SKIP``/``all_retired``. A path absent
+at both ends with NO history at all is ``never_existed`` -- possibly an intended
+future file, possibly a typo -- and stays evidence until it exists or is removed.
 
 ENCODING (all vocabularies): ``%`` -> ``%25`` first, then ``|`` -> ``%7C``, LF ->
 ``%0A``, CR -> ``%0D``; decode in reverse with ``%25`` last. It is
@@ -117,6 +129,7 @@ BASELINE_REASONS = (
 PATH_REASONS = (
     "no_index_history",     # (roadmap adapter) the path has no commit row at all
     "absent_at_baseline",   # the path did not exist in the baseline tree
+    "never_existed",        # absent at both ends, and no commit ever touched it
     "invalid_reference",    # a file_references: entry that is not a path
     "history_unavailable",  # the history query for this path FAILED (not: was empty)
     "malformed_row",        # this path's evidence rows did not parse or count up
@@ -128,6 +141,7 @@ SCOPE_REASONS = (
     "scope_error",          # the scope could not be resolved (a reader/subprocess failed,
                             # or the origin map failed its own count attestation)
     "invalid_frontmatter",  # the task's frontmatter is not valid YAML
+    "all_retired",          # every scope path was deleted at or before the baseline
 )
 
 # Environment / engine failures. `python_unavailable` and the shell-side
@@ -137,8 +151,10 @@ ENV_REASONS = ("not_a_git_repo", "python_unavailable", "engine_error")
 
 REASONS = BASELINE_REASONS + PATH_REASONS + SCOPE_REASONS + ENV_REASONS
 
-PATH_STATES = ("ok", "deleted", "absent_at_baseline", "history_unavailable",
-               "invalid_reference", "no_index_history")
+# `retired` is the one state that is neither checked evidence nor a reason: see
+# RETIRED PATHS in the module docstring.
+PATH_STATES = ("ok", "deleted", "retired", "absent_at_baseline", "never_existed",
+               "history_unavailable", "invalid_reference", "no_index_history")
 
 ORIGIN_STATUSES = ("FILES", "NO_FILES", "UNKNOWN_HISTORY")
 
@@ -366,6 +382,7 @@ class PremiseResult:
     deleted: tuple = ()         # (path, culprit, subject)
     unknown: tuple = ()         # (path-or-origin-id, reason)
     lines: tuple = field(default_factory=tuple)
+    retired: tuple = ()         # paths deleted at or before the baseline (not evidence)
 
 
 class _Integrity(Exception):
@@ -523,6 +540,7 @@ _SKIP_TEXT = {
     "empty_scope": "the task has no file surface to compare",
     "scope_error": "the task's file scope could not be resolved",
     "invalid_frontmatter": "the task's frontmatter is not valid YAML",
+    "all_retired": "every watched file was deleted at or before the baseline",
     "not_a_git_repo": "not inside a git repository",
     "engine_error": "the premise engine received inconsistent evidence",
 }
@@ -581,11 +599,14 @@ def check(rows):
     if not r.paths:
         return _skip("empty_scope", baseline_sha=sha, ts=ts, checked=r.rev)
 
-    changed, deleted, unknown = [], [], []
+    changed, deleted, unknown, retired = [], [], [], []
     for path in sorted(r.paths):
         entry = r.paths[path]
         if entry["malformed"]:
             unknown.append((path, "malformed_row"))
+        elif entry["state"] == "retired":
+            # Deleted at or before the baseline: not evidence, and not checked.
+            retired.append(path)
         elif entry["state"] == "ok":
             if entry["n"]:
                 ids = sorted({t for _, tids in r.logs.get(path, []) for t in tids},
@@ -610,13 +631,25 @@ def check(rows):
                 + ["DELETED:%s|%s|%s" % (encode_field(p), c, s) for p, c, s in deleted]
                 + ["UNKNOWN:%s|%s" % (encode_field(p), why) for p, why in unknown])
 
+    retired_note = ("; %d deleted at or before the baseline (retired)" % len(retired)
+                    if retired else "")
+
     # One evidence list: the verdict is an emptiness test over it, so "a path I
     # could not check" can never stop counting while "a path that changed" does.
     if not evidence:
-        display = ("DISPLAY:All %d watched file(s) unchanged since %s (%s) — "
-                   "premise looks current." % (files, sha[:12], _display_safe(ts)))
+        checked_n = files - len(retired)
+        if checked_n <= 0:
+            # Nothing was positively checked: a retired path is not an all-clear.
+            res = _skip("all_retired", baseline_sha=sha, ts=ts, checked=r.rev,
+                        files=files)
+            return PremiseResult(decision=SKIP, reason="all_retired",
+                                 baseline_sha=sha, checked=r.rev,
+                                 lines=res.lines, retired=tuple(retired))
+        display = ("DISPLAY:All %d watched file(s) unchanged since %s (%s)%s — "
+                   "premise looks current." % (checked_n, sha[:12], _display_safe(ts),
+                                               retired_note))
         return PremiseResult(decision=FRESH, baseline_sha=sha, checked=r.rev,
-                             fingerprint=fp, tier=tier,
+                             fingerprint=fp, tier=tier, retired=tuple(retired),
                              lines=tuple(head + [display, "DECISION:%s" % FRESH]))
 
     bits = []
@@ -629,11 +662,12 @@ def check(rows):
             ["origin t%s (unknown_history)" % p if why == "unknown_history"
              else "%s (%s)" % (p, why) for p, why in unknown]))
     display = ("DISPLAY:Premise may no longer hold — since baseline %s (%s), "
-               "%d watched file(s): %s." % (sha[:12], _display_safe(ts), files,
-                                            "; ".join(bits)))
+               "%d watched file(s): %s%s." % (sha[:12], _display_safe(ts), files,
+                                              "; ".join(bits), retired_note))
     return PremiseResult(decision=ASK_STALE, baseline_sha=sha, checked=r.rev,
                          fingerprint=fp, tier=tier, changed=tuple(changed),
                          deleted=tuple(deleted), unknown=tuple(unknown),
+                         retired=tuple(retired),
                          lines=tuple(head + evidence + [display,
                                                         "DECISION:%s" % ASK_STALE]))
 

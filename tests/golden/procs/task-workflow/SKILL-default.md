@@ -25,6 +25,7 @@ This skill is invoked by other skills (e.g., aitask-pick, aitask-explore, aitask
 | `usage_collected` | boolean | Guard flag — initialized to `false`. Set to `true` before the unconditional usage bump fires in Satisfaction Feedback Step 0. Set-before-call so a mid-procedure failure does not cause a retry double-bump. |
 | `detected_agent_string` | string/null | Agent string (e.g., `claudecode/opus4_6`). Set by either the verify-path append in `planning.md` Step 6.1 or by Agent Attribution in Step 7. Consumed by Agent Attribution (fast-path) and by Satisfaction Feedback in Step 9b to skip re-detection. Initialized to `null`. |
 | `inbox_surfaced` | boolean | Whether the calling skill already displayed and resolved this task's unread `## Inbox` notes. Step 3 Check 6 skips when `true`, so notes are not shown twice — and so a user who just answered "Keep unread" is not asked again. Initialized to `false`. |
+| `premise_decision` | object/null | The answer to Step 3 Check 7's premise prompt, pending until ownership is held: `choice` (`proceed` \| `replan` \| `postpone`), `checked`, `fingerprint` and `protocol` (the complete check output). Set by `premise-staleness.md` `## Check`; read by Step 4, `planning.md` and Step 7. Initialized to `null` (the common case: the check was silent). |
 
 ## Workflow
 
@@ -133,6 +134,15 @@ Another session may have left context on this task (`ait note`). This is the uni
 
 This check never ends the workflow and never changes task status; it is display plus bookkeeping. Continue to Step 4 in every branch.
 
+**Check 7 - Premise staleness (advisory):**
+
+Has the code this task's premise depends on changed since the premise was last known valid (its `premise_baseline:`)? Every entry path funnels through here, so the check covers pick, board launch and explore alike.
+
+- **Skip entirely** unless the task's `status` is `Ready` and its `issue_type` is not `manual_verification`. Checks 1-5 route Done, orphaned, gated and in-flight tasks away first, and a manual-verification task's staleness is owned by its own pre-check inside Check 3 — skipping it here is what keeps the two from double-prompting.
+- Execute the **Premise Staleness Procedure** (see `premise-staleness.md`) section **`## Check`** with `task_file` and `task_id`. It is silent for `FRESH` and `SKIP` (every legacy task without a stored baseline). On `ASK_STALE` it asks once and records the answer in `premise_decision` — **writing nothing**: the task is not claimed yet, so every write waits for Step 4. "Pick a different task" returns to the calling skill's task selection with nothing changed.
+
+This check never ends the workflow on its own. Continue to Step 4.
+
 If none of the checks trigger, proceed to Step 4 as normal.
 
 ### Step 4: Assign Task to User
@@ -191,6 +201,8 @@ If none of the checks trigger, proceed to Step 4 as normal.
   ./.aitask-scripts/aitask_pick_own.sh <task_num>
   ```
 
+  **When `premise_decision` is set** (Step 3 Check 7 asked, and its answer is pending), append `--expect-status Ready` to **every** `aitask_pick_own.sh` call in this step, including the `--force` re-runs below. The answer was given about a task read before any lock existed, and the claim writes `Implementing` unconditionally; with the flag the script re-syncs the task data and re-reads the status **under the lock**, before it writes anything, and refuses when the task is no longer the `Ready` task the prompt was about.
+
   **Parse the script output:**
   - `OWNED:<task_id>` — Success. Proceed to Step 5.
   - `FORCE_UNLOCKED:<previous_owner>` + `OWNED:<task_id>` — Force-unlock succeeded. Inform user: "Force-unlocked stale lock held by \<previous_owner\>." Proceed to Step 5.
@@ -244,10 +256,34 @@ If none of the checks trigger, proceed to Step 4 as normal.
       - "Abort" (description: "Stop the workflow")
     - If "Retry": Re-run `aitask_pick_own.sh` (same command). Parse output again.
     - If "Continue without lock": Skip lock acquisition, proceed to Step 5 (task status will be updated but no lock held).
+    - **When `premise_decision` is set, do NOT offer "Continue without lock".** The pending answer may only be applied by a session that holds the task, and continuing past the error would skip the post-lock step — losing a pending "Postpone" — while a later baseline advance would run without ownership (the advance helper refuses that anyway, with `ADVANCE_REFUSED:not_owner`). Offer only "Retry" (the same guarded call, `--expect-status Ready` kept) and "Pick a different task" (set `premise_decision` to `null`, return to the calling skill's task selection — nothing was claimed), plus "Abort" as below.
     - If "Abort": show the **Stopped** banner (see `workflow-end.md`) with `outcome=unchanged`, reason "lock system error: \<message\>", next "`./.aitask-scripts/aitask_lock_diag.sh`, then `/aitask-pick <task_num>`", and end the workflow.
   - `LOCK_INFRA_MISSING` — Lock infrastructure not initialized. Inform user to run `ait setup` and abort — show the **Stopped** banner (see `workflow-end.md`) with `outcome=unchanged`, reason "lock infrastructure not initialized", next "`ait setup`, then `/aitask-pick <task_num>`", and end the workflow.
+  - `STATUS_CHANGED:<actual>|Ready` (only with `--expect-status`) — the task changed while the premise prompt was open, by a session that has since released it. Nothing was claimed: the lock this run took was released and nothing else was written. Display: "Task t\<N\> changed while the premise prompt was open (status is now \<actual\>). Nothing was claimed." Set `premise_decision` to `null` and return to the calling skill's task selection. Do NOT proceed.
+  - `STATUS_UNVERIFIED:<reason>` (only with `--expect-status`) — the status the pending answer relied on could not be confirmed under the lock. Nothing was claimed, and the lock was released. The cause depends on `<reason>`, and so does the question text:
+    - `unreadable_status` — the task file's frontmatter has no readable `status:` (missing, invalid YAML, or not a string). Question: "t\<N\>'s status could not be read from its task file (no valid `status:` in the frontmatter), so it could not be confirmed as Ready. Nothing has been claimed. Fix the frontmatter, then retry."
+    - `python_unavailable` — no Python interpreter could read the status. Question: "No Python interpreter is available to read t\<N\>'s status, so it could not be confirmed as Ready. Nothing has been claimed. `ait setup` installs one."
+    - any other value is a task-data sync classifier code (the re-sync under the lock failed). Question: "The task data could not be synced (\<reason\>), so t\<N\>'s current status could not be confirmed against the remote. Nothing has been claimed. `ait syncer` reconciles a stuck sync."
+
+    Use `AskUserQuestion` with that question:
+    - Header: "Unverified"
+    - Options:
+      - "Retry" (description: "Run the same claim again, still verifying the status")
+      - "Pick a different task" (description: "Leave this task and select another")
+    - "Retry" → re-run the same `aitask_pick_own.sh` call (flags unchanged) and parse its output again. "Pick a different task" → set `premise_decision` to `null` and return to the calling skill's task selection. There is deliberately no option that claims without the verification.
+  - `LOCK_REQUIRED:no_email` (only with `--expect-status`) — no email was resolved (the user chose "Skip" above, and neither the task nor userconfig names one), so no lock could be taken, and applying a premise answer without ownership is exactly what the guard prevents. The script refused before locking or writing anything. Use `AskUserQuestion`:
+    - Question: "Applying your premise answer for t\<N\> needs the task's lock, and the lock needs an email — none is set. Nothing has been claimed. How would you like to proceed?"
+    - Header: "Email"
+    - Options:
+      - "Provide an email" (description: "Choose or enter an email, then claim with the same verification")
+      - "Pick a different task" (description: "Leave this task and select another")
+    - "Provide an email" → run the email question of step 6 above (stored emails, "Enter new email") **without** its "Skip" option, then re-run the claim with `--email "<email>" --expect-status Ready` and parse its output again.
+    - "Pick a different task" → set `premise_decision` to `null` and return to the calling skill's task selection.
+    - There is deliberately **no route that re-runs the claim without `--expect-status` or without an email**: the prompt window this guard protects is still open, so an unguarded claim could take a task another session now holds, or overwrite a status changed meanwhile (e.g. `Postponed`). Dropping the premise answer does not make such a claim safe — the claim itself is what mutates the task.
 
   **Note:** The script handles email storage, lock acquisition, task metadata update (`status` → Implementing, `assigned_to`), and git add/commit/push internally. If the script fails entirely (non-zero exit without structured output), display the error and abort. The script may have failed part-way, so re-read the task's `status` / `assigned_to` before choosing the banner's outcome (read-only): if they are still what they were before the claim, show the **Stopped** banner (see `workflow-end.md`) with `outcome=unchanged`; if the status now reads `Implementing`, use `outcome=in-flight` and say so in the reason. Reason "ownership claim failed: \<error\>", next "fix the error, then `/aitask-pick <task_num>`"; then end the workflow.
+
+- **Apply the pending premise answer (post-lock):** If `premise_decision` is set, execute the **Premise Staleness Procedure** (see `premise-staleness.md`) section **`## Post-lock`** with `task_file`, `task_id` and `premise_decision`, now that ownership is held — on **any** success path above (`OWNED`, `FORCE_UNLOCKED` + `OWNED`, or crash-recovery → `reclaim`). "Postpone task" sets the task to `Postponed`, releases the lock and ends the workflow there with the **Stopped** banner (see `workflow-end.md`, `outcome=postponed`), before the materialization below; "Proceed" advances the baseline (fingerprint-gated); "Review & replan" writes nothing yet. **If the procedure reached its `## Ownership lost` exit** (another owner or another live session now holds the task), the workflow has **ended** there with its own banner: do NOT run the materialization below or anything after it — every later step writes a task this session no longer owns. Skip when `premise_decision` is `null`.
 
 - **Materialize the active-gates tuple (ALWAYS runs — never profile-omitted):** With ownership held, derive and persist the task's enforced gate set under the current profile. If `active_profile_filename` is set, run:
 
@@ -435,7 +471,7 @@ Before starting implementation, verify that ownership/lock was acquired (Step 4 
     - `OWNED:<task_id>` — Success. Proceed.
     - `LOCK_FAILED:<owner>|<locked_at>|<hostname>` — Parse the `|`-separated fields. Use `AskUserQuestion` with options: "Force unlock and claim" / "Abort task". If force unlock, re-run with `--force`; if that does not return `FORCE_UNLOCKED` + `OWNED`, abort with the state-derived **Stopped** banner below (`workflow-end.md`). If abort, execute the **Task Abort Procedure** (see `task-abort.md`).
     - `LOCK_LIVE_HOLDER:` / `LOCK_UNVERIFIABLE_HOLDER:` — another session of yours on this machine holds the task and is running (or could not be verified as gone). Handle exactly as in Step 4, including the option order (safe option first). Reaching this from *this* guard is unusual — it means ownership was lost between Step 4 and here — so state that in the display before prompting.
-    - `LOCK_ERROR:<message>` — Display error. Use `AskUserQuestion`: "Retry" / "Continue without lock" / "Abort". Handle as in Step 4.
+    - `LOCK_ERROR:<message>` — Display error. Use `AskUserQuestion`: "Retry" / "Continue without lock" / "Abort" — but never "Continue without lock" while `premise_decision` is set (see Step 4). Handle as in Step 4.
     - `LOCK_INFRA_MISSING` — Inform user to run `ait setup` and abort, with the state-derived **Stopped** banner below (`workflow-end.md`).
     - Script fails entirely — display error and abort, with the state-derived **Stopped** banner below (`workflow-end.md`).
 
@@ -557,6 +593,8 @@ This is the fork **Step 5** resolved but did not perform. Reaching here means th
 ```
 
 Skip silently if the plan has no `## Risk` section (e.g. the task is not risk-gated). This is the post-approval write gate: planning runs in read-only plan mode, so the fields are not written during Step 6.
+
+**Premise baseline advance (post-approval, replan only):** If `premise_decision.choice` is `replan` — the user chose "Review & replan" at Step 3 Check 7, and the renewed plan has just been approved — execute the **Premise Staleness Procedure** (see `premise-staleness.md`) section **`## Advance after an approved replan`**. It runs after the other post-approval writes and **before** the risk-mitigation "before" creation, so a before-stop still keeps the confirmed premise. A resumed session carries no `premise_decision`, so nothing advances there — the fail-safe direction. **If the procedure reached its `## Ownership lost` exit**, the workflow has ended: do NOT continue to the risk-mitigation creation, the implementation or Step 8. Skip for every other value, including `null`.
 
 **Consume the deferred-plan marker:** Reaching this line means implementation is
 actually starting, so `plan_approved_at` — "plan approved, implementation
@@ -1030,6 +1068,7 @@ The following procedures are in individual files — read on demand when referen
 - **Execution Profile Selection Procedure — Auto-Select** (`execution-profile-selection-auto.md`) — Non-interactive auto-select for remote/web skills. Referenced from Step 1 in aitask-pickrem/aitask-pickweb.
 - **Batch Task Creation Procedure** (`task-creation-batch.md`) — Canonical command templates for creating tasks via `aitask_create.sh --batch`. Referenced from planning.md and multiple skills (explore, review, qa, wrap, pr-import, revert).
 - **Workflow End Banner Procedure** (`workflow-end.md`) — The run's fixed-format closing message: `## Complete` at Step 10, `## Stopped` (closed `outcome` vocabulary) at every early or alternate exit. User-facing only; nothing reads it. Referenced from Step 3, Step 4, Re-entry Routing, Steps 6, 7, 9 and 10, and from every shared exit procedure (`plan-approved-stop.md`, `task-abort.md`, `merge-broker.md`, `merge-target-sync.md`, `manual-verification.md`, `planning.md`, `cross-repo-child-assignment.md`, `parallel-assessment.md`) and `aitask-pickrem` / `aitask-pickweb`.
+- **Premise Staleness Procedure** (`premise-staleness.md`) — The advisory premise check for `Ready` tasks: `## Check` asks once and writes nothing (Step 3 Check 7); `## Post-lock` applies the answer once ownership is held (Step 4); `## Advance after an approved replan` advances the baseline after a renewed plan is approved (Step 7, `planning.md`'s "Approve and stop here"). Backed by `aitask_premise_stale.sh` (`check` / `advance`).
 
 ---
 

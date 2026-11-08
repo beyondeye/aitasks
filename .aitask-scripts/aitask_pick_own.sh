@@ -29,6 +29,15 @@
 #   LOCK_INFRA_MISSING           Lock infrastructure not initialized (exit 1)
 #   LOCK_ERROR:<message>         Lock system error (exit 1)
 #   FORCE_UNLOCKED:<prev_owner>  Prior lock force-unlocked, then re-locked
+#   STATUS_CHANGED:<actual>|<expected>
+#                                --expect-status only (t1663_4): the status read
+#                                UNDER the lock is not the expected one. Lock
+#                                released, nothing written (exit 1).
+#   STATUS_UNVERIFIED:<reason>   --expect-status only: the re-sync under the
+#                                lock failed, or the status could not be read.
+#                                Lock released, nothing written (exit 1).
+#   LOCK_REQUIRED:no_email       --expect-status only: no email, so no lock;
+#                                refused before anything is written (exit 1).
 #   SYNCED                       Sync-only mode completed (pulled, already up to
 #                                date, or no remote configured)
 #   SYNC_FAILED:<reason>         Sync-only mode: the pull failed; <reason> is a
@@ -68,6 +77,7 @@ TASK_ID=""
 EMAIL=""
 SYNC_ONLY=false
 FORCE=false
+EXPECT_STATUS=""
 EMAILS_FILE="$AIT_EMAILS_FILE"
 
 # "This claim OWES the contributor list a commit." Set by store_email() in TWO
@@ -113,6 +123,17 @@ Options:
                   a LIVE holder leaves two agents working one task.
   --sync          Sync-only mode: git pull + stale lock cleanup, then exit.
                   No task_id required.
+  --expect-status STATUS
+                  Claim only if the task's status is still STATUS, read UNDER
+                  the lock from task data re-synced UNDER the lock (t1663_4).
+                  For a caller that decided something about the task before
+                  claiming it (the task-workflow premise prompt): a status
+                  changed meanwhile by a session that has since released the
+                  lock would otherwise be silently overwritten. A failed
+                  re-sync refuses (STATUS_UNVERIFIED) rather than trusting the
+                  local file, so a checkout whose task data cannot sync refuses
+                  these claims until it is reconciled (ait syncer). Absent:
+                  behaviour unchanged.
   --help, -h      Show this help
 
 Output format (one structured line to stdout):
@@ -132,6 +153,19 @@ Output format (one structured line to stdout):
   LOCK_INFRA_MISSING           Lock infrastructure not initialized (exit 1)
   LOCK_ERROR:<message>         Lock system error (exit 1)
   FORCE_UNLOCKED:<prev_owner>  Prior lock force-unlocked, then re-locked
+  STATUS_CHANGED:<actual>|<expected>
+                               --expect-status only: the task's status is no
+                               longer the expected one (`missing` when the task
+                               file is gone). The lock this run took was
+                               released; nothing else was written (exit 1).
+  STATUS_UNVERIFIED:<reason>   --expect-status only: the re-sync under the lock
+                               failed (<reason> = the sync classifier code), or
+                               the status could not be read (python_unavailable,
+                               unreadable_status). Lock released, nothing
+                               written (exit 1).
+  LOCK_REQUIRED:no_email       --expect-status only: no email resolved, so no
+                               lock could be taken; refused before anything
+                               was locked or written (exit 1).
   SYNCED                       Sync-only mode completed
 
 Full ownership mode performs these steps in order:
@@ -165,6 +199,14 @@ parse_args() {
             --sync)
                 SYNC_ONLY=true
                 shift
+                ;;
+            --expect-status)
+                EXPECT_STATUS="${2:?Missing status after --expect-status}"
+                case "$EXPECT_STATUS" in
+                    Ready|Editing|Implementing|Postponed|Done|Folded) ;;
+                    *) die "Invalid --expect-status: $EXPECT_STATUS (expected one of: Ready Editing Implementing Postponed Done Folded)" ;;
+                esac
+                shift 2
                 ;;
             --help|-h)
                 show_help
@@ -419,6 +461,94 @@ acquire_lock() {
     esac
 }
 
+# --- Expected-status precondition (t1663_4) ---
+# verify_expected_status <task_id> <email> -> 0 when the claim may proceed.
+#
+# Runs with the lock HELD and BEFORE any write. The status the caller decided
+# on was read before the lock existed, and update_task_status writes
+# Implementing unconditionally, so a status that changed meanwhile (Postponed,
+# Done, ...) by a session that has since RELEASED the lock would be silently
+# overwritten -- the RECLAIM_* signals below only describe a prior Implementing.
+# Such a session committed and pushed before releasing, so a pull UNDER the lock
+# is what makes the read current. task_sync returns 0 on failure by design, so
+# its outcome is read from TASK_SYNC_STATUS, never from the exit code: a failed
+# sync refuses (STATUS_UNVERIFIED) instead of trusting the stale local file.
+verify_expected_status() {
+    local task_id="$1" email="$2"
+    task_sync
+    case "$TASK_SYNC_STATUS" in
+        synced|up-to-date|no-remote) ;;
+        *)
+            _release_claim_lock "$task_id" "$email"
+            echo "STATUS_UNVERIFIED:${TASK_SYNC_REASON:-unknown}"
+            return 1 ;;
+    esac
+
+    local tf="" actual="" py rc=0
+    tf=$(resolve_task_file "$task_id" 2>/dev/null) || tf=""
+    if [[ -z "$tf" || ! -f "$tf" ]]; then
+        # The task file is gone (deleted, or archived into a bundle): a real
+        # state change, reported as such.
+        _release_claim_lock "$task_id" "$email"
+        echo "STATUS_CHANGED:missing|${EXPECT_STATUS}"
+        return 1
+    fi
+    # Read the status AS YAML, through the framework's reader, so `"Ready"`,
+    # `Ready  # note` and `Ready` are one value; comparing the raw spelling
+    # would refuse a valid file. A file whose status cannot be read is NOT a
+    # state change -- it is unverified, and says so.
+    py="$(resolve_python 2>/dev/null || true)"
+    if [[ -z "$py" ]]; then
+        _release_claim_lock "$task_id" "$email"
+        echo "STATUS_UNVERIFIED:python_unavailable"
+        return 1
+    fi
+    actual=$("$py" -c "$_EXPECT_STATUS_GLUE" "$SCRIPT_DIR/lib" "$tf" 2>/dev/null) || rc=$?
+    if [[ $rc -ne 0 || -z "$actual" ]]; then
+        _release_claim_lock "$task_id" "$email"
+        echo "STATUS_UNVERIFIED:unreadable_status"
+        return 1
+    fi
+    if [[ "$actual" != "$EXPECT_STATUS" ]]; then
+        _release_claim_lock "$task_id" "$email"
+        echo "STATUS_CHANGED:${actual}|${EXPECT_STATUS}"
+        return 1
+    fi
+    return 0
+}
+
+# The status reader for verify_expected_status. Exit 0 with the value on
+# stdout; 3 = no parseable frontmatter; 4 = no usable string status. The glue is
+# the PROGRAM (argv[1] = lib dir, argv[2] = task file), never stdin.
+_EXPECT_STATUS_GLUE='
+import sys
+sys.path = [p for p in sys.path if p not in ("", ".")]
+sys.path.append(sys.argv[1])
+import task_yaml
+try:
+    with open(sys.argv[2], encoding="utf-8") as fh:
+        parsed = task_yaml.parse_frontmatter(fh.read())
+except Exception:
+    sys.exit(3)
+meta = parsed[0] if parsed else None
+if not isinstance(meta, dict):
+    sys.exit(3)
+value = meta.get("status")
+if not isinstance(value, str) or not value.strip() or "\n" in value:
+    sys.exit(4)
+sys.stdout.write(value.strip())
+'
+
+# Release the lock this claim took (no email = no lock was taken). A failed
+# release is reported, never fatal: the refusal itself must still be printed.
+_release_claim_lock() {
+    local task_id="$1" email="$2"
+    [[ -n "$email" ]] || return 0
+    if ! "$SCRIPT_DIR/aitask_lock.sh" --unlock "$task_id" >/dev/null 2>&1; then
+        warn "could not release the lock on t${task_id} after refusing the claim; run: ait lock --unlock ${task_id}"
+    fi
+}
+
 # --- Force-acquire lock (unlock then re-lock) ---
 # Returns: 0=success (FORCE_UNLOCKED printed), 3=error (LOCK_ERROR printed)
 force_acquire_lock() {
@@ -531,6 +661,15 @@ main() {
         fi
     fi
 
+    # Step 1b' (t1663_4): the guarded claim needs a REAL lock. acquire_lock
+    # succeeds without locking anything when no email resolves, so a claim made
+    # "under the lock" would hold nothing and could overwrite another owner's
+    # task. Refuse before any lock, status or commit write.
+    if [[ -n "$EXPECT_STATUS" && -z "$EMAIL" ]]; then
+        echo "LOCK_REQUIRED:no_email"
+        exit 1
+    fi
+
     # Step 1c: Capture prior status for self-reclaim detection.
     # If the task was already in Implementing assigned to this email, the
     # caller (task-workflow Step 4) surfaces a reclaim prompt — even if the
@@ -592,6 +731,12 @@ main() {
     if [[ -n "$prior_line" ]]; then
         IFS='|' read -r prior_pid prior_starttime prior_lock_host prior_locked_at \
             prior_starttime_kind <<<"${prior_line#PRIOR_LOCK:}"
+    fi
+
+    # Step 2b (t1663_4): opt-in precondition, under the lock and above every
+    # write (status, contributor list, commit) -- see verify_expected_status.
+    if [[ -n "$EXPECT_STATUS" ]]; then
+        verify_expected_status "$TASK_ID" "$EMAIL" || exit 1
     fi
 
     # Step 3: Update task metadata

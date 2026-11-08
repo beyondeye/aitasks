@@ -61,8 +61,12 @@ class PublicSurfaceTests(unittest.TestCase):
     def test_vocabularies_are_closed_and_disjoint_where_it_matters(self):
         self.assertEqual(len(set(tp.REASONS)), len(tp.REASONS))
         self.assertEqual(tp.DECISIONS, ("FRESH", "ASK_STALE", "SKIP"))
+        # `retired` (t1663_4) is the one state that is neither checked evidence
+        # nor an UNKNOWN reason: a path deleted at or before the baseline.
         for state in tp.PATH_STATES:
-            self.assertTrue(state == "ok" or state == "deleted" or state in tp.PATH_REASONS)
+            self.assertTrue(state in ("ok", "deleted", "retired") or state in tp.PATH_REASONS,
+                            state)
+        self.assertNotIn("retired", tp.PATH_REASONS)
 
 
 class VocabularyDriftGuardTests(unittest.TestCase):
@@ -183,11 +187,41 @@ class VerdictTests(unittest.TestCase):
         self.assertEqual(evidence(result), ["DELETED:a.py|unknown|"])
 
     def test_unknown_moves_the_verdict_exactly_like_changed(self):
-        for state in ("absent_at_baseline", "history_unavailable", "invalid_reference",
-                      "no_index_history"):
+        for state in ("absent_at_baseline", "never_existed", "history_unavailable",
+                      "invalid_reference", "no_index_history"):
             result = tp.check(base_rows(n_paths=2) + ["PATH:a.py|ok|0", "PATH:b.py|%s" % state])
             self.assertEqual(result.decision, tp.ASK_STALE, state)
             self.assertEqual(evidence(result), ["UNKNOWN:b.py|%s" % state])
+
+    def test_retired_is_not_evidence_and_not_checked(self):
+        # t1663_4: a path deleted at/before the baseline neither prompts nor
+        # counts as positively checked.
+        result = tp.check(base_rows(n_paths=2) + ["PATH:a.py|ok|0", "PATH:b.py|retired"])
+        self.assertEqual(result.decision, tp.FRESH)
+        self.assertEqual(evidence(result), [])
+        self.assertEqual(result.retired, ("b.py",))
+        self.assertIn("All 1 watched file(s) unchanged", result.lines[-2])
+        self.assertIn("1 deleted at or before the baseline (retired)", result.lines[-2])
+
+    def test_all_retired_is_skip_never_fresh(self):
+        result = tp.check(base_rows(n_paths=2) + ["PATH:a.py|retired", "PATH:b.py|retired"])
+        self.assertEqual((result.decision, result.reason), (tp.SKIP, "all_retired"))
+        self.assertEqual(result.lines[2], "FINGERPRINT:NONE")
+        self.assertEqual(result.retired, ("a.py", "b.py"))
+        # Negative control: the same scope with one live unchanged path is FRESH.
+        self.assertEqual(decision(base_rows(n_paths=2) + ["PATH:a.py|retired",
+                                                         "PATH:b.py|ok|0"]), tp.FRESH)
+
+    def test_retired_does_not_hide_other_evidence(self):
+        result = tp.check(base_rows(n_paths=2) + ["PATH:a.py|retired",
+                                                  "PATH:b.py|never_existed"])
+        self.assertEqual(result.decision, tp.ASK_STALE)
+        self.assertEqual(evidence(result), ["UNKNOWN:b.py|never_existed"])
+
+    def test_retired_with_history_rows_is_malformed(self):
+        result = tp.check(base_rows() + ["PATH:a.py|retired", "LOG:a.py|%s|7" % C1])
+        self.assertEqual(result.decision, tp.ASK_STALE)
+        self.assertEqual(evidence(result), ["UNKNOWN:a.py|malformed_row"])
 
     def test_history_unavailable_is_never_unchanged(self):
         self.assertEqual(decision(base_rows() + ["PATH:a.py|history_unavailable"]),

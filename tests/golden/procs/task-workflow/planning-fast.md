@@ -79,6 +79,24 @@ common case where the task has no `risk_mitigation_tasks`.)
        changed, then re-check the plan's assumptions and file paths against those
        changes. This makes the re-verification targeted, not a blind re-read.
 
+### Step 6.0b: Premise replan
+
+If `premise_decision.choice` is `replan` — the user chose "Review & replan with
+this evidence" at `SKILL.md` Step 3 Check 7 — and a plan file exists:
+
+- Display the `DISPLAY:` line from `premise_decision.protocol`, then "Re-verifying
+  the existing plan against the premise evidence."
+- Set the **`force_verify` signal** (the same signal as §6.0a), and **enter
+  verification mode directly** (§6.1 via the verify path). **Do not apply the plan
+  preference below, nor its interactive prompt:** a `use_current` preference or a
+  `SKIP` verify decision would skip planning and silently drop the user's
+  explicit choice to re-plan. The verify-path `plan_verified` append (§6.1) still
+  applies.
+
+With no plan file, §6.1 runs as normal and the evidence is reviewed there. When
+`premise_decision` is `null` or its choice is anything else, this step is a
+no-op.
+
 
 **Profile-driven plan preference** (profile 'fast').
 
@@ -130,7 +148,16 @@ When the profile resolves the preference, skip the interactive AskUserQuestion b
 
 Use the `EnterPlanMode` tool to enter Claude Code's plan mode.
 
-**If entering from the "Verify plan" path in 6.0:** Start by reading the existing plan file. Then explore the current codebase to check if the plan's assumptions, file paths, and approach are still valid. Focus on identifying what changed since the plan was written. Update the plan if needed, or confirm it is still sound. Then — **do not `ExitPlanMode` yet** — run the shared **End-of-planning terminal step** at the bottom of this §6.1. It decides at runtime whether this task is risk-gated; when it is, re-run the Risk Evaluation Procedure even if the existing plan already has a `## Risk` section (re-check it against the possibly-changed plan and update it in place). Only after the terminal step completes, `ExitPlanMode`.
+**Premise evidence review (replan) — first, on every path:** If `premise_decision.choice` is `replan` (the user chose "Review & replan with this evidence" at `SKILL.md` Step 3 Check 7), this review is the **first** planning action — before the verify path below, before a from-scratch design, and before any terminal step or `ExitPlanMode`:
+
+1. Read the evidence from **`premise_decision.protocol` — never from the shortened list the Step 3 question showed**, which caps its rows for presentation.
+2. Inspect **every** evidence row: for a `CHANGED` path, `git log --oneline <baseline>..<checked> -- ":(literal)<path>"` (the two shas are the protocol's `BASELINE:` and `CHECKED:`); for a `DELETED` path, its culprit commit; for an `UNKNOWN` row, its reason (see `premise-staleness.md` "Evidence classes").
+3. Re-check the task's premise against what changed, and fold the consequences into the plan (the verify path updates the existing plan; a new plan is designed with them).
+4. Record a `## Premise review` section in the plan: **every** evidence row with a one-line verdict each, and the line `Evidence rows reviewed: <n>`, where `<n>` equals the protocol's evidence-row count (`CHANGED:` + `DELETED:` + `UNKNOWN:` lines).
+
+The baseline advances to `premise_decision.checked` once this plan is approved, so a row left unreviewed would be marked reviewed. The **Premise-review guard** after **Save Plan to External File** checks the section exists, and the advance itself refuses without it (`premise-staleness.md`).
+
+**If entering from the "Verify plan" path in 6.0:** Start by reading the existing plan file. Then explore the current codebase to check if the plan's assumptions, file paths, and approach are still valid. Focus on identifying what changed since the plan was written. Update the plan if needed, or confirm it is still sound. When `premise_decision.choice` is `replan`, this verification **includes** the Premise evidence review above: the plan must carry its `## Premise review` section before you go on. Then — **do not `ExitPlanMode` yet** — run the shared **End-of-planning terminal step** at the bottom of this §6.1. It decides at runtime whether this task is risk-gated; when it is, re-run the Risk Evaluation Procedure even if the existing plan already has a `## Risk` section (re-check it against the possibly-changed plan and update it in place). Only after the terminal step completes, `ExitPlanMode`.
 
 **After `ExitPlanMode` on the verify path (post-externalization, pre-commit):**
 
@@ -430,6 +457,15 @@ grep -q '^## Risk' aiplans/<plan_file> && echo "RISK_OK" || echo "RISK_MISSING"
 - `RISK_OK` → the end-of-planning Risk Evaluation ran; proceed to the Checkpoint.
 - `RISK_MISSING` → the §6.1 End-of-planning terminal step was skipped on this risk-gated path. Do **not** proceed. Re-enter plan mode (`EnterPlanMode`), run the **Risk Evaluation Procedure** and the **Risk-Mitigation design** step now, `ExitPlanMode`, and re-run **Save Plan to External File** so the `## Risk` section is persisted.
 
+**Premise-review guard (NON-SKIPPABLE when replanning — verifies the §6.1 Premise evidence review ran):** Applies only when `premise_decision.choice` is `replan`; skip it otherwise. Before proceeding to the Checkpoint, confirm the externalized plan carries the review and that it covers every evidence row:
+
+```bash
+grep -c '^## Premise review' aiplans/<plan_file>
+sed -n 's/^Evidence rows reviewed: \([0-9][0-9]*\)$/\1/p' aiplans/<plan_file>
+```
+
+The first must print `1` and the second the protocol's evidence-row count. Otherwise the review was skipped or partial: do **not** proceed — re-enter plan mode (`EnterPlanMode`), complete the **Premise evidence review** over the full `premise_decision.protocol`, `ExitPlanMode`, and re-run **Save Plan to External File**.
+
 ## Checkpoint (after plan is saved)
 
 **Determine effective post-plan action:**
@@ -469,6 +505,13 @@ If "Revise plan":
 Do NOT return to the beginning of Step 6 — that re-triggers the 6.0 existing-plan preference check and, on profiles with `plan_preference: use_current`, skips plan mode entirely and bounces straight back here without ever showing or revising the plan.
 
 If "Approve and stop here":
+
+If `premise_decision.choice` is `replan`, first execute the **Premise Staleness Procedure** (see `premise-staleness.md`) section **`## Advance after an approved replan`** — this is an approval of the renewed plan, and it must run before the stop
+sequence below releases the lock. Ownership is not assumed here (this runs before Step 7's ownership guard): the advance
+proves the lock is held by this session and refuses otherwise. **If it reaches the procedure's `## Ownership lost` exit**, the
+workflow has ended there: do **not** execute the stop sequence below — it would revert the status and release the lock
+another session now holds. Without it the next pick would
+re-prompt with the very evidence this plan just reviewed.
 
 Execute the **Approved-Plan Stop Sequence** (see `plan-approved-stop.md`) with `task_id`, `task_num`, `plan_file`, `stop_reason=deferred`, `revert_commit_message="ait: Revert t<task_num> to Ready after plan approval"`, and `closing_message="Plan approved and committed. Task t<task_num> reverted to Ready and marked as having a deferred approved plan (visible in \`ait ls -v\`, listable with \`ait ls --plan-approved\`) — pick it up later with /aitask-pick <task_num> in a fresh context."`
 

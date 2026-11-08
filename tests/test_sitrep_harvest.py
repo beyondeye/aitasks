@@ -358,6 +358,18 @@ class WorkflowEndContractTests(unittest.TestCase):
         table = set(re.findall(r"^\| `([a-z-]+)` \|", vocab, re.M)) - {"outcome"}
         self.assertEqual(table, set(H.STOPPED_OUTCOMES))
 
+    def test_postponed_outcome_parses_and_is_not_actionable(self):
+        # t1663_4: the premise check's "Postpone task" exit.
+        lines = self.fill(["■ aitask workflow stopped — t<task_id> <task_name>",
+                           "  outcome: postponed",
+                           "  reason: premise may no longer hold — postponed",
+                           "  next: ait update 77 --status Ready, then /aitask-pick 77"])
+        b = H.parse_banners(lines)[0]
+        self.assertEqual((b.kind, b.outcome), ("stopped", "postponed"))
+        self.assertTrue(b.complete_fields, lines)
+        self.assertNotIn("postponed", H.ACTIONABLE_STOPPED_OUTCOMES)
+        self.assertTrue(set(H.ACTIONABLE_STOPPED_OUTCOMES) <= set(H.STOPPED_OUTCOMES))
+
     def test_pickweb_alternate_outcome_line(self):
         _, body = _template_blocks()["Complete"]
         m = re.search(r"`(outcome: implemented on branch <branch> [^`]+)`", body)

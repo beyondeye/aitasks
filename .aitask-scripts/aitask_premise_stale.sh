@@ -1,13 +1,18 @@
 #!/usr/bin/env bash
 # aitask_premise_stale.sh - Decide whether a task's premise may have gone stale:
 # did the code its premise depends on change since the premise was last known
-# valid? ADVISORY: it never blocks anything and rewrites nothing.
+# valid? ADVISORY: it never blocks anything. `check` rewrites nothing; `advance`
+# is the mechanism's ONLY write path (an explicitly confirmed baseline advance,
+# delegated to aitask_update.sh -- see cmd_advance below).
 #
 # Design record (source of truth):
 #   aidocs/framework/task_premise_staleness.md
 #
 # Usage:
 #   aitask_premise_stale.sh check <task_file>
+#   aitask_premise_stale.sh advance <task_file> --checked <sha> --fingerprint <fp>
+#                                   --owner <email> [--remove-ref <path>]...
+#   aitask_premise_stale.sh owner <task_file> --owner <email>
 #
 # CWD CONTRACT: run from inside the CODE repository (the framework's `ait`
 # convention). The repo root is `git rev-parse --show-toplevel` from the cwd --
@@ -60,7 +65,13 @@
 #      (TASKFILES_COUNT per id, END record count, exactly one STATUS per
 #      requested origin and no other id)           -> SKIP scope_error
 #   8. classify every path against COMMITTED trees (a dirty worktree is
-#      invisible by construction)
+#      invisible by construction). A path absent at the baseline is
+#      absent_at_baseline when present at the checked revision or touched
+#      inside the window; absent at BOTH ends with no commit in the window it
+#      is `retired` when history reachable from the baseline shows it once
+#      existed (deleted at/before the baseline: not evidence, not checked) and
+#      `never_existed` otherwise (evidence). Every query has an explicit
+#      status; a failure is history_unavailable.
 #   9. core decides; output validated structurally   -> else SKIP engine_error
 # Baseline comes before scope so the common v1 case (no stored baseline) costs
 # zero git-history work.
@@ -118,6 +129,9 @@ usage() {
     cat <<'EOF'
 Usage:
   aitask_premise_stale.sh check <task_file>
+  aitask_premise_stale.sh advance <task_file> --checked <sha> --fingerprint <fp>
+                                  --owner <email> [--remove-ref <path>]...
+  aitask_premise_stale.sh owner <task_file> --owner <email>
 EOF
 }
 
@@ -576,7 +590,37 @@ cmd_check() {
         _dec "$key"; p="$_DEC"
 
         if ! git -C "$repo_root" cat-file -e "$sha:$p" >/dev/null 2>&1; then
-            path_rows+=("PATH:$key|absent_at_baseline")
+            # Absent at the baseline. Present now -> added in the window
+            # (evidence, resolved by an advance). Absent at BOTH ends -> decide
+            # between "retired" (deleted at/before the baseline: not evidence)
+            # and "never_existed" from two history queries, each with an
+            # EXPLICIT status: a failed query is history_unavailable, never an
+            # empty history (the governing invariant above).
+            if git -C "$repo_root" cat-file -e "$rev:$p" >/dev/null 2>&1; then
+                path_rows+=("PATH:$key|absent_at_baseline")
+                continue
+            fi
+            local win_out prior_out
+            if ! win_out=$(git -C "$repo_root" log --no-show-signature --format='%H' \
+                    "$sha..$rev" -- ":(literal)$p" 2>>"$ERR_FILE"); then
+                path_rows+=("PATH:$key|history_unavailable")
+                continue
+            fi
+            if [[ -n "$win_out" ]]; then
+                # Created and removed again inside the window: still evidence.
+                path_rows+=("PATH:$key|absent_at_baseline")
+                continue
+            fi
+            if ! prior_out=$(git -C "$repo_root" log --no-show-signature -n1 --format='%H' \
+                    "$sha" -- ":(literal)$p" 2>>"$ERR_FILE"); then
+                path_rows+=("PATH:$key|history_unavailable")
+                continue
+            fi
+            if [[ -n "$prior_out" ]]; then
+                path_rows+=("PATH:$key|retired")
+            else
+                path_rows+=("PATH:$key|never_existed")
+            fi
             continue
         fi
         if ! git -C "$repo_root" cat-file -e "$rev:$p" >/dev/null 2>&1; then
@@ -613,12 +657,299 @@ cmd_check() {
     _run_core "$py" ""
 }
 
+# --- shared by advance / owner ---------------------------------------------
+
+# _resolve_active_task <task_file> <verb> -> sets _ACTIVE_ID, _ACTIVE_PATH; dies
+# when <task_file> is not the active task the writer resolves by id.
+#
+# IDENTITY. Every write here goes through aitask_update.sh, which resolves the
+# task BY ID -- so a copy (or any other file named like t<id>_*.md) would be
+# checked while the real task moved, marking changes nobody saw as reviewed.
+# Resolve the active file by the writer's own rule (exactly one match in the
+# active tree) and require it to BE <task_file>: `-ef` compares device and
+# inode, so the data-branch symlink alias (aitasks/ -> .aitask-data/aitasks/)
+# still passes.
+_ACTIVE_ID=""
+_ACTIVE_PATH=""
+_resolve_active_task() {
+    local task_file="$1" verb="$2" base matches=""
+    base=$(basename "$task_file")
+    [[ "$base" =~ ^t([0-9]+(_[0-9]+)?)_.*\.md$ ]] \
+        || die "$verb: cannot derive a task id from '$base'"
+    _ACTIVE_ID="${BASH_REMATCH[1]}"
+    if [[ "$_ACTIVE_ID" =~ ^([0-9]+)_([0-9]+)$ ]]; then
+        matches=$(ls "$TASK_DIR/t${BASH_REMATCH[1]}/t${_ACTIVE_ID}_"*.md 2>/dev/null || true)
+    else
+        matches=$(ls "$TASK_DIR/t${_ACTIVE_ID}_"*.md 2>/dev/null || true)
+    fi
+    _ACTIVE_PATH=""
+    if [[ -n "$matches" && "$(printf '%s\n' "$matches" | wc -l)" -eq 1 ]]; then
+        _ACTIVE_PATH="$matches"
+    fi
+    [[ -n "$_ACTIVE_PATH" ]] \
+        || die "$verb: no single active task file for t${_ACTIVE_ID} under ${TASK_DIR}/ (found: ${matches:-none})"
+    [[ "$task_file" -ef "$_ACTIVE_PATH" ]] \
+        || die "$verb: '$task_file' is not the active task file for t${_ACTIVE_ID} ('$_ACTIVE_PATH') -- refusing to check one file and write another"
+}
+
+# _owner_proof <task_id> <owner> -> prints exactly one of
+#   OK
+#   not_owner|<detail>            the lock is held by someone else, or by nobody
+#   owner_unverifiable|<detail>   the holding session cannot be proven
+#
+# OWNERSHIP, proven rather than assumed. The answer being applied was given
+# before the claim, and a session that lost or never got the task (a lock error
+# it continued past, another session's force-claim, a stop path that runs before
+# the Step 7 guard) must not write. The lock record must name <owner> on THIS
+# host AND this session: email and host are shared by every session of the same
+# user on a machine, so the lock's recorded session anchor (pid + start-time
+# token + token kind) must pass lock_anchor_is_self -- the test the lock's own
+# acquire gate uses. Either side unresolvable is "unverifiable", never a pass.
+_owner_proof() {
+    local task_id="$1" owner="$2"
+    local lock_out lock_rc=0 locked_by locked_host this_host
+    lock_out=$("$SCRIPT_DIR/aitask_lock.sh" --check "$task_id" 2>/dev/null) || lock_rc=$?
+    if [[ $lock_rc -ne 0 ]]; then
+        echo "not_owner|no lock held on t${task_id}"
+        return 0
+    fi
+    locked_by=$(printf '%s\n' "$lock_out" | sed -n 's/^locked_by: *//p' | head -n1)
+    locked_host=$(printf '%s\n' "$lock_out" | sed -n 's/^hostname: *//p' | head -n1)
+    this_host=$(hostname 2>/dev/null || echo unknown)
+    if [[ "$locked_by" != "$owner" || "$locked_host" != "$this_host" ]]; then
+        echo "not_owner|locked by ${locked_by:-unknown}@${locked_host:-unknown}"
+        return 0
+    fi
+    local lpid lstart lkind self_pid
+    lpid=$(printf '%s\n' "$lock_out" | sed -n 's/^pid: *//p' | head -n1)
+    lstart=$(printf '%s\n' "$lock_out" | sed -n 's/^pid_starttime: *//p' | head -n1)
+    lkind=$(printf '%s\n' "$lock_out" | sed -n 's/^pid_starttime_kind: *//p' | head -n1)
+    # shellcheck source=lib/pid_anchor.sh
+    source "$SCRIPT_DIR/lib/pid_anchor.sh"
+    self_pid=$(get_session_anchor_pid 2>/dev/null || true)
+    if [[ ! "$self_pid" =~ ^[0-9]+$ ]]; then
+        echo "owner_unverifiable|this session has no resolvable anchor (run inside the agent's tmux pane, or set AIT_AGENT_PID)"
+        return 0
+    fi
+    if [[ ! "$lpid" =~ ^[0-9]+$ ]]; then
+        echo "owner_unverifiable|the lock on t${task_id} records no session anchor"
+        return 0
+    fi
+    if ! lock_anchor_is_self "$lpid" "${lstart:--}" "${lkind:-proc}"; then
+        echo "not_owner|held by another session of ${locked_by} on ${locked_host} (pid ${lpid})"
+        return 0
+    fi
+    echo "OK"
+}
+
+# --- owner <task_file> --owner <email> ---------------------------------------
+#
+# The ownership proof on its own, for the procedure's other post-lock writes
+# (a postpone, a revert to Ready) -- which change the task just as an advance
+# does. Prints OWNER_OK, NOT_OWNER:<detail> or OWNER_UNVERIFIABLE:<detail>;
+# exit 0 for every content state, dies on CLI misuse.
+cmd_owner() {
+    local task_file="" owner=""
+    [[ $# -gt 0 ]] || die "owner requires <task_file>"
+    task_file="$1"; shift
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --owner) [[ $# -ge 2 ]] || die "--owner requires an email"; owner="$2"; shift 2 ;;
+            *)       die "owner: unknown argument: $1" ;;
+        esac
+    done
+    [[ -f "$task_file" ]] || die "task file not found: $task_file"
+    [[ -n "$owner" ]] || die "--owner <email> is required"
+    _resolve_active_task "$task_file" owner
+    local proof
+    proof=$(_owner_proof "$_ACTIVE_ID" "$owner")
+    case "$proof" in
+        OK)                    echo "OWNER_OK" ;;
+        not_owner\|*)          echo "NOT_OWNER:${proof#not_owner|}" ;;
+        owner_unverifiable\|*) echo "OWNER_UNVERIFIABLE:${proof#owner_unverifiable|}" ;;
+        *)                     echo "OWNER_UNVERIFIABLE:unexpected proof result" ;;
+    esac
+}
+
+# --- advance <task_file> --checked <sha> --fingerprint <fp> --owner <email> [--remove-ref <path>]... ---
+#
+# The ONE write path of the premise mechanism (t1663_4). The caller (the
+# task-workflow Premise Staleness Procedure) runs it with ownership held, after
+# the user explicitly confirmed the premise against the evidence a `check`
+# printed. Transaction, in this order:
+#
+#   0. <task_file> must BE the active task the writer resolves by id;
+#   1. re-run `check`; its FINGERPRINT must equal the prompted one, else the
+#      confirmation is VOID (MISMATCH:) -- the metadata the user judged changed;
+#   2. evidence that could not be checked (history_unavailable / malformed_row /
+#      a Tier-B origin's unknown_history) refuses (ADVANCE_REFUSED:unverifiable) -- advancing would mark commits
+#      nobody saw as reviewed;
+#   3. every --remove-ref must be a `never_existed` path of the FRESH check
+#      (ADVANCE_REFUSED:not_removable otherwise -- a live reference is never
+#      removed), and the stored list must be all strings (else
+#      ADVANCE_REFUSED:list_unwritable -- the writer refuses such a list by
+#      design, and a partial write is exactly what this verb must not do);
+#   3b. the task's lock must be held by --owner on this host AND by this
+#      session (its recorded pid anchor is ours, per lock_anchor_is_self),
+#      checked last before the write (ADVANCE_REFUSED:not_owner, or
+#      ADVANCE_REFUSED:owner_unverifiable when either anchor cannot be named);
+#   4. ONE aitask_update.sh invocation carries every removal AND the baseline.
+#      That writer validates --premise-baseline (grammar + commit existence)
+#      and reads the reference list before its single write, so a rejected
+#      value leaves the task byte-identical. Never split it into two calls.
+#      The baseline written is --checked -- the revision the user saw -- never
+#      current HEAD: commits after it stay uncovered and surface next time;
+#   5. commit the task file path-scoped (aitask_task_commit.sh).
+#
+# Output (exit 0 for every content state; CLI misuse dies):
+#   MISMATCH:<prompted>|<fresh>            + the fresh protocol lines
+#   ADVANCE_REFUSED:not_owner|<detail>     the lock is not held by --owner, here, by this session
+#   ADVANCE_REFUSED:owner_unverifiable|<detail>  the holding session cannot be proven
+#   ADVANCE_REFUSED:unverifiable|<n>       + the fresh protocol lines
+#   ADVANCE_REFUSED:not_removable|<enc path>
+#   ADVANCE_REFUSED:list_unwritable|<n invalid entries>
+#   ADVANCE_FAILED:<reason>                (task file untouched)
+#   REMOVED:<enc entry>                    0+ lines, then
+#   ADVANCED:<checked sha>                 then the commit helper's output lines
+#
+# KNOWN LIMIT. The re-check -> write window is not atomic against writers that
+# bypass the workflow (a sync merge, a hand edit). The task lock narrows it;
+# the merge driver resolves divergent advances to PARTIAL (t1663_2).
+
+cmd_advance() {
+    local task_file="" checked="" fp="" owner=""
+    local -a remove=()
+    [[ $# -gt 0 ]] || die "advance requires <task_file>"
+    task_file="$1"; shift
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --checked)     [[ $# -ge 2 ]] || die "--checked requires a value"; checked="$2"; shift 2 ;;
+            --fingerprint) [[ $# -ge 2 ]] || die "--fingerprint requires a value"; fp="$2"; shift 2 ;;
+            --owner)       [[ $# -ge 2 ]] || die "--owner requires an email"; owner="$2"; shift 2 ;;
+            --remove-ref)  [[ $# -ge 2 && -n "$2" ]] || die "--remove-ref requires a path"
+                           remove+=("$2"); shift 2 ;;
+            *)             die "advance: unknown argument: $1" ;;
+        esac
+    done
+    [[ -f "$task_file" ]] || die "task file not found: $task_file"
+    [[ "$checked" =~ $_OID_RE ]] \
+        || die "--checked must be a full lowercase 40/64-hex commit id (got '${checked}')"
+    [[ "$fp" =~ ^[0-9a-f]{16}$ ]] \
+        || die "--fingerprint must be 16 lowercase hex (got '${fp}'); a SKIP has nothing to confirm"
+    [[ -n "$owner" ]] || die "--owner <email> is required: an advance is applied only by the session holding the task's lock"
+    local task_id canonical
+    _resolve_active_task "$task_file" advance
+    task_id="$_ACTIVE_ID"; canonical="$_ACTIVE_PATH"
+
+    # 1. fingerprint re-check (a subshell: cmd_check owns its own traps).
+    local fresh fresh_fp line
+    fresh=$(cmd_check "$task_file")
+    fresh_fp=$(printf '%s\n' "$fresh" | sed -n 's/^FINGERPRINT://p' | head -n1)
+    if [[ "$fresh_fp" != "$fp" ]]; then
+        echo "MISMATCH:${fp}|${fresh_fp:-NONE}"
+        printf '%s\n' "$fresh"
+        return 0
+    fi
+
+    # 2. unverifiable evidence; collect never_existed paths for step 3.
+    local n_unverifiable=0 enc reason
+    local -a never=()
+    while IFS= read -r line; do
+        [[ "$line" == UNKNOWN:* ]] || continue
+        enc="${line#UNKNOWN:}"; reason="${enc##*|}"; enc="${enc%|*}"
+        case "$reason" in
+            history_unavailable|malformed_row|unknown_history) n_unverifiable=$((n_unverifiable + 1)) ;;
+            never_existed) _dec "$enc"; never+=("$_DEC") ;;
+        esac
+    done <<< "$fresh"
+    if [[ $n_unverifiable -gt 0 ]]; then
+        echo "ADVANCE_REFUSED:unverifiable|$n_unverifiable"
+        printf '%s\n' "$fresh"
+        return 0
+    fi
+
+    # 3. removals: each a never_existed path; resolve to the STORED entries
+    #    (range suffixes are stripped by the check, so "a.sh:1-5" and "a.sh:9"
+    #    both watch "a.sh" and both go).
+    local -a entries=()
+    if [[ ${#remove[@]} -gt 0 ]]; then
+        local r n ok
+        for r in "${remove[@]}"; do
+            ok=0
+            for n in "${never[@]+"${never[@]}"}"; do
+                [[ "$n" == "$r" ]] && { ok=1; break; }
+            done
+            if [[ $ok -ne 1 ]]; then
+                echo "ADVANCE_REFUSED:not_removable|$(_enc "$r")"
+                return 0
+            fi
+        done
+        local py fields_out f_rc=0 n_bad=0 raw
+        py="$(resolve_python)"
+        [[ -n "$py" ]] || { echo "ADVANCE_FAILED:python_unavailable"; return 0; }
+        fields_out=$("$py" -c "$_FIELDS_GLUE" "$SCRIPT_DIR/lib" "$task_file" 2>/dev/null) || f_rc=$?
+        if [[ $f_rc -ne 0 ]]; then
+            echo "ADVANCE_FAILED:fields_unreadable"
+            return 0
+        fi
+        while IFS= read -r line; do
+            case "$line" in
+                FIELD_BADREF:*) n_bad=$((n_bad + 1)) ;;
+                FIELD_REF:*)
+                    _dec "${line#FIELD_REF:}"; raw="$_DEC"
+                    for r in "${remove[@]}"; do
+                        if [[ "$(_strip_ranges "$raw")" == "$r" ]]; then
+                            entries+=("$raw"); break
+                        fi
+                    done ;;
+            esac
+        done <<< "$fields_out"
+        if [[ $n_bad -gt 0 ]]; then
+            echo "ADVANCE_REFUSED:list_unwritable|$n_bad"
+            return 0
+        fi
+    fi
+
+    # 3b. ownership -- checked LAST before the write, so the window between
+    #     this proof and the write is as short as it can be (_owner_proof).
+    local proof
+    proof=$(_owner_proof "$task_id" "$owner")
+    if [[ "$proof" != "OK" ]]; then
+        echo "ADVANCE_REFUSED:$proof"
+        return 0
+    fi
+
+    # 4. one validated write.
+    local -a upd=(--batch "$task_id")
+    local e
+    for e in "${entries[@]+"${entries[@]}"}"; do upd+=(--remove-file-ref "$e"); done
+    upd+=(--premise-baseline "$checked" --silent)
+    local upd_out upd_rc=0
+    upd_out=$("$SCRIPT_DIR/aitask_update.sh" "${upd[@]}" 2>&1) || upd_rc=$?
+    if [[ $upd_rc -ne 0 ]]; then
+        local first
+        first=$(printf '%s\n' "$upd_out" | grep -v '^[[:space:]]*$' | tail -n1)
+        echo "ADVANCE_FAILED:writer_refused: ${first//$'\r'/}"
+        return 0
+    fi
+    for e in "${entries[@]+"${entries[@]}"}"; do echo "REMOVED:$(_enc "$e")"; done
+    echo "ADVANCED:$checked"
+
+    # 5. path-scoped commit; its outcome lines are passed through verbatim.
+    #    The CANONICAL path (identity proven in step 0): an alias outside the
+    #    repository is out of the commit helper's scope.
+    "$SCRIPT_DIR/aitask_task_commit.sh" -m "ait: Advance premise baseline for t${task_id}" \
+        "$canonical" 2>&1 || true
+}
+
 # --- Dispatcher ---
 
 cmd="${1:-}"
 shift || true
 case "$cmd" in
     check)          cmd_check "$@" ;;
+    advance)        cmd_advance "$@" ;;
+    owner)          cmd_owner "$@" ;;
     help|-h|--help) usage ;;
     "")             usage >&2; die "missing subcommand" ;;
     *)              die "Unknown subcommand: $cmd" ;;

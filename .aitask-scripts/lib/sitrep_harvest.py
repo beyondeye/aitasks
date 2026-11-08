@@ -114,7 +114,12 @@ STOPPED_KIND = "stopped"
 #: Label vocabulary of the banner field lines. The contract test asserts this
 #: equals the label set of the workflow-end.md templates.
 FIELD_LABELS = ("outcome", "follow-ups created", "reason", "next")
-STOPPED_OUTCOMES = ("in-flight", "ready", "aborted", "split", "unchanged")
+STOPPED_OUTCOMES = ("in-flight", "ready", "aborted", "split", "unchanged", "postponed")
+#: The stopped outcomes that leave the task with work pending (an in-flight
+#: task, a Ready task, a split parent), so the harvest files a stopped-self
+#: item for them. `aborted`, `unchanged` and `postponed` leave nothing to act
+#: on in that sense: the run ended the task's activity on purpose.
+ACTIONABLE_STOPPED_OUTCOMES = ("in-flight", "ready", "split")
 
 TASK_ID = r"[1-9][0-9]*(?:_[1-9][0-9]*)?"
 FIRST_RE = re.compile(
@@ -970,7 +975,7 @@ class Harvest:
         if b.kind == COMPLETE_KIND and b.complete_fields:
             for tok in b.followups:
                 self.followup(b, tok, triage, passage, banner_lines)
-        if b.kind == STOPPED_KIND and b.outcome in ("in-flight", "ready", "split"):
+        if b.kind == STOPPED_KIND and b.outcome in ACTIONABLE_STOPPED_OUTCOMES:
             self.stopped_self(b, triage, passage, banner_lines)
 
     def _banner_ptr_range(self, passage: bytes, b: Banner, start: int) -> tuple:

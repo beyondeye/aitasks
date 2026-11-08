@@ -168,11 +168,27 @@ DECISION:<FRESH|ASK_STALE|SKIP>
   dirty worktree is invisible by construction. `:(literal)` pathspec guard on
   every history query.
 - **`FRESH` is a positive claim, never the absence of a failure.** It requires
-  every scope path to be present at both ends and to carry a *successful*
-  history query, with the commit count attested from the producer to the core.
-  A failed `git log` is `UNKNOWN:<path>|history_unavailable`, never an empty
-  history, and a malformed or missing evidence row can only add evidence or
-  turn the verdict into `SKIP`.
+  every non-retired scope path to be present at both ends and to carry a
+  *successful* history query, with the commit count attested from the producer
+  to the core, and at least one such positively checked path. A failed `git log`
+  is `UNKNOWN:<path>|history_unavailable`, never an empty history, and a
+  malformed or missing evidence row can only add evidence or turn the verdict
+  into `SKIP`.
+- **A path absent at the baseline** is classified by the checked revision and
+  two more history queries, each with an explicit status (a failure is
+  `history_unavailable`):
+  - present at the checked revision, or touched inside the window →
+    `UNKNOWN:<path>|absent_at_baseline` (evidence: the file was added or
+    churned since the baseline);
+  - absent at both ends, no commit in the window, and history reachable from
+    the baseline proves it once existed → **`retired`**: deleted at or before
+    the baseline. This is exactly the state a confirmed `DELETED` leaves behind
+    once the baseline advances past the deletion, so it is **not evidence** and
+    **not positively checked** — it can neither re-prompt nor carry a `FRESH`. A
+    scope whose every path is retired reads `SKIP`/`all_retired`;
+  - absent at both ends with no history at all →
+    `UNKNOWN:<path>|never_existed` (evidence: an intended future file or a typo,
+    which the prompt cannot tell apart).
 - **The baseline must be an immutable commit id.** The reader accepts only a
   full 40- or 64-hex object id and checks it before any git probe; a symbolic
   or abbreviated value (`HEAD`, a branch name, `abc1234`) reads
@@ -245,27 +261,104 @@ four properties its tests pin — landing-commit baseline, `UNKNOWN` drives the
 verdict, silent `SKIP` with distinct reasons, purity — must survive the swap
 unchanged.
 
-### Interaction — task-workflow Step 3 Check 6
+### Interaction — task-workflow Step 3 Check 7
 
-A new check after Check 5, on every entry path (pick, board agent launch,
-explore), for `Ready` tasks only — resume paths and the archival checks route
-away first. `FRESH` and `SKIP` are silent. `ASK_STALE` presents one
+The check is **Check 7** of task-workflow Step 3 — after the `## Inbox` notes
+check (Check 6) — so it runs on every entry path (pick, board agent launch,
+explore), for `Ready` tasks only: the archival checks and the resume path route
+away first, and a `manual_verification` task is skipped because its own
+staleness pre-check (Check 3, t1555) owns it, which keeps the two from
+double-prompting. `FRESH` and `SKIP` are silent. `ASK_STALE` presents one
 NON-SKIPPABLE `AskUserQuestion` with the evidence inside the widget text and
-four options:
+four options. The procedure is `.claude/skills/task-workflow/premise-staleness.md`.
 
 | Option | Effect on the baseline | Route |
 |---|---|---|
 | Proceed — premise still valid | advance to the `CHECKED:` sha (post-lock, fingerprint-gated) | continue to Step 4 |
-| Review & replan with this evidence | **unchanged** at dismissal; advances to the `CHECKED:` sha only after the renewed plan is approved (Step 7 post-approval writes) | continue, evidence threaded into planning; an existing plan is force-verified (§6.0a's `force_verify` shape) |
-| Postpone task | unchanged | status → `Postponed`, end |
-| Pick a different task | unchanged | back to selection |
+| Review & replan with this evidence | **unchanged** at dismissal; advances to the `CHECKED:` sha once the renewed plan is approved — at the Step 7 post-approval writes, or in planning's "Approve and stop here" before the lock is released | continue, evidence threaded into planning; an existing plan is force-verified (§6.0b: the plan preference is bypassed, since `use_current` would drop the explicit choice) |
+| Postpone task | unchanged | status → `Postponed` (post-lock), end with the `postponed` banner outcome |
+| Pick a different task | unchanged | back to selection, nothing written |
 
-The write transaction is the t1555 invariant with the fingerprint check in
-front: **re-check fingerprint → decide → write everything → advance the
-baseline last → commit.** Advancing on dismissal is load-bearing (the same
-evidence must never re-prompt), but advancement always requires an explicit
-premise confirmation — a dismissal or an approved replan — never a mere
+**Ask before the lock, write after it.** The prompt runs before ownership
+exists, and a `Ready` task can be claimed by another session while it is open;
+local `aitask_update.sh` does not check locks. So the prompt section writes
+nothing — not even "Postpone" — and records the answer as `premise_decision`.
+Step 4 then claims the task with `aitask_pick_own.sh --expect-status Ready`: the
+claim re-syncs the task data and re-reads the status **under the lock**, before
+any write, and refuses with `STATUS_CHANGED:<actual>|Ready` when another session
+changed the status and released the task meanwhile. A task-data sync that fails
+under the lock refuses with `STATUS_UNVERIFIED:<reason>` instead of trusting the
+local file — task_sync returns 0 on failure, so the outcome is read from
+`TASK_SYNC_STATUS`. The pre-claim `previous_status` cannot serve here: it is the
+same snapshot the prompt saw. The status is read as YAML through the framework's
+reader (`"Ready"` and `Ready  # note` are `Ready`); a status that cannot be read
+is `STATUS_UNVERIFIED:unreadable_status`, never a state change. The guarded claim
+also needs a real lock: `acquire_lock` takes none when no email resolves, so
+without one the claim refuses with `LOCK_REQUIRED:no_email` before writing
+anything. Only after a successful claim does the post-lock section apply the
+answer. A consequence: in a checkout whose task data cannot
+sync, a premise-pending claim refuses until `ait syncer` reconciles it.
+
+**The write is one transaction, in source.** `aitask_premise_stale.sh advance
+<task_file> --checked <sha> --fingerprint <fp> [--remove-ref <path>]...` is the
+mechanism's only write path: **re-check fingerprint → decide → write everything
+→ advance the baseline last → commit.** A fingerprint that changed since the
+prompt voids the answer (`MISMATCH:`, followed by the fresh protocol; a fresh
+`ASK_STALE` is asked again). The checked file must **be** the task the writer
+resolves by id — the single active `t<id>_*.md`, compared by device and inode so
+the data-branch symlink alias passes — or `advance` refuses: a copy would be
+checked while the real task's baseline moved. And it must run **under the
+task's lock**: `--owner <email>` is required, and the lock record must name that
+email on this host **and** name this session: email and host are shared by every
+session of the same user, so the lock's recorded session anchor (pid, start-time
+token and its kind) must pass `lock_anchor_is_self`, the test the lock's own
+acquire gate uses. Otherwise `ADVANCE_REFUSED:not_owner`; when either anchor
+cannot be named, `ADVANCE_REFUSED:owner_unverifiable` — never a pass. Checked
+last before the write. The same proof, exposed as `aitask_premise_stale.sh owner`,
+runs before the procedure's other post-lock writes (a postpone, a revert to
+Ready). **`not_owner` is terminal** wherever it appears: the procedure's
+`## Ownership lost` exit writes nothing more and undoes nothing — no status
+revert, no lock release (it is the new holder's), no gate materialization, no
+stop sequence — and ends the run with a state-derived banner.
+`owner_unverifiable` is not proof of loss: an advance refuses on it (the
+baseline write is optional), while a postpone or revert the user explicitly
+chose proceeds with a warning, like every other step after this session's
+claim. The workflow never continues past a lock error while an answer is
+pending ("Continue without lock" is withheld), and the "Approve and stop here"
+advance, which runs before Step 7's ownership guard, relies on this proof rather
+than assuming the lock. Approved reference removals and the baseline go to
+**one** `aitask_update.sh` invocation, which validates the baseline (grammar and
+commit existence) and reads the list before its single write, so a rejected
+value leaves the task byte-identical. Advancing on dismissal is load-bearing
+(the same evidence must never re-prompt), but advancement always requires an
+explicit premise confirmation — a dismissal or an approved replan — never a mere
 workflow transit.
+
+**Every evidence class has a defined resolution.** Advancing the baseline
+resolves drift; the other classes are named in the question so the user knows
+what "Proceed" does with them:
+
+| Evidence | Resolution |
+|---|---|
+| `CHANGED` | covered by the advance |
+| `DELETED` | covered; the re-check reads the path `retired` |
+| `absent_at_baseline` (file added) | covered; the re-check reads it normally |
+| `never_existed` | **kept** by default — it may be an intended future file; removed from `file_references:` only on a separate explicit approval (`--remove-ref`, which refuses any path that is not a `never_existed` row of the fresh check); a kept reference keeps being reported until the file exists or is removed |
+| `invalid_reference` | not drift, and not removable here: the writer refuses to rewrite a list holding a non-string entry, so it is reported until fixed by hand |
+| `history_unavailable`, `malformed_row`, origin `unknown_history` | **no advance at all** (`ADVANCE_REFUSED:unverifiable`): the commits behind them were never shown, so advancing would mark them reviewed |
+
+**The replan reviews the complete evidence.** The question caps its evidence
+rows for presentation; the complete check output is kept as
+`premise_decision.protocol`, and planning reviews every row of it **first, on
+every planning path** (before the verify path's terminal step), recording a
+`## Premise review` section whose `Evidence rows reviewed: <n>` equals the
+protocol's row count. A guard after Save Plan checks it, and the replan advance
+refuses without it — an advance past evidence nobody reviewed is the one outcome
+this mechanism must never produce.
+
+**Headless profiles only report.** A non-interactive profile displays the
+evidence and continues: it never prompts, never advances, never postpones —
+each of those needs an explicit human confirmation.
 
 No profile key gates the check in v1: it costs milliseconds, and
 advance-on-dismissal already bounds prompt frequency to once per actual
@@ -427,10 +520,16 @@ rollout t1561's constraints asked for.
 | scope acquired after creation (`aitask_update.sh --file-ref`/`--verifies`, fold union) | not written — the task resolves a scope but has no baseline, so it reads `SKIP` |
 | carry-over task created at archival | **inherited** from the origin task, in the creation commit; absent stays absent; a malformed origin value is dropped with a warning |
 | "Proceed — premise still valid" | advance to the `CHECKED:` sha (post-lock, fingerprint-gated) |
-| "Review & replan" chosen, plan later approved | advance to the `CHECKED:` sha at the Step 7 post-approval writes |
-| "Review & replan" chosen, plan not approved (abort/stop) | unchanged |
-| Postpone / pick-another / session abort | unchanged |
+| "Proceed" with unverifiable evidence (`history_unavailable`, `malformed_row`, origin `unknown_history`) | unchanged — the check runs again next pick |
+| "Proceed" with `never_existed` references, removal approved | the references leave `file_references:` in the same write as the advance |
+| "Proceed" with `never_existed` references, kept (the default) | advanced; the references keep being reported |
+| "Review & replan" chosen, plan later approved (Step 7, or "Approve and stop here") | advance to the `CHECKED:` sha, while the lock is still held |
+| "Review & replan" chosen, plan not approved (abort, drift stop, resource park) | unchanged |
+| "Postpone task" | unchanged; status → `Postponed`, written only after the claim succeeded |
+| pick-another / session abort | unchanged |
+| the claim finds the status changed (`STATUS_CHANGED:`) or unverifiable (`STATUS_UNVERIFIED:`) | unchanged; nothing claimed |
 | fingerprint mismatch at write time | no write; fresh evidence, fresh decision |
+| any writer refusal (`ADVANCE_FAILED:`) | unchanged; the task file is byte-identical |
 
 ## Why this is not a gate
 
@@ -496,13 +595,26 @@ exactly as plan-review freshness chose.
   end-to-end exercise (seed → change a scope file → prompt fires → dismiss →
   advance → no re-fire) distinguishes "correctly quiet" from "never runs";
   the implementation tree carries it as a required test, not a nicety.
+- **An invalid reference recurs until it is fixed by hand.** A non-string or
+  NUL-bearing `file_references:` entry is uncheckable and the writer refuses to
+  rewrite such a list, so no confirmation can clear it. That is deliberate: the
+  scope itself is broken, and only a person knows what the entry meant.
+- **A session that cannot name itself cannot advance.** Outside the agent's tmux
+  pane and without `AIT_AGENT_PID`, a session has no resolvable anchor, so its
+  locks record none and every advance reads `owner_unverifiable`: the prompt
+  then recurs until the task is picked from a session that can prove it holds
+  the lock. Proving ownership by email and host would let another session of
+  the same user write.
+- **A kept never-existing reference keeps being reported** until the file is
+  created or the reference is removed. The prompt cannot tell an intended
+  future file from a typo, so removal always needs an explicit approval.
 
 ## Implementation tree
 
 The mechanism lands under parent **t1663** with strictly sequential children:
 t1663_1 (core engine + producer) → t1663_2 (`premise_baseline` field
 end-to-end) → t1663_3 (creation-time seeding + carryover inheritance) →
-t1663_4 (task-workflow Step 3 Check 6 + procedure file) → t1663_5 (website
+t1663_4 (task-workflow Step 3 Check 7 + procedure file) → t1663_5 (website
 docs) → t1663_6 (retrospective evaluation, which owns the deferred
 dispositions above). t1655 (roadmap adoption) depends on t1663. The tree's
 task files name their own contracts; this record is their shared design

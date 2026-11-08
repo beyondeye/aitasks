@@ -126,6 +126,7 @@ and `pushed:` is omitted. The first line is unchanged.
 | `aborted` | Ended by an Abort Procedure (Task Abort, or the pickrem/pickweb Abort Procedure): returned to its pre-run status. pickweb's abort has nothing to revert, because it never changed the task file. |
 | `split` | Decomposed into child tasks; the parent stays `Ready` with pending children. |
 | `unchanged` | Nothing was claimed or changed by this run (see the outcome-accuracy rule). |
+| `postponed` | Set to `Postponed` by this run, which then released it — the premise check's "Postpone task" (`premise-staleness.md`). `next` says how to make it `Ready` again. |
 
 Display:
 
