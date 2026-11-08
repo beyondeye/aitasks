@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: medium
+risk_goal_achievement: medium
 effort: high
 depends: [t1981_3, t1981_5]
 issue_type: feature
@@ -12,8 +14,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1981
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-04 15:39
-updated_at: 2026-11-08 18:14
+updated_at: 2026-11-08 22:30
 ---
 
 ## Context
