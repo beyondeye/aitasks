@@ -72,3 +72,8 @@ Carry a stable identity from the switcher listing instead of the index:
 
 For the test: make the board-movement isolation control use a fixture task
 dir, not the live repo.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-08T06:56:03Z status=pass attempt=1 type=human
