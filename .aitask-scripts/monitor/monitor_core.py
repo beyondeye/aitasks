@@ -45,6 +45,7 @@ from tmux_exec import (  # noqa: E402  (gateway: exec-strategy dispatch + socket
     decode_tmux_output,
     encode_tmux_argv,
     encode_tmux_wire,
+    session_target,
     tmux_os_path,
     tmux_socket_args,
 )
@@ -1545,10 +1546,16 @@ class TmuxControlClient:
         dedicated-socket move (``AITASKS_TMUX_SOCKET``) reaches the control
         channel exactly as it reaches TmuxClient's subprocess path. Extracted as
         a method so the argv is unit-testable without spawning a process.
+
+        The target is exact-match (``session_target`` → ``=<session>``, gateway
+        policy 2): with a bare name tmux prefix-matches, so a control client for
+        an absent ``aitasks`` would attach to a running ``aitasks_mob`` and serve
+        every query from the other project. Both the initial start and the
+        supervisor's reconnect build their argv here.
         """
         return [
             "tmux", *TMUX_CLIENT_FLAGS, *self._socket_args, "-C", "attach",
-            "-t", self.session, "-f", "no-output,ignore-size",
+            "-t", session_target(self.session), "-f", "no-output,ignore-size",
         ]
 
     async def start(self) -> bool:

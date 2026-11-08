@@ -612,6 +612,89 @@ PYEOF
 teardown_fixture "$F12"
 F12=""
 
+# ---------------------------------------------------------------------------
+# Case 13: start() never prefix-attaches to another session (t2242)
+# ---------------------------------------------------------------------------
+# Only a decoy `<S>_mob` runs. A bare `-t <S>` prefix-matches it, so the control
+# client would serve every query from the wrong project. The pre-fix control
+# re-creates the bare argv on one instance and must reproduce the cross-attach;
+# without it, "the real client did not attach" could be vacuous.
+echo "== case 13: no prefix attach to a decoy session =="
+F13=$(make_fixture)
+trap 'teardown_fixture "${F13:-}"' EXIT
+
+(
+    cd "$REPO_ROOT" || exit 1
+    # shellcheck disable=SC2030,SC2031  # subshell-scoped export is intentional (case isolation)
+    export TMUX_TMPDIR="$F13"
+    unset TMUX
+    SESSION="ait_test_$$_m"
+    DECOY="${SESSION}_mob"
+    tmux new-session -d -s "$DECOY" "tail -f /dev/null"
+
+    PYTHONPATH="$REPO_ROOT/.aitask-scripts:$REPO_ROOT/.aitask-scripts/lib" \
+    AIT_TEST_SESSION="$SESSION" \
+    AIT_TEST_DECOY="$DECOY" \
+    "$PYTHON_BIN" - <<'PYEOF'
+import asyncio
+import os
+import time
+
+from monitor.monitor_core import TmuxControlClient
+from tmux_exec import TMUX_CLIENT_FLAGS
+
+target = os.environ["AIT_TEST_SESSION"]
+decoy = os.environ["AIT_TEST_DECOY"]
+WHO = ["display-message", "-p", "#{session_name}"]
+
+
+async def main():
+    # Pre-fix control: the old bare-target argv on this one instance.
+    ctl = TmuxControlClient(session=target)
+    sock = list(ctl._socket_args)
+    ctl._attach_argv = lambda: [
+        "tmux", *TMUX_CLIENT_FLAGS, *sock, "-C", "attach",
+        "-t", target, "-f", "no-output,ignore-size",
+    ]
+    assert await ctl.start(), (
+        "control: bare -t did not attach to the decoy -- the regression "
+        "below would be vacuous on this tmux"
+    )
+    rc, out = await ctl.request(WHO)
+    assert rc == 0 and out.strip() == decoy, (
+        f"control: expected the prefix match to land on {decoy!r}, got {(rc, out)!r}"
+    )
+    await ctl.close()
+
+    # Fix: the real client must not attach. The oracle is "never served from
+    # the decoy", not the 50 ms attach-fail window, so a slow failure that
+    # start() briefly reports as alive must still die without answering.
+    c = TmuxControlClient(session=target)
+    started = await c.start()
+    if started:
+        deadline = time.monotonic() + 2.0
+        while c.is_alive and time.monotonic() < deadline:
+            rc, out = await c.request(WHO)
+            assert out.strip() != decoy, f"real client served the decoy: {(rc, out)!r}"
+            await asyncio.sleep(0.05)
+        assert not c.is_alive, "real client is still attached to something"
+    await c.close()
+
+    # Exact match still attaches.
+    d = TmuxControlClient(session=decoy)
+    assert await d.start(), "exact-match attach to the decoy failed"
+    rc, out = await d.request(WHO)
+    assert rc == 0 and out.strip() == decoy, (rc, out)
+    await d.close()
+    print(f"OK case 13 (start() returned {started})")
+
+
+asyncio.run(main())
+PYEOF
+)
+teardown_fixture "$F13"
+F13=""
+
 trap - EXIT
 
 echo "PASS: tests/test_tmux_control.sh"

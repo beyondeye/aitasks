@@ -767,7 +767,7 @@ class TestControlAttachArgv(unittest.TestCase):
         c = TmuxControlClient(session="mysess", socket_args=["-L", "sock"])
         self.assertEqual(
             c._attach_argv(),
-            ["tmux", "-u", "-L", "sock", "-C", "attach", "-t", "mysess",
+            ["tmux", "-u", "-L", "sock", "-C", "attach", "-t", "=mysess",
              "-f", "no-output,ignore-size"],
         )
 
@@ -775,7 +775,7 @@ class TestControlAttachArgv(unittest.TestCase):
         c = TmuxControlClient(session="mysess", socket_args=[])
         self.assertEqual(
             c._attach_argv(),
-            ["tmux", "-u", "-C", "attach", "-t", "mysess",
+            ["tmux", "-u", "-C", "attach", "-t", "=mysess",
              "-f", "no-output,ignore-size"],
         )
 
@@ -783,6 +783,12 @@ class TestControlAttachArgv(unittest.TestCase):
         with patch.dict(os.environ, {TMUX_SOCKET_ENV: "envsock"}, clear=False):
             c = TmuxControlClient(session="s")
         self.assertEqual(c._attach_argv()[:4], ["tmux", "-u", "-L", "envsock"])
+
+    def test_attach_target_is_exact_match(self):
+        # t2242: a bare `-t <session>` prefix-matches, so a control client for an
+        # absent `aitasks` would attach to a running `aitasks_mob`.
+        argv = TmuxControlClient(session="mysess", socket_args=[])._attach_argv()
+        self.assertEqual(argv[argv.index("-t") + 1], session_target("mysess"))
 
 
 @unittest.skipIf(shutil.which("tmux") is None, "tmux not installed")

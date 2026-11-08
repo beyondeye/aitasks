@@ -6,6 +6,11 @@
 #                                then back to CONNECTED.
 #   B. Max-retries cap         — destroy target session; assert FALLBACK after
 #                                bounded attempts, supervisor exits cleanly.
+#   B2. No prefix reconnect    — destroy target while a prefix-sharing decoy
+#                                (`<S>_mob`) runs; reconnect must reach
+#                                FALLBACK, never attach to the decoy (t2242).
+#                                In-test pre-fix control: the bare `-t` argv
+#                                must cross-attach.
 #   C. Mid-flight transition   — kill `tmux -C` while a slow request is in
 #                                flight; in-flight call returns (-1,""); the
 #                                next call either reconnects or returns
@@ -62,8 +67,8 @@ teardown_fixture() {
 }
 
 # Track all fixtures so the EXIT trap cleans up even if a case aborts mid-run.
-FA="" ; FB="" ; FC="" ; FD="" ; FE=""
-trap 'teardown_fixture "${FA:-}"; teardown_fixture "${FB:-}"; teardown_fixture "${FC:-}"; teardown_fixture "${FD:-}"; teardown_fixture "${FE:-}"' EXIT
+FA="" ; FB="" ; FB2="" ; FC="" ; FD="" ; FE=""
+trap 'teardown_fixture "${FA:-}"; teardown_fixture "${FB:-}"; teardown_fixture "${FB2:-}"; teardown_fixture "${FC:-}"; teardown_fixture "${FD:-}"; teardown_fixture "${FE:-}"' EXIT
 
 # ---------------------------------------------------------------------------
 # Case A: reconnect-then-recover
@@ -203,6 +208,111 @@ PYEOF
 )
 teardown_fixture "$FB"
 FB=""
+
+# ---------------------------------------------------------------------------
+# Case B2: reconnect never prefix-attaches to a decoy session (t2242)
+# ---------------------------------------------------------------------------
+echo "== case B2: reconnect does not prefix-attach =="
+FB2=$(make_fixture)
+
+(
+    cd "$REPO_ROOT" || exit 1
+    # shellcheck disable=SC2030,SC2031
+    export TMUX_TMPDIR="$FB2"
+    unset TMUX
+    SESSION="ait_resilience_$$_b2"
+    DECOY="${SESSION}_mob"
+    tmux new-session -d -s "$DECOY" "tail -f /dev/null"
+    # Pin the option this case depends on: the isolated server still reads the
+    # user's tmux.conf, and under `detach-on-destroy off` destroying the attached
+    # session MOVES the live control client onto another session (here the
+    # decoy) instead of ending it, so the reconnect path would never run.
+    tmux set-option -g detach-on-destroy on
+
+    PYTHONPATH="$REPO_ROOT/.aitask-scripts:$REPO_ROOT/.aitask-scripts/lib" \
+    AIT_TEST_TMUX_DIR="$FB2" \
+    AIT_TEST_SESSION="$SESSION" \
+    AIT_TEST_DECOY="$DECOY" \
+    "$PYTHON_BIN" - <<'PYEOF'
+import os
+import subprocess
+import time
+
+from monitor.monitor_core import (
+    TmuxControlBackend, TmuxControlClient, TmuxControlState,
+)
+from tmux_exec import TMUX_CLIENT_FLAGS
+
+session = os.environ["AIT_TEST_SESSION"]
+decoy = os.environ["AIT_TEST_DECOY"]
+env = {**os.environ, "TMUX_TMPDIR": os.environ["AIT_TEST_TMUX_DIR"]}
+env.pop("TMUX", None)
+WHO = ["display-message", "-p", "#{session_name}"]
+
+
+def tmux(*args):
+    subprocess.run(["tmux", *args], env=env, check=False)
+
+
+def destroy_target_and_watch(b):
+    """Kill the attached target; return (final state, sessions answered)."""
+    first = b._client
+    tmux("kill-session", "-t", f"={session}")
+    answered = set()
+    deadline = time.monotonic() + 30.0  # backoffs sum to 15.5 s, plus slack
+    while time.monotonic() < deadline:
+        if b._client is not first and b.state == TmuxControlState.CONNECTED:
+            rc, out = b.request_sync(WHO)
+            if rc == 0:
+                answered.add(out.strip())
+                break
+        if b.state == TmuxControlState.FALLBACK:
+            break
+        time.sleep(0.1)
+    return b.state, answered
+
+
+# Pre-fix control: the old bare-target argv, class-wide so the supervisor's
+# reconnect client uses it too. It must cross-attach to the decoy, or the
+# FALLBACK assertion below would prove nothing.
+fixed_argv = TmuxControlClient._attach_argv
+
+
+def bare_argv(self):
+    return ["tmux", *TMUX_CLIENT_FLAGS, *self._socket_args, "-C", "attach",
+            "-t", self.session, "-f", "no-output,ignore-size"]
+
+
+tmux("new-session", "-d", "-s", session, "tail -f /dev/null")
+TmuxControlClient._attach_argv = bare_argv
+try:
+    b = TmuxControlBackend(session=session, command_timeout=2.0)
+    assert b.start()
+    state, answered = destroy_target_and_watch(b)
+    b.stop()
+finally:
+    TmuxControlClient._attach_argv = fixed_argv
+assert state == TmuxControlState.CONNECTED and answered == {decoy}, (
+    f"control: bare reconnect did not reach the decoy (state={state!r}, "
+    f"answered={answered!r}) -- the regression below would be vacuous"
+)
+
+# Fix: the reconnect must give up rather than attach to the decoy.
+tmux("new-session", "-d", "-s", session, "tail -f /dev/null")
+b = TmuxControlBackend(session=session, command_timeout=2.0)
+assert b.start()
+rc, out = b.request_sync(WHO)
+assert rc == 0 and out.strip() == session, (rc, out)
+state, answered = destroy_target_and_watch(b)
+assert decoy not in answered, f"reconnect served the decoy: {answered!r}"
+assert state == TmuxControlState.FALLBACK, f"final state={state!r}"
+assert not b.is_alive
+b.stop()
+print("OK case B2")
+PYEOF
+)
+teardown_fixture "$FB2"
+FB2=""
 
 # ---------------------------------------------------------------------------
 # Case C: mid-flight transition
