@@ -197,7 +197,7 @@ Post-implementation: commit the code (`bug: … (t2226)`), commit the plan throu
 - Mechanical conversion across 26 test files could change one site's copy semantics
   (nest vs contents, mtime, mode) and break that test silently or loudly. · severity: low ·
   → mitigation: inline post-phase affected_suite_sweep
-- `tar` exclusion behaviour differs between GNU tar and bsdtar (macOS). · severity: low · → mitigation: macos_tar_exclusion_check
+- `tar` exclusion behaviour differs between GNU tar and bsdtar (macOS). · severity: low · → mitigation: t2231
 
 ### Goal-achievement risk: low
 - None identified. The root cause is measured (the caches account for the whole real-vs-clean
@@ -208,7 +208,7 @@ adds verification and changes no code path.
 
 ### Planned mitigations
 - timing: post-phase | name: affected_suite_sweep | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: mechanical conversion changes a site's copy semantics | desc: Run every converted and sync_fixture-consuming test, attributing failures against HEAD per assertion
-- timing: after | name: macos_tar_exclusion_check | type: test | priority: low | effort: low | inline_risk: low | added_complexity: medium | addresses: GNU tar vs bsdtar exclusion semantics | desc: Run tests/test_framework_copy.sh on macOS to confirm bsdtar's unanchored --exclude drops nested __pycache__ and *.pyc
+- timing: after | name: macos_tar_exclusion_check | type: test | priority: low | effort: low | inline_risk: low | added_complexity: medium | addresses: GNU tar vs bsdtar exclusion semantics | desc: Run tests/test_framework_copy.sh on macOS to confirm bsdtar's unanchored --exclude drops nested __pycache__ and *.pyc | created: t2231
 
 ## Post-Review Changes
 
