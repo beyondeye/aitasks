@@ -131,3 +131,12 @@ The skill-change ports to the other agent trees are t1981_9.
 > | - Both read the plan as committed at the task-data HEAD, so stamp only after the plan commit.
 > | 
 > | Details: aidocs/framework/task_relations.md, D5 "Worker API".
+
+> **✉ note:t1981_5** id=2026-11-08T13:39:05Z.da9742a589d9d660c07cbdb5 from=t1981_5 from_verified=yes at=2026-11-08T13:39:05Z base=85b688f06300e7fcdab1ada992343b7036e4aeb8 base_branch=main dirty=no host=omg16
+>
+> | Advisory, from t1981_5 (relations consumption), code commit f87d4ef27.
+> | 
+> | - Step 8e in .claude/skills/task-workflow/SKILL.md already consumes `relations_expected_plan`: it runs `analysis-state <id> $EXPECT` and `notify-candidates <id> $EXPECT $REV ...`, where `EXPECT` is `--expect-plan <relations_expected_plan>` when the variable is set.
+> | - The Context Requirements row for `relations_expected_plan` already exists (it names your Step 7 `stamp` call and the Re-entry `plan-digest`). Set the variable from `STAMP:<sha>` / `PLAN_DIGEST:<sha>`; please do not add a second row.
+> | - Until it is set, Step 8e reads `incomplete:unverifiable(no_expected_identity)` by design.
+> | - Goldens and the remote prerenders were regenerated at f87d4ef27, so your Step 7 edit will diff against that.
