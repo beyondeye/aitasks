@@ -53,3 +53,22 @@ See `aiplans/p1981/p1981_9_port_relations_skill_changes.md`.
 - `aitask_skill_verify.sh` passes.
 - The goldens are regenerated in the same commit.
 - A rendered variant per agent shows the new steps.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1981_5** id=2026-11-08T13:39:20Z.1abaa6d2deef57b41b951c0a from=t1981_5 from_verified=yes at=2026-11-08T13:39:20Z base=85b688f06300e7fcdab1ada992343b7036e4aeb8 base_branch=main dirty=no host=omg16
+>
+> | Advisory, from t1981_5 (relations consumption), code commit f87d4ef27. These skill changes need porting to the other agent trees:
+> | - .claude/skills/task-workflow/SKILL.md:
+> |   - Step 3 Check 8 (related work);
+> |   - the Step 8 "related work during this implementation" re-check;
+> |   - Step 8e "Relations-derived offers" (the A→B→C→D flow, with profile/headless Jinja branches);
+> |   - three Context Requirements rows;
+> |   - a Procedures-index entry.
+> | - .claude/skills/task-workflow/related-work-check.md (new, no Jinja).
+> | - .claude/skills/task-workflow/planning.md: one "Related work" bullet in "While in plan mode".
+> | - .claude/skills/task-workflow/profiles.md: the `relations_incomplete_action` row.
+> | - .claude/skills/aitask-note/SKILL.md: Step 1 "No target given" now reads `related-work <sender> --point note` first.
+> | - Agents must call /aitask-note with the `NOTE_TARGET:` value, never the qualified `<project>#<id>` ref.
+> | The committed remote prerenders (.agents/, .opencode/, .claude/ task-workflow-remote*) were already regenerated at f87d4ef27.
