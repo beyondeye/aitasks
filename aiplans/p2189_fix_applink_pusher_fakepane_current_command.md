@@ -75,3 +75,24 @@ None identified.
 
 ### Goal-achievement risk: low
 None identified.
+
+## Final Implementation Notes
+- **Actual work done:** Added `current_command = "claude"` and `pane_pid = 0` (with a
+  comment naming the reader and why the values are safe) to `FakePane.__init__` in
+  `tests/test_applink_pusher.sh`, exactly as planned. The script now runs to
+  `ALL PASSED (137 checks)`, exit 0 (98 checks before the crash). The 39 checks that
+  never ran before all passed and needed no further fixes; the
+  `capture_pane_async (finalizing) DOES record _last_content (control)` check runs and
+  passes.
+- **Deviations from plan:** None.
+- **Issues encountered:** None in the target file. The sibling sweep
+  (`tests/test_applink_*.sh`, 14 other scripts): 13 exit 0 and
+  `test_applink_devices.sh` exits 1 on a separate, pre-existing fixture drift (see the
+  next bullet). That test file and `applink_app.py` are both unmodified against HEAD,
+  and this change cannot reach it.
+- **Key decisions:** Kept the hand-written fake instead of building it from a real
+  `TmuxPaneInfo`. A real `category` would change what the ~40 other `FakePane` uses
+  measure (the pusher reads `category.value`). The falsy `pane_pid` means
+  `agent_key_from_pane` never starts `pgrep`/`ps`, so the test stays deterministic.
+- **Upstream defects identified:**
+  - `tests/test_applink_devices.sh:63 — FakeServer lacks a tunnel attribute, so the devices-screen mount crashes in applink_app.py:491 (_refresh reads server.tunnel.status_line(), added by t1061_3 0c0111627) and the script exits 1`
