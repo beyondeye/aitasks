@@ -53,3 +53,8 @@ Route `contact_sheets()` through the same machinery:
   upper bound, and the bug and anim summaries must then list the actual tile
   ranges per sheet);
 - add a narrow-ROI anim test using `dirty_borders`.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-08T08:43:02Z status=pass attempt=1 type=human
