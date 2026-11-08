@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1538
+implemented_with: claudecode/opus5_5
 created_at: 2026-09-01 15:20
-updated_at: 2026-11-08 12:53
+updated_at: 2026-11-08 13:12
 ---
 
 Document the advisory premise-staleness check in the website docs.
@@ -73,3 +74,8 @@ Fifth child of t1663 — docs are a first-class child per `aidocs/framework/plan
 > | - Known limits worth stating for users: invalid file_references entries recur until fixed by hand; kept never-existing references keep being reported; a session outside the agent's tmux pane without AIT_AGENT_PID cannot advance the baseline (owner_unverifiable).
 
 > **👁 note:read** id=2026-11-08T10:53:11Z.e452e7caa7935a64af57b007 by=t1663_5 at=2026-11-08T10:53:11Z mode=explicit ids=2026-09-10T18:36:40Z.59bd5f09eff34c23e8a9fb5f,2026-11-08T09:33:06Z.cd3daa7f7ac5a89fb840dff5
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-08T11:13:10Z status=pass attempt=1 type=human
