@@ -39,3 +39,8 @@ The same applies to an all-WebP folder: no mixed codecs means no `_require_one_f
 ## Suggested fix
 
 Catch the decode failure in `_require_one_frame` / `_enumerate` and re-raise it naming the image (`<name>: this ffmpeg could not decode it — an animated WebP needs a newer ffmpeg; keep still images only`). Do not state a specific version unless it is measured. Cover it with a test that runs on any ffmpeg: feed a WebP whose ANIM chunks this ffmpeg rejects, or mock `ffmpeg()` to fail, and assert that the file is named.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-08T09:31:44Z status=pass attempt=1 type=human
