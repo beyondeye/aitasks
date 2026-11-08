@@ -76,3 +76,17 @@ bash tests/run_all_python_tests.sh --test-dir tests    # last line only
 python3 -m unittest tests.test_roadmap_policy tests.test_roadmap_integration -v
 python3 -m unittest tests.test_parallel_admission_purity -v
 ```
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1663_4** id=2026-11-08T09:33:09Z.c34fa9c3ea2b098d87a50585 from=t1663_4 from_verified=yes at=2026-11-08T09:33:09Z base=620039d7bbcb9d6bd5911d5275e58bd2814fa872 base_branch=main dirty=yes host=omg16
+>
+> | From t1663_4, landed in 620039d7b. Advisory context.
+> | 
+> | lib/task_premise.py's closed vocabularies grew, additively:
+> | - PATH_STATES += retired, never_existed; PATH_REASONS += never_existed.
+> | - SCOPE_REASONS += all_retired.
+> | - PremiseResult has a new trailing field `retired`.
+> | 
+> | `retired` is neither evidence nor a positively checked path, so an all-retired scope reads SKIP/all_retired, never FRESH. A roadmap adapter that never emits these states is unaffected. The PublicSurfaceTests vocabulary pin now allows `retired` explicitly.
