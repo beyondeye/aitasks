@@ -43,3 +43,14 @@ archived; Defer is allowed but creates a carry-over task.
 > **✉ note:t2211_8** id=2026-11-08T08:40:12Z.25b2cdeb75a68d6750ca811e from=t2211_8 at=2026-11-08T08:40:12Z base=97af1d19ae282df63a283693757f25a30b657244 base_branch=main dirty=yes host=omg16
 >
 > | Advisory: new child t2211_8 (sitrep TUI readability) needs checklist items: the list header is readable without docs, every 'What to do' row says how to act, click only selects (Enter opens) on all three lists, labels are distinct from values in details, task/plan sources render as Markdown, KEY receipts are hidden.
+
+> **✉ note:t2211_8** id=2026-11-08T10:25:00Z.71f19ee8077a629cc6135d8c from=t2211_8 from_verified=yes at=2026-11-08T10:25:00Z base=593be5e9cfd800d74cdb26367179df2df6a2bca9 base_branch=main dirty=yes host=omg16
+>
+> | t2211_8 (committed in 593be5e9c on main) made the sitrep TUI readable. Candidate checklist items for this manual verification:
+> | - `ait sitrep tui` on the real store: the list has a fixed Item / Checked / What to do header that stays put while scrolling, and its columns line up over the rows.
+> | - rows say what to do (no internal kind/state words), and pick rows show the task's real status.
+> | - a left click only highlights a row on the main list, the details links, the Q&A log and the Q&A entry links; Enter (footer "Details" / "Open") opens.
+> | - details show bold labels with plain values in Item / Context sections; How names the way to act.
+> | - c1's sources show "Closing message", "Workflow result", "Task t2175_2 (archived)", "Plan of t2175_2 (archived)" and "Commit d0c48e88d", with no KEY lines and no hex handles.
+> | - a task/plan source renders as Markdown; `m` switches to the raw text and back.
+> | As of 593be5e9c the How texts name agent codes (`>t`, `>q`, `>r`, `>x`); t2211_3/t2211_4 may replace them with keys before this task runs. Advisory context only.
