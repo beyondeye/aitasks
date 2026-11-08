@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2175
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-08 09:16
-updated_at: 2026-11-08 09:19
+updated_at: 2026-11-08 10:19
 ---
 
 ## Origin
@@ -49,3 +50,8 @@ Spawned from t2211_2 during Step 8b review.
 - test_sitrep_window: wrap the LIVE_PID-based fixtures in `patch.object(mc, "_is_companion_process", lambda pid: False)`
   (as `ConsumerTableTests` does), keeping the one test that needs the real cmdline rung
   (the booting-companion stand-in) explicit.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-08T08:19:20Z status=pass attempt=1 type=human
