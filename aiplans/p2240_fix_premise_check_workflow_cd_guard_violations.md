@@ -64,3 +64,10 @@ None identified.
 
 ### Goal-achievement risk: low
 None identified.
+
+## Final Implementation Notes
+- **Actual work done:** Rewrote both flagged sites in `tests/test_premise_check_workflow.sh` exactly as planned: `padv()` (line 154) and J5's force-claim subshell (line 487) now open with `cd … || exit 1` and run their commands on the following lines inside the same `( … )` subshell.
+- **Deviations from plan:** None.
+- **Issues encountered:** None. Verified: `bash tests/test_cd_guard_lint.sh` 92/92 (was 91/92); `bash tests/test_premise_check_workflow.sh` 207 pass / 0 fail, exit 0; shellcheck finding count unchanged (7 before, 7 after, all pre-existing).
+- **Key decisions:** Used the `guarded` form (`cd X || exit 1`) rather than collapsing each site onto one `&&` line — the `padv()` site needs `||` between its two lock calls, which the `subshell-andchain` form cannot express. `exit 1` leaves only the subshell, and both callers already ignore its status, so behaviour is unchanged on success. The J5 rewrite also removes a real fall-through: before, a failed `cd "$P"` would still have run the force-claim `--lock` line in the caller's cwd.
+- **Upstream defects identified:** None
