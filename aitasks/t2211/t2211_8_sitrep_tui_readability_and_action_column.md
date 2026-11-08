@@ -1,14 +1,15 @@
 ---
 priority: medium
 effort: medium
-depends: [2211_2]
+depends: [t2211_2]
 issue_type: enhancement
-status: Ready
+status: Implementing
 labels: [sitrep, tui]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 2175
 created_at: 2026-11-08 10:39
-updated_at: 2026-11-08 10:39
+updated_at: 2026-11-08 10:48
 ---
 
 ## Context
