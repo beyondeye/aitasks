@@ -60,7 +60,7 @@ The primary flow is driven from the code viewer in `ait codebrowser`:
    ```
 
    Walk through description → labels → metadata → finalize as usual.
-7. The finalized task has `file_references: ["lib/auth.py:42-68"]` in its frontmatter and is committed to git.
+7. The finalized task has `file_references: ["lib/auth.py:42-68"]` in its frontmatter and is committed to git. Because it carries a file reference, it is also stamped with a `premise_baseline` — the commit it was finalized at — so the [premise staleness check]({{< relref "/docs/workflows/premise-staleness" >}}) can tell you, when the task is picked, whether those files changed in the meantime.
 
 **Fallback behavior:**
 

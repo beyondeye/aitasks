@@ -112,6 +112,8 @@ When [`/aitask-pick`](../../skills/aitask-pick/) picks a task whose `issue_type`
 
 Because the plan/review steps never run, a manual-verification task never carries the gates recorded there (`risk_evaluated`, `plan_approved`, `review_approved`, `docs_updated`) — such a gate could never be satisfied and would block archival forever. `aitask_create.sh` strips them at creation, including any injected by an execution profile's `default_gates`, so the task's archival is gated only by its own checklist. The post-verification machine gates (`build_verified`, `tests_pass`, `lint`) remain declarable as usual.
 
+The shared workflow's [premise staleness check]({{< relref "/docs/workflows/premise-staleness" >}}) skips manual-verification tasks: a checklist's validity is tied to its own `verification_baseline` field, not to the `premise_baseline` that check reads.
+
 The picker first checks that the task actually has trackable checklist items. If it has none, it offers to seed them from the plan or to convert plain bullets already in the section — see [Recovering a Plain-Bullet Checklist](#recovering-a-plain-bullet-checklist).
 
 Before the interactive loop begins, the picker offers to hand the checklist to an AI agent that runs it — fully or partially — on your behalf. See [Autonomous verification](#autonomous-verification).

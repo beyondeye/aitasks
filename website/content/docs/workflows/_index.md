@@ -17,6 +17,7 @@ The full task lifecycle — capturing ideas quickly, wrapping ad-hoc work into t
 - [Retroactive Tracking](retroactive-tracking/) — Wrap ad-hoc changes into the aitasks framework after the fact.
 - [Follow-Up Tasks](follow-up-tasks/) — Creating follow-up tasks, querying existing tasks, and updating them with new findings.
 - [Task Notes](task-notes/) — Send durable advisory context to a task that already exists, with opportunistic live delivery.
+- [Premise Staleness Check](premise-staleness/) — Advisory check, when a task is picked, that reports whether the files its premise depends on changed since it was last known valid.
 - [Creating Tasks from Code](create-tasks-from-code/) — Browse source files, select a line range, and spawn a task pre-seeded with a file reference.
 - [Task Decomposition](task-decomposition/) — Breaking complex tasks into manageable child subtasks.
 - [Task Consolidation](task-consolidation/) — Merging overlapping or duplicate tasks into a single actionable task.
