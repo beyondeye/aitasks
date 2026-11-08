@@ -3,13 +3,14 @@ priority: low
 effort: low
 depends: []
 issue_type: enhancement
-status: Ready
+status: Implementing
 labels: [git-integration, contribution]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 2235
 followup_kind: risk_mitigation
 created_at: 2026-11-08 18:20
-updated_at: 2026-11-08 18:20
+updated_at: 2026-11-08 18:24
 ---
 
 ## Origin
