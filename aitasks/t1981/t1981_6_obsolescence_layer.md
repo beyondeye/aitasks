@@ -119,3 +119,8 @@ See `aiplans/p1981/p1981_6_obsolescence_layer.md`.
 > | Today almost every task reads SKIP (`no_stored_baseline`), because baselines are only seeded once t1663_2/t1663_3 land.
 
 > **👁 note:read** id=2026-11-08T16:14:26Z.026d6ca0c90a189af83237ab by=t1981_6 at=2026-11-08T16:14:26Z mode=explicit ids=2026-11-05T06:23:27Z.a939b74a47c0a100d9e92c9a
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-08T20:29:54Z status=pass attempt=1 type=human
