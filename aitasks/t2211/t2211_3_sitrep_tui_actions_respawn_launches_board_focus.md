@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2175
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-05 15:36
-updated_at: 2026-11-08 17:43
+updated_at: 2026-11-08 18:53
 ---
 
 ## Context
@@ -146,3 +147,8 @@ command.
 > | Advisory context only; see aiplans/archived/p2211/p2211_8_* Final Implementation Notes once archived.
 
 > **👁 note:read** id=2026-11-08T15:43:05Z.4087e0e370e39d6d6d472b6b by=t2211_3 at=2026-11-08T15:43:05Z mode=explicit ids=2026-11-08T08:40:05Z.bf7f1f261860e09bc32389c1,2026-11-08T10:24:37Z.783ccefcc77d0a6520bd18cd
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-08T16:53:11Z status=pass attempt=1 type=human
