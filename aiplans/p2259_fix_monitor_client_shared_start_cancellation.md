@@ -233,3 +233,79 @@ archival and the push.
 
 ### Goal-achievement risk: low
 None identified.
+
+## Final Implementation Notes
+
+- **Actual work done:** implemented as planned. `MonitorClient.start()` now
+  awaits `asyncio.shield(self._start_task)`, so cancelling any `start()` caller,
+  the first one included, cancels only that caller's wait, and `close()` is the
+  only canceller of the startup. The edits:
+  - `start()` and `start_detached()` docstrings rewritten;
+  - the applink `_build_client` docstring reworded;
+  - the `aidocs/framework/monitor_status_protocol.md` bullets replaced;
+  - 2 new two-caller tests (server and fallback);
+  - `test_cancelled_start_closes_the_socket` rewritten as
+    `test_a_cancelled_start_caller_leaves_the_socket_to_close`;
+  - the detached test's positive-control docstring corrected to mutant B.
+- **Deviations from plan:** one supporting check (class S) added to both new
+  `SharedClientTests`: `assertIsNotNone(c._start_task)` after the
+  `sleep(0)`, asserting the fixture shape ("`a` created the startup task"). It is
+  green on the baseline and after the fix.
+- **Issues encountered:**
+  - **Plan review correction (before approval).** The first plan's control for
+    the detached-test docstring was a bare unshielded `await
+    self._start_task` (mutant A). Measured in memory, it gives 0 failures and
+    2 errors: `CancelledError` at `await asyncio.wait_for(b, 3.0)`, before any
+    state assertion. It was replaced with mutant B, which keeps the pre-fix
+    `cancelling()` swallow and fails on the mode assertions. The approved plan
+    records both measurements.
+  - **Concurrent sessions.** `main` advanced twice during the session
+    (`47b007e5` → `6d44bd27` → `b90a154a`), with none of those commits touching
+    the four target files. Another session also left an uncommitted
+    `--restart-server` table-row hunk at line 967 of
+    `aidocs/framework/monitor_status_protocol.md`. The code commit therefore
+    carries a whitelist of this task's own hunks: applied to `HEAD` in a scratch
+    `GIT_INDEX_FILE`, committed via `commit-tree` with a compare-and-swap
+    `update-ref` (code commit `976f7563f08877e32c2c317e58f84728f8f69e7a`, on base `0ac1386dc`). By then t2262 had committed its own row (`0ac1386dc`), so the base already carried it; this commit's `aidocs` diff holds only this task's two hunks. It was verified standalone in a detached worktree: client tests 61 OK, applink subscribe tests 21 OK.
+- **Verification evidence:**
+  1. Red proof: `git worktree add --detach … 6d44bd275b3df9d0dea78d4137a12f305584d5c1`,
+     with the new `tests/test_monitor_status_client.py` copied in. Result: 61
+     tests, `FAILED (failures=3)`, 0 errors, with exactly these failures:
+     - `…first_caller_never_cancels_the_start`: "cancelling the first caller
+       cancelled the startup";
+     - `…first_caller_still_reaches_fallback_with_a_reconnect`:
+       `CONNECTING is not FALLBACK`;
+     - `…cancelled_start_caller_leaves_the_socket_to_close`: "cancelling the
+       caller aborted the attempt".
+  2. Mutant B in the same worktree, on top of the fixed `status_client.py`
+     (anchor count 1, mutated lines grepped). `SharedClientTests` gave 10
+     tests, `FAILED (failures=2)`: `CONNECTING is not SERVER` (detached server
+     test) and `CONNECTING is not FALLBACK` (detached fallback test). The worktree
+     was then removed.
+  3. Green runs:
+     - `tests.test_monitor_status_client`: 61 OK;
+     - `test_applink_status_subscribe`: 21 OK;
+     - `test_applink_pane_status_provenance`: 5 OK;
+     - `test_minimonitor_startup_input_latency`: 27 OK;
+     - `test_monitor_status_server`: 40 OK.
+  4. Full suite (`-n 4 --dist loadfile`, load average ~14): 11774 passed, 6
+     skipped, 1 failed, so `PYTHON SUITE: FAILED (exit=1)`. The serial carve-out
+     passed 15/15. The single failure is
+     `tests/test_scratchpad_app.py::UnresolvedWriteTests::test_14g_unkillable_child_keeps_loop_responsive`,
+     `AssertionError: 2.016375144943595 not less than 1.0` at `:930` (a 1.0 s
+     Ctrl+Q shutdown budget). It is unrelated: the test and the scratchpad
+     package import nothing from `monitor/` or `applink/`. It passed 3/3 when
+     re-run alone (2.4–2.6 s each). It is a load-induced timing flake.
+- **Key decisions:**
+  - Option 1 (shield in `start()`), not Option 2 (single-owner documentation).
+    The caller audit found three `MonitorClient` owners (monitor app,
+    minimonitor app, applink), all calling `close()` on teardown. The only
+    dependent of the old semantics was the rewritten test.
+  - The structure "only the creating call awaits the task; later callers wait
+    on `_ready`" is kept, so a `_start_body` exception still reaches only the
+    first caller, as before.
+  - `start_detached()` is kept for applink, because a synchronous claim starts
+    the attempt before any push loop reads.
+- **Upstream defects identified:**
+  - `.aitask-scripts/monitor/status_client.py:394-397 — start() on a client closed before it ever started still runs an attempt (ensure may spawn the status server; _attempt only checks _closed after ensure returns), while start_detached() refuses a closed client; no current caller hits it`
+  - `tests/test_scratchpad_app.py:930 — test_14g_unkillable_child_keeps_loop_responsive asserts a 1.0 s wall-clock Ctrl+Q shutdown budget that failed at 2.02 s under the 4-worker suite at load ~14 (passes alone 3/3)`
