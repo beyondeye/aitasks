@@ -485,3 +485,90 @@ Commit `feature: … (t2211_3)` (code) and `ait: Update plan for t2211_3`, then 
 per the shared workflow. After commit, send a note to t2211_6 listing the keys, the
 wire lines shown and the board `--focus` flag. Send a note to t2211_7 listing the
 manual checks.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-08 20:10)
+- **Requested by user:** three review findings. (1) `push_command` put the configured remote unquoted into copyable shell text (`origin;printf`). (2) The watch/unknown "How" lines advertise `r` on item details, but `r` was gated to the main list. (3) The `ait sitrep tui` argparse description still said "read-only".
+- **Changes made:**
+  - (1) `push_command` builds the command with `shlex.join`; a test pins `git push 'origin;printf' main` and its `shlex.split` round trip.
+  - (2) `harvest_refresh` moved to `actions.LIST_OR_DETAIL_ACTIONS`: it is shown on the main list and on `ItemDetailScreen`, still hidden on viewer and Q&A screens; the action body accepts details too. A pilot test opens the trail-watch details, checks the advertised `Press  r`, presses `r`, sees the panel over the details and the runner calls.
+  - (3) The help text describes the current behaviour.
+- **Files affected:** `.aitask-scripts/sitrep_tui/sitrep_tui_model.py`, `sitrep_tui_actions.py`, `sitrep_tui_app.py`, `tests/test_sitrep_tui_actions.py`
+
+### Change Request 2 (2026-11-08 20:40)
+- **Requested by user:** task items (extracted follow-up tasks) should show the task's priority and effort explicitly, short in the list and in full in the details, and the details should give access to the task description.
+- **Changes made:**
+  - `sitrep_tui_model`: new `TaskMeta`, `find_task_file`, `task_meta`, `task_metas`, `pri_eff_cell`.
+    - The lookup goes active file first, then the loose archived file; a child id looks in `aitasks/t<P>/`.
+    - The frontmatter is read with `task_yaml.parse_frontmatter`, capped at 64 KiB; values are whitespace-collapsed and cut to 40 characters. It never raises.
+    - The list gets a new `Pri/Eff` column (width 7): `hi/lo`, `med/med`, `?` for a missing field, `—` when the task file is not found, blank for items naming no local task (triage, watches, pushes, xrefs).
+  - `ItemDetailScreen`:
+    - new Priority / Effort / Task status lines ("(archived)" when the file is archived; "Task  task file not found" when absent);
+    - a first link "Task description: t<N> (<path>)" that opens the task file through the existing `task` pointer follower (rendered Markdown viewer).
+  - The app computes `_metas` per store generation in `_apply`. `open_item` reads the meta fresh, so the details reflect a task-file edit made after the list was built.
+- **Files affected:** `.aitask-scripts/sitrep_tui/sitrep_tui_model.py`, `sitrep_tui_app.py`, `tests/test_sitrep_tui_actions.py` (TaskMetaTests), `tests/test_sitrep_tui_app.py` (label allow-list)
+
+## Final Implementation Notes
+- **Actual work done:**
+  - **Sitrep TUI actions** (new `sitrep_tui/sitrep_tui_actions.py`: `SitrepActionsMixin` + `DismissDialog` / `ConfirmDialog` / `ResultDialog` / `PushCommandDialog`):
+    - `r` harvest + refresh (main list and details; also once at startup, toast only);
+    - `x` dismiss (`--expect-rev`, STALE re-asks with the new rev, exit 3 retry, exit 4 error + restore hint);
+    - `R` restore (`restore <kind> --if-damaged`);
+    - `A` respawn agent (`aitask_sitrep.sh open --session <own>`; status polled via `find_sitrep_roles` every 3 s);
+    - `p` pick (pick items only), `b` open in board, `P` push command (shown, copyable, never run).
+  - **Model additions** (`sitrep_tui_model`):
+    - `parse_refresh_output` / `RefreshReport`, `task_ref_id`, `push_command` (shlex-quoted);
+    - `{k_*}` key placeholders in `NEXT_STEPS`, filled with the effective (remapped) keys;
+    - the "Now" display label (`GROUP_LABELS`; the store heading stays `### Pick now`);
+    - the `Pri/Eff` column and `TaskMeta` lookup.
+  - **Details:** Priority / Effort / Task status and a "Task description" link.
+  - **Writer:** `aitask_sitrep_todo.sh restore todo|qa [--if-damaged]` → `RESTORE_NOT_NEEDED:<file>` when the live file parses, decided under the lock.
+  - **Runner:** `sitrep_close.run_owned_group` gained `cwd=` / `env=`.
+  - **Mailbox:** `agent_launch_utils` gained the generalized pane mailbox (`read_pane_request`, `parse_pane_request`, `mark_/unmark_pane_receiver`, `_live_pane_receivers`, `_deliver_pane_request`); the trails functions are now thin wrappers. It also gained board options `@aitask_board_app` / `@aitask_board_focus` and `launch_or_focus_board`.
+  - **Board:** `ait board --focus <id>` (argparse `main()` in `aitask_board.py`) plus new `board/board_focus_request.py` (`BoardFocusMailboxMixin`: cold focus, mailbox register / poll, child expansion, archived / unknown / hidden reports, modal deferral).
+  - **Docs:** `tmux_gateway.md` option rows (board + the missing trails rows), the `tui_conventions.md` module map, a `sitrep.md` "TUI's actions" paragraph.
+- **Deviations from plan:**
+  - (1) `harvest all` prints one final line per record, so a dedicated `summarize_harvest_all` sums the counts; `parse_harvest_output` keeps only the last final line.
+  - (2) The `--if-damaged` health check is exactly `verify` (it follows symlinks like the readers), with no separate symlink rule.
+  - (3) `r` was made available on item details (review round 1), because the details' How text advertises it.
+  - (4) Priority / effort / task description were added on user request (review round 2).
+  - (5) The dialogs are plain `GuardedModalScreen`s (no ShortcutsMixin), so `lib/shortcut_scopes.py` needed no new manifest row.
+- **Issues encountered:**
+  - `check_action` / the highlight handler ran with an empty screen stack at app exit (a rebuild posted a highlight just before teardown). Guarded with `_top_screen()`.
+  - `test_board_fixture_harness.LiveTreeSweepTests` forbids board test modules from importing a board module canonically. `test_board_focus.py` gets the mixin module from `sys.modules[ab.BoardFocusMailboxMixin.__module__]`, and `board_focus_request` was added to `board_fixture.BOARD_MODULE_NAMES`.
+  - A full suite run was cut off by a disk quota on `/tmp/claude-1000` (not a test failure). Re-run: PASSED.
+- **Key decisions:**
+  - Item actions re-resolve by id and compare rev (store-wide, never reused). A moved rev refreshes the details and launches nothing. The pick dialog callback re-checks too.
+  - Open in board uses its own session when that session is attributed to the root, else the live project session. It re-checks ownership, then `switch_client_to` when the destination differs, and reports a failed switch with the session name.
+  - A `board` window without a receiver is selected with a warning, never doubled.
+- **Verification (mitigations):**
+  - Pre-phase `characterize_trails_mailbox`: trails writer / app / live tests 134 passed before the refactor and again in the full suite after it, with no edits to those files. The mutant (`read_trails_focus_request` reading `BOARD_FOCUS_OPTION`) turned `test_a_request_is_read_from_the_named_pane` red.
+  - Post-phase `board_mailbox_live_test`: `tests/test_board_focus_mailbox_live.py`, 5 live tests on a throwaway server. The mutant (board writer reading the trails stamp) failed the stamped-pane test.
+  - Other mutants (isolated scratch copies):
+    - rev check removed → the detail-freshness test red;
+    - `switch_client_to` removed → two OpenInBoard tests red;
+    - `_start_focus_request()` removed → five board-focus tests red.
+  - The restore race has a pre-fix control: the unconditional verb loses the newer write.
+  - A real `_tmux_seams` probe in this repo's tmux returned `(True, '%603', '%650')`.
+  - Full Python suite PASSED (runner=pytest); `tests/test_sitrep_todo.sh` 265/265.
+  - `test_no_raw_tmux.sh` / `test_no_lib_to_tui_import.sh` passed; shellcheck on the writer is clean.
+- **Upstream defects identified:** None
+- **Notes for sibling tasks:**
+  - **t2211_4 (agent requests):** the item-resolution helper `_resolve_action_item(action)` and `_item_action_ok` in `sitrep_tui_actions.py` are the pattern for request keys (re-resolve against the current store; refuse a moved rev from details). Agent state is `app.agent_state` (`running` / `absent` / `unknown`) from `roles_probe`; the agent pane is `find_sitrep_roles`' agent. The triage / review / decide How rows still name `>t` / `>q`; edit them in `NEXT_STEPS` when the request keys land. `ACTION_BINDINGS` is the binding table to extend.
+  - **t2211_5 (skill slim):** harvest + refresh now runs at TUI startup and on `r`; dismiss and restore are TUI keys.
+  - **t2211_6 (docs):**
+    - keys `r` (main + details) `x` `R` `A` `p` `b` `P`;
+    - the "Now" group label, the `Pri/Eff` column, the details' Priority / Effort / Task status and "Task description" link;
+    - `ait board --focus <id>` (12, t12, 12_3) and the running-board handoff;
+    - `restore --if-damaged`;
+    - the header's `agent:` / `refreshed` parts.
+  - **t2211_7 (manual):** in a real sitrep window:
+    - `r` panel;
+    - `x` with a reason;
+    - kill the agent → "not running — press A" → `A` respawns;
+    - `b` on a task with a running board (focus handoff), with no board (new window), and from another session (client switch);
+    - `p` launches a pick;
+    - `P` shows a quoted command;
+    - damage `todo.md` → `R`;
+    - the Pri/Eff column and the Task description link.
