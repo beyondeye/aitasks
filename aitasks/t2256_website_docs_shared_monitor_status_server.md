@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2034
 followup_kind: docs_gap
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-09 11:33
-updated_at: 2026-11-09 12:36
+updated_at: 2026-11-09 15:32
 ---
 
 ## Context
@@ -67,3 +68,8 @@ in a monitor or minimonitor has no page explaining why.
 - Use `{{< relref >}}` for internal links. Run
   `cd website && python3 check_links.py --build`, and offer
   `check_link_relevance.py`.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-09T13:32:49Z status=pass attempt=1 type=human
