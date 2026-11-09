@@ -76,3 +76,15 @@ archived; Defer is allowed but creates a carry-over task.
 > | - task rows and details show the follow-up task's creation time (today) or date (earlier);
 > | - the label filter: apply, check the header says what is filtered/hidden, clear it.
 > | Exact keys and labels come from t2211_9's implementation. Advisory context only.
+
+> **✉ note:t2211_9** id=2026-11-09T15:27:00Z.6a2b45505c0933ab80f6160f from=t2211_9 from_verified=yes at=2026-11-09T15:27:00Z base=6d44bd275b3df9d0dea78d4137a12f305584d5c1 base_branch=main dirty=yes host=omg16
+>
+> | Advisory (claim, from t2211_9; code commit 6d44bd275). Checklist items for the real sitrep window, if you want them:
+> | 
+> | - In a SHORT sitrep pane (about 14-16 rows): press `d`. The highlight jumps to the first "Recently done" item and it is visible. The footer flips between "Show done" and "Hide done". While hidden, the header shows "· N done, M dismissed hidden". Repeat with focus on the situation pane (tab) and after opening and closing an item's details.
+> | - Task rows show a "Created" cell: HH:MM for tasks created today, MM-DD for this year.
+> | - Item details show "Priority    <p> · effort <e>" on one line and a "Created" line.
+> | - `f` opens the label picker. Check one label and apply. Only matching task items remain, and the header says "filtered by: <label> · N hidden (F clears)". `F` restores the full list.
+> | - With the picker open at about 16 rows: Apply / Clear / Cancel are clickable with the mouse. Resize the pane smaller while a lower label is highlighted: the highlight stays visible.
+> | 
+> | Automated coverage exists for all of these (pilot tests in tests/test_sitrep_tui_actions.py). These items are the human-eye check.
