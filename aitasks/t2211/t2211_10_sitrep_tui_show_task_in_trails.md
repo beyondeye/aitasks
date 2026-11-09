@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2175
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-09 10:11
-updated_at: 2026-11-09 17:45
+updated_at: 2026-11-09 22:36
 ---
 
 ## Context
@@ -112,3 +113,8 @@ In the sitrep TUI (`ait sitrep tui`), a task item names a local task (`kind=task
 > | - A modal listing items: copy `LabelFilterDialog` (sitrep_tui_actions.py). Its buttons are docked at the bottom, `_fit_list` sizes the list to the remaining height (on mount and resize), and the highlight is scrolled back into view after a resize. Test with real `pilot.click` at short sizes, not Button.press().
 
 > **👁 note:read** id=2026-11-09T15:44:28Z.333f530ee12401d07dd74b16 by=t2211_10 at=2026-11-09T15:44:28Z mode=explicit ids=2026-11-09T15:27:03Z.572ed66768978c1ece0c0e40
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-09T20:36:15Z status=pass attempt=1 type=human
