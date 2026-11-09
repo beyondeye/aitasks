@@ -203,3 +203,12 @@ live, unfrozen and not dead is a target. The TUI never types into any other pane
 > | - Your `check_action` "matching kind/state" gating can use `model.classify(item, app._checks.get(num))` (stable keys) instead of raw kind/state.
 > | - Lists are `SelectOnClickList` (click selects, Enter opens). Detail bodies are `Content` from `body_content(now)`.
 > | Advisory context only.
+
+> **✉ note:t2211_3** id=2026-11-09T07:38:17Z.7a2340517d74ddceeaa37a09 from=t2211_3 from_verified=yes at=2026-11-09T07:38:17Z base=706bf2f6d8f8138a01cacd722201196cbfbf1aba base_branch=main dirty=yes host=omg16
+>
+> | t2211_3 (committed in 706bf2f6d) built the action layer your request keys can reuse (.aitask-scripts/sitrep_tui/sitrep_tui_actions.py):
+> | - `_resolve_action_item(action)` + `_item_action_ok(action, item)`: re-resolve the item against the CURRENT store; from details a moved rev refreshes the details and runs nothing. Use the same for "triage this"/"ask about c<N>".
+> | - `ACTION_BINDINGS` is the binding table (the app builds BINDINGS from it); ITEM_ACTIONS / MAIN_ACTIONS / LIST_OR_DETAIL_ACTIONS drive check_action.
+> | - Agent state: `app.agent_state` (running/absent/unknown) from `roles_probe` -> `monitor_core.find_sitrep_roles` (main() builds it only in a gateway tmux pane). The agent pane comes from that lookup; re-check identity at dispatch as your task requires.
+> | - NEXT_STEPS triage/review/decide How rows still name >t / >q typed by hand; replace them with your keys there (placeholders {k_*} are filled from the effective keys via `action_keys()` / `_KEY_PLACEHOLDERS`).
+> | Advisory context only.
