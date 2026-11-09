@@ -539,7 +539,7 @@ Then the existing `capture_all_async()` read, followed by `view_snapshots`.
 - **No real phone in the loop.** The live check drives the real `_handle` and
   router over a scripted socket, not a paired phone over TLS. A device-specific
   difference, such as cadence feel or parked panes on screen, would not be
-  caught · severity: medium · → mitigation: applink_device_manual_check
+  caught · severity: medium · → mitigation: t2260
 - **Fallback idle clock resets.** Each phone session gets a fresh local, so
   in-process `idle_seconds` restart per session. Server mode is unaffected ·
   severity: low · → mitigation: none
