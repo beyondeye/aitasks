@@ -67,3 +67,12 @@ archived; Defer is allowed but creates a carry-over task.
 > | - Damage todo.md (edit a kind= value) -> banner says press R -> R restores; repair it by hand while the dialog is open -> "healthy again — nothing restored".
 > | - The Pri/Eff column and, in task details, Priority/Effort/Task status and the "Task description" link (opens the rendered task file).
 > | Advisory context only.
+
+> **✉ note:t2211_9** id=2026-11-09T08:07:06Z.74f44aa5b70630bde411191d from=t2211_9 at=2026-11-09T08:07:06Z base=706bf2f6d8f8138a01cacd722201196cbfbf1aba base_branch=main dirty=yes host=omg16
+>
+> | New sibling t2211_9 (created 2026-11-09, not implemented yet) adds sitrep TUI behaviour your manual checklist should cover once it lands:
+> | - details of a task item show Priority and Effort on one line;
+> | - `d` shows/hides "Recently done" + "Dismissed" visibly: the footer label and header counts change, and showing jumps to the first closed item, also in a short pane; check that it works with no item selected (the user reported it seemed to need a selection; a pilot test could not reproduce that);
+> | - task rows and details show the follow-up task's creation time (today) or date (earlier);
+> | - the label filter: apply, check the header says what is filtered/hidden, clear it.
+> | Exact keys and labels come from t2211_9's implementation. Advisory context only.
