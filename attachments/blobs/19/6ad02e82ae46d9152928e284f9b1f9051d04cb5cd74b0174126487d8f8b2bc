@@ -1,0 +1,1394 @@
+{
+  "schema_version": "1.1.0",
+  "trail_id": "trail-task-relations-and-premise",
+  "title": "Task relations, obsolescence and premise staleness",
+  "owner": "aitasks#1981",
+  "scope": {
+    "kind": "ad_hoc",
+    "topics": [
+      "aitasks#1538",
+      "aitasks#1569",
+      "aitasks#1981",
+      "aitasks#2192"
+    ],
+    "selection_note": "User-chosen set: t1981 (task-relations and obsolescence design) plus t1663 and its six children (advisory premise staleness), widened with t1655 (roadmap adopts the shared premise engine) after a lite draft was found to be born stale. Gathered with --scope task 1981 1663 1655. t1981 had no children or topic members, so a task-only trail would have held one entry. Owner t1981 chosen by the user. Refreshed on 2026-11-04 after t1981 decomposed: its ten children t1981_1 to t1981_10 joined through the parent id. t2192, a hard prerequisite of t1981_2, was first kept out by the user's choice (observation only). Refreshed on 2026-11-05 (deep): t1663_1 and t1663_2 landed and are archived, so they leave the gathered inputs and stay in their waves as landed entries; t2209 (the file_references quoting fix spawned from t1663_1) joined by the user's choice. Re-gathered with --scope task 1981 1663 1655 2209 because the gatherer rejects archived ids passed directly. Refreshed on 2026-11-08 (deep): t1663_3, t1981_1, t1981_3 and t2209 landed and are kept as landed entries; re-gathered with --scope task 1981 1663 1655; t2237 (new in topic t1981) recorded as an exclusion. Refreshed on 2026-11-08 (deep, second pass): t1663_4 landed and is kept as a landed entry; the user then asked for t2192 to join as its own wave, so it is a member now and no longer an exclusion. Re-gathered with --scope task 1981 1663 1655 2192. Refreshed on 2026-11-09 (deep): t1663_5, t1981_5 and t1981_6 landed and are kept as landed entries; t2243 (t1981_5's risk-mitigation live verification), t2254 (upstream defect from t1981_6) and t2255 (deferred path attribution from t1981_6) joined by the user's choice. Re-gathered with --scope task 1981 1663 1655 2192 2243 2254 2255."
+  },
+  "generation": {
+    "generated_at": "2026-11-09T09:58:00Z",
+    "generator": {
+      "agent_string": "claudecode/opus5_5",
+      "skill": "aitask-trail"
+    },
+    "inputs": [
+      {
+        "kind": "plan_file",
+        "ref": "aitasks:aiplans/p1981/p1981_10_relations_retrospective.md"
+      },
+      {
+        "kind": "plan_file",
+        "ref": "aitasks:aiplans/p1981/p1981_2_relation_candidate_generator.md"
+      },
+      {
+        "kind": "plan_file",
+        "ref": "aitasks:aiplans/p1981/p1981_4_relations_triggers.md"
+      },
+      {
+        "kind": "plan_file",
+        "ref": "aitasks:aiplans/p1981/p1981_7_relations_tui.md"
+      },
+      {
+        "kind": "plan_file",
+        "ref": "aitasks:aiplans/p1981/p1981_8_relations_website_docs.md"
+      },
+      {
+        "kind": "plan_file",
+        "ref": "aitasks:aiplans/p1981/p1981_9_port_relations_skill_changes.md"
+      },
+      {
+        "kind": "plan_file",
+        "ref": "aitasks:aiplans/p1981_task_relations_and_obsolescence_design.md"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1655"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1663"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1663_6"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1981"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1981_10"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1981_2"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1981_4"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1981_7"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1981_8"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1981_9"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#2192"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#2243"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#2254"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#2255"
+      }
+    ],
+    "input_digest": "ea779f97f1b90cac"
+  },
+  "freshness": {
+    "state": "current",
+    "checked_at": "2026-11-09T09:58:00Z"
+  },
+  "narrative": {
+    "problem_statement": "Two neighbouring task trees fill the two missing axes for backlog tasks. t1663 asks whether a task's premise still holds (needs refresh). t1981, now decomposed into ten children, records confirmed task relations as the notify-list source and scores obsolescence. Which landing order gives the least rework, given their shared edit surfaces and an external dependency? The task-query framework integration (t2192) is a hard prerequisite of the candidate generator, so it is sequenced here too.",
+    "recommendation_summary": "Waves 1 to 3 and t1981_6 have landed. Pick t1981_7 (the relations TUI) now; t2254 is already in flight beside it. Everything after that waits on aitasks_go#93 -> t2192 -> t1981_2 -> t1981_4, then the live verification t2243, the docs and ports, the retrospectives and t1655.",
+    "overview": "Since the last version t1981_5 (the related-work check, Step 3 Check 8), t1663_5 (premise docs) and t1981_6 (the obsolescence layer) landed, which closes wave 3 and the first half of wave 4. Three tasks joined: t2254 and t2255 came out of t1981_6, and t2243 is t1981_5's live verification.\n\nWhat can be picked now: t1981_7, the relations TUI. Its only dependency has landed and no in-flight work touches its surface. t2254 (an archive fix for the parent auto-archived in a --superseded/--obsolete child run) is already in flight on another session's lock; it should land before the docs and the retrospective.\n\nThe query tool chain still gates the rest: aitasks_go#93 (Ready, now with a plan) -> t2192 (Ready, no plan) -> t1981_2 -> t1981_4 -> t2243 and the docs (t1981_8, which also waits on t1981_7), the ports (t1981_9) and the retrospective (t1981_10). Starting #93 in the other repository is the only lever on that chain. t1655 still waits on the t1663 parent, which closes only after the data-gated t1663_6.\n\nRelations analysis is disabled in this repository, so the TUI's Obsolete tab will show nothing here until it is enabled and t1981_2 provides candidates.",
+    "method_note": "Deep refresh on 2026-11-09. Read: the drift verdict; the gatherer snapshot over 1981 1663 1655 2192 2243 2254 2255, with and without --with-inflight; the loaded version; the follow-up sweep for t1663_5, t1981_5 and t1981_6; the t2243 task file; the lock record of t2254; the statuses of the 12 excluded tasks (unchanged); the existence of aitasks_go's p93 plan and the absence of a p2192 plan; t1981_7's plan paths against the in-flight paths and the working tree. Carried over without re-reading: the open members' plans other than t1981_7 (digests refreshed), the earlier relations and the t1663_6/t1655 rationales. NOT verified: how large aitasks_go#93 is or whether work on it has started in a branch; t2192's real surface (no plan); whether t2254's fix changes any other caller of aitask_archive.sh; whether t1555_2's lock is held by a live session.",
+    "caveats": [
+      "Landed entries (t1663_1 to t1663_5, t2209, t1981_1, t1981_3, t1981_5, t1981_6) are kept in their waves with snapshot status Done; they are no longer gathered inputs.",
+      "Observed facts: depends edges, statuses, in-flight records and file existence come from the gatherer and direct checks. Agent judgement: wave boundaries, classifications, the advisory orderings (t2254 before t1981_8 and t1981_10, t1981_10 before t2255, the earlier ones), and the placement of the three new members."
+    ]
+  },
+  "waves": [
+    {
+      "wave_id": "w1",
+      "ordinal": 1,
+      "title": "Foundations: the premise engine and the relations store",
+      "purpose": "Lands the two pieces everything else reads: t1663_1's premise verdict engine and t1981_1's orphan-branch relations store. Both are mostly new files and share no edit surface with each other. Landed: both t1663_1 and t1981_1 are archived.",
+      "why_now": "Landed. Nothing is left to do in this wave.",
+      "consequence_of_delay": "Neither the premise check nor any relations consumer can start; Step 8e keeps choosing note recipients by judgement alone.",
+      "entries": [
+        {
+          "entry_id": "w1-t1663-1",
+          "task": "aitasks#1663_1",
+          "topic": "aitasks#1538",
+          "position": 1,
+          "classification": "core",
+          "snapshot": {
+            "status": "Done",
+            "priority": "medium",
+            "effort": "high",
+            "depends": [
+              "aitasks#1561",
+              "aitasks#1673"
+            ],
+            "gates_pending": []
+          },
+          "rationale": "Head of the premise chain. It only adds files, and both files are still confirmed absent. t1981_6 consumes its verdict as one obsolescence evidence row, so landing it first spares that child an 'unavailable' row. t1655 later swaps the roadmap onto it. Hard deps t1561 and t1673 are done. Plan p1663_1 exists but was not re-verified. Landed in 306241f3d (archived 2026-11-05): lib/task_premise.py and aitask_premise_stale.sh shipped; its archived plan records the protocol the later children consume.",
+          "confidence": "medium",
+          "evidence_refs": [
+            "snapshot",
+            "t1663-1-file",
+            "premise-files-check"
+          ],
+          "why_order_matters": "Every later t1663 child consumes the producer's output protocol."
+        },
+        {
+          "entry_id": "w1-t1981-1",
+          "task": "aitasks#1981_1",
+          "topic": "aitasks#1981",
+          "position": 2,
+          "classification": "core",
+          "snapshot": {
+            "status": "Done",
+            "depends": [],
+            "gates_pending": [],
+            "priority": "medium",
+            "effort": "high"
+          },
+          "rationale": "Landed (archived): the orphan-branch relations store and its read CLI. The relations store and its read CLI (D1-D3, D11 of the design doc). t1981_3 and t1981_5 build on it, and through them every other relations child. It mostly adds files. Its shared touch points are the `ait` dispatcher, CLAUDE.md and the five helper-whitelist touchpoints, which in-flight t2198 is also editing.",
+          "confidence": "high",
+          "evidence_refs": [
+            "snapshot",
+            "relations-doc",
+            "t1981-1-plan",
+            "drift-check"
+          ]
+        }
+      ]
+    },
+    {
+      "wave_id": "w2",
+      "ordinal": 2,
+      "title": "Premise baseline and seeding (with the file_references fix); the relations worker",
+      "purpose": "Gives the premise engine something to read (the premise_baseline field and its stamping at creation), and gives the relations store its producer: the spool, the single worker, the read-only headless analysis operation and the approval stamp. Landed: all four entries (t1663_2, t2209, t1663_3, t1981_3) are archived.",
+      "why_now": "Landed. Nothing is left to do in this wave.",
+      "entries": [
+        {
+          "entry_id": "w2-t1663-2",
+          "task": "aitasks#1663_2",
+          "topic": "aitasks#1538",
+          "position": 1,
+          "classification": "core",
+          "snapshot": {
+            "status": "Done",
+            "priority": "medium",
+            "effort": "medium",
+            "depends": [
+              "aitasks#1663_1"
+            ],
+            "gates_pending": []
+          },
+          "rationale": "Adds the premise_baseline field end to end (the aitask_update.sh writer and the aitask_merge.py merge rule). Hard-depends on t1663_1 and is required by t1663_3. Its aitask_update.sh edit overlaps the in-flight t1555_2. Landed in 08939395e (archived 2026-11-05): --premise-baseline in aitask_update.sh (full commit id, verified to exist; symbols rejected), the base-aware merge rule, and the shared lib/opaque_scalar.py helper.",
+          "confidence": "medium",
+          "evidence_refs": [
+            "t1663-2-file",
+            "t1663-2-commit"
+          ]
+        },
+        {
+          "entry_id": "w2-t2209",
+          "task": "aitasks#2209",
+          "topic": "aitasks#1538",
+          "position": 2,
+          "classification": "preferred_predecessor",
+          "snapshot": {
+            "status": "Done",
+            "depends": [],
+            "gates_pending": [],
+            "priority": "medium",
+            "effort": "low",
+            "followup_kind": "upstream_defect"
+          },
+          "rationale": "Landed (archived): the quoting-aware file_references reader and writer that t1663_3's seeding rests on. Upstream-defect follow-up of t1663_1. get_file_references() splits the flow list on commas, ignoring quoting, and format_yaml_list() writes it unquoted, so aitask_update.sh and aitask_create.sh round-trip file_references lossily. t1663_3 seeds premise_baseline on tasks created with --file-ref, and the premise check reads exactly that scope. Landing t2209 first means t1663_3 is planned and tested against the fixed writer. In flight (IMPLEMENT); its working-tree edits to task_utils.sh and yaml_utils.sh were uncommitted at check time.",
+          "confidence": "medium",
+          "why_order_matters": "t1663_3's creation-time seeding writes and reads file_references through the code t2209 changes.",
+          "evidence_refs": [
+            "t2209-file",
+            "t2209-plan",
+            "drift-check"
+          ]
+        },
+        {
+          "entry_id": "w2-t1663-3",
+          "task": "aitasks#1663_3",
+          "topic": "aitasks#1538",
+          "position": 3,
+          "classification": "core",
+          "snapshot": {
+            "status": "Done",
+            "depends": [
+              "aitasks#1663_2",
+              "aitasks#1673"
+            ],
+            "gates_pending": [],
+            "priority": "medium",
+            "effort": "low"
+          },
+          "rationale": "Landed (archived): premise_baseline is now seeded at creation and inherited on carry-over. Seeding on --file-ref / --verifies is the only organic coverage path for the premise check. It touches aitask_create.sh's batch-commit sites, where t1981_4 adds its creation hook; t1981_4's plan says to plan against this landed shape.",
+          "confidence": "medium",
+          "evidence_refs": [
+            "t1663-3-file",
+            "t1981-4-plan",
+            "drift-check"
+          ]
+        },
+        {
+          "entry_id": "w2-t1981-3",
+          "task": "aitasks#1981_3",
+          "topic": "aitasks#1981",
+          "position": 4,
+          "classification": "core",
+          "snapshot": {
+            "status": "Done",
+            "depends": [
+              "aitasks#1981_1"
+            ],
+            "gates_pending": [],
+            "priority": "medium",
+            "effort": "high"
+          },
+          "rationale": "Landed (archived 2026-11-08): the spool and single worker, the read-only headless `relations` op, `ait relations stamp` / `plan-digest` / `analysis-state` / `analyze`, the enqueue helper and setup activation (off by default). Its notes in the t1981_2, t1981_4 and t1981_5 Inboxes carry the protocols they consume. The worker, the spool, the read-only `relations` operation in aitask_codeagent.sh, `ait relations stamp` and `analysis-state`, plus the off-by-default configuration and the setup status line (D5, D7, D8 completeness). t1981_2, t1981_5 and t1981_6 depend on it. It edits aitask_codeagent.sh and aitask_setup.sh, both touched by in-flight tasks.",
+          "confidence": "medium",
+          "evidence_refs": [
+            "snapshot",
+            "t1981-3-plan",
+            "drift-check",
+            "t1981-inbox-notes"
+          ]
+        }
+      ]
+    },
+    {
+      "wave_id": "w3",
+      "ordinal": 3,
+      "title": "Pick-time checks: premise staleness, then related work",
+      "purpose": "Wires the two advisory task-workflow Step 3 checks: t1663_4's premise check, then t1981_5's related-work check (with its Step 8 re-check and the Step 8e notify flow), and the premise docs. Landed: t1663_4, t1981_5 and t1663_5 are archived.",
+      "why_now": "Landed. Nothing is left to do in this wave.",
+      "entries": [
+        {
+          "entry_id": "w3-t1663-4",
+          "task": "aitasks#1663_4",
+          "topic": "aitasks#1538",
+          "position": 1,
+          "classification": "core",
+          "snapshot": {
+            "status": "Done",
+            "depends": [
+              "aitasks#1663_3"
+            ],
+            "gates_pending": [
+              "risk_evaluated"
+            ],
+            "priority": "medium",
+            "effort": "high"
+          },
+          "rationale": "Landed (archived): the pick-time premise check shipped as task-workflow Step 3 Check 7 in 620039d7b ('Wire the advisory premise check into task-workflow Step 3 Check 7'), not as the Check 6 its body planned. t1663_5's docs and t1981_5's related-work check now build against the shipped neighbour.",
+          "confidence": "medium",
+          "evidence_refs": [
+            "relations-doc",
+            "snapshot-inflight",
+            "t1663-4-file"
+          ],
+          "why_order_matters": "t1981_5 adds the neighbouring related-work check and takes the next Step 3 number after this one."
+        },
+        {
+          "entry_id": "w3-t1981-5",
+          "task": "aitasks#1981_5",
+          "topic": "aitasks#1981",
+          "position": 2,
+          "classification": "core",
+          "snapshot": {
+            "status": "Done",
+            "depends": [
+              "aitasks#1981_1",
+              "aitasks#1981_3"
+            ],
+            "gates_pending": [],
+            "priority": "medium",
+            "effort": "high"
+          },
+          "rationale": "Landed (archived 2026-11-08, f87d4ef27): the related-work check shipped as task-workflow Step 3 Check 8, with the Step 8 re-check, Step 8e push and store-first /aitask-note. The consumer side of the design (D8). It covers the related-work check at pick time and again at the target's own Step 8, `notify-candidates` (impact-only confirmation and a direction guard), the Step 8e completeness flow and `/aitask-note` store-first. Both of its depends edges, t1981_1 and t1981_3, have landed and it is Implementing now (lock plus plan). It also coordinates with t2192's edits to the Related Task Discovery procedure, and a note recording that boundary is in t2192's Inbox. It writes a new related-work-check.md and edits aitask-note and task_relations.md, the surface t2192 later rewrites (see obs-t2192-surface-overlap).",
+          "confidence": "medium",
+          "evidence_refs": [
+            "snapshot",
+            "t1663-4-file",
+            "t1981-5-plan",
+            "t1981-inbox-notes"
+          ]
+        },
+        {
+          "entry_id": "w3-t1663-5",
+          "task": "aitasks#1663_5",
+          "topic": "aitasks#1538",
+          "position": 3,
+          "classification": "core",
+          "snapshot": {
+            "status": "Done",
+            "depends": [
+              "aitasks#1663_4"
+            ],
+            "gates_pending": [],
+            "priority": "medium",
+            "effort": "low"
+          },
+          "rationale": "Landed (archived): the premise-staleness website docs. Website docs written from what t1663_1 to t1663_4 actually shipped, so it has to follow them.",
+          "confidence": "high",
+          "evidence_refs": [
+            "snapshot"
+          ]
+        }
+      ]
+    },
+    {
+      "wave_id": "w4",
+      "ordinal": 4,
+      "title": "Obsolescence layer and the relations TUI",
+      "purpose": "Adds the second layer on the relations infrastructure (the obsolete score with reasons, never auto-actioned), then the human view of relations and obsolete tasks, plus the archive fix the obsolescence layer surfaced. Landed: t1981_6.",
+      "why_now": "t1981_7 depends only on t1981_6, which has landed, so it is pickable now; nothing in it waits on the query tool. t2254 is already in flight (lock) and edits aitask_archive.sh, which t1981_7 does not edit.",
+      "entries": [
+        {
+          "entry_id": "w4-t1981-6",
+          "task": "aitasks#1981_6",
+          "topic": "aitasks#1981",
+          "position": 1,
+          "classification": "core",
+          "snapshot": {
+            "status": "Done",
+            "depends": [
+              "aitasks#1981_3",
+              "aitasks#1981_5"
+            ],
+            "gates_pending": [],
+            "priority": "medium",
+            "effort": "high"
+          },
+          "rationale": "Landed (archived 2026-11-09, e9f3d85a8 / 95ba678ab). Evidence collector (deleted vs renamed paths, origin state including a new `## Revert Notes` reader, store relations, the t1663 premise verdict), the `obsolescence` operation, `ait obsolete`, dismissals, the landed trigger and `aitask_archive.sh --obsolete` (D9). It edits aitask_archive.sh; t2198, which also touched it, has landed.",
+          "confidence": "medium",
+          "evidence_refs": [
+            "snapshot",
+            "t1981-6-plan",
+            "t1663-1-file"
+          ]
+        },
+        {
+          "entry_id": "w4-t1981-7",
+          "task": "aitasks#1981_7",
+          "topic": "aitasks#1981",
+          "position": 2,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "depends": [
+              "aitasks#1981_6"
+            ],
+            "gates_pending": [
+              "risk_evaluated"
+            ],
+            "priority": "medium",
+            "effort": "medium"
+          },
+          "rationale": "The read-only relations TUI (two tabs), its switcher registration and the board detail field (D10). Its only dependency, t1981_6, has landed, so it is the one entry of this trail that can be picked now. The Obsolete tab reads context rows live (`ait obsolete evidence --json`); only signal rows are stored. t1981_6 sent it a note with that API.",
+          "confidence": "high",
+          "evidence_refs": [
+            "snapshot",
+            "t1981-6-plan",
+            "t1981-6-notes",
+            "snapshot-inflight"
+          ]
+        },
+        {
+          "entry_id": "w4-t2254",
+          "task": "aitasks#2254",
+          "topic": "aitasks#1981",
+          "position": 3,
+          "classification": "preferred_predecessor",
+          "snapshot": {
+            "status": "Implementing",
+            "depends": [],
+            "gates_pending": [
+              "risk_evaluated"
+            ],
+            "priority": "medium",
+            "effort": "low",
+            "followup_kind": "upstream_defect"
+          },
+          "rationale": "Upstream defect found by t1981_6: in the child flow, aitask_archive.sh applies a --superseded or --obsolete reason to the auto-archived parent too, so that parent reads as dropped and its landed trigger never fires. It should land before the docs (t1981_8) describe the archive and landed-trigger semantics, and before the retrospective (t1981_10) counts obsolescence dispositions.",
+          "confidence": "medium",
+          "evidence_refs": [
+            "snapshot-inflight",
+            "t2254-file",
+            "t1981-6-plan"
+          ],
+          "why_order_matters": "The docs and the retrospective read the archive's landed-trigger behaviour this fix changes."
+        }
+      ]
+    },
+    {
+      "wave_id": "w5",
+      "ordinal": 5,
+      "title": "Task-query framework integration, behind aitasks_go#93",
+      "purpose": "Makes the task-query engine usable from the framework: installs it, exposes it as an ait verb through a shim with a fallback, whitelists the helper, and wires it into the skills that search tasks today (/aitask-note, /aitask-trail, /aitask-create, the notify offer). It is the candidate provider's data source, so it sits in front of the candidate generator.",
+      "why_now": "t1981_2 hard-depends on t2192, so it must land before the candidates-and-triggers wave. t2192 has no dependency inside this repository but waits on aitasks_go#93 through xdeps. #93 is Ready and now has a plan file (aiplans/p93_task_query_engine.md); t2192 still has none. Its advisory predecessor t1981_5 has landed, so t2192 plans against the shipped Related Task Discovery and store-first /aitask-note surfaces.",
+      "consequence_of_delay": "Wave 6 (t1981_2, t1981_4 and, through them, the docs, ports and retrospective) cannot start. The relations worker keeps reporting CANDIDATES_UNAVAILABLE:no_provider, so analysis runs only by hand.",
+      "entries": [
+        {
+          "entry_id": "w5-t2192",
+          "task": "aitasks#2192",
+          "topic": "aitasks#2192",
+          "position": 1,
+          "classification": "hard_prerequisite",
+          "snapshot": {
+            "status": "Ready",
+            "depends": [],
+            "gates_pending": [
+              "risk_evaluated"
+            ],
+            "priority": "medium",
+            "effort": "high"
+          },
+          "rationale": "The framework half of the task-query engine (aitasks_go#93): extends the engine installer beyond ait-testmap, adds the ait verb and its shim with an absent-engine fallback, extends the helper whitelist, integrates /aitask-note, /aitask-trail, /aitask-create and the notify offer, and adds website docs. t1981_2's candidate generator reads cross-references through this shim. It has no plan file yet; its body names the scope but a plan may change the surface. Effort is high.",
+          "confidence": "medium",
+          "evidence_refs": [
+            "snapshot",
+            "t2192-file",
+            "go93-file",
+            "t1981-2-plan"
+          ],
+          "why_order_matters": "t1981_2 depends on it as a fact, and t1981_5 (in flight) edits the same Related Task Discovery surface, so t1981_5 goes first."
+        }
+      ]
+    },
+    {
+      "wave_id": "w6",
+      "ordinal": 6,
+      "title": "Candidates and triggers, after the query framework",
+      "purpose": "Brings in real candidate generation on the query shim t2192 adds, then the automatic creation, plan-approval and fold triggers, then the live verification of the Step 8e flow they complete. Only after these land does analysis run on its own, and even then only once a project enables it.",
+      "why_now": "t1981_2 hard-depends on t2192 (wave 5), so this wave starts only after the task-query framework integration lands, which itself waits on aitasks_go#93. Until t1981_2 lands, the worker reports CANDIDATES_UNAVAILABLE:no_provider for every job.",
+      "consequence_of_delay": "The store, worker, consumers and obsolescence layer exist, but analysis runs only by hand (`ait relations analyze`), and there is no D13.2 replay report on which to decide enabling it.",
+      "entries": [
+        {
+          "entry_id": "w6-t1981-2",
+          "task": "aitasks#1981_2",
+          "topic": "aitasks#1981",
+          "position": 1,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "depends": [
+              "aitasks#1981_3",
+              "aitasks#2192"
+            ],
+            "gates_pending": [
+              "risk_evaluated"
+            ],
+            "priority": "medium",
+            "effort": "medium"
+          },
+          "rationale": "The static candidate generator on t2192's shim (D6). It also runs the two offline replays, D13.1 and D13.2. The D13.2 report is what the user reads before enabling analysis in this repository.",
+          "confidence": "medium",
+          "evidence_refs": [
+            "snapshot",
+            "t1981-2-plan",
+            "t1981-inbox-notes",
+            "t2192-file"
+          ],
+          "why_order_matters": "t1981_4 waits on it on purpose: no automatic analysis before real candidates exist and the replay report is in."
+        },
+        {
+          "entry_id": "w6-t1981-4",
+          "task": "aitasks#1981_4",
+          "topic": "aitasks#1981",
+          "position": 2,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "depends": [
+              "aitasks#1981_2"
+            ],
+            "gates_pending": [
+              "risk_evaluated"
+            ],
+            "priority": "medium",
+            "effort": "medium"
+          },
+          "rationale": "The automatic triggers (D4): the creation hook at aitask_create.sh's four commit sites, `ait relations stamp` at plan approval (Step 7 and the approval-keeping stop reasons), `plan-digest` on Re-entry Routing, the fold hook, and the backfill sweep. By this point t1663_3's edits to the batch-commit path have long landed (wave 2).",
+          "confidence": "medium",
+          "evidence_refs": [
+            "snapshot",
+            "t1663-3-file",
+            "t1981-4-plan",
+            "t1981-inbox-notes"
+          ]
+        },
+        {
+          "entry_id": "w6-t2243",
+          "task": "aitasks#2243",
+          "topic": "aitasks#1981",
+          "position": 3,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "depends": [
+              "aitasks#1981_2",
+              "aitasks#1981_4"
+            ],
+            "gates_pending": [],
+            "priority": "medium",
+            "effort": "medium",
+            "followup_kind": "risk_mitigation"
+          },
+          "rationale": "t1981_5's risk-mitigation follow-up: a live manual verification of the Step 8e complete-path push flow. It hard-depends on t1981_2 (the static fallback) and t1981_4 (relations_expected_plan); until both land that flow is exercised only by fixtures.",
+          "confidence": "high",
+          "evidence_refs": [
+            "snapshot",
+            "t2243-file",
+            "followup-sweep"
+          ],
+          "why_order_matters": "It verifies the end-to-end path that only exists once t1981_2 and t1981_4 have landed."
+        }
+      ]
+    },
+    {
+      "wave_id": "w7",
+      "ordinal": 7,
+      "title": "Relations docs and ports",
+      "purpose": "Writes the user-facing website docs from what t1981_4 to t1981_7 shipped, and ports the skill changes to the other code-agent trees.",
+      "why_now": "Both depend on the shipped skill text and verbs, so they follow wave 5 and the TUI.",
+      "entries": [
+        {
+          "entry_id": "w7-t1981-8",
+          "task": "aitasks#1981_8",
+          "topic": "aitasks#1981",
+          "position": 1,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "depends": [
+              "aitasks#1981_4",
+              "aitasks#1981_5",
+              "aitasks#1981_6",
+              "aitasks#1981_7"
+            ],
+            "gates_pending": [
+              "risk_evaluated"
+            ],
+            "priority": "medium",
+            "effort": "low"
+          },
+          "rationale": "Website docs for `ait relations`, `ait obsolete`, the workflow changes and the TUI. It depends on t1981_4 to t1981_7.",
+          "confidence": "high",
+          "evidence_refs": [
+            "snapshot"
+          ]
+        },
+        {
+          "entry_id": "w7-t1981-9",
+          "task": "aitasks#1981_9",
+          "topic": "aitasks#1981",
+          "position": 2,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "depends": [
+              "aitasks#1981_4",
+              "aitasks#1981_5",
+              "aitasks#1981_6"
+            ],
+            "gates_pending": [
+              "risk_evaluated"
+            ],
+            "priority": "medium",
+            "effort": "low"
+          },
+          "rationale": "Ports the plan-approval stamp, the related-work check, Step 8e and `/aitask-note` store-first to the Codex/agy and OpenCode trees. The headless operation itself stays Claude-only in v1.",
+          "confidence": "high",
+          "evidence_refs": [
+            "snapshot"
+          ]
+        }
+      ]
+    },
+    {
+      "wave_id": "w8",
+      "ordinal": 8,
+      "title": "Retrospectives and parent closure",
+      "purpose": "Measures both mechanisms after real use, decides the deferred path-attribution question on that data, and closes the two parent tasks.",
+      "consequence_of_delay": "t1655 stays blocked, because it depends on the t1663 parent. t1981 stays open as a parent with pending children.",
+      "entries": [
+        {
+          "entry_id": "w8-t1663-6",
+          "task": "aitasks#1663_6",
+          "topic": "aitasks#1538",
+          "position": 1,
+          "classification": "optional",
+          "snapshot": {
+            "status": "Ready",
+            "depends": [
+              "aitasks#1663_5"
+            ],
+            "gates_pending": [
+              "risk_evaluated"
+            ],
+            "priority": "low",
+            "effort": "low"
+          },
+          "rationale": "Needs at least 4 weeks or 20 seeded-task picks of live data, so it cannot follow wave 3 immediately. An audit-only outcome is a valid result.",
+          "confidence": "medium",
+          "evidence_refs": [
+            "snapshot"
+          ]
+        },
+        {
+          "entry_id": "w8-t1663",
+          "task": "aitasks#1663",
+          "topic": "aitasks#1538",
+          "position": 2,
+          "classification": "coordination_only",
+          "snapshot": {
+            "status": "Ready",
+            "depends": [
+              "aitasks#1561"
+            ],
+            "gates_pending": [
+              "risk_evaluated"
+            ],
+            "priority": "medium",
+            "effort": "high"
+          },
+          "rationale": "Parent container with no work of its own. It archives when its children finish, and that is the event t1655 waits on.",
+          "confidence": "high",
+          "evidence_refs": [
+            "snapshot"
+          ]
+        },
+        {
+          "entry_id": "w8-t1981-10",
+          "task": "aitasks#1981_10",
+          "topic": "aitasks#1981",
+          "position": 3,
+          "classification": "optional",
+          "snapshot": {
+            "status": "Ready",
+            "depends": [
+              "aitasks#1981_8",
+              "aitasks#1981_9"
+            ],
+            "gates_pending": [
+              "risk_evaluated"
+            ],
+            "priority": "low",
+            "effort": "low"
+          },
+          "rationale": "The relations retrospective (D13.3). It needs the layer enabled for at least 4 weeks or 100 records. It decides the deferred questions, including the off-by-default setting, stale-relation handling and whether a retained review is needed. An audit-only outcome is valid.",
+          "confidence": "medium",
+          "evidence_refs": [
+            "snapshot",
+            "relations-doc"
+          ]
+        },
+        {
+          "entry_id": "w8-t2255",
+          "task": "aitasks#2255",
+          "topic": "aitasks#1981",
+          "position": 4,
+          "classification": "optional",
+          "snapshot": {
+            "status": "Ready",
+            "depends": [],
+            "gates_pending": [
+              "risk_evaluated"
+            ],
+            "priority": "low",
+            "effort": "medium"
+          },
+          "rationale": "Deferred from t1981_6: attributing a deleted or renamed path to the task's current citation, so path rows can become obsolescence signal (in v1 they are context only). Promoting rows changes evidence_digest for many tasks, so it is best decided on the retrospective's data; t1981_6 measured 75 path rows over 544 tasks, all context.",
+          "confidence": "medium",
+          "evidence_refs": [
+            "t2255-file",
+            "t1981-6-plan"
+          ]
+        },
+        {
+          "entry_id": "w8-t1981",
+          "task": "aitasks#1981",
+          "topic": "aitasks#1981",
+          "position": 5,
+          "classification": "coordination_only",
+          "snapshot": {
+            "status": "Ready",
+            "depends": [],
+            "gates_pending": [
+              "risk_evaluated"
+            ],
+            "priority": "medium",
+            "effort": "high"
+          },
+          "rationale": "Its design work is done: aidocs/framework/task_relations.md is committed and the task decomposed into t1981_1 to t1981_10. It is now a parent container that archives when its last child lands. It still owns this trail.",
+          "confidence": "high",
+          "evidence_refs": [
+            "snapshot",
+            "t1981-file",
+            "relations-doc"
+          ]
+        }
+      ]
+    },
+    {
+      "wave_id": "w9",
+      "ordinal": 9,
+      "title": "Roadmap adopts the shared premise engine",
+      "purpose": "Retires the deliberately temporary lib/roadmap_premise.py by moving the background-work roadmap onto t1663_1's engine, so the framework keeps one premise-staleness mechanism.",
+      "why_now": "Its depends edge on t1663 places it after the whole premise tree. Its real need, t1663_1, has landed, so narrowing that edge would let it move earlier.",
+      "entries": [
+        {
+          "entry_id": "w9-t1655",
+          "task": "aitasks#1655",
+          "topic": "aitasks#1569",
+          "position": 1,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "depends": [
+              "aitasks#1561",
+              "aitasks#1569_5",
+              "aitasks#1663"
+            ],
+            "gates_pending": [],
+            "priority": "medium",
+            "effort": "medium",
+            "followup_kind": "carry_over"
+          },
+          "rationale": "Without it the roadmap keeps a second staleness mechanism, which its own PublicSurfaceTests guard exists to stop becoming permanent. roadmap_premise.py is still present, so the premise holds.",
+          "confidence": "medium",
+          "evidence_refs": [
+            "t1655-file",
+            "premise-files-check"
+          ]
+        }
+      ]
+    }
+  ],
+  "relations": [
+    {
+      "from": "aitasks#1663_1",
+      "to": "aitasks#1663_2",
+      "type": "hard_depends",
+      "provenance": "fact"
+    },
+    {
+      "from": "aitasks#1663_2",
+      "to": "aitasks#1663_3",
+      "type": "hard_depends",
+      "provenance": "fact"
+    },
+    {
+      "from": "aitasks#1663_3",
+      "to": "aitasks#1663_4",
+      "type": "hard_depends",
+      "provenance": "fact"
+    },
+    {
+      "from": "aitasks#1663_4",
+      "to": "aitasks#1663_5",
+      "type": "hard_depends",
+      "provenance": "fact"
+    },
+    {
+      "from": "aitasks#1663_5",
+      "to": "aitasks#1663_6",
+      "type": "hard_depends",
+      "provenance": "fact"
+    },
+    {
+      "from": "aitasks#1663",
+      "to": "aitasks#1655",
+      "type": "hard_depends",
+      "provenance": "fact"
+    },
+    {
+      "from": "aitasks#1981_1",
+      "to": "aitasks#1981_3",
+      "type": "hard_depends",
+      "provenance": "fact"
+    },
+    {
+      "from": "aitasks#1981_3",
+      "to": "aitasks#1981_2",
+      "type": "hard_depends",
+      "provenance": "fact"
+    },
+    {
+      "from": "aitasks#1981_2",
+      "to": "aitasks#1981_4",
+      "type": "hard_depends",
+      "provenance": "fact"
+    },
+    {
+      "from": "aitasks#1981_1",
+      "to": "aitasks#1981_5",
+      "type": "hard_depends",
+      "provenance": "fact"
+    },
+    {
+      "from": "aitasks#1981_3",
+      "to": "aitasks#1981_5",
+      "type": "hard_depends",
+      "provenance": "fact"
+    },
+    {
+      "from": "aitasks#1981_3",
+      "to": "aitasks#1981_6",
+      "type": "hard_depends",
+      "provenance": "fact"
+    },
+    {
+      "from": "aitasks#1981_5",
+      "to": "aitasks#1981_6",
+      "type": "hard_depends",
+      "provenance": "fact"
+    },
+    {
+      "from": "aitasks#1981_6",
+      "to": "aitasks#1981_7",
+      "type": "hard_depends",
+      "provenance": "fact"
+    },
+    {
+      "from": "aitasks#1981_4",
+      "to": "aitasks#1981_8",
+      "type": "hard_depends",
+      "provenance": "fact"
+    },
+    {
+      "from": "aitasks#1981_5",
+      "to": "aitasks#1981_8",
+      "type": "hard_depends",
+      "provenance": "fact"
+    },
+    {
+      "from": "aitasks#1981_6",
+      "to": "aitasks#1981_8",
+      "type": "hard_depends",
+      "provenance": "fact"
+    },
+    {
+      "from": "aitasks#1981_7",
+      "to": "aitasks#1981_8",
+      "type": "hard_depends",
+      "provenance": "fact"
+    },
+    {
+      "from": "aitasks#1981_4",
+      "to": "aitasks#1981_9",
+      "type": "hard_depends",
+      "provenance": "fact"
+    },
+    {
+      "from": "aitasks#1981_5",
+      "to": "aitasks#1981_9",
+      "type": "hard_depends",
+      "provenance": "fact"
+    },
+    {
+      "from": "aitasks#1981_6",
+      "to": "aitasks#1981_9",
+      "type": "hard_depends",
+      "provenance": "fact"
+    },
+    {
+      "from": "aitasks#1981_8",
+      "to": "aitasks#1981_10",
+      "type": "hard_depends",
+      "provenance": "fact"
+    },
+    {
+      "from": "aitasks#1981_9",
+      "to": "aitasks#1981_10",
+      "type": "hard_depends",
+      "provenance": "fact"
+    },
+    {
+      "from": "aitasks#1981",
+      "to": "aitasks#1663",
+      "type": "coordinates_with",
+      "provenance": "fact",
+      "note": "t1981's Related tasks section: premise staleness is the needs-refresh axis; coordinate, do not duplicate. The design doc keeps the boundary (D9)."
+    },
+    {
+      "from": "aitasks#1663_1",
+      "to": "aitasks#1981_6",
+      "type": "informs",
+      "provenance": "fact",
+      "note": "The design doc (D9) consumes t1663's premise verdict as one obsolescence evidence row, 'unavailable' until t1663_1 lands."
+    },
+    {
+      "from": "aitasks#1663_1",
+      "to": "aitasks#1655",
+      "type": "informs",
+      "provenance": "fact",
+      "note": "t1663_1's description says its core generalizes roadmap_premise.py so that t1655 can swap onto it."
+    },
+    {
+      "from": "aitasks#1663_4",
+      "to": "aitasks#1981_5",
+      "type": "advisory_precedes",
+      "provenance": "advisory",
+      "note": "Both add a Step 3 check after Check 6; landing the premise check first lets the related-work check take the next number against a shipped neighbour."
+    },
+    {
+      "from": "aitasks#1663_3",
+      "to": "aitasks#1981_4",
+      "type": "advisory_precedes",
+      "provenance": "advisory",
+      "note": "Both edit aitask_create.sh's batch-commit sites; t1981_4's plan says to plan against t1663_3's landed shape."
+    },
+    {
+      "from": "aitasks#2209",
+      "to": "aitasks#1663_3",
+      "type": "advisory_precedes",
+      "provenance": "advisory",
+      "note": "t1663_3 seeds premise_baseline on --file-ref creation; t2209 fixes the file_references reader and writer that path uses."
+    },
+    {
+      "from": "aitasks#2192",
+      "to": "aitasks#1981_2",
+      "type": "hard_depends",
+      "provenance": "fact"
+    },
+    {
+      "from": "aitasks#1981_5",
+      "to": "aitasks#2192",
+      "type": "advisory_precedes",
+      "provenance": "advisory",
+      "note": "t1981_5 is Implementing and writes the related-work check, aitask-note and task_relations.md; t2192 rewrites /aitask-note Related Task Discovery. Landing t1981_5 first lets t2192 plan against the shipped shape."
+    },
+    {
+      "type": "hard_depends",
+      "from": "aitasks#1981_2",
+      "to": "aitasks#2243",
+      "provenance": "fact"
+    },
+    {
+      "type": "hard_depends",
+      "from": "aitasks#1981_4",
+      "to": "aitasks#2243",
+      "provenance": "fact"
+    },
+    {
+      "type": "advisory_precedes",
+      "from": "aitasks#2254",
+      "to": "aitasks#1981_8",
+      "provenance": "advisory"
+    },
+    {
+      "type": "advisory_precedes",
+      "from": "aitasks#2254",
+      "to": "aitasks#1981_10",
+      "provenance": "advisory"
+    },
+    {
+      "type": "advisory_precedes",
+      "from": "aitasks#1981_10",
+      "to": "aitasks#2255",
+      "provenance": "advisory"
+    }
+  ],
+  "observations": [
+    {
+      "observation_id": "obs-update-sh-overlap",
+      "kind": "in_flight_conflict",
+      "statement": "t1663_2 has landed (08939395e), so its aitask_update.sh overlap with t1555_2 is resolved on this trail's side. t1555_2 is still in flight on the lock source only (no gate ledger) as of this refresh, which reads as a stale claim. Whoever resumes it must rebase onto the premise_baseline positional (36) in write_task_file.",
+      "affects": [
+        "aitasks#1663_2",
+        "aitasks#1555_2"
+      ],
+      "evidence_refs": [
+        "snapshot-inflight",
+        "t1663-2-commit"
+      ]
+    },
+    {
+      "observation_id": "obs-t1655-depends-parent",
+      "kind": "other",
+      "statement": "t1655 depends on the t1663 parent, which closes only after the optional t1663_6 retrospective, and that needs at least 4 weeks of live data. Its stated need is the t1663_1 engine, which has now landed. Narrowing the edge to t1663_1 would make t1655 pickable immediately. That is the user's decision, and this trail does not change it.",
+      "affects": [
+        "aitasks#1655",
+        "aitasks#1663",
+        "aitasks#1663_1"
+      ],
+      "evidence_refs": [
+        "t1655-file",
+        "t1663-1-file"
+      ]
+    },
+    {
+      "observation_id": "obs-t2192-external",
+      "kind": "external_dependency",
+      "statement": "t1981_2 hard-depends on t2192 (the framework side of the task-query engine), wave 5. t2192 has no dependency inside this repository, but it is Ready, not started and has no plan, and it waits on aitasks_go#93 through xdeps. #93 is Ready and now has a plan file (observed 2026-11-09). So t1981_2, t1981_4, t2243 and, transitively, t1981_8, t1981_9 and t1981_10 wait on that cross-repo chain. The store, worker, consumption, obsolescence layer and TUI do not. Until t1981_2 lands the worker fails every job with CANDIDATES_UNAVAILABLE:no_provider.",
+      "affects": [
+        "aitasks#2192",
+        "aitasks#1981_2",
+        "aitasks#1981_4",
+        "aitasks#2243"
+      ],
+      "evidence_refs": [
+        "snapshot",
+        "t2192-file",
+        "go93-file",
+        "t1981-3-plan"
+      ]
+    },
+    {
+      "observation_id": "obs-candidate-contract",
+      "kind": "other",
+      "statement": "t1981_3 fixed the candidate-provider contract in code (lib/relation_candidates_contract.py): one JSON object on stdout, a --snapshot manifest under which a stamped task's plan is read at its approval commit, and digest echoes the worker verifies. t1981_2 must honour that snapshot for plan-derived signals, which may need changes on t2192's shim if its engine indexes working-tree plans. The handoff is in t1981_2's Inbox.",
+      "affects": [
+        "aitasks#1981_2",
+        "aitasks#1981_3"
+      ],
+      "evidence_refs": [
+        "t1981-3-plan",
+        "t1981-inbox-notes",
+        "t2192-file"
+      ]
+    },
+    {
+      "observation_id": "obs-t2192-surface-overlap",
+      "kind": "shared_surface_collision",
+      "statement": "Resolved by landing: t1981_5 shipped the related-work check, task_relations.md D8 and store-first /aitask-note (f87d4ef27). t2192's scope rewrites /aitask-note Related Task Discovery, so it plans against that shipped text. t2192 has no plan, so its own surface is still judged from its task description only.",
+      "affects": [
+        "aitasks#1981_5",
+        "aitasks#2192"
+      ],
+      "evidence_refs": [
+        "t1981-5-plan",
+        "t2192-file"
+      ]
+    },
+    {
+      "observation_id": "obs-t2254-inflight",
+      "kind": "in_flight_conflict",
+      "statement": "t2254 is in flight on a lock (taken 2026-11-09 11:37 local, host omg16) as of this refresh. Its declared surface is aitask_archive.sh, which carries t1981_6's landed trigger and --obsolete. No other open member edits aitask_archive.sh; t1981_7's plan only names it.",
+      "affects": [
+        "aitasks#2254",
+        "aitasks#1981_6"
+      ],
+      "evidence_refs": [
+        "snapshot-inflight",
+        "t2254-file"
+      ]
+    },
+    {
+      "observation_id": "obs-relations-disabled",
+      "kind": "other",
+      "statement": "Relations analysis is disabled in this repository (RELATIONS_STATE:disabled). t1981_6 measured the obsolescence evidence over 544 pending tasks: 0 signal rows, so a sweep would make no LLM call and t1981_7's Obsolete tab will show no assessments here until analysis is enabled and t1981_2 provides candidates. Fixtures, not this repository's data, will exercise the TUI's populated states.",
+      "affects": [
+        "aitasks#1981_7",
+        "aitasks#1981_10"
+      ],
+      "evidence_refs": [
+        "t1981-6-plan"
+      ]
+    }
+  ],
+  "exclusions": [
+    {
+      "task": "aitasks#1553",
+      "reason_code": "unrelated",
+      "reason": "Bug in aitask_revert_analyze.sh's change surface; it shares topic 1538 only."
+    },
+    {
+      "task": "aitasks#1555",
+      "reason_code": "non_blocking",
+      "reason": "Manual-verification staleness pre-check, a sibling mechanism on verification_baseline. t1663 keeps its own field and runs Check 6 for Ready tasks only, so neither blocks the other."
+    },
+    {
+      "task": "aitasks#1555_2",
+      "reason_code": "non_blocking",
+      "reason": "Still Implementing under a lock from 2026-08-18 with no commits (a stale claim). Its only edit overlap with this trail was aitask_update.sh, which t1663_2 has now landed; see obs-update-sh-overlap."
+    },
+    {
+      "task": "aitasks#1555_3",
+      "reason_code": "non_blocking",
+      "reason": "Wires the manual-verification pre-check into that procedure; no edge to any member."
+    },
+    {
+      "task": "aitasks#1555_4",
+      "reason_code": "non_blocking",
+      "reason": "Manual verification of the t1555 tree; no edge to any member."
+    },
+    {
+      "task": "aitasks#1569",
+      "reason_code": "non_blocking",
+      "reason": "Background-work roadmap parent. t1655's prerequisite t1569_5 is already archived; only a manual-verification child remains."
+    },
+    {
+      "task": "aitasks#1569_7",
+      "reason_code": "non_blocking",
+      "reason": "Manual verification of the roadmap; t1655 does not depend on it."
+    },
+    {
+      "task": "aitasks#1634",
+      "reason_code": "non_blocking",
+      "reason": "Fold-candidate clustering for the roadmap. The relations design leaves fold consumption of `duplicates` relations to the t1981 retrospective (D8), so no child depends on it."
+    },
+    {
+      "task": "aitasks#1635",
+      "reason_code": "non_blocking",
+      "reason": "Normalizes verifies: id shapes. t1663_3's Tier B seeding uses --verifies at creation, and t1981_2's candidate generation reads cross-references through t2192's shim, but neither depends on it."
+    },
+    {
+      "task": "aitasks#1649",
+      "reason_code": "unrelated",
+      "reason": "Availability time-series follow-up for the parallel_admission checker (t1643); shares topic 1569 only."
+    },
+    {
+      "task": "aitasks#1827",
+      "reason_code": "unrelated",
+      "reason": "Claim-time bracket follow-up for t1824's task_declared precision study; shares topic 1569 only."
+    },
+    {
+      "task": "aitasks#2237",
+      "reason_code": "non_blocking",
+      "reason": "Low-priority setup ordering bug spawned from t1981_3 (setup commits metadata writes before the venv exists). No member depends on it; it joined topic 1981 through its followup_of link."
+    }
+  ],
+  "evidence": [
+    {
+      "evidence_id": "snapshot",
+      "source_type": "command_output",
+      "ref": "./.aitask-scripts/aitask_trail_gather.sh snapshot --scope task --owner aitasks#1981 --allow-archived-owner 1981 1663 1655 2192 2243 2254 2255",
+      "observed_at": "2026-11-09T09:58:00Z",
+      "summary": "14 live members (t1663_5, t1981_5, t1981_6 now archived; t2243, t2254, t2255 joined), owner aitasks#1981, digest ea779f97f1b90cac."
+    },
+    {
+      "evidence_id": "snapshot-inflight",
+      "source_type": "command_output",
+      "ref": "./.aitask-scripts/aitask_trail_gather.sh snapshot --scope task --owner aitasks#1981 --allow-archived-owner --with-inflight 1981 1663 1655 2192 2243 2254 2255",
+      "observed_at": "2026-11-09T09:58:00Z",
+      "summary": "11 in-flight tasks (t1555_2, t1576, t1697, t2037_4, t2186, t2211_9, t2246, t2249, t2252, t2254, t259), both enumeration sources ok, corpus extractable. Member t2254 is in flight on a lock; its declared surface is aitask_archive.sh. No in-flight tracked path matched t1981_7's planned surface."
+    },
+    {
+      "evidence_id": "premise-files-check",
+      "source_type": "command_output",
+      "ref": "ls .aitask-scripts/lib/task_premise.py .aitask-scripts/aitask_premise_stale.sh .aitask-scripts/lib/roadmap_premise.py",
+      "observed_at": "2026-11-05T09:37:55Z",
+      "summary": "task_premise.py and aitask_premise_stale.sh exist (t1663_1 landed); roadmap_premise.py still exists, as t1655 has not landed."
+    },
+    {
+      "evidence_id": "t1981-file",
+      "source_type": "task_file",
+      "ref": "aitasks/t1981_task_relations_and_obsolescence_design.md",
+      "observed_at": "2026-11-04T14:00:28Z",
+      "summary": "Ready parent with children_to_implement t1981_1 to t1981_10; design settled and committed."
+    },
+    {
+      "evidence_id": "relations-doc",
+      "source_type": "command_output",
+      "ref": "git show 5026118e2:aidocs/framework/task_relations.md",
+      "observed_at": "2026-11-04T14:00:28Z",
+      "summary": "The settled design (commit 5026118e2): D1-D13 and the implementation tree of 10 children with their dependency edges."
+    },
+    {
+      "evidence_id": "t1981-1-plan",
+      "source_type": "plan_file",
+      "ref": "aiplans/archived/p1981/p1981_1_relations_store_and_cli.md",
+      "observed_at": "2026-11-04T14:00:28Z",
+      "summary": "New lib/orphan_ref_store.py, lib/relations_store.py, schema module and aitask_relations.sh; ait dispatch, helper-whitelist touchpoints, CLAUDE.md pointer."
+    },
+    {
+      "evidence_id": "t1981-2-plan",
+      "source_type": "plan_file",
+      "ref": "aiplans/p1981/p1981_2_relation_candidate_generator.md",
+      "observed_at": "2026-11-04T14:00:28Z",
+      "summary": "Candidate generator on t2192's shim; D13.1 and D13.2 replays, with the report recorded in the plan."
+    },
+    {
+      "evidence_id": "t1981-3-plan",
+      "source_type": "plan_file",
+      "ref": "aiplans/archived/p1981/p1981_3_relations_worker_and_analysis.md",
+      "observed_at": "2026-11-04T14:00:28Z",
+      "summary": "Edits aitask_codeagent.sh (relations and obsolescence ops), aitask_setup.sh (RELATIONS line), codeagent_config and project_config; adds the enqueue helper, worker, stamp and analysis-state."
+    },
+    {
+      "evidence_id": "t1981-4-plan",
+      "source_type": "plan_file",
+      "ref": "aiplans/p1981/p1981_4_relations_triggers.md",
+      "observed_at": "2026-11-04T14:00:28Z",
+      "summary": "Creation hook at aitask_create.sh's four commit sites (plan against t1663_3 if landed), stamp at Step 7 and plan-approved-stop, plan-digest on Re-entry Routing, fold hook, sweep."
+    },
+    {
+      "evidence_id": "t1981-5-plan",
+      "source_type": "plan_file",
+      "ref": "aiplans/archived/p1981/p1981_5_relations_consumption.md",
+      "observed_at": "2026-11-04T14:00:28Z",
+      "summary": "Related-work procedure at Step 3 and Step 8, notify-candidates, Step 8e completeness flow, /aitask-note store-first; coordinates with t1663_4 and t2192."
+    },
+    {
+      "evidence_id": "t1981-6-plan",
+      "source_type": "plan_file",
+      "ref": "aiplans/archived/p1981/p1981_6_obsolescence_layer.md",
+      "observed_at": "2026-11-09T09:58:00Z",
+      "summary": "Archived plan: evidence collector, obsolescence job, landed trigger, ait obsolete, pick-time band; Final Implementation Notes carry the 544-task measurement (0 signal rows), the upstream defect (t2254) and the deferred path attribution (t2255)."
+    },
+    {
+      "evidence_id": "t2192-file",
+      "source_type": "task_file",
+      "ref": "aitasks/t2192_task_query_framework_integration.md",
+      "observed_at": "2026-11-09T09:58:00Z",
+      "summary": "Ready, depends [], xdeps [93] on aitasks_go; framework shim, installer, skill integration and docs for the task-query engine. Still no plan file (aiplans has no p2192)."
+    },
+    {
+      "evidence_id": "t1663-1-file",
+      "source_type": "task_file",
+      "ref": "aitasks/archived/t1663/t1663_1_premise_core_engine_and_producer.md",
+      "observed_at": "2026-11-05T09:37:55Z",
+      "summary": "Archived Done (2026-11-05 08:23); risk_mitigation_tasks [1673], which is archived Done. Landed in 306241f3d."
+    },
+    {
+      "evidence_id": "t1663-2-file",
+      "source_type": "task_file",
+      "ref": "aitasks/archived/t1663/t1663_2_premise_baseline_field_end_to_end.md",
+      "observed_at": "2026-11-05T09:37:55Z",
+      "summary": "Archived Done (2026-11-05); no risk_mitigation_tasks; no task verifies it."
+    },
+    {
+      "evidence_id": "t1663-3-file",
+      "source_type": "task_file",
+      "ref": "aitasks/archived/t1663/t1663_3_creation_time_seeding_and_carryover.md",
+      "observed_at": "2026-11-04T06:09:12Z",
+      "summary": "Seeds premise_baseline in aitask_create.sh's --batch --commit path on --file-ref or --verifies."
+    },
+    {
+      "evidence_id": "t1663-4-file",
+      "source_type": "task_file",
+      "ref": "aitasks/t1663/t1663_4_workflow_check6_premise_procedure.md",
+      "observed_at": "2026-11-08T10:00:26Z",
+      "summary": "Archived at aitasks/archived/t1663/t1663_4_workflow_check6_premise_procedure.md; landed in commit 620039d7b as Step 3 Check 7."
+    },
+    {
+      "evidence_id": "t1655-file",
+      "source_type": "task_file",
+      "ref": "aitasks/t1655_adopt_t1561_staleness_in_roadmap_premise.md",
+      "observed_at": "2026-11-04T06:09:12Z",
+      "summary": "Replace roadmap_premise.py's baseline_for and check with the shared mechanism and delete the module; depends on 1561, t1569_5 and 1663."
+    },
+    {
+      "evidence_id": "t1663-2-commit",
+      "source_type": "command_output",
+      "ref": "git show --stat 08939395e",
+      "observed_at": "2026-11-05T09:37:55Z",
+      "summary": "feature: Add the premise_baseline frontmatter field end to end (t1663_2): aitask_update.sh, board/aitask_merge.py, new lib/opaque_scalar.py, tests and doc surfaces (24 files)."
+    },
+    {
+      "evidence_id": "t2209-file",
+      "source_type": "task_file",
+      "ref": "aitasks/archived/t2209_fix_file_references_comma_split_and_unquoted_writer.md",
+      "observed_at": "2026-11-05T09:37:55Z",
+      "summary": "Implementing; followup_kind upstream_defect; anchor 1538; spawned from t1663_1's Step 8b; no depends."
+    },
+    {
+      "evidence_id": "t2209-plan",
+      "source_type": "plan_file",
+      "ref": "aiplans/archived/p2209_fix_file_references_comma_split_and_unquoted_writer.md",
+      "observed_at": "2026-11-05T09:37:55Z",
+      "summary": "Reader get_file_references() comma-split and writer format_yaml_list() unquoted; aitask_update.sh re-serializes file_references on every update; fix spans task_utils.sh, yaml_utils.sh and task_yaml.py."
+    },
+    {
+      "evidence_id": "t1981-plans-unchanged",
+      "source_type": "command_output",
+      "ref": "TZ=UTC ./ait git log --since=2026-11-04T13:00:00Z -- aiplans/p1981 aiplans/p1981_task_relations_and_obsolescence_design.md",
+      "observed_at": "2026-11-05T09:37:55Z",
+      "summary": "Last commits to the t1981 plans are 13:28Z-13:41Z on 2026-11-04, before the previous version (14:00:28Z); nothing uncommitted. The drift check's 'other' reason was the conservative residual flag triggered by p1663_1 moving to the archive."
+    },
+    {
+      "evidence_id": "drift-check",
+      "source_type": "command_output",
+      "ref": "./.aitask-scripts/aitask_trail_gather.sh drift --trail art:trail-task-relations-and-premise",
+      "observed_at": "2026-11-09T09:58:00Z",
+      "summary": "STALE: t1663_5, t1981_5 and t1981_6 completed and archived; p1981_5 no longer readable at its old path; new topic tasks t2243, t2254, t2255; residual 'other' on the open t1981 plans."
+    },
+    {
+      "evidence_id": "followup-sweep",
+      "source_type": "command_output",
+      "ref": "grep '^risk_mitigation_tasks' on archived t1663_5, t1981_5, t1981_6; verifies sweep (grep -rl '^verifies:' aitasks + per-file confirm) for each",
+      "observed_at": "2026-11-09T09:58:00Z",
+      "summary": "t1981_5 records risk_mitigation_tasks [2243]; t1663_5 and t1981_6 record none; no task verifies any of the three; every sweep exited 0."
+    },
+    {
+      "evidence_id": "t2237-file",
+      "source_type": "task_file",
+      "ref": "aitasks/t2237_setup_python_question_commit_ordering.md",
+      "observed_at": "2026-11-08T08:56:30Z",
+      "summary": "Upstream-defect follow-up of t1981_3 (setup commits metadata before the venv exists); depends [], status Ready, priority low."
+    },
+    {
+      "evidence_id": "t1981-inbox-notes",
+      "source_type": "command_output",
+      "ref": "./ait note 1981_2|1981_4|1981_5 --from 1981_3 (NOTE_APPENDED 2026-11-08T08:47Z)",
+      "observed_at": "2026-11-08T08:56:30Z",
+      "summary": "t1981_3 handed the candidate-provider contract to t1981_2, and the stamp/plan-digest/enqueue and analysis-state protocols to t1981_4 and t1981_5."
+    },
+    {
+      "evidence_id": "go93-file",
+      "source_type": "task_file",
+      "ref": "aitasks_go:aitasks/t93_task_query_engine.md (read via ait projects exec aitasks_go)",
+      "observed_at": "2026-11-09T09:58:00Z",
+      "summary": "Ready, depends []; builds the Go task-query engine in goengines/. A plan file now exists: aiplans/p93_task_query_engine.md."
+    },
+    {
+      "evidence_id": "t2243-file",
+      "source_type": "task_file",
+      "ref": "aitasks/t2243_relations_consumption_live_verification.md",
+      "observed_at": "2026-11-09T09:58:00Z",
+      "summary": "manual_verification, followup_kind risk_mitigation of t1981_5, depends [1981_2, 1981_4]: live verification of the Step 8e complete-path push flow."
+    },
+    {
+      "evidence_id": "t2254-file",
+      "source_type": "task_file",
+      "ref": "aitasks/t2254_archive_child_flow_reason_leaks_to_parent.md",
+      "observed_at": "2026-11-09T09:58:00Z",
+      "summary": "bug, followup_kind upstream_defect of t1981_6, Implementing: the child flow applies --superseded/--obsolete to the auto-archived parent."
+    },
+    {
+      "evidence_id": "t2255-file",
+      "source_type": "task_file",
+      "ref": "aitasks/t2255_obsolescence_attribute_path_events_to_citation.md",
+      "observed_at": "2026-11-09T09:58:00Z",
+      "summary": "feature, anchor 1981, low priority: attribute path events to the current citation so attributable path rows can become signal."
+    },
+    {
+      "evidence_id": "t1981-6-notes",
+      "source_type": "command_output",
+      "ref": "./ait note 1981_7|1981_9 --from 1981_6 (NOTE_APPENDED 2026-11-09T09:16-09:17Z)",
+      "observed_at": "2026-11-09T09:58:00Z",
+      "summary": "t1981_6 sent t1981_7 the obsolescence read API (context rows are live, never stored) and t1981_9 the related-work-check.md porting delta."
+    }
+  ],
+  "rendering_hints": {
+    "depth": "deep"
+  }
+}
