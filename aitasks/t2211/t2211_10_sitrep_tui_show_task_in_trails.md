@@ -3,12 +3,13 @@ priority: medium
 effort: high
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [sitrep, tui, trails]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 2175
 created_at: 2026-11-09 10:11
-updated_at: 2026-11-09 10:11
+updated_at: 2026-11-09 17:44
 ---
 
 ## Context
