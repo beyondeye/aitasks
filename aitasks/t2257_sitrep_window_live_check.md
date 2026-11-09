@@ -40,3 +40,12 @@ upgrade hook reaches outside its tree. The matching `## Risk` bullet:
 Confirm live that t2246's restart procedure works: against the real
 pre-change server, in the agent-sitrep window, and through a real
 `ait upgrade`.
+
+## Verification Checklist
+
+- [ ] `ait monitor --server-status` lists this tmux server's status server with its pid, start time, version and script (before the restart, the 2026-11-06 server, pid 3870908, if it is still running)
+- [ ] `ait monitor --restart-server` prints RETIRED:<sock>|pid=<old>, then STARTED:<sock>|<new> (or RUNNING), then REPLACEMENT:<sock>|pid=<new>|version=0.40.1, and exits 0
+- [ ] Open monitor and minimonitor TUIs reconnect to the fresh server automatically, with no TUI restart and no lasting red "control: fallback" / "rc:fb" badge
+- [ ] The agent-sitrep window's minimonitor lists exactly one item (the sitrep agent); the sitrep TUI pane is absent from both the monitor and the minimonitor lists
+- [ ] A real `ait upgrade` (or a scratch install run twice) prints MONITOR_SERVER:RETIRED: only for servers started from the upgraded project; `ait monitor --server-status` shows other projects' servers unchanged
+- [ ] `ait monitor --help` lists --restart-server and --server-status
