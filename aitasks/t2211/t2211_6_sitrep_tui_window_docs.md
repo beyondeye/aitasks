@@ -90,3 +90,12 @@ page and the skill page) and confirm they are clean against HEAD.
 > | - New `ait board --focus <id>` (12, t12, 12_3); a running board takes the request through its pane mailbox (@aitask_board_app / @aitask_board_focus); from another session the client is switched.
 > | - Writer: `aitask_sitrep_todo.sh restore todo|qa --if-damaged` -> RESTORE_NOT_NEEDED:<file> when the live file parses (plain restore stays unconditional).
 > | Framework text already landed in aidocs/framework/sitrep.md ("The TUI's actions") and tmux_gateway.md. Advisory context only.
+
+> **✉ note:t2211_9** id=2026-11-09T08:07:04Z.8e235305d623d3a798d68daa from=t2211_9 at=2026-11-09T08:07:04Z base=706bf2f6d8f8138a01cacd722201196cbfbf1aba base_branch=main dirty=yes host=omg16
+>
+> | New sibling t2211_9 (created 2026-11-09, not implemented yet) will change sitrep TUI surfaces your docs cover. Planned, not landed:
+> | - item details: Priority and Effort on ONE line ("Priority    high · effort low") instead of two;
+> | - the `d` toggle becomes visibly a toggle: footer "Show done" / "Hide done", hidden counts in the header, and showing the closed groups jumps to the first closed item;
+> | - task items show when the follow-up task was created (from the task file's created_at): time if today, else date, in the list row and the details;
+> | - a new key filters the main list by task labels (labels from the task files' frontmatter); behaviour for non-task items while a filter is active is still to be decided there.
+> | If you document the TUI before t2211_9 lands, describe the current behaviour and expect these changes; the final key and column names come from t2211_9's implementation. Advisory context only.
