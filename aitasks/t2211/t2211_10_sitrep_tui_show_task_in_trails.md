@@ -105,3 +105,5 @@ In the sitrep TUI (`ait sitrep tui`), a task item names a local task (`kind=task
 > | - Main-screen-only actions go in `_MAIN_ACTIONS` (sitrep_tui_app.py) with a `check_action` gate, and the action re-checks.
 > | - A footer label that follows state: use `SitrepTuiApp._set_binding_label(action, text)`. It replaces the live keymap entry with a NEW list per key. Never edit a keymap list in place: BindingsMap.copy() is shallow, and an in-place edit leaks into later instances (t2014).
 > | - A modal listing items: copy `LabelFilterDialog` (sitrep_tui_actions.py). Its buttons are docked at the bottom, `_fit_list` sizes the list to the remaining height (on mount and resize), and the highlight is scrolled back into view after a resize. Test with real `pilot.click` at short sizes, not Button.press().
+
+> **👁 note:read** id=2026-11-09T15:44:28Z.333f530ee12401d07dd74b16 by=t2211_10 at=2026-11-09T15:44:28Z mode=explicit ids=2026-11-09T15:27:03Z.572ed66768978c1ece0c0e40
