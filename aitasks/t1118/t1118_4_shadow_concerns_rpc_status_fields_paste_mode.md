@@ -73,3 +73,22 @@ Parent plan: `aiplans/p1118_mobile_shadow_agent_driving_over_applink.md`
   conn has it, same tick.
 - `paste_text` gateway spy: load-buffer stdin + `-p` flag; multi-line payload
   arrives without submitting.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1118** id=2026-11-09T08:33:51Z.87c7005201689f4ebb1222c8 from=t1118 at=2026-11-09T08:33:50Z base=87b720e7ce727f7a18ece35fa8a70c070fc81f9a base_branch=main dirty=yes host=omg16
+>
+> | Advisory from the user-requested review of t1118; not an implementation approval. Source inspected at aitasks HEAD 87b720e7ce727f7a18ece35fa8a70c070fc81f9a.
+> | 
+> | Significant drift in the current child plan:
+> | 
+> | 1. Freshness is no longer the old synchronous stamp-to-last_change boolean. monitor_core.compute_shadow_staleness is shared and async; get_pane_option returns (ok, value). Unreadable/malformed stamps or unobserved followed panes yield UNKNOWN, preserving a standing warning; a verified empty stamp is distinct. Desktop concern UI also computes compute_block_age_staleness from THIS captured block's Round timestamp and joins with combine_staleness. A shadow can reread and answer only in prose, refreshing analyzed_at but leaving old concerns stale. The plan's stale:bool/malformed=>false wire model needs reconciliation with t1118_1 and paired mobile#32_1/#32_2, not silent coercion of unknown to fresh. Read-recency metadata and content-derived block age have different permission implications.
+> | 
+> | 2. Caching the complete verdict solely on shadow content changes is insufficient: the followed pane can advance, or analyzed_at can change, while the concern block is unchanged. Parsing may remain content-change-gated; freshness needs the current relevant stamp/followed change and block identity. Current desktop separates these signals explicitly (aidocs/framework/shadow_agent.md 'Block age vs read recency'). RPC freshness should describe its actual capture, not a cached earlier round.
+> | 
+> | 3. The hard 200-line cap predates t1187. Desktop capture_shadow_text uses the deep 400-line default and the explicit picker retries at 1500 if block_head_truncated detects a clipped opening fence. Newest-block-wins, certified metadata-only clean rounds, malformed/unrecovered markers, and ANSI-free + wrap-joined input are current parser contracts. The planned 200-line-only RPC can falsely return no concerns. See monitor_core.py:capture_shadow_text/_SHADOW_DEEP_RETRY_LINES and minimonitor_app.py:action_pick_concerns; tests/test_minimonitor_concern_action.py and test_concern_parser.py. The current format source is .claude/skills/aitask-shadow/concern-format.md, not the missing aidocs/framework/shadow_concern_format.md. Non-stamping remains essential: capture_shadow_text shells out to the helper and is not a drop-in passive read from a shadow-hosted caller.
+> | 
+> | 4. Producer shadows already occupy a separate shadow_snapshots map keyed by FOLLOWED id and stay out of _pane_cache/get_pane/discover_panes/capture_all_async. The binding map cannot be derived only from the old agent roster. MonitorClient transports shadow snapshots and get_last_change_wall for both record types, but does not expose producer internals in SERVER mode. The shared verdict cache can be applink-server-owned; it need not be attached to an assumed local producer. MonitorClient.capture/server capture returns the ordinary ANSI-bearing non-joined capture, so it does not satisfy concern-parser input by itself. An explicit -J + cleaning gateway path remains necessary unless a suitable server capture contract is deliberately added.
+> | 
+> | 5. A new monitor.paste_text call is not automatically delegated by MonitorClient: SERVER mode delegates only GATEWAY_NAMES, and tests/test_monitor_client_surface.py guards that contract. Either a local gateway seam or an explicitly supported client gateway method is needed. As of this audit applink/server.py still owns TmuxMonitor and t2037_4 is in flight, so the eventual landed client/lifecycle/deferred-reply design must be rechecked. Any awaited server round trip belongs outside a serialized phone request-dispatch path; the current router is synchronous.
