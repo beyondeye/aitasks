@@ -3,12 +3,13 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [git-integration, contribution]
+assigned_to: dario-e@beyond-eye.com
 anchor: 2235
 followup_kind: review_finding
 created_at: 2026-11-08 22:36
-updated_at: 2026-11-08 22:36
+updated_at: 2026-11-09 11:48
 ---
 
 ## Origin
