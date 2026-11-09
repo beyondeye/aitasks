@@ -410,6 +410,10 @@ Select a target and the switcher focuses the existing tmux window running that T
 
 The agent list refreshes on its own every `tmux.monitor.refresh_seconds` seconds (default 3) — there is no manual refresh key. Actions that change the agent set (launching or killing an agent) schedule a refresh themselves, so the list catches up immediately rather than at the next tick.
 
+Minimonitor reads the agent list from the same [shared status server]({{< relref "/docs/tuis/monitor/how-to" >}}#how-the-shared-status-server-works)
+as monitor, so `ait monitor --restart-server` refreshes it too — run it when the
+list still behaves the way it did before a framework change.
+
 ### How to Toggle the Multi-Session View
 
 By default, minimonitor aggregates agents from every aitasks tmux session on the current tmux server. Press **M** (uppercase, Shift+m) to toggle to a single-session view that shows only the agents in the tmux session this minimonitor is running in. Press **M** again to restore the aggregated view.

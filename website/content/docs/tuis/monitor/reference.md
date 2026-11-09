@@ -230,13 +230,13 @@ All of these can be edited interactively via [`ait settings`]({{< relref "/docs/
 | `--interval SECS` | `tmux.monitor.refresh_seconds` | Override the pane list refresh cadence |
 | `--lines N` | `tmux.monitor.capture_lines` | Override the number of lines captured for previews |
 | `--server-status` | — | List this tmux server's background status servers (pid, start time, version, the script each was started from) and exit |
-| `--restart-server` | — | Stop this tmux server's background status server and start a fresh one from the current files, then exit. Add `--version V` to restart the server of another framework version |
+| `--restart-server` | — | Stop this tmux server's background status server and make sure a fresh one is running, then exit. Add `--version V` to restart the server of another framework version |
 
 `ait ide` always passes `--session` with the configured default, which is why it never triggers the Session Rename Dialog.
 
-Monitor and minimonitor normally share one background status server per tmux server, which scans every agent pane once per tick for all of them. Passing `--interval` or `--lines` makes that one instance scan on its own instead, because the shared server uses each project's `project_config.yaml` settings.
+Monitor and minimonitor normally share one background status server per tmux server and framework version, which scans every agent pane once per tick for all of them. Passing `--interval` or `--lines` makes that one instance scan on its own instead, because the shared server uses each project's `project_config.yaml` settings. See [How the Shared Status Server Works]({{< relref "/docs/tuis/monitor/how-to" >}}#how-the-shared-status-server-works).
 
-The status server keeps running the code it started with. After changing the framework's monitor code in a checkout, run `ait monitor --restart-server`: open monitors and minimonitors reconnect to the fresh server automatically. `ait upgrade` does this by itself for the servers started from the project it upgrades. If a server does not stop, `--restart-server` reports its pid and starts nothing; end that process by hand.
+The status server keeps running the code it started with. After changing the framework's monitor code in a checkout, run `ait monitor --restart-server`: open monitors and minimonitors reconnect to the fresh server automatically. `ait upgrade` does this by itself for the servers started from the project it upgrades. If a server does not stop, `--restart-server` reports its pid and starts nothing; end that process by hand, as described in [How to Restart the Shared Status Server]({{< relref "/docs/tuis/monitor/how-to" >}}#how-to-restart-the-shared-status-server).
 
 ### Session-Name Fallback Dialog
 

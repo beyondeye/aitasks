@@ -55,6 +55,10 @@ The **pane list** classifies each tmux window in the session:
 
 Each card in the pane list shows the window name, a category badge, a status badge with a matching colored dot (`Active`, `PROMPT`, `DONE`, or `IDLE` — see [How to Read the Pane List](how-to/#how-to-read-the-pane-list)), and, for agent panes carrying a task ID in the window name, the task number.
 
+Monitor does not scan the panes itself: it reads their status from a background
+status server that it shares with every other monitor and minimonitor on the
+same tmux server. See [How the Shared Status Server Works]({{< relref "/docs/tuis/monitor/how-to" >}}#how-the-shared-status-server-works).
+
 The **preview zone** shows the content of the focused pane in real time. When you focus it, every keystroke you type is forwarded directly to the underlying tmux pane, so you can interactively control whatever is running there — answer an agent's question, run a shell command, scroll a log — without switching tmux windows.
 
 ### Navigating the Monitor

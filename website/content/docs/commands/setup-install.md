@@ -113,11 +113,24 @@ ait upgrade 0.2.1              # Upgrade to specific version
 4. Runs the installer with `--force`, which shows the changelog between current and target versions and asks for confirmation
 5. Performs the full installation (tarball download, skill installation, setup) and commits the framework files it changed. Framework files that already had uncommitted changes before the upgrade — edited, staged, deleted or new — are left uncommitted and listed, so your in-progress work never lands in the framework commit. It also rewrites the data entries `.aitask-data`, `aitasks` and `aiplans` in `.gitignore` — in their trailing-slash or bare form — to the root-anchored form `/.aitask-data`, `/aitasks` and `/aiplans`. That form matches the entries at the repository root, including the symlinks linked task worktrees carry, without ignoring nested directories of the same name (such as `docs/aitasks/`); any such nested paths that now show as untracked are listed so you can review them before a broad `git add`. In a project whose task data lives on the separate `aitask-data` branch, any of the three root-anchored entries missing from `.gitignore` is added back. The rewrite and any added entries are committed only when `.gitignore` had no uncommitted changes
 6. Offers newer models for code-agent defaults the framework has superseded (see below)
-7. Clears the update check cache
+7. Stops the monitor status servers started from this project, so open monitors pick up the new code (see **Monitor status servers** below)
+8. Clears the update check cache
 
 **Superseded model defaults:**
 
 An upgrade never changes a configured model on its own. After the framework files are committed, it looks for operations in `codeagent_config.json` (and your `codeagent_config.local.json`) whose model a newer framework model supersedes, and asks once per superseded model whether to switch those operations. A model nothing supersedes is never offered a switch, whether it is a framework default or a custom choice, and a declined offer is not repeated until a newer successor exists. Without a terminal it only lists the offers. Run `ait codeagent check-superseded` at any time to review them; see [Superseded model defaults]({{< relref "/docs/commands/codeagent#superseded-model-defaults" >}}).
+
+**Monitor status servers:**
+
+Monitor, minimonitor and the App Linker read pane status from a [shared background status server]({{< relref "/docs/tuis/monitor/how-to" >}}#how-the-shared-status-server-works), which keeps running the code it was started with. After installing the new files, `ait upgrade` stops every status server that was started from this project, on any tmux server, and prints a `MONITOR_SERVER:` line for each server it stops or fails to stop. Open monitors, minimonitors and the App Linker reconnect automatically to a fresh server. Another checkout on the same framework version can start that replacement first, so if monitor behaviour still looks stale afterwards, check `script=` in `ait monitor --server-status`. Servers started from other projects keep running. When a server does not stop, the output ends with a hint line; [How to Restart the Shared Status Server]({{< relref "/docs/tuis/monitor/how-to" >}}#how-to-restart-the-shared-status-server) explains how to end it by hand.
+
+To leave the servers running, set `AIT_MONITOR_RESTART=0`:
+
+```bash
+AIT_MONITOR_RESTART=0 ait upgrade latest
+```
+
+`ait setup` does not restart status servers. Run `ait monitor --restart-server` when you need one replaced.
 
 **Bounded version lookup:**
 

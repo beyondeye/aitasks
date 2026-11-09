@@ -311,6 +311,35 @@ Press **z** to cycle the preview zone through six size presets — **S**, **M**,
 
 Press **r** (or **F5**) to force an immediate refresh of the pane list and preview content. Monitor also refreshes automatically every `tmux.monitor.refresh_seconds` seconds (default 3), so manual refresh is only needed when you want an immediate update.
 
+### How the Shared Status Server Works
+
+Monitor and minimonitor do not each scan the tmux panes on their own. One
+background **status server** does the scanning — it finds the panes, captures
+their output and decides whether each agent is busy, idle or waiting for input
+— and every open monitor and minimonitor reads its results. However many of
+them you have open, the panes are scanned once per refresh. The
+[App Linker]({{< relref "/docs/tuis/applink/reference" >}}) reads from the same
+server while a paired device is streaming.
+
+- **One per tmux server and framework version.** The sessions of all your
+  projects on the same tmux server share it, and it applies each project's own
+  `tmux.monitor` settings from `project_config.yaml`. Projects on a different
+  framework version get a server of their own.
+- **Started on demand.** Whichever of them connects first starts it. When
+  nothing has been connected to it for about 30 seconds, it exits by itself.
+- **Fallback.** When the server cannot be started or reached, each of them
+  scans the panes by itself, and switches back to the server automatically once
+  it is available again. Set `AITASKS_MONITOR_SERVER=0` to make them always scan
+  by themselves.
+- **Per-instance overrides.** Starting `ait monitor` with `--interval` or
+  `--lines`, or `ait minimonitor` with `--interval`, makes that one instance
+  scan on its own: the shared server uses the values in `project_config.yaml`
+  and cannot honour an override for a single instance.
+
+The server keeps running the code it was started with for as long as anything
+is connected to it. When a framework change does not seem to reach your
+monitors, see [How to Restart the Shared Status Server](#how-to-restart-the-shared-status-server).
+
 ### How to Toggle Auto-Switch Mode
 
 Press **a** to toggle auto-switch mode. When auto-switch is **on**, monitor automatically focuses agent panes that need attention, so you don't have to scan the pane list manually. Press **a** again to turn it off. The session bar shows `[AUTO]` and the agents header shows `⟳ AUTO` while it is on.
@@ -339,6 +368,82 @@ ait monitor
 ```
 
 See the [Session-name fallback dialog]({{< relref "/docs/tuis/monitor/reference" >}}#session-name-fallback-dialog) in the reference for the full decision logic.
+
+### How to Restart the Shared Status Server
+
+**When to do this:** monitor or minimonitor keeps behaving the way it did before
+a framework change that should have changed it — for example, it still lists a
+pane it should hide, or shows a status the change was meant to correct.
+
+**Why it happens:** the [shared status server](#how-the-shared-status-server-works)
+runs the code it was started with, and it does not exit while anything is
+connected to it. Editing or pulling framework code in a checkout leaves it
+running the old code. [`ait upgrade`]({{< relref "/docs/commands/setup-install" >}}#ait-upgrade)
+restarts it for you.
+
+**1. List the status servers:**
+
+```bash
+ait monitor --server-status
+```
+
+It prints one line per status-server socket it finds for this tmux server:
+
+```text
+SERVER:<socket>|pid=<pid>|started=<start time>|version=<version>|script=<path>
+```
+
+- `started=` is when the server process started. If that is earlier than the
+  framework change, it is running the old code.
+- `script=` is the copy of the framework it was started from. Projects on the
+  same framework version share one server, so this can be another checkout.
+- A `-` in a field means the process details could not be read.
+
+`NO_SERVER` means no socket was found: the next monitor or minimonitor you open
+starts a fresh server.
+
+**2. Restart it:**
+
+```bash
+ait monitor --restart-server
+```
+
+This stops the server for this tmux server and for the framework version of the
+project you run it in, then makes sure a fresh one is running:
+
+```text
+RETIRED:<socket>|pid=<old pid>
+STARTED:<socket>|<new pid>
+REPLACEMENT:<socket>|pid=<new pid>|version=<version>
+```
+
+Open monitors and minimonitors reconnect to the new server automatically; you do
+not need to restart them. The replacement is normally started from this
+project's files, but another checkout on the same framework version can start it
+first — if the behaviour still looks stale, run `--server-status` again and check
+`script=`. A server listed with another framework version belongs to the
+projects on that version: run `ait monitor --restart-server` from one of those
+projects.
+
+**If the old server does not stop**, the command prints:
+
+```text
+RETIRE_FAILED:<socket>|pid=<pid>|still_running
+```
+
+The server was asked to stop but was still running after a few seconds, so
+nothing new was started — a fresh start would only find the old server again.
+End that process by hand, then restart again:
+
+```bash
+kill <pid>
+ait monitor --server-status   # still listed with that pid a few seconds later? then:
+kill -9 <pid>
+ait monitor --restart-server
+```
+
+Any other `RETIRE_FAILED:` line also means nothing was stopped and nothing was
+started; the text after the last `|` says why.
 
 ---
 
