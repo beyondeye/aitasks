@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
@@ -13,8 +15,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2236
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-08 17:51
-updated_at: 2026-11-08 21:46
+updated_at: 2026-11-08 22:16
 ---
 
 ## Origin
@@ -42,3 +45,5 @@ Either set the option per-client at attach (for example, a `set-option -t =<sess
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-11-08T20:16:28Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-11-09T09:07:00Z status=pass attempt=1 type=human
