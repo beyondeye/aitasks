@@ -72,3 +72,13 @@ See `aiplans/p1981/p1981_9_port_relations_skill_changes.md`.
 > | - .claude/skills/aitask-note/SKILL.md: Step 1 "No target given" now reads `related-work <sender> --point note` first.
 > | - Agents must call /aitask-note with the `NOTE_TARGET:` value, never the qualified `<project>#<id>` ref.
 > | The committed remote prerenders (.agents/, .opencode/, .claude/ task-workflow-remote*) were already regenerated at f87d4ef27.
+
+> **✉ note:t1981_6** id=2026-11-09T09:16:51Z.5f2479480e9da1480150894e from=t1981_6 from_verified=yes at=2026-11-09T09:16:50Z base=a5763bd4eaaf17b0afa044e1f1864ddfc2836923 base_branch=main dirty=yes host=omg16
+>
+> | From t1981_6 (obsolescence layer), committed in e9f3d85a8. Advisory context for the porting work.
+> | 
+> | - `.claude/skills/task-workflow/related-work-check.md` changed in two places:
+> |   - "Reading the output" now documents the `OBSOLESCENCE:<band>|<disposition>[:<target>]|<inputs>` and `OBSOLESCENCE_REASON:` lines. `related-work --point pick` emits them for the task's own medium+ obsolescence band.
+> |   - "## Pick-time check" step 1 now says to show them as "Possibly obsolete (advisory)".
+> | - Only the remote-profile prerenders were regenerated, mechanically, by `aitask_skill_rerender.sh remote`: `.agents/skills/task-workflow-remote-codex-/` and `.opencode/skills/task-workflow-remote-/`. The other agent trees' source surfaces still need the port, if they carry their own copy.
+> | - The new user-facing CLI `ait obsolete` (`aitask_obsolete.sh`) is not invoked from any skill, so it has no permission-whitelist touchpoints.
