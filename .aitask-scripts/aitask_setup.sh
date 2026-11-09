@@ -4846,6 +4846,82 @@ _contribution_workflow_state() {
     echo "customized"
 }
 
+# _gitlab_ci_strip_comment <line>
+# Prints <line> without its comment. A comment starts at a '#' that begins a
+# word (line start, or after whitespace) outside '...' and "..." quotes: the
+# rule both YAML and sh use, so it serves the job's YAML lines and the lines of
+# its script block alike. A quoted '#' and a backslash-escaped one are kept.
+# When a quote is still open at the end of the line, the quote reading was
+# wrong (a YAML plain scalar such as don't) or the string continues on the
+# next line, so the line is cut at the first word-initial '#' instead.
+_gitlab_ci_strip_comment() {
+    local s="$1" out="" c prev=" " q="" i
+    for ((i = 0; i < ${#s}; i++)); do
+        c="${s:i:1}"
+        if [[ -n "$q" ]]; then
+            if [[ "$q" == '"' && "$c" == "\\" ]]; then
+                out+="$c${s:i+1:1}"; i=$((i + 1)); prev=x; continue
+            fi
+            [[ "$c" == "$q" ]] && q=""
+        else
+            case "$c" in
+                "'" | '"') q="$c" ;;
+                "\\") out+="$c${s:i+1:1}"; i=$((i + 1)); prev=x; continue ;;
+                '#') [[ "$prev" == [[:space:]] ]] && break ;;
+            esac
+        fi
+        out+="$c"
+        prev="$c"
+    done
+    if [[ -n "$q" ]]; then
+        out="" prev=" "
+        for ((i = 0; i < ${#s}; i++)); do
+            c="${s:i:1}"
+            [[ "$c" == '#' && "$prev" == [[:space:]] ]] && break
+            out+="$c"
+            prev="$c"
+        done
+    fi
+    printf '%s\n' "$out"
+}
+
+# _gitlab_contribution_job_stale_effects <ci_file>
+# A .gitlab-ci.yml whose contribution-check job was copied from a template
+# shipped before t2241 still runs that job's broken scheduled scan, because
+# setup never edits an existing CI configuration. Prints one line per effect
+# of the outdated scan found in the job (nothing when the job is current, is
+# absent or the file cannot be read). Only the top-level contribution-check job
+# is read — from its key up to the next top-level key — so the same strings in
+# another job never match. The key is recognised in every ordinary spelling
+# YAML reads as the same key: bare, single- or double-quoted, and with spaces
+# before the colon. Comments are dropped before the markers are searched
+# (_gitlab_ci_strip_comment): outside the script they are YAML comments and
+# inside its literal block they are shell comments, so a marker in one — a
+# note, a commented-out old job — runs nothing. Read-only.
+_gitlab_contribution_job_stale_effects() {
+    local ci_file="$1" line body="" in_job=0
+    local re_key="^(contribution-check[[:space:]]*:([[:space:]]|\$)|'contribution-check'[[:space:]]*:|\"contribution-check\"[[:space:]]*:)"
+    local re_top='^[^[:space:]#]'
+    [[ -f "$ci_file" && -r "$ci_file" ]] || return 0
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        line="${line%$'\r'}"
+        if [[ "$line" =~ $re_key ]]; then
+            in_job=1
+        elif [[ "$in_job" == 1 && "$line" =~ $re_top ]]; then
+            in_job=0
+        fi
+        [[ "$in_job" == 1 ]] && body+="$(_gitlab_ci_strip_comment "$line")"$'\n'
+    done < "$ci_file"
+    [[ -n "$body" ]] || return 0
+    if grep -qF 'labels=contribution&updated_after' <<<"$body"; then
+        echo "its scheduled scan only lists issues labeled 'contribution', so it misses contributions from non-members (GitLab silently drops the labels they set)"
+    fi
+    if grep -qF "date -u -d '6 hours ago'" <<<"$body"; then
+        echo "it computes the 6-hour cutoff with GNU/BSD date options that BusyBox date on alpine:latest rejects"
+    fi
+    return 0
+}
+
 _install_contribution_ci_workflow() {
     local platform="$1"
     local project_dir="$2"
@@ -4918,6 +4994,16 @@ _install_contribution_ci_workflow() {
     fi
     if [[ "$platform" != "github" && -f "$dest_file" ]]; then
         if grep -q "contribution-check" "$dest_file" 2>/dev/null; then
+            # A job copied before t2241 is present but broken: report it as
+            # such instead of as a success, and still leave the file alone.
+            local stale_effects=""
+            if [[ "$platform" == gitlab ]]; then
+                stale_effects=$(_gitlab_contribution_job_stale_effects "$dest_file" | paste -sd ';' - | sed 's/;/; /g')
+            fi
+            if [[ -n "$stale_effects" ]]; then
+                warn "The contribution-check job in .gitlab-ci.yml predates the current template: ${stale_effects}. Setup does not edit an existing CI configuration — re-copy the job from .aitask-scripts/ci_templates/gitlab/contribution-check-job.yml (see Manual Setup in website/content/docs/workflows/contribute-and-manage/contribution-flow.md)."
+                return
+            fi
             success "Contribution check job already present in $(basename "$dest_file")"
             return
         fi

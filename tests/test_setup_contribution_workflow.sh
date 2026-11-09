@@ -17,6 +17,12 @@
 #   (h) GitLab: an existing CI configuration is never edited; an absent one is
 #       created. Bitbucket: nothing is installed (no issue tracker), an
 #       existing file is never edited, a dead installed pipeline is reported
+#   (i) GitLab: an existing contribution-check job copied from an earlier
+#       template (label-filtered scan, GNU/BSD date cutoff) warns instead of
+#       reporting success — either marker alone, any spelling of the job key —
+#       and the file is still never edited; the current job, the same
+#       strings in other jobs, and markers in comments (whole-line or
+#       trailing, outside quotes) do not warn
 #   (f) missing templates warn and install nothing
 
 set -e
@@ -313,6 +319,7 @@ run_setup
 TOTAL=$((TOTAL + 1))
 if cmp -s "$PROJ/.gitlab-ci.yml" "$SCRATCH/gitlab_before"; then PASS=$((PASS + 1)); else FAIL=$((FAIL + 1)); echo "FAIL: (h) existing .gitlab-ci.yml was modified"; fi
 assert_contains "(h) GitLab: manual-merge warning names the stage" "stage: test" "$(cat "$SCRATCH/out" "$SCRATCH/err")"
+assert_not_contains "(h) GitLab: an unrelated config is not called an outdated job" "predates the current template" "$(cat "$SCRATCH/out" "$SCRATCH/err")"
 assert_contains "(h) GitLab: label step used the glab stub" "label create contribution" "$(cat "$SCRATCH/glab_calls")"
 rm -f "$PROJ/.gitlab-ci.yml"
 run_setup
@@ -342,6 +349,177 @@ TOTAL=$((TOTAL + 1))
 if cmp -s "$PROJ/bitbucket-pipelines.yml" "$SCRATCH/bb_before"; then PASS=$((PASS + 1)); else FAIL=$((FAIL + 1)); echo "FAIL: (h) Bitbucket config with the old pipeline was modified"; fi
 assert_contains "(h) Bitbucket: warns that the installed pipeline is dead" "still runs the contribution check" "$(cat "$SCRATCH/out" "$SCRATCH/err")"
 rm -f "$PROJ/bitbucket-pipelines.yml"
+git -C "$PROJ" remote set-url origin https://github.com/o/r.git
+
+echo "--- (i) GitLab: an existing job copied from an earlier template warns ---"
+git -C "$PROJ" remote set-url origin https://gitlab.com/o/r.git
+GITLAB_FIXTURE_DIR="$FIXTURE_DIR/gitlab"
+GITLAB_TEMPLATE="$PROJECT_DIR/.aitask-scripts/ci_templates/gitlab/contribution-check-job.yml"
+GL="$PROJ/.gitlab-ci.yml"
+STALE_MSG="predates the current template"
+LABEL_EFFECT="only lists issues labeled 'contribution'"
+DATE_EFFECT="BusyBox date"
+LABEL_MARKER="labels=contribution&updated_after"
+DATE_MARKER="date -u -d '6 hours ago'"
+
+# gitlab_case <desc> <input> <expect: both|label|date|none>
+# Installs <input> as .gitlab-ci.yml, runs setup, and checks the file is
+# byte-identical afterwards plus the expected report: the stale warning naming
+# exactly the expected effects, or (none) the plain "already present" success.
+gitlab_case() {
+    local desc="$1" input="$2" expect="$3" out
+    cp "$input" "$GL"
+    cp "$input" "$SCRATCH/gl_before"
+    run_setup
+    out=$(cat "$SCRATCH/out" "$SCRATCH/err")
+    TOTAL=$((TOTAL + 1))
+    if cmp -s "$GL" "$SCRATCH/gl_before"; then
+        PASS=$((PASS + 1))
+    else
+        FAIL=$((FAIL + 1)); echo "FAIL: $desc: existing .gitlab-ci.yml was modified"
+    fi
+    if [[ "$expect" == none ]]; then
+        assert_not_contains "$desc: no outdated-job warning" "$STALE_MSG" "$out"
+        assert_contains "$desc: reports the job present" "Contribution check job already present" "$out"
+    else
+        assert_contains "$desc: warns the job is outdated" "$STALE_MSG" "$out"
+        assert_not_contains "$desc: not reported as a success" "already present" "$out"
+        assert_contains "$desc: names the template" ".aitask-scripts/ci_templates/gitlab/contribution-check-job.yml" "$out"
+        assert_contains "$desc: points to Manual Setup" "Manual Setup in website/content/docs/workflows/contribute-and-manage/contribution-flow.md" "$out"
+        case "$expect" in
+            both|label) assert_contains "$desc: names the label effect" "$LABEL_EFFECT" "$out" ;;
+            *) assert_not_contains "$desc: no label effect" "$LABEL_EFFECT" "$out" ;;
+        esac
+        case "$expect" in
+            both|date) assert_contains "$desc: names the date effect" "$DATE_EFFECT" "$out" ;;
+            *) assert_not_contains "$desc: no date effect" "$DATE_EFFECT" "$out" ;;
+        esac
+    fi
+    rm -f "$GL"
+}
+
+# fixture_has <desc> <file> <fixed string> <expected count> — guards a derived
+# input, so a sed that matched nothing cannot pass as a red test.
+fixture_has() {
+    assert_eq "fixture: $1" "$4" "$(grep -cF -- "$3" "$2")"
+}
+
+GL_FIXTURES=()
+for f in "$GITLAB_FIXTURE_DIR"/*.yml; do
+    [[ -f "$f" ]] && GL_FIXTURES+=("$f")
+done
+TOTAL=$((TOTAL + 1))
+if [[ ${#GL_FIXTURES[@]} -ge 1 ]]; then PASS=$((PASS + 1)); else FAIL=$((FAIL + 1)); echo "FAIL: (i) no GitLab fixtures in $GITLAB_FIXTURE_DIR"; fi
+
+# (i1) every earlier shipped job, as setup wrote it, warns with both effects.
+for f in "${GL_FIXTURES[@]}"; do
+    gitlab_case "(i1) shipped $(basename "$f")" "$f" both
+done
+GL_OLDEST="${GL_FIXTURES[0]}"
+# ... and a Windows checkout's CRLF copy of it.
+sed 's/$/\r/' "$GL_OLDEST" > "$SCRATCH/gl_crlf"
+gitlab_case "(i1) CRLF copy" "$SCRATCH/gl_crlf" both
+
+# (i2) the old job merged into a larger configuration, between other jobs.
+{
+    printf '%s\n' "stages: [build, test]" "" "build:" "  stage: build" "  script: [make]" ""
+    cat "$GL_OLDEST"
+    printf '%s\n' "" "deploy:" "  stage: test" "  script: [./deploy]"
+} > "$SCRATCH/gl_merged"
+gitlab_case "(i2) merged into a larger file" "$SCRATCH/gl_merged" both
+
+# (i2b) the same key in its quoted and spaced spellings.
+fixture_has "oldest job has a bare key" "$GL_OLDEST" "contribution-check:" 1
+n=0
+for key in "'contribution-check':" '"contribution-check":' "contribution-check :"; do
+    n=$((n + 1))
+    awk -v k="$key" '/^contribution-check:/ { $0 = k } { print }' "$GL_OLDEST" > "$SCRATCH/gl_key_$n"
+    fixture_has "key spelling $key applied" "$SCRATCH/gl_key_$n" "$key" 1
+    fixture_has "key spelling $key replaced the bare key" "$SCRATCH/gl_key_$n" "contribution-check:" 0
+    gitlab_case "(i2b) key spelled $key" "$SCRATCH/gl_key_$n" both
+done
+
+# (i2c) either marker on its own is enough, and names only its own effect.
+grep -vF -- "date -u" "$GL_OLDEST" > "$SCRATCH/gl_label_only"
+fixture_has "label-only keeps the label filter" "$SCRATCH/gl_label_only" "$LABEL_MARKER" 1
+fixture_has "label-only lost the date cutoff" "$SCRATCH/gl_label_only" "$DATE_MARKER" 0
+gitlab_case "(i2c) label filter only" "$SCRATCH/gl_label_only" label
+sed 's/labels=contribution&//' "$GL_OLDEST" > "$SCRATCH/gl_date_only"
+fixture_has "date-only keeps the date cutoff" "$SCRATCH/gl_date_only" "$DATE_MARKER" 1
+fixture_has "date-only lost the label filter" "$SCRATCH/gl_date_only" "$LABEL_MARKER" 0
+gitlab_case "(i2c) date cutoff only" "$SCRATCH/gl_date_only" date
+
+# (i3) the current template's job is up to date.
+gitlab_case "(i3) current template" "$GITLAB_TEMPLATE" none
+
+# (i4) the markers in OTHER jobs, before and after the current job, are not it.
+{
+    cat <<'EOF'
+stages: [build, test]
+
+legacy-scan:
+  stage: build
+  script:
+    - SINCE=$(date -u -d '6 hours ago' +%s)
+    - curl "$API/issues?labels=contribution&updated_after=$SINCE"
+
+EOF
+    cat "$GITLAB_TEMPLATE"
+    cat <<'EOF'
+
+cleanup:
+  stage: test
+  script:
+    - SINCE=$(date -u -d '6 hours ago' +%s)
+    - curl "$API/issues?labels=contribution&updated_after=$SINCE"
+EOF
+} > "$SCRATCH/gl_other_jobs"
+fixture_has "other jobs carry the label filter" "$SCRATCH/gl_other_jobs" "$LABEL_MARKER" 2
+fixture_has "other jobs carry the date cutoff" "$SCRATCH/gl_other_jobs" "$DATE_MARKER" 2
+gitlab_case "(i4) markers only in other jobs" "$SCRATCH/gl_other_jobs" none
+
+# (i5) markers in comment-only lines run nothing: notes inside the current
+# job — a YAML comment, and a shell comment inside its script block (part of
+# the script string, but never executed) — and the old job commented out after
+# it, which parses to the same YAML as the template.
+awk '{ print }
+     /^  script:/ { print "  # was: SINCE=$(date -u -d '\''6 hours ago'\'' ...)" }
+     /^      if \[ -n "\$ISSUE_IID" \]; then/ { print "        # old query: issues?labels=contribution&updated_after=$SINCE" }' \
+    "$GITLAB_TEMPLATE" > "$SCRATCH/gl_comment_in_job"
+fixture_has "comment note carries the date cutoff" "$SCRATCH/gl_comment_in_job" "$DATE_MARKER" 1
+fixture_has "script comment carries the label filter" "$SCRATCH/gl_comment_in_job" "$LABEL_MARKER" 1
+gitlab_case "(i5) markers in comments inside the current job" "$SCRATCH/gl_comment_in_job" none
+{ cat "$GITLAB_TEMPLATE"; echo; sed 's/^/# /' "$GL_OLDEST"; } > "$SCRATCH/gl_commented_old_job"
+fixture_has "commented-out old job carries the label filter" "$SCRATCH/gl_commented_old_job" "$LABEL_MARKER" 1
+fixture_has "commented-out old job carries the date cutoff" "$SCRATCH/gl_commented_old_job" "$DATE_MARKER" 1
+gitlab_case "(i5) old job commented out after the current one" "$SCRATCH/gl_commented_old_job" none
+
+# (i6) markers in trailing comments on code lines run nothing either: a YAML
+# comment after the image (the same YAML as the template) and a shell comment
+# after a script command.
+awk '{ if ($0 == "  image: alpine:latest") $0 = $0 " # old cutoff: date -u -d '\''6 hours ago'\''"
+       if ($0 == "        PAGE=1") $0 = $0 " # was: issues?labels=contribution&updated_after=$SINCE"
+       print }' "$GITLAB_TEMPLATE" > "$SCRATCH/gl_trailing_comments"
+fixture_has "trailing comment after the image carries the date cutoff" "$SCRATCH/gl_trailing_comments" "alpine:latest # old cutoff: $DATE_MARKER" 1
+fixture_has "trailing shell comment carries the label filter" "$SCRATCH/gl_trailing_comments" "PAGE=1 # was: issues?$LABEL_MARKER" 1
+gitlab_case "(i6) markers in trailing comments" "$SCRATCH/gl_trailing_comments" none
+# ... including after a plain scalar holding an apostrophe, which YAML does
+# not read as a quote (so the '#' after it still starts a comment).
+awk '{ print }
+     $0 == "  stage: test" { print "  variables:"
+                             print "    NOTE: it'\''s the current job # not: date -u -d '\''6 hours ago'\''" }' \
+    "$GITLAB_TEMPLATE" > "$SCRATCH/gl_apostrophe_comment"
+fixture_has "apostrophe scalar precedes the commented date cutoff" "$SCRATCH/gl_apostrophe_comment" "NOTE: it's the current job # not: $DATE_MARKER" 1
+gitlab_case "(i6) comment after a plain scalar with an apostrophe" "$SCRATCH/gl_apostrophe_comment" none
+# ... while a quoted, word-initial '#' before a live marker is not a comment:
+# the old job still warns when its cutoff and query lines carry one first —
+# and so is an unquoted '#' inside a word (sh's ${#var}).
+awk '/date -u -d '\''6 hours ago'\''/ { sub(/SINCE=/, "echo \"scan #1\" ${#PAGE}; SINCE=") }
+     /labels=contribution&updated_after/ { sub(/"\$API_BASE/, "\"$API_BASE #x /") }
+     { print }' "$GL_OLDEST" > "$SCRATCH/gl_quoted_hash"
+fixture_has "quoted and in-word hashes precede the date cutoff" "$SCRATCH/gl_quoted_hash" "echo \"scan #1\" \${#PAGE}; SINCE=\$(date -u -d '6 hours ago'" 1
+fixture_has "quoted hash precedes the label filter" "$SCRATCH/gl_quoted_hash" "\"\$API_BASE #x /" 1
+gitlab_case "(i6) a quoted '#' before live markers" "$SCRATCH/gl_quoted_hash" both
 git -C "$PROJ" remote set-url origin https://github.com/o/r.git
 
 echo "--- (f) missing templates warn and install nothing ---"

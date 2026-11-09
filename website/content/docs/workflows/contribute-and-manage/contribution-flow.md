@@ -163,6 +163,8 @@ On GitHub, if `.github/workflows/contribution-check.yml` already exists, `ait se
 
 On GitLab, `ait setup` creates `.gitlab-ci.yml` only when the file does not exist yet. An existing CI configuration is never edited: setup warns and leaves the merge to you (see [Manual Setup](#manual-setup)). For GitLab, the job uses `stage: test`, so that stage must be in your `stages:` list.
 
+If `.gitlab-ci.yml` already has a `contribution-check:` job copied from an earlier template — one whose scheduled scan only lists issues labeled `contribution`, or computes its cutoff with `date -d '6 hours ago'` — setup warns that the job predates the current template and still leaves the file unchanged. Such a job misses contributions from authors who are not project members, or fails on the job's Alpine image. Copy the job again from the current template (see [Manual Setup](#manual-setup)).
+
 ### Per-Platform Configuration
 
 #### GitHub Actions
