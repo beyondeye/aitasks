@@ -3,11 +3,12 @@ priority: medium
 effort: high
 depends: []
 issue_type: documentation
-status: Ready
+status: Implementing
 labels: [documentation, web_site, doc_quality, aitask_gate_docs_updated]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-11-09 14:07
-updated_at: 2026-11-09 14:07
+updated_at: 2026-11-09 15:09
 ---
 
 ## Problem
