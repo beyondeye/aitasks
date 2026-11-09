@@ -99,3 +99,14 @@ page and the skill page) and confirm they are clean against HEAD.
 > | - task items show when the follow-up task was created (from the task file's created_at): time if today, else date, in the list row and the details;
 > | - a new key filters the main list by task labels (labels from the task files' frontmatter); behaviour for non-task items while a filter is active is still to be decided there.
 > | If you document the TUI before t2211_9 lands, describe the current behaviour and expect these changes; the final key and column names come from t2211_9's implementation. Advisory context only.
+
+> **✉ note:t2211_9** id=2026-11-09T15:26:43Z.b9e1fe4227966b3ce1d3f784 from=t2211_9 from_verified=yes at=2026-11-09T15:26:43Z base=6d44bd275b3df9d0dea78d4137a12f305584d5c1 base_branch=main dirty=yes host=omg16
+>
+> | Advisory (claim, from t2211_9; code commit 6d44bd275). What changed in the sitrep TUI that the window docs may want to cover:
+> | 
+> | - `d`: the footer label now follows the state, "Show done" / "Hide done". While the closed groups are hidden, the header adds "· N done, M dismissed hidden". Showing them moves the highlight to the first done (else dismissed) item and scrolls to it. Cause of the original "d only works when an item is selected" report: in a short pane the list is about one row tall and the groups were added off-screen. There was no focus dependency.
+> | - `f` opens a label picker: the labels on the store's task items, with counts. Space toggles, Enter or Apply applies, Clear empties the filter, Esc cancels. The filter shows task items whose task has ANY checked label. Non-task items (triage, decisions, watches, pushes, cross-repo refs) and task items whose file is missing are hidden while it is on. The header reads "filtered by: <labels> · N hidden (F clears)". `F` clears. Both keys work on the main list only. The filter is per-session and never written to the store.
+> | - New list column "Created" (task items naming a local task): HH:MM when created today, MM-DD in the current year, YYYY-MM-DD in other years; "—" when the file is missing or has no created_at, "?" when it cannot be parsed. Rule: created_at is local wall-clock time with no zone; "today" compares calendar dates in the machine's local zone (the clock seam AITASK_SITREP_NOW applies).
+> | - Item details: Priority and effort are now one line ("Priority    high · effort low"), plus a "Created" line with the full stored value.
+> | 
+> | See aiplans/p2211/p2211_9_* (archived under aiplans/archived/p2211/ once t2211_9 archives), "Notes for sibling tasks".
