@@ -261,28 +261,33 @@ _gitlab_select_contribution_issues() {
         | unique_by(.number) | sort_by(-.number) | .[:$limit]'
 }
 
-# _gitlab_rest_all_pages <projects/...?query> — prints every page of a GitLab
-# REST list endpoint, one JSON array per line. Returns non-zero, having
-# printed pages the caller must discard, when any page fails, is not a JSON
-# array, or the page cap is reached: callers capture the output and check the
-# status before using any of it.
+# _gitlab_rest_all_pages <projects/...[?query]> — prints every page of a
+# GitLab REST list endpoint (issues, notes, labels), one JSON array per line.
+# A page is printed only after it passed the array and repeat checks, so on
+# failure — a page fails, is not a JSON array, repeats the previous page, or
+# the page cap is reached — it returns non-zero having printed only whole
+# pages read before the failure. Callers check the status: a list consumer
+# discards that output; a lookup may use it as positive evidence only, never
+# as a complete list (t2252).
 _gitlab_rest_all_pages() {
-    local path="$1" api_base hdr page=1 body count first prev_first=""
+    local path="$1" api_base hdr page=1 body count first prev_first="" sep="&"
     local per_page=100 max_pages=1000
+    [[ "$path" == *\?* ]] || sep="?"
     api_base=$(_gitlab_api_base)
     hdr=$(_gitlab_token_header) || return 1
     while (( page <= max_pages )); do
         body=$(curl -sf --header "$hdr" \
-            "$api_base/$path&per_page=$per_page&page=$page") || return 1
+            "$api_base/$path${sep}per_page=$per_page&page=$page") || return 1
         count=$(printf '%s' "$body" | jq -e 'if type == "array" then length else error("not an array") end' 2>/dev/null) || {
             warn "Unexpected GitLab API response for page $page of $path"
             return 1
         }
         # A page that starts where the previous one did means the server is
-        # ignoring 'page': fail now rather than at the page cap.
-        first=$(printf '%s' "$body" | jq -r '.[0].iid // empty') || return 1
+        # ignoring 'page': fail now rather than at the page cap. The record's
+        # identity is its iid for issues and its id for notes and labels.
+        first=$(printf '%s' "$body" | jq -r '.[0] | (.iid // .id) // empty') || return 1
         if [[ -n "$first" && "$first" == "$prev_first" ]]; then
-            warn "GitLab issue listing page $page repeats page $((page - 1)) of $path"
+            warn "GitLab listing page $page repeats page $((page - 1)) of $path"
             return 1
         fi
         prev_first="$first"
@@ -290,8 +295,40 @@ _gitlab_rest_all_pages() {
         (( count < per_page )) && return 0
         page=$((page + 1))
     done
-    warn "GitLab issue listing exceeded $max_pages pages; refusing a partial result"
+    warn "GitLab listing of $path exceeded $max_pages pages; refusing a partial result"
     return 1
+}
+
+# _gitlab_issue_notes <issue_iid> — prints every note of an issue as ONE JSON
+# array, in GitLab's order (newest first), merged from all pages. Returns 0
+# only when every page was read. Otherwise it returns 1 and the array holds
+# just the notes of pages read whole before the failure: a caller may treat a
+# note found there as present, but never treat a note missing there as absent.
+# glab 1.126 prints one array per page under --paginate (seen live in t2248)
+# although its --help documents one merged array; this reads either shape.
+_gitlab_issue_notes() {
+    local issue_num="$1" pages recs all_pages complete=0 project_id
+    if _gitlab_has_glab && [[ -z "$ARG_REPO" ]]; then
+        pages=$(glab api --paginate "projects/:id/issues/$issue_num/notes?per_page=100") || complete=1
+    else
+        project_id=$(_gitlab_project_id)
+        pages=$(_gitlab_rest_all_pages "projects/$project_id/issues/$issue_num/notes") || complete=1
+    fi
+    # Tag every value of the response: {page:[…]} for a JSON array, {bad:true}
+    # for anything else (an error object, a bare string). jq's exit status
+    # cannot be the judge: it carries on past a value that is not an array and
+    # still exits 0 when a later page parses; it exits 0 on no input at all; a
+    # value cut off mid-JSON stops it with a non-zero status after the values
+    # before it. Pages go through stdin, never --argjson (128 KB arg cap).
+    recs=$(printf '%s\n' "$pages" \
+        | jq -c 'if type == "array" then {page: .} else {bad: true} end' 2>/dev/null) || complete=1
+    # Complete only when at least one page came back and every value was a page.
+    all_pages=$(printf '%s\n' "$recs" | jq -s 'length > 0 and all(.[]; has("page"))') || return 1
+    [[ "$all_pages" == true ]] || complete=1
+    # The notes of every page that did parse: positive evidence even when the
+    # read is incomplete.
+    printf '%s\n' "$recs" | jq -s '[.[] | (.page // empty) | .[]]' || return 1
+    return "$complete"
 }
 
 gitlab_list_contribution_issues() {
@@ -356,16 +393,17 @@ gitlab_add_label() {
 }
 
 gitlab_list_repo_labels() {
+    # Every page: `glab label list` prints one page (30 labels by default), and
+    # a label past it would never be auto-applied. All or nothing — the caller
+    # maps a failure to "no labels".
+    local pages project_id
     if _gitlab_has_glab && [[ -z "$ARG_REPO" ]]; then
-        glab label list -F json | jq -r '.[].name'
+        pages=$(glab api --paginate "projects/:id/labels?per_page=100") || return 1
     else
-        local api_base project_id hdr
-        api_base=$(_gitlab_api_base)
         project_id=$(_gitlab_project_id)
-        hdr=$(_gitlab_token_header) || return 1
-        curl -sf --header "$hdr" \
-            "$api_base/projects/$project_id/labels?per_page=100" | jq -r '.[].name'
+        pages=$(_gitlab_rest_all_pages "projects/$project_id/labels") || return 1
     fi
+    printf '%s\n' "$pages" | jq -rs 'add // [] | .[].name'
 }
 
 # --- Bitbucket ---
@@ -441,32 +479,40 @@ source_list_repo_labels() {
 }
 
 # --- Idempotency: check for existing overlap comment ---
+#
+# Every *_has_overlap_comment returns one of three verdicts:
+#   0  a comment that was read carries the overlap marker
+#   1  every comment was read and none carries it
+#   2  the read was incomplete and the part read carries none: unknown
+# Only 1 licenses posting. An incomplete read is not absence (t2252).
+
+# _overlap_lookup_verdict <bodies> <complete:true|false> — the verdict for the
+# comment bodies that were read.
+_overlap_lookup_verdict() {
+    # A shell substring test, never `echo | grep -q`: under pipefail, grep -q
+    # exits on an early match, echo dies of SIGPIPE (141) on a long body, and
+    # the lookup reads as "absent" (t2252).
+    [[ "$1" == *"<!-- overlap-results"* ]] && return 0
+    [[ "$2" == true ]] && return 1
+    return 2
+}
 
 github_has_overlap_comment() {
     local issue_num="$1"
     local repo_flag=()
     [[ -n "$ARG_REPO" ]] && repo_flag=(-R "$ARG_REPO")
-    local comments
-    comments=$(gh issue view "$issue_num" "${repo_flag[@]}" --json comments --jq '.comments[].body' 2>/dev/null) || return 1
-    echo "$comments" | grep -qF "<!-- overlap-results"
+    local comments complete=true
+    # gh reads every page of comments itself (preloadIssueComments, gh 2.102.1).
+    comments=$(gh issue view "$issue_num" "${repo_flag[@]}" --json comments --jq '.comments[].body' 2>/dev/null) || complete=false
+    _overlap_lookup_verdict "$comments" "$complete"
 }
 
 gitlab_has_overlap_comment() {
     local issue_num="$1"
-    local notes
-    if _gitlab_has_glab && [[ -z "$ARG_REPO" ]]; then
-        notes=$(glab api "projects/:id/issues/$issue_num/notes?per_page=100" \
-            | jq -r '.[].body' 2>/dev/null) || return 1
-    else
-        local api_base project_id hdr
-        api_base=$(_gitlab_api_base)
-        project_id=$(_gitlab_project_id)
-        hdr=$(_gitlab_token_header) || return 1
-        notes=$(curl -sf --header "$hdr" \
-            "$api_base/projects/$project_id/issues/$issue_num/notes?per_page=100" \
-            | jq -r '.[].body' 2>/dev/null) || return 1
-    fi
-    echo "$notes" | grep -qF "<!-- overlap-results"
+    local notes bodies complete=true
+    notes=$(_gitlab_issue_notes "$issue_num") || complete=false
+    bodies=$(printf '%s\n' "$notes" | jq -r '.[].body // empty' 2>/dev/null) || return 2
+    _overlap_lookup_verdict "$bodies" "$complete"
 }
 
 source_has_overlap_comment() {
@@ -475,8 +521,38 @@ source_has_overlap_comment() {
         github) github_has_overlap_comment "$issue_num" ;;
         gitlab) gitlab_has_overlap_comment "$issue_num" ;;
         bitbucket) _bitbucket_issues_removed ;;
-        *) return 1 ;;
+        *) return 2 ;;
     esac
+}
+
+# _post_overlap_comment_once — posts OVERLAP_COMMENT on ARG_ISSUE unless the
+# issue already carries an overlap analysis. Returns 0 when posted or already
+# present; 1, posting nothing, when the lookup could not read every comment;
+# 2 when the post itself failed.
+#
+# Callers invoke it as `_post_overlap_comment_once || …`, and bash turns
+# errexit off inside a function called that way, for everything it calls.
+# Every failure that matters is therefore checked explicitly here (t2252).
+_post_overlap_comment_once() {
+    local lookup_rc=0
+    source_has_overlap_comment "$ARG_ISSUE" || lookup_rc=$?
+    case "$lookup_rc" in
+        0)
+            [[ "$ARG_SILENT" != true ]] && info "Overlap comment already exists on issue #${ARG_ISSUE}. Skipping."
+            ;;
+        1)
+            if ! source_post_comment "$ARG_ISSUE" "$OVERLAP_COMMENT"; then
+                warn "Failed to post the overlap analysis comment to issue #${ARG_ISSUE}."
+                return 2
+            fi
+            [[ "$ARG_SILENT" != true ]] && info "Posted overlap analysis comment to issue #${ARG_ISSUE}."
+            ;;
+        *)
+            warn "Could not read every comment on issue #${ARG_ISSUE}, so it is unknown whether it already has an overlap analysis. Not posting, to avoid a duplicate; re-run the check."
+            return 1
+            ;;
+    esac
+    return 0
 }
 
 # ============================================================
@@ -756,14 +832,9 @@ main() {
         if [[ "$ARG_DRY_RUN" == true ]]; then
             echo "$OVERLAP_COMMENT"
         else
-            if source_has_overlap_comment "$ARG_ISSUE" 2>/dev/null; then
-                [[ "$ARG_SILENT" != true ]] && info "Overlap comment already exists on issue #${ARG_ISSUE}. Skipping."
-            else
-                source_post_comment "$ARG_ISSUE" "$OVERLAP_COMMENT"
-                [[ "$ARG_SILENT" != true ]] && info "Posted overlap analysis comment to issue #${ARG_ISSUE}."
-            fi
+            _post_overlap_comment_once || return 1
         fi
-        return
+        return 0
     fi
 
     # List contribution issues
@@ -822,15 +893,15 @@ main() {
     # Format comment
     format_overlap_comment sorted_results "$ARG_ISSUE"
 
+    local post_rc=0
     if [[ "$ARG_DRY_RUN" == true ]]; then
         echo "$OVERLAP_COMMENT"
     else
-        if source_has_overlap_comment "$ARG_ISSUE" 2>/dev/null; then
-            [[ "$ARG_SILENT" != true ]] && info "Overlap comment already exists on issue #${ARG_ISSUE}. Skipping."
-        else
-            source_post_comment "$ARG_ISSUE" "$OVERLAP_COMMENT"
-            [[ "$ARG_SILENT" != true ]] && info "Posted overlap analysis comment to issue #${ARG_ISSUE}."
-        fi
+        _post_overlap_comment_once || post_rc=$?
+        # A failed post stops here, as the inline post did under errexit. An
+        # unknown lookup (post_rc 1) still applies labels — they are not
+        # duplicated — and fails the run below.
+        [[ "$post_rc" -eq 2 ]] && return 1
 
         # Apply matching labels
         if [[ -n "$target_auto_labels" ]]; then
@@ -855,6 +926,9 @@ main() {
             fi
         fi
     fi
+
+    # The comment lookup was incomplete: nothing was posted, so the run fails.
+    [[ "$post_rc" -eq 0 ]] || return 1
 
     if [[ "$ARG_SILENT" != true ]]; then
         success "Overlap analysis complete for issue #${ARG_ISSUE}."

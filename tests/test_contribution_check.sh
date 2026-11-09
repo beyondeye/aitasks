@@ -461,7 +461,12 @@ for _t2247_call in "${_t2247_rest_calls[@]}"; do
     # shellcheck disable=SC2086  # the call string is split into argv on purpose
     _t2247_err=$(GITLAB_TOKEN="" $_t2247_call 2>&1 >/dev/null)
     _t2247_rc=$?
-    assert_eq "no token: '$_t2247_call' returns non-zero" "1" "$_t2247_rc"
+    if [[ "$_t2247_call" == gitlab_has_overlap_comment* ]]; then
+        # A lookup that could read nothing is unknown, never absence (t2252).
+        assert_eq "no token: '$_t2247_call' returns 2 (unknown, not absence)" "2" "$_t2247_rc"
+    else
+        assert_eq "no token: '$_t2247_call' returns non-zero" "1" "$_t2247_rc"
+    fi
     assert_contains "no token: '$_t2247_call' names GITLAB_TOKEN" "GITLAB_TOKEN is required" "$_t2247_err"
     assert_eq "no token: '$_t2247_call' sends no request" "" "$(cat "$T2241_DIR/curl_calls")"
 done
@@ -494,7 +499,7 @@ assert_eq "glab-only: #100 has the overlap comment" "0" \
     "$(GITLAB_TOKEN="" gitlab_has_overlap_comment 100 >/dev/null 2>&1; echo $?)"
 assert_eq "glab-only: #101 has none" "1" \
     "$(GITLAB_TOKEN="" gitlab_has_overlap_comment 101 >/dev/null 2>&1; echo $?)"
-assert_contains "glab-only: notes read via glab api" "api projects/:id/issues/100/notes" "$(cat "$T2241_DIR/glab_calls")"
+assert_contains "glab-only: notes read via glab api, every page" "api --paginate projects/:id/issues/100/notes" "$(cat "$T2241_DIR/glab_calls")"
 assert_eq "glab-only: no REST request" "" "$(cat "$T2241_DIR/curl_calls")"
 
 echo "--- Test 36: glab-only main() does not post a second overlap comment ---"
@@ -519,6 +524,280 @@ assert_contains "bitbucket: says the issue tracker was removed" "removed its nat
 assert_eq "bitbucket: no request sent" "" "$(cat "$T2241_DIR/curl_calls")"
 assert_eq "bitbucket: no backend function left" "" \
     "$(declare -F | awk '{print $3}' | grep -E '^(_?bitbucket_)' | grep -vx '_bitbucket_issues_removed')"
+ARG_REPO=""
+
+# --- Tests 38-47: the overlap lookup reads every page, survives SIGPIPE, and
+# never reads an incomplete read as absence (t2252) ---
+# Lookup verdicts: 0 found in what was read; 1 everything read, none found;
+# 2 the read was incomplete and found none (unknown). Only 1 posts.
+. "$PROJECT_DIR/tests/lib/gh_contribution_stub.sh"
+T2252_GH="$(mktemp -d)"
+gh_contribution_stub_install "$T2252_GH"
+_t2252_marker="<!-- overlap-results"
+# The pre-t2252 test, `echo | grep -qF` under pipefail, printed as
+# "<pipeline> <echo> <grep>". On a long body with the marker early, grep -q
+# matches (0) and exits, and the writer then breaks: killed by SIGPIPE (141),
+# or, where SIGPIPE is inherited ignored (a non-interactive shell cannot undo
+# that), failing with EPIPE (1). Either way the pipeline reads as "absent".
+_t2252_old_pipeline() {
+    (set -o pipefail; echo "$1" 2>/dev/null | grep -qF "$_t2252_marker"; echo "$? ${PIPESTATUS[*]}")
+}
+# true when the old pipeline's grep matched and the pipeline still failed
+# because its writer broke
+_t2252_broken_pipe() {
+    local rc writer reader
+    read -r rc writer reader <<< "$(_t2252_old_pipeline "$1")"
+    if [[ "$reader" == 0 && ( "$writer" == 141 || "$writer" == 1 ) && "$rc" == "$writer" ]]; then
+        echo true
+    else
+        echo "false (pipeline=$rc echo=$writer grep=$reader)"
+    fi
+}
+_t2252_carries_marker() { [[ "$1" == *"$_t2252_marker"* ]] && echo true || echo false; }
+_t2252_rc() { "$@" >/dev/null 2>&1; echo $?; }
+_t2252_has_marker() { jq --arg m "$_t2252_marker" '[.[].body | contains($m)] | any'; }
+_t2252_reset_logs() {
+    : > "$T2252_GH/comment_calls"; : > "$T2241_DIR/curl_calls"; : > "$T2241_DIR/glab_calls"
+}
+# yes when a note was posted on either GitLab path (POST URL ends in /notes)
+_t2252_gl_posted() {
+    if grep -q '/notes$' "$T2241_DIR/curl_calls" || grep -q '^issue note' "$T2241_DIR/glab_calls"; then
+        echo yes
+    else
+        echo no
+    fi
+}
+# _t2252_main <args...> — a non-dry main() as a run calls it; prints its
+# output, then RC:<status>. parse_args only sets the flags it is given, so the
+# ones earlier tests left on are reset first.
+_t2252_main() {
+    local out rc=0
+    ARG_DRY_RUN=false; ARG_SILENT=false; ARG_REPO=""
+    out=$(main "$@" 2>&1) || rc=$?
+    printf '%s\nRC:%s\n' "$out" "$rc"
+}
+
+echo "--- Test 38: GitHub lookup survives a long thread with the analysis first (SIGPIPE) ---"
+ARG_REPO="o/r"
+_t2252_bodies=$(GH_STUB_COMMENTS=large gh issue view 100 -R o/r --json comments --jq '.comments[].body')
+assert_eq "self-test (github): the long-thread comment stream carries the marker" "true" \
+    "$(_t2252_carries_marker "$_t2252_bodies")"
+assert_eq "self-test (github): the pre-t2252 pipeline matches, then fails on a broken pipe" "true" \
+    "$(_t2252_broken_pipe "$_t2252_bodies")"
+assert_eq "github lookup finds the analysis in a long thread" "0" \
+    "$(GH_STUB_COMMENTS=large _t2252_rc github_has_overlap_comment 100)"
+_t2252_reset_logs
+_t2252_out=$(GH_STUB_COMMENTS=large _t2252_main 100 --platform github --repo o/r)
+assert_contains "github main sees the existing analysis in a long thread" \
+    "Overlap comment already exists on issue #100" "$_t2252_out"
+assert_eq "github main posts nothing on a long thread" "" "$(cat "$T2252_GH/comment_calls")"
+assert_contains "github main on a long thread exits 0" "RC:0" "$_t2252_out"
+
+echo "--- Test 39: GitHub long thread: gh pages through every comment itself ---"
+# gh 2.102.1 loads comments 100 at a time and follows every page
+# (pkg/cmd/issue/view/http.go, preloadIssueComments). This pins behaviour that
+# was already correct, so it passes before t2252 too.
+assert_eq "self-test (github): the analysis sits past the first 100 comments" "110" \
+    "$(jq --arg m "$_t2252_marker" '[.comments[].body | contains($m)] | index(true)' "$T2252_GH/comments_100.many.json")"
+assert_eq "github lookup finds an analysis past comment 100" "0" \
+    "$(GH_STUB_COMMENTS=many _t2252_rc github_has_overlap_comment 100)"
+assert_eq "github lookup: #101 has no analysis" "1" "$(_t2252_rc github_has_overlap_comment 101)"
+
+echo "--- Test 40: GitHub: an unreadable comment list is unknown, never absence ---"
+assert_eq "github lookup with a failed comment read returns 2" "2" \
+    "$(GH_STUB_VIEW_FAIL=1 _t2252_rc github_has_overlap_comment 101)"
+_t2252_reset_logs
+_t2252_out=$(GH_STUB_VIEW_FAIL=1 _t2252_main 101 --platform github --repo o/r)
+assert_eq "github main posts nothing after a failed comment read" "" "$(cat "$T2252_GH/comment_calls")"
+assert_contains "github main exits 1 after a failed comment read" "RC:1" "$_t2252_out"
+assert_contains "github main says why it did not post" "Not posting, to avoid a duplicate" "$_t2252_out"
+
+echo "--- Test 41: GitLab lookup survives a long thread with the analysis first (SIGPIPE) ---"
+_t2252_bodies=$(jq -r '.[].body' "$T2241_DIR/notes_100.large.json")
+assert_eq "self-test (gitlab): the long-thread note stream carries the marker" "true" \
+    "$(_t2252_carries_marker "$_t2252_bodies")"
+assert_eq "self-test (gitlab): the pre-t2252 pipeline matches, then fails on a broken pipe" "true" \
+    "$(_t2252_broken_pipe "$_t2252_bodies")"
+ARG_REPO="o/r"
+assert_eq "gitlab REST lookup finds the analysis in a long thread" "0" \
+    "$(GLAB_STUB_NOTES=large _t2252_rc gitlab_has_overlap_comment 100)"
+ARG_REPO=""
+assert_eq "gitlab glab lookup finds the analysis in a long thread" "0" \
+    "$(GLAB_STUB_NOTES=large _t2252_rc gitlab_has_overlap_comment 100)"
+
+echo "--- Test 42: GitLab lookup reads every page of notes ---"
+export GLAB_STUB_NOTES=paged
+assert_eq "self-test: REST notes page 1 holds no analysis" "false" \
+    "$(curl -sf "https://gitlab.example/api/v4/projects/o%2Fr/issues/100/notes?per_page=100&page=1" | _t2252_has_marker)"
+assert_eq "self-test: glab api without --paginate holds no analysis" "false" \
+    "$(glab api "projects/:id/issues/100/notes?per_page=100" | _t2252_has_marker)"
+ARG_REPO="o/r"
+_t2252_reset_logs
+assert_eq "gitlab REST lookup finds the analysis on page 2" "0" "$(_t2252_rc gitlab_has_overlap_comment 100)"
+assert_contains "gitlab REST lookup requested notes page 2" "notes?per_page=100&page=2" "$(cat "$T2241_DIR/curl_calls")"
+ARG_REPO=""
+_t2252_reset_logs
+assert_eq "gitlab glab lookup finds the analysis on page 2" "0" "$(_t2252_rc gitlab_has_overlap_comment 100)"
+assert_contains "gitlab glab lookup paginates the notes" "api --paginate projects/:id/issues/100/notes" \
+    "$(cat "$T2241_DIR/glab_calls")"
+assert_eq "gitlab glab lookup reads one-array-per-page output" "0" \
+    "$(GLAB_STUB_PAGINATE_FORMAT=concat _t2252_rc gitlab_has_overlap_comment 100)"
+unset GLAB_STUB_NOTES
+
+echo "--- Test 43: GitLab incomplete reads keep what was read and never read as absence ---"
+ARG_REPO="o/r"
+assert_eq "REST: analysis on page 1, page 2 fails -> found" "0" \
+    "$(GLAB_STUB_NOTES=long GLAB_STUB_CURL_FAIL_PAGE=2 _t2252_rc gitlab_has_overlap_comment 100)"
+assert_eq "REST: analysis on page 2, page 2 fails -> unknown" "2" \
+    "$(GLAB_STUB_NOTES=paged GLAB_STUB_CURL_FAIL_PAGE=2 _t2252_rc gitlab_has_overlap_comment 100)"
+_t2252_reset_logs
+assert_eq "REST: a repeated notes page -> unknown" "2" \
+    "$(GLAB_STUB_NOTES=paged GLAB_STUB_CURL_REPEAT_PAGE=1 _t2252_rc gitlab_has_overlap_comment 100)"
+assert_eq "REST: the repeated notes page is detected on the second request" "2" \
+    "$(grep -c . "$T2241_DIR/curl_calls")"
+assert_eq "REST: notes page 1 fails -> unknown" "2" \
+    "$(GLAB_STUB_CURL_FAIL_PAGE=1 _t2252_rc gitlab_has_overlap_comment 100)"
+ARG_REPO=""
+assert_eq "glab: analysis on page 1, page 2 fails (one array per page) -> found" "0" \
+    "$(GLAB_STUB_NOTES=long GLAB_STUB_API_FAIL_PAGE=2 GLAB_STUB_PAGINATE_FORMAT=concat _t2252_rc gitlab_has_overlap_comment 100)"
+_t2252_v=$(GLAB_STUB_NOTES=long GLAB_STUB_API_FAIL_PAGE=2 _t2252_rc gitlab_has_overlap_comment 100)
+assert_eq "glab: analysis on page 1, page 2 fails (merged output) -> never absence" "true" \
+    "$([[ "$_t2252_v" != 1 ]] && echo true || echo false)"
+assert_eq "glab: notes api failure -> unknown" "2" \
+    "$(GLAB_STUB_API_FAIL=1 _t2252_rc gitlab_has_overlap_comment 100)"
+assert_eq "glab: analysis on page 2, page 2 fails -> unknown" "2" \
+    "$(GLAB_STUB_NOTES=paged GLAB_STUB_API_FAIL_PAGE=2 GLAB_STUB_PAGINATE_FORMAT=concat _t2252_rc gitlab_has_overlap_comment 100)"
+
+echo "--- Test 44: GitLab main() posts only when every note was read ---"
+for _t2252_path in rest glab; do
+    _t2252_repo=()
+    [[ "$_t2252_path" == rest ]] && _t2252_repo=(--repo o/r)
+    _t2252_reset_logs
+    _t2252_out=$(GLAB_STUB_NOTES=paged _t2252_main 100 --platform gitlab "${_t2252_repo[@]}")
+    assert_contains "$_t2252_path: main sees the analysis on notes page 2" \
+        "Overlap comment already exists on issue #100" "$_t2252_out"
+    assert_eq "$_t2252_path: main posts nothing on a complete 150-note thread" "no" "$(_t2252_gl_posted)"
+    assert_contains "$_t2252_path: main on a complete 150-note thread exits 0" "RC:0" "$_t2252_out"
+done
+# An analysis on page 1 and a failing page 2: the old first-page read found it,
+# and the paginated read must not turn it into a duplicate.
+_t2252_reset_logs
+_t2252_out=$(GLAB_STUB_NOTES=long GLAB_STUB_CURL_FAIL_PAGE=2 GLAB_STUB_CURL_FAIL_PATH='*/notes' \
+    _t2252_main 100 --platform gitlab --repo o/r)
+assert_eq "rest: page-1 analysis + notes page-2 failure: main posts nothing" "no" "$(_t2252_gl_posted)"
+for _t2252_fmt in concat merged; do
+    _t2252_reset_logs
+    _t2252_out=$(GLAB_STUB_NOTES=long GLAB_STUB_API_FAIL_PAGE=2 GLAB_STUB_PAGINATE_FORMAT=$_t2252_fmt \
+        _t2252_main 100 --platform gitlab)
+    assert_eq "glab ($_t2252_fmt): page-1 analysis + notes page-2 failure: main posts nothing" "no" "$(_t2252_gl_posted)"
+done
+# The analysis on the page that failed: unknown, so nothing is posted and the run fails.
+_t2252_reset_logs
+_t2252_out=$(GLAB_STUB_NOTES=paged GLAB_STUB_CURL_FAIL_PAGE=2 GLAB_STUB_CURL_FAIL_PATH='*/notes' \
+    _t2252_main 100 --platform gitlab --repo o/r)
+assert_eq "rest: notes page-2 failure, nothing found: main posts nothing" "no" "$(_t2252_gl_posted)"
+assert_contains "rest: notes page-2 failure, nothing found: main exits 1" "RC:1" "$_t2252_out"
+assert_contains "rest: notes page-2 failure, nothing found: main says why" "Not posting, to avoid a duplicate" "$_t2252_out"
+_t2252_reset_logs
+_t2252_out=$(GLAB_STUB_NOTES=paged GLAB_STUB_API_FAIL_PAGE=2 GLAB_STUB_PAGINATE_FORMAT=concat \
+    _t2252_main 100 --platform gitlab)
+assert_eq "glab: notes page-2 failure, nothing found: main posts nothing" "no" "$(_t2252_gl_posted)"
+assert_contains "glab: notes page-2 failure, nothing found: main exits 1" "RC:1" "$_t2252_out"
+assert_contains "glab: notes page-2 failure, nothing found: main says why" "Not posting, to avoid a duplicate" "$_t2252_out"
+
+echo "--- Test 45: GitLab label listing reads every page ---"
+export GLAB_STUB_LABELS=many
+assert_eq "self-test: REST label page 1 lacks area:scripts" "false" \
+    "$(curl -sf "https://gitlab.example/api/v4/projects/o%2Fr/labels?per_page=100&page=1" | jq '[.[].name] | index("area:scripts") != null')"
+assert_eq "self-test: glab label list -F json (one page of 30) lacks area:scripts" "false" \
+    "$(glab label list -F json | jq '[.[].name] | index("area:scripts") != null')"
+ARG_REPO="o/r"
+_t2252_reset_logs
+assert_contains "REST label listing includes a label past page 1" "area:scripts" "$(gitlab_list_repo_labels)"
+assert_contains "REST label listing requested page 2" "labels?per_page=100&page=2" "$(cat "$T2241_DIR/curl_calls")"
+assert_eq "REST: a repeated label page fails the listing" "1" \
+    "$(GLAB_STUB_CURL_REPEAT_PAGE=1 _t2252_rc gitlab_list_repo_labels)"
+ARG_REPO=""
+_t2252_reset_logs
+assert_contains "glab label listing includes a label past page 1" "area:scripts" "$(gitlab_list_repo_labels)"
+assert_contains "glab label listing paginates" "api --paginate projects/:id/labels" "$(cat "$T2241_DIR/glab_calls")"
+unset GLAB_STUB_LABELS
+
+echo "--- Test 46: a failed POST fails the run, with no 'Posted' line (real script process) ---"
+# main() posts from a helper it calls as `helper || …`, where bash turns
+# errexit off. The post's status must still reach the exit status. A separate
+# process gives the production `set -euo pipefail` semantics; a main() sourced
+# into this file runs under its `set +e`. Issue #101 takes main's fingerprint
+# branch, #14 (no metadata) the no-fingerprint branch; both have no analysis.
+_t2252_script="$PROJECT_DIR/.aitask-scripts/aitask_contribution_check.sh"
+export -f gh _gh_stub_log
+# _t2252_run <VAR=value|-> <args...> — the script as a process, output + RC:<n>
+_t2252_run() {
+    local knob="$1" out rc=0
+    shift
+    if [[ "$knob" == - ]]; then
+        out=$(bash "$_t2252_script" "$@" 2>&1) || rc=$?
+    else
+        out=$(env "$knob" bash "$_t2252_script" "$@" 2>&1) || rc=$?
+    fi
+    printf '%s\nRC:%s\n' "$out" "$rc"
+}
+# yes when the run attempted a post on the given path
+_t2252_attempted() {
+    case "$1" in
+        github) [[ -s "$T2252_GH/comment_calls" ]] ;;
+        gitlab-rest) grep -q '/notes$' "$T2241_DIR/curl_calls" ;;
+        gitlab-glab) grep -q '^issue note' "$T2241_DIR/glab_calls" ;;
+    esac && echo yes || echo no
+}
+for _t2252_case in "github|GH_STUB_COMMENT_FAIL=1|--platform github --repo o/r" \
+                   "gitlab-rest|GLAB_STUB_CURL_POST_FAIL=1|--platform gitlab --repo o/r" \
+                   "gitlab-glab|GLAB_STUB_NOTE_FAIL=1|--platform gitlab"; do
+    IFS='|' read -r _t2252_name _t2252_knob _t2252_args <<< "$_t2252_case"
+    for _t2252_issue in 101 14; do
+        _t2252_label="$_t2252_name #$_t2252_issue"
+        _t2252_reset_logs
+        # shellcheck disable=SC2086  # the platform arguments split on purpose
+        _t2252_out=$(_t2252_run "$_t2252_knob" "$_t2252_issue" $_t2252_args)
+        assert_eq "$_t2252_label: the failing post was attempted" "yes" "$(_t2252_attempted "$_t2252_name")"
+        assert_not_contains "$_t2252_label: failed post exits non-zero" "RC:0" "$_t2252_out"
+        assert_not_contains "$_t2252_label: failed post prints no 'Posted' line" \
+            "Posted overlap analysis comment" "$_t2252_out"
+        assert_not_contains "$_t2252_label: failed post prints no completion line" \
+            "Overlap analysis complete" "$_t2252_out"
+        _t2252_reset_logs
+        # shellcheck disable=SC2086
+        _t2252_out=$(_t2252_run - "$_t2252_issue" $_t2252_args)
+        assert_contains "$_t2252_label: control: a successful post exits 0" "RC:0" "$_t2252_out"
+        assert_contains "$_t2252_label: control: a successful post prints 'Posted'" \
+            "Posted overlap analysis comment" "$_t2252_out"
+    done
+done
+export -fn gh _gh_stub_log
+
+echo "--- Test 47: a malformed or empty glab notes response is never a complete read ---"
+# glab exits 0 in all three. jq alone would call the first and second complete:
+# it carries on past the error object, and exits 0 on no input at all.
+printf '[]\n{"message":"500 Internal Server Error"}\n[]\n' > "$T2241_DIR/raw_mixed.json"
+: > "$T2241_DIR/raw_empty.json"
+{ cat "$T2241_DIR/notes_100.json"; printf '{"message":"500 Internal Server Error"}\n'; } \
+    > "$T2241_DIR/raw_mixed_found.json"
+ARG_REPO=""
+assert_eq "glab: page, error object, page (exit 0) -> unknown, not absence" "2" \
+    "$(GLAB_STUB_API_RAW="$T2241_DIR/raw_mixed.json" _t2252_rc gitlab_has_overlap_comment 101)"
+assert_eq "glab: no output at all (exit 0) -> unknown, not absence" "2" \
+    "$(GLAB_STUB_API_RAW="$T2241_DIR/raw_empty.json" _t2252_rc gitlab_has_overlap_comment 101)"
+assert_eq "glab: an analysis page, then an error object -> found" "0" \
+    "$(GLAB_STUB_API_RAW="$T2241_DIR/raw_mixed_found.json" _t2252_rc gitlab_has_overlap_comment 101)"
+for _t2252_raw in mixed empty; do
+    _t2252_reset_logs
+    _t2252_out=$(GLAB_STUB_API_RAW="$T2241_DIR/raw_$_t2252_raw.json" _t2252_main 101 --platform gitlab)
+    assert_eq "glab ($_t2252_raw response): main posts nothing" "no" "$(_t2252_gl_posted)"
+    assert_contains "glab ($_t2252_raw response): main exits 1" "RC:1" "$_t2252_out"
+done
+
+unset -f gh
+rm -rf "$T2252_GH"
 ARG_REPO=""
 
 PATH="$_t2241_saved_path"

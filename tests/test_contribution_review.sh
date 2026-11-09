@@ -533,6 +533,95 @@ assert_contains "bitbucket: says the issue tracker was removed" "removed its nat
 assert_eq "bitbucket: no request sent" "" "$(cat "$T2247_DIR/curl_calls")"
 assert_eq "bitbucket: no review backend left" "" "$(declare -F | awk '{print $3}' | grep -x 'review_bitbucket_fetch_comments')"
 
+# --- Tests 31-35: review comments come from every page, oldest first, of any
+# size, and an incomplete read keeps what it read (t2252) ---
+. "$PROJECT_DIR/tests/lib/gh_contribution_stub.sh"
+T2252_GH="$(mktemp -d)"
+gh_contribution_stub_install "$T2252_GH"
+_t2252_saved_token="${GITLAB_TOKEN-}"
+export GITLAB_TOKEN="test-token"
+_t2252_marker="<!-- overlap-results"
+_t2252_review="$PROJECT_DIR/.aitask-scripts/aitask_contribution_review.sh"
+CHECK_PLATFORM=gitlab
+
+echo "--- Test 31: review_gitlab_fetch_comments reads every page ---"
+export GLAB_STUB_NOTES=paged
+ARG_REPO="o/r"
+out=$(review_gitlab_fetch_comments 100 2>/dev/null)
+assert_eq "REST: review reads every note of a 150-note thread" "150" "$(jq length <<< "$out")"
+ARG_REPO=""
+: > "$T2247_DIR/glab_calls"
+out=$(review_gitlab_fetch_comments 100 2>/dev/null)
+assert_eq "glab: review reads every note of a 150-note thread" "150" "$(jq length <<< "$out")"
+assert_contains "glab: review comments include the analysis" "$_t2252_marker" "$out"
+assert_contains "glab: review notes read via api --paginate" "api --paginate projects/:id/issues/100/notes" \
+    "$(cat "$T2247_DIR/glab_calls")"
+assert_not_contains "glab: review notes not read via glab issue view" "issue view" "$(cat "$T2247_DIR/glab_calls")"
+unset GLAB_STUB_NOTES
+
+echo "--- Test 32: GitLab comments come oldest first, so the newest analysis is used ---"
+# Newest first, as GitLab serves notes: a newer analysis (id 3), a reply (id 2)
+# and an older analysis (id 1), built from the captured notes with the
+# single-line marker format_overlap_comment emits.
+jq -c '.[0] as $thanks | .[1] as $overlap
+    | [ ($overlap | .id = 3 | .body = "## Contribution Overlap Analysis\n\n<!-- overlap-results top_overlaps: 30:7 overlap_check_version: 1 -->"),
+        ($thanks | .id = 2),
+        ($overlap | .id = 1 | .body = "## Contribution Overlap Analysis\n\n<!-- overlap-results top_overlaps: 10:8 overlap_check_version: 1 -->") ]' \
+    "$T2247_DIR/notes_100.json" > "$T2247_DIR/notes_100.twice.json"
+export GLAB_STUB_NOTES=twice
+for _t2252_path in rest glab; do
+    if [[ "$_t2252_path" == rest ]]; then ARG_REPO="o/r"; else ARG_REPO=""; fi
+    result=$(parse_overlap_from_comments "$(review_gitlab_fetch_comments 100 2>/dev/null)" "99")
+    assert_eq "$_t2252_path: exactly the newest analysis's overlaps are used" "OVERLAP:30:7" "$result"
+done
+unset GLAB_STUB_NOTES
+
+echo "--- Test 33: fetch keeps a comment set larger than one argument (128 KB) ---"
+# Run as a process: under this file's set +e a crashed --argjson would not
+# abort the sourced cmd_fetch, and its exit status would prove nothing.
+_t2252_fetch_count() {  # fetch output -> .comments | length of its ISSUE_JSON
+    sed -n '/^ISSUE_JSON:/,/^HAS_METADATA:/p' | sed '1s/^ISSUE_JSON://; $d' | jq '.comments | length'
+}
+export -f gh _gh_stub_log
+for _t2252_case in "gitlab REST|GLAB_STUB_NOTES=large|--platform gitlab --repo o/r" \
+                   "gitlab glab|GLAB_STUB_NOTES=large|--platform gitlab" \
+                   "github|GH_STUB_COMMENTS=large|--platform github --repo o/r"; do
+    IFS='|' read -r _t2252_name _t2252_knob _t2252_args <<< "$_t2252_case"
+    rc=0
+    # shellcheck disable=SC2086  # the platform arguments split on purpose
+    out=$(env "$_t2252_knob" bash "$_t2252_review" fetch 100 $_t2252_args 2>/dev/null) || rc=$?
+    assert_eq "$_t2252_name: fetch exits 0 on an 800 KB thread" "0" "$rc"
+    assert_eq "$_t2252_name: fetch keeps all 41 comments" "41" "$(_t2252_fetch_count <<< "$out")"
+done
+export -fn gh _gh_stub_log
+
+echo "--- Test 34: an incomplete read keeps the comments that were read ---"
+CHECK_PLATFORM=gitlab
+ARG_REPO="o/r"
+rc=0
+out=$(GLAB_STUB_NOTES=long GLAB_STUB_CURL_FAIL_PAGE=2 review_gitlab_fetch_comments 100 2>/dev/null) || rc=$?
+assert_eq "REST: review reports a failed notes page 2 (returns 1)" "1" "$rc"
+assert_contains "REST: the page-1 analysis is still among the comments read" "$_t2252_marker" "$out"
+rc=0
+err=$(GLAB_STUB_NOTES=long GLAB_STUB_CURL_FAIL_PAGE=2 cmd_fetch 100 2>&1 >/dev/null) || rc=$?
+assert_contains "REST: fetch warns that the comments are incomplete" "Could not read every comment on issue #100" "$err"
+assert_eq "REST: fetch still succeeds on an incomplete comment read" "0" "$rc"
+
+echo "--- Test 35: a malformed glab notes response is incomplete, its pages still read ---"
+ARG_REPO=""
+{ cat "$T2247_DIR/notes_100.json"; printf '{"message":"500 Internal Server Error"}\n'; } \
+    > "$T2247_DIR/raw_mixed_found.json"
+rc=0
+out=$(GLAB_STUB_API_RAW="$T2247_DIR/raw_mixed_found.json" review_gitlab_fetch_comments 100 2>/dev/null) || rc=$?
+assert_eq "glab: an error object in the notes response is reported (returns 1)" "1" "$rc"
+assert_eq "glab: the notes of the page before it are kept" "2" "$(jq length <<< "$out")"
+
+unset -f gh
+rm -rf "$T2252_GH"
+if [[ -n "$_t2252_saved_token" ]]; then GITLAB_TOKEN="$_t2252_saved_token"; else unset GITLAB_TOKEN; fi
+ARG_REPO=""
+CHECK_PLATFORM=""
+
 PATH="$_t2247_saved_path"
 rm -rf "$T2247_DIR"
 echo ""

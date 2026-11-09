@@ -234,27 +234,33 @@ review_github_fetch_comments() {
     gh issue view "$issue_num" "${repo_flag[@]}" --json comments | jq '.comments'
 }
 
+# Every note, on both paths. Not `glab issue view -F json`: glab 1.126 adds
+# notes to it only with --comments, one page of them, under a "Notes" key.
+# GitLab lists notes newest first; they are sorted oldest first, as GitHub
+# returns comments, so parse_overlap_from_comments' `last` is the newest
+# analysis. Returns 1 when some page could not be read, having printed the
+# notes that were (t2252).
 review_gitlab_fetch_comments() {
-    local issue_num="$1"
-    if _gitlab_has_glab && [[ -z "$ARG_REPO" ]]; then
-        # glab does not have a direct comments-only JSON output; fetch full issue
-        glab issue view "$issue_num" -F json | jq '[.notes[] | {
-            author: .author.username,
-            body: .body,
-            createdAt: .created_at
-        }]'
-    else
-        local api_base project_id hdr
-        api_base=$(_gitlab_api_base)
-        project_id=$(_gitlab_project_id)
-        hdr=$(_gitlab_token_header) || return 1
-        curl -sf --header "$hdr" \
-            "$api_base/projects/$project_id/issues/$issue_num/notes?per_page=100" | jq '[.[] | {
-            author: .author.username,
-            body: .body,
-            createdAt: .created_at
-        }]'
+    local issue_num="$1" notes complete=0
+    notes=$(_gitlab_issue_notes "$issue_num") || complete=1
+    printf '%s\n' "$notes" | jq '[sort_by(.created_at, .id)[] | {
+        author: .author.username,
+        body: .body,
+        createdAt: .created_at
+    }]' || return 1
+    return "$complete"
+}
+
+# _review_comments <issue_num> — the issue's comments as a JSON array. When
+# they could not all be read it warns and keeps the ones that were, so a
+# later-page failure never hides an overlap analysis on an earlier page.
+_review_comments() {
+    local issue_num="$1" comments
+    if ! comments=$(review_fetch_comments "$issue_num" 2>/dev/null); then
+        warn "Could not read every comment on issue #${issue_num}; continuing with the comments that could be read."
+        jq -e 'type == "array"' <<< "$comments" >/dev/null 2>&1 || comments="[]"
     fi
+    printf '%s\n' "$comments"
 }
 
 # ============================================================
@@ -270,11 +276,12 @@ cmd_fetch() {
 
     # Fetch comments separately
     local comments_json
-    comments_json=$(review_fetch_comments "$issue_num" 2>/dev/null || echo "[]")
+    comments_json=$(_review_comments "$issue_num")
 
-    # Merge comments into issue JSON
+    # Merge comments into issue JSON. Both documents go through stdin: a long
+    # thread exceeds the 128 KB single-argument cap that --argjson would hit.
     local full_json
-    full_json=$(echo "$issue_json" | jq --argjson comments "$comments_json" '. + {comments: $comments}')
+    full_json=$(printf '%s\n%s\n' "$issue_json" "$comments_json" | jq -s '.[0] + {comments: .[1]}')
 
     # Extract body for metadata parsing
     local body
@@ -368,7 +375,7 @@ cmd_find_related() {
     issue_json=$(source_fetch_issue "$issue_num") || die "Failed to fetch issue #${issue_num}"
 
     local comments_json
-    comments_json=$(review_fetch_comments "$issue_num" 2>/dev/null || echo "[]")
+    comments_json=$(_review_comments "$issue_num")
 
     local body
     body=$(echo "$issue_json" | jq -r '.body // ""')

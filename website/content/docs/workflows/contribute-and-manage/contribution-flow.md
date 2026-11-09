@@ -79,7 +79,7 @@ The CI/CD workflow posts a comment on the contribution issue with:
 <!-- overlap-results top_overlaps: 42:7,38:4 overlap_check_version: 1 -->
 ```
 
-The check is **idempotent** — if an `<!-- overlap-results -->` comment already exists, the workflow skips re-posting.
+The check is **idempotent** — if an `<!-- overlap-results -->` comment already exists, the workflow skips re-posting. It reads every comment on the issue, however long the thread. If some comments cannot be read, an analysis among those that were read still counts, and the check skips re-posting as usual. If none of them is an analysis, it posts nothing and the run fails, so a re-run decides; an incomplete read never posts a duplicate. GitLab's scheduled scan logs that failure and moves on to the next issue.
 
 ### CLI Usage
 
