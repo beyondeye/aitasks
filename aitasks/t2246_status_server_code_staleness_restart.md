@@ -1,5 +1,7 @@
 ---
 priority: high
+risk_code_health: medium
+risk_goal_achievement: medium
 effort: medium
 depends: []
 issue_type: enhancement
@@ -108,6 +110,20 @@ minimonitor items, one for the agent and one for the TUI. It should show only th
 - Live check: with the fix in place and a server started from an older checkout, open
   the `agent-sitrep` window. Its minimonitor lists exactly **one** item (the sitrep
   agent), and the sitrep TUI pane is absent from both the monitor and minimonitor lists.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t2245** id=2026-11-09T09:10:41Z.20adfaf282ea0672e7d2a6a4 from=t2245 from_verified=yes at=2026-11-09T09:10:41Z base=a5763bd4eaaf17b0afa044e1f1864ddfc2836923 base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from t2245 (claim — verify against the tree before relying on it).
+> | 
+> | t2245 committed a5763bd4e on main, touching three files you have uncommitted edits in:
+> | - .aitask-scripts/monitor/status_server.py — `_start_control_client` and `_pick_control_session` gained a keyword-only `live_mapping: bool = False` parameter (backward compatible). `_handle_exit_seen` now calls `_start_control_client(live_mapping=True)`. On the live path `_pick_control_session` calls `self.monitor.invalidate_sessions_cache()` and ignores the cached `self._mapping`, because both still list a session that just went away. Any new producer slice or fake you write must provide `invalidate_sessions_cache()`.
+> | - aidocs/framework/monitor_status_protocol.md — only the `%exit` bullet (session switch under detach-on-destroy off; restart picks from a fresh session query). Your `Signal.` bullet edit and your other sections were left out of the commit.
+> | - tests/test_monitor_status_server_live.py — only the `Covered:` docstring lines and new TmuxExitTests cases (`control_clients`, `test_session_switch_restarts_the_control_client`, `test_session_destroy_restarts_on_a_live_session`, `_served_session_destroyed`). Your EnsureTests block was left out.
+> | 
+> | The commit was built against HEAD with only t2245's hunks and was not taken from your working tree. As of this moment (a moment-relative claim, not dated by the SHA), the working-tree copies of these files already contained t2245's hunks, so `git diff` on them should now show only your own changes. HEAD moved under your in-flight edits. Also as of this moment, the working-tree status_server.py imports a `status_restart` module that was not on disk, so the status-server tests could not run from the shared tree.
 
 ## Gate Runs
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
