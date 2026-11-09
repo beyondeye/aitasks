@@ -124,6 +124,65 @@ class CBase(ts.Base):
         return [json.loads(x) for x in path.read_text().splitlines() if x.strip()]
 
 
+# ===================================================== D9 pick-time display
+
+class PickObsolescenceTests(CBase):
+    """`related-work --point pick` shows the task's OWN band when medium+ (t1981_6)."""
+    T = "20"
+    CREATED = "2026-11-01 10:00"
+
+    def setUp(self):
+        super().setUp()
+        task_file(self.root, self.T, self.CREATED, "Goal.\n")
+
+    def assess(self, band, disposition="refresh"):
+        idx = rst.TaskIndex(str(self.root))
+        rec = {"schema": rs.SCHEMA, "task": f"aitasks#{self.T}", "task_created_at": self.CREATED,
+               "run": {"id": "r", "trigger": "manual", "stage": 1, "at": "2026-11-08T10:00:00Z"},
+               "inputs": {"body_sha256": idx.body_digest(self.T), "plan_sha256": None,
+                          "evidence_digest": "d" * 64},
+               "evidence": [{"id": "duplicate_of:1", "kind": "duplicate_of", "detail": "x",
+                             "source": "store:records/t21.json"}],
+               "band": band, "disposition": disposition,
+               "reasons": [{"text": "why | it is obsolete", "evidence_ids": ["duplicate_of:1"]}]}
+        out = rst.Store(str(self.root)).write(rs.store_path("obsolescence", self.T), rec)
+        self.assertTrue(any(x.startswith("PUBLISHED:") for x in out), out)
+
+    def dismiss(self, digest="d" * 64):
+        out = rst.Store(str(self.root)).write(rs.store_path("dismissals", self.T), {
+            "task": f"aitasks#{self.T}", "task_created_at": self.CREATED,
+            "at": "2026-11-08T11:00:00Z", "by": "me", "evidence_digest": digest})
+        self.assertTrue(any(x.startswith("PUBLISHED:") for x in out), out)
+
+    def pick(self, point="pick"):
+        _rc, out, _err = run(self.root, "related-work", self.T, "--point", point)
+        return out
+
+    def test_medium_band_is_shown_with_reasons(self):
+        self.assess("medium")
+        out = self.pick()
+        self.assertEqual(lines_with(out, "OBSOLESCENCE:"), ["OBSOLESCENCE:medium|refresh|fresh"])
+        self.assertEqual(lines_with(out, "OBSOLESCENCE_REASON:"),
+                         ["OBSOLESCENCE_REASON:why %7C it is obsolete"])
+        _rc, js, _ = run(self.root, "related-work", self.T, "--point", "pick", "--json")
+        self.assertEqual(json.loads(js)["obsolescence"]["band"], "medium")
+
+    def test_low_band_dismissed_and_review_point_show_nothing(self):
+        self.assess("low")
+        self.assertEqual(lines_with(self.pick(), "OBSOLESCENCE"), [])
+        self.assess("high", "drop")
+        self.assertEqual(lines_with(self.pick("review"), "OBSOLESCENCE"), [])
+        self.dismiss("e" * 64)                       # an older digest: still shown
+        self.assertEqual(lines_with(self.pick(), "OBSOLESCENCE:"), ["OBSOLESCENCE:high|drop|fresh"])
+        self.dismiss()                               # keyed to this digest: hidden
+        self.assertEqual(lines_with(self.pick(), "OBSOLESCENCE"), [])
+
+    def test_body_change_marks_inputs_stale(self):
+        self.assess("medium")
+        task_file(self.root, self.T, self.CREATED, "Goal, rewritten.\n")
+        self.assertEqual(lines_with(self.pick(), "OBSOLESCENCE:"), ["OBSOLESCENCE:medium|refresh|stale"])
+
+
 # =================================================================== push/pull
 
 class NotifyCandidatesTests(CBase):

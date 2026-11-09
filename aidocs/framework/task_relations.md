@@ -978,7 +978,7 @@ diagnostics go to stderr. Shape `aitask-relation-candidates/1`:
   contributions reads `<sum>+unknown(<n>)`.
 - `ledgers --export` prints JSON lines tagged `{host, ledger}`. A corrupt line
   becomes `{…, corrupt_line: n}` and is never skipped.
-- `unblock <id>` prints `UNBLOCKED:t<id>|ended|forced` (only when every
+- `unblock <id> [--op <op>]` prints `UNBLOCKED:t<id>|ended|forced` (only when every
   invocation is resolved), `STILL_UNRESOLVED:t<id>|<why>|remaining=<n>` or
   `NO_GUARD:t<id>`.
 - `enable` prints `PROJECT_NAME:kept|seeded:<name>`, `ENABLED_SET:`,
@@ -1406,7 +1406,9 @@ collects static rows, each tagged by kind:
 
 The 2026-10-14 measurement (seed §2.7) is why judgement is needed: most missing
 paths are renames, relative paths or planned-new files, and only 3 of 577 pending
-tasks cited a truly deleted path.
+tasks cited a truly deleted path. Not every row is a scoring input. Path rows,
+`age`, a non-stale premise reading and a completed origin are **context**, shown
+for human inspection only (see "Obsolescence API" below).
 
 ### Judgement
 
@@ -1442,12 +1444,81 @@ and the premise engine never scores obsolescence. The roadmap has no slot for an
 obsolete score (`lib/roadmap_policy.py`). Adding one is left to the
 retrospective.
 
+### Obsolescence API
+
+This is the contract the TUI (t1981_7) and the docs (t1981_8) build on.
+
+**Modules:**
+- `lib/obsolescence_evidence.py`: the evidence rows (`collect`), `parse_revert_notes` and the path history;
+- `lib/relations_worker.py`: `analyse_obsolescence`, `landed_targets` and `obs_eligible`;
+- `lib/obsolete_cli.py` with `aitask_obsolete.sh`: the `ait obsolete` verbs.
+
+**Signal and context rows.** Every row is classified as one of two kinds.
+
+| Class | Rows |
+|---|---|
+| signal | `origin_state` other than a completed origin (archived with a reason, folded, deleted, reverted); `superseded_by`; `duplicate_of`; `affected_by_landed`; `premise` with `ASK_STALE` |
+| context | `age`; `premise` with `FRESH`, `SKIP` or `unavailable`; `origin_state` `archived:completed@…`; **every path row** (`path_deleted`, `path_renamed`, `path_ambiguous`) |
+
+- **Scoring inputs = digest inputs = signal rows.** Only signal rows reach the assessor (`evidence.json` and the prompt). Only they can be cited by `reasons[].evidence_ids`, only they are stored in the record's `evidence[]`, and only they make up `inputs.evidence_digest`, which is the sha256 over the sorted `(kind, detail, source)` triples, ids excluded.
+- **Context rows are for human inspection only**, shown live by `ait obsolete evidence`. A context row that reached the prompt could shape a recommendation that its later change would never invalidate, because `UP_TO_DATE` and dismissals key on the digest.
+- **Path rows are factual file events, followed forward in sequence.** Each row reports how the cited name's latest lifetime ended, with `lifetimes=<n>`, and comes from one `git log --topo-order -M --name-status --diff-filter=ADR` pass over HEAD, cached at `.aitask-cache/obsolescence/history-<HEAD>.json`.
+  - They never assert obsolescence: nothing yet proves that the task's current citation refers to the lifetime that ended. A citation can be removed and reintroduced, and a task may be proposing to recreate the file.
+  - Attributing a path event to the current citation is a follow-up.
+- **No signal row** → band `none`, disposition `keep`, no agent call.
+- **Incomplete evidence** fails the job as `EVIDENCE_INCOMPLETE:<reason>`, never `none`, and leaves any stored assessment in place. The check runs before `UP_TO_DATE`, so it can neither publish nor replace an all-clear. Causes:
+  - an unreadable origin, or a malformed `verifies` / `anchor`;
+  - a failed path history, or a premise tool error;
+  - a relations snapshot that cannot vouch for "no relation rows": a corrupt record (`store_corrupt:<path>`; `Store.read` omits it) or an `unreachable` store (`store_unreachable:<reason>`, no data at all).
+
+  An `empty`, `local_only`, `fresh@` or `stale:` (latest-known) store is complete.
+
+**The job** (`op = obsolescence`, the same spool, admission, recovery and headless launch as `relations`):
+- **Cap:** the daily cap counts per op: the spool's `calls_today(op)` against `relations.max_jobs_per_day`.
+- **Eligibility:** only active tasks that are not `Done` / `Folded`, not folded and not `manual_verification` are assessed. Others end as `EXCLUDED`.
+- **Up to date:** a job skips as `UP_TO_DATE` when the stored record has the same body and plan digests (the D5 plan rule) and the same `evidence_digest`, at the same or a higher stage.
+- **Output validation:** the agent's output must be exactly `{band, reasons, disposition[, fold_target]}`.
+  - A band other than `none`, or a disposition other than `keep`, needs at least one reason, and band `none` requires `keep`. `relations_schema.validate_obsolescence` enforces both.
+  - Every reason cites at least one of this job's signal ids.
+  - `fold_target` is allowed only with `fold_into`, and only to a listed target: a foldable (Ready/Editing) pending end of a `duplicates` / `supersedes` relation, or a sibling.
+- **Outcomes:** `ASSESSED(published|retained)`, `UP_TO_DATE`, `EXCLUDED`, `FAILED:<reason>`.
+
+**The landed trigger.**
+- `aitask_archive.sh` `main` calls `aitask_relations_enqueue.sh obsolescence landed <id>` after a **successful archive commit**, for each id that commit archived as completed work. That is the task, plus a parent the child flow auto-archived in the same commit.
+- The call is skipped for `--dry-run`, `--no-commit` (stage only), a verified nothing-to-commit, `--superseded`, `--obsolete`, and an archived file carrying `archived_reason` or `folded_into`. It is silent, and `|| true`.
+- The detached part checks the switches (`enabled`, `AIT_RELATIONS=0`, `triggers.landed`) before it reads anything, logging `ENQUEUE:obsolescence|landed|t<id>|SKIPPED:…`.
+- It then enqueues one `obsolescence` job for every eligible task that is a pending end of relations(landed) or whose origin (`verifies` / `anchor`) is the landed task, and logs `LANDED_FANOUT:t<id>|<n>`.
+
+**`ait obsolete` line protocols.** Every output starts with `RELATIONS_STATE:` and `STORE:`. Free text is percent-encoded (`%0D`, `%0A`, `%7C`, `%25`).
+
+| Verb | Lines |
+|---|---|
+| `evidence <id> [--json] [--no-fetch]` | `EVIDENCE:<id>\|<kind>\|signal\|context\|<source>\|<detail>`, `INCOMPLETE:<reason>`, `SIGNAL_ROWS:<n>`, `EVIDENCE_DIGEST:<sha>`. Works while analysis is disabled; it is static. |
+| `ls [--min-band low\|medium\|high] [--all]` | `OBSOLETE:t<id>\|<band>\|<disposition>[:<target>]\|<fresh\|stale\|unverified>\|reasons=<n>[\|dismissed]`, or `OBSOLETE:0`. A dismissal at the record's digest hides the task unless `--all` is passed. |
+| `show <id> [--json]` | `OBSOLESCENCE:`, `RUN:`, `REASON:<ids>\|<text>`, `EVIDENCE:` (signal rows), `USAGE:`, `DISMISSED:no\|current\|stale…`, `CONTEXT:see ait obsolete evidence <id>`. Otherwise `NO_ASSESSMENT:t<id>` (exit 1). |
+| `dismiss <id> [--note <text>]` | Writes `dismissals/t<id>.json` keyed to the record's `evidence_digest` and prints `DISMISSED:t<id>\|<digest12>`, then the flush reports (exit 3 on `RETAINED:`). The task resurfaces when a new assessment has a different digest. |
+| `review` | One item at a time: `[o]pen [f]old [a]rchive-obsolete [d]ismiss [s]kip [q]uit`. Each action needs that explicit letter; anything else re-prompts, and EOF prints `REVIEW_ENDED:eof`. See below for fold and archive. |
+| `unblock <id> [--kill] [--force]` | The obsolescence op's unresolved-invocation guards only, with the same protocol as `ait relations unblock` (`UNBLOCKED:` / `STILL_UNRESOLVED:` / `NO_GUARD:`). Guards are per `(op, task)`: `ait relations unblock <id> [--op relations\|obsolescence]` defaults to `relations`, and clearing one op never touches the other's. |
+| `sweep [--budget N]` | `ENQUEUED:t<id>` per job, then `SWEEP:<n>\|budget=<b>\|candidates=<N>`. Requires analysis enabled (`DISABLED:` / `HOST_OFF:`). The default budget is the obsolescence op's remaining daily cap. |
+
+**How `review` folds and archives.**
+- **Fold** validates both ends by parsing `aitask_fold_validate.sh` lines, since that helper exits 0 for every content outcome: the destination must be `VALID:` on its own, and the item must be `VALID:` with `--exclude-self <destination>`. Any other answer is `FOLD_REFUSED:<id>|<reason>`. After the `y` confirmation both are re-validated, then the existing fold sequence runs.
+- **Archive** runs `aitask_archive.sh --obsolete` after a `y`. It offers `--ignore-gates` only after a second confirmation when gates are pending.
+
+**Sweep rotation.** The sort key is `(not boosted, last_attempt, id)`.
+- `last_attempt` is the ledger position of the task's newest `kind:"job"` row of the obsolescence op in this host's `usage.jsonl`. Every terminal outcome writes one, `UP_TO_DATE` and failures included. The append order is exact; the rows' one-second `at` would tie.
+- A task with no assessment is **boosted** until its first attempt.
+- A task whose body or plan changed since its assessment is boosted while its newest attempt is still the successful one the record came from. An attempt that fails after the change spends the boost.
+- So a persistent failure can never monopolise a bounded sweep, and evidence that changes while body and plan do not is still revisited.
+
+**Pick-time display.** `ait relations related-work <id> --point pick` adds `OBSOLESCENCE:<band>|<disposition>[:<target>]|<inputs>` and up to three `OBSOLESCENCE_REASON:` lines. They appear when the task's own identity-valid assessment is `medium` or higher and not dismissed at its digest. They are display-only, as the rest of the check is.
+
 ## D10 — Surfaces
 
 | Surface | What |
 |---|---|
 | `ait relations` | `show <id>`, `why <a> <b>`, `status`, `flush`, `gc`, `analyze <id> [--now --wait <s>] [--over-cap] [--dry-run]`, `analysis-state <id> --expect-plan <sha>`, `stamp <id>`, `plan-digest <id>`, `sweep`, `usage`, `ledgers --export`, `notify-candidates <id> [--rev <rev> \| --diff <range>] [--expect-plan <sha>] [--option <opt>] [--log]`, `notify-outcome <id> --run <id> --to <ref> --type <type> --outcome <o>`, `related-work <id> --point pick\|review\|note [--since <ts>] [--log]`, `enable`, `disable` |
-| `ait obsolete` | `ls`, `show`, `evidence`, `dismiss`, `review`, `sweep` |
+| `ait obsolete` | `ls`, `show`, `evidence`, `dismiss`, `review`, `sweep`, `unblock` |
 | Agent surfaces | the pick-time related-work check, planning context, the target's Step 8 re-check, Step 8e, `/aitask-note` with no target, t1634 (`duplicates`), trails (relations as gather input, later) |
 | TUI (later) | a read-only Textual `ait relations` with two tabs: **Relations** (per task: type, description, evidence, freshness, neighbourhood) and **Obsolete** (sorted by band, with reasons and actions). Registered in `KNOWN_TUIS`; the board's detail screen gets a "Relations: n (k stale)" field |
 

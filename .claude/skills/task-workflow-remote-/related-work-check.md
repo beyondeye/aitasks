@@ -47,6 +47,13 @@ lines come:
   bare id `/aitask-note` accepts, which `<other>` (a qualified ref) is not;
 - `MORE:<n>`, `BEFORE_REFERENCE:<n>` (related tasks that landed before the
   reference time, already known when the task was planned);
+- at `--point pick` only, when the task's **own** obsolescence assessment
+  (`aidocs/framework/task_relations.md` D9) has band `medium` or `high` and was
+  not dismissed at its current evidence: `OBSOLESCENCE:<band>|<disposition>[:<fold
+  target>]|<inputs fresh|stale|unverified>`, followed by up to three
+  `OBSOLESCENCE_REASON:<text>` lines. `inputs stale` means the task's body or plan
+  changed after the assessment. Absent otherwise — absence never means "checked,
+  not obsolete";
 - `RELATED_WORK:0` when there is no item — it always follows `SUMMARY:`, which
   says *why* there is none.
 
@@ -86,7 +93,12 @@ its approval stamp), else its creation.
 
 1. Display the `SUMMARY:` line and the items as described above, under a short
    heading such as "Related work (task relations)". When there is no item, the
-   `SUMMARY:` line alone is the display.
+   `SUMMARY:` line alone is the display. When an `OBSOLESCENCE:` line is present,
+   also show the band, the disposition and the reasons as "Possibly obsolete
+   (advisory)", and point at `ait obsolete show <task_id>` for the evidence. It
+   is an advisory estimate, never an instruction: it does not stop the pick,
+   change the plan's requirements or decide anything — the user does, through
+   `ait obsolete review`.
 2. Set the context variable `relations_check_at` to the `CHECKED_AT:` value.
 3. Set `related_work` to the displayed items (group, other task, direction,
    type, description, archived plan path). `planning.md` §6.1 reads the archived

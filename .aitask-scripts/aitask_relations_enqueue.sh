@@ -3,7 +3,8 @@
 #
 # The one trigger helper of the task-relations layer
 # (aidocs/framework/task_relations.md D4, "Worker API"). Callers: the creation,
-# fold and approval hooks of t1981_4.
+# fold and approval hooks of t1981_4, and aitask_archive.sh's `obsolescence
+# landed <id>` (t1981_6), whose detached part fans out to the related tasks.
 #
 # CONTRACT: always exits 0 and NEVER writes to stdout, so `--silent` callers
 # keep their single-line output contract. Every check and every write (the

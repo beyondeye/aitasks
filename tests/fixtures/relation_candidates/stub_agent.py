@@ -9,6 +9,7 @@ by STUB_AGENT_SPEC:
     {"mode": "ok" | "fenced" | "invalid" | "two_objects" | "error" | "exit1"
              | "sleep" | "spawn_child_sleep" | "no_usage",
      "considered": [...], "relations": [...],
+     "payload": {...},            # replaces the relations payload verbatim
      "launch_log": "<file>",      # one line per launch: "<pid>"
      "pid_file": "<file>",        # spawn_child_sleep: "<leader> <child>"
      "check_dead": "<file>",      # pids that must be dead when this one starts
@@ -68,6 +69,8 @@ def main():
         sys.stderr.write("stub agent failing\n")
         return 1
     payload = {"considered": spec.get("considered", []), "relations": spec.get("relations", [])}
+    if "payload" in spec:  # any other operation's answer (e.g. obsolescence), verbatim
+        payload = spec["payload"]
     if mode == "invalid":
         payload = {"relations": [{"from": "x", "to": "y", "type": "teleports"}]}
     text = json.dumps(payload)

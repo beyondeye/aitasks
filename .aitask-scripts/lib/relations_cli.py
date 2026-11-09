@@ -6,7 +6,7 @@ Store verbs: ``show <id> [--json] [--no-fetch]``, ``why <a> <b> [--no-fetch]``,
 Analysis verbs (t1981_3): ``analyze <id> [--dry-run] [--now [--wait <s>]]
 [--over-cap]``, ``stamp <id>``, ``plan-digest <id>``, ``analysis-state <id>
 [--expect-plan <sha>]``, ``usage [--days N]``, ``ledgers --export``,
-``unblock <id> [--kill] [--force]``, ``enable``, ``disable``. Line protocols:
+``unblock <id> [--kill] [--force] [--op <op>]``, ``enable``, ``disable``. Line protocols:
 aidocs/framework/task_relations.md "Worker API".
 
 Every reader output starts with the state lines of
@@ -62,10 +62,13 @@ USAGE = """usage: ait relations <verb> [args]
                                     Step 8e completeness verdict (ANALYSIS_STATE:)
   usage [--days N]                  jobs, calls, tokens, cost, wall time
   ledgers --export                  this host's ledgers as host-tagged JSON lines
-  unblock <id> [--kill] [--force]   clear an unresolved-invocation guard
+  unblock <id> [--kill] [--force] [--op relations|obsolescence]
+                                    clear an unresolved-invocation guard (per op)
   enable | disable                  switch background analysis on/off (commits)
   related-work <id> --point pick|review|note [--since <ts>] [--log] [--json]
-                                    the display-only related-work check (D8 pull)
+                                    the display-only related-work check (D8 pull);
+                                    at --point pick it also shows the task's own
+                                    obsolescence band when medium+ (OBSOLESCENCE:)
   notify-candidates <id> [--rev <rev> | --diff <range>] [--expect-plan <sha>]
       [--option <opt>] [--log] [--json]
                                     Step 8e PUSH/PULL rows against the task's own change
@@ -441,17 +444,24 @@ def cmd_ledgers(root, args):
 
 
 def cmd_unblock(root, args):
-    """Resolve a task's unresolved invocations; it unblocks only when NONE remains."""
+    """Resolve a task's unresolved invocations of ONE operation; it unblocks only
+    when none of that operation's remains. Guards are per ``(op, task)``: clearing
+    the ``relations`` guards never touches an ``obsolescence`` guard, and vice versa.
+    """
     sp = rsp.Spool(rw.state_dir(root))
     tid = _tid(args.id)
-    entries = sp.guard(rw.OP, tid)
+    op = getattr(args, "op", None) or rw.OP
+    if op not in rw.OPS_IMPLEMENTED:
+        sys.stderr.write(f"ait relations unblock: unknown --op {op!r}\n")
+        return 1
+    entries = sp.guard(op, tid)
     if not entries:
         print(f"NO_GUARD:t{tid}")
         return 0
     if args.force:
         for entry in entries:
-            sp.clear_guard(rw.OP, tid, entry["_inv"])
-            sp.log_unblock(rw.OP, tid, f"forced:{entry['_inv']}")
+            sp.clear_guard(op, tid, entry["_inv"])
+            sp.log_unblock(op, tid, f"forced:{entry['_inv']}")
         sp.log(f"UNBLOCKED:t{tid}|forced (human assertion) {len(entries)} invocation(s)")
         print(f"UNBLOCKED:t{tid}|forced")
         rw.start_worker_detached(root, sp)
@@ -464,8 +474,8 @@ def cmd_unblock(root, args):
             continue
         verdict, why = (rw.end_or_kill(agent) if args.kill else rw.agent_ended(agent))
         if verdict == "ended":
-            sp.clear_guard(rw.OP, tid, entry["_inv"])
-            sp.log_unblock(rw.OP, tid, f"ended:{why}:{entry['_inv']}")
+            sp.clear_guard(op, tid, entry["_inv"])
+            sp.log_unblock(op, tid, f"ended:{why}:{entry['_inv']}")
         else:
             remaining.append((entry, f"{why}|pgid={agent.get('pgid')}"))
     if not remaining:
@@ -554,6 +564,12 @@ def cmd_related_work(root, args):
                                           extract_dir=os.path.join(store.state_dir, "archived-plans"))
     analysis = store.analysis_line(tid, snap, state)
     summary = rc.plain_summary(state, snap.state, analysis)
+    # D9 pick-time display: the task's OWN obsolescence band, when medium or
+    # higher and not dismissed at its current evidence digest. Advisory only.
+    obsolescence = None
+    if args.point == "pick" and local is not None:
+        import obsolete_cli
+        obsolescence = obsolete_cli.pick_view(root, store, snap, local)
     if args.log and (state != "disabled" or items):
         base = rc.ledger_base(store, tid)
         for it in items:
@@ -573,11 +589,15 @@ def cmd_related_work(root, args):
             "reference": {"at": rc.iso(ref_ts) if ref_ts else None, "source": ref_src},
             "task": store.canonical_ref(tid), "corrupt": snap.corrupt,
             "items": [rc.item_dict(it, store) for it in items], "more": more,
-            "before_reference": before}, indent=2, sort_keys=True, ensure_ascii=False))
+            "before_reference": before, "obsolescence": obsolescence},
+            indent=2, sort_keys=True, ensure_ascii=False))
         return 0
     lines = _state_lines(store, snap, [tid], state)
     lines += [f"SUMMARY:{summary}", f"CHECKED_AT:{rc.iso(checked)}",
               f"REFERENCE:{rc.iso(ref_ts) if ref_ts else 'unknown'}|{ref_src}"]
+    if obsolescence is not None:
+        import obsolete_cli
+        lines += obsolete_cli.pick_lines(obsolescence)
     for it in items:
         lines += rc.item_lines(it, store)
     if more:
@@ -744,6 +764,7 @@ def build_parser():
     p.add_argument("id")
     p.add_argument("--kill", action="store_true")
     p.add_argument("--force", action="store_true")
+    p.add_argument("--op", choices=rw.OPS_IMPLEMENTED, default=rw.OP)
     sub.add_parser("enable", allow_abbrev=False)
     sub.add_parser("disable", allow_abbrev=False)
     p = sub.add_parser("related-work", allow_abbrev=False)

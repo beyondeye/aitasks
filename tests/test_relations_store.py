@@ -279,7 +279,7 @@ class SchemaTests(Base):
         obs = {"schema": rs.SCHEMA, "task": "aitasks#1", "task_created_at": C1,
                "run": {"id": "r", "trigger": "manual", "stage": 1, "at": "x"},
                "inputs": {"body_sha256": "a" * 64, "plan_sha256": None, "evidence_digest": "c" * 64},
-               "evidence": [], "band": "low", "reasons": [], "disposition": "keep"}
+               "evidence": [], "band": "none", "reasons": [], "disposition": "keep"}
         for kind, obj in (("approvals", approval), ("dismissals", dismissal), ("obsolescence", obs)):
             rs.validate(kind, f"{kind}/t1.json", obj)
             bad = dict(obj); del bad["task_created_at"]

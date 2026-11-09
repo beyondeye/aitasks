@@ -32,6 +32,7 @@ source "$SCRIPT_DIR/lib/task_utils.sh"
 DRY_RUN=false
 NO_COMMIT=false
 SUPERSEDED=false
+OBSOLETE=false
 WITH_DEFERRED_CARRYOVER=false
 IGNORE_GATES=false
 TASK_NUM=""
@@ -44,6 +45,10 @@ TASK_NUM=""
 # flow calls handle_folded_tasks for the child and again for the parent, and both
 # precede the single commit (t1599_4).
 FOLDED_DELETED_PATHS=()
+
+# Ids this run archived as completed work (the task, plus a parent the child flow
+# auto-archived). Read by fire_landed_triggers after the archival, never before.
+LANDED_IDS=()
 
 # --- Help ---
 show_help() {
@@ -59,6 +64,8 @@ Options:
   --dry-run                    Preview actions without executing
   --no-commit                  Stage changes but don't commit
   --superseded                 Mark task as superseded (adds archived_reason: superseded)
+  --obsolete                   Mark task as obsolete (adds archived_reason: obsolete);
+                               used by `ait obsolete review`. Exclusive with --superseded
   --with-deferred-carryover    For manual_verification tasks: archive even when
                                deferred items remain, creating a new
                                manual_verification task seeded with just those
@@ -117,6 +124,10 @@ parse_args() {
                 SUPERSEDED=true
                 shift
                 ;;
+            --obsolete)
+                OBSOLETE=true
+                shift
+                ;;
             --with-deferred-carryover)
                 WITH_DEFERRED_CARRYOVER=true
                 shift
@@ -146,6 +157,9 @@ parse_args() {
     if [[ -z "$TASK_NUM" ]]; then
         die "Task number is required. Use --help for usage."
     fi
+    if [[ "$SUPERSEDED" == true && "$OBSOLETE" == true ]]; then
+        die "--superseded and --obsolete are mutually exclusive"
+    fi
 }
 
 # --- Helper: update task metadata for archival ---
@@ -166,10 +180,13 @@ archive_metadata_update() {
     if ! grep -q "^completed_at:" "$file_path"; then
         awk -v ts="$timestamp" '/^updated_at:/{print; print "completed_at: " ts; next}1' "$file_path" > "$file_path.tmp" && mv "$file_path.tmp" "$file_path"
     fi
-    # Add archived_reason for superseded tasks
-    if [[ "$SUPERSEDED" == true ]]; then
+    # Add archived_reason for superseded / obsolete tasks
+    local reason=""
+    [[ "$SUPERSEDED" == true ]] && reason="superseded"
+    [[ "$OBSOLETE" == true ]] && reason="obsolete"
+    if [[ -n "$reason" ]]; then
         if ! grep -q "^archived_reason:" "$file_path"; then
-            awk '/^status:/{print; print "archived_reason: superseded"; next}1' "$file_path" > "$file_path.tmp" && mv "$file_path.tmp" "$file_path"
+            awk -v r="$reason" '/^status:/{print; print "archived_reason: " r; next}1' "$file_path" > "$file_path.tmp" && mv "$file_path.tmp" "$file_path"
         fi
     fi
 }
@@ -325,6 +342,9 @@ archive_parent() {
                 local commit_hash
                 commit_hash=$(task_git rev-parse --short HEAD)
                 echo "COMMITTED:$commit_hash"
+                # The landed trigger fires after the archive COMMIT only: never for
+                # --no-commit (stage only) or a verified nothing-to-commit.
+                LANDED_IDS+=("$task_num")
             elif [[ "$crc" -eq 2 ]]; then
                 # Verified nothing to commit. Say so: the pre-t1599_4 code aborted
                 # here under `set -e`, so silence would be a new failure mode.
@@ -648,6 +668,12 @@ archive_child() {
                 local commit_hash
                 commit_hash=$(task_git rev-parse --short HEAD)
                 echo "COMMITTED:$commit_hash"
+                # The landed trigger fires after the archive COMMIT only (see
+                # archive_parent); the auto-archived parent rides in the same commit.
+                LANDED_IDS+=("$task_id")
+                if [[ "$parent_archived" == true ]]; then
+                    LANDED_IDS+=("$parent_num")
+                fi
             elif [[ "$crc" -eq 2 ]]; then
                 warn "nothing to commit for t${task_id} archival — no commit made"
             else
@@ -854,6 +880,35 @@ gate_guard() {
     esac
 }
 
+# --- The `landed` trigger (task relations D4/D9) ---
+# Fires only for COMPLETED work whose archive commit succeeded: never for
+# --dry-run, --no-commit, --superseded or --obsolete, and only for an archived
+# file with no archived_reason and no folded_into. The enqueue helper
+# never writes to stdout, always exits 0 and does its work detached (the store
+# read and the fan-out to the related pending tasks run there), so this can
+# neither block nor fail the archive.
+archived_file_for() {
+    local id="$1"
+    if [[ "$id" =~ ^([0-9]+)_([0-9]+)$ ]]; then
+        ls "$ARCHIVED_DIR/t${BASH_REMATCH[1]}/t${id}_"*.md 2>/dev/null | head -1 || true
+    else
+        ls "$ARCHIVED_DIR/t${id}_"*.md 2>/dev/null | head -1 || true
+    fi
+}
+
+fire_landed_triggers() {
+    [[ "$DRY_RUN" == true || "$NO_COMMIT" == true || "$SUPERSEDED" == true || "$OBSOLETE" == true ]] && return 0
+    local id file
+    for id in ${LANDED_IDS[@]+"${LANDED_IDS[@]}"}; do
+        file=$(archived_file_for "$id")
+        [[ -n "$file" && -f "$file" ]] || continue
+        [[ -z "$(read_yaml_field "$file" archived_reason 2>/dev/null || true)" ]] || continue
+        [[ -z "$(read_yaml_field "$file" folded_into 2>/dev/null || true)" ]] || continue
+        "$SCRIPT_DIR/aitask_relations_enqueue.sh" obsolescence landed "$id" >/dev/null 2>&1 || true
+    done
+    return 0
+}
+
 # --- Main ---
 main() {
     parse_args "$@"
@@ -877,6 +932,8 @@ main() {
     else
         archive_parent "$TASK_NUM"
     fi
+
+    fire_landed_triggers || true
 }
 
 main "$@"

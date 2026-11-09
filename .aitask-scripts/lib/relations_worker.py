@@ -11,6 +11,14 @@ Subcommands (all invoked detached by ``aitask_relations_enqueue.sh`` /
     relations_worker.py enqueue <root> <op> <trigger> <id>
     relations_worker.py stamp-publish <root> <id>        flush, then enqueue plan_approved
 
+Two operations share the spool, admission, recovery and the headless launch
+(``_paid_invocation``): ``relations`` (``analyse``) and ``obsolescence``
+(``analyse_obsolescence``, t1981_6, D9 -- static evidence from
+``obsolescence_evidence``, then an assessment only when a signal row exists).
+``enqueue <root> obsolescence landed <id>`` fans out: it enqueues one
+``obsolescence`` job for every pending task related to the landed task, or whose
+origin it is (``landed_targets``).
+
 Per job, in D5 order (``analyse``): fresh config/Store/TaskIndex and ONE store
 snapshot; daily-cap pre-check; source lookup (manual_verification excluded);
 the snapshot manifest and the candidate provider (contract:
@@ -49,7 +57,10 @@ if _LIB not in sys.path:
 import bounded_run  # noqa: E402
 import orphan_ref_store as ors  # noqa: E402
 import relation_candidates_contract as cc  # noqa: E402
+import followup_origin  # noqa: E402
+import obsolescence_evidence as oe  # noqa: E402
 import relations_config as rcfg  # noqa: E402
+import relations_consume as rc  # noqa: E402
 import relations_schema as rs  # noqa: E402
 import relations_spool as rsp  # noqa: E402
 import relations_store as rst  # noqa: E402
@@ -59,8 +70,11 @@ CANDIDATES_SCRIPT = os.path.join(SCRIPTS, "aitask_relation_candidates.sh")
 CODEAGENT = os.path.join(SCRIPTS, "aitask_codeagent.sh")
 PID_ANCHOR = os.path.join(_LIB, "pid_anchor.sh")
 PROMPT_TEMPLATE = os.path.join(SCRIPTS, "relations", "prompts", "relations_analysis.md")
+OBS_PROMPT_TEMPLATE = os.path.join(SCRIPTS, "relations", "prompts", "obsolescence_assessment.md")
 OP = "relations"
-OPS_IMPLEMENTED = ("relations",)
+OBS_OP = "obsolescence"
+OPS_IMPLEMENTED = (OP, OBS_OP)
+PENDING_END_KINDS = ("pending", "plan_holder", "implementing")
 PROVIDER_TIMEOUT_S = 300
 KILL_GRACE_S = 5.0
 MAX_TIMEOUT_RETRIES = 1
@@ -409,10 +423,10 @@ def _code_base(root):
     return proc.stdout.strip() if proc.returncode == 0 else ""
 
 
-def agent_string(root):
+def agent_string(root, op=OP):
     if os.environ.get("AIT_RELATIONS_AGENT_CMD"):
         return os.environ.get("AIT_RELATIONS_AGENT_STRING", "test/stub")
-    proc = subprocess.run([CODEAGENT, "resolve", OP], capture_output=True, text=True, cwd=str(root))
+    proc = subprocess.run([CODEAGENT, "resolve", op], capture_output=True, text=True, cwd=str(root))
     for line in proc.stdout.splitlines():
         if line.startswith("AGENT_STRING:"):
             return line.split(":", 1)[1].strip()
@@ -692,15 +706,37 @@ def analyse(root, sp, job, *, dry_run=False, log=None):
         return _write(store, tid, rec), rec
     _base, paths = materialize(work, source, cands)
     prompt = compose_prompt(work, obj, source, cands, paths)
+
+    def build(payload, usage):
+        considered, relations = canonical_payload(store, payload, set(cands))
+        return build_record(store, tid, job, stage, source, entries, coverage, screening, provider,
+                            considered, relations, usage, drepo, root, agent)
+
+    rec = _paid_invocation(root, sp, job, OP, tid, prompt, work, cfg, dry_run=dry_run, log=log,
+                           build=build)
+    if dry_run:
+        return "ANALYSED", rec
+    return _write(store, tid, rec), rec
+
+
+def _paid_invocation(root, sp, job, op, tid, prompt, work, cfg, *, dry_run, log, build):
+    """The paid launch shared by every operation; returns ``build(payload, usage)``.
+
+    The shared pre-admission boundary, the unresolved-invocation guard, the
+    switch re-read, ``admit_unguarded``, the ownership phases recovery relies
+    on, the bounded run, output parsing and call settlement. ``build`` turns
+    the parsed payload into the validated record; a ``JobFailed`` or
+    ``SchemaError`` from it settles the call ``invalid_output``.
+    """
     # The shared pre-admission boundary. First reconcile this task's previews:
     # one that was alive at startup may have lost its CLI since (its agent
     # ended now, or turned into a guard). Then the unresolved-invocation guard.
     recover_previews(sp, log=log, task=tid)
     outstanding = []
-    for entry in sp.guard(OP, tid):
+    for entry in sp.guard(op, tid):
         verdict, why = agent_ended(entry.get("agent")) if entry.get("agent") else ("unknown", "no_pgid")
         if verdict == "ended":
-            sp.clear_guard(OP, tid, entry["_inv"])
+            sp.clear_guard(op, tid, entry["_inv"])
             log(f"UNRESOLVED_CLEARED:t{tid}|{entry['_inv']}|ended({why})")
         else:
             outstanding.append(entry)
@@ -719,7 +755,7 @@ def analyse(root, sp, job, *, dry_run=False, log=None):
         # The final guard check and the paid reservation are one critical
         # section relative to guard writers (spool.lock); the liveness cleanup
         # above stays outside it.
-        call_id = sp.admit_unguarded(OP, tid, job.get("trigger", "manual"), cap=cfg.max_jobs_per_day,
+        call_id = sp.admit_unguarded(op, tid, job.get("trigger", "manual"), cap=cfg.max_jobs_per_day,
                                      dry_run=dry_run, over_cap=bool(job.get("over_cap")))
     except rsp.Blocked:
         if dry_run:
@@ -736,7 +772,7 @@ def analyse(root, sp, job, *, dry_run=False, log=None):
     # group this invocation owns.
     if dry_run:
         kind, tok = leader_identity(os.getpid())
-        sp.write_preview(call_id, {"op": OP, "task": tid, "call_id": call_id, "at": rsp.utc_iso(),
+        sp.write_preview(call_id, {"op": op, "task": tid, "call_id": call_id, "at": rsp.utc_iso(),
                                    "owner": {"pid": os.getpid(), "identity": tok,
                                              "identity_kind": kind}})
 
@@ -748,7 +784,7 @@ def analyse(root, sp, job, *, dry_run=False, log=None):
         own(call_id=call_id)
     _test_hook("after_admit", task=tid, call_id=call_id)
     argv = _cmd_from_env("AIT_RELATIONS_AGENT_CMD")
-    argv = (argv if argv is not None else [CODEAGENT, "--headless", "invoke", OP]) + \
+    argv = (argv if argv is not None else [CODEAGENT, "--headless", "invoke", op]) + \
         [prompt, os.path.join(work, "inputs")]
     own(spawning=call_id)
 
@@ -802,9 +838,7 @@ def analyse(root, sp, job, *, dry_run=False, log=None):
             settle("agent_error")
             raise
         try:
-            considered, relations = canonical_payload(store, payload, set(cands))
-            rec = build_record(store, tid, job, stage, source, entries, coverage, screening, provider,
-                               considered, relations, usage, drepo, root, agent)
+            rec = build(payload, usage)
         except JobFailed:
             settle("invalid_output", usage)
             raise
@@ -814,20 +848,285 @@ def analyse(root, sp, job, *, dry_run=False, log=None):
         settle("ok", usage)
     finally:
         settle("error")
-    if dry_run:
-        return "ANALYSED", rec
-    return _write(store, tid, rec), rec
+    return rec
 
 
-def _write(store, tid, rec):
-    reports = store.write(rs.store_path("records", tid), rec)
+def _write(store, tid, rec, kind="records", label="ANALYSED"):
+    reports = store.write(rs.store_path(kind, tid), rec)
     head = reports[0] if reports else "NO_REPORT"
     if head.startswith(("IDENTITY_MISMATCH", "PROJECT_MISMATCH")):
         raise JobFailed(head.split("|", 1)[0])
     if head.startswith("STALE_RUN"):
         return "STALE_RUN"
     retained = [r for r in reports if r.startswith("RETAINED:")]
-    return f"ANALYSED({'retained' if retained else 'published'})"
+    return f"{label}({'retained' if retained else 'published'})"
+
+
+# ================================================== the obsolescence job (D9)
+
+FOLDABLE_STATUSES = ("Ready", "Editing")
+
+
+def obs_eligible(entry) -> bool:
+    """Only pending, unfolded, non-manual-verification tasks are assessed."""
+    if entry is None or entry.location != "active" or entry.folded_into:
+        return False
+    if (entry.status or "") in ("Done", "Folded"):
+        return False
+    return _issue_type(entry.text) != "manual_verification"
+
+
+def obs_fold_targets(store, snap, tid) -> list:
+    """Allowed ``fold_target`` refs: foldable pending ends of ``duplicates`` /
+    ``supersedes`` relations, plus the task's foldable siblings."""
+    tid = rs.norm_id(tid)
+    out = set()
+    for rel in store.relations(store.ref(tid), snap):
+        if rel.type not in ("duplicates", "supersedes"):
+            continue
+        oid = store.local_id(rel.other)
+        if oid and oid != tid:
+            out.add(oid)
+    if "_" in tid:
+        parent = tid.split("_", 1)[0]
+        sib_dir = store.index.task_dir / f"t{parent}"
+        for path in sorted(sib_dir.glob(f"t{parent}_*_*.md")):
+            sid = rst._id_of_task_name(path.name)
+            if sid and sid != tid:
+                out.add(sid)
+    refs = []
+    for oid in sorted(out):
+        entry = store.index.lookup(oid)
+        if entry is not None and entry.location == "active" and not entry.folded_into \
+                and (entry.status or "") in FOLDABLE_STATUSES:
+            refs.append(store.ref(oid))
+    return refs
+
+
+def obs_up_to_date(store, snap, tid, stage, source, evidence_digest) -> bool:
+    rec = snap.files.get(rs.store_path("obsolescence", tid))
+    if not isinstance(rec, dict) or not store._record_identity_ok(rec):
+        return False
+    try:
+        return (rec["run"]["stage"] >= stage
+                and rec["inputs"]["body_sha256"] == source.digests["body_sha256"]
+                and rec["inputs"]["plan_sha256"] == source.digests["plan_sha256"]
+                and rec["inputs"]["evidence_digest"] == evidence_digest)
+    except (KeyError, TypeError):
+        return False
+
+
+def canonical_obsolescence(store, payload, ids: set, fold_targets: list):
+    """``(band, reasons, disposition, fold_target)``; fail closed on any other shape.
+
+    A non-``none`` band or a non-``keep`` disposition needs at least one reason,
+    and every reason cites signal-row ids of THIS job only.
+    """
+    def bad(msg):
+        return JobFailed(f"INVALID_OUTPUT:{msg}"[:200])
+    if not isinstance(payload, dict) or set(payload) - {"band", "reasons", "disposition", "fold_target"} \
+            or not {"band", "reasons", "disposition"} <= set(payload):
+        raise bad("expected {band, reasons, disposition[, fold_target]}")
+    band, disp, reasons = payload["band"], payload["disposition"], payload["reasons"]
+    if band not in rs.BANDS:
+        raise bad(f"unknown band {band!r}")
+    if disp not in rs.DISPOSITIONS:
+        raise bad(f"unknown disposition {disp!r}")
+    if not isinstance(reasons, list):
+        raise bad("reasons must be a list")
+    out = []
+    for i, reason in enumerate(reasons):
+        if not isinstance(reason, dict) or set(reason) != {"text", "evidence_ids"}:
+            raise bad(f"reasons[{i}] must be {{text, evidence_ids}}")
+        text, cited = reason["text"], reason["evidence_ids"]
+        if not isinstance(text, str) or not text.strip():
+            raise bad(f"reasons[{i}].text is empty")
+        if not isinstance(cited, list) or not cited or not all(isinstance(c, str) for c in cited):
+            raise bad(f"reasons[{i}] cites no evidence")
+        unknown = [c for c in cited if c not in ids]
+        if unknown:
+            raise bad(f"reasons[{i}] cites unknown evidence {unknown[0]!r}")
+        out.append({"text": text.strip(), "evidence_ids": list(cited)})
+    if (band != "none" or disp != "keep") and not out:
+        raise bad("a warning or an action needs at least one evidence-backed reason")
+    if band == "none" and disp != "keep":
+        raise bad("band none requires disposition keep")
+    target = payload.get("fold_target")
+    if disp == "fold_into":
+        if not isinstance(target, str) or not target:
+            raise bad("fold_into requires a fold_target")
+        try:
+            target = store.canonical_ref(target)
+        except rs.SchemaError as exc:
+            raise bad(f"fold_target: {exc}") from None
+        if target not in fold_targets:
+            raise bad(f"fold_target {target} is not an allowed target")
+    elif target is not None:
+        raise bad("fold_target is only allowed with disposition fold_into")
+    return band, out, disp, target
+
+
+def build_obs_record(store, tid, job, stage, source, ev, signal, band, reasons, disposition,
+                     target, usage, drepo, root, agent):
+    rec = {
+        "schema": rs.SCHEMA, "task": store.ref(tid), "task_created_at": source.created_at,
+        "run": {"id": uuid.uuid4().hex, "trigger": job.get("trigger", "manual"), "stage": stage,
+                "at": rsp.utc_iso(), "host": socket.gethostname(), "agent_string": agent,
+                "code_base": _code_base(root),
+                "data_base": _git(drepo, "rev-parse", "HEAD", check=False).stdout.strip()},
+        "inputs": {"body_sha256": source.digests["body_sha256"],
+                   "plan_sha256": source.digests["plan_sha256"],
+                   "evidence_digest": ev.digest},
+        "evidence": signal, "band": band, "reasons": reasons, "disposition": disposition,
+        "usage": usage,
+    }
+    if target:
+        rec["fold_target"] = target
+    rs.validate("obsolescence", rs.store_path("obsolescence", tid), rec)
+    return rec
+
+
+def compose_obs_prompt(work, source, signal, fold_targets):
+    """Materialize the scoring inputs (signal rows ONLY) and the prompt."""
+    base = os.path.join(work, "inputs")
+    os.makedirs(base, exist_ok=True)
+    with open(os.path.join(base, "body.md"), "w", encoding="utf-8") as fh:
+        fh.write(source.body)
+    plan_path = os.path.join(base, "plan.md")
+    if source.plan is not None:
+        with open(plan_path, "w", encoding="utf-8") as fh:
+            fh.write(source.plan)
+    with open(os.path.join(base, "evidence.json"), "w", encoding="utf-8") as fh:
+        json.dump(signal, fh, indent=2, sort_keys=True, ensure_ascii=False)
+        fh.write("\n")
+    with open(OBS_PROMPT_TEMPLATE, encoding="utf-8") as fh:
+        template = fh.read()
+    lines = ["", "---", "", "## This job", "",
+             f"- Task: `{source.ref}` ({'approved plan' if source.stamped else 'working-tree plan'})",
+             f"- Task body: `{os.path.join(base, 'body.md')}`",
+             f"- Task plan: " + (f"`{plan_path}`" if source.plan is not None else "(no plan)"),
+             f"- Evidence rows (JSON): `{os.path.join(base, 'evidence.json')}`",
+             f"- Input directory (the ONLY place for reads): `{base}`",
+             "", "### Evidence rows (the only citable ids)", ""]
+    for row in signal:
+        lines.append(f"- `{row['id']}` ({row['kind']}; source {row['source']}): {row['detail']}")
+    lines += ["", "### Allowed fold targets", ""]
+    lines += [f"- `{ref}`" for ref in fold_targets] or ["(none -- `fold_into` is not available)"]
+    text = template.rstrip("\n") + "\n" + "\n".join(lines) + "\n"
+    path = os.path.join(work, "prompt.md")
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(text)
+    return path
+
+
+ZERO_USAGE = {"input_tokens": 0, "output_tokens": 0, "cost_usd": 0, "wall_s": 0}
+
+
+def analyse_obsolescence(root, sp, job, *, dry_run=False, log=None):
+    """One ``obsolescence`` job (D9). Returns ``(outcome, record_or_None)``."""
+    log = log or sp.log
+    tid = rs.norm_id(job["task"])
+    cfg = rcfg.load(root)
+    if not dry_run:
+        off = switched_off(root)
+        if off:
+            raise JobSkipped(off)
+    try:
+        store = rst.Store(root)
+    except rst.ProjectUnresolved as exc:
+        raise JobFailed(f"PROJECT_UNRESOLVED:{exc}"[:200]) from None
+    if not dry_run and not job.get("over_cap") and sp.cap_reached(OBS_OP, cfg.max_jobs_per_day):
+        raise JobHeld(rsp.HOLD_CAPPED, "CAP_REACHED")
+    entry = store.index.lookup(tid)
+    if entry is None:
+        raise JobFailed("TASK_NOT_FOUND")
+    if not entry.created_at:
+        raise JobFailed("IDENTITY_UNKNOWN")
+    if not obs_eligible(entry):
+        return "EXCLUDED", None
+    snap = store.read()
+    _test_hook("after_snapshot", task=tid)
+    drepo = data_repo(root)
+    stamps = valid_stamps(store, snap)
+    source = task_inputs(root, store, drepo, stamps, tid)
+    stage = 2 if source.stamped else 1
+    ev = oe.collect(root, store, snap, tid, entry.text, source.plan)
+    if ev.incomplete:
+        raise JobFailed(f"EVIDENCE_INCOMPLETE:{ev.incomplete[0]}"[:200])
+    if not dry_run and obs_up_to_date(store, snap, tid, stage, source, ev.digest):
+        return "UP_TO_DATE", None
+    agent = agent_string(root, OBS_OP)
+    signal = ev.signal_rows()
+    if not signal:
+        rec = build_obs_record(store, tid, job, stage, source, ev, [], "none", [], "keep", None,
+                               dict(ZERO_USAGE), drepo, root, agent)
+        if dry_run:
+            return "ASSESSED_EMPTY", rec
+        return _write(store, tid, rec, "obsolescence", "ASSESSED"), rec
+    work = sp.new_work_dir(uuid.uuid4().hex)
+    fold_targets = obs_fold_targets(store, snap, tid)
+    prompt = compose_obs_prompt(work, source, signal, fold_targets)
+    ids = {row["id"] for row in signal}
+
+    def build(payload, usage):
+        band, reasons, disposition, target = canonical_obsolescence(store, payload, ids, fold_targets)
+        return build_obs_record(store, tid, job, stage, source, ev, signal, band, reasons,
+                                disposition, target, usage, drepo, root, agent)
+
+    rec = _paid_invocation(root, sp, job, OBS_OP, tid, prompt, work, cfg, dry_run=dry_run,
+                           log=log, build=build)
+    if dry_run:
+        return "ASSESSED", rec
+    return _write(store, tid, rec, "obsolescence", "ASSESSED"), rec
+
+
+def _origins_of(entry):
+    meta = oe._meta(entry.text) or {}
+    res = followup_origin.resolve_detailed(meta)
+    return {rs.norm_id(o) for o in res["origins"] + res["degraded_origins"]}
+
+
+def landed_targets(root, tid) -> list:
+    """Pending tasks a landing re-scores (D4 ``landed``): the pending ends of
+    relations(landed), and the active tasks whose origin is the landed task."""
+    tid = rs.norm_id(tid)
+    store = rst.Store(root)
+    snap = store.read()
+    out = set()
+    for rel in store.relations(store.ref(tid), snap):
+        oid = store.local_id(rel.other)
+        if oid and oid != tid and rc.end_state(store, rel.other).kind in PENDING_END_KINDS:
+            out.add(oid)
+    store.index.load_active()
+    for oid, entry in list(store.index._entries.items()):
+        if entry.location == "active" and oid != tid and tid in _origins_of(entry):
+            out.add(oid)
+    return sorted(t for t in out if obs_eligible(store.index.lookup(t)))
+
+
+def _switch_skip(root, trigger):
+    cfg = rcfg.load(root)
+    if not cfg.enabled:
+        return "SKIPPED:disabled"
+    if os.environ.get("AIT_RELATIONS") == "0":
+        return "SKIPPED:host_off"
+    if trigger in rcfg.TRIGGERS and not cfg.trigger_enabled(trigger):
+        return f"SKIPPED:trigger_off:{trigger}"
+    return None
+
+
+def cmd_landed(root, sp, tid):
+    """The detached ``landed`` fan-out. Switches first: a disabled project reads nothing."""
+    tid = rs.norm_id(tid)
+    skip = _switch_skip(root, "landed")
+    if skip:
+        sp.log(f"ENQUEUE:{OBS_OP}|landed|t{tid}|{skip}")
+        return
+    targets = landed_targets(root, tid)
+    for target in targets:
+        result = enqueue_job(root, OBS_OP, "landed", target)
+        sp.log(f"ENQUEUE:{OBS_OP}|landed|t{target}|{result if isinstance(result, str) else 'queued'}")
+    sp.log(f"LANDED_FANOUT:t{tid}|{len(targets)}")
 
 
 # --------------------------------------------------------------- worker
@@ -948,14 +1247,16 @@ def process_job(root, sp, job):
     a retried job is still one job, while each of its attempts is one call.
     """
     tid = job["task"]
+    op = job.get("op", OP)
+    run = analyse_obsolescence if op == OBS_OP else analyse
     try:
-        outcome, _rec = analyse(root, sp, job)
+        outcome, _rec = run(root, sp, job)
         sp.done(job, outcome)
-        sp.log_job(OP, tid, job.get("trigger"), outcome)
+        sp.log_job(op, tid, job.get("trigger"), outcome)
         sp.log(f"DONE:t{tid}|{outcome}")
     except JobSkipped as skipped:
         sp.done(job, skipped.outcome)
-        sp.log_job(OP, tid, job.get("trigger"), skipped.outcome)
+        sp.log_job(op, tid, job.get("trigger"), skipped.outcome)
         sp.log(f"{skipped.outcome}:t{tid} (switched off after it was queued)")
     except JobHeld as held:
         sp.resolve_requests(job, held.outcome)
@@ -966,17 +1267,17 @@ def process_job(root, sp, job):
         if attempts > MAX_TIMEOUT_RETRIES:
             job["attempts"] = attempts
             sp.fail(job, "TIMEOUT")
-            sp.log_job(OP, tid, job.get("trigger"), "FAILED:TIMEOUT")
+            sp.log_job(op, tid, job.get("trigger"), "FAILED:TIMEOUT")
         else:
             sp.requeue(job, not_before=time.time(), attempts=attempts)
             sp.log(f"RETRY:t{tid}|timeout attempt={attempts}")
     except JobFailed as failed:
         sp.fail(job, failed.reason)
-        sp.log_job(OP, tid, job.get("trigger"), f"FAILED:{failed.reason}"[:200])
+        sp.log_job(op, tid, job.get("trigger"), f"FAILED:{failed.reason}"[:200])
         sp.log(f"FAILED:t{tid}|{failed.reason}")
     except Exception as exc:  # never let one job take the worker down
         sp.fail(job, f"INTERNAL:{exc.__class__.__name__}")
-        sp.log_job(OP, tid, job.get("trigger"), f"FAILED:INTERNAL:{exc.__class__.__name__}")
+        sp.log_job(op, tid, job.get("trigger"), f"FAILED:INTERNAL:{exc.__class__.__name__}")
         sp.log(f"INTERNAL:t{tid}|{traceback.format_exc()[-1500:]}")
 
 
@@ -1078,6 +1379,9 @@ def cmd_enqueue(root, op, trigger, tid) -> int:
     sp = None
     try:
         sp = rsp.Spool(state_dir(root))
+        if op == OBS_OP and trigger == "landed":
+            cmd_landed(root, sp, tid)
+            return 0
         if op == OP and trigger == "plan_approved":
             try:
                 sha = write_stamp(root, tid)

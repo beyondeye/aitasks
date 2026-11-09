@@ -148,8 +148,12 @@ assert_contains "AIT_RELATIONS=0: skipped" "SKIPPED:host_off" "$(cat "$SPOOL/enq
 assert_eq "no arguments: no stdout, exit 0" "0|" "$(run_helper "$R")"
 mkdir -p "$TMP/norepo"
 assert_eq "outside a repository: no stdout, exit 0" "0|" "$(run_helper "$TMP/norepo" relations created 10)"
-assert_eq "unknown op: no stdout, exit 0" "0|" "$(enqueue_and_wait "$R" obsolescence landed 10)"
-assert_contains "obsolescence is reserved, not implemented" "SKIPPED:op_unimplemented" "$(cat "$SPOOL/enqueue.log")"
+assert_eq "unknown op: no stdout, exit 0" "0|" "$(enqueue_and_wait "$R" teleport created 10)"
+assert_contains "an unknown op is not implemented" "SKIPPED:op_unimplemented" "$(cat "$SPOOL/enqueue.log")"
+# `obsolescence landed` (t1981_6) fans out to the landed task's related pending
+# tasks in the detached part; still no stdout and exit 0.
+assert_eq "obsolescence landed: no stdout, exit 0" "0|" "$(enqueue_and_wait "$R" obsolescence landed 10)"
+assert_contains "obsolescence landed fans out" "LANDED_FANOUT:t10|" "$(cat "$SPOOL/enqueue.log")"
 
 # --- no Python interpreter ------------------------------------------------------
 # A PATH with the basic tools but no python, and a HOME with no venv.

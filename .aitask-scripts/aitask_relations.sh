@@ -13,7 +13,7 @@
 # Analysis verbs (t1981_3): analyze <id> [--dry-run] [--now [--wait <s>]]
 #   [--over-cap] | stamp <id> | plan-digest <id> | analysis-state <id>
 #   [--expect-plan <sha>] | usage [--days N] | ledgers --export
-#   | unblock <id> [--kill] [--force] | enable | disable
+#   | unblock <id> [--kill] [--force] [--op relations|obsolescence] | enable | disable
 # Consumer verbs (t1981_5): related-work <id> --point pick|review|note
 #   [--since <ts>] [--log] [--json] | notify-candidates <id> [--rev <rev> |
 #   --diff <range>] [--expect-plan <sha>] [--option <opt>] [--log] [--json]

@@ -323,18 +323,34 @@ def validate_obsolescence(rec):
     ids = set()
     _require(isinstance(rec["evidence"], list), "obsolescence.evidence: expected a list")
     for i, ev in enumerate(rec["evidence"]):
-        _keys(ev, f"obsolescence.evidence[{i}]", ("id", "kind", "detail", "source"))
+        where = f"obsolescence.evidence[{i}]"
+        _keys(ev, where, ("id", "kind", "detail", "source"))
+        for key in ("id", "kind", "detail", "source"):
+            _str(ev[key], f"{where}.{key}", allow_empty=(key == "detail"))
+        _require(ev["id"] not in ids, f"{where}.id: duplicate {ev['id']!r}")
         ids.add(ev["id"])
     _require(rec["band"] in BANDS, f"obsolescence.band: unknown {rec['band']!r}")
     _require(isinstance(rec["reasons"], list), "obsolescence.reasons: expected a list")
     for i, reason in enumerate(rec["reasons"]):
-        _keys(reason, f"obsolescence.reasons[{i}]", ("text", "evidence_ids"))
-        _require(set(reason["evidence_ids"]) <= ids,
-                 f"obsolescence.reasons[{i}]: unknown evidence id")
+        where = f"obsolescence.reasons[{i}]"
+        _keys(reason, where, ("text", "evidence_ids"))
+        _str(reason["text"].strip() if isinstance(reason["text"], str) else reason["text"],
+             f"{where}.text")
+        cited = reason["evidence_ids"]
+        _require(isinstance(cited, list) and cited and all(isinstance(c, str) for c in cited),
+                 f"{where}.evidence_ids: expected a non-empty list of ids")
+        _require(set(cited) <= ids, f"{where}: unknown evidence id")
     _require(rec["disposition"] in DISPOSITIONS,
              f"obsolescence.disposition: unknown {rec['disposition']!r}")
+    # A warning or an action needs an evidence-backed explanation (D9).
+    _require(rec["reasons"] or (rec["band"] == "none" and rec["disposition"] == "keep"),
+             "obsolescence.reasons: a non-none band or a non-keep disposition needs a reason")
+    _require(rec["band"] != "none" or rec["disposition"] == "keep",
+             "obsolescence.disposition: band none requires disposition keep")
     if rec["disposition"] == "fold_into":
         _ref(rec.get("fold_target"), "obsolescence.fold_target")
+    else:
+        _require("fold_target" not in rec, "obsolescence.fold_target: only with disposition fold_into")
 
 
 def validate_dismissal(rec):
