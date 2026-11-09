@@ -661,6 +661,7 @@ docstring (`board/__init__.py`) states the contract; the tests below enforce it.
 | `board_workflow_phase.py` | workflow-phase derivation (pure) |
 | `board_detail_screen.py` | `TaskDetailScreen`, its field widgets and detail-only pickers / modals |
 | `board_column_dialogs.py` | the column-management dialogs |
+| `board_focus_request.py` | `BoardFocusMailboxMixin`: `ait board --focus <id>` and the board's pane mailbox (`@aitask_board_app` / `@aitask_board_focus`, written by `agent_launch_utils.launch_or_focus_board`) |
 | `aitask_merge.py` | an unrelated CLI; not a board module |
 
 **Flat imports, no import-back (C1).** Every module imports its siblings by

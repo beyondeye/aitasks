@@ -1,17 +1,19 @@
 #!/usr/bin/env python3
 """`ait sitrep tui` — the sitrep store in readable form (t2211_1).
 
-The read-only half of the sitrep TUI: the repository's persisted todo list
-grouped Pick now / Next / Waiting (Recently done and Dismissed on `d`), the
-situation text per theme, an item's details with its context map, read-only
-pointer following, and the Q&A log. Writes, harvest/refresh, the agent requests
-and the window placement are later children of t2211 (t2211_2..4).
+The repository's persisted todo list grouped Now / Next / Waiting (Recently
+done and Dismissed on `d`), the situation text per theme, an item's details
+with its context map, read-only pointer following, and the Q&A log. The
+deterministic actions -- harvest + refresh, dismiss, restore, the agent
+respawn and the pick / board / push launches -- live in
+``sitrep_tui_actions`` (t2211_3); agent requests are t2211_4.
 
 Rules this module keeps:
 
-* **Read only.** Nothing here writes the store; the store is read lock-free,
-  the way the store's own read verbs read it (the writer's atomic rename gives
-  a whole-old-or-whole-new view).
+* **Reads lock-free; writes only through the writer.** The store is read the
+  way the store's own read verbs read it (the writer's atomic rename gives a
+  whole-old-or-whole-new view); every write is an `aitask_sitrep_todo.sh`
+  verb (``sitrep_tui_actions``).
 * **Store text is untrusted.** Every store string reaches the screen as plain
   text (``rich.text.Text`` option prompts, ``Static(Content(...))``,
   ``TextArea``), never parsed as markup (t2017), and every pointer is
@@ -45,7 +47,7 @@ for _p in (str(_SCRIPTS_DIR), str(_SCRIPTS_DIR / "lib")):
 
 from rich.text import Text  # noqa: E402
 from textual import events  # noqa: E402
-from textual.app import App, ComposeResult  # noqa: E402
+from textual.app import App, ComposeResult, ScreenStackError  # noqa: E402
 from textual.binding import Binding  # noqa: E402
 from textual.containers import VerticalScroll  # noqa: E402
 from textual.content import Content  # noqa: E402
@@ -60,13 +62,15 @@ from guarded_dismiss import GuardedDismissMixin, is_active_screen  # noqa: E402
 from multirow_footer import MultiRowFooter  # noqa: E402
 from shortcuts_mixin import ShortcutsMixin  # noqa: E402
 from sitrep_tui import sitrep_tui_model as model  # noqa: E402
+from sitrep_tui import sitrep_tui_actions as actions  # noqa: E402
 from tui_switcher import TuiSwitcherMixin  # noqa: E402
 
 #: Seconds between store polls (a hash of two small files, off the event loop).
 RELOAD_INTERVAL = 2.0
 
 #: Main-screen actions; hidden (and inert) while a sub-screen is on top.
-_MAIN_ACTIONS = frozenset({"open_item", "toggle_closed", "qa_log", "toggle_situation"})
+_MAIN_ACTIONS = frozenset({"open_item", "toggle_closed", "qa_log", "toggle_situation",
+                           *actions.MAIN_ACTIONS})
 
 
 def _footer() -> MultiRowFooter:
@@ -190,8 +194,12 @@ class ItemDetailScreen(_OpenLinkMixin, ShortcutsMixin, GuardedDismissMixin, Scre
     BINDINGS = list(_SPLIT_BINDINGS)
 
     def __init__(self, store: st.TodoStore, qa: "st.QaLog | None", num: int,
-                 root: str, store_dir: str, refresh_check: "str | None" = None) -> None:
+                 root: str, store_dir: str, refresh_check: "str | None" = None,
+                 keys: "dict | None" = None,
+                 task_meta: "model.TaskMeta | None | bool" = None) -> None:
         super().__init__()
+        #: The referenced task's metadata, read when the details opened.
+        self._task_meta = task_meta
         self._store = store
         self._qa = qa
         self._num = num
@@ -201,7 +209,17 @@ class ItemDetailScreen(_OpenLinkMixin, ShortcutsMixin, GuardedDismissMixin, Scre
         self._ctx = store.contexts.get(num)
         # The app's refresh-check map of the SAME store generation (both are
         # set together in `_apply`), passed in rather than re-scanned per open.
-        self._step = model.next_step(self._item, refresh_check)
+        self._step = model.next_step(self._item, refresh_check, keys)
+
+    # The snapshot's identity: the item actions re-resolve `item_num` against
+    # the CURRENT store and compare `item_rev` (t2211_3).
+    @property
+    def item_num(self) -> int:
+        return self._num
+
+    @property
+    def item_rev(self) -> int:
+        return self._item.rev
 
     # composition -----------------------------------------------------------
 
@@ -225,6 +243,14 @@ class ItemDetailScreen(_OpenLinkMixin, ShortcutsMixin, GuardedDismissMixin, Scre
         about = model.about_text(it.ref)
         if about:
             lines.append(_field("About", about))
+        meta = self._task_meta
+        if meta is False:
+            lines.append(_field("Task", "task file not found"))
+        elif meta is not None:
+            lines.append(_field("Priority", meta.priority or "?"))
+            lines.append(_field("Effort", meta.effort or "?"))
+            lines.append(_field("Task status", (meta.status or "?")
+                                + (" (archived)" if meta.archived else "")))
         lines.append(_field("Checked", "never" if it.checked_at in ("", "never") else
                             f"{it.checked_at} ({model.age_text(it.checked_at, now)})"))
         lines.append(_field("Outcome", it.outcome or "—"))
@@ -251,6 +277,10 @@ class ItemDetailScreen(_OpenLinkMixin, ShortcutsMixin, GuardedDismissMixin, Scre
 
     def _link_options(self) -> list:
         opts = []
+        meta = self._task_meta
+        if meta:
+            opts.append(Option(Text(f"Task description: t{meta.task_id} ({meta.path})"),
+                               id="taskdesc"))
         ctx = self._ctx
         if ctx is not None:
             for i, (stype, ptr) in enumerate(ctx.sources):
@@ -290,7 +320,11 @@ class ItemDetailScreen(_OpenLinkMixin, ShortcutsMixin, GuardedDismissMixin, Scre
         event.stop()
         kind, _, arg = (event.option.id or "").partition(":")
         app = self.app
-        if kind == "src":
+        if kind == "taskdesc" and self._task_meta:
+            path = self._task_meta.path
+            self._follow(lambda: model.follow_pointer(self._root, self._store_dir,
+                                                      "task", path))
+        elif kind == "src":
             stype, ptr = self._ctx.sources[int(arg)]
             self._follow(lambda: model.follow_pointer(self._root, self._store_dir,
                                                       stype, ptr))
@@ -501,8 +535,8 @@ class _SitrepScreen(Screen):
     AUTO_FOCUS = ""
 
 
-class SitrepTuiApp(TuiSwitcherMixin, ShortcutsMixin, App):
-    """The repository's sitrep store, read-only."""
+class SitrepTuiApp(actions.SitrepActionsMixin, TuiSwitcherMixin, ShortcutsMixin, App):
+    """The repository's sitrep store, and the deterministic actions on it."""
 
     _shortcuts_scope = "sitrep_tui"
     TITLE = "ait sitrep tui"
@@ -533,11 +567,17 @@ class SitrepTuiApp(TuiSwitcherMixin, ShortcutsMixin, App):
         Binding("d", "toggle_closed", "Done/dismissed"),
         Binding("l", "qa_log", "Q&A log"),
         Binding("s", "toggle_situation", "Situation"),
+        # t2211_3: shown only where they apply (check_action).
+        *(Binding(key, action, label) for action, key, label in actions.ACTION_BINDINGS),
     ]
 
     def __init__(self, root: str, store_dir: str,
-                 reload_interval: float = RELOAD_INTERVAL) -> None:
+                 reload_interval: float = RELOAD_INTERVAL, *, runner=None,
+                 roles_probe=None, own_session=None,
+                 startup_harvest: bool = False) -> None:
         super().__init__()
+        self._init_actions(runner=runner, roles_probe=roles_probe,
+                           own_session=own_session, startup_harvest=startup_harvest)
         self.current_tui_name = "sitrep_tui"
         self.root = root
         self.store_dir = store_dir
@@ -558,6 +598,9 @@ class SitrepTuiApp(TuiSwitcherMixin, ShortcutsMixin, App):
         #: "What to do" guidance follows what refresh really re-checks).
         self._cid_w = model.COLUMNS[0][1]
         self._checks: dict = {}
+        #: Each task item's TaskMeta (or False: file not found), per store
+        #: generation -- set in `_apply` with the store.
+        self._metas: dict = {}
 
     # composition -----------------------------------------------------------
 
@@ -578,6 +621,7 @@ class SitrepTuiApp(TuiSwitcherMixin, ShortcutsMixin, App):
         self._apply(model.load_snapshot(self.store_dir))
         self.set_interval(self._reload_interval, self._poll_store)
         self.call_after_refresh(self._claim_startup_focus)
+        self._start_actions()
 
     def _claim_startup_focus(self) -> None:
         try:
@@ -587,6 +631,9 @@ class SitrepTuiApp(TuiSwitcherMixin, ShortcutsMixin, App):
 
     def _main(self) -> Screen:
         return self.screen_stack[0]
+
+    def _is_main_screen(self, screen) -> bool:
+        return isinstance(screen, _SitrepScreen)
 
     def _list(self) -> OptionList:
         return self._main().query_one("#st-list", OptionList)
@@ -616,6 +663,7 @@ class SitrepTuiApp(TuiSwitcherMixin, ShortcutsMixin, App):
         if snap.qa is not None:
             self.qa = snap.qa
         self._checks = model.refresh_checks(self.store)
+        self._metas = model.task_metas(self.root, self.store)
         self._loaded_at = _dt.datetime.now().strftime("%H:%M:%S")
         self._render_header()
         self._render_banner()
@@ -631,9 +679,14 @@ class SitrepTuiApp(TuiSwitcherMixin, ShortcutsMixin, App):
             now = sum(1 for it in self.store.items.values()
                       if it.group == "now" and it.state == "open")
             n = len(self.store.items)
-            state = f"{n} item{'s' if n != 1 else ''} · {now} open in Pick now"
+            state = (f"{n} item{'s' if n != 1 else ''} · {now} open in "
+                     f"{model.group_label('now')}")
+        tail = f"read {self._loaded_at} · {self.agent_header()}"
+        if self._last_refresh is not None:
+            at, ok = self._last_refresh
+            tail += f" · refreshed {at} {'ok' if ok else 'with errors'}"
         self._main().query_one("#st-header", Static).update(
-            _text(f"Sitrep · {self.root}\n{state} · read {self._loaded_at}"))
+            _text(f"Sitrep · {self.root}\n{state} · {tail}"))
 
     def _render_banner(self) -> None:
         lines = []
@@ -641,11 +694,11 @@ class SitrepTuiApp(TuiSwitcherMixin, ShortcutsMixin, App):
             lines.append(f"Store unusable: {self.todo_error}")
             if self.store is not None:
                 lines.append("Showing the last good view.")
-            lines.append("Restore the last good generation: "
-                         "./.aitask-scripts/aitask_sitrep_todo.sh restore todo")
         if self.qa_error:
-            lines.append(f"Q&A log unusable: {self.qa_error} "
-                         "(./.aitask-scripts/aitask_sitrep_todo.sh restore qa)")
+            lines.append(f"Q&A log unusable: {self.qa_error}")
+        if lines:
+            lines.append(f"Press {self.key_for('restore_store')} to restore the last "
+                         "good generation.")
         banner = self._main().query_one("#st-banner", Static)
         banner.update(_text("\n".join(lines)))
         banner.set_class(bool(lines), "visible")
@@ -686,7 +739,8 @@ class SitrepTuiApp(TuiSwitcherMixin, ShortcutsMixin, App):
                 options.append(Option(Text(f"{heading} ({len(items)})", style="bold"),
                                       id=f"hdr:{slot}", disabled=True))
                 for it in items:
-                    label = model.row_text(it, now, self._cid_w, self._checks.get(it.num))
+                    label = model.row_text(it, now, self._cid_w, self._checks.get(it.num),
+                                           self._metas.get(it.num))
                     options.append(Option(_row(label), id=it.cid))
                     order.append(it.cid)
                     labels[it.cid] = label
@@ -714,7 +768,8 @@ class SitrepTuiApp(TuiSwitcherMixin, ShortcutsMixin, App):
             item = self.store.items.get(int(cid[1:]))
             if item is None:
                 continue
-            label = model.row_text(item, now, self._cid_w, self._checks.get(item.num))
+            label = model.row_text(item, now, self._cid_w, self._checks.get(item.num),
+                                   self._metas.get(item.num))
             if label != self._row_labels.get(cid):
                 ol.replace_option_prompt(cid, _row(label))
                 self._row_labels[cid] = label
@@ -732,7 +787,12 @@ class SitrepTuiApp(TuiSwitcherMixin, ShortcutsMixin, App):
             self.notify(f"c{num} is not in the store", severity="warning", markup=False)
             return
         self.push_screen(ItemDetailScreen(self.store, self.qa, num, self.root,
-                                          self.store_dir, self._checks.get(num)))
+                                          self.store_dir, self._checks.get(num),
+                                          self.action_keys(),
+                                          # Read fresh: the task file may have
+                                          # changed since the list was built.
+                                          model.task_meta(self.root, model.task_ref_id(
+                                              self.store.items[num]))))
 
     def open_qa_entry(self, entry: st.QaEntry) -> None:
         """Open the entry the user SELECTED -- the object from the listing
@@ -752,13 +812,38 @@ class SitrepTuiApp(TuiSwitcherMixin, ShortcutsMixin, App):
             self.open_item(int(cid[1:]))
 
     def on_option_list_option_highlighted(self, event: OptionList.OptionHighlighted) -> None:
-        if event.option_list.id == "st-list":
+        # A rebuild right before exit posts this after the screen stack emptied.
+        if event.option_list.id == "st-list" and self._top_screen() is not None:
             self.refresh_bindings()
 
+    def _top_screen(self) -> "Screen | None":
+        """The active screen, or None while the stack is empty (startup /
+        shutdown: `refresh_bindings` can still run then)."""
+        try:
+            return self.screen
+        except ScreenStackError:
+            return None
+
     def check_action(self, action: str, parameters: tuple) -> "bool | None":
-        if action in _MAIN_ACTIONS and not isinstance(self.screen, _SitrepScreen):
+        top = self._top_screen()
+        if top is None:
+            return False
+        if action in _MAIN_ACTIONS and not isinstance(top, _SitrepScreen):
             return False
         if action == "open_item" and self._selected_cid() is None:
+            return False
+        if action in actions.ITEM_ACTIONS:
+            if not isinstance(top, (_SitrepScreen, ItemDetailScreen)):
+                return False
+            return self._item_action_ok(action, self._current_action_item())
+        if action in actions.LIST_OR_DETAIL_ACTIONS:
+            if not isinstance(top, (_SitrepScreen, ItemDetailScreen)):
+                return False
+            if self._harvest_inflight:
+                return None                  # shown, disabled while a run is in flight
+        if action == "restore_store" and not (self.todo_error or self.qa_error):
+            return False
+        if action == "respawn_agent" and self.agent_state != "absent":
             return False
         return super().check_action(action, parameters)
 
@@ -782,7 +867,10 @@ class SitrepTuiApp(TuiSwitcherMixin, ShortcutsMixin, App):
 def main(argv: "list | None" = None) -> int:
     ap = argparse.ArgumentParser(
         prog="ait sitrep tui", allow_abbrev=False,
-        description="Show the repository's sitrep store (read-only).")
+        description="The repository's sitrep store: grouped items, details and the "
+                    "Q&A log, plus harvest + refresh (also at startup), dismiss and "
+                    "restore through the store writer, agent respawn and pick / board "
+                    "launches.")
     ap.add_argument("--root", default=".", type=sitrep_cli.root_arg,
                     help="project root (a linked aiwork/ worktree maps to the "
                          "main worktree)")
@@ -794,8 +882,40 @@ def main(argv: "list | None" = None) -> int:
         return 1
     # Project-relative config reads (shortcut overrides, tmux defaults).
     os.chdir(root)
-    SitrepTuiApp(root, os.path.join(root, sh.STORE_NAME)).run()
+    probe, own_session = _tmux_seams(root, os.environ.get("TMUX_PANE", ""),
+                                     os.environ.get("TMUX", ""))
+    SitrepTuiApp(root, os.path.join(root, sh.STORE_NAME), roles_probe=probe,
+                 own_session=own_session, startup_harvest=True).run()
     return 0
+
+
+def _tmux_seams(root: str, pane: str, tmux_env: str) -> tuple:
+    """``(roles_probe, own_session)`` for a TUI running in a pane of the
+    gateway tmux server, else ``(None, None)`` (agent status "unknown", no
+    respawn key). ``$TMUX_PANE`` / ``$TMUX`` are read in ``main`` only, so a
+    test App never probes the terminal running the suite."""
+    import agent_launch_utils as alu
+    if not pane or not alu.pane_on_gateway_server(pane, tmux_env):
+        return None, None
+
+    gateway = []
+
+    def probe():
+        from monitor import monitor_core
+        from tmux_exec import TmuxClient
+
+        class _Gateway:  # the `monitor.tmux_run` duck type (sitrep_open's)
+            def __init__(self):
+                self._client = TmuxClient()
+
+            def tmux_run(self, args, timeout: float = 5.0):
+                return self._client.run(args, timeout=timeout)
+
+        if not gateway:                      # built once, on the first poll
+            gateway.append(_Gateway())
+        return monitor_core.find_sitrep_roles(gateway[0], root)
+
+    return probe, (lambda: alu.pane_session(pane))
 
 
 if __name__ == "__main__":

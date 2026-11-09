@@ -144,6 +144,28 @@ segment → exit 2, every spelling, abbreviations disabled).
   test seam `AITASK_SITREP_SPAWN_PAUSE_FIFO` (`sitrep_harvest.spawn_test_pause`,
   point `spawn:after_lookup`) holds a spawn inside the lock, so the live test
   proves a second spawn waits rather than racing it.
+- **The TUI's actions** (`sitrep_tui/sitrep_tui_actions.py`). The TUI does the
+  deterministic work itself; the agent keeps the agentic work.
+  - Writes go only through the writer, run with `cwd=<root>` and without
+    `AITASK_SITREP_DIR`, which is the store the TUI reads.
+  - **Dismiss** passes `--expect-rev <the rev the user saw>`. `STALE:` re-reads
+    and asks again; it never retries blind.
+  - **Restore** is `restore <kind> --if-damaged`. The writer re-checks the live
+    file under its lock, so a repair that landed while the confirm dialog was
+    open is never rolled back. Plain `restore` stays unconditional for the CLI.
+  - **Harvest + refresh** (`harvest all`, then refresh with budget 60 / timeout
+    75) runs once at startup and on `r`, one run at a time.
+  - **The agent's state** comes from `find_sitrep_roles`, polled off the event
+    loop. A failed query reads as "unknown", never as "not running".
+    **Respawn** is `aitask_sitrep.sh open --session <the TUI's own session>`,
+    the one spawn path above.
+  - **Item launches** re-resolve the item against the current store. Details
+    are snapshots, so a moved rev refreshes them and launches nothing:
+    - **pick** is for pick items only (never triage) and works like the
+      minimonitor's (tmux window only);
+    - **open in board** is `launch_or_focus_board` plus `switch-client` when
+      the board lives in another session of the project;
+    - **push** shows the command and never runs it.
 - **Known gaps, by design.** A frozen sitrep does not block a new spawn (frozen
   panes are never live identity), and `/aitask-sitrep` typed into an arbitrary
   agent pane is unstamped. At worst two stewards share one locked, CAS-guarded

@@ -211,6 +211,7 @@ BOARD_MODULE_NAMES = frozenset({
     "trails_app",
     "board_detail_screen",
     "board_column_dialogs",
+    "board_focus_request",   # `--focus` + the pane mailbox (t2211_3)
 })
 
 #: `board/*.py` files that are not part of the board app: never imported by it

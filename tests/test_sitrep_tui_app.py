@@ -355,23 +355,27 @@ class NextStepTests(_Case, unittest.TestCase):
             "triage": ("triage", "Triage t10's wrap-up: decide which closing notes "
                                  "become actions or watches", [">t"]),
             "review": ("review", "Review unparsed agent output", [">t"]),
-            "task": ("pick", "Pick t10: Harvest parser", ["/aitask-pick 10 ", "ait board"]),
+            "task": ("pick", "Pick t10: Harvest parser",
+                     ["Press  p  to launch  /aitask-pick 10 ", "  b  to show it in the board"]),
             "xref": ("pick_xref", "Pick other#7: shared fix",
                      ["project other", "/aitask-pick 7 "]),
             "hostile": ("pick_noref", f"Pick: {HOSTILE}", ["/aitask-pick <id>"]),
             "pushref": ("push", "Do: Push the fixture commit",
-                        ["branch main", f"commit {sha[:12]}", "never runs it"]),
-            "push": ("do", "Do: Push main", [f">x {self.cid('push')} <reason>"]),
-            "trailwatch": ("watch", "Waiting on: Trail wave 2 — nothing to do now", [">r"]),
+                        ["branch main", f"commit {sha[:12]}", "never runs it",
+                         "press  P  to show"]),
+            "push": ("do", "Do: Push main", ["press  x  to dismiss it with a reason"]),
+            "trailwatch": ("watch", "Waiting on: Trail wave 2 — nothing to do now",
+                           ["Press  r  to harvest + refresh"]),
             "watch": ("watch_manual", "Waiting on: CI on sitrep — nothing to do now",
                       ["does not check", f">q {self.cid('watch')} "]),
             "done": ("done", "Done: Deployed — pushed and deployed", ["Nothing to do"]),
             "dismissed": ("dismissed", "Dismissed: Old follow-up — user: duplicate",
                           ["Nothing to do"]),
-            "unknowntask": ("unknown", "Unknown — needs a re-check: t20 recheck", [">r"]),
+            "unknowntask": ("unknown", "Unknown — needs a re-check: t20 recheck",
+                            ["Press  r  to harvest + refresh"]),
             "question": ("unknown_manual", "Unknown — needs a re-check: Should refresh run?",
                          ["no automatic check", f">q {self.cid('question')} ",
-                          f">x {self.cid('question')} "]),
+                          "press  x  to dismiss it"]),
         }
         seen = set()
         for name, (key, what, hows) in cases.items():
@@ -399,7 +403,7 @@ class NextStepTests(_Case, unittest.TestCase):
     def test_watch_and_unknown_guidance_follow_what_refresh_checks(self):
         self.assertEqual(self.checks.get(self.ids["trailwatch"]), "trail")
         self.assertNotIn(self.ids["watch"], self.checks)
-        self.assertNotIn(">r", self.step("watch").how,
+        self.assertNotIn("Press  r ", self.step("watch").how,
                          "refresh never checks a watch without a trail")
         # Control: the same trail watch with no refresh check is manual -- the
         # key follows refresh's rule, not the kind alone.
@@ -771,7 +775,11 @@ class MainScreenTests(_AppCase):
             self.assertEqual([i for i in ids if i.startswith("hdr:")],
                              ["hdr:now", "hdr:next", "hdr:waiting"])
             self.assertNotIn(f"c{self.ids['done']}", ids)
-            self.assertIn("Pick now (4)", self.label(ol, "hdr:now"))
+            # The TUI labels the mixed group "Now" (picks, triage, decisions and
+            # actions share it); the store's own heading stays "### Pick now".
+            self.assertTrue(self.label(ol, "hdr:now").startswith("Now (4)"))
+            with open(os.path.join(self.store_dir, "todo.md"), encoding="utf-8") as fh:
+                self.assertIn("\n### Pick now\n", fh.read(), "store format unchanged")
             row = self.label(ol, f"c{self.ids['task']}")
             self.assertIn("Pick t10: Harvest parser", row)
             self.assertIn(" — ", row, "checked never is a dash in the list")
@@ -794,7 +802,8 @@ class MainScreenTests(_AppCase):
             self.assertIn("hdr:dismissed", ids)
             self.assertIn("pushed and deployed", self.label(ol, f"c{self.ids['done']}"))
             header = str(app.screen_stack[0].query_one("#st-header", Static).content)
-            self.assertIn("open in Pick now", header)
+            self.assertIn("open in Now", header)
+            self.assertNotIn("Pick now", header)
             situation = str(app.screen_stack[0].query_one("#st-situation-text", Static).content)
             self.assertIn("#### sitrep", situation)
             self.assertIn("Board work is idle.", situation)
@@ -825,7 +834,8 @@ class DetailTests(_AppCase):
             screen = await self.open_details(app, pilot, self.ids["task"])
             body = str(screen.query_one("#sd-body", Static).content)
             for want in ("What to do  Pick t10: Harvest parser\n",
-                         "How         Run  /aitask-pick 10 ", "About       t10\n",
+                         "How         Press  p  to launch  /aitask-pick 10 ",
+                         "About       t10\n",
                          "Checked     never\n", "Background  Turns finished-agent",
                          "Origin\n  Agent     agent-pick-10\n  Date      2026-11-01\n",
                          "Theme       sitrep"):
@@ -1312,7 +1322,8 @@ class ClickSelectsTests(_AppCase):
 
 class LabelledDetailsTests(_AppCase):
     LABELS = {"Item", "Context", "What to do", "How", "About", "Checked", "Outcome",
-              "Background", "Origin", "Agent", "Date", "Theme"}
+              "Background", "Origin", "Agent", "Date", "Theme",
+              "Priority", "Effort", "Task status", "Task"}   # t2211_3
 
     async def test_labels_are_styled_and_values_stay_plain(self):
         app = self.make_app()
@@ -1343,7 +1354,7 @@ class LabelledDetailsTests(_AppCase):
                                    side_effect=AssertionError("re-scanned")):
                 screen = await self.open_details(app, pilot, self.ids["trailwatch"])
             self.assertEqual(screen._step.key, "watch", "the cached check is used")
-            self.assertIn(">r", screen.body_text(model.resolve_now()))
+            self.assertIn("Press  r ", screen.body_text(model.resolve_now()))
             await self.assert_no_workers(app)
 
     async def test_about_and_mentioned_by(self):

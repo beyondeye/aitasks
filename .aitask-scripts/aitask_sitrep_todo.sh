@@ -62,6 +62,11 @@
 # into recovered/, then installs the .bak over the live name in ONE rename -- an
 # interrupted restore leaves the damaged original or the restored file, never
 # neither -- and for todo rewrites next_id and next_rev to the full maxima.
+# Plain `restore` is unconditional (an operator may roll back a file that
+# parses but holds bad data). `restore --if-damaged` first re-checks the live
+# file under the lock and answers RESTORE_NOT_NEEDED when it parses -- the form
+# a UI uses after a confirm dialog, so a repair plus a newer write that landed
+# meanwhile is never rolled back.
 #
 # SOURCES. Agent captures under ~/.config/aitasks/frozen/ are deleted by drop,
 # re-registration and freeze_abort, so a `capture:` source may only point at a
@@ -110,8 +115,11 @@
 #                                   case-record header; <=64 KiB) ->
 #                                   RETAINED_CASE:cases/<hex>.txt
 #   qa [--items c4,c5]              stdin -> QA:<timestamp>
-#   restore todo|qa                 RESTORED:<file>|recovered/<name>
+#   restore todo|qa [--if-damaged]  RESTORED:<file>|recovered/<name>
 #                                   | RESTORED:<file>|no-damaged-copy
+#                                   | RESTORE_NOT_NEEDED:<file> (--if-damaged
+#                                   only: the live file parses, checked under
+#                                   the lock; nothing written)
 #   read [all|todo|context|qa]      raw text, no lock (works on a damaged file);
 #                                   `todo` is Part 1, `context` Part 2
 #   list [--machine]                ITEM:c<N>|<rev>|kind|state|group|checked_at|
@@ -177,7 +185,7 @@ Usage: aitask_sitrep_todo.sh add --kind K --title T [--ref R] [--group G] [--sta
        aitask_sitrep_todo.sh retain-raw               (raw input on stdin)
        aitask_sitrep_todo.sh retain-case              (case record on stdin)
        aitask_sitrep_todo.sh qa [--items c4,c5]       (text on stdin)
-       aitask_sitrep_todo.sh restore todo|qa
+       aitask_sitrep_todo.sh restore todo|qa [--if-damaged]
        aitask_sitrep_todo.sh read [all|todo|context|qa]
        aitask_sitrep_todo.sh list [--machine]
        aitask_sitrep_todo.sh context <id>
@@ -603,8 +611,15 @@ cmd_retain_case() {
 }
 
 cmd_restore() {
-    [ $# -eq 1 ] || usage
-    local kind="$1" live bak preserved="" name
+    local kind="" if_damaged=0 live bak preserved="" name
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --if-damaged) if_damaged=1 ;;
+            -*) err_usage "unknown restore option '$1'" ;;
+            *) [ -z "$kind" ] || usage; kind="$1" ;;
+        esac
+        shift
+    done
     case "$kind" in
         todo|qa) ;;
         *) err_usage "restore takes 'todo' or 'qa'" ;;
@@ -613,6 +628,17 @@ cmd_restore() {
     live="$STORE_DIR/$kind.md"
     bak="$live.bak"
     lock_or_busy
+    # --if-damaged (the sitrep TUI's restore, t2211_3): decided UNDER the lock,
+    # so a repair or a newer write that landed while a confirm dialog was open
+    # is never rolled back. "Damaged" is exactly what the readers see: a live
+    # file that `verify` parses needs no recovery; a missing or unparsable one
+    # does.
+    if [[ "$if_damaged" -eq 1 ]] \
+            && "$PY" "$CORE" verify "$kind" "$live" >/dev/null 2>&1; then
+        release
+        echo "RESTORE_NOT_NEEDED:$kind.md"
+        return 0
+    fi
     if ! "$PY" "$CORE" verify "$kind" "$bak" >/dev/null; then
         err_store "cannot restore $kind.md: its backup is missing or unreadable"
     fi

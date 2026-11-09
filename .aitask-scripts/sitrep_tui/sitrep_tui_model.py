@@ -27,6 +27,7 @@ import datetime as _dt
 import hashlib
 import os
 import re
+import shlex
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -106,15 +107,27 @@ def load_snapshot(store_dir: str, prev_digest=None) -> "Snapshot | None":
 
 # --- rows --------------------------------------------------------------------
 
+#: TUI display labels that differ from the store's own section headings. The
+#: "now" group mixes picks, triage, decisions and actions, so the TUI calls it
+#: "Now"; the STORE heading (`### Pick now`, `sitrep_todo.SLOTS`) is file format
+#: and stays as it is.
+GROUP_LABELS = {"now": "Now"}
+
+
+def group_label(slot: str, heading: str = "") -> str:
+    """The TUI's label for ``slot`` (the stored heading when not overridden)."""
+    return GROUP_LABELS.get(slot, heading.lstrip("# "))
+
+
 def group_items(store: "st.TodoStore", show_closed: bool) -> list:
-    """``[(slot, heading, [Item])]`` in the store's own section order."""
+    """``[(slot, label, [Item])]`` in the store's own section order."""
     out = []
     for slot, heading in st.SLOTS:
         if slot in _CLOSED_SLOTS and not show_closed:
             continue
         items = [store.items[n] for n in sorted(store.items)
                  if st._slot_of(store.items[n]) == slot]
-        out.append((slot, heading.lstrip("# "), items))
+        out.append((slot, group_label(slot, heading), items))
     return out
 
 
@@ -194,9 +207,18 @@ class NextStep:
     how: str    # the details "How" line
 
 
+#: The TUI's own action keys named in the "How" texts, as ``{k_<name>}``
+#: placeholders. These are the defaults; the app passes the EFFECTIVE keys
+#: (user overrides included) to :func:`next_step`, so a remapped key is what the
+#: text names (t2211_3).
+DEFAULT_KEYS = {
+    "k_pick": "p", "k_board": "b", "k_push": "P", "k_dismiss": "x",
+    "k_refresh": "r",
+}
+
 #: classification key -> ("What to do" template, "How" template). Templates
-#: are filled with ``str.format(**fields)``: store text is only ever a format
-#: ARGUMENT, so braces in a title stay literal.
+#: are filled with ``str.format(**fields, **keys)``: store text is only ever a
+#: format ARGUMENT, so braces in a title stay literal.
 NEXT_STEPS = {
     "triage": (
         "Triage {task}'s wrap-up: decide which closing notes become actions or watches",
@@ -210,7 +232,8 @@ NEXT_STEPS = {
         "Ask the sitrep agent: type  >q {cid} <your question or decision>  in its pane."),
     "pick": (
         "Pick {ref}{status}: {rest}",
-        "Run  /aitask-pick {pick_id}  in a code-agent window (or open it with  ait board)."),
+        "Press  {k_pick}  to launch  /aitask-pick {pick_id}  in a new agent window, "
+        "or  {k_board}  to show it in the board."),
     "pick_xref": (
         "Pick {ref}{status}: {rest}",
         "It lives in project {project}: run  /aitask-pick {pick_id}  there."),
@@ -219,30 +242,31 @@ NEXT_STEPS = {
         "The title names the task; pick it with  /aitask-pick <id>."),
     "push": (
         "Do: {title}",
-        "Push branch {branch} (commit {sha}) yourself; refresh marks this done once "
-        "the commit is on the remote. Shown only — the TUI never runs it."),
+        "Push branch {branch} (commit {sha}) yourself: press  {k_push}  to show the "
+        "command (copyable — the TUI never runs it). Refresh marks this done once "
+        "the commit is on the remote."),
     "do": (
         "Do: {title}",
-        "Do it yourself; when it is done or no longer needed, dismiss it (in the "
-        "agent pane:  >x {cid} <reason>)."),
+        "Do it yourself; when it is done or no longer needed, press  {k_dismiss}  "
+        "to dismiss it with a reason."),
     "watch": (
         "Waiting on: {title} — nothing to do now{outcome}",
-        "A refresh re-checks its trail (in the agent pane:  >r ); the outcome "
-        "shows what changed."),
+        "Press  {k_refresh}  to harvest + refresh: it re-checks its trail, and the "
+        "outcome shows what changed."),
     "watch_manual": (
         "Waiting on: {title} — nothing to do now{outcome}",
         "Refresh does not check this one (it has no trail to follow). To see where "
         "it stands, ask the sitrep agent:  >q {cid} <question>  — it reads the "
-        "item's sources."),
+        "item's sources — or press  {k_dismiss}  to dismiss it."),
     "done": ("Done: {title}{outcome}", "Nothing to do."),
     "dismissed": ("Dismissed: {title}{outcome}", "Nothing to do."),
     "unknown": (
         "Unknown — needs a re-check: {title}",
-        "Refresh re-checks it: in the agent pane type  >r ."),
+        "Press  {k_refresh}  to harvest + refresh: it re-checks this item."),
     "unknown_manual": (
         "Unknown — needs a re-check: {title}",
         "Refresh has no automatic check for this item. Ask the sitrep agent to look "
-        "at its sources ( >q {cid} <question> ), or dismiss it ( >x {cid} <reason> )."),
+        "at its sources ( >q {cid} <question> ), or press  {k_dismiss}  to dismiss it."),
     "raw": (
         "{kind} / {state}: {title}",
         "No guidance for this kind of item — read its context below."),
@@ -323,14 +347,18 @@ def _fields(item: "st.Item") -> dict:
     }
 
 
-def next_step(item: "st.Item", refresh_check: "str | None" = None) -> NextStep:
-    """What to do about ``item`` and how. Never raises (render time): any
-    failure falls back to the raw row."""
+def next_step(item: "st.Item", refresh_check: "str | None" = None,
+              keys: "dict | None" = None) -> NextStep:
+    """What to do about ``item`` and how. ``keys`` are the effective action keys
+    (``DEFAULT_KEYS`` shape; missing entries fall back to the defaults). Never
+    raises (render time): any failure falls back to the raw row."""
     try:
         key = classify(item, refresh_check)
         what, how = NEXT_STEPS[key]
         fields = _fields(item)
-        return NextStep(key, what.format(**fields), how.format(**fields))
+        effective = {**DEFAULT_KEYS, **(keys or {})}
+        return NextStep(key, what.format(**fields),
+                        how.format(**fields, **effective))
     except Exception:  # noqa: BLE001
         what, how = NEXT_STEPS["raw"]
         fields = {"kind": getattr(item, "kind", "?"), "state": getattr(item, "state", "?"),
@@ -342,7 +370,11 @@ def next_step(item: "st.Item", refresh_check: "str | None" = None) -> NextStep:
 
 #: (heading, width) of the main list's columns; the last one takes the rest.
 #: header_text and row_text both build from it, so they align by construction.
-COLUMNS = (("Item", 5), ("Checked", AGE_CELL_W), ("What to do", 0))
+#: Width of the "Pri/Eff" cell: the referenced task's priority / effort,
+#: shortened (`med/med` is the widest).
+PRI_EFF_W = 7
+COLUMNS = (("Item", 5), ("Checked", AGE_CELL_W), ("Pri/Eff", PRI_EFF_W),
+           ("What to do", 0))
 
 
 def cid_width(store: "st.TodoStore | None") -> int:
@@ -352,15 +384,120 @@ def cid_width(store: "st.TodoStore | None") -> int:
 
 
 def header_text(cid_w: int = COLUMNS[0][1]) -> str:
-    return f"{COLUMNS[0][0]:<{cid_w}} {COLUMNS[1][0]:<{COLUMNS[1][1]}} {COLUMNS[2][0]}"
+    return (f"{COLUMNS[0][0]:<{cid_w}} {COLUMNS[1][0]:<{COLUMNS[1][1]}} "
+            f"{COLUMNS[2][0]:<{COLUMNS[2][1]}} {COLUMNS[3][0]}")
 
 
 def row_text(item: "st.Item", now: _dt.datetime, cid_w: int = COLUMNS[0][1],
-             refresh_check: "str | None" = None) -> str:
-    """One list row: item id, checked age, what to do. Rows are cut to one line
-    with an ellipsis, so the free text sits last."""
+             refresh_check: "str | None" = None,
+             meta: "TaskMeta | None | bool" = None) -> str:
+    """One list row: item id, checked age, the task's priority/effort, what to
+    do. Rows are cut to one line with an ellipsis, so the free text sits last.
+    ``meta``: the item's :class:`TaskMeta`, ``False`` for a task item whose
+    file was not found, None for an item that names no local task."""
     return (f"{item.cid:<{cid_w}} {age_cell(item.checked_at, now):<{COLUMNS[1][1]}} "
+            f"{pri_eff_cell(meta):<{COLUMNS[2][1]}} "
             f"{next_step(item, refresh_check).what}")
+
+
+# --- the referenced task's metadata (t2211_3) ------------------------------------
+#
+# A task item names a task (`ref: t<N>[_<M>]`); its priority, effort and status
+# live in the task FILE, not in the store. Read-only, never raises, and every
+# value is plain text (a hand-edited frontmatter is untrusted input).
+
+_LEVEL_SHORT = {"high": "hi", "medium": "med", "low": "lo"}
+#: Largest frontmatter read (the head of the task file).
+_META_READ_BYTES = 64 * 1024
+
+
+@dataclass(frozen=True)
+class TaskMeta:
+    task_id: str
+    path: str            # repo-relative, e.g. aitasks/t10_demo.md
+    priority: str = ""
+    effort: str = ""
+    status: str = ""
+    archived: bool = False
+
+
+def _short_level(value: str) -> str:
+    return _LEVEL_SHORT.get(value, (value[:3] if value else "?"))
+
+
+def pri_eff_cell(meta: "TaskMeta | None | bool") -> str:
+    """``hi/lo`` for a task item; ``—`` when its file is not found; blank for
+    an item that names no local task."""
+    if meta is None:
+        return ""
+    if meta is False:
+        return "—"
+    return f"{_short_level(meta.priority)}/{_short_level(meta.effort)}"[:PRI_EFF_W]
+
+
+def find_task_file(root: str, task_id: str) -> "tuple | None":
+    """``(repo-relative path, archived)`` of task ``task_id`` (``12`` /
+    ``12_3``): the active file first, then a loose archived one. None when
+    neither exists (a bundled archive is not opened)."""
+    parent, _, child = task_id.partition("_")
+    if child:
+        candidates = ((f"aitasks/t{parent}", False), (f"aitasks/archived/t{parent}", True))
+    else:
+        candidates = (("aitasks", False), ("aitasks/archived", True))
+    prefix = f"t{task_id}_"
+    for rel_dir, archived in candidates:
+        try:
+            names = sorted(os.listdir(os.path.join(root, rel_dir)))
+        except OSError:
+            continue
+        for name in names:
+            if name.startswith(prefix) and name.endswith(".md"):
+                return f"{rel_dir}/{name}", archived
+    return None
+
+
+def task_meta(root: str, task_id: "str | None") -> "TaskMeta | None | bool":
+    """The task's metadata; ``False`` when its file is not found; None when
+    ``task_id`` is None. Never raises."""
+    if not task_id:
+        return None
+    try:
+        found = find_task_file(root, task_id)
+        if found is None:
+            return False
+        rel, archived = found
+        with open(os.path.join(root, rel), "rb") as fh:
+            head = _decode(fh.read(_META_READ_BYTES))
+        fields = {}
+        try:
+            import task_yaml
+            parsed = task_yaml.parse_frontmatter(head)
+            if parsed is not None and isinstance(parsed[0], dict):
+                fields = parsed[0]
+        except Exception:  # noqa: BLE001 - a broken frontmatter shows "?"
+            fields = {}
+
+        def text(key):
+            value = fields.get(key)
+            return " ".join(str(value).split())[:40] if value is not None else ""
+
+        return TaskMeta(task_id, rel, text("priority"), text("effort"), text("status"),
+                        archived)
+    except Exception:  # noqa: BLE001 - decoration, never fatal
+        return False
+
+
+def task_metas(root: str, store: "st.TodoStore | None") -> dict:
+    """``{item num: task_meta(...)}`` for the store's task items that name a
+    local task."""
+    if store is None:
+        return {}
+    out = {}
+    for num, item in store.items.items():
+        tid = task_ref_id(item)
+        if tid is not None:
+            out[num] = task_meta(root, tid)
+    return out
 
 
 # --- plain-language labels -------------------------------------------------------
@@ -769,3 +906,126 @@ def review_line(store_dir: str, ctx: "st.ContextEntry | None") -> str:
     hexname, _, codes = found.partition("|")
     return (f"Review case {hexname} ({codes}) — read it with "
             f"`ait sitrep case show {hexname}`")
+
+
+# --- actions (t2211_3) ----------------------------------------------------------
+#
+# Textual-free halves of the TUI's actions: reading the refresh helper's output,
+# the task id an item may launch, and the push command a push reminder SHOWS.
+
+#: The refresh helper's whole-run budget and the caller's hard timeout
+#: (`aitask_sitrep_refresh.sh` header: timeout >= budget + 15 s) -- the pair
+#: `monitor_shared` uses for the same script.
+REFRESH_BUDGET = 60.0
+REFRESH_TIMEOUT = REFRESH_BUDGET + 15.0
+
+_REFRESH_FINALS = ("REFRESHED", "REFRESH_NONE", "REFRESH_FAILED")
+
+
+@dataclass(frozen=True)
+class RefreshReport:
+    final_kind: str          # REFRESHED | REFRESH_NONE | REFRESH_FAILED | missing
+    reason: str = ""
+    rc: int = 0
+    counts: tuple = ()       # (("checked", "3"), ...) in the helper's order
+    items: tuple = ()        # the REFRESH_ITEM: payloads, verbatim
+    warns: tuple = ()
+
+    @property
+    def ok(self) -> bool:
+        """Both the exit status AND the last final line must say so."""
+        return self.rc == 0 and self.final_kind in ("REFRESHED", "REFRESH_NONE")
+
+    def verdict(self) -> str:
+        if not self.ok:
+            return f"Refresh failed: {self.reason or 'unknown'}"
+        if self.final_kind == "REFRESH_NONE":
+            return f"Nothing to refresh ({self.reason or 'none'})"
+        c = dict(self.counts)
+        return (f"Refreshed: {c.get('checked', '0')} checked, "
+                f"{c.get('changed', '0')} changed")
+
+
+def parse_refresh_output(rc: int, out: str) -> RefreshReport:
+    """Read `aitask_sitrep_refresh.sh` output (its header is the contract).
+
+    Only the LAST final line counts. A runner ``ERROR:`` line (a timeout or a
+    missing script, from ``run_owned_group``), a missing final line or a
+    non-zero exit is never ok; ``reason`` names which."""
+    items, warns = [], []
+    final_kind, reason, counts = "missing", "", ()
+    runner_error = ""
+    for raw in (out or "").splitlines():
+        line = raw.strip()
+        if line.startswith("ERROR:"):
+            runner_error = line[len("ERROR:"):]
+            continue
+        head, sep, rest = line.partition(":")
+        if not sep:
+            continue
+        if head == "REFRESH_ITEM":
+            items.append(rest)
+        elif head == "REFRESH_WARN":
+            warns.append(rest)
+        elif head in _REFRESH_FINALS:
+            final_kind, reason, counts = head, rest, ()
+            if head == "REFRESHED":
+                counts = tuple(tuple(p.partition("=")[::2]) for p in rest.split("|")
+                               if p)
+                reason = ""
+    if final_kind == "missing":
+        reason = runner_error or "no_result"
+    elif rc != 0 and final_kind != "REFRESH_FAILED":
+        reason = runner_error or f"exit {rc}"
+    return RefreshReport(final_kind, reason, rc, counts, tuple(items), tuple(warns))
+
+
+def task_ref_id(item: "st.Item | None") -> "str | None":
+    """The local task id (``"12"`` / ``"12_3"``) a TASK item names, else None.
+
+    Kind must be ``task``: a triage item's title and ref name a task too, but
+    it is not a pick (t2211_3 user decision). Cross-repo refs are None."""
+    if item is None or item.kind != "task":
+        return None
+    m = _LOCAL_REF_RE.match(item.ref or "")
+    return m.group(1) if m else None
+
+
+_GIT_CAP = 5.0
+
+
+def _git_out(root: str, *args: str) -> "str | None":
+    try:
+        proc = subprocess.run(["git", "-C", root, *args], capture_output=True,
+                              text=True, timeout=_GIT_CAP, stdin=subprocess.DEVNULL,
+                              env=dict(os.environ, GIT_TERMINAL_PROMPT="0",
+                                       GIT_OPTIONAL_LOCKS="0"))
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return proc.stdout.strip() if proc.returncode == 0 else None
+
+
+def push_command(root: str, branch: str) -> tuple:
+    """``(command, note)`` that pushes ``branch`` -- DISPLAY ONLY, never run.
+
+    The task-data branch (the one ``<root>/.aitask-data`` has checked out) is
+    pushed with ``./ait git push``, the only sanctioned push for task data.
+    Any other branch: ``git push <remote> <branch>`` with the remote git's own
+    precedence picks (``branch.<b>.pushRemote`` > ``remote.pushDefault`` >
+    ``branch.<b>.remote``, the order refresh's push check reads); with none
+    configured, ``origin`` and a note saying so. Every argument is
+    shell-quoted (``shlex.join``): the remote name is config text, and git
+    accepts names like ``origin;printf`` that would split a pasted command.
+    Never raises."""
+    data = os.path.join(root, ".aitask-data")
+    if os.path.exists(os.path.join(data, ".git")):
+        if _git_out(data, "symbolic-ref", "--short", "HEAD") == branch:
+            return "./ait git push", "task data: pushed through ./ait git"
+    for key in (f"branch.{branch}.pushRemote", "remote.pushDefault",
+                f"branch.{branch}.remote"):
+        remote = _git_out(root, "config", "--get", key)
+        if remote and remote != ".":
+            # Quoted: git accepts remote names a shell would split (`a;b`).
+            return shlex.join(["git", "push", remote, branch]), ""
+    return (shlex.join(["git", "push", "origin", branch]),
+            "no push remote is configured for this branch; origin assumed")

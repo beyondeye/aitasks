@@ -3010,12 +3010,18 @@ _TRAILS_REQUEST_ID_RE = re.compile(r"^[0-9a-f]{32}$")
 _TRAILS_STAMP_RE = re.compile(r"[1-9][0-9]{0,9}")
 _PID_MAX = 2**31 - 1
 
+# --- The pane mailbox, generalized (t2211_3) ----------------------------------
+#
+# The same receiver-stamp + overwrite-only request design serves more than one
+# TUI: `ait trails` (trail handles) and `ait board` (task ids). Each pair of
+# options is one mailbox; the payload grammar is the caller's.
 
-def read_trails_focus_request(pane: str) -> str | None:
-    """``pane``'s raw ``@aitask_trails_focus`` value — ``""`` when it holds no
-    request — or None when the read failed (pane gone, server unreachable)."""
+
+def read_pane_request(pane: str, option: str) -> str | None:
+    """``pane``'s raw ``option`` value -- ``""`` when it holds no request --
+    or None when the read failed (pane gone, server unreachable)."""
     rc, out = _TMUX.run(["display-message", "-p", "-t", pane,
-                         f"#{{pane_id}}\t#{{{TRAILS_FOCUS_OPTION}}}"])
+                         f"#{{pane_id}}\t#{{{option}}}"])
     if rc != 0:
         return None
     echoed, sep, value = out.rstrip("\n").partition("\t")
@@ -3024,44 +3030,43 @@ def read_trails_focus_request(pane: str) -> str | None:
     return value.strip()
 
 
-def parse_trails_focus_request(value: str | None) -> tuple[str, str | None] | None:
-    """A raw request value -> ``(id, handle)``; ``(id, None)`` when malformed.
+def parse_pane_request(value: str | None, payload_re) -> tuple[str, str | None] | None:
+    """A raw request value -> ``(id, payload)``; ``(id, None)`` when malformed.
 
-    None for an empty value (no request). The id is the first token whatever its
-    shape, so a malformed request is still recorded as seen and never retried;
-    the handle is returned only when the id is a 32-hex request id and the rest
-    is a well-formed artifact handle (the value is untrusted input)."""
+    None for an empty value (no request). The id is the first token whatever
+    its shape, so a malformed request is still recorded as seen and never
+    retried; the payload is returned only when the id is a 32-hex request id
+    and the rest fully matches ``payload_re`` (the value is untrusted input)."""
     text = (value or "").strip()
     if not text:
         return None
-    request_id, _, handle = text.partition(" ")
-    handle = handle.strip()
-    if _TRAILS_REQUEST_ID_RE.match(request_id) and HANDLE_RE.match(handle):
-        return request_id, handle
+    request_id, _, payload = text.partition(" ")
+    payload = payload.strip()
+    if _TRAILS_REQUEST_ID_RE.match(request_id) and payload_re.match(payload):
+        return request_id, payload
     return request_id, None
 
 
-def mark_trails_receiver(pane: str) -> bool:
-    """Stamp ``pane`` as this process's trails receiver; True when written."""
-    rc, _ = _TMUX.run(["set-option", "-p", "-t", pane, TRAILS_RECEIVER_OPTION,
-                       str(os.getpid())])
+def mark_pane_receiver(pane: str, option: str) -> bool:
+    """Stamp ``pane`` as this process's receiver for ``option``'s mailbox."""
+    rc, _ = _TMUX.run(["set-option", "-p", "-t", pane, option, str(os.getpid())])
     return rc == 0
 
 
-def unmark_trails_receiver(pane: str) -> bool:
+def unmark_pane_receiver(pane: str, option: str) -> bool:
     """Remove ``pane``'s receiver stamp (best effort). The request option is
-    left alone — nobody ever unsets it."""
-    rc, _ = _TMUX.run(["set-option", "-p", "-u", "-t", pane,
-                       TRAILS_RECEIVER_OPTION])
+    left alone -- nobody ever unsets it."""
+    rc, _ = _TMUX.run(["set-option", "-p", "-u", "-t", pane, option])
     return rc == 0
 
 
-def _live_trails_receivers(session: str) -> list[tuple[str, str]] | None:
-    """``(pane_id, window_id)`` of every pane in ``session`` stamped by a live
-    process, in tmux's window/pane order; None when the listing failed."""
+def _live_pane_receivers(session: str, option: str) -> list[tuple[str, str]] | None:
+    """``(pane_id, window_id)`` of every pane in ``session`` whose ``option``
+    stamp names a live process, in tmux's window/pane order; None when the
+    listing failed."""
     rc, out = _TMUX.run(
         ["list-panes", "-s", "-t", tmux_session_scope_target(session),
-         "-F", f"#{{pane_id}} #{{window_id}} #{{{TRAILS_RECEIVER_OPTION}}}"])
+         "-F", f"#{{pane_id}} #{{window_id}} #{{{option}}}"])
     if rc != 0:
         return None
     receivers = []
@@ -3073,6 +3078,56 @@ def _live_trails_receivers(session: str) -> list[tuple[str, str]] | None:
         if pid <= _PID_MAX and _process_exists(pid):
             receivers.append((parts[0], parts[1]))
     return receivers
+
+
+def _deliver_pane_request(receiver: tuple[str, str], option: str,
+                          payload: str) -> tuple[bool, str | None]:
+    """Write a fresh request into ``receiver``'s mailbox and select its pane."""
+    pane, window = receiver
+    rc, _ = _TMUX.run(["set-option", "-p", "-t", pane, option,
+                       f"{uuid.uuid4().hex} {payload}"])
+    if rc != 0:
+        return False, "tmux set-option failed"
+    rc, _ = _TMUX.run(["select-window", "-t", window])
+    if rc != 0:
+        return False, "tmux select-window failed"
+    rc, _ = _TMUX.run(["select-pane", "-t", pane])
+    if rc != 0:
+        return False, "tmux select-pane failed"
+    return True, None
+
+
+def read_trails_focus_request(pane: str) -> str | None:
+    """``pane``'s raw ``@aitask_trails_focus`` value — ``""`` when it holds no
+    request — or None when the read failed (pane gone, server unreachable)."""
+    return read_pane_request(pane, TRAILS_FOCUS_OPTION)
+
+
+def parse_trails_focus_request(value: str | None) -> tuple[str, str | None] | None:
+    """A raw request value -> ``(id, handle)``; ``(id, None)`` when malformed.
+
+    None for an empty value (no request). The id is the first token whatever its
+    shape, so a malformed request is still recorded as seen and never retried;
+    the handle is returned only when the id is a 32-hex request id and the rest
+    is a well-formed artifact handle (the value is untrusted input)."""
+    return parse_pane_request(value, HANDLE_RE)
+
+
+def mark_trails_receiver(pane: str) -> bool:
+    """Stamp ``pane`` as this process's trails receiver; True when written."""
+    return mark_pane_receiver(pane, TRAILS_RECEIVER_OPTION)
+
+
+def unmark_trails_receiver(pane: str) -> bool:
+    """Remove ``pane``'s receiver stamp (best effort). The request option is
+    left alone — nobody ever unsets it."""
+    return unmark_pane_receiver(pane, TRAILS_RECEIVER_OPTION)
+
+
+def _live_trails_receivers(session: str) -> list[tuple[str, str]] | None:
+    """``(pane_id, window_id)`` of every pane in ``session`` stamped by a live
+    process, in tmux's window/pane order; None when the listing failed."""
+    return _live_pane_receivers(session, TRAILS_RECEIVER_OPTION)
 
 
 def launch_or_focus_trails(
@@ -3095,22 +3150,86 @@ def launch_or_focus_trails(
     if receivers is None:
         return False, "tmux list-panes failed"
     if receivers:
-        pane, window = receivers[0]
-        rc, _ = _TMUX.run(["set-option", "-p", "-t", pane, TRAILS_FOCUS_OPTION,
-                           f"{uuid.uuid4().hex} {handle}"])
-        if rc != 0:
-            return False, "tmux set-option failed"
-        rc, _ = _TMUX.run(["select-window", "-t", window])
-        if rc != 0:
-            return False, "tmux select-window failed"
-        rc, _ = _TMUX.run(["select-pane", "-t", pane])
-        if rc != 0:
-            return False, "tmux select-pane failed"
-        return True, None
+        return _deliver_pane_request(receivers[0], TRAILS_FOCUS_OPTION, handle)
     rc, _ = _TMUX.run(
         ["new-window", "-t", tmux_window_target(session, ""),
          "-c", str(project_root), "-n", "trails",
          "./ait", "trails", "--trail", handle])
+    if rc != 0:
+        return False, "tmux new-window failed"
+    return True, None
+
+
+# --- `ait board --focus` mailbox (t2211_3) -------------------------------------
+#
+# The trails design for the board: a running KanbanApp stamps its own pane with
+# `@aitask_board_app <pid>` (after its baseline read; unset on exit), and a
+# request `@aitask_board_focus "<32-hex id> <task id>"` is written to the FIRST
+# live receiver of the session -- overwritten, never unset; the board remembers
+# the last id it saw.
+
+BOARD_FOCUS_OPTION = "@aitask_board_focus"
+BOARD_RECEIVER_OPTION = "@aitask_board_app"
+#: A board focus payload: a bare task id, parent or child (`12`, `12_3`).
+BOARD_TASK_ID_RE = re.compile(r"^[0-9]+(?:_[0-9]+)?\Z")
+
+
+def read_board_focus_request(pane: str) -> str | None:
+    return read_pane_request(pane, BOARD_FOCUS_OPTION)
+
+
+def parse_board_focus_request(value: str | None) -> tuple[str, str | None] | None:
+    """``(request id, task id)``; ``(id, None)`` for a malformed request."""
+    return parse_pane_request(value, BOARD_TASK_ID_RE)
+
+
+def mark_board_receiver(pane: str) -> bool:
+    return mark_pane_receiver(pane, BOARD_RECEIVER_OPTION)
+
+
+def unmark_board_receiver(pane: str) -> bool:
+    return unmark_pane_receiver(pane, BOARD_RECEIVER_OPTION)
+
+
+def launch_or_focus_board(
+    session: str, project_root: Path, task_id: str,
+) -> tuple[bool, str | None]:
+    """Show task ``task_id`` (bare: ``12`` / ``12_3``) in ``session``'s board.
+
+    * A running board (a live receiver stamp): the request goes to ONE
+      receiver's pane mailbox -- the first in window/pane order -- and that pane
+      is selected. ``(True, None)``.
+    * A ``board`` window without a receiver (a board started before focus
+      support, or outside a gateway pane): it is selected, and the second value
+      is a warning -- a second board is never started beside it.
+    * No board: a new ``board`` window rooted at ``project_root`` runs
+      ``./ait board --focus <id>`` (argv form, no shell string).
+
+    Does not switch the client; the caller does. ``(False, error)`` on a
+    refused id or a failed tmux call."""
+    if not BOARD_TASK_ID_RE.match(task_id or ""):
+        return False, f"invalid task id: {task_id!r}"
+    receivers = _live_pane_receivers(session, BOARD_RECEIVER_OPTION)
+    if receivers is None:
+        return False, "tmux list-panes failed"
+    if receivers:
+        return _deliver_pane_request(receivers[0], BOARD_FOCUS_OPTION, task_id)
+    rc, out = _TMUX.run(["list-windows", "-t", tmux_session_target(session),
+                         "-F", "#{window_id} #{window_name}"])
+    if rc != 0:
+        return False, "tmux list-windows failed"
+    for line in out.splitlines():
+        window_id, _, name = line.partition(" ")
+        if name == "board":
+            rc, _ = _TMUX.run(["select-window", "-t", window_id])
+            if rc != 0:
+                return False, "tmux select-window failed"
+            return True, ("the running board cannot take focus requests — restart "
+                          f"it to jump to t{task_id}")
+    rc, _ = _TMUX.run(
+        ["new-window", "-t", tmux_window_target(session, ""),
+         "-c", str(project_root), "-n", "board",
+         "./ait", "board", "--focus", task_id])
     if rc != 0:
         return False, "tmux new-window failed"
     return True, None

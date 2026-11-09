@@ -98,7 +98,8 @@ async def _terminate_group(proc) -> None:
 
 
 async def run_owned_group(argv: "list[str]", *, stdin: "bytes | None" = None,
-                          timeout: float) -> "tuple[int, str]":
+                          timeout: float, cwd: "str | None" = None,
+                          env: "dict | None" = None) -> "tuple[int, str]":
     """Run ``argv`` in its OWN process group; ``(rc, stdout+stderr)``.
 
     Total for every ordinary failure — a missing script and a timeout come back
@@ -107,6 +108,11 @@ async def run_owned_group(argv: "list[str]", *, stdin: "bytes | None" = None,
     ``wait_for`` does not touch the child) kills the whole group and is then
     re-raised, never swallowed. Without that branch a ``start_new_session``
     group would outlive the TUI with no supervisor left to bound it.
+
+    ``cwd`` / ``env`` default to the caller's own (the monitor maintenance
+    passes neither); the sitrep TUI passes its root and an environment
+    without ``AITASK_SITREP_DIR``, so the store writer resolves the store the
+    TUI reads (t2211_3).
     """
     name = Path(argv[0]).name
     try:
@@ -117,6 +123,8 @@ async def run_owned_group(argv: "list[str]", *, stdin: "bytes | None" = None,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
             start_new_session=True,
+            cwd=cwd,
+            env=env,
         )
     except OSError as exc:
         return 1, f"ERROR:cannot run {name}: {exc}"

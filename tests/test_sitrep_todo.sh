@@ -471,6 +471,57 @@ run - restore todo
 assert_file_exists "restore rewrites the marker once both files are back" "$S/store.init"
 
 # =============================================================================
+echo "=== Test 9b: restore --if-damaged decides under the lock (t2211_3) ==="
+reset_store
+run - add --kind task --title "g1"
+run - add --kind task --title "g2"
+run - add --kind task --title "g3 newer than the backup"
+cp "$S/todo.md" "$TMP/healthy.md"
+run - restore todo --if-damaged
+assert_eq "healthy todo.md -> exit 0" "0" "$RC"
+assert_eq "healthy todo.md -> RESTORE_NOT_NEEDED" "RESTORE_NOT_NEEDED:todo.md" "$OUT"
+assert_eq "... the live generation is untouched" "$(cat "$TMP/healthy.md")" "$(cat "$S/todo.md")"
+assert_dir_not_exists "... and nothing was preserved" "$S/recovered"
+run "Q: x?" qa
+cp "$S/qa.md" "$TMP/healthy_qa.md"
+run - restore qa --if-damaged
+assert_eq "healthy qa.md -> RESTORE_NOT_NEEDED" "RESTORE_NOT_NEEDED:qa.md" "$OUT"
+assert_eq "... qa.md untouched" "$(cat "$TMP/healthy_qa.md")" "$(cat "$S/qa.md")"
+# Pre-fix control: the unconditional verb DOES roll a healthy file back -- the
+# hazard the flag exists for.
+run - restore todo
+assert_contains "plain restore on a healthy file still restores (CLI contract)" "RESTORED:todo.md|recovered/" "$OUT"
+assert_not_contains "... and rolls the newer generation back" "g3 newer" "$(cat "$S/todo.md")"
+
+reset_store
+run - add --kind task --title "g1"
+run - add --kind task --title "g2"
+cp "$S/todo.md.bak" "$TMP/bak.md"
+sed -i 's/kind=task/kind=bogus/' "$S/todo.md"
+run - restore todo --if-damaged
+assert_contains "damaged todo.md -> --if-damaged restores" "RESTORED:todo.md|recovered/todo.md." "$OUT"
+assert_eq "... installing the backup" "$(cat "$TMP/bak.md")" "$(cat "$S/todo.md")"
+rm "$S/todo.md"
+run - restore todo --if-damaged
+assert_eq "missing todo.md in an established store -> restored" "RESTORED:todo.md|no-damaged-copy" "$OUT"
+printf 'not a store file\n' > "$S/todo.md"
+run - restore todo --if-damaged
+assert_contains "an unparsable todo.md (no header) -> restored" "RESTORED:todo.md|recovered/" "$OUT"
+run - restore bogus --if-damaged
+assert_eq "--if-damaged with a bad kind -> exit 2" "2" "$RC"
+run - restore todo --if-damaged --wat
+assert_eq "an unknown restore option -> exit 2" "2" "$RC"
+
+sed -i 's/kind=task/kind=bogus/' "$S/todo.md"
+cp "$S/todo.md" "$TMP/damaged3.md"
+hold_lock
+OUT="$(AITASK_SITREP_LOCK_TIMEOUT=1 "$H" restore todo --if-damaged 2>"$TMP/err" </dev/null)"; RC=$?
+assert_eq "--if-damaged on a busy lock -> exit 3" "3" "$RC"
+assert_eq "... LOCK_BUSY" "LOCK_BUSY" "$OUT"
+assert_eq "... nothing written" "$(cat "$TMP/damaged3.md")" "$(cat "$S/todo.md")"
+release_held_lock
+
+# =============================================================================
 echo "=== Test 10: ids are never reused across recovery ==="
 reset_store
 for t in a b c d; do run - add --kind task --title "$t"; done

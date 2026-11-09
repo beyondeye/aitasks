@@ -52,6 +52,7 @@ from sync_action_runner import (
     STATUS_TIMEOUT,
 )
 from tui_switcher import TuiSwitcherMixin, TuiSwitcherOverlay
+from board_focus_request import BoardFocusMailboxMixin, normalize_task_id
 from shortcuts_mixin import ShortcutsMixin, get_label
 from keybinding_registry import resolve_key
 from multirow_footer import MultiRowFooter
@@ -1991,11 +1992,14 @@ class BoardScreen(Screen):
     AUTO_FOCUS = ""
 
     def on_screen_resume(self) -> None:
-        """A modal closed: apply a detached-focus rescue it deferred (t1839)."""
+        """A modal closed: apply a detached-focus rescue it deferred (t1839),
+        then a `--focus` / mailbox request it held back (t2211_3)."""
         self.app._resume_detached_focus()
+        self.app._resume_focus_request()
 
 
-class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, TrailScreenMixin, App):
+class KanbanApp(BoardFocusMailboxMixin, TuiSwitcherMixin, ShortcutsMixin,
+                TrailScreenMixin, App):
     _shortcuts_scope = "board"
 
     # Minimum column allocation for the search box before the filter row
@@ -2366,8 +2370,14 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, TrailScreenMixin, App):
         Binding("t", "view_type", "Type", show=False),
     ]
 
-    def __init__(self):
+    def __init__(self, *, focus_task: str | None = None, focus_pane: str | None = None,
+                 focus_tmux_env: str = ""):
+        """``focus_task`` (a normalized id) is `--focus`; ``focus_pane`` /
+        ``focus_tmux_env`` are this process's ``$TMUX_PANE`` / ``$TMUX``, passed
+        in by ``main()`` only -- without a pane there is no mailbox (t2211_3).
+        ``KanbanApp()`` is the plain board."""
         super().__init__()
+        self._init_focus_request(focus_task, focus_pane, focus_tmux_env)
         self.current_tui_name = "board"
         # `notify` is the single sink for save-time reconciliation warnings
         # (t1377_3); TaskManager has no screen of its own to raise them on.
@@ -2798,6 +2808,12 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, TrailScreenMixin, App):
         # `refresh_board` mounts the columns asynchronously, so their focus
         # anchors are not queryable yet.
         self.call_after_refresh(self._claim_startup_focus)
+        # `--focus` and the pane mailbox (t2211_3): queued AFTER the startup
+        # claim, so the requested card wins over the leftmost one.
+        self._start_focus_request()
+
+    def on_unmount(self):
+        self._stop_focus_request()
 
     def _apply_filter_reflow(self, width: int | None = None):
         """Reflow the filter row when the terminal is too narrow for both parts.
@@ -7017,6 +7033,25 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, TrailScreenMixin, App):
         self.app.call_from_thread(self.manager.refresh_git_status)
         self.app.call_from_thread(self.refresh_board, refocus_filename=refocus)
 
+def main(argv: list[str] | None = None) -> None:
+    """`ait board [--focus <id>]`. `--focus` (`12`, `t12`, `12_3`) selects that
+    card after the first load -- the cold path of `launch_or_focus_board`.
+    `$TMUX_PANE` / `$TMUX` are read here and only here, so the pane mailbox
+    exists only for a real launch (t2211_3)."""
+    import argparse
+
+    parser = argparse.ArgumentParser(prog="ait board", description="aitasks Kanban board")
+    parser.add_argument("--focus", metavar="ID",
+                        help="select this task's card after loading (12, t12, 12_3)")
+    args = parser.parse_args(argv)
+    focus = None
+    if args.focus is not None:
+        focus = normalize_task_id(args.focus)
+        if focus is None:
+            parser.error(f"invalid task id {args.focus!r}: expected 12, t12 or 12_3")
+    KanbanApp(focus_task=focus, focus_pane=os.environ.get("TMUX_PANE") or None,
+              focus_tmux_env=os.environ.get("TMUX", "")).run()
+
+
 if __name__ == "__main__":
-    app = KanbanApp()
-    app.run()
+    main()
