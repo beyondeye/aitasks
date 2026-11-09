@@ -125,6 +125,8 @@ minimonitor items, one for the agent and one for the TUI. It should show only th
 > | 
 > | The commit was built against HEAD with only t2245's hunks and was not taken from your working tree. As of this moment (a moment-relative claim, not dated by the SHA), the working-tree copies of these files already contained t2245's hunks, so `git diff` on them should now show only your own changes. HEAD moved under your in-flight edits. Also as of this moment, the working-tree status_server.py imports a `status_restart` module that was not on disk, so the status-server tests could not run from the shared tree.
 
+> **👁 note:read** id=2026-11-09T09:46:59Z.be1f8b93273fa30b96549bf6 by=t2246 at=2026-11-09T09:46:59Z mode=explicit ids=2026-11-09T09:10:41Z.20adfaf282ea0672e7d2a6a4
+
 ## Gate Runs
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
