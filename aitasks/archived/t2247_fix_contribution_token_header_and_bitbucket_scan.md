@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [git-integration, contribution]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -17,7 +17,8 @@ anchor: 2235
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5_5
 created_at: 2026-11-08 18:16
-updated_at: 2026-11-08 22:03
+updated_at: 2026-11-09 11:05
+completed_at: 2026-11-09 11:05
 ---
 
 ## Origin
@@ -45,3 +46,14 @@ Compute each auth header once into a local with `|| return 1` before calling cur
 > **✅ gate:plan_approved** run=2026-11-08T20:03:34Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-11-09T08:21:07Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-11-09T09:05:32Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:86a6f79bdfb04942
+
+> **✅ gate:risk_evaluated** run=2026-11-09T09:05:32Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/2247/risk_evaluated_2026-11-09T09:05:32Z-risk_evaluated-a1.log`
