@@ -298,3 +298,60 @@ All three have landed.
 ### Planned mitigations
 - timing: pre-phase | name: baseline_worker_suite | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health (worker refactor, archive hot path) | desc: record per-file failing-test name sets of the relations and archive suites on unmodified HEAD, compare after implementation
 - timing: post-phase | name: measure_backlog_evidence | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement (heuristic signal rate / sweep cost) | desc: run `ait obsolete evidence` over the live backlog and record exact signal counts per kind in Final Implementation Notes
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-09)
+- **Requested by user:** three blocking findings, each verified against the code before fixing.
+  1. `analyse_obsolescence` consumed `Store.read()` without checking `snap.corrupt` or an unreachable store state, so a corrupt `records/t11.json` holding a `duplicates` relation produced `ASSESSED`, band `none`.
+  2. `ait relations unblock` read and cleared only the `relations` op's guards, so an obsolescence spawn-gap guard could not be cleared.
+  3. The landed trigger fired on `aitask_archive.sh --no-commit` (stage only), although the trigger belongs after the archive commit.
+- **Changes made:**
+  1. `obsolescence_evidence.snapshot_incomplete(snap)`: a corrupt record (`store_corrupt:<path>`) or an `unreachable:` store (`store_unreachable:<reason>`) is incomplete evidence. Relation rows are skipped and the job fails as `EVIDENCE_INCOMPLETE` before `UP_TO_DATE`, so it can neither publish nor replace an assessment. `empty` / `local_only` / `fresh@` / `stale:` stores still vouch.
+  2. `relations_cli.cmd_unblock` is now op-aware: `ait relations unblock <id> [--op relations|obsolescence]` defaults to `relations`, and guards stay isolated per `(op, task)`. Added `ait obsolete unblock <id> [--kill] [--force]`, which delegates with the obsolescence op.
+  3. `LANDED_IDS` is appended only inside the successful-commit branch (`crc == 0`) of `archive_parent` / `archive_child`, and `fire_landed_triggers` also returns early on `--no-commit`.
+- **Tests:**
+  - `SnapshotGapTests`: a corrupt record never replaces a stored assessment and never publishes a first one (zero launches); snapshot-state unit cases.
+  - `UnblockTests`: clears an obsolescence spawn-gap guard, and the relations guard survives.
+  - `test_no_commit_fires_nothing`: parent and child, HEAD unchanged.
+  - Mutation controls: disabling the snapshot gate fails 2 tests; removing both no-commit protections fails the no-commit case.
+- **Files affected:** `lib/obsolescence_evidence.py`, `lib/relations_cli.py`, `lib/obsolete_cli.py`, `aitask_obsolete.sh`, `aitask_relations.sh` (usage comment), `aitask_archive.sh`, `ait`, `aidocs/framework/task_relations.md`, `tests/test_obsolescence_worker.py`, `tests/test_archive_obsolete.sh`.
+
+## Final Implementation Notes
+- **Actual work done:** everything in the plan, plus the three post-review fixes.
+  - `lib/obsolescence_evidence.py`: rows, `parse_revert_notes`, the seq-ordered path history cached per HEAD, `snapshot_incomplete`.
+  - The prompt `relations/prompts/obsolescence_assessment.md`.
+  - The `obsolescence` job in `lib/relations_worker.py`: `_paid_invocation` shared with `relations` through a behaviour-preserving extraction, plus `analyse_obsolescence`, `canonical_obsolescence`, `obs_fold_targets`, `landed_targets` / `cmd_landed`, and the `process_job` op dispatch.
+  - Schema tightening in `validate_obsolescence`.
+  - `aitask_archive.sh --obsolete` and the commit-gated landed trigger.
+  - `ait obsolete` (`aitask_obsolete.sh` + `lib/obsolete_cli.py`: `evidence` / `ls` / `show` / `dismiss` / `review` / `sweep` / `unblock`), with the `ait` dispatch.
+  - The pick-time `OBSOLESCENCE:` lines in `related-work --point pick`, documented in `related-work-check.md` (the three remote prerenders re-rendered).
+  - The "Obsolescence API" section in `task_relations.md`, and the `archived_reason: obsolete` row in `task-format.md`.
+- **Deviations from plan:**
+  - Sweep rotation orders by the **ledger position** of the last job row, not its `at`. `at` has one-second resolution, and ties let the lower id win repeatedly; a test caught it.
+  - The boost on a changed assessment is spent by a failing attempt, not by "any attempt since the record", because the record's own job row is always newer than the record.
+  - The archive test pins firing decisions with a recording stub in place of the enqueue helper. One case runs the real helper and worker end to end.
+  - `test_relations_enqueue.sh` pinned "obsolescence is reserved, not implemented" (t1981_3). It now uses an unknown op for that check and asserts the `LANDED_FANOUT:` behaviour.
+  - The `test_relations_store.py` fixture `band: low, reasons: []` became `band: none`: an unexplained warning is now invalid by design.
+- **Issues encountered:**
+  - `/tmp` (tmpfs) hit the user quota (EDQUOT) mid-session; other sessions' temp dirs hold about 7.8G under `/tmp/claude-1000`. Tests ran with `TMPDIR=/home/ddt/.cache/ait-t1981_6-tmp`. Nothing of other sessions was deleted.
+  - Under `set -e`, a trailing `[[ … ]] && …` in `archive_child` returned 1 whenever the parent was not archived. It is now an `if`, and `test_child_without_parent_archive` with a mutation control pins it.
+- **Key decisions:**
+  - Scoring inputs = digest inputs = signal rows. Context rows are display-only and never reach the prompt or the citable ids.
+  - Path rows are context in v1.
+  - Incomplete evidence (including a corrupt or unreachable store) fails the job and never yields `none`.
+  - The cap is per op.
+  - Fold in `review` parses `VALID:` lines for both ends and re-validates after confirmation.
+- **Measurement (post-phase `measure_backlog_evidence`, 2026-11-08, this repo, relations disabled):**
+  - 544 eligible active tasks scanned; **0 with a signal row** (0%, under the 25% threshold; classification unchanged); 0 incomplete.
+  - Context rows: `age` 544, `premise` 544 (all `SKIP`), `origin_state` 267 (all completed origins), `path_renamed` 62, `path_deleted` 13, `path_ambiguous` 2.
+  - Wall time 75.7 s, dominated by one `aitask_premise_stale.sh` subprocess per task.
+  - This ran before the snapshot-gap fix. With the fix, this repo's never-written store reads `unreachable:no_fetch` under `--no-fetch`, so `evidence` now reports `INCOMPLETE:store_unreachable:no_fetch` here, which is honest: relation evidence is unknown.
+- **Upstream defects identified:**
+  - `.aitask-scripts/aitask_archive.sh:595` — in the child flow, `archive_metadata_update "$parent_task_file"` applies the run's global `--superseded` (and now `--obsolete`) reason to the auto-archived PARENT too. A parent whose last child is archived as superseded gets `archived_reason: superseded`, although its other children landed as completed work. This is pre-existing, and it also suppresses the parent's landed trigger.
+- **Notes for sibling tasks:**
+  - **t1981_7 (TUI):** build on "Obsolescence API" in `task_relations.md`. The read helpers are `obsolete_cli.assessment` / `inputs_freshness` / `list_rows`, and `show --json` / `evidence --json` exist. Context rows are live, never stored, so the Obsolete tab must call `evidence` for them.
+  - **t1981_8 (docs):** `ait obsolete` verbs and `archived_reason: obsolete` need website pages; `task-format.md` is already updated.
+  - **t1981_9 (ports):** the `related-work-check.md` edit (`OBSOLESCENCE:` lines) is Claude-only in source. The codex/opencode remote prerenders were re-rendered mechanically, but the other trees' sources still need the port.
+  - **Shared paid tail:** `relations_worker._paid_invocation(op=…)` is the one paid-launch path; a new op reuses it, together with `job["op"]` dispatch in `process_job`.
+  - **Deferred follow-up:** attribute path events to the current citation (Step 9 of the plan).
