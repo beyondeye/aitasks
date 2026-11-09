@@ -233,6 +233,17 @@ own words for our pages. "Skip" means deliberately left out.
 - The rule pack and level contract must be written to the same standard they set.
   A fresh reader should understand them.
 
+## Related
+
+- **t2186** (generic agent-prompt eval harness, `aidocs/benchmarks/prompt_eval/`)
+  can later measure whether this task's doc-review instructions (the rule pack
+  and the fresh-reader pass in the docs gate) work reliably across agents,
+  including open choice 4 (agents without sub-agents). It is **not** a
+  prerequisite: this task's work does not need the harness. Testing the review
+  pass with it would be a separate follow-up once both exist, and it fits only
+  after t2186 supports judge-scored prompts (its second spec is meant to be
+  deterministic, with no LLM judge).
+
 ## Done when
 
 - A written level model exists, with a contract for each depth/page type, and the
