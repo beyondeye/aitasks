@@ -9,8 +9,12 @@ labels: [applink, applink_connectivity]
 children_to_implement: [t1061_4, t1061_5]
 implemented_with: claudecode/fable5
 created_at: 2026-06-24 14:38
-updated_at: 2026-07-10 16:49
+updated_at: 2026-11-09 11:53
 boardidx: 147456
+artifacts:
+  - handle: art:trail-applink
+    kind: implementation_trail
+    name: Applink — server, mobile pairing and shadow driving landing order
 ---
 
 Umbrella / roadmap task: enable the `ait applink` mobile companion to connect to

@@ -1,0 +1,1051 @@
+{
+  "schema_version": "1.1.0",
+  "trail_id": "trail-applink",
+  "title": "Applink — server, mobile pairing and shadow driving landing order",
+  "owner": "aitasks#1061",
+  "scope": {
+    "kind": "ad_hoc",
+    "topics": [
+      "aitasks#1007",
+      "aitasks#1011",
+      "aitasks#1056",
+      "aitasks#1057",
+      "aitasks#1058",
+      "aitasks#1061",
+      "aitasks#1118",
+      "aitasks#1580",
+      "aitasks#2034",
+      "aitasks#2162",
+      "aitasks#985",
+      "aitasks_mobile#31",
+      "aitasks_mobile#32"
+    ],
+    "selection_note": "Ad-hoc applink set chosen on 2026-11-09: every active aitasks task labelled applink (parents pull in their active children, so aitasks#2034_6 joins via aitasks#2034), plus aitasks#1583 (unlabelled, applink by name), plus the paired mobile families aitasks_mobile#31 and aitasks_mobile#32. Widened at create time, at the user's choice, with the rest of the aitasks#2034 topic (aitasks#2038 and children, aitasks#2196, aitasks#2223, aitasks#2224, aitasks#2246, aitasks#2253) and aitasks_mobile#33 from the aitasks_mobile#31 topic, because members put both topics in scope. Mobile #14 and #34 and the body-only mentions aitasks#1120 and aitasks#1501 were left out."
+  },
+  "generation": {
+    "generated_at": "2026-11-09T09:31:48Z",
+    "generator": {
+      "agent_string": "claudecode/opus5_5",
+      "skill": "aitask-trail"
+    },
+    "input_digest": "b21d4b02f5f4bc5a",
+    "inputs": [
+      {
+        "kind": "plan_file",
+        "ref": "aitasks:aiplans/p1061/p1061_4_phase3_relay_broker_design.md"
+      },
+      {
+        "kind": "plan_file",
+        "ref": "aitasks:aiplans/p1061/p1061_5_hosted_box_deployment_guide.md"
+      },
+      {
+        "kind": "plan_file",
+        "ref": "aitasks:aiplans/p1061_applink_outside_network_connectivity_roadmap.md"
+      },
+      {
+        "kind": "plan_file",
+        "ref": "aitasks:aiplans/p1088_applink_history_coordinate_verify.md"
+      },
+      {
+        "kind": "plan_file",
+        "ref": "aitasks:aiplans/p1118/p1118_1_shadow_driving_protocol_design_doc.md"
+      },
+      {
+        "kind": "plan_file",
+        "ref": "aitasks:aiplans/p1118/p1118_2_shadow_aware_roster_content_gating_capability_flags.md"
+      },
+      {
+        "kind": "plan_file",
+        "ref": "aitasks:aiplans/p1118/p1118_3_spawn_shadow_verb_shared_spawn_helper.md"
+      },
+      {
+        "kind": "plan_file",
+        "ref": "aitasks:aiplans/p1118/p1118_4_shadow_concerns_rpc_status_fields_paste_mode.md"
+      },
+      {
+        "kind": "plan_file",
+        "ref": "aitasks:aiplans/p1118/p1118_5_manual_verification_mobile_shadow_agent_driving_over_applink.md"
+      },
+      {
+        "kind": "plan_file",
+        "ref": "aitasks:aiplans/p1118_mobile_shadow_agent_driving_over_applink.md"
+      },
+      {
+        "kind": "plan_file",
+        "ref": "aitasks:aiplans/p2246_status_server_code_staleness_restart.md"
+      },
+      {
+        "kind": "plan_file",
+        "ref": "aitasks_mobile:aiplans/p32/p32_1_shadow_wire_mediator_layer.md"
+      },
+      {
+        "kind": "plan_file",
+        "ref": "aitasks_mobile:aiplans/p32/p32_2_shadow_ui_spawn_viewer_concern_picker_staleness.md"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1011"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1056"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1058"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1061"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1061_4"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1061_5"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1066"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1067"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1068"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1088"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1091"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1118"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1118_1"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1118_2"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1118_3"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1118_4"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1118_5"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1583"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#2034"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#2034_6"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#2037"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#2037_4"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#2038"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#2038_1"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#2038_2"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#2038_3"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#2038_4"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#2162"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#2196"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#2223"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#2224"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#2246"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#2253"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks_mobile#31"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks_mobile#31_4"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks_mobile#31_5"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks_mobile#32"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks_mobile#32_1"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks_mobile#32_2"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks_mobile#33"
+      }
+    ]
+  },
+  "freshness": {
+    "state": "current",
+    "checked_at": "2026-11-09T09:31:48Z"
+  },
+  "narrative": {
+    "problem_statement": "Applink and the shared monitor status server it now subscribes to have forty active tasks across two repositories: two in-flight changes to the status server and applink's migration onto it, a cross-repo shadow-driving feature whose July plans are now known to be stale, risk-mitigation follow-ups from landed security and data-plane work, an outside-network connectivity roadmap, and a feature backlog. Nothing orders them against each other, and most of them edit the same three server files the migration is rewriting.",
+    "recommendation_summary": "Let aitasks#2037_4 land first, with aitasks#2162 alongside. Then replan and land shadow driving through aitasks#1118_1 in its cross-repo dependency order, and run the hardening wave in parallel. The outside-network checks and docs can run at any time; the feature backlog and aitasks#2034_6 carry no ordering pressure.",
+    "overview": "Pick nothing on the applink server until aitasks#2037_4 lands. It is in flight and rewrites applink/server.py, pusher.py and router.py, the files almost every other member edits or exercises, and the shadow family's notes name its landed design as a premise to recheck. aitasks#2246, an explicit restart for a status server running stale code, is in flight on the same server at the same time; the two should land coordinated. The one thing worth doing alongside it is aitasks#2162, a send-keys fix in monitor_core that touches none of those files and sits on the path that shadow-concern forwarding will use.\n\nAfter the migration, the highest-value next pick is aitasks#1118_1, as a replan rather than the transcription its plan asks for: the notes delivered on 2026-11-09 to every aitasks#1118 child and to aitasks_mobile#32/#32_1/#32_2 record that discovery, spawn, freshness and concern parsing all moved on since July. From there the order follows the recorded dependencies across both repos: aitasks#1118_2 on the server and aitasks_mobile#32_1 on the phone in parallel, then aitasks#1118_3 and aitasks#1118_4 in parallel, then aitasks_mobile#32_2, and finally the paired-device check aitasks#1118_5. The two older shadow trails owned by aitasks#1118 predate this and should be refreshed once aitasks#1118_1 is replanned.\n\nThe hardening wave (aitasks#1091, aitasks#1088, aitasks#1068, aitasks#1066, aitasks#1067, aitasks#1583) also waits for the migration, because each one edits or exercises the server it reshapes. It does not depend on the shadow work, so with two agents it can run alongside the shadow wave. aitasks#1088 is newly unblocked: the mobile history task it waited on has landed. aitasks#1066 and aitasks#1067 change what the mobile client must do; whether they have mobile counterpart tasks was not checked.\n\nIndependent of all of that, the outside-network wave can run any time: two on-device checks (aitasks_mobile#31_4, #31_5) whose prerequisites have landed, the relay-broker design aitasks#1061_4 and the deployment guide aitasks#1061_5. The feature backlog (aitasks#1011, aitasks#1058, the postponed aitasks#1056) has no ordering pressure; aitasks#1011 is better after aitasks#1118_3, since both settle how a headless server launches agents in tmux. The last wave is the rest of the status-server topic (aitasks#2253 after aitasks#2246, two monitor-side risk follow-ups, a doc pointer, the classifier gate aitasks#2034_6 and the postponed Go port aitasks#2038). None of it edits applink; it is here because aitasks#2037_4 puts that topic in scope. aitasks_mobile#33, a Ktor stream-client release fix, is best landed before the on-device racing check.",
+    "method_note": "Lite-depth analysis. Read: the gatherer snapshot (40 members, recorded depends edges, digest), the opening sections of every member task file except the four aitasks#2038 children (frontmatter only), the 2026-11-09 inbox notes on the aitasks#1118 children and aitasks_mobile#32 family, the opening section of aitasks#2037_4, and archive and lock checks (aitasks_mobile t14_13, t31_2 and t31_3 archived; aitasks#2037_4 locked since 2026-11-08). NOT verified: plan contents beyond those sections, which files aitasks#2037_4's uncommitted work actually changes, whether aitasks#1066 or aitasks#1067 have mobile counterpart tasks, cited line numbers, and any test baselines. The file-overlap reasoning comes from task descriptions, not diffs."
+  },
+  "waves": [
+    {
+      "wave_id": "w1",
+      "ordinal": 1,
+      "title": "Now: finish the in-flight status-server migration, land independent fixes alongside",
+      "purpose": "Settle who owns applink's monitor before anything else edits applink/server.py, pusher.py or router.py.",
+      "why_now": "aitasks#2037_4 is Implementing and rewrites exactly the files most other members touch; its landed client/lifecycle design is a premise several members (the whole shadow family, the data-plane test, the session constant) now need to read. aitasks#2246 is in flight on the same status server at the same time.",
+      "consequence_of_delay": "Work started on applink server files now collides with an uncommitted migration and may be written against a TmuxMonitor ownership that is about to disappear.",
+      "entries": [
+        {
+          "entry_id": "e1",
+          "task": "aitasks#2037_4",
+          "topic": "aitasks#2034",
+          "position": 1,
+          "classification": "hard_prerequisite",
+          "snapshot": {
+            "status": "Implementing",
+            "priority": "medium",
+            "effort": "medium",
+            "depends": [
+              "aitasks#2037_3"
+            ],
+            "gates_pending": [
+              "risk_evaluated"
+            ]
+          },
+          "rationale": "In flight. It replaces applink's own TmuxMonitor and polling with the shared status-server client, and keeps that instance as the action/content gateway. The aitasks#1118 child notes all name its landed design as something to recheck, so it fixes the ground the rest of this trail builds on.",
+          "confidence": "high"
+        },
+        {
+          "entry_id": "e2",
+          "task": "aitasks#2246",
+          "topic": "aitasks#2034",
+          "position": 2,
+          "classification": "core",
+          "snapshot": {
+            "status": "Implementing",
+            "priority": "high",
+            "effort": "medium",
+            "depends": [],
+            "gates_pending": [
+              "risk_evaluated"
+            ]
+          },
+          "rationale": "Also in flight, on the shared status server rather than applink: an explicit restart of a server whose producer code changed without a VERSION bump. Applink is one of that server's clients, so once aitasks#2037_4 lands, a stale server would serve applink stale producer code too. The two in-flight tasks share the status-server surface and should land coordinated, not interleaved blind.",
+          "confidence": "medium"
+        },
+        {
+          "entry_id": "e3",
+          "task": "aitasks#2162",
+          "topic": "aitasks#2162",
+          "position": 3,
+          "classification": "preferred_predecessor",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "low",
+            "depends": [],
+            "gates_pending": [],
+            "followup_kind": "upstream_defect"
+          },
+          "rationale": "An upstream-defect fix in monitor_core send_keys (a bare trailing ';' parsed as a tmux command separator, plus unknown key names). It touches monitor_core rather than the applink files, so it can land alongside the migration. Applink's forward_key verb hits the defect today, and shadow-concern forwarding (aitasks#1118_4) would stage arbitrary concern text through the same send path.",
+          "confidence": "medium"
+        },
+        {
+          "entry_id": "e4",
+          "task": "aitasks#2037",
+          "topic": "aitasks#2034",
+          "position": 4,
+          "classification": "coordination_only",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "high",
+            "depends": [
+              "aitasks#2034_3"
+            ],
+            "gates_pending": []
+          },
+          "rationale": "Parent of the Python status server. Only aitasks#2037_4 remains, so it closes when that child does; it is never picked directly.",
+          "confidence": "high"
+        }
+      ]
+    },
+    {
+      "wave_id": "w2",
+      "ordinal": 2,
+      "title": "Shadow-agent driving across both repositories",
+      "purpose": "Replan the shadow-driving contract against today's code, then land server and mobile halves in their paired order.",
+      "why_now": "Its plans date from 2026-07 and the notes delivered to every child on 2026-11-09 record that discovery, spawn, freshness and concern parsing all moved on; the contract has to be rewritten before either repo writes code.",
+      "consequence_of_delay": "Mobile and server keep diverging plans that each cite a contract no one has written, and every later correction lands as rework on two sides.",
+      "entries": [
+        {
+          "entry_id": "e5",
+          "task": "aitasks#1118_1",
+          "topic": "aitasks#1118",
+          "position": 1,
+          "classification": "hard_prerequisite",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "high",
+            "effort": "medium",
+            "depends": [],
+            "gates_pending": [
+              "risk_evaluated"
+            ]
+          },
+          "rationale": "Writes aidocs/applink/shadow_driving.md, the wire contract both repos build against. It is the first thing to pick once aitasks#2037_4 lands, and its inbox carries the drift list (tri-state freshness, the existing shadow snapshot map, the shared spawn helper, the deep capture window), so this is a replan rather than a transcription of the old D1-D5.",
+          "confidence": "high"
+        },
+        {
+          "entry_id": "e6",
+          "task": "aitasks#1118_2",
+          "topic": "aitasks#1118",
+          "position": 2,
+          "classification": "hard_prerequisite",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "high",
+            "effort": "medium",
+            "depends": [
+              "aitasks#1118_1"
+            ],
+            "gates_pending": [
+              "risk_evaluated"
+            ]
+          },
+          "rationale": "Recorded prerequisite of both aitasks#1118_3 and aitasks#1118_4. Per its note, the work is now an applink-side projection of the producer's existing shadow map, not new discovery in monitor_core, and it depends on how aitasks#2037_4 hands applink its pane records.",
+          "confidence": "medium"
+        },
+        {
+          "entry_id": "e7",
+          "task": "aitasks_mobile#32_1",
+          "topic": "aitasks_mobile#32",
+          "position": 3,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "high",
+            "effort": "medium",
+            "depends": [],
+            "gates_pending": [
+              "risk_evaluated"
+            ]
+          },
+          "rationale": "Mobile wire/mediator layer. It declares a cross-repo dependency on aitasks#1118_1 only, so it can run in parallel with the server roster work once the contract exists; its inbox lists which parts of its 'normative' schema are stale.",
+          "confidence": "medium"
+        },
+        {
+          "entry_id": "e8",
+          "task": "aitasks#1118_3",
+          "topic": "aitasks#1118",
+          "position": 4,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "high",
+            "effort": "medium",
+            "depends": [
+              "aitasks#1118_2"
+            ],
+            "gates_pending": [
+              "risk_evaluated"
+            ]
+          },
+          "rationale": "spawn_shadow verb. The shared, Textual-free spawn helper already exists, so this is a thin router verb over it with server-appropriate policy (no companion pane, no focus steal). It runs in parallel with aitasks#1118_4.",
+          "confidence": "medium"
+        },
+        {
+          "entry_id": "e9",
+          "task": "aitasks#1118_4",
+          "topic": "aitasks#1118",
+          "position": 5,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "high",
+            "effort": "high",
+            "depends": [
+              "aitasks#1118_2"
+            ],
+            "gates_pending": [
+              "risk_evaluated"
+            ]
+          },
+          "rationale": "Concerns RPC, status fields and paste mode, the largest server child. Prefer it after aitasks#2162, whose send-keys fix sits on the path this child stages concern text through.",
+          "confidence": "medium"
+        },
+        {
+          "entry_id": "e10",
+          "task": "aitasks_mobile#32_2",
+          "topic": "aitasks_mobile#32",
+          "position": 6,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "high",
+            "effort": "high",
+            "depends": [
+              "aitasks_mobile#32_1"
+            ],
+            "gates_pending": [
+              "risk_evaluated"
+            ]
+          },
+          "rationale": "Mobile shadow UI. Recorded dependency on aitasks_mobile#32_1, plus cross-repo dependencies on aitasks#1118_3 and aitasks#1118_4. Whether to match the desktop picker's newer reject, spin-off and edit actions is an open scoping question in its inbox.",
+          "confidence": "medium"
+        },
+        {
+          "entry_id": "e11",
+          "task": "aitasks#1118_5",
+          "topic": "aitasks#1118",
+          "position": 7,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "medium",
+            "depends": [
+              "aitasks#1118_3",
+              "aitasks#1118_4"
+            ],
+            "gates_pending": [],
+            "followup_kind": "manual_verification"
+          },
+          "rationale": "Live paired-device verification. It depends on aitasks#1118_3 and aitasks#1118_4, and in practice also needs aitasks_mobile#32_2 on the phone, so it closes the family.",
+          "confidence": "high"
+        },
+        {
+          "entry_id": "e12",
+          "task": "aitasks#1118",
+          "topic": "aitasks#1118",
+          "position": 8,
+          "classification": "coordination_only",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "high",
+            "effort": "high",
+            "depends": [],
+            "gates_pending": [
+              "risk_evaluated"
+            ]
+          },
+          "rationale": "Parent; archives with its children. It owns the two older shadow trails, which should be refreshed after aitasks#1118_1's replan.",
+          "confidence": "high"
+        },
+        {
+          "entry_id": "e13",
+          "task": "aitasks_mobile#32",
+          "topic": "aitasks_mobile#32",
+          "position": 9,
+          "classification": "coordination_only",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "high",
+            "effort": "high",
+            "depends": [],
+            "gates_pending": [
+              "risk_evaluated"
+            ]
+          },
+          "rationale": "Mobile parent; archives with its children.",
+          "confidence": "high"
+        }
+      ]
+    },
+    {
+      "wave_id": "w3",
+      "ordinal": 3,
+      "title": "Data-plane verification and security hardening on the migrated server",
+      "purpose": "Exercise and harden applink once its monitor ownership is settled.",
+      "why_now": "These are risk-mitigation follow-ups for already-landed features. Each edits or exercises server.py, sessions, TLS or the push scheduler, which the migration reshapes.",
+      "consequence_of_delay": "Residual risks recorded at landing (a 10-year cert, 7-day static bearers, no request-rate bound, synthetic-only limit tests) stay open.",
+      "entries": [
+        {
+          "entry_id": "e14",
+          "task": "aitasks#1091",
+          "topic": "aitasks#1007",
+          "position": 1,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "low",
+            "effort": "medium",
+            "depends": [],
+            "gates_pending": [],
+            "followup_kind": "risk_mitigation"
+          },
+          "rationale": "End-to-end test of the data-plane limits through a real wss:// socket. Doing it after the migration means it exercises the subscription-driven push path that will actually ship, not the polling one being replaced.",
+          "confidence": "medium"
+        },
+        {
+          "entry_id": "e15",
+          "task": "aitasks#1088",
+          "topic": "aitasks#1057",
+          "position": 2,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "low",
+            "depends": [],
+            "gates_pending": [],
+            "followup_kind": "risk_mitigation"
+          },
+          "rationale": "Verifies history scrollback coordinates against the mobile client. Its stated precondition (mobile t14_13) is now archived, so it is unblocked, and it is cheap. After the migration, because history capture runs through the gateway that aitasks#2037_4 rewires.",
+          "confidence": "medium"
+        },
+        {
+          "entry_id": "e16",
+          "task": "aitasks#1068",
+          "topic": "aitasks#985",
+          "position": 3,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "medium",
+            "depends": [],
+            "gates_pending": [],
+            "followup_kind": "risk_mitigation"
+          },
+          "rationale": "Per-IP/per-bearer request throttling. It lives in server.py dispatch, so it waits for the migration; it also protects new high-rate verbs such as the shadow paste.",
+          "confidence": "medium"
+        },
+        {
+          "entry_id": "e17",
+          "task": "aitasks#1066",
+          "topic": "aitasks#985",
+          "position": 4,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "medium",
+            "depends": [],
+            "gates_pending": [],
+            "followup_kind": "risk_mitigation"
+          },
+          "rationale": "Cert rotation with a client re-pair flow for a changed fingerprint. It has a mobile-facing component; whether a mobile counterpart task exists was not checked.",
+          "confidence": "medium"
+        },
+        {
+          "entry_id": "e18",
+          "task": "aitasks#1067",
+          "topic": "aitasks#985",
+          "position": 5,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "low",
+            "effort": "medium",
+            "depends": [],
+            "gates_pending": [],
+            "followup_kind": "risk_mitigation"
+          },
+          "rationale": "Bearer rotation on resume. It is a wire change the mobile client must follow, so pair it with mobile work. Whether a mobile counterpart task exists was not checked.",
+          "confidence": "low"
+        },
+        {
+          "entry_id": "e19",
+          "task": "aitasks#1583",
+          "topic": "aitasks#1580",
+          "position": 6,
+          "classification": "optional",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "low",
+            "effort": "low",
+            "depends": [],
+            "gates_pending": [],
+            "followup_kind": "review_finding"
+          },
+          "rationale": "A one-line reconciliation of applink/server.py's DEFAULT_SESSION with the launcher constant. It is trivial but sits in the file the migration is rewriting, so it goes after.",
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "wave_id": "w4",
+      "ordinal": 4,
+      "title": "Applink feature backlog",
+      "purpose": "Larger or lower-priority applink features with no ordering pressure from the rest.",
+      "why_now": "Nothing in the trail depends on them. aitasks#1011 benefits from the server-side launch policy that the shadow spawn verb settles.",
+      "consequence_of_delay": "Deferred handshake legs stay NOT_IMPLEMENTED, and bandwidth and cursor-frame optimisations stay unshipped; no other member is blocked.",
+      "entries": [
+        {
+          "entry_id": "e20",
+          "task": "aitasks#1011",
+          "topic": "aitasks#1011",
+          "position": 1,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "medium",
+            "depends": [],
+            "gates_pending": [],
+            "followup_kind": "risk_mitigation"
+          },
+          "rationale": "Executes the deferred restart/pick-sibling legs of the modal handshakes, which needs a server-side kill-and-relaunch policy. It shares router.py and the 'launch from a headless server' question with aitasks#1118_3, so it is better after that settles.",
+          "confidence": "medium"
+        },
+        {
+          "entry_id": "e21",
+          "task": "aitasks#1058",
+          "topic": "aitasks#1058",
+          "position": 2,
+          "classification": "optional",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "low",
+            "effort": "low",
+            "depends": [],
+            "gates_pending": []
+          },
+          "rationale": "Low-priority standalone cursor frames in pusher.py; weigh the per-tick cursor-fetch cost after the migration changes how the pusher gets its data.",
+          "confidence": "high"
+        },
+        {
+          "entry_id": "e22",
+          "task": "aitasks#1056",
+          "topic": "aitasks#1056",
+          "position": 3,
+          "classification": "optional",
+          "snapshot": {
+            "status": "Postponed",
+            "priority": "medium",
+            "effort": "medium",
+            "depends": [],
+            "gates_pending": []
+          },
+          "rationale": "Postponed by the user, with a note that it will be implemented. It does viewport-hint clipping in the content encode path and is kept in the trail only so it is not forgotten.",
+          "confidence": "high"
+        }
+      ]
+    },
+    {
+      "wave_id": "w5",
+      "ordinal": 5,
+      "title": "Outside-network connectivity: design, docs and on-device checks",
+      "purpose": "The remaining outside-network connectivity work, independent of the server migration.",
+      "why_now": "Every member here is design, documentation or on-device verification, and their recorded prerequisites (aitasks_mobile#31_2, #31_3) are archived, so this wave can run at any time, in parallel with the waves above.",
+      "consequence_of_delay": "On-device racing and CA-trust behaviour stays unverified; the relay-broker phase has no design to decompose.",
+      "entries": [
+        {
+          "entry_id": "e23",
+          "task": "aitasks_mobile#33",
+          "topic": "aitasks_mobile#31",
+          "position": 1,
+          "classification": "preferred_predecessor",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "low",
+            "depends": [],
+            "gates_pending": [
+              "risk_evaluated"
+            ]
+          },
+          "rationale": "An upstream-defect fix in the mobile Ktor stream client: its incoming loop's close and error exits do not release the client. It is a small, labelled-applink fix in the connection layer that the on-device racing check (aitasks_mobile#31_4) exercises, so landing it first avoids verifying around a known defect. Whether the defect actually affects that check was not verified.",
+          "confidence": "low"
+        },
+        {
+          "entry_id": "e24",
+          "task": "aitasks_mobile#31_4",
+          "topic": "aitasks_mobile#31",
+          "position": 2,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "low",
+            "depends": [
+              "aitasks_mobile#31_2"
+            ],
+            "gates_pending": []
+          },
+          "rationale": "On-device check of multi-endpoint racing. Its prerequisite (aitasks_mobile#31_2) has landed; it needs a physical device.",
+          "confidence": "high"
+        },
+        {
+          "entry_id": "e25",
+          "task": "aitasks_mobile#31_5",
+          "topic": "aitasks_mobile#31",
+          "position": 3,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "low",
+            "depends": [
+              "aitasks_mobile#31_3"
+            ],
+            "gates_pending": []
+          },
+          "rationale": "On-device check of the CA-trust path. Its prerequisite (aitasks_mobile#31_3) has landed; it can run in the same device session as aitasks_mobile#31_4.",
+          "confidence": "high"
+        },
+        {
+          "entry_id": "e26",
+          "task": "aitasks#1061_4",
+          "topic": "aitasks#1061",
+          "position": 4,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "high",
+            "depends": [],
+            "gates_pending": [
+              "risk_evaluated"
+            ]
+          },
+          "rationale": "Phase-3 relay-broker design, design only. Its body says it is independent of the other children.",
+          "confidence": "medium"
+        },
+        {
+          "entry_id": "e27",
+          "task": "aitasks#1061_5",
+          "topic": "aitasks#1061",
+          "position": 5,
+          "classification": "optional",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "low",
+            "effort": "medium",
+            "depends": [],
+            "gates_pending": [
+              "risk_evaluated"
+            ]
+          },
+          "rationale": "Hosted-box deployment guide; docs only, low priority, no protocol work.",
+          "confidence": "medium"
+        },
+        {
+          "entry_id": "e28",
+          "task": "aitasks#1061",
+          "topic": "aitasks#1061",
+          "position": 6,
+          "classification": "coordination_only",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "high",
+            "depends": [
+              "aitasks#985"
+            ],
+            "gates_pending": []
+          },
+          "rationale": "Roadmap parent and this trail's owner; it closes when aitasks#1061_4 and aitasks#1061_5 do.",
+          "confidence": "high"
+        },
+        {
+          "entry_id": "e29",
+          "task": "aitasks_mobile#31",
+          "topic": "aitasks_mobile#31",
+          "position": 7,
+          "classification": "coordination_only",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "high",
+            "depends": [],
+            "gates_pending": [
+              "risk_evaluated"
+            ]
+          },
+          "rationale": "Mobile counterpart parent; it closes with its two verification children.",
+          "confidence": "high"
+        }
+      ]
+    },
+    {
+      "wave_id": "w6",
+      "ordinal": 6,
+      "title": "Shared status server follow-through",
+      "purpose": "The rest of the aitasks#2034 topic. It is in scope because aitasks#2037_4 belongs to it; applink is a client of this server but is edited by none of these tasks.",
+      "why_now": "None of these blocks applink work. Its ordering matters only within the topic: aitasks#2253 continues aitasks#2246, and the Go server port is postponed behind its classifier gate.",
+      "consequence_of_delay": "Monitor-side risks recorded at aitasks#2037_3's landing stay open, and the Python server stays the default; applink behaviour is unchanged.",
+      "entries": [
+        {
+          "entry_id": "e30",
+          "task": "aitasks#2253",
+          "topic": "aitasks#2034",
+          "position": 1,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "low",
+            "effort": "medium",
+            "depends": [],
+            "gates_pending": [
+              "risk_evaluated"
+            ],
+            "followup_kind": "carry_over"
+          },
+          "rationale": "Carry-over from aitasks#2246: automatic code-identity detection and a mismatch signal, after that task narrowed to an explicit restart. Recorded as a continuation, so it follows aitasks#2246 landing.",
+          "confidence": "medium"
+        },
+        {
+          "entry_id": "e31",
+          "task": "aitasks#2223",
+          "topic": "aitasks#2034",
+          "position": 2,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "medium",
+            "depends": [],
+            "gates_pending": [
+              "risk_evaluated"
+            ],
+            "followup_kind": "risk_mitigation"
+          },
+          "rationale": "Risk-mitigation follow-up for aitasks#2037_3: a live check that app timers read the shared scan rather than asking for a full server scan per client. Monitor/minimonitor, not applink.",
+          "confidence": "medium"
+        },
+        {
+          "entry_id": "e32",
+          "task": "aitasks#2224",
+          "topic": "aitasks#2034",
+          "position": 3,
+          "classification": "optional",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "low",
+            "effort": "medium",
+            "depends": [],
+            "gates_pending": [
+              "risk_evaluated"
+            ],
+            "followup_kind": "risk_mitigation"
+          },
+          "rationale": "Risk-mitigation follow-up for aitasks#2037_3: render on push, removing up to one server tick of extra staleness in server mode. Monitor/minimonitor, not applink.",
+          "confidence": "medium"
+        },
+        {
+          "entry_id": "e33",
+          "task": "aitasks#2196",
+          "topic": "aitasks#2034",
+          "position": 4,
+          "classification": "optional",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "low",
+            "effort": "low",
+            "depends": [],
+            "gates_pending": [
+              "risk_evaluated"
+            ],
+            "followup_kind": "carry_over"
+          },
+          "rationale": "Carry-over doc pointer in CLAUDE.md for the status protocol, skipped at aitasks#2034_3 to avoid colliding with another session's edit of the same file. Trivial; any time.",
+          "confidence": "high"
+        },
+        {
+          "entry_id": "e34",
+          "task": "aitasks#2034_6",
+          "topic": "aitasks#2034",
+          "position": 5,
+          "classification": "optional",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "medium",
+            "depends": [],
+            "gates_pending": []
+          },
+          "rationale": "Python/Go classifier differential, the gate for making the Go status server the default. Whether its Go side is aitasks#2038_3 or a classifier from another repository was not checked.",
+          "confidence": "medium"
+        },
+        {
+          "entry_id": "e35",
+          "task": "aitasks#2038_1",
+          "topic": "aitasks#2034",
+          "position": 6,
+          "classification": "optional",
+          "snapshot": {
+            "status": "Postponed",
+            "priority": "medium",
+            "effort": "medium",
+            "depends": [
+              "aitasks#2037"
+            ],
+            "gates_pending": []
+          },
+          "rationale": "Postponed. First child of the Go status-server port; depends on aitasks#2037.",
+          "confidence": "high"
+        },
+        {
+          "entry_id": "e36",
+          "task": "aitasks#2038_2",
+          "topic": "aitasks#2034",
+          "position": 7,
+          "classification": "optional",
+          "snapshot": {
+            "status": "Postponed",
+            "priority": "medium",
+            "effort": "medium",
+            "depends": [
+              "aitasks#2038_1"
+            ],
+            "gates_pending": []
+          },
+          "rationale": "Postponed. Go discovery/capture; depends on aitasks#2038_1.",
+          "confidence": "high"
+        },
+        {
+          "entry_id": "e37",
+          "task": "aitasks#2038_3",
+          "topic": "aitasks#2034",
+          "position": 8,
+          "classification": "optional",
+          "snapshot": {
+            "status": "Postponed",
+            "priority": "medium",
+            "effort": "high",
+            "depends": [
+              "aitasks#2038_2"
+            ],
+            "gates_pending": []
+          },
+          "rationale": "Postponed. Go classifier; depends on aitasks#2038_2.",
+          "confidence": "high"
+        },
+        {
+          "entry_id": "e38",
+          "task": "aitasks#2038_4",
+          "topic": "aitasks#2034",
+          "position": 9,
+          "classification": "optional",
+          "snapshot": {
+            "status": "Postponed",
+            "priority": "medium",
+            "effort": "medium",
+            "depends": [
+              "aitasks#2038_3"
+            ],
+            "gates_pending": []
+          },
+          "rationale": "Postponed. Go state and end-to-end; depends on aitasks#2038_3.",
+          "confidence": "high"
+        },
+        {
+          "entry_id": "e39",
+          "task": "aitasks#2038",
+          "topic": "aitasks#2034",
+          "position": 10,
+          "classification": "coordination_only",
+          "snapshot": {
+            "status": "Postponed",
+            "priority": "medium",
+            "effort": "high",
+            "depends": [
+              "aitasks#2037"
+            ],
+            "gates_pending": []
+          },
+          "rationale": "Postponed parent of the Go port, behind a switch until aitasks#2034_6 passes. aitasks#2253 says a Go server in another repository (aitasks_go#t47) is planned to replace the Python one; how that relates to this postponed port was not checked.",
+          "confidence": "high"
+        },
+        {
+          "entry_id": "e40",
+          "task": "aitasks#2034",
+          "topic": "aitasks#2034",
+          "position": 11,
+          "classification": "coordination_only",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "high",
+            "depends": [],
+            "gates_pending": []
+          },
+          "rationale": "Shared monitor status server parent; it closes with aitasks#2034_6.",
+          "confidence": "high"
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    {
+      "evidence_id": "ev1",
+      "source_type": "command_output",
+      "ref": "./.aitask-scripts/aitask_trail_gather.sh snapshot --scope task --owner 1061 1011 1056 1058 1061 1066 1067 1068 1088 1091 1118 1583 2034 2037 2038 2162 2196 2223 2224 2246 2253 aitasks_mobile#31 aitasks_mobile#32 aitasks_mobile#33",
+      "observed_at": "2026-11-09T09:31:48Z",
+      "summary": "Gatherer snapshot: 40 members (33 aitasks, 7 aitasks_mobile), 53 inputs, owner aitasks#1061, digest b21d4b02f5f4bc5a."
+    }
+  ],
+  "rendering_hints": {
+    "depth": "lite"
+  }
+}

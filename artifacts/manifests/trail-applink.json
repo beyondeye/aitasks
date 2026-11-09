@@ -1,0 +1,10 @@
+{
+  "backend": "local",
+  "created_at": 1794218032,
+  "current": "sha256:df28f819f1498cd02326a99df1175b36c2b2b7f48fff4b6443a4858014504734",
+  "handle": "art:trail-applink",
+  "updated_at": 1794218032,
+  "versions": [
+    "sha256:df28f819f1498cd02326a99df1175b36c2b2b7f48fff4b6443a4858014504734"
+  ]
+}
