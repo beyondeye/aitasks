@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: medium
+risk_goal_achievement: medium
 effort: medium
 depends: [t2037_3]
 issue_type: feature
@@ -11,8 +13,9 @@ active_gates_profile: fast
 active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2034
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-16 08:11
-updated_at: 2026-11-08 22:58
+updated_at: 2026-11-09 12:40
 ---
 
 Switch applink to the client (parent: Python monitor status server task).
@@ -55,3 +58,8 @@ status.
 > | - Measured (one host, one moment): with N=12 agents and K=4 clients, tmux-server CPU is 0.67 % shared vs 2.2 % in-process, and the status server costs about 0.35 %.
 
 > **👁 note:read** id=2026-11-08T20:57:27Z.e388d902948ce1cfc8109407 by=t2037_4 at=2026-11-08T20:57:27Z mode=explicit ids=2026-11-07T17:20:54Z.d3b948f3a61203778155b9af
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-09T10:40:18Z status=pass attempt=1 type=human
