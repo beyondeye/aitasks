@@ -12,8 +12,9 @@ active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2235
 followup_kind: review_finding
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-08 22:36
-updated_at: 2026-11-09 11:48
+updated_at: 2026-11-09 15:49
 ---
 
 ## Origin
@@ -36,3 +37,8 @@ Extend `tests/lib/glab_contribution_stub.sh`. Its notes fixture is a real GitLab
 - (b) more than 100 notes with the marker on page 2, on both the glab and curl paths.
 
 Add a pre-fix control showing each new test fails against the current code. The GitHub side needs the same two cases through `tests/lib/gh_contribution_stub.sh`.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-09T13:49:54Z status=pass attempt=1 type=human
