@@ -3,12 +3,13 @@ priority: medium
 effort: high
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [test_infrastructure, testing, skills]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 2179
 created_at: 2026-11-03 18:29
-updated_at: 2026-11-03 18:29
+updated_at: 2026-11-09 11:50
 ---
 
 ## Problem and purpose
