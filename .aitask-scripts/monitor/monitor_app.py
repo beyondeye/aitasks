@@ -4157,7 +4157,29 @@ def main() -> None:
         help="Run the applink bridge headless (no TUI), serving only the mobile "
              "listener. See 'ait monitor --headless-for-applink --help' for options.",
     )
+    # Operator verbs for the shared monitor status server (t2246). The launcher
+    # intercepts both and runs `status_server.py restart|status`; they are
+    # declared here only so `ait monitor --help` lists them.
+    parser.add_argument(
+        "--restart-server", action="store_true",
+        help="Restart this tmux server's shared monitor status server (verified "
+             "SIGTERM, then a fresh start for the same version; --version V picks "
+             "another version) and exit.",
+    )
+    parser.add_argument(
+        "--server-status", action="store_true",
+        help="List this tmux server's monitor status servers (pid, start time, "
+             "version, script) and exit.",
+    )
     args = parser.parse_args()
+
+    if args.restart_server or args.server_status:
+        print(
+            "Run the status-server verbs via the launcher: "
+            "ait monitor --restart-server | --server-status",
+            file=sys.stderr,
+        )
+        raise SystemExit(2)
 
     # The launcher (aitask_monitor.sh) intercepts --headless-for-applink before
     # exec and routes to applink/headless.py, so this branch only fires on a

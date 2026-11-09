@@ -1986,6 +1986,17 @@ main() {
         check_superseded_model_defaults
     fi
 
+    # The shared monitor status server keeps running the code it started with:
+    # stop every one started from THIS tree's replaced files (verified SIGTERM;
+    # open monitors respawn it from the new files). Owner-scoped, never fatal,
+    # AIT_MONITOR_RESTART=0 opts out (t2246). Same declare -F guard as below:
+    # `--version` can pair this installer with an older aitask_setup.sh.
+    if [[ "$EXISTING_INSTALL" == true ]] && \
+       declare -F report_monitor_server_restart >/dev/null; then
+        info "Restarting monitor status servers started from this project..."
+        report_monitor_server_restart
+    fi
+
     # The upgrade path never migrates the legacy per-user root (t1939): that is
     # a layout repair, which `ait setup` owns. Surface the read-only hint
     # instead. The declare -F guard: `--version` can pair this installer with

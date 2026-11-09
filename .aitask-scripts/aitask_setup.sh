@@ -2572,6 +2572,48 @@ report_home_legacy() {
     return 0
 }
 
+# --- Monitor status server restart after an upgrade (t2246) ---
+# report_monitor_server_restart — the shared monitor status server keeps
+# running the code it started with, so after install.sh replaced this tree's
+# files every server STARTED FROM THIS TREE (any tmux server, any version) is
+# stopped with a verified SIGTERM; its clients reconnect and respawn one from the
+# new files. Owner-scoped on purpose: install-flow tests run with a scratch
+# HOME but the real XDG_RUNTIME_DIR, and other trees' servers run unchanged
+# files. status_restart.py is stdlib-only, so any python3 will do. Never fatal;
+# AIT_MONITOR_RESTART=0 opts out. Prints MONITOR_SERVER:<line> for each server
+# it stopped or failed to stop, nothing otherwise.
+report_monitor_server_restart() {
+    [[ "${AIT_MONITOR_RESTART:-1}" == "0" ]] && return 0
+    local helper="$SCRIPT_DIR/monitor/status_restart.py"
+    local owner="$SCRIPT_DIR/monitor/status_server.py"
+    [[ -f "$helper" && -f "$owner" ]] || return 0
+    local py="${VENV_DIR:-}/bin/python"
+    [[ -n "${VENV_DIR:-}" && -x "$py" ]] || py="$(resolve_python)"
+    if [[ -z "$py" ]]; then
+        echo "MONITOR_SERVER:skipped:no_python"
+        return 0
+    fi
+    local out line rc=0 failed=false
+    out="$("$py" "$helper" retire --all-keys --all-versions --owner-path "$owner" 2>/dev/null)" || rc=$?
+    while IFS= read -r line; do
+        case "$line" in
+            RETIRED:*) printf 'MONITOR_SERVER:%s\n' "$line" ;;
+            RETIRE_FAILED:*) printf 'MONITOR_SERVER:%s\n' "$line"; failed=true ;;
+        esac
+    done <<<"$out"
+    # The helper exits 0, or 1 when it printed a RETIRE_FAILED line. Anything
+    # else (a broken interpreter, a crash) means nothing was checked — say so
+    # rather than reading the silence as "no server to restart".
+    if [[ "$rc" -ne 0 && "$failed" != true ]]; then
+        echo "MONITOR_SERVER:failed:helper_exit_$rc ($py)"
+        failed=true
+    fi
+    if [[ "$failed" == true ]]; then
+        echo "MONITOR_SERVER:hint: a status server did not stop; 'ait monitor --server-status' lists it — end that pid by hand, open monitors respawn a fresh one"
+    fi
+    return 0
+}
+
 # --- Python venv dependency drift hint (t2133) ---
 # report_venv_dep_drift — read-only check of the existing venvs against the pip
 # specs above. Setup repairs drift itself (pip install + verify_venv_specs);

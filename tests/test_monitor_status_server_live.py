@@ -297,6 +297,71 @@ class EnsureTests(LiveCase):
         self.assertIn("EXIT:idle", self.server_log(sock))
 
 
+class RestartTests(LiveCase):
+    """`status_server.py restart` / `status` (t2246): verified SIGTERM of THIS tmux
+    server's server for one version, then a fresh one for the SAME version."""
+
+    FAKE = REPO_ROOT / "tests" / "lib" / "fake_status_server.py"
+
+    def setUp(self):
+        super().setUp()
+        self.root = self.project("proj")
+        self.session("s1", self.root, "agent-pick-1")
+
+    def other_key_server(self, version: str) -> tuple[subprocess.Popen, str]:
+        """A same-version server of ANOTHER tmux server, in the shared runtime dir."""
+        from monitor import status_paths as spaths
+        run = self.base / "run" / "aitasks"
+        run.mkdir(mode=0o700, parents=True, exist_ok=True)
+        sock = str(run / f"monitor-{spaths.tmux_key('/elsewhere/tmux-0/default')}-{version}.sock")
+        proc = subprocess.Popen([sys.executable, str(self.FAKE), "serve", "--socket", sock],
+                                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+        self.addCleanup(lambda: (proc.poll() is None and proc.kill(), proc.wait(5),
+                                 proc.stdout.close()))
+        self.assertEqual(proc.stdout.readline().strip(), "READY")
+        return proc, sock
+
+    def restart(self, version: str) -> tuple[subprocess.CompletedProcess, list]:
+        out = self.server_cli("restart", "--version", version, "--deadline", str(DEADLINE),
+                              cwd=self.root)
+        return out, out.stdout.strip().splitlines()
+
+    def test_restart_replaces_this_tmux_servers_server_only(self):
+        _, sock, p1 = self.ensure("--version", "rst", cwd=self.root)
+        other, other_sock = self.other_key_server("rst")
+
+        status = self.server_cli("status").stdout
+        self.assertIn(f"SERVER:{sock}|pid={p1}|", status)
+        self.assertIn(f"|version=rst|script={SERVER}", status)
+        self.assertNotIn(other_sock, status, "status listed another tmux server's socket")
+
+        out, lines = self.restart("rst")
+        self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
+        self.assertEqual(lines[0], f"RETIRED:{sock}|pid={p1}")
+        self.assertTrue(self.wait_gone(p1, 5), "the retired server is still alive")
+        state, _, rest = lines[1].partition(":")
+        new_sock, _, p2 = rest.rpartition("|")
+        p2 = int(p2)
+        self.pids.add(p2)
+        self.assertEqual((state, new_sock), ("STARTED", sock), lines)
+        self.assertNotEqual(p2, p1)
+        self.assertEqual(lines[2], f"REPLACEMENT:{sock}|pid={p2}|version=rst")
+        answer = sr_probe(sock, "rst")
+        self.assertEqual((answer["version"], answer["server"]["pid"]), ("rst", p2))
+        self.assertIsNone(other.poll(), "another tmux server's server was stopped")
+
+    def test_restart_without_a_running_server_starts_one(self):
+        out, lines = self.restart("fresh")
+        self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
+        self.assertTrue(lines[0].startswith("NO_SERVER:"), lines)
+        sock = lines[0].partition(":")[2]
+        state, _, rest = lines[1].partition(":")
+        p2 = int(rest.rpartition("|")[2])
+        self.pids.add(p2)
+        self.assertEqual(state, "STARTED")
+        self.assertEqual(lines[2], f"REPLACEMENT:{sock}|pid={p2}|version=fresh")
+
+
 class PerSessionConfigTests(LiveCase):
 
     def test_each_session_uses_its_own_project_config(self):

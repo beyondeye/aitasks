@@ -16,14 +16,22 @@ PYTHON="$(require_ait_python)"
 # terminal UI, for an unattended box. The flag is parsed here because
 # monitor_app.py's argparse would reject it; see applink/headless.py.
 headless=0
+server_verb=""
 fwd=()
 for a in "$@"; do
-    if [[ "$a" == "--headless-for-applink" ]]; then
-        headless=1
-    else
-        fwd+=("$a")
-    fi
+    case "$a" in
+        --headless-for-applink) headless=1 ;;
+        # Operator verbs for the shared monitor status server (t2246): run and
+        # exit, no TUI. Remaining arguments (e.g. `--version V`) are forwarded.
+        --restart-server) server_verb="restart" ;;
+        --server-status)  server_verb="status" ;;
+        *) fwd+=("$a") ;;
+    esac
 done
+
+if [[ -n "$server_verb" ]]; then
+    exec "$PYTHON" "$SCRIPT_DIR/monitor/status_server.py" "$server_verb" ${fwd[@]+"${fwd[@]}"}
+fi
 
 if [[ "$headless" -eq 1 ]]; then
     # Headless applink needs the applink deps (NOT textual — the TUI is skipped).

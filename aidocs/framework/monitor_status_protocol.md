@@ -758,7 +758,15 @@ The Python server is `.aitask-scripts/monitor/status_server.py`:
 python3 .aitask-scripts/monitor/status_server.py ensure [--version V] [--session S] [--grace G] [--deadline D]
 python3 .aitask-scripts/monitor/status_server.py serve --socket SOCK [--lock-fd N] [--version V] [--tmux-socket-path P] [--session S] [--project-root R] [--grace G] [--interval I]
 python3 .aitask-scripts/monitor/status_server.py path [--version V]
+python3 .aitask-scripts/monitor/status_server.py restart [--version V] [--session S] [--deadline D] [--wait W]
+python3 .aitask-scripts/monitor/status_server.py status
+python3 .aitask-scripts/monitor/status_restart.py retire --all-keys --all-versions --owner-path P [--runtime-dir D] [--wait W]
 ```
+
+`restart` and `status` are what `ait monitor --restart-server` and
+`ait monitor --server-status` run; `status_restart.py retire` is the
+`ait upgrade` hook's entry point. All three are described in
+[Restart](#restart).
 
 A client calls `ensure_server()`, or the `ensure` CLI. A client that gets
 `UNAVAILABLE` falls back to its own in-process `TmuxMonitor`.
@@ -904,10 +912,92 @@ A watchdog checks every 0.5 s. The server exits:
     on a live aitasks session, picked from a fresh session query (the last tick's
     mapping still lists the session that went away); with none, it stays on the
     subprocess fallback.
-- **Signal.** SIGTERM or SIGINT.
+- **Signal.** SIGTERM or SIGINT. This is the exit [Restart](#restart) relies on:
+  `ait monitor --restart-server` and the `ait upgrade` hook stop a server with
+  SIGTERM.
 
 On exit it closes every connection and the control client, then removes the
 socket only if it still has the inode the server bound.
+
+## Restart
+
+A server keeps running the code it started with, and it is keyed on the tmux
+server and `VERSION` only. A code change that leaves `VERSION` alone — any commit
+in a development checkout — therefore never retires it, and it outlives every
+change while one subscriber stays connected. Restarting it is an explicit act.
+
+### The procedure
+
+`.aitask-scripts/monitor/status_restart.py` stops the server of one socket. It
+is stdlib-only (with `status_paths.py`), so it runs before the framework venv
+can import `status_server.py`. Every outcome rests on evidence about the
+server's **process**: socket silence and the lock are never used, because a
+reconnecting client can take the lock for a fresh server while the procedure
+runs.
+
+1. **Find the process.** `ps -ww -eo pid=,args=` (`-ww`: args never truncated,
+   on procps and BSD ps alike). The server is the one process whose args
+   contain `serve --socket <sock>` as whole tokens. This process itself is
+   excluded.
+   - None, and nothing accepts on the socket → `STALE:<sock>`. Not a failure:
+     `ensure` removes a stale socket under the lock.
+   - None, but something accepts → `RETIRE_FAILED:<sock>|unverified`. Nothing
+     is signalled.
+   - More than one → `RETIRE_FAILED:<sock>|ambiguous_pids:<p1>,<p2>`. Nothing is
+     signalled.
+2. **Owner filter** (`--owner-path P`, the upgrade hook only). The token right
+   before `serve` must be exactly `P`, after `realpath`, or the target prints
+   `SKIPPED:<sock>|other_owner`. With an owner, an unverified socket prints
+   `SKIPPED:<sock>|unverified` instead of failing.
+3. **Re-read that pid's args** (`ps -ww -o args= -p <pid>`), then send SIGTERM.
+4. **Wait** (5 s by default) until the pid is gone: no such process, or its args
+   no longer match. A zombie reports `[name] <defunct>`, and a recycled pid runs
+   something else, so both count as gone. An unreadable `ps` never does.
+5. **Report** `RETIRED:<sock>|pid=<p>`, or
+   `RETIRE_FAILED:<sock>|pid=<p>|still_running`. There is no SIGKILL: a server
+   that ignores SIGTERM is reported, and is ended by hand.
+
+On SIGTERM the server takes its ordinary exit (see [Exit](#exit)). Every client
+then takes the loss path of [Modes](#modes): fallback, then a reconnect whose
+first delay is 0. Its `ensure` starts a fresh server from the files on disk.
+That includes a client started before the change, because the server script
+it spawns is a path, not code in memory.
+
+### Entry points
+
+| Entry point | Targets | Then |
+|---|---|---|
+| `ait monitor --restart-server [--version V]` (`status_server.py restart`) | Only the **current** tmux server's socket for V (default: the installed `VERSION`). The runtime directory is shared by every tmux server; theirs are never touched. | `ensure_server(version=V)` in-process, then a probe of the replacement: `REPLACEMENT:<sock>\|pid=<p>\|version=<v>`. A `RETIRE_FAILED` stops before the ensure, which would otherwise reuse the server that did not stop. |
+| `ait monitor --server-status` (`status_server.py status`) | Read-only: every socket of the current tmux server, any version. | `SERVER:<sock>\|pid=<p>\|started=<ps lstart>\|version=<slug>\|script=<argv path>`, or `NO_SERVER`. |
+| `ait upgrade` (`install.sh` → `report_monitor_server_restart`) | Every socket at any tmux server and version whose verified process was started from **this project's** `status_server.py` (`--all-keys --all-versions --owner-path`, all mandatory on that CLI). | Nothing: clients respawn from the new files. Prints `MONITOR_SERVER:<line>` per server stopped or not stopped. `AIT_MONITOR_RESTART=0` opts out. |
+
+The upgrade hook is owner-scoped for two reasons:
+- install-flow tests run with a scratch `HOME` but the real `XDG_RUNTIME_DIR`;
+- another project's servers still run that project's unchanged files.
+
+`ait setup` replaces no framework code, so it has no hook.
+
+### The contract for any server implementation
+
+The procedure is a process contract, so it covers every implementation that
+serves the socket. An implementation, the Go `ait-monitord` included, must:
+
+| Requirement | Python server | Go `ait-monitord` |
+|---|---|---|
+| `serve --socket <sock>` adjacent in its argv | `<python> <tree>/.aitask-scripts/monitor/status_server.py serve --socket …` | `<binary> serve --socket …` |
+| SIGTERM → the graceful exit above; process exit releases the lock | yes | required |
+| The token before `serve` is its owner path | the script path (resolved) | the installed binary (`$AITASKS_HOME/engine/v<V>/ait-monitord`, or `engine/dev/`) |
+| An update that replaces it runs the owner-scoped retire | `install.sh` | the engine install (`ait setup`, `ait upgrade`, `ait engine build`), with `--owner-path <binary>` |
+
+No protocol message is involved.
+
+### Limits
+
+- Two trees at the same `VERSION` with different code share whichever server
+  one of them started. A restart does not choose which tree starts the next
+  one.
+- Nothing detects that a server's code is out of date: after a commit that
+  changes producer code, run `ait monitor --restart-server`.
 
 ## Python client
 

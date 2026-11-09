@@ -22,6 +22,11 @@ CLI::
     python3 .aitask-scripts/monitor/status_server.py ensure [--version V] [--session S] [--grace G] [--deadline D]
     python3 .aitask-scripts/monitor/status_server.py serve --socket SOCK [--lock-fd N] [--version V] ...
     python3 .aitask-scripts/monitor/status_server.py path [--version V]
+    python3 .aitask-scripts/monitor/status_server.py restart [--version V] [--deadline D] [--wait W]
+    python3 .aitask-scripts/monitor/status_server.py status
+
+``restart`` / ``status`` back ``ait monitor --restart-server`` / ``--server-status``;
+the stop itself is ``status_restart.py`` (verified SIGTERM — "Restart" in the spec).
 """
 from __future__ import annotations
 
@@ -30,10 +35,8 @@ import asyncio
 import contextlib
 import errno
 import fcntl
-import hashlib
 import math
 import os
-import re
 import signal
 import stat
 import subprocess
@@ -49,6 +52,18 @@ for _extra in (_SCRIPTS_DIR / "lib", _SCRIPTS_DIR):
 
 try:  # imported as part of the `monitor` package
     from . import status_protocol as sp
+    from . import status_restart as srst
+    from .status_paths import (
+        FALLBACK_RUNTIME_DIR,
+        RUNTIME_SUBDIR,
+        _SLUG_RE,
+        list_server_sockets,
+        lock_path_for,
+        runtime_dir,
+        socket_stem,
+        tmux_key,
+        version_slug,
+    )
     from .monitor_core import (
         CAPTURE_PIN_ALL,
         SESSION_CONFIG_KEYS,
@@ -62,6 +77,18 @@ try:  # imported as part of the `monitor` package
     )
 except ImportError:  # run as a script
     import status_protocol as sp  # noqa: E402
+    import status_restart as srst  # noqa: E402
+    from status_paths import (  # noqa: E402
+        FALLBACK_RUNTIME_DIR,
+        RUNTIME_SUBDIR,
+        _SLUG_RE,
+        list_server_sockets,
+        lock_path_for,
+        runtime_dir,
+        socket_stem,
+        tmux_key,
+        version_slug,
+    )
     from monitor_core import (  # noqa: E402
         CAPTURE_PIN_ALL,
         SESSION_CONFIG_KEYS,
@@ -104,16 +131,12 @@ _POLL = 0.05
 #: ``sun_path`` is 104 bytes on macOS (108 on Linux), terminator included.
 MAX_SOCKET_PATH_BYTES = 103
 
-RUNTIME_SUBDIR = "aitasks"
-FALLBACK_RUNTIME_DIR = "~/.aitask/run"
 SERVER_SCRIPT = Path(__file__).resolve()
 
 #: ``ALREADY_RUNNING`` exit status of ``serve``.
 EXIT_ALREADY_RUNNING = 3
 #: ``serve`` refused: its tmux server is not the one it was keyed under.
 EXIT_TMUX_MISMATCH = 4
-
-_SLUG_RE = re.compile(r"[A-Za-z0-9._+-]{1,64}")
 
 
 def _log(message: str) -> None:
@@ -146,17 +169,6 @@ class RuntimePaths:
     log: Path
 
 
-def runtime_dir(environ=None) -> Path:
-    """``$XDG_RUNTIME_DIR/aitasks`` when that is an existing directory, else
-    ``~/.aitask/run``. Resolution only — :func:`ensure_runtime_dir` creates and
-    checks it."""
-    env = os.environ if environ is None else environ
-    xdg = env.get("XDG_RUNTIME_DIR")
-    if xdg and os.path.isdir(xdg):
-        return Path(xdg) / RUNTIME_SUBDIR
-    return Path(os.path.expanduser(FALLBACK_RUNTIME_DIR))
-
-
 def ensure_runtime_dir(path: Path) -> Path:
     """Create ``path`` (mode 0700) and prove it is ours and private.
 
@@ -181,21 +193,13 @@ def ensure_runtime_dir(path: Path) -> Path:
     return path
 
 
-def version_slug(version: str) -> str:
-    """``version`` itself when it is filename-safe, else ``v`` + a hash."""
-    if _SLUG_RE.fullmatch(version):
-        return version
-    return "v" + hashlib.sha256(version.encode("utf-8", "surrogatepass")).hexdigest()[:12]
-
-
 def server_paths(tmux_socket: str, version: str, directory: Path | None = None) -> RuntimePaths:
     """The socket / lock / log paths for (tmux server, VERSION).
 
     The key is the tmux server's own ``#{socket_path}``, hashed, so every way of
     naming that server (``-L``, ``AITASKS_TMUX_SOCKET``, ``TMUX_TMPDIR``, ambient
     ``$TMUX``) converges on one socket."""
-    key = hashlib.sha256(tmux_socket.encode("utf-8", "surrogateescape")).hexdigest()[:16]
-    stem = f"monitor-{key}-{version_slug(version)}"
+    stem = socket_stem(tmux_socket, version)
     base = runtime_dir() if directory is None else Path(directory)
     return RuntimePaths(
         directory=base,
@@ -203,11 +207,6 @@ def server_paths(tmux_socket: str, version: str, directory: Path | None = None) 
         lock=base / f"{stem}.lock",
         log=base / f"{stem}.log",
     )
-
-
-def lock_path_for(socket_path) -> Path:
-    socket_path = Path(socket_path)
-    return socket_path.with_name(socket_path.stem + ".lock")
 
 
 def tmux_socket_path(client: TmuxClient | None = None) -> str | None:
@@ -1236,6 +1235,63 @@ def _cmd_path(args) -> int:
     return 0
 
 
+def _cmd_restart(args) -> int:
+    """Restart THIS tmux server's status server for one VERSION.
+
+    Only the current tmux server's socket for that version is touched — the
+    runtime directory is shared by every tmux server, and their servers are
+    left alone. The old server is stopped by its verified process
+    (``status_restart.retire_one``: SIGTERM, bounded wait, no SIGKILL), then
+    ``ensure_server`` starts the replacement for the SAME version in-process,
+    and a probe of the replacement reports its pid and welcome version."""
+    version = args.version or framework_version()
+    tmux_socket = tmux_socket_path()
+    if tmux_socket is None:
+        print("UNAVAILABLE:no_tmux_server", flush=True)
+        return 1
+    target = server_paths(tmux_socket, version).socket
+    old_pid = None
+    if os.path.lexists(target):
+        line = srst.retire_one(target, wait=args.wait)
+        print(line, flush=True)
+        if line.startswith("RETIRE_FAILED:"):
+            # No ensure: it would reuse the server that did not stop and report it.
+            print(f"restart: the server of {target} was not stopped; inspect the "
+                  "process named above, end it by hand, then rerun",
+                  file=sys.stderr, flush=True)
+            return 1
+        if line.startswith("RETIRED:"):
+            old_pid = int(line.rsplit("pid=", 1)[1])
+    else:
+        print(f"NO_SERVER:{target}", flush=True)
+    result = ensure_server(version=version, session=args.session, deadline=args.deadline)
+    print(result.line(), flush=True)
+    if result.state == "UNAVAILABLE":
+        return 1
+    answer = probe(result.socket, version)
+    ok, pid = _welcome_pid(answer, version)
+    if not ok or pid is None or pid == old_pid:
+        print(f"REPLACEMENT_FAILED:{result.socket}|no_new_server", flush=True)
+        return 1
+    print(f"REPLACEMENT:{result.socket}|pid={pid}|version={answer['version']}", flush=True)
+    return 0
+
+
+def _cmd_status(args) -> int:
+    """Every status server socket of THIS tmux server, at any version (read-only)."""
+    tmux_socket = tmux_socket_path()
+    entries = (list_server_sockets(runtime_dir(), key=tmux_key(tmux_socket))
+               if tmux_socket is not None else [])
+    if not entries:
+        print("NO_SERVER", flush=True)
+        return 0
+    for entry in entries:
+        info = srst.describe(entry.path)
+        print(f"SERVER:{entry.path}|pid={info['pid']}|started={info['started']}"
+              f"|version={entry.slug}|script={info['script']}", flush=True)
+    return 0
+
+
 def _positive(text: str) -> float:
     value = float(text)
     if not math.isfinite(value) or value <= 0:
@@ -1270,6 +1326,18 @@ def build_parser() -> argparse.ArgumentParser:
     q = sub.add_parser("path", help="print the socket path for this tmux server and version")
     q.add_argument("--version", default=None)
     q.set_defaults(func=_cmd_path)
+
+    r = sub.add_parser("restart", help="stop this tmux server's status server for a "
+                       "version (verified SIGTERM) and start a fresh one")
+    r.add_argument("--version", default=None)
+    r.add_argument("--session", default="")
+    r.add_argument("--deadline", type=_positive, default=ENSURE_DEADLINE)
+    r.add_argument("--wait", type=_positive, default=srst.DEFAULT_WAIT,
+                   help="seconds to wait for the stopped server to be gone")
+    r.set_defaults(func=_cmd_restart)
+
+    t = sub.add_parser("status", help="list this tmux server's status servers (any version)")
+    t.set_defaults(func=_cmd_status)
     return p
 
 
