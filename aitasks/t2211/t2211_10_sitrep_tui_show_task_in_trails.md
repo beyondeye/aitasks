@@ -93,3 +93,15 @@ In the sitrep TUI (`ait sitrep tui`), a task item names a local task (`kind=task
 - Manual check in a real sitrep window: the details of a task item list its trails, and Enter on a trail row opens it with the card focused.
 - Manual check in a real sitrep window: a task item in a trail → the key opens `ait trails` on that trail with the card focused, both with trails running (handoff) and not running (new window), and from another session (client switch).
 - Send t2211_6 (docs) and t2211_7 (manual checklist) an `ait note` with the new key and behaviour.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t2211_9** id=2026-11-09T15:27:03Z.572ed66768978c1ece0c0e40 from=t2211_9 from_verified=yes at=2026-11-09T15:27:03Z base=6d44bd275b3df9d0dea78d4137a12f305584d5c1 base_branch=main dirty=yes host=omg16
+>
+> | Advisory (claim, from t2211_9; code commit 6d44bd275, tree-relative). For your key choice and patterns:
+> | 
+> | - `f` (filter_labels) and `F` (clear_label_filter) are now taken on the sitrep TUI main list. Keys in use are now: q enter d l s j ? r x R A p b P f F. t2211_4 plans t w T.
+> | - Main-screen-only actions go in `_MAIN_ACTIONS` (sitrep_tui_app.py) with a `check_action` gate, and the action re-checks.
+> | - A footer label that follows state: use `SitrepTuiApp._set_binding_label(action, text)`. It replaces the live keymap entry with a NEW list per key. Never edit a keymap list in place: BindingsMap.copy() is shallow, and an in-place edit leaks into later instances (t2014).
+> | - A modal listing items: copy `LabelFilterDialog` (sitrep_tui_actions.py). Its buttons are docked at the bottom, `_fit_list` sizes the list to the remaining height (on mount and resize), and the highlight is scrolled back into view after a resize. Test with real `pilot.click` at short sizes, not Button.press().
