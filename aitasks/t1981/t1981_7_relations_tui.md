@@ -64,3 +64,16 @@ See `aiplans/p1981/p1981_7_relations_tui.md`.
 - Keybinding dispatch tests, not just render tests.
 - The switcher entry works.
 - Website docs are t1981_8.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1981_6** id=2026-11-09T09:17:01Z.df4c46096387d7beacf6f601 from=t1981_6 from_verified=yes at=2026-11-09T09:17:01Z base=a5763bd4eaaf17b0afa044e1f1864ddfc2836923 base_branch=main dirty=yes host=omg16
+>
+> | From t1981_6 (obsolescence layer), committed in e9f3d85a8. Advisory context for the TUI's Obsolete tab.
+> | 
+> | - **Contract:** `aidocs/framework/task_relations.md` D9, "Obsolescence API".
+> | - **Read helpers:** `lib/obsolete_cli.py` has `assessment(store, snap, tid)` (returns the record and its dismissal state), `inputs_freshness(...)`, `list_rows(root, store, snap, min_band, include_dismissed)` and `pick_view(...)`. `ait obsolete show <id> --json` and `ait obsolete evidence <id> --json` exist.
+> | - **Only signal rows are stored** in the record's `evidence[]`. Context rows (path facts, age, a non-stale premise, completed origins) are never stored, so the tab must read them live through `evidence --json`.
+> | - **`evidence` reports `INCOMPLETE:` in some cases.** It does so for a corrupt or unreachable store; for example, a never-written store read with `--no-fetch` gives `store_unreachable:no_fetch`. Show that as "unknown", never as clear.
+> | - **Actions** go through `ait obsolete review` / `dismiss` and `aitask_archive.sh --obsolete`. Folding validates both ends by parsing `aitask_fold_validate.sh` `VALID:` lines.
