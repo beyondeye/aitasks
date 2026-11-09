@@ -10,7 +10,7 @@ premise_baseline: fff7e0564ad3161d17fd2540b1fce78d30d60b8e @ 2026-11-09 15:18
 anchor: 2034
 followup_kind: risk_mitigation
 created_at: 2026-11-09 15:18
-updated_at: 2026-11-09 15:18
+updated_at: 2026-11-09 15:19
 ---
 
 ## Origin
@@ -36,3 +36,14 @@ terminal state (Pass / Fail / Skip) before the task can be
 archived; Defer is allowed but creates a carry-over task.
 
 **Related to:** t2037_4
+
+## Verification Checklist
+
+- [ ] Pair a real phone (monitor_control profile) with `ait applink`. The pane-list badges (idle / awaiting input) match the desktop `ait monitor` within one server tick
+- [ ] On the phone, focus an agent pane and type in it from the desktop: the phone's terminal follows within about half a second (the 300 ms focused cadence)
+- [ ] Pair a second device under the read_only profile and subscribe one pane with a fast cadence_idle_ms: its content stays fresh without focus
+- [ ] send_keys, Enter and kill_pane from the phone act on the intended pane; kill is refused for a frozen agent
+- [ ] Cycle the compare mode (d) for a pane from the phone: the answer it shows matches the mode `ait monitor` then shows for that pane
+- [ ] Park an agent: while the phone streams that pane it stays live; an unstreamed parked agent shows as parked (no idle verdict) and no phone terminal goes blank
+- [ ] Disconnect every device with no monitor or minimonitor running: within about 30 s `pgrep -af monitor/status_server.py` lists no server for this tmux socket
+- [ ] With AITASKS_MONITOR_SERVER=0, `ait applink` still pairs, streams and accepts keys (in-process scanning)
