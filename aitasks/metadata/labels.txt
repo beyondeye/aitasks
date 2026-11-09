@@ -86,6 +86,7 @@ html_plans
 install
 install_scripts
 installation
+issue_integration
 keybindings
 layout
 legal
