@@ -3,13 +3,14 @@ priority: medium
 effort: low
 depends: []
 issue_type: documentation
-status: Ready
+status: Implementing
 labels: [monitor, minimonitor]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 2034
 followup_kind: docs_gap
 created_at: 2026-11-09 11:33
-updated_at: 2026-11-09 11:33
+updated_at: 2026-11-09 12:36
 ---
 
 ## Context
