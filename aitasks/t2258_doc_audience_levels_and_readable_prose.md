@@ -3,7 +3,7 @@ priority: medium
 effort: high
 depends: []
 issue_type: documentation
-status: Implementing
+status: Ready
 labels: [documentation, web_site, doc_quality, aitask_gate_docs_updated]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -11,7 +11,6 @@ active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 children_to_implement: [t2258_1, t2258_2, t2258_3, t2258_4, t2258_5, t2258_6, t2258_7, t2258_8]
-assigned_to: dario-e@beyond-eye.com
 created_at: 2026-11-09 14:07
 updated_at: 2026-11-09 23:10
 ---
