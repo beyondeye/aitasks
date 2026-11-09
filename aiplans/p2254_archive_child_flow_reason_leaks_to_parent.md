@@ -223,6 +223,41 @@ All code changes are in `.aitask-scripts/aitask_archive.sh`.
   - (b) treat any bundle that lists a sibling as `UNVERIFIED` without reading
     it (the shape the review rejected) → only
     `test_all_dropped_bundle_parent_inherits` fails.
+
+## Implementation progress (all steps done)
+
+- Steps 1-9 and the post-phase are implemented as planned.
+- Plan review fix: bundled sibling records are READ via `_archive_list` +
+  `_extract_from_archive`. `UNVERIFIED` is used only on an actual read failure,
+  and its warning never claims that a child landed.
+- **Deviation — mutant predictions were imprecise.** Each mutant fails its
+  target case's state assertions *and* one message assertion in the other
+  bundle case:
+  - (a) skip entry extraction: the bundled-landed case fails on state (parent
+    took the reason, no landed call) and the all-dropped case fails on its
+    record count (`2 … read`);
+  - (b) existence-only: the all-dropped case fails on state (parent lost its
+    reason, fired `landed 54`) and the bundled-landed case fails on `names the
+    bundled landed sibling`. That second failure confirms that an uncertain
+    verdict never claims a landing.
+- **Red proof** (new test file vs the HEAD script): 16/66 fail. These are the
+  defect assertions in the landed-sibling, bundled-landed and unreadable-bundle
+  cases, plus the new message assertions. The "inherits" cases' state
+  assertions pass pre-fix, as expected.
+- **archive_errexit_sweep:** every `tests/test_archive*.sh` (12 files) plus
+  `test_docs_vocabulary_coverage.sh`, run on the fixed tree: 0 FAIL
+  descriptions. Baseline (scratch HEAD worktree): 0, apart from 2
+  environmental vocab failures, where the live-repo scan crashes because the
+  worktree has no `aitasks/`. Nothing fails only on the fixed tree.
+- Other checks:
+  - `tests/test_board_task_op_worker_groups.py`: 9 passed;
+  - vocab re-run after the doc edits: 32/32;
+  - `check_links.py --build`: PASSED;
+  - shellcheck findings identical to HEAD (info-level only);
+  - no `ait-archive.*` temp dirs left after the runs.
+- Environment: `/tmp` hit its per-user tmpfs quota mid-run. With the user's
+  approval, stale `/tmp/tmp.*` dirs (>1 day) and Claude session temp dirs
+  (>2 days, judged by the newest file inside) were removed, freeing ~9G.
 - The whole archive family (see the post-phase), plus
   `tests/test_board_task_op_worker_groups.py` via the Python runner's
   `--test-dir` or unittest.
@@ -259,3 +294,60 @@ naming the paths explicitly. Then use the workflow's Step 9: archive t2254 with
 
 ### Planned mitigations
 - timing: post-phase | name: archive_errexit_sweep | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — errexit leak leaving a half-done archival | desc: flagged-child-with-siblings-left regression case + baseline-vs-fixed failing-assertion comparison over the archive test family
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-09 17:50)
+- **Requested by user:**
+  1. (medium, blocking) `parent_archive_decision` scanned loose siblings and then bundles. A `cmd_unpack` handoff between the two scans (record copied loose, emptied bundle removed) hid a landed sibling from both, so the helper returned `NONE_LANDED|0` and the parent took the child's reason. Asked to detect the handoff or recheck before certifying `NONE_LANDED`, with a deterministic regression case.
+  2. (low, follow-up) Each bundled sibling re-decompresses the archive through `_extract_from_archive`. Asked for a single-pass read as a separate improvement.
+- **Changes made:**
+  1. A scan order cannot fix this: `ait zip-old` and its unpack each write the new location before removing the old one, so the two directions need opposite orders. In `archive_child` the `aitasks/t<N>/` rmdir also runs before the decision, which makes a concurrent zip possible.
+     - The scan now runs between two content fingerprints (`cksum`) of every evidence source: the loose `t<P>_*` records and the candidate bundles. `NONE_LANDED` is certified only when they match. Otherwise it re-scans, up to `PARENT_SCAN_ATTEMPTS=3`, and then reports `UNVERIFIED|child records kept changing during the scan (3 attempts)`. LANDED still wins at once.
+     - Residual, documented in the comment: a change fully undone within one scan is not seen.
+     - New test-only seam `AIT_ARCHIVE_PARENT_SCAN_HOOK` (pattern: `AIT_CAS_BEFORE_SWAP_HOOK`). It runs between the loose and bundle scans with `AIT_ARCHIVE_SCAN_ATTEMPT` exported, sends its output to stderr, and its status is ignored.
+     - Two new cases. `test_unpack_handoff_between_scans_is_rechecked` simulates `cmd_unpack` on attempt 1; its witness log asserts the hook ran only on attempt 1 and the rescan found the record loose. `test_records_that_keep_changing_are_unverified` makes the hook alter a dropped record on every attempt and asserts 3 attempts, then UNVERIFIED and completed work with no landed claim.
+     - Mutant c (stability check forced true) fails exactly those two cases. Mutants a and b behave as before, and the HEAD script fails the new cases.
+     - `tests/test_archive_obsolete.sh`: 78/78 pass. Archive family re-run on the fixed tree: 13 files, 0 FAIL descriptions. Shellcheck findings identical to HEAD.
+     - `task_relations.md` landed-trigger bullets now state the stable-view requirement.
+  2. Filed as follow-up **t2263** (performance, low): single-pass bundle read, with a decompression-count test.
+- **Files affected:** `.aitask-scripts/aitask_archive.sh`, `tests/test_archive_obsolete.sh`, `aidocs/framework/task_relations.md`
+
+### Change Request 2 (2026-11-09 18:05)
+- **Requested by user:** (low, follow-up) The `before` fingerprint runs ahead of the loose scan and checksums every candidate bundle, even when a loose landed sibling immediately proves LANDED. A probe confirmed this. t2263 wrongly said the loose-record path was unaffected. Asked to extend t2263 to cover the cost and correct that assumption; positive loose evidence could be accepted before hashing bundles, while keeping the stability check before a negative verdict.
+- **Changes made:** Verified in the code (`before=$(_child_evidence_fingerprint …)` sits at the top of each attempt). t2263 was rewritten with two findings and the assumption corrected:
+  - its approach accepts positive loose evidence before any fingerprint, while a full re-scan stays bracketed before `NONE_LANDED`;
+  - its verification adds a zero-bundle-reads assertion for the loose-positive path and re-runs mutant c.
+  - Committed: "ait: Extend t2263 with the loose-positive fingerprint cost".
+  - No code change in t2254; the disposition was follow-up.
+- **Files affected:** `aitasks/t2263_archive_parent_decision_single_pass_bundle_read.md`
+
+## Final Implementation Notes
+- **Actual work done:**
+  - `aitask_archive.sh`:
+    - The per-run `ARCHIVE_REASON` is derived once in `parse_args`.
+    - `archive_metadata_update <file> [reason]` takes the reason explicitly. The awk `print "archived_reason: "` needle is kept for the docs-vocabulary registry.
+    - New `archived_file_landed`: the single "landed" definition (Done, no `archived_reason`, no `folded_into`).
+    - New `parent_archive_decision`: LANDED / NONE_LANDED / UNVERIFIED over loose and bundled sibling records, read via `_archive_list` + `_extract_from_archive`. A stability loop brackets the scan with `cksum` fingerprints, up to `PARENT_SCAN_ATTEMPTS=3`.
+    - `archive_child` decides the parent's own reason, with distinct info/warn messages per verdict.
+    - `LANDED_IDS` takes only completed work.
+    - `fire_landed_triggers` decides per archived file.
+    - Help text updated; test-only seam `AIT_ARCHIVE_PARENT_SCAN_HOOK` added.
+  - Tests: 9 new cases plus a dry-run assertion in `tests/test_archive_obsolete.sh` (78/78).
+  - Docs: `aidocs/framework/task_relations.md` (landed trigger), website `task-format.md` (`archived_reason` row) and `concepts/parent-child.md`.
+- **Deviations from plan:**
+  - Plan review: bundled records are read, not inferred from the bundle's existence. The uncertainty fallback is used only on real read failures, and its message never claims a child landed.
+  - Change Request 1: added the fingerprint stability loop and the test seam.
+  - The mutant predictions were imprecise: each mutant also fails one message assertion in the sibling bundle case (see "Implementation progress").
+- **Issues encountered:**
+  - `/tmp` (tmpfs) hit its per-user quota mid-verification. With the user's approval, stale `/tmp/tmp.*` dirs and old Claude session temp dirs were removed (about 9G).
+  - Baseline-worktree vocab failures were environmental: the scratch worktree has no `aitasks/`.
+- **Key decisions:**
+  - User rule: derive the parent's reason from its children. Positive landed evidence wins at once and needs no stable view.
+  - `NONE_LANDED` needs every record read **and** a stable view.
+  - Unproven → completed work, with a stderr warning.
+  - Free-text info/warn only; no new structured stdout line, so the skill parsers are unchanged.
+  - The code-agent trailer comes from `ait codeagent coauthor`.
+- **Upstream defects identified:**
+  - `.aitask-scripts/aitask_zip_old.sh:386-393` — `cmd_unpack`'s `search_list` omits the numbered `.tar.gz` twin (`_bN/oldM.tar.gz`) that `_find_archive_for_task` / `_search_numbered_then_legacy` fall back to (`lib/archive_utils.sh:345`). `ait zip-old unpack <N>` therefore cannot restore a task from a numbered `.tar.gz` bundle that the resolvers can still read.
+- **Follow-ups:** t2263 (performance, low) covers the single-pass bundle read and accepting loose positive evidence before any bundle hashing.
