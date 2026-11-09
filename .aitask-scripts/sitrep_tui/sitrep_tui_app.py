@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import dataclasses
 import datetime as _dt
 import os
 import sys
@@ -70,7 +71,13 @@ RELOAD_INTERVAL = 2.0
 
 #: Main-screen actions; hidden (and inert) while a sub-screen is on top.
 _MAIN_ACTIONS = frozenset({"open_item", "toggle_closed", "qa_log", "toggle_situation",
+                           "filter_labels", "clear_label_filter",
                            *actions.MAIN_ACTIONS})
+
+#: The `d` footer label by state (closed groups shown?) -- t2211_9.
+_CLOSED_LABELS = {False: "Show done", True: "Hide done"}
+#: The closed groups, in list order: where `d`'s "show" moves the highlight.
+_CLOSED_SLOTS = ("done", "dismissed")
 
 
 def _footer() -> MultiRowFooter:
@@ -247,10 +254,13 @@ class ItemDetailScreen(_OpenLinkMixin, ShortcutsMixin, GuardedDismissMixin, Scre
         if meta is False:
             lines.append(_field("Task", "task file not found"))
         elif meta is not None:
-            lines.append(_field("Priority", meta.priority or "?"))
-            lines.append(_field("Effort", meta.effort or "?"))
+            # One line (t2211_9): both labels styled, both values plain parts.
+            lines.append(Content.assemble(("Priority".ljust(_LABEL_W), "bold"),
+                                          meta.priority or "?", " · ",
+                                          ("effort ", "bold"), meta.effort or "?"))
             lines.append(_field("Task status", (meta.status or "?")
                                 + (" (archived)" if meta.archived else "")))
+            lines.append(_field("Created", model.created_text(meta)))
         lines.append(_field("Checked", "never" if it.checked_at in ("", "never") else
                             f"{it.checked_at} ({model.age_text(it.checked_at, now)})"))
         lines.append(_field("Outcome", it.outcome or "—"))
@@ -564,9 +574,14 @@ class SitrepTuiApp(actions.SitrepActionsMixin, TuiSwitcherMixin, ShortcutsMixin,
         # shadow this one in the footer. Inert (falls through) on sub-screens
         # and with no item highlighted -- see check_action.
         Binding("enter", "open_item", "Details", priority=True),
-        Binding("d", "toggle_closed", "Done/dismissed"),
+        # The label follows the state ("Show done" / "Hide done", t2211_9):
+        # `_set_binding_label` swaps it in the live keymap.
+        Binding("d", "toggle_closed", _CLOSED_LABELS[False]),
         Binding("l", "qa_log", "Q&A log"),
         Binding("s", "toggle_situation", "Situation"),
+        # t2211_9: filter the list by task labels; `F` only while filtered.
+        Binding("f", "filter_labels", "Labels"),
+        Binding("F", "clear_label_filter", "Clear filter"),
         # t2211_3: shown only where they apply (check_action).
         *(Binding(key, action, label) for action, key, label in actions.ACTION_BINDINGS),
     ]
@@ -589,6 +604,8 @@ class SitrepTuiApp(actions.SitrepActionsMixin, TuiSwitcherMixin, ShortcutsMixin,
         self.qa_error = ""
         self._digest = None
         self._show_closed = False
+        #: The label filter (t2211_9): per-session UI state, never written.
+        self._label_filter: frozenset = frozenset()
         self._show_situation = True
         self._loaded_at = ""
         #: Visible item cids in list order, and the label each row shows.
@@ -681,6 +698,7 @@ class SitrepTuiApp(actions.SitrepActionsMixin, TuiSwitcherMixin, ShortcutsMixin,
             n = len(self.store.items)
             state = (f"{n} item{'s' if n != 1 else ''} · {now} open in "
                      f"{model.group_label('now')}")
+            state += self._visibility_note()
         tail = f"read {self._loaded_at} · {self.agent_header()}"
         if self._last_refresh is not None:
             at, ok = self._last_refresh
@@ -722,23 +740,72 @@ class SitrepTuiApp(actions.SitrepActionsMixin, TuiSwitcherMixin, ShortcutsMixin,
             return None
         return opt.id
 
-    def _rebuild_list(self) -> None:
+    def _passes(self, item: st.Item) -> bool:
+        return model.filter_match(self._metas.get(item.num), self._label_filter)
+
+    def _visibility_note(self) -> str:
+        """What the list is NOT showing, for the header (t2211_9): the closed
+        items `d` would reveal (those passing the label filter) while they are
+        hidden, and the active label filter with the items it hides from the
+        groups on show."""
+        note = ""
+        if self.store is None:
+            return note
+        if not self._show_closed:
+            parts = []
+            for slot, word in (("done", "done"), ("dismissed", "dismissed")):
+                n = sum(1 for it in self.store.items.values()
+                        if st._slot_of(it) == slot and self._passes(it))
+                if n:
+                    parts.append(f"{n} {word}")
+            if parts:
+                note += f" · {', '.join(parts)} hidden"
+        if self._label_filter:
+            hidden = sum(len([it for it in items if not self._passes(it)])
+                         for _slot, _h, items in model.group_items(self.store,
+                                                                   self._show_closed))
+            shown = ", ".join(model.label_display(label, model.LABEL_DISPLAY_MAX)
+                              for label in sorted(self._label_filter))
+            note += (f" · filtered by: {shown}"
+                     f" · {hidden} hidden ({self._app_key('clear_label_filter', 'F')}"
+                     " clears)")
+        return note
+
+    def _app_key(self, action: str, default: str) -> str:
+        """The effective key of one of this app's own bindings (overrides
+        included)."""
+        try:
+            import keybinding_registry
+            return keybinding_registry.resolve_key(self._shortcuts_scope, action,
+                                                   default) or default
+        except Exception:  # noqa: BLE001 - a hint, never fatal
+            return default
+
+    def _rebuild_list(self, focus_closed: bool = False) -> None:
         """Re-render the rows, keeping the highlighted item by cid. A highlighted
-        item that vanished (or that the closed toggle hid) hands the highlight to
-        the item now at its position, clamped to the last row."""
+        item that vanished (or that the closed toggle or the label filter hid)
+        hands the highlight to the item now at its position, clamped to the last
+        row. ``focus_closed`` (the closed toggle turning ON, t2211_9) moves the
+        highlight to the first visible item of the first non-empty closed group
+        instead, which also scrolls it into view: those groups are appended at
+        the BOTTOM, off-screen in a short pane."""
         ol = self._list()
         prev = self._selected_cid()
         prev_pos = self._order.index(prev) if prev in self._order else None
         now = model.resolve_now()
         options, order, labels = [], [], {}
+        first_closed = None
         self._cid_w = model.cid_width(self.store)
         self._main().query_one("#st-columns", Static).update(
             _text(model.header_text(self._cid_w)))
         if self.store is not None:
             for slot, heading, items in model.group_items(self.store, self._show_closed):
-                options.append(Option(Text(f"{heading} ({len(items)})", style="bold"),
+                shown = [it for it in items if self._passes(it)]
+                options.append(Option(Text(f"{heading} ({len(shown)})", style="bold"),
                                       id=f"hdr:{slot}", disabled=True))
-                for it in items:
+                if slot in _CLOSED_SLOTS and shown and first_closed is None:
+                    first_closed = shown[0].cid
+                for it in shown:
                     label = model.row_text(it, now, self._cid_w, self._checks.get(it.num),
                                            self._metas.get(it.num))
                     options.append(Option(_row(label), id=it.cid))
@@ -748,7 +815,9 @@ class SitrepTuiApp(actions.SitrepActionsMixin, TuiSwitcherMixin, ShortcutsMixin,
         ol.add_options(options)
         self._order, self._row_labels = order, labels
         target = None
-        if prev in order:
+        if focus_closed and first_closed is not None:
+            target = first_closed
+        elif prev in order:
             target = prev
         elif order:
             target = order[min(prev_pos or 0, len(order) - 1)]
@@ -845,6 +914,10 @@ class SitrepTuiApp(actions.SitrepActionsMixin, TuiSwitcherMixin, ShortcutsMixin,
             return False
         if action == "respawn_agent" and self.agent_state != "absent":
             return False
+        if action == "filter_labels" and not self._can_filter():
+            return False
+        if action == "clear_label_filter" and not self._label_filter:
+            return False
         return super().check_action(action, parameters)
 
     def action_open_item(self) -> None:
@@ -853,8 +926,55 @@ class SitrepTuiApp(actions.SitrepActionsMixin, TuiSwitcherMixin, ShortcutsMixin,
             self.open_item(int(cid[1:]))
 
     def action_toggle_closed(self) -> None:
+        """Show / hide the Recently done and Dismissed groups. A view toggle --
+        nothing in the store changes. The footer label and the header say which
+        state is on, and showing jumps to the first closed item (t2211_9)."""
         self._show_closed = not self._show_closed
+        self._set_binding_label("toggle_closed", _CLOSED_LABELS[self._show_closed])
+        self._rebuild_list(focus_closed=self._show_closed)
+        self._render_header()
+
+    def _set_binding_label(self, action: str, text: str) -> None:
+        """Give ``action``'s binding a new footer label in the LIVE keymap.
+
+        Matched by action, so a remapped key keeps working. Every touched key
+        gets a NEW list: ``BindingsMap.copy()`` is shallow, so the per-key list
+        here may be the class-level ``_merged_bindings`` one, and changing it in
+        place would leak the label into every later instance (t2014)."""
+        live = getattr(self, "_bindings", None)
+        if live is None:
+            return
+        mapping = live.key_to_bindings
+        for key, bucket in list(mapping.items()):
+            if any(getattr(b, "action", None) == action for b in bucket):
+                mapping[key] = [dataclasses.replace(b, description=text)
+                                if getattr(b, "action", None) == action else b
+                                for b in bucket]
+        self.refresh_bindings()
+
+    # the label filter (t2211_9) ------------------------------------------------
+
+    def _can_filter(self) -> bool:
+        return bool(self._label_filter) or bool(model.label_counts(self.store, self._metas))
+
+    def action_filter_labels(self) -> None:
+        if not isinstance(self.screen, _SitrepScreen) or not self._can_filter():
+            return
+        self.push_screen(actions.LabelFilterDialog(
+            model.label_counts(self.store, self._metas), self._label_filter),
+            self._apply_label_filter)
+
+    def _apply_label_filter(self, chosen: "list | None") -> None:
+        if chosen is None:
+            return
+        self._label_filter = frozenset(chosen)
         self._rebuild_list()
+        self._render_header()
+
+    def action_clear_label_filter(self) -> None:
+        if not self._label_filter:
+            return
+        self._apply_label_filter([])
 
     def action_toggle_situation(self) -> None:
         self._show_situation = not self._show_situation

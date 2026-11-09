@@ -33,7 +33,9 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, VerticalScroll
 from textual.content import Content
-from textual.widgets import Button, Input, Static
+from rich.text import Text
+from textual.widgets import Button, Input, SelectionList, Static
+from textual.widgets.selection_list import Selection
 
 import agent_launch_utils as alu
 import sitrep_cli
@@ -344,6 +346,103 @@ class PushCommandDialog(GuardedModalScreen):
         self.dismiss(None)
 
     def action_close(self) -> None:
+        self.dismiss(None)
+
+
+class LabelFilterDialog(GuardedModalScreen):
+    """Pick the labels the main list is filtered by (t2211_9).
+
+    Returns the checked labels in display order, ``[]`` for Clear, or None for
+    Cancel. Space toggles (the SelectionList owns it), Enter applies. Labels
+    come from task files -- untrusted text -- so each prompt is a ``Text``,
+    never parsed as markup. An active label no longer on any item is still
+    listed (count 0) so it can be unchecked. The filter is per-session UI
+    state: this dialog writes nothing."""
+
+    # The controls must stay reachable in a short pane and with many labels:
+    # the buttons are DOCKED at the bottom, the chrome is one row each, and the
+    # list is capped (`_fit_list`) to what the screen leaves after the dialog's
+    # border and its other rows, so it scrolls inside itself instead of running
+    # under the buttons or off the screen. Pinned by real clicks and region
+    # checks at several pane sizes and label counts (t2211_9 review).
+    DEFAULT_CSS = _DIALOG_CSS.format(cls="LabelFilterDialog") + """
+    LabelFilterDialog > Container { max-height: 100%; padding: 0 1; }
+    LabelFilterDialog .dlg-title { margin: 0; }
+    LabelFilterDialog #lf-help { height: 1; text-wrap: nowrap; text-overflow: ellipsis; }
+    LabelFilterDialog .dlg-buttons { dock: bottom; height: 3; }
+    LabelFilterDialog #lf-list { height: auto; margin: 0; }
+    """
+    BINDINGS = [Binding("escape", "cancel", "Cancel", show=False)]
+
+    def __init__(self, counts: list, active: frozenset) -> None:
+        super().__init__()
+        known = dict(counts)
+        for label in active:
+            known.setdefault(label, 0)
+        #: ``[(label, n)]`` in display order (sorted by label).
+        self.rows = sorted(known.items())
+        self.active = frozenset(active)
+
+    def compose(self) -> ComposeResult:
+        with Container():
+            yield Static(Content("Filter by task labels"), classes="dlg-title")
+            # One line: a short pane must still fit the list and the buttons.
+            yield Static(Content("Space toggles · Enter applies · task items with ANY "
+                                 "checked label"), id="lf-help")
+            yield SelectionList[str](
+                *(Selection(Text(f"{model.label_display(label)} ({n})"), label,
+                            label in self.active)
+                  for label, n in self.rows),
+                id="lf-list")
+            with Container(classes="dlg-buttons"):
+                yield Button("Apply", variant="primary", id="lf-apply")
+                yield Button("Clear", variant="default", id="lf-clear")
+                yield Button("Cancel", variant="default", id="lf-cancel")
+
+    def on_mount(self) -> None:
+        self._fit_list()
+        self.query_one("#lf-list", SelectionList).focus()
+
+    def on_resize(self, event) -> None:
+        self._fit_list()
+
+    def _fit_list(self) -> None:
+        """Cap the list at the rows the screen leaves for it: the screen height
+        minus the dialog's own border/padding and its title, help and button
+        rows (their CSS heights, so this does not wait for a layout pass).
+        Never below 3 rows (one label row inside the list's border)."""
+        box = self.query_one(Container)
+        chrome = box.styles.gutter.height
+        for selector in (".dlg-title", "#lf-help", ".dlg-buttons"):
+            height = self.query_one(selector).styles.height
+            chrome += int(height.value) if height is not None and height.is_cells else 1
+        lst = self.query_one("#lf-list", SelectionList)
+        lst.styles.max_height = max(3, self.size.height - chrome)
+        # A shrink leaves the scroll offset where it was, so the highlighted
+        # label can end up outside the smaller viewport (and Space would toggle
+        # a row the user cannot see). Once the new layout is in, bring the
+        # existing highlight back into view; the selection is unchanged.
+        self.call_after_refresh(lst.scroll_to_highlight)
+
+    def selected(self) -> list:
+        checked = set(self.query_one("#lf-list", SelectionList).selected)
+        return [label for label, _n in self.rows if label in checked]
+
+    def on_key(self, event) -> None:
+        # SelectionList consumes space; Enter is free there, so it applies.
+        if event.key == "enter" and isinstance(self.focused, SelectionList):
+            event.stop()
+            self.dismiss(self.selected())
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "lf-apply":
+            self.dismiss(self.selected())
+        elif event.button.id == "lf-clear":
+            self.dismiss([])
+        else:
+            self.dismiss(None)
+
+    def action_cancel(self) -> None:
         self.dismiss(None)
 
 

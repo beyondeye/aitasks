@@ -1323,7 +1323,8 @@ class ClickSelectsTests(_AppCase):
 class LabelledDetailsTests(_AppCase):
     LABELS = {"Item", "Context", "What to do", "How", "About", "Checked", "Outcome",
               "Background", "Origin", "Agent", "Date", "Theme",
-              "Priority", "Effort", "Task status", "Task"}   # t2211_3
+              "Priority", "effort", "Task status", "Task",   # t2211_3
+              "Created"}                                       # t2211_9: "Priority · effort" is one line
 
     async def test_labels_are_styled_and_values_stay_plain(self):
         app = self.make_app()

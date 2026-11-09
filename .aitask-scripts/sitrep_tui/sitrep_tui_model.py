@@ -373,8 +373,11 @@ def next_step(item: "st.Item", refresh_check: "str | None" = None,
 #: Width of the "Pri/Eff" cell: the referenced task's priority / effort,
 #: shortened (`med/med` is the widest).
 PRI_EFF_W = 7
+#: Width of the "Created" cell: the referenced task's creation time (t2211_9).
+#: ``YYYY-MM-DD`` (an earlier year) is the widest value.
+CREATED_W = 10
 COLUMNS = (("Item", 5), ("Checked", AGE_CELL_W), ("Pri/Eff", PRI_EFF_W),
-           ("What to do", 0))
+           ("Created", CREATED_W), ("What to do", 0))
 
 
 def cid_width(store: "st.TodoStore | None") -> int:
@@ -383,21 +386,31 @@ def cid_width(store: "st.TodoStore | None") -> int:
     return max(COLUMNS[0][1], max(len(f"c{n}") for n in store.items))
 
 
+def _cells(values: tuple, cid_w: int) -> str:
+    """One line from ``COLUMNS``: every fixed column padded to its width (the
+    first to ``cid_w``), the free text last. header_text and row_text both go
+    through here, so their columns line up by construction."""
+    fixed = [f"{values[0]:<{cid_w}}"]
+    fixed += [f"{value:<{width}}" for value, (_h, width)
+              in zip(values[1:-1], COLUMNS[1:-1])]
+    return " ".join(fixed) + " " + values[-1]
+
+
 def header_text(cid_w: int = COLUMNS[0][1]) -> str:
-    return (f"{COLUMNS[0][0]:<{cid_w}} {COLUMNS[1][0]:<{COLUMNS[1][1]}} "
-            f"{COLUMNS[2][0]:<{COLUMNS[2][1]}} {COLUMNS[3][0]}")
+    return _cells(tuple(heading for heading, _w in COLUMNS), cid_w)
 
 
 def row_text(item: "st.Item", now: _dt.datetime, cid_w: int = COLUMNS[0][1],
              refresh_check: "str | None" = None,
-             meta: "TaskMeta | None | bool" = None) -> str:
-    """One list row: item id, checked age, the task's priority/effort, what to
-    do. Rows are cut to one line with an ellipsis, so the free text sits last.
-    ``meta``: the item's :class:`TaskMeta`, ``False`` for a task item whose
-    file was not found, None for an item that names no local task."""
-    return (f"{item.cid:<{cid_w}} {age_cell(item.checked_at, now):<{COLUMNS[1][1]}} "
-            f"{pri_eff_cell(meta):<{COLUMNS[2][1]}} "
-            f"{next_step(item, refresh_check).what}")
+             meta: "TaskMeta | None | bool" = None, tz=None) -> str:
+    """One list row: item id, checked age, the task's priority/effort and
+    creation time, what to do. Rows are cut to one line with an ellipsis, so
+    the free text sits last. ``meta``: the item's :class:`TaskMeta`, ``False``
+    for a task item whose file was not found, None for an item that names no
+    local task. ``tz``: see :func:`created_cell`."""
+    return _cells((item.cid, age_cell(item.checked_at, now), pri_eff_cell(meta),
+                   created_cell(meta, now, tz), next_step(item, refresh_check).what),
+                  cid_w)
 
 
 # --- the referenced task's metadata (t2211_3) ------------------------------------
@@ -419,6 +432,110 @@ class TaskMeta:
     effort: str = ""
     status: str = ""
     archived: bool = False
+    #: The task file's ``created_at`` verbatim (``YYYY-MM-DD HH:MM``, local
+    #: wall-clock time, no zone -- `aitask_create.sh get_timestamp`), "" when
+    #: absent (t2211_9).
+    created_at: str = ""
+    #: The task file's ``labels``, normalised (see :func:`_labels`).
+    labels: tuple = ()
+
+
+#: Longest label / frontmatter value kept (a hand-edited file is untrusted).
+_META_VALUE_MAX = 40
+
+
+def _one_line(value) -> str:
+    return " ".join(str(value).split())[:_META_VALUE_MAX]
+
+
+def _labels(value) -> tuple:
+    """A frontmatter ``labels`` value as a tuple of labels, each the EXACT
+    stored string: a label's identity is its value (`sanitize_label` sets no
+    length cap), so nothing here clips or rewrites it -- two labels sharing a
+    long prefix stay two labels, and matching uses the full value. Display
+    goes through :func:`label_display`. A list -> its string items
+    (non-strings, blank strings and exact duplicates dropped, order kept); a
+    non-blank string -> that one label; anything else -> (). Never raises."""
+    try:
+        if isinstance(value, str):
+            items = [value]
+        elif isinstance(value, (list, tuple)):
+            items = [v for v in value if isinstance(v, str)]
+        else:
+            return ()
+        out = []
+        for label in items:
+            if label.strip() and label not in out:
+                out.append(label)
+        return tuple(out)
+    except Exception:  # noqa: BLE001 - decoration, never fatal
+        return ()
+
+
+#: Longest label shown in the one-line header (the picker shows it in full).
+LABEL_DISPLAY_MAX = 40
+
+
+def label_display(label: str, limit: "int | None" = None) -> str:
+    """A label for the screen: whitespace (newlines included) collapsed to one
+    line, and -- only when ``limit`` is given -- clipped with an ellipsis.
+    Presentation only; never use the result to match or filter."""
+    text = " ".join(label.split())
+    if limit is not None and len(text) > limit:
+        return text[:max(1, limit - 1)] + "…"
+    return text
+
+
+#: Accepted ``created_at`` shapes (the writer's, plus seconds / date-only).
+_CREATED_FORMATS = ("%Y-%m-%d %H:%M", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d")
+
+
+def parse_created(value: str) -> "_dt.datetime | None":
+    """``created_at`` as a naive local datetime, or None for anything else
+    (empty, another shape, an impossible date). Never raises."""
+    for fmt in _CREATED_FORMATS:
+        try:
+            return _dt.datetime.strptime(value, fmt)
+        except (ValueError, TypeError):
+            continue
+    return None
+
+
+def created_cell(meta: "TaskMeta | None | bool", now: _dt.datetime, tz=None) -> str:
+    """The list's "Created" cell, at most CREATED_W cells. Never raises.
+
+    ``""`` for an item that names no local task; ``—`` when its file is not
+    found or carries no ``created_at``; ``?`` for an unparsable value. Else:
+    ``HH:MM`` when created today (``today`` for a date-only value), ``MM-DD``
+    in the current year, ``YYYY-MM-DD`` in any other year (the day is kept).
+
+    The rule: ``created_at`` is LOCAL wall-clock time with no zone (the task
+    writer stamps it with ``date``); ``now`` is the TUI's instant
+    (:func:`resolve_now`, honouring ``AITASK_SITREP_NOW``). ``now`` is
+    converted to ``tz`` -- None means this machine's local zone, the zone the
+    writer stamped in -- and "today" means the same calendar date there."""
+    if meta is None:
+        return ""
+    if meta is False or not meta.created_at:
+        return "—"
+    created = parse_created(meta.created_at)
+    if created is None:
+        return "?"
+    try:
+        today = now.astimezone(tz).date()
+    except Exception:  # noqa: BLE001 - a naive / odd `now`: no "today"
+        today = None
+    if created.date() == today:
+        has_time = len(meta.created_at) > len("YYYY-MM-DD")
+        return created.strftime("%H:%M") if has_time else "today"
+    if today is not None and created.year == today.year:
+        return created.strftime("%m-%d")
+    return created.strftime("%Y-%m-%d")
+
+
+def created_text(meta: "TaskMeta | None | bool") -> str:
+    """The details' "Created" value: the stored value verbatim, or unknown."""
+    return (meta.created_at if meta else "") or "unknown"
 
 
 def _short_level(value: str) -> str:
@@ -479,10 +596,10 @@ def task_meta(root: str, task_id: "str | None") -> "TaskMeta | None | bool":
 
         def text(key):
             value = fields.get(key)
-            return " ".join(str(value).split())[:40] if value is not None else ""
+            return _one_line(value) if value is not None else ""
 
         return TaskMeta(task_id, rel, text("priority"), text("effort"), text("status"),
-                        archived)
+                        archived, text("created_at"), _labels(fields.get("labels")))
     except Exception:  # noqa: BLE001 - decoration, never fatal
         return False
 
@@ -498,6 +615,36 @@ def task_metas(root: str, store: "st.TodoStore | None") -> dict:
         if tid is not None:
             out[num] = task_meta(root, tid)
     return out
+
+
+# --- the label filter (t2211_9) -----------------------------------------------------
+#
+# Per-session UI state: the TUI filters its list by the labels of the tasks the
+# items name. It is never written anywhere.
+
+def label_counts(store: "st.TodoStore | None", metas: dict) -> list:
+    """``[(label, n items)]`` over the store's task items (every group, the
+    closed ones included), sorted by label."""
+    counts: dict = {}
+    if store is None:
+        return []
+    for num in store.items:
+        meta = metas.get(num)
+        if meta:
+            for label in meta.labels:
+                counts[label] = counts.get(label, 0) + 1
+    return sorted(counts.items())
+
+
+def filter_match(meta: "TaskMeta | None | bool", labels: frozenset) -> bool:
+    """Whether an item passes the label filter: always, with no filter;
+    otherwise only a task item whose task carries ANY selected label. Items
+    naming no local task (triage, decisions, watches, pushes, cross-repo refs)
+    and task items whose file is missing carry no labels, so an active filter
+    hides them."""
+    if not labels:
+        return True
+    return bool(meta) and bool(set(meta.labels) & labels)
 
 
 # --- plain-language labels -------------------------------------------------------

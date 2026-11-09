@@ -911,12 +911,15 @@ class TaskMetaTests(_Case):
             await pilot.pause()
             # The details read the file fresh, not the list's cached copy.
             with open(os.path.join(self.root, "aitasks", "t10_demo.md"), "w") as fh:
-                fh.write("---\npriority: medium\neffort: low\nstatus: Implementing\n---\n"
+                fh.write("---\npriority: medium\neffort: low\nstatus: Implementing\n"
+                         "created_at: 2026-11-04 09:30\n---\n"
                          "# t10 demo task\nThe full description.\n")
             screen = await self.open_details(app, pilot, self.ids["task"])
             body = screen.body_text(model.resolve_now())
-            for want in ("Priority    medium\n", "Effort      low\n",
-                         "Task status Implementing\n"):
+            # t2211_9: priority and effort share one line; the creation time
+            # is shown in full.
+            for want in ("Priority    medium · effort low\n",
+                         "Task status Implementing\n", "Created     2026-11-04 09:30\n"):
                 self.assertIn(want, body)
             links = screen.query_one("#sd-links")
             first = links.get_option_at_index(0)
@@ -946,6 +949,534 @@ class TaskMetaTests(_Case):
             body = screen.body_text(model.resolve_now())
             self.assertNotIn("Priority", body, "a triage item names no task of its own")
             await app.workers.wait_for_complete()
+
+
+# -- t2211_9: created time, labels, the visible `d` toggle, the label filter -------
+
+_UTC = __import__("datetime").timezone.utc
+_DT = __import__("datetime")
+
+
+class CreatedCellTests(unittest.TestCase):
+    """The "Created" cell: HH:MM today, MM-DD this year, YYYY-MM-DD otherwise
+    (day precision kept), against `now` converted to the given zone."""
+
+    NOW = _DT.datetime(2026, 11, 9, 12, 0, tzinfo=_UTC)
+
+    def cell(self, created: str, now=None, tz=_UTC) -> str:
+        meta = model.TaskMeta("1", "p", created_at=created)
+        return model.created_cell(meta, now or self.NOW, tz)
+
+    def test_the_table(self):
+        cases = {
+            "2026-11-09 10:04": "10:04",
+            "2026-11-09 10:04:59": "10:04",
+            "2026-11-09": "today",
+            "2026-11-08 23:59": "11-08",
+            "2026-01-01 00:00": "01-01",
+            "2025-12-03 08:00": "2025-12-03",
+            "2025-12-04 08:00": "2025-12-04",
+            "2027-01-02 08:00": "2027-01-02",       # clock skew: still the day
+            "": "—",
+            "yesterday": "?",
+            "2026-02-31 10:00": "?",
+            "[bold]x[/]": "?",
+        }
+        for created, want in cases.items():
+            got = self.cell(created)
+            self.assertEqual(got, want, created)
+            self.assertLessEqual(len(got), model.CREATED_W, created)
+        self.assertEqual(model.created_cell(None, self.NOW), "")
+        self.assertEqual(model.created_cell(False, self.NOW), "—")
+        self.assertNotEqual(self.cell("2025-12-03 08:00"), self.cell("2025-12-04 08:00"),
+                            "two days of one old month stay distinguishable")
+
+    def test_midnight_moves_the_cell(self):
+        created = "2026-11-09 23:30"
+        before = _DT.datetime(2026, 11, 9, 23, 59, tzinfo=_UTC)
+        after = _DT.datetime(2026, 11, 10, 0, 1, tzinfo=_UTC)
+        self.assertEqual(self.cell(created, before), "23:30")
+        self.assertEqual(self.cell(created, after), "11-09")
+
+    def test_now_is_converted_to_the_local_zone(self):
+        # 21:00Z is already the next day at +05:00: the file's local value
+        # from that next day is "today" there, not in UTC.
+        now = _DT.datetime(2026, 11, 9, 21, 0, tzinfo=_UTC)
+        plus5 = _DT.timezone(_DT.timedelta(hours=5))
+        self.assertEqual(self.cell("2026-11-10 01:30", now, plus5), "01:30")
+        self.assertEqual(self.cell("2026-11-10 01:30", now, _UTC), "11-10")
+
+    def test_created_text(self):
+        self.assertEqual(model.created_text(model.TaskMeta("1", "p", created_at="x y")), "x y")
+        self.assertEqual(model.created_text(model.TaskMeta("1", "p")), "unknown")
+        self.assertEqual(model.created_text(False), "unknown")
+        self.assertEqual(model.created_text(None), "unknown")
+
+
+class LabelModelTests(unittest.TestCase):
+    def test_label_shapes(self):
+        self.assertEqual(model._labels(["a", "b", "a", "", "  ", "c d"]), ("a", "b", "c d"))
+        self.assertEqual(model._labels("solo"), ("solo",))
+        self.assertEqual(model._labels(""), ())
+        self.assertEqual(model._labels(7), ())
+        self.assertEqual(model._labels(None), ())
+        self.assertEqual(model._labels(["x", 3, ["nested"], {"k": 1}]), ("x",))
+        self.assertEqual(model._labels(["[b]x[/b]"]), ("[b]x[/b]",), "kept literal")
+
+    def test_a_label_is_its_exact_value(self):
+        # Review finding: clipping at 40 merged two labels sharing a prefix.
+        one, two = "a" * 40 + "one", "a" * 40 + "two"
+        self.assertEqual(model._labels([one, two]), (one, two), "never clipped or merged")
+        self.assertEqual(model._labels(["y" * 99])[0], "y" * 99)
+        first = model.TaskMeta("1", "p", labels=(one,))
+        second = model.TaskMeta("2", "p", labels=(two,))
+        self.assertTrue(model.filter_match(first, frozenset({one})))
+        self.assertFalse(model.filter_match(second, frozenset({one})))
+
+    def test_label_display_is_presentation_only(self):
+        self.assertEqual(model.label_display("a\nb  c"), "a b c")
+        long = "z" * 60
+        self.assertEqual(model.label_display(long), long, "no limit: full value")
+        clipped = model.label_display(long, model.LABEL_DISPLAY_MAX)
+        self.assertEqual(len(clipped), model.LABEL_DISPLAY_MAX)
+        self.assertTrue(clipped.endswith("…"))
+
+    def test_filter_match(self):
+        meta = model.TaskMeta("1", "p", labels=("sitrep", "tui"))
+        self.assertTrue(model.filter_match(meta, frozenset()))
+        self.assertTrue(model.filter_match(None, frozenset()), "no filter shows all")
+        self.assertTrue(model.filter_match(meta, frozenset({"tui"})))
+        self.assertTrue(model.filter_match(meta, frozenset({"ui", "sitrep"})), "any (OR)")
+        self.assertFalse(model.filter_match(meta, frozenset({"ui"})))
+        self.assertFalse(model.filter_match(None, frozenset({"tui"})), "non-task item")
+        self.assertFalse(model.filter_match(False, frozenset({"tui"})), "file not found")
+        self.assertFalse(model.filter_match(model.TaskMeta("1", "p"), frozenset({"tui"})))
+
+    def test_label_counts(self):
+        store = types.SimpleNamespace(items={1: None, 2: None, 3: None, 4: None})
+        metas = {1: model.TaskMeta("1", "p", labels=("b", "a")),
+                 2: model.TaskMeta("2", "p", labels=("a",)), 3: False}
+        self.assertEqual(model.label_counts(store, metas), [("a", 2), ("b", 1)])
+        self.assertEqual(model.label_counts(None, metas), [])
+
+
+class _RefinedCase(_Case):
+    """The fixture's task files with created_at + labels, in a pinned zone."""
+
+    def setUp(self):
+        super().setUp()
+        import time
+        tz = mock.patch.dict(os.environ, {"TZ": "UTC"})
+        tz.start()
+        time.tzset()
+        self.addCleanup(time.tzset)
+        self.addCleanup(tz.stop)
+        aitasks = Path(self.root) / "aitasks"
+        (aitasks / "t10_demo.md").write_text(
+            "---\npriority: high\neffort: low\nstatus: Ready\nlabels: [sitrep, tui]\n"
+            "created_at: 2026-11-05 09:30\n---\n# t10 demo task\n")
+        (aitasks / "archived").mkdir(exist_ok=True)
+        (aitasks / "archived" / "t20_recheck.md").write_text(
+            "---\npriority: low\neffort: medium\nstatus: Done\nlabels: ['ui', '[b]x[/b]']\n"
+            "created_at: 2025-12-03 08:00\n---\n# t20\n")
+
+    def ol(self, app):
+        return app.screen_stack[0].query_one("#st-list")
+
+    def ids_in_list(self, app) -> list:
+        ol = self.ol(app)
+        return [ol.get_option_at_index(i).id for i in range(ol.option_count)]
+
+    def header(self, app) -> str:
+        return str(app.screen_stack[0].query_one("#st-header").content)
+
+    def label_of(self, app, action: str) -> "str | None":
+        for _key, active in app.screen.active_bindings.items():
+            if active.binding.action == action:
+                return active.binding.description
+        return None
+
+
+class CreatedColumnTests(_RefinedCase):
+    async def test_rows_carry_the_created_cell_aligned(self):
+        app = self.make_app()
+        async with app.run_test(size=SIZE) as pilot:
+            await pilot.pause()
+            header = model.header_text(model.cid_width(app.store))
+            at = header.index("Created")
+            row = lambda name: str(self.ol(app).get_option(f"c{self.ids[name]}").prompt)  # noqa: E731
+            cell = lambda name: row(name)[at:at + model.CREATED_W].strip()  # noqa: E731
+            self.assertEqual(cell("task"), "09:30", "today (NOW is 2026-11-05)")
+            self.assertEqual(cell("unknowntask"), "2025-12-03", "another year: full date")
+            self.assertEqual(cell("status_ready"), "—", "no task file")
+            for name in ("triage", "watch", "pushref", "xref"):
+                self.assertEqual(cell(name), "", name)
+            self.assertEqual(row("task").index("Pick t10"), header.index("What to do"))
+
+    async def test_the_cell_follows_midnight_without_a_reparse(self):
+        app = self.make_app()
+        async with app.run_test(size=SIZE) as pilot:
+            await pilot.pause()
+            cid = f"c{self.ids['task']}"
+            self.assertIn("09:30", str(self.ol(app).get_option(cid).prompt))
+            with mock.patch.dict(os.environ, {"AITASK_SITREP_NOW": "2026-11-06T00:05:00Z"}), \
+                    mock.patch.object(model, "load_snapshot",
+                                      side_effect=AssertionError("reparsed")):
+                app._refresh_ages()
+            prompt = str(self.ol(app).get_option(cid).prompt)
+            self.assertIn("11-05", prompt)
+            self.assertNotIn("09:30", prompt)
+
+
+class ClosedToggleTests(_RefinedCase):
+    async def press_d(self, pilot, app, want: bool):
+        await pilot.press("d")
+        await pilot.pause()
+        self.assertIs(app._show_closed, want)
+        self.assertEqual("hdr:done" in self.ids_in_list(app), want)
+
+    async def test_d_toggles_from_every_focus_state(self):
+        app = self.make_app()
+        async with app.run_test(size=SIZE) as pilot:
+            await pilot.pause()
+            ol = self.ol(app)
+            states = [
+                ("list, item highlighted", lambda: (ol.focus(), self.select(app, self.ids["task"]))),
+                ("list, nothing highlighted", lambda: (ol.focus(), setattr(ol, "highlighted", None))),
+                ("situation pane", lambda: app.screen_stack[0].query_one("#st-situation").focus()),
+                ("no focus", lambda: app.set_focus(None)),
+            ]
+            want = False
+            for name, enter in states:
+                with self.subTest(state=name):
+                    enter()
+                    await pilot.pause()
+                    want = not want
+                    await self.press_d(pilot, app, want)
+                    want = not want
+                    await self.press_d(pilot, app, want)
+
+    async def test_label_and_header_say_the_state(self):
+        app = self.make_app()
+        async with app.run_test(size=SIZE) as pilot:
+            await pilot.pause()
+            self.assertEqual(self.label_of(app, "toggle_closed"), "Show done")
+            self.assertIn("· 1 done, 1 dismissed hidden", self.header(app))
+            await self.press_d(pilot, app, True)
+            self.assertEqual(self.label_of(app, "toggle_closed"), "Hide done")
+            self.assertNotIn("hidden", self.header(app))
+            footer = " ".join(str(w.render()) for w in app.screen.query("FooterKey"))
+            self.assertIn("Hide done", footer)
+            await self.press_d(pilot, app, False)
+            self.assertEqual(self.label_of(app, "toggle_closed"), "Show done")
+            self.assertIn("1 dismissed hidden", self.header(app))
+
+    async def test_a_later_instance_starts_at_show_done(self):
+        # binding_label_no_leak_control (i): the swap never edits a shared list.
+        first = self.make_app()
+        async with first.run_test(size=SIZE) as pilot:
+            await pilot.pause()
+            await self.press_d(pilot, first, True)
+        merged = [b.description for bs in appmod.SitrepTuiApp._merged_bindings
+                  .key_to_bindings.values() for b in bs if b.action == "toggle_closed"]
+        self.assertEqual(merged, ["Show done"], "class-level keymap untouched")
+        second = self.make_app()
+        async with second.run_test(size=SIZE) as pilot:
+            await pilot.pause()
+            self.assertEqual(self.label_of(second, "toggle_closed"), "Show done")
+
+    async def test_a_remapped_key_toggles_and_relabels(self):
+        # binding_label_no_leak_control (ii)
+        import keybinding_registry
+        keybinding_registry._reset_for_tests()
+        self.addCleanup(keybinding_registry._reset_for_tests)
+        keybinding_registry._OVERRIDES_CACHE = {"sitrep_tui": {"toggle_closed": "D"}}
+        app = self.make_app()
+        async with app.run_test(size=SIZE) as pilot:
+            await pilot.pause()
+            await pilot.press("D")
+            await pilot.pause()
+            self.assertTrue(app._show_closed)
+            self.assertEqual(self.label_of(app, "toggle_closed"), "Hide done")
+            self.assertEqual(app.screen.active_bindings["D"].binding.description, "Hide done")
+
+    async def test_show_jumps_to_the_first_closed_item_in_a_short_pane(self):
+        app = self.make_app()
+        async with app.run_test(size=(100, 14)) as pilot:
+            await pilot.pause()
+            ol = self.ol(app)
+            self.select(app, self.ids["task"])
+            await pilot.pause()
+            await self.press_d(pilot, app, True)
+            done_cid = f"c{self.ids['done']}"
+            self.assertEqual(ol.highlighted_option.id, done_cid)
+            await pilot.pause()
+            line = ol._index_to_line[ol.highlighted]
+            top = int(ol.scroll_y)
+            self.assertTrue(top <= line < top + ol.scrollable_content_region.height,
+                            f"line {line} outside viewport {top}+{ol.scrollable_content_region.height}")
+            # Hiding again: the highlighted (now hidden) item hands the
+            # highlight on by position, clamped to the last row.
+            await self.press_d(pilot, app, False)
+            self.assertEqual(ol.highlighted_option.id, app._order[-1])
+
+
+class LabelFilterTests(_RefinedCase):
+    async def open_filter(self, pilot, app):
+        await pilot.press("f")
+        await self.until(pilot, lambda: isinstance(app.screen, actions.LabelFilterDialog),
+                         "the label dialog")
+        return app.screen
+
+    async def test_filter_apply_header_clear_and_cancel(self):
+        app = self.make_app()
+        async with app.run_test(size=SIZE) as pilot:
+            await pilot.pause()
+            digest = app._digest
+            before = self.ids_in_list(app)
+            dialog = await self.open_filter(pilot, app)
+            self.assertEqual([label for label, _n in dialog.rows],
+                             ["[b]x[/b]", "sitrep", "tui", "ui"])
+            sl = dialog.query_one("#lf-list")
+            prompts = [str(sl.get_option_at_index(i).prompt) for i in range(sl.option_count)]
+            self.assertIn("[b]x[/b] (1)", prompts, "a hostile label stays literal")
+            # Cancel: nothing changes.
+            await pilot.press("escape")
+            await pilot.pause()
+            self.assertEqual(self.ids_in_list(app), before)
+            self.assertEqual(app._label_filter, frozenset())
+            # Check "tui" (third row) and apply with Enter.
+            dialog = await self.open_filter(pilot, app)
+            dialog.query_one("#lf-list").select("tui")
+            await pilot.press("enter")
+            await pilot.pause()
+            self.assertEqual(app._label_filter, frozenset({"tui"}))
+            items = [i for i in self.ids_in_list(app) if not i.startswith("hdr:")]
+            self.assertEqual(items, [f"c{self.ids['task']}"], "non-task items hidden")
+            head = self.header(app)
+            self.assertIn("filtered by: tui", head)
+            self.assertRegex(head, r"· \d+ hidden \(F clears\)")
+            self.assertNotIn("done, ", head, "closed counts follow the filter")
+            # A reload keeps the filter.
+            app._apply(model.load_snapshot(self.store_dir))
+            await pilot.pause()
+            self.assertEqual([i for i in self.ids_in_list(app) if not i.startswith("hdr:")],
+                             [f"c{self.ids['task']}"])
+            # F clears.
+            await pilot.press("F")
+            await pilot.pause()
+            self.assertEqual(app._label_filter, frozenset())
+            self.assertEqual(self.ids_in_list(app), before)
+            self.assertNotIn("filtered by", self.header(app))
+            self.assertEqual(model.load_snapshot(self.store_dir).digest, digest,
+                             "the filter is never written to the store")
+
+    async def test_hostile_label_in_header(self):
+        app = self.make_app()
+        async with app.run_test(size=SIZE) as pilot:
+            await pilot.pause()
+            dialog = await self.open_filter(pilot, app)
+            dialog.query_one("#lf-list").select("[b]x[/b]")
+            self.assertTrue(await pilot.click("#lf-apply"))
+            await pilot.pause()
+            self.assertIn("filtered by: [b]x[/b]", self.header(app))
+            self.assertEqual([i for i in self.ids_in_list(app) if not i.startswith("hdr:")],
+                             [f"c{self.ids['unknowntask']}"])
+
+    async def test_clear_button_and_bindings_matrix(self):
+        app = self.make_app()
+        async with app.run_test(size=SIZE) as pilot:
+            await pilot.pause()
+            self.assertTrue(self.shown(app, "filter_labels"))
+            self.assertFalse(self.shown(app, "clear_label_filter"), "no filter yet")
+            app._apply_label_filter(["ui"])
+            await pilot.pause()
+            self.assertTrue(self.shown(app, "clear_label_filter"))
+            dialog = await self.open_filter(pilot, app)
+            self.assertEqual(set(dialog.query_one("#lf-list").selected), {"ui"})
+            self.assertTrue(await pilot.click("#lf-clear"))
+            await pilot.pause()
+            self.assertEqual(app._label_filter, frozenset())
+            await self.open_details(app, pilot, self.ids["task"])
+            self.assertFalse(self.shown(app, "filter_labels"), "main screen only")
+            self.assertFalse(self.shown(app, "clear_label_filter"))
+
+    async def test_no_labels_hides_the_key(self):
+        for name in ("t10_demo.md", "archived/t20_recheck.md"):
+            path = Path(self.root) / "aitasks" / name
+            path.write_text(path.read_text().replace("labels:", "x_labels:"))
+        app = self.make_app()
+        async with app.run_test(size=SIZE) as pilot:
+            await pilot.pause()
+            self.assertFalse(self.shown(app, "filter_labels"))
+            app.action_filter_labels()          # the action re-checks too
+            await pilot.pause()
+            self.assertNotIsInstance(app.screen, actions.LabelFilterDialog)
+
+    async def test_a_kept_filter_label_with_no_item_is_still_listed(self):
+        app = self.make_app()
+        async with app.run_test(size=SIZE) as pilot:
+            await pilot.pause()
+            app._apply_label_filter(["gone"])
+            await pilot.pause()
+            dialog = await self.open_filter(pilot, app)
+            self.assertIn(("gone", 0), dialog.rows)
+
+
+class LabelFilterGeometryTests(_RefinedCase):
+    """Review finding: the dialog's buttons were clipped or below the screen in
+    a short pane / with many labels, while the old tests pressed them through
+    Button.press(), bypassing visibility. Real clicks, in the real app."""
+
+    SIZES = ((100, 16), (100, 12), (80, 10), (120, 30))
+
+    def many_labels(self, n: int = 20) -> None:
+        labels = ", ".join(f"label{i:02d}" for i in range(n))
+        path = Path(self.root) / "aitasks" / "t10_demo.md"
+        path.write_text(path.read_text().replace("labels: [sitrep, tui]",
+                                                 f"labels: [{labels}]"))
+
+    async def check(self, size, button: str, want) -> None:
+        app = self.make_app()
+        async with app.run_test(size=size) as pilot:
+            await pilot.pause()
+            await pilot.press("f")
+            await self.until(pilot, lambda: isinstance(app.screen, actions.LabelFilterDialog),
+                             "the label dialog")
+            await pilot.pause()
+            dialog = app.screen
+            sl = dialog.query_one("#lf-list")
+            screen_h = size[1]
+            for bid in ("#lf-apply", "#lf-clear", "#lf-cancel"):
+                region = dialog.query_one(bid).region
+                self.assertGreater(region.height, 0, bid)
+                self.assertLessEqual(region.bottom, screen_h, f"{bid} on screen")
+                self.assertFalse(sl.region.overlaps(region), f"the list runs under {bid}")
+            # The last label is reachable: it scrolls into the list's viewport.
+            await pilot.press("end")
+            await pilot.pause()
+            line = sl._index_to_line[sl.highlighted]
+            top = int(sl.scroll_y)
+            self.assertTrue(top <= line < top + sl.scrollable_content_region.height)
+            await pilot.press("space")              # check the last label
+            await pilot.pause()
+            last = dialog.rows[-1][0]
+            self.assertTrue(await pilot.click(f"#{button}"), button)
+            await self.until(pilot, lambda: not isinstance(app.screen, actions.LabelFilterDialog),
+                             "the dialog closed by a click")
+            expected = {"apply": frozenset({last}), "clear": frozenset(),
+                        "cancel": frozenset()}[want]
+            self.assertEqual(app._label_filter, expected)
+
+    async def test_buttons_take_real_clicks_with_few_labels(self):
+        for size in self.SIZES:
+            for button, want in (("lf-apply", "apply"), ("lf-clear", "clear"),
+                                 ("lf-cancel", "cancel")):
+                with self.subTest(size=size, button=button):
+                    await self.check(size, button, want)
+
+    async def test_buttons_take_real_clicks_with_many_labels(self):
+        self.many_labels()
+        for size in self.SIZES:
+            for button, want in (("lf-apply", "apply"), ("lf-cancel", "cancel")):
+                with self.subTest(size=size, button=button):
+                    await self.check(size, button, want)
+
+    async def test_a_resize_in_place_keeps_the_highlight_visible(self):
+        # Review finding: fresh windows at fixed sizes missed the transition --
+        # shrinking an open dialog left the highlighted label outside the
+        # smaller viewport, and Space toggled a row nobody could see.
+        self.many_labels()
+        app = self.make_app()
+        async with app.run_test(size=(120, 30)) as pilot:
+            await pilot.pause()
+            await pilot.press("f")
+            await self.until(pilot, lambda: isinstance(app.screen, actions.LabelFilterDialog),
+                             "the label dialog")
+            dialog = app.screen
+            sl = dialog.query_one("#lf-list")
+            await pilot.press("end")
+            await pilot.pause()
+            last = sl.highlighted
+
+            def visible() -> bool:
+                line = sl._index_to_line[sl.highlighted]
+                top = int(sl.scroll_y)
+                return top <= line < top + sl.scrollable_content_region.height
+
+            for size in ((100, 16), (80, 10), (120, 30), (100, 12)):
+                with self.subTest(size=size):
+                    await pilot.resize_terminal(*size)
+                    await pilot.pause()
+                    await pilot.pause()
+                    self.assertEqual(sl.highlighted, last, "the selection is unchanged")
+                    self.assertTrue(visible(), f"highlight off-screen after resize to {size}")
+            await pilot.press("space")
+            await pilot.pause()
+            self.assertEqual(list(sl.selected), [dialog.rows[last][0]],
+                             "Space toggles the label the user sees highlighted")
+
+    async def test_two_labels_sharing_a_long_prefix_stay_distinct(self):
+        one, two = "a" * 40 + "one", "a" * 40 + "two"
+        aitasks = Path(self.root) / "aitasks"
+        path = aitasks / "t10_demo.md"
+        path.write_text(path.read_text().replace("labels: [sitrep, tui]", f"labels: [{one}]"))
+        path = aitasks / "archived" / "t20_recheck.md"
+        path.write_text(path.read_text().replace("labels: ['ui', '[b]x[/b]']",
+                                                 f"labels: [{two}]"))
+        app = self.make_app()
+        async with app.run_test(size=SIZE) as pilot:
+            await pilot.pause()
+            self.assertEqual(model.label_counts(app.store, app._metas), [(one, 1), (two, 1)])
+            app._apply_label_filter([one])
+            await pilot.pause()
+            items = [i for i in self.ids_in_list(app) if not i.startswith("hdr:")]
+            self.assertEqual(items, [f"c{self.ids['task']}"], "only the exact label matches")
+
+
+class RebuildHighlightMatrixTests(_RefinedCase):
+    """rebuild_highlight_matrix: filter x closed groups x the highlighted item
+    surviving the change or not."""
+
+    async def test_matrix(self):
+        task, done = f"c{self.ids['task']}", f"c{self.ids['done']}"
+        watch = f"c{self.ids['watch']}"
+        cases = [
+            # (start filter, start closed, highlight, change, expected)
+            ("off", False, task, "show", done),            # the show jump
+            ("off", True, done, "hide", "clamp"),          # hidden -> by position
+            ("off", True, task, "hide", task),             # survives
+            ("on", False, task, "show", task),             # no closed item passes
+            ("off", False, watch, "filter", "pos"),        # hidden by the filter
+            ("off", False, task, "filter", task),          # survives the filter
+            ("on", True, task, "unfilter", task),
+        ]
+        for start_filter, start_closed, highlight, change, expected in cases:
+            with self.subTest(case=(start_filter, start_closed, highlight, change)):
+                app = self.make_app()
+                async with app.run_test(size=SIZE) as pilot:
+                    await pilot.pause()
+                    if start_filter == "on":
+                        app._apply_label_filter(["tui"])
+                    if start_closed:
+                        app.action_toggle_closed()
+                    await pilot.pause()
+                    ol = self.ol(app)
+                    ol.highlighted = ol.get_option_index(highlight)
+                    pos = app._order.index(highlight)
+                    if change in ("show", "hide"):
+                        app.action_toggle_closed()
+                    elif change == "filter":
+                        app._apply_label_filter(["tui"])
+                    else:
+                        app._apply_label_filter([])
+                    await pilot.pause()
+                    got = ol.highlighted_option.id
+                    if expected == "clamp" or expected == "pos":
+                        want = app._order[min(pos, len(app._order) - 1)]
+                    else:
+                        want = expected
+                    self.assertEqual(got, want)
 
 
 class OpenInBoardTests(unittest.TestCase):
