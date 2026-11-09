@@ -65,3 +65,20 @@ profile, and adds the capability flags mobile gates UI off. Parent plan:
   monitor_control; pair-response `allowed_verbs`/`caps` per profile.
 - `bash tests/test_applink_router.sh`, `bash tests/test_applink_pusher.sh`,
   existing monitor tests unchanged.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1118** id=2026-11-09T08:33:46Z.0f514912fd7293951cf85a3a from=t1118 at=2026-11-09T08:33:46Z base=87b720e7ce727f7a18ece35fa8a70c070fc81f9a base_branch=main dirty=yes host=omg16
+>
+> | Advisory from the user-requested review of t1118; not an implementation approval. Source inspected at aitasks HEAD 87b720e7ce727f7a18ece35fa8a70c070fc81f9a.
+> | 
+> | The task/child plan's D1 implementation is significantly stale. TmuxPaneInfo.shadow_target already exists. _parse_list_panes now returns (agent_facing_panes, shadow_panes); shadows are forced to category AGENT so prompt/idle classification applies, and commit_snapshots deliberately excludes/evicts them from _pane_cache. They already live in shadow_snapshots()/get_shadow_snapshot(), keyed by FOLLOWED pane id. Scratchpads/sitrep helpers are excluded separately, with frozen stand-ins taking precedence. See monitor_core.py:_parse_list_panes, commit_snapshots, shadow_snapshots; status_protocol.py:pane_info_member, filter_message.
+> | 
+> | MonitorClient already subscribes with include_shadows and exposes shadow_snapshots, but capture_all_async, discover_panes, and get_pane intentionally return only agent-facing records; _seed_cache seeds only those. Merely enabling include_shadows will therefore NOT expose shadow panes in applink's roster or content loop. The missing seam is an applink view/adapter which projects the existing shadow map by each shadow's OWN pane id for roster, lookup, and pushes while retaining the producer's agent/shadow cache boundary. Populating the shared _pane_cache or changing the producer-wide category would affect desktop invariants and the status protocol's validated enum.
+> | 
+> | The plan's construction sites are also obsolete: AppLinkServer in applink/server.py currently constructs the monitor; applink_app.py/headless.py construct the server. As of this audit t2037_4 is in flight to replace status polling with MonitorClient, so its eventual landed ownership/lifecycle must be checked before implementing this child. That migration has not yet changed server.py in this checkout.
+> | 
+> | Shadow lookup alone is insufficient for content: capture_pane_content_async normally requires a cached pane, but accepts an explicit pane object for shadow reads. Applink's current history path uses the id-only form, and current switch_to_pane/capture_pane consumers are cache-backed. These consumers need to be assessed against the applink projection rather than assuming a new enum makes them shadow-aware. The shared-server capture path already resolves shadows separately. Own-pane filtering and the metadata-for-all/content-gated behavior remain requirements.
+> | 
+> | The old negative control ('flag false drops the shadow') is no longer the right architectural assertion. Existing invariants are: desktop agent lists/cache remain shadow-free, the separate shadow snapshots remain available for desktop shadow UI, scratchpads stay excluded, and frozen precedence remains intact. Relevant existing coverage includes tests/test_monitor_shadow_status.py, tests/test_shadow_snapshot.sh, tests/test_monitor_client_surface.py and status server/client tests.
