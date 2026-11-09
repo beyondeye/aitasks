@@ -287,3 +287,79 @@ contract to aitasks_go#t47 with `./ait note 47 --project aitasks_go`.
 
 ### Planned mitigations
 - timing: after | name: sitrep_window_live_check | type: manual_verification | priority: medium | effort: low | inline_risk: low | added_complexity: medium | addresses: live confirmation of the restart against the real pre-change server, the agent-sitrep single-item result, and upgrade-hook scoping | desc: Live check — --server-status shows the old server; --restart-server retires it and prints STARTED plus REPLACEMENT with the requested version at the same socket; agent-sitrep minimonitor lists exactly one item; a scratch ait upgrade retires only servers owned by the upgraded tree
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-09 11:40)
+- **Requested by user:** fix four review findings: the owner scope was missing
+  from the pre-signal recheck; a failed `ps` was read as absence; `--wait inf`
+  was accepted; the website promised a reconnect timing. Also check the
+  website coverage of the shared server and create a follow-up if it is
+  missing.
+- **Changes made:**
+  - `status_restart.py`:
+    - the pre-signal re-read now applies `owner` (→ `SKIPPED|other_owner`);
+    - `run_ps` returns `None` on any nonzero exit, so absence is proven only by
+      `kill(pid, 0)`, and a recheck that cannot read the args checks `kill`
+      before choosing `STALE` vs `ps_unavailable`;
+    - `_positive` requires a finite value, and `retire_one` raises on a
+      non-finite or non-positive `wait`.
+  - `reference.md`: "reconnect … automatically".
+  - Tests added: `InspectionFailureTests` (through the real `run_ps`; both
+    fail under the old `run_ps` — pre-fix control run), `OwnerRecheckTests`,
+    and `test_wait_must_be_finite`.
+  - Created t2256 (website docs for the shared monitor status server).
+- **Files affected:** `.aitask-scripts/monitor/status_restart.py`,
+  `tests/test_monitor_status_restart.py`,
+  `website/content/docs/tuis/monitor/reference.md`
+
+## Final Implementation Notes
+- **Actual work done:** as planned.
+  - `monitor/status_paths.py`: the stdlib path helpers moved out of
+    `status_server.py` (re-exported) and `list_server_sockets()` added.
+  - `monitor/status_restart.py`: stdlib verified-SIGTERM procedure, and the
+    owner-scoped `retire` CLI.
+  - `status_server.py` gained the `restart` (current tmux key only; in-process
+    `ensure_server(version=V)`; `REPLACEMENT:` probe) and `status` verbs.
+  - `ait monitor --restart-server` / `--server-status`: `aitask_monitor.sh`
+    intercepts them, and `monitor_app.py` declares them for `--help`.
+  - `aitask_setup.sh:report_monitor_server_restart` is called from
+    `install.sh` on existing installs.
+  - Docs: the protocol doc "Restart" section, and the website reference rows.
+  - Follow-ups created: t2253 (the deferred code identity / source watching /
+    mismatch signal) and t2256 (website docs gap).
+- **Deviations from plan:**
+  - `restart` refuses to run `ensure` after a `RETIRE_FAILED`, since `ensure`
+    would reuse the server that did not stop. It also reports
+    `REPLACEMENT_FAILED` when the probed pid equals the retired one.
+  - With `--owner-path`, a socket that something answers but no verifiable
+    process owns is reported as `SKIPPED|unverified`, not as a failure.
+  - The hook reports `MONITOR_SERVER:failed:helper_exit_<rc>` when the helper
+    cannot run.
+- **Issues encountered:**
+  - Scratch install verification: the first upgrade run left the scratch
+    server alive. The resolved `~/.aitask/bin/python3` is a shim to
+    `$HOME/.aitask/venv/bin/python`, missing under a scratch `HOME`, so it
+    exited 127. The hook had swallowed this silently; fixed by reporting the
+    helper failure, and covered by case 5 of the hook test. With
+    `AIT_PYTHON=/usr/bin/python3`, the scratch upgrade retired only the
+    scratch-owned server, and the real 0.40.1 server was untouched.
+  - Install-flow bash tests failed under `/tmp` with "Disk quota exceeded"
+    (per-user tmpfs quota exhausted by other sessions' leftovers). They pass
+    with a disk-backed `TMPDIR` (`test_install_changelog_preservation`,
+    `test_install_upgrade_dirty_baseline`,
+    `test_upgrade_prunes_retired_scripts`, `test_aitasks_home` 460/460).
+  - t2245 (another session) held uncommitted hunks in `status_server.py`,
+    `test_monitor_status_server_live.py` and the protocol doc. It committed
+    `a5763bd4e` with only its own hunks, and afterwards those files diffed
+    only by t2246's hunks. They were re-tested against the new HEAD (190
+    status-server tests passed).
+- **Key decisions:**
+  - Verified SIGTERM only: no `retire` protocol request and no SIGKILL; a hung
+    server is reported for manual recovery.
+  - Evidence is the process (`ps -ww` args `serve --socket <sock>` plus
+    `kill(pid, 0)`), never socket silence or the lock.
+  - The operator restart is scoped to the current tmux key; only the
+    owner-scoped upgrade hook scans every key and version.
+  - No `ait` dispatcher case: these are flags on `ait monitor`.
+- **Upstream defects identified:** None
