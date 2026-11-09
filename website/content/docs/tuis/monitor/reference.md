@@ -264,7 +264,7 @@ When monitor starts, it resolves which tmux session to watch using this decision
 |----------|---------|
 | `TMUX` | Set by tmux when inside a session. Monitor reads it to detect the current session name. Without it, monitor refuses to launch outside of a tmux context. |
 | `PYTHON` | Optional override for the Python interpreter used by the launcher (defaults to the shared `ait setup` venv). |
-| `AITASKS_MONITOR_SERVER` | Set to `0` to make monitor and minimonitor scan the panes themselves instead of sharing the background status server. If that server cannot be reached, they scan themselves anyway. |
+| `AITASKS_MONITOR_SERVER` | Set to `0` to make monitor, minimonitor and the App Linker scan the panes themselves instead of sharing the background status server. If that server cannot be reached, they scan themselves anyway. |
 | `AIT_MONITOR_RESTART` | Set to `0` to stop `ait upgrade` from restarting the background status servers started from the upgraded project. |
 
 ### Related Commands and TUIs

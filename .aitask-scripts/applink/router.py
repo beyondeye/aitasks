@@ -8,6 +8,14 @@ free of sockets, TLS, and asyncio so the dispatch logic — pairing, auth,
 ``PERMISSION_DENIED`` gating, the pull-model confirm round-trip, key translation
 — is unit-testable against a stub monitor.
 
+One reply is not built synchronously: ``cycle_compare_mode`` on a
+``MonitorClient`` (the shared monitor status server, t2037_4) returns a
+:class:`DeferredReply`. The authoritative answer comes from the status server,
+and awaiting it here would hold the connection's read loop for up to the
+client's request timeout, so the transport runs it in a task and sends the
+``res`` when it arrives — possibly after replies to later requests, which the
+envelope's ``id`` correlation allows.
+
 Verb inventory and payload schemas follow the canonical table in
 ``aidocs/applink/monitor_port_design.md``. The binary data plane
 (``snapshot``/``subscribe``/``request_keyframe``) and the workflow verbs
@@ -135,6 +143,22 @@ def result_frame(msg_id, verb, payload):
     return {"v": PROTOCOL_VERSION, "id": msg_id, "kind": "res", "verb": verb, "payload": payload}
 
 
+class DeferredReply:
+    """A reply the transport must produce later (t2037_4).
+
+    ``run`` is a zero-argument coroutine function returning the reply frame
+    (``res`` or ``err``); it never raises for the request's own failure. The
+    transport awaits it in a task of its own — never in the connection's read
+    loop — and sends what it returns."""
+
+    __slots__ = ("run", "msg_id", "verb")
+
+    def __init__(self, run, *, msg_id, verb) -> None:
+        self.run = run
+        self.msg_id = msg_id
+        self.verb = verb
+
+
 class ConnState:
     """Per-connection state the router reads and mutates.
 
@@ -188,6 +212,12 @@ class FrameRouter:
 
     def set_pair_profile(self, profile: str) -> None:
         self._pair_profile = profile
+
+    def set_monitor(self, monitor) -> None:
+        """Point dispatch at ``monitor`` (t2037_4): the server swaps in its
+        ``MonitorClient`` while a phone streams, and its plain ``TmuxMonitor``
+        otherwise."""
+        self._monitor = monitor
 
     # -- Entry point -----------------------------------------------------------
 
@@ -448,6 +478,12 @@ class FrameRouter:
             pane_id = self._req_pane_id(payload)
             if pane_id is None:
                 return self._bad_field(msg_id, verb, "pane_id")
+            cycle_async = getattr(self._monitor, "cycle_compare_mode_async", None)
+            if callable(cycle_async):
+                # A MonitorClient (chosen by type, never by its mode): the
+                # server owns the shared override, so its answer is the
+                # authoritative one. Off the read loop — see DeferredReply.
+                return self._deferred_compare(msg_id, verb, cycle_async, pane_id)
             mode, following = self._monitor.cycle_compare_mode(pane_id)
             return self._res(msg_id, verb, {"mode": mode, "following_default": bool(following)})
 
@@ -489,6 +525,22 @@ class FrameRouter:
 
         # Should be unreachable (verb membership checked by the caller).
         return self._err(msg_id, verb, ERR_INTERNAL, f"no dispatcher for '{verb}'")
+
+    def _deferred_compare(self, msg_id, verb, cycle_async, pane_id) -> DeferredReply:
+        async def run():
+            try:
+                mode, following = await cycle_async(pane_id)
+            except Exception as exc:  # noqa: BLE001 - RequestFailed, ConnectionLost,
+                # a request timeout, ReplayReadOnly: the request failed, the
+                # connection lives on. (CancelledError is not an Exception.)
+                self._audit.warning("COMPARE_MODE_FAILED pane=%s reason=%s",
+                                    pane_id, type(exc).__name__)
+                return self._err(msg_id, verb, ERR_INTERNAL,
+                                 "compare mode request failed",
+                                 detail={"reason": type(exc).__name__})
+            return self._res(msg_id, verb,
+                             {"mode": mode, "following_default": bool(following)})
+        return DeferredReply(run, msg_id=msg_id, verb=verb)
 
     # -- Modal-dialog handshakes (t822_11) -------------------------------------
 
@@ -631,8 +683,7 @@ class FrameRouter:
 
         def build_details():
             # Own pane: the cache miss `capture_pane` returned while excluded.
-            snap = (None if self._is_own_pane(pane_id)
-                    else self._monitor.capture_pane(pane_id))
+            snap = None if self._is_own_pane(pane_id) else self._status_snapshot(pane_id)
             if snap is None:
                 return self._err(msg_id, "restart_task", ERR_BAD_PAYLOAD,
                                  f"pane '{pane_id}' not found",
@@ -759,6 +810,23 @@ class FrameRouter:
         excluded it — so removing that exclusion opens nothing new.
         """
         return self._own_pane is not None and pane_id == self._own_pane
+
+    def _status_snapshot(self, pane_id):
+        """The pane's idle verdict as applink's view shows it (t2037_4).
+
+        A ``MonitorClient`` answers from the status server's idle clock
+        (``status_snapshot``); its local instance never scans while subscribed,
+        so a local ``capture_pane`` there would always read "not idle". A plain
+        ``TmuxMonitor`` (in-process) keeps today's live ``capture_pane``. Then
+        the same projection the push loop applies (``status_view``), so the
+        gate and the phone's badge agree about a parked agent."""
+        getter = getattr(self._monitor, "status_snapshot", None)
+        snap = getter(pane_id) if callable(getter) else self._monitor.capture_pane(pane_id)
+        if snap is None:
+            return None
+        from status_view import view_snapshots  # noqa: PLC0415 - lazy, like FROZEN_OPTION
+        return view_snapshots(self._monitor, {pane_id: snap},
+                              own_pane=self._own_pane).get(pane_id)
 
     def _cached_pane(self, pane_id):
         """``monitor.get_pane`` as this client may see it: never the own pane."""

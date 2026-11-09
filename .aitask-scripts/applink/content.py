@@ -544,6 +544,16 @@ class PaneState:
     last_keyframe_t: float = 0.0
     last_send_t: float = 0.0
     last_status_t: float = 0.0
+    # Last time the push loop asked the shared monitor status server to capture
+    # this pane (t2037_4). An ATTEMPT, kept apart from `last_send_t`: unchanged
+    # output sends nothing, and a send-driven clock would then re-request the
+    # pane on every pass instead of once per its cadence.
+    last_refresh_t: float = 0.0
+    # A parked placeholder was suppressed for this pane (t2037_4): its content
+    # baseline is no longer trusted, so the next LIVE snapshot goes out as a
+    # forced, self-contained keyframe — whatever its hash, whatever the cadence
+    # — and a recovery keyframe requested meanwhile is not lost.
+    resync_on_live: bool = False
     # Per-row signatures the client currently holds ({row_id: sig}); ``None`` means
     # no baseline yet -> the next frame must be a keyframe (t822_9 delta engine).
     row_sigs: Optional[dict] = None

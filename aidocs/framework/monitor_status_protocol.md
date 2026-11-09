@@ -1087,6 +1087,15 @@ other than the reader. The reader has to stay free to read the reply.
   `close_control_client()` instead. That bumps the generation, and each in-flight
   start retires its own backend when it finishes. `close()` waits up to 15 s for
   that.
+- **A shared client starts detached.** `start()` awaits its startup task
+  unshielded, so cancelling the first caller cancels the startup itself, and the
+  attempt then ends in `connecting` with no fallback and no reconnect. That is
+  harmless for an app that owns its client. Code that shares one client between
+  several callers, each of which can be cancelled on its own (applink: one push
+  loop per phone), calls the synchronous `start_detached()` from the owner of
+  the client's lifetime instead. The startup task then belongs to the client.
+  Every later `start()` only waits on the ready event, and only `close()`
+  cancels the startup.
 
 ### Reads
 
@@ -1100,7 +1109,14 @@ other than the reader. The reader has to stay free to read the reply.
   payload whose token is no longer current commits `None`, which is the
   "superseded, skip" contract the apps already honour.
 - **Projection stays with the app.** The client returns producer-equivalent,
-  unprojected snapshots. `client_view_snapshots(…)` still applies.
+  unprojected snapshots. `client_view_snapshots(…)` still applies. Its inputs
+  are on the client: `parked_pairs()` (the stream's `parked` set while serving,
+  empty otherwise) and `capture_pins` (this client's current pins).
+- **One pane's idle verdict.** `status_snapshot(pane_id)` answers from the
+  subscription in a subscribed mode, or `None` when the state does not hold the
+  pane. In `fallback` and while connecting it is the local `capture_pane`. It
+  is never a local capture while subscribed: the local instance does not scan
+  there, so its idle clock has never seen the pane.
 - **Compare mode.** `cycle_compare_mode_async` / `set_compare_mode_async` return
   the server's answer. The synchronous `cycle_compare_mode` / `set_compare_mode`
   send the request and return a prediction from the record, and the next delta
@@ -1195,6 +1211,79 @@ Both TUIs build their `TmuxMonitor` as before and wrap it with
   (monitor) keeps that instance in-process: the server applies each project's
   `project_config.yaml` and cannot honour a per-instance override.
   `AITASKS_MONITOR_SERVER=0` does the same for every instance.
+
+### Consumers: applink
+
+applink (`applink/server.py`) holds a subscription only while a phone streams.
+The mobile wire protocol is unchanged.
+
+- **Lifecycle.** The first connection that starts a push loop builds ONE
+  `MonitorClient` (`kind: applink`, no shadows) over a fresh local
+  `TmuxMonitor`, and starts it detached. Every phone's push loop and the
+  router then read through it. When the last push loop stops, the client is
+  detached first and then closed. The router goes back to the in-process
+  `TmuxMonitor`, which serves verbs from a connection without a push loop and
+  the first `subscribe`'s roster expansion. An idle applink therefore holds no
+  subscription, and the server scans nothing on its behalf.
+  - **Why a fresh local per client.** Closing a client releases its seeded
+    pane cache and closes its local control client. Two lifetimes sharing one
+    local could therefore undo each other.
+- **Routing.**
+
+  | Call | Served by |
+  |---|---|
+  | `pane_status` and content frames | the subscription |
+  | the router's `restart_task` idle gate | `status_snapshot` |
+  | roster expansion and pane lookups | the subscription |
+  | actions (`send_keys`, kill, focus, `spawn_tui`) | the local gateway |
+  | the per-frame cursor (`capture_cursor_async`) | the local gateway |
+  | history pulls (`capture_pane_content_async`, applink's own depth bound) | the local gateway |
+
+  applink sends no wire `capture`.
+- **Refresh cadence.** The subscription moves on the server's tick (≥ 1 s), and
+  a phone asks for its own cadence: 300 ms for the focused pane, and a
+  `cadence_idle_ms` down to 500 ms, which is how a read-only client, without
+  `focus`, asks for speed. So before each read, a push pass sends one batched
+  `refresh{panes}`.
+  - **Which panes.** Every content pane the subscription holds that is forced,
+    or whose cadence is due since the pane's last refresh **attempt**. Attempts
+    are timed separately from content sends, so an unchanged pane is captured
+    once per cadence, not once per pass.
+  - Status-only panes stay on the background tick.
+  - The pass publishes the pins, then calls `flush_pins()`, then sends the
+    refresh, then reads.
+  - The push loop is per connection, so a stalled server delays only that
+    phone's next push, never its request loop.
+- **Pins.** applink pins the `(session, window)` of every pane that a phone,
+  not paused, streams content for. A parked agent a phone watches is therefore
+  captured live. The pins are republished after every routed frame (subscribe,
+  pause, resume, focus) and on every connection removal, not only from push
+  passes, which a pause or an empty roster never runs.
+- **The parked view.** Both the push loop and the restart gate project through
+  `client_view_snapshots(parked_pairs=client.parked_pairs(),
+  pins=client.capture_pins)`. A parked agent that only another subscriber pins
+  shows as parked to applink.
+  - A parked placeholder (empty content) gets its `pane_status` but never a
+    content frame.
+  - Suppressing one invalidates that pane's content baseline and marks it for
+    resync. The first live snapshot after it therefore goes out as a forced
+    keyframe, even when its content is unchanged. A recovery keyframe requested
+    meanwhile is not lost, and the phone never gets a delta against a baseline
+    it may not hold.
+- **`cycle_compare_mode`.** The router hands it to the transport as a deferred
+  reply. A task awaits `cycle_compare_mode_async` and sends the `res` (or
+  `err INTERNAL`) when the server answers, while the read loop handles the next
+  frame. That `res` can therefore arrive after replies to later requests; the
+  envelope pairs replies by `id`.
+  - **The bound.** A connection may have at most `MAX_DEFERRED_PER_CONN` (4)
+    deferred replies in flight. The check runs before a task is created, and an
+    excess request is answered at once with `err INTERNAL`,
+    `detail.reason: too_many_pending`. A slow or silent status server therefore
+    never grows tasks or pending requests without bound, and ordinary input stays
+    responsive.
+- **In-process.** `AITASKS_MONITOR_SERVER=0` means no client at all: applink
+  runs on its in-process `TmuxMonitor` exactly as it did before the status
+  server existed.
 
 ## Python codec reference
 

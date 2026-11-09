@@ -27,6 +27,16 @@ scrolled up by ``k`` rows with ``k`` brand-new bottom rows
 it sends only the new bottom rows. It falls back to ``delta`` when the shift does
 not hold, the cursor moved, or an appended row carries a hyperlink (``append``
 carries no cursor and no ``osc8`` sidecar).
+
+Shared status server (t2037_4): while a phone streams, ``monitor`` is a
+``MonitorClient`` and ``capture_all_async`` only READS the subscription, which
+the server refreshes on its own background tick (≥ 1 s, 3 s by default). So
+before the read each pass batches one ``request_refresh(panes=[…])`` for the
+content panes whose requested cadence is due (the focused pane's 300 ms, a
+read-only client's fast idle cadence) plus the forced ones, after publishing the
+pins and flushing them. Status-only panes stay on the background tick. A parked
+placeholder (empty content) never becomes a content frame. With a plain
+``TmuxMonitor`` the pass is exactly the in-process one.
 """
 from __future__ import annotations
 
@@ -45,7 +55,8 @@ for _p in (str(_APPLINK_DIR), str(_SCRIPTS_DIR)):
 
 import content  # noqa: E402
 from monitor.monitor_core import task_id_from_window_name  # noqa: E402
-from monitor.monitor_core import client_view_snapshots  # noqa: E402  (t2034_2)
+from monitor.status_client import MonitorClient  # noqa: E402  (t2037_4)
+from status_view import view_snapshots  # noqa: E402  (t2034_2 / t2037_4)
 
 # Back-pressure high-water mark (content_transport.md §Back-pressure).
 HIGH_WATER_BYTES = 256 * 1024
@@ -73,10 +84,16 @@ class PushScheduler:
         history_capture_lines=DEFAULT_HISTORY_CAPTURE_LINES,
         task_resolver=None,
         own_pane: str | None = None,
+        publish_pins=None,
     ) -> None:
         self._conn = conn
         self._ws = ws
         self._monitor = monitor
+        # The server's pin publisher (t2037_4), re-run before each requested
+        # capture so a pane that moved window is pinned under its new pair. Not
+        # the only publisher: the server also publishes on every routed frame
+        # and on connection removal, which run even when no pass can.
+        self._publish_pins = publish_pins
         # This server's own pane (t2034_2) — never pushed, never history-pulled.
         # See `FrameRouter._is_own_pane` for the admission rule.
         self._own_pane = own_pane or None
@@ -155,11 +172,16 @@ class PushScheduler:
             return
         if self._over_high_water():
             return  # coalesce: skip this tick's sends, keep force set intact
+        if isinstance(self._monitor, MonitorClient):
+            # Routed by type, never by the client's mode: in fallback every call
+            # below returns at once and the read is the in-process scan.
+            await self._prepare_server_read(sub)
+            if self._stopped:
+                return
         snaps = await self._monitor.capture_all_async()
         if snaps is None:
             return  # superseded by a newer overlapping capture (t1111_4); skip tick
-        if self._own_pane is not None:
-            snaps = client_view_snapshots(snaps, own_pane=self._own_pane)
+        snaps = view_snapshots(self._monitor, snaps, own_pane=self._own_pane)
         if self._tasks is not None:
             update_mapping = getattr(self._tasks, "update_session_mapping", None)
             get_mapping = getattr(self._monitor, "get_session_to_project_mapping", None)
@@ -195,6 +217,55 @@ class PushScheduler:
             return  # a live send failed: do not touch a dead socket
         if sub.has_pending_history():
             await self._drain_history(sub)
+
+    def _refresh_targets(self, sub, now: float) -> list[str]:
+        """The panes this pass asks the status server to capture (t2037_4).
+
+        A content pane that is forced (a subscribe, a ``request_keyframe``, a
+        resize) or whose requested cadence is due since the last refresh
+        ATTEMPT. ``cadence_for`` is the focused cadence for the focused pane and
+        the idle cadence for every other one, so the focused pane and a
+        read-only client's fast ``cadence_idle_ms`` go through one rule.
+        Status-only panes are never requested (the background tick serves
+        their ``pane_status``), and neither is a pane the subscription no
+        longer holds, so a gone pane cannot cost a request every pass."""
+        want = []
+        for pane_id in sorted(sub.panes):
+            if not sub.streams_content(pane_id):
+                continue
+            if self._own_pane is not None and pane_id == self._own_pane:
+                continue
+            if self._monitor.get_pane(pane_id) is None:
+                continue
+            st = sub.state_for(pane_id)
+            if (pane_id in sub.force
+                    or now - st.last_refresh_t >= sub.cadence_for(pane_id) / 1000.0):
+                want.append(pane_id)
+        return want
+
+    async def _prepare_server_read(self, sub) -> None:
+        """Pins, then one batched refresh, before the subscription read.
+
+        The order is load-bearing: the pins must reach the server before the
+        refresh, or a newly streamed parked pane is captured under the old pins
+        and arrives as an empty placeholder (``flush_pins``, t2037_3)."""
+        monitor = self._monitor
+        # The server started the client detached; this only waits for the first
+        # attempt to resolve, and cancelling this pass cannot cancel it.
+        await monitor.start()
+        if self._publish_pins is not None:
+            try:
+                self._publish_pins()
+            except Exception:
+                self._audit.warning("PUSH_PINS_ERROR", exc_info=True)
+        now = self._clock()
+        want = self._refresh_targets(sub, now)
+        if not want:
+            return
+        for pane_id in want:
+            sub.state_for(pane_id).last_refresh_t = now   # the attempt, whatever comes back
+        await monitor.flush_pins()
+        await monitor.request_refresh(panes=want)
 
     async def _drain_history(self, sub) -> None:
         """Serve queued scrollback pulls as single negative-row-id keyframes.
@@ -269,6 +340,28 @@ class PushScheduler:
         if not sub.streams_content(pane_id):
             sub.force.discard(pane_id)
             return
+
+        # A parked placeholder (t2037_4) carries no content: under the shared
+        # status server a parked agent nobody pins is not captured. Sending it
+        # as a keyframe would blank the phone's terminal, so it gets the
+        # heartbeat above only. The content baseline is invalidated and the
+        # pane marked for resync: the first LIVE snapshot after it is a forced,
+        # self-contained keyframe, even when its content is unchanged, so a
+        # recovery keyframe requested meanwhile (`force`) is honoured then.
+        # `force` itself is cleared, so a pane that stays parked does not draw a
+        # refresh request on every pass.
+        if getattr(snap, "parked", False):
+            st.row_sigs = None
+            st.last_hash = None
+            st.resync_on_live = True
+            sub.force.discard(pane_id)
+            return
+        if st.resync_on_live:
+            # Back into `force`, which only a delivered (or finally dropped)
+            # frame clears below — a send that fails keeps the resync.
+            st.resync_on_live = False
+            sub.force.add(pane_id)
+            forced = True
 
         # dim on resize (then force a fresh keyframe at the new size).
         dim_changed = st.last_dims is not None and st.last_dims != dims

@@ -1298,5 +1298,133 @@ class CloseTests(ClientCase):
         self.assertEqual(c._bg, set())
 
 
+# ---------------------------------------------------------------------------
+# Shared-client support (t2037_4: applink, one client for every phone)
+# ---------------------------------------------------------------------------
+
+class HeldEnsure:
+    """An `ensure` the test releases: the attempt runs in `to_thread`, so a
+    `threading.Event` holds it while the test cancels callers."""
+
+    def __init__(self, inner):
+        self.inner = inner
+        self.release = threading.Event()
+        self.entered = threading.Event()
+
+    def __call__(self, **kw):
+        self.entered.set()
+        self.release.wait(5.0)
+        return self.inner(**kw)
+
+
+class SharedClientTests(ClientCase):
+
+    async def test_a_cancelled_waiter_never_cancels_a_detached_start(self):
+        """Phone A's push loop is cancelled while the shared client is still
+        starting; phone B must still get a subscribed client.
+
+        Positive control (recorded): let the first waiter own the start —
+        `asyncio.create_task(c.start())` instead of `c.start_detached()` — and
+        cancelling it leaves the client in `connecting`: started, ready, no
+        reconnect task, never subscribed. This test then fails on the mode."""
+        await self.real_server({"%1": fx.snap(fx.pane("%1"), "one")})
+        held = HeldEnsure(self.ensure)
+        c = self.client(ensure=held)
+        c.start_detached()
+        a = asyncio.create_task(c.start())
+        b = asyncio.create_task(c.start())
+        await asyncio.to_thread(held.entered.wait, 3.0)
+        a.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await a
+        held.release.set()
+        self.assertTrue(await asyncio.wait_for(b, 3.0))
+        self.assertIs(c.mode, sc.ClientMode.SERVER)
+        self.assertIn("%1", await c.capture_all_async())
+
+    async def test_a_cancelled_waiter_still_reaches_fallback_with_a_reconnect(self):
+        held = HeldEnsure(self.ensure)
+        self.ensure.results = [ss.EnsureResult("UNAVAILABLE", "no_tmux_server", None)]
+        c = self.client(ensure=held)
+        c.start_detached()
+        a = asyncio.create_task(c.start())
+        b = asyncio.create_task(c.start())
+        await asyncio.to_thread(held.entered.wait, 3.0)
+        a.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await a
+        held.release.set()
+        await asyncio.wait_for(b, 3.0)
+        self.assertIs(c.mode, sc.ClientMode.FALLBACK)
+        self.assertIsNotNone(c._reconnect_task)
+        self.assertFalse(c._reconnect_task.done())
+
+    async def test_close_cancels_a_held_detached_start(self):
+        held = HeldEnsure(self.ensure)
+        c = self.client(ensure=held)
+        c.start_detached()
+        waiter = asyncio.create_task(c.start())
+        await asyncio.to_thread(held.entered.wait, 3.0)
+        await asyncio.wait_for(c.close(), 3.0)
+        held.release.set()
+        self.assertTrue(await asyncio.wait_for(waiter, 3.0), "a waiter hung on close")
+        self.assertTrue(c._closed)
+        self.assertTrue(c._start_task.done())
+
+    async def test_start_detached_is_idempotent(self):
+        c = self.client()
+        c.start_detached()
+        task = c._start_task
+        c.start_detached()
+        self.assertIs(c._start_task, task)
+        await c.start()
+        await c.close()
+        c2 = self.client()
+        await c2.close()
+        c2.start_detached()
+        self.assertIsNone(c2._start_task, "a closed client never starts")
+
+    async def test_status_snapshot_reads_the_subscription_never_a_local_capture(self):
+        idle = fx.snap(fx.pane("%1"), "one")
+        idle = dataclasses.replace(idle, idle_seconds=42.0, is_idle=True)
+        await self.real_server({"%1": idle})
+        local = FakeLocal()
+        local.capture_pane = mock.Mock(side_effect=AssertionError("local capture"))
+        c = self.client(local)
+        await c.start()
+        got = c.status_snapshot("%1")
+        self.assertTrue(got.is_idle)
+        self.assertEqual(got.idle_seconds, 42.0)
+        self.assertIsNone(c.status_snapshot("%404"))
+
+    async def test_status_snapshot_in_fallback_is_the_local_capture(self):
+        self.ensure.results = [ss.EnsureResult("UNAVAILABLE", "no_tmux_server", None)]
+        local = FakeLocal()
+        sentinel = object()
+        local.capture_pane = mock.Mock(return_value=sentinel)
+        c = self.client(local)
+        await c.start()
+        self.assertIs(c.mode, sc.ClientMode.FALLBACK)
+        self.assertIs(c.status_snapshot("%9"), sentinel)
+        local.capture_pane.assert_called_once_with("%9")
+
+    async def test_parked_pairs_and_capture_pins(self):
+        _, _, marks = await self.real_server({"%1": fx.snap(fx.pane("%1"), "one")})
+        marks.parked = {(os.path.realpath(str(self.root)), "agent-p7")}
+        c = self.client(pins={(SESSION, "agent-p7")})
+        self.assertEqual(c.parked_pairs(), frozenset(), "not serving yet")
+        await c.start()
+        self.assertEqual(c.parked_pairs(), {(SESSION, "agent-p7")})
+        self.assertEqual(c.capture_pins, {(SESSION, "agent-p7")})
+        c.set_capture_pins(CAPTURE_PIN_ALL)
+        self.assertIs(c.capture_pins, CAPTURE_PIN_ALL)
+
+    async def test_parked_pairs_are_empty_in_fallback(self):
+        self.ensure.results = [ss.EnsureResult("UNAVAILABLE", "no_tmux_server", None)]
+        c = self.client()
+        await c.start()
+        self.assertEqual(c.parked_pairs(), frozenset())
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

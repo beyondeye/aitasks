@@ -8,11 +8,26 @@ delegated to ``monitor_core`` via the router; this module only moves frames and
 manages connection lifecycle.
 
 The binary snapshot/data plane is NOT here — it is the next sibling (t822_8).
+
+Pane status (t2037_4). While at least one connection has a push loop, the
+server holds ONE ``MonitorClient`` subscribed to the shared monitor status
+server (``aidocs/framework/monitor_status_protocol.md``): the router and every
+push loop read status from it, and the actions go through its own fresh local
+``TmuxMonitor``. The client starts detached (its startup belongs to its
+lifetime, so one phone leaving mid-startup cannot cancel it for the others) and
+is closed when the last push loop stops, so an idle applink holds no
+subscription and the status server scans nothing on its behalf. The capture
+pins — the windows any phone streams content for — are republished after every
+routed frame and on every connection removal. With no push loop, or with
+``AITASKS_MONITOR_SERVER=0``, everything runs on the in-process ``TmuxMonitor``
+exactly as before.
 """
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
+import logging
 import os
 import sys
 from pathlib import Path
@@ -26,9 +41,12 @@ for _p in (str(_APPLINK_DIR), str(_SCRIPTS_DIR)):
 from monitor.monitor_core import (  # noqa: E402
     TmuxMonitor, TaskInfoCache, load_monitor_config,
 )
+from monitor.status_client import (  # noqa: E402
+    ENV_SWITCH as MONITOR_SERVER_ENV, MonitorClient,
+)
 from router import (  # noqa: E402
-    FrameRouter, ConnState, error_frame,
-    ERR_BAD_PAYLOAD, STATE_DISCOVERING, STATE_SUSPENDED,
+    FrameRouter, ConnState, DeferredReply, error_frame,
+    ERR_BAD_PAYLOAD, ERR_INTERNAL, STATE_DISCOVERING, STATE_SUSPENDED,
 )
 from pusher import PushScheduler  # noqa: E402
 import paths  # noqa: E402
@@ -54,6 +72,10 @@ MAX_FRAME_BYTES = 64 * 1024  # max inbound WebSocket frame (control frames are t
 MAX_PREAUTH_FRAMES = 16     # frames allowed before a successful pair/resume
 PREAUTH_TIMEOUT = 15.0      # seconds an unauthenticated socket may live
 OPEN_TIMEOUT = 10.0         # TLS/WS opening-handshake deadline (slow-loris)
+# Deferred replies one connection may have in flight (t2037_4): each holds a
+# task and a pending status-server request until the server answers. Admission
+# is checked BEFORE a task is created; an excess request is answered at once.
+MAX_DEFERRED_PER_CONN = 4
 # v1 default permission profile assigned to a freshly paired device. The single
 # source of truth for this default across the package (the TUI runtime, the
 # server constructor, and the headless runner all reference it).
@@ -148,8 +170,24 @@ def load_applink_config(project_root) -> dict:
     }
 
 
+def monitor_server_enabled() -> bool:
+    """``AITASKS_MONITOR_SERVER`` — the same rule ``MonitorClient`` applies."""
+    return os.environ.get(MONITOR_SERVER_ENV, "1").strip() != "0"
+
+
 class AppLinkServer:
     """Owns the WebSocket listener, the TmuxMonitor, and the frame router."""
+
+    # Class-level defaults (t2037_4) so a server built with `__new__` (the
+    # transport tests) keeps the in-process path: no status-server client.
+    _use_status_server = False
+    _client = None
+    _client_ensure = None          # injected `ensure` for the client (tests)
+    _client_config = None          # TmuxMonitor kwargs for each client's local
+    _local_factory = None          # builds each client's local (tests); else TmuxMonitor
+    _project_root = None
+    _deferred = None               # conn -> in-flight DeferredReply tasks
+    _status_log = None
 
     def __init__(
         self,
@@ -191,14 +229,22 @@ class AppLinkServer:
         # The producer scans every session and excludes nothing (t2034_2); this
         # server's own pane is filtered client-side by the router and pushers.
         self._own_pane = os.environ.get("TMUX_PANE") or None
-        self._monitor = TmuxMonitor(
-            session=DEFAULT_SESSION,
-            capture_lines=config["capture_lines"],
-            idle_threshold=config["idle_threshold"],
-            agent_prefixes=config["agent_prefixes"],
-            tui_names=config["tui_names"],
-            compare_mode_default=config["compare_mode_default"],
-        )
+        self._project_root = project_root
+        self._client_config = {
+            "session": DEFAULT_SESSION,
+            "capture_lines": config["capture_lines"],
+            "idle_threshold": config["idle_threshold"],
+            "agent_prefixes": config["agent_prefixes"],
+            "tui_names": config["tui_names"],
+            "compare_mode_default": config["compare_mode_default"],
+        }
+        # The in-process monitor: the router's monitor whenever no client
+        # exists, and the only one with AITASKS_MONITOR_SERVER=0.
+        self._monitor = TmuxMonitor(**self._client_config)
+        self._use_status_server = monitor_server_enabled()
+        self._client: MonitorClient | None = None
+        self._deferred: dict[ConnState, set] = {}
+        self._status_log = logging.getLogger("applink.status")
         self._task_cache = TaskInfoCache(project_root)
         self._router = FrameRouter(
             session_table, profile_gate, self._monitor,
@@ -217,11 +263,16 @@ class AppLinkServer:
             self.error = "TLS certificate unavailable (is openssl installed?)"
             self._notify()
             return
-        try:
-            await self._monitor.start_control_client()
-        except Exception:
-            # Subprocess fallback still works; control client is an optimization.
-            pass
+        if not self._use_status_server:
+            # In-process only (AITASKS_MONITOR_SERVER=0). With the status server
+            # the stream belongs to it, and a client in fallback starts its own
+            # local control client — so the idle in-process monitor parses
+            # nothing.
+            try:
+                await self._monitor.start_control_client()
+            except Exception:
+                # Subprocess fallback still works; control client is an optimization.
+                pass
         try:
             self._ws_server = await websockets.serve(
                 self._handle, self._host, self._port, ssl=self._ssl,
@@ -258,6 +309,14 @@ class AppLinkServer:
             except Exception:
                 pass
             self._ws_server = None
+        for tasks in list((self._deferred or {}).values()):
+            for task in list(tasks):
+                task.cancel()
+        client, self._client = self._client, None
+        if client is not None:
+            self._router.set_monitor(self._monitor)
+            with contextlib.suppress(Exception):
+                await client.close()
         try:
             await self._monitor.close_control_client()
         except Exception:
@@ -313,13 +372,27 @@ class AppLinkServer:
                 reply = self._route_raw(raw, conn)
                 if conn.bearer is not None:
                     self._sessions.touch(conn.bearer)
-                if reply is not None:
+                if isinstance(reply, DeferredReply):
+                    # Answered by a task of its own; this loop never waits on
+                    # the status server (t2037_4). Bounded per connection: an
+                    # excess request is refused now, with no task created.
+                    if not self._spawn_deferred(conn, ws, reply):
+                        await ws.send(json.dumps(error_frame(
+                            reply.msg_id, reply.verb, ERR_INTERNAL,
+                            "too many requests awaiting the monitor status server",
+                            detail={"reason": "too_many_pending",
+                                    "limit": MAX_DEFERRED_PER_CONN})))
+                elif reply is not None:
                     await ws.send(json.dumps(reply))
                 # A live subscription means the data plane is active: start (once)
                 # a per-connection push loop and wake it so subscribe /
                 # request_keyframe flush their forced keyframes immediately.
                 if conn.subscription is not None and conn.subscription.panes:
                     self._ensure_pusher(conn, ws).wake()
+                # Any frame may have changed what this phone streams (subscribe,
+                # pause/resume, focus): republish the pins now, not only from a
+                # push pass, which a pause or an empty roster never runs.
+                self._publish_pins()
                 if conn.close_requested:
                     await ws.close()
                     break
@@ -328,11 +401,17 @@ class AppLinkServer:
             pass
         finally:
             watchdog.cancel()
+            for task in (self._deferred or {}).pop(conn, set()):
+                task.cancel()
             pusher = self._pushers.pop(conn, None)
             if pusher is not None:
                 await pusher.stop()
             self._conns.discard(conn)
             self._live.pop(conn, None)
+            # This phone's streamed windows leave the union even when every
+            # remaining phone is paused, then the client goes if nobody streams.
+            self._publish_pins()
+            await self._release_client_if_idle()
             remaining = self._conns_by_ip.get(ip, 0) - 1
             if remaining <= 0:
                 self._conns_by_ip.pop(ip, None)
@@ -376,16 +455,123 @@ class AppLinkServer:
         """Return the connection's PushScheduler, starting it on first use."""
         pusher = self._pushers.get(conn)
         if pusher is None:
+            monitor = self._acquire_status_monitor()
             pusher = PushScheduler(
-                conn, ws, self._monitor, audit=self._audit,
+                conn, ws, monitor, audit=self._audit,
                 history_capture_lines=getattr(
                     self, "_history_capture_lines", DEFAULT_HISTORY_CAPTURE_LINES),
                 task_resolver=getattr(self, "_task_cache", None),
                 own_pane=getattr(self, "_own_pane", None),
+                publish_pins=self._publish_pins if monitor is self._client else None,
             )
             self._pushers[conn] = pusher
             pusher.start()
         return pusher
+
+    # -- Status-server client (t2037_4) -----------------------------------------
+
+    def _acquire_status_monitor(self):
+        """The monitor a new push loop reads: the shared client (built on the
+        first push loop), or the in-process monitor when the status server is
+        disabled."""
+        if not self._use_status_server:
+            return self._monitor
+        if self._client is None:
+            self._client = self._build_client()
+            self._router.set_monitor(self._client)
+        return self._client
+
+    def _build_client(self) -> MonitorClient:
+        """A client over a FRESH local ``TmuxMonitor``, started detached.
+
+        Fresh, because a closing client releases its seeded pane cache and
+        closes its local control client: two lifetimes sharing one local would
+        let an old client's close wipe a new one's seed. Detached, because the
+        client is shared by every phone's push loop — the startup must belong
+        to the client, so one loop's cancellation cannot leave it stuck in
+        ``connecting`` (only ``close`` cancels it)."""
+        factory = self._local_factory
+        local = factory() if factory is not None else TmuxMonitor(**self._client_config)
+        log = self._status_log
+        client = MonitorClient(
+            local, kind="applink", own_pane=self._own_pane, session=DEFAULT_SESSION,
+            project_root=self._project_root, include_shadows=False, pins=frozenset(),
+            ensure=self._client_ensure,
+            log=log.info if log is not None else None,
+        )
+        client.start_detached()
+        return client
+
+    async def _release_client_if_idle(self) -> None:
+        """Close the client once no push loop remains. Detach first, so a
+        connection arriving during the close builds a new client."""
+        client = self._client
+        if client is None or self._pushers:
+            return
+        self._client = None
+        self._router.set_monitor(self._monitor)
+        with contextlib.suppress(Exception):
+            await client.close()
+
+    def _streamed_pins(self) -> frozenset:
+        """``(session, window)`` of every pane any non-paused phone streams
+        content for — the capture pins applink sends. A parked agent a phone
+        watches is then captured live; status-only panes are not pinned."""
+        client = self._client
+        if client is None:
+            return frozenset()
+        pairs = set()
+        for conn in list(self._pushers):
+            sub = conn.subscription
+            if sub is None or conn.paused:
+                continue
+            for pane_id in sub.panes:
+                if not sub.streams_content(pane_id):
+                    continue
+                pane = client.get_pane(pane_id)
+                if pane is not None:
+                    pairs.add((pane.session_name, pane.window_name))
+        return frozenset(pairs)
+
+    def _publish_pins(self) -> None:
+        """Send the current pin union (a no-op unless it changed)."""
+        client = self._client
+        if client is None:
+            return
+        try:
+            client.set_capture_pins(self._streamed_pins())
+        except Exception:
+            self._audit.warning("STATUS_PINS_ERROR", exc_info=True)
+
+    def _spawn_deferred(self, conn: ConnState, ws, reply: DeferredReply) -> bool:
+        """Answer ``reply`` from a task of its own, tracked per connection and
+        cancelled when the connection ends (nothing is sent after that).
+
+        Returns False — creating nothing — when the connection already has
+        ``MAX_DEFERRED_PER_CONN`` in flight, so a slow or silent status server
+        cannot grow tasks and pending requests without bound."""
+        if self._deferred is not None and \
+                len(self._deferred.get(conn, ())) >= MAX_DEFERRED_PER_CONN:
+            self._audit.warning("DEFERRED_REJECTED verb=%s reason=too_many_pending",
+                                reply.verb)
+            return False
+
+        async def answer():
+            try:
+                frame = await reply.run()
+            except Exception:
+                frame = error_frame(reply.msg_id, reply.verb, ERR_INTERNAL,
+                                    "request failed")
+            with contextlib.suppress(Exception):
+                await ws.send(json.dumps(frame))
+
+        if self._deferred is None:
+            self._deferred = {}
+        task = asyncio.ensure_future(answer())
+        tasks = self._deferred.setdefault(conn, set())
+        tasks.add(task)
+        task.add_done_callback(tasks.discard)
+        return True
 
     def _route_raw(self, raw, conn: ConnState):
         try:

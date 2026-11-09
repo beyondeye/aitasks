@@ -56,7 +56,13 @@ PANE_ID="$(tmux list-panes -t "$SESS" -F '#{pane_id}' 2>/dev/null | head -1)"
 
 # Launch the bridge with NO controlling TTY (setsid), via the real launcher, on
 # the chosen free port. stdout/stderr captured to $LOG.
-setsid bash "$PROJECT_DIR/.aitask-scripts/aitask_monitor.sh" \
+#
+# AITASKS_MONITOR_SERVER=0 keeps the bridge in-process (t2037_4). This test runs
+# on the developer's REAL tmux server, and in server mode the subscribe below
+# would start a shared monitor status server there. The status-server path is
+# covered on an isolated socket by tests/test_applink_status_subscribe_live.py;
+# this test's scope is the no-TTY start and the TLS round-trip.
+AITASKS_MONITOR_SERVER=0 setsid bash "$PROJECT_DIR/.aitask-scripts/aitask_monitor.sh" \
     --headless-for-applink --port "$PORT" >"$LOG" 2>&1 &
 HL_PID=$!
 

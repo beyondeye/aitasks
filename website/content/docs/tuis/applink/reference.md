@@ -55,6 +55,13 @@ the envelope and pairing flow, `aidocs/applink/permissions.md` for the
 permission profiles, and `aidocs/applink/monitor_port_design.md` for the
 command-verb inventory.
 
+While at least one paired device is streaming, the App Linker reads pane
+status from the background monitor status server, the one `ait monitor` and
+`ait minimonitor` share, instead of scanning every pane itself. With no
+device connected it holds no subscription. Set `AITASKS_MONITOR_SERVER=0` to
+make it scan the panes itself; it also does so whenever that server cannot be
+reached.
+
 Permission profiles live in `aitasks/metadata/applink_profiles/*.yaml`
 (`read_only`, `monitor_control`, `full`). Validate a profile with:
 

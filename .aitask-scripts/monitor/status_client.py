@@ -119,7 +119,7 @@ READ_SURFACE_NAMES = frozenset({
     "capture_all_async", "capture_all_classified_async", "capture_generation",
     "commit_snapshots", "capture_pane_classified_async", "commit_snapshot",
     "refresh_shadow_snapshot", "get_shadow_snapshot", "shadow_snapshots",
-    "get_pane", "discover_panes",
+    "get_pane", "discover_panes", "status_snapshot",
     "get_session_to_project_mapping", "get_session_to_project_mapping_async",
     "get_compare_mode", "is_compare_mode_overridden", "get_last_change_wall",
     "set_compare_mode", "cycle_compare_mode", "control_state",
@@ -414,6 +414,25 @@ class MonitorClient:
                 self._enter_fallback(self.last_error, reconnect=True)
         finally:
             self._ready.set()
+
+    def start_detached(self) -> None:
+        """Begin the first attempt without any caller owning it (t2037_4).
+
+        :meth:`start` awaits its startup task unshielded, so cancelling the
+        first caller cancels the startup for everyone; the attempt then ends in
+        ``connecting`` with neither a fallback nor a reconnect. One app owns its
+        client, so that is harmless there. A client SHARED by several callers
+        (applink: one per phone connection) calls this instead, from the code
+        that owns the client's lifetime: the startup task belongs to the client,
+        every later :meth:`start` only waits on the ready event (cancellable
+        without effect), and only :meth:`close` cancels the startup.
+
+        Synchronous, so the owner needs no await to claim it; needs a running
+        event loop. Idempotent, and a no-op once started or closed."""
+        if self._started or self._closed:
+            return
+        self._started = True
+        self._start_task = asyncio.get_running_loop().create_task(self._start_body())
 
     async def start_control_client(self) -> bool:
         """Alias of :meth:`start` — the call the apps make at mount."""
@@ -1073,6 +1092,23 @@ class MonitorClient:
             return {}
         return self._local.shadow_snapshots()
 
+    def status_snapshot(self, pane_id: str):
+        """One pane's status snapshot, for a gate that reads the idle verdict
+        (applink's ``restart_task``, t2037_4).
+
+        Subscribed: the subscription's snapshot — the server's idle clock — or
+        ``None`` when the state does not hold the pane. Fallback (and while
+        connecting): the local instance's live ``capture_pane``, exactly the
+        in-process behaviour. Never a local capture in a subscribed mode: the
+        local instance does not scan there, so its idle clock has never seen
+        the pane and would always answer "not idle". Unprojected, like every
+        snapshot the client returns."""
+        if self._serving():
+            return self._snapshots_view().get(pane_id)
+        if self._mode in _SUBSCRIBED:
+            return None
+        return self._local.capture_pane(pane_id)
+
     def get_pane(self, pane_id: str):
         """Agent-facing pane info, never a shadow (cache-boundary invariant)."""
         if self._serving():
@@ -1178,6 +1214,21 @@ class MonitorClient:
         correct); the server computes its own skip set from pins."""
         if self._local is not None:
             self._local.set_parked_agents(pairs)
+
+    @property
+    def capture_pins(self):
+        """This client's current capture pins (pairs, or ``CAPTURE_PIN_ALL``) —
+        what ``client_view_snapshots(pins=…)`` needs to project parked rows."""
+        return self._pins
+
+    def parked_pairs(self) -> frozenset:
+        """The global parked ``(session, window)`` set from the stream while
+        serving; empty otherwise. Empty in fallback on purpose: the client
+        never publishes a local skip set on its own, so a fallback instance
+        captures every agent and nothing is projected to parked."""
+        if self._serving():
+            return self._state.parked
+        return frozenset()
 
     def set_capture_pins(self, pins) -> None:
         """This client's capture pins (pairs, or ``CAPTURE_PIN_ALL``). Sent as

@@ -111,7 +111,9 @@ The non-content `PaneSnapshot` fields (`idle_seconds`, `is_idle`, `awaiting_inpu
 | Main refresh timer: `refresh_seconds` (default 3, from `--interval` / `tmux.monitor.refresh_seconds` — `_refresh_data` in `monitor_app.py`) | `cadence_idle_ms` | 3 s → `3000` |
 | Fast preview timer: 0.3 s while the preview zone is focused (`monitor_app.py`) | `cadence_focused_ms` | 0.3 s → `300` |
 
-The applink listener reuses the same `capture_all_async` tick but drives per-pane cadence from the mobile `subscribe` payload instead of the Textual zone state. The server clamps requested cadences to its own policy floor (the existing control-client throughput is the binding constraint, not the wire).
+The applink listener drives per-pane cadence from the mobile `subscribe` payload instead of the Textual zone state, and clamps requested cadences to its own policy floor. While a phone streams, applink reads pane status from the shared monitor status server, the same producer `ait monitor` and `ait minimonitor` subscribe to. The server refreshes on its own tick (≥ 1 s). So before each read, every push pass sends one batched partial refresh, covering the content panes whose requested cadence is due and the forced ones. Status-only panes ride the server's background tick. The routing, pins and lifecycle are in `aidocs/framework/monitor_status_protocol.md` ("Consumers: applink"). With `AITASKS_MONITOR_SERVER=0`, applink scans in-process on each push pass.
+
+`cycle_compare_mode` is answered by the status server, which owns the shared per-pane override. Its `res` is sent when that answer arrives, without holding the connection's other requests, so it can follow replies to requests sent after it; clients pair replies by envelope `id`.
 
 ### Focus-state forwarding
 
