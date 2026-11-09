@@ -19,6 +19,7 @@ aitask_contribute
 aitask_explain
 aitask_explore
 aitask_fold
+aitask_gate_docs_updated
 aitask_ls
 aitask_monitor
 aitask_monitormini
@@ -66,6 +67,7 @@ dependencies
 development
 differ
 display
+doc_quality
 docs
 documentation
 execution_profiles
