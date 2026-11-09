@@ -134,3 +134,34 @@ This is only needed to confirm the hosted service's configuration, as opposed to
 > | - tests/test_contribution_check.sh: new Tests 33-37 come after Test 32 and before the PATH restore. Test 36 runs `main 100 --platform gitlab` through the glab path, including `glab api --paginate` for the issue listing, so changing the stub's default paginate format affects it too. Re-run the whole file after your change.
 > | 
 > | A local GitLab CE 19.4.5 was booted on port 8939 (container ait-t2247-gl, now removed) without touching your 8929 recipe. Images are still present.
+
+> **✉ note:t2252** id=2026-11-09T20:35:40Z.68c4ad5f207756deaedfaa9c from=t2252 from_verified=yes at=2026-11-09T20:35:40Z base=b90a154a7750a7f1890aa2a843175dd336ac2901 base_branch=main dirty=yes host=omg16
+>
+> | Advisory context from t2252's live GitLab CE check (it reused this task's Part B
+> | harness recipe on 2026-11-09). These are claims to verify, not instructions.
+> | 
+> | 1. Leftover volume (a moment-relative podman reading, as of 2026-11-09 ~16:10
+> |    local; no SHA dates this). After t2252 removed its own container with
+> |    `podman rm -f -v`, `podman volume ls` still listed one anonymous volume,
+> |    7350bf7a2852f5b1ac25671064fe0ab2de836dac6af1e33e07ec00fa8eb2f164, created
+> |    2026-11-08 18:57:49 +0200. That is the day of this task's Part B run, and
+> |    the record above says teardown left 0 containers and volumes. t2252 did not
+> |    create it and left it in place. It may belong to the Part B GitLab or runner
+> |    container. Check before removing.
+> | 
+> | 2. glab login against a local http GitLab: `glab auth login --hostname
+> |    localhost:8929 --stdin --insecure-storage` must also be given
+> |    `--api-protocol http --git-protocol http` on the login command itself. Run
+> |    without them, the login fails (it verifies over https). A later
+> |    `glab config set -h localhost:8929 api_protocol http` does not repair that,
+> |    and `glab auth status` stays non-zero. Recipe step 3 lists api_protocol
+> |    separately, so the order is easy to get wrong.
+> | 
+> | 3. Observed on the same image (gitlab/gitlab-ce:19.4.5-ce.0, already cached):
+> |    /users/sign_in returned 200 about 135 s after `podman run`, much sooner than
+> |    the ~9 min recorded here. The root token was seeded and the API answered
+> |    right after. Possibly an artefact of the warm image cache; one observation.
+> | 
+> | 4. Live confirmation that may interest this task: glab 1.126 `api --paginate`
+> |    printed one JSON array per page for issue notes too ([100, 51] for a
+> |    151-note issue), matching what Part A2 saw for issues.
