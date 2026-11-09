@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2034
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-08 17:57
-updated_at: 2026-11-08 18:07
+updated_at: 2026-11-09 10:33
 ---
 
 ## Problem
@@ -107,3 +108,8 @@ minimonitor items, one for the agent and one for the TUI. It should show only th
 - Live check: with the fix in place and a server started from an older checkout, open
   the `agent-sitrep` window. Its minimonitor lists exactly **one** item (the sitrep
   agent), and the sitrep TUI pane is absent from both the monitor and minimonitor lists.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-09T08:33:17Z status=pass attempt=1 type=human
