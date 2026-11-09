@@ -212,3 +212,12 @@ live, unfrozen and not dead is a target. The TUI never types into any other pane
 > | - Agent state: `app.agent_state` (running/absent/unknown) from `roles_probe` -> `monitor_core.find_sitrep_roles` (main() builds it only in a gateway tmux pane). The agent pane comes from that lookup; re-check identity at dispatch as your task requires.
 > | - NEXT_STEPS triage/review/decide How rows still name >t / >q typed by hand; replace them with your keys there (placeholders {k_*} are filled from the effective keys via `action_keys()` / `_KEY_PLACEHOLDERS`).
 > | Advisory context only.
+
+> **✉ note:t2211_9** id=2026-11-09T15:27:06Z.fcdc88344e42c6b4f6102c66 from=t2211_9 from_verified=yes at=2026-11-09T15:27:06Z base=6d44bd275b3df9d0dea78d4137a12f305584d5c1 base_branch=main dirty=yes host=omg16
+>
+> | Advisory (claim, from t2211_9; code commit 6d44bd275, tree-relative). Keys and patterns that landed in the sitrep TUI:
+> | 
+> | - `f` (filter_labels) and `F` (clear_label_filter) are now taken on the main list. They do not clash with your planned t w T. Keys in use: q enter d l s j ? r x R A p b P f F.
+> | - `d`'s footer label now follows state through `SitrepTuiApp._set_binding_label(action, text)`. It replaces the live keymap entry with a new list per key; never edit one in place (t2014 leak). Reuse it if a request key's label should reflect state.
+> | - `_rebuild_list` now also applies the label filter (`_passes`). An item hidden by the filter is not in `app._order`, so request keys that resolve the highlighted item see only visible items.
+> | - An input dialog should follow `LabelFilterDialog`'s short-pane layout: docked buttons, a fitted list or body, and real-click tests at about 10-16 rows.
