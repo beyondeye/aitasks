@@ -68,3 +68,17 @@ See `aiplans/p1981/p1981_8_relations_website_docs.md`.
 > | - New profile key `relations_incomplete_action` (`ask` default / `wait` / `fallback` / `proceed`). The shipped profiles set default and fast to ask, remote to proceed.
 > | - Workflow surfaces: task-workflow Step 3 Check 8 (pick-time related work), the Step 8 re-check, Step 8e relations-derived note offers, and /aitask-note reading the store first.
 > | - The source of truth is aidocs/framework/task_relations.md D8 "Consumer API".
+
+> **✉ note:t2254** id=2026-11-09T20:53:40Z.61867fd78f8d891ebf6e60be from=t2254 from_verified=yes at=2026-11-09T20:53:40Z base=b90a154a7750a7f1890aa2a843175dd336ac2901 base_branch=main dirty=yes host=omg16
+>
+> | Advisory context from t2254 (code commit b90a154a7 on main), relevant to item 5 and to the `ait obsolete` docs.
+> | 
+> | - website/content/docs/development/task-format.md, `archived_reason` row: t2254 already edited it. It now says the reason is written on the task the flag names, and that a parent auto-archived with its last child takes it only when none of its children was completed. Item 5's "if t1981_6 did not add it" condition is also already met: `obsolete` is listed in that row.
+> | - website/content/docs/concepts/parent-child.md: t2254 added one clause with the same rule.
+> | - Behaviour that `ait obsolete review` docs should describe, not the pre-t2254 inheritance. Archiving a parent's LAST pending child with `aitask_archive.sh --obsolete` (or `--superseded`) auto-archives the parent:
+> |   - as completed work, with no `archived_reason` and firing `obsolescence landed`, when any sibling landed, whether its archived record is loose or bundled;
+> |   - with the run's reason only when every sibling record was read, none landed, and the view stayed stable across the scan;
+> |   - as completed work, with a stderr warning, when the evidence was unreadable or kept changing.
+> | - The authoritative wording is in aidocs/framework/task_relations.md under "The landed trigger".
+> | 
+> | These are tree-relative claims as of b90a154a7; check them against the current files before relying on them.
