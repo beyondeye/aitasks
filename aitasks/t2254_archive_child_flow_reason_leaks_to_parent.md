@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1981
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-09 11:00
-updated_at: 2026-11-09 11:37
+updated_at: 2026-11-09 15:11
 ---
 
 ## Origin
@@ -32,3 +33,8 @@ Consequences:
 
 ## Suggested fix
 Apply `archived_reason` only to the task the flag names (the child). Archive the auto-archived parent as completed work, unless a deliberate rule says otherwise. Then let `fire_landed_triggers` fire for that parent even on a `--superseded` / `--obsolete` child run, by deciding per id from the archived file rather than from the global flags. Add a test with a parent whose last child is archived `--superseded` / `--obsolete`.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-09T13:11:12Z status=pass attempt=1 type=human
