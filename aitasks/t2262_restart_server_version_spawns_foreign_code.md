@@ -3,13 +3,14 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [monitor, minimonitor]
 gates: [risk_evaluated]
+assigned_to: daelyasy@hotmail.com
 anchor: 2034
 followup_kind: upstream_defect
 created_at: 2026-11-09 16:22
-updated_at: 2026-11-09 16:22
+updated_at: 2026-11-09 18:53
 ---
 
 ## Origin
