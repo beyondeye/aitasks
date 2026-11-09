@@ -3,11 +3,12 @@ priority: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [release_scripts, bash_scripts, issue_integration]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-11-09 15:41
-updated_at: 2026-11-09 15:41
+updated_at: 2026-11-09 15:43
 ---
 
 ## Problem
