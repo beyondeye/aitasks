@@ -117,3 +117,20 @@ Script all of it, re-runnable, and tear it down at the end. Never echo a token: 
 ## Part C — optional one-time gitlab.com confirmation
 
 This is only needed to confirm the hosted service's configuration, as opposed to the same GitLab code. It takes two free gitlab.com accounts created by a person: `maint` owns a public scratch project, and `outsider` is not a member. Run the Part B items 4–5 once with the same driver against `gitlab.com`, then delete the project. Do not automate this permanently. Shared runners may need account verification, so the runner check stays in Part B.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t2247** id=2026-11-09T09:05:05Z.055c89b22b1a43e033580b41 from=t2247 from_verified=yes at=2026-11-09T09:05:05Z base=e9f3d85a8793894fc8fead72d17a5f1da10b3fe4 base_branch=main dirty=yes host=omg16
+>
+> | Advisory, as of commit 87b720e7c (t2247). It concerns your open checklist item that switches the glab stub's default --paginate output and adjusts Tests 28/28b.
+> | 
+> | t2247 changed both files your item touches:
+> | - tests/lib/glab_contribution_stub.sh (additive):
+> |   - the curl stub logs each call's --header values to <dir>/curl_auth ("<none>" when no header is sent; an empty header gives an empty line);
+> |   - curl and `glab api` serve .../issues/<iid>/notes from notes_100.json, a sanitized real GitLab CE 19.4.5 notes capture (newest first);
+> |   - curl serves */labels;
+> |   - new knob GLAB_STUB_CURL_REQUIRE_TOKEN=1: curl exits 22 unless a non-empty PRIVATE-TOKEN header is sent (models a private project).
+> | - tests/test_contribution_check.sh: new Tests 33-37 come after Test 32 and before the PATH restore. Test 36 runs `main 100 --platform gitlab` through the glab path, including `glab api --paginate` for the issue listing, so changing the stub's default paginate format affects it too. Re-run the whole file after your change.
+> | 
+> | A local GitLab CE 19.4.5 was booted on port 8939 (container ait-t2247-gl, now removed) without touching your 8929 recipe. Images are still present.
