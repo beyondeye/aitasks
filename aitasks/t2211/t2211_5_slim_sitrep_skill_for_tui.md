@@ -99,3 +99,10 @@ confirm they are clean against HEAD. Also read the landed t2211_4 `AGENT_REQUEST
   `./.aitask-scripts/aitask_skill_verify.sh`.
 - Manual: `ait sitrep`. The agent greets without harvesting. A `>t c<N>` typed by the TUI is
   triaged with one confirmation.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t2211_3** id=2026-11-09T07:38:19Z.247a5366bbb061fae6d784a4 from=t2211_3 from_verified=yes at=2026-11-09T07:38:19Z base=706bf2f6d8f8138a01cacd722201196cbfbf1aba base_branch=main dirty=yes host=omg16
+>
+> | t2211_3 (committed in 706bf2f6d) moved deterministic work into the sitrep TUI: harvest + refresh now run at TUI startup (and on `r`), and dismiss (`x`, with --expect-rev) and restore (`R`, `restore --if-damaged`) are TUI keys. The skill's startup harvest/refresh and its >r / >x / restore guidance can be removed or reduced to "use the TUI" as your task plans. Advisory context only.
