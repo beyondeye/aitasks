@@ -11,6 +11,12 @@
 #                                FALLBACK, never attach to the decoy (t2242).
 #                                In-test pre-fix control: the bare `-t` argv
 #                                must cross-attach.
+#   B3. No session-switch       — under `detach-on-destroy off`, destroying the
+#       follow                    attached target moves the live client onto
+#                                 the decoy; the client must die rather than
+#                                 serve it, and recover when the target
+#                                 returns (t2245). In-test pre-fix control:
+#                                 with switch detection off it serves the decoy.
 #   C. Mid-flight transition   — kill `tmux -C` while a slow request is in
 #                                flight; in-flight call returns (-1,""); the
 #                                next call either reconnects or returns
@@ -67,8 +73,8 @@ teardown_fixture() {
 }
 
 # Track all fixtures so the EXIT trap cleans up even if a case aborts mid-run.
-FA="" ; FB="" ; FB2="" ; FC="" ; FD="" ; FE=""
-trap 'teardown_fixture "${FA:-}"; teardown_fixture "${FB:-}"; teardown_fixture "${FB2:-}"; teardown_fixture "${FC:-}"; teardown_fixture "${FD:-}"; teardown_fixture "${FE:-}"' EXIT
+FA="" ; FB="" ; FB2="" ; FB3="" ; FC="" ; FD="" ; FE=""
+trap 'teardown_fixture "${FA:-}"; teardown_fixture "${FB:-}"; teardown_fixture "${FB2:-}"; teardown_fixture "${FB3:-}"; teardown_fixture "${FC:-}"; teardown_fixture "${FD:-}"; teardown_fixture "${FE:-}"' EXIT
 
 # ---------------------------------------------------------------------------
 # Case A: reconnect-then-recover
@@ -224,9 +230,9 @@ FB2=$(make_fixture)
     DECOY="${SESSION}_mob"
     tmux new-session -d -s "$DECOY" "tail -f /dev/null"
     # Pin the option this case depends on: the isolated server still reads the
-    # user's tmux.conf, and under `detach-on-destroy off` destroying the attached
-    # session MOVES the live control client onto another session (here the
-    # decoy) instead of ending it, so the reconnect path would never run.
+    # user's tmux.conf, and this case isolates the reconnect path, which under
+    # `detach-on-destroy on` is entered through %exit. Case B3 covers `off`,
+    # where tmux moves the live client onto another session instead.
     tmux set-option -g detach-on-destroy on
 
     PYTHONPATH="$REPO_ROOT/.aitask-scripts:$REPO_ROOT/.aitask-scripts/lib" \
@@ -313,6 +319,161 @@ PYEOF
 )
 teardown_fixture "$FB2"
 FB2=""
+
+# ---------------------------------------------------------------------------
+# Case B3: a live client never follows a session switch onto a decoy (t2245)
+# ---------------------------------------------------------------------------
+echo "== case B3: no session-switch follow =="
+FB3=$(make_fixture)
+
+(
+    cd "$REPO_ROOT" || exit 1
+    # shellcheck disable=SC2030,SC2031
+    export TMUX_TMPDIR="$FB3"
+    unset TMUX
+    SESSION="ait_resilience_$$_b3"
+    DECOY="${SESSION}_mob"
+    tmux new-session -d -s "$DECOY" "tail -f /dev/null"
+    # The option under test, set explicitly rather than inherited from the
+    # user's tmux.conf: destroying the attached session switches the client.
+    tmux set-option -g detach-on-destroy off
+
+    PYTHONPATH="$REPO_ROOT/.aitask-scripts:$REPO_ROOT/.aitask-scripts/lib" \
+    AIT_TEST_TMUX_DIR="$FB3" \
+    AIT_TEST_SESSION="$SESSION" \
+    AIT_TEST_DECOY="$DECOY" \
+    "$PYTHON_BIN" - <<'PYEOF'
+import asyncio
+import os
+import subprocess
+import time
+
+from monitor.monitor_core import (
+    TmuxControlBackend, TmuxControlClient, TmuxControlState,
+)
+
+session = os.environ["AIT_TEST_SESSION"]
+decoy = os.environ["AIT_TEST_DECOY"]
+env = {**os.environ, "TMUX_TMPDIR": os.environ["AIT_TEST_TMUX_DIR"]}
+env.pop("TMUX", None)
+WHO = ["display-message", "-p", "#{session_name}"]
+
+
+def tmux(*args):
+    return subprocess.run(["tmux", *args], env=env, check=False,
+                          capture_output=True, text=True)
+
+
+def control_clients():
+    out = tmux("list-clients", "-F",
+               "#{client_control_mode} #{session_name}").stdout
+    return [ln.split(" ", 1)[1] for ln in out.splitlines() if ln.startswith("1 ")]
+
+
+def start_on_target():
+    tmux("new-session", "-d", "-s", session, "tail -f /dev/null")
+    b = TmuxControlBackend(session=session, command_timeout=2.0)
+    assert b.start()
+    rc, out = b.request_sync(WHO)
+    assert rc == 0 and out.strip() == session, (rc, out)
+    return b
+
+
+# Pre-fix control: switch detection off. The destroyed target's client must be
+# carried onto the decoy and keep answering from it, or the assertions below
+# would prove nothing.
+fixed = TmuxControlClient._switched_away
+TmuxControlClient._switched_away = lambda self, session_id: False
+try:
+    b = start_on_target()
+    first = b._client
+    tmux("kill-session", "-t", f"={session}")
+    answered = None
+    deadline = time.monotonic() + 5.0
+    while time.monotonic() < deadline:
+        rc, out = b.request_sync(WHO)
+        if rc == 0 and out.strip() == decoy:
+            answered = decoy
+            break
+        time.sleep(0.1)
+    control_ok = (answered == decoy and b._client is first and first.is_alive
+                  and b.state == TmuxControlState.CONNECTED)
+    b.stop()
+finally:
+    TmuxControlClient._switched_away = fixed
+assert control_ok, (
+    "control: with switch detection off the client did not follow the switch "
+    f"onto the decoy (answered={answered!r}) -- the regression is vacuous"
+)
+
+# Fix: the switched client dies, never answers from the decoy, and its tmux
+# process is not left attached to the decoy.
+b = start_on_target()
+first = b._client
+tmux("kill-session", "-t", f"={session}")
+answers = []
+deadline = time.monotonic() + 5.0
+while time.monotonic() < deadline and first.is_alive:
+    rc, out = b.request_sync(WHO)
+    if rc == 0:
+        answers.append(out.strip())
+    time.sleep(0.05)
+assert not first.is_alive, "the switched client is still alive"
+assert decoy not in answers, f"the switched client served the decoy: {answers!r}"
+assert b.exit_seen, "a session switch did not count as the session going away"
+deadline = time.monotonic() + 5.0
+while time.monotonic() < deadline and decoy in control_clients():
+    time.sleep(0.1)
+assert decoy not in control_clients(), (
+    f"the switched tmux -C process stayed attached: {control_clients()!r}")
+
+# Recovery: the target comes back and the exact-match reconnect reaches it.
+tmux("new-session", "-d", "-s", session, "tail -f /dev/null")
+deadline = time.monotonic() + 10.0
+while time.monotonic() < deadline:
+    if b._client is not first and b.state == TmuxControlState.CONNECTED:
+        break
+    time.sleep(0.1)
+assert b.state == TmuxControlState.CONNECTED and b._client is not first, b.state
+rc, out = b.request_sync(WHO)
+assert rc == 0 and out.strip() == session, (rc, out)
+b.stop()
+
+
+# Reuse: close() then start() on the SAME client object, after the target was
+# recreated (new session id) while the decoy keeps the server alive. The new
+# attachment must anchor its own session id, not compare against the old one.
+async def reuse(stale_anchor):
+    c = TmuxControlClient(session=session, command_timeout=2.0)
+    assert await c.start()
+    first = await c.request(WHO)
+    old_anchor = c._session_id
+    await c.close()
+    tmux("kill-session", "-t", f"={session}")
+    tmux("new-session", "-d", "-s", session, "tail -f /dev/null")
+    assert await c.start()
+    if stale_anchor:
+        # Pre-fix control: restore the previous attachment's anchor before the
+        # reader runs (no await since start() returned, so it has not).
+        c._session_id = old_anchor
+    await asyncio.sleep(0.3)
+    second = await c.request(WHO)
+    await c.close()
+    return first, old_anchor, second
+
+
+first, old_anchor, second = asyncio.run(reuse(stale_anchor=True))
+assert first == (0, session + "\n") and old_anchor is not None, (first, old_anchor)
+assert second == (-1, ""), (
+    f"control: a stale anchor did not end the reused client ({second!r}) "
+    "-- the reuse regression below would be vacuous")
+first, _, second = asyncio.run(reuse(stale_anchor=False))
+assert second == (0, session + "\n"), f"reused client after recreate: {second!r}"
+print("OK case B3")
+PYEOF
+)
+teardown_fixture "$FB3"
+FB3=""
 
 # ---------------------------------------------------------------------------
 # Case C: mid-flight transition

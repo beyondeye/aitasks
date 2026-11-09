@@ -251,6 +251,80 @@ class ExitAndAccessorTests(unittest.TestCase):
             return client
         self.assertFalse(asyncio.run(run()).saw_exit)
 
+    @staticmethod
+    def _feed(lines: bytes, pending: int = 0):
+        """Run the reader over `lines`; return (client, stdin stub, futures)."""
+        from monitor.monitor_core import TmuxControlClient
+
+        class Stdin:
+            closed = False
+
+            def is_closing(self):
+                return self.closed
+
+            def close(self):
+                self.closed = True
+
+        async def run():
+            client = TmuxControlClient(session="x", socket_args=[])
+            reader = asyncio.StreamReader()
+            reader.feed_data(lines)
+            reader.feed_eof()
+            stdin = Stdin()
+            client._proc = type("P", (), {"stdout": reader, "stdin": stdin})()
+            client._alive = True
+            loop = asyncio.get_running_loop()
+            futs = [loop.create_future() for _ in range(pending)]
+            client._pending.extend(futs)
+            await client._reader_loop()
+            return client, stdin, [f.result() for f in futs]
+        return asyncio.run(run())
+
+    def test_session_switch_ends_the_client(self):
+        # t2245: under `detach-on-destroy off` tmux moves the client to another
+        # session instead of sending %exit.
+        client, stdin, _ = self._feed(
+            b"%begin 1 1 0\n%end 1 1 0\n%session-changed $0 x\n"
+            b"%session-changed $3 x_mob\n")
+        self.assertTrue(client.saw_exit)
+        self.assertFalse(client.is_alive)
+        self.assertTrue(stdin.closed, "the switched tmux -C process was left attached")
+
+    def test_reply_after_a_switch_is_never_delivered(self):
+        _, _, results = self._feed(
+            b"%session-changed $0 x\n%session-changed $1 x_mob\n"
+            b"%begin 1 5 1\nx_mob\n%end 1 5 1\n", pending=1)
+        self.assertEqual(results, [(-1, "")])
+
+    def test_reply_before_a_switch_is_delivered(self):
+        _, _, results = self._feed(
+            b"%session-changed $0 x\n%begin 1 5 1\nx\n%end 1 5 1\n"
+            b"%session-changed $1 x_mob\n", pending=1)
+        self.assertEqual(results, [(0, "x\n")])
+
+    def test_switch_to_a_session_name_with_spaces(self):
+        client, _, _ = self._feed(
+            b"%session-changed $0 x\n%session-changed $2 other sess\n")
+        self.assertTrue(client.saw_exit)
+
+    def test_rename_is_not_a_switch(self):
+        client, stdin, _ = self._feed(
+            b"%session-changed $0 x\n%session-renamed $0 y\n"
+            b"%session-changed $0 y\n%sessions-changed\n")
+        self.assertFalse(client.saw_exit)
+        self.assertFalse(stdin.closed)
+
+    def test_first_session_changed_only_anchors(self):
+        client, stdin, _ = self._feed(b"%begin 1 1 0\n%end 1 1 0\n%session-changed $7 x\n")
+        self.assertFalse(client.saw_exit)
+        self.assertFalse(stdin.closed)
+        self.assertEqual(client._session_id, "$7")
+
+    def test_client_session_changed_of_another_client_is_ignored(self):
+        client, _, _ = self._feed(
+            b"%session-changed $0 x\n%client-session-changed /dev/pts/3 $4 x_mob\n")
+        self.assertFalse(client.saw_exit)
+
     def test_control_exit_seen_without_backend(self):
         self.assertFalse(TmuxMonitor(session="s1").control_exit_seen())
 

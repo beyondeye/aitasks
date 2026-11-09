@@ -894,11 +894,16 @@ A watchdog checks every 0.5 s. The server exits:
   someone removed or replaced it, so the server no longer owns the address. It
   exits without touching the new file.
 - **`%exit`.** The control client saw `%exit`. tmux sends that both when the
-  server goes away and when only the attached session is destroyed, so the server
-  probes the tmux server:
+  server goes away and when only the attached session is destroyed. Under
+  `detach-on-destroy off`, destroying the attached session moves the client onto
+  another session instead; the control client treats that `%session-changed` to
+  a different session id the same way, so it never serves another session's
+  panes. Either way the server probes the tmux server:
   - Gone, or answering with a different socket path → the server exits.
   - Still there → it was a session detach. The server restarts the control client
-    on a live aitasks session; with none, it stays on the subprocess fallback.
+    on a live aitasks session, picked from a fresh session query (the last tick's
+    mapping still lists the session that went away); with none, it stays on the
+    subprocess fallback.
 - **Signal.** SIGTERM or SIGINT.
 
 On exit it closes every connection and the control client, then removes the

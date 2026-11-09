@@ -79,11 +79,20 @@ class FakeProducer:
         self.exit_seen = False
         self.control_started = 0
         self.control_closed = 0
+        self.started_sessions: list = []
+        #: What the producer's TTL-cached session discovery would still return
+        #: until `invalidate_sessions_cache` (None: no stale cache).
+        self.stale_mapping = None
         self.contents: dict = {}
         self._gen = 0
 
     async def get_session_to_project_mapping_async(self):
+        if self.stale_mapping is not None:
+            return dict(self.stale_mapping)
         return dict(self.mapping)
+
+    def invalidate_sessions_cache(self):
+        self.stale_mapping = None
 
     def set_session_configs(self, configs):
         self.session_configs.append(configs)
@@ -169,6 +178,7 @@ class FakeProducer:
 
     async def start_control_client(self):
         self.control_started += 1
+        self.started_sessions.append(self.session)
         return True
 
 
@@ -727,6 +737,19 @@ class LifecycleTests(ServerCase):
         c = await self.client()   # still serving
         await c.send({"type": "set_pins", "pins": []})
         self.assertEqual((await c.recv())["type"], "result")
+
+    async def test_restart_after_exit_skips_the_session_that_went_away(self):
+        # The last tick's mapping still lists the destroyed session; the
+        # restart must pick from the live sessions instead (t2245).
+        self.server.grace = 60
+        self.server._probe_tmux = lambda: "/tmp/tmux-x/default"
+        self.server._expected_tmux_socket = "/tmp/tmux-x/default"
+        self.server._mapping = {SESSION: self.root, "s2": self.root}
+        self.fake.stale_mapping = {SESSION: self.root, "s2": self.root}
+        self.fake.mapping = {"s2": self.root}
+        self.fake.exit_seen = True
+        await wait_until(lambda: self.fake.control_started >= 1)
+        self.assertEqual(self.fake.started_sessions, ["s2"])
 
     async def test_socket_replaced_exits_and_leaves_the_stranger(self):
         self.server.grace = 60

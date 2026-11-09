@@ -850,9 +850,9 @@ class StatusServer:
             if self._has_subscribers is not None:
                 self._has_subscribers.clear()
 
-    async def _start_control_client(self) -> None:
+    async def _start_control_client(self, *, live_mapping: bool = False) -> None:
         try:
-            await self._pick_control_session()
+            await self._pick_control_session(live_mapping=live_mapping)
             if self.monitor.session:
                 ok = await self.monitor.start_control_client()
                 if not ok:
@@ -862,10 +862,20 @@ class StatusServer:
         except Exception as exc:  # noqa: BLE001 - the subprocess path still works
             _log(f"control client start failed: {exc!r}")
 
-    async def _pick_control_session(self) -> None:
+    async def _pick_control_session(self, *, live_mapping: bool = False) -> None:
         """Attach to the session named at start when it is live, else to any
-        live aitasks session (sorted, for a stable choice)."""
-        mapping = self._mapping or dict(
+        live aitasks session (sorted, for a stable choice).
+
+        ``live_mapping`` re-reads the sessions instead of using the last tick's
+        mapping. The restart after ``%exit`` needs it: the session that just
+        went away is still in that mapping, so picking from it would re-attach
+        to the destroyed session, fail, and leave the server on the subprocess
+        fallback while another aitasks session is live. The producer's session
+        discovery is TTL-cached for the same reason, so it is invalidated too."""
+        if live_mapping:
+            self.monitor.invalidate_sessions_cache()
+        mapping = None if live_mapping else self._mapping
+        mapping = mapping or dict(
             await self.monitor.get_session_to_project_mapping_async() or {})
         if self.monitor.session and self.monitor.session in mapping:
             return
@@ -903,7 +913,7 @@ class StatusServer:
         _log("%exit from a session detach; restarting the control client")
         async with self._producer_lock:
             await self.monitor.close_control_client()
-        await self._start_control_client()
+        await self._start_control_client(live_mapping=True)
         return False
 
     async def _tick_loop(self) -> None:

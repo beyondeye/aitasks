@@ -1471,6 +1471,14 @@ class PaneSnapshot:
 # pending callers.
 _HEAD_RE = re.compile(r"^%(begin|end|error)\s+\d+\s+(\d+)\s+(\d+)\s*$")
 _EXIT_RE = re.compile(r"^%exit(?:\s+.*)?$")
+# %session-changed <session-id> <name> — this client's attached session changed.
+# tmux sends one right after attach (the exact-match target) and another when it
+# moves the client onto a different session: `detach-on-destroy off` does that
+# instead of %exit when the attached session is destroyed, and so does a
+# `switch-client` of the control client. Only the id is captured: the name can
+# contain spaces and need not round-trip through the wire codec, while the id is
+# stable across `rename-session` (which sends %session-renamed instead).
+_SESSION_CHANGED_RE = re.compile(r"^%session-changed\s+(\$\d+)(?:\s.*)?$")
 
 _DEFAULT_STREAM_LIMIT = 4 * 1024 * 1024  # 4 MiB; default asyncio is 64 KiB
 _DEFAULT_CLOSE_TIMEOUT = 2.0
@@ -1531,9 +1539,17 @@ class TmuxControlClient:
         self._write_lock = asyncio.Lock()
         self._alive = False
         #: Set when tmux sent ``%exit`` (t2037_1): the server went away, or the
-        #: attached session was destroyed. Read by the backend supervisor and
-        #: the shared status server, which tells the two apart by probing.
+        #: attached session was destroyed. Also set when tmux moved this client
+        #: onto a different session (t2245) — what destroying the attached
+        #: session does under ``detach-on-destroy off`` — so both settings of
+        #: that option end the client the same way. Read by the backend
+        #: supervisor and the shared status server, which tells the server-gone
+        #: and session-gone cases apart by probing.
         self.saw_exit = False
+        #: Id (``$N``) of the session this client attached to, anchored by the
+        #: first ``%session-changed`` tmux sends after attach. A later one
+        #: naming another id means the client now serves another session.
+        self._session_id: Optional[str] = None
 
     @property
     def is_alive(self) -> bool:
@@ -1567,6 +1583,11 @@ class TmuxControlClient:
         """
         if self._proc is not None:
             return self._alive
+        # The anchor belongs to one attachment: after close() this object can
+        # be started again, and the new process may attach to a recreated
+        # session with a different id. A stale anchor would read that new
+        # attachment's first %session-changed as a switch and end the client.
+        self._session_id = None
         try:
             self._proc = await asyncio.create_subprocess_exec(
                 *encode_tmux_argv(self._attach_argv()),
@@ -1624,6 +1645,15 @@ class TmuxControlClient:
                 elif _EXIT_RE.match(line):
                     self.saw_exit = True
                     break  # tmux server (or the attached session) is going away
+                elif (sc := _SESSION_CHANGED_RE.match(line)) and self._switched_away(
+                    sc.group(1)
+                ):
+                    # The attached session is gone (or this client was switched
+                    # off it): every later reply would come from another
+                    # session, possibly another project. Treat it like %exit.
+                    self.saw_exit = True
+                    self._detach_switched_client()
+                    break
                 # Any other %-line outside a Capturing block is an async
                 # event (filtered to `no-output`-only by the spawn flags,
                 # but tmux can still emit %sessions-changed, %client-detached,
@@ -1632,6 +1662,33 @@ class TmuxControlClient:
             pass
         finally:
             self._teardown_pending()
+
+    def _switched_away(self, session_id: str) -> bool:
+        """Whether a ``%session-changed`` moves this client off its session.
+
+        The first notification, sent right after attach to the exact-match
+        target, anchors the id and is never a switch. A rename keeps the id.
+        """
+        if self._session_id is None:
+            self._session_id = session_id
+            return False
+        return session_id != self._session_id
+
+    def _detach_switched_client(self) -> None:
+        """End a ``tmux -C`` process that tmux switched to another session.
+
+        Unlike ``%exit``, the process is still running, now attached to the
+        other session, and the supervisor replaces a dead client without
+        ``close()``-ing it. Closing stdin makes tmux drop the control client.
+        Best-effort and synchronous: the reader task cannot await ``close()``,
+        which waits for the reader itself.
+        """
+        stdin = getattr(self._proc, "stdin", None)
+        if stdin is None:
+            return
+        with contextlib.suppress(Exception):
+            if not stdin.is_closing():
+                stdin.close()
 
     def _resolve_next(self, result: tuple[int, str]) -> None:
         if not self._pending:

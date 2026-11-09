@@ -11,6 +11,8 @@ ones. Covered:
 - stale-socket recovery; per-version isolation; idle exit;
 - per-session `tmux.monitor` config (agent prefixes, idle threshold);
 - exit when the tmux server goes away (`%exit`);
+- destroying the served session, under both `detach-on-destroy` settings,
+  restarts the control client on the live session (t2245);
 - [record_live_server_stream] the real producer's stream, recorded and checked.
 
 Skip vs fail: `SkipTest` only when `tmux` is missing. Everything after the tmux
@@ -366,6 +368,75 @@ class TmuxExitTests(LiveCase):
         self.assertFalse(os.path.exists(sock))
         self.assertIn("EXIT:exit_seen", self.server_log(sock),
                       "the server exited, but not through the %exit path")
+
+    def control_clients(self) -> list[str]:
+        out = self.tmux("list-clients", "-F", "#{client_control_mode} #{session_name}",
+                        check=False)
+        return [ln.split(" ", 1)[1] for ln in out.splitlines() if ln.startswith("1 ")]
+
+    def test_session_switch_restarts_the_control_client(self):
+        # t2245: under `detach-on-destroy off` destroying the served session
+        # moves the control client onto another session instead of sending
+        # %exit. The server must restart its client, not keep serving the
+        # switched one.
+        self._served_session_destroyed("off")
+
+    def test_session_destroy_restarts_on_a_live_session(self):
+        # The %exit route (`detach-on-destroy on`): the restart must pick a live
+        # session, not the destroyed one the last tick's mapping still lists.
+        self._served_session_destroyed("on")
+
+    def _served_session_destroyed(self, detach_on_destroy: str):
+        self.session("s1", self.project("pa"), "agent-pick-1")
+        self.session("s2", self.project("pb"), "agent-pick-2")
+        self.tmux("set-option", "-g", "detach-on-destroy", detach_on_destroy)
+        _, sock, pid = self.ensure("--version", "sw", "--grace", "120")
+
+        async def control_state(c):
+            await c.send({"type": "refresh", "id": "r"})
+            state = None
+            while True:
+                msg = await c.recv()
+                if msg["type"] == "delta" and "control_state" in msg:
+                    state = msg["control_state"]
+                if msg["type"] == "result":
+                    return state
+
+        async def go():
+            c = await Client.open(sock)
+            await c.hello("sw")
+            await c.send({"type": "subscribe"})
+            state = (await c.until("snapshot"))["control_state"]
+            end = time.monotonic() + DEADLINE
+            while state != "connected" and time.monotonic() < end:
+                state = await control_state(c) or state
+                await asyncio.sleep(0.2)
+            self.assertEqual(state, "connected")
+            served = self.control_clients()
+            self.assertEqual(len(served), 1, served)
+            self.tmux("kill-session", "-t", f"={served[0]}")
+            end = time.monotonic() + DEADLINE
+            while ("restarting the control client" not in self.server_log(sock)
+                   and time.monotonic() < end):
+                await asyncio.sleep(0.2)
+                await control_state(c)
+            await c.close()
+            return served[0]
+
+        killed = self.run_async(go())
+        log = self.server_log(sock)
+        self.assertIn("restarting the control client", log,
+                      "the destroyed session was not treated as the session going away")
+        self.assertNotIn("subprocess fallback", log,
+                         "the restart did not reach the live session")
+        self.assertNotIn("EXIT:", log)
+        self.assertTrue(_alive(pid), "the server exited on a session switch")
+        survivor = ({"s1", "s2"} - {killed}).pop()
+        end = time.monotonic() + DEADLINE
+        while self.control_clients() != [survivor] and time.monotonic() < end:
+            time.sleep(0.2)
+        self.assertEqual(self.control_clients(), [survivor],
+                         "the switched control client was left attached, or none restarted")
 
 
 class LiveStreamTests(LiveCase):
