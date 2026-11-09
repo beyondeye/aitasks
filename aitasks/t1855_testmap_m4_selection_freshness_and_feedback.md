@@ -515,3 +515,63 @@ The engine scope below moved to aitasks_go#t61 and is quoted for reference only.
 > | arrive from beyondeye/aitasks_go via promote/export.sh.
 > | - This task was split: its engine part is aitasks_go#t61; this task
 > |   keeps the framework part (body trimmed, see "Relocated to aitasks_go").
+
+> **✉ note:t61** id=2026-11-09T12:45:06Z.1c808a6a199a1edffd7ed9a6 from=aitasks_go#t61 at=2026-11-09T12:45:06Z base=eaa6af1abe9037b1ecc23e3f108816e67d9c7d20 base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from aitasks_go#t61's coarse pass (2026-11-09). Tree claims are as of aitasks_go main @ 86ef2ce and the proposal @ aitasks 87b720e7c.
+> | 
+> | ID MAP (the M4 children now exist in aitasks_go):
+> | - M4.1 = aitasks_go#t61_1 (change-surface intake and selector). Wave C. No in-repo depends.
+> | - M4.2 = aitasks_go#t61_2 (freshness and staleness). Wave D. Depends on t61_1.
+> | - M4.3 = aitasks_go#t61_3 (evidence join). Wave D. Depends on t61_2.
+> | - M4.4 = aitasks_go#t61_4 (score / attribute / readiness). Wave D. Depends on t61_1.
+> | - M4.5 = aitasks_go#t61_5 (engine test composite). Wave C. Depends on t61_1 only (see D1).
+> | 
+> | Holds to turn into xdeps (xdeprepo: aitasks_go):
+> | - t1859_2 <- t61_2
+> | - t1859_3 <- t61_2, t61_3
+> | - t1859_4 <- t61_4
+> | - t1859_5 <- t61_4
+> | - t2131_7 <- t61_1, t61_4, t61_5
+> | - t2131_8 <- t61_4
+> | - t2131_12 <- t61_4
+> | - t1853_7 <- t61_2
+> | 
+> | These are for the cross-linking pass t1863. Already wired in aitasks_go:
+> | - t65_1 <- t61_4
+> | - t65_2 <- t61_4
+> | - t77_4 <- t61_1, t61_4, t61_5
+> | - t77_5 <- t61_4
+> | - t59_1 <- t61_2
+> | 
+> | PROPOSED PROPOSAL EDITS (Deviations from the proposal; full text in aitasks_go aiplans/p61_testmap_m4_selection_freshness_and_feedback.md):
+> | 
+> | D1 Wave order.
+> | - M4.5 (wave C) lists M4.4 (wave D) in "depends on". That breaks "nothing depends on a later wave".
+> | - Fix: drop M4.4 from M4.5's cell. Reword the scope as "--all as run --all honouring subsumed_by; score is triggered by M4.4's post-run hook subscriber".
+> | - M4.4 registers score through M3.1's post-run hook (runner.RegisterPostRunHook, already the seam the interfaces table names "M4.4 optional hook subscriber"). The registration sits in cmd/ait-testmap/costs.go init, after the cost ledger.
+> | - M8.5's cadence full run reuses the same trigger.
+> | 
+> | D2 Stale marks and evidence staging.
+> | - The Selector component builds stale marks from "digest compare plus the per-variant evidence join". The join is M4.3 (wave D), and M4.3 depends on M4.2, which depends on M4.1.
+> | - Fix: M4.1 ships digest-only stale marks behind a seam, and M4.3 fills that seam. --include-stale over-selects until then (the safe direction).
+> | - The same staging applies to M4.2. Until M4.3 lands, M4.2 never emits EVIDENCED and lists every reached variant as unevidenced. --confirm-evidenced re-stamps nothing and says so explicitly (never a silent success).
+> | - M4.3 completes EVIDENCED, the variant field and --confirm-evidenced as named extensions. No reverse edges.
+> | - Suggest stating this in the M4.1, M4.2 and M4.3 rows.
+> | 
+> | D3 One RESULT: shape (user decision). Proposed text for both the Run Surface Output contract and the M4.5 component:
+> | - Shape: RESULT:pass|fail|skip|error|refused|<n passed>|<n failed>|<n skipped>|<n unrun>. The run id goes on RUN:<run_id>. There is no "deferred" status.
+> | - Status is a function of the final exit only: 0 pass, 1 fail, 2 skip, 3 error, 75 refused.
+> | - The exit keeps runner.RunReport.Exit's precedence: a mechanism cause gives 3, else a refusal gives 75, else a failure or a cause gives 1, else no pass gives 2, else 0. Then a hook error, a scheduler error or a select-stage framework error (e.g. UNKNOWN: intake) is raised to 3.
+> | - So skip means benign non-execution only.
+> | - The counts are disjoint and record-derived. <n unrun> = budget DEFERRED units + every unit of a withheld invocation, whatever its withheld status (skip incl. device_no_allocator / allocator_busy, refused, not_started). The other three counts are runner-reported results of non-withheld invocations.
+> | - A note with the same content went to t1856 for M5.1's agreement.
+> | 
+> | D4 Automation-first (M4.2, provisional).
+> | - No stale operation needs a person. Every --confirm* / --retarget takes an explicit --by actor, and provenance follows the actor.
+> | - "The autonomous lane never confirms STALE / never first-stamps" is the callers' policy (M8.3, the repair coordinator), not the tool's.
+> | - No cut change.
+> | 
+> | D5 The M4 components carry no test lists. "Acceptance = union of components' test lists" has nothing to union for M4, and "Verification of the seam, by module" has no M4 rows. The children derive tests clause by clause. Consider adding M4 rows.
+> | 
+> | D6 internal/gitx is listed as M4.3-owned. In aitasks_go it is a shared package that already has LsTree and IsAncestor. M4.3 only adds what is missing. Suggest marking gitx "(shared)" in the M4.3 row.
