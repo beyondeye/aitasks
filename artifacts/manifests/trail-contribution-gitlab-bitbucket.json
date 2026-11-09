@@ -1,0 +1,10 @@
+{
+  "backend": "local",
+  "created_at": 1794210033,
+  "current": "sha256:931fcfc3de895fa34e864645cf4dd3e451231fe38c02f6f55e96d95e2cc44f9a",
+  "handle": "art:trail-contribution-gitlab-bitbucket",
+  "updated_at": 1794210033,
+  "versions": [
+    "sha256:931fcfc3de895fa34e864645cf4dd3e451231fe38c02f6f55e96d95e2cc44f9a"
+  ]
+}

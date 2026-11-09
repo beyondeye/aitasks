@@ -1,0 +1,123 @@
+{
+  "schema_version": "1.1.0",
+  "trail_id": "trail-contribution-gitlab-bitbucket",
+  "title": "GitLab/Bitbucket contribution follow-ups",
+  "owner": "aitasks#2248",
+  "scope": {
+    "kind": "ad_hoc",
+    "topics": ["aitasks#2235"],
+    "selection_note": "Every open task that touches GitLab/Bitbucket contribution tooling, as of 2026-11-09. Selected by grepping active task files for gitlab|bitbucket and keeping the contribution-labelled ones (t2247, t2248, t2249, t2251, t2252). t635_32 and t635_16 were left out: they only mention a GitLab remote and belong to the gates work. Gathered as --scope task; none of the members has children."
+  },
+  "generation": {
+    "generated_at": "2026-11-09T07:39:41Z",
+    "generator": {"agent_string": "claudecode/opus5_5", "skill": "aitask-trail"},
+    "input_digest": "612ac27591dce960",
+    "inputs": [
+      {"kind": "plan_file", "ref": "aitasks:aiplans/p2247_fix_contribution_token_header_and_bitbucket_scan.md"},
+      {"kind": "task_file", "ref": "aitasks#2247"},
+      {"kind": "task_file", "ref": "aitasks#2248"},
+      {"kind": "task_file", "ref": "aitasks#2249"},
+      {"kind": "task_file", "ref": "aitasks#2251"},
+      {"kind": "task_file", "ref": "aitasks#2252"}
+    ]
+  },
+  "freshness": {"state": "current", "checked_at": "2026-11-09T07:39:41Z"},
+  "narrative": {
+    "problem_statement": "After t2241 (GitLab contribution discovery) and t2250 (issue-link read-back), five follow-ups remain on the contribution tooling. Two are being implemented in other sessions, and most of them edit the same few files: aitask_contribution_check.sh and aitask_contribution_review.sh, tests/lib/glab_contribution_stub.sh, aitask_setup.sh and the contribution-flow doc page. Picking them in an arbitrary order means repeated rebases onto unfinished diffs.",
+    "recommendation_summary": "Land the two in-flight tasks first (t2247, t2249). Then run the two cleanups that build on t2247 in parallel (t2252, t2251). Finish with the live GitLab verification (t2248), which proves the final state end to end.",
+    "overview": "Nothing new should start until t2247 lands. It is in flight in another session and rewrites the files the rest of this trail edits: the GitLab/GitHub backends of aitask_contribution_check.sh and aitask_contribution_review.sh (including the glab overlap-comment lookup), the glab test stub, ait setup and the contribution-flow page. It also retires the Bitbucket contribution check, because Bitbucket Cloud removed its issue API. t2249 is in flight as well. Nothing here waits on it, but its paths overlap t2247's on aitask_setup.sh, tests/test_setup_contribution_workflow.sh and contribution-flow.md, so whichever of the two merges second has to rebase.\n\nAfter that, t2252 and t2251 can run side by side. t2252 is the one to pick first: it is a low-effort fix for a bug users can see, where the existing-comment lookup misses the analysis comment and a duplicate is posted on every run. It patches the glab branch t2247 adds. It also extends the glab stub, so it is the natural place to absorb t2248's open item (make one JSON array per page the stub's default). t2251 completes the Bitbucket retirement t2247 began (aitask_contribute.sh, issue import/update, the board's BB indicator, the bkt setup step). Because it touches ait setup, it should also start after t2249 merges. Its inventory is explicitly a starting list, so expect it to grow.\n\nt2248 comes last on purpose. Its remaining work is a re-run of the local GitLab CE Part B, which then checks live, under a real runner, the t2250 dropped-label warning, t2252's notes pagination and duplicate-comment fix, and t2247's fail-closed credentials. If t2252 absorbs the stub item, t2248 is left with only the live run and the optional gitlab.com check (Part C).",
+    "method_note": "Lite depth. Membership, states, gates and the digest come from one gatherer snapshot (aitask_trail_gather.sh snapshot --scope task --owner 2248 2247 2248 2249 2251 2252). File overlaps come from the --with-inflight path scan (t2247's plan, t2249's description) and from the descriptions of t2251 and t2252. Not verified: t2251 and t2252 have no plans yet, so their file surfaces are inferred from descriptions; t2249's plan was not read; the uncommitted diffs of the sessions running t2247 and t2249 were not inspected; and whether t2251 and t2252 really share no file is an inference, not a measurement. No task metadata was changed. The ordering is advisory, with no hard depends edges among the members."
+  },
+  "waves": [
+    {
+      "wave_id": "w1-inflight",
+      "ordinal": 1,
+      "title": "Land the in-flight changes",
+      "purpose": "Everything else in this trail edits files these two tasks hold, so they land first.",
+      "why_now": "Both are already Implementing in other sessions.",
+      "consequence_of_delay": "Work started early rebases onto unfinished diffs of the shared contribution scripts, the glab stub and ait setup.",
+      "entries": [
+        {
+          "entry_id": "w1-e1",
+          "task": "aitasks#2247",
+          "topic": "aitasks#2235",
+          "position": 1,
+          "classification": "preferred_predecessor",
+          "snapshot": {"status": "Implementing", "priority": "medium", "effort": "low", "depends": [], "gates_pending": ["risk_evaluated"], "followup_kind": "upstream_defect"},
+          "rationale": "It rewrites aitask_contribution_check.sh and aitask_contribution_review.sh, including the glab overlap-comment lookup that t2252 fixes. It also retires the Bitbucket contribution check, which t2251 completes, and edits the glab stub, setup and docs. Its plan is the base the next wave builds on.",
+          "confidence": "high"
+        },
+        {
+          "entry_id": "w1-e2",
+          "task": "aitasks#2249",
+          "topic": "aitasks#2235",
+          "position": 2,
+          "classification": "core",
+          "snapshot": {"status": "Implementing", "priority": "low", "effort": "low", "depends": [], "gates_pending": ["risk_evaluated"], "followup_kind": "risk_mitigation"},
+          "rationale": "Its value is independent: existing GitLab installs learn that their copied contribution-check job is outdated. Nothing here waits on it, but it collides with t2247 on aitask_setup.sh, tests/test_setup_contribution_workflow.sh and contribution-flow.md, and t2251 later edits setup too.",
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "wave_id": "w2-cleanups",
+      "ordinal": 2,
+      "title": "Finish what t2247 started",
+      "purpose": "Both tasks continue t2247's work from its landed state. They barely overlap each other, so they can run in parallel.",
+      "why_now": "Once wave 1 has landed, the files these tasks edit are settled.",
+      "consequence_of_delay": "Duplicate overlap comments keep being posted, and code still calls a Bitbucket issue API that no longer exists.",
+      "entries": [
+        {
+          "entry_id": "w2-e1",
+          "task": "aitasks#2252",
+          "topic": "aitasks#2235",
+          "position": 1,
+          "classification": "core",
+          "snapshot": {"status": "Ready", "priority": "medium", "effort": "low", "depends": [], "gates_pending": [], "followup_kind": "review_finding"},
+          "rationale": "A low-effort fix for a bug users can see: a SIGPIPE false negative and a first-page-only notes read make the check post a duplicate analysis comment on every run. It patches the glab branch t2247 adds, and it extends the glab stub, so it is the natural place for t2248's stub-default item.",
+          "confidence": "high"
+        },
+        {
+          "entry_id": "w2-e2",
+          "task": "aitasks#2251",
+          "topic": "aitasks#2235",
+          "position": 2,
+          "classification": "core",
+          "snapshot": {"status": "Ready", "priority": "medium", "effort": "medium", "depends": [], "gates_pending": []},
+          "rationale": "It removes the rest of the Bitbucket native-issue support (aitask_contribute.sh, issue import/update, the board's BB indicator, the bkt setup step) that Atlassian's API removal made dead. It starts from t2247's retired state and touches ait setup after t2249. Its inventory is explicitly incomplete.",
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "wave_id": "w3-live-verify",
+      "ordinal": 3,
+      "title": "Verify on live GitLab",
+      "purpose": "One end-to-end proof of the final contribution tooling on a real GitLab and runner.",
+      "why_now": "It only becomes meaningful once waves 1 and 2 have changed the code it exercises.",
+      "consequence_of_delay": "The fixes stay proven only against stubs and captured output.",
+      "entries": [
+        {
+          "entry_id": "w3-e1",
+          "task": "aitasks#2248",
+          "topic": "aitasks#2235",
+          "position": 1,
+          "classification": "core",
+          "snapshot": {"status": "Ready", "priority": "medium", "effort": "low", "depends": [], "gates_pending": [], "followup_kind": "risk_mitigation"},
+          "rationale": "A re-run of the scripted local GitLab CE Part B confirms live, under a real runner, the t2250 dropped-label warning, t2252's notes pagination and duplicate-comment fix, and t2247's fail-closed credentials. Running it earlier would test code that is about to change. Part C (gitlab.com) stays optional.",
+          "confidence": "medium"
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    {
+      "evidence_id": "ev-snapshot",
+      "source_type": "command_output",
+      "ref": "./.aitask-scripts/aitask_trail_gather.sh snapshot --scope task --owner 2248 2247 2248 2249 2251 2252",
+      "observed_at": "2026-11-09T07:39:41Z",
+      "summary": "Five members in topic aitasks#2235 (t2247 and t2249 Implementing with risk_evaluated pending; t2248, t2251, t2252 Ready). No depends edges. Digest 612ac27591dce960."
+    }
+  ],
+  "rendering_hints": {"depth": "lite"}
+}

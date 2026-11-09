@@ -8,7 +8,11 @@ labels: [git-integration, contribution]
 anchor: 2235
 followup_kind: risk_mitigation
 created_at: 2026-11-08 18:20
-updated_at: 2026-11-08 18:31
+updated_at: 2026-11-09 09:40
+artifacts:
+  - handle: art:trail-contribution-gitlab-bitbucket
+    kind: implementation_trail
+    name: GitLab/Bitbucket contribution follow-ups
 ---
 
 ## Origin
