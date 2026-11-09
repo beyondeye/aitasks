@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2175
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-09 10:04
-updated_at: 2026-11-09 10:32
+updated_at: 2026-11-09 12:37
 ---
 
 ## Context
@@ -78,3 +79,8 @@ The data comes from the task FILE through `sitrep_tui_model.TaskMeta` / `task_me
 - New and updated pilot tests for each refinement, plus `bash tests/run_all_python_tests.sh --test-dir tests` (read the last line).
 - Manual check in a real sitrep window: details line, `d` toggle in a short pane, created date/time on task rows, and the label filter applied and cleared.
 - Add the new keys and columns to the t2211_6 docs and the t2211_7 checklist (send each an `ait note`).
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-09T10:37:13Z status=pass attempt=1 type=human
