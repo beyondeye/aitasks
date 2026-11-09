@@ -280,13 +280,13 @@ contract to aitasks_go#t47 with `./ait note 47 --project aitasks_go`.
 - Moving the path helpers into `status_paths.py` touches imports used by existing callers and tests. The re-exports keep the `ss.*` names · severity: low · → mitigation: none
 
 ### Goal-achievement risk: medium
-- The user-visible fix (SIGTERM-retire the 2026-11-06 server, then one item in the `agent-sitrep` minimonitor) and the upgrade-hook scoping can only be confirmed live · severity: medium · → mitigation: sitrep_window_live_check
+- The user-visible fix (SIGTERM-retire the 2026-11-06 server, then one item in the `agent-sitrep` minimonitor) and the upgrade-hook scoping can only be confirmed live · severity: medium · → mitigation: t2257
 - A hung server is reported, not forced (deferred SIGKILL), so it needs a manual `kill` · severity: low · → mitigation: none
 - Dev checkouts still rely on an explicit `ait monitor --restart-server` after producer commits. Automatic detection is deferred to the follow-up task · severity: low · → mitigation: none
 - Trees at the same `VERSION` with different code share one server; a restart does not choose which tree respawns it. This is a documented known limit · severity: low · → mitigation: none
 
 ### Planned mitigations
-- timing: after | name: sitrep_window_live_check | type: manual_verification | priority: medium | effort: low | inline_risk: low | added_complexity: medium | addresses: live confirmation of the restart against the real pre-change server, the agent-sitrep single-item result, and upgrade-hook scoping | desc: Live check — --server-status shows the old server; --restart-server retires it and prints STARTED plus REPLACEMENT with the requested version at the same socket; agent-sitrep minimonitor lists exactly one item; a scratch ait upgrade retires only servers owned by the upgraded tree
+- timing: after | name: sitrep_window_live_check | type: manual_verification | priority: medium | effort: low | inline_risk: low | added_complexity: medium | addresses: live confirmation of the restart against the real pre-change server, the agent-sitrep single-item result, and upgrade-hook scoping | desc: Live check — --server-status shows the old server; --restart-server retires it and prints STARTED plus REPLACEMENT with the requested version at the same socket; agent-sitrep minimonitor lists exactly one item; a scratch ait upgrade retires only servers owned by the upgraded tree | created: t2257
 
 ## Post-Review Changes
 
