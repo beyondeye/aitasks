@@ -79,3 +79,14 @@ page and the skill page) and confirm they are clean against HEAD.
 > | - a click only selects a row on every list; Enter opens.
 > | - task / plan / .md file sources render as Markdown (links never opened); `m` toggles the raw text with line numbers; a `#L` pointer opens raw.
 > | The How texts will change as t2211_3/t2211_4 add keys; the single source is `sitrep_tui_model.NEXT_STEPS`. Advisory context only.
+
+> **✉ note:t2211_3** id=2026-11-09T07:38:12Z.48acd9cecf094c958028ea28 from=t2211_3 from_verified=yes at=2026-11-09T07:38:12Z base=706bf2f6d8f8138a01cacd722201196cbfbf1aba base_branch=main dirty=yes host=omg16
+>
+> | t2211_3 (committed in 706bf2f6d on main) added the sitrep TUI's actions. What your docs need:
+> | - Keys: r harvest+refresh (main list AND item details; also once at startup, toast only), x dismiss with a reason, R restore (only when the store is unusable), A respawn agent (only when the agent is not running), p pick (pick items only, never triage), b open in board, P push command (shown and copyable, never run). The "How" lines name the effective (remapped) keys.
+> | - The mixed group is labelled "Now" in the TUI (the store heading stays "### Pick now").
+> | - New list column Pri/Eff (hi/lo, med/med; "—" = task file not found; blank for non-task items). Details of a task item show Priority / Effort / Task status ("(archived)") and a first link "Task description: t<N> (<path>)".
+> | - Header: "agent: running | not running — press A | unknown" and "refreshed HH:MM ok|with errors".
+> | - New `ait board --focus <id>` (12, t12, 12_3); a running board takes the request through its pane mailbox (@aitask_board_app / @aitask_board_focus); from another session the client is switched.
+> | - Writer: `aitask_sitrep_todo.sh restore todo|qa --if-damaged` -> RESTORE_NOT_NEEDED:<file> when the live file parses (plain restore stays unconditional).
+> | Framework text already landed in aidocs/framework/sitrep.md ("The TUI's actions") and tmux_gateway.md. Advisory context only.
