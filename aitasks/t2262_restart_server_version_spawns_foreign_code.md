@@ -6,7 +6,7 @@ issue_type: bug
 status: Implementing
 labels: [monitor, minimonitor]
 gates: [risk_evaluated]
-assigned_to: daelyasy@hotmail.com
+assigned_to: dario-e@beyond-eye.com
 anchor: 2034
 followup_kind: upstream_defect
 created_at: 2026-11-09 16:22
