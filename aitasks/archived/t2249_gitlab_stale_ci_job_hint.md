@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: enhancement
-status: Implementing
+status: Done
 labels: [git-integration, contribution]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -17,7 +17,8 @@ anchor: 2235
 followup_kind: risk_mitigation
 implemented_with: claudecode/opus5_5
 created_at: 2026-11-08 18:20
-updated_at: 2026-11-09 10:47
+updated_at: 2026-11-09 15:41
+completed_at: 2026-11-09 15:41
 ---
 
 ## Origin
@@ -50,3 +51,14 @@ Tests in `tests/test_setup_contribution_workflow.sh`:
 > **✅ gate:plan_approved** run=2026-11-09T08:47:38Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-11-09T13:33:23Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-11-09T13:41:17Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:92489ece7981d1ab
+
+> **✅ gate:risk_evaluated** run=2026-11-09T13:41:17Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/2249/risk_evaluated_2026-11-09T13:41:17Z-risk_evaluated-a1.log`
