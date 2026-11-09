@@ -560,3 +560,183 @@ This runs on the current branch (fast profile, no worktree). After review:
 - This is the last child, so the parent t2037 archives too. Its cross-repo
   handoff note to `aitasks_go#47` (t2034_1's inbox note on t2037) is then due.
   Re-check the dependent list first.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-09)
+- **Requested by user.** Two review findings, both confirmed against the code
+  before any change:
+  - **The parked guard lost a recovery keyframe.** The guard cleared `force`
+    but kept `row_sigs` and `last_hash`. A pane that streamed live, then got a
+    `request_keyframe` that met a parked placeholder, then went live again:
+    - with changed content, it was sent as a **delta** (frame types `[1, 2]`,
+      the user's repro), against a baseline the phone may not hold;
+    - with unchanged content, **nothing** was sent at all.
+  - **Deferred replies were unbounded.** `_spawn_deferred` made a task for every
+    `cycle_compare_mode`. While the status server withheld its reply, a burst
+    grew the tasks and the client's pending requests without limit: 1,000 in
+    the user's repro, 50 in ours.
+- **Changes made.**
+  - **The guard resyncs.** `PaneState.resync_on_live` is new. Suppressing a
+    placeholder now does four things: reset `row_sigs` and `last_hash`, set the
+    mark, and clear `force`, so a pane that stays parked draws no refresh every
+    pass. On the next live snapshot the mark puts the pane back into `force`,
+    which only a delivered (or finally dropped) frame clears, so a failed send
+    keeps the resync. The frame is then forced, which bypasses both the
+    unchanged-hash gate and the cadence gate, and goes out as a keyframe.
+  - **Admission before task creation.** `MAX_DEFERRED_PER_CONN = 4`.
+    `_spawn_deferred` returns `False` and creates nothing once the connection
+    has 4 in flight, and `_handle` then answers at once with `err INTERNAL`,
+    `detail: {reason: too_many_pending, limit: 4}`, which the audit log records.
+    Ordinary verbs are unaffected.
+  - **Spec.** The "Consumers: applink" section of
+    `aidocs/framework/monitor_status_protocol.md` describes the resync and the
+    bound.
+- **Tests,** in `tests/test_applink_status_subscribe.py`:
+  - **Live → parked → live, two variants.** A multi-row pane where the change
+    touches one row: with a one-row pane the delta cost rule picks a keyframe
+    anyway, which hid the bug in the first version of this test. Both variants
+    expect `[keyframe, keyframe]`.
+  - **A burst against a silent server.** 50 compare requests while every reply
+    is held:
+    - exactly 4 tasks and 4 pending status-server requests;
+    - 46 refusals with `too_many_pending`;
+    - a `send_keys` sent after the burst is answered;
+    - after the replies are released, admission recovers.
+- **Positive controls,** each failing its test, run from a scratch script that
+  swaps the code under test:
+  - the guard as `force.discard` only → `[1]` (unchanged content) and `[1, 2]`
+    (changed content);
+  - `_spawn_deferred` without its check → 50 tasks in flight against the
+    expected 4.
+- **Files affected:** `.aitask-scripts/applink/content.py`,
+  `.aitask-scripts/applink/pusher.py`, `.aitask-scripts/applink/server.py`,
+  `tests/test_applink_status_subscribe.py`,
+  `aidocs/framework/monitor_status_protocol.md`.
+- **Verification:** the applink and client Python modules, 93 passed; the
+  pusher, router, server-limits and content `.sh` tests all pass.
+
+## Final Implementation Notes
+
+- **Actual work done:**
+  - **`monitor/status_client.py`**, additive:
+    - `start_detached()`: startup owned by the client, never by a caller;
+    - `status_snapshot()`: subscription snapshot while subscribed, the local
+      `capture_pane` otherwise;
+    - `parked_pairs()` and the `capture_pins` property;
+    - `status_snapshot` added to `READ_SURFACE_NAMES`.
+  - **`applink/status_view.py`** (new): `view_snapshots`, the one projection,
+    `client_view_snapshots` with the client's parked set and pins, shared by
+    the push loop and the restart gate.
+  - **`applink/router.py`:**
+    - `set_monitor`;
+    - `DeferredReply`, plus `_deferred_compare` for `cycle_compare_mode` on any
+      monitor that has `cycle_compare_mode_async`;
+    - `_status_snapshot`, the restart idle gate.
+  - **`applink/pusher.py`:**
+    - the `publish_pins` kwarg;
+    - `_refresh_targets` and `_prepare_server_read`: start-wait, pins, one
+      batched refresh after `flush_pins`, then the read;
+    - `view_snapshots` on every read;
+    - the parked guard with resync.
+  - **`applink/content.py`:** `PaneState.last_refresh_t`, `resync_on_live`.
+  - **`applink/server.py`:**
+    - the client lifecycle: `_acquire_status_monitor`, `_build_client` (a
+      fresh local, detached start), `_release_client_if_idle`;
+    - pins: `_streamed_pins`, `_publish_pins`, after every frame and on
+      connection removal;
+    - deferred replies: `_spawn_deferred`, bounded by `MAX_DEFERRED_PER_CONN = 4`;
+    - `start()` starts the base control client only in-process;
+    - `stop()` cancels deferred tasks and closes the client;
+    - class defaults so `__new__`-built test servers keep the old path, and a
+      `_local_factory` test seam.
+  - **Tests:**
+    - `tests/test_applink_status_subscribe.py`, 21 tests;
+    - `tests/test_applink_status_subscribe_live.py`, 2 tests on an isolated
+      tmux socket;
+    - 8 `SharedClientTests` added to `tests/test_monitor_status_client.py`;
+    - `tests/test_applink_headless_live.sh` pinned to
+      `AITASKS_MONITOR_SERVER=0`.
+  - **Docs:**
+    - the spec's "A shared client starts detached", the projection and
+      `status_snapshot` notes, and the new "Consumers: applink" section;
+    - `aidocs/applink/monitor_port_design.md`, cadence and compare-mode text;
+    - the website applink Listener paragraph and the monitor reference
+      `AITASKS_MONITOR_SERVER` row.
+- **Deviations from plan:**
+  - **Two plan-review rounds** reshaped the design before implementation:
+    - shared startup ownership (`start_detached`);
+    - pins published independently of push passes;
+    - the per-cadence refresh of every streamed content pane, which replaced
+      "focused or forced only".
+  - **One code-review round** (Change Request 1) added the parked resync and
+    the deferred-reply bound.
+  - **Helper placement.** The deferred compare coroutine lives in the router as
+    a closure that catches `Exception` by name, so the router still imports no
+    asyncio. `status_view.py` holds only the projection.
+  - **A `_local_factory` server seam** was added so unit tests never build a
+    real `TmuxMonitor`, whose cursor capture would reach the developer's tmux.
+  - **The `start()` control-client assertion for the disabled path** was not
+    unit-tested: `start()` returns before that point without an SSL context. The
+    disabled path's pusher and router routing is tested instead.
+- **Issues encountered:**
+  - **A test that hid its bug.** The first live → parked → live test used
+    one-row content, so the delta cost rule picked a keyframe anyway. A
+    multi-row fixture exposes the `[1, 2]` delta.
+  - **An unchanged-output leg that missed its control.** The first version
+    ended exactly at the next due point, where attempt-based and send-based
+    timing agree. Passes after that point now separate them.
+  - **Concurrent sessions.** Another session's commits (t2245, t2246) landed
+    under `monitor_status_protocol.md` mid-session. The diff against HEAD
+    showed only this task's hunks.
+  - **The temp volume** hit its quota once near the end (other sessions' data).
+    A retry succeeded.
+- **Key decisions:**
+  - Lazy lifecycle, per the user: no subscription while no phone streams.
+  - Pins are the streamed content panes' windows, per the user. Status-only
+    parked panes show as parked.
+  - A deferred, authoritative compare answer, per the user. The pre-phase
+    `mobile_res_correlation_check` confirmed that `aitasks_mobile`'s
+    `KtorMonitorStreamClient.kt` keeps an `id`-keyed `pending` map (`:79`,
+    insert `:139`, `pending.remove(id)` on `res`/`err` `:230-231`), so an
+    out-of-order `res` is matched correctly.
+  - Routes are chosen by type (`isinstance` / `getattr` probe), never by
+    `client.mode`.
+- **Verification:**
+  - **Full suite:** `PYTHON SUITE: PASSED (runner=pytest, exit=0)`, with 11764
+    passed and 6 skipped, plus 15 serial. That run predates Change Request 1;
+    after it, the affected modules passed (93) and so did the
+    pusher/router/limits/content `.sh` tests.
+  - **Shell tests:** all 15 `tests/test_applink_*.sh` pass, the headless live
+    one included.
+  - **Website:** `check_links.py --build`, `SWEEP: PASSED`.
+  - **Positive controls,** each failing its test:
+    - no `start_detached`, at client and applink level;
+    - focused-or-forced only;
+    - send-driven due-ness;
+    - refresh before pins;
+    - pins only from push passes;
+    - the restart gate via `capture_pane`;
+    - a sync compare answer;
+    - the guard without resync (`[1]`, `[1, 2]`);
+    - no admission bound (50 tasks).
+  - **Post-phase `suite_spawns_no_status_server`: PASS.**
+    - Before (12:51) and after (13:04) the suite plus all applink `.sh` tests:
+      the only status server was pid 820754, the user's own on
+      `/tmp/tmux-1000/ait`.
+    - The runtime dir `/run/user/1000/aitasks/` held the same files before and
+      after: `monitor-2d0b888256e321e6-0.40.1.{lock,log,sock}`, plus older
+      `1d10f373…` and `e4af9df2…-vchk` leftovers. No new socket.
+- **Upstream defects identified:**
+  - `.aitask-scripts/monitor/status_client.py:387-405` — `MonitorClient.start()`
+    awaits its startup task unshielded, so cancelling the first caller cancels
+    the shared startup, and the client is left `connecting` with no fallback and
+    no reconnect. This was worked around for applink with `start_detached()`.
+    The monitor apps own their client, so they are unaffected today, but any
+    future shared caller would hit it.
+- **Notes for sibling tasks:** t2037_4 is the last child of t2037.
+  - **For the Go port (aitasks_go#47).** applink speaks the unchanged protocol
+    as `kind: applink`, subscribing with `include_shadows: false`. It sends
+    `set_pins` updates often, and partial `refresh{panes}` at phone cadences
+    (300 ms focused, ≥ 500 ms idle). A Go server must therefore serve frequent
+    partial refreshes cheaply, and apply `set_pins` before answering it.
