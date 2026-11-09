@@ -389,3 +389,199 @@ touches nor how open the cause of the user's report still is.)
 - timing: pre-phase | name: real_pane_repro | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement: user's d-toggle report may have another cause | desc: reproduce the d report in a throwaway tmux server across focus states before editing
 - timing: post-phase | name: binding_label_no_leak_control | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health: live binding-label swap leak / remap | desc: second-instance + remapped-key label tests with an in-place-mutation mutant control
 - timing: post-phase | name: rebuild_highlight_matrix | type: test | priority: low | effort: low | inline_risk: low | added_complexity: low | addresses: code-health: _rebuild_list gains the filter input | desc: parametrised highlight-rule test over filter x closed x hidden-highlight
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-09 13:20)
+- **Requested by user:** two review findings, both verified as valid before fixing.
+  - (1) `LabelFilterDialog` let its list grow inside the height-capped
+    container with no room kept for the buttons. In the real app at 100x16
+    with 4 labels, a click on Cancel returned `False`. At 100x12, at 80x10,
+    or with 20 labels, the buttons were below the screen (`OutOfBounds`).
+    The tests had used `Button.press()`, which bypasses visibility.
+  - (2) `_labels` clipped values to 40 characters before deduplicating and
+    matching, so two labels sharing a 40-character prefix merged into one
+    picker option and matched each other's tasks. `sanitize_label` has no
+    length cap, so a label's identity is its full value.
+- **Changes made:**
+  - (1) The dialog's buttons are docked at the bottom, and the title and help
+    text are one row each. `_fit_list` (on mount and resize) caps the list at
+    the screen height minus the dialog's border, padding and other rows, so
+    the list scrolls inside itself.
+    - A middle attempt (dock + `max-height: 100%`) made the buttons clickable,
+      but the probe showed the list region overlapping the buttons: the
+      percentage does not subtract the dock.
+    - The new tests run in the real app at 100x16, 100x12, 80x10 and 120x30,
+      with 4 and 20 labels. Each checks that no button overlaps the list, that
+      every button is on screen, and that the last label scrolls into view.
+      The buttons are then pressed with real `pilot.click`. The two existing
+      filter tests now click too.
+  - (2) `_labels` keeps each value exactly (only non-strings, blank strings
+    and exact duplicates are dropped). The new `label_display(label, limit)`
+    is used only for display:
+    - the picker shows the full value, whitespace collapsed;
+    - the header clips each label at `LABEL_DISPLAY_MAX` (40) with an ellipsis.
+    New tests cover exact values, presentation-only display, and a pilot case
+    with two labels sharing a long prefix.
+  - Pre-fix controls (isolated scratch copies), each red:
+    - the old dialog CSS turns the few-labels geometry test red;
+    - dropping `_fit_list` turns the many-labels geometry test red;
+    - restoring the 40-character clip turns both identity tests red.
+- **Files affected:** `.aitask-scripts/sitrep_tui/sitrep_tui_actions.py`,
+  `.aitask-scripts/sitrep_tui/sitrep_tui_model.py`,
+  `.aitask-scripts/sitrep_tui/sitrep_tui_app.py`,
+  `tests/test_sitrep_tui_actions.py`
+
+### Change Request 2 (2026-11-09 13:45)
+- **Requested by user:** a review finding, verified before fixing.
+  `LabelFilterDialog.on_resize` changed the list's max height but left the
+  scroll offset alone. Reproduced: with 20 labels, open the dialog at 120x30,
+  press End, then shrink the pane to 100x16. The highlighted label is on line
+  19 while the viewport shows lines 0-6, and Space toggles a row the user
+  cannot see. The geometry tests opened a fresh window at each fixed size, so
+  they never covered the transition.
+- **Changes made:**
+  - `_fit_list` now ends with `call_after_refresh(lst.scroll_to_highlight)`.
+    After the new layout, it scrolls the existing highlight back into view and
+    leaves the selection unchanged. The probe now shows viewport 13-19 with
+    line 19 inside it.
+  - New `test_a_resize_in_place_keeps_the_highlight_visible`:
+    - opens at 120x30, presses End, then resizes in place through 100x16,
+      80x10, 120x30 and 100x12;
+    - after each resize, the highlighted index is unchanged and its line is
+      inside the viewport;
+    - Space then toggles exactly that label.
+  - Pre-fix control (isolated copy): without the scroll call, the new test is
+    red.
+  - The first control run hit a disk quota on `/tmp/claude-1000` (shared with
+    other sessions). Only this session's leftover copy and logs were removed,
+    and the rerun was red as expected.
+- **Files affected:** `.aitask-scripts/sitrep_tui/sitrep_tui_actions.py`,
+  `tests/test_sitrep_tui_actions.py`
+
+## Final Implementation Notes
+- **Actual work done:** presentation and per-session UI state only. Nothing
+  changed in the store format, the writer, `lib/sitrep_*.py`,
+  `shortcut_scopes.py` or the docs.
+  - `sitrep_tui_model.py`:
+    - `TaskMeta.created_at` / `.labels`; `_labels` keeps exact values;
+    - `parse_created`, `created_cell` (`HH:MM` / `today` / `MM-DD` /
+      `YYYY-MM-DD`, now converted to the local zone), `created_text`;
+    - `CREATED_W` = 10 and a "Created" column; `header_text` / `row_text` now
+      both build through one `_cells` helper;
+    - `label_counts`, `filter_match`, `label_display` / `LABEL_DISPLAY_MAX`.
+  - `sitrep_tui_app.py`:
+    - one-line `Priority … · effort …` plus a `Created` details line;
+    - `d` labelled "Show done" / "Hide done" via `_set_binding_label`, which
+      replaces the live keymap entry with a new list per key and matches by
+      action;
+    - header `_visibility_note`: the hidden done / dismissed counts and
+      `filtered by: … · N hidden (F clears)`;
+    - `_rebuild_list(focus_closed=)` jumps to the first closed item on show;
+      the list filter is applied in `_rebuild_list`;
+    - keys `f` (`filter_labels`) and `F` (`clear_label_filter`), both main
+      screen only, with `check_action` gates and re-checks inside the actions;
+    - `_app_key` (the effective key for the app's own bindings).
+  - `sitrep_tui_actions.py`: `LabelFilterDialog`:
+    - SelectionList with `Text` prompts; Apply / Clear / Cancel; Enter
+      applies;
+    - docked buttons, the list fitted to the remaining height, and the
+      highlight kept in view on resize.
+  - Tests:
+    - `tests/test_sitrep_tui_actions.py` adds `CreatedCellTests`,
+      `LabelModelTests`, `CreatedColumnTests`, `ClosedToggleTests`,
+      `LabelFilterTests`, `LabelFilterGeometryTests` and
+      `RebuildHighlightMatrixTests`, and updates the TaskMeta details test;
+    - `tests/test_sitrep_tui_app.py`: `LabelledDetailsTests.LABELS`.
+- **Deviations from plan:**
+  - (1) `filter_match(meta, labels)` takes no `item` (the meta decides alone).
+  - (2) The header's clear-key hint uses a new `_app_key`. `key_for` only
+    knows `ACTION_BINDINGS` actions.
+  - (3) Labels are exact values (review round 1); the plan's 40-char cap
+    became display-only.
+  - (4) The dialog layout was reworked in review rounds 1 and 2 (see
+    Post-Review Changes).
+- **Issues encountered:**
+  - **real_pane_repro result.** It ran on the tests' fixture under the
+    scratchpad, with `startup_harvest=False`, in a throwaway tmux server
+    (`-L t2211_9_probe`).
+    - `d` toggled in every state tested: (a) an item highlighted; (c) after
+      `tab` (focus off the list) and two further `tab`s; (d) after opening and
+      closing details. It was correctly inert on the details screen.
+    - (b), a click on a group header, was not drivable through tmux. The pilot
+      test covers `highlighted=None` instead.
+    - **Cause of the user's report:** at 100x14 the list is ONE row tall. The
+      header, situation and footer take the rest. The closed groups are added
+      off-screen, and the rebuild keeps the scroll on the highlighted item, so
+      the toggle was invisible. There was no focus/selection dependency, so
+      there was no separate fix.
+    - **Write-destination control:**
+      - the fixture store hashes were unchanged (decisive);
+      - the live store changed during the probe (inconclusive). The diff
+        shows `derived=script` task-status refresh writes about every 60 s
+        (`checked_at` 10:37:55Z, 10:38:58Z, …). They continued after the probe
+        server was killed (rev 68852 at 10:43:18Z), so they came from a writer
+        that was already running, not the probe.
+  - **Disk quota:** a mutant-control run hit the disk quota on
+    `/tmp/claude-1000`, which is shared with other sessions. Only this
+    session's leftovers were removed, then it was re-run.
+  - **Flaky test, not caused by this change:**
+    `RestoreTests::test_pre_fix_control_the_unconditional_verb_rolls_it_back`
+    (t2211_3):
+    - it failed in 2 of 5 full-suite runs under load (load average about 5,
+      other sessions' suites);
+    - it passed 6/6 in isolation and in every sitrep-only run;
+    - it runs before this task's classes in the file, and its restore flow
+      does not reach the new code;
+    - no commit since the pick touched the writer or the sitrep libs;
+    - the root cause was not established. Ordering of the race under load,
+      with a pinned clock, is the suspect, unverified;
+    - the final full suite PASSED.
+- **Key decisions:**
+  - A label's identity is its full stored value (`sanitize_label` sets no
+    cap). Clipping is only for the one-line header.
+  - Filter semantics are OR. Non-task items and task items with a missing
+    file are hidden while a filter is on. Closed counts in the header follow
+    the filter.
+  - "Today" compares calendar dates in the machine's local zone, which is
+    where `created_at` was stamped. `now` comes from `resolve_now()`, so
+    `AITASK_SITREP_NOW` works.
+  - **Mutant controls** (isolated scratch copies), each red:
+    - in-place keymap list mutation;
+    - no show jump;
+    - no header re-render;
+    - no label swap;
+    - `YYYY-MM` instead of `YYYY-MM-DD`;
+    - no zone conversion;
+    - non-task items passing the filter;
+    - a markup-parsed picker prompt;
+    - a frozen `now` in the row's Created cell;
+    - plus the review pre-fix controls: old dialog CSS, no `_fit_list`, the
+      40-char label clip, no scroll-to-highlight.
+- **Upstream defects identified:** None
+- **Notes for sibling tasks:**
+  - **t2211_4 / t2211_10:**
+    - `f` and `F` are now taken (main screen only);
+    - main-screen key gates belong in `_MAIN_ACTIONS` + `check_action`;
+    - a binding whose footer label follows state should use
+      `_set_binding_label(action, text)`, never edit a keymap list in place;
+    - new list filters go through `_passes` / `_rebuild_list`, which keep the
+      highlight rule;
+    - modal dialogs that list items: copy `LabelFilterDialog`'s docked buttons
+      + `_fit_list` + resize scroll-to-highlight, and test with real
+      `pilot.click` at short sizes.
+  - **t2211_6 (docs):**
+    - `d` is "Show done" / "Hide done", the header shows hidden counts, and
+      show jumps to the first closed item;
+    - `f` opens the label picker (OR, non-task items hidden, Apply / Clear /
+      Cancel) and `F` clears; the header reads `filtered by: …`;
+    - the "Created" column (`HH:MM` today, `MM-DD` this year, `YYYY-MM-DD`
+      other years; local time);
+    - the one-line `Priority … · effort …` and the `Created` details line.
+  - **t2211_7 (manual):**
+    - in a short real sitrep window, `d` jumps to the first done item, the
+      footer flips, and the header counts are shown;
+    - Created on task rows;
+    - `f` with a label, check the header, then `F`;
+    - the picker's buttons are clickable at about 16 rows, and the highlight
+      stays visible after a pane resize.
