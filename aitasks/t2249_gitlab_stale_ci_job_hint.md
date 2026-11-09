@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2235
 followup_kind: risk_mitigation
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-08 18:20
-updated_at: 2026-11-08 18:24
+updated_at: 2026-11-09 10:47
 ---
 
 ## Origin
@@ -40,3 +41,8 @@ Tests in `tests/test_setup_contribution_workflow.sh`:
 - an existing file with the current template job does not;
 - an unrelated `.gitlab-ci.yml` does not;
 - the file is byte-identical after setup in all three cases.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-09T08:47:38Z status=pass attempt=1 type=human
