@@ -274,3 +274,44 @@ Broken links/anchors are caught by the mandatory `check_links.py --build` step.
 None identified. Every behavioural claim was traced to source during planning
 (table above), the one task-text inaccuracy (applink) is corrected rather than
 copied, and all four gaps in the task map to steps 1–6.
+
+## Final Implementation Notes
+
+- **Actual work done:** Steps 1, 2, 3, 5, 6 as planned, plus step 4
+  (`monitor/reference.md`) after all — see deviations. New sections
+  `### How the Shared Status Server Works` and
+  `### How to Restart the Shared Status Server` in
+  `website/content/docs/tuis/monitor/how-to.md`; a one-paragraph pointer in
+  `monitor/_index.md`; a sentence + link in `minimonitor/how-to.md` ("How the
+  Agent List Refreshes"); step 7 + a "Monitor status servers" block in
+  `commands/setup-install.md` (`ait upgrade`); in `monitor/reference.md` "per tmux
+  server" → "per tmux server and framework version", links from its two
+  paragraphs to the new how-to sections, and the `--restart-server` table row
+  softened from "start a fresh one from the current files" to "make sure a fresh
+  one is running".
+- **Deviations from plan:**
+  - **applink is now named.** While this task was planning, t2037_4 landed at
+    `fff7e0564` ("Subscribe applink to the monitor status server"): at HEAD the
+    App Linker is a client of the same server while a paired device streams
+    (`aidocs/framework/monitor_status_protocol.md` "Consumers: applink";
+    `website/content/docs/tuis/applink/reference.md`). Current-state docs
+    therefore name it: one sentence in the concept section (link to the applink
+    reference), "Whichever of them connects first starts it", and "Monitor,
+    minimonitor and the App Linker … reconnect automatically" in the upgrade
+    block. The planned Step 8e note to t2037_4 is dropped — its work is
+    committed and these pages now match it.
+  - **Step 4 restored.** The shared-file gate that excluded `monitor/reference.md`
+    was t2037_4's *uncommitted* edit; that edit is committed in `fff7e0564` and
+    the file was clean vs HEAD when re-checked immediately before editing, so the
+    originally planned small edits went in.
+  - **`--restart-server` table row softened** (one phrase, existing text) to stay
+    consistent with the user-requested rule: never guarantee that a restart
+    loads this checkout's code.
+- **Issues encountered:** none. `cd website && python3 check_links.py --build`
+  → `SWEEP: PASSED`, 0 broken; a scratch `hugo build` shows both new heading ids
+  and every new link resolving to them.
+- **Key decisions:** `--version V` is not recommended in the how-to (it starts
+  this checkout's script under V's key); the how-to says to run the restart from
+  a project on that version instead. SIGKILL advice is safe because the lock is
+  an `flock` released on exit and `ensure` removes the stale socket under it.
+- **Upstream defects identified:** None
