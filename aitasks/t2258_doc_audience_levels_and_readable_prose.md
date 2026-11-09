@@ -108,6 +108,81 @@ Check each license before copying text. Adapting ideas is always fine.
   only as an advisory feedback sensor for the agent. It judges style, never
   content.
 
+## Integration map (source files read 2026-11-09)
+
+Which parts of the existing skills to take, where each goes, and on what terms.
+Ordered by the task's main goal: **matching detail to the reader comes first**;
+prose cleanup supports it. "Adopt" means use the rule as written (with
+attribution where the license asks for it). "Adapt" means rewrite the idea in our
+own words for our pages. "Skip" means deliberately left out.
+
+### Primary: matching detail to the reader
+
+| Part | Source | Verdict | Where it goes | Terms |
+|---|---|---|---|---|
+| **The compass**: two questions per page. Does the reader *do* something or *know* something? Are they *studying* or *working*? The answers pick tutorial / how-to / reference / explanation (`diataxis/references/compass.md`). | keithpatton/diataxis-agent-skill | **Adapt** | Level model in the doc guide: the "what kind of page is this" test that every new or edited page passes before drafting. | CC-BY-SA-4.0: write our own text and credit Diátaxis. Never copy the files, or the share-alike terms spread to our guide. |
+| **Anti-patterns 1, 2, 5**: tutorial with too much explanation; how-to that teaches; mixed-mode page, including "reference tables embedded in an overview" (`references/anti-patterns.md`). Each has detection signals and a fix ("move the detail to a reference page and link to it"). | same | **Adapt** | Audit checklist (scope 4) and the gate review pass (scope 3). Anti-pattern 5 is exactly the `concepts/locks.md` case. | same |
+| Anti-patterns 3, 4: reference written as narrative; explanation containing procedures. | same | **Adapt**, lower priority | Audit checklist | same |
+| **Restructure method**: split a mixed page into one page per type, or keep a short overview and link out. "Getting Started" splits into a tutorial plus reference; a README keeps an overview and links out. | same | **Adapt** | Method for restructuring the workflow pages and the long concept pages (scope 4). It matches our existing rule that "internals belong on the page that owns the behaviour". | same |
+| **RULE-01, "Don't assume the reader shares your tacit knowledge"**: define terms the intended reader may not know; state the purpose before the mechanics; give a one-sentence map before a long section; *name the intended reader before drafting*. | yzhao062/agent-style `RULES.md` | **Adopt** (core rule) | First rule of the newcomer rule pack. "Name the reader before drafting" becomes "declare the page's level before drafting". The source says no mechanical check exists, so the fresh-reader test below checks it. | CC BY 4.0: attribution required |
+| **RULE-03, concrete language**: name the specific items instead of "factors / aspects / considerations"; *don't copy every table value into prose*; keep intros light on numbers. | same | **Adopt** | Rule pack | CC BY 4.0 |
+| **Reader testing**: predict 5–10 reader questions; give each to a sub-agent that sees *only the page*; then ask it what is ambiguous, what it assumes the reader already knows, and what contradicts itself; fix and repeat until no new gaps appear. | anthropics/skills `doc-coauthoring` (Stage 3) | **Adapt** | Gate review pass for beginner-level pages, and spot checks during the audit. **Our change:** their fresh reader is a generic model that is in effect an expert. Ours gets a *persona from the page's level*, for example "you know git and a terminal and have never heard of aitasks". It also reports two extra lists: every term it had to guess, and every detail it didn't need to answer its questions. The second list is the "too much mechanism" signal. | No license field in the SKILL.md and none found for the folder: reuse the method only and write our own procedure |
+| **"Every fact must survive a rewrite"** | plain-language skills (mdskills, shihyuho/skills `plain`) | **Adopt** as a principle | Rule pack. Interpretation: a fact cut from a beginner page must be *moved* to the page that owns it, not deleted. | Idea only, no text copied |
+
+### Secondary: prose cleanup
+
+| Part | Source | Verdict | Where it goes | Terms |
+|---|---|---|---|---|
+| **What not to touch, and no invented facts**: rewrite only prose; leave code blocks, inline code, commands, paths, URLs and frontmatter unchanged; add no facts, names or numbers; ask, or write a simpler sentence. | blader/humanizer `SKILL.md` | **Adopt** | Hard rules for any rewrite pass (gate review and audit) | MIT: may quote with the notice |
+| **Group A, staging**: not-X-but-Y, one-line closers, deep-sounding sayings, staged run-ups, arguing with no one. These are the patterns found in `freeze-and-restore-agents.md`. | humanizer | **Adapt** | Rule pack, short "avoid" list with before/after examples from our pages | MIT |
+| Picks from B–E: forced triads (6), repeated openings (7), dashes as the default connector (8), inflated significance (13), shallow -ing riders (15), avoiding is/are/has (18), decorative bold (19), heading repeated in the first sentence (24), writing about the document instead of its subject (25). | humanizer | **Adapt** | Same list; merge duplicates with agent-style into one entry each | MIT |
+| RULE-06 jargon → everyday word (keep real technical terms), RULE-07 X-not-Y, RULE-B dashes, RULE-E closing summaries, RULE-F one term per thing, no synonym rotation. | agent-style | **Adopt**, merged with the humanizer entries | Rule pack | CC BY 4.0 |
+| Humanizer **group F** ("re-explaining what the reader knows") | humanizer | **Skip** | Not applicable: it targets replies in a thread, where the reader has the context. Our problem is the opposite. | — |
+| Humanizer voice matching / writing sample, curly quotes, chat residue, knowledge-limit disclaimers | humanizer | **Skip** | Low value for site pages | — |
+| agent-style RULE-G (title-case headings), RULE-I (no contractions), RULE-H (citations) | agent-style | **Skip** | House-style choices or not about product docs; check our heading case before deciding anything | — |
+| **Vale + `vale-ai-tells`** (137 rules, all at `error`, needs per-rule tuning) | tbhb/vale-ai-tells | **Defer** | Possible later follow-up, advisory only. It checks wording and cannot see a level mismatch, which is the main problem. Not installed here. | MIT |
+| Other Diátaxis skills (sammcj, oxidecomputer), Beagle docs-style, dhruvbaldawa writing-documentation | — | **Not read** | Only if planning finds a gap the sources above leave | — |
+
+### Local pieces and how they change
+
+- **`aitasks/metadata/doc_update_guide.md` is the home for the level model and the
+  rule pack.** The docs gate skill is forbidden from reading framework convention
+  docs ("MUST NOT reference framework-internal convention docs — read the
+  project's configured guide instead"). Anything that lives only in
+  `aidocs/framework/documentation_conventions.md` never reaches the agent writing
+  the docs. The concept-page rules there must be carried into the guide, or the
+  guide must restate them.
+- **`docs_updated` gate** (`.claude/skills/aitask-gate-docs-updated/SKILL.md`):
+  add the review pass between step 3 (infer + propose) and step 4 (confirm with
+  the user), so the user sees the reader report alongside the proposed edits. Its
+  Codex and OpenCode surfaces are generated wrappers; refresh them with
+  `aitask_audit_wrappers.sh`.
+- **`aitask-docs-gap`** (Step 6, "What to write"): add the target level for each
+  gap, so the documentation task it creates knows its reader.
+- **`seed/doc_update_guide.md`** (68 lines, generic default for other projects):
+  candidate for a project-agnostic version of the level model.
+
+### Uncertain choices, recorded for planning
+
+1. **One axis or two.** Our `depth` values describe how much the reader already
+   knows; Diátaxis types describe what the reader needs. Combine them (for example
+   "depth sets the vocabulary, type sets the shape"), or replace `depth`?
+2. **Anti-pattern 2 conflicts with our goal.** Diátaxis treats "defining terms
+   before using them" as a fault in a how-to (it assumes a competent reader).
+   Beginner pages *must* define terms. The level model has to say which pages
+   assume competence.
+3. **Where the rule pack lives.** Inside `doc_update_guide.md`, or a separate file
+   listed in `doc_update.extra_guides`. The gate reads `extra_guides` today, but
+   it is a list value outside the config resolver.
+4. **Fresh-reader cost and portability.** Sub-agent runs for every edited
+   beginner page, or only during the audit? Codex and OpenCode may lack sub-agents,
+   so they need a fallback: a self-review checklist, or a deferral recorded in
+   the gate log.
+5. **Personas.** How many, and their exact wording. One per `depth` value is the
+   simplest start.
+6. **Seed guide.** Ship the level model to other projects now, or after it has
+   proved itself on this site?
+
 ## Scope (to be refined and likely split into children during planning)
 
 1. **Level model.** Write the contract for each audience level and page type.
