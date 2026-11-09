@@ -5,7 +5,7 @@ risk_goal_achievement: medium
 effort: medium
 depends: []
 issue_type: enhancement
-status: Implementing
+status: Done
 labels: [sitrep, tui]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -16,7 +16,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 2175
 implemented_with: claudecode/opus5_5
 created_at: 2026-11-09 10:04
-updated_at: 2026-11-09 12:37
+updated_at: 2026-11-09 17:27
+completed_at: 2026-11-09 17:27
 ---
 
 ## Context
@@ -88,3 +89,14 @@ The data comes from the task FILE through `sitrep_tui_model.TaskMeta` / `task_me
 > **✅ gate:plan_approved** run=2026-11-09T10:37:13Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-11-09T14:25:22Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-11-09T15:27:37Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:98a3cb0942537950
+
+> **✅ gate:risk_evaluated** run=2026-11-09T15:27:37Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/2211_9/risk_evaluated_2026-11-09T15:27:37Z-risk_evaluated-a1.log`
