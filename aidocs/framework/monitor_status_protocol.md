@@ -1077,8 +1077,8 @@ other than the reader. The reader has to stay free to read the reply.
 
 - `start()` runs its work as a task the client owns. `close()` closes every socket
   still in its handshake, then cancels that task and the reconnect loop. A
-  connection attempt that ends without being adopted, cancellation included, closes
-  its own socket.
+  connection attempt that ends without being adopted, cancellation by `close()`
+  included, closes its own socket.
 - **A local control-client start is never cancelled.**
   `TmuxMonitor.start_control_client` runs `backend.start` in a worker thread. If
   the coroutine were cancelled at that point, it would never reach the
@@ -1087,15 +1087,16 @@ other than the reader. The reader has to stay free to read the reply.
   `close_control_client()` instead. That bumps the generation, and each in-flight
   start retires its own backend when it finishes. `close()` waits up to 15 s for
   that.
-- **A shared client starts detached.** `start()` awaits its startup task
-  unshielded, so cancelling the first caller cancels the startup itself, and the
-  attempt then ends in `connecting` with no fallback and no reconnect. That is
-  harmless for an app that owns its client. Code that shares one client between
-  several callers, each of which can be cancelled on its own (applink: one push
-  loop per phone), calls the synchronous `start_detached()` from the owner of
-  the client's lifetime instead. The startup task then belongs to the client.
-  Every later `start()` only waits on the ready event, and only `close()`
-  cancels the startup.
+- **Cancelling a caller never cancels the startup.** The startup task belongs to
+  the client. The `start()` call that creates it awaits it through
+  `asyncio.shield`, and every later `start()` only waits on the ready event. So a
+  cancelled caller, the first one included, only stops waiting: the attempt still
+  ends in a subscribed mode or in a fallback with its reconnect. Only `close()`
+  cancels the startup. A client shared between several callers that can each be
+  cancelled on their own (applink: one push loop per phone) is therefore safe
+  with plain `start()`. Applink still calls the synchronous `start_detached()`
+  from the owner of the client's lifetime, so the first attempt is already
+  running before any push loop reads.
 
 ### Reads
 

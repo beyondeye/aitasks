@@ -486,10 +486,10 @@ class AppLinkServer:
 
         Fresh, because a closing client releases its seeded pane cache and
         closes its local control client: two lifetimes sharing one local would
-        let an old client's close wipe a new one's seed. Detached, because the
-        client is shared by every phone's push loop — the startup must belong
-        to the client, so one loop's cancellation cannot leave it stuck in
-        ``connecting`` (only ``close`` cancels it)."""
+        let an old client's close wipe a new one's seed. Detached, so the first
+        attempt is already running when the first phone's push loop reads: the
+        client is shared by every push loop, and its startup belongs to the
+        client, not to any one loop (only ``close`` cancels it)."""
         factory = self._local_factory
         local = factory() if factory is not None else TmuxMonitor(**self._client_config)
         log = self._status_log

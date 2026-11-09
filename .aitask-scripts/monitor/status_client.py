@@ -386,19 +386,26 @@ class MonitorClient:
 
     async def start(self) -> bool:
         """Run the first attempt: replay, server, or fallback. Returns True once
-        it resolved either way (the ``start_control_client`` contract)."""
+        it resolved either way (the ``start_control_client`` contract).
+
+        Safe for a client shared by several callers: the startup task belongs
+        to the client, so cancelling a caller — the first one included — only
+        cancels that caller's wait. Only :meth:`close` cancels the startup."""
         if self._started:
             await self._ready.wait()
             return True
         self._started = True
         # An owned task, so close() can cancel and drain connection setup too.
-        # Cancelling this caller cancels the task with it (awaiting a task
-        # propagates cancellation), and _connect's cleanup closes its socket.
+        # Shielded: without it, cancelling this (first) caller would cancel the
+        # startup for every caller and leave the client in `connecting` with no
+        # fallback and no reconnect. With it, a cancelled caller stops waiting
+        # while the attempt goes on to a subscribed mode or a fallback.
         self._start_task = asyncio.create_task(self._start_body())
         try:
-            await self._start_task
+            await asyncio.shield(self._start_task)
         except asyncio.CancelledError:
-            # close() cancelled the start: not this caller's cancellation.
+            # This caller's own cancellation: propagate it; the attempt goes on.
+            # close() cancelling the start is not this caller's cancellation.
             task = asyncio.current_task()
             if task is not None and task.cancelling():
                 raise
@@ -416,19 +423,18 @@ class MonitorClient:
             self._ready.set()
 
     def start_detached(self) -> None:
-        """Begin the first attempt without any caller owning it (t2037_4).
+        """Begin the first attempt without awaiting it (t2037_4).
 
-        :meth:`start` awaits its startup task unshielded, so cancelling the
-        first caller cancels the startup for everyone; the attempt then ends in
-        ``connecting`` with neither a fallback nor a reconnect. One app owns its
-        client, so that is harmless there. A client SHARED by several callers
-        (applink: one per phone connection) calls this instead, from the code
-        that owns the client's lifetime: the startup task belongs to the client,
-        every later :meth:`start` only waits on the ready event (cancellable
-        without effect), and only :meth:`close` cancels the startup.
+        For the code that owns a shared client's lifetime (applink: one client
+        for every phone connection). Synchronous, so the owner claims the start
+        with no await, and the first attempt is already running before any
+        caller reads. The startup task belongs to the client either way —
+        :meth:`start` shields it too — so cancelling a caller never cancels it;
+        every later :meth:`start` only waits on the ready event, and only
+        :meth:`close` cancels the startup.
 
-        Synchronous, so the owner needs no await to claim it; needs a running
-        event loop. Idempotent, and a no-op once started or closed."""
+        Needs a running event loop. Idempotent, and a no-op once started or
+        closed."""
         if self._started or self._closed:
             return
         self._started = True

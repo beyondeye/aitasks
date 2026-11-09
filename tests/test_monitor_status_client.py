@@ -1269,7 +1269,10 @@ class HandshakeCleanupTests(ClientCase):
         await wait_until(lambda: srv.eofs == 1)
         self.assertEqual(c._connecting, set())
 
-    async def test_cancelled_start_closes_the_socket(self):
+    async def test_a_cancelled_start_caller_leaves_the_socket_to_close(self):
+        """Cancelling the (only) `start()` caller stops its wait, not the
+        attempt: the handshake socket stays open until `close()`, the startup's
+        only canceller, closes it (t2259)."""
         srv = await self.scripted()
         srv.answer_hello = False
         c = self.client(request_timeout=30.0)
@@ -1278,9 +1281,16 @@ class HandshakeCleanupTests(ClientCase):
         start.cancel()
         with self.assertRaises(asyncio.CancelledError):
             await start
+        self.assertFalse(c._start_task.done(), "cancelling the caller aborted the attempt")
+        self.assertNotEqual(c._connecting, set())
+        self.assertTrue(self.links, "a connection was opened")
+        self.assertFalse(any(link.writer.is_closing() for link in self.links),
+                         "the caller's cancellation closed the handshake socket")
+        await asyncio.wait_for(c.close(), 3.0)
         self.assert_all_closed()
         await wait_until(lambda: srv.eofs == 1)
         self.assertEqual(c._connecting, set())
+        self.assertTrue(c._start_task.done())
 
 
 class CloseTests(ClientCase):
@@ -1323,10 +1333,17 @@ class SharedClientTests(ClientCase):
         """Phone A's push loop is cancelled while the shared client is still
         starting; phone B must still get a subscribed client.
 
-        Positive control (recorded): let the first waiter own the start —
-        `asyncio.create_task(c.start())` instead of `c.start_detached()` — and
-        cancelling it leaves the client in `connecting`: started, ready, no
-        reconnect task, never subscribed. This test then fails on the mode."""
+        Here neither waiter owns the start (`start_detached()` does); the
+        `start()`-owned case is `test_a_cancelled_first_caller_never_cancels_the_start`.
+
+        Positive control (recorded, t2259): make a WAITING `start()` (its
+        `_started` branch) await `_start_task` unshielded instead of the ready
+        event, keeping the `cancelling()` swallow the first-caller branch uses.
+        Cancelling `a` then cancels the startup, `b` swallows that, and this test
+        fails on the mode: `CONNECTING is not SERVER`. A bare unshielded await
+        with no swallow is NOT this control: `b` itself ends cancelled, and the
+        test errors with `CancelledError` at `wait_for(b, …)` before any state
+        assertion."""
         await self.real_server({"%1": fx.snap(fx.pane("%1"), "one")})
         held = HeldEnsure(self.ensure)
         c = self.client(ensure=held)
@@ -1355,6 +1372,53 @@ class SharedClientTests(ClientCase):
             await a
         held.release.set()
         await asyncio.wait_for(b, 3.0)
+        self.assertIs(c.mode, sc.ClientMode.FALLBACK)
+        self.assertIsNotNone(c._reconnect_task)
+        self.assertFalse(c._reconnect_task.done())
+
+    async def test_a_cancelled_first_caller_never_cancels_the_start(self):
+        """The caller that OWNS the start — the first `start()` — is cancelled
+        while the attempt is held; the startup must go on (t2259).
+
+        `a` runs before `b` is created, so `a` is the call that creates the
+        startup task. Pre-fix (`start()` awaited that task unshielded) this
+        fails on `_start_task.done()`: the cancel took the startup with it, and
+        the client stayed in `connecting` with no fallback and no reconnect,
+        while every later `start()` returned at once."""
+        await self.real_server({"%1": fx.snap(fx.pane("%1"), "one")})
+        held = HeldEnsure(self.ensure)
+        c = self.client(ensure=held)
+        a = asyncio.create_task(c.start())
+        await asyncio.sleep(0)
+        self.assertIsNotNone(c._start_task, "`a` created the startup task")
+        b = asyncio.create_task(c.start())
+        await asyncio.to_thread(held.entered.wait, 3.0)
+        a.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await a
+        self.assertFalse(c._start_task.done(),
+                         "cancelling the first caller cancelled the startup")
+        held.release.set()
+        self.assertTrue(await asyncio.wait_for(b, 3.0))
+        self.assertIs(c.mode, sc.ClientMode.SERVER)
+        self.assertIn("%1", await c.capture_all_async())
+        self.assertTrue(await asyncio.wait_for(c.start(), 3.0))
+        self.assertIs(c.mode, sc.ClientMode.SERVER)
+
+    async def test_a_cancelled_first_caller_still_reaches_fallback_with_a_reconnect(self):
+        held = HeldEnsure(self.ensure)
+        self.ensure.results = [ss.EnsureResult("UNAVAILABLE", "no_tmux_server", None)]
+        c = self.client(ensure=held)
+        a = asyncio.create_task(c.start())
+        await asyncio.sleep(0)
+        self.assertIsNotNone(c._start_task, "`a` created the startup task")
+        b = asyncio.create_task(c.start())
+        await asyncio.to_thread(held.entered.wait, 3.0)
+        a.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await a
+        held.release.set()
+        self.assertTrue(await asyncio.wait_for(b, 3.0))
         self.assertIs(c.mode, sc.ClientMode.FALLBACK)
         self.assertIsNotNone(c._reconnect_task)
         self.assertFalse(c._reconnect_task.done())
