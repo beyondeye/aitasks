@@ -3,7 +3,7 @@ priority: medium
 effort: high
 depends: []
 issue_type: feature
-status: Implementing
+status: Ready
 labels: [test_infrastructure, testing, skills]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -11,7 +11,6 @@ active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 children_to_implement: [t2186_1, t2186_2, t2186_3, t2186_4, t2186_5, t2186_6, t2186_7]
-assigned_to: dario-e@beyond-eye.com
 anchor: 2179
 created_at: 2026-11-03 18:29
 updated_at: 2026-11-09 23:10
