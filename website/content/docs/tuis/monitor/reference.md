@@ -230,7 +230,7 @@ All of these can be edited interactively via [`ait settings`]({{< relref "/docs/
 | `--interval SECS` | `tmux.monitor.refresh_seconds` | Override the pane list refresh cadence |
 | `--lines N` | `tmux.monitor.capture_lines` | Override the number of lines captured for previews |
 | `--server-status` | — | List this tmux server's background status servers (pid, start time, version, the script each was started from) and exit |
-| `--restart-server` | — | Stop this tmux server's background status server and make sure a fresh one is running, then exit. Add `--version V` to restart the server of another framework version |
+| `--restart-server` | — | Stop this tmux server's background status server and make sure a fresh one is running, then exit. Add `--version V` to stop the server of another framework version: it is not restarted from this project, because its clients start a fresh one from their own framework files when they reconnect |
 
 `ait ide` always passes `--session` with the configured default, which is why it never triggers the Session Rename Dialog.
 

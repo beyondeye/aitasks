@@ -16,6 +16,8 @@ Run:
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import io
 import os
 import socket
 import sys
@@ -23,6 +25,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import mock
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SCRIPTS = REPO_ROOT / ".aitask-scripts"
@@ -979,6 +982,92 @@ class CompareModeRaceTests(RealProducerCase):
         self.assertIn("%1", mon._last_content,
                       "the race did not manifest, so the serialized test proves nothing")
         self.assertEqual(mon._last_content["%1"], "hello\n", "a stripped-form baseline")
+
+
+class RestartVerbTests(unittest.TestCase):
+    """`status_server.py restart` (t2262): a version other than this checkout's
+    `VERSION` is retire-only. `ensure_server` would spawn THIS tree's
+    `SERVER_SCRIPT` under the other version's socket key, and that version's
+    clients would accept it (the handshake compares only the version string)."""
+
+    FOREIGN = "0.0.0-foreign"
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory(prefix="ait2262_")
+        self.addCleanup(tmp.cleanup)
+        self.dir = Path(tmp.name)
+        self.ensure_calls: list = []
+        self.retire_line = None  # None → no socket on disk (NO_SERVER branch)
+
+        def fake_ensure(**kw):
+            self.ensure_calls.append(kw)
+            return ss.EnsureResult("STARTED", str(self.dir / "new.sock"), 4242)
+
+        def fake_paths(tmux_socket, version, directory=None):
+            return ss.RuntimePaths(self.dir, self.dir / f"m-{version}.sock",
+                                   self.dir / f"m-{version}.lock", self.dir / f"m-{version}.log")
+
+        def fake_retire(target, wait):
+            return self.retire_line.format(sock=target)
+
+        patches = [
+            mock.patch.object(ss, "tmux_socket_path", return_value="/scratch/tmux-0/default"),
+            mock.patch.object(ss, "server_paths", side_effect=fake_paths),
+            mock.patch.object(ss, "ensure_server", side_effect=fake_ensure),
+            mock.patch.object(ss.srst, "retire_one", side_effect=fake_retire),
+            mock.patch.object(ss, "probe", return_value={"version": VERSION,
+                                                         "server": {"pid": 4242}}),
+            mock.patch.object(ss, "_welcome_pid", return_value=(True, 4242)),
+        ]
+        for p in patches:
+            p.start()
+            self.addCleanup(p.stop)
+
+    def run_restart(self, version, *, existing=False):
+        if existing:
+            sock = self.dir / f"m-{version or VERSION}.sock"
+            sock.write_text("")
+        args = SimpleNamespace(version=version, session="", deadline=1.0, wait=1.0)
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            rc = ss._cmd_restart(args)
+        return rc, out.getvalue().splitlines(), err.getvalue()
+
+    def test_foreign_version_without_server_spawns_nothing(self):
+        rc, lines, err = self.run_restart(self.FOREIGN)
+        self.assertEqual(rc, 0, lines)
+        self.assertEqual(self.ensure_calls, [], "a foreign version reached ensure_server")
+        sock = self.dir / f"m-{self.FOREIGN}.sock"
+        self.assertEqual(lines, [f"NO_SERVER:{sock}",
+                                 f"RETIRE_ONLY:{sock}|version={self.FOREIGN}|installed={VERSION}"])
+        self.assertIn(f"from a project on {self.FOREIGN}", err)
+
+    def test_foreign_version_retires_then_spawns_nothing(self):
+        self.retire_line = "RETIRED:{sock}|pid=777"
+        rc, lines, _ = self.run_restart(self.FOREIGN, existing=True)
+        self.assertEqual(rc, 0, lines)
+        self.assertEqual(self.ensure_calls, [])
+        sock = self.dir / f"m-{self.FOREIGN}.sock"
+        self.assertEqual(lines, [f"RETIRED:{sock}|pid=777",
+                                 f"RETIRE_ONLY:{sock}|version={self.FOREIGN}|installed={VERSION}"])
+
+    def test_foreign_version_retire_failure_still_fails(self):
+        self.retire_line = "RETIRE_FAILED:{sock}|pid=777|still_running"
+        rc, lines, _ = self.run_restart(self.FOREIGN, existing=True)
+        self.assertEqual(rc, 1, lines)
+        self.assertEqual(self.ensure_calls, [])
+        self.assertFalse(any(line.startswith("RETIRE_ONLY:") for line in lines), lines)
+
+    def test_installed_version_still_restarts(self):
+        for version in (None, VERSION):
+            with self.subTest(version=version):
+                self.ensure_calls.clear()
+                self.retire_line = "RETIRED:{sock}|pid=777"
+                rc, lines, _ = self.run_restart(version, existing=True)
+                self.assertEqual(rc, 0, lines)
+                self.assertEqual([c["version"] for c in self.ensure_calls], [VERSION])
+                self.assertFalse(any(line.startswith("RETIRE_ONLY:") for line in lines), lines)
+                self.assertTrue(lines[-1].startswith("REPLACEMENT:"), lines)
 
 
 if __name__ == "__main__":

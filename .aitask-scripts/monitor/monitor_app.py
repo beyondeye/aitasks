@@ -4163,8 +4163,9 @@ def main() -> None:
     parser.add_argument(
         "--restart-server", action="store_true",
         help="Restart this tmux server's shared monitor status server (verified "
-             "SIGTERM, then a fresh start for the same version; --version V picks "
-             "another version) and exit.",
+             "SIGTERM, then a fresh start for the same version; --version V of "
+             "another framework version only stops that server, and its own "
+             "clients restart it) and exit.",
     )
     parser.add_argument(
         "--server-status", action="store_true",

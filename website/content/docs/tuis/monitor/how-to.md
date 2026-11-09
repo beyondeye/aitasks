@@ -425,6 +425,18 @@ first — if the behaviour still looks stale, run `--server-status` again and ch
 projects on that version: run `ait monitor --restart-server` from one of those
 projects.
 
+To stop such a server from here, add `--version <version>`. It is stopped but
+not restarted, because a server started from this project would run this
+project's code for clients of another version:
+
+```text
+RETIRED:<socket>|pid=<old pid>
+RETIRE_ONLY:<socket>|version=<version>|installed=<this project's version>
+```
+
+Monitors and minimonitors of that version start a fresh server from their own
+framework files when they reconnect.
+
 **If the old server does not stop**, the command prints:
 
 ```text

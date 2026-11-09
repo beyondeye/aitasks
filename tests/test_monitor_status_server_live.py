@@ -326,16 +326,21 @@ class RestartTests(LiveCase):
                               cwd=self.root)
         return out, out.stdout.strip().splitlines()
 
+    # The installed VERSION: only it is restarted; any other is retire-only (t2262).
+    # Safe here — the tmux server and XDG_RUNTIME_DIR are both scratch.
+    OWN = sr.framework_version()
+
     def test_restart_replaces_this_tmux_servers_server_only(self):
-        _, sock, p1 = self.ensure("--version", "rst", cwd=self.root)
-        other, other_sock = self.other_key_server("rst")
+        own = self.OWN
+        _, sock, p1 = self.ensure("--version", own, cwd=self.root)
+        other, other_sock = self.other_key_server(own)
 
         status = self.server_cli("status").stdout
         self.assertIn(f"SERVER:{sock}|pid={p1}|", status)
-        self.assertIn(f"|version=rst|script={SERVER}", status)
+        self.assertIn(f"|version={own}|script={SERVER}", status)
         self.assertNotIn(other_sock, status, "status listed another tmux server's socket")
 
-        out, lines = self.restart("rst")
+        out, lines = self.restart(own)
         self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
         self.assertEqual(lines[0], f"RETIRED:{sock}|pid={p1}")
         self.assertTrue(self.wait_gone(p1, 5), "the retired server is still alive")
@@ -345,13 +350,13 @@ class RestartTests(LiveCase):
         self.pids.add(p2)
         self.assertEqual((state, new_sock), ("STARTED", sock), lines)
         self.assertNotEqual(p2, p1)
-        self.assertEqual(lines[2], f"REPLACEMENT:{sock}|pid={p2}|version=rst")
-        answer = sr_probe(sock, "rst")
-        self.assertEqual((answer["version"], answer["server"]["pid"]), ("rst", p2))
+        self.assertEqual(lines[2], f"REPLACEMENT:{sock}|pid={p2}|version={own}")
+        answer = sr_probe(sock, own)
+        self.assertEqual((answer["version"], answer["server"]["pid"]), (own, p2))
         self.assertIsNone(other.poll(), "another tmux server's server was stopped")
 
     def test_restart_without_a_running_server_starts_one(self):
-        out, lines = self.restart("fresh")
+        out, lines = self.restart(self.OWN)
         self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
         self.assertTrue(lines[0].startswith("NO_SERVER:"), lines)
         sock = lines[0].partition(":")[2]
@@ -359,7 +364,36 @@ class RestartTests(LiveCase):
         p2 = int(rest.rpartition("|")[2])
         self.pids.add(p2)
         self.assertEqual(state, "STARTED")
-        self.assertEqual(lines[2], f"REPLACEMENT:{sock}|pid={p2}|version=fresh")
+        self.assertEqual(lines[2], f"REPLACEMENT:{sock}|pid={p2}|version={self.OWN}")
+
+    def assert_retire_only(self, lines: list, sock: str, version: str):
+        self.assertEqual(lines[-1], f"RETIRE_ONLY:{sock}|version={version}|installed={self.OWN}")
+        self.assertFalse(any(line.startswith(("STARTED:", "RUNNING:", "REPLACEMENT"))
+                             for line in lines), f"a foreign version was respawned: {lines}")
+        time.sleep(0.5)  # a spawned replacement would bind its socket by now
+        self.assertFalse(os.path.lexists(sock),
+                         "this tree's server script was started under a foreign key")
+        self.assertEqual(self.server_cli("status").stdout.strip(), "NO_SERVER")
+
+    def test_foreign_version_restart_retires_without_spawning(self):
+        """t2262: another version's server is stopped, never replaced from THIS tree —
+        its own clients respawn it from their own files when they reconnect."""
+        foreign = "0.0.0-foreign"
+        self.assertNotEqual(foreign, self.OWN)
+        _, sock, p1 = self.ensure("--version", foreign, cwd=self.root)
+        out, lines = self.restart(foreign)
+        self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
+        self.assertEqual(lines[0], f"RETIRED:{sock}|pid={p1}")
+        self.assertTrue(self.wait_gone(p1, 5), "the retired server is still alive")
+        self.assert_retire_only(lines, sock, foreign)
+        self.assertIn(f"from a project on {foreign}", out.stderr)
+
+    def test_foreign_version_restart_without_server_starts_nothing(self):
+        foreign = "0.0.0-absent"
+        out, lines = self.restart(foreign)
+        self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
+        self.assertTrue(lines[0].startswith("NO_SERVER:"), lines)
+        self.assert_retire_only(lines, lines[0].partition(":")[2], foreign)
 
 
 class PerSessionConfigTests(LiveCase):

@@ -1243,8 +1243,15 @@ def _cmd_restart(args) -> int:
     left alone. The old server is stopped by its verified process
     (``status_restart.retire_one``: SIGTERM, bounded wait, no SIGKILL), then
     ``ensure_server`` starts the replacement for the SAME version in-process,
-    and a probe of the replacement reports its pid and welcome version."""
-    version = args.version or framework_version()
+    and a probe of the replacement reports its pid and welcome version.
+
+    A version other than this checkout's ``VERSION`` is retire-only
+    (``RETIRE_ONLY:``): ``ensure_server`` would spawn THIS tree's
+    ``SERVER_SCRIPT`` under that version's key, and its clients would accept it
+    because the handshake compares only the version string. Those clients
+    respawn the server from their own files when they reconnect."""
+    own = framework_version()
+    version = args.version or own
     tmux_socket = tmux_socket_path()
     if tmux_socket is None:
         print("UNAVAILABLE:no_tmux_server", flush=True)
@@ -1264,6 +1271,16 @@ def _cmd_restart(args) -> int:
             old_pid = int(line.rsplit("pid=", 1)[1])
     else:
         print(f"NO_SERVER:{target}", flush=True)
+    if version != own:
+        print(f"RETIRE_ONLY:{target}|version={version}|installed={own}", flush=True)
+        done = ("its server was stopped" if old_pid is not None
+                else "no server of it was running")
+        print(f"restart: {version} is not this project's framework version ({own}); "
+              f"{done}, and none is started from this project's files. "
+              f"Clients on {version} start a fresh one from their own files when they "
+              "reconnect; to start it now, run 'ait monitor --restart-server' from a "
+              f"project on {version}.", file=sys.stderr, flush=True)
+        return 0
     result = ensure_server(version=version, session=args.session, deadline=args.deadline)
     print(result.line(), flush=True)
     if result.state == "UNAVAILABLE":
@@ -1328,7 +1345,8 @@ def build_parser() -> argparse.ArgumentParser:
     q.set_defaults(func=_cmd_path)
 
     r = sub.add_parser("restart", help="stop this tmux server's status server for a "
-                       "version (verified SIGTERM) and start a fresh one")
+                       "version (verified SIGTERM) and start a fresh one; a --version "
+                       "other than this checkout's is stopped only (RETIRE_ONLY)")
     r.add_argument("--version", default=None)
     r.add_argument("--session", default="")
     r.add_argument("--deadline", type=_positive, default=ENSURE_DEADLINE)
