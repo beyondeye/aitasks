@@ -8,7 +8,7 @@ depth: [main-concept]
 
 ## What it is
 
-A **parent task** is a regular task whose work has been split into smaller **child tasks**. The parent file lives at the usual location (`aitasks/t<N>_<name>.md`); its children live in a sibling subdirectory `aitasks/t<N>/` named `t<N>_<M>_<name>.md` — for example `aitasks/t130/t130_1_add_login_form.md`. The parent's `children_to_implement` frontmatter field lists the child IDs that still need work. Children automatically depend on each other in order, and when the last child is archived the parent is archived too.
+A **parent task** is a regular task whose work has been split into smaller **child tasks**. The parent file lives at the usual location (`aitasks/t<N>_<name>.md`); its children live in a sibling subdirectory `aitasks/t<N>/` named `t<N>_<M>_<name>.md` — for example `aitasks/t130/t130_1_add_login_form.md`. The parent's `children_to_implement` frontmatter field lists the child IDs that still need work. Children automatically depend on each other in order, and when the last child is archived the parent is archived too. The parent counts as completed work when any of its children was completed; it is marked superseded or obsolete only when none was.
 
 ## Why it exists
 

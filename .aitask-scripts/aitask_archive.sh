@@ -33,6 +33,11 @@ DRY_RUN=false
 NO_COMMIT=false
 SUPERSEDED=false
 OBSOLETE=false
+# The run's archived_reason ("" | superseded | obsolete), derived once from the
+# two flags above, which nothing but parse_args reads. It names the task the
+# flag targets and ONLY that task: a parent the child flow auto-archives in the
+# same run gets its own reason from parent_archive_decision (t2254).
+ARCHIVE_REASON=""
 WITH_DEFERRED_CARRYOVER=false
 IGNORE_GATES=false
 TASK_NUM=""
@@ -66,6 +71,9 @@ Options:
   --superseded                 Mark task as superseded (adds archived_reason: superseded)
   --obsolete                   Mark task as obsolete (adds archived_reason: obsolete);
                                used by `ait obsolete review`. Exclusive with --superseded
+                               The reason goes on the named task only; a parent the
+                               child flow auto-archives takes it only when none of
+                               its children landed
   --with-deferred-carryover    For manual_verification tasks: archive even when
                                deferred items remain, creating a new
                                manual_verification task seeded with just those
@@ -160,17 +168,29 @@ parse_args() {
     if [[ "$SUPERSEDED" == true && "$OBSOLETE" == true ]]; then
         die "--superseded and --obsolete are mutually exclusive"
     fi
+    if [[ "$SUPERSEDED" == true ]]; then
+        ARCHIVE_REASON="superseded"
+    elif [[ "$OBSOLETE" == true ]]; then
+        ARCHIVE_REASON="obsolete"
+    fi
 }
 
 # --- Helper: update task metadata for archival ---
-# Sets status=Done, updates updated_at, adds completed_at
+# Sets status=Done, updates updated_at, adds completed_at, and adds
+# archived_reason when <reason> is given. The reason is an explicit argument,
+# never read from the run's flags: the caller decides it per file (t2254).
 archive_metadata_update() {
     local file_path="$1"
+    local reason="${2:-}"
     local timestamp
     timestamp=$(date '+%Y-%m-%d %H:%M')
 
     if [[ "$DRY_RUN" == true ]]; then
-        info "[dry-run] Would update metadata in $file_path (status=Done, timestamps)"
+        if [[ -n "$reason" ]]; then
+            info "[dry-run] Would update metadata in $file_path (status=Done, timestamps, archived_reason=$reason)"
+        else
+            info "[dry-run] Would update metadata in $file_path (status=Done, timestamps)"
+        fi
         return
     fi
 
@@ -181,9 +201,6 @@ archive_metadata_update() {
         awk -v ts="$timestamp" '/^updated_at:/{print; print "completed_at: " ts; next}1' "$file_path" > "$file_path.tmp" && mv "$file_path.tmp" "$file_path"
     fi
     # Add archived_reason for superseded / obsolete tasks
-    local reason=""
-    [[ "$SUPERSEDED" == true ]] && reason="superseded"
-    [[ "$OBSOLETE" == true ]] && reason="obsolete"
     if [[ -n "$reason" ]]; then
         if ! grep -q "^archived_reason:" "$file_path"; then
             awk -v r="$reason" '/^status:/{print; print "archived_reason: " r; next}1' "$file_path" > "$file_path.tmp" && mv "$file_path.tmp" "$file_path"
@@ -250,6 +267,192 @@ prune_scratchpad() {
     "$SCRIPT_DIR/aitask_scratchpad_store.sh" prune "$task_id" >/dev/null 2>&1 || true
 }
 
+# --- "Landed": one definition for an archived task file ---
+# Completed work, as relations_consume.end_state reads it (task_relations.md
+# D8): status Done and no archived_reason. A folded_into record also excludes
+# it, as the landed trigger always required. Shared by the landed trigger and
+# by the auto-archived parent's reason, so the two cannot drift apart.
+archived_file_landed() {
+    local file="$1"
+    if [[ ! -f "$file" ]]; then
+        return 1
+    fi
+    if [[ "$(read_yaml_field "$file" status 2>/dev/null || true)" != "Done" ]]; then
+        return 1
+    fi
+    if [[ -n "$(read_yaml_field "$file" archived_reason 2>/dev/null || true)" ]]; then
+        return 1
+    fi
+    if [[ -n "$(read_yaml_field "$file" folded_into 2>/dev/null || true)" ]]; then
+        return 1
+    fi
+    return 0
+}
+
+# --- The reason for a parent the child flow auto-archives (t2254) ---
+# parent_archive_decision <parent_num> <child_id> <child_reason>
+#
+# A --superseded / --obsolete flag names ONE task, the child. The parent it
+# auto-archives is completed work when ANY of its children landed; it takes the
+# child's reason only when every other child record was READ and none landed.
+# Prints exactly one line and always returns 0 (it runs inside `$( )`):
+#
+#   LANDED|t<id>            a child landed: this one (archived without a reason)
+#                           or an archived sibling, loose or bundled
+#   NONE_LANDED|<n>         all <n> other child records were read, none landed,
+#                           and the record set did not change across the scan
+#   UNVERIFIED|<failure>    no record landed, but "none landed" is unproven: a
+#                           record could not be read, or the records kept
+#                           changing while they were scanned
+#
+# Positive landed evidence wins even when another record could not be read.
+# Bundled records are read, not inferred from the bundle's existence: the
+# candidates are the bundles _search_numbered_then_legacy and
+# aitask_zip_old.sh cmd_unpack search (numbered, its .tar.gz twin, then the
+# legacy old.tar.*), and each matching entry is extracted with
+# _extract_from_archive into a tagged temp dir that the owning shell's EXIT
+# sweep removes. An orphaned parent that later regains children is how bundled
+# siblings arise.
+#
+# The negative verdict also needs a STABLE view. A record can move between the
+# two locations while they are scanned one after the other: cmd_unpack copies a
+# record loose before it drops it from the bundle, and zip_old writes the bundle
+# before it deletes the loose file. Either handoff can land between the loose
+# scan and the bundle scan, so whichever order they run in, the record is seen
+# in neither. The scan therefore runs between two fingerprints of every evidence
+# source (loose records and candidate bundles, by content checksum), and
+# NONE_LANDED is certified only when they match. A changed view re-runs the
+# scan, up to PARENT_SCAN_ATTEMPTS times, then reports UNVERIFIED. Residual: a
+# change undone within one scan (two complete bundle operations inside it) is
+# not seen.
+#
+# Test-only seam: AIT_ARCHIVE_PARENT_SCAN_HOOK=<cmd> runs between the loose and
+# the bundle scan of every attempt, with AIT_ARCHIVE_SCAN_ATTEMPT exported; its
+# output goes to stderr and its status is ignored.
+PARENT_SCAN_ATTEMPTS=3
+
+_child_bundle_candidates() {  # <parent_num> -> sets _CHILD_BUNDLES
+    local numbered
+    numbered=$(archive_path_for_id "$1" "$ARCHIVED_DIR")
+    _CHILD_BUNDLES=("$numbered" "${numbered%.tar.zst}.tar.gz" \
+                    "$ARCHIVED_DIR/old.tar.zst" "$ARCHIVED_DIR/old.tar.gz")
+}
+
+# One line per evidence source that exists now: path and content checksum.
+# Reads _CHILD_BUNDLES; always returns 0.
+_child_evidence_fingerprint() {  # <parent_num>
+    local f sum
+    for f in "$ARCHIVED_DIR/t$1/t$1_"*_*.md ${_CHILD_BUNDLES[@]+"${_CHILD_BUNDLES[@]}"}; do
+        if [[ -z "$f" || ! -e "$f" ]]; then
+            continue
+        fi
+        sum=$(cksum < "$f" 2>/dev/null) || sum="unreadable"
+        printf '%s\t%s\n' "$f" "$sum"
+    done
+    return 0
+}
+
+parent_archive_decision() {
+    local parent_num="$1" child_id="$2" child_reason="$3"
+    if [[ -z "$child_reason" ]]; then
+        echo "LANDED|t${child_id}"
+        return 0
+    fi
+
+    local id_re="^t(${parent_num}_[0-9]+)_"
+    local entry_re="(^|/)t${parent_num}/t(${parent_num}_[0-9]+)_[^/]*\.md$"
+    local attempt failure n_read before after stable=false
+    local f base sid b listing rc entry
+    _child_bundle_candidates "$parent_num"
+
+    for (( attempt = 1; attempt <= PARENT_SCAN_ATTEMPTS; attempt++ )); do
+        failure=""
+        n_read=0
+        before=$(_child_evidence_fingerprint "$parent_num")
+
+        # Loose records: aitasks/archived/t<P>/t<P>_<n>_*.md
+        for f in "$ARCHIVED_DIR/t${parent_num}/t${parent_num}_"*_*.md; do
+            if [[ ! -e "$f" ]]; then
+                continue
+            fi
+            base=$(basename "$f")
+            if [[ ! "$base" =~ $id_re ]]; then
+                continue
+            fi
+            sid="${BASH_REMATCH[1]}"
+            if [[ "$sid" == "$child_id" ]]; then
+                continue    # this child: its in-memory reason is authoritative
+            fi
+            if [[ ! -r "$f" ]]; then
+                if [[ -z "$failure" ]]; then
+                    failure="unreadable $f"
+                fi
+                continue
+            fi
+            n_read=$((n_read + 1))
+            if archived_file_landed "$f"; then
+                echo "LANDED|t${sid}"
+                return 0
+            fi
+        done
+
+        if [[ -n "${AIT_ARCHIVE_PARENT_SCAN_HOOK:-}" ]]; then
+            AIT_ARCHIVE_SCAN_ATTEMPT="$attempt" \
+                bash -c "$AIT_ARCHIVE_PARENT_SCAN_HOOK" >&2 </dev/null || true
+        fi
+
+        # Bundled records
+        for b in ${_CHILD_BUNDLES[@]+"${_CHILD_BUNDLES[@]}"}; do
+            if [[ -z "$b" || ! -f "$b" ]]; then
+                continue
+            fi
+            rc=0
+            listing=$(_archive_list "$b") || rc=$?
+            if [[ "$rc" -ne 0 ]]; then
+                if [[ -z "$failure" ]]; then
+                    failure="unlistable bundle $b"
+                fi
+                continue
+            fi
+            while IFS= read -r entry; do
+                if [[ ! "$entry" =~ $entry_re ]]; then
+                    continue
+                fi
+                sid="${BASH_REMATCH[2]}"
+                if [[ "$sid" == "$child_id" ]]; then
+                    continue
+                fi
+                if ! _extract_from_archive "$b" "$entry"; then
+                    if [[ -z "$failure" ]]; then
+                        failure="unextractable $entry in $b"
+                    fi
+                    continue
+                fi
+                n_read=$((n_read + 1))
+                if archived_file_landed "$_AIT_EXTRACT_RESULT"; then
+                    echo "LANDED|t${sid}"
+                    return 0
+                fi
+            done <<< "$listing"
+        done
+
+        after=$(_child_evidence_fingerprint "$parent_num")
+        if [[ "$before" == "$after" ]]; then
+            stable=true
+            break
+        fi
+    done
+
+    if [[ "$stable" != true ]]; then
+        echo "UNVERIFIED|child records kept changing during the scan (${PARENT_SCAN_ATTEMPTS} attempts)"
+    elif [[ -n "$failure" ]]; then
+        echo "UNVERIFIED|$failure"
+    else
+        echo "NONE_LANDED|$n_read"
+    fi
+    return 0
+}
+
 # --- Archive a parent task ---
 archive_parent() {
     local task_num="$1"
@@ -288,8 +491,8 @@ archive_parent() {
     # Handle folded tasks (before moving, so we can read from original path)
     handle_folded_tasks "$task_num" "$task_file"
 
-    # Update metadata
-    archive_metadata_update "$task_file"
+    # Update metadata (the run's reason names this task)
+    archive_metadata_update "$task_file" "$ARCHIVE_REASON"
 
     # Move task file to archive
     archive_move "$task_file" "$ARCHIVED_DIR"
@@ -343,8 +546,11 @@ archive_parent() {
                 commit_hash=$(task_git rev-parse --short HEAD)
                 echo "COMMITTED:$commit_hash"
                 # The landed trigger fires after the archive COMMIT only: never for
-                # --no-commit (stage only) or a verified nothing-to-commit.
-                LANDED_IDS+=("$task_num")
+                # --no-commit (stage only) or a verified nothing-to-commit, and
+                # only for completed work (no reason).
+                if [[ -z "$ARCHIVE_REASON" ]]; then
+                    LANDED_IDS+=("$task_num")
+                fi
             elif [[ "$crc" -eq 2 ]]; then
                 # Verified nothing to commit. Say so: the pre-t1599_4 code aborted
                 # here under `set -e`, so silence would be a new failure mode.
@@ -494,6 +700,9 @@ archive_child() {
     # Declared here so the commit section can see the original (pre-move) path for staging.
     local parent_plan_file=""
     local parent_plan_basename=""
+    # The auto-archived parent's own reason ("" = completed work), decided by
+    # parent_archive_decision; the commit section reads it for the landed list.
+    local parent_reason=""
 
     info "Archiving child task: $child_task_basename (parent: $parent_task_basename)"
 
@@ -536,8 +745,8 @@ archive_child() {
     # Handle folded tasks for child (if any) — must be before archive_move
     handle_folded_tasks "$task_id" "$child_task_file"
 
-    # Update child metadata
-    archive_metadata_update "$child_task_file"
+    # Update child metadata (the run's reason names this child)
+    archive_metadata_update "$child_task_file" "$ARCHIVE_REASON"
 
     # Move child task to archive
     local child_archive_dir="$ARCHIVED_DIR/t${parent_num}"
@@ -591,8 +800,35 @@ archive_child() {
         # Handle folded tasks for parent (if any)
         handle_folded_tasks "$parent_num" "$parent_task_file"
 
+        # The parent's own reason (t2254): the run's flag names the child only.
+        # `|| decision=""` routes a failed helper into the unverified branch
+        # below instead of letting errexit abort a half-done archival.
+        local decision verdict detail
+        decision=$(parent_archive_decision "$parent_num" "$task_id" "$ARCHIVE_REASON") || decision=""
+        verdict="${decision%%|*}"
+        detail="${decision#*|}"
+        case "$verdict" in
+            NONE_LANDED)
+                parent_reason="$ARCHIVE_REASON"
+                info "Parent t${parent_num}: no child landed (${detail} other archived child record(s) read) — archiving the parent as ${parent_reason} too."
+                ;;
+            LANDED)
+                parent_reason=""
+                if [[ -n "$ARCHIVE_REASON" ]]; then
+                    info "Parent t${parent_num}: ${detail} landed — archiving the parent as completed work."
+                fi
+                ;;
+            *)
+                parent_reason=""
+                if [[ "$verdict" != "UNVERIFIED" || -z "$detail" ]]; then
+                    detail="decision helper failed"
+                fi
+                warn "Parent t${parent_num}: could not read every child record (${detail}) — no proof that none landed, so the parent is archived as completed work."
+                ;;
+        esac
+
         # Archive parent task
-        archive_metadata_update "$parent_task_file"
+        archive_metadata_update "$parent_task_file" "$parent_reason"
         archive_move "$parent_task_file" "$ARCHIVED_DIR"
         echo "PARENT_ARCHIVED:$ARCHIVED_DIR/$parent_task_basename"
 
@@ -669,9 +905,13 @@ archive_child() {
                 commit_hash=$(task_git rev-parse --short HEAD)
                 echo "COMMITTED:$commit_hash"
                 # The landed trigger fires after the archive COMMIT only (see
-                # archive_parent); the auto-archived parent rides in the same commit.
-                LANDED_IDS+=("$task_id")
-                if [[ "$parent_archived" == true ]]; then
+                # archive_parent), and per id for completed work only: the child
+                # when the run carries no reason, the auto-archived parent (same
+                # commit) when its own decided reason is empty (t2254).
+                if [[ -z "$ARCHIVE_REASON" ]]; then
+                    LANDED_IDS+=("$task_id")
+                fi
+                if [[ "$parent_archived" == true && -z "$parent_reason" ]]; then
                     LANDED_IDS+=("$parent_num")
                 fi
             elif [[ "$crc" -eq 2 ]]; then
@@ -882,8 +1122,11 @@ gate_guard() {
 
 # --- The `landed` trigger (task relations D4/D9) ---
 # Fires only for COMPLETED work whose archive commit succeeded: never for
-# --dry-run, --no-commit, --superseded or --obsolete, and only for an archived
-# file with no archived_reason and no folded_into. The enqueue helper
+# --dry-run or --no-commit, and per archived id, only for a file that
+# archived_file_landed accepts (status Done, no archived_reason, no
+# folded_into). The task a --superseded / --obsolete flag names therefore fires
+# nothing, while a parent the child flow auto-archived in that run fires when
+# its own decided reason is empty (t2254). The enqueue helper
 # never writes to stdout, always exits 0 and does its work detached (the store
 # read and the fan-out to the related pending tasks run there), so this can
 # neither block nor fail the archive.
@@ -897,13 +1140,11 @@ archived_file_for() {
 }
 
 fire_landed_triggers() {
-    [[ "$DRY_RUN" == true || "$NO_COMMIT" == true || "$SUPERSEDED" == true || "$OBSOLETE" == true ]] && return 0
+    [[ "$DRY_RUN" == true || "$NO_COMMIT" == true ]] && return 0
     local id file
     for id in ${LANDED_IDS[@]+"${LANDED_IDS[@]}"}; do
         file=$(archived_file_for "$id")
-        [[ -n "$file" && -f "$file" ]] || continue
-        [[ -z "$(read_yaml_field "$file" archived_reason 2>/dev/null || true)" ]] || continue
-        [[ -z "$(read_yaml_field "$file" folded_into 2>/dev/null || true)" ]] || continue
+        archived_file_landed "$file" || continue
         "$SCRIPT_DIR/aitask_relations_enqueue.sh" obsolescence landed "$id" >/dev/null 2>&1 || true
     done
     return 0
