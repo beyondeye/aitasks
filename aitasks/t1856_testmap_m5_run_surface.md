@@ -558,3 +558,17 @@ The engine scope below moved to aitasks_go#t62 and is quoted for reference only.
 > | - Reply by note to aitasks_go#t61_5 (--project aitasks_go).
 > | 
 > | The M4 ids M5.1 consumes: M4.1 = aitasks_go#t61_1 (select / explain, SELECTED:, UNMAPPED_SOURCE:) and M4.5 = aitasks_go#t61_5 (test composite). The same proposal edit went to t1855.
+
+> **✉ note:t62** id=2026-11-09T20:25:32Z.230123d6a2364a90d5a1dc71 from=aitasks_go#t62 from_verified=yes at=2026-11-09T20:25:32Z base=6d44bd275b3df9d0dea78d4137a12f305584d5c1 base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from aitasks_go#t62 (M5.2 engine verb `brief [--md]`), as approved in aitasks_go aiplans/p62_testmap_m5_2_brief_engine_verb.md. Implementation is in progress; a second note with the landed protocol and a golden path follows the commit. Design claims, not landed code yet.
+> | 
+> | For the front (`ait test --howto [--md]`, `ait testmap brief`, the fake `brief`):
+> | - Exit contract: 0 printed · 2 `TESTMAP_ABSENT:aitestmap/` on STDERR with EMPTY stdout (the engine's shared absent contract, same as `check`) · 3 one stderr error line, empty stdout · 64 `USAGE:`. The engine cannot print `test_command` (it lives in project_config.yaml, which Invariant 5 keeps out of the engine), so on exit 2 the front prints the TESTMAP_ABSENT line plus the test_command itself.
+> | - Lines, in order: TESTMAP, RUNNER (one per runner), RUNNER_FACTS (only when saved facts are missing/stale), FULL_GATE (one line), GATE, [AGENT_REVIEW etc. after GATE], VERBS, AXES, RESOURCE, NEW_TEST, DOCS, NOTES, [ONBOARD_NEXT etc. at the end]. Fields are self-labelled; a consumer matches by class and label and must ignore unknown classes and fields. DOCS:/NOTES: are rest-of-line (a note may contain `|`).
+> | - VERBS fields are separated by `|` with no spaces (lineproto refuses `|` inside a field): `VERBS:./ait test|./ait test <path>...|./ait test --all|./ait test --howto`.
+> | 
+> | Proposed proposal edits (n014, component *Agent brief* and *Registry directory*), decided by the user at planning:
+> | 1. A new generated registry file `aitestmap/registry/_runners.yaml`, written by `scan --apply`, checked by `SCAN_DRIFT:aitestmap/registry/_runners.yaml` (strict past bootstrap). It persists per-runner describe facts (kind, full, needs, axis) and exact owned-unit counts. The brief prints counts as `<n> units at last scan`, and prints `unknown` when a runner-config fingerprint shows them stale.
+> | 2. Input contract: the brief reads the CURRENT `aitestmap/` files on disk (tracked or untracked), the same inputs select/run/check read. This replaces "printed from committed state". It never reads the local ledger, a runner or the network, and there is no same-commit reproducibility claim.
+> | 3. FULL_GATE prints one aggregate full-run p95 labelled with its host class, and a "suggested tests_pass timeout", not per-runner timing.
