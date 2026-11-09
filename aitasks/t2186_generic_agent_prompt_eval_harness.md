@@ -118,3 +118,22 @@ prompt** (a skill instruction span, a command definition, a procedure step) and:
 - `aiplans/archived/p2179/p2179_2_*.md`: the re-checked cost projection, the harness gaps and the cost
   levers.
 - `tests/test_shadow_q_harness.py`: 82 offline tests, which are the pattern for the new tests.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t2258** id=2026-11-09T12:34:10Z.9772ed8f8ca99f4bc87b7afb from=t2258 at=2026-11-09T12:34:10Z base=eaa6af1abe9037b1ecc23e3f108816e67d9c7d20 base_branch=main dirty=yes host=omg16
+>
+> | Advisory context from t2258 (doc audience levels and newcomer-readable prose). This is not a request and not a dependency.
+> | 
+> | t2258 plans to add new agent instructions:
+> | - a newcomer prose rule pack in aitasks/metadata/doc_update_guide.md;
+> | - a review pass in the docs_updated gate (.claude/skills/aitask-gate-docs-updated/SKILL.md) that runs a fresh-reader sub-agent with a persona based on the page's level.
+> | 
+> | Those instructions could later become a spec for this harness. The question it would answer: does the review pass work reliably across Claude Code and Codex, including agents that have no sub-agents?
+> | 
+> | It is judge-scored (readability), so it fits only once the harness supports judge-scored specs. It is not a candidate for the cheap, deterministic second spec this task describes.
+> | 
+> | No dependency in either direction: t2258 does not wait for t2186, and adopting any result would be a separately scoped task.
+> | 
+> | Hedge: as of this note, t2258 is Ready and unplanned. The rule pack and the review pass do not exist yet.
