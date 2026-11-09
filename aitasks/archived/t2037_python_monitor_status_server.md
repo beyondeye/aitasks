@@ -3,12 +3,12 @@ priority: medium
 effort: high
 depends: [t2034_3]
 issue_type: feature
-status: Ready
+status: Done
 labels: [monitor, minimonitor, tmux, applink]
-children_to_implement: [t2037_4]
 anchor: 2034
 created_at: 2026-10-16 08:11
-updated_at: 2026-11-07 19:21
+updated_at: 2026-11-09 15:31
+completed_at: 2026-11-09 15:31
 ---
 
 Build the shared monitor status server in Python, reusing `monitor_core`

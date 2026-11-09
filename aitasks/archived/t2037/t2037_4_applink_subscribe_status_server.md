@@ -5,7 +5,7 @@ risk_goal_achievement: medium
 effort: medium
 depends: [t2037_3]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [applink, monitor]
 active_gates: [risk_evaluated]
 active_gates_filtered: []
@@ -16,7 +16,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 2034
 implemented_with: claudecode/opus5_5
 created_at: 2026-10-16 08:11
-updated_at: 2026-11-09 15:19
+updated_at: 2026-11-09 15:31
+completed_at: 2026-11-09 15:31
 ---
 
 Switch applink to the client (parent: Python monitor status server task).
@@ -66,3 +67,14 @@ status.
 > **✅ gate:plan_approved** run=2026-11-09T10:40:18Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-11-09T13:16:20Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-11-09T13:31:36Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:ec9fe49f50a6fd33
+
+> **✅ gate:risk_evaluated** run=2026-11-09T13:31:36Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/2037_4/risk_evaluated_2026-11-09T13:31:36Z-risk_evaluated-a1.log`
