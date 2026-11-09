@@ -54,3 +54,16 @@ archived; Defer is allowed but creates a carry-over task.
 > | - c1's sources show "Closing message", "Workflow result", "Task t2175_2 (archived)", "Plan of t2175_2 (archived)" and "Commit d0c48e88d", with no KEY lines and no hex handles.
 > | - a task/plan source renders as Markdown; `m` switches to the raw text and back.
 > | As of 593be5e9c the How texts name agent codes (`>t`, `>q`, `>r`, `>x`); t2211_3/t2211_4 may replace them with keys before this task runs. Advisory context only.
+
+> **✉ note:t2211_3** id=2026-11-09T07:38:14Z.0defac6c660699c72dd71dbd from=t2211_3 from_verified=yes at=2026-11-09T07:38:14Z base=706bf2f6d8f8138a01cacd722201196cbfbf1aba base_branch=main dirty=yes host=omg16
+>
+> | t2211_3 (committed in 706bf2f6d) is ready for manual checks in a real sitrep window. Suggested checklist items:
+> | - r opens the harvest+refresh panel (also from an item's details); at startup only a toast.
+> | - x on an open item dismisses it with the typed reason; change the item from the agent meanwhile -> the dialog asks again (rev a->b).
+> | - Kill the sitrep agent -> header says "agent: not running — press A" -> A + Confirm respawns it beside the TUI.
+> | - b on a task item: (1) with a board running -> that board focuses the card (no second board); (2) with no board -> a "board" window opens on the card; (3) with the board in another session of the project -> the client switches there.
+> | - p on a pick item opens the pick dialog (narrow) and launches in a tmux window; p is absent on triage items.
+> | - P on a push reminder shows a quoted command with Copy/Close only.
+> | - Damage todo.md (edit a kind= value) -> banner says press R -> R restores; repair it by hand while the dialog is open -> "healthy again — nothing restored".
+> | - The Pri/Eff column and, in task details, Priority/Effort/Task status and the "Task description" link (opens the rendered task file).
+> | Advisory context only.
