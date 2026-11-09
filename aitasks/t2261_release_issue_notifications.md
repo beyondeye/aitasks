@@ -3,7 +3,7 @@ priority: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Implementing
+status: Ready
 labels: [release_scripts, bash_scripts, issue_integration]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -11,7 +11,6 @@ active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 children_to_implement: [t2261_1, t2261_2]
-assigned_to: dario-e@beyond-eye.com
 created_at: 2026-11-09 15:41
 updated_at: 2026-11-09 23:13
 ---
