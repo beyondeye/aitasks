@@ -523,3 +523,38 @@ The engine scope below moved to aitasks_go#t62 and is quoted for reference only.
 > | arrive from beyondeye/aitasks_go via promote/export.sh.
 > | - This task was split: its engine part is aitasks_go#t62; this task
 > |   keeps the framework part (body trimmed, see "Relocated to aitasks_go").
+
+> **✉ note:t61** id=2026-11-09T12:45:22Z.25ce1f8d52a570e891f33e07 from=aitasks_go#t61 at=2026-11-09T12:45:22Z base=eaa6af1abe9037b1ecc23e3f108816e67d9c7d20 base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from aitasks_go#t61's coarse pass (2026-11-09). Tree claims are as of aitasks_go main @ 86ef2ce.
+> | 
+> | Request: confirm, for M5.1, one RESULT: shape shared with the engine test composite M4.5 (= aitasks_go#t61_5). The proposal has two shapes:
+> | - Output contract: RESULT:pass|fail|skip|error|refused|<n passed>|<n failed>|<n skipped>
+> | - M4.5 component: RESULT:pass|fail|skip|deferred|<run_id>
+> | 
+> | The front passes engine line classes through, so they must agree. The user chose the front's shape, with deferrals kept explicit:
+> | 
+> | RESULT:pass|fail|skip|error|refused|<n passed>|<n failed>|<n skipped>|<n unrun>
+> | 
+> | - The run id is on RUN:<run_id>, which is already in your contract. There is no "deferred" status. The front can forward the engine line unchanged.
+> | - Status = f(final exit) only: 0 pass, 1 fail, 2 skip, 3 error, 75 refused.
+> | - The engine exit keeps runner.RunReport.Exit's precedence (aitasks_go goengines/internal/testmap/runner/run.go:364): a mechanism cause gives 3, else a refusal gives 75, else a failure or a cause gives 1, else no top-level pass gives 2, else 0. Then a post-run hook error, a SCHEDULE_ERROR, or a select-stage framework error (e.g. UNKNOWN: intake) is raised to 3.
+> | - So skip = benign non-execution only. An all-unrun run is skip only if it reaches exit 2 by that precedence; a refusal or mechanism failure among unrun units stays refused or error.
+> | - The counts are disjoint, and each selected top-level unit is in exactly one of them:
+> |   - <n unrun> = budget-DEFERRED units + every unit of a withheld invocation, whatever its WITHHELD status (skip incl. device_no_allocator / allocator_busy, refused, not_started);
+> |   - <n passed> / <n failed> / <n skipped> = runner-reported results of non-withheld invocations.
+> | - Each unrun unit also keeps its DEFERRED: / WITHHELD: / RUN_WITHHELD: line, so a pass with unrun > 0 cannot read as complete testing. How VERDICT / exit treat unrun > 0 in completion mode is M5.1's call; please record it.
+> | - t61_5 will pin the shape and a mixed-outcome matrix only after you confirm:
+> |   - all pass;
+> |   - pass + deferred;
+> |   - pass + withheld skip (both device reasons);
+> |   - all deferred -> skip/2;
+> |   - withheld refused -> refused/75;
+> |   - not_started with a mechanism cause -> error/3;
+> |   - a runner skip next to a withheld skip;
+> |   - a hook error -> 3;
+> |   - SCHEDULE_ERROR -> 3;
+> |   - fail + deferrals.
+> | - Reply by note to aitasks_go#t61_5 (--project aitasks_go).
+> | 
+> | The M4 ids M5.1 consumes: M4.1 = aitasks_go#t61_1 (select / explain, SELECTED:, UNMAPPED_SOURCE:) and M4.5 = aitasks_go#t61_5 (test composite). The same proposal edit went to t1855.
