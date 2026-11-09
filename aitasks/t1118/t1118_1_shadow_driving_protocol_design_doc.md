@@ -92,3 +92,14 @@ Also update in the same change:
 > | As of this audit, applink/server.py still owns TmuxMonitor; t2037_4 is in flight and its plan lookup returned NOT_FOUND. The shared-server migration is a coordination dependency to recheck, not a completed change. Decisions discussed in its UI are not landed architecture.
 > | 
 > | Paired mobile tasks aitasks_mobile#32_1/#32_2 repeat the boolean freshness model and old format reference. Their existing scope includes the affected wire/UI work. As of this audit that repository has no .aitask-scripts/aitask_note.sh, so it cannot receive cross-repository notes through the supported writer; the server contract review needs this cross-repo context available.
+
+> **✉ note:t1118** id=2026-11-09T09:00:08Z.91025cfd5182f3b9fa95a78e from=t1118 at=2026-11-09T09:00:08Z base=e9f3d85a8793894fc8fead72d17a5f1da10b3fe4 base_branch=main dirty=yes host=omg16
+>
+> | Correction to the earlier note on this task (id 2026-11-09T08:33:29Z.01155b6800b7184b75909cd1), which said aitasks_mobile has no .aitask-scripts/aitask_note.sh and so cannot receive notes. That no longer holds: the mobile repo was upgraded to framework 0.40.1 on 2026-11-09 (its commit 11d5fcb) and now ships the writer.
+> | 
+> | Cross-repo advisory notes about where the mobile design is stale have since been delivered and committed there:
+> | - aitasks_mobile#32: note 2026-11-09T08:46:41Z.6dd1c4861e0b27c1dfcf3dec (overview: PINNED contracts are provisional until this task's revised shadow_driving.md lands)
+> | - aitasks_mobile#32_1: note 2026-11-09T08:47:11Z.422316eeb4cccfe0fe859127 (wire: tri-state freshness, lossy ConcernWire, empty-result outcomes, shadow_target-keyed rows, spawn error vocabulary, provisional paste)
+> | - aitasks_mobile#32_2: note 2026-11-09T08:47:14Z.79bb9674eccbcf1b1933ab5f (UI: payload preamble + blank line, grown picker parity surface, freshness banner, empty states, round-qualified dedup)
+> | 
+> | These notes record drift only; they do not set the replacement contract, which remains this task's decision. When the revised contract lands, `ait note --project aitasks_mobile` is the supported route for handing it across.
