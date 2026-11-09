@@ -46,7 +46,8 @@ Subcommands:
   check-imported <issue_num> Check if an issue has already been imported as a task
 
 Options:
-  --platform PLATFORM        Source platform: github, gitlab, bitbucket (auto-detected)
+  --platform PLATFORM        Source platform: github, gitlab (auto-detected); bitbucket is
+                             not supported (its issue tracker was removed)
   --repo OWNER/REPO          Repository (for cross-repo operation)
   --limit N                  Max issues to scan for find-related (default: 50)
   --help, -h                 Show this help
@@ -192,13 +193,13 @@ setup_platform() {
     else
         CHECK_PLATFORM=$(detect_platform)
         if [[ -z "$CHECK_PLATFORM" ]]; then
-            die "Could not auto-detect platform from git remote. Use --platform github|gitlab|bitbucket"
+            die "Could not auto-detect platform from git remote. Use --platform github|gitlab"
         fi
     fi
 
     case "$CHECK_PLATFORM" in
         github|gitlab|bitbucket) ;;
-        *) die "Unknown platform: $CHECK_PLATFORM (supported: github, gitlab, bitbucket)" ;;
+        *) die "Unknown platform: $CHECK_PLATFORM (supported: github, gitlab)" ;;
     esac
 
     # Set contribution_check globals used by its backends (SC2034: used by sourced scripts)
@@ -221,7 +222,7 @@ review_fetch_comments() {
     case "$CHECK_PLATFORM" in
         github) review_github_fetch_comments "$issue_num" ;;
         gitlab) review_gitlab_fetch_comments "$issue_num" ;;
-        bitbucket) review_bitbucket_fetch_comments "$issue_num" ;;
+        bitbucket) _bitbucket_issues_removed ;;
         *) die "Unknown platform: $CHECK_PLATFORM" ;;
     esac
 }
@@ -243,29 +244,17 @@ review_gitlab_fetch_comments() {
             createdAt: .created_at
         }]'
     else
-        local api_base project_id
+        local api_base project_id hdr
         api_base=$(_gitlab_api_base)
         project_id=$(_gitlab_project_id)
-        curl -sf --header "$(_gitlab_token_header)" \
+        hdr=$(_gitlab_token_header) || return 1
+        curl -sf --header "$hdr" \
             "$api_base/projects/$project_id/issues/$issue_num/notes?per_page=100" | jq '[.[] | {
             author: .author.username,
             body: .body,
             createdAt: .created_at
         }]'
     fi
-}
-
-review_bitbucket_fetch_comments() {
-    local issue_num="$1"
-    local api_base repo_slug
-    api_base=$(_bitbucket_api_base)
-    repo_slug=$(_bitbucket_repo_slug)
-    curl -sf -u "$(_bitbucket_auth)" \
-        "$api_base/repositories/$repo_slug/issues/$issue_num/comments?pagelen=100" | jq '[.values[] | {
-        author: (.user.display_name // .user.nickname // "unknown"),
-        body: (.content.raw // ""),
-        createdAt: .created_on
-    }]'
 }
 
 # ============================================================

@@ -50,7 +50,8 @@
 # t641 (aitask_install.sh -> aitask_upgrade.sh), t891_2 (brainstorm
 # detailer/patcher), t1076_1 (attachment -> artifact substrate), t1171 (codex
 # plan policy), t1217 (board/task_yaml.py -> lib/), t1235 (stats/stats_data.py
-# -> lib/).
+# -> lib/), t2247 (Bitbucket contribution-check pipeline template: Bitbucket
+# Cloud removed its issue tracker).
 
 FILE	.aitask-scripts/aitask_brainstorm_apply_detailer.sh
 FILE	.aitask-scripts/aitask_brainstorm_apply_patcher.sh
@@ -61,6 +62,7 @@ FILE	.aitask-scripts/board/task_yaml.py
 FILE	.aitask-scripts/brainstorm/templates/crew_meta_template.yaml
 FILE	.aitask-scripts/brainstorm/templates/detailer.md
 FILE	.aitask-scripts/brainstorm/templates/patcher.md
+FILE	.aitask-scripts/ci_templates/bitbucket/contribution-check-pipeline.yml
 FILE	.aitask-scripts/lib/archive_iter_v2.py
 FILE	.aitask-scripts/lib/archive_scan_v2.sh
 FILE	.aitask-scripts/lib/archive_utils_v2.sh
@@ -110,6 +112,7 @@ SHA	be2d953c36b7b43d5551959007fa210359c782e0
 SHA	c2db6f85af89cf75376a749d7a683cad1c2e0b03
 SHA	c6c123d71d4eb54bafb439a8cff884182336153f
 SHA	c84c23c37f4784d3c6eec5bf0e5d8caa70ebcc82
+SHA	c955db589c2f0c66b3b602cc2102eef069d90204
 SHA	cb35bc6224b0d193e02eea545f8c2d20894d31a7
 SHA	ccf1dc1a6945a30f96dfdccc8d3d06db13ab7e50
 SHA	cf48adc011263284f732810b3a5c5a629f1aced1

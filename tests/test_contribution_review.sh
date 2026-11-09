@@ -504,6 +504,39 @@ assert_contains "Help shows list-issues" "list-issues" "$output"
 assert_contains "Help shows check-imported" "check-imported" "$output"
 echo ""
 
+# --- Tests 29-30: missing GitLab token fails closed; Bitbucket retired (t2247) ---
+. "$PROJECT_DIR/tests/lib/glab_contribution_stub.sh"
+T2247_DIR="$(mktemp -d)"
+glab_contribution_stub_install "$T2247_DIR"
+_t2247_saved_path="$PATH"
+PATH="$T2247_DIR/bin:$PATH"
+
+echo "--- Test 29: review_gitlab_fetch_comments fails closed without GITLAB_TOKEN ---"
+CHECK_PLATFORM=gitlab
+ARG_REPO="o/r"
+err=$(GITLAB_TOKEN="" review_gitlab_fetch_comments 100 2>&1 >/dev/null)
+assert_eq "no token: comment fetch returns non-zero" "1" "$?"
+assert_contains "no token: names GITLAB_TOKEN" "GITLAB_TOKEN is required" "$err"
+assert_eq "no token: no request sent" "" "$(cat "$T2247_DIR/curl_calls")"
+: > "$T2247_DIR/curl_auth"
+out=$(GITLAB_TOKEN="test-token" review_gitlab_fetch_comments 100 2>/dev/null)
+assert_eq "token: comments fetched with the token" "PRIVATE-TOKEN: test-token" "$(cat "$T2247_DIR/curl_auth")"
+assert_contains "token: comment bodies returned" "overlap-results" "$out"
+ARG_REPO=""
+CHECK_PLATFORM=""
+
+echo "--- Test 30: a Bitbucket review stops with the issue-tracker removal ---"
+: > "$T2247_DIR/curl_calls"
+err=$("$PROJECT_DIR/.aitask-scripts/aitask_contribution_review.sh" list-issues --platform bitbucket --repo ws/repo 2>&1 >/dev/null)
+assert_eq "bitbucket: review exits non-zero" "1" "$?"
+assert_contains "bitbucket: says the issue tracker was removed" "removed its native issue tracker" "$err"
+assert_eq "bitbucket: no request sent" "" "$(cat "$T2247_DIR/curl_calls")"
+assert_eq "bitbucket: no review backend left" "" "$(declare -F | awk '{print $3}' | grep -x 'review_bitbucket_fetch_comments')"
+
+PATH="$_t2247_saved_path"
+rm -rf "$T2247_DIR"
+echo ""
+
 # --- Summary ---
 echo ""
 echo "==============================="

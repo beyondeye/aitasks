@@ -4733,7 +4733,7 @@ _create_contribution_label() {
             fi
             ;;
         bitbucket)
-            info "Bitbucket does not support issue labels via API — no label creation needed"
+            info "Bitbucket Cloud has no issue tracker (removed 2026-08-20) — no label creation needed"
             ;;
         "")
             warn "No git remote detected — cannot create 'contribution' label automatically"
@@ -4824,8 +4824,17 @@ _install_contribution_ci_workflow() {
             dest_file="$project_dir/.gitlab-ci.yml"
             ;;
         bitbucket)
-            src_file="$ci_template_dir/bitbucket/contribution-check-pipeline.yml"
-            dest_file="$project_dir/bitbucket-pipelines.yml"
+            # Bitbucket Cloud removed its native issue tracker and its API on
+            # 2026-08-20, so there is nothing for a pipeline to check. An
+            # existing configuration is never edited, but a pipeline installed
+            # earlier still runs and reports success while checking nothing —
+            # say so.
+            info "Bitbucket Cloud has no issue tracker (removed 2026-08-20) — no contribution-check pipeline is installed."
+            if [[ -f "$project_dir/bitbucket-pipelines.yml" ]] &&
+               grep -qF "aitask_contribution_check.sh" "$project_dir/bitbucket-pipelines.yml" 2>/dev/null; then
+                warn "bitbucket-pipelines.yml still runs the contribution check. Its 'contribution-check' custom pipeline can no longer work (the job reports success while checking nothing) — remove it and its schedule by hand."
+            fi
+            return
             ;;
         "")
             info "No git remote detected — skipping CI/CD workflow installation"
@@ -4871,9 +4880,8 @@ _install_contribution_ci_workflow() {
             return
         fi
         # An existing CI configuration is never edited. Appending the template
-        # would add a second top-level 'pipelines:' key (Bitbucket, which drops
-        # the original pipelines) or a job whose stage the project may not
-        # declare (GitLab) — and both would still look like a success.
+        # would add a job whose stage the project may not declare — and it
+        # would still look like a success.
         if [[ -s "$dest_file" ]]; then
             local stage_note=""
             [[ "$platform" == gitlab ]] && stage_note=" (its job uses stage: test — make sure that stage is in your stages: list)"
@@ -4932,7 +4940,7 @@ _install_contribution_ci_workflow() {
                 success "Installed contribution check workflow: .github/workflows/contribution-check.yml"
             fi
             ;;
-        gitlab|bitbucket)
+        gitlab)
             local cfg_name
             cfg_name=$(basename "$dest_file")
             # Only an absent or empty file is written (see above); re-check
@@ -4946,11 +4954,7 @@ _install_contribution_ci_workflow() {
                 echo ""
                 cat "$src_file"
             } > "$dest_file"
-            if [[ "$platform" == gitlab ]]; then
-                success "Created .gitlab-ci.yml with contribution check job"
-            else
-                success "Created bitbucket-pipelines.yml with contribution check pipeline"
-            fi
+            success "Created .gitlab-ci.yml with contribution check job"
             ;;
     esac
 }

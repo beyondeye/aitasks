@@ -2,7 +2,8 @@
 
 # aitask_contribution_check.sh - Detect overlapping contribution issues and post analysis comments
 # Uses fingerprint metadata from aitask-contribute to find issues touching similar files/areas.
-# Supports GitHub (gh CLI), GitLab (glab + curl fallback), and Bitbucket (curl only).
+# Supports GitHub (gh CLI) and GitLab (glab + curl fallback). Bitbucket Cloud removed its
+# native issue tracker and its API on 2026-08-20, so a Bitbucket run fails with that message.
 
 set -euo pipefail
 
@@ -43,11 +44,12 @@ Arguments:
   <issue_number>           Issue number to analyze
 
 Options:
-  --platform PLATFORM      Source platform: github, gitlab, bitbucket (auto-detected)
+  --platform PLATFORM      Source platform: github, gitlab (auto-detected); bitbucket is
+                           not supported (its issue tracker was removed)
   --repo OWNER/REPO        Repository (for cross-repo operation; GitHub uses -R flag)
   --limit N                Max contribution issues to return (default: 50);
-                           on GitHub all open issues are scanned and the
-                           limit applies after filtering
+                           all open issues are scanned and the limit
+                           applies after filtering
   --dry-run                Print comment to stdout instead of posting
   --silent                 Suppress informational output
   --help, -h               Show this help
@@ -55,7 +57,6 @@ Options:
 Environment variables:
   GitHub:    $GH_TOKEN or $GITHUB_TOKEN (auto-provided in GitHub Actions)
   GitLab:    $GITLAB_TOKEN (project access token with api scope; CI_JOB_TOKEN is NOT sufficient)
-  Bitbucket: $BITBUCKET_USER + $BITBUCKET_TOKEN (API token)
 
 Examples:
   # Analyze issue #42 on auto-detected platform
@@ -230,10 +231,11 @@ gitlab_fetch_issue() {
             url: .web_url
         }'
     else
-        local api_base project_id
+        local api_base project_id hdr
         api_base=$(_gitlab_api_base)
         project_id=$(_gitlab_project_id)
-        curl -sf --header "$(_gitlab_token_header)" \
+        hdr=$(_gitlab_token_header) || return 1
+        curl -sf --header "$hdr" \
             "$api_base/projects/$project_id/issues/$issue_num" | jq '{
             number: .iid,
             title: .title,
@@ -318,10 +320,11 @@ gitlab_post_comment() {
     if _gitlab_has_glab && [[ -z "$ARG_REPO" ]]; then
         echo "$comment_body" | glab issue note "$issue_num" -m -
     else
-        local api_base project_id
+        local api_base project_id hdr
         api_base=$(_gitlab_api_base)
         project_id=$(_gitlab_project_id)
-        curl -sf --header "$(_gitlab_token_header)" \
+        hdr=$(_gitlab_token_header) || return 1
+        curl -sf --header "$hdr" \
             --header "Content-Type: application/json" \
             --data "$(jq -n --arg body "$comment_body" '{body: $body}')" \
             "$api_base/projects/$project_id/issues/$issue_num/notes" >/dev/null
@@ -334,17 +337,18 @@ gitlab_add_label() {
     if _gitlab_has_glab && [[ -z "$ARG_REPO" ]]; then
         glab issue update "$issue_num" --label "$label" 2>/dev/null || true
     else
-        local api_base project_id current_labels new_labels
+        local api_base project_id current_labels new_labels hdr
         api_base=$(_gitlab_api_base)
         project_id=$(_gitlab_project_id)
-        current_labels=$(curl -sf --header "$(_gitlab_token_header)" \
+        hdr=$(_gitlab_token_header) || return 1
+        current_labels=$(curl -sf --header "$hdr" \
             "$api_base/projects/$project_id/issues/$issue_num" | jq -r '.labels | join(",")')
         if [[ -n "$current_labels" ]]; then
             new_labels="${current_labels},${label}"
         else
             new_labels="$label"
         fi
-        curl -sf --header "$(_gitlab_token_header)" \
+        curl -sf --header "$hdr" \
             -X PUT \
             --data-urlencode "labels=$new_labels" \
             "$api_base/projects/$project_id/issues/$issue_num" >/dev/null 2>/dev/null || true
@@ -355,99 +359,24 @@ gitlab_list_repo_labels() {
     if _gitlab_has_glab && [[ -z "$ARG_REPO" ]]; then
         glab label list -F json | jq -r '.[].name'
     else
-        local api_base project_id
+        local api_base project_id hdr
         api_base=$(_gitlab_api_base)
         project_id=$(_gitlab_project_id)
-        curl -sf --header "$(_gitlab_token_header)" \
+        hdr=$(_gitlab_token_header) || return 1
+        curl -sf --header "$hdr" \
             "$api_base/projects/$project_id/labels?per_page=100" | jq -r '.[].name'
     fi
 }
 
-# --- Bitbucket Backend ---
+# --- Bitbucket ---
 
-_bitbucket_api_base() {
-    echo "https://api.bitbucket.org/2.0"
-}
-
-_bitbucket_repo_slug() {
-    if [[ -n "$ARG_REPO" ]]; then
-        echo "$ARG_REPO"
-    elif [[ -n "${BITBUCKET_WORKSPACE:-}" && -n "${BITBUCKET_REPO_SLUG:-}" ]]; then
-        echo "${BITBUCKET_WORKSPACE}/${BITBUCKET_REPO_SLUG}"
-    else
-        # Derive from git remote
-        local remote_url
-        remote_url=$(git remote get-url origin 2>/dev/null || echo "")
-        echo "$remote_url" | sed -E 's|.*bitbucket\.org[:/]([^.]+)(\.git)?$|\1|'
-    fi
-}
-
-_bitbucket_auth() {
-    local user="${BITBUCKET_USER:-}"
-    local token="${BITBUCKET_TOKEN:-}"
-    [[ -z "$user" || -z "$token" ]] && die "BITBUCKET_USER and BITBUCKET_TOKEN are required for Bitbucket API access."
-    echo "${user}:${token}"
-}
-
-bitbucket_check_cli() {
-    command -v curl &>/dev/null || die "curl is required for Bitbucket API access."
-    command -v jq &>/dev/null || die "jq is required. Install via your package manager."
-    if [[ -z "${BITBUCKET_USER:-}" || -z "${BITBUCKET_TOKEN:-}" ]]; then
-        die "BITBUCKET_USER and BITBUCKET_TOKEN environment variables are required."
-    fi
-}
-
-bitbucket_fetch_issue() {
-    local issue_num="$1"
-    local api_base repo_slug
-    api_base=$(_bitbucket_api_base)
-    repo_slug=$(_bitbucket_repo_slug)
-    curl -sf -u "$(_bitbucket_auth)" \
-        "$api_base/repositories/$repo_slug/issues/$issue_num" | jq '{
-        number: .id,
-        title: .title,
-        body: (.content.raw // ""),
-        labels: [],
-        url: .links.html.href
-    }'
-}
-
-bitbucket_list_contribution_issues() {
-    # Bitbucket has no label-based issue filtering, so fetch all open issues
-    # and filter by metadata presence in the main loop
-    local api_base repo_slug
-    api_base=$(_bitbucket_api_base)
-    repo_slug=$(_bitbucket_repo_slug)
-    curl -sf -u "$(_bitbucket_auth)" \
-        "$api_base/repositories/$repo_slug/issues?state=open&state=new&pagelen=$ARG_LIMIT" | jq '[.values[] | {
-        number: .id,
-        title: .title,
-        body: (.content.raw // ""),
-        labels: [],
-        url: .links.html.href
-    }]'
-}
-
-bitbucket_post_comment() {
-    local issue_num="$1"
-    local comment_body="$2"
-    local api_base repo_slug
-    api_base=$(_bitbucket_api_base)
-    repo_slug=$(_bitbucket_repo_slug)
-    curl -sf -u "$(_bitbucket_auth)" \
-        --header "Content-Type: application/json" \
-        --data "$(jq -n --arg body "$comment_body" '{content: {raw: $body}}')" \
-        "$api_base/repositories/$repo_slug/issues/$issue_num/comments" >/dev/null
-}
-
-bitbucket_add_label() {
-    # Bitbucket issues API does not support labels — silent no-op
-    true
-}
-
-bitbucket_list_repo_labels() {
-    # Bitbucket issues API does not support labels — empty result
-    echo ""
+# Bitbucket Cloud removed its native issue tracker, UI and API alike, on
+# 2026-08-20 (Atlassian changelog: "Removal of native Bitbucket Cloud Issue
+# tracker"); Bitbucket Server/Data Center never had one. Every dispatcher's
+# bitbucket arm ends here, so a Bitbucket run says why instead of calling a
+# removed endpoint.
+_bitbucket_issues_removed() {
+    die "Bitbucket Cloud removed its native issue tracker and its API on 2026-08-20, so contribution checks cannot run on Bitbucket. Remove the 'contribution-check' custom pipeline from bitbucket-pipelines.yml."
 }
 
 # --- Dispatcher Functions ---
@@ -456,7 +385,7 @@ source_check_cli() {
     case "$CHECK_PLATFORM" in
         github) github_check_cli ;;
         gitlab) gitlab_check_cli ;;
-        bitbucket) bitbucket_check_cli ;;
+        bitbucket) _bitbucket_issues_removed ;;
         *) die "Unknown platform: $CHECK_PLATFORM" ;;
     esac
 }
@@ -466,7 +395,7 @@ source_fetch_issue() {
     case "$CHECK_PLATFORM" in
         github) github_fetch_issue "$issue_num" ;;
         gitlab) gitlab_fetch_issue "$issue_num" ;;
-        bitbucket) bitbucket_fetch_issue "$issue_num" ;;
+        bitbucket) _bitbucket_issues_removed ;;
         *) die "Unknown platform: $CHECK_PLATFORM" ;;
     esac
 }
@@ -475,7 +404,7 @@ source_list_contribution_issues() {
     case "$CHECK_PLATFORM" in
         github) github_list_contribution_issues ;;
         gitlab) gitlab_list_contribution_issues ;;
-        bitbucket) bitbucket_list_contribution_issues ;;
+        bitbucket) _bitbucket_issues_removed ;;
         *) die "Unknown platform: $CHECK_PLATFORM" ;;
     esac
 }
@@ -486,7 +415,7 @@ source_post_comment() {
     case "$CHECK_PLATFORM" in
         github) github_post_comment "$issue_num" "$comment_body" ;;
         gitlab) gitlab_post_comment "$issue_num" "$comment_body" ;;
-        bitbucket) bitbucket_post_comment "$issue_num" "$comment_body" ;;
+        bitbucket) _bitbucket_issues_removed ;;
         *) die "Unknown platform: $CHECK_PLATFORM" ;;
     esac
 }
@@ -497,7 +426,7 @@ source_add_label() {
     case "$CHECK_PLATFORM" in
         github) github_add_label "$issue_num" "$label" ;;
         gitlab) gitlab_add_label "$issue_num" "$label" ;;
-        bitbucket) bitbucket_add_label "$issue_num" "$label" ;;
+        bitbucket) _bitbucket_issues_removed ;;
         *) die "Unknown platform: $CHECK_PLATFORM" ;;
     esac
 }
@@ -506,7 +435,7 @@ source_list_repo_labels() {
     case "$CHECK_PLATFORM" in
         github) github_list_repo_labels ;;
         gitlab) gitlab_list_repo_labels ;;
-        bitbucket) bitbucket_list_repo_labels ;;
+        bitbucket) _bitbucket_issues_removed ;;
         *) die "Unknown platform: $CHECK_PLATFORM" ;;
     esac
 }
@@ -524,26 +453,20 @@ github_has_overlap_comment() {
 
 gitlab_has_overlap_comment() {
     local issue_num="$1"
-    local api_base project_id
-    api_base=$(_gitlab_api_base)
-    project_id=$(_gitlab_project_id)
     local notes
-    notes=$(curl -sf --header "$(_gitlab_token_header)" \
-        "$api_base/projects/$project_id/issues/$issue_num/notes?per_page=100" \
-        | jq -r '.[].body' 2>/dev/null) || return 1
+    if _gitlab_has_glab && [[ -z "$ARG_REPO" ]]; then
+        notes=$(glab api "projects/:id/issues/$issue_num/notes?per_page=100" \
+            | jq -r '.[].body' 2>/dev/null) || return 1
+    else
+        local api_base project_id hdr
+        api_base=$(_gitlab_api_base)
+        project_id=$(_gitlab_project_id)
+        hdr=$(_gitlab_token_header) || return 1
+        notes=$(curl -sf --header "$hdr" \
+            "$api_base/projects/$project_id/issues/$issue_num/notes?per_page=100" \
+            | jq -r '.[].body' 2>/dev/null) || return 1
+    fi
     echo "$notes" | grep -qF "<!-- overlap-results"
-}
-
-bitbucket_has_overlap_comment() {
-    local issue_num="$1"
-    local api_base repo_slug
-    api_base=$(_bitbucket_api_base)
-    repo_slug=$(_bitbucket_repo_slug)
-    local comments
-    comments=$(curl -sf -u "$(_bitbucket_auth)" \
-        "$api_base/repositories/$repo_slug/issues/$issue_num/comments?pagelen=100" \
-        | jq -r '.values[].content.raw' 2>/dev/null) || return 1
-    echo "$comments" | grep -qF "<!-- overlap-results"
 }
 
 source_has_overlap_comment() {
@@ -551,7 +474,7 @@ source_has_overlap_comment() {
     case "$CHECK_PLATFORM" in
         github) github_has_overlap_comment "$issue_num" ;;
         gitlab) gitlab_has_overlap_comment "$issue_num" ;;
-        bitbucket) bitbucket_has_overlap_comment "$issue_num" ;;
+        bitbucket) _bitbucket_issues_removed ;;
         *) return 1 ;;
     esac
 }
@@ -797,12 +720,12 @@ main() {
         CHECK_PLATFORM="$ARG_PLATFORM"
     else
         CHECK_PLATFORM=$(detect_platform)
-        [[ -z "$CHECK_PLATFORM" ]] && die "Could not auto-detect platform from git remote. Use --platform github|gitlab|bitbucket"
+        [[ -z "$CHECK_PLATFORM" ]] && die "Could not auto-detect platform from git remote. Use --platform github|gitlab"
     fi
 
     case "$CHECK_PLATFORM" in
         github|gitlab|bitbucket) ;;
-        *) die "Unknown platform: $CHECK_PLATFORM (supported: github, gitlab, bitbucket)" ;;
+        *) die "Unknown platform: $CHECK_PLATFORM (supported: github, gitlab)" ;;
     esac
 
     source_check_cli

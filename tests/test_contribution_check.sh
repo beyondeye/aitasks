@@ -444,6 +444,83 @@ assert_eq "page 1 holds no contribution issue" "0" \
 assert_eq "labels=contribution returns only #15 and #12" "15,12" \
     "$(curl -sf "https://gitlab.example/api/v4/projects/o%2Fr/issues?state=opened&labels=contribution&per_page=100" | jq -r '[.[].iid] | join(",")')"
 
+# --- Tests 33-37: a missing GITLAB_TOKEN fails closed; Bitbucket is retired (t2247) ---
+# `curl --header "$(_gitlab_token_header)"` ran curl with an EMPTY header when
+# GITLAB_TOKEN was unset: die only exits the command substitution.
+echo "--- Test 33: every GitLab REST call fails closed without GITLAB_TOKEN ---"
+ARG_REPO="o/r"
+_t2247_rest_calls=(
+    "gitlab_fetch_issue 100"
+    "gitlab_post_comment 100 hello"
+    "gitlab_add_label 100 area:scripts"
+    "gitlab_list_repo_labels"
+    "gitlab_has_overlap_comment 100"
+)
+for _t2247_call in "${_t2247_rest_calls[@]}"; do
+    : > "$T2241_DIR/curl_calls"
+    # shellcheck disable=SC2086  # the call string is split into argv on purpose
+    _t2247_err=$(GITLAB_TOKEN="" $_t2247_call 2>&1 >/dev/null)
+    _t2247_rc=$?
+    assert_eq "no token: '$_t2247_call' returns non-zero" "1" "$_t2247_rc"
+    assert_contains "no token: '$_t2247_call' names GITLAB_TOKEN" "GITLAB_TOKEN is required" "$_t2247_err"
+    assert_eq "no token: '$_t2247_call' sends no request" "" "$(cat "$T2241_DIR/curl_calls")"
+done
+
+echo "--- Test 34: with the token, every GitLab REST call authenticates ---"
+for _t2247_call in "${_t2247_rest_calls[@]}"; do
+    : > "$T2241_DIR/curl_calls"
+    : > "$T2241_DIR/curl_auth"
+    # shellcheck disable=SC2086
+    $_t2247_call >/dev/null 2>&1
+    _t2247_n=$(grep -c . "$T2241_DIR/curl_calls")
+    assert_eq "token: '$_t2247_call' made a request" "true" "$([[ "$_t2247_n" -ge 1 ]] && echo true || echo false)"
+    assert_eq "token: '$_t2247_call' sends the token on every request" "$_t2247_n" \
+        "$(grep -c 'PRIVATE-TOKEN: test-token' "$T2241_DIR/curl_auth")"
+done
+assert_eq "token: overlap lookup finds the existing comment on #100" "0" \
+    "$(gitlab_has_overlap_comment 100 >/dev/null 2>&1; echo $?)"
+assert_eq "token: overlap lookup finds none on #101" "1" \
+    "$(gitlab_has_overlap_comment 101 >/dev/null 2>&1; echo $?)"
+
+echo "--- Test 35: glab-only auth: the overlap lookup goes through glab ---"
+# glab authenticated, no GITLAB_TOKEN, no --repo, private project (anonymous
+# REST refused). Before t2247 the lookup was REST-only, so it always failed
+# here and main() posted a duplicate comment on every run.
+ARG_REPO=""
+export GLAB_STUB_CURL_REQUIRE_TOKEN=1
+: > "$T2241_DIR/curl_calls"
+: > "$T2241_DIR/glab_calls"
+assert_eq "glab-only: #100 has the overlap comment" "0" \
+    "$(GITLAB_TOKEN="" gitlab_has_overlap_comment 100 >/dev/null 2>&1; echo $?)"
+assert_eq "glab-only: #101 has none" "1" \
+    "$(GITLAB_TOKEN="" gitlab_has_overlap_comment 101 >/dev/null 2>&1; echo $?)"
+assert_contains "glab-only: notes read via glab api" "api projects/:id/issues/100/notes" "$(cat "$T2241_DIR/glab_calls")"
+assert_eq "glab-only: no REST request" "" "$(cat "$T2241_DIR/curl_calls")"
+
+echo "--- Test 36: glab-only main() does not post a second overlap comment ---"
+: > "$T2241_DIR/curl_calls"
+: > "$T2241_DIR/glab_calls"
+# parse_args only sets flags, so reset the ones Test 31's --dry-run --silent left on:
+# a dry run never posts, and would make "posts nothing" pass vacuously.
+ARG_DRY_RUN=false
+ARG_SILENT=false
+_t2247_out=$(GITLAB_TOKEN="" main 100 --platform gitlab 2>&1)
+assert_eq "glab-only main exits 0" "0" "$?"
+assert_contains "glab-only main sees the existing comment" "Overlap comment already exists on issue #100" "$_t2247_out"
+assert_not_contains "glab-only main posts nothing" "issue note" "$(cat "$T2241_DIR/glab_calls")"
+assert_eq "glab-only main sends no REST request" "" "$(cat "$T2241_DIR/curl_calls")"
+unset GLAB_STUB_CURL_REQUIRE_TOKEN
+
+echo "--- Test 37: Bitbucket runs stop with the issue-tracker removal ---"
+: > "$T2241_DIR/curl_calls"
+_t2247_err=$( (main 42 --platform bitbucket --repo ws/repo) 2>&1 >/dev/null)
+assert_eq "bitbucket: main exits non-zero" "1" "$?"
+assert_contains "bitbucket: says the issue tracker was removed" "removed its native issue tracker" "$_t2247_err"
+assert_eq "bitbucket: no request sent" "" "$(cat "$T2241_DIR/curl_calls")"
+assert_eq "bitbucket: no backend function left" "" \
+    "$(declare -F | awk '{print $3}' | grep -E '^(_?bitbucket_)' | grep -vx '_bitbucket_issues_removed')"
+ARG_REPO=""
+
 PATH="$_t2241_saved_path"
 if [[ -n "$_t2241_saved_token" ]]; then GITLAB_TOKEN="$_t2241_saved_token"; else unset GITLAB_TOKEN; fi
 rm -rf "$T2241_DIR"

@@ -14,8 +14,9 @@
 #   (e) every earlier shipped version's hash is listed (guards future edits):
 #       always for the committed fixtures, and for git history when reachable
 #   (g) an edit made while the update/install prompt is open is never overwritten
-#   (h) GitLab/Bitbucket: an existing CI configuration is never edited; an
-#       absent one is created
+#   (h) GitLab: an existing CI configuration is never edited; an absent one is
+#       created. Bitbucket: nothing is installed (no issue tracker), an
+#       existing file is never edited, a dead installed pipeline is reported
 #   (f) missing templates warn and install nothing
 
 set -e
@@ -318,16 +319,28 @@ run_setup
 assert_contains "(h) GitLab: absent config is created with the job" "contribution-check:" "$(cat "$PROJ/.gitlab-ci.yml" 2>/dev/null)"
 rm -f "$PROJ/.gitlab-ci.yml"
 
+# Bitbucket Cloud removed its issue tracker (2026-08-20): nothing is installed,
+# an existing configuration is still never edited, and one that still runs the
+# check gets a warning that its pipeline is dead (t2247).
 git -C "$PROJ" remote set-url origin https://bitbucket.org/o/r.git
+run_setup
+TOTAL=$((TOTAL + 1))
+if [[ ! -e "$PROJ/bitbucket-pipelines.yml" ]]; then PASS=$((PASS + 1)); else FAIL=$((FAIL + 1)); echo "FAIL: (h) Bitbucket: absent config was created"; fi
+assert_contains "(h) Bitbucket: says no pipeline is installed" "no contribution-check pipeline is installed" "$(cat "$SCRATCH/out" "$SCRATCH/err")"
+assert_not_contains "(h) Bitbucket: no dead-pipeline warning without a config" "still runs the contribution check" "$(cat "$SCRATCH/out" "$SCRATCH/err")"
 printf '%s\n' "pipelines:" "  default:" "    - step:" "        script: [make]" > "$PROJ/bitbucket-pipelines.yml"
 cp "$PROJ/bitbucket-pipelines.yml" "$SCRATCH/bb_before"
 run_setup
 TOTAL=$((TOTAL + 1))
 if cmp -s "$PROJ/bitbucket-pipelines.yml" "$SCRATCH/bb_before"; then PASS=$((PASS + 1)); else FAIL=$((FAIL + 1)); echo "FAIL: (h) existing bitbucket-pipelines.yml was modified"; fi
-assert_contains "(h) Bitbucket: manual-merge warning" "does not edit an existing CI configuration" "$(cat "$SCRATCH/out" "$SCRATCH/err")"
-rm -f "$PROJ/bitbucket-pipelines.yml"
+assert_not_contains "(h) Bitbucket: no dead-pipeline warning for an unrelated config" "still runs the contribution check" "$(cat "$SCRATCH/out" "$SCRATCH/err")"
+printf '%s\n' "pipelines:" "  custom:" "    contribution-check:" "      - step:" "          script:" \
+    "            - bash ./.aitask-scripts/aitask_contribution_check.sh 1 --platform bitbucket" > "$PROJ/bitbucket-pipelines.yml"
+cp "$PROJ/bitbucket-pipelines.yml" "$SCRATCH/bb_before"
 run_setup
-assert_contains "(h) Bitbucket: absent config is created with the pipeline" "contribution-check:" "$(cat "$PROJ/bitbucket-pipelines.yml" 2>/dev/null)"
+TOTAL=$((TOTAL + 1))
+if cmp -s "$PROJ/bitbucket-pipelines.yml" "$SCRATCH/bb_before"; then PASS=$((PASS + 1)); else FAIL=$((FAIL + 1)); echo "FAIL: (h) Bitbucket config with the old pipeline was modified"; fi
+assert_contains "(h) Bitbucket: warns that the installed pipeline is dead" "still runs the contribution check" "$(cat "$SCRATCH/out" "$SCRATCH/err")"
 rm -f "$PROJ/bitbucket-pipelines.yml"
 git -C "$PROJ" remote set-url origin https://github.com/o/r.git
 

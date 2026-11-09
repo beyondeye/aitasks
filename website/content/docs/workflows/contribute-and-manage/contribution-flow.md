@@ -91,9 +91,9 @@ The overlap check can also be run manually:
 
 | Flag | Description |
 |------|-------------|
-| `--platform github\|gitlab\|bitbucket` | Override auto-detected platform |
+| `--platform github\|gitlab` | Override auto-detected platform |
 | `--repo OWNER/REPO` | Target repository (default: from git remote) |
-| `--limit N` | Max issues to scan (default: 50) |
+| `--limit N` | Max contribution issues to report (default: 50); all open issues are scanned and the limit applies after filtering |
 | `--dry-run` | Print comment to stdout instead of posting |
 | `--silent` | Suppress informational output |
 
@@ -155,13 +155,13 @@ The [`/aitask-contribution-review`](../../../skills/aitask-contribution-review/)
 ### Automatic Setup
 
 Running `ait setup` in your repository automatically:
-- Detects the git remote platform (GitHub, GitLab, or Bitbucket)
+- Detects the git remote platform (GitHub or GitLab)
 - Creates a `contribution` label on the repository
 - Installs the appropriate CI/CD workflow template
 
 On GitHub, if `.github/workflows/contribution-check.yml` already exists, `ait setup` updates it when it is an unmodified earlier version of the shipped template. A workflow you have edited is left unchanged with a warning — merge the current template into it by hand.
 
-On GitLab and Bitbucket, `ait setup` creates `.gitlab-ci.yml` / `bitbucket-pipelines.yml` only when the file does not exist yet. An existing CI configuration is never edited: setup warns and leaves the merge to you (see [Manual Setup](#manual-setup)). For GitLab, the job uses `stage: test`, so that stage must be in your `stages:` list.
+On GitLab, `ait setup` creates `.gitlab-ci.yml` only when the file does not exist yet. An existing CI configuration is never edited: setup warns and leaves the merge to you (see [Manual Setup](#manual-setup)). For GitLab, the job uses `stage: test`, so that stage must be in your `stages:` list.
 
 ### Per-Platform Configuration
 
@@ -180,12 +180,11 @@ No additional configuration required.
 - **Token:** Requires a **project access token** with `api` scope, stored as `$GITLAB_TOKEN` CI/CD variable. `CI_JOB_TOKEN` does **not** have access to issues/notes/labels API endpoints.
 - **CLI:** Uses `glab` CLI if available, with curl + REST API fallback
 
-#### Bitbucket Pipelines
+#### Bitbucket
 
-- **Trigger:** Scheduled scan only (recommended every 6 hours) — Bitbucket does not support event-driven issue triggers
-- **Token:** Requires `$BITBUCKET_API_USER` and `$BITBUCKET_API_TOKEN` repository variables (app passwords are deprecated and fully disabled June 2026)
-- **CLI:** Uses curl + REST API only (no Bitbucket CLI dependency)
-- **Limitation:** Bitbucket issues API does not support labels — label operations are silent no-ops
+Bitbucket Cloud no longer has an issue tracker: Atlassian removed native Bitbucket Cloud Issues, and the API endpoints behind them, on 20 August 2026. There is nothing for an overlap check to read or comment on, so the contribution check and its CI pipeline are not available on Bitbucket. Running the check with `--platform bitbucket` stops with that explanation, and `ait setup` installs nothing on a Bitbucket remote.
+
+If your `bitbucket-pipelines.yml` still has a `contribution-check` custom pipeline from an earlier setup, remove it and its schedule by hand: it reports success while checking nothing. `ait setup` warns when it finds one, and never edits the file itself.
 
 ### Manual Setup
 
@@ -193,32 +192,22 @@ If not using `ait setup`, or when your project already has a CI configuration, t
 
 - **GitHub** — copy `.aitask-scripts/ci_templates/github/contribution-check.yml` to `.github/workflows/contribution-check.yml`. It is a complete workflow of its own.
 - **GitLab** — with no `.gitlab-ci.yml` yet, copy `.aitask-scripts/ci_templates/gitlab/contribution-check-job.yml` to `.gitlab-ci.yml`. Otherwise add its `contribution-check:` job to your existing file, and check that the job's `stage: test` is in your `stages:` list (or change the job's stage to one you declare).
-- **Bitbucket** — with no `bitbucket-pipelines.yml` yet, copy `.aitask-scripts/ci_templates/bitbucket/contribution-check-pipeline.yml` to `bitbucket-pipelines.yml`. Otherwise do **not** append the template: it starts with its own top-level `pipelines:` key, and a second one replaces your existing pipelines. Instead, add only its `contribution-check:` entry under `pipelines:` → `custom:` in your file (create `custom:` if needed), keeping your `default:`, `branches:` and other sections as they are:
 
-  ```yaml
-  pipelines:
-    default:            # your existing pipelines stay unchanged
-      - step:
-          script: [make]
-    custom:
-      contribution-check:
-        - step:
-            # ... copied from the template
-  ```
-
-Create the `contribution` label manually on your platform (GitHub/GitLab only — Bitbucket has no label support).
+Create the `contribution` label manually on your platform.
 
 ## Platform Support Matrix
 
-| Feature | GitHub | GitLab | Bitbucket |
-|---------|--------|--------|-----------|
-| Contribution issue discovery | Label or metadata (scans all open issues) | Label or metadata (scans all open issues) | Metadata (scans all issues) |
-| Event-driven triggers | Yes (`issues.opened`, `issues.labeled`) | Yes (webhook pipeline) | No |
-| Scheduled scans | Optional | Yes (6-hour interval) | Yes (recommended) |
-| CLI tool | `gh` (pre-installed) | `glab` + curl fallback | curl only |
-| Token source | `$GITHUB_TOKEN` (auto) | `$GITLAB_TOKEN` (manual) | `$BITBUCKET_API_USER` + `$BITBUCKET_API_TOKEN` (manual) |
-| Label creation | Yes | Yes | No (no label API) |
-| Comment posting | Yes | Yes | Yes |
+| Feature | GitHub | GitLab |
+|---------|--------|--------|
+| Contribution issue discovery | Label or metadata (scans all open issues) | Label or metadata (scans all open issues) |
+| Event-driven triggers | Yes (`issues.opened`, `issues.labeled`) | Yes (webhook pipeline) |
+| Scheduled scans | Optional | Yes (6-hour interval) |
+| CLI tool | `gh` (pre-installed) | `glab` + curl fallback |
+| Token source | `$GITHUB_TOKEN` (auto) | `$GITLAB_TOKEN` (manual) |
+| Label creation | Yes | Yes |
+| Comment posting | Yes | Yes |
+
+Bitbucket is not in the matrix because Bitbucket Cloud has no issue tracker (see [Bitbucket](#bitbucket)).
 
 ## Programmatic Integration
 

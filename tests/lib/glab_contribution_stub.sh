@@ -34,8 +34,17 @@
 #   GLAB_STUB_CURL_REPEAT_PAGE=1   curl ignores page= and always serves page 1
 #                                  (a server/proxy that drops the parameter).
 #   GLAB_STUB_API_FAIL=1           `glab api` exits 1 with no output.
+#   GLAB_STUB_CURL_REQUIRE_TOKEN=1 curl exits 22 unless a non-empty
+#                                  PRIVATE-TOKEN header is sent (a private
+#                                  project: no anonymous REST access).
 #   GLAB_STUB_PAGINATE_FORMAT=concat
-# Recorded argv: curl URLs -> curl_calls, glab argv -> glab_calls.
+#   - Issue notes (t2247): #100 already carries an `<!-- overlap-results`
+#     note, every other issue has none. Served by curl and by `glab api` at
+#     .../issues/<iid>/notes, in the REST notes shape captured from GitLab CE
+#     19.4.5 (notes_100.json).
+# Recorded argv: curl URLs -> curl_calls, the --header values of each curl
+# call (joined with " | ", "<none>" when absent) -> curl_auth, glab argv ->
+# glab_calls.
 
 _glab_stub_metadata() {
     # _glab_stub_metadata <file_path> -> an issue description with a v1 fingerprint
@@ -53,10 +62,21 @@ _glab_stub_metadata() {
         "-->"
 }
 
+_glab_stub_notes() {
+    # _glab_stub_notes -> the REST notes array of an issue that already has an
+    # overlap-analysis comment: a real GET .../issues/:iid/notes response from
+    # GitLab CE 19.4.5 (t2247 live check), newest first, re-pointed at #100
+    # with dates, ids and URLs anonymised. Do not hand-edit its shape.
+    cat <<'NOTES'
+[{"id":2,"type":null,"body":"Thanks!","author":{"id":2,"username":"maint","public_email":null,"name":"maint","state":"active","locked":false,"avatar_url":null,"web_url":"https://gitlab.example/maint"},"created_at":"2099-01-01T00:00:00.000Z","updated_at":"2099-01-01T00:00:00.000Z","system":false,"noteable_id":100,"noteable_type":"Issue","project_id":7,"resolvable":false,"confidential":false,"internal":false,"imported":false,"imported_from":"none","noteable_iid":100,"commands_changes":{}},{"id":1,"type":null,"body":"<!-- overlap-results\noverlap_check_version: 1\n-->\n## Contribution Overlap Analysis","author":{"id":2,"username":"maint","public_email":null,"name":"maint","state":"active","locked":false,"avatar_url":null,"web_url":"https://gitlab.example/maint"},"created_at":"2099-01-01T00:00:00.000Z","updated_at":"2099-01-01T00:00:00.000Z","system":false,"noteable_id":100,"noteable_type":"Issue","project_id":7,"resolvable":false,"confidential":false,"internal":false,"imported":false,"imported_from":"none","noteable_iid":100,"commands_changes":{}}]
+NOTES
+}
+
 glab_contribution_stub_install() {
     local dir="$1"
     mkdir -p "$dir/bin"
     : > "$dir/curl_calls"
+    : > "$dir/curl_auth"
     : > "$dir/glab_calls"
 
     local shared other
@@ -75,6 +95,7 @@ glab_contribution_stub_install() {
             issue(14; "Plain docs issue"; "No metadata here."; []),
             issue(12; "Labeled without metadata"; "Hand-written."; ["contribution"]) ]' \
         > "$dir/all.json"
+    _glab_stub_notes > "$dir/notes_100.json"
 
     # --- curl: the GitLab REST server ---
     cat > "$dir/bin/curl" <<EOF
@@ -82,11 +103,18 @@ glab_contribution_stub_install() {
 D='$dir'
 EOF
     cat >> "$dir/bin/curl" <<'EOF'
-url=""
+url="" hdrs=() prev=""
 for a in "$@"; do
     case "$a" in http://*|https://*) url="$a" ;; esac
+    [[ "$prev" == "--header" || "$prev" == "-H" ]] && hdrs+=("$a")
+    prev="$a"
 done
 printf '%s\n' "$url" >> "$D/curl_calls"
+if [[ ${#hdrs[@]} -eq 0 ]]; then
+    echo "<none>" >> "$D/curl_auth"
+else
+    (IFS='|'; printf '%s\n' "${hdrs[*]}" | sed 's/|/ | /g') >> "$D/curl_auth"
+fi
 path="${url%%\?*}"
 query=""
 [[ "$url" == *\?* ]] && query="${url#*\?}"
@@ -100,11 +128,23 @@ for p in "${kv[@]}"; do
         updated_after=*) since="${p#updated_after=}" ;;
     esac
 done
+if [[ "${GLAB_STUB_CURL_REQUIRE_TOKEN:-}" == 1 ]]; then
+    tok_ok=0
+    for h in "${hdrs[@]}"; do [[ "$h" == "PRIVATE-TOKEN: "?* ]] && tok_ok=1; done
+    [[ "$tok_ok" == 1 ]] || exit 22
+fi
 if [[ -n "${GLAB_STUB_CURL_FAIL_PAGE:-}" && "$page" == "$GLAB_STUB_CURL_FAIL_PAGE" ]]; then
     exit 22
 fi
 [[ "${GLAB_STUB_CURL_REPEAT_PAGE:-}" == 1 ]] && page=1
 case "$path" in
+    */issues/*/notes)
+        iid="${path%/notes}"; iid="${iid##*/}"
+        if [[ -f "$D/notes_$iid.json" ]]; then cat "$D/notes_$iid.json"; else echo '[]'; fi
+        ;;
+    */labels)
+        echo '[{"name":"contribution"},{"name":"area:scripts"}]'
+        ;;
     */issues)
         jq -c --arg l "$labels" --arg s "$since" --argjson p "$page" --argjson n "$per_page" '
             [ .[] | select($l == "" or any(.labels[]; . == $l))
@@ -136,6 +176,11 @@ case "${1:-} ${2:-}" in
         ;;
     api*)
         [[ "${GLAB_STUB_API_FAIL:-}" == 1 ]] && exit 1
+        if [[ "${2:-}" == */issues/*/notes* ]]; then
+            p="${2%%\?*}"; iid="${p%/notes}"; iid="${iid##*/}"
+            if [[ -f "$D/notes_$iid.json" ]]; then cat "$D/notes_$iid.json"; else echo '[]'; fi
+            exit 0
+        fi
         paginate=0
         for a in "$@"; do [[ "$a" == "--paginate" ]] && paginate=1; done
         if [[ "$paginate" == 0 ]]; then
