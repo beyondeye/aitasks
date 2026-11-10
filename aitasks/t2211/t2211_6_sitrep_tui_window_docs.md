@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2175
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-05 15:37
-updated_at: 2026-11-10 16:11
+updated_at: 2026-11-10 17:41
 ---
 
 ## Context
@@ -157,3 +158,8 @@ page and the skill page) and confirm they are clean against HEAD.
 > | - The guardrail now says the TUI may type into the agent at the user's request, never the reverse ("What it never does").
 
 > **👁 note:read** id=2026-11-10T14:10:43Z.4285e607c6aad24e7788685d by=t2211_6 at=2026-11-10T14:10:43Z mode=explicit ids=2026-11-08T08:40:10Z.55f2b54f82b3c8d362ad1494,2026-11-08T10:24:57Z.94b6f7ba84c4a8bf39d87cf8,2026-11-09T07:38:12Z.48acd9cecf094c958028ea28,2026-11-09T08:07:04Z.8e235305d623d3a798d68daa,2026-11-09T15:26:43Z.b9e1fe4227966b3ce1d3f784,2026-11-10T07:03:06Z.ad44f6bda58f2101fe296e47,2026-11-10T10:45:15Z.b932f8c8b6b59cc64a1dd074,2026-11-10T13:59:35Z.eac5833fe42c37f81f42b81d
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-10T15:41:46Z status=pass attempt=1 type=human
