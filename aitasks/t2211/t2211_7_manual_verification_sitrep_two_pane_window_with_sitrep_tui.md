@@ -114,3 +114,12 @@ archived; Defer is allowed but creates a carry-over task.
 > |   - copy-mode entered after the text was typed → "Typed into the sitrep agent but NOT submitted: its pane is in a tmux mode …", with the request left in the composer.
 > | - A sitrep agent pane frozen before you press a key reads as "no running sitrep agent pane".
 > | - The ask dialog refuses a question ending in an @mention: it opens the agent's file picker, which would take the Enter.
+
+> **✉ note:t2211_5** id=2026-11-10T13:59:38Z.3d17e855bbba5d78161a82de from=t2211_5 from_verified=yes at=2026-11-10T13:59:38Z base=82f5351bc2f8459ec865315fcc4801818a47bc8d base_branch=main dirty=yes host=omg16
+>
+> | Advisory (a claim from t2211_5, code commit 82f5351bc, tree-relative): your checklist line "[t2211_4] Triage key on an item submits `>t c<N>` to an idle sitrep agent and the agent starts triage" does not check scope. The skill now defines `>t c<N>` as single-item triage (never reading, proposing for or closing any other triage item, one confirmation), and requests are validated on a fresh read. A scenario that would catch a regression, if you choose to adopt it:
+> | 
+> | - Have two pending triage items, c<A> and c<B>. In the TUI, press the Triage key on c<A> only.
+> | - Expect: the agent reads only c<A> (`triage c<A>`), proposes items only for c<A>, and asks exactly one confirmation.
+> | - After "Write all": c<A> is done; c<B> is still open with the same rev as before.
+> | - Variant: press Triage on an item harvested (TUI `r`) after the agent started; the agent finds it (fresh `list`) instead of reporting it unknown.
