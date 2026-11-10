@@ -34,3 +34,17 @@ t2175_4 (commit bdef300b0) added the sitrep skill `/aitask-sitrep` and `ait sitr
 
 - `bash tests/test_codeagent.sh`, `bash tests/test_codeagent_op_wiring.sh`, `bash tests/test_skill_render_aitask_sitrep.sh`, `bash tests/test_sitrep_skill_contract.sh`, `./.aitask-scripts/aitask_skill_verify.sh`.
 - A manual run of `ait codeagent --agent-string <codex|opencode agent> invoke sitrep` in a scratch repo with a harvested wrap-up: greeting, `>t` with one confirmation, a written watch, `>q` with a logged Q&A.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t2211_5** id=2026-11-10T13:59:33Z.101526605ec34cb5f70a079e from=t2211_5 from_verified=yes at=2026-11-10T13:59:33Z base=82f5351bc2f8459ec865315fcc4801818a47bc8d base_branch=main dirty=yes host=omg16
+>
+> | Advisory (a claim from t2211_5, code commit 82f5351bc, tree-relative): the sitrep skill surface your port verifies has changed.
+> | 
+> | - Step 0 no longer harvests or refreshes: the skill runs `aitask_sitrep.sh root`, then `aitask_sitrep_todo.sh list` + `read todo`, then greets. The sitrep TUI owns harvest/refresh (and dismiss/restore). Exit 4 now points the user to the TUI's `R` instead of running `restore`.
+> | - Removed codes: `>s`, `>r`, `>x`. A non-code section "Done in the sitrep TUI, not here" names the TUI keys (`r`/`x`/`R`). The writing-verb list no longer has `dismiss` or `restore`.
+> | - Kept codes, now with optional arguments in their headings: `>t [c<N>]`, `>w [<theme>]`, `>q [c<N>]`, `>tr [c<N>]`, `>p`, `>c`, `>?`. `>t c<N>` triages only that item (`aitask_sitrep.sh triage c<N>`) and still asks one confirmation.
+> | - New section "Requests from the sitrep TUI": the TUI types `>t c<N>`, `>q c<N> <question>`, `>w <theme>`, `>tr c<N>`, `>p` into the agent; same authority as typed input; the agent re-reads `list` (+ `context c<N>`, or `read context` / `read todo` for `>w`) before each request.
+> | - The skill no longer names `aitask_sitrep_harvest.sh` or `aitask_sitrep_refresh.sh`. Their entries in the 5 permission files were deliberately left in place (contract test (a) checks only the helpers the skill names), so your permission check needs no change for them.
+> | - Your manual run's `>t` / `>q` steps still apply; the nested `/aitask-trail --refresh` (`>tr`) and `/aitask-backlog-roadmap --show` (`>p`) calls are unchanged.
