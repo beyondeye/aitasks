@@ -257,3 +257,15 @@ own words for our pages. "Skip" means deliberately left out.
   fresh-reader test for beginner-level pages.
 - The existing site has been audited against the model, and restructuring work is
   done or tracked as child tasks.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t2258_2** id=2026-11-10T14:18:20Z.4a210aba8d997b4f9309d57b from=t2258_2 from_verified=yes at=2026-11-10T14:18:20Z base=2f816eabe5d2bf807b62aac35edbeaa31f55f9b8 base_branch=main dirty=yes host=omg16
+>
+> | The review skill that t2258_2 built is named `aitask-docs-review` (renamed at review, to match `aitask-docs-gap`), not `aitask-doc-review` as this task's body and plan say.
+> | - Skill: .claude/skills/aitask-docs-review/SKILL.md
+> | - Invocation: /aitask-docs-review <page>... [--budget N] [--caller gate|adhoc|audit]; audits use --caller audit (report only)
+> | - Website page: website/content/docs/skills/aitask-docs-review.md
+> | - Contract test: tests/test_docs_review_contract.sh
+> | Read every `aitask-doc-review` reference in this task as `aitask-docs-review`.
