@@ -42,7 +42,7 @@ The two TUIs keep **separate** trail selections. Switching between them with `j`
 ## Launching
 
 - `ait trails` from a shell in the project.
-- `ait trails --trail <handle>` opens that trail directly instead of the selector; `<handle>` is the trail's `art:<id>` handle. A jump from a linked trail in another project starts `ait trails` this way — see [Launch and environment]({{< relref "/docs/tuis/trails/reference" >}}#launch-and-environment).
+- `ait trails --trail <handle>` opens that trail directly instead of the selector; `<handle>` is the trail's `art:<id>` handle. Add `--task <id>` to also focus that task's card. A jump from a linked trail in another project starts `ait trails` this way — see [Launch and environment]({{< relref "/docs/tuis/trails/reference" >}}#launch-and-environment).
 - **`j`** then **`i`** from any TUI, through the [TUI switcher]({{< relref "/docs/tuis" >}}#navigating-between-tuis). The switcher's bottom hint row does not advertise `i`, but the entry is listed in the switcher and the key works.
 - **`j`** then **`b`** from `ait trails` goes back to the board.
 

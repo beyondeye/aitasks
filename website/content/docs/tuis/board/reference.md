@@ -737,6 +737,19 @@ Runs `git checkout -- <filepath>` to discard local changes and restore the last 
 
 These files are auto-created with defaults if they don't exist. The `.local.json` layer is yours alone — collapsing a column or a group changes only your view, never a teammate's.
 
+### Command-Line Options
+
+| Option | Effect |
+|--------|--------|
+| `--focus <id>` | Selects that task's card once the board has loaded. `<id>` is `12`, `t12` or a child id such as `12_3`; anything else is refused before the board starts. A child's parent card is expanded so the child is visible |
+
+Other tools ask a board that is already running to show a card, instead of starting a second board: the [sitrep TUI]({{< relref "/docs/tuis/sitrep" >}})'s **`b`** does this, and starts a board with `--focus` only when none runs in the project's tmux session. The running board then behaves as with `--focus`, with these messages:
+
+- While a dialog is open, the card waits: `t<id> will be shown when this dialog closes`.
+- An archived task: `t<id> is archived — it is not on the board`.
+- An unknown id: `t<id> not found`.
+- A card the current view hides: `t<id> is not visible in the current view (a filter, a collapsed column or a trail view hides it)`.
+
 ### Environment Variables
 
 | Variable | Default | Purpose |

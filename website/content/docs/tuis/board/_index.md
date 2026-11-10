@@ -23,6 +23,8 @@ The `ait board` command launches an interactive terminal-based kanban board for 
 ait board
 ```
 
+To open the board with one task's card already selected, pass its id: `ait board --focus 42` (`42`, `t42` and a child id such as `42_3` all work). See [Command-Line Options]({{< relref "/docs/tuis/board/reference" >}}#command-line-options).
+
 The board reads all task files from `aitasks/*.md` and displays them as cards organized into kanban columns. On first launch, it creates a default configuration with three columns: **Now**, **Next Week**, and **Backlog**.
 
 ### Understanding the Layout

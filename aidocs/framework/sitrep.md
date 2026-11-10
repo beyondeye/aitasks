@@ -10,8 +10,9 @@ guarded: it refuses a busy or moded agent, uses an identity-checked, acked paste
 and proves the composer before every Enter
 (`.aitask-scripts/monitor/agent_request_delivery.py`).
 
-User-facing pages: `website/content/docs/workflows/sitrep.md` and
-`website/content/docs/skills/aitask-sitrep.md`.
+User-facing pages: `website/content/docs/workflows/sitrep.md`,
+`website/content/docs/skills/aitask-sitrep.md` and the TUI's
+`website/content/docs/tuis/sitrep/` (`_index`, `how-to`, `reference`).
 
 ## Components
 
@@ -22,7 +23,8 @@ User-facing pages: `website/content/docs/workflows/sitrep.md` and
 | review corpus | `aitask_sitrep_harvest.sh case` (= `ait sitrep case`) | `lib/sitrep_corpus.py` | uncertain output kept verbatim with diagnostics and one review item; list / show / read / review / replay / export |
 | refresh | `.aitask-scripts/aitask_sitrep_refresh.sh` | `lib/sitrep_refresh.py` | deterministic re-check of task, push and trail items (Part 1 only) |
 | window + facts | `ait sitrep` → `.aitask-scripts/aitask_sitrep.sh` | `open`: `monitor/sitrep_open.py` → `monitor/monitor_core.py` `spawn_sitrep`; `root` / `triage`: `lib/sitrep_cli.py` (stdlib; lib/ never imports the monitor package) | opens the sitrep agent in its own window; read-only facts for the skill |
-| agent | `/aitask-sitrep` | `.claude/skills/aitask-sitrep/SKILL.md.j2` | triage, situation text, answers from the sources, dismissals, Q&A log |
+| TUI | `ait sitrep tui` → `.aitask-scripts/aitask_sitrep_tui.sh` | `sitrep_tui/` (`sitrep_tui_app.py`, `_model`, `_widgets`, `_actions`, `_requests`, `_trails`); delivery in `monitor/agent_request_delivery.py` | the list's read views, the deterministic actions (harvest + refresh, dismiss, restore, pick, board / trails jumps, push command), the guarded requests into the agent |
+| agent | `/aitask-sitrep` | `.claude/skills/aitask-sitrep/SKILL.md.j2` | triage, situation text, trail reports, pick advice, answers from the sources, Q&A log; handles the requests the TUI types |
 | monitor surface | `h` / `S` in `ait monitor` and `ait minimonitor`, `S` in the TUI switcher | `monitor/sitrep_close.py` (`SitrepCloseMixin`) | harvest-and-close, open the sitrep window, the `sitrep N now` count; the maintenance `harvest all` pass |
 
 Each helper's header is its wire contract (verbs, result lines, exit codes); the
@@ -98,6 +100,12 @@ segment → exit 2, every spelling, abbreviations disabled).
   | — | live, agent slot empty | `split-window -v -b -l 60%` above the TUI | `respawned_agent` |
   | — | live, slot occupied | new window with the agent; `join-pane -d` moves the TUI under it | `spawned` + `tui_moved` |
 
+  The CLI prints one line per status (`aitask_sitrep.sh` header):
+  `SITREP_SPAWNED:<pane>|<session>:<window>`, `SITREP_ADDED_TUI:…`,
+  `SITREP_RESPAWNED_AGENT:…`, `SITREP_FOCUSED:<pane>` (exit 0, followed by 0+
+  `SITREP_WARN:<item>` lines), `SITREP_FOCUS_FAILED:<pane>` and
+  `SITREP_REFUSED:<reason>` (exit 1). `<pane>` is always the agent's.
+
   The agent slot is empty when the TUI's window holds nothing but the TUI and
   helpers (`classify_window_panes`). A **frozen** sitrep agent is an occupant
   (frozen first), and so are a dead pane or a user's shell: the replacement is
@@ -149,47 +157,177 @@ segment → exit 2, every spelling, abbreviations disabled).
   test seam `AITASK_SITREP_SPAWN_PAUSE_FIFO` (`sitrep_harvest.spawn_test_pause`,
   point `spawn:after_lookup`) holds a spawn inside the lock, so the live test
   proves a second spawn waits rather than racing it.
-- **The TUI's actions** (`sitrep_tui/sitrep_tui_actions.py`). The TUI does the
-  deterministic work itself; the agent keeps the agentic work.
-  - Writes go only through the writer, run with `cwd=<root>` and without
-    `AITASK_SITREP_DIR`, which is the store the TUI reads.
-  - **Dismiss** passes `--expect-rev <the rev the user saw>`. `STALE:` re-reads
-    and asks again; it never retries blind.
-  - **Restore** is `restore <kind> --if-damaged`. The writer re-checks the live
-    file under its lock, so a repair that landed while the confirm dialog was
-    open is never rolled back. Plain `restore` stays unconditional for the CLI.
-  - **Harvest + refresh** (`harvest all`, then refresh with budget 60 / timeout
-    75) runs once at startup and on `r`, one run at a time.
-  - **The agent's state** comes from `find_sitrep_roles`, polled off the event
-    loop. A failed query reads as "unknown", never as "not running".
-    **Respawn** is `aitask_sitrep.sh open --session <the TUI's own session>`,
-    the one spawn path above.
-  - **Item launches** re-resolve the item against the current store. Details
-    are snapshots, so a moved rev refreshes them and launches nothing:
-    - **pick** is for pick items only (never triage) and works like the
-      minimonitor's (tmux window only);
-    - **open in board** is `launch_or_focus_board` plus `switch-client` when
-      the board lives in another session of the project;
-    - **show in trails** (`z`, and Enter on a details trail row) is
-      `launch_or_focus_trails(…, task_id)` with the same session rule: the
-      trail opens in `ait trails` with the task's card focused (a running
-      trails too old for the task form still opens the trail and says so);
-    - **push** shows the command and never runs it.
-  - **Trail membership** (`sitrep_tui/sitrep_tui_trails.py`) is one
-    `trail_links.export_project(root)` subprocess per scan, in a thread worker:
-    after a store change, when a task item's details open, and every 60 s. A
-    task is `in` some trails, in `none`, or `unknown` (the export failed,
-    `project.name` is unset, or a partial scan found nothing for it — never
-    shown as "in no trail"). A partial scan keeps the trails it did read.
-    The details show a `Trails` line and one links row per trail, keyed by
-    the trail's handle, so a rescan never re-points a selected row; `z` is
-    shown only for a task known to be in a trail.
+- **The TUI itself** — views, actions and requests: see *The sitrep TUI*
+  below.
 - **Known gaps, by design.** A frozen sitrep does not block a new spawn (frozen
   panes are never live identity), and `/aitask-sitrep` typed into an arbitrary
   agent pane is unstamped. At worst two stewards share one locked, CAS-guarded
   store.
 
 All tmux goes through the gateways (`aidocs/framework/tmux_gateway.md`).
+
+## The sitrep TUI
+
+`ait sitrep tui [--root <path>]` (`aitask_sitrep_tui.sh` checks `textual` /
+`pyyaml`, then runs `sitrep_tui/sitrep_tui_app.py`). `--root` goes through
+`sitrep_cli.root_arg` (empty or a `..` segment → exit 2); an unresolvable root
+prints `ROOT_FAILED:<why>` and exits 1. The store is
+`<canonical root>/.aitask-sitrep`, the one every read-side consumer uses. The
+TUI does the deterministic work itself; the agent keeps the agentic work.
+
+### Reads
+
+One small synchronous read at mount, so the first frame shows the store; then a
+poll every `RELOAD_INTERVAL` (2.0 s), off the event loop. Each tick hashes
+`todo.md` and `qa.md` (sha256; the digest is `(state, sha)` per file). An
+unchanged digest re-renders only the age labels. A changed one parses the same
+bytes it hashed, so a write between the hash and the parse cannot be missed.
+The **last good parse** of each file is kept when a later read fails. The
+banner then says `Store unusable: <err>` / `Q&A log unusable: <err>`, plus
+`Showing the last good view.` and the `R` hint. With no good parse at all, the
+header reads `store unusable`. The agent's state (`find_sitrep_roles`) is
+polled every `AGENT_POLL_INTERVAL` (3.0 s).
+
+### Views
+
+- **Main list.** The groups come from `sitrep_todo`'s GROUPS, shown with the
+  TUI labels (`now` → **Now**). Now / Next / Waiting are always shown; Recently
+  done / Dismissed only behind `d`, whose footer label follows the state
+  (`_set_binding_label`). A fixed column header (Item / Checked / Pri/Eff /
+  Created / What to do) sits outside the list, so it never scrolls. Rows are
+  one line, cut with an ellipsis.
+- **"What to do" / "How".** `classify` + `NEXT_STEPS` in `sitrep_tui_model.py`
+  are the single source. The `{k_*}` placeholders resolve to the **effective**
+  keys (user overrides included), so a remap is what the text names.
+- **Task fields** (priority, effort, status, labels, `created_at`) are read
+  from the task files, never copied into the store. The **list** uses a cache
+  built once per store generation (`model.task_metas` in `_apply`), so its
+  Pri/Eff and Created cells and the label filter show a task-file edit at the
+  next store change. **Opening details** reads the task file afresh
+  (`model.task_meta` in `open_item`), so the details always show its current
+  values.
+  `created_at` is local wall-clock time with no zone; "today" compares calendar
+  dates in the local zone (clock seam `AITASK_SITREP_NOW`).
+- **Item details, source viewer, Q&A log and entry** are separate screens with
+  their own shortcut scopes (`sitrep_tui.detail`, `.viewer`, `.qa`,
+  `.qa_entry`; `lib/shortcut_scopes.py`). Details are snapshots. Every action
+  re-resolves its item against the current store (see the actions below).
+- **Mouse.** A click only selects, on every list (`SelectOnClickList`,
+  `sitrep_tui_widgets.py`); Enter opens.
+
+### Pointers
+
+The links list renders each context source with a plain label
+(`sitrep_tui_model.py`, `source_label`). Capture passages get labels by kind:
+`Closing message`, `Workflow result`, `Excerpt of the unparsed output`, the
+three `Review case:` records. **KEY receipts are hidden**: they stay in the
+store, and the identity index still uses them. A trusted review case adds a
+`Raw input (review case)` row, and its bytes are re-hashed against the case
+record before they are shown.
+
+The viewer renders task, plan and `.md` file pointers as Markdown (front matter
+becomes a fenced yaml block) with `open_links=False`. A `#L` pointer or an
+error starts raw, with line numbers; `m` toggles. A capture shows only its line
+range. A commit is `git show --stat --format=fuller`. A URL is shown, never
+opened. The size cap is 256 KiB. A refused pointer reads `Not followed: <why>`.
+
+### Actions
+
+- Writes go only through the writer, run with `cwd=<root>` and without
+  `AITASK_SITREP_DIR`, which is the store the TUI reads.
+- **Dismiss** passes `--expect-rev <the rev the user saw>`. `STALE:` re-reads
+  and asks again; it never retries blind.
+- **Restore** is `restore <kind> --if-damaged`. The writer re-checks the live
+  file under its lock, so a repair that landed while the confirm dialog was
+  open is never rolled back. Plain `restore` stays unconditional for the CLI.
+- **Harvest + refresh** (`harvest all`, then refresh with budget 60 / timeout
+  75) runs once at startup and on `r`, one run at a time.
+- **The agent's state** comes from `find_sitrep_roles`, polled off the event
+  loop. A failed query reads as "unknown", never as "not running".
+  **Respawn** is `aitask_sitrep.sh open --session <the TUI's own session>`,
+  the one spawn path above.
+- **Item launches** re-resolve the item against the current store. Details
+  are snapshots, so a moved rev refreshes them and launches nothing:
+  - **pick** is for pick items only (never triage) and works like the
+    minimonitor's (tmux window only);
+  - **open in board** is `launch_or_focus_board` plus `switch-client` when
+    the board lives in another session of the project;
+  - **show in trails** (`z`, and Enter on a details trail row) is
+    `launch_or_focus_trails(…, task_id)` with the same session rule: the
+    trail opens in `ait trails` with the task's card focused (a running
+    trails too old for the task form still opens the trail and says so);
+  - **push** shows the command and never runs it.
+- **Label filter** (`f` / `F`): task items whose task has any checked label;
+  every non-task item, cross-repo item and missing task file is hidden while it
+  is on. Per-session UI state, never written to the store.
+
+**Trail membership** (`sitrep_tui/sitrep_tui_trails.py`) is one
+`trail_links.export_project(root)` subprocess per scan, in a thread worker:
+after a store change, when a task item's details open, and every 60 s. A
+task is `in` some trails, in `none`, or `unknown` (the export failed,
+`project.name` is unset, or a partial scan found nothing for it — never
+shown as "in no trail"). A partial scan keeps the trails it did read.
+The details show a `Trails` line and one links row per trail, keyed by
+the trail's handle, so a rescan never re-points a selected row; `z` is
+shown only for a task known to be in a trail.
+
+### Requests into the agent
+
+`AGENT_REQUESTS` (`sitrep_tui_requests.py`) is the one table: the bindings, the
+How-text keys and the re-export the skill-parity test imports all come from it.
+
+| Key | Typed | Fits |
+|---|---|---|
+| `t` | `>t c<N>` | `classify` → `triage` / `review` |
+| `a` | `>q c<N> <text>` | any item (ask dialog: one line, ≤ 300 chars, no control characters, no trailing `@mention`) |
+| `w` | `>w <theme>` | the item's context names a theme |
+| `T` | `>tr c<N>` | `classify` → `watch` (a trail-checked watch) |
+| `n` | `>p` | store-wide |
+
+They apply only when `request_available()` holds (the TUI runs in a pane of the
+gateway server and the agent state is `running`). One request is in flight at
+a time: the keys are disabled meanwhile, and a second press is refused, never
+queued. Every action re-checks the item: a moved rev sends nothing.
+
+Delivery (`monitor/agent_request_delivery.py`, `deliver_sitrep_request`) runs in
+three observed phases:
+
+1. **Readiness.** Two captures `COMPOSER_DRAIN_SECONDS` (0.5 s) apart must both
+   show an empty, idle composer (`readiness_verdict` over `shadow_state`), and
+   the pane must not be in a tmux mode. Otherwise the request is refused and
+   nothing is typed.
+2. **Guarded paste.** The text goes to tmux on stdin (`load-buffer -`; argv
+   mangles a trailing `;`, `TmuxClient.run_with_input`), then ONE
+   `if-shell -F` on the run identity and `#{pane_in_mode}` = 0
+   (`monitor_core.guarded_paste_text`). The `@aitask_dispatch_ack` nonce
+   (`<nonce>:sent` / `<nonce>:skipped`, read back by `dispatch_ack_state`)
+   reports which branch ran, since `if-shell` answers 0 either way.
+3. **Submission.** Before every Enter, the first one and every retry, the
+   current composer's **complete payload** must equal the request
+   (`review_loop.composer_payload`, `payload_matches`; only justified display
+   wraps are allowed), and the pane mode is the last read. The Enter itself is
+   guarded and acked (`guarded_send_key`). After it, `READY` / `WORKING` →
+   submitted. A composer that still holds exactly the request → a swallowed
+   Enter (retry). Anything else → `unknown`, because the request may have gone
+   and "not submitted" would invite a duplicate.
+
+Results (`DeliveryResult`; user wording from `.message()`):
+
+| Code | Returned when | Typed / submitted |
+|---|---|---|
+| `submitted` | the post-Enter capture is idle or working | yes / yes |
+| `typed_not_submitted` | detail `composer_changed` (the first pre-Enter proof failed) or `submit_unconfirmed` (retries exhausted with the request still in the composer) | yes / no |
+| `typed_not_submitted:in_mode` / `:mode_unreadable` | the last pre-Enter read found a mode / could not read it, or the guarded Enter skipped on `pane_in_mode` | yes / no |
+| `refused:not_ready:<dialog\|draft\|working\|unknown\|in_mode\|mode_unreadable>` | readiness failed (an agent without a measured grammar is `not_ready:unknown`, detail `agent:<key>`) | no / no |
+| `refused:identity_changed` | the guarded Enter skipped on run identity | **yes** (into the replaced run) / no |
+| `refused:<no_agent\|frozen\|dispatch_failed\|invalid_request>` | before the paste | no / no |
+| `skipped` | the guarded paste's condition failed | no / no |
+| `unknown` | the paste or Enter ack was unreadable, the pre-Enter composer was unprovable, or the post-Enter state proves nothing | **unknown** — never read as sent, never as not sent |
+
+Every result is toasted; anything but `submitted` also opens the result panel
+(red only for `unknown`). Supported agents are
+`review_loop.PAYLOAD_GRAMMAR_AGENTS` (claude, codex, opencode), whose composer
+grammars were measured from real captures (`tests/sitrep_request_fixtures.py`).
 
 ## Unparsed output: the review corpus
 
@@ -361,14 +499,33 @@ uses its selected session. Result lines map to a toast; nothing is claimed for
 ## The skill
 
 `/aitask-sitrep` (profile-aware stub + `SKILL.md.j2`, resolver key `sitrep`).
-On start: `ait sitrep root`, `harvest all --root .`, `refresh --root .`, then
-`list` / `read todo`, then a greeting built from its Capabilities section.
+On start: `ait sitrep root`, then `list` + `read todo`, then a greeting built
+from its Capabilities section. It does **not** harvest or refresh: the TUI does
+both at its start and on `r`. `list` exit 4 (store unusable) → it names the
+TUI's `R` and writes nothing until `list` reads again.
 
-- **Writes only through writer verbs** (`add`, `set-state`, `dismiss`,
-  `situation`, `upsert-context`, `qa`; `restore` on the user's yes), with
+- **Codes:** `>t [c<N>]`, `>w [<theme>]`, `>q [c<N>]`, `>tr [c<N>]`, `>p`, `>c`,
+  `>?`. A bare `>t` triages every open triage item as one batch; `>t c<N>` only
+  that item (it never reads, proposes for or closes another one). A bare `>w` /
+  `>tr` covers every theme / trail watch.
+- **Writes only through writer verbs** (`add`, `set-state`, `situation`,
+  `upsert-context`, `qa`, plus `aitask_sitrep.sh case review`), with
   `--expect-rev` on every write to an existing item; `STALE:` means re-read,
-  never retry blind.
-- **Triage** turns each open triage question (one per harvested wrap-up run) into
+  never retry blind. `dismiss` and `restore` are not the agent's: they are the
+  TUI's `x` and `R`.
+- **Requests from the sitrep TUI** ("Requests from the sitrep TUI" in the
+  skill): the five request lines of `AGENT_REQUESTS`. A request carries the
+  authority of typed input and no more, so every write is still confirmed. Before
+  each one the agent re-reads `list` (plus `context c<N>` for an item request,
+  `read context` + `read todo` for `>w`) and checks the request on that fresh
+  read: an open triage item for `>t`, any listed item for `>q`, a watch with a
+  `trail:` source for `>tr`, a known theme for `>w`. A failed check is reported
+  and writes nothing.
+- **Done in the TUI, not here:** show, harvest + refresh, dismiss and restore
+  are TUI keys; asked for one, the agent names the key (`r` / `x` / `R`).
+- **Guardrail:** the TUI may type into the agent at the user's request; the agent
+  never types into the TUI or any other pane.
+- **Triage** turns each selected open triage question (one per harvested wrap-up run; all of them for a bare `>t`, one for `>t c<N>`) into
   agent-derived action/watch items after ONE confirmation for the whole batch,
   then closes the question (`set-state … done --outcome "triaged: …"`). The
   mechanical facts come from `ait sitrep triage c<N>` (helpers report evidence;
@@ -422,7 +579,16 @@ against the rendered skill.
 | `tests/test_sitrep_corpus.sh`, `tests/test_sitrep_corpus.py`, `tests/test_sitrep_corpus_fixtures.py` | the confidence check (every reason, per-occurrence pairing, negatives), legacy receipts, case files and provenance, faults, the replay / export loop, committed fixtures |
 | `tests/test_sitrep_refresh.sh`, `tests/test_sitrep_refresh.py`, `tests/test_monitor_sitrep_refresh.py` | refresh and its monitor tick |
 | `tests/test_sitrep_window.py` | lookup matcher, spawn decisions, the CLI (mocks) |
-| `tests/test_sitrep_window_live.sh` | the spawn against a private tmux server |
+| `tests/test_sitrep_window_live.sh` | the spawn against a private tmux server (cleanup hook stubbed) |
+| `tests/test_sitrep_window_hook_live.sh` | the window under the REAL companion cleanup hook: the agent exits → its pane goes, the TUI and companion stay; `ait sitrep` respawns the agent above the TUI |
+| `tests/test_sitrep_tui_app.py` | the TUI's read views over a fixture store built through the real writer: snapshots and last-good-parse, the What-to-do / How texts, columns, pointers and the Markdown viewer, details, the Q&A screens, reload, header, click-selects |
+| `tests/test_sitrep_tui_actions.py` | the actions (`r`, `x`, `R`, `A`, `p`, `b`, `P`) through the real writer: re-resolution against the current store, `STALE` handling, restore `--if-damaged`, the agent state; task metadata, the Created column, the `d` toggle and the label filter |
+| `tests/test_sitrep_tui_requests.py` | the request keys, app side: `AGENT_REQUESTS` as the one table, availability, one in flight, re-checks, the ask dialog, the result panel |
+| `tests/test_sitrep_request_delivery.py`, `tests/sitrep_request_fixtures.py` | delivery without tmux: the readiness table per `shadow_state`, the dispatch ack, the composer-payload proof over real captured composers of claude / codex / opencode, every result code |
+| `tests/test_sitrep_request_delivery_live.sh` | delivery against a real tmux server and a scripted Claude-shaped agent: respawns, freezes, copy-mode and user typing interleaved between the phases |
+| `tests/test_sitrep_tui_trails.py`, `tests/test_sitrep_tui_trails_actions.py` | trail membership (fail-closed `unknown`, partial scans), the trail picker, `z` and the details' trail rows |
+| `tests/test_board_focus.py`, `tests/test_board_focus_writer.py`, `tests/test_board_focus_mailbox_live.py` | `ait board --focus` and the board's pane mailbox (`launch_or_focus_board`) |
+| `tests/test_trails_focus_writer.py`, `tests/test_trails_focus_mailbox_live.py` | `ait trails --trail --task` and the trails mailbox's task form |
 | `tests/test_skill_render_aitask_sitrep.sh` | the skill's render, goldens, stubs |
 | `tests/test_sitrep_skill_contract.sh` | the skill's documented commands against the real helpers |
 | `tests/test_monitor_sitrep_harvest_close.py` | `h` / `S`: report parsing, the owned-group runner (timeout and cancel), target and sitrep-window guards, run identity, confirm callback, maintenance order, the count, the dialog, the real key presses, the switcher `S` |

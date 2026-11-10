@@ -134,6 +134,7 @@ The `?` editor inside `ait trails` lists the `board` rows this TUI uses — the 
 |--------|-------|
 | `ait trails` | From a shell in the project |
 | `ait trails --trail <handle>` | Opens that trail in a tab at launch instead of the selector. A value that is not an `art:<id>` handle is refused before the TUI starts; a handle the scan does not find opens the selector with `Trail <handle> not found in this project` |
+| `ait trails --trail <handle> --task <id>` | Opens that trail and focuses the member card of task `<id>` (`12`, `t12` or `12_3`). `--task` without `--trail`, or a malformed id, is refused before the TUI starts. A task that is not in the trail leaves the trail open with `t<id> is not in trail <handle> (any more) — trail opened`; a member whose card cannot be shown gives `t<id> is in trail <handle> but its card is not visible`. The [sitrep TUI]({{< relref "/docs/tuis/sitrep" >}})'s **`z`** opens a trail this way, or sends the same request to a running `ait trails` |
 | `j` → `i` | From any TUI, through the [TUI switcher]({{< relref "/docs/tuis" >}}#navigating-between-tuis); `i` is not shown on the switcher's hint row, but the entry is listed |
 
 - **Task directory** — read from `TASK_DIR` (default `aitasks`).
