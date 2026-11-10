@@ -318,3 +318,121 @@ Codex/OpenCode port tasks for `aitask-doc-review` (child 8 creates them).
 
 No new mitigation candidates: every risk above is covered by the parent's
 confirmed inline phases, this plan's Verification, or a sibling's phase.
+
+## Final Implementation Notes
+
+- **Actual work done:** all seven steps and the post-phase.
+  - New skill `.claude/skills/aitask-doc-review/SKILL.md` (plain SKILL.md;
+    procedure only, no guide rule text).
+  - Gate `.claude/skills/aitask-gate-docs-updated/SKILL.md`: step 3 copies
+    `.base` first and drafts from it; `.reader_budget` is written once per run
+    id; new step 3b; step 4 shows the review, with a 4a "Run more fresh-reader
+    tests" question asked separately; step 5 has the five-state table,
+    snapshot-based merge and rebaseline, and the rc 0 / 1–127 / other rules;
+    step 6 logs the review; six MUST NOT additions.
+  - `aitask-docs-gap` Step 6 has the `**Target level:**` line plus a sentence on
+    choosing it.
+  - Website: new `skills/aitask-doc-review.md`, a row in the skills index, and
+    two paragraphs on the gate page.
+  - New `tests/test_doc_review_contract.sh`: 62 assertions, including the
+    controls.
+- **Deviations from plan:**
+  - The merge-file contract check counts **invocations** (`git merge-file -p`),
+    not mentions; the MUST NOT list legitimately names `git merge-file`.
+  - The dry runs surfaced two improvements, both applied:
+    - (a) The skill's "never change inline code" rule now says that removing a
+      whole clause containing inline code is a cut, under the move rule.
+    - (b) The gate's rc 1–127 bullet now carries an explicit marker check
+      (`grep -nE '^(<<<<<<<|=======|>>>>>>>)( |$)'`): my own scripted dry run
+      once moved an unresolved merge into the draft.
+  - No wrappers changed. `discover` now shows `GAP:*:aitask-doc-review`, the
+    same tolerated state as `aitask-explorechat`; `parity` is clean.
+- **Issues encountered:**
+  - Run B, second merge: the merge exited 1 and my script applied the result
+    with conflict markers in it. I restored the page from `.base`, resolved the
+    conflict by hand, the marker check came back clean, and the page applied
+    again. This was a dry-run script bug, not a gate-text bug; it led to
+    deviation (b).
+  - The Run A re-test prompt passed the page without its Hugo relref shortcodes
+    and frontmatter (link targets stripped). This is a small departure from
+    "page text inline" in a dry run only.
+- **Key decisions:**
+  - The budget is persisted in `<drafts>/.reader_budget`, so re-entry cannot
+    reset it.
+  - `.snapshot` is both the merge input and the new `.base`.
+  - "Run more fresh-reader tests" is its own question, because AskUserQuestion
+    allows at most 4 options.
+- **Upstream defects identified:** None
+- **Dry-run records** (scratch tree
+  `/tmp/claude-1000/-home-ddt-Work-aitasks/2192c32d-256f-4300-9860-0419d3e6e15e/scratchpad/dryrun`,
+  task id 9999, steps 3–5 followed by hand, no ledger writes):
+  - **Run A, reviewed draft** (`plans.md` main-concept + `folded-tasks.md`
+    intermediate).
+    - `.base` copied before drafting; budget initialized to 3.
+    - 3b fixed a level finding in the new sentence (the internal path
+      `aiplans/` was cut because the page already states it) and an em-dash
+      connector.
+    - Fresh reader (sub-agent): 7/7 questions answered. Guessed terms: skill,
+      task, worktree, archived, sibling, pick, Code Browser. Unneeded details:
+      naming scheme, header contents. Ambiguity: how the plan is shown for
+      approval. These were already on the page and are left for the t2258_3
+      audit (unresolved).
+    - Budget 3 → 2. `folded-tasks` = `not-run(not-beginner)`.
+    - Adjust: defined "skill" in place. Re-review: the level/prose pass found it
+      clean, and the fresh reader no longer guesses "skill" (Q7 answered from
+      the definition). Budget 2 → 1.
+    - Apply: both pages in the unchanged row; `cmp` applied == last reviewed
+      draft for both. 2 of 3 tests used.
+  - **Run B, destination changes** (all intermediate, so no budget).
+    - The other session edited `execution-profiles` (title, a different
+      region), made a conflicting edit on `folded-tasks`, deleted `tasks.md`,
+      and created `newpage.md`. `unchanged.md` was left alone.
+    - Classification:
+      - modified → snapshot + merge rc 0 (execution-profiles) and rc 1
+        (folded-tasks, resolved by hand, no markers, applied with both lines);
+      - deleted and created → apply nothing, merge-file not called;
+      - `unchanged.md` → applied in the same run.
+    - **Merge → rebaseline race:** after the merge read the snapshot, a line was
+      appended to the live page. With the snapshot as `.base`, the next apply
+      took the modified row again, and the final page holds the intervening
+      line, the other session's title edit and the draft line (each count 1).
+      **Control** (re-copied live page as `.base`): the unchanged row applied,
+      and the intervening line count was 0 (lost).
+    - Error rc: `git merge-file` with a missing input exited 255; the output was
+      discarded and nothing applied.
+    - Created page: back to step 3, the existing page copied to `.base`,
+      re-drafted from it, then applied.
+    - Deleted page: back to step 3; the user choice was simulated as "drop", so
+      it was not recreated.
+  - **Run C, budget across a return to step 3.**
+    - Two new main-concept drafts (board 8 body lines, labels 4). Both tested by
+      sub-agents; both reports flag "task" as undefined. Budget 3 → 1.
+    - Another session created both pages → "created" → step 3 re-entry:
+      `.reader_budget` read **1** (not 3).
+    - Re-review: board (most changed) tested, budget 1 → 0. The reader flagged
+      the other session's leftover opening line as placeholder text, which is a
+      real finding. Labels got `reader=not-run(cap)`, and 4a would offer "Run
+      more fresh-reader tests".
+    - 3 of 3 tests used in the run.
+  - **Run D, no level model.** Scratch repo `repoD` (`.aitask-scripts` symlink;
+    `project_config.yaml` with `doc_update.guide: guide_seed.md`, a copy of
+    `seed/doc_update_guide.md`). The resolver printed `guide_seed.md`, which has
+    no `## Reader levels` heading or labels. Log line:
+    `level=not-run(no-level-model) prose=ok reader=not-run(no-level-model) unresolved=0`;
+    0 tests used. The confirm text says the guide has no level model.
+- **Verification run:**
+  - Pass: `test_doc_review_contract.sh` 62/62, with controls: all 17 gate
+    checks fail on the pinned pre-change gate `9baf1dcb`, all skill checks fail
+    on a missing skill, and 5 skill and 3 gate mutants are each caught.
+  - Pass: `test_resolve_config_path_cli.sh`, `test_gate_procedure_docs.sh`,
+    `test_docs_vocabulary_coverage.sh`, `test_followup_kind_seams.sh`,
+    `test_helper_whitelist_coverage.sh`, `test_website_doc_lists.sh`.
+  - `aitask_skill_verify.sh` OK; `check_links.py --build` SWEEP PASSED;
+    `shellcheck -S warning` clean.
+- **Notes for sibling tasks:**
+  - t2258_3 can call the skill with `--caller audit` (report only) and its own
+    `--budget`.
+  - Fresh-reader prompts work best with the full page text, frontmatter
+    included.
+  - The reports separate term-guessing from unneeded detail well on short pages.
+  - t2258_8 creates the Codex/OpenCode port tasks for `aitask-doc-review`.
