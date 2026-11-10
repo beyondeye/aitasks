@@ -186,10 +186,17 @@ decomposition time.
 ## Gap: <feature name> (tNN)
 
 - **Target doc page(s):** <website/content/docs/... path(s)>
+- **Target level:** <depth> · <page type>
 - **What shipped:** <1-3 sentences from the task's plan/notes>
 - **What to write:** <what the page needs to say>
 - **Sources:** <archived plan path>; commits: <short hashes>
 ```
+
+Choose each gap's **Target level** from the guide's level model: the reader
+level (the value of its declared level field, e.g. `depth`) and the page type
+that the guide's `## Reader levels` section and page-type rules give for the
+target page. If the guide has no `## Reader levels` section, write `not set
+(guide has no level model)`.
 
 Never create child tasks here.
 

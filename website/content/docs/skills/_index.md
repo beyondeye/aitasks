@@ -37,6 +37,7 @@ Run and satisfy a task's verification gates. For the CLI equivalents, see [Gates
 |-------|-------------|
 | [`/aitask-run-gates`](aitask-run-gates/) | Run a task's declared gates and explain the result — the conversational front of the gate orchestrator |
 | [`/aitask-gate-docs-updated`](aitask-gate-docs-updated/) | The `docs_updated` verifier — updates the project's documentation, with your confirmation, during task review |
+| [`/aitask-docs-review`](aitask-docs-review/) | Review doc pages against the project's doc-update guide: reader level, prose, and a fresh-reader test for beginner pages |
 
 ### Task Management
 

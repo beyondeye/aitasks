@@ -43,7 +43,9 @@ Naming a *directory* in your plan does not claim the files inside it; only exact
 
 The skill does not carry its own idea of how your project documents things. It reads the project's configured doc-update guide, resolved through the standard configuration path (defaulting to `aitasks/metadata/doc_update_guide.md`), and follows that guide's map from *kind of change* to *area of documentation*.
 
-It then proposes the specific updates and asks you before touching anything: apply them, adjust them, mark them not needed, or reject them. Autonomous execution profiles follow their configured policy instead of blocking on the question.
+It then writes each proposed page as a complete draft, next to a copy of the page as it was when drafting began, and runs [`/aitask-docs-review`]({{< relref "/docs/skills/aitask-docs-review" >}}) on the drafts. When it asks you before touching anything (apply, adjust, mark not needed, or reject), it shows that review's findings with the drafts. Adjusted drafts are reviewed again before it asks once more. Autonomous execution profiles follow their configured policy instead of blocking on the question.
+
+When it applies the drafts, it writes a page only if nobody else changed it since drafting began. A page another session edited meanwhile is merged with that edit and shown to you again; a page another session created or deleted goes back to drafting.
 
 ## Results
 
