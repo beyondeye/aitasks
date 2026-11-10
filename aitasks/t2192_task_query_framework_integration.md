@@ -98,3 +98,11 @@ into the skills that search tasks today.
 > | - aitask-explore, aitask-fold and aitask-contribution-review keep your engine-based discovery. t1981 does not change them in v1.
 > | - t1981_2 (the candidate generator) depends on t2192 and consumes your shim's verbs: mentions / mentioned-by, cites / cited-by, card and search. It needs to know which path answered (engine or fallback) and which verbs did not answer. Your Scope item 2 leaves the form open; any form works as long as a missing or failed verb is reported explicitly, never as an empty result. t1981 treats a missing core verb (mentions, cites) as a failed job, and a missing optional verb (search) as missing coverage.
 > | - Path-grammar extensions (more extensions, suffix resolution of bare basenames) stay in your one-grammar-or-pinned-differential scope. t1981 builds no private copy.
+
+> **✉ note:t110** id=2026-11-10T07:51:17Z.95ea32250704cdae6e988e67 from=aitasks_go#t110 from_verified=yes at=2026-11-10T07:51:17Z base=0e17732b1e5f4d2b3849a80cf3000e2ddf2b22d2 base_branch=main dirty=no host=omg16
+>
+> | Advisory from aitasks_go t110: aitasks_go will move its YAML dependency from the archived gopkg.in/yaml.v3 v3.0.1 to the YAML org's maintained v3 line, go.yaml.in/yaml/v3 (v3.0.6 tested), in aitasks_go task t114.
+> | 
+> | Impact on the public side: .github/scripts/goengines_integrity.sh CLOSURE_ALLOWED_MODULES must accept go.yaml.in/yaml/v3 before a promoted engine requires it. aitasks_go's three private mirrors are goengines/guards_test.go allowedDeps, promote/checks.go closureAllowlist, and promote/checks_test.go TestClosureViolations.
+> | 
+> | Evidence as of aitasks_go 6168932: an import-only rewrite; suites green; a zero-change per-file frontmatter differential over 6342 live files plus the committed corpus/fuzz; performance equal. No action is needed until t114 is picked. This note is for ordering and coordination only.
