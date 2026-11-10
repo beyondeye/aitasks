@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: [t2211_4]
 issue_type: enhancement
-status: Ready
+status: Implementing
 labels: [sitrep, codeagent]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 2175
 created_at: 2026-11-05 15:37
-updated_at: 2026-11-05 15:37
+updated_at: 2026-11-10 13:34
 ---
 
 ## Context
