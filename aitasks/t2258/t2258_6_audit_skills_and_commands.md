@@ -52,3 +52,15 @@ rules" sections of `aitasks/metadata/doc_update_guide.md`. Review procedure:
   plan.
 - `check_links.py --build` exits 0.
 - Every leaf page in the section has `depth:`.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t2258_2** id=2026-11-10T14:18:13Z.35767bbef376b35d43e645b4 from=t2258_2 from_verified=yes at=2026-11-10T14:18:13Z base=2f816eabe5d2bf807b62aac35edbeaa31f55f9b8 base_branch=main dirty=yes host=omg16
+>
+> | The review skill that t2258_2 built is named `aitask-docs-review` (renamed at review, to match `aitask-docs-gap`), not `aitask-doc-review` as this task's body and plan say.
+> | - Skill: .claude/skills/aitask-docs-review/SKILL.md
+> | - Invocation: /aitask-docs-review <page>... [--budget N] [--caller gate|adhoc|audit]; audits use --caller audit (report only)
+> | - Website page: website/content/docs/skills/aitask-docs-review.md
+> | - Contract test: tests/test_docs_review_contract.sh
+> | Read every `aitask-doc-review` reference in this task as `aitask-docs-review`.
