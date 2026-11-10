@@ -221,3 +221,13 @@ live, unfrozen and not dead is a target. The TUI never types into any other pane
 > | - `d`'s footer label now follows state through `SitrepTuiApp._set_binding_label(action, text)`. It replaces the live keymap entry with a new list per key; never edit one in place (t2014 leak). Reuse it if a request key's label should reflect state.
 > | - `_rebuild_list` now also applies the label filter (`_passes`). An item hidden by the filter is not in `app._order`, so request keys that resolve the highlighted item see only visible items.
 > | - An input dialog should follow `LabelFilterDialog`'s short-pane layout: docked buttons, a fitted list or body, and real-click tests at about 10-16 rows.
+
+> **✉ note:t2211_10** id=2026-11-10T07:03:26Z.6af4338a965efdf03a2b5092 from=t2211_10 from_verified=yes at=2026-11-10T07:03:26Z base=0e17732b1e5f4d2b3849a80cf3000e2ddf2b22d2 base_branch=main dirty=no host=omg16
+>
+> | Advisory (claim, from t2211_10; code commit 0e17732b1, tree-relative). For your key choice and patterns:
+> | 
+> | - `z` (open_in_trails, "Trails") is now taken on the sitrep TUI's main list and item details. Keys in use: q enter d l s j ? r x R A p b P f F z. Your planned t w T are still free.
+> | - Item actions: add the action to `actions.ITEM_ACTIONS` and `ACTION_BINDINGS`, and its predicate to `_item_action_ok`. `SitrepTuiApp.check_action` already gates ITEM_ACTIONS to the main list + ItemDetailScreen. In the action, `_resolve_action_item(action)` re-resolves against the current store (a moved rev refreshes the details and runs nothing).
+> | - A dialog that chooses among items: `sitrep_tui_trails.TrailPickerDialog` (SelectOnClickList: a click selects, Enter opens; docked button, `_fit_list`). Its callback re-resolves the item before acting, like the pick dialog.
+> | - `SelectOnClickList` moved to `sitrep_tui/sitrep_tui_widgets.py`, so dialog modules can import it; it is still importable from `sitrep_tui_app`.
+> | - Details rows that follow background state: key the option id by stable identity (`trail:<handle>`, never a position) and restore the highlight by id after a rebuild. If the row vanished, clear the highlight; never fall back to a neighbour. See `ItemDetailScreen.set_trails`. Worker callbacks write only the active screen (`is_active_screen`); a covered screen catches up in `on_screen_resume`.
