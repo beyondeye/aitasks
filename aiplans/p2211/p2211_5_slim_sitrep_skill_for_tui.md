@@ -226,3 +226,60 @@ Parent plan: `aiplans/p2211_sitrep_two_pane_window_with_sitrep_tui.md`.
 
 Commit code with `enhancement: Slim the sitrep skill to its agentic work (t2211_5)`; commit
 the plan/task with `./ait git`, then archive per Step 9.
+
+## Final Implementation Notes
+
+- **Actual work done:** Steps 1-8 and the post-phase, as planned.
+  - Template: Step 0 now does a root check, then `list` + `read todo` (no harvest/refresh), then
+    greets; exit 4 points to the TUI's `R`.
+  - Removed `>s` / `>r` / `>x` and added a non-code section, "Done in the sitrep TUI, not
+    here" (`r` / `x` / `R` by default). The writing-verb list drops `dismiss` and `restore`.
+  - Headings now show their arguments: `>t [c<N>]`, `>w [<theme>]`, `>q [c<N>]`, `>tr [c<N>]`.
+    `>t` has an explicit selected-set branch; for a single item it reads `triage c<N>` and
+    rejects any item that is not an open triage item.
+  - New section "Requests from the sitrep TUI": the five request lines, no more authority than
+    typed input, a fresh read before each request, per-code validation, and an explicit list
+    of which verbs take `--expect-rev`.
+  - The guardrail adds "never the reverse".
+  - Three goldens regenerated (the golden diff equals the template diff line for line).
+  - Render test 2s: exact headings, a `NOT_SHORTCODES` loop, new rule strings.
+  - Contract test:
+    - (a) asserts the skill names neither the harvest nor the refresh helper;
+    - (c) dismisses through the writer call the TUI's `x` makes;
+    - (d) adds the advisory strings `no more authority` and `never the reverse`;
+    - new check `r` (`check_requests`) plus three `m` mutants.
+- **Deviations from plan:**
+  - The `r` mutants are three, not two: an unknown table code (`UNDOCUMENTED_REQUEST` +
+    `NO_CAPABILITY`), a renamed `>tr` heading (`NO_CAPABILITY:>tr`), and a stale documented
+    `>x` code (`STALE_DOC_CODE:>x`).
+  - The table mutant passes a templates file built from the real `AGENT_REQUESTS` plus
+    `>zz {cid}`, so the check has an injectable table input.
+- **Issues encountered:**
+  - An edit script passed as a heredoc held the test's own `PY` heredoc, which ended the outer
+    heredoc early. The script was moved to a scratch file instead.
+  - shellcheck reports nothing at warning level. The two new SC2016 infos are on the mutant
+    lines, the same pattern the file's existing mutants already have.
+- **Key decisions:**
+  - Removal over one-line pointers, so the menu (derived from Capabilities) stops offering
+    the codes. A plain-words request ("dismiss c3") still gets the TUI key.
+  - Plan-review fixes (user-raised, all confirmed against the code):
+    1. `>t` had kept its "Triage them all as one batch" wording and its `triage --open`
+       step, which made the scope of `>t c<N>` ambiguous. It is now an explicit selected-set
+       branch, and `triage c<N>` does not filter by state, hence the explicit open check.
+    2. Fresh read per request. `list` carries no theme, so `>w` validates against
+       `read context` / `read todo`.
+    3. `--expect-rev` is limited to existing-item writes (`set-state`, `case review`).
+       `add`, `situation` and `qa` take none.
+    4. The manual check's scope goes to t2211_7 as an advisory note.
+  - The allow-list entries for `aitask_sitrep_harvest.sh` / `aitask_sitrep_refresh.sh` are
+    kept, because contract (a) checks only the helpers the skill names.
+- **Upstream defects identified:** None
+- **Notes for sibling tasks:**
+  - t2211_6 (docs): the skill's codes are `>t [c<N>]`, `>w [<theme>]`, `>q [c<N>]`,
+    `>tr [c<N>]`, `>p`, `>c` and `>?`; there is no longer a `>s`, `>r` or `>x`. Document the
+    "Requests from the sitrep TUI" section (fresh read, per-code checks) and the "Done in the
+    sitrep TUI" key pointers. `aidocs/framework/sitrep.md` "The skill" still describes the
+    startup harvest.
+  - t2211_7: a two-pending-item scope scenario is suggested by note.
+  - A new TUI request code needs a matching `### \`>code` heading and a line in the
+    request section, or contract check `r` goes red.
