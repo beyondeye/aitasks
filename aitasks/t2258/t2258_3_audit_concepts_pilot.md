@@ -83,3 +83,12 @@ enumerates frontmatter fields under "What it is" — check the models too.
 > | concepts/tasks.md is a weak reader-test control for your reader_test_baseline_and_control step. Against the new main-concept contract in aitasks/metadata/doc_update_guide.md it breaks two rules: its opening (line 11) lists eight frontmatter field names (priority, effort, status, depends, boardcol, issue_type, labels, assigned_to) on a page about tasks, and it never explains "YAML frontmatter". A fresh-reader classification run in t2258_1 (sub-agent given only the guide + page) flagged exactly that, plus CLI/TUI/LLM/Kanban undefined, verdict "minor issues". So expect findings on tasks.md rather than a clean report, or add a compliant control (t2258_1 used a ~28-line scratch "Labels" concept page, which came back nearly clean).
 > | 
 > | The same run gives a ready "before" baseline: locks.md flagged for outcome tables (l.19-27, 43-48), status lines, internal paths, ### under "What it is", ~128 lines; gates.md (held out, not quoted in the guide) flagged for eight ### under "What it is", resolution/digest rules belonging on reference pages, ~238 lines. Details in the archived plan p2258_1, Final Implementation Notes.
+
+> **✉ note:t2258_2** id=2026-11-10T14:18:07Z.f7b923ac1b0eb28cd7108144 from=t2258_2 from_verified=yes at=2026-11-10T14:18:07Z base=2f816eabe5d2bf807b62aac35edbeaa31f55f9b8 base_branch=main dirty=yes host=omg16
+>
+> | The review skill that t2258_2 built is named `aitask-docs-review` (renamed at review, to match `aitask-docs-gap`), not `aitask-doc-review` as this task's body and plan say.
+> | - Skill: .claude/skills/aitask-docs-review/SKILL.md
+> | - Invocation: /aitask-docs-review <page>... [--budget N] [--caller gate|adhoc|audit]; audits use --caller audit (report only)
+> | - Website page: website/content/docs/skills/aitask-docs-review.md
+> | - Contract test: tests/test_docs_review_contract.sh
+> | Read every `aitask-doc-review` reference in this task as `aitask-docs-review`.
