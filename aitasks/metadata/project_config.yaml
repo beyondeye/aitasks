@@ -82,3 +82,15 @@ relations:
     plan_approved: true
     fold: true
     landed: true
+# Release notifications (`ait release-notify`, t2261). The framework's own
+# publication policy: the release.yml run for the tag must succeed (its
+# packaging job uploads the .deb / .rpm), and these assets must be uploaded.
+release_notify_host: omg16
+release_publication_workflow: release.yml
+release_publication_assets:
+  - aitasks-{tag}.tar.gz
+  - ait
+  - aitasks_{version}_all.deb
+  - aitasks-{version}-1.noarch.rpm
+  - ait-testmap_{version}_SHA256SUMS.txt
+release_publication_checksum_manifests: "*_SHA256SUMS.txt"
