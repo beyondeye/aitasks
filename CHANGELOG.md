@@ -1,5 +1,102 @@
 # Changelog
 
+## v0.41.0
+
+### Features
+
+- **Check whether a task's premise still holds** (t1663_1, t1663_2, t1663_3, t1663_4): Tasks with file references or verification targets now record a code baseline when created. When you pick one through the shared workflow, an advisory check shows relevant changes and unresolved evidence so you can continue, replan, postpone or choose another task; baseline updates require verified task ownership.
+- **Freeze, black-screen and silence triage** (t1893_2): Screen-recording bug analysis now highlights freezes, black frames and silent intervals, with duration bounds when the recording ends before an interval does.
+- **Exact frame extraction** (t1893_3): Extract native-resolution frames at chosen times or across a range, with crop geometry and timestamps you can use for follow-up analysis. Reports also flag extraction limits and image-reading budgets.
+- **Contact sheets from image folders** (t1893_4): Turn a folder of screenshots or edited frames into labelled contact sheets with natural ordering, readable labels and warnings about missing or changed frames.
+- **Visual frame picker** (t1893_5): Build a self-contained browser page to select frames, add notes and mark regions. Copy the selection back into an agent conversation, with source coordinates when the frame geometry can be verified.
+- **Analyze image sequences** (t1893_6): Run bug or animation analysis on a folder of still images using timestamped names or a supplied frame rate. Reports identify gaps, mixed image sizes and timing estimates that the sequence cannot support reliably.
+- **Task relations and related-work checks** (t1981_1, t1981_3, t1981_5): `ait relations` stores and explains connections between tasks, and the shared workflow uses available relations to surface related work and offer context notes to affected tasks. The opt-in analysis worker includes spending limits, but its built-in candidate generator and automatic analysis triggers are still pending.
+- **Review potentially obsolete tasks** (t1981_6): `ait obsolete` shows evidence that a task may already be covered or no longer needed, and lets you review or dismiss assessments. Completed work can trigger new assessments when analysis is enabled; suggestions remain advisory.
+- **Shared monitor status service** (t2034_3, t2037_1, t2037_2, t2037_3, t2037_4): Monitor, minimonitor and applink now share a status service per tmux server and framework version, with reconnects and a local fallback. Status streams can also be recorded and replayed for diagnosis.
+- **Searchable trail selector** (t2173_2): Choose a trail in a two-pane dialog with title search and a scrollable preview, and rescan where supported.
+- **Add a minimonitor from the switcher** (t2174): Press `M` in the TUI switcher to open a minimonitor beside the selected TUI, including when automatic companions are disabled.
+- **Persistent repository sitrep** (t2175_1, t2175_2, t2175_3, t2175_4): `ait sitrep` keeps pending work, questions, push reminders and trail watches in a local store with backups. It collects finished agents' wrap-ups, refreshes task and push status, and opens a dedicated window with a Claude Code sitrep agent.
+- **Harvest an agent before closing it** (t2175_5): Press `h` in monitor or minimonitor to collect an agent's wrap-up, review the result and then close that same run. Press `S` to open sitrep; monitor also shows its current action count.
+- **Sitrep TUI** (t2211_1, t2211_2, t2211_3): The sitrep window now includes a TUI beside its agent and minimonitor. Browse items, sources and Q&A, refresh or dismiss items, restore damaged stores, respawn the agent, launch a task or open its board card.
+- **Send requests from sitrep** (t2211_4): Request triage, explanations, trail work or a custom answer from the sitrep TUI. Delivery checks the target agent and its input before submitting a request, and reports when it cannot confirm delivery.
+- **Jump from sitrep to a trail card** (t2211_10): Open a task's trail from sitrep with its card focused. Compatible running trails windows accept the same focused-task request.
+- **Collapsible minimonitor help** (t2212): Press `x` to collapse the key hints to one line, with the choice remembered between launches. Press `H` for the full key-help dialog.
+- **Minimonitor project jumps and phase filters** (t2217): Shift+Up/Down jumps between project groups. Shift+Left/Right cycles through planning, implementation, post-implementation, parked and frozen agents.
+- **Find contributions from external authors** (t2235): GitHub contribution discovery now finds issues by their embedded contribution metadata as well as their label. The CI workflow handles newly opened issues and adds the label when possible; setup can refresh an unchanged older GitHub workflow.
+- **Notify issues after a release is published** (t2261_1, t2261_2): The release command now waits for publication and runs `ait release-notify` to comment on resolved linked issues. Notifications require the designated machine and a published release with its required assets; completed notifications are tracked and existing comments are checked before retrying.
+- **Fable 5.2 model choices** (t2268): Registered Claude Code Fable 5.2 and its 1M-context variant. Fable 5.1 is marked as superseded by Fable 5.2.
+
+### Bug Fixes
+
+- **Unreadable project registries** (t2163): Discovery keeps running when a project registry or configuration is not valid UTF-8. `ait projects` refuses to rewrite an unreadable registry.
+- **Brainstorm appears once in the switcher** (t2166): A running brainstorm window no longer appears in both the TUI and agent lists.
+- **Merge-lock contention** (t2167): Waiting merges poll less aggressively with staggered delays, so waiters no longer starve the current holder's lock release.
+- **Standalone engine integrity builds** (t2171): Export-integrity checks no longer fail when Go tries to read VCS information from a scratch copy.
+- **Setup and upgrade ignore rules** (t2177, t2178, t2184, t2185, t2188, t2191, t2197): Upgrades install missing local-store ignore rules, and setup repairs missing task-data rules individually, including CRLF files. Task-data patterns are anchored to the repository root, and unusable ignore files are refused or reported before they can cause a hang or an unsafe write.
+- **Deeply nested trails** (t2177): Invalid trails with excessive nesting now produce a validation error instead of crashing the reader.
+- **Switcher shortcuts and remapped keys** (t2180): The git shortcut now checks availability in the selected project. Remapped keys containing markup characters display literally and no longer break the switcher's hints.
+- **Strict archive scanning** (t2190): Sitrep no longer silently skips archived records that lack frontmatter; the three legacy records in this repository were migrated so scans remain complete.
+- **Model-picker statistics** (t2194, t2200): Recent model rankings now follow the calendar correctly, and the most-used list counts usage across operations. `ait codeagent list-models` reads all-time scores from the newer bucketed statistics format.
+- **Agent helper permissions** (t2198): Corrected parallel-admission helper permissions and added the missing gate-record permission, avoiding unnecessary permission prompts.
+- **Accurate recording summaries** (t1896, t2202): Animation summaries only claim an edge signal when one exists. Segment windows stop at the normalized video end, including videos with a nonzero start time or longer audio.
+- **File references preserve YAML values** (t2209): File references containing commas, brackets or other special characters now survive reads, updates, folds and archives without being split or rewritten incorrectly.
+- **Valid task labels and large artifact listings** (t2214): Label entry rejects words YAML would interpret as numbers, booleans or null. Git-branch artifact listings no longer overflow the argument limit because of inherited exported variables.
+- **Readable recording contact sheets** (t2219): Labels no longer overlap for narrow crops. Sheets adapt their layout and report the frames each sheet contains.
+- **Minimonitor follows the correct pane** (t2227): Following and agent actions now use confirmed pane membership, so window renumbering cannot make a minimonitor target another agent.
+- **Switcher targets survive renumbering** (t2230): Switching windows and adding companions now use stable window or pane identities. Failed selections keep the switcher open and show a warning.
+- **UTF-8 tmux clients** (t2236): Framework tmux clients now explicitly use UTF-8, preserving non-ASCII text and terminal output under non-UTF-8 launching locales.
+- **Name undecodable images** (t2238): Image-folder analysis identifies the file FFmpeg cannot decode and explains when an animated WebP must be replaced with a still image.
+- **Extract large frame selections** (t2239): Large frame requests no longer exceed FFmpeg's expression-depth limit. Extraction runs in bounded batches and retries when a batch boundary cannot be established reliably.
+- **GitLab contribution visibility** (t2241, t2250): Contribution discovery now finds metadata-bearing GitLab issues whose labels were silently dropped. Creation warnings also recognize work-item links and HTTP installations.
+- **Exact tmux control sessions** (t2242, t2245): Monitor control connections no longer attach to a similarly named session or continue serving a different session after tmux switches the client.
+- **Contribution checks handle backend failures** (t2247): GitLab checks stop when the required token is missing. Retired Bitbucket contribution checking now reports its removal, and setup warns about leftover CI jobs.
+- **Complete contribution comment lookups** (t2252): GitLab overlap checks read every comment and label page, avoiding duplicate comments caused by incomplete reads or broken pipes. Contribution review reports partial reads.
+- **Child archive reasons stay on the child** (t2254): Archiving a child as obsolete or otherwise dropped no longer gives its automatically archived parent the same reason. Parent completion and related-work notifications reflect which children actually landed.
+- **Monitor client lifecycle** (t2259, t2267): Cancelling one caller's startup wait no longer cancels shared monitor startup. A closed client cannot restart itself or open another connection on a later read.
+- **Restarting an older monitor version** (t2262): Restarting a status server for a different framework version only retires it; the current installation no longer starts its own code under that older version's identity.
+- **Reject malformed artifact identifiers** (t2269): Artifact handles, hashes and backend names ending in a newline are refused consistently, including by attachment and trail commands.
+
+### Improvements
+
+- **Independent monitor views** (t2034_2): Each monitor client keeps its own session filter and parked-agent view while sharing status collection. A minimonitor or applink subscription can keep its followed panes captured.
+- **Review uncertain sitrep captures** (t2175_6): Captures the wrap-up parser cannot confidently interpret are retained for sitrep review, with commands to inspect, replay and export cases.
+- **Sitrep agent focuses on discussion** (t2211_5): Routine refresh, dismissal and restore actions now belong to the TUI. The agent concentrates on triage, explanations, trail work and answering questions, including requests for a selected item.
+- **Clearer sitrep lists and details** (t2211_8, t2211_9): Items show what to do next, how to do it, creation time, priority and effort. Click selects without opening; label filters and visible done/hidden counts make larger lists easier to navigate, and source Markdown has rendered and raw views.
+- **Monitor server status and restart** (t2246): `ait monitor --server-status` shows running shared status servers, and `--restart-server` retires a verified server and ensures a replacement for the installed version. Existing clients reconnect, and upgrades print a restart hint.
+- **Outdated GitLab CI hints** (t2249): Setup warns when an existing contribution-check job would miss unlabeled issues or use unsupported date commands, while leaving your CI configuration for you to update.
+- **Documentation review skill** (t2258_2): Added `/aitask-doc-review` and integrated it into the documentation-update gate. Reviews check the intended reader level and prose, with fresh-reader tests and review results shown before saving.
+
+### Documentation
+
+- **Premise-staleness guide** (t1663_5): Added guidance on when the advisory check runs, how to read its evidence, how baselines are seeded and what unattended workflows do.
+- **Task-relations design and search analysis** (t1981): Documented the relations and obsolescence design, plus an analysis of task-search approaches for future implementation.
+- **Sitrep window and TUI guides** (t2211_6): Added how-to and reference pages for the three-pane sitrep window, its actions and agent requests, with board and trail navigation examples.
+- **Shared monitor service guide** (t2256): Explained status sharing, reconnects, version-specific servers and restart commands across monitor, minimonitor and applink.
+- **Reader levels and prose guidance** (t2258_1): Defined documentation reader levels, page types and prose rules so introductory pages and detailed references serve their intended readers.
+
+### Performance
+
+- **Cached trail discovery** (t2173_1): Trail discovery now reuses a persistent cache keyed by content, avoiding repeated archive scans while invalidating changed inputs.
+- **Less minimonitor redraw work** (t2183): Unchanged cards stay mounted, changed cards update in place where possible, and scroll restoration runs only when layout can change. This reduces CPU use during routine refreshes.
+
+### Tests
+
+- **Project registry and lock coverage** (t2164, t2165): Added regression coverage for releasing project locks on errors and fixed registry fixtures under temporary paths containing spaces.
+- **Shadow wording experiment** (t2179_1): Added a reproducible harness and pilot for comparing the shadow skill's question wording, with replay fixtures and evaluation records.
+- **Frozen-agent and applink fixtures** (t2181, t2189, t2232): Updated fixtures to match current agent identity and applink status requirements, restoring checks that previously failed before completion.
+- **Portable test imports** (t2195): Corrected test bootstraps so sibling test helpers import consistently in isolated runs.
+- **Live harvest-and-close coverage** (t2206, t2207): Added live tmux coverage for harvesting before close, refusal cases and replacement-agent protection, and corrected temporary-path expectations on macOS.
+- **Reliable TUI readiness checks** (t2210, t2218, t2220, t2225, t2233): UI tests now wait for the state they assert and isolate shortcut registries, process arguments and startup conditions instead of depending on timing or test order.
+- **Shell test reliability** (t2215, t2240): Fixed assertion helpers that could misreport under pipefail and guarded test directory changes so a failed change cannot run checks in the wrong directory.
+- **Clean framework fixtures** (t2226): Test fixtures exclude Python bytecode caches, and engine-build failures now produce an explicit failed check.
+- **Image-input compatibility** (t2229): Verified image-folder analysis on FFmpeg 5.1.1, 7.0.2 and 9.0.2, confirming the documented FFmpeg 5.1 minimum for this mode.
+- **Meaningful UI latency checks** (t2267, t2270): Scratchpad and frozen-agent tests measure key handling and painting without including the test driver's idle waits. Added controls for unnecessary redraws, stale search highlighting and incomplete selection cleanup.
+
+### Maintenance
+
+- **Refresh the Go engine export** (t22): Updated the exported engine sources from the dedicated engine repository and removed development-only tests and benchmarks from the export.
+- **Retire legacy engine checks** (t2172): Removed post-cutover checks that now belong to the engine repository and documented which public interface evidence remains mirrored here.
+
 ## v0.40.1
 
 ### Features
