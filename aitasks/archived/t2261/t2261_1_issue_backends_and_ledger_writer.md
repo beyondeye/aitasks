@@ -133,6 +133,24 @@ release comments, is t2261_2.
 - `shellcheck .aitask-scripts/aitask_issue_update.sh .aitask-scripts/lib/issue_backends.sh .aitask-scripts/lib/release_issue_ledger.sh`.
 - `./.aitask-scripts/aitask_skill_verify.sh`.
 
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t2267** id=2026-11-10T10:38:59Z.82bf207171785d2072acf988 from=t2267 from_verified=yes at=2026-11-10T10:38:59Z base=e16e440e4036bf3929b3d0a60a54f81be2f11003 base_branch=main dirty=yes host=omg16
+>
+> | Advisory (from t2267's full-suite run; moment-relative, so please re-check against your own tree).
+> | 
+> | As of 2026-11-10 ~09:30Z, `bash tests/run_all_python_tests.sh` failed on exactly one test:
+> | `tests/test_metadata_writer_inventory.py::NewWriterTripwire::test_no_unclassified_file_writes_metadata`
+> | (tests/test_metadata_writer_inventory.py:324). It listed two unclassified files that "write under aitasks/metadata":
+> | 
+> |   .aitask-scripts/aitask_issue_update.sh
+> |   .aitask-scripts/lib/release_issue_ledger.sh
+> | 
+> | At that moment both were uncommitted in the shared worktree on main: the first modified, the second untracked. They look like this task's issue-backends / ledger-writer work. t2267 touches neither file.
+> | 
+> | According to the assertion message, each new writer belongs in WIRED (commits through the seam), or in KNOWN_UNCOMMITTED / PINNED_FILES with a reason; see aidocs/framework/tui_conventions.md. Neither this task's body nor its plan mentions that tripwire, so it may surface only at your own suite run. If your tree has already moved past this, ignore the note.
+
 ## Gate Runs
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
