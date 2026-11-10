@@ -715,3 +715,180 @@ original planning session.
 
 ### Planned mitigations
 - timing: pre-phase | name: characterize_issue_update_argv | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: backend extraction / GitHub URL-target regression at archival | desc: Pin gh/glab argv per action on the unmodified aitask_issue_update.sh before extracting the backends (t2261_1)
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-10 11:40)
+- **Requested by user:** `_ril_on_existing` returned `duplicate` for a committed
+  matching file after `ril_find` had checked only `task_id` and `issue_url`. The
+  whole-record validator ran only for untracked/staged residue. A committed
+  pending record with `schema=999` and no `recorded_at` therefore made
+  `--record-only` exit 0 with `RELEASE_LEDGER:duplicate` (reproduced by the
+  reviewer, CONFIRMED). Validate existing records before any duplicate success,
+  keep malformed files with the existing diagnostic, and add the regression.
+- **Changes made:** `_ril_on_existing` now validates every matching hit before
+  classifying its git state. A pending hit gets the full
+  `ril_validate_pending_record`. A released hit gets the new
+  `_ril_pending_fields_ok`: each of the six pending fields exactly once and
+  valid. Other keys are not judged, because a released copy also carries
+  released-only keys whose validators t2261_2 adds. A malformed hit finishes
+  with `RELEASE_LEDGER_FAILED:malformed_record:<path>`. The file is kept
+  (`_RIL_OWNED` is 0 for any hit), and the hint names it. The residue branch's
+  own validation call is gone, since validation now runs first for every hit.
+  New tests:
+  - (u) a committed corrupt pending record → `malformed_record`, exit 3, file
+    byte-identical, HEAD unchanged;
+  - (v) a committed released record with an extra `released_tag=` key →
+    `duplicate`;
+  - (v) the same record with `schema=999` → `malformed_record`.
+
+  Before the fix, (u) and the corrupt half of (v) failed: 5 failures, with
+  exit 0 and `duplicate` reported. After the fix: 128/128.
+- **Files affected:** `.aitask-scripts/lib/release_issue_ledger.sh`,
+  `tests/test_issue_update_ledger.sh`.
+
+## Final Implementation Notes
+
+- **Actual work done:**
+  - **`.aitask-scripts/lib/issue_backends.sh` (new).** The GitHub, GitLab and
+    Bitbucket backends and the `source_*` dispatchers, moved verbatim from
+    `aitask_issue_update.sh`. The only functional change is `source_issue_ref`:
+    GitHub now receives the issue URL. GitLab still receives the number plus
+    `-R slug`. SC2046 is disabled, with a reason, on the deliberate
+    `$(glab_repo_flag)` split.
+  - **`.aitask-scripts/lib/release_issue_ledger.sh` (new).** It implements the
+    contract:
+    - `ril_root`, `ril_key`, `ril_name`;
+    - the validators, including a NUL/stray-byte check counted with `wc`;
+    - `ril_read`, `ril_validate_pending_record`, `_ril_pending_fields_ok`,
+      `ril_find`, `_ril_hit_state`;
+    - `ril_record`, with a subshell body, lock + EXIT trap, publish by hard
+      link, and the single deletion rule `_ril_delete_if_owned_and_absent`.
+  - **`aitask_issue_update.sh`.**
+    - URL/source resolution moved, unchanged, into `resolve_issue_target`.
+    - A Step-9 hook (`record_release_ledger`) prints `RELEASE_LEDGER:*`, or
+      `RELEASE_LEDGER_FAILED:*` with exit 3 and a reason-aware stderr hint.
+    - The new `--record-only` mode, and `--help` with a "Release ledger"
+      paragraph and an "Exit status" block.
+  - **Procedure lines** in `task-workflow/issue-update.md` (main and related
+    sections), the inline FOLDED block of `task-workflow/SKILL.md`,
+    `aitask-pickrem/SKILL.md.j2` and `aitask-web-merge/SKILL.md`. The goldens
+    are regenerated (task-workflow `SKILL-{default,fast,remote}.md`, pickrem
+    `SKILL-remote-claude.md`), and so are the 9 committed `remote-` prerender
+    files (claude/codex/opencode × task-workflow `SKILL.md` + `issue-update.md`,
+    pickrem `SKILL.md`).
+  - **Tests.**
+    - `tests/test_issue_update_argv.sh`: 41 assertions, `[C]`/`[D]` tagged.
+    - `tests/test_issue_update_ledger.sh`: 128 assertions, cases (a)-(v).
+    - The shared fixture `tests/lib/issue_update_fixture.sh`.
+- **Deviations from plan:**
+  1. **A shared fixture lib** (`tests/lib/issue_update_fixture.sh`) holds the
+     stubs, the repo, the renderer and the runner for both test files. The
+     plan defined them per file.
+  2. **The dry-run assertion in the argv test** compares HEAD and the ledger's
+     file list before and after the dry run. The plan said "no
+     `release_issues/` directory afterwards". That was true only before step 3:
+     once the hook exists, the earlier non-dry runs in the same fixture record
+     legitimately.
+  3. **The hint for `aborted` reads back the data-worktree wedge state**
+     (`ait_data_inprogress_state`) and names it. The shared helper silences the
+     guard's own `die` message (see the upstream defects below), so without
+     this the user saw `aborted` with no cause. Test (s) asserts it.
+  4. **Records are written mode 0644** (`chmod` before the hard link):
+     `mktemp` creates 0600.
+  5. **Change Request 1** (see Post-Review Changes): every matching hit is
+     validated before any duplicate success, and the new
+     `_ril_pending_fields_ok` judges released hits.
+- **Issues encountered:**
+  - **The first full run was 117/118.** Test (s) expected the guard's "stuck
+    mid-MERGE_HEAD" message on stderr, but `ait_commit_paths_staging_untracked`
+    sends its per-path `add`'s stderr to `/dev/null`. This was resolved by
+    deviation 3.
+  - **`main` advanced to 79416f14c (t2268)** mid-session. It touched only the
+    model registry files, so there was no overlap.
+  - **The working tree held other sessions' uncommitted changes** (`monitor/`,
+    `sitrep_tui/`, `lib/tmux_exec.py`, `aidocs/framework/monitor_status_protocol.md`,
+    two test files). They were excluded from the commit by naming paths.
+- **Key decisions:**
+  - **`ril_record` has a subshell body.** A `die` in a shared helper, its EXIT
+    trap and its staging list can therefore never reach the issue-update
+    script, which still runs under plain `set -e`. `main` calls `run_update`
+    outside any conditional, so a failed platform call still exits before the
+    hook.
+  - **No commit return code is trusted to say where the bytes are.** rc 1 and
+    rc 2 both re-classify by git state. A competing commit can produce either:
+    rc 2 at the early window, before the status check, and rc 1 at the late
+    window, after it.
+  - **The HEAD probes use `rev-parse --verify --quiet HEAD:<path>`.** It is on
+    `task_git`'s read-only list, so it never dies on a wedged worktree.
+    `cat-file` is not on that list.
+  - **The URL validator is byte-safe.** It uses `LC_ALL=C tr -d <charset>`
+    plus the `printf x` sentinel, the `validate_file_ref` idiom. Digits are
+    spelled out, never `[0-9]`.
+- **Evidence (durable):**
+  - **Pre-change characterization.** `tests/test_issue_update_argv.sh` was run
+    on the unmodified script at HEAD 79416f14c. The script blob is 936d9a96,
+    identical at 0e17732b1. With `GH_REF_7="7"` / `GH_REF_42="42"` the result
+    was 39 passed / 0 failed. The same file with the URL values on the same
+    unmodified script gave 35 passed / 4 failed: exactly the 4 `[D]` GitHub
+    rows. After the extraction and the hook: 41/41 (two dry-run assertions
+    added in deviation 2).
+  - **Pre-fix controls for the review findings.** A scratch copy of
+    `.aitask-scripts` was patched back to two behaviours: the old rc-only
+    `_ril_commit_record` with an unconditional rm, and presence-as-duplicate
+    in `_ril_on_existing`. `tests/test_issue_update_ledger.sh` run against it
+    gave 101 passed / 17 failed, all in the targeted cases:
+    - (t) late window: file deleted, `git status` shows ` D <path>`, the
+      tracked deletion the reviewer reproduced;
+    - (n)-(q): the residue left uncommitted, or an edit / malformed file
+      reported as a duplicate;
+    - (r): `commit_unverified` instead of recorded.
+  - **Change Request 1.** Before the fix: 123 passed / 5 failed. (u) and the
+    corrupt half of (v) exited 0 with `duplicate`. After: 128/128.
+  - **Final runs.**
+    - Ledger 128/128 and argv 41/41.
+    - shellcheck: nothing but SC1091 info.
+    - `aitask_skill_verify.sh` rc 0, `test_skill_render_task_workflow.sh`
+      365/365, `test_skill_parity_runtime_vs_rendered.sh` 86/86,
+      `test_terminal_compat.sh` 37/37.
+    - The trap tripwire 15/15 and the startup-closure test 9/9.
+    - `test_skill_render_aitask_pickrem.sh` Test 6 compares against the
+      committed prerender, so it is re-run after the commit.
+- **Upstream defects identified:**
+  - `.claude/skills/task-workflow/premise-staleness.md:213` —
+    `tests/test_no_unscoped_task_commit.sh` reports an unscoped task-data
+    commit instruction (`AIT_UNPARSEABLE_SPAN`) here. The same failure (102
+    passed / 1 failed) reproduces on a clean detached-HEAD worktree at
+    79416f14c, so it predates this task.
+  - `.aitask-scripts/lib/task_utils.sh:1101` — `ait_commit_paths_staging_untracked`
+    runs `task_git add -- "$p" >/dev/null 2>&1`. When `task_git`'s
+    `assert_data_worktree_clean` dies there, the die message goes to
+    `/dev/null`: the process exits 1 with no cause printed. This affects every
+    caller of the helper, not only the release ledger.
+- **Notes for sibling tasks (t2261_2):**
+  - **Extend the lib; do not fork it.** `RIL_PENDING_FIELDS`,
+    `ril_valid_field` and `_ril_pending_fields_ok` are the extension points.
+    Add the released fields (`released_tag`, `notified_at`, `outcome`,
+    `commits`) and a whole-record released validator next to
+    `ril_validate_pending_record`. `_ril_on_existing` then validates released
+    hits with it, instead of with `_ril_pending_fields_ok`.
+  - **Reuse the patterns for the move helper:**
+    - a subshell body with lock + EXIT trap + guarded
+      `ait_archive_rearm_exit_trap`;
+    - `_ril_finish` exits the subshell;
+    - `_ril_hit_state` for the git state;
+    - never `cat-file` under `task_git`;
+    - never decide persistence from a commit helper's rc.
+  - **The ledger lock** is `ait_ledger_lock_acquire release_issues ledger`.
+    The consumer's run lock (`release_notify run`) is a different key.
+  - **`lib/issue_backends.sh`** is where `github_list_comment_bodies` /
+    `gitlab_list_comment_bodies` go. GitHub functions take a URL ref.
+  - **The test fixture** `tests/lib/issue_update_fixture.sh` (stubs that log
+    `%q` argv, `ifx_make_repo`, `ifx_run`) and the ledger test's `git` wrapper
+    modes are reusable. The helper's `AIT_COMMIT_SCOPED_SEAM_PREGIT` seam, with
+    the marker `$AITASKS_LOCK_DIR/.ait_commit_scoped_test_seams`, injects at
+    the late commit window.
+  - **Docs are still owed** by t2261_2 step 5:
+    `website/content/docs/commands/issue-integration.md` must gain
+    `--record-only`, the `RELEASE_LEDGER*` outputs and exit 3 (`--help`
+    already documents them).
