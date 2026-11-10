@@ -230,3 +230,197 @@ settle is a candidate Step 8b follow-up.
   measured 0.001 s key → exit against 1.0 s, and per-key timings well under 0.3 s
   with the process held busy; a blocked loop or a quit that waits on the 60 s
   child misses by 3x to 58x (M1–M4)) · → mitigation: none
+
+## Final Implementation Notes
+
+- **Actual work done:** as planned.
+  - `MonitorClient.start()` returns True at once on a closed client, with no
+    attempt and nothing set, matching `start_detached()`.
+  - The protocol doc has a "closed client never starts" bullet.
+  - `CloseTests` has two new tests: `start()` after `close()`, and a read
+    after `close()`.
+  - In `tests/test_scratchpad_app.py`, `press_timed` is replaced by
+    `key_latency` / `type_latency` / `record_action`. The 0.3 s per-key bounds
+    (test_04, 14g) and the 1.0 s ctrl+q bound (14g) now time key → effect.
+    14g also asserts that the stuck child is still running at exit.
+- **Deviations from plan:** `key_latency` sends with `app._driver.send_message`,
+  not `app.post_message`.
+  - That is the exact call `App._press_keys` makes, and the technique t1660
+    established in `tests/test_minimonitor_startup_input_latency.py`
+    (`_press_and_observe`), which surfaced only after planning.
+  - It removes the "drifts from the real key path" residual risk.
+  - Wall-clock timing is kept deliberately, unlike t1660's turn count. The
+    property here is that the loop never blocks on a save, and a blocked loop
+    runs no turns, so a turn count would pass M1, M3 and M4. The docstring
+    records this.
+  - All controls were re-run on the final helper (results below).
+- **Issues encountered:**
+  - The full suite (`bash tests/run_all_python_tests.sh`, about 11 min) ended
+    `PYTHON SUITE: FAILED (runner=pytest, exit=1)`: 1 failed, 11857 passed,
+    6 skipped.
+  - The failure was
+    `tests/test_metadata_writer_inventory.py::NewWriterTripwire::test_no_unclassified_file_writes_metadata`.
+    It flagged `.aitask-scripts/aitask_issue_update.sh` (modified) and
+    `.aitask-scripts/lib/release_issue_ledger.sh` (untracked). Both belong to
+    another session's uncommitted issue-update work in this shared worktree;
+    t2267 touches neither file. The tripwire is working as intended.
+  - That suite run collected the earlier `post_message` version of the helper.
+    The final version was re-verified with
+    `python -m unittest tests.test_scratchpad_app` (41 OK) and the probe below.
+- **Key decisions:**
+  - The user chose (at planning) to fix all three scratchpad bounds, not only
+    the reported `:930`.
+  - test_04 detects `ctrl+s` through an action-call recorder, not the
+    `_sp_save_now_requested` flag. Under a slow setup, the debounce can start
+    the save before `ctrl+s` and leave the flag already True. This was
+    measured: the flag precondition failed under the busy injection.
+- **Upstream defects identified:**
+  - `tests/test_frozenagent_app.py:1092-1103 — the 2.0 s budget times ten pilot.press("shift+down") calls plus pilot.pause(); each press carries Textual's wait_for_idle settle (two calls, up to 1 s each), so a busy process can blow the budget whatever the incremental repaint costs (same mechanism as t2267's scratchpad bounds)`
+
+### Verification record (verbatim)
+
+Pre-fix SHA: `79416f14c44f9c0a329fdee722468c6b2f9422df`.
+
+**Client red proof:** a detached worktree at that SHA, with the new
+`tests/test_monitor_status_client.py` copied in:
+```
+FAIL: test_a_read_after_close_runs_no_attempt (tests.test_monitor_status_client.CloseTests.test_a_read_after_close_runs_no_attempt)
+AssertionError: 1 != 0 : a read on a closed client ran an attempt
+FAIL: test_start_after_close_runs_no_attempt (tests.test_monitor_status_client.CloseTests.test_start_after_close_runs_no_attempt)
+AssertionError: 1 != 0 : start() on a closed client ran an attempt
+Ran 63 tests in 4.231s
+FAILED (failures=2)
+```
+After the fix, the whole file passes (63 tests), and both modified files
+together pass (104 tests).
+
+**Scratchpad red proof and controls.** The probe script is below. "proof" is
+the pre-fix worktree's `tests/`; "aitasks" is the fixed tree.
+
+Old tests (proof):
+```
+== proof normal: run=2 failures=0 errors=0 (3s)
+== proof never_idle: run=2 failures=2 errors=0 (12s)
+    test_04_input_responsive_and_saves_serialized_while_held -> AssertionError: 2.009989085025154 not less than 0.3 : b
+    test_14g_unkillable_child_keeps_loop_responsive -> AssertionError: 2.007886284030974 not less than 0.3 : b
+== proof never_idle_from_quit: run=1 failures=1 errors=0 (4s)
+    test_14g_unkillable_child_keeps_loop_responsive -> AssertionError: 2.0426407520426437 not less than 1.0
+```
+New tests, final `driver.send_message` helper:
+```
+== aitasks normal: run=2 failures=0 errors=0 (2s)
+== aitasks never_idle: run=2 failures=0 errors=0 (11s)
+== aitasks never_idle_from_quit: run=1 failures=0 errors=0 (2s)
+== aitasks M1: run=1 failures=1 errors=0 (3s)
+    test_14g_unkillable_child_keeps_loop_responsive -> AssertionError: 1.0034151650033891 not less than 0.3 : b
+== aitasks M2: run=1 failures=1 errors=0 (12s)
+    test_14g_unkillable_child_keeps_loop_responsive -> AssertionError: timed out waiting: 'ctrl+q' handled
+== aitasks M3: run=1 failures=1 errors=0 (60s)
+    test_14g_unkillable_child_keeps_loop_responsive -> AssertionError: 58.39770950505044 not less than 1.0
+== aitasks M4: run=1 failures=1 errors=0 (31s)
+    test_04_input_responsive_and_saves_serialized_while_held -> AssertionError: 6.005580194992945 not less than 0.3 : b
+```
+
+Driver (from the repo root; `T04` and `T14` are the two `Class.test` names):
+```bash
+PY="$(source .aitask-scripts/lib/python_resolve.sh && require_ait_python)"
+run() { "$PY" t2267_scratchpad_probe.py "$@" 2>/dev/null | grep -E '^(==|   )'; }
+run <proof>/tests never_idle "$T04" "$T14"     # likewise normal / never_idle_from_quit
+run "$PWD/tests" M1 "$T14"                      # M2, M3 likewise; M4 with "$T04"
+```
+
+`t2267_scratchpad_probe.py`:
+```python
+"""t2267: scratchpad latency red proof + mutation controls.
+
+usage: <ait python> t2267_scratchpad_probe.py <tests_dir> <mode> <Class.test> [...]
+  mode: normal | never_idle | M1 | M2 | M3 | M4
+One mode per process, so a mutant never leaks into another run.
+"""
+import inspect
+import os
+import subprocess
+import sys
+import textwrap
+import time
+import unittest
+
+tests_dir, mode, *cases = sys.argv[1:]
+os.chdir(tests_dir)
+sys.path.insert(0, tests_dir)
+import test_scratchpad_app as T  # noqa: E402
+import textual._wait as W  # noqa: E402
+
+sp = T.sp
+
+
+def mutate(func, anchor, replacement):
+    src = textwrap.dedent(inspect.getsource(func))
+    assert src.count(anchor) == 1, (func.__name__, src.count(anchor))
+    ns = {}
+    exec(src.replace(anchor, replacement), sp.__dict__, ns)
+    return ns[func.__name__]
+
+
+QUIT_STUCK = ('            if self._sp_stuck_pgid is not None:\n'
+              '                self._sp_exit_now(\n')
+
+if mode == "never_idle":
+    # wait_for_idle compares each 20 ms window's CPU time against SLEEP_IDLE
+    # (read as a global per iteration): -1 means "never idle", so every
+    # pilot.press runs both of its idle waits to the 1 s cap.
+    W.SLEEP_IDLE = -1.0
+elif mode == "never_idle_from_quit":
+    # Busy only once ctrl+q is handled: reproduces the reported :930 failure
+    # (the per-key presses before it settle normally).
+    real_flush = sp.ScratchpadApp.action_flush_quit
+
+    def busy_flush(self):
+        W.SLEEP_IDLE = -1.0
+        return real_flush(self)
+
+    sp.ScratchpadApp.action_flush_quit = busy_flush
+elif mode == "M1":
+    # Blocking waitpid in the stuck poll: the loop blocks up to 1 s per poll.
+    real_poll = sp.ScratchpadApp._sp_poll_stuck
+
+    def m1(self):
+        if self._sp_stuck_proc is not None:
+            try:
+                self._sp_stuck_proc.wait(timeout=1.0)
+            except subprocess.TimeoutExpired:
+                pass
+        return real_poll(self)
+
+    sp.ScratchpadApp._sp_poll_stuck = m1
+elif mode == "M2":
+    # Quit while STUCK never exits: it waits (asynchronously) for the child.
+    sp.ScratchpadApp._sp_save_loop = mutate(
+        sp.ScratchpadApp._sp_save_loop, QUIT_STUCK,
+        QUIT_STUCK.replace("is not None:", "is not None and False:"))
+elif mode == "M3":
+    # Quit while STUCK blocks the loop on the child before exiting.
+    sp.ScratchpadApp._sp_save_loop = mutate(
+        sp.ScratchpadApp._sp_save_loop, QUIT_STUCK,
+        '            if self._sp_stuck_pgid is not None:\n'
+        '                self._sp_stuck_proc.wait()\n'
+        '                self._sp_exit_now(\n')
+elif mode == "M4":
+    # The held save's poll blocks the loop 1 s per iteration, yielding once.
+    sp._sp_await_store = mutate(
+        sp._sp_await_store, "            await asyncio.sleep(POLL)\n",
+        "            time.sleep(1.0)\n            await asyncio.sleep(0)\n")
+elif mode != "normal":
+    sys.exit(f"unknown mode {mode}")
+
+suite = unittest.TestSuite(
+    getattr(T, cls)(meth) for cls, meth in (c.split(".") for c in cases))
+t0 = time.monotonic()
+with open(os.devnull, "w") as sink:
+    r = unittest.TextTestRunner(verbosity=0, stream=sink).run(suite)
+print(f"== {os.path.basename(os.path.dirname(os.path.abspath(tests_dir)))} {mode}: "
+      f"run={r.testsRun} failures={len(r.failures)} errors={len(r.errors)} "
+      f"({time.monotonic() - t0:.0f}s)")
+for t, tb in r.failures + r.errors:
+    print("   ", t._testMethodName, "->", tb.strip().splitlines()[-1])
+```
