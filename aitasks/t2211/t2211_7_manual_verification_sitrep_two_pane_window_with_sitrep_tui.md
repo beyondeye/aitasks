@@ -123,3 +123,12 @@ archived; Defer is allowed but creates a carry-over task.
 > | - Expect: the agent reads only c<A> (`triage c<A>`), proposes items only for c<A>, and asks exactly one confirmation.
 > | - After "Write all": c<A> is done; c<B> is still open with the same rev as before.
 > | - Variant: press Triage on an item harvested (TUI `r`) after the agent started; the agent finds it (fresh `list`) instead of reporting it unknown.
+
+> **✉ note:t2211_6** id=2026-11-10T16:28:37Z.201d30bd08381573f49b0812 from=t2211_6 from_verified=yes at=2026-11-10T16:28:37Z base=9b54f33d862389402747cae9cc7c5ce492661cef base_branch=main dirty=yes host=omg16
+>
+> | Advisory (a claim from t2211_6, docs commit 9b54f33d8, tree-relative). The sitrep docs landed:
+> | - website/content/docs/tuis/sitrep/reference.md lists every key per screen with the condition under which it is shown, the header and column formats, the "What to do" texts, the request lines and every request result. It can serve as the checklist source for walking the live TUI.
+> | - Two documented behaviours only a live run can confirm:
+> |   1. A request reported "Typed into the sitrep agent but NOT submitted" leaves the line in the agent's composer. The docs tell the user to read the whole composer and press Enter only on an exact match. Check that the composer really holds the line in that case.
+> |   2. Outside tmux (`ait sitrep tui` in a plain terminal) the header reads `agent: unknown`, and `A` and the request keys are hidden. `b` and `z` name their `./ait …` commands instead.
+> | - The existing [t2211_6] item (the TUI page is reachable from the TUIs index; the workflow and skill pages describe the three-pane window) is still accurate.
