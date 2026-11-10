@@ -3,16 +3,16 @@ priority: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Ready
+status: Done
 labels: [release_scripts, bash_scripts, issue_integration]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
 active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
-children_to_implement: [t2261_2]
 created_at: 2026-11-09 15:41
-updated_at: 2026-11-10 12:37
+updated_at: 2026-11-10 18:33
+completed_at: 2026-11-10 18:33
 ---
 
 ## Problem
