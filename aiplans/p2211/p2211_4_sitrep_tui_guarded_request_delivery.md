@@ -396,7 +396,7 @@ Agents: claude 2.1.322, codex-cli 0.167.0, opencode 1.18.34. Raw captures (`-S -
   low · → mitigation: none (refuses `not_ready:unknown`, never types)
 
 ### Planned mitigations
-- timing: after | name: shared_agent_submit_helper | type: refactor | priority: medium | effort: medium | inline_risk: high | added_complexity: medium | addresses: code-health — duplicated pre-Enter/mode-gate/retry loop in minimonitor and the sitrep delivery can drift | desc: extract one shared submit helper (pre-Enter verify, mode gate before every Enter, bounded Enter retry) used by minimonitor_app._submit_shadow_prompt (L6011-6170) and agent_request_delivery.deliver_sitrep_request, keeping both callers' result labels
+- timing: after | name: shared_agent_submit_helper | type: refactor | priority: medium | effort: medium | inline_risk: high | added_complexity: medium | addresses: code-health — duplicated pre-Enter/mode-gate/retry loop in minimonitor and the sitrep delivery can drift | desc: extract one shared submit helper (pre-Enter verify, mode gate before every Enter, bounded Enter retry) used by minimonitor_app._submit_shadow_prompt (L6011-6170) and agent_request_delivery.deliver_sitrep_request, keeping both callers' result labels | created: t2275
 
 ## Final Implementation Notes
 
