@@ -3,13 +3,14 @@ priority: medium
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [monitor, tmux]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 2175
 followup_kind: upstream_defect
 created_at: 2026-11-10 12:42
-updated_at: 2026-11-10 12:42
+updated_at: 2026-11-10 13:19
 ---
 
 ## Origin
