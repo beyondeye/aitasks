@@ -3,12 +3,13 @@ priority: medium
 effort: high
 depends: [t2258_2]
 issue_type: documentation
-status: Ready
+status: Implementing
 labels: [documentation, web_site, doc_quality]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 2258
 created_at: 2026-11-09 23:09
-updated_at: 2026-11-09 23:09
+updated_at: 2026-11-10 18:24
 ---
 
 ## Context
