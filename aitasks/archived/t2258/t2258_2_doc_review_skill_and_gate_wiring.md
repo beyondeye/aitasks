@@ -5,7 +5,7 @@ risk_goal_achievement: medium
 effort: high
 depends: [t2258_1]
 issue_type: enhancement
-status: Implementing
+status: Done
 labels: [documentation, doc_quality, aitask_gate_docs_updated, skills]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -16,7 +16,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 2258
 implemented_with: claudecode/opus5_5
 created_at: 2026-11-09 23:09
-updated_at: 2026-11-10 15:59
+updated_at: 2026-11-10 18:13
+completed_at: 2026-11-10 18:13
 ---
 
 ## Context
@@ -125,3 +126,14 @@ that applies them, and wires it into the `docs_updated` gate and
 > **✅ gate:plan_approved** run=2026-11-10T13:59:48Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-11-10T16:13:05Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-11-10T16:13:47Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:5252757480f7090c
+
+> **✅ gate:risk_evaluated** run=2026-11-10T16:13:47Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/2258_2/risk_evaluated_2026-11-10T16:13:47Z-risk_evaluated-a1.log`
