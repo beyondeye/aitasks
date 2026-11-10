@@ -1,0 +1,464 @@
+{
+  "schema_version": "1.1.0",
+  "trail_id": "trail-docs-improvement",
+  "title": "Website docs improvement",
+  "owner": "aitasks#2258",
+  "scope": {
+    "kind": "ad_hoc",
+    "initiating_task": "aitasks#2258",
+    "topics": [
+      "aitasks#2258",
+      "aitasks#2278",
+      "aitasks#1879",
+      "aitasks#600"
+    ],
+    "selection_note": "Chosen with the user: t2258 (+ active children t2258_3..8), t2278, the TUI doc fixes t2176/t1363/t1879, the stats doc drift pair t1584/t1591, and t600. Docs children of feature parents, t2105, t1535 and t1788 were offered or considered and left out. scope.topics lists only the topics whose whole membership is docs work; t1363 (topic 1361), t2176 (topic 2174) and t1584/t1591 (topic 1544) were picked individually, so their topics' unrelated code follow-ups (e.g. t1567, t1568, t1579, t1594, t1600 under 1544) are not trail candidates."
+  },
+  "generation": {
+    "generated_at": "2026-11-10T16:23:48Z",
+    "generator": {
+      "agent_string": "claudecode/opus5_5",
+      "skill": "aitask-trail"
+    },
+    "input_digest": "18e5eda12911edf3",
+    "inputs": [
+      {
+        "ref": "aitasks:aiplans/p2176_fix_minimonitor_howto_switcher_tui_list.md",
+        "kind": "plan_file"
+      },
+      {
+        "ref": "aitasks:aiplans/p2258/p2258_3_audit_concepts_pilot.md",
+        "kind": "plan_file"
+      },
+      {
+        "ref": "aitasks:aiplans/p2258/p2258_4_audit_workflows.md",
+        "kind": "plan_file"
+      },
+      {
+        "ref": "aitasks:aiplans/p2258/p2258_5_audit_tuis.md",
+        "kind": "plan_file"
+      },
+      {
+        "ref": "aitasks:aiplans/p2258/p2258_6_audit_skills_and_commands.md",
+        "kind": "plan_file"
+      },
+      {
+        "ref": "aitasks:aiplans/p2258/p2258_7_audit_entry_pages_and_depth_check.md",
+        "kind": "plan_file"
+      },
+      {
+        "ref": "aitasks:aiplans/p2258/p2258_8_retrospective_doc_levels.md",
+        "kind": "plan_file"
+      },
+      {
+        "ref": "aitasks:aiplans/p2258_doc_audience_levels_and_readable_prose.md",
+        "kind": "plan_file"
+      },
+      {
+        "ref": "aitasks:aiplans/p600_hugo_docsy_upgrade_review.md",
+        "kind": "plan_file"
+      },
+      {
+        "ref": "aitasks#1363",
+        "kind": "task_file"
+      },
+      {
+        "ref": "aitasks#1584",
+        "kind": "task_file"
+      },
+      {
+        "ref": "aitasks#1591",
+        "kind": "task_file"
+      },
+      {
+        "ref": "aitasks#1879",
+        "kind": "task_file"
+      },
+      {
+        "ref": "aitasks#2176",
+        "kind": "task_file"
+      },
+      {
+        "ref": "aitasks#2258",
+        "kind": "task_file"
+      },
+      {
+        "ref": "aitasks#2258_3",
+        "kind": "task_file"
+      },
+      {
+        "ref": "aitasks#2258_4",
+        "kind": "task_file"
+      },
+      {
+        "ref": "aitasks#2258_5",
+        "kind": "task_file"
+      },
+      {
+        "ref": "aitasks#2258_6",
+        "kind": "task_file"
+      },
+      {
+        "ref": "aitasks#2258_7",
+        "kind": "task_file"
+      },
+      {
+        "ref": "aitasks#2258_8",
+        "kind": "task_file"
+      },
+      {
+        "ref": "aitasks#2278",
+        "kind": "task_file"
+      },
+      {
+        "ref": "aitasks#600",
+        "kind": "task_file"
+      }
+    ]
+  },
+  "freshness": {
+    "state": "current",
+    "checked_at": "2026-11-10T16:23:48Z"
+  },
+  "narrative": {
+    "problem_statement": "Website docs written by agents often mismatch their audience: too much mechanism on orienting pages, technical words where plain ones would do, and TODO comments where screenshots belong. t2258 audits the site level by level; several smaller tasks fix facts on the same pages, and t2278 adds the tooling to fill screenshot placeholders.",
+    "recommendation_summary": "Fix the facts first (t2176, t1363, t1879, t1584), then run the t1591 guard, the t2258_3 pilot and t2278 in parallel, then the t2258 audit chain in its recorded order, with the Hugo/Docsy upgrade optional at the end.",
+    "overview": "Pick next from wave 1: t2176, t1363, t1879 and t1584 are small, have no depends, and fix wrong facts on pages that the t2258 audits rewrite later. Doing them first keeps each audit about level and prose. t1584 must land before t1591, whose guard checks the stats SKILL.md it corrects.\n\nAfter that, three things can run side by side because they touch different files: t1591 (stats drift guard), t2258_3 (the concepts pilot that starts the t2258 chain) and t2278 (screenshot generator). The t2258 children then follow their recorded sibling chain, _3 -> _4 -> _5 -> _6 -> _7 -> _8. The one advisory preference on top of that chain: have at least t2278's marker grammar and vector backend in place before t2258_5, so the TUI audit writes markers in the final form and fills them.\n\nWatch for in-flight work: t2211_6 (sitrep TUI docs) is Implementing, and the working tree had uncommitted edits to several TUI pages (board, trails, tuis/_index, the new tuis/sitrep/) when this trail was written. t2176, t1363, t1879, t2278's marker migration and t2258_5 should check those pages are clean before editing.\n\nNot covered: no pending task adds new concept pages. The user chose to leave that gap out of this trail for now; t2258_3 only audits the existing concepts/ pages. t600 is optional and best kept until after the audits.",
+    "method_note": "Lite trail. Membership comes from one gatherer snapshot over the listed ids; hard ordering is only the recorded t2258 sibling depends chain. Every other ordering is advisory, inferred from which pages each task names in its description (t2258_5's and t2278's plans were not read in full). In-flight state was not probed with --with-inflight; the t2211_6 status and dirty pages come from the task file and a git status taken at the start of this session, which may be stale. The page overlaps were not re-checked against the current tree."
+  },
+  "waves": [
+    {
+      "wave_id": "w1-fixes",
+      "ordinal": 1,
+      "title": "Factual fixes on pages the audits will rewrite",
+      "purpose": "Make the facts right before the level/prose audits restructure these pages, so the audits start from accurate content and nothing gets rebased.",
+      "why_now": "All four are small, have no depends, and touch pages that t2258_5 (TUIs) or t2258_6 (skills/commands) rewrite later.",
+      "entries": [
+        {
+          "entry_id": "e-2176",
+          "task": "aitasks#2176",
+          "topic": "aitasks#2174",
+          "position": 1,
+          "classification": "preferred_predecessor",
+          "snapshot": {
+            "status": "Ready",
+            "depends": [],
+            "gates_pending": [
+              "risk_evaluated"
+            ],
+            "priority": "medium",
+            "effort": "low",
+            "followup_kind": "upstream_defect"
+          },
+          "rationale": "tuis/minimonitor/how-to.md lists minimonitor as a switcher entry and omits six TUIs. t2258_5 rewrites that page; fixing the fact first keeps the audit about level and prose, not about correctness. A plan already exists.",
+          "confidence": "high"
+        },
+        {
+          "entry_id": "e-1363",
+          "task": "aitasks#1363",
+          "topic": "aitasks#1361",
+          "position": 2,
+          "classification": "preferred_predecessor",
+          "snapshot": {
+            "status": "Ready",
+            "depends": [],
+            "gates_pending": [
+              "risk_evaluated"
+            ],
+            "priority": "medium",
+            "effort": "low",
+            "followup_kind": "upstream_defect"
+          },
+          "rationale": "tuis/board/how-to.md documents the work-report key as W while the binding is w (about 6 occurrences). Same reason as t2176: the TUI audit should inherit correct keys. The ait --help half is outside the website and independent.",
+          "confidence": "high"
+        },
+        {
+          "entry_id": "e-1879",
+          "task": "aitasks#1879",
+          "topic": "aitasks#1879",
+          "position": 3,
+          "classification": "preferred_predecessor",
+          "snapshot": {
+            "status": "Ready",
+            "depends": [],
+            "gates_pending": [],
+            "priority": "low",
+            "effort": "low"
+          },
+          "rationale": "Adds the missing brainstorm delete/apply-* subcommand docs to tuis/brainstorm/. Landing it before t2258_5 means the new text is levelled by the audit, instead of being written after the audit and needing its own review.",
+          "confidence": "medium"
+        },
+        {
+          "entry_id": "e-1584",
+          "task": "aitasks#1584",
+          "topic": "aitasks#1544",
+          "position": 4,
+          "classification": "preferred_predecessor",
+          "snapshot": {
+            "status": "Ready",
+            "depends": [],
+            "gates_pending": [],
+            "priority": "medium",
+            "effort": "low",
+            "followup_kind": "upstream_defect"
+          },
+          "rationale": "Corrects the aitask-stats SKILL.md column/option/section lists (across .claude, .agents, .opencode). t1591's guard asserts SKILL.md matches the script, so this must land first or the guard starts red.",
+          "confidence": "high"
+        }
+      ]
+    },
+    {
+      "wave_id": "w2-guard-pilot-tooling",
+      "ordinal": 2,
+      "title": "Drift guard, concepts pilot, screenshot tooling",
+      "purpose": "Three independent surfaces that can run in parallel: a test guard on the stats pages, the pilot audit that proves the level method on concepts/, and the screenshot generator the TUI audit will use.",
+      "why_now": "t2258_3 is the first child in the t2258 sibling chain (its predecessor t2258_2 is archived). t2278 must exist before t2258_5 if the TUI audit is to place markers in the final grammar and fill them.",
+      "entries": [
+        {
+          "entry_id": "e-1591",
+          "task": "aitasks#1591",
+          "topic": "aitasks#1544",
+          "position": 1,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "depends": [],
+            "gates_pending": [
+              "risk_evaluated"
+            ],
+            "priority": "medium",
+            "effort": "medium",
+            "followup_kind": "risk_mitigation"
+          },
+          "rationale": "Pins the stats preset count and CSV column lists in tuis/stats/_index.md, commands/board-stats.md and the stats SKILL.md to their sources. Landing it before t2258_5/t2258_6 rewrite those pages means a rewrite that drops or changes a count fails a test instead of drifting silently.",
+          "confidence": "medium"
+        },
+        {
+          "entry_id": "e-2258-3",
+          "task": "aitasks#2258_3",
+          "topic": "aitasks#2258",
+          "position": 2,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "depends": [
+              "aitasks#2258_2"
+            ],
+            "gates_pending": [
+              "risk_evaluated"
+            ],
+            "priority": "medium",
+            "effort": "high"
+          },
+          "rationale": "The pilot of the level model on concepts/ (the six long concept pages). It is the first link of the sibling chain t2258_3 -> _4 -> _5 -> _6 -> _7 -> _8, and its findings feed the method the later audits reuse.",
+          "confidence": "high"
+        },
+        {
+          "entry_id": "e-2278",
+          "task": "aitasks#2278",
+          "topic": "aitasks#2278",
+          "position": 3,
+          "classification": "preferred_predecessor",
+          "snapshot": {
+            "status": "Ready",
+            "depends": [],
+            "gates_pending": [
+              "risk_evaluated"
+            ],
+            "priority": "medium",
+            "effort": "high"
+          },
+          "rationale": "Screenshot marker grammar, scene specs and capture backends. The 17 placeholders sit mostly on TUI pages, so t2258_5 benefits from writing markers in the final grammar and generating images as it goes. High effort and likely to split into children; only the marker grammar and the vector backend are needed before t2258_5.",
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "wave_id": "w3-workflows",
+      "ordinal": 3,
+      "title": "Audit the workflow pages",
+      "purpose": "Restructure the 44 workflow pages that mix overview, steps and internals.",
+      "entries": [
+        {
+          "entry_id": "e-2258-4",
+          "task": "aitasks#2258_4",
+          "topic": "aitasks#2258",
+          "position": 1,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "depends": [
+              "aitasks#2258_3"
+            ],
+            "gates_pending": [
+              "risk_evaluated"
+            ],
+            "priority": "medium",
+            "effort": "high"
+          },
+          "rationale": "Depends on t2258_3 by recorded edge. The largest audit; its task already says to create extra t2258 children at planning if the inventory is too big for one session.",
+          "confidence": "high"
+        }
+      ]
+    },
+    {
+      "wave_id": "w4-tuis",
+      "ordinal": 4,
+      "title": "Audit the TUI pages, screenshots included",
+      "purpose": "Level and rewrite the TUI docs on top of the wave-1 fixes, using the t2278 marker grammar and generator for the screenshots.",
+      "entries": [
+        {
+          "entry_id": "e-2258-5",
+          "task": "aitasks#2258_5",
+          "topic": "aitasks#2258",
+          "position": 1,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "depends": [
+              "aitasks#2258_4"
+            ],
+            "gates_pending": [
+              "risk_evaluated"
+            ],
+            "priority": "medium",
+            "effort": "medium"
+          },
+          "rationale": "Depends on t2258_4 by recorded edge. Placed after t2176, t1363, t1879 and t2278 so it audits correct content and can fill screenshot markers instead of leaving more TODO comments.",
+          "confidence": "high"
+        }
+      ]
+    },
+    {
+      "wave_id": "w5-skills-commands",
+      "ordinal": 5,
+      "title": "Audit the skills and commands pages",
+      "purpose": "Apply the level model to the skills/ and commands/ reference pages.",
+      "entries": [
+        {
+          "entry_id": "e-2258-6",
+          "task": "aitasks#2258_6",
+          "topic": "aitasks#2258",
+          "position": 1,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "depends": [
+              "aitasks#2258_5"
+            ],
+            "gates_pending": [
+              "risk_evaluated"
+            ],
+            "priority": "medium",
+            "effort": "medium"
+          },
+          "rationale": "Depends on t2258_5 by recorded edge. It rewrites commands/board-stats.md and the skills pages, where the t1591 guard and the t1584 fixes are already in place.",
+          "confidence": "high"
+        }
+      ]
+    },
+    {
+      "wave_id": "w6-entry-and-close",
+      "ordinal": 6,
+      "title": "Entry pages, depth check, retrospective",
+      "purpose": "Finish with the pages a newcomer lands on, the depth-tag check across the site, and the retrospective that closes t2258.",
+      "entries": [
+        {
+          "entry_id": "e-2258-7",
+          "task": "aitasks#2258_7",
+          "topic": "aitasks#2258",
+          "position": 1,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "depends": [
+              "aitasks#2258_6"
+            ],
+            "gates_pending": [
+              "risk_evaluated"
+            ],
+            "priority": "medium",
+            "effort": "medium"
+          },
+          "rationale": "Depends on t2258_6 by recorded edge. Entry pages link into everything audited before, so they go last among the audits.",
+          "confidence": "high"
+        },
+        {
+          "entry_id": "e-2258-8",
+          "task": "aitasks#2258_8",
+          "topic": "aitasks#2258",
+          "position": 2,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "depends": [
+              "aitasks#2258_7"
+            ],
+            "gates_pending": [
+              "risk_evaluated"
+            ],
+            "priority": "medium",
+            "effort": "medium"
+          },
+          "rationale": "Depends on t2258_7 by recorded edge. The retrospective reads what every earlier child recorded.",
+          "confidence": "high"
+        },
+        {
+          "entry_id": "e-2258",
+          "task": "aitasks#2258",
+          "topic": "aitasks#2258",
+          "position": 3,
+          "classification": "coordination_only",
+          "snapshot": {
+            "status": "Ready",
+            "depends": [],
+            "gates_pending": [
+              "risk_evaluated"
+            ],
+            "priority": "medium",
+            "effort": "high"
+          },
+          "rationale": "The umbrella parent and trail owner. It completes when its children are archived; nothing to implement on its own.",
+          "confidence": "high"
+        }
+      ]
+    },
+    {
+      "wave_id": "w7-site-infra",
+      "ordinal": 7,
+      "title": "Optional: Hugo/Docsy upgrade",
+      "purpose": "Site-infrastructure review, kept out of the audit window.",
+      "entries": [
+        {
+          "entry_id": "e-600",
+          "task": "aitasks#600",
+          "topic": "aitasks#600",
+          "position": 1,
+          "classification": "optional",
+          "snapshot": {
+            "status": "Ready",
+            "depends": [],
+            "gates_pending": [],
+            "priority": "low",
+            "effort": "medium",
+            "boardcol": "backlog"
+          },
+          "rationale": "An upgrade can change Docsy rendering and shortcode behaviour. Doing it after the audits avoids re-checking freshly rewritten pages twice; it has no ordering edge with any member and can run earlier if wanted.",
+          "confidence": "medium"
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    {
+      "evidence_id": "ev-snapshot",
+      "source_type": "command_output",
+      "ref": "./.aitask-scripts/aitask_trail_gather.sh snapshot --scope task --owner 2258 2258 2278 2176 1363 1879 1584 1591 600",
+      "observed_at": "2026-11-10T16:23:48Z",
+      "summary": "14 members (t2258 + 6 active children, t2278, t2176, t1363, t1879, t1584, t1591, t600), all Ready; only recorded depends are the t2258 sibling chain from the archived t2258_2."
+    }
+  ],
+  "rendering_hints": {
+    "depth": "lite"
+  }
+}

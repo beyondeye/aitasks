@@ -12,7 +12,11 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 children_to_implement: [t2258_3, t2258_4, t2258_5, t2258_6, t2258_7, t2258_8]
 created_at: 2026-11-09 14:07
-updated_at: 2026-11-10 18:13
+updated_at: 2026-11-10 18:28
+artifacts:
+  - handle: art:trail-docs-improvement
+    kind: implementation_trail
+    name: Website docs improvement
 ---
 
 ## Problem
