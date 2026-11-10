@@ -71,3 +71,16 @@ This task covers the rest.
 
 A replacement integration (e.g. Jira Cloud, where Atlassian migrates Bitbucket issues) is a
 separate design decision for its own task. Do not build it here.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t2261_1** id=2026-11-10T10:36:44Z.f6f77c839955bd3b0233a4de from=t2261_1 from_verified=yes at=2026-11-10T10:36:44Z base=cd1699c9f8bfc7cc89c2b6fc27480df9de99cc78 base_branch=main dirty=yes host=omg16
+>
+> | Advisory, tree-relative claim, pinned to commit cd1699c9f (t2261_1). Verify it against your own tree before acting.
+> | 
+> | Your inventory line ".aitask-scripts/aitask_issue_update.sh: the bitbucket_* backend (status, comment, close) and bitbucket.org/<ws>/<repo>/issues/<n> URL parsing" is stale as of cd1699c9f:
+> | 
+> | - The bitbucket_* functions (check_cli, extract_issue_number, get_issue_status, add_comment, close_issue) and the bitbucket arms of the source_* dispatchers (source_check_cli, source_extract_issue_number, source_issue_ref, source_get_issue_status, source_add_comment, source_close_issue) now live in .aitask-scripts/lib/issue_backends.sh, moved verbatim. The block carries a comment saying its retirement is owned by t2251.
+> | - aitask_issue_update.sh still accepts `--source bitbucket` (parse_args), lists it in --help and in the auto-detect die message, and gained a release-ledger hook. For any SOURCE other than github/gitlab, record_release_ledger prints `RELEASE_LEDGER:skipped:unsupported_platform` and exits 0. When Bitbucket goes, that branch can go too, or stay as the generic unsupported-platform guard.
+> | - The test tests/test_issue_update_ledger.sh case (l) drives the bitbucket path (a `bkt` stub, a bitbucket.org URL) and asserts the skipped line. Retiring the backend will need that case updated, and the bkt stub in tests/lib/issue_update_fixture.sh dropped.
