@@ -350,7 +350,26 @@
       "cli_id": "gpt-6.1-sol",
       "notes": "Latest GPT-6.1 workhorse model for coding and everyday agentic work",
       "verified": {},
-      "verifiedstats": {}
+      "verifiedstats": {},
+      "usagestats": {
+        "changelog": {
+          "all_time": {
+            "runs": 1
+          },
+          "prev_month": {
+            "period": "",
+            "runs": 0
+          },
+          "month": {
+            "period": "2026-11",
+            "runs": 1
+          },
+          "week": {
+            "period": "2026-W46",
+            "runs": 1
+          }
+        }
+      }
     },
     {
       "name": "gpt6_1_terra",
