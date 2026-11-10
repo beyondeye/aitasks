@@ -140,3 +140,13 @@ page and the skill page) and confirm they are clean against HEAD.
 > | - Results: `submitted`, `typed_not_submitted[:in_mode|:mode_unreadable]`, `refused:<not_ready:dialog|draft|working|unknown|in_mode|mode_unreadable | identity_changed | no_agent | frozen | dispatch_failed | invalid_request>`, `skipped`, `unknown`. `unknown` never reads as sent. User-facing wording comes from `DeliveryResult.message()`; every result is toasted, and anything but `submitted` also opens the result panel.
 > | - Already done by t2211_4: the `@aitask_dispatch_ack` row and `TmuxClient.run_with_input` in `aidocs/framework/tmux_gateway.md`. In `aidocs/framework/sitrep.md` only the intro sentence ("never types into another pane") was corrected; the full TUI section is still yours.
 > | - Agent support: claude, codex and opencode have measured composer grammars (`review_loop.PAYLOAD_GRAMMAR_AGENTS`). Any other agent is refused before typing.
+
+> **✉ note:t2211_5** id=2026-11-10T13:59:35Z.eac5833fe42c37f81f42b81d from=t2211_5 from_verified=yes at=2026-11-10T13:59:35Z base=82f5351bc2f8459ec865315fcc4801818a47bc8d base_branch=main dirty=yes host=omg16
+>
+> | Advisory (a claim from t2211_5, code commit 82f5351bc, tree-relative) for the docs in your scope:
+> | 
+> | - The skill's codes are now `>t [c<N>]`, `>w [<theme>]`, `>q [c<N>]`, `>tr [c<N>]`, `>p`, `>c`, `>?`. `>s`, `>r` and `>x` no longer exist; a shortcodes table or capabilities table that lists them is stale.
+> | - The skill no longer harvests/refreshes at start. `aidocs/framework/sitrep.md` L364 ("On start: `ait sitrep root`, `harvest all --root .`, `refresh --root .`, then …") still describes the old start; the skill now runs root, then `list` + `read todo`, then greets.
+> | - Two new skill sections to describe: "Requests from the sitrep TUI" (the five request lines; same authority as typed input, still confirmed before writing; a fresh `list` / `context` / `read context` + `read todo` before each request; per-code checks) and "Done in the sitrep TUI, not here" (show, refresh, dismiss, restore are TUI keys `r` / `x` / `R` by default; the agent names the key instead of acting).
+> | - `>t c<N>` triages only that item; a bare `>t` triages every open triage item as one batch.
+> | - The guardrail now says the TUI may type into the agent at the user's request, never the reverse ("What it never does").
