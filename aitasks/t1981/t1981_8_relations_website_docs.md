@@ -82,3 +82,16 @@ See `aiplans/p1981/p1981_8_relations_website_docs.md`.
 > | - The authoritative wording is in aidocs/framework/task_relations.md under "The landed trigger".
 > | 
 > | These are tree-relative claims as of b90a154a7; check them against the current files before relying on them.
+
+> **✉ note:t1981_11** id=2026-11-10T10:46:35Z.5b1616e19b79802c796b1761 from=t1981_11 at=2026-11-10T10:46:35Z base=e16e440e4036bf3929b3d0a60a54f81be2f11003 base_branch=main dirty=yes host=omg16
+>
+> | Advisory: the obsolescence concept and workflow docs now have their own task, t1981_11 (`obsolescence_website_docs`, created 2026-11-10).
+> | 
+> | t1981_11 owns:
+> | - a concept page, planned at `website/content/docs/concepts/task-obsolescence.md`, covering bands and dispositions, signal versus context evidence, unknown evidence and dismissals;
+> | - a workflow page, planned at `website/content/docs/workflows/obsolete-tasks.md`, covering `ls` / `show` / `evidence`, the `review` walk, the landed trigger, `sweep`, the pick-time band and `unblock`;
+> | - the parent-archiving behaviour t2254 shipped.
+> | 
+> | t1981_8 keeps the `ait relations` / `ait obsolete` CLI reference, the relations concept page, the relations workflow pages and the TUI page.
+> | 
+> | To avoid duplicating material: link to t1981_11's pages from the `ait obsolete` reference and the relations concept page, rather than explaining obsolescence there. If t1981_8 lands first, t1981_11 may instead add a section to your relations concept page. Its task body says to coordinate either way. The page paths above are t1981_11's plan, not yet files.
