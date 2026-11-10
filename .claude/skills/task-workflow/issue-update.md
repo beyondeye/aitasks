@@ -25,6 +25,11 @@ This procedure is referenced from Step 9 wherever a task is being archived. It h
     ./.aitask-scripts/aitask_issue_update.sh --close --no-comment <task_num>
     ```
   - If "Skip": do nothing
+  - **Exit 3 / `RELEASE_LEDGER_FAILED:<reason>`**: the issue update succeeded;
+    only its release-ledger entry was not recorded. **Do not re-run the
+    command** — that would post the comment again. Run the `--record-only`
+    command the script printed on stderr (it makes no platform call). If stderr
+    says no retry will succeed, report it and continue.
 - If no `issue` field: skip silently
 
 ## Related Issues
@@ -53,4 +58,5 @@ This section handles `RELATED_ISSUE:` and `PARENT_RELATED_ISSUE:` output lines f
     ./.aitask-scripts/aitask_issue_update.sh --issue-url "<issue_url>" --close --no-comment <task_num>
     ```
   - If "Skip": do nothing
+  - Exit 3 (`RELEASE_LEDGER_FAILED:`) is handled as above: never re-run the command.
   - Note: Uses `--issue-url` because the URL comes from `related_issues:`, not the primary `issue:` field

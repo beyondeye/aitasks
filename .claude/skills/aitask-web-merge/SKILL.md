@@ -238,6 +238,8 @@ If "Close silently":
 
 If "Skip": do nothing.
 
+If the command exits 3 (`RELEASE_LEDGER_FAILED:<reason>`), the issue WAS updated and only its release-ledger entry was not recorded. Never re-run the command (it would post the comment again): run the `--record-only` command it printed on stderr, or, if stderr says no retry will succeed, report it and continue.
+
 ---
 
 ## Notes

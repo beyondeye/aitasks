@@ -1059,6 +1059,7 @@ The script outputs structured lines. Parse each line and handle accordingly:
     ./.aitask-scripts/aitask_issue_update.sh --issue-url "<issue_url>" --close --no-comment <task_id>
     ```
   - If "Skip": do nothing
+  - Exit 3 (`RELEASE_LEDGER_FAILED:`): the issue WAS updated — handle it as in `issue-update.md` (run the printed `--record-only` command). Never re-run the command.
   - Note: Uses the primary `task_id` (not `folded_task_num`) so the comment references the primary task's commits and plan file
 - `PR:<task_num>:<pr_url>` — Execute the **PR Close/Decline Procedure** (see `pr-close-decline.md`) for the task
 - `PARENT_PR:<task_num>:<pr_url>` — Execute the **PR Close/Decline Procedure** (see `pr-close-decline.md`) for the parent task

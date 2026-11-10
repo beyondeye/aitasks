@@ -494,6 +494,8 @@ below). **Never self-signal** a human gate.
   ```
 
 
+- Any issue command above that exits 3 (`RELEASE_LEDGER_FAILED:<reason>`): the issue WAS updated; only its release-ledger entry was not recorded. Never re-run the command — that would post the comment again. Run the `--record-only` command it printed on stderr (no platform call); if stderr says no retry will succeed, report it and continue (see `task-workflow/issue-update.md`).
+
 - `FOLDED_WARNING:<task_num>:<status>` — Display warning: "Folded task t\<N\> has status '\<status\>' — skipping deletion."
 
 - `PARENT_ARCHIVED:<path>` — Display: "All child tasks complete! Parent task also archived."

@@ -9,6 +9,10 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/task_utils.sh
 source "$SCRIPT_DIR/lib/task_utils.sh"
+# shellcheck source=lib/issue_backends.sh
+source "$SCRIPT_DIR/lib/issue_backends.sh"
+# shellcheck source=lib/release_issue_ledger.sh
+source "$SCRIPT_DIR/lib/release_issue_ledger.sh"
 
 # Command options
 SOURCE=""  # Auto-detected from issue URL or git remote if not set via --source
@@ -17,226 +21,10 @@ COMMITS_OVERRIDE=""
 CLOSE_ISSUE=false
 NO_COMMENT=false
 DRY_RUN=false
+RECORD_ONLY=false    # --record-only: write the release-ledger entry, no platform call
 ISSUE_URL_OVERRIDE=""
 GITLAB_REPO_SLUG=""  # Extracted from GitLab URL for cross-repo -R flag
-
-# --- Helper Functions ---
-
-# ============================================================
-# PLATFORM BACKENDS
-# To add a new platform (e.g., GitLab):
-#   1. Implement all <platform>_* functions below
-#   2. Add to --source validation in parse_args()
-#   3. Add case to each source_* dispatcher function
-# ============================================================
-
-# --- GitHub Backend ---
-# PLATFORM-EXTENSION-POINT: Add new platform backend functions here
-
-github_check_cli() {
-    command -v gh &>/dev/null || die "gh CLI is required for GitHub. Install: https://cli.github.com/"
-    if ! gh auth status &>/dev/null; then
-        die "gh CLI is not authenticated. Run: gh auth login"
-    fi
-}
-
-# Extract issue number from full GitHub URL
-# Input: "https://github.com/owner/repo/issues/123"
-# Output: "123"
-github_extract_issue_number() {
-    local url="$1"
-    echo "$url" | grep -oE '[0-9]+$'
-}
-
-# Get current issue state
-# Input: issue number
-# Output: "OPEN" or "CLOSED"
-github_get_issue_status() {
-    local issue_num="$1"
-    gh issue view "$issue_num" --json state -q '.state'
-}
-
-# Post a comment on an issue
-# Input: issue number, comment body
-github_add_comment() {
-    local issue_num="$1"
-    local body="$2"
-    gh issue comment "$issue_num" --body "$body"
-}
-
-# Close an issue with optional comment
-# Input: issue number, optional comment body
-github_close_issue() {
-    local issue_num="$1"
-    local comment="$2"
-    if [[ -n "$comment" ]]; then
-        gh issue close "$issue_num" --comment "$comment"
-    else
-        gh issue close "$issue_num"
-    fi
-}
-
-# --- GitLab Backend ---
-
-gitlab_check_cli() {
-    command -v glab &>/dev/null || die "glab CLI is required for GitLab. Install: https://gitlab.com/gitlab-org/cli"
-    if ! glab auth status &>/dev/null; then
-        die "glab CLI is not authenticated. Run: glab auth login"
-    fi
-}
-
-# Extract issue number from full GitLab URL
-# Input: "https://gitlab.com/group/project/-/issues/123"
-# Output: "123"
-gitlab_extract_issue_number() {
-    local url="$1"
-    echo "$url" | grep -oE '[0-9]+$'
-}
-
-# Extract "group/project" from GitLab issue URL for -R flag
-gitlab_extract_repo_from_issue_url() {
-    local url="$1"
-    echo "$url" | sed 's|https://gitlab.com/||; s|/-/issues/.*||'
-}
-
-# Get -R flag for glab issue commands (empty if no repo slug set)
-glab_repo_flag() {
-    if [[ -n "$GITLAB_REPO_SLUG" ]]; then
-        echo "-R $GITLAB_REPO_SLUG"
-    fi
-}
-
-# Get current issue state (normalized to OPEN/CLOSED)
-gitlab_get_issue_status() {
-    local issue_num="$1"
-    local state
-    state=$(glab issue view "$issue_num" $(glab_repo_flag) -F json | jq -r '.state')
-    case "$state" in
-        opened) echo "OPEN" ;;
-        closed) echo "CLOSED" ;;
-        *) echo "$state" ;;
-    esac
-}
-
-# Post a comment (note) on an issue
-gitlab_add_comment() {
-    local issue_num="$1"
-    local body="$2"
-    glab issue note "$issue_num" $(glab_repo_flag) -m "$body"
-}
-
-# Close an issue with optional comment
-# Note: glab issue close doesn't support --comment, so we post note first
-gitlab_close_issue() {
-    local issue_num="$1"
-    local comment="$2"
-    if [[ -n "$comment" ]]; then
-        glab issue note "$issue_num" $(glab_repo_flag) -m "$comment"
-    fi
-    glab issue close "$issue_num" $(glab_repo_flag)
-}
-
-# --- Bitbucket Backend ---
-
-bitbucket_check_cli() {
-    command -v bkt &>/dev/null || die "bkt CLI is required for Bitbucket. Install: https://github.com/avivsinai/bitbucket-cli"
-    if ! bkt auth status &>/dev/null; then
-        die "bkt CLI is not authenticated. Run: bkt auth login https://bitbucket.org --kind cloud --web"
-    fi
-}
-
-# Extract issue number from full Bitbucket URL
-# Input: "https://bitbucket.org/workspace/repo/issues/123/optional-slug"
-# Output: "123"
-# Note: Bitbucket URLs can have a trailing slug after the number
-bitbucket_extract_issue_number() {
-    local url="$1"
-    echo "$url" | grep -oE '/issues/[0-9]+' | grep -oE '[0-9]+'
-}
-
-# Get current issue state (normalized to OPEN/CLOSED)
-# Bitbucket states: new, open → OPEN; resolved, on hold, invalid, duplicate, wontfix, closed → CLOSED
-bitbucket_get_issue_status() {
-    local issue_num="$1"
-    local state
-    state=$(bkt issue view "$issue_num" --json | jq -r '.state')
-    case "$state" in
-        new|open) echo "OPEN" ;;
-        resolved|on\ hold|invalid|duplicate|wontfix|closed) echo "CLOSED" ;;
-        *) echo "OPEN" ;;  # Default to OPEN for unknown states
-    esac
-}
-
-# Post a comment on an issue
-bitbucket_add_comment() {
-    local issue_num="$1"
-    local body="$2"
-    bkt issue comment "$issue_num" -b "$body"
-}
-
-# Close an issue with optional comment
-# Note: bkt issue close doesn't support --comment, so we post comment first
-bitbucket_close_issue() {
-    local issue_num="$1"
-    local comment="$2"
-    if [[ -n "$comment" ]]; then
-        bkt issue comment "$issue_num" -b "$comment"
-    fi
-    bkt issue close "$issue_num"
-}
-
-# --- Dispatcher Functions ---
-
-source_check_cli() {
-    case "$SOURCE" in
-        github) github_check_cli ;;
-        gitlab) gitlab_check_cli ;;
-        bitbucket) bitbucket_check_cli ;;
-        *) die "Unknown source: $SOURCE" ;;
-    esac
-}
-
-source_extract_issue_number() {
-    local url="$1"
-    case "$SOURCE" in
-        github) github_extract_issue_number "$url" ;;
-        gitlab) gitlab_extract_issue_number "$url" ;;
-        bitbucket) bitbucket_extract_issue_number "$url" ;;
-        *) die "Unknown source: $SOURCE" ;;
-    esac
-}
-
-source_get_issue_status() {
-    local issue_num="$1"
-    case "$SOURCE" in
-        github) github_get_issue_status "$issue_num" ;;
-        gitlab) gitlab_get_issue_status "$issue_num" ;;
-        bitbucket) bitbucket_get_issue_status "$issue_num" ;;
-        *) die "Unknown source: $SOURCE" ;;
-    esac
-}
-
-source_add_comment() {
-    local issue_num="$1"
-    local body="$2"
-    case "$SOURCE" in
-        github) github_add_comment "$issue_num" "$body" ;;
-        gitlab) gitlab_add_comment "$issue_num" "$body" ;;
-        bitbucket) bitbucket_add_comment "$issue_num" "$body" ;;
-        *) die "Unknown source: $SOURCE" ;;
-    esac
-}
-
-source_close_issue() {
-    local issue_num="$1"
-    local comment="$2"
-    case "$SOURCE" in
-        github) github_close_issue "$issue_num" "$comment" ;;
-        gitlab) gitlab_close_issue "$issue_num" "$comment" ;;
-        bitbucket) bitbucket_close_issue "$issue_num" "$comment" ;;
-        *) die "Unknown source: $SOURCE" ;;
-    esac
-}
+RESOLVED_ISSUE_URL=""  # Set by resolve_issue_target
 
 # --- Core Logic ---
 
@@ -309,9 +97,10 @@ build_comment_body() {
     echo "$body"
 }
 
-# Main execution function
-run_update() {
-    # Step 1-2: Get issue URL (from override or task file)
+# Steps 1-2: resolve the issue URL (override or task file), the source platform
+# and the GitLab repo slug. Sets RESOLVED_ISSUE_URL, SOURCE, GITLAB_REPO_SLUG.
+# Call it directly, never inside $( ): it prints info lines and may die.
+resolve_issue_target() {
     local issue_url
     if [[ -n "$ISSUE_URL_OVERRIDE" ]]; then
         issue_url="$ISSUE_URL_OVERRIDE"
@@ -341,8 +130,129 @@ run_update() {
 
     # Extract repo slug for GitLab cross-repo support
     if [[ "$SOURCE" == "gitlab" ]]; then
+        # shellcheck disable=SC2034  # read by glab_repo_flag (lib/issue_backends.sh)
         GITLAB_REPO_SLUG=$(gitlab_extract_repo_from_issue_url "$issue_url")
     fi
+
+    RESOLVED_ISSUE_URL="$issue_url"
+}
+
+# --- Release ledger (t2261) ---
+#
+# After a successful update, the issue is recorded in the rolling ledger of
+# "issues fixed since the last release" (lib/release_issue_ledger.sh), which
+# the release step reads to announce the release that ships the fix.
+
+# The ledger action for the flags of this run.
+ledger_action() {
+    if [[ "$CLOSE_ISSUE" == true && "$NO_COMMENT" == true ]]; then
+        echo closed_silent
+    elif [[ "$CLOSE_ISSUE" == true ]]; then
+        echo closed
+    else
+        echo commented
+    fi
+}
+
+# The exact command that records this run's entry without touching the issue.
+# Every word is %q-quoted: the URL charset includes & ; ( ) ' $ ! * ? #.
+record_only_command() {
+    local -a argv=(./.aitask-scripts/aitask_issue_update.sh --record-only --source "$SOURCE")
+    if [[ -n "$ISSUE_URL_OVERRIDE" ]]; then argv+=(--issue-url "$ISSUE_URL_OVERRIDE"); fi
+    if [[ "$CLOSE_ISSUE" == true ]]; then argv+=(--close); fi
+    if [[ "$NO_COMMENT" == true ]]; then argv+=(--no-comment); fi
+    argv+=("$TASK_NUM")
+    local out="" word
+    for word in "${argv[@]}"; do
+        out+="${out:+ }$(printf '%q' "$word")"
+    done
+    printf '%s\n' "$out"
+}
+
+# print_ledger_recovery_hint <reason-text> — stderr, through printf: warn() and
+# info() use `echo -e`, which would mangle a %q-quoted URL.
+print_ledger_recovery_hint() {
+    local detail="$1" reason="${1%%:*}" path=""
+    [[ "$detail" == *:* ]] && path="${detail#*:}"
+    {
+        if [[ "$RECORD_ONLY" == true ]]; then
+            printf '%s\n' "Nothing was posted (--record-only); the release-ledger entry was not recorded ($detail)."
+        else
+            printf '%s\n' "The issue WAS updated — do not re-run this command; that would post the comment again."
+            printf '%s\n' "Only its release-ledger entry was not recorded ($detail)."
+        fi
+        case "$reason" in
+            invalid_task_id|invalid_url|invalid_platform|invalid_action|hash_collision)
+                printf '%s\n' "This issue cannot be recorded in the release ledger, so no retry will succeed; its release notification will not be posted automatically."
+                ;;
+            malformed_record|uncommitted_record|uncommitted_change|persistence_unknown|commit_unverified|rollback_failed)
+                printf '%s\n' "Inspect and resolve the record file first (commit, restore or remove it): ${path:-?}"
+                printf '%s\n' "Then record the release-ledger entry with:"
+                printf '  %s\n' "$(record_only_command)"
+                ;;
+            aborted)
+                # A shared git helper died, and some of them silence their own
+                # message. Report the one cause that can be read back.
+                local wedge
+                wedge="$(ait_data_inprogress_state)"
+                if [[ -n "$wedge" ]]; then
+                    printf '%s\n' "The task-data worktree is stuck mid-${wedge}; resolve that first (./ait git-health)."
+                fi
+                printf '%s\n' "Record the release-ledger entry with:"
+                printf '  %s\n' "$(record_only_command)"
+                ;;
+            *)
+                printf '%s\n' "Record the release-ledger entry with:"
+                printf '  %s\n' "$(record_only_command)"
+                ;;
+        esac
+    } >&2
+}
+
+# record_release_ledger <issue_url> — record the entry; print exactly one
+# RELEASE_LEDGER* line. Returns 0 (recorded / duplicate / skipped) or 3.
+record_release_ledger() {
+    local issue_url="$1" out_file rc=0 line=""
+    case "$SOURCE" in
+        github|gitlab) ;;
+        *)
+            # Bitbucket's issue API is gone (t2251 retires that backend).
+            echo "RELEASE_LEDGER:skipped:unsupported_platform"
+            return 0
+            ;;
+    esac
+    if ! out_file="$(mktemp "${TMPDIR:-/tmp}/aitask_issue_ledger.XXXXXX" 2>/dev/null)"; then
+        line="RELEASE_LEDGER_FAILED:tmp_unavailable"
+    else
+        # Not $( ): ril_record takes the ledger lock, and its body is a subshell
+        # that prints its one result line (or nothing, if a shared helper died).
+        ril_record "$TASK_NUM" "$issue_url" "$SOURCE" "$(ledger_action)" > "$out_file" || rc=$?
+        line="$(grep -m1 '^RELEASE_LEDGER' "$out_file" 2>/dev/null)" || line=""
+        rm -f "$out_file"
+        if [[ "$rc" == 0 && "$line" == RELEASE_LEDGER:* ]]; then
+            printf '%s\n' "$line"
+            return 0
+        fi
+        [[ "$line" == RELEASE_LEDGER_FAILED:* ]] || line="RELEASE_LEDGER_FAILED:aborted"
+    fi
+    printf '%s\n' "$line"
+    print_ledger_recovery_hint "${line#RELEASE_LEDGER_FAILED:}"
+    return 3
+}
+
+# --record-only: the recovery for exit 3. Records the entry from the same
+# flags, with no CLI check and no platform call.
+run_record_only() {
+    resolve_issue_target
+    info "Record-only: no platform call is made"
+    record_release_ledger "$RESOLVED_ISSUE_URL" || exit $?
+}
+
+# Main execution function
+run_update() {
+    # Steps 1-2: issue URL, source platform, GitLab slug
+    resolve_issue_target
+    local issue_url="$RESOLVED_ISSUE_URL"
 
     source_check_cli
 
@@ -354,6 +264,12 @@ run_update() {
         die "Could not extract issue number from URL: $issue_url"
     fi
     info "Issue number: #$issue_number"
+
+    # The argument the backend CLI receives (the URL for GitHub, so an issue in
+    # another repository is not resolved against the current one). Messages keep
+    # using the number.
+    local issue_ref
+    issue_ref=$(source_issue_ref "$issue_url")
 
     # Step 4: Resolve plan file (optional)
     local plan_file
@@ -406,10 +322,10 @@ run_update() {
     if [[ "$CLOSE_ISSUE" == true ]]; then
         if [[ "$NO_COMMENT" == true ]]; then
             info "Closing issue #$issue_number without comment..."
-            source_close_issue "$issue_number" ""
+            source_close_issue "$issue_ref" ""
         else
             info "Closing issue #$issue_number with comment..."
-            source_close_issue "$issue_number" "$comment_body"
+            source_close_issue "$issue_ref" "$comment_body"
         fi
         success "Issue #$issue_number closed."
     else
@@ -417,9 +333,14 @@ run_update() {
             die "Nothing to do: --no-comment without --close has no effect"
         fi
         info "Posting comment on issue #$issue_number..."
-        source_add_comment "$issue_number" "$comment_body"
+        source_add_comment "$issue_ref" "$comment_body"
         success "Comment posted on issue #$issue_number."
     fi
+
+    # Step 9: record it in the release ledger. Only reached after the platform
+    # call succeeded: a failed call exits under `set -e` first, which is why
+    # main() never calls run_update inside a conditional.
+    record_release_ledger "$issue_url" || exit $?
 }
 
 # --- Argument Parsing ---
@@ -443,6 +364,9 @@ Options:
   --comment-only           Only post the comment, don't close (default)
   --no-comment             Close without posting a comment (requires --close)
   --dry-run                Show what would be done without doing it
+  --record-only            Only record the release-ledger entry, from the same
+                           flags: no CLI check, no platform call. The recovery
+                           for exit status 3. Cannot be combined with --dry-run.
   --help, -h               Show help
 
 The script reads the task's 'issue' metadata field to find the issue URL.
@@ -475,6 +399,27 @@ Examples:
 
   # Close a folded task's issue using the primary task for context
   ./aitask_issue_update.sh --issue-url "https://github.com/owner/repo/issues/42" --close 106
+
+  # Record the release-ledger entry after an exit-3 run (posts nothing)
+  ./aitask_issue_update.sh --record-only --source github --close 53_1
+
+Release ledger:
+  After the comment is posted and/or the issue is closed, the issue is recorded
+  in the release ledger (aitasks/metadata/release_issues/pending/, one file per
+  issue, committed with the task data). The release step reads it to announce
+  the release that ships the fix. GitHub and GitLab issues are recorded;
+  --dry-run records nothing. The last stdout line reports the outcome:
+    RELEASE_LEDGER:recorded:<path>       committed by this run
+    RELEASE_LEDGER:duplicate:<path>      already recorded for this task + issue
+    RELEASE_LEDGER:skipped:unsupported_platform
+    RELEASE_LEDGER_FAILED:<reason>       see exit status 3
+
+Exit status:
+  0  Done (any RELEASE_LEDGER: line above).
+  1  Failed before or during the platform call; nothing was recorded.
+  3  The issue WAS updated, but its release-ledger entry was not recorded
+     (RELEASE_LEDGER_FAILED:<reason>). Do not re-run the command, which would
+     post the comment again: run the --record-only command printed on stderr.
 EOF
 }
 
@@ -488,6 +433,7 @@ parse_args() {
             --comment-only) shift ;;  # Default behavior
             --no-comment) NO_COMMENT=true; shift ;;
             --dry-run) DRY_RUN=true; shift ;;
+            --record-only) RECORD_ONLY=true; shift ;;
             --help|-h) show_help; exit 0 ;;
             -*)
                 die "Unknown option: $1. Use --help for usage."
@@ -523,13 +469,23 @@ parse_args() {
     if [[ "$NO_COMMENT" == true && "$CLOSE_ISSUE" != true ]]; then
         die "--no-comment requires --close (nothing to do otherwise)"
     fi
+
+    if [[ "$RECORD_ONLY" == true && "$DRY_RUN" == true ]]; then
+        die "--record-only cannot be combined with --dry-run"
+    fi
 }
 
 # --- Main ---
 
 main() {
     parse_args "$@"
-    run_update
+    # Never `run_update || …`: a conditional context disables errexit inside it,
+    # and errexit is what stops a failed platform call before the ledger hook.
+    if [[ "$RECORD_ONLY" == true ]]; then
+        run_record_only
+    else
+        run_update
+    fi
 }
 
 main "$@"
