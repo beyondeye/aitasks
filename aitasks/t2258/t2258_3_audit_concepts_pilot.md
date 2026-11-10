@@ -92,3 +92,5 @@ enumerates frontmatter fields under "What it is" — check the models too.
 > | - Website page: website/content/docs/skills/aitask-docs-review.md
 > | - Contract test: tests/test_docs_review_contract.sh
 > | Read every `aitask-doc-review` reference in this task as `aitask-docs-review`.
+
+> **👁 note:read** id=2026-11-10T16:24:08Z.5d2d5875084ec3077c7d29a1 by=t2258_3 at=2026-11-10T16:24:08Z mode=explicit ids=2026-11-10T11:32:44Z.d949c61ec58ca16bdda35a9d,2026-11-10T14:18:07Z.f7b923ac1b0eb28cd7108144
