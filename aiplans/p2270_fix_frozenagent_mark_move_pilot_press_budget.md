@@ -133,3 +133,76 @@ Only `tests/test_frozenagent_app.py` changes. No production code changes.
 ### Goal-achievement risk: low
 - The paint-observation condition could be met by something other than the post-move paint and under-measure. This is bounded: the cache is cleared synchronously by the same handler that makes `done()` true, so a non-empty cache afterwards implies a later paint. The timed mutant's ≥6 s result confirms the measurement still sees re-render cost · severity: low · → mitigation: none (addressed in plan)
 - The timed budget's teeth are proven only out of band, not in the suite · severity: low · → mitigation: none (the counted control is in the suite; the timed mutant run is recorded in Final Implementation Notes)
+
+## Final Implementation Notes
+- **Actual work done:** As planned, all in `tests/test_frozenagent_app.py`, class
+  `LargeCaptureTests`:
+  - added helpers `_to_top`, `_count_renders`, `_send_key` (`driver.send_message`)
+    and `_await_painted` (waits on `done()` plus a refilled `CaptureLog._line_cache`,
+    i.e. a paint after the handler);
+  - also added `_move_marks`;
+  - rewrote the timed test to start at line 0 and time ten painted mark moves plus
+    a painted search hit;
+  - added `test_control_re_render_per_move_is_counted` (counted mutation control,
+    two moves);
+  - fixed the two vacuous siblings (scroll to the top first, precondition asserts;
+    the lifted-cleanly test now compares segment styles).
+- **Deviations from plan:** None. In the match test, the precondition also asserts
+  that the marked set is identical across the match move. That is the exact case a
+  set-only short-circuit gets wrong.
+- **Issues encountered:** An early scratch probe hung because its wait loop had no
+  deadline and the selection was pinned at line 19999. That is how the
+  bottom-clamp finding surfaced. Every wait in the shipped helpers has a liveness
+  deadline (`self.fail`).
+- **Key decisions:**
+  - The timed budget stays at 2.0 s. Measured ~0.2 s for the property (idle or
+    never-idle) against ≥5.8 s for the regression.
+  - The timed side's teeth are proven out of band rather than in the suite: an
+    in-suite "mutant is slower than X" assertion depends on machine speed. The
+    counted control covers the in-suite side.
+- **Verification results (2026-11-10, Textual 8.2.7, CPython venv):**
+  - `pytest tests/test_frozenagent_app.py -q`: 92 passed.
+  - `python -m unittest tests.test_frozenagent_app`: OK (92).
+  - Out-of-band runs (runner below):
+
+    | mode | test | result |
+    |---|---|---|
+    | `never_idle` | `test_selection_and_search_do_not_re_render` | PASS (before the fix: FAIL, 21.1 s) |
+    | `rerender_per_move` | `test_selection_and_search_do_not_re_render` | FAIL, "5.80 not less than 2.0" |
+    | `set_only` | `test_a_match_moving_inside_the_selection_still_repaints` | FAIL (before the fix: PASS, vacuous) |
+    | `no_restore` | `test_marks_are_lifted_cleanly` | FAIL (before the fix: PASS, vacuous) |
+    | `never_idle` | `test_control_re_render_per_move_is_counted` | PASS |
+  - Runner, verbatim. Invocation: `~/.aitask/venv/bin/python verify.py <mode> <test_name>`
+    from the repo root.
+    ```python
+    """t2270 out-of-band checks. Usage: verify.py <mode> <test_name>"""
+    import sys, unittest, inspect, textwrap
+    sys.path.insert(0, "/home/ddt/Work/aitasks/tests")
+    mode, test = sys.argv[1], sys.argv[2]
+    if mode == "never_idle":
+        import textual._wait as w; w.SLEEP_IDLE = -1
+    import test_frozenagent_app as t
+    import frozenagent.frozenagent_app as am
+    
+    def patch_repaint(old, new):
+        src = textwrap.dedent(inspect.getsource(am.FrozenAgentApp._repaint_marks))
+        assert old in src, old
+        ns = {}; exec(src.replace(old, new), am.__dict__, ns)
+        am.FrozenAgentApp._repaint_marks = ns["_repaint_marks"]
+    
+    if mode == "rerender_per_move":   # bypasses the counted instance attribute
+        real = am.FrozenAgentApp._extend_selection
+        def mut(self, d):
+            real(self, d); am.FrozenAgentApp._render_log(self)
+        am.FrozenAgentApp._extend_selection = mut
+    elif mode == "set_only":
+        patch_repaint("key = (frozenset(marked), self._match_line)", "key = (frozenset(marked), None)")
+    elif mode == "no_restore":
+        patch_repaint("original = self._pristine.pop(idx, None)", "original = None; self._pristine.pop(idx, None)")
+    r = unittest.TextTestRunner(verbosity=0, stream=open("/dev/null", "w")).run(
+        unittest.TestSuite([t.LargeCaptureTests(test)]))
+    for _, tb in r.failures + r.errors:
+        print("   ", [l for l in tb.splitlines() if "Error" in l][-1][:200])
+    print(f"{mode:18} {test}: {'PASS' if r.wasSuccessful() else 'FAIL'}")
+    ```
+- **Upstream defects identified:** None
