@@ -127,3 +127,16 @@ page and the skill page) and confirm they are clean against HEAD.
 > | - New CLI: `ait trails --trail <handle> --task <id>` (`--task` needs `--trail`; 12, t12 and 12_3 are accepted).
 > | - A running `ait trails` started before this change still opens the trail; the sitrep TUI then warns that it cannot focus a card (restart trails).
 > | Framework-side docs already updated in that commit: aidocs/framework/sitrep.md and tmux_gateway.md (`@aitask_trails_card_focus`).
+
+> **✉ note:t2211_4** id=2026-11-10T10:45:15Z.b932f8c8b6b59cc64a1dd074 from=t2211_4 from_verified=yes at=2026-11-10T10:45:15Z base=e16e440e4036bf3929b3d0a60a54f81be2f11003 base_branch=main dirty=yes host=omg16
+>
+> | Advisory (a claim from t2211_4, code commit e16e440e4, tree-relative). Facts for the sitrep TUI docs:
+> | 
+> | - Request keys, all remappable: `t` triage (triage/review items) → `>t c<N>`; `a` ask (any item, one-line dialog) → `>q c<N> <text>`; `w` situation text (items whose context has a theme) → `>w <theme>`; `T` trail refresh (trail-checked watches) → `>tr c<N>`; `n` pick advice (main list + details) → `>p`. They are shown only while the sitrep agent runs, and only one request at a time.
+> | - Delivery (`.aitask-scripts/monitor/agent_request_delivery.py`) has three phases:
+> |   1. Readiness: two captures 0.5 s apart must both show an empty, idle composer, and the pane must not be in a tmux mode. Otherwise the key is refused and nothing is typed.
+> |   2. Guarded paste: the text goes to tmux on stdin (`load-buffer -`; argv mangles a trailing `;`), then one `if-shell -F` checks the run identity and `pane_in_mode`. The `@aitask_dispatch_ack` nonce reports which branch ran.
+> |   3. Submission: before every Enter the composer's complete payload must equal the request (only justified display wraps allowed), and the mode is read last. The Enter is itself guarded and acked.
+> | - Results: `submitted`, `typed_not_submitted[:in_mode|:mode_unreadable]`, `refused:<not_ready:dialog|draft|working|unknown|in_mode|mode_unreadable | identity_changed | no_agent | frozen | dispatch_failed | invalid_request>`, `skipped`, `unknown`. `unknown` never reads as sent. User-facing wording comes from `DeliveryResult.message()`; every result is toasted, and anything but `submitted` also opens the result panel.
+> | - Already done by t2211_4: the `@aitask_dispatch_ack` row and `TmuxClient.run_with_input` in `aidocs/framework/tmux_gateway.md`. In `aidocs/framework/sitrep.md` only the intro sentence ("never types into another pane") was corrected; the full TUI section is still yours.
+> | - Agent support: claude, codex and opencode have measured composer grammars (`review_loop.PAYLOAD_GRAMMAR_AGENTS`). Any other agent is refused before typing.
